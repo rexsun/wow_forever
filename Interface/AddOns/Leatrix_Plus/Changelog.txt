@@ -1,0 +1,54 @@
+﻿1.60.11 - 2nd October 2028
+- Updated flight times.
+
+1.60.10 - 30th September 2026
+- Updated flight times.
+
+1.60.09 - 28th September 2026
+- Added 'Disable drunken haze' ('System').  If enabled, the drunken haze effect will be disabled.
+- For 'Enhance tooltip' ('Interface'), fixed a secrets issue and an issue which caused creature tooltips to show the creature type twice.
+- For 'Set weather density' ('System'), the settings now range from very low to high as Forever does not support completely disabling weather.
+- For 'Mute game sounds' ('System'), the 'Shouts' setting has been removed as it's not needed in Forever.
+- The 'Disable screen glow' setting ('System') has been removed as it's no longer used in Forever.
+- The media player now works correctly and will be updated as the beta progresses.  Also fixed an issue which caused the media player panel to be hidden after watching a movie.
+- Updated flight times.
+
+1.60.08 - 26th September 2026
+- Added 'Show flight times' ('System').  Help contribute missing or incorrect flight times by pasting them in the comments on CurseForge when prompted to do so by the addon.
+
+1.60.07 - 26th September 2026
+- Updated 'Mute game sounds' ('System').
+- Updated 'Mute mount sounds' ('System').
+- Minor updates for various other settings.
+- Fixed an issue with 'Enhance minimap' ('Interface') causing Questie to show quest icons in the minimap button bag.
+
+1.60.06 - 23rd September 2026
+- Added 'Enhance flight map' option ('Interface').
+- For 'Automate gossip' ('Automation'), updated the Forever NPC list.
+- For 'Mute game sounds', 'Fizzle' now includes the holy cast whatchamacallit thing.
+
+1.60.05 - 23rd September 2026
+- For 'Automate gossip' ('Automation'), added the current Forever NPC list for automatically skipping gossip for NPCs with only one gossip option.  Note that this list is incomplete and will be updated later.
+- For 'Show train all button' ('Interface'), the button will no longer show for trainer frames that use training points (such as hunter beast training).
+- For 'Web link', links will now point to Forever pages on Wowhead.
+
+1.60.04 - 20th September 2026
+- For 'Enhanced tooltip' ('Inteface'), fixed the duplicate names showing in player tooltips.
+- For 'Show volume slider' ('Interface'), fixed the slider visibility.
+- For 'Show durability status' ('Interface'), fixed the button visibility.
+- The 'Show Wowhead links' option ('Interface') now links quests to Forever pages on Wowhead.
+- Removed the 'Hide talking frame' option ('Frames').
+
+1.60.03 - 19th September 2026
+- Removed the 'Block pet battle duels' option ('Social').
+- Removed the 'Show pet save button' option ('Interface').
+- Removed the 'Hide bodyguard gossip' option ('Frames').
+- Removed the 'Disable pet automation' option ('System').
+- Removed the 'Set additional options' option ('System').
+- Removed the toys from 'Remove transforms' ('System').
+
+1.60.02 - 19th September 2026
+- For 'Enhance minimap' ('Interface'), if 'Square minimap' is enabled, the day and night indicator will be hidden.
+
+1.60.01 - 17th September 2026
+- Welcome to Forever Beta!

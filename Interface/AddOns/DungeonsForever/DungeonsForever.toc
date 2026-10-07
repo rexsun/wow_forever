@@ -1,0 +1,96 @@
+## Interface: 11508, 11509, 16001, 20506, 30405, 38002, 40402, 50503, 50504, 50505, 120005, 120007, 120100
+## Title: <DungeonsForever> |cff46bf72无限副本手册|r
+## Notes: /df opens the dungeon handbook
+## Notes-zhCN: 无限 副本手册：副本列表 / 详情 / 地图 / 掉落 / 任务 / 攻略（无限服另含专业页）
+## Notes-zhTW: 無限 副本手冊：副本列表 / 詳情 / 地圖 / 掉落 / 任務 / 攻略（無限服另含專業頁）
+## Notes-enUS: Dungeon handbook: dungeon list / details / maps / loot / quests / guides (profession page on Forever server only)
+## IconTexture: Interface\AddOns\DungeonsForever\Media\DungeonsForever.blp
+## Author: 圆圆
+## Version: 1.6.9
+## SavedVariables: DungeonsForeverDB
+## LoadOnDemand: 0
+
+Locales\zhCN.lua
+Locales\zhTW.lua
+Locales\enUS.lua
+Libs\embeds.xml
+Core\Core.lua
+Core\Hui.lua
+Core\Data\Data_Dungeons.lua
+Core\Data\Data_DungeonLoot.lua
+Core\Data\Data_DungeonQuests.lua
+Core\Data\Data_DungeonGuide.lua
+Core\Data\Data_BossPos.lua
+Core\Data\Data_MapPins.lua
+Core\Data\Data_BossSkills.lua
+Core\Data\Data_NPCLoc.lua
+Core\Data\Data_AreaMap.lua
+Core\Data\Data_DungeonEntry.lua
+Core\Data\Data_Professions.lua
+Core\Data\Data_ProfRecipes.lua
+Core\Data\Data_ProfLeveling.lua
+Core\Data\Data_ProfGathering.lua
+Core\Data\Data_Explore.lua
+Core\Data\Data_ExplorePets.lua
+Core\Data\Data_ExploreToys.lua
+Core\Data\Data_BIS.lua
+Core\Data\Data_ClassTier.lua
+Core\Data\Data_ClassGuide.lua
+Core\Data\Data_LootFilter.lua
+Core\Data\Data_RaidSets.lua
+Core\Data\zhTW\Data_Dungeons.lua
+Core\Data\zhTW\Data_DungeonLoot.lua
+Core\Data\zhTW\Data_DungeonQuests.lua
+Core\Data\zhTW\Data_DungeonGuide.lua
+Core\Data\zhTW\Data_BossSkills.lua
+Core\Data\zhTW\Data_BossPos.lua
+Core\Data\zhTW\Data_MapPins.lua
+Core\Data\zhTW\Data_AreaMap.lua
+Core\Data\zhTW\Data_NPCLoc.lua
+Core\Data\zhTW\Data_DungeonEntry.lua
+Core\Data\zhTW\Data_Professions.lua
+Core\Data\zhTW\Data_ProfRecipes.lua
+Core\Data\zhTW\Data_ProfLeveling.lua
+Core\Data\zhTW\Data_ProfGathering.lua
+Core\Data\zhTW\Data_Explore.lua
+Core\Data\zhTW\Data_ExplorePets.lua
+Core\Data\zhTW\Data_ExploreToys.lua
+Core\Data\zhTW\Data_BIS.lua
+Core\Data\zhTW\Data_ClassTier.lua
+Core\Data\zhTW\Data_ClassGuide.lua
+Core\Data\zhTW\Data_LootFilter.lua
+Core\Data\zhTW\Data_RaidSets.lua
+Core\Data\enUS\Data_Dungeons.lua
+Core\Data\enUS\Data_DungeonLoot.lua
+Core\Data\enUS\Data_DungeonQuests.lua
+Core\Data\enUS\Data_DungeonGuide.lua
+Core\Data\enUS\Data_BossSkills.lua
+Core\Data\enUS\Data_BossPos.lua
+Core\Data\enUS\Data_MapPins.lua
+Core\Data\enUS\Data_AreaMap.lua
+Core\Data\enUS\Data_NPCLoc.lua
+Core\Data\enUS\Data_DungeonEntry.lua
+Core\Data\enUS\Data_Professions.lua
+Core\Data\enUS\Data_ProfRecipes.lua
+Core\Data\enUS\Data_ProfLeveling.lua
+Core\Data\enUS\Data_ProfGathering.lua
+Core\Data\enUS\Data_Explore.lua
+Core\Data\enUS\Data_ExplorePets.lua
+Core\Data\enUS\Data_ExploreToys.lua
+Core\Data\enUS\Data_BIS.lua
+Core\Data\enUS\Data_ClassTier.lua
+Core\Data\enUS\Data_ClassGuide.lua
+Core\Data\enUS\Data_LootFilter.lua
+Core\Data\enUS\Data_RaidSets.lua
+Core\LootFilter.lua
+Core\DungeonUI.lua
+Core\MapUI.lua
+Core\LootFilterUI.lua
+Core\RaidUI.lua
+Core\ProfessionUI.lua
+Core\ExploreUI.lua
+Core\ExploreMap.lua
+Core\BisUI.lua
+Core\TierUI.lua
+Core\MainFrame.lua
+Core\QuickBar.lua

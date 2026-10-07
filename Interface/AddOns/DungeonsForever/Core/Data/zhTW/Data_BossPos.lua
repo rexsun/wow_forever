@@ -1,0 +1,109 @@
+-- ============================================================================
+-- 繁體資料副本 · 生成物（_temp/gen_zhtw_data.py 產出，禁手改）
+-- 僅 zhTW 客戶端加載：覆蓋同名 ns 表；zhCN 客戶端在此秒退。
+-- 轉換管線與 Locales/zhTW.lua 同源（TW 術語詞表 + opencc s2t），
+-- 保證資料值與代碼 L 鍵的對查兩側一致。
+-- ============================================================================
+
+local gl = (type(GetLocale) == 'function') and GetLocale() or 'zhCN'
+if gl ~= 'zhTW' then return end
+
+local _, ns = ...
+
+ns.BossPos = {
+    ["ragefire_chasm"] = {
+        ["Bazzalan"] = { { 41.5, 86.2 } },
+        ["Jergosh the Invoker"] = { { 33, 84.5 } },
+        ["Oggleflint"] = { { 56.1, 38 } },
+        ["Taragaman the Hungerer"] = { { 41, 57.7 } },
+    },
+    ["wailing_caverns"] = {
+        ["Kresh"] = { { 25.8, 44.6 } },
+        ["Lady Anacondra"] = { { 30.5, 43.2 }, { 28.1, 31.8 }, { 47, 45.6 }, { 40.3, 27.4 } },
+        ["Lord Cobrahn"] = { { 15.6, 58.5 } },
+        ["Lord Serpentis"] = { { 62.5, 53.3 } },
+        ["Mutanus the Devourer"] = { { 34.2, 15.8 } },
+        ["Verdan the Everliving"] = { { 56.4, 47.4 } },
+    },
+    ["the_deadmines"] = {
+        ["Captain Greenskin"] = { { 61.7, 35.9, 2 } },
+        ["Cookie"] = { { 69.7, 42, 2 } },
+        ["Edwin VanCleef"] = { { 60.6, 45.9, 2 } },
+        ["Gilnid"] = { { 11.9, 73.1, 2 } },
+        ["Miner Johnson"] = { { 52.7, 50.5 } },
+        ["Mr. Smite"] = { { 56.1, 26.5, 2 } },
+        ["Rhahk'Zor"] = { { 38.6, 60.9 } },
+        ["Sneed"] = { { 45, 88.9 } },
+        ["Sneed's Shredder"] = { { 48.5, 92.4 } },
+    },
+    ["shadowfang_keep"] = {
+        ["Archmage Arugal"] = { { 63.9, 20, 6 } },
+        ["Baron Silverlaine"] = { { 29.5, 80.3, 2 } },
+        ["Commander Springvale"] = { { 25.5, 55.6 } },
+        ["Deathsworn Captain"] = { { 63, 52.5, 7 } },
+        ["Fel Steed / Shadow Charger"] = { { 33.1, 62.6 } },
+        ["Fenrus the Devourer"] = { { 55.7, 64.5, 6 } },
+        ["Odo the Blindwatcher"] = { { 55.1, 77.1, 7 } },
+        ["Razorclaw the Butcher"] = { { 48, 29, 2 } },
+        ["Rethilgore"] = { { 66.1, 71.1 } },
+        ["Wolf Master Nandos"] = { { 59, 53.3, 6 } },
+    },
+    ["blackfathom_deeps"] = {
+        ["Aku'mai"] = { { 85.6, 86.6, 2 } },
+        ["Baron Aquanis"] = { { 41.5, 75.4, 2 } },
+        ["Gelihast"] = { { 52.3, 55.1 } },
+        ["Ghamoo-ra"] = { { 32.9, 60.2 } },
+        ["Lady Sarevess"] = { { 10.1, 36 } },
+        ["Lorgus Jett"] = { { 38.8, 20, 2 }, { 44.1, 23.4, 2 }, { 35.4, 48.3, 2 }, { 33.8, 72.3, 2 } },
+        ["Old Serra'kis"] = { { 60.6, 31.2, 3 } },
+        ["Twilight Lord Kelris"] = { { 51.9, 81.6, 2 } },
+    },
+    ["the_stockade"] = {
+        ["Bazil Thredd"] = { { 85.7, 51 } },
+        ["Bruegal Ironknuckle"] = { { 38.1, 24 }, { 29.5, 44.7 }, { 61.6, 48.3 }, { 61.5, 25.1 } },
+        ["Dextren Ward"] = { { 14.6, 21.4 }, { 25, 16.5 }, { 17.5, 41.7 } },
+        ["Hamhock"] = { { 78.2, 45.7 } },
+        ["Kam Deepfury"] = { { 69.2, 30.9 } },
+        ["Targorr the Dread"] = { { 49.9, 24.2 }, { 42.4, 46.4 }, { 57.8, 55.2 }, { 33.3, 37.5 } },
+    },
+    ["gnomeregan"] = {
+        ["Crowd Pummeler 9-60"] = { { 43.8, 86.5, 3 } },
+        ["Dark Iron Ambassador"] = { { 29.5, 54, 4 } },
+        ["Electrocutioner 6000"] = { { 24.8, 67.9, 2 } },
+        ["Grubbis"] = { { 81.9, 65.1 } },
+        ["Mekgineer Thermaplugg"] = { { 31.3, 30, 4 } },
+        ["Viscous Fallout"] = { { 57.6, 56.6 } },
+    },
+    ["razorfen_kraul"] = {
+        ["Agathelos the Raging"] = { { 11.2, 72.4 } },
+        ["Aggem Thorncurse"] = { { 80.8, 54.5 } },
+        ["Blind Hunter"] = { { 11, 30.3 } },
+        ["Charlga Razorflank"] = { { 26.4, 32.4 } },
+        ["Death Speaker Jargba"] = { { 87.9, 41.4 } },
+        ["Earthcaller Halmgar"] = { { 49.4, 47.1 } },
+        ["Overlord Ramtusk"] = { { 56.9, 29.8 } },
+        ["Razorfen Spearhide"] = { { 53.4, 35.5 } },
+        ["Roogug"] = { { 64.8, 42.1 } },
+    },
+    ["hall_of_thanes"] = {
+        ["Durgen Dirgehammer"] = { { 51, 22 } },
+        ["Faldrim Anvilmar"] = { { 50.9, 62.5 } },
+        ["Magmatus"] = { { 62.5, 49 } },
+        ["Plunder"] = { { 51, 49.5 } },
+    },
+    ["ruins_of_lordaeron"] = {
+        ["Bjork"] = { { 39.2, 42.5 } },
+        ["Lordaeron Captain"] = { { 38.5, 25 } },
+        ["Rath'mael"] = { { 45.8, 62.7 } },
+        ["The Abandoned"] = { { 41, 53.3 } },
+        ["The Baron"] = { { 58.8, 69.8 } },
+        ["Viktor the Vile"] = { { 37.7, 64.8 } },
+        ["Witherfang"] = { { 66.8, 39.2 } },
+    },
+    ["excavation_wetlands"] = {
+        ["Highland Horror"] = { { 26.3, 56.2 } },
+        ["Relic Guardian"] = { { 46.6, 74.1 } },
+        ["Saltspine"] = { { 62, 47.1 } },
+        ["Shadetooth"] = { { 40.6, 53.6 } },
+    },
+}

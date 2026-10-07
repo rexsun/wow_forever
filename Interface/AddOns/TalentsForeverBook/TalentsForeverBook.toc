@@ -1,0 +1,16 @@
+## Interface: 16001
+## Title: |cffffd75eTalents Forever|r
+## Notes: The talentsforever.com calculator inside the game. Plan a build without spending a point, follow it level by level, share it by link, try the popular builds. Type /tf.
+## Author: talentsforever.com
+## Version: 0.37.1
+## SavedVariables: TalentsForeverBookDB
+## IconTexture: Interface\AddOns\TalentsForeverBook\Media\book-round.tga
+## X-Website: https://talentsforever.com
+## X-Curse-Project-ID: 1700435
+## X-Category: Class
+## DefaultState: enabled
+
+Data.lua
+Core.lua
+Game.lua
+UI.lua

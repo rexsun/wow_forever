@@ -1,0 +1,24 @@
+<Bindings>
+  <!-- ForeverUI's keys, listed under "ForeverUI" in the game's Key Bindings.
+       The names shown there are set in Modules/Arrow/Arrow.lua. -->
+  <Binding name="FOREVERUI_TOGGLE_ARROW" header="FOREVERUI" category="ADDONS">
+    local arrow = ForeverUI and ForeverUI.GetModule and ForeverUI.GetModule("Arrow")
+    if arrow and arrow.Toggle then arrow.Toggle() end
+  </Binding>
+  <Binding name="FOREVERUI_TOGGLE_TOOLTIPS" category="ADDONS">
+    local tips = ForeverUI and ForeverUI.GetModule and ForeverUI.GetModule("Tooltips")
+    if tips and tips.Toggle then tips.Toggle() end
+  </Binding>
+  <!-- Raid markers (Modules/Markers): each key clicks that mark's hidden
+       secure button, which marks your target or your mouseover (a setting). -->
+  <Binding name="CLICK ForeverUIMarkKey8:LeftButton" category="ADDONS"/>
+  <Binding name="CLICK ForeverUIMarkKey7:LeftButton" category="ADDONS"/>
+  <Binding name="CLICK ForeverUIMarkKey6:LeftButton" category="ADDONS"/>
+  <Binding name="CLICK ForeverUIMarkKey5:LeftButton" category="ADDONS"/>
+  <Binding name="CLICK ForeverUIMarkKey4:LeftButton" category="ADDONS"/>
+  <Binding name="CLICK ForeverUIMarkKey3:LeftButton" category="ADDONS"/>
+  <Binding name="CLICK ForeverUIMarkKey2:LeftButton" category="ADDONS"/>
+  <Binding name="CLICK ForeverUIMarkKey1:LeftButton" category="ADDONS"/>
+  <Binding name="CLICK ForeverUIMarkKeyClear:LeftButton" category="ADDONS"/>
+  <Binding name="CLICK ForeverUIMarkSmart:LeftButton" category="ADDONS"/>
+</Bindings>

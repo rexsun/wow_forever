@@ -1,0 +1,8 @@
+<Bindings>
+  <Binding name="TALENTSFOREVERBOOK_TOGGLE" header="TALENTSFOREVERBOOK" category="ADDONS">
+    if TalentsForeverBook and TalentsForeverBook.Toggle then TalentsForeverBook.Toggle() end
+  </Binding>
+  <Binding name="TALENTSFOREVERBOOK_NEXT" category="ADDONS">
+    if TalentsForeverBook and TalentsForeverBook.UI and TalentsForeverBook.UI.ApplyNext then TalentsForeverBook.UI.ApplyNext() end
+  </Binding>
+</Bindings>
