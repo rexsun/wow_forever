@@ -1,6 +1,7 @@
 # Track only the Interface folder; the client, cache, logs and WTF settings stay out.
 /*
 !/.gitignore
+!/readme.md
 !/Interface/
 
 Thumbs.db
