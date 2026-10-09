@@ -606,6 +606,7 @@ local function GuardButtonCooldowns(button)
   if rawget(button, "fuiTemplate") == nil then
     return 0
   end
+  if module.OwnLoop then module.OwnLoop.GuardPing(button) end
   DeferPressAndHold(button)
   local guarded = 0
   for _, field in ipairs(COOLDOWN_FIELDS) do

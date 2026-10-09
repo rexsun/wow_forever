@@ -90,14 +90,51 @@ local function SpellcastMatches(button, event, ...)
   return ok and matches == true
 end
 
+-- Local patch (8 Oct 2026): UpdateAction ends in UpdatePingAttributes, which
+-- calls SetAttribute on the (protected) button. Run from here it runs as
+-- ForeverUI, so an ACTIONBAR_SLOT_CHANGED in combat was blocked:
+-- "ForeverUI tried to call the protected function
+-- 'ForeverUIbar2Button3:SetAttribute()'". The ping attributes only serve the
+-- ping system, so in combat they wait for PLAYER_REGEN_ENABLED.
+local pendingPing = {}
+
+local function GuardPing(button)
+  if rawget(button, "fuiPingGuard") then return end
+  local base = button.UpdatePingAttributes
+  if type(base) ~= "function" then return end
+  button.fuiPingGuard = true
+  button.UpdatePingAttributes = function(self, ...)
+    if InCombatLockdown() then
+      pendingPing[self] = true
+      return
+    end
+    return base(self, ...)
+  end
+end
+OwnLoop.GuardPing = GuardPing
+
+local function FlushPendingPing()
+  local waiting = {}
+  for button in pairs(pendingPing) do waiting[#waiting + 1] = button end
+  wipe(pendingPing)
+  for _, button in ipairs(waiting) do
+    Call(button.UpdatePingAttributes, button)
+  end
+end
+
 local driver = CreateFrame("Frame")
 OwnLoop.driver = driver
+driver:RegisterEvent("PLAYER_REGEN_ENABLED")
 for _, e in ipairs(BUTTON_EVENTS) do pcall(driver.RegisterEvent, driver, e) end
 for _, e in ipairs(ACTION_EVENTS) do pcall(driver.RegisterEvent, driver, e) end
 for e, unit in pairs(BUTTON_UNIT_EVENTS) do pcall(driver.RegisterUnitEvent, driver, e, unit) end
 for e, unit in pairs(ACTION_UNIT_EVENTS) do pcall(driver.RegisterUnitEvent, driver, e, unit) end
 
 driver:SetScript("OnEvent", function(_, event, ...)
+  if event == "PLAYER_REGEN_ENABLED" then
+    FlushPendingPing()
+    return
+  end
   if isButtonEvent[event] then
     for button in pairs(buttonEvents) do
       Call(button.OnEvent, button, event, ...)
@@ -136,6 +173,7 @@ local function TakeOursFromKeyed(registryName)
   end
   for _, button in ipairs(found) do
     list[button] = nil
+    GuardPing(button)
     KEYED[registryName][button] = true
   end
 end
@@ -151,6 +189,7 @@ local function HookKeyed()
         if IsOurs(button) then
           local list = rawget(self, "frames")
           if type(list) == "table" then list[button] = nil end
+          GuardPing(button)
           mine[button] = true
         end
       end)
@@ -166,6 +205,7 @@ end
 -- Called from module.DropSleepingPadsFromLoop for each of our buttons it has
 -- taken out of ActionBarButtonEventsFrame's ordered list.
 function OwnLoop.AdoptFromOrdered(button)
+  GuardPing(button)
   buttonEvents[button] = true
 end
 

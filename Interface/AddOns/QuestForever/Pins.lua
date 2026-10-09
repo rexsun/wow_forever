@@ -120,6 +120,18 @@ function PinMixin:OnLoad()
   if self.SetScalingLimits then pcall(self.SetScalingLimits, self, 1, 1.0, 1.2) end
 end
 
+-- Local patch (8 Oct 2026): AcquirePin runs Blizzard's
+-- CheckMouseButtonPassthrough, which calls SetPassThroughButtons. That call
+-- is protected in combat, and on our pins it runs as QuestForever, so
+-- opening the quest log in combat was blocked ("QuestForever tried to call
+-- the protected function 'Frame:SetPassThroughButtons()'"). In combat the
+-- pin keeps its previous pass-through setting.
+local SetPassThroughButtonsBase = CreateFrame("Frame").SetPassThroughButtons
+function PinMixin:SetPassThroughButtons(...)
+  if not SetPassThroughButtonsBase or InCombatLockdown() then return end
+  return SetPassThroughButtonsBase(self, ...)
+end
+
 function PinMixin:OnAcquired(pin)
   self.pin = pin
   local size = Size(pin.kind)
