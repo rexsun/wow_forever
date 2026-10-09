@@ -2,6 +2,44 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-09 — RestedXP Guides installed; OverlapSettingsGuard 0.2.0
+
+- Installed RestedXP Guides v4.11.21 (CurseForge file 9104439), folder `RXPGuides`. Its main TOC lists Interface 16001, and its file list loads Forever's own guides, quest data and flight data for game type `camelot`. RestedXP's own add-on incompatibility list (TomTom, SilverDragon, TotemTimers, Leatrix Maps, Narcissus) flags nothing installed: it checks "Leatrix Maps" with a space, which never matches the `Leatrix_Maps` folder. No RestedXP saved variables existed before. Not yet confirmed in game.
+- Overlaps found with RestedXP, now locked by OverlapSettingsGuard (six new rules, 14 in all):
+  - flight times: Leatrix Plus "Show flight times" is locked off (already off); RestedXP's are kept;
+  - junk selling: Leatrix Plus keeps "Sell junk automatically", so RestedXP Auto Sell Junk and ForeverUI Loot "Sell junk" are locked off (both already off);
+  - talent guides: RestedXP's are locked off in favour of Talents Forever;
+  - item upgrade tooltips: RestedXP's are locked off in favour of ForeverUI's Loot module (RestedXP's quest reward advice stays on);
+  - nameplate range: RestedXP's "Maximize Nameplate Distance" set the range to 41 at every loading screen, overriding ForeverUI's 60. It is locked off.
+- Checked, no overlap: rare scanning (RestedXP's scanner is disabled on this client, RareScanner stays), target marking vs ForeverUI Markers, RestedXP's quest item window, its quest log additions, its leveling tracker vs ForeverUI XPBar.
+- OverlapSettingsGuard now switches a setting off at every level the add-on stores it:
+  - ForeverUI: the active profile (live), plus every other profile in `ForeverUIDB.profiles`.
+  - RestedXP: the live profile of this character, every stored profile in `RXPSettings.profiles`, the account template `RXPData.defaultProfile` and the character template `RXPCData.localDB`.
+  - Leatrix Plus: has only one account-wide copy, `LeaPlusDB`.
+  - The chat line names the other copies it changed.
+- Expected at the first login with RestedXP, all switched off by the guard with one popup offering a reload:
+  - Leatrix Plus Automate quests and Automate gossip (both on);
+  - ForeverUI QuestForever and "open the quest guide on accept" (both on in profile "Default");
+  - RestedXP talent guides, upgrade tooltips and nameplate distance (on by RestedXP's defaults).
+- Tests: 23 cases pass and all add-on Lua files parse. One test expectation was wrong and was corrected: a stored RestedXP profile without its own value inherits the account template, as AceDB does, so the guard doesn't write it. Not yet confirmed in game.
+
+## 2026-10-09 — OverlapSettingsGuard 0.1.0 added
+
+- New add-on of our own, `OverlapSettingsGuard`. It keeps settings that duplicate another installed add-on's feature switched off: at login, after any change in game (switched back on the next frame, after combat if in combat), with a chat line and a popup giving the reason. There is no in-game override. Its eight rules and how it works are in [OverlapSettingsGuard/readme.md](OverlapSettingsGuard/readme.md).
+- Active now: the three Leatrix Plus rules overlapping ForeverUI (Enhance minimap, Move editbox to top, Set chat font size). They were already off (2026-10-07 entries), so the first login changes nothing. The five RestedXP Guide rules (Leatrix quest/gossip automation; ForeverUI QuestForever, guide on accept, waypoint arrow) start once RestedXP Guide is installed.
+- Leatrix Plus checkboxes have no names, so they are found by page and position as of Leatrix Plus 1.60.11. If a Leatrix update moves one, `/osg` shows that rule as "cannot enforce" rather than switching the wrong option.
+- Tests: `tools/overlapsettingsguard-tests` (16 cases, Lua 5.1 through `lupa`, run with `uv`) pass; all add-on Lua files parse (luaparser). One test caught a bug before release: a Leatrix checkbox never shown since login holds a stale state, so clicking it could have switched the option on. The switch now reads the live value into the box first. Not yet confirmed in game.
+- `AGENTS.md`: new policy line. Overlapping settings of each installed or updated add-on go into OverlapSettingsGuard's policy.
+
+## 2026-10-08 — Blocked-action errors from the 8 Oct session
+
+The game logs (`General.log`, `FrameXML.log` and the others) had no Lua errors for the 21:04–22:20 session. BugGrabber recorded three blocked actions:
+
+- 21:07, ForeverUI: `ForeverUIbar2Button3:SetAttribute()`. Cause: an `ACTIONBAR_SLOT_CHANGED` in combat reached the button through ForeverUI's own event driver (`OwnButtons.lua`, the 4 Oct patch). Blizzard's `UpdateAction` ends in `UpdatePingAttributes`, which calls `SetAttribute` on the protected button, and that call ran as ForeverUI. Fix in `ForeverUI/Modules/ActionBars/OwnButtons.lua`: `GuardPing` wraps `UpdatePingAttributes` on ForeverUI's own buttons only. In combat it records the button and returns; the driver replays the update on `PLAYER_REGEN_ENABLED`. `ActionBars.lua` `GuardButtonCooldowns` also applies it, so every ForeverUI button gets the guard when it is built. Ping targets on a changed slot update when combat ends; icons, counts and cooldowns update as before.
+- 21:44, QuestForever: `Frame:SetPassThroughButtons()`, after opening the quest log (world map) in combat. Cause: `AcquirePin` runs Blizzard's `CheckMouseButtonPassthrough` on each QuestForever pin, and that call is protected in combat. Fix in `QuestForever/Pins.lua`: the pin mixin's `SetPassThroughButtons` does nothing in combat and calls the original otherwise. A pin placed in combat keeps its previous pass-through setting.
+- 21:29, DungeonsForever: `SubmitBug()`. On a quest turn-in, the beta client's built-in feedback module (`Blizzard_PTRFeedback`, `AutoQuestReport` attached to `QuestFrame`) submitted its report while execution was tainted by DungeonsForever. The only effect was that one automatic beta quest report was not sent. The exact tainted value was not identified. Blizzard's report code reads only game API results and its own survey frame, so the likely source is DungeonsForever showing tooltips through `GameTooltip`, which runs the feedback module's tooltip hook as DungeonsForever. No fix is available on the add-on side. A related bug was fixed: `DungeonsForever/Core/DungeonUI.lua` `makeRow` (loot cards) assigned its row to the global `r`. The variable is now local; the function already returned the row, so nothing else changes.
+- All four edited files parse (luaparser); a scan of `DungeonsForever/Core` finds no other global writes besides its saved variables and slash commands. Not yet confirmed in game. Check BugGrabber after the next session that includes combat. A ForeverUI, QuestForever or DungeonsForever update overwrites these patches.
+
 ## 2026-10-07 — Leatrix Plus minimap and edit box options off
 
 - At the user's request, turned off Leatrix Plus "Enhance minimap" (`MinimapModder`) and "Move editbox to top" (`MoveChatEditBoxToTop`) in `WTF/Account/308676042#1/SavedVariables/Leatrix_Plus.lua`, with WoW not running. ForeverUI's Minimap module and its chat "Where you type: Above the chat" setting now handle these alone. Leatrix's `SquareMinimap` and other minimap sub-settings only apply under "Enhance minimap", so they are inactive too. The pre-change file is still `D:\tmp\wow-forever-chat-minimap-2026-10-07\Leatrix_Plus.lua.orig`. Confirmed in game by the user on 2026-10-07.
