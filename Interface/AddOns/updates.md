@@ -2,6 +2,21 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-10 - Addon and settings adoption script
+
+- Added `Interface/adopt_addons.ps1`, accepting one positional source game-root path (including a UNC share). The destination comes from the script location. It requires source Interface/AddOns and WTF/Config.wtf, rejects overlapping roots and links, refuses local WoW processes, and requires confirmation that source WoW is closed.
+- Stages copies with robocopy, retains dated destination backups under the game root's `addon-backups`, then replaces Interface and WTF exactly. Copy failures preserve the originals; replacement failures trigger rollback. Logs and failed copies are retained. Fonts and resolution/UI scale settings are unchanged; the utility remains available if absent from the source.
+- Documented usage and restoration in `AddOns/readme.md`. No addon packages or overlap policy changed, and no live saved variables were modified.
+- Verification: Windows PowerShell 5.1 regression tests with real robocopy in temporary installations cover exact replacement, backup contents, repeat runs, unchanged source/settings/Fonts, invalid sources, local WoW refusal, cancellation, copy failure and replacement rollback. UNC access depends on the destination's share permissions and has not been exercised against another machine.
+
+## 2026-10-10 - Party frames enabled for groups
+
+- Cause: the shared ForeverUI Default profile hid Blizzard's party frames (`hideBlizzardParty = true`) while all replacement role grids were off (`gridsUp.dps`, `tank` and `healer` were false). This left two-person parties without a visible party frame.
+- With WoW closed, set `frames.gridsUp.dps = true` and `frames.gridSolo.dps = false` in `WTF/Account/308676042#1/SavedVariables/ForeverUI.lua`. The DPS grid now shows in parties and raids and stays hidden solo. Existing layout and click bindings are preserved.
+- Overlap inspection: ForeverUI and Blizzard provide party frames; Blizzard's remain hidden to avoid duplicates. No addon package or overlap policy changed.
+- Verification: saved variables load in Lua 5.1; a full table comparison confirms only the two intended settings changed. Executed ForeverUI's actual grid-state and visibility functions: party driver is `[group:raid] hide; [group] show; hide`, with no minimum party size; raid headers show in raids. All 24 OverlapSettingsGuard tests pass. Visual confirmation awaits the next login and party invite.
+- Backup: `D:\tmp\wow-party-frames-20261010-075324\ForeverUI.lua`.
+
 ## 2026-10-09 - Quest automation moved to Leatrix Plus; OverlapSettingsGuard 0.2.1
 
 - Replaced the two rules disabling Leatrix quest/gossip automation with four rules disabling RestedXP quest acceptance/turn-in, gossip, guide-selected rewards and calculated reward choices. All stored profiles and templates are covered while both add-ons load.

@@ -28,6 +28,22 @@ Version 0.2.1, folder `OverlapSettingsGuard`, written for this installation and 
 
 ## Updating safely
 
+### Adopt from another machine
+
+Close WoW on both machines. On the destination, place `adopt_addons.ps1` in its `Interface` folder, then run from the destination game root:
+
+```powershell
+.\Interface\adopt_addons.ps1 \\machine-source\WoW\_classic_beta_
+```
+
+The argument is the shared **game root containing Interface and WTF**. If the `WoW` share points directly at `_classic_beta_`, use `\\machine-source\WoW` instead. The destination is inferred from the script location, not the current working directory.
+
+Type `CLOSED` when prompted to confirm WoW is closed on the source, and keep both games closed until the transfer completes. The script refuses to run while a local WoW process exists. It stages both folders, moves the existing destination folders into `addon-backups/<timestamp>-<unique-id>/` beside `Interface`, then installs the staged folders. Replacement avoids retaining obsolete addons; copy failures leave the originals in place, and replacement failures trigger restoration. Logs and any failed transfer files remain with the backup. The utility is preserved if the source lacks it.
+
+Fonts are excluded, and settings are copied unchanged: no resolution or UI scale conversion. This adopts the versions installed on the source, including local patches. Use the same compatible client and account/character identities. To restore, close WoW, move the adopted folders aside, and move the backed-up `Interface` and `WTF` into the destination game root.
+
+### Update packages
+
 1. Exit WoW before replacing add-on folders.
 2. Download a release labeled **Forever / 1.60.1** from the linked project page. Keep all folders in a package at matching versions.
 3. Preserve the retained add-ons' `WTF` saved variables unless you intend to reset their settings.
