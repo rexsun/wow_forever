@@ -1,9 +1,5 @@
 local _, OSG = ...
 
--- Settings that duplicate a feature of another tracked add-on. Each must stay off
--- while every add-on in `when` is loaded. `when[1]` is the add-on that owns the setting;
--- its adapter is hooked only when that add-on is loaded. The policy changes here and in
--- readme.md, never in game.
 OSG.policy = {
   {
     id = "leatrix.minimap",
@@ -33,20 +29,36 @@ OSG.policy = {
     needsReload = true,
   },
   {
-    id = "leatrix.autoquests",
-    adapter = "LeatrixPlus",
-    key = "AutomateQuests",
-    label = "Leatrix Plus: Automate quests",
-    when = { "Leatrix_Plus", "RXPGuides" },
-    reason = "RestedXP Guide accepts and turns in the quests on its route; Leatrix would also take quests the route skips.",
+    id = "rxp.autoquests",
+    adapter = "RestedXP",
+    key = "QuestAutomation",
+    label = "RestedXP: Quest auto accept/turn in",
+    when = { "RXPGuides", "Leatrix_Plus" },
+    reason = "Leatrix Plus accepts and turns in quests broadly, including quests outside the active guide.",
   },
   {
-    id = "leatrix.autogossip",
-    adapter = "LeatrixPlus",
-    key = "AutomateGossip",
-    label = "Leatrix Plus: Automate gossip",
-    when = { "Leatrix_Plus", "RXPGuides" },
-    reason = "RestedXP Guide picks gossip options for its route.",
+    id = "rxp.autogossip",
+    adapter = "RestedXP",
+    key = "GossipAutomation",
+    label = "RestedXP: Gossip automation",
+    when = { "RXPGuides", "Leatrix_Plus" },
+    reason = "Leatrix Plus handles gossip for quest interactions.",
+  },
+  {
+    id = "rxp.questrewards",
+    adapter = "RestedXP",
+    key = "QuestRewardAutomation",
+    label = "RestedXP: Quest auto rewards",
+    when = { "RXPGuides", "Leatrix_Plus" },
+    reason = "Leatrix Plus owns quest turn-ins; RestedXP must not claim guide-selected rewards.",
+  },
+  {
+    id = "rxp.questchoices",
+    adapter = "RestedXP",
+    key = "QuestChoiceAutomation",
+    label = "RestedXP: Quest Reward Automation",
+    when = { "RXPGuides", "Leatrix_Plus" },
+    reason = "Leatrix Plus owns quest turn-ins; RestedXP must not claim calculated rewards.",
   },
   {
     id = "fui.questforever",
@@ -62,7 +74,7 @@ OSG.policy = {
     key = "QuestGuideOnAccept",
     label = "ForeverUI: Open the quest guide on accept",
     when = { "ForeverUI", "RXPGuides" },
-    reason = "RestedXP Guide accepts quests for you and shows its own steps, so the guide would open at almost every quest giver.",
+    reason = "Leatrix Plus accepts quests automatically and RestedXP shows the guide steps, so ForeverUI's guide would open at almost every quest giver.",
   },
   {
     id = "fui.arrow",

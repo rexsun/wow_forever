@@ -1,6 +1,6 @@
 # OverlapSettingsGuard
 
-Version 0.2.0, written for this installation (WoW: Forever 1.60.1, Interface 16001). It isn't published anywhere.
+Version 0.2.1, written for this installation (WoW: Forever 1.60.1, Interface 16001). It isn't published anywhere.
 
 Some installed add-ons provide the same feature. When both copies run, they undo each other's work, for example two add-ons both setting the chat font size. OverlapSettingsGuard keeps the duplicate setting in one add-on switched **off**:
 
@@ -20,17 +20,21 @@ A rule only applies while every add-on in its "Locked off when loaded" column is
 | `leatrix.minimap` | Leatrix Plus: Enhance minimap (`MinimapModder`) | Leatrix Plus, ForeverUI | ForeverUI's Minimap module already squares and styles the minimap. |
 | `leatrix.editbox` | Leatrix Plus: Move editbox to top (`MoveChatEditBoxToTop`) | Leatrix Plus, ForeverUI | ForeverUI's chat setting "Where you type" places the edit box. |
 | `leatrix.chatfont` | Leatrix Plus: Set chat font size (`SetChatFontSize`) | Leatrix Plus, ForeverUI | ForeverUI sets the chat font size; Leatrix's size overrides it after login. |
-| `leatrix.autoquests` | Leatrix Plus: Automate quests (`AutomateQuests`) | Leatrix Plus, RestedXP | RestedXP accepts and turns in the quests on its route; Leatrix would also take quests the route skips. |
-| `leatrix.autogossip` | Leatrix Plus: Automate gossip (`AutomateGossip`) | Leatrix Plus, RestedXP | RestedXP picks gossip options for its route, including flight masters. |
+| `rxp.autoquests` | RestedXP: Quest auto accept/turn in (`enableQuestAutomation`) | RestedXP, Leatrix Plus | Leatrix accepts and turns in quests broadly, including quests outside the active guide. |
+| `rxp.autogossip` | RestedXP: Gossip automation (`enableGossipAutomation`) | RestedXP, Leatrix Plus | Leatrix handles gossip for quest interactions. |
+| `rxp.questrewards` | RestedXP: Quest auto rewards (`enableQuestRewardAutomation`) | RestedXP, Leatrix Plus | Leatrix owns turn-ins; RestedXP must not claim guide-selected rewards. |
+| `rxp.questchoices` | RestedXP: Quest Reward Automation (`enableQuestChoiceAutomation`) | RestedXP, Leatrix Plus | Leatrix owns turn-ins; RestedXP must not claim calculated rewards. |
 | `leatrix.flighttimes` | Leatrix Plus: Show flight times (`ShowFlightTimes`) | Leatrix Plus, RestedXP | RestedXP shows flight times on the flight map and a flight progress bar. |
 | `fui.questforever` | ForeverUI: QuestForever module | ForeverUI, RestedXP | RestedXP draws its route on the map and minimap; QuestForever pins every quest you could take. |
-| `fui.guideonaccept` | ForeverUI: open the quest guide on accept (`guideOnAccept`, `guideOnAcceptPad`) | ForeverUI, RestedXP | RestedXP accepts quests for you and shows its own steps, so the guide would open at almost every quest giver. |
+| `fui.guideonaccept` | ForeverUI: open the quest guide on accept (`guideOnAccept`, `guideOnAcceptPad`) | ForeverUI, RestedXP | Leatrix accepts quests automatically and RestedXP shows its own steps, so the guide would open at almost every quest giver. |
 | `fui.arrow` | ForeverUI: waypoint arrow (Arrow module) | ForeverUI, RestedXP | RestedXP has its own arrow to the next step. |
 | `fui.selljunk` | ForeverUI: sell junk at vendors (Loot `sellJunk`) | ForeverUI, Leatrix Plus | Leatrix Plus "Sell junk automatically" sells grey items. |
 | `rxp.selljunk` | RestedXP: Auto Sell Junk (`autoSellJunk`) | RestedXP, Leatrix Plus | Leatrix Plus "Sell junk automatically" sells grey items. RestedXP's delete-junk key stays. |
 | `rxp.talentguides` | RestedXP: Enable Talents Guides (`enableTalentGuides`) | RestedXP, Talents Forever | Talents Forever plans talents for Forever's talent window. RestedXP's talent guide hooks the old talent frame. |
 | `rxp.upgradetooltip` | RestedXP: item upgrade tooltips (keeps `disableUpgradeTooltip` ticked) | RestedXP, ForeverUI | ForeverUI's Loot module marks upgrades in tooltips and bags. RestedXP's quest reward advice stays on. |
 | `rxp.nameplatedistance` | RestedXP: Maximize Nameplate Distance (`enableMaxNameplateDistance`) | RestedXP, ForeverUI | It sets nameplate range to 41 at every loading screen, overriding ForeverUI's nameplate distance (60). |
+
+Leatrix Plus is the quest automation provider: `AutomateQuests`, `AutomateGossip`, `AutoQuestRegular`, `AutoQuestDaily`, `AutoQuestWeekly` and `AutoQuestCompleted` are enabled in the saved settings; `AutoQuestShift` is off. These settings remain user-adjustable; the guard no longer locks Leatrix quest/gossip automation off. Quests with multiple reward choices still require a manual choice. RestedXP flight-path, binding and trainer automation remain unchanged.
 
 RestedXP is the add-on folder `RXPGuides`; Talents Forever is `TalentsForeverBook`.
 
@@ -78,7 +82,7 @@ The positions come from Leatrix Plus 1.60.11. If an update moves a checkbox, its
 
 **RestedXP** ([Adapters/RestedXP.lua](Adapters/RestedXP.lua)):
 
-- **Switching off.** The guard writes the values directly. RestedXP reads the sell-junk and tooltip settings when they are used. Talent guides and nameplate distance only take effect after a reload, so the popup offers one when they were on for this character.
+- **Switching off.** The guard writes the values directly. RestedXP reads quest, reward, gossip, sell-junk and tooltip settings when they are used. Talent guides and nameplate distance only take effect after a reload, so the popup offers one when they were on for this character.
 - **Noticing changes.** The guard hooks AceConfig's `NotifyChange` for the "RestedXP Guides" options.
 
 **All add-ons.** A check every 2 s catches changes that reach no hook, such as `/fui quests guide on`, RestedXP slash commands or a RestedXP profile switch.

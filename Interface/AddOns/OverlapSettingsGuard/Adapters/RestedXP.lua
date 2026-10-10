@@ -1,13 +1,5 @@
 local _, OSG = ...
 
--- RestedXP Guides keeps its settings in the AceDB "RXPSettings". The live table is
--- RXP.settings.profile, the active character's profile, which a profile switch replaces
--- (SettingsPanel.lua RefreshProfile), so it is read fresh every time. A locked setting is
--- switched off in every copy RXP may load it from:
---   the live profile            this character
---   RXPSettings.profiles[name]  every character's stored profile (account file)
---   RXPData.defaultProfile      the account-wide template new profiles start from
---   RXPCData.localDB            this character's fallback template
 -- AceDB leaves out stored values equal to the template, so a missing stored value means
 -- the template's, or else RXP's built-in default (SettingsPanel.lua settingsDBDefaults).
 local adapter = {}
@@ -15,6 +7,10 @@ OSG.adapters.RestedXP = adapter
 
 -- `inverted`: RXP stores the opposite switch, so "on" means the stored flag is false.
 local KEYS = {
+  QuestAutomation = { field = "enableQuestAutomation", default = true },
+  GossipAutomation = { field = "enableGossipAutomation", default = true },
+  QuestRewardAutomation = { field = "enableQuestRewardAutomation", default = false },
+  QuestChoiceAutomation = { field = "enableQuestChoiceAutomation", default = false },
   AutoSellJunk = { field = "autoSellJunk", default = false },
   TalentGuides = { field = "enableTalentGuides", default = true },
   MaxNameplateDistance = { field = "enableMaxNameplateDistance", default = true },
@@ -64,8 +60,6 @@ local function SwitchOff(spec, store)
   store[spec.field] = spec.inverted and true or false
 end
 
--- Every copy other than the live profile, each with a name for the chat line and the
--- template a missing value falls back to.
 local function OtherCopies(live)
   local copies = {}
   local account, character = AccountTemplate(), CharacterTemplate()
@@ -107,8 +101,6 @@ function adapter.Read(key)
   return false
 end
 
--- Returns true, whether the live value was on (the rule says if that needs a reload),
--- and the names of the other copies that were changed.
 function adapter.Revert(key)
   local live = LiveProfile()
   if not live then
@@ -130,9 +122,6 @@ function adapter.Revert(key)
   return true, liveWasOn, changed
 end
 
--- RXP's options panel is AceConfig; AceConfigDialog calls NotifyChange after every
--- change. Slash commands and profile switches reach no hook; Guard.lua's ticker
--- catches those.
 function adapter.Watch(onChange)
   local registry = type(LibStub) == "table" and LibStub("AceConfigRegistry-3.0", true)
   if registry and type(registry.NotifyChange) == "function" then

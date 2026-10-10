@@ -1,4 +1,3 @@
--- Run with run_tests.py. ADDON_ROOT and TESTS_ROOT are set by the runner.
 local Stubs = assert(loadfile(TESTS_ROOT .. "stubs.lua"))()
 
 local tests, failures = {}, {}
@@ -38,11 +37,11 @@ test("the shipped policy has no errors", function()
   local w = Stubs.Fresh(ADDON_ROOT, {})
   local problems = w.ns.ValidatePolicy(w.ns.policy, w.ns.adapters)
   eq(#problems, 0, "policy problems: " .. table.concat(problems, "; "))
-  eq(#w.ns.policy, 14, "rule count")
+  eq(#w.ns.policy, 16, "rule count")
 end)
 
 local function RxpOff()
-  return { autoSellJunk = false, enableTalentGuides = false, enableMaxNameplateDistance = false, disableUpgradeTooltip = true }
+  return { autoSellJunk = false, enableTalentGuides = false, enableMaxNameplateDistance = false, disableUpgradeTooltip = true, enableQuestAutomation = false, enableQuestRewardAutomation = false, enableQuestChoiceAutomation = false, enableGossipAutomation = false }
 end
 
 test("RestedXP settings read with RXP's defaults, the upgrade tooltip inverted", function()
@@ -69,7 +68,7 @@ test("RestedXP settings are switched off in the live profile, every stored profi
   for _, store in ipairs({ RXP.settings.profile, RXPData.defaultProfile.profile, RXPCData.localDB.profile }) do
     for field, value in pairs(RxpOff()) do
       if not (field == "autoSellJunk" and store[field] == nil) then
-        eq(store[field], value, field)
+        eq(store[field] or false, value, field)
       end
     end
   end
@@ -141,7 +140,7 @@ test("rules are inactive without their add-ons", function()
     foreverui = DefaultUI(),
   })
   local results = w.ns.Check()
-  eq(StatusOf(results, "leatrix.autoquests"), "inactive", "autoquests without RXP")
+  eq(StatusOf(results, "rxp.autoquests"), "inactive", "autoquests without RXP")
   eq(StatusOf(results, "leatrix.minimap"), "off", "minimap")
   eq(w.leatrixValues.AutomateQuests, "On", "Leatrix value left alone")
 end)
@@ -245,7 +244,7 @@ test("login switches off violations and shows one popup with a reload button", f
   local w = Stubs.Fresh(ADDON_ROOT, { loaded = AllLoaded(), leatrix = { values = values, saved = { MinimapModder = "On" } }, foreverui = ui })
   w.Login()
   eq(values.MinimapModder, "Off", "minimap")
-  eq(values.AutomateQuests, "Off", "auto quests")
+  eq(values.AutomateQuests, "On", "Leatrix keeps auto quests")
   eq(w.ui.IsModuleEnabled("QuestForever"), false, "QuestForever")
   eq(#w.popups, 1, "popups")
   eq(w.popups[1].which, "OVERLAPSETTINGSGUARD_OFF_RELOAD", "popup kind")
@@ -316,7 +315,29 @@ test("/osg lists every rule", function()
   w.Login()
   w.printed = {}
   _G.SlashCmdList.OVERLAPSETTINGSGUARD("")
-  eq(#w.printed, 15, "header plus 14 rules")
+  eq(#w.printed, 17, "header plus 16 rules")
+end)
+
+test("Leatrix owns quest automation while RestedXP automation stays off across profiles", function()
+  local fields = { "enableQuestAutomation", "enableQuestRewardAutomation", "enableQuestChoiceAutomation", "enableGossipAutomation" }
+  local on = {}
+  for _, field in ipairs(fields) do on[field] = true end
+  local values = { AutomateQuests = "On", AutomateGossip = "On" }
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = AllLoaded(), leatrix = { values = values }, foreverui = DefaultUI(), rxp = {
+    live = on, profiles = { Alt = { enableQuestAutomation = true, enableQuestRewardAutomation = true, enableQuestChoiceAutomation = true, enableGossipAutomation = true } },
+    accountDefault = { enableQuestAutomation = true, enableQuestRewardAutomation = true, enableQuestChoiceAutomation = true, enableGossipAutomation = true },
+    characterDefault = { enableQuestAutomation = true, enableQuestRewardAutomation = true, enableQuestChoiceAutomation = true, enableGossipAutomation = true },
+  } })
+  w.Login()
+  for _, store in ipairs({ RXP.settings.profile, RXPSettings.profiles.Alt, RXPData.defaultProfile.profile, RXPCData.localDB.profile }) do
+    for _, field in ipairs(fields) do eq(store[field], false, field .. " off in every copy") end
+  end
+  eq(values.AutomateQuests, "On", "Leatrix quest automation retained")
+  eq(values.AutomateGossip, "On", "Leatrix gossip retained")
+  for _, field in ipairs(fields) do RXP.settings.profile[field] = true end
+  w.rxpRegistry:NotifyChange("RestedXP Guides")
+  w.RunTimers()
+  for _, field in ipairs(fields) do eq(RXP.settings.profile[field], false, field .. " cannot be enabled again") end
 end)
 
 for _, t in ipairs(tests) do

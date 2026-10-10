@@ -2,6 +2,14 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-09 - Quest automation moved to Leatrix Plus; OverlapSettingsGuard 0.2.1
+
+- Replaced the two rules disabling Leatrix quest/gossip automation with four rules disabling RestedXP quest acceptance/turn-in, gossip, guide-selected rewards and calculated reward choices. All stored profiles and templates are covered while both add-ons load.
+- With WoW closed, enabled Leatrix AutomateQuests, AutomateGossip, AutoQuestRegular, AutoQuestDaily, AutoQuestWeekly and AutoQuestCompleted; AutoQuestShift is off. Set all four RestedXP automation flags off in every current account profile. No account or character templates currently exist. Leatrix settings remain user-adjustable.
+- RestedXP flight-path, binding and trainer automation are unchanged. Reward recommendations remain available. Leatrix still requires manual selection when a quest offers multiple reward choices.
+- Verification: 24 guard tests pass, including enforcement across profiles and changes from options; Lua syntax and saved settings checked. In-game behavior awaits the next login.
+- Saved-variable backups: `D:\tmp\wow-quest-automation-20261009-183620`.
+
 ## 2026-10-09 — RestedXP Guides installed; OverlapSettingsGuard 0.2.0
 
 - Installed RestedXP Guides v4.11.21 (CurseForge file 9104439), folder `RXPGuides`. Its main TOC lists Interface 16001, and its file list loads Forever's own guides, quest data and flight data for game type `camelot`. RestedXP's own add-on incompatibility list (TomTom, SilverDragon, TotemTimers, Leatrix Maps, Narcissus) flags nothing installed: it checks "Leatrix Maps" with a space, which never matches the `Leatrix_Maps` folder. No RestedXP saved variables existed before. Not yet confirmed in game.

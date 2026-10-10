@@ -18,13 +18,13 @@ Inventory checked 2026-10-09 for `_classic_beta_/Interface/AddOns` (client 1.60.
 | RareScanner | 1.60.1.b6 | `RareScanner` | Rare, event, and treasure alerts. [CurseForge](https://www.curseforge.com/wow/addons/rarescanner) |
 | Auctionator | 340 | `Auctionator` | Auction house tools. [CurseForge](https://www.curseforge.com/wow/addons/auctionator) |
 | RangeDisplay | v6.3.6 | `RangeDisplay`, `RangeDisplay_Options` | Estimated unit range. Both TOCs include 16001; in-game behavior remains unverified. [CurseForge](https://www.curseforge.com/wow/addons/range-display) |
-| RestedXP Guides | v4.11.21 | `RXPGuides` | Leveling guides with step list, waypoint arrow, map pins and quest/gossip/flight automation. Open with `/rxp`. Its main TOC lists 16001 and loads Forever's own guides and data (game type `camelot`). [CurseForge](https://www.curseforge.com/wow/addons/restedxp-guide) |
+| RestedXP Guides | v4.11.21 | `RXPGuides` | Leveling guides with step list, waypoint arrow, map pins and quest/gossip/flight automation. Quest/gossip/reward automation is locked off in favor of Leatrix Plus; guide navigation and recommendations remain available. Open with `/rxp`. Its main TOC lists 16001 and loads Forever's own guides and data (game type `camelot`). [CurseForge](https://www.curseforge.com/wow/addons/restedxp-guide) |
 
 ForeverUI 0.4.65 and QuestForever 0.4.7 came from the [Forever 1.60.1 release](https://www.curseforge.com/wow/addons/foreverui/files/9047043). Both TOCs declare Interface 16001. Open ForeverUI with `/fui`; use `/fui move` to position its frames. ForeverUI includes its own nameplates and quest navigation. ElvUI, Platynator, LuckyoneUI, TomTom, and WeakAuras have been removed from the active add-on directory along with their companion folders and saved variables.
 
 ## OverlapSettingsGuard (our own add-on)
 
-Version 0.2.0, folder `OverlapSettingsGuard`, written for this installation and not downloaded from anywhere. It keeps settings switched off when they duplicate a feature of another installed add-on. If one is switched on in game, it switches it back off and shows a popup explaining why. Type `/osg` to see its rules. See [OverlapSettingsGuard/readme.md](OverlapSettingsGuard/readme.md) for details.
+Version 0.2.1, folder `OverlapSettingsGuard`, written for this installation and not downloaded from anywhere. It keeps settings switched off when they duplicate a feature of another installed add-on. If one is switched on in game, it switches it back off and shows a popup explaining why. Type `/osg` to see its rules. See [OverlapSettingsGuard/readme.md](OverlapSettingsGuard/readme.md) for details.
 
 ## Updating safely
 
