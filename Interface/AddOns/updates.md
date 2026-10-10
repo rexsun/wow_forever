@@ -2,6 +2,11 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-10 - Removed adoption confirmation prompt
+
+- Removed the typed `CLOSED` confirmation from `Interface/adopt_addons.ps1`. With the source argument supplied, adoption proceeds without interactive confirmation.
+- Updated usage documentation and regression tests to reject any interactive prompt. Backup, rollback and validation behavior are unchanged.
+
 ## 2026-10-10 - Addon and settings adoption script
 
 - Added `Interface/adopt_addons.ps1`, accepting one positional source game-root path (including a UNC share). The destination comes from the script location. It requires source Interface/AddOns and WTF/Config.wtf, rejects overlapping roots and links, refuses local WoW processes, and requires confirmation that source WoW is closed.

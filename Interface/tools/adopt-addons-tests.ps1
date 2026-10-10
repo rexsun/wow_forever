@@ -3,11 +3,10 @@ $scriptUnderTest = Join-Path (Split-Path $PSScriptRoot -Parent) 'adopt_addons.ps
 if (-not (Test-Path -LiteralPath $scriptUnderTest)) { throw 'adopt_addons.ps1 does not exist yet.' }
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('adopt addons tests ' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $testRoot | Out-Null
-$global:adoptTestAnswer = 'CLOSED'
 $global:adoptTestGameRunning = $false
 $global:adoptTestCopyFails = $false
 $global:adoptTestInstallFails = $false
-function Read-Host { param($Prompt) return $global:adoptTestAnswer }
+function Read-Host { param($Prompt) throw "Unexpected interactive prompt: $Prompt" }
 function Get-Process { param($Name) if ($global:adoptTestGameRunning) { [pscustomobject]@{ ProcessName = 'WowB' } } }
 function robocopy.exe {
     if ($global:adoptTestCopyFails) { $global:LASTEXITCODE = 8; return }
@@ -71,10 +70,6 @@ $f = New-Fixture 'running game'
 $global:adoptTestGameRunning = $true
 Invoke-Rejected $f $f.Source
 $global:adoptTestGameRunning = $false
-$f = New-Fixture 'declined'
-$global:adoptTestAnswer = 'no'
-Invoke-Rejected $f $f.Source
-$global:adoptTestAnswer = 'CLOSED'
 $f = New-Fixture 'copy failure'
 $global:adoptTestCopyFails = $true
 Invoke-Rejected $f $f.Source
@@ -82,4 +77,4 @@ $global:adoptTestCopyFails = $false
 $f = New-Fixture 'rollback'
 $global:adoptTestInstallFails = $true
 Invoke-Rejected $f $f.Source
-Write-Host "PASS: adoption, repeat use, backups, unchanged settings/Fonts, invalid sources, running game, cancellation, copy failure and rollback. Fixtures: $testRoot"
+Write-Host "PASS: non-interactive adoption, repeat use, backups, unchanged settings/Fonts, invalid sources, running game, copy failure and rollback. Fixtures: $testRoot"

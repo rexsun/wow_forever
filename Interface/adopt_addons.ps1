@@ -65,9 +65,6 @@ Get-Command robocopy.exe -ErrorAction Stop | Out-Null
 Write-Host "Source:      $sourceRoot"
 Write-Host "Destination: $destinationRoot"
 Write-Host 'Interface and WTF will be replaced after backup. Fonts are excluded.'
-if ((Read-Host 'Confirm WoW is closed on the SOURCE machine: type CLOSED to continue') -cne 'CLOSED') {
-    throw 'Cancelled. Destination Interface and WTF were not changed.'
-}
 
 $backupParent = Join-Path $destinationRoot 'addon-backups'
 if (Test-Path -LiteralPath $backupParent) {
