@@ -1,0 +1,331 @@
+v12.1.003
+- Buffs & Debuffs: New options (Midnight):
+  > Spacing between buffs & debuffs
+  > Hide tooltip when hovering a buff or debuff icon
+  > Filter choice for buffs & debuffs
+
+v12.1.001
+- Midnight 12.1.0 - New Auras display
+
+v12.0.705
+- Buffs & Debuffs: Fixed anchor while choosing another orientation
+
+v12.0.704
+- 12.1.0 PTR Compatible
+
+v12.0.703
+- Buffs & Debuffs: Fix for Vanilla / BC (with Raid Frame Auras)
+- *Raid Frame Auras* updated (many fixes)
+
+v12.0.702
+- Nameplates colors fixed
+- Buffs & Debuffs: *Raid Frame Auras* updated (many fixes)
+- Buffs & Debuffs: Hide Blizzard Auras is now an option
+
+v12.0.504
+- Buffs & Debuffs: Fix for Mists (with Raid Frame Auras)
+
+v12.0.503
+- Buffs & Debuffs back: thanks to *Raid Frame Auras* by Anahkas
+- Classic: fixed range detection on player
+
+v12.0.502
+- Default Midnight Out of Combat transparency= 50%
+- Disabled Buffs & Debuffs for Midnight 12.0.5: rework needed
+
+v12.0.501
+- Fixed: range detection on player
+
+v12.0.103
+- Realm names fixed in instances
+
+v12.0.102
+- Fix reverted background coloration
+
+v12.0.101
+- Midnight 12.0.1
+- Debuffs on the left & buffs on the right, as expected
+- Default Midnight Buffs limits = 6
+- Default Midnight Out of Combat transparency= 30%
+
+v12.0.004
+- New option (Midnight): Dispel Overlay transparency
+- New option: Alpha in range (combat)
+- Reverted HP: Heal prediction & absorb bars fixed
+- Fix RaidTarget Icons while in party
+
+v12.0.003
+- New option (retail): Show both party and raid frames (while in raid)
+- Fix dispelOverlay visibility
+
+v12.0.002
+- Midnight: Fix buffs / debuffs
+- Isolated and Modulable Code
+
+v12.0.001
+- Midnight prepatch fixes
+
+v11.2.702
+- Classic Anniversary
+
+v11.2.701
+- TWW 11.2.7
+- Wotlk China
+
+v11.2.504
+- Midnight: all fixes completed (Healthbars colors ok)
+- Highlight now works on pet
+
+v11.2.503
+- Classic 1.15.8
+- Locales loaded only if necessary
+
+v11.2.502
+- Midnight fixes
+
+v11.2.501
+- Added DE / IT / KO / ZH locales
+- RU missing translations
+
+v11.2.002
+- Added ES locale
+
+v11.2.001
+- TWW 11.2.0
+
+v11.1.702
+- New: Raid healthbar texture
+
+v11.1.701
+- TWW 11.1.7
+
+v11.1.505
+- New: Nameplates textures
+
+v11.1.504
+- New: Buffs & debuffs new options (x/y positions, directions)
+- Better warnings /w reset button for buffs options only
+- Fixed: Health bar unexpectedly darkened on regular highlight
+
+v11.1.503
+- Health bar Alpha option (regular highlight)
+- Fixed: Health bar unexpectedly darkened on regular highlight
+
+v11.1.502
+- Fixed error in Wow: new code for max buffs
+- Buffs UI: Max buffs option to use legacy code (with warning)
+- Buffs UI on Classic: Max buffs warning
+- Buffs UI: reposition (multiline / vertical) notice
+
+v11.1.501
+- TWW 11.1.5
+
+v11.1.001
+- TWW 11.1.0
+
+v11.0.703
+- Raid icons dynamic preview
+
+v11.0.702
+- Russian localization for Raid Icons, thanks to ZamestoTV
+
+v11.0.701
+- TWW 11.0.7
+
+v11.0.501
+- TWW 11.0.5
+
+v11.0.207
+- Nameplates levels display
+    > Allies / Enemies
+    > Always / If different than player / Never
+
+v11.0.206
+- Fixed sliders (Retail & Wow Classic)
+
+v11.0.205
+- AddOn Compartment Filter (topright addons list)
+
+v11.0.204
+- More Nameplates PvP icons
+
+v11.0.203
+- SoloRaid now autoactivates Blizzard Raid Style Party frames
+
+v11.0.202
+- RaidIcons more options
+    > Size, Relative positions X, Y
+    > Code refactor
+
+v11.0.201
+- The War Within
+
+v11.0.001
+- The War Within Prepatch
+
+v10.2.712
+- Raid Icons module added (Target icon on raid frames)
+
+v10.2.711
+- Buffs & Debuffs can be aligned vertically
+
+v10.2.710
+- Nameplates: PvP Icons
+    > Allies / Enemies
+    > None / Faction Icon / User Choice
+
+v10.2.709
+- Modules can be disabled (Buffs & Debuffs, Nameplates)
+- Option to hide disabled modules
+- The War Within PTR: options fixed
+
+v10.2.708
+- New options to Units Buffs & Debuffs
+    > Increase Max icons displayed
+    > Multiline display
+- UnitDebuff is now a module
+
+v10.2.707
+- Nameplate Color is now a module
+
+v10.2.706
+- More Nameplate options:
+    > default / class color / custom color
+    > separation between text & nameplates
+- Wow Key shortcut support added
+- Isolated and Modulable Code (Solo Raid is now a module)
+
+v10.2.705
+- Added Blizzard raid class colors option (CVar)
+- Enhancements, Code cleaning
+
+v10.2.704
+- UI enhancements
+
+v10.2.703
+- Finally found main issue: packager bug, thanks to foxlit and Tsxy
+
+v10.2.702
+- Added to Wow Add-ons list (AddOn Compartment Filter)
+- UI: Summary moved to an Info button
+- UI: Gradient background
+- Added Debugmode that displays options on load ( /krf debug )
+
+v10.2.701
+- Enemies nameplates color option added
+- Wow Cataclysm
+- Wow DF 10.2.7
+
+v10.2.604
+- Wow Classic: Nameplate color will change bar color too
+
+v10.2.603
+- Wow Classic 1.15.2
+
+v10.2.602
+- Wow Classic & Wrath !
+- Fixed new color picker
+
+v10.2.601
+- Minor fixes
+- Wow DF 10.2.6
+
+v10.2.501
+- Minor fixes
+- Update compatibility with 10.2.5
+
+v10.2.001
+- Reverted HP bars: Fixed heal prediction & absorb positions
+- Update compatibility with 10.2.0
+
+v10.1.701
+- Wow DF 10.1.7
+
+v10.1.502
+- Fixed out of range transparency issues
+
+v10.1.501
+- Fixed Always show group
+- Added addon logo
+- Wow DF 10.1.5
+
+v10.1.001
+- Wow DF 10.1.0
+
+v10.0.701
+- Wow DF 10.0.7
+
+v10.0.209
+- Better code: colors are now consistent
+- Special background for disconnected players
+- Test mode includes D/C state
+
+v10.0.208
+- Enhanced code for frame name colors
+- Deaths background no more highlighted
+
+v10.0.207
+- Readjustements
+- Wow DF 10.0.5
+
+v10.0.206
+- Add skull icon before death players names
+- Always show correct color for deaths and d/c names
+- Fix error on first fight
+
+v10.0.205
+- Fix KRFOptionsFrame error for some Wow clients
+
+v10.0.204
+- Out of range transparency fixed with highlighted backgrounds.
+- Fix unexpected performance issue
+
+v10.0.203
+- Fix options issues raised by some
+
+v10.0.202
+- Always show party frames option back
+- Button added: 'Edit Mode: party frames'
+
+v10.0.201
+- DragonFlight prepatch phase 2
+- Tooltips are back
+
+v10.0.001
+- Ready for DragonFlight prepatch 10.0.0
+- Removed: MaxBuffs, and Always show party frames
+
+v9.2.701
+- Bump 9.2.7
+
+v9.2.501
+- Bump 9.2.5
+
+v9.2.001
+- Bump 9.2
+
+v9.1.501
+- Bump 9.1.5
+
+v9.1.001
+- Bump 9.1
+
+v0.9.5
+- Bump 9.0.5
+
+v0.9.4
+- Bump 9.0.2
+
+v0.9.3
+- Options fixed (WTF Blizzard!)
+- Tested on Shadowlands
+
+v0.9.2
+- Ready for Shadowlands prepatch 9.0.1
+- Reverted bars now detect incoming heals and absorbs
+
+v0.9.1
+- Changes in anticipation of Shadowlands
+
+v0.9.0
+- Release version ready!

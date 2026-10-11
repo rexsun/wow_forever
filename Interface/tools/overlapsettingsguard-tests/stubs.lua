@@ -72,37 +72,6 @@ local function BuildLeatrix(world, values, saved)
   _G.LeaPlusDB = saved
 end
 
-local function BuildForeverUI(world, modules, quests, otherProfiles)
-  local ui = { db = { modules = modules }, modules = {}, calls = {} }
-  modules.Quests = quests
-  local profiles = { Default = ui.db }
-  for name, profile in pairs(otherProfiles or {}) do
-    profiles[name] = profile
-  end
-  _G.ForeverUIDB = { profiles = profiles, characters = {} }
-  function ui.IsModuleEnabled(name)
-    local s = ui.db.modules[name]
-    return s == nil or s.enabled ~= false
-  end
-  function ui.SetModuleEnabled(name, enabled)
-    ui.db.modules[name] = ui.db.modules[name] or {}
-    ui.db.modules[name].enabled = enabled and true or false
-  end
-  function ui.RefreshOptions() table.insert(ui.calls, "RefreshOptions") end
-  ui.modules.QuestForever = {
-    Toggle = function(state)
-      ui.SetModuleEnabled("QuestForever", state)
-      ui.RefreshOptions()
-    end,
-  }
-  ui.modules.Arrow = {}
-  ui.modules.Quests = { PaintAutoLine = function() table.insert(ui.calls, "PaintAutoLine") end }
-  world.ui = ui
-  _G.ForeverUI = ui
-end
-
--- RestedXP: AceDB-style storage. The live profile is the stored table of the current
--- character, as in AceDB.
 local function BuildRestedXP(world, rxp)
   local profiles = rxp.profiles or {}
   profiles["Me - Realm"] = rxp.live or {}
@@ -118,16 +87,21 @@ local function BuildRestedXP(world, rxp)
 end
 
 -- options: loaded = { addon = true }, leatrix = { values, saved, version },
--- foreverui = { modules, quests, otherProfiles }, rxp = { live, profiles, accountDefault, characterDefault }
+-- rxp = { live, profiles, accountDefault, characterDefault }
 -- plater = { live, profiles }, personalBar = boolean
 function Stubs.Fresh(root, options)
   local world = { printed = {}, popups = {}, timers = {}, tickers = {}, frames = {}, now = 100, combat = false }
   local loaded = options.loaded or {}
   local versions = { Leatrix_Plus = (options.leatrix and options.leatrix.version) or "1.60.11" }
 
-  _G.LeaPlusGlobalPanel, _G.LeaPlusDB, _G.ForeverUI, _G.ForeverUIDB = nil, nil, nil, nil
+  _G.LeaPlusGlobalPanel, _G.LeaPlusDB = nil, nil
   _G.RXP, _G.RXPSettings, _G.RXPData, _G.RXPCData, _G.LibStub = nil, nil, nil, nil, nil
   _G.Plater, _G.PlaterDB = nil, nil
+  _G.KallyeRaidFramesOptions, _G.K_SHARED_UI = nil, nil
+  if options.kallye then
+    _G.KallyeRaidFramesOptions = options.kallye
+    _G.K_SHARED_UI = { RefreshOptions = function() end }
+  end
   world.cvars = { nameplateShowSelf = options.personalBar and "1" or "0" }
   _G.GetCVar = function(name) return world.cvars[name] end
   _G.SetCVar = function(name, value) world.cvars[name] = tostring(value) end
@@ -177,15 +151,12 @@ function Stubs.Fresh(root, options)
     BuildLeatrix(world, options.leatrix.values or {}, options.leatrix.saved or {})
     world.leatrixValues = options.leatrix.values
   end
-  if options.foreverui then
-    BuildForeverUI(world, options.foreverui.modules or {}, options.foreverui.quests or {}, options.foreverui.otherProfiles)
-  end
   if options.rxp then
     BuildRestedXP(world, options.rxp)
   end
 
   local ns = {}
-  for _, file in ipairs({ "Core.lua", "Policy.lua", "Adapters/LeatrixPlus.lua", "Adapters/ForeverUI.lua", "Adapters/RestedXP.lua", "Adapters/Plater.lua", "Guard.lua" }) do
+  for _, file in ipairs({ "Core.lua", "Policy.lua", "Adapters/LeatrixPlus.lua", "Adapters/RestedXP.lua", "Adapters/Plater.lua", "Adapters/Kallye.lua", "Guard.lua" }) do
     local chunk = assert(loadfile(root .. file))
     chunk("OverlapSettingsGuard", ns)
   end

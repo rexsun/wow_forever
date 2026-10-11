@@ -2,13 +2,13 @@
 ## Title: OverlapSettingsGuard
 ## Notes: Keeps settings that overlap another installed add-on switched off, and explains why when one is switched on. Type /osg.
 ## Author: Rex Sun
-## Version: 0.3.0
-## OptionalDeps: Leatrix_Plus, ForeverUI, RXPGuides, Plater, ClassUIEnhanced
+## Version: 0.3.1
+## OptionalDeps: Leatrix_Plus, RXPGuides, Plater, ClassUIEnhanced, KallyeRaidFrames
 
 Core.lua
 Policy.lua
 Adapters/LeatrixPlus.lua
-Adapters/ForeverUI.lua
 Adapters/RestedXP.lua
 Adapters/Plater.lua
+Adapters/Kallye.lua
 Guard.lua

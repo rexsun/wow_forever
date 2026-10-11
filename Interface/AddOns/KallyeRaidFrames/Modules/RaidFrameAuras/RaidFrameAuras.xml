@@ -1,0 +1,25 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\FrameXML\UI.xsd">
+    <!-- Raid Frame Auras - Copyright (c) Anahkas - Apache-2.0 - see LICENSE in this folder -->
+    <Script file="Core.lua"/>
+    <Script file="Config\Constants.lua"/>
+    <Script file="Config\Defaults.lua"/>
+    <Script file="Shared.lua"/>
+    <!-- <Script file="UI\Options\Shared.lua"/> -->
+    <Script file="Database.lua"/>
+    <Script file="Modules\AuraScanner.lua"/>
+    <Script file="Modules\Tooltip.lua"/>
+    <Script file="Modules\Masque.lua"/>
+    <Script file="UI\Frames.lua"/>
+    <Script file="Modules\ObjectiveCarriers.lua"/>
+    <Script file="Modules\PrivateAuras.lua"/>
+    <Script file="Modules\RaidFrames.lua"/>
+    <Script file="Modules\ChatCommands.lua"/>
+    <!-- <Script file="UI\RaidFrameAuras_Preview.lua"/>
+    <Script file="UI\Options\General.lua"/>
+    <Script file="UI\Options\Buffs.lua"/>
+    <Script file="UI\Options\Debuffs.lua"/>
+    <Script file="UI\Options\Advanced.lua"/>
+    <Script file="UI\RaidFrameAuras_Options.lua"/> -->
+    <Script file="Wrapper.lua"/>
+</Ui>

@@ -1,3 +1,12 @@
+## [Kallye group frames / OverlapSettingsGuard 0.3.1] - 2026-10-10
+### Features
+- Install Kallye Raid Frames 12.1.003c with group health highlights, range fading, auras and markers, plus one-time raid-style party setup.
+- Guard Kallye nameplate styling for Plater and remove obsolete integration code and policies for the uninstalled ForeverUI bundle.
+### Design Rationale
+- Enhance Blizzard group frames while retaining one owner for nameplates. Preserve existing Edit Mode positions and use the backup branch for rollback instead of retaining inactive integration code.
+### Notes & Caveats
+- Interface 16001 is declared. Settings are enabled for all stored characters and WTF is backed up separately. The local party setup patch can be overwritten by upstream updates. Twenty guard tests and four setup tests pass; in-game rendering and API verification remain pending.
+
 ## [Combat UI migration / OverlapSettingsGuard 0.3.0] - 2026-10-10
 ### Features
 - Replace ForeverUI and bundled QuestForever with ClassUIEnhanced 3.1.0 and Plater v658 for WoW Forever 1.60.1.

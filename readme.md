@@ -13,8 +13,8 @@ Every add-on here must declare Interface 16001 in its TOC and work on this clien
 
 ## Contents
 
-- [Interface/AddOns/readme.md](Interface/AddOns/readme.md): installed add-ons with versions, sources and purpose. ClassUIEnhanced handles combat trackers and Plater handles nameplates; Blizzard supplies action bars, bags and unit/group frames, with Leatrix Plus for minimap/chat. Details!, Deadly Boss Mods, Leatrix Maps, RareScanner, Auctionator and others remain installed.
-- [Interface/AddOns/updates.md](Interface/AddOns/updates.md): change log, newest first. It covers installs, removals, setting changes and the local patches to ForeverUI, which an upstream update would overwrite.
+- [Interface/AddOns/readme.md](Interface/AddOns/readme.md): installed add-ons with versions, sources and purpose. ClassUIEnhanced handles combat trackers, Plater handles nameplates and Kallye enhances Blizzard party/raid frames. Blizzard supplies action bars, bags and unit frames, with Leatrix Plus for minimap/chat. Details!, Deadly Boss Mods, Leatrix Maps, RareScanner, Auctionator and others remain installed.
+- [Interface/AddOns/updates.md](Interface/AddOns/updates.md): change log, newest first. It covers installs, removals, setting changes and local patches, which upstream updates can overwrite.
 - [Interface/AGENTS.md](Interface/AGENTS.md): rules for maintaining the add-ons.
 
 ## Updating

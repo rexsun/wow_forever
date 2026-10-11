@@ -9,11 +9,6 @@ local _, OSG = ...
 local TESTED_VERSION = "1.60.11"
 local PAGE_COUNT = 10
 local SPOTS = {
-  AutomateQuests = { page = 1, x = 146, y = -92, reload = false },
-  AutomateGossip = { page = 1, x = 146, y = -112, reload = false },
-  MoveChatEditBoxToTop = { page = 3, x = 146, y = -192, reload = true },
-  SetChatFontSize = { page = 3, x = 146, y = -212, reload = true },
-  MinimapModder = { page = 5, x = 146, y = -92, reload = true },
   ShowFlightTimes = { page = 7, x = 340, y = -252, reload = true },
   CombatPlates = { page = 7, x = 340, y = -192, reload = true },
 }
@@ -108,9 +103,7 @@ function adapter.Read(key)
   return box:GetChecked() and true or false
 end
 
--- Click() runs Leatrix's own handlers, so its value, the reload button and any feature
--- hooked to the box (Automate quests/gossip) all switch off the normal way. A reload is
--- needed only when the running value, loaded at login into LeaPlusDB, was on.
+-- A reload is needed only when the running value, loaded at login into LeaPlusDB, was on.
 -- Click() toggles, and a box never shown since login holds a stale state, so the live
 -- value is read into the box first.
 function adapter.Revert(key)

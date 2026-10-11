@@ -2,6 +2,15 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-10 - Kallye group frames installed and obsolete UI integrations removed
+
+- Installed Kallye Raid Frames release 12.1.003c ([CurseForge file 8975166](https://www.curseforge.com/wow/addons/kallye-raid-frames/files/8975166)); its TOC reports 12.1.003 and includes Interface 16001. Enabled it for all four stored characters. Backed up WTF before installation to `_classic_beta_/addon-backups/kallye-install-20261010-214742/WTF`.
+- Enabled health highlights, custom group auras and raid markers. Set nearby/out-of-range alpha to 100/55, three buffs at 75% size and three debuffs at 125% size. Kept inverted bars, solo frames and nameplate styling off. Hid Blizzard auras in favour of Kallye's; kept the taint-method workaround off. Enabled role icons, hid damage-role icons and realm suffixes, and enabled death icons. Individual Blizzard unit frames and Leatrix's raid toggle remain unchanged.
+- Added a local `LocalSetup.lua` and TOC entry for one-time raid-style party setup at next login. It waits for Edit Mode readiness and combat to end, changes only the party style, copies an immutable preset if needed, and preserves later user changes. Serialized offline layout caches are unchanged. Upstream updates may overwrite the patch.
+- OverlapSettingsGuard 0.3.1 adds `kallye.nameplates` to prevent Kallye nameplate styling while Plater loads. Group-frame features remain available.
+- Removed the obsolete ForeverUI adapter, TOC dependency, eight policies, related adapter settings, fixtures and tests from the active branch. Replaced generic guard coverage with current addon scenarios. The `ForeverUI` backup branch and migration backup preserve rollback; historical change-log entries remain historical records. RestedXP upgrade tooltips are now user-adjustable; existing saved values are unchanged.
+- Updated inventory, overlap-policy documentation and project changelog. Verification: 20 Lua 5.1 guard tests and four setup tests pass. Live group combat appearance, aura behavior and Edit Mode API effects still need an in-game login.
+
 ## 2026-10-10 - ForeverUI replaced by ClassUIEnhanced and Plater
 
 - Created local backup branch `ForeverUI` at `50579665b579eb33f52f649f1834c57af2fea606`, preserving the complete pre-migration tracked addon bundle. Copied all WTF settings to `_classic_beta_/addon-backups/foreverui-replacement-20261010-211803/WTF` before changing settings. Git excludes WTF.

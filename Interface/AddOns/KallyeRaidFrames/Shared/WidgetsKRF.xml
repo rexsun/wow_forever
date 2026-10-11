@@ -1,0 +1,94 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\FrameXML\UI.xsd">
+	<Include file="Widgets.lua"/>
+	<CheckButton name="KRFUI_CheckboxWidget" inherits="UICheckButtonTemplate" virtual="true">
+		<Size x="26" y="26"/>
+		<Layers>
+			<Layer level="ARTWORK">
+			<FontString inherits="GameFontHighlightLeft" parentKey="Text">
+				<Anchors>
+				<Anchor point="LEFT" relativePoint="RIGHT">
+					<Offset>
+					<AbsDimension x="2" y="1"/>
+					</Offset>
+				</Anchor>
+				</Anchors>
+			</FontString>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnLoad> K_SHARED_UI.CheckboxWidget_OnLoad(self)</OnLoad>
+			<OnClick>K_SHARED_UI.CheckboxWidget_OnClick(self)</OnClick>
+			<OnEnter>K_SHARED_UI.CheckboxWidget_OnEnter(self)</OnEnter>
+			<OnLeave>K_SHARED_UI.CheckboxWidget_OnLeave(self)</OnLeave>
+		</Scripts>
+	</CheckButton>
+	<CheckButton name="KRFUI_ColorWidget" inherits="KRFUI_CheckboxWidget" virtual="true">
+		<Scripts>
+			<OnLoad> K_SHARED_UI.ColorWidget_OnLoad(self)</OnLoad>
+			<OnClick>K_SHARED_UI.ColorWidget_OnClick(self)</OnClick>
+			<OnEnter>K_SHARED_UI.ColorWidget_OnEnter(self)</OnEnter>
+			<OnLeave>K_SHARED_UI.ColorWidget_OnLeave(self)</OnLeave>
+		</Scripts>
+	</CheckButton>
+	<!-- Replace buggy OptionsSliderTemplate -->
+	<Slider name="KRFUI_OptionsSliderTemplate" inherits="MinimalSliderTemplate,UISliderTemplate" virtual="true">
+		<Size x="144" y="17"/>
+		<Layers>
+			<Layer level="ARTWORK">
+				<FontString name="$parentText" parentKey="Text" inherits="GameFontHighlight">
+					<Anchors>
+						<Anchor point="BOTTOM" relativePoint="TOP"/>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentLow" parentKey="Low" inherits="GameFontHighlightSmall" text="LOW">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" x="-4" y="3"/>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentHigh" parentKey="High" inherits="GameFontHighlightSmall" text="HIGH">
+					<Anchors>
+						<Anchor point="TOPRIGHT" relativePoint="BOTTOMRIGHT" x="4" y="3"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+	</Slider>
+	<Slider name="KRFUI_SliderWidget" inherits="KRFUI_OptionsSliderTemplate" virtual="true">
+		<Scripts>
+			<OnLoad> K_SHARED_UI.SliderWidget_OnLoad(self)</OnLoad>
+			<OnEnter>K_SHARED_UI.SliderWidget_OnEnter(self)</OnEnter>
+			<OnLeave>K_SHARED_UI.SliderWidget_OnLeave(self)</OnLeave>
+			<OnValueChanged>K_SHARED_UI.SliderWidget_OnValueChanged(self, value)</OnValueChanged>
+		</Scripts>
+	</Slider>
+	<CheckButton name="KRFUI_HeadingWidget" inherits="UICheckButtonTemplate" virtual="true">
+		<Size x="100" y="40" />
+		<Anchors>
+			<Anchor point="LEFT" relativeTo="$parent" relativePoint="LEFT"><Offset x="20" y="0"/></Anchor>
+			<Anchor point="RIGHT" relativeTo="$parent" relativePoint="RIGHT"><Offset x="0" y="0"/></Anchor>
+		</Anchors>
+		<Scripts>
+			<OnLoad> K_SHARED_UI.HeadingWidget_OnLoad(self)</OnLoad>
+			<OnClick>K_SHARED_UI.HeadingWidget_OnClick(self)</OnClick>
+		</Scripts>
+	</CheckButton>
+	<CheckButton name="KRFUI_TextWidget" inherits="UICheckButtonTemplate" virtual="true">
+		<Size x="100" y="40" />
+		<Anchors>
+			<Anchor point="LEFT" relativeTo="$parent" relativePoint="LEFT"><Offset x="0" y="0"/></Anchor>
+		</Anchors>
+		<Scripts>
+			<OnLoad> K_SHARED_UI.TextWidget_OnLoad(self)</OnLoad>
+			<OnClick>K_SHARED_UI.TextWidget_OnClick(self)</OnClick>
+		</Scripts>
+	</CheckButton>
+	<Frame name="KRFUI_DropDownWidget" inherits="UIDropDownMenuTemplate" virtual="true">
+		<Size x="100" y="40" />
+		<Scripts>
+			<OnLoad> K_SHARED_UI.DropDownWidget_OnLoad(self)</OnLoad>
+			<OnEnter>K_SHARED_UI.DropDownWidget_OnEnter(self)</OnEnter>
+			<OnLeave>K_SHARED_UI.DropDownWidget_OnLeave(self)</OnLeave>
+		</Scripts>
+	</Frame>
+</Ui>

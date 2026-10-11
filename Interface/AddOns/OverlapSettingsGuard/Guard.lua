@@ -4,7 +4,7 @@ local PREFIX = "|cffff9933OverlapSettingsGuard|r"
 local POPUP = "OVERLAPSETTINGSGUARD_OFF"
 local POPUP_RELOAD = "OVERLAPSETTINGSGUARD_OFF_RELOAD"
 local START_DELAY = 2
--- Safety net for changes that reach no hook, such as `/fui quests guide on`.
+-- Some profile changes bypass option hooks.
 local TICK_SECONDS = 2
 local POPUP_GAP_SECONDS = 10
 
@@ -75,7 +75,7 @@ local function ReportBlocked(results)
   end
 end
 
--- Reverting in combat could touch ForeverUI's map pins, so it waits for combat to end.
+-- Protected frame and CVar changes must wait until combat ends.
 local function Enforce(rules)
   if InCombatLockdown() then
     waitingForCombat = true

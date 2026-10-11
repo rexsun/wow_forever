@@ -5,7 +5,6 @@ local _, OSG = ...
 local adapter = {}
 OSG.adapters.RestedXP = adapter
 
--- `inverted`: RXP stores the opposite switch, so "on" means the stored flag is false.
 local KEYS = {
   QuestAutomation = { field = "enableQuestAutomation", default = true },
   GossipAutomation = { field = "enableGossipAutomation", default = true },
@@ -14,7 +13,6 @@ local KEYS = {
   AutoSellJunk = { field = "autoSellJunk", default = false },
   TalentGuides = { field = "enableTalentGuides", default = true },
   MaxNameplateDistance = { field = "enableMaxNameplateDistance", default = true },
-  UpgradeTooltip = { field = "disableUpgradeTooltip", default = false, inverted = true },
 }
 local OPTIONS_APP = "RestedXP Guides"
 
@@ -37,7 +35,7 @@ local function CharacterTemplate()
   return type(_G.RXPCData) == "table" and Template(_G.RXPCData.localDB) or nil
 end
 
-local function Stored(spec, store, fallback)
+local function IsOn(spec, store, fallback)
   local value = store[spec.field]
   if value == nil and fallback then
     value = fallback[spec.field]
@@ -48,16 +46,8 @@ local function Stored(spec, store, fallback)
   return value == true
 end
 
-local function IsOn(spec, store, fallback)
-  local value = Stored(spec, store, fallback)
-  if spec.inverted then
-    return not value
-  end
-  return value
-end
-
 local function SwitchOff(spec, store)
-  store[spec.field] = spec.inverted and true or false
+  store[spec.field] = false
 end
 
 local function OtherCopies(live)
