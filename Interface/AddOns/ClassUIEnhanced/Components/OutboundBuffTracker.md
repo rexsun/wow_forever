@@ -1,0 +1,35 @@
+# OutboundBuffTracker
+
+Standalone. Bar-style tracker for buffs the **player has applied on allies** (party/raid members). Each active buff renders as a horizontal bar showing the recipient's class-colored name, the spell icon and the remaining duration. Default tracked spell is Prescience (spellID 410089); extra spell IDs can be added via the Options panel. **Disabled by default.**
+
+**Aura path (12.1 AuraContainer).** The pre-12.1 engine read `C_UnitAuras.GetUnitAuraBySpellID(unit, spellID)` per group unit and drove its own StatusBars from `duration`/`expirationTime`. That call survives the 12.1 lockdown but returns real data only for auras carrying the "aura never secret" flag — raid buffs and class self-buffs. A buff the player puts on an *ally* is not one of those, so the read returned nil for every spell this tracker exists for and the bars blanked for the length of a pull. There is no spell-ID read that recovers it (`.context/api.md`), so the tracker was migrated to aura containers.
+
+**One container per ally.** `SetUnit` is per *container* (per-group `SetUnit` is not shipping before 12.1.5), so each ally gets its own `AuraContainer` holding a single aura group filtered `HELPFUL|PLAYER|INCLUDE_NAME_PLATE_ONLY`. The `PLAYER` token restricts the group to auras **cast by the player** — that is what makes this an outbound tracker, and it means the old `aura.sourceUnit == "player"` check is deleted rather than replaced. `INCLUDE_NAME_PLATE_ONLY` is an *include* flag; omitting it silently drops nameplate-flagged auras.
+
+Containers are pooled **by index** and repointed with `SetUnit` each Refresh, not allocated one per raid slot — a 40-slot pool would mean 40 frame providers for the 5 units a party actually has. Blocks are chained: block *N*'s flow origin anchors to block *N-1*'s trailing edge, so the seam tracks each ally's live aura count without anyone reading a (secret) container rect, and a block with nothing up collapses to zero extent.
+
+**Per-button regions.** Icon (`SetIcon`), status-bar fill (`SetDurationBar`, `RemainingTime` direction), timer text (`SetDurationText`), stack count (`SetApplicationCount`) are all bound and driven by the engine — no aura value crosses into Lua. The recipient name is **not** `SetSpellName`: it is an addon-owned FontString written from `UnitName(unit)`, which is a plain value the container's unit gives us. Because the `initializeFrame` closure captures the pool *index* and not the unit, the name and class color are resolved through the `blockOfButton` side table at restyle time.
+
+**No identity-gate guard.** The spell filter above is enforced only inside Blizzard's `CanApplyIdentityCandidateFilters`, and when that gate fails the filter is *skipped*, so a block would show every player-cast buff on its ally instead of the tracked ones. This tracker is exempt: its units are only ever `player` / `partyN` / `raidN` and its filter is HELPFUL, which 12.1.0.69465 made unconditional (`Blizzard_AuraContainerUtil.lua:29`). The guard that used to fold `AuraContainer.IdentityFilterHolds` into each block's `SetShown` — and the vehicle/cutscene recovery pass behind it, after the live reports of 2026-08-23 — is gone. `syncBlockVisibility()` now shows a block on "has an ally" alone, and the empty map an unused block gets from `SyncGroup` is a real off switch again. `SetShown` on our own container is unrestricted, so unlike `Refresh` it keeps working in combat. Run at the end of every `syncBlocks`.
+
+**Event model:** `GROUP_ROSTER_UPDATE`, `PLAYER_ENTERING_WORLD`, `UNIT_NAME_UPDATE` — the roster, not the auras. `UNIT_AURA` registration, the `active` table, the per-bar expiry timers and the `OnUpdate` countdown are all gone; the engine owns aura deltas. `Refresh` bails under `InCombatLockdown()` (container API calls are combat-restricted) and syncs alpha only; the combat-exit layout pass (`Core/Anchoring.lua`'s `OnLeaveCombat`, which runs `ContentLayout` = `Refresh`) re-runs it for a shown tracker. A roster event that lands mid-fight also registers a one-shot `catchUpAfterCombat` on `OnLeaveCombat`, because that pass skips a hidden tracker, which kept the old recipients until something else refreshed it (see `Core/AuraTrackers.md` "Callback lifecycle").
+
+**Not a secure component.** Aura buttons, their children, and every object passed to one of their setters are protected while in combat or while aura data is secret — but that does not reach the component frame, a plain wrapper around the containers (measured in combat 2026-09-28: `CUE_OutboundBuffTracker:IsProtected()` false, and `Hide()`/`Show()` go through on BuffTracker's identical wrapper). So this tracker is not in `Anchoring.secureComponents`: it is laid out, shown and hidden in combat like any other component, and its `Refresh` hides with `Hide()` rather than parking at alpha 0. It is not in `secureClickComponents` either — that set is the `SecureActionButtonTemplate` trackers, whose chains cascade blocked operations — so this tracker anchor-chains normally and the anchoring panels give it the `anchor_parent` dropdown it is actually configured with (default `BuffTrackerBars`, width 100%) rather than a `position_reference` that could never take effect.
+
+**Options.** All keys survive; three carry a narrower meaning under the engine:
+
+| Setting | Behavior |
+|---|---|
+| `tracked_spells` | Add/remove by spell ID. Feeds every container's `candidateFilters.includeSpellIDs`. |
+| `filter_self_cast` | Drops the unit token that *is* the player, so no container is created for them. |
+| `sort_order` | `remaining_asc`/`remaining_desc` map to `AuraContainerSortMethod.ExpirationOnly` and sort **within** one ally's block; across allies the order is the container chain. A global remaining-time sort would need the remaining times, which are secret. `name_asc` is exact — it sorts the chain, which is ours. |
+| `max_bars` | Caps frames **per ally** (`SetAuraGroupMaxFrameCount`), and is the ceiling used for the anchor box's reserved rows. The live total is secret, so a global cap has nothing to count. |
+| `overflow_hide` | Whether that cap applies at all. |
+| `name_color_source` / `name_color_static` | Unchanged — the name FontString is ours. |
+| `spell_colors` | **Inert.** Which button shows which spell is decided by the engine and that binding is secret. Same limitation the groups engine has on BuffTrackerBars. |
+
+Shared bar layout fields are inherited from `bar_tracker_profile_main` (icon/name visibility driven by `bar_content`). Width follows `Anchor.GetInheritedWidth` when the component is anchored with `anchor_width_mode == "percent"`. In IconOnly mode the item collapses to `icon_size` only when the `collapse` setting is enabled (disabled by default).
+
+**Size reporting** is a fixed ceiling, not a content hug: the container's real rect is engine-owned and secret, so `GetComponentSize` reserves `allies × tracked spells` rows, clamped by `max_bars` when `overflow_hide` is on.
+
+Defaults: 220×20, anchored above BuffTrackerBars.

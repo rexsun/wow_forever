@@ -1,3 +1,13 @@
+## [Combat UI migration / OverlapSettingsGuard 0.3.0] - 2026-10-10
+### Features
+- Replace ForeverUI and bundled QuestForever with ClassUIEnhanced 3.1.0 and Plater v658 for WoW Forever 1.60.1.
+- Enable Leatrix minimap/chat enhancements and retain Blizzard action bars, bags and full unit/group frames.
+- Guard overlapping Plater resources/personal bars, Leatrix combat plates and RestedXP nameplate distance, including Plater profiles and combat deferral.
+### Design Rationale
+- Give each UI area one owner and avoid the broad hooks and maintenance of the previous full UI replacement. Preserve the original bundle on the ForeverUI branch and save WTF separately because it is excluded from Git.
+### Notes & Caveats
+- Packages declare Interface 16001; Plater uses its Camelot TOC. Existing Plater settings are retained. ClassUIEnhanced's first-login prompt handles duplicate Blizzard cooldown viewers. Full unit frames remain Blizzard's; CUE provides player health/resources and cast bars. In-game confirmation is pending.
+
 ## [Addon adoption utility 1.0] - 2026-10-10
 ### Features
 - Adopt Interface and WTF from a shared source game root using one PowerShell argument, with staged copies, dated backups and rollback.

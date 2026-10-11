@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CUE Perf Viewer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #1e1e1e; color: #ccc; padding: 16px; }
+h1 { font-size: 18px; margin-bottom: 12px; color: #e0e0e0; }
+.controls { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+textarea { width: 100%; height: 120px; background: #2d2d2d; color: #d4d4d4; border: 1px solid #444; border-radius: 4px; padding: 8px; font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 12px; resize: vertical; }
+button { background: #0078d4; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+button:hover { background: #106ebe; }
+button.secondary { background: #444; }
+button.secondary:hover { background: #555; }
+#status { font-size: 12px; color: #888; }
+canvas { border: 1px solid #333; border-radius: 4px; margin-top: 8px; cursor: grab; width: 100%; height: 600px; }
+canvas:active { cursor: grabbing; }
+#tooltip { position: absolute; background: #333; color: #eee; padding: 6px 10px; border-radius: 4px; font-size: 12px; pointer-events: none; display: none; white-space: nowrap; z-index: 100; border: 1px solid #555; }
+.info { font-size: 12px; color: #666; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h1>CUE Performance Trace Viewer</h1>
+
+<p class="info">Paste the base64 string from <code>/cueperf trace export</code> (or raw JSON). Drag-and-drop .json files also supported.</p>
+<textarea id="input" placeholder="Paste base64-encoded trace or raw JSON here..."></textarea>
+
+<div class="controls">
+    <button id="btnLoad" onclick="loadTrace()">Load Trace</button>
+    <button id="btnDownload" class="secondary" onclick="downloadJSON()" disabled>Download trace.json</button>
+    <button class="secondary" onclick="resetView()">Reset Zoom</button>
+    <span id="status"></span>
+</div>
+
+<canvas id="canvas"></canvas>
+<div id="tooltip"></div>
+
+<script>
+// ── Minimal CBOR decoder ────────────────────────────────────────────────────
+// Handles the subset produced by WoW's C_EncodingUtil.SerializeCBOR:
+// arrays, maps, strings, unsigned/negative ints, floats, booleans, null.
+function decodeCBOR(buffer) {
+    const view = new DataView(buffer);
+    let offset = 0;
+
+    function readUint8() { return view.getUint8(offset++); }
+    function readUint16() { const v = view.getUint16(offset); offset += 2; return v; }
+    function readUint32() { const v = view.getUint32(offset); offset += 4; return v; }
+    function readFloat16() {
+        const half = readUint16();
+        const sign = (half >> 15) & 1;
+        const exp = (half >> 10) & 0x1f;
+        const mant = half & 0x3ff;
+        if (exp === 0) return (sign ? -1 : 1) * 5.960464477539063e-8 * mant;
+        if (exp === 31) return mant ? NaN : (sign ? -Infinity : Infinity);
+        return (sign ? -1 : 1) * Math.pow(2, exp - 15) * (1 + mant / 1024);
+    }
+    function readFloat32() { const v = view.getFloat32(offset); offset += 4; return v; }
+    function readFloat64() { const v = view.getFloat64(offset); offset += 8; return v; }
+
+    function readLength(ai) {
+        if (ai < 24) return ai;
+        if (ai === 24) return readUint8();
+        if (ai === 25) return readUint16();
+        if (ai === 26) return readUint32();
+        if (ai === 27) {
+            // 64-bit — read as two 32-bit and combine (safe up to 2^53)
+            const hi = readUint32();
+            const lo = readUint32();
+            return hi * 0x100000000 + lo;
+        }
+        throw new Error('CBOR: unsupported length ai=' + ai);
+    }
+
+    function decode() {
+        const initial = readUint8();
+        const major = initial >> 5;
+        const ai = initial & 0x1f;
+
+        switch (major) {
+            case 0: return readLength(ai);                          // unsigned int
+            case 1: return -1 - readLength(ai);                     // negative int
+            case 2: {                                                // byte string (WoW SerializeCBOR uses this for all strings)
+                const len = readLength(ai);
+                const bytes = new Uint8Array(buffer, offset, len);
+                offset += len;
+                return new TextDecoder().decode(bytes);
+            }
+            case 3: {                                                // text string
+                const len = readLength(ai);
+                const bytes = new Uint8Array(buffer, offset, len);
+                offset += len;
+                return new TextDecoder().decode(bytes);
+            }
+            case 4: {                                                // array
+                const len = readLength(ai);
+                const arr = [];
+                for (let i = 0; i < len; i++) arr.push(decode());
+                return arr;
+            }
+            case 5: {                                                // map
+                const len = readLength(ai);
+                const obj = {};
+                for (let i = 0; i < len; i++) {
+                    const key = decode();
+                    obj[key] = decode();
+                }
+                return obj;
+            }
+            case 7: {                                                // simple/float
+                if (ai === 20) return false;
+                if (ai === 21) return true;
+                if (ai === 22) return null;
+                if (ai === 23) return undefined;
+                if (ai === 25) return readFloat16();
+                if (ai === 26) return readFloat32();
+                if (ai === 27) return readFloat64();
+                throw new Error('CBOR: unsupported simple value ai=' + ai);
+            }
+            default:
+                throw new Error('CBOR: unsupported major type ' + major);
+        }
+    }
+
+    return decode();
+}
+
+// ── Base64 → Inflate → CBOR decode pipeline ─────────────────────────────────
+async function tryDecompress(bytes, format) {
+    const ds = new DecompressionStream(format);
+    const writer = ds.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+    const reader = ds.readable.getReader();
+    const chunks = [];
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+    }
+    const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+    const decompressed = new Uint8Array(totalLen);
+    let pos = 0;
+    for (const chunk of chunks) {
+        decompressed.set(chunk, pos);
+        pos += chunk.length;
+    }
+    return decompressed;
+}
+
+async function decodeBase64DeflatedCBOR(base64str) {
+    // Standard base64 decode
+    const binStr = atob(base64str);
+    const bytes = new Uint8Array(binStr.length);
+    for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+
+    // Try decompression formats (WoW uses deflate-raw)
+    const formats = ['deflate-raw', 'deflate', 'gzip'];
+    for (const fmt of formats) {
+        try {
+            const decompressed = await tryDecompress(bytes, fmt);
+            return decodeCBOR(decompressed.buffer);
+        } catch (e) {
+            // try next format
+        }
+    }
+
+    throw new Error('All decompression formats failed. First 8 bytes: ' + header);
+}
+
+// ── Detect input format and parse ────────────────────────────────────────────
+async function parseInput(text) {
+    // Try JSON first (starts with [ or {)
+    const trimmed = text.trim();
+    if (trimmed[0] === '[' || trimmed[0] === '{') {
+        const data = JSON.parse(trimmed);
+        const arr = Array.isArray(data) ? data : (data.traceEvents || []);
+        // If it looks like Chrome Trace (has ph/ts/dur), use directly
+        if (arr.length > 0 && arr[0].ph) return arr;
+        // Otherwise it might be our CBOR-decoded format {n, ts, dur}
+        return arr.map(e => ({ ph: 'X', name: e.n || e.name, ts: e.ts, dur: e.ms || e.dur, pid: 0, tid: 0 }));
+    }
+
+    // Otherwise treat as base64-encoded CBOR+Deflate
+    // Strip any whitespace/newlines that might have been introduced during copy
+    const clean = trimmed.replace(/\s/g, '');
+    const decoded = await decodeBase64DeflatedCBOR(clean);
+    // decoded is an array of {n, ts, dur}
+    return decoded.map(e => ({ ph: 'X', name: e.n, ts: e.ts, dur: e.ms || e.dur, pid: 0, tid: 0 }));
+}
+
+// ── Flame graph rendering ────────────────────────────────────────────────────
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const tooltip = document.getElementById('tooltip');
+const statusEl = document.getElementById('status');
+
+let events = [];
+let decodedJSON = ''; // for download
+let minTs = 0, maxTs = 1;
+let viewStart = 0, viewEnd = 1;
+let isDragging = false, dragStartX = 0, dragViewStart = 0;
+
+const BAR_HEIGHT = 18;
+const BAR_GAP = 2;
+const TOP_MARGIN = 30;
+const LEFT_MARGIN = 0;
+
+function hashColor(name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0;
+    const hue = ((h & 0x7fffffff) % 360);
+    return `hsl(${hue}, 55%, 50%)`;
+}
+
+function fmtTime(us) {
+    if (us >= 1e6) return (us / 1e6).toFixed(2) + 's';
+    if (us >= 1e3) return (us / 1e3).toFixed(2) + 'ms';
+    return us.toFixed(0) + 'us';
+}
+
+async function loadTrace() {
+    const text = document.getElementById('input').value.trim();
+    if (!text) return;
+    try {
+        statusEl.textContent = 'Decoding...';
+        const parsed = await parseInput(text);
+        events = parsed.filter(e => e.ts != null && e.dur != null);
+        if (events.length === 0) {
+            statusEl.textContent = 'No events found after decoding.';
+            return;
+        }
+        events.sort((a, b) => a.ts - b.ts);
+        minTs = events[0].ts;
+        maxTs = Math.max(...events.map(e => e.ts + e.dur));
+        viewStart = minTs;
+        viewEnd = maxTs;
+
+        // Build Chrome Trace JSON for download
+        decodedJSON = JSON.stringify(events, null, 2);
+
+        statusEl.textContent = `Loaded ${events.length} events, span: ${fmtTime(maxTs - minTs)}`;
+        document.getElementById('btnDownload').disabled = false;
+        render();
+    } catch (e) {
+        statusEl.textContent = 'Error: ' + e.message;
+        console.error(e);
+    }
+}
+
+function assignLanes(events) {
+    const lanes = [];
+    const result = [];
+    for (const e of events) {
+        let lane = -1;
+        for (let i = 0; i < lanes.length; i++) {
+            if (e.ts >= lanes[i]) { lane = i; break; }
+        }
+        if (lane === -1) { lane = lanes.length; lanes.push(0); }
+        lanes[lane] = e.ts + e.dur;
+        result.push({ ...e, lane });
+    }
+    return result;
+}
+
+function render() {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    const W = rect.width;
+    const H = rect.height;
+
+    ctx.fillStyle = '#1e1e1e';
+    ctx.fillRect(0, 0, W, H);
+
+    if (events.length === 0) return;
+
+    const viewSpan = viewEnd - viewStart;
+    const laned = assignLanes(events);
+
+    // Time axis
+    ctx.fillStyle = '#555';
+    ctx.font = '11px monospace';
+    const tickCount = 10;
+    for (let i = 0; i <= tickCount; i++) {
+        const t = viewStart + (viewSpan * i / tickCount);
+        const x = LEFT_MARGIN + ((t - viewStart) / viewSpan) * (W - LEFT_MARGIN);
+        ctx.fillText(fmtTime(t - minTs), x, 14);
+        ctx.strokeStyle = '#333';
+        ctx.beginPath(); ctx.moveTo(x, 18); ctx.lineTo(x, H); ctx.stroke();
+    }
+
+    // Draw bars
+    for (const e of laned) {
+        const x1 = LEFT_MARGIN + ((e.ts - viewStart) / viewSpan) * (W - LEFT_MARGIN);
+        const x2 = LEFT_MARGIN + ((e.ts + e.dur - viewStart) / viewSpan) * (W - LEFT_MARGIN);
+        const w = Math.max(1, x2 - x1);
+        if (x2 < 0 || x1 > W) continue;
+
+        const y = TOP_MARGIN + e.lane * (BAR_HEIGHT + BAR_GAP);
+        ctx.fillStyle = hashColor(e.name);
+        ctx.fillRect(x1, y, w, BAR_HEIGHT);
+
+        if (w > 40) {
+            ctx.fillStyle = '#fff';
+            ctx.font = '11px monospace';
+            const label = e.name + ' ' + fmtTime(e.dur);
+            const textW = ctx.measureText(label).width;
+            if (textW < w - 4) {
+                ctx.fillText(label, x1 + 3, y + 13);
+            } else if (w > 60) {
+                ctx.fillText(e.name, x1 + 3, y + 13);
+            }
+        }
+    }
+
+    canvas._laned = laned;
+    canvas._viewStart = viewStart;
+    canvas._viewSpan = viewSpan;
+    canvas._W = W;
+}
+
+// Mouse interaction
+canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const frac = mx / rect.width;
+    const span = viewEnd - viewStart;
+    const factor = e.deltaY > 0 ? 1.2 : 1 / 1.2;
+    const newSpan = span * factor;
+    viewStart = viewStart + (span - newSpan) * frac;
+    viewEnd = viewStart + newSpan;
+    render();
+});
+
+canvas.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    dragStartX = e.clientX;
+    dragViewStart = viewStart;
+});
+
+canvas.addEventListener('mousemove', (e) => {
+    if (isDragging) {
+        const rect = canvas.getBoundingClientRect();
+        const dx = e.clientX - dragStartX;
+        const span = viewEnd - viewStart;
+        const shift = -(dx / rect.width) * span;
+        viewStart = dragViewStart + shift;
+        viewEnd = viewStart + span;
+        render();
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const laned = canvas._laned;
+    if (!laned) return;
+
+    let hit = null;
+    for (const ev of laned) {
+        const x1 = LEFT_MARGIN + ((ev.ts - canvas._viewStart) / canvas._viewSpan) * canvas._W;
+        const x2 = LEFT_MARGIN + ((ev.ts + ev.dur - canvas._viewStart) / canvas._viewSpan) * canvas._W;
+        const y = TOP_MARGIN + ev.lane * (BAR_HEIGHT + BAR_GAP);
+        if (mx >= x1 && mx <= x2 && my >= y && my <= y + BAR_HEIGHT) {
+            hit = ev;
+            break;
+        }
+    }
+
+    if (hit) {
+        tooltip.style.display = 'block';
+        tooltip.style.left = (e.clientX + 12) + 'px';
+        tooltip.style.top = (e.clientY - 8) + 'px';
+        tooltip.textContent = `${hit.name}  |  ${fmtTime(hit.dur)}  |  start: ${fmtTime(hit.ts - minTs)}`;
+    } else {
+        tooltip.style.display = 'none';
+    }
+});
+
+canvas.addEventListener('mouseup', () => { isDragging = false; });
+canvas.addEventListener('mouseleave', () => { isDragging = false; tooltip.style.display = 'none'; });
+
+function resetView() {
+    viewStart = minTs;
+    viewEnd = maxTs;
+    render();
+}
+
+function downloadJSON() {
+    if (!decodedJSON) return;
+    const blob = new Blob([decodedJSON], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'cue_trace.json';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// Drag and drop
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        document.getElementById('input').value = reader.result;
+        loadTrace();
+    };
+    reader.readAsText(file);
+});
+
+window.addEventListener('resize', render);
+</script>
+</body>
+</html>

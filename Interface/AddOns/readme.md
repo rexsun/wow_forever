@@ -1,15 +1,15 @@
 # WoW: Forever add-ons
 
-Inventory checked 2026-10-09 for `_classic_beta_/Interface/AddOns` (client 1.60.1). These are installed package versions; in-game behavior still needs a character login. See [updates.md](updates.md) for the change history.
+Inventory checked 2026-10-10 for `_classic_beta_/Interface/AddOns` (client 1.60.1.70338, Interface 16001). These are installed package versions; in-game behavior still needs a character login. See [updates.md](updates.md) for the change history.
 
 ## Installed packages
 
 | Package | Installed version | Folders | Purpose and source |
 | --- | --- | --- | --- |
-| ForeverUI | 0.4.65 + local keybind-label, party-frame taint and combat ping patches | `ForeverUI` | Main interface: frames, bars, nameplates, bags, chat, and layout controls. Action buttons are patched to show standard game key bindings, and hidden Blizzard party/raid frames are faded instead of hidden, the adopted armour-damage frame is moved with the C originals, ForeverUI's own action buttons run on their own event loop instead of Blizzard's shared ones (`Modules/ActionBars/OwnButtons.lua`), and Blizzard's buttons are no longer wrapped, so Edit Mode is not tainted. Their ping attributes are not set in combat; they update when combat ends. The chat module re-applies its font size after the game or another add-on resets it, and the minimap module gathers buttons that add-ons create after login; see [updates.md](updates.md). [CurseForge](https://www.curseforge.com/wow/addons/foreverui) |
-| QuestForever | 0.4.7 + local combat map-pin patch | `QuestForever` | Quest helper bundled in the ForeverUI archive. It can be enabled from ForeverUI. Its world map pins skip `SetPassThroughButtons` in combat (`Pins.lua`), so opening the quest log in combat is not blocked. [ForeverUI package](https://www.curseforge.com/wow/addons/foreverui/files/9047043) |
+| ClassUIEnhanced | 3.1.0 | `ClassUIEnhanced` | Cooldown/buff trackers, player health/resources and player/target/focus cast bars. Does not replace full unit or party/raid frames. Its main TOC lists Interface 16001. Open with `/cue`. [CurseForge release](https://www.curseforge.com/wow/addons/classuienhanced/files/9106446) |
+| Plater Nameplates | Plater-v658-Forever | `Plater` | Configurable nameplates, threat colours, debuffs and nameplate cast bars. Loads through `Plater_Camelot.toc` (Interface 16001). Personal health/mana and class resource displays are guarded off in favour of ClassUIEnhanced. Open with `/plater`. [CurseForge release](https://www.curseforge.com/wow/addons/plater-nameplates/files/9119013) |
 | Details! | Details.20261006.15326.172 | `Details`, `Details_Compare2`, `Details_DataStorage`, `Details_EncounterDetails`, `Details_RaidCheck`, `Details_Streamer`, `Details_TinyThreat`, `Details_Vanguard` | Damage, healing, and threat meter (replaces ForeverMeter). Loads through its `_Camelot.toc` files (Interface 16001). [CurseForge](https://www.curseforge.com/wow/addons/details) |
-| BugGrabber | v12.1.0 | `!BugGrabber` | Captures Lua errors. It has no display of its own; ForeverUI also installs an error handler. [CurseForge](https://www.curseforge.com/wow/addons/bug-grabber) |
+| BugGrabber | v12.1.0 | `!BugGrabber` | Captures Lua errors. It has no display of its own; BugSack is not installed. [CurseForge](https://www.curseforge.com/wow/addons/bug-grabber) |
 | Leatrix Maps | 1.60.18-forever | `Leatrix_Maps` | World map and battlefield map enhancements. [CurseForge](https://www.curseforge.com/wow/addons/leatrix-maps) |
 | Talents Forever | 0.37.1 (beta) | `TalentsForeverBook` | Talent planner for WoW: Forever. [CurseForge](https://www.curseforge.com/wow/addons/talents-forever) |
 | DungeonsForever | 1.6.9 + local global-leak fix | `DungeonsForever` | Dungeon handbook: overviews, boss loot, quests, and profession guides. Open with `/df`. Loot-card rows no longer leak the global `r` (`Core/DungeonUI.lua`). [CurseForge](https://www.curseforge.com/wow/addons/dungeonsforever) |
@@ -20,11 +20,15 @@ Inventory checked 2026-10-09 for `_classic_beta_/Interface/AddOns` (client 1.60.
 | RangeDisplay | v6.3.6 | `RangeDisplay`, `RangeDisplay_Options` | Estimated unit range. Both TOCs include 16001; in-game behavior remains unverified. [CurseForge](https://www.curseforge.com/wow/addons/range-display) |
 | RestedXP Guides | v4.11.21 | `RXPGuides` | Leveling guides with step list, waypoint arrow, map pins and quest/gossip/flight automation. Quest/gossip/reward automation is locked off in favor of Leatrix Plus; guide navigation and recommendations remain available. Open with `/rxp`. Its main TOC lists 16001 and loads Forever's own guides and data (game type `camelot`). [CurseForge](https://www.curseforge.com/wow/addons/restedxp-guide) |
 
-ForeverUI 0.4.65 and QuestForever 0.4.7 came from the [Forever 1.60.1 release](https://www.curseforge.com/wow/addons/foreverui/files/9047043). Both TOCs declare Interface 16001. Open ForeverUI with `/fui`; use `/fui move` to position its frames. ForeverUI includes its own nameplates and quest navigation. ElvUI, Platynator, LuckyoneUI, TomTom, and WeakAuras have been removed from the active add-on directory along with their companion folders and saved variables.
+Blizzard owns action bars, bags, player/target/focus/pet unit frames and party/raid frames. Leatrix Plus owns minimap and chat enhancements: Enhance minimap, Square minimap, Minimap button bag, chat font size 12 and Move editbox to top are enabled; Hide addon menu is off. Leatrix Combat plates is off because Plater owns nameplate visibility. RestedXP retains quest navigation and Leatrix retains quest automation. ClassUIEnhanced handles duplicate Blizzard cooldown viewers through its own first-login prompt; allow it to hide those viewers for a single tracker display.
+
+ForeverUI 0.4.65 and bundled QuestForever 0.4.7, including local patches, are preserved on the `ForeverUI` Git branch at `50579665b579eb33f52f649f1834c57af2fea606`. Their folders were moved out of AddOns. A complete pre-migration WTF copy and the removed folders/settings are in `_classic_beta_/addon-backups/foreverui-replacement-20261010-211803/`. Existing Plater settings are retained. ElvUI, Platynator, LuckyoneUI, TomTom and WeakAuras remain uninstalled.
+
+To restore the previous bundle, close WoW and switch to the `ForeverUI` branch from a clean checkout. Restore `WTF` from the migration backup to recover the previous settings and character addon lists. Switching branches alone does not restore WTF, because it is excluded from Git. Preserve any newer settings before restoring.
 
 ## OverlapSettingsGuard (our own add-on)
 
-Version 0.2.1, folder `OverlapSettingsGuard`, written for this installation and not downloaded from anywhere. It keeps settings switched off when they duplicate a feature of another installed add-on. If one is switched on in game, it switches it back off and shows a popup explaining why. Type `/osg` to see its rules. See [OverlapSettingsGuard/readme.md](OverlapSettingsGuard/readme.md) for details.
+Version 0.3.0, folder `OverlapSettingsGuard`, written for this installation and not downloaded from anywhere. It keeps settings switched off when they duplicate a feature of another installed add-on. If one is switched on in game, it switches it back off and shows a popup explaining why. Type `/osg` to see its rules. See [OverlapSettingsGuard/readme.md](OverlapSettingsGuard/readme.md) for details.
 
 ## Updating safely
 

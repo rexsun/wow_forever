@@ -1,0 +1,16 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+	<!-- Embed this file. Runtime files in load order; Core.lua must stay first. -->
+	<Script file="Core.lua"/>
+	<Script file="Enums.lua"/>
+	<Script file="Emulated\Filter.lua"/>
+	<Script file="Emulated\Layout.lua"/>
+	<Script file="Emulated\Clock.lua"/>
+	<Script file="Emulated\Button.lua"/>
+	<Script file="Emulated\ButtonExtras.lua"/>
+	<Script file="Emulated\Tooltip.lua"/>
+	<Script file="Emulated\Enchant.lua"/>
+	<Script file="Emulated\Display.lua"/>
+	<Script file="Emulated\Store.lua"/>
+	<Script file="Emulated\Pipeline.lua"/>
+	<Script file="Emulated\Container.lua"/>
+</Ui>

@@ -1,6 +1,3 @@
--- Just enough of the game API, Leatrix Plus and ForeverUI to load OverlapSettingsGuard
--- outside the game. Each Fresh() call builds a new world and loads the add-on into it.
-
 local Stubs = {}
 
 local function NewScripts(frame)
@@ -29,11 +26,9 @@ local function NewFrame(objectType, parent)
   return frame
 end
 
--- Leatrix Plus: ten pages filling LeaPlusGlobalPanel, a named nav button for each,
--- and MakeCB-style checkboxes whose values live in a private table.
 local function BuildLeatrix(world, values, saved)
   local panel = NewFrame("Frame")
-  for _, name in ipairs({ "AutomateQuests", "AutomateGossip", "MoveChatEditBoxToTop", "SetChatFontSize", "MinimapModder", "ShowFlightTimes" }) do
+  for _, name in ipairs({ "AutomateQuests", "AutomateGossip", "MoveChatEditBoxToTop", "SetChatFontSize", "MinimapModder", "ShowFlightTimes", "CombatPlates" }) do
     values[name] = values[name] or "Off"
   end
   local pages = {}
@@ -71,6 +66,7 @@ local function BuildLeatrix(world, values, saved)
   MakeCB(pages[5], "MinimapModder", 146, -92, true)
   MakeCB(pages[5], "TipModEnable", 146, -112, true)
   MakeCB(pages[7], "ShowFlightTimes", 340, -252, true)
+  MakeCB(pages[7], "CombatPlates", 340, -192, true)
   world.leatrixPanel = panel
   _G.LeaPlusGlobalPanel = panel
   _G.LeaPlusDB = saved
@@ -123,6 +119,7 @@ end
 
 -- options: loaded = { addon = true }, leatrix = { values, saved, version },
 -- foreverui = { modules, quests, otherProfiles }, rxp = { live, profiles, accountDefault, characterDefault }
+-- plater = { live, profiles }, personalBar = boolean
 function Stubs.Fresh(root, options)
   local world = { printed = {}, popups = {}, timers = {}, tickers = {}, frames = {}, now = 100, combat = false }
   local loaded = options.loaded or {}
@@ -130,6 +127,18 @@ function Stubs.Fresh(root, options)
 
   _G.LeaPlusGlobalPanel, _G.LeaPlusDB, _G.ForeverUI, _G.ForeverUIDB = nil, nil, nil, nil
   _G.RXP, _G.RXPSettings, _G.RXPData, _G.RXPCData, _G.LibStub = nil, nil, nil, nil, nil
+  _G.Plater, _G.PlaterDB = nil, nil
+  world.cvars = { nameplateShowSelf = options.personalBar and "1" or "0" }
+  _G.GetCVar = function(name) return world.cvars[name] end
+  _G.SetCVar = function(name, value) world.cvars[name] = tostring(value) end
+  if loaded.Plater then
+    local profiles = (options.plater and options.plater.profiles) or {}
+    local live = (options.plater and options.plater.live) or {}
+    profiles.Default = live
+    _G.PlaterDB = { profiles = profiles }
+    _G.Plater = { db = { profile = live }, refreshes = 0 }
+    function Plater:RefreshConfig() self.refreshes = self.refreshes + 1 end
+  end
   _G.C_AddOns = {
     IsAddOnLoaded = function(name) return loaded[name] == true, loaded[name] == true end,
     GetAddOnMetadata = function(name) return versions[name] end,
@@ -176,7 +185,7 @@ function Stubs.Fresh(root, options)
   end
 
   local ns = {}
-  for _, file in ipairs({ "Core.lua", "Policy.lua", "Adapters/LeatrixPlus.lua", "Adapters/ForeverUI.lua", "Adapters/RestedXP.lua", "Guard.lua" }) do
+  for _, file in ipairs({ "Core.lua", "Policy.lua", "Adapters/LeatrixPlus.lua", "Adapters/ForeverUI.lua", "Adapters/RestedXP.lua", "Adapters/Plater.lua", "Guard.lua" }) do
     local chunk = assert(loadfile(root .. file))
     chunk("OverlapSettingsGuard", ns)
   end

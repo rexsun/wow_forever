@@ -2,6 +2,16 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-10 - ForeverUI replaced by ClassUIEnhanced and Plater
+
+- Created local backup branch `ForeverUI` at `50579665b579eb33f52f649f1834c57af2fea606`, preserving the complete pre-migration tracked addon bundle. Copied all WTF settings to `_classic_beta_/addon-backups/foreverui-replacement-20261010-211803/WTF` before changing settings. Git excludes WTF.
+- Installed unmodified ClassUIEnhanced 3.1.0 ([CurseForge file 9106446](https://www.curseforge.com/wow/addons/classuienhanced/files/9106446)) and Plater v658 ([file 9119013](https://www.curseforge.com/wow/addons/plater-nameplates/files/9119013)). Their main and Camelot TOCs respectively declare Interface 16001, matching client 1.60.1.70338. Existing Plater saved profiles are retained.
+- Uninstalled ForeverUI 0.4.65 and its bundled QuestForever 0.4.7 by moving their folders and saved-variable files into the migration backup. Removed their character AddOns.txt entries; enabled ClassUIEnhanced, Plater and OverlapSettingsGuard for all four stored characters.
+- Blizzard owns action bars, bags and full unit/party/raid frames. ClassUIEnhanced owns trackers, player health/resources and player/target/focus cast bars; Plater owns nameplates. Leatrix Enhance minimap and Minimap button bag are on, Square minimap remains on, Hide addon menu is off, chat font is enabled at 12 and Move editbox to top is on. Leatrix Combat plates is off. Standard game keybindings and Blizzard layouts are preserved.
+- OverlapSettingsGuard 0.3.0 adds rules for Leatrix combat plates and Plater class resource/personal health-mana displays, enforcing across stored Plater profiles and live CVars after combat. RestedXP's maximum nameplate-distance rule now depends on Plater. Legacy ForeverUI rules remain inactive. Leatrix options are labelled locked only when their policy is active.
+- ClassUIEnhanced manages duplicate Blizzard cooldown viewers through its own first-login prompt; allow it to hide the viewers while retaining the Cooldown Manager data source. Personal Plater health/resource/buff displays disappear with its personal bar, leaving CUE trackers. Leatrix quest automation and RestedXP navigation remain unchanged.
+- Verification: 27 Lua 5.1 guard tests pass, including no-ForeverUI ownership, inactive option labels, stored profiles, profile changes and combat deferral. Package contents, TOC references, saved-setting syntax and backup integrity are checked separately. In-game cooldown behaviour, quest-item use and group-frame appearance still require login.
+
 ## 2026-10-10 - Removed adoption confirmation prompt
 
 - Removed the typed `CLOSED` confirmation from `Interface/adopt_addons.ps1`. With the source argument supplied, adoption proceeds without interactive confirmation.

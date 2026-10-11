@@ -1,6 +1,6 @@
 # OverlapSettingsGuard
 
-Version 0.2.1, written for this installation (WoW: Forever 1.60.1, Interface 16001). It isn't published anywhere.
+Version 0.3.0, written for this installation (WoW: Forever 1.60.1, Interface 16001). It isn't published anywhere.
 
 Some installed add-ons provide the same feature. When both copies run, they undo each other's work, for example two add-ons both setting the chat font size. OverlapSettingsGuard keeps the duplicate setting in one add-on switched **off**:
 
@@ -32,7 +32,12 @@ A rule only applies while every add-on in its "Locked off when loaded" column is
 | `rxp.selljunk` | RestedXP: Auto Sell Junk (`autoSellJunk`) | RestedXP, Leatrix Plus | Leatrix Plus "Sell junk automatically" sells grey items. RestedXP's delete-junk key stays. |
 | `rxp.talentguides` | RestedXP: Enable Talents Guides (`enableTalentGuides`) | RestedXP, Talents Forever | Talents Forever plans talents for Forever's talent window. RestedXP's talent guide hooks the old talent frame. |
 | `rxp.upgradetooltip` | RestedXP: item upgrade tooltips (keeps `disableUpgradeTooltip` ticked) | RestedXP, ForeverUI | ForeverUI's Loot module marks upgrades in tooltips and bags. RestedXP's quest reward advice stays on. |
-| `rxp.nameplatedistance` | RestedXP: Maximize Nameplate Distance (`enableMaxNameplateDistance`) | RestedXP, ForeverUI | It sets nameplate range to 41 at every loading screen, overriding ForeverUI's nameplate distance (60). |
+| `rxp.nameplatedistance` | RestedXP: Maximize Nameplate Distance (`enableMaxNameplateDistance`) | RestedXP, Plater | It sets nameplate range to 41 at every loading screen, overriding Plater's nameplate distance. |
+| `leatrix.combatplates` | Leatrix Plus: Combat plates (`CombatPlates`) | Leatrix Plus, Plater | Plater owns visibility; Leatrix toggles enemy nameplates at each combat transition. |
+| `plater.resources` | Plater: Resource bars (`resources_settings.global_settings.show`) | Plater, ClassUIEnhanced | ClassUIEnhanced owns the player's class resource display. |
+| `plater.personalbar` | Plater: Personal health and mana bars (`nameplateShowSelf`, including `saved_cvars`) | Plater, ClassUIEnhanced | ClassUIEnhanced owns player health and power tracking; Blizzard unit frames remain available. |
+
+ForeverUI is uninstalled. Rules requiring it are inactive and remain for compatibility if it is restored. Leatrix minimap, chat font and editbox settings are now available; inactive rules do not label those options locked. Blizzard action bars, bags and unit/group frames remain the defaults. ClassUIEnhanced's own prompt controls hiding duplicate Blizzard cooldown viewers; the guard does not disable the Cooldown Manager that supplies its data.
 
 Leatrix Plus is the quest automation provider: `AutomateQuests`, `AutomateGossip`, `AutoQuestRegular`, `AutoQuestDaily`, `AutoQuestWeekly` and `AutoQuestCompleted` are enabled in the saved settings; `AutoQuestShift` is off. These settings remain user-adjustable; the guard no longer locks Leatrix quest/gossip automation off. Quests with multiple reward choices still require a manual choice. RestedXP flight-path, binding and trainer automation remain unchanged.
 
@@ -47,6 +52,7 @@ Each add-on stores settings at a different level. The guard switches a locked se
 | Leatrix Plus | `LeaPlusDB`, one copy for the whole account. The live value is switched off, and Leatrix saves it when you log out or reload. | None: Leatrix has no per-character settings. |
 | ForeverUI | `ForeverUIDB.profiles`: every stored profile is switched off. | The active profile (`ForeverUI.db`, the profile mapped to this character in `ForeverUIDB.characters`) is switched off through ForeverUI's own functions, so the change takes effect at once. |
 | RestedXP | `RXPSettings.profiles`: every character's stored profile. `RXPData.defaultProfile`: the account template new profiles start from. | The live profile (`RXP.settings.profile`, this character's) and `RXPCData.localDB` (this character's fallback template). |
+| Plater | `PlaterDB.profiles`: resource displays and saved personal-bar CVars in every stored profile. | The active `Plater.db.profile` and the live `nameplateShowSelf` CVar. |
 
 Notes:
 
@@ -87,6 +93,8 @@ The positions come from Leatrix Plus 1.60.11. If an update moves a checkbox, its
 
 **All add-ons.** A check every 2 s catches changes that reach no hook, such as `/fui quests guide on`, RestedXP slash commands or a RestedXP profile switch.
 
+**Plater** ([Adapters/Plater.lua](Adapters/Plater.lua)): resource bars are disabled in the active and every stored profile. The personal bar is disabled through `nameplateShowSelf`, and any enabled stored copies of that CVar are reset. `Plater:RefreshConfig()` applies the changes and is hooked to notice profile refreshes; the ticker also catches direct options/CVar edits. Changes wait until combat ends. Missing live Plater settings or an unavailable CVar report cannot enforce rather than guessing.
+
 ## Adding a rule
 
 1. Add an entry to `Policy.lua`. `when[1]` must be the add-on that owns the setting.
@@ -98,7 +106,7 @@ The positions come from Leatrix Plus 1.60.11. If an update moves a checkbox, its
    uv run --no-project --with lupa python tools/overlapsettingsguard-tests/run_tests.py
    ```
 
-   They run the add-on in Lua 5.1 against stand-ins for the game, Leatrix Plus, ForeverUI and RestedXP. A mistake in `Policy.lua` (unknown adapter or key, duplicate id) also prints a "policy error" line at login.
+   They run the add-on in Lua 5.1 against stand-ins for the game, Leatrix Plus, ForeverUI, RestedXP and Plater. A mistake in `Policy.lua` (unknown adapter or key, duplicate id) also prints a "policy error" line at login.
 
 ## Known limits
 

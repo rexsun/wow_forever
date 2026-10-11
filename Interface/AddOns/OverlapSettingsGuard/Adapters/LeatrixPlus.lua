@@ -15,6 +15,7 @@ local SPOTS = {
   SetChatFontSize = { page = 3, x = 146, y = -212, reload = true },
   MinimapModder = { page = 5, x = 146, y = -92, reload = true },
   ShowFlightTimes = { page = 7, x = 340, y = -252, reload = true },
+  CombatPlates = { page = 7, x = 340, y = -192, reload = true },
 }
 local LOCK_NOTE = "|n|n|cffff6040Locked off by OverlapSettingsGuard.|r"
 
@@ -36,8 +37,6 @@ local function VersionNote()
   return (" (Leatrix Plus %s; positions were taken from %s)"):format(version, TESTED_VERSION)
 end
 
--- Page0..Page9 are the panel's children that fill it and carry a title (`.s`), in the
--- order Leatrix creates them.
 local function FindPages(panel)
   local pages = {}
   for _, child in ipairs({ panel:GetChildren() }) do
@@ -96,7 +95,6 @@ function adapter.Knows(key)
   return SPOTS[key] ~= nil
 end
 
--- The box's own OnShow re-reads Leatrix's live value without firing OnClick.
 function adapter.Read(key)
   local box, problem = Box(key)
   if not box then
@@ -141,8 +139,18 @@ function adapter.Revert(key)
 end
 
 function adapter.Watch(onChange)
+  local activeKeys = {}
+  for _, rule in ipairs(OSG.policy) do
+    if rule.adapter == "LeatrixPlus" then
+      local active = true
+      for _, name in ipairs(rule.when) do
+        if not C_AddOns.IsAddOnLoaded(name) then active = false end
+      end
+      if active then activeKeys[rule.key] = true end
+    end
+  end
   for key in pairs(SPOTS) do
-    local box = Box(key)
+    local box = activeKeys[key] and Box(key)
     if box then
       box:HookScript("OnClick", function()
         if not reverting then

@@ -23,7 +23,7 @@ local function StatusOf(results, id)
 end
 
 local function AllLoaded()
-  return { Leatrix_Plus = true, ForeverUI = true, RXPGuides = true }
+  return { Leatrix_Plus = true, ForeverUI = true, RXPGuides = true, Plater = true, ClassUIEnhanced = true }
 end
 
 local function DefaultUI()
@@ -37,7 +37,7 @@ test("the shipped policy has no errors", function()
   local w = Stubs.Fresh(ADDON_ROOT, {})
   local problems = w.ns.ValidatePolicy(w.ns.policy, w.ns.adapters)
   eq(#problems, 0, "policy problems: " .. table.concat(problems, "; "))
-  eq(#w.ns.policy, 16, "rule count")
+  eq(#w.ns.policy, 19, "rule count")
 end)
 
 local function RxpOff()
@@ -315,7 +315,7 @@ test("/osg lists every rule", function()
   w.Login()
   w.printed = {}
   _G.SlashCmdList.OVERLAPSETTINGSGUARD("")
-  eq(#w.printed, 17, "header plus 16 rules")
+  eq(#w.printed, 20, "header plus 19 rules")
 end)
 
 test("Leatrix owns quest automation while RestedXP automation stays off across profiles", function()
@@ -338,6 +338,53 @@ test("Leatrix owns quest automation while RestedXP automation stays off across p
   w.rxpRegistry:NotifyChange("RestedXP Guides")
   w.RunTimers()
   for _, field in ipairs(fields) do eq(RXP.settings.profile[field], false, field .. " cannot be enabled again") end
+end)
+
+test("Plater owns visibility and distance without ForeverUI", function()
+  local values = { CombatPlates = "On", MinimapModder = "On", SetChatFontSize = "On", MoveChatEditBoxToTop = "On" }
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = { Leatrix_Plus = true, RXPGuides = true, Plater = true, ClassUIEnhanced = true }, leatrix = { values = values }, rxp = { live = { enableMaxNameplateDistance = true } } })
+  w.Login()
+  eq(values.CombatPlates, "Off", "Leatrix cannot change Plater visibility")
+  eq(RXP.settings.profile.enableMaxNameplateDistance, false, "Plater owns distance")
+  eq(values.MinimapModder, "On", "Leatrix owns minimap")
+  eq(values.SetChatFontSize, "On", "Leatrix owns chat font")
+  eq(values.MoveChatEditBoxToTop, "On", "Leatrix owns editbox")
+  ok(not (w.leatrixBoxes.MinimapModder.tiptext or ""):find("Locked off", 1, true), "inactive minimap rule must not label the option locked")
+end)
+
+test("CUE owns resources across Plater profiles and personal bar CVars", function()
+  local on = { resources_settings = { global_settings = { show = true } }, saved_cvars = { nameplateShowSelf = "1" } }
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = { Plater = true, ClassUIEnhanced = true }, personalBar = true, plater = { live = on, profiles = { Alt = { resources_settings = { global_settings = { show = true } }, saved_cvars = { nameplateShowSelf = "1" } } } } })
+  w.Login()
+  for _, profile in pairs(PlaterDB.profiles) do
+    eq(profile.resources_settings.global_settings.show, false, "resources off")
+    eq(profile.saved_cvars.nameplateShowSelf, "0", "personal bar cannot return on profile switch")
+  end
+  eq(GetCVar("nameplateShowSelf"), "0", "live personal bar off")
+  ok(Plater.refreshes > 0, "Plater refreshed")
+  Plater.db.profile = PlaterDB.profiles.Alt
+  Plater.db.profile.resources_settings.global_settings.show = true
+  Plater:RefreshConfig()
+  w.RunTimers()
+  eq(Plater.db.profile.resources_settings.global_settings.show, false, "profile changes enforced")
+end)
+
+test("Plater overlaps defer in combat and are inactive without CUE", function()
+  local profile = { resources_settings = { global_settings = { show = true } } }
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = { Plater = true, ClassUIEnhanced = true }, personalBar = true, plater = { live = profile } })
+  w.combat = true
+  w.Login()
+  eq(profile.resources_settings.global_settings.show, true, "combat unchanged")
+  eq(GetCVar("nameplateShowSelf"), "1", "combat CVar unchanged")
+  w.combat = false
+  w.Fire("PLAYER_REGEN_ENABLED")
+  w.RunTimers()
+  eq(profile.resources_settings.global_settings.show, false, "resources off after combat")
+  eq(GetCVar("nameplateShowSelf"), "0", "CVar off after combat")
+  local solo = Stubs.Fresh(ADDON_ROOT, { loaded = { Plater = true }, personalBar = true, plater = { live = { resources_settings = { global_settings = { show = true } } } } })
+  solo.Login()
+  eq(Plater.db.profile.resources_settings.global_settings.show, true, "standalone Plater unchanged")
+  eq(GetCVar("nameplateShowSelf"), "1", "standalone personal bar unchanged")
 end)
 
 for _, t in ipairs(tests) do

@@ -1,0 +1,6 @@
+## Interface: 50504, 20506, 11509, 120100, 120105, 16001
+## Title: LibAuraContainer-1.0
+## Notes: Blizzard's retail AuraContainer API on every client (standalone development load).
+
+LibStub\LibStub.lua
+LibAuraContainer.xml

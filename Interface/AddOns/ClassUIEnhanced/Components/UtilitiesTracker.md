@@ -1,0 +1,9 @@
+# UtilitiesTracker
+
+The minimal instantiation of the shared plain-frame icon tracker factory (`private.IconTracker.CreateTracker`, `Core/IconTracker.lua`): the file is just the factory call plus `private.UtilitiesTracker` assignment and ComponentManager registration — no hooks, no component-specific layer. All behavior (display-only button pool, merged CDM+custom spell map, secret-safe content refresh, grid layout with the `RelayoutSubtree` chokepoint, swipe/keybind watchers, `fontsDirty`-gated fonts, tooltips, `icon_visibility_mode`, size estimate) is the factory's — see the factory file header and `Core/README.md`. Contrast with [CooldownTracker.md](CooldownTracker.md), which layers an override-bar mode onto the same factory via `config.hooks`.
+
+Config: container `CUE_UT_Container`; `categoryId = CooldownUtility`, `routeKey = "Utility"` — CDM category `CooldownUtility` is a **data source only** (`CDMDataSource.BuildComponentSpellMaps` merges CDM spells minus Additional-Frame-routed ones with custom spells); the Blizzard `UtilityCooldownViewer` frame is alpha-suppressed and never rendered. No `extraWatcherEvents` — the swipe watcher fires on `SPELL_UPDATE_COOLDOWN` only (CooldownTracker adds `ACTION_USABLE_CHANGED` for its override-layer usability tint).
+
+Defaults: 400×100, icon_size 40. Below PlayerCastBar by default.
+
+**`active_glow`** and **`pandemic_glow`** are both engine-driven regions on the factory's aura-slot buttons — the latter on Blizzard's native `AddPandemicRegion` (12.1.0.69111). See [CooldownTracker.md](CooldownTracker.md) for the mechanism, the slot topology `icon_visibility_mode` 2-5 forces, and the costs (Blizzard owns the pandemic window; the urgency-colour and threshold keys are inert; both cues are static/one-colour, so `pandemic_glow_style` is reduced to outside/inside). `.context/migration-parity-gaps.md` "Permanently inert settings".

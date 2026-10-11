@@ -1,0 +1,51 @@
+
+--[[
+    Buff tracker — the primary aura-ICON tracker.
+
+    The rendering engine lives in Core/AuraIconTracker.lua so Additional Frames
+    of type "buffs" can instantiate the same thing (they need their OWN aura
+    containers; the old cross-parenting of live CDM viewer children cannot work
+    on 12.1).  This file is the config: which spells, which settings table, which
+    CDM viewer supplies the groups-vs-slots mode.
+
+    Everything else — containers, both engines, cell chrome, glow syncs, layout,
+    component lifecycle — is the factory's.  See Components/BuffTracker.md.
+--]]
+
+---@type string, private
+local addonName, private = ...
+
+---@class private : table
+---@field BuffTracker table
+
+---Build the {[spellID]=true} map: CDM category BuffIcon minus
+---Additional-Frame-routed spells, plus this component's custom spells.
+---
+---ONE map, fed to all three groups — the filter strings decide where an aura
+---can land, exactly as Blizzard's own CDM does (`scanUnits = { "player", "target" }`,
+---CooldownViewerItemData.lua:1; `selfAura` is a DB2 field their UI never reads).
+---`CDMDataSource` still RETURNS the self/target split because
+---`Core/IconTracker.lua` needs it for an unrelated purpose — gating which spells
+---its player-unit aura slots may bind — so the merge belongs here, not there.
+---@return table<number, true> spellMap
+local function buildSpellMap()
+    -- includeLinked: aura-driven — the displayed aura is often a linked id,
+    -- not the base spellID (see getTrackedSpellMap doc).
+    local selfMap, targetMap = private.CDMDataSource.BuildComponentSpellMaps(
+        private.Enum.CooldownViewerCategoryIDs.BuffIcon,
+        "BuffIcon", "BuffTracker", true)
+    for spellID in pairs(targetMap) do selfMap[spellID] = true end
+    return selfMap
+end
+
+local buffTracker = private.AuraIconTracker.CreateTracker({
+    name = "BuffTracker",
+    prefix = "CUE_BT",
+    getSettings = function()
+        return private.profile.components.BuffTracker
+    end,
+    buildSpellMap = buildSpellMap,
+})
+
+private.BuffTracker = buffTracker
+private.ComponentManager.RegisterComponent("BuffTracker", buffTracker)
