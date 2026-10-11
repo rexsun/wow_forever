@@ -1,0 +1,35 @@
+local YUI = _G.YUI
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("deDE") then return end
+
+YUI.Locale:Register("UtilityTools", "deDE", {
+    ["name"] = "Werkzeuge",
+    ["description"] = "Eine kompakte Sammlung kleiner Hilfen für Oberfläche und Spiel.",
+    ["settings.bonus_roll"] = "Extra Roll Currency Bestätigung",
+    ["settings.bonus_roll_confirm_roll"] = "Bestätigen Sie vor dem Rollen",
+    ["settings.bonus_roll_confirm_pass"] = "Bestätige vor dem Passieren",
+    ["bonus_roll.roll_title"] = "Wirklich Roll?",
+    ["bonus_roll.pass_title"] = "Nicht rollen?",
+    ["bonus_roll.roll_specialization"] = "Aktuelle Beute Spezialisierung: %s",
+    ["bonus_roll.roll_question"] = "Verbringen Sie eine Bonus-Roll-Chance?",
+    ["bonus_roll.pass_action_word"] = "Pass",
+    ["bonus_roll.pass_message"] = "%s auf dieser Bonus-Roll-Gelegenheit?",
+    ["bonus_roll.roll_currency"] = "Bonusrollen verbleiben: %s %s",
+    ["bonus_roll.roll_currency_unavailable"] = "Bonuswürfe verbleiben: —",
+    ["bonus_roll.confirm_roll"] = "Bestätige Roll",
+    ["bonus_roll.confirm_pass"] = "Pass roll",
+    ["bonus_roll.return"] = "Zurück",
+    ["bonus_roll.spec_unknown"] = "Unbekannt",
+    ["bonus_roll.popup_unavailable"] = "Die Bestätigungsschnittstelle ist nicht verfügbar, es wurde nichts unternommen.",
+    ["bonus_roll.prompt_expired"] = "Die Bonusrolle ist nicht mehr aktiv, es wurde nicht gehandelt.",
+    ["bonus_roll.test_roll_confirmed"] = "Wurfbestätigung UI-Test abgeschlossen; kein echter Wurf wurde durchgeführt.",
+    ["bonus_roll.test_pass_confirmed"] = "UI-Test zur Bestätigung bestanden; es wurde kein echter bestanden durchgeführt.",
+    ["bonus_roll.command_usage"] = "Verwendung: /yroll Test oder /yroll Test-Pass",
+    ["settings.macro_frame"] = "Makrofenster erweitern",
+    ["settings.macro_visible_count"] = "Sichtbare Makros",
+    ["settings.hide_errors"] = "Fehlermeldungen ausblenden",
+    ["settings.hide_mode"] = "Fehleranzeige",
+    ["settings.throttle_window"] = "Drosselzeitraum",
+    ["mode.block_allowlist"] = "Nicht-kritische rote Fehler ausblenden",
+    ["mode.throttle_once"] = "Throttle wiederholt rote Fehler",
+})

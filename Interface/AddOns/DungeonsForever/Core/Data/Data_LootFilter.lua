@@ -1,21 +1,6 @@
 -- =============================================================================
 -- 无限副本手册 · 掉落页「装备过滤」静态数据（简体源，加载于所有语言端）
---
--- 只放常量与预设，不含逻辑。逻辑见 Core/LootFilter.lua，界面见 Core/LootFilterUI.lua。
---   ns.LootFilterData.WeaponName  [subclassID] = 名称
---   ns.LootFilterData.ArmorName   [subclassID] = 名称
---   ns.LootFilterData.WeaponSet   [subclassID] = true（列入界面清单的武器子类）
---   ns.LootFilterData.ArmorSet    [subclassID] = true（列入界面清单的护甲子类）
---   ns.LootFilterData.ClassUsable [classFile] = { weapon = { 名... }, armor = { 名... } }
---   ns.LootFilterData.TankKeywords { 坦克关键词模式... }
---   ns.LootFilterData.ShuXing       [名称] = 模式（装备词缀）
---   ns.LootFilterData.ShuXingOrder  { 名称... }（装备词缀界面顺序）
---   ns.LootFilterData.RoleShuXing   [角色] = { 名称... }（角色化词缀基底，供预设取用）
---   ns.LootFilterData.Presets       [classFile] = { { icon, name, useWeapon, useArmor, useShuXing, Tank }, ... }
---   ns.LootFilterData.KeyList(dim) → { { key, label }, ... } 供界面铺勾选框
---
--- 名称均取客户端枚举/本地化常量，判定用 subclassID（数值），与语言端无关。
--- useShuXing 加载时按本端 D.ShuXing 过滤：本端词缀表里不存在的名字一律剔除。
+-- 只放常量与预设（子类名 / 职业可用清单 / 词缀 / 预设），不含逻辑。
 -- =============================================================================
 
 local _, ns = ...

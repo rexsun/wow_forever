@@ -1,0 +1,72 @@
+## Title: |TInterface/AddOns/YUI/Media/Core/images/YUI-LOGO-300.png:16:16:0:0|t YUI · YanForge
+## Title-zhCN: |TInterface/AddOns/YUI/Media/Core/images/YUI-LOGO-300.png:16:16:0:0|t YUI · 言工坊
+## Title-zhTW: |TInterface/AddOns/YUI/Media/Core/images/YUI-LOGO-300.png:16:16:0:0|t YUI · 言工坊
+## Notes: The YUI all-in-one interface suite.
+## Notes-zhCN: YUI 整合界面插件。
+## Notes-zhTW: YUI 整合介面插件。
+## Author: 阿言
+## Version: v338
+## SavedVariables: YUI_DB, YUI_CPUDiagnostics
+## Interface: 50503
+## OptionalDeps: NDUI, ElvUI, Details
+
+## Group: YUI
+
+Libs\libs.xml
+Core\Version_Mists.lua
+
+YUI.lua
+Core\Functions.lua
+Core\Trace.lua
+Core\DBMigration.lua
+Core\Event.lua
+Core\Lifecycle.lua
+Core\Assets.lua
+Core\Components.lua
+Media\Init_SharedMedia.lua
+Core\Locale.lua
+Locales\Core\!load.xml
+Core\API.lua
+Core\API\System.lua
+Core\CPUWatchdog.lua
+Core\CPUSceneDiagnostics.lua
+Core\API\External.lua
+Core\Yield.lua
+Core\API\Unit.lua
+Core\API\Social.lua
+Core\API\Spell.lua
+Core\API\Racial.lua
+Core\API\Item.lua
+Core\API\PaperDoll.lua
+Core\API\Profession.lua
+Core\API\Security.lua
+Core\API\Quest.lua
+Core\API\ChatInput.lua
+Core\API\ActionBar.lua
+Core\API\CooldownViewer.lua
+Core\API\Frame.lua
+Core\API\BlizzardUI.lua
+Core\API\Combat.lua
+Core\API\Sound.lua
+Core\NotificationSound.lua
+Core\API\Visibility.lua
+Core\API\Keystone.lua
+Core\API\Talent.lua
+Core\API\Icons.lua
+Core\Visibility.lua
+Core\MinimapIcon.lua
+Media\Register_SpecIcons.lua
+Core\Animation\!load.xml
+
+GUI\!load.xml
+Changelog\Service.lua
+Changelog\Data_Mists.lua
+
+Settings\!load_Mists.xml
+Appearance\!load_Mists.xml
+
+Core\!load_Mists.xml
+Components\!load_Mists.xml
+Dev\!load.xml
+
+Game\Mists\!load.xml

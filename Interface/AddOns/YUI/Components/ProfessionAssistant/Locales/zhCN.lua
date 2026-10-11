@@ -1,0 +1,32 @@
+local _, YUI = ...
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("zhCN") then return end
+
+YUI.Locale:Register("ProfessionAssistant", "zhCN", {
+    ["dev.add"] = "测试：添加10件假装备",
+    ["dev.item"] = "测试装备 %d（不可分解）",
+    ["name"] = "专业助手",
+    ["description"] = "专业辅助工具，目前支持附魔分解。",
+    ["enchanting"] = "附魔助手",
+    ["disenchant"] = "分解",
+    ["inventory"] = "可分解装备",
+    ["quality"] = "品质",
+    ["maxLevel"] = "最高装等",
+    ["quality.2"] = "绿色及以下",
+    ["quality.3"] = "蓝色及以下",
+    ["quality.4"] = "紫色及以下",
+    ["done"] = "已分解",
+    ["noResult"] = "未取得产出记录，请查看拾取结果。",
+    ["removeHint"] = "左键或右键移除。",
+    ["addHint"] = "点击添加。",
+    ["added"] = "已添加，点击移除。",
+    ["queue.clear"] = "清空",
+    ["entryHint"] = "点击：打开分解助手",
+    ["addBatch"] = "添加 %d 件",
+    ["changed"] = "装备已移动或暂不可用，请重试。",
+    ["combat"] = "战斗中不可使用。",
+    ["unknown"] = "学会分解后可以使用附魔助手。",
+    ["theme"] = "皮肤风格",
+    ["theme.auto"] = "自动",
+    ["theme.native"] = "原生",
+    ["theme.dark"] = "现代",
+})

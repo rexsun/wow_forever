@@ -1,0 +1,35 @@
+local YUI = _G.YUI
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("ruRU") then return end
+
+YUI.Locale:Register("UtilityTools", "ruRU", {
+    ["name"] = "Инструменты",
+    ["description"] = "Компактный набор небольших функций интерфейса и игры.",
+    ["settings.bonus_roll"] = "Дополнительное подтверждение ролла",
+    ["settings.bonus_roll_confirm_roll"] = "Подтвердить перед прокатом",
+    ["settings.bonus_roll_confirm_pass"] = "Подтвердите перед прохождением",
+    ["bonus_roll.roll_title"] = "Правда ролл?",
+    ["bonus_roll.pass_title"] = "Не Роллинг?",
+    ["bonus_roll.roll_specialization"] = "Текущая специализация добычи: %s",
+    ["bonus_roll.roll_question"] = "Потратить один бонусный ролик?",
+    ["bonus_roll.pass_action_word"] = "Пассажир",
+    ["bonus_roll.pass_message"] = "%s в этом бонусном ролевом исполнении?",
+    ["bonus_roll.roll_currency"] = "Оставшиеся бонусные роллы: %s %s",
+    ["bonus_roll.roll_currency_unavailable"] = "Бонусные роллы остались: —",
+    ["bonus_roll.confirm_roll"] = "Подтвердите Ролл",
+    ["bonus_roll.confirm_pass"] = "Пропускай",
+    ["bonus_roll.return"] = "Назад",
+    ["bonus_roll.spec_unknown"] = "неизвестный",
+    ["bonus_roll.popup_unavailable"] = "Интерфейс подтверждения недоступен. Никаких действий предпринято не было.",
+    ["bonus_roll.prompt_expired"] = "Бонусный ролл больше не активен. Никаких действий не предпринималось.",
+    ["bonus_roll.test_roll_confirmed"] = "Тест UI подтверждения крена завершен; настоящий крен не был выполнен.",
+    ["bonus_roll.test_pass_confirmed"] = "Тест UI подтверждения пропуска завершен; реальный пропуск не был выполнен.",
+    ["bonus_roll.command_usage"] = "Использование: тест /yroll или тест /yroll.",
+    ["settings.macro_frame"] = "Расширение окна макросов",
+    ["settings.macro_visible_count"] = "Видимые макросы",
+    ["settings.hide_errors"] = "Скрыть сообщения об ошибке",
+    ["settings.hide_mode"] = "Показ ошибок",
+    ["settings.throttle_window"] = "Период ограничения",
+    ["mode.block_allowlist"] = "Скрыть некритичные красные ошибки",
+    ["mode.throttle_once"] = "Повторные красные ошибки",
+})

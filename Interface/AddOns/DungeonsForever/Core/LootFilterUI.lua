@@ -1,13 +1,6 @@
 -- =============================================================================
 -- 无限副本手册 · 掉落页「装备过滤」界面   ns.LootFilterUI
---
---   掉落页方案图标行：齿轮（开配置）/ "+"（新建）/ 图标组（切换方案，右键菜单）
---   配置面板：贴主窗右侧 220 宽（与「设置」同槽位互斥 / 点外收起）；标题悬停出口径提示，
---             右上角 方案设置 / 重置；方案条 4 枚一页 + 左右翻页；两列 iOS 开关、四组可折叠
---   方案弹窗：名称输入 + 图标网格 + 确定 / 返回（上限红字校验）
---
--- 约束：字号仅 11/14/16；宽度 >520 的框体禁用 edgeFile，一律 ns.hui.SkinPopup 蒙皮；
---       弹窗父级 = 主窗口 ns.MainFrame（继承缩放、随窗显隐、不裁切）；禁用裸全局函数。
+-- 方案图标行 + 配置面板 + 方案弹窗；弹窗父级 = 主窗口。
 -- =============================================================================
 
 local _, ns = ...
@@ -251,7 +244,9 @@ function UI:EnsureBar()
             else
                 ns.PlaySound(1)
                 local st = LF.GetStore()
-                local target = (st.chooseID == self.scheme) and nil or self.scheme
+                -- 再点当前生效方案 = 取消过滤（禁 and/or 链：中段为 nil 会被 or 吃掉，永远取消不了）
+                local target = self.scheme
+                if st.chooseID == target then target = nil end
                 LF.SetActiveScheme(target)
                 UI:RefreshBar()
                 UI:RefreshConfig()
@@ -264,7 +259,7 @@ function UI:EnsureBar()
             GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
             GameTooltip:ClearLines()
             GameTooltip:AddLine(sch.Name or "", 1, 1, 1, true)
-            GameTooltip:AddLine(L["左键切换 · 右键菜单"], 0.7, 0.75, 0.8, true)
+            GameTooltip:AddLine(L["左键开关过滤 · 右键菜单"], 0.7, 0.75, 0.8, true)
             GameTooltip:Show()
         end)
         bt:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -400,7 +395,9 @@ function UI:EnsureConfig()
                 return
             end
             ns.PlaySound(1)
-            local target = (st.chooseID == self.scheme) and nil or self.scheme
+            -- 同上：再点当前生效方案 = 取消过滤，显式 if 而非 and/or 链
+            local target = self.scheme
+            if st.chooseID == target then target = nil end
             LF.SetActiveScheme(target)
             UI:RefreshBar()
             UI:RefreshConfig()
@@ -412,7 +409,7 @@ function UI:EnsureConfig()
             GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
             GameTooltip:ClearLines()
             GameTooltip:AddLine(sch.Name or "", 1, 1, 1, true)
-            GameTooltip:AddLine(L["左键切换 · 右键菜单"], 0.7, 0.75, 0.8, true)
+            GameTooltip:AddLine(L["左键开关过滤 · 右键菜单"], 0.7, 0.75, 0.8, true)
             GameTooltip:Show()
         end)
         bt:SetScript("OnLeave", function() GameTooltip:Hide() end)

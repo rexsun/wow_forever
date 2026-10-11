@@ -1,0 +1,36 @@
+local YUI = _G.YUI
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("ptBR") then return end
+
+YUI.Locale:Register("AutoGossip", "ptBR", {
+    ["feature.name"] = "Diálogo automático",
+    ["feature.description"] = "Avança opções únicas seguras e diálogos expressamente permitidos.",
+    ["settings.unique"] = "Diálogo automático (opção de diálogo único)",
+    ["settings.unique.tooltip"] = "Seleciona quando a página tem exatamente uma opção de diálogo regular legível, disponível e segura. Exclui quests, confirmações e entrada de texto. Mantenha Shift para pausa.",
+    ["settings.approved"] = "Diálogo aprovado",
+    ["settings.approved.tooltip"] = " Independentemente da contagem de opções, seleciona apenas quando exatamente um ID de fofoca estiver ativado. Mantenha Shift para pausar.",
+    ["settings.presets"] = "Predefinições integradas",
+    ["settings.custom"] = "As minhas regras",
+    ["settings.advanced"] = " Avançado: Adicionar janela personalizada",
+    ["settings.show_ids"] = " Mostra IDs de diálogo",
+    ["settings.show_ids.tooltip"] = " Mostra a ordem:Gossip ID por baixo da janela NPC.",
+    ["settings.custom_name"] = " Nome de regra",
+    ["settings.custom_name.tooltip"] = " Usado para identificar esta regra na lista de opções.",
+    ["settings.custom_id"] = " Identificação do Fofoco",
+    ["settings.custom_id.tooltip"] = " Digite o ID de Gossip de uma opção de diálogo normal.",
+    ["settings.add"] = " Adicionar regra",
+    ["settings.delete"] = "Excluir",
+    ["preset.cave_entrance"] = " Entrada da caverna · Abrir porta",
+    ["preset.cave_boss_two"] = "Cave segundo chefe · Iniciar evento",
+    ["preset.plot_disguise"] = "Cenário do enredo · Disfarce",
+    ["preset.plot_bar_quest"] = "Cenário do enredo · Advance bar quest",
+    ["message.invalid_id"] = " Digite um ID Gossip válido.",
+    ["message.missing_name"] = " Digite um nome de regra.",
+    ["message.name_too_long"] = "O nome da regra é muito longo.",
+    ["message.duplicate"] = " Esse ID de Gossip já existe.",
+    ["message.limit"] = "O limite de regra personalizado foi alcançado.",
+    ["message.added"] = " Janela personalizada adicionada.",
+    ["message.removed"] = " Janela personalizada apagada.",
+    ["message.selection_attempted"] = "|cffffff00 Tentativa de seleção automática|r %s",
+    ["gossip.id_prefix"] = "ID da janela: ",
+})

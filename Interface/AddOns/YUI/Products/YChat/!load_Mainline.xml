@@ -1,0 +1,27 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Script file="Defaults.lua"/>
+    <Script file="Config.lua"/>
+    <Script file="ConflictGuard.lua"/>
+    <Script file="Adapter.lua"/>
+    <Script file="Adapter_Mainline.lua"/>
+    <Script file="MetadataRing.lua"/>
+    <Script file="HotDiagnostics.lua"/>
+    <Script file="Stats.lua"/>
+    <Script file="WhisperNameColor.lua"/>
+    <Script file="Typography.lua"/>
+    <Script file="ChannelInput.lua"/>
+    <Script file="InputSkin.lua"/>
+    <Script file="AutoInvite.lua"/>
+    <Script file="History.lua"/>
+    <Script file="SafeMessage.lua"/>
+    <Script file="ItemLinks.lua"/>
+    <Script file="Shadow.lua"/>
+    <Script file="Appearance.lua"/>
+    <Script file="ElementFade.lua"/>
+    <Script file="CombatLog.lua"/>
+    <Script file="CopyViewer.lua"/>
+    <Script file="Layout.lua"/>
+    <Script file="DevPanel.lua"/>
+    <Script file="Settings.lua"/>
+    <Script file="YChat.lua"/>
+</Ui>

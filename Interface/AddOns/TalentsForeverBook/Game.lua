@@ -3,6 +3,7 @@
 -- turns into a note in the log, never an error box.
 local _, TF = ...
 local D = TalentsForeverBookData
+local L = TF.L   -- the addon's words in the client's language (Core.lua)
 local G = {}
 TF.Game = G
 G.live = nil     -- { cls, configID, treeID, nodes = { [nodeID] = {rank, max, entry, spell} }, bySpell = {}, byNode = {} }
@@ -112,12 +113,17 @@ function G.RefreshLegacy()
   if out.found then G.legacy = out; TF.CharDB().talented = out.talented end
 end
 
--- the game's record for a talent of the plan's class (node id first, spell id second)
+-- the game's record for a talent of the plan's class (node id first, spell id second). The node id counts only while the game's node
+-- carries this talent's spell: a server hotfix can put another talent on a node the files gave us (2 Oct 2026: Lingering Rage took Iron
+-- Will's node in Fury and Iron Will got a new one in Protection, so Iron Will read, counted and bought as Lingering Rage; a Warrior at 11
+-- wrote in, note 5EUC42). A node whose spell disagrees is never used: no record beats another talent's.
 function G.Node(ti, i, cls)
   local live = G.live; if not live then return nil end
   local c = D.classes[cls or live.cls]; if not c or (cls and cls ~= live.cls) then return nil end
   local t = c.trees[ti].talents[i]
-  return (t.node and live.byNode[t.node]) or (t.spell and live.bySpell[t.spell]) or nil
+  local n = t.node and live.byNode[t.node]
+  if n and (not t.spell or not n.spell or n.spell == t.spell) then return n end
+  return (t.spell and live.bySpell[t.spell]) or nil
 end
 function G.Rank(ti, i) local n = G.Node(ti, i); return n and n.rank or nil end
 function G.Unspent() return G.points and G.points.unspent or 0 end
@@ -135,8 +141,8 @@ function G.Commit()
   local ok, res = pcall(commit, cfg)
   local diag = TF.db.diag; diag.applies = diag.applies or {}
   table.insert(diag.applies, { when = date("%H:%M:%S"), commit = true, result = tostring(ok and res or ("err " .. tostring(res))) })
-  if not ok then return false, "The game refused the commit: " .. tostring(res) end
-  if res == false then return false, "The game did not accept the changes." end
+  if not ok then return false, string.format(L["The game refused the commit: %s"], tostring(res)) end
+  if res == false then return false, L["The game did not accept the changes."] end
   G.committing = GetTime()
   C_Timer.After(1.5, function() G.Refresh(); TF.Fire("GAME_CHANGED", "commit") end)
   C_Timer.After(5, function() G.committing = nil; G.Refresh(); TF.Fire("GAME_CHANGED", "commit2") end)
@@ -146,15 +152,15 @@ function G.IsCommitting() return G.committing ~= nil and (GetTime() - G.committi
 
 -- buy one rank of a talent. Only ever called from a click. Returns ok, message. With noCommit the change stays staged.
 function G.Learn(ti, i, noCommit)
-  if not G.live then return false, "The game has not answered about your talents yet." end
-  if not C_Traits.PurchaseRank then return false, "This client gives addons no way to place talent points. Place it in the talent window: the plan shows you where." end
-  if InCombatLockdown and InCombatLockdown() then return false, "Not in combat." end
+  if not G.live then return false, L["The game has not answered about your talents yet."] end
+  if not C_Traits.PurchaseRank then return false, L["This client gives addons no way to place talent points. Place it in the talent window: the plan shows you where."] end
+  if InCombatLockdown and InCombatLockdown() then return false, L["Not in combat."] end
   local t = D.classes[G.live.cls].trees[ti].talents[i]
   local n = G.Node(ti, i)
-  if not n then return false, "The game does not list " .. t.name .. "." end
-  if n.rank >= n.max then return false, t.name .. " is already at max rank." end
-  if G.Unspent() <= 0 then return false, "No unspent talent points." end
-  if G.IsCommitting() then return false, "The last change is still being applied. A moment." end
+  if not n then return false, string.format(L["The game does not list %s."], t.name) end
+  if n.rank >= n.max then return false, string.format(L["%s is already at max rank."], t.name) end
+  if G.Unspent() <= 0 then return false, L["No unspent talent points."] end
+  if G.IsCommitting() then return false, L["The last change is still being applied. A moment."] end
   local cfg = G.live.configID
   local diag = TF.db.diag; diag.applies = diag.applies or {}
   local rec = { when = date("%H:%M:%S"), talent = t.name, node = n.id, entry = n.entry, steps = {} }
@@ -162,45 +168,45 @@ function G.Learn(ti, i, noCommit)
   if C_Traits.CanPurchaseRank and n.entry then
     local ok, can = pcall(C_Traits.CanPurchaseRank, cfg, n.id, n.entry)
     rec.steps[#rec.steps + 1] = "CanPurchaseRank " .. tostring(ok and can or ("err " .. tostring(can)))
-    if ok and can == false then return false, "The game says " .. t.name .. " cannot take a point right now (its row or the talent it needs is not ready)." end
+    if ok and can == false then return false, string.format(L["The game says %s cannot take a point right now (its row or the talent it needs is not ready)."], t.name) end
   end
   local ok, res = pcall(C_Traits.PurchaseRank, cfg, n.id)
   rec.steps[#rec.steps + 1] = "PurchaseRank " .. tostring(ok and res or ("err " .. tostring(res)))
-  if not ok then return false, "The game refused: " .. tostring(res) end
-  if res == false then return false, "The game did not take the point for " .. t.name .. "." end
+  if not ok then return false, string.format(L["The game refused: %s"], tostring(res)) end
+  if res == false then return false, string.format(L["The game did not take the point for %s."], t.name) end
   -- the purchase is staged; the window's Apply is C_Traits.CommitConfig, which casts for a few seconds
   G.Refresh()
   if noCommit then return true, t.name end
   local okC, msgC = G.Commit()
   rec.steps[#rec.steps + 1] = "commit " .. tostring(okC) .. " " .. tostring(msgC)
-  if not okC then return false, "Placed but not applied: " .. tostring(msgC) end
+  if not okC then return false, string.format(L["Placed but not applied: %s"], tostring(msgC)) end
   return true, t.name
 end
 
 -- give one rank back, when the client says the node can be refunded. Only ever from a click. Returns ok, message.
 function G.CanRefund() return G.live ~= nil and C_Traits.RefundRank ~= nil end
 function G.Refund(ti, i)
-  if not G.live then return false, "The game has not answered about your talents yet." end
-  if not C_Traits.RefundRank then return false, "This client gives addons no way to take a point back." end
-  if InCombatLockdown and InCombatLockdown() then return false, "Not in combat." end
+  if not G.live then return false, L["The game has not answered about your talents yet."] end
+  if not C_Traits.RefundRank then return false, L["This client gives addons no way to take a point back."] end
+  if InCombatLockdown and InCombatLockdown() then return false, L["Not in combat."] end
   local t = D.classes[G.live.cls].trees[ti].talents[i]
   local n = G.Node(ti, i)
-  if not n then return false, "The game does not list " .. t.name .. "." end
-  if n.rank <= 0 then return false, t.name .. " has no points to give back." end
-  if n.canRefund == false then return false, t.name .. " cannot be refunded here. Talents come back at the trainer." end
+  if not n then return false, string.format(L["The game does not list %s."], t.name) end
+  if n.rank <= 0 then return false, string.format(L["%s has no points to give back."], t.name) end
+  if n.canRefund == false then return false, string.format(L["%s cannot be refunded here. Talents come back at the trainer."], t.name) end
   local cfg = G.live.configID
   local diag = TF.db.diag; diag.applies = diag.applies or {}
   local rec = { when = date("%H:%M:%S"), talent = t.name, node = n.id, refund = true, steps = {} }
   table.insert(diag.applies, rec); if #diag.applies > 30 then table.remove(diag.applies, 1) end
   local ok, res = pcall(C_Traits.RefundRank, cfg, n.id)
   rec.steps[#rec.steps + 1] = "RefundRank " .. tostring(ok and res or ("err " .. tostring(res)))
-  if not ok then return false, "The game refused: " .. tostring(res) end
-  if res == false then return false, "The game did not give the point back for " .. t.name .. "." end
+  if not ok then return false, string.format(L["The game refused: %s"], tostring(res)) end
+  if res == false then return false, string.format(L["The game did not give the point back for %s."], t.name) end
   local staged = false
   if C_Traits.ConfigHasStagedChanges then local ok2, s2 = pcall(C_Traits.ConfigHasStagedChanges, cfg); staged = ok2 and s2 or false; rec.steps[#rec.steps + 1] = "staged " .. tostring(s2) end
   if staged then
     local commit = (C_ClassTalents and C_ClassTalents.CommitConfig) or C_Traits.CommitConfig
-    if commit then local ok3, r3 = pcall(commit, cfg); rec.steps[#rec.steps + 1] = "CommitConfig " .. tostring(ok3 and r3 or ("err " .. tostring(r3))); if not ok3 then return false, "Refunded but not committed: " .. tostring(r3) end end
+    if commit then local ok3, r3 = pcall(commit, cfg); rec.steps[#rec.steps + 1] = "CommitConfig " .. tostring(ok3 and r3 or ("err " .. tostring(r3))); if not ok3 then return false, string.format(L["Refunded but not committed: %s"], tostring(r3)) end end
   end
   C_Timer.After(0.3, function() G.Refresh(); TF.Fire("GAME_CHANGED") end)
   return true, t.name

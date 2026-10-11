@@ -1,0 +1,32 @@
+local _, YUI = ...
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("enUS") then return end
+
+YUI.Locale:Register("ProfessionAssistant", "enUS", {
+    ["dev.add"] = "Test: add 10 fake items",
+    ["dev.item"] = "Test item %d (cannot disenchant)",
+    ["name"] = "Profession Assistant",
+    ["description"] = "Profession tools. Currently supports disenchanting.",
+    ["enchanting"] = "Enchanting Assistant",
+    ["disenchant"] = "Disenchant",
+    ["inventory"] = "Disenchantable equipment",
+    ["quality"] = "Quality",
+    ["maxLevel"] = "Maximum item level",
+    ["quality.2"] = "Uncommon or lower",
+    ["quality.3"] = "Rare or lower",
+    ["quality.4"] = "Epic or lower",
+    ["done"] = "Disenchanted",
+    ["noResult"] = "Results unavailable; check your loot.",
+    ["removeHint"] = "Left- or right-click to remove.",
+    ["addHint"] = "Click to add.",
+    ["added"] = "Added. Click to remove.",
+    ["queue.clear"] = "Clear",
+    ["entryHint"] = "Click: open the disenchant assistant",
+    ["addBatch"] = "Add %d items",
+    ["changed"] = "The item moved or is unavailable. Please try again.",
+    ["combat"] = "Unavailable in combat.",
+    ["unknown"] = "Learn Disenchant to use this assistant.",
+    ["theme"] = "Skin style",
+    ["theme.auto"] = "Automatic",
+    ["theme.native"] = "Native",
+    ["theme.dark"] = "Modern",
+})

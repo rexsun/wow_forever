@@ -1,5 +1,61 @@
 # Talents Forever changelog
 
+## 0.38.1
+- Beta build 70291 (8 Oct): the trees as the new client has them. Warrior Impale now needs Deep Wounds at 3 points,
+  with an arrow from Deep Wounds to Impale. Druid Predatory Instincts is called Natural Instinct, same spot and same
+  two ranks.
+- Links and saved plans from before this build still open on the right talents. Points in Predatory Instincts land on
+  Natural Instinct. A plan with Impale over a Deep Wounds short of 3 hands Impale's points back and the planner says
+  why. Links still end in -6, so 0.38.0 and 0.38.1 read each other's links the same.
+- Penance's spell power line in the book reads 19% (it was 28.5%), as the new files have it.
+- Tooltips come from your game as before, so Penance, Water Shield, Reckoning, Expose Prey, Demonic Brand and the rest
+  already read this build's numbers.
+
+## 0.38.0
+- The addon in your language. On a German, French, Spanish (Spain and Mexico), Russian, Chinese (Simplified and
+  Traditional), Korean or Brazilian Portuguese client every talent, spell, class and race is named the way the game
+  names it, read from the game by id, and the addon's own words (the pages, the cards, the tooltips, the settings, the
+  chat lines) are in that language too. Asked for on CurseForge (German, twice), on X (German) and from inside the
+  addon (Chinese, "multi-language support"). The replies on the Feedback page stay as they were written.
+- The Classic line on a changed talent's tooltip is in Blizzard's own words for your language, taken from the Classic
+  client's text with the numbers the site shows; a Mexican client gets its own wording. A note Blizzard never wrote
+  in your language (Forever's new spells) stays English.
+- The Races page in your language: the racials' and class abilities' names (Blizzard's where Classic had them) and
+  their descriptions. The spell power line on a spell ("40,7% of spell power"), the Popular page's counting window and
+  the class on a reply are in your language too, decimal comma where your language writes one.
+- Finding a talent ignores case in every script (огонь finds Огонь, über finds Überleben) and finds a talent by the
+  spells it changes in your language as well as in English.
+- Settings, on a non-English client only: "Talent and spell names in English" puts the English names back while the
+  addon's words stay in your language, for reading guides and the site. Off unless you turn it on.
+- A tree's name comes from the language file (the game hands out no tree names by id); a spell name the game has not
+  loaded yet reads English until the next refresh, and the window asks again when it opens. Where one English tree name
+  is two in a language (Korean: a Warrior's Protection is 방어, a Paladin's 보호), the class's own word is used.
+- Select, Load and Save grow to fit a longer word (Seleccionar, Enregistrer, Сохранить) and the box beside them gives
+  up the same room. The footer's eleven buttons fit the window in every language: where the words run long (German) the
+  labels take the game's small button face, and if that is not enough the site link shows its book alone.
+- The section headers, the month in a date, the coin letters (the game's own: G S K in German, 金 银 铜 in Chinese)
+  and the names in the game's Key Bindings menu are in your language too; Chinese and Korean dates read month first.
+  Headings in capitals lift accented and Cyrillic letters (VERSTÄRKUNG, ОГОНЬ), and a long plan name is never cut
+  through the middle of a letter.
+- Share links, the site's popular builds and pick rates, the leveling order and the Classic order tables keep working
+  on every client: the English name travels beside the game's name underneath.
+- The trainer's rows already matched by spell id on any client; the racial spells of a class (a Priest's) now match
+  by the race's English token, so they show on a non-English client too.
+- The headings keep the game's own font on a Russian, Chinese (either) or Korean client (the addon's heading face has Latin
+  letters only).
+- The 0.37.2 fix below is in this release as well.
+
+## 0.37.2
+- Warrior: Iron Will showed Lingering Rage's words, and its In game rank and its planned point followed Lingering Rage
+  too. A Warrior at 11 wrote in from inside the addon. The 2 Oct hotfixes put Lingering Rage on the spot Iron Will held
+  in Fury and gave Iron Will a new one in Protection, and the addon still looked for Iron Will on the old spot. Every
+  talent is now matched to the game by its spell as well, so a spot that holds another talent is never used: the
+  tooltip, the In game rank, Apply, the badges on the game's talent window and the game's own talent strings all follow
+  the real talent. This covers every talent the hotfixes moved, and any later hotfix that reshuffles a tree.
+- Warrior: the data carries the game's own slots for Lingering Rage, Furious Precision, Gore Drinker and Iron Will, so a
+  Warrior's talent string read from another class, or a Warrior you inspect, lands on the right talents too. The other
+  462 talents already matched.
+
 ## 0.37.1
 - The data as the site has it after the 3 Oct accuracy audit: 250 corrected talent and spell lines, the same words in the
   addon and on talentsforever.com. Nothing else changed from 0.37.0.

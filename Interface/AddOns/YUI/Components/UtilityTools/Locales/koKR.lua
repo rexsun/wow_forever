@@ -1,0 +1,35 @@
+local YUI = _G.YUI
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("koKR") then return end
+
+YUI.Locale:Register("UtilityTools", "koKR", {
+    ["name"] = "편의 도구",
+    ["description"] = "인터페이스와 게임을 위한 작은 편의 기능 모음입니다.",
+    ["settings.bonus_roll"] = "여분의 목록 통화 확인",
+    ["settings.bonus_roll_confirm_roll"] = "압연하기 전에 확인",
+    ["settings.bonus_roll_confirm_pass"] = "전달하기 전에 확인",
+    ["bonus_roll.roll_title"] = "정말 롤?",
+    ["bonus_roll.pass_title"] = "롤링하지 않나요?",
+    ["bonus_roll.roll_specialization"] = "현재 loot specialization: %s",
+    ["bonus_roll.roll_question"] = "1 개의 보너스 롤 기회를 제공합니까?",
+    ["bonus_roll.pass_action_word"] = "패스워드",
+    ["bonus_roll.pass_message"] = "이 보너스 롤 기회에 %s?",
+    ["bonus_roll.roll_currency"] = "보너스 롤 남아 : %s %s",
+    ["bonus_roll.roll_currency_unavailable"] = "보너스 롤 나머지: —",
+    ["bonus_roll.confirm_roll"] = "목록 확인",
+    ["bonus_roll.confirm_pass"] = "패스 롤",
+    ["bonus_roll.return"] = "뒤로",
+    ["bonus_roll.spec_unknown"] = "이름 *",
+    ["bonus_roll.popup_unavailable"] = "확인 인터페이스는 사용할 수 없습니다. 아무런 동작이 취되지 않았습니다.",
+    ["bonus_roll.prompt_expired"] = "보너스 롤은 더 이상 활성화되지 않습니다. 행동이 취되지 않았습니다.",
+    ["bonus_roll.test_roll_confirmed"] = "목록 확인 UI 시험 완료; 진짜 목록은 실행되지 않았습니다.",
+    ["bonus_roll.test_pass_confirmed"] = "확인 UI 테스트를 완료; 실제 패스가 수행되지 않았습니다.",
+    ["bonus_roll.command_usage"] = "용법: /yroll 테스트 또는 /yroll 테스트 패스",
+    ["settings.macro_frame"] = "매크로 창 확장",
+    ["settings.macro_visible_count"] = "표시할 매크로",
+    ["settings.hide_errors"] = "오류 메시지를 숨기기",
+    ["settings.hide_mode"] = "오류 표시",
+    ["settings.throttle_window"] = "제한 시간",
+    ["mode.block_allowlist"] = "non-critical red 오류를 숨길",
+    ["mode.throttle_once"] = "Throttle 반복 된 빨간색 오류",
+})

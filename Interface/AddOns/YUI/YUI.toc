@@ -1,0 +1,16 @@
+## Title: |TInterface/AddOns/YUI/Media/Core/images/YUI-LOGO-300.png:16:16:0:0|t YUI · YanForge
+## Title-zhCN: |TInterface/AddOns/YUI/Media/Core/images/YUI-LOGO-300.png:16:16:0:0|t YUI · 言工坊
+## Title-zhTW: |TInterface/AddOns/YUI/Media/Core/images/YUI-LOGO-300.png:16:16:0:0|t YUI · 言工坊
+## Notes: The YUI all-in-one interface suite.
+## Notes-zhCN: YUI 整合界面插件。
+## Notes-zhTW: YUI 整合介面插件。
+## Author: 阿言
+## Version: v338
+## SavedVariables: YUI_DB, YUI_CPUDiagnostics
+## Interface: 120100, 120007, 120005, 120001, 120000, 38001, 16001
+## OptionalDeps: LibEQOLEditMode-1.0, SenseiClassResourceBar, NDUI, ElvUI, ElvUI_ToxiUI, EnhanceQoL, Details, EllesmereUIActionBars, EllesmereUICooldownManager, EllesmereUIMinimap, BugSack
+## Group: YUI
+## X-YUI-Package: universal
+
+YUI_Load_Mainline.xml [AllowLoadGameType standard] [ExcludeLoadGameType camelot, classic]
+YUI_Load_Forever.xml [AllowLoadGameType camelot] [ExcludeLoadGameType standard, classic]

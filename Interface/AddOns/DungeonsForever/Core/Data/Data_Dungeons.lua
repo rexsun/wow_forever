@@ -2,11 +2,6 @@
 -- 无限副本手册 · 副本数据（无限版 13–60 级）
 -- 结构：ns.DungeonData = { dungeons = { { id, name, nameEn, levelMin, levelMax,
 --         isNew, zone, bossCount, dropCount, art, bosses }, ... } }
---   · art = Media/Dungeons/<art>.tga 的基名，供「总览」页的条形底图使用；
---     多个副本共用一张图（血色修道院、厄运之槌、斯坦索姆、黑石塔）。
---   · bosses 待逐条明细补齐后由 UI 直接渲染（见 Core/DungeonUI.lua 的 U:ShowDungeonDetail）。
---   · 未公布掉落的副本 bossCount / dropCount 为 nil，UI 显示「暂无掉落数据」。
---   · 副本名以游戏内为准。
 -- =============================================================================
 
 local _, ns = ...
@@ -15,18 +10,18 @@ ns.DungeonData = {
     dungeons = {
         { id = "hall_of_thanes",     name = "领主大厅",       nameEn = "Hall of Thanes",            levelMin = 13, levelMax = 18, isNew = true,  zone = "铁炉堡地下，丹莫罗",   bossCount = 4,  dropCount = 13,  art = "art-hall-of-thanes",     bosses = {} },
         { id = "ragefire_chasm",     name = "怒焰裂谷",       nameEn = "Ragefire Chasm",           levelMin = 13, levelMax = 18, isNew = false, zone = "奥格瑞玛",             bossCount = 4,  dropCount = 12,  art = "art-ragefirechasm",      bosses = {} },
-        { id = "ruins_of_lordaeron", name = "洛丹伦废墟",     nameEn = "Ruins of Lordaeron",       levelMin = 15, levelMax = 20, isNew = true,  zone = "洛丹伦废城",           bossCount = 7,  dropCount = 20,  art = "art-ruins-of-lordaeron", bosses = {} },
-        { id = "wailing_caverns",    name = "哀嚎洞穴",       nameEn = "Wailing Caverns",          levelMin = 17, levelMax = 24, isNew = false, zone = "贫瘠之地",             bossCount = 10, dropCount = 30,  art = "art-wailingcaverns",     bosses = {} },
-        { id = "the_deadmines",      name = "死亡矿井",       nameEn = "The Deadmines",            levelMin = 17, levelMax = 26, isNew = false, zone = "西部荒野",             bossCount = 11, dropCount = 48,  art = "art-deadmines",          bosses = {} },
-        { id = "shadowfang_keep",    name = "影牙城堡",       nameEn = "Shadowfang Keep",          levelMin = 22, levelMax = 30, isNew = false, zone = "银松森林",             bossCount = 14, dropCount = 44,  art = "art-shadowfangkeep",     bosses = {} },
-        { id = "excavation_wetlands",name = "挖掘场：湿地",   nameEn = "Excavation Site: Wetlands",levelMin = 24, levelMax = 29, isNew = true,  zone = "湿地，维尔加挖掘场上方", bossCount = 4,  dropCount = 10, art = "art-excavation-site",    bosses = {} },
-        { id = "blackfathom_deeps",  name = "黑暗深渊",       nameEn = "Blackfathom Deeps",        levelMin = 24, levelMax = 32, isNew = false, zone = "灰谷",                 bossCount = 9,  dropCount = 36,  art = "art-blackfathomdeeps",   bosses = {} },
-        { id = "the_stockade",       name = "监狱",           nameEn = "The Stockade",             levelMin = 24, levelMax = 32, isNew = false, zone = "暴风城",               bossCount = 7,  dropCount = 18,   art = "art-stockade",           bosses = {} },
-        { id = "city_of_dalaran",    name = "达拉然城",       nameEn = "City of Dalaran",          levelMin = 28, levelMax = 33, isNew = true,  zone = "奥特兰克山脉",         bossCount = 9,  dropCount = nil, art = "art-city-of-dalaran",    bosses = {} },
-        { id = "gnomeregan",         name = "诺莫瑞根",       nameEn = "Gnomeregan",               levelMin = 29, levelMax = 38, isNew = false, zone = "丹莫罗",               bossCount = 8,  dropCount = 43,  art = "art-gnomeregan",         bosses = {} },
-        { id = "razorfen_kraul",     name = "剃刀沼泽",       nameEn = "Razorfen Kraul",           levelMin = 29, levelMax = 38, isNew = false, zone = "贫瘠之地",             bossCount = 10,  dropCount = 34,  art = "art-razorfenkraul",      bosses = {} },
-        { id = "sm_graveyard",       name = "血色修道院：墓地", nameEn = "Scarlet Monastery Graveyard", levelMin = 30, levelMax = 38, isNew = false, zone = "提瑞斯法林地",   bossCount = 6,  dropCount = 41,  art = "art-scarletmonastery",   bosses = {} },
-        { id = "sm_library",         name = "血色修道院：图书馆", nameEn = "Scarlet Monastery Library", levelMin = 33, levelMax = 41, isNew = false, zone = "提瑞斯法林地",   bossCount = 4,  dropCount = 36,  art = "art-scarlethalls",       bosses = {} },
+        { id = "ruins_of_lordaeron", name = "洛丹伦废墟",     nameEn = "Ruins of Lordaeron",       levelMin = 15, levelMax = 20, isNew = true,  zone = "洛丹伦废城",           bossCount = 8,  dropCount = 25,  art = "art-ruins-of-lordaeron", bosses = {} },
+        { id = "wailing_caverns",    name = "哀嚎洞穴",       nameEn = "Wailing Caverns",          levelMin = 17, levelMax = 24, isNew = false, zone = "贫瘠之地",             bossCount = 10, dropCount = 37,  art = "art-wailingcaverns",     bosses = {} },
+        { id = "the_deadmines",      name = "死亡矿井",       nameEn = "The Deadmines",            levelMin = 17, levelMax = 26, isNew = false, zone = "西部荒野",             bossCount = 11, dropCount = 49,  art = "art-deadmines",          bosses = {} },
+        { id = "shadowfang_keep",    name = "影牙城堡",       nameEn = "Shadowfang Keep",          levelMin = 22, levelMax = 30, isNew = false, zone = "银松森林",             bossCount = 15, dropCount = 48,  art = "art-shadowfangkeep",     bosses = {} },
+        { id = "excavation_wetlands",name = "挖掘场：湿地",   nameEn = "Excavation Site: Wetlands",levelMin = 24, levelMax = 29, isNew = true,  zone = "湿地，维尔加挖掘场上方", bossCount = 4,  dropCount = 13, art = "art-excavation-site",    bosses = {} },
+        { id = "blackfathom_deeps",  name = "黑暗深渊",       nameEn = "Blackfathom Deeps",        levelMin = 24, levelMax = 32, isNew = false, zone = "灰谷",                 bossCount = 9,  dropCount = 62,  art = "art-blackfathomdeeps",   bosses = {} },
+        { id = "the_stockade",       name = "监狱",           nameEn = "The Stockade",             levelMin = 24, levelMax = 32, isNew = false, zone = "暴风城",               bossCount = 7,  dropCount = 36,   art = "art-stockade",           bosses = {} },
+        { id = "city_of_dalaran",    name = "达拉然城",       nameEn = "City of Dalaran",          levelMin = 28, levelMax = 33, isNew = true,  zone = "奥特兰克山脉",         bossCount = 8,   dropCount = 27, art = "art-city-of-dalaran",    bosses = {} },
+        { id = "gnomeregan",         name = "诺莫瑞根",       nameEn = "Gnomeregan",               levelMin = 29, levelMax = 38, isNew = false, zone = "丹莫罗",               bossCount = 8,  dropCount = 49,  art = "art-gnomeregan",         bosses = {} },
+        { id = "razorfen_kraul",     name = "剃刀沼泽",       nameEn = "Razorfen Kraul",           levelMin = 29, levelMax = 38, isNew = false, zone = "贫瘠之地",             bossCount = 10,  dropCount = 61,  art = "art-razorfenkraul",      bosses = {} },
+        { id = "sm_graveyard",       name = "血色修道院：墓地", nameEn = "Scarlet Monastery Graveyard", levelMin = 30, levelMax = 38, isNew = false, zone = "提瑞斯法林地",   bossCount = 7,  dropCount = 55,  art = "art-scarletmonastery",   bosses = {} },
+        { id = "sm_library",         name = "血色修道院：图书馆", nameEn = "Scarlet Monastery Library", levelMin = 33, levelMax = 41, isNew = false, zone = "提瑞斯法林地",   bossCount = 4,  dropCount = 39,  art = "art-scarlethalls",       bosses = {} },
         { id = "the_drowned_city",   name = "沉没之城",       nameEn = "The Drowned City",         levelMin = 35, levelMax = 40, isNew = true,  zone = "荆棘谷近海",           bossCount = nil, dropCount = nil, art = "art-the-drowned-city",  bosses = {} },
         { id = "sm_armory",          name = "血色修道院：军械库", nameEn = "Scarlet Monastery Armory", levelMin = 36, levelMax = 44, isNew = false, zone = "提瑞斯法林地",   bossCount = 2,  dropCount = 33,  art = "art-scarlethalls",       bosses = {} },
         { id = "razorfen_downs",     name = "剃刀高地",       nameEn = "Razorfen Downs",           levelMin = 37, levelMax = 46, isNew = false, zone = "贫瘠之地",             bossCount = 8,  dropCount = 31,  art = "art-razorfendowns",      bosses = {} },

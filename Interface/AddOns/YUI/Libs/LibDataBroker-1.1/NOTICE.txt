@@ -1,0 +1,6 @@
+LibDataBroker-1.1
+Author: tekkub and upstream contributors
+Source: https://github.com/tekkub/libdatabroker-1-1
+Embedding guidance: https://www.wowace.com/projects/libdatabroker-1-1
+Retrieved: 2026-09-07
+The upstream Lua source is included without modification.

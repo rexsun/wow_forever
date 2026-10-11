@@ -98,6 +98,8 @@ function Stubs.Fresh(root, options)
   _G.RXP, _G.RXPSettings, _G.RXPData, _G.RXPCData, _G.LibStub = nil, nil, nil, nil, nil
   _G.Plater, _G.PlaterDB = nil, nil
   _G.KallyeRaidFramesOptions, _G.K_SHARED_UI = nil, nil
+  _G.YUI, _G.YUI_DB = nil, nil
+  _G.EllesmereUIDB, _G._ENP_RefreshAllSettings = nil, nil
   if options.kallye then
     _G.KallyeRaidFramesOptions = options.kallye
     _G.K_SHARED_UI = { RefreshOptions = function() end }
@@ -127,6 +129,7 @@ function Stubs.Fresh(root, options)
     return frame
   end
   _G.hooksecurefunc = function(target, name, hook)
+    if type(target) == "string" then target, name, hook = _G, target, name end
     local original = target[name]
     target[name] = function(...)
       local results = { original(...) }
@@ -159,6 +162,10 @@ function Stubs.Fresh(root, options)
   for _, file in ipairs({ "Core.lua", "Policy.lua", "Adapters/LeatrixPlus.lua", "Adapters/RestedXP.lua", "Adapters/Plater.lua", "Adapters/Kallye.lua", "Guard.lua" }) do
     local chunk = assert(loadfile(root .. file))
     chunk("OverlapSettingsGuard", ns)
+  end
+  for _, file in ipairs({ "Adapters/YUI.lua", "Adapters/EllesmereUI.lua" }) do
+    local chunk = loadfile(root .. file)
+    if chunk then chunk("OverlapSettingsGuard", ns) end
   end
   world.ns = ns
 

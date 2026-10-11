@@ -1,0 +1,9 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Include file="!load_Common.xml"/>
+    <Script file="Sounds_Common.lua"/>
+    <Script file="Sounds_Wrath.lua"/>
+    <Script file="LegacyEntries_Wrath.lua"/>
+    <Script file="SystemSounds_Wrath.lua"/>
+    <Script file="Service.lua"/>
+    <Script file="Transfer.lua"/>
+</Ui>

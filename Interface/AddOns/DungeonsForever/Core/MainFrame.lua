@@ -43,21 +43,23 @@ ns.TalentSimFrame = f
 
 do
     if ns.hui and ns.hui.SkinPopup then
-        ns.hui.SkinPopup(f, 8)
+        -- 主窗底色 = L0（0A0C10）：给「窗口 L0 < 容器卡 L1 < 内卡 L2 < 悬停 L4」留出完整阶梯
+        -- （卡中卡提亮规则的对偶面：窗口压暗一档，所有页面的卡对比度统一 +1；tooltip 本来就是 L0）
+        ns.hui.SkinPopup(f, 8, nil, ns.hui.layer and ns.hui.layer.L0 or nil)
     else
         f:SetBackdrop({
             bgFile = "Interface\\Buttons\\WHITE8x8",
             edgeFile = "Interface\\Buttons\\WHITE8x8",
             edgeSize = 1,
         })
-        f:SetBackdropColor(0x2b / 255, 0x2b / 255, 0x2b / 255, 0.95)
+        f:SetBackdropColor(0x10 / 255, 0x13 / 255, 0x1A / 255, 0.95)
         f:SetBackdropBorderColor(1, 1, 1, 0.10)
     end
 end
 
 local title = f:CreateFontString(nil, "OVERLAY")
 title:SetFont(ns.FONT, 15, "")
-title:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -14)
+title:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -4)   -- 页签轨道顶=窗顶下24，标题须在其上
 title:SetText(L["无限副本手册"])
 title:SetTextColor(0.95, 0.96, 0.98)
 
@@ -144,7 +146,7 @@ if ns.hui and ns.hui.SkinPopup then
     ns.hui.SkinPopup(about, 8)
 else
     about:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
-    about:SetBackdropColor(0x2b / 255, 0x2b / 255, 0x2b / 255, 1)
+    about:SetBackdropColor(0x10 / 255, 0x13 / 255, 0x1A / 255, 1)
 end
 
 do
@@ -179,7 +181,7 @@ do
         { L["指令"], "|cff46bf72/df|r · |cff46bf72/fbsc|r · /副本手册 — " .. L["开关窗口"] },
         { L["页面"], "|cff46bf72/df fb|r" .. L["副本"] .. " · |cff46bf72tb|r" .. L["团本"]
             .. " · |cff46bf72zy|r" .. L["专业"] .. " · |cff46bf72ts|r" .. L["探索"]
-            .. " · |cff46bf72bis|r" .. L["配装"] },
+            .. " · |cff46bf72hp|r" .. L["藏品"] .. " · |cff46bf72bis|r" .. L["配装"] },
     }
     for i, row in ipairs(rows) do
         local ln = about:CreateFontString(nil, "OVERLAY")
@@ -256,7 +258,7 @@ if ns.hui and ns.hui.SkinPopup then
     ns.hui.SkinPopup(settingsPop, 8)
 else
     settingsPop:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
-    settingsPop:SetBackdropColor(0x2b / 255, 0x2b / 255, 0x2b / 255, 1)
+    settingsPop:SetBackdropColor(0x10 / 255, 0x13 / 255, 0x1A / 255, 1)
 end
 
 -- 供掉落页「装备过滤」面板互斥调用：打开过滤面板时先收起设置弹窗（含图标态复位）。
@@ -285,7 +287,21 @@ local scaleGroup
 local scaleText
 
 local function ApplyScale()
-    f:SetScale(scaleValue / 100)
+    -- 屏幕适配钳制：缩放后窗口有效宽高超出可视区时等比压低（设置档位与存档值不变）
+    local raw = scaleValue / 100
+    local factor = raw
+    local ok, pw, ph = pcall(GetPhysicalScreenSize)
+    if ok and pw and ph and pw > 0 and ph > 0 then
+        local es = 1
+        if UIParent and UIParent.GetEffectiveScale then es = UIParent:GetEffectiveScale() or 1 end
+        local availW = pw / es
+        local availH = ph / es
+        if availW > 0 and availH > 0 then
+            local fit = math.min(raw, availW / W, availH / H)
+            if fit > 0 then factor = fit end
+        end
+    end
+    f:SetScale(factor)
     ns.DB().ui.scale = scaleValue
 end
 
@@ -323,10 +339,10 @@ local C_GLYPH   = {0.67, 0.70, 0.73}
 local C_NUM     = {0.91, 0.93, 0.94}
 local PILL_H    = 22
 
-scaleGroup = CreateFrame("Frame", nil, f, "BackdropTemplate")
-scaleGroup:SetFrameLevel(510)
+scaleGroup = CreateFrame("Frame", nil, settingsPop, "BackdropTemplate")
+scaleGroup:SetFrameLevel(520)
 scaleGroup:SetSize(94, PILL_H)
-scaleGroup:SetPoint("TOPRIGHT", f, "TOPRIGHT", -116, -9)
+scaleGroup:SetPoint("TOPRIGHT", settingsPop, "TOPRIGHT", -12, -11)
 scaleGroup:SetBackdrop({ bgFile = "Interface/ChatFrame/ChatFrameBackground" })
 scaleGroup:SetBackdropColor(C_PILL_BG[1], C_PILL_BG[2], C_PILL_BG[3], 0.6)
 do
@@ -351,7 +367,7 @@ AddDivider(69)
 
 local function MakeGlyphButton(width, label, anchor)
     local bt = CreateFrame("Button", nil, scaleGroup)
-    bt:SetFrameLevel(511)
+    bt:SetFrameLevel(521)
     bt:SetSize(width, PILL_H)
     bt:SetPoint(anchor, scaleGroup, anchor, 0, 0)
     local t = bt:CreateFontString(nil, "OVERLAY")
@@ -366,7 +382,7 @@ end
 local minusBtn = MakeGlyphButton(24, "-", "TOPLEFT")
 local plusBtn  = MakeGlyphButton(24, "+", "TOPRIGHT")
 scaleText = CreateFrame("Button", nil, scaleGroup)
-scaleText:SetFrameLevel(511)
+scaleText:SetFrameLevel(521)
 scaleText:SetSize(44, PILL_H)
 scaleText:SetPoint("TOPLEFT", minusBtn, "TOPRIGHT")
 do
@@ -519,6 +535,7 @@ local PAGE_ALIASES = {
     tb = "Raids",       ["团本"] = "Raids",
     zy = "Professions", ["专业"] = "Professions",
     ts = "Explore",     ["探索"] = "Explore",
+    hp = "Collections", ["藏品"] = "Collections",
     bis = "Bis",        ["配装"] = "Bis",
     zn = "Tier",        ["指南"] = "Tier",
 }
@@ -538,7 +555,7 @@ SlashCmdList["DUNGEONSFOREVER"] = function(msg)
         return
     end
     print("|cff46bf72[" .. L["无限副本手册"] .. "]|r " .. L["用法：/df 或 /fbsc 打开或关闭界面。"])
-    print("  /df fb|副本 · tb|团本 · zy|专业 · ts|探索 · bis|配装 · zn|指南 — " .. L["直达对应页"])
+    print("  /df fb|副本 · tb|团本 · zy|专业 · ts|探索 · hp|藏品 · bis|配装 · zn|指南 — " .. L["直达对应页"])
     -- ★ 2026-10-03 第五刀：载入闸门的速度档位（省电 2ms / 标准 4ms / 激进 8ms）。
     --   电脑差的用户不必猜命令 —— /df 就把它列出来。
     print("  /dfspeed — " .. L["载入速度"]

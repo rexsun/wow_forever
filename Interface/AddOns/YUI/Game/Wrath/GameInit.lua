@@ -1,0 +1,150 @@
+local ADDON_NAME, YUI = ...
+local GUI2 = YUI.GUI2
+
+function YUI:prepareDBAndSettings()
+    local LibBlzSettings = LibStub("LibBlzSettings-1.0")
+
+    -- 创建自定义面板
+    local panel = GUI2:CreateFrame(UIParent)
+    panel:SetSize(1, 1) -- 需要设置大小，否则可能无法正确显示内容
+    panel:Hide()
+
+    panel.OnCommit = function() end
+    panel.OnDefault = function() end
+    panel.OnRefresh = function() end
+
+    -- 标题 YUI (渐变色)
+    local title = GUI2:CreateText(panel, "", 64)
+    title.gui2ColorKey = nil
+    title.gui2ColorFallback = nil
+    title:SetPoint("CENTER", 0, 100)
+    title:SetText("|cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r")
+
+    -- 尝试获取字体，如果 STANDARD_TEXT_FONT 不存在则使用备用
+    local fontPath = STANDARD_TEXT_FONT
+    if not fontPath then
+        local font, _, _ = GameFontNormal:GetFont()
+        fontPath = font
+    end
+    title:SetFont(fontPath, 64, "OUTLINE")
+
+    -- /yui
+    local slashText = GUI2:CreateText(panel, "/yui", 40, "color.text.accent")
+    slashText:SetPoint("CENTER", 0, -50)
+    slashText:SetFont(fontPath, 40, "OUTLINE")
+
+    -- 按钮
+    local btn = GUI2:CreateButton(panel, "打开设置页面", 280, 56)
+    btn:SetPoint("TOP", slashText, "BOTTOM", 0, -30)
+    btn.text:SetFont(fontPath, 18) -- 更大的字体
+
+    btn:SetScript("OnClick", function()
+        -- 如果 Settings 模块已加载
+        if YUI.Settings and YUI.Settings.Toggle then
+            YUI.Settings:Toggle()
+        else
+            print("YUI 设置模块未加载")
+        end
+
+        C_Timer.After(0.01, function()
+            if SettingsPanel:IsShown() then
+                HideUIPanel(SettingsPanel)
+            end
+        end)
+    end)
+
+    -- Pass the frame to LibBlzSettings
+    local settings = {
+        name = " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r 帮助与设置 ",
+        frame = panel
+    }
+
+    local settingsDB = YUI.DB and YUI.DB.GetProfile and YUI.DB:GetProfile(YUI.ProductId or "suite") or {}
+    LibBlzSettings:RegisterVerticalSettingsTable(ADDON_NAME, settings, settingsDB,
+                                                 true)
+end
+
+local function OnGameInitEvent(event, ...)
+    if event == "YUI_DB_READY" then
+        if YUI.Trace and YUI.Trace.Measure then
+            YUI.Trace:Measure("Framework", "GameInit settings", function()
+                YUI:prepareDBAndSettings()
+            end, "wrath", {
+                moduleId = "GameInit",
+                phase = "settings",
+            })
+        else
+            YUI:prepareDBAndSettings()
+        end
+    elseif event == "YUI_WORLD_READY" then
+        local function UpdateWorldState()
+            YUI.Player.Name = UnitName("player")
+            YUI.Player.Server = GetRealmName()
+            YUI.Player.Class, _ = select(2, UnitClass("player"))
+        end
+        if YUI.Trace and YUI.Trace.Measure then
+            YUI.Trace:Measure("World", "GameInit player state", UpdateWorldState, "wrath", {
+                moduleId = "GameInit",
+                phase = "player state",
+            })
+        else
+            UpdateWorldState()
+        end
+
+        -- [YUI Fix] 修复 BlizzMove 找不到 GlyphFrameScrollFrame 的报错
+        local BlizzMove = _G.BlizzMove
+        if not BlizzMove and LibStub then
+            local AceAddon = LibStub("AceAddon-3.0", true)
+            if AceAddon then BlizzMove = AceAddon:GetAddon("BlizzMove", true) end
+        end
+
+        if BlizzMove and BlizzMove.Frames then
+            local bmFrames = BlizzMove.Frames
+            if bmFrames["Blizzard_GlyphUI"]
+               and bmFrames["Blizzard_GlyphUI"]["PlayerTalentFrame"]
+               and bmFrames["Blizzard_GlyphUI"]["PlayerTalentFrame"].SubFrames
+               and bmFrames["Blizzard_GlyphUI"]["PlayerTalentFrame"].SubFrames["GlyphFrame"]
+               and bmFrames["Blizzard_GlyphUI"]["PlayerTalentFrame"].SubFrames["GlyphFrame"].SubFrames then
+
+              bmFrames["Blizzard_GlyphUI"]["PlayerTalentFrame"].SubFrames["GlyphFrame"].SubFrames["GlyphFrameScrollFrame"] = nil
+            end
+        end
+
+        -- [YUI Fix] 屏蔽 WeakAuras 的免责声明
+        if _G.WeakAuras and _G.WeakAuras.prettyPrint then
+            local oldPrettyPrint = _G.WeakAuras.prettyPrint
+            _G.WeakAuras.prettyPrint = function(...)
+                local msg = ...
+                if type(msg) == "string" and msg:find("This version of WeakAuras is provided as is") then
+                    return -- 拦截这条特定消息
+                end
+                return oldPrettyPrint(...)
+            end
+        end
+    end
+end
+
+YUI.Event:On("YUI_DB_READY", OnGameInitEvent, nil, {
+    priority = 6000,
+    traceName = "GameInit:YUI_DB_READY",
+    moduleId = "GameInit",
+    phase = "YUI_DB_READY",
+})
+YUI.Event:On("YUI_WORLD_READY", OnGameInitEvent, nil, {
+    priority = 6000,
+    traceName = "GameInit:YUI_WORLD_READY",
+    moduleId = "GameInit",
+    phase = "YUI_WORLD_READY",
+})
+
+-- 注册 Slash 命令
+SLASH_YUI1 = "/yui"
+SlashCmdList["YUI"] = function(msg)
+    -- First try to handle via Installer's command handler if available
+    if YUI.HandleSlashCommand and YUI:HandleSlashCommand(msg) then
+        return
+    end
+    
+    -- Fallback to toggling Settings window
+    YUI.Settings:Toggle()
+end

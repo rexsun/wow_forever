@@ -13,7 +13,7 @@ Every add-on here must declare Interface 16001 in its TOC and work on this clien
 
 ## Contents
 
-- [Interface/AddOns/readme.md](Interface/AddOns/readme.md): installed add-ons with versions, sources and purpose. ClassUIEnhanced handles combat trackers, Plater handles nameplates and Kallye enhances Blizzard party/raid frames. Blizzard supplies action bars, bags and unit frames, with Leatrix Plus for minimap/chat. Details!, Deadly Boss Mods, Leatrix Maps, RareScanner, Auctionator and others remain installed.
+- [Interface/AddOns/readme.md](Interface/AddOns/readme.md): YUI v338, modular EllesmereUI 9.4 frames/nameplates, RXPGuides and four specialist addons, with OverlapSettingsGuard. The frame and arrow setup has been reported working in-game; see the inventory for remaining caveats.
 - [Interface/AddOns/updates.md](Interface/AddOns/updates.md): change log, newest first. It covers installs, removals, setting changes and local patches, which upstream updates can overwrite.
 - [Interface/AGENTS.md](Interface/AGENTS.md): rules for maintaining the add-ons.
 
@@ -22,3 +22,15 @@ Every add-on here must declare Interface 16001 in its TOC and work on this clien
 Exit the game before replacing add-on folders. Record each change in `updates.md` and keep `readme.md` in sync. Then commit.
 
 The `ForeverUI` branch preserves the addon bundle before the 2026-10-10 replacement. Its saved settings are separately backed up in `addon-backups/foreverui-replacement-20261010-211803/WTF`; switching branches does not restore WTF.
+
+## Moving to another display
+
+Run the adoption utility on the destination after closing WoW on both machines:
+
+```powershell
+.\Interface\adopt_addons.ps1 '\\source\WoW\_classic_beta_' -Resolution 1920x1080
+```
+
+The source path is the game root containing Interface and WTF. Resolution also accepts 2560x1440 or 3840x2160. The script fits EUI's options window and sets the windowed resolution; it preserves gameplay UI scale, frame positions and fonts. Without Resolution it copies settings unchanged. Maximized mode uses the destination display's native resolution. Destination Interface/WTF are backed up before replacement, with rollback on failure. Source WTF is never modified.
+
+EUI and YUI share Default with new characters. RestedXP uses a supported default template for new character profiles; guide progress, Blizzard keybindings and character-only layout settings remain separate. WTF is ignored by Git, so pulling this repository alone does not install the configured settings. Use the adoption utility with the same account, or transfer SavedVariables into the destination account folder.

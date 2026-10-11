@@ -1,0 +1,1197 @@
+local _, YUI = ...
+
+YUI.API = YUI.API or {}
+YUI.WOW_API = YUI.WOW_API or {}
+
+local Talent = YUI.API.Talent or {}
+YUI.API.Talent = Talent
+
+local Legacy = YUI.WOW_API
+local isRetail = YUI.IsRetail
+local isForever = YUI.IsForever
+local isMists = YUI.IsMists
+local isWrath = YUI.IsWrath
+local UNLEARNED_SPEC_NAME = "未激活天赋"
+local UNLEARNED_SPEC_ICON = 134400
+
+local currentSpecInfoCache
+local configurationSpecInfoCache
+local configurationSpecCacheDirty = true
+local currentSpecCacheEventsRegistered
+
+Talent.Constants = Talent.Constants or {
+    TraitConsts = {
+        STARTER_BUILD_TRAIT_CONFIG_ID = Constants
+            and Constants.TraitConsts
+            and Constants.TraitConsts.STARTER_BUILD_TRAIT_CONFIG_ID
+            or nil
+    }
+}
+
+Legacy.Constants = Legacy.Constants or {}
+Legacy.Constants.TraitConsts = Legacy.Constants.TraitConsts or {}
+Legacy.Constants.TraitConsts.STARTER_BUILD_TRAIT_CONFIG_ID =
+    Legacy.Constants.TraitConsts.STARTER_BUILD_TRAIT_CONFIG_ID
+    or Talent.Constants.TraitConsts.STARTER_BUILD_TRAIT_CONFIG_ID
+
+local function SecureCallFunction(func, ...)
+    local Security = YUI.API and YUI.API.Security
+    if Security and Security.SecureCallFunction then
+        return Security.SecureCallFunction(func, ...)
+    end
+
+    if not func then return nil end
+    return func(...)
+end
+
+local function SecureCallMethod(object, method, ...)
+    local Security = YUI.API and YUI.API.Security
+    if Security and Security.SecureCallMethod then
+        return Security.SecureCallMethod(object, method, ...)
+    end
+
+    if not object or not method then return nil end
+    local func = object[method]
+    if func then
+        return func(object, ...)
+    end
+
+    return nil
+end
+
+local function CopySpecInfo(info)
+    if type(info) ~= "table" then return nil end
+    return {
+        specID = info.specID,
+        specIndex = info.specIndex,
+        name = info.name,
+        description = info.description,
+        icon = info.icon,
+        role = info.role,
+        classID = info.classID,
+        classFile = info.classFile,
+        groupIndex = info.groupIndex,
+        treeIndex = info.treeIndex,
+        points = info.points,
+        configID = info.configID,
+        nativeSpecID = info.nativeSpecID,
+        isInitial = info.isInitial == true,
+    }
+end
+
+local function GetUnitAPI()
+    return YUI.API and YUI.API.Unit or YUI.WOW_API or {}
+end
+
+local function GetPlayerClassInfo()
+    local UnitAPI = GetUnitAPI()
+    local className, classFile, classID
+    if UnitAPI.UnitClass then
+        className, classFile, classID = UnitAPI.UnitClass("player")
+    elseif UnitClass then
+        className, classFile, classID = UnitClass("player")
+    end
+
+    if classFile then
+        return {
+            className = className or classFile,
+            classFile = classFile,
+            classID = tonumber(classID),
+        }
+    end
+
+    return nil
+end
+
+local function ResolveClassInfo(classInfoOrClassID)
+    local UnitAPI = GetUnitAPI()
+
+    if classInfoOrClassID == nil then
+        return GetPlayerClassInfo()
+    end
+
+    if type(classInfoOrClassID) == "table" then
+        local info = {
+            className = classInfoOrClassID.className or classInfoOrClassID.name,
+            classFile = classInfoOrClassID.classFile or classInfoOrClassID.token,
+            classID = tonumber(classInfoOrClassID.classID or classInfoOrClassID.id),
+        }
+
+        if info.classFile and not info.classID and UnitAPI.GetClassInfos then
+            for _, candidate in ipairs(UnitAPI.GetClassInfos()) do
+                if candidate.classFile == info.classFile then
+                    info.classID = candidate.classID
+                    info.className = info.className or candidate.className
+                    break
+                end
+            end
+        end
+
+        return info
+    end
+
+    if type(classInfoOrClassID) == "number" then
+        if UnitAPI.GetClassInfoByID then
+            return UnitAPI.GetClassInfoByID(classInfoOrClassID)
+        end
+        if UnitAPI.GetClassInfos then
+            for _, info in ipairs(UnitAPI.GetClassInfos()) do
+                if info.classID == classInfoOrClassID then
+                    return info
+                end
+            end
+        end
+        return nil
+    end
+
+    if type(classInfoOrClassID) == "string" and UnitAPI.GetClassInfos then
+        local classFile = strupper and strupper(classInfoOrClassID) or string.upper(classInfoOrClassID)
+        for _, info in ipairs(UnitAPI.GetClassInfos()) do
+            if info.classFile == classFile then
+                return info
+            end
+        end
+    end
+
+    return nil
+end
+
+local function ScheduleCastBarDiag(context)
+    if not isRetail or not Legacy.LogCastBarDiag then return end
+
+    Legacy.LogCastBarDiag(context .. " now")
+
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, function()
+            Legacy.LogCastBarDiag(context .. " +0")
+        end)
+        C_Timer.After(0.2, function()
+            Legacy.LogCastBarDiag(context .. " +0.2")
+        end)
+    end
+end
+
+local function MarkCastBarDiagAction(action)
+    if isRetail and Legacy.MarkCastBarDiagAction then
+        Legacy.MarkCastBarDiagAction(action)
+    end
+end
+
+function Talent.ToggleTalentFrame()
+    if isRetail or isForever then
+        MarkCastBarDiagAction("ToggleTalentFrame")
+        ScheduleCastBarDiag("ToggleTalentFrame before")
+
+        if PlayerSpellsUtil and PlayerSpellsUtil.TogglePlayerSpellsFrame then
+            local classTalentsTab = (PlayerSpellsUtil.FrameTabs and PlayerSpellsUtil.FrameTabs.ClassTalents) or 2
+            local result = SecureCallFunction(PlayerSpellsUtil.TogglePlayerSpellsFrame, classTalentsTab)
+            ScheduleCastBarDiag("ToggleTalentFrame after PlayerSpellsUtil")
+            return result
+        elseif TogglePlayerSpellsFrame then
+            local result = SecureCallFunction(TogglePlayerSpellsFrame, 2)
+            ScheduleCastBarDiag("ToggleTalentFrame after TogglePlayerSpellsFrame")
+            return result
+        end
+
+        if not PlayerSpellsFrame and PlayerSpellsFrame_LoadUI then
+            SecureCallFunction(PlayerSpellsFrame_LoadUI)
+        end
+
+        if PlayerSpellsFrame then
+            if PlayerSpellsFrame:IsShown() then
+                SecureCallFunction(HideUIPanel, PlayerSpellsFrame)
+            else
+                if PlayerSpellsFrame.TrySetTab then
+                    SecureCallMethod(PlayerSpellsFrame, "TrySetTab", 2)
+                elseif PlayerSpellsFrame.SetTab then
+                    local talentTab = (Enum and Enum.PlayerSpellsFrameTab and Enum.PlayerSpellsFrameTab.Talents) or 2
+                    SecureCallMethod(PlayerSpellsFrame, "SetTab", talentTab)
+                end
+                SecureCallFunction(ShowUIPanel, PlayerSpellsFrame)
+            end
+        elseif ClassTalentFrame then
+            SecureCallFunction(ToggleFrame, ClassTalentFrame)
+        else
+            SecureCallFunction(ToggleTalentFrame)
+        end
+
+        ScheduleCastBarDiag("ToggleTalentFrame after fallback")
+        return nil
+    end
+
+    if isMists or isWrath then
+        if PlayerTalentFrame_Toggle then
+            return PlayerTalentFrame_Toggle()
+        elseif ToggleTalentFrame then
+            return ToggleTalentFrame()
+        end
+    end
+
+    if ToggleTalentFrame then
+        return ToggleTalentFrame()
+    end
+
+    return nil
+end
+
+function Talent.GetLootSpecialization()
+    if GetLootSpecialization then
+        return GetLootSpecialization()
+    end
+
+    return 0
+end
+
+function Talent.SetLootSpecialization(specID)
+    if SetLootSpecialization then
+        return SetLootSpecialization(specID)
+    end
+
+    return nil
+end
+
+function Talent.GetSpecialization()
+    if isRetail or isForever then
+        if C_SpecializationInfo and C_SpecializationInfo.GetSpecialization then
+            return C_SpecializationInfo.GetSpecialization()
+        elseif GetSpecialization then
+            return GetSpecialization()
+        end
+        return nil
+    end
+
+    if isMists then
+        if C_SpecializationInfo and C_SpecializationInfo.GetSpecialization then
+            return C_SpecializationInfo.GetSpecialization()
+        elseif GetSpecialization then
+            return GetSpecialization()
+        elseif C_SpecializationInfo and C_SpecializationInfo.GetActiveSpecGroup then
+            return C_SpecializationInfo.GetActiveSpecGroup()
+        elseif GetActiveTalentGroup then
+            return GetActiveTalentGroup()
+        end
+        return nil
+    end
+
+    if isWrath then
+        if C_SpecializationInfo and C_SpecializationInfo.GetActiveSpecGroup then
+            return C_SpecializationInfo.GetActiveSpecGroup()
+        elseif GetActiveTalentGroup then
+            return GetActiveTalentGroup()
+        end
+        return nil
+    end
+
+    if GetSpecialization then
+        return GetSpecialization()
+    elseif C_SpecializationInfo and C_SpecializationInfo.GetActiveSpecGroup then
+        return C_SpecializationInfo.GetActiveSpecGroup()
+    elseif GetActiveTalentGroup then
+        return GetActiveTalentGroup()
+    end
+
+    return nil
+end
+
+function Talent.SetSpecialization(index)
+    Talent.ClearCurrentSpecializationInfoCache()
+
+    if isRetail or isForever then
+        MarkCastBarDiagAction("SetSpecialization:" .. tostring(index))
+        ScheduleCastBarDiag("SetSpecialization before")
+
+        if C_SpecializationInfo and C_SpecializationInfo.SetSpecialization then
+            local result = SecureCallFunction(C_SpecializationInfo.SetSpecialization, index)
+            ScheduleCastBarDiag("SetSpecialization after C_SpecializationInfo")
+            return result
+        elseif SetSpecialization then
+            local result = SecureCallFunction(SetSpecialization, index)
+            ScheduleCastBarDiag("SetSpecialization after SetSpecialization")
+            return result
+        end
+        return nil
+    end
+
+    if isMists then
+        if C_SpecializationInfo and C_SpecializationInfo.SetSpecialization then
+            return C_SpecializationInfo.SetSpecialization(index)
+        elseif SetSpecialization then
+            return SetSpecialization(index)
+        elseif C_SpecializationInfo and C_SpecializationInfo.SetActiveSpecGroup then
+            return C_SpecializationInfo.SetActiveSpecGroup(index)
+        elseif SetActiveTalentGroup then
+            return SetActiveTalentGroup(index)
+        end
+        return nil
+    end
+
+    if isWrath then
+        if C_SpecializationInfo and C_SpecializationInfo.SetActiveSpecGroup then
+            return C_SpecializationInfo.SetActiveSpecGroup(index)
+        elseif SetActiveTalentGroup then
+            return SetActiveTalentGroup(index)
+        end
+        return nil
+    end
+
+    if SetSpecialization then
+        return SetSpecialization(index)
+    elseif C_SpecializationInfo and C_SpecializationInfo.SetActiveSpecGroup then
+        return C_SpecializationInfo.SetActiveSpecGroup(index)
+    elseif SetActiveTalentGroup then
+        return SetActiveTalentGroup(index)
+    end
+
+    return nil
+end
+
+function Talent.GetNumSpecializations()
+    if isRetail or isForever then
+        if GetNumSpecializations then
+            return GetNumSpecializations()
+        end
+        return 0
+    end
+
+    if isMists then
+        if GetNumSpecializations then
+            return GetNumSpecializations()
+        elseif GetNumSpecGroups then
+            return GetNumSpecGroups(false)
+        elseif GetNumTalentGroups then
+            return GetNumTalentGroups()
+        end
+        return 0
+    end
+
+    if isWrath then
+        if GetNumTalentGroups then
+            return GetNumTalentGroups()
+        elseif GetNumSpecGroups then
+            return GetNumSpecGroups(false)
+        end
+        return 0
+    end
+
+    if GetNumSpecializations then
+        return GetNumSpecializations()
+    elseif GetNumTalentGroups then
+        return GetNumTalentGroups()
+    end
+
+    return 0
+end
+
+-- Retail 会在角色尚未获得正式专精时返回一个位于正式专精列表之后的
+-- “初始专精索引”。这个索引只描述当前角色状态，不能作为持久专精身份。
+function Talent.IsInitialSpecializationIndex(index)
+    if not (isRetail or isForever) then return false end
+    index = tonumber(index)
+    if not index or index % 1 ~= 0 or index < 1 then return false end
+    local count = tonumber(Talent.GetNumSpecializations()) or 0
+    return count > 0 and index > count
+end
+
+local function GetTalentTabInfoCompat(tab, groupIndex)
+    if GetTalentTabInfo then
+        return GetTalentTabInfo(tab, false, false, groupIndex)
+    end
+
+    if C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo then
+        local id, name, description, icon, _, _, points = C_SpecializationInfo.GetSpecializationInfo(tab, false, false, nil, nil, groupIndex)
+        return id, name, description, icon, points
+    end
+
+    return nil
+end
+
+function Talent.GetTalentTabInfo(tab, groupIndex)
+    if isRetail or isForever then return nil end
+    return GetTalentTabInfoCompat(tab, groupIndex)
+end
+
+local function GetClassicSpecializationInfo(index)
+    local maxPoints = -1
+    local mainTreeIndex = 1
+    local totalPoints = 0
+
+    for tab = 1, 3 do
+        local _, _, _, _, points = GetTalentTabInfoCompat(tab, index)
+        if points then
+            totalPoints = totalPoints + points
+            if points > maxPoints then
+                maxPoints = points
+                mainTreeIndex = tab
+            end
+        end
+    end
+
+    if totalPoints == 0 then
+        return index, "未激活天赋", "", 134400, nil
+    end
+
+    local _, name, description, icon = GetTalentTabInfoCompat(mainTreeIndex, index)
+    local p1 = select(5, GetTalentTabInfoCompat(1, index)) or 0
+    local p2 = select(5, GetTalentTabInfoCompat(2, index)) or 0
+    local p3 = select(5, GetTalentTabInfoCompat(3, index)) or 0
+    local fullName = string.format("%s (%d/%d/%d)", name, p1, p2, p3)
+
+    return index, fullName, description, icon, nil
+end
+
+function Talent.GetSpecializationInfo(index)
+    if not index then return nil end
+
+    if isRetail or isForever then
+        if C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo then
+            return C_SpecializationInfo.GetSpecializationInfo(index)
+        elseif GetSpecializationInfo then
+            return GetSpecializationInfo(index)
+        end
+        return nil
+    end
+
+    if isMists then
+        if C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo then
+            return C_SpecializationInfo.GetSpecializationInfo(index)
+        elseif GetSpecializationInfo then
+            return GetSpecializationInfo(index)
+        elseif GetTalentTabInfo or (C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo) then
+            return GetClassicSpecializationInfo(index)
+        end
+        return nil
+    end
+
+    if isWrath then
+        if GetTalentTabInfo or (C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo) then
+            return GetClassicSpecializationInfo(index)
+        end
+        return nil
+    end
+
+    if GetSpecializationInfo then
+        return GetSpecializationInfo(index)
+    elseif GetTalentTabInfo or (C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo) then
+        return GetClassicSpecializationInfo(index)
+    end
+
+    return nil
+end
+
+function Talent.GetSpecializationInfoByID(specID)
+    if GetSpecializationInfoByID then
+        return GetSpecializationInfoByID(specID)
+    end
+
+    return nil
+end
+
+function Talent.GetNumSpecializationsForClassID(classID)
+    classID = tonumber(classID)
+    if not classID then return 0 end
+
+    if C_SpecializationInfo and C_SpecializationInfo.GetNumSpecializationsForClassID then
+        return C_SpecializationInfo.GetNumSpecializationsForClassID(classID) or 0
+    elseif GetNumSpecializationsForClassID then
+        return GetNumSpecializationsForClassID(classID) or 0
+    end
+
+    return 0
+end
+
+function Talent.GetSpecializationInfoForClassID(classID, index)
+    classID = tonumber(classID)
+    index = tonumber(index)
+    if not classID or not index then return nil end
+
+    local sex = UnitSex and UnitSex("player") or nil
+    if C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfoForClassID then
+        return C_SpecializationInfo.GetSpecializationInfoForClassID(classID, index, sex)
+    elseif GetSpecializationInfoForClassID then
+        return GetSpecializationInfoForClassID(classID, index, sex)
+    end
+
+    return nil
+end
+
+function Talent.GetClassSpecializations(classInfoOrClassID)
+    local classInfo = ResolveClassInfo(classInfoOrClassID)
+    local classID = classInfo and classInfo.classID
+    local specs = {}
+    if not classID then return specs end
+
+    local count = Talent.GetNumSpecializationsForClassID(classID)
+    for index = 1, count do
+        local specID, name, description, icon, role = Talent.GetSpecializationInfoForClassID(classID, index)
+        if specID then
+            specs[#specs + 1] = {
+                specID = specID,
+                specIndex = index,
+                name = name or tostring(specID),
+                description = description,
+                icon = icon,
+                role = role,
+                classID = classID,
+                classFile = classInfo.classFile,
+            }
+        end
+    end
+
+    return specs
+end
+
+function Talent.ClearCurrentSpecializationInfoCache()
+    currentSpecInfoCache = nil
+    configurationSpecCacheDirty = true
+end
+
+-- 配置身份与游戏原生专精身份分离；其他客户端继续使用原生专精。
+function Talent.GetClassConfigurationSpecializations(classInfoOrClassID)
+    if not isForever then return Talent.GetClassSpecializations(classInfoOrClassID) end
+    local classInfo = ResolveClassInfo(classInfoOrClassID)
+    local catalog = Talent.ConfigurationCatalog
+    local entry = catalog and classInfo and catalog[classInfo.classFile]
+    local result = {}
+    if not entry then return result end
+    local locale = YUI.Locale and YUI.Locale:Get("Core")
+    for index, tree in ipairs(entry.trees) do
+        result[index] = {
+            specID = tree.specID, nativeSpecID = entry.nativeSpecID,
+            specIndex = index, treeIndex = index,
+            name = locale and locale[tree.nameKey] or tree.name, icon = tree.icon,
+            classID = entry.classID, classFile = classInfo.classFile,
+        }
+    end
+    return result
+end
+
+-- 仅用于将旧 Forever 职业配置分配迁移为三系配置分配。
+function Talent.GetConfigurationSpecializationKeys(specKey)
+    local classFile, id
+    if type(specKey) == "string" then classFile, id = specKey:match("^([A-Z]+):(%d+)$") end
+    local entry = isForever and Talent.ConfigurationCatalog and Talent.ConfigurationCatalog[classFile]
+    if not entry or tonumber(id) ~= entry.nativeSpecID then return { specKey } end
+    local keys = {}
+    for index, tree in ipairs(entry.trees) do keys[index] = classFile .. ":" .. tree.specID end
+    return keys
+end
+
+local function BuildRetailCurrentSpecializationInfo()
+    local specIndex = Talent.GetSpecialization()
+    if not specIndex then return nil end
+
+    local specID, name, description, icon, role = Talent.GetSpecializationInfo(specIndex)
+    if not specID then return nil end
+
+    local classInfo = GetPlayerClassInfo() or {}
+    return {
+        specID = specID,
+        specIndex = specIndex,
+        name = name,
+        description = description,
+        icon = icon,
+        role = role,
+        classID = classInfo.classID,
+        classFile = classInfo.classFile,
+        isInitial = Talent.IsInitialSpecializationIndex(specIndex),
+    }
+end
+
+local function BuildClassicCurrentSpecializationInfo()
+    local classInfo = GetPlayerClassInfo() or {}
+    local groupIndex = Talent.GetSpecialization() or 1
+    local selected
+    local maxPoints = -1
+    local totalPoints = 0
+
+    for treeIndex = 1, 3 do
+        local specID, name, description, icon, points = GetTalentTabInfoCompat(treeIndex, groupIndex)
+        points = tonumber(points) or 0
+        totalPoints = totalPoints + points
+        if points > maxPoints then
+            maxPoints = points
+            selected = {
+                specID = specID,
+                specIndex = treeIndex,
+                treeIndex = treeIndex,
+                name = name,
+                description = description,
+                icon = icon,
+                points = points,
+            }
+        end
+    end
+
+    if totalPoints <= 0 or not selected then
+        return {
+            specID = nil,
+            specIndex = nil,
+            name = UNLEARNED_SPEC_NAME,
+            description = "",
+            icon = UNLEARNED_SPEC_ICON,
+            classID = classInfo.classID,
+            classFile = classInfo.classFile,
+            groupIndex = groupIndex,
+            treeIndex = nil,
+            points = 0,
+            isInitial = false,
+        }
+    end
+
+    local classSpecs = Talent.GetClassSpecializations(classInfo)
+    local listedSpec = classSpecs[selected.treeIndex]
+
+    return {
+        specID = tonumber(selected.specID or (listedSpec and listedSpec.specID)),
+        specIndex = selected.specIndex,
+        name = selected.name or (listedSpec and listedSpec.name) or tostring(selected.specID or selected.specIndex),
+        description = selected.description or (listedSpec and listedSpec.description),
+        icon = selected.icon or (listedSpec and listedSpec.icon) or UNLEARNED_SPEC_ICON,
+        role = listedSpec and listedSpec.role or nil,
+        classID = classInfo.classID,
+        classFile = classInfo.classFile,
+        groupIndex = groupIndex,
+        treeIndex = selected.treeIndex,
+        points = selected.points,
+        isInitial = false,
+    }
+end
+
+function Talent.GetCurrentSpecializationInfo()
+    if isWrath and currentSpecInfoCache then
+        return CopySpecInfo(currentSpecInfoCache)
+    end
+
+    local info
+    if isWrath then
+        info = BuildClassicCurrentSpecializationInfo()
+        currentSpecInfoCache = CopySpecInfo(info)
+    else
+        info = BuildRetailCurrentSpecializationInfo()
+    end
+
+    return CopySpecInfo(info)
+end
+
+function Talent.GetConfigIDsBySpecID(specID)
+    if isRetail and C_ClassTalents and C_ClassTalents.GetConfigIDsBySpecID then
+        return SecureCallFunction(C_ClassTalents.GetConfigIDsBySpecID, specID)
+    end
+
+    return nil
+end
+
+function Talent.GetStarterBuildConfigID()
+    return Talent.Constants
+        and Talent.Constants.TraitConsts
+        and Talent.Constants.TraitConsts.STARTER_BUILD_TRAIT_CONFIG_ID
+        or nil
+end
+
+function Talent.IsStarterBuildConfigID(configID)
+    local starterConfigID = Talent.GetStarterBuildConfigID()
+    return starterConfigID ~= nil and configID == starterConfigID
+end
+
+function Talent.GetCurrentConfigID()
+    if isForever then
+        local api = C_SpecializationInfo
+        if api and api.GetActiveSpecGroup and api.GetCombatConfigIDForSpecGroup then
+            return SecureCallFunction(api.GetCombatConfigIDForSpecGroup, api.GetActiveSpecGroup())
+        end
+        return nil
+    end
+    if isRetail and C_ClassTalents and C_ClassTalents.GetActiveConfigID then
+        return SecureCallFunction(C_ClassTalents.GetActiveConfigID)
+    end
+
+    return nil
+end
+
+-- Forever 的天赋组身份独立于专精身份；缺失或受限数据不猜测为第一组。
+local function IsPublicGroupNumber(value)
+    return not (issecretvalue and issecretvalue(value)) and type(value) == "number"
+end
+
+function Talent.GetNumTalentGroups()
+    if not isForever or not GetNumSpecGroups then return 0 end
+    local count = GetNumSpecGroups()
+    return IsPublicGroupNumber(count) and count or 0
+end
+
+function Talent.GetActiveTalentGroup()
+    if not isForever or not C_SpecializationInfo or not C_SpecializationInfo.GetActiveSpecGroup then return nil end
+    local group = C_SpecializationInfo.GetActiveSpecGroup()
+    return IsPublicGroupNumber(group) and group or nil
+end
+
+function Talent.CanUseTalentGroups()
+    if not isForever or not C_SpecializationInfo or not C_SpecializationInfo.CanPlayerUseTalentUI then
+        return false
+    end
+    return C_SpecializationInfo.CanPlayerUseTalentUI()
+end
+
+-- Forever 1.60.1: 三系是 Trait 分组，不是职业专精。只返回公开、完整的已应用数据。
+-- 冷事件/提示路径使用；有预览时由视图保留同 configID 的上次快照。
+function Talent.GetTalentGroupDistribution(group)
+    if not isForever or not IsPublicGroupNumber(group) or group % 1 ~= 0
+        or group < 1 or group > Talent.GetNumTalentGroups() then return nil end
+    local api, traits = C_SpecializationInfo, C_Traits
+    if not api or not api.GetCombatConfigIDForSpecGroup or not traits
+        or not traits.GetConfigInfo or not traits.GetGroupDisplayInfoByTreeID
+        or not traits.GetGroupCurrencyInfo or not traits.ConfigHasStagedChanges
+        or not traits.GetTreeCurrencyInfo then return nil end
+    local configID = api.GetCombatConfigIDForSpecGroup(group)
+    if not IsPublicGroupNumber(configID) then return nil end
+    local staged = traits.ConfigHasStagedChanges(configID)
+    if issecretvalue and issecretvalue(staged) then return nil end
+    if staged then return nil, configID, true end
+    local config = traits.GetConfigInfo(configID)
+    local treeID = config and config.treeIDs and config.treeIDs[1]
+    if not IsPublicGroupNumber(treeID) then return nil end
+    local display = traits.GetGroupDisplayInfoByTreeID(treeID)
+    if type(display) ~= "table" or #display ~= 3 then return nil end
+    local trees, ids = {}, {}
+    for i, item in ipairs(display) do
+        if not IsPublicGroupNumber(item.groupID) or not IsPublicGroupNumber(item.orderIndex)
+            or not IsPublicGroupNumber(item.icon)
+            or (issecretvalue and issecretvalue(item.displayName))
+            or type(item.displayName) ~= "string" then return nil end
+        trees[i] = {id=item.groupID, order=item.orderIndex, name=item.displayName, icon=item.icon}
+        ids[i] = item.groupID
+    end
+    table.sort(trees, function(a, b) return a.order < b.order end)
+    local currencies = traits.GetGroupCurrencyInfo(configID, ids)
+    if type(currencies) ~= "table" then return nil end
+    local total, selected, selectedIndex = 0, nil, nil
+    for index, tree in ipairs(trees) do
+        -- 与客户端标题一致：没有该分组的 currency 记录代表尚未投入。
+        tree.points = 0
+        for _, entry in ipairs(currencies) do
+            if not IsPublicGroupNumber(entry.traitNodeGroupID) then return nil end
+            if entry.traitNodeGroupID == tree.id then
+                local currency = entry.currencyInfos and entry.currencyInfos[1]
+                if currency then tree.points = currency.spent end
+                break
+            end
+        end
+        if not IsPublicGroupNumber(tree.points) or tree.points < 0 then return nil end
+        total = total + tree.points
+        -- 严格大于：并列保留客户端顺序中的首项。
+        if not selected or tree.points > selected.points then selected, selectedIndex = tree, index end
+    end
+    local currency = traits.GetTreeCurrencyInfo(configID, treeID, true)
+    local unspent = currency and currency[1] and currency[1].quantity
+    if not IsPublicGroupNumber(unspent) or unspent < 0 then unspent = nil end
+    return {trees=trees, total=total, name=selected.name, icon=selected.icon,
+        specID=selected.id, treeIndex=selectedIndex, unspent=unspent}, configID
+end
+
+function Talent.GetCurrentConfigurationSpecializationInfo()
+    if not isForever then return Talent.GetCurrentSpecializationInfo() end
+    local classInfo = GetPlayerClassInfo()
+    local group = Talent.GetActiveTalentGroup()
+    if not classInfo or not group then return nil end
+    local cached = configurationSpecInfoCache
+    local sameContext = cached and cached.classFile == classInfo.classFile and cached.groupIndex == group
+    if sameContext and not configurationSpecCacheDirty then return CopySpecInfo(cached) end
+    local distribution, configID, staged = Talent.GetTalentGroupDistribution(group)
+    if not distribution then
+        -- 编辑预览不改变已应用配置，也不替另一个天赋组猜测身份。
+        if staged and sameContext and cached.configID == configID then
+            configurationSpecCacheDirty = false
+            return CopySpecInfo(cached)
+        end
+        return nil
+    end
+    local entry = Talent.ConfigurationCatalog and Talent.ConfigurationCatalog[classInfo.classFile]
+    local tree = entry and entry.trees[distribution.treeIndex]
+    if not tree or tree.specID ~= distribution.specID then return nil end
+    configurationSpecInfoCache = {
+        specID = distribution.specID, nativeSpecID = entry.nativeSpecID,
+        specIndex = distribution.treeIndex, treeIndex = distribution.treeIndex,
+        name = distribution.name, icon = distribution.icon,
+        points = distribution.trees[distribution.treeIndex].points,
+        classID = classInfo.classID, classFile = classInfo.classFile,
+        groupIndex = group, configID = configID, isInitial = false,
+    }
+    configurationSpecCacheDirty = false
+    return CopySpecInfo(configurationSpecInfoCache)
+end
+
+function Talent.SetActiveTalentGroup(group)
+    local security = YUI.API and YUI.API.Security
+    if not isForever or not security or security.InCombatLockdown()
+        or not Talent.CanUseTalentGroups() or not IsPublicGroupNumber(group)
+        or group % 1 ~= 0 or group < 1 or group > Talent.GetNumTalentGroups()
+        or group == Talent.GetActiveTalentGroup()
+        or not C_SpecializationInfo or not C_SpecializationInfo.SetActiveSpecGroup then return false end
+    if (UnitCastingInfo and UnitCastingInfo("player")) or (UnitChannelInfo and UnitChannelInfo("player")) then return false end
+    SecureCallFunction(C_SpecializationInfo.SetActiveSpecGroup, group)
+    return true -- 表示已请求，实际当前组仍以事件后的客户端读数为准。
+end
+
+local function ReadTraitValue(func, ...)
+    if type(func) ~= "function" then return nil, false end
+    local ok, value = pcall(SecureCallFunction, func, ...)
+    if not ok then return nil, false end
+    return value, true
+end
+
+function Talent.ReadActiveTraitSpellSet(target)
+    target = type(target) == "table" and target or {}
+    for key in pairs(target) do target[key] = nil end
+
+    if not isRetail
+        or not (C_ClassTalents and C_ClassTalents.GetActiveConfigID)
+        or not C_Traits
+        or not C_Traits.GetConfigInfo
+        or not C_Traits.GetTreeNodes
+        or not C_Traits.GetNodeInfo
+        or not C_Traits.GetEntryInfo
+        or not C_Traits.GetDefinitionInfo then
+        return target, false
+    end
+
+    local configID, configIDRead = ReadTraitValue(
+        C_ClassTalents.GetActiveConfigID
+    )
+    if not configIDRead or type(configID) ~= "number" or configID <= 0 then
+        return target, false
+    end
+
+    local configInfo, configRead = ReadTraitValue(
+        C_Traits.GetConfigInfo,
+        configID
+    )
+    local treeIDs = configInfo and configInfo.treeIDs
+    if not configRead or type(treeIDs) ~= "table" or #treeIDs == 0 then
+        return target, false
+    end
+
+    local complete = true
+    for treeIndex = 1, #treeIDs do
+        local treeID = treeIDs[treeIndex]
+        local nodeIDs, nodesRead = ReadTraitValue(
+            C_Traits.GetTreeNodes,
+            treeID
+        )
+        if not nodesRead or type(nodeIDs) ~= "table" then
+            complete = false
+        else
+            for nodeIndex = 1, #nodeIDs do
+                local nodeInfo, nodeRead = ReadTraitValue(
+                    C_Traits.GetNodeInfo,
+                    configID,
+                    nodeIDs[nodeIndex]
+                )
+                if not nodeRead or type(nodeInfo) ~= "table"
+                    or type(nodeInfo.activeRank) ~= "number" then
+                    complete = false
+                elseif nodeInfo.activeRank > 0 then
+                    local activeEntry = nodeInfo.activeEntry
+                    local entryID = type(activeEntry) == "table"
+                        and activeEntry.entryID or nil
+                    if type(entryID) ~= "number" or entryID <= 0 then
+                        complete = false
+                    else
+                        local entryInfo, entryRead = ReadTraitValue(
+                            C_Traits.GetEntryInfo,
+                            configID,
+                            entryID
+                        )
+                        if not entryRead or type(entryInfo) ~= "table" then
+                            complete = false
+                        elseif entryInfo.definitionID == nil then
+                            if entryInfo.subTreeID == nil then
+                                complete = false
+                            end
+                        else
+                            local definitionInfo, definitionRead = ReadTraitValue(
+                                C_Traits.GetDefinitionInfo,
+                                entryInfo.definitionID
+                            )
+                            if not definitionRead
+                                or type(definitionInfo) ~= "table" then
+                                complete = false
+                            else
+                                local spellID = definitionInfo.spellID
+                                if spellID ~= nil then
+                                    if type(spellID) == "number"
+                                        and spellID > 0
+                                        and spellID == math.floor(spellID) then
+                                        target[spellID] = true
+                                    else
+                                        complete = false
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return target, complete
+end
+
+function Talent.HasClassTalents()
+    return isRetail and C_ClassTalents ~= nil
+end
+
+function Talent.GetLastSelectedSavedConfigID(specID)
+    if isRetail and C_ClassTalents and C_ClassTalents.GetLastSelectedSavedConfigID then
+        return SecureCallFunction(C_ClassTalents.GetLastSelectedSavedConfigID, specID)
+    end
+
+    return nil
+end
+
+function Talent.GetActiveConfigID(specID)
+    return Talent.GetLastSelectedSavedConfigID(specID)
+end
+
+function Talent.GetHasStarterBuild()
+    if isRetail and C_ClassTalents and C_ClassTalents.GetHasStarterBuild then
+        return SecureCallFunction(C_ClassTalents.GetHasStarterBuild)
+    end
+
+    return false
+end
+
+function Talent.GetStarterBuildActive()
+    if isRetail and C_ClassTalents and C_ClassTalents.GetStarterBuildActive then
+        return SecureCallFunction(C_ClassTalents.GetStarterBuildActive)
+    end
+
+    return false
+end
+
+function Talent.UpdateLastSelectedSavedConfigID(specID, configID)
+    if isRetail and specID and C_ClassTalents and C_ClassTalents.UpdateLastSelectedSavedConfigID then
+        return SecureCallFunction(C_ClassTalents.UpdateLastSelectedSavedConfigID, specID, configID)
+    end
+
+    return nil
+end
+
+local LoadAndApplyPending = nil
+local LoadAndApplyEventsRegistered = false
+
+local function LoadAndApplyGetCurrentSpecID()
+    local specIndex = Talent.GetSpecialization()
+    if specIndex then
+        local specID = Talent.GetSpecializationInfo(specIndex)
+        return specID
+    end
+
+    return nil
+end
+
+local function LoadAndApplyIsStarterConfig(configID)
+    return Talent.IsStarterBuildConfigID(configID)
+end
+
+local function LoadAndApplyClearPending()
+    LoadAndApplyPending = nil
+end
+
+local function LoadAndApplyShowError(changeError)
+    if changeError and changeError ~= "" and UIErrorsFrame and UIErrorsFrame.AddExternalErrorMessage then
+        UIErrorsFrame:AddExternalErrorMessage(changeError)
+    end
+end
+
+local function LoadAndApplyFinishPending()
+    local pending = LoadAndApplyPending
+    if not pending then return end
+
+    if pending.specID and pending.configID and not LoadAndApplyIsStarterConfig(pending.configID) then
+        Talent.UpdateLastSelectedSavedConfigID(pending.specID, pending.configID)
+    end
+
+    if pending.unflagStarterBuild and C_ClassTalents and C_ClassTalents.SetStarterBuildActive then
+        SecureCallFunction(C_ClassTalents.SetStarterBuildActive, false)
+    end
+
+    LoadAndApplyClearPending()
+    ScheduleCastBarDiag("LoadAndApplyConfig committed")
+end
+
+local function LoadAndApplyEnsureEventFrame()
+    if LoadAndApplyEventsRegistered or not YUI.Event then return end
+
+    LoadAndApplyEventsRegistered = true
+    local function OnLoadAndApplyEvent(event)
+        if not LoadAndApplyPending then return end
+
+        if event == "CONFIG_COMMIT_FAILED" then
+            LoadAndApplyClearPending()
+            ScheduleCastBarDiag("LoadAndApplyConfig commit failed")
+            return
+        end
+
+        LoadAndApplyFinishPending()
+    end
+
+    YUI.Event:On("TRAIT_CONFIG_UPDATED", OnLoadAndApplyEvent)
+    YUI.Event:On("CONFIG_COMMIT_FAILED", OnLoadAndApplyEvent)
+end
+
+local function LoadAndApplyArmPending(configID, specID, unflagStarterBuild)
+    LoadAndApplyPending = {
+        configID = configID,
+        specID = specID,
+        unflagStarterBuild = unflagStarterBuild and true or false,
+    }
+    LoadAndApplyEnsureEventFrame()
+end
+
+function Talent.LoadConfig(configID, autoApply)
+    YUI:Debug("LoadConfig", configID, autoApply)
+    if isRetail then
+        MarkCastBarDiagAction("LoadConfig:" .. tostring(configID))
+        ScheduleCastBarDiag("LoadConfig before")
+    end
+
+    if isRetail and C_ClassTalents and C_ClassTalents.LoadConfig then
+        local result, changeError, newLearnedNodeIDs = SecureCallFunction(C_ClassTalents.LoadConfig, configID, autoApply)
+        YUI:Debug("LoadConfig result: ", result, changeError, newLearnedNodeIDs)
+        ScheduleCastBarDiag("LoadConfig after")
+        return result, changeError, newLearnedNodeIDs
+    end
+
+    return nil
+end
+
+function Talent.LoadAndApplyConfig(configID)
+    YUI:Debug("LoadAndApplyConfig", configID)
+    if isRetail then
+        MarkCastBarDiagAction("LoadAndApplyConfig:" .. tostring(configID))
+        ScheduleCastBarDiag("LoadAndApplyConfig before")
+    end
+
+    if not isRetail or not C_ClassTalents or not Enum or not Enum.LoadConfigResult then
+        return Talent.LoadConfig(configID, true)
+    end
+
+    local enum = Enum.LoadConfigResult
+    local specID = LoadAndApplyGetCurrentSpecID()
+    local isStarterConfig = LoadAndApplyIsStarterConfig(configID)
+    local wasStarterBuildActive = Talent.GetStarterBuildActive()
+    local result, changeError, newLearnedNodeIDs
+
+    if isStarterConfig then
+        result = SecureCallFunction(C_ClassTalents.SetStarterBuildActive, true)
+    elseif C_ClassTalents.LoadConfig then
+        result, changeError, newLearnedNodeIDs = SecureCallFunction(C_ClassTalents.LoadConfig, configID, true)
+    end
+
+    YUI:Debug("LoadAndApplyConfig result:", result, changeError, newLearnedNodeIDs)
+    ScheduleCastBarDiag("LoadAndApplyConfig after load")
+
+    if changeError then
+        LoadAndApplyShowError(changeError)
+        return result, changeError, newLearnedNodeIDs, false
+    end
+
+    if result == enum.Error then
+        return result, changeError, newLearnedNodeIDs, false
+    elseif result == enum.NoChangesNecessary then
+        if specID and not isStarterConfig then
+            Talent.UpdateLastSelectedSavedConfigID(specID, configID)
+        end
+        if wasStarterBuildActive and not isStarterConfig and C_ClassTalents.SetStarterBuildActive then
+            SecureCallFunction(C_ClassTalents.SetStarterBuildActive, false)
+        end
+        return result, changeError, newLearnedNodeIDs, true
+    elseif result == enum.LoadInProgress then
+        LoadAndApplyArmPending(configID, specID, wasStarterBuildActive and not isStarterConfig)
+        return result, changeError, newLearnedNodeIDs, true
+    elseif result == enum.Ready then
+        if C_ClassTalents.CommitConfig then
+            LoadAndApplyArmPending(configID, specID, wasStarterBuildActive and not isStarterConfig)
+            local commitSuccess = SecureCallFunction(C_ClassTalents.CommitConfig, configID)
+            ScheduleCastBarDiag("LoadAndApplyConfig after commit")
+            if not commitSuccess then
+                LoadAndApplyClearPending()
+            end
+            return result, changeError, newLearnedNodeIDs, commitSuccess and true or false
+        end
+        return result, changeError, newLearnedNodeIDs, false
+    end
+
+    return result, changeError, newLearnedNodeIDs, nil
+end
+
+function Talent.SetStarterBuildActive(active)
+    if isRetail then
+        MarkCastBarDiagAction("SetStarterBuildActive:" .. tostring(active))
+        ScheduleCastBarDiag("SetStarterBuildActive before")
+    end
+
+    if isRetail and C_ClassTalents and C_ClassTalents.SetStarterBuildActive then
+        local result = SecureCallFunction(C_ClassTalents.SetStarterBuildActive, active)
+        ScheduleCastBarDiag("SetStarterBuildActive after")
+        return result
+    end
+
+    return nil
+end
+
+function Talent.GetConfigInfo(configID)
+    if isRetail and C_Traits and C_Traits.GetConfigInfo then
+        return C_Traits.GetConfigInfo(configID)
+    end
+
+    return nil
+end
+
+local function RegisterCurrentSpecCacheEvents()
+    if currentSpecCacheEventsRegistered or not YUI.Event then return end
+    currentSpecCacheEventsRegistered = true
+
+    local function ClearCache()
+        Talent.ClearCurrentSpecializationInfoCache()
+    end
+
+    YUI.Event:On("PLAYER_SPECIALIZATION_CHANGED", ClearCache, Talent)
+    YUI.Event:On("PLAYER_TALENT_UPDATE", ClearCache, Talent)
+    YUI.Event:On("CHARACTER_POINTS_CHANGED", ClearCache, Talent)
+    YUI.Event:On("ACTIVE_TALENT_GROUP_CHANGED", ClearCache, Talent)
+    YUI.Event:On("ACTIVE_COMBAT_CONFIG_CHANGED", ClearCache, Talent)
+    if isForever then YUI.Event:On("TRAIT_CONFIG_UPDATED", ClearCache, Talent) end
+    YUI.Event:On("YUI_WORLD_READY", ClearCache, Talent)
+end
+
+RegisterCurrentSpecCacheEvents()
+
+Legacy.ToggleTalentFrame = Talent.ToggleTalentFrame
+Legacy.GetLootSpecialization = Talent.GetLootSpecialization
+Legacy.SetLootSpecialization = Talent.SetLootSpecialization
+Legacy.GetSpecialization = Talent.GetSpecialization
+Legacy.SetSpecialization = Talent.SetSpecialization
+Legacy.GetNumSpecializations = Talent.GetNumSpecializations
+Legacy.GetTalentTabInfo = Talent.GetTalentTabInfo
+Legacy.GetSpecializationInfo = Talent.GetSpecializationInfo
+Legacy.GetSpecializationInfoByID = Talent.GetSpecializationInfoByID
+Legacy.GetNumSpecializationsForClassID = Talent.GetNumSpecializationsForClassID
+Legacy.GetSpecializationInfoForClassID = Talent.GetSpecializationInfoForClassID
+Legacy.GetClassSpecializations = Talent.GetClassSpecializations
+Legacy.ClearCurrentSpecializationInfoCache = Talent.ClearCurrentSpecializationInfoCache
+Legacy.GetCurrentSpecializationInfo = Talent.GetCurrentSpecializationInfo
+Legacy.GetConfigIDsBySpecID = Talent.GetConfigIDsBySpecID
+Legacy.GetStarterBuildConfigID = Talent.GetStarterBuildConfigID
+Legacy.IsStarterBuildConfigID = Talent.IsStarterBuildConfigID
+Legacy.GetCurrentConfigID = Talent.GetCurrentConfigID
+Legacy.HasClassTalents = Talent.HasClassTalents
+Legacy.GetLastSelectedSavedConfigID = Talent.GetLastSelectedSavedConfigID
+Legacy.GetActiveConfigID = Talent.GetActiveConfigID
+Legacy.GetHasStarterBuild = Talent.GetHasStarterBuild
+Legacy.GetStarterBuildActive = Talent.GetStarterBuildActive
+Legacy.UpdateLastSelectedSavedConfigID = Talent.UpdateLastSelectedSavedConfigID
+Legacy.LoadConfig = Talent.LoadConfig
+Legacy.LoadAndApplyConfig = Talent.LoadAndApplyConfig
+Legacy.SetStarterBuildActive = Talent.SetStarterBuildActive
+Legacy.GetConfigInfo = Talent.GetConfigInfo

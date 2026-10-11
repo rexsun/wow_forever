@@ -1,0 +1,35 @@
+local YUI = _G.YUI
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("ptBR") then return end
+
+YUI.Locale:Register("UtilityTools", "ptBR", {
+    ["name"] = "Utilitários",
+    ["description"] = "Uma coleção compacta de pequenos recursos de interface e jogo.",
+    ["settings.bonus_roll"] = " Confirmação da moeda extra Roll",
+    ["settings.bonus_roll_confirm_roll"] = " Confirmar antes de rodar",
+    ["settings.bonus_roll_confirm_pass"] = " Confirme antes de passar",
+    ["bonus_roll.roll_title"] = "- A sério?",
+    ["bonus_roll.pass_title"] = " Não está a rolar?",
+    ["bonus_roll.roll_specialization"] = " Especialização de saques atuais: %s",
+    ["bonus_roll.roll_question"] = " Gastar uma oportunidade de bonus?",
+    ["bonus_roll.pass_action_word"] = " Passar",
+    ["bonus_roll.pass_message"] = "%s nesta oportunidade de rolo de bônus?",
+    ["bonus_roll.roll_currency"] = "Rótulos de bônus restantes: %s %s",
+    ["bonus_roll.roll_currency_unavailable"] = " Restam rolos de bónus: —",
+    ["bonus_roll.confirm_roll"] = " Confirmar Roll",
+    ["bonus_roll.confirm_pass"] = " Passar Roll",
+    ["bonus_roll.return"] = "Voltar",
+    ["bonus_roll.spec_unknown"] = " Desconhecido",
+    ["bonus_roll.popup_unavailable"] = "A interface de confirmação não está disponível. Nenhuma ação foi tomada.",
+    ["bonus_roll.prompt_expired"] = "O bonus roll já não está ativo. Nenhuma ação foi tomada.",
+    ["bonus_roll.test_roll_confirmed"] = " Teste de confirmação de rolo IU concluído; nenhum rolo real foi realizado.",
+    ["bonus_roll.test_pass_confirmed"] = " Teste de confirmação de passagem de IU concluído; nenhum passe real foi realizado.",
+    ["bonus_roll.command_usage"] = " Utilização: teste /yroll ou passe de teste /yroll",
+    ["settings.macro_frame"] = "Expandir janela de macros",
+    ["settings.macro_visible_count"] = "Macros visíveis",
+    ["settings.hide_errors"] = "Ocultar mensagens de erro",
+    ["settings.hide_mode"] = "Exibição de erros",
+    ["settings.throttle_window"] = "Intervalo de limitação",
+    ["mode.block_allowlist"] = "Ocultar erros vermelhos não críticos",
+    ["mode.throttle_once"] = " Acelera erros vermelhos repetidos",
+})

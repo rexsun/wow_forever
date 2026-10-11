@@ -1,0 +1,2 @@
+-- Built-in effects are registered by BuiltinEffects.lua.
+-- Legacy game interface sounds are no longer offered.

@@ -3,7 +3,7 @@
 ## Title-zhCN: RestedXP 指南
 ## Notes: In-game leveling guides
 ## Author: RestedXP
-## Version: v4.11.21
+## Version: v4.11.23
 ## Category: Quests
 ## Category-deDE: Quests
 ## Category-esES: Misiones

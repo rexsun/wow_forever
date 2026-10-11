@@ -2,6 +2,49 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-11 - Verify new characters and resolution-aware adoption
+
+- User confirmed the repaired EUI frames and RestedXP arrow work in-game. Verified EUI/YUI shared Default profiles and RestedXP's separate character profiles. Saved the working RXP layout as its supported new-character default with complete upstream defaults and overlap options off; guide progress remains separate.
+- Removed the three inactive EUI standalone folders from the installation to prevent default-enabled conflicts on fresh characters. The shared core and selected modules remain byte-identical to the upstream release.
+- Added optional -Resolution to adopt_addons.ps1 for 1920x1080, 2560x1440 and 3840x2160. It changes only the staged gxWindowedResolution and EUI panelScale (0.90/1.00/1.50), preserving gameplay UI scale, positions, Unicode and source settings. Without this option copying is unchanged; existing backup/rollback behavior is retained.
+- Verified 18 new class/faction profiles with the installed EUI/AceDB engines; 34 guard tests pass. Adoption tests pass for transfers/repeated runs, all three resolutions, source preservation, rejection paths and rollback. Resolution tests establish panel fit; live appearance on other displays remains unverified.
+- Latest BugGrabber session records one blocked SubmitBug() call attributed to DungeonsForever through Blizzard PTR feedback. No EUI/RestedXP errors were captured; the separate feedback-report issue remains unresolved. WTF remains excluded from Git and is transferred by the adoption script.
+## 2026-10-11 - Repair EUI startup and RestedXP arrow visibility
+
+- Confirmed that EUI 9.4 standalone modules deliberately become inert when another standalone is enabled. Installed the unmodified shared EllesmereUI 9.4 core with UnitFrames, RaidFrames, Nameplates, Options and Locales from the official suite release; no other suite modules are installed. Disabled the three standalone addons for all four stored characters.
+- Migrated the minimal player-castbar and eight raid-group preferences into EllesmereUIDB. Explicitly enabled EUI player/target frame sources. Upgraded OverlapSettingsGuard to 0.4.1, updated ownership dependencies/database and covered encoded spec overrides for nameplate class power.
+- Stopped the lingering WoW process at the user's request before writing settings. Explicitly enabled RestedXP and its arrow, disabled raid hiding and reset the arrow to a top-center anchor with scale 1 and 32-unit size. Preserved current guide and progress. Saved settings/logs do not establish the exact runtime reason; arrow rendering still requires a valid active waypoint and player location/facing.
+- Latest BugGrabber errors are empty; old FrameXML/taint reports are from previous configurations. Verified 704 installed upstream files against archive bytes, six Interface 16001 TOCs, four character addon lists and saved-variable settings. All 34 Lua 5.1 guard tests pass. Live rendering at 1080p/1440p/4K remains pending.
+## 2026-10-11 - Restore OverlapSettingsGuard with YUI/EllesmereUI policies
+
+- Restored the local guard from ClassUI and upgraded it to 0.4.0. Added YUI and EllesmereUI adapters and nine policies; retained twelve legacy policies, of which the RestedXP/TalentsForeverBook talent-guidance rule is active in this installation.
+- Enforce YUI nameplate outline/friendly-nameplate synchronization off while EllesmereUI Nameplates loads; enforce YHUD mana/rage/energy/combo-point displays off while EllesmereUI Unit Frames loads. Cover active/stored profiles, stored HUD sets and druid forms; retain swing timers. Refresh live runtimes and retry failed refreshes.
+- Keep EllesmereUI nameplate class-power displays off while its unit frames load, including saved profiles/spec presets. Assign quest/gossip/reward automation and junk selling to YUI, disabling competing RestedXP options. TalentsForeverBook owns talent guidance. Navigation and optional statistics remain user-adjustable.
+- Enabled the guard for four stored characters. It checks after login, on supported hooks and every two seconds, defers during combat, reports blocked APIs, and exposes status/reasons via /osg. Addon enable lists and optional appearance settings are tracked separately; the guard does not turn disabled addons on.
+- Verification: 33 Lua 5.1 tests pass, including missing APIs, refresh retries, profile resets, combat deferral and retained swing timers. Upstream YUI/EllesmereUI packages remain unmodified. Live rendering and three-resolution validation remain pending.
+
+## 2026-10-11 - Install EllesmereUI standalone frames and nameplates
+
+- Installed EUIStandaloneUnitFrames, EUIStandaloneRaidFrames and EUIStandaloneNameplates 9.4 from the official CurseForge files linked in the inventory. All declare Interface 16001 and Forever 1.60.1 support. Enabled all three for four stored characters.
+- Assigned individual frames, party/raid frames and nameplates to EllesmereUI. Left YUI's unloaded YUnitFrames product unchanged. Enabled EllesmereUI's player castbar and visibility of all eight raid groups in saved settings.
+- Disabled YUI's nameplate outline and friendly-nameplate synchronization. Disabled YHUD mana/rage/energy/combo-point resource displays across all nine Forever classes, druid form overrides and the saved HUD configuration set; retained swing timers and cooldown tracking. EllesmereUI nameplate class-power display is off by upstream default.
+- No upstream Lua/XML was edited and OverlapSettingsGuard remains absent under the prior code restriction. Settings are not continuously enforced, and unrelated automation/talent/navigation overlaps remain configurable.
+- Verified archive integrity and paths, all 1,598 installed files against archive bytes, saved-variable Lua syntax and intended resource settings. Live rendering, group combat and 1080p/1440p/4K layouts remain unverified.
+
+## 2026-10-11 - Restore specialist addons and inspect YUI frames
+
+- Installed latest published Forever-compatible Auctionator 340, DungeonsForever 1.8.0, TalentsForeverBook 0.38.1 (beta) and !BugGrabber v12.1.0. Sources are linked in the inventory; all declare Interface 16001.
+- Checked archive integrity and paths; verified all 983 installed files against archive bytes with zero mismatches. No upstream addon code was locally edited. Live loading remains pending.
+- Documented talent-guidance overlap with RXPGuides and optional DungeonsForever navigation overlap. No settings or overlap policy were changed, and OverlapSettingsGuard remains absent.
+- Traced unavailable YUI individual frames to an unloaded YUnitFrames product; it does not provide group frames. Nameplate presets require external Platynator plus an existing YUI profile. Recorded recommendations without applying frame fixes.
+
+## 2026-10-11 - Clean YUI and RestedXP trial
+
+- Switched to main and removed every previous addon folder, including OverlapSettingsGuard. Installed unmodified YUI v338 from the wclbox Forever download and RXPGuides v4.11.23 from the official GitHub release. Both declare Interface 16001 and camelot loading.
+- Deleted the entire WTF folder at the user's request. No backup was created; the user already backed up. Kept the game's top-level Fonts directory and the adoption utility.
+- Identified optional overlaps in quest/gossip automation, junk selling, quest-item displays, experience statistics and map navigation. No guard or custom settings are installed for this fresh-default trial.
+- Verified download archive integrity, staged TOCs, final folder inventory, copied-file hashes and absence of WTF before launching. In-game behavior and all three target resolutions remain unverified.
+
 ## 2026-10-10 - Kallye group frames installed and obsolete UI integrations removed
 
 - Installed Kallye Raid Frames release 12.1.003c ([CurseForge file 8975166](https://www.curseforge.com/wow/addons/kallye-raid-frames/files/8975166)); its TOC reports 12.1.003 and includes Interface 16001. Enabled it for all four stored characters. Backed up WTF before installation to `_classic_beta_/addon-backups/kallye-install-20261010-214742/WTF`.

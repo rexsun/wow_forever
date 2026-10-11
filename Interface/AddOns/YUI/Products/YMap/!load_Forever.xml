@@ -1,0 +1,25 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <!-- Shared SystemMetrics is loaded by the suite or toolbox entry. -->
+    <Script file="Defaults.lua"/>
+    <Script file="Host.lua"/>
+    <Script file="Migration.lua"/>
+    <Include file="Markers\Locales\!load.xml"/>
+    <Script file="Markers\MapDataShared.lua"/>
+    <Script file="Markers\MapData_Forever.lua"/>
+    <Script file="Markers\MapPins.lua"/>
+    <Include file="Markers\MapPins.xml"/>
+    <Script file="Markers\MapEnhancement.lua"/>
+    <Script file="HotDiagnostics.lua"/>
+    <Script file="Stats.lua"/>
+    <Script file="WorldMap.lua"/>
+    <Script file="DirectionLine.lua"/>
+    <Script file="RevealData_Forever.lua"/>
+    <Script file="MapReveal.lua"/>
+    <Script file="TextComponents.lua"/>
+    <Script file="Minimap.lua"/>
+    <Script file="MetricsWidget.lua"/>
+    <Script file="ProgressBars.lua"/>
+    <Script file="ButtonDrawer.lua"/>
+    <Script file="Settings.lua"/>
+    <Script file="YMap.lua"/>
+</Ui>

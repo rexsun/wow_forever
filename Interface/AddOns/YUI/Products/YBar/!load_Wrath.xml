@@ -1,0 +1,19 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+	<Script file="YBar.lua"/>
+	<Script file="Module.lua"/>
+	
+	<!-- Modules -->
+	<Script file="Modules\MicroMenu.lua"/>
+	<Script file="Modules\Stats.lua"/>
+	<Script file="Modules\Clock.lua"/>
+	<Script file="Modules\Professions.lua"/>
+	<Script file="Modules\Talents_Wrath.lua"/>
+	<Script file="Modules\Teleports_Wrath.lua"/>
+	<Script file="Modules\Currency.lua"/>
+	<Script file="Modules\DurabilityMount.lua"/>
+	<Include file="..\..\Components\SystemMetrics\!load.xml"/>
+	<Script file="Modules\System.lua"/>
+	<Script file="Modules\MeetingStone.lua"/>
+	<Script file="Modules\RaidMarkers.lua"/>
+	<Script file="Modules\BugSack.lua"/>
+</Ui>

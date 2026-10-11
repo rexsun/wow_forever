@@ -1,0 +1,36 @@
+local YUI = _G.YUI
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("itIT") then return end
+
+YUI.Locale:Register("AutoGossip", "itIT", {
+    ["feature.name"] = "Dialogo automatico",
+    ["feature.description"] = "Prosegue le opzioni singole sicure e i dialoghi espressamente autorizzati.",
+    ["settings.unique"] = "Dialogo automatico (opzione dialogo unico)",
+    ["settings.unique.tooltip"] = "Seleziona quando la pagina ha esattamente un'opzione di dialogo regolare leggibile, disponibile e sicura. Esclude le missioni, le conferme e l'ingresso di testo.",
+    ["settings.approved"] = "Dialogo approvato",
+    ["settings.approved.tooltip"] = "Indipendentemente dal conteggio delle opzioni, seleziona solo quando esattamente uno ha attivato Gossip ID match.",
+    ["settings.presets"] = "Preimpostazioni integrate",
+    ["settings.custom"] = "Le mie regole",
+    ["settings.advanced"] = "Avanzato: Aggiungi dialogo personalizzato",
+    ["settings.show_ids"] = "Mostra ID di dialogo",
+    ["settings.show_ids.tooltip"] = "Mostra ordine:Gossip ID sotto la cornice di dialogo NPC.",
+    ["settings.custom_name"] = "Nome di regola",
+    ["settings.custom_name.tooltip"] = "Usato per identificare questa regola nell'elenco impostazioni.",
+    ["settings.custom_id"] = "Identita' di pettegolezzi",
+    ["settings.custom_id.tooltip"] = "Inserire l'ID Gossip di una normale opzione dialogo.",
+    ["settings.add"] = "Aggiungi la regola",
+    ["settings.delete"] = "Elimina",
+    ["preset.cave_entrance"] = "Ingresso grotta · Porta aperta",
+    ["preset.cave_boss_two"] = "Cave second boss · Start event",
+    ["preset.plot_disguise"] = "Plot scenario · Travestimento",
+    ["preset.plot_bar_quest"] = "Plot scenario · Avanzata bar ricerca",
+    ["message.invalid_id"] = "Inserisci un documento valido.",
+    ["message.missing_name"] = "Immetti un nome di regola.",
+    ["message.name_too_long"] = "Il nome di regola è troppo lungo.",
+    ["message.duplicate"] = "Quell'ID di Gossip esiste gia'.",
+    ["message.limit"] = "Il limite di regola è stato raggiunto.",
+    ["message.added"] = "Dialogo personalizzato aggiunto.",
+    ["message.removed"] = "Dialogo doganale cancellato.",
+    ["message.selection_attempted"] = "|cffffff00 Selezione automaticatempted|r %s",
+    ["gossip.id_prefix"] = "Dialogo ID: ",
+})

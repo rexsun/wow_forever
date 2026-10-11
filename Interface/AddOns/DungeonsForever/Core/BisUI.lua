@@ -1,26 +1,6 @@
 -- =============================================================================
--- DungeonsForever · BIS配装页（界面层 · 手写骨架件）
---
--- ★ 本文件**不是生成物**，可以直接改（与 Core/ExploreUI.lua 同定位）。
---   数据来自 Core/Data/Data_BIS.lua（由 _temp/fc_bis.py 生成，勿手改）；
---   本文件只负责把那张表画出来，一个物品 ID 都不写死。
---
--- ★★ 只对无限服（1.60.x）加载：判定用 ns.IsForever（Core.lua）。泰坦端本文件整体
---    return，U.bisPage 恒为 nil，顶栏也不加「BIS配装」胶囊（见 _temp/port_dungeonsforever.py）。
---
--- ★ 帧数纪律（与专业页/探索页同款）：页骨架（职业芯片 / 专精胶囊 / 阵营开关 /
---   人偶槽位 / 方案行池 / 浏览器行池）一律在 BG.Build() 里**一次建好**；
---   切职业、切专精、切阵营、换装、筛选、搜索都**不得新建帧**，渲染期只改位置与显隐。
---
--- ★ 物品名 / 图标 / 品质**只从客户端取**（数据表只存 itemID，见 Data_BIS.lua 头注）；
---   客户端还没懒加载到时显示占位，挂几次重扫（BG.SweepNames）自动补上。
---   数据侧品质（q）只做客户端品质到货前的首帧兜底。
---
--- ★ 方案存 DungeonsForeverDB.bis.plans（键 = 职业 slug，跨角色共享存档）。
---   **「另存当前」落全部 17 部位快照**（覆盖 + 使用中方案 + 推荐
---   逐槽解析成 ID），不只是覆盖 diff；推荐本体本身不落存档。BG.usingPlan = 当前
---   使用中的方案（方案行金框高亮；右键方案行改名）。BG.cur = 本会话覆盖表，
---   一律按**数据键**落（main → two-hand/main-hand）。
+-- DungeonsForever · BIS配装页（界面层）
+-- 读取 Data_BIS 的配装数据并渲染配装与方案管理；只对无限服加载。
 -- =============================================================================
 
 local _, ns = ...
@@ -62,7 +42,10 @@ end
 if #VOLS == 0 then
     VOLS = { { lv = tonumber(BIS.default) or 0, classes = BIS.classes } }
 end
-local N_PRESET = #VOLS      -- 预设方案行数 = 卷数
+-- 三类型定义提到卷常量前：N_PRESET 按「类型 × 卷」展平计数需要它。
+local SPEC_DEFS = { { id = "pve", label = L["副本"] }, { id = "pvp", label = L["战场"] },
+                    { id = "tank", label = L["坦克"] } }
+local N_PRESET = #VOLS * #SPEC_DEFS  -- 预设行池上限 = 卷数 × 类型（3×2=6），按职业实有显隐
 local N_USER = 7            -- 用户方案行数
 
 local BG = {}
@@ -85,8 +68,12 @@ local CLASS_FILE = {
     rogue = "ROGUE", priest = "PRIEST", mage = "MAGE",
     warlock = "WARLOCK", druid = "DRUID", shaman = "SHAMAN",
 }
-local SPEC_DEFS = { { id = "pve", label = L["副本"] }, { id = "pvp", label = L["战场"] },
-                    { id = "tank", label = L["坦克"] } }
+
+-- 职业图标（Media/icon/CLASS 自制全套，TierUI 同款命名：ClassIcon_<Slug>.blp）。
+local function ClassIconPath(slug)
+    return "Interface\\AddOns\\DungeonsForever\\Media\\icon\\CLASS\\ClassIcon_"
+        .. slug:sub(1, 1) .. slug:sub(2):lower()
+end
 
 local SLOTS_LEFT  = { "head", "neck", "shoulder", "back", "chest",
                       "shirt", "tabard", "wrist" }
@@ -475,40 +462,20 @@ local function SumStats()
     return acc
 end
 
-local function ClassColorRGB(slug)
-    local file = string.upper(slug or "")
-    local c = RAID_CLASS_COLORS and RAID_CLASS_COLORS[file]
-    if c and c.r then return c.r, c.g, c.b end
-    if GetClassColor then return GetClassColor(file) end
-    return nil
-end
-
+-- 顶栏涂装（2026-10-10 重排定案）：职业按钮排与三类型标签整体退役（职业走下拉、
+--   类型并入预设方案行），本函数只剩阵营钮态 + 标题 + 下拉按钮文案同步。
 local function PaintTopbar()
-    for slug, btn in pairs(BG.clsBtns) do
-        local on = slug == BG.cls
-        SetOutline(btn, on, Unpack(C_GOLD))
-        local r, g, b = ClassColorRGB(slug)
-        if on or not r then r, g, b = Unpack(on and C_GOLD or C_TEXT) end
-        btn.lbl:SetTextColor(r, g, b)
-    end
-    for _, def in ipairs(SPEC_DEFS) do
-        local btn = BG.specBtns[def.id]
-        local c = ClassRec()
-        local exists = false
-        if c then
-            for _, sp in ipairs(c.specs) do
-                if sp.id == def.id then exists = true end
-            end
-        end
-        local on = BG.spec == def.id
-        btn:SetShown(exists)
-        SetOutline(btn, on and exists, Unpack(C_GOLD))
-        btn.lbl:SetTextColor(Unpack(on and exists and C_GOLD or C_TEXT))
-    end
     for id, btn in pairs(BG.sideBtns) do
         local on = BG.side == id
         SetOutline(btn, on, Unpack(C_GOLD))
         btn.lbl:SetTextColor(Unpack(on and C_GOLD or C_TEXT))
+    end
+    if BG.ddBtn then
+        BG.ddBtn:SetText(ClassName(BG.cls))
+        -- ★ 切职业后同步：文字保持职业色 + 图标换图（用户定案 2026-10-11）。
+        local rc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[CLASS_FILE[BG.cls] or ""]
+        if rc and rc.r then BG.ddBtn.lbl:SetTextColor(rc.r, rc.g, rc.b) end
+        if BG.ddBtn.__icon then BG.ddBtn.__icon:SetTexture(ClassIconPath(BG.cls)) end
     end
     BG.head:SetText(format("%s · %s · %s", ClassName(BG.cls), SpecLabel(), SideLabel()))
 end
@@ -552,27 +519,52 @@ local function PaintStats()
     end
 end
 
+-- 当前职业可用的预设条目（类型 × 卷，按 SPEC_DEFS 顺序展平）：
+--   缺该类型的职业（如牧师无战场/坦克）自然少几行，列表场景直接不渲染，不灰置。
+local function PresetList()
+    local c = ClassRec()
+    local out = {}
+    if not c then return out end
+    for _, def in ipairs(SPEC_DEFS) do
+        local has = false
+        for _, sp in ipairs(c.specs) do
+            if sp.id == def.id then has = true break end
+        end
+        if has then
+            for i = 1, #VOLS do
+                out[#out + 1] = { vol = i, spec = def.id, label = def.label }
+            end
+        end
+    end
+    return out
+end
+
 local function PaintPlans()
     local plans = PlansFor(BG.cls)
-    local sp = SpecRec()
     local rows = BG.planRows
     local y = 0
-    local specLabel = sp and SpecLabel() or "PvE"
-    -- ① 预设方案：每卷一条（20级推荐 · 副本 / 30级推荐 · 副本），点中即切卷。
-    --    旧写法只有一行「推荐 · X」，靠 L["推荐 · "] 拼名 —— 两卷并行后必须带等级前缀。
+    -- ① 预设方案：类型 × 卷 展平（「20级推荐 · 副本」「20级推荐 · 战场」…），
+    --    点中即切卷+切类型；active = 三元全中（无覆盖方案 + 卷 + 类型）。
+    local presets = PresetList()
     for i = 1, N_PRESET do
         local r = rows[i]
-        r:Show()
-        local active = (BG.usingPlan == nil and BG.vol == i)
-        r.title:SetText(format(L["%d级推荐 · %s"], VOLS[i].lv, specLabel))
-        r.dot:SetShown(active)
-        r.__plan = nil
-        r.__vol = i
-        SetOutline(r, active, Unpack(C_GOLD))
-        r.title:SetTextColor(Unpack(active and C_GOLD or C_TEXT))
-        r:SetPoint("TOPLEFT", BG.planChild, "TOPLEFT", 0, -y)
-        r:SetPoint("RIGHT", BG.planChild, "RIGHT", 0, 0)
-        y = y + PLAN_H + 4
+        local pe = presets[i]
+        if pe then
+            r:Show()
+            local active = (BG.usingPlan == nil and BG.vol == pe.vol and BG.spec == pe.spec)
+            r.title:SetText(format(L["%d级推荐 · %s"], VOLS[pe.vol].lv, pe.label))
+            r.dot:SetShown(active)
+            r.__plan = nil
+            r.__vol = pe.vol
+            r.__spec = pe.spec
+            SetOutline(r, active, Unpack(C_GOLD))
+            r.title:SetTextColor(Unpack(active and C_GOLD or C_TEXT))
+            r:SetPoint("TOPLEFT", BG.planChild, "TOPLEFT", 0, -y)
+            r:SetPoint("RIGHT", BG.planChild, "RIGHT", 0, 0)
+            y = y + PLAN_H + 4
+        else
+            r:Hide()
+        end
     end
     -- ② 用户方案（自带等级，载入时把卷一起还原）
     for i = 1, N_USER do
@@ -815,7 +807,7 @@ function BG.SavePlan()
         local eid = CurEnch(sp, dk)
         if eid then enchs[dk] = eid end
     end
-    local p = { name = format(L["%d级 · 我的方案 %d"], CurVol().lv, #plans + 1),
+    local p = { name = format(L["%d级 · %s · 我的方案 %d"], CurVol().lv, SpecLabel(), #plans + 1),
                 items = items, enchs = enchs, side = BG.side, spec = BG.spec,
                 vol = CurVol().lv }   -- 存「等级号」(20/30)，与 UsePlan 的 v.lv 比对口径一致
     plans[#plans + 1] = p
@@ -848,10 +840,12 @@ function BG.UsePlan(plan)
     BG.Render()
 end
 
--- 预设方案行被点：切到该等级卷，同时清掉本会话覆盖，回到该卷的推荐
-function BG.UsePreset(idx)
+-- 预设方案行被点：切到该等级卷 + 该类型（specId 由方案行携带），同时清掉本会话
+--   覆盖，回到该卷该类型的推荐
+function BG.UsePreset(idx, specId)
     if not VOLS[idx] then return end
     BG.vol = idx
+    if specId then BG.spec = specId end
     BG.cur = {}
     BG.ench = {}
     BG.usingPlan = nil
@@ -978,38 +972,60 @@ local function ClickSlot(key, dkey)
     end
 end
 
-local function BuildTopbar(page)
-    local y, bw, gap = 13, 84, 4
-    local n = #BIS.classes
-    local total = n * bw + (n - 1) * gap
-    local x = math.floor(math.max(10, (CONTENT_W - total) / 2))
-    BG.clsBtns = {}
+-- 职业下拉展开（套装页 OpenClassMenu 同款：LibBG:EasyMenu 是实机验证过的唯一路径，
+--   手搓展开面板在本端「点开是空的」；点外关闭由 DungeonUI OutsideMenuMouseDown 兜底，
+--   ddBtn 已在其白名单放行）。
+-- ★ 宿主必须独立（DG.MenuHost("bis")）：共用宿主时 lib 的 toggle 语义是
+--   「列表开着 && OPEN_MENU==宿主 ⇒ 收」，A 开着点 B 会被当同一菜单再点一次直接收掉。
+function BG.OpenClassMenu()
+    local host = DG.MenuHost and DG.MenuHost("bis")
+    if not (host and ns.LibBG and ns.LibBG.EasyMenu) then return end
+    local menu = {}
     for _, c in ipairs(BIS.classes) do
-        local bt = NewButton(page, ClassName(c.slug), bw, 24, 14)
-        bt:SetPoint("TOPLEFT", page, "TOPLEFT", x, -y)
-        bt.lbl = bt:GetFontString()
-        MakeOutline(bt, Unpack(C_GOLD))
-        bt:SetScript("OnClick", function() BG.SelectClass(c.slug) end)
-        BG.clsBtns[c.slug] = bt
-        x = x + bw + gap
+        -- 菜单文字按职业色（套装页同款）：lib 的 colorCode 字段 = "|cAARRGGBB" 整段包色
+        local colorCode
+        local rc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[CLASS_FILE[c.slug] or ""]
+        if rc and rc.r then
+            colorCode = format("|cFF%02X%02X%02X",
+                math.floor(rc.r * 255 + 0.5), math.floor(rc.g * 255 + 0.5),
+                math.floor(rc.b * 255 + 0.5))
+        end
+        menu[#menu + 1] = {
+            text = (c.slug == BG.cls and "● " or "") .. ClassName(c.slug),
+            colorCode = colorCode,
+            notCheckable = true,
+            func = function() BG.SelectClass(c.slug) end,
+        }
     end
+    ns.LibBG:EasyMenu(menu, host, "cursor", 0, 0, "MENU")
 end
 
+-- 顶行（2026-10-10 重排定案）：三类型标签退场 ⇒ 原位放职业下拉；阵营两钮同行右移；
+--   标题行 y=yt+30。占高不变（返回 yt+48）⇒ 人偶/浏览器/中部面板全部下游连锁零改动。
 local function BuildSpecRow(parent, yt)
     local x, y = 6, yt
-    BG.specBtns = {}
-    for _, def in ipairs(SPEC_DEFS) do
-        local bt = NewButton(parent, def.label, 52, 22, 12)
-        bt:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -y)
-        bt.lbl = bt:GetFontString()
-        MakeOutline(bt, Unpack(C_GOLD))
-        bt:SetScript("OnClick", function() BG.SelectSpec(def.id) end)
-        BG.specBtns[def.id] = bt
-        x = x + 56
-    end
+    local dd = NewButton(parent, ClassName(BG.cls), 140, 24, 14)
+    dd:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -y)
+    dd.lbl = dd:GetFontString()
+    -- ★ 职业图标（用户定案：职业名左侧 16px，文字右移让位）+ 按钮文字 = 职业色
+    --   （不吃按钮皮白字；__huiKeepTextColor 防悬停重涂，TierUI 职业钮同款验证路径）。
+    dd.lbl:ClearAllPoints()
+    dd.lbl:SetPoint("LEFT", dd, "LEFT", 27, 0)
+    local rc0 = RAID_CLASS_COLORS and RAID_CLASS_COLORS[CLASS_FILE[BG.cls] or ""]
+    if rc0 and rc0.r then dd.lbl:SetTextColor(rc0.r, rc0.g, rc0.b) end
+    local ic = dd:CreateTexture(nil, "ARTWORK")
+    ic:SetSize(16, 16)
+    ic:SetPoint("LEFT", dd, "LEFT", 6, 0)
+    ic:SetTexture(ClassIconPath(BG.cls))
+    dd.__icon = ic
+    MakeOutline(dd, Unpack(C_GOLD))
+    dd.__huiKeepTextColor = true
+    dd:SetScript("OnClick", function() BG.OpenClassMenu() end)
+    BG.ddBtn = dd
+    x = x + 150
     BG.sideBtns = {}
     for _, sd in ipairs({ { id = "a", label = L["联盟"] }, { id = "h", label = L["部落"] } }) do
-        local bt = NewButton(parent, sd.label, 52, 22, 12)
+        local bt = NewButton(parent, sd.label, 52, 24, 12)
         bt:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -y)
         bt.lbl = bt:GetFontString()
         MakeOutline(bt, Unpack(C_GOLD))
@@ -1018,7 +1034,7 @@ local function BuildSpecRow(parent, yt)
         x = x + 56
     end
     BG.head = MakeFS(parent, 16, C_WHITE, "LEFT")
-    BG.head:SetPoint("TOPLEFT", parent, "TOPLEFT", 6, -(yt + 28))
+    BG.head:SetPoint("TOPLEFT", parent, "TOPLEFT", 6, -(yt + 30))
     return yt + 48
 end
 
@@ -1125,7 +1141,7 @@ local function MakePlanRow(parent)
         if self.__plan then
             BG.UsePlan(self.__plan)
         elseif self.__vol then
-            BG.UsePreset(self.__vol)
+            BG.UsePreset(self.__vol, self.__spec)
         else
             BG.ResetToRec()
         end
@@ -1389,23 +1405,25 @@ end
 function BG.Build(page)
     if BG.built then return end
     MigratePlans()
-    local py = 45
+    -- ★ 页顶收窗沿 20（2026-10-10：顶部职业按钮排退役，原 y=13 顶栏 + py=45 让位）
+    local py = 20
     BuildPanels(page)
-    BuildTopbar(page)
     local dollTop = BuildSpecRow(BG.panels[1], 4)
     local dollBotLocal = BuildDoll(BG.panels[1], dollTop)
-    local pb = py + dollBotLocal + 6
+    -- ★ 底窗沿（用户定案 2026-10-11）：面板底边不再内容驱动（旧 = py+dollBotLocal+6，
+    --   页底留一大截空）——一律钉在页底上方窗沿 20，与页顶 py=20 镜像，页高恒定。
+    local pb = 20
     BuildMid(BG.panels[2], BG.panels[3])
     BuildBrowser(BG.panels[4], dollBotLocal + 6 - 8)
 
     BG.panels[1]:SetPoint("TOPLEFT", page, "TOPLEFT", 8, -py)
-    BG.panels[1]:SetPoint("BOTTOMRIGHT", page, "TOPLEFT", 308, -pb)
+    BG.panels[1]:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", 308, pb)
     BG.panels[2]:SetPoint("TOPLEFT", page, "TOPLEFT", 316, -py)
     BG.panels[2]:SetPoint("BOTTOMRIGHT", page, "TOPLEFT", 540, -(py + 228))
     BG.panels[3]:SetPoint("TOPLEFT", page, "TOPLEFT", 316, -(py + 236))
-    BG.panels[3]:SetPoint("BOTTOMRIGHT", page, "TOPLEFT", 540, -pb)
+    BG.panels[3]:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", 540, pb)
     BG.panels[4]:SetPoint("TOPLEFT", page, "TOPLEFT", 548, -py)
-    BG.panels[4]:SetPoint("BOTTOMRIGHT", page, "TOPLEFT", 952, -pb)
+    BG.panels[4]:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", 952, pb)
 
     BG.built = true
     BG.needNames = true

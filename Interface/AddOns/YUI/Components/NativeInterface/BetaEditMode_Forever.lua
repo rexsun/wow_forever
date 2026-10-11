@@ -1,0 +1,2 @@
+-- Forever layout installation is handled by Installer and Data/Forever.lua.
+-- This retired entry point intentionally performs no login-time writes.

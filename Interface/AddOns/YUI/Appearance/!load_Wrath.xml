@@ -1,0 +1,5 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Script file="Skins\Runtime.lua"/>
+    <Script file="Skins\ElvUI.lua"/>
+    <Script file="Integrations\DetailsSpecSync.lua"/>
+</Ui>

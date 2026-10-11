@@ -1,0 +1,8 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Script file="Bootstrap.lua"/>
+    <Script file="Clients\Forever.lua"/>
+    <Script file="..\..\Core\API\QuestItems.lua"/>
+    <Script file="QuestItems_Forever.lua"/>
+    <Script file="RankUpgrade_Forever.lua"/>
+    <Include file="!load_Shared.xml"/>
+</Ui>

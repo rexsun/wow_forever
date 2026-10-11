@@ -1,22 +1,7 @@
 -- =============================================================================
 -- 无限副本手册 · 探索页 · 40 本书（图书馆之友）
---
--- ★ 本文件由 _temp/explore_gen.py 生成，请勿手改 ★
---   重跑：python _temp/explore_gen.py（数据中间件：explore_parse.py / explore_resolve.py）
---
--- ★ 书名 / 图标 / 品质 / 区域名一律不落盘：本文件只存 itemID + AreaTable ID，
---   显示时由客户端给中文（GetItemInfo / C_Map.GetAreaInfo）。
---   客户端查不到就把 ID 原样显示，不回落外部资料。
---
--- ★ 表结构：ns.ExploreBooks[i] = { itemID, areaID, x, y, 细节, side, alt, route }
---   x/y = 区域地图百分比坐标（西→东 / 北→南）；side = "A"|"H"|nil 阵营限定；
---   alt = { {areaID, x, y, 细节}, ... } 同名书的多位置（界面同样可标记）；
---   route = { {areaID, x, y}, ... } 路线书步骤链（按先后，末步 = 书的位置，右上角
---   画「区名 x,y → x,y」坐标链，每段可点击落图）。
---   数组下标即书序号（1..40），打卡进度以 itemID 为键存于 DungeonsForeverDB。
---
--- 坐标与位置细节按样本口径核对（wowhead 资料整理；
--- 移位书 2 种 = 阿拉塔瑞克 / The Liminal and the Arcane，注释已注明旧位失效）。
+-- ★ 本文件由脚本生成，请勿手改 ★
+-- 只存 itemID + AreaTable ID + 坐标；书名 / 图标 / 品质 / 区域名运行期由客户端提供。
 -- =============================================================================
 
 local _, ns = ...

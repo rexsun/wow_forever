@@ -1,55 +1,6 @@
 -- =============================================================================
--- 无限副本手册 · 职业指南页（界面层 · 手写骨架件）
---
--- ★ 本文件不是生成物，可直接改（与 Core/ExploreUI.lua / Core/BisUI.lua 同定位）。
---   数据取自 Core/Data/Data_ClassTier.lua 与 Core/Data/Data_ClassGuide.lua（由 _temp
---   下的脚本产出，勿手改）；本文件只负责把这两张表画出来，一个专精键都不写死。
---
--- ★ 只对无限服 / 正式服加载（判定见 Core/Core.lua 的 ns.LoadForeverPages）：
---   泰坦端本文件整体 return，U.tierPage 恒为 nil，顶栏也不加「职业指南」胶囊。
---
--- ★ 本页有两种模式，共用左列导航 + 右上子页签：
---   · 排行模式：左列「指南 / 职业排行」+ 右上三颗子页签（输出 / 坦克 / 治疗）
---     + 右区滚动内容（档位卡墙 + 底部注释区）；页内没有大标题，元信息行挂在页面右上角。
---   · 专精模式：左列「专精指南」组列 9 职业 + 右上按职业列该职业专精子页签
---     + 一条固定 Hero 头（专精图标 + 职业·专精名 + 一条职业色细线）；元信息行
---     （补丁 / 等级上限 / 已更新）挂页面最右、与子页签同一行（2026-09-30 用户）。
---     + 其下一行板块页签（改动速览 / 定位评估 / 优缺点 / 新手上手 / 职业系统 /
---       输出循环 / 属性优先级 / 种族推荐 / 专业推荐）+ 页签下的滚动区，一次只显示一个板块。
---   几何常量与专业页同值：左列宽 148（enUS 184）/ 条目高 26 / 子页签 70×22 步进 74。
---
--- ★ 帧数纪律：全部骨架（左列条目 / 子页签 / 板块页签 / 档位卡池 / 注释行 / Hero /
---   专精卡池 / 行池 / 芯片池）一律在 TT.Build() 里一次建好；切子页、切专精、切板块、
---   悬停、换角色只改文字、颜色、宽度与显隐，运行期不新建任何帧。
---
--- ★ 档位色走品质色口径（S 橙 / A 紫 / B 蓝 / C 绿 / D 灰），徽记为实色块 + 深色字母。
---   空档照原表保留，压成一条薄卡。
---
--- ★ 专精名与图标取自数据表的静态目录（客户端没有跨版本稳定的「专精枚举 → 名称」接口）。
---   名字按职业色着色（颜色运行期取自客户端 RAID_CLASS_COLORS）。
---
--- ★ 专精模式版式 = 板块页签分页：页签只在「该专精实际有内容的板块」之间切换，内容区恒为
---   一张整幅卡（不再同页堆叠多板块、不再两栏瀑布流）。卡内每一块内容占一个 FontString
---   （不管它折几行），段落与列表按 700 收窄，表格 / 双列 / 种族芯片整幅铺满。
---
--- ★ 几何：内容面板 960；整幅卡宽 768；卡内边距 10、卡间距 8；Hero 高 56；
---   板块页签高 24、左右内边距合计 24、槽距 5、9 槽封顶。字号只用 11 / 14 / 16 三档；
---   页签（右上子页签 + 板块页签）统一 14（2026-09-30 用户：页签文字与整页不一致）。
---   本文件所有函数都挂在 TT 表上或为文件级 local，不定义任何裸全局。
---
--- ★ 板块页签不做任何底部强调条（2026-09-30 用户明确不要）：选中态只由金色描边 +
---   白色文字表达；页签的选中标记只留纯数据位 bt.__sel（供离线探针判定「恰一个选中」）。
---
--- ★ 左列条目（「职业排行」+ 9 职业）一律走与子页签同款的按钮皮（NewButton →
---   ns.CreateButton 的 SkinButton：1px 圆角描边 C_BORDER + 悬停强调边），选中态由
---   金色描边表达，与右上子页签同一套。
--- ★ 9 个职业条目的**文字取职业色**（与团本页 9 枚职业芯片同一口径：选中只靠金色描边 +
---   不透明度 1 / 0.82 区分）；「职业排行」不是职业，保持中性文字色（白 / 灰）。
--- ★ 左列条目之间留 4px 纵向间距（TT.NAV_ITEM_GAP；2026-09-30 用户：按钮之间太挤）。
--- ★ 左列 9 职业用**自备材质图标**（Media/icon/CLASS/ClassIcon_*.blp，64x64 BLP2），
---   「职业排行」用客户端书本图标；本页**所有「按钮内图标」都经 MakeIconTile 统一圆角裁剪**
---   （ns.hui.RoundIcon → Media/LibHUI/HUIRoundRectMask）。
--- ★ 左列两个分组标题（指南 / 专精指南）字号 16；本页字号只用 11 / 14 / 16 三档。
+-- 无限副本手册 · 职业指南页（界面层）
+-- 职业排行与专精指南的渲染层，数据来自 Data_ClassTier / Data_ClassGuide；只对无限服 / 正式服加载。
 -- =============================================================================
 
 local _, ns = ...
@@ -78,11 +29,18 @@ if not T or type(T.pages) ~= "table" or #T.pages == 0 then return end
 local TT = {}
 ns.TierModule = TT
 
-TT.NAV_X = PAGE_INSET
-TT.NAV_TOP = ROW_CLASS
+-- ★ 双大卡两列布局（2026-10-10 定案，模板=探索页 navCard/listCard）：左列（指南 /
+--   专精指南）与右列（子页签 + hero + 板块页签 + 内容区）各包进一块 L1 大容器卡，
+--   卡坐窗：左右底 = 窗沿 20；★ 顶 = CARD_TOP 8（二十八轮对齐全局标准：大卡顶 =
+--   主窗页签轨道底 + 8，专业页 17:29 同款修正，原窗沿 20 比其他页低 12 UI）；
+--   卡↔卡 8，卡内四周内衬 8（右列内容统一内收 INSET）。
+TT.EDGE = 20
+TT.CARD_TOP = 8
+TT.NAV_X, TT.NAV_PAD = TT.EDGE, 8
+TT.NAV_TOP = TT.CARD_TOP + 8
 TT.NAV_W = ((type(GetLocale) == "function") and GetLocale() == "enUS") and 184 or 148
 TT.NAV_ITEM_H, TT.NAV_ICON, TT.NAV_FS = 26, 20, 16
--- 左列条目步进 = 条目高 + 条目间距（2026-09-30 用户：按钮之间太挤，给 4px 呼吸）。
+-- 左列条目步进 = 条目高 + 条目间距（用户定 4px 呼吸；进大卡后属卡内内衬，豁免 8）。
 TT.NAV_ITEM_GAP = 4
 TT.NAV_ITEM_STEP = TT.NAV_ITEM_H + TT.NAV_ITEM_GAP
 -- 左列纵向节奏（y 自 NAV_TOP 下数）：分组标题 → 「职业排行」按钮 → 分组标题 → 9 职业条目。
@@ -90,17 +48,25 @@ TT.NAV_HEAD_Y  = TT.NAV_TOP + 2
 TT.NAV_RANK_Y  = TT.NAV_TOP + 22
 TT.NAV_GROUP_Y = TT.NAV_TOP + 58
 TT.NAV_FIRST_Y = TT.NAV_TOP + 84
--- 左列两个分组标题（指南 / 专精指南）的字号：与条目文字同档 16（2026-09-30 用户要求）。
+-- 左列两个分组标题（指南 / 专精指南）的字号：与条目文字同档 16（用户要求）。
 TT.NAV_HEAD_FS = 16
--- 页签字号（右上子页签 + 板块页签）：与卡片正文同档 14（2026-09-30 用户：页签文字太小）。
+-- 页签字号（右上子页签 + 板块页签）：与卡片正文同档 14（用户：页签文字太小）。
 TT.TAB_FS = 14
 TT.CLASS_ICON_DIR = "Interface\\AddOns\\DungeonsForever\\Media\\icon\\CLASS\\"
-TT.RIGHT_X = TT.NAV_X + TT.NAV_W + 10
-TT.RIGHT_W = CONTENT_W - TT.RIGHT_X - PAGE_INSET
-TT.SUB_Y, TT.SUB_H, TT.SUB_W, TT.SUB_STEP = ROW_CLASS, 22, 70, 74
-TT.BODY_TOP = TT.SUB_Y + TT.SUB_H
+-- 内容列：大卡左缘 = X0，卡内衬 INSET 后才是内容缘（页签 / hero / 滚动区同一条线）。
+TT.X0 = TT.NAV_X + TT.NAV_PAD + TT.NAV_W + TT.NAV_PAD + 8
+TT.INSET = 8
+TT.RIGHT_X = TT.X0 + TT.INSET
+TT.RIGHT_W = CONTENT_W - TT.RIGHT_X - TT.EDGE - TT.INSET
+TT.SUB_Y, TT.SUB_H, TT.SUB_W, TT.SUB_STEP = TT.CARD_TOP + TT.INSET, 22, 70, 78
+TT.BODY_TOP = TT.SUB_Y + TT.SUB_H + 8
+-- ★ 专精页顶卡（卡中卡）：spec 页签行 / hero / 板块页签行整体装进一张固定 L2 边框
+--   内卡（与滚动区底板 specPlate 同材同色 ⇒ 大卡内上下两张内卡同调）；内件 8 内衬，
+--   视口顶 = 顶卡底 + 8。rank 模式不建顶卡，仍走 SUB_Y/BODY_TOP 老栅格。
+TT.SPEC_TAB_Y   = TT.SUB_Y + 8
+TT.SPEC_HERO_TOP = TT.SPEC_TAB_Y + TT.SUB_H + 8
 TT.LIST_PAD = 5
-TT.CARD_W = TT.RIGHT_W - 2 * TT.LIST_PAD
+TT.CARD_W = TT.RIGHT_W
 
 TT.GRID_COLS = 8
 TT.GRID_ROWS = 1
@@ -109,9 +75,9 @@ TT.CELL_H = 40
 TT.CELL_GAP = 8
 TT.EMPTY_H = 26
 TT.BADGE_W = 44
-TT.CARD_GAP = 6
+TT.CARD_GAP = 8
 
-TT.OUTER_PAD = TT.LIST_PAD
+TT.OUTER_PAD = 0
 TT.COL_GAP = 8
 TT.FULL_W = TT.CARD_W
 TT.COL_W = (TT.FULL_W - TT.COL_GAP) / 2
@@ -122,22 +88,22 @@ TT.HERO_H = 56
 TT.SPEC_ICON = 44
 TT.INNER_W = TT.COL_W - 2 * TT.CARD_PAD
 TT.INNER_FULL_W = TT.FULL_W - 2 * TT.CARD_PAD
-TT.SPEC_TOP = TT.BODY_TOP + TT.HERO_H
+TT.SPEC_TOP = TT.SPEC_HERO_TOP + TT.HERO_H
 
 TT.SEC_TAB_H    = 24
-TT.SEC_TAB_GAP  = 6
-TT.SEC_TAB_STEP = 5
+TT.SEC_TAB_GAP  = 8
+TT.SEC_TAB_STEP = 8
 TT.SEC_TAB_PAD  = 24
 TT.SEC_TAB_MAX  = 9
 TT.SEC_TAB_Y    = TT.SPEC_TOP + TT.SEC_TAB_GAP
-TT.SEC_DROP     = 5
+TT.SEC_DROP     = 16   -- 顶卡底衬 8 + 卡↔视口 8（两内卡之间卡↔卡 8）
 TT.SEC_TOP      = TT.SEC_TAB_Y + TT.SEC_TAB_H + TT.SEC_DROP
-TT.SEC_TEXT_W   = 700
+TT.SEC_TEXT_W   = TT.FULL_W - 2 * TT.CARD_PAD
 TT.SEC_ORDER = { "changes", "viability", "sw", "beginner", "systems", "rotation", "stats", "races", "prof" }
 
 TT.CARD_RADIUS = 6
 TT.PAIR_GAP = 12
-TT.CHIP_H = 16
+TT.CHIP_H = 20
 TT.CHIP_GAP = 5
 TT.ROW_MAX = 120
 TT.CARD_MAX = 14
@@ -355,26 +321,57 @@ local function HyperTip(frame, link)
     GameTooltip:Show()
 end
 
+-- 排行 tier 卡：二十三轮重排后坐在排行大卡（L1 容器）上 ⇒ 内卡 L2 + 白 10% 细边
+-- （SkinPopup 对 L 阶色原生支持）；非 hui 保留旧白 α 方形回落。
 local function Cardify(frame, alpha)
     if ns.hui and ns.hui.SkinPopup then
-        ns.hui.SkinPopup(frame, 6, nil, { 1, 1, 1, alpha or 0.03 })
+        ns.hui.SkinPopup(frame, 6, nil, ns.hui.layer.L2)
     elseif frame.SetBackdrop then
         frame:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
         frame:SetBackdropColor(1, 1, 1, alpha or 0.03)
     end
 end
 
+-- 种族/标签芯片：坐在 L2 内容卡内 ⇒ 再嵌套件提亮到 L3（r6 与页签同参）。
 local function SkinChip(frame)
     if ns.hui and ns.hui.SkinPopup then
-        ns.hui.SkinPopup(frame, 4, nil, { 1, 1, 1, 0.06 })
+        ns.hui.SkinPopup(frame, 6, nil, ns.hui.layer.L3)
     elseif frame.SetBackdrop then
         frame:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
         frame:SetBackdropColor(1, 1, 1, 0.06)
     end
 end
 
-local function PaintCell(cell, lit)
-    if cell.bg then cell.bg:SetShown(lit == true) end
+-- 左列职业按钮的选中/悬停底：hui 走胶囊贴片（L2 常亮底 + L4 悬停），
+-- fallback 走旧白 α 方形贴片（cb.bg）。两路共用下面的开关。
+local function SetClassBase(cb, on)
+    if cb.__base then
+        for _, t in ipairs(cb.__base) do t:SetShown(on) end
+    elseif cb.bg then
+        cb.bg:SetShown(on)
+    end
+end
+
+local function SetClassHover(cb, on)
+    if cb.__hovc then
+        for _, t in ipairs(cb.__hovc) do t:SetShown(on) end
+    end
+end
+
+-- 格子双态（hui）：own 常亮 = L3 胶囊、hover = L4 胶囊（hover 优先、盖过 own，
+-- OnLeave 只撤 hover 片）；fallback 保留旧白 α 单纹理两态共用。
+local function PaintCell(cell, own, hover)
+    if cell.__own or cell.__hov then
+        local hv = hover == true
+        if cell.__hov then
+            for _, t in ipairs(cell.__hov) do t:SetShown(hv) end
+        end
+        if cell.__own then
+            for _, t in ipairs(cell.__own) do t:SetShown(own == true and not hv) end
+        end
+    elseif cell.bg then
+        cell.bg:SetShown(own == true or hover == true)
+    end
 end
 
 local function CellTip(cell)
@@ -398,13 +395,13 @@ end
 local function BuildNav(page)
     TT.nav = {}
     local label = MakeFS(page, TT.NAV_HEAD_FS, C_GREY, "LEFT")
-    label:SetPoint("TOPLEFT", page, "TOPLEFT", TT.NAV_X + 5, -TT.NAV_HEAD_Y)
+    label:SetPoint("TOPLEFT", page, "TOPLEFT", TT.NAV_X + TT.NAV_PAD + 2, -TT.NAV_HEAD_Y)
     label:SetText(L["指南"])
     TT.navLabel = label
 
     -- 「职业排行」：与子页签同款按钮皮 + 书本图标（圆角裁剪）。
     local bt = NewButton(page, L["职业排行"], TT.NAV_W, TT.NAV_ITEM_H, TT.NAV_FS)
-    bt:SetPoint("TOPLEFT", page, "TOPLEFT", TT.NAV_X, -TT.NAV_RANK_Y)
+    bt:SetPoint("TOPLEFT", page, "TOPLEFT", TT.NAV_X + TT.NAV_PAD, -TT.NAV_RANK_Y)
     MakeOutline(bt, 1, 0.82, 0)
     SetOutline(bt, true, 1, 0.82, 0)
     bt.__huiKeepTextColor = true
@@ -427,7 +424,7 @@ local function BuildNav(page)
 
     if not G then return end
     local glabel = MakeFS(page, TT.NAV_HEAD_FS, C_GREY, "LEFT")
-    glabel:SetPoint("TOPLEFT", page, "TOPLEFT", TT.NAV_X + 5, -TT.NAV_GROUP_Y)
+    glabel:SetPoint("TOPLEFT", page, "TOPLEFT", TT.NAV_X + TT.NAV_PAD + 2, -TT.NAV_GROUP_Y)
     glabel:SetText(L["专精指南"])
     TT.navGroup = glabel
 
@@ -438,9 +435,12 @@ local function BuildNav(page)
             -- 与「职业排行」同构：同一套按钮皮（SkinButton 的 1px 圆角描边 + 悬停强调边），
             -- 选中再由金色描边 + 白字表达。
             local cb = NewButton(page, ClassName(cls), TT.NAV_W, TT.NAV_ITEM_H, TT.NAV_FS)
-            cb:SetHighlightTexture("Interface\\Buttons\\WHITE8x8")
-            local hl = cb:GetHighlightTexture()
-            if hl then hl:SetAlpha(0.08) end
+            -- 按钮皮自带白 α 高亮只在 fallback 分支挂：hui 走 L4 悬停胶囊，避免双效叠加。
+            if not (ns.hui and ns.hui.BuildCapsule) then
+                cb:SetHighlightTexture("Interface\\Buttons\\WHITE8x8")
+                local hl = cb:GetHighlightTexture()
+                if hl then hl:SetAlpha(0.08) end
+            end
             MakeOutline(cb, 1, 0.82, 0)
             SetOutline(cb, false, 1, 0.82, 0)
             cb.__huiKeepTextColor = true
@@ -448,11 +448,19 @@ local function BuildNav(page)
             cfs:ClearAllPoints()
             cfs:SetPoint("LEFT", cb, "LEFT", 5 + TT.NAV_ICON + 5, 0)
             cfs:SetJustifyH("LEFT")
-            -- 选中职业的常亮底（须盖在按钮皮的 backdrop 之上、又不压住文字 ⇒ BACKGROUND 子层 +2）。
-            cb.bg = cb:CreateTexture(nil, "BACKGROUND", nil, 2)
-            cb.bg:SetAllPoints()
-            cb.bg:SetColorTexture(1, 1, 1, 0.04)
-            cb.bg:Hide()
+            -- 选中/悬停底：外层大卡 L1 ⇒ 按钮内件 L2 常亮底，悬停胶囊再 +2 档到 L4
+            -- （BACKGROUND 子层 +2：盖过按钮皮 backdrop、又不压文字）。
+            if ns.hui and ns.hui.BuildCapsule then
+                cb.__base = ns.hui.BuildCapsule(cb, 8, ns.hui.layer.L2, 1, 2)
+                cb.__hovc = ns.hui.BuildCapsule(cb, 8, ns.hui.layer.L4, 1, 2)
+                for _, t in ipairs(cb.__base) do t:Hide() end
+                for _, t in ipairs(cb.__hovc) do t:Hide() end
+            else
+                cb.bg = cb:CreateTexture(nil, "BACKGROUND", nil, 2)
+                cb.bg:SetAllPoints()
+                cb.bg:SetColorTexture(1, 1, 1, 0.04)
+                cb.bg:Hide()
+            end
             local tile, ic = MakeIconTile(cb, TT.NAV_ICON)
             tile:SetPoint("LEFT", cb, "LEFT", 5, 0)
             SetIcon(ic, ClassIconPath(cls))
@@ -460,17 +468,19 @@ local function BuildNav(page)
                 TT.OpenSpec(cls)
             end)
             cb:SetScript("OnEnter", function(self)
-                self.bg:Show()
+                SetClassHover(self, true)
+                if not self.__hovc and self.bg then self.bg:Show() end
             end)
             cb:SetScript("OnLeave", function(self)
-                self.bg:Hide()
+                SetClassHover(self, false)
+                if not self.__hovc and self.bg then self.bg:Hide() end
             end)
             cb.__cls = cls
             cb.__txt = cfs
             cb.__icon = ic
             cb.__tile = tile
             TT.classBtns[cls] = cb
-            cb:SetPoint("TOPLEFT", page, "TOPLEFT", TT.NAV_X, -y)
+            cb:SetPoint("TOPLEFT", page, "TOPLEFT", TT.NAV_X + TT.NAV_PAD, -y)
             y = y + TT.NAV_ITEM_STEP
         end
     end
@@ -500,7 +510,7 @@ local function BuildSubTabs(page)
         local bt = NewButton(page, "", TT.SUB_W, TT.SUB_H, TT.TAB_FS)
         MakeOutline(bt, 1, 0.82, 0)
         bt.__huiKeepTextColor = true
-        bt:SetPoint("TOPLEFT", page, "TOPLEFT", TT.RIGHT_X + (i - 1) * TT.SUB_STEP, -TT.SUB_Y)
+        bt:SetPoint("TOPLEFT", page, "TOPLEFT", TT.RIGHT_X + 8 + (i - 1) * TT.SUB_STEP, -TT.SPEC_TAB_Y)
         bt:Hide()
         bt:SetScript("OnClick", function()
             local db = DB()
@@ -524,7 +534,7 @@ local function BuildSecTabs(page)
         local bt = NewButton(page, "", 60, TT.SEC_TAB_H, TT.TAB_FS)
         MakeOutline(bt, 1, 0.82, 0)
         bt.__huiKeepTextColor = true
-        bt:SetPoint("TOPLEFT", page, "TOPLEFT", TT.RIGHT_X, -TT.SEC_TAB_Y)
+        bt:SetPoint("TOPLEFT", page, "TOPLEFT", TT.RIGHT_X + 8, -TT.SEC_TAB_Y)
         bt:SetScript("OnClick", function(self)
             if self.__secKey then
                 DB().sec = self.__secKey
@@ -576,10 +586,19 @@ local function BuildCards(parent)
         for c = 1, TT.GRID_COLS * TT.GRID_ROWS do
             local cell = CreateFrame("Button", nil, card)
             cell:SetSize(cellW, TT.CELL_H)
-            cell.bg = cell:CreateTexture(nil, "BACKGROUND")
-            cell.bg:SetAllPoints()
-            cell.bg:SetColorTexture(1, 1, 1, 0.05)
-            cell.bg:Hide()
+            -- 格子底（hui 双态）：坐 L2 tier 卡内 ⇒ own 常亮提亮 L3、悬停再 +2 档到 L4
+            -- （BACKGROUND 子层 2：盖卡底、不压图标/文字）；fallback 保留旧白 α 贴片。
+            if ns.hui and ns.hui.BuildCapsule then
+                cell.__own = ns.hui.BuildCapsule(cell, 4, ns.hui.layer.L3, 0, 2)
+                cell.__hov = ns.hui.BuildCapsule(cell, 4, ns.hui.layer.L4, 0, 2)
+                for _, t in ipairs(cell.__own) do t:Hide() end
+                for _, t in ipairs(cell.__hov) do t:Hide() end
+            else
+                cell.bg = cell:CreateTexture(nil, "BACKGROUND")
+                cell.bg:SetAllPoints()
+                cell.bg:SetColorTexture(1, 1, 1, 0.05)
+                cell.bg:Hide()
+            end
             local ic = CreateFrame("Frame", nil, cell)
             ic:SetSize(TT.ICON, TT.ICON)
             ic:SetPoint("TOP", cell, "TOP", 0, 0)
@@ -587,16 +606,16 @@ local function BuildCards(parent)
             cell.icon:SetAllPoints()
             cell.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
             if ns.hui and ns.hui.RoundIcon then ns.hui.RoundIcon(cell.icon) end
-            cell.name = MakeFS(cell, 11, C_TEXT, "CENTER")
+            cell.name = MakeFS(cell, 14, C_TEXT, "CENTER")
             cell.name:SetPoint("TOP", ic, "BOTTOM", 0, 0)
             cell.name:SetWordWrap(false)
             cell:RegisterForClicks("LeftButtonUp")
             cell:SetScript("OnEnter", function(self)
-                PaintCell(self, true)
+                PaintCell(self, self.own, true)
                 CellTip(self)
             end)
             cell:SetScript("OnLeave", function(self)
-                PaintCell(self, self.own)
+                PaintCell(self, self.own, false)
                 GameTooltip:Hide()
             end)
             cell:SetScript("OnClick", function(self)
@@ -627,9 +646,30 @@ end
 
 local function BuildSpecHero(page)
     if not G then return end
+    -- ★ 顶卡（卡中卡，2026-10-10 用户定案）：spec 页签行 + hero + 板块页签行整体装进
+    --   一张固定 L2 边框内卡（与 specPlate 同材同色 ⇒ 大卡内上下两张内卡）；不随滚动
+    --   （滚动只作用于下方内容），纯卡中卡外观（上缘剔除已严格化，遮罩职责退役）。
+    local topCard = CreateFrame("Frame", nil, page, "BackdropTemplate")
+    if ns.hui and ns.hui.SkinPopup then
+        ns.hui.SkinPopup(topCard, 6, nil, ns.hui.layer.L2)
+    else
+        topCard:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+        })
+        topCard:SetBackdropColor(0.086, 0.102, 0.133, 1)
+        topCard:SetBackdropBorderColor(1, 1, 1, 0.1)
+    end
+    topCard:SetPoint("TOPLEFT", page, "TOPLEFT", TT.RIGHT_X, -(TT.CARD_TOP + 8))
+    topCard:SetPoint("BOTTOMRIGHT", page, "TOPRIGHT",
+                     -(TT.EDGE + TT.INSET), -(TT.SEC_TOP - 8))
+    topCard:Hide()
+    TT.specTopCard = topCard
+
     local hero = CreateFrame("Frame", nil, page)
-    hero:SetPoint("TOPLEFT", page, "TOPLEFT", TT.RIGHT_X, -TT.BODY_TOP)
-    hero:SetSize(TT.RIGHT_W, TT.HERO_H)
+    hero:SetPoint("TOPLEFT", page, "TOPLEFT", TT.RIGHT_X + 8, -TT.SPEC_HERO_TOP)
+    hero:SetSize(TT.RIGHT_W - 16, TT.HERO_H)
     hero:Hide()
     TT.hero = hero
 
@@ -653,20 +693,14 @@ local function BuildSpecHero(page)
     -- ★ 相对点必须是 TOPRIGHT（右上角）：写 "RIGHT" 会相对 page 右边条的垂直中点，
     --   整行掉到页面中部（2026-09-30 实机实锤）。自身锚点 "RIGHT" = 取文字垂直居中，
     --   对齐页签行中心，与字号无关。
-    local meta = MakeFS(page, 11, C_GREY, "LEFT")
-    meta:SetPoint("RIGHT", page, "TOPRIGHT", -PAGE_INSET, -(TT.SUB_Y + TT.SUB_H / 2))
+    local meta = MakeFS(page, 14, C_GREY, "LEFT")
+    meta:SetPoint("RIGHT", page, "TOPRIGHT", -(TT.EDGE + TT.INSET + 8), -(TT.SPEC_TAB_Y + TT.SUB_H / 2))
     TT.specMeta = meta
 
     local grade = MakeFS(hero, 14, C_GREY, "RIGHT")
     grade:SetPoint("TOPRIGHT", hero, "TOPRIGHT", 0, -12)
     TT.heroGrade = grade
-
-    local line = hero:CreateTexture(nil, "ARTWORK")
-    line:SetHeight(1)
-    line:SetPoint("BOTTOMLEFT", hero, "BOTTOMLEFT", 0, 0)
-    line:SetPoint("BOTTOMRIGHT", hero, "BOTTOMRIGHT", 0, 0)
-    line:SetColorTexture(1, 1, 1, 0.25)
-    TT.heroLine = line
+    -- 底部职业色横线已按定案删除（强调条类）；hero 与下方板块页签由 SEC_TAB_GAP=8 分隔。
 end
 
 local function BuildSpecPool(parent)
@@ -678,19 +712,21 @@ local function BuildSpecPool(parent)
         local fr = CreateFrame("Frame", nil, child)
         fr:SetWidth(TT.FULL_W)
         fr:Hide()
-        Cardify(fr, 0.03)
+        -- ★ 专精内容卡不带背景（2026-10-10 用户定案：卡固定、内容滚动）：实底背景由
+        --   page 上固定的 specPlate 承担（视口矩形），滚动 child 里只留承载布局的
+        --   无背景帧 —— 无裁剪引擎上「卡固定、内容滚动」的唯一正解，卡体不再滚出视口。
         local title = MakeFS(fr, 14, C_WHITE, "LEFT")
         title:SetPoint("TOPLEFT", fr, "TOPLEFT", TT.CARD_PAD, -TT.CARD_PAD)
         local divider = fr:CreateTexture(nil, "ARTWORK")
         divider:SetWidth(1)
-        divider:SetColorTexture(1, 1, 1, 0.12)
+        divider:SetColorTexture(1, 1, 1, 0.1)
         divider:Hide()
         TT.scCards[i] = { frame = fr, title = title, divider = divider, n = 0, H = 0 }
     end
 
     TT.rowPool = {}
     for i = 1, TT.ROW_MAX do
-        local fs = MakeFS(child, 14, C_TEXT, "LEFT")
+        local fs = MakeFS(TT.rowHost, 14, C_TEXT, "LEFT")
         fs:SetWordWrap(true)
         fs:Hide()
         if fs.EnableHyperlinks then
@@ -707,10 +743,19 @@ local function BuildSpecPool(parent)
         cf:SetHeight(TT.CHIP_H)
         cf:Hide()
         SkinChip(cf)
-        local cfs = MakeFS(cf, 11, C_TEXT, "CENTER")
+        local cfs = MakeFS(cf, 14, C_TEXT, "CENTER")
         cfs:SetPoint("CENTER", cf, "CENTER", 0, 0)
         TT.chipPool[i] = { frame = cf, fs = cfs }
     end
+
+    -- ★ 行文字宿主层级收口：scCards 是后建的实底卡帧、层级天然高于 rowHost，
+    --   不显式抬高 = 行文字仍被盖（Titan 客户端同层顺序还随机，纪律上必须显式）。
+    local topLvl = 0
+    for i = 1, TT.CARD_MAX do
+        local lv = TT.scCards[i] and TT.scCards[i].frame:GetFrameLevel() or 0
+        if lv > topLvl then topLvl = lv end
+    end
+    TT.rowHost:SetFrameLevel(topLvl + 1)
 
     local fr = child
     fr:EnableMouse(true)
@@ -720,7 +765,9 @@ local function BuildSpecPool(parent)
     fr:SetScript("OnHyperlinkEnter", HyperTip)
     fr:SetScript("OnHyperlinkLeave", function() GameTooltip:Hide() end)
     fr:SetScript("OnMouseWheel", function(_, delta)
-        DG.WheelScroll(TT.scroll, TT.child, delta)
+        -- ★ child 盖在视口上会先吃到滚轮事件：与 scroll 上的脚本同走自管滚动
+        --   （旧 DG.WheelScroll 走 SetVerticalScroll，本引擎已证实不可信）。
+        TierWheel(delta)
     end)
 end
 
@@ -776,6 +823,10 @@ local function PutRow(text, size, color, x, y, w)
     local h = FSHeight(fs)
     fs:ClearAllPoints()
     fs:SetPoint("TOPLEFT", card.frame, "TOPLEFT", x, y)
+    -- ★ 自算剔除登记（十一轮+：引擎布局读数不可信）：__cy = child 坐标顶（距 child 顶
+    --   向下），__ch = 行高。卡顶 = child 顶（scCard 锚 child (0,0)），故 child-y = -y。
+    fs.__cy, fs.__ch = -y, h
+    fs.__cgen = TT.__renderGen
     card.lastFS = fs
     card.lastH = h
     return h
@@ -815,6 +866,10 @@ local function AddPair(goods, bads, innerW)
     card.divider:SetPoint("TOPLEFT", card.frame, "TOPLEFT", lineX, startY - 1)
     card.divider:SetPoint("BOTTOMLEFT", card.frame, "TOPLEFT", lineX, bot + 5)
     card.divider:Show()
+    -- ★ 自算剔除登记：divider 跨 [bot+5, startY-1]（card 坐标负值 → child 取负）。
+    card.divider.__cy = -(bot + 5)
+    card.divider.__ch = (bot - startY) + 6
+    card.divider.__cgen = TT.__renderGen
     TT.__cy = bot - TT.SPEC_GAP
 end
 
@@ -846,7 +901,7 @@ local function AddRaces(items, innerW)
         local lfs = TakeRowFS()
         if not lfs then break end
         card.n = card.n + 1
-        SetFont(lfs, 11)
+        SetFont(lfs, 14)
         lfs:SetWidth(innerW)
         lfs:SetText(label)
         lfs:SetTextColor(C_DIM[1], C_DIM[2], C_DIM[3])
@@ -856,6 +911,9 @@ local function AddRaces(items, innerW)
         lfs:Show()
         card.lastFS = lfs
         card.lastH = FSHeight(lfs)
+        -- ★ 自算剔除登记（同 PutRow）。
+        lfs.__cy, lfs.__ch = -rowY, card.lastH
+        lfs.__cgen = TT.__renderGen
         local cx = TT.CARD_PAD + lw + TT.CHIP_GAP
         local cy2 = rowY
         for _, item in ipairs(groups[side]) do
@@ -874,6 +932,9 @@ local function AddRaces(items, innerW)
             chip.frame:SetWidth(cw)
             chip.frame:ClearAllPoints()
             chip.frame:SetPoint("TOPLEFT", card.frame, "TOPLEFT", cx, cy2)
+            -- ★ 自算剔除登记（同 PutRow）。
+            chip.frame.__cy, chip.frame.__ch = -cy2, TT.CHIP_H
+            chip.frame.__cgen = TT.__renderGen
             cx = cx + cw + TT.CHIP_GAP
         end
         TT.__cy = cy2 - TT.CHIP_H - TT.HELP_HEAD
@@ -952,7 +1013,7 @@ local function PaintSecTabs(data)
             w = math.max(48, math.min(w + TT.SEC_TAB_PAD, maxW))
             bt:SetWidth(w)
             bt:ClearAllPoints()
-            bt:SetPoint("TOPLEFT", TT.page, "TOPLEFT", TT.RIGHT_X + x, -TT.SEC_TAB_Y)
+            bt:SetPoint("TOPLEFT", TT.page, "TOPLEFT", TT.RIGHT_X + 8 + x, -TT.SEC_TAB_Y)
             x = x + w + TT.SEC_TAB_STEP
             bt.__secKey = key
             local on = (key == sel)
@@ -1071,7 +1132,17 @@ local function BuildSpecCard(sec)
     return { card = card, span = span }
 end
 
+-- 前置声明（RenderSpec / BuildScroll 的闭包都引用，函数体在 BuildScroll 之后赋值）
+local UpdateScrollUI, CullScrollContent, TierWheel
+
 RenderSpec = function()
+    -- ★ 十九轮：渲染代在此自增（不能只靠 TT.Render）——板块页签/专精切换走的是
+    --   直调 RenderSpec()，若代数不增，上一板块的未使用行/分隔线仍带「当前代」
+    --   标记，会被 CullScrollContent 按旧坐标重新 Show = 幽灵文本残留。
+    TT.__renderGen = (TT.__renderGen or 0) + 1
+    -- ★ 顶卡接管 spec 模式：显示顶卡（纯卡中卡外观）；rank 模式顶卡由
+    --   HideSpec 隐藏（其视口上缘改为严格剔除，无遮罩板）。
+    if TT.specTopCard then TT.specTopCard:Show() end
     local db = DB()
     local cls = db.cls or TT.CLASS_ORDER[1]
     local rec = G.specs[cls]
@@ -1105,7 +1176,6 @@ RenderSpec = function()
         tostring(meta.patch or ""), tonumber(meta.level) or 0, tostring(data.updated or "")))
     TT.specMeta:Show()
     SetIcon(TT.heroIcon, spRec and spRec.icon)
-    TT.heroLine:SetColorTexture(cr, cg, cb, 0.25)
     local gk, pk = SpecGrade(cls, spec)
     if gk then
         local gc = TT.COLOR[gk] or TT.COLOR.D
@@ -1162,22 +1232,211 @@ RenderSpec = function()
     else
         TT.child:SetHeight(TT.SPEC_GAP)
     end
-    TT.scroll:SetVerticalScroll(0)
+    -- ★ child 高度变化后重注册（自管滚动：归零 __v 并把 child 平移回顶）；剔除延后一帧。
+    TT.__v = 0
+    TT.child:SetPoint("TOPLEFT", TT.scroll, "TOPLEFT", 0, 0)
+    CullScrollContent()
     TT.overflowed = (TT.__overflow or 0) > 0
 end
 
 local function BuildScroll(page)
+    -- ★ 六轮定案（2026-10-10 探针驱动）：视口底 y 符号修正（BOTTOMRIGHT 的 y 为正向上收）
+    --   + 固定底板（specPlate）+ 行级剔除（CullScrollContent）三件套落地后，滚动内容全是
+    --   矮元素、不再依赖引擎裁剪 ⇒ 回退裸 ScrollFrame（无模板自带滚动条）。
+    --   滚动条自绘藏品样式（2026-10-10 用户定案）：track L2 胶囊 + thumb L4 可拖拽，
+    --   内容不足一屏整条隐藏。
     local scroll = CreateFrame("ScrollFrame", nil, page)
     scroll:EnableMouseWheel(true)
     scroll:SetPoint("TOPLEFT", page, "TOPLEFT", TT.RIGHT_X, -TT.BODY_TOP)
-    scroll:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -PAGE_INSET, PAGE_INSET)
+    -- ★ BOTTOMRIGHT 的 y 必须为正（向上收）：视口底 = page 底上方 EDGE+INSET（卡底内衬 8）。
+    scroll:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT",
+                    -(TT.EDGE + TT.INSET), TT.EDGE + TT.INSET)
     scroll:SetScript("OnMouseWheel", function(_, delta)
-        DG.WheelScroll(TT.scroll, TT.child, delta)
+        TierWheel(delta)
     end)
-    local child = CreateFrame("Frame", nil, scroll)
+    scroll:SetScript("OnVerticalScroll", function()
+        CullScrollContent()
+    end)
+    -- ── 自绘滚动条（藏品页同款：轨道 L2 胶囊 + 滑块 L4 胶囊可拖拽）──
+    local track = CreateFrame("Frame", nil, scroll, "BackdropTemplate")
+    if ns.hui and ns.hui.BuildCapsule then
+        ns.hui.BuildCapsule(track, 3, ns.hui.layer.L2)
+    else
+        track:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+        })
+        track:SetBackdropColor(0, 0, 0, 0.25)
+        track:SetBackdropBorderColor(1, 1, 1, 0.08)
+    end
+    track:SetWidth(6)
+    -- ★ 滚动条放卡片外（2026-10-10 用户定案）：右缘越过 scroll 内容缘 +7，落进内容
+    --   右缘（932）与 contentCard 卡缘（940）之间的 8px 沟槽，不再遮挡内容。
+    --   ★ 二十六轮：上下缘与视口/底板齐平（原 ±1 内缩）——轨道与文字底板是同参照
+    --   兄弟件，齐平后轨道底距 contentCard 卡底恰 8（间距标准），顶底不再差 1px。
+    track:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", 7, 0)
+    track:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", 7, 0)
+    local thumb = CreateFrame("Button", nil, track)
+    thumb:SetWidth(4)
+    thumb:EnableMouse(true)
+    if ns.hui and ns.hui.BuildCapsule then
+        ns.hui.BuildCapsule(thumb, 2, ns.hui.layer.L4)
+    else
+        local tx = thumb:CreateTexture(nil, "OVERLAY")
+        tx:SetAllPoints()
+        tx:SetColorTexture(1, 1, 1, 0.30)
+    end
+    thumb:SetPoint("TOP", track, "TOP", 0, -1)
+    thumb:Hide()
+    -- 滑块拖拽：光标位移按比例映射到滚动值（藏品页同款；自记账 clamp 同滚轮）
+    thumb:SetScript("OnMouseDown", function(self, btn)
+        if btn ~= "LeftButton" then return end
+        local scale = UIParent and UIParent:GetEffectiveScale() or 1
+        local cy0 = select(2, GetCursorPosition()) / scale
+        local sc0 = TT.__v or 0
+        self:SetScript("OnUpdate", function()
+            local cy = select(2, GetCursorPosition()) / scale
+            local trackH = track:GetHeight() - 2
+            local span = trackH - thumb:GetHeight()
+            if span <= 0 then return end
+            local maxScroll = TT.child:GetHeight() - TT.scroll:GetHeight()
+            TT.__v = math.min(maxScroll, math.max(0, sc0 + (cy0 - cy) / span * maxScroll))
+            TT.child:SetPoint("TOPLEFT", TT.scroll, "TOPLEFT", 0, TT.__v)
+            -- ★ 十五轮补全：拖拽路径此前漏剔除与滑块同步（拖到一半行不隐藏/滑块不回弹）。
+            CullScrollContent()
+            UpdateScrollUI()
+        end)
+    end)
+    thumb:SetScript("OnMouseUp", function(self) self:SetScript("OnUpdate", nil) end)
+    thumb:SetScript("OnHide", function(self) self:SetScript("OnUpdate", nil) end)
+    TT.sbarTrack, TT.sbarThumb = track, thumb
+    -- ★ child 挂 page 而非 scroll（九轮+）：彻底摆脱 ScrollFrame 的 C 层干预——
+    --   本引擎 ScrollFrame 对子帧/滚动状态的管理不可信（滚动状态与布局脱节、
+    --   未注册 SetScrollChild 时 SetVerticalScroll 直接失效）。child 成为普通帧，
+    --   滚动 = TierWheel 里 SetPoint 平移；超界部分由行级剔除 Hide。
+    local child = CreateFrame("Frame", nil, page)
     child:SetSize(TT.FULL_W + 2 * TT.OUTER_PAD, 10)
-    scroll:SetScrollChild(child)
+    child:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, 0)
     TT.scroll, TT.child = scroll, child
+    -- ★ 固定内容底板（2026-10-10 用户定案：卡固定、内容滚动）：挂 page、不进滚动；
+    --   渲染时与 scroll 同矩形（SetAllPoints），L2 实底 r6；spec/rank 两模式共用。
+    --   层级在 Build 尾收口块之后压到 cardLvl+1（低于 scroll 内容、高于 contentCard）。
+    do
+        local plate = CreateFrame("Frame", nil, page, "BackdropTemplate")
+        if ns.hui and ns.hui.SkinPopup then
+            ns.hui.SkinPopup(plate, 6, nil, ns.hui.layer.L2)
+        else
+            plate:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
+            plate:SetBackdropColor(0.086, 0.102, 0.133, 1)  -- L2 161A22
+        end
+        plate:Hide()
+        TT.specPlate = plate
+    end
+    -- ★ 十六轮伪裁剪（引擎无裁剪 ⇒ 骑视口上缘的元素上半截画进 hero/页签区）：
+    --   历史上用 GlassPlate 玻璃同材遮罩（纯色板叠玻璃卡面必然显形黑块，十七轮
+    --   教训）。二十三/二十四轮后遮罩全部退役：spec/rank 一律上缘严格剔除——顶卡
+    --   与视口间的 8px 沟槽挡不住溢出（见 CullScrollContent），顶卡只剩卡中卡外观。
+end
+
+-- ★ 自算剔除（十二轮终稿）：渲染锚定时每个视觉元素登记 __cy/__ch（child 坐标，
+--   距 child 顶向下），剔除 = 纯数字区间比较 [__v, __v+viewH] —— 完全不碰引擎布局
+--   读数（GetTop/GetBottom 已证实与渲染脱节，同帧/下一帧都不可信）。
+CullScrollContent = function()
+    local scroll = TT.scroll
+    if not scroll then return end
+    local viewH = scroll.GetHeight and scroll:GetHeight()
+    if type(viewH) ~= "number" then return end
+    local vTop, vBot = (TT.__v or 0), (TT.__v or 0) + viewH
+    -- ★ 十五轮破案（探针 v3 取证）：旧判据 `not el:IsShown() then return` 是单向门——
+    --   元素被剔除 Hide 后，回滚再进视口时因 IsShown=false 被直接跳过，永远无法重新
+    --   Show（下滚再上滚顶部内容消失、滚到底下方空白的真凶）。改为「渲染代」门控：
+    --   只处理本轮渲染(TT.__renderGen)登记的元素，无论当前显隐一律参与区间判定，
+    --   被隐藏的行回滚进视口后能重新 Show；上一轮的残留登记（旧代）一律跳过，
+    --   不会把别的模式/上轮布局的幽灵行误显示出来。
+    local gen = TT.__renderGen
+    local function cull(el)
+        if not el or el.__cgen ~= gen then return end
+        local cy, ch = el.__cy, el.__ch
+        if type(cy) ~= "number" or type(ch) ~= "number" then return end
+        -- 与视口相交才显示：底在视口顶之下 且 顶在视口底之上。
+        -- ★ 用 Show/Hide 而非 SetShown（后者同为 8.0+ API，本引擎无）。
+        -- ★ 下缘「底缘全入才显示」——骑底元素的无裁剪溢出会画出卡外甚至窗外；
+        --   超高元素（≥视口高，理论不存在）退回骑底判定防永不显示。
+        -- ★ 二十三轮 rank 上缘严格 → 二十四轮 spec 同样严格（统一）：spec 视口上方的
+        --   顶卡只盖条带主体（EDGE+8 ~ SEC_TOP-8），与视口顶之间有 8px 沟槽 + 窗沿
+        --   8px（间距标准），骑缘元素的溢出上半截会从沟槽漏出（实机复现）⇒ 两模式
+        --   一律「顶入视口才显示」结构性杜绝，遮罩方案彻底退役。
+        local show = false
+        if (cy + ch) > vTop then
+            if ch < viewH then
+                show = (cy >= vTop) and ((cy + ch) <= vBot)
+            else
+                show = cy < vBot
+            end
+        end
+        if show then
+            el:Show()
+        else
+            el:Hide()
+        end
+    end
+    for i = 1, TT.CARD_MAX do
+        local c = TT.cards and TT.cards[i]
+        if c then cull(c.frame) end
+    end
+    cull(TT.factorTitle)
+    cull(TT.intro)
+    if TT.factorRows then for i = 1, #TT.factorRows do cull(TT.factorRows[i]) end end
+    if TT.noteRows then for i = 1, #TT.noteRows do cull(TT.noteRows[i]) end end
+    if TT.rowPool then for i = 1, #TT.rowPool do cull(TT.rowPool[i]) end end
+    if TT.chipPool then
+        for i = 1, #TT.chipPool do
+            local chip = TT.chipPool[i]
+            if chip then cull(chip.frame) end
+        end
+    end
+    -- ★ 十五轮补全：spec 分隔线此前漏剔除（滚出视口仍绘制，溢出帮凶）。
+    if TT.scCards then
+        for i = 1, TT.CARD_MAX do
+            local c = TT.scCards[i]
+            if c then cull(c.divider) end
+        end
+    end
+end
+
+-- 滚动条联动：内容不足一屏整条隐藏；滑块高/位置按视口占比刷新（藏品页同款）。
+UpdateScrollUI = function()
+    local scroll, child = TT.scroll, TT.child
+    if not (scroll and child and TT.sbarTrack) then return end
+    local viewH, contentH = scroll.GetHeight and scroll:GetHeight(), child.GetHeight and child:GetHeight()
+    if type(viewH) ~= "number" or type(contentH) ~= "number" then return end
+    if contentH <= viewH + 2 then
+        TT.sbarTrack:Hide()
+        return
+    end
+    TT.sbarTrack:Show()
+    local trackH = TT.sbarTrack:GetHeight() - 2
+    local maxScroll = contentH - viewH
+    local frac = math.min(1, math.max(0, (TT.__v or 0) / maxScroll))
+    local th = math.max(24, trackH * viewH / contentH)
+    local thumb = TT.sbarThumb
+    thumb:SetHeight(th)
+    thumb:ClearAllPoints()
+    thumb:SetPoint("TOP", TT.sbarTrack, "TOP", 0, -1 - frac * (trackH - th))
+end
+
+-- ★ 自管滚动（九轮+十轮定案）：__v 唯一真源，严格钳 [0, childH - viewH]；
+--   child 用 SetPoint 平移。scroll 与 child 两处 OnMouseWheel 都挂本函数
+--   （child 盖在视口上会先吃到滚轮事件，两处挂同一逻辑防漏）。
+TierWheel = function(delta)
+    local maxScroll = math.max(0, (TT.child.GetHeight and TT.child:GetHeight() or 0)
+                                  - (TT.scroll.GetHeight and TT.scroll:GetHeight() or 0))
+    if type(maxScroll) ~= "number" then return end
+    TT.__v = math.max(0, math.min(maxScroll, (TT.__v or 0) - delta * 48))
+    TT.child:SetPoint("TOPLEFT", TT.scroll, "TOPLEFT", 0, TT.__v)
+    CullScrollContent()
+    UpdateScrollUI()
 end
 
 function TT.PlaceScroll(top)
@@ -1185,7 +1444,11 @@ function TT.PlaceScroll(top)
     if not scroll or not TT.page then return end
     scroll:ClearAllPoints()
     scroll:SetPoint("TOPLEFT", TT.page, "TOPLEFT", TT.RIGHT_X, -(top or TT.BODY_TOP))
-    scroll:SetPoint("BOTTOMRIGHT", TT.page, "BOTTOMRIGHT", -PAGE_INSET, PAGE_INSET)
+    -- ★ 同 BuildScroll：BOTTOMRIGHT 的 y 为正（向上收），视口底 = 卡底内衬 8。
+    scroll:SetPoint("BOTTOMRIGHT", TT.page, "BOTTOMRIGHT",
+                    -(TT.EDGE + TT.INSET), TT.EDGE + TT.INSET)
+    -- ★ BOTTOMRIGHT 的 y 为正（向上收）：视口底 = 卡底内衬 8。视口顶由 Render
+    --   分支经本函数传入（spec=SEC_TOP / rank=__rankTop）。
 end
 
 function TT.Build(page)
@@ -1193,25 +1456,107 @@ function TT.Build(page)
     TT.building = true
     TT.page = page
 
+    -- ★ 双大卡最先建（模板=探索页 navCard/listCard）：后续兄弟帧（按钮/滚动区/hero）
+    --   天然浮在实底卡上；page 直挂 FontString 由 Build 尾部的文字宿主层承接。
+    do
+        local navCard = CreateFrame("Frame", nil, page, "BackdropTemplate")
+        local contentCard = CreateFrame("Frame", nil, page, "BackdropTemplate")
+        -- ★ 锚定（2026-10-10 补）：漏 SetPoint = 零尺寸帧不可见。几何与间距标准对齐：
+        --   两卡坐窗沿 20；卡↔卡缝 8（navCard 右缘 = X0-8，contentCard 左缘 = X0）；
+        --   内容线 RIGHT_X/SUB_Y/BODY_TOP/滚动区底 -28 全部恰好卡内衬 8。
+        navCard:SetPoint("TOPLEFT", page, "TOPLEFT", TT.EDGE, -TT.CARD_TOP)
+        navCard:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", TT.X0 - TT.INSET, TT.EDGE)
+        contentCard:SetPoint("TOPLEFT", page, "TOPLEFT", TT.X0, -TT.CARD_TOP)
+        contentCard:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -TT.EDGE, TT.EDGE)
+        if ns.hui and ns.hui.SkinPopup then
+            ns.hui.SkinPopup(navCard, 6)
+            ns.hui.SkinPopup(contentCard, 6)
+        else
+            for _, f in ipairs({ navCard, contentCard }) do
+                f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8",
+                                edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+                f:SetBackdropColor(1, 1, 1, 0.03)
+                f:SetBackdropBorderColor(1, 1, 1, 0.05)
+            end
+        end
+        TT.navCard, TT.contentCard = navCard, contentCard
+    end
+
     BuildNav(page)
     BuildSubTabs(page)
     BuildScroll(page)
 
     local child = TT.child
+    -- ★ 行文字宿主层（探索页 labelHost 同款）：内容卡是 L2 实底帧，child 直挂
+    --   FontString 是 region、永远画在同父子帧之下 → 行/简介/依据/注释全被实底卡
+    --   盖住（专精指南空壳卡实锤）。行文字统一搬进抬高的宿主帧。
+    local rowHost = CreateFrame("Frame", nil, child)
+    rowHost:SetPoint("TOPLEFT", child, "TOPLEFT", 0, 0)
+    TT.rowHost = rowHost
     TT.meta = MakeFS(page, 14, C_GREY, "LEFT")
     -- 同 specMeta：相对点 TOPRIGHT（右上角），自身 "RIGHT" 取垂直居中对齐页签行中心。
-    TT.meta:SetPoint("RIGHT", page, "TOPRIGHT", -PAGE_INSET, -(TT.SUB_Y + TT.SUB_H / 2))
-    TT.intro = MakeFS(child, 14, C_DIM, "LEFT")
+    TT.meta:SetPoint("RIGHT", page, "TOPRIGHT", -(TT.EDGE + TT.INSET), -(TT.SUB_Y + TT.SUB_H / 2))
+    TT.intro = MakeFS(TT.rowHost, 14, C_DIM, "LEFT")
     TT.intro:SetWidth(TT.CARD_W - 100)
 
     BuildCards(child)
-    BuildNotes(child)
+    BuildNotes(TT.rowHost)
     BuildSpecHero(page)
     BuildSecTabs(page)
     BuildSpecPool(child)
 
     TT.built = true
     TT.building = false
+
+    -- ★ 层级收口（实底卡时代的静默杀手，探索页同款）：两块大卡之上的兄弟帧显式抬高；
+    --   page 直挂 FontString（组标题 / 元信息行）是 region，永远画在子帧之下、
+    --   SetFrameLevel 管不到 → 搬进抬高的专用文字宿主层。
+    do
+        local cardLvl = TT.navCard:GetFrameLevel()
+        TT.contentCard:SetFrameLevel(cardLvl)
+        local tl = CreateFrame("Frame", nil, page)
+        tl:SetFrameLevel(cardLvl + 2)
+        for _, rg in ipairs({ page:GetRegions() }) do
+            rg:SetParent(tl)
+        end
+        TT.textLayer = tl
+        for _, fr in ipairs({ page:GetChildren() }) do
+            if fr ~= TT.navCard and fr ~= TT.contentCard and fr ~= tl then
+                fr:SetFrameLevel(math.max(fr:GetFrameLevel(), cardLvl + 2))
+            end
+        end
+        -- ★ specPlate 是专精固定底板（背景）：压到 scroll 内容（cardLvl+2）之下、
+        --   contentCard 容器卡（cardLvl）之上 —— 内容行滚过它、它垫住视口矩形。
+        if TT.specPlate then
+            TT.specPlate:SetFrameLevel(cardLvl + 1)
+        end
+        -- ★ 十六轮：伪裁剪遮罩（卡外段 +3、卡内段 +4 同色段压住接缝）高于滚动内容
+        --   （cardLvl+2）；固定件（hero / 各级页签 / 元信息文字层）抬到 +6，
+        --   保证页签与标题画在遮罩之上不被盖住。
+        -- ★ 十六轮：伪裁剪遮罩层级。先「压平」内容——scCard 去背景后行文字不再需要
+        --   高于卡帧，全部统一 cardLvl+2（rowHost 曾按 scCards+1 抬层，会造出「后代
+        --   层级高于/低于祖先」的未定义序，本引擎同层序本就随机，必须消灭）；
+        --   遮罩 = 卡外段 +3 / 卡内段 +4，固定件 +7。
+        if TT.rowHost then TT.rowHost:SetFrameLevel(cardLvl + 2) end
+        for i = 1, TT.CARD_MAX do
+            if TT.scCards[i] then TT.scCards[i].frame:SetFrameLevel(cardLvl + 2) end
+        end
+        if TT.chipPool then
+            for i = 1, #TT.chipPool do
+                if TT.chipPool[i] then TT.chipPool[i].frame:SetFrameLevel(cardLvl + 2) end
+            end
+        end
+        -- ★ 顶卡（纯卡中卡外观，上缘剔除已严格化、遮罩职责退役）：压到底板档
+        --   （与 specPlate 同层；二者上下相邻不叠，同层无冲突），不遮任何内容。
+        if TT.specTopCard then TT.specTopCard:SetFrameLevel(cardLvl + 1) end
+        local fixLvl = cardLvl + 7
+        if TT.hero then TT.hero:SetFrameLevel(fixLvl) end
+        if TT.textLayer then TT.textLayer:SetFrameLevel(fixLvl) end
+        for _, bt in pairs(TT.specTabs or {}) do bt:SetFrameLevel(fixLvl) end
+        for _, bt in pairs(TT.secTabs or {}) do bt:SetFrameLevel(fixLvl) end
+        for _, bt in pairs(TT.subBtns or {}) do bt:SetFrameLevel(fixLvl) end
+    end
+
     TT.Render()
 end
 
@@ -1224,7 +1569,7 @@ function TT.PaintNav()
     if TT.classBtns then
         for cls, cb in pairs(TT.classBtns) do
             local sel = specMode and (cls == db.cls)
-            cb.bg:SetShown(sel)
+            SetClassBase(cb, sel)
             -- 文字取职业色（与团本页 9 枚职业芯片同一口径）；选中只靠金色描边 + 不透明度区分。
             local cr, cg, cbc = ClassColor(cls)
             cb.__txt:SetTextColor(cr, cg, cbc)
@@ -1289,6 +1634,7 @@ end
 
 function TT.HideSpec()
     if not TT.specTitle then return end
+    if TT.specTopCard then TT.specTopCard:Hide() end
     if TT.hero then TT.hero:Hide() end
     if TT.heroGrade then TT.heroGrade:Hide() end
     if TT.specMeta then TT.specMeta:Hide() end
@@ -1313,19 +1659,45 @@ end
 
 function TT.Render()
     if not TT.built then return end
+    -- ★ 十五轮：渲染代自增——本轮渲染登记的元素才参与滚动剔除（见 CullScrollContent）。
+    TT.__renderGen = (TT.__renderGen or 0) + 1
     local specMode = TT.PaintNav()
+    TT.__mode = specMode and "spec" or "rank"
     if specMode then
         TT.PlaceScroll(TT.SEC_TOP)
         TT.HideRank()
         RenderSpec()
-        return
+        -- ★ 固定内容底板：与滚动视口同矩形（专精卡固定、内容滚动的背景板）。
+        if TT.specPlate then
+            TT.specPlate:ClearAllPoints()
+            TT.specPlate:SetAllPoints(TT.scroll)
+            TT.specPlate:Show()
+        end
+    else
+        TT.HideSpec()
+        TT.RenderRank()
+        -- ★ 二十三轮重排：视口顶 = tier 卡区底（RenderRank 捕获的 __rankTop），
+        --   故 PlaceScroll 必须排在渲染之后；滚动只作用于下方文字卡（排名依据 +
+        --   注意事项），tier 卡区固定不滚。
+        TT.PlaceScroll(TT.__rankTop or TT.BODY_TOP)
+        -- ★ 文字底板：与（重排后的）滚动视口同矩形，只衬文字区。
+        if TT.specPlate then
+            TT.specPlate:ClearAllPoints()
+            TT.specPlate:SetAllPoints(TT.scroll)
+            TT.specPlate:Show()
+        end
+        -- ★ 同 RenderSpec：自管滚动归零（child 平移回顶）+ 剔除 + 滑块回顶。
+        --   必须在 PlaceScroll 改完视口矩形之后执行。
+        TT.__v = 0
+        TT.child:SetPoint("TOPLEFT", TT.scroll, "TOPLEFT", 0, 0)
+        CullScrollContent()
+        UpdateScrollUI()
     end
-    TT.PlaceScroll(TT.BODY_TOP)
-    TT.HideSpec()
-    TT.RenderRank()
 end
 
 function TT.RenderRank()
+    -- ★ 十九轮：同 RenderSpec——登记入口自带代数自增（对称防御）。
+    TT.__renderGen = (TT.__renderGen or 0) + 1
     if not TT.built then return end
     local p = PageFor(DB().tab)
     local own = MobileCls()
@@ -1347,7 +1719,10 @@ function TT.RenderRank()
     end
     TT.intro:SetWidth(math.max(160, TT.CARD_W - leadW))
 
-    local y = 6
+    -- ★ 二十七轮（UI_RULES §3 链式推导）：页签胶囊行底 = SUB_Y+SUB_H = BODY_TOP-8，
+    --   首张 tier 卡顶必须 = 胶囊底 + 8 = BODY_TOP —— 故 tier 区从 y=0 起排（原 y=8
+    --   多垫一道 8，首卡顶变胶囊底+16）。文字区起排的 y=8 在底板内，属卡内内衬豁免。
+    local y = 0
 
     local tiers = p.tiers or {}
     for i = 1, 5 do
@@ -1371,7 +1746,9 @@ function TT.RenderRank()
             local h = math.max(TT.EMPTY_H, rows * TT.CELL_H + 2 * TT.LIST_PAD)
             ui.frame:SetHeight(h)
             ui.frame:ClearAllPoints()
-            ui.frame:SetPoint("TOPLEFT", TT.child, "TOPLEFT", TT.LIST_PAD, -y)
+            -- ★ 二十二轮重排：tier 卡改为固定定位（挂 page，不随滚动）——滚动只属于
+            --   下方文字卡（排名依据 + 注意事项）。页 y = BODY_TOP + 累计 y。
+            ui.frame:SetPoint("TOPLEFT", TT.page, "TOPLEFT", TT.RIGHT_X, -(TT.BODY_TOP + y))
             ui.badge:SetHeight(h - 2 * TT.LIST_PAD)
             ui.badge:ClearAllPoints()
             ui.badge:SetPoint("TOPLEFT", ui.frame, "TOPLEFT", TT.LIST_PAD, -TT.LIST_PAD)
@@ -1403,7 +1780,7 @@ function TT.RenderRank()
                     local cr2, cg2, cb2 = ClassColor(e.class)
                     cell.name:SetTextColor(cr2, cg2, cb2)
                     cell:Show()
-                    PaintCell(cell, cell.own)
+                    PaintCell(cell, cell.own, false)
                 else
                     cell.cls, cell.spec, cell.rec, cell.tierKey = nil, nil, nil, nil
                     cell.own = false
@@ -1415,11 +1792,20 @@ function TT.RenderRank()
         end
     end
 
-    y = y + 8
+    -- ★ 二十三轮重排：tier 卡区已固定（挂 page，见上）。滚动视口从文字区开始，
+    --   视口顶 = tier 卡排完的页 y（此刻 y 已含最后一张卡后的 CARD_GAP）。文字区
+    --   改从 child 顶起排（child 只承载文字卡内容），剔除坐标口径不变。
+    TT.__rankTop = TT.BODY_TOP + y
+    y = 8
     TT.factorTitle:ClearAllPoints()
     TT.factorTitle:SetPoint("TOPLEFT", TT.child, "TOPLEFT", 0, -y)
+    -- ★ 自算剔除登记。
+    TT.factorTitle.__cy, TT.factorTitle.__ch = y, FSHeight(TT.factorTitle)
+    TT.factorTitle.__cgen = TT.__renderGen
     TT.intro:ClearAllPoints()
     TT.intro:SetPoint("LEFT", TT.factorTitle, "RIGHT", 16, 0)
+    TT.intro.__cy, TT.intro.__ch = TT.factorTitle.__cy, FSHeight(TT.intro)
+    TT.intro.__cgen = TT.__renderGen
     y = y + math.max(FSHeight(TT.factorTitle), FSHeight(TT.intro)) + 8
 
     local factors = p.factors or {}
@@ -1432,7 +1818,10 @@ function TT.RenderRank()
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", TT.child, "TOPLEFT", 0, -y)
             row:Show()
-            y = y + FSHeight(row) + 5
+            local rh = FSHeight(row)
+            row.__cy, row.__ch = y, rh
+            row.__cgen = TT.__renderGen
+            y = y + rh + 5
         else
             row:Hide()
         end
@@ -1449,14 +1838,18 @@ function TT.RenderRank()
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", TT.child, "TOPLEFT", 0, -y)
             row:Show()
-            y = y + FSHeight(row) + 7
+            local rh = FSHeight(row)
+            row.__cy, row.__ch = y, rh
+            row.__cgen = TT.__renderGen
+            y = y + rh + 7
         else
             row:Hide()
         end
     end
 
     TT.child:SetHeight(y + 10)
-    TT.scroll:SetVerticalScroll(0)
+    -- ★ 二十三轮：归零/剔除上移到 TT.Render rank 分支——必须在 PlaceScroll 重排
+    --   视口顶（__rankTop）之后执行，此处只剩内容高度落定。
 end
 
 function TT.Refresh()

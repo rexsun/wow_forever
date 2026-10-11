@@ -1,0 +1,7 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Include file="Locales/!load.xml"/>
+    <Script file="Model.lua"/>
+    <Script file="API_Forever.lua"/>
+    <Script file="View.lua"/>
+    <Script file="ProfessionAssistant.lua"/>
+</Ui>

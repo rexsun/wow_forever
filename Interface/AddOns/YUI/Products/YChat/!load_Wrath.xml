@@ -1,0 +1,12 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Script file="Defaults.lua"/>
+    <Script file="ConflictGuard.lua"/>
+    <Script file="Adapter.lua"/>
+    <Script file="Adapter_Wrath.lua"/>
+    <Script file="MetadataRing.lua"/>
+    <Script file="HotDiagnostics.lua"/>
+    <Script file="Stats.lua"/>
+    <Script file="Shadow.lua"/>
+    <Script file="DevPanel.lua"/>
+    <Script file="YChat.lua"/>
+</Ui>

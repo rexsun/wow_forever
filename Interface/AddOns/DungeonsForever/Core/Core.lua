@@ -6,7 +6,7 @@
 
 local addonName, ns = ...
 
-ns.LibBG = LibStub:GetLibrary("BiaoGe-LibUIDropDownMenu-4.0")
+ns.LibBG = LibStub:GetLibrary("LibUIDropDownMenu-4.0")
 
 local ver = select(4, GetBuildInfo())
 ns.version = ver
@@ -47,6 +47,7 @@ if ns.options.buttonSound == nil then ns.options.buttonSound = true end
 ns.QUICK_VER = 1
 ns.QUICK_GROUPS = { "dungeon", "prof", "explore" }
 ns.QUICK_EXPLORE = { "books", "rewards", "bag", "bm" }
+ns.QUICK_TABS = { "Dungeons", "Raids", "Professions", "Explore", "Collections", "Bis", "Tier", "PvP" } -- ★ 主窗标签页显隐（QB_SET_TABS，2026-10-08 用户；同日 +PvP 第八键，主窗胶囊本就有 PvP）
 
 function ns.QuickCfg()
     local ui = DB().ui
@@ -64,6 +65,11 @@ function ns.QuickCfg()
     if type(q.expl) ~= "table" then q.expl = {} end
     for _, k in ipairs(ns.QUICK_EXPLORE) do
         if q.expl[k] == nil then q.expl[k] = true end
+    end
+    -- ★ 标签页显隐（QB_SET_TABS）：缺省全开（false = 隐藏该页签）
+    if type(q.tabs) ~= "table" then q.tabs = {} end
+    for _, k in ipairs(ns.QUICK_TABS) do
+        if q.tabs[k] == nil then q.tabs[k] = true end
     end
     return q
 end
@@ -99,6 +105,80 @@ boot:SetScript("OnEvent", function(self, event, name)
         end
     end
 end)
+
+-- ★★ 手柄模式自救 v2（2026-10-07 重做，v1 有时序空档）
+--
+-- 【定责】刷屏的 `ADDON_ACTION_FORBIDDEN 插件 'X' 调用保护功能 SetPreferredGamepadInteractTarget()`
+-- 是**引擎归因误伤**，与本插件无关。硬证据：本机 !BugGrabber 存档里同一条报错先后点名过
+-- 一串互不相关的插件（含本插件）挨个背锅；调用点 100% 在暴雪帧
+-- （Blizzard_GamepadActionBars/MainActionBarFrame.lua:255 UpdateInteractIcons，经 RunNextFrame
+--  = C_Timer.After(0) 的延时回调触发），本插件全仓零手柄 API。
+-- 机制：这些调用跑在暴雪事件分发栈里，引擎把「最近执行过 OnEvent 的插件」记为肇事者，
+-- 登录期事件交错，谁排在附近谁背锅 ⇒ 出补丁改代码 = 瞎改。
+--
+-- 【真正要命的是弹窗】ADDON_ACTION_FORBIDDEN 对话框 `exclusive = 1`
+-- （Blizzard_StaticPopup_Game/GameDialogDefs.lua:714）+ GamepadMode.PopupHandler 抢焦点，
+-- 手柄模式下弹窗一出现就整机假死（用户实报 + 10-05 现场）。所以对策只有一个：
+-- **手柄 UI 生效期间摘掉系统对 FORBIDDEN 的监听**（纯「闭嘴」，零改动我方行为；手柄关则完全不干预）。
+--
+-- 【v1 的坑】v1 只挂 `PLAYER_ENTERING_WORLD` 一次性，且首触发时若手柄还没开就早退、之后
+-- 永久失效 —— 「先键盘登录、后按手柄/进设置开手柄」这条最常见的路径完全没盖住。
+-- 【v2 的解法】用官方手柄切换钩子 `InputUtil.RegisterGamepadInit`：
+--   · RegisterInit 在「当前风格已是 Gamepad」时会**同步立即回调**（InputUtil.lua:105-110）
+--     ⇒ 登录即手柄 也覆盖；
+--   · 每次 INPUT_DEVICE_INTERFACE_TRANSITION 进手柄风格都会重放
+--     ⇒ 中途开手柄 也覆盖。
+-- 注意契约：必须先 `RegisterForInterfaceTransitions(subscriber)` 建好回调表，
+-- 否则 ConstructTransitionStyle 会去索引 nil（InputUtil.lua:91，暴雪自己的用法同此）。
+do
+    local function UnregisterForbidden()
+        if UIParent and UIParent.UnregisterEvent then
+            pcall(UIParent.UnregisterEvent, UIParent, "ADDON_ACTION_FORBIDDEN")
+        end
+        if GameEvent and GameEvent.UnregisterInternalEvent then
+            pcall(GameEvent.UnregisterInternalEvent, "ADDON_ACTION_FORBIDDEN")
+        end
+    end
+
+    local function GamepadUIEnabled()
+        local ok, enabled = pcall(function()
+            return InputUtil and InputUtil.IsGamepadUIEnabled and InputUtil.IsGamepadUIEnabled()
+        end)
+        return (ok and enabled) and true or false
+    end
+
+    local function TrySilence()
+        if not GamepadUIEnabled() then return false end
+        UnregisterForbidden()
+        return true
+    end
+
+    local guard = CreateFrame("Frame")
+
+    -- 手柄模式初始化/切换钩子（手柄已开时这里会立刻回调一次）
+    if InputUtil and InputUtil.RegisterForInterfaceTransitions and InputUtil.RegisterGamepadInit then
+        pcall(function()
+            InputUtil.RegisterForInterfaceTransitions(guard)
+            InputUtil.RegisterGamepadInit(guard, function()
+                UnregisterForbidden()
+            end)
+        end)
+    end
+
+    -- 兜底：登录时若已是手柄 UI 立刻摘；否则等进世界再补一次（有些端风格登录期才定）
+    guard:RegisterEvent("PLAYER_LOGIN")
+    guard:SetScript("OnEvent", function(self, event)
+        if event == "PLAYER_LOGIN" then
+            self:UnregisterEvent("PLAYER_LOGIN")
+            if not TrySilence() then
+                self:RegisterEvent("PLAYER_ENTERING_WORLD")
+            end
+        else
+            self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+            TrySilence()
+        end
+    end)
+end
 
 function ns.Init(fn)
     loadedFuncs[#loadedFuncs + 1] = fn

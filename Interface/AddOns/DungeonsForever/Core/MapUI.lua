@@ -1,43 +1,6 @@
 -- =============================================================================
 -- 无限副本手册 · 详情页「地图」页签（副本内地图 + 首领）
--- 本文件不是生成物，手写维护；toc 里必须排在 Core\DungeonUI.lua 之后。
---
--- 图源 = 客户端自带的世界地图瓦片：12 块 = 4 列 × 3 行、每块 256×256、行优先
---   路径 = Interface\WorldMap\<目录>\<层前缀><n>     例：Ragefire\Ragefire1_1
---   画布 1024×768；有效画面 = 左上 1002×668（右侧 22 / 底部 100 是装饰边，实测）
---
--- 版式（2026-09-30 三版）＝ 左侧地图 + 右侧首领栏，横向两块：
---   · 楼层按钮从「地图下方」挪到**地图右上角悬浮**（用户 2026-09-30 拍板 B 方案）：
---     旧位置只给多层副本预留 30px ⇒ 单层副本的图片区比多层的高 30px，两套版面。
---     悬浮后地图区高度恒定，与层数无关。
---   · **地图左上角 = 「隐藏 boss」开关**（用户 2026-10-01）：与楼层按钮同款悬浮、同一组边距
---     常量，一左一右对称；点一下只收起地图画布上的钉点（连名字），右栏首领列表 / 详情不动。
---     状态存 DungeonsForeverDB.dungeon.mapBossHidden（跨角色共享）；本副本一个钉点都没有时
---     整颗开关不出现（HasPins 判据），与当前层、与隐藏状态都无关。
---   · **地图满高**（用户 2026-09-30）：图高 = FRAME_H、图宽 = 高 × 3/2、右栏宽联动推出。
---   · 首领钉点：ns.BossPos[副本][首领英文名] = { {left%, top%}, … }。
---     坐标只对第 1 层有效（采集时按层出图，只放了第 1 层）⇒ **只在第 1 层画钉点**，
---     切到别的楼层一律不画，不替玩家猜位置。自制的单张手绘图同理 = 看第 1 层
---     （2026-10-01 修：此前「无 ART 层 = 无图」把自制图的钉点一起跳过了）。
---   · 右栏两种模式：首领列表（默认）/ 单个首领详情。
---     详情自上而下 = 首领名 → **掉落**（标题 + N 件 + 卡片行）→ **攻略**（标题 + 正文）；
---     攻略正文 = 首领技能表（ns.BossSkills，一行一条「技能名：说明」）+ 一句话攻略，
---     都没有才回落「攻略待补充」。两块标题同款（14 号金）。
---     点地图钉点或列表行 → 详情；详情里「‹ 全部首领」退回列表。
---
--- 没有客户端内地图的副本共 8 个（35 本 - 27 本有 ART）：其中 3 个用**自制手绘地图**顶上 ——
---   领主大厅 / 洛丹伦废墟（2026-09-30）+ 挖掘场湿地（2026-10-03），都是用户自己画的成品图导
---   TGA 进 Media/，见 CUSTOM；剩下 5 个（沉没之城 / 克罗多克 / 奥卡兹 / 黑喉 / 塑造者）照旧
---   空态，**不拿区域图顶替**（用户 2026-09-30 拍板：旧铁炉堡是通往领主大厅的区域图，
---   不是领主大厅的副本内图）。空态副本照样出右栏首领栏（洛丹伦废墟有攻略、领主大厅有掉落）。
---   ★ 也支持**多层副本只换某一层**：达拉然城（客户端 2 层：城 / 下水道）第 1 层是用户
---     2026-10-02 重绘的成品图 ⇒ 见 CUSTOM_FLOOR；第 2 层下水道没画、仍走客户端瓦片。
---   ★ 自制图与客户端瓦片共用同一块 663×442 画布、同一套百分比坐标 ⇒ **钉点照画**
---     （2026-10-01 修：此前拿「有 ART 层」当地图存在判据，自制图当场被当无图 ⇒
---     两本的 boss 钉点一个都不出，用户实机反馈「boss 图标没放到地图上」）。
---
--- 帧只在 Build 里建一次（12 块贴图 + 楼层按钮池 + 钉点池 + 列表/掉落行池）；
--- Paint / 选中 / 切层只改贴图、文字与显隐，零新建帧。
+-- 图源 = 客户端自带世界地图瓦片 + 自制手绘地图；左侧地图、右侧首领栏（列表 / 详情）。
 -- =============================================================================
 
 local _, ns = ...
@@ -87,6 +50,16 @@ M.FLOOR_INSET = 6                -- 楼层按钮距地图右上角的边距
 --   同一组边距常量（FLOOR_INSET / BAR_H），一左一右对称；宽度取 72 是因为
 --   「隐藏boss / 显示boss」（enUS: Hide bosses / Show bosses）四种文案等宽 ⇒ 点击切换不跳字。
 M.BOSS_BTN_W = 72
+
+-- ★ boss 详情 3D 模型（2026-10-06 用户定稿）：**贴 hero 横幅右上**——纵向双锚点
+--   钉死「窗口顶内侧 → hero 底沿（页签行上方）」区间，宽 260。只在地图页签显示
+--   （2026-10-11 定案：离开页签 HideBossModel 收起）；手册关掉 = hero 整链隐藏。
+-- ★ 相机距离系数已废（2026-10-11 对照定案）：取景全交引擎默认，不设
+--   SetCamDistanceScale——加载完成引擎重算取景会冲掉它，反而造成首载大小偏移。
+M.BOSS_MODEL_W = 260        -- 横幅右上空带宽
+-- 顶锚上探量：模型框顶超出 hero 顶沿的高度。hero 顶 = 详情页顶，其上还有标题行 /
+-- 导航页签（同属主窗口）——66 ≈ 落在标题行一带且不出主界面（2026-10-06 实测）。
+M.BOSS_MODEL_UP = 66
 
 M.MAX_PINS = 24                  -- 钉点池（实测最多 14：监狱 boss 钉 5 首领 14 刷点，2026-10-05 fc 补德克斯伦·沃德）
 -- 四类钉点的贴图：boss / 稀有共用骷髅（金 / 银染色）；任务 = 黄色「!」；
@@ -261,6 +234,9 @@ M.CUSTOM = CUSTOM
 --   ★ 与 CUSTOM 互斥：同一副本两边都登记没有意义（CUSTOM 分支压根不看层），别这么写。
 local CUSTOM_FLOOR = {
     city_of_dalaran = { [1] = "Interface\\AddOns\\DungeonsForever\\Media\\Maps\\Dalaran" },
+    -- 哀嚎洞穴整层换全视野图（2026-10-10）：用户自制中文版（底图同官方全视野美术，
+    -- 几何与客户端显示区恒等对齐，钉点零改动）；源图 1002x668，TGA 由其缩放生成。
+    wailing_caverns = { [1] = "Interface\\AddOns\\DungeonsForever\\Media\\Maps\\WailingCaverns" },
 }
 M.CUSTOM_FLOOR = CUSTOM_FLOOR
 
@@ -341,8 +317,8 @@ function M.BossesFor(id)
     return out
 end
 
--- 扁平钉点表：{ {en, zh, left, top}, … }（只在第 1 层有意义）
--- 扁平钉点表：{ {en, zh, left, top}, … }（floor = 客户端层号；nil = 全层，仅老调用点/断言用）
+-- 扁平钉点表：{ {en, zh, npc, left, top}, … }（floor = 客户端层号；nil = 全层，仅老调用点/断言用）
+-- npc = npcid（DungeonLoot 登记的真首领才有；个别 boss 没登记 = 空串，悬停不显模型）
 function M.PinsFor(id, floor)
     local bosses = M.BossesFor(id)
     if not bosses then return nil end
@@ -354,6 +330,7 @@ function M.PinsFor(id, floor)
                 out = out or {}
                 out[#out + 1] = {
                     en = bosses[i].en, zh = bosses[i].zh,
+                    npc = bosses[i].npc,
                     left = pts[k][1], top = pts[k][2],
                 }
             end
@@ -686,8 +663,23 @@ local function BuildListRows()
         if ns.hui and ns.hui.BuildRoundBorder then
             r.__borderPieces = ns.hui.BuildRoundBorder(r, 6, { 1, 1, 1, 0.9 }, r, "BORDER", "both", 1)
         end
+        -- hover 圆角高亮（只取填充片 —— 行已有身份色描边，hover 再带描边会双层打架；
+        -- 底色与掉落行同款 = DG.LOOT_CARD_BG_HOVER，noRepaint ⇒ 不被主题重绘冲掉悬停态）
+        if ns.hui and ns.hui.BuildRoundedBG then
+            r.__hl = FlattenPieces(ns.hui.BuildRoundedBG(r, M.ROW_RADIUS,
+                { 1, 1, 1, DG.LOOT_CARD_BG_HOVER }, "both"))
+            PiecesSetShown(r.__hl, false)
+        end
         r.__idx = i
         r:SetScript("OnClick", function(self) M.Select(self.__en) end)
+        r:SetScript("OnEnter", function(self)
+            U.dungeonMapHover = self
+            PiecesSetShown(self.__hl, true)
+        end)
+        r:SetScript("OnLeave", function(self)
+            if U.dungeonMapHover == self then U.dungeonMapHover = nil end
+            PiecesSetShown(self.__hl, false)
+        end)
         r:Hide()
         listRows[i] = r
     end
@@ -942,6 +934,28 @@ function M.Build(detail, hero)
     bossBtn.__huiKeepTextColor = true
     bossBtn:SetScript("OnClick", function() M.ToggleBoss() end)
     bossBtn:Hide()
+
+    -- boss 详情 3D 模型：右缘贴 hero 右上，**纵向 = 双锚点钉死红框区间**——
+    -- 顶 = hero 顶上探 UP（窗口顶内侧、标题行一带），底 = hero 底沿上缩 6（页签行上方）。
+    -- 不手算高度，随 HERO_H 联动；整个框都在主窗口内。
+    -- ★ 鼠标/滚轮必须关：压在标题行缩放按钮 / 页签上，可点会挡点击。
+    -- ★ 性能：未选中 boss = Hide（零渲染）；手册关掉 = hero 整链隐藏（零渲染）；
+    --   无 OnUpdate、重试定时器自熄（IsShown 为假即停），合包/独立运行都不添负担。
+    if hero then
+        local bossModel = CreateFrame("PlayerModel", nil, hero)
+        bossModel:SetWidth(M.BOSS_MODEL_W)
+        bossModel:SetPoint("TOPRIGHT", hero, "TOPRIGHT", -6, M.BOSS_MODEL_UP)
+        bossModel:SetPoint("BOTTOMRIGHT", hero, "BOTTOMRIGHT", -6, 6)
+        bossModel:EnableMouse(false)
+        bossModel:EnableMouseWheel(false)
+        -- ★ 对照定案（2026-10-11）：隐藏时保留模型不卸载——重新显示零重读模，
+        --   这正是它「首次点开取景就准、不偏移」的一半原因（另一半是不做取景补丁）。
+        if bossModel.SetKeepModelOnHide then bossModel:SetKeepModelOnHide(true) end
+        bossModel:Hide()
+        frame.bossModel = bossModel
+        -- 首载进度条不在这里建：复用 DungeonUI 的 DG.Gate 顶部细条 + 胶囊
+        -- （2026-10-06 用户点名：都用主界面最顶上那根，同一个进度条）。
+    end
 
     -- 右栏（首领列表 ↔ 单个首领详情）
     local side = CreateFrame("Frame", nil, frame, "BackdropTemplate")
@@ -1252,7 +1266,17 @@ end
 
 function M.PinOnEnter(self)
     local p = self.__p
-    if not p or self.__kind == "boss" then return end
+    if not p then return end
+    if self.__kind == "boss" then
+        -- boss 钉点悬停：只出名字提示框（模型已改为「点开 boss 详情」常驻显示，2026-10-06 用户）
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:ClearLines()
+        local cr, cg, cb = M.BossColor(M.curId, p.en)
+        GameTooltip:AddLine(p.zh or p.en or "", cr, cg, cb, true)
+        GameTooltip:AddLine(L["点击查看首领详情"], 0.7, 0.7, 0.7, true)
+        GameTooltip:Show()
+        return
+    end
     if self.__kind == "object" then
         DG.ShowItemTip(self, { p.id })
         return
@@ -1340,9 +1364,122 @@ local function LayoutCardHead(blk, ttl, isClosed)
     ttl:SetPoint("TOPLEFT", blk, "TOPLEFT", M.BLK_TITLE_X, -M.BLK_TITLE_TOP)
 end
 
+-- boss 详情模型同步：detailEn 有主且该首领有模型来源 → 常驻显示；
+-- 回列表 / 取消选中 / 换副本（Paint 里 detailEn 已清）→ 收起。
+-- 模型来源两档：① ns.BossModelDisplay[副本][首领英文名] 的**精配显示 id**
+--（_temp/gen_boss_model.py 产物，走 SetDisplayInfo）——掉落表 npcid 列混有显示 id
+-- 且有同值撞车，SetCreature 必挂错模型（2026-10-10 用户实机反馈「模型和 boss 不匹配」）；
+-- ② 没登记显示 id 的首领照旧 SetCreature(npcid)。
+-- ★ 挂在 SyncSide 最前（行池就绪判之前）：模型是外壳件，分帧窗口内也能同步。
+-- ★★ 加载保底瘦身（2026-10-11 对照定案）：旧「进度条心跳 + 4 发重试 +
+--   alpha 门控 + 超时收框」整链退役（用户：进度条嫌卡、裸 Set 首次就很好）——
+--   换成两发延迟轻探测：未加载补一发 Set（防「未 Show 过的帧首 Set 不生效」旧坑），
+--   末发仍未加载 = 缺模型 → 收框（用户 2026-10-06：缺模型就别显示）。
+local BOSS_MODEL_LATE = { 0.6, 3.5 }   -- 轻保底时刻表（秒）；末发必须宽于冷读模（掉落页 1.6s 收框死锁实锤）
+
+-- 探测模型是否已真加载（GetDisplayInfo 非 0）；桩 / 异常客户端 pcall 兜底按未加载算。
+function M.BossModelProbeLoaded(m)
+    local ok, v = pcall(m.GetDisplayInfo, m)
+    return (ok and type(v) == "number" and v ~= 0) or false
+end
+
+-- α 门控守卫：离线桩 / 异常客户端可能没有 SetAlpha——没有就当无操作，
+-- 绝不能让显隐逻辑炸掉同步链（2026-10-06 实训：裸调在桩上抛错连累楼层断言）。
+function M.BossModelAlpha(m, v)
+    if m.SetAlpha then m:SetAlpha(v) end
+end
+
+-- 姿态：只做模型自转。★ 不再设 SetCamDistanceScale（2026-10-11 对照定案）：
+-- 加载完成时引擎按默认取景重算、冲掉提前设的系数 ⇒ 首载大小偏移（2026-10-07 实机
+-- 「首载偏大」真因）；对照实现完全不碰取景、首次点开就很好 —— 默认取景引擎自会摆好。
+function M.BossModelPose(m)
+    m:SetRotation(math.rad(-15))
+end
+
+-- 模型落设（2026-10-10）：有精配显示 id → SetDisplayInfo（本客户端实证可用，
+-- 缺方法 / 桩 pcall 兜底），否则 SetCreature(npcid)。两参都可能为 nil（无模型来源）。
+-- ★ 必须定义在 BossModelLateCheck 之前——Lua 5.1 的 local 先用后定义 = 闭包里解析成全局 nil。
+local function ApplyModel(m, npc, disp)
+    if disp and type(m.SetDisplayInfo) == "function" then
+        pcall(m.SetDisplayInfo, m, disp)
+    elseif npc then
+        m:SetCreature(npc)
+    end
+end
+
+-- 轻保底（2026-10-11，替代旧进度条心跳/重试链/超时收框）：两发延迟探测。
+-- ① 首发未加载 → 补 Set 一发（登记过显示 id 的仍走 ApplyModel，不回落 SetCreature）；
+-- ② 末发仍未加载 = 缺模型（npcid 无效 / 客户端没这模型）→ 收框。
+-- 模型收起 / 已换 boss（__npc 或 __disp 变了）则提前自熄。
+function M.BossModelLateCheck(m, npc, disp)
+    if type(C_Timer) ~= "table" or type(C_Timer.After) ~= "function" then return end
+    for i = 1, #BOSS_MODEL_LATE do
+        C_Timer.After(BOSS_MODEL_LATE[i], function()
+            if not (m:IsShown() and m.__npc == npc and m.__disp == disp) then return end
+            if M.BossModelProbeLoaded(m) then return end
+            if i < #BOSS_MODEL_LATE then
+                ApplyModel(m, npc, disp)
+                M.BossModelPose(m)
+            else
+                m.__npc, m.__disp = nil, nil
+                m:Hide()
+            end
+        end)
+    end
+end
+
+-- 离开地图页签时收模型（2026-10-11 用户定案，替代旧「选中 boss 期间切页签常驻」）。
+-- 只 Hide，**不清 __npc/__disp** —— 回到页签时 SyncBossModel 按状态未变直接 Show
+-- 复活，不重读模（SetKeepModelOnHide 保模型常驻显存）；轻保底定时器自带
+-- IsShown 守卫，隐藏期空转。
+function M.HideBossModel()
+    local frame = M.frame
+    local m = frame and frame.bossModel
+    if not (m and m:IsShown()) then return end
+    m:Hide()
+end
+
+function M.SyncBossModel()
+    local frame = M.frame
+    if not (frame and frame.bossModel) then return end
+    local npc, disp
+    if M.detailEn then
+        local bosses = M.BossesFor(M.curId)
+        for i = 1, #(bosses or {}) do
+            if bosses[i].en == M.detailEn then
+                npc = tonumber(bosses[i].npc)
+                -- 精配显示 id（Data_BossModel.lua；名字 = 连接键）
+                local row = ns.BossModelDisplay and ns.BossModelDisplay[M.curId]
+                disp = row and row[bosses[i].en] or nil
+                break
+            end
+        end
+    end
+    local m = frame.bossModel
+    if (not npc and not disp)
+       or (type(m.SetCreature) ~= "function" and type(m.SetDisplayInfo) ~= "function") then
+        m.__npc, m.__disp = nil, nil
+        M.BossModelAlpha(m, 1)   -- 复位（缺模型收框后重选同一 boss 不带旧 α）
+        m:Hide()
+        return
+    end
+    m:Show()   -- ★ 先 Show 再 Set（未 Show 过的帧上首 Set 可能不生效——实机踩过）
+    if m.__npc ~= npc or m.__disp ~= disp then
+        -- ★ 裸 Set（2026-10-11 对照定案）：直接换显示 id，引擎层当帧
+        --   替换旧模型，无残影可防 ⇒ 旧的「SetDisplayInfo(0) 清显示 + Hide→Show 重建 +
+        --   alpha 压 0 门控」整链退役——重建会让引擎回默认姿态、与后补的姿态补丁打时序
+        --   竞争，正是首点偏移的来源；对照实现不做其中任何一步，首次点开就很好。
+        m.__npc, m.__disp = npc, disp
+        ApplyModel(m, npc, disp)
+        M.BossModelPose(m)
+        M.BossModelLateCheck(m, npc, disp)
+    end
+end
+
 function M.SyncSide()
     local frame = M.frame
     if not frame then return end
+    M.SyncBossModel()
     -- ★ 分帧窗口保护：右栏的**行池与卡片**都由 Build 排队建；没到货时整块空转
     --   （BuildFinal 建完补渲染，详见 M.Build 头的注释）。
     --   ★ 判据用 `__` 前缀旗标（桩里回 nil、真机也是 nil），不能判 `frame.listRows`
@@ -1543,6 +1680,8 @@ function M.SyncSide()
         local cr, cg, cb = M.BossColor(id, bosses[i].en)
         r.icon:SetVertexColor(cr, cg, cb)
         for _, t in ipairs(r.__borderPieces or {}) do t:SetVertexColor(cr, cg, cb) end
+        -- 行会被复用 / 重新布局 ⇒ 先复位悬停高亮（Hide 不触发 OnLeave，不复位会残留到新行）
+        PiecesSetShown(r.__hl, false)
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", frame.listChild, "TOPLEFT", 0, y)
         r:Show()

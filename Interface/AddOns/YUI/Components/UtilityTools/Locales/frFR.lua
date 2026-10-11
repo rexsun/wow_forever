@@ -1,0 +1,35 @@
+local YUI = _G.YUI
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("frFR") then return end
+
+YUI.Locale:Register("UtilityTools", "frFR", {
+    ["name"] = "Outils",
+    ["description"] = "Une collection compacte de petites fonctions d’interface et de jeu.",
+    ["settings.bonus_roll"] = "Confirmation de la monnaie du rouleau",
+    ["settings.bonus_roll_confirm_roll"] = "Confirme avant de rouler",
+    ["settings.bonus_roll_confirm_pass"] = "Confirme avant de passer",
+    ["bonus_roll.roll_title"] = " Vraiment ?",
+    ["bonus_roll.pass_title"] = "Pas Rolling?",
+    ["bonus_roll.roll_specialization"] = " Spécialisation actuelle du butin : %s",
+    ["bonus_roll.roll_question"] = "Dépenser une occasion de lancer de bonus?",
+    ["bonus_roll.pass_action_word"] = "Passez",
+    ["bonus_roll.pass_message"] = "%s sur cette opportunité de bonus de rouleau?",
+    ["bonus_roll.roll_currency"] = "Rouleaux de bonus restants : %s %s",
+    ["bonus_roll.roll_currency_unavailable"] = " Autres rouleaux de bonus:",
+    ["bonus_roll.confirm_roll"] = "Confirme Roll",
+    ["bonus_roll.confirm_pass"] = " Passer Roll",
+    ["bonus_roll.return"] = "Retour",
+    ["bonus_roll.spec_unknown"] = " Inconnu",
+    ["bonus_roll.popup_unavailable"] = "L'interface de confirmation est indisponible. Aucune mesure n'a été prise.",
+    ["bonus_roll.prompt_expired"] = "Le bonus n'est plus actif. Aucune action n'a été prise.",
+    ["bonus_roll.test_roll_confirmed"] = "L'examen d'assurance-chômage de confirmation du rouleau a été effectué; aucun rouleau réel n'a été effectué.",
+    ["bonus_roll.test_pass_confirmed"] = "L'examen de confirmation de passage à l'assurance-chômage a été effectué; aucun vrai passage n'a été effectué.",
+    ["bonus_roll.command_usage"] = " Utilisation : test /yroll ou test réussi /yroll",
+    ["settings.macro_frame"] = "Agrandir la fenêtre des macros",
+    ["settings.macro_visible_count"] = "Macros visibles",
+    ["settings.hide_errors"] = "Cacher les messages d'erreur",
+    ["settings.hide_mode"] = "Affichage des erreurs",
+    ["settings.throttle_window"] = "Période de limitation",
+    ["mode.block_allowlist"] = "Cacher les erreurs rouge non critiques",
+    ["mode.throttle_once"] = " Erreurs rouges répétées",
+})

@@ -1,0 +1,42 @@
+local _, YUI = ...
+if not YUI or not YUI.Locale then return end
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("esES") then return end
+
+YUI.Locale:Register("EllesmereUIEnhancement", "esES", {
+    ["feature.name"] = "Mejoras de EllesmereUI",
+    ["feature.description"] = "Mejora las ventanas de EllesmereUI y coordina su aspecto con YUI.",
+    ["settings.section.blizzard_plus"] = "Blizzard UI Styling",
+    ["settings.beautify_skin_background"] = "Beautify Skin Background",
+    ["settings.beautify_skin_background.tooltip"] = "Reemplaza los fondos de ventana EllesmereUI con estilo de fondo de este componente.",
+    ["settings.background_preset"] = "Estilo de fondo",
+    ["settings.background_preset.modern"] = "Graphite",
+    ["settings.background_preset.deep_glass"] = "Mar Profundo",
+    ["settings.background_preset.crimson_glass"] = "Crimson",
+    ["settings.background_preset.solid"] = "Aduanas",
+    ["settings.background_color"] = "Color de fondo",
+    ["settings.background_darken"] = "Oscurecedor de fondo",
+    ["settings.background_darken.tooltip"] = "Los valores inferiores hacen el fondo más brillante.",
+    ["settings.simplify_window_border"] = "Quitar la Sombra Fronteriza Interna",
+    ["settings.simplify_window_border.tooltip"] = "Sustitúyase el exactamente EllesmereUI atlas bordeados con una frontera limpia de 1 px. Si no se puede identificar con seguridad, nada se cambia.",
+    ["settings.tab_font_size"] = "Tab Font Size",
+    ["settings.character_detail_font_size"] = "Tamaño de texto de carácter",
+    ["settings.character_detail_font_size.tooltip"] = "Ajusta las pestañas superiores de la hoja de caracteres y el texto de estatura del lado derecho.",
+    ["settings.merchant_item_name_font_size"] = "Tamaño del nombre del artículo Merchant",
+    ["settings.merchant_item_name_font_size.tooltip"] = "Ajusta el texto del nombre del artículo en listas de comerciantes, rejillas y la página de compra.",
+    ["settings.tab_color_mode"] = "Tab Color",
+    ["settings.tab_color_mode.auto"] = "Contexto de partido",
+    ["settings.tab_color_mode.custom"] = "Aduanas",
+    ["settings.tab_color"] = "Tab Background",
+    ["settings.section.damage_meter"] = "Meter de Daño",
+    ["settings.damage_meter.mythic_reset"] = "Auto Reset on Mythic+ Start",
+    ["settings.damage_meter.mythic_reset.tooltip"] = "Automatically clears all damage meter data when a Mythic Keystone starts, without prompting.",
+    ["settings.damage_meter.raid_prompt"] = "Ask to Reset on Raid Entry",
+    ["settings.damage_meter.raid_prompt.tooltip"] = "Asks to clear all damage meter data on raid entry. Leaving and re-entering the same raid does not prompt again. Login and UI reload do not prompt.",
+    ["confirm.damage_meter_reset.title"] = "Reinicia el medidor de daños",
+    ["confirm.damage_meter_reset.message"] = "¿Reiniciar todos los datos del medidor de daño?",
+    ["confirm.damage_meter_reset.note"] = "Usted puede desactivar esto en YUI Toolbox - EllesmereUI Mejora.",
+    ["confirm.damage_meter_reset.accept"] = "Restablecer",
+    ["message.damage_meter_reset.success"] = "Reiniciar datos del medidor de daños.",
+    ["message.damage_meter_reset.mythic_success"] = "Mythic Keystone comenzó; reseteo de datos del medidor de daño.",
+})

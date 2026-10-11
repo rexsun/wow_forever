@@ -1,0 +1,36 @@
+local YUI = _G.YUI
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("frFR") then return end
+
+YUI.Locale:Register("AutoGossip", "frFR", {
+    ["feature.name"] = "Dialogue automatique",
+    ["feature.description"] = "Valide les choix uniques sûrs et les dialogues expressément autorisés.",
+    ["settings.unique"] = "Dialogue auto (option de dialogue unique)",
+    ["settings.unique.tooltip"] = " Sélectionne quand la page a exactement une option de dialogue régulière lisible, disponible et sûre. Exclut les quêtes, les confirmations et les entrées de texte.",
+    ["settings.approved"] = "Dialogue approuvé",
+    ["settings.approved.tooltip"] = "Indépendamment du nombre d'options, sélectionne seulement quand exactement une option a activé Gossip ID correspond.",
+    ["settings.presets"] = "Présets intégrés",
+    ["settings.custom"] = " Mes règles",
+    ["settings.advanced"] = "Avancé: Ajouter un dialogue personnalisé",
+    ["settings.show_ids"] = " Afficher les ID de dialogue",
+    ["settings.show_ids.tooltip"] = " Affiche l'ordre:Identifiant de l'avis sous le cadre de dialogue NPC.",
+    ["settings.custom_name"] = " Nom de la règle",
+    ["settings.custom_name.tooltip"] = " Utilisé pour identifier cette règle dans la liste de paramètres.",
+    ["settings.custom_id"] = " Une carte d'identité",
+    ["settings.custom_id.tooltip"] = " Entrez l'ID Gossip d'une option de dialogue normale.",
+    ["settings.add"] = " Ajouter la règle",
+    ["settings.delete"] = "Supprimer",
+    ["preset.cave_entrance"] = "Cave entrée · Porte ouverte",
+    ["preset.cave_boss_two"] = "Cave second patron · Début événement",
+    ["preset.plot_disguise"] = "Scénario du terrain · Déguiser",
+    ["preset.plot_bar_quest"] = "Scénario de parcelle · Recherche de barre avancée",
+    ["message.invalid_id"] = " Entrez un identifiant Gossip valide.",
+    ["message.missing_name"] = " Entrez un nom de règle.",
+    ["message.name_too_long"] = "La règle est trop longue.",
+    ["message.duplicate"] = "L'identité Gossip existe déjà.",
+    ["message.limit"] = "La limite des règles coutumières a été atteinte.",
+    ["message.added"] = "Dialogue personnalisé ajouté.",
+    ["message.removed"] = "Dialogue personnalisé supprimé.",
+    ["message.selection_attempted"] = "|cffffff00Attente de la sélection automatique|r %s",
+    ["gossip.id_prefix"] = "ID de dialogue: ",
+})

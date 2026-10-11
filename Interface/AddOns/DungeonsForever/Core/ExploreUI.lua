@@ -1,28 +1,6 @@
 -- =============================================================================
--- DungeonsForever · 探索页（界面层 · 手写骨架件）
---
--- ★ 本文件**不是生成物**，可以直接改（与 Core/ProfessionUI.lua 同定位）。
---   数据来自 Core/Data/Data_Explore.lua（由 _temp/explore_gen.py 生成，勿手改）；
---   本文件只负责把那张表画出来，一个数据字段都不写死。
---
--- ★★ 只对无限服（1.60.x）加载：40 本书 / 图书馆之友换项链与戒指是无限服规则，
---    判定用 ns.IsForever（Core.lua）。泰坦端本文件整体 return，U.explorePage 恒为 nil，
---    顶栏也不加「探索」胶囊（见 _temp/port_dungeonsforever.py 的探索补丁段）。
---
--- ★ 帧数纪律（与专业页同款）：页骨架（子页签 / 进度行 / 工具条 / 大卡 / 滚动容器 /
---   行池）一律在 EG.Build() 里**一次建好**；切筛选、打卡、懒加载补名都**不得新建帧**。
---   行池按 40 本封顶建满，渲染期只改位置与显隐。
---
--- ★ 书名 / 图标 / 品质**只从客户端取**（数据表只存 itemID，中文名由客户端给）；
---   客户端还没懒加载到时显示占位，挂几次重扫（EG.SweepNames）自动补上。
---   区域名同理（C_Map.GetAreaInfo 取名字，解析失败回落数据 ID）。
---   ★★ 注意：无限服客户端**没有** C_Map.GetMapInfoFromAreaID（1.60.1 全库无此 API）
---   ⇒ areaID → uiMapID 只能查静态表 ns.AreaMap（Core/Data/Data_AreaMap.lua，生成物）。
---   表里没有的区域 = 客户端没有它的独立世界地图，点了只会弹一句提示（这是设计行为）。
---
--- ★ 打卡进度存 DungeonsForeverDB.explore.found（键 = itemID，跨角色共享存档）。
---   门槛刻度（进度条 10/20 处竖线 + 线上小字）只做**进度提示**：10 本 → 项链、
---   20 本 → 戒指（无限服 beta 口径；正式数值上线后若变动只改本文件这两个常量）。
+-- DungeonsForever · 探索页（界面层）
+-- 读取 Data_Explore 的 40 本书数据并渲染打卡进度；只对无限服加载。
 -- =============================================================================
 
 local _, ns = ...
@@ -41,6 +19,7 @@ local SetOutline, Unpack = Host.SetOutline, Host.Unpack
 local C_GOLD, C_GREY = Host.C_GOLD, Host.C_GREY
 local C_DIM, C_WHITE, C_TEXT = Host.C_DIM, Host.C_WHITE, Host.C_TEXT
 local C_GREEN = Host.C_GREEN
+local C_DONE = { 0.91, 0.78, 0.42 }   -- 香槟金（与入口图标金同源），仅打卡标终态用
 local CONTENT_W = Host.CONTENT_W
 local PAGE_INSET = Host.PAGE_INSET
 local FALLBACK_ICON = Host.FALLBACK_ICON
@@ -50,6 +29,7 @@ local META = ns.ExploreBookMeta or {}
 local REWARDS = ns.ExploreBookRewards or {}
 local PETS = ns.ExplorePets or {}
 local TOYS = ns.ExploreToys or {}
+local BANNER = ns.ExploreBanner or {}
 
 local BAG_REQ_LVL, BAG_QUEST_LVL = 14, 40
 local BAG_CHAIN = {
@@ -244,35 +224,51 @@ local BM_BUNDLE = {
 local EG = {}
 ns.ExploreModule = EG
 
-EG.NAV_X, EG.NAV_W, EG.NAV_TOP = PAGE_INSET, 148, Host.ROW_CLASS
-EG.NAV_GROUP_H, EG.NAV_GROUP_PAD = 22, 14
-EG.NAV_ITEM_H, EG.NAV_GAP = 26, 6
+-- ★ 间距标准 2026-10-10：窗沿统一 20（PAGE_INSET 12 + GUTTER 8），卡片/子页框架
+--   内衬 EG.EDGE（左右底）；顶缘 = EG.TOP_EDGE 8（页签轨道底↔卡顶 8，与藏品页同口径）；
+--   内容左缘 = X0，卡↔卡 / 卡↔按钮 / 组↔组 = 8；
+--   列表行↔行 = ROW_GAP 4（卡内条目次档，与 MapUI ROW_GAP / 掉落卡行距同口径）。
+EG.NAV_X, EG.NAV_W = 20, 148
+EG.NAV_GROUP_H = 24
+EG.NAV_ITEM_H, EG.NAV_GAP = 26, 8
 EG.NAV_ICON = 18
-EG.X0 = EG.NAV_X + EG.NAV_W + 18
 EG.W = CONTENT_W - 2 * PAGE_INSET
-EG.RIGHT_W = EG.W - (EG.X0 - PAGE_INSET)
-EG.PROG_Y, EG.PROG_H = EG.NAV_TOP, 18
-EG.TOOL_Y, EG.TOOL_H, EG.TOOL_GAP, EG.TOOL_W = EG.PROG_Y + EG.PROG_H + 6, 20, 4, 84
-EG.NOTE_Y = EG.TOOL_Y + EG.TOOL_H + 5
+EG.EDGE = 20
+EG.TOP_EDGE = 8   -- 顶缘单独 8：页签轨道底↔卡顶 = 8（2026-10-10 与藏品页同口径）；左右底仍 20
+-- 导航卡竖链（2026-10-10 规整）：卡顶↔首标题 8（NAV_TOP = TOP_EDGE+8）→ 标题↔按钮 8
+--   （NAV_GROUP_H = 标题高16 + 8）→ 按钮↔按钮 8（NAV_GAP）→ 末按钮↔下组标题 8（PAD 退役）。
+--   水平：按钮左右内衬 = NAV_PAD 8，卡右缘 = X0-8（卡↔卡 8），X0 = NAV_X+8+148+8+8。
+EG.NAV_TOP, EG.NAV_PAD = EG.TOP_EDGE + 8, 8
+EG.X0 = EG.NAV_X + EG.NAV_PAD + EG.NAV_W + EG.NAV_PAD + 8
+EG.RIGHT_W = CONTENT_W - EG.X0 - EG.EDGE
+-- 进度轨道竖链（页顶绝对坐标，2026-10-10 规整）：刻度行顶 = 卡顶+8 → 进度条 = 刻度底+8
+--   → 工具行 = 条底+8 → 提示行 = 工具底+8 → 正文顶 = 提示底+22。
+EG.TICK_Y = EG.TOP_EDGE + 8
+EG.BAR_H = 4
+EG.BAR_Y = EG.TICK_Y + 14 + 8
+EG.TOOL_Y, EG.TOOL_H, EG.TOOL_GAP, EG.TOOL_W = EG.BAR_Y + EG.BAR_H + 8, 20, 8, 84
+EG.NOTE_Y = EG.TOOL_Y + EG.TOOL_H + 8
 EG.BODY_TOP = EG.NOTE_Y + 22
-EG.BODY_BOT = PAGE_INSET + 26
-EG.LIST_PAD = 5
-EG.ROW_H = 46
+-- ★ 奖励页正文顶（2026-10-10 用户定「收掉空档」）：提示行在奖励视图隐藏，
+--   槽位不预留——正文顶 = 工具行底 + 8（= NOTE_Y），三张卡上移 22px 贴紧按钮行。
+EG.RW_TOP = EG.NOTE_Y
+EG.LIST_PAD = 8
+EG.ROW_H, EG.ROW_GAP = 46, 4
 EG.ZEBRA_A = 0.02
-EG.ICON, EG.CHK = 20, 16
-EG.BAR_W, EG.BAR_H = EG.RIGHT_W, 4
+EG.ICON, EG.CHK = 20, 18
+EG.BAR_W = EG.RIGHT_W - 2 * EG.LIST_PAD
 
 -- 小动物页（宠物卡流）：卡片自带「图标 / 名称 / 阵营与难度胶囊 / 区域与坐标 / 编号步骤」。
--- 卡片高 176 → 三张 + 间距 = 544，落在右侧可用高度（586）内，不出现滚动条。
-EG.PET_CARDS, EG.PET_CARD_H, EG.PET_GAP = 3, 176, 8
-EG.PET_HEAD_H = 30
+-- 卡片高 176 → 四张 + 间距 = 720；超出右侧可用高度（586）时由滚动容器承接（本页 root 可滚）。
+EG.PET_CARDS, EG.PET_CARD_H, EG.PET_GAP = 4, 176, 8
+EG.PET_HEAD_H = 32
 EG.PET_ICON = 64
-EG.PET_TX = 86
+EG.PET_TX, EG.PET_PAD = 88, 8
 EG.PET_ROW_H, EG.PET_ROWS = 18, 5
 -- 玩具页（守夜人火炬）：复用同一张卡池；卡片高度按步骤实占行数动态算
 -- （英文整句折行 2 行/条也自适应），回宠物页必须还原 PET_CARD_H。
 EG.PET_SEGS = 22
-EG.TOY_CARD_PAD = 16
+EG.TOY_CARD_PAD = 8
 
 local C_RW = { 0.72, 0.45, 0.9 }
 local C_RW_HI = { 0.87, 0.65, 0.98 }
@@ -374,6 +370,7 @@ local function CurSub()
     if db.explore.subPage == "bm" then return "bm" end
     if db.explore.subPage == "pets" then return "pets" end
     if db.explore.subPage == "torch" then return "torch" end
+    if db.explore.subPage == "banner" then return "banner" end
     return "books"
 end
 
@@ -381,6 +378,11 @@ local function SetSub(key)
     local db = ns.DB()
     db.explore = db.explore or {}
     db.explore.subPage = key
+    -- 切到宠物/玩具页时把滚动位置归零（否则从别的子页留在底部看过来的话，
+    -- 第一张卡会看不见）。
+    if EG.petFrame and EG.petFrame.scroll and EG.petFrame.scroll.SetVerticalScroll then
+        pcall(EG.petFrame.scroll.SetVerticalScroll, EG.petFrame.scroll, 0)
+    end
     EG.Render()
     ns.PlaySound(1)
 end
@@ -523,9 +525,54 @@ function EG.ZoneName(areaID, fallback)
     return fallback
 end
 
+-- ★ hui 圆角行卡（2026-10-10 探索页色阶规整）：L2 圆角底 + 白 10% 细边 + L4 悬停胶囊
+--   （悬停 = 底色 +2 档）。返回 false = 非 hui 主题，调用方继续走旧 SetBackdrop 路径。
+local function HuiRowFX(f, rad, hovR)
+    if not (ns.hui and ns.hui.BuildRoundedBG) then return false end
+    if f.SetBackdropColor then f:SetBackdropColor(0, 0, 0, 0) end
+    if f.SetBackdropBorderColor then f:SetBackdropBorderColor(0, 0, 0, 0) end
+    ns.hui.BuildRoundedBG(f, rad, ns.hui.layer.L2, "both", true, 1)
+    f.__huiCard = true
+    if hovR and ns.hui.BuildCapsule then
+        f.__hov = ns.hui.BuildCapsule(f, hovR, ns.hui.layer.L4, 1, 2)
+        for _, t in ipairs(f.__hov) do t:Hide() end
+    end
+    return true
+end
+
+-- hui 主题小件（标签 / 阵营 / 坐标芯片）：L2 全圆角胶囊底 + 可选语义色圆角细边。
+local function HuiPillFX(p, rad, edgeCol)
+    if not (ns.hui and ns.hui.BuildRoundedBG) then return false end
+    if p.SetBackdropColor then p:SetBackdropColor(0, 0, 0, 0) end
+    if p.SetBackdropBorderColor then p:SetBackdropBorderColor(0, 0, 0, 0) end
+    ns.hui.BuildRoundedBG(p, rad, ns.hui.layer.L2, "both", false)
+    if edgeCol and ns.hui.BuildRoundBorder then
+        p.__border = ns.hui.BuildRoundBorder(p, rad, edgeCol, nil, "BORDER", "both", 1)
+    end
+    return true
+end
+
+-- 小件描边上色：hui 走圆角边贴片重涂，fallback 走 SetBackdropBorderColor。
+local function PillEdge(pill, r, g, b, a)
+    if pill.__border then
+        for _, t in ipairs(pill.__border) do
+            t:SetVertexColor(r, g, b)
+            t:SetAlpha(a or 1)
+        end
+    else
+        pill:SetBackdropBorderColor(r, g, b, a or 1)
+    end
+end
+
 local function SetRowHover(r, on)
     on = on and true or false
     r.__hlOn = on
+    if r.__huiCard then
+        if r.__hov then
+            for _, t in ipairs(r.__hov) do t:SetShown(on) end
+        end
+        return
+    end
     if on then
         r:SetBackdropColor(1, 1, 1, 0.06)
         r:SetBackdropBorderColor(1, 1, 1, 0.08)
@@ -551,22 +598,27 @@ local function Row(i)
     if r then return r end
     r = CreateFrame("Button", nil, EG.child, "BackdropTemplate")
     r:SetWidth(EG.RIGHT_W - 2 * EG.LIST_PAD)
-    r:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
-    })
     r.__hlOn = false
+    if not HuiRowFX(r, 6, 12) then
+        r:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+        })
+    end
     SetRowHover(r, false)
     r:EnableMouse(true)
-    r.chk = CreateFrame("Button", nil, r, "BackdropTemplate")
+    r.chk = CreateFrame("Button", nil, r)
     r.chk:SetSize(EG.CHK, EG.CHK)
     r.chk:SetPoint("LEFT", r, "LEFT", 8, 0)
-    r.chk:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Buttons\\WHITE8x8",
-        edgeSize = 1,
-    })
-    r.chk:SetBackdropColor(0, 0, 0, 0)
-    r.chk:SetBackdropBorderColor(0.42, 0.41, 0.38, 0.9)
+    -- 三态圆形打卡标（自制白色单色贴图，运行时染色）：灰环=未找到 / 绿盘单勾=背包有 / 金盘双勾=已上交
+    r.chk.ring = r.chk:CreateTexture(nil, "ARTWORK")
+    r.chk.ring:SetAllPoints()
+    r.chk.ring:SetTexture("Interface\\AddOns\\DungeonsForever\\Media\\CheckRing")
+    r.chk.disc = r.chk:CreateTexture(nil, "ARTWORK")
+    r.chk.disc:SetAllPoints()
+    r.chk.disc:SetTexture("Interface\\AddOns\\DungeonsForever\\Media\\CheckDisc")
+    r.chk.tickF = r.chk:CreateTexture(nil, "OVERLAY")
+    r.chk.tickF:SetAllPoints()
+    r.chk.tickF:SetTexture("Interface\\AddOns\\DungeonsForever\\Media\\CheckMark")
     r.chk:SetScript("OnClick", function(self, button)
         local id = self:GetParent().__it
         if not id then return end
@@ -635,8 +687,10 @@ local function Row(i)
             edgeFile = "Interface\\Buttons\\WHITE8x8",
             edgeSize = 1,
         })
-        p:SetBackdropColor(0, 0, 0, 0.22)
-        p:SetBackdropBorderColor(eR, eG, eB, 0.9)
+        if not HuiPillFX(p, 8, { eR, eG, eB, 0.9 }) then
+            p:SetBackdropColor(0, 0, 0, 0.22)
+            p:SetBackdropBorderColor(eR, eG, eB, 0.9)
+        end
         local t = MakeFS(p, 11, nil, "CENTER")
         t:SetAllPoints()
         t:SetWordWrap(false)
@@ -694,7 +748,7 @@ local function PaintPill(r, p, txt, show, tR, tG, tB, eR, eG, eB)
     end
     p.t:SetText(txt)
     p.t:SetTextColor(tR, tG, tB)
-    p:SetBackdropBorderColor(eR, eG, eB, 0.9)
+    PillEdge(p, eR, eG, eB, 0.9)
     local tw = p.t.GetStringWidth and p.t:GetStringWidth()
     if type(tw) ~= "number" or tw <= 0 then tw = #txt * 4 end
     p:SetWidth(tw + 12)
@@ -765,6 +819,8 @@ local function PaintRow(i, y, rec, zebra)
     r.sep:ClearAllPoints()
     r.sep:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 0)
     r.sep:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 0, 0)
+    -- hui 实底行卡：填充在 BACKGROUND sub=1 会盖住 sub=0 分隔线，直接隐藏（行距 4 已分组）
+    r.sep:SetShown(not r.__huiCard)
     r:Show()
     r.chk:Show()
 
@@ -808,14 +864,24 @@ local function PaintRow(i, y, rec, zebra)
     local done = (manual or autoSt == "quest") and true or false
     local inbag = (autoSt == "bag") and true or false
     if done then
-        r.chk:SetBackdropColor(Unpack(C_GOLD))
-        r.chk:SetBackdropBorderColor(Unpack(C_GOLD))
+        r.chk.ring:Hide()
+        r.chk.disc:Show()
+        r.chk.disc:SetVertexColor(Unpack(C_DONE))
+        r.chk.tickF:SetTexture("Interface\\AddOns\\DungeonsForever\\Media\\CheckTicks2")
+        r.chk.tickF:Show()
+        r.chk.tickF:SetVertexColor(1, 1, 1, 1)
     elseif inbag then
-        r.chk:SetBackdropColor(Unpack(C_GREEN))
-        r.chk:SetBackdropBorderColor(Unpack(C_GREEN))
+        r.chk.ring:Hide()
+        r.chk.disc:Show()
+        r.chk.disc:SetVertexColor(Unpack(C_GREEN))
+        r.chk.tickF:SetTexture("Interface\\AddOns\\DungeonsForever\\Media\\CheckMark")
+        r.chk.tickF:Show()
+        r.chk.tickF:SetVertexColor(1, 1, 1, 1)
     else
-        r.chk:SetBackdropColor(0, 0, 0, 0)
-        r.chk:SetBackdropBorderColor(0.42, 0.41, 0.38, 0.9)
+        r.chk.disc:Hide()
+        r.chk.tickF:Hide()
+        r.chk.ring:Show()
+        r.chk.ring:SetVertexColor(0.42, 0.41, 0.38, 0.9)
     end
     r.a:SetTextColor(Unpack(done and C_DIM or (isUnver and not isRec and C_GREY or C_TEXT)))
     r.strike:ClearAllPoints()
@@ -849,26 +915,25 @@ end
 function EG.SweepNames()
     if not EG.built or not EG.needNames then EG._sweepQueued = false return end
     EG.needNames = false
+    local function Probe(id)
+        if not id then return end
+        local _, ok = DG.ItemName(id)
+        if not ok then
+            EG.needNames = true
+            if DG.RequestItem then DG.RequestItem(id) end
+        end
+    end
     for i = 1, #(EG.pool or {}) do
         local rec = EG.pool[i]
-        if rec then
-            local _, ok = DG.ItemName(rec[1])
-            if not ok then EG.needNames = true end
-        end
+        if rec then Probe(rec[1]) end
     end
-    for _, id in ipairs(EG.bmNameIds or {}) do
-        local _, ok = DG.ItemName(id)
-        if not ok then EG.needNames = true end
-    end
+    for _, id in ipairs(EG.bmNameIds or {}) do Probe(id) end
+    for _, c in ipairs(EG.bagChips or {}) do Probe(c.__id) end
+    for _, nb in ipairs(EG.bagNoteItems or {}) do Probe(nb.__id) end
     local csub = CurSub()
-    if csub == "pets" or csub == "torch" then
-        local ids = (csub == "torch") and EG.toyIds or EG.petIds
-        for _, id in ipairs(ids or {}) do
-            if id then
-                local _, ok = DG.ItemName(id)
-                if not ok then EG.needNames = true end
-            end
-        end
+    if csub == "pets" or csub == "torch" or csub == "banner" then
+        local ids = (csub == "torch" and EG.toyIds) or (csub == "banner" and EG.bannerIds) or EG.petIds
+        for _, id in ipairs(ids or {}) do Probe(id) end
         if csub == "torch" and #TOYS > 0 then
             for _, st in ipairs(TOYS[1][9] or {}) do
                 if st.q and not ToyQuestTitle(st.q) then EG.needNames = true end
@@ -880,6 +945,20 @@ function EG.SweepNames()
         EG.ScheduleSweep()
     else
         EG._sweepQueued = false
+    end
+end
+
+function EG.OnItemData(itemID)
+    if not EG.built or not itemID then return end
+    if not EG.needNames or EG._itemRepaint then return end
+    EG._itemRepaint = true
+    if type(C_Timer) == "table" and type(C_Timer.After) == "function" then
+        C_Timer.After(0.05, function()
+            EG._itemRepaint = false
+            if EG.needNames then EG.SweepNames() end
+        end)
+    else
+        EG._itemRepaint = false
     end
 end
 
@@ -1016,6 +1095,27 @@ local function PaintRewards()
         row.name:SetText(nm or "?")
         row.name:SetTextColor(Unpack(ok and (q and QUALITY_COLOR(q) or C_TEXT) or C_DIM))
         if not ok then EG.needNames = true end
+        -- ★ 第二行元信息（2026-10-10 用户定）：类型 · 装等 · 需要等级；
+        --   需要等级 > 人物等级 → 第二行整行红。DG.ItemInfo 多返回值禁塞 and/or 链。
+        local iLvl, reqLvl
+        if ok and id then
+            local _, _, _, iv, rv = DG.ItemInfo(id)
+            iLvl, reqLvl = iv, rv
+        end
+        local parts = {}
+        if ok and id then
+            local mt = DG.ItemMeta(id)
+            if type(mt) == "string" and mt ~= "" then parts[#parts + 1] = mt end
+        end
+        if type(iLvl) == "number" and iLvl > 0 then parts[#parts + 1] = format(L["装等%d"], iLvl) end
+        if type(reqLvl) == "number" and reqLvl > 0 then parts[#parts + 1] = format(L["需要等级 %d"], reqLvl) end
+        row.meta:SetText(#parts > 0 and table.concat(parts, " · ") or "")
+        row.meta:SetTextColor(Unpack(C_GREY))
+        local plv = type(UnitLevel) == "function" and UnitLevel("player") or nil
+        if type(reqLvl) == "number" and reqLvl > 0
+            and type(plv) == "number" and reqLvl > plv then
+            row.meta:SetTextColor(0.94, 0.31, 0.31, 1)
+        end
     end
 end
 
@@ -1087,12 +1187,20 @@ local BAG_FAC_COL = { A = { 0.45, 0.68, 0.98 }, H = { 0.95, 0.5, 0.45 } }
 local function BagRowTint(r)
     local t = r.tint
     if not t then return end
-    if r.__sel then
-        t:SetColorTexture(1, 0.82, 0, 0.12)
-        t:Show()
-    elseif r.__hl then
-        t:SetColorTexture(1, 1, 1, 0.07)
-        t:Show()
+    -- 选中态（2026-10-10 用户定）：只走 L4 胶囊常显，不加强调条。
+    if r.__hov then
+        for _, htx in ipairs(r.__hov) do htx:SetShown(r.__hl or r.__sel or false) end
+    end
+    if not r.__huiCard then
+        if r.__sel then
+            t:SetColorTexture(1, 0.82, 0, 0.12)
+            t:Show()
+        elseif r.__hl then
+            t:SetColorTexture(1, 1, 1, 0.07)
+            t:Show()
+        else
+            t:Hide()
+        end
     else
         t:Hide()
     end
@@ -1160,20 +1268,20 @@ function EG.BagChipTip(c, on)
 end
 
 local function FlowChips(y, list, idx0)
-    local x, idx = 0, idx0
+    local x, idx = 8, idx0
     for _, it in ipairs(list) do
         idx = idx + 1
         local c = EG.bagChips and EG.bagChips[idx]
         if not c then break end
         PaintChip(c, it[1], it.note or it[2])
         local w = c:GetWidth()
-        if x > 0 and x + w > (EG.bagRWd or 0) then x, y = 0, y + 34 end
+        if x > 8 and x + w > (EG.bagRWd or 0) - 8 then x, y = 8, y + 36 end
         c:ClearAllPoints()
         c:SetPoint("TOPLEFT", EG.bagChild, "TOPLEFT", x, -y)
         c:Show()
-        x = x + w + 6
+        x = x + w + 8
     end
-    return y + (x > 0 and 34 or 0), idx
+    return y + (x > 8 and 36 or 0), idx
 end
 
 local function HideChips(from)
@@ -1420,6 +1528,7 @@ local function PaintBag()
     if EG.bagDetail and EG.bagTotal then
         if on then PaintBagTotal() else PaintBagDetail(fac) end
     end
+    if EG.needNames then EG.ScheduleSweep() end
 end
 
 local function BagLayoutRows()
@@ -1428,13 +1537,15 @@ local function BagLayoutRows()
     local ok, h = pcall(lc.GetHeight, lc)
     h = (ok and type(h) == "number" and h > 100 and h) or 316
     local n = #BAG_CHAIN
-    local rh = math.floor(h / n + 0.5)
+    local gap = 4
+    -- ★ 浮点均分不取整：行总高精确填满容器 ⇒ 最后一行底 = lc 底 = rs 底，
+    --   与注释卡的缝左右两列恒等 8（整数均分的零头会让左列缝浮动 8~15px，2026-10-10 实锤）。
+    local rh = (h - (n - 1) * gap) / n
     for i, r in ipairs(EG.bagRows or {}) do
         r:SetHeight(rh)
         r:ClearAllPoints()
-        r:SetPoint("TOPLEFT", lc, "TOPLEFT", 6, -((i - 1) * rh))
-        r:SetPoint("TOPRIGHT", lc, "TOPRIGHT", -6, -((i - 1) * rh))
-        if r.sep then r.sep:SetShown(i < n) end
+        r:SetPoint("TOPLEFT", lc, "TOPLEFT", 8, -((i - 1) * (rh + gap)))
+        r:SetPoint("TOPRIGHT", lc, "TOPRIGHT", -8, -((i - 1) * (rh + gap)))
     end
 end
 EG.BagLayoutRows = BagLayoutRows
@@ -1461,10 +1572,14 @@ end
 
 local function PaintBMNode(nd)
     if not nd or not nd.tint then return end
+    -- hui 主题：悬停走 L4 圆角胶囊，金 12% 选中 tint 保留（语义色）
+    if nd.__hov then
+        for _, htx in ipairs(nd.__hov) do htx:SetShown(nd.__hl and not nd.__sel or false) end
+    end
     if nd.__sel then
         nd.tint:SetColorTexture(1, 0.82, 0, 0.12)
         nd.tint:Show()
-    elseif nd.__hl then
+    elseif nd.__hl and not nd.__hov then
         nd.tint:SetColorTexture(1, 1, 1, 0.07)
         nd.tint:Show()
     else
@@ -1475,15 +1590,18 @@ end
 local function PaintBMChain(tab, KeepName)
     local chainData = BM_CHAINS[tab]
     local n = #chainData
-    local pad, gap = 8, 4
-    local nw = math.floor((EG.RIGHT_W - pad * 2 - gap * (n - 1)) / n + 0.5)
+    local pad, gap = 8, 8
+    -- chain 卡已左右内衬 8，节点均分按卡实际宽算（lupa 桩无 GetWidth 时退 RIGHT_W-16）。
+    local okw, cw = pcall(EG.bmChain.GetWidth, EG.bmChain)
+    cw = (okw and type(cw) == "number" and cw > 50 and cw) or (EG.RIGHT_W - 16)
+    local nw = math.floor((cw - pad * 2 - gap * (n - 1)) / n + 0.5)
     for i = 1, 5 do
         local nd = EG.bmNodes and EG.bmNodes[i]
         if not nd then break end
         local data = chainData[i]
         if data then
             nd:ClearAllPoints()
-            nd:SetPoint("TOPLEFT", EG.bmChain, "TOPLEFT", pad + (i - 1) * (nw + gap), -7)
+            nd:SetPoint("TOPLEFT", EG.bmChain, "TOPLEFT", pad + (i - 1) * (nw + gap), -8)
             nd:SetSize(nw, 58)
             nd.__chainKey, nd.__idx = tab, i
             nd.__id, nd.__note = data.item, data.sub
@@ -1532,8 +1650,8 @@ local function PaintBMChain(tab, KeepName)
         local e = chainData[i]
         if e then
             st:ClearAllPoints()
-            st:SetPoint("TOPLEFT", EG.bmDChild, "TOPLEFT", 4, -y)
-            st:SetPoint("TOPRIGHT", EG.bmDChild, "TOPRIGHT", -4, -y)
+            st:SetPoint("TOPLEFT", EG.bmDChild, "TOPLEFT", 8, -y)
+            st:SetPoint("TOPRIGHT", EG.bmDChild, "TOPRIGHT", -8, -y)
             st.num:SetText(tostring(i))
             local det = e.det or {}
             local nm, ok
@@ -1632,9 +1750,8 @@ local function PaintBMCodex(KeepName)
             rw2.__id, rw2.__note = nil, nil
             rw2:Hide()
         end
-        if rw2.sep then rw2.sep:SetShown(rec ~= nil) end
     end
-    EG.bmChild:SetHeight(#rows * 36 + 4)
+    EG.bmChild:SetHeight(#rows * 38 + 4)
 end
 
 local function PaintBMOv(KeepName)
@@ -1712,6 +1829,9 @@ end
 -- =============================================================================
 local C_PET_LINK = { 0.55, 0.78, 1.0 }
 local C_PET_LINK_HI = { 1, 0.82, 0 }
+-- 物品名标记色（WoW 物品链接惯例绿色；悬停出 DG.ShowItemTip 提示框，与地图标记区分）
+local C_ITEM_LINK = { 0.42, 0.78, 0.45 }
+local C_ITEM_HI = { 0.6, 0.95, 0.62 }
 local PET_FAC_TXT = { A = L["联盟限定"], H = L["部落限定"] }
 local PET_FAC_COL = { A = { 0.45, 0.68, 0.98 }, H = { 0.95, 0.5, 0.45 } }
 local PET_DIFF_TXT = { party = L["难度·组队"], solo = L["难度·单人"], easy = L["难度·简单"] }
@@ -1767,7 +1887,8 @@ local function PetSeg(card, k)
     sg.tx = fs
     sg:SetScript("OnEnter", function(self)
         if not self.__mark then return end
-        self.tx:SetTextColor(Unpack(C_PET_LINK_HI))
+        local m = self.__mark
+        self.tx:SetTextColor(Unpack(self.__item and C_ITEM_HI or C_PET_LINK_HI))
         local ul = card.__ul
         if ul then
             ul:ClearAllPoints()
@@ -1775,17 +1896,22 @@ local function PetSeg(card, k)
             ul:SetPoint("BOTTOMRIGHT", self, "BOTTOMRIGHT", 0, -1)
             ul:Show()
         end
-        local m = self.__mark
-        PetTip(self, true, m[1], m[2], m[3], m[4])
+        -- 物品名标记（m[2]=="item"）悬停出物品提示框；地名标记走 PetTip 地图提示。
+        -- ShowItemTip 自带重入守卫，PetTip(false) 的 Hide 对两者通用。
+        if self.__item then
+            if DG.ShowItemTip then DG.ShowItemTip(self, { m[3] }) end
+        else
+            PetTip(self, true, m[1], m[2], m[3], m[4])
+        end
     end)
     sg:SetScript("OnLeave", function(self)
-        if self.__mark then self.tx:SetTextColor(Unpack(C_PET_LINK)) end
+        if self.__mark then self.tx:SetTextColor(Unpack(self.__item and C_ITEM_LINK or C_PET_LINK)) end
         if card.__ul then card.__ul:Hide() end
         PetTip(self, false)
     end)
     sg:SetScript("OnClick", function(self)
         local m = self.__mark
-        if m then PetGo(m[2], m[3], m[4]) end
+        if m and not self.__item then PetGo(m[2], m[3], m[4]) end
     end)
     sg:Hide()
     card.segs[k] = sg
@@ -1802,6 +1928,7 @@ local function PetFlow(card, idx, segs, y, maxW)
         if not sg then break end
         local txt, m, col = s[1], s[2], s[3]
         sg.__mark = m
+        sg.__item = m and (m[2] == "item") or nil
         sg.__col = col
         sg.tx:SetWordWrap(false)
         sg.tx:SetText(txt)
@@ -1809,8 +1936,15 @@ local function PetFlow(card, idx, segs, y, maxW)
         if type(w) ~= "number" or w <= 0 then w = 7 * #txt end
         local rows = 1
         if w > maxW then
-            w, rows = maxW, 2
-            sg.tx:SetWidth(maxW)
+            -- 长段折行：行首只有引导前缀（x 很小）时原地悬挂缩进，避免「·」孤立成行；
+            -- 其它情况另起一行占满全宽。行数按实际宽度算，不再写死 2 行。
+            if x > 0 and x <= 24 then
+                w, rows = maxW - x, math.ceil(w / (maxW - x))
+            else
+                if x > 0 then x, y = 0, y - EG.PET_ROW_H end
+                w, rows = maxW, math.ceil(w / maxW)
+            end
+            sg.tx:SetWidth(w)
             sg.tx:SetWordWrap(true)
         end
         sg:SetWidth(w + 1)
@@ -1822,7 +1956,7 @@ local function PetFlow(card, idx, segs, y, maxW)
         sg:SetPoint("TOPLEFT", card, "TOPLEFT", EG.PET_TX + x, y)
         if m then
             sg:EnableMouse(true)
-            sg.tx:SetTextColor(Unpack(C_PET_LINK))
+            sg.tx:SetTextColor(Unpack(sg.__item and C_ITEM_LINK or C_PET_LINK))
         else
             sg:EnableMouse(false)
             sg.tx:SetTextColor(Unpack(col or C_TEXT))
@@ -1834,19 +1968,29 @@ local function PetFlow(card, idx, segs, y, maxW)
     return idx, y
 end
 
-local function PaintPets(src, toy)
+local function PaintPets(src, toy, banner)
     src = src or PETS
     EG.needNames = EG.needNames or false
     if EG.petFrame then
         if EG.petFrame.head then
-            EG.petFrame.head:SetText(toy and format(L["玩具 · 共 %d 件"], #src)
-                                     or format(L["宠物获取 · 共 %d 只"], #src))
+            if banner then
+                local bid = BANNER[1] and BANNER[1][1] or nil
+                local got = bid and (EG.CountInBags(bid) or 0) > 0 or false
+                EG.petFrame.head:SetText(got and L["血色旗帜 · 隐藏寻宝（已拾取）"]
+                                             or L["血色旗帜 · 隐藏寻宝（未拾取）"])
+            elseif toy then
+                EG.petFrame.head:SetText(format(L["玩具 · 共 %d 件"], #src))
+            else
+                EG.petFrame.head:SetText(format(L["宠物获取 · 共 %d 只"], #src))
+            end
         end
         if EG.petFrame.hint then
-            EG.petFrame.hint:SetText(toy and L["点名称 / 区域名 / 坐标可在世界地图标记"]
-                                     or L["点宠物名 / 区域名 / 坐标可在世界地图标记"])
+            EG.petFrame.hint:SetText(banner and L["点地名 / 坐标在世界地图标记 · 悬停物品名看提示"]
+                or toy and L["点名称 / 区域名 / 坐标可在世界地图标记"]
+                or L["点宠物名 / 区域名 / 坐标可在世界地图标记"])
         end
     end
+    local flowY = 0 -- ★ 自适应网格游标：前面可见卡的实高累计（含卡间距）
     for i = 1, EG.PET_CARDS do
         local card = EG.petCards and EG.petCards[i]
         if not card then break end
@@ -1854,7 +1998,6 @@ local function PaintPets(src, toy)
         if not rec then
             card:Hide()
         else
-            card:SetHeight(EG.PET_CARD_H)
             local it, slug = rec[1], rec[2]
             local fac, diff = rec[3], rec[4]
             local area, px, py, srcl = rec[5], rec[6], rec[7], rec[8]
@@ -1880,13 +2023,13 @@ local function PaintPets(src, toy)
             card.facTx:SetText(fac and PET_FAC_TXT[fac] or L["双阵营"])
             local fc = (fac and PET_FAC_COL[fac]) or { 0.66, 0.70, 0.78 }
             card.facTx:SetTextColor(fc[1], fc[2], fc[3])
-            card.facPill:SetBackdropBorderColor(fc[1], fc[2], fc[3], 0.4)
+            PillEdge(card.facPill, fc[1], fc[2], fc[3], 0.4)
 
             local dk = (diff == "party" or diff == "solo") and diff or "easy"
             card.diffTx:SetText(PET_DIFF_TXT[dk])
             local dc = PET_DIFF_COL[dk]
             card.diffTx:SetTextColor(dc[1], dc[2], dc[3])
-            card.diffPill:SetBackdropBorderColor(dc[1], dc[2], dc[3], 0.4)
+            PillEdge(card.diffPill, dc[1], dc[2], dc[3], 0.4)
 
             -- ★ 坐标芯片只在有真实坐标时出现；false = wowhead 没标 ⇒ 芯片不显示，
             --   但区域名那一段仍然可点（点它只把该区域的世界地图打开）。
@@ -1898,7 +2041,7 @@ local function PaintPets(src, toy)
             card.srcArea, card.srcX, card.srcY = area, px, py
             card.srcName = zone
 
-            local maxW = EG.RIGHT_W - EG.PET_TX - 14
+            local maxW = EG.RIGHT_W - EG.PET_TX - EG.PET_PAD
             local idx = 0
             -- src 行：数据带第 10 位 srcMarks 时，按子串切出可点击段（如「乌鸦岭旁17.2,53.8」
             -- → 落世界地图）；没有 marks 就整句纯文本，宠物页老数据不受影响。
@@ -1913,57 +2056,118 @@ local function PaintPets(src, toy)
                     srcRow[#srcRow + 1] = { " · " .. tostring(srcl) }
                 end
             end
-            idx = PetFlow(card, idx, srcRow, -50, maxW)
-            -- 玩具模式步骤 y 链式下推：上一步折了几行，下一步就从其下开始
-            -- （固定 y 会让英文整句折行时叠行）；宠物步骤恒 1 行，维持原版式。
-            local yy = toy and -84 or nil
+            idx = PetFlow(card, idx, srcRow, -42, maxW)
+            -- ★ 2026-10-10 用户定：宠物页也走 yy 链（卡高自适应），固定版式退役；
+            --   单行步骤时与旧固定 y 完全等价（-76 起、每步 -18），折行才下推。
+            local yy = -76
             for si, st in ipairs(steps) do
-                local row = { { (PET_NUM[si] or tostring(si)) .. " ", nil, C_GOLD } }
-                local t = st.t
-                if st.q then
-                    local qt = ToyQuestTitle(st.q)
-                    if not qt then
-                        qt = format(L["任务 #%d"], st.q)
-                        EG.needNames = true
-                    end
-                    t = t:gsub("#q", function() return qt end)
-                end
-                for _, s in ipairs(PetSplit(t, st.m)) do
-                    row[#row + 1] = s
-                end
-                if toy then
-                    idx, yy = PetFlow(card, idx, row, yy, maxW)
-                    yy = yy - EG.PET_ROW_H
+                -- banner 模式：st.h = 组标题（金色、无序号、组前空一行）；st.n = 备注行
+                -- （整行灰字）；普通行灰色圆点、无序号 —— 四座坟墓不分先后。
+                -- pets / torch 维持金色序号前缀原版式。
+                local row, gap
+                if banner and st.h then
+                    row = { { tostring(st.h), nil, C_GOLD } }
+                    gap = (si > 1) and 12 or 0
                 else
-                    idx = PetFlow(card, idx, row, -84 - (si - 1) * EG.PET_ROW_H, maxW)
+                    -- banner：st.num = 金色序号（半身像 4 行的真实使用顺序），
+                    -- 其余普通行 / 备注行灰色圆点；pets / torch 金色序号原版式。
+                    local lead
+                    if banner then
+                        lead = st.num and { st.num .. " ", nil, C_GOLD } or { "· ", nil, C_GREY }
+                    else
+                        lead = { (PET_NUM[si] or tostring(si)) .. " ", nil, C_GOLD }
+                    end
+                    row = { lead }
+                    local t = st.t
+                    if st.q then
+                        local qt = ToyQuestTitle(st.q)
+                        if not qt then
+                            qt = format(L["任务 #%d"], st.q)
+                            EG.needNames = true
+                        end
+                        t = t:gsub("#q", function() return qt end)
+                    end
+                    for _, s in ipairs(PetSplit(t, st.m)) do
+                        row[#row + 1] = s
+                    end
+                    if banner and st.n then
+                        for k = 2, #row do
+                            if not row[k][2] then row[k][3] = C_GREY end
+                        end
+                    end
+                    gap = 0
                 end
+                idx, yy = PetFlow(card, idx, row, yy - gap, maxW)
+                yy = yy - EG.PET_ROW_H
             end
-            -- 玩具卡高 = 步骤链终点（yy 即下一行位置 = 内容底）+ 底部留白。
-            card:SetHeight(toy and (-yy + EG.TOY_CARD_PAD) or EG.PET_CARD_H)
-            for k = idx + 1, EG.PET_SEGS do card.segs[k]:Hide() end
+            -- ★ 卡高 = 步骤链终点（yy 即下一行位置 = 内容底）+ 底部留白；
+            --   宠物页同样自适应（2026-10-10 用户定），固定 176 退役。
+            local hCard = -yy + EG.TOY_CARD_PAD
+            card:SetHeight(hCard)
+            -- ★ 自适应网格：按前面可见卡的实高顺序重锚（SetPoint 同锚点对覆盖旧值，
+            --   不 ClearAllPoints；玩具/旗帜页变高卡也不再叠卡）
+            if EG.petFrame and EG.petFrame.child then
+                card:SetPoint("TOPLEFT", EG.petFrame.child, "TOPLEFT", 8, -flowY)
+                card:SetPoint("TOPRIGHT", EG.petFrame.child, "TOPRIGHT", -8, -flowY)
+            end
+            flowY = flowY + hCard + EG.PET_GAP
+            -- ★ 二轮修复（2026-10-07 实机截图）：banner 模式 12 行长文本的分段数
+            --   会超过 PET_SEGS 预建池（22），PetSeg 懒建出的 23+ 号段不在这个
+            --   清理范围内 → 切回 torch / pets 页后残留成「血色旗帜幽灵行」。
+            --   改为清到 #card.segs（PetSeg 严格按 idx 顺序创建，无空洞），
+            --   兜住任何数据源的超池分段。
+            for k = idx + 1, #card.segs do
+                if card.segs[k] then card.segs[k]:Hide() end
+            end
             card:Show()
         end
+    end
+    -- ★ 滚动子帧高度 = 内容实占（最后一张可见卡的底沿）；不足一屏时保持最小高度
+    --   （不设的话滚动区恒为初始 10px，鼠标滚轮没得滚）。
+    if EG.petFrame and EG.petFrame.child then
+        -- ★ 自适应：滚动子帧高 = 头部 + 卡实高累计（flowY 已含每卡后置 GAP，减掉尾 gap；
+        --   不足一屏保持视口最小高，鼠标滚轮才有得滚）
+        local h = EG.PET_HEAD_H + (flowY > EG.PET_GAP and (flowY - EG.PET_GAP) or 0)
+        local vh = select(2, EG.petFrame:GetSize())
+        if type(vh) == "number" and vh > h then h = vh end
+        EG.petFrame.child:SetHeight(h)
     end
     if EG.needNames then EG.ScheduleSweep() end
 end
 
 local function BuildPets(page)
     local root = CreateFrame("Frame", nil, page)
-    root:SetPoint("TOPLEFT", page, "TOPLEFT", EG.X0, -(EG.NAV_TOP - 6))
-    root:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -PAGE_INSET, EG.BODY_BOT)
+    root:SetPoint("TOPLEFT", page, "TOPLEFT", EG.X0, -EG.TOP_EDGE)
+    root:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -EG.EDGE, EG.EDGE)
     EG.petFrame = root
     root.head = MakeFS(root, 14, C_TEXT, "LEFT")
-    root.head:SetPoint("TOPLEFT", root, "TOPLEFT", 0, -8)
+    root.head:SetPoint("TOPLEFT", root, "TOPLEFT", 8, -8)
     root.hint = MakeFS(root, 14, C_GREY, "RIGHT")
-    root.hint:SetPoint("TOPRIGHT", root, "TOPRIGHT", 0, -8)
+    root.hint:SetPoint("TOPRIGHT", root, "TOPRIGHT", -8, -8)
     -- 头部统计串与提示串由 PaintPets 按子页（pets / torch）填。
 
-    EG.petCards, EG.petIds, EG.toyIds = {}, {}, {}
-    for i = 1, EG.PET_CARDS do
-        local card = CreateFrame("Frame", nil, root, "BackdropTemplate")
+    -- ★ 2026-10-07：小动物增至 4 只（4×176+3×8 = 728）超出本页可用高度（586），
+    --   加一层滚动容器承接；卡池照旧按 PET_CARDS 一次建满，卡锚到滚动子帧
+    --   （child）而非 root —— 切筛选/打卡/懒加载补名都不得新建帧的帧数纪律不变。
+    local sc = CreateFrame("ScrollFrame", nil, root)
+    sc:EnableMouseWheel(true)
+    sc:SetPoint("TOPLEFT", root, "TOPLEFT", 0, -EG.PET_HEAD_H)
+    sc:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", 0, 0)
+    local child = CreateFrame("Frame", nil, sc)
+    child:SetSize(EG.RIGHT_W, 10)
+    sc:SetScrollChild(child)
+    sc:SetScript("OnMouseWheel", function(_, delta)
+        if DG.WheelScroll then DG.WheelScroll(sc, child, delta) end
+    end)
+    root.scroll, root.child = sc, child
+    local host = child
+
+        EG.petCards, EG.petIds, EG.toyIds, EG.bannerIds = {}, {}, {}, {}
+        for i = 1, EG.PET_CARDS do
+        local card = CreateFrame("Frame", nil, host, "BackdropTemplate")
         card:SetHeight(EG.PET_CARD_H)
-        card:SetPoint("TOPLEFT", root, "TOPLEFT", 0, -(EG.PET_HEAD_H + (i - 1) * (EG.PET_CARD_H + EG.PET_GAP)))
-        card:SetPoint("TOPRIGHT", root, "TOPRIGHT", 0, -(EG.PET_HEAD_H + (i - 1) * (EG.PET_CARD_H + EG.PET_GAP)))
+        card:SetPoint("TOPLEFT", host, "TOPLEFT", 8, -((i - 1) * (EG.PET_CARD_H + EG.PET_GAP)))
+        card:SetPoint("TOPRIGHT", host, "TOPRIGHT", -8, -((i - 1) * (EG.PET_CARD_H + EG.PET_GAP)))
         card:SetBackdrop({
             bgFile = "Interface\\Buttons\\WHITE8x8",
             edgeFile = "Interface\\Buttons\\WHITE8x8",
@@ -1972,14 +2176,15 @@ local function BuildPets(page)
         card:SetBackdropColor(1, 1, 1, 0.035)
         card:SetBackdropBorderColor(1, 1, 1, 0.08)
         if ns.hui and ns.hui.SkinPopup then
-            ns.hui.SkinPopup(card, 8, nil, { 1, 1, 1, 0.035 })
+            -- 卡中卡提亮：大卡 listCard=L1，小卡必须 L2（2026-10-10 用户定）。
+            ns.hui.SkinPopup(card, 8, nil, ns.hui.layer.L2)
         end
 
         card.icon = card:CreateTexture(nil, "ARTWORK")
         card.icon:SetSize(EG.PET_ICON, EG.PET_ICON)
         card.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
         if ns.hui and ns.hui.RoundIcon then ns.hui.RoundIcon(card.icon) end
-        card.icon:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -20)
+        card.icon:SetPoint("TOPLEFT", card, "TOPLEFT", EG.PET_PAD, -16)
 
         -- 图标悬停出物品 tooltip（玩具模式才开鼠标；走 DG.ShowItemTip 自带重入守卫）。
         card.iconBtn = CreateFrame("Button", nil, card)
@@ -1993,42 +2198,60 @@ local function BuildPets(page)
         end)
 
         card.name = MakeFS(card, 16, C_WHITE, "LEFT")
-        card.name:SetPoint("TOPLEFT", card, "TOPLEFT", EG.PET_TX, -24)
+        card.name:SetPoint("TOPLEFT", card, "TOPLEFT", EG.PET_TX, -16)
         card.name:SetWordWrap(false)
 
         card.diffPill = CreateFrame("Frame", nil, card, "BackdropTemplate")
         card.diffPill:SetSize(76, 20)
-        card.diffPill:SetPoint("TOPRIGHT", card, "TOPRIGHT", -14, -22)
+        card.diffPill:SetPoint("TOPRIGHT", card, "TOPRIGHT", -EG.PET_PAD, -16)
         card.diffPill:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8",
                                     edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-        card.diffPill:SetBackdropColor(1, 1, 1, 0.04)
+        if not HuiPillFX(card.diffPill, 10, { 1, 1, 1, 0.4 }) then
+            card.diffPill:SetBackdropColor(1, 1, 1, 0.04)
+        end
         card.diffTx = MakeFS(card.diffPill, 14, C_DIM, "CENTER")
         card.diffTx:SetAllPoints()
 
         card.facPill = CreateFrame("Frame", nil, card, "BackdropTemplate")
         card.facPill:SetSize(76, 20)
-        card.facPill:SetPoint("RIGHT", card.diffPill, "LEFT", -6, 0)
+        card.facPill:SetPoint("RIGHT", card.diffPill, "LEFT", -8, 0)
         card.facPill:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8",
                                    edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-        card.facPill:SetBackdropColor(1, 1, 1, 0.04)
+        if not HuiPillFX(card.facPill, 10, { 1, 1, 1, 0.4 }) then
+            card.facPill:SetBackdropColor(1, 1, 1, 0.04)
+        end
         card.facTx = MakeFS(card.facPill, 14, C_DIM, "CENTER")
         card.facTx:SetAllPoints()
 
         card.chip = CreateFrame("Button", nil, card, "BackdropTemplate")
         card.chip:SetSize(92, 20)
-        card.chip:SetPoint("TOPRIGHT", card, "TOPRIGHT", -14, -48)
+        card.chip:SetPoint("TOPRIGHT", card, "TOPRIGHT", -EG.PET_PAD, -42)
         card.chip:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8",
                                 edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-        card.chip:SetBackdropColor(1, 1, 1, 0.06)
-        card.chip:SetBackdropBorderColor(1, 1, 1, 0.14)
+        if not HuiPillFX(card.chip, 10, { 1, 1, 1, 0.14 }) then
+            card.chip:SetBackdropColor(1, 1, 1, 0.06)
+            card.chip:SetBackdropBorderColor(1, 1, 1, 0.14)
+        end
+        if ns.hui and ns.hui.BuildCapsule then
+            card.chip.__hov = ns.hui.BuildCapsule(card.chip, 10, ns.hui.layer.L4, 1, 2)
+            for _, t in ipairs(card.chip.__hov) do t:Hide() end
+        end
         card.chipTx = MakeFS(card.chip, 14, C_TEXT, "CENTER")
         card.chipTx:SetAllPoints()
         card.chip:SetScript("OnEnter", function(self)
-            self:SetBackdropColor(1, 1, 1, 0.1)
+            if self.__hov then
+                for _, t in ipairs(self.__hov) do t:SetShown(true) end
+            else
+                self:SetBackdropColor(1, 1, 1, 0.1)
+            end
             PetTip(self, true, self.__label, self.__area, self.__x, self.__y)
         end)
         card.chip:SetScript("OnLeave", function(self)
-            self:SetBackdropColor(1, 1, 1, 0.06)
+            if self.__hov then
+                for _, t in ipairs(self.__hov) do t:SetShown(false) end
+            else
+                self:SetBackdropColor(1, 1, 1, 0.06)
+            end
             PetTip(self, false)
         end)
         card.chip:SetScript("OnClick", function(self)
@@ -2038,8 +2261,8 @@ local function BuildPets(page)
         card.sep = card:CreateTexture(nil, "BORDER")
         card.sep:SetHeight(1)
         card.sep:SetColorTexture(1, 1, 1, 0.07)
-        card.sep:SetPoint("TOPLEFT", card, "TOPLEFT", EG.PET_TX, -72)
-        card.sep:SetPoint("TOPRIGHT", card, "TOPRIGHT", -14, -72)
+        card.sep:SetPoint("TOPLEFT", card, "TOPLEFT", EG.PET_TX, -68)
+        card.sep:SetPoint("TOPRIGHT", card, "TOPRIGHT", -EG.PET_PAD, -68)
 
         card.ul = card:CreateTexture(nil, "OVERLAY")
         card.ul:SetColorTexture(1, 0.82, 0, 0.9)
@@ -2052,38 +2275,37 @@ local function BuildPets(page)
         EG.petCards[i] = card
         EG.petIds[i] = PETS[i] and PETS[i][1] or nil
         EG.toyIds[i] = TOYS[i] and TOYS[i][1] or nil
+        EG.bannerIds[i] = BANNER[i] and BANNER[i][1] or nil
     end
     root:Hide()
 end
 
 function EG.LayoutBody()
-    local top, bot = EG.BODY_TOP, EG.BODY_BOT
+    local top, bot = EG.BODY_TOP, EG.EDGE
     EG.scroll:ClearAllPoints()
     EG.scroll:SetPoint("TOPLEFT", EG.page, "TOPLEFT", EG.X0, -top)
-    EG.scroll:SetPoint("BOTTOMRIGHT", EG.page, "BOTTOMRIGHT", -PAGE_INSET, bot)
+    EG.scroll:SetPoint("BOTTOMRIGHT", EG.page, "BOTTOMRIGHT", -EG.EDGE, bot)
     EG.listCard:ClearAllPoints()
-    EG.listCard:SetPoint("TOPLEFT", EG.page, "TOPLEFT",
-                         EG.X0 - 6, -(EG.NAV_TOP - 16))
+    EG.listCard:SetPoint("TOPLEFT", EG.page, "TOPLEFT", EG.X0, -EG.TOP_EDGE)
     EG.listCard:SetPoint("BOTTOMRIGHT", EG.page, "BOTTOMRIGHT",
-                         -(PAGE_INSET - EG.LIST_PAD), bot - EG.LIST_PAD)
+                         -EG.EDGE, bot)
     EG.listCard:Show()
     if EG.navCard then
         EG.navCard:ClearAllPoints()
-        EG.navCard:SetPoint("TOPLEFT", EG.page, "TOPLEFT",
-                            EG.NAV_X - 4, -(EG.NAV_TOP - 16))
+        EG.navCard:SetPoint("TOPLEFT", EG.page, "TOPLEFT", EG.NAV_X, -EG.TOP_EDGE)
         EG.navCard:SetPoint("BOTTOMRIGHT", EG.page, "BOTTOMLEFT",
-                            EG.X0 - 12, bot - EG.LIST_PAD)
+                            EG.X0 - 8, bot)
         EG.navCard:Show()
     end
     if EG.rwFrame then
         EG.rwFrame:ClearAllPoints()
         EG.rwFrame:SetPoint("TOPLEFT", EG.page, "TOPLEFT", EG.X0, -top)
-        EG.rwFrame:SetPoint("BOTTOMRIGHT", EG.page, "BOTTOMRIGHT", -PAGE_INSET, bot)
+        EG.rwFrame:SetPoint("BOTTOMRIGHT", EG.page, "BOTTOMRIGHT", -EG.EDGE, bot)
     end
     if EG.bagFrame then
         EG.bagFrame:ClearAllPoints()
-        EG.bagFrame:SetPoint("TOPLEFT", EG.page, "TOPLEFT", EG.X0, -(EG.NAV_TOP - 6))
-        EG.bagFrame:SetPoint("BOTTOMRIGHT", EG.page, "BOTTOMRIGHT", -PAGE_INSET, bot)
+        EG.bagFrame:SetPoint("TOPLEFT", EG.page, "TOPLEFT", EG.X0, -EG.TOP_EDGE)
+        EG.bagFrame:SetPoint("BOTTOMRIGHT", EG.page, "BOTTOMRIGHT", -EG.EDGE, bot)
         if EG.bagScroll then
             local ok, vh = pcall(EG.bagScroll.GetHeight, EG.bagScroll)
             EG.bagViewH = (ok and type(vh) == "number" and vh > 100 and vh) or 300
@@ -2092,8 +2314,8 @@ function EG.LayoutBody()
     end
     if EG.bmFrame then
         EG.bmFrame:ClearAllPoints()
-        EG.bmFrame:SetPoint("TOPLEFT", EG.page, "TOPLEFT", EG.X0, -(EG.NAV_TOP - 6))
-        EG.bmFrame:SetPoint("BOTTOMRIGHT", EG.page, "BOTTOMRIGHT", -PAGE_INSET, bot)
+        EG.bmFrame:SetPoint("TOPLEFT", EG.page, "TOPLEFT", EG.X0, -EG.TOP_EDGE)
+        EG.bmFrame:SetPoint("BOTTOMRIGHT", EG.page, "BOTTOMRIGHT", -EG.EDGE, bot)
         if EG.bmScroll then
             local ok, vh = pcall(EG.bmScroll.GetHeight, EG.bmScroll)
             EG.bmViewH = (ok and type(vh) == "number" and vh > 100 and vh) or 300
@@ -2101,8 +2323,8 @@ function EG.LayoutBody()
     end
     if EG.petFrame then
         EG.petFrame:ClearAllPoints()
-        EG.petFrame:SetPoint("TOPLEFT", EG.page, "TOPLEFT", EG.X0, -(EG.NAV_TOP - 6))
-        EG.petFrame:SetPoint("BOTTOMRIGHT", EG.page, "BOTTOMRIGHT", -PAGE_INSET, bot)
+        EG.petFrame:SetPoint("TOPLEFT", EG.page, "TOPLEFT", EG.X0, -EG.TOP_EDGE)
+        EG.petFrame:SetPoint("BOTTOMRIGHT", EG.page, "BOTTOMRIGHT", -EG.EDGE, bot)
     end
 end
 
@@ -2119,7 +2341,8 @@ function EG.Render()
     local isBm = sub == "bm"
     local isPets = sub == "pets"
     local isTorch = sub == "torch"
-    local isCard = isPets or isTorch
+    local isBanner = sub == "banner"
+    local isCard = isPets or isTorch or isBanner
     EG.scroll:SetShown(not isRw and not isBag and not isBm and not isCard)
     EG.note:SetShown(not isRw and not isBag and not isBm and not isCard)
     local booksVis = not isBag and not isBm and not isCard
@@ -2135,7 +2358,12 @@ function EG.Render()
     if EG.routeBtn then PaintRouteBtn() end
     if EG.rwFrame then
         EG.rwFrame:SetShown(isRw)
-        if isRw then PaintRewards() end
+        if isRw then
+            -- ★ 顶边收上去：奖励页无提示行，正文顶 = RW_TOP（SetPoint 同锚点对覆盖旧值，
+            --   不 ClearAllPoints，保住 LayoutBody 设的 BOTTOMRIGHT）
+            EG.rwFrame:SetPoint("TOPLEFT", EG.page, "TOPLEFT", EG.X0, -EG.RW_TOP)
+            PaintRewards()
+        end
     end
     if EG.bagFrame then
         EG.bagFrame:SetShown(isBag)
@@ -2156,6 +2384,7 @@ function EG.Render()
         EG.petFrame:SetShown(isCard)
         if isPets then PaintPets(PETS, false) return end
         if isTorch then PaintPets(TOYS, true) return end
+        if isBanner then PaintPets(BANNER, true, true) return end
     end
     if isBag or isBm or isCard then return end
 
@@ -2177,9 +2406,8 @@ function EG.Render()
     for i, rec in ipairs(list) do
         PaintRow(i, y, rec, zc)
         zc = not zc
-        y = y + EG.ROW_H
+        y = y + EG.ROW_H + EG.ROW_GAP
     end
-    y = y + EG.LIST_PAD
 
     if #list == 0 and EG.rows and EG.rows[1] then
         local r = EG.rows[1]
@@ -2197,9 +2425,10 @@ function EG.Render()
         r.icon:SetTexture("")
         r.__it, r.__mark, r.__rec = nil, nil, nil
         r.sep:Hide()
-        y = y + EG.ROW_H
+        y = y + EG.ROW_H + EG.LIST_PAD
     else
-        EG.rows[1].sep:Show()
+        EG.rows[1].sep:SetShown(not EG.rows[1].__huiCard)
+        y = y - EG.ROW_GAP + EG.LIST_PAD
     end
 
     EG.child:SetHeight(y)
@@ -2214,10 +2443,60 @@ function EG.Open()
     EG.Render()
 end
 
--- 供「快捷按钮栏」调用：切到指定子页（books / rewards / bag / bm / pets / torch）。
+-- 供「快捷按钮栏」调用：切到指定子页（books / rewards / bag / bm / pets / torch / banner）。
 function EG.ShowSub(key)
     if not EG.built then return end
     SetSub(key)
+end
+
+-- ★★ 供**外部页面**（藏品页的「查看获取详情」链接）调用：切到小动物子页 + 高亮
+--   对应那张卡（itemID 定位）。用户 2026-10-07 指定。
+--   ★ 宠物卡池恒 4 张同屏（PET_CARDS=4），没有分页也没有滚动定位需求 —— 只做高亮，
+--     不碰滚动容器（那会让整页跳动）。找不到 id 就只切子页，不报错。
+function EG.FocusPet(itemID)
+    if not EG.built then return end
+    SetSub("pets")
+    if not itemID then return end
+    local idx
+    for i, id in ipairs(EG.petIds or {}) do
+        if id == itemID then idx = i break end
+    end
+    if not idx then return end
+    local card = EG.petCards and EG.petCards[idx]
+    if not card then return end
+    -- 高亮脉冲：卡片描边闪两下（不新建帧；hui 走圆角描边贴片重涂，fallback 走 backdrop 边框）
+    local pieces = card.__huiBorderPieces
+    local function PulseEdge(on)
+        if pieces then
+            for _, tex in ipairs(pieces) do
+                if on then
+                    tex:SetVertexColor(0.27, 0.75, 0.45)
+                    tex:SetAlpha(1)
+                else
+                    tex:SetVertexColor(1, 1, 1)
+                    tex:SetAlpha(0.10)
+                end
+            end
+        elseif card.SetBackdropBorderColor then
+            if on then
+                card:SetBackdropBorderColor(0.27, 0.75, 0.45, 1)
+            else
+                card:SetBackdropBorderColor(1, 1, 1, 0.08)
+            end
+        end
+    end
+    local step = 0
+    if C_Timer and C_Timer.NewTicker then
+        C_Timer.NewTicker(0.22, function(t)
+            step = step + 1
+            if step >= 6 then
+                PulseEdge(false)
+                t:Cancel()
+                return
+            end
+            PulseEdge(step % 2 == 1)
+        end)
+    end
 end
 
 function EG.Refresh()
@@ -2231,14 +2510,18 @@ function EG.Build(page)
     EG.view = View()
 
     EG.navBtns = {}
+    -- ★ 2026-10-10 修复：组标题/进度文本/口径注释等是 page 的**自有 FontString（region）**，
+    --   永远画在子帧（navCard/listCard 实底卡）之下，与创建顺序无关——旧白 α 半透明底盖不住，
+    --   换不透明 L1 后全部被盖。挂到一个专用宿主帧上（宿主在下方统一抬到底卡之上）即浮出。
+    local labelHost = CreateFrame("Frame", nil, page)
     local navY = 0
-    local nlab = MakeFS(page, 16, C_GREY, "LEFT")
-    nlab:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X + 2, -(EG.NAV_TOP - 11))
+    local nlab = MakeFS(labelHost, 16, C_GREY, "LEFT")
+    nlab:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X + EG.NAV_PAD + 2, -EG.NAV_TOP)
     nlab:SetText(L["收集"])
     navY = navY + EG.NAV_GROUP_H
     do
         local bt = NewButton(page, L["40本书"], EG.NAV_W, EG.NAV_ITEM_H, 16)
-        bt:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X, -(EG.NAV_TOP + navY))
+        bt:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X + EG.NAV_PAD, -(EG.NAV_TOP + navY))
         local fs = bt:GetFontString()
         fs:ClearAllPoints()
         fs:SetPoint("LEFT", bt, "LEFT", 5 + EG.NAV_ICON + 5, 0)
@@ -2262,7 +2545,7 @@ function EG.Build(page)
     end
     do
         local bt = NewButton(page, L["睡袋"], EG.NAV_W, EG.NAV_ITEM_H, 16)
-        bt:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X, -(EG.NAV_TOP + navY))
+        bt:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X + EG.NAV_PAD, -(EG.NAV_TOP + navY))
         local fs = bt:GetFontString()
         fs:ClearAllPoints()
         fs:SetPoint("LEFT", bt, "LEFT", 5 + EG.NAV_ICON + 5, 0)
@@ -2283,7 +2566,7 @@ function EG.Build(page)
     end
     do
         local bt = NewButton(page, L["战斗法师"], EG.NAV_W, EG.NAV_ITEM_H, 16)
-        bt:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X, -(EG.NAV_TOP + navY))
+        bt:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X + EG.NAV_PAD, -(EG.NAV_TOP + navY))
         local fs = bt:GetFontString()
         fs:ClearAllPoints()
         fs:SetPoint("LEFT", bt, "LEFT", 5 + EG.NAV_ICON + 5, 0)
@@ -2304,18 +2587,15 @@ function EG.Build(page)
     end
 
     do
-        -- ★★ 非首组的组标题不许压到上一个按钮（2026-10-01 实机：「宠物」压住「战斗法师」）。
-        --    标题锚在 navY-11（抬到该组按钮上方 33px），所以 navY 里必须先把「标题高 + 净空」让出来；
-        --    首组 navY==0、上面没有按钮，故不补 pad。改 NAV_GROUP_* 常量后必须重跑本页版式断言。
-        if navY > 0 then navY = navY + EG.NAV_GROUP_PAD end
-        local glab = MakeFS(page, 16, C_GREY, "LEFT")
-        glab:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X + 2, -(EG.NAV_TOP + navY - 11))
+        -- 组标题顶 = 上一组末按钮底 + NAV_GAP（按钮↔标题 = 8，随 NAV_GAP 走）。
+        local glab = MakeFS(labelHost, 16, C_GREY, "LEFT")
+        glab:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X + EG.NAV_PAD + 2, -(EG.NAV_TOP + navY))
         glab:SetText(L["宠物"])
         navY = navY + EG.NAV_GROUP_H
     end
     do
         local bt = NewButton(page, L["小动物"], EG.NAV_W, EG.NAV_ITEM_H, 16)
-        bt:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X, -(EG.NAV_TOP + navY))
+        bt:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X + EG.NAV_PAD, -(EG.NAV_TOP + navY))
         local fs = bt:GetFontString()
         fs:ClearAllPoints()
         fs:SetPoint("LEFT", bt, "LEFT", 5 + EG.NAV_ICON + 5, 0)
@@ -2336,16 +2616,14 @@ function EG.Build(page)
     end
 
     do
-        -- ★ 非首组的组标题不许压到上一个按钮：navY 里先补「标题高 + 净空」。
-        if navY > 0 then navY = navY + EG.NAV_GROUP_PAD end
-        local glab = MakeFS(page, 16, C_GREY, "LEFT")
-        glab:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X + 2, -(EG.NAV_TOP + navY - 11))
+        local glab = MakeFS(labelHost, 16, C_GREY, "LEFT")
+        glab:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X + EG.NAV_PAD + 2, -(EG.NAV_TOP + navY))
         glab:SetText(L["玩具"])
         navY = navY + EG.NAV_GROUP_H
     end
     do
         local bt = NewButton(page, L["守夜人火炬"], EG.NAV_W, EG.NAV_ITEM_H, 16)
-        bt:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X, -(EG.NAV_TOP + navY))
+        bt:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X + EG.NAV_PAD, -(EG.NAV_TOP + navY))
         local fs = bt:GetFontString()
         fs:ClearAllPoints()
         fs:SetPoint("LEFT", bt, "LEFT", 5 + EG.NAV_ICON + 5, 0)
@@ -2364,16 +2642,37 @@ function EG.Build(page)
         EG.navTorch = bt
         navY = navY + EG.NAV_ITEM_H + EG.NAV_GAP
     end
+    do
+        local bt = NewButton(page, L["血色旗帜"], EG.NAV_W, EG.NAV_ITEM_H, 16)
+        bt:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X + EG.NAV_PAD, -(EG.NAV_TOP + navY))
+        local fs = bt:GetFontString()
+        fs:ClearAllPoints()
+        fs:SetPoint("LEFT", bt, "LEFT", 5 + EG.NAV_ICON + 5, 0)
+        fs:SetJustifyH("LEFT")
+        MakeOutline(bt, 1, 0.82, 0)
+        SetOutline(bt, true, 1, 0.82, 0)
+        bt.__huiKeepTextColor = true
+        bt.__icon = bt:CreateTexture(nil, "ARTWORK")
+        bt.__icon:SetSize(EG.NAV_ICON, EG.NAV_ICON)
+        bt.__icon:SetPoint("LEFT", bt, "LEFT", 5, 0)
+        bt.__icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        if ns.hui and ns.hui.RoundIcon then ns.hui.RoundIcon(bt.__icon) end
+        bt.__icon:SetTexture("Interface\\Icons\\inv_misc_token_scarletcrusade")
+        bt:SetScript("OnClick", function() SetSub("banner") end)
+        EG.navBtns["banner"] = bt
+        EG.navBanner = bt
+        navY = navY + EG.NAV_ITEM_H + EG.NAV_GAP
+    end
 
-    EG.prog = MakeFS(page, 14, C_TEXT, "RIGHT")
-    EG.prog:SetPoint("TOPRIGHT", page, "TOPRIGHT", -PAGE_INSET, -(EG.PROG_Y - 10))
-    EG.note = MakeFS(page, 14, { 0.55, 0.75, 0.55 }, "LEFT")
-    EG.note:SetPoint("TOPLEFT", page, "TOPLEFT", EG.X0, -EG.NOTE_Y)
+    EG.prog = MakeFS(labelHost, 14, C_TEXT, "RIGHT")
+    EG.prog:SetPoint("TOPRIGHT", page, "TOPRIGHT", -(EG.EDGE + EG.LIST_PAD), -EG.TICK_Y)
+    EG.note = MakeFS(labelHost, 14, { 0.55, 0.75, 0.55 }, "LEFT")
+    EG.note:SetPoint("TOPLEFT", page, "TOPLEFT", EG.X0 + EG.LIST_PAD, -EG.NOTE_Y)
     EG.note:SetText(L["自动识别：金格 = 已上交；绿格 = 背包有书未上交"])
 
     local bar = CreateFrame("Frame", nil, page)
     bar:SetSize(EG.BAR_W, EG.BAR_H)
-    bar:SetPoint("TOPLEFT", page, "TOPLEFT", EG.X0, -(EG.PROG_Y + 7))
+    bar:SetPoint("TOPLEFT", page, "TOPLEFT", EG.X0 + EG.LIST_PAD, -EG.BAR_Y)
     bar.bg = bar:CreateTexture(nil, "BACKGROUND")
     bar.bg:SetAllPoints()
     bar.bg:SetColorTexture(1, 1, 1, 0.09)
@@ -2389,8 +2688,8 @@ function EG.Build(page)
         tick:SetColorTexture(1, 1, 1, 0.35)
         tick:SetSize(1, EG.BAR_H + 6)
         tick:SetPoint("TOPLEFT", bar, "TOPLEFT", x, -4)
-        local lab = MakeFS(page, 14, C_DIM, "CENTER")
-        lab:SetPoint("BOTTOM", bar, "TOPLEFT", x, 6)
+        local lab = MakeFS(labelHost, 14, C_DIM, "CENTER")
+        lab:SetPoint("TOP", page, "TOPLEFT", EG.X0 + EG.LIST_PAD + x, -EG.TICK_Y)
         lab:SetText(at == EG.NECK_AT and L["10本 项链"]
             or at == EG.RING_AT and L["20本 戒指"] or L["25本 三选一"])
         EG.tickLabs[at] = lab
@@ -2403,7 +2702,7 @@ function EG.Build(page)
         local bt = CreateFrame("Button", nil, page)
         bt:SetSize(EG.TOOL_W, EG.TOOL_H)
         bt:SetPoint("TOPLEFT", page, "TOPLEFT",
-                    EG.X0 + (fi - 1) * (EG.TOOL_W + EG.TOOL_GAP), -EG.TOOL_Y)
+                    EG.X0 + EG.LIST_PAD + (fi - 1) * (EG.TOOL_W + EG.TOOL_GAP), -EG.TOOL_Y)
         local tf = MakeFS(bt, 14, C_DIM, "CENTER")
         tf:SetAllPoints()
         tf:SetText(f.text)
@@ -2431,7 +2730,7 @@ function EG.Build(page)
     do
         local rw = CreateFrame("Button", nil, page)
         rw:SetSize(72, EG.TOOL_H)
-        rw:SetPoint("LEFT", EG.filterBtns.todo, "RIGHT", 10, 0)
+        rw:SetPoint("LEFT", EG.filterBtns.todo, "RIGHT", 8, 0)
         local rf = MakeFS(rw, 14, C_RW, "CENTER")
         rf:SetAllPoints()
         rf:SetText(L["奖励"] .. " ★")
@@ -2455,7 +2754,7 @@ function EG.Build(page)
     do
         local rb = CreateFrame("Button", nil, page)
         rb:SetSize(60, EG.TOOL_H)
-        rb:SetPoint("LEFT", EG.rwBtn, "RIGHT", 10, 0)
+        rb:SetPoint("LEFT", EG.rwBtn, "RIGHT", 8, 0)
         local rf = MakeFS(rb, 14, C_RW, "CENTER")
         rf:SetAllPoints()
         rf:SetText(L["找书HUD"])
@@ -2521,8 +2820,32 @@ function EG.Build(page)
     EG.navCard = navCard
 
     if ns.hui and ns.hui.SkinPopup then
-        ns.hui.SkinPopup(listCard, 6, nil, { 1, 1, 1, 0.03 })
-        ns.hui.SkinPopup(navCard, 6, nil, { 1, 1, 1, 0.03 })
+        ns.hui.SkinPopup(listCard, 6)
+        ns.hui.SkinPopup(navCard, 6)
+    end
+    -- ★ 2026-10-10 修复：两块底卡换不透明 L1 实底后，会盖住**先建**的同层内容帧
+    --   （navBtns 标题、petFrame、顶部筛选/进度条、地图设置钮——旧白 α0.03 半透明盖不住所以从未暴露）。
+    --   显式把既存兄弟帧整体抬到底卡之上。
+    --   ★★ 二修（2026-10-10 晚）：WoW 子帧默认层级 = 父级+1，与 listCard **同层**——
+    --     此处之后才创建的 scroll/rw/bag/bm 并不会「自动更高」（旧注释理解错误）。
+    --     forever 引擎同层兄弟绘制次序不可靠 ⇒ 某些次 /reload 后整块内容沉到
+    --     不透明底卡之下（找书列表/奖励/睡袋全页面消失）。Build 收尾统一再抬一遍。
+    do
+        local cardLvl = listCard:GetFrameLevel()
+        EG.cardLvl = cardLvl
+        navCard:SetFrameLevel(cardLvl)
+        for _, fr in ipairs({ page:GetChildren() }) do
+            if fr ~= listCard and fr ~= navCard then
+                fr:SetFrameLevel(math.max(fr:GetFrameLevel(), cardLvl + 2))
+            end
+        end
+        -- page 直挂的 FontString 不是帧，GetChildren 抬不到（子帧恒在父级文字之上）
+        local tl = CreateFrame("Frame", nil, page)
+        tl:SetFrameLevel(cardLvl + 2)
+        for _, rg in ipairs({ page:GetRegions() }) do
+            rg:SetParent(tl)
+        end
+        EG.textLayer = tl
     end
 
     local scroll = CreateFrame("ScrollFrame", nil, page)
@@ -2532,6 +2855,9 @@ function EG.Build(page)
     end)
     local child = CreateFrame("Frame", nil, scroll)
     child:SetSize(EG.RIGHT_W - 2 * EG.LIST_PAD, 10)
+    -- ★ 2026-10-10 二修：child 不设锚点时默认贴 scroll 左上 → 书行左缘贴死 listCard
+    --   （左 0 / 右 16 不对称）。显式左衬 LIST_PAD，行卡左右各留 8。
+    child:SetPoint("TOPLEFT", scroll, "TOPLEFT", EG.LIST_PAD, 0)
     scroll:SetScrollChild(child)
     EG.scroll, EG.child = scroll, child
 
@@ -2555,7 +2881,9 @@ function EG.Build(page)
         --   ① 10本项链 ② 20本戒指 ③ 25本三选一（按领取顺序，等高等宽）；
         --   ④ 如何获得奖励通栏卡，3 步横排压高度。状态章收拢到卡片标题右缘
         --   （同档共用一个任务状态），行内不再摆 A/H 底条与状态列。
-        local PADX, GAP, ROW_H = 6, 12, 34
+        --   ★ 间距标准 2026-10-10 二修：奖励卡坐在恒显示的 L1 listCard 上 = 卡中卡，
+        --     提亮一级（SkinPopup L2）+ 左右内衬 8（PADX=LIST_PAD，与书行同栅格）。
+        local PADX, GAP, ROW_H = EG.LIST_PAD, 8, 44
         local CW = math.floor((EG.RIGHT_W - 2 * PADX - 2 * GAP) / 3)
         local maxN = 2
         for _, tier in ipairs(REWARDS) do
@@ -2573,7 +2901,7 @@ function EG.Build(page)
             card:SetPoint("TOPLEFT", rw, "TOPLEFT", ox, -y)
             card:SetPoint("TOPRIGHT", rw, "TOPLEFT", ox + CW, -y)
             if ns.hui and ns.hui.SkinPopup then
-                ns.hui.SkinPopup(card, 6, nil, { 1, 1, 1, 0.03 })
+                ns.hui.SkinPopup(card, 6, nil, ns.hui.layer.L2)
             else
                 card:SetBackdrop({
                     bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -2609,26 +2937,32 @@ function EG.Build(page)
                 row:SetPoint("TOPRIGHT", card, "TOPRIGHT", -10, -(28 + (ri - 1) * ROW_H))
                 row.side, row.tier = side, tier
                 row.icon = row:CreateTexture(nil, "ARTWORK")
-                row.icon:SetSize(24, 24)
+                row.icon:SetSize(36, 36)
                 row.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
                 if ns.hui and ns.hui.RoundIcon then ns.hui.RoundIcon(row.icon) end
                 row.icon:SetPoint("LEFT", row, "LEFT", 2, 0)
+                -- ★ 两行制（2026-10-10 用户定）：第一行名称（14），第二行 类型 · 装等 ·
+                --   需要等级（11，PaintRewards 里填）；需要等级 > 人物等级 → 第二行整行红。
                 row.name = MakeFS(row, 14, C_TEXT, "LEFT")
-                row.name:SetPoint("LEFT", row.icon, "RIGHT", 9, 0)
+                row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 9, -1)
                 row.name:SetPoint("RIGHT", row, "RIGHT", 0, 0)
                 row.name:SetWordWrap(false)
+                row.meta = MakeFS(row, 11, C_GREY, "LEFT")
+                row.meta:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 9, 1)
+                row.meta:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+                row.meta:SetWordWrap(false)
                 row:SetScript("OnEnter", function(self) EG.RewardTip(self, true) end)
                 row:SetScript("OnLeave", function(self) EG.RewardTip(self, false) end)
                 EG.rwRows[#EG.rwRows + 1] = row
             end
             EG.rwCards[ti] = card
         end
-        y = y + CH + 16
+        y = y + CH + 8
         local card = CreateFrame("Frame", nil, rw, "BackdropTemplate")
         card:SetPoint("TOPLEFT", rw, "TOPLEFT", PADX, -y)
         card:SetPoint("TOPRIGHT", rw, "TOPRIGHT", -PADX, -y)
         if ns.hui and ns.hui.SkinPopup then
-            ns.hui.SkinPopup(card, 6, nil, { 1, 1, 1, 0.03 })
+            ns.hui.SkinPopup(card, 6, nil, ns.hui.layer.L2)
         else
             card:SetBackdrop({
                 bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -2651,14 +2985,10 @@ function EG.Build(page)
         hintro:SetWidth(iw)
         hintro:SetText(HT.intro or "")
         cy = cy + 22
-        local hbar = card:CreateTexture(nil, "BACKGROUND")
-        hbar:SetWidth(3)
-        hbar:SetColorTexture(0.94, 0.71, 0.24, 0.9)
-        hbar:SetPoint("TOPLEFT", card, "TOPLEFT", 13, -cy)
-        hbar:SetHeight(20)
+        -- 金色说明文字保留（语义强调），左侧彩条按定案删除
         local hdetail = MakeFS(card, 14, { 0.94, 0.78, 0.35 }, "LEFT")
-        hdetail:SetPoint("TOPLEFT", card, "TOPLEFT", 24, -cy)
-        hdetail:SetWidth(iw - 11)
+        hdetail:SetPoint("TOPLEFT", card, "TOPLEFT", 13, -cy)
+        hdetail:SetWidth(iw)
         hdetail:SetText(HT.detail or "")
         cy = cy + 34
         -- 3 步横排：等分三列，金色序号 + 步骤标题（14）+ 灰色说明（11，按列宽折行）
@@ -2690,10 +3020,9 @@ function EG.Build(page)
         end
         cy = cy + maxStepH
         card:SetHeight(cy + 4)
-        y = y + cy + 10
-        y = y + 6
+        y = y + cy + 8
         local mh = MakeFS(rw, 16, C_WHITE, "LEFT")
-        mh:SetPoint("TOPLEFT", rw, "TOPLEFT", 6, -y)
+        mh:SetPoint("TOPLEFT", rw, "TOPLEFT", PADX, -y)
         EG.rwMageHead = mh
         mh:Hide()
         y = y + 30
@@ -2701,7 +3030,7 @@ function EG.Build(page)
         local MB = ns.ExploreMageBonus
         for li, txt in ipairs(MB and MB.desc or {}) do
             local ln = MakeFS(rw, 14, C_DIM, "LEFT")
-            ln:SetPoint("TOPLEFT", rw, "TOPLEFT", 6, -y)
+            ln:SetPoint("TOPLEFT", rw, "TOPLEFT", PADX, -y)
             ln:SetText(txt)
             EG.rwMageLines[li] = ln
             ln:Hide()
@@ -2717,18 +3046,18 @@ function EG.Build(page)
     do
         local CW = EG.RIGHT_W
         local LW = 280
-        local RWd = CW - LW - 8
+        local RWd = CW - LW - 16
         EG.bagRWd = RWd
 
         local title = MakeFS(bag, 16, C_WHITE, "LEFT")
-        title:SetPoint("TOPLEFT", bag, "TOPLEFT", 0, -6)
+        title:SetPoint("TOPLEFT", bag, "TOPLEFT", 8, -8)
         title:SetText(L["舒适睡袋"])
         title:SetWordWrap(false)
 
         local fc = CreateFrame("Frame", nil, bag)
         -- ★ 阵营钮 46→66（4 字「联盟领地」）⇒ 容器 96→136、tag1/tag2 右移 40
         fc:SetSize(136, 20)
-        fc:SetPoint("TOPLEFT", bag, "TOPLEFT", 78, -6)
+        fc:SetPoint("TOPLEFT", bag, "TOPLEFT", 86, -8)
         EG.bagFacBtns = {}
         for fi, f in ipairs({ "A", "H" }) do
             local bt = CreateFrame("Button", nil, fc)
@@ -2750,42 +3079,47 @@ function EG.Build(page)
             EG.bagFacBtns[f] = bt
         end
         local tag1 = MakeFS(bag, 14, C_GOLD, "LEFT")
-        tag1:SetPoint("TOPLEFT", bag, "TOPLEFT", 226, -8)
+        tag1:SetPoint("TOPLEFT", fc, "TOPRIGHT", 8, 0)
         tag1:SetText(L["需 14 级"])
         tag1:SetWordWrap(false)
         local tag2 = MakeFS(bag, 14, C_GREY, "LEFT")
-        tag2:SetPoint("TOPLEFT", bag, "TOPLEFT", 298, -8)
+        tag2:SetPoint("TOPLEFT", tag1, "TOPRIGHT", 8, 0)
         tag2:SetText(L["全程无 NPC · 点地面物件触发"])
         tag2:SetWordWrap(false)
         EG.bagProg = MakeFS(bag, 14, C_GOLD, "RIGHT")
-        EG.bagProg:SetPoint("TOPRIGHT", bag, "TOPRIGHT", -160, -8)
+        EG.bagProg:SetPoint("TOPRIGHT", bag, "TOPRIGHT", -166, -8)
         EG.bagProg:SetWordWrap(false)
 
         local NOTE_H = 110
         EG.bagNoteH = NOTE_H
         local lc = CreateFrame("Frame", nil, bag)
         lc:SetSize(LW, 10)
-        lc:SetPoint("TOPLEFT", bag, "TOPLEFT", 0, -34)
-        lc:SetPoint("BOTTOMRIGHT", bag, "BOTTOMRIGHT", -(RWd + 8), NOTE_H + 8)
-        ns.hui.SkinPopup(lc, 8, nil, { 1, 1, 1, 0.03 })
+        lc:SetPoint("TOPLEFT", bag, "TOPLEFT", 0, -32)
+        -- 底衬 = 注释卡顶(NOTE_H+8) 再让 8 缝；行高由 BagLayoutRows 按剩余高度均分。
+        lc:SetPoint("BOTTOMRIGHT", bag, "BOTTOMRIGHT", -(RWd + 8), NOTE_H + 16)
+        -- 2026-10-10 用户定：外层卡皮删除——任务行已是独立圆角卡，lc 只当布局容器。
         EG.bagLC = lc
         EG.bagRows = {}
         for i, e in ipairs(BAG_CHAIN) do
-            local r = CreateFrame("Button", nil, lc)
+            local r = CreateFrame("Button", nil, lc, "BackdropTemplate")
             r:SetHeight(36)
-            r:SetPoint("TOPLEFT", lc, "TOPLEFT", 6, -((i - 1) * 36))
-            r:SetPoint("TOPRIGHT", lc, "TOPRIGHT", -6, -((i - 1) * 36))
+            r:SetPoint("TOPLEFT", lc, "TOPLEFT", 8, -((i - 1) * 40))
+            r:SetPoint("TOPRIGHT", lc, "TOPRIGHT", -8, -((i - 1) * 40))
             r.tint = r:CreateTexture(nil, "BORDER")
             r.tint:SetAllPoints()
             r.tint:SetColorTexture(1, 1, 1, 0)
             r.tint:Hide()
-            r.sep = r:CreateTexture(nil, "BORDER")
-            r.sep:SetHeight(1)
-            r.sep:SetColorTexture(1, 1, 1, 0.06)
-            r.sep:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 0)
-            r.sep:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 0, 0)
+            -- 独立行卡：L2 圆角底 + 白 10% 细边 + L4 悬停胶囊（金 12% 选中 tint 保留）
+            if not HuiRowFX(r, 10, 10) then
+                r:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
+                r:SetBackdropColor(1, 1, 1, 0.02)
+                if ns.hui and ns.hui.BuildCapsule then
+                    r.__hov = ns.hui.BuildCapsule(r, 10, ns.hui.layer.L4, 1, 2)
+                    for _, t in ipairs(r.__hov) do t:Hide() end
+                end
+            end
             r.no = MakeFS(r, 16, C_GOLD, "LEFT")
-            r.no:SetPoint("TOPLEFT", r, "TOPLEFT", 2, -3)
+            r.no:SetPoint("TOPLEFT", r, "TOPLEFT", 8, -4)
             r.no:SetWordWrap(false)
             r.t = MakeFS(r, 16, C_TEXT, "LEFT")
             r.t:SetPoint("TOPLEFT", r, "TOPLEFT", 32, -4)
@@ -2794,7 +3128,7 @@ function EG.Build(page)
             r.p:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 32, 3)
             r.p:SetWordWrap(false)
             r.st = MakeFS(r, 14, C_GREY, "RIGHT")
-            r.st:SetPoint("TOPRIGHT", r, "TOPRIGHT", -2, -3)
+            r.st:SetPoint("TOPRIGHT", r, "TOPRIGHT", -8, -4)
             r.st:SetWordWrap(false)
             r.__step = e
             r:SetScript("OnClick", function(self)
@@ -2809,8 +3143,8 @@ function EG.Build(page)
         end
         local eb = CreateFrame("Button", nil, bag)
         eb:SetSize(150, 24)
-        eb:SetPoint("TOPRIGHT", bag, "TOPRIGHT", 0, -4)
-        ns.hui.SkinPopup(eb, 6, nil, { 1, 1, 1, 0.045 })
+        eb:SetPoint("TOPRIGHT", bag, "TOPRIGHT", -8, -8)
+        ns.hui.SkinPopup(eb, 6, nil, ns.hui.layer.L2)
         MakeOutline(eb, 1, 0.82, 0)
         local ef = MakeFS(eb, 14, C_GOLD, "CENTER")
         ef:SetAllPoints()
@@ -2823,6 +3157,9 @@ function EG.Build(page)
             ns.PlaySound(1)
         end)
         EG.bagRwBtn = eb
+        -- eb 建好后把进度字贴到它左缘 8（创建时 eb 尚不存在，不能直接锚）。
+        EG.bagProg:ClearAllPoints()
+        EG.bagProg:SetPoint("TOPRIGHT", eb, "TOPLEFT", -8, 0)
 
         local rc
         local rs = CreateFrame("ScrollFrame", nil, bag)
@@ -2833,25 +3170,25 @@ function EG.Build(page)
         rc = CreateFrame("Frame", nil, rs)
         rc:SetSize(RWd, 10)
         rs:SetScrollChild(rc)
-        rs:SetPoint("TOPLEFT", bag, "TOPLEFT", LW + 8, -34)
-        rs:SetPoint("BOTTOMRIGHT", bag, "BOTTOMRIGHT", 0, EG.bagNoteH + 8)
+        rs:SetPoint("TOPLEFT", bag, "TOPLEFT", LW + 8, -32)
+        rs:SetPoint("BOTTOMRIGHT", bag, "BOTTOMRIGHT", -8, EG.bagNoteH + 16)
         EG.bagScroll, EG.bagChild = rs, rc
 
         local nc = CreateFrame("Frame", nil, bag)
         nc:SetHeight(EG.bagNoteH)
-        nc:SetPoint("BOTTOMLEFT", bag, "BOTTOMLEFT", 0, 0)
-        nc:SetPoint("BOTTOMRIGHT", bag, "BOTTOMRIGHT", 0, 0)
-        ns.hui.SkinPopup(nc, 8, nil, { 1, 1, 1, 0.03 })
+        nc:SetPoint("BOTTOMLEFT", bag, "BOTTOMLEFT", 8, 8)
+        nc:SetPoint("BOTTOMRIGHT", bag, "BOTTOMRIGHT", -8, 8)
+        ns.hui.SkinPopup(nc, 8, nil, ns.hui.layer.L2)
         EG.bagNote = nc
         local nHead = MakeFS(nc, 16, C_GOLD, "LEFT")
-        nHead:SetPoint("TOPLEFT", nc, "TOPLEFT", 14, -8)
+        nHead:SetPoint("TOPLEFT", nc, "TOPLEFT", 8, -8)
         nHead:SetText(L["注释"])
         nHead:SetWordWrap(false)
         EG.bagNoteItems = {}
         local function NoteRow(id, tail, py)
             local nb = CreateFrame("Button", nil, nc)
             nb:SetHeight(22)
-            nb:SetPoint("TOPLEFT", nc, "TOPLEFT", 14, -py)
+            nb:SetPoint("TOPLEFT", nc, "TOPLEFT", 8, -py)
             nb.__id = id
             local ic = nb:CreateTexture(nil, "ARTWORK")
             ic:SetSize(18, 18)
@@ -2866,15 +3203,15 @@ function EG.Build(page)
             nb:SetScript("OnEnter", function(self) EG.BagChipTip(self, true) end)
             nb:SetScript("OnLeave", function(self) EG.BagChipTip(self, false) end)
             local tx = MakeFS(nc, 14, C_GREY, "LEFT")
-            tx:SetPoint("LEFT", nb, "RIGHT", 6, 0)
-            tx:SetPoint("RIGHT", nc, "RIGHT", -14, 0)
+            tx:SetPoint("LEFT", nb, "RIGHT", 8, 0)
+            tx:SetPoint("RIGHT", nc, "RIGHT", -8, 0)
             tx:SetText(tail)
             EG.bagNoteItems[#EG.bagNoteItems + 1] = nb
         end
         NoteRow(216619, L["：吃一口立即回 500 血、12 秒内再回 1050，并回复法力 / 50 怒气 / 100 能量，5 分钟冷却、最多叠 30 个；"], 36)
         local nl2 = MakeFS(nc, 14, C_GREY, "LEFT")
-        nl2:SetPoint("TOPLEFT", nc, "TOPLEFT", 14, -58)
-        nl2:SetPoint("RIGHT", nc, "RIGHT", -14, 0)
+        nl2:SetPoint("TOPLEFT", nc, "TOPLEFT", 8, -58)
+        nl2:SetPoint("RIGHT", nc, "RIGHT", -8, 0)
         nl2:SetText(L["旧版的休息经验加成在无限服已移除，当应急干粮就好；吃下去还会附一波「方便零嘴」（0.75 秒 60% 移速）；"])
         nl2:SetWordWrap(false)
         NoteRow(211527, L["：躺满 1 分钟 +1% 经验、最多 3 层、持续 2 小时；铺开需原地站 15 秒、睡袋落地留 20 分钟，冷却 1 小时，队友可同躺"], 80)
@@ -2882,10 +3219,10 @@ function EG.Build(page)
         local det = CreateFrame("Frame", nil, rc)
         det:SetWidth(RWd)
         det:SetPoint("TOPLEFT", rc, "TOPLEFT", 0, 0)
-        ns.hui.SkinPopup(det, 8, nil, { 1, 1, 1, 0.03 })
+        ns.hui.SkinPopup(det, 8, nil, ns.hui.layer.L2)
         EG.bagDetail = det
         local dTitle = MakeFS(det, 16, C_WHITE, "LEFT")
-        dTitle:SetPoint("TOPLEFT", det, "TOPLEFT", 10, -8)
+        dTitle:SetPoint("TOPLEFT", det, "TOPLEFT", 8, -8)
         dTitle:SetWordWrap(false)
         EG.bagDT = dTitle
         local dId = MakeFS(det, 14, C_GREY, "LEFT")
@@ -2893,7 +3230,7 @@ function EG.Build(page)
         dId:SetWordWrap(false)
         EG.bagDId = dId
         local dCo = CreateFrame("Button", nil, det)
-        dCo:SetPoint("TOPRIGHT", det, "TOPRIGHT", -10, -8)
+        dCo:SetPoint("TOPRIGHT", det, "TOPRIGHT", -8, -8)
         dCo:SetHeight(20)
         dCo:SetWidth(60)
         local dcf = MakeFS(dCo, 14, C_GOLD, "CENTER")
@@ -2919,7 +3256,7 @@ function EG.Build(page)
         end)
         EG.bagDCo = dCo
         local dCoHint = MakeFS(det, 14, C_GREY, "RIGHT")
-        dCoHint:SetPoint("RIGHT", dCo, "LEFT", 3, 0)
+        dCoHint:SetPoint("RIGHT", dCo, "LEFT", 8, 0)
         dCoHint:SetText(L["点击坐标在地图上定位"])
         dCoHint:SetWordWrap(false)
         EG.bagDCoHint = dCoHint
@@ -2927,7 +3264,7 @@ function EG.Build(page)
         local FIELDS = { L["状态："], L["可接等级："], L["起始："], L["阵营："] }
         for fi = 1, 4 do
             local lab = MakeFS(det, 14, C_GREY, "LEFT")
-            lab:SetPoint("TOPLEFT", det, "TOPLEFT", 10, -(34 + (fi - 1) * 24))
+            lab:SetPoint("TOPLEFT", det, "TOPLEFT", 8, -(34 + (fi - 1) * 24))
             lab:SetText(FIELDS[fi])
             lab:SetWordWrap(false)
             local val = MakeFS(det, 14, C_TEXT, "LEFT")
@@ -2936,7 +3273,7 @@ function EG.Build(page)
             EG.bagDL[fi], EG.bagDV[fi] = lab, val
         end
         local dRwH0 = MakeFS(det, 16, C_GOLD, "LEFT")
-        dRwH0:SetPoint("TOPLEFT", det, "TOPLEFT", 10, -132)
+        dRwH0:SetPoint("TOPLEFT", det, "TOPLEFT", 8, -132)
         dRwH0:SetText(L["任务奖励"])
         dRwH0:SetWordWrap(false)
         EG.bagDRH0 = dRwH0
@@ -2990,30 +3327,30 @@ function EG.Build(page)
         local tot = CreateFrame("Frame", nil, rc)
         tot:SetWidth(RWd)
         tot:SetPoint("TOPLEFT", rc, "TOPLEFT", 0, 0)
-        ns.hui.SkinPopup(tot, 8, nil, { 1, 1, 1, 0.03 })
+        ns.hui.SkinPopup(tot, 8, nil, ns.hui.layer.L2)
         tot:Hide()
         EG.bagTotal = tot
         local tTitle = MakeFS(tot, 16, C_WHITE, "LEFT")
-        tTitle:SetPoint("TOPLEFT", tot, "TOPLEFT", 10, -8)
+        tTitle:SetPoint("TOPLEFT", tot, "TOPLEFT", 8, -8)
         tTitle:SetText(L["任务线奖励总览"])
         tTitle:SetWordWrap(false)
         local fcard = CreateFrame("Frame", nil, tot)
-        fcard:SetSize(RWd - 20, 84)
-        fcard:SetPoint("TOPLEFT", tot, "TOPLEFT", 10, -32)
-        ns.hui.SkinPopup(fcard, 8, nil, { 1, 1, 1, 0.035 })
+        fcard:SetSize(RWd - 16, 84)
+        fcard:SetPoint("TOPLEFT", tot, "TOPLEFT", 8, -32)
+        ns.hui.SkinPopup(fcard, 8, nil, ns.hui.layer.L3)
         local fIcon = fcard:CreateTexture(nil, "ARTWORK")
         fIcon:SetSize(36, 36)
         fIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
         if ns.hui and ns.hui.RoundIcon then ns.hui.RoundIcon(fIcon) end
-        fIcon:SetPoint("TOPLEFT", fcard, "TOPLEFT", 10, -10)
+        fIcon:SetPoint("TOPLEFT", fcard, "TOPLEFT", 8, -8)
         EG.bagFIcon = fIcon
         local fName = MakeFS(fcard, 14, C_TEXT, "LEFT")
-        fName:SetPoint("TOPLEFT", fcard, "TOPLEFT", 56, -8)
+        fName:SetPoint("TOPLEFT", fcard, "TOPLEFT", 52, -8)
         fName:SetWordWrap(false)
         EG.bagFName = fName
         local fDesc = MakeFS(fcard, 14, C_GREY, "LEFT")
-        fDesc:SetPoint("TOPLEFT", fcard, "TOPLEFT", 56, -30)
-        fDesc:SetPoint("RIGHT", fcard, "RIGHT", -10, 0)
+        fDesc:SetPoint("TOPLEFT", fcard, "TOPLEFT", 52, -30)
+        fDesc:SetPoint("RIGHT", fcard, "RIGHT", -8, 0)
         fDesc:SetJustifyV("TOP")
         fDesc:SetHeight(50)
         fDesc:SetText(L[BAG_FINAL_DESC])
@@ -3029,7 +3366,7 @@ function EG.Build(page)
         for i = 1, 20 do
             local c = CreateFrame("Button", nil, rc)
             c:SetSize(40, 28)
-            ns.hui.SkinPopup(c, 8, nil, { 1, 1, 1, 0.045 }, 1, true)
+            ns.hui.SkinPopup(c, 8, nil, ns.hui.layer.L3, 1, true)
             c.icon = c:CreateTexture(nil, "ARTWORK")
             c.icon:SetSize(24, 24)
             c.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
@@ -3052,20 +3389,21 @@ function EG.Build(page)
     do
         local CW = EG.RIGHT_W
         local btitle = MakeFS(bm, 16, C_WHITE, "LEFT")
-        btitle:SetPoint("TOPLEFT", bm, "TOPLEFT", 0, -6)
+        btitle:SetPoint("TOPLEFT", bm, "TOPLEFT", 8, -8)
         btitle:SetText(L["战斗法师"])
         btitle:SetWordWrap(false)
         EG.bmHint = MakeFS(bm, 14, C_GREY, "LEFT")
-        EG.bmHint:SetPoint("LEFT", btitle, "RIGHT", 12, 0)
+        EG.bmHint:SetPoint("LEFT", btitle, "RIGHT", 8, 0)
         EG.bmHint:SetText(L["法师专属内容 ——「理解」为法师职业副技能"])
         EG.bmHint:SetWordWrap(false)
 
         EG.bmTabBtns = {}
-        local tx = 0
+        local tx = 8
         for _, t in ipairs(BM_TABS) do
             local bt = CreateFrame("Button", nil, bm)
             bt:SetSize(96, 22)
-            bt:SetPoint("TOPLEFT", bm, "TOPLEFT", tx, -30)
+            bt:SetPoint("TOPLEFT", bm, "TOPLEFT", tx, -32)
+            -- 用户定案（2026-10-10）：金描边裸文字 tab，不用胶囊。位置/步进保留 8 系间距。
             local tf = MakeFS(bt, 14, C_DIM, "CENTER")
             tf:SetAllPoints()
             tf:SetText(t.text)
@@ -3079,14 +3417,14 @@ function EG.Build(page)
                 ns.PlaySound(1)
             end)
             EG.bmTabBtns[t.key] = bt
-            tx = tx + 102
+            tx = tx + 104
         end
 
         local chain = CreateFrame("Frame", nil, bm)
         chain:SetHeight(72)
-        chain:SetPoint("TOPLEFT", bm, "TOPLEFT", 0, -58)
-        chain:SetPoint("TOPRIGHT", bm, "TOPRIGHT", 0, -58)
-        ns.hui.SkinPopup(chain, 8, nil, { 1, 1, 1, 0.03 })
+        chain:SetPoint("TOPLEFT", bm, "TOPLEFT", 8, -62)
+        chain:SetPoint("TOPRIGHT", bm, "TOPRIGHT", -8, -62)
+        ns.hui.SkinPopup(chain, 8, nil, ns.hui.layer.L2)
         EG.bmChain = chain
         EG.bmNodes, EG.bmArrows = {}, {}
         for i = 1, 5 do
@@ -3096,16 +3434,21 @@ function EG.Build(page)
             nd.tint:SetAllPoints()
             nd.tint:SetColorTexture(1, 1, 1, 0)
             nd.tint:Hide()
+            -- hui 主题：悬停 L4 圆角胶囊（金 12% 选中 tint 保留）
+            if ns.hui and ns.hui.BuildCapsule then
+                nd.__hov = ns.hui.BuildCapsule(nd, 12, ns.hui.layer.L4, 1, 2)
+                for _, t in ipairs(nd.__hov) do t:Hide() end
+            end
             nd.icon = nd:CreateTexture(nil, "ARTWORK")
             nd.icon:SetSize(20, 20)
             nd.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
             if ns.hui and ns.hui.RoundIcon then ns.hui.RoundIcon(nd.icon) end
-            nd.icon:SetPoint("TOPLEFT", nd, "TOPLEFT", 6, -7)
+            nd.icon:SetPoint("TOPLEFT", nd, "TOPLEFT", 8, -8)
             nd.t = MakeFS(nd, 14, C_TEXT, "LEFT")
-            nd.t:SetPoint("TOPLEFT", nd, "TOPLEFT", 30, -6)
+            nd.t:SetPoint("TOPLEFT", nd, "TOPLEFT", 36, -6)
             nd.t:SetWordWrap(false)
             nd.sub = MakeFS(nd, 11, C_GREY, "LEFT")
-            nd.sub:SetPoint("BOTTOMLEFT", nd, "BOTTOMLEFT", 6, 5)
+            nd.sub:SetPoint("BOTTOMLEFT", nd, "BOTTOMLEFT", 8, 8)
             nd.sub:SetWordWrap(false)
             nd:SetScript("OnEnter", function(self)
                 self.__hl = true
@@ -3143,20 +3486,20 @@ function EG.Build(page)
             DG.WheelScroll(dsf, dcc, delta)
         end)
         dcc = CreateFrame("Frame", nil, dsf)
-        dcc:SetSize(CW, 10)
+        dcc:SetSize(CW - 16, 10)
         dsf:SetScrollChild(dcc)
-        dsf:SetPoint("TOPLEFT", bm, "TOPLEFT", 0, -136)
-        dsf:SetPoint("BOTTOMRIGHT", bm, "BOTTOMRIGHT", 0, 0)
-        ns.hui.SkinPopup(dsf, 8, nil, { 1, 1, 1, 0.03 })
+        dsf:SetPoint("TOPLEFT", bm, "TOPLEFT", 8, -142)
+        dsf:SetPoint("BOTTOMRIGHT", bm, "BOTTOMRIGHT", -8, -8)
+        ns.hui.SkinPopup(dsf, 8, nil, ns.hui.layer.L2)
         EG.bmDetail, EG.bmDChild = dsf, dcc
         EG.bmSteps = {}
         for i = 1, 5 do
             local st = CreateFrame("Frame", nil, dcc)
             st.num = MakeFS(st, 14, C_GOLD, "LEFT")
-            st.num:SetPoint("TOPLEFT", st, "TOPLEFT", 0, -3)
+            st.num:SetPoint("TOPLEFT", st, "TOPLEFT", 8, -3)
             st.num:SetWordWrap(false)
             st.t = MakeFS(st, 14, C_TEXT, "LEFT")
-            st.t:SetPoint("TOPLEFT", st, "TOPLEFT", 18, -2)
+            st.t:SetPoint("TOPLEFT", st, "TOPLEFT", 26, -2)
             st.t:SetWordWrap(false)
             st.sub = MakeFS(st, 11, C_GREY, "LEFT")
             st.sub:SetPoint("LEFT", st.t, "RIGHT", 10, 0)
@@ -3201,53 +3544,54 @@ function EG.Build(page)
         end
 
         local ov = CreateFrame("Frame", nil, bm)
-        ov:SetPoint("TOPLEFT", bm, "TOPLEFT", 0, -58)
-        ov:SetPoint("BOTTOMRIGHT", bm, "BOTTOMRIGHT", 0, 0)
-        ns.hui.SkinPopup(ov, 8, nil, { 1, 1, 1, 0.03 })
+        ov:SetPoint("TOPLEFT", bm, "TOPLEFT", 8, -62)
+        ov:SetPoint("BOTTOMRIGHT", bm, "BOTTOMRIGHT", -8, -8)
+        -- 2026-10-10 用户定：总览外层大卡皮删除（ov 只当布局容器）——内里 tc/bd 两卡
+        -- 直接坐 bm 上，层级 L2，少一层套娃。
         EG.bmOv = ov
         local ot = MakeFS(ov, 14, C_GOLD, "LEFT")
-        ot:SetPoint("TOPLEFT", ov, "TOPLEFT", 12, -8)
+        ot:SetPoint("TOPLEFT", ov, "TOPLEFT", 8, -8)
         ot:SetText(L["提升技能"])
         ot:SetWordWrap(false)
         local oi = MakeFS(ov, 14, C_TEXT, "LEFT")
-        oi:SetPoint("TOPLEFT", ov, "TOPLEFT", 12, -30)
-        oi:SetPoint("RIGHT", ov, "RIGHT", -12, 0)
+        oi:SetPoint("TOPLEFT", ov, "TOPLEFT", 8, -30)
+        oi:SetPoint("RIGHT", ov, "RIGHT", -8, 0)
         oi:SetText(L["未翻译的卷轴有四种，每一种需要的理解技能等级都更高。一种卷轴变灰之后就不会再提升技能：在技能到达它变灰的等级之前，换成下一种。"])
         local tc = CreateFrame("Frame", nil, ov)
         tc:SetPoint("TOPLEFT", ov, "TOPLEFT", 8, -78)
         tc:SetPoint("TOPRIGHT", ov, "TOPRIGHT", -8, -78)
-        tc:SetHeight(8 + 20 + 2 + #BM_TIERS * 34 - 2 + 6)
-        ns.hui.SkinPopup(tc, 8, nil, { 1, 1, 1, 0.03 })
+        tc:SetHeight(8 + 20 + 2 + #BM_TIERS * 36 - 2 + 6)
+        ns.hui.SkinPopup(tc, 8, nil, ns.hui.layer.L2)
         EG.bmOvCard = tc
         local oh = MakeFS(tc, 14, C_GREY, "LEFT")
-        oh:SetPoint("TOPLEFT", tc, "TOPLEFT", 12, -6)
+        oh:SetPoint("TOPLEFT", tc, "TOPLEFT", 16, -6)
         oh:SetText(L["未翻译的卷轴"])
         oh:SetWordWrap(false)
         local ohr = MakeFS(tc, 14, C_GREY, "RIGHT")
-        ohr:SetPoint("TOPRIGHT", tc, "TOPRIGHT", -195, -6)
+        ohr:SetPoint("TOPRIGHT", tc, "TOPRIGHT", -203, -6)
         ohr:SetText(L["可破译于"])
         ohr:SetWordWrap(false)
         local ohg = MakeFS(tc, 14, C_GREY, "RIGHT")
-        ohg:SetPoint("TOPRIGHT", tc, "TOPRIGHT", -105, -6)
+        ohg:SetPoint("TOPRIGHT", tc, "TOPRIGHT", -113, -6)
         ohg:SetText(L["变灰于"])
         ohg:SetWordWrap(false)
         local oht = MakeFS(tc, 14, C_GREY, "RIGHT")
-        oht:SetPoint("TOPRIGHT", tc, "TOPRIGHT", -12, -6)
+        oht:SetPoint("TOPRIGHT", tc, "TOPRIGHT", -20, -6)
         oht:SetText(L["卷轴等级"])
         oht:SetWordWrap(false)
         local ohsep = tc:CreateTexture(nil, "BORDER")
         ohsep:SetHeight(1)
         ohsep:SetColorTexture(1, 1, 1, 0.09)
-        ohsep:SetPoint("TOPLEFT", tc, "TOPLEFT", 0, -28)
-        ohsep:SetPoint("TOPRIGHT", tc, "TOPRIGHT", 0, -28)
+        ohsep:SetPoint("TOPLEFT", tc, "TOPLEFT", 8, -28)
+        ohsep:SetPoint("TOPRIGHT", tc, "TOPRIGHT", -8, -28)
         EG.bmOvRows = {}
         for ti = 1, #BM_TIERS do
             local rw = CreateFrame("Frame", nil, tc)
             rw:SetHeight(32)
-            rw:SetPoint("TOPLEFT", tc, "TOPLEFT", 0, -(32 + (ti - 1) * 34))
-            rw:SetPoint("TOPRIGHT", tc, "TOPRIGHT", 0, -(32 + (ti - 1) * 34))
+            rw:SetPoint("TOPLEFT", tc, "TOPLEFT", 8, -(32 + (ti - 1) * 36))
+            rw:SetPoint("TOPRIGHT", tc, "TOPRIGHT", -8, -(32 + (ti - 1) * 36))
             rw.nm = MakeFS(rw, 14, C_TEXT, "LEFT")
-            rw.nm:SetPoint("TOPLEFT", rw, "TOPLEFT", 12, -4)
+            rw.nm:SetPoint("TOPLEFT", rw, "TOPLEFT", 8, -4)
             rw.nm:SetPoint("RIGHT", rw, "RIGHT", -240, 0)
             rw.nm:SetWordWrap(false)
             rw.req = MakeFS(rw, 14, C_GREY, "RIGHT")
@@ -3262,11 +3606,11 @@ function EG.Build(page)
         end
 
         EG.bmTierBtns = {}
-        local cx = 0
+        local cx = 8
         for ti, t in ipairs(BM_TIERS) do
             local bt = CreateFrame("Button", nil, bm)
             bt:SetSize(118, 20)
-            bt:SetPoint("TOPLEFT", bm, "TOPLEFT", cx, -58)
+            bt:SetPoint("TOPLEFT", bm, "TOPLEFT", cx, -62)
             local tf = MakeFS(bt, 11, C_DIM, "CENTER")
             tf:SetAllPoints()
             tf:SetText(format(L["理解(%d) · %s"], t.req, t.tier))
@@ -3278,30 +3622,30 @@ function EG.Build(page)
                 ns.PlaySound(1)
             end)
             EG.bmTierBtns[ti] = bt
-            cx = cx + 124
+            cx = cx + 126
         end
         local bdh = 26 + #BM_BUNDLE * 24 + 8
         local bd = CreateFrame("Frame", nil, ov)
         bd:SetHeight(bdh)
         bd:SetPoint("TOPLEFT", tc, "BOTTOMLEFT", 0, -8)
         bd:SetPoint("TOPRIGHT", tc, "BOTTOMRIGHT", 0, -8)
-        ns.hui.SkinPopup(bd, 8, nil, { 1, 1, 1, 0.03 })
+        ns.hui.SkinPopup(bd, 8, nil, ns.hui.layer.L2)
         EG.bmBundle = bd
         local bh = MakeFS(bd, 14, C_GREY, "LEFT")
-        bh:SetPoint("TOPLEFT", bd, "TOPLEFT", 12, -6)
+        bh:SetPoint("TOPLEFT", bd, "TOPLEFT", 8, -6)
         bh:SetText(L["「一捆卷轴」开出率（17 捆样本）"])
         bh:SetWordWrap(false)
         EG.bmBundleRows = {}
         for bi, it in ipairs(BM_BUNDLE) do
             local rw = CreateFrame("Frame", nil, bd)
             rw:SetHeight(22)
-            rw:SetPoint("TOPLEFT", bd, "TOPLEFT", 12, -(28 + (bi - 1) * 24))
-            rw:SetPoint("TOPRIGHT", bd, "TOPRIGHT", -12, -(28 + (bi - 1) * 24))
+            rw:SetPoint("TOPLEFT", bd, "TOPLEFT", 8, -(28 + (bi - 1) * 24))
+            rw:SetPoint("TOPRIGHT", bd, "TOPRIGHT", -8, -(28 + (bi - 1) * 24))
             rw.icon = rw:CreateTexture(nil, "ARTWORK")
             rw.icon:SetSize(18, 18)
             rw.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
             if ns.hui and ns.hui.RoundIcon then ns.hui.RoundIcon(rw.icon) end
-            rw.icon:SetPoint("LEFT", rw, "LEFT", 0, 0)
+            rw.icon:SetPoint("LEFT", rw, "LEFT", 8, 0)
             rw.nm = MakeFS(rw, 14, C_TEXT, "LEFT")
             rw.nm:SetPoint("LEFT", rw.icon, "RIGHT", 6, 0)
             rw.nm:SetPoint("RIGHT", rw, "RIGHT", -170, 0)
@@ -3330,10 +3674,10 @@ function EG.Build(page)
             DG.WheelScroll(rs, rcc, delta)
         end)
         rcc = CreateFrame("Frame", nil, rs)
-        rcc:SetSize(CW, 10)
+        rcc:SetSize(CW - 16, 10)
         rs:SetScrollChild(rcc)
-        rs:SetPoint("TOPLEFT", bm, "TOPLEFT", 0, -88)
-        rs:SetPoint("BOTTOMRIGHT", bm, "BOTTOMRIGHT", 0, 0)
+        rs:SetPoint("TOPLEFT", bm, "TOPLEFT", 8, -90)
+        rs:SetPoint("BOTTOMRIGHT", bm, "BOTTOMRIGHT", -8, -8)
         EG.bmScroll, EG.bmChild = rs, rcc
         EG.bmRows = {}
         for i = 1, 12 do
@@ -3341,8 +3685,11 @@ function EG.Build(page)
             rw2:SetHeight(34)
             rw2:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
             rw2:SetBackdropColor(1, 1, 1, 0.02)
-            rw2:SetPoint("TOPLEFT", rcc, "TOPLEFT", 0, -((i - 1) * 36))
-            rw2:SetPoint("TOPRIGHT", rcc, "TOPRIGHT", 0, -((i - 1) * 36))
+            if not HuiRowFX(rw2, 10, 10) then
+                rw2:SetBackdropColor(1, 1, 1, 0.02)
+            end
+            rw2:SetPoint("TOPLEFT", rcc, "TOPLEFT", 8, -((i - 1) * 38))
+            rw2:SetPoint("TOPRIGHT", rcc, "TOPRIGHT", -8, -((i - 1) * 38))
             rw2.icon = rw2:CreateTexture(nil, "ARTWORK")
             rw2.icon:SetSize(20, 20)
             rw2.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
@@ -3357,22 +3704,25 @@ function EG.Build(page)
             rw2.badge = MakeFS(rw2, 11, C_GREY, "RIGHT")
             rw2.badge:SetPoint("TOPRIGHT", rw2, "TOPRIGHT", -8, -4)
             rw2.badge:SetWordWrap(false)
-            rw2.sep = rw2:CreateTexture(nil, "BORDER")
-            rw2.sep:SetHeight(1)
-            rw2.sep:SetColorTexture(1, 1, 1, 0.055)
-            rw2.sep:SetPoint("BOTTOMLEFT", rw2, "BOTTOMLEFT", 0, 0)
-            rw2.sep:SetPoint("BOTTOMRIGHT", rw2, "BOTTOMRIGHT", 0, 0)
             rw2:EnableMouse(true)
             rw2:EnableMouseWheel(true)
             rw2:SetScript("OnMouseWheel", function(_, delta)
                 DG.WheelScroll(rs, rcc, delta)
             end)
             rw2:SetScript("OnEnter", function(self)
-                self:SetBackdropColor(1, 1, 1, 0.05)
+                if self.__hov then
+                    for _, t in ipairs(self.__hov) do t:SetShown(true) end
+                else
+                    self:SetBackdropColor(1, 1, 1, 0.05)
+                end
                 if self.__id then EG.BagChipTip(self, true) end
             end)
             rw2:SetScript("OnLeave", function(self)
-                self:SetBackdropColor(1, 1, 1, 0.02)
+                if self.__hov then
+                    for _, t in ipairs(self.__hov) do t:SetShown(false) end
+                else
+                    self:SetBackdropColor(1, 1, 1, 0.02)
+                end
                 if GameTooltip then pcall(GameTooltip.Hide, GameTooltip) end
             end)
             rw2:Hide()
@@ -3386,9 +3736,16 @@ function EG.Build(page)
     EG.page = page
     EG.LayoutBody()
 
-    EG.ver = MakeFS(page, 14, C_GREY, "LEFT")
-    EG.ver:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", 10, 4)
-    EG.ver:SetText(L["探索数据"])
+    -- ★★ 2026-10-10 晚：Build 收尾统一抬层——scroll/rw/bag/bm 等后建帧默认与
+    --   listCard 同层，forever 引擎同层兄弟次序不可靠，赌创建次序会整页沉底。
+    --   （law：整页重叠的兄弟帧必须显式 SetFrameLevel 分层，绝不赌创建次序。）
+    if EG.cardLvl then
+        for _, fr in ipairs({ page:GetChildren() }) do
+            if fr ~= EG.listCard and fr ~= EG.navCard then
+                fr:SetFrameLevel(math.max(fr:GetFrameLevel(), EG.cardLvl + 2))
+            end
+        end
+    end
 
     EG.built = true
     local ev = CreateFrame("Frame")

@@ -1,0 +1,42 @@
+local _, YUI = ...
+if not YUI or not YUI.Locale then return end
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("ptBR") then return end
+
+YUI.Locale:Register("EllesmereUIEnhancement", "ptBR", {
+    ["feature.name"] = "Melhorias do EllesmereUI",
+    ["feature.description"] = "Melhora as janelas do EllesmereUI e harmoniza seu visual com o YUI.",
+    ["settings.section.blizzard_plus"] = "Blizzard UI Styling+",
+    ["settings.beautify_skin_background"] = "Beautify Skin Background",
+    ["settings.beautify_skin_background.tooltip"] = " Substitui os fundos da janela EllesmereUI pelo estilo de fundo deste componente.",
+    ["settings.background_preset"] = " Estilo de fundo",
+    ["settings.background_preset.modern"] = "Grafite",
+    ["settings.background_preset.deep_glass"] = "Deep Sea",
+    ["settings.background_preset.crimson_glass"] = "Crimson",
+    ["settings.background_preset.solid"] = " Personalizado",
+    ["settings.background_color"] = "Cor de fundo",
+    ["settings.background_darken"] = "Escurecimento de fundo",
+    ["settings.background_darken.tooltip"] = " Valores menores tornam o fundo mais brilhante.",
+    ["settings.simplify_window_border"] = " Remover Sombra de Fronteira Interior",
+    ["settings.simplify_window_border.tooltip"] = " Substitui o exato atlas de borda sombreado EllesmereUI por um contorno 1px limpo. Se não puder ser identificado com segurança, nada será mudado.",
+    ["settings.tab_font_size"] = " Tamanho da fonte da aba",
+    ["settings.character_detail_font_size"] = " Tamanho do Texto do Caracter",
+    ["settings.character_detail_font_size.tooltip"] = "Ajusta as abas superiores da folha de caracteres e o texto stat do lado direito. Os cabeçalhos da secção permanecem um tamanho maior.",
+    ["settings.merchant_item_name_font_size"] = " Tamanho do nome do item mercante",
+    ["settings.merchant_item_name_font_size.tooltip"] = "Ajusta o texto do nome do item nas listas de mercadores, grades e na página de compra.",
+    ["settings.tab_color_mode"] = "Cor da Página",
+    ["settings.tab_color_mode.auto"] = "Coincidir fundo",
+    ["settings.tab_color_mode.custom"] = " Personalizado",
+    ["settings.tab_color"] = " Fundo da aba",
+    ["settings.section.damage_meter"] = "Medidor de Danos",
+    ["settings.damage_meter.mythic_reset"] = "Auto Reset on Mythic+ Start",
+    ["settings.damage_meter.mythic_reset.tooltip"] = "Automatically clears all damage meter data when a Mythic Keystone starts, without prompting.",
+    ["settings.damage_meter.raid_prompt"] = "Ask to Reset on Raid Entry",
+    ["settings.damage_meter.raid_prompt.tooltip"] = "Asks to clear all damage meter data on raid entry. Leaving and re-entering the same raid does not prompt again. Login and UI reload do not prompt.",
+    ["confirm.damage_meter_reset.title"] = "Repor o medidor de danos",
+    ["confirm.damage_meter_reset.message"] = "Repor os dados dos contadores de danos?",
+    ["confirm.damage_meter_reset.note"] = " Você pode desativar isso na caixa de ferramentas YUI - Enhancement EllesmereUI.",
+    ["confirm.damage_meter_reset.accept"] = "Redefinir",
+    ["message.damage_meter_reset.success"] = "Repor os dados do medidor de danos.",
+    ["message.damage_meter_reset.mythic_success"] = "O Mythic Keystone começou, os dados dos contadores de danos reiniciados.",
+})

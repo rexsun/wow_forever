@@ -1,44 +1,6 @@
 -- =============================================================================
 -- DungeonsForever · 主窗口右侧「快捷按钮栏」
---
---   贴主窗右缘的常驻窄栏（与「设置」/「装备过滤」槽位并存、互不挤占）：
---     · 推荐五人本 —— 按玩家等级实时算（沿用副本页 DG.GroupOf 的 rec 桶），
---                     点条目直接进该副本详情
---     · 专业       —— 列表口径由设置决定：只看已学 / 全部
---     · 探索       —— 显示哪几个子页由设置里的多选决定
---   总开关与各分组开关存 DungeonsForeverDB.ui.quick（读写都走 Core.lua 的 ns.QuickCfg）。
---
---   ★ 吸附（两档槽位，随「设置」/「装备过滤」弹窗显隐**实时**切换，不用关掉主窗重开）：
---     · 两个弹窗都关着 → 左靠、贴住主窗右缘（槽位 8），和主窗连成一体；
---     · 任一弹窗打开   → 让位到第二槽（槽位 236 = 第一槽 220 + 8 + 8），两栏不叠。
---     切换走弹窗自己的 OnShow / OnHide 钩子（QB:HookSettings）；面板的开关处再显式锚一次
---     （弹窗可能是**建好之后**才第一次打开，钩子那一刻还没挂上）。
---
---   ★ 启动即建（QB:Boot）：面板是主窗的**子帧**，登录时就建好 ⇒ 主窗一显示它就跟着显示。
---     这样彻底摆脱「钩子没跑到 / 钩子跑得太早」这类时序问题（实机症状：要关掉主窗再开才出来）。
---
---   约束：字号仅 11 / 14 / 16；面板宽 120（左右内边距 8 → 内容宽 104）；
---         标题「5人本专业探索」与**分组头**（推荐五人本 / 专业 / 探索）同为 14
---         （分组头原为 11，2026-09-30 用户定：与按钮文字同号 —— QB.FS_GRP）；
---         ★「全部副本」摆在「推荐五人本」**分组头上方**（它是整页入口，先给；2026-09-30 用户定）；
---         父级 = 主窗口（随窗显隐、继承缩放）；
---         **条目恒单行**：等级 / 熟练度只进悬停提示，不占副行；
---         条目名超宽按「字」截断并补「…」（绝不截半个汉字；完整名在悬停提示里）；
---         ★ 专业条目内嵌 **16px 圆角图标**（图标名取 Data_Professions 的 p.icon →
---           Interface\Icons\*）；图标**单独套一层与图标等大的帧**再挂蒙版 ——
---           ns.hui.RoundIcon 把圆角蒙版挂在贴图的父帧上，父帧比图标大就裁错角（同 TierUI）；
---           ★ 贴图 UV 四边各内缩 7%（0.07 ~ 0.93）**裁掉素材自带的那圈边**
---             —— 与全仓（ProfessionUI / TierUI / BisUI / ExploreUI / LootFilterUI / RaidUI）
---             同口径，不裁的话圆角蒙版里会留一圈素材边框色（2026-09-30 用户点出）；
---           其余条目无图标，文本回到左缩进 4（带图标时 23）。
---         条目 = **圆角**按钮：底与边都走 HUI 的圆角拼装原语
---           · 底色 ns.hui.BuildRoundedBG（圆角盘 + 四条补边，noRepaint 免被主题重绘冲掉悬停态）
---           · 描边 ns.hui.BuildRoundBorder（1px 圆角弧 + 上下左右补条，thickness 默认 1）
---           常态中性灰蓝描边、悬停转金、划走复位；悬停只改**已建贴图**的颜色 / alpha，不重建
---           （重建会持续累积贴图 = 泄漏）。
---         本文件只挂 QB.* 与 ns.*，不定义裸全局函数。
---
---   ★ 本文件不是生成物，是手写件，直接改本文件即可。
+-- 常驻窄栏：推荐五人本 / 专业 / 探索快捷入口，随「设置」「装备过滤」弹窗让位换槽。
 -- =============================================================================
 
 local _, ns = ...
@@ -57,7 +19,7 @@ QB.SLOT2 = 236                 -- 第二槽左缘 = 第一槽 220 + 间距 8 + �
 QB.PAD = 8                     -- 左右内边距
 QB.CW = QB.W - QB.PAD * 2      -- 内容宽 104
 QB.TEXT_PAD = 4                -- 无图标条目的文本左缩进
-QB.FS_HEAD, QB.FS_NAME, QB.FS_AUX = 14, 14, 11
+QB.FS_HEAD, QB.FS_NAME, QB.FS_AUX = 14, 14, 16 -- FS_AUX：设置弹窗分组头（标签页/快捷按钮栏/显示分组/专业列表/探索子页；2026-10-08 用户定：16）
 QB.FS_GRP = 14                 -- 分组头字号（推荐五人本 / 专业 / 探索；2026-09-30 用户定：与条目同号）
 QB.ICON = 16                   -- 专业条目内的图标边长（行高 22，上下各留 3px）
 QB.ICON_X = 3                  -- 图标左缩进
@@ -522,6 +484,7 @@ end
 -- 显隐与刷新 ---------------------------------------------------------------
 function QB:Apply()
     local cfg = ns.QuickCfg()
+    if ns.ApplyTabVisibility then ns.ApplyTabVisibility() end -- QB_SET_TABS：页签显隐与快捷栏开关无关
     if not cfg.on then
         if self.frame then self.frame:Hide() end
         return
@@ -582,19 +545,170 @@ function QB:EnsureSettings()
     local pop = ns.SettingsPopup
     if not pop then return false end
 
-    local set = { group = {}, expl = {} }
+    local set = { group = {}, expl = {}, tabs = {} }
     local y = -44
 
+    -- ★ 双列开关对（QB_SET_2COL，2026-10-08 用户；同日三稿：弹窗恒 220 宽）。
+    --   左列开关贴左缘（TOPLEFT，x=SET_PAD-6 与分组头同列）、标签挂开关右侧 —— 锚点与卡高无关；
+    --   右列贴右缘（TOPRIGHT，标签挂开关左侧）。五字名（推荐五人本）与落单尾行走整行
+    --   ToggleRow / TabRow。yv 为本行 y 游标，行高由调用方自扣。
+    --   ⚠ 左列禁锚 parent "CENTER"：卡片 SetHeight 回填后 CENTER 落到半卡高，左列整体
+    --   下坠溢卡（2026-10-08 实机截图错乱根因：专业/藏品/40本书/睡袋 被拽出卡外）。
+    local function TogglePair(parent, yv, aLabel, aIsOn, aSetOn, bLabel, bIsOn, bSetOn)
+        local at = Toggle(parent)
+        if bLabel then
+            at:SetPoint("TOPLEFT", parent, "TOPLEFT", SET_PAD - 6, yv) -- 2COL-L
+            at.label:ClearAllPoints()
+            at.label:SetPoint("LEFT", at, "RIGHT", 6, 0)
+        else
+            at:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 6 - SET_PAD, yv)
+        end
+        at.label:SetText(aLabel)
+        at:SetChecked(aIsOn() and true or false)
+        at:SetScript("OnClick", function(self)
+            ns.PlaySound(1)
+            aSetOn(not aIsOn())
+            self:SetChecked(aIsOn() and true or false)
+            QB:SyncSettings()
+            QB:Apply()
+        end)
+        local bt2
+        if bLabel then
+            bt2 = Toggle(parent)
+            bt2:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 6 - SET_PAD, yv) -- 2COL-R
+            bt2.label:SetText(bLabel)
+            bt2:SetChecked(bIsOn() and true or false)
+            bt2:SetScript("OnClick", function(self)
+                ns.PlaySound(1)
+                bSetOn(not bIsOn())
+                self:SetChecked(bIsOn() and true or false)
+                QB:SyncSettings()
+                QB:Apply()
+            end)
+        end
+        return at, bt2
+    end
+
+    -- ★ 卡一「标签页」（QB_SET_TABS，2026-10-08 用户；同日二稿：置顶 + 独立成卡）：
+    --   主窗七个页签开关。两张卡两块设置内容，本卡放最上面（修两卡重叠：卡二顶随卡一底 +10px 间隙）。
+    do
+        local tabCard = CreateFrame("Frame", nil, pop)
+        if ns.hui and ns.hui.BuildRoundedBG and ns.hui.layer then
+            ns.hui.BuildRoundedBG(tabCard, 8, ns.hui.layer.L2, "both", true, 1)
+        else
+            local bg = tabCard:CreateTexture(nil, "BACKGROUND")
+            bg:SetColorTexture(0.18, 0.19, 0.22, 1)
+            bg:SetPoint("TOPLEFT", tabCard, "TOPLEFT", 0, 0)
+            bg:SetPoint("BOTTOMRIGHT", tabCard, "BOTTOMRIGHT", 0, 0)
+        end
+        tabCard:SetPoint("TOPLEFT", pop, "TOPLEFT", 6, y)
+        tabCard:SetPoint("TOPRIGHT", pop, "TOPRIGHT", -6, y)
+
+        local ty = -10
+        local tfs = Fs(tabCard, self.FS_AUX, C_DIM)
+        tfs:SetPoint("TOPLEFT", tabCard, "TOPLEFT", 4, ty)
+        tfs:SetText(L["标签页"])
+        ty = ty - SET_HDR_H
+
+        local function TabRow(label, isOn, setOn)
+            local tg = Toggle(tabCard)
+            tg:SetPoint("TOPRIGHT", tabCard, "TOPRIGHT", -4, ty)
+            tg.label:SetText(label)
+            tg:SetChecked(isOn() and true or false)
+            tg:SetScript("OnClick", function(sel)
+                ns.PlaySound(1)
+                setOn(not isOn())
+                sel:SetChecked(isOn() and true or false)
+                QB:SyncSettings()
+                if ns.ApplyTabVisibility then ns.ApplyTabVisibility() end
+            end)
+            ty = ty - SET_ROW_H
+            return tg
+        end
+
+        local function mkSetOn(key)
+            return function(v)
+                local tabs = ns.QuickCfg().tabs
+                if not v then
+                    -- 最后一个可见页签拒绝关闭（至少留一个入口）
+                    local left = 0
+                    for _, k in ipairs(ns.QUICK_TABS) do
+                        if k ~= key and tabs[k] ~= false
+                            and (ns.LoadForeverPages or k == "Dungeons" or k == "Raids") then
+                            left = left + 1
+                        end
+                    end
+                    if left == 0 then v = true end
+                end
+                tabs[key] = v
+            end
+        end
+
+        local vis = {}
+        for _, def in ipairs({
+            { key = "Dungeons",    label = L["5人本"] },
+            { key = "Raids",       label = L["团本"] },
+            { key = "Professions", label = L["专业"] },
+            { key = "Explore",     label = L["探索"] },
+            { key = "Collections", label = L["藏品"] },
+            { key = "Bis",         label = L["BIS配装"] },
+            { key = "Tier",        label = L["职业指南"] },
+            { key = "PvP",         label = L["PvP"] },
+        }) do
+            if ns.LoadForeverPages or def.key == "Dungeons" or def.key == "Raids" then vis[#vis + 1] = def end
+        end
+        -- 双列（QB_SET_2COL，2026-10-08 三稿）：两两配对；落单尾行整行（TabRow 自扣游标）
+        for i = 1, #vis, 2 do
+            local m, n2 = vis[i], vis[i + 1]
+            local gm = function() return ns.QuickCfg().tabs[m.key] ~= false end
+            if n2 then
+                local gn = function() return ns.QuickCfg().tabs[n2.key] ~= false end
+                set.tabs[m.key], set.tabs[n2.key] = TogglePair(tabCard, ty,
+                    m.label, gm, mkSetOn(m.key), n2.label, gn, mkSetOn(n2.key))
+                ty = ty - SET_ROW_H
+            else
+                set.tabs[m.key] = TabRow(m.label, gm, mkSetOn(m.key))
+            end
+        end
+
+        set.tabCard = tabCard
+        tabCard:SetHeight(8 - ty)
+        y = y + ty - 18  -- 卡一底 = y+ty-8；卡二顶再留 10px 间隙（修重叠）
+    end
+
+    -- ★ 卡二「快捷按钮栏」（QB_SET_CARD_BG，2026-10-08 用户）：内容区垫一张 L2 圆角大卡片
+    --   （与各页「页底大卡」同皮：弧盘 + 1px 描边）。先于各行创建 ⇒ 恒垫底；
+    --   普通 Frame 不收鼠标；高度在内容排完后回填（底边超出末行 12px）。
+    if not self.cardBg then
+        local card = CreateFrame("Frame", nil, pop)
+        if ns.hui and ns.hui.BuildRoundedBG and ns.hui.layer then
+            ns.hui.BuildRoundedBG(card, 8, ns.hui.layer.L2, "both", true, 1)
+        else
+            local bg = card:CreateTexture(nil, "BACKGROUND")
+            bg:SetColorTexture(0.21, 0.22, 0.25, 1)
+            bg:SetPoint("TOPLEFT", card, "TOPLEFT", 0, 0)
+            bg:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", 0, 0)
+        end
+        self.cardBg = card
+    end
+    self.cardBg:ClearAllPoints()
+    -- 卡二顶随卡一底（10px 间隙在卡一收口处计入 y）；行全部挂卡片 host ——
+    -- 子框架恒画在父框字体串之上，行挂 pop 会被大卡盖住（QB_SET_CARD_BG 层级修正）。
+    self.cardBg:SetPoint("TOPLEFT", pop, "TOPLEFT", 6, y)
+    self.cardBg:SetPoint("TOPRIGHT", pop, "TOPRIGHT", -6, y)
+    local host = self.cardBg
+    local hy = -10
+
     local function Header(text)
-        local fs = Fs(pop, self.FS_AUX, C_DIM)
-        fs:SetPoint("TOPLEFT", pop, "TOPLEFT", SET_PAD, y)
+        local fs = Fs(host, self.FS_AUX, C_DIM)
+        fs:SetPoint("TOPLEFT", host, "TOPLEFT", SET_PAD - 6, hy)
         fs:SetText(text)
-        y = y - SET_HDR_H
+        hy = hy - SET_HDR_H
     end
 
     local function ToggleRow(label, isOn, setOn)
-        local tg = Toggle(pop)
-        tg:SetPoint("TOPRIGHT", pop, "TOPRIGHT", -SET_PAD, y)
+        local tg = Toggle(host)
+        tg:SetPoint("TOPRIGHT", host, "TOPRIGHT", 6 - SET_PAD, hy)
         tg.label:SetText(label)
         tg:SetChecked(isOn() and true or false)
         tg:SetScript("OnClick", function(self)
@@ -604,8 +718,15 @@ function QB:EnsureSettings()
             QB:SyncSettings()
             QB:Apply()
         end)
-        y = y - SET_ROW_H
+        hy = hy - SET_ROW_H
         return tg
+    end
+
+    -- 双列行薄包装（QB_SET_2COL）：吃一行游标；TogglePair 实现见本函数顶部
+    local function ToggleRow2(aLabel, aIsOn, aSetOn, bLabel, bIsOn, bSetOn)
+        local at, bt2 = TogglePair(host, hy, aLabel, aIsOn, aSetOn, bLabel, bIsOn, bSetOn)
+        hy = hy - SET_ROW_H
+        return at, bt2
     end
 
     Header(L["快捷按钮栏"])
@@ -613,25 +734,29 @@ function QB:EnsureSettings()
         function() return ns.QuickCfg().on end,
         function(v) ns.QuickCfg().on = v end)
 
+    -- 显示分组（QB_SET_2COL，2026-10-08 三稿）：推荐五人本五字独占整行（220 宽半列放不下），
+    -- 专业 / 探索双列；非永服只有推荐五人本一行。
     Header(L["显示分组"])
-    for _, def in ipairs({
-        { key = "dungeon", label = L["推荐五人本"] },
-        { key = "prof",    label = L["专业"] },
-        { key = "explore", label = L["探索"] },
-    }) do
-        if ns.LoadForeverPages or def.key == "dungeon" then
-            local key = def.key
-            set.group[key] = ToggleRow(def.label,
-                function() return ns.QuickCfg().groups[key] end,
-                function(v) ns.QuickCfg().groups[key] = v end)
+    do
+        set.group.dungeon = ToggleRow(L["推荐五人本"],
+            function() return ns.QuickCfg().groups.dungeon end,
+            function(v) ns.QuickCfg().groups.dungeon = v end)
+        if ns.LoadForeverPages then
+            set.group.prof, set.group.explore = ToggleRow2(
+                L["专业"],
+                function() return ns.QuickCfg().groups.prof end,
+                function(v) ns.QuickCfg().groups.prof = v end,
+                L["探索"],
+                function() return ns.QuickCfg().groups.explore end,
+                function(v) ns.QuickCfg().groups.explore = v end)
         end
     end
 
     Header(L["专业列表"])
     do
-        local learned = Chip(pop, L["只看已学"], 68, 22)
-        local all = Chip(pop, L["全部"], 68, 22)
-        learned:SetPoint("TOPRIGHT", pop, "TOPRIGHT", -SET_PAD, y)
+        local learned = Chip(host, L["只看已学"], 68, 22)
+        local all = Chip(host, L["全部"], 68, 22)
+        learned:SetPoint("TOPRIGHT", host, "TOPRIGHT", 6 - SET_PAD, hy)
         all:SetPoint("RIGHT", learned, "LEFT", -6, 0)
         set.chipLearned, set.chipAll = learned, all
         learned:SetScript("OnClick", function()
@@ -646,16 +771,26 @@ function QB:EnsureSettings()
             QB:SyncSettings()
             QB:Apply()
         end)
-        y = y - SET_ROW_H
+        hy = hy - SET_ROW_H
     end
 
+    -- 探索子页：双列（QB_SET_2COL）
     Header(L["探索子页"])
-    for _, def in ipairs(EXPLORE_DEFS) do
-        local key = def.key
-        set.expl[key] = ToggleRow(def.text,
-            function() return ns.QuickCfg().expl[key] end,
-            function(v) ns.QuickCfg().expl[key] = v end)
+    for i = 1, #EXPLORE_DEFS, 2 do
+        local m, n2 = EXPLORE_DEFS[i], EXPLORE_DEFS[i + 1]
+        local gm = function() return ns.QuickCfg().expl[m.key] end
+        local sm = function(v) ns.QuickCfg().expl[m.key] = v end
+        if n2 then
+            local gn = function() return ns.QuickCfg().expl[n2.key] end
+            local sn = function(v) ns.QuickCfg().expl[n2.key] = v end
+            set.expl[m.key], set.expl[n2.key] = ToggleRow2(m.text, gm, sm, n2.text, gn, sn)
+        else
+            set.expl[m.key] = ToggleRow(m.text, gm, sm)
+        end
     end
+
+    -- 卡二高度在此定稿（底边超出末行 12px）
+    if self.cardBg then self.cardBg:SetHeight(8 - hy) end
 
     self.set, self.setBuilt = set, true
     return true
@@ -678,6 +813,9 @@ function QB:SyncSettings()
     for k, tg in pairs(set.expl) do
         tg:SetChecked(cfg.expl[k] and true or false)
         Gate(tg)
+    end
+    for k, tg in pairs(set.tabs or {}) do
+        tg:SetChecked(cfg.tabs[k] ~= false)
     end
     PaintChip(set.chipLearned, cfg.profMode ~= "all")
     PaintChip(set.chipAll, cfg.profMode == "all")

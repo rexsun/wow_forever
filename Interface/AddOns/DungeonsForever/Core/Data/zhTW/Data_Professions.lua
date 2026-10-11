@@ -11,8 +11,8 @@ if gl ~= 'zhTW' then return end
 local _, ns = ...
 
 ns.ProfData = {
-    build = "1.60.1.69913",
-    updated = "2026-09-19",
+    build = "1.60.1.70245",
+    updated = "2026-10-06",
 
     order = { "alchemy", "blacksmithing", "enchanting", "engineering", "leatherworking", "tailoring", "mining", "herbalism", "skinning", "cooking", "fishing", "first-aid", "camping" },
 
@@ -26,7 +26,7 @@ ns.ProfData = {
         ["legacy-perk-master-chef"] = { "大廚", "achievement_profession_chefhat", "Professions", 5, { "你的烹飪配方有 10% 的幾率額外產出一份成品。", "你的烹飪配方有 20% 的幾率額外產出一份成品。", "你的烹飪配方有 30% 的幾率額外產出一份成品。", "你的烹飪配方有 40% 的幾率額外產出一份成品。", "你的烹飪配方有 50% 的幾率額外產出一份成品。" }, "你的烹飪配方有 10% 的幾率額外產出一份成品。", "client_data", {} },
         ["legacy-perk-performance-bonus"] = { "表現加成", "racial_dwarf_findtreasure", "Professions", 3, { "向艾澤拉斯商業管理局或杜隆塔爾補給與後勤上交貨箱時，有 5% 的幾率使獲得的商人青睞提高 100%。", "向艾澤拉斯商業管理局或杜隆塔爾補給與後勤上交貨箱時，有 10% 的幾率使獲得的商人青睞提高 100%。", "向艾澤拉斯商業管理局或杜隆塔爾補給與後勤上交貨箱時，有 15% 的幾率使獲得的商人青睞提高 100%。" }, "向艾澤拉斯商業管理局或杜隆塔爾補給與後勤上交貨箱時，有 5% 的幾率使獲得的商人青睞提高 100%。", "client_data", {} },
         ["legacy-perk-permanence"] = { "持久", "spell_misc_emotionhappy", "Resourcefulness", 2, { "你為所有小隊或團隊成員提供長時間屬性增益的職業能力持續時間延長 50%，你在營地休息所獲得的增益持續時間也延長 50%。", "你為所有小隊或團隊成員提供長時間屬性增益的職業能力持續時間延長 100%，你在營地休息所獲得的增益持續時間也延長 100%。" }, "你為所有小隊或團隊成員提供長時間屬性增益的職業能力持續時間延長 50%，你在營地休息所獲得的增益持續時間也延長 50%。", "client_data", {} },
-        ["legacy-perk-reagent-economy"] = { "材料節約", "inv_misc_candle_02", "Resourcefulness", 1, { "你的職業技能不再需要從商人處購買的材料，且你的 1 級營地設施製作時不消耗材料。" }, "你的職業技能不再需要從商人處購買的材料，且你的 1 級營地設施製作時不消耗材料。", "client_data", {} },
+        ["legacy-perk-reagent-economy"] = { "材料節約", "inv_misc_candle_02", "Resourcefulness", 1, { "Your class abilities no longer require reagents purchaseable from vendors." }, "Your class abilities no longer require reagents purchaseable from vendors.", "client_data", {} },
         ["legacy-perk-working-overtime"] = { "加班", "inv_misc_pocketwatch_03", "Professions", 5, { "使用任何主專業、次專業或職業技能時，技能提升幾率提高 4%。", "使用任何主專業、次專業或職業技能時，技能提升幾率提高 8%。", "使用任何主專業、次專業或職業技能時，技能提升幾率提高 12%。", "使用任何主專業、次專業或職業技能時，技能提升幾率提高 16%。", "使用任何主專業、次專業或職業技能時，技能提升幾率提高 20%。" }, "使用任何主專業、次專業或職業技能時，技能提升幾率提高 4%。", "client_data", {} },
     },
 
@@ -81,6 +81,9 @@ ns.ProfData = {
                 { 279955, "大師熔爐", "inv_mace_1h_blacksmithing_b_01_black", 300, "供最高級的鍛造配方使用，並提供磨刀輪增益", "", "供最高級的鍛造配方使用", "磨刀輪", "", "", { { 273127, 1 }, { 12359, 5 }, { 8170, 2 } }, { 273113, 0 } },
             },
             perks = { "legacy-perk-performance-bonus", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
+            tips = { "配方、訓練師與完整的升級路線尚未確認。", "「專精研習」提升的是你最低的合格技能，所以想讓它加在本專業上，請先看下其他專業。" },
+            verify = { "配方、材料、技能升級顏色與製造產出數量", "訓練師、書籍、專精與所需角色等級", "本專業的里程碑詳情", "製造裝備的強度、補給箱需求與最佳搭配" },
+            unknowns = { "其他專業的里程碑、配方、訓練師與升級路線。" },
         },
         ["enchanting"] = {
             name = "附魔",
@@ -105,6 +108,9 @@ ns.ProfData = {
                 { 279987, "奧術熔爐", "inv_enchanting_modifiedcraftingreagent_indigo", 300, "供最高級的附魔配方使用，並提供附魔魯特琴增益", "", "供最高級的附魔配方使用", "附魔魯特琴", "", "", { { 273128, 1 }, { 14344, 2 }, { 16203, 4 } }, { 273116, 0 } },
             },
             perks = { "legacy-perk-performance-bonus", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
+            tips = { "配方、訓練師與完整的升級路線尚未確認。", "「專精研習」提升的是你最低的合格技能，所以想讓它加在本專業上，請先看下其他專業。" },
+            verify = { "配方、材料、技能升級顏色與製造產出數量", "訓練師、書籍、專精與所需角色等級", "本專業的里程碑詳情", "製造裝備的強度、補給箱需求與最佳搭配" },
+            unknowns = { "其他專業的里程碑、配方、訓練師與升級路線。" },
         },
         ["engineering"] = {
             name = "工程學",
@@ -114,9 +120,9 @@ ns.ProfData = {
             guide = "crafting",
             summary = "工程師在技能 20 時為營地帶來材料機器人，隨後是修理機器人和無政府主義者工作臺。測試客戶端中已包含新結構圖，以及一份可解鎖稱號「工程師」的認證。",
             status = "已實地核對",
-            recipes = 77,
+            recipes = 78,
             sub = 3,
-            kinds = { Schematic=75, Blueprint=2 },
+            kinds = { Schematic=76, Blueprint=2 },
             cert = { 271625, "工程學認證", "inv_scroll_15", 300, "工程師" },
             miles = {
                 { "工程學學徒", 150, 1 },
@@ -130,6 +136,9 @@ ns.ProfData = {
             },
             perks = { "legacy-perk-performance-bonus", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
             racials = { { "racial-gnome-engineering-specialization", "Engineering", "據稱可提升裝置可靠性；具體故障率不明。" } },
+            tips = { "配方、訓練師與完整的升級路線尚未確認。", "「專精研習」提升的是你最低的合格技能，所以想讓它加在本專業上，請先看下其他專業。" },
+            verify = { "配方、材料、技能升級顏色與製造產出數量", "訓練師、書籍、專精與所需角色等級", "本專業的里程碑詳情", "製造裝備的強度、補給箱需求與最佳搭配" },
+            unknowns = { "其他專業的里程碑、配方、訓練師與升級路線。" },
         },
         ["leatherworking"] = {
             name = "制皮",
@@ -154,6 +163,9 @@ ns.ProfData = {
                 { 279945, "縫紉機", "inv_tailoring_modifiedcraftingreagent_orange", 300, "供最高級的制皮配方使用，並提供營地帳篷加成", "", "供最高級的制皮配方使用", "營地帳篷", "", "", { { 273130, 1 }, { 8170, 5 }, { 14341, 1 } }, { 273121, 0 } },
             },
             perks = { "legacy-perk-performance-bonus", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
+            tips = { "配方、訓練師與完整的升級路線尚未確認。", "「專精研習」提升的是你最低的合格技能，所以想讓它加在本專業上，請先看下其他專業。" },
+            verify = { "配方、材料、技能升級顏色與製造產出數量", "訓練師、書籍、專精與所需角色等級", "本專業的里程碑詳情", "製造裝備的強度、補給箱需求與最佳搭配" },
+            unknowns = { "其他專業的里程碑、配方、訓練師與升級路線。" },
         },
         ["tailoring"] = {
             name = "裁縫",
@@ -178,6 +190,9 @@ ns.ProfData = {
                 { 279959, "織布機", "inv_tailoring_80_tidespraylinen", 300, "供最高級的裁縫配方使用，並提供陣營旗幟增益", "", "供最高級的裁縫配方使用", "陣營旗幟", "", "", { { 273131, 1 }, { 14048, 4 }, { 4470, 4 } }, { 273124, 0 } },
             },
             perks = { "legacy-perk-performance-bonus", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
+            tips = { "配方、訓練師與完整的升級路線尚未確認。", "「專精研習」提升的是你最低的合格技能，所以想讓它加在本專業上，請先看下其他專業。" },
+            verify = { "配方、材料、技能升級顏色與製造產出數量", "訓練師、書籍、專精與所需角色等級", "本專業的里程碑詳情", "製造裝備的強度、補給箱需求與最佳搭配" },
+            unknowns = { "其他專業的里程碑、配方、訓練師與升級路線。" },
         },
         ["mining"] = {
             name = "採礦",
@@ -194,7 +209,7 @@ ns.ProfData = {
             },
             perks = { "legacy-perk-bountiful-harvest", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
             tips = { "想獲得稀缺材料就看「豐收」這項特權；「加班」則是有助於技能提升。", "「專精研習」只會提升最低的合格專業技能，使用前請先確認自己的各項技能。", "無限服的礦石表、訓練師與升級路線尚未確認。" },
-            verify = { "無限服的礦石與稀缺材料清單", "礦／草藥點位置、刷新規則與採集閾值", "訓練師、工具、熔鍊配方與升級路線", "專業搭配與實際金幣收益" },
+            verify = { "無限服的礦石與稀缺材料清單", "礦／草藥點位置、刷新規則與採集閾值", "訓練師、工具、熔煉配方與升級路線", "專業搭配與實際金幣收益" },
             unknowns = { "可產出稀缺材料的種類、礦／草藥點位置、掉落表與刷新時間。" },
         },
         ["herbalism"] = {
@@ -214,6 +229,7 @@ ns.ProfData = {
             racials = { { "racial-tauren-cultivation", "Herbalism", "據稱無需學習採藥即可種植草藥。" } },
             tips = { "想獲得稀缺材料就看「豐收」這項特權；「加班」則是有助於技能提升。", "「專精研習」只會提升最低的合格專業技能，使用前請先確認自己的各項技能。", "無限服的草藥表、訓練師與升級路線尚未確認。" },
             verify = { "無限服的草藥與稀缺材料的定義", "區域、礦／草藥點位置、刷新時間與所需技能", "訓練師、追蹤機制與升級路線", "已驗證的製造用途與專業搭配" },
+            unknowns = { "可產出稀缺材料的種類、礦／草藥點位置、掉落表與刷新時間。" },
         },
         ["skinning"] = {
             name = "剝皮",
@@ -231,6 +247,7 @@ ns.ProfData = {
             perks = { "legacy-perk-bountiful-harvest", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
             tips = { "想獲得稀缺材料就看「豐收」這項特權；「加班」則是有助於技能提升。", "「專精研習」只會提升最低的合格專業技能，使用前請先確認自己的各項技能。", "無限服的皮革表、訓練師與升級路線尚未確認。" },
             verify = { "可剝皮的生物與技能要求", "皮革、毛皮與稀缺材料表", "訓練師與工具的要求", "升級路線與當前的製造需求" },
+            unknowns = { "可產出稀缺材料的種類、礦／草藥點位置、掉落表與刷新時間。" },
         },
         ["cooking"] = {
             name = "烹飪",
@@ -238,7 +255,7 @@ ns.ProfData = {
             kind = "secondary",
             section = "cooking",
             guide = "cooking",
-            summary = "廚師負責搭建營火本身：基礎營火可容納 3 個營地物件，學徒營火 5 個，專家營火 10 個，此外還有「廚師的盛宴」和鐵爐。深度解析中展示的食物在飽食狀態下還能讓擊殺獲得的經驗提高 5%，從烹飪 25 的「美味迅猛龍肉塊」起算。傳承特權使配方有幾率多產出，並延長食物增益的持續時間。",
+            summary = "Cooks build the campfire itself: the basic kit holds 3 camp objects, the Journeyman kit 5 and the Expert kit 10, with Cookie's Feast and an Iron Oven on top. Almost every dish that makes you well fed also raises experience from kills by 5%, from the first recipes at Cooking 1. Legacy perks give recipes a chance at an extra result and make food buffs last longer.",
             status = "實拍與轉述混合",
             recipes = 40,
             sub = 5,
@@ -272,13 +289,13 @@ ns.ProfData = {
             },
             perks = { "legacy-perk-luremaster", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
             tips = { "魚缸需要一條新鮮的光亮小魚（經典舊世裏在起始區域的淡水中可釣到）和一個從商人處購買的空瓶。", "釣具架或釣魚小屋架設在魚缸之上，保留其全屬性 +8% 的效果。", "留意你的魚餌：「魚餌大師」的額外漁獲幾率需要魚餌處於生效狀態。", "若希望這點技能加在釣魚上，使用「專精研習」前請先確認自己最低的採集／製造技能是哪一項。", "以下要點尚未確認。" },
-            verify = { "遊戲內訓練師與供應商的位置（Wowhead 資料庫）", "漁獲表與各區域所需的技能", "釣具架與釣魚小屋能為漁獲帶來什麼", "圖紙的掉落地點，以及「尋找漁點」的學習方式", "「魚餌大師」可觸發的漁獲" },
+            verify = { "遊戲內訓練師與供應商的位置（無限服實測點位）", "漁獲表與各區域所需的技能", "釣具架與釣魚小屋能為漁獲帶來什麼", "圖紙的掉落地點，以及「尋找漁點」的學習方式", "「魚餌大師」可觸發的漁獲" },
             unknowns = { "可釣獲的種類與 2 級效果。" },
             steps_title = "釣魚怎麼釣",
-            steps_note = "訓練師與供應商的座標均為無限服實測點位；其餘為客戶端自身的文本。",
+            steps_note = "訓練師與供應商的點位均按無限服實測校準，瓦拉納爾的那位來自內測玩家分享；其餘為客戶端自身的文本。",
             steps = {
                 { "學習釣魚", "向釣魚訓練師學習。每個主城都有一位，浮空城瓦拉納爾的池塘邊也有一位。學習後還能習得「魚餌與釣具」，用於在營地放置釣魚物件。" },
-                { "裝備魚竿", "從訓練師附近的釣魚供應商處購買一根魚竿，並從揹包中裝備。它佔用雙手，沒有魚竿就無法釣魚。" },
+                { "裝備魚竿", "從訓練師附近的釣魚供應商處購買一根魚竿，並從背包中裝備。它佔用雙手，沒有魚竿就無法釣魚。" },
                 { "向水中拋竿", "面向開闊水面，從法術書中施放釣魚。浮標濺起水花時，右鍵點擊即可釣上魚。" },
                 { "從低級水域開始", "技能越高，在高級區域越容易釣上魚。如果魚總是跑掉，就換到更低級的區域，或給魚竿裝上魚餌。" },
             },
@@ -358,13 +375,13 @@ ns.ProfData = {
             description = "無限服的營地系統詳解：三種營火、各專業在技能 20 / 140 / 300 時提供什麼、增益效果、所需材料與休息經驗。",
             status = "官方說明的系統",
             perks = { "legacy-perk-field-guide", "legacy-perk-permanence", "legacy-perk-reagent-economy" },
-            tips = { "營地增益與它所模仿的職業增益不疊加，例如魚缸與王者祝福：兩者只能保有一個。", "只有制皮的露營帳篷（以及替代它的鞣製架、縫紉機）提供休息經驗。在帳篷旁待 30 秒可把休息經驗提升到同級 5%，每小時一次；若已有更多則無效果。", "陣營旗幟只對與你同陣營的玩家生效。", "營地物件可以交易，但放置它需要具備其標註的專業技能。", "經常佈置營地設施？看看「野外指南」與「材料經濟」。想讓兩次停留之間的增益持續更久，就看「持久」。", "指望免費材料前先確認設施的檔位。「材料經濟」只涵蓋了 1 檔。", "以下要點尚未確認。" },
+            tips = { "營地增益與它所模仿的職業增益不疊加，例如魚缸與王者祝福：兩者只能保有一個。", "只有制皮的露營帳篷（以及替代它的鞣製架、縫紉機）提供休息經驗。在帳篷旁待 30 秒可把休息經驗提升到同級 5%，每小時一次；若已有更多則無效果。", "Most dishes a cook makes also give 5% more experience from kills (not from quests) while you are well fed. The Cooking page lists which ones.", "陣營旗幟只對與你同陣營的玩家生效。", "營地物件可以交易，但放置它需要具備其標註的專業技能。", "經常佈置營地設施？看看「野外指南」與「材料經濟」。想讓兩次停留之間的增益持續更久，就看「持久」。", "指望免費材料前先確認設施的檔位。「材料經濟」只涵蓋了 1 檔。", "以下要點尚未確認。" },
             verify = { "每張圖紙的掉落地點", "一次製造產出幾個：客戶端顯示 1 個，Wowhead 顯示 2 個", "營地在城市與副本中是否可用", "獲取他人營地增益是否需要處於同一隊伍" },
             unknowns = { "圖紙的掉落來源。" },
             steps_title = "營地系統怎麼運作",
             steps_note = "大約 5 級時，任務「戶外生活」會讓你在營火旁坐下，然後指引你去找烹飪訓練師學習「基礎營火」；訓練師出售簡易木柴和燧石與火絨。此後你學會的每個專業都會獲得一個任務，交給對應訓練師即可學會該專業的第一個營地物件。（出自 Wowhead 的營地總覽；客戶端中沒有這些任務。）",
             steps = {
-                { "搭建營火", "廚師用一份普通木料製作初級營火工具包（揹包中需有燧石與火絨），然後放置它。它持續燃燒 15 分鐘，且 100 碼範圍內不能存在其他營火。" },
+                { "搭建營火", "廚師用一份普通木料製作初級營火工具包（背包中需有燧石與火絨），然後放置它。它持續燃燒 15 分鐘，且 100 碼範圍內不能存在其他營火。" },
                 { "放置你的物件", "專業技能達到 20 後，你可以把該專業的物件放到火邊；其他物件由其他玩家提供。你的營地物件共享一小時冷卻。" },
                 { "坐下休息一分鐘", "任何人在火邊坐下或製作滿一分鐘，即可獲得周圍物件的增益。增益持續一小時，所以拿到後就可以離開。" },
             },

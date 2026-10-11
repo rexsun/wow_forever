@@ -1,0 +1,19 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Script file="Defaults.lua"/>
+    <Script file="Adapter.lua"/>
+    <Script file="HotDiagnostics.lua"/>
+    <Script file="ConflictGuard.lua"/>
+    <Script file="Skins.lua"/>
+    <Script file="Visuals.lua"/>
+    <Script file="ConfigSets.lua"/>
+    <Script file="Recipes.lua"/>
+    <Script file="SecureFactory.lua"/>
+    <Script file="Drivers.lua"/>
+    <Script file="LayoutBridge.lua"/>
+    <Script file="Keybinds.lua"/>
+    <Script file="KeybindMode.lua"/>
+    <Script file="BarManager.lua"/>
+    <Script file="SettingsBridge.lua"/>
+    <Script file="Stats.lua"/>
+    <Script file="YActionBar.lua"/>
+</Ui>

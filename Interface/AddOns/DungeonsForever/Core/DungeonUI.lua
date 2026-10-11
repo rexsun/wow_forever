@@ -73,6 +73,24 @@ local function NewButton(parent, text, w, h, size)
     return bt
 end
 
+-- 按钮左侧小图标（自制 64px 超采样贴图：EntryPin=定位 pin）：
+-- 建纹理 + 文字区整体右移让位，文字仍在剩余区域内居中。
+local function AddBtnIcon(bt, tex, size, pad)
+    local fs = bt:GetFontString()
+    local t = bt:CreateTexture(nil, "OVERLAY")
+    t:SetTexture("Interface\\AddOns\\DungeonsForever\\Media\\" .. tex)
+    t:SetSize(size, size)
+    t:SetPoint("LEFT", bt, "LEFT", pad or 5, 0)
+    if fs then
+        fs:ClearAllPoints()
+        fs:SetPoint("TOPLEFT", bt, "TOPLEFT", (pad or 5) + size + 2, 0)
+        fs:SetPoint("BOTTOMRIGHT", bt, "BOTTOMRIGHT", -2, 0)
+        fs:SetJustifyH("CENTER")
+    end
+    bt.__icon = t
+    return t
+end
+
 local function MakeOutline(bt, r, g, b)
     if IsHui() and ns.hui and ns.hui.BuildRoundBorder then
         local f = CreateFrame("Frame", nil, bt)
@@ -103,6 +121,42 @@ local function MakeOutline(bt, r, g, b)
     mk(2, nil, "TOPRIGHT", 2, 0, "BOTTOMRIGHT", 2, 0)
     bt.__bars = bars
     return bars
+end
+
+-- ★★★ HUI 圆角卡片助手（2026-10-10 五人本页色阶规整）：给池化行/卡帧挂圆角底
+--   （+白 10% 细边）与悬停胶囊（BACKGROUND sub=2：盖过 sub=1 的底、不盖 ARTWORK 图标/文字）。
+--   ★ baseN = 底色档位（1~5，默认 1）：「卡中卡必须提亮」——内卡在外层容器卡（L1 底板）里
+--     时传 2（L2），悬停胶囊按 +2 档惯例跟着走（L1→L3 / L2→L4 / L3、L4→L5 封顶）。
+--   状态机 HuiCardState："norm"=露底 / "hover"=叠胶囊 / "flat"=全隐（卡片视图的卡内扁平行）。
+--   非 hui 主题 HuiCardFX 返回 false ⇒ 调用方继续走旧 SetBackdrop 路径，跨版本兼容不变。
+local function HuiCardFX(f, hoverR, baseN)
+    if not (IsHui() and ns.hui and ns.hui.BuildRoundedBG) then return false end
+    local lv = ns.hui.layer
+    local base, hov = lv.L1, lv.L3
+    if baseN == 2 then base, hov = lv.L2, lv.L4
+    elseif baseN == 3 then base, hov = lv.L3, lv.L5
+    elseif baseN == 4 then base, hov = lv.L4, lv.L5 end
+    if f.SetBackdropColor then f:SetBackdropColor(0, 0, 0, 0) end
+    if f.SetBackdropBorderColor then f:SetBackdropBorderColor(0, 0, 0, 0) end
+    local fill, border = ns.hui.BuildRoundedBG(f, 6, base, "both", true, 1)
+    f.__huiCard = { fill = fill, border = border }
+    if hoverR and ns.hui.BuildCapsule then
+        local hp = ns.hui.BuildCapsule(f, hoverR, hov, 1, 2)
+        for _, t in ipairs(hp) do t:Hide() end
+        f.__hov = hp
+    end
+    return true
+end
+
+local function HuiCardState(f, st)
+    local bp = f.__huiCard
+    if not bp then return false end
+    local showBase = (st ~= "flat")
+    if bp.fill then for _, t in ipairs(bp.fill) do t:SetShown(showBase) end end
+    if bp.border then for _, t in ipairs(bp.border) do t:SetShown(showBase) end end
+    local hov = (st == "hover")
+    if f.__hov then for _, t in ipairs(f.__hov) do t:SetShown(hov) end end
+    return true
 end
 
 local function SetOutline(bt, on, r, g, b)
@@ -136,9 +190,9 @@ local function EnsureContent()
     local panel = CreateFrame("Frame", nil, host, "BackdropTemplate")
     panel:SetSize(CONTENT_W, CONTENT_H)
     panel:SetPoint("TOP", host, "TOP", 0, -(IsHui() and 44 or 76))
-    if IsHui() and ns.hui and ns.hui.SkinPopup then
-        ns.hui.SkinPopup(panel, 8)
-    end
+    -- ★ 2026-10-10 用户指示：删掉内容面板的 L1 底（原 SkinPopup(panel, 8) 默认 L1）。
+    --   主窗压 L0 后这层 L1 外壳浮成一个大亮框（用户截图圈红）；删除后页面内容直接坐
+    --   在 L0 窗口上，阶梯收敛为 窗口 L0 < 底板/容器卡 L1 < 内卡 L2 < 悬停 L4。
     U.panel = panel
     return panel
 end
@@ -175,7 +229,7 @@ local function ShowSourceURL(url)
 end
 
 local function MakeSourceCredit(panel, label, url, prev)
-    local fs = MakeFS(panel, 11, C_GREY, "RIGHT")
+    local fs = MakeFS(panel, 14, C_GREY, "RIGHT")
     if prev then
         fs:SetPoint("RIGHT", prev, "LEFT", -18, 0)
     else
@@ -225,11 +279,11 @@ DG.NEW_EDGE = { 0.19, 0.62, 0.47 }
 DG.OLD_EDGE = { 0.30, 0.35, 0.50 }
 DG.NOART_COLOR = { 0.26, 0.28, 0.32 }
 
-DG.HERO_H = 120
+DG.HERO_H = 144   -- 2026-10-10：hero 顶上移到轨道下 8 后，省出的高度补给卡高（120 → 144）
 DG.HERO_PLATE_H = 40
-DG.HERO_TITLE_Y, DG.HERO_META_Y = 84, 104
+DG.HERO_TITLE_Y, DG.HERO_META_Y = DG.HERO_H - 36, DG.HERO_H - 16   -- ★ 钉在底部压黑条上（120 高时 = 84/104 原值），随 HERO_H 联动
 DG.FILTER_Y = DG.HERO_H + 8
-DG.SCROLL_Y = DG.FILTER_Y + 34
+DG.SCROLL_Y = DG.FILTER_Y + 32   -- 筛选行(24高)底 → 内容顶 = 8（间距标准 2026-10-10：34→32）
 DG.GUIDE_TOP_Y = DG.HERO_H + 8
 DG.HERO_TEX_OFFICIAL = { 0.02, 0.98, 0.422, 0.668 }
 DG.HERO_TEX_CAMELOT = { 0.00, 1.00, 0.372, 0.628 }
@@ -264,6 +318,9 @@ function DG.ArtOf(d, kind)
 end
 
 function DG.PaintArt(tex, d, kind)
+    -- ★ 原画抬到 BACKGROUND sub=2（2026-10-10）：卡背 backdrop 填充与原画同层，
+    --   forever 引擎同层绘制次序不可靠，不透明 L2 底会随机盖掉原画 → 统一抬 sub 层级。
+    tex:SetDrawLayer("BACKGROUND", 2)
     local art, coord = DG.ArtOf(d, kind)
     if art then
         tex:SetTexture(art)
@@ -271,7 +328,13 @@ function DG.PaintArt(tex, d, kind)
         else tex:SetTexCoord(0, 1, 0, 1) end
         return true
     end
-    tex:SetColorTexture(DG.NOART_COLOR[1], DG.NOART_COLOR[2], DG.NOART_COLOR[3], 1)
+    if IsHui() and ns.hui and ns.hui.layer then
+        -- 无原画占位：hui 主题下用 L2（旧 NOART 中灰不在 L 色阶内）
+        local c = ns.hui.layer.L2
+        tex:SetColorTexture(c[1], c[2], c[3], 1)
+    else
+        tex:SetColorTexture(DG.NOART_COLOR[1], DG.NOART_COLOR[2], DG.NOART_COLOR[3], 1)
+    end
     return false
 end
 
@@ -309,13 +372,33 @@ function DG.Pack(list)
 end
 
 DG.CARD_COLS, DG.CARD_H, DG.CARD_GAP = 5, 58, 8
-DG.CHILD_W = CONTENT_W - PAGE_INSET * 2 - 28
-DG.CARD_W = math.floor((DG.CHILD_W - (DG.CARD_COLS - 1) * DG.CARD_GAP) / DG.CARD_COLS)
+-- ★★★ 全局间距标准（2026-10-10 用户定案「方案二 · 纯两值制」）：
+--   窗沿 20（= PAGE_INSET 12 + GUTTER 8）· 卡↔卡 / 卡↔按钮 / 按钮↔按钮 / 卡↔上方轨道
+--   全部 = GUTTER(8)——含按钮，按钮也是卡。组间距也按 8（不再单独放宽）。
+--   卡内内衬（LOOT_PAD_X / GUIDE_PAD 等）不属于此标准，沿用现值。
+DG.GUTTER = 8
+DG.CHILD_W = CONTENT_W - PAGE_INSET * 2
+-- ★ 列表卡栅格住在大卡片（12…948）里，两侧各让 GUTTER(8) 内衬 ⇒ 可用宽 = CHILD_W-16；
+--   否则末列右缘 952 > 大卡右缘 948，超出 4px（2026-10-10 实锤）。
+DG.CARD_W = math.floor((DG.CHILD_W - DG.GUTTER * 2 - (DG.CARD_COLS - 1) * DG.CARD_GAP) / DG.CARD_COLS)
 
 function DG.WheelScroll(scroll, child, delta)
     if not (scroll and child) then return end
     local maxScroll = math.max(0, child:GetHeight() - scroll:GetHeight())
     scroll:SetVerticalScroll(math.max(0, math.min(maxScroll, scroll:GetVerticalScroll() - delta * 48)))
+end
+
+-- 副本卡描边统一入口：hui 走圆角描边件（OVERLAY），非 hui 走方形 backdrop 边。
+local function CardEdge(card, r, g, b, a)
+    a = a or 1
+    if card.__rborder then
+        for _, t in ipairs(card.__rborder) do
+            t:SetVertexColor(r, g, b)
+            t:SetAlpha(a)
+        end
+    else
+        card:SetBackdropBorderColor(r, g, b, a)
+    end
 end
 
 function DG.NewCard(parent)
@@ -327,20 +410,33 @@ function DG.NewCard(parent)
         edgeSize = 1,
     })
     card:SetBackdropColor(0, 0, 0, 0)
+    -- ★ 圆角皮（2026-10-10 用户定）：hui 下卡 = L2 圆角底件 + 原画蒙版裁角 + 分组色圆角描边件；
+    --   非 hui 维持方形 backdrop 兜底（跨版本兼容不变）。
+    local rounded = false
+    if IsHui() and ns.hui and ns.hui.BuildRoundedBG then
+        -- 卡中卡提亮（列表大卡 L1 → 副本卡 L2）：原画缺失 / 加载间隙露出的是 L2 底
+        ns.hui.BuildRoundedBG(card, 6, ns.hui.layer.L2, "both", false)
+        card:SetBackdropBorderColor(0, 0, 0, 0)   -- 方形 backdrop 边退场，描边交给圆角件
+        if ns.hui.BuildRoundBorder then
+            card.__rborder = ns.hui.BuildRoundBorder(card, 6, ns.hui.CARD_BORDER, card, "OVERLAY", "both", 1)
+        end
+        rounded = true
+    end
     card.art = card:CreateTexture(nil, "BACKGROUND")
     card.art:SetAllPoints()
+    if rounded and ns.hui and ns.hui.RoundIcon then ns.hui.RoundIcon(card.art) end
     card.dim = card:CreateTexture(nil, "ARTWORK")
     card.dim:SetAllPoints()
-    card.stripe = card:CreateTexture(nil, "OVERLAY")
-    card.stripe:SetWidth(3)
-    card.stripe:SetPoint("TOPLEFT", card, "TOPLEFT", 1, -1)
-    card.stripe:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", 1, 1)
-    card.stripe:SetColorTexture(DG.NEW_EDGE[1], DG.NEW_EDGE[2], DG.NEW_EDGE[3], 1)
     card.plate = card:CreateTexture(nil, "ARTWORK")
     card.plate:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", 1, 1)
     card.plate:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -1, 1)
     card.plate:SetHeight(20)
-    card.plate:SetColorTexture(0, 0, 0, 0.55)
+    if IsHui() then
+        -- ① 名牌：黑色垂直渐隐贴图（顶 alpha0 → 底 alpha0.75），顶部融入原画不再有硬边
+        card.plate:SetTexture("Interface\\AddOns\\DungeonsForever\\Media\\VGradient")
+    else
+        card.plate:SetColorTexture(0, 0, 0, 0.55)
+    end
     card.name = MakeFS(card, 16, C_WHITE, "LEFT")
     card.name:SetPoint("TOPLEFT", card, "TOPLEFT", 8, -5)
     card.name:SetWordWrap(false)
@@ -348,17 +444,27 @@ function DG.NewCard(parent)
     card.meta:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", 8, 3)
     card.meta:SetShadowColor(0, 0, 0, 1)
     card.meta:SetShadowOffset(1, -1)
-    card.badge = MakeFS(card, 11, { 0.42, 0.94, 0.62 }, "RIGHT")
+    card.badge = MakeFS(card, 14, { 0.42, 0.94, 0.62 }, "RIGHT")
     card.badge:SetPoint("TOPRIGHT", card, "TOPRIGHT", -7, -4)
     card.badge:SetText(L["新"])
+    -- 悬停 = 边框高亮（2026-10-10 用户定案）：满幅原画卡不用胶囊/色块悬停（整面像素覆盖观感差），
+    -- 也不走 HuiCardFX（白 10% 细边与分组语义色边冲突）；悬停换白色描边，离开还原分组语义色边。
+    card.__hovOn = false
     card:SetScript("OnEnter", function(self)
+        self.__hovOn = true
+        CardEdge(self, 1, 1, 1, 0.9)
         if not self.__tip then return end
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:ClearLines()
         GameTooltip:AddLine(self.__tip, 1, 1, 1, true)
         GameTooltip:Show()
     end)
-    card:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    card:SetScript("OnLeave", function(self)
+        self.__hovOn = false
+        local e = self.__edge
+        if e then CardEdge(self, e[1], e[2], e[3], e[4]) end
+        GameTooltip:Hide()
+    end)
     card:EnableMouseWheel(true)
     card:SetScript("OnMouseWheel", function(self, delta)
         DG.WheelScroll(U.dungeonListScroll, U.dungeonListChild, delta)
@@ -448,34 +554,40 @@ function DG.BuildList()
             ui.hit:EnableMouseWheel(true)
             ui.hit:SetScript("OnMouseWheel", function(self, delta)
                 DG.WheelScroll(U.dungeonListScroll, U.dungeonListChild, delta)
+                DG.CullListRows()
             end)
             pool.hdr[nHdr] = ui
         end
         local isClosed = collapsed[g.key] == true
+        ui.__closed = isClosed   -- 剔除恢复时用（arrD/arrU 互斥）
+        ui.__active = true
         ui.txt:SetTextColor(Unpack(g.color))
         ui.txt:SetText(g.label .. " · " .. #list .. L[" 个"])
         ui.txt:ClearAllPoints()
-        ui.txt:SetPoint("TOPLEFT", child, "TOPLEFT", 14, y)
+        -- x = GUTTER(8) + 箭头 10 + 间隙 4：箭头 8~18，文字 14 起会压住箭头尖（实机 2026-10-10）
+        ui.txt:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUTTER + 14, y)
         for _, at in ipairs({ ui.arrD, ui.arrU }) do
             at:SetVertexColor(g.color[1], g.color[2], g.color[3])
             at:ClearAllPoints()
-            at:SetPoint("TOPLEFT", child, "TOPLEFT", 0, y - 2)
+            at:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUTTER, y - 2)
         end
         ui.arrD:SetShown(not isClosed)
         ui.arrU:SetShown(isClosed)
         ui.hint:SetText(g.hint)
         ui.hint:ClearAllPoints()
-        ui.hint:SetPoint("TOPRIGHT", child, "TOPRIGHT", 0, y - 1)
+        ui.hint:SetPoint("TOPRIGHT", child, "TOPRIGHT", -DG.GUTTER, y - 1)
         ui.div:SetColorTexture(g.color[1], g.color[2], g.color[3], 0.30)
         ui.div:ClearAllPoints()
-        ui.div:SetPoint("TOPLEFT", ui.txt, "BOTTOMLEFT", -14, -6)
-        ui.div:SetPoint("RIGHT", child, "RIGHT", 0, 0)
+        ui.div:SetPoint("TOPLEFT", ui.txt, "BOTTOMLEFT", -(DG.GUTTER + 14), -6)
+        ui.div:SetPoint("RIGHT", child, "RIGHT", -DG.GUTTER, 0)
         ui.div:Show()
         ui.hit:ClearAllPoints()
-        ui.hit:SetPoint("TOPLEFT", child, "TOPLEFT", 0, y)
-        ui.hit:SetPoint("RIGHT", child, "RIGHT", 0, 0)
+        ui.hit:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUTTER, y)
+        ui.hit:SetPoint("RIGHT", child, "RIGHT", -DG.GUTTER, 0)
         ui.hit.__key = g.key
         ui.hit:Show()
+        ui.__vtop = -y      -- ★ 剔除算术用：组头距 child 顶的偏移（y 为负值）
+        ui.__vh = 28
         y = y - 28
 
         if isClosed then
@@ -491,23 +603,36 @@ function DG.BuildList()
                 pool.card[nCard] = card
             end
             card:ClearAllPoints()
-            card:SetPoint("TOPLEFT", child, "TOPLEFT", col * (cardW + gx), y - row * (DG.CARD_H + gx))
-            card:SetBackdropBorderColor(g.color[1], g.color[2], g.color[3], g.key == "up" and 0.30 or 0.70)
+            card:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUTTER + col * (cardW + gx), y - row * (DG.CARD_H + gx))
+            local ea = (g.key == "up") and 0.30 or 0.70
+            card.__edge = { g.color[1], g.color[2], g.color[3], ea }
+            CardEdge(card, g.color[1], g.color[2], g.color[3], ea)
             DG.PaintArt(card.art, d, "wide")
             card.dim:SetColorTexture(0, 0, 0,
                 (g.key == "rec") and 0.38 or ((g.key == "now") and 0.52 or 0.66))
-            card.stripe:SetShown(d.isNew and true or false)
             card.name:SetTextColor(Unpack((g.key == "up") and C_DIM or C_WHITE))
             card.name:SetText(d.name)
             card.name:ClearAllPoints()
             card.name:SetPoint("TOPLEFT", card, "TOPLEFT", 8, -5)
-            card.name:SetPoint("RIGHT", card, "RIGHT", d.isNew and -20 or -8, 0)
+            card.name:SetPoint("RIGHT", card, "RIGHT", d.isNew and -24 or -8, 0)
             card.meta:SetText(d.levelMin .. "–" .. d.levelMax ..
                 (d.bossCount and (" · BOSS " .. d.bossCount) or ""))
             card.badge:SetShown(d.isNew and true or false)
             card.__tip = d.name .. "  " .. d.nameEn .. "\n" ..
                 format(L["等级 %d–%d · %s"], d.levelMin, d.levelMax, d.zone or L["位置未知"])
             card.__d = d
+            card.__active = true
+            card.__vtop = -y + row * (DG.CARD_H + gx)   -- ★ 剔除算术用：卡顶距 child 顶的偏移
+            card.__vh = DG.CARD_H
+            -- 悬停态随行池复用复位：按真实鼠标位置重建边框高亮，防「上一次悬停残影」
+            if card.IsMouseOver and card:IsMouseOver() then
+                card.__hovOn = true
+                CardEdge(card, 1, 1, 1, 0.9)
+            else
+                card.__hovOn = false
+                local e = card.__edge
+                CardEdge(card, e[1], e[2], e[3], e[4])
+            end
             card:Show()
         end
 
@@ -516,8 +641,12 @@ function DG.BuildList()
         end
     end
 
-    for i = nCard + 1, #pool.card do pool.card[i]:Hide() end
+    for i = nCard + 1, #pool.card do
+        pool.card[i].__active = false
+        pool.card[i]:Hide()
+    end
     for i = nHdr + 1, #pool.hdr do
+        pool.hdr[i].__active = false
         pool.hdr[i].txt:Hide()
         pool.hdr[i].hint:Hide()
         pool.hdr[i].div:Hide()
@@ -526,6 +655,76 @@ function DG.BuildList()
         pool.hdr[i].hit:Hide()
     end
     child:SetHeight(math.max(10, -y + 10))
+    DG.CullListRows()
+end
+
+-- ★★★ 视口剔除（引擎无关）：forever 客户端的 ScrollFrame 不裁剪 scrollchild——
+--   滚动区外的末行卡片直接画出视口底、盖过大卡底边直到底窗沿（2026-10-10 截图实锤）。
+--   不赌引擎裁剪行为，纯 Show/Hide：与视口相交的行才显示。
+-- ★★ 单向门破案（2026-10-10 用户实测：每滚一次内容就消失一批、回滚也回不来）：
+--   旧判据用 card:GetTop/GetBottom——隐藏帧在本引擎量不到矩形（返回 nil），行被剔除
+--   Hide 后永远过不了 type 检查、无法重新 Show；且 SetVerticalScroll 同帧取矩形拿到
+--   的是上一帧旧值，边界行被误杀。改为纯算术（职业指南页十五轮同款定式）：paint 登记的
+--   __vtop/__vh（距 child 顶偏移/高）直接对 [scroll, scroll+viewH] 做区间判定，
+--   无论当前显隐一律参与——被隐藏的行回滚进视口后能重新 Show。
+function DG.CullListRows()
+    local sc, pool = U.dungeonListScroll, U.dungeonListPool
+    if not (sc and pool and sc:IsShown()) then return end
+    -- ★ harness 闸门：离线桩的 GetTop 返回 table（本引擎桩陷阱）、运行时返回真数字。
+    --   桩环境下剔除空转（检查断言「35 张卡全部显示」依赖此契约）；只用滚动框自身
+    --   矩形做门控，不逐行取矩形——不会重新引入单向门。
+    local gt = sc.GetTop and sc:GetTop()
+    if type(gt) ~= "number" then return end
+    local viewH = sc.GetHeight and sc:GetHeight()
+    if type(viewH) ~= "number" then return end
+    local v = sc.GetVerticalScroll and sc:GetVerticalScroll() or 0
+    if type(v) ~= "number" then v = 0 end
+    local vTop, vBot = v - 2, v + viewH + 2   -- 2px 容差防边界抖动
+    -- ★ 遮罩片常驻（list 模式显隐由 ListFadesVisible 同步），无需按滚动量驱动。
+    for _, card in ipairs(pool.card) do
+        if not card.__active then
+            card:Hide()   -- 池尾闲置行：绝不因旧几何被剔除逻辑点亮
+        else
+            local cy = card.__vtop
+            if type(cy) == "number" then
+                local ch = card.__vh or DG.CARD_H
+                if (cy + ch) > vTop and cy < vBot then card:Show() else card:Hide() end
+            end
+        end
+    end
+    for _, ui in ipairs(pool.hdr) do
+        local parts = { ui.txt, ui.hint, ui.div, ui.hit }
+        if not ui.__active then
+            for _, part in ipairs(parts) do
+                if part then part:Hide() end
+            end
+        else
+            local cy = ui.__vtop
+            local vis = false
+            if type(cy) == "number" then
+                local ch = ui.__vh or 28
+                vis = (cy + ch) > vTop and cy < vBot
+            end
+            for _, part in ipairs(parts) do
+                if part then
+                    if vis then part:Show() else part:Hide() end
+                end
+            end
+            if ui.arrD and ui.arrU then
+                if vis and not ui.__closed then ui.arrD:Show() else ui.arrD:Hide() end
+                if vis and ui.__closed then ui.arrU:Show() else ui.arrU:Hide() end
+            end
+        end
+    end
+end
+
+-- 卡底遮罩片显隐随 listScroll 同步（四调用点：总览/详情切换三处 + 换级重建）
+function DG.ListFadesVisible(vis)
+    local fades = U.dungeonListFades
+    if not fades then return end
+    for _, f in ipairs(fades) do
+        if vis then f:Show() else f:Hide() end
+    end
 end
 
 function DG.BuildDungeons()
@@ -535,35 +734,35 @@ function DG.BuildDungeons()
     U.dungeonBuilt = true
     local page = U.dungeonPage
 
-    local SUBTAB_Y = ROW_CLASS
-    local BODY_Y = SUBTAB_Y + 36
+    -- ★ 2026-10-10 用户定案：列表为唯一视图（总览只留代码、入口删除），
+    --   视图切换按钮行与统计文案整行删除，内容整体上移。
+    local CARD_TOP = DG.GUTTER                    -- 大卡片顶 = 轨道底下 8（page 顶=轨道底，同探索页 TOP_EDGE=8 口径）
+    local DETAIL_Y = DG.GUTTER                    -- 详情页 hero 顶 = 轨道底下 8
+    local LIST_Y = CARD_TOP + DG.GUTTER           -- 列表滚动区顶 = 卡顶 + 内衬 8
+    local CARD_BOTTOM = PAGE_INSET + DG.GUTTER    -- 大卡片底 = 窗沿 20
     local listW = CONTENT_W - PAGE_INSET * 2
 
-    U.dungeonSum = MakeFS(page, 14, C_GREY, "RIGHT")
-    U.dungeonSum:SetPoint("TOPRIGHT", page, "TOPRIGHT", -6, -(SUBTAB_Y + 5))
-
-    local SW, SGAP = 86, 6
-    local views = {
-        { key = "list",     text = L["列表"], tip = L["场景图卡片墙：按能否进入分三组，点卡片看详情"] },
-        { key = "overview", text = L["总览"], tip = L["按等级排布，一眼看清全部副本分布"] },
-    }
-    U.dungeonViewBtns = {}
-    for i, def in ipairs(views) do
-        local bt = NewButton(page, def.text, SW, 24, 14)
-        bt:SetPoint("TOPLEFT", page, "TOPLEFT", 6 + (i - 1) * (SW + SGAP), -SUBTAB_Y)
-        MakeOutline(bt, 1, 0.82, 0)
-        bt.__huiKeepTextColor = true
-        U.dungeonViewBtns[def.key] = bt
-        bt:SetScript("OnClick", function()
-            U:SetDungeonView(def.key)
-            ns.PlaySound(1)
-        end)
-        SetTip(bt, def.tip)
+    -- 大卡片（L1 容器卡，固定外壳）：包住推荐 / 现在可以进入 / 还需升级 三组全部内容，
+    -- 顶边常驻可见，列表在卡内滚；进详情页时整卡隐藏（见 UpdateDungeons）。
+    local listCard = CreateFrame("Frame", nil, page)
+    listCard:SetPoint("TOPLEFT", page, "TOPLEFT", PAGE_INSET, -CARD_TOP)
+    listCard:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -PAGE_INSET, CARD_BOTTOM)   -- ★ BOTTOMRIGHT 锚 y 正=上：原 -CARD_BOTTOM 把卡底拉到页底下 20（探针实锤卡底超窗底 4px）
+    if IsHui() and ns.hui and ns.hui.BuildRoundedBG then
+        ns.hui.BuildRoundedBG(listCard, 6, ns.hui.layer.L1, "both", true, 1)
     end
+    U.dungeonListCard = listCard
+
+    local baseLv = page:GetFrameLevel()
+    -- ★★★ forever 引擎同层兄弟帧的绘制次序不可靠（同 BGLite/Titan 教训：先建的反而画在上面）。
+    --   listCard 与 listScroll 是本页第一对「整页重叠」的兄弟帧，绝不赌创建次序：显式分层。
+    --   卡壳垫底 < 滚动内容（含 detail），三层硬分离。
+    listCard:SetFrameLevel(baseLv + 1)
 
     local listScroll = CreateFrame("ScrollFrame", nil, page)
-    listScroll:SetPoint("TOPLEFT", page, "TOPLEFT", PAGE_INSET, -BODY_Y)
-    listScroll:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -PAGE_INSET, PAGE_INSET)
+    if listScroll.SetClipsChildren then listScroll:SetClipsChildren(true) end   -- 引擎有才设（9.0 API，私服可能没有；调用不存在的方法会中断构建）
+    listScroll:SetFrameLevel(baseLv + 2)
+    listScroll:SetPoint("TOPLEFT", page, "TOPLEFT", PAGE_INSET, -LIST_Y)
+    listScroll:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -PAGE_INSET, CARD_BOTTOM)   -- ★ 视口底=大卡底边（2026-10-10 定案）：骑线半卡在此硬切，切口线=卡边框
     local listChild = CreateFrame("Frame", nil, listScroll)
     listChild:SetSize(DG.CHILD_W, 10)
     listScroll:SetScrollChild(listChild)
@@ -573,20 +772,44 @@ function DG.BuildDungeons()
         if not ch then return end
         local maxScroll = math.max(0, ch:GetHeight() - self:GetHeight())
         self:SetVerticalScroll(math.max(0, math.min(maxScroll, self:GetVerticalScroll() - delta * 48)))
+        DG.CullListRows()
     end)
+    listScroll:HookScript("OnShow", function() DG.CullListRows() end)
     U.dungeonListScroll = listScroll
+
+    -- ★ 半卡裁剪（2026-10-10 三轮定案）：渐隐条两轮被用户否决（灰带观感差）→ 改「隐形裁剪」：
+    --   视口底=大卡底边（切口线=卡边框，半卡在这里硬切），骑线行下半截溢出到卡外页底带，
+    --   用与页底同色的 L0 遮罩片盖掉——盖在纯背景上完全不可见。
+    --   卡底页底带还有全局「数据来源」署名行 → 已抬到 creditLift（page+4）在遮罩之上。
+    if IsHui() and ns.hui and ns.hui.layer and ns.hui.layer.L0 then
+        local L0 = ns.hui.layer.L0
+        local mask = CreateFrame("Frame", nil, page)
+        mask:SetFrameLevel(baseLv + 3)
+        mask:SetPoint("TOPLEFT", listCard, "BOTTOMLEFT", 0, -1)     -- -1：不压卡底边框线
+        mask:SetPoint("TOPRIGHT", listCard, "BOTTOMRIGHT", 0, -1)
+        mask:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", 0, 0)
+        mask:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
+        local tex = mask:CreateTexture(nil, "OVERLAY")
+        tex:SetAllPoints()
+        tex:SetTexture("Interface\\Buttons\\WHITE8x8")
+        tex:SetVertexColor(L0[1], L0[2], L0[3], L0[4] or 1)
+        mask:Hide()
+        U.dungeonListFades = { mask }
+    end
     U.dungeonListChild = listChild
     U.dungeonListPool = { card = {}, hdr = {} }
 
     local detail = CreateFrame("Frame", nil, page)
-    detail:SetPoint("TOPLEFT", page, "TOPLEFT", PAGE_INSET, -BODY_Y)
+    detail:SetPoint("TOPLEFT", page, "TOPLEFT", PAGE_INSET, -DETAIL_Y)
     detail:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -PAGE_INSET, PAGE_INSET)
+    detail:SetFrameLevel(baseLv + 2)   -- 详情整页压在卡壳上
     detail:Hide()
     U.dungeonDetail = detail
 
-
     local oscroll = CreateFrame("ScrollFrame", nil, page)
-    oscroll:SetPoint("TOPLEFT", page, "TOPLEFT", PAGE_INSET, -BODY_Y)
+    if oscroll.SetClipsChildren then oscroll:SetClipsChildren(true) end
+    oscroll:SetFrameLevel(baseLv + 2)
+    oscroll:SetPoint("TOPLEFT", page, "TOPLEFT", PAGE_INSET, -LIST_Y)
     oscroll:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -PAGE_INSET, PAGE_INSET)
     local ochild = CreateFrame("Frame", nil, oscroll)
     ochild:SetSize(listW - 20, 10)
@@ -702,7 +925,13 @@ function DG.Gate.Ensure()
     end
     bar.bg = bar:CreateTexture(nil, "BACKGROUND")
     bar.bg:SetAllPoints()
-    bar.bg:SetColorTexture(0, 0, 0, 0.45)
+    if IsHui() and ns.hui and ns.hui.layer then
+        -- ③ 3px 发丝进度条：高度小于角径、圆角无意义，只把黑透明换成 L1 沉底
+        local L1c = ns.hui.layer.L1
+        bar.bg:SetColorTexture(L1c[1], L1c[2], L1c[3], 0.9)
+    else
+        bar.bg:SetColorTexture(0, 0, 0, 0.45)
+    end
     bar.fill = bar:CreateTexture(nil, "ARTWORK")
     bar.fill:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
     bar.fill:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 0, 0)
@@ -713,7 +942,7 @@ function DG.Gate.Ensure()
 
     local pill = CreateFrame("Frame", nil, panel, "BackdropTemplate")
     pill:SetFrameLevel(panel:GetFrameLevel() + 21)
-    pill:SetSize(186, 26)
+    pill:SetSize(200, 28)
     pill:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -10, 10)
     pill:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -723,16 +952,17 @@ function DG.Gate.Ensure()
     pill:SetBackdropColor(0, 0, 0, 0.72)
     pill:SetBackdropBorderColor(1, 0.82, 0, 0.45)
     -- ★ 圆角 8 ≥ 本插件铁律下限；非 hui 主题下上面那套纯色底 + 1px 描边就是兜底外观。
+    -- ④ hui 主题圆角皮换 L2 底（非 hui 仍走上面的黑 72% 兜底）
     if IsHui() and ns.hui and ns.hui.SkinPopup then
-        ns.hui.SkinPopup(pill, 8)
+        ns.hui.SkinPopup(pill, 8, nil, ns.hui.layer.L2)
     end
-    pill.text = MakeFS(pill, 12, C_TEXT, "LEFT")
+    pill.text = MakeFS(pill, 14, C_TEXT, "LEFT")
     pill.text:SetPoint("LEFT", pill, "LEFT", 10, 0)
     do
         local sk = CreateFrame("Button", nil, pill)
-        sk:SetSize(48, 18)
+        sk:SetSize(52, 20)
         sk:SetPoint("RIGHT", pill, "RIGHT", -5, 0)
-        local sl = MakeFS(sk, 12, C_GOLD, "CENTER")
+        local sl = MakeFS(sk, 14, C_GOLD, "CENTER")
         sl:SetPoint("CENTER", sk, "CENTER", 0, 0)
         sl:SetText(L["跳过"])
         sk:SetScript("OnClick", function() DG.Gate.Skip() end)
@@ -795,6 +1025,10 @@ function DG.Gate.Finish()
     -- ★ 演示模式（/dfgate demo）收工：把临时放宽的三道闸门还原回正式值。
     if DG.DEMO_SAVE then DG.Loader.EndDemo() end
 end
+
+-- ★ boss 模型首载进度条已退役（2026-10-11 对照定案）：模型改裸 Set +
+--   两发轻保底，不再有加载期可显 ⇒ ModelBegin/ModelSet/ModelEnd 三接口一并删除。
+--   Gate 本体（内容分帧细条 + 胶囊）不受影响。
 
 -- 载入速度档位：省电 2ms / 标准 4ms / 激进 8ms（默认标准）。
 -- ★ 三档的单帧耗时都远低于卡顿阈值（Windows 约 200ms 才判无响应）——
@@ -1016,7 +1250,8 @@ function DG.NewBossCard(dchild, arrow)
             local c = CreateFrame("Frame", nil, dchild)
             c:EnableMouse(false)
             if ns.hui and ns.hui.BuildRoundedBG then
-                ns.hui.BuildRoundedBG(c, 6, { 1, 1, 1, DG.LOOT_CARD_BG }, "both", true, 1)
+                -- 卡片视图 boss 卡容器：L1 底 + DIV 细边（旧值白 3% 不在 L 色阶内）
+                ns.hui.BuildRoundedBG(c, 6, ns.hui.layer.L1, "both", true, 1)
             end
             c.hit = CreateFrame("Button", nil, c)
             c.hit:RegisterForClicks("LeftButtonUp")
@@ -1063,11 +1298,21 @@ function DG.NewBossCard(dchild, arrow)
                 GameTooltip:AddLine(format(L["%d 件"], n), 1, 0.82, 0, true)
                 GameTooltip:AddLine(L["点击折叠 / 展开该组"], 0.55, 0.55, 0.55, true)
                 GameTooltip:Show()
-                self.__hi:Show()
+                local hi = self.__hi
+                if type(hi) == "table" then
+                    for _, t in ipairs(hi) do t:Show() end
+                else
+                    hi:Show()
+                end
             end)
             c.hit:SetScript("OnLeave", function(self)
                 GameTooltip:Hide()
-                self.__hi:Hide()
+                local hi = self.__hi
+                if type(hi) == "table" then
+                    for _, t in ipairs(hi) do t:Hide() end
+                else
+                    hi:Hide()
+                end
             end)
             -- 热区是 EnableMouse 的按钮（压在滚动容器里）⇒ 显式把滚轮转发给详情滚动条，
             -- 否则鼠标停在卡头上时整页滚不动（项目铁律：子控件一律显式转发滚轮）。
@@ -1075,10 +1320,19 @@ function DG.NewBossCard(dchild, arrow)
             c.hit:SetScript("OnMouseWheel", function(self, delta)
                 DG.WheelScroll(U.dungeonDetailScroll, U.dungeonDetailChild, delta)
             end)
-            c.hit.__hi = c.hit:CreateTexture(nil, "OVERLAY")
-            c.hit.__hi:SetAllPoints()
-            c.hit.__hi:SetColorTexture(1, 1, 1, 0.06)
-            c.hit.__hi:Hide()
+            if IsHui() and ns.hui and ns.hui.BuildCapsule then
+                -- ② 组头悬停：白 8% 圆角胶囊（2026-10-11 用户定案：L3 深色覆盖压暗观感差，
+                --    高亮应该是「提亮」而不是「压暗」；与列表行非 hui 白 6% 悬停同思路）
+                local hp = ns.hui.BuildCapsule(c.hit, 8, { 1, 1, 1, 0.08 }, 0, 2)
+                for _, t in ipairs(hp) do t:Hide() end
+                c.hit.__hi = hp
+            else
+                local htx = c.hit:CreateTexture(nil, "OVERLAY")
+                htx:SetAllPoints()
+                htx:SetColorTexture(1, 1, 1, 0.06)
+                htx:Hide()
+                c.hit.__hi = htx
+            end
             c:Hide()
     return c
 end
@@ -1160,8 +1414,9 @@ function DG.EnsureQuestLane()
     U.questLaneBuilt = true
     local qscroll = CreateFrame("ScrollFrame", nil, detail)
     qscroll:SetFrameLevel(U.dungeonDetailHero:GetFrameLevel() + 1)
-    qscroll:SetPoint("TOPLEFT", detail, "TOPLEFT", 0, -DG.SCROLL_Y)
-    qscroll:SetPoint("BOTTOMRIGHT", detail, "BOTTOMLEFT", DG.Q_LIST_W, 0)
+    -- ★ 间距标准 2026-10-10：左栏列 = GUTTER…GUTTER+Q_LIST_W（8…528），行在板内衬 Q_PAD 里
+    qscroll:SetPoint("TOPLEFT", detail, "TOPLEFT", DG.GUTTER, -DG.SCROLL_Y)
+    qscroll:SetPoint("BOTTOMRIGHT", detail, "BOTTOMLEFT", DG.GUTTER + DG.Q_LIST_W, 0)
     local qchild = CreateFrame("Frame", nil, qscroll)
     qchild:SetSize(DG.Q_LIST_W, 10)
     qscroll:SetScrollChild(qchild)
@@ -1178,10 +1433,12 @@ function DG.EnsureQuestLane()
 
     local qdet = CreateFrame("ScrollFrame", nil, detail)
     qdet:SetFrameLevel(U.dungeonDetailHero:GetFrameLevel() + 1)
-    qdet:SetPoint("TOPLEFT", detail, "TOPLEFT", DG.Q_LIST_W + DG.Q_DET_GAP, -DG.SCROLL_Y)
-    qdet:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", 0, 0)
+    -- ★ 间距标准 2026-10-10：右栏内容 = 544…920（板R 536…928 内衬 Q_PAD）
+    qdet:SetPoint("TOPLEFT", detail, "TOPLEFT",
+                  DG.GUTTER + DG.Q_LIST_W + DG.Q_DET_GAP + DG.Q_PAD, -DG.SCROLL_Y)
+    qdet:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -(DG.GUTTER + DG.Q_PAD), 0)
     local qdchild = CreateFrame("Frame", nil, qdet)
-    qdchild:SetSize(DG.CHILD_W - DG.Q_LIST_W - DG.Q_DET_GAP, 10)
+    qdchild:SetSize(DG.Q_DET_W, 10)
     qdet:SetScrollChild(qdchild)
     qdet:EnableMouseWheel(true)
     qdet:SetScript("OnMouseWheel", function(self, delta)
@@ -1193,7 +1450,7 @@ function DG.EnsureQuestLane()
     U.dungeonQDetPool = { lab = {}, kv = {}, txt = {}, node = {}, chip = {}, npc = {} }
     U.dungeonQDetName = MakeFS(qdchild, 16, C_GOLD, "LEFT")
     U.dungeonQDetName:SetWordWrap(false)
-    U.dungeonQDetName:SetWidth(DG.CHILD_W - DG.Q_LIST_W - DG.Q_DET_GAP - 8)
+    U.dungeonQDetName:SetWidth(DG.Q_DET_W - 8)
     U.dungeonQDetSt = MakeFS(qdchild, 14, C_GREY, "LEFT")
 
     local function questPlate()
@@ -1203,18 +1460,25 @@ function DG.EnsureQuestLane()
             edgeFile = "Interface\\Buttons\\WHITE8x8",
             edgeSize = 1,
         })
-        p:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
-        p:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+        -- ⑨ 任务左右面板：L1 圆角 + DIV 细边（非 hui 走旧白 3% 直角）
+        if not HuiCardFX(p) then
+            p:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
+            p:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+        end
         p:Hide()
         return p
     end
     local plateL = questPlate()
-    plateL:SetPoint("TOPLEFT", detail, "TOPLEFT", -8, -(DG.SCROLL_Y - 8))
-    plateL:SetPoint("BOTTOMRIGHT", detail, "BOTTOMLEFT", DG.Q_LIST_W + 2, 0)
+    -- ★ 间距标准 2026-10-10：两板收进栅格 —— 板L = 8…528、板R = 536…928（距窗沿 12+8=20，
+    --   板间隙 8、板顶与滚动区同顶：筛选行→板 = 8）。原来 −8/+8 外扩是给旧内容面板皮肤让位，
+    --   皮肤已删，外扩只会把板推到距窗沿 4px。
+    plateL:SetPoint("TOPLEFT", detail, "TOPLEFT", DG.GUTTER, -DG.SCROLL_Y)
+    plateL:SetPoint("BOTTOMRIGHT", detail, "BOTTOMLEFT", DG.GUTTER + DG.Q_LIST_W, 0)
     plateL:SetFrameLevel(qscroll:GetFrameLevel() - 1)
     local plateR = questPlate()
-    plateR:SetPoint("TOPLEFT", detail, "TOPLEFT", DG.Q_LIST_W + DG.Q_DET_GAP - 2, -(DG.SCROLL_Y - 8))
-    plateR:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", 8, 0)
+    plateR:SetPoint("TOPLEFT", detail, "TOPLEFT",
+                    DG.GUTTER + DG.Q_LIST_W + DG.Q_DET_GAP, -DG.SCROLL_Y)
+    plateR:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -DG.GUTTER, 0)
     plateR:SetFrameLevel(qdet:GetFrameLevel() - 1)
     U.dungeonQPlateL = plateL
     U.dungeonQPlateR = plateR
@@ -1293,6 +1557,9 @@ function DG.EnsureDetailBuilt()
     back:SetScript("OnClick", function()
         detail:Hide()
         listScroll:Show()
+        if U.dungeonListCard then U.dungeonListCard:Show() end
+        DG.ListFadesVisible(true)
+        DG.CullListRows()   -- ★ 渐隐条按滚动量精化（v=0 时顶条必须收起，否则罩组头）
         ns.PlaySound(1)
     end)
     U.dungeonBack = back
@@ -1319,6 +1586,7 @@ function DG.EnsureDetailBuilt()
     U.dungeonDetailTipZone:EnableMouse(true)
 
     local dscroll = CreateFrame("ScrollFrame", nil, detail)
+    if dscroll.SetClipsChildren then dscroll:SetClipsChildren(true) end
     dscroll:SetFrameLevel(hero:GetFrameLevel() + 1)
     dscroll:SetPoint("TOPLEFT", detail, "TOPLEFT", 0, -DG.SCROLL_Y)
     dscroll:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", 0, 0)
@@ -1484,7 +1752,7 @@ function DG.BuildDetailTabs()
     for i, def in ipairs(tabs) do
         local bt = NewButton(detail, def.text, 70, 24, 14)
         bt:SetFrameLevel(hero:GetFrameLevel() + 1)
-        bt:SetPoint("TOPRIGHT", detail, "TOPRIGHT", -8 - (i - 1) * 76, -(DG.HERO_META_Y - 12))
+        bt:SetPoint("TOPRIGHT", detail, "TOPRIGHT", -8 - (i - 1) * 78, -(DG.HERO_META_Y - 12))
         MakeOutline(bt, 1, 0.82, 0)
         bt.__huiKeepTextColor = true
         bt:SetScript("OnClick", function()
@@ -1500,7 +1768,8 @@ function DG.BuildDetailChips()
     if not (detail and hero) then return end
     if next(U.dungeonEntChips or {}) then return end
     for i = 1, 3 do
-        local chip = NewButton(detail, "", 70, 20, 12)
+        local chip = NewButton(detail, "", 70, 20, 14)
+        AddBtnIcon(chip, "EntryPin", 12, 4)
         chip:SetFrameLevel(hero:GetFrameLevel() + 1)
         chip.__entIdx = i
         chip:SetScript("OnClick", function(self)
@@ -1521,7 +1790,7 @@ function DG.BuildDetailFilterRow()
     if next(U.dungeonFilterBtns or {}) then return end
     for i = 1, DG.FILTER_MAX do
         local bt = NewButton(detail, "", 92, 24, 14)
-        bt:SetPoint("TOPLEFT", detail, "TOPLEFT", (i - 1) * 96, -DG.FILTER_Y)
+        bt:SetPoint("TOPLEFT", detail, "TOPLEFT", DG.GUTTER + (i - 1) * 100, -DG.FILTER_Y)
         MakeOutline(bt, 1, 0.82, 0)
         bt.__huiKeepTextColor = true
         bt.__mode, bt.__key = "loot", "all"
@@ -1557,7 +1826,7 @@ function DG.BuildDetailLootView()
     if not detail then return end
     if next(U.dungeonLootViewBtns or {}) then return end
     -- ★★ 掉落页显示方式切换（2026-10-01 用户：一行 4 件 + 可选「卡片」视图）------------------
-    --   落在筛选行右端（5 颗筛选按钮 4×96 + 92 = 476 收尾，这里从 DG.LOOT_VIEW_X = 492 起），
+    --   落在筛选行右端（右对齐到栅格右缘 928，见 DG.LOOT_VIEW_X 注释），
     --   两段式按钮组，选中态沿用筛选行那套 SetOutline + 金/灰字。**不放进 U.dungeonFilterBtns**
     --   （那张表是筛选语义，混进去会把「筛选按钮共 5 个」之类的不变量搅乱）。
 
@@ -1634,7 +1903,7 @@ function DG.BuildDungeonOverview()
         ln:SetHeight(totalH - gridTop)
         ln:SetPoint("TOPLEFT", child, "TOPLEFT", gx, -gridTop)
         ln:SetColorTexture(1, 1, 1, 0.06)
-        local fs = MakeFS(child, 11, C_GREY, "CENTER")
+        local fs = MakeFS(child, 14, C_GREY, "CENTER")
         fs:SetPoint("CENTER", child, "TOPLEFT", gx, -(DG.CUR_H + DG.TICK_H / 2))
         fs:SetText(tostring(lv))
     end
@@ -1659,15 +1928,8 @@ function DG.BuildDungeonOverview()
         local dim = bar:CreateTexture(nil, "ARTWORK")
         dim:SetAllPoints()
         dim:SetColorTexture(0, 0, 0, d.isNew and 0.42 or 0.52)
-        if d.isNew then
-            local stripe = bar:CreateTexture(nil, "OVERLAY")
-            stripe:SetWidth(3)
-            stripe:SetPoint("TOPLEFT", bar, "TOPLEFT", 1, -1)
-            stripe:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 1, 1)
-            stripe:SetColorTexture(DG.NEW_EDGE[1], DG.NEW_EDGE[2], DG.NEW_EDGE[3], 1)
-        end
 
-        local nm = MakeFS(bar, 12, C_WHITE, "LEFT")
+        local nm = MakeFS(bar, 14, C_WHITE, "LEFT")
         nm:SetPoint("TOPLEFT", bar, "TOPLEFT", 7, -4)
         nm:SetWordWrap(false)
         nm:SetText(d.name)
@@ -1677,7 +1939,7 @@ function DG.BuildDungeonOverview()
         if not d.isNew then
             nm:SetPoint("RIGHT", bar, "RIGHT", -4, 0)
         else
-            local badge = MakeFS(bar, 11, { 0.42, 0.94, 0.62 }, "LEFT")
+            local badge = MakeFS(bar, 14, { 0.42, 0.94, 0.62 }, "LEFT")
             badge:SetText(L["新"])
             if nameW + 14 <= barW - 14 then
                 badge:SetPoint("LEFT", nm, "RIGHT", 4, 0)
@@ -1686,7 +1948,7 @@ function DG.BuildDungeonOverview()
                 badge:SetPoint("RIGHT", bar, "RIGHT", -4, 0)
             end
         end
-        local lv = MakeFS(bar, 11, C_GREY, "LEFT")
+        local lv = MakeFS(bar, 14, C_GREY, "LEFT")
         lv:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 7, 4)
         lv:SetText(d.levelMin .. "–" .. d.levelMax .. (d.bossCount and (" · BOSS " .. d.bossCount) or ""))
 
@@ -1710,7 +1972,7 @@ function DG.BuildDungeonOverview()
     U.dungeonCurLine:SetWidth(1)
     U.dungeonCurLine:SetHeight(totalH - gridTop)
     U.dungeonCurLine:SetColorTexture(C_GOLD[1], C_GOLD[2], C_GOLD[3], 0.60)
-    U.dungeonCurTag = MakeFS(ov, 11, C_GOLD, "CENTER")
+    U.dungeonCurTag = MakeFS(ov, 14, C_GOLD, "CENTER")
     DG.PaintCurrentLevel()
 end
 
@@ -1725,45 +1987,36 @@ end
 
 function U:UpdateDungeons()
     if not U.dungeonBuilt then return end
-    local data = ns.DungeonData
-    local total = data and #data.dungeons or 0
-    local view = (U.dungeonView == "overview") and "overview" or "list"
+    -- ★ 2026-10-10 定案：列表为唯一视图（总览代码保留、入口已删，统计文案已删）
+    local view = "list"
     local lv = UnitLevel("player") or 0
-    local can, rec = 0, 0
-    for _, d in ipairs((data and data.dungeons) or {}) do
-        if d.levelMin and d.levelMin <= lv then
-            can = can + 1
-            if DG.GroupOf(d, lv) == "rec" then rec = rec + 1 end
-        end
-    end
-    U.dungeonSum:SetText(format(L["共 %d 个副本 · 你（%d 级）可进入 %d 个，其中推荐 %d 个"], total, lv, can, rec))
-    for key, bt in pairs(U.dungeonViewBtns or {}) do
-        local sel = (key == view)
-        SetOutline(bt, sel, 1, 0.82, 0)
-        bt:GetFontString():SetTextColor(Unpack(sel and C_GOLD or C_GREY))
-    end
     local isOverview = (view == "overview")
-    if isOverview then DG.EnsureOverviewBuilt() end   -- ★ 懒建：首次切总览才建 35 条
+    if isOverview then DG.EnsureOverviewBuilt() end   -- ★ 懒建：总览内容（入口已删，代码保留）
     if U.dungeonOverviewScroll then U.dungeonOverviewScroll:SetShown(isOverview) end
     if isOverview then
         DG.PaintCurrentLevel()
         if U.dungeonListScroll then U.dungeonListScroll:Hide() end
+        if U.dungeonListCard then U.dungeonListCard:Hide() end
+        DG.ListFadesVisible(false)
         if U.dungeonDetail then U.dungeonDetail:Hide() end
     else
-        local detailOpen = U.dungeonDetail and U.dungeonDetail:IsShown()
+        local detailOpen = (U.dungeonDetail and U.dungeonDetail:IsShown()) or false
+        if U.dungeonListCard then U.dungeonListCard:SetShown(not detailOpen) end
         if U.dungeonListScroll then
             U.dungeonListScroll:SetShown(not detailOpen)
+            DG.ListFadesVisible(not detailOpen)
             if (U.dungeonListLevel or -1) ~= lv then
                 DG.BuildList()
             end
             U.dungeonListScroll:SetVerticalScroll(0)
+            DG.CullListRows()
         end
     end
 end
 
 DG.LOOT_COLS = 4                 -- ★ 2026-10-01 用户：一行 3 件 → 4 件（卡宽 297 → 221）
 DG.LOOT_GAP_X = 8
-DG.LOOT_GAP_Y = 6
+DG.LOOT_GAP_Y = 8                -- ★ 间距标准 2026-10-10：6 → 8（卡↔卡纵距同值）
 DG.LOOT_CARD_H = 44
 -- ★ 卡内水平几何（2026-10-01 用户：「掉落里面的物品图标改大到 32，五人本掉落页面也一样」）
 --   图标变大后右侧余量必须重算：名称列宽 = 卡宽 − (左内边距 + 图标 + 图标间距) − 右内边距。
@@ -1773,34 +2026,40 @@ DG.LOOT_PAD_X = 6                -- 卡左内边距（= 图标左缘）
 DG.LOOT_ICON = 32                -- 物品图标边长（★ 与副本地图页 MapUI 的 M.CARD_ICON 同尺寸）
 DG.LOOT_ICON_GAP = 5             -- 图标右缘 → 名称左缘
 DG.LOOT_TEXT_R = 7               -- 名称 / 百分比右缘 → 卡右缘
-DG.LOOT_TAG_W = 28               -- 带「新」徽标时预留的右侧宽（右内边距 + 徽标 + 间距）
+DG.LOOT_TAG_W = 30               -- 带「新」徽标时预留的右侧宽（右内边距 + 徽标 + 间距）
 DG.LOOT_FS_NAME = 14
-DG.LOOT_FS_META = 12
-DG.LOOT_FS_TAG = 11
+DG.LOOT_FS_META = 14
+DG.LOOT_FS_TAG = 14
 DG.LOOT_FS_HDR = 14
 DG.LOOT_HDR_H = 24
-DG.LOOT_GRP_GAP = 12
+DG.LOOT_GRP_GAP = 8              -- ★ 间距标准 2026-10-10：12 → 8（组间距也是卡↔卡）
 DG.LOOT_CARD_BG, DG.LOOT_CARD_EDGE = 0.03, 0.05
 DG.LOOT_CARD_BG_HOVER, DG.LOOT_CARD_EDGE_HOVER = 0.09, 0.18
 DG.LOOT_ROW_HOVER = 0.06         -- 卡片视图里卡内行的悬停底（扁平行：只浮一层极淡的底、无边框）
-DG.LOOT_CARD_W = math.floor((DG.CHILD_W - (DG.LOOT_COLS - 1) * DG.LOOT_GAP_X) / DG.LOOT_COLS)
+DG.LOOT_CARD_W = math.floor((DG.CHILD_W - DG.GUTTER * 2 - (DG.LOOT_COLS - 1) * DG.LOOT_GAP_X) / DG.LOOT_COLS)
 
 -- ★★ 掉落页「显示方式」（2026-10-01 用户：「可以选择显示方式：1 目前这样 / 2 卡片的形式，
---   参考地图界面 一个 boss 一张卡片」）----------------------------------------------------
+--   一个 boss 一张卡片」）----------------------------------------------------
 --   同一份分组数据两条渲染路径 —— 列表（网格）与卡片（boss 卡墙 · 4 列）。
---   视图二选一存 DB().lootView（"list" 缺省 / "card"），切换按钮落在筛选行右端。
+--   视图二选一存 DB().lootView（"list" 缺省 / "card"），切换按钮落在 BOSS 下拉右手边。
 --   两视图的卡宽 / 列距 / 行高**共用上面那套**（DG.LOOT_CARD_W / LOOT_GAP_X / LOOT_CARD_H）。
-DG.LOOT_VIEW_X = 492             -- 切换按钮左缘（筛选 5 颗 = 4×96 + 92 = 476，留 16px 净距）
-DG.LOOT_VIEW_W = 60              -- 单段宽（两段 + 4px 间隔 = 124 ⇒ 右缘 616）
-DG.LOOT_VIEW_GAP = 4             -- 两段之间的间隔
---   右侧净空核对：装备过滤条最左一枚图标的最坏落点 ≈ 682（6 个方案时），616 < 682 ⇒ 永不重叠。
+--   ★ 2026-10-10 用户：切换组**不右对齐**——右侧被装备过滤条占用（最左图标最坏落点 ≈682），
+--     改放在 BOSS 下拉右手边、间隙 8（324…452），工具行从左到右：类型下拉 | BOSS 下拉 | 列表/卡片。
+--   两段间隔 8（按钮↔按钮同间距标准）。
+DG.LOOT_VIEW_W = 60              -- 单段宽
+DG.LOOT_VIEW_GAP = 8             -- 两段之间的间隔（间距标准 2026-10-10：4 → 8）
+--   右侧净空核对：切换组右缘 452 < 装备过滤条最左图标最坏落点 ≈682 ⇒ 永不重叠。
 -- ★★ 方案 A 收纳式工具行（2026-10-04 用户拍板）：掉落页 1 号筛选按钮重设为「类型」下拉、
 --   2–5 号隐藏（任务页照旧全用）；BOSS 下拉是独立新帧 U.dungeonLootBossDd
 --   （BuildDetailLootView 里建）。两处选择都写 DB() 跨会话记住。
 --   ★ 2026-10-04 用户：两个下拉**宽度一致** ⇒ 类型下拉（1 号）掉落页 SetWidth 到
 --     LOOT_BOSS_W（任务页在 RenderDungeonQuests 里回设 92），BOSS 左缘随之从 100 → 158。
-DG.LOOT_BOSS_X = 158             -- BOSS 下拉左缘（类型下拉 = 1 号按钮原位 0，同宽 150 收尾 150）
-DG.LOOT_BOSS_W = 150             -- 两个下拉统一宽（BOSS 右缘 308，距视图按钮 492 净空 184）
+--     ★ 间距标准 2026-10-10：工具行整体内衬 GUTTER，下拉间隙 8（类型下拉 8…158、BOSS 166…316）。
+DG.LOOT_BOSS_W = 150             -- 两个下拉统一宽
+DG.LOOT_BOSS_X = DG.GUTTER + DG.LOOT_BOSS_W + DG.GUTTER
+                                 -- BOSS 下拉左缘 166（= 8 + 150 + 8，与类型下拉间隙 8）
+DG.LOOT_VIEW_X = DG.LOOT_BOSS_X + DG.LOOT_BOSS_W + DG.GUTTER
+                                 -- 切换按钮左缘（= 166 + 150 + 8 = 324，与 BOSS 下拉间隙 8）
 DG.LOOT_DD_TEXT_W = 140          -- 类型下拉文字 FitText 上限（150 宽按钮内留边距）
 DG.LOOT_CARD_PAD = 6             -- boss 卡内左右内边距
 DG.LOOT_CARD_ARROW = 10          -- 卡头折叠箭头边长（与地图页卡头同尺寸）
@@ -1809,8 +2068,26 @@ DG.LOOT_CARD_NAME_R = 52         -- 卡头右侧预留（「N 件」+ 箭头 + �
 DG.LOOT_CARD_HDR_H = DG.LOOT_HDR_H   -- 卡头高（与列表视图的分组标题行等高）
 DG.LOOT_CARD_MIN_H = DG.LOOT_CARD_HDR_H + DG.LOOT_CARD_PAD   -- 空态 / 收起态卡高
 
+-- ★ BOSS 下拉的「小怪」档（2026-10-10 用户）：收窄到说明含「敌人」的来源（Trash mobs）。
+--   哨兵是**内部键**不进界面文案（存档/比较安全，不与真名 boss 撞车）；
+--   界面显示一律经 LOOT_TRASH_LABEL（= L["小怪"]）。
+DG.LOOT_TRASH = "__trash"
+DG.LOOT_TRASH_LABEL = L["小怪"]
+
+-- ★★ Boss 聚焦改版（2026-10-10 用户拍板）：选中 BOSS 下拉时装备改 3 列 + 按「装备类型」
+--   分组（替代 boss 分组行 / boss 卡），第 4 列位放 Boss 模型卡；未选 boss 维持 4 列现状。
+--   模型卡宽定 160，三列卡宽按剩余宽反推（4 块之间 3 条 GAP 缝，右缘贴内容右栅格）。
+DG.LOOT_COLS3 = 3
+DG.LOOT_MODEL_W = 160
+-- ★ 高度定案（2026-10-10 用户两轮反馈）：不写死、也不随左列内容伸展 ——
+--   **撑满详情视口 − 底边距**（卡底距窗沿 PAGE_INSET+GUTTER=20，与列表大卡同款 UI 规则）。
+--   此常量只作视口高拿不到时的兜底（离线桩 / 异常客户端）。
+DG.LOOT_MODEL_H = 256
+DG.LOOT_CARD_W3 = math.floor((DG.CHILD_W - DG.GUTTER * 2 - DG.LOOT_MODEL_W - DG.LOOT_COLS3 * DG.LOOT_GAP_X) / DG.LOOT_COLS3)
+DG.LOOT_MODEL_X = DG.CHILD_W - DG.GUTTER - DG.LOOT_MODEL_W   -- 模型卡左缘（右缘贴内容右栅格）
+
 DG.GUIDE_COLS, DG.GUIDE_GAP_X, DG.GUIDE_GAP_Y = 2, 8, 8
-DG.GUIDE_PAD, DG.GUIDE_HDR_H, DG.GUIDE_STRIPE = 10, 26, 3
+DG.GUIDE_PAD, DG.GUIDE_HDR_H = 10, 26
 DG.GUIDE_SIDE = 8
 DG.GUIDE_GRID_W = CONTENT_W - PAGE_INSET * 2 - DG.GUIDE_SIDE * 2
 DG.GUIDE_CARD_W = math.floor((DG.GUIDE_GRID_W - (DG.GUIDE_COLS - 1) * DG.GUIDE_GAP_X) / DG.GUIDE_COLS)
@@ -1912,15 +2189,26 @@ function DG.HarvestTipName(id)
 end
 
 function DG.RefreshItemCards(itemID)
+    -- ★★ 到货分发前置（2026-10-10）：本页卡池会被释放（离开副本页 U.dungeonDetailPool=nil），
+    --   早退把下面 RU/PvP/Explore/Collection 四家的 OnItemData 一起跳过 ⇒ 子页物品名
+    --   永远停在「物品 #N」，切一下子页（触发重渲）才显名。PvP 声望/套装页实锤。
+    local LF = ns.LootFilter
+    if LF then LF.Invalidate(itemID) end
+    local RU = ns.RU
+    if RU and RU.OnItemData then RU.OnItemData(itemID) end
+    local PVM = ns.PvPModule
+    if PVM and PVM.OnItemData then PVM.OnItemData(itemID) end
+    local EGM = ns.ExploreModule
+    if EGM and EGM.OnItemData then EGM.OnItemData(itemID) end
+    local CGM = ns.CollectionModule
+    if CGM and CGM.OnItemData then CGM.OnItemData(itemID) end
     local pool = U.dungeonDetailPool and U.dungeonDetailPool.item
     if not pool then return end
-    local LF = ns.LootFilter
     -- ★★ 第七刀（整合包悬停卡死）：整合包里其他插件会把客户端物品缓存挤掉
     --   （ItemMixin:IsDataEvictable 恒 true）⇒ 悬停 → SetItemByID（未缓存即同步装载）→ 到货 → 这里。
     --   旧尾巴是「整池 LF.ApplyAll」= 对每张卡做隐藏 tooltip 扫描（LF.ScanTip），
     --   未缓存条目真机同步装载 ⇒ 悬停一次 = 一帧几百次 SetItemByID = 卡死。
     --   过滤规则没变时其他卡的判定结果不变 ⇒ 只失效这一件、只重判匹配卡（O(命中)）。
-    if LF then LF.Invalidate(itemID) end
     for i = 1, #pool do
         local c = pool[i]
         local it = c and c.__it
@@ -2090,6 +2378,17 @@ function DG.ItemMeta(id)
         return a .. " · " .. subType
     end
     return a
+end
+
+-- ★ Boss 聚焦分组键（2026-10-10）：取 ItemMeta 第二段——护甲出「布甲/皮甲/锁甲/板甲」、
+--   武器出「单手剑/双手锤…」、饰品等出子类；无第二段用整段，空回「其它」。
+--   保持首次出现顺序由调用方负责（这里只给键）。
+function DG.LootTypeKey(id)
+    local m = DG.ItemMeta(id)
+    if type(m) ~= "string" or m == "" then return L["其它"] end
+    local b = m:match("^(.-) · (.+)$")
+    if type(b) == "string" and b ~= "" then return b end
+    return m
 end
 
 DG.__asked = {}
@@ -2280,22 +2579,32 @@ function DG.ScheduleNameSweep()
     end
 end
 
-function DG.ShowItemTip(owner, it)
-    -- ★★ 第九刀（Auctionator 共存炸栈，2026-10-03 用户实机 287x C stack overflow）：
-    --   实机堆栈：ShowItemTip → GameTooltip:SetItemByID →（Auctionator 挂在 GameTooltip
-    --   上的钩子 → ShowTipWithPricing → DBKeyFromLink → ContinueOnItemLoad：物品数据
-    --   已就绪时 AsyncCallbackSystem **同步**派发回调）→ 我们的到货处理（行还悬着）
-    --   再调 ShowItemTip → 再 SetItemByID ⇒ 无限同步递归直到 C stack overflow。
-    --   对策：重入即忽略 —— 正在显示的这一遍，数据刚就绪 SetItemByID 必然成功，
-    --   再入的那遍是纯冗余。pcall 包住本体保证 flag 无论成败都复位（错误原样上抛）。
+-- title（2026-10-11 工匠文书页）：可选标题覆写 —— native 提示框建好后改写第一行
+--   （不加行，只换名），非 native 回退路径直接拿它当首行。
+function DG.ShowItemTip(owner, it, extra, title)
+    -- ★★ 重入守卫：物品数据就绪时，提示框钩子链可能同步派发回调 → 再入 ShowItemTip
+    --   ⇒ 无限同步递归。对策：重入即忽略 —— 正在显示的这一遍数据刚就绪必然成功，
+    --   再入的那一遍是纯冗余。pcall 包住本体保证 flag 无论成败都复位（错误原样上抛）。
     if DG.__tipBusy then return end
     DG.__tipBusy = true
-    local ok, err = pcall(DG.ShowItemTipBody, owner, it)
+    local ok, err = pcall(DG.ShowItemTipBody, owner, it, extra, title)
     DG.__tipBusy = nil
     if not ok then error(err, 0) end
 end
 
-function DG.ShowItemTipBody(owner, it)
+-- 追加行（2026-10-10 专业页价格段）：lines = { {text[, r, g, b]}, ... }，
+-- 本体后空一行再追加；追加后需重新 Show 让引擎重排版。
+function DG.TipAppendLines(lines)
+    if type(lines) ~= "table" or #lines == 0 then return end
+    GameTooltip:AddLine(" ")
+    for _, ln in ipairs(lines) do
+        if type(ln) == "table" and type(ln[1]) == "string" then
+            GameTooltip:AddLine(ln[1], ln[2] or 1, ln[3] or 1, ln[4] or 1, true)
+        end
+    end
+end
+
+function DG.ShowItemTipBody(owner, it, extra, title)
     local id = it[1]
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
     GameTooltip:ClearLines()
@@ -2326,13 +2635,20 @@ function DG.ShowItemTipBody(owner, it)
         --   我们的 OnShow 皮肤判定（ttItemMark + GetItem）双双落空 ⇒ 装备提示框被错套主题。
         --   这里显式打物品标记（标记是本插件的表，重建清不掉）⇒ 装备提示框始终不套主题。
         if ns.hui and ns.hui.MarkTipItem then ns.hui.MarkTipItem(GameTooltip, true) end
+        if extra then DG.TipAppendLines(extra) end
+        if title then
+            local l1 = _G["GameTooltipTextLeft1"]
+            if l1 then l1:SetText(title) end
+        end
         GameTooltip:Show()
         return
     end
 
     GameTooltip:ClearLines()
     local nm, hasName = DG.ItemName(id)
-    if hasName then
+    if title then
+        GameTooltip:AddLine(title, 1, 0.82, 0, true)
+    elseif hasName then
         local r, g, b = DG.QColor(DG.QualOf(id))
         GameTooltip:AddLine(nm, r, g, b, true)
     else
@@ -2348,6 +2664,7 @@ function DG.ShowItemTipBody(owner, it)
     else
         GameTooltip:AddLine(L["客户端未收录此物品"], 0.5, 0.5, 0.5, true)
     end
+    if extra then DG.TipAppendLines(extra) end
     GameTooltip:Show()
 end
 
@@ -2436,8 +2753,19 @@ function DG.OpenLootBossMenu()
     local d = U.dungeonDetailCur
     local host = DG.MenuHost("boss")
     if not (d and host and ns.LibBG and ns.LibBG.EasyMenu) then return end
+    local loot = (ns.DungeonLoot or {})[d.id] or {}
     local menu = { { text = L["全部"], notCheckable = true, func = function() U:SetLootBoss(nil) end } }
-    for _, nm in ipairs(DG.LootBossNames((ns.DungeonLoot or {})[d.id])) do
+    -- 「小怪」档：说明含「敌人」的来源，有才出（置于 boss 名单之上）
+    local hasTrash = false
+    for _, s in ipairs(loot) do
+        local note = s[3] or ""
+        if note:find("敌人", 1, true) then hasTrash = true break end
+    end
+    if hasTrash then
+        menu[#menu + 1] = { text = DG.LOOT_TRASH_LABEL, notCheckable = true,
+                            func = function() U:SetLootBoss(DG.LOOT_TRASH) end }
+    end
+    for _, nm in ipairs(DG.LootBossNames(loot)) do
         menu[#menu + 1] = { text = nm, notCheckable = true, func = function() U:SetLootBoss(nm) end }
     end
     ns.LibBG:EasyMenu(menu, host, "cursor", 0, 0, "MENU")
@@ -2454,7 +2782,9 @@ function DG.ApplyLootDropdownChrome()
     if bossDd then
         local bossSel = U.dungeonLootBoss
         bossDd:SetShown((U.dungeonTab or "loot") == "loot")
-        bossDd:SetText(L["BOSS："] .. DG.FitText(bossSel or L["全部"], 14, 112))
+        -- 「小怪」哨兵 → 界面显示 L["小怪"]
+        local bossShown = bossSel == DG.LOOT_TRASH and DG.LOOT_TRASH_LABEL or bossSel
+        bossDd:SetText(L["BOSS："] .. DG.FitText(bossShown or L["全部"], 14, 112))
         SetOutline(bossDd, bossSel ~= nil, 1, 0.82, 0)
         local bfs = bossDd:GetFontString()
         if bfs then bfs:SetTextColor(Unpack(bossSel and C_GOLD or C_GREY)) end
@@ -2476,7 +2806,7 @@ function DG.ApplyLootDropdownChrome()
 end
 
 -- ★★ 下拉「点外面就关」（2026-10-04 用户）----------------------------------------
---   根因：BiaoGe 版 LibUIDropDownMenu 只在 retail 挂 GLOBAL_MOUSE_DOWN 关闭钩
+--   根因：下拉库在本端没有挂 GLOBAL_MOUSE_DOWN 关闭钩
 --   （lib 行 ~1953 `if lib and WoWRetail`），MoP 端 wowversion 5.x 落在 lib 的
 --   「n/a」分支 ⇒ 钩子没上 ⇒ 菜单开着点别处不关（只能选中一项或再点一次按钮）。
 --   这里补一个事件帧（隐藏帧照收事件）：任一 L_DropDownList 开着 + 鼠标不在菜单
@@ -2499,6 +2829,12 @@ local function OutsideMenuMouseDown()
     if U.dungeonLootBossDd and U.dungeonLootBossDd:IsVisible() and U.dungeonLootBossDd:IsMouseOver() then return end
     -- 探索地图设置面板的下拉触发按钮（2026-10-05）：同款放行，理由同上
     if ns.ExploreMapMenuGuard and ns.ExploreMapMenuGuard() then return end
+    -- 套装页职业下拉按钮（2026-10-07）：同款放行 —— 不放行会先收后开 = 永远关不掉
+    local RM = ns.RaidModule
+    if RM and RM.ddBtn and RM.ddBtn:IsVisible() and RM.ddBtn:IsMouseOver() then return end
+    -- BIS 配装页职业下拉按钮（2026-10-10 重排）：同款放行，理由同上
+    local BM = ns.BisModule
+    if BM and BM.ddBtn and BM.ddBtn:IsVisible() and BM.ddBtn:IsMouseOver() then return end
     -- LootFilterUI 的方案菜单同库同列表，一并受益；对普通 UI 的点击照常透传（不吞）。
     ns.LibBG:CloseDropDownMenus()
 end
@@ -2529,6 +2865,8 @@ function U:ShowDungeonDetail(d)
     local child, pool = U.dungeonDetailChild, U.dungeonDetailPool
     if not (detail and U.dungeonDetailScroll and child and pool) then return end
     U.dungeonListScroll:Hide()
+    if U.dungeonListCard then U.dungeonListCard:Hide() end
+    DG.ListFadesVisible(false)
     detail:Show()
     local hero = U.dungeonDetailHero
     if hero then DG.PaintArt(hero.art, d, "hero") end
@@ -2563,7 +2901,15 @@ function U:RenderDungeonLoot()
     --   分组渲染全部吃收窄后的来源 ⇒ 选中 boss 后计数就是「这一 boss 里」各类型的件数。
     --   存档里记的 boss 在当前副本不存在（换副本 / 数据更新）就回落「全部」，不弹提示。
     local bossSel = U.dungeonLootBoss or DB().dungeonLootBoss
-    if bossSel then
+    if bossSel == DG.LOOT_TRASH then
+        -- 「小怪」档：本副本没有「敌人」来源就回落「全部」
+        local has = false
+        for _, s in ipairs(loot) do
+            local note = s[3] or ""
+            if note:find("敌人", 1, true) then has = true break end
+        end
+        if not has then bossSel = nil end
+    elseif bossSel then
         local seen = {}
         for _, nm in ipairs(DG.LootBossNames(loot)) do seen[nm] = true end
         if not seen[bossSel] then
@@ -2577,7 +2923,12 @@ function U:RenderDungeonLoot()
     if bossSel then
         srcs = {}
         for _, s in ipairs(loot) do
-            if s[2] == bossSel then srcs[#srcs + 1] = s end
+            if bossSel == DG.LOOT_TRASH then
+                local note = s[3] or ""
+                if note:find("敌人", 1, true) then srcs[#srcs + 1] = s end
+            elseif s[2] == bossSel then
+                srcs[#srcs + 1] = s
+            end
         end
     end
 
@@ -2627,21 +2978,59 @@ function U:RenderDungeonLoot()
     -- ★★★ 第六刀：外壳分片补建时，借完「筛选行上字」就收工（不重排待建行）。
     if DG.__chromeOnly then return end
 
-    local named, special = {}, {}
-    for _, s in ipairs(srcs) do
-        local items = {}
-        for _, it in ipairs(s[5]) do
-            local cat = DG.CatOf(it[1])
-            if filter == "all" or cat == filter or (filter == "new" and it[3]) then
-                items[#items + 1] = it
+    -- ★★ Boss 聚焦改版（2026-10-10 用户拍板）：选中 boss 时分组键从「来源（boss）」
+    --   换成「装备类型」（布甲/单手剑/饰品…，取 ItemMeta 第二段，保持首次出现序），
+    --   装备 3 列、第 4 列位放 Boss 模型卡；未选 boss 维持 boss 分组 4 列现状。
+    --   ★「小怪」档同样按装备类型分组（2026-10-10 用户追加：列表/卡片都要类型分类），
+    --     但无单个模型 ⇒ 维持 4 列全宽、不放模型卡。
+    local trashMode = bossSel == DG.LOOT_TRASH
+    local bossMode = bossSel ~= nil and not trashMode
+    local typeMode = bossMode or trashMode      -- 分组键 = 装备类型（boss 聚焦 + 小怪档共用）
+    local bossEn, bossNpc
+    local groups
+    if typeMode then
+        if bossMode then
+            for _, s in ipairs(srcs) do
+                if not bossEn and s[4] ~= "" then
+                    bossEn, bossNpc = s[1], tonumber(s[4])
+                end
             end
         end
-        local g = { src = s, items = items }
-        if s[4] ~= "" then named[#named + 1] = g else special[#special + 1] = g end
+        local byKey, tg = {}, {}
+        for _, s in ipairs(srcs) do
+            for _, it in ipairs(s[5]) do
+                local cat = DG.CatOf(it[1])
+                if filter == "all" or cat == filter or (filter == "new" and it[3]) then
+                    local tk = DG.LootTypeKey(it[1])
+                    local g = byKey[tk]
+                    if not g then
+                        -- 假 src = { en, 类型名, "", "", items } ⇒ 分组标题只出类型名
+                        g = { src = { "", tk, "", "", {} }, items = {} }
+                        byKey[tk] = g
+                        tg[#tg + 1] = g
+                    end
+                    g.items[#g.items + 1] = it
+                end
+            end
+        end
+        groups = tg
+    else
+        local named, special = {}, {}
+        for _, s in ipairs(srcs) do
+            local items = {}
+            for _, it in ipairs(s[5]) do
+                local cat = DG.CatOf(it[1])
+                if filter == "all" or cat == filter or (filter == "new" and it[3]) then
+                    items[#items + 1] = it
+                end
+            end
+            local g = { src = s, items = items }
+            if s[4] ~= "" then named[#named + 1] = g else special[#special + 1] = g end
+        end
+        groups = {}
+        for _, g in ipairs(named) do groups[#groups + 1] = g end
+        for _, g in ipairs(special) do groups[#groups + 1] = g end
     end
-    local groups = {}
-    for _, g in ipairs(named) do groups[#groups + 1] = g end
-    for _, g in ipairs(special) do groups[#groups + 1] = g end
 
     local hdr, rows = pool.hdr, pool.item
     local nH, nI, y = 0, 0, 0
@@ -2649,15 +3038,22 @@ function U:RenderDungeonLoot()
     local cw = DG.LOOT_CARD_W
     local stepX, stepY = cw + DG.LOOT_GAP_X, DG.LOOT_CARD_H + DG.LOOT_GAP_Y
     local tx = DG.LOOT_PAD_X + DG.LOOT_ICON + DG.LOOT_ICON_GAP
+    -- ★ Boss 聚焦：装备 3 列（卡宽 LOOT_CARD_W3），第 4 列位留给 Boss 模型卡
+    if bossMode then
+        cols, cw = DG.LOOT_COLS3, DG.LOOT_CARD_W3
+        stepX = cw + DG.LOOT_GAP_X
+    end
 
     local function makeRow()
-        local r = CreateFrame("Button", nil, child, "BackdropTemplate")
+        r = CreateFrame("Button", nil, child, "BackdropTemplate")
         r:SetSize(cw, DG.LOOT_CARD_H)
         r:SetBackdrop({
             bgFile = "Interface\\Buttons\\WHITE8x8",
             edgeFile = "Interface\\Buttons\\WHITE8x8",
             edgeSize = 1,
         })
+        -- ⑦ 掉落行/卡：L1 圆角底 + L3 悬停胶囊（双视图共用，状态由 paint/OnEnter 按视图切）
+        HuiCardFX(r, 12)
         r:EnableMouse(true)
         r:EnableMouseWheel(true)
         r:SetScript("OnMouseWheel", function(self, delta)
@@ -2684,8 +3080,11 @@ function U:RenderDungeonLoot()
         r:SetScript("OnEnter", function(self)
             U.dungeonDetailHover = self
             -- ★ 行控件两种视图共用 ⇒ 悬停态按当前视图给：列表视图是「卡片提亮」，
-            --   卡片视图里行是扁平的（卡内不再套小卡）⇒ 只浮一层极淡的底、不要边框。
-            if (U.lootView or "list") == "card" then
+            --   卡片视图里行是扁平的（卡内不再套小卡）⇒ **不出任何高亮**（2026-10-11 用户定案：
+            --   深色胶囊盖整行观感差，高亮只允许出现在卡头标题上——卡头 hit 自带 L3 胶囊）。
+            if self.__huiCard then
+                HuiCardState(self, (U.lootView or "list") == "card" and "flat" or "hover")
+            elseif (U.lootView or "list") == "card" then
                 self:SetBackdropColor(1, 1, 1, DG.LOOT_ROW_HOVER)
                 self:SetBackdropBorderColor(1, 1, 1, 0)
             else
@@ -2696,7 +3095,9 @@ function U:RenderDungeonLoot()
         end)
         r:SetScript("OnLeave", function(self)
             if U.dungeonDetailHover == self then U.dungeonDetailHover = nil end
-            if (U.lootView or "list") == "card" then
+            if self.__huiCard then
+                HuiCardState(self, (U.lootView or "list") == "card" and "flat" or "norm")
+            elseif (U.lootView or "list") == "card" then
                 self:SetBackdropColor(1, 1, 1, 0)
                 self:SetBackdropBorderColor(1, 1, 1, 0)
             else
@@ -2734,7 +3135,7 @@ function U:RenderDungeonLoot()
     --   两条路径共用上面这个行池工厂 takeCard（切视图不新建帧、不重建 scroll child）。
     --   ★ 分派点必须在 takeCard 之后 —— 卡片路径要靠这个闭包取行。
     if (U.lootView or "list") == "card" then
-        U:RenderDungeonLootCards(groups, filter, takeRow, makeRow)
+        U:RenderDungeonLootCards(groups, filter, takeRow, makeRow, bossMode, bossEn, bossNpc)
         return
     end
 
@@ -2754,11 +3155,11 @@ function U:RenderDungeonLoot()
             if sub ~= "" then en = (en ~= "" and (en .. " · " .. sub) or sub) end
             hd.name:SetText(s[2] .. (en ~= "" and ("  " .. DG.Hex(C_GREY) .. en .. "|r") or ""))
             hd.name:ClearAllPoints()
-            hd.name:SetPoint("TOPLEFT", child, "TOPLEFT", 0, y)
+            hd.name:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUTTER, y)
             hd.name:Show()
             hd.cnt:SetText(format(L["%d 件"], #items))
             hd.cnt:ClearAllPoints()
-            hd.cnt:SetPoint("TOPRIGHT", child, "TOPRIGHT", 0, y - 1)
+            hd.cnt:SetPoint("TOPRIGHT", child, "TOPRIGHT", -DG.GUTTER, y - 1)
             hd.cnt:Show()
             y = y - DG.LOOT_HDR_H
 
@@ -2771,10 +3172,16 @@ function U:RenderDungeonLoot()
                     r:SetAlpha(1)
                     r.note:SetText(L["暂无掉落数据"])
                     r.note:Show()
-                    r:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
-                    r:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+                    if r.__huiCard then
+                        -- ★ 行池两视图共用：卡片视图会把行置成 flat（底/边全隐），
+                        --   列表路复用前必须恢复 norm，否则部分行没有边框（实机截图实锤）。
+                        HuiCardState(r, "norm")
+                    else
+                        r:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
+                        r:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+                    end
                     r:ClearAllPoints()
-                    r:SetPoint("TOPLEFT", child, "TOPLEFT", 0, baseY)
+                    r:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUTTER, baseY)
                     r:Show()
                 end)
                 y = y - stepY
@@ -2812,14 +3219,19 @@ function U:RenderDungeonLoot()
                     r.ch:Show()
                     r.__it = it
                     if LF and LF.Apply then LF.Apply(r) end
-                    r:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
-                    r:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+                    if r.__huiCard then
+                        -- ★ 同上：卡片路用过的池位带着 flat 态回来，列表路先恢复 norm
+                        HuiCardState(r, "norm")
+                    else
+                        r:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
+                        r:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+                    end
                     r:ClearAllPoints()
                     r:SetPoint("TOPLEFT", child, "TOPLEFT", rx, ry)
                     r:Show()
                 end
                 for i, it in ipairs(items) do
-                    local rx = ((i - 1) % cols) * stepX
+                    local rx = DG.GUTTER + ((i - 1) % cols) * stepX
                     local ry = baseY - math.floor((i - 1) / cols) * stepY
                     takeRow(makeRow, function(r) paintRow(r, it, rx, ry) end)
                 end
@@ -2836,7 +3248,7 @@ function U:RenderDungeonLoot()
     local note = U.dungeonDetailNote
     if nH == 0 then
         note:ClearAllPoints()
-        note:SetPoint("TOPLEFT", child, "TOPLEFT", 0, 0)
+        note:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUTTER, 0)
         if #loot == 0 then
             note:SetText(L["尚未收录这个副本的 boss 名单，数据补上后会自动出现。"])
         else
@@ -2852,7 +3264,16 @@ function U:RenderDungeonLoot()
     --   从卡片视图切回来时上一轮的 boss 卡会整面留在屏上（残影，离线断言实锤）。
     for i = 1, #(pool.card or {}) do pool.card[i]:Hide() end
 
-    child:SetHeight(math.max(10, -y + 12))
+    -- ★ Boss 聚焦：第 4 列位挂模型卡（高=视口−底边距）；child 高度取「左列内容 vs 模型卡」
+    --   较大者，否则模型卡底会被滚出 scroll 范围；取消聚焦时收回。
+    local listH = math.max(10, -y + 12)
+    if bossMode then
+        listH = math.max(listH, DG.LootModelCardH() + DG.LOOT_GAP_Y)
+        DG.PaintLootBossModel(d, bossSel, bossEn, bossNpc)
+    else
+        DG.HideLootBossModel()
+    end
+    child:SetHeight(listH)
     U.dungeonDetailScroll:SetVerticalScroll(0)
 end
 
@@ -2863,7 +3284,7 @@ end
 --   ★ 掉落行**复用列表视图那套扁平行池**：行帧一个不新建、scroll child 不重建，
 --     切视图只是重新 SetPoint（卡内一行 1 件、双行文本，与列表卡同款，只是窄 12px）。
 --   ★ 卡内行是扁平的（卡片内不再套小卡）⇒ 常态底色全透明、悬停只浮一层极淡的底。
-function U:RenderDungeonLootCards(groups, filter, takeRow, makeRow)
+function U:RenderDungeonLootCards(groups, filter, takeRow, makeRow, bossMode, bossEn, bossNpc)
     DG.EnsureCardPool()               -- ★ 卡片视图需要 boss 卡池；没轮到就同步补建
     local d = U.dungeonDetailCur
     local child, pool = U.dungeonDetailChild, U.dungeonDetailPool
@@ -2878,6 +3299,10 @@ function U:RenderDungeonLootCards(groups, filter, takeRow, makeRow)
 
     local cols = DG.LOOT_COLS
     local cw = DG.LOOT_CARD_W
+    -- ★ Boss 聚焦：类型卡 3 列（宽 LOOT_CARD_W3），第 4 列位留给 Boss 模型卡
+    if bossMode then
+        cols, cw = DG.LOOT_COLS3, DG.LOOT_CARD_W3
+    end
     local stepX = cw + DG.LOOT_GAP_X
     local rowW = cw - DG.LOOT_CARD_PAD * 2
     local ix = DG.LOOT_CARD_PAD + DG.LOOT_ICON + DG.LOOT_ICON_GAP
@@ -2907,7 +3332,7 @@ function U:RenderDungeonLootCards(groups, filter, takeRow, makeRow)
             local h = DG.LOOT_CARD_HDR_H + DG.LOOT_CARD_PAD
             if n > 0 then h = h + n * DG.LOOT_CARD_H + (n - 1) * DG.LOOT_CARD_ROW_GAP end
             local col = ((nC - 1) % cols) + 1
-            local cx, cy = (col - 1) * stepX, colY[col]
+            local cx, cy = DG.GUTTER + (col - 1) * stepX, colY[col]
             colY[col] = cy - (h + DG.LOOT_GAP_Y)
 
             local en = s[1] or ""
@@ -2968,12 +3393,19 @@ function U:RenderDungeonLootCards(groups, filter, takeRow, makeRow)
                     local LF = ns.LootFilter
                     if LF and LF.Apply then LF.Apply(r) end
                     -- 卡内行扁平化：常态不留底、悬停只浮一层极淡高亮（悬停态在行自己的 OnEnter 里给）
-                    r:SetBackdropColor(1, 1, 1, 0)
-                    r:SetBackdropBorderColor(1, 1, 1, 0)
+                    if r.__huiCard then
+                        HuiCardState(r, "flat")
+                    else
+                        r:SetBackdropColor(1, 1, 1, 0)
+                        r:SetBackdropBorderColor(1, 1, 1, 0)
+                    end
                     r:ClearAllPoints()
                     -- ★ 行 1 紧贴卡头下缘起排：偏移 = 卡头高 + (序号−1)×(行高+行距)。
                     --   曾经写成 ii*(行高+行距)（第 1 行整行下坠）⇒ 末行被推出卡底（实机截图实锤）。
                     r:SetPoint("TOPLEFT", child, "TOPLEFT", rx, ry)
+                    -- ★ 单向门补 Show（2026-10-10）：boss 筛选收尾 Hide 掉的行，切回「全部」
+                    --   复用时必须重新 Show，否则除首轮外其余 boss 卡内容全空（实机截图实锤）。
+                    r:Show()
                 end)
             end
         end
@@ -2992,7 +3424,7 @@ function U:RenderDungeonLootCards(groups, filter, takeRow, makeRow)
     local note = U.dungeonDetailNote
     if nC == 0 then
         note:ClearAllPoints()
-        note:SetPoint("TOPLEFT", child, "TOPLEFT", 0, 0)
+        note:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUTTER, 0)
         if #loot == 0 then
             note:SetText(L["尚未收录这个副本的 boss 名单，数据补上后会自动出现。"])
         else
@@ -3007,7 +3439,166 @@ function U:RenderDungeonLootCards(groups, filter, takeRow, makeRow)
     for c = 1, cols do
         if colY[c] < bottom then bottom = colY[c] end
     end
-    child:SetHeight(math.max(10, -bottom + DG.LOOT_GAP_Y))
+    -- ★ Boss 聚焦：第 4 列位挂模型卡（高=视口−底边距）；child 高度取「左列内容 vs 模型卡」较大者
+    local cardH = math.max(10, -bottom + DG.LOOT_GAP_Y)
+    if bossMode then
+        cardH = math.max(cardH, DG.LootModelCardH() + DG.LOOT_GAP_Y)
+        DG.PaintLootBossModel(d, U.dungeonLootBoss, bossEn, bossNpc)
+    else
+        DG.HideLootBossModel()
+    end
+    child:SetHeight(cardH)
+end
+
+-- ★★ Boss 模型卡（Boss 聚焦第 4 列 · 2026-10-10 用户拍板）--------------------------------
+--   选中 boss 时装备 3 列，第 4 列位放这张卡：L1 圆角底 + boss 名 + PlayerModel。
+--   模型来源与地图页同源两档：Data_BossModel.lua 精配显示 id → SetDisplayInfo（掉落表
+--   npcid 列混有显示 id 且撞车，SetCreature 必挂错模型），未登记 → SetCreature(npc)。
+--   加载保底沿用地图页定式：Show 先行 / GetDisplayInfo 探测 / C_Timer 重试时刻表 /
+--   α 门控（未加载不显形，防残影）。无 DG.Gate 进度链路，超时静默（模型保持 α0）。
+--   ★★ 对照瘦身（2026-10-11）：旧的「SetDisplayInfo(0) 清显示 + Hide→Show
+--   重建 + 4 发重试 + alpha 门控」整链退役（裸 Set 首次点开取景就准）——
+--   换成两发延迟轻探测：未加载补一发 Set（防「未 Show 过的帧首 Set 不生效」旧坑），
+--   末发仍未加载 = 缺模型 → 收模型只留 boss 名。
+local LOOT_MODEL_LATE = { 0.6, 3.5 }   -- 轻保底时刻表（秒）；末发必须宽于冷读模（原 1.6s 实锤不够）
+
+function DG.LootModelProbe(m)
+    local ok, v = pcall(m.GetDisplayInfo, m)
+    return (ok and type(v) == "number" and v ~= 0) or false
+end
+
+function DG.LootModelAlpha(m, v)
+    if m.SetAlpha then pcall(m.SetAlpha, m, v) end
+end
+
+-- 姿态：只做模型自转。★ 不再设 SetCamDistanceScale（2026-10-11 对照定案）：
+-- 加载完成引擎按默认取景重算、冲掉提前设的系数 ⇒ 首载大小偏移；默认取景引擎自会摆好。
+function DG.LootModelPose(m)
+    pcall(m.SetRotation, m, math.rad(-15))
+end
+
+function DG.LootModelApply(m, npc, disp)
+    if disp and type(m.SetDisplayInfo) == "function" then
+        pcall(m.SetDisplayInfo, m, disp)
+    elseif npc then
+        pcall(m.SetCreature, m, npc)
+    end
+end
+
+-- 轻保底（2026-10-11）：两发延迟探测；收卡 / 已换 boss 自熄。
+-- ★ 状态存在卡 c 上（c.__disp / c.__npc），不是 model 帧上——守卫必须查 c
+--   （2026-10-11 实锤：查成 m 恒 false，保底整个空转）。
+function DG.LootModelLateCheck(c, npc, disp)
+    if type(C_Timer) ~= "table" or type(C_Timer.After) ~= "function" then return end
+    local m = c and c.model
+    if not m then return end
+    for i = 1, #LOOT_MODEL_LATE do
+        C_Timer.After(LOOT_MODEL_LATE[i], function()
+            if not (c:IsShown() and c.__disp == disp and c.__npc == npc) then return end
+            if DG.LootModelProbe(m) then return end
+            if i < #LOOT_MODEL_LATE then
+                DG.LootModelApply(m, npc, disp)
+                DG.LootModelPose(m)
+            else
+                -- 缺模型 / 冷读模超时：收框 + **清状态**。状态不清 ⇒ 之后每次 paint
+                -- 都判「已 Set 过」跳过 = 死锁空白（2026-10-11 玛格玛图斯实锤：
+                -- display id 1070 冷读模 >1.6s 被末发收框，重进永不重试）。
+                c.__disp, c.__npc = nil, nil
+                m:Hide()
+            end
+        end)
+    end
+end
+
+function DG.EnsureLootBossCard()
+    local child = U.dungeonDetailChild
+    if not child then return nil end
+    local c = U.dungeonLootBossCard
+    if c and c:GetParent() == child then return c end
+    c = CreateFrame("Frame", nil, child, "BackdropTemplate")
+    c:SetWidth(DG.LOOT_MODEL_W)
+    c:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    -- ★★★ BackdropTemplate 的 SetBackdropColor **默认=不透明白 (1,1,1,1)**（2026-10-11 实锤）：
+    --   hui 路径若不显式清零，白底从 L1 填充（α0.95）的 5% 缝里透出 ⇒ 卡面发亮发白、
+    --   1px 方形白边也一起亮出来。必须先清零再走圆角填充；非 hui 才用白 3% 兜底。
+    c:SetBackdropColor(0, 0, 0, 0)
+    c:SetBackdropBorderColor(0, 0, 0, 0)
+    if IsHui() and ns.hui and ns.hui.BuildRoundedBG then
+        -- 与卡片视图 boss 卡完全同配方：L1 渐变圆角底 + 自带白 10% 边（不再叠第二道描边）。
+        ns.hui.BuildRoundedBG(c, 6, ns.hui.layer.L1, "both", true, 1)
+    else
+        c:SetBackdropColor(1, 1, 1, 0.03)
+        c:SetBackdropBorderColor(1, 1, 1, 0.10)
+    end
+    c.name = MakeFS(c, DG.LOOT_FS_HDR, C_TEXT, "LEFT")
+    c.name:SetPoint("TOPLEFT", c, "TOPLEFT", 8, -6)
+    c.name:SetWidth(DG.LOOT_MODEL_W - 16)
+    c.name:SetWordWrap(false)
+    local m = CreateFrame("PlayerModel", nil, c)
+    m:EnableMouse(false)     -- 压在掉落行上方，绝不能挡点击 / 滚轮
+    m:EnableMouseWheel(false)
+    -- ★ 对照定案（2026-10-11）：隐藏时保留模型不卸载，重新显示零重读模。
+    if m.SetKeepModelOnHide then m:SetKeepModelOnHide(true) end
+    m:SetPoint("TOPLEFT", c, "TOPLEFT", 6, -(DG.LOOT_CARD_HDR_H + 6))
+    m:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -6, 6)
+    m:Hide()
+    c.model = m
+    c:Hide()
+    U.dungeonLootBossCard = c
+    return c
+end
+
+-- 模型卡高 = 详情视口高 − 底边距 20（PAGE_INSET+GUTTER，与列表大卡「窗沿 20」同款规则）；
+-- 视口高拿不到（离线桩返回 table / 异常客户端）回退固定 LOOT_MODEL_H（CullListRows 同款桩闸门）。
+function DG.LootModelCardH()
+    local sc = U.dungeonDetailScroll
+    local vh = sc and sc.GetHeight and sc:GetHeight()
+    if type(vh) == "number" and vh > 0 then
+        return math.floor(vh - PAGE_INSET - DG.GUTTER)
+    end
+    return DG.LOOT_MODEL_H
+end
+
+-- 摆位 + 上模型。高度 = 视口撑满 − 底边距（2026-10-10 用户定案）。
+function DG.PaintLootBossModel(d, bossSel, bossEn, bossNpc)
+    local c = DG.EnsureLootBossCard()
+    if not (c and c.model) then return end
+    if not U.dungeonDetailChild then return end
+    c:SetHeight(DG.LootModelCardH())
+    c:ClearAllPoints()
+    c:SetPoint("TOPLEFT", U.dungeonDetailChild, "TOPLEFT", DG.LOOT_MODEL_X, 0)
+    c.name:SetText(bossSel or "")
+    c:Show()
+    local m = c.model
+    local row = (d and ns.BossModelDisplay and ns.BossModelDisplay[d.id]) or nil
+    local disp = (row and bossEn) and row[bossEn] or nil
+    if not bossNpc and not disp then
+        m:Hide()               -- 无模型来源（特殊来源 / 无 npc）：卡只留 boss 名
+        c.__disp, c.__npc = nil, nil
+        return
+    end
+    m:Show()   -- ★ 先 Show 再 Set（未 Show 过的帧上首 Set 可能不生效——地图页实机踩过）
+    if c.__disp ~= disp or c.__npc ~= bossNpc then
+        -- ★ 裸 Set（2026-10-11 对照定案）：直接换显示 id，引擎层当帧替换
+        --   旧模型无残影 ⇒ SetDisplayInfo(0) 清显示 / Hide→Show 重建 / alpha 压 0 门控
+        --   全链退役——重建与姿态补丁打时序竞争，正是首点偏移来源。
+        --   ★★ 状态字段必须「先判后写」：写成先赋值再比较，会让 disp=nil 走
+        --       SetCreature 的 boss 恒判「未变」永不 Set = 掉落页空白
+        --      （2026-10-11 玛格玛图斯实锤——地图页先判后写所以正常）。
+        c.__disp, c.__npc = disp, bossNpc
+        DG.LootModelApply(m, bossNpc, disp)
+        DG.LootModelPose(m)
+        DG.LootModelLateCheck(c, bossNpc, disp)
+    end
+end
+
+function DG.HideLootBossModel()
+    local c = U.dungeonLootBossCard
+    if c then c:Hide() end
 end
 
 -- 卡片视图 · 折叠 / 展开一张 boss 卡（状态存 DB().dungeonLootFold，跨会话记住）。
@@ -3512,8 +4103,11 @@ function DG.ShowQuestTip(owner, q)
     GameTooltip:Show()
 end
 
-DG.Q_LIST_W = 520
-DG.Q_DET_GAP = 8
+DG.Q_LIST_W = 520                -- 左栏列宽（含两侧板内衬；行宽 = 列宽 − 2×Q_PAD）
+DG.Q_DET_GAP = 8                 -- 左右两块底板的间隙
+DG.Q_PAD = 8                     -- 底板内衬（行距板边 8/8 对称）
+DG.Q_DET_W = DG.CHILD_W - DG.GUTTER * 2 - DG.Q_LIST_W - DG.Q_DET_GAP - DG.Q_PAD * 2
+                                 -- 右栏内容宽 376（板R 536…928 内衬 8/8）
 DG.Q_ROW_H = 34
 DG.Q_GAP_Y = 4
 DG.Q_X_NAME = 30
@@ -3531,7 +4125,7 @@ DG.Q_FS_NAME = 14
 DG.Q_FS_META = 14
 DG.Q_FS_HDR = 16
 DG.Q_HDR_H = 26
-DG.Q_GRP_GAP = 10
+DG.Q_GRP_GAP = 8                 -- ★ 间距标准 2026-10-10：10 → 8（组间距也是卡↔卡）
 DG.Q_SUM_H = 28
 DG.Q_STATUS_TAG = { done = L["已完成"], active = L["进行中"], todo = L["未完成"] }
 DG.QFILTERS = { "all", "todo", "done" }
@@ -3724,7 +4318,7 @@ function U:RenderDungeonQuests()
         end
     end
     U.dungeonQuestSum:ClearAllPoints()
-    U.dungeonQuestSum:SetPoint("TOPLEFT", child, "TOPLEFT", 0, 2)
+    U.dungeonQuestSum:SetPoint("TOPLEFT", child, "TOPLEFT", DG.Q_PAD, 2)
     U.dungeonQuestSum:SetText(format(L["已完成 %d / %d"], doneVis, nVis) .. seg)
     U.dungeonQuestSum:Show()
 
@@ -3764,12 +4358,14 @@ function U:RenderDungeonQuests()
         local r = rows[nR]
         if not r then
             r = CreateFrame("Button", nil, child, "BackdropTemplate")
-            r:SetSize(DG.Q_LIST_W, DG.Q_ROW_H)
+            r:SetSize(DG.Q_LIST_W - DG.Q_PAD * 2, DG.Q_ROW_H)
             r:SetBackdrop({
                 bgFile = "Interface\\Buttons\\WHITE8x8",
                 edgeFile = "Interface\\Buttons\\WHITE8x8",
                 edgeSize = 1,
             })
+            -- ⑩ 任务行：卡中卡 → L2 圆角底 + L4 悬停胶囊（选中态 = 胶囊常显 + 金 selMark 条）
+            HuiCardFX(r, 12, 2)
             r:EnableMouse(true)
             r:EnableMouseWheel(true)
             r:SetScript("OnMouseWheel", function(_, delta)
@@ -3815,13 +4411,19 @@ function U:RenderDungeonQuests()
             r.selMark:Hide()
             r:SetScript("OnEnter", function(self)
                 U.dungeonQuestHover = self
-                self:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG_HOVER)
-                self:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE_HOVER)
+                if self.__huiCard then
+                    HuiCardState(self, "hover")
+                else
+                    self:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG_HOVER)
+                    self:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE_HOVER)
+                end
                 if self.__q then DG.ShowQuestTip(self, self.__q) end
             end)
             r:SetScript("OnLeave", function(self)
                 if U.dungeonQuestHover == self then U.dungeonQuestHover = nil end
-                if self.__q and self.__q[1] == U.dungeonQuestSel then
+                if self.__huiCard then
+                    HuiCardState(self, (self.__q and self.__q[1] == U.dungeonQuestSel) and "hover" or "norm")
+                elseif self.__q and self.__q[1] == U.dungeonQuestSel then
                     self:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG_HOVER)
                     self:SetBackdropBorderColor(1, 0.82, 0, 0.9)
                 else
@@ -3847,11 +4449,11 @@ function U:RenderDungeonQuests()
             end
             hd.name:SetText(g.inside and L["副本内领取 / 交付"] or L["进本前先去接"])
             hd.name:ClearAllPoints()
-            hd.name:SetPoint("TOPLEFT", child, "TOPLEFT", 0, y)
+            hd.name:SetPoint("TOPLEFT", child, "TOPLEFT", DG.Q_PAD, y)
             hd.name:Show()
             hd.cnt:SetText(format(L["%d 个"], #g.rows))
             hd.cnt:ClearAllPoints()
-            hd.cnt:SetPoint("TOPRIGHT", child, "TOPRIGHT", 0, y - 1)
+            hd.cnt:SetPoint("TOPRIGHT", child, "TOPRIGHT", -DG.Q_PAD, y - 1)
             hd.cnt:Show()
             y = y - DG.Q_HDR_H
 
@@ -3925,17 +4527,18 @@ function U:RenderDungeonQuests()
                 r.meta:Show()
                 r.__q = q
                 local isSel = (q[1] == U.dungeonQuestSel)
-                if isSel then
+                if r.__huiCard then
+                    HuiCardState(r, isSel and "hover" or "norm")
+                elseif isSel then
                     r:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG_HOVER)
                     r:SetBackdropBorderColor(1, 0.82, 0, 0.9)
-                    r.selMark:Show()
                 else
                     r:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
                     r:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
-                    r.selMark:Hide()
                 end
+                r.selMark:SetShown(isSel)
                 r:ClearAllPoints()
-                r:SetPoint("TOPLEFT", child, "TOPLEFT", 0, y - (i - 1) * (DG.Q_ROW_H + DG.Q_GAP_Y))
+                r:SetPoint("TOPLEFT", child, "TOPLEFT", DG.Q_PAD, y - (i - 1) * (DG.Q_ROW_H + DG.Q_GAP_Y))
                 r:Show()
             end
             y = y - #g.rows * (DG.Q_ROW_H + DG.Q_GAP_Y) - DG.Q_GRP_GAP
@@ -3948,7 +4551,7 @@ function U:RenderDungeonQuests()
     local note = U.dungeonQuestNote
     if nH == 0 then
         note:ClearAllPoints()
-        note:SetPoint("TOPLEFT", child, "TOPLEFT", 0, y)
+        note:SetPoint("TOPLEFT", child, "TOPLEFT", DG.Q_PAD, y)
         if nAll == 0 then
             note:SetText(L["本站资料里这个副本还没有任务清单，数据补上后会自动出现。"])
         else
@@ -4134,7 +4737,7 @@ function U:RenderQuestDetail()
     local d = U.dungeonDetailCur
     local child, pool = U.dungeonQDetChild, U.dungeonQDetPool
     if not (d and child and pool) then return end
-    local detW = DG.CHILD_W - DG.Q_LIST_W - DG.Q_DET_GAP
+    local detW = DG.Q_DET_W
 
     local q
     for _, row in ipairs(DG.QuestList(d)) do
@@ -4216,19 +4819,25 @@ function U:RenderQuestDetail()
                 edgeFile = "Interface\\Buttons\\WHITE8x8",
                 edgeSize = 1,
             })
+            -- ⑩ 任务详情 NPC 节点行：卡中卡 → L2 圆角底 + L4 悬停胶囊
+            HuiCardFX(r, 10, 2)
             r:EnableMouse(true)
             r:EnableMouseWheel(true)
             r:SetScript("OnMouseWheel", function(_, delta)
                 DG.WheelScroll(U.dungeonQDet, U.dungeonQDetChild, delta)
             end)
             r:SetScript("OnEnter", function(self)
-                self:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG_HOVER)
-                self:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE_HOVER)
+                if not HuiCardState(self, "hover") then
+                    self:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG_HOVER)
+                    self:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE_HOVER)
+                end
                 if self.__q then DG.ShowQuestTip(self, self.__q) end
             end)
             r:SetScript("OnLeave", function(self)
-                self:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
-                self:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+                if not HuiCardState(self, "norm") then
+                    self:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
+                    self:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+                end
                 GameTooltip:Hide()
             end)
             r:SetScript("OnClick", function(self)
@@ -4250,8 +4859,10 @@ function U:RenderQuestDetail()
             r.sub:SetWordWrap(false)
             pool.node[i] = r
         end
-        r:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
-        r:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+        if not r.__huiCard then
+            r:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
+            r:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+        end
         return r
     end
     local function takeChip()
@@ -4698,14 +5309,13 @@ function U:RenderDungeonGuide()
                 edgeFile = "Interface\\Buttons\\WHITE8x8",
                 edgeSize = 1,
             })
-            c:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
-            c:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
-            c.stripe = c:CreateTexture(nil, "OVERLAY")
-            c.stripe:SetWidth(DG.GUIDE_STRIPE)
-            c.stripe:SetPoint("TOPLEFT", c, "TOPLEFT", 1, -1)
-            c.stripe:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 1, 1)
+            -- ⑪ 攻略指南卡：L1 圆角 + DIV 细边（非 hui 走旧白 3% 直角）
+            if not HuiCardFX(c) then
+                c:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
+                c:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+            end
             c.title = MakeFS(c, 16, C_GOLD, "LEFT")
-            c.title:SetPoint("TOPLEFT", c, "TOPLEFT", DG.GUIDE_PAD + DG.GUIDE_STRIPE, -DG.GUIDE_PAD)
+            c.title:SetPoint("TOPLEFT", c, "TOPLEFT", DG.GUIDE_PAD, -DG.GUIDE_PAD)
             c.rows = {}
             cards[nC] = c
         end
@@ -4730,7 +5340,6 @@ function U:RenderDungeonGuide()
     local function fillCard(c, def)
         c.n = 0
         c.title:SetText(def.label)
-        c.stripe:SetColorTexture(def.accent[1], def.accent[2], def.accent[3], 1)
         local cy = -(DG.GUIDE_PAD + DG.GUIDE_HDR_H)
         local rows, last = def.rows, #def.rows
         for i = 1, last do
@@ -4801,10 +5410,10 @@ function U:RenderDungeonGuide()
             pool.note:SetWordWrap(true)
         end
         local f = pool.note
-        f:SetWidth(DG.CHILD_W)
+        f:SetWidth(DG.CHILD_W - DG.GUTTER * 2)
         f:SetText(L["这个副本还没有攻略，数据补上后会自动出现。"])
         f:ClearAllPoints()
-        f:SetPoint("TOPLEFT", child, "TOPLEFT", 0, 0)
+        f:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUTTER, 0)
         f:Show()
         for i = 1, #cards do cards[i]:Hide() end
         child:SetHeight(30)
@@ -4882,6 +5491,10 @@ function U:RenderDungeonTab()
     if U.dungeonDetailScroll then U.dungeonDetailScroll:SetShown(not isQuest and not isGuide and not isMap) end
     if U.dungeonGuideScroll then U.dungeonGuideScroll:SetShown(isGuide) end
     if U.dungeonMapFrame then U.dungeonMapFrame:SetShown(isMap) end
+    -- ★ 离开地图页签收 Boss 模型（2026-10-11 用户定案，替代 2026-10-06 的「切页签常驻」）：
+    --   模型挂共享 hero 上，页签切换收不到它，必须在这里显式收；回到地图页签时
+    --   上面的 Paint → SyncSide → SyncBossModel 会按原状态复活，不重读模。
+    if not isMap and ns.MapModule and ns.MapModule.HideBossModel then ns.MapModule.HideBossModel() end
     if U.dungeonQuestScroll then U.dungeonQuestScroll:SetShown(isQuest) end
     if U.dungeonQDet then U.dungeonQDet:SetShown(isQuest) end
     if U.dungeonQPlateL then U.dungeonQPlateL:SetShown(isQuest) end
@@ -4897,7 +5510,7 @@ function U:RenderDungeonTab()
     end
     DG.ApplyDetailChrome(cur)
 end
-DG.CAPSULE_LIFT = 10
+DG.CAPSULE_LIFT = 20   -- 轨道底=面板顶：卡顶(页缘下8)↔轨道底缝 8（全局间距标准）
 DG.CAPSULE_W = 82
 local function BuildSubTabs()
     local defs = {
@@ -4907,8 +5520,10 @@ local function BuildSubTabs()
     if ns.LoadForeverPages then
         defs[#defs + 1] = { key = "Professions", text = L["专业"], width = DG.CAPSULE_W }
         defs[#defs + 1] = { key = "Explore", text = L["探索"], width = DG.CAPSULE_W }
+        defs[#defs + 1] = { key = "Collections", text = L["藏品"], width = DG.CAPSULE_W }
         defs[#defs + 1] = { key = "Bis", text = L["BIS配装"], width = DG.CAPSULE_W }
         defs[#defs + 1] = { key = "Tier", text = L["职业指南"], width = DG.CAPSULE_W }
+        defs[#defs + 1] = { key = "PvP", text = L["PvP"], width = DG.CAPSULE_W }
     end
     local BTN_H = IsHui() and 20 or 26
     local GAP = IsHui() and 0 or 6
@@ -4963,6 +5578,52 @@ local function BuildSubTabs()
     if ctrl then ctrl:AttachButtons(btns) end
     U.subTabs = defs
     U.subCtrl = ctrl
+    ns.ApplyTabVisibility() -- QB_SET_TABS：建好即按存档收一次显隐
+end
+
+-- ★ 标签页显隐（QB_SET_TABS，2026-10-08 用户）：按 ns.QuickCfg().tabs 重排主窗页签。
+--   隐藏钮不占位（重锚到前一个可见钮），容器宽度回收 → 胶囊/分段轨随 host 居中收窄；
+--   Hui 皮重挂 AttachButtons 让滑块 offset 只数可见钮。当前页被隐藏时落回第一个可见页。
+function ns.ApplyTabVisibility()
+    if not U.subTabs then return end
+    local cfg = ns.QuickCfg().tabs or {}
+    local BTN_H = IsHui() and 20 or 26
+    local GAP = IsHui() and 0 or 6
+    local totalW, prev, firstVis = 0, nil, nil
+    for _, tab in ipairs(U.subTabs) do
+        local bt = tab.button
+        if bt then
+            local show = (cfg[tab.key] ~= false)
+            bt:SetShown(show)
+            if show then
+                bt:ClearAllPoints()
+                if prev then
+                    bt:SetPoint("LEFT", prev, "RIGHT", GAP, 0)
+                    totalW = totalW + GAP
+                else
+                    bt:SetPoint("TOPLEFT", bt:GetParent(), "TOPLEFT", 0, 0)
+                end
+                totalW = totalW + tab.width
+                prev = bt
+                firstVis = firstVis or tab.key
+            end
+        end
+    end
+    if not prev then return end
+    local host = prev:GetParent()
+    if host and host.SetSize then host:SetSize(totalW, BTN_H) end
+    if U.subCtrl then
+        local vis = {}
+        for _, tab in ipairs(U.subTabs) do
+            if cfg[tab.key] ~= false and tab.button then vis[#vis + 1] = tab.button end
+        end
+        U.subCtrl:AttachButtons(vis)
+    end
+    local cur = U.curSub
+    if cur and cfg[cur] == false then
+        U.curSub = firstVis
+        if U.built then U:SwitchSub(firstVis) end
+    end
 end
 
 -- ══════════════════════════════════════════════════════════════════════
@@ -4989,12 +5650,18 @@ function U:EnsureBuilt(k)
     elseif k == "Explore" and ns.ExploreModule and U.explorePage then
         U.subBuilt[k] = true
         ns.ExploreModule.Build(U.explorePage)
+    elseif k == "Collections" and ns.CollectionModule and U.collectionPage then
+        U.subBuilt[k] = true
+        ns.CollectionModule.Build(U.collectionPage)
     elseif k == "Bis" and ns.BisModule and U.bisPage then
         U.subBuilt[k] = true
         ns.BisModule.Build(U.bisPage)
     elseif k == "Tier" and ns.TierModule and U.tierPage then
         U.subBuilt[k] = true
         ns.TierModule.Build(U.tierPage)
+    elseif k == "PvP" and ns.PvPModule and U.pvpPage then
+        U.subBuilt[k] = true
+        ns.PvPModule.Build(U.pvpPage)
     end
 end
 
@@ -5009,8 +5676,10 @@ function U:SchedulePrebuild()
     if ns.LoadForeverPages then
         order[#order + 1] = "Professions"
         order[#order + 1] = "Explore"
+        order[#order + 1] = "Collections"
         order[#order + 1] = "Bis"
         order[#order + 1] = "Tier"
+        order[#order + 1] = "PvP"
     end
     local left = 0
     for _, k2 in ipairs(order) do
@@ -5045,20 +5714,27 @@ function U:SwitchSub(key)
         k = "Professions"
     elseif key == "Explore" and ns.LoadForeverPages then
         k = "Explore"
+    elseif key == "Collections" and ns.LoadForeverPages then
+        k = "Collections"
     elseif key == "Bis" and ns.LoadForeverPages then
         k = "Bis"
     elseif key == "Tier" and ns.LoadForeverPages then
         k = "Tier"
+    elseif key == "PvP" and ns.LoadForeverPages then
+        k = "PvP"
     end
     U.curSub = k
     DB().subTab = k
-    local isDun, isRaid, isProf, isExpl, isBis, isTier = (k == "Dungeons"), (k == "Raids"), (k == "Professions"), (k == "Explore"), (k == "Bis"), (k == "Tier")
+    local isDun, isRaid, isProf, isExpl, isColl, isBis, isTier = (k == "Dungeons"), (k == "Raids"), (k == "Professions"), (k == "Explore"), (k == "Collections"), (k == "Bis"), (k == "Tier")
+    local isPvP = (k == "PvP")
     if U.dungeonPage then U.dungeonPage:SetShown(isDun) end
     if U.raidPage then U.raidPage:SetShown(isRaid) end
     if U.profPage then U.profPage:SetShown(isProf) end
     if U.explorePage then U.explorePage:SetShown(isExpl) end
+    if U.collectionPage then U.collectionPage:SetShown(isColl) end
     if U.bisPage then U.bisPage:SetShown(isBis) end
     if U.tierPage then U.tierPage:SetShown(isTier) end
+    if U.pvpPage then U.pvpPage:SetShown(isPvP) end
     if isRaid then
         U:EnsureBuilt("Raids")
     elseif isDun then
@@ -5070,12 +5746,18 @@ function U:SwitchSub(key)
     elseif isExpl and ns.ExploreModule then
         U:EnsureBuilt("Explore")
         ns.ExploreModule.Open()
+    elseif isColl and ns.CollectionModule then
+        U:EnsureBuilt("Collections")
+        ns.CollectionModule.Open()
     elseif isBis and ns.BisModule then
         U:EnsureBuilt("Bis")
         ns.BisModule.Open()
     elseif isTier and ns.TierModule then
         U:EnsureBuilt("Tier")
         ns.TierModule.Refresh()
+    elseif isPvP and ns.PvPModule then
+        U:EnsureBuilt("PvP")
+        ns.PvPModule.Open()
     end
     for _, tab in ipairs(U.subTabs or {}) do
         local selected = (tab.key == k)
@@ -5094,12 +5776,20 @@ function U:UpdateActiveSub()
         if ns.ExploreModule then ns.ExploreModule.Refresh() end
         return
     end
+    if self.curSub == "Collections" then
+        if ns.CollectionModule then ns.CollectionModule.Refresh() end
+        return
+    end
     if self.curSub == "Bis" then
         if ns.BisModule then ns.BisModule.Refresh() end
         return
     end
     if self.curSub == "Tier" then
         if ns.TierModule then ns.TierModule.Refresh() end
+        return
+    end
+    if self.curSub == "PvP" then
+        if ns.PvPModule then ns.PvPModule.Refresh() end
         return
     end
     self:UpdateDungeons()
@@ -5119,10 +5809,14 @@ function U:Build()
         U.curSub = "Professions"
     elseif saved == "Explore" and ns.LoadForeverPages then
         U.curSub = "Explore"
+    elseif saved == "Collections" and ns.LoadForeverPages then
+        U.curSub = "Collections"
     elseif saved == "Bis" and ns.LoadForeverPages then
         U.curSub = "Bis"
     elseif saved == "Tier" and ns.LoadForeverPages then
         U.curSub = "Tier"
+    elseif saved == "PvP" and ns.LoadForeverPages then
+        U.curSub = "PvP"
     else
         U.curSub = "Dungeons"
     end
@@ -5146,6 +5840,10 @@ function U:Build()
         U.explorePage:SetAllPoints(panel)
         U.explorePage:Hide()
         -- ★ 懒构建：探索页内容见 U:EnsureBuilt("Explore")
+        U.collectionPage = CreateFrame("Frame", nil, panel)
+        U.collectionPage:SetAllPoints(panel)
+        U.collectionPage:Hide()
+        -- ★ 懒构建：藏品页内容见 U:EnsureBuilt("Collections")
         U.bisPage = CreateFrame("Frame", nil, panel)
         U.bisPage:SetAllPoints(panel)
         U.bisPage:Hide()
@@ -5153,6 +5851,9 @@ function U:Build()
         U.tierPage = CreateFrame("Frame", nil, panel)
         U.tierPage:SetAllPoints(panel)
         U.tierPage:Hide()
+        U.pvpPage = CreateFrame("Frame", nil, panel)
+        U.pvpPage:SetAllPoints(panel)
+        U.pvpPage:Hide()
         -- ★ 懒构建：职业指南页内容见 U:EnsureBuilt("Tier")
     end
 
@@ -5166,6 +5867,7 @@ function U:Build()
     U.mapPageBuilt = nil
     U.dungeonListChild = nil
     U.dungeonListPool = nil
+    U.dungeonListCard = nil
     U.dungeonListLevel = nil
     U.dungeonDetailChild = nil
     U.dungeonDetailHero = nil
@@ -5194,7 +5896,9 @@ function U:Build()
     U.dungeonQDetSt = nil
     U.dungeonQuestSel = nil
     U.dungeonQSide = nil
-    U.dungeonView = (DB().dungeonView == "overview") and "overview" or "list"
+    -- ★ 2026-10-10 定案：列表为唯一视图，老存档的 overview 归位 list
+    U.dungeonView = "list"
+    if DB().dungeonView ~= "list" then DB().dungeonView = "list" end
     U.dungeonFilter = DB().dungeonFilter or "all"
     U.dungeonLootBoss = DB().dungeonLootBoss
     U.dungeonQFilter = DB().dungeonQuestFilter or "all"
@@ -5210,7 +5914,14 @@ function U:Build()
 
     BuildSubTabs()
 
-    MakeSourceCredit(panel, L["数据来源：wowhead"], "https://www.wowhead.com/forever")
+    -- ★ 署名行抬升（2026-10-10）：列表页卡底有一条 L0 遮罩片（page+3，盖骑线行卡外溢出），
+    --   署名行正好在那条带里 → 装进 creditLift（page+4）保证永远在遮罩之上；位置不变。
+    local creditLift = CreateFrame("Frame", nil, panel)
+    creditLift:SetFrameLevel(panel.GetFrameLevel and (panel:GetFrameLevel() + 4) or 4)
+    creditLift:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 0, 0)
+    creditLift:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0)
+    creditLift:SetHeight(24)
+    MakeSourceCredit(creditLift, L["数据来源：wowhead"], "https://www.wowhead.com/forever")
 
     U:SwitchSub(U.curSub)
     U.building = false

@@ -12,8 +12,8 @@ if (type(GetLocale) ~= "function") or GetLocale() ~= "enUS" then return end
 local _, ns = ...
 
 ns.ProfData = {
-    build = "1.60.1.69913",
-    updated = "2026-09-19",
+    build = "1.60.1.70245",
+    updated = "2026-10-06",
 
     order = { "alchemy", "blacksmithing", "enchanting", "engineering", "leatherworking", "tailoring", "mining", "herbalism", "skinning", "cooking", "fishing", "first-aid", "camping" },
 
@@ -27,7 +27,7 @@ ns.ProfData = {
         ["legacy-perk-master-chef"] = { "Master Chef", "achievement_profession_chefhat", "Professions", 5, { "Your cooking recipes have a 10% chance to yield one extra serving.", "Your cooking recipes have a 20% chance to yield one extra serving.", "Your cooking recipes have a 30% chance to yield one extra serving.", "Your cooking recipes have a 40% chance to yield one extra serving.", "Your cooking recipes have a 50% chance to yield one extra serving." }, "Your cooking recipes have a 10% chance to yield one extra serving.", "client_data", {} },
         ["legacy-perk-performance-bonus"] = { "Performance bonuses", "racial_dwarf_findtreasure", "Professions", 3, { "When turning in crates to the Azeroth Commerce Authority or Durotar Supply & Logistics, you have a 5% chance to gain 100% extra Commercial Favor.", "When turning in crates to the Azeroth Commerce Authority or Durotar Supply & Logistics, you have a 10% chance to gain 100% extra Commercial Favor.", "When turning in crates to the Azeroth Commerce Authority or Durotar Supply & Logistics, you have a 15% chance to gain 100% extra Commercial Favor." }, "When turning in crates to the Azeroth Commerce Authority or Durotar Supply & Logistics, you have a 5% chance to gain 100% extra Commercial Favor.", "client_data", {} },
         ["legacy-perk-permanence"] = { "Endurance", "spell_misc_emotionhappy", "Resourcefulness", 2, { "Increases by 50% the duration of your class abilities that grant long-duration stat buffs to party or raid members, and by 50% the duration of buffs you gain from resting at camp.", "Increases by 100% the duration of your class abilities that grant long-duration stat buffs to party or raid members, and by 100% the duration of buffs you gain from resting at camp." }, "Increases by 50% the duration of your class abilities that grant long-duration stat buffs to party or raid members, and by 50% the duration of buffs you gain from resting at camp.", "client_data", {} },
-        ["legacy-perk-reagent-economy"] = { "Material Economy", "inv_misc_candle_02", "Resourcefulness", 1, { "Your profession skills no longer require vendor-bought materials, and crafting your tier-1 camp object consumes no materials." }, "Your profession skills no longer require vendor-bought materials, and crafting your tier-1 camp object consumes no materials.", "client_data", {} },
+        ["legacy-perk-reagent-economy"] = { "Material Economy", "inv_misc_candle_02", "Resourcefulness", 1, { "Your class abilities no longer require reagents purchaseable from vendors." }, "Your class abilities no longer require reagents purchaseable from vendors.", "client_data", {} },
         ["legacy-perk-working-overtime"] = { "Overtime", "inv_misc_pocketwatch_03", "Professions", 5, { "Skill-up chance increased by 4% when using any primary, secondary or profession skill.", "Skill-up chance increased by 8% when using any primary, secondary or profession skill.", "Skill-up chance increased by 12% when using any primary, secondary or profession skill.", "Skill-up chance increased by 16% when using any primary, secondary or profession skill.", "Skill-up chance increased by 20% when using any primary, secondary or profession skill." }, "Skill-up chance increased by 4% when using any primary, secondary or profession skill.", "client_data", {} },
     },
 
@@ -82,6 +82,9 @@ ns.ProfData = {
                 { 279955, "Master Forge", "inv_mace_1h_blacksmithing_b_01_black", 300, "Used by the highest-tier blacksmithing recipes, and provides the Grinding Wheel buff", "", "Used by the highest-tier blacksmithing recipes", "Grinding Wheel", "", "", { { 273127, 1 }, { 12359, 5 }, { 8170, 2 } }, { 273113, 0 } },
             },
             perks = { "legacy-perk-performance-bonus", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
+            tips = { "Recipes, trainers and full leveling routes are not yet confirmed.", "\"Specialty Study\" raises your lowest eligible skill, so check your other professions first if you want it to land on this one." },
+            verify = { "Recipes, materials, skill-up colors and craft yields", "Trainers, books, specializations and required character levels", "This profession's milestone details", "Gear strength, supply-cache requirements and best pairings" },
+            unknowns = { "Other professions' milestones, recipes, trainers and leveling routes." },
         },
         ["enchanting"] = {
             name = "Enchanting",
@@ -106,6 +109,9 @@ ns.ProfData = {
                 { 279987, "Arcane Furnace", "inv_enchanting_modifiedcraftingreagent_indigo", 300, "Used by the highest-tier enchanting recipes, and provides the Enchanted Lute buff", "", "Used by the highest-tier enchanting recipes", "Enchanted Lute", "", "", { { 273128, 1 }, { 14344, 2 }, { 16203, 4 } }, { 273116, 0 } },
             },
             perks = { "legacy-perk-performance-bonus", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
+            tips = { "Recipes, trainers and full leveling routes are not yet confirmed.", "\"Specialty Study\" raises your lowest eligible skill, so check your other professions first if you want it to land on this one." },
+            verify = { "Recipes, materials, skill-up colors and craft yields", "Trainers, books, specializations and required character levels", "This profession's milestone details", "Gear strength, supply-cache requirements and best pairings" },
+            unknowns = { "Other professions' milestones, recipes, trainers and leveling routes." },
         },
         ["engineering"] = {
             name = "Engineering",
@@ -115,9 +121,9 @@ ns.ProfData = {
             guide = "crafting",
             summary = "Engineers bring the Materials Bot to camp at skill 20, then the Repair Bot and the Anarchist's Workbench. The test client already includes the new schematics and a certification unlocking the \"Engineer\" title.",
             status = "Verified in the field",
-            recipes = 77,
+            recipes = 78,
             sub = 3,
-            kinds = { Schematic=75, Blueprint=2 },
+            kinds = { Schematic=76, Blueprint=2 },
             cert = { 271625, "Engineering Certification", "inv_scroll_15", 300, "Engineer" },
             miles = {
                 { "Engineering Apprentice", 150, 1 },
@@ -131,6 +137,9 @@ ns.ProfData = {
             },
             perks = { "legacy-perk-performance-bonus", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
             racials = { { "racial-gnome-engineering-specialization", "Engineering", "Supposedly improves contraption reliability; the failure rate is unknown." } },
+            tips = { "Recipes, trainers and full leveling routes are not yet confirmed.", "\"Specialty Study\" raises your lowest eligible skill, so check your other professions first if you want it to land on this one." },
+            verify = { "Recipes, materials, skill-up colors and craft yields", "Trainers, books, specializations and required character levels", "This profession's milestone details", "Gear strength, supply-cache requirements and best pairings" },
+            unknowns = { "Other professions' milestones, recipes, trainers and leveling routes." },
         },
         ["leatherworking"] = {
             name = "Leatherworking",
@@ -155,6 +164,9 @@ ns.ProfData = {
                 { 279945, "Sewing Machine", "inv_tailoring_modifiedcraftingreagent_orange", 300, "Used by the highest-tier leatherworking recipes, and provides the Camp Tent buff", "", "Used by the highest-tier leatherworking recipes", "Camp Tent", "", "", { { 273130, 1 }, { 8170, 5 }, { 14341, 1 } }, { 273121, 0 } },
             },
             perks = { "legacy-perk-performance-bonus", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
+            tips = { "Recipes, trainers and full leveling routes are not yet confirmed.", "\"Specialty Study\" raises your lowest eligible skill, so check your other professions first if you want it to land on this one." },
+            verify = { "Recipes, materials, skill-up colors and craft yields", "Trainers, books, specializations and required character levels", "This profession's milestone details", "Gear strength, supply-cache requirements and best pairings" },
+            unknowns = { "Other professions' milestones, recipes, trainers and leveling routes." },
         },
         ["tailoring"] = {
             name = "Tailoring",
@@ -179,6 +191,9 @@ ns.ProfData = {
                 { 279959, "Loom", "inv_tailoring_80_tidespraylinen", 300, "Used by the highest-tier tailoring recipes, and provides the Faction Banner buff", "", "Used by the highest-tier tailoring recipes", "Faction Banner", "", "", { { 273131, 1 }, { 14048, 4 }, { 4470, 4 } }, { 273124, 0 } },
             },
             perks = { "legacy-perk-performance-bonus", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
+            tips = { "Recipes, trainers and full leveling routes are not yet confirmed.", "\"Specialty Study\" raises your lowest eligible skill, so check your other professions first if you want it to land on this one." },
+            verify = { "Recipes, materials, skill-up colors and craft yields", "Trainers, books, specializations and required character levels", "This profession's milestone details", "Gear strength, supply-cache requirements and best pairings" },
+            unknowns = { "Other professions' milestones, recipes, trainers and leveling routes." },
         },
         ["mining"] = {
             name = "Mining",
@@ -215,6 +230,7 @@ ns.ProfData = {
             racials = { { "racial-tauren-cultivation", "Herbalism", "Supposedly lets you grow herbs without learning Herbalism." } },
             tips = { "For rare materials pick the \"Bountiful Harvest\" perk; \"Overtime\" helps with skill gains.", "\"Specialty Study\" only raises your lowest eligible profession skill — check your skills before using it.", "The Forever-realm herb list, trainers and leveling routes are not yet confirmed." },
             verify = { "The Forever-realm herb and rare-material definitions", "Zones, node locations, respawn timers and required skill", "Trainers, tracking mechanics and leveling routes", "Verified crafting uses and profession pairings" },
+            unknowns = { "Which rare materials can be produced, node locations, drop tables and respawn timers." },
         },
         ["skinning"] = {
             name = "Skinning",
@@ -232,6 +248,7 @@ ns.ProfData = {
             perks = { "legacy-perk-bountiful-harvest", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
             tips = { "For rare materials pick the \"Bountiful Harvest\" perk; \"Overtime\" helps with skill gains.", "\"Specialty Study\" only raises your lowest eligible profession skill — check your skills before using it.", "The Forever-realm leather list, trainers and leveling routes are not yet confirmed." },
             verify = { "Skinnable creatures and their skill requirements", "Leather, fur and rare-material lists", "Trainer and tool requirements", "Leveling routes and current crafting demands" },
+            unknowns = { "Which rare materials can be produced, node locations, drop tables and respawn timers." },
         },
         ["cooking"] = {
             name = "Cooking",
@@ -239,7 +256,7 @@ ns.ProfData = {
             kind = "secondary",
             section = "cooking",
             guide = "cooking",
-            summary = "The cook builds the campfire itself: the basic campfire holds 3 camp objects, the apprentice fire 5 and the expert fire 10 — plus the \"Cook's Feast\" and the iron stove. The food shown in the deep-dive also grants 5% bonus XP from kills while well fed, starting with \"Tasty Raptor meat\" at cooking 25. Legacy perks give recipes a chance to yield extra and extend food-buff durations.",
+            summary = "Cooks build the campfire itself: the basic kit holds 3 camp objects, the Journeyman kit 5 and the Expert kit 10, with Cookie's Feast and an Iron Oven on top. Almost every dish that makes you well fed also raises experience from kills by 5%, from the first recipes at Cooking 1. Legacy perks give recipes a chance at an extra result and make food buffs last longer.",
             status = "Mix of first-hand reports and second-hand accounts",
             recipes = 40,
             sub = 5,
@@ -273,10 +290,10 @@ ns.ProfData = {
             },
             perks = { "legacy-perk-luremaster", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
             tips = { "The Aquarium needs one Raw Brilliant Smallfish (fishable in starting-zone fresh water in Classic Era) and an Empty Bottle bought from a vendor.", "The Tackle Rack or Fishing Hut is built on top of the Aquarium, keeping its +8% all-stats effect.", "Watch your lure: \"Lure Master\"'s extra-catch chance requires the lure to be active.", "If you want this skill point to land on Fishing, check which of your gathering / crafting skills is lowest before using \"Specialty Study\".", "The following points are not yet confirmed." },
-            verify = { "In-game trainer and vendor locations (Wowhead database)", "Catch tables and the skill each zone requires", "What the Tackle Rack and Fishing Hut add to your catches", "Where patterns drop, and how to learn Find Fish", "Catches that \"Lure Master\" can proc" },
+            verify = { "游戏内训练师与供应商的位置（无限服实测点位）", "Catch tables and the skill each zone requires", "What the Tackle Rack and Fishing Hut add to your catches", "Where patterns drop, and how to learn Find Fish", "Catches that \"Lure Master\" can proc" },
             unknowns = { "What can be caught, and the tier-2 effects." },
             steps_title = "How to fish",
-            steps_note = "Trainer and vendor coordinates are field-tested on the Forever realms; the rest is the client's own text.",
+            steps_note = "训练师与供应商的点位均按无限服实测校准，瓦拉纳尔的那位来自内测玩家分享；其余为客户端自身的文本。",
             steps = {
                 { "Learning to Fish", "Learn from a fishing trainer — every capital has one, and there is one by the pond in the floating city of Varanar. After learning it you also gain \"Lures & Tackle\", used to place fishing objects at camp." },
                 { "Equipping the rod", "Buy a fishing rod from the fishing supplier near the trainer and equip it from your bags. It takes both hands — no rod, no fishing." },
@@ -359,7 +376,7 @@ ns.ProfData = {
             description = "A deep dive into the Forever-realm camp system: the three campfires, what each profession brings at skill 20 / 140 / 300, buff effects, required materials and rested XP.",
             status = "The system as officially documented",
             perks = { "legacy-perk-field-guide", "legacy-perk-permanence", "legacy-perk-reagent-economy" },
-            tips = { "Camp buffs don't stack with the class buffs they mimic — e.g. the Aquarium and Blessing of Kings: you can only keep one.", "Only the leatherworking Camp Tent (and the Tanning Rack / Sewing Machine that replace it) provides rested XP. Standing by the tent for 30 sec tops your rest to 5% of a level, once per hour; no effect if you already have more.", "The Faction Banner only affects players of your own faction.", "Camp objects are tradeable, but placing one requires the profession skill marked on it.", "Setting up camp facilities often? See \"Field Guide\" and \"Material Economy\". Want buffs to last longer between visits? See \"Endurance\".", "Check a facility's tier before counting on free materials. \"Material Economy\" only covers tier 1.", "The following points are not yet confirmed." },
+            tips = { "Camp buffs don't stack with the class buffs they mimic — e.g. the Aquarium and Blessing of Kings: you can only keep one.", "Only the leatherworking Camp Tent (and the Tanning Rack / Sewing Machine that replace it) provides rested XP. Standing by the tent for 30 sec tops your rest to 5% of a level, once per hour; no effect if you already have more.", "Most dishes a cook makes also give 5% more experience from kills (not from quests) while you are well fed. The Cooking page lists which ones.", "The Faction Banner only affects players of your own faction.", "Camp objects are tradeable, but placing one requires the profession skill marked on it.", "Setting up camp facilities often? See \"Field Guide\" and \"Material Economy\". Want buffs to last longer between visits? See \"Endurance\".", "Check a facility's tier before counting on free materials. \"Material Economy\" only covers tier 1.", "The following points are not yet confirmed." },
             verify = { "Where each pattern drops", "Craft yield per craft: the client shows 1, Wowhead shows 2", "Whether camps work in cities and dungeons", "Whether sharing camp buffs requires being in the same party" },
             unknowns = { "Where patterns drop from." },
             steps_title = "How the camp system works",

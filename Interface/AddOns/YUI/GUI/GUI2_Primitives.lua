@@ -1,0 +1,8764 @@
+local YUI = _G.YUI
+YUI.GUI2 = YUI.GUI2 or {}
+
+local GUI2 = YUI.GUI2
+local Assets = YUI.Assets
+
+local CreateFrame = CreateFrame
+local CreateColor = CreateColor
+local STANDARD_TEXT_FONT = STANDARD_TEXT_FONT
+local UIParent = UIParent
+local C_Timer = C_Timer
+local FrameAPI = YUI.API and YUI.API.Frame or YUI.WOW_API
+local UnitAPI = YUI.API and YUI.API.Unit or YUI.WOW_API
+local math_ceil = math.ceil
+local math_floor = math.floor
+local math_abs = math.abs
+local math_max = math.max
+local math_min = math.min
+local math_cos = math.cos
+local math_sin = math.sin
+local math_pi = math.pi
+local string_format = string.format
+local table_insert = table.insert
+local unpack = unpack
+local ipairs = ipairs
+local select = select
+local pcall = pcall
+local type = type
+local GetScrollFrameScrollBar
+
+local function GetCoreText(key, fallback)
+    local locale = YUI.Locale
+    if locale and locale.Get then
+        local core = locale:Get("Core")
+        local value = core and core[key]
+        if value and value ~= key then
+            return value
+        end
+    end
+    return fallback
+end
+
+GUI2.Primitives = GUI2.Primitives or {}
+GUI2.ThemeObjects = GUI2.ThemeObjects or {}
+GUI2.PixelObjects = GUI2.PixelObjects or {}
+GUI2.mult = GUI2.mult or 1
+local DEFAULT_TEXT_FONT = GUI2.GetDefaultFont and GUI2:GetDefaultFont() or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+
+local COLOR_TOKENS = {
+    bg = "color.surface.window",
+    nav = "color.surface.nav",
+    header = "color.surface.header",
+    border = "color.border.default",
+    border_highlight = "color.border.accent",
+    shadow = "color.overlay.shadow",
+    text = "color.text.primary",
+    text_highlight = "color.text.accent",
+    button = "color.control.bg",
+    button_hover = "color.control.hover",
+    button_active = "color.control.pressed",
+    disabled = "color.control.disabled",
+    enabled = "color.accent.primary",
+    class = "color.class.primary",
+}
+
+local function GetClassColor()
+    local _, class = UnitAPI.UnitClass("player")
+    local color = UnitAPI.GetClassColor(class)
+    if color then
+        return color.r, color.g, color.b, 1
+    end
+    return GUI2:GetColor("color.class.primary", { 0.15, 0.55, 1, 1 })
+end
+
+GUI2.Colors = GUI2.Colors or setmetatable({}, {
+    __index = function(_, key)
+        if key == "class" then
+            return { GetClassColor() }
+        end
+        local token = COLOR_TOKENS[key]
+        if token and GUI2.GetColor then
+            return { GUI2:GetColor(token) }
+        end
+        return nil
+    end,
+})
+
+GUI2.Colors_Hex = GUI2.Colors_Hex or setmetatable({}, {
+    __index = function(_, key)
+        local r, g, b, a
+        if key == "class" then
+            r, g, b, a = GetClassColor()
+            if CreateColor then
+                return CreateColor(r, g, b, a or 1):GenerateHexColor()
+            end
+            return string_format("ff%02x%02x%02x", math_floor((r or 1) * 255 + 0.5), math_floor((g or 1) * 255 + 0.5), math_floor((b or 1) * 255 + 0.5))
+        end
+        local token = COLOR_TOKENS[key]
+        if token and GUI2.GetColor then
+            r, g, b, a = GUI2:GetColor(token)
+            if CreateColor then
+                return CreateColor(r, g, b, a or 1):GenerateHexColor()
+            end
+            return string_format("ff%02x%02x%02x", math_floor((r or 1) * 255 + 0.5), math_floor((g or 1) * 255 + 0.5), math_floor((b or 1) * 255 + 0.5))
+        end
+        return nil
+    end,
+})
+
+GUI2.Fonts = GUI2.Fonts or {}
+GUI2.Fonts.normal = DEFAULT_TEXT_FONT
+GUI2.Fonts.header = DEFAULT_TEXT_FONT
+GUI2.Fonts.size_normal = GUI2.Fonts.size_normal or 14
+GUI2.Fonts.size_header = GUI2.Fonts.size_header or 16
+GUI2.Fonts.size_title = GUI2.Fonts.size_title or 20
+
+local function ResolveColor(gui, keyOrR, g, b, a, fallbackKey)
+    if type(keyOrR) == "number" then
+        return keyOrR, g or 0, b or 0, a == nil and 1 or a, nil
+    end
+
+    if type(keyOrR) == "table" then
+        local color = keyOrR.type == "solid" and keyOrR.value or keyOrR
+        return color[1] or 1, color[2] or 1, color[3] or 1, color[4] == nil and 1 or color[4], nil
+    end
+
+    return gui:GetColor(keyOrR or fallbackKey or "color.border.default")
+end
+
+local function IsJustify(value)
+    return value == "LEFT" or value == "CENTER" or value == "RIGHT"
+end
+
+local function LooksLikeTexturePath(value)
+    return type(value) == "string" and (value:find("\\", 1, true) or value:find("/", 1, true) or value:find("%.") or value:find("^Interface"))
+end
+
+local MIN_ICON_SIZE = 12
+local MIN_ICON_BUTTON_SIZE = 20
+local DEFAULT_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+local DEFAULT_ICON_TEXCOORDS = { 0.08, 0.92, 0.08, 0.92 }
+local SETTINGS_ICON_ROOT = "gui2\\icons\\settings\\"
+local SETTINGS_MICRO_ICON_ATLAS = {
+    sourceScale = 2,
+    defaultGutter = 4,
+    gutterBySize = {
+        [24] = 3,
+    },
+    order = {
+        "settings",
+        "power",
+        "arrow-big-up",
+        "arrow-big-down",
+        "play",
+        "square",
+        "move-up",
+        "move-down",
+        "eye",
+        "panels-top-left",
+        "eye-off",
+        "mouse",
+        "swords",
+        "shield",
+        "bike",
+        "footprints",
+        "paintbrush",
+        "text-initial",
+        "chart-bar-big",
+        "info",
+        "image",
+        "circle",
+        "rectangle-ellipsis",
+    },
+    index = {},
+    sizes = {
+        [16] = true,
+        [20] = true,
+        [24] = true,
+    },
+    dimensions = {
+        [16] = { width = 1024, height = 64 },
+        [20] = { width = 1024, height = 128 },
+        [24] = { width = 1024, height = 128 },
+    },
+    cache = {},
+    pixelPolicy = { snapToPixelGrid = false, texelSnappingBias = 0 },
+}
+for index, name in ipairs(SETTINGS_MICRO_ICON_ATLAS.order) do
+    SETTINGS_MICRO_ICON_ATLAS.index[name] = index
+end
+local SOLID_ROUNDED_MASK_TEXTURE = Assets and Assets.Core
+    and Assets:Core("gui2\\shapes\\circle-mask.tga")
+    or "Interface\\AddOns\\YUI\\Media\\Core\\gui2\\shapes\\circle-mask.tga"
+local NATIVE_FRAME_TOOLTIP_LAYOUT = "TooltipDefaultLayout"
+local NATIVE_FRAME_TOOLTIP_OUTSET = 5
+local NATIVE_FRAME_TOOLTIP_FALLBACK_EDGE = "Interface\\Tooltips\\UI-Tooltip-Border"
+local NATIVE_FRAME_TOOLTIP_FALLBACK_EDGE_SIZE = 16
+local GLYPH_TEXTURES = {
+    dropdownDown = Assets:Core("gui2\\glyphs\\dropdown-down-12.tga"),
+}
+
+local function GetPixelToUIUnitFactor()
+    local cached = GUI2.pixelToUIUnitFactor
+    if type(cached) == "number" and cached > 0 then return cached end
+    local pixelUtil = PixelUtil
+    if not (pixelUtil and pixelUtil.GetPixelToUIUnitFactor) then
+        return nil
+    end
+    local ok, factor = pcall(pixelUtil.GetPixelToUIUnitFactor)
+    if ok and type(factor) == "number" and factor > 0 then
+        GUI2.pixelToUIUnitFactor = factor
+        return factor
+    end
+    return nil
+end
+
+local function GetPixelLayoutScale(region, readScale)
+    if readScale then
+        local scale = region:GetEffectiveScale()
+        if type(scale) == "number" and scale > 0 then
+            return scale
+        end
+        return nil
+    end
+    if not (region and region.GetEffectiveScale) then return nil end
+    local ok, scale = pcall(GetPixelLayoutScale, region, true)
+    return ok and scale or nil
+end
+
+local function GetPixelSize(region, desiredPixels, minPixels)
+    desiredPixels = desiredPixels or 1
+    minPixels = minPixels or desiredPixels
+
+    local pixelUtil = PixelUtil
+    if pixelUtil and pixelUtil.GetNearestPixelSize
+        and region and region.GetEffectiveScale then
+        local scale = GetPixelLayoutScale(region)
+        if scale then
+            local uiUnitFactor = GetPixelToUIUnitFactor()
+            if uiUnitFactor then
+                local uiUnits = uiUnitFactor * desiredPixels / scale
+                local okSize, size = pcall(pixelUtil.GetNearestPixelSize, uiUnits, scale, minPixels)
+                if okSize and type(size) == "number" and size > 0 then
+                    return size
+                end
+            end
+        end
+    end
+
+    return (GUI2.mult or 1) * desiredPixels
+end
+
+function GUI2:GetPixelSize(region, desiredPixels, minPixels)
+    return GetPixelSize(region, desiredPixels, minPixels)
+end
+
+local function GetNearestPixelLayoutSize(
+    logicalSize,
+    layoutScale,
+    minPixels
+)
+    local pixelUtil = PixelUtil
+    if pixelUtil and pixelUtil.GetNearestPixelSize
+        and type(layoutScale) == "number"
+        and layoutScale > 0 then
+        local ok, snapped = pcall(
+            pixelUtil.GetNearestPixelSize,
+            logicalSize,
+            layoutScale,
+            minPixels
+        )
+        if ok and type(snapped) == "number" then
+            return snapped
+        end
+    end
+    return logicalSize
+end
+
+function GUI2:GetPixelLayoutScale(region)
+    return GetPixelLayoutScale(region)
+end
+
+function GUI2:SnapLayoutBoundary(region, logicalOffset, resolvedScale)
+    logicalOffset = tonumber(logicalOffset)
+    if not logicalOffset then return nil end
+    local layoutScale = tonumber(resolvedScale)
+        or GetPixelLayoutScale(region)
+    return GetNearestPixelLayoutSize(logicalOffset, layoutScale, 0)
+end
+
+local PIXEL_ORIGIN_QUANTUM = 1024
+
+local function RoundStablePhysicalPixel(value)
+    local quantized
+    if value >= 0 then
+        quantized = math_floor(
+            value * PIXEL_ORIGIN_QUANTUM + 0.5
+        ) / PIXEL_ORIGIN_QUANTUM
+        return math_floor(quantized + 0.5)
+    end
+    quantized = math_ceil(
+        value * PIXEL_ORIGIN_QUANTUM - 0.5
+    ) / PIXEL_ORIGIN_QUANTUM
+    return math_ceil(quantized - 0.5)
+end
+
+function GUI2:GetPixelOriginCorrection(region)
+    if not (region and region.GetEffectiveScale
+        and region.GetLeft and region.GetBottom) then
+        return 0, 0, false
+    end
+
+    local layoutScale = GetPixelLayoutScale(region)
+    if not layoutScale then
+        return 0, 0, false
+    end
+    local uiUnitsPerPixel = GetPixelToUIUnitFactor()
+    if not uiUnitsPerPixel then
+        return 0, 0, false
+    end
+
+    local left = region:GetLeft()
+    local bottom = region:GetBottom()
+    if type(left) ~= "number" or type(bottom) ~= "number" then
+        return 0, 0, false
+    end
+
+    local physicalPerUIUnit = layoutScale / uiUnitsPerPixel
+    local leftPixels = left * physicalPerUIUnit
+    local bottomPixels = bottom * physicalPerUIUnit
+    local snappedLeft = RoundStablePhysicalPixel(leftPixels)
+    local snappedBottom = RoundStablePhysicalPixel(bottomPixels)
+    return (snappedLeft - leftPixels) / physicalPerUIUnit,
+        (snappedBottom - bottomPixels) / physicalPerUIUnit,
+        true
+end
+
+function GUI2:SetPixelSnappedSize(
+    region,
+    width,
+    height,
+    minWidthPixels,
+    minHeightPixels
+)
+    if not (region and region.SetSize) then return false end
+    width = tonumber(width)
+    height = tonumber(height)
+    if not (width and height) then return false end
+
+    local layoutScale = GetPixelLayoutScale(region)
+    local snappedWidth = GetNearestPixelLayoutSize(
+        width,
+        layoutScale,
+        minWidthPixels or 1
+    )
+    local snappedHeight = GetNearestPixelLayoutSize(
+        height,
+        layoutScale,
+        minHeightPixels or 1
+    )
+    region:SetSize(snappedWidth, snappedHeight)
+    return true
+end
+
+function GUI2:LayoutPixelBorder(
+    edges,
+    owner,
+    desiredPixels,
+    insetX,
+    insetY,
+    pixelSize
+)
+    if not (edges and owner
+        and edges.top
+        and edges.bottom
+        and edges.left
+        and edges.right) then
+        return nil
+    end
+    desiredPixels = math_max(1, tonumber(desiredPixels) or 1)
+    insetX = tonumber(insetX) or 0
+    insetY = tonumber(insetY) or 0
+    pixelSize = tonumber(pixelSize)
+        or self:GetPixelSize(
+            owner,
+            desiredPixels,
+            desiredPixels
+        )
+
+    local top = edges.top
+    top:ClearAllPoints()
+    top:SetPoint("TOPLEFT", owner, "TOPLEFT", insetX, -insetY)
+    top:SetPoint("TOPRIGHT", owner, "TOPRIGHT", -insetX, -insetY)
+    top:SetHeight(pixelSize)
+
+    local bottom = edges.bottom
+    bottom:ClearAllPoints()
+    bottom:SetPoint(
+        "BOTTOMLEFT",
+        owner,
+        "BOTTOMLEFT",
+        insetX,
+        insetY
+    )
+    bottom:SetPoint(
+        "BOTTOMRIGHT",
+        owner,
+        "BOTTOMRIGHT",
+        -insetX,
+        insetY
+    )
+    bottom:SetHeight(pixelSize)
+
+    local left = edges.left
+    left:ClearAllPoints()
+    left:SetPoint("TOPLEFT", owner, "TOPLEFT", insetX, -insetY)
+    left:SetPoint(
+        "BOTTOMLEFT",
+        owner,
+        "BOTTOMLEFT",
+        insetX,
+        insetY
+    )
+    left:SetWidth(pixelSize)
+
+    local right = edges.right
+    right:ClearAllPoints()
+    right:SetPoint(
+        "TOPRIGHT",
+        owner,
+        "TOPRIGHT",
+        -insetX,
+        -insetY
+    )
+    right:SetPoint(
+        "BOTTOMRIGHT",
+        owner,
+        "BOTTOMRIGHT",
+        -insetX,
+        insetY
+    )
+    right:SetWidth(pixelSize)
+    return pixelSize
+end
+
+local function CanRefreshObject(object, method)
+    if method then
+        return method(object) == true
+    end
+    if not object then return false end
+    method = object.CanBeAccessedInContext
+    if type(method) ~= "function" then return true end
+
+    local ok, allowed = pcall(CanRefreshObject, object, method)
+    return ok and allowed == true
+end
+
+local function RefreshPixelObject(object)
+    if not CanRefreshObject(object) then return end
+    if object.UpdatePixelScale then
+        object:UpdatePixelScale()
+    end
+    if object.UpdateGUI2PixelLayout then
+        object:UpdateGUI2PixelLayout()
+    end
+end
+
+local function QueuePixelObjectRefresh(object)
+    if not object or object.gui2PixelRefreshQueued then return end
+    object.gui2PixelRefreshQueued = true
+
+    local function Refresh()
+        object.gui2PixelRefreshQueued = false
+        RefreshPixelObject(object)
+    end
+
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, Refresh)
+    else
+        Refresh()
+    end
+end
+
+function GUI2:UpdatePixelScale()
+    local _, height = FrameAPI.GetPhysicalScreenSize()
+    local scale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()
+
+    if height and height > 0 and scale and scale > 0 then
+        self.pixelToUIUnitFactor = 768 / height
+        self.mult = self.pixelToUIUnitFactor / scale
+    else
+        self.pixelToUIUnitFactor = nil
+        self.mult = 1
+    end
+
+    for _, object in ipairs(self.PixelObjects) do
+        RefreshPixelObject(object)
+    end
+end
+
+function GUI2:QueuePixelRefresh()
+    if self.gui2PixelRefreshQueued then return end
+    self.gui2PixelRefreshQueued = true
+
+    local gui = self
+    local function Refresh()
+        gui.gui2PixelRefreshQueued = false
+        gui:UpdatePixelScale()
+    end
+
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, Refresh)
+    else
+        Refresh()
+    end
+end
+
+if not GUI2.PixelScaleFrame then
+    local pixelScaleOwner = {}
+    local function OnPixelScaleEvent()
+        if C_Timer and C_Timer.After then
+            C_Timer.After(0.1, function()
+                GUI2:UpdatePixelScale()
+            end)
+        else
+            GUI2:UpdatePixelScale()
+        end
+    end
+
+    if YUI.Event then
+        YUI.Event:On("UI_SCALE_CHANGED", OnPixelScaleEvent, pixelScaleOwner)
+        YUI.Event:On("DISPLAY_SIZE_CHANGED", OnPixelScaleEvent, pixelScaleOwner)
+        YUI.Event:On("PLAYER_ENTERING_WORLD", OnPixelScaleEvent, pixelScaleOwner)
+    end
+    GUI2.PixelScaleFrame = pixelScaleOwner
+end
+
+GUI2:UpdatePixelScale()
+
+local function PreparePixelTexture(texture)
+    if not texture then return end
+    if texture.SetSnapToPixelGrid then
+        pcall(texture.SetSnapToPixelGrid, texture, false)
+    end
+    if texture.SetTexelSnappingBias then
+        pcall(texture.SetTexelSnappingBias, texture, 0)
+    end
+end
+
+local function ApplyPaint(texture, paintKey)
+    if not texture then return end
+    local r, g, b, a = GUI2:GetColor(paintKey)
+    texture:SetColorTexture(r, g, b, a)
+end
+
+local function GetFrameRadius(frame)
+    local key = frame and frame.gui2RadiusKey or "layout.radius.panel"
+    local radius = GUI2:GetMetric(key or "layout.radius.panel", 0)
+    if type(radius) ~= "number" or radius <= 0 then
+        return 0
+    end
+    return radius
+end
+
+local function GetNativeFrameBorderStyle(frame)
+    return frame and frame.gui2NativeFrameBorderStyle == "tooltip" and "tooltip" or "window"
+end
+
+local function ShouldUseNativeFrameBorder(frame)
+    return frame and frame.gui2NativeFrameBorder and GetNativeFrameBorderStyle(frame) == "tooltip" and GUI2:GetToken("backdrop.nativeFrameBorder.enabled") == true
+end
+
+local function GetNativeFrameBorderSpec(frame)
+    return frame.gui2NativeFrameBorderLayout or NATIVE_FRAME_TOOLTIP_LAYOUT,
+        NATIVE_FRAME_TOOLTIP_FALLBACK_EDGE,
+        NATIVE_FRAME_TOOLTIP_FALLBACK_EDGE_SIZE
+end
+
+local function BuildBackdrop(frame)
+    local radius = GetFrameRadius(frame)
+    if radius <= 0 then
+        frame.gui2RoundedBackdrop = false
+        return {
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+        }
+    end
+
+    local edgeSize = math_max(8, radius * 2)
+    local inset = math_max(1, math_floor(radius * 0.65))
+    frame.gui2RoundedBackdrop = true
+    return {
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = edgeSize,
+        insets = { left = inset, right = inset, top = inset, bottom = inset },
+    }
+end
+
+local function SetBorderTextureVisibility(frame, shown)
+    if not frame or not frame.gui2Borders then return end
+    if shown then
+        frame.gui2Borders.top:Show()
+        frame.gui2Borders.bottom:Show()
+        frame.gui2Borders.left:Show()
+        frame.gui2Borders.right:Show()
+    else
+        frame.gui2Borders.top:Hide()
+        frame.gui2Borders.bottom:Hide()
+        frame.gui2Borders.left:Hide()
+        frame.gui2Borders.right:Hide()
+    end
+end
+
+local function HideNativeFrameBorder(frame)
+    if frame and frame.gui2NativeBorder then
+        frame.gui2NativeBorder:Hide()
+    end
+    if frame and frame.gui2NativeFallbackBorder then
+        frame.gui2NativeFallbackBorder:Hide()
+    end
+    if frame then
+        frame.gui2NativeBorderActive = false
+        frame.gui2NativeFallbackBorderActive = false
+    end
+end
+
+local function HasNativeFrameBorder(frame)
+    return frame and frame.gui2NativeBorderActive == true
+end
+
+local function AnchorNativeFrameBorder(border, frame)
+    local outset = GUI2:GetMetric("backdrop.nativeFrameBorder.tooltip.outset", NATIVE_FRAME_TOOLTIP_OUTSET)
+    if type(outset) ~= "number" then
+        outset = NATIVE_FRAME_TOOLTIP_OUTSET
+    end
+    outset = math_max(0, outset)
+    border:ClearAllPoints()
+    border:SetPoint("TOPLEFT", frame, "TOPLEFT", -outset, outset)
+    border:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", outset, -outset)
+end
+
+local function ApplyNativeFallbackFrameBorder(frame, edgeFile, edgeSize)
+    local border = frame.gui2NativeFallbackBorder
+    if not border then
+        local ok, created = pcall(CreateFrame, "Frame", nil, frame, "BackdropTemplate")
+        if not ok or not created then
+            frame.gui2NativeBorderActive = false
+            frame.gui2NativeFallbackBorderActive = false
+            return false
+        end
+        border = created
+        border:SetFrameLevel(frame:GetFrameLevel() + 1)
+        frame.gui2NativeFallbackBorder = border
+    end
+
+    border:SetFrameLevel(frame:GetFrameLevel() + 1)
+    AnchorNativeFrameBorder(border, frame)
+    border:SetBackdrop({
+        edgeFile = edgeFile,
+        edgeSize = edgeSize,
+    })
+    border:SetBackdropBorderColor(GUI2:GetColor((frame.gui2Borders and frame.gui2Borders.colorKey) or "color.border.default"))
+    border:Show()
+    frame.gui2NativeBorderActive = true
+    frame.gui2NativeFallbackBorderActive = true
+    return true
+end
+
+local function ApplyNativeTooltipFill(frame, border)
+    if not border or not border.Center then return end
+    local r, g, b, a = GUI2:GetColor(frame.gui2Surface or "color.surface.popup")
+    border.Center:SetVertexColor(r, g, b, a)
+    border.Center:Show()
+end
+
+local function ApplyNativeFrameBorder(frame)
+    if not ShouldUseNativeFrameBorder(frame) then
+        HideNativeFrameBorder(frame)
+        return false
+    end
+
+    local layout, fallbackEdge, fallbackEdgeSize = GetNativeFrameBorderSpec(frame)
+    if not NineSliceUtil or not NineSliceUtil.ApplyLayoutByName then
+        if frame.gui2NativeBorder then
+            frame.gui2NativeBorder:Hide()
+        end
+        return ApplyNativeFallbackFrameBorder(frame, fallbackEdge, fallbackEdgeSize)
+    end
+
+    local border = frame.gui2NativeBorder
+    if not border then
+        local ok, created = pcall(CreateFrame, "Frame", nil, frame, "NineSlicePanelTemplate")
+        if not ok or not created then
+            return ApplyNativeFallbackFrameBorder(frame, fallbackEdge, fallbackEdgeSize)
+        end
+        border = created
+        border:SetFrameLevel(frame:GetFrameLevel() + 1)
+        frame.gui2NativeBorder = border
+    end
+
+    border:SetFrameLevel(frame:GetFrameLevel() + 1)
+    AnchorNativeFrameBorder(border, frame)
+    local ok = pcall(NineSliceUtil.ApplyLayoutByName, border, layout)
+    if not ok then
+        border:Hide()
+        return ApplyNativeFallbackFrameBorder(frame, fallbackEdge, fallbackEdgeSize)
+    end
+
+    if frame.gui2NativeFallbackBorder then
+        frame.gui2NativeFallbackBorder:Hide()
+    end
+    ApplyNativeTooltipFill(frame, border)
+    border:Show()
+    frame.gui2NativeBorderActive = true
+    frame.gui2NativeFallbackBorderActive = false
+    return true
+end
+
+local function ApplyNativeBackdropBorder(frame, r, g, b, a)
+    if frame and frame.gui2NativeFallbackBorderActive and frame.gui2NativeFallbackBorder and frame.gui2NativeFallbackBorder.SetBackdropBorderColor then
+        frame.gui2NativeFallbackBorder:SetBackdropBorderColor(r, g, b, a)
+        return true
+    end
+    if frame and frame.gui2RoundedBackdrop and frame.SetBackdropBorderColor then
+        frame:SetBackdropBorderColor(r, g, b, a)
+        return true
+    end
+    return false
+end
+
+function GUI2:RegisterThemeObject(object)
+    if not object or object.gui2ThemeRegistered then return object end
+    object.gui2ThemeRegistered = true
+    table_insert(self.ThemeObjects, object)
+    return object
+end
+
+GUI2.VisualImplementationTypes = GUI2.VisualImplementationTypes or {
+    NativeSkin = "native-skin",
+    NativeEnhanced = "native-enhanced",
+    CustomGUI = "custom-gui",
+}
+
+function GUI2:NormalizeVisualImplementationType(value, fallback)
+    if value == "native-skin" or value == "native-enhanced" or value == "custom-gui" then
+        return value
+    end
+    return fallback or "custom-gui"
+end
+
+function GUI2:CreateTokenSnapshot(spec, out)
+    spec = spec or {}
+    out = out or {}
+    out.colors = out.colors or {}
+    out.metrics = out.metrics or {}
+    out.fonts = out.fonts or {}
+
+    for name, token in pairs(spec.colors or {}) do
+        local r, g, b, a = self:GetColor(token)
+        out.colors[name] = { r, g, b, a }
+    end
+    for name, token in pairs(spec.metrics or {}) do
+        out.metrics[name] = self:GetMetric(token)
+    end
+    for name, token in pairs(spec.fonts or {}) do
+        out.fonts[name] = self:GetFont(token)
+    end
+    return out
+end
+
+GUI2.LightBackendOwners = GUI2.LightBackendOwners or setmetatable({}, { __mode = "k" })
+
+function GUI2:RegisterLightBackendOwner(owner, handlers)
+    if not owner then return nil end
+    self.LightBackendOwners[owner] = handlers or true
+    return owner
+end
+
+function GUI2:UnregisterLightBackendOwner(owner)
+    if owner then
+        self.LightBackendOwners[owner] = nil
+    end
+end
+
+function GUI2:RefreshLightBackendOwner(owner, reason)
+    local handlers = owner and self.LightBackendOwners and self.LightBackendOwners[owner]
+    if type(handlers) == "table" then
+        if handlers.RefreshTheme then handlers:RefreshTheme(reason) end
+        if handlers.RefreshPixel then handlers:RefreshPixel(reason) end
+        return true
+    elseif handlers == true and owner.RefreshTheme then
+        owner:RefreshTheme(reason)
+        if owner.RefreshPixel then owner:RefreshPixel(reason) end
+        return true
+    end
+    return false
+end
+
+function GUI2:SetTextColorKey(text, colorKey, fallback)
+    if not text then return end
+    text.gui2ColorKey = colorKey or "color.text.primary"
+    text.gui2ColorFallback = fallback
+    text:SetTextColor(self:GetColor(text.gui2ColorKey, fallback))
+    self:RegisterThemeObject(text)
+end
+
+function GUI2:SetTexturePaintKey(texture, paintKey)
+    if not texture then return end
+    texture.gui2PaintKey = paintKey or "color.surface.panel"
+    ApplyPaint(texture, texture.gui2PaintKey)
+    self:RegisterThemeObject(texture)
+end
+
+function GUI2:SetDropdownGlyphColor(glyph, colorKey)
+    if not glyph then return end
+    if glyph.gui2Component == "Glyph" then
+        self:SetGlyphColor(glyph, colorKey)
+    elseif glyph.SetColorKey then
+        glyph:SetColorKey(colorKey)
+    elseif glyph.SetTextColor then
+        self:SetTextColorKey(glyph, colorKey)
+    elseif glyph.SetColorTexture then
+        self:SetTexturePaintKey(glyph, colorKey)
+    end
+end
+
+function GUI2:RefreshThemeObjects()
+    local objects = self.ThemeObjects
+    if not objects then return end
+
+    for index = #objects, 1, -1 do
+        local object = objects[index]
+        if not object then
+            table.remove(objects, index)
+        elseif CanRefreshObject(object) then
+            if object.RefreshTheme then
+                object:RefreshTheme()
+            elseif object.SetTextColor and object.gui2ColorKey then
+                object:SetTextColor(self:GetColor(object.gui2ColorKey, object.gui2ColorFallback))
+            elseif object.SetColorTexture and object.gui2PaintKey then
+                ApplyPaint(object, object.gui2PaintKey)
+            elseif object.gui2Surface or object.gui2Borders or object.gui2Shadow then
+                self:RefreshPrimitive(object)
+            end
+        end
+    end
+end
+
+local function BindConfigItem(item)
+    if not item or not item.key then return end
+
+    if not item.get then
+        item.get = function()
+            if YUI and YUI.getConfigByKey then
+                return YUI:getConfigByKey(item.key, item.default)
+            end
+            return item.default
+        end
+    end
+
+    if not item.set then
+        item.set = function(value)
+            if YUI and YUI.setConfigByKey then
+                YUI:setConfigByKey(item.key, value)
+            end
+        end
+    end
+end
+
+local function GetItemValue(item)
+    if not item then return nil end
+    BindConfigItem(item)
+    local value = item.get and item.get() or item.default
+    return value
+end
+
+local function SetItemValue(item, widget, value)
+    if item and item.set then item.set(value) end
+    if item and item.onChange then item.onChange(widget, value) end
+end
+
+function GUI2:CreateFrame(parent, opts)
+    opts = opts or {}
+    local frameType = opts.type or opts.frameType or "Frame"
+    local frame = CreateFrame(frameType, opts.name, parent, opts.template)
+    frame.gui2RadiusKey = opts.radiusKey or opts.radius or frame.gui2RadiusKey
+    frame.gui2NativeFrameBorder = opts.nativeFrameBorder == true
+    frame.gui2NativeFrameBorderStyle = opts.nativeFrameBorderStyle or opts.nativeBorderStyle
+    frame.gui2NativeFrameBorderLayout = opts.nativeFrameBorderLayout or opts.nativeBorderLayout
+
+    if opts.width and opts.height then
+        frame:SetSize(opts.width, opts.height)
+    elseif opts.width then
+        frame:SetWidth(opts.width)
+    elseif opts.height then
+        frame:SetHeight(opts.height)
+    end
+
+    if opts.allPoints then
+        if opts.allPoints == true then
+            if parent then
+                frame:SetAllPoints(parent)
+            else
+                frame:SetAllPoints()
+            end
+        else
+            frame:SetAllPoints(opts.allPoints)
+        end
+    end
+    if opts.frameStrata or opts.strata then
+        frame:SetFrameStrata(opts.frameStrata or opts.strata)
+    end
+    if opts.frameLevel or opts.level then
+        frame:SetFrameLevel(opts.frameLevel or opts.level)
+    end
+    if opts.toplevel ~= nil and frame.SetToplevel then
+        frame:SetToplevel(opts.toplevel and true or false)
+    end
+    if opts.mouse ~= nil then
+        frame:EnableMouse(opts.mouse and true or false)
+    elseif opts.enableMouse ~= nil then
+        frame:EnableMouse(opts.enableMouse and true or false)
+    end
+    if opts.mouseWheel ~= nil and frame.EnableMouseWheel then
+        frame:EnableMouseWheel(opts.mouseWheel and true or false)
+    end
+    if opts.movable ~= nil and frame.SetMovable then
+        frame:SetMovable(opts.movable and true or false)
+    end
+    if (opts.clamped ~= nil or opts.clampedToScreen ~= nil) and frame.SetClampedToScreen then
+        frame:SetClampedToScreen((opts.clamped ~= false and opts.clamped ~= nil) or opts.clampedToScreen == true)
+    end
+    if opts.drag and frame.RegisterForDrag then
+        if type(opts.drag) == "table" then
+            frame:RegisterForDrag(unpack(opts.drag))
+        else
+            frame:RegisterForDrag(opts.drag == true and "LeftButton" or opts.drag)
+        end
+        frame:SetScript("OnDragStart", opts.onDragStart or frame.StartMoving)
+        frame:SetScript("OnDragStop", opts.onDragStop or frame.StopMovingOrSizing)
+    end
+    if opts.hidden then
+        frame:Hide()
+    end
+
+    if opts.surface or opts.backdrop then
+        self:ApplyBackdrop(frame, opts.surface or opts.backdrop)
+    end
+    if opts.border then
+        self:CreateBorder(frame, opts.border)
+    end
+    if opts.shadow then
+        self:CreateShadow(frame, opts.shadowKey)
+    end
+
+    frame.gui2FrameKind = opts.kind or frameType
+    return frame
+end
+
+local function SetKeyboardPropagation(frame, propagate)
+    if not (frame and frame.SetPropagateKeyboardInput) then return false end
+    local security = YUI.API and YUI.API.Security or YUI.WOW_API
+    local callback = security and security.InCombatLockdown or InCombatLockdown
+    if callback and callback() == true then return false end
+
+    frame:SetPropagateKeyboardInput(propagate == true)
+    return true
+end
+
+function GUI2:EnableEscapeClose(frame, closeHandler)
+    if not (frame and frame.HookScript) then return false end
+
+    frame.gui2EscapeCloseHandler = closeHandler
+    if frame.gui2EscapeCloseConfigured == true then
+        return true
+    end
+    frame.gui2EscapeCloseConfigured = true
+
+    local function ActivateKeyboard(self)
+        if self.EnableKeyboard then
+            self:EnableKeyboard(true)
+        end
+        SetKeyboardPropagation(self, true)
+    end
+
+    ActivateKeyboard(frame)
+    frame:HookScript("OnShow", ActivateKeyboard)
+    frame:HookScript("OnKeyDown", function(self, key)
+        local isEscape = key == "ESCAPE"
+        SetKeyboardPropagation(self, not isEscape)
+        if not isEscape then return end
+
+        if self.EnableKeyboard then
+            self:EnableKeyboard(false)
+        end
+        local handler = self.gui2EscapeCloseHandler
+        if type(handler) == "function" then
+            handler(self)
+        elseif self.Hide then
+            self:Hide()
+        end
+    end)
+    return true
+end
+
+function GUI2:CreateButtonFrame(parent, opts)
+    opts = opts or {}
+    opts.type = "Button"
+    opts.radiusKey = opts.radiusKey or "layout.radius.control"
+    local button = self:CreateFrame(parent, opts)
+    if button.EnableMouse then button:EnableMouse(true) end
+    if button.RegisterForClicks then
+        button:RegisterForClicks(opts.clicks or "AnyUp")
+    end
+    if opts.onClick then
+        button:SetScript("OnClick", opts.onClick)
+    end
+    return button
+end
+
+function GUI2:CreateScrollFrame(parent, opts)
+    opts = opts or {}
+    local template = opts.template
+    if template == nil then
+        template = "UIPanelScrollFrameTemplate"
+    elseif template == false then
+        template = nil
+    end
+    local scroll = self:CreateFrame(parent, {
+        type = "ScrollFrame",
+        name = opts.name,
+        template = template,
+        width = opts.width,
+        height = opts.height,
+        mouseWheel = opts.mouseWheel,
+    })
+
+    if opts.child ~= false then
+        local child = self:CreateFrame(scroll, {
+            name = opts.childName,
+            width = opts.childWidth or opts.width or 1,
+            height = opts.childHeight or opts.height or 1,
+        })
+        scroll:SetScrollChild(child)
+        scroll.child = child
+        scroll.scrollChild = child
+    end
+
+    self:SkinScrollBar(scroll)
+    if opts.autoHide and scroll.child then
+        local function fit() self:FitScrollContent(scroll) end
+        scroll:HookScript("OnScrollRangeChanged", fit)
+        scroll:HookScript("OnSizeChanged", fit)
+        scroll:HookScript("OnShow", fit)
+    end
+    return scroll
+end
+
+function GUI2:ApplyBackdrop(frame, surfaceKey)
+    if not frame or not frame.SetBackdrop then return end
+    frame.gui2Surface = surfaceKey or "color.surface.panel"
+    local hasNativeFrameBorder = ApplyNativeFrameBorder(frame)
+    frame:SetBackdrop(BuildBackdrop(frame))
+    frame:SetBackdropColor(self:GetColor(frame.gui2Surface))
+    if frame.gui2RoundedBackdrop and frame.SetBackdropBorderColor then
+        local roundedEdgeKey = frame.gui2Borderless
+            and frame.gui2Surface
+            or ((frame.gui2Borders and frame.gui2Borders.colorKey) or "color.border.default")
+        frame:SetBackdropBorderColor(self:GetColor(roundedEdgeKey))
+    end
+    if frame.gui2Borders then
+        self:SetBorderColor(frame, frame.gui2Borders.colorKey)
+        SetBorderTextureVisibility(frame, not frame.gui2RoundedBackdrop and not hasNativeFrameBorder)
+    end
+    self:RegisterThemeObject(frame)
+end
+
+local function UpdateBorderPixelScale(self)
+    if not self.gui2Borders then return end
+    local desiredPixels = self.gui2Borders.widthPixels
+        or GUI2:GetMetric(
+            self.gui2Borders.widthKey or "border.width.hairline",
+            1
+        )
+    local size = GUI2:GetPixelSize(self, desiredPixels, 1)
+    self.gui2Borders.top:SetHeight(size)
+    self.gui2Borders.bottom:SetHeight(size)
+    self.gui2Borders.left:SetWidth(size)
+    self.gui2Borders.right:SetWidth(size)
+end
+
+local function HookPixelRefresh(frame, script)
+    if not frame or not frame.HookScript then return end
+    if frame.HasScript and not frame:HasScript(script) then return end
+    frame:HookScript(script, QueuePixelObjectRefresh)
+end
+
+function GUI2:CreateBorder(frame, colorKey, g, b, a)
+    if not frame or frame.gui2Borders then return end
+    local r, g2, b2, a2, resolvedKey = ResolveColor(self, colorKey, g, b, a, "color.border.default")
+    local widthKey = "border.width.hairline"
+    local size = self:GetPixelSize(frame, self:GetMetric(widthKey, 1), 1)
+
+    local top = frame:CreateTexture(nil, "OVERLAY")
+    PreparePixelTexture(top)
+    top:SetPoint("TOPLEFT", 0, 0)
+    top:SetPoint("TOPRIGHT", 0, 0)
+    top:SetHeight(size)
+    top:SetColorTexture(r, g2, b2, a2)
+
+    local bottom = frame:CreateTexture(nil, "OVERLAY")
+    PreparePixelTexture(bottom)
+    bottom:SetPoint("BOTTOMLEFT", 0, 0)
+    bottom:SetPoint("BOTTOMRIGHT", 0, 0)
+    bottom:SetHeight(size)
+    bottom:SetColorTexture(r, g2, b2, a2)
+
+    local left = frame:CreateTexture(nil, "OVERLAY")
+    PreparePixelTexture(left)
+    left:SetPoint("TOPLEFT", 0, 0)
+    left:SetPoint("BOTTOMLEFT", 0, 0)
+    left:SetWidth(size)
+    left:SetColorTexture(r, g2, b2, a2)
+
+    local right = frame:CreateTexture(nil, "OVERLAY")
+    PreparePixelTexture(right)
+    right:SetPoint("TOPRIGHT", 0, 0)
+    right:SetPoint("BOTTOMRIGHT", 0, 0)
+    right:SetWidth(size)
+    right:SetColorTexture(r, g2, b2, a2)
+
+    frame.gui2Borders = {
+        top = top,
+        bottom = bottom,
+        left = left,
+        right = right,
+        colorKey = resolvedKey or colorKey or "color.border.default",
+        colorR = resolvedKey and nil or r,
+        colorG = resolvedKey and nil or g2,
+        colorB = resolvedKey and nil or b2,
+        colorA = resolvedKey and nil or a2,
+        widthKey = widthKey,
+    }
+    frame.borders = {
+        top,
+        bottom,
+        left,
+        right,
+    }
+
+    frame.UpdateGUI2PixelScale = UpdateBorderPixelScale
+    frame.UpdatePixelScale = UpdateBorderPixelScale
+    table_insert(self.PixelObjects, frame)
+    if not frame.gui2PixelRefreshHooks then
+        frame.gui2PixelRefreshHooks = true
+        HookPixelRefresh(frame, "OnShow")
+        HookPixelRefresh(frame, "OnSizeChanged")
+    end
+    ApplyNativeBackdropBorder(frame, r, g2, b2, a2)
+    SetBorderTextureVisibility(frame, not frame.gui2RoundedBackdrop and not HasNativeFrameBorder(frame))
+    self:RegisterThemeObject(frame)
+    QueuePixelObjectRefresh(frame)
+end
+
+function GUI2:SetBorderColor(frame, colorKey, g, b, a)
+    if not frame or not frame.gui2Borders then return end
+    local r, g2, b2, a2, resolvedKey = ResolveColor(self, colorKey or frame.gui2Borders.colorKey, g, b, a, "color.border.default")
+    frame.gui2Borders.top:SetColorTexture(r, g2, b2, a2)
+    frame.gui2Borders.bottom:SetColorTexture(r, g2, b2, a2)
+    frame.gui2Borders.left:SetColorTexture(r, g2, b2, a2)
+    frame.gui2Borders.right:SetColorTexture(r, g2, b2, a2)
+    frame.gui2Borders.colorKey = resolvedKey or (type(colorKey) == "string" and colorKey or frame.gui2Borders.colorKey)
+    if type(colorKey) == "number" then
+        frame.gui2Borders.colorR = r
+        frame.gui2Borders.colorG = g2
+        frame.gui2Borders.colorB = b2
+        frame.gui2Borders.colorA = a2
+    end
+    ApplyNativeBackdropBorder(frame, r, g2, b2, a2)
+    SetBorderTextureVisibility(frame, not frame.gui2RoundedBackdrop and not HasNativeFrameBorder(frame))
+end
+
+-- Virtual lists keep their own row pool, so a native ScrollFrame cannot own the
+-- scroll position. This Slider provides native drag handling while exposing a
+-- small first-index contract to the list owner.
+function GUI2:CreateVirtualScrollBar(parent, opts)
+    opts = opts or {}
+    local bar = self:CreateFrame(parent, {
+        type = "Slider",
+        name = opts.name,
+        width = opts.width or 12,
+        height = opts.height or 120,
+        mouseWheel = true,
+    })
+    bar:SetOrientation("VERTICAL")
+    bar:SetMinMaxValues(1, 1)
+    bar:SetValueStep(1)
+    if bar.SetObeyStepOnDrag then bar:SetObeyStepOnDrag(true) end
+
+    local track = bar:CreateTexture(nil, "BACKGROUND")
+    PreparePixelTexture(track)
+    track:SetPoint("TOP", 0, 0)
+    track:SetPoint("BOTTOM", 0, 0)
+    bar:SetThumbTexture("Interface\\Buttons\\WHITE8x8")
+    local thumb = bar:GetThumbTexture()
+    PreparePixelTexture(thumb)
+    if thumb.SetDrawLayer then thumb:SetDrawLayer("ARTWORK") end
+
+    bar.gui2VirtualTrack = track
+    bar.gui2VirtualThumb = thumb
+    bar.gui2VirtualTrackColor = opts.trackColor or "color.border.subtle"
+    bar.gui2VirtualThumbColor = opts.thumbColor or "color.control.thumb"
+    bar.gui2VirtualMinThumbPixels = math_max(1, tonumber(opts.minThumbPixels) or 20)
+    bar.gui2VirtualTrackPixels = math_max(1, tonumber(opts.trackPixels) or 1)
+    bar.gui2VirtualThumbPixels = math_max(1, tonumber(opts.thumbPixels) or 4)
+    bar.gui2VirtualOnFirstIndexChanged = opts.onFirstIndexChanged
+        or opts.onValueChanged
+
+    local function RefreshPaint(object)
+        local r, g, b, a = GUI2:GetColor(object.gui2VirtualTrackColor)
+        object.gui2VirtualTrack:SetColorTexture(r, g, b, a)
+        r, g, b, a = GUI2:GetColor(object.gui2VirtualThumbColor)
+        object.gui2VirtualThumb:SetColorTexture(r, g, b, a)
+    end
+
+    local function RefreshLayout(object)
+        local trackWidth = GetPixelSize(
+            object,
+            object.gui2VirtualTrackPixels,
+            object.gui2VirtualTrackPixels
+        )
+        local thumbWidth = GetPixelSize(
+            object,
+            object.gui2VirtualThumbPixels,
+            object.gui2VirtualThumbPixels
+        )
+        local visible = object.gui2VirtualVisible or 1
+        local total = object.gui2VirtualTotal or 1
+        local height = tonumber(object:GetHeight()) or 0
+        local minThumb = GetPixelSize(
+            object,
+            object.gui2VirtualMinThumbPixels,
+            object.gui2VirtualMinThumbPixels
+        )
+        local thumbHeight = math_max(minThumb, height * visible / math_max(total, 1))
+        thumbHeight = math_min(height, thumbHeight)
+        object.gui2VirtualTrack:SetWidth(trackWidth)
+        object.gui2VirtualThumb:SetSize(thumbWidth, thumbHeight)
+    end
+
+    bar.SetScrollState = function(object, firstIndex, total, visible, silent)
+        total = math_max(0, math_floor(tonumber(total) or 0))
+        visible = math_max(1, math_floor(tonumber(visible) or 1))
+        local maxFirst = math_max(1, total - visible + 1)
+        firstIndex = math_max(1, math_min(maxFirst, math_floor(tonumber(firstIndex) or 1)))
+        local previousFirstIndex = object.gui2VirtualFirstIndex
+        object.gui2VirtualTotal = total
+        object.gui2VirtualVisible = visible
+        object.gui2VirtualMaxFirst = maxFirst
+        object.gui2VirtualFirstIndex = firstIndex
+        object.gui2VirtualUpdating = true
+        object:SetMinMaxValues(1, maxFirst)
+        object:SetValue(firstIndex)
+        object.gui2VirtualUpdating = false
+        RefreshLayout(object)
+        if total > visible then object:Show() else object:Hide() end
+        if silent ~= true
+            and firstIndex ~= previousFirstIndex
+            and object.gui2VirtualOnFirstIndexChanged then
+            object.gui2VirtualOnFirstIndexChanged(firstIndex, object)
+        end
+    end
+
+    bar:SetScript("OnValueChanged", function(object, value)
+        if object.gui2VirtualUpdating then return end
+        local maxFirst = object.gui2VirtualMaxFirst or 1
+        local firstIndex = math_floor((tonumber(value) or 1) + 0.5)
+        firstIndex = math_max(1, math_min(maxFirst, firstIndex))
+        if firstIndex == object.gui2VirtualFirstIndex then return end
+        object.gui2VirtualFirstIndex = firstIndex
+        if object.gui2VirtualOnFirstIndexChanged then
+            object.gui2VirtualOnFirstIndexChanged(firstIndex, object)
+        end
+    end)
+    bar:SetScript("OnMouseWheel", function(object, delta)
+        local firstIndex = (object.gui2VirtualFirstIndex or 1) + (delta > 0 and -1 or 1)
+        object:SetScrollState(
+            firstIndex,
+            object.gui2VirtualTotal,
+            object.gui2VirtualVisible,
+            false
+        )
+    end)
+    bar:SetScript("OnSizeChanged", RefreshLayout)
+    bar.UpdateGUI2PixelLayout = RefreshLayout
+    bar.RefreshTheme = function(object)
+        RefreshPaint(object)
+        RefreshLayout(object)
+    end
+    table_insert(self.PixelObjects, bar)
+    if not bar.gui2PixelRefreshHooks then
+        bar.gui2PixelRefreshHooks = true
+        HookPixelRefresh(bar, "OnShow")
+    end
+    self:RegisterThemeObject(bar)
+    RefreshPaint(bar)
+    bar:SetScrollState(1, 0, 1, true)
+    QueuePixelObjectRefresh(bar)
+    return bar
+end
+
+function GUI2:CreateShadow(frame, shadowKey)
+    if not frame or frame.gui2Shadow then return end
+    local size = self:GetMetric(shadowKey or "shadow.panel.size", 3)
+    local shadow = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    shadow:SetPoint("TOPLEFT", -size, size)
+    shadow:SetPoint("BOTTOMRIGHT", size, -size)
+    shadow:SetFrameLevel(frame:GetFrameLevel() > 0 and frame:GetFrameLevel() - 1 or 0)
+    shadow:SetBackdrop({
+        edgeFile = Assets:Core("images\\GlowTex.tga"),
+        edgeSize = size,
+        insets = { left = size, right = size, top = size, bottom = size },
+    })
+    shadow:SetBackdropBorderColor(self:GetColor("color.overlay.shadow"))
+    frame.gui2Shadow = shadow
+    frame.shadow = shadow
+    self:RegisterThemeObject(frame)
+end
+
+local function NormalizeGlowStyle(style)
+    if style == "none" or style == "pixel" or style == "soft" or style == "button" or style == "autocast" or style == "proc" or style == "pulse" then
+        return style
+    end
+    return "soft"
+end
+
+local function UsesPixelGlowSegments(style)
+    if style == "pixel" then
+        return true
+    end
+    return false
+end
+
+local function UsesNativeGlow(style)
+    if style == "button" or style == "autocast" or style == "proc" then
+        return true
+    end
+    return false
+end
+
+local function GlowNeedsAnimation(style)
+    if UsesPixelGlowSegments(style) or style == "button" or style == "proc" or style == "pulse" then
+        return true
+    end
+    return false
+end
+
+local function GetDefaultGlowLines(style)
+    if style == "pixel" then
+        return 6
+    end
+    if style == "autocast" then
+        return 4
+    end
+    return 1
+end
+
+local function GetDefaultGlowThickness(style)
+    if style == "pixel" then return 2 end
+    return 1
+end
+
+local GLOW_SIZE_MIN = 0.25
+local GLOW_SIZE_MAX = 5
+local GLOW_EXPAND_MIN = -1
+local GLOW_EXPAND_MAX = 1
+local GLOW_LEGACY_SIZE_BASE = 10
+local GLOW_LEGACY_EXPAND_BASE = 24
+local GLOW_AXIS_EXPAND_SCALE = 0.25
+local GLOW_STYLE_OUTSET_SCALE = {
+    soft = 0.09,
+    button = 0.05,
+    autocast = 0,
+    proc = 0.20,
+    pulse = 0.12,
+}
+local GLOW_STYLE_EDGE_SCALE = {
+    soft = 0.18,
+    pulse = 0.16,
+}
+
+local function ClampGlowSize(value)
+    value = tonumber(value)
+    if value == nil then value = 1 end
+    if value > GLOW_SIZE_MAX then
+        value = value / GLOW_LEGACY_SIZE_BASE
+    end
+    if value < GLOW_SIZE_MIN then return GLOW_SIZE_MIN end
+    if value > GLOW_SIZE_MAX then return GLOW_SIZE_MAX end
+    return value
+end
+
+local function ClampGlowExpansion(value)
+    value = tonumber(value) or 0
+    if value > GLOW_EXPAND_MAX or value < GLOW_EXPAND_MIN then
+        value = value / GLOW_LEGACY_EXPAND_BASE
+    end
+    if value < GLOW_EXPAND_MIN then return GLOW_EXPAND_MIN end
+    if value > GLOW_EXPAND_MAX then return GLOW_EXPAND_MAX end
+    return value
+end
+
+local function ClampGlowUnit(value, fallback)
+    value = tonumber(value)
+    if value == nil then value = fallback or 1 end
+    if value < 0 then return 0 end
+    if value > 1 then return 1 end
+    return value
+end
+
+local function ClampGlowLines(value)
+    value = math_floor(tonumber(value) or 1)
+    if value < 1 then return 1 end
+    if value > 20 then return 20 end
+    return value
+end
+
+local function ClampGlowThickness(value)
+    value = math_floor(tonumber(value) or 1)
+    if value < 1 then return 1 end
+    if value > 20 then return 20 end
+    return value
+end
+
+local function ClampGlowLength(value)
+    value = math_floor(tonumber(value) or 18)
+    if value < 4 then return 4 end
+    if value > 128 then return 128 end
+    return value
+end
+
+local function ClampGlowSpeed(value)
+    value = tonumber(value)
+    if value == nil then value = 0.65 end
+    if value < 0 then return 0 end
+    if value > 4 then return 4 end
+    return value
+end
+
+local function NormalizeGlowPhase(value)
+    value = tonumber(value) or 0
+    value = value - math_floor(value)
+    if value < 0 then
+        value = value + 1
+    end
+    return value
+end
+
+local function SnapGlowValue(glow, value, pixel)
+    pixel = pixel or GUI2:GetPixelSize(glow, 1, 1)
+    value = tonumber(value) or 0
+    if pixel and pixel > 0 then
+        return math_floor(value / pixel + 0.5) * pixel
+    end
+    return value
+end
+
+local function GetGlowTargetSize(glow, target)
+    if glow and glow.gui2RestrictedParent == true then
+        local width = glow.gui2TrustedTargetWidth or 0
+        local height = glow.gui2TrustedTargetHeight or 0
+        return width, height, math_min(width, height)
+    end
+    target = target or (glow and glow.gui2GlowTarget) or glow
+    local width = target and target.GetWidth and (target:GetWidth() or 0) or 0
+    local height = target and target.GetHeight and (target:GetHeight() or 0) or 0
+    if width <= 0 and glow and glow.GetWidth then
+        width = glow:GetWidth() or 0
+    end
+    if height <= 0 and glow and glow.GetHeight then
+        height = glow:GetHeight() or 0
+    end
+    if width <= 0 then width = 32 end
+    if height <= 0 then height = 32 end
+    return width, height, math_min(width, height)
+end
+
+function GUI2:_GetGlowLayoutSize(glow)
+    if glow and glow.gui2RestrictedParent == true then
+        return glow.gui2TrustedLayoutWidth or 0,
+            glow.gui2TrustedLayoutHeight or 0
+    end
+    return glow and glow.GetWidth and (glow:GetWidth() or 0) or 0,
+        glow and glow.GetHeight and (glow:GetHeight() or 0) or 0
+end
+
+local function GetGlowOffsetXY(glow, target, pixel)
+    pixel = pixel or GUI2:GetPixelSize(glow, 1, 1)
+    local width, height = GetGlowTargetSize(glow, target)
+    return
+        SnapGlowValue(glow, ClampGlowExpansion(glow and glow.gui2GlowOffsetX) * width * GLOW_AXIS_EXPAND_SCALE, pixel),
+        SnapGlowValue(glow, ClampGlowExpansion(glow and glow.gui2GlowOffsetY) * height * GLOW_AXIS_EXPAND_SCALE, pixel)
+end
+
+local function ResolveGlowOutset(glow, style)
+    local _, _, base = GetGlowTargetSize(glow)
+    local size = ClampGlowSize(glow and glow.gui2GlowSize)
+    local scale = GLOW_STYLE_OUTSET_SCALE[style] or GLOW_STYLE_OUTSET_SCALE.soft
+    if style == "button" then
+        return base * scale * (size - 1)
+    end
+    return math_max(0, base * scale * size)
+end
+
+local function ResolveGlowEdgeSize(glow, style)
+    local _, _, base = GetGlowTargetSize(glow)
+    local size = ClampGlowSize(glow and glow.gui2GlowSize)
+    local scale = GLOW_STYLE_EDGE_SCALE[style] or GLOW_STYLE_EDGE_SCALE.soft
+    return math_max(GUI2:GetPixelSize(glow, 1, 1), base * scale * size)
+end
+
+local function SetGlowTargetPoints(
+    glow,
+    target,
+    outset,
+    horizontalCompensationPixels
+)
+    if not (glow and target) then return end
+    local pixel = GUI2:GetPixelSize(glow, 1, 1)
+    local targetWidth, targetHeight = GetGlowTargetSize(glow, target)
+    if glow.gui2RestrictedParent == true
+        and (targetWidth <= 0 or targetHeight <= 0) then
+        glow.gui2TrustedLayoutWidth = nil
+        glow.gui2TrustedLayoutHeight = nil
+        return false
+    end
+    local expandX, expandY = GetGlowOffsetXY(glow, target, pixel)
+    local targetShape = glow.gui2GlowTargetShape
+    if glow.gui2GlowStyle == "proc"
+        and (targetShape == "square"
+            or targetShape == "flatSquare"
+            or targetShape == "wideSquare") then
+        local _, _, base = GetGlowTargetSize(glow)
+        outset = (tonumber(outset) or 0)
+            + SnapGlowValue(glow, base * 0.05, pixel)
+    end
+    outset = SnapGlowValue(glow, tonumber(outset) or 0, pixel)
+    local horizontalCompensation = pixel
+        * (tonumber(horizontalCompensationPixels) or 0)
+    local horizontal = SnapGlowValue(
+        glow,
+        outset + expandX + horizontalCompensation,
+        pixel
+    )
+    local vertical = SnapGlowValue(glow, outset + expandY, pixel)
+    if targetWidth > pixel * 2 then
+        horizontal = math_max(horizontal, -(targetWidth / 2 - pixel))
+    elseif horizontal < 0 then
+        horizontal = 0
+    end
+    if targetHeight > pixel * 2 then
+        vertical = math_max(vertical, -(targetHeight / 2 - pixel))
+    elseif vertical < 0 then
+        vertical = 0
+    end
+    glow:ClearAllPoints()
+    glow:SetPoint("TOPLEFT", target, "TOPLEFT", -horizontal, vertical)
+    glow:SetPoint("BOTTOMRIGHT", target, "BOTTOMRIGHT", horizontal, -vertical)
+    if glow.gui2RestrictedParent == true then
+        glow.gui2TrustedLayoutWidth = targetWidth + horizontal * 2
+        glow.gui2TrustedLayoutHeight = targetHeight + vertical * 2
+    end
+    return true
+end
+
+local function SetGlowTextureShown(texture, shown)
+    if not texture then return end
+    shown = shown == true
+    if texture.gui2GlowShown == shown then return end
+    texture.gui2GlowShown = shown
+    if shown then
+        texture:Show()
+    else
+        texture:Hide()
+    end
+end
+
+local function CreatePixelGlowEdge(glow, texturePath, restricted)
+    local texture = glow:CreateTexture(nil, "OVERLAY", nil, 7)
+    PreparePixelTexture(texture)
+    texture:SetTexture(texturePath, "REPEAT", "REPEAT")
+    texture:SetBlendMode("BLEND")
+    if not restricted then return texture end
+
+    local mask = glow:CreateMaskTexture()
+    mask:SetTexture(
+        "Interface\\Buttons\\WHITE8X8",
+        "CLAMPTOBLACKADDITIVE",
+        "CLAMPTOBLACKADDITIVE"
+    )
+    texture:AddMaskTexture(mask)
+    local group = texture:CreateAnimationGroup()
+    group:SetLooping("REPEAT")
+    local translation = group:CreateAnimation("Translation")
+    translation:SetOrder(1)
+    translation:SetSmoothing("NONE")
+    texture.gui2RestrictedPixelAnimation = group
+    texture.gui2RestrictedPixelTranslation = translation
+    return texture, mask
+end
+
+function GUI2:_SetPixelTextureInterval(
+    texture,
+    startValue,
+    endValue,
+    vertical,
+    reverse
+)
+    if not texture then return end
+    texture.gui2PixelIntervalStart = startValue
+    texture.gui2PixelIntervalEnd = endValue
+    texture.gui2PixelIntervalVertical = vertical == true
+    texture.gui2PixelIntervalReverse = reverse == true
+    if vertical then
+        if reverse then
+            texture:SetTexCoord(
+                0, endValue,
+                0, startValue,
+                1, endValue,
+                1, startValue
+            )
+        else
+            texture:SetTexCoord(
+                0, startValue,
+                0, endValue,
+                1, startValue,
+                1, endValue
+            )
+        end
+    elseif reverse then
+        texture:SetTexCoord(
+            endValue, 0,
+            endValue, 1,
+            startValue, 0,
+            startValue, 1
+        )
+    else
+        texture:SetTexCoord(
+            startValue, 0,
+            startValue, 1,
+            endValue, 0,
+            endValue, 1
+        )
+    end
+end
+
+GUI2.PixelGlowHorizontalTexture = GUI2.PixelGlowHorizontalTexture
+    or Assets:Core("gui2\\glow\\pixel-dash-h.tga")
+GUI2.PixelGlowVerticalTexture = GUI2.PixelGlowVerticalTexture
+    or Assets:Core("gui2\\glow\\pixel-dash-v.tga")
+
+local function EnsurePixelGlowEdges(glow)
+    local restricted = glow.gui2RestrictedParent == true
+    local cacheKey = restricted
+        and "gui2RestrictedPixelEdges"
+        or "gui2OrdinaryPixelEdges"
+    local edges = glow[cacheKey]
+    if edges then
+        if glow.gui2PixelEdges ~= edges then
+            local current = glow.gui2PixelEdges
+            if current then
+                SetGlowTextureShown(current.top, false)
+                SetGlowTextureShown(current.right, false)
+                SetGlowTextureShown(current.bottom, false)
+                SetGlowTextureShown(current.left, false)
+            end
+            glow.gui2PixelEdges = edges
+        end
+        return edges
+    end
+    local top, topMask = CreatePixelGlowEdge(
+        glow,
+        GUI2.PixelGlowHorizontalTexture,
+        restricted
+    )
+    local right, rightMask = CreatePixelGlowEdge(
+        glow,
+        GUI2.PixelGlowVerticalTexture,
+        restricted
+    )
+    local bottom, bottomMask = CreatePixelGlowEdge(
+        glow,
+        GUI2.PixelGlowHorizontalTexture,
+        restricted
+    )
+    local left, leftMask = CreatePixelGlowEdge(
+        glow,
+        GUI2.PixelGlowVerticalTexture,
+        restricted
+    )
+    edges = { top = top, right = right, bottom = bottom, left = left }
+    if restricted then
+        glow.gui2RestrictedPixelMasks = {
+            top = topMask,
+            right = rightMask,
+            bottom = bottomMask,
+            left = leftMask,
+        }
+    else
+        edges.top:SetPoint("TOPLEFT", glow, "TOPLEFT")
+        edges.top:SetPoint("TOPRIGHT", glow, "TOPRIGHT")
+        edges.right:SetPoint("TOPRIGHT", glow, "TOPRIGHT")
+        edges.right:SetPoint("BOTTOMRIGHT", glow, "BOTTOMRIGHT")
+        edges.bottom:SetPoint("BOTTOMLEFT", glow, "BOTTOMLEFT")
+        edges.bottom:SetPoint("BOTTOMRIGHT", glow, "BOTTOMRIGHT")
+        edges.left:SetPoint("TOPLEFT", glow, "TOPLEFT")
+        edges.left:SetPoint("BOTTOMLEFT", glow, "BOTTOMLEFT")
+    end
+    glow[cacheKey] = edges
+    glow.gui2PixelEdges = edges
+    return edges
+end
+
+local function SetPixelGlowEdgesShown(glow, shown)
+    local edges = glow and glow.gui2PixelEdges
+    if not edges then return end
+    SetGlowTextureShown(edges.top, shown)
+    SetGlowTextureShown(edges.right, shown)
+    SetGlowTextureShown(edges.bottom, shown)
+    SetGlowTextureShown(edges.left, shown)
+end
+
+local function HidePixelGlowLines(glow)
+    SetPixelGlowEdgesShown(glow, false)
+end
+
+local function StopAnimationGroup(group)
+    if group and group.Stop then
+        group:Stop()
+    end
+end
+
+local function PlayAnimationGroup(group)
+    if group and group.Play and not (group.IsPlaying and group:IsPlaying()) then
+        group:Play()
+    end
+end
+
+GUI2._RestrictedGlowRuntime = GUI2._RestrictedGlowRuntime or {}
+
+function GUI2._RestrictedGlowRuntime:ConfigureLoopingAnimationGroup(group, looping)
+    if not group then return false end
+    if group.SetLooping and group.gui2Looping ~= looping then
+        group:SetLooping(looping)
+        group.gui2Looping = looping
+    end
+    return true
+end
+
+function GUI2._RestrictedGlowRuntime:SetAnimationSmoothing(animation, smoothing)
+    if animation and animation.SetSmoothing then
+        animation:SetSmoothing(smoothing)
+    end
+end
+
+local function SetTextureAtlasSafe(texture, atlas)
+    if not (texture and texture.SetAtlas and atlas) then return false end
+    local ok = pcall(texture.SetAtlas, texture, atlas, false)
+    return ok == true
+end
+
+local BUTTON_GLOW_TEXTURE = "Interface\\SpellActivationOverlay\\IconAlert"
+local BUTTON_GLOW_ANTS_TEXTURE = "Interface\\SpellActivationOverlay\\IconAlertAnts"
+local BUTTON_GLOW_COORDS = {
+    spark = { 0.00781250, 0.61718750, 0.00390625, 0.26953125 },
+    innerGlow = { 0.00781250, 0.50781250, 0.27734375, 0.52734375 },
+    innerGlowOver = { 0.00781250, 0.50781250, 0.53515625, 0.78515625 },
+    outerGlow = { 0.00781250, 0.50781250, 0.27734375, 0.52734375 },
+    outerGlowOver = { 0.00781250, 0.50781250, 0.53515625, 0.78515625 },
+    stableGlow = { 0.00781250, 0.50781250, 0.27734375, 0.52734375 },
+}
+local BUTTON_GLOW_TEXTURE_ORDER = {
+    "spark",
+    "innerGlow",
+    "innerGlowOver",
+    "outerGlow",
+    "outerGlowOver",
+    "stableGlow",
+    "ants",
+}
+local BUTTON_GLOW_VISUAL = {
+    frames = 22,
+    speedSegments = 6,
+    stableAntsScale = 1.20,
+    stableGlowScale = 1.65,
+    stableAntsAlpha = 1,
+    stableGlowAlpha = 1,
+    stableAntsClipPixels = 2,
+    stableGlowClipPixels = 1,
+}
+GUI2._ButtonGlowAnimateTexCoords = TextureUtil
+    and TextureUtil.AnimateTexCoords
+    or AnimateTexCoords
+
+local AUTOCAST_SHINE_TEXTURE = YUI.IsRetail and "Interface\\Artifacts\\Artifacts" or "Interface\\ItemSocketingFrame\\UI-ItemSockets"
+local AUTOCAST_SHINE_COORDS = YUI.IsRetail
+    and { 0.8115234375, 0.9169921875, 0.8798828125, 0.9853515625 }
+    or { 0.3984375, 0.4453125, 0.40234375, 0.44921875 }
+local AUTOCAST_PARTICLE_SIZES = { 7, 6, 5, 4 }
+local PlaceAutoCastParticle
+
+local function ResolveButtonGlowAlpha(alpha)
+    alpha = tonumber(alpha) or 1
+    if alpha <= 0 then return 0 end
+    return math_min(1, alpha)
+end
+
+local function CreateButtonGlowTexture(frame, key, layer, restricted)
+    local template = key == "ants" and restricted
+        and "YUIRestrictedButtonGlowAntsTemplate" or nil
+    local texture = frame:CreateTexture(
+        nil,
+        layer or "ARTWORK",
+        template
+    )
+    texture:ClearAllPoints()
+    texture:SetPoint("CENTER", frame, "CENTER", 0, 0)
+    texture:SetBlendMode("ADD")
+    if key == "ants" then
+        texture:SetTexture(BUTTON_GLOW_ANTS_TEXTURE)
+        texture:SetTexCoord(0, 48 / 256, 0, 48 / 256)
+    else
+        texture:SetTexture(BUTTON_GLOW_TEXTURE)
+        local coords = BUTTON_GLOW_COORDS[key]
+        if coords then
+            texture:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+        end
+    end
+    texture:SetAlpha(0)
+    return texture
+end
+
+function BUTTON_GLOW_VISUAL:CreateClipMask(frame, texture)
+    if not (frame and frame.CreateMaskTexture
+        and texture and texture.AddMaskTexture) then
+        return nil
+    end
+    local mask = frame:CreateMaskTexture()
+    mask:SetTexture(
+        "Interface\\Buttons\\WHITE8X8",
+        "CLAMPTOBLACKADDITIVE",
+        "CLAMPTOBLACKADDITIVE"
+    )
+    mask:SetPoint("CENTER", frame, "CENTER", 0, 0)
+    texture:AddMaskTexture(mask)
+    return mask
+end
+
+local function CreateButtonScaleAnim(group, target, order, duration, x, y, delay)
+    local scale = group:CreateAnimation("Scale")
+    scale:SetChildKey(target)
+    scale:SetOrder(order)
+    scale:SetDuration(duration)
+    scale:SetScale(x, y)
+    if delay then
+        scale:SetStartDelay(delay)
+    end
+end
+
+local function CreateButtonAlphaAnim(group, target, order, duration, fromAlpha, toAlpha, delay, appear)
+    local alpha = group:CreateAnimation("Alpha")
+    alpha:SetChildKey(target)
+    alpha:SetOrder(order)
+    alpha:SetDuration(duration)
+    alpha:SetFromAlpha(fromAlpha)
+    alpha:SetToAlpha(toAlpha)
+    if delay then
+        alpha:SetStartDelay(delay)
+    end
+    if appear then
+        table_insert(group.appear, alpha)
+    else
+        table_insert(group.fade, alpha)
+    end
+end
+
+local function UpdateButtonGlowAlphaAnimations(frame, alpha)
+    if not (frame and frame.animIn) then return end
+    alpha = alpha or 1
+    for _, anim in ipairs(frame.animIn.appear) do
+        anim:SetToAlpha(alpha)
+    end
+    for _, anim in ipairs(frame.animIn.fade) do
+        anim:SetFromAlpha(alpha)
+    end
+end
+
+local function ApplyButtonGlowStableState(frame)
+    if not frame then return end
+    local width = frame.gui2TrustedLayoutWidth
+        or (frame.GetWidth and (frame:GetWidth() or 0) or 0)
+    local height = frame.gui2TrustedLayoutHeight
+        or (frame.GetHeight and (frame:GetHeight() or 0) or 0)
+    if width <= 0 or height <= 0 then return end
+    local alpha = frame.gui2ButtonGlowAlpha or 1
+
+    frame.spark:SetSize(width, height)
+    frame.spark:SetAlpha(0)
+    frame.innerGlow:SetSize(width, height)
+    frame.innerGlow:SetAlpha(0)
+    frame.innerGlowOver:SetAlpha(0)
+    frame.outerGlow:SetAlpha(0)
+    frame.outerGlowOver:SetAlpha(0)
+    frame.stableGlow:SetSize(
+        width * BUTTON_GLOW_VISUAL.stableGlowScale,
+        height * BUTTON_GLOW_VISUAL.stableGlowScale
+    )
+    frame.stableGlow:SetAlpha(
+        alpha * BUTTON_GLOW_VISUAL.stableGlowAlpha
+    )
+    frame.ants:SetSize(
+        width * BUTTON_GLOW_VISUAL.stableAntsScale,
+        height * BUTTON_GLOW_VISUAL.stableAntsScale
+    )
+    frame.ants:SetAlpha(alpha * BUTTON_GLOW_VISUAL.stableAntsAlpha)
+    local pixel = frame.gui2ButtonGlowPixel or (GUI2.mult or 1)
+    local stableGlowMask = frame.gui2ButtonGlowStableGlowClipMask
+    if stableGlowMask then
+        stableGlowMask:SetSize(
+            width + pixel * BUTTON_GLOW_VISUAL.stableGlowClipPixels * 2,
+            height + pixel * BUTTON_GLOW_VISUAL.stableGlowClipPixels * 2
+        )
+    end
+    local antsMask = frame.gui2ButtonGlowAntsClipMask
+    if antsMask then
+        antsMask:SetSize(
+            width + pixel * BUTTON_GLOW_VISUAL.stableAntsClipPixels * 2,
+            height + pixel * BUTTON_GLOW_VISUAL.stableAntsClipPixels * 2
+        )
+    end
+end
+
+local function ButtonGlowAnimInOnPlay(group)
+    local frame = group:GetParent()
+    local width = frame.gui2TrustedLayoutWidth
+        or (frame.GetWidth and (frame:GetWidth() or 0) or 0)
+    local height = frame.gui2TrustedLayoutHeight
+        or (frame.GetHeight and (frame:GetHeight() or 0) or 0)
+    if width <= 0 or height <= 0 then return end
+    local alpha = frame.gui2ButtonGlowAlpha or 1
+    local sparkAlpha = frame.gui2ButtonGlowTinted and alpha * 0.3 or alpha
+
+    frame.spark:SetSize(width, height)
+    frame.spark:SetAlpha(sparkAlpha)
+    frame.innerGlow:SetSize(width / 2, height / 2)
+    frame.innerGlow:SetAlpha(alpha)
+    frame.innerGlowOver:SetAlpha(alpha)
+    frame.outerGlow:SetSize(width * 2, height * 2)
+    frame.outerGlow:SetAlpha(alpha)
+    frame.outerGlowOver:SetAlpha(alpha)
+    frame.stableGlow:SetAlpha(0)
+    frame.ants:SetSize(width * 0.85, height * 0.85)
+    frame.ants:SetAlpha(0)
+    frame:Show()
+end
+
+local function ButtonGlowAnimInOnFinished(group)
+    ApplyButtonGlowStableState(group:GetParent())
+end
+
+local function ButtonGlowAnimInOnStop(group)
+    local frame = group:GetParent()
+    frame.spark:SetAlpha(0)
+    frame.innerGlow:SetAlpha(0)
+    frame.innerGlowOver:SetAlpha(0)
+    frame.outerGlowOver:SetAlpha(0)
+end
+
+local function EnsureButtonGlowAnimations(frame)
+    if frame.animIn then return end
+
+    frame.animIn = frame:CreateAnimationGroup()
+    frame.animIn.appear = {}
+    frame.animIn.fade = {}
+    CreateButtonScaleAnim(frame.animIn, "spark", 1, 0.2, 1.5, 1.5)
+    CreateButtonAlphaAnim(frame.animIn, "spark", 1, 0.2, 0, 1, nil, true)
+    CreateButtonScaleAnim(frame.animIn, "innerGlow", 1, 0.3, 2, 2)
+    CreateButtonScaleAnim(frame.animIn, "innerGlowOver", 1, 0.3, 2, 2)
+    CreateButtonAlphaAnim(frame.animIn, "innerGlowOver", 1, 0.3, 1, 0, nil, false)
+    CreateButtonScaleAnim(frame.animIn, "outerGlow", 1, 0.3, 0.5, 0.5)
+    CreateButtonScaleAnim(frame.animIn, "outerGlowOver", 1, 0.3, 0.5, 0.5)
+    CreateButtonAlphaAnim(frame.animIn, "outerGlowOver", 1, 0.3, 1, 0, nil, false)
+    CreateButtonScaleAnim(frame.animIn, "spark", 1, 0.2, 2 / 3, 2 / 3, 0.2)
+    CreateButtonAlphaAnim(frame.animIn, "spark", 1, 0.2, 1, 0, 0.2, false)
+    CreateButtonAlphaAnim(frame.animIn, "innerGlow", 1, 0.2, 1, 0, 0.3, false)
+    CreateButtonAlphaAnim(frame.animIn, "ants", 1, 0.2, 0, 1, 0.3, true)
+    frame.animIn:SetScript("OnPlay", ButtonGlowAnimInOnPlay)
+    frame.animIn:SetScript("OnStop", ButtonGlowAnimInOnStop)
+    frame.animIn:SetScript("OnFinished", ButtonGlowAnimInOnFinished)
+end
+
+local function ResetButtonGlowFrame(frame)
+    if not frame then return end
+    StopAnimationGroup(frame.animIn)
+    frame.gui2ButtonGlowStarted = false
+    for _, texture in ipairs(frame.textures or {}) do
+        texture:SetAlpha(0)
+    end
+    frame:Hide()
+end
+
+local function StartButtonGlowFrame(frame)
+    if not frame or frame.gui2ButtonGlowStarted then return end
+    frame.gui2ButtonGlowStarted = true
+    UpdateButtonGlowAlphaAnimations(frame, frame.gui2ButtonGlowAlpha or 1)
+    if frame.animIn then
+        frame.animIn:Play()
+    else
+        ApplyButtonGlowStableState(frame)
+    end
+end
+
+local function ApplyButtonGlowColor(frame, r, g2, b2, alpha)
+    if not frame then return end
+    alpha = ResolveButtonGlowAlpha(alpha)
+    frame.gui2ButtonGlowAlpha = alpha
+    frame.gui2ButtonGlowTinted = not ((r or 1) >= 0.98 and (g2 or 1) >= 0.98 and (b2 or 1) >= 0.98)
+    for _, texture in ipairs(frame.textures or {}) do
+        if texture.SetDesaturated then
+            texture:SetDesaturated(frame.gui2ButtonGlowTinted and 1 or nil)
+        end
+        if texture.SetVertexColor then
+            if frame.gui2ButtonGlowTinted then
+                texture:SetVertexColor(r or 1, g2 or 1, b2 or 1)
+            else
+                texture:SetVertexColor(1, 1, 1)
+            end
+        end
+    end
+    UpdateButtonGlowAlphaAnimations(frame, alpha)
+    if frame.gui2ButtonGlowStarted and not (frame.animIn and frame.animIn:IsPlaying()) then
+        ApplyButtonGlowStableState(frame)
+    end
+end
+
+function GUI2:_ConfigureButtonGlowClock(frame, speed)
+    if not (frame and frame.ants) then return 0 end
+    speed = ClampGlowSpeed(speed)
+    local throttle = speed > 0 and 1 / (
+        BUTTON_GLOW_VISUAL.frames
+            * BUTTON_GLOW_VISUAL.speedSegments
+            * speed
+    ) or 0
+    if frame.ants.gui2ButtonGlowThrottle ~= throttle then
+        frame.ants.gui2ButtonGlowThrottle = throttle
+        frame.ants.frame = nil
+        frame.ants.throttle = nil
+        frame.ants:SetTexCoord(0, 48 / 256, 0, 48 / 256)
+    end
+    return throttle
+end
+
+local function EnsureButtonGlowFrame(glow)
+    local restricted = glow.gui2RestrictedParent == true
+    local cacheKey = restricted
+        and "gui2RestrictedButtonGlow"
+        or "gui2OrdinaryButtonGlow"
+    if glow[cacheKey] then
+        glow.gui2ButtonGlow = glow[cacheKey]
+        return glow.gui2ButtonGlow
+    end
+
+    local frame = CreateFrame("Frame", nil, glow)
+    frame:Hide()
+    frame.textures = {}
+    frame.spark = CreateButtonGlowTexture(
+        frame,
+        "spark",
+        "BACKGROUND",
+        restricted
+    )
+    frame.innerGlow = CreateButtonGlowTexture(
+        frame,
+        "innerGlow",
+        "ARTWORK",
+        restricted
+    )
+    frame.innerGlowOver = CreateButtonGlowTexture(
+        frame,
+        "innerGlowOver",
+        "ARTWORK",
+        restricted
+    )
+    frame.outerGlow = CreateButtonGlowTexture(
+        frame,
+        "outerGlow",
+        "ARTWORK",
+        restricted
+    )
+    frame.outerGlowOver = CreateButtonGlowTexture(
+        frame,
+        "outerGlowOver",
+        "ARTWORK",
+        restricted
+    )
+    frame.stableGlow = CreateButtonGlowTexture(
+        frame,
+        "stableGlow",
+        "ARTWORK",
+        restricted
+    )
+    frame.innerGlowOver:ClearAllPoints()
+    frame.innerGlowOver:SetPoint("TOPLEFT", frame.innerGlow, "TOPLEFT")
+    frame.innerGlowOver:SetPoint("BOTTOMRIGHT", frame.innerGlow, "BOTTOMRIGHT")
+    frame.outerGlowOver:ClearAllPoints()
+    frame.outerGlowOver:SetPoint("TOPLEFT", frame.outerGlow, "TOPLEFT")
+    frame.outerGlowOver:SetPoint("BOTTOMRIGHT", frame.outerGlow, "BOTTOMRIGHT")
+    frame.ants = CreateButtonGlowTexture(
+        frame,
+        "ants",
+        "OVERLAY",
+        restricted
+    )
+    frame.gui2ButtonGlowStableGlowClipMask =
+        BUTTON_GLOW_VISUAL:CreateClipMask(frame, frame.stableGlow)
+    frame.gui2ButtonGlowAntsClipMask =
+        BUTTON_GLOW_VISUAL:CreateClipMask(frame, frame.ants)
+    for _, key in ipairs(BUTTON_GLOW_TEXTURE_ORDER) do
+        frame.textures[#frame.textures + 1] = frame[key]
+    end
+    frame.gui2ButtonGlowAlpha = 1
+    if not restricted then
+        EnsureButtonGlowAnimations(frame)
+    end
+    glow[cacheKey] = frame
+    glow.gui2ButtonGlow = frame
+    return frame
+end
+
+function GUI2._RestrictedGlowRuntime:StartButton(frame)
+    if not frame then return end
+    frame.gui2ButtonGlowStarted = true
+    ApplyButtonGlowStableState(frame)
+    frame:Show()
+end
+
+function GUI2._RestrictedGlowRuntime:ConfigureButton(glow, frame)
+    local texture = frame and frame.ants
+    local group = texture and texture.gui2RestrictedFlipbook
+    local animation = group and group.gui2RestrictedFlipbookAnimation
+    if not (glow and animation and animation.SetDuration) then return false end
+    local speed = ClampGlowSpeed(glow.gui2GlowSpeed)
+    local duration = speed > 0
+        and 1 / (BUTTON_GLOW_VISUAL.speedSegments * speed) or 0
+    if texture.gui2RestrictedFlipbookDuration ~= duration then
+        StopAnimationGroup(group)
+        texture.gui2RestrictedFlipbookPlaying = false
+        if duration > 0 then
+            animation:SetDuration(duration)
+        end
+    end
+    texture.gui2RestrictedFlipbookDuration = duration
+    if duration > 0 and texture.gui2RestrictedFlipbookPlaying ~= true then
+        group:Play()
+        texture.gui2RestrictedFlipbookPlaying = true
+    elseif duration <= 0 then
+        texture:SetTexCoord(0, 48 / 256, 0, 48 / 256)
+        texture.gui2RestrictedFlipbookPlaying = false
+    end
+    return true
+end
+
+function GUI2._RestrictedGlowRuntime:StopButton(glow)
+    local texture = glow and glow.gui2ButtonGlow
+        and glow.gui2ButtonGlow.ants
+    local group = texture and texture.gui2RestrictedFlipbook
+    if group then StopAnimationGroup(group) end
+    if texture then texture.gui2RestrictedFlipbookPlaying = false end
+    if glow and glow.gui2ButtonGlow then
+        ResetButtonGlowFrame(glow.gui2ButtonGlow)
+    end
+end
+
+local AutoCastGlow = {
+    particlesPerLayer = 4,
+    particleCount = #AUTOCAST_PARTICLE_SIZES * 4,
+}
+
+function AutoCastGlow:EnsureFrame(glow)
+    if glow.gui2AutoCastFrame then
+        return glow.gui2AutoCastFrame
+    end
+
+    local frame = CreateFrame("Frame", nil, glow)
+    frame:SetAllPoints(glow)
+    frame:Hide()
+    frame.textures = {}
+    glow.gui2AutoCastFrame = frame
+    return frame
+end
+
+function AutoCastGlow:EnsureParticle(frame, index)
+    local texture = frame.textures[index]
+    if texture then
+        return texture
+    end
+
+    texture = frame:CreateTexture(nil, "OVERLAY")
+    texture:SetTexture(AUTOCAST_SHINE_TEXTURE)
+    texture:SetTexCoord(AUTOCAST_SHINE_COORDS[1], AUTOCAST_SHINE_COORDS[2], AUTOCAST_SHINE_COORDS[3], AUTOCAST_SHINE_COORDS[4])
+    texture:SetBlendMode("ADD")
+    texture:Hide()
+    frame.textures[index] = texture
+    return texture
+end
+
+function AutoCastGlow:EnsureParticles(frame)
+    for index = 1, self.particleCount do
+        self:EnsureParticle(frame, index)
+    end
+end
+
+function AutoCastGlow:StopRestrictedAnimations(glow)
+    local frame = glow and glow.gui2AutoCastFrame
+    for index = 1, #(frame and frame.textures or {}) do
+        local texture = frame.textures[index]
+        if texture.gui2RestrictedAutoCastAnimation then
+            StopAnimationGroup(texture.gui2RestrictedAutoCastAnimation)
+            texture.gui2RestrictedAutoCastPlaying = false
+        end
+    end
+    if glow then glow.gui2RestrictedAutoCastSignature = nil end
+end
+
+function AutoCastGlow:EnsureRestrictedParticleAnimation(texture)
+    if texture.gui2RestrictedAutoCastAnimation then
+        return texture.gui2RestrictedAutoCastAnimation,
+            texture.gui2RestrictedAutoCastTranslations
+    end
+    if not texture.CreateAnimationGroup then return nil end
+    local group = texture:CreateAnimationGroup()
+    GUI2._RestrictedGlowRuntime:ConfigureLoopingAnimationGroup(
+        group,
+        "REPEAT"
+    )
+    local translations = {}
+    for order = 1, 4 do
+        local animation = group:CreateAnimation("Translation")
+        animation:SetOrder(order)
+        GUI2._RestrictedGlowRuntime:SetAnimationSmoothing(
+            animation,
+            "NONE"
+        )
+        translations[order] = animation
+    end
+    texture.gui2RestrictedAutoCastAnimation = group
+    texture.gui2RestrictedAutoCastTranslations = translations
+    return group, translations
+end
+
+function AutoCastGlow:ConfigureRestrictedAnimations(glow)
+    local frame = glow and glow.gui2AutoCastFrame
+    if not (frame and glow.gui2AutoCastGeometryReady == true) then
+        return false
+    end
+    local width = glow.gui2AutoCastWidth
+    local height = glow.gui2AutoCastHeight
+    local perimeter = glow.gui2AutoCastPerimeter
+    local speed = glow.gui2AutoCastResolvedSpeed or 0
+    local signature = tostring(width)
+        .. ":" .. tostring(height)
+        .. ":" .. tostring(speed)
+    if glow.gui2RestrictedAutoCastSignature == signature then
+        return true
+    end
+
+    for layer = 1, #AUTOCAST_PARTICLE_SIZES do
+        local period = speed > 0 and layer / speed or 0
+        local first = (layer - 1) * self.particlesPerLayer + 1
+        for particle = 1, self.particlesPerLayer do
+            local texture = frame.textures[first + particle - 1]
+            local group, translations =
+                self:EnsureRestrictedParticleAnimation(texture)
+            if group then StopAnimationGroup(group) end
+            texture:ClearAllPoints()
+            if speed > 0 and group and translations then
+                texture:SetPoint("CENTER", frame, "BOTTOMLEFT", 0, 0)
+                local sideDurations = {
+                    height / perimeter * period,
+                    width / perimeter * period,
+                    height / perimeter * period,
+                    width / perimeter * period,
+                }
+                local offsets = {
+                    { 0, height },
+                    { width, 0 },
+                    { 0, -height },
+                    { -width, 0 },
+                }
+                for order = 1, 4 do
+                    translations[order]:SetDuration(sideDurations[order])
+                    translations[order]:SetOffset(
+                        offsets[order][1],
+                        offsets[order][2]
+                    )
+                end
+                group:Play(
+                    false,
+                    (particle % self.particlesPerLayer)
+                        / self.particlesPerLayer * period
+                )
+                texture.gui2RestrictedAutoCastPlaying = true
+            else
+                PlaceAutoCastParticle(
+                    frame,
+                    texture,
+                    (particle / self.particlesPerLayer) * perimeter,
+                    width,
+                    height
+                )
+                texture.gui2RestrictedAutoCastPlaying = false
+            end
+        end
+    end
+    glow.gui2RestrictedAutoCastSignature = signature
+    return true
+end
+
+function AutoCastGlow:EnsureNative(glow)
+    if glow.gui2NativeAutoCastGlow then
+        return glow.gui2NativeAutoCastGlow
+    end
+    if glow.gui2NativeAutoCastAttempted then
+        return nil
+    end
+    glow.gui2NativeAutoCastAttempted = true
+    if not YUI.IsRetail then return nil end
+
+    local ok, frame = pcall(CreateFrame, "Frame", nil, glow, "AutoCastOverlayTemplate")
+    if not (ok and frame and frame.Shine and frame.Shine.Anim
+        and frame.ShowAutoCastEnabled) then
+        if frame and frame.Hide then frame:Hide() end
+        return nil
+    end
+
+    frame:ClearAllPoints()
+    frame:SetAllPoints(glow)
+    frame:Hide()
+    if frame.Shine.Anim.GetAnimations then
+        frame.gui2AutoCastRotation = frame.Shine.Anim:GetAnimations()
+    end
+    glow.gui2NativeAutoCastGlow = frame
+    return frame
+end
+
+local function GetProcGlowShapeFamily(shape)
+    if shape == "circle" then return "circle" end
+    if shape == "rounded" or shape == "roundedSquare"
+        or shape == "flatRounded"
+        or shape == "wideRounded" then
+        return "rounded"
+    end
+    return nil
+end
+
+local function EnsureShapeProcGlow(glow, family)
+    glow.gui2ShapeProcFrames = glow.gui2ShapeProcFrames or {}
+    local frame = glow.gui2ShapeProcFrames[family]
+    if frame then
+        glow.gui2ActiveShapeProcFrame = frame
+        return frame
+    end
+
+    frame = CreateFrame("Frame", nil, glow)
+    frame:SetAllPoints(glow)
+    frame:Hide()
+    local paths = GUI2.IconAppearanceBorderTextures
+        and GUI2.IconAppearanceBorderTextures[family]
+    local outer = frame:CreateTexture(nil, "OVERLAY")
+    outer:SetAllPoints(frame)
+    outer:SetBlendMode("ADD")
+    outer:SetTexture(paths and (paths[4] or paths[3]))
+    local inner = frame:CreateTexture(nil, "OVERLAY")
+    inner:SetAllPoints(frame)
+    inner:SetBlendMode("ADD")
+    inner:SetTexture(paths and (paths[2] or paths[1]))
+    frame.Texture = outer
+    frame.InnerTexture = inner
+    frame.gui2ProcShapeFamily = family
+    glow.gui2ShapeProcFrames[family] = frame
+    glow.gui2ActiveShapeProcFrame = frame
+    return frame
+end
+
+function GUI2:_SyncManagedCircleProcAppearance(glow, frame)
+    if not (glow and frame and GUI2.SetManagedProcGlowAppearance) then
+        return false
+    end
+    local appearance = glow.gui2ManagedProcAppearance
+    if not appearance then
+        appearance = { color = {} }
+        glow.gui2ManagedProcAppearance = appearance
+    end
+    local color = appearance.color
+    color[1] = glow.gui2GlowResolvedR or glow.gui2ColorR or 1
+    color[2] = glow.gui2GlowResolvedG or glow.gui2ColorG or 1
+    color[3] = glow.gui2GlowResolvedB or glow.gui2ColorB or 1
+    color[4] = 1
+    appearance.alpha = glow.gui2GlowResolvedAlpha
+        or glow.gui2GlowAlpha or 1
+    appearance.size = glow.gui2GlowSize or 1
+    appearance.speed = glow.gui2GlowSpeed or 1
+    appearance.offsetX = glow.gui2GlowOffsetX or 0
+    appearance.offsetY = glow.gui2GlowOffsetY or 0
+    appearance.horizontalCompensationPixels = 1
+    return GUI2:SetManagedProcGlowAppearance(frame, appearance)
+end
+
+function GUI2:_EnsureManagedCircleProcGlow(glow)
+    if not (GUI2.CreateManagedProcGlow
+        and GUI2.LayoutManagedProcGlow) then
+        return nil
+    end
+    local width, height = GetGlowTargetSize(glow)
+    local frame = glow.gui2ManagedCircleProcGlow
+    if not frame then
+        frame = GUI2:CreateManagedProcGlow(
+            glow,
+            "circle",
+            width,
+            height,
+            nil,
+            nil,
+            "circle"
+        )
+        glow.gui2ManagedCircleProcGlow = frame
+    end
+    if not frame then return nil end
+    local appearanceChanged = self:_SyncManagedCircleProcAppearance(
+        glow,
+        frame
+    )
+    if not appearanceChanged
+        and (glow.gui2ManagedCircleProcWidth ~= width
+            or glow.gui2ManagedCircleProcHeight ~= height) then
+        GUI2:LayoutManagedProcGlow(
+            frame,
+            glow,
+            width,
+            height,
+            nil,
+            nil,
+            "circle"
+        )
+    end
+    glow.gui2ManagedCircleProcWidth = width
+    glow.gui2ManagedCircleProcHeight = height
+    return frame
+end
+
+local function EnsureProcGlow(glow)
+    if glow.gui2GlowShape == "circle" then
+        local managed = GUI2:_EnsureManagedCircleProcGlow(glow)
+        if managed then
+            glow.gui2ActiveShapeProcFrame = nil
+            return managed
+        end
+    end
+    local family = GetProcGlowShapeFamily(glow.gui2GlowShape)
+    if family then
+        return EnsureShapeProcGlow(glow, family)
+    end
+    glow.gui2ActiveShapeProcFrame = nil
+    if glow.gui2ProcFrame or glow.gui2ProcFallback then
+        return glow.gui2ProcFrame or glow.gui2ProcFallback
+    end
+
+    local ok, frame = pcall(CreateFrame, "Frame", nil, glow, "ActionButtonSpellAlertTemplate")
+    if ok and frame then
+        frame:SetAllPoints(glow)
+        frame:Hide()
+        glow.gui2ProcFrame = frame
+        return frame
+    end
+
+    local fallback = CreateFrame("Frame", nil, glow)
+    fallback:SetAllPoints(glow)
+    fallback:Hide()
+    local texture = fallback:CreateTexture(nil, "OVERLAY")
+    texture:SetAllPoints(fallback)
+    texture:SetBlendMode("ADD")
+    if not SetTextureAtlasSafe(texture, "UI-HUD-ActionBar-Proc-Loop-Flipbook") then
+        texture:SetTexture("Interface\\SpellActivationOverlay\\IconAlert")
+        texture:SetTexCoord(0.00781250, 0.50781250, 0.53515625, 0.78515625)
+    end
+    fallback.Texture = texture
+    glow.gui2ProcFallback = fallback
+    return fallback
+end
+
+GUI2._RestrictedEdgeGlow = GUI2._RestrictedEdgeGlow or {}
+GUI2._RestrictedEdgeGlow.texture = Assets:Core("images\\GlowTex.tga")
+GUI2._RestrictedEdgeGlow.coordStart = 0.0625
+GUI2._RestrictedEdgeGlow.coordEnd = 0.9375
+GUI2._RestrictedEdgeGlow.keys = {
+    "TopLeftCorner",
+    "TopRightCorner",
+    "BottomLeftCorner",
+    "BottomRightCorner",
+    "TopEdge",
+    "BottomEdge",
+    "LeftEdge",
+    "RightEdge",
+}
+GUI2._RestrictedEdgeGlow.cornerCoords = {
+    TopLeftCorner = {
+        0.5078125, GUI2._RestrictedEdgeGlow.coordStart,
+        0.5078125, GUI2._RestrictedEdgeGlow.coordEnd,
+        0.6171875, GUI2._RestrictedEdgeGlow.coordStart,
+        0.6171875, GUI2._RestrictedEdgeGlow.coordEnd,
+    },
+    TopRightCorner = {
+        0.6328125, GUI2._RestrictedEdgeGlow.coordStart,
+        0.6328125, GUI2._RestrictedEdgeGlow.coordEnd,
+        0.7421875, GUI2._RestrictedEdgeGlow.coordStart,
+        0.7421875, GUI2._RestrictedEdgeGlow.coordEnd,
+    },
+    BottomLeftCorner = {
+        0.7578125, GUI2._RestrictedEdgeGlow.coordStart,
+        0.7578125, GUI2._RestrictedEdgeGlow.coordEnd,
+        0.8671875, GUI2._RestrictedEdgeGlow.coordStart,
+        0.8671875, GUI2._RestrictedEdgeGlow.coordEnd,
+    },
+    BottomRightCorner = {
+        0.8828125, GUI2._RestrictedEdgeGlow.coordStart,
+        0.8828125, GUI2._RestrictedEdgeGlow.coordEnd,
+        0.9921875, GUI2._RestrictedEdgeGlow.coordStart,
+        0.9921875, GUI2._RestrictedEdgeGlow.coordEnd,
+    },
+}
+
+function GUI2._RestrictedEdgeGlow:GetScale()
+    local factor = GetPixelToUIUnitFactor()
+    local pixel = GUI2.mult
+    if type(factor) == "number" and factor > 0
+        and type(pixel) == "number" and pixel > 0 then
+        return factor / pixel
+    end
+    return 1
+end
+
+function GUI2._RestrictedEdgeGlow:Ensure(glow)
+    if glow.gui2RestrictedEdgeGlow then
+        return glow.gui2RestrictedEdgeGlow
+    end
+
+    local frame = CreateFrame("Frame", nil, glow)
+    frame:Hide()
+    frame.gui2RestrictedEdgePieces = {}
+    for _, key in ipairs(self.keys) do
+        local texture = frame:CreateTexture(nil, "OVERLAY", nil, 6)
+        texture:SetTexture(
+            self.texture,
+            "REPEAT",
+            "REPEAT"
+        )
+        texture:SetBlendMode("ADD")
+        frame.gui2RestrictedEdgePieces[key] = texture
+    end
+    glow.gui2RestrictedEdgeGlow = frame
+    return frame
+end
+
+function GUI2._RestrictedEdgeGlow:SetColor(frame, r, g2, b2, alpha)
+    local pieces = frame and frame.gui2RestrictedEdgePieces
+    if not pieces then return end
+    for _, key in ipairs(self.keys) do
+        pieces[key]:SetVertexColor(r, g2, b2, alpha)
+    end
+end
+
+function GUI2._RestrictedEdgeGlow:SetCoordinates(
+    pieces,
+    width,
+    height,
+    edgeSize
+)
+    local scale = self:GetScale()
+    local coordStart = self.coordStart
+    local repeatX = math_max(
+        0,
+        width / edgeSize * scale - 2 - coordStart
+    )
+    local repeatY = math_max(
+        0,
+        height / edgeSize * scale - 2 - coordStart
+    )
+    for key, coords in pairs(self.cornerCoords) do
+        pieces[key]:SetTexCoord(
+            coords[1], coords[2], coords[3], coords[4],
+            coords[5], coords[6], coords[7], coords[8]
+        )
+    end
+    pieces.TopEdge:SetTexCoord(
+        0.2578125, repeatX,
+        0.3671875, repeatX,
+        0.2578125, coordStart,
+        0.3671875, coordStart
+    )
+    pieces.BottomEdge:SetTexCoord(
+        0.3828125, repeatX,
+        0.4921875, repeatX,
+        0.3828125, coordStart,
+        0.4921875, coordStart
+    )
+    pieces.LeftEdge:SetTexCoord(
+        0.0078125, coordStart,
+        0.0078125, repeatY,
+        0.1171875, coordStart,
+        0.1171875, repeatY
+    )
+    pieces.RightEdge:SetTexCoord(
+        0.1328125, coordStart,
+        0.1328125, repeatY,
+        0.2421875, coordStart,
+        0.2421875, repeatY
+    )
+    return scale
+end
+
+function GUI2._RestrictedEdgeGlow:Layout(glow, style)
+    if not (glow and glow.gui2RestrictedParent == true) then return nil end
+    local width, height = GUI2:_GetGlowLayoutSize(glow)
+    if width <= 0 or height <= 0 then return nil end
+    local edgeSize = ResolveGlowEdgeSize(glow, style)
+    local frame = self:Ensure(glow)
+    local pieces = frame.gui2RestrictedEdgePieces
+    local scale = self:GetScale()
+    local signature = tostring(width)
+        .. ":" .. tostring(height)
+        .. ":" .. tostring(edgeSize)
+        .. ":" .. tostring(scale)
+    if frame.gui2RestrictedEdgeSignature ~= signature then
+        frame:ClearAllPoints()
+        frame:SetPoint("CENTER", glow, "CENTER", 0, 0)
+        frame:SetSize(width, height)
+
+        for _, key in ipairs({
+            "TopLeftCorner",
+            "TopRightCorner",
+            "BottomLeftCorner",
+            "BottomRightCorner",
+        }) do
+            pieces[key]:ClearAllPoints()
+            pieces[key]:SetSize(edgeSize, edgeSize)
+        end
+        pieces.TopLeftCorner:SetPoint("TOPLEFT", frame, "TOPLEFT")
+        pieces.TopRightCorner:SetPoint("TOPRIGHT", frame, "TOPRIGHT")
+        pieces.BottomLeftCorner:SetPoint(
+            "BOTTOMLEFT",
+            frame,
+            "BOTTOMLEFT"
+        )
+        pieces.BottomRightCorner:SetPoint(
+            "BOTTOMRIGHT",
+            frame,
+            "BOTTOMRIGHT"
+        )
+
+        pieces.TopEdge:ClearAllPoints()
+        pieces.TopEdge:SetPoint(
+            "TOPLEFT",
+            frame,
+            "TOPLEFT",
+            edgeSize,
+            0
+        )
+        pieces.TopEdge:SetPoint(
+            "TOPRIGHT",
+            frame,
+            "TOPRIGHT",
+            -edgeSize,
+            0
+        )
+        pieces.TopEdge:SetHeight(edgeSize)
+        pieces.BottomEdge:ClearAllPoints()
+        pieces.BottomEdge:SetPoint(
+            "BOTTOMLEFT",
+            frame,
+            "BOTTOMLEFT",
+            edgeSize,
+            0
+        )
+        pieces.BottomEdge:SetPoint(
+            "BOTTOMRIGHT",
+            frame,
+            "BOTTOMRIGHT",
+            -edgeSize,
+            0
+        )
+        pieces.BottomEdge:SetHeight(edgeSize)
+        pieces.LeftEdge:ClearAllPoints()
+        pieces.LeftEdge:SetPoint(
+            "TOPLEFT",
+            frame,
+            "TOPLEFT",
+            0,
+            -edgeSize
+        )
+        pieces.LeftEdge:SetPoint(
+            "BOTTOMLEFT",
+            frame,
+            "BOTTOMLEFT",
+            0,
+            edgeSize
+        )
+        pieces.LeftEdge:SetWidth(edgeSize)
+        pieces.RightEdge:ClearAllPoints()
+        pieces.RightEdge:SetPoint(
+            "TOPRIGHT",
+            frame,
+            "TOPRIGHT",
+            0,
+            -edgeSize
+        )
+        pieces.RightEdge:SetPoint(
+            "BOTTOMRIGHT",
+            frame,
+            "BOTTOMRIGHT",
+            0,
+            edgeSize
+        )
+        pieces.RightEdge:SetWidth(edgeSize)
+        self:SetCoordinates(
+            pieces,
+            width,
+            height,
+            edgeSize
+        )
+        frame.gui2RestrictedEdgeSignature = signature
+        frame.gui2TrustedLayoutWidth = width
+        frame.gui2TrustedLayoutHeight = height
+        frame.gui2RestrictedEdgeSize = edgeSize
+    end
+    return frame
+end
+
+function GUI2._RestrictedEdgeGlow:Hide(glow)
+    local frame = glow and glow.gui2RestrictedEdgeGlow
+    if frame then frame:Hide() end
+end
+
+local function EnsurePulseGlowFrame(glow)
+    if glow.gui2RestrictedParent == true then
+        local frame = GUI2._RestrictedEdgeGlow:Ensure(glow)
+        glow.gui2PulseFrame = frame
+        return frame
+    end
+    if glow.gui2OrdinaryPulseFrame then
+        glow.gui2PulseFrame = glow.gui2OrdinaryPulseFrame
+        return glow.gui2PulseFrame
+    end
+
+    local frame = CreateFrame("Frame", nil, glow, "BackdropTemplate")
+    frame:SetPoint("CENTER", glow, "CENTER", 0, 0)
+    frame:Hide()
+    glow.gui2OrdinaryPulseFrame = frame
+    glow.gui2PulseFrame = frame
+    return frame
+end
+
+function GUI2._RestrictedGlowRuntime:ConfigureAlphaPulse(
+    texture,
+    field,
+    lowAlpha,
+    highAlpha,
+    speed
+)
+    if not (texture and texture.CreateAnimationGroup) then return false end
+    speed = math_max(0.2, ClampGlowSpeed(speed))
+    local duration = 0.5 / speed
+    local group = texture[field]
+    local animationField = field .. "Animation"
+    local durationField = field .. "Duration"
+    local playingField = field .. "Playing"
+    if not group then
+        group = texture:CreateAnimationGroup()
+        self:ConfigureLoopingAnimationGroup(group, "BOUNCE")
+        local animation = group:CreateAnimation("Alpha")
+        animation:SetOrder(1)
+        animation:SetDuration(duration)
+        animation:SetFromAlpha(lowAlpha)
+        animation:SetToAlpha(highAlpha)
+        self:SetAnimationSmoothing(animation, "IN_OUT")
+        texture[field] = group
+        texture[animationField] = animation
+    elseif texture[durationField] ~= duration then
+        StopAnimationGroup(group)
+        texture[animationField]:SetDuration(duration)
+    end
+    texture[durationField] = duration
+    if texture[playingField] ~= true then
+        group:Play()
+        texture[playingField] = true
+    end
+    return true
+end
+
+function GUI2._RestrictedGlowRuntime:StopAlphaPulse(texture, field)
+    local group = texture and texture[field]
+    if group then StopAnimationGroup(group) end
+    if texture then texture[field .. "Playing"] = false end
+end
+
+function GUI2._RestrictedGlowRuntime:ConfigureProc(glow, frame)
+    if not (glow and frame) then return false end
+    if frame.ProcLoop then
+        if frame.gui2ProcFlipbook and frame.ProcLoopFlipbook then
+            if frame.ProcStartFlipbook then
+                frame.ProcStartFlipbook:SetAlpha(0)
+                frame.ProcStartFlipbook:Hide()
+            end
+            frame.ProcLoopFlipbook:SetAlpha(1)
+            frame.ProcLoopFlipbook:Show()
+        end
+        frame.gui2ProcPlaying = true
+        frame.animationPlaying = true
+        PlayAnimationGroup(frame.ProcLoop)
+        return true
+    end
+    local speed = glow.gui2GlowSpeed
+    if frame.Texture then
+        self:ConfigureAlphaPulse(
+            frame.Texture,
+            "gui2RestrictedProcPulse",
+            0.55,
+            1,
+            speed
+        )
+    end
+    if frame.InnerTexture then
+        self:ConfigureAlphaPulse(
+            frame.InnerTexture,
+            "gui2RestrictedProcPulse",
+            0.22,
+            0.5,
+            speed
+        )
+    end
+    return frame.Texture ~= nil
+end
+
+function GUI2._RestrictedGlowRuntime:StopProc(glow)
+    local function StopFrame(frame)
+        if not frame then return end
+        self:StopAlphaPulse(
+            frame.Texture,
+            "gui2RestrictedProcPulse"
+        )
+        self:StopAlphaPulse(
+            frame.InnerTexture,
+            "gui2RestrictedProcPulse"
+        )
+    end
+    StopFrame(glow and glow.gui2ProcFallback)
+    if glow and glow.gui2ProcFrame then
+        glow.gui2ProcFrame.animationPlaying = false
+        StopAnimationGroup(glow.gui2ProcFrame.ProcLoop)
+        glow.gui2ProcFrame:Hide()
+    end
+    if glow and glow.gui2ManagedCircleProcGlow then
+        if GUI2.SetManagedProcGlowShown then
+            GUI2:SetManagedProcGlowShown(
+                glow.gui2ManagedCircleProcGlow,
+                false
+            )
+        else
+            glow.gui2ManagedCircleProcGlow:Hide()
+        end
+    end
+    if glow and glow.gui2ShapeProcFrames then
+        for _, frame in pairs(glow.gui2ShapeProcFrames) do
+            StopFrame(frame)
+        end
+    end
+end
+
+function GUI2._RestrictedGlowRuntime:ConfigurePulse(glow, frame)
+    if not (glow and frame and frame.CreateAnimationGroup) then
+        return false
+    end
+    local speed = math_max(0.2, ClampGlowSpeed(glow.gui2GlowSpeed))
+    local alpha = glow.gui2GlowResolvedAlpha
+        or glow.gui2GlowAlpha or 1
+    local duration = 0.5 / speed
+    local lowAlpha = alpha * 0.40
+    local highAlpha = alpha * 0.95
+    local group = frame.gui2RestrictedPulseAnimation
+    if not group then
+        group = frame:CreateAnimationGroup()
+        self:ConfigureLoopingAnimationGroup(group, "BOUNCE")
+        local alphaAnimation = group:CreateAnimation("Alpha")
+        alphaAnimation:SetOrder(1)
+        alphaAnimation:SetDuration(duration)
+        alphaAnimation:SetFromAlpha(lowAlpha)
+        alphaAnimation:SetToAlpha(highAlpha)
+        self:SetAnimationSmoothing(alphaAnimation, "IN_OUT")
+        local scaleAnimation = group:CreateAnimation("Scale")
+        scaleAnimation:SetOrder(1)
+        scaleAnimation:SetDuration(duration)
+        if scaleAnimation.SetScaleFrom then
+            scaleAnimation:SetScaleFrom(0.94, 0.94)
+            scaleAnimation:SetScaleTo(1.04, 1.04)
+        else
+            scaleAnimation:SetScale(1.04 / 0.94, 1.04 / 0.94)
+        end
+        if scaleAnimation.SetOrigin then
+            scaleAnimation:SetOrigin("CENTER", 0, 0)
+        end
+        self:SetAnimationSmoothing(scaleAnimation, "IN_OUT")
+        frame.gui2RestrictedPulseAnimation = group
+        frame.gui2RestrictedPulseAlpha = alphaAnimation
+        frame.gui2RestrictedPulseScale = scaleAnimation
+    elseif frame.gui2RestrictedPulseDuration ~= duration
+        or frame.gui2RestrictedPulseAlphaValue ~= alpha then
+        StopAnimationGroup(group)
+        frame.gui2RestrictedPulseAlpha:SetDuration(duration)
+        frame.gui2RestrictedPulseAlpha:SetFromAlpha(lowAlpha)
+        frame.gui2RestrictedPulseAlpha:SetToAlpha(highAlpha)
+        frame.gui2RestrictedPulseScale:SetDuration(duration)
+    end
+    frame.gui2RestrictedPulseDuration = duration
+    frame.gui2RestrictedPulseAlphaValue = alpha
+    if frame.gui2RestrictedPulsePlaying ~= true then
+        group:Play()
+        frame.gui2RestrictedPulsePlaying = true
+    end
+    return true
+end
+
+function GUI2._RestrictedGlowRuntime:StopPulse(glow)
+    local frame = glow and glow.gui2PulseFrame
+    if frame and frame.gui2RestrictedPulseAnimation then
+        StopAnimationGroup(frame.gui2RestrictedPulseAnimation)
+        frame.gui2RestrictedPulsePlaying = false
+        frame:SetScale(1)
+        frame:SetAlpha(1)
+        frame:Hide()
+    end
+end
+
+local function HidePulseGlow(glow)
+    if glow and glow.gui2PulseFrame then
+        glow.gui2PulseFrame:Hide()
+    end
+end
+
+function GUI2:_ApplyGlowFrameLayer(glow, style)
+    if not glow then return end
+    local level = glow.gui2GlowFrameLevel
+    local strata = glow.gui2GlowFrameStrata
+    if strata and glow.SetFrameStrata
+        and glow.gui2AppliedGlowFrameStrata ~= strata then
+        glow:SetFrameStrata(strata)
+        glow.gui2AppliedGlowFrameStrata = strata
+    end
+    if type(level) == "number" then
+        if glow.SetFrameLevel
+            and glow.gui2AppliedGlowFrameLevel ~= level then
+            glow:SetFrameLevel(level)
+            glow.gui2AppliedGlowFrameLevel = level
+        end
+        return
+    end
+    if glow.gui2RestrictedParent == true then return end
+    local target = glow.gui2GlowTarget
+    if not (glow.SetFrameLevel and target and target.GetFrameLevel) then
+        return
+    end
+    local targetLevel = target:GetFrameLevel() or 0
+    if UsesNativeGlow(style) then
+        glow:SetFrameLevel(targetLevel + 4)
+    elseif UsesPixelGlowSegments(style) then
+        glow:SetFrameLevel(targetLevel + 3)
+    else
+        glow:SetFrameLevel(math_max(targetLevel - 1, 0))
+    end
+end
+
+function GUI2:_ApplyGlowChildLayer(glow, frame)
+    if not (glow and frame) then return end
+    local strata = glow.gui2GlowFrameStrata
+    local childChanged = glow.gui2AppliedGlowChild ~= frame
+    if strata and frame.SetFrameStrata
+        and (childChanged
+            or glow.gui2AppliedGlowChildStrata ~= strata) then
+        frame:SetFrameStrata(strata)
+        glow.gui2AppliedGlowChildStrata = strata
+    end
+    local level = glow.gui2GlowFrameLevel
+    if type(level) == "number" then
+        if frame.SetFrameLevel
+            and (childChanged
+                or glow.gui2AppliedGlowChildLevel ~= level) then
+            frame:SetFrameLevel(level)
+            glow.gui2AppliedGlowChildLevel = level
+        end
+        glow.gui2AppliedGlowChild = frame
+        return
+    end
+    if glow.gui2RestrictedParent == true then return end
+    if frame.SetFrameLevel and glow.GetFrameLevel then
+        frame:SetFrameLevel((glow:GetFrameLevel() or 0) + 1)
+    end
+end
+
+local function HideNativeGlow(glow)
+    if not glow then return end
+    if glow.gui2ButtonGlow then
+        ResetButtonGlowFrame(glow.gui2ButtonGlow)
+    end
+    if glow.gui2AutoCastFrame then
+        AutoCastGlow:Stop(glow)
+    elseif glow.gui2NativeAutoCastGlow then
+        AutoCastGlow:Stop(glow)
+    end
+    if glow.gui2ProcFrame then
+        StopAnimationGroup(glow.gui2ProcFrame.ProcStartAnim)
+        StopAnimationGroup(glow.gui2ProcFrame.ProcLoop)
+        glow.gui2ProcFrame:Hide()
+    end
+    if glow.gui2ProcFallback then
+        glow.gui2ProcFallback:Hide()
+    end
+    if glow.gui2ManagedCircleProcGlow then
+        if GUI2.SetManagedProcGlowShown then
+            GUI2:SetManagedProcGlowShown(
+                glow.gui2ManagedCircleProcGlow,
+                false
+            )
+        else
+            glow.gui2ManagedCircleProcGlow:Hide()
+        end
+    end
+    if glow.gui2ShapeProcFrames then
+        for _, frame in pairs(glow.gui2ShapeProcFrames) do
+            frame:Hide()
+        end
+    end
+    glow.gui2ActiveShapeProcFrame = nil
+end
+
+local function ApplyButtonGlowLayout(glow)
+    local frame = EnsureButtonGlowFrame(glow)
+    local width, height = GetGlowTargetSize(glow)
+    GUI2:_ApplyGlowChildLayer(glow, frame)
+
+    local frameWidth, frameHeight = GUI2:_GetGlowLayoutSize(glow)
+    if frameWidth <= 0 or frameHeight <= 0 then
+        local outset = ResolveGlowOutset(glow, "button")
+        frameWidth = math_max(1, width + outset * 2)
+        frameHeight = math_max(1, height + outset * 2)
+    end
+    frame.gui2ButtonGlowPixel = GUI2:GetPixelSize(glow, 1, 1)
+    if glow.gui2RestrictedParent == true then
+        frame.gui2TrustedLayoutWidth = frameWidth
+        frame.gui2TrustedLayoutHeight = frameHeight
+    else
+        frame.gui2TrustedLayoutWidth = nil
+        frame.gui2TrustedLayoutHeight = nil
+    end
+    frame:ClearAllPoints()
+    frame:SetPoint("CENTER", glow, "CENTER", 0, 0)
+    frame:SetSize(frameWidth, frameHeight)
+    if frame.gui2ButtonGlowStarted and not (frame.animIn and frame.animIn:IsPlaying()) then
+        ApplyButtonGlowStableState(frame)
+    end
+    return frame
+end
+
+local function ApplyPulseGlowLayout(glow)
+    local frame = EnsurePulseGlowFrame(glow)
+    if glow.gui2RestrictedParent == true then
+        frame = GUI2._RestrictedEdgeGlow:Layout(glow, "pulse")
+        if not frame then return nil end
+        GUI2:_ApplyGlowChildLayer(glow, frame)
+        frame:SetScale(1)
+        frame:SetAlpha(1)
+        frame:Show()
+        return frame
+    end
+    local width, height = GUI2:_GetGlowLayoutSize(glow)
+    if width <= 0 or height <= 0 then
+        local targetWidth, targetHeight = GetGlowTargetSize(glow)
+        local outset = ResolveGlowOutset(glow, "pulse")
+        width = targetWidth + outset * 2
+        height = targetHeight + outset * 2
+    end
+    local edgeSize = ResolveGlowEdgeSize(glow, "pulse")
+    if frame.gui2PulseEdgeSize ~= edgeSize then
+        frame:SetBackdrop({
+            edgeFile = Assets:Core("images\\GlowTex.tga"),
+            edgeSize = edgeSize,
+            insets = { left = edgeSize, right = edgeSize, top = edgeSize, bottom = edgeSize },
+        })
+        frame.gui2PulseEdgeSize = edgeSize
+    end
+    width = math_max(1, width)
+    height = math_max(1, height)
+    if frame.gui2PulseWidth ~= width or frame.gui2PulseHeight ~= height then
+        frame:SetSize(width, height)
+        frame.gui2PulseWidth = width
+        frame.gui2PulseHeight = height
+    end
+    GUI2:_ApplyGlowChildLayer(glow, frame)
+    frame:Show()
+    return frame
+end
+
+function GUI2:_ShouldRenderGlow(glow)
+    if not glow then return false end
+    if glow.gui2RestrictedParent == true then
+        return glow.gui2GlowRequested == true
+            and glow.gui2TrustedGeometryReady == true
+    end
+    return glow.gui2GlowVisible == true
+end
+
+local function ActivateNativeGlow(glow, style)
+    if not GUI2:_ShouldRenderGlow(glow) then return end
+    HideNativeGlow(glow)
+
+    if style == "button" then
+        local frame = ApplyButtonGlowLayout(glow)
+        ApplyButtonGlowColor(
+            frame,
+            glow.gui2GlowResolvedR or glow.gui2ColorR or 1,
+            glow.gui2GlowResolvedG or glow.gui2ColorG or 1,
+            glow.gui2GlowResolvedB or glow.gui2ColorB or 1,
+            glow.gui2GlowResolvedAlpha or glow.gui2GlowAlpha or 1
+        )
+        GUI2:_ConfigureButtonGlowClock(frame, glow.gui2GlowSpeed)
+        StartButtonGlowFrame(frame)
+        frame:Show()
+    elseif style == "autocast" then
+        AutoCastGlow:Activate(glow)
+    elseif style == "proc" then
+        local frame = EnsureProcGlow(glow)
+        GUI2:_ApplyGlowChildLayer(glow, frame)
+        if frame.gui2ManagedProcGlow
+            and GUI2.SetManagedProcGlowShown then
+            GUI2:SetManagedProcGlowShown(frame, true)
+            return
+        end
+        frame:Show()
+        StopAnimationGroup(frame.ProcStartAnim)
+        if frame.ProcStartFlipbook then
+            frame.ProcStartFlipbook:Hide()
+        end
+        if frame.ProcLoop then
+            PlayAnimationGroup(frame.ProcLoop)
+        elseif frame.Texture then
+            frame.Texture:Show()
+        end
+    end
+end
+
+local function UpdateButtonGlowFrame(glow, elapsed)
+    local frame = ApplyButtonGlowLayout(glow)
+    local alpha = ResolveButtonGlowAlpha(glow.gui2GlowResolvedAlpha or glow.gui2GlowAlpha or 1)
+
+    frame.gui2ButtonGlowAlpha = alpha
+    UpdateButtonGlowAlphaAnimations(frame, alpha)
+    StartButtonGlowFrame(frame)
+
+    local speed = ClampGlowSpeed(glow.gui2GlowSpeed)
+    local throttle = GUI2:_ConfigureButtonGlowClock(frame, speed)
+    if speed > 0
+        and type(GUI2._ButtonGlowAnimateTexCoords) == "function" then
+        GUI2._ButtonGlowAnimateTexCoords(
+            frame.ants,
+            256,
+            256,
+            48,
+            48,
+            BUTTON_GLOW_VISUAL.frames,
+            elapsed or 0,
+            throttle
+        )
+    end
+    frame:Show()
+end
+
+PlaceAutoCastParticle = function(frame, texture, position, width, height)
+    local rightLimit = height + width
+    local bottomLimit = height * 2 + width
+    local x, y
+    if position > bottomLimit then
+        x, y = (width + height) * 2 - position, 0
+    elseif position > rightLimit then
+        x, y = width, bottomLimit - position
+    elseif position > height then
+        x, y = position - height, height
+    else
+        x, y = 0, position
+    end
+    texture:SetPoint("CENTER", frame, "BOTTOMLEFT", x, y)
+end
+
+AutoCastGlow.Driver = {
+    active = {},
+    index = {},
+    count = 0,
+    elapsed = 0,
+    interval = 1 / 60,
+}
+
+function AutoCastGlow.Driver:Draw(glow)
+    local frame = glow and glow.gui2AutoCastFrame
+    if not (frame and glow.gui2AutoCastGeometryReady == true) then
+        return false
+    end
+    local phase = glow.gui2AutoCastPhase or 0
+    local perimeter = glow.gui2AutoCastPerimeter
+    local width = glow.gui2AutoCastWidth
+    local height = glow.gui2AutoCastHeight
+    local textureIndex = 0
+    for layer = 1, #AUTOCAST_PARTICLE_SIZES do
+        local layerProgress = (phase / layer) % 1
+        for index = 1, AutoCastGlow.particlesPerLayer do
+            textureIndex = textureIndex + 1
+            PlaceAutoCastParticle(
+                frame,
+                frame.textures[textureIndex],
+                ((index / AutoCastGlow.particlesPerLayer + layerProgress) % 1) * perimeter,
+                width,
+                height
+            )
+        end
+    end
+    return true
+end
+
+function AutoCastGlow.Driver:OnUpdate(elapsed)
+    local delta = self.elapsed + (elapsed or 0)
+    if delta < self.interval then
+        self.elapsed = delta
+        return
+    end
+    self.elapsed = 0
+    for index = 1, self.count do
+        local glow = self.active[index]
+        glow.gui2AutoCastPhase = NormalizeGlowPhase(
+            (glow.gui2AutoCastPhase or 0)
+                + delta * (glow.gui2AutoCastResolvedSpeed or 0)
+        )
+        self:Draw(glow)
+    end
+end
+
+function AutoCastGlow.Driver.OnFrameUpdate(_, elapsed)
+    AutoCastGlow.Driver:OnUpdate(elapsed)
+end
+
+function AutoCastGlow.Driver:Ensure()
+    if self.frame then return self.frame end
+    self.frame = CreateFrame("Frame")
+    self.frame:Hide()
+    self.frame:SetScript("OnUpdate", self.OnFrameUpdate)
+    return self.frame
+end
+
+function AutoCastGlow.Driver:Unregister(glow)
+    local index = glow and self.index[glow]
+    if not index then return false end
+    local last = self.active[self.count]
+    self.active[index] = last
+    if last then self.index[last] = index end
+    self.active[self.count] = nil
+    self.index[glow] = nil
+    self.count = self.count - 1
+    if self.count == 0 and self.frame then
+        self.elapsed = 0
+        self.frame:Hide()
+    end
+    return true
+end
+
+function AutoCastGlow.Driver:Register(glow)
+    if not glow or self.index[glow]
+        or glow.gui2GlowVisible ~= true
+        or glow.gui2RestrictedParent == true
+        or glow.gui2GlowStyle ~= "autocast"
+        or glow.gui2AutoCastUseNative == true
+        or glow.gui2AutoCastGeometryReady ~= true
+        or (glow.gui2AutoCastResolvedSpeed or 0) <= 0 then
+        return false
+    end
+    self.count = self.count + 1
+    self.active[self.count] = glow
+    self.index[glow] = self.count
+    if self.count == 1 then
+        self.elapsed = 0
+        self:Ensure():Show()
+    end
+    return true
+end
+
+function AutoCastGlow:StopNative(frame)
+    if not frame then return end
+    if frame.ShowAutoCastEnabled then
+        frame:ShowAutoCastEnabled(false)
+    end
+    if frame.Shine and frame.Shine.Anim then
+        StopAnimationGroup(frame.Shine.Anim)
+    end
+    frame:Hide()
+end
+
+function AutoCastGlow:Stop(glow)
+    if not glow then return end
+    self.Driver:Unregister(glow)
+    self:StopRestrictedAnimations(glow)
+    if glow.gui2AutoCastFrame then
+        glow.gui2AutoCastFrame:Hide()
+    end
+    self:StopNative(glow.gui2NativeAutoCastGlow)
+end
+
+function AutoCastGlow:ApplyColor(glow, r, g2, b2, alpha)
+    local native = glow and glow.gui2NativeAutoCastGlow
+    if native then
+        native:SetAlpha(alpha)
+        if native.Shine and native.Shine.SetVertexColor then
+            native.Shine:SetVertexColor(r, g2, b2, 1)
+        end
+        if native.Corners and native.Corners.SetVertexColor then
+            native.Corners:SetVertexColor(r, g2, b2, 1)
+        end
+    end
+
+    local frame = glow and glow.gui2AutoCastFrame
+    if not (frame and frame.textures) then return end
+    for layer = 1, #AUTOCAST_PARTICLE_SIZES do
+        local layerAlpha = alpha * (1 - (layer - 1) * 0.12)
+        local first = (layer - 1) * self.particlesPerLayer + 1
+        for index = first, first + self.particlesPerLayer - 1 do
+            local texture = frame.textures[index]
+            if texture then
+                if texture.SetVertexColor then
+                    texture:SetVertexColor(r, g2, b2, 1)
+                end
+                texture:SetAlpha(layerAlpha)
+            end
+        end
+    end
+end
+
+function AutoCastGlow:ConfigureNative(glow, frame)
+    local speed = glow.gui2AutoCastResolvedSpeed or 0
+    local group = frame.Shine and frame.Shine.Anim
+    local rotation = frame.gui2AutoCastRotation
+    if group then StopAnimationGroup(group) end
+    if speed > 0 and rotation and rotation.SetDuration then
+        rotation:SetDuration(1 / speed)
+    end
+    frame:Show()
+    if speed > 0 then
+        frame:ShowAutoCastEnabled(true)
+    else
+        frame:ShowAutoCastEnabled(false)
+        if frame.Shine then frame.Shine:Show() end
+    end
+end
+
+function AutoCastGlow:Activate(glow)
+    if not GUI2:_ShouldRenderGlow(glow) then return end
+    if glow.gui2AutoCastUseNative == true then
+        local frame = glow.gui2NativeAutoCastGlow
+        if frame then self:ConfigureNative(glow, frame) end
+        return
+    end
+
+    local frame = glow.gui2AutoCastFrame
+    if not (frame and glow.gui2AutoCastGeometryReady == true) then return end
+    frame:Show()
+    for index = 1, self.particleCount do
+        frame.textures[index]:Show()
+    end
+    if glow.gui2RestrictedParent == true then
+        self:ConfigureRestrictedAnimations(glow)
+        return
+    end
+    self.Driver:Draw(glow)
+    if (glow.gui2AutoCastResolvedSpeed or 0) > 0 then
+        self.Driver:Register(glow)
+    else
+        self.Driver:Unregister(glow)
+    end
+end
+
+function AutoCastGlow:UpdateGeometry(glow)
+    if not (glow and glow.gui2GlowStyle == "autocast") then return end
+    local width, height = GUI2:_GetGlowLayoutSize(glow)
+    local pixel = GUI2:GetPixelSize(glow, 1, 1)
+    local native = nil
+    if width > 0 and height > 0 and math_abs(width - height) <= pixel then
+        native = self:EnsureNative(glow)
+    end
+    local useNative = native ~= nil
+    local modeChanged = glow.gui2AutoCastUseNative ~= useNative
+    if modeChanged then self:Stop(glow) end
+    glow.gui2AutoCastUseNative = useNative
+    glow.gui2AutoCastResolvedSpeed = ClampGlowSpeed(glow.gui2GlowSpeed)
+
+    if useNative then
+        glow.gui2AutoCastGeometryReady = true
+        GUI2:_ApplyGlowChildLayer(glow, native)
+    else
+        local frame = self:EnsureFrame(glow)
+        self:EnsureParticles(frame)
+        GUI2:_ApplyGlowChildLayer(glow, frame)
+        local perimeter = (width + height) * 2
+        glow.gui2AutoCastWidth = width
+        glow.gui2AutoCastHeight = height
+        glow.gui2AutoCastPerimeter = perimeter
+        glow.gui2AutoCastGeometryReady = perimeter > 0
+        local scale = math_max(0.5, (tonumber(glow.gui2GlowSize) or 8) / 8)
+        if frame.gui2AutoCastScale ~= scale then
+            for layer = 1, #AUTOCAST_PARTICLE_SIZES do
+                local particleSize = AUTOCAST_PARTICLE_SIZES[layer] * scale
+                local first = (layer - 1) * self.particlesPerLayer + 1
+                for index = first, first + self.particlesPerLayer - 1 do
+                    frame.textures[index]:SetSize(particleSize, particleSize)
+                end
+            end
+            frame.gui2AutoCastScale = scale
+        end
+        if glow.gui2RestrictedParent == true then
+            self:ConfigureRestrictedAnimations(glow)
+        else
+            self.Driver:Draw(glow)
+        end
+    end
+
+    self:ApplyColor(
+        glow,
+        glow.gui2GlowResolvedR or glow.gui2ColorR or 1,
+        glow.gui2GlowResolvedG or glow.gui2ColorG or 1,
+        glow.gui2GlowResolvedB or glow.gui2ColorB or 1,
+        glow.gui2GlowResolvedAlpha or glow.gui2GlowAlpha or 1
+    )
+    return modeChanged
+end
+
+local UpdatePixelGlowLayout
+local RefreshGlowAnimation
+local PixelGlowDriver = {
+    active = {},
+    index = {},
+    count = 0,
+    elapsed = 0,
+    interval = 1 / 60,
+}
+
+function PixelGlowDriver:Draw(glow)
+    local edges = glow and glow.gui2PixelEdges
+    local lines = glow and glow.gui2PixelGlowResolvedLines
+    if not (edges and lines and glow.gui2PixelGlowGeometryReady == true) then
+        return false
+    end
+    local offset = (lines
+        - NormalizeGlowPhase(glow.gui2GlowPhase) * lines) % lines
+    local widthPhase = glow.gui2PixelGlowWidthPhase
+    local widthHeightPhase = glow.gui2PixelGlowWidthHeightPhase
+    local doubleWidthHeightPhase = glow.gui2PixelGlowDoubleWidthHeightPhase
+    GUI2:_SetPixelTextureInterval(
+        edges.top,
+        offset,
+        offset + widthPhase,
+        false,
+        false
+    )
+    GUI2:_SetPixelTextureInterval(
+        edges.right,
+        offset + widthPhase,
+        offset + widthHeightPhase,
+        true,
+        false
+    )
+    GUI2:_SetPixelTextureInterval(
+        edges.bottom,
+        offset + widthHeightPhase,
+        offset + doubleWidthHeightPhase,
+        false,
+        true
+    )
+    GUI2:_SetPixelTextureInterval(
+        edges.left,
+        offset + doubleWidthHeightPhase,
+        offset + lines,
+        true,
+        true
+    )
+    return true
+end
+
+function GUI2._RestrictedGlowRuntime:StopPixel(glow)
+    for _, texture in pairs(glow and glow.gui2PixelEdges or {}) do
+        local group = texture.gui2RestrictedPixelAnimation
+        if group then StopAnimationGroup(group) end
+        texture.gui2RestrictedPixelPlaying = false
+    end
+    SetPixelGlowEdgesShown(glow, false)
+    if glow then glow.gui2RestrictedPixelSignature = nil end
+end
+
+function GUI2._RestrictedGlowRuntime:ConfigurePixel(glow)
+    local edges = glow and glow.gui2PixelEdges
+    local masks = glow and glow.gui2RestrictedPixelMasks
+    local lines = glow and glow.gui2PixelGlowResolvedLines
+    local speed = glow and glow.gui2PixelGlowResolvedSpeed or 0
+    local width, height = GUI2:_GetGlowLayoutSize(glow)
+    local thickness = glow and glow.gui2PixelGlowResolvedThickness
+    local perimeter = (width + height) * 2
+    if not (edges and masks and lines and thickness
+        and perimeter > 0
+        and glow.gui2PixelGlowGeometryReady == true) then
+        return false
+    end
+    local cycle = perimeter / lines
+    if cycle <= 0 then return false end
+    local signature = tostring(lines)
+        .. ":" .. tostring(speed)
+        .. ":" .. tostring(glow.gui2GlowPhase or 0)
+        .. ":" .. tostring(width)
+        .. ":" .. tostring(height)
+        .. ":" .. tostring(thickness)
+    if glow.gui2RestrictedPixelSignature == signature then
+        return true
+    end
+
+    self:StopPixel(glow)
+    local offset = (lines
+        - NormalizeGlowPhase(glow.gui2GlowPhase) * lines) % lines
+    local widthPhase = width / cycle
+    local widthHeightPhase = (width + height) / cycle
+    local doubleWidthHeightPhase = (2 * width + height) / cycle
+    local horizontalCycles = (width + cycle) / cycle
+    local verticalCycles = (height + cycle) / cycle
+
+    masks.top:ClearAllPoints()
+    masks.top:SetPoint("TOPLEFT", glow, "TOPLEFT", 0, 0)
+    masks.top:SetSize(width, thickness)
+    edges.top:ClearAllPoints()
+    edges.top:SetPoint("TOPLEFT", glow, "TOPLEFT", -cycle, 0)
+    edges.top:SetSize(width + cycle, thickness)
+    GUI2:_SetPixelTextureInterval(
+        edges.top,
+        offset,
+        offset + horizontalCycles,
+        false,
+        false
+    )
+
+    masks.right:ClearAllPoints()
+    masks.right:SetPoint("TOPRIGHT", glow, "TOPRIGHT", 0, 0)
+    masks.right:SetSize(thickness, height)
+    edges.right:ClearAllPoints()
+    edges.right:SetPoint("TOPRIGHT", glow, "TOPRIGHT", 0, cycle)
+    edges.right:SetSize(thickness, height + cycle)
+    GUI2:_SetPixelTextureInterval(
+        edges.right,
+        offset + widthPhase,
+        offset + widthPhase + verticalCycles,
+        true,
+        false
+    )
+
+    masks.bottom:ClearAllPoints()
+    masks.bottom:SetPoint("BOTTOMLEFT", glow, "BOTTOMLEFT", 0, 0)
+    masks.bottom:SetSize(width, thickness)
+    edges.bottom:ClearAllPoints()
+    edges.bottom:SetPoint("BOTTOMLEFT", glow, "BOTTOMLEFT", 0, 0)
+    edges.bottom:SetSize(width + cycle, thickness)
+    GUI2:_SetPixelTextureInterval(
+        edges.bottom,
+        offset + widthHeightPhase,
+        offset + widthHeightPhase + horizontalCycles,
+        false,
+        true
+    )
+
+    masks.left:ClearAllPoints()
+    masks.left:SetPoint("TOPLEFT", glow, "TOPLEFT", 0, 0)
+    masks.left:SetSize(thickness, height)
+    edges.left:ClearAllPoints()
+    edges.left:SetPoint("BOTTOMLEFT", glow, "BOTTOMLEFT", 0, -cycle)
+    edges.left:SetSize(thickness, height + cycle)
+    GUI2:_SetPixelTextureInterval(
+        edges.left,
+        offset + doubleWidthHeightPhase,
+        offset + doubleWidthHeightPhase + verticalCycles,
+        true,
+        true
+    )
+
+    local offsets = {
+        top = { cycle, 0 },
+        right = { 0, -cycle },
+        bottom = { -cycle, 0 },
+        left = { 0, cycle },
+    }
+    local duration = speed > 0 and 1 / (speed * lines) or 0
+    for key, translationOffset in pairs(offsets) do
+        local texture = edges[key]
+        local group = texture.gui2RestrictedPixelAnimation
+        local animation = texture.gui2RestrictedPixelTranslation
+        if not (group and animation and animation.SetOffset) then return false end
+        if duration > 0 then
+            animation:SetDuration(duration)
+            animation:SetOffset(
+                translationOffset[1],
+                translationOffset[2]
+            )
+            group:Play()
+            texture.gui2RestrictedPixelPlaying = true
+        else
+            texture.gui2RestrictedPixelPlaying = false
+        end
+    end
+    glow.gui2RestrictedPixelSignature = signature
+    return true
+end
+
+function PixelGlowDriver:OnUpdate(elapsed)
+    local delta = self.elapsed + (elapsed or 0)
+    if delta < self.interval then
+        self.elapsed = delta
+        return
+    end
+    self.elapsed = 0
+    for index = 1, self.count do
+        local glow = self.active[index]
+        glow.gui2GlowPhase = NormalizeGlowPhase(
+            (glow.gui2GlowPhase or 0)
+                + delta * (glow.gui2PixelGlowResolvedSpeed or 0)
+        )
+        self:Draw(glow)
+    end
+end
+
+function PixelGlowDriver.OnFrameUpdate(_, elapsed)
+    PixelGlowDriver:OnUpdate(elapsed)
+end
+
+function PixelGlowDriver:Ensure()
+    if self.frame then return self.frame end
+    self.frame = CreateFrame("Frame")
+    self.frame:Hide()
+    self.frame:SetScript("OnUpdate", self.OnFrameUpdate)
+    return self.frame
+end
+
+function PixelGlowDriver:Unregister(glow)
+    local index = glow and self.index[glow]
+    if not index then return false end
+    local last = self.active[self.count]
+    self.active[index] = last
+    if last then self.index[last] = index end
+    self.active[self.count] = nil
+    self.index[glow] = nil
+    self.count = self.count - 1
+    if self.count == 0 and self.frame then
+        self.elapsed = 0
+        self.frame:Hide()
+    end
+    return true
+end
+
+function PixelGlowDriver:Register(glow)
+    if not glow or GUI2:_ShouldRenderGlow(glow) ~= true
+        or glow.gui2RestrictedParent == true
+        or not UsesPixelGlowSegments(glow.gui2GlowStyle)
+        or glow.gui2PixelGlowGeometryReady ~= true
+        or (glow.gui2PixelGlowResolvedSpeed or 0) <= 0 then
+        return false
+    end
+    if self.index[glow] then return false end
+    self.count = self.count + 1
+    self.active[self.count] = glow
+    self.index[glow] = self.count
+    if self.count == 1 then
+        self.elapsed = 0
+        self:Ensure():Show()
+    end
+    return true
+end
+
+function GUI2._RestrictedGlowRuntime:Stop(glow)
+    if not glow then return end
+    self:StopPixel(glow)
+    self:StopButton(glow)
+    AutoCastGlow:Stop(glow)
+    self:StopProc(glow)
+    self:StopPulse(glow)
+    GUI2._RestrictedEdgeGlow:Hide(glow)
+    glow.gui2RestrictedAnimationPrepared = nil
+end
+
+function GUI2._RestrictedGlowRuntime:Prepare(glow, style)
+    if not (glow and glow.gui2RestrictedParent == true) then
+        return false
+    end
+    if glow.gui2RestrictedAnimationPrepared == style then
+        return true
+    end
+    PixelGlowDriver:Unregister(glow)
+    AutoCastGlow.Driver:Unregister(glow)
+    glow:SetScript("OnUpdate", nil)
+    glow:SetAlpha(1)
+    if glow.gui2TrustedGeometryReady ~= true then
+        glow.gui2RestrictedAnimationPrepared = nil
+        return false
+    end
+
+    local prepared = true
+    if UsesPixelGlowSegments(style) then
+        prepared = self:ConfigurePixel(glow)
+        SetPixelGlowEdgesShown(glow, prepared)
+    elseif style == "button" then
+        local frame = ApplyButtonGlowLayout(glow)
+        ApplyButtonGlowColor(
+            frame,
+            glow.gui2GlowResolvedR or glow.gui2ColorR or 1,
+            glow.gui2GlowResolvedG or glow.gui2ColorG or 1,
+            glow.gui2GlowResolvedB or glow.gui2ColorB or 1,
+            glow.gui2GlowResolvedAlpha or glow.gui2GlowAlpha or 1
+        )
+        self:StartButton(frame)
+        prepared = self:ConfigureButton(glow, frame)
+        frame:Show()
+    elseif style == "autocast" then
+        if glow.gui2AutoCastUseNative == true then
+            local frame = glow.gui2NativeAutoCastGlow
+            if frame then AutoCastGlow:ConfigureNative(glow, frame) end
+            prepared = frame ~= nil
+        else
+            local frame = glow.gui2AutoCastFrame
+            if frame then
+                frame:Show()
+                for index = 1, AutoCastGlow.particleCount do
+                    frame.textures[index]:Show()
+                end
+            end
+            prepared = AutoCastGlow:ConfigureRestrictedAnimations(glow)
+        end
+    elseif style == "proc" then
+        local frame = EnsureProcGlow(glow)
+        frame:Show()
+        StopAnimationGroup(frame.ProcStartAnim)
+        if frame.ProcStartFlipbook then
+            frame.ProcStartFlipbook:Hide()
+        end
+        prepared = self:ConfigureProc(glow, frame)
+    elseif style == "pulse" then
+        local frame = ApplyPulseGlowLayout(glow)
+        prepared = self:ConfigurePulse(glow, frame)
+    elseif style == "soft" then
+        local frame = GUI2._RestrictedEdgeGlow:Layout(glow, "soft")
+        if frame then
+            frame:SetScale(1)
+            frame:SetAlpha(1)
+            GUI2._RestrictedEdgeGlow:SetColor(
+                frame,
+                glow.gui2GlowResolvedR or glow.gui2ColorR or 1,
+                glow.gui2GlowResolvedG or glow.gui2ColorG or 1,
+                glow.gui2GlowResolvedB or glow.gui2ColorB or 1,
+                glow.gui2GlowResolvedAlpha or glow.gui2GlowAlpha or 1
+            )
+            frame:Show()
+        end
+        prepared = frame ~= nil
+    end
+    glow.gui2RestrictedAnimationPrepared = prepared and style or nil
+    return prepared
+end
+
+local function GlowOnUpdate(object, elapsed)
+    if object and object.gui2RestrictedParent == true then
+        object:SetScript("OnUpdate", nil)
+        return
+    end
+    if not GUI2:_ShouldRenderGlow(object) then
+        if object and object.SetScript then
+            object:SetScript("OnUpdate", nil)
+        end
+        return
+    end
+
+    local style = NormalizeGlowStyle(object.gui2GlowStyle)
+    if style == "pulse" then
+        object.gui2GlowPulse = (object.gui2GlowPulse or 0) + (elapsed or 0) * math_max(0.2, ClampGlowSpeed(object.gui2GlowSpeed))
+        local pulse = 0.5 - 0.5 * math_cos(object.gui2GlowPulse * math_pi * 2)
+        local frame = ApplyPulseGlowLayout(object)
+        frame:SetScale(0.94 + 0.10 * pulse)
+        frame:SetAlpha((object.gui2GlowResolvedAlpha or object.gui2GlowAlpha or 1) * (0.40 + 0.55 * pulse))
+        object:SetAlpha(1)
+        return
+    end
+
+    if UsesNativeGlow(style) then
+        object.gui2GlowNativeElapsed = (object.gui2GlowNativeElapsed or 0) + (elapsed or 0) * math_max(0.2, ClampGlowSpeed(object.gui2GlowSpeed))
+        if style == "button" then
+            UpdateButtonGlowFrame(object, elapsed)
+        elseif style == "proc"
+            and object.gui2ActiveShapeProcFrame
+            and object.gui2ActiveShapeProcFrame.Texture then
+            local frame = object.gui2ActiveShapeProcFrame
+            local pulse = 0.5 + 0.5
+                * math_sin(object.gui2GlowNativeElapsed * math_pi * 2)
+            frame.Texture:SetAlpha(0.55 + 0.45 * pulse)
+            if frame.InnerTexture then
+                frame.InnerTexture:SetAlpha(0.22 + 0.28 * pulse)
+            end
+        elseif style == "proc" and object.gui2ProcFallback and object.gui2ProcFallback.Texture then
+            local pulse = 0.5 + 0.5 * math_sin(object.gui2GlowNativeElapsed * math_pi * 2)
+            object.gui2ProcFallback.Texture:SetAlpha(0.55 + 0.45 * pulse)
+        end
+        return
+    end
+
+    object:SetAlpha(1)
+    object:SetScript("OnUpdate", nil)
+end
+
+RefreshGlowAnimation = function(glow)
+    if not glow then return end
+    local style = NormalizeGlowStyle(glow.gui2GlowStyle)
+    if glow.gui2RestrictedParent == true then
+        GUI2._RestrictedGlowRuntime:Prepare(glow, style)
+        return
+    end
+    local shown = GUI2:_ShouldRenderGlow(glow)
+    if UsesPixelGlowSegments(style) then
+        glow:SetScript("OnUpdate", nil)
+        HideNativeGlow(glow)
+        HidePulseGlow(glow)
+        glow:SetAlpha(1)
+        if shown and glow.gui2PixelGlowGeometryReady == true then
+            SetPixelGlowEdgesShown(glow, true)
+            if (glow.gui2PixelGlowResolvedSpeed or 0) > 0 then
+                PixelGlowDriver:Register(glow)
+            else
+                PixelGlowDriver:Unregister(glow)
+                PixelGlowDriver:Draw(glow)
+            end
+        else
+            PixelGlowDriver:Unregister(glow)
+            SetPixelGlowEdgesShown(glow, false)
+        end
+        return
+    end
+    PixelGlowDriver:Unregister(glow)
+    HidePixelGlowLines(glow)
+    if style == "none" then
+        HideNativeGlow(glow)
+        HidePulseGlow(glow)
+        glow:SetScript("OnUpdate", nil)
+        glow:SetAlpha(0)
+        return
+    end
+    if style ~= "pulse" then
+        HidePulseGlow(glow)
+    end
+    if shown and UsesNativeGlow(style) then
+        ActivateNativeGlow(glow, style)
+    else
+        HideNativeGlow(glow)
+    end
+    if shown and GlowNeedsAnimation(style)
+        and not (style == "button"
+            and ClampGlowSpeed(glow.gui2GlowSpeed) <= 0)
+        and not (style == "proc"
+            and glow.gui2ManagedCircleProcGlow) then
+        if style ~= "pulse" then
+            glow:SetAlpha(1)
+        end
+        glow:SetScript("OnUpdate", GlowOnUpdate)
+    else
+        glow:SetScript("OnUpdate", nil)
+        glow:SetAlpha(1)
+    end
+end
+
+UpdatePixelGlowLayout = function(glow)
+    if not glow or not UsesPixelGlowSegments(glow.gui2GlowStyle) then return end
+
+    local lineCount = ClampGlowLines(glow.gui2GlowLines)
+    local pixel = GUI2:GetPixelSize(glow, 1, 1)
+    local thickness = GUI2:GetPixelSize(glow, ClampGlowThickness(glow.gui2GlowThickness), 1)
+    local layoutWidth, layoutHeight = GUI2:_GetGlowLayoutSize(glow)
+    local width = SnapGlowValue(glow, layoutWidth, pixel)
+    local height = SnapGlowValue(glow, layoutHeight, pixel)
+    local perimeter = (width + height) * 2
+    if perimeter <= 0 then
+        glow.gui2PixelGlowGeometryReady = false
+        HidePixelGlowLines(glow)
+        return
+    end
+    local edges = EnsurePixelGlowEdges(glow)
+    if glow.gui2RestrictedParent ~= true then
+        if edges.top.gui2PixelThickness ~= thickness then
+            edges.top:SetHeight(thickness)
+            edges.top.gui2PixelThickness = thickness
+        end
+        if edges.bottom.gui2PixelThickness ~= thickness then
+            edges.bottom:SetHeight(thickness)
+            edges.bottom.gui2PixelThickness = thickness
+        end
+        if edges.left.gui2PixelThickness ~= thickness then
+            edges.left:SetWidth(thickness)
+            edges.left.gui2PixelThickness = thickness
+        end
+        if edges.right.gui2PixelThickness ~= thickness then
+            edges.right:SetWidth(thickness)
+            edges.right.gui2PixelThickness = thickness
+        end
+    end
+    glow.gui2PixelGlowResolvedThickness = thickness
+    local scale = lineCount / perimeter
+    glow.gui2PixelGlowResolvedLines = lineCount
+    glow.gui2PixelGlowWidthPhase = width * scale
+    glow.gui2PixelGlowWidthHeightPhase = (width + height) * scale
+    glow.gui2PixelGlowDoubleWidthHeightPhase = (2 * width + height) * scale
+    glow.gui2PixelGlowGeometryReady = true
+    if glow.gui2RestrictedParent == true then
+        GUI2._RestrictedGlowRuntime:ConfigurePixel(glow)
+        SetPixelGlowEdgesShown(glow, true)
+    else
+        PixelGlowDriver:Draw(glow)
+        SetPixelGlowEdgesShown(glow, GUI2:_ShouldRenderGlow(glow))
+    end
+end
+
+local function UpdateGlowPixelLayout(glow)
+    if glow and glow.gui2RestrictedParent == true
+        and glow.gui2RestrictedAnimationPrepared
+            == NormalizeGlowStyle(glow.gui2GlowStyle) then
+        return
+    end
+    UpdatePixelGlowLayout(glow)
+    if glow and UsesPixelGlowSegments(glow.gui2GlowStyle) then
+        RefreshGlowAnimation(glow)
+    end
+    if glow and glow.gui2GlowStyle == "autocast" then
+        local modeChanged = AutoCastGlow:UpdateGeometry(glow)
+        if modeChanged and glow.gui2GlowVisible == true then
+            RefreshGlowAnimation(glow)
+        end
+    end
+end
+
+local function GlowOnShow(glow)
+    glow.gui2GlowVisible = true
+    if glow.gui2RestrictedParent == true then return end
+    RefreshGlowAnimation(glow)
+end
+
+local function GlowOnHide(glow)
+    glow.gui2GlowVisible = false
+    if glow.gui2RestrictedParent == true then return end
+    PixelGlowDriver:Unregister(glow)
+    AutoCastGlow.Driver:Unregister(glow)
+    glow:SetScript("OnUpdate", nil)
+    HidePixelGlowLines(glow)
+    HideNativeGlow(glow)
+    HidePulseGlow(glow)
+end
+
+local function ApplyGlowColor(glow)
+    if not glow then return end
+    local r, g2, b2, a2
+    if glow.gui2ColorKey then
+        r, g2, b2, a2 = ResolveColor(GUI2, glow.gui2ColorKey, nil, nil, nil, "color.border.accent")
+    else
+        r, g2, b2, a2 = glow.gui2ColorR or 1, glow.gui2ColorG or 1, glow.gui2ColorB or 1, glow.gui2ColorA == nil and 1 or glow.gui2ColorA
+    end
+
+    local alpha = a2
+    if glow.gui2GlowAlpha ~= nil then
+        alpha = alpha * glow.gui2GlowAlpha
+    end
+    glow.gui2GlowResolvedR = r
+    glow.gui2GlowResolvedG = g2
+    glow.gui2GlowResolvedB = b2
+    glow.gui2GlowResolvedAlpha = alpha
+
+    if glow.gui2RestrictedParent == true
+        and (glow.gui2GlowStyle == "soft"
+            or glow.gui2GlowStyle == "pulse") then
+        if glow.gui2RestrictedEdgeGlow then
+            GUI2._RestrictedEdgeGlow:SetColor(
+                glow.gui2RestrictedEdgeGlow,
+                r,
+                g2,
+                b2,
+                alpha
+            )
+        end
+    elseif UsesPixelGlowSegments(glow.gui2GlowStyle) then
+        local edges = EnsurePixelGlowEdges(glow)
+        edges.top:SetVertexColor(r, g2, b2, alpha)
+        edges.right:SetVertexColor(r, g2, b2, alpha)
+        edges.bottom:SetVertexColor(r, g2, b2, alpha)
+        edges.left:SetVertexColor(r, g2, b2, alpha)
+    elseif UsesNativeGlow(glow.gui2GlowStyle) then
+        if glow.gui2GlowStyle == "button" and glow.gui2ButtonGlow then
+            ApplyButtonGlowColor(glow.gui2ButtonGlow, r, g2, b2, alpha)
+        end
+        if glow.gui2GlowStyle == "autocast" then
+            AutoCastGlow:ApplyColor(glow, r, g2, b2, alpha)
+        end
+        if glow.gui2ProcFrame then
+            local procFrame = glow.gui2ProcFrame
+            if procFrame.ProcLoopFlipbook and procFrame.ProcLoopFlipbook.SetVertexColor then
+                procFrame.ProcLoopFlipbook:SetVertexColor(r, g2, b2, alpha)
+            end
+            if procFrame.ProcStartFlipbook and procFrame.ProcStartFlipbook.SetVertexColor then
+                procFrame.ProcStartFlipbook:SetVertexColor(r, g2, b2, alpha)
+            end
+        end
+        if glow.gui2ProcFallback and glow.gui2ProcFallback.Texture and glow.gui2ProcFallback.Texture.SetVertexColor then
+            glow.gui2ProcFallback.Texture:SetVertexColor(r, g2, b2, alpha)
+        end
+        if glow.gui2ShapeProcFrames then
+            for _, frame in pairs(glow.gui2ShapeProcFrames) do
+                if frame.Texture and frame.Texture.SetVertexColor then
+                    frame.Texture:SetVertexColor(r, g2, b2, alpha)
+                end
+                if frame.InnerTexture
+                    and frame.InnerTexture.SetVertexColor then
+                    frame.InnerTexture:SetVertexColor(
+                        r,
+                        g2,
+                        b2,
+                        alpha * 0.72
+                    )
+                end
+            end
+        end
+    elseif glow.gui2GlowStyle == "pulse" and glow.gui2PulseFrame and glow.gui2PulseFrame.SetBackdropBorderColor then
+        glow.gui2PulseFrame:SetBackdropBorderColor(r, g2, b2, alpha)
+    elseif glow.SetBackdropBorderColor then
+        glow:SetBackdropBorderColor(r, g2, b2, alpha)
+    end
+end
+
+local function ApplyGlowStyle(glow)
+    if not glow or not glow.gui2GlowTarget then return end
+
+    local target = glow.gui2GlowTarget
+    local style = NormalizeGlowStyle(glow.gui2GlowStyle)
+    glow.gui2GlowStyle = style
+    if glow.gui2RestrictedParent == true then
+        glow.gui2RestrictedAnimationPrepared = nil
+    end
+    if style ~= "soft" and style ~= "pulse" then
+        GUI2._RestrictedEdgeGlow:Hide(glow)
+    end
+    if glow.gui2RestrictedParent == true
+        and glow.gui2TrustedGeometryReady ~= true then
+        glow.gui2PixelGlowGeometryReady = false
+        glow.gui2AutoCastGeometryReady = false
+        HidePixelGlowLines(glow)
+        HideNativeGlow(glow)
+        HidePulseGlow(glow)
+        RefreshGlowAnimation(glow)
+        return
+    end
+    GUI2:_ApplyGlowFrameLayer(glow, style)
+
+    if style == "none" then
+        HidePixelGlowLines(glow)
+        HideNativeGlow(glow)
+        HidePulseGlow(glow)
+        SetGlowTargetPoints(glow, target, 0)
+        if glow.SetBackdrop then
+            glow:SetBackdrop(nil)
+        end
+        RefreshGlowAnimation(glow)
+        return
+    end
+
+    if UsesPixelGlowSegments(style) then
+        HidePulseGlow(glow)
+        SetGlowTargetPoints(glow, target, 0)
+        if glow.SetBackdrop then
+            glow:SetBackdrop(nil)
+        end
+        UpdatePixelGlowLayout(glow)
+        ApplyGlowColor(glow)
+        RefreshGlowAnimation(glow)
+        return
+    end
+
+    HidePixelGlowLines(glow)
+
+    if UsesNativeGlow(style) then
+        HidePulseGlow(glow)
+        if glow.SetBackdrop then
+            glow:SetBackdrop(nil)
+        end
+        SetGlowTargetPoints(
+            glow,
+            target,
+            ResolveGlowOutset(glow, style),
+            style == "proc" and 1 or 0
+        )
+        if style == "autocast" then
+            AutoCastGlow:UpdateGeometry(glow)
+            ApplyGlowColor(glow)
+            RefreshGlowAnimation(glow)
+            return
+        end
+        ActivateNativeGlow(glow, style)
+        ApplyGlowColor(glow)
+        RefreshGlowAnimation(glow)
+        return
+    end
+
+    HideNativeGlow(glow)
+
+    if style == "pulse" then
+        if glow.SetBackdrop then
+            glow:SetBackdrop(nil)
+        end
+        SetGlowTargetPoints(glow, target, ResolveGlowOutset(glow, style))
+        local frame = ApplyPulseGlowLayout(glow)
+        if not frame then
+            RefreshGlowAnimation(glow)
+            return
+        end
+        ApplyGlowColor(glow)
+        RefreshGlowAnimation(glow)
+        return
+    end
+
+    HidePulseGlow(glow)
+    local size = ResolveGlowEdgeSize(glow, style)
+    if glow.gui2RestrictedParent == true then
+        if glow.SetBackdrop then
+            glow:SetBackdrop(nil)
+        end
+        SetGlowTargetPoints(
+            glow,
+            target,
+            ResolveGlowOutset(glow, style)
+        )
+        local frame = GUI2._RestrictedEdgeGlow:Layout(glow, style)
+        if frame then
+            GUI2:_ApplyGlowChildLayer(glow, frame)
+            frame:SetScale(1)
+            frame:SetAlpha(1)
+            frame:Show()
+        end
+        ApplyGlowColor(glow)
+        RefreshGlowAnimation(glow)
+        return
+    end
+    SetGlowTargetPoints(glow, target, ResolveGlowOutset(glow, style))
+    glow:SetBackdrop({
+        edgeFile = Assets:Core("images\\GlowTex.tga"),
+        edgeSize = size,
+        insets = { left = size, right = size, top = size, bottom = size },
+    })
+    ApplyGlowColor(glow)
+    RefreshGlowAnimation(glow)
+end
+
+function GUI2:CreateGlow(frame, opts)
+    if not frame then return nil end
+    opts = opts or {}
+    if frame.gui2Glow then
+        if opts.restrictedParent ~= nil then
+            frame.gui2Glow:_SetGlowLayoutContext(
+                opts.restrictedParent,
+                opts.trustedWidth,
+                opts.trustedHeight
+            )
+        end
+        if opts.trustedFrameLevel ~= nil
+            or opts.trustedFrameStrata ~= nil then
+            frame.gui2Glow:_SetGlowLayerContext(
+                opts.trustedFrameLevel,
+                opts.trustedFrameStrata
+            )
+        end
+        frame.gui2Glow:SetGlowParams(opts)
+        return frame.gui2Glow
+    end
+
+    local glow = CreateFrame("Frame", opts.name, frame, "BackdropTemplate")
+    glow:Hide()
+    glow.gui2GlowTarget = frame
+    glow.gui2GlowVisible = false
+    glow.gui2RestrictedParent = false
+    glow.gui2GlowFrameLevel = type(opts.trustedFrameLevel) == "number"
+        and opts.trustedFrameLevel or nil
+    glow.gui2GlowFrameStrata = type(opts.trustedFrameStrata) == "string"
+        and opts.trustedFrameStrata or nil
+    glow:EnableMouse(false)
+    if glow.gui2GlowFrameStrata and glow.SetFrameStrata then
+        glow:SetFrameStrata(glow.gui2GlowFrameStrata)
+    end
+    if glow.gui2GlowFrameLevel and glow.SetFrameLevel then
+        glow:SetFrameLevel(glow.gui2GlowFrameLevel)
+    elseif opts.restrictedParent ~= true
+        and glow.SetFrameLevel and frame.GetFrameLevel then
+        glow:SetFrameLevel(math_max((frame:GetFrameLevel() or 0) - 1, 0))
+    end
+
+    glow.SetGlowColor = function(object, colorKey, g, b, a)
+        local r, g2, b2, a2, resolvedKey = ResolveColor(GUI2, colorKey or object.gui2ColorKey, g, b, a, "color.border.accent")
+        object.gui2ColorKey = resolvedKey or (type(colorKey) == "string" and colorKey or nil)
+        object.gui2ColorR = resolvedKey and nil or r
+        object.gui2ColorG = resolvedKey and nil or g2
+        object.gui2ColorB = resolvedKey and nil or b2
+        object.gui2ColorA = resolvedKey and nil or a2
+        ApplyGlowColor(object)
+    end
+
+    glow._SetGlowLayoutContext = function(
+        object,
+        restrictedParent,
+        trustedWidth,
+        trustedHeight
+    )
+        local restricted = restrictedParent == true
+        local width = restricted and type(trustedWidth) == "number"
+            and trustedWidth > 0 and trustedWidth or nil
+        local height = restricted and type(trustedHeight) == "number"
+            and trustedHeight > 0 and trustedHeight or nil
+        local ready = restricted and width ~= nil and height ~= nil or nil
+        if object.gui2RestrictedParent == restricted
+            and object.gui2TrustedTargetWidth == width
+            and object.gui2TrustedTargetHeight == height
+            and object.gui2TrustedGeometryReady == ready then
+            return false
+        end
+        if object.gui2RestrictedParent == true then
+            GUI2._RestrictedGlowRuntime:Stop(object)
+        else
+            PixelGlowDriver:Unregister(object)
+            AutoCastGlow.Driver:Unregister(object)
+            object:SetScript("OnUpdate", nil)
+            HidePixelGlowLines(object)
+            HideNativeGlow(object)
+            HidePulseGlow(object)
+        end
+        object.gui2RestrictedParent = restricted
+        object.gui2TrustedTargetWidth = width
+        object.gui2TrustedTargetHeight = height
+        object.gui2TrustedGeometryReady = ready
+        object.gui2TrustedLayoutWidth = nil
+        object.gui2TrustedLayoutHeight = nil
+        object.gui2PixelGlowGeometryReady = false
+        object.gui2AutoCastGeometryReady = false
+        if restricted then
+            PixelGlowDriver:Unregister(object)
+            AutoCastGlow.Driver:Unregister(object)
+            object:SetScript("OnUpdate", nil)
+            object:SetScript("OnShow", nil)
+            object:SetScript("OnHide", nil)
+        else
+            object:SetScript("OnShow", GlowOnShow)
+            object:SetScript("OnHide", GlowOnHide)
+        end
+        if object.gui2ButtonGlow then
+            object.gui2ButtonGlow.gui2TrustedLayoutWidth = nil
+            object.gui2ButtonGlow.gui2TrustedLayoutHeight = nil
+        end
+        return true
+    end
+
+    glow._SetGlowLayerContext = function(
+        object,
+        trustedFrameLevel,
+        trustedFrameStrata
+    )
+        local level = type(trustedFrameLevel) == "number"
+            and trustedFrameLevel or nil
+        local strata = type(trustedFrameStrata) == "string"
+            and trustedFrameStrata or nil
+        if object.gui2GlowFrameLevel == level
+            and object.gui2GlowFrameStrata == strata then
+            return false
+        end
+        object.gui2GlowFrameLevel = level
+        object.gui2GlowFrameStrata = strata
+        object.gui2AppliedGlowFrameLevel = nil
+        object.gui2AppliedGlowFrameStrata = nil
+        object.gui2AppliedGlowChild = nil
+        object.gui2AppliedGlowChildLevel = nil
+        object.gui2AppliedGlowChildStrata = nil
+        if level ~= nil or strata ~= nil then
+            ApplyGlowStyle(object)
+        end
+        return true
+    end
+
+    glow.SetGlowShown = function(object, shown)
+        local requested = shown == true
+        object.gui2GlowRequested = requested
+        if requested then
+            object:Show()
+            if object.gui2RestrictedParent == true then
+                if UsesPixelGlowSegments(object.gui2GlowStyle)
+                    and object.gui2PixelGlowGeometryReady ~= true then
+                    UpdatePixelGlowLayout(object)
+                end
+                if object.gui2RestrictedAnimationPrepared
+                    ~= NormalizeGlowStyle(object.gui2GlowStyle) then
+                    RefreshGlowAnimation(object)
+                end
+            elseif object.gui2GlowVisible == true
+                and UsesPixelGlowSegments(object.gui2GlowStyle)
+                and object.gui2PixelGlowGeometryReady ~= true then
+                UpdatePixelGlowLayout(object)
+                RefreshGlowAnimation(object)
+            end
+        else
+            object:Hide()
+            GlowOnHide(object)
+        end
+    end
+
+    glow.SetGlowParams = function(object, params)
+        params = type(params) == "table" and params or {}
+        local previousStyle = object.gui2GlowStyle
+        if params.shape ~= nil then
+            object.gui2GlowShape = params.shape
+            if params.targetShape == nil then
+                object.gui2GlowTargetShape = params.shape
+            end
+        end
+        if params.targetShape ~= nil then
+            object.gui2GlowTargetShape = params.targetShape
+        elseif object.gui2GlowTargetShape == nil then
+            object.gui2GlowTargetShape = object.gui2GlowShape or "square"
+        end
+        if params.style ~= nil then
+            object.gui2GlowStyle = NormalizeGlowStyle(params.style)
+        elseif not object.gui2GlowStyle then
+            object.gui2GlowStyle = "soft"
+        end
+        local styleChanged = previousStyle ~= object.gui2GlowStyle
+        if styleChanged and object.gui2RestrictedParent == true then
+            GUI2._RestrictedGlowRuntime:Stop(object)
+        end
+        if params.size ~= nil then object.gui2GlowSize = ClampGlowSize(params.size) end
+        if params.sizeKey ~= nil then object.gui2GlowSizeKey = params.sizeKey end
+        if params.lines ~= nil then
+            object.gui2GlowLines = ClampGlowLines(params.lines)
+        elseif object.gui2GlowLines == nil or styleChanged then
+            object.gui2GlowLines = GetDefaultGlowLines(object.gui2GlowStyle)
+        end
+        if params.thickness ~= nil then
+            object.gui2GlowThickness = ClampGlowThickness(params.thickness)
+        elseif object.gui2GlowThickness == nil or styleChanged then
+            object.gui2GlowThickness = GetDefaultGlowThickness(object.gui2GlowStyle)
+        end
+        if params.length ~= nil then object.gui2GlowLength = ClampGlowLength(params.length) end
+        if params.speed ~= nil then object.gui2GlowSpeed = ClampGlowSpeed(params.speed) end
+        if params.phase ~= nil then object.gui2GlowPhase = NormalizeGlowPhase(params.phase) end
+        if params.gap ~= nil then object.gui2GlowGap = tonumber(params.gap) or object.gui2GlowGap end
+        if params.offset ~= nil then object.gui2GlowOffset = tonumber(params.offset) or object.gui2GlowOffset end
+        if params.offsetX ~= nil then object.gui2GlowOffsetX = ClampGlowExpansion(params.offsetX) end
+        if params.offsetY ~= nil then object.gui2GlowOffsetY = ClampGlowExpansion(params.offsetY) end
+        if params.xOffset ~= nil then object.gui2GlowOffsetX = ClampGlowExpansion(params.xOffset) end
+        if params.yOffset ~= nil then object.gui2GlowOffsetY = ClampGlowExpansion(params.yOffset) end
+        if params.alpha ~= nil then object.gui2GlowAlpha = ClampGlowUnit(params.alpha, object.gui2GlowAlpha or 1) end
+        if params.falloff ~= nil then object.gui2GlowFalloff = ClampGlowUnit(params.falloff, object.gui2GlowFalloff or 0.18) end
+
+        object.gui2GlowLines = ClampGlowLines(object.gui2GlowLines or GetDefaultGlowLines(object.gui2GlowStyle))
+        object.gui2GlowSize = ClampGlowSize(object.gui2GlowSize)
+        object.gui2GlowThickness = ClampGlowThickness(
+            object.gui2GlowThickness or GetDefaultGlowThickness(object.gui2GlowStyle)
+        )
+        object.gui2GlowLength = ClampGlowLength(object.gui2GlowLength)
+        object.gui2GlowSpeed = ClampGlowSpeed(object.gui2GlowSpeed)
+        object.gui2PixelGlowResolvedSpeed = object.gui2GlowSpeed
+        object.gui2GlowPhase = NormalizeGlowPhase(object.gui2GlowPhase)
+        object.gui2GlowGap = tonumber(object.gui2GlowGap) or 0
+        object.gui2GlowOffset = tonumber(object.gui2GlowOffset) or 0
+        object.gui2GlowOffsetX = ClampGlowExpansion(object.gui2GlowOffsetX)
+        object.gui2GlowOffsetY = ClampGlowExpansion(object.gui2GlowOffsetY)
+        if object.gui2GlowAlpha == nil then object.gui2GlowAlpha = 1 end
+        if object.gui2GlowFalloff == nil then object.gui2GlowFalloff = 0.18 end
+
+        if object.gui2RestrictedParent == true then
+            object.gui2RestrictedAnimationPrepared = nil
+        end
+
+        if params.colorKey ~= nil or params.color ~= nil then
+            object:SetGlowColor(params.colorKey or params.color)
+        else
+            ApplyGlowColor(object)
+        end
+        ApplyGlowStyle(object)
+    end
+
+    glow.SetGlowShape = function(object, shape, targetShape)
+        targetShape = targetShape or shape
+        if object.gui2GlowShape == shape
+            and object.gui2GlowTargetShape == targetShape then
+            return false
+        end
+        if object.gui2RestrictedParent == true then
+            GUI2._RestrictedGlowRuntime:Stop(object)
+        end
+        object.gui2GlowShape = shape
+        object.gui2GlowTargetShape = targetShape
+        ApplyGlowStyle(object)
+        return true
+    end
+
+    glow.SetGlowStyle = function(object, style)
+        object:SetGlowParams({ style = style })
+    end
+
+    glow.RefreshTheme = function(object)
+        if object.gui2RestrictedParent == true
+            and object.gui2RestrictedAnimationPrepared
+                == NormalizeGlowStyle(object.gui2GlowStyle) then
+            return
+        end
+        ApplyGlowStyle(object)
+    end
+    glow.UpdateGUI2PixelLayout = UpdateGlowPixelLayout
+    glow:SetScript("OnShow", GlowOnShow)
+    glow:SetScript("OnHide", GlowOnHide)
+
+    frame.gui2Glow = glow
+    frame.glow = glow
+    table_insert(self.PixelObjects, glow)
+    if not glow.gui2PixelRefreshHooks then
+        glow.gui2PixelRefreshHooks = true
+        HookPixelRefresh(glow, "OnSizeChanged")
+    end
+    self:RegisterThemeObject(glow)
+
+    glow:_SetGlowLayoutContext(
+        opts.restrictedParent,
+        opts.trustedWidth,
+        opts.trustedHeight
+    )
+    glow:SetGlowColor(opts.colorKey or opts.color or "color.border.accent")
+    glow:SetGlowParams(opts)
+    if opts.hidden ~= false then
+        glow:SetGlowShown(false)
+    else
+        glow:SetGlowShown(true)
+    end
+    QueuePixelObjectRefresh(glow)
+    return glow
+end
+
+function GUI2:CreatePanel(parent, opts)
+    opts = opts or {}
+    local border = opts.border
+    if border == nil then
+        border = "color.border.default"
+    end
+    local frame = self:CreateFrame(parent, {
+        type = "Frame",
+        name = opts.name,
+        template = opts.template or "BackdropTemplate",
+        width = opts.width,
+        height = opts.height,
+        radiusKey = opts.radiusKey or "layout.radius.panel",
+        nativeFrameBorder = opts.nativeFrameBorder,
+        nativeFrameBorderStyle = opts.nativeFrameBorderStyle,
+        nativeFrameBorderLayout = opts.nativeFrameBorderLayout,
+    })
+    frame.gui2Borderless = border == false
+    self:ApplyBackdrop(frame, opts.surface or "color.surface.panel")
+    if border ~= false then
+        self:CreateBorder(frame, border)
+    end
+    if opts.shadow then
+        self:CreateShadow(frame, opts.shadowKey)
+    end
+    frame.gui2Surface = opts.surface or "color.surface.panel"
+    frame.RefreshTheme = function(object)
+        GUI2:RefreshPrimitive(object)
+    end
+    self:RegisterThemeObject(frame)
+    return frame
+end
+
+local SOLID_ROUNDED_CORNER_POINTS = {
+    "TOPLEFT",
+    "TOPRIGHT",
+    "BOTTOMLEFT",
+    "BOTTOMRIGHT",
+}
+
+local function SetSolidRoundedPartShown(part, shown)
+    if not part then return end
+    if shown then
+        part:Show()
+    else
+        part:Hide()
+    end
+end
+
+local function LayoutSolidRoundedSurface(frame)
+    local parts = frame and frame.gui2SolidParts
+    if not parts then return end
+
+    local width = tonumber(frame:GetWidth()) or 0
+    local height = tonumber(frame:GetHeight()) or 0
+    if width <= 0 or height <= 0 then
+        for index = 1, #parts do
+            SetSolidRoundedPartShown(parts[index], false)
+        end
+        return
+    end
+
+    local configuredRadius = frame.gui2SolidRadiusPixels
+        and GetPixelSize(frame, frame.gui2SolidRadiusPixels, frame.gui2SolidRadiusPixels)
+        or GetFrameRadius(frame)
+    local radius = math_min(configuredRadius, width * 0.5, height * 0.5)
+    if radius <= 0 or not frame.gui2SolidRoundedMasksReady then
+        parts[1]:ClearAllPoints()
+        parts[1]:SetAllPoints(frame)
+        SetSolidRoundedPartShown(parts[1], true)
+        for index = 2, #parts do
+            SetSolidRoundedPartShown(parts[index], false)
+        end
+        frame.gui2SolidResolvedRadius = 0
+        return
+    end
+
+    local centerWidth = width - (radius * 2)
+    local sideHeight = height - (radius * 2)
+    local center = parts[1]
+    center:ClearAllPoints()
+    center:SetPoint("TOPLEFT", frame, "TOPLEFT", radius, 0)
+    center:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -radius, 0)
+    SetSolidRoundedPartShown(center, centerWidth > 0)
+
+    local left = parts[2]
+    left:ClearAllPoints()
+    left:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -radius)
+    left:SetPoint("BOTTOMRIGHT", frame, "BOTTOMLEFT", radius, radius)
+    SetSolidRoundedPartShown(left, sideHeight > 0)
+
+    local right = parts[3]
+    right:ClearAllPoints()
+    right:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -radius)
+    right:SetPoint("BOTTOMLEFT", frame, "BOTTOMRIGHT", -radius, radius)
+    SetSolidRoundedPartShown(right, sideHeight > 0)
+
+    local diameter = radius * 2
+    for cornerIndex, point in ipairs(SOLID_ROUNDED_CORNER_POINTS) do
+        local part = parts[cornerIndex + 3]
+        part:ClearAllPoints()
+        part:SetPoint(point, frame, point, 0, 0)
+        part:SetSize(radius, radius)
+        SetSolidRoundedPartShown(part, true)
+
+        local mask = frame.gui2SolidMasks[cornerIndex]
+        mask:ClearAllPoints()
+        mask:SetPoint(point, frame, point, 0, 0)
+        mask:SetSize(diameter, diameter)
+    end
+    frame.gui2SolidResolvedRadius = radius
+end
+
+local function PaintSolidRoundedSurface(frame)
+    local parts = frame and frame.gui2SolidParts
+    if not parts then return end
+    local r, g, b, a = GUI2:GetColor(frame.gui2SolidSurface or "color.surface.panel")
+    for index = 1, #parts do
+        parts[index]:SetColorTexture(r, g, b, a)
+    end
+end
+
+local function CreateSolidRoundedMask(frame, part)
+    if not (frame and part and frame.CreateMaskTexture and part.AddMaskTexture) then
+        return nil
+    end
+
+    local okCreate, mask = pcall(frame.CreateMaskTexture, frame, nil, "BACKGROUND")
+    if not (okCreate and mask) then
+        return nil
+    end
+    local okTexture = pcall(
+        mask.SetTexture,
+        mask,
+        SOLID_ROUNDED_MASK_TEXTURE,
+        "CLAMPTOBLACKADDITIVE",
+        "CLAMPTOBLACKADDITIVE"
+    )
+    local okAttach = okTexture and pcall(part.AddMaskTexture, part, mask)
+    if not okAttach then
+        return nil
+    end
+    return mask
+end
+
+-- custom-gui / cold path: 7 fill textures + 4 geometry masks, one theme owner,
+-- no driver/ticker, and no secure or combat-sensitive behavior.
+function GUI2:CreateSolidRoundedSurface(parent, opts)
+    opts = opts or {}
+    local frame = self:CreateFrame(parent, {
+        type = "Frame",
+        name = opts.name,
+        width = opts.width,
+        height = opts.height,
+        allPoints = opts.allPoints,
+        hidden = opts.hidden,
+        mouse = opts.mouse,
+        frameStrata = opts.frameStrata or opts.strata,
+        frameLevel = opts.frameLevel or opts.level,
+        radiusKey = opts.radiusKey or "layout.radius.control",
+    })
+
+    frame.gui2FrameKind = "SolidRoundedSurface"
+    frame.gui2Surface = opts.surface or "color.surface.panel"
+    frame.gui2SolidSurface = frame.gui2Surface
+    frame.gui2SolidRadiusPixels = tonumber(opts.radiusPixels)
+    frame.gui2SolidParts = {}
+    frame.gui2SolidMasks = {}
+
+    for index = 1, 7 do
+        local part = frame:CreateTexture(nil, opts.layer or "BACKGROUND", nil, opts.subLevel or opts.sublevel)
+        PreparePixelTexture(part)
+        frame.gui2SolidParts[index] = part
+    end
+
+    local masksReady = true
+    for cornerIndex = 1, #SOLID_ROUNDED_CORNER_POINTS do
+        local mask = CreateSolidRoundedMask(frame, frame.gui2SolidParts[cornerIndex + 3])
+        frame.gui2SolidMasks[cornerIndex] = mask
+        if not mask then
+            masksReady = false
+        end
+    end
+    frame.gui2SolidRoundedMasksReady = masksReady
+
+    frame.SetSurfaceKey = function(object, surface)
+        object.gui2Surface = surface or "color.surface.panel"
+        object.gui2SolidSurface = object.gui2Surface
+        PaintSolidRoundedSurface(object)
+    end
+    frame.RefreshTheme = function(object)
+        PaintSolidRoundedSurface(object)
+        LayoutSolidRoundedSurface(object)
+    end
+    frame.UpdateSolidRoundedLayout = LayoutSolidRoundedSurface
+    frame:SetScript("OnSizeChanged", LayoutSolidRoundedSurface)
+
+    if frame.gui2SolidRadiusPixels then
+        frame.UpdateGUI2PixelLayout = LayoutSolidRoundedSurface
+        table_insert(self.PixelObjects, frame)
+        if not frame.gui2PixelRefreshHooks then
+            frame.gui2PixelRefreshHooks = true
+            HookPixelRefresh(frame, "OnShow")
+        end
+    end
+
+    PaintSolidRoundedSurface(frame)
+    LayoutSolidRoundedSurface(frame)
+    self:RegisterThemeObject(frame)
+    if frame.gui2SolidRadiusPixels then QueuePixelObjectRefresh(frame) end
+    return frame
+end
+
+function GUI2:CreateText(parent, text, sizeKey, colorKey, justifyH)
+    if type(text) == "table" then
+        local opts = text
+        text = opts.text
+        sizeKey = opts.sizeKey or opts.fontSizeKey or opts.size
+        colorKey = opts.colorKey or opts.color
+        justifyH = opts.justifyH or opts.justify
+    elseif type(sizeKey) == "number" then
+        if IsJustify(colorKey) then
+            justifyH = colorKey
+            colorKey = nil
+        end
+    end
+
+    -- Classic Titan needs a shadow-capable template at creation time; applying SetShadow* later is not sufficient.
+    local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    local size = type(sizeKey) == "number" and sizeKey or self:GetMetric(sizeKey or "font.size.md", 13)
+    local font = self:GetFont("font.family.body")
+    if self.Fonts and type(sizeKey) == "number" then
+        font = self.Fonts.normal or font
+    end
+    fs:SetFont(font, size)
+    fs.gui2ColorKey = (type(colorKey) == "string" and not IsJustify(colorKey)) and colorKey or "color.text.primary"
+    fs:SetTextColor(self:GetColor(fs.gui2ColorKey))
+    fs:SetShadowColor(0, 0, 0, 0.6)
+    fs:SetShadowOffset(1, -1)
+    if justifyH then
+        fs:SetJustifyH(justifyH)
+    end
+    if text then
+        fs:SetText(text)
+    end
+    self:RegisterThemeObject(fs)
+    return fs
+end
+
+function GUI2:CreateTexture(parent, paintKey, widthOrLayer, height, layer, isAtlas)
+    local opts
+    if type(paintKey) == "table" then
+        opts = paintKey
+        paintKey = opts.paint or opts.paintKey or opts.colorKey
+        widthOrLayer = opts.width
+        height = opts.height
+        layer = opts.layer
+        isAtlas = opts.isAtlas
+    elseif type(widthOrLayer) == "string" then
+        layer = widthOrLayer
+        widthOrLayer = nil
+    end
+
+    local texture = parent:CreateTexture(opts and opts.name or nil, layer or "ARTWORK", opts and opts.template or nil, opts and opts.subLevel or opts and opts.sublevel or nil)
+    local source = opts and (opts.texture or opts.source)
+    local atlas = opts and opts.atlas
+
+    local hasPaint = paintKey ~= nil
+
+    if atlas and texture.SetAtlas then
+        texture:SetAtlas(atlas)
+    elseif source or LooksLikeTexturePath(paintKey) or isAtlas then
+        local texturePath = source or paintKey
+        if isAtlas and texture.SetAtlas then
+            texture:SetAtlas(texturePath)
+        else
+            texture:SetTexture(texturePath)
+        end
+    elseif hasPaint then
+        texture.gui2PaintKey = paintKey or "color.surface.panel"
+        ApplyPaint(texture, texture.gui2PaintKey)
+        self:RegisterThemeObject(texture)
+    end
+
+    if widthOrLayer and height then
+        texture:SetSize(widthOrLayer, height)
+    elseif widthOrLayer then
+        texture:SetWidth(widthOrLayer)
+    elseif height then
+        texture:SetHeight(height)
+    end
+
+    return texture
+end
+
+function GUI2:SetIconTexture(texture, source, fallback)
+    if not texture then return end
+    local iconSource = source
+    if iconSource == nil then
+        iconSource = fallback
+    end
+    if iconSource == nil then
+        iconSource = DEFAULT_ICON
+    end
+    if type(iconSource) == "string" and iconSource:sub(1, 6) == "atlas:" and texture.SetAtlas then
+        texture:SetTexture(nil)
+        texture:SetAtlas(iconSource:sub(7), false)
+        texture.gui2AtlasSource = iconSource
+        return texture
+    end
+    texture.gui2AtlasSource = nil
+    texture:SetTexture(iconSource)
+    return texture
+end
+
+local function ResolveCoreAssetPath(path)
+    if Assets and Assets.Core then
+        return Assets:Core(path)
+    end
+    return "Interface\\AddOns\\" .. (YUI.AddonName or "YUI") .. "\\Media\\Core\\" .. path
+end
+
+local function IsSafeSettingsIconName(name)
+    return type(name) == "string" and name ~= "" and name:match("^[%w%-%_]+$") ~= nil
+end
+
+function GUI2:GetSettingsIcon(name)
+    if not IsSafeSettingsIconName(name) then
+        return nil
+    end
+
+    return ResolveCoreAssetPath(SETTINGS_ICON_ROOT .. name .. ".png")
+end
+
+local function NormalizeSettingsMicroIconSize(size)
+    size = tonumber(size) or 16
+    if SETTINGS_MICRO_ICON_ATLAS.sizes[size] then
+        return size
+    end
+    return nil
+end
+
+function GUI2:GetSettingsMicroIcon(name, size)
+    if not IsSafeSettingsIconName(name) then
+        return nil
+    end
+
+    local microSize = NormalizeSettingsMicroIconSize(size)
+    local index = SETTINGS_MICRO_ICON_ATLAS.index[name]
+    if not microSize or not index then
+        local fallback = self:GetSettingsIcon(name)
+        if not fallback then return nil end
+        return {
+            texture = fallback,
+            texCoords = { 0, 1, 0, 1 },
+            size = tonumber(size) or 16,
+            fallback = true,
+        }
+    end
+
+    local cacheKey = name .. ":" .. microSize
+    local cached = SETTINGS_MICRO_ICON_ATLAS.cache[cacheKey]
+    if cached then return cached end
+
+    local sourceSize = microSize * SETTINGS_MICRO_ICON_ATLAS.sourceScale
+    local atlasSize = SETTINGS_MICRO_ICON_ATLAS.dimensions[microSize]
+    local gutter = SETTINGS_MICRO_ICON_ATLAS.gutterBySize[microSize]
+        or SETTINGS_MICRO_ICON_ATLAS.defaultGutter
+    local cellSize = sourceSize + gutter * 2
+    local atlasWidth = atlasSize and atlasSize.width
+        or (cellSize * #SETTINGS_MICRO_ICON_ATLAS.order)
+    local atlasHeight = atlasSize and atlasSize.height or cellSize
+    local columns = math_max(
+        1,
+        math_floor((atlasWidth - gutter - sourceSize) / cellSize) + 1
+    )
+    local zeroIndex = index - 1
+    local column = zeroIndex % columns
+    local row = math_floor(zeroIndex / columns)
+    local x = column * cellSize + gutter
+    local y = row * cellSize + gutter
+
+    local data = {
+        texture = ResolveCoreAssetPath(SETTINGS_ICON_ROOT .. "micro-" .. microSize .. ".png"),
+        texCoords = {
+            x / atlasWidth,
+            (x + sourceSize) / atlasWidth,
+            y / atlasHeight,
+            (y + sourceSize) / atlasHeight,
+        },
+        size = microSize,
+        sourceSize = sourceSize,
+        sourceScale = SETTINGS_MICRO_ICON_ATLAS.sourceScale,
+        gutter = gutter,
+        column = column,
+        row = row,
+    }
+    SETTINGS_MICRO_ICON_ATLAS.cache[cacheKey] = data
+    return data
+end
+
+function GUI2:ApplyTexturePixelPolicy(texture, policy)
+    if not texture or policy == false then return texture end
+    local snapToPixelGrid = false
+    local texelSnappingBias = 0
+    if type(policy) == "table" then
+        if policy.snapToPixelGrid ~= nil then
+            snapToPixelGrid = policy.snapToPixelGrid and true or false
+        end
+        if policy.texelSnappingBias ~= nil then
+            texelSnappingBias = policy.texelSnappingBias
+        end
+    end
+    if texture.SetTexelSnappingBias then
+        texture:SetTexelSnappingBias(texelSnappingBias)
+    end
+    if texture.SetSnapToPixelGrid then
+        texture:SetSnapToPixelGrid(snapToPixelGrid)
+    end
+    texture.gui2PixelPolicy = policy or true
+    return texture
+end
+
+function GUI2:ApplyMicroIcon(texture, name, size)
+    if not texture then return nil end
+    local icon = self:GetSettingsMicroIcon(name, size)
+    if not icon then
+        self:SetIconTexture(texture, nil, DEFAULT_ICON)
+        if texture.SetTexCoord then
+            texture:SetTexCoord(unpack(DEFAULT_ICON_TEXCOORDS))
+        end
+        return texture, nil
+    end
+
+    self:SetIconTexture(texture, icon.texture, icon.texture)
+    if texture.SetTexCoord then
+        texture:SetTexCoord(unpack(icon.texCoords))
+    end
+    texture.gui2MicroIconName = name
+    texture.gui2MicroIconSize = icon.size
+    texture.gui2MicroIconData = icon
+    return texture, icon
+end
+
+local function ResolveMicroIconDisplaySize(parent, desiredSize, maxSize, minPhysicalPixels)
+    desiredSize = tonumber(desiredSize) or 16
+    maxSize = tonumber(maxSize) or desiredSize
+    if maxSize < 1 then maxSize = desiredSize end
+
+    local scale = GetPixelLayoutScale(parent)
+    if not scale or scale <= 0 then
+        return math_min(desiredSize, maxSize)
+    end
+
+    local minSize = math_min(desiredSize, maxSize)
+    local lowPixel = math_max(1, math_floor(minSize * scale))
+    local highPixel = math_max(lowPixel, math_ceil(maxSize * scale))
+    local bestSize, bestDelta
+
+    local function Consider(pixel, enforceMinPhysical)
+        if enforceMinPhysical and minPhysicalPixels and pixel < minPhysicalPixels then
+            return
+        end
+        local uiSize = pixel / scale
+        if uiSize > maxSize then
+            return
+        end
+        local delta = math_abs(uiSize - desiredSize)
+        if not bestDelta or delta < bestDelta then
+            bestDelta = delta
+            bestSize = uiSize
+        end
+    end
+
+    for pixel = lowPixel, highPixel do
+        Consider(pixel, true)
+    end
+    if not bestSize then
+        for pixel = lowPixel, highPixel do
+            Consider(pixel, false)
+        end
+    end
+
+    return bestSize or math_min(desiredSize, maxSize)
+end
+
+function GUI2:CreateMicroIcon(parent, opts)
+    if not parent then return nil end
+    opts = opts or {}
+    local iconName = opts.iconName or opts.microIcon or opts.icon or opts.name
+    local requestedSize = opts.size or opts.glyphSize or 16
+    local maxSize = opts.maxSize or requestedSize
+
+    local texture = parent:CreateTexture(opts.textureName, opts.layer or "ARTWORK", opts.template, opts.subLevel or opts.sublevel)
+    local pixelPolicy = opts.pixelPolicy
+    if pixelPolicy == nil then
+        pixelPolicy = SETTINGS_MICRO_ICON_ATLAS.pixelPolicy
+    end
+    self:ApplyTexturePixelPolicy(texture, pixelPolicy)
+    self:ApplyMicroIcon(texture, iconName, requestedSize)
+
+    texture.gui2MicroIconRequestedSize = requestedSize
+    texture.gui2MicroIconMaxSize = maxSize
+    texture.gui2MicroIconMinPhysicalPixels = opts.minPhysicalPixels
+
+    texture.RefreshMicroIconLayout = function(region)
+        local displaySize = ResolveMicroIconDisplaySize(
+            parent,
+            region.gui2MicroIconRequestedSize,
+            region.gui2MicroIconMaxSize,
+            region.gui2MicroIconMinPhysicalPixels
+        )
+        region:ClearAllPoints()
+        region:SetPoint(opts.point or "CENTER", parent, opts.relativePoint or "CENTER", opts.x or 0, opts.y or 0)
+        region:SetSize(displaySize, displaySize)
+    end
+    texture:RefreshMicroIconLayout()
+
+    if opts.vertexColor then
+        texture:SetVertexColor(unpack(opts.vertexColor))
+    elseif opts.colorKey and self.GetColor then
+        texture:SetVertexColor(self:GetColor(opts.colorKey))
+    end
+    if opts.alpha ~= nil then
+        texture:SetAlpha(opts.alpha)
+    end
+    if opts.blendMode then
+        texture:SetBlendMode(opts.blendMode)
+    end
+    return texture
+end
+
+local function ResolveBareMicroIconButtonValue(value, frame)
+    if type(value) == "function" then
+        return value(frame)
+    end
+    return value
+end
+
+local function GetBareMicroIconButtonColor(value)
+    if type(value) == "table" then
+        return value[1] or 1, value[2] or 1, value[3] or 1, value[4] == nil and 1 or value[4]
+    end
+    return GUI2:GetColor(value)
+end
+
+local function ApplyBareMicroIconButtonState(button)
+    if not (button and button.icon and button.icon.SetVertexColor) then
+        return
+    end
+
+    local state = button.gui2BareMicroIconState or "normal"
+    local colorKey = button.gui2BareMicroIconColorKey or "color.text.muted"
+    local alpha = button.gui2BareMicroIconAlpha
+
+    if button.gui2BareMicroIconDisabled then
+        state = "disabled"
+        colorKey = button.gui2BareMicroIconDisabledColorKey or "color.text.disabled"
+        alpha = button.gui2BareMicroIconDisabledAlpha
+    elseif button.gui2BareMicroIconHover then
+        state = "hover"
+        colorKey = button.gui2BareMicroIconHoverColorKey or "color.text.primary"
+        alpha = button.gui2BareMicroIconHoverAlpha
+    end
+
+    local r, g, b, a = GetBareMicroIconButtonColor(colorKey)
+    button.icon:SetVertexColor(r, g, b, a)
+    button.icon:SetAlpha(alpha == nil and 1 or alpha)
+    if button.icon.SetDesaturated then
+        button.icon:SetDesaturated(state == "disabled")
+    end
+end
+
+function GUI2:CreateBareMicroIconButton(parent, opts)
+    if not parent then return nil end
+    opts = opts or {}
+
+    local size = opts.size or opts.buttonSize or 22
+    local microIconSize = opts.microIconSize or opts.iconSize or 16
+    local padding = opts.padding
+    if padding == nil then padding = 1 end
+
+    local button = self:CreateButtonFrame(parent, {
+        name = opts.name,
+        width = size,
+        height = size,
+        clicks = opts.clicks,
+    })
+    button.gui2Component = opts.component or "BareMicroIconButton"
+    button.gui2BareMicroIconColorKey = opts.colorKey or opts.iconColorKey or opts.normalColorKey or "color.text.muted"
+    button.gui2BareMicroIconHoverColorKey = opts.hoverColorKey or opts.hoverIconColorKey or "color.text.primary"
+    button.gui2BareMicroIconDisabledColorKey = opts.disabledColorKey or opts.disabledIconColorKey or "color.text.disabled"
+    button.gui2BareMicroIconAlpha = opts.alpha
+    if button.gui2BareMicroIconAlpha == nil then
+        button.gui2BareMicroIconAlpha = opts.normalAlpha
+    end
+    button.gui2BareMicroIconHoverAlpha = opts.hoverAlpha
+    if button.gui2BareMicroIconHoverAlpha == nil then
+        button.gui2BareMicroIconHoverAlpha = opts.hoverIconAlpha
+    end
+    button.gui2BareMicroIconDisabledAlpha = opts.disabledAlpha
+    if button.gui2BareMicroIconDisabledAlpha == nil then
+        button.gui2BareMicroIconDisabledAlpha = opts.disabledIconAlpha
+    end
+    if button.gui2BareMicroIconDisabledAlpha == nil then
+        button.gui2BareMicroIconDisabledAlpha = 0.45
+    end
+    button.gui2BareMicroIconTooltip = opts.tooltip
+    button.gui2BareMicroIconTooltipAnchor = opts.tooltipAnchor or "ANCHOR_RIGHT"
+
+    -- Fresh buttons use native click handling; avoid a protected propagation setter.
+
+    button.icon = self:CreateMicroIcon(button, {
+        iconName = opts.iconName or opts.microIcon or opts.icon or opts.name,
+        size = microIconSize,
+        maxSize = opts.microIconMaxSize or math_max(size - padding * 2, 1),
+        minPhysicalPixels = opts.microIconMinPhysicalPixels or opts.minPhysicalPixels,
+        layer = opts.layer,
+        pixelPolicy = opts.iconPixelPolicy or opts.pixelPolicy,
+    })
+    if button.icon and button.icon.EnableMouse then
+        button.icon:EnableMouse(false)
+    end
+
+    button.RefreshTheme = function(frame)
+        ApplyBareMicroIconButtonState(frame)
+    end
+    button.SetBareMicroIconColorKey = function(frame, colorKey)
+        frame.gui2BareMicroIconColorKey = colorKey or "color.text.muted"
+        frame:RefreshTheme()
+    end
+    button.SetBareMicroIconDisabled = function(frame, disabled)
+        frame.gui2BareMicroIconDisabled = disabled == true
+        frame:RefreshTheme()
+    end
+
+    button:SetScript("OnEnter", function(frame)
+        if frame.gui2BareMicroIconDisabled then return end
+        frame.gui2BareMicroIconHover = true
+        frame:RefreshTheme()
+        local tooltip = ResolveBareMicroIconButtonValue(frame.gui2BareMicroIconTooltip, frame)
+        if tooltip and GameTooltip then
+            GameTooltip:SetOwner(frame, frame.gui2BareMicroIconTooltipAnchor)
+            GameTooltip:SetText(tooltip, 1, 1, 1, 1, true)
+            GameTooltip:Show()
+        end
+    end)
+    button:SetScript("OnLeave", function(frame)
+        frame.gui2BareMicroIconHover = false
+        frame:RefreshTheme()
+        if GameTooltip and GameTooltip:IsOwned(frame) then
+            if YUI.HideGameTooltip then
+                YUI.HideGameTooltip()
+            else
+                GameTooltip:Hide()
+            end
+        end
+    end)
+    button:SetScript("OnClick", function(frame, ...)
+        if frame.gui2BareMicroIconDisabled then return end
+        if GameTooltip and GameTooltip:IsOwned(frame) then
+            if YUI.HideGameTooltip then
+                YUI.HideGameTooltip()
+            else
+                GameTooltip:Hide()
+            end
+        end
+        if opts.onClick then
+            opts.onClick(frame, ...)
+        end
+    end)
+
+    button:RefreshTheme()
+    self:RegisterThemeObject(button)
+    return button
+end
+
+function GUI2:CreateIcon(parent, opts)
+    if not parent then return end
+    if type(opts) ~= "table" then
+        opts = { icon = opts }
+    else
+        opts = opts or {}
+    end
+
+    local icon = parent:CreateTexture(opts.name, opts.layer or "ARTWORK", opts.template, opts.subLevel or opts.sublevel)
+    self:ApplyTexturePixelPolicy(icon, opts.pixelPolicy)
+    local useAtlas = opts.atlas and icon.SetAtlas
+    if useAtlas then
+        icon:SetAtlas(opts.atlas)
+    else
+        self:SetIconTexture(icon, opts.icon or opts.texture or opts.source, opts.fallbackIcon or DEFAULT_ICON)
+    end
+
+    if opts.texCoords then
+        icon:SetTexCoord(unpack(opts.texCoords))
+    elseif opts.crop ~= false and not useAtlas then
+        icon:SetTexCoord(unpack(DEFAULT_ICON_TEXCOORDS))
+    elseif not useAtlas then
+        icon:SetTexCoord(0, 1, 0, 1)
+    end
+
+    if opts.fillParent then
+        local padding = opts.padding or 0
+        if padding == 0 then
+            icon:SetAllPoints(parent)
+        else
+            icon:SetPoint("TOPLEFT", padding, -padding)
+            icon:SetPoint("BOTTOMRIGHT", -padding, padding)
+        end
+    else
+        local width = opts.width or opts.size
+        local height = opts.height or opts.size
+        if not opts.allowTiny then
+            if width then width = math_max(width, MIN_ICON_SIZE) end
+            if height then height = math_max(height, MIN_ICON_SIZE) end
+        end
+        if width and height then
+            icon:SetSize(width, height)
+        elseif width then
+            icon:SetWidth(width)
+        elseif height then
+            icon:SetHeight(height)
+        end
+    end
+
+    if opts.alpha ~= nil then
+        icon:SetAlpha(opts.alpha)
+    end
+    if opts.desaturated ~= nil and icon.SetDesaturated then
+        icon:SetDesaturated(opts.desaturated and true or false)
+    end
+    if opts.vertexColor then
+        icon:SetVertexColor(unpack(opts.vertexColor))
+    end
+    return icon
+end
+
+local function ResolveGlyphTexture(opts)
+    local key = opts.glyph or opts.name or opts.textureKey
+    return opts.icon or opts.texture or opts.source or GLYPH_TEXTURES[key] or GLYPH_TEXTURES.dropdownDown
+end
+
+function GUI2:SetGlyphColor(glyph, colorKey)
+    if not glyph then return end
+    glyph.gui2ColorKey = colorKey or glyph.gui2ColorKey or "color.text.accent"
+    if glyph.icon and glyph.icon.SetVertexColor then
+        glyph.icon:SetVertexColor(self:GetColor(glyph.gui2ColorKey))
+    end
+    self:RegisterThemeObject(glyph)
+    return glyph
+end
+
+function GUI2:CreateGlyph(parent, opts)
+    if not parent then return end
+    if type(opts) ~= "table" then
+        opts = { glyph = opts }
+    else
+        opts = opts or {}
+    end
+    local size = math_max(opts.size or MIN_ICON_SIZE, MIN_ICON_SIZE)
+    local glyph = self:CreateFrame(parent, {
+        name = opts.name,
+        width = size,
+        height = size,
+    })
+    glyph.gui2Component = "Glyph"
+    glyph.gui2Glyph = opts.glyph or "dropdownDown"
+    glyph.gui2ColorKey = opts.colorKey or opts.color or "color.text.accent"
+    glyph.icon = self:CreateIcon(glyph, {
+        icon = ResolveGlyphTexture(opts),
+        fallbackIcon = ResolveGlyphTexture(opts),
+        crop = false,
+        fillParent = true,
+        pixelPolicy = opts.pixelPolicy,
+    })
+    glyph.SetColorKey = function(frame, colorKey)
+        GUI2:SetGlyphColor(frame, colorKey)
+    end
+    glyph.RefreshTheme = function(frame)
+        GUI2:SetGlyphColor(frame, frame.gui2ColorKey)
+    end
+    self:SetGlyphColor(glyph, glyph.gui2ColorKey)
+    return glyph
+end
+
+function GUI2:CreateBackdrop(frame, opts)
+    if not frame then return end
+    local surfaceKey = "color.surface.window"
+    local borderKey = "color.border.default"
+    local shadow = true
+    local shadowKey
+    local nativeFrameBorder = false
+    local nativeFrameBorderStyle
+    local nativeFrameBorderLayout
+    if type(opts) == "table" then
+        surfaceKey = opts.surface or surfaceKey
+        borderKey = opts.border or borderKey
+        shadow = opts.shadow ~= false
+        shadowKey = opts.shadowKey
+        nativeFrameBorder = opts.nativeFrameBorder == true
+        nativeFrameBorderStyle = opts.nativeFrameBorderStyle
+        nativeFrameBorderLayout = opts.nativeFrameBorderLayout
+    else
+        shadow = opts ~= false
+    end
+    if not frame.backdrop then
+        frame.backdrop = self:CreateFrame(frame, {
+            template = "BackdropTemplate",
+            allPoints = true,
+            nativeFrameBorder = nativeFrameBorder,
+            nativeFrameBorderStyle = nativeFrameBorderStyle,
+            nativeFrameBorderLayout = nativeFrameBorderLayout,
+        })
+        frame.backdrop:SetFrameLevel(frame:GetFrameLevel() > 0 and frame:GetFrameLevel() - 1 or 0)
+    else
+        frame.backdrop.gui2NativeFrameBorder = nativeFrameBorder
+        frame.backdrop.gui2NativeFrameBorderStyle = nativeFrameBorderStyle
+        frame.backdrop.gui2NativeFrameBorderLayout = nativeFrameBorderLayout
+    end
+    self:ApplyBackdrop(frame.backdrop, surfaceKey)
+    self:CreateBorder(frame.backdrop, borderKey)
+    self:SetBorderColor(frame.backdrop, borderKey)
+    if shadow then
+        self:CreateShadow(frame, shadowKey)
+    end
+    return frame.backdrop
+end
+
+local BUTTON_STYLES = {
+    successFilled = {
+        surface = { 0.0, 0.5, 0.0, 1 },
+        hoverSurface = { 0.05, 0.65, 0.08, 1 },
+        pressedSurface = { 0.0, 0.34, 0.0, 1 },
+        border = { 0.2, 0.85, 0.2, 1 },
+        hoverBorder = { 0.2, 0.85, 0.2, 1 },
+        pressedBorder = { 0.12, 0.6, 0.12, 1 },
+        text = "color.text.accent",
+        hoverText = "color.text.accent",
+        pressedText = "color.text.accent",
+    },
+    dangerFilled = {
+        surface = { 0.62, 0.04, 0.04, 1 },
+        hoverSurface = { 0.80, 0.07, 0.07, 1 },
+        pressedSurface = { 0.42, 0.02, 0.02, 1 },
+        border = { 1.00, 0.22, 0.22, 1 },
+        hoverBorder = { 1.00, 0.34, 0.34, 1 },
+        pressedBorder = { 0.70, 0.12, 0.12, 1 },
+        text = "color.text.accent",
+        hoverText = "color.text.accent",
+        pressedText = "color.text.accent",
+    },
+    warningFilled = {
+        surface = { 0.68, 0.36, 0.00, 1 },
+        hoverSurface = { 0.86, 0.48, 0.02, 1 },
+        pressedSurface = { 0.48, 0.24, 0.00, 1 },
+        border = { 1.00, 0.70, 0.16, 1 },
+        hoverBorder = { 1.00, 0.82, 0.30, 1 },
+        pressedBorder = { 0.72, 0.46, 0.08, 1 },
+        text = "color.text.accent",
+        hoverText = "color.text.accent",
+        pressedText = "color.text.accent",
+    },
+    grayFilled = {
+        surface = { 0.3, 0.3, 0.3, 1 },
+        hoverSurface = { 0.4, 0.4, 0.4, 1 },
+        pressedSurface = { 0.2, 0.2, 0.2, 1 },
+        border = { 0.5, 0.5, 0.5, 1 },
+        hoverBorder = { 0.62, 0.62, 0.62, 1 },
+        pressedBorder = { 0.38, 0.38, 0.38, 1 },
+        text = "color.text.accent",
+        hoverText = "color.text.accent",
+        pressedText = "color.text.accent",
+    },
+}
+
+local BUTTON_STYLE_FIELDS = {
+    "gui2SurfaceToken",
+    "gui2HoverSurfaceToken",
+    "gui2PressedSurfaceToken",
+    "gui2BorderToken",
+    "gui2HoverBorderToken",
+    "gui2PressedBorderToken",
+    "gui2TextColorKey",
+    "gui2HoverTextColorKey",
+    "gui2PressedTextColorKey",
+}
+
+local function CaptureButtonStyleDefaults(button)
+    if not button or button.gui2ButtonStyleDefaults then return end
+    local defaults = {}
+    for _, field in ipairs(BUTTON_STYLE_FIELDS) do
+        defaults[field] = button[field]
+    end
+    button.gui2ButtonStyleDefaults = defaults
+end
+
+local function RestoreButtonStyleDefaults(button)
+    if not button then return end
+    local defaults = button.gui2ButtonStyleDefaults
+    if defaults then
+        for _, field in ipairs(BUTTON_STYLE_FIELDS) do
+            button[field] = defaults[field]
+        end
+    else
+        for _, field in ipairs(BUTTON_STYLE_FIELDS) do
+            button[field] = nil
+        end
+    end
+    button.gui2ButtonStyleName = nil
+end
+
+function GUI2:ApplyButtonStyle(button, styleName)
+    if not button then return button end
+
+    local style = styleName and BUTTON_STYLES[styleName] or nil
+    if not style then
+        RestoreButtonStyleDefaults(button)
+    else
+        CaptureButtonStyleDefaults(button)
+        button.gui2ButtonStyleName = styleName
+        button.gui2SurfaceToken = style.surface
+        button.gui2HoverSurfaceToken = style.hoverSurface or style.surface
+        button.gui2PressedSurfaceToken = style.pressedSurface or style.surface
+        button.gui2BorderToken = style.border
+        button.gui2HoverBorderToken = style.hoverBorder or style.border
+        button.gui2PressedBorderToken = style.pressedBorder or style.border
+        button.gui2TextColorKey = style.text
+        button.gui2HoverTextColorKey = style.hoverText or style.text
+        button.gui2PressedTextColorKey = style.pressedText or style.text
+    end
+
+    if button.RefreshTheme then
+        button:RefreshTheme()
+    end
+    return button
+end
+
+local function GetButtonStateTokens(button, state)
+    local surface = button.gui2SurfaceToken or "color.control.bg"
+    local border = button.gui2BorderToken or "color.border.default"
+    local text = button.gui2TextColorKey or "color.text.accent"
+
+    if state == "hover" then
+        surface = button.gui2HoverSurfaceToken or "color.control.hover"
+        border = button.gui2HoverBorderToken or "color.border.accent"
+        text = button.gui2HoverTextColorKey or "color.text.primary"
+    elseif state == "pressed" then
+        surface = button.gui2PressedSurfaceToken or "color.control.pressed"
+        border = button.gui2PressedBorderToken or "color.border.strong"
+        text = button.gui2PressedTextColorKey or "color.text.primary"
+    elseif state == "selected" then
+        surface = button.gui2SelectedSurfaceToken or "color.control.active"
+        border = button.gui2SelectedBorderToken or "color.border.accent"
+        text = button.gui2SelectedTextColorKey or "color.text.accent"
+    elseif state == "locked" then
+        surface = button.gui2LockedSurfaceToken or "color.control.locked"
+        border = button.gui2LockedBorderToken or "color.border.locked"
+        text = button.gui2LockedTextColorKey or "color.text.locked"
+    elseif state == "disabled" then
+        surface = "color.control.disabled"
+        border = "color.border.subtle"
+        text = "color.text.disabled"
+    end
+
+    return surface, border, text
+end
+
+local function GetButtonColor(value)
+    if type(value) == "table" then
+        local color = value.type == "solid" and value.value or value
+        return color[1] or 1, color[2] or 1, color[3] or 1, color[4] == nil and 1 or color[4]
+    end
+    return GUI2:GetColor(value)
+end
+
+local function GetButtonRestingState(button)
+    if button and button.gui2Locked then
+        return "locked"
+    end
+    if button and button.gui2Selected then
+        return "selected"
+    end
+    return "normal"
+end
+
+local function ApplyButtonTheme(button, state)
+    if not button then return end
+    state = state or button.gui2State or "normal"
+    button.gui2State = state
+
+    local surface, border, text = GetButtonStateTokens(button, state)
+    button.gui2Surface = surface
+    if button.SetBackdropColor then
+        button:SetBackdropColor(GetButtonColor(surface))
+    end
+    GUI2:SetBorderColor(button, border)
+
+    if button.text then
+        if button.gui2CustomTextColor and state == "normal" then
+            button.text:SetTextColor(unpack(button.gui2CustomTextColor))
+        else
+            button.text:SetTextColor(GetButtonColor(text))
+            button.text.gui2ColorKey = type(text) == "string" and text or nil
+        end
+    end
+    if button.icon and button.icon.SetVertexColor and not button.gui2PreserveIconColor then
+        button.icon:SetVertexColor(GetButtonColor(text))
+    end
+end
+
+local function ApplyButtonCompatibility(button)
+    if not button or button.gui2ButtonCompat then return button end
+    button.gui2ButtonCompat = true
+
+    button.SetState = function(self, state)
+        self.gui2Disabled = state == "disabled"
+        self.gui2Locked = state == "locked"
+        self.gui2Selected = not self.gui2Locked and state == "selected"
+        ApplyButtonTheme(self, state)
+    end
+    button.SetSelected = function(self, selected)
+        self.gui2Locked = false
+        self.gui2Selected = selected and true or false
+        ApplyButtonTheme(self, self.gui2Selected and "selected" or "normal")
+    end
+    button.SetText = function(self, value)
+        if self.text then
+            self.text:SetText(value or "")
+        end
+    end
+    button.GetFontString = function(self)
+        return self.text
+    end
+    button.SetTextColor = function(self, r, g, b, a)
+        self.gui2CustomTextColor = { r, g, b, a == nil and 1 or a }
+        if self.text then
+            self.text:SetTextColor(r, g, b, a == nil and 1 or a)
+        end
+    end
+    button.RefreshTheme = function(self)
+        ApplyButtonTheme(self, self.gui2Disabled and "disabled" or GetButtonRestingState(self))
+    end
+
+    return button
+end
+
+local function WireButtonScripts(button, preserveTextPoint)
+    if not button or button.gui2ButtonScripts then return end
+    button.gui2ButtonScripts = true
+
+    button:SetScript("OnEnter", function(self)
+        if self.gui2Disabled then return end
+        if self.gui2Locked then
+            ApplyButtonTheme(self, "locked")
+            return
+        end
+        ApplyButtonTheme(self, "hover")
+    end)
+    button:SetScript("OnLeave", function(self)
+        if self.gui2Disabled then return end
+        if self.text and not preserveTextPoint then
+            self.text:SetPoint("CENTER", 0, 0)
+        end
+        ApplyButtonTheme(self, GetButtonRestingState(self))
+    end)
+    button:SetScript("OnMouseDown", function(self)
+        if self.gui2Disabled then return end
+        ApplyButtonTheme(self, "pressed")
+        if self.text and not preserveTextPoint then
+            self.text:SetPoint("CENTER", 1, -1)
+        end
+    end)
+    button:SetScript("OnMouseUp", function(self)
+        if self.gui2Disabled then return end
+        if self.text and not preserveTextPoint then
+            self.text:SetPoint("CENTER", 0, 0)
+        end
+        ApplyButtonTheme(self, (self:IsMouseOver() and not self.gui2Locked) and "hover" or GetButtonRestingState(self))
+    end)
+end
+
+local function SkinButton(button, opts)
+    opts = opts or {}
+    if not button then return end
+    if not button.SetBackdrop then
+        return button
+    end
+
+    button:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+    })
+    button.gui2SurfaceToken = opts.surface or button.gui2SurfaceToken or "color.control.bg"
+    button.gui2BorderToken = opts.border or button.gui2BorderToken or "color.border.default"
+    button.gui2TextColorKey = opts.textColor or button.gui2TextColorKey or "color.text.accent"
+    button.gui2HoverTextColorKey = opts.hoverTextColor or button.gui2HoverTextColorKey or "color.text.primary"
+    if opts.border ~= false then
+        GUI2:CreateBorder(button, button.gui2BorderToken)
+    end
+    ApplyButtonCompatibility(button)
+    if not opts.noScripts then
+        WireButtonScripts(button, opts.preserveTextPoint)
+    end
+    GUI2:RegisterThemeObject(button)
+    button:RefreshTheme()
+    return button
+end
+
+function GUI2:CreateButton(parent, text, width, height)
+    if not parent then return end
+
+    local button
+    if self.Form and self.Form.CreateButton then
+        button = self.Form:CreateButton(parent, {
+            text = text or "",
+            width = width or 100,
+            height = height or 24,
+        })
+    else
+        button = self:CreateButtonFrame(parent, {
+            template = "BackdropTemplate",
+            width = width or 100,
+            height = height or 24,
+        })
+        button.text = self:CreateText(button, text or "", "font.size.md", "color.text.accent")
+        button.text:SetPoint("CENTER")
+    end
+
+    button:SetSize(width or button:GetWidth() or 100, height or button:GetHeight() or 24)
+    SkinButton(button, { textColor = "color.text.accent" })
+    return button
+end
+
+function GUI2:CreateIconButton(parent, opts)
+    if not parent then return end
+    opts = opts or {}
+
+    local size = math_max(opts.size or opts.height or opts.width or self:GetMetric("layout.size.icon", 20), MIN_ICON_BUTTON_SIZE)
+    local width = math_max(opts.width or size, MIN_ICON_BUTTON_SIZE)
+    local height = math_max(opts.height or size, MIN_ICON_BUTTON_SIZE)
+    local button = self:CreateButtonFrame(parent, {
+        name = opts.name,
+        template = opts.template or "BackdropTemplate",
+        width = width,
+        height = height,
+        radiusKey = opts.radiusKey or "layout.radius.icon",
+        clicks = opts.clicks,
+        onClick = opts.onClick,
+    })
+    button.gui2Component = "IconButton"
+    button.gui2PreserveIconColor = opts.preserveIconColor ~= false
+    SkinButton(button, {
+        surface = opts.surface or "color.control.bg",
+        border = opts.border or "color.border.subtle",
+        textColor = opts.iconColor or "color.text.secondary",
+        hoverTextColor = opts.hoverIconColor or "color.text.primary",
+        preserveTextPoint = true,
+    })
+    button.gui2HoverSurfaceToken = opts.hoverSurface or button.gui2HoverSurfaceToken
+    button.gui2HoverBorderToken = opts.hoverBorder or button.gui2HoverBorderToken
+    button.gui2PressedSurfaceToken = opts.pressedSurface or button.gui2PressedSurfaceToken
+    button.gui2PressedBorderToken = opts.pressedBorder or button.gui2PressedBorderToken
+    button.gui2SelectedSurfaceToken = opts.selectedSurface or button.gui2SelectedSurfaceToken
+    button.gui2SelectedBorderToken = opts.selectedBorder or button.gui2SelectedBorderToken
+
+    local icon
+    if opts.microIcon or opts.microIconName then
+        local padding = opts.padding or 0
+        local maxIconSize = math_max(math_min(width, height) - padding * 2, 1)
+        icon = self:CreateMicroIcon(button, {
+            iconName = opts.microIcon or opts.microIconName,
+            size = opts.microIconSize or math_min(maxIconSize, 16),
+            maxSize = opts.microIconMaxSize or maxIconSize,
+            minPhysicalPixels = opts.microIconMinPhysicalPixels,
+            layer = opts.layer,
+            pixelPolicy = opts.iconPixelPolicy or opts.pixelPolicy,
+        })
+    else
+        icon = self:CreateIcon(button, {
+            icon = opts.icon or opts.texture,
+            fallbackIcon = opts.fallbackIcon,
+            texCoords = opts.texCoords,
+            crop = opts.crop,
+            layer = opts.layer,
+            fillParent = true,
+            padding = opts.padding or 0,
+            pixelPolicy = opts.iconPixelPolicy or opts.pixelPolicy,
+        })
+    end
+    button.icon = icon
+    button.gui2IconIsMicro = icon and icon.RefreshMicroIconLayout ~= nil
+
+    local function SetIconPadding(frame, padding)
+        frame.gui2IconPadding = padding or 0
+        if frame.gui2IconIsMicro then
+            frame.icon.gui2MicroIconMaxSize = math_max(math_min(frame:GetWidth() or width, frame:GetHeight() or height) - frame.gui2IconPadding * 2, 1)
+            frame.icon:RefreshMicroIconLayout()
+            return
+        end
+        frame.icon:ClearAllPoints()
+        if frame.gui2IconPadding == 0 then
+            frame.icon:SetAllPoints(frame)
+        else
+            frame.icon:SetPoint("TOPLEFT", frame.gui2IconPadding, -frame.gui2IconPadding)
+            frame.icon:SetPoint("BOTTOMRIGHT", -frame.gui2IconPadding, frame.gui2IconPadding)
+        end
+    end
+
+    button.SetIcon = function(frame, texture)
+        if frame.gui2IconIsMicro
+            and type(texture) == "string"
+            and SETTINGS_MICRO_ICON_ATLAS.index[texture] then
+            GUI2:ApplyMicroIcon(frame.icon, texture, frame.icon.gui2MicroIconRequestedSize)
+            return
+        end
+        GUI2:SetIconTexture(frame.icon, texture, opts.fallbackIcon)
+    end
+    button.SetIconPadding = SetIconPadding
+    SetIconPadding(button, opts.padding or 0)
+
+    if opts.tooltip and button.HookScript then
+        button:HookScript("OnEnter", function(frame)
+            if frame.gui2Disabled then return end
+            GameTooltip:SetOwner(frame, opts.tooltipAnchor or "ANCHOR_RIGHT")
+            GameTooltip:SetText(opts.tooltip)
+            GameTooltip:Show()
+        end)
+        button:HookScript("OnLeave", function()
+            YUI.HideGameTooltip()
+        end)
+    end
+
+    button:RefreshTheme()
+    return button
+end
+
+function GUI2:CreateBlizzardIconButton(parent, opts)
+    if not parent then return end
+    opts = opts or {}
+
+    local size = opts.size or opts.width or opts.height or 24
+    local button = CreateFrame("Button", opts.name, parent)
+    button:SetSize(size, size)
+    if button.RegisterForClicks then button:RegisterForClicks(opts.clicks or "AnyUp") end
+
+    local icon = button:CreateTexture(nil, "ARTWORK")
+    icon:SetAllPoints()
+    button.icon = icon
+
+    local atlas = opts.atlas
+    if atlas == nil and not opts.texture and not opts.icon and YUI and YUI.IsRetail then
+        atlas = "mechagon-projects"
+    end
+
+    if atlas and icon.SetAtlas then
+        icon:SetAtlas(atlas)
+    else
+        icon:SetTexture(opts.texture or opts.icon or "Interface\\Icons\\INV_Misc_Gear_01")
+        if opts.texCoords then
+            icon:SetTexCoord(unpack(opts.texCoords))
+        elseif opts.crop ~= false then
+            icon:SetTexCoord(unpack(DEFAULT_ICON_TEXCOORDS))
+        end
+    end
+
+    local normalColor = opts.normalColor or { 0.8, 0.8, 0.8, 1 }
+    local hoverColor = opts.hoverColor or { 1, 0.82, 0, 1 }
+    icon:SetVertexColor(unpack(normalColor))
+
+    button:SetScript("OnEnter", function(frame)
+        if frame.icon then frame.icon:SetVertexColor(unpack(hoverColor)) end
+        if opts.tooltip then
+            GameTooltip:SetOwner(frame, opts.tooltipAnchor or "ANCHOR_TOP")
+            GameTooltip:SetText(opts.tooltip)
+            GameTooltip:Show()
+        end
+    end)
+    button:SetScript("OnLeave", function(frame)
+        if frame.icon then frame.icon:SetVertexColor(unpack(normalColor)) end
+        YUI.HideGameTooltip()
+    end)
+    if opts.onClick then
+        button:SetScript("OnClick", function(frame, ...)
+            YUI.HideGameTooltip()
+            opts.onClick(frame, ...)
+        end)
+    end
+
+    return button
+end
+
+do
+local function ApplyIconSlotSurface(slot, surfaceKey)
+    if slot.SetBackdropColor then
+        slot:SetBackdropColor(GUI2:GetColor(surfaceKey))
+    elseif slot.gui2Bg then
+        slot.gui2Bg:SetColorTexture(GUI2:GetColor(surfaceKey))
+    end
+    slot.gui2Surface = surfaceKey
+end
+
+local ICON_APPEARANCE_FLAT_ASPECT = 1.35
+local ICON_APPEARANCE_WIDE_ASPECT = 10 / 9
+local ICON_APPEARANCE_ROUNDED_MASK =
+    Assets:Core("gui2\\shapes\\rounded-square-mask.tga")
+local ICON_APPEARANCE_ROUNDED_CONTENT_MASKS = {
+    Assets:Core("gui2\\shapes\\rounded-square-content-mask-1.tga"),
+    Assets:Core("gui2\\shapes\\rounded-square-content-mask-2.tga"),
+    Assets:Core("gui2\\shapes\\rounded-square-content-mask-3.tga"),
+    Assets:Core("gui2\\shapes\\rounded-square-content-mask-4.tga"),
+}
+local ICON_APPEARANCE_WIDE_ROUNDED_MASK =
+    Assets:Core("gui2\\shapes\\wide-rounded-mask.tga")
+local ICON_APPEARANCE_WIDE_ROUNDED_CONTENT_MASKS = {
+    Assets:Core("gui2\\shapes\\wide-rounded-content-mask-1.tga"),
+    Assets:Core("gui2\\shapes\\wide-rounded-content-mask-2.tga"),
+    Assets:Core("gui2\\shapes\\wide-rounded-content-mask-3.tga"),
+    Assets:Core("gui2\\shapes\\wide-rounded-content-mask-4.tga"),
+}
+local ICON_APPEARANCE_CIRCLE_MASK =
+    Assets:Core("gui2\\shapes\\circle-mask.tga")
+local ICON_APPEARANCE_CIRCLE_CONTENT_MASKS = {
+    Assets:Core("gui2\\shapes\\circle-content-mask-1.tga"),
+    Assets:Core("gui2\\shapes\\circle-content-mask-2.tga"),
+    Assets:Core("gui2\\shapes\\circle-content-mask-3.tga"),
+    Assets:Core("gui2\\shapes\\circle-content-mask-4.tga"),
+}
+local ICON_APPEARANCE_SOLID_SWIPE =
+    Assets:Core("gui2\\shapes\\solid-swipe.tga")
+
+GUI2.IconAppearancePresets = {
+    square = {
+        id = "square",
+        aspect = 1,
+        mask = nil,
+        borderFamily = nil,
+        circular = false,
+        swipe = ICON_APPEARANCE_SOLID_SWIPE,
+    },
+    roundedSquare = {
+        id = "roundedSquare",
+        aspect = 1,
+        mask = ICON_APPEARANCE_ROUNDED_MASK,
+        contentMasks = ICON_APPEARANCE_ROUNDED_CONTENT_MASKS,
+        borderFamily = "rounded",
+        circular = false,
+        swipe = ICON_APPEARANCE_ROUNDED_MASK,
+    },
+    flatSquare = {
+        id = "flatSquare",
+        aspect = ICON_APPEARANCE_FLAT_ASPECT,
+        mask = nil,
+        borderFamily = nil,
+        circular = false,
+        swipe = ICON_APPEARANCE_SOLID_SWIPE,
+    },
+    flatRounded = {
+        id = "flatRounded",
+        aspect = ICON_APPEARANCE_FLAT_ASPECT,
+        mask = ICON_APPEARANCE_ROUNDED_MASK,
+        contentMasks = ICON_APPEARANCE_ROUNDED_CONTENT_MASKS,
+        borderFamily = "rounded",
+        circular = false,
+        swipe = ICON_APPEARANCE_ROUNDED_MASK,
+    },
+    wideSquare = {
+        id = "wideSquare",
+        aspect = ICON_APPEARANCE_WIDE_ASPECT,
+        mask = nil,
+        borderFamily = nil,
+        circular = false,
+        swipe = ICON_APPEARANCE_SOLID_SWIPE,
+    },
+    wideRounded = {
+        id = "wideRounded",
+        aspect = ICON_APPEARANCE_WIDE_ASPECT,
+        mask = ICON_APPEARANCE_WIDE_ROUNDED_MASK,
+        contentMasks = ICON_APPEARANCE_WIDE_ROUNDED_CONTENT_MASKS,
+        borderFamily = "wideRounded",
+        circular = false,
+        swipe = ICON_APPEARANCE_WIDE_ROUNDED_MASK,
+    },
+    circle = {
+        id = "circle",
+        aspect = 1,
+        mask = ICON_APPEARANCE_CIRCLE_MASK,
+        contentMasks = ICON_APPEARANCE_CIRCLE_CONTENT_MASKS,
+        borderFamily = "circle",
+        circular = true,
+        swipe = ICON_APPEARANCE_CIRCLE_MASK,
+    },
+}
+
+GUI2.IconBorderThickness = {
+    none = 0,
+    thin = 1,
+    medium = 2,
+    thick = 3,
+    extraThick = 4,
+}
+
+GUI2.IconAppearanceBorderTextures = {
+    rounded = {
+        Assets:Core("gui2\\shapes\\rounded-square-border-1.tga"),
+        Assets:Core("gui2\\shapes\\rounded-square-border-2.tga"),
+        Assets:Core("gui2\\shapes\\rounded-square-border-3.tga"),
+        Assets:Core("gui2\\shapes\\rounded-square-border-4.tga"),
+    },
+    wideRounded = {
+        Assets:Core("gui2\\shapes\\wide-rounded-border-1.tga"),
+        Assets:Core("gui2\\shapes\\wide-rounded-border-2.tga"),
+        Assets:Core("gui2\\shapes\\wide-rounded-border-3.tga"),
+        Assets:Core("gui2\\shapes\\wide-rounded-border-4.tga"),
+    },
+    circle = {
+        Assets:Core("gui2\\shapes\\circle-border-1.tga"),
+        Assets:Core("gui2\\shapes\\circle-border-2.tga"),
+        Assets:Core("gui2\\shapes\\circle-border-3.tga"),
+        Assets:Core("gui2\\shapes\\circle-border-4.tga"),
+    },
+}
+
+GUI2.IconStateInnerTextures = {
+    square = Assets:Core("gui2\\shapes\\button-state-inner-square.tga"),
+    roundedSquare = Assets:Core(
+        "gui2\\shapes\\button-state-inner-rounded.tga"
+    ),
+    flatSquare = Assets:Core(
+        "gui2\\shapes\\button-state-inner-flat-square.tga"
+    ),
+    flatRounded = Assets:Core(
+        "gui2\\shapes\\button-state-inner-flat-rounded.tga"
+    ),
+    wideSquare = Assets:Core(
+        "gui2\\shapes\\button-state-inner-wide-square.tga"
+    ),
+    wideRounded = Assets:Core(
+        "gui2\\shapes\\button-state-inner-wide-rounded.tga"
+    ),
+    circle = Assets:Core("gui2\\shapes\\button-state-inner-circle.tga"),
+}
+
+GUI2.DurationRingTextures = {
+    disc = ICON_APPEARANCE_CIRCLE_MASK,
+    innerMask = Assets:Core("gui2\\shapes\\duration-ring-inner-mask.tga"),
+    thin = Assets:Core("gui2\\shapes\\duration-ring-thin.tga"),
+    standard = Assets:Core("gui2\\shapes\\duration-ring-standard.tga"),
+    thick = Assets:Core("gui2\\shapes\\duration-ring-thick.tga"),
+    heavy = Assets:Core("gui2\\shapes\\duration-ring-heavy.tga"),
+    framed = {
+        innerShadow = Assets:Core(
+            "gui2\\shapes\\duration-ring-bezel-disc.tga"
+        ),
+        outerShadow = Assets:Core(
+            "gui2\\shapes\\duration-ring-bezel-shadow.tga"
+        ),
+        thin = Assets:Core(
+            "gui2\\shapes\\duration-ring-framed-thin.tga"
+        ),
+        standard = Assets:Core(
+            "gui2\\shapes\\duration-ring-framed-standard.tga"
+        ),
+        thick = Assets:Core(
+            "gui2\\shapes\\duration-ring-framed-thick.tga"
+        ),
+        heavy = Assets:Core(
+            "gui2\\shapes\\duration-ring-framed-heavy.tga"
+        ),
+    },
+}
+
+local function NormalizeIconAppearanceShape(shape)
+    if shape == "rounded" then return "roundedSquare" end
+    if GUI2.IconAppearancePresets[shape] then return shape end
+    return "square"
+end
+
+function GUI2:GetIconAppearancePreset(shape)
+    shape = NormalizeIconAppearanceShape(shape)
+    return self.IconAppearancePresets[shape], shape
+end
+
+function GUI2:GetIconBorderThickness(border)
+    return self.IconBorderThickness[border] or self.IconBorderThickness.thin
+end
+
+function GUI2:GetIconStateInnerTexture(shape)
+    shape = NormalizeIconAppearanceShape(shape)
+    local textures = self.IconStateInnerTextures
+    return textures[shape] or textures.square
+end
+
+function GUI2:GetIconAppearanceMask(shape, border)
+    local preset = self:GetIconAppearancePreset(shape)
+    if not preset then return nil end
+    local thickness = self:GetIconBorderThickness(border)
+    local contentMasks = preset.contentMasks
+    if thickness > 0 and contentMasks and contentMasks[thickness] then
+        return contentMasks[thickness]
+    end
+    return preset.mask
+end
+
+function GUI2:GetIconAppearanceSize(size, shape)
+    size = math_max(tonumber(size) or MIN_ICON_SIZE, MIN_ICON_SIZE)
+    local preset = self:GetIconAppearancePreset(shape)
+    local aspect = tonumber(preset and preset.aspect) or 1
+    if aspect > 1 then
+        return size, math_max(1, math_floor((size / aspect) + 0.5))
+    end
+    return size, size
+end
+
+local function DetachIconAppearanceMask(region)
+    if not (region and region.gui2IconAppearanceMask) then return end
+    if region.RemoveMaskTexture then
+        pcall(
+            region.RemoveMaskTexture,
+            region,
+            region.gui2IconAppearanceMask
+        )
+    end
+    region.gui2IconAppearanceMask = nil
+end
+
+local function AttachIconAppearanceMask(region, mask)
+    if not (region and mask and region.AddMaskTexture) then return end
+    if region.gui2IconAppearanceMask == mask then return end
+    DetachIconAppearanceMask(region)
+    pcall(region.AddMaskTexture, region, mask)
+    region.gui2IconAppearanceMask = mask
+end
+
+local function EnsureIconAppearanceMask(slot)
+    if slot.gui2IconAppearanceMask then
+        return slot.gui2IconAppearanceMask
+    end
+    if not slot.CreateMaskTexture then return nil end
+    local ok, mask = pcall(slot.CreateMaskTexture, slot, nil, "BACKGROUND")
+    if not (ok and mask) then return nil end
+    mask:SetAllPoints(slot)
+    slot.gui2IconAppearanceMask = mask
+    return mask
+end
+
+local function LayoutIconAppearanceMask(slot, mask)
+    if not (slot and mask) then return end
+    if mask.ClearAllPoints then mask:ClearAllPoints() end
+    if mask.SetAllPoints then mask:SetAllPoints(slot) end
+end
+
+local function EnsureIconAppearanceBorder(slot)
+    if slot.gui2IconAppearanceBorder then
+        return slot.gui2IconAppearanceBorder
+    end
+    if not slot.CreateTexture then return nil end
+    local border = slot:CreateTexture(nil, "OVERLAY", nil, 7)
+    border:SetAllPoints(slot)
+    border:Hide()
+    slot.gui2IconAppearanceBorder = border
+    return border
+end
+
+local function GetIconSlotBorderColorKey(state)
+    if state == "selected" or state == "active" or state == "hover" then
+        return "color.border.accent"
+    end
+    if state == "disabled" then return "color.border.subtle" end
+    if state == "warning" then return "color.state.warning" end
+    if state == "danger" then return "color.state.error" end
+    return "color.border.default"
+end
+
+local function ApplyIconAppearanceBorderState(slot, colorKey)
+    if not slot then return end
+    colorKey = slot.gui2IconBorderColorOverride
+        or colorKey
+        or GetIconSlotBorderColorKey(slot.gui2State)
+    local r, g, b, a = ResolveColor(
+        GUI2,
+        colorKey,
+        nil,
+        nil,
+        nil,
+        "color.border.default"
+    )
+    local borderVisible = slot.gui2IconChromeVisible ~= false
+        and (tonumber(slot.gui2IconBorderThickness) or 0) > 0
+    if slot.gui2Borders then
+        GUI2:SetBorderColor(slot, r, g, b, a)
+        SetBorderTextureVisibility(
+            slot,
+            borderVisible
+                and not slot.gui2IconBorderFamily
+        )
+    end
+    if slot.gui2IconAppearanceBorder then
+        slot.gui2IconAppearanceBorder:SetVertexColor(r, g, b, a)
+        if borderVisible and slot.gui2IconBorderFamily then
+            slot.gui2IconAppearanceBorder:Show()
+        else
+            slot.gui2IconAppearanceBorder:Hide()
+        end
+    end
+    if not borderVisible and slot.SetBackdropBorderColor then
+        slot:SetBackdropBorderColor(0, 0, 0, 0)
+    end
+end
+
+function GUI2:ApplyIconAppearance(slot, opts)
+    if not slot then return false end
+    opts = opts or {}
+    local preset, shape = self:GetIconAppearancePreset(
+        opts.shape or slot.gui2Shape
+    )
+    local border = opts.border or slot.gui2IconBorder or "thin"
+    local thickness = self:GetIconBorderThickness(border)
+    local appearanceMask = self:GetIconAppearanceMask(shape, border)
+    local size = tonumber(opts.size)
+        or tonumber(slot.gui2IconBaseSize)
+        or (slot.GetHeight and slot:GetHeight())
+        or MIN_ICON_SIZE
+    local width, height = self:GetIconAppearanceSize(size, shape)
+    local zoom = tonumber(opts.zoom)
+    if zoom == nil then zoom = slot.gui2IconZoom end
+
+    slot.gui2Shape = shape
+    slot.gui2RoundedIntent = preset.mask ~= nil
+    slot.gui2IconBaseSize = size
+    slot.gui2IconBorder = border
+    slot.gui2IconBorderThickness = thickness
+    slot.gui2IconBorderFamily = preset.borderFamily
+    if zoom ~= nil then
+        slot.gui2IconZoom = zoom
+        slot.gui2IconTexCoordState = slot.gui2IconTexCoordState or {}
+        if self.ApplyIconTexCoord then
+            self:ApplyIconTexCoord(
+                slot.icon,
+                zoom,
+                tonumber(preset.aspect) or 1,
+                slot.gui2IconTexCoordState
+            )
+        end
+    end
+    if not self:SetPixelSnappedSize(slot, width, height, 1, 1) then
+        slot:SetSize(width, height)
+    end
+
+    local mask = EnsureIconAppearanceMask(slot)
+    if appearanceMask and mask then
+        mask:SetTexture(
+            appearanceMask,
+            "CLAMPTOBLACKADDITIVE",
+            "CLAMPTOBLACKADDITIVE"
+        )
+        -- 内容设置使用 GUI2 预览槽，运行态官方监控使用 Blizzard Frame。
+        -- 两类对象必须让 Mask 与形状边框覆盖同一完整目标矩形；整体收缩
+        -- Mask 会真实减小内容直径，并在圆形四个切点产生被磨平的轮廓。
+        LayoutIconAppearanceMask(slot, mask)
+        AttachIconAppearanceMask(slot.icon, mask)
+        AttachIconAppearanceMask(slot.disabledOverlay, mask)
+        AttachIconAppearanceMask(slot.cooldown, mask)
+    else
+        if mask then LayoutIconAppearanceMask(slot, mask) end
+        DetachIconAppearanceMask(slot.icon)
+        DetachIconAppearanceMask(slot.disabledOverlay)
+        DetachIconAppearanceMask(slot.cooldown)
+    end
+
+    if slot.cooldown then
+        if slot.cooldown.SetSwipeTexture then
+            pcall(
+                slot.cooldown.SetSwipeTexture,
+                slot.cooldown,
+                appearanceMask
+                    or preset.swipe
+                    or ICON_APPEARANCE_SOLID_SWIPE
+            )
+        end
+        if slot.cooldown.SetUseCircularEdge then
+            pcall(
+                slot.cooldown.SetUseCircularEdge,
+                slot.cooldown,
+                preset.circular == true
+            )
+        end
+        if slot.cooldown.SetDrawEdge then
+            slot.cooldown:SetDrawEdge(false)
+        end
+    end
+
+    if thickness > 0 and not slot.gui2Borders then
+        self:CreateBorder(slot, "color.border.default")
+    end
+    if slot.gui2Borders then
+        slot.gui2Borders.widthPixels = math_max(thickness, 1)
+        if slot.UpdateGUI2PixelScale then
+            slot:UpdateGUI2PixelScale()
+        end
+    end
+
+    local familyTextures = preset.borderFamily
+        and self.IconAppearanceBorderTextures[preset.borderFamily]
+    local shapeBorder = slot.gui2IconAppearanceBorder
+    if familyTextures and thickness > 0 and not shapeBorder then
+        shapeBorder = EnsureIconAppearanceBorder(slot)
+    end
+    local shapeBorderPath = familyTextures and familyTextures[thickness]
+    if shapeBorder and shapeBorderPath and thickness > 0 then
+        shapeBorder:SetTexture(shapeBorderPath)
+        shapeBorder:Show()
+    elseif shapeBorder then
+        shapeBorder:Hide()
+    end
+    ApplyIconAppearanceBorderState(slot)
+    return true
+end
+
+local function ResolveCooldownTextFont(font)
+    if font == "chat" and _G.ChatFontNormal and _G.ChatFontNormal.GetFont then
+        local path = _G.ChatFontNormal:GetFont()
+        if path then return path end
+    elseif font == "damage" and _G.DAMAGE_TEXT_FONT then
+        return _G.DAMAGE_TEXT_FONT
+    end
+    local sharedMedia = YUI.LSM
+        or (LibStub and LibStub("LibSharedMedia-3.0", true))
+    if type(font) == "string" and font ~= "" and font ~= "default"
+        and sharedMedia and sharedMedia.Fetch then
+        local path = sharedMedia:Fetch("font", font, true)
+        if type(path) == "string" and path ~= "" then return path end
+    end
+    return GUI2:GetFont("font.family.body")
+        or DEFAULT_TEXT_FONT
+end
+
+local function ResolveCooldownTextOutline(outline)
+    if outline == "thick" then return "THICKOUTLINE" end
+    if outline == "outline" or outline == "outlineShadow" then
+        return "OUTLINE"
+    end
+    return ""
+end
+
+function GUI2:ApplyFontAppearance(fontString, opts)
+    if not (fontString and fontString.SetFont) then return false end
+    opts = type(opts) == "table" and opts or {}
+    local size = math_max(8, math_min(32, tonumber(opts.size) or 14))
+    local scale = tonumber(opts.fontScale) or 1
+    if scale <= 0 or scale ~= scale or scale == math.huge then scale = 1 end
+    pcall(
+        fontString.SetFont,
+        fontString,
+        ResolveCooldownTextFont(opts.font),
+        size / scale,
+        ResolveCooldownTextOutline(opts.outline)
+    )
+    local hasShadow = opts.outline == "shadow"
+        or opts.outline == "outlineShadow"
+    if fontString.SetShadowColor then
+        if hasShadow then
+            fontString:SetShadowColor(0, 0, 0, 1)
+        else
+            fontString:SetShadowColor(0, 0, 0, 0)
+        end
+    end
+    if fontString.SetShadowOffset then
+        if hasShadow then
+            fontString:SetShadowOffset(1 / scale, -1 / scale)
+        else
+            fontString:SetShadowOffset(0, 0)
+        end
+    end
+    local color = type(opts.color) == "table" and opts.color
+    if color and fontString.SetTextColor then
+        fontString:SetTextColor(
+            tonumber(color.r or color[1]) or 1,
+            tonumber(color.g or color[2]) or 1,
+            tonumber(color.b or color[3]) or 1,
+            tonumber(color.a or color[4]) or 1
+        )
+    end
+    return true
+end
+
+function GUI2:ApplyCooldownTextAppearance(slot, opts, preserveAnchors)
+    if not (slot and slot.cooldown) then return false end
+    opts = opts or {}
+    local cooldown = slot.cooldown
+    local enabled = opts.enabled ~= false
+    if cooldown.SetHideCountdownNumbers then
+        cooldown:SetHideCountdownNumbers(not enabled)
+    end
+
+    local fontString
+    if cooldown.GetCountdownFontString then
+        local ok, value = pcall(
+            cooldown.GetCountdownFontString,
+            cooldown
+        )
+        if ok then fontString = value end
+    end
+    if fontString then
+        self:ApplyFontAppearance(fontString, opts)
+        if preserveAnchors ~= true and fontString.ClearAllPoints and fontString.SetPoint then
+            local x = tonumber(opts.offsetX) or 0
+            local y = tonumber(opts.offsetY) or 0
+            fontString:ClearAllPoints()
+            if opts.position == "top" then
+                fontString:SetPoint("TOP", cooldown, "TOP", x, y - 2)
+            elseif opts.position == "bottom" then
+                fontString:SetPoint("BOTTOM", cooldown, "BOTTOM", x, y + 2)
+            else
+                fontString:SetPoint("CENTER", cooldown, "CENTER", x, y)
+            end
+        end
+        local color = type(opts.color) == "table"
+            and opts.color or { 1, 1, 1, 1 }
+        if fontString.SetTextColor then
+            fontString:SetTextColor(
+                tonumber(color.r or color[1]) or 1,
+                tonumber(color.g or color[2]) or 1,
+                tonumber(color.b or color[3]) or 1,
+                tonumber(color.a or color[4]) or 1
+            )
+        end
+    end
+    slot.gui2CooldownTextAppearance = {
+        enabled = enabled,
+        font = opts.font or "default",
+        size = tonumber(opts.size) or 14,
+        outline = opts.outline or "outline",
+        position = opts.position or "center",
+        color = opts.color,
+    }
+    return true
+end
+
+local function ApplyIconSlotState(slot, state)
+    if not slot then return end
+    state = state or slot.gui2State or "normal"
+    slot.gui2State = state
+
+    local surface = "color.surface.sunken"
+    local border = "color.border.default"
+    local iconAlpha = 1
+    local textColor = "color.text.primary"
+
+    if state == "selected" or state == "active" then
+        surface = "color.control.active"
+        border = slot.gui2SelectedBorderColor or "color.border.accent"
+        textColor = "color.text.accent"
+    elseif state == "hover" then
+        surface = "color.control.hover"
+        border = slot.gui2HoverBorderColor or "color.border.accent"
+    elseif state == "disabled" then
+        surface = "color.control.disabled"
+        border = "color.border.subtle"
+        iconAlpha = 0.35
+        textColor = "color.text.disabled"
+    elseif state == "warning" then
+        border = "color.state.warning"
+        textColor = "color.state.warning"
+    elseif state == "danger" then
+        border = "color.state.error"
+        textColor = "color.state.error"
+    end
+
+    if slot.gui2Variant ~= "bare" then
+        ApplyIconSlotSurface(slot, surface)
+    end
+    if slot.gui2Borders then
+        GUI2:SetBorderColor(slot, border)
+    end
+    ApplyIconAppearanceBorderState(slot, border)
+    if slot.icon then
+        slot.icon:SetAlpha(iconAlpha)
+    end
+    if slot.count then
+        slot.count:SetTextColor(GUI2:GetColor(textColor))
+    end
+    if slot.disabledOverlay then
+        if state == "disabled" then
+            slot.disabledOverlay:Show()
+        else
+            slot.disabledOverlay:Hide()
+        end
+    end
+end
+
+function GUI2:CreateIconSlot(parent, opts)
+    if not parent then return end
+    opts = opts or {}
+    local size = math_max(opts.size or self:GetMetric("layout.size.icon", 22), MIN_ICON_SIZE)
+    local clickable = opts.onClick ~= nil
+    local variant = opts.variant or "surface"
+    local slot
+
+    if variant == "bare" then
+        slot = CreateFrame(clickable and "Button" or "Frame", opts.name, parent)
+        slot:SetSize(size, size)
+    elseif clickable and self.CreateIconButton then
+        local padding = opts.padding
+        if padding == nil then
+            padding = 0
+        end
+        slot = self:CreateIconButton(parent, {
+            name = opts.name,
+            size = size,
+            icon = opts.icon or DEFAULT_ICON,
+            fallbackIcon = opts.fallbackIcon or DEFAULT_ICON,
+            texCoords = opts.texCoords,
+            crop = opts.crop,
+            padding = padding,
+            surface = "color.surface.sunken",
+            border = opts.selected and "color.border.accent" or "color.border.default",
+            radiusKey = opts.radiusKey or "layout.radius.icon",
+            preserveIconColor = true,
+        })
+    else
+        slot = self:CreatePanel(parent, {
+            width = size,
+            height = size,
+            surface = "color.surface.sunken",
+            border = opts.selected and "color.border.accent" or "color.border.default",
+            radiusKey = opts.radiusKey or "layout.radius.icon",
+        })
+    end
+
+    slot.gui2Component = "IconSlot"
+    slot.gui2Variant = variant
+    slot.gui2Shape = NormalizeIconAppearanceShape(
+        opts.shape or (opts.rounded and "roundedSquare" or "square")
+    )
+    slot.gui2RoundedIntent = GUI2:GetIconAppearancePreset(slot.gui2Shape).mask ~= nil
+    slot.gui2IconChromeVisible = opts.chromeVisible ~= false
+    slot.gui2Selected = opts.selected and true or false
+    slot.gui2SelectedBorderColor = opts.selectedBorderColor
+    slot.gui2HoverBorderColor = opts.hoverBorderColor
+    slot.gui2Animate = opts.animate ~= false and opts.motion ~= false
+    slot.gui2MotionOwner = slot
+    if opts.texCoords == nil then
+        slot.gui2IconZoom = tonumber(opts.zoom)
+            or (opts.crop == false and 0 or 0.08)
+    end
+
+    local padding = opts.padding
+    if padding == nil then
+        padding = 0
+    end
+    local icon = slot.icon
+    if not icon then
+        icon = self:CreateIcon(slot, {
+            icon = opts.icon,
+            fallbackIcon = opts.fallbackIcon or DEFAULT_ICON,
+            texCoords = opts.texCoords,
+            crop = opts.crop,
+            fillParent = true,
+            padding = padding,
+        })
+        slot.icon = icon
+    end
+    if icon then
+        icon.gui2Animate = slot.gui2Animate
+        icon.gui2MotionOwner = slot
+    end
+
+    local overlay = slot:CreateTexture(nil, "OVERLAY")
+    overlay:SetAllPoints(icon)
+    overlay:SetColorTexture(0, 0, 0, 0.48)
+    overlay:Hide()
+    slot.disabledOverlay = overlay
+
+    slot.SetIconAppearance = function(frame, appearance)
+        return GUI2:ApplyIconAppearance(frame, appearance)
+    end
+    slot.SetIconBorderColor = function(frame, color)
+        if type(color) == "table" then
+            frame.gui2IconBorderColorOverride = {
+                color[1] or color.r or 1,
+                color[2] or color.g or 1,
+                color[3] or color.b or 1,
+                (color[4] or color.a) == nil and 1
+                    or (color[4] or color.a),
+            }
+        elseif type(color) == "string" and color ~= "" then
+            frame.gui2IconBorderColorOverride = color
+        else
+            frame.gui2IconBorderColorOverride = nil
+        end
+        ApplyIconAppearanceBorderState(frame)
+        return true
+    end
+    slot.SetCooldownTextAppearance = function(frame, appearance)
+        return GUI2:ApplyCooldownTextAppearance(frame, appearance)
+    end
+
+    if opts.count ~= nil or opts.countSink == true then
+        local initialCount = opts.count ~= nil and tostring(opts.count) or ""
+        local count = self:CreateText(slot, initialCount, "font.size.sm", "color.text.primary", "RIGHT")
+        count:SetPoint("BOTTOMRIGHT", -2, 1)
+        slot.count = count
+    end
+
+    slot.SetIcon = function(frame, texture)
+        GUI2:SetIconTexture(frame.icon, texture, opts.fallbackIcon or DEFAULT_ICON)
+    end
+    slot.SetCount = function(frame, count)
+        if not frame.count then
+            frame.count = GUI2:CreateText(frame, "", "font.size.sm", "color.text.primary", "RIGHT")
+            frame.count:SetPoint("BOTTOMRIGHT", -2, 1)
+        end
+        frame.count:SetText(count and tostring(count) or "")
+    end
+    slot.SetRawCount = function(frame, count)
+        if not frame.count then return false end
+        local ok = pcall(frame.count.SetText, frame.count, count)
+        return ok == true
+    end
+    slot.SetState = function(frame, state)
+        if state == "selected" or state == "active" then
+            frame.gui2Selected = true
+        elseif state == "normal" then
+            frame.gui2Selected = false
+        end
+        ApplyIconSlotState(frame, state)
+    end
+    slot.SetSelected = function(frame, selected)
+        frame.gui2Selected = selected and true or false
+        ApplyIconSlotState(frame, frame.gui2Selected and "selected" or "normal")
+    end
+    slot.RefreshTheme = function(frame)
+        ApplyIconSlotState(frame, frame.gui2State)
+        GUI2:ApplyIconAppearance(frame, {
+            size = frame.gui2IconBaseSize,
+            shape = frame.gui2Shape,
+            border = frame.gui2IconBorder,
+            zoom = frame.gui2IconZoom,
+        })
+        if frame.gui2CooldownTextAppearance then
+            GUI2:ApplyCooldownTextAppearance(
+                frame,
+                frame.gui2CooldownTextAppearance
+            )
+        end
+    end
+    self:RegisterThemeObject(slot)
+
+    if clickable then
+        slot:RegisterForClicks(opts.clicks or "AnyUp")
+        slot:SetScript("OnClick", opts.onClick)
+        slot:SetScript("OnEnter", function(frame)
+            if frame.gui2State == "disabled" then return end
+            ApplyIconSlotState(frame, "hover")
+        end)
+        slot:SetScript("OnLeave", function(frame)
+            ApplyIconSlotState(frame, frame.gui2Selected and "selected" or "normal")
+        end)
+    end
+
+    local iconBorder = opts.border
+    if iconBorder == nil then
+        iconBorder = variant == "bare" and "none" or "thin"
+    end
+    slot:SetIconAppearance({
+        size = size,
+        shape = slot.gui2Shape,
+        border = iconBorder,
+        zoom = slot.gui2IconZoom,
+    })
+    if opts.borderColor ~= nil then
+        slot:SetIconBorderColor(opts.borderColor)
+    end
+    slot:SetState(opts.disabled and "disabled" or (opts.selected and "selected" or (opts.state or "normal")))
+    return slot
+end
+end
+
+function GUI2:CreateIconGrid(parent, opts)
+    if not parent then return end
+    opts = opts or {}
+    local items = opts.items or {}
+    local columns = opts.columns or 4
+    local itemSize = opts.itemSize or 34
+    local spacing = opts.spacing or 8
+    local padding = opts.padding or 10
+    local rows = math_ceil(#items / columns)
+    if rows < 1 then rows = 1 end
+
+    local width = opts.width or ((columns * itemSize) + ((columns - 1) * spacing) + (padding * 2))
+    local height = opts.height or ((rows * itemSize) + ((rows - 1) * spacing) + (padding * 2))
+    local grid = self:CreatePanel(parent, {
+        width = width,
+        height = height,
+        surface = opts.surface or "color.surface.panel",
+        border = opts.border or "color.border.default",
+    })
+    grid.gui2Component = "IconGrid"
+    grid.slots = {}
+
+    for i, item in ipairs(items) do
+        local slot = self:CreateIconSlot(grid, {
+            size = itemSize,
+            icon = item.icon,
+            fallbackIcon = item.fallbackIcon,
+            texCoords = item.texCoords,
+            crop = item.crop,
+            shape = item.shape,
+            rounded = item.rounded,
+            variant = item.variant,
+            padding = item.padding,
+            selected = item.selected,
+            disabled = item.disabled,
+            count = item.count,
+            onClick = item.onClick,
+        })
+        local row = math_floor((i - 1) / columns)
+        local col = (i - 1) % columns
+        slot:SetPoint("TOPLEFT", padding + (col * (itemSize + spacing)), -(padding + (row * (itemSize + spacing))))
+        grid.slots[i] = slot
+    end
+
+    return grid
+end
+
+function GUI2:CreateCloseButton(parent, onClick)
+    if not parent then return end
+    local normalColor = { 0.5, 0.1, 0.1, 1 }
+    local hoverColor = { 0.8, 0.2, 0.2, 1 }
+    local pressedColor = { 0.4, 0.1, 0.1, 1 }
+    local borderColor = { 0, 0, 0, 1 }
+    local button = self:CreateButtonFrame(parent, {
+        template = "BackdropTemplate",
+        width = 16,
+        height = 16,
+        radiusKey = "layout.radius.control",
+    })
+    SkinButton(button, {
+        surface = normalColor,
+        border = borderColor,
+        textColor = "color.accent.text",
+        hoverTextColor = "color.accent.text",
+    })
+    button.gui2HoverSurfaceToken = hoverColor
+    button.gui2HoverBorderToken = borderColor
+    button.gui2PressedSurfaceToken = pressedColor
+    button.gui2PressedBorderToken = borderColor
+    button:SetScript("OnClick", onClick)
+    button:RefreshTheme()
+    return button
+end
+
+function GUI2:CreateNavButton(parent, text, icon, width, height, iconOptions)
+    if not parent then return end
+
+    iconOptions = type(iconOptions) == "table" and iconOptions or {}
+    local buttonHeight = height or 40
+    local defaultIconSize = buttonHeight - 14
+    local function ResolveIconSize(options)
+        local size = type(options) == "table" and tonumber(options.size) or nil
+        return size and size > 0 and size or defaultIconSize
+    end
+    local button = self:CreateButtonFrame(parent, {
+        template = "BackdropTemplate",
+        width = width or 150,
+        height = buttonHeight,
+    })
+    button.gui2SurfaceToken = "color.surface.nav"
+    button.gui2HoverSurfaceToken = "color.control.hover"
+    button.gui2TextColorKey = "color.text.primary"
+    button.gui2HoverTextColorKey = "color.text.accent"
+    SkinButton(button, {
+        surface = "color.surface.nav",
+        border = false,
+        textColor = "color.text.primary",
+        preserveTextPoint = true,
+    })
+
+    local label = self:CreateText(button, text or "", "font.size.md", "color.text.primary")
+    label:SetWordWrap(false)
+    button.text = label
+    button.gui2FullText = text or ""
+    button.gui2TextRightInset = 10
+
+    local function ApplyTextPoints(frame)
+        if not frame or not frame.text then return end
+        local rightInset = tonumber(frame.gui2TextRightInset) or 10
+        frame.text:ClearAllPoints()
+        if frame.gui2IconColumnWidth then
+            frame.text:SetPoint("LEFT", frame, "LEFT", 15 + frame.gui2IconColumnWidth + 15, 0)
+            frame.text:SetPoint("RIGHT", -rightInset, 0)
+            frame.text:SetJustifyH("LEFT")
+        elseif frame.icon then
+            frame.text:SetPoint("LEFT", frame.icon, "RIGHT", 15, 0)
+            frame.text:SetPoint("RIGHT", -rightInset, 0)
+            frame.text:SetJustifyH("LEFT")
+        else
+            frame.text:SetPoint("LEFT", 8, 0)
+            frame.text:SetPoint("RIGHT", -math.max(8, rightInset), 0)
+            frame.text:SetJustifyH("CENTER")
+        end
+    end
+
+    local function ApplyIconPoints(frame, options, initialize)
+        local previousColumnWidth = frame.gui2IconColumnWidth
+        local columnWidth = type(options) == "table" and tonumber(options.columnWidth) or nil
+        frame.gui2IconColumnWidth = columnWidth and columnWidth > 0 and columnWidth or nil
+        if not initialize and not previousColumnWidth and not frame.gui2IconColumnWidth then return end
+        if frame.icon then
+            local iconSize = frame.icon:GetWidth()
+            local columnOffset = frame.gui2IconColumnWidth and (frame.gui2IconColumnWidth - iconSize) / 2 or 0
+            frame.icon:ClearAllPoints()
+            frame.icon:SetPoint("LEFT", 15 + columnOffset, 0)
+        end
+        ApplyTextPoints(frame)
+    end
+
+    if icon then
+        local iconTex = self:CreateIcon(button, {
+            icon = icon,
+            size = ResolveIconSize(iconOptions),
+            crop = iconOptions.crop,
+            texCoords = iconOptions.texCoords,
+            fallbackIcon = iconOptions.fallbackIcon,
+        })
+        button.icon = iconTex
+        button.gui2PreserveIconColor = true
+
+        local iconBg = self:CreateFrame(button, {
+            template = "BackdropTemplate",
+            allPoints = iconTex,
+        })
+        iconBg:SetFrameLevel(button:GetFrameLevel())
+        button.iconBg = iconBg
+    end
+    ApplyIconPoints(button, iconOptions, true)
+
+    function button:SetText(value)
+        self.gui2FullText = value or ""
+        if self.text then
+            self.text:SetText(self.gui2FullText)
+        end
+    end
+
+    function button:SetTextRightInset(inset)
+        self.gui2TextRightInset = tonumber(inset) or 10
+        ApplyTextPoints(self)
+    end
+
+    function button:SetIcon(texture, options)
+        if not self.icon then return false end
+        options = type(options) == "table" and options or {}
+        GUI2:SetIconTexture(
+            self.icon,
+            texture,
+            options.fallbackIcon or iconOptions.fallbackIcon or DEFAULT_ICON
+        )
+        local iconSize = ResolveIconSize(options)
+        self.icon:SetSize(iconSize, iconSize)
+        if options.texCoords then
+            self.icon:SetTexCoord(unpack(options.texCoords))
+        elseif options.crop == false then
+            self.icon:SetTexCoord(0, 1, 0, 1)
+        else
+            self.icon:SetTexCoord(unpack(DEFAULT_ICON_TEXCOORDS))
+        end
+        ApplyIconPoints(self, options)
+        return true
+    end
+
+    local function ShowOverflowTooltip(frame)
+        if not (GameTooltip and frame and frame.text and frame.gui2FullText and frame.gui2FullText ~= "") then
+            return
+        end
+        local textWidth = frame.text:GetStringWidth() or 0
+        local availableWidth = frame.text:GetWidth() or 0
+        if availableWidth > 0 and textWidth > availableWidth + 1 then
+            GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
+            GameTooltip:SetText(frame.gui2FullText, 1, 1, 1, 1, true)
+            GameTooltip:Show()
+        end
+    end
+
+    local hl = self:CreateTexture(button, "color.control.hover", "BACKGROUND")
+    hl:SetAllPoints()
+    hl:SetAlpha(0.35)
+    hl:Hide()
+    button.hl = hl
+
+    local sel = self:CreateTexture(button, "color.nav.indicator", "OVERLAY")
+    sel:SetWidth(4)
+    sel:SetPoint("TOPLEFT", 0, 0)
+    sel:SetPoint("BOTTOMLEFT", 0, 0)
+    sel:Hide()
+    button.sel = sel
+
+    local selBg = self:CreateTexture(button, "color.control.active", "BACKGROUND")
+    selBg:SetAllPoints()
+    selBg:SetAlpha(0.55)
+    selBg:Hide()
+    button.selBg = selBg
+
+    local function IsVisualDisabled(frame)
+        return frame and frame.gui2VisualDisabled == true
+    end
+
+    local function ApplyNavButtonVisualState(frame, state)
+        if not frame then return end
+        local visualDisabled = IsVisualDisabled(frame)
+        local opts = frame.gui2VisualDisabledOptions or {}
+        local hoverOverlayAlpha = tonumber(frame.gui2NavHoverOverlayAlpha) or 0.35
+        local selectedOverlayAlpha = tonumber(frame.gui2NavSelectedOverlayAlpha) or 0.55
+        ApplyButtonTheme(frame, visualDisabled and "disabled" or state)
+        if frame.hl then
+            GUI2:SetTexturePaintKey(frame.hl, "color.control.hover")
+            frame.hl:SetAlpha(visualDisabled and (opts.hoverAlpha or 0.04) or hoverOverlayAlpha)
+        end
+        if frame.sel then
+            GUI2:SetTexturePaintKey(frame.sel, "color.nav.indicator")
+            frame.sel:SetAlpha(visualDisabled and (opts.selectedIndicatorAlpha or 0.2) or 1)
+        end
+        if frame.selBg then
+            GUI2:SetTexturePaintKey(frame.selBg, "color.control.active")
+            frame.selBg:SetAlpha(
+                frame.gui2Selected
+                    and (visualDisabled and (opts.selectedBgAlpha or 0.06) or selectedOverlayAlpha)
+                    or selectedOverlayAlpha
+            )
+        end
+        if frame.text then
+            if visualDisabled then
+                GUI2:SetTextColorKey(frame.text, opts.textColorKey or "color.text.disabled")
+                if frame.text.SetAlpha then
+                    frame.text:SetAlpha(opts.textAlpha or 0.48)
+                end
+            else
+                GUI2:SetTextColorKey(frame.text, frame.gui2Selected and "color.text.accent" or "color.text.primary")
+                if frame.text.SetAlpha then
+                    frame.text:SetAlpha(1)
+                end
+            end
+        end
+        if frame.icon then
+            if frame.icon.SetDesaturated then
+                frame.icon:SetDesaturated(visualDisabled and true or false)
+            end
+            if frame.icon.SetVertexColor then
+                if visualDisabled then
+                    local r, g, b = GUI2:GetColor(opts.iconColorKey or "color.text.disabled")
+                    frame.icon:SetVertexColor(r, g, b, 1)
+                else
+                    frame.icon:SetVertexColor(1, 1, 1, 1)
+                end
+            end
+            if frame.icon.SetAlpha then
+                frame.icon:SetAlpha(visualDisabled and (opts.iconAlpha or 0.22) or 1)
+            end
+        end
+        if frame.iconBg then
+            frame.iconBg:SetAlpha(visualDisabled and (opts.iconBgAlpha or 0.08) or 1)
+        end
+    end
+
+    function button:SetVisualDisabled(disabled, opts)
+        self.gui2VisualDisabled = disabled == true
+        self.gui2VisualDisabledOptions = self.gui2VisualDisabled and (opts or {}) or nil
+        ApplyNavButtonVisualState(self, self.gui2Selected and "selected" or "normal")
+    end
+
+    function button:SetSelected(selected)
+        self.gui2Locked = false
+        self.gui2Selected = selected and true or false
+        if self.sel then
+            self.sel:SetShown(self.gui2Selected)
+        end
+        if self.selBg then
+            self.selBg:SetShown(self.gui2Selected)
+        end
+        ApplyNavButtonVisualState(self, self.gui2Selected and "selected" or "normal")
+    end
+
+    button:SetScript("OnEnter", function(frame)
+        if frame.hl then frame.hl:Show() end
+        ApplyNavButtonVisualState(frame, IsVisualDisabled(frame) and "disabled" or "hover")
+        ShowOverflowTooltip(frame)
+    end)
+    button:SetScript("OnLeave", function(frame)
+        if frame.hl then frame.hl:Hide() end
+        ApplyNavButtonVisualState(frame, frame.gui2Selected and "selected" or "normal")
+        if GameTooltip and GameTooltip:IsOwned(frame) then
+            YUI.HideGameTooltip()
+        end
+    end)
+    button.RefreshTheme = function(frame)
+        ApplyNavButtonVisualState(frame, frame.gui2Selected and "selected" or "normal")
+    end
+    button:RefreshTheme()
+    return button
+end
+
+function GUI2:SkinSlider(slider)
+    if not slider then return end
+
+    if slider.SetBackdrop then
+        slider:SetBackdrop(nil)
+    end
+
+    if slider.GetNumRegions then
+        for i = 1, slider:GetNumRegions() do
+            local region = select(i, slider:GetRegions())
+            if region and region.GetObjectType and region:GetObjectType() == "Texture" and region ~= slider:GetThumbTexture() then
+                region:SetTexture(nil)
+                region:SetAlpha(0)
+                region:Hide()
+            end
+        end
+    end
+
+    if not slider.gui2Bg then
+        local bg = self:CreatePanel(slider, {
+            surface = "color.control.track",
+            border = "color.border.default",
+        })
+        bg:SetPoint("TOPLEFT", 0, -5)
+        bg:SetPoint("BOTTOMRIGHT", 0, 5)
+        bg:SetFrameLevel(math_max(slider:GetFrameLevel() - 1, 0))
+        slider.gui2Bg = bg
+    end
+
+    local thumb = slider:GetThumbTexture()
+    if not thumb then
+        thumb = slider:CreateTexture(nil, "ARTWORK")
+        slider:SetThumbTexture(thumb)
+    end
+    thumb:SetTexture("Interface\\Buttons\\WHITE8x8")
+    thumb:SetSize(8, 14)
+    self:SetTexturePaintKey(thumb, "color.control.thumb")
+    slider.gui2Thumb = thumb
+
+    if not slider.gui2SliderScripts then
+        slider.gui2SliderScripts = true
+        slider:HookScript("OnEnter", function(frame)
+            if frame.gui2Bg then GUI2:SetBorderColor(frame.gui2Bg, "color.border.accent") end
+        end)
+        slider:HookScript("OnLeave", function(frame)
+            if frame.gui2Bg then GUI2:SetBorderColor(frame.gui2Bg, "color.border.default") end
+        end)
+    end
+
+    slider.RefreshTheme = function(frame)
+        if frame.gui2Bg then GUI2:RefreshPrimitive(frame.gui2Bg) end
+        if frame.gui2Thumb then GUI2:SetTexturePaintKey(frame.gui2Thumb, "color.control.thumb") end
+    end
+    self:RegisterThemeObject(slider)
+    slider:RefreshTheme()
+    return slider
+end
+
+function GUI2:CreateSlider(parent, item)
+    if self.Form and self.Form.CreateSlider then
+        return self.Form:CreateSlider(parent, item or {})
+    end
+end
+
+function GUI2:CreateDropdownArrowGlyph(parent)
+    local marker = self:CreateTexture(parent, {
+        paint = "color.accent.primary",
+        layer = "ARTWORK",
+        width = 6,
+        height = 6,
+    })
+    marker.gui2Component = "DropdownIndicator"
+    return marker
+end
+
+function GUI2:SkinDropdownButton(button)
+    if not button then return end
+    if not button.bg then
+        button.bg = self:CreatePanel(button, {
+            surface = "color.control.bg",
+            border = "color.border.default",
+        })
+        button.bg:SetAllPoints()
+        button.bg:SetFrameLevel(math_max(button:GetFrameLevel() - 1, 0))
+    end
+
+    local text = button.GetFontString and button:GetFontString() or button.text
+    if not text then
+        text = self:CreateText(button, "", "font.size.md", "color.text.primary")
+        button.text = text
+    end
+    text:ClearAllPoints()
+    text:SetPoint("LEFT", 8, 0)
+    text:SetPoint("RIGHT", -24, 0)
+    text:SetJustifyH("LEFT")
+    text:SetWordWrap(false)
+    self:SetTextColorKey(text, "color.text.primary")
+
+    if not button.arrow then
+        button.arrow = self:CreateDropdownArrowGlyph(button)
+    end
+    button.arrow:ClearAllPoints()
+    button.arrow:SetPoint("RIGHT", -9, 0)
+
+    button.RefreshTheme = function(frame)
+        if frame.bg then GUI2:RefreshPrimitive(frame.bg) end
+        if frame.text then GUI2:SetTextColorKey(frame.text, "color.text.primary") end
+        if frame.arrow then GUI2:SetDropdownGlyphColor(frame.arrow, "color.accent.primary") end
+    end
+    button:SetScript("OnEnter", function(frame)
+        if frame.bg then GUI2:SetBorderColor(frame.bg, "color.border.accent") end
+        if frame.arrow then GUI2:SetDropdownGlyphColor(frame.arrow, "color.accent.primary") end
+    end)
+    button:SetScript("OnLeave", function(frame)
+        if frame.bg then GUI2:SetBorderColor(frame.bg, "color.border.default") end
+        if frame.arrow then GUI2:SetDropdownGlyphColor(frame.arrow, "color.accent.primary") end
+    end)
+    self:RegisterThemeObject(button)
+    button:RefreshTheme()
+    return button
+end
+
+local DROPDOWN_ANIMATION_KEY = "dropdown"
+local DROPDOWN_ANIMATION_DISTANCE = 10
+local DROPDOWN_ANIMATION_DURATION = 0.12
+
+local function PlayDropdownArrowMotion(anchor, open)
+    if not anchor or not anchor.arrow or not GUI2.PlayControlMotion then
+        return
+    end
+    GUI2:PlayControlMotion(anchor.arrow, "dropdown-arrow", {
+        owner = anchor,
+        durationKey = "quick",
+        effects = {
+            { type = "rotation", fromDegrees = open and 0 or 180, toDegrees = open and 180 or 0 },
+        },
+    })
+end
+
+function GUI2:CloseDropdown(animated)
+    local frame = self.DropdownFrame
+    if not frame then return false end
+    local anchor = frame.anchor
+
+    if frame.blocker then
+        frame.blocker:Hide()
+    end
+    frame.anchor = nil
+    PlayDropdownArrowMotion(anchor, false)
+
+    if not frame:IsShown() then
+        frame.gui2DropdownClosing = nil
+        return false
+    end
+
+    if animated ~= false and self.SlideOut then
+        frame.gui2DropdownClosing = true
+        frame:EnableMouse(false)
+        self:SlideOut(frame, {
+            owner = frame,
+            key = DROPDOWN_ANIMATION_KEY,
+            to = frame.gui2DropdownSlideOutTo or "top",
+            distance = DROPDOWN_ANIMATION_DISTANCE,
+            duration = DROPDOWN_ANIMATION_DURATION,
+            hide = true,
+            onFinished = function()
+                frame.gui2DropdownClosing = nil
+                frame:EnableMouse(true)
+            end,
+        })
+    else
+        frame.gui2DropdownClosing = nil
+        frame:EnableMouse(true)
+        frame:Hide()
+    end
+    return true
+end
+
+function GUI2:OpenDropdown(parent, options, onSelect, selectedValue, width, config)
+    if not parent or not options then return end
+    local rowHeight = 28
+    for _, option in ipairs(options) do
+        if type(option.description) == "string" and option.description ~= "" then rowHeight = 46; break end
+    end
+    local menuPadding = 2
+    local checkColumnWidth = 18
+    local checkSize = 6
+    local checkInset = 6
+    local previewLeftInset = 14
+    local previewBorderInset = 2
+    local optionIconSize = 18
+    local optionIconGap = 6
+    local actionButtonSize = 22
+    local actionButtonGap = 4
+    local actionButtonInset = 4
+    local maxMenuHeight = 300
+    local searchHeight = config and 38 or 0
+    local needsScrollBar = (#options * rowHeight) > (maxMenuHeight - searchHeight - (menuPadding * 2))
+    local scrollRightInset = needsScrollBar and 16 or menuPadding
+
+    local function HasOptionIcon(option)
+        return type(option) == "table" and (option.iconData ~= nil or option.icon ~= nil or option.texture ~= nil or option.atlas ~= nil)
+    end
+
+    local function ApplyOptionIcon(texture, option)
+        if not texture or not HasOptionIcon(option) then return false end
+
+        local function ApplyIconColor()
+            local color = option.iconColor
+            if type(color) == "table" then
+                texture:SetVertexColor(
+                    color.r or color[1] or 1,
+                    color.g or color[2] or 1,
+                    color.b or color[3] or 1,
+                    color.a or color[4] or 1
+                )
+            else
+                texture:SetVertexColor(1, 1, 1, 1)
+            end
+        end
+
+        local iconData = option.iconData
+        local icons = YUI.API and YUI.API.Icons
+        if type(iconData) == "table" and icons and icons.ApplyIcon and icons.ApplyIcon(texture, iconData) then
+            local texCoord = option.texCoord or option.texCoords
+            if texCoord then
+                texture:SetTexCoord(unpack(texCoord))
+            end
+            ApplyIconColor()
+            texture:SetAlpha(1)
+            texture:Show()
+            return true
+        end
+
+        if option.atlas and texture.SetAtlas then
+            texture:SetTexture(nil)
+            texture:SetAtlas(option.atlas, false)
+        else
+            local source = option.icon or option.texture
+            if source == nil then return false end
+            texture:SetTexture(source)
+        end
+        local texCoord = option.texCoord or option.texCoords
+        if texCoord then
+            texture:SetTexCoord(unpack(texCoord))
+        else
+            texture:SetTexCoord(0, 1, 0, 1)
+        end
+        ApplyIconColor()
+        texture:SetAlpha(1)
+        texture:SetBlendMode(option.blendMode or "BLEND")
+        texture:Show()
+        return true
+    end
+
+    local function LayoutOptionIcon(row, option)
+        local textLeft = checkColumnWidth
+        if row.optionIcon then
+            row.optionIcon:Hide()
+            row.optionIcon:SetTexture(nil)
+        end
+        if HasOptionIcon(option) and row.optionIcon then
+            local size = option.iconSize or optionIconSize
+            row.optionIcon:SetSize(size, size)
+            row.optionIcon:ClearAllPoints()
+            row.optionIcon:SetPoint("LEFT", checkColumnWidth + 2, 0)
+            if ApplyOptionIcon(row.optionIcon, option) then
+                textLeft = checkColumnWidth + 2 + size + optionIconGap
+            end
+        end
+        return textLeft
+    end
+
+    local function HasOptionAction(option)
+        return type(option) == "table" and type(option.actionFunc) == "function"
+    end
+
+    local function RefreshOptionActionButton(row, option)
+        if not row then return 0 end
+        if not HasOptionAction(option) then
+            if row.actionButton then
+                row.actionButton:Hide()
+                row.actionButton.gui2DropdownOption = nil
+                if row.actionButton.hoverIcon then row.actionButton.hoverIcon:Hide() end
+            end
+            return 0
+        end
+
+        if not row.actionButton then
+            local action = CreateFrame("Button", nil, row, "BackdropTemplate")
+            action:RegisterForClicks("AnyUp")
+            if action.SetPropagateMouseClicks then
+                action:SetPropagateMouseClicks(false)
+            end
+            action.bg = self:CreatePanel(action, {
+                surface = "color.control.bg",
+                border = "color.border.default",
+            })
+            action.bg:SetAllPoints()
+            if action.bg.SetFrameLevel and action.GetFrameLevel then
+                action.bg:SetFrameLevel((action:GetFrameLevel() or 0) + 1)
+            end
+            action.icon = self:CreateIcon(action.bg, {
+                atlas = option.actionAtlas or option.actionIconAtlas,
+                icon = option.actionIcon or option.actionTexture,
+                crop = false,
+                fillParent = true,
+                padding = option.actionIconPadding or 5,
+            })
+            row.actionButton = action
+        end
+
+        local action = row.actionButton
+        local size = option.actionSize or actionButtonSize
+        action:SetSize(size, size)
+        action:ClearAllPoints()
+        action:SetPoint("RIGHT", row, "RIGHT", -actionButtonInset, 0)
+        action.gui2DropdownOption = option
+        if action.bg and action.bg.SetFrameLevel and action.GetFrameLevel then
+            action.bg:SetFrameLevel((action:GetFrameLevel() or 0) + 1)
+        end
+        if action.icon then
+            local actionMicroIcon = option.actionMicroIcon or option.actionMicroIconName
+            local actionPadding = option.actionIconPadding or 5
+            if actionMicroIcon then
+                local maxIconSize = math_max(size - actionPadding * 2, 1)
+                local targetIconSize = option.actionMicroIconSize or math_min(maxIconSize, 16)
+                local displaySize = ResolveMicroIconDisplaySize(action.bg or action, targetIconSize, maxIconSize, option.actionMicroIconMinPhysicalPixels)
+                self:ApplyMicroIcon(action.icon, actionMicroIcon, targetIconSize)
+                action.icon:ClearAllPoints()
+                action.icon:SetPoint("CENTER")
+                action.icon:SetSize(displaySize, displaySize)
+            elseif (option.actionAtlas or option.actionIconAtlas) and action.icon.SetAtlas then
+                action.icon:ClearAllPoints()
+                action.icon:SetPoint("TOPLEFT", actionPadding, -actionPadding)
+                action.icon:SetPoint("BOTTOMRIGHT", -actionPadding, actionPadding)
+                action.icon:SetTexture(nil)
+                action.icon:SetAtlas(option.actionAtlas or option.actionIconAtlas, false)
+            elseif option.actionIcon or option.actionTexture then
+                action.icon:ClearAllPoints()
+                action.icon:SetPoint("TOPLEFT", actionPadding, -actionPadding)
+                action.icon:SetPoint("BOTTOMRIGHT", -actionPadding, actionPadding)
+                action.icon:SetTexture(nil)
+                action.icon:SetTexture(option.actionIcon or option.actionTexture)
+                if action.icon.SetTexCoord then
+                    action.icon:SetTexCoord(0, 1, 0, 1)
+                end
+            else
+                action.icon:ClearAllPoints()
+                action.icon:SetPoint("TOPLEFT", actionPadding, -actionPadding)
+                action.icon:SetPoint("BOTTOMRIGHT", -actionPadding, actionPadding)
+                self:SetIconTexture(action.icon, nil)
+                if action.icon.SetTexCoord then
+                    action.icon:SetTexCoord(unpack(DEFAULT_ICON_TEXCOORDS))
+                end
+            end
+            if action.icon.SetVertexColor and self.GetColor then
+                if option.actionOriginalColor then action.icon:SetVertexColor(1, 1, 1)
+                else action.icon:SetVertexColor(self:GetColor("color.text.accent")) end
+            end
+            action.icon:Show()
+        end
+        if action.hoverIcon then
+            action.hoverIcon:Hide()
+            action.hoverIcon:SetTexture(nil)
+        end
+        if option.actionHighlightTexture then
+            if not action.hoverIcon then
+                action.hoverIcon = self:CreateTexture(action.bg, { layer = "OVERLAY" })
+            end
+            action.hoverIcon:ClearAllPoints()
+            action.hoverIcon:SetAllPoints(action.icon)
+            action.hoverIcon:SetTexture(option.actionHighlightTexture)
+            action.hoverIcon:SetVertexColor(1, 1, 1)
+            action.hoverIcon:Hide()
+        end
+        action:SetScript("OnClick", function(button)
+            local actionOption = button.gui2DropdownOption
+            if actionOption and actionOption.actionFunc then
+                actionOption.actionFunc(actionOption, row, button)
+            end
+        end)
+        action:SetScript("OnEnter", function(button)
+            if button.hoverIcon and button.gui2DropdownOption and button.gui2DropdownOption.actionHighlightTexture then button.hoverIcon:Show() end
+            if button.bg then GUI2:SetBorderColor(button.bg, "color.border.accent") end
+            local actionOption = button.gui2DropdownOption
+            if GameTooltip and actionOption and actionOption.actionTooltip then
+                GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+                GameTooltip:SetText(actionOption.actionTooltip, 1, 1, 1, 1, true)
+                GameTooltip:Show()
+            end
+        end)
+        action:SetScript("OnLeave", function(button)
+            if button.hoverIcon then button.hoverIcon:Hide() end
+            if button.bg then GUI2:SetBorderColor(button.bg, "color.border.default") end
+            if GameTooltip and GameTooltip:IsOwned(button) then
+                YUI.HideGameTooltip()
+            end
+        end)
+        action:Show()
+        return size + actionButtonGap + actionButtonInset
+    end
+
+    if not self.DropdownFrame then
+        local frame = self:CreatePanel(UIParent, {
+            name = "YUI_GUI2_DropdownMenu",
+            surface = "color.surface.popup",
+            border = "color.popup.border",
+            shadow = true,
+        })
+        frame:SetFrameStrata("TOOLTIP")
+        frame:SetFrameLevel(9000)
+        frame:SetClampedToScreen(true)
+        frame:EnableMouse(true)
+        frame:Hide()
+        self:EnableEscapeClose(frame, function()
+            GUI2:CloseDropdown(true)
+        end)
+
+        local blocker = self:CreateFrame(UIParent, {
+            type = "Button",
+            frameStrata = "TOOLTIP",
+            frameLevel = 8900,
+            allPoints = true,
+            mouse = true,
+            hidden = true,
+        })
+        blocker:SetScript("OnClick", function()
+            GUI2:CloseDropdown(true)
+        end)
+        frame.blocker = blocker
+
+        local scroll = self:CreateScrollFrame(frame, {
+            template = "UIPanelScrollFrameTemplate",
+        })
+        scroll:SetPoint("TOPLEFT", menuPadding, -menuPadding)
+        scroll:SetPoint("BOTTOMRIGHT", -menuPadding, menuPadding)
+        frame.scrollFrame = scroll
+        frame.scrollChild = scroll.child
+        frame.buttons = {}
+        frame:SetScript("OnHide", function()
+            if frame.blocker then frame.blocker:Hide() end
+            if frame.searchBox then frame.searchBox:ClearFocus() end
+            frame.FilterOptions=nil
+            frame.anchor = nil
+            frame.gui2DropdownClosing = nil
+            frame:EnableMouse(true)
+        end)
+        self.DropdownFrame = frame
+    end
+
+    local frame = self.DropdownFrame
+    if frame:IsShown() and frame.anchor == parent then
+        self:CloseDropdown(true)
+        return true
+    end
+
+    if frame:IsShown() and frame.anchor and frame.anchor ~= parent then
+        PlayDropdownArrowMotion(frame.anchor, false)
+    end
+
+    frame.gui2DropdownClosing = nil
+    frame:EnableMouse(true)
+    frame.anchor = parent
+    frame:SetParent(UIParent)
+    local settings = YUI.Settings
+    if settings and settings.SyncOwnedWindowScale then
+        settings:SyncOwnedWindowScale(frame, parent)
+    end
+
+    local dropdownWidth = width or parent:GetWidth() or 160
+    local contentWidth = math_max(dropdownWidth - menuPadding - scrollRightInset, 1)
+    frame:SetWidth(dropdownWidth)
+    frame.scrollFrame:ClearAllPoints()
+    frame.scrollFrame:SetPoint("TOPLEFT", menuPadding, -menuPadding-searchHeight)
+    frame.scrollFrame:SetPoint("BOTTOMRIGHT", -scrollRightInset, menuPadding)
+    frame.scrollChild:SetWidth(contentWidth)
+
+    for _, button in ipairs(frame.buttons) do
+        button:Hide()
+    end
+
+    local function UpdateDropdownSeparator(row, index)
+        if not row or not row.separator then return end
+        local rowOption = options[index]
+        local nextOption = options[index + 1]
+        local rowSelected = rowOption and (rowOption.checked == true or (selectedValue ~= nil and rowOption.value == selectedValue))
+        local nextSelected = nextOption and (nextOption.checked == true or (selectedValue ~= nil and nextOption.value == selectedValue))
+        if index < #options and rowOption and not rowSelected and not nextSelected then
+            row.separator:Show()
+        else
+            row.separator:Hide()
+        end
+    end
+
+    local function HasDropdownPreview(row)
+        return row and row.bgPreview and row.bgPreview:IsShown()
+    end
+
+    local function LayoutDropdownPreview(row)
+        if not HasDropdownPreview(row) then
+            if row and row.gui2Borders then
+                SetBorderTextureVisibility(row, false)
+            end
+            return false
+        end
+        row.bgPreview:ClearAllPoints()
+        row.bgPreview:SetPoint("TOPLEFT", previewLeftInset, -previewBorderInset)
+        row.bgPreview:SetPoint("BOTTOMRIGHT", -previewBorderInset, previewBorderInset)
+        if row.text then
+            row.text:ClearAllPoints()
+            row.text:SetPoint("LEFT", previewLeftInset + 8, 0)
+            row.text:SetPoint("RIGHT", -10, 0)
+            row.text:SetWidth(math_max(row:GetWidth() - previewLeftInset - 18, 1))
+        end
+        if row.optionIcon then
+            row.optionIcon:Hide()
+        end
+        if row.selectedEdge then
+            row.selectedEdge:Hide()
+        end
+        return true
+    end
+
+    local function SetDropdownPreviewState(row, state)
+        if not LayoutDropdownPreview(row) then return false end
+        if not row.gui2Borders then
+            self:CreateBorder(row, "color.border.accent")
+        end
+        if state == "hover" then
+            self:SetBorderColor(row, "color.border.focus")
+            SetBorderTextureVisibility(row, true)
+        elseif row.gui2Selected then
+            self:SetBorderColor(row, "color.border.accent")
+            SetBorderTextureVisibility(row, true)
+        else
+            SetBorderTextureVisibility(row, false)
+        end
+        return true
+    end
+
+    local height = 0
+    local selectedIndex
+    for i, option in ipairs(options) do
+        local opt = option
+        local rowIndex = i
+        local button = frame.buttons[i]
+        if not button then
+            button = self:CreateButtonFrame(frame.scrollChild, {
+                template = "BackdropTemplate",
+                height = rowHeight,
+                radiusKey = "layout.radius.control",
+                preserveTextPoint = true,
+            })
+            local rowBg = self:CreateTexture(button, "color.surface.popup", "BACKGROUND")
+            rowBg:SetAllPoints(button)
+            button.rowBg = rowBg
+
+            local check = self:CreateTexture(button, "color.accent.primary", "OVERLAY")
+            check:SetSize(checkSize, checkSize)
+            check:SetPoint("LEFT", checkInset, 0)
+            button.check = check
+
+            local optionIcon = self:CreateTexture(button, { layer = "ARTWORK" })
+            optionIcon:Hide()
+            button.optionIcon = optionIcon
+
+            local selectedEdge = self:CreateTexture(button, "color.border.accent", "OVERLAY")
+            selectedEdge:SetPoint("TOPLEFT", 0, 0)
+            selectedEdge:SetPoint("BOTTOMLEFT", 0, 0)
+            selectedEdge:SetWidth(GetPixelSize(button, 2, 1))
+            selectedEdge:Hide()
+            button.selectedEdge = selectedEdge
+
+            local label = self:CreateText(button, "", "font.size.md", "color.text.primary")
+            label:SetPoint("LEFT", checkColumnWidth, 0)
+            label:SetPoint("RIGHT", -10, 0)
+            label:SetJustifyH("LEFT")
+            label:SetWordWrap(false)
+            button.text = label
+
+            local separator = button:CreateTexture(nil, "OVERLAY")
+            PreparePixelTexture(separator)
+            separator:SetPoint("BOTTOMLEFT", checkColumnWidth, 0)
+            separator:SetPoint("BOTTOMRIGHT", -8, 0)
+            separator:SetHeight(GetPixelSize(button, 1, 1))
+            button.separator = separator
+            frame.buttons[i] = button
+        end
+
+        button:Show()
+        button:SetPoint("TOPLEFT", 0, -height)
+        button:SetPoint("TOPRIGHT", 0, -height)
+        button:SetHeight(rowHeight)
+        button:SetWidth(contentWidth)
+        local isSelected = opt.checked == true or (selectedValue ~= nil and opt.value == selectedValue)
+        button.gui2Selected = isSelected
+        if button.gui2Selected then
+            selectedIndex = rowIndex
+        end
+        local textLeft = LayoutOptionIcon(button, opt)
+        local actionWidth = RefreshOptionActionButton(button, opt)
+        local textRight = -(10 + actionWidth)
+        if button.text then
+            button.text:ClearAllPoints()
+            button.text:SetPoint("LEFT", textLeft, 0)
+            button.text:SetPoint("RIGHT", textRight, 0)
+            button.text:SetWidth(math_max(button:GetWidth() - textLeft - 10 - actionWidth, 1))
+            button.text:SetFont(self:GetFont("font.family.body"), self:GetMetric("font.size.md", 13), "")
+            button.text:SetJustifyH("LEFT")
+            button.text:SetWordWrap(false)
+        end
+        if button.rowBg then
+            self:SetTexturePaintKey(button.rowBg, isSelected and "color.control.active" or "color.surface.popup")
+        end
+        if button.selectedEdge then
+            if isSelected then
+                button.selectedEdge:Show()
+                self:SetTexturePaintKey(button.selectedEdge, "color.border.accent")
+            else
+                button.selectedEdge:Hide()
+            end
+        end
+        if button.separator then
+            button.separator:SetColorTexture(self:GetColor("color.border.subtle"))
+            button.separator:ClearAllPoints()
+            button.separator:SetPoint("BOTTOMLEFT", textLeft, 0)
+            button.separator:SetPoint("BOTTOMRIGHT", -(8 + actionWidth), 0)
+            UpdateDropdownSeparator(button, rowIndex)
+        end
+        button.text:SetText(opt.text or "")
+        if button.description then button.description:Hide() end
+        if type(opt.description) == "string" and opt.description ~= "" then
+            if not button.description then
+                button.description = self:CreateText(button, "", "font.size.sm", "color.text.secondary")
+                button.description:SetJustifyH("LEFT")
+                button.description:SetWordWrap(false)
+            end
+            button.text:ClearAllPoints()
+            button.text:SetPoint("TOPLEFT", textLeft, -5)
+            button.text:SetPoint("TOPRIGHT", textRight, -5)
+            button.description:ClearAllPoints()
+            button.description:SetPoint("BOTTOMLEFT", textLeft, 5)
+            button.description:SetPoint("BOTTOMRIGHT", textRight, 5)
+            button.description:SetText(opt.description)
+            button.description:Show()
+        end
+        if isSelected then
+            button.check:Show()
+        else
+            button.check:Hide()
+        end
+        self:SetTextColorKey(button.text, isSelected and "color.text.accent" or "color.text.primary")
+        if button.check then
+            self:SetTexturePaintKey(button.check, "color.accent.primary")
+        end
+
+        if button.bgPreview then
+            button.bgPreview:Hide()
+            button.bgPreview:SetTexture(nil)
+        end
+        if opt.render then
+            opt.render(button)
+        end
+        local isPreviewRow = SetDropdownPreviewState(button, button.gui2Selected and "selected" or "normal")
+        if isPreviewRow and button.rowBg then
+            self:SetTexturePaintKey(button.rowBg, "color.surface.popup")
+        end
+
+        button:SetScript("OnClick", function()
+            GUI2:CloseDropdown(false)
+            if opt.func then opt.func() end
+            if onSelect then onSelect(opt.value, opt) end
+        end)
+        button:SetScript("OnEnter", function(self)
+            local previewRow = SetDropdownPreviewState(self, "hover")
+            if self.rowBg and not previewRow then GUI2:SetTexturePaintKey(self.rowBg, "color.control.hover") end
+            if self.selectedEdge then
+                if previewRow then
+                    self.selectedEdge:Hide()
+                else
+                    self.selectedEdge:Show()
+                    GUI2:SetTexturePaintKey(self.selectedEdge, "color.border.accent")
+                end
+            end
+            local previous = frame.buttons[rowIndex - 1]
+            if previous and previous.separator then previous.separator:Hide() end
+            if self.separator then self.separator:Hide() end
+            if self.text then GUI2:SetTextColorKey(self.text, "color.text.accent") end
+        end)
+        button:SetScript("OnLeave", function(self)
+            local previewRow = SetDropdownPreviewState(self, self.gui2Selected and "selected" or "normal")
+            if self.rowBg then
+                GUI2:SetTexturePaintKey(self.rowBg, previewRow and "color.surface.popup" or (self.gui2Selected and "color.control.active" or "color.surface.popup"))
+            end
+            if self.selectedEdge then
+                if previewRow then
+                    self.selectedEdge:Hide()
+                elseif self.gui2Selected then
+                    self.selectedEdge:Show()
+                    GUI2:SetTexturePaintKey(self.selectedEdge, "color.border.accent")
+                else
+                    self.selectedEdge:Hide()
+                end
+            end
+            UpdateDropdownSeparator(frame.buttons[rowIndex - 1], rowIndex - 1)
+            UpdateDropdownSeparator(self, rowIndex)
+            if self.text then GUI2:SetTextColorKey(self.text, self.gui2Selected and "color.text.accent" or "color.text.primary") end
+        end)
+        height = height + rowHeight
+    end
+
+    frame.scrollChild:SetHeight(height)
+    local finalHeight = math_min(height + searchHeight + (menuPadding * 2), maxMenuHeight)
+    frame:SetHeight(finalHeight)
+    -- Native wheel handling reads the slider range, which may still be zero
+    -- while a newly built, hidden menu is waiting for OnScrollRangeChanged.
+    local rangeBar = GetScrollFrameScrollBar(frame.scrollFrame)
+    if rangeBar then
+        rangeBar:SetMinMaxValues(0, math_max(0, height - (finalHeight - searchHeight - menuPadding * 2)))
+        rangeBar:SetValue(0)
+    end
+    frame.scrollFrame:SetVerticalScroll(0)
+
+    local openFrom = "top"
+    local closeTo = "top"
+    local parentBottom = parent.GetBottom and parent:GetBottom()
+    local parentTop = parent.GetTop and parent:GetTop()
+    local screenHeight = UIParent and UIParent.GetHeight and UIParent:GetHeight()
+    if frame.yuiSettingsScaleRoot then
+        local menuScale = frame:GetEffectiveScale()
+        local anchorScale = parent:GetEffectiveScale() / menuScale
+        parentBottom = parentBottom and parentBottom * anchorScale
+        parentTop = parentTop and parentTop * anchorScale
+        screenHeight = screenHeight and screenHeight * UIParent:GetEffectiveScale() / menuScale
+    end
+    frame:ClearAllPoints()
+    if parentBottom and parentTop and screenHeight and parentBottom - finalHeight - 8 < 0 and screenHeight - parentTop > finalHeight + 8 then
+        frame:SetPoint("BOTTOMLEFT", parent, "TOPLEFT", 0, 2)
+        openFrom = "bottom"
+        closeTo = "bottom"
+    else
+        frame:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", 0, -2)
+    end
+    frame.gui2DropdownSlideOutTo = closeTo
+
+    local function AlignDropdownScrollBar()
+        local scrollBar = GetScrollFrameScrollBar(frame.scrollFrame)
+        if not scrollBar then return end
+
+        scrollBar:ClearAllPoints()
+        scrollBar:SetPoint("TOPLEFT", frame.scrollFrame, "TOPRIGHT", 4, 0)
+        scrollBar:SetPoint("BOTTOMLEFT", frame.scrollFrame, "BOTTOMRIGHT", 4, 0)
+        scrollBar:SetWidth(10)
+        scrollBar.gui2ThumbWidth = 4
+        scrollBar.gui2MinThumbHeight = 14
+        if scrollBar.gui2Track then
+            scrollBar.gui2Track:Hide()
+        end
+        if scrollBar.ScrollUpButton then scrollBar.ScrollUpButton:Hide() end
+        if scrollBar.ScrollDownButton then scrollBar.ScrollDownButton:Hide() end
+        if scrollBar.UpdateVisualTrack then scrollBar:UpdateVisualTrack() end
+        if scrollBar.UpdateVisualThumb then scrollBar:UpdateVisualThumb() end
+    end
+
+    if needsScrollBar then
+        AlignDropdownScrollBar()
+        if frame.scrollFrame.ScrollBar then frame.scrollFrame.ScrollBar:Show() end
+        if selectedIndex and selectedIndex > 1 then
+            local viewportHeight = finalHeight - searchHeight - (menuPadding * 2)
+            local selectedTop = (selectedIndex - 1) * rowHeight
+            local selectedBottom = selectedTop + rowHeight
+            if selectedBottom > viewportHeight then
+                local maxScroll = math_max(0, height - viewportHeight)
+                local targetScroll = selectedTop - math_floor((viewportHeight - rowHeight) / 2)
+                targetScroll = math_max(0, math_min(maxScroll, targetScroll))
+                frame.scrollFrame:SetVerticalScroll(targetScroll)
+            end
+        end
+    else
+        if frame.scrollFrame.ScrollBar then
+            if frame.scrollFrame.ScrollBar.visualThumb then frame.scrollFrame.ScrollBar.visualThumb:Hide() end
+            frame.scrollFrame.ScrollBar:Hide()
+        end
+    end
+
+    -- Search filters the existing menu rows; no second popup or selection model.
+    if config then
+        if not frame.searchBox then
+            frame.searchBox=self.Form:CreateEditBox(frame,{height=28,width=100,searchPlaceholder=true,
+                placeholder=config.searchPlaceholder or '',onChange=function(_,query)
+                    if frame.FilterOptions then frame:FilterOptions(query) end
+                end})
+            frame.searchBox:SetScript('OnEscapePressed',function() GUI2:CloseDropdown(true) end)
+            frame.searchEmpty=self:CreateText(frame,'','font.size.md','color.text.secondary')
+            frame.searchEmpty:SetPoint('TOPLEFT',12,-searchHeight-8)
+        end
+        frame.searchBox:ClearAllPoints();frame.searchBox:SetPoint('TOPLEFT',8,-6)
+        frame.searchBox:SetWidth(dropdownWidth-16);frame.searchBox:Show()
+        frame.searchBox:SetValue('',true)
+        for i,option in ipairs(options) do
+            frame.buttons[i].searchText=tostring(option.text or option.value or ''):gsub('|c%x%x%x%x%x%x%x%x',''):gsub('|r',''):gsub('|T.-|t',''):gsub('|A.-|a',''):lower()
+        end
+        function frame:FilterOptions(query)
+            query=(query or ''):lower()
+            local count=0
+            for i=1,#options do
+                local row=self.buttons[i]
+                local matches=query=='' or row.searchText:find(query,1,true)~=nil
+                row:SetShown(matches)
+                if matches then
+                    row:ClearAllPoints();row:SetPoint('TOPLEFT',0,-count*rowHeight);row:SetPoint('TOPRIGHT',0,-count*rowHeight)
+                    count=count+1
+                end
+            end
+            self.scrollChild:SetHeight(math_max(1,count*rowHeight))
+            local bar=GetScrollFrameScrollBar(self.scrollFrame)
+            local range=math_max(0,count*rowHeight-(finalHeight-searchHeight-menuPadding*2))
+            if bar then bar:SetMinMaxValues(0,range);bar:SetValue(0);bar:SetShown(range>0) end
+            self.scrollFrame:SetVerticalScroll(0)
+            self.searchEmpty:SetText(config.emptyText or '')
+            self.searchEmpty:SetShown(count==0)
+        end
+        frame.searchEmpty:Hide()
+    else
+        frame.FilterOptions=nil
+        if frame.searchBox then frame.searchBox:ClearFocus();frame.searchBox:Hide();frame.searchEmpty:Hide() end
+    end
+
+    self:RefreshPrimitive(frame)
+    frame:Show()
+    if config then frame.searchBox:SetFocus() end
+    local scrollBar = GetScrollFrameScrollBar(frame.scrollFrame)
+    if scrollBar and scrollBar.UpdateVisualThumb then scrollBar:UpdateVisualThumb() end
+    if frame.blocker then frame.blocker:Show() end
+    PlayDropdownArrowMotion(parent, true)
+    if self.SlideIn then
+        self:SlideIn(frame, {
+            owner = frame,
+            key = DROPDOWN_ANIMATION_KEY,
+            from = openFrom,
+            distance = DROPDOWN_ANIMATION_DISTANCE,
+            duration = DROPDOWN_ANIMATION_DURATION,
+        })
+    elseif frame.SetAlpha then
+        frame:SetAlpha(1)
+    end
+    return true
+end
+
+function GUI2:CreateDropdown(parent, item)
+    if self.Form and self.Form.CreateDropdown then
+        return self.Form:CreateDropdown(parent, item or {})
+    end
+end
+
+function GUI2:SkinEditBox(editbox)
+    if not editbox then return end
+
+    if editbox.SetBackdrop then
+        editbox:SetBackdrop(nil)
+    end
+
+    if editbox.GetName then
+        local name = editbox:GetName()
+        if name then
+            local left = _G[name .. "Left"]
+            local middle = _G[name .. "Middle"]
+            local right = _G[name .. "Right"]
+            if left then left:Hide() end
+            if middle then middle:Hide() end
+            if right then right:Hide() end
+        end
+    end
+
+    if not editbox.gui2Bg then
+        local bg = self:CreatePanel(editbox, {
+            surface = "color.control.bg",
+            border = "color.border.default",
+        })
+        bg:SetPoint("TOPLEFT", -2, 0)
+        bg:SetPoint("BOTTOMRIGHT", 2, 0)
+        bg:SetFrameLevel(math_max(editbox:GetFrameLevel() - 1, 0))
+        editbox.gui2Bg = bg
+    end
+
+    if editbox.SetTextColor then
+        editbox:SetTextColor(self:GetColor("color.text.primary"))
+    end
+    if editbox.SetFont then
+        editbox:SetFont(self:GetFont("font.family.body"), self:GetMetric("font.size.md", 13), "")
+    end
+
+    if not editbox.gui2EditBoxScripts then
+        editbox.gui2EditBoxScripts = true
+        editbox:HookScript("OnEnter", function(frame)
+            if frame.gui2Bg then GUI2:SetBorderColor(frame.gui2Bg, "color.border.accent") end
+        end)
+        editbox:HookScript("OnLeave", function(frame)
+            if frame.gui2Bg and not frame:HasFocus() then GUI2:SetBorderColor(frame.gui2Bg, "color.border.default") end
+        end)
+        editbox:HookScript("OnEditFocusGained", function(frame)
+            if frame.gui2Bg then GUI2:SetBorderColor(frame.gui2Bg, "color.border.focus") end
+        end)
+        editbox:HookScript("OnEditFocusLost", function(frame)
+            if frame.gui2Bg then GUI2:SetBorderColor(frame.gui2Bg, "color.border.default") end
+        end)
+    end
+
+    editbox.RefreshTheme = function(frame)
+        if frame.gui2Bg then GUI2:RefreshPrimitive(frame.gui2Bg) end
+        if frame.SetTextColor then frame:SetTextColor(GUI2:GetColor("color.text.primary")) end
+    end
+    self:RegisterThemeObject(editbox)
+    editbox:RefreshTheme()
+    return editbox
+end
+
+function GUI2:CreateEditBox(parent, opts)
+    opts = opts or {}
+    if self.Form and self.Form.CreateEditBox then
+        local editbox = self.Form:CreateEditBox(parent, opts)
+        self:SkinEditBox(editbox)
+        return editbox
+    end
+end
+
+function GUI2:CreateColorPicker(parent, item)
+    if self.Form and self.Form.CreateColorPicker then
+        return self.Form:CreateColorPicker(parent, item or {})
+    end
+end
+
+function GUI2:SkinCheckBox(cb)
+    if not cb then return end
+
+    if cb.SetNormalTexture then cb:SetNormalTexture("") end
+    if cb.SetPushedTexture then cb:SetPushedTexture("") end
+    if cb.SetHighlightTexture then cb:SetHighlightTexture("") end
+    if cb.SetBackdrop then cb:SetBackdrop(nil) end
+
+    if not cb.bg then
+        cb.bg = self:CreatePanel(cb, {
+            width = 16,
+            height = 16,
+            surface = "color.control.bg",
+            border = "color.border.default",
+        })
+        cb.bg:SetPoint("LEFT", 0, 0)
+        cb.bg:SetFrameLevel(cb:GetFrameLevel())
+    end
+
+    if not cb.gui2Check then
+        cb.gui2Check = self:CreateTexture(cb, "color.text.accent", "ARTWORK")
+        cb.gui2Check:SetPoint("TOPLEFT", cb.bg, "TOPLEFT", 3, -3)
+        cb.gui2Check:SetPoint("BOTTOMRIGHT", cb.bg, "BOTTOMRIGHT", -3, 3)
+        if cb.SetCheckedTexture then cb:SetCheckedTexture(cb.gui2Check) end
+    end
+
+    if cb.text then
+        cb.text:ClearAllPoints()
+        cb.text:SetPoint("LEFT", cb.bg, "RIGHT", 6, -1)
+        self:SetTextColorKey(cb.text, "color.text.primary")
+    end
+
+    cb.RefreshTheme = function(frame)
+        if frame.bg then
+            frame.bg.gui2Surface = frame:GetChecked() and "color.control.active" or "color.control.bg"
+            GUI2:RefreshPrimitive(frame.bg)
+            GUI2:SetBorderColor(frame.bg, frame:GetChecked() and "color.border.accent" or "color.border.default")
+        end
+        if frame.gui2Check then GUI2:SetTexturePaintKey(frame.gui2Check, "color.text.accent") end
+        if frame.text then GUI2:SetTextColorKey(frame.text, "color.text.primary") end
+    end
+    if not cb.gui2CheckBoxScripts then
+        cb.gui2CheckBoxScripts = true
+        cb:HookScript("OnEnter", function(frame)
+            if frame.bg then GUI2:SetBorderColor(frame.bg, "color.border.accent") end
+        end)
+        cb:HookScript("OnLeave", function(frame)
+            if frame.bg then GUI2:SetBorderColor(frame.bg, frame:GetChecked() and "color.border.accent" or "color.border.default") end
+        end)
+        cb:HookScript("OnClick", function(frame)
+            if frame.RefreshTheme then frame:RefreshTheme() end
+        end)
+    end
+    self:RegisterThemeObject(cb)
+    cb:RefreshTheme()
+    return cb
+end
+
+function GUI2:CreateCheckBox(parent, item)
+    if self.Form and self.Form.CreateCheckbox then
+        return self.Form:CreateCheckbox(parent, item or {})
+    end
+end
+
+GetScrollFrameScrollBar = function(scrollFrame)
+    if not scrollFrame then return end
+    local scrollBar = scrollFrame.ScrollBar
+    if not scrollBar and scrollFrame.GetName then
+        local name = scrollFrame:GetName()
+        if name then
+            scrollBar = _G[name .. "ScrollBar"]
+        end
+    end
+    return scrollBar
+end
+
+local function UpdateVisualScrollThumb(scrollBar)
+    if not scrollBar or not scrollBar.visualThumb then return end
+
+    local scrollFrame = scrollBar.gui2ScrollFrame
+    local trackHeight = scrollBar.GetHeight and scrollBar:GetHeight() or 0
+    if not trackHeight or trackHeight <= 0 then return end
+
+    local viewportHeight = scrollFrame and scrollFrame.GetHeight and scrollFrame:GetHeight() or trackHeight
+    if not viewportHeight or viewportHeight <= 0 then
+        viewportHeight = trackHeight
+    end
+
+    local contentHeight
+    local scrollChild = scrollFrame and ((scrollFrame.GetScrollChild and scrollFrame:GetScrollChild()) or scrollFrame.scrollChild or scrollFrame.child)
+    if scrollChild and scrollChild.GetHeight then
+        contentHeight = scrollChild:GetHeight()
+    end
+
+    local minValue, maxValue = 0, 0
+    if scrollBar.GetMinMaxValues then
+        minValue, maxValue = scrollBar:GetMinMaxValues()
+    end
+    local range = math_max(0, (maxValue or 0) - (minValue or 0))
+    if scrollFrame and scrollFrame.GetVerticalScrollRange then
+        range = math_max(range, scrollFrame:GetVerticalScrollRange() or 0)
+    end
+    if contentHeight and contentHeight > 0 then
+        range = math_max(range, contentHeight - viewportHeight)
+    end
+    contentHeight = math_max(contentHeight or 0, viewportHeight + range)
+
+    if range <= 0 or contentHeight <= viewportHeight then
+        if scrollBar.visualThumb:IsShown() then scrollBar.visualThumb:Hide() end
+        return
+    end
+
+    local minThumbHeight = math_min(trackHeight, scrollBar.gui2MinThumbHeight or 16)
+    local thumbHeight = math_floor(trackHeight * (viewportHeight / contentHeight) + 0.5)
+    thumbHeight = math_max(minThumbHeight, math_min(trackHeight, thumbHeight))
+
+    local value = scrollFrame and scrollFrame.GetVerticalScroll and scrollFrame:GetVerticalScroll() or 0
+    if scrollBar.GetValue then
+        value = math_max(value, (scrollBar:GetValue() or 0) - (minValue or 0))
+    end
+    value = math_max(0, math_min(range, value))
+
+    local movableHeight = math_max(0, trackHeight - thumbHeight)
+    local offset = range > 0 and math_floor((value / range) * movableHeight + 0.5) or 0
+    local thumbWidth = GetPixelSize(scrollBar, scrollBar.gui2ThumbWidth or 4, 1)
+
+    -- Value/range/vertical-scroll callbacks can report the same geometry.
+    -- Keep position and size writes independent: ordinary scrolling only moves.
+    if scrollBar.gui2VisualThumbOffset ~= offset then
+        scrollBar.gui2VisualThumbOffset = offset
+        scrollBar.visualThumb:ClearAllPoints()
+        scrollBar.visualThumb:SetPoint("TOP", scrollBar, "TOP", 0, -offset)
+    end
+    thumbHeight = math_max(1, thumbHeight)
+    if scrollBar.gui2VisualThumbWidth ~= thumbWidth or scrollBar.gui2VisualThumbHeight ~= thumbHeight then
+        scrollBar.gui2VisualThumbWidth, scrollBar.gui2VisualThumbHeight = thumbWidth, thumbHeight
+        scrollBar.visualThumb:SetSize(thumbWidth, thumbHeight)
+    end
+    if not scrollBar.visualThumb:IsShown() then scrollBar.visualThumb:Show() end
+end
+
+local function UpdateVisualScrollTrack(scrollBar)
+    if not scrollBar or not scrollBar.gui2TrackLine then return end
+    scrollBar.gui2TrackLine:ClearAllPoints()
+    scrollBar.gui2TrackLine:SetPoint("TOP", scrollBar, "TOP", 0, 0)
+    scrollBar.gui2TrackLine:SetPoint("BOTTOM", scrollBar, "BOTTOM", 0, 0)
+    scrollBar.gui2TrackLine:SetWidth(GetPixelSize(scrollBar, scrollBar.gui2TrackLineWidth or 1, 1))
+    scrollBar.gui2TrackLine:Show()
+end
+
+-- Opt-in for bounded settings viewports. Never hide overflowing content.
+function GUI2:FitScrollContent(scrollFrame, contentHeight)
+    if contentHeight then scrollFrame.child:SetHeight(math.max(1, contentHeight)) end
+    local child = scrollFrame.child
+    if not child then return end
+    local range = math.max(0, child:GetHeight() - scrollFrame:GetHeight())
+    local current = scrollFrame:GetVerticalScroll() or 0
+    if current > range then scrollFrame:SetVerticalScroll(range) end
+    scrollFrame:EnableMouseWheel(range > 0)
+    local bar = scrollFrame.gui2ScrollBar
+    if bar then
+        bar:SetShown(range > 0)
+        if bar.visualThumb then bar.visualThumb:SetShown(range > 0) end
+        if range > 0 and bar.UpdateVisualThumb then bar:UpdateVisualThumb() end
+    end
+end
+
+function GUI2:SkinScrollBar(scrollFrame)
+    if not scrollFrame then return end
+
+    local scrollBar = GetScrollFrameScrollBar(scrollFrame)
+    if not scrollBar then return true end
+    scrollFrame.gui2ScrollBar = scrollBar
+    scrollBar.gui2ScrollFrame = scrollFrame
+
+    if scrollBar.ScrollUpButton then
+        scrollBar.ScrollUpButton:Hide()
+        scrollBar.ScrollUpButton:SetScript("OnShow", function(button) button:Hide() end)
+    end
+    if scrollBar.ScrollDownButton then
+        scrollBar.ScrollDownButton:Hide()
+        scrollBar.ScrollDownButton:SetScript("OnShow", function(button) button:Hide() end)
+    end
+
+    if scrollBar.SetBackdrop then
+        scrollBar:SetBackdrop(nil)
+    end
+
+    if scrollBar.gui2Track then
+        scrollBar.gui2Track:Hide()
+    end
+    if not scrollBar.gui2TrackLine then
+        scrollBar.gui2TrackLine = scrollBar:CreateTexture(nil, "BACKGROUND")
+        PreparePixelTexture(scrollBar.gui2TrackLine)
+    end
+    self:SetTexturePaintKey(scrollBar.gui2TrackLine, scrollBar.gui2TrackLineToken or "color.border.subtle")
+    scrollBar.UpdateVisualTrack = UpdateVisualScrollTrack
+    scrollBar:UpdateVisualTrack()
+
+    local thumb = scrollBar:GetThumbTexture()
+    if thumb then
+        thumb:SetTexture(nil)
+        thumb:SetAlpha(0)
+        thumb:Hide()
+    end
+
+    if not scrollBar.visualThumb then
+        scrollBar.visualThumb = scrollBar:CreateTexture(nil, "ARTWORK")
+        PreparePixelTexture(scrollBar.visualThumb)
+    end
+    scrollBar.visualThumb:SetTexture("Interface\\Buttons\\WHITE8x8")
+    self:SetTexturePaintKey(scrollBar.visualThumb, "color.control.thumb")
+    scrollBar.gui2ThumbWidth = scrollBar.gui2ThumbWidth or 4
+    scrollBar.UpdateVisualThumb = UpdateVisualScrollThumb
+
+    if not scrollBar.gui2VisualThumbScripts then
+        scrollBar.gui2VisualThumbScripts = true
+        if scrollBar.HookScript then
+            scrollBar:HookScript("OnValueChanged", UpdateVisualScrollThumb)
+            scrollBar:HookScript("OnShow", UpdateVisualScrollThumb)
+        end
+        if scrollFrame.HookScript then
+            scrollFrame:HookScript("OnScrollRangeChanged", function(frame)
+                local bar = frame.gui2ScrollBar or GetScrollFrameScrollBar(frame)
+                if bar and bar.UpdateVisualThumb then bar:UpdateVisualThumb() end
+            end)
+            scrollFrame:HookScript("OnVerticalScroll", function(frame)
+                local bar = frame.gui2ScrollBar or GetScrollFrameScrollBar(frame)
+                if bar and bar.UpdateVisualThumb then bar:UpdateVisualThumb() end
+            end)
+            scrollFrame:HookScript("OnShow", function(frame)
+                local bar = frame.gui2ScrollBar or GetScrollFrameScrollBar(frame)
+                if bar and bar.UpdateVisualThumb then bar:UpdateVisualThumb() end
+            end)
+        end
+    end
+
+    scrollBar.RefreshTheme = function(bar)
+        if bar.gui2Track then bar.gui2Track:Hide() end
+        if bar.gui2TrackLine then
+            GUI2:SetTexturePaintKey(bar.gui2TrackLine, bar.gui2TrackLineToken or "color.border.subtle")
+        end
+        if bar.UpdateVisualTrack then bar:UpdateVisualTrack() end
+        if bar.visualThumb then GUI2:SetTexturePaintKey(bar.visualThumb, "color.control.thumb") end
+        if bar.UpdateVisualThumb then bar:UpdateVisualThumb() end
+    end
+    self:RegisterThemeObject(scrollBar)
+    scrollBar:RefreshTheme()
+    return true
+end
+
+function GUI2:CreateSwitch(parent, item)
+    if not parent or not item then return end
+    if self.Form and self.Form.CreateSwitch then
+        if item.label then
+            local switchWidth = item.width or 60
+            local switchHeight = item.height or 24
+            local container = self:CreateFrame(parent, {
+                width = switchWidth,
+                height = switchHeight,
+            })
+            local label = self:CreateText(container, item.label, "font.size.md", "color.text.primary")
+            label:SetPoint("LEFT", 0, 0)
+            container.text = label
+            local switch = self.Form:CreateSwitch(container, item)
+            switch:SetPoint("LEFT", label, "RIGHT", 10, 0)
+            container.switch = switch
+            container:SetWidth(label:GetStringWidth() + 10 + switchWidth)
+            container:SetHeight(switchHeight)
+            container.gui2Disabled = item.disabled and true or false
+            container.GetValue = function(frame)
+                if frame.switch and frame.switch.GetValue then
+                    return frame.switch:GetValue()
+                end
+            end
+            container.GetChecked = function(frame)
+                if frame.switch and frame.switch.GetChecked then
+                    return frame.switch:GetChecked()
+                end
+            end
+            container.SetValue = function(frame, value, silent)
+                if frame.switch and frame.switch.SetValue then
+                    frame.switch:SetValue(value, silent)
+                end
+            end
+            container.SetChecked = function(frame, checked, silent)
+                if frame.switch and frame.switch.SetChecked then
+                    frame.switch:SetChecked(checked, silent)
+                end
+            end
+            container.SetDisabled = function(frame, disabled)
+                frame.gui2Disabled = disabled and true or false
+                if frame.text then
+                    GUI2:SetTextColorKey(frame.text, frame.gui2Disabled and "color.text.disabled" or "color.text.primary")
+                end
+                if frame.switch and frame.switch.SetDisabled then
+                    frame.switch:SetDisabled(frame.gui2Disabled)
+                elseif frame.switch then
+                    if frame.gui2Disabled and frame.switch.Disable then
+                        frame.switch:Disable()
+                    elseif frame.switch.Enable then
+                        frame.switch:Enable()
+                    end
+                end
+            end
+            container.RefreshTheme = function(frame)
+                if frame.text then
+                    GUI2:SetTextColorKey(frame.text, frame.gui2Disabled and "color.text.disabled" or "color.text.primary")
+                end
+                if frame.switch and frame.switch.RefreshTheme then frame.switch:RefreshTheme() end
+            end
+            container:SetDisabled(container.gui2Disabled)
+            self:RegisterThemeObject(container)
+            return container
+        end
+        return self.Form:CreateSwitch(parent, item)
+    end
+    BindConfigItem(item)
+
+    local width = item.width or 60
+    local height = item.height or 24
+    local offValue = item.offValue
+    if offValue == nil then offValue = item.leftValue end
+    if offValue == nil then offValue = false end
+    local onValue = item.onValue
+    if onValue == nil then onValue = item.rightValue end
+    if onValue == nil then onValue = true end
+    local offText = item.offText or item.leftText
+        or GetCoreText("common.switch.off", GetCoreText("common.off", "N"))
+    local onText = item.onText or item.rightText
+        or GetCoreText("common.switch.on", GetCoreText("common.on", "Y"))
+
+    local container = self:CreateFrame(parent, {
+        width = width,
+        height = height,
+    })
+    local switchParent = container
+    local switchPoint = { "LEFT", 0, 0 }
+
+    if item.label then
+        local label = self:CreateText(container, item.label, "font.size.md", "color.text.primary")
+        label:SetPoint("LEFT", 0, 0)
+        container.text = label
+        switchPoint = { "LEFT", label, "RIGHT", 10, 0 }
+        container:SetWidth(label:GetStringWidth() + 10 + width)
+    end
+
+    local switch = self:CreateButtonFrame(switchParent, {
+        template = "BackdropTemplate",
+        width = width,
+        height = height,
+    })
+    switch:SetPoint(unpack(switchPoint))
+    switch:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
+    self:CreateBorder(switch, "color.border.default")
+
+    local thumb = self:CreatePanel(switch, {
+        width = item.thumbWidth or 8,
+        height = height - 6,
+        surface = "color.control.thumb",
+        border = "color.border.subtle",
+    })
+    switch.thumb = thumb
+
+    local text = self:CreateText(switch, "", "font.size.md", "color.text.primary")
+    switch.text = text
+
+    local function UpdateState(value)
+        local enabled = value == onValue
+        if enabled then
+            switch.currentValue = onValue
+        else
+            switch.currentValue = offValue
+        end
+        switch.gui2Surface = enabled and "color.control.active" or "color.control.track"
+        local colorKey = enabled and (item.onColorKey or item.rightColorKey) or (item.offColorKey or item.leftColorKey)
+        local color = enabled and (item.onColor or item.rightColor) or (item.offColor or item.leftColor)
+        if colorKey then
+            switch:SetBackdropColor(GUI2:GetColor(colorKey))
+        elseif color then
+            switch:SetBackdropColor(unpack(color))
+        else
+            switch:SetBackdropColor(GUI2:GetColor(switch.gui2Surface))
+        end
+        GUI2:SetBorderColor(switch, enabled and "color.border.accent" or "color.border.default")
+        thumb:ClearAllPoints()
+        text:ClearAllPoints()
+        if enabled then
+            thumb:SetPoint("RIGHT", -3, 0)
+            text:SetPoint("LEFT", 3, 0)
+            text:SetText(onText)
+            GUI2:SetTextColorKey(text, item.onTextColorKey or item.rightTextColorKey or "color.text.primary")
+        else
+            thumb:SetPoint("LEFT", 3, 0)
+            text:SetPoint("RIGHT", -3, 0)
+            text:SetText(offText)
+            GUI2:SetTextColorKey(text, item.offTextColorKey or item.leftTextColorKey or "color.text.secondary")
+        end
+    end
+
+    switch.SetValue = function(frame, value, silent)
+        UpdateState(value)
+        if not silent then
+            SetItemValue(item, frame, frame.currentValue)
+        end
+    end
+    switch.RefreshTheme = function(frame)
+        GUI2:ApplyBackdrop(frame, frame.gui2Surface or "color.control.track")
+        UpdateState(frame.currentValue)
+        if frame.thumb then GUI2:RefreshPrimitive(frame.thumb) end
+    end
+    switch:SetScript("OnClick", function(frame)
+        if frame.currentValue == onValue then
+            frame:SetValue(offValue)
+        else
+            frame:SetValue(onValue)
+        end
+    end)
+    switch:SetScript("OnEnter", function(frame)
+        GUI2:SetBorderColor(frame, "color.border.accent")
+    end)
+    switch:SetScript("OnLeave", function(frame)
+        GUI2:SetBorderColor(frame, frame.currentValue == onValue and "color.border.accent" or "color.border.default")
+    end)
+
+    local value = GetItemValue(item)
+    if value ~= onValue and value ~= offValue then value = offValue end
+    switch:SetValue(value, true)
+    container.switch = switch
+    self:RegisterThemeObject(switch)
+
+    if not item.label then
+        switch:SetParent(parent)
+        switch:ClearAllPoints()
+        return switch
+    end
+    return container
+end
+
+function GUI2:CreateModSwitch(parent, item)
+    local app = self.Application
+    if app and app.CreateModSwitch then
+        return app:CreateModSwitch(parent, item)
+    end
+end
+
+function GUI2:CreateTable(parent, item)
+    if not parent or not item then return end
+
+    local width = item.width or 600
+    local height = item.height or 400
+    local rowHeight = item.rowHeight or 24
+    local columns = item.columns or item.headers or {}
+    local rows = item.data or {}
+    local headerHeight = 24
+
+    local container = self:CreatePanel(parent, {
+        width = width,
+        height = height,
+        surface = "color.surface.panel",
+        border = "color.border.default",
+    })
+
+    local header = self:CreatePanel(container, {
+        height = headerHeight,
+        surface = "color.surface.header",
+        border = "color.border.subtle",
+    })
+    header:SetPoint("TOPLEFT", 1, -1)
+    header:SetPoint("TOPRIGHT", -1, -1)
+    container.header = header
+
+    local xOffset = 0
+    for index, column in ipairs(columns) do
+        local columnWidth = column.width or (width / math_max(#columns, 1))
+        local headerText = self:CreateText(header, column.name or column.text or "", "font.size.sm", "color.text.heading")
+        headerText:SetPoint("LEFT", xOffset + 6, 0)
+        headerText:SetWidth(columnWidth - 12)
+        headerText:SetJustifyH("LEFT")
+        if index < #columns then
+            local divider = self:CreateTexture(header, "color.border.subtle", "ARTWORK")
+            divider:SetSize(1, headerHeight - 8)
+            divider:SetPoint("LEFT", xOffset + columnWidth, 0)
+        end
+        xOffset = xOffset + columnWidth
+    end
+
+    local scrollFrame = self:CreateScrollFrame(container, {
+        template = "UIPanelScrollFrameTemplate",
+    })
+    scrollFrame:SetPoint("TOPLEFT", 1, -headerHeight - 2)
+    scrollFrame:SetPoint("BOTTOMRIGHT", -26, 3)
+    local child = scrollFrame.child
+    child:SetWidth(width - 26)
+    container.scrollFrame = scrollFrame
+    container.rowFrames = {}
+
+    local function UpdateRows()
+        for _, row in ipairs(container.rowFrames) do
+            row:Hide()
+        end
+
+        local yOffset = 0
+        for i, rowData in ipairs(rows) do
+            local row = container.rowFrames[i]
+            if not row then
+                row = GUI2:CreateButtonFrame(child, {
+                    template = "BackdropTemplate",
+                    width = width - 26,
+                    height = rowHeight,
+                })
+                row.gui2SurfaceToken = "color.surface.panel"
+                SkinButton(row, {
+                    surface = "color.surface.panel",
+                    textColor = "color.text.primary",
+                    preserveTextPoint = true,
+                })
+                row.cells = {}
+                local cellX = 0
+                for j, column in ipairs(columns) do
+                    local columnWidth = column.width or (width / math_max(#columns, 1))
+                    local cell = GUI2:CreateText(row, "", "font.size.sm", "color.text.primary")
+                    cell:SetPoint("LEFT", cellX + 6, 0)
+                    cell:SetWidth(columnWidth - 12)
+                    cell:SetJustifyH("LEFT")
+                    row.cells[j] = cell
+                    cellX = cellX + columnWidth
+                end
+                container.rowFrames[i] = row
+            end
+
+            row:Show()
+            row:SetPoint("TOPLEFT", 0, -yOffset)
+            row:SetPoint("TOPRIGHT", 0, -yOffset)
+            row.gui2SurfaceToken = i % 2 == 0 and "color.surface.raised" or "color.surface.panel"
+            row:RefreshTheme()
+
+            for j, column in ipairs(columns) do
+                local value = column.key and rowData[column.key] or rowData[j]
+                if row.cells[j] then
+                    row.cells[j]:SetText(value or "")
+                end
+            end
+
+            yOffset = yOffset + rowHeight
+        end
+        child:SetHeight(yOffset)
+    end
+
+    container.UpdateRows = UpdateRows
+    UpdateRows()
+    return container
+end
+
+function GUI2:CreateDivider(parent, width, height, label, alignLeft)
+    local opts
+    if type(width) == "table" then
+        opts = width
+        width = opts.width
+        height = opts.height
+        label = opts.label or opts.text or opts.title
+        alignLeft = opts.alignLeft
+    else
+        opts = {}
+        if type(height) == "string" and label == nil then
+            label = height
+            height = nil
+        end
+    end
+
+    local collapsible = opts.collapsible == true
+    local collapsed = opts.collapsed == true
+    local centeredLabel = label and alignLeft == false and not collapsible
+    local frame = self:CreateFrame(parent, {
+        width = width or 320,
+        height = height or (collapsible and 24 or 22),
+        mouse = collapsible,
+    })
+
+    local function CreateLine()
+        local line = frame:CreateTexture(nil, "ARTWORK")
+        PreparePixelTexture(line)
+        line:SetHeight(GetPixelSize(frame, 1, 1))
+        return line
+    end
+
+    local line = CreateLine()
+    frame.gui2DividerLine = line
+
+    if label then
+        if collapsible then
+            local function Toggle()
+                frame:SetCollapsed(not frame.gui2DividerCollapsed)
+            end
+
+            frame:SetScript("OnMouseUp", Toggle)
+            frame:SetScript("OnEnter", function(owner)
+                if not GameTooltip then return end
+                GameTooltip:SetOwner(owner, opts.tooltipAnchor or "ANCHOR_RIGHT")
+                GameTooltip:SetText(frame.gui2DividerCollapsed and (opts.expandTooltip or "展开") or (opts.collapseTooltip or "折叠"))
+                GameTooltip:Show()
+            end)
+            frame:SetScript("OnLeave", function()
+                if GameTooltip then
+                    YUI.HideGameTooltip()
+                end
+            end)
+        end
+
+        local textLabel = collapsible and (label .. (collapsed and "(+)" or "(-)")) or label
+        local text = self:CreateText(frame, textLabel, "font.size.md", "color.text.heading")
+        frame.gui2DividerText = text
+        frame.gui2DividerBaseLabel = label
+        frame.gui2DividerHeading = true
+        frame.gui2DividerCentered = centeredLabel
+        frame.gui2DividerCollapsible = collapsible
+        frame.gui2DividerCollapsed = collapsed
+
+        if centeredLabel then
+            text:SetPoint("CENTER", frame, "CENTER", 0, 0)
+            text:SetJustifyH("CENTER")
+
+            local rightLine = CreateLine()
+            line:SetPoint("LEFT", 0, 0)
+            line:SetPoint("RIGHT", text, "LEFT", -10, 0)
+            rightLine:SetPoint("LEFT", text, "RIGHT", 10, 0)
+            rightLine:SetPoint("RIGHT", 0, 0)
+            frame.gui2DividerRightLine = rightLine
+        elseif collapsible then
+            text:SetPoint("LEFT", 0, 0)
+            text:SetJustifyH("LEFT")
+            line:SetPoint("LEFT", text, "RIGHT", opts.lineGap or 8, 0)
+            line:SetPoint("RIGHT", 0, 0)
+        else
+            text:SetPoint("LEFT", 0, 0)
+            line:SetPoint("LEFT", text, "RIGHT", 8, 0)
+            line:SetPoint("RIGHT", 0, 0)
+        end
+    else
+        line:SetPoint("LEFT", 0, 0)
+        line:SetPoint("RIGHT", 0, 0)
+        self:SetTexturePaintKey(line, "color.border.subtle")
+    end
+
+    frame.RefreshTheme = function(divider)
+        local dividerLine = divider.gui2DividerLine
+        if not dividerLine then return end
+
+        if divider.gui2DividerHeading then
+            if divider.gui2DividerText then
+                GUI2:SetTextColorKey(divider.gui2DividerText, "color.text.heading")
+            end
+
+            local r, g, b = GUI2:GetColor("color.text.heading")
+            if divider.gui2DividerCentered and dividerLine.SetGradient then
+                dividerLine:SetColorTexture(1, 1, 1, 1)
+                dividerLine:SetGradient("HORIZONTAL", CreateColor(r, g, b, 0.08), CreateColor(r, g, b, 0.88))
+            elseif divider.gui2DividerCentered and dividerLine.SetGradientAlpha then
+                dividerLine:SetGradientAlpha("HORIZONTAL", r, g, b, 0.08, r, g, b, 0.88)
+            elseif dividerLine.SetGradient then
+                dividerLine:SetColorTexture(1, 1, 1, 1)
+                dividerLine:SetGradient("HORIZONTAL", CreateColor(r, g, b, 0.88), CreateColor(r, g, b, 0.08))
+            elseif dividerLine.SetGradientAlpha then
+                dividerLine:SetGradientAlpha("HORIZONTAL", r, g, b, 0.88, r, g, b, 0.08)
+            else
+                dividerLine:SetColorTexture(r, g, b, 0.72)
+            end
+
+            if divider.gui2DividerRightLine then
+                if divider.gui2DividerRightLine.SetGradient then
+                    divider.gui2DividerRightLine:SetColorTexture(1, 1, 1, 1)
+                    divider.gui2DividerRightLine:SetGradient("HORIZONTAL", CreateColor(r, g, b, 0.88), CreateColor(r, g, b, 0.08))
+                elseif divider.gui2DividerRightLine.SetGradientAlpha then
+                    divider.gui2DividerRightLine:SetGradientAlpha("HORIZONTAL", r, g, b, 0.88, r, g, b, 0.08)
+                else
+                    divider.gui2DividerRightLine:SetColorTexture(r, g, b, 0.72)
+                end
+            end
+        else
+            GUI2:SetTexturePaintKey(dividerLine, "color.border.subtle")
+        end
+    end
+
+    frame.SetCollapsed = function(divider, nextCollapsed, silent)
+        if not divider.gui2DividerCollapsible then return end
+        nextCollapsed = nextCollapsed == true
+        divider.gui2DividerCollapsed = nextCollapsed
+        if divider.gui2DividerText and divider.gui2DividerBaseLabel then
+            divider.gui2DividerText:SetText(divider.gui2DividerBaseLabel .. (nextCollapsed and "(+)" or "(-)"))
+        end
+        if not silent and opts.onToggle then
+            opts.onToggle(nextCollapsed, divider)
+        end
+    end
+
+    frame.GetCollapsed = function(divider)
+        return divider.gui2DividerCollapsed == true
+    end
+
+    frame:RefreshTheme()
+    self:RegisterThemeObject(frame)
+    return frame
+end
+
+function GUI2:CreateAccordion(parent, opts)
+    opts = type(opts) == "table" and opts or {}
+    local width = opts.width or 320
+    local headerHeight = opts.headerHeight or 42
+    local gap = opts.gap or 8
+    local allowNone = opts.allowNone ~= false
+    local frame = self:CreateFrame(parent, {
+        width = width,
+        height = 1,
+    })
+    frame.gui2AccordionSections = {}
+    frame.gui2AccordionOrder = {}
+    frame.gui2AccordionActive = opts.activeId
+    frame.gui2AccordionHeight = 1
+
+    local function RefreshHeader(section, hovered)
+        local active = frame.gui2AccordionActive == section.id
+        local surface = active and "color.control.active"
+            or (hovered and "color.control.hover" or "color.control.bg")
+        GUI2:ApplyBackdrop(section.header, surface)
+        GUI2:SetBorderColor(
+            section.header,
+            active and "color.border.focus" or "color.border.default"
+        )
+        GUI2:SetTextColorKey(
+            section.label,
+            active and "color.text.heading" or "color.text.primary"
+        )
+        section.arrow:SetText(active and "▲" or "▼")
+        GUI2:SetTextColorKey(
+            section.arrow,
+            active and "color.text.heading" or "color.text.secondary"
+        )
+    end
+
+    function frame:RefreshLayout()
+        local y = 0
+        for index = 1, #self.gui2AccordionOrder do
+            local section = self.gui2AccordionOrder[index]
+            if section.visible ~= false then
+                section.header:ClearAllPoints()
+                section.header:SetPoint("TOPLEFT", self, "TOPLEFT", 0, -y)
+                section.header:SetPoint("TOPRIGHT", self, "TOPRIGHT", 0, -y)
+                section.header:SetHeight(headerHeight)
+                section.header:Show()
+                y = y + headerHeight
+
+                if self.gui2AccordionActive == section.id then
+                    section.body:ClearAllPoints()
+                    section.body:SetPoint(
+                        "TOPLEFT",
+                        section.header,
+                        "BOTTOMLEFT",
+                        0,
+                        -gap
+                    )
+                    section.body:SetPoint(
+                        "TOPRIGHT",
+                        section.header,
+                        "BOTTOMRIGHT",
+                        0,
+                        -gap
+                    )
+                    section.body:SetHeight(section.contentHeight)
+                    section.body:Show()
+                    y = y + gap + section.contentHeight
+                else
+                    section.body:Hide()
+                end
+                RefreshHeader(section, false)
+                y = y + gap
+            else
+                section.header:Hide()
+                section.body:Hide()
+            end
+        end
+
+        y = math.max(1, y - gap)
+        local changed = y ~= self.gui2AccordionHeight
+        self.gui2AccordionHeight = y
+        self:SetHeight(y)
+        if changed and opts.onHeightChanged then
+            opts.onHeightChanged(y, self)
+        end
+        return y
+    end
+
+    function frame:AddSection(id, title, body)
+        if type(id) ~= "string" or id == ""
+            or self.gui2AccordionSections[id] then
+            return nil
+        end
+        body = body or GUI2:CreateFrame(self, {
+            width = width,
+            height = 1,
+        })
+        if body.SetParent then body:SetParent(self) end
+
+        local header = GUI2:CreatePanel(self, {
+            width = width,
+            height = headerHeight,
+            surface = "color.control.bg",
+            border = "color.border.default",
+            mouse = true,
+        })
+        local label = GUI2:CreateText(
+            header,
+            title or id,
+            "font.size.md",
+            "color.text.primary",
+            "LEFT"
+        )
+        label:SetPoint("LEFT", 10, 0)
+        label:SetPoint("RIGHT", -34, 0)
+        label:SetWordWrap(false)
+        local arrow = GUI2:CreateText(
+            header,
+            "▼",
+            "font.size.sm",
+            "color.text.secondary",
+            "CENTER"
+        )
+        arrow:SetPoint("RIGHT", -10, 0)
+
+        local section = {
+            id = id,
+            header = header,
+            label = label,
+            arrow = arrow,
+            body = body,
+            contentHeight = 1,
+            visible = true,
+        }
+        self.gui2AccordionSections[id] = section
+        self.gui2AccordionOrder[#self.gui2AccordionOrder + 1] = section
+
+        header:SetScript("OnEnter", function()
+            RefreshHeader(section, true)
+        end)
+        header:SetScript("OnLeave", function()
+            RefreshHeader(section, false)
+        end)
+        header:SetScript("OnMouseUp", function(_, button)
+            if button and button ~= "LeftButton" then return end
+            local nextId = section.id
+            if frame.gui2AccordionActive == nextId and allowNone then
+                nextId = nil
+            end
+            frame:SetActive(nextId)
+        end)
+
+        self:RefreshLayout()
+        return section
+    end
+
+    function frame:SetActive(id, silent)
+        if id ~= nil then
+            local section = self.gui2AccordionSections[id]
+            if not section or section.visible == false then return false end
+        elseif not allowNone then
+            return false
+        end
+        if self.gui2AccordionActive == id then
+            self:RefreshLayout()
+            return true
+        end
+        self.gui2AccordionActive = id
+        self:RefreshLayout()
+        if not silent and opts.onActiveChanged then
+            opts.onActiveChanged(id, self)
+        end
+        return true
+    end
+
+    function frame:GetActive()
+        return self.gui2AccordionActive
+    end
+
+    function frame:SetSectionVisible(id, visible)
+        local section = self.gui2AccordionSections[id]
+        if not section then return false end
+        section.visible = visible ~= false
+        if not section.visible and self.gui2AccordionActive == id then
+            self.gui2AccordionActive = allowNone and nil or opts.activeId
+        end
+        self:RefreshLayout()
+        return true
+    end
+
+    function frame:SetSectionTitle(id, title)
+        local section = self.gui2AccordionSections[id]
+        if not section then return false end
+        section.label:SetText(title or id)
+        return true
+    end
+
+    function frame:SetSectionContentHeight(id, height)
+        local section = self.gui2AccordionSections[id]
+        if not section then return false end
+        section.contentHeight = math.max(1, tonumber(height) or 1)
+        self:RefreshLayout()
+        return true
+    end
+
+    frame.RefreshTheme = function(owner)
+        for index = 1, #owner.gui2AccordionOrder do
+            RefreshHeader(owner.gui2AccordionOrder[index], false)
+        end
+    end
+    self:RegisterThemeObject(frame)
+    frame:RefreshLayout()
+    return frame
+end
+
+function GUI2:CreateSwatch(parent, label, paintKey, width, height)
+    local frame = self:CreateFrame(parent, {
+        template = "BackdropTemplate",
+        width = width or 150,
+        height = height or 42,
+    })
+    self:ApplyBackdrop(frame, "color.surface.raised")
+    self:CreateBorder(frame, "color.border.default")
+
+    local chip = frame:CreateTexture(nil, "ARTWORK")
+    chip:SetPoint("TOPLEFT", 6, -6)
+    chip:SetPoint("BOTTOMLEFT", 6, 6)
+    chip:SetWidth(34)
+    ApplyPaint(chip, paintKey)
+
+    local text = self:CreateText(frame, label, "font.size.sm", "color.text.primary")
+    text:SetPoint("LEFT", chip, "RIGHT", 8, 0)
+    text:SetPoint("RIGHT", -6, 0)
+    text:SetJustifyH("LEFT")
+    text:SetWordWrap(false)
+
+    frame.gui2Surface = "color.surface.raised"
+    frame.gui2Swatch = chip
+    frame.gui2SwatchKey = paintKey
+    frame.gui2Label = text
+    return frame
+end
+
+function GUI2:RefreshPrimitive(frame)
+    if not frame then return end
+    if frame.gui2Surface and frame.SetBackdropColor then
+        self:ApplyBackdrop(frame, frame.gui2Surface)
+        frame:SetBackdropColor(self:GetColor(frame.gui2Surface))
+    end
+    if frame.gui2Borders then
+        self:SetBorderColor(frame, frame.gui2Borders.colorKey)
+        RefreshPixelObject(frame)
+    end
+    if frame.gui2Shadow and frame.gui2Shadow.SetBackdropBorderColor then
+        frame.gui2Shadow:SetBackdropBorderColor(self:GetColor("color.overlay.shadow"))
+    end
+    if frame.gui2Swatch and frame.gui2SwatchKey then
+        ApplyPaint(frame.gui2Swatch, frame.gui2SwatchKey)
+    end
+end

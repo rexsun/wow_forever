@@ -252,6 +252,47 @@ ns.BossSkills = {
             { "", "", 13496, "spell_frost_stun" },
         },
     },
+    city_of_dalaran = {
+        ["Atrexis the Grave Knight"] = {
+            { "", "", 6713, "ability_warrior_disarm" },
+            { "", "", 1303266, "spell_shadow_raisedead" },
+            { "", "", 1303264, "spell_shadow_unholyfrenzy" },
+            { "", "", 3391, "ability_ghoulfrenzy" },
+            { "", "", 12057, "ability_rogue_ambush" },
+        },
+        ["Lyn the Ignored"] = {
+            { "", "", 17228, "spell_shadow_shadowbolt" },
+            { "", "", 1304473, "spell_shadow_antishadow" },
+            { "", "", 1303266, "spell_shadow_raisedead" },
+        },
+        ["Arcane Anomaly"] = {
+            { "", "", 1241501, "ability_mage_arcanesurge" },
+            { "", "", 15230, "spell_arcane_starfire" },
+        },
+        ["Arcanic Enigma"] = {
+            { "", "", 1240869, "spell_nature_wispsplode" },
+            { "", "", 1224125, "spell_holy_silence" },
+            { "", "", 1304455, "spell_holy_mindsooth" },
+        },
+        ["Unstable Sentinel"] = {
+            { "", "", 1241329, "spell_arcane_blast" },
+        },
+        ["Mana Devourer"] = {
+            { "", "", 1240738, "ability_druid_twilightswrath" },
+            { "", "", 1240750, "spell_shadow_chilltouch" },
+        },
+        ["Fel Ancient"] = {
+            { "", "", 22994, "spell_nature_stranglevines" },
+            { "", "", 1240706, "spell_fire_felflamering" },
+        },
+        ["Shade of the Archmage"] = {
+            { "", "", 1303598, "spell_nature_doublepolymorph2" },
+            { "", "", 1303599, "spell_nature_purge" },
+            { "", "", 15230, "spell_arcane_starfire" },
+            { "", "", 28450, "spell_nature_wispsplode" },
+            { "", "", 1241515, "ability_mage_netherwindpresence" },
+        },
+    },
     gnomeregan = {
         ["Electrocutioner 6000"] = {
             { "", "", 11085, "spell_nature_chainlightning" },

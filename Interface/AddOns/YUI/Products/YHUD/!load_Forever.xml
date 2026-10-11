@@ -1,0 +1,16 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Script file="Client\Forever.lua"/>
+    <Script file="Catalog\Forever\DefaultProfile.lua"/>
+    <Script file="Product\Defaults.lua"/>
+    <Script file="Product\StorageBudget.lua"/>
+    <Script file="Product\ConflictGuard.lua"/>
+    <Script file="Product\ContentPolicy.lua"/>
+    <Script file="Catalog\Forever\MonitorData.lua"/>
+    <Script file="Catalog\Forever\Resources.lua"/>
+    <Script file="Catalog\Resources\Registry.lua"/>
+    <Script file="Catalog\Forever\Classes.lua"/>
+    <Script file="Runtime\SwingTimers_Forever.lua"/>
+    <Script file="Runtime\Ammo_Forever.lua"/>
+    <Include file="!load_Shared.xml"/>
+    <Script file="Product\Lifecycle.lua"/>
+</Ui>

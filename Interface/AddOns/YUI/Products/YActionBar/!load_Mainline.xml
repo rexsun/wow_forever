@@ -1,0 +1,5 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Script file="Bootstrap.lua"/>
+    <Script file="Clients\Mainline.lua"/>
+    <Include file="!load_Shared.xml"/>
+</Ui>

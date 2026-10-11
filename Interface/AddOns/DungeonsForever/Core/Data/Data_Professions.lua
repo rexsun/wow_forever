@@ -12,13 +12,13 @@
 --   已按 _temp/_fc/i18n/zh.json 套成中文；新增文案未登记时回落英文原文，
 --   跑 `python _temp/fc_i18n.py --audit` 看还差哪几条。
 --
--- 数据版本 build 1.60.1.69913（标注更新日 2026-09-19）
+-- 数据版本 build 1.60.1.70245（标注更新日 2026-10-06）
 
 local _, ns = ...
 
 ns.ProfData = {
-    build = "1.60.1.69913",
-    updated = "2026-09-19",
+    build = "1.60.1.70245",
+    updated = "2026-10-06",
 
     order = { "alchemy", "blacksmithing", "enchanting", "engineering", "leatherworking", "tailoring", "mining", "herbalism", "skinning", "cooking", "fishing", "first-aid", "camping" },
 
@@ -32,7 +32,7 @@ ns.ProfData = {
         ["legacy-perk-master-chef"] = { "大厨", "achievement_profession_chefhat", "Professions", 5, { "你的烹饪配方有 10% 的几率额外产出一份成品。", "你的烹饪配方有 20% 的几率额外产出一份成品。", "你的烹饪配方有 30% 的几率额外产出一份成品。", "你的烹饪配方有 40% 的几率额外产出一份成品。", "你的烹饪配方有 50% 的几率额外产出一份成品。" }, "你的烹饪配方有 10% 的几率额外产出一份成品。", "client_data", {} },
         ["legacy-perk-performance-bonus"] = { "表现加成", "racial_dwarf_findtreasure", "Professions", 3, { "向艾泽拉斯商业管理局或杜隆塔尔补给与后勤上交货箱时，有 5% 的几率使获得的商人青睐提高 100%。", "向艾泽拉斯商业管理局或杜隆塔尔补给与后勤上交货箱时，有 10% 的几率使获得的商人青睐提高 100%。", "向艾泽拉斯商业管理局或杜隆塔尔补给与后勤上交货箱时，有 15% 的几率使获得的商人青睐提高 100%。" }, "向艾泽拉斯商业管理局或杜隆塔尔补给与后勤上交货箱时，有 5% 的几率使获得的商人青睐提高 100%。", "client_data", {} },
         ["legacy-perk-permanence"] = { "持久", "spell_misc_emotionhappy", "Resourcefulness", 2, { "你为所有小队或团队成员提供长时间属性增益的职业能力持续时间延长 50%，你在营地休息所获得的增益持续时间也延长 50%。", "你为所有小队或团队成员提供长时间属性增益的职业能力持续时间延长 100%，你在营地休息所获得的增益持续时间也延长 100%。" }, "你为所有小队或团队成员提供长时间属性增益的职业能力持续时间延长 50%，你在营地休息所获得的增益持续时间也延长 50%。", "client_data", {} },
-        ["legacy-perk-reagent-economy"] = { "材料节约", "inv_misc_candle_02", "Resourcefulness", 1, { "你的职业技能不再需要从商人处购买的材料，且你的 1 级营地设施制作时不消耗材料。" }, "你的职业技能不再需要从商人处购买的材料，且你的 1 级营地设施制作时不消耗材料。", "client_data", {} },
+        ["legacy-perk-reagent-economy"] = { "材料节约", "inv_misc_candle_02", "Resourcefulness", 1, { "Your class abilities no longer require reagents purchaseable from vendors." }, "Your class abilities no longer require reagents purchaseable from vendors.", "client_data", {} },
         ["legacy-perk-working-overtime"] = { "加班", "inv_misc_pocketwatch_03", "Professions", 5, { "使用任何主专业、次专业或职业技能时，技能提升几率提高 4%。", "使用任何主专业、次专业或职业技能时，技能提升几率提高 8%。", "使用任何主专业、次专业或职业技能时，技能提升几率提高 12%。", "使用任何主专业、次专业或职业技能时，技能提升几率提高 16%。", "使用任何主专业、次专业或职业技能时，技能提升几率提高 20%。" }, "使用任何主专业、次专业或职业技能时，技能提升几率提高 4%。", "client_data", {} },
     },
 
@@ -87,6 +87,9 @@ ns.ProfData = {
                 { 279955, "大师熔炉", "inv_mace_1h_blacksmithing_b_01_black", 300, "供最高级的锻造配方使用，并提供磨刀轮增益", "", "供最高级的锻造配方使用", "磨刀轮", "", "", { { 273127, 1 }, { 12359, 5 }, { 8170, 2 } }, { 273113, 0 } },
             },
             perks = { "legacy-perk-performance-bonus", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
+            tips = { "配方、训练师与完整的升级路线尚未确认。", "「专精研习」提升的是你最低的合格技能，所以想让它加在本专业上，请先看下其他专业。" },
+            verify = { "配方、材料、技能升级颜色与制造产出数量", "训练师、书籍、专精与所需角色等级", "本专业的里程碑详情", "制造装备的强度、补给箱需求与最佳搭配" },
+            unknowns = { "其他专业的里程碑、配方、训练师与升级路线。" },
         },
         ["enchanting"] = {
             name = "附魔",
@@ -111,6 +114,9 @@ ns.ProfData = {
                 { 279987, "奥术熔炉", "inv_enchanting_modifiedcraftingreagent_indigo", 300, "供最高级的附魔配方使用，并提供附魔鲁特琴增益", "", "供最高级的附魔配方使用", "附魔鲁特琴", "", "", { { 273128, 1 }, { 14344, 2 }, { 16203, 4 } }, { 273116, 0 } },
             },
             perks = { "legacy-perk-performance-bonus", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
+            tips = { "配方、训练师与完整的升级路线尚未确认。", "「专精研习」提升的是你最低的合格技能，所以想让它加在本专业上，请先看下其他专业。" },
+            verify = { "配方、材料、技能升级颜色与制造产出数量", "训练师、书籍、专精与所需角色等级", "本专业的里程碑详情", "制造装备的强度、补给箱需求与最佳搭配" },
+            unknowns = { "其他专业的里程碑、配方、训练师与升级路线。" },
         },
         ["engineering"] = {
             name = "工程学",
@@ -120,9 +126,9 @@ ns.ProfData = {
             guide = "crafting",
             summary = "工程师在技能 20 时为营地带来材料机器人，随后是修理机器人和无政府主义者工作台。测试客户端中已包含新结构图，以及一份可解锁称号「工程师」的认证。",
             status = "已实地核对",
-            recipes = 77,
+            recipes = 78,
             sub = 3,
-            kinds = { Schematic=75, Blueprint=2 },
+            kinds = { Schematic=76, Blueprint=2 },
             cert = { 271625, "工程学认证", "inv_scroll_15", 300, "工程师" },
             miles = {
                 { "工程学学徒", 150, 1 },
@@ -136,6 +142,9 @@ ns.ProfData = {
             },
             perks = { "legacy-perk-performance-bonus", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
             racials = { { "racial-gnome-engineering-specialization", "Engineering", "据称可提升装置可靠性；具体故障率不明。" } },
+            tips = { "配方、训练师与完整的升级路线尚未确认。", "「专精研习」提升的是你最低的合格技能，所以想让它加在本专业上，请先看下其他专业。" },
+            verify = { "配方、材料、技能升级颜色与制造产出数量", "训练师、书籍、专精与所需角色等级", "本专业的里程碑详情", "制造装备的强度、补给箱需求与最佳搭配" },
+            unknowns = { "其他专业的里程碑、配方、训练师与升级路线。" },
         },
         ["leatherworking"] = {
             name = "制皮",
@@ -160,6 +169,9 @@ ns.ProfData = {
                 { 279945, "缝纫机", "inv_tailoring_modifiedcraftingreagent_orange", 300, "供最高级的制皮配方使用，并提供营地帐篷加成", "", "供最高级的制皮配方使用", "营地帐篷", "", "", { { 273130, 1 }, { 8170, 5 }, { 14341, 1 } }, { 273121, 0 } },
             },
             perks = { "legacy-perk-performance-bonus", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
+            tips = { "配方、训练师与完整的升级路线尚未确认。", "「专精研习」提升的是你最低的合格技能，所以想让它加在本专业上，请先看下其他专业。" },
+            verify = { "配方、材料、技能升级颜色与制造产出数量", "训练师、书籍、专精与所需角色等级", "本专业的里程碑详情", "制造装备的强度、补给箱需求与最佳搭配" },
+            unknowns = { "其他专业的里程碑、配方、训练师与升级路线。" },
         },
         ["tailoring"] = {
             name = "裁缝",
@@ -184,6 +196,9 @@ ns.ProfData = {
                 { 279959, "织布机", "inv_tailoring_80_tidespraylinen", 300, "供最高级的裁缝配方使用，并提供阵营旗帜增益", "", "供最高级的裁缝配方使用", "阵营旗帜", "", "", { { 273131, 1 }, { 14048, 4 }, { 4470, 4 } }, { 273124, 0 } },
             },
             perks = { "legacy-perk-performance-bonus", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
+            tips = { "配方、训练师与完整的升级路线尚未确认。", "「专精研习」提升的是你最低的合格技能，所以想让它加在本专业上，请先看下其他专业。" },
+            verify = { "配方、材料、技能升级颜色与制造产出数量", "训练师、书籍、专精与所需角色等级", "本专业的里程碑详情", "制造装备的强度、补给箱需求与最佳搭配" },
+            unknowns = { "其他专业的里程碑、配方、训练师与升级路线。" },
         },
         ["mining"] = {
             name = "采矿",
@@ -220,6 +235,7 @@ ns.ProfData = {
             racials = { { "racial-tauren-cultivation", "Herbalism", "据称无需学习采药即可种植草药。" } },
             tips = { "想获得稀缺材料就看「丰收」这项特权；「加班」则是有助于技能提升。", "「专精研习」只会提升最低的合格专业技能，使用前请先确认自己的各项技能。", "无限服的草药表、训练师与升级路线尚未确认。" },
             verify = { "无限服的草药与稀缺材料的定义", "区域、矿／草药点位置、刷新时间与所需技能", "训练师、追踪机制与升级路线", "已验证的制造用途与专业搭配" },
+            unknowns = { "可产出稀缺材料的种类、矿／草药点位置、掉落表与刷新时间。" },
         },
         ["skinning"] = {
             name = "剥皮",
@@ -237,6 +253,7 @@ ns.ProfData = {
             perks = { "legacy-perk-bountiful-harvest", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
             tips = { "想获得稀缺材料就看「丰收」这项特权；「加班」则是有助于技能提升。", "「专精研习」只会提升最低的合格专业技能，使用前请先确认自己的各项技能。", "无限服的皮革表、训练师与升级路线尚未确认。" },
             verify = { "可剥皮的生物与技能要求", "皮革、毛皮与稀缺材料表", "训练师与工具的要求", "升级路线与当前的制造需求" },
+            unknowns = { "可产出稀缺材料的种类、矿／草药点位置、掉落表与刷新时间。" },
         },
         ["cooking"] = {
             name = "烹饪",
@@ -244,7 +261,7 @@ ns.ProfData = {
             kind = "secondary",
             section = "cooking",
             guide = "cooking",
-            summary = "厨师负责搭建营火本身：基础营火可容纳 3 个营地物件，学徒营火 5 个，专家营火 10 个，此外还有「厨师的盛宴」和铁炉。深度解析中展示的食物在饱食状态下还能让击杀获得的经验提高 5%，从烹饪 25 的「美味迅猛龙肉块」起算。传承特权使配方有几率多产出，并延长食物增益的持续时间。",
+            summary = "Cooks build the campfire itself: the basic kit holds 3 camp objects, the Journeyman kit 5 and the Expert kit 10, with Cookie's Feast and an Iron Oven on top. Almost every dish that makes you well fed also raises experience from kills by 5%, from the first recipes at Cooking 1. Legacy perks give recipes a chance at an extra result and make food buffs last longer.",
             status = "实拍与转述混合",
             recipes = 40,
             sub = 5,
@@ -278,10 +295,10 @@ ns.ProfData = {
             },
             perks = { "legacy-perk-luremaster", "legacy-perk-working-overtime", "legacy-perk-dedicated-study" },
             tips = { "鱼缸需要一条新鲜的光亮小鱼（经典旧世里在起始区域的淡水中可钓到）和一个从商人处购买的空瓶。", "钓具架或钓鱼小屋架设在鱼缸之上，保留其全属性 +8% 的效果。", "留意你的鱼饵：「鱼饵大师」的额外渔获几率需要鱼饵处于生效状态。", "若希望这点技能加在钓鱼上，使用「专精研习」前请先确认自己最低的采集／制造技能是哪一项。", "以下要点尚未确认。" },
-            verify = { "游戏内训练师与供应商的位置（Wowhead 数据库）", "渔获表与各区域所需的技能", "钓具架与钓鱼小屋能为渔获带来什么", "图纸的掉落地点，以及「寻找渔点」的学习方式", "「鱼饵大师」可触发的渔获" },
+            verify = { "游戏内训练师与供应商的位置（无限服实测点位）", "渔获表与各区域所需的技能", "钓具架与钓鱼小屋能为渔获带来什么", "图纸的掉落地点，以及「寻找渔点」的学习方式", "「鱼饵大师」可触发的渔获" },
             unknowns = { "可钓获的种类与 2 级效果。" },
             steps_title = "钓鱼怎么钓",
-            steps_note = "训练师与供应商的坐标均为无限服实测点位；其余为客户端自身的文本。",
+            steps_note = "训练师与供应商的点位均按无限服实测校准，瓦拉纳尔的那位来自内测玩家分享；其余为客户端自身的文本。",
             steps = {
                 { "学习钓鱼", "向钓鱼训练师学习。每个主城都有一位，浮空城瓦拉纳尔的池塘边也有一位。学习后还能习得「鱼饵与钓具」，用于在营地放置钓鱼物件。" },
                 { "装备鱼竿", "从训练师附近的钓鱼供应商处购买一根鱼竿，并从背包中装备。它占用双手，没有鱼竿就无法钓鱼。" },
@@ -364,7 +381,7 @@ ns.ProfData = {
             description = "无限服的营地系统详解：三种营火、各专业在技能 20 / 140 / 300 时提供什么、增益效果、所需材料与休息经验。",
             status = "官方说明的系统",
             perks = { "legacy-perk-field-guide", "legacy-perk-permanence", "legacy-perk-reagent-economy" },
-            tips = { "营地增益与它所模仿的职业增益不叠加，例如鱼缸与王者祝福：两者只能保有一个。", "只有制皮的露营帐篷（以及替代它的鞣制架、缝纫机）提供休息经验。在帐篷旁待 30 秒可把休息经验提升到同级 5%，每小时一次；若已有更多则无效果。", "阵营旗帜只对与你同阵营的玩家生效。", "营地物件可以交易，但放置它需要具备其标注的专业技能。", "经常布置营地设施？看看「野外指南」与「材料经济」。想让两次停留之间的增益持续更久，就看「持久」。", "指望免费材料前先确认设施的档位。「材料经济」只涵盖了 1 档。", "以下要点尚未确认。" },
+            tips = { "营地增益与它所模仿的职业增益不叠加，例如鱼缸与王者祝福：两者只能保有一个。", "只有制皮的露营帐篷（以及替代它的鞣制架、缝纫机）提供休息经验。在帐篷旁待 30 秒可把休息经验提升到同级 5%，每小时一次；若已有更多则无效果。", "Most dishes a cook makes also give 5% more experience from kills (not from quests) while you are well fed. The Cooking page lists which ones.", "阵营旗帜只对与你同阵营的玩家生效。", "营地物件可以交易，但放置它需要具备其标注的专业技能。", "经常布置营地设施？看看「野外指南」与「材料经济」。想让两次停留之间的增益持续更久，就看「持久」。", "指望免费材料前先确认设施的档位。「材料经济」只涵盖了 1 档。", "以下要点尚未确认。" },
             verify = { "每张图纸的掉落地点", "一次制造产出几个：客户端显示 1 个，Wowhead 显示 2 个", "营地在城市与副本中是否可用", "获取他人营地增益是否需要处于同一队伍" },
             unknowns = { "图纸的掉落来源。" },
             steps_title = "营地系统怎么运作",

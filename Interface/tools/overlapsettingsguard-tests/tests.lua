@@ -30,7 +30,7 @@ test("the shipped policy has no errors", function()
   local w = Stubs.Fresh(ADDON_ROOT, {})
   local problems = w.ns.ValidatePolicy(w.ns.policy, w.ns.adapters)
   eq(#problems, 0, "policy problems: " .. table.concat(problems, "; "))
-  eq(#w.ns.policy, 12, "rule count")
+  eq(#w.ns.policy, 21, "rule count")
 end)
 
 local function RxpOff()
@@ -182,7 +182,7 @@ test("/osg lists every rule", function()
   w.Login()
   w.printed = {}
   _G.SlashCmdList.OVERLAPSETTINGSGUARD("")
-  eq(#w.printed, 13, "header plus 12 rules")
+  eq(#w.printed, #w.ns.policy + 1, "header plus every rule")
 end)
 
 test("Leatrix owns quest automation while RestedXP automation stays off across profiles", function()
@@ -300,6 +300,232 @@ test("Kallye changes bypassing hooks are caught and popup repetition is limited"
   w.now = w.now + 10
   w.Tick()
   eq(#w.popups, 2)
+end)
+
+local function CurrentLoaded()
+  return { YUI = true, RXPGuides = true, TalentsForeverBook = true,
+    EllesmereUIUnitFrames = true, EllesmereUIRaidFrames = true, EllesmereUINameplates = true }
+end
+
+local function HudConfig()
+  return { resources = { byGroup = { ["group:system:resources"] = {
+    selectionDefault = "catalog",
+    bySpec = { ROGUE = { ["11572"] = { comboPoints = true, swingMainHand = true } } },
+    formOverrides = { DRUID = { ["11347"] = { cat = { enabled = { energy = true, comboPoints = true } } } } },
+  } } } }
+end
+
+local function BuildYUI(w)
+  local config = HudConfig()
+  local live = { Components = { UtilityTools_Config = { nameplateOutline = true, syncFriendlyNameplates = true } },
+    YHUD = { profile = config } }
+  local saved = HudConfig()
+  local set = HudConfig()
+  YUI_DB = { profiles = { Default = live, Alt = { Components = {}, YHUD = { profile = saved },
+    SettingsConfigSetsV2 = { providers = { yhud = { items = { custom = { data = { profile = set } } } } } } } } }
+  YUI = { DB = { GetProfile = function() return live end, GetAceDB = function() return { profile = live } end },
+    YHUD = { GetConfigProfile = function() return config end,
+      OnLifecycleConfigChanged = function() w.hudRefreshes = (w.hudRefreshes or 0) + 1 end } }
+  for _, name in ipairs({ "UtilityToolsNameplateOutline", "UtilityToolsNameplates" }) do
+    YUI[name] = { enabled = true, Disable = function(self) self.enabled = false end }
+  end
+  return live, saved, set
+end
+
+test("current YUI and EllesmereUI policy has enforceable rules", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  local ids = {}
+  for _, rule in ipairs(w.ns.policy) do ids[rule.id] = rule end
+  for _, id in ipairs({ "yui.nameplateoutline", "yui.friendlynameplates", "yui.resources", "eui.nameplatepower",
+    "rxp.yui.autoquests", "rxp.yui.autogossip", "rxp.yui.questrewards", "rxp.yui.questchoices", "rxp.yui.selljunk" }) do
+    ok(ids[id], id)
+  end
+end)
+
+test("YUI nameplate settings and active runtimes are disabled across profiles", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  local live = BuildYUI(w)
+  local a = w.ns.adapters.YUI
+  ok(a, "YUI adapter")
+  for _, key in ipairs({ "NameplateOutline", "FriendlyNameplates" }) do
+    eq(a.Read(key), true)
+    eq(a.Revert(key), true)
+    eq(a.Read(key), false)
+  end
+  eq(live.Components.UtilityTools_Config.nameplateOutline, false)
+  eq(YUI_DB.profiles.Alt.Components.UtilityTools_Config.nameplateOutline, false)
+  eq(YUI.UtilityToolsNameplates.enabled, false)
+  eq(YUI.UtilityToolsNameplateOutline.enabled, false)
+end)
+
+test("YUI resource enforcement covers defaults, druid forms and saved HUD sets without removing swings", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  local live, saved, set = BuildYUI(w)
+  local a = w.ns.adapters.YUI
+  ok(a, "YUI adapter")
+  eq(a.Read("Resources"), true)
+  eq(a.Revert("Resources"), true)
+  eq(a.Read("Resources"), false)
+  for _, config in ipairs({ live.YHUD.profile, saved, set }) do
+    local r = config.resources.byGroup["group:system:resources"]
+    eq(r.bySpec.ROGUE["11572"].comboPoints, false)
+    eq(r.bySpec.WARRIOR["11650"].rage, false)
+    eq(r.bySpec.MAGE["11582"].mana, false)
+    eq(r.formOverrides.DRUID["11347"].cat.enabled.energy, false)
+    eq(r.bySpec.ROGUE["11572"].swingMainHand, true)
+  end
+  eq(w.hudRefreshes, 1)
+end)
+
+test("missing YUI runtime APIs block enforcement without mutating saved settings", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  local live = BuildYUI(w)
+  YUI.YHUD.OnLifecycleConfigChanged = nil
+  local a = w.ns.adapters.YUI
+  ok(a, "YUI adapter")
+  eq(a.Read("Resources"), nil)
+  eq(a.Revert("Resources"), false)
+  eq(live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].comboPoints, true)
+end)
+
+test("EllesmereUI nameplate resources are disabled in profiles and spec presets", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  local active = { showClassPower = true, fontSize = 13 }
+  EllesmereUIDB = { activeProfile = "Default", profiles = {
+    Default = { addons = { EllesmereUINameplates = active } },
+    Alt = { addons = { EllesmereUINameplates = { showClassPower = true } },
+      specPresets = { rogue = { showClassPower = true } } },
+  } }
+  _ENP_RefreshAllSettings = function() w.euiRefreshes = (w.euiRefreshes or 0) + 1 end
+  local a = w.ns.adapters.EllesmereUI
+  ok(a, "EllesmereUI adapter")
+  eq(a.Read("NameplatePower"), true)
+  eq(a.Revert("NameplatePower"), true)
+  eq(a.Read("NameplatePower"), false)
+  eq(active.fontSize, 13)
+  eq(EllesmereUIDB.profiles.Alt.specPresets.rogue.showClassPower, false)
+  eq(w.euiRefreshes, 1)
+end)
+
+test("EllesmereUI reports unavailable refresh API instead of changing only storage", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  EllesmereUIDB = { profiles = { Default = { addons = { EllesmereUINameplates = { showClassPower = true } } } } }
+  local a = w.ns.adapters.EllesmereUI
+  ok(a, "EllesmereUI adapter")
+  eq(a.Read("NameplatePower"), nil)
+  eq(a.Revert("NameplatePower"), false)
+  eq(EllesmereUIDB.profiles.Default.addons.EllesmereUINameplates.showClassPower, true)
+end)
+
+test("EllesmereUI spec override keys cannot restore nameplate class power", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  local key = "EllesmereUINameplates\031showClassPower"
+  local unrelated = "EllesmereUIUnitFrames\031showClassPowerBar"
+  local values = { [key] = true, [unrelated] = true }
+  EllesmereUIDB = { profiles = { Default = {
+    addons = { EllesmereUINameplates = { showClassPower = false } },
+    specOverrides = { { values = { default = values, [259] = { [key] = true } } } },
+  } } }
+  _ENP_RefreshAllSettings = function() end
+  local a = w.ns.adapters.EllesmereUI
+  eq(a.Read(), true)
+  eq(a.Revert(), true)
+  eq(values[key], false)
+  eq(values[unrelated], true)
+  eq(EllesmereUIDB.profiles.Default.specOverrides[1].values[259][key], false)
+  eq(a.Read(), false)
+end)
+
+test("current automation and talent ownership disables competing RestedXP settings", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded(), rxp = { live = {
+    autoSellJunk = true, enableQuestAutomation = true, enableGossipAutomation = true,
+    enableQuestRewardAutomation = true, enableQuestChoiceAutomation = true, enableTalentGuides = true } } })
+  w.Login()
+  for _, key in ipairs({ "autoSellJunk", "enableQuestAutomation", "enableGossipAutomation",
+    "enableQuestRewardAutomation", "enableQuestChoiceAutomation", "enableTalentGuides" }) do
+    eq(RXP.settings.profile[key], false, key)
+  end
+end)
+
+test("current frame overlaps defer in combat and catch changes bypassing hooks", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  local live = BuildYUI(w)
+  w.combat = true
+  w.Login()
+  eq(live.Components.UtilityTools_Config.nameplateOutline, true)
+  w.combat = false
+  w.Fire("PLAYER_REGEN_ENABLED")
+  eq(live.Components.UtilityTools_Config.nameplateOutline, false)
+  live.Components.UtilityTools_Config.nameplateOutline = true
+  live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].comboPoints = true
+  w.Tick()
+  eq(live.Components.UtilityTools_Config.nameplateOutline, false)
+  eq(live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].comboPoints, false)
+end)
+
+test("failed live HUD refresh stays pending and is retried", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  BuildYUI(w)
+  local a = w.ns.adapters.YUI
+  YUI.YHUD.OnLifecycleConfigChanged = function() return nil, "specialization-transition" end
+  eq(a.Revert("Resources"), false)
+  eq(a.Read("Resources"), true, "pending refresh is still a violation")
+  YUI.YHUD.OnLifecycleConfigChanged = function() return true end
+  eq(a.Revert("Resources"), true)
+  eq(a.Read("Resources"), false)
+end)
+
+test("numeric YUI spec keys retain their swing timers and form ordering", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  local live = BuildYUI(w)
+  local r = live.YHUD.profile.resources.byGroup["group:system:resources"]
+  r.bySpec.ROGUE = { [11572] = { comboPoints = true, swingMainHand = true } }
+  r.formOverrides.DRUID = { [11347] = { cat = { order = { "energy", "comboPoints" }, enabled = { energy = true } } } }
+  eq(w.ns.adapters.YUI.Revert("Resources"), true)
+  eq(r.bySpec.ROGUE[11572].comboPoints, false)
+  eq(r.bySpec.ROGUE[11572].swingMainHand, true)
+  eq(r.formOverrides.DRUID[11347].cat.order[1], "energy")
+end)
+
+test("EllesmereUI refresh hooks undo a re-enabled display and retry refresh failures", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = { EllesmereUINameplates = true, EllesmereUIUnitFrames = true } })
+  local settings = { showClassPower = false }
+  EllesmereUIDB = { profiles = { Default = { addons = { EllesmereUINameplates = settings } } } }
+  _ENP_RefreshAllSettings = function() end
+  w.Login()
+  settings.showClassPower = true
+  _ENP_RefreshAllSettings()
+  w.RunTimers()
+  eq(settings.showClassPower, false)
+  local a = w.ns.adapters.EllesmereUI
+  settings.showClassPower = true
+  _ENP_RefreshAllSettings = function() error("refresh unavailable") end
+  eq(a.Revert("NameplatePower"), false)
+  eq(a.Read("NameplatePower"), true)
+  _ENP_RefreshAllSettings = function() end
+  eq(a.Revert("NameplatePower"), true)
+  eq(a.Read("NameplatePower"), false)
+end)
+
+test("a YUI profile reset is enforced without cached old profile references", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  BuildYUI(w)
+  w.Login()
+  local fresh = { Components = {}, YHUD = { profile = HudConfig() } }
+  YUI_DB.profiles.Fresh = fresh
+  YUI.DB.GetProfile = function() return fresh end
+  YUI.YHUD.GetConfigProfile = function() return fresh.YHUD.profile end
+  w.Tick()
+  eq(fresh.Components.UtilityTools_Config.nameplateOutline, false)
+  eq(fresh.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].comboPoints, false)
+end)
+
+test("new rules stay inactive when their owner addon is absent", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = { YUI = true } })
+  local live = BuildYUI(w)
+  w.Login()
+  eq(live.Components.UtilityTools_Config.nameplateOutline, true)
+  eq(live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].comboPoints, true)
 end)
 
 for _, t in ipairs(tests) do

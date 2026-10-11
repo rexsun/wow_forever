@@ -1,0 +1,8 @@
+<Ui xmlns='http://www.blizzard.com/wow/ui/'>
+	<Script file='Clean.lua'/>
+	<Script file='Dev.lua'/>
+	<Script file='CPUProfiler.lua'/>
+	<Script file='MonitorDev.lua'/>
+    <Script file='../GUI/GUI2_AnimationLab.lua'/>
+    <Script file='../GUI/GUI2_Lab.lua'/>
+</Ui>

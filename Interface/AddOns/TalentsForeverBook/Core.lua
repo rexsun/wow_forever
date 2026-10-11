@@ -8,9 +8,71 @@ TF.VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetada
 TF.SITE = "https://talentsforever.com"
 TF.GOLD = "|cffffd75e"
 
+-- ---------- the addon's words in the client's language (0.38.0) ----------
+-- Every sentence the addon says is looked up through TF.L by its English text. A locale file (Locales\deDE.lua and the
+-- rest, loaded after this file) fills the table for its own client language; a key no file has filled falls through to
+-- the English, so a half-translated language never shows a blank. Talent, spell, class and race names are not in here:
+-- they come from the game itself, by id, in TF.Localise below.
+TF.L = setmetatable({}, { __index = function(_, k) return k end })
+local L = TF.L
+-- one of two sentences by a count: the languages do not all make a plural by adding an s
+function TF.Plural(n, one, many) return (n == 1) and L[one] or L[many] end
+-- string.upper knows A to Z only: Verstärkung would read VERSTäRKUNG and Огонь would stay as it is. This also lifts the
+-- Latin-1 letters (à to þ), œ and Cyrillic; CJK and Hangul have no case. Plain English comes out as string.upper gives it.
+function TF.Upper(s)
+  s = tostring(s or ""):upper()
+  s = s:gsub("\195([\160-\190])", function(b) if b == "\183" then return "\195\183" end; return "\195" .. string.char(b:byte() - 32) end)
+  s = s:gsub("\197\147", "\197\146")
+  s = s:gsub("\208([\176-\191])", function(b) return "\208" .. string.char(b:byte() - 32) end)
+  s = s:gsub("\209([\128-\143])", function(b) return "\208" .. string.char(b:byte() + 32) end)
+  s = s:gsub("\209\145", "\208\129")
+  return s
+end
+-- the other way: search matches "огонь" to Огонь and "über" to Überleben (string.lower knows A to Z only)
+function TF.Lower(s)
+  s = tostring(s or ""):lower()
+  s = s:gsub("\195([\128-\158])", function(b) if b == "\151" then return "\195\151" end; return "\195" .. string.char(b:byte() + 32) end)
+  s = s:gsub("\197\146", "\197\147")
+  s = s:gsub("\208([\160-\175])", function(b) return "\209" .. string.char(b:byte() - 32) end)
+  s = s:gsub("\208([\144-\159])", function(b) return "\208" .. string.char(b:byte() + 32) end)
+  s = s:gsub("\208\129", "\209\145")
+  return s
+end
+-- the first n letters, never half of one (s:sub counts bytes, and ü or Ж is two)
+function TF.USub(s, n)
+  local out, k = {}, 0
+  for ch in tostring(s or ""):gmatch("[\1-\127\194-\244][\128-\191]*") do k = k + 1; if k > n then break end; out[k] = ch end
+  return table.concat(out)
+end
+-- month names for the dates the addon prints ("07 Oct"); %b is English on every client. Asked for at call time: the
+-- locale files load after this one
+function TF.Month(m) return ({ L["Jan"], L["Feb"], L["Mar"], L["Apr"], L["May"], L["Jun"], L["Jul"], L["Aug"], L["Sep"], L["Oct"], L["Nov"], L["Dec"] })[m] end
+-- day then month ("07 Oct", "7 Okt"); Chinese and Korean put the month first and count both ("10月7日", "10월 7일")
+function TF.DayMonth(day, m)
+  local l = TF.ClientLocale()
+  if l == "zhCN" or l == "zhTW" then return string.format("%d月%d日", m, tonumber(day) or 0) end
+  if l == "koKR" then return string.format("%d월 %d일", m, tonumber(day) or 0) end
+  return day .. " " .. (TF.Month(m) or m)
+end
+function TF.ShortDate(t) return TF.DayMonth(date("%d", t), tonumber(date("%m", t))) end
+-- the Popular page's counting window, as the site writes it ("since the Oct 1 patch (build 70170)", "since the Oct 2
+-- hotfixes to build 70170", "Sep 13 to Oct 7, 2026"). An English client reads it as it always did (the year cut off);
+-- a language that carries these sentences gets them with its own dates
+local MON = { Jan = 1, Feb = 2, Mar = 3, Apr = 4, May = 5, Jun = 6, Jul = 7, Aug = 8, Sep = 9, Oct = 10, Nov = 11, Dec = 12 }
+function TF.WindowText(w)
+  local plain = (w or ""):gsub(" %d%d%d%d$", "")
+  if rawget(L, "since the %s patch (build %d)") == nil then return plain end
+  local function dm(mon, day) return MON[mon] and TF.DayMonth(day, MON[mon]) or (mon .. " " .. day) end
+  local mon, day, build = (w or ""):match("^since the (%a+) (%d+) patch %(build (%d+)%)$")
+  if mon then return string.format(L["since the %s patch (build %d)"], dm(mon, day), tonumber(build)) end
+  mon, day, build = (w or ""):match("^since the (%a+) (%d+) hotfixes to build (%d+)$")
+  if mon then return string.format(L["since the %s hotfixes to build %d"], dm(mon, day), tonumber(build)) end
+  local m1, d1, m2, d2 = (w or ""):match("^(%a+) (%d+) to (%a+) (%d+), %d+$")
+  if m1 then return string.format(L["%s to %s"], dm(m1, d1), dm(m2, d2)) end
+  return plain
+end
+
 BINDING_HEADER_TALENTSFOREVERBOOK = "Talents Forever"
-BINDING_NAME_TALENTSFOREVERBOOK_TOGGLE = "Open or close the planner"
-BINDING_NAME_TALENTSFOREVERBOOK_NEXT = "Apply the next planned point"
 
 -- ---------- small helpers ----------
 TF.log = {}
@@ -101,7 +163,89 @@ function TF.PlayerClass() local _, cf = UnitClass("player"); return cf end
 function TF.ClassData(cf) return D.classes[cf or TF.PlayerClass()] end
 function TF.ClassByName(name)
   name = (name or ""):lower()
-  for cf, c in pairs(D.classes) do if c.name:lower() == name then return cf end end
+  for cf, c in pairs(D.classes) do if (c.en or c.name):lower() == name then return cf end end
+end
+
+-- ---------- names in the client's language (0.38.0) ----------
+-- Data.lua is written from the site's English files. On a client in another language the names the player sees come
+-- from the game itself: every talent and every book spell carries a spell id, and the game names a spell in its own
+-- language (C_Spell.GetSpellName); classes come from the game's class table, races from its race table. The English
+-- stays beside each one as .en, because the share codes, the site's pick rates and popular builds, the learn table, the
+-- Classic order tables and the icon file names are keyed by it. Tree names have no spell: the locale file carries them.
+-- Runs once per session, and again for any name the game had not loaded yet (spell data arrives lazily).
+TF.locale = nil
+local function gameSpellName(id)
+  if not id then return nil end
+  if C_Spell and C_Spell.GetSpellName then local ok, n = pcall(C_Spell.GetSpellName, id); if ok and type(n) == "string" and n ~= "" then return n end end
+  if GetSpellInfo then local ok, n = pcall(GetSpellInfo, id); if ok and type(n) == "string" and n ~= "" then return n end end
+  return nil
+end
+function TF.ClientLocale() local ok, l = pcall(GetLocale or error); return (ok and type(l) == "string" and l) or "enUS" end
+-- the heading font (Cinzel) has Latin letters only; these clients draw their headings in the game's own face
+function TF.LatinClient() local l = TF.ClientLocale(); return not (l == "zhCN" or l == "zhTW" or l == "koKR" or l == "ruRU") end
+-- English names stay when the client is English, or when Settings asks for them (names in guides and chat are English)
+function TF.WantsEnglishNames()
+  local l = TF.ClientLocale()
+  if l == "enUS" or l == "enGB" then return true end
+  local s = TF.db and TF.db.settings
+  return (s and s.englishNames) == true
+end
+local function setName(t, loc)
+  t.en = t.en or t.name
+  t.name = loc or t.en
+end
+function TF.Localise()
+  local english = TF.WantsEnglishNames()
+  local missing = 0
+  for cf, c in pairs(D.classes) do
+    c.en = c.en or c.name
+    local cn = (not english) and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[cf] or nil
+    setName(c, cn)
+    for _, tree in ipairs(c.trees) do
+      tree.en = tree.en or tree.name
+      -- the locale file names the trees (Arms is Waffen); nothing in the game hands them out by id. A "CLASS:Tree" key
+      -- comes first where one English name is two words in a language (koKR: a Warrior's Protection is 방어, a Paladin's 보호)
+      setName(tree, (not english) and (rawget(L, cf .. ":" .. tree.en) or rawget(L, tree.en)) or nil)
+      for _, t in ipairs(tree.talents) do
+        if english then setName(t, nil)
+        else local n = gameSpellName(t.spell); if not n and t.spell then missing = missing + 1 end; setName(t, n) end
+      end
+      for _, r in ipairs(tree.removed or {}) do r.en = r.en or r.name end
+    end
+  end
+  for _, recs in pairs(D.learn or {}) do
+    for _, rec in pairs(recs) do
+      if english then rec.loc = nil
+      else local n = gameSpellName(rec.ids and rec.ids[1]); if not n and rec.ids and rec.ids[1] then missing = missing + 1 end; rec.loc = n end
+    end
+  end
+  TF.locale = { english = english, missing = missing }
+  if TF.localeNames then TF.localeNames = nil end
+  return missing
+end
+-- a tree's name as the player reads it, from the English the site's data uses (popular builds, pick rates by spec)
+function TF.TreeLoc(cf, en)
+  local c = D.classes[cf or (TF.plan and TF.plan.cls)]
+  if c then for _, tree in ipairs(c.trees) do if (tree.en or tree.name) == en then return tree.name end end end
+  return en
+end
+-- a book spell's name as the player reads it, from its English key in D.learn
+function TF.SpellLoc(cf, key)
+  local recs = D.learn and D.learn[cf]; local rec = recs and recs[key]
+  return (rec and rec.loc) or key
+end
+-- a race's name as the player reads it, from the English the site's racials use ("Night Elf", "Skyborne (High Order)")
+function TF.RaceLoc(en)
+  if not en or (TF.locale and TF.locale.english) then return en end
+  if not TF.localeNames then
+    local m = {}
+    if C_CreatureInfo and C_CreatureInfo.GetRaceInfo then
+      for id = 1, 90 do local ok, info = pcall(C_CreatureInfo.GetRaceInfo, id); if ok and type(info) == "table" and info.clientFileString and info.raceName then m[info.clientFileString:lower()] = info.raceName end end
+    end
+    TF.localeNames = { races = m }
+  end
+  local key = (en:lower():gsub("%s*%(.*$", "")):gsub("%s", "")
+  return TF.localeNames.races[key] or en
 end
 function TF.ClassColor(cf)
   local c = D.classes[cf]
@@ -174,13 +318,13 @@ TF.On("PLAN_CHANGED", function() if TF.lastSettled and TF.plan and TF.TotalPts(T
 function TF.SettledText(back)
   if not back then return "" end
   local names = {}; for _, b in ipairs(back.list) do names[#names + 1] = b.name end
-  return string.format(" %d point%s came back to you: %s.", back.n, back.n == 1 and "" or "s", table.concat(names, ", "))
+  return string.format(TF.Plural(back.n, " %d point came back to you: %s.", " %d points came back to you: %s."), back.n, table.concat(names, ", "))
 end
 -- the card's words: the whole story in one breath, with where to look
 function TF.SettledCard(back)
   if not back then return nil end
   local parts = {}; for _, b in ipairs(back.list) do parts[#parts + 1] = b.name .. " " .. b.pts end
-  return string.format("This build is older than the trees.\n%d point%s came back: %s.\nThey're ringed in orange. Hover one to see why.", back.n, back.n == 1 and "" or "s", table.concat(parts, ", "))
+  return string.format(TF.Plural(back.n, "This build is older than the trees.\n%d point came back: %s.\nIt is ringed in orange. Hover it to see why.", "This build is older than the trees.\n%d points came back: %s.\nThey're ringed in orange. Hover one to see why."), back.n, table.concat(parts, ", "))
 end
 -- ---------- fill it in: help finish a settled build with the points that came back ----------
 -- Never automatic. The card offers it and says what it takes: each talent that lost points goes back where the rules now allow,
@@ -201,7 +345,7 @@ function TF.Refit(p, back)
   -- the build's spec is the tree it leads in; its rates when enough builds lead there, else the class's
   local ptsIn, leadTi = {}, 1
   for ti, row in ipairs(before) do local n = 0; for _, v in ipairs(row) do n = n + v end; ptsIn[ti] = n; if n > ptsIn[leadTi] then leadTi = ti end end
-  local leadName = c.trees[leadTi].name
+  local leadName = c.trees[leadTi].en or c.trees[leadTi].name
   local bySpec = pop and pop.pickBy and pop.pickBy[leadName] and (pop.specN and pop.specN[leadName] or 0) >= 100 and pop.pickBy[leadName] or nil
   local pick, spec = bySpec or (pop and pop.pick), bySpec and leadName or nil
   local strays = {}; for _, b in ipairs(back.list) do strays[#strays + 1] = b end
@@ -265,39 +409,39 @@ function TF.Refit(p, back)
 end
 -- the plan in words: what goes where, from the data (the arrow's name, the pick rate), then what stays out of reach
 -- who: whose pick rates the words cite ("of Enhancement" when the spec's rates are in play, else nothing, the class being understood)
-local function refitWho(f) return f.spec and (" of " .. f.spec) or "" end
+local function refitWho(f) return f.spec and (L[" of "] .. TF.TreeLoc(f.cls, f.spec)) or "" end
 local function roadWords(f, x, tn)
   local r = x.road; if not r then return nil end
-  return string.format("%s skipped: its road, %d in %s, is one %s", tn(x.b.ti, x.b.i), r.n, tn(r.ti, r.i), r.rate > 0 and string.format("only %d%%%s take", r.rate, refitWho(f)) or ("no " .. (f.spec or "") .. (f.spec and " build" or "build") .. " takes"))
+  return string.format(L["%s skipped: its road, %d in %s, is one %s"], tn(x.b.ti, x.b.i), r.n, tn(r.ti, r.i), r.rate > 0 and string.format(L["only %d%%%s take"], r.rate, refitWho(f)) or (f.spec and string.format(L["no %s build takes"], TF.TreeLoc(f.cls, f.spec)) or L["no build takes"]))
 end
 function TF.RefitText(f)
   local c = D.classes[f.cls]; local function tn(ti, i) return c.trees[ti].talents[i].name end
-  local function list(a) if #a == 1 then return a[1] end; return table.concat(a, ", ", 1, #a - 1) .. " and " .. a[#a] end
+  local function list(a) if #a == 1 then return a[1] end; return table.concat(a, ", ", 1, #a - 1) .. L[" and "] .. a[#a] end
   local who = refitWho(f)
   local adds, backs = {}, {}
   for _, st in ipairs(f.steps) do
-    for _, a in ipairs(st.adds) do adds[#adds + 1] = string.format("%d in %s%s", a.n, tn(a.ti, a.i), a.arrow and " (the new arrow)" or (a.rate and string.format(" (%d%%%s take it)", a.rate, who) or "")) end
+    for _, a in ipairs(st.adds) do adds[#adds + 1] = string.format(L["%d in %s%s"], a.n, tn(a.ti, a.i), a.arrow and L[" (the new arrow)"] or (a.rate and string.format(L[" (%d%%%s take it)"], a.rate, who) or "")) end
     backs[#backs + 1] = tn(st.b.ti, st.b.i)
   end
-  local t = "Fill it in for me: " .. (#adds > 0 and (list(adds) .. ", then ") or "") .. list(backs) .. (#backs == 1 and " goes" or " go") .. " back."
-  local more = {}; for _, a in ipairs(f.extra or {}) do more[#more + 1] = string.format("%d more in %s (%d%%%s take it)", a.n, tn(a.ti, a.i), a.rate, who) end
-  if #more > 0 then t = t .. " Then " .. list(more) .. "." end
-  if f.left > 0 then t = t .. string.format(" %d point%s yours%s.", f.left, f.left == 1 and " stays" or "s stay", f.noData and ", nothing in the pick rates to place it by" or "") end
-  for _, x in ipairs(f.cant) do t = t .. " " .. (roadWords(f, x, tn) or string.format("%s %s", tn(x.b.ti, x.b.i), (x.need or 0) > 0 and string.format("needs %d more in %s first", x.need, c.trees[x.b.ti].name) or (x.short and string.format("needs %d more free point%s", x.short, x.short == 1 and "" or "s") or "can't come back yet"))) .. "." end
+  local t = L["Fill it in for me: "] .. (#adds > 0 and (list(adds) .. L[", then "]) or "") .. list(backs) .. TF.Plural(#backs, " goes back.", " go back.")
+  local more = {}; for _, a in ipairs(f.extra or {}) do more[#more + 1] = string.format(L["%d more in %s (%d%%%s take it)"], a.n, tn(a.ti, a.i), a.rate, who) end
+  if #more > 0 then t = t .. L[" Then "] .. list(more) .. "." end
+  if f.left > 0 then t = t .. string.format(TF.Plural(f.left, " %d point stays yours%s.", " %d points stay yours%s."), f.left, f.noData and L[", nothing in the pick rates to place it by"] or "") end
+  for _, x in ipairs(f.cant) do t = t .. " " .. (roadWords(f, x, tn) or string.format("%s %s", tn(x.b.ti, x.b.i), (x.need or 0) > 0 and string.format(L["needs %d more in %s first"], x.need, c.trees[x.b.ti].name) or (x.short and string.format(TF.Plural(x.short, "needs %d more free point", "needs %d more free points"), x.short) or L["can't come back yet"]))) .. "." end
   return t
 end
 -- after the click: where every point went, in one breath, then what stayed out of reach
 function TF.RefitDone(f)
   local c = D.classes[f.cls]; local function tn(ti, i) return c.trees[ti].talents[i].name end
-  local function list(a) if #a == 1 then return a[1] end; return table.concat(a, ", ", 1, #a - 1) .. " and " .. a[#a] end
+  local function list(a) if #a == 1 then return a[1] end; return table.concat(a, ", ", 1, #a - 1) .. L[" and "] .. a[#a] end
   local went = {}
-  for _, st in ipairs(f.steps) do for _, a in ipairs(st.adds) do went[#went + 1] = string.format("%d in %s", a.n, tn(a.ti, a.i)) end end
+  for _, st in ipairs(f.steps) do for _, a in ipairs(st.adds) do went[#went + 1] = string.format(L["%d in %s"], a.n, tn(a.ti, a.i)) end end
   for _, st in ipairs(f.steps) do went[#went + 1] = string.format("%s %d/%d", tn(st.b.ti, st.b.i), st.b.pts, c.trees[st.b.ti].talents[st.b.i].max) end
-  for _, a in ipairs(f.extra or {}) do went[#went + 1] = string.format("%d in %s (%d%%%s take it)", a.n, tn(a.ti, a.i), a.rate, refitWho(f)) end
+  for _, a in ipairs(f.extra or {}) do went[#went + 1] = string.format(L["%d in %s (%d%%%s take it)"], a.n, tn(a.ti, a.i), a.rate, refitWho(f)) end
   local placed = math.min(f.used, f.n)
-  local t = (f.n == 1 and "The point is" or (placed == f.n and ("All " .. f.n) or string.format("%d of the %d", placed, f.n))) .. " placed" .. (f.used > f.n and string.format(" (with %d of your free points on the arrows)", f.used - f.n) or "") .. ": " .. list(went) .. "."
-  if f.left > 0 then t = t .. string.format(" %d still yours%s.", f.left, f.noData and ", nothing in the pick rates to place it by" or "") end
-  for _, x in ipairs(f.cant) do t = t .. " " .. (roadWords(f, x, tn) or string.format("%s needs %s first", tn(x.b.ti, x.b.i), (x.need or 0) > 0 and string.format("%d more in %s", x.need, c.trees[x.b.ti].name) or (x.short and string.format("%d more free point%s", x.short, x.short == 1 and "" or "s") or "more in the tree"))) .. "." end
+  local t = (f.n == 1 and L["The point is placed"] or (placed == f.n and string.format(L["All %d placed"], f.n) or string.format(L["%d of the %d placed"], placed, f.n))) .. (f.used > f.n and string.format(L[" (with %d of your free points on the arrows)"], f.used - f.n) or "") .. ": " .. list(went) .. "."
+  if f.left > 0 then t = t .. string.format(L[" %d still yours%s."], f.left, f.noData and L[", nothing in the pick rates to place it by"] or "") end
+  for _, x in ipairs(f.cant) do t = t .. " " .. (roadWords(f, x, tn) or string.format(L["%s needs %s first"], tn(x.b.ti, x.b.i), (x.need or 0) > 0 and string.format(L["%d more in %s"], x.need, c.trees[x.b.ti].name) or (x.short and string.format(TF.Plural(x.short, "%d more free point", "%d more free points"), x.short) or L["more in the tree"]))) .. "." end
   return t
 end
 -- one click: the plan above becomes the player's; Undo brings the settled plan back
@@ -358,19 +502,19 @@ function TF.PlanList(cf)
   cf = cf or TF.plan.cls
   local out = {}
   local open = cf == TF.plan.cls and TF.plan or (TF.CharDB().plans or {})[cf]
-  if open then out[1] = { name = slotNames()[cf] or "Plan 1", plan = open } end
-  for _, e in ipairs(shelf(cf)) do out[#out + 1] = { name = e.name or "Plan 1", plan = e.plan } end
+  if open then out[1] = { name = slotNames()[cf] or (L["Plan"] .. " 1"), plan = open } end
+  for _, e in ipairs(shelf(cf)) do out[#out + 1] = { name = e.name or (L["Plan"] .. " 1"), plan = e.plan } end
   return out
 end
-function TF.PlanName(k) local e = TF.PlanList()[k or 1]; return e and e.name or "Plan 1" end
+function TF.PlanName(k) local e = TF.PlanList()[k or 1]; return e and e.name or (L["Plan"] .. " 1") end
 -- a plan worth naming on the screen: the open slot was named, or the class keeps more than one
 function TF.PlanNamed(cf) cf = cf or TF.plan.cls; return slotNames()[cf] ~= nil or #shelf(cf) > 0 end
 local function freeName(cf, want, keepIdx)
   want = (want or ""):gsub("^%s+", ""):gsub("%s+$", ""):sub(1, 24)
   local taken = {}; for k, e in ipairs(TF.PlanList(cf)) do if k ~= keepIdx then taken[e.name:lower()] = true end end
   if want ~= "" then local n, w = 1, want; while taken[w:lower()] do n = n + 1; w = want .. " " .. n end; return w end
-  local n = 1; while taken["plan " .. n] do n = n + 1 end
-  return "Plan " .. n
+  local n = 1; while taken[(L["Plan"] .. " " .. n):lower()] do n = n + 1 end
+  return L["Plan"] .. " " .. n
 end
 local function copyPlan(p)
   local c = { cls = p.cls, level = p.level, ranks = {}, order = {}, orderKnown = p.orderKnown }
@@ -398,7 +542,7 @@ end
 -- a new plan for the open class, empty or a copy of the open one, and it opens; the open plan goes to the front of the shelf
 function TF.AddPlan(name, copy)
   local cf = TF.plan.cls; local sh, names = shelf(cf), slotNames()
-  if #sh >= 7 then return false, "Eight plans a class is the most. Delete one first." end
+  if #sh >= 7 then return false, L["Eight plans a class is the most. Delete one first."] end
   local p = copy and copyPlan(TF.plan) or TF.NewPlan(cf, TF.plan.level)
   local newName = freeName(cf, name)
   table.insert(sh, 1, { name = names[cf], plan = TF.plan })
@@ -444,20 +588,20 @@ end
 function TF.Gate(p, ti, i)
   local tree = D.classes[p.cls].trees[ti]; local t = tree.talents[i]
   local need = (t.row - 1) * 5
-  if TF.Above(p, ti, t.row) < need then return string.format("Requires %d points in %s Talents", need, tree.name) end
+  if TF.Above(p, ti, t.row) < need then return string.format(L["Requires %d points in %s Talents"], need, tree.name) end
   if t.req then
     local pre = tree.talents[t.req]
-    if p.ranks[ti][t.req] < pre.max then return string.format("Requires %d point%s in %s", pre.max, pre.max > 1 and "s" or "", pre.name) end
+    if p.ranks[ti][t.req] < pre.max then return string.format(TF.Plural(pre.max, "Requires %d point in %s", "Requires %d points in %s"), pre.max, pre.name) end
   end
   return nil
 end
 function TF.CanAdd(p, ti, i)
   local t = D.classes[p.cls].trees[ti].talents[i]
-  if p.ranks[ti][i] >= t.max then return "Max rank" end
+  if p.ranks[ti][i] >= t.max then return L["Max rank"] end
   local g = TF.Gate(p, ti, i); if g then return g end
   if TF.TotalPts(p) >= TF.Pool(p) then
-    if p.level < 60 then return string.format("All %d points at level %d are placed. Raise the level to plan further.", TF.Pool(p), p.level) end
-    return string.format("All %d points spent. Take one back from another talent to move it.", TF.Pool(p))
+    if p.level < 60 then return string.format(L["All %d points at level %d are placed. Raise the level to plan further."], TF.Pool(p), p.level) end
+    return string.format(L["All %d points spent. Take one back from another talent to move it."], TF.Pool(p))
   end
   return nil
 end
@@ -504,7 +648,7 @@ end
 -- that goes is the last one of this talent inside that window
 function TF.Remove(ti, i, within)
   local p = TF.plan
-  if not TF.CanRemove(p, ti, i) then return false, p.ranks[ti][i] > 0 and "Other talents depend on this point" or nil end
+  if not TF.CanRemove(p, ti, i) then return false, p.ranks[ti][i] > 0 and L["Other talents depend on this point"] or nil end
   TF.FixOrder(p)
   p.ranks[ti][i] = p.ranks[ti][i] - 1
   local from = #(p.order or {}); if within then from = math.min(from, within) end
@@ -603,7 +747,7 @@ function TF.Encode(p, legacyRanks)
   end
   if oc ~= "" then segs[#segs + 1] = oc end
   segs[#segs + 1] = D.codeVersion
-  return string.format("%s/%d/%s", c.name:lower(), TF.FullLevel(p), table.concat(segs, "-"))
+  return string.format("%s/%d/%s", (c.en or c.name):lower(), TF.FullLevel(p), table.concat(segs, "-"))
 end
 -- every link the addon makes ends in ?a, so the site can count a visit that came from the addon. Two characters, nobody reads them.
 TF.LINK_MARK = "?a"
@@ -613,9 +757,9 @@ function TF.ShareURL(p) return TF.SITE .. "/" .. TF.Encode(p) .. TF.LINK_MARK en
 function TF.Decode(str)
   str = tostring(str or ""):gsub("^%s+", ""):gsub("%s+$", ""):gsub("[?#].*$", "")   -- a query or hash on a pasted link is not part of the code
   local cname, level, rest = str:match("(%a+)/(%d+)/([%w%-]*)%s*$")
-  if not cname then return nil, "That does not look like a Talents Forever link or code." end
+  if not cname then return nil, L["That does not look like a Talents Forever link or code."] end
   local cf = TF.ClassByName(cname)
-  if not cf then return nil, "Unknown class in that code: " .. cname end
+  if not cf then return nil, string.format(L["Unknown class in that code: %s"], cname) end
   local c = D.classes[cf]
   local p = TF.NewPlan(cf, tonumber(level))
   local all = {}
@@ -635,7 +779,7 @@ function TF.Decode(str)
   local byName
   if old then
     byName = {}
-    for ti, tree in ipairs(c.trees) do for i, t in ipairs(tree.talents) do byName[t.name] = { ti, i } end end
+    for ti, tree in ipairs(c.trees) do for i, t in ipairs(tree.talents) do byName[t.en or t.name] = { ti, i } end end
     for was, now in pairs(D.renames or {}) do if byName[now] and not byName[was] then byName[was] = byName[now] end end
     for ti = 1, nt do
       local s = segs[ti] or ""
@@ -740,7 +884,7 @@ function TF.Diff(p)
 end
 function TF.PlanFromGame()
   TF.Remember()
-  local live = TF.LiveRanks(TF.PlayerClass()); if not live then return false, "The game has not answered about your talents yet." end
+  local live = TF.LiveRanks(TF.PlayerClass()); if not live then return false, L["The game has not answered about your talents yet."] end
   local p = TF.NewPlan(TF.PlayerClass(), math.max(TF.plan.level, UnitLevel("player")))
   p.ranks = live; p.order = {}; p.orderKnown = false
   TF.SetPlan(p)
@@ -753,7 +897,7 @@ end
 TF.trial = nil
 function TF.TryBuild(p, name)
   if not p then return false end
-  TF.trial = { name = name or "a build", cls = p.cls, ranks = p.ranks, level = p.level, p = p }
+  TF.trial = { name = name or L["a build"], cls = p.cls, ranks = p.ranks, level = p.level, p = p }
   TF.Fire("PLAN_CHANGED")
   return true
 end
@@ -789,7 +933,7 @@ end
 function TF.SaveBuild(name)
   local p = TF.plan
   name = (name or ""):gsub("^%s+", ""):gsub("%s+$", "")
-  if name == "" then name = D.classes[p.cls].name .. " " .. date("%d %b %H:%M") end
+  if name == "" then name = D.classes[p.cls].name .. " " .. TF.ShortDate() .. date(" %H:%M") end
   local rec = { name = name, cls = p.cls, level = p.level, code = TF.Encode(p), when = time(), pts = {}, who = UnitName and UnitName("player") or nil }
   for ti = 1, #p.ranks do rec.pts[ti] = TF.TreePts(p, ti) end
   table.insert(TF.db.builds, 1, rec)
@@ -818,7 +962,7 @@ function TF.SetStarter(on)
   local s = TF.db.settings
   if not on then s.starter = false; TF.Fire("STARTER_CHANGED", false); return true end
   local p, b = TF.TopBuild(TF.PlayerClass())
-  if not p then return false, "No popular builds for this class yet." end
+  if not p then return false, L["No popular builds for this class yet."] end
   if TF.plan.cls == p.cls and TF.Encode(TF.plan) ~= TF.Encode(p) then TF.Remember() end
   s.starter = true
   TF.starterCode = b.code
@@ -856,13 +1000,13 @@ function TF.TrainerTeaches(cf, name, rec, rank)
     local p = TF.plan
     if not p or p.cls ~= cf then return false end
     local has = false
-    for ti, tree in ipairs(D.classes[cf].trees) do for i, t in ipairs(tree.talents) do if t.name == name and p.ranks[ti][i] > 0 then has = true end end end
+    for ti, tree in ipairs(D.classes[cf].trees) do for i, t in ipairs(tree.talents) do if (t.en or t.name) == name and p.ranks[ti][i] > 0 then has = true end end end
     if not has then return false end
   end
   local ro = raceSpells(cf)[name]
   if ro and not rec.seen then
     if cf ~= TF.PlayerClass() then return false end
-    local race = (UnitRace("player")) or ""
+    local race = select(2, UnitRace("player")) or (UnitRace("player")) or ""   -- the English token: the racials are keyed in English whatever the client speaks
     local mine = false
     for r in pairs(ro) do if race:find(r, 1, true) then mine = true end end
     if not mine then return false end
@@ -870,11 +1014,11 @@ function TF.TrainerTeaches(cf, name, rec, rank)
   return true
 end
 function TF.NewSpellsAt(cf, level)
-  local L = D.learn and D.learn[cf]; if not L then return {} end
+  local LN = D.learn and D.learn[cf]; if not LN then return {} end
   local out = {}
-  for name, rec in pairs(L) do
+  for name, rec in pairs(LN) do
     for r, lv in ipairs(rec.levels) do
-      if lv == level and TF.TrainerTeaches(cf, name, rec, r) then out[#out + 1] = { name = name, rank = r, ranks = #rec.levels, icon = rec.icon, passive = rec.passive, portal = rec.src and rec.src[r] == 1 or nil } end
+      if lv == level and TF.TrainerTeaches(cf, name, rec, r) then out[#out + 1] = { name = name, loc = rec.loc, rank = r, ranks = #rec.levels, icon = rec.icon, passive = rec.passive, portal = rec.src and rec.src[r] == 1 or nil } end
     end
   end
   -- brand new abilities first, then new ranks, each by name
@@ -887,21 +1031,23 @@ function TF.NewSpellsAt(cf, level)
 end
 -- the next level above `from` that brings something from the trainer for this character
 function TF.NextTrainerLevel(cf, from)
-  local L = D.learn and D.learn[cf]; if not L then return nil end
+  local LN = D.learn and D.learn[cf]; if not LN then return nil end
   local best
-  for name, rec in pairs(L) do
+  for name, rec in pairs(LN) do
     for r, lv in ipairs(rec.levels) do
       if lv > from and (not best or lv < best) and TF.TrainerTeaches(cf, name, rec, r) then best = lv end
     end
   end
   return best, best and TF.NewSpellsAt(cf, best) or {}
 end
-function TF.SpellsSummary(list, limit)
+-- noRanks leaves the "(rank N)" off every name (0.38.0: the status line cut it with an English pattern, which a translated
+-- rank never matched)
+function TF.SpellsSummary(list, limit, noRanks)
   local parts = {}
   for k, s in ipairs(list) do
-    if limit and k > limit then parts[#parts + 1] = string.format("and %d more", #list - limit); break end
-    local words = s.ranks > 1 and string.format("%s (rank %d)", s.name, s.rank) or s.name
-    if s.portal then words = words .. " (portal trainer)" end
+    if limit and k > limit then parts[#parts + 1] = string.format(L["and %d more"], #list - limit); break end
+    local words = (s.ranks > 1 and not noRanks) and string.format(L["%s (rank %d)"], s.loc or s.name, s.rank) or (s.loc or s.name)
+    if s.portal then words = words .. L[" (portal trainer)"] end
     parts[#parts + 1] = words
   end
   return table.concat(parts, ", ")
@@ -916,18 +1062,18 @@ function TF.SendBuild(chatType, target, p)
   local c = D.classes[p.cls]
   local okA = false
   if C_ChatInfo and C_ChatInfo.SendAddonMessage then okA = pcall(C_ChatInfo.SendAddonMessage, TF.PREFIX, "B1\t" .. code, chatType, target) end
-  local text = string.format("Talents Forever, %s build at level %d: %s", c.name, TF.FullLevel(p), link)
+  local text = string.format(L["Talents Forever, %s build at level %d: %s"], c.name, TF.FullLevel(p), link)
   if SendChatMessage then pcall(SendChatMessage, text, chatType, nil, target) end
   return okA
 end
 -- ask the group for everyone's build; each addon in the group answers with its plan as a build message (the usual card)
 function TF.AskParty()
   local inGroup = (IsInGroup and IsInGroup()) or (GetNumGroupMembers and (GetNumGroupMembers() or 0) > 0)
-  if not inGroup then return false, "You are not in a group." end
-  if not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return false, "This client cannot send addon messages." end
+  if not inGroup then return false, L["You are not in a group."] end
+  if not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then return false, L["This client cannot send addon messages."] end
   local ch = (IsInRaid and IsInRaid()) and "RAID" or "PARTY"
   local ok = pcall(C_ChatInfo.SendAddonMessage, TF.PREFIX, "Q1\t", ch)
-  return ok and true or false, ok and nil or "Could not send."
+  return ok and true or false, ok and nil or L["Could not send."]
 end
 function TF.AnswerParty(channel)
   local s = TF.db and TF.db.settings
@@ -952,7 +1098,7 @@ end
 function TF.ClearGroup() TF.group = {}; TF.Fire("GROUP_CHANGED") end
 function TF.Ago(when)
   local d = time() - (when or 0)
-  if d < 90 then return "just now" elseif d < 3600 then return string.format("%d min ago", math.floor(d / 60)) else return string.format("%d h ago", math.floor(d / 3600)) end
+  if d < 90 then return L["just now"] elseif d < 3600 then return string.format(L["%d min ago"], math.floor(d / 60)) else return string.format(L["%d h ago"], math.floor(d / 3600)) end
 end
 function TF.ReceiveBuild(text, sender)
   local kind, code = text:match("^(%u%d)\t(.+)$")
@@ -1054,15 +1200,15 @@ end
 -- returns two lists: what is owed, and what this character skipped (each entry: name, rank, ranks, icon, level, id, portal)
 function TF.OwedSpells(cf, level)
   cf = cf or TF.PlayerClass(); level = level or UnitLevel("player") or 1
-  local L = D.learn and D.learn[cf]; if not L then return nil end
+  local LN = D.learn and D.learn[cf]; if not LN then return nil end
   if not (IsPlayerSpell or IsSpellKnown) then return nil end
   local out, skipped = {}, {}
-  for name, rec in pairs(L) do
+  for name, rec in pairs(LN) do
     if rec.ids and not rec.skill then   -- a trainer skill (Dual Wield, Parry) is in the book by level, never a reminder: its level is Classic's until a Forever trainer confirms it
       local top
       for r, lv in ipairs(rec.levels) do if lv <= level and rec.ids[r] and TF.TrainerTeaches(cf, name, rec, r) then top = r end end
       if top and knownRank(rec.ids[top], name, top) == false then
-        local e = { name = name, rank = top, ranks = #rec.levels, icon = rec.icon, level = rec.levels[top], id = rec.ids[top], portal = rec.src and rec.src[top] == 1 or nil,
+        local e = { name = name, loc = rec.loc, rank = top, ranks = #rec.levels, icon = rec.icon, level = rec.levels[top], id = rec.ids[top], portal = rec.src and rec.src[top] == 1 or nil,
                     cost = (rec.cost and rec.cost[top] and rec.cost[top] > 0 and rec.cost[top]) or TF.KnownPrice(cf, name, top) }
         if TF.IsSkipped(name, top) then skipped[#skipped + 1] = e else out[#out + 1] = e end
       end
@@ -1077,10 +1223,10 @@ end
 -- at a higher level), "known" (every rank up to your level is in the book). nil when this client cannot say what is known.
 function TF.TrainerList(cf, level)
   cf = cf or TF.PlayerClass(); level = level or UnitLevel("player") or 1
-  local L = D.learn and D.learn[cf]; if not L then return nil end
+  local LN = D.learn and D.learn[cf]; if not LN then return nil end
   if not (IsPlayerSpell or IsSpellKnown) then return nil end
   local out = {}
-  for name, rec in pairs(L) do
+  for name, rec in pairs(LN) do
     if rec.ids and not rec.skill then
       local top, later
       for r, lv in ipairs(rec.levels) do
@@ -1089,7 +1235,7 @@ function TF.TrainerList(cf, level)
         end
       end
       local function entry(r, state)
-        return { name = name, rank = r, ranks = #rec.levels, icon = rec.icon, level = rec.levels[r], id = rec.ids[r], state = state, portal = rec.src and rec.src[r] == 1 or nil,
+        return { name = name, loc = rec.loc, rank = r, ranks = #rec.levels, icon = rec.icon, level = rec.levels[r], id = rec.ids[r], state = state, portal = rec.src and rec.src[r] == 1 or nil,
                  cost = (rec.cost and rec.cost[r] and rec.cost[r] > 0 and rec.cost[r]) or TF.KnownPrice(cf, name, r), skipped = TF.IsSkipped(name, r) }
       end
       if top then local k = knownRank(rec.ids[top], name, top); if k == false then out[#out + 1] = entry(top, "now") elseif k then out[#out + 1] = entry(top, "known") end end
@@ -1108,14 +1254,14 @@ end
 -- whether it is in the book already. What the game's own spellbook never shows: what is coming.
 function TF.SpellbookList(cf)
   cf = cf or TF.PlayerClass()
-  local L = D.learn and D.learn[cf]; if not L then return nil end
+  local LN = D.learn and D.learn[cf]; if not LN then return nil end
   local out = {}
-  for name, rec in pairs(L) do
+  for name, rec in pairs(LN) do
     for r, lv in ipairs(rec.levels or {}) do
       -- a quest's spell (Aquatic Form) is never the trainer's, so never a reminder, but the book by level still shows it coming
       if TF.TrainerTeaches(cf, name, rec, r) or rec.quest then
         local id = rec.ids and rec.ids[r]
-        out[#out + 1] = { name = name, rank = r, ranks = #rec.levels, icon = rec.icon, level = lv, id = id, known = id and knownRank(id, name, r) or nil,
+        out[#out + 1] = { name = name, loc = rec.loc, rank = r, ranks = #rec.levels, icon = rec.icon, level = lv, id = id, known = id and knownRank(id, name, r) or nil,
                           cost = (rec.cost and rec.cost[r] and rec.cost[r] > 0 and rec.cost[r]) or TF.KnownPrice(cf, name, r), portal = rec.src and rec.src[r] == 1 or nil,
                           skill = rec.skill or nil, classic = rec.classic or nil, passive = rec.passive or nil, quest = rec.quest or nil }
       end
@@ -1152,18 +1298,18 @@ function TF.OwedCostText(list)
   local total, priced, unpriced = TF.OwedCost(list)
   if priced == 0 then return nil end
   if unpriced == 0 then return TF.Money(total) end
-  return string.format("%s for %d of them", TF.Money(total), priced)
+  return string.format(L["%s for %d of them"], TF.Money(total), priced)
 end
 -- every talent whose name, or one of the spells it changes, contains the words (case does not matter)
 function TF.SearchTalents(cf, q)
-  q = (q or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+  q = TF.Lower(q):gsub("^%s+", ""):gsub("%s+$", "")
   local out = {}
   if q == "" then return out end
   local c = D.classes[cf or TF.plan.cls]; if not c then return out end
   for ti, tree in ipairs(c.trees) do
     for i, t in ipairs(tree.talents) do
-      local hit = t.name:lower():find(q, 1, true) and "name" or nil
-      if not hit and t.mentions then for _, m in ipairs(t.mentions) do if m:lower():find(q, 1, true) then hit = m; break end end end
+      local hit = (TF.Lower(t.name):find(q, 1, true) or (t.en and TF.Lower(t.en):find(q, 1, true))) and "name" or nil
+      if not hit and t.mentions then for _, m in ipairs(t.mentions) do if TF.Lower(m):find(q, 1, true) or TF.Lower(TF.SpellLoc(cf or TF.plan.cls, m)):find(q, 1, true) then hit = m; break end end end
       if hit then out[#out + 1] = { ti = ti, i = i, t = t, by = hit } end
     end
   end
@@ -1201,7 +1347,14 @@ end
 local function nodeMap(cf)
   local c = D.classes[cf]; local m = {}
   if not c then return m end
-  for ti, tree in ipairs(c.trees) do for i, t in ipairs(tree.talents) do if t.node then m[t.node] = { ti = ti, i = i, max = t.max } end end end
+  -- the player's own class: the node the game really has each talent on (Game.Node checks the spell), since a server hotfix can move a
+  -- talent off the id the files gave; any other class goes by the files
+  local G = TF.Game; local own = G and G.live and G.live.cls == cf
+  for ti, tree in ipairs(c.trees) do for i, t in ipairs(tree.talents) do
+    local id = t.node
+    if own then local n = G.Node(ti, i); id = n and n.id end
+    if id then m[id] = { ti = ti, i = i, max = t.max } end
+  end end
   return m
 end
 local function treeNodes(cf)
@@ -1228,10 +1381,10 @@ function TF.EncodeBlizzard(p, version)
   return w:text()
 end
 function TF.DecodeBlizzard(str, cf)
-  local r = bitReader(str or ""); if not r or r:left() < 8 + 16 + 128 then return nil, "That is not a talent string." end
+  local r = bitReader(str or ""); if not r or r:left() < 8 + 16 + 128 then return nil, L["That is not a talent string."] end
   local version = r:get(8); local spec = r:get(16); for _ = 1, 16 do r:get(8) end
-  if version < 1 or version > 3 then return nil, "A talent string from a client this addon does not know (version " .. version .. ")." end
-  local ids = treeNodes(cf); if not ids then return nil, "No trees for that class." end
+  if version < 1 or version > 3 then return nil, string.format(L["A talent string from a client this addon does not know (version %d)."], version) end
+  local ids = treeNodes(cf); if not ids then return nil, L["No trees for that class."] end
   local m = nodeMap(cf); local p = TF.NewPlan(cf, 60)
   for _, id in ipairs(ids) do
     if r:left() < 1 then break end
@@ -1254,11 +1407,11 @@ end
 -- another player's build: the game hands over their talent string once an inspect has come back
 function TF.InspectBuild(unit)
   unit = unit or "target"
-  if not (UnitIsPlayer and UnitIsPlayer(unit)) then return nil, "Target a player first." end
-  local _, cf = UnitClass(unit); if not cf or not D.classes[cf] then return nil, "Not a class this addon knows." end
-  if not (C_Traits and C_Traits.GenerateInspectImportString) then return nil, "This client cannot share another player's talents." end
+  if not (UnitIsPlayer and UnitIsPlayer(unit)) then return nil, L["Target a player first."] end
+  local _, cf = UnitClass(unit); if not cf or not D.classes[cf] then return nil, L["Not a class this addon knows."] end
+  if not (C_Traits and C_Traits.GenerateInspectImportString) then return nil, L["This client cannot share another player's talents."] end
   local ok, str = pcall(C_Traits.GenerateInspectImportString, unit)
-  if not ok or type(str) ~= "string" or str == "" then return nil, "The game gave no talents for them yet. Try once more." end
+  if not ok or type(str) ~= "string" or str == "" then return nil, L["The game gave no talents for them yet. Try once more."] end
   local p, err = TF.DecodeBlizzard(str, cf)
   if not p then return nil, err end
   p.who = UnitName(unit)
@@ -1268,9 +1421,9 @@ end
 TF.inspectSeen = {}
 function TF.RequestInspect(unit)
   unit = unit or "target"
-  if not (UnitIsPlayer and UnitIsPlayer(unit)) then return false, "Target a player first." end
-  if CanInspect and not CanInspect(unit) then return false, "They are too far away to inspect." end
-  if not NotifyInspect then return false, "This client cannot inspect." end
+  if not (UnitIsPlayer and UnitIsPlayer(unit)) then return false, L["Target a player first."] end
+  if CanInspect and not CanInspect(unit) then return false, L["They are too far away to inspect."] end
+  if not NotifyInspect then return false, L["This client cannot inspect."] end
   TF.inspectWant = UnitGUID and UnitGUID(unit) or true
   pcall(NotifyInspect, unit)
   return true
@@ -1319,27 +1472,27 @@ function TF.WhyPoint(p, k)
     local row = pts / 5 + 1
     local uses = false
     for n = k + 1, #order do local x = order[n]; if x[1] == ti and tree.talents[x[2]].row == row then uses = true; break end end
-    if uses then out[#out + 1] = string.format("Opens row %d of %s.", row, tree.name) end
+    if uses then out[#out + 1] = string.format(L["Opens row %d of %s."], row, tree.name) end
   end
   -- the last rank, and what it unlocks
   if r == t.max then
     local needs = {}
     for n = k + 1, #order do local x = order[n]; local u = tree.talents[x[2]]; if x[1] == ti and u.req == i and not needs[u.name] then needs[u.name] = true; needs[#needs + 1] = u.name end end
-    if #needs > 0 then out[#out + 1] = string.format("Unlocks %s.", TF.JoinNames(needs))
-    elseif t.max > 1 then out[#out + 1] = string.format("%s is complete.", t.name) end
+    if #needs > 0 then out[#out + 1] = string.format(L["Unlocks %s."], TF.JoinNames(needs))
+    elseif t.max > 1 then out[#out + 1] = string.format(L["%s is complete."], t.name) end
   end
   -- what other players do
   local pop = D.popular[p.cls]
   local pick = pop and pop.pick and pop.pick[ti] and pop.pick[ti][i]
   if pick then
-    if pick >= 60 then out[#out + 1] = string.format("%d%% of %ss on the site take it.", pick, c.name)
-    elseif pick <= 15 then out[#out + 1] = string.format("Rare: %d%% of %ss take it.", pick, c.name) end
+    if pick >= 60 then out[#out + 1] = string.format(L["%d%% of %ss on the site take it."], pick, c.name)
+    elseif pick <= 15 then out[#out + 1] = string.format(L["Rare: %d%% of %ss take it."], pick, c.name) end
   end
   if #out < 3 then
     local top, rec = TF.TopBuild(p.cls)
     local same = top ~= nil
     if same then for a = 1, #p.ranks do for b = 1, #p.ranks[a] do if p.ranks[a][b] ~= top.ranks[a][b] then same = false end end end end
-    if top and rec and not same and top.ranks[ti][i] >= r then out[#out + 1] = string.format("The #1 %s build takes it too.", rec.lead or c.name) end
+    if top and rec and not same and top.ranks[ti][i] >= r then out[#out + 1] = string.format(L["The #1 %s build takes it too."], rec.lead and TF.TreeLoc(p.cls, rec.lead) or c.name) end
   end
   while #out > 3 do table.remove(out) end
   return out
@@ -1373,9 +1526,9 @@ end)
 local broker
 function TF.BrokerText()
   local p = TF.plan; if not p then return "" end
-  local parts = { string.format("%d / %d", TF.TotalPts(p), TF.Pool(p)) }
+  local parts = { string.format(L["%d / %d"], TF.TotalPts(p), TF.Pool(p)) }
   local owed = TF.OwedSpells()
-  if owed and #owed > 0 then parts[#parts + 1] = string.format("%d at the trainer", #owed) end
+  if owed and #owed > 0 then parts[#parts + 1] = string.format(L["%d at the trainer"], #owed) end
   return table.concat(parts, "  ")
 end
 function TF.UpdateBroker()
@@ -1388,12 +1541,12 @@ function TF.UpdateBroker()
       end,
       OnTooltipShow = function(tt)
         tt:AddLine("Talents Forever", 1, 0.82, 0)
-        local p = TF.plan; if p then tt:AddDoubleLine("Plan", string.format("%d of %d points", TF.TotalPts(p), TF.Pool(p)), 1, 1, 1, 0.74, 0.74, 0.74) end
+        local p = TF.plan; if p then tt:AddDoubleLine(L["Plan"], string.format(L["%d of %d points"], TF.TotalPts(p), TF.Pool(p)), 1, 1, 1, 0.74, 0.74, 0.74) end
         local e, why = TF.WhyNext(p)
-        if e then local t = D.classes[p.cls].trees[e.ti].talents[e.i]; tt:AddDoubleLine("Next", string.format("%s (%d/%d) at %d", t.name, e.rank, t.max, e.level), 1, 1, 1, 0.74, 0.74, 0.74) end
+        if e then local t = D.classes[p.cls].trees[e.ti].talents[e.i]; tt:AddDoubleLine(L["Next"], string.format(L["%s (%d/%d) at %d"], t.name, e.rank, t.max, e.level), 1, 1, 1, 0.74, 0.74, 0.74) end
         local owed = TF.OwedSpells()
-        if owed and #owed > 0 then local ct = TF.OwedCostText(owed); tt:AddDoubleLine("At the trainer", string.format("%d spell%s%s", #owed, #owed == 1 and "" or "s", ct and (", " .. ct) or ""), 1, 1, 1, 0.74, 0.74, 0.74) end
-        tt:AddLine("Click to open the planner.", 0.54, 0.54, 0.54)
+        if owed and #owed > 0 then local ct = TF.OwedCostText(owed); tt:AddDoubleLine(L["At the trainer"], string.format(TF.Plural(#owed, "%d spell%s", "%d spells%s"), #owed, ct and (", " .. ct) or ""), 1, 1, 1, 0.74, 0.74, 0.74) end
+        tt:AddLine(L["Click to open the planner."], 0.54, 0.54, 0.54)
       end,
     })
     if not ok or not obj then return false end
@@ -1408,7 +1561,7 @@ TF.On("GAME_CHANGED", function() if broker then TF.UpdateBroker() end end)
 TF.On("SKIP_CHANGED", function() if broker then TF.UpdateBroker() end end)
 function TF.JoinNames(list)
   if #list <= 1 then return list[1] or "" end
-  return table.concat(list, ", ", 1, #list - 1) .. " and " .. list[#list]
+  return table.concat(list, ", ", 1, #list - 1) .. L[" and "] .. list[#list]
 end
 
 -- ---------- the trainer window: everything you want, in one click (Class Trainer Plus's shift-Train) ----------
@@ -1416,22 +1569,24 @@ TF.trainer = { open = false }
 function TF.Money(c)
   c = math.floor(tonumber(c) or 0)
   local g, s, k = math.floor(c / 10000), math.floor(c / 100) % 100, c % 100
-  if g > 0 then return s > 0 and string.format("%dg %ds", g, s) or string.format("%dg", g) end
-  if s > 0 then return k > 0 and string.format("%ds %dc", s, k) or string.format("%ds", s) end
-  return string.format("%dc", k)
+  -- the client's own coin letters (g s c in English, G S K in German, 金 银 铜 in Chinese)
+  local G, S, K = GOLD_AMOUNT_SYMBOL or "g", SILVER_AMOUNT_SYMBOL or "s", COPPER_AMOUNT_SYMBOL or "c"
+  if g > 0 then return s > 0 and string.format("%d%s %d%s", g, G, s, S) or string.format("%d%s", g, G) end
+  if s > 0 then return k > 0 and string.format("%d%s %d%s", s, S, k, K) or string.format("%d%s", s, S) end
+  return string.format("%d%s", k, K)
 end
 -- D.learn is keyed by English names and the trainer's rows come in the client's language. A row finds its record by the
 -- English name first (an English client stops here), else by the name the client gives each id in D.learn
 -- (C_Spell.GetSpellName), else by the spell id in the row's tooltip data (C_TooltipInfo.GetTrainerService). nil when none fits.
 local learnIndex = {}
 function TF.LearnKey(cf, name, i)
-  local L = D.learn and D.learn[cf]; if not L then return nil end
-  if L[name] then return name end
+  local LN = D.learn and D.learn[cf]; if not LN then return nil end
+  if LN[name] then return name end
   local ix = learnIndex[cf]
   if not ix then
     ix = { id = {}, name = {} }; learnIndex[cf] = ix
     local gn = C_Spell and C_Spell.GetSpellName
-    for key, rec in pairs(L) do for _, id in ipairs(rec.ids or {}) do ix.id[id] = key; local ok, n = pcall(gn or error, id); if ok and n then ix.name[n] = key end end end
+    for key, rec in pairs(LN) do for _, id in ipairs(rec.ids or {}) do ix.id[id] = key; local ok, n = pcall(gn or error, id); if ok and n then ix.name[n] = key end end end
   end
   if ix.name[name] then return ix.name[name] end
   if i and C_TooltipInfo and C_TooltipInfo.GetTrainerService then local ok, d = pcall(C_TooltipInfo.GetTrainerService, i); if ok and type(d) == "table" and d.id then return ix.id[d.id] end end
@@ -1545,14 +1700,14 @@ function TF.KnownPrice(cf, name, rank)
 end
 function TF.RememberPrices()
   local cf = TF.PlayerClass(); if not cf or not TF.db then return 0 end
-  local L = D.learn and D.learn[cf]; if not L then return 0 end
+  local LN = D.learn and D.learn[cf]; if not LN then return 0 end
   local owed, skipped = TF.OwedSpells(); local rank = {}
   for _, s in ipairs(owed or {}) do rank[s.name] = s.rank end
   for _, s in ipairs(skipped or {}) do rank[s.name] = s.rank end
   TF.db.prices[cf] = TF.db.prices[cf] or {}
   local n = 0
   for _, r in ipairs(TF.TrainerRows()) do
-    local rec = r.key and L[r.key]
+    local rec = r.key and LN[r.key]
     if rec and r.cost and r.cost > 0 then
       local k
       if r.level then for i, lv in ipairs(rec.levels) do if lv == r.level then k = i end end end
@@ -1576,7 +1731,7 @@ TF.LINK_TYPE = "addon:TalentsForeverBook:"
 function TF.LinkText(p)
   local c = D.classes[p.cls]; local parts = {}
   for ti = 1, #p.ranks do parts[ti] = TF.TreePts(p, ti) end
-  return string.format("[%s %s, level %d]", c and c.name or "?", table.concat(parts, "/"), TF.FullLevel(p))
+  return string.format(L["[%s %s, level %d]"], c and c.name or "?", table.concat(parts, "/"), TF.FullLevel(p))
 end
 function TF.LinkifyChat(msg)
   if type(msg) ~= "string" or not msg:find("talentsforever.com/", 1, true) then return msg end
@@ -1622,35 +1777,36 @@ end
 function TF.Coach(p)
   p = p or TF.plan
   local c = D.classes[p.cls]; local pop = D.popular[p.cls]; local cname = c.name
+  local function tl(en) return TF.TreeLoc(p.cls, en) end   -- the site's spec names are English
   local out = {}
   local function add(kind, icon, head, text) out[#out + 1] = { kind = kind, icon = icon, head = head, text = text } end
   local function few(list, n)
     n = n or 3
     if #list <= n then return TF.JoinNames(list) end
     local first = {}; for k = 1, n do first[k] = list[k] end
-    return table.concat(first, ", ") .. string.format(" and %d more", #list - n)
+    return table.concat(first, ", ") .. string.format(L[" and %d more"], #list - n)
   end
   local total, pool = TF.TotalPts(p), TF.Pool(p)
-  if total == 0 then add("note", c.trees[1].icon, "Nothing planned yet", string.format("Click a talent on the trees, or take a popular build. Then this page says where you stand, what other %ss do, and the one thing worth a look.", cname)); return out end
+  if total == 0 then add("note", c.trees[1].icon, L["Nothing planned yet"], string.format(L["Click a talent on the trees, or take a popular build. Then this page says where you stand, what other %ss do, and the one thing worth a look."], cname)); return out end
   local order = TF.FixOrder(p); local start = TF.StartLevel()
   local lead, best = 1, -1
   for ti = 1, #c.trees do local n = TF.TreePts(p, ti); if n > best then best, lead = n, ti end end
-  local leadName = c.trees[lead].name
+  local leadName = c.trees[lead].en or c.trees[lead].name
   -- 1. where you stand
   do
     local parts = {}
     for ti, tree in ipairs(c.trees) do if TF.TreePts(p, ti) > 0 then parts[#parts + 1] = string.format("%s %d", tree.name, TF.TreePts(p, ti)) end end
     local e = TF.WhyNext(p)
     local line = table.concat(parts, ", ") .. "."
-    if e then local t = c.trees[e.ti].talents[e.i]; line = line .. string.format(" Next comes %s %d/%d at level %d.", t.name, e.rank, t.max, e.level)
-    elseif total >= pool then line = line .. " Every point is placed." end
-    add("note", c.trees[lead].icon, string.format("%d of %d points planned", total, pool), line)
+    if e then local t = c.trees[e.ti].talents[e.i]; line = line .. string.format(L[" Next comes %s %d/%d at level %d."], t.name, e.rank, t.max, e.level)
+    elseif total >= pool then line = line .. L[" Every point is placed."] end
+    add("note", c.trees[lead].icon, string.format(L["%d of %d points planned"], total, pool), line)
   end
   -- 2. what other players do
   do
     local share, topSpec
     for _, sp in ipairs(pop and pop.spec or {}) do if sp[1] == leadName then share = sp[2] end; if not topSpec or sp[2] > topSpec[2] then topSpec = sp end end
-    local head = share and string.format("%s, like %d%% of %ss", leadName, share, cname) or string.format("%s is your lead tree", leadName)
+    local head = share and string.format(L["%s, like %d%% of %ss"], tl(leadName), share, cname) or string.format(L["%s is your lead tree"], tl(leadName))
     local text = ""
     local top, rec = TF.TopBuild(p.cls)
     if top and rec then
@@ -1660,13 +1816,13 @@ function TF.Coach(p)
         shared = shared + math.min(r, g)
         if r > g then mine[#mine + 1] = c.trees[ti].talents[i].name elseif g > r then theirs[#theirs + 1] = c.trees[ti].talents[i].name end
       end end
-      if #mine == 0 and #theirs == 0 then text = string.format("This is the #1 %s build on the site, point for point.", rec.lead or cname)
+      if #mine == 0 and #theirs == 0 then text = string.format(L["This is the #1 %s build on the site, point for point."], rec.lead and tl(rec.lead) or cname)
       else
-        text = string.format("You match the #1 %s build on %d of %d points.", rec.lead or cname, shared, total)
-        if #theirs > 0 then text = text .. string.format(" It takes %s where you do not.", few(theirs)) end
-        if #mine > 0 then text = text .. string.format(" You take %s where it does not.", few(mine)) end
+        text = string.format(L["You match the #1 %s build on %d of %d points."], rec.lead and tl(rec.lead) or cname, shared, total)
+        if #theirs > 0 then text = text .. string.format(L[" It takes %s where you do not."], few(theirs)) end
+        if #mine > 0 then text = text .. string.format(L[" You take %s where it does not."], few(mine)) end
       end
-    elseif topSpec and topSpec[1] ~= leadName then text = string.format("Most %ss on the site lead %s, %d%%.", cname, topSpec[1], topSpec[2]) end
+    elseif topSpec and topSpec[1] ~= leadName then text = string.format(L["Most %ss on the site lead %s, %d%%."], cname, tl(topSpec[1]), topSpec[2]) end
     if text ~= "" then add("note", nil, head, text) end
   end
   -- 3. the one thing worth a look
@@ -1686,20 +1842,20 @@ function TF.Coach(p)
     local split = false
     if #order >= 10 then local seen, n = {}, 0; for k = 1, 10 do seen[order[k][1]] = true end; for _ in pairs(seen) do n = n + 1 end; split = n > 1 end
     if extra > 0 then
-      kind, head, text = "warn", string.format("%d point%s on your character the plan does not have", extra, extra == 1 and "" or "s"), "Those only come back with a reset at the trainer. Or press From character and plan on from what you have."
+      kind, head, text = "warn", string.format(TF.Plural(extra, "%d point on your character the plan does not have", "%d points on your character the plan does not have"), extra), L["Those only come back with a reset at the trainer. Or press From character and plan on from what you have."]
     elseif #missed > 0 then
-      kind, head = "warn", string.format("Most %ss take %s", cname, missed[1][1])
-      text = string.format("%d%% of %s builds on the site put a point in it, and the row is open in your plan. Worth a look.", missed[1][2], cname)
+      kind, head = "warn", string.format(L["Most %ss take %s"], cname, missed[1][1])
+      text = string.format(L["%d%% of %s builds on the site put a point in it, and the row is open in your plan. Worth a look."], missed[1][2], cname)
     elseif split then
-      kind, head, text = "warn", "Your first ten points are split", "Rows open every five points in one tree, so a split start reaches the strong talents later."
+      kind, head, text = "warn", L["Your first ten points are split"], L["Rows open every five points in one tree, so a split start reaches the strong talents later."]
     elseif #rare > 0 then
-      kind, head, text = "note", string.format("%s is a rare pick", rare[1][1]), string.format("%d%% of %ss on the site take it. Fine if it is on purpose.", rare[1][2], cname)
+      kind, head, text = "note", string.format(L["%s is a rare pick"], rare[1][1]), string.format(L["%d%% of %ss on the site take it. Fine if it is on purpose."], rare[1][2], cname)
     elseif live and missing > 0 and (TF.Game.Unspent() or 0) > 0 then
-      kind, head, text = "good", string.format("%d unspent point%s ready to place", TF.Game.Unspent(), TF.Game.Unspent() == 1 and "" or "s"), "Apply next point places it. Nothing on your character changes until you press it."
+      kind, head, text = "good", string.format(TF.Plural(TF.Game.Unspent(), "%d unspent point ready to place", "%d unspent points ready to place"), TF.Game.Unspent()), L["Apply next point places it. Nothing on your character changes until you press it."]
     elseif total >= pool then
-      kind, head, text = "good", "Nothing I would change", "A full build, no rare picks, the popular talents in. Share it from the Builds page."
+      kind, head, text = "good", L["Nothing I would change"], L["A full build, no rare picks, the popular talents in. Share it from the Builds page."]
     else
-      kind, head, text = "good", "Nothing I would change so far", "The popular talents are in and the rows open in order. Keep going."
+      kind, head, text = "good", L["Nothing I would change so far"], L["The popular talents are in and the rows open in order. Keep going."]
     end
     add(kind, nil, head, text)
   end
@@ -1723,13 +1879,13 @@ end
 function TF.FeedbackURL(text, who)
   local c = D.classes[TF.plan.cls]
   local words = (text or ""):gsub("^%s+", ""):gsub("%s+$", "")
-  local head = string.format("[addon %s, %s %d] ", TF.VERSION or "?", c and c.name or "?", UnitLevel("player") or 0)
+  local head = string.format("[addon %s, %s %d] ", TF.VERSION or "?", c and (c.en or c.name) or "?", UnitLevel("player") or 0)   -- English: the site reads this
   local tag = TF.NoteTag()
   local url = TF.SITE .. "/said?say=" .. urlEnc(head .. words) .. "&id=" .. tag
   if who and who:gsub("%s", "") ~= "" then url = url .. "&who=" .. urlEnc(who:gsub("^%s+", ""):gsub("%s+$", "")) end
   local sent = TF.db and TF.db.sent
   if sent then
-    sent[#sent + 1] = { tag = tag, ts = time(), cls = c and c.name or "?", level = UnitLevel("player") or 0, text = words:sub(1, 460) }
+    sent[#sent + 1] = { tag = tag, ts = time(), cls = c and (c.en or c.name) or "?", level = UnitLevel("player") or 0, text = TF.USub(words, 460) }
     while #sent > 40 do table.remove(sent, 1) end
   end
   return url, tag
@@ -1751,6 +1907,26 @@ end
 -- how a spell scales with spell power, as the client's files carry it ("40.7% of spell power (direct)"), by spell id. nil when it
 -- does not scale, and for every physical ability: the files hold no attack power coefficients, those scale with the weapon.
 function TF.Coef(id) return id and D.coef and D.coef[id] or nil end
+-- the site writes each as "40.7% of spell power (direct)", parts joined by ", " (and "N% and N% of ..."). Each part goes
+-- through the locale table with its numbers kept; English reads exactly as the site wrote it. Decimal comma where the
+-- language writes one.
+function TF.CoefText(s)
+  if type(s) ~= "string" then return s end
+  local l = TF.ClientLocale()
+  local comma = l == "deDE" or l == "frFR" or l == "esES" or l == "esMX" or l == "ruRU" or l == "ptBR"
+  local function num(n) return comma and (n:gsub("%.", ",")) or n end
+  local out = {}
+  for part in (s .. ", "):gmatch("(.-), ") do
+    local a, b, kind = part:match("^([%d%.]+%%) and ([%d%.]+%%) of spell power %((.-)%)$")
+    local one, kind1 = part:match("^([%d%.]+%%) of spell power %((.-)%)$")
+    if a and kind == "direct" then out[#out + 1] = string.format(L["%s and %s of spell power (direct)"], num(a), num(b))
+    elseif one and kind1 == "direct" then out[#out + 1] = string.format(L["%s of spell power (direct)"], num(one))
+    elseif one and kind1 == "heal" then out[#out + 1] = string.format(L["%s of spell power (heal)"], num(one))
+    elseif one and kind1 == "per tick" then out[#out + 1] = string.format(L["%s of spell power (per tick)"], num(one))
+    else out[#out + 1] = part end
+  end
+  return table.concat(out, ", ")
+end
 
 -- ---------- QR: the build's link as a code a phone can read ----------
 -- Byte mode, error correction L, versions 1 to 10 (up to 271 characters), all eight masks scored.

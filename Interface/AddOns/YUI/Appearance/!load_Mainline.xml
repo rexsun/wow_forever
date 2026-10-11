@@ -1,0 +1,9 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Script file="Skins\Runtime.lua"/>
+    <Script file="Skins\ElvUI.lua"/>
+    <Script file="Skins\EQoL.lua"/>
+    <Script file="Skins\NDui.lua"/>
+    <Script file="Integrations\LightDamage.lua"/>
+    <Script file="Integrations\EllesmereDamageMeters.lua"/>
+    <Script file="Integrations\DetailsSpecSync.lua"/>
+</Ui>

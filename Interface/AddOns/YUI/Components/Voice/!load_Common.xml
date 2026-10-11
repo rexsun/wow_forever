@@ -1,0 +1,21 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Script file="Core.lua"/>
+    <Script file="BuiltinEffects.lua"/>
+    <Script file="RuleModel.lua"/>
+    <Script file="RuleStore.lua"/>
+    <Script file="LegacyMigration.lua"/>
+    <Script file="Catalog.lua"/>
+    <Script file="Entries.lua"/>
+    <Script file="PackCatalog.lua"/>
+    <Script file="DefaultPack.lua"/>
+    <Script file="WYJJDBRecordings.lua"/>
+    <Script file="PackAdapter.lua"/>
+    <Script file="Playback.lua"/>
+    <Script file="AuraPlayback.lua"/>
+    <Script file="TTS.lua"/>
+    <Script file="Forecast.lua"/>
+    <Script file="RuleRuntime.lua"/>
+    <Script file="ObjectCatalog.lua"/>
+    <Script file="EditorModel.lua"/>
+    <Script file="PackDiagnostics.lua"/>
+</Ui>

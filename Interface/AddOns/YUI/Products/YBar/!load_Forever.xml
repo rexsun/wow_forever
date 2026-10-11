@@ -1,0 +1,41 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+	<Script file="YBar.lua"/>
+	<Script file="Module.lua"/>
+	<Script file="..\..\Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua"/>
+	<Script file="InfoModule_Mainline.lua"/>
+	<Script file="LocationAPI.lua"/>
+	<Script file="LocationFormat.lua"/>
+
+	<!-- Modules -->
+	<Script file="Modules\MicroMenu.lua"/>
+	<Script file="Modules\Talents_Forever.lua"/>
+	<Script file="Modules\Professions.lua"/>
+	<Script file="Modules\Teleports_Forever.lua"/>
+	<Script file="Modules\DurabilityMount_Forever.lua"/>
+	<Script file="Modules\Stats.lua"/>
+	<Script file="Modules\Clock.lua"/>
+	<Script file="Modules\Currency.lua"/>
+	<Include file="..\..\Components\SystemMetrics\!load.xml"/>
+	<Script file="Modules\System.lua"/>
+	<Script file="Modules\MeetingStone.lua"/>
+	<Script file="Modules\RaidMarkers.lua"/>
+	<Script file="Modules\BugSack.lua"/>
+	<Script file="Modules\Shard_Mainline.lua"/>
+	<Script file="Modules\DataBroker_Mainline.lua"/>
+	<Script file="LayoutModel_Mainline.lua"/>
+	<Script file="LayoutGeometry_Mainline.lua"/>
+	<Script file="LayoutMigration_Mainline.lua"/>
+	<Script file="InstanceContext_Mainline.lua"/>
+	<Script file="InstanceSignals_Mainline.lua"/>
+	<Script file="ModuleCatalog_Mainline.lua"/>
+	<Script file="LayoutConfig_Mainline.lua"/>
+	<Script file="LayoutRuntime_Mainline.lua"/>
+	<Script file="DesignerSession_Mainline.lua"/>
+	<Script file="BarSurface_Mainline.lua"/>
+	<Script file="DesignerSnapshot_Mainline.lua"/>
+	<Script file="InstanceAppearance_Mainline.lua"/>
+	<Script file="DesignerOptions_Mainline.lua"/>
+	<Script file="Designer_Mainline.lua"/>
+	<Script file="LayoutBridge_Mainline.lua"/>
+	<Script file="LayoutBootstrap_Mainline.lua"/>
+</Ui>

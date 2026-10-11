@@ -1,0 +1,5 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Include file="..\..\Components\SystemMetrics\!load.xml"/>
+    <Include file="..\YMap\Locales\!load.xml"/>
+    <Include file="..\YMap\!load_Mainline.xml"/>
+</Ui>

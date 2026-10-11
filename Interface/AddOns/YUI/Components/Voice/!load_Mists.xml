@@ -1,0 +1,5 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Include file="!load_Common.xml"/>
+    <Script file="Service.lua"/>
+    <Script file="Transfer.lua"/>
+</Ui>

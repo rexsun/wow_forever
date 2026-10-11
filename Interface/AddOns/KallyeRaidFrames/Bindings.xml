@@ -1,5 +1,0 @@
-<Bindings>
-  <Binding name="KRaidFrames" header="KRaidFrames" category="ADDONS">
-    SlashCmdList["KRF"]();
-  </Binding>
-</Bindings>

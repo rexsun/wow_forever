@@ -1,0 +1,87 @@
+YUI Built-in Sound Effects - Third-party Notices
+
+Audio edits: mono conversion, trimming/fades, filtering and loudness adjustment as recorded below.
+CC0: https://creativecommons.org/publicdomain/zero/1.0/
+CC BY 3.0: https://creativecommons.org/licenses/by/3.0/
+
+gunshot-dry.ogg | snapssound | CC0-1.0
+https://freesound.org/people/snapssound/sounds/536630/
+Changes: {"source_file": "sources\\gunshot\\536630_9771749-hq.mp3", "ffmpeg_filters": "highpass=f=130,lowpass=f=8500", "trim_start_s": 0.01381, "max_duration_s": 0.6, "gain_db": -7.929, "strongest_100ms_target_dbfs": -21, "peak_ceiling_dbfs": -4.5, "fade_in_ms": 2, "fade_out_ms": 70.0}
+
+gunshot-deep.ogg | snapssound | CC0-1.0
+https://freesound.org/people/snapssound/sounds/536630/
+Changes: {"source_file": "sources\\gunshot\\536630_9771749-hq.mp3", "ffmpeg_filters": "asetrate=40800,aresample=48000,highpass=f=70,lowpass=f=5800", "trim_start_s": 0.013, "max_duration_s": 0.85, "gain_db": -8.307, "strongest_100ms_target_dbfs": -21, "peak_ceiling_dbfs": -4.5, "fade_in_ms": 2, "fade_out_ms": 70.0}
+
+bell-metal.ogg | Kenney | CC0-1.0
+https://kenney.nl/assets/impact-sounds
+Changes: {"source_file": "sources\\impact\\extracted\\Audio\\impactBell_heavy_000.ogg", "ffmpeg_filters": "highpass=f=60,lowpass=f=9500", "trim_start_s": 0.0, "max_duration_s": 1.1, "gain_db": -9.752, "strongest_100ms_target_dbfs": -24, "peak_ceiling_dbfs": -4.5, "fade_in_ms": 2, "fade_out_ms": 70.0}
+
+bell-bright.ogg | 本次程序合成 | 原创程序合成，无外部采样
+Original procedural synthesis; no external samples.
+Changes: {"recipe": "880 Hz modal bell; ratios 1/2.76/5.4; exponential decays", "gain_db": -19.694, "strongest_100ms_target_dbfs": -24, "peak_ceiling_dbfs": -4.5, "fade_in_ms": 2, "fade_out_ms": 70.0}
+
+sonar-single.ogg | 本次程序合成 | 原创程序合成，无外部采样
+Original procedural synthesis; no external samples.
+Changes: {"recipe": "740 Hz decaying sine plus 6 percent second harmonic", "gain_db": -18.261, "strongest_100ms_target_dbfs": -24, "peak_ceiling_dbfs": -4.5, "fade_in_ms": 2, "fade_out_ms": 70.0}
+
+sonar-double.ogg | 本次程序合成 | 原创程序合成，无外部采样
+Original procedural synthesis; no external samples.
+Changes: {"recipe": "960 Hz and 720 Hz decaying tones, 120 ms gap", "gain_db": -17.491, "strongest_100ms_target_dbfs": -24, "peak_ceiling_dbfs": -4.5, "fade_in_ms": 2, "fade_out_ms": 70.0}
+
+metal-light.ogg | Kenney | CC0-1.0
+https://kenney.nl/assets/impact-sounds
+Changes: {"source_file": "sources\\impact\\extracted\\Audio\\impactMetal_light_000.ogg", "ffmpeg_filters": "highpass=f=60,lowpass=f=9500", "trim_start_s": 0.0, "max_duration_s": 0.6, "gain_db": -11.203, "strongest_100ms_target_dbfs": -24, "peak_ceiling_dbfs": -4.5, "fade_in_ms": 2, "fade_out_ms": 70.0}
+
+metal-heavy.ogg | Kenney | CC0-1.0
+https://kenney.nl/assets/impact-sounds
+Changes: {"source_file": "sources\\impact\\extracted\\Audio\\impactMetal_heavy_001.ogg", "ffmpeg_filters": "highpass=f=60,lowpass=f=9500", "trim_start_s": 0.0, "max_duration_s": 0.9, "gain_db": -5.346, "strongest_100ms_target_dbfs": -24, "peak_ceiling_dbfs": -4.5, "fade_in_ms": 2, "fade_out_ms": 70.0}
+
+arc-sharp.ogg | 本次程序合成 | 原创程序合成，无外部采样
+Original procedural synthesis; no external samples.
+Changes: {"recipe": "seeded filtered noise plus frequency-modulated decaying oscillator", "seed": 20260917, "base_hz": 1250, "gain_db": -6.311, "strongest_100ms_target_dbfs": -24, "peak_ceiling_dbfs": -4.5, "fade_in_ms": 2, "fade_out_ms": 70.0}
+
+alarm-double.ogg | 本次程序合成 | 原创程序合成，无外部采样
+Original procedural synthesis; no external samples.
+Changes: {"recipe": "two 880 Hz pulses, 160 ms each, 100 ms gap", "gain_db": -21.052, "strongest_100ms_target_dbfs": -24, "peak_ceiling_dbfs": -4.5, "fade_in_ms": 2, "fade_out_ms": 70.0}
+
+alarm-siren.ogg | 本次程序合成 | 原创程序合成，无外部采样
+Original procedural synthesis; no external samples.
+Changes: {"recipe": "680 to 960 Hz sinusoidal frequency sweep, 2.5 Hz modulation", "gain_db": -20.999, "strongest_100ms_target_dbfs": -24, "peak_ceiling_dbfs": -4.5, "fade_in_ms": 2, "fade_out_ms": 70.0}
+
+squeak-a.ogg | bart | CC0-1.0
+https://opengameart.org/content/squeak-toy-sounds
+Changes: {"source_file": "sources\\toy\\extracted\\squeak toy\\squeak toy - squeak1.wav", "ffmpeg_filters": "highpass=f=180,lowpass=f=7000", "trim_start_s": 0.09081, "max_duration_s": 0.8, "gain_db": -13.025, "strongest_100ms_target_dbfs": -24, "peak_ceiling_dbfs": -4.5, "fade_in_ms": 2, "fade_out_ms": 70.0}
+
+squeak-b.ogg | bart | CC0-1.0
+https://opengameart.org/content/squeak-toy-sounds
+Changes: {"source_file": "sources\\toy\\extracted\\squeak toy\\squeak toy - squeak3.wav", "ffmpeg_filters": "highpass=f=180,lowpass=f=6500", "trim_start_s": 0.06571, "max_duration_s": 0.9, "gain_db": -7.37, "strongest_100ms_target_dbfs": -24, "peak_ceiling_dbfs": -4.5, "fade_in_ms": 2, "fade_out_ms": 70.0}
+
+k98-bolt.ogg | AugustSandberg | CC0-1.0 + 原创加工
+https://freesound.org/people/AugustSandberg/sounds/508747/
+Changes: {"source_file": "sources/k98-bolt/508747_1934171-hq.mp3", "start_s": 3.0, "max_duration_s": 0.95, "filters": "highpass=f=70,lowpass=f=10000", "transient_control": "smooth tanh at 0.08, applied only to new K98 recording"}
+
+shotgun-pump.ogg | SpringySpringo | CC0-1.0 + 原创加工
+https://opengameart.org/content/gun-reload-sounds
+Changes: {"source_file": "sources/pump/shotguncock_0.wav", "start_s": 0.047, "max_duration_s": 0.75, "filters": "highpass=f=70,lowpass=f=10000"}
+
+akm-burst.ogg | Franki-01234 | CC0-1.0 + 原创加工
+https://freesound.org/people/Franki-01234/sounds/201669/
+Changes: {"source_file": "sources/akm/201669_3749344-hq.mp3", "start_s": 0.357, "max_duration_s": 0.65, "filters": "highpass=f=70,lowpass=f=10000"}
+
+shotgun-shot.ogg | michorvath | CC0-1.0 + 原创加工
+https://freesound.org/people/michorvath/sounds/427595/
+Changes: {"source_file": "sources/shotgun/427595_3094998-hq.mp3", "start_s": 0.047, "max_duration_s": 0.72, "filters": "highpass=f=70,lowpass=f=10000"}
+
+fire-burst.ogg | 本次原创程序合成 | 原创程序合成，无外部采样
+Original procedural synthesis; no external samples.
+Changes: {"recipe": "filtered-noise flame envelope + crackles", "seed": 91726}
+
+guitar-short.ogg | NoiseCollector | CC-BY-3.0
+https://freesound.org/people/NoiseCollector/sounds/58040/
+Changes: {"change": "shortened tail with 120 ms fade"}
+
+glass-short.ogg | Leo Bolin | Public Domain
+https://github.com/WeakAuras/WeakAuras2/issues/3268
+Changes: {"change": "shortened tail with 120 ms fade"}
+
+2026-09-18: Loudness matched to built-in voice (-12 LUFS); 192 kHz oversampled lookahead limiting, unchanged duration and pitch.

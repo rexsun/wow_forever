@@ -1,0 +1,36 @@
+local YUI = _G.YUI
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("esMX") then return end
+
+YUI.Locale:Register("AutoGossip", "esMX", {
+    ["feature.name"] = "Diálogo automático",
+    ["feature.description"] = "Avanza opciones únicas seguras y diálogos permitidos.",
+    ["settings.unique"] = "Diálogo automático (opción de diálogo único)",
+    ["settings.unique.tooltip"] = "Selecciona cuando la página tiene exactamente una opción de diálogo normal legible, disponible y segura. Excluye búsquedas, confirmaciones y entrada de texto.",
+    ["settings.approved"] = "Diálogo aprobado",
+    ["settings.approved.tooltip"] = "Independientemente del recuento de opciones, selecciona sólo cuando se activan exactamente uno Gosip ID coincidencias.",
+    ["settings.presets"] = "Presets integrados",
+    ["settings.custom"] = "Mis reglas",
+    ["settings.advanced"] = "Avanzado: Agregue diálogo personalizado",
+    ["settings.show_ids"] = "Muestra ID de diálogo",
+    ["settings.show_ids.tooltip"] = "Muestra orden:Gossip ID debajo del marco de diálogo NPC.",
+    ["settings.custom_name"] = "Nombre de regla",
+    ["settings.custom_name.tooltip"] = "Se utiliza para identificar esta regla en la lista de ajustes.",
+    ["settings.custom_id"] = "Gossip ID",
+    ["settings.custom_id.tooltip"] = "Ingrese el ID Gossip de una opción de diálogo normal.",
+    ["settings.add"] = "Añade regla",
+    ["settings.delete"] = "Eliminar",
+    ["preset.cave_entrance"] = "Entrada de Cueva · Puerta abierta",
+    ["preset.cave_boss_two"] = "Cueva segundo jefe · Evento inicial",
+    ["preset.plot_disguise"] = "Escenario de trama · Disfraz",
+    ["preset.plot_bar_quest"] = "Escenario de trama · Búsqueda de barras de avance",
+    ["message.invalid_id"] = "Ingrese un ID válido de Gossip.",
+    ["message.missing_name"] = "Ingrese un nombre de regla.",
+    ["message.name_too_long"] = "El nombre de regla es demasiado largo.",
+    ["message.duplicate"] = "Ese ID de Gossip ya existe.",
+    ["message.limit"] = "Se ha alcanzado el límite de reglas.",
+    ["message.added"] = "Añadió diálogo personalizado.",
+    ["message.removed"] = "Se eliminó el diálogo personalizado.",
+    ["message.selection_attempted"] = "|cffffff00Intento de la selección de automóviles|r %s",
+    ["gossip.id_prefix"] = "ID de diálogo: ",
+})

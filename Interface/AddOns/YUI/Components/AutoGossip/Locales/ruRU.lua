@@ -1,0 +1,36 @@
+local YUI = _G.YUI
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("ruRU") then return end
+
+YUI.Locale:Register("AutoGossip", "ruRU", {
+    ["feature.name"] = "Автодиалог",
+    ["feature.description"] = "Автоматически выбирает безопасные одиночные и разрешённые варианты диалога.",
+    ["settings.unique"] = "Автодиалог (вариант с одним диалогом)",
+    ["settings.unique.tooltip"] = "Выбирает, когда на странице есть ровно одна читаемая, доступная, безопасная опция регулярного диалога. Исключает квесты, подтверждения и ввод текста.",
+    ["settings.approved"] = "Утвержден диалог",
+    ["settings.approved.tooltip"] = "Независимо от количества опций, выбирается только тогда, когда точно один включен Gossip ID матчей.",
+    ["settings.presets"] = "Встроенный пресет",
+    ["settings.custom"] = "Мои правила",
+    ["settings.advanced"] = "Продвинутый: Добавить пользовательский диалог",
+    ["settings.show_ids"] = "Покажи диалоговые идентификаторы",
+    ["settings.show_ids.tooltip"] = "Показывает порядок: Gossip ID ниже рамки диалога NPC.",
+    ["settings.custom_name"] = "Имя правила",
+    ["settings.custom_name.tooltip"] = "Используется для выявления этого правила в списке настроек.",
+    ["settings.custom_id"] = "Идентификатор сплетен",
+    ["settings.custom_id.tooltip"] = "Введите идентификатор Gossip обычного диалога.",
+    ["settings.add"] = "Добавь правило",
+    ["settings.delete"] = "Удалить",
+    ["preset.cave_entrance"] = "Вход в пещеру; Открытая дверь",
+    ["preset.cave_boss_two"] = "Пещера второй босс · Начало события",
+    ["preset.plot_disguise"] = "Сценарий сюжета · маскировка",
+    ["preset.plot_bar_quest"] = "Сценарий сюжета · Предварительный бар-квест",
+    ["message.invalid_id"] = "Введите действующий Gossip ID.",
+    ["message.missing_name"] = "Введите имя правила.",
+    ["message.name_too_long"] = "Имя правила слишком длинное.",
+    ["message.duplicate"] = "Идентификатор Gossip уже существует.",
+    ["message.limit"] = "Лимит таможенного правила достигнут.",
+    ["message.added"] = "Обычный диалог добавлен.",
+    ["message.removed"] = "Обычный диалог удален.",
+    ["message.selection_attempted"] = "|cffffff00Attempted auto selection|r %s",
+    ["gossip.id_prefix"] = "Диалог ID: ",
+})

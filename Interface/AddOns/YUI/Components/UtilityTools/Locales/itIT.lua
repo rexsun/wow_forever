@@ -1,0 +1,35 @@
+local YUI = _G.YUI
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("itIT") then return end
+
+YUI.Locale:Register("UtilityTools", "itIT", {
+    ["name"] = "Utilità",
+    ["description"] = "Una raccolta compatta di piccole funzioni per interfaccia e gioco.",
+    ["settings.bonus_roll"] = "Conferma della valuta extra roll",
+    ["settings.bonus_roll_confirm_roll"] = "Conferma prima di rotolare",
+    ["settings.bonus_roll_confirm_pass"] = "Conferma prima di passare",
+    ["bonus_roll.roll_title"] = "Davvero Roll?",
+    ["bonus_roll.pass_title"] = "Non Rolling?",
+    ["bonus_roll.roll_specialization"] = "Specializzazione attuale dei botti: %s",
+    ["bonus_roll.roll_question"] = "Trascorrere un bonus roll opportunità?",
+    ["bonus_roll.pass_action_word"] = "Passo",
+    ["bonus_roll.pass_message"] = "%s su questa opportunitÃ di bonus roll?",
+    ["bonus_roll.roll_currency"] = "Rotolo bonus rimanenti: %s %s",
+    ["bonus_roll.roll_currency_unavailable"] = "Rulli bonus rimasti: —",
+    ["bonus_roll.confirm_roll"] = "Conferma Roll",
+    ["bonus_roll.confirm_pass"] = "Pass Roll",
+    ["bonus_roll.return"] = "Indietro",
+    ["bonus_roll.spec_unknown"] = "Sconosciuto",
+    ["bonus_roll.popup_unavailable"] = "L'interfaccia di conferma non è disponibile. Nessuna azione è stata presa.",
+    ["bonus_roll.prompt_expired"] = "Il bonus roll non è più attivo. Nessuna azione è stata presa.",
+    ["bonus_roll.test_roll_confirmed"] = "Prova di conferma dell'interfaccia utente completata; non è stato eseguito alcun vero rotolo.",
+    ["bonus_roll.test_pass_confirmed"] = "Prova di conferma dell'interfaccia utente completata; nessun passaggio reale è stato eseguito.",
+    ["bonus_roll.command_usage"] = "Utilizzo: prova /yroll o passo di prova /yroll",
+    ["settings.macro_frame"] = "Espandi finestra macro",
+    ["settings.macro_visible_count"] = "Macro visibili",
+    ["settings.hide_errors"] = "Nascondi messaggi di errore",
+    ["settings.hide_mode"] = "Visualizzazione errori",
+    ["settings.throttle_window"] = "Intervallo limitazione",
+    ["mode.block_allowlist"] = "Nascondi errori non critici",
+    ["mode.throttle_once"] = "Troppi errori rossi ripetuti",
+})

@@ -1,0 +1,42 @@
+local _, YUI = ...
+if not YUI or not YUI.Locale then return end
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("koKR") then return end
+
+YUI.Locale:Register("EllesmereUIEnhancement", "koKR", {
+    ["feature.name"] = "EllesmereUI 개선",
+    ["feature.description"] = "EllesmereUI 창을 개선하고 YUI와 외형을 맞춥니다.",
+    ["settings.section.blizzard_plus"] = "Blizzard UI 스타일링+",
+    ["settings.beautify_skin_background"] = "피부 배경을 Beautify",
+    ["settings.beautify_skin_background.tooltip"] = "이 구성 요소의 배경 스타일을 가진 EllesmereUI 창 배경을 대체합니다.",
+    ["settings.background_preset"] = "배경 스타일",
+    ["settings.background_preset.modern"] = "자료: 흑연",
+    ["settings.background_preset.deep_glass"] = "깊은 바다",
+    ["settings.background_preset.crimson_glass"] = "클리슨",
+    ["settings.background_preset.solid"] = "제품 정보",
+    ["settings.background_color"] = "배경 색깔",
+    ["settings.background_darken"] = "배경 Darkening",
+    ["settings.background_darken.tooltip"] = "더 낮은 값은 배경을 더 밝게 만듭니다.",
+    ["settings.simplify_window_border"] = "내부 국경 그림자를 제거하십시오",
+    ["settings.simplify_window_border.tooltip"] = "깨끗한 1px 국경을 가진 정확한 EllesmereUI shadowed 국경 atlas를 대체하십시오. 안전하게 식별할 수 없는 경우에, 아무것도 변화하지 않습니다.",
+    ["settings.tab_font_size"] = "탭 글꼴 크기",
+    ["settings.character_detail_font_size"] = "문자 텍스트 크기",
+    ["settings.character_detail_font_size.tooltip"] = "문자 시트의 상단 탭과 오른쪽 통계 텍스트를 조정합니다. 섹션 헤드는 더 큰 하나의 크기를 유지합니다.",
+    ["settings.merchant_item_name_font_size"] = "판매자 항목 이름 크기",
+    ["settings.merchant_item_name_font_size.tooltip"] = "판매자 목록, 그리드 및 Buyback 페이지에서 항목 이름 텍스트를 조정합니다.",
+    ["settings.tab_color_mode"] = "탭 색깔",
+    ["settings.tab_color_mode.auto"] = "경기 배경",
+    ["settings.tab_color_mode.custom"] = "제품 정보",
+    ["settings.tab_color"] = "탭 배경",
+    ["settings.section.damage_meter"] = "손상 측정기",
+    ["settings.damage_meter.mythic_reset"] = "Auto Reset on Mythic+ Start",
+    ["settings.damage_meter.mythic_reset.tooltip"] = "Automatically clears all damage meter data when a Mythic Keystone starts, without prompting.",
+    ["settings.damage_meter.raid_prompt"] = "Ask to Reset on Raid Entry",
+    ["settings.damage_meter.raid_prompt.tooltip"] = "Asks to clear all damage meter data on raid entry. Leaving and re-entering the same raid does not prompt again. Login and UI reload do not prompt.",
+    ["confirm.damage_meter_reset.title"] = "손상 미터를 재설정",
+    ["confirm.damage_meter_reset.message"] = "모든 손상 미터 데이터를 재설정?",
+    ["confirm.damage_meter_reset.note"] = "YUI Toolbox - EllesmereUI 향상에서 이것을 비활성화 할 수 있습니다.",
+    ["confirm.damage_meter_reset.accept"] = "초기화",
+    ["message.damage_meter_reset.success"] = "손상 미터 데이터 재설정.",
+    ["message.damage_meter_reset.mythic_success"] = "Mythic Keystone 시작; 손상 미터 데이터 재설정.",
+})

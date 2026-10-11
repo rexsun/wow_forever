@@ -1,0 +1,36 @@
+local YUI = _G.YUI
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("deDE") then return end
+
+YUI.Locale:Register("AutoGossip", "deDE", {
+    ["feature.name"] = "Automatische Dialoge",
+    ["feature.description"] = "Wählt sichere Einzeloptionen und ausdrücklich erlaubte Dialoge automatisch.",
+    ["settings.unique"] = "Auto-Dialog (Einzeldialog-Option)",
+    ["settings.unique.tooltip"] = "Wählt aus, wenn die Seite genau eine lesbare, verfügbare, sichere reguläre Dialogoption hat. Ausschließt Quests, Bestätigungen und Texteingaben.",
+    ["settings.approved"] = "Genehmigter Dialog",
+    ["settings.approved.tooltip"] = "Unabhängig von der Anzahl der Optionen, wählt nur, wenn genau eine aktivierte Gossip-ID übereinstimmt.",
+    ["settings.presets"] = "Eingebaute Presets",
+    ["settings.custom"] = "Meine Regeln",
+    ["settings.advanced"] = "Erweitert: Fügen Sie benutzerdefinierte Dialoge hinzu",
+    ["settings.show_ids"] = "Dialog IDs zeigen",
+    ["settings.show_ids.tooltip"] = "Zeigt Ordnung:Gossip-ID unterhalb des NPC-Dialograhmens an.",
+    ["settings.custom_name"] = "Regelname",
+    ["settings.custom_name.tooltip"] = "Verwendet, um diese Regel in der Einstellungsliste zu identifizieren.",
+    ["settings.custom_id"] = "Klatsch-ID",
+    ["settings.custom_id.tooltip"] = "Geben sie die gossip-id einer normalen dialogoption.",
+    ["settings.add"] = "Regel hinzufügen",
+    ["settings.delete"] = "Löschen",
+    ["preset.cave_entrance"] = "Höhleneingang · Offene Tür",
+    ["preset.cave_boss_two"] = "Cave Zweitboss · Startereignis",
+    ["preset.plot_disguise"] = "Plot-Szenario · Verkleidung",
+    ["preset.plot_bar_quest"] = "Plot-Szenario · Advance Bar Quest",
+    ["message.invalid_id"] = "Geben Sie eine gültige Gossip ID ein.",
+    ["message.missing_name"] = "Geben Sie den Regelnamen ein.",
+    ["message.name_too_long"] = "Der Regelname ist zu lang.",
+    ["message.duplicate"] = "Die Gossip ID existiert bereits.",
+    ["message.limit"] = "Das benutzerdefinierte Regellimit ist erreicht.",
+    ["message.added"] = "Custom Dialog hinzugefügt.",
+    ["message.removed"] = "Benutzerdefinierte Dialoge gelöscht.",
+    ["message.selection_attempted"] = "|cffffff00Versuchte automatische Auswahl|r %s",
+    ["gossip.id_prefix"] = "Dialog ID: ",
+})

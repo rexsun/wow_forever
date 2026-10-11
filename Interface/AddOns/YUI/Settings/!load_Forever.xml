@@ -1,0 +1,26 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Script file="Style.lua"/>
+    <Script file="Core.lua"/>
+    <Script file="Search.lua"/>
+    <Script file="SearchCatalog.lua"/>
+    <Script file="CelestialSeries.lua"/>
+    <Script file="ConfigSets.lua"/>
+    <Script file="ConfigProfileMigration.lua"/>
+    <Script file="ConfigSetAssignments.lua"/>
+    <Script file="ConfigSetsOwnership.lua"/>
+    <Script file="ConfigTransfer.lua"/>
+    <Script file="ConfigSetRuntime.lua"/>
+    <Script file="ConfigSetPicker.lua"/>
+    <Script file="Modules\General.lua"/>
+    <Script file="Modules\NativeInterface.lua"/>
+    <Script file="Modules\Appearance.lua"/>
+    <Script file="Modules\ConfigTransferDialog.lua"/>
+    <Script file="Modules\Help.lua"/>
+    <Script file="Modules\YActionBar.lua"/>
+    <Script file="Modules\YBar.lua"/>
+    <Script file="Modules\Profiles.lua"/>
+    <Script file="Modules\AddonList.lua"/>
+    <Script file="Modules\Changelog.lua"/>
+    <Script file="Modules\Credits.lua"/>
+    <Script file="Modules\About.lua"/>
+</Ui>

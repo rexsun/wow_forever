@@ -1,0 +1,36 @@
+local YUI = _G.YUI
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("koKR") then return end
+
+YUI.Locale:Register("AutoGossip", "koKR", {
+    ["feature.name"] = "자동 대화",
+    ["feature.description"] = "안전한 단일 선택지와 허용한 대화를 자동으로 진행합니다.",
+    ["settings.unique"] = "자동 대화 (단 하나 대화 옵션)",
+    ["settings.unique.tooltip"] = "페이지가 정확히 하나의 읽기, 사용 가능, 안전한 일반 대화 옵션을 선택할 때 선택합니다. 퀘스트, 확인 및 텍스트 입력을 제외합니다. 일시 중지를 중지하십시오.",
+    ["settings.approved"] = "승인 된 대화",
+    ["settings.approved.tooltip"] = "옵션 수에 관계없이 Gosssip ID 일치를 정확히 사용할 때만 선택합니다. 일시 중지에 Shift를 붙입니다.",
+    ["settings.presets"] = "내장된 미리 설정",
+    ["settings.custom"] = "내 규칙",
+    ["settings.advanced"] = "고급: 사용자 정의 대화를 추가",
+    ["settings.show_ids"] = "대화 ID를 표시합니다",
+    ["settings.show_ids.tooltip"] = "순서를 보여주십시오: NPC 대화 구조의 밑에 Gosssip ID.",
+    ["settings.custom_name"] = "규칙 이름",
+    ["settings.custom_name.tooltip"] = "설정 목록에서 이 규칙을 식별하는 데 사용됩니다.",
+    ["settings.custom_id"] = "ID로 이동",
+    ["settings.custom_id.tooltip"] = "정상적인 대화 옵션의 Gossip ID를 입력하십시오.",
+    ["settings.add"] = "규칙을 추가한다",
+    ["settings.delete"] = "삭제",
+    ["preset.cave_entrance"] = "동굴 입구 · 문을 엽니 다",
+    ["preset.cave_boss_two"] = "동굴 두 번째 보스 · 시작 이벤트",
+    ["preset.plot_disguise"] = "Plot 시나리오 · Disguise를 가지고",
+    ["preset.plot_bar_quest"] = "Plot 시나리오 · 사전 막대 퀘스트",
+    ["message.invalid_id"] = "유효한 Gossip ID를 입력합니다.",
+    ["message.missing_name"] = "규칙 이름을 입력합니다.",
+    ["message.name_too_long"] = "규칙 이름은 너무 길다.",
+    ["message.duplicate"] = "그 Gossip ID는 이미 존재합니다.",
+    ["message.limit"] = "사용자 정의 규칙 제한이 도달되었습니다.",
+    ["message.added"] = "사용자 정의 대화 추가.",
+    ["message.removed"] = "사용자 정의 대화 삭제.",
+    ["message.selection_attempted"] = "|cffffff00Attempted 자동차 선택|r %s",
+    ["gossip.id_prefix"] = "대화 ID : ",
+})

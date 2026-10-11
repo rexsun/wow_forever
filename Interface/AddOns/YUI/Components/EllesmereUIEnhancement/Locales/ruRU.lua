@@ -1,0 +1,42 @@
+local _, YUI = ...
+if not YUI or not YUI.Locale then return end
+
+if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("ruRU") then return end
+
+YUI.Locale:Register("EllesmereUIEnhancement", "ruRU", {
+    ["feature.name"] = "Улучшения EllesmereUI",
+    ["feature.description"] = "Улучшает окна EllesmereUI и согласует их оформление с YUI.",
+    ["settings.section.blizzard_plus"] = "Blizzard UI Styling+",
+    ["settings.beautify_skin_background"] = "Украсьте предыстории кожи",
+    ["settings.beautify_skin_background.tooltip"] = "Заменяет фоновое окно EllesmereUI фоновым стилем этого компонента.",
+    ["settings.background_preset"] = "Фоновый стиль",
+    ["settings.background_preset.modern"] = "графит",
+    ["settings.background_preset.deep_glass"] = "Глубокое море",
+    ["settings.background_preset.crimson_glass"] = "багряный",
+    ["settings.background_preset.solid"] = "обычай",
+    ["settings.background_color"] = "Фоновый цвет",
+    ["settings.background_darken"] = "На заднем плане Тьма",
+    ["settings.background_darken.tooltip"] = "Более низкие значения делают фон ярче.",
+    ["settings.simplify_window_border"] = "Удалите внутреннюю пограничную тень",
+    ["settings.simplify_window_border.tooltip"] = "Заменяет точный атлас границы EllesmereUI на чистую границу 1px. Если ее невозможно идентифицировать безопасно, ничего не меняется.",
+    ["settings.tab_font_size"] = "Размер шрифта Tab",
+    ["settings.character_detail_font_size"] = "Размер текста символа",
+    ["settings.character_detail_font_size.tooltip"] = "Отрегулирует верхние вкладки символьного листа и текст с правой стороны. Заголовки разделов остаются на один размер больше.",
+    ["settings.merchant_item_name_font_size"] = "Размер товарного знака",
+    ["settings.merchant_item_name_font_size.tooltip"] = "Настройка текста имени элемента в списках продавцов, сетках и странице выкупа.",
+    ["settings.tab_color_mode"] = "Цвет вкладки",
+    ["settings.tab_color_mode.auto"] = "Сравнение фона",
+    ["settings.tab_color_mode.custom"] = "обычай",
+    ["settings.tab_color"] = "Справочник",
+    ["settings.section.damage_meter"] = "Повреждаю Метер",
+    ["settings.damage_meter.mythic_reset"] = "Auto Reset on Mythic+ Start",
+    ["settings.damage_meter.mythic_reset.tooltip"] = "Automatically clears all damage meter data when a Mythic Keystone starts, without prompting.",
+    ["settings.damage_meter.raid_prompt"] = "Ask to Reset on Raid Entry",
+    ["settings.damage_meter.raid_prompt.tooltip"] = "Asks to clear all damage meter data on raid entry. Leaving and re-entering the same raid does not prompt again. Login and UI reload do not prompt.",
+    ["confirm.damage_meter_reset.title"] = "Reset Damage Meter",
+    ["confirm.damage_meter_reset.message"] = "Сбросьте все данные измерителя ущерба?",
+    ["confirm.damage_meter_reset.note"] = "Вы можете отключить это в YUI Toolbox - EllesmereUI Enhancement.",
+    ["confirm.damage_meter_reset.accept"] = "Сбросить",
+    ["message.damage_meter_reset.success"] = "Сброс данных измерителя ущерба.",
+    ["message.damage_meter_reset.mythic_success"] = "Началась работа над Mythic Keystone; произошла перезагрузка данных счетчика повреждений.",
+})

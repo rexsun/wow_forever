@@ -1,18 +1,7 @@
 -- =============================================================================
 -- 无限副本手册 · 区域 ID → 世界地图 ID（areaID → uiMapID）
--- ★ 本文件由 _temp/gen_area_map.py 生成，请勿手改 ★
---   重跑：python _temp/gen_area_map.py（--refresh 重下数据源，--check 只对账）
---
--- 用途：点坐标 / 点区域名 → 打开对应世界地图并落航点，是 DG.MarkPoint（探索页）
---   与 PD.MarkCampPoint（专业页）取 mapID 的**第一跳**。
---
--- ★★ 为什么必须是静态表：无限服客户端（1.60.1.70009）**没有**
---   C_Map.GetMapInfoFromAreaID（客户端 C_Map 只给 GetAreaInfo 的名字，拿不回 mapID）
---   ⇒ areaID → uiMapID 在实机上没有 API 可走，漏一个键 = 点了没反应（只弹一句提示）。
---   数据源：wago.tools UiMapAssignment（build 1.60.1.70009），缓存 _temp/_uimap_cache/。
---
--- 口径：只收**有独立世界地图的户外区域**；areaID 0（大陆/世界图）不收。
---   行尾备注 = UiMap.Name_lang，仅便于人工核对，运行期不读。
+-- ★ 本文件由脚本生成，请勿手改 ★
+-- 用途：点坐标 / 点区域名 → 打开对应世界地图并落航点。
 -- =============================================================================
 
 local AddonName, ns = ...

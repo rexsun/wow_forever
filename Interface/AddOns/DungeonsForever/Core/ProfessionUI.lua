@@ -1,34 +1,6 @@
 -- =============================================================================
--- DungeonsForever · 专业页（界面层 · 手写骨架件）
---
--- ★ 本文件**不是生成物**，可以直接改（同 Core/Hui.lua 的定位）。
---   数据来自 Core/Data/Data_Prof*.lua（由 _temp/fc_gen.py 生成，勿手改）；
---   本文件只负责把那些表画出来，一个数据字段都不写死。
---
--- ★★ 只对无限服（1.60.x）加载：营地系统 / 传承特权 / 1→300 路线都是无限服 1.60.1
---    的规则，泰坦 3.80.2 端没有这些物品与专业 —— 加载了只会画出一堆查不到的空名字。
---    判定用 ns.IsForever（Core.lua）。泰坦端本文件整体 return，U.profPage 恒为 nil，
---    顶栏也不加「专业」胶囊（见 _temp/port_dungeonsforever.py 的 PROFESSION_PATCHES）。
---
--- ★ 为什么单独一个文件而不是塞进 Core/DungeonUI.lua：
---   DungeonUI.lua 由 _temp/port_dungeonsforever.py 从上游按**硬编码行号**抽取生成，
---   在里面写业务代码会让每次迭代都去动生成链；那里只留 4 处小补丁当挂钩
---   （ns.ProfHost 基建交接 / 顶栏胶囊 defs / SwitchSub 分流 / Build 建页）。
---
--- ★★ 帧数纪律（与副本页同款，harness 有对应断言）：
---   · 页骨架（左导航 / 子页签 / 工具条 / 滚动容器 / 行池 / 材料芯片池 / 详情条）
---     一律在 PD.Build() 里**一次建好** —— 切到本页、切专业、切子页签都**不得新建帧**；
---     PD.Build 由 U:Build() 调用（首屏），故「切专业零新建帧」成立。
---   · 行池按需生长（沿副本页做法），但设 PD.ROW_CAP 封顶，并在封顶处明说「还有 N 条」——
---     宁可提示用分类缩小范围，也不让一次「全部」把帧数顶到几千（最大 512 条）。
---   · 一切「显示/隐藏」都走 SetShown，绝不 SetParent(nil)、绝不重建 scroll child
---     （ScrollFrame 内部持有旧 child 指针，卸载会 ACCESS_VIOLATION，副本页踩过）。
---
--- ★ 物品名 / 图标 / 品质**只从客户端取**（数据表只存 ID，中文名由客户端给）。
---   客户端还没懒加载到时显示占位，并挂几次重扫（PD.ScheduleSweep）自动补上。
---
--- ★ 表字段序的唯一说明在 Core/Data/Data_Prof*.lua 的头注释里（由 fc_gen.py 写）。
---   本文件按位置取值（如 r[12] = 材料），改字段序必须同步改这里。
+-- DungeonsForever · 专业页（界面层）
+-- 渲染 13 个专业的总览 / 配方 / 采集 / 升级；只对无限服加载。
 -- =============================================================================
 
 local _, ns = ...
@@ -54,30 +26,73 @@ local D  = ns.ProfData
 local R  = ns.ProfRecipes
 local LV = ns.ProfLeveling
 local GA = ns.ProfGathering
+local RA = ns.ProfRouteAuto   -- 自动路线计算（Core/ProfRouteAuto.lua，先于本文件加载）
+local CD = ns.CratesData      -- 板条箱 / 工匠文书目录（Core/Data/Data_Crates.lua）
+
+-- 板条箱导航条目：在代码阶段挂进 ProfData（数据层的三语覆盖层是整表替换，
+-- 挂在那里会被冲掉；本文件晚于所有数据文件加载，挂这里最稳）
+if CD and D.pro and not D.pro.crates then
+    D.order[#D.order + 1] = "crates"
+    D.pro.crates = {
+        name = L["板条箱"],
+        icon = "Interface\\AddOns\\DungeonsForever\\Media\\icon\\NAV\\CrateNav",
+        kind = "crates",
+        section = "crates",
+    }
+end
 
 local PD = {}
 ns.ProfModule = PD
 
-PD.NAV_X, PD.NAV_TOP = PAGE_INSET, ROW_CLASS
+PD.CARD_INSET = PAGE_INSET + (DG.GUTTER or 8)
+PD.CARD_TOP = 8
+PD.NAV_PAD = 8
+PD.NAV_X, PD.NAV_TOP = PD.CARD_INSET + PD.NAV_PAD, PD.CARD_TOP + PD.NAV_PAD
 PD.NAV_W = ((type(GetLocale) == "function") and GetLocale() == "enUS") and 184 or 148
 PD.NAV_FS, PD.NAV_ICON = 16, 20
 PD.NAV_ITEM_H, PD.NAV_GROUP_H, PD.NAV_GAP = 26, 22, 3
 PD.NAV_LV_FS = 14
-PD.RIGHT_X = PD.NAV_X + PD.NAV_W + 10
-PD.RIGHT_W = CONTENT_W - PD.RIGHT_X - PAGE_INSET
-PD.SUB_Y, PD.SUB_H, PD.SUB_W, PD.SUB_STEP = ROW_CLASS, 22, 70, 74
-PD.BODY_TOP = PD.SUB_Y + PD.SUB_H + 10
-PD.BODY_BOT = PAGE_INSET + 26
-PD.TOOL_H, PD.TOOL_GAP, PD.TOOL_W = 22, 4, 72
+PD.CARD_NAV_R = PD.CARD_INSET + PD.NAV_W + 2 * PD.NAV_PAD
+PD.RIGHT_X = PD.CARD_NAV_R + (DG.GUTTER or 8) + 8
+PD.RIGHT_W = CONTENT_W - PD.RIGHT_X - PD.CARD_INSET
+-- ★ SUB_STEP = SUB_W + 8（2026-10-10 全局间距标准：按钮↔按钮 = 8，页签胶囊同款）
+PD.SUB_Y, PD.SUB_H, PD.SUB_W, PD.SUB_STEP = PD.CARD_TOP + 8, 22, 70, 78
+PD.BODY_TOP = PD.SUB_Y + PD.SUB_H + 8
+PD.BODY_BOT = PD.CARD_INSET + 8
+PD.FAC_ICON = {
+    a = "Interface\\AddOns\\DungeonsForever\\Media\\icon\\FACTION\\FactionIcon_Alliance",
+    h = "Interface\\AddOns\\DungeonsForever\\Media\\icon\\FACTION\\FactionIcon_Horde",
+}
+PD.TOOL_H, PD.TOOL_GAP, PD.TOOL_W = 22, 8, 72
 PD.TOOL_BODY_GAP = 8
 PD.ROW_H, PD.ROW_H1, PD.TEXT_H = 34, 24, 20
 
 PD.SETTING_DEF = { greyPassed = true, hlCurrent = true }
+-- 自动路线（2026-10-08）：总开关默认关，其余为过滤细则
+PD.SETTING_DEF.autoRoute = false
+PD.SETTING_DEF.autoOnlyAH = true        -- 只用拍卖行/商人能买到价格的材料的配方
+PD.SETTING_DEF.autoNoFormula = true     -- 排除掉落图纸的配方（商人可购图纸不算）
+PD.SETTING_DEF.autoLearnedOnly = false  -- 仅使用本角色已学的配方
+PD.SETTING_DEF.autoScheme = "cheapest"  -- 自动路线方案：最省钱/材料成本/次数最少/乐观计数
+
+-- 采集四类（2026-10-11）：开放「升级」页签，走静态推荐路线（无价格/概率，无从自动计算）
+PD.GATHER_SLUGS = { mining = true, herbalism = true, skinning = true, fishing = true }
+PD.SETTING_DEF.autoFromCurrent = true   -- 从当前技能开始算（关 = 从 1 全量）
 PD.SETTING_TOG_MAX = 4
+PD.SETTING_TOG_MAX = 4 + 5   -- 2026-10-08：+5 个自动路线开关（帧池按需扩容）
 local function ProfDB()
     DungeonsForeverDB = DungeonsForeverDB or {}
     DungeonsForeverDB.prof = DungeonsForeverDB.prof or {}
     return DungeonsForeverDB.prof
+end
+
+-- 记住上次离开的专业页（2026-10-10 用户）：每次渲染落库，重开/重载后由 PD.EnsureCur 还原
+local function RememberLast()
+    if PD.cur and PD.cur ~= "__index" then
+        local db = ProfDB()
+        db.lastSlug = PD.cur
+        db.lastTab = PD.tab
+    end
 end
 function PD.Setting(k)
     local v = ProfDB()[k]
@@ -85,13 +100,44 @@ function PD.Setting(k)
     return v and true or false
 end
 
-PD.LIST_PAD = 5
+-- 原始值读取（2026-10-11）：字符串型设置（autoScheme）必须走这里——
+-- PD.Setting 是布尔口径（v and true or false），会把 "optim" 吃成 true，
+-- 方案点击循环永远匹配不上、每次写回第一个方案（截图实锤 bug）。
+function PD.SettingRaw(k)
+    local v = ProfDB()[k]
+    if v == nil then return PD.SETTING_DEF[k] end
+    return v
+end
+
+-- 熔炼路线表（2026-10-11 用户）：{ 锭物品ID, 训练师学习技能 }；区间 = [learn, 下一档 learn-1]。
+--   名字/图标/品质由客户端 GetItemInfo 给出（查不到显示占位）；仅 mining 有采集/熔炼双模式。
+local SMELT_TBL = {
+    { 2840, 1 }, { 3576, 65 }, { 2841, 75 }, { 2842, 75 }, { 3575, 125 },
+    { 3859, 155 }, { 3577, 155 }, { 3860, 175 }, { 6037, 210 },
+    { 12359, 230 }, { 11371, 230 }, { 12360, 275 }, { 17771, 300 },
+}
+-- 采集页子模式（跨重载记忆，存 ProfDB.gatherMode）；非 mining 恒为采集
+function PD.GatherMode(slug)
+    if slug ~= "mining" then return "gather" end
+        return (ProfDB().gatherMode == "smelt") and "smelt" or "gather"
+end
+
+-- 目标等级（2026-10-09 v2，每专业独立记忆；nil / 300 = 全程）
+function PD.LvTarget()
+    if not PD.cur then return 300 end
+    local db = ProfDB()
+    local v = tonumber(db.lvTarget and db.lvTarget[PD.cur])
+    if not v then return 300 end
+    return math.max(1, math.min(300, math.floor(v)))
+end
+
+PD.LIST_PAD = 8
 PD.COL_GAP = 12
 local LV_SPLIT = ((type(GetLocale) == "function") and GetLocale() == "enUS") and 0.75 or 0.80
 PD.COL_LW = math.floor((PD.RIGHT_W - 2 * PD.LIST_PAD - PD.COL_GAP) * LV_SPLIT)
 PD.COL_RW = PD.RIGHT_W - 2 * PD.LIST_PAD - PD.COL_GAP - PD.COL_LW
 
-PD.OV_SPLIT = 0.62
+PD.SHOP_SPLIT = 0.62   -- 购物清单两栏（2026-10-09 三轮）：左列材料+图纸主表 / 右列金币卡
 PD.SEC_CARD_MAX = 8
 PD.SEC_PAD = 4
 PD.SEC_GAP = 8
@@ -103,21 +149,33 @@ PD.GRID_RW = PD.RIGHT_W - 2 * PD.LIST_PAD - PD.COL_GAP - PD.GRID_LW
 PD.IX_COLS = 3
 PD.IX_GAP = 8
 PD.IX_COLW = math.floor((PD.RIGHT_W - 2 * PD.LIST_PAD - (PD.IX_COLS - 1) * PD.IX_GAP) / PD.IX_COLS)
-PD.IX_CARD_H = 38
+PD.IX_CARD_H = 46   -- 2026-10-10 用户：名称 fs16 + 副行 fs14，旧 38 装不下
 PD.IX_ICON = 24
 PD.IX_HEAD_H = 18
-PD.IX_ROWW_GAP = 6
+PD.IX_ROWW_GAP = 8
 PD.IX_GROUP_GAP = 10
 
 PD.MAT_FS = 13
 PD.MAT_ICON_PX = 16
 PD.MAT_ROW_W = PD.RIGHT_W - 2 * PD.LIST_PAD
 PD.MAT_RIGHT_RESERVE = 132
+PD.MAT_TAIL_MIN = 14       -- 末段「图标+截断名」至少再留给名称的宽（< 此值才退回纯 … 段）
 PD.MAT_X = math.floor(PD.MAT_ROW_W * 0.40)
 PD.MAT_W = PD.MAT_ROW_W - PD.MAT_RIGHT_RESERVE - PD.MAT_X - 8
 
+-- 2026-10-10：名称列按本页实际名称现算（同升级页「四列全现算」口径）——
+-- 名称列只留放得下本页最宽名称 / 副行的宽度，剩余全给材料列；0.40 分割只在加载期兜底。
+-- 2026-10-10 用户（三轮）：0.38→0.30→0.20→0.16 行宽 —— 名字列压窄，材料列最宽显示更全
+--   0.16 × 724 ≈ 115px 上限，下限同步 118→100（否则下限兜底会吃掉压缩效果）
+PD.RECIPE_NAME_MIN, PD.RECIPE_NAME_MAX = 100, math.floor(PD.MAT_ROW_W * 0.16)
+PD.RECIPE_NAME_PAD = 16     -- 名称列右界→材料列起点（2026-10-10 二轮 44→16：角标迁副行、32 回让作废；16 = 保住 6 字截断档的最低间距）
+PD.RECIPE_BADGE_W = 26      -- 「新」角标占宽（副行「 新 」≈ 26；随副行参与列宽扫描，不再压名称行）
+PD.RECIPE_PADL = 32         -- 配方行名称起点（20px 图标 + 边距，BindRow padL 的物品图标分支）
+PD.SEARCH_EB_W, PD.SEARCH_W = 150, 180
+PD.SEARCH_RESERVED = 190    -- 工具首行给搜索框让出的宽（框宽 + 间隙）
+
 PD.LV_FS = 13
-PD.TBL_ICON = 24
+PD.TBL_ICON = 27.6   -- 2026-10-10 用户：24 × 1.15，路线行制作物图标放大 15%
 PD.TBL_H = 42
 PD.TBL_RNG_GAP = 12
 PD.TBL_NAME_GAP = 8
@@ -135,8 +193,20 @@ PD.LV_ICON_X = 6 + 71 + PD.TBL_RNG_GAP
 PD.LV_NAME_X = PD.LV_ICON_X + PD.TBL_ICON + PD.TBL_NAME_GAP
 PD.LV_CNT_W = 78
 PD.LV_CNT_R = PD.TBL_MAT_RPAD + 240 + PD.TBL_CNT_GAP
+-- 2026-10-10：数量区拆三列（次数 | 单次花费 | 总花费）的默认列宽/右缘（无价格时宽度 0 收起）
+PD.LV_UNIT_W, PD.LV_TOT_W = 0, 0
+PD.LV_UNIT_R, PD.LV_CNT2_R = PD.LV_CNT_R, PD.LV_CNT_R
+PD.LV_COL_GAP = 16   -- 三列之间的间距（8px 太挤，表头与数据会视觉粘连）
 PD.LV_NAME_W = PD.TBL_NAME_MIN
+-- 2026-10-10 配方页右列（金/银/铜三段币串，铜级精度需三段宽；用户两轮 100→88）
+PD.REC_COST_W = 88   -- 「制作成本」列
+PD.REC_AH_W = 88     -- 「拍卖」列（制作成本左边）
 PD.LV_MAT_W = 240
+
+-- 2026-10-11 采集路线三列行（gr3）：[等级区间 | 地点 | 图标+矿名]（用户可视化方案拍板）
+PD.GR_LV_X = 6                      -- 第一列等级区间起点
+PD.GR_LOC_X = 88                    -- 第二列地点起点（等级列预留 82px）
+PD.GR_ICON_W = 20                   -- 第三列（图标+矿名）整体贴右缘：矿名右锚 -6，图标跟在名字左侧
 
 PD.ROW_CAP = 300
 PD.TOOL_MAX = 20
@@ -145,12 +215,11 @@ PD.TEXT_W = PD.RIGHT_W - 46
 
 DG.PROF_SUBTABS = {
     { key = "overview", text = L["总览"] },
-    { key = "camp",     text = L["营地"] },
     { key = "recipe",   text = L["配方"] },
     { key = "gather",   text = L["采集"] },
     { key = "leveling", text = L["升级"] },
-    { key = "legacy",   text = L["传承"] },
-    { key = "notes",    text = L["说明"] },
+    { key = "crate",    text = L["板条箱"] },
+    { key = "writ",     text = L["工匠文书"] },
 }
 
 local function SetIcon(tex, name)
@@ -192,45 +261,159 @@ DG.ZoneName = function(id)
     return format(L["区域 #%d"], id)
 end
 
-local qname = {}
-function PD.QuestName(id)
-    if not id then return L["任务 #?"] end
-    local c = qname[id]
-    if c ~= nil then return c end
-    local nm
-    if C_QuestLog and C_QuestLog.GetTitleForQuestID then
-        local ok, t = pcall(C_QuestLog.GetTitleForQuestID, id)
-        if ok and type(t) == "string" and t ~= "" then nm = t end
-    end
-    if type(nm) ~= "string" or nm == "" then nm = format(L["任务 #%d"], id) end
-    qname[id] = nm
-    return nm
-end
-
 -- ★ UTF-8 估宽 / 按「字」截断已上移 Hui.lua（ns.hui，双端通用，2026-10-03）——
 --   副本掉落页的名称截断在泰坦端也要用，而本文件只对无限端加载。
 --   这里留委托 + CharStep 别名（下面的 PD.Wrap 还在用）。
 local CharStep = ns.hui.CharStep
 
-PD.TextW = function(text, fs) return ns.hui.TextW(text, fs) end
+-- ★ 量宽记忆化（2026-10-09 第二轮：点开配方页那一瞬间的卡顿）：
+--   ns.hui.TextW 是**逐字符 UTF-8 解码 + 查表**的纯 Lua 循环，而配方页一帧要量
+--   三千来次 —— 同一页里要量的文本高度重复（同一种皮出现在几百条配方里、「3×」
+--   这种数量串满天飞）⇒ 按 (字号, 文本) 记忆化，命中率极高。
+--   只影响耗时、不影响任何取值（TextW 对 (text, fs) 是纯函数）。
+--   条数封顶，超了整表清空 —— 配方页的文本集合天然收敛，不会无限涨。
+local _twMemo, _twN = {}, 0
+PD.TextW = function(text, fs)
+    if type(text) ~= "string" or fs == nil then return ns.hui.TextW(text, fs) end
+    local m = _twMemo[fs]
+    if not m then m = {}; _twMemo[fs] = m end
+    local w = m[text]
+    if w ~= nil then return w end
+    w = ns.hui.TextW(text, fs)
+    if _twN >= 8192 then
+        _twMemo, _twN = {}, 0
+        m = {}
+        _twMemo[fs] = m
+    end
+    m[text] = w
+    _twN = _twN + 1
+    return w
+end
 
-PD.Fit = function(text, fs, width) return ns.hui.Fit(text, fs, width) end
+PD.Fit = function(text, fs, width)
+    -- ★ 先走**记忆化**量宽做早退（2026-10-09 第五轮）：ns.hui.Fit 内部那次量宽是
+    --   **未记忆化**的原始 ns.hui.TextW；配方页一帧要对 300 条逐条 Fit，绝大多数
+    --   文本根本不用裁 ⇒ 早退掉即可（结果与原来逐字等价）。
+    if PD.TextW(text, fs) <= width then return text end
+    return ns.hui.Fit(text, fs, width)
+end
+
+-- ★★ 物品名事务内记忆化（2026-10-09 第五轮；实机 /dfprofperf：取名 2228 次/16.3ms）
+--   DG.ItemName → DG.ItemInfo → GetItemInfo(id) 是**零缓存**的真实引擎调用
+--   （Core/DungeonUI.lua:1873）。一页配方 2228 次里绝大多数是**同一种材料反复查**。
+--   一次 Render 是同步执行、中间没有任何异步插入 ⇒ 同一个 id 的名字不可能变，
+--   按 id 记忆化绝对安全。
+--   ★★ 第十一刀（rev17）：记忆表再改成**正 / 负分离 + 正向跨渲染持久** ——
+--   实机量到「一页 取名 1055 次 / 取名(引擎) 428 次 / 4.7ms」，而这一页的
+--   名字在一局里至少被重问 5 遍（到货重扫 0.5/1.5/4/9s 各重渲一次 + 每次
+--   切走再切回来），且那一页 `发包 0 次` ⇒ **名字本来就在客户端缓存里**，
+--   428 次 GetItemInfo 全是白问。名字一旦到货就不会再变 ⇒ 正向结果完全该
+--   跨渲染留着；只有「还没到货」那半边才需要下次渲染重问。
+--   到货后的重扫（PD.SweepNames → PD.Render）靠清**负向**表自然拿到新名字。
+--   ★ 只替换**配方页热路径**的 7 处调用点（一页 2000+ 次）。其它页面（升级 / 采集 /
+--     营地 / 图纸行…）调用量小，绕记忆表没有收益；而且 harness 把它们的调用**写法**
+--     钉死了（改了就是误伤断言，不是回归）。
+-- ★★ 第十一刀（rev17）：正 / 负**分离** + 正向**跨渲染持久**。
+--   · _nmPos / _icPos（正向：名字 / 图标**已到货**）—— **不随 Render 清**，
+--     只在满 PD_MEMO_POS_CAP 时整表清（代价只是重问一遍）。
+--   · _nmNeg / _icNeg（负向：**还没到货**）—— 每次 Render 开头清
+--     （PD.ResetItemNameMemo），保证「到货重扫」永远能把占位刷成真名。
+--   ★ hard = true 连正向一起清（只给离线冒烟的「造态」用：桩的假名会先落进
+--     正向表，不硬清就看不出「未到货」那条路，断言会假绿）。
+local PD_MEMO_POS_CAP = 32768
+local _nmPos, _nmPosN = {}, 0
+local _nmNeg, _nmN = {}, 0
+local _icPos, _icPosN = {}, 0
+local _icNeg, _icN = {}, 0
+function PD.ResetItemNameMemo(hard)
+    _nmNeg, _nmN = {}, 0
+    _icNeg, _icN = {}, 0
+    if hard then _nmPos, _nmPosN, _icPos, _icPosN = {}, 0, {}, 0 end
+end
+function PD.ItemName(id)
+    if id == nil then return L["暂时没有客户端数据"], false end
+    local hit = _nmPos[id]
+    if hit ~= nil then return hit, true end
+    if _nmNeg[id] then return L["暂时没有客户端数据"], false end
+    -- ★ 动态取 DG.ItemName（**不要**在加载期抓成局部）：探针会在运行期替换
+    --   DG.ItemName 来造态，抓成局部就把桩绕过了（离线审计探针会因此变哑）。
+    --   ⚠️ 这一行是本文件唯一一处**故意**保留的 `DG.ItemName(` —— 别用全局替换。
+    local nm, got = DG.ItemName(id)
+    if got then
+        if _nmPosN >= PD_MEMO_POS_CAP then _nmPos, _nmPosN = {}, 0 end
+        _nmPos[id], _nmPosN = nm, _nmPosN + 1
+        return nm, true
+    end
+    if _nmN >= 8192 then _nmNeg, _nmN = {}, 0 end
+    _nmNeg[id], _nmN = true, _nmN + 1
+    return nm, false
+end
+
+-- ★★ 材料图标记忆化（2026-10-09 第六轮；实机 /dfprofperf：列宽材料 17.9ms、
+--   取名(引擎) 1586 次）。PD.MatCol 每行每个材料都算一次图标串，而
+--   PD.MatIconTex → DG.ItemIcon → DG.ItemInfo(id)（= GetItemInfo）是**零缓存**的
+--   引擎调用 —— 一页 300 行 × 平均 3 材料 ≈ 900 次，与物品名**同源**。
+--   同一个 id 在一次渲染里图标不可能变 ⇒ 与 PD.ItemName 一样**正 / 负分离**：
+--   真图标（正向表）跨渲染持久；FALLBACK_ICON 算「还没到货」进负向表，
+--   每次 Render 开头清（PD.ResetItemNameMemo(hard) 可连正向一起清），
+--   到货重扫自然拿到新图标。
+function PD.ItemIcon(id)
+    if id == nil then return FALLBACK_ICON end
+    local hit = _icPos[id]
+    if hit ~= nil then return hit end
+    if _icNeg[id] then return FALLBACK_ICON end
+    local tex = DG.ItemIcon(id)
+    -- ★ FALLBACK_ICON = 「还没到货」⇒ 进负向表（下次 Render 再问）；
+    --   真图标进正向表（跨渲染持久）。
+    if tex ~= FALLBACK_ICON then
+        if _icPosN >= PD_MEMO_POS_CAP then _icPos, _icPosN = {}, 0 end
+        _icPos[id], _icPosN = tex, _icPosN + 1
+        return tex
+    end
+    if _icN >= 8192 then _icNeg, _icN = {}, 0 end
+    _icNeg[id], _icN = true, _icN + 1
+    return tex
+end
 
 PD.Wrap = function(text, fs, width)
     local out = {}
     if type(text) ~= "string" or text == "" or not width then return out end
-    local i, n = 1, #text
-    local line, w = "", 0
-    while i <= n do
-        local ch, step, k = CharStep(text, i)
-        local cw = k * fs
-        if w + cw > width and line ~= "" then
-            out[#out + 1] = line
-            line, w = "", 0
+    -- |T...|t 贴图序列按整块处理（2026-10-10 币种图标）：不许从中间折行剁开，
+    -- 宽度按「一个字号 + 2px 余量」估算；其余文本仍按 CharStep 逐字符走。
+    local toks, pos = {}, 1
+    while true do
+        local s, e = string.find(text, "|T.-|t", pos)
+        if not s then
+            toks[#toks + 1] = { t = string.sub(text, pos) }
+            break
         end
-        line = line .. ch
-        w = w + cw
-        i = i + step
+        if s > pos then toks[#toks + 1] = { t = string.sub(text, pos, s - 1) } end
+        toks[#toks + 1] = { t = string.sub(text, s, e), icon = true }
+        pos = e + 1
+    end
+    local line, w = "", 0
+    for _, tk in ipairs(toks) do
+        if tk.icon then
+            local cw = fs + 2
+            if w + cw > width and line ~= "" then
+                out[#out + 1] = line
+                line, w = "", 0
+            end
+            line, w = line .. tk.t, w + cw
+        else
+            local i, n = 1, #tk.t
+            while i <= n do
+                local ch, step, k = CharStep(tk.t, i)
+                local cw = k * fs
+                if w + cw > width and line ~= "" then
+                    out[#out + 1] = line
+                    line, w = "", 0
+                end
+                line = line .. ch
+                w = w + cw
+                i = i + step
+            end
+        end
     end
     if line ~= "" then out[#out + 1] = line end
     return out
@@ -275,10 +458,38 @@ end
 PD.cur = nil
 PD.tab = "overview"
 PD.campView = "a"
+PD.autoPage = "route"   -- 自动路线的子页：route = 路线 / shop = 购物清单
 PD.toolKey = nil
 PD.perkOpen = {}
 PD.rows, PD.toolBtns = {}, {}
 PD.specs = nil
+
+-- ★★ 大列表分帧 + 顶部进度条：渲染只算版式，把「还没建的行」记进 PD.__pendRows，
+--   随后按每帧预算逐批建。进度分母入队时就算好、只增不减；进度条复用主界面
+--   最顶上那根。少于 PD.ROW_SYNC_MAX 行直接同步建完（闪一下比不闪更难受）。
+PD.__pendRows = {}
+PD.ROW_SYNC_MAX = 20
+-- ★★ 视口优先（2026-10-09 第七刀；实机 /dfprofperf rep）。
+--   行帧**已经在池里**的那些，原来一律在渲染这一帧里同步重绑：实机「上数据 300次 /
+--   37~42ms」，而从别的页签切回配方页那一次更到「铺行 111.6ms」（那一帧还会顺手建出
+--   每行 mn/mz 那几格材料帧）。现在只同步绑**首屏画得出来的那几十行**，其余进同一张
+--   待建表，交由既有分帧器按每帧预算（DG.Loader.budgetMs）补齐 ⇒ 单帧硬卡被摊平，
+--   而屏上第一屏内容**当帧就是对的**（行池里本来就画着上一页的东西，不是空白）。
+--   ★ 判据必须**同时**吃「行帧已存在」：光看 `i <= syncN` 会把**还没建**的首屏行
+--     拖回这一帧来 CreateFrame（首屏 30 行 ≈ 18ms 建帧，正是分帧要避开的那笔）。
+PD.SYNC_ROWS_BUF = 6
+function PD.SyncRows()
+    local h = 0
+    local sf = PD.scroll
+    if sf and type(sf.GetHeight) == "function" then
+        local ok, v = pcall(sf.GetHeight, sf)
+        if ok and type(v) == "number" then h = v end
+    end
+    if h <= 0 then h = 420 end          -- 量不到（桩 / 没建好）就按 420px 兜底
+    local per = PD.ROW_H1 or PD.ROW_H or 20
+    if type(per) ~= "number" or per <= 0 then per = 20 end
+    return math.ceil(h / per) + PD.SYNC_ROWS_BUF
+end
 
 function PD.SetRowHover(r, on)
     on = on and true or false
@@ -325,17 +536,93 @@ function PD.Row(i)
     r.icon:SetSize(20, 20)
     r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     if ns.hui and ns.hui.RoundIcon then ns.hui.RoundIcon(r.icon) end
+    -- 2026-10-11 采集路线三列行：第三列纯图标池（采药/采矿合并组一行多产物，名字退役）
+    r.gic = {}
+    for k = 1, 6 do
+        local g = r:CreateTexture(nil, "ARTWORK")
+        g:SetSize(20, 20)
+        g:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        if ns.hui and ns.hui.RoundIcon then ns.hui.RoundIcon(g) end
+        g:Hide()
+        r.gic[k] = g
+    end
     r.blk = {}
     r.a = MakeFS(r, 13, C_TEXT, "LEFT")
     r.b = MakeFS(r, 11, C_GREY, "LEFT")
     r.c = MakeFS(r, 12, C_GOLD, "RIGHT")
+    r.c2 = MakeFS(r, 12, C_GOLD, "RIGHT")
     r.d = MakeFS(r, 11, C_GREY, "RIGHT")
     r.e = MakeFS(r, 13, C_GOLD, "LEFT")
     r.f = MakeFS(r, PD.MAT_FS, C_TEXT, "LEFT")
-    for _, f in ipairs({ r.a, r.b, r.c, r.d, r.e, r.f }) do f:SetWordWrap(false) end
-    r.mark = r:CreateTexture(nil, "OVERLAY")
-    r.mark:SetWidth(2)
-    r.mark:SetColorTexture(0.42, 0.94, 0.62, 1)
+    -- 2026-10-10 配方页表头（用户：表头文字统一 16 等大等高）：专用字串池 r.h1~h5，
+    --   不借用数据列字串（行池跨页复用，借字会污染字号/颜色/锚点）
+    r.h1 = MakeFS(r, 16, C_GREY, "LEFT")
+    r.h2 = MakeFS(r, 16, C_GREY, "LEFT")
+    r.h3 = MakeFS(r, 16, C_GREY, "RIGHT")
+    r.h4 = MakeFS(r, 16, C_GREY, "RIGHT")
+    r.h5 = MakeFS(r, 16, C_GREY, "RIGHT")
+    -- 2026-10-09 配方页两处热区（用户）：
+    --   ① 材料列改「锚点分段链」—— 第 1 段沿用 r.f（保住「材料列左锚 = PD.MAT_X」那条
+    --      既有不变量），第 2 段起是 r.mn[i]；每段配一格热区 r.mz[i]，悬停出该材料的物品提示框；
+    --   ② 右下角那格的「商人：X」半段搬到 r.dv（r.d 只留前缀），热区只盖 r.dv ——
+    --      悬停出商人明细 + 「点击：在地图上标记该 NPC」，点击落图。
+    r.mn = {}
+    r.mz = {}
+    r.mcnt = {}   -- 2026-10-10 材料数量徽标池（数量压图标右下角，见 PD.MatCnt）
+                  --   ★ 必须在工厂预建：桩铁律——非 __ 字段未赋值就索引会现造 function
+    r.dv = MakeFS(r, 11, C_GREY, "RIGHT")
+    r.dv:SetText("")
+    r.dv:SetWordWrap(false)
+    r.dv:Hide()
+    -- 2026-10-09 四轮（用户）：「升级路线」每行要显示该配方的四档技能阈值
+    --   （学 / 黄 / 绿 / 灰），并给出「当前技能等级落在哪一档」的位置。
+    --   布局：色阶条占用**原来的来源行**（名字正下方），来源压成名字右侧的小卡片。
+    --   ★ 全部在 Row 里一次建好，渲染期只摆位 / 改文本。
+    --   ★ 帧上的自定义字段一律 __ 前缀（桩铁律：非 __ 字段未赋值就索引会现造 function）。
+    r.__sbBg, r.__sbTx = {}, {}
+    for k = 1, 4 do
+        local bg = r:CreateTexture(nil, "ARTWORK")
+        bg:SetColorTexture(1, 1, 1, 1)
+        bg:Hide()
+        r.__sbBg[k] = bg
+        local tx = MakeFS(r, PD.SB_FS, C_WHITE, "CENTER")
+        tx:SetText("")
+        tx:SetWordWrap(false)
+        tx:Hide()
+        r.__sbTx[k] = tx
+    end
+    -- 2026-10-09 十一轮（用户）：「这个竖线，我希望显示两根，显示的位置是
+    --   左边这个等级的位置」→ 两根线分别落在**本行技能区间**的两端
+    --   （左 = st[1] / 右 = st[2]），不再只画「当前档位」那一根。
+    --   落位口径见 PD.SBValPos（起点向下吸 / 终点向上吸，只停 0 / 1/4 / 1/2 / 3/4）。
+    r.__sbPin = {}
+    for k = 1, 2 do
+        local p = r:CreateTexture(nil, "OVERLAY")
+        p:SetWidth(2)
+        p:SetColorTexture(1, 1, 1, 0.9)
+        p:Hide()
+        r.__sbPin[k] = p
+    end
+    r.__cardZone = CreateFrame("Button", nil, r)
+    r.__cardZone:Hide()
+    PD.WireTipZone(r.__cardZone, r)
+    r.__cardBg = CreateFrame("Frame", nil, r)
+    r.__cardBg:Hide()
+    -- 2026-10-10 用户：来源小卡片改倒圆角（HUI 圆角原语，radius 4）；色片存帧上供 PaintCard 按来源类型改色
+    r.__cardBg.__pieces = ns.hui.BuildRoundedBG(r.__cardBg, 4, { 1, 1, 1 }, "both", false, nil, true)
+    -- 文本必须挂在 __cardBg 上：子 Frame 会整体画在父帧字体串之上，挂在 r 上会被圆角色片盖住
+    r.__cardTx = MakeFS(r.__cardBg, 10, C_TEXT, "LEFT")
+    r.__cardTx:SetText("")
+    r.__cardTx:SetWordWrap(false)
+    r.__cardTx:Hide()
+    for _, f in ipairs({ r.a, r.b, r.c, r.c2, r.d, r.e, r.f }) do f:SetWordWrap(false) end
+    -- 「直售」小徽标：spec.tag 出现时贴名称右侧
+    r.tagBg = r:CreateTexture(nil, "BORDER")
+    r.tagBg:SetColorTexture(0.30, 0.75, 0.45, 0.16)
+    r.tagBg:Hide()
+    r.tagFs = MakeFS(r, 10, { 0.42, 0.94, 0.62 }, "LEFT")
+    r.tagFs:SetText("")
+    r.tagFs:Hide()
     r.sep = r:CreateTexture(nil, "BACKGROUND")
     r.sep:SetHeight(1)
     r.sep:SetColorTexture(1, 1, 1, 0.055)
@@ -357,6 +644,14 @@ function PD.Row(i)
     r.bR:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 0, 0)
     r:SetScript("OnEnter", function(self)
         PD.SetRowHover(self, true)
+        if self.__noTip then return end
+        -- ★ lines 惰性求值（2026-10-09 第二轮）：一次渲染要建几百条 spec，
+        --   每条 lines 都是 6 段 format 拼接 —— 而配方行有 it，OnEnter 走
+        --   DG.ShowItemTip，__lines 从来不读。改成第一次真要读时才拼。
+        if self.__lines == nil and self.__mkLines then
+            self.__lines = self.__mkLines()
+            self.__mkLines = nil
+        end
         if self.__lines and (self.__linesFirst or not self.__it) then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:ClearLines()
@@ -367,7 +662,11 @@ function PD.Row(i)
             end
             GameTooltip:Show()
         elseif self.__it then
-            DG.ShowItemTip(self, self.__it)
+            -- extra = 惰性价格段（函数先求值成行表再传；2026-10-10 修复 ipairs got function 教训）
+            -- tipTitle（2026-10-11 工匠文书页）：覆写提示框首行为「工匠文书：X」
+            local extra = self.__tipExtra
+            if type(extra) == "function" then extra = extra() end
+            DG.ShowItemTip(self, self.__it, extra, self.__tipTitle)
         end
     end)
     r:SetScript("OnLeave", function(self)
@@ -398,19 +697,89 @@ function PD.RowHeight(spec)
     return PD.ROW_H
 end
 
+-- 单个待建行：建帧 + 摆位 + 上数据（行帧已在池里则跳过）。
+-- ★ 间距行（kind == "gap"）也进待建表：行池按索引取用，跳号会在池里留空洞，
+--   「末尾多余的隐藏一下」那条就数不准了；建出来立刻 Hide，与同步路径同观感。
+function PD.RealizePendingRow(e)
+    if not e then return end
+    local r = PD.rows[e.idx]
+    if not r then
+        local ok, made = pcall(PD.Row, e.idx)
+        if not ok or not made then return end
+        r = made
+    end
+    if e.gap then
+        r:Hide()
+        return
+    end
+    r:ClearAllPoints()
+    r:SetPoint("TOPLEFT", PD.child, "TOPLEFT", e.x, -e.top)
+    r:SetSize(e.w, e.h)
+    r:Show()
+    PD.BindRow(r, e.spec, e.h)
+end
+
+-- 逐批建（每帧受载入档位的时间预算 + 单块数量闸夹住；与掉落页同一套闸）。
+function PD.BuildPendRows()
+    local list = PD.__pendRows
+    if not list then
+        PD.__pendRows = {}
+        DG.Gate.Finish()
+        return
+    end
+    local t0 = DG.__nowMs()
+    local left = DG.LOOT_ROW_FRAME_CAP
+    while #list > 0 and left > 0 do
+        PD.RealizePendingRow(table.remove(list, 1))
+        DG.Gate.Advance(1)
+        left = left - 1
+        local t1 = t0 and DG.__nowMs()
+        if t1 and (t1 - t0) >= DG.Loader.budgetMs then break end
+    end
+    if #list > 0 then
+        DG.PushStep(PD.BuildPendRows)
+    else
+        DG.Gate.Finish()
+        if PD.DEMO_SAVE then PD.EndGateDemo() end
+    end
+end
+
+-- 渲染收尾入口：量小同步建完（快速通道，不闪进度条）；量大交分帧器 + 进度条。
+-- ★ 离线桩 / 没有可用 C_Timer 的环境由 DG.RunSteps 递归同步跑完 ——
+--   「调用方返回时一切就绪」这条离线契约不破。
+function PD.FlushPendingRows()
+    local n = #PD.__pendRows
+    if n == 0 then
+        DG.Gate.Finish()
+        return
+    end
+    if n < PD.ROW_SYNC_MAX then
+        for k = 1, n do PD.RealizePendingRow(PD.__pendRows[k]) end
+        PD.__pendRows = {}
+        DG.Gate.Finish()
+        if PD.DEMO_SAVE then PD.EndGateDemo() end
+        return
+    end
+    DG.Gate.Begin(n)
+    DG.PushStep(PD.BuildPendRows)
+    DG.RunSteps()
+end
+
 function PD.PaintRows(rows)
     local y = { 0, 0 }
     local bb = {}
+    local bgold = {}
     local zc = { 0, 0 }
     local n = #rows
     local truncated = 0
     if n > PD.ROW_CAP then truncated = n - PD.ROW_CAP; n = PD.ROW_CAP end
     local grid = PD.gridSplit and true or false
     local ROW_W = PD.RIGHT_W - 2 * PD.LIST_PAD
+    local syncN = PD.SyncRows()          -- ★ 第七刀：本帧同步绑的行数上限
     for i = 1, n do
         local spec = rows[i]
         local h = PD.RowHeight(spec)
-        local r = PD.Row(i)
+        local r = PD.rows[i]
         if spec.sec then
             local nxt
             for j = i + 1, n do
@@ -421,7 +790,11 @@ function PD.PaintRows(rows)
         end
         local span = (grid and spec.kind ~= "row") or spec.span == true
         if spec.kind == "gap" then
-            r:Hide()
+            if r then
+                r:Hide()
+            else
+                PD.__pendRows[#PD.__pendRows + 1] = { idx = i, gap = true }
+            end
             if span then
                 local ny = math.max(y[1], y[2]) + h
                 y[1], y[2] = ny, ny
@@ -455,19 +828,28 @@ function PD.PaintRows(rows)
                     x, w = PD.LIST_PAD, ROW_W
                 end
             end
-            r:ClearAllPoints()
-            r:SetPoint("TOPLEFT", PD.child, "TOPLEFT", x, -top)
-            r:SetSize(w, h)
-            r:Show()
             if spec.kind == "row" and col and not spec.sec then
                 zc[col] = zc[col] + 1
                 spec.z = (zc[col] % 2 == 0)
             else
                 spec.z = nil
             end
-            PD.BindRow(r, spec, h)
+            -- ★★ 视口优先（第七刀）：行帧在池里 **且** 落在首屏预算内，才当帧同步重绑；
+            --   其余（含池里已有但排到首屏之外的）一律进待建表 —— 它们这一轮不改
+            --   观感，由分帧器后续补齐。
+            if r and i <= syncN then
+                r:ClearAllPoints()
+                r:SetPoint("TOPLEFT", PD.child, "TOPLEFT", x, -top)
+                r:SetSize(w, h)
+                r:Show()
+                PD.BindRow(r, spec, h)
+            else
+                PD.__pendRows[#PD.__pendRows + 1] =
+                    { idx = i, spec = spec, x = x, w = w, top = top, h = h }
+            end
             if spec.sec then
                 local b = bb[spec.sec]
+                if spec.goldSec then bgold[spec.sec] = true end
                 if not b then
                     bb[spec.sec] = { x0 = x, y0 = top, x1 = x + w, y1 = top + h }
                 else
@@ -484,14 +866,36 @@ function PD.PaintRows(rows)
             end
         end
     end
-    for i = n + 1, #PD.rows do PD.rows[i]:Hide() end
-    if PD.hasSecs and PD.secCards then
-        local ci = 0
+    -- ★ 空洞安全（2026-10-09）：`#PD.rows` 遇空洞会提前截断 ⇒ 上一页尾部还在
+    --   显示中的行藏不掉。改用 pairs 扫（集合与原来逐字相同，只是不再依赖 `#`）。
+    -- ★ 2026-10-09 补：**正显示着的**越界行要「除内容」而不是只 Hide。
+    --   切页那道闸（PD.Render 顶部）已经把全池抹过了，所以正常切页这里一个都不命中；
+    --   真正命中它的是**同页内 `n` 变小**的路径 —— 配方页搜索 / 换分类、营地换阵营、
+    --   路线换目标等级…… 这些不换页面身份（页签/专业/子页/设置页都没动），
+    --   那道闸不响；只 Hide 的话行帧上还挂着上一批内容的材料列 / 商人半段。
+    --   加 `IsShown()` 前置判断 ⇒ 反复重渲（到货重扫等）零额外开销（隐藏行一次都不抹）。
+    for i, rr in pairs(PD.rows) do
+        if i > n then
+            if rr.IsShown and rr:IsShown() then PD.WipeRow(rr) else rr:Hide() end
+        end
+    end
+    if PD.secCards then
+        -- ★ 每次渲染先把两个卡池全收起来，再按需显示：原来靠「共用计数器 ci 裁后段」收尾，
+        --   两个池子用得不一样多时就漏：总览/营地用普通卡池（secCards），购物清单只用金卡池（secGoldCards），
+        --   ci 一算两边都从 3 起裁 ⇒ 总览/营地那两张普通卡留在购物清单页上。
+        for i = 1, #PD.secCards do PD.secCards[i]:Hide() end
+        for i = 1, #PD.secGoldCards do PD.secGoldCards[i]:Hide() end
+    end
+    if PD.hasSecs then
+        -- 两个池子各用各的计数器（普通卡池 / 金卡池互不从属）
+        local ciP, ciG = 0, 0
         for s = 1, (PD.secCount or 0) do
             local b = bb[s]
             if b then
-                ci = ci + 1
-                local c = PD.secCards[ci]
+                local gold = bgold[s] and true or false
+                local idx
+                if gold then ciG = ciG + 1; idx = ciG else ciP = ciP + 1; idx = ciP end
+                local c = (gold and PD.secGoldCards or PD.secCards)[idx]
                 if c then
                     c:ClearAllPoints()
                     c:SetPoint("TOPLEFT", PD.child, "TOPLEFT",
@@ -502,11 +906,8 @@ function PD.PaintRows(rows)
                 end
             end
         end
-        for i = ci + 1, #PD.secCards do PD.secCards[i]:Hide() end
-    elseif PD.secCards then
-        for i = 1, #PD.secCards do PD.secCards[i]:Hide() end
     end
-    local h1 = y[1]
+    local h1 = math.max(y[1], y[2])
     if PD.wantIndexGrid and PD.ixRoot then
         PD.placeIndexGrid(h1)
         h1 = h1 + (PD.ixGridH or 0) + 8
@@ -527,6 +928,7 @@ function PD.PaintRows(rows)
         PD.bonusTable:Hide()
     end
     PD.child:SetHeight(math.max(h1, y[2]) + 10)
+    PD.FlushPendingRows()
     return truncated
 end
 
@@ -548,10 +950,17 @@ function PD.BindRow(r, spec, h)
     r.__z = spec.z and true or false
     PD.SetRowHover(r, r.IsMouseOver and r:IsMouseOver())
     r.__it = spec.it
+    r.__noTip = spec.noTip
     r.__lines = spec.lines
+    r.__mkLines = spec.mkLines
     r.__linesFirst = spec.linesFirst
     r.__act = spec.act
+    r.__tipTitle = spec.tipTitle   -- 提示框首行覆写（工匠文书行用；nil = 走物品名）
+    r.__tipExtra = spec.tipExtra   -- 惰性价格段（配方行挂函数；行池复用靠这里整体重置）
     r.__named = false
+    -- 行池跨页复用防护：配方页专属件先全部隐藏，配方分支里再按需亮起
+    r.h1:Hide(); r.h2:Hide(); r.h3:Hide(); r.h4:Hide(); r.h5:Hide()
+    PD.PaintDiffBar(r, nil)
     do
         local wantFs = spec.fs or 13
         local _, curFs = r.a:GetFont()
@@ -561,22 +970,27 @@ function PD.BindRow(r, spec, h)
         end
     end
     PD.ClearMats(r)
+    PD.ClearMatSegs(r)
+    -- ★★ 第十刀（rev16）：首屏之外的配方行，材料串在 FitRecipeCols 里只挂了
+    --   待算标（那是「点开那一瞬间」最贵的一笔单点）。这里在**真绑上前**
+    --   用同一个 PD.MAT_W 补算 —— 列宽此刻已定稿 ⇒ 与首屏那批逐字节一致。
+    if spec._matsPending then PD.FinishSpecMats(spec) end
     PD.RowBorder(r, spec.cur)
+    r.tagFs:Hide()
+    r.tagBg:Hide()
 
     local iconName = spec.icon
     local itemID = spec.it and spec.it[1]
     local showIcon = (spec.kind == "row") and (itemID or iconName) and true or false
     r.icon:SetShown(showIcon)
+    -- 制作物热区默认收起：行池是跨页共用的，同一条行上一轮可能是升级行、这一轮是标题/文本行
+    --   ⇒ 不收起就会留一个透明热区在旧位置吞鼠标（升级行分支里再按需 Show）。
+    if r.__iconZone then r.__iconZone:Hide() end
     if showIcon then
         r.icon:SetSize(20, 20)
         r.icon:ClearAllPoints()
         r.icon:SetPoint("TOPLEFT", r, "TOPLEFT", 6, -5)
         SetIcon(r.icon, iconName or DG.ItemIcon(itemID))
-    end
-    r.mark:SetShown(spec.is_new and true or false)
-    if spec.is_new then
-        r.mark:SetPoint("TOPLEFT", r, "TOPLEFT", 0, -2)
-        r.mark:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 2)
     end
 
     if spec.kind == "head" then
@@ -584,7 +998,36 @@ function PD.BindRow(r, spec, h)
         r.a:SetText(spec.text or "")
         r.a:ClearAllPoints()
         r.a:SetPoint("LEFT", r, "LEFT", 6, 0)
-        r.b:SetText(""); r.c:SetText(""); r.d:SetText(""); r.e:SetText(""); r.f:SetText("")
+        r.b:SetText(""); r.c:SetText(""); r.c2:SetText(""); r.d:SetText(""); r.e:SetText(""); r.f:SetText("")
+        r.sep:Hide()
+        return
+    end
+    if spec.kind == "rechead" then
+        -- 2026-10-10 配方页五列表头（fs16 等大等高）：配方 | 材料 | 拍卖 | 制作成本 | 难度
+        --   ★ 全走专用字串池 r.h1~h5（20:45 b0272ae 口径）—— 不借 r.a/r.f/r.c2/r.e，
+        --     行池跨页复用借字会污染字号/颜色/锚点；且本分支尾部清理链会清 r.c2，
+        --     借位设字会被自己清掉（「拍卖」表头消失事故）。
+        r.h1:SetText(L["配方"])
+        r.h1:ClearAllPoints()
+        r.h1:SetPoint("LEFT", r, "LEFT", 6, 0)
+        r.h1:Show()
+        r.h2:SetText(L["材料"])
+        r.h2:ClearAllPoints()
+        r.h2:SetPoint("LEFT", r, "LEFT", PD.MAT_X, 0)
+        r.h2:Show()
+        r.h3:SetText(L["拍卖"])
+        r.h3:ClearAllPoints()
+        r.h3:SetPoint("RIGHT", r, "RIGHT", -(6 + PD.DiffBarW() + PD.REC_COST_W), 0)
+        r.h3:Show()
+        r.h4:SetText(L["制作成本"])
+        r.h4:ClearAllPoints()
+        r.h4:SetPoint("RIGHT", r, "RIGHT", -(6 + PD.DiffBarW()), 0)
+        r.h4:Show()
+        r.h5:SetText(L["难度"])
+        r.h5:ClearAllPoints()
+        r.h5:SetPoint("RIGHT", r, "RIGHT", -6, 0)
+        r.h5:Show()
+        r.b:SetText(""); r.c:SetText(""); r.c2:SetText(""); r.d:SetText(""); r.e:SetText(""); r.f:SetText(""); r.dv:SetText(""); r.dv:Hide()
         r.sep:Hide()
         return
     end
@@ -593,58 +1036,215 @@ function PD.BindRow(r, spec, h)
         r.a:SetText(spec.text or "")
         r.a:ClearAllPoints()
         r.a:SetPoint("LEFT", r, "LEFT", 6, 0)
-        r.b:SetText(""); r.c:SetText(""); r.d:SetText(""); r.e:SetText(""); r.f:SetText("")
+        r.b:SetText(""); r.c:SetText(""); r.c2:SetText(""); r.d:SetText(""); r.e:SetText(""); r.f:SetText("")
         r.sep:Hide()
         return
     end
     r.sep:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 0)
     r.sep:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 0, 0)
-    if spec._lastInSec then r.sep:Hide() else r.sep:Show() end
+    -- 2026-10-10 用户：斑马纹已承担行分隔 → 每行分割线退役（_lastInSec 全项目仅此一处消费）
+    r.sep:Hide()
+
+    -- 2026-10-10 用户：路线表三列表头（灰色小字，与三列右缘锚点对齐）
+    if spec.kind == "lvhead" then
+        r.a:SetText(""); r.b:SetText(""); r.e:SetText(""); r.f:SetText("")
+        r.c:SetText(L["制作次数"])
+        r.d:SetText(L["单次花费"])
+        r.c2:SetText(L["总花费"])
+        -- 注意：Unpack 返回多值，不能先存单局部变量（只会留下第一个数）——逐个原地展开
+        r.c:SetTextColor(Unpack(C_GREY))
+        r.d:SetTextColor(Unpack(C_GREY))
+        r.c2:SetTextColor(Unpack(C_GREY))
+        r.c:ClearAllPoints()
+        r.c:SetPoint("RIGHT", r, "RIGHT", -PD.LV_CNT2_R, 0)
+        r.d:ClearAllPoints()
+        r.d:SetPoint("RIGHT", r, "RIGHT", -PD.LV_UNIT_R, 0)
+        r.c2:ClearAllPoints()
+        r.c2:SetPoint("RIGHT", r, "RIGHT", -PD.LV_CNT_R, 0)
+        PD.HideSkillBar(r)
+        PD.PaintCard(r, nil)
+        return
+    end
+
+    -- 2026-10-11 板条箱/工匠文书页左列表头（灰小字，锚点与列表行对齐：名左 6 / 成本右 6）
+    --   act：表头右列左侧挂 14px 排序 TGA，整行可点切换排序；金 = 启用 / 灰 = 未启用
+    --   （2026-10-11 修：字段是 act，此前误判 sortAct 恒 nil → 图标永不挂载）
+    if spec.kind == "colhead" then
+        r.a:SetTextColor(Unpack(C_GREY))
+        r.a:SetText(spec.text or "")
+        r.a:ClearAllPoints()
+        r.a:SetPoint("LEFT", r, "LEFT", 6, 0)
+        r.c:SetTextColor(Unpack(C_GREY))
+        r.c:SetText(spec.right or "")
+        r.c:ClearAllPoints()
+        if spec.act then
+            r.icon:SetSize(14, 14)
+            r.icon:ClearAllPoints()
+            r.icon:SetPoint("RIGHT", r, "RIGHT", -6, 0)
+            SetIcon(r.icon, "Interface\\AddOns\\DungeonsForever\\Media\\icon\\NAV\\SortIcon")
+            if spec.sortOn then
+                r.icon:SetVertexColor(1, 0.82, 0, 1)
+            else
+                r.icon:SetVertexColor(0.55, 0.57, 0.62, 1)
+            end
+            r.icon:SetShown(true)
+            r.c:SetPoint("RIGHT", r, "RIGHT", -(6 + 14 + 4), 0)
+        else
+            r.icon:SetShown(false)
+            r.c:SetPoint("RIGHT", r, "RIGHT", -6, 0)
+        end
+        r.b:SetText(""); r.c2:SetText(""); r.d:SetText(""); r.e:SetText(""); r.f:SetText("")
+        r.dv:Hide()
+        PD.HideSkillBar(r)
+        PD.PaintCard(r, nil)
+        return
+    end
+
+    -- 2026-10-11 采集路线三列行（gr3）：[等级区间 | 地点 | 图标+矿名]
+    --   行池跨页复用：闲置字串全清 + 复用防护同 lvhead（技能条/来源卡片收起）；
+    --   悬停明细按用户拍板不上，__it 保留 → 悬停行出矿石物品提示框。
+    if spec.gr3 then
+        r.a:SetTextColor(Unpack(C_GOLD))
+        r.a:SetText(spec.lv or "")
+        r.a:ClearAllPoints()
+        r.a:SetPoint("LEFT", r, "LEFT", PD.GR_LV_X, 0)
+        r.b:SetTextColor(Unpack(C_TEXT))
+        r.b:SetText(spec.loc or "")
+        r.b:ClearAllPoints()
+        r.b:SetPoint("LEFT", r, "LEFT", PD.GR_LOC_X, 0)
+        r.c:SetText(""); r.c2:SetText(""); r.d:SetText(""); r.f:SetText("")
+        r.dv:Hide()
+        local gcol = spec.nameColor
+        if not gcol and spec.qItem then
+            local gq = PD.QualCached(spec.qItem)
+            if gq then gcol = { DG.QColor(gq) } end
+        end
+        if spec.icons then
+            -- ★ 采药/采矿第三列只放图标（2026-10-11 用户）：名字退役，图标右起横排（右→左 4px 间距）
+            r.e:SetText("")
+            r.icon:Hide()
+            for k = 1, #r.gic do
+                local g, id = r.gic[k], spec.icons[k]
+                if id then
+                    g:Show()
+                    g:ClearAllPoints()
+                    if k == 1 then
+                        g:SetPoint("RIGHT", r, "RIGHT", -6, 0)
+                    else
+                        g:SetPoint("RIGHT", r.gic[k - 1], "LEFT", -4, 0)
+                    end
+                    SetIcon(g, DG.ItemIcon(id))
+                else
+                    g:Hide()
+                end
+            end
+        else
+            r.e:SetText(spec.text or "")
+            r.e:SetTextColor(Unpack(gcol or C_TEXT))
+            r.e:ClearAllPoints()
+            r.e:SetPoint("RIGHT", r, "RIGHT", -6, 0)
+            r.icon:SetSize(PD.GR_ICON_W, PD.GR_ICON_W)
+            r.icon:ClearAllPoints()
+            r.icon:SetPoint("RIGHT", r.e, "LEFT", -6, 0)
+            SetIcon(r.icon, iconName or DG.ItemIcon(itemID))
+        end
+        PD.HideSkillBar(r)
+        PD.PaintCard(r, nil)
+        return
+    end
 
     if spec.lvstep then
+        -- 2026-10-10：数量区三列（从右往左）：总花费(金,fs12) ← 单次花费(灰,fs11) ← 次数(金,fs12)
         if spec.passed then
             r.a:SetTextColor(Unpack(C_DIM))
             r.e:SetTextColor(Unpack(C_DIM))
             r.b:SetTextColor(Unpack(C_DIM))
             r.c:SetTextColor(Unpack(C_DIM))
+            r.c2:SetTextColor(Unpack(C_DIM))
+            r.d:SetTextColor(Unpack(C_DIM))
         else
             r.a:SetTextColor(Unpack(C_TEXT))
             r.e:SetTextColor(Unpack(C_GOLD))
             r.b:SetTextColor(Unpack(C_GREY))
             r.c:SetTextColor(Unpack(C_GOLD))
+            r.c2:SetTextColor(Unpack(C_GOLD))
+            r.d:SetTextColor(Unpack(C_GREY))
         end
         r.a:SetText(spec.rng or "")
         r.e:SetText(spec.text or "")
-        r.b:SetText(spec.src or "")
+        -- 2026-10-09 四轮（用户）：这一行原来写来源文字 —— 现在让给四档技能色阶条，
+        --   来源压成第一列等级正下方的卡片（PD.PaintCard）。
+        r.b:SetText("")
         r.c:SetText(spec.cnt or "")
-        r.d:SetText("")
+        r.c2:SetText(spec.tot or "")
+        r.d:SetText(spec.unit or "")
         r.f:SetText("")
         r.a:ClearAllPoints()
-        r.a:SetPoint("LEFT", r, "LEFT", 6, 0)
+        -- 2026-10-09 22:10：区间文字从垂直居中提到名字行（dy=TBL_NAME_DY），
+        --   给第一列正下方让出第二行（中心 = SB_DY 的来源卡片）
+        r.a:SetPoint("LEFT", r, "LEFT", 6, PD.TBL_NAME_DY)
         r.e:ClearAllPoints()
         r.e:SetPoint("LEFT", r, "LEFT", PD.LV_NAME_X, PD.TBL_NAME_DY)
         r.b:ClearAllPoints()
         r.b:SetPoint("LEFT", r, "LEFT", PD.LV_NAME_X, PD.TBL_SRC_DY)
+        -- 三列右缘：总花费@LV_CNT_R、单次@LV_UNIT_R、次数@LV_CNT2_R（无价格时列宽 0、锚点重合）
+        r.c2:ClearAllPoints()
+        r.c2:SetPoint("RIGHT", r, "RIGHT", -PD.LV_CNT_R, 0)
+        r.d:ClearAllPoints()
+        r.d:SetPoint("RIGHT", r, "RIGHT", -PD.LV_UNIT_R, 0)
         r.c:ClearAllPoints()
-        r.c:SetPoint("RIGHT", r, "RIGHT", -PD.LV_CNT_R, 0)
+        r.c:SetPoint("RIGHT", r, "RIGHT", -PD.LV_CNT2_R, 0)
         r.icon:SetSize(PD.TBL_ICON, PD.TBL_ICON)
         r.icon:ClearAllPoints()
         r.icon:SetPoint("LEFT", r, "LEFT", PD.LV_ICON_X, 0)
         r.icon:SetDesaturated(spec.passed and true or false)
+        -- 2026-10-09 四轮（用户）：名字正下方那条（原来源行）改成四档技能色阶条，
+        --   名字右侧补一张来源卡片。「已过段落灰显」时整条一并压暗，不抢视线。
+        if spec.sbVals then
+            PD.PaintSkillBar(r, spec.sbVals, spec.sbLo, spec.sbHi, spec.passed)
+        else
+            PD.HideSkillBar(r)
+        end
+        -- 2026-10-09 22:10 用户：卡片挪到第一列等级（区间）正下方，宽全页统一固定 ——
+        --   不再跟名字走，PaintCard 不收 nameW
+        PD.PaintCard(r, spec.card)
+        -- 2026-10-09：行级提示框退役 → 制作物自己出一格热区（图标 + 名称列），
+        -- 悬停出产物物品提示框。宽度取「图标 + 名称列」右缘，不压到次数列与材料块。
+        local iz = PD.IconZone(r)
+        iz.__it = itemID and { itemID } or nil
+        iz.__tipLines = nil
+        iz.__act = nil
+        iz.__tipExtra = spec.tipExtra   -- 悬停产物热区 → 物品提示框 + 五行价格段
+        iz:ClearAllPoints()
+        iz:SetPoint("LEFT", r, "LEFT", PD.LV_ICON_X, 0)
+        iz:SetSize(PD.LV_NAME_X - PD.LV_ICON_X + PD.LV_NAME_W, h)
+        iz:SetShown(itemID and true or false)
+        -- 卡片热区（等级列下方）与产物热区（图标+名字列）可能横向相接 → 卡片抬一层，
+        --   悬停卡片出卡片明细（__tipLines）而非产物提示框（21:20 记录的坑，幂等重设）
+        r.__cardZone:SetFrameLevel(iz:GetFrameLevel() + 1)
         PD.PaintMats(r, spec.blocks, spec.matCut, spec.passed)
         return
     end
 
     local padL = showIcon and ((iconName and not itemID) and 28 or 32) or 6
-    r.a:SetTextColor(Unpack(spec.nameColor or C_TEXT))
-    r.a:SetText((spec.text or "") .. (spec.is_new and L[" |cff40d940新|r"] or ""))
-    r.b:SetText(spec.sub or "")
+    -- 2026-10-10 用户：配方/可制造名称按产物物品品质着色（无品质数据退回默认色）
+    local ncol = spec.nameColor
+    if not ncol and spec.qItem then
+        local q = PD.QualCached(spec.qItem)
+        if q then ncol = { DG.QColor(q) } end
+    end
+    r.a:SetTextColor(Unpack(ncol or C_TEXT))
+    r.a:SetText(spec.text or "")
+    -- 2026-10-10 用户：「新」角标从名称行尾移到副行（类型左边）；行尾版退役
+    r.b:SetText((spec.is_new and L[" |cff40d940新|r"] .. " " or "") .. (spec.sub or ""))
     r.c:SetText(spec.right or "")
     r.c:SetTextColor(Unpack(spec.rightColor or C_GOLD))
     r.d:SetText(spec.right2 or "")
     r.e:SetText("")
+    r.c2:SetText("")
     r.f:SetTextColor(Unpack(spec.matColor or C_TEXT))
-    r.f:SetText(spec.mats or "")
+    -- 有分段数据（配方页）就让分段链自己写各段；没有（附魔/可制造/商人兑换）照旧走整串
+    if not spec.matSegs then r.f:SetText(spec.mats or "") end
     r.a:ClearAllPoints()
     r.c:ClearAllPoints()
     r.f:ClearAllPoints()
@@ -662,6 +1262,59 @@ function PD.BindRow(r, spec, h)
         r.d:ClearAllPoints()
         r.d:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", -6, 4)
         r.f:SetPoint("LEFT", r, "LEFT", PD.MAT_X, 0)
+        -- 2026-10-09：配方页材料列摆分段链（第 1 段的 SetPoint 由 PaintMatSegs 重写，
+        --   与上面这行同值，不冲突）
+        if spec.matSegs then PD.PaintMatSegs(r, spec.matSegs, spec.matColor) end
+    end
+    -- 2026-10-10 配方页右三列（仅双行配奉行）：难度四段色条（右上角，sbdiff=nil 即隐藏）
+    --   → 制作成本（r.e 金）→ 拍卖（r.c2 白）；列位从右缘往左排，互相零间距（2026-10-10 用户）
+    if h > PD.ROW_H1 and (spec.sbdiff or spec.costStr or spec.ahStr) then
+        PD.PaintDiffBar(r, spec.sbdiff)
+        if spec.costStr then
+            r.e:SetText(spec.costStr)
+            r.e:SetTextColor(Unpack(C_GOLD))
+            r.e:ClearAllPoints()
+            r.e:SetPoint("RIGHT", r, "RIGHT", -(6 + PD.DiffBarW()), 0)
+            r.e:SetWordWrap(false)
+        end
+        if spec.ahStr then
+            r.c2:SetText(spec.ahStr)
+            r.c2:SetTextColor(Unpack(C_TEXT))
+            r.c2:ClearAllPoints()
+            r.c2:SetPoint("RIGHT", r, "RIGHT", -(6 + PD.DiffBarW() + PD.REC_COST_W), 0)
+            r.c2:SetWordWrap(false)
+        end
+    end
+    -- 右下角那格拆两半：前缀留在 r.d，恒居末位的「商人：X」搬到 r.dv ——
+    --   热区只盖「商人」半段（用户：「鼠标在商人上面」）；两半用锚点链相接，不量宽。
+    if spec.dval and h > PD.ROW_H1 then
+        r.d:SetText(spec.dpre or "")
+        r.dv:SetText(spec.dval)
+        r.dv:SetTextColor(Unpack(C_GREY))
+        r.dv:ClearAllPoints()
+        r.dv:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", -6, 4)
+        r.dv:Show()
+        r.d:ClearAllPoints()
+        r.d:SetPoint("RIGHT", r.dv, "LEFT", 0, 0)
+        local vz = PD.IconZone(r)
+        vz.__it = nil
+        vz.__tipLines = PD.VendorLines(spec.src)
+        vz.__act = PD.VendorAct(spec.src)
+        vz:ClearAllPoints()
+        vz:SetPoint("TOPLEFT", r.dv, "TOPLEFT", 0, 1)
+        vz:SetPoint("BOTTOMRIGHT", r.dv, "BOTTOMRIGHT", 0, -1)
+        vz:Show()
+    end
+    -- 「直售」小徽标贴名称右侧（HUD 药丸的页面版，2026-10-09 三轮）
+    if spec.tag then
+        r.tagFs:SetText(spec.tag.text or "")
+        r.tagFs:ClearAllPoints()
+        r.tagFs:SetPoint("LEFT", r.a, "LEFT", r.a:GetStringWidth() + 6, 0)
+        r.tagBg:ClearAllPoints()
+        r.tagBg:SetPoint("TOPLEFT", r.tagFs, "TOPLEFT", -4, 1)
+        r.tagBg:SetPoint("BOTTOMRIGHT", r.tagFs, "BOTTOMRIGHT", 4, -1)
+        r.tagFs:Show()
+        r.tagBg:Show()
     end
 end
 
@@ -862,6 +1515,12 @@ function PD.FillBonusTable()
         end
     end
     if lastUsed then lastUsed.sep:Hide() end
+    -- 行池按 #D.order 建行，非营地条目只在被遍历到时才隐藏 —— 导航比营地行多时
+    -- 尾部会留下从未被触碰的行（nil 态），这里统一收干净。
+    for i = used + 1, #root.__rows do
+        local r = root.__rows[i]
+        if r then r:Hide() end
+    end
     PD.bonusTableH = -yCur
     root:SetHeight(PD.bonusTableH)
 end
@@ -908,12 +1567,26 @@ local IX_GROUP_LABELS
 function PD.SetCardHover(c, on)
     on = on and true or false
     c.__hlOn = on
-    if on then
+    -- HUI 主题：底色 L2 常露，悬停叠 L4 胶囊（卡中卡 +2 档惯例）；非 HUI 走旧 overlay
+    if c.__hov then
+        for _, t in ipairs(c.__hov) do t:SetShown(on) end
+    elseif on then
         c:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG_HOVER)
-        c:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE_HOVER)
+        -- 已学卡（2026-10-10）：悬停/复原都保绿描边，别把绿冲回灰（非 HUI 回落路径）
+        if c.__ixLearned then
+            local r, g, b = PD.NavAccent()
+            c:SetBackdropBorderColor(r, g, b, DG.LOOT_CARD_EDGE_HOVER)
+        else
+            c:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE_HOVER)
+        end
     else
         c:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
-        c:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+        if c.__ixLearned then
+            local r, g, b = PD.NavAccent()
+            c:SetBackdropBorderColor(r, g, b, DG.LOOT_CARD_EDGE)
+        else
+            c:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+        end
     end
 end
 
@@ -943,11 +1616,22 @@ function PD.BuildIndexGrid(parent)
         if p then
             local gi = ixGroupOf(p)
             local c = CreateFrame("Button", nil, root, "BackdropTemplate")
-            c:SetBackdrop({
-                bgFile = "Interface\\Buttons\\WHITE8x8",
-                edgeFile = "Interface\\Buttons\\WHITE8x8",
-                edgeSize = 1,
-            })
+            -- 总览索引卡（2026-10-11 色阶规整）：容器卡（L1）内的内卡提亮到 L2 实色，
+            -- 悬停叠 L4 胶囊；非 HUI 回落旧直角底 + overlay 悬停。
+            if ns.hui and ns.hui.layer and ns.hui.BuildRoundedBG and ns.hui.BuildCapsule then
+                -- 2026-10-10 用户：已学专业卡要绿描边 —— border 片在此留引用，
+                --   PaintIndexCards 直接 SetVertexColor；本路径没有 border 重画钩子，绿一次管全程。
+                local _, bord = ns.hui.BuildRoundedBG(c, 6, ns.hui.layer.L2, "both", true, 1)
+                c.__ixBorder = bord
+                c.__hov = ns.hui.BuildCapsule(c, 6, ns.hui.layer.L4, 1, 2)
+                for _, ht in ipairs(c.__hov) do ht:Hide() end
+            else
+                c:SetBackdrop({
+                    bgFile = "Interface\\Buttons\\WHITE8x8",
+                    edgeFile = "Interface\\Buttons\\WHITE8x8",
+                    edgeSize = 1,
+                })
+            end
             PD.SetCardHover(c, false)
             c:EnableMouse(true)            c.icon = c:CreateTexture(nil, "ARTWORK")
             c.icon:SetSize(PD.IX_ICON, PD.IX_ICON)
@@ -955,14 +1639,19 @@ function PD.BuildIndexGrid(parent)
             if ns.hui and ns.hui.RoundIcon then ns.hui.RoundIcon(c.icon) end
             c.icon:SetPoint("LEFT", c, "LEFT", 7, 0)
             SetIcon(c.icon, p.icon)
-            c.name = MakeFS(c, 12, C_TEXT, "LEFT")
+            -- 2026-10-10 用户：名称 16 / 副行 14（旧 12/10）；右上角留等级字串（已学才显示）
+            c.name = MakeFS(c, 16, C_TEXT, "LEFT")
             c.name:SetWordWrap(false)
-            c.name:SetPoint("TOPLEFT", c, "TOPLEFT", PD.IX_ICON + 13, -5)
+            c.name:SetPoint("TOPLEFT", c, "TOPLEFT", PD.IX_ICON + 13, -4)
             c.name:SetText(p.name or slug)
-            c.sub = MakeFS(c, 10, C_GREY, "LEFT")
+            c.sub = MakeFS(c, 14, C_GREY, "LEFT")
             c.sub:SetWordWrap(false)
-            c.sub:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", PD.IX_ICON + 13, 4)
+            c.sub:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", PD.IX_ICON + 13, 3)
             c.sub:SetText(ixCardSub(slug, p))
+            c.__slug = slug
+            c.lv = MakeFS(c, 12, C_TEXT, "RIGHT")
+            c.lv:SetPoint("TOPRIGHT", c, "TOPRIGHT", -7, -5)
+            c.lv:Hide()
             c:SetScript("OnEnter", function(self) PD.SetCardHover(self, true) end)
             c:SetScript("OnLeave", function(self) PD.SetCardHover(self, false) end)
             c:SetScript("OnClick", function(self)
@@ -970,7 +1659,6 @@ function PD.BuildIndexGrid(parent)
                 if slug == "camping" then
                     PD.Show("camping")
                     PD.campView = "bonus"
-                    PD.SetTab("camp")
                 else
                     PD.Show(slug)
                 end
@@ -984,7 +1672,7 @@ function PD.BuildIndexGrid(parent)
     end
 
     PD.ixNote = MakeFS(root, 10, C_GREY, "CENTER")
-    PD.ixNote:SetText(L["营地档位对照表 →「营地系统 → 职业加成」"])
+    PD.ixNote:SetText(L["营地档位对照表 →「营地系统」"])
 
     local y = 0
     for gi = 1, 4 do
@@ -1019,13 +1707,88 @@ function PD.placeIndexGrid(y)
     PD.ixRoot:SetPoint("TOPLEFT", PD.child, "TOPLEFT", PD.LIST_PAD, -y)
     PD.ixRoot:SetHeight(PD.ixGridH or 10)
     PD.ixRoot:Show()
+    PD.PaintIndexCards()
+end
+
+-- 2026-10-10 用户：已学专业在总览卡上「绿名 + 右上角等级 + 绿描边」——与左侧页面按钮
+--   同数据源（PD.ProfLearned）、同绿色（NavAccent）。每次总览落位重画，签名去重：
+--   等级没变就不写任何 setter。恢复原描边 = 白 + α0.10（= Hui C_CARD_BORDER 真值）。
+local IX_EDGE_NORM_A = 0.10
+function PD.PaintIndexCards()
+    local learned = PD.ProfLearned()
+    for _, c in ipairs(PD.ixCards or {}) do
+        local lv = c.__slug and learned[c.__slug] or nil
+        local key = lv and (lv.cur .. "/" .. lv.max) or ""
+        if c.__ixKey ~= key then
+            c.__ixKey = key
+            c.__ixLearned = lv and true or false
+            local r, g, b = PD.NavAccent()
+            if lv then
+                c.name:SetTextColor(r, g, b, 1)
+                c.lv:SetText(format("%d/%d", lv.cur, lv.max))
+                c.lv:SetTextColor(r, g, b, 1)
+                c.lv:Show()
+            else
+                c.name:SetTextColor(Unpack(C_TEXT))
+                c.lv:Hide()
+            end
+            if c.__ixBorder then
+                for _, t in ipairs(c.__ixBorder) do
+                    if lv then
+                        t:SetVertexColor(r, g, b)
+                        t:SetAlpha(1)
+                    else
+                        t:SetVertexColor(1, 1, 1)
+                        t:SetAlpha(IX_EDGE_NORM_A)
+                    end
+                end
+            elseif c.SetBackdropBorderColor then
+                if lv then
+                    c:SetBackdropBorderColor(r, g, b, 1)
+                else
+                    c:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+                end
+            end
+        end
+    end
+end
+
+function PD.MakeCard(f)
+    local c = CreateFrame("Frame", nil, f, "BackdropTemplate")
+    if ns.hui and ns.hui.layer and ns.hui.BuildRoundedBG then
+        ns.hui.BuildRoundedBG(c, 6, ns.hui.layer.L1, "both", true, 1)
+    else
+        c:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+        })
+        c:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
+        c:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+    end
+    return c
 end
 
 function PD.Build(page)
     if PD.built then return end
     PD.built = true
     PD.page = page
+    -- 商人选择弹窗：换页 / 收窗必须收起（锚着热区，内容一变就飘）
+    page:HookScript("OnHide", function() PD.HideVendorPick() end)
     PD.navKey = {}
+
+    PD.navCard = PD.MakeCard(page)
+    PD.navCard:SetPoint("TOPLEFT", page, "TOPLEFT", PD.CARD_INSET, -PD.CARD_TOP)
+    PD.navCard:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT",
+                        PD.CARD_NAV_R, PD.CARD_INSET)
+    PD.listCard = PD.MakeCard(page)
+    -- 分组标签宿主：标签是 page 的 FontString，永远画在子帧 navCard 之下
+    -- （被实底卡整片盖住 = 分组名称看不见的根因）；挂到抬高的空帧上才可见。
+    PD.navLabelHost = CreateFrame("Frame", nil, page)
+    do
+        local ok, lv = pcall(PD.navCard.GetFrameLevel, PD.navCard)
+        PD.navLabelHost:SetFrameLevel((ok and type(lv) == "number" and lv or 0) + 2)
+    end
 
     PD.nav = {}
     local navY = 0
@@ -1056,11 +1819,13 @@ function PD.Build(page)
         return bt
     end
 
-    navEntry("__index", L["全部专业"], "inv_misc_book_11")
+    -- 2026-10-10 用户：「全部专业」按钮退役（下方按钮自动上移补位）；
+    --   __index 宫格页代码路径保留休眠（wantIndexGrid 恒 false），cur 不再落 "__index"。
     PD.navOrder = {}
     for _, g in ipairs({ { kind = "primary", label = L["主专业"] },
                          { kind = "secondary", label = L["次专业"] },
-                         { kind = "system", label = L["营地系统"] } }) do
+                         { kind = "system", label = L["营地系统"] },
+                         { kind = "crates", label = L["声望"] } }) do
         local list = {}
         for _, slug in ipairs(D.order or {}) do
             local p = D.pro[slug]
@@ -1068,7 +1833,7 @@ function PD.Build(page)
         end
         if #list > 0 then
             navY = navY + 4
-            local lab = MakeFS(page, 11, C_GREY, "LEFT")
+            local lab = MakeFS(PD.navLabelHost, 11, C_GREY, "LEFT")
             lab:SetPoint("TOPLEFT", page, "TOPLEFT", PD.NAV_X + 5,
                          -(PD.NAV_TOP + navY + 6))
             lab:SetText(g.label)
@@ -1102,7 +1867,11 @@ function PD.Build(page)
     gear.__icon:SetSize(14, 14)
     gear.__icon:SetPoint("CENTER", gear, "CENTER", 0, 0)
     SetIcon(gear.__icon, ns.SET_ICON)
-    gear:SetPoint("TOPRIGHT", page, "TOPLEFT", PD.RIGHT_X + PD.RIGHT_W, -PD.SUB_Y)
+    -- 右缘口径（2026-10-10 用户截图实锤）：行栅格右缘 = 卡右缘 - LIST_PAD；
+    --   帧级右锚（齿轮/搜索框/信息卡行/HUD按钮）必须内缩 LIST_PAD 与行栅格一线，
+    --   直接用 RIGHT_X + RIGHT_W 会正好压在 listCard 描边上（UI_RULES §3.1）。
+    gear:SetPoint("TOPRIGHT", page, "TOPLEFT",
+                  PD.RIGHT_X + PD.RIGHT_W - PD.LIST_PAD, -PD.SUB_Y)
     gear:SetScript("OnClick", function()
         PD.setOpen = not PD.setOpen
         PD.Render()
@@ -1124,15 +1893,216 @@ function PD.Build(page)
         PD.toolBtns[i] = bt
     end
 
-    local listCard = CreateFrame("Frame", nil, page, "BackdropTemplate")
-    listCard:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Buttons\\WHITE8x8",
-        edgeSize = 1,
-    })
-    listCard:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
-    listCard:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
-    PD.listCard = listCard
+    -- 升级页信息卡（2026-10-10 B1）：模式 / 总花费 / 目标等级 / 价格快照。
+    -- 帧数纪律：Build 一次建好；显隐与内容由 PD.PaintLvTiles 每次渲染刷新。
+    -- 目标等级直接在卡内编辑（EditBox 常驻 target 卡，编辑态盖住数值文本）。
+    PD.LV_TILE_H, PD.LV_TILE_GAP = 38, 8
+
+    -- 升级 HUD 入口（2026-10-10 用户：从顶部工具栏移到工具行右侧空档 —— 信息卡下方、
+    -- 与「路线/购物清单」工具行同一带、右对齐内容区右缘；名字随专业（如「制皮升级HUD」）。
+    -- 文本 / 宽度 / 描边由 ns.ProfFollow.PaintButton 在 PickTabs 里刷新；本页不持有 HUD。
+    -- 注意：必须在 LV_TILE_H 赋值之后创建 —— 锚点用到它（首次 Build 时前面取值是 nil）。
+    local hudBtn = NewButton(page, "", 120, PD.SUB_H, 13)
+    MakeOutline(hudBtn, 1, 0.82, 0)
+    hudBtn.__huiKeepTextColor = true
+    hudBtn:Hide()
+    hudBtn:SetPoint("TOPRIGHT", page, "TOPRIGHT",
+                    -(PD.CARD_INSET + PD.LIST_PAD), -(PD.BODY_TOP + PD.LV_TILE_H + 8))
+    PD.hudBtn = hudBtn
+
+    -- 一键导入购物清单：升级 HUD 入口左边（锚 hudBtn TOPLEFT，hudBtn 宽度随专业名
+    -- 变化时自动跟随）。显隐 / 点击由 ns.ProfFollow.PaintImportBtn 在 PickTabs 里刷新。
+    local impBtn = NewButton(page, L["一键导入购物清单"], 110, PD.SUB_H, 13)
+    MakeOutline(impBtn, 1, 0.82, 0)
+    impBtn.__huiKeepTextColor = true
+    impBtn:Hide()
+    impBtn:SetPoint("TOPRIGHT", hudBtn, "TOPLEFT", -8, 0)
+    PD.impBtn = impBtn
+    PD.lvTiles = {}
+    for _, td in ipairs({
+        { key = "mode",   w = 200 },
+        { key = "scheme", w = 150 },
+        { key = "cost",   w = 250 },
+        { key = "target", w = 150 },
+        { key = "snap",   w = 0 },
+    }) do
+        local tf = CreateFrame("Button", nil, page, "BackdropTemplate")
+        tf:SetSize(td.w, PD.LV_TILE_H)
+        -- 倒圆角（2026-10-10）：走 HUI 圆角原语；border 片段存帧上供 PaintLvTiles 动态改色
+        -- 倒圆角（2026-10-10）：走 HUI 圆角原语；border 片段存帧上供 PaintLvTiles 动态改色。
+        -- 底色走主题层级 L2（2026-10-10 用户：原来是硬编码黑 0.35，不入主题；L2=页内卡片
+        -- 标准档，随主题换色）。传活表引用，repaint 闭包在换肤时重读最新值。
+        local _, bord = ns.hui.BuildRoundedBG(tf, 6, ns.hui.layer.L2, "both", true, 1)
+        tf.__border = bord or {}
+        if ns.hui and ns.hui.BuildCapsule then
+            -- 悬停胶囊 L4 = L2 内卡 +2 档（UI_RULES 卡中卡阶梯）；进出由 TipOn 切显隐
+            tf.__hov = ns.hui.BuildCapsule(tf, 8, ns.hui.layer.L4, 1, 2) or {}
+            for _, t in ipairs(tf.__hov) do t:Hide() end
+        end
+        tf:Hide()
+        tf.label = MakeFS(tf, 11, C_GREY, "LEFT")
+        tf.label:SetPoint("TOPLEFT", tf, "TOPLEFT", 10, -6)
+        tf.val = MakeFS(tf, 14, C_WHITE, "LEFT")
+        tf.val:SetPoint("BOTTOMLEFT", tf, "BOTTOMLEFT", 10, 6)
+        tf:EnableMouseWheel(true)
+        tf:SetScript("OnMouseWheel", function(self, delta)
+            DG.WheelScroll(PD.scroll, PD.child, delta)
+        end)
+        PD.lvTiles[td.key] = tf
+    end
+    -- 圆角边框动态改色（模式卡琥珀提醒 / 输入框金色描边共用）
+    function PD.PaintTileBorder(f, c)
+        for _, tex in ipairs(f.__border or {}) do
+            if tex.__huiBorderStrip then
+                tex:SetColorTexture(c[1], c[2], c[3], 1)
+                tex:SetAlpha(c[4] or 1)
+            else
+                tex:SetVertexColor(c[1], c[2], c[3])
+                tex:SetAlpha(c[4] or 1)
+            end
+        end
+    end
+    PD.lvTiles.mode:SetScript("OnClick", function()
+        local on = not PD.Setting("autoRoute")
+        ProfDB().autoRoute = on
+        if not on and RA then RA.Invalidate() end
+        PD.Render()
+        ns.PlaySound(1)
+    end)
+    -- 路线方案卡（2026-10-10 用户）：点击循环切换方案，缓存随失效重算
+    PD.lvTiles.scheme:SetScript("OnClick", function()
+        local order = (RA and RA.SchemeOrder and RA.SchemeOrder()) or {}
+        local cur = PD.SettingRaw("autoScheme")
+        local n = #order
+        local ni = 1
+        for i, k in ipairs(order) do
+            if k == cur then ni = (i % n) + 1 break end
+        end
+        ProfDB().autoScheme = order[ni]
+        if RA then RA.Invalidate() end
+        PD.Render()
+        ns.PlaySound(1)
+    end)
+    do
+        local tf = PD.lvTiles.target
+        local eb = CreateFrame("EditBox", nil, tf, "BackdropTemplate")
+        local _, ebBord = ns.hui.BuildRoundedBG(eb, 6, ns.hui.layer.L3, "both", true, 1)
+        eb.__border = ebBord or {}
+        PD.PaintTileBorder(eb, { 1, 0.82, 0, 0.9 })
+        eb:SetSize(64, 20)
+        eb:SetPoint("BOTTOMLEFT", tf, "BOTTOMLEFT", 9, 5)
+        eb:SetFont(ns.FONT, 13, ns.hui and ns.hui.FontFlags and ns.hui.FontFlags("OUTLINE") or "OUTLINE")
+        eb:SetTextColor(1, 0.82, 0)
+        eb:SetJustifyH("CENTER")
+        eb:SetAutoFocus(false)
+        eb:SetTextInsets(4, 4, 0, 0)
+        eb:SetNumeric(true)
+        eb:Hide()
+        tf.eb = eb
+        local function CloseTarget()
+            PD.tgtEditing = nil
+            eb:Hide()
+            tf.val:Show()
+        end
+        local function ApplyTarget()
+            if not PD.cur or not PD.tgtEditing then CloseTarget() return end
+            local v = tonumber(eb:GetText()) or 300
+            v = math.max(1, math.min(300, math.floor(v)))
+            local db = ProfDB()
+            db.lvTarget = db.lvTarget or {}
+            local old = tonumber(db.lvTarget[PD.cur]) or 300
+            CloseTarget()
+            if old == v then return end
+            -- 显式 if 而非 and/or 链（中段为 nil 会被 or 吃掉，300 就永远清不掉）
+            if v >= 300 then db.lvTarget[PD.cur] = nil else db.lvTarget[PD.cur] = v end
+            if RA then RA.Invalidate() end
+            -- 目标等级改了 → 固定路线段落表随之变短/变长，HUD 要立刻按新目标重推指针
+            -- （2026-10-11 用户：「hud 固定路线显示也需要 根据我设置等级 显示」）。
+            -- HUD 的 1 秒轮询本可兜住，这里补一条即时推送，改完立刻对齐。
+            local _pf = ns.ProfFollow
+            if _pf and _pf.RefreshRoute then pcall(_pf.RefreshRoute, PD.cur) end
+            PD.Render()
+        end
+        local cancelled = nil
+        eb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+        eb:SetScript("OnEscapePressed", function(self)
+            cancelled = true
+            CloseTarget()
+            self:ClearFocus()
+        end)
+        eb:SetScript("OnEditFocusLost", function()
+            if cancelled then cancelled = nil return end
+            ApplyTarget()
+        end)
+        tf:SetScript("OnClick", function()
+            if PD.tgtEditing then return end
+            local v = PD.LvTarget()
+            eb:SetText(v >= 300 and "" or tostring(v))
+            PD.tgtEditing = true
+            tf.val:Hide()
+            eb:Show()
+            eb:SetFocus()
+            ns.PlaySound(1)
+        end)
+    end
+
+    -- 配方搜索框（2026-10-09）：配方页工具行右端，输入即按名称 / 材料过滤
+    local sb = CreateFrame("Frame", nil, page)
+    sb:SetSize(PD.SEARCH_W, PD.TOOL_H)
+    sb:Hide()
+    sb.label = MakeFS(sb, 12, C_GREY, "LEFT")
+    sb.label:SetText(L["搜索"])
+    sb.label:SetPoint("LEFT", sb, "LEFT", 0, 0)
+    local seb = CreateFrame("EditBox", nil, sb, "BackdropTemplate")
+    -- 底色 L2（2026-10-10 UI_RULES 卡中卡提亮）：搜索框坐在 L1 大卡（listCard）里，
+    --   内卡必须比外层亮一档；白 10% 细边照卡片细边标准。
+    local _, sebBord = ns.hui.BuildRoundedBG(seb, 6, ns.hui.layer.L2, "both", true, 1)
+    seb.__border = sebBord or {}
+    PD.PaintTileBorder(seb, { 1, 1, 1, 0.10 })
+    seb:SetSize(PD.SEARCH_EB_W, PD.TOOL_H)
+    -- 搜索框右对齐容器右缘（与内容栅格右缘一线），标签与输入框间距 8
+    seb:SetPoint("RIGHT", sb, "RIGHT", 0, 0)
+    sb.label:ClearAllPoints()
+    sb.label:SetPoint("RIGHT", seb, "LEFT", -8, 0)
+    seb:SetFont(ns.FONT, 12, ns.hui and ns.hui.FontFlags and ns.hui.FontFlags("OUTLINE") or "OUTLINE")
+    seb:SetTextColor(1, 1, 1, 1)
+    seb:SetJustifyH("LEFT")
+    seb:SetAutoFocus(false)
+    seb:SetTextInsets(5, 5, 0, 0)
+    seb:SetMaxLetters(40)
+    seb.ph = MakeFS(seb, 11, C_GREY, "LEFT")
+    seb.ph:SetText(L["配方名 / 材料名"])
+    seb.ph:SetPoint("LEFT", seb, "LEFT", 6, 0)
+    seb.ph:Hide()
+    local function SyncPh()
+        local t = seb:GetText()
+        if (t == nil or t == "") and not seb:HasFocus() then
+            seb.ph:Show()
+        else
+            seb.ph:Hide()
+        end
+    end
+    seb:SetScript("OnTextChanged", function(self)
+        SyncPh()
+        local t = string.lower(tostring(self:GetText() or ""))
+        if t == (PD.searchQ or "") then return end
+        PD.searchQ = t
+        PD.Render()
+    end)
+    seb:SetScript("OnEscapePressed", function(self)
+        if self:GetText() ~= "" then self:SetText("") end
+        self:ClearFocus()
+        SyncPh()
+    end)
+    seb:SetScript("OnEnterPressed", function(self)
+        self:ClearFocus()
+        SyncPh()
+        ns.PlaySound(1)
+    end)
+    seb:SetScript("OnEditFocusGained", function() seb.ph:Hide() end)
+    seb:SetScript("OnEditFocusLost", function() SyncPh() end)
+    sb.eb = seb
+    PD.searchBox = sb
 
     local divider = page:CreateTexture(nil, "BORDER")
     divider:SetColorTexture(1, 1, 1, 0.12)
@@ -1169,11 +2139,43 @@ function PD.Build(page)
             if self.__key then
                 ProfDB()[self.__key] = not PD.Setting(self.__key)
                 self:SetChecked(PD.Setting(self.__key))
+                if string.sub(self.__key, 1, 4) == "auto" and RA then
+                    RA.Invalidate()   -- 过滤细则变了，自动路线缓存全部失效
+                end
             end
             PD.Render()
             ns.PlaySound(1)
         end)
         PD.setToggles[i] = tg
+    end
+
+    -- 设置行「?」帮助图标池：详细说明收到悬停提示框里，不再直铺在行下
+    PD.setHelps = {}
+    for i = 1, PD.SETTING_TOG_MAX do
+        local hp = CreateFrame("Button", nil, child)
+        hp:SetSize(16, 16)
+        hp.text = MakeFS(hp, 12, C_GOLD, "CENTER")
+        hp.text:SetAllPoints()
+        hp.text:SetText("?")
+        hp:SetScript("OnEnter", function(self)
+            local ln = self.__tip
+            if not ln then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:ClearLines()
+            for _, t in ipairs(ln) do
+                if t[1] and t[1] ~= "" then
+                    GameTooltip:AddLine(t[1], t[2] or 1, t[3] or 1, t[4] or 1, true)
+                end
+            end
+            GameTooltip:Show()
+        end)
+        hp:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        hp:EnableMouseWheel(true)
+        hp:SetScript("OnMouseWheel", function(_, delta)
+            DG.WheelScroll(PD.scroll, PD.child, delta)
+        end)
+        hp:Hide()
+        PD.setHelps[i] = hp
     end
 
     PD.bonusTitleNote = MakeFS(child, 11, C_GREY, "RIGHT")
@@ -1186,9 +2188,18 @@ function PD.Build(page)
     PD.secCards = {}
     for i = 1, PD.SEC_CARD_MAX do
         local c = CreateFrame("Frame", nil, child)
-        ns.hui.BuildRoundedBG(c, 6, { 1, 1, 1, DG.LOOT_CARD_BG }, "both", true, 1)
+        -- 2026-10-11 色阶规整：分区卡是容器卡（L1）里的内卡，实色提亮到 L2（原白 3% overlay 与外层同级）
+        ns.hui.BuildRoundedBG(c, 6, ns.hui.layer.L2, "both", true, 1)
         c:Hide()
         PD.secCards[i] = c
+    end
+    -- 金币卡（2026-10-09 三轮）：购物清单右栏「总共需要」组用金色底 highlight
+    PD.secGoldCards = {}
+    for i = 1, PD.SEC_CARD_MAX do
+        local c = CreateFrame("Frame", nil, child)
+        ns.hui.BuildRoundedBG(c, 6, ns.hui.layer.L3, "both", true, 1)
+        c:Hide()
+        PD.secGoldCards[i] = c
     end
 
     PD.ver = MakeFS(page, 11, C_GREY, "LEFT")
@@ -1233,6 +2244,11 @@ PD.NavAccent = NavAccent
 function PD.PickNav()
     local learned = PD.ProfLearned()
     local function paint(bt, sel, lv)
+        -- ★ 签名不变就整颗按钮都不重画（见文件头 setter 去重说明）：换专业时
+        --   只有「旧选中 + 新选中」两颗真的变了，其余十几颗原样却重写了一遍 setter。
+        local key = (sel and "1" or "0") .. "|" .. (lv and (lv.cur .. "/" .. lv.max) or "")
+        if bt.__pnKey == key then return end
+        bt.__pnKey = key
         SetOutline(bt, sel, 1, 0.82, 0)
         if lv then
             if sel then
@@ -1253,26 +2269,32 @@ function PD.PickNav()
         local bt = PD.navKey[slug]
         if bt then paint(bt, slug == PD.cur, learned[slug]) end
     end
-    local ib = PD.navKey["__index"]
-    if ib then paint(ib, PD.cur == "__index", nil) end
+    -- 板条箱导航图标：物品数据到货后换成板条箱物品本体图标（未到货前留自制图占位）
+    local nbt = PD.navKey and PD.navKey.crates
+    if nbt and not nbt.__itemIconDone and CD and CD.crates and CD.crates[1] then
+        local tex = DG.ItemIcon(CD.crates[1].id)
+        if tex and tex ~= FALLBACK_ICON then
+            SetIcon(nbt.__icon, tex)
+            nbt.__icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            nbt.__itemIconDone = true
+        end
+    end
+    -- 「全部专业」按钮已退役（2026-10-10 用户），navKey 里不再有 "__index"。
 end
 
 function PD.TabsFor(slug)
     if slug == "__index" then return { "overview" } end
+    if slug == "crates" then return { "crate", "writ" } end
     local p = D.pro[slug]
     local out = { "overview" }
     if not p then return out end
-    if slug == "camping" then out[#out + 1] = "camp" end
-    if p.camp and #p.camp > 0 then out[#out + 1] = "camp" end
     local r = R[slug]
     if r and ((r.rows and #r.rows > 0) or (r.enchants and #r.enchants > 0)
               or (r.crafted and #r.crafted > 0)) then
         out[#out + 1] = "recipe"
     end
     if GA and (GA[slug] or (slug == "fishing" and GA.fishing)) then out[#out + 1] = "gather" end
-    if LV and LV[slug] then out[#out + 1] = "leveling" end
-    if p.perks and #p.perks > 0 then out[#out + 1] = "legacy" end
-    out[#out + 1] = "notes"
+    if (LV and LV[slug]) or (PD.GATHER_SLUGS and PD.GATHER_SLUGS[slug]) then out[#out + 1] = "leveling" end
     return out
 end
 
@@ -1280,31 +2302,62 @@ function PD.PickTabs()
     local tabs = PD.TabsFor(PD.cur)
     PD.avail = {}
     for _, t in ipairs(tabs) do PD.avail[t] = true end
-    if not PD.avail[PD.tab] then PD.tab = "overview" end
+    if not PD.avail[PD.tab] then PD.tab = tabs[1] or "overview" end
     local shown = 0
     for _, def in ipairs(DG.PROF_SUBTABS) do
         local bt = PD.subBtns[def.key]
         local on = PD.avail[def.key] and true or false
-        bt:SetShown(on)
-        if on then
-            bt:ClearAllPoints()
-            bt:SetPoint("TOPLEFT", PD.page, "TOPLEFT",
-                        PD.RIGHT_X + shown * PD.SUB_STEP, -PD.SUB_Y)
-            shown = shown + 1
-            if def.key == "camp" and PD.cur == "camping" then
-                bt:SetText(L["职业加成"])
-            else
+        local txt = def.text
+        local sel = (not PD.setOpen) and (def.key == PD.tab)
+        -- ★ 签名 = 显隐 + 落位序 + 选中 + 文案；四项都没变就一个 setter 都不写。
+        local key = (on and "1" or "0") .. "|" .. shown .. "|"
+                    .. (sel and "1" or "0") .. "|" .. txt
+        if bt.__ptKey ~= key then
+            bt.__ptKey = key
+            bt:SetShown(on)
+            if on then
+                bt:ClearAllPoints()
+                bt:SetPoint("TOPLEFT", PD.page, "TOPLEFT",
+                            PD.RIGHT_X + shown * PD.SUB_STEP, -PD.SUB_Y)
                 bt:SetText(def.text)
+                SetOutline(bt, sel, 1, 0.82, 0)
+                bt:GetFontString():SetTextColor(Unpack(sel and C_GOLD or C_GREY))
             end
-            local sel = (not PD.setOpen) and (def.key == PD.tab)
-            SetOutline(bt, sel, 1, 0.82, 0)
-            bt:GetFontString():SetTextColor(Unpack(sel and C_GOLD or C_GREY))
         end
+        if on then shown = shown + 1 end
     end
     if PD.setGear then
-        SetOutline(PD.setGear, PD.setOpen and true or false, 1, 0.82, 0)
-        local gc = PD.setOpen and ns.SET_ICON_ON or ns.SET_ICON_IDLE
-        PD.setGear.__icon:SetVertexColor(gc[1], gc[2], gc[3])
+        -- ★ 设置按钮只属于升级页（2026-10-11 用户）：里面的设置只对升级路线生效，
+        --   其它页签（总览/配方/采集）下整颗收起。
+        local gon = (PD.tab == "leveling")
+        if PD.setGear.__shown ~= gon then
+            PD.setGear.__shown = gon
+            PD.setGear:SetShown(gon)
+        end
+        if gon then
+            SetOutline(PD.setGear, PD.setOpen and true or false, 1, 0.82, 0)
+            local gc = PD.setOpen and ns.SET_ICON_ON or ns.SET_ICON_IDLE
+            PD.setGear.__icon:SetVertexColor(gc[1], gc[2], gc[3])
+        end
+    end
+    local pf = ns.ProfFollow
+    -- 2026-10-10 用户：升级HUD入口只在升级页显示（设置展开时也收起），与 impBtn 条件对齐
+    if pf and pf.PaintButton and PD.hudBtn then
+        if PD.tab == "leveling" and not PD.setOpen then
+            pcall(pf.PaintButton, PD.hudBtn, PD.cur)
+        else
+            PD.hudBtn:Hide()
+        end
+    end
+    if pf and pf.PaintImportBtn and PD.impBtn then
+        pcall(pf.PaintImportBtn, PD.impBtn, PD.cur)
+    end
+    -- 2026-10-10 B1：一键导入只在购物清单子页出现（路线页 / 设置页不占位）
+    if PD.impBtn then
+        local wantImp = PD.tab == "leveling" and PD.autoPage == "shop"
+                        and (not PD.setOpen) and PD.cur ~= nil and PD.cur ~= "__index"
+                        and LV[PD.cur] ~= nil and LV[PD.cur].steps ~= nil
+        PD.impBtn:SetShown(wantImp and true or false)
     end
 end
 
@@ -1319,9 +2372,14 @@ function PD.ToolSize(text)
     return w, shown
 end
 
-function PD.PaintTool(list, handler)
+function PD.PaintTool(list, handler, yoff)
     PD.onTool = handler
     list = list or {}
+    yoff = yoff or 0
+    -- ★ 第八刀（rev14）：闸门内部计时。**运行期动态取**（PD.__pfT0/__pfMark 定义在
+    --   文件尾探针区），探针关时 __pfT0 返回 nil ⇒ 热路径一次取样都不做。
+    local _T0, _MK = PD.__pfT0, PD.__pfMark
+    local _AD = PD.__pfAdd
     local n = math.min(#list, PD.TOOL_MAX)
     local x, row = 0, 0
     for i = 1, PD.TOOL_MAX do
@@ -1329,19 +2387,45 @@ function PD.PaintTool(list, handler)
         local def = (i <= n) and list[i] or nil
         if def then
             local w, text = PD.ToolSize(def.text)
-            if x > 0 and x + w > PD.RIGHT_W then row = row + 1; x = 0 end
-            bt:SetSize(w, PD.TOOL_H)
-            bt:ClearAllPoints()
-            bt:SetPoint("TOPLEFT", PD.page, "TOPLEFT", PD.RIGHT_X + x,
-                        -(PD.BODY_TOP + row * (PD.TOOL_H + PD.TOOL_GAP)))
-            bt:SetText(text)
+            local lim = PD.RIGHT_W - ((row == 0) and PD.SearchReserve() or 0)
+            if x > 0 and x + w > lim then row = row + 1; x = 0 end
+            -- ★ 签名进「尺寸 + 落点 x + 行号 + 文案 + 选中」。落点 x 也必须进：
+            --   前面任意一颗按钮变宽都会把后面所有按钮整体推挤一位。
+            local key = "1|" .. w .. "|" .. x .. "|" .. row .. "|"
+                        .. tostring(def.on) .. "|" .. text
+            if bt.__ptk ~= key then
+                bt.__ptk = key
+                -- ★★ 第八刀（rev14）：把闸门切成四刀。实机 16 颗 = 21~26ms，
+                --   而这里每一样按 bench 单价都是微秒级 ⇒ 必须实测找真凶
+                --   （项目铁律：不准读代码猜耗时段）。_m0 为 nil 时 _MK 会自己早退。
+                local _m0 = _T0 and _T0()
+                local _g0 = _m0
+                -- ★★ 第九刀（rev15）：先记「这颗粒此刻是不是已经显示着」。
+                --   引擎 Show() 在帧已可见时是**空操作** ⇒ 不触发 OnShow 链；
+                --   只有 Hide→Show 跃迁才吃那 ~1.5ms/颗。实机反面样本：切到
+                --   leveling 时 3 颗本来就没被 Hide ⇒ 显示 0.0ms。
+                if _AD then _AD("闸-已显", bt:IsShown() and 1 or 0) end
+                bt:SetSize(w, PD.TOOL_H)
+                if _MK then _MK("闸-尺寸", _m0) end
+                _m0 = _T0 and _T0()
+                bt:ClearAllPoints()
+                bt:SetPoint("TOPLEFT", PD.page, "TOPLEFT", PD.RIGHT_X + x,
+                            -(PD.BODY_TOP + yoff + row * (PD.TOOL_H + PD.TOOL_GAP)))
+                if _MK then _MK("闸-锚点", _m0) end
+                _m0 = _T0 and _T0()
+                bt:SetText(text)
+                SetOutline(bt, def.on and true or false, 1, 0.82, 0)
+                bt:GetFontString():SetTextColor(Unpack(def.on and C_GOLD or C_GREY))
+                if _MK then _MK("闸-文本", _m0) end
+                _m0 = _T0 and _T0()
+                bt:Show()
+                if _MK then _MK("闸-显示", _m0) end
+                if _MK then _MK("闸-合计", _g0) end
+            end
             bt.__key = def.key
-            SetOutline(bt, def.on and true or false, 1, 0.82, 0)
-            bt:GetFontString():SetTextColor(Unpack(def.on and C_GOLD or C_GREY))
-            bt:Show()
-            x = x + w + PD.TOOL_GAP
+            x = x + w + (def.gap or PD.TOOL_GAP)
         else
-            bt:Hide()
+            if bt.__ptk ~= "0" then bt.__ptk = "0"; bt:Hide() end
             bt.__key = nil
         end
     end
@@ -1350,17 +2434,267 @@ function PD.PaintTool(list, handler)
     return (rows > 0) and (rows * (PD.TOOL_H + PD.TOOL_GAP) + PD.TOOL_BODY_GAP) or 0
 end
 
+-- ── 升级页信息卡（2026-10-10 B1）：每次渲染按 PD.lvSummary 刷新内容 ──────
+-- lvSummary 由 PD.RowsLeveling（路线 / 购物清单两个分支）在渲染期写入。
+-- 信息卡悬停提示（PaintLvTiles / PaintGatherTiles 共用；进出由 __hov 胶囊切换）
+function PD.TipTile(tf, lines)
+    tf:SetScript("OnEnter", function()
+        if tf.__hov then for _, t in ipairs(tf.__hov) do t:Show() end end
+        GameTooltip:SetOwner(tf, "ANCHOR_RIGHT")
+        GameTooltip:ClearLines()
+        for _, ln in ipairs(lines) do
+            if ln[1] and ln[1] ~= "" then
+                GameTooltip:AddLine(ln[1], ln[2] or 1, ln[3] or 1, ln[4] or 1, true)
+            end
+        end
+        GameTooltip:Show()
+    end)
+    tf:SetScript("OnLeave", function()
+        if tf.__hov then for _, t in ipairs(tf.__hov) do t:Hide() end end
+        GameTooltip:Hide()
+    end)
+end
+
+-- 采集升级页信息卡：复用 lvTiles 帧，三卡 = 当前技能 / 路线进度 / 路线范围
+function PD.PaintGatherTiles()
+    local tiles = PD.lvTiles
+    if PD.tab ~= "leveling" or PD.setOpen then
+        for _, k in ipairs({ "snap", "target", "scheme", "cost", "mode" }) do tiles[k]:Hide() end
+        return 0
+    end
+    tiles.snap:Hide()
+    -- 制造页点击行为（切模式/切方案）不得残留到采集页
+    tiles.mode:SetScript("OnClick", nil)
+    tiles.scheme:SetScript("OnClick", nil)
+    tiles.cost:SetScript("OnClick", nil)
+    local _learned = PD.ProfLearned()
+    local curLv = _learned and _learned[PD.cur] and _learned[PD.cur].cur or nil
+    -- 当前进度：落在哪个推荐段/门槛档
+    local g = GA and (GA[PD.cur] or (PD.cur == "fishing" and GA.fishing))
+    local prog = "-"
+    if g and #g > 0 and curLv then
+        for i, t in ipairs(g) do
+            local lo, hi
+            if PD.cur == "fishing" then
+                lo = t[2]
+                hi = (g[i + 1] and g[i + 1][2] or lo + 1) - 1
+                if hi < lo then hi = lo end
+            elseif PD.cur == "skinning" then
+                lo, hi = t[1][1], t[1][2]
+            else
+                lo = t[2]
+                hi = (g[i + 1] and g[i + 1][2] or 301) - 1
+                if hi < lo then hi = lo end
+            end
+            if curLv >= lo and curLv <= hi then
+                prog = (hi > lo) and format(L["%d - %d"], lo, hi) or tostring(lo)
+                break
+            end
+        end
+    end
+    tiles.mode.label:SetText(L["当前技能"])
+    tiles.mode.val:SetText(curLv and tostring(curLv) or L["未学"])
+    PD.TipTile(tiles.mode, { { L["读取角色当前的专业技能值"], 0.7, 0.7, 0.7 } })
+    PD.PaintTileBorder(tiles.mode, { 1, 1, 1, 0.10 })
+    tiles.scheme.label:SetText(L["路线进度"])
+    local smelt = PD.GatherMode(PD.cur) == "smelt"
+    if smelt and curLv then
+        -- 熔炼口径：落在哪个可学区间
+        for i, t in ipairs(SMELT_TBL) do
+            local lo = t[2]
+            local hi = (SMELT_TBL[i + 1] and SMELT_TBL[i + 1][2] or 301) - 1
+            if hi < lo then hi = lo end
+            if curLv >= lo and curLv <= hi then
+                prog = (hi > lo) and format(L["%d - %d"], lo, hi) or tostring(lo)
+                break
+            end
+        end
+    end
+    tiles.scheme.val:SetText((PD.cur == "mining") and
+        ((smelt and L["熔炼"] or L["采集"]) .. " " .. prog) or prog)
+    if PD.cur == "mining" then
+        tiles.scheme:SetScript("OnClick", function()
+            ProfDB().gatherMode = smelt and "gather" or "smelt"
+            PD.Render()
+            ns.PlaySound(1)
+        end)
+    else
+        tiles.scheme:SetScript("OnClick", nil)
+    end
+    PD.TipTile(tiles.scheme, (PD.cur == "mining") and {
+        { L["点击切换：采集 ⇄ 熔炼"], 0.9, 0.78, 0.35 },
+        { smelt and L["列表中绿色高亮行 = 当前技能可练的熔炼区间"]
+            or L["列表中绿色高亮行 = 推荐当前采集的区间"], 0.7, 0.7, 0.7 },
+    } or { { L["列表中绿色高亮行 = 推荐当前采集的区间"], 0.7, 0.7, 0.7 } })
+    PD.PaintTileBorder(tiles.scheme, (PD.cur == "mining") and { 1, 0.82, 0, 0.55 } or { 1, 1, 1, 0.10 })
+    tiles.cost.label:SetText(L["路线范围"])
+    tiles.cost.val:SetText("1 - 300")
+    PD.TipTile(tiles.cost, { { L["静态推荐路线（全程显示）：按资料整理的采集区间推进，不含价格与概率，无需价格插件"], 0.7, 0.7, 0.7 } })
+    PD.PaintTileBorder(tiles.cost, { 1, 1, 1, 0.10 })
+    -- 三卡均分（五卡槽位用三卡：等宽 tw，余数不用；表达式序与制造页错开防锚重复）
+    local tw = math.floor((PD.RIGHT_W - PD.LIST_PAD - 4 * PD.LV_TILE_GAP) / 5)
+    local x = PD.RIGHT_X
+    for _, k in ipairs({ "mode", "scheme", "cost" }) do
+        local tf = tiles[k]
+        tf:SetWidth(tw)
+        tf:ClearAllPoints()
+        tf:SetPoint("TOPLEFT", PD.page, "TOPLEFT", x, -PD.BODY_TOP)
+        x = x + tf:GetWidth() + PD.LV_TILE_GAP
+        tf:Show()
+    end
+    return PD.LV_TILE_H + 8
+end
+
+function PD.PaintLvTiles()
+    local tiles = PD.lvTiles
+    if not (tiles and tiles.mode) then return 0 end
+    -- 采集专业升级页走独立三卡（当前技能/路线进度/路线范围）
+    if PD.GATHER_SLUGS[PD.cur] then return PD.PaintGatherTiles() end
+    if PD.tab ~= "leveling" or PD.setOpen then
+        for _, k in ipairs({ "mode", "scheme", "cost", "target", "snap" }) do tiles[k]:Hide() end
+        return 0
+    end
+    local s = PD.lvSummary or {}
+    local v = PD.LvTarget()
+    local auto = s.auto and true or false
+    local warnAuto = s.autoSetting and not s.ahOK
+    -- 快照年龄：snapshotAge = 真实扫描时间戳算出的秒数（优先）；snapshotDays = 库内日差（回退）
+    local snapSec, snapDays = s.snapshotAge, s.snapshotDays
+    local TipOn = PD.TipTile
+    tiles.mode.label:SetText(L["模式 · 点击切换"])
+    tiles.mode.val:SetText(auto and L["自动计算"] or L["固定路线"])
+    tiles.mode.val:SetTextColor(Unpack(auto and C_GOLD or C_WHITE))
+    if warnAuto then
+        PD.PaintTileBorder(tiles.mode, { 0.95, 0.75, 0.4, 0.9 })
+    else
+        PD.PaintTileBorder(tiles.mode, { 1, 1, 1, 0.10 })
+    end
+    local modeLines = {
+        { auto and L["自动计算：按当前路线方案逐点择优（在「路线方案」卡切换）"]
+               or L["固定路线：按资料整理的分段练法逐段冲技能"], 1, 0.82, 0 },
+        { L["点击在固定 / 自动之间切换"], 0.7, 0.7, 0.7 },
+    }
+    if warnAuto then
+        modeLines[#modeLines + 1] = { L["自动路线需要 Auctionator 的价格数据：请安装 Auctionator 并完成一次拍卖行扫描；当前显示固定路线。"],
+                                      0.95, 0.75, 0.4 }
+    end
+    TipOn(tiles.mode, modeLines)
+    -- 路线方案卡（2026-10-10 用户）：显示当前方案，tooltip 列全部方案（当前金色）
+    local sch = s.scheme or "cheapest"
+    tiles.scheme.label:SetText(L["路线方案 · 点击切换"])
+    tiles.scheme.val:SetText((RA and RA.SchemeLabel) and RA.SchemeLabel(sch) or L["最省钱"])
+    tiles.scheme.val:SetTextColor(Unpack(C_WHITE))
+    local schemeDesc = {
+        cheapest = L["最省钱：材料价 + 图纸价按升点概率摊到每一点，选期望花费最低的配方"],
+        matcost = L["材料成本：只按材料价选配方（不含图纸价）"],
+        crafts = L["次数最少：优先升点率高的配方，同分取便宜"],
+        optim = L["乐观计数：材料不看市价，一律按卖店价值折算；次数固定按做一次涨一点统计、只是下限；快变黄前 25 点的配方也纳入可选；带冷却的转化配方和资料未收录的材料不进路线"],
+    }
+    local schemeLines = {}
+    local sorder = (RA and RA.SchemeOrder and RA.SchemeOrder()) or {}
+    for _, sk in ipairs(sorder) do
+        local curK = (sk == sch)
+        schemeLines[#schemeLines + 1] = { schemeDesc[sk] or sk,
+                                          curK and 1 or 0.62, curK and 0.82 or 0.62,
+                                          curK and 0 or 0.62 }
+    end
+    TipOn(tiles.scheme, schemeLines)
+    tiles.cost.label:SetText(format(L["1 → %d 预计总花费"], s.target or v))
+    local costLines
+    if s.scheme == "optim" then
+        tiles.cost.val:SetText(RA.MoneyStr(s.total or 0, "copper"))
+        tiles.cost.val:SetTextColor(Unpack(C_GREY))
+        costLines = { { L["乐观计数：花费按卖店价值粗算，不是拍卖行行情"], 0.7, 0.7, 0.7 } }
+    elseif s.priced and s.total then
+        tiles.cost.val:SetText(RA.MoneyStr(s.total, "copper"))
+        tiles.cost.val:SetTextColor(Unpack(C_GOLD))
+        costLines = {}
+        if s.recipes then
+            costLines[#costLines + 1] = { format(L["配方 %d 种 · %d 次制作"], s.recipes, s.crafts or 0) }
+            costLines[#costLines + 1] = { format(L["商人直售 %s · 图纸 %s"],
+                                                 RA.MoneyStr(s.vendorTotal or 0),
+                                                 RA.MoneyStr(s.formulasTotal or 0)), 0.7, 0.7, 0.7 }
+        else
+            costLines[#costLines + 1] = { format(L["材料 %d 种"], s.matsN or 0) }
+        end
+    else
+        tiles.cost.val:SetText(L["—"])
+        tiles.cost.val:SetTextColor(Unpack(C_GREY))
+        costLines = { { L["价格数据不可用（安装并扫描 Auctionator 后显示金币）"], 0.7, 0.7, 0.7 } }
+    end
+    if (s.np or 0) > 0 then
+        costLines[#costLines + 1] = { format(L["含无价材料 %d 种：花费为估算下限"], s.np),
+                                      0.95, 0.75, 0.4 }
+    end
+    TipOn(tiles.cost, costLines)
+    tiles.target.label:SetText(L["目标等级 · 点击修改"])
+    tiles.target.val:SetText(v >= 300 and L["全程"] or tostring(v))
+    tiles.target.val:SetTextColor(Unpack(C_WHITE))
+    TipOn(tiles.target, { { L["每专业独立记忆；300 = 全程。点击修改"], 0.7, 0.7, 0.7 } })
+    tiles.snap.label:SetText(L["价格快照"])
+    local atxt
+    if s.scheme == "optim" then
+        atxt = L["乐观计数 · 不依赖价格插件"]
+    elseif s.priced and snapSec then
+        -- 2026-10-11 用户：时间与插件名紧贴（去掉 ·）；超 24 小时直接显示 X 天前
+        if snapSec < 60 then
+            atxt = L["刚刚Auctionator"]
+        elseif snapSec < 90 * 60 then
+            atxt = format(L["%d 分钟前Auctionator"], math.max(1, math.floor(snapSec / 60 + 0.5)))
+        elseif snapSec < 24 * 3600 then
+            atxt = format(L["%d 小时前Auctionator"], math.max(1, math.floor(snapSec / 3600 + 0.5)))
+        else
+            atxt = format(L["%d 天前Auctionator"], math.floor(snapSec / 86400 + 0.5))
+        end
+    elseif s.priced and snapDays then
+        atxt = (snapDays <= 0) and L["今天Auctionator"]
+               or format(L["%d 天前Auctionator"], snapDays)
+    elseif s.priced then
+        atxt = L["快照年龄未知Auctionator"]
+    end
+    if atxt then
+        tiles.snap.val:SetText(atxt)
+        tiles.snap.val:SetTextColor(0.55, 0.85, 0.6, 1)
+        TipOn(tiles.snap, { { atxt, 0.7, 0.7, 0.7 } })
+    else
+        tiles.snap.val:SetText(L["未接入 Auctionator"])
+        tiles.snap.val:SetTextColor(0.95, 0.75, 0.4, 1)
+        TipOn(tiles.snap, { { L["安装 Auctionator 并完成一次拍卖行扫描后，这里显示价格快照年龄。"],
+                              0.7, 0.7, 0.7 } })
+    end
+    -- 四张信息卡均分（2026-10-10 用户定）：整行可用 = RIGHT_W - LIST_PAD，四卡等宽、
+    --   缝 3*8；余数给快照卡，右缘钉在卡右缘-8（UI_RULES §3.1）。
+    --   （此前的死宽 200/250/150 + min120 钳位曾把整行撑溢出 4px，勿回潮。）
+    -- 五张信息卡均分（2026-10-10 用户：加路线方案卡，第二位）
+    local usable = PD.RIGHT_W - PD.LIST_PAD - 4 * PD.LV_TILE_GAP
+    local tw = math.floor(usable / 5)
+    tiles.mode:SetWidth(tw)
+    tiles.scheme:SetWidth(tw)
+    tiles.cost:SetWidth(tw)
+    tiles.target:SetWidth(tw)
+    tiles.snap:SetWidth(usable - 4 * tw)
+    local x = PD.RIGHT_X
+    for _, k in ipairs({ "mode", "scheme", "cost", "target", "snap" }) do
+        local tf = tiles[k]
+        tf:ClearAllPoints()
+        tf:SetPoint("TOPLEFT", PD.page, "TOPLEFT", x, -PD.BODY_TOP)
+        x = x + tf:GetWidth() + PD.LV_TILE_GAP
+        tf:Show()
+    end
+    return PD.LV_TILE_H + 8
+end
+
 function PD.Layout(toolH)
     local top = PD.BODY_TOP + (toolH or 0)
     local bot = PD.BODY_BOT
     PD.scroll:ClearAllPoints()
     PD.scroll:SetPoint("TOPLEFT", PD.page, "TOPLEFT", PD.RIGHT_X, -top)
-    PD.scroll:SetPoint("BOTTOMRIGHT", PD.page, "BOTTOMRIGHT", -PAGE_INSET, bot)
+    PD.scroll:SetPoint("BOTTOMRIGHT", PD.page, "BOTTOMRIGHT", -PD.CARD_INSET, bot)
     PD.listCard:ClearAllPoints()
     PD.listCard:SetPoint("TOPLEFT", PD.page, "TOPLEFT",
-                         PD.RIGHT_X - PD.LIST_PAD, -(top - PD.LIST_PAD))
+                         PD.RIGHT_X - PD.LIST_PAD, -PD.CARD_TOP)
     PD.listCard:SetPoint("BOTTOMRIGHT", PD.page, "BOTTOMRIGHT",
-                         -(PAGE_INSET - PD.LIST_PAD), bot - PD.LIST_PAD)
+                         -PD.CARD_INSET, PD.CARD_INSET)
     PD.listCard:Show()
     local splitW
     if PD.lvSplit then splitW = PD.splitLW or PD.COL_LW
@@ -1388,7 +2722,11 @@ function PD.SweepNames()
         if ok then got = true; break end
     end
     PD.notReady = nil
-    if got then PD.Render() end
+    if got then
+        -- 物品数据到货：清自动路线缓存，使产物卖店价 / 价格快照重算（异步数据 2026-10-10）
+        if RA then RA.Invalidate() end
+        PD.Render()
+    end
     PD.sweeping = false
 end
 
@@ -1399,102 +2737,160 @@ function PD.ScheduleSweep()
     end
 end
 
-function PD.RowsOverview(rows)
-    if PD.cur == "__index" then
-        local new, camps, perks, pts = 0, 0, 0, 0
-        for _, slug in ipairs(D.order or {}) do
-            local p = D.pro[slug]
-            local r = R[slug]
-            if r and r.rows then
-                for _, it in ipairs(r.rows) do if it[11] then new = new + 1 end end
-            end
-            if p and p.camp then camps = camps + #p.camp end
-            if p and p.perks then perks = perks + #p.perks end
-            if p and p.miles then
-                for _, m in ipairs(p.miles) do pts = pts + (m[3] or 0) end
-            end
-        end
-        PushHead(rows, L["这份手册里有什么"])
-        PushText(rows, format(
-            L["%d 个专业 · 新增配方 %d 条 · 营地物件 %d 个 · 传承里程碑 %d 点 · 特权 %d 个"],
-            #(D.order or {}), new, camps, pts, perks), 12)
-        PushGap(rows)
-        return
-    end
+local C_ALLIANCE = { 0.40, 0.80, 0.94 }
+local C_HORDE = { 1.00, 0.30, 0.25 }
 
+function PD.RowsOverview(rows)
     local p = D.pro[PD.cur]
     if not p then return end
-    PushGap(rows, 6, 1)
-    PushGap(rows, 6, 2)
+    PushGap(rows, 4, 1)
 
-    PushHead(rows, L["简介"], 1)
-    local lede = (type(p.lede) == "string" and p.lede ~= "") and p.lede or p.summary
-    PushText(rows, lede, 12, nil, 1)
-    PushGap(rows, PD.OV_GUT, 1)
-    if p.cert or p.title then
-        PushHead(rows, L["认证与称号"], 1)
-        if p.cert then
-            rows[#rows + 1] = {
-                kind = "row", h = PD.ROW_H, col = 1, it = { p.cert[1] },
-                text = p.cert[2] or "?",
-                sub = format(L["解锁称号：%s"], p.cert[5] or "?"),
-                right = format(L["技能 %d"], p.cert[4] or 0),
-                lines = { { p.cert[2] or "?" },
-                          { format(L["解锁称号：%s"], p.cert[5] or "?"), 1, 0.82, 0 } },
-            }
-        end
-        if p.title then PushText(rows, p.title, 12, C_GOLD, 1) end
-        PushGap(rows, PD.OV_GUT, 1)
-    end
-    if p.bonuses and #p.bonuses > 0 then
-        PushHead(rows, L["共同变化"], 1)
-        for _, b in ipairs(p.bonuses) do
-            PushText(rows, format("%s：%s", b[1] or "?", b[4] or ""), 12, nil, 1)
-        end
-        PushGap(rows, PD.OV_GUT, 1)
-    end
-    if p.camp and #p.camp > 0 then
-        PushHead(rows, L["营地三档"], 1)
-        for _, c in ipairs(p.camp) do
-            rows[#rows + 1] = {
-                kind = "row", h = PD.ROW_H1, col = 1, icon = c[3],
-                text = format(L["技能 %d · %s"], c[4] or 0, c[2] or "?"),
-                right = c[6] or c[7] or "",
-            }
-        end
-    end
 
     local miles = p.miles or {}
-    local mpts = 0
-    for _, m in ipairs(miles) do mpts = mpts + (m[3] or 0) end
-    local function stat(label, value)
-        rows[#rows + 1] = {
-            kind = "row", h = PD.ROW_H1, col = 2,
-            nameColor = C_GREY, text = label, right = value,
-        }
-    end
-    PushHead(rows, L["数字速览"], 2)
-    if p.cert then stat(L["认证技能"], format(L["技能 %d"], p.cert[4] or 0)) end
-    if p.recipes or p.sub then
-        stat(L["配方规模"], format(L["%d 条 · %d 个分类"], p.recipes or 0, p.sub or 0))
-    end
-    if #miles > 0 then stat(L["里程碑"], format(L["%d 点"], mpts)) end
-    if p.camp and #p.camp > 0 then stat(L["营地"], format(L["%d 档"], #p.camp)) end
-    if p.perks and #p.perks > 0 then stat(L["传承特权"], format(L["%d 个"], #p.perks)) end
-    PushGap(rows, PD.OV_GUT, 2)
-    if #miles > 0 then
-        PushHead(rows, L["里程碑与传承点数"], 2)
+    local hasPerks = p.perks and #p.perks > 0
+    if #miles > 0 or hasPerks then
+        PushHead(rows, L["传承"], 1)
         for _, m in ipairs(miles) do
             rows[#rows + 1] = {
-                kind = "row", h = PD.ROW_H1, col = 2, text = m[1] or "?",
+                kind = "row", h = PD.ROW_H1, col = 1, text = m[1] or "?",
                 right = format(L["技能 %d · %d 点"], m[2] or 0, m[3] or 0),
             }
         end
+        if #miles > 0 and hasPerks then PushGap(rows, 4, 1) end
+        for _, pid in ipairs(p.perks or {}) do
+            local pk = D.perks[pid]
+            if pk then
+                local open = PD.perkOpen[pid]
+                local lines = { { pk[6] or "" } }
+                if pk[8] then
+                    for _, u in ipairs(pk[8]) do lines[#lines + 1] = { u, 0.9, 0.7, 0.4 } end
+                end
+                rows[#rows + 1] = {
+                    kind = "row", col = 1, icon = pk[2], text = pk[1] or "?",
+                    sub = (pk[6] or ""):sub(1, 90),
+                    right = format(L["满级 %s"], tostring(pk[4])),
+                    right2 = open and L["收起逐级文本"]
+                                      or format(L["展开 %d 级文本"], #(pk[5] or {})),
+                    lines = lines,
+                    act = function()
+                        PD.perkOpen[pid] = not PD.perkOpen[pid]
+                        PD.Render()
+                    end,
+                }
+                if open and pk[5] then
+                    for i, t in ipairs(pk[5]) do
+                        rows[#rows + 1] = { kind = "text", col = 1,
+                                            text = format("%d. %s", i, t), color = C_TEXT }
+                    end
+                end
+            end
+        end
+        PushGap(rows, PD.OV_GUT, 1)
+    end
+
+    local lv = LV[PD.cur]
+    local hasCampObjs = p.camp and #p.camp > 0
+    local hasCampPts = lv and (lv.camps or lv.vendor) and true or false
+    if hasCampObjs or hasCampPts then
+        PushHead(rows, L["营地"], 1)
+        for _, c in ipairs(p.camp or {}) do
+            local lines = {}
+            local function Add(label, v)
+                if v and v ~= "" then lines[#lines + 1] = { label .. "：" .. v } end
+            end
+            Add(L["角色"], c[7])
+            Add(L["增益"], c[6])
+            Add(L["取代"], c[8])
+            Add(L["互斥"], c[9])
+            Add(L["容量"], c[10])
+            if c[11] and #c[11] > 0 then
+                lines[#lines + 1] = { format(L["材料：%s"], PD.MatText(c[11])), 0.7, 0.7, 0.7 }
+            end
+            if c[12] and c[12][1] then
+                lines[#lines + 1] = { format(L["图纸：%s"], DG.ItemName(c[12][1])) }
+            end
+            rows[#rows + 1] = {
+                kind = "row", col = 1, icon = c[3],
+                text = c[2] or "?",
+                sub = c[5] or "",
+                right = format(L["技能 %d"], c[4] or 0),
+                lines = lines,
+            }
+        end
+        if hasCampObjs and hasCampPts then PushGap(rows, 4, 1) end
+        for _, side in ipairs({ "a", "h" }) do
+            local fc = (side == "a") and C_ALLIANCE or C_HORDE
+            local camp = lv and lv.camps and lv.camps[side]
+            local vd = lv and lv.vendor and lv.vendor[side]
+            if vd then
+                local loc = tostring(vd[3] or "")
+                if camp then
+                    loc = format("%s · %s · %s", tostring(camp[1] or ""),
+                                 PD.CampZoneName(camp[6], tostring(camp[2] or "")),
+                                 tostring(camp[3] or ""))
+                end
+                local lines = {
+                    { L["点击：在地图上标记该 NPC"], 1, 0.82, 0 },
+                    { format("%.1f, %.1f", vd[5] or 0, vd[6] or 0), 0.75, 0.75, 0.75 },
+                }
+                if camp then
+                    lines[#lines + 1] = {
+                        format(L["营地位置 %.1f, %.1f"], camp[4] or 0, camp[5] or 0),
+                        0.75, 0.75, 0.75,
+                    }
+                end
+                rows[#rows + 1] = {
+                    kind = "row", col = 1, nameColor = fc, icon = PD.FAC_ICON[side],
+                    text = format(L["军需官 · %s"], tostring(vd[1])),
+                    sub = loc,
+                    right = format("%.1f, %.1f", vd[5] or 0, vd[6] or 0),
+                    lines = lines,
+                    act = function() PD.MarkCampPoint(vd[7], vd[5], vd[6]) end,
+                }
+            elseif camp then
+                rows[#rows + 1] = {
+                    kind = "row", col = 1, nameColor = fc,
+                    text = format(L["营地 · %s"], camp[3] or "?"),
+                    sub = format("%s · %s", PD.CampZoneName(camp[6], tostring(camp[2] or "")), tostring(camp[1] or "")),
+                    right = format("%.1f, %.1f", camp[4] or 0, camp[5] or 0),
+                    lines = {
+                        { L["点击：在地图上标记此位置"], 1, 0.82, 0 },
+                        { format("%s %.1f, %.1f", tostring(camp[2] or ""), camp[4] or 0, camp[5] or 0), 0.75, 0.75, 0.75 },
+                    },
+                    act = function() PD.MarkCampPoint(camp[6], camp[4], camp[5]) end,
+                }
+            end
+        end
+        PushGap(rows, PD.OV_GUT, 1)
+    end
+
+    if p.steps and #p.steps > 0 then
+        PushHead(rows, p.steps_title or L["怎么开始"], 1)
+        if p.steps_note then PushText(rows, p.steps_note, 12, C_GREY, 1) end
+        for i, st in ipairs(p.steps) do
+            rows[#rows + 1] = {
+                kind = "row", col = 1,
+                text = format("%d. %s", i, st[1] or ""), sub = st[2] or "",
+                lines = { { st[1] or "" }, { st[2] or "", 0.85, 0.85, 0.85 } },
+            }
+        end
+        PushGap(rows, PD.OV_GUT, 1)
+    end
+    if p.racials and #p.racials > 0 then
+        PushHead(rows, L["种族相关"], 1)
+        for _, rc in ipairs(p.racials) do PushText(rows, "· " .. (rc[3] or ""), 12, nil, 1) end
+        PushGap(rows, PD.OV_GUT, 1)
+    end
+
+
+    if PD.cur == "camping" and PD.campView == "bonus" then
+        PushHead(rows, L["全部专业的营地物件档位对照"], nil, 16)
+        rows[#rows].noSec = true
     end
 
     local secN = 0
     for _, sp in ipairs(rows) do
-        if sp.kind == "head" then
+        if sp.kind == "head" and not sp.noSec then
             secN = secN + 1
             sp.sec = secN
         elseif sp.kind ~= "gap" then
@@ -1515,17 +2911,8 @@ local function MapIDAlive(mapID)
     return ok and mi ~= nil
 end
 
-function PD.MarkCampPoint(areaID, x, y)
-    local mapID = areaID and CAMP_AREA_MAP[areaID] or nil
+function PD.MarkMapPoint(mapID, x, y)
     if not MapIDAlive(mapID) then
-        mapID = nil
-        if areaID and C_Map and C_Map.GetMapInfoFromAreaID then
-            local ok, mi = pcall(C_Map.GetMapInfoFromAreaID, areaID)
-            mapID = ok and mi and mi.mapID or nil
-        end
-        if not MapIDAlive(mapID) then mapID = nil end
-    end
-    if not mapID then
         if UIErrorsFrame and UIErrorsFrame.AddMessage then
             pcall(UIErrorsFrame.AddMessage, UIErrorsFrame, L["未收录该位置的地图"], 1, 0.4, 0.4)
         end
@@ -1547,6 +2934,78 @@ function PD.MarkCampPoint(areaID, x, y)
     end
 end
 
+function PD.MarkCampPoint(areaID, x, y)
+    local mapID = areaID and CAMP_AREA_MAP[areaID] or nil
+    if not MapIDAlive(mapID) then
+        mapID = nil
+        if areaID and C_Map and C_Map.GetMapInfoFromAreaID then
+            local ok, mi = pcall(C_Map.GetMapInfoFromAreaID, areaID)
+            mapID = ok and mi and mi.mapID or nil
+        end
+        if not MapIDAlive(mapID) then mapID = nil end
+    end
+    PD.MarkMapPoint(mapID, x, y)
+end
+
+-- 配方来源的商人落图：loc = ns.ProfVendors[npcID] = { 区域AreaID, 图uiMapID, x, y }。
+--   mapID（定位源直接给的 uiMapID）先试；不行再 areaID → Data_AreaMap（与营地同口径）。
+function PD.MarkVendorLoc(loc)
+    if not loc then
+        if UIErrorsFrame and UIErrorsFrame.AddMessage then
+            pcall(UIErrorsFrame.AddMessage, UIErrorsFrame, L["该商人的位置暂未收录"], 1, 0.4, 0.4)
+        end
+        return
+    end
+    local mapID = loc[2]
+    if not MapIDAlive(mapID) then
+        mapID = loc[1] and CAMP_AREA_MAP[loc[1]] or nil
+    end
+    PD.MarkMapPoint(mapID, loc[3], loc[4])
+end
+
+-- ★ 按玩家阵营过滤商人（2026-10-10 用户：联盟商人不得出现在部落的视野里）。
+--   side 字段：'a'=仅联盟 / 'h'=仅部落 / nil=中立或未回填（双方可见）。
+--   数据一条 side 都没回填时返回全量（旧数据兼容）；回填过就严格过滤，
+--   过滤后为空是合法结果 —— 上层据此不显示商人段。
+function PD.VendorListOf(src)
+    local all = (src and src.vendors) or {}
+    if #all == 0 then return all end
+    local f
+    if UnitFactionGroup then
+        local ok, eng = pcall(UnitFactionGroup, "player")
+        if ok and eng == "Alliance" then
+            f = "a"
+        elseif ok and eng == "Horde" then
+            f = "h"
+        end
+    end
+    if not f then return all end
+    local out, known = {}, false
+    for i = 1, #all do
+        local v = all[i]
+        if v.side then
+            known = true
+            if v.side == f then out[#out + 1] = v end
+        else
+            out[#out + 1] = v
+        end
+    end
+    if not known then return all end
+    return out
+end
+
+-- 配方/附魔来源 → 首个可定位的商人 { loc, name }。src = source 表。
+function PD.VendorLocOf(src)
+    local vs = PD.VendorListOf(src)
+    if not vs then return nil end
+    for _, v in ipairs(vs) do
+        if v.id and ns.ProfVendors and ns.ProfVendors[v.id] then
+            return ns.ProfVendors[v.id], v.name
+        end
+    end
+    return nil
+end
+
 function PD.CampZoneName(areaID, fallback)
     local f = C_Map and C_Map.GetMapInfoFromAreaID
     if f and areaID then
@@ -1561,110 +3020,58 @@ function PD.CampZoneName(areaID, fallback)
     return fallback
 end
 
-function PD.RowsCamp(rows, side)
-    local p = D.pro[PD.cur]
-    if not (p and p.camp) then return end
-    PushGap(rows, 6)
-    PushHead(rows, L["三档营地物件（技能 20 / 140 / 300）"])
-    for _, c in ipairs(p.camp) do
-        local lines = {}
-        local function Add(label, v)
-            if v and v ~= "" then lines[#lines + 1] = { label .. "：" .. v } end
-        end
-        Add(L["角色"], c[7])
-        Add(L["增益"], c[6])
-        Add(L["取代"], c[8])
-        Add(L["互斥"], c[9])
-        Add(L["容量"], c[10])
-        if c[11] and #c[11] > 0 then
-            lines[#lines + 1] = { format(L["材料：%s"], PD.MatText(c[11])), 0.7, 0.7, 0.7 }
-        end
-        if c[12] and c[12][1] then
-            lines[#lines + 1] = { format(L["图纸：%s"], DG.ItemName(c[12][1])) }
-        end
-        rows[#rows + 1] = {
-            kind = "row", icon = c[3],
-            text = c[2] or "?",
-            sub = c[5] or "",
-            right = format(L["技能 %d"], c[4] or 0),
-            lines = lines,
-        }
-    end
-    local lv = LV[PD.cur]
-    if lv and (lv.camps or lv.vendor) then
-        PushGap(rows, PD.OV_GUT)
-        PushHead(rows, L["营地与军需官坐标（按阵营）"])
-        local camp = lv.camps and lv.camps[side]
-        if camp then
-            rows[#rows + 1] = {
-                kind = "row", text = format(L["营地 · %s"], camp[3] or "?"),
-                sub = format("%s · %s", PD.CampZoneName(camp[6], tostring(camp[2] or "")), tostring(camp[1] or "")),
-                right = format("%.1f, %.1f", camp[4] or 0, camp[5] or 0),
-                lines = {
-                    { L["点击：在地图上标记此位置"], 1, 0.82, 0 },
-                    { format("%s %.1f, %.1f", tostring(camp[2] or ""), camp[4] or 0, camp[5] or 0), 0.75, 0.75, 0.75 },
-                },
-                act = function() PD.MarkCampPoint(camp[6], camp[4], camp[5]) end,
-            }
-        end
-        local vd = lv.vendor and lv.vendor[side]
-        if vd then
-            rows[#rows + 1] = {
-                kind = "row", icon = vd[4], text = format(L["军需官 · %s"], tostring(vd[1])),
-                sub = tostring(vd[3] or ""),
-                right = format("%.1f, %.1f", vd[5] or 0, vd[6] or 0),
-                lines = {
-                    { L["点击：在地图上标记该 NPC"], 1, 0.82, 0 },
-                    { format("%.1f, %.1f", vd[5] or 0, vd[6] or 0), 0.75, 0.75, 0.75 },
-                },
-                act = function() PD.MarkCampPoint(vd[7], vd[5], vd[6]) end,
-            }
-        end
-    end
-
-    local secN = 0
-    for _, sp in ipairs(rows) do
-        if sp.kind == "head" then
-            secN = secN + 1
-            sp.sec = secN
-        elseif sp.kind ~= "gap" then
-            sp.sec = secN
-        end
-    end
-    PD.secCount = secN
-end
-
 function PD.MatIconTex(id, px)
     px = px or 14
-    local ic = DG.ItemIcon(id)
+    local ic = PD.ItemIcon(id)   -- ★ 记忆化：同一材料在一页里被算几十次
     if type(ic) == "number" then
         return format("|T%d:%d:%d|t", ic, px, px)
     end
     return format("|TInterface\\Icons\\%s:%d:%d|t", tostring(ic or FALLBACK_ICON), px, px)
 end
 
+-- 第 4 个返回值 segs = 分段表 {{ id = 物品ID|nil, text = 该段的完整串 }, ...}。
+--   2026-10-09：配方页把材料列渲染成**锚点分段链**（每段一个字串 + 一格热区），
+--   段间那两格空格跟着**后一段**走 ⇒ 与旧的 table.concat(out, "  ") 逐像素一致。
+--   纯 … 段没有物品 id（不给热区）；末段「图标+截断名」仍带 id 出热区（2026-10-10）。
 function PD.MatCol(list, fs, budget)
-    if not list or #list == 0 then return "", 0, 0 end
-    local gap, px = 10, PD.MAT_ICON_PX
-    local out, w, n = {}, 0, 0
+    if not list or #list == 0 then return "", 0, 0, nil end
+    -- 2026-10-10 用户：材料和材料之间不要间距（gap 0），宽度全部留给内容
+    local gap, px = 0, PD.MAT_ICON_PX
+    local out, w, n, segs = {}, 0, 0, {}
     for i = 1, #list do
         local m = list[i]
-        local cnt = format("%d×", m[2] or 1)
-        local name = DG.ItemName(m[1])
-        local cw = PD.TextW(cnt, fs) + px + PD.TextW(name, fs)
+        local name = PD.ItemName(m[1])
+        -- 2026-10-10 用户：数量不再写「N×」前缀，改压在图标右下角（见 PaintMatSegs
+        --   的数量徽标）⇒ 列宽公式里少掉每材料一次数字量宽，空间全给名称。
+        local cw = px + PD.TextW(name, fs)
         if n > 0 and w + gap + cw > budget then
-            out[#out + 1] = "…"
+            -- 2026-10-10 用户（截图红框）：末段整段丢弃 = 材料列右缘留一截白 ——
+            --   改画「图标 + 名称按剩余宽截断」（PD.Fit 自带 …，热区/徽标照挂）；
+            --   只剩连图标都放不下的零头才退回纯 … 段（无 id 不给热区）。
+            local avail = budget - w - gap - px
+            if avail >= PD.MAT_TAIL_MIN then
+                local piece2 = PD.MatIconTex(m[1], px) .. PD.Fit(name, fs, avail)
+                out[#out + 1] = piece2
+                segs[#segs + 1] = { id = m[1], cnt = m[2] or 1, text = piece2 }
+            else
+                out[#out + 1] = "…"
+                segs[#segs + 1] = { text = "…" }
+            end
             break
         end
         if n == 0 and cw > budget then
-            name = PD.Fit(name, fs, budget - PD.TextW(cnt, fs) - px)
-            cw = PD.TextW(cnt, fs) + px + PD.TextW(name, fs)
+            name = PD.Fit(name, fs, budget - px)
+            cw = px + PD.TextW(name, fs)
         end
-        out[#out + 1] = cnt .. PD.MatIconTex(m[1], px) .. name
+        local piece = PD.MatIconTex(m[1], px) .. name
+        out[#out + 1] = piece
+        -- 段间空隙改由 PaintMatSegs 锚点 gap(10) 提供，段文本不再带前导空格
+        --   （数量徽标要按「段左缘 = 图标左缘」定位，前导空格会把它推歪）。
+        segs[#segs + 1] = { id = m[1], cnt = m[2] or 1, text = piece }
         w = w + (n > 0 and gap or 0) + cw
         n = n + 1
     end
-    return table.concat(out, "  "), w, n
+    return table.concat(out, ""), w, n, segs
 end
 
 function PD.MatText(list, maxN)
@@ -1675,6 +3082,388 @@ function PD.MatText(list, maxN)
         t[#t + 1] = format("%d×%s%s", m[2] or 1, PD.MatIconTex(m[1]), DG.ItemName(m[1]))
     end
     return table.concat(t, "  ")
+end
+
+-- 制作物热区（升级行专用）：盖住「配方图标 + 配方名」，悬停出产物自己的物品提示框。
+-- 与材料块热区同款四件事：悬停高亮 / 物品提示框 / 滚轮转发 / Shift 点击发链接。
+-- ★ 提示框一律走 DG.ShowItemTip（带物品内容 ⇒ 暴雪原皮，不套本插件主题），
+--   且不自拼 AddLine 文案 —— 用户明确要求「这个提示框不使用我们的主题」。
+function PD.IconZone(r)
+    if r.__iconZone then return r.__iconZone end
+    local z = CreateFrame("Button", nil, r)
+    PD.WireTipZone(z, r)
+    r.__iconZone = z
+    return z
+end
+
+-- 一格物品热区的统一接线（制作物 / 需求材料共用）。
+-- ★ 滚轮必须显式转发：热区是 EnableMouse 的，压在它上面时滚轮不保证冒泡到滚动容器
+--   （本相册老坑：满屏都是热区 = 整页滚不动）。
+function PD.WireTipZone(z, r)
+    z:EnableMouseWheel(true)
+    z:SetScript("OnEnter", function(self)
+        PD.SetRowHover(r, true)
+        local lines = self.__tipLines
+        if lines then
+            -- 文字提示框通道（商人热区）：与行级提示框同一套写法（同样吃本插件主题）
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:ClearLines()
+            for _, ln in ipairs(lines) do
+                if ln[1] and ln[1] ~= "" then
+                    GameTooltip:AddLine(ln[1], ln[2] or 1, ln[3] or 1, ln[4] or 1, true)
+                end
+            end
+            GameTooltip:Show()
+        elseif self.__it and DG.ShowItemTip then
+            -- 物品通道：DG.ShowItemTip 走 SetItemByID ⇒ 带物品内容 ⇒ 暴雪原皮（不套本插件主题）
+            -- extra = 惰性价格段（函数先求值；行池热区也吃同一套）
+            local extra = self.__tipExtra
+            if type(extra) == "function" then extra = extra() end
+            DG.ShowItemTip(self, self.__it, extra)
+        end
+    end)
+    z:SetScript("OnLeave", function(self)
+        PD.SetRowHover(r, false)
+        GameTooltip:Hide()
+    end)
+    z:SetScript("OnClick", function(self, button)
+        -- 自定义点击优先（商人热区 → 落图）；否则走物品的 Shift 点击发链接
+        if self.__act then
+            self.__act(self, button)
+            return
+        end
+        DG.ItemShiftClick(self, button)
+    end)
+    z:SetScript("OnMouseWheel", function(self, delta)
+        PD.HideVendorPick()   -- 弹窗锚着滚动内容，一滚就飘 ⇒ 轮到滚轮先收
+        DG.WheelScroll(PD.scroll, PD.child, delta)
+    end)
+end
+
+-- ── 配方页「锚点分段链」：材料列各段 + 右下角商人半段 ──────────────────────────
+-- 为什么是锚点链而不是量宽：hotspot 必须与文字**逐像素**对齐，而 ns.hui.TextW 是估算器
+--   （图标按 fs + 2 算、空格走步进表），拿它摆热区必然漂；锚点链把位置交给引擎算。
+function PD.MatSeg(r, i)
+    if i == 1 then return r.f end
+    local fs = r.mn[i]
+    if not fs then
+        fs = MakeFS(r, PD.MAT_FS, C_TEXT, "LEFT")
+        fs:SetWordWrap(false)
+        r.mn[i] = fs
+    end
+    return fs
+end
+
+function PD.MatZone(r, i)
+    local z = r.mz[i]
+    if not z then
+        z = CreateFrame("Button", nil, r)
+        PD.WireTipZone(z, r)
+        r.mz[i] = z
+    end
+    return z
+end
+
+-- 材料数量徽标池（2026-10-10 用户）：压在每段图标右下角。白字 + 黑描边 + 黑阴影，
+--   任意图标底色上都可读。字串不截鼠标（fontstring 天然不吃输入），热区照常工作。
+function PD.MatCnt(r, i)
+    -- ★ 命名纪律：行池帧上的字段名必须先查重 —— `r.mc` 在行池出厂时已被占
+    --   （是个函数，pairs 直接炸），数量徽标池用 r.mcnt。
+    r.mcnt = r.mcnt or {}
+    local c = r.mcnt[i]
+    if not c then
+        c = MakeFS(r, 10, C_WHITE, "RIGHT")
+        local f, s = c:GetFont()
+        c:SetFont(f, s, "OUTLINE")
+        c:SetShadowColor(0, 0, 0, 1)
+        c:SetShadowOffset(1, -1)
+        c:SetWordWrap(false)
+        r.mcnt[i] = c
+    end
+    return c
+end
+
+-- 收干净：行池跨专业/跨子页签复用 —— 不清就会留一串透明热区在旧位置吞鼠标（本相册老坑）。
+function PD.ClearMatSegs(r)
+    if r.f then r.f:SetText("") end
+    -- ★ 2026-10-09 残留真凶：遍历必须用 pairs，不能用 `for j = 2, #r.mn`。
+    --   r.mn **永远缺 index 1**（第 1 段材料走 r.f，分段从 mn[2] 起存），
+    --   Lua 5.1 对带洞表的 # 是未定义行为 —— 实测 {nil,a,b} ⇒ #t 可能返回 0，
+    --   于是这条循环一次都不跑：旧配方的分段字串既不清文本也不 Hide，
+    --   行池复用重新 Show 行时整串复活 = 「配方→升级(购物清单)材料残留」。
+    if r.mn then
+        for _, fs in pairs(r.mn) do
+            fs:SetText("")
+            fs:Hide()
+        end
+    end
+    if r.mz then
+        for j = 1, #r.mz do r.mz[j]:Hide() end
+    end
+    -- 数量徽标同步清（2026-10-10）：与热区同一待遇，防行池复用残留旧数量
+    if r.mcnt then
+        for _, c in pairs(r.mcnt) do
+            c:SetText("")
+            c:Hide()
+        end
+    end
+    -- ★ 2026-10-09：隐藏之外还要**清文本**。`r.dv`（「商人：X」半段）是唯一
+    --   会带着上一页文本活下来的字串 —— 只要将来有任何一条路径把它 Show 出来
+    --   而没先 SetText，露出的就是上一页的商人名。清掉是零成本保险。
+    if r.dv then r.dv:SetText(""); r.dv:Hide() end
+end
+
+-- 摆材料分段链：每段一个字串（第 1 段 = r.f，左锚 PD.MAT_X），每段一格热区压在字串上。
+--   热区靠「锚到字串的 TOPLEFT / BOTTOMRIGHT」取尺寸 ⇒ 零量宽。没有物品 id 的段
+--   （末尾省略号）不给热区。段间空隙 = 锚点 gap 10（2026-10-10 起不再用前导空格）。
+-- 2026-10-10 用户：名称/材料按物品品质着色。DG.QualOf 走 GetItemInfo（零缓存引擎调用），
+--   整页重绘会问几百次 ⇒ 会话内正向缓存（nil 不缓存：数据到货后下次重绘自然拿到）。
+local _qCache = {}
+function PD.QualCached(id)
+    if id == nil then return nil end
+    local v = _qCache[id]
+    if v == nil then
+        v = DG.QualOf(id)
+        if v ~= nil then _qCache[id] = v end
+    end
+    return v
+end
+
+function PD.PaintMatSegs(r, segs, color)
+    local col = color or C_TEXT
+    local prev
+    for i = 1, #segs do
+        local fs = PD.MatSeg(r, i)
+        -- 2026-10-10 用户：材料名按材料品质着色（…纯段无 id 保持默认色）
+        local scol = col
+        if segs[i].id then
+            local q = PD.QualCached(segs[i].id)
+            if q then scol = { DG.QColor(q) } end
+        end
+        fs:SetTextColor(Unpack(scol))
+        fs:SetText(segs[i].text or "")
+        fs:ClearAllPoints()
+        if i == 1 then
+            fs:SetPoint("LEFT", r, "LEFT", PD.MAT_X, 0)
+        else
+            fs:SetPoint("LEFT", prev, "RIGHT", 0, 0)   -- 2026-10-10 用户：材料间零间距
+        end
+        fs:Show()
+        prev = fs
+        local z = PD.MatZone(r, i)
+        if segs[i].id then
+            z.__it = { segs[i].id }
+            z.__tipLines = nil
+            z.__act = nil
+            z:ClearAllPoints()
+            z:SetPoint("TOPLEFT", fs, "TOPLEFT", 0, 1)
+            z:SetPoint("BOTTOMRIGHT", fs, "BOTTOMRIGHT", 0, -1)
+            z:Show()
+            -- 数量徽标（2026-10-10 用户）：数量压图标右下角，白字 + 黑描边 + 黑阴影；
+            --   段文本不带前缀 ⇒ 段左缘即图标左缘，右缘钉在图标右缘内 1px。
+            local c = PD.MatCnt(r, i)
+            c:SetText(tostring(segs[i].cnt or 1))
+            c:ClearAllPoints()
+            c:SetPoint("BOTTOMRIGHT", fs, "BOTTOMLEFT", PD.MAT_ICON_PX - 1, 1)
+            c:Show()
+        else
+            z:Hide()
+            if r.mcnt and r.mcnt[i] then r.mcnt[i]:Hide() end
+        end
+    end
+end
+
+-- ── 升级路线行：四档技能色阶条 + 来源卡片（2026-10-09 四轮，用户）────────────
+-- 四档语义（WoW 专业惯例）：学得(橙/必升) → 黄(大概率) → 绿(小概率) → 灰(不再提升)。
+--   ★ 四档**等分**而不是按等级跨度：数据里 learn == yellow 极常见（如 150/150/162/175），
+--     按真实跨度画「必升」那档宽度就是 0 —— 会缺一块。等分 + 落点竖线更稳。
+PD.SB_H  = 12            -- 色阶条高
+PD.SB_DY = -8            -- 色阶条 y（= 原来源行的位置）
+PD.SB_FS = 11            -- 段内数字字号
+PD.SB_EDGE = 4           -- 交界点数：四段等分 ⇒ 竖线只停 0 / 1/4 / 1/2 / 3/4（见 PD.SBValPos）
+PD.CARD_PAD, PD.CARD_GAP = 3, 6   -- 2026-10-09 21:35 用户：卡片再缩小（内边距 4→3，bg 上下留白 ±1、热区 ±2）
+PD.LV_CARD_FIXW = 44              -- 来源卡片固定宽兜底（开页 FitRecipeCols 按本页最长卡重算）
+PD.SB_COL = {
+    { 1.00, 0.50, 0.25 },   -- 1 橙：学得 / 必升
+    { 1.00, 0.82, 0.00 },   -- 2 黄：大概率提升
+    { 0.25, 0.75, 0.25 },   -- 3 绿：小概率提升
+    { 0.55, 0.58, 0.64 },   -- 4 灰：不再提升
+}
+PD.SB_INK = {
+    { 0.10, 0.06, 0.02 },
+    { 0.12, 0.09, 0.00 },
+    { 0.04, 0.12, 0.03 },
+    { 1.00, 1.00, 1.00 },
+}
+PD.CARD_COL = {
+    trainer = { 0.29, 0.33, 0.40 },
+    drop    = { 0.42, 0.27, 0.66 },
+    vendor  = { 0.54, 0.42, 0.12 },
+}
+PD.CARD_INK = {
+    trainer = { 0.81, 0.85, 0.89 },
+    drop    = { 0.91, 0.86, 1.00 },
+    vendor  = { 1.00, 0.91, 0.66 },
+}
+
+-- 当前技能等级落在第几档（1 橙 / 2 黄 / 3 绿 / 4 灰）；没阈值数据返回 nil。
+function PD.LvTier(skill, learn, yellow, green, grey)
+    if not skill then return nil end
+    if not (learn or yellow or green or grey) then return nil end
+    if grey and skill >= grey then return 4 end
+    if green and skill >= green then return 3 end
+    if yellow and skill >= yellow then return 2 end
+    return 1
+end
+
+-- 等级 → 条上横坐标比例（0 = 条左缘，1 = 条右缘）；算不出返回 nil。
+--   口径：四段等分，**阈值 thr[k] 画在第 k 段的左交界 (k-1)/4**（段内数字仍画正中）。
+--   本行技能区间 a–b 的两根竖线**分别向两侧吸附到交界**：
+--     · a（起点）**向下吸** —— 吸到**已经跨过**的那道交界（最大的 ≤a 的阈值）。
+--     · b（终点）**向上吸** —— 吸到**将要到达**的那道交界（最小的 ≥b 的阈值）。
+--   例①（阈值 1/30/45/60，区间 36–45）：a=36 ⇒ 0.25；b=45 ⇒ 0.50。
+--   例②（阈值 55/85/100/115，区间 85–106）：a=85 ⇒ 0.25；b=106 ⇒ 0.75（100–115 交界）。
+--   ★ 两根都只落在 0 / 0.25 / 0.50 / 0.75 四点上（吸附，不做段内插值）。
+--   up = true 走「向上吸」（终点 b）；否则「向下吸」（起点 a）。
+function PD.SBValPos(skill, learn, yellow, green, grey, up)
+    if not skill or type(learn) ~= "number" then return nil end
+    if up then
+        local thr = { learn, yellow, green, grey }
+        local k = nil
+        for j = 1, 4 do
+            if type(thr[j]) == "number" and skill <= thr[j] then k = j break end
+        end
+        if not k then return 0.75 end
+        -- 重复阈值（learn == yellow，数据里极常见）⇒ 吸到同一处的**最后一档**，
+        -- 否则 150 会吸到第 1 档（0.00）、跑到起点 a 左边 —— 两根线交叉。
+        while k < 4 and thr[k + 1] == thr[k] do k = k + 1 end
+        return (k - 1) / 4
+    end
+    local t = PD.LvTier(skill, learn, yellow, green, grey)
+    if not t then return nil end
+    return (t - 1) / 4
+end
+
+-- 摆四档色阶条：条宽 = 名字列宽（PD.LV_NAME_W），四段等分，段内写该档阈值。
+--   vals = { learn, yellow, green, grey }；lvLo / lvHi = 本行技能区间两端；
+--   dim = 已过段落灰显。两根竖线 = 本行技能区间两端 a–b（见 PD.SBValPos）：
+--   a 向下吸到已跨过的交界、b 向上吸到将要到达的交界 —— 只停 0 / 1/4 / 1/2 / 3/4。
+function PD.PaintSkillBar(r, vals, lvLo, lvHi, dim)
+    local seg = PD.LV_NAME_W / 4
+    local a1, a2 = dim and 0.35 or 1, dim and 0.55 or 1
+    for k = 1, 4 do
+        local bg, tx = r.__sbBg[k], r.__sbTx[k]
+        bg:ClearAllPoints()
+        bg:SetPoint("LEFT", r, "LEFT", PD.LV_NAME_X + (k - 1) * seg, PD.SB_DY)
+        bg:SetSize(seg, PD.SB_H)
+        bg:SetColorTexture(Unpack(PD.SB_COL[k]))
+        bg:SetAlpha(a1)
+        bg:Show()
+        tx:ClearAllPoints()
+        tx:SetPoint("CENTER", bg, "CENTER", 0, 0)
+        tx:SetTextColor(Unpack(PD.SB_INK[k]))
+        tx:SetAlpha(a2)
+        tx:SetText(vals[k] and tostring(vals[k]) or "")
+        tx:Show()
+    end
+    -- 两根竖线：起点 a = lvLo（向下吸）/ 终点 b = lvHi（向上吸），落位走 PD.SBValPos。
+    local lvs = { lvLo, lvHi }
+    local xa = PD.SBValPos(lvs[1], vals[1], vals[2], vals[3], vals[4], false)
+    local xb = PD.SBValPos(lvs[2], vals[1], vals[2], vals[3], vals[4], true)
+    -- 数据里极少数行 learn > yellow（阈值非升序，~1%），会把 b 顶到 a 左边 ⇒ 夹住不交叉。
+    if xa and xb and xb < xa then xb = xa end
+    for k = 1, 2 do
+        local p = r.__sbPin[k]
+        local x = (k == 1) and xa or xb
+        if x then
+            p:ClearAllPoints()
+            p:SetPoint("CENTER", r, "LEFT", PD.LV_NAME_X + x * PD.LV_NAME_W, PD.SB_DY)
+            p:SetSize(2, PD.SB_H + 6)
+            p:SetAlpha(dim and 0.35 or 1)
+            p:Show()
+        else
+            p:Hide()
+        end
+    end
+end
+
+function PD.HideSkillBar(r)
+    for k = 1, 4 do
+        r.__sbBg[k]:Hide()
+        r.__sbTx[k]:SetText("")
+        r.__sbTx[k]:Hide()
+    end
+    for k = 1, 2 do r.__sbPin[k]:Hide() end
+end
+
+-- 来源卡片（第一列等级正下方）。悬停走 __tipLines 出明细；点击：商人 → 落图，
+--   图纸 → 走 Shift 点击发物品链接（__it）。
+function PD.PaintCard(r, card)
+    local z, bg, tx = r.__cardZone, r.__cardBg, r.__cardTx
+    if not card then
+        z:Hide()
+        bg:Hide()
+        tx:SetText("")
+        tx:Hide()
+        z.__tipLines, z.__act, z.__it = nil, nil, nil
+        return
+    end
+    -- 2026-10-09 22:10 终版（f7f3f5a）：卡片挪到等级（区间）列正下方 —— x=6、
+    --   行内第二行（垂直中心 = SB_DY，与四段技能条同线），宽恒 = LV_CARD_FIXW
+    --   （全页统一 = 本页最长卡）。21:35 缩小版：CARD_PAD=3，bg 上下留白 ±1、热区 ±2。
+    --   bg/热区改锚 r 的 LEFT 绝对坐标（GetStringHeight 定高），文字 CENTER 居中。
+    local w = PD.LV_CARD_FIXW
+    tx:ClearAllPoints()
+    tx:SetPoint("CENTER", r, "LEFT", 6 + w / 2, PD.SB_DY)
+    local col = PD.CARD_COL[card.kind] or PD.CARD_COL.trainer
+    tx:SetTextColor(Unpack(PD.CARD_INK[card.kind] or PD.CARD_INK.trainer))
+    tx:SetText(card.text or "")
+    tx:Show()
+    local th = tx:GetStringHeight()
+    if (th or 0) <= 0 then th = 12 end
+    local half = math.floor(th / 2) + 1
+    bg:ClearAllPoints()
+    bg:SetPoint("TOPLEFT", r, "LEFT", 6, PD.SB_DY + half)
+    bg:SetPoint("BOTTOMRIGHT", r, "LEFT", 6 + w, PD.SB_DY - half)
+    for _, tex in ipairs(bg.__pieces or {}) do
+        tex:SetVertexColor(col[1], col[2], col[3])
+        tex:SetAlpha(1)
+    end
+    bg:Show()
+    z.__tipLines = card.lines
+    z.__act = card.act
+    z.__it = card.fid and { card.fid } or nil
+    z:ClearAllPoints()
+    z:SetPoint("TOPLEFT", r, "LEFT", 6, PD.SB_DY + half + 1)
+    z:SetPoint("BOTTOMRIGHT", r, "LEFT", 6 + w, PD.SB_DY - half - 1)
+    z:Show()
+end
+
+-- 卡片数据：来源只有两条主路径 —— 训练师直教 / 需图纸；图纸再分掉落 / 商人。
+-- 训练师直教卡片（模块级常量：内容固定，全表共用一张；悬停口径与「图纸」卡片一致）
+local TRAINER_CARD = {
+    kind = "trainer", text = L["训练师"],
+    lines = { { L["向训练师学习"], 0.81, 0.85, 0.89 } },
+}
+
+function PD.CardOf(rec, ri)
+    if not rec then
+        return (ri and ri.trainer) and TRAINER_CARD or nil
+    end
+    local fid = rec[13] and rec[13][1]
+    if not fid then return TRAINER_CARD end
+    local src = rec[14]
+    local hasDrop = src and src.drops and #src.drops > 0
+    local hasVendor = src and src.vendors and #src.vendors > 0
+    local lines = { { format(L["图纸：%s"], DG.ItemName(fid)), 1, 0.82, 0.35 } }
+    if hasDrop then lines[#lines + 1] = { format(L["掉落 %d 处"], #src.drops), 0.75, 0.75, 0.75 } end
+    local vl = PD.VendorLines(src)
+    for i = 1, #vl do lines[#lines + 1] = vl[i] end
+    return {
+        kind = hasDrop and "drop" or (hasVendor and "vendor" or "drop"),
+        text = L["图纸"], fid = fid, lines = lines,
+        act = hasVendor and PD.VendorAct(src) or nil,
+    }
 end
 
 function PD.RowBlk(r, j)
@@ -1692,6 +3481,11 @@ function PD.RowBlk(r, j)
     b.ct:SetShadowOffset(1, -1)
     b.nm:SetWordWrap(false)
     b.ct:SetWordWrap(false)
+    -- 2026-10-09：材料块自己出一格热区（图标 + 数量角标那一格），悬停出该材料的
+    -- 物品提示框。只有升级行会建块（配方页材料是文本列）⇒ 这些帧只服务升级页。
+    b.zone = CreateFrame("Button", nil, r)
+    b.zone:Hide()
+    PD.WireTipZone(b.zone, r)
     r.blk[j] = b
     return b
 end
@@ -1702,7 +3496,40 @@ function PD.ClearMats(r)
         b.ic:Hide()
         b.nm:Hide()
         b.ct:Hide()
+        if b.zone then b.zone:Hide() end
     end
+end
+
+-- ── 整行「除内容」（切页时用，2026-10-09） ────────────────────────────────────
+-- ★ 为什么不是只 Hide 一下：行帧是**跨页共用**的，内容（材料块 / 分段链 /
+--   制作物热区 / 直售徽标 / 新角标）是「上一轮绑过就一直留着」的。只 Hide 行帧，
+--   真机里父帧隐藏确实会带走整棵子树；但只要有任何一条路径（分帧补建、同索引
+--   复用、第三方皮肤重建）在**没重新 BindRow** 的情况下把行 Show 出来，
+--   露出的就是上一页的内容 —— 这正是「材料残留」这个报障的形态。
+--   切页时把内容也抹干净 ⇒ 即使被重新 Show，也是一行空白，不会出现「上一页的材料」。
+-- ★ 只在**页面身份变化**时调（PD.Render 顶部那道闸），同页重渲零成本。
+function PD.WipeRow(r)
+    if not r then return end
+    -- ★ 合并成一行写：`df_mut_check.py` 的两条变异锚点钉的是**行首 4 空格 +
+    --   单条语句 + 换行**那个字节序列（BindRow 里那一处）。这里若照抄一行
+    --   `    PD.ClearMatSegs(r)`，锚点会变成 2 命中 ⇒ 变异检查误报锚点不唯一。
+    PD.ClearMats(r); PD.ClearMatSegs(r)
+    if r.icon then r.icon:Hide() end
+    if r.gic then for _, g in ipairs(r.gic) do g:Hide() end end   -- 采集纯图标池跨页残留
+    local iz = r.__iconZone; if iz then iz:Hide() end
+    if r.sep then r.sep:Hide() end
+    if r.tagFs then r.tagFs:Hide() end
+    if r.tagBg then r.tagBg:Hide() end
+    if r.dv then r.dv:SetText(""); r.dv:Hide() end   -- 商人半段跨页残留（板条箱等无 dval 页会踩）
+    -- 2026-10-09 四轮：四档色阶条与来源卡片也要一起收（行池跨页复用）。
+    if r.__sbBg then PD.HideSkillBar(r) end
+    if r.__cardZone then PD.PaintCard(r, nil) end
+    if r.a then r.a:SetText("") end
+    if r.b then r.b:SetText("") end
+    if r.c then r.c:SetText("") end
+    if r.d then r.d:SetText("") end
+    if r.e then r.e:SetText("") end
+    r:Hide()
 end
 
 function PD.PackMats(list, budget)
@@ -1725,7 +3552,10 @@ end
 
 function PD.PaintMats(r, blocks, cut, grey)
     local n = blocks and #blocks or 0
-    local right = PD.COL_LW - PD.TBL_MAT_RPAD
+    -- 2026-10-09 v2：升级页单栏化后行宽 = 整幅（PD.LV_ROW_W 由 RowsLeveling 现算），
+    -- 旧值 PD.COL_LW 只是分栏时代的行宽代理，保留作兜底。
+    local W = PD.LV_ROW_W or PD.COL_LW
+    local right = W - PD.TBL_MAT_RPAD
     if cut then
         local b = PD.RowBlk(r, n + 1)
         b.ic:Hide()
@@ -1734,8 +3564,9 @@ function PD.PaintMats(r, blocks, cut, grey)
         b.nm:SetTextColor(Unpack(grey and C_DIM or C_TEXT))
         b.nm:SetText("…")
         b.nm:ClearAllPoints()
-        b.nm:SetPoint("RIGHT", r, "RIGHT", -(PD.COL_LW - right), PD.TBL_NAME_DY)
+        b.nm:SetPoint("RIGHT", r, "RIGHT", -(W - right), PD.TBL_NAME_DY)
         b.nm:Show()
+        b.zone:Hide()
         right = right - PD.TBL_MARK_W - PD.TBL_BLK_GAP
     end
     for k = n, 1, -1 do
@@ -1744,18 +3575,22 @@ function PD.PaintMats(r, blocks, cut, grey)
         SetIcon(b.ic, DG.ItemIcon(blk.id))
         b.ic:SetDesaturated(grey and true or false)
         b.ic:ClearAllPoints()
-        b.ic:SetPoint("RIGHT", r, "RIGHT", -(PD.COL_LW - right), 0)
+        b.ic:SetPoint("RIGHT", r, "RIGHT", -(W - right), 0)
         b.nm:Hide()
         b.ct:SetTextColor(Unpack(grey and C_DIM or C_GOLD))
         b.ct:SetText(format("%d", blk.cnt))
         b.ct:ClearAllPoints()
-        b.ct:SetPoint("RIGHT", r, "RIGHT", -(PD.COL_LW - right), PD.TBL_MAT_CNT_DY)
-        b.ic:Show(); b.ct:Show()
+        b.ct:SetPoint("RIGHT", r, "RIGHT", -(W - right), PD.TBL_MAT_CNT_DY)
+        b.zone.__it = { blk.id }
+        b.zone:ClearAllPoints()
+        b.zone:SetPoint("RIGHT", r, "RIGHT", -(W - right), 0)
+        b.zone:SetSize(PD.TBL_ICON, PD.TBL_ICON)
+        b.ic:Show(); b.ct:Show(); b.zone:Show()
         right = right - blk.w - PD.TBL_BLK_GAP
     end
     for k = n + (cut and 1 or 0) + 1, #r.blk do
         local b = r.blk[k]
-        b.ic:Hide(); b.nm:Hide(); b.ct:Hide()
+        b.ic:Hide(); b.nm:Hide(); b.ct:Hide(); b.zone:Hide()
     end
 end
 
@@ -1771,29 +3606,215 @@ function PD.LevelSrc(rec)
     return L["需图纸 · 商人出售"], detail
 end
 
-function PD.SourceText(s)
-    if not s then return nil end
-    local t = {}
-    if s.skill then t[#t + 1] = format(L["技能 %s"], tostring(s.skill)) end
-    if s.drops and #s.drops > 0 then t[#t + 1] = format(L["掉落 %d 处"], #s.drops) end
-    if s.vendors and #s.vendors > 0 then
-        local v = s.vendors[1]
-        t[#t + 1] = format(L["商人：%s"], (v and v.name) or "?")
+-- 来源拆段：与 SourceText 同序、同「 · 」分隔，但把「商人：X」单独标出来（vendor = true）。
+--   2026-10-09 配方页要给「商人」那一段单开热区（用户：「如果鼠标在商人上面，就显示
+--   点击定位在地图上标记商人位置」）—— 量宽会漂，所以靠**锚点链**把商人那半拆到 r.dv，
+--   热区直接盖 r.dv，位置由引擎算。
+--   ★ 顺序铁律：skill → drops → vendors，商人**恒为最后一段**，拆段链就吃这一点。
+function PD.SourceParts(s)
+    local out = {}
+    if not s then return out end
+    if s.skill then out[#out + 1] = { text = format(L["技能 %s"], tostring(s.skill)) } end
+    if s.drops and #s.drops > 0 then
+        out[#out + 1] = { text = format(L["掉落 %d 处"], #s.drops) }
     end
-    if #t == 0 then return nil end
+    if s.vendors and #s.vendors > 0 then
+        local vs = PD.VendorListOf(s)
+        if #vs > 1 then
+            out[#out + 1] = { text = format(L["商人：%s 等 %d 人"], (vs[1] and vs[1].name) or "?", #vs), vendor = true }
+        elseif #vs == 1 then
+            local v = vs[1]
+            out[#out + 1] = { text = format(L["商人：%s"], (v and v.name) or "?"), vendor = true }
+        end
+    end
+    return out
+end
+
+function PD.SourceText(s)
+    local p = PD.SourceParts(s)
+    if #p == 0 then return nil end
+    local t = {}
+    for i = 1, #p do t[i] = p[i].text end
     return table.concat(t, " · ")
 end
 
+-- 商人出售的来源 → tooltip 里的商人明细行（名字已随语言本地化，区域为中文串）。
+--   返回 lines 追加内容；可定位时末行是「点击标记」提示。
+function PD.VendorLines(s)
+    local out = {}
+    if not (s and s.vendors and #s.vendors > 0) then return out end
+    local vs = PD.VendorListOf(s)
+    if #vs == 0 then return out end
+    for i = 1, math.min(#vs, 8) do
+        local v = vs[i]
+        if v and (v.name or v.zone) then
+            local nm = format(L["商人：%s"], tostring(v.name or "?"))
+            if v.zone and v.zone ~= "" then nm = nm .. " · " .. tostring(v.zone) end
+            out[#out + 1] = { nm, 0.75, 0.75, 0.75 }
+        end
+    end
+    if #vs > 8 then
+        out[#out + 1] = { format(L["…等 %d 个商人"], #vs), 0.6, 0.6, 0.6 }
+    end
+    local loc = PD.VendorLocOf(s)
+    if loc then
+        out[#out + 1] = { L["点击：在地图上标记该 NPC"], 1, 0.82, 0 }
+    end
+    return out
+end
+
+-- 可定位商人条目（阵营过滤后）：弹窗与直落共用 —— { { loc, name, zone }, ... }
+function PD.VendorEntries(s)
+    local out = {}
+    local vs = PD.VendorListOf(s)
+    for i = 1, #vs do
+        local v = vs[i]
+        if v.id and ns.ProfVendors and ns.ProfVendors[v.id] then
+            out[#out + 1] = { loc = ns.ProfVendors[v.id], name = v.name, zone = v.zone }
+        end
+    end
+    return out
+end
+
+-- 商人行的点击动作：可定位 0 人 → 提示「暂未收录」；1 人 → 直接落图（老行为）；
+--   多人 → 弹选择窗（2026-10-10 用户：点谁标谁），同一热区再点一次 = 收起。
+function PD.VendorAct(s)
+    return function(zone)
+        local ents = PD.VendorEntries(s)
+        if #ents == 0 then
+            PD.MarkVendorLoc(nil)
+        elseif #ents == 1 then
+            PD.HideVendorPick()
+            PD.MarkVendorLoc(ents[1].loc)
+        else
+            PD.VendorPickToggle(zone, ents)
+        end
+    end
+end
+
+-- ── 商人选择弹窗（单例懒建）────────────────────────────────────────────
+--   父 = PD.page（不进滚动子帧：滚轮 / 换页 / 收窗统一 Hide 兜位）；
+--   点关盾 = 弹窗开着时全页挡一层（层级钉弹窗下 1），点它收窗 / 滚轮收窗+滚页（2026-10-10 用户）；
+--   锚 = 被点热区的 BOTTOMRIGHT —— 热区本就贴行右缘，弹窗往左下伸展不溢卡；
+--   行悬停 = BuildCapsule 胶囊（与总览卡同款），点击 = 落图 + 收起。
+local PICK_W, PICK_ROW_H, PICK_GAP, PICK_PAD = 210, 24, 2, 6
+
+function PD.HideVendorPick()
+    local pick = PD.vendorPick
+    if not pick then return end
+    if pick:IsShown() then pick:Hide() end
+    if pick.__shield then pick.__shield:Hide() end
+end
+
+function PD.VendorPickToggle(zone, ents)
+    local pick = PD.vendorPick
+    if pick and pick:IsShown() and pick.__zone == zone then
+        pick:Hide()
+        return
+    end
+    if not (ns.hui and ns.hui.layer and ns.hui.BuildRoundedBG) then
+        -- 无主题兜底：不裸建窗，退回直落第一个（老行为）
+        PD.MarkVendorLoc(ents[1].loc)
+        return
+    end
+    if not pick then
+        pick = CreateFrame("Button", nil, PD.page, "BackdropTemplate")
+        pick:EnableMouse(true)
+        pick:SetFrameLevel(515)
+        -- 点关盾（2026-10-10 用户：点别处 / 滚轮自动收窗）：弹窗开着时全页挡一层，
+        --   点它 = 收窗；滚轮 = 收窗 + 照常滚页。层级在 Show 时钉到弹窗正下方
+        --   （forever 引擎同层次序不可靠 ⇒ 显式 SetFrameLevel，不赌创建次序）。
+        --   收窗时随弹窗一起 Hide ⇒ 平时不挡任何交互（行热区/页签照常）。
+        local shield = CreateFrame("Frame", nil, PD.page)
+        shield:EnableMouse(true)
+        shield:EnableMouseWheel(true)
+        shield:SetAllPoints(PD.page)
+        shield:SetScript("OnMouseDown", function() PD.HideVendorPick() end)
+        shield:SetScript("OnMouseWheel", function(self, delta)
+            PD.HideVendorPick()
+            DG.WheelScroll(PD.scroll, PD.child, delta)
+        end)
+        pick.__shield = shield
+        ns.hui.BuildRoundedBG(pick, 6, ns.hui.layer.L2, "both", true, 1)
+        pick.title = MakeFS(pick, 11, C_GOLD, "LEFT")
+        pick.title:SetPoint("TOPLEFT", pick, "TOPLEFT", PICK_PAD + 4, -PICK_PAD)
+        pick.__rows = {}
+        PD.vendorPick = pick
+    end
+    local rows = pick.__rows
+    for k = 1, #ents do
+        local e = ents[k]
+        local r = rows[k]
+        if not r then
+            r = CreateFrame("Button", nil, pick, "BackdropTemplate")
+            r:SetHeight(PICK_ROW_H)
+            r.txt = MakeFS(r, 11, C_TEXT, "LEFT")
+            r.txt:SetWordWrap(false)
+            r.txt:SetPoint("LEFT", r, "LEFT", 6, 0)
+            r.txt:SetPoint("RIGHT", r, "RIGHT", -6, 0)
+            if ns.hui.BuildCapsule then
+                r.__hov = ns.hui.BuildCapsule(r, 4, ns.hui.layer.L4, 0, 2)
+                for _, ht in ipairs(r.__hov) do ht:Hide() end
+            end
+            r:SetScript("OnEnter", function(self)
+                if self.__hov then
+                    for _, ht in ipairs(self.__hov) do ht:Show() end
+                end
+            end)
+            r:SetScript("OnLeave", function(self)
+                if self.__hov then
+                    for _, ht in ipairs(self.__hov) do ht:Hide() end
+                end
+            end)
+            rows[k] = r
+        end
+        r.txt:SetText(e.zone and e.zone ~= ""
+                      and (tostring(e.name or "?") .. " · " .. tostring(e.zone))
+                      or tostring(e.name or "?"))
+        r:SetScript("OnClick", function()
+            PD.HideVendorPick()
+            PD.MarkVendorLoc(e.loc)
+        end)
+        r:ClearAllPoints()
+        if k == 1 then
+            r:SetPoint("TOPLEFT", pick, "TOPLEFT", PICK_PAD, -(PICK_PAD + 18))
+        else
+            r:SetPoint("TOPLEFT", rows[k - 1], "BOTTOMLEFT", 0, -PICK_GAP)
+        end
+        r:SetPoint("RIGHT", pick, "RIGHT", -PICK_PAD, 0)
+        r:Show()
+    end
+    for k = #ents + 1, #rows do
+        rows[k]:Hide()
+    end
+    pick:SetWidth(PICK_W)
+    pick:SetHeight(PICK_PAD + 18 + #ents * PICK_ROW_H + (#ents - 1) * PICK_GAP + PICK_PAD)
+    pick.title:SetText(L["选择要标记的商人"])
+    pick:ClearAllPoints()
+    pick:SetPoint("TOPRIGHT", zone, "BOTTOMRIGHT", 0, -4)
+    if pick.__shield then
+        pick.__shield:SetFrameLevel(pick:GetFrameLevel() - 1)
+        pick.__shield:Show()
+    end
+    pick:Show()
+end
+
 function PD.EnchantSpec(en)
+    local matCol, _, _, matSg = PD.MatCol(en[9], PD.MAT_FS, PD.MAT_W)
     local spec
     if en[13] and #en[13] > 0 then
         local t = {}
         for _, b in ipairs(en[13]) do t[#t + 1] = b[3] or "" end
         spec = table.concat(t, " / ")
     end
+    local vsEn = (en[10] and PD.VendorListOf(en[10])) or {}
+    local hasVendor = #vsEn > 0
     local lines = { { en[1] or "" } }
     if en[4] and en[4] ~= "" then lines[#lines + 1] = { en[4] } end
     if en[10] then lines[#lines + 1] = { PD.SourceText(en[10]) or "", 0.7, 0.7, 0.7 } end
+    if hasVendor then
+        for _, ln in ipairs(PD.VendorLines(en[10])) do lines[#lines + 1] = ln end
+    end
     if en[9] and #en[9] > 0 then
         lines[#lines + 1] = { format(L["材料：%s"], PD.MatText(en[9])), 0.7, 0.7, 0.7 }
     end
@@ -1803,49 +3824,310 @@ function PD.EnchantSpec(en)
         text = en[2] or en[1] or "?",
         sub = table.concat({ tostring(en[3] or ""), tostring(en[4] or ""),
                              spec or "" }, " · "),
-        mats = PD.MatCol(en[9], PD.MAT_FS, PD.MAT_W),
+        mats = matCol,
+        matSegs = matSg,
         right = format("%s · %s", format(L["学 %s"], tostring(en[5])),
                        PD.TierText(en[6], en[7], en[8])),
         right2 = en[12] and L["Season of Discovery"] or format(L["%d 种材料"], #(en[9] or {})),
         lines = lines,
+        act = hasVendor and PD.VendorAct(en[10]) or nil,
     }
 end
 
-function PD.RecipeSpec(r)
-    local mats = PD.MatText(r[12], 4)
+-- ---- 配方搜索（2026-10-09）：按配方名 / 副行 / 材料名过滤当前列表 ----
+function PD.SearchReserve()
+    if PD.tab == "recipe" and not PD.setOpen then return PD.SEARCH_RESERVED end
+    return 0
+end
+
+function PD.SearchHit(s)
+    local q = PD.searchQ
+    if not q or q == "" then return true end
+    local name = tostring(s.text or "")
+    if name ~= "" and string.find(string.lower(name), q, 1, true) then return true end
+    local sub = tostring(s.sub or "")
+    if sub ~= "" and string.find(string.lower(sub), q, 1, true) then return true end
+    for _, m in ipairs(s._mats or {}) do
+        local nm = tostring(PD.ItemName(m[1]) or "")
+        if nm ~= "" and string.find(string.lower(nm), q, 1, true) then return true end
+    end
+    return false
+end
+
+function PD.SearchFilter(list)
+    local q = PD.searchQ
+    if not q or q == "" then return list end
+    local f = {}
+    for _, s in ipairs(list) do
+        if PD.SearchHit(s) then f[#f + 1] = s end
+    end
+    return f
+end
+
+-- 名称列按本页现算：量出本页最宽名称 / 副行，名称列只留放得下的宽度，剩余全给材料列
+-- ★★ 第十刀（rev16）：材料串**按需算**。
+--   实机把「数据 20.8ms」一元分解成 扫描 7.6 + 建spec 3.3 + 列宽材料 9.8，
+--   而「材料串 9.1ms」整个包在「列宽材料」里 ⇒ FitRecipeCols 那 300 行里
+--   93% 的时间掉在**本帧根本画不到**的行上（列表封顶 300 条，本帧只同步绑
+--   首屏那几十行，其余交分帧器补齐）。材料串完全可以等**真被绑上前**再算：
+--   列宽（PD.MAT_W）在 FitRecipeCols 里已定稿、此后不变，两条路径用的是
+--   同一个值 ⇒ 结果逐字节一致，变的只是「哪一帧出这笔钱」。
+function PD.FinishSpecMats(s)
+    if s and s._mats then
+        s._matsPending = nil
+        -- ★ PD.MatCol 返回 (col, w, n, segs)：segs 是**第 4 个**返回值。
+        --   写成 `local sg` + `s.mats, sg = ...` 会把第 2 个（数字 w）当成
+        --   matSegs 传进 PD.PaintMatSegs ⇒ 「attempt to get length of
+        --   local 'segs' (a number value)」，配方页整页崩。
+        local sg
+        s.mats, _, _, sg = PD.MatCol(s._mats, PD.MAT_FS, PD.MAT_W)
+        s.matSegs = sg
+    end
+    return s
+end
+
+function PD.FitRecipeCols(list, maxW)
+    -- ★ maxW 可由调用方传入（PD.ScanRecipe 的轻量全量扫描）—— 那一趟不建 spec，
+    --   口径与本函数逐条量完全一致（同样只量名称 / 副行 / 新角标）。不传则自扫兜底。
+    if maxW == nil then
+        maxW = 0
+        for _, s in ipairs(list) do
+            local w = PD.TextW(s.text or "", 13)
+            -- 2026-10-10 用户：角标迁副行 ⇒ 角标宽记到副行一侧（名称行不再背 26px）
+            local sw = PD.TextW(s.sub or "", 11) + (s.is_new and PD.RECIPE_BADGE_W or 0)
+            if sw > w then w = sw end
+            if w > maxW then maxW = w end
+        end
+    end
+    local nameW = math.floor(math.max(PD.RECIPE_NAME_MIN,
+                   math.min(PD.RECIPE_NAME_MAX, maxW + 6)))
+    PD.RECIPE_NAME_W = nameW
+    PD.MAT_X = nameW + PD.RECIPE_NAME_PAD
+    -- 2026-10-10 用户：右三列互相**零间距**（列与列不留缝），材料列吃满全部差值；
+    --   右保留 = 难度条 + 拍卖列 + 成本列 + 右缘 6
+    PD.MAT_W = PD.MAT_ROW_W - (6 + PD.DiffBarW() + PD.REC_AH_W + PD.REC_COST_W) - PD.MAT_X - 8
+    -- ★★ 第十刀（rev16）：「材料串」是这一页最贵的一笔单点（实机 9.1ms / 300 行），
+    --   而本帧只同步绑首屏那几十行（PD.SyncRows）⇒ 只给它们现算，其余挂待算标，
+    --   等 PD.BindRow 真绑到它时再用同一个 PD.MAT_W 补算（见 PD.FinishSpecMats）。
+    local keep = PD.SyncRows()
+    local idx = 0
+    for _, s in ipairs(list) do
+        idx = idx + 1
+        if s._mats then
+            if idx <= keep then
+                PD.FinishSpecMats(s)
+            else
+                s._matsPending = true
+            end
+        end
+        -- 2026-10-10 用户（二轮）：PAD 44→16 后预算改双口径 —— 通常随列宽（MAT_X-8-32）；
+        --   名称列被 MIN/MAX 钳住的页退回 nameW-6，短名页不因压缩新增截断。
+        --   角标已迁副行 ⇒ 不再扣 BADGE_W（实机字宽 ≈ 估宽 0.85，留有余量不压材料列）。
+        if s.text and s.text ~= "" then
+            s.text = PD.Fit(s.text, 13, math.max(PD.MAT_X - 8 - PD.RECIPE_PADL,
+                                                 (PD.RECIPE_NAME_W or 0) - 6))
+        end
+    end
+end
+
+-- ── 配方页难度四段色条（2026-10-10 用户）─────────────────────────────────────
+--   四段 = 学(橙) / 黄 / 绿 / 灰 阈值色阶（复用升级页 SB_COL 色板）；
+--   ★ 段宽恒定按三位数（"000"）量宽 —— 「难度条宽度永远一致以三位数为主」，
+--     否则 1 位数和 3 位数的行条宽不一，右缘对不齐。
+--   2026-10-10 用户：每段再压缩（内衬 10→3），省出的宽度让给材料列。
+local function DiffSegW()
+    return (PD.TextW and PD.TextW("000", PD.SB_FS) or 24) + 3
+end
+function PD.DiffBarW()
+    return DiffSegW() * 4 + 6
+end
+
+-- 行右上角画四段色阶条（vals = {学, 黄, 绿, 灰}）。段帧惰性建（配方行不一定都画）。
+function PD.PaintDiffBar(r, vals)
+    if not vals then
+        if r.__dbBg then
+            for k = 1, 4 do r.__dbBg[k]:Hide() r.__dbTx[k]:Hide() end
+        end
+        return
+    end
+    r.__dbBg = r.__dbBg or {}
+    r.__dbTx = r.__dbTx or {}
+    local seg = DiffSegW()
+    local col = PD.SB_COL or { { 1, .5, .2 }, { 1, .9, .2 }, { .4, 1, .3 }, { .55, .55, .55 } }
+    local ink = PD.SB_INK or { { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 1, 1 } }
+    local right = 6
+    for k = 4, 1, -1 do                       -- 从右往左落位（右缘贴死，向左延伸）
+        local bg = r.__dbBg[k]
+        if not bg then
+            bg = r:CreateTexture(nil, "ARTWORK")
+            bg:SetColorTexture(1, 1, 1, 1)
+            bg:Hide()
+            r.__dbBg[k] = bg
+            local tx = MakeFS(r, PD.SB_FS, C_WHITE, "CENTER")
+            tx:SetText("")
+            tx:SetWordWrap(false)
+            tx:Hide()
+            r.__dbTx[k] = tx
+        end
+        bg:ClearAllPoints()
+        -- 2026-10-10 用户：双行配奉行 → 色条锚右上角（顶 -4，与右上列同位带），
+        --   不放行垂直中线 —— 中线正好压住右下来源行文字
+        bg:SetPoint("TOPRIGHT", r, "TOPRIGHT", -right, -4)
+        bg:SetSize(seg, PD.SB_H)
+        bg:SetColorTexture(col[k][1], col[k][2], col[k][3], 0.95)
+        bg:Show()
+        local tx = r.__dbTx[k]
+        tx:ClearAllPoints()
+        tx:SetPoint("CENTER", bg, "CENTER", 0, 0)
+        tx:SetTextColor(ink[k][1], ink[k][2], ink[k][3])
+        tx:SetText(vals[k] and tostring(vals[k]) or "")
+        tx:Show()
+        right = right + seg
+    end
+end
+
+-- ── 提示框价格段（2026-10-10 用户）：悬停配方行 → 物品提示框底部追加五行 ──
+--   拍卖: AH单价 ／ 卖店: NPC卖店价 ／ 成本: 材料合计 ／ 差价: 拍卖−成本 ／
+--   AH5%: floor(拍卖×0.95)−成本（扣佣净利）。
+--   ★ 惰性（悬停那一刻才算，RA 内部会话内缓存重复悬停零开销）；负值整行红。
+local TIP_RED = { 1, 0.3, 0.25 }
+function PD.PriceTipLines(itemID, mats)
     local lines = {}
-    if r[6] and r[6] ~= "" then lines[#lines + 1] = { r[6] } end
-    lines[#lines + 1] = { format(L["材料：%s"], mats ~= "" and mats or L["无"]) }
-    lines[#lines + 1] = { format(L["技能：学 %s · %s"], tostring(r[7]),
-                                 PD.TierText(r[8], r[9], r[10])) }
-    if r[15] and #r[15] > 0 then
-        lines[#lines + 1] = { format(L["改版前材料：%s"], PD.MatText(r[15])), 0.9, 0.7, 0.4 }
+    if not itemID then return lines end
+    local ah = RA.AHPriceOf and RA.AHPriceOf(itemID) or nil
+    local sell = RA.NPCSellPriceOf and RA.NPCSellPriceOf(itemID) or nil
+    local cost, unpriced, nMats
+    if mats and #mats > 0 then
+        cost, unpriced = RA.MatListCost(mats)
+        nMats = #mats
     end
-    if r[16] and r[16] ~= "" then
-        lines[#lines + 1] = { format(L["套装：%s"], r[16]), 0.64, 0.21, 0.93 }
+    lines[#lines + 1] = { format(L["拍卖: %s"], ah and RA.MoneyStr(ah, "copper") or "—") }
+    lines[#lines + 1] = { format(L["卖店: %s"], sell and RA.MoneyStr(sell, "copper") or "—") }
+    local costTxt = "—"
+    local approx = false
+    if cost and nMats then
+        if cost <= 0 or unpriced >= nMats then
+            costTxt = "—"
+        else
+            approx = unpriced > 0
+            costTxt = (approx and "≈" or "") .. RA.MoneyStr(cost, "copper")
+        end
     end
-    if r[17] and r[17] ~= "" then
-        lines[#lines + 1] = { format(L["护甲类型：%s"], r[17]), 0.7, 0.7, 0.7 }
+    lines[#lines + 1] = { format(L["成本: %s"], costTxt) }
+    -- 差价 / AH5%：拍卖价与成本都可算才出（部分无价带 ≈ 前缀）；负值整行红
+    if ah and cost and nMats and cost > 0 then
+        local pre = approx and "≈" or ""
+        local diff = ah - cost
+        local net = math.floor(ah * 0.95) - cost
+        local l4 = format(L["差价: %s"], pre .. RA.MoneyStr(diff, "copper"))
+        local l5 = format(L["AH5%%: %s"], pre .. RA.MoneyStr(net, "copper"))
+        if diff < 0 then
+            lines[#lines + 1] = { l4, unpack(TIP_RED) }
+        else
+            lines[#lines + 1] = { l4 }
+        end
+        if net < 0 then
+            lines[#lines + 1] = { l5, unpack(TIP_RED) }
+        else
+            lines[#lines + 1] = { l5 }
+        end
+    end
+    return lines
+end
+
+function PD.RecipeSpec(r)
+    -- 2026-10-10 用户：商人按玩家阵营过滤后显示（多人时「X 等 N 人」）
+    local vs = (r[14] and PD.VendorListOf(r[14])) or {}
+    local hasVendor = #vs > 0
+    -- 2026-10-09 20:45 终版（b0272ae）：右下来源行简化 —— 前缀只有「图纸/训练师」，
+    --   有商人时 dval="商人：X"（BindRow 锚链 + r.dv 热区照旧）；
+    --   删掉旧版 SourceParts 拼接（技能/掉落前缀与色条、base 串叠印）。
+    local base = r[13] and L["图纸"] or L["训练师"]
+    local dpre, dval
+    if hasVendor then
+        dpre = base
+        if #vs > 1 then
+            dval = format(L["商人：%s 等 %d 人"], tostring(vs[1] and vs[1].name or "?"), #vs)
+        else
+            dval = format(L["商人：%s"], tostring(vs[1] and vs[1].name or "?"))
+        end
+    end
+    -- 2026-10-10 用户：「制作成本」列（铜级精度；口径与提示框成本行一致）
+    local costStr
+    if r[12] and #r[12] > 0 then
+        local total, unpriced = RA.MatListCost(r[12])
+        if total <= 0 or unpriced >= #r[12] then
+            costStr = "—"
+        else
+            costStr = (unpriced > 0 and "≈" or "") .. RA.MoneyStr(total, "copper")
+        end
+    end
+    -- 2026-10-10 用户：「拍卖」列 = 产物拍卖行单价（RA.AHPriceOf 会话内缓存；取不到 —）
+    local ahStr
+    if r[2] and RA.AHPriceOf then
+        local ah = RA.AHPriceOf(r[2])
+        ahStr = ah and RA.MoneyStr(ah, "copper") or "—"
     end
     return {
-        kind = "row", is_new = r[11], it = { r[2] }, row = r, _mats = r[12],
-        text = DG.ItemName(r[2]),
+        kind = "row", is_new = r[11], it = { r[2] }, qItem = r[2], row = r, _mats = r[12],
+        text = PD.ItemName(r[2]),
+        -- 2026-10-10 提示框价格段：惰性挂函数（悬停那一刻才算价，数据迟到重悬停即见）
+        tipExtra = function() return PD.PriceTipLines(r[2], r[12]) end,
         sub = tostring(r[5] or ""),
-        mats = PD.MatCol(r[12], PD.MAT_FS, PD.MAT_W),
-        right = format("%s · %s", format(L["学 %s"], tostring(r[7])),
-                       PD.TierText(r[8], r[9], r[10])),
-        right2 = PD.SourceText(r[14]) or (r[13] and L["需要图纸"] or ""),
-        lines = lines,
+        -- ★ mats 不在这里算（2026-10-09 第二轮）：紧随其后的 PD.FitRecipeCols 会用
+        --   **定稿列宽**把 s.mats 整个重算一遍，这里那次是纯白做（每条一次材料串
+        --   重排 = 材料个数 × 数次逐字符量宽）。
+        mats = nil,
+        -- 2026-10-09 20:14：有阈值行（sbdiff）难度全交色条 → right 置 nil 防叠印；
+        --   无阈值行保持原文字兜底
+        right = not ((r[7] or r[8] or r[9] or r[10]))
+                and format("%s · %s", format(L["学 %s"], tostring(r[7])),
+                           PD.TierText(r[8], r[9], r[10])) or nil,
+        -- 20:45 终版：右下 = 图纸/训练师（有商人时进 dpre，dval=商人：X 走锚链）
+        right2 = (not dval) and base or nil,
+        src = r[14],
+        dpre = dpre,
+        dval = dval,
+        costStr = costStr,
+        ahStr = ahStr,
+        -- 2026-10-10 配方页难度四段色条：阈值取配方行 7..10（学/黄/绿/灰）
+        sbdiff = (r[7] or r[8] or r[9] or r[10]) and { r[7], r[8], r[9], r[10] } or nil,
+        -- ★ lines 也改惰性（配方行有 it ⇒ PD.Row 的 OnEnter 走 DG.ShowItemTip，
+        --   __lines 从来不读）。真要读时才拼这一串文案。
+        mkLines = function()
+            local lines = {}
+            if r[6] and r[6] ~= "" then lines[#lines + 1] = { r[6] } end
+            local mt = PD.MatText(r[12], 4)
+            lines[#lines + 1] = { format(L["材料：%s"], mt ~= "" and mt or L["无"]) }
+            lines[#lines + 1] = { format(L["技能：学 %s · %s"], tostring(r[7]),
+                                         PD.TierText(r[8], r[9], r[10])) }
+            if r[15] and #r[15] > 0 then
+                lines[#lines + 1] = { format(L["改版前材料：%s"], PD.MatText(r[15])), 0.9, 0.7, 0.4 }
+            end
+            if hasVendor then
+                for _, ln in ipairs(PD.VendorLines(r[14])) do lines[#lines + 1] = ln end
+            end
+            if r[16] and r[16] ~= "" then
+                lines[#lines + 1] = { format(L["套装：%s"], r[16]), 0.64, 0.21, 0.93 }
+            end
+            if r[17] and r[17] ~= "" then
+                lines[#lines + 1] = { format(L["护甲类型：%s"], r[17]), 0.7, 0.7, 0.7 }
+            end
+            return lines
+        end,
+        act = hasVendor and PD.VendorAct(r[14]) or nil,
     }
 end
 
 function PD.CraftedSpec(c)
     local mats = PD.MatText(c[8], 4)
+    local matCol, _, _, matSg = PD.MatCol(c[8], PD.MAT_FS, PD.MAT_W)
     return {
-        kind = "row", is_new = c[10], it = { c[2] }, _mats = c[8], craft = c,
+        kind = "row", is_new = c[10], it = { c[2] }, qItem = c[2], _mats = c[8], craft = c,
         text = DG.ItemName(c[2]),
         sub = "",
-        mats = PD.MatCol(c[8], PD.MAT_FS, PD.MAT_W),
+        mats = matCol,
+        matSegs = matSg,
         right = format("%s · %s", format(L["学 %s"], tostring(c[4])),
                        PD.TierText(c[5], c[6], c[7])),
         right2 = (c[9] and c[9] ~= "") and format(L["师傅 NPC #%s"], tostring(c[9])) or "",
@@ -1909,47 +4191,162 @@ function PD.RecipeTool(d)
     return tool, function(k) PD.toolKey = k; PD.Render() end
 end
 
-function PD.RecipeList()
+-- ★ limit（2026-10-09 第二轮）：建 spec 是要花钱的 —— 每条都要拼 6 段文案、重排
+--   材料串、建 lines 表。列表封顶只画 PD.ROW_CAP 条，所以**只为画出来的那些建**。
+--   「过滤后到底多少条」由 PD.ScanRecipe 的轻量扫描给出（不建 spec）。
+function PD.RecipeList(limit, q)
     local d = R[PD.cur]
     local out = {}
     if not d then return out end
     local key = PD.toolKey
+    local cap = limit or PD.ROW_CAP
+    if cap < 1 then return out end
     if key == "__enchant" then
-        for _, e in ipairs(d.enchants or {}) do out[#out + 1] = PD.EnchantSpec(e) end
+        for _, e in ipairs(d.enchants or {}) do
+            out[#out + 1] = PD.EnchantSpec(e)
+            if #out >= cap then break end
+        end
         return out
     end
     if key == "__crafted" then
-        for _, c in ipairs(d.crafted or {}) do out[#out + 1] = PD.CraftedSpec(c) end
+        for _, c in ipairs(d.crafted or {}) do
+            out[#out + 1] = PD.CraftedSpec(c)
+            if #out >= cap then break end
+        end
         return out
     end
     if key == "__favor" then
-        for _, f in ipairs(d.favor or {}) do out[#out + 1] = PD.FavorSpec(f) end
+        for _, f in ipairs(d.favor or {}) do
+            out[#out + 1] = PD.FavorSpec(f)
+            if #out >= cap then break end
+        end
         return out
     end
-    local any = false
+    -- ★ 搜索必须在**建 spec 之前**生效（2026-10-09 第二轮修正）：先按 PD.RawHit 过
+    --   原始行，命中的才建 spec —— 不然「点开那一瞬间」还是要为全量 511 条建一遍。
+    --   口径与 PD.ScanRecipe 完全共用（PD.EffKeyFilter + PD.RawHit），不许各写一套。
+    --   ★ 旧的 `any` 回退（key 一条都没命中 ⇒ 不过滤）已折进 PD.EffKeyFilter。
+    local fk = PD.EffKeyFilter(d)
     for _, r in ipairs(d.rows or {}) do
-        if (not key or key == "all" or r[4] == key) then
-            out[#out + 1] = PD.RecipeSpec(r)
-            any = true
+        if (not fk) or r[4] == fk then
+            if PD.RawHit(r, q) then
+                out[#out + 1] = PD.RecipeSpec(r)
+                if #out >= cap then break end
+            end
         end
     end
-    if not any then
-        for _, r in ipairs(d.rows or {}) do out[#out + 1] = PD.RecipeSpec(r) end
-    end
     return out
+end
+
+-- ★ 原始行命中搜索词吗（2026-10-09 第二轮）：**不建 spec** 的轻量判定。
+--   配方页主列表必须按搜索词过滤，但过滤得发生在**建 spec 之前** —— 否则
+--   「点开那一瞬间」又要为全量 511 条建一遍 spec（已量过 = 整帧 82% 的耗时）。
+--   口径与 PD.SearchHit 逐字一致（名称 → 副行 → 材料名；q 已小写化）。
+function PD.RawHit(r, q)
+    if not q or q == "" then return true end
+    local nm = PD.ItemName(r[2])
+    if nm and nm ~= "" and string.find(string.lower(tostring(nm)), q, 1, true) then
+        return true
+    end
+    local sub = tostring(r[5] or "")
+    if sub ~= "" and string.find(string.lower(sub), q, 1, true) then return true end
+    for _, m in ipairs(r[12] or {}) do
+        local mn = PD.ItemName(m[1])
+        if mn and mn ~= "" and string.find(string.lower(tostring(mn)), q, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+-- ★ 本页的「有效分类过滤」（2026-10-09 第二轮）：按 PD.toolKey 过滤**一条都没命中**
+--   时退回不过滤 —— 与旧 PD.RecipeList 的 any 回退同口径。返回值即要用的 key
+--   （nil = 不过滤）。PD.ScanRecipe 与 PD.RecipeList 共用，两边口径不许各写一套。
+function PD.EffKeyFilter(d)
+    local key = PD.toolKey
+    if not key or key == "all" then return nil end
+    for _, r in ipairs(d.rows or {}) do
+        if r[4] == key then return key end
+    end
+    return nil
+end
+
+-- ★ 配方页「轻量全量扫描」（2026-10-09 第二轮：点开配方页那一瞬间仍卡）：
+--   渲染前只需要两件事 —— ① 过滤后到底多少条（抬头文案 + 截断提示）② 名称列最宽
+--   多少（定列宽）。原来这两件事都是**先把全量 511 条建成完整 spec 再量**，而列表
+--   封顶只画 300 条 ⇒ 剩下 211 条的部位纯白做（实测占整帧 82%）。
+--   这里改成对**原始行**直接取三个字段量宽：名称 / 副行 / 新角标 —— 不建 spec、
+--   不拼任何文案、不碰材料串。判定口径与 PD.SearchHit 逐字一致（含 q 已在
+--   OnTextChanged 里小写化这一点）。
+--   ★ 只覆盖 d.rows 主路径；附魔 / 制造品 / 声望三类特殊列表规模小，返回 nil
+--     让调用方走原路径（PD.SearchFilter + PD.RecipeList 全量）。
+function PD.ScanRecipe()
+    local d = R[PD.cur]
+    if not d then return 0, 0 end
+    local key = PD.toolKey
+    if key == "__enchant" or key == "__crafted" or key == "__favor" then
+        return nil
+    end
+    local q = (PD.searchQ and PD.searchQ ~= "") and PD.searchQ or nil
+    local fk = PD.EffKeyFilter(d)
+
+    local n, maxW = 0, 0
+    for _, r in ipairs(d.rows or {}) do
+        if (not fk) or r[4] == fk then
+            if PD.RawHit(r, q) then
+                n = n + 1
+                -- ★★ 2026-10-09 第六轮：**只给画得出来的行量宽**。
+                --   列宽（maxW → PD.RECIPE_NAME_W）只要放得下**真正画出来的**那些
+                --   行就够了；第 301 条往后根本不进列表 ⇒ 给它们量宽是纯白做
+                --   （实测每次点开白量 211 次 ItemName + 422 次 TextW）。
+                --   计数 n 仍然**精确**（抬头要显示真实总数）。
+                if n <= PD.ROW_CAP then
+                    -- 与 PD.FitRecipeCols 的自扫逐字同口径：名称可为空（名字还没到货）
+                    -- 时也照样把「新角标 + 副行」计入最宽值。
+                    local nm = PD.ItemName(r[2])
+                    local w = (nm and nm ~= "" and PD.TextW(nm, 13)) or 0
+                    -- 2026-10-10 用户：角标迁副行 ⇒ 角标宽记到副行一侧（与 FitRecipeCols 同口径）
+                    local sw = PD.TextW(tostring(r[5] or ""), 11) + (r[11] and PD.RECIPE_BADGE_W or 0)
+                    if sw > w then w = sw end
+                    if w > maxW then maxW = w end
+                end
+            end
+        end
+    end
+    return n, maxW
 end
 
 function PD.RowsRecipe(rows)
     local d = R[PD.cur]
     if not d then return end
-    local list = PD.RecipeList()
-    local total = (d.counts and d.counts.total) or #list
+    local realN, maxW = PD.ScanRecipe()
+    local list
+    if realN then
+        -- 主路径：只为画得出来的那些建 spec（列宽用轻量扫描的全量结果）
+        list = PD.RecipeList(math.min(realN, PD.ROW_CAP), PD.searchQ)
+    else
+        -- 附魔 / 制造品 / 声望：规模小，保持原路径
+        list = PD.SearchFilter(PD.RecipeList())
+        realN, maxW = #list, nil
+    end
+    PD.FitRecipeCols(list, maxW)
+    local total = (d.counts and d.counts.total) or realN
     local unread = (d.counts and d.counts.unreadable) or 0
     PushHead(rows, format(L["当前分类 %d 条（标注总计 %d 条，其中 %d 条来源不可读）"],
-                          #list, total, unread))
+                          realN, total, unread))
+    if realN == 0 and PD.searchQ and PD.searchQ ~= "" then
+        PushGap(rows)
+        PushText(rows, format(L["没有名称或材料匹配「%s」的配方 —— 换个关键词再试试。"],
+                              PD.searchQ), 12, C_GOLD)
+        return
+    end
     local trunc = 0
-    if #list > PD.ROW_CAP then trunc = #list - PD.ROW_CAP end
-    for i = 1, math.min(#list, PD.ROW_CAP) do rows[#rows + 1] = list[i] end
+    if realN > PD.ROW_CAP then trunc = realN - PD.ROW_CAP end
+    -- 2026-10-10 用户：五列表头行（配方|材料|拍卖|制作成本|难度），搜索无结果时不列
+    if realN > 0 then
+        rows[#rows + 1] = { kind = "rechead", h = 26, col = 1, noTip = true }
+    end
+    for i = 1, #list do rows[#rows + 1] = list[i] end
     if trunc > 0 then
         PushGap(rows)
         PushText(rows, format(
@@ -2100,43 +4497,408 @@ function PD.RowsGather(rows)
     end
 end
 
+-- ── 采集升级路线（2026-10-11）：mining/herbalism/skinning/fishing ──────────
+-- 静态推荐路线（无价格/概率，无从自动计算）：按技能区间/门槛推进 + 当前技能绿色定位。
+function PD.RowsGatherRoute(rows)
+    local slug = PD.cur
+    local g = GA and (GA[slug] or (slug == "fishing" and GA.fishing))
+    if not g or #g == 0 then return end
+    local _learned = PD.ProfLearned()
+    local curLv = _learned and _learned[slug] and _learned[slug].cur or nil
+    local GR_GREEN = { 0.4, 0.9, 0.45 }  -- 当前可练段绿色（采集/熔炼共用）
+
+    if PD.GatherMode(slug) == "smelt" then
+        -- 熔炼路线：锭 → 可学区间（区间推进口径与采集一致）
+        PushHead(rows, L["熔炼升级路线（全程）"])
+        if curLv then
+            PushText(rows, format(L["当前技能 %d，绿色为可练区间：练到下一档再换锭。"], curLv), 11, C_GREY)
+        else
+            PushText(rows, L["未学到该专业，先找训练师学习；学习后这里显示当前位置。"], 11, C_GREY)
+        end
+        PushGap(rows)
+        for i, t in ipairs(SMELT_TBL) do
+            local lo = t[2]
+            local hi = (SMELT_TBL[i + 1] and SMELT_TBL[i + 1][2] or 301) - 1
+            if hi < lo then hi = lo end
+            local active = curLv and curLv >= lo and curLv <= hi
+            local nm = DG.ItemName(t[1])
+            if not (type(nm) == "string" and nm ~= "") then nm = format(L["物品 #%d"], t[1]) end
+            -- 2026-10-11 用户：熔炼行同款三列布局（左等级 / 右图标+名称，中列留空）
+            local rng = (hi > lo) and format(L["%d - %d"], lo, hi) or tostring(lo)
+            rows[#rows + 1] = {
+                kind = "row", h = PD.ROW_H1, gr3 = true,
+                it = { t[1] }, qItem = t[1],
+                lv = rng,
+                text = nm,
+                nameColor = (active and GR_GREEN) or nil,
+            }
+        end
+        return
+    end
+    if slug == "fishing" then
+        -- 按门槛分档：{门槛, {区域...}}
+        PushHead(rows, format(L["钓鱼升级路线（%d 处水域）"], #g))
+        PushText(rows, L["按技能门槛分档推进：下竿必涨，到下一档门槛就换区域。"], 11, C_GREY)
+        PushGap(rows)
+        local bands = {}
+        for _, ed in ipairs(g) do
+            local b = bands[#bands]
+            if b and b[1] == ed[2] then b[2][#b[2] + 1] = ed[1]
+            else bands[#bands + 1] = { ed[2], { ed[1] } } end
+        end
+        for bi, band in ipairs(bands) do
+            local nxt = bands[bi + 1]
+            local active = curLv and curLv >= band[1] and (not nxt or curLv < nxt[1])
+            local names = {}
+            for _, zid in ipairs(band[2]) do
+                names[#names + 1] = DG.ZoneName(zid) or format("#%d", zid)
+            end
+            rows[#rows + 1] = {
+                kind = "row", h = PD.ROW_H1,
+                text = format(L["技能 %d 起"], band[1]),
+                sub = table.concat(names, "、"),
+                nameColor = active and { 0.4, 0.9, 0.45 } or nil,
+                lines = { { active and L["◆ 推荐当前就练这一档"] or
+                    (nxt and format(L["练到 %d 换下一档"], nxt[1]) or L["练满为止"]),
+                    0.62, 0.62, 0.62 } },
+            }
+        end
+        return
+    end
+
+    -- mining / herbalism / skinning：三列行 [等级 | 地点 | 图标+矿名]（2026-10-11 用户可视化方案拍板）
+    PushHead(rows, L["采集升级路线（全程）"])
+    if curLv then
+        PushText(rows, format(L["当前技能 %d，绿色为推荐段：采到区间上缘再换下一段。"], curLv), 11, C_GREY)
+    else
+        PushText(rows, L["未学到该专业，先找训练师学习；学习后这里显示当前位置。"], 11, C_GREY)
+    end
+    PushGap(rows)
+    local function GrSameSeg(a, b)
+        if #a ~= #b then return false end
+        for k = 1, #a do if a[k] ~= b[k] then return false end end
+        return true
+    end
+    -- ★ 剥皮等级列按上游口径（2026-10-11 用户拍板）：节点表档位是野兽等级，
+    --   显示改映射为剥皮技能区间：1；10-100；105-150；155-200；205-250；255-300。
+    local SKIN_SKILL = { [1] = { 1, 1 }, [11] = { 10, 100 }, [21] = { 105, 150 }, [31] = { 155, 200 }, [41] = { 205, 250 }, [51] = { 255, 300 } }
+    local gi = 1
+    -- ★ 采药/采矿区间合并（2026-10-11 用户拍板，对齐上游分组）：档位按区间并组——
+    --   组内产物取并集、分布取并集（按节点数保留前 6），整组一行，等级列=区间（t[5]）。
+    --   （取代旧「采药同档合并」：同档条目本就落同组，天然并掉。）
+    local HERB_GRP = { { 1, 50 }, { 50, 100 }, { 100, 150 }, { 150, 205 }, { 205, 230 }, { 230, 270 }, { 270, 300 } }
+    local MINE_GRP = { { 1, 65 }, { 65, 125 }, { 125, 175 }, { 175, 245 }, { 245, 300 } }
+    if slug == "herbalism" or slug == "mining" then
+        local grp = (slug == "herbalism") and HERB_GRP or MINE_GRP
+        local function GrpOf(s)
+            local cur
+            for _, rg in ipairs(grp) do
+                if rg[1] <= s then cur = rg else break end
+            end
+            return cur or grp[1]
+        end
+        local merged = {}
+        for _, t in ipairs(g) do
+            local last = merged[#merged]
+            if last and last[5] == GrpOf(t[2]) then
+                local seen = {}
+                for _, id in ipairs(last[1]) do seen[id] = true end
+                for _, id in ipairs(t[1]) do
+                    if not seen[id] then last[1][#last[1] + 1] = id end
+                end
+                local zs = {}
+                for _, z in ipairs(last[3]) do zs[z[1]] = math.max(zs[z[1]] or 0, z[2]) end
+                for _, z in ipairs(t[3]) do zs[z[1]] = math.max(zs[z[1]] or 0, z[2]) end
+                local zl = {}
+                for zid, cnt in pairs(zs) do zl[#zl + 1] = { zid, cnt } end
+                table.sort(zl, function(a, b) return a[2] > b[2] end)
+                for k = #zl, 7, -1 do zl[k] = nil end   -- 与单档口径一致：最多 6 处
+                last[3] = zl
+                last[4] = true
+            else
+                merged[#merged + 1] = { t[1], t[2], t[3], nil, GrpOf(t[2]) }
+            end
+        end
+        g = merged
+    end
+    while gi <= #g do
+        local t = g[gi]
+        local lo, hi, ids, zones
+        if slug == "skinning" then
+            local rng = SKIN_SKILL[t[1][1]] or { t[1][1], t[1][2] }
+            lo, hi, ids, zones = rng[1], rng[2], t[2], t[3]
+        else
+            lo, ids, zones = t[2], t[1], t[3]
+            if t[5] then
+                lo, hi = t[5][1], t[5][2]   -- 区间合并组：等级列=整组区间
+            else
+                hi = (g[gi + 1] and g[gi + 1][2] or 301) - 1
+                if hi < lo then hi = lo end   -- 同起点双段（如采矿 230 两种矿）不再反转
+            end
+        end
+        -- ★ 用户拍板「合并」：相邻段产物与分布一致 → 并成一行，等级区间贯通
+        while not t[5] and g[gi + 1] do
+            local nx = g[gi + 1]
+            if not (GrSameSeg(ids, (slug == "skinning") and nx[2] or nx[1])
+                    and PD.ZoneText(zones) == PD.ZoneText(nx[3])) then break end
+            if slug == "skinning" then
+                if nx[1][1] ~= t[1][2] + 1 then break end   -- 野兽档相邻才并
+                hi = (SKIN_SKILL[nx[1][1]] or { nil, nx[1][2] })[2]
+            else
+                hi = (g[gi + 2] and g[gi + 2][2] or 301) - 1
+                if hi < lo then hi = lo end -- 防反转
+            end
+            gi = gi + 1
+        end
+        local active = curLv and curLv >= lo and curLv <= hi
+        local headId = ids[1]
+        -- 合并行（t[4]）把并集里所有产物名列出来（如 1~14 宁神花、银叶草、地根草）；单产物行只显示行主名
+        local nm
+        if t[4] then
+            local nms = {}
+            for _, id in ipairs(ids) do
+                local on = DG.ItemName(id)
+                nms[#nms + 1] = (type(on) == "string" and on ~= "") and on or format(L["物品 #%d"], id)
+            end
+            nm = table.concat(nms, "、")
+        else
+            nm = DG.ItemName(headId)
+            if not (type(nm) == "string" and nm ~= "") then nm = format(L["物品 #%d"], headId) end
+        end
+        rows[#rows + 1] = {
+            kind = "row", h = PD.ROW_H1, gr3 = true,
+            it = { headId }, qItem = headId,
+            lv = (hi > lo) and format(L["%d - %d"], lo, hi) or tostring(lo),
+            loc = format(L["大多在 %s"], PD.ZoneText(zones)),
+            text = nm,
+            -- ★ 采药/采矿第三列只放图标（2026-10-11 用户）；剥皮仍走图标+名字
+            icons = (slug == "herbalism" or slug == "mining") and ids or nil,
+            nameColor = active and GR_GREEN or nil,
+        }
+        gi = gi + 1
+    end
+end
+
+-- ── 固定路线 · 目标裁剪 / 聚合（2026-10-09 v2）─────────────────────────────
+-- 跨目标的段：止点裁到目标，制作数量按 (目标−起)/(止−起) 比例折算（ceil）。
+local function ClipFixedSteps(steps, target)
+    if not target or target >= 300 then
+        return steps, false
+    end
+    local out, clipped = {}, false
+    for _, st in ipairs(steps or {}) do
+        local a, b = st[1], st[2]
+        if a > target then break end
+        local nb, nq = math.min(b, target), st[4] or 0
+        local isClip = b > target
+        if isClip then
+            nq = math.max(1, math.ceil(nq * (target - a) / (b - a) - 1e-9))
+            clipped = true
+        end
+        out[#out + 1] = { a, nb, st[3], nq, _clip = isClip or nil }
+    end
+    return out, clipped
+end
+
+-- 固定路线聚合（金币/材料/图纸）：走 RA 的同一套价格层；无价格层时退回数量清单
+local function FixedShopData(target)
+    local lv = LV[PD.cur]
+    local steps, clipped = ClipFixedSteps(lv.steps or {}, target)
+    if RA and RA.SummarizeSteps then
+        local sum = RA.SummarizeSteps(steps, PD.cur,
+                                      { learnedOnly = PD.Setting("autoLearnedOnly") })
+        if sum then
+            sum.mode = "fixed"
+            sum.target = target
+            sum.clipped = clipped
+            return sum
+        end
+    end
+    -- 兜底（非无限服等没有价格层的场合）：数据表预聚合的全量清单，只显示数量
+    return { mode = "fixed", target = target, mats = lv.shopping or {},
+             steps = lv.steps or {}, priced = false }
+end
+
+local function CountUnpriced(sum)
+    local n = 0
+    for _, e in ipairs(sum.mats or {}) do if e.unpriced then n = n + 1 end end
+    for _, f in ipairs(sum.formulas or {}) do if f.unpriced then n = n + 1 end end
+    return n
+end
+
 function PD.RowsLeveling(rows)
     local lv = LV[PD.cur]
-    if not lv then return end
+    if not lv then PD.lvSummary = nil return end
 
     local _learned = PD.ProfLearned()
     local curLv = _learned and _learned[PD.cur] and _learned[PD.cur].cur or nil
     local greyOn = PD.Setting("greyPassed")
+
+    -- ── 自动路线：设置开启 + 价格插件可用 + 算出结果 ──
+    -- 乐观计数方案不依赖价格插件（2026-10-10）：其余方案仍要求 RA.Available()
+    local scheme = PD.SettingRaw("autoScheme")
+    local autoOn = (PD.Setting("autoRoute") and RA
+                    and (scheme == "optim" or RA.Available())) and true or false
+    local target = PD.LvTarget()
+    local res
+    if autoOn then
+        local opts = {
+            start = (PD.Setting("autoFromCurrent") and curLv) and math.max(1, curLv) or 1,
+            onlyAH = PD.Setting("autoOnlyAH"),
+            noFormula = PD.Setting("autoNoFormula"),
+            learnedOnly = PD.Setting("autoLearnedOnly"),
+            target = target,   -- 2026-10-09 v2：模拟与缺口回填都 clamp 在目标内
+            scheme = scheme,
+        }
+        res = RA.Get(PD.cur, opts)
+        if res and not res.priced and scheme ~= "optim" then res = nil end   -- 一条价格都没有 = 未扫描，降级（乐观计数除外）
+    end
+    local auto = (autoOn and res) and true or false
+
+    -- ── 购物清单子页（2026-10-09 v2）：固定 / 自动共用 ──
+    if PD.autoPage == "shop" then
+        local data = auto and res or FixedShopData(target)
+        PD.lvSummary = {
+            target = target, auto = auto,
+            scheme = auto and res.scheme or nil,
+            autoSetting = PD.Setting("autoRoute"),
+            ahOK = (RA and RA.Available()) and true or false,
+            priced = (data.priced and true) or false,
+            total = data.total, snapshotAge = data.snapshotAge,
+            snapshotDays = data.snapshotDays,
+            matsN = #(data.mats or {}), np = CountUnpriced(data),
+        }
+        PD.RowsAutoShop(rows, data)
+        return
+    end
 
     local recOf = {}
     local rr = R[PD.cur]
     if rr and rr.rows then
         for _, r in ipairs(rr.rows) do recOf[r[1]] = r end
     end
+    -- rinfo（2026-10-08）：配方表没有的路线法术（附魔配方/魔棒）兜底 ——
+    -- 生成器只落数值（learn 颜色区间/材料/产物），显示名走 SpellName。
+    local rin = lv.rinfo
+    for spell, ri in pairs(rin or {}) do
+        if not recOf[spell] then recOf[spell] = ri end
+    end
 
-    local rngW, nameW, cntW, matNeed = 0, 0, 0, 0
-    for _, st in ipairs(lv.steps or {}) do
+    -- 固定路线：按目标等级裁剪；自动路线已带 target
+    local steps, clipped
+    if auto then
+        steps = res.steps
+    else
+        steps, clipped = ClipFixedSteps(lv.steps or {}, target)
+    end
+    -- 固定路线金币（材料 + 图纸，走同一价格层；无价 → 估算下限）
+    local fixedSum = (not auto) and RA and RA.SummarizeSteps(steps, PD.cur,
+                          { learnedOnly = PD.Setting("autoLearnedOnly") }) or nil
+
+    -- 顶部信息卡供数（2026-10-10 B1）：PaintLvTiles 读 PD.lvSummary
+    PD.lvSummary = {
+        target = target, auto = auto,
+        scheme = auto and res.scheme or nil,
+        autoSetting = PD.Setting("autoRoute"),
+        ahOK = (RA and RA.Available()) and true or false,
+        priced = auto or ((fixedSum and fixedSum.priced) and true or false),
+        total = auto and res.total or (fixedSum and fixedSum.total),
+        snapshotAge = auto and res.snapshotAge or (fixedSum and fixedSum.snapshotAge),
+        snapshotDays = auto and res.snapshotDays or (fixedSum and fixedSum.snapshotDays),
+        recipes = auto and #res.steps or nil,
+        crafts = auto and (res.crafts or 0) or nil,
+        vendorTotal = auto and res.vendorTotal or (fixedSum and fixedSum.vendorTotal),
+        formulasTotal = auto and res.formulasTotal or (fixedSum and fixedSum.formulasTotal),
+        matsN = (not auto) and fixedSum and #(fixedSum.mats or {}) or nil,
+        np = auto and CountUnpriced(res) or (fixedSum and CountUnpriced(fixedSum)) or 0,
+    }
+
+    -- 数量区三列文案预生成（2026-10-10 用户拆列）：次数 | 单次花费 | 总花费。
+    -- 单次 = 段落总花费 ÷ 制作次数（向上取整，防除零）；est 段两列花费带 ≈ 前缀；
+    -- 无价段次数列保留 ≈、总花费列写「价格未知」；「按目标折算」后缀跟次数列。
+    local cntOf, unitOf, totOf = {}, {}, {}
+    local cardOf = {}
+    local rngW, nameW, cntW, unitW, totW, matNeed, cardNeed = 0, 0, 0, 0, 0, 0, 0
+    for _, st in ipairs(steps or {}) do
+        local priced = auto or fixedSum
+        local cntStr = format(L["~%s 次制作"], tostring(st[4]))
+        local unitStr, totStr = "", ""
+        if priced then
+            local crafts = math.max(1, st[4] or 1)
+            if st.unpriced or (st.cost or 0) <= 0 then
+                cntStr = format(L["≈%d 次制作"], st[4] or 0)
+                totStr = L["价格未知"]
+            elseif st.est then
+                cntStr = format(L["≈%d 次制作"], st[4] or 0)
+                unitStr = "≈" .. RA.MoneyStr(math.ceil((st.cost or 0) / crafts))
+                totStr = "≈" .. RA.MoneyStr(st.cost)
+            else
+                cntStr = format(L["~%d 次制作"], st[4] or 0)
+                unitStr = RA.MoneyStr(math.ceil((st.cost or 0) / crafts))
+                totStr = RA.MoneyStr(st.cost)
+            end
+            if clipped and st._clip then
+                cntStr = cntStr .. format(L[" · 按目标 %d 折算"], target)
+            end
+        end
+        cntOf[st] = cntStr
+        unitOf[st] = unitStr
+        totOf[st] = totStr
         local w = PD.TextW(format(L["%s – %s"], tostring(st[1]), tostring(st[2])), PD.LV_FS)
         if w > rngW then rngW = w end
         local nw = PD.TextW(SpellName(st[3]), PD.LV_FS)
         if nw > nameW then nameW = nw end
-        local cw = PD.TextW(format(L["~%s 次制作"], tostring(st[4])), PD.LV_FS)
+        local cw = PD.TextW(cntStr, PD.LV_FS)
         if cw > cntW then cntW = cw end
+        local uw = unitStr ~= "" and PD.TextW(unitStr, 11) or 0
+        if uw > unitW then unitW = uw end
+        local tw = totStr ~= "" and PD.TextW(totStr, PD.LV_FS) or 0
+        if tw > totW then totW = tw end
         local rec = recOf[st[3]]
-        local _, mw = PD.PackMats((rec and rec[12]) or {}, 1e9)
+        if not rec and rin then rec = rin[st[3]] end
+        local _, mw = PD.PackMats((rec and (rec[12] or rec.mats)) or {}, 1e9)
         if mw + PD.TBL_MARK_W > matNeed then matNeed = mw + PD.TBL_MARK_W end
+        -- 2026-10-09 22:10：来源卡片挪到等级列正下方，不再占名字/材料区预算 ——
+        --   这里只量全页统一固定宽 LV_CARD_FIXW（= 本页最长卡文字宽 + 2×CARD_PAD）。
+        local cd = PD.CardOf(rec, rin and rin[st[3]] or nil)
+        cardOf[st] = cd
+        if cd then
+            local cwd = PD.TextW(cd.text, 10) + 2 * PD.CARD_PAD
+            if cwd > cardNeed then cardNeed = cwd end
+        end
     end
+    -- 2026-10-09 v2：单栏化 → 行宽 = 整幅内容宽（PaintMats 的材料块锚同一宽度）
+    local rowW = PD.RIGHT_W - 2 * PD.LIST_PAD
+    PD.LV_ROW_W = rowW
     PD.LV_ICON_X = 6 + math.ceil(rngW) + PD.TBL_RNG_GAP
     PD.LV_NAME_X = PD.LV_ICON_X + PD.TBL_ICON + PD.TBL_NAME_GAP
+    -- 表头文字也计入列宽（否则四字表头比数据宽时列会互相重叠）
+    if auto or fixedSum then
+        local hw = PD.TextW(L["制作次数"], PD.LV_FS)
+        if hw > cntW then cntW = hw end
+        hw = PD.TextW(L["单次花费"], 11)
+        if hw > unitW then unitW = hw end
+        hw = PD.TextW(L["总花费"], PD.LV_FS)
+        if hw > totW then totW = hw end
+    end
     PD.LV_CNT_W = math.max(40, math.ceil(cntW))
-    local avail = PD.COL_LW - PD.TBL_MAT_RPAD - PD.LV_NAME_X - PD.TBL_NAME_GAP
-                  - PD.LV_CNT_W - PD.TBL_CNT_GAP
+    -- 2026-10-10 三列：单次/总花费列宽取整页最大值（无价格时为 0，列自动收起）
+    PD.LV_UNIT_W = math.ceil(unitW)
+    PD.LV_TOT_W = math.ceil(totW)
+    -- 2026-10-09 22:10：卡片挪到等级列正下方，不占行内预算 —— 只落全页统一固定宽。
+    PD.LV_CARD_FIXW = math.ceil(cardNeed)
+    local avail = rowW - PD.TBL_MAT_RPAD - PD.LV_NAME_X - PD.TBL_NAME_GAP
+                  - PD.LV_CNT_W - PD.LV_UNIT_W - PD.LV_TOT_W
+                  - PD.TBL_CNT_GAP - 2 * PD.LV_COL_GAP
     PD.LV_NAME_W = math.min(PD.TBL_NAME_MAX, math.max(PD.TBL_NAME_MIN, math.ceil(nameW)))
     if avail - PD.LV_NAME_W < matNeed then
         PD.LV_NAME_W = math.max(PD.TBL_NAME_MIN, avail - matNeed)
     end
     PD.LV_MAT_W = avail - PD.LV_NAME_W
     PD.LV_CNT_R = PD.TBL_MAT_RPAD + PD.LV_MAT_W + PD.TBL_CNT_GAP
+    -- 三列右缘锚点（从右往左）：总花费 | 单次 | 次数，列间 LV_COL_GAP
+    PD.LV_UNIT_R = PD.LV_CNT_R + PD.LV_TOT_W + PD.LV_COL_GAP
+    PD.LV_CNT2_R = PD.LV_UNIT_R + PD.LV_UNIT_W + PD.LV_COL_GAP
 
     local function FitName(s)
         return PD.Fit(s, PD.LV_FS, PD.LV_NAME_W)
@@ -2146,34 +4908,97 @@ function PD.RowsLeveling(rows)
     end
     local function FitR(s) return PD.Fit(s, 13, PD.COL_RW - 66) end
 
-    if lv.steps and #lv.steps > 0 then
-        PushHead(rows, L["1 → 300 分段路线"], 1)
-        for _, st in ipairs(lv.steps) do
+    if autoOn and not auto then
+        -- 价格插件开了但没价格数据（未装/未扫描）→ 固定路线照常 + 顶部提示
+        PushHead(rows, L["自动路线不可用"])
+        PushText(rows, L["自动路线需要 Auctionator 的价格数据：请安装 Auctionator 并完成一次拍卖行扫描；当前显示固定路线。"],
+                 12, C_GREY)
+        PushGap(rows, 4)
+    end
+
+    if steps and #steps > 0 then
+        if auto then
+            PushHead(rows, format(L["1 → %d 自动路线（按拍卖行价格）"], target))
+            -- 汇总（总花费 / 配方统计 / 快照年龄）2026-10-10 起移到顶部信息卡
+            -- 缺口先报「已按估价回填」（琥珀），残余真无解才报红（2026-10-09）
+            for _, st in ipairs(res.steps or {}) do
+                if st.est then
+                    PushText(rows, format(L["缺口 %d–%d 已按估价回填（配方含无价材料，花费为下限）"],
+                                          st[1], st[2]), 12, { 0.95, 0.75, 0.4 })
+                end
+            end
+            for _, g in ipairs(res.gaps or {}) do
+                PushText(rows, format(L["缺口：%d–%d 无符合筛选的配方（可放宽设置重算）"], g[1], g[2]),
+                         12, { 0.95, 0.55, 0.45 })
+            end
+            local np = CountUnpriced(res)
+            if np > 0 then
+                PushText(rows, format(L["含无价材料 %d 种：花费为估算下限"], np), 12, { 0.95, 0.75, 0.4 })
+            end
+            PushGap(rows, 4)
+        else
+            PushHead(rows, format(L["1 → %d 分段路线"], target))
+            -- 金币 / 材料 / 快照 2026-10-10 起移到顶部信息卡；无价时信息卡给提示
+            if fixedSum and not fixedSum.priced then
+                PushText(rows, L["价格数据不可用（安装并扫描 Auctionator 后显示金币）"], 12, C_GREY)
+            elseif fixedSum then
+                local np = CountUnpriced(fixedSum)
+                if np > 0 then
+                    PushText(rows, format(L["含无价材料 %d 种：花费为估算下限"], np), 12, { 0.95, 0.75, 0.4 })
+                end
+            end
+            if clipped then
+                PushText(rows, format(L["目标 %d 之后的段落已省略，跨目标段的制作数量按比例折算。"], target),
+                         12, C_GREY)
+            end
+            PushGap(rows, 4)
+        end
+        -- 2026-10-10 用户：三列表头行（仅计价路线；无价格时花费两列是空的，不列表头）
+        if auto or fixedSum then
+            rows[#rows + 1] = { kind = "lvhead", h = 18, col = 1, noTip = true }
+        end
+        for _, st in ipairs(steps) do
             local rec = recOf[st[3]]
-            local mats = (rec and rec[12]) or {}
+            local ri = (not rec) and rin and rin[st[3]] or nil
+            local mats = (rec and rec[12]) or (ri and ri.mats) or {}
             local nm = SpellName(st[3])
-            local src, detail = PD.LevelSrc(rec)
+            local src = PD.LevelSrc(rec)
+            if not rec and ri then
+                -- rinfo 兜底配方（配方表没有的路线法术）：无图纸概念，训练师直教
+                src = ri.trainer and L["向训练师学习"] or nil
+            end
             local blocks, _, cut = PD.PackMats(mats, PD.LV_MAT_W)
-            local tip = { { nm, 1, 0.82, 0 },
-                          { src or L["来源未收录"], 0.7, 0.7, 0.7 },
-                          { format(L["材料：%s"],
-                                   (#mats > 0 and PD.MatText(mats) or L["无"])), 0.7, 0.7, 0.7 } }
-            if detail then tip[#tip + 1] = { detail, 0.6, 0.9, 0.6 } end
+            local segLo = tonumber(st[1])
             local segHi = tonumber(st[2])
             local over = (curLv ~= nil and segHi ~= nil and segHi < curLv) or nil
             local passed = (greyOn and over) or nil
             rows[#rows + 1] = {
                 kind = "row", h = PD.TBL_H, col = 1, lvstep = true,
                 passed = passed, over = over,
-                it = (rec and rec[2]) and { rec[2] } or nil,
-                linesFirst = true,
+                it = (rec and rec[2]) and { rec[2] }
+                     or ((ri and ri.makes) and { ri.makes } or nil),
+                -- 2026-10-10 用户：升级页悬停制作物 → 物品提示框同样追加五行价格段
+                tipExtra = (rec and rec[2])
+                           and function() return PD.PriceTipLines(rec[2], rec[12]) end or nil,
+                -- 2026-10-09：行级提示框退役（用户：「每行有个鼠标提示框，这个提示框不要了」）
+                -- → 由制作物 / 需求材料各自的物品提示框承担（PD.IconZone / PD.RowBlk）。
+                noTip = true,
                 rng = format(L["%s – %s"], tostring(st[1]), tostring(st[2])),
                 text = FitName(nm),
                 src = src,
-                cnt = format(L["~%s 次制作"], tostring(st[4])),
+                cnt = cntOf[st] or format(L["~%s 次制作"], tostring(st[4])),
+                -- 2026-10-10 三列：单次花费 / 总花费（无价格时为空串，列收起）
+                unit = unitOf[st] or "",
+                tot = totOf[st] or "",
                 blocks = blocks, matCut = cut,
                 _mats = mats,
-                lines = tip,
+                -- 2026-10-09 四轮：四档技能阈值（学 / 黄 / 绿 / 灰）+ 当前落点档次 +
+                --   来源卡片。阈值取配方行 7..10；rinfo 兜底配方没有阈值 ⇒ 不画条。
+                sbVals = (rec and (rec[7] or rec[8] or rec[9] or rec[10]))
+                         and { rec[7], rec[8], rec[9], rec[10] } or nil,
+                -- 2026-10-09 十一轮：两根竖线 = 本行技能区间两端（左侧「36 – 45」那两个数）。
+                sbLo = segLo, sbHi = segHi,
+                card = cardOf[st],
             }
         end
     end
@@ -2196,137 +5021,264 @@ function PD.RowsLeveling(rows)
             }
         end
     end
-    if lv.quest and #lv.quest > 0 then
-        PushGap(rows, 8, 1)
-        PushHead(rows, format(L["关联任务（%d 个）"], #lv.quest), 1)
-        for _, id in ipairs(lv.quest) do
-            rows[#rows + 1] = {
-                kind = "row", h = PD.ROW_H1, col = 1,
-                text = FitL(PD.QuestName(id)),
-                right = format("#%d", id),
-            }
-        end
-    end
 
-    if lv.shopping and #lv.shopping > 0 then
-        local total = 0
-        for _, s in ipairs(lv.shopping) do total = total + (s[2] or 0) end
-        PushHead(rows, L["要准备的材料"], 2)
-        for _, s in ipairs(lv.shopping) do
-            rows[#rows + 1] = {
-                kind = "row", h = PD.ROW_H1, col = 2, it = { s[1] },
-                text = FitR(DG.ItemName(s[1])), right = format("×%d", s[2] or 0),
-            }
-        end
-        rows[#rows + 1] = { kind = "row", h = PD.ROW_H1, col = 2,
-                            text = L["合计"], right = format(L["%d 件"], total) }
-    end
-    if lv.parts and #lv.parts > 0 then
-        PushGap(rows, 8, 2)
-        PushHead(rows, format(L["半成品（%d 种）"], #lv.parts), 2)
-        for _, id in ipairs(lv.parts) do
-            rows[#rows + 1] = { kind = "row", h = PD.ROW_H1, col = 2, it = { id },
-                                text = FitR(DG.ItemName(id)) }
-        end
-    end
-    if lv.sold and #lv.sold > 0 then
-        PushGap(rows, 8, 2)
-        PushHead(rows, L["商人直卖（无需自采）"], 2)
-        for _, id in ipairs(lv.sold) do
-            rows[#rows + 1] = { kind = "row", h = PD.ROW_H1, col = 2, it = { id },
-                                text = FitR(DG.ItemName(id)) }
-        end
-    end
+    -- 2026-10-09 v2：旧右栏（要准备的材料 / 半成品 / 商人直卖 / 购物清单跳转提示）
+    -- 整体退役 —— 内容全部收进「购物清单」子页（RowsAutoShop，固定 / 自动共用）。
 end
 
-function PD.RowsLegacy(rows)
-    local p = D.pro[PD.cur]
-    if not (p and p.perks) then return end
-    PushHead(rows, L["传承特权（13 个专业共用同一批，按 id 引用）"])
-    for _, pid in ipairs(p.perks) do
-        local pk = D.perks[pid]
-        if pk then
-            local open = PD.perkOpen[pid]
-            local lines = { { pk[6] or "" } }
-            if pk[8] then
-                for _, u in ipairs(pk[8]) do lines[#lines + 1] = { u, 0.9, 0.7, 0.4 } end
-            end
-            rows[#rows + 1] = {
-                kind = "row", icon = pk[2], text = pk[1] or "?",
-                sub = (pk[6] or ""):sub(1, 90),
-                right = format(L["满级 %s"], tostring(pk[4])),
-                right2 = open and L["收起逐级文本"]
-                                  or format(L["展开 %d 级文本"], #(pk[5] or {})),
-                lines = lines,
-                act = function()
-                    PD.perkOpen[pid] = not PD.perkOpen[pid]
-                    PD.Render()
-                end,
-            }
-            if open and pk[5] then
-                for i, t in ipairs(pk[5]) do
-                    rows[#rows + 1] = { kind = "text", text = format("%d. %s", i, t),
-                                        color = C_TEXT }
-                end
-            end
-        end
-    end
-end
+-- ── 自动路线 · 购物清单子页（2026-10-08）────────────────────────────────────
+-- 材料聚合 + 底部合计（金额唯一出处，路线页不再放合计）+ 一键导入拍卖行插件
+-- ── 购物清单子页（2026-10-09 v2）：固定 / 自动共用 ─────────────────────────
+-- 顶部汇总块 = 预计总花费 + 一键导入按钮 + 材料合计（原底部「合计」行整体上移）；
+-- 主表 = 材料 | ×数量·单价 | 小计；其下：图纸（一次性）/ 半成品 / 商人直卖。
+-- data：auto → RA.Compute 结果；fixed → FixedShopData 聚合。无价格数据只显示数量。
+-- ── 购物清单子页（2026-10-09 三轮定稿 B 版 · 四轮修订）：经典两栏 ───────────
+-- 左列（宽，SHOP_SPLIT=0.62）：材料四列表（材料 | ×数量·单价 | 小计；商人直售材料
+--   名称旁「直售」徽标）+ 图纸（一次性）；
+-- 右列（窄）：金币卡（总共需要 + 三行分类合计 + 一键导入）
+--   + 产物收益卡（产物丢拍卖行 / 直接卖给NPC / 净花费）。
+--   四轮：半成品 / 商人直卖两段退役（用户定稿）。
+-- data：auto → RA.Compute 结果；fixed → FixedShopData 聚合。无价格数据只显示数量。
+function PD.RowsAutoShop(rows, data)
+    local mode = data.mode or "auto"
+    local mats = data.mats or {}
+    local lw = PD.splitLW or PD.COL_LW
+    local priced = data.priced and true or false
 
-function PD.RowsNotes(rows)
-    if PD.cur == "__index" then
-        PushHead(rows, L["怎么读这份手册"])
-        PushText(rows, L["左侧选专业、右侧切子页。子页按数据是否存在自动启用：采集类没有配方与升级路线（但有节点表），营地系统只有营地和说明。物品名与图标全部由客户端提供，客户端还没加载到的会先显示占位、随后自动补上。"], 12)
-        PushGap(rows)
-        PushHead(rows, L["数据版本"])
-        PushText(rows, format(L["build %s · 更新于 %s"],
-                              tostring(D.build or "?"), tostring(D.updated or "?")), 12)
-        PushGap(rows)
-        PushHead(rows, L["状态标签说明"])
-        local seen, list = {}, {}
-        for _, slug in ipairs(D.order or {}) do
-            local p = D.pro[slug]
-            if p and p.status and not seen[p.status] then
-                seen[p.status] = true
-                list[#list + 1] = p.status
-            end
-        end
-        for _, st in ipairs(list) do
-            rows[#rows + 1] = { kind = "text", text = "· " .. st, color = C_GREY }
-        end
+    local title
+    if mode == "auto" then
+        title = L["购物清单（自动路线）"]
+    else
+        title = format(L["购物清单（固定路线 1–%d）"], data.target or 300)
+    end
+    if #mats == 0 then
+        PushHead(rows, title, 1)
+        PushText(rows, L["没有需要准备的材料。"], 12, C_GREY, 1)
         return
     end
-    local p = D.pro[PD.cur]
-    if not p then return end
-    PushHead(rows, L["状态"])
-    rows[#rows + 1] = {
-        kind = "row", h = PD.ROW_H1, text = p.status or L["未标注"],
-        right = p.kind or "",
-    }
-    local function Block(title, list, color)
-        if not (list and #list > 0) then return end
-        PushGap(rows)
-        PushHead(rows, title)
-        for _, t in ipairs(list) do PushText(rows, "· " .. t, 12, color) end
+
+    -- ── 左列：材料主表 ──
+    PushHead(rows, title, 1)
+    PushHead(rows, format(L["材料（%d 种）"], #mats), 1)
+    local firstAt = data.firstAt or {}
+    for _, e in ipairs(mats) do
+        local id, n = e[1], e[2]
+        local fa = firstAt[id]
+        local seg
+        if fa then
+            for _, st in ipairs(data.steps or {}) do
+                if st[1] <= fa and fa <= st[2] then seg = st break end
+            end
+        end
+        local sub
+        if seg then sub = format(L["首用于 %d–%d 段"], seg[1], seg[2]) end
+        -- 商人直售材料：名称旁打绿色「直售」徽标（HUD 药丸样式），sub 不再写文字（2026-10-09 四轮）
+        local tag = e.vendor and { text = L["直售"] } or nil
+        local right, right2
+        if priced and not e.unpriced then
+            right = format(L["×%d · %s"], n or 0, RA.MoneyStr(e.unit, "copper"))
+            right2 = RA.MoneyStr(e.cost, "copper")
+        else
+            right = format("×%d", n or 0)
+            right2 = e.unpriced and L["价格未知"] or nil
+        end
+        local tip = { { format(L["需要：%d"], n or 0) },
+                      e.unpriced
+                          and { L["价格未知（Auctionator 无记录）"], 0.95, 0.75, 0.4 }
+                          or { format(L["约 %s"], RA.MoneyStr(e.cost, "copper")), 1, 0.82, 0 },
+                      { sub or "", 0.7, 0.7, 0.7 } }
+        if e.vendor then
+            tip[#tip + 1] = { L["商人直售（军需官处直购，无需拍卖行）"], 0.42, 0.94, 0.62 }
+        end
+        rows[#rows + 1] = {
+            kind = "row", h = PD.ROW_H, col = 1, it = { id },
+            text = PD.Fit(DG.ItemName(id), 13, lw - 130),
+            sub = sub,
+            tag = tag,
+            right = right,
+            right2 = right2,
+            lines = tip,
+        }
     end
-    Block(L["要点"], p.tips)
-    Block(L["待核实"], p.verify, { 0.95, 0.78, 0.35 })
-    Block(L["未收录"], p.unknowns, C_GREY)
-    if p.steps and #p.steps > 0 then
-        PushGap(rows)
-        PushHead(rows, p.steps_title or L["怎么开始"])
-        if p.steps_note then PushText(rows, p.steps_note, 12, C_GREY) end
-        for i, st in ipairs(p.steps) do
+
+    -- ── 左列：图纸（一次性）──
+    local fl = data.formulas or {}
+    if #fl > 0 then
+        PushGap(rows, 8, 1)
+        PushHead(rows, format(L["图纸（一次性）（%d 个）"], #fl), 1)
+        for _, f in ipairs(fl) do
+            local sub
+            if f.spell then sub = format(L["配方：%s"], SpellName(f.spell)) end
+            if f.vendor then
+                sub = sub and (sub .. L[" · 商人可购"]) or L["商人可购"]
+            end
             rows[#rows + 1] = {
-                kind = "row", text = format("%d. %s", i, st[1] or ""), sub = st[2] or "",
-                lines = { { st[1] or "" }, { st[2] or "", 0.85, 0.85, 0.85 } },
+                kind = "row", h = PD.ROW_H, col = 1, it = { f.id },
+                text = PD.Fit(DG.ItemName(f.id) or L["未知图纸"], 13, lw - 130),
+                sub = sub,
+                right = "×1",
+                right2 = (priced and not f.unpriced) and RA.MoneyStr(f.cost, "copper") or L["价格未知"],
+                lines = { { L["图纸只买一次，已计入合计"], 1, 0.82, 0 },
+                          f.unpriced
+                              and { L["价格未知（Auctionator 无记录）"], 0.95, 0.75, 0.4 }
+                              or { format(L["约 %s"], RA.MoneyStr(f.cost, "copper")), 1, 0.82, 0 } },
             }
         end
     end
-    if p.racials and #p.racials > 0 then
-        PushGap(rows)
-        PushHead(rows, L["种族相关"])
-        for _, rc in ipairs(p.racials) do PushText(rows, "· " .. (rc[3] or ""), 12) end
+
+    -- ── 右列：金币卡（sec 组 + 金色底）──
+    local totalN = 0
+    for _, e in ipairs(mats) do totalN = totalN + (e[2] or 0) end
+    -- 快照年龄：秒级真实扫描时间戳优先，天级库差回退
+    local snapSec, snapDays = data.snapshotAge, data.snapshotDays
+    -- 2026-10-10 用户：右列两张金卡整体下移 8（h=8>4 不进金卡底色标记，纯位移）
+    PushGap(rows, 8, 2)
+    PushHead(rows, L["总共需要"], 2)
+    if priced then
+        PushText(rows, RA.MoneyStr(data.total, "copper"), 20, C_GOLD, 2)
+    else
+        PushText(rows, L["价格数据不可用（安装并扫描 Auctionator 后显示金币）"], 12, C_GREY, 2)
+    end
+    PushText(rows, format(L["共 %d 种材料 · 合计 %d 件"], #mats, totalN), 11, C_GREY, 2)
+    local atxt
+    if snapSec then
+        if snapSec < 60 then
+            atxt = L["价格快照：刚刚（Auctionator）"]
+        elseif snapSec < 90 * 60 then
+            atxt = format(L["价格快照 %d 分钟前（Auctionator）"], math.max(1, math.floor(snapSec / 60 + 0.5)))
+        elseif snapSec < 48 * 3600 then
+            atxt = format(L["价格快照 %d 小时前（Auctionator）"], math.max(1, math.floor(snapSec / 3600 + 0.5)))
+        else
+            atxt = format(L["价格快照 %d 天前（Auctionator）"], math.floor(snapSec / 86400 + 0.5))
+        end
+    elseif snapDays then
+        atxt = (snapDays <= 0) and L["价格快照：今天（Auctionator）"]
+               or format(L["价格快照 %d 天前（Auctionator）"], snapDays)
+    else
+        atxt = L["价格快照年龄未知（Auctionator）"]
+    end
+    PushText(rows, atxt, 11, C_GREY, 2)
+    if priced then
+        -- 三行分类合计（2026-10-09 三轮）：拍卖行 / 图纸 / 商人直售，相加 = 总共需要
+        rows[#rows + 1] = { kind = "row", h = PD.ROW_H1, col = 2,
+                            text = L["拍卖行购入"], right = RA.MoneyStr(data.ahTotal or 0, "copper") }
+        rows[#rows + 1] = { kind = "row", h = PD.ROW_H1, col = 2,
+                            text = L["图纸购入"], right = RA.MoneyStr(data.formulasTotal or 0, "copper") }
+        rows[#rows + 1] = { kind = "row", h = PD.ROW_H1, col = 2,
+                            text = L["商人直售购入"], right = RA.MoneyStr(data.vendorTotal or 0, "copper") }
+        local np = CountUnpriced(data)
+        if np > 0 then
+            PushText(rows, format(L["含无价材料 %d 种：总花费为估算下限"], np), 11,
+                     { 0.95, 0.75, 0.4 }, 2)
+        end
+    end
+    rows[#rows + 1] = {
+        kind = "row", h = PD.ROW_H1, col = 2,
+        text = L["一键导入 Auctionator →"],
+        lines = { { L["点击在 Auctionator 生成购物清单；同名清单会被覆盖"], 1, 0.82, 0 } },
+        act = function() PD.ShopImport(data) end,
+    }
+    -- 金币卡组打 sec + goldSec → PaintRows 用金色底卡片包住（含头行与导入行之间的 gap）
+    PD.hasSecs = true
+    for i = #rows, 1, -1 do
+        local sp = rows[i]
+        if sp.kind == "gap" and sp.col == 2 and sp.h <= 4 then
+            sp.sec = 1
+            sp.goldSec = true
+        elseif sp.kind ~= "gap" and sp.col == 2 then
+            sp.sec = 1
+            sp.goldSec = true
+        else
+            break
+        end
+    end
+    PD.secCount = 1
+
+    -- ── 右列：产物收益卡（2026-10-09 四轮；第二张金卡，与金币卡净距 8）──
+    if priced then
+        -- 与上方金币卡之间的净距 = 卡片净距标准 8（PD.SEC_GAP，2026-09-24 定稿）。
+        -- 相邻两张 sec 金卡：上卡底边 = 行底 + SEC_PAD，下卡顶边 = 行顶 − SEC_PAD，
+        -- 之间还有一次行推进 +2 ⇒ 净距 = gap + 2 − 2*SEC_PAD。要净距 = SEC_GAP
+        -- 即 gap = SEC_GAP + 2*SEC_PAD − 2 = 14 —— 别在这里另写死间距数。
+        -- （PD.OV_GUT = SEC_GAP + 2*SEC_PAD 只用于跨列外槽；拿它当本处间距净距会变 10。）
+        PushGap(rows, PD.SEC_GAP + 2 * PD.SEC_PAD - 2, 2)
+        PushHead(rows, L["产物收益"], 2)
+        -- 产物丢拍卖行收益 / 直接卖给NPC收益（数据层 SummarizeCore 按产物 itemID × 产量 × 次数累计）
+        rows[#rows + 1] = { kind = "row", h = PD.ROW_H1, col = 2,
+                            text = L["产物丢拍卖行收益"],
+                            right = RA.MoneyStr(data.productAH or 0, "copper") }
+        rows[#rows + 1] = { kind = "row", h = PD.ROW_H1, col = 2,
+                            text = L["直接卖给NPC收益"],
+                            right = RA.MoneyStr(data.productNPC or 0, "copper") }
+        -- 净花费 = 总共需要 − 产物丢拍卖行收益（负数 = 倒卖还净赚）
+        local net = (data.total or 0) - (data.productAH or 0)
+        if net >= 0 then
+            rows[#rows + 1] = { kind = "row", h = PD.ROW_H1, col = 2,
+                                text = L["净花费（产物丢拍卖行）"],
+                                right = RA.MoneyStr(net, "copper") }
+        else
+            rows[#rows + 1] = { kind = "row", h = PD.ROW_H1, col = 2,
+                                text = L["净花费（产物丢拍卖行）"],
+                                right = format(L["净赚 %s"], RA.MoneyStr(-net, "copper")) }
+        end
+        if data.productPartial then
+            PushText(rows, L["部分产物无拍卖行价格：收益为估算下限"], 11,
+                     { 0.95, 0.75, 0.4 }, 2)
+        end
+        PushGap(rows, 2, 2)
+        -- 第二张金卡组标记（金币卡 = 组 1，本卡 = 组 2；组间 gap=OV_GUT 断链）
+        for i = #rows, 1, -1 do
+            local sp = rows[i]
+            if sp.kind == "gap" and sp.col == 2 and sp.h <= 4 then
+                sp.sec = 2
+                sp.goldSec = true
+            elseif sp.kind ~= "gap" and sp.col == 2 then
+                sp.sec = 2
+                sp.goldSec = true
+            else
+                break
+            end
+        end
+        PD.secCount = 2
+    end
+end
+
+-- 购物清单导入拍卖行插件（材料 + 图纸；固定 / 自动共用）
+function PD.ShopImport(data)
+    local AB = ns.AuctionBridge
+    if not (AB and AB.DoImport) then return end
+    local p = D.pro[PD.cur]
+    local items = {}
+    for _, e in ipairs(data.mats or {}) do
+        local nm = DG.ItemName(e[1])
+        if nm then items[#items + 1] = { name = nm, need = e[2] } end
+    end
+    for _, f in ipairs(data.formulas or {}) do
+        local nm = DG.ItemName(f.id)
+        if nm then items[#items + 1] = { name = nm, need = 1 } end
+    end
+    AB.DoImport(p and p.name or "?", items)
+end
+
+-- ── 升级页签工具行（2026-10-10 B1 改版）：模式 / 总花费 / 目标等级 / 价格快照
+--    收进顶部信息卡（PD.PaintLvTiles）；工具行只剩 视图切换 + 重算。 ──────
+function PD.LevelTool()
+    local list = {
+        -- 间距走默认 TOOL_GAP=8（2026-10-10 标准：按钮↔按钮/组↔组全 8，
+        -- 对齐掉落页显示方式切换组 LOOT_VIEW_GAP 同款口径），不写死 2/14。
+        { key = "page_route", text = L["路线"],     on = PD.autoPage ~= "shop" },
+        { key = "page_shop",  text = L["购物清单"], on = PD.autoPage == "shop" },
+        { key = "recalc",     text = L["重新计算"] },
+    }
+    return list, function(k)
+        if k == "page_route" then
+            PD.autoPage = "route"
+        elseif k == "page_shop" then
+            PD.autoPage = "shop"
+        elseif k == "recalc" then
+            if RA then RA.Invalidate() end
+        end
+        PD.Render()
     end
 end
 
@@ -2344,17 +5296,34 @@ function PD.RowsSettings(rows)
           desc = L["上下限跨着当前技能的段落（如下一个要练的 15~58）加一圈主题色外框"],
           d1 = L["开启后：下一个要练的段落四周显示一圈主题绿描边，一眼定位当前制作路线；外框只是描边，不影响行内容与点击。"],
           d2 = L["关闭后：不显示外框，该段落样式与其他行一致。"] },
+        { k = "autoRoute", name = L["自动计算路线（按拍卖行价格）"],
+          desc = L["关闭 = 显示固定路线；开启 = 依据 Auctionator 价格计算最省钱的制作路线"],
+          d1 = L["需要安装 Auctionator 并完成一次拍卖行扫描；不可用时自动回落固定路线。"],
+          d2 = L["路线与购物清单在「升级」页签顶部的按钮切换。"] },
+        { k = "autoOnlyAH", name = L["只使用拍卖行可购材料的配方"],
+          desc = L["材料在拍卖行/商人都查不到价格时，该配方不参与计算（商人直售材料不受限）"],
+          d1 = L["开启：路线更可靠，但可能出现无配方可用的缺口区间。"],
+          d2 = L["关闭：缺口区间会改用无价材料的配方补位，花费按已知价格估算（行内打 ? 标记）。"] },
+        { k = "autoNoFormula", name = L["排除需要图纸的配方"],
+          desc = L["跳过掉落图纸类配方；图纸可从商人购买的配方仍会使用"],
+          d1 = L["开启：只使用训练师直学与商人图纸配方，开荒最稳。"],
+          d2 = L["关闭：掉落图纸配方也会参与，可能更便宜但要自己刷图纸。"] },
+        { k = "autoLearnedOnly", name = L["仅使用已学习的配方"],
+          desc = L["只在本角色已学会的配方中挑选"],
+          d1 = L["开启：路线里的每一段都能立刻开做。"],
+          d2 = L["关闭：按「学会全部候选配方」的理想情况计算。"] },
+        { k = "autoFromCurrent", name = L["从当前技能开始计算"],
+          desc = L["开启 = 只算当前技能到 300 的路线；关闭 = 从 1 全量重算整条路线（预估全程花费）"],
+          d1 = L["开启：适合练级中途打开手册直接照着做。"],
+          d2 = L["关闭：查看从零开始的最优路线与总花费。"] },
     }
     for _, d in ipairs(defs) do
         rows[#rows + 1] = {
             kind = "row", h = 40, col = 1,
             text = d.name,
-            sub = d.desc,
             togKey = d.k,
-            lines = { { d.name }, { d.desc, 0.7, 0.7, 0.7 }, { d.d1, 0.7, 0.7, 0.7 }, { d.d2, 0.7, 0.7, 0.7 } },
+            help = { { d.name }, { d.desc, 0.7, 0.7, 0.7 }, { d.d1, 0.7, 0.7, 0.7 }, { d.d2, 0.7, 0.7, 0.7 } },
         }
-        PushText(rows, d.d1, 11, C_GREY)
-        PushText(rows, d.d2, 11, C_GREY)
         PushGap(rows, 6)
     end
 end
@@ -2364,24 +5333,267 @@ function PD.PlaceSettingsToggles(rows)
     local ti = 0
     for i = 1, n do
         local spec = rows[i]
-        if PD.setOpen and spec.togKey then
+        local rr = PD.rows[i]
+        if PD.setOpen and spec.togKey and rr then
             ti = ti + 1
             local tg = PD.setToggles[ti]
             tg:ClearAllPoints()
-            tg:SetPoint("RIGHT", PD.rows[i], "RIGHT", -8, 0)
-            tg:SetFrameLevel((PD.rows[i]:GetFrameLevel() or 0) + 10)
+            tg:SetPoint("RIGHT", rr, "RIGHT", -8, 0)
+            tg:SetFrameLevel((rr:GetFrameLevel() or 0) + 10)
             tg:SetChecked(PD.Setting(spec.togKey))
             tg.__key = spec.togKey
             tg:Show()
+            local hp = PD.setHelps[ti]
+            if hp then
+                hp:ClearAllPoints()
+                hp:SetPoint("LEFT", rr.a, "RIGHT", 6, -1)
+                hp:SetFrameLevel((rr:GetFrameLevel() or 0) + 10)
+                hp.__tip = spec.help
+                hp:SetShown(spec.help and true or false)
+            end
         end
     end
     for j = ti + 1, #PD.setToggles do PD.setToggles[j]:Hide() end
+    for j = ti + 1, #PD.setHelps do PD.setHelps[j]:Hide() end
+end
+
+-- ══ 板条箱 / 工匠文书（2026-10-11）══════════════════════════════════════
+-- 左列 = 目录行（单选，金描边 = RowBorder），右列 = 选中条目详情。
+-- 价格走 RA 只读口（价格插件扫描）；名字 / 图标运行期由客户端给出。
+
+PD.CRATE_SPLIT = 0.44   -- 左列目录宽占比（右列详情吃剩余）
+PD.crateSel = nil       -- 选中箱（crate.id）
+PD.writSel = nil        -- 选中文书（writ.quest）
+PD.crateSortPrice = true -- 默认按最省凑法成本从低到高（2026-10-11 用户定）
+PD.writSortPrice = true  -- 默认按拍卖总价从低到高（2026-10-11 用户定）
+
+local CRATE_TIERS = { L["学徒"], L["熟练"], L["专家"], L["工匠"] }
+local CRATE_GREEN = { 0.25, 0.85, 0.25 }
+
+local function CrateOptCost(itemId, qty)
+    local p = RA.AHPriceOf and RA.AHPriceOf(itemId) or nil
+    if not p then return nil end
+    return p * (qty or 1)
+end
+
+local function CrateSnapText()
+    if not (RA.HasPriceData and RA.HasPriceData()) then
+        return L["价格数据不可用（安装并扫描 Auctionator 后显示金币）"]
+    end
+    local sec = RA.SnapshotAge and RA.SnapshotAge() or nil
+    if not sec then return L["价格快照年龄未知（Auctionator）"] end
+    if sec < 60 then return L["价格快照：刚刚（Auctionator）"] end
+    if sec < 90 * 60 then
+        return format(L["价格快照 %d 分钟前（Auctionator）"], math.max(1, math.floor(sec / 60 + 0.5)))
+    end
+    if sec < 48 * 3600 then
+        return format(L["价格快照 %d 小时前（Auctionator）"], math.max(1, math.floor(sec / 3600 + 0.5)))
+    end
+    return format(L["价格快照 %d 天前（Auctionator）"], math.floor(sec / 86400 + 0.5))
+end
+
+local function CrateMetaRow(rows, label, val, valOk)
+    rows[#rows + 1] = {
+        kind = "row", col = 2, h = PD.ROW_H1,
+        text = label,
+        right = valOk and RA.MoneyStr(val) or "—",
+        rightColor = valOk and C_TEXT or C_GREY,
+    }
+end
+
+function PD.CrateRows(rows)
+    local list = CD.crates or {}
+    if not PD.crateSel and list[1] then PD.crateSel = list[1].id end
+    local sel = PD.crateSel
+    -- 2026-10-11 用户定：列表右列 = 总价 = 箱本体拍卖价 + 最省凑法材料价（任一缺 → 空白）
+    local bests = {}
+    for i, c in ipairs(list) do
+        local own = RA.AHPriceOf and RA.AHPriceOf(c.id) or nil
+        local mat
+        for _, o in ipairs(c.opts or {}) do
+            local v = CrateOptCost(o[1], o[2])
+            if v and (not mat or v < mat) then mat = v end
+        end
+        bests[i] = (own and mat) and (own + mat) or nil
+    end
+    -- 排序图标 —— 开 = 本体价从低到高（无价垫底）；关 = 默认档位序
+    local order = {}
+    for i = 1, #list do order[i] = i end
+    if PD.crateSortPrice then
+        table.sort(order, function(a, b)
+            local ca, cb = bests[a], bests[b]
+            if ca and cb then return ca < cb end
+            if ca or cb then return ca ~= nil end
+            return (list[a].id or 0) < (list[b].id or 0)
+        end)
+    end
+    rows[#rows + 1] = { kind = "colhead", col = 1, h = PD.TEXT_H,
+                        text = L["名称"], right = L["总价格"],
+                        sortOn = PD.crateSortPrice == true,
+                        act = function()
+                            if PD.crateSortPrice then PD.crateSortPrice = nil else PD.crateSortPrice = true end
+                            PD.Render()
+                        end }
+    for _, i in ipairs(order) do
+        local c = list[i]
+        local best = bests[i]
+        rows[#rows + 1] = {
+            kind = "row", col = 1, h = PD.ROW_H,
+            it = { c.id }, qItem = c.id,
+            text = PD.ItemName(c.id),
+            sub = CRATE_TIERS[c.tier] or "?",
+            right = best and RA.MoneyStr(best) or "",
+            rightColor = best and C_TEXT or C_GREY,
+            cur = (c.id == sel),
+            act = function()
+                if PD.crateSel ~= c.id then PD.crateSel = c.id; PD.Render() end
+            end,
+        }
+    end
+    local sc
+    for _, c in ipairs(list) do if c.id == sel then sc = c break end end
+    if not sc then return end
+    PushHead(rows, PD.ItemName(sc.id), 2, 16)
+    local favTxt = sc.favor and format(L["声望 +%d"], sc.favor) or L["声望未验证"]
+    PushText(rows, favTxt .. format(L[" · 需等级 %d"], sc.level or 0), 12, C_GREY, 2)
+    local own = RA.AHPriceOf and RA.AHPriceOf(sc.id) or nil
+    CrateMetaRow(rows, L["自身成本"], own, own)
+    PushGap(rows, 6, 2)
+    PushHead(rows, L["凑法（任满其一）"], 2)
+    local opts, cheapest, cheapestOpt = {}, nil, nil
+    for _, o in ipairs(sc.opts or {}) do opts[#opts + 1] = o end
+    for _, o in ipairs(opts) do
+        local v = CrateOptCost(o[1], o[2])
+        if v and (not cheapest or v < cheapest) then cheapest, cheapestOpt = v, o end
+    end
+    table.sort(opts, function(a, b)
+        local ca, cb = CrateOptCost(a[1], a[2]), CrateOptCost(b[1], b[2])
+        if ca and cb then return ca < cb end
+        if ca or cb then return ca ~= nil end
+        return a[1] < b[1]
+    end)
+    for _, o in ipairs(opts) do
+        local v = CrateOptCost(o[1], o[2])
+        local isBest = cheapestOpt and o[1] == cheapestOpt[1] and o[2] == cheapestOpt[2]
+        rows[#rows + 1] = {
+            kind = "row", col = 2, h = PD.ROW_H1,
+            it = { o[1] }, qItem = o[1],
+            text = PD.ItemName(o[1]) .. " ×" .. (o[2] or 1),
+            right = v and RA.MoneyStr(v) or "—",
+            rightColor = isBest and CRATE_GREEN or (v and C_TEXT or C_GREY),
+            tipExtra = function() return PD.PriceTipLines(o[1]) end,
+        }
+    end
+    PushGap(rows, 6, 2)
+    local total = (own and cheapest) and (own + cheapest) or nil
+    CrateMetaRow(rows, L["合计"], total, total)
+    PushText(rows, CrateSnapText(), 11, C_GREY, 2)
+end
+
+function PD.WritRows(rows)
+    local list = CD.writs or {}
+    local order, priced = {}, {}
+    for i = 1, #list do
+        order[i] = i
+        -- 2026-10-11 用户定：成本列 = 总价 = 文书本体拍卖价 + 交付物材料价×数量（任一缺 → 空白）
+        local wid = list[i].item or list[i].target
+        local own = RA.AHPriceOf and RA.AHPriceOf(wid) or nil
+        local mu = RA.AHPriceOf and RA.AHPriceOf(list[i].target) or nil
+        priced[i] = (own and mu) and (own + mu * (list[i].qty or 1)) or nil
+    end
+    table.sort(order, function(a, b)
+        local wa, wb = list[a], list[b]
+        -- 2026-10-11 用户：排序按钮 —— 开 = 拍卖价从低到高（无价垫底）；关 = 默认声望降序
+        if PD.writSortPrice then
+            local ca, cb = priced[a], priced[b]
+            if ca and cb then return ca < cb end
+            if ca or cb then return ca ~= nil end
+            return (wa.target or 0) < (wb.target or 0)
+        end
+        if (wa.rep or 0) ~= (wb.rep or 0) then return (wa.rep or 0) > (wb.rep or 0) end
+        local ca, cb = priced[a], priced[b]
+        if ca and cb then return ca < cb end
+        if ca or cb then return ca ~= nil end
+        return (wa.target or 0) < (wb.target or 0)
+    end)
+    if not PD.writSel and list[order[1]] then
+        PD.writSel = list[order[1]].quest or list[order[1]].target
+    end
+    local sel = PD.writSel
+    rows[#rows + 1] = { kind = "colhead", col = 1, h = PD.TEXT_H,
+                        text = L["工匠文书"], right = L["总价格"],
+                        sortOn = PD.writSortPrice == true,
+                        act = function()
+                            if PD.writSortPrice then PD.writSortPrice = nil else PD.writSortPrice = true end
+                            PD.Render()
+                        end }
+    for _, i in ipairs(order) do
+        local w = list[i]
+        local v = priced[i]
+        local wid = w.item or w.target   -- 2026-10-11 用户定：行显示工匠文书物品本体（参考插件同构）
+        rows[#rows + 1] = {
+            kind = "row", col = 1, h = PD.ROW_H,
+            it = { wid }, qItem = wid,
+            text = PD.ItemName(wid),
+            sub = format(L["声望 +%d"], w.rep or 0),
+            right = v and RA.MoneyStr(v) or "",
+            rightColor = v and C_TEXT or C_GREY,
+            cur = ((w.quest or w.target) == sel),
+            act = function()
+                local key = w.quest or w.target
+                if sel ~= key then PD.writSel = key; PD.Render() end
+            end,
+        }
+    end
+    local sw
+    for _, i in ipairs(order) do
+        local w = list[i]
+        if (w.quest or w.target) == sel then sw = w break end
+    end
+    if not sw then return end
+    PushHead(rows, PD.ItemName(sw.item or sw.target), 2, 16)
+    PushText(rows, format(L["声望 +%d · 需等级 %d"], sw.rep or 0, sw.level or 0), 12, C_GREY, 2)
+    PushGap(rows, 6, 2)
+    -- 2026-10-11 用户定：详情 = 文书物品本体拍卖价置顶；下方保留交付物（需交材料）成本段
+    local wu = RA.AHPriceOf and RA.AHPriceOf(sw.item or sw.target) or nil
+    CrateMetaRow(rows, L["自身成本"], wu, wu)
+    rows[#rows + 1] = {
+        kind = "row", col = 2, h = PD.ROW_H1,
+        text = L["需求数量"], right = "×" .. (sw.qty or 1), rightColor = C_GREY,
+    }
+    local u = RA.AHPriceOf and RA.AHPriceOf(sw.target) or nil
+    CrateMetaRow(rows, L["拍卖单价"], u, u)
+    CrateMetaRow(rows, L["总花费"], u and u * (sw.qty or 1) or nil, u)
+    local sell = RA.NPCSellPriceOf and RA.NPCSellPriceOf(sw.target) or nil
+    CrateMetaRow(rows, L["卖店价"], sell, sell)
+    local total = (wu and u) and (wu + u * (sw.qty or 1)) or nil
+    CrateMetaRow(rows, L["合计"], total, total)
+    PushGap(rows, 6, 2)
+    PushText(rows, CrateSnapText(), 11, C_GREY, 2)
+end
+
+function PD.RowsCrates(rows)
+    if not CD then
+        PushText(rows, L["暂时没有客户端数据"], 12, C_GREY)
+        return
+    end
+    PD.lvSplit = true
+    PD.splitLW = math.floor((PD.RIGHT_W - 2 * PD.LIST_PAD - PD.OV_GUT) * PD.CRATE_SPLIT)
+    PD.splitRW = PD.RIGHT_W - 2 * PD.LIST_PAD - PD.OV_GUT - PD.splitLW
+    if PD.tab == "writ" then
+        PD.WritRows(rows)
+    else
+        PD.CrateRows(rows)
+    end
 end
 
 function PD.Render()
     if not (PD.built and PD.page) or not PD.cur then return end
+    -- ★ 每次渲染清空物品名记忆表（同一次渲染内名字不会变；到货后的重扫会再清）
+    PD.ResetItemNameMemo()
     PD.PickNav()
     PD.PickTabs()
+    RememberLast()   -- 2026-10-10：当前显示状态即「上次离开页」，落库供下次还原
 
     local rows = {}
     local tool, handler = {}, nil
@@ -2393,52 +5605,94 @@ function PD.Render()
     PD.splitLW, PD.splitRW = nil, nil
     PD.hideDivider = false
     PD.secCount = 0
+    -- ★ 上一轮排下、还没建的行必须丢掉（玩家已经点到别的专业 / 别的子页签了），
+    --   否则它们会在新页面上冒出来。
+    PD.__pendRows = {}
+    -- ★★ 第二道闸（2026-10-09）：切页/切专业时把**整池行 + 两个卡池**全收起来。
+    --   行池是跨页共用的：上一页画过的行不会自己消失，原先只靠 PaintRows 末尾那句
+    --   「藏掉超出本页的行」兜底，而那句用 `#PD.rows` 取上界 —— Lua 的 `#` 遇到
+    --   空洞会**提前截断**（建帧失败 / pcall 兜住的行会让 PD.rows[i] 留 nil），
+    --   尾部那些上一页还在显示中的行就永远藏不掉 ⇒ 「购物清单的材料残留在路线页」。
+    --   这里用 pairs 扫（空洞安全），且**只在页面身份变化时**做：同页重渲
+    --   （到货重扫 / 工具点击）零额外开销。
+    do
+        local pk = tostring(PD.cur) .. "|" .. tostring(PD.tab) .. "|"
+                   .. tostring(PD.autoPage) .. "|" .. tostring(PD.setOpen)
+        if pk ~= PD.__pageKey then
+            PD.__pageKey = pk
+            -- ★ 不只是 Hide：连**内容**一起抹掉（见 PD.WipeRow 的长注释）。
+            for _, rr in pairs(PD.rows) do PD.WipeRow(rr) end
+            if PD.secCards then
+                for i = 1, #PD.secCards do PD.secCards[i]:Hide() end
+                for i = 1, #PD.secGoldCards do PD.secGoldCards[i]:Hide() end
+            end
+        end
+    end
 
     if PD.setOpen then
         PD.RowsSettings(rows)
     elseif PD.tab == "overview" then
-        PD.lvSplit = (PD.cur ~= "__index")
+        PD.lvSplit = false
         PD.wantIndexGrid = (PD.cur == "__index")
-        PD.splitLW = math.floor((PD.RIGHT_W - 2 * PD.LIST_PAD - PD.OV_GUT) * PD.OV_SPLIT)
-        PD.splitRW = PD.RIGHT_W - 2 * PD.LIST_PAD - PD.OV_GUT - PD.splitLW
         PD.hasSecs = true
         PD.hideDivider = true
-        PD.RowsOverview(rows)
-    elseif PD.tab == "camp" then
-        local hasCamp = (D.pro[PD.cur] and D.pro[PD.cur].camp) and true or false
-        if not hasCamp then PD.campView = "bonus" end
-        tool = {}
-        if hasCamp then
-            tool[#tool + 1] = { key = "a", text = L["联盟"], on = PD.campView == "a" }
-            tool[#tool + 1] = { key = "h", text = L["部落"], on = PD.campView == "h" }
-            handler = function(k) PD.campView = k; PD.Render() end
-        end
-        if PD.campView == "bonus" then
-            PD.hasSecs = false
-            PushGap(rows, 6)
-            PushHead(rows, L["全部专业的营地物件档位对照"], nil, 16)
+        if PD.cur == "camping" then
+            PD.campView = "bonus"
             PD.wantBonusTable = true
-        else
-            PD.hasSecs = true
-            PD.RowsCamp(rows, PD.campView)
         end
+        PD.RowsOverview(rows)
     elseif PD.tab == "recipe" then
         tool, handler = PD.RecipeTool(R[PD.cur])
         PD.RowsRecipe(rows)
+    elseif PD.tab == "crate" or PD.tab == "writ" then
+        PD.RowsCrates(rows)
     elseif PD.tab == "gather" then
         PD.gridSplit = (PD.cur == "fishing")
         PD.RowsGather(rows)
     elseif PD.tab == "leveling" then
-        PD.lvSplit = true
+        if PD.GATHER_SLUGS[PD.cur] then
+            PD.lvSplit = false
+            PD.gridSplit = false
+            PD.autoPage = nil   -- 制造页购物清单子页残留清掉
+            PD.RowsGatherRoute(rows)
+        else
+        tool, handler = PD.LevelTool()
+        -- 路线子页单栏（2026-10-09 v2：旧右栏退役，材料/图纸全收进购物清单子页）。
+        -- 购物清单子页（2026-10-09 三轮定稿 B 版）：经典两栏 —— 左列材料+图纸主表，
+        -- 右列金币卡（金色底 + 20px 金字 + 三行分类合计）+ 半成品 + 商人直卖（HUD 直售徽标）。
+        if PD.autoPage == "shop" then
+            PD.lvSplit = true
+            PD.splitLW = math.floor((PD.RIGHT_W - 2 * PD.LIST_PAD - PD.OV_GUT) * PD.SHOP_SPLIT)
+            PD.splitRW = PD.RIGHT_W - 2 * PD.LIST_PAD - PD.OV_GUT - PD.splitLW
+        else
+            PD.lvSplit = false
+        end
         PD.RowsLeveling(rows)
-    elseif PD.tab == "legacy" then
-        PD.RowsLegacy(rows)
+        end
     else
-        PD.RowsNotes(rows)
+        PD.RowsOverview(rows)
     end
 
-    local toolH = PD.PaintTool(tool, handler)
+    local toolH
+    if PD.tab == "leveling" and not PD.setOpen then
+        toolH = PD.PaintLvTiles() + PD.PaintTool(tool, handler, PD.LV_TILE_H + 8)
+    else
+        -- 其它签也要走一次 PaintLvTiles：内部会按 tab 隐藏信息卡（否则残留在其它签）
+        toolH = PD.PaintLvTiles() + PD.PaintTool(tool, handler)
+    end
     PD.Layout(toolH)
+
+    -- 配方搜索框：仅配方页显示（工具行右端，红框位置）
+    if PD.searchBox then
+        if PD.tab == "recipe" and not PD.setOpen then
+            PD.searchBox:ClearAllPoints()
+            PD.searchBox:SetPoint("TOPRIGHT", PD.page, "TOPRIGHT",
+                                  -(PD.CARD_INSET + PD.LIST_PAD), -(PD.BODY_TOP))
+            PD.searchBox:Show()
+        else
+            PD.searchBox:Hide()
+        end
+    end
 
     PD.specs = rows
     PD.truncated = PD.PaintRows(rows)
@@ -2446,15 +5700,94 @@ function PD.Render()
     PD.scroll:SetVerticalScroll(0)
     PD.scroll:Show()
     PD.RequestRows(rows)
+    PD.WarmNames()
+    -- ★★ 第十一刀（rev17）：收尾挂一次**空闲预热** —— 在当前专业上把物品名
+    --   先喂进持久记忆表。用户切到 overview / leveling 的那几百毫秒里，
+    --   配方页那 300 个名字就已经备好了 ⇒ 点开配方页那一帧不再向引擎要名字。
+end
+
+-- ★★ 第十一刀（rev17）：**空闲预热** —— 把「点开配方页那一帧本该付的取名钱」
+--   提前到空闲帧付掉。
+--   一页 300 条配方，PD.ScanRecipe 必须为**列宽**取全部 300 个物品名（数据文件
+--   只存 ID，名字只能问客户端），实机 428 次 GetItemInfo / 4.7ms 全压在「点开
+--   那一瞬间」；而名字一旦到货就不会再变（记忆表已改成跨渲染持久）⇒ 完全可以
+--   在空闲帧先喂一遍：用户点开配方页时 PD.ItemName 全是命中，那一帧的引擎调用归零。
+--   ★ 只在分帧器空闲（not DG.stepping）时才喂 —— 建行永远优先；每帧只一小口。
+--   ★ 跟当前专业走（PD.cur 变了就换目标）；覆盖范围与 PD.RequestRows 一致
+--     （min(#d.rows, ROW_CAP) 行）⇒ 只是把本该付的钱挪到前面，不产生额外请求。
+--   ★ pcall 包住 —— 预热永不许影响正事；出错就静静停下。
+local _warmTok = 0
+local PD_WARM_PER_FRAME = 96
+function PD.WarmId(id)
+    if not id then return end
+    local _, got = PD.ItemName(id)
+    if got then return end
+    if C_Item and C_Item.RequestLoadItemDataByID then
+        pcall(C_Item.RequestLoadItemDataByID, id)
+    end
+    local gi = GetItemInfo or (C_Item and C_Item.GetItemInfo)
+    if type(gi) == "function" then pcall(gi, id) end
+end
+function PD.WarmNames()
+    local d = R[PD.cur]
+    local all = d and d.rows
+    if type(all) ~= "table" or #all == 0 then return end
+    if not (C_Timer and C_Timer.After) then return end
+    _warmTok = _warmTok + 1
+    local tok = _warmTok
+    local i, n = 0, math.min(#all, PD.ROW_CAP)
+    local function feed()
+        if tok ~= _warmTok then return end
+        if DG.stepping then C_Timer.After(0, feed) return end
+        local ok = pcall(function()
+            local budget = PD_WARM_PER_FRAME
+            while i < n and budget > 0 do
+                i = i + 1
+                local r = all[i]
+                if r then
+                    PD.WarmId(r[2])
+                    local ms = r[12]
+                    if ms then
+                        for k = 1, #ms do PD.WarmId(ms[k] and ms[k][1]) end
+                    end
+                end
+                budget = budget - 1
+            end
+        end)
+        if not ok then return end
+        if i < n then C_Timer.After(0, feed) end
+    end
+    C_Timer.After(0, feed)
 end
 
 function PD.RequestRows(rows)
-    if not DG.RequestItem then return end
+    if not DG.ItemName then return end
     local wait = {}
+    -- ★ 按 id 去重（2026-10-09 第二轮）：一页几百条配方，同一种材料跨配方反复出现
+    --   （实测 511 条 => 1349 次请求，去重后只剩唯一 id）。DG.RequestItem 本来就
+    --   靠 DG.__asked 幂等，wait 只被 SweepNames 用来判「有没有任一未到货」⇒
+    --   去重不改变语义，纯省掉重复的函数调用。
+    local seen = {}
     local function want(id)
-        if not id then return end
-        DG.RequestItem(id)
-        if not select(2, DG.ItemName(id)) then wait[#wait + 1] = id end
+        if not id or seen[id] then return end
+        seen[id] = true
+        local hasName = select(2, PD.ItemName(id))
+        if hasName then return end
+        -- ★★ 轻量请求（2026-10-09 第四轮；实机 /dfprofperf 实测）：
+        --   原先这里调 DG.RequestItem(id) —— 那是为**掉落页**写的：每次都往一个
+        --   隐藏 GameTooltip 上 SetItemByID 预热（构建整条 tooltip），再
+        --   Item:CreateFromItemID + ContinueOnItemLoad 注册回调。
+        --   实测点开配方页签 392 次 = 282.7ms，占整次 363.3ms 的 79%。
+        --   配方页只需要**物品名** ⇒ 只请求载入 + 查一次，不建 tooltip、不建 Item 对象。
+        --   名字到货后由 PD.SweepNames（0.5/1.5/4/9s 定时）触发重渲，链路不变。
+        if C_Item and C_Item.RequestLoadItemDataByID then
+            pcall(C_Item.RequestLoadItemDataByID, id)
+        end
+        local gi = GetItemInfo or (C_Item and C_Item.GetItemInfo)
+        if type(gi) == "function" then pcall(gi, id) end
+        -- 名字已到货的**不再请求** ⇒ 天然去重；客户端驱逐缓存后名字退回占位，
+        -- 那时 hasName 又为假 ⇒ 自动重请一次（与 DG.RequestItem 的 force 语义一致）。
+        wait[#wait + 1] = id
     end
     local n = math.min(#rows, PD.ROW_CAP)
     for i = 1, n do
@@ -2467,12 +5800,15 @@ function PD.RequestRows(rows)
 end
 
 function PD.Show(slug)
+    PD.HideVendorPick()   -- 行池复用 + 内容重排：弹窗锚会失主，换专业先收
     if slug ~= PD.cur then
         PD.cur = slug
         PD.toolKey = nil
         PD.campView = "a"
         PD.tab = "overview"
         PD.setOpen = false
+        PD.searchQ = nil
+        if PD.searchBox then PD.searchBox.eb:SetText("") end
     end
     PD.Render()
 end
@@ -2484,14 +5820,959 @@ function PD.SetTab(key)
     PD.Render()
 end
 
+-- 2026-10-10 用户：进专业页默认 = 已学的主要专业（kind=="primary"，与左列按钮同数据源
+--   PD.ProfLearned）；没学任何专业则退到首个导航项。上次去的（专业, 子页签）由
+--   RememberLast 落 DungeonsForeverDB.prof，跨 /reload 记忆，优先级高于默认。
+function PD.DefaultSlug()
+    local learned = PD.ProfLearned()
+    local fallback
+    for _, slug in ipairs(PD.navOrder or {}) do
+        local p = D.pro[slug]
+        if p and not fallback then fallback = slug end
+        if learned[slug] and p and p.kind == "primary" then return slug end
+    end
+    for _, slug in ipairs(PD.navOrder or {}) do
+        if learned[slug] then return slug end
+    end
+    return fallback
+end
+
+function PD.EnsureCur()
+    if PD.cur and PD.cur ~= "__index" then return end
+    local db = ProfDB()
+    local slug = db.lastSlug
+    if not (slug and D.pro[slug]) then slug = PD.DefaultSlug() end
+    if slug then
+        PD.cur = slug
+        PD.toolKey = nil
+        PD.tab = (type(db.lastTab) == "string") and db.lastTab or "overview"
+        PD.setOpen = false
+    end
+end
+
 function PD.Open()
     if not PD.built then return end
-    if not PD.cur then PD.cur = "__index" end
+    PD.EnsureCur()
     PD.Render()
 end
 
 function PD.Refresh()
     if not PD.built then return end
-    if not PD.cur then PD.cur = "__index" end
+    PD.EnsureCur()
     PD.Render()
+end
+
+-- ══ 进度条自检 / 演示（/dfprofgate） ═══════════════════════════════════
+--   ★ 为什么需要这个命令：行池只增不减 —— 同一个专业第二次打开就是复用已经建好的
+--     行帧（真·瞬时，本就不该亮条）。只有「第一次把池子撑大的那个专业」看得见它，
+--     好机器上几乎一闪而过 ⇒ 留一条能随时复现的入口（与 /dfgate 同款）。
+--   ★ 演示做法：把三道闸临时放宽到「必定触发」（多小都亮 / 一律分帧 / 每帧只建 2 行），
+--     再清空行池重新渲染一次 ⇒ 当前专业就把进度条走完一遍。
+--     收工由 PD.EndGateDemo 统一还原（队列抽干是唯一可靠的「活干完了」信号）。
+PD.DEMO_SAVE = nil
+
+function PD.StartGateDemo()
+    if PD.DEMO_SAVE then PD.EndGateDemo() end
+    PD.DEMO_SAVE = {
+        syncMax  = PD.ROW_SYNC_MAX,
+        minSteps = DG.Gate.minSteps,
+        rowCap   = DG.LOOT_ROW_FRAME_CAP,
+    }
+    PD.ROW_SYNC_MAX       = 0     -- 一律走分帧（正式值 20）
+    DG.Gate.minSteps      = 0     -- 多小都亮（正式值 24）
+    DG.LOOT_ROW_FRAME_CAP = 2     -- 每帧只建 2 行 ⇒ 才看得清（正式值 16）
+    -- 清空行池：池子只增不减，不清的话「复用已有行帧」会让待建表为空 ⇒ 进度条照旧不亮
+    for i = #PD.rows, 1, -1 do PD.rows[i]:Hide() end
+    PD.rows = {}
+    PD.Render()
+end
+
+function PD.EndGateDemo()
+    local s = PD.DEMO_SAVE
+    PD.DEMO_SAVE = nil
+    if not s then return end
+    PD.ROW_SYNC_MAX       = s.syncMax
+    DG.Gate.minSteps      = s.minSteps
+    DG.LOOT_ROW_FRAME_CAP = s.rowCap
+end
+
+if type(SlashCmdList) == "table" then
+    SLASH_DUNGEONSFOREVERPROFGATE1 = "/dfprofgate"
+    SlashCmdList["DUNGEONSFOREVERPROFGATE"] = function()
+        if PD.DEMO_SAVE then
+            PD.EndGateDemo()
+            print("|cff46bf72[无限副本手册]|r " .. L["已还原。"])
+            return
+        end
+        if not PD.built or not PD.cur then
+            print("|cff46bf72[无限副本手册]|r "
+                  .. L["先打开一个专业的配方页，再运行这个命令。"])
+            return
+        end
+        PD.StartGateDemo()
+        print("|cff46bf72[无限副本手册]|r "
+              .. L["演示：每帧只建 2 行，进度条会走完一遍。"])
+    end
+end
+
+-- ══ 点开耗时打印（/dfprofperf） ═══════════════════════════════════════════
+--   ★★ 为什么必须在游戏里量：离线桩（lupa）把 GetStringWidth / CreateFrame /
+--      GetItemInfo / 发包全换成了纯 Lua 查表 ⇒ 离线量到的整帧 4.7ms 与实机手感
+--      根本不是一回事。真实卡顿只落在「真实 API」上 —— 字体测量走引擎 C 调用、
+--      建帧走引擎内存分配、物品名要查客户端缓存、发包要走网络层。
+--   ★ 做法：全部在**运行期包函数**，不往 PD.Render 函数体里插一行
+--      （并行会话正在改这个文件，动函数体最容易撞车）。
+--      一次点击 = 9 段计时 + 6 项调用计数：
+--        次数大 ⇒ 该减少调用（省）；单次贵 ⇒ 该换做法（改）。
+--   ★ 默认**关**（2026-10-09 用户：性能打印直接关掉；要复盘 /dfprofperf 一条命令再开）。
+--      只打「慢过 PD.PERF_MIN」的那一次（正常点不刷屏）。
+--      /dfprofperf        开/关
+--      /dfprofperf all    连很快的也打
+--      /dfprofperf scan   把所有专业挨个走一遍配方页，最后给排序表
+--      /dfprofperf bench  微基准：量每个 setter 的实机单价（µs/次）
+--      /dfprofperf off    直接关
+--   ★ 每条报告会附两行分解：
+--      └ 细分（已含在数据里）：扫描 / 建spec / 列宽材料 / 材料串 / 单条spec
+--      └ setter 调用：SetText / SetTextColor 的**次数**（单价由 bench 给）
+PD.PERF     = false
+PD.PERF_MIN = 6
+
+local pfUnpack = unpack
+if not pfUnpack and type(table) == "table" then pfUnpack = table.unpack end
+if not pfUnpack then pfUnpack = function(t) return t[1] end end
+
+local PF_DEPTH, PF_MS, PF_N, PF_WHERE = 0, nil, nil, ""
+local PF_TAIL = nil
+local PF_SCAN = nil
+local PF_SUB, PF_SET = nil, nil   -- 细分计时 / setter 计数（每次入口重置）
+local PF_SKIN0 = nil              -- ★ 第七刀：皮按钮「圆角边框帧重建」的入口快照
+local PF_TB0 = nil                -- ★ 第八刀：TryBuild 调用次数的入口快照
+local PF_STR0 = nil               -- ★ 第九刀：像素条复算的入口快照（次数/耗时/扫描条数）
+local PF_STRM0 = nil
+local PF_STRS0 = nil
+-- ★★ 只放「Render 顶层」调用的段！ScanRecipe / FitRecipeCols 是在 RowsRecipe
+--    内部被调的 ⇒ 它们的时间**已经在「数据」里**，再单列一次就是重复计数
+--    （第一版就踩了：实机打出「数据 40.7 + 扫描 10.8 + 列宽 21.7」其实前一项已含后两项）。
+local PF_ORDER = { "导航", "数据", "工具P", "工具R", "工具L", "信息卡",
+                   "布局", "铺行", "开关", "请求" }
+-- 「量宽」= ns.hui.TextW（真·引擎字体测量，记忆化**命中不算**）；
+-- 「量宽调用」= PD.TextW（含记忆化命中）⇒ 两个一起看能算出缓存命中率。
+-- 「完整预热」= DG.RequestItem（掉落页那套：建 tooltip + CreateFromItemID）；
+-- 「发包」= C_Item.RequestLoadItemDataByID（只请求载入）。
+local PF_KIND  = { "量宽", "量宽调用", "取名", "取名(引擎)", "发包", "完整预热", "建行", "上数据" }
+
+local function pfNow()
+    if type(debugprofilestop) == "function" then return debugprofilestop() end
+    if type(GetTime) == "function" then return GetTime() * 1000 end
+    return 0
+end
+
+local function pfOut(s) print("|cff46bf72[DF性能]|r " .. s) end
+
+-- ★★ 第八刀（rev14）：工具行闸门内部切刀用的记号器。
+--   PD.PaintTool 在**热路径**上 ⇒ 探针关（不在入口里）时 __pfT0 返回 nil，
+--   闸门里一次 pfNow 都不调。起止都用 pfNow()（桩安全），不用 GetTime()。
+--   ★ 必须**运行期动态取**：第七刀把 DG.ItemName 在加载期抓成局部，探针
+--     运行期替换就再也不生效（审计全红），这里不能重犯。
+function PD.__pfT0()
+    if not PF_SUB then return nil end
+    return pfNow()
+end
+
+function PD.__pfMark(tag, t0)
+    if not PF_SUB or not t0 then return end
+    local dt = pfNow() - t0
+    local e = PF_SUB[tag]
+    if e then e[1] = e[1] + 1; e[2] = e[2] + dt
+    else PF_SUB[tag] = { 1, dt } end
+end
+
+-- ★★ 第九刀（rev15）：只记次数、不计时的记号器（闸门里判「已显 / 未显」用）。
+--   与 __pfMark 同源 ⇒ 同样必须**运行期动态取**。
+function PD.__pfAdd(tag, n)
+    if not PF_SUB or not n then return end
+    local e = PF_SUB[tag]
+    if e then e[1] = e[1] + n else PF_SUB[tag] = { n, 0 } end
+end
+
+local function pfBegin(where)
+    PF_DEPTH = PF_DEPTH + 1
+    if PF_DEPTH == 1 then
+        PF_MS, PF_N = {}, {}
+        PF_SUB, PF_SET = {}, {}
+        PF_SKIN0 = (ns.hui and ns.hui.__skinBuilds) or 0
+        PF_TB0 = (ns.hui and ns.hui.__tryBuilds) or 0
+        local _st = ns.hui and ns.hui.__stripStat
+        if _st then
+            local a, b, c = _st()
+            PF_STR0, PF_STRM0, PF_STRS0 = a or 0, b or 0, c or 0
+        else
+            PF_STR0, PF_STRM0, PF_STRS0 = 0, 0, 0
+        end
+        PF_WHERE = where or ""
+        local t = PF_TAIL
+        if t then
+            PF_TAIL = nil
+            pfOut(string.format("  └ 顺上一次的分帧段：%d 帧 / %.1fms / %d 行",
+                                t.frames, t.ms, t.rows))
+        end
+    end
+end
+
+local function pfTick(tag, t0)
+    if PF_MS then PF_MS[tag] = (PF_MS[tag] or 0) + (pfNow() - t0) end
+end
+
+local function pfHit(tag, dt)
+    if not PF_N then return end
+    local e = PF_N[tag]
+    if e then e[1] = e[1] + 1; e[2] = e[2] + (dt or 0)
+    else PF_N[tag] = { 1, dt or 0 } end
+end
+
+local function pfEnd()
+    PF_DEPTH = PF_DEPTH - 1
+    if PF_DEPTH > 0 then return end
+    local ms, n, where = PF_MS, PF_N, PF_WHERE
+    PF_MS, PF_N = nil, nil
+    if not ms then return end
+    local total, other = 0, 0
+    local floor = (PD.PERF == "all") and -1 or 0.05
+    local parts, seen = {}, {}
+    for _, k in ipairs(PF_ORDER) do
+        seen[k] = true
+        local v = ms[k]
+        if v and v >= floor then
+            total = total + v
+            parts[#parts + 1] = string.format("%s %.1f", k, v)
+        end
+    end
+    for k, v in pairs(ms) do
+        if not seen[k] and k ~= "入口" then other = other + v end
+    end
+    -- ★★ 「入口」= 整次点击的 wall time，它**已经包含**下面各段 ⇒ 绝不能和分解相加。
+    --    第一版两者相加，实机打出 757.8ms（真值 363.3ms），数字整整翻了一倍。
+    local entry = ms["入口"]
+    local grand = entry or (total + other)
+
+    if PD.PERF == "scan" then
+        PF_SCAN = PF_SCAN or {}
+        PF_SCAN[#PF_SCAN + 1] = { where ~= "" and where or "?", grand, entry }
+        return
+    end
+    if PD.PERF ~= "all" and grand < (PD.PERF_MIN or 6) then return end
+
+    local head = string.format("%.1fms  %s", grand, where ~= "" and where or "?")
+    if other >= 0.05 then head = head .. string.format("  （未归类 %.1f）", other) end
+    pfOut(head)
+    if #parts > 0 then pfOut("  └ " .. table.concat(parts, " · ")) end
+    local cnt = {}
+    for _, k in ipairs(PF_KIND) do
+        local e = n[k]
+        if e then cnt[#cnt + 1] = string.format("%s %d次/%.1fms", k, e[1], e[2]) end
+    end
+    if #cnt > 0 then pfOut("  └ " .. table.concat(cnt, " · ")) end
+    -- ★ 细分：这几项**已经在「数据」里**（RowsRecipe 内部调用），只作分解展示，
+    --   **不相加**。「setter」是引擎 setter 的真实**调用次数**，单价另用
+    --   /dfprofperf bench 量（离线桩是空表，只能实机量）。
+    local sub = {}
+    for _, k in ipairs({ "扫描", "建spec", "列宽材料", "材料串", "单条spec",
+                        "工具尺寸", "搜索预留" }) do
+        local e = PF_SUB and PF_SUB[k]
+        if e then sub[#sub + 1] = string.format("%s %d次/%.1f", k, e[1], e[2]) end
+    end
+    if #sub > 0 then pfOut("  └ 细分（已含在上面某一段里，不相加）：" .. table.concat(sub, " · ")) end
+    local st = {}
+    for _, k in ipairs({ "SetText", "SetTextColor", "SetPoint", "SetSize",
+                        "SetShown", "Show", "Hide" }) do
+        local e = PF_SET and PF_SET[k]
+        if e then st[#st + 1] = string.format("%s %d次", k, e[1]) end
+    end
+    if #st > 0 then pfOut("  └ setter 调用：" .. table.concat(st, " · ")) end
+    -- ★★ 第八刀（rev14）：**无条件**打印 + 版本号。
+    --   第七刀把这一行写成「sk>0 才打」⇒ 实机看不到它时**无法区分**
+    --   「这一版没加载」与「加载了但一副边框帧都没建」。现在恒打：
+    --   读到 N=0 就是「本版在跑，且这一入口没建帧」这个硬事实。
+    local sk = ((ns.hui and ns.hui.__skinBuilds) or 0) - (PF_SKIN0 or 0)
+    local tb = ((ns.hui and ns.hui.__tryBuilds) or 0) - (PF_TB0 or 0)
+    pfOut(string.format("  └ 皮按钮帧：建 %d 次 · TryBuild 调用 %d 次（rev14）", sk, tb))
+    -- ★★ 第八刀（rev14）：工具行闸门内部拆解。这四项**已含在「工具P」里**，
+    --   只作分解展示，**不相加**。
+    local zg = PF_SUB and PF_SUB["闸-合计"]
+    if zg then
+        local seg, hit = {}, 0
+        for _, kv in ipairs({ { "闸-尺寸", "尺寸" }, { "闸-锚点", "锚点" },
+                              { "闸-文本", "文本" }, { "闸-显示", "显示" } }) do
+            local e = PF_SUB[kv[1]]
+            if e then
+                seg[#seg + 1] = string.format("%s %.1f", kv[2], e[2])
+                hit = e[1]
+            end
+        end
+        pfOut(string.format("  └ 工具闸门（已含在「工具P」里）：%d 开 / %.1fms = %s（其中已显 %d）",
+                            hit, zg[2], table.concat(seg, " + "),
+                            (PF_SUB["闸-已显"] and PF_SUB["闸-已显"][1]) or 0))
+    end
+    -- ★★ 第九刀（rev15）：**无条件**打印像素条复算（Hui 侧计数器）。
+    --   实机「点页签 recipe」时工具行 16 颗按钮 Hide→Show，每一步都触发子帧
+    --   OnShow 的 ReapplyStripPixels —— 这条数字直接说明它是不是那 24.5ms：
+    --   改对了应当是「16 次 / ~0.0ms / 共扫 ~64 条」（16 × 4）。
+    local stn, stms, stscan = 0, 0, 0
+    if ns.hui and ns.hui.__stripStat then stn, stms, stscan = ns.hui.__stripStat() end
+    pfOut(string.format("  └ 皮条纹复算：%d 次 / %.1fms / 共扫 %d 条（rev15）",
+                        stn - (PF_STR0 or 0), stms - (PF_STRM0 or 0), stscan - (PF_STRS0 or 0)))
+end
+
+local function pfTime(t, key, tag)
+    if type(t) ~= "table" then return end
+    local fn = t[key]
+    if type(fn) ~= "function" then return end
+    t[key] = function(...)
+        if not PD.PERF then return fn(...) end
+        local t0 = pfNow()
+        local r = { fn(...) }
+        pfTick(tag or key, t0)
+        return pfUnpack(r)
+    end
+end
+
+local function pfCount(t, key, tag)
+    if type(t) ~= "table" then return end
+    local fn = t[key]
+    if type(fn) ~= "function" then return end
+    t[key] = function(...)
+        if not PD.PERF then return fn(...) end
+        local t0 = pfNow()
+        local r = { fn(...) }
+        pfHit(tag or key, pfNow() - t0)
+        return pfUnpack(r)
+    end
+end
+
+local function pfWhere()
+    local who = PD.cur or "?"
+    local bt = PD.navKey and PD.navKey[who]
+    if bt and type(bt.GetText) == "function" then
+        local s = bt:GetText()
+        if type(s) == "string" and s ~= "" then who = s end
+    end
+    return string.format("「%s·%s」", tostring(who),
+                         PD.setOpen and "设置" or tostring(PD.tab or "?"))
+end
+
+local function pfEntry(key, label)
+    local fn = PD[key]
+    if type(fn) ~= "function" then return end
+    PD[key] = function(...)
+        if not PD.PERF then return fn(...) end
+        pfBegin(label)
+        local t0 = pfNow()
+        local r = { fn(...) }
+        -- ★ 只有最外层入口才记 wall time + 取位置：
+        --   ① 嵌套时 PF_DEPTH > 1，再 tick 一次会把「入口」double count；
+        --   ② 位置要**干完再取** —— 此刻 PD.cur / PD.tab 才是新的
+        --      （进函数前取只会拿到上一个页签，等于没告诉你卡在哪个专业）。
+        if PF_DEPTH == 1 then
+            pfTick("入口", t0)
+            PF_WHERE = label .. " " .. pfWhere()
+        end
+        pfEnd()
+        return pfUnpack(r)
+    end
+end
+
+-- ④b 细分：这几项**已经在「数据」里**（RowsRecipe 内部调用），只作分解展示，
+--     **不进 PF_ORDER、不相加** —— 上一版把嵌套段一起相加，数字整整翻倍。
+--     ★ 只统计「调用发生在本次入口内」的部分；跨帧的分帧段另算。
+local function pfSub(t, key, tag)
+    if type(t) ~= "table" then return end
+    local fn = t[key]
+    if type(fn) ~= "function" then return end
+    t[key] = function(...)
+        if not PD.PERF or not PF_SUB then return fn(...) end
+        local t0 = pfNow()
+        local r = { fn(...) }
+        local e = PF_SUB[tag]
+        if e then e[1] = e[1] + 1; e[2] = e[2] + (pfNow() - t0)
+        else PF_SUB[tag] = { 1, pfNow() - t0 } end
+        return pfUnpack(r)
+    end
+end
+pfSub(PD, "ScanRecipe",    "扫描")
+pfSub(PD, "RecipeList",    "建spec")
+pfSub(PD, "FitRecipeCols", "列宽材料")
+pfSub(PD, "MatCol",        "材料串")
+pfSub(PD, "RecipeSpec",    "单条spec")
+-- 工具行内部（都在 工具P 那一段里）：量大头是不是 ToolSize 的字体测量。
+pfSub(PD, "ToolSize",      "工具尺寸")
+pfSub(PD, "SearchReserve", "搜索预留")
+
+-- ④c setter 计数：数「引擎 setter」被调了多少次。
+--     ★ 只包 SetText / SetTextColor —— 这两样没有任何 hooksecurefunc 挂在上面，
+--       覆盖实例方法不会破坏 ns.hui.SkinButton 的 SetSize → TryBuild 钩子。
+--     ★ Button:SetText 是 C 函数、直接写 fontstring，**不经过** Lua 方法表 ⇒
+--       同时包按钮与它的 fontstring 不会重复计数。
+local function pfWrapSetter(obj, meth)
+    if type(obj) ~= "table" then return end
+    local fn = obj[meth]
+    if type(fn) ~= "function" or obj["__dfw" .. meth] then return end
+    obj["__dfw" .. meth] = true
+    obj[meth] = function(self, ...)
+        if PF_SET then
+            local e = PF_SET[meth]
+            if e then e[1] = e[1] + 1 else PF_SET[meth] = { 1 } end
+        end
+        return fn(self, ...)
+    end
+end
+local function pfWrapEl(f)
+    if type(f) ~= "table" then return end
+    pfWrapSetter(f, "SetText")
+    -- ★ 2026-10-09 第六轮：bench 单价告诉我们 setter 便宜（0.2~0.6µs），
+    --   但「便宜 × 多少次」才是耗时 ⇒ 这些也得计数。都是没有
+    --   hooksecurefunc 挂在实例上的方法，覆盖实例字段不影响 HUI 的钩子。
+    pfWrapSetter(f, "SetPoint")
+    pfWrapSetter(f, "SetSize")
+    pfWrapSetter(f, "SetShown")
+    pfWrapSetter(f, "Show")
+    pfWrapSetter(f, "Hide")
+    if type(f.GetFontString) == "function" then
+        local ok, gs = pcall(f.GetFontString, f)
+        if ok then
+            pfWrapSetter(gs, "SetText")
+            pfWrapSetter(gs, "SetTextColor")
+        end
+    end
+end
+local function pfWrapAll()
+    for _, bt in pairs(PD.toolBtns or {}) do pfWrapEl(bt) end
+    for _, bt in pairs(PD.subBtns or {}) do pfWrapEl(bt) end
+    for _, bt in pairs(PD.navKey or {}) do pfWrapEl(bt) end
+    local rows = PD.rows or {}
+    for i = 1, #rows do
+        local r = rows[i]
+        if type(r) == "table" then
+            for _, k in ipairs({ "a", "b", "c", "d", "e", "f", "dv", "tagFs" }) do
+                pfWrapSetter(r[k], "SetText")
+                pfWrapSetter(r[k], "SetTextColor")
+            end
+            for _, fs in pairs(r.mn or {}) do pfWrapSetter(fs, "SetText") end
+        end
+    end
+end
+
+-- ① 事务边界：整帧 Render（入口层已在里面时只当内部层，不重复打印）
+do
+    local raw = PD.Render
+    PD.Render = function(...)
+        if not PD.PERF then return raw(...) end
+        -- ★ 每一层都补包（2026-10-09 第六轮修）：入口层（SetTab / Show）会**先**把
+        --   PF_DEPTH 置 1 再调 Render ⇒ 只看 PF_DEPTH == 0 的话第一次点击永远
+        --   装不上计数器（实机第一版 setter 行一次都没出现过）。
+        --   pfWrapSetter 自带 __dfw<meth> 幂等标记，重复包无害。
+        pfWrapAll()
+        pfBegin(PF_DEPTH == 0 and pfWhere() or nil)
+        local ok, e = pcall(raw, ...)
+        pfEnd()
+        if not ok then error(e, 0) end
+    end
+end
+
+-- ② 分帧段（落在 Render 之后的新帧里，单独攒，下次点击时补报）
+do
+    local raw = PD.BuildPendRows
+    if type(raw) == "function" then
+        PD.BuildPendRows = function()
+            if not PD.PERF then return raw() end
+            local t0 = pfNow()
+            local before = #(PD.__pendRows or {})
+            local ok, e = pcall(raw)
+            local after = #(PD.__pendRows or {})
+            local t = PF_TAIL
+            if not t then t = { frames = 0, ms = 0, rows = 0 }; PF_TAIL = t end
+            t.frames = t.frames + 1
+            t.ms = t.ms + (pfNow() - t0)
+            if before > after then t.rows = t.rows + (before - after) end
+            if not ok then error(e, 0) end
+        end
+    end
+end
+
+-- ③ 分段（只包 Render **顶层**调用的那些；ScanRecipe/FitRecipeCols 在 RowsRecipe 里面）
+pfTime(PD, "PickNav",   "导航")
+pfTime(PD, "PickTabs",  "导航")
+pfTime(PD, "RowsRecipe",   "数据")
+pfTime(PD, "RowsOverview", "数据")
+pfTime(PD, "RowsGather",   "数据")
+pfTime(PD, "RowsFishing",  "数据")
+pfTime(PD, "RowsLeveling", "数据")
+pfTime(PD, "RowsAutoShop", "数据")
+pfTime(PD, "RowsCamp",     "数据")
+pfTime(PD, "RowsLegacy",   "数据")
+pfTime(PD, "RowsNotes",    "数据")
+pfTime(PD, "RowsSettings", "数据")
+pfTime(PD, "PaintLvTiles", "信息卡")
+-- ★ 三拆（2026-10-09 第六轮）：实机「工具行 28.3ms」是三项之和，得先知道是谁。
+pfTime(PD, "PaintTool",    "工具P")
+pfTime(PD, "RecipeTool",   "工具R")
+pfTime(PD, "LevelTool",    "工具L")
+pfTime(PD, "Layout",      "布局")
+pfTime(PD, "PaintRows",   "铺行")
+pfTime(PD, "PlaceSettingsToggles", "开关")
+pfTime(PD, "RequestRows", "请求")
+
+-- ④ 计数：真实引擎调用（这几项离线桩全是假的，正是实机与离线的差）
+pfCount(ns.hui, "TextW",   "量宽")       -- 引擎字体测量（记忆化命中不算）
+pfCount(PD, "TextW",       "量宽调用")   -- 含记忆化命中 ⇒ 两项相除 = 命中率
+pfCount(PD, "ItemName",    "取名")       -- 总调用（含记忆化命中）
+-- ★ 必须包 DG.ItemInfo 而不是 DG.ItemName：PD.ItemName 内部调的是**加载期捕获**
+--   的局部 _origItemName，包 DG.ItemName 收不到数（恒 0 = 白测）。
+--   ItemInfo 才是真正落到 GetItemInfo(id) 的那一层 ⇒ 两项相除就是命中率。
+pfCount(DG, "ItemInfo",    "取名(引擎)")
+pfCount(DG, "RequestItem", "完整预热")   -- 掉落页那套（建 tooltip + CreateFromItemID）
+if type(C_Item) == "table" then
+    pfCount(C_Item, "RequestLoadItemDataByID", "发包")
+end
+pfCount(PD, "Row",         "建行")
+pfCount(PD, "BindRow",     "上数据")
+
+-- ⑤ 入口
+pfEntry("Show",       "切专业")
+pfEntry("SetTab",     "点页签")
+pfEntry("Open",       "打开")
+pfEntry("Refresh",    "刷新")
+pfEntry("SweepNames", "物品到货重渲")
+
+if type(SlashCmdList) == "table" then
+    SLASH_DUNGEONSFOREVERPROFPERF1 = "/dfprofperf"
+    SlashCmdList["DUNGEONSFOREVERPROFPERF"] = function(msg)
+        msg = string.lower(tostring(msg or ""))
+        msg = msg:gsub("^%s+", ""):gsub("%s+$", "")
+        PF_DEPTH, PF_MS, PF_N, PF_TAIL = 0, nil, nil, nil
+        if msg == "all" then
+            PD.PERF = "all"
+            pfOut("已开启：全部打印（含很快的）。/dfprofperf off 关闭。")
+            return
+        end
+        if msg == "off" then
+            PD.PERF = false
+            pfOut("已关闭。")
+            return
+        end
+        if msg == "rep" then
+            -- ★★ 冷 / 热自测（2026-10-09 第六轮）：连渲同一页 3 次。
+            --   第 1 次含「一次性建帧」，第 2/3 次是热路径。两者差多大，
+            --   就知道某一段值不值得挪进分帧段 / 做预建。
+            if not (PD.built and PD.page) then
+                pfOut("先打开专业页（/df zy）再 rep。")
+                return
+            end
+            local save, saveMin = PD.PERF, PD.PERF_MIN
+            PD.PERF, PD.PERF_MIN = "all", 0
+            for i = 1, 3 do
+                pfOut("  ---- 第 " .. i .. " 次 ----")
+                PD.Render()
+            end
+            PD.PERF, PD.PERF_MIN = save, saveMin
+            pfOut("rep 完成（第 1 次含建帧，后两次是热路径）。")
+            return
+        end
+        if msg == "scan" then
+            if not (PD.built and PD.page) then
+                pfOut("先打开专业页（/df zy）再 scan。")
+                return
+            end
+            local save = PD.PERF
+            PD.PERF = "scan"
+            PF_SCAN = {}
+            local n = 0
+            for _, slug in ipairs(PD.navOrder or {}) do
+                local r = R[slug]
+                if r and ((r.rows and #r.rows > 0) or (r.enchants and #r.enchants > 0)
+                          or (r.crafted and #r.crafted > 0)) then
+                    PD.Show(slug)
+                    PD.SetTab("recipe")
+                    n = n + 1
+                end
+            end
+            PD.PERF = save
+            local list = PF_SCAN or {}
+            table.sort(list, function(a, b) return a[2] > b[2] end)
+            pfOut(string.format("扫描完成：%d 个专业 / %d 次渲染，按耗时排序 ——", n, #list))
+            for i = 1, math.min(#list, 30) do
+                pfOut(string.format("  %2d. %-26s %.1fms", i, list[i][1], list[i][2]))
+            end
+            return
+        end
+        if msg == "bench" then
+            -- ★★ 微基准：量出实机里每个 setter 的**单价**（µs/次）。
+            --    离线桩（lupa）把 setter 全换成纯 Lua 空表 ⇒ 单价只能实机量。
+            --    有了单价，任何一段的「次数 × 单价」立刻能算出值不值得砍。
+            if not (PD.built and PD.page) then
+                pfOut("先打开专业页（/df zy）再 bench。")
+                return
+            end
+            local save = PD.PERF
+            PD.PERF = false                      -- 基准期间关探针，免得互相干扰
+            local f = CreateFrame("Button", nil, PD.page)
+            f:SetSize(160, 22)
+            f:SetPoint("TOPLEFT", PD.page, "TOPLEFT", 0, 0)
+            local fsb = f:CreateFontString()
+            fsb:SetAllPoints()
+            fsb:SetFont(ns.FONT, 12, "OUTLINE")
+            f:SetFontString(fsb)
+            f:Show()
+            local N = 400
+            local togg = true
+            local function bench(name, fn)
+                fn() fn()                        -- 预热
+                local t0 = pfNow()
+                for _ = 1, N do fn() end
+                pfOut(string.format("  ▸ %-16s %7.2f µs/次", name, (pfNow() - t0) / N * 1000))
+            end
+            pfOut(string.format("setter 单价（各 %d 次；这是实机真实引擎调用）：", N))
+            bench("SetText 中文", function() fsb:SetText("全部 511 条配方") end)
+            bench("SetText 空串", function() fsb:SetText("") end)
+            bench("SetTextColor", function() fsb:SetTextColor(1, 0.82, 0) end)
+            bench("SetShown 切换", function() togg = not togg; f:SetShown(togg) end)
+            bench("Clear+SetPoint", function()
+                f:ClearAllPoints()
+                f:SetPoint("TOPLEFT", PD.page, "TOPLEFT", 0, 0)
+            end)
+            bench("SetSize", function() f:SetSize(160, 22) end)
+            bench("Show", function() f:Show() end)
+            bench("Hide", function() f:Hide() end)
+            f:Hide()
+            PD.PERF = save
+            pfOut("bench 完成 —— 把上面这组单价发我，配合「细分 / setter 调用」两行即可定位下一刀。")
+            return
+        end
+        if PD.PERF then
+            PD.PERF = false
+            pfOut("已关闭。")
+        else
+            PD.PERF = true
+            pfOut(string.format("已开启：只打慢过 %dms 的。点几下配方页即可；"
+                                .. "/dfprofperf all 连快的也打，scan 挨个专业跑一遍。",
+                                PD.PERF_MIN or 6))
+        end
+    end
+end
+
+-- ══ 行池取证（/dfprofrows） ═══════════════════════════════════════════════════
+--   ★ 为什么要它：离线 harness（lupa 桩）把「隐藏」记在**帧自己**的 __shown 上，
+--     而真机里「父帧隐藏 ⇒ 整棵子树不渲染」。凡是**真机看得见、离线判干净**的
+--     残留，只剩两种形态：
+--       ① 孤儿帧 —— 帧挂在 PD.child 下，但**根本不在行池 PD.rows 里** ⇒
+--          「藏掉池里多余的行」那条永远碰不到它（`PD.rows = {}` 清池、
+--          皮肤重建、第三方插件重挂父级都能造出来）；显示的还是上一页内容。
+--       ② 越界行 —— 在池里、也还显示着，但 `i > #PD.specs`（本页没有它的
+--          位置）⇒ 它身上挂的就是上一页的规格。
+--     这个命令把这两类一次查清，并把它**看起来像什么**打出来（三列文本 +
+--     材料块数 + 分段链 / 商人半段的显示状态）。
+--   ★ 只读：不改任何字段、不渲染、不发包。
+--   ★ 用法：/dfprofrows        当前页：只报「异常项」+ 汇总
+--           /dfprofrows all    连**合法**的可见行也逐行打（肉眼比对用）
+function PD.AuditRows(all)
+    if not (PD.built and PD.page) then
+        pfOut("先打开专业页（/df zy）再 /dfprofrows。")
+        return
+    end
+    -- 全量输出进 buf 并落到 DungeonsForeverDB.profAudit（/reload 后写盘）——
+    -- 聊天框复制长文本不可靠（rev17：用户实机复制失败），游戏外直接读文件。
+    local buf = {}
+    local function out(s) buf[#buf + 1] = s; pfOut(s) end
+    local function sink(s) buf[#buf + 1] = s end   -- 只进文件，不刷聊天框
+    local specN = #(PD.specs or {})
+    local idxOf, idxs = {}, {}
+    local nPool, nShown = 0, 0
+    for i, rr in pairs(PD.rows or {}) do
+        idxOf[rr] = i
+        idxs[#idxs + 1] = i
+        nPool = nPool + 1
+        if rr.IsShown and rr:IsShown() then nShown = nShown + 1 end
+    end
+    table.sort(idxs)
+    out(string.format("页面 cur=%s tab=%s 子页=%s 设置页=%s",
+                        tostring(PD.cur), tostring(PD.tab),
+                        tostring(PD.autoPage), tostring(PD.setOpen)))
+    out(string.format("行池 %d 帧 / 显示中 %d / 本页 spec %d",
+                        nPool, nShown, specN))
+    -- 骨架池可见性：段落卡 / 金卡 / 设置开关 —— 漏藏在这里直接现形
+    local nSec, nSecG = 0, 0
+    if PD.secCards then
+        for _, c in ipairs(PD.secCards) do if c.IsShown and c:IsShown() then nSec = nSec + 1 end end
+    end
+    if PD.secGoldCards then
+        for _, c in ipairs(PD.secGoldCards) do if c.IsShown and c:IsShown() then nSecG = nSecG + 1 end end
+    end
+    out(string.format("段落卡 可见 %d / 金卡 可见 %d", nSec, nSecG))
+    -- 已知骨架帧集合：杂帧扫描要跳过它们（段落卡按 hasSecs 显示是正常的）
+    local known = {}
+    if PD.secCards then for _, c in ipairs(PD.secCards) do known[c] = true end end
+    if PD.secGoldCards then for _, c in ipairs(PD.secGoldCards) do known[c] = true end end
+    if PD.setToggles then for _, c in ipairs(PD.setToggles) do known[c] = true end end
+    if PD.setHelps then for _, c in ipairs(PD.setHelps) do known[c] = true end end
+
+    local function texts(r)
+        local t = {}
+        for _, k in ipairs({ "e", "a", "b", "c", "d", "f", "dv" }) do
+            local fs = r[k]
+            if fs and fs.GetText then
+                local ok, v = pcall(fs.GetText, fs)
+                if ok and v and v ~= "" then
+                    t[#t + 1] = k .. "=" .. tostring(v)
+                end
+            end
+        end
+        return table.concat(t, " | ")
+    end
+    local function shown(f)
+        return (f and f.IsShown and f:IsShown()) and true or false
+    end
+    local function shape(r)
+        local nblk = 0
+        for j = 1, #(r.blk or {}) do
+            local b = r.blk[j]
+            if b.ic and shown(b.ic) then nblk = nblk + 1 end
+        end
+        local nmn, nmz = 0, 0
+        for j, mfs in pairs(r.mn or {}) do if shown(mfs) then nmn = nmn + 1 end end
+        for j = 1, #(r.mz or {}) do if shown(r.mz[j]) then nmz = nmz + 1 end end
+        return string.format("材料块=%d 分段字串=%d 分段热区=%d %s",
+                             nblk, nmn, nmz, shown(r.dv) and "商人半段○" or "商人半段-")
+    end
+
+    -- ① 越界行：在池里、显示着，但本页没有对应 spec
+    local bad = 0
+    for _, i in ipairs(idxs) do
+        local r = PD.rows[i]
+        if shown(r) and not (PD.specs and PD.specs[i]) then
+            bad = bad + 1
+            out(string.format("  [越界行] idx=%d (%s) %s", i, shape(r), texts(r)))
+        end
+    end
+
+    -- ② 孤儿帧：PD.child / PD.page 下「行样」的可见帧，却不在行池里
+    local function isRowLike(f)
+        return (f.a or f.mn or f.blk) and true or false
+    end
+    local nOrphan = 0
+    local function scan(f, where)
+        if not (f and type(f.GetChildren) == "function") then return end
+        local ok, kids = pcall(function() return { f:GetChildren() } end)
+        if not ok or type(kids) ~= "table" then return end
+        for _, ch in ipairs(kids) do
+            if ch ~= f and type(ch) == "table" and shown(ch)
+               and isRowLike(ch) and not idxOf[ch] and not known[ch] then
+                nOrphan = nOrphan + 1
+                out(string.format("  [孤儿帧] %s @%s %sx%s %s", tostring(where),
+                                    tostring(rawget(ch, "__name")),
+                                    tostring(ch.GetWidth and ch:GetWidth()),
+                                    tostring(ch.GetHeight and ch:GetHeight()),
+                                    texts(ch)))
+            end
+        end
+    end
+    scan(PD.child, "child")
+    scan(PD.page, "page")
+
+    -- ③ 杂帧：PD.child / PD.page 下可见、却不在行池里的**任何**子帧（不限行样）。
+    --    ②只认「行样」帧——段落卡、信息卡、或任何漏藏的骨架帧在这里现形。
+    --    残留若不是行池的，答案就在这段输出里。
+    --    ★ 只扫 PD.child（列表内容层）。PD.page 上常驻着左导航 / 顶部页签 / 信息卡
+    --      等骨架帧（rev16 实测误报 31 个），页面骨架可见不是残留。
+    local nMisc = 0
+    local function geom(f)
+        local l, b = -1, -1
+        pcall(function() l = math.floor((f:GetLeft() or 0) + 0.5) end)
+        pcall(function() b = math.floor((f:GetBottom() or 0) + 0.5) end)
+        return l, b
+    end
+    local function scanMisc(f, where)
+        if not (f and type(f.GetChildren) == "function") then return end
+        local ok, kids = pcall(function() return { f:GetChildren() } end)
+        if not ok or type(kids) ~= "table" then return end
+        for _, ch in ipairs(kids) do
+            if ch ~= f and type(ch) == "table" and shown(ch)
+               and not idxOf[ch] and not known[ch] then
+                nMisc = nMisc + 1
+                if nMisc <= 20 then
+                    local l, b = geom(ch)
+                    out(string.format("  [杂帧] %s @%s x=%d y=%d %s %s",
+                                        tostring(where),
+                                        tostring(rawget(ch, "__name")),
+                                        l, b, shape(ch), texts(ch)))
+                end
+            end
+        end
+    end
+    scanMisc(PD.child, "child")
+
+    if all then
+        for _, i in ipairs(idxs) do
+            local r = PD.rows[i]
+            local sp = PD.specs and PD.specs[i]
+            if shown(r) then
+                -- spec 应有内容并排打出：行上实际文本与 spec 对不上 =
+                -- 「同索引内容残留」（审计①查不出——idx 没越界但内容是上一页的）
+                -- ★ 只进文件不刷聊天框（rev17）：聊天框复制长文本不可靠
+                local stxt = ""
+                if sp then
+                    stxt = tostring(sp.text or sp.sub or "")
+                    if #stxt > 26 then stxt = stxt:sub(1, 26) .. "…" end
+                end
+                local l = geom(r)
+                sink(string.format("  行 idx=%d kind=%s spec[%s] x=%d %s || %s", i,
+                                   tostring(sp and sp.kind), stxt, l,
+                                   shape(r), texts(r)))
+            end
+        end
+    end
+    out(string.format("结论：越界行 %d / 孤儿帧 %d / 杂帧 %d ⇒ %s", bad, nOrphan, nMisc,
+                      (bad + nOrphan + nMisc == 0) and "干净" or "★ 有残留，见上面几行"))
+    out("全量已存档（profAudit），/reload 后游戏外直接读文件，无需复制。")
+    -- 落盘：全量输出（含聊天框没刷的逐行转储）存进 SavedVariables，
+    -- /reload 或退角色后写盘，游戏外直接读 WTF 文件，不用复制聊天框。
+    if type(DungeonsForeverDB) == "table" then
+        DungeonsForeverDB.profAudit = {
+            t = date("%Y-%m-%d %H:%M:%S"),
+            page = tostring(PD.cur) .. "/" .. tostring(PD.tab) .. "/" .. tostring(PD.autoPage),
+            n = #buf,
+            lines = buf,
+        }
+    end
+end
+
+-- ★ 全文本普查（rev19）：递归 PD.page 整棵树（不限层级、不跳行池内部），
+--   把所有「实际可见且带非空文本」的 FontString 全部点名：父链路径 + 屏幕坐标 + 文本。
+--   四道行审计（越界/孤儿/杂帧/内容比对）都干净而屏幕仍有残留时，残留在更深的层级——
+--   这一普查无论它挂在哪个孙帧/曾孙帧上都会现形。结果照旧落 profAudit。
+function PD.CensusText()
+    if not (PD.built and PD.page) then
+        pfOut("先打开专业页再普查。")
+        return
+    end
+    local buf = {}
+    local function sink(s) buf[#buf + 1] = s end
+    local idxOf = {}
+    for i, rr in pairs(PD.rows or {}) do idxOf[rr] = i end
+    local n = 0
+    local function coords(f)
+        local l, b = -1, -1
+        pcall(function() l = math.floor((f:GetLeft() or 0) + 0.5) end)
+        pcall(function() b = math.floor((f:GetBottom() or 0) + 0.5) end)
+        return l, b
+    end
+    -- 行内字段指纹：报出这条字串到底挂在行的哪个槽位上（f/mn/blk.nm/…）
+    local function fieldOf(r, fs)
+        if fs == r.f then return "f" end
+        if fs == r.dv then return "dv" end
+        for _, k in ipairs({ "a", "b", "c", "d", "e" }) do
+            if fs == r[k] then return k end
+        end
+        if fs == r.tagFs then return "tag" end
+        for j, mfs in pairs(r.mn or {}) do
+            if fs == mfs then return "mn[" .. j .. "]" end
+        end
+        for j = 1, #(r.blk or {}) do
+            local b = r.blk[j]
+            if fs == b.nm then return "blk[" .. j .. "].nm" end
+            if fs == b.ct then return "blk[" .. j .. "].ct" end
+        end
+        return "?"
+    end
+    -- 行池行专项：逐字段点名可见且带字的字串（不递归——行内没有子帧容器）
+    local function auditRow(r, idx)
+        local rs = "行#" .. idx .. "(" .. (r.IsShown and r:IsShown() and "显示" or "自身隐藏") .. ")"
+        local ok, regions = pcall(function() return { r:GetRegions() } end)
+        if not (ok and type(regions) == "table") then return end
+        for _, fs in ipairs(regions) do
+            if type(fs) == "table" and fs.GetText and fs.IsVisible and fs:IsVisible() then
+                local ok2, t = pcall(fs.GetText, fs)
+                if ok2 and t and t ~= "" then
+                    n = n + 1
+                    if n <= 4000 then
+                        local l, b = coords(fs)
+                        sink(string.format("  [字串] %s.%s x=%d y=%d %s", rs,
+                                           fieldOf(r, fs), l, b,
+                                           (tostring(t):gsub("|", "¦"))))
+                    end
+                end
+            end
+        end
+    end
+    local function walk(f, path, depth)
+        if depth > 8 then return end
+        local ok, regions = pcall(function() return { f:GetRegions() } end)
+        if ok and type(regions) == "table" then
+            for _, r in ipairs(regions) do
+                if type(r) == "table" and r.GetText and r.IsVisible and r:IsVisible() then
+                    local ok2, t = pcall(r.GetText, r)
+                    if ok2 and t and t ~= "" then
+                        n = n + 1
+                        if n <= 4000 then
+                            local l, b = coords(r)
+                            sink(string.format("  [字串] %s x=%d y=%d %s", path, l, b,
+                                               (tostring(t):gsub("|", "¦"))))
+                        end
+                    end
+                end
+            end
+        end
+        local okk, kids = pcall(function() return { f:GetChildren() } end)
+        if okk and type(kids) == "table" then
+            for _, ch in ipairs(kids) do
+                if type(ch) == "table" and ch.IsVisible and ch:IsVisible() then
+                    if idxOf[ch] then
+                        auditRow(ch, idxOf[ch])
+                    else
+                        walk(ch, path .. ">" .. tostring(rawget(ch, "__name") or "?"), depth + 1)
+                    end
+                end
+            end
+        end
+    end
+    walk(PD.page, "page", 0)
+    sink(string.format("普查：实际可见的非空字串 %d 条", n))
+    if type(DungeonsForeverDB) == "table" then
+        DungeonsForeverDB.profAudit = {
+            t = date("%Y-%m-%d %H:%M:%S"),
+            page = tostring(PD.cur) .. "/" .. tostring(PD.tab) .. "/" .. tostring(PD.autoPage),
+            n = #buf,
+            lines = buf,
+        }
+    end
+    pfOut(string.format("全文本普查完成：%d 条可见字串，已存档（/reload 后游戏外读）。", n))
+end
+
+if type(SlashCmdList) == "table" then
+    SLASH_DUNGEONSFOREVERPROFROWS1 = "/dfprofrows"
+    SlashCmdList["DUNGEONSFOREVERPROFROWS"] = function(msg)
+        local m = string.lower(tostring(msg or "")):gsub("^%s+", ""):gsub("%s+$", "")
+        -- ★ hide / show（rev18）：一锤定音测试——把整个专业面板藏起来。
+        --   残留还在 ⇒ 它根本不在专业面板的帧树里（别的悬浮窗叠着）；
+        --   残留跟着消失 ⇒ 它就在面板里，是审计覆盖不到的层（再上全文本普查）。
+        if m == "hide" then
+            if PD.page and PD.page.Hide then
+                PD.page:Hide()
+                pfOut("专业面板已整体隐藏（画面别动）。残留还在 ⇒ 不在面板里；"
+                      .. "跟着消失 ⇒ 在面板里。/dfprofrows show 恢复。")
+            end
+            return
+        end
+        if m == "show" then
+            if PD.page and PD.page.Show then
+                PD.page:Show()
+                pfOut("专业面板已恢复。")
+            end
+            return
+        end
+        -- ★ text（rev19）：全文本普查。残留在屏时刻跑，然后 /reload 落盘。
+        if m == "text" then
+            PD.CensusText()
+            return
+        end
+        PD.AuditRows(m == "all")
+    end
 end

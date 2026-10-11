@@ -1,0 +1,5 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Include file="Locales\!load.xml"/>
+    <Script file="Model.lua"/>
+    <Script file="ExperienceBar.lua"/>
+</Ui>

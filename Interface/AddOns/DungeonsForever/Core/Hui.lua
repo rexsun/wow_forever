@@ -15,10 +15,7 @@ local wipe = wipe
 
 ns.hui = ns.hui or {}
 
--- ★★ UTF-8 按「字」估宽 / 截断（双端通用，2026-10-03 从 ProfessionUI 上移）：
---   ProfessionUI 只对无限端加载（ns.LoadForeverPages 守卫），但副本掉落页 4 列卡片
---   的名称截断（DG.FitText）两端都要用 —— 泰坦端取不到 ns.ProfModule 时会退回原串溢出。
---   估宽口径：全角 1.0×字号 / 半角 0.55×字号（与专业页同一套）。
+-- UTF-8 按「字」估宽 / 截断（双端通用）：全角 1.0×字号 / 半角 0.55×字号。
 local function HCharStep(text, i)
     local b = text:byte(i)
     local step = 1
@@ -28,13 +25,37 @@ local function HCharStep(text, i)
     return text:sub(i, i + step - 1), step, ((b >= 0x80) and 1 or 0.55)
 end
 
+-- |T...|t 贴图序列（币种图标等）的 token 化：整块按「1 个字宽 + 2px」计，
+-- 绝不能逐字节量宽/截断（markup 有 40+ 字节，会让列宽爆炸、把右半内容挤出面板）。
+local function HTokenize(text)
+    local toks, pos = {}, 1
+    while true do
+        local s, e = string.find(text, "|T.-|t", pos)
+        if not s then
+            if pos <= #text then toks[#toks + 1] = { t = string.sub(text, pos) } end
+            break
+        end
+        if s > pos then toks[#toks + 1] = { t = string.sub(text, pos, s - 1) } end
+        toks[#toks + 1] = { t = string.sub(text, s, e), icon = true }
+        pos = e + 1
+    end
+    return toks
+end
+
 function ns.hui.TextW(text, fs)
     if type(text) ~= "string" then return 0 end
-    local w, i, n = 0, 1, #text
-    while i <= n do
-        local _, step, k = HCharStep(text, i)
-        w = w + k * fs
-        i = i + step
+    local w = 0
+    for _, tk in ipairs(HTokenize(text)) do
+        if tk.icon then
+            w = w + fs + 2
+        else
+            local i, n = 1, #tk.t
+            while i <= n do
+                local _, step, k = HCharStep(tk.t, i)
+                w = w + k * fs
+                i = i + step
+            end
+        end
     end
     return w
 end
@@ -42,14 +63,26 @@ end
 function ns.hui.Fit(text, fs, width)
     if type(text) ~= "string" then return "" end
     if ns.hui.TextW(text, fs) <= width then return text end
-    local out, w, i, n = "", 0, 1, #text
-    while i <= n do
-        local ch, step, k = HCharStep(text, i)
-        local cw = k * fs
-        if w + cw > width - fs then break end
-        out = out .. ch
-        w = w + cw
-        i = i + step
+    local out, w = "", 0
+    for _, tk in ipairs(HTokenize(text)) do
+        if tk.icon then
+            local cw = fs + 2
+            if w + cw > width - fs then break end
+            out = out .. tk.t
+            w = w + cw
+        else
+            local i, n = 1, #tk.t
+            local stop = false
+            while i <= n do
+                local ch, step, k = HCharStep(tk.t, i)
+                local cw = k * fs
+                if w + cw > width - fs then stop = true break end
+                out = out .. ch
+                w = w + cw
+                i = i + step
+            end
+            if stop then break end
+        end
     end
     return out .. "…"
 end
@@ -66,15 +99,33 @@ if BackdropTemplateMixin and BackdropTemplateMixin.SetupTextureCoordinates
 end
 
 do
-    local HUI_L1 = {0x2b / 255, 0x2b / 255, 0x2b / 255, 0.95}
+    local HUI_L1 = {0x10 / 255, 0x13 / 255, 0x1A / 255, 0.95}
     local HUI_ACCENT = {0x46 / 255, 0xbf / 255, 0x72 / 255, 0.95}
     local ACCENT_GREEN = {0x46 / 255, 0xbf / 255, 0x72 / 255}
     local HUI_CORNER_TL = "Interface/AddOns/DungeonsForever/Media/LibHUI/HUIRoundCornerFill"
     local HUI_CORNER_TR = "Interface/AddOns/DungeonsForever/Media/LibHUI/HUIRoundCornerFillTR"
     local HUI_CORNER_BL = "Interface/AddOns/DungeonsForever/Media/LibHUI/HUIRoundCornerFillBL"
     local HUI_CORNER_BR = "Interface/AddOns/DungeonsForever/Media/LibHUI/HUIRoundCornerFillBR"
+    -- 超采样圆角贴图（64x64 完整圆角方块/环，弧线半径=2r px，显示时 UV 取单象限）
+    local GLASS_FILL_TEX = "Interface/AddOns/DungeonsForever/Media/LibHUI/HUIGlassFill"
+    local GLASS_RING_TEX = "Interface/AddOns/DungeonsForever/Media/LibHUI/HUIGlassRing"
+    -- 圆角半径吸附到贴图档位（贴图存 4/6/8/10/12 五档）
+    local function SnapCornerR(r)
+        if r <= 5 then return 4
+        elseif r <= 7 then return 6
+        elseif r <= 9 then return 8
+        elseif r <= 11 then return 10
+        else return 12 end
+    end
+    -- 完整圆角贴图取单象限 UV：象限边长 = 2r/64 = r/32，弧线显示半径恒等于设定值
+    local function CornerQuadUV(point, snap)
+        local c = snap / 32
+        local l = point:find("LEFT") and 0 or (1 - c)
+        local t = point:find("TOP") and 0 or (1 - c)
+        return l, t, l, t + c, l + c, t, l + c, t + c
+    end
     local HUI_CIRCLE = "Interface/AddOns/DungeonsForever/Media/LibHUI/HUICircle"
-    local C_TRACKOFF = {0x4a / 255, 0x4d / 255, 0x52 / 255}
+    local C_TRACKOFF = {0x33 / 255, 0x3A / 255, 0x49 / 255}
     local C_KNOB = {0x17 / 255, 0x18 / 255, 0x1c / 255}
     local C_TOGGLE_BORDER = {0.42, 0.42, 0.46}
     local HUI_PILL_L = "Interface/AddOns/DungeonsForever/Media/LibHUI/HUIPillL"
@@ -103,14 +154,14 @@ do
         black          = { name = "黑", deep = {0x46 / 255, 0xbf / 255, 0x72 / 255}, hue = 0, sat = 0, accent = {0x46 / 255, 0xbf / 255, 0x72 / 255}, order = 15,
                             blackBase = { L0 = 0x0A / 255, L1 = 0x12 / 255, L2 = 0x1A / 255, L3 = 0x24 / 255, DIV = 0x20 / 255, L4 = 0x2E / 255, L5 = 0x38 / 255 } },
     }
-    local L0_GRAY = {0x16 / 255, 0x16 / 255, 0x16 / 255, 0.95}
-    local L1_GRAY = {0x2b / 255, 0x2b / 255, 0x2b / 255, 0.95}
-    local L2_GRAY = {0x36 / 255, 0x36 / 255, 0x36 / 255, 1}
-    local L2_GRAY095 = {0x36 / 255, 0x36 / 255, 0x36 / 255, 0.95}
-    local L3_GRAY = {0x40 / 255, 0x40 / 255, 0x40 / 255, 0.95}
-    local DIV_GRAY = {0x3a / 255, 0x3a / 255, 0x3a / 255, 1}
-    local L4_GRAY = {0x4a / 255, 0x4a / 255, 0x4a / 255, 0.95}
-    local L5_GRAY = {0x54 / 255, 0x54 / 255, 0x54 / 255, 0.95}
+    local L0_GRAY = {0x0A / 255, 0x0C / 255, 0x10 / 255, 0.95}
+    local L1_GRAY = {0x10 / 255, 0x13 / 255, 0x1A / 255, 0.95}
+    local L2_GRAY = {0x16 / 255, 0x1A / 255, 0x22 / 255, 1}
+    local L2_GRAY095 = {0x16 / 255, 0x1A / 255, 0x22 / 255, 0.95}
+    local L3_GRAY = {0x20 / 255, 0x25 / 255, 0x32 / 255, 0.95}
+    local DIV_GRAY = {0x1B / 255, 0x20 / 255, 0x29 / 255, 1}
+    local L4_GRAY = {0x2B / 255, 0x31 / 255, 0x40 / 255, 0.95}
+    local L5_GRAY = {0x38 / 255, 0x40 / 255, 0x4F / 255, 0.95}
     local LV = { L0 = 0x16 / 255, L1 = 0x2b / 255, L2 = 0x36 / 255, L3 = 0x40 / 255, DIV = 0x3a / 255, L4 = 0x4a / 255, L5 = 0x54 / 255 }
     ns.hui.layer = {
         L0 = {L0_GRAY[1], L0_GRAY[2], L0_GRAY[3], L0_GRAY[4]},
@@ -496,47 +547,52 @@ do
         tex:SetAlpha(color[4] or 1)
     end
 
-    local function BuildCapsule(f, cornerSize, color)
+    local function BuildCapsule(f, cornerSize, color, inset, sub)
+        -- inset：整体内缩像素（默认 0）——hover 胶囊叠在带描边的卡片上时内缩 1px 露出描边
+        -- sub：BACKGROUND 子层级（默认 0）。BuildRoundedBG 的填充在子层级 1，
+        --      hover 胶囊要盖在它之上必须 ≥2（仍低于 ARTWORK 的图标/文字）
+        local ins = inset or 0
+        local sl = sub or 0
 
-        local tl = f:CreateTexture(nil, "BACKGROUND")
+        local tl = f:CreateTexture(nil, "BACKGROUND", nil, sl)
         tl:SetTexture(HUI_CORNER_TL)
         tl:SetSize(cornerSize, cornerSize)
-        tl:SetPoint("TOPLEFT")
+        tl:SetPoint("TOPLEFT", f, "TOPLEFT", ins, -ins)
         Paint(tl, color)
 
-        local tr = f:CreateTexture(nil, "BACKGROUND")
+        local tr = f:CreateTexture(nil, "BACKGROUND", nil, sl)
         tr:SetTexture(HUI_CORNER_TR)
         tr:SetSize(cornerSize, cornerSize)
-        tr:SetPoint("TOPRIGHT")
+        tr:SetPoint("TOPRIGHT", f, "TOPRIGHT", -ins, -ins)
         Paint(tr, color)
 
-        local bl = f:CreateTexture(nil, "BACKGROUND")
+        local bl = f:CreateTexture(nil, "BACKGROUND", nil, sl)
         bl:SetTexture(HUI_CORNER_BL)
         bl:SetSize(cornerSize, cornerSize)
-        bl:SetPoint("BOTTOMLEFT")
+        bl:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", ins, ins)
         Paint(bl, color)
 
-        local br = f:CreateTexture(nil, "BACKGROUND")
+        local br = f:CreateTexture(nil, "BACKGROUND", nil, sl)
         br:SetTexture(HUI_CORNER_BR)
         br:SetSize(cornerSize, cornerSize)
-        br:SetPoint("BOTTOMRIGHT")
+        br:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -ins, ins)
         Paint(br, color)
 
-        local top = f:CreateTexture(nil, "BACKGROUND")
+        local top = f:CreateTexture(nil, "BACKGROUND", nil, sl)
         top:SetTexture("Interface/Buttons/WHITE8X8")
         Paint(top, color)
-        top:SetPoint("TOPLEFT", f, "TOPLEFT", cornerSize, 0)
-        top:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", -cornerSize, -cornerSize)
-        local bottom = f:CreateTexture(nil, "BACKGROUND")
+        top:SetPoint("TOPLEFT", f, "TOPLEFT", cornerSize + ins, -ins)
+        top:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", -cornerSize - ins, -cornerSize - ins)
+        local bottom = f:CreateTexture(nil, "BACKGROUND", nil, sl)
         bottom:SetTexture("Interface/Buttons/WHITE8X8")
         Paint(bottom, color)
-        bottom:SetPoint("TOPLEFT", f, "BOTTOMLEFT", cornerSize, cornerSize)
-        bottom:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -cornerSize, 0)
-        local mid = f:CreateTexture(nil, "BACKGROUND")
+        bottom:SetPoint("TOPLEFT", f, "BOTTOMLEFT", cornerSize + ins, cornerSize + ins)
+        bottom:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -cornerSize - ins, ins)
+        local mid = f:CreateTexture(nil, "BACKGROUND", nil, sl)
         mid:SetTexture("Interface/Buttons/WHITE8X8")
         Paint(mid, color)
-        mid:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -cornerSize)
-        mid:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, cornerSize)
+        mid:SetPoint("TOPLEFT", f, "TOPLEFT", ins, -cornerSize - ins)
+        mid:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -ins, cornerSize + ins)
 
         local pieces = {tl, tr, bl, br, top, bottom, mid}
         ns.hui.AddRepaint(f, function()
@@ -550,6 +606,14 @@ do
 
     local pixelStrips = setmetatable({}, { __mode = "k" })
     local pixelShowHooks = setmetatable({}, { __mode = "k" })
+    -- 像素条复算的计数与耗时（探针用）：OnShow 沿 Show 链打到子帧触发复算。
+    local stripRepN, stripRepMs, stripScanN, stripRegN = 0, 0, 0, 0
+    ns.hui.__stripStat = function() return stripRepN, stripRepMs, stripScanN, stripRegN end
+    local function huiNow()
+        if type(debugprofilestop) == "function" then return debugprofilestop() end
+        if type(GetTime) == "function" then return GetTime() * 1000 end
+        return 0
+    end
     local function PixelStripSize(f)
         local ok, _, h = pcall(GetPhysicalScreenSize)
         if not ok or not h or h <= 0 then return 1 end
@@ -557,20 +621,56 @@ do
         if not k or k <= 0 then return 1 end
         return math.max(1, math.floor(k + 0.5)) / k
     end
-    local function ReapplyStripPixels(frame)
+    -- 重入守卫：本函数挂在 strip 父帧的 OnShow 上，会落在 tooltip 显示链里；
+    -- 在链内改纹理尺寸会反向再入自身 ⇒ 无界递归。再入一律放弃本轮，由下一次 OnShow 兜底。
+    local stripsApplying = false
+    local function ReapplyStripPixelsBody(frame)
+        -- 给了 frame 就只扫本帧挂的条（帧内索引），复算从 O(全插件) 降到 O(本帧 4 条)；
+        -- 仍复核 tex:GetParent() == frame，尺寸按本帧算一次。
+        if frame then
+            local list = frame.__huiStrips
+            if list then
+                local s, n = PixelStripSize(frame), #list
+                stripScanN = stripScanN + n
+                for i = 1, n do
+                    local tex = list[i]
+                    if tex:GetParent() == frame then
+                        if tex.__huiStripAxis == "h" then tex:SetHeight(s) else tex:SetWidth(s) end
+                    end
+                end
+                return
+            end
+        end
+        local cnt = 0
         for tex in pairs(pixelStrips) do
+            cnt = cnt + 1
             local p = tex:GetParent()
             if p and (not frame or p == frame) then
                 local s = PixelStripSize(p)
                 if tex.__huiStripAxis == "h" then tex:SetHeight(s) else tex:SetWidth(s) end
             end
         end
+        stripScanN = stripScanN + cnt
+    end
+    local function ReapplyStripPixels(frame)
+        if stripsApplying then return end
+        stripsApplying = true
+        local t0 = huiNow()
+        pcall(ReapplyStripPixelsBody, frame)
+        stripRepMs = stripRepMs + (huiNow() - t0)
+        stripRepN = stripRepN + 1
+        stripsApplying = false
     end
     local function RegisterPixelStrip(tex, axis)
         tex.__huiStripAxis = axis
         pixelStrips[tex] = true
+        stripRegN = stripRegN + 1
         local p = tex:GetParent()
         if p then
+            -- 帧内索引：供 OnShow 的 O(本帧) 复算用。
+            local list = p.__huiStrips
+            if not list then list = {}; p.__huiStrips = list end
+            list[#list + 1] = tex
             local s = PixelStripSize(p)
             if axis == "h" then tex:SetHeight(s) else tex:SetWidth(s) end
             if not pixelShowHooks[p] then
@@ -585,6 +685,7 @@ do
         ev:SetScript("OnEvent", function() ReapplyStripPixels(nil) end)
         pcall(function() ev:RegisterEvent("UI_SCALE_CHANGED") end)
     end
+    -- 旧整图角贴图翻转 UV（RoundIcon 等路径仍在用）
     local BORDER_UV = {
         TOPLEFT     = { 0, 0,  0, 1,  1, 0,  1, 1 },
         TOPRIGHT    = { 1, 0,  1, 1,  0, 0,  0, 1 },
@@ -597,49 +698,10 @@ do
         local alpha = color[4] or 1
         local thick = thickness or 1
         local ext = thick + (outside and (outExtra or 0) or 0)
-        local CORNER_TEX = {
-            TOPLEFT = HUI_CORNER_TL, TOPRIGHT = HUI_CORNER_TR,
-            BOTTOMLEFT = HUI_CORNER_BL, BOTTOMRIGHT = HUI_CORNER_BR,
-        }
+        local shift = (outside and ext or 0) + ex
+        local snapR = SnapCornerR(r)
         local pieces = {}
         local covers = {}
-        local function corner(point)
-            local insetSide = point:find("LEFT") and 1 or -1
-            local insetVert = point:find("TOP") and -1 or 1
-            local shift = (outside and ext or 0) + ex
-            local ox = -shift * insetSide
-            local oy = -shift * insetVert
-            if thick > 1 then
-                local tex = CORNER_TEX[point]
-                local outer = p:CreateTexture(nil, layer or "BORDER")
-                outer:SetTexture(tex)
-                outer:SetSize(r, r)
-                outer:SetPoint(point, f, point, ox, oy)
-                outer:SetVertexColor(color[1], color[2], color[3])
-                outer:SetAlpha(alpha)
-                pieces[#pieces + 1] = outer
-                if r > thick then
-                    local inner = p:CreateTexture(nil, layer or "BORDER")
-                    inner:SetTexture(tex)
-                    inner:SetSize(r - thick, r - thick)
-                    inner:SetPoint(point, f, point, ox, oy)
-                    local fc = fillColor or color
-                    inner:SetVertexColor(fc[1], fc[2], fc[3])
-                    inner:SetAlpha(fc[4] or 1)
-                    covers[#covers + 1] = inner
-                end
-                return
-            end
-            local t = p:CreateTexture(nil, layer or "BORDER")
-            t:SetTexture("Interface/AddOns/DungeonsForever/Media/LibHUI/HUIRoundCorner")
-            t:SetSize(r, r)
-            t:SetPoint(point, f, point, ox, oy)
-            local uv = BORDER_UV[point]
-            t:SetTexCoord(uv[1], uv[2], uv[3], uv[4], uv[5], uv[6], uv[7], uv[8])
-            t:SetVertexColor(color[1], color[2], color[3])
-            t:SetAlpha(alpha)
-            pieces[#pieces + 1] = t
-        end
         local sL = not rounding or rounding == "both" or rounding == "left"
         local sR = not rounding or rounding == "both" or rounding == "right"
         local sT = rounding == "top"
@@ -648,10 +710,90 @@ do
         local arcTR = sR or sT
         local arcBL = sL or sB
         local arcBR = sR or sB
-        if arcTL then corner("TOPLEFT") end
-        if arcTR then corner("TOPRIGHT") end
-        if arcBL then corner("BOTTOMLEFT") end
-        if arcBR then corner("BOTTOMRIGHT") end
+        local function tint(t)
+            t:SetVertexColor(color[1], color[2], color[3])
+            t:SetAlpha(alpha)
+            pieces[#pieces + 1] = t
+            return t
+        end
+        if thick <= 1 then
+            ------------------------------------------------------------------
+            -- 9-slice 圆角环：四角取象限、四直边取同一张环贴图的中段，接缝零错位。
+            ------------------------------------------------------------------
+            local file = GLASS_RING_TEX .. snapR
+            local q = snapR / 32        -- 象限边长（UV），弧线显示半径恒等于 r
+            local ins = r - shift       -- 角块外扩 shift 时切点随之内收
+            local function corner(point)
+                local t = p:CreateTexture(nil, layer or "BORDER")
+                t:SetTexture(file)
+                t:SetTexCoord(CornerQuadUV(point, snapR))
+                t:SetSize(r, r)
+                t:SetPoint(point, f, point,
+                        (point:find("LEFT") and -1 or 1) * shift,
+                        (point:find("TOP") and 1 or -1) * shift)
+                return tint(t)
+            end
+            local function edgeH(top)
+                local t = p:CreateTexture(nil, layer or "BORDER")
+                t:SetTexture(file)
+                t:SetHeight(r)
+                local vp = top and "TOP" or "BOTTOM"
+                local v0 = top and 0 or (1 - q)
+                -- ★ 本客户端 4 参 SetTexCoord 是 (l, r, t, b)，照 retail 文档
+                --   (l, t, r, b) 写必炸；直边一律用 8 参 UL,LL,UR,LR
+                t:SetTexCoord(q, v0, q, v0 + q, 1 - q, v0, 1 - q, v0 + q)
+                t:SetPoint(vp .. "LEFT", f, vp .. "LEFT", (top and arcTL or arcBL) and ins or 0, (top and 1 or -1) * shift)
+                t:SetPoint(vp .. "RIGHT", f, vp .. "RIGHT", (top and arcTR or arcBR) and -ins or 0, (top and 1 or -1) * shift)
+                return tint(t)
+            end
+            local function edgeV(left)
+                local t = p:CreateTexture(nil, layer or "BORDER")
+                t:SetTexture(file)
+                t:SetWidth(r)
+                local hp = left and "LEFT" or "RIGHT"
+                local u0 = left and 0 or (1 - q)
+                t:SetTexCoord(u0, q, u0, 1 - q, u0 + q, q, u0 + q, 1 - q)
+                t:SetPoint("TOP" .. hp, f, "TOP" .. hp, (left and -1 or 1) * shift, (left and arcTL or arcTR) and -ins or 0)
+                t:SetPoint("BOTTOM" .. hp, f, "BOTTOM" .. hp, (left and -1 or 1) * shift, (left and arcBL or arcBR) and ins or 0)
+                return tint(t)
+            end
+            if arcTL then corner("TOPLEFT") end
+            if arcTR then corner("TOPRIGHT") end
+            if arcBL then corner("BOTTOMLEFT") end
+            if arcBR then corner("BOTTOMRIGHT") end
+            edgeH(true)
+            edgeH(false)
+            if sL or arcTL or arcBL then edgeV(true) end
+            if sR or arcTR or arcBR then edgeV(false) end
+            return pieces, covers
+        end
+        -- thick > 1：外盘描边色 + 内盘填充色同心盘；直边为厚色条
+        local function cornerThick(point)
+            local insetSide = point:find("LEFT") and 1 or -1
+            local insetVert = point:find("TOP") and -1 or 1
+            local ox = -shift * insetSide
+            local oy = -shift * insetVert
+            local tex = GLASS_FILL_TEX .. snapR
+            local outer = p:CreateTexture(nil, layer or "BORDER")
+            outer:SetTexture(tex)
+            outer:SetSize(r, r)
+            outer:SetPoint(point, f, point, ox, oy)
+            outer:SetTexCoord(CornerQuadUV(point, snapR))
+            outer:SetVertexColor(color[1], color[2], color[3])
+            outer:SetAlpha(alpha)
+            pieces[#pieces + 1] = outer
+            if r > thick then
+                local inner = p:CreateTexture(nil, layer or "BORDER")
+                inner:SetTexture(tex)
+                inner:SetSize(r - thick, r - thick)
+                inner:SetPoint(point, f, point, ox, oy)
+                inner:SetTexCoord(CornerQuadUV(point, snapR))
+                local fc = fillColor or color
+                inner:SetVertexColor(fc[1], fc[2], fc[3])
+                inner:SetAlpha(fc[4] or 1)
+                covers[#covers + 1] = inner
+            end
+        end
         local arcInset = r - thick - (outside and (outExtra or 0) or 0) - ex
         local function hstrip(top)
             local t = p:CreateTexture(nil, layer or "BORDER")
@@ -659,14 +801,10 @@ do
             t:SetAlpha(alpha)
             t.__huiBorderStrip = true
             local vp = top and "TOP" or "BOTTOM"
-            local oy = (top and 1 or -1) * ((outside and ext or 0) + ex)
+            local oy = (top and 1 or -1) * shift
             t:SetPoint(vp .. "LEFT", f, vp .. "LEFT", (top and arcTL or arcBL) and arcInset or 0, oy)
             t:SetPoint(vp .. "RIGHT", f, vp .. "RIGHT", (top and arcTR or arcBR) and -arcInset or 0, oy)
-            if thick == 1 then
-                RegisterPixelStrip(t, "h")
-            else
-                t:SetHeight(thick)
-            end
+            t:SetHeight(thick)
             pieces[#pieces + 1] = t
         end
         local function vstrip(left)
@@ -675,21 +813,117 @@ do
             t:SetAlpha(alpha)
             t.__huiBorderStrip = true
             local hp = left and "LEFT" or "RIGHT"
-            local ox = (left and -1 or 1) * ((outside and ext or 0) + ex)
+            local ox = (left and -1 or 1) * shift
             t:SetPoint("TOP" .. hp, f, "TOP" .. hp, ox, (left and arcTL or arcTR) and -arcInset or 0)
             t:SetPoint("BOTTOM" .. hp, f, "BOTTOM" .. hp, ox, (left and arcBL or arcBR) and arcInset or 0)
-            if thick == 1 then
-                RegisterPixelStrip(t, "w")
-            else
-                t:SetWidth(thick)
-            end
+            t:SetWidth(thick)
             pieces[#pieces + 1] = t
         end
+        if arcTL then cornerThick("TOPLEFT") end
+        if arcTR then cornerThick("TOPRIGHT") end
+        if arcBL then cornerThick("BOTTOMLEFT") end
+        if arcBR then cornerThick("BOTTOMRIGHT") end
         hstrip(true)
         hstrip(false)
         if sL or arcTL or arcBL then vstrip(true) end
         if sR or arcTR or arcBR then vstrip(false) end
         return pieces, covers
+    end
+
+    ------------------------------------------------------------------
+    -- 玻璃渐变：填充九宫按行分色（上排提亮、下排基色、中排竖向渐变）。
+    -- 半透明白填充走 alpha 阶梯，实色深灰走 RGB 向白混色；颜色表保持活引用，主题切换自动跟随。
+    ------------------------------------------------------------------
+    local GLASS_SHADOW_TEX = "Interface/AddOns/DungeonsForever/Media/LibHUI/HUIGlassShadow"
+
+    local function GlassZoneColor(c, zone)
+        local a = c[4] or 1
+        local r, g, b = c[1], c[2], c[3]
+        local lum = (r + g + b) / 3
+        if lum >= 0.85 and a < 0.9 then
+            local ka = zone == "top" and 1.7 or zone == "bot" and 0.55 or 1.15
+            return r, g, b, math.min(1, a * ka)
+        end
+        local k = zone == "top" and 0.05 or zone == "bot" and 0.012 or 0.028
+        return r + (1 - r) * k, g + (1 - g) * k, b + (1 - b) * k, a
+    end
+
+    -- 按 __huiGlass 标记上色；未标记的贴图原样跳过
+    local function GlassPaint(tex)
+        local g = tex.__huiGlass
+        if not g then return end
+        local c, zone = g.c, g.zone
+        if zone == "grad" then
+            tex:SetGradient("VERTICAL",
+                CreateColor(GlassZoneColor(c, "bot")),
+                CreateColor(GlassZoneColor(c, "top")))
+            tex:SetAlpha(1)
+        else
+            local r, gg, b, a = GlassZoneColor(c, zone)
+            tex:SetVertexColor(r, gg, b)
+            tex:SetAlpha(a)
+        end
+    end
+
+    -- ★ 玻璃单板（2026-10-10 TierUI 伪裁剪遮罩需求）：给帧铺一块与主题玻璃同材质的
+    --   单色板（指定分区色 top/bot/mid），并入重绘与主窗透明度联动 —— 叠在玻璃卡面
+    --   上不可见（纯色 SetColorTexture 板会显形成黑块：玻璃分区色比基色亮 ~5%，且
+    --   主窗透明度滑杆只作用于注册过的玻璃件）。
+    function ns.hui.GlassPlate(f, color, zone)
+        if not f or not f.CreateTexture then return nil end
+        local tex = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+        tex:SetTexture("Interface/Buttons/WHITE8X8")
+        tex:SetAllPoints()
+        tex.__huiGlass = { c = color or ns.hui.layer.L2, zone = zone or "mid" }
+        GlassPaint(tex)
+        if ns.hui.AddRepaint then
+            ns.hui.AddRepaint(f, function() GlassPaint(tex) end)
+        end
+        if ns.huiTheme == "hui" and ns.hui.IsMainUIFrame and ns.hui.IsMainUIFrame(f)
+           and ns.hui.RegisterMainAlphaSurface then
+            ns.hui.RegisterMainAlphaSurface(f, { tex })
+        end
+        return tex
+    end
+
+    -- 九宫软投影（垫 BACKGROUND sublevel -8，外扩 spread）：
+    -- 大窗 22/0.8、弹层 18/0.75、小浮层 14/0.7；页内卡片不加。
+    local function BuildCardShadow(f, spread, alpha)
+        if not f or not f.CreateTexture then return nil end
+        spread = spread or 18
+        local corner = spread + 8
+        local cUV = 0.375
+        local coords = {
+            { 0, cUV, 0, cUV }, { cUV, 1 - cUV, 0, cUV }, { 1 - cUV, 1, 0, cUV },
+            { 0, cUV, cUV, 1 - cUV }, { cUV, 1 - cUV, cUV, 1 - cUV }, { 1 - cUV, 1, cUV, 1 - cUV },
+            { 0, cUV, 1 - cUV, 1 }, { cUV, 1 - cUV, 1 - cUV, 1 }, { 1 - cUV, 1, 1 - cUV, 1 },
+        }
+        local pieces = {}
+        for i = 1, 9 do
+            local t = f:CreateTexture(nil, "BACKGROUND", nil, -8)
+            t:SetTexture(GLASS_SHADOW_TEX)
+            t:SetTexCoord(unpack(coords[i]))
+            t:SetVertexColor(0, 0, 0, 1)
+            t:SetAlpha(alpha or 0.75)
+            pieces[#pieces + 1] = t
+        end
+        local p = pieces
+        p[1]:SetPoint("TOPLEFT", f, "TOPLEFT", -spread, spread)
+        p[3]:SetPoint("TOPRIGHT", f, "TOPRIGHT", spread, spread)
+        p[7]:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", -spread, -spread)
+        p[9]:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", spread, -spread)
+        for _, i in ipairs({ 1, 3, 7, 9 }) do p[i]:SetSize(corner, corner) end
+        p[2]:SetPoint("TOPLEFT", p[1], "TOPRIGHT")
+        p[2]:SetPoint("BOTTOMRIGHT", p[3], "BOTTOMLEFT")
+        p[8]:SetPoint("TOPLEFT", p[7], "TOPRIGHT")
+        p[8]:SetPoint("BOTTOMRIGHT", p[9], "BOTTOMLEFT")
+        p[4]:SetPoint("TOPLEFT", p[1], "BOTTOMLEFT")
+        p[4]:SetPoint("BOTTOMRIGHT", p[7], "TOPRIGHT")
+        p[6]:SetPoint("TOPLEFT", p[3], "BOTTOMLEFT")
+        p[6]:SetPoint("BOTTOMRIGHT", p[9], "TOPRIGHT")
+        p[5]:SetPoint("TOPLEFT", p[1], "BOTTOMRIGHT")
+        p[5]:SetPoint("BOTTOMRIGHT", p[9], "TOPLEFT")
+        return pieces
     end
 
     local function BuildRoundedBG(f, cr, color, rounding, withBorder, borderThickness, noRepaint, borderOutside, borderOutExtra, expand)
@@ -708,36 +942,42 @@ do
         local arcBL = sL or sB
         local arcBR = sR or sB
         local pieces = {}
-        local function add(texPath, w, h)
+        local function add(texPath, w, h, zone)
             local tex = f:CreateTexture(nil, "BACKGROUND", nil, 1)
             tex:SetTexture(texPath)
             tex:SetSize(w or cr, h or cr)
-            tex:SetVertexColor(color[1], color[2], color[3])
-            tex:SetAlpha(color[4] or 1)
+            tex.__huiGlass = { c = color, zone = zone or "mid" }
+            GlassPaint(tex)
             pieces[#pieces + 1] = tex
             return tex
         end
-        if arcTL then add(HUI_CORNER_TL):SetPoint("TOPLEFT", f, "TOPLEFT", -e, e) end
-        if arcTR then add(HUI_CORNER_TR):SetPoint("TOPRIGHT", f, "TOPRIGHT", e, e) end
-        if arcBL then add(HUI_CORNER_BL):SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", -e, -e) end
-        if arcBR then add(HUI_CORNER_BR):SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", e, -e) end
+        local snapR = SnapCornerR(cr)
+        local function addCorner(point, zone)
+            local tex = add(GLASS_FILL_TEX .. snapR, nil, nil, zone)
+            tex:SetTexCoord(CornerQuadUV(point, snapR))
+            return tex
+        end
+        if arcTL then addCorner("TOPLEFT", "top"):SetPoint("TOPLEFT", f, "TOPLEFT", -e, e) end
+        if arcTR then addCorner("TOPRIGHT", "top"):SetPoint("TOPRIGHT", f, "TOPRIGHT", e, e) end
+        if arcBL then addCorner("BOTTOMLEFT", "bot"):SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", -e, -e) end
+        if arcBR then addCorner("BOTTOMRIGHT", "bot"):SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", e, -e) end
         if arcTL or arcTR then
-            local ts = add("Interface/Buttons/WHITE8X8")
+            local ts = add("Interface/Buttons/WHITE8X8", nil, nil, "top")
             ts:SetPoint("TOPLEFT", f, "TOPLEFT", (arcTL and cr or 0) - e, e)
             ts:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", (arcTR and -cr or 0) + e, -cr + e)
         end
         if arcBL or arcBR then
-            local bs = add("Interface/Buttons/WHITE8X8")
+            local bs = add("Interface/Buttons/WHITE8X8", nil, nil, "bot")
             bs:SetPoint("TOPLEFT", f, "BOTTOMLEFT", (arcBL and cr or 0) - e, cr - e)
             bs:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", (arcBR and -cr or 0) + e, -e)
         end
         if arcTL or arcBL then
-            local ls = add("Interface/Buttons/WHITE8X8")
+            local ls = add("Interface/Buttons/WHITE8X8", nil, nil, "grad")
             ls:SetPoint("TOPLEFT", f, "TOPLEFT", -e, (arcTL and -cr or 0) + e)
             ls:SetPoint("BOTTOMRIGHT", f, "BOTTOMLEFT", cr - e, (arcBL and cr or 0) - e)
         end
         if arcTR or arcBR then
-            local rs = add("Interface/Buttons/WHITE8X8")
+            local rs = add("Interface/Buttons/WHITE8X8", nil, nil, "grad")
             rs:SetPoint("TOPRIGHT", f, "TOPRIGHT", e, (arcTR and -cr or 0) + e)
             rs:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT", -cr + e, (arcBR and cr or 0) - e)
         end
@@ -745,14 +985,13 @@ do
         local insetR = (arcTR or arcBR) and cr or 0
         local insetT = (arcTL or arcTR) and cr or 0
         local insetB = (arcBL or arcBR) and cr or 0
-        local rect = add("Interface/Buttons/WHITE8X8")
+        local rect = add("Interface/Buttons/WHITE8X8", nil, nil, "grad")
         rect:SetPoint("TOPLEFT", f, "TOPLEFT", insetL - e, -insetT + e)
         rect:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -insetR + e, insetB - e)
         if not noRepaint then
             ns.hui.AddRepaint(f, function()
                 for _, tex in ipairs(pieces) do
-                    tex:SetVertexColor(color[1], color[2], color[3])
-                    tex:SetAlpha(color[4] or 1)
+                    GlassPaint(tex)
                 end
             end)
         end
@@ -766,6 +1005,9 @@ do
         return pieces
     end
     ns.hui.BuildRoundedBG = BuildRoundedBG
+    ns.hui.BuildCardShadow = BuildCardShadow
+    ns.hui.BuildCapsule = BuildCapsule
+    ns.hui.GlassPaint = GlassPaint
 
     function ns.hui.GetMainAlpha()
         local v = tonumber(ns.options and ns.options.huiAlpha)
@@ -874,11 +1116,14 @@ do
         end
         local pieces, borderPieces, coverPieces = BuildRoundedBG(f, cr or 8, color, rounding or "both", not noBorder, borderThickness, nil, borderOutside, borderOutExtra, expand)
         f.__huiBorderPieces = borderPieces
+        local shadowPieces
+        if f:GetParent() == UIParent then
+            shadowPieces = BuildCardShadow(f, 18, 0.75)
+        end
         local function repaintFill()
             for _, tex in ipairs(pieces) do
                 tex:SetShown(true)
-                tex:SetVertexColor(color[1], color[2], color[3])
-                tex:SetAlpha(color[4])
+                GlassPaint(tex)
             end
             for _, tex in ipairs(coverPieces or {}) do
                 tex:SetShown(true)
@@ -905,6 +1150,9 @@ do
             for _, tex in ipairs(coverPieces or {}) do
                 reg[#reg + 1] = tex
             end
+            for _, tex in ipairs(shadowPieces or {}) do
+                reg[#reg + 1] = tex
+            end
             ns.hui.RegisterMainAlphaSurface(f, reg)
             local entry = mainAlphaSurfaces[f]
             if entry then
@@ -921,6 +1169,7 @@ do
         if not s then return end
         for _, tex in ipairs(s.pieces) do tex:SetShown(on) end
         for _, tex in ipairs(s.border) do tex:SetShown(on) end
+        for _, tex in ipairs(s.shadow or {}) do tex:SetShown(on) end
         for _, bd in ipairs(s.libBackdrops) do
             if bd then bd:SetShown(not on) end
         end
@@ -929,13 +1178,14 @@ do
         if not f or dropdownSkinSeen[f] then return end
         dropdownSkinSeen[f] = true
         local pieces = BuildRoundedBG(f, 8, ns.hui.layer.L1, "both")
-        local border = DrawRoundBorder(f, 8, ns.hui.layer.DIV) or {}
+        local border = DrawRoundBorder(f, 8, C_CARD_BORDER) or {}
         for _, tex in ipairs(border) do
             tex:SetDrawLayer("OVERLAY")
         end
-        f.__huiDropDownSkin = { pieces = pieces, border = border, libBackdrops = { f.Backdrop, f.MenuBackdrop } }
+        local shadow = (f:GetParent() == UIParent) and BuildCardShadow(f, 14, 0.7) or nil
+        f.__huiDropDownSkin = { pieces = pieces, border = border, shadow = shadow, libBackdrops = { f.Backdrop, f.MenuBackdrop } }
         ns.hui.AddRepaint(f, function()
-            local DIV = ns.hui.layer.DIV
+            local DIV = C_CARD_BORDER   -- 2026-10-10 用户定：下拉菜单边框用白 10% 卡边，不用 DIV
             for _, tex in ipairs(border) do
                 if tex.__huiBorderStrip then
                     tex:SetColorTexture(DIV[1], DIV[2], DIV[3], 1)
@@ -1435,7 +1685,11 @@ do
         return ok and link ~= nil
     end
 
-    local function ApplyTooltipSkin(tt, on)
+    -- 重入守卫：tooltip 回调经引擎共享帧同步派发，这条链不可重入 ——
+    -- 在派发栈里动帧若触发第二次派发 ⇒ 无界递归。
+    -- 对策：逻辑状态先落地（幂等），动帧部分加单次通道守卫；再入即放弃本轮，由下一次事件补。
+    local tipApplying = false
+    local function ApplyTooltipSkinBody(tt, on)
         local s = tooltipSkins[tt]
         if not s then return end
         s.on = on
@@ -1455,6 +1709,15 @@ do
                 tt.NineSlice:SetAlpha(s.nineAlpha or 1)
             end
         end
+    end
+    local function ApplyTooltipSkin(tt, on)
+        local s = tt and tooltipSkins[tt]
+        if not s then return end
+        s.on = on
+        if tipApplying then return end
+        tipApplying = true
+        pcall(ApplyTooltipSkinBody, tt, on)
+        tipApplying = false
     end
 
     local function UnskinItemTooltip(tt)
@@ -1507,11 +1770,11 @@ do
         if not ns.hui.__tooltipStyleHooked then
             ns.hui.__tooltipStyleHooked = true
             if SharedTooltip_SetBackdropStyle then
+                -- 严禁在本钩子里同步动帧（会反向再入 NineSlice 布局应用 ⇒ 无界递归）；
+                -- 改走带守卫的 ApplyTooltipSkin（重入即放弃本轮），由下一次事件兜底。
                 hooksecurefunc("SharedTooltip_SetBackdropStyle", function(tooltip)
                     local s = tooltip and tooltipSkins[tooltip]
-                    if s and s.on and tooltip.NineSlice then
-                        tooltip.NineSlice:SetAlpha(0)
-                    end
+                    if s and s.on then ApplyTooltipSkin(tooltip, true) end
                 end)
             end
         end
@@ -1617,8 +1880,8 @@ do
             text:SetTextColor(0.92, 0.93, 0.95)
         end
 
-        ns.hui.BuildRoundedBG(dd, 6, { 0x2a / 255, 0x2d / 255, 0x31 / 255, 0.5 }, "both")
-        local NORMAL = { 0x55 / 255, 0x58 / 255, 0x5e / 255 }
+        ns.hui.BuildRoundedBG(dd, 6, { 0x16 / 255, 0x1A / 255, 0x22 / 255, 0.5 }, "both")
+        local NORMAL = { 0x4A / 255, 0x52 / 255, 0x63 / 255 }
         local border = ns.hui.BuildRoundBorder(dd, 6, NORMAL, dd, "OVERLAY", "both", 1) or {}
         local function Paint(c)
             for _, tex in ipairs(border) do
@@ -1640,8 +1903,8 @@ do
         if not bt or bt.__huiAction or not bt.SetBackdropBorderColor then return end
         if ns.huiTheme ~= "hui" then return end
         bt.__huiAction = true
-        local C_BORDER = {0x55 / 255, 0x58 / 255, 0x5e / 255}
-        local C_BG = {0x2a / 255, 0x2d / 255, 0x31 / 255}
+        local C_BORDER = {0x4A / 255, 0x52 / 255, 0x63 / 255}
+        local C_BG = {0x16 / 255, 0x1A / 255, 0x22 / 255}
         bt:SetBackdrop({
             bgFile = "Interface/ChatFrame/ChatFrameBackground",
             edgeFile = "Interface/ChatFrame/ChatFrameBackground",
@@ -1665,6 +1928,8 @@ do
 
         local borderFrame, hoverFrame
         local function BuildBorderFrame()
+            -- 计数给探针（收尾打「皮按钮边框帧重建 N次」）。
+            ns.hui.__skinBuilds = (ns.hui.__skinBuilds or 0) + 1
             if borderFrame then borderFrame:Hide(); borderFrame:SetParent(nil) end
             borderFrame = CreateFrame("Frame", nil, bt)
             borderFrame:SetAllPoints()
@@ -1672,6 +1937,8 @@ do
             if hoverFrame then hoverFrame:SetParent(borderFrame) end
         end
         local function BuildHoverFrame()
+            -- 与 BuildBorderFrame 同一笔账（一副悬浮边也是 8 个新纹理）。
+            ns.hui.__skinBuilds = (ns.hui.__skinBuilds or 0) + 1
             if hoverFrame then hoverFrame:Hide(); hoverFrame:SetParent(nil) end
             hoverFrame = CreateFrame("Frame", nil, borderFrame or bt)
             hoverFrame:SetAllPoints()
@@ -1679,6 +1946,11 @@ do
             ns.hui.BuildRoundBorder(hoverFrame, 6, ns.hui.ACCENT)
         end
         local function TryBuild()
+            -- 幂等：边框帧全部 SetAllPoints、纹理锚在帧上，尺寸变化自行跟随，无需销毁重建；
+            -- TryBuild 挂在 SetSize / SetWidth / SetHeight / OnSizeChanged 上，签名未变的重画直接跳过。
+            -- 计数给探针。
+            ns.hui.__tryBuilds = (ns.hui.__tryBuilds or 0) + 1
+            if borderFrame then return end
             local w, h = bt:GetWidth() or 0, bt:GetHeight() or 0
             if w > 0 and h > 0 then
                 BuildBorderFrame()
@@ -1715,7 +1987,8 @@ do
             ApplyBody(enabled and 0.5 or 0.25)
             if fs then
                 if enabled then
-                    fs:SetTextColor(1, 1, 1)
+                    -- ★ __huiKeepTextColor：按钮自带文字色（阵营色等）不被启用钩子刷白
+                    if not bt.__huiKeepTextColor then fs:SetTextColor(1, 1, 1) end
                 else
                     fs:SetTextColor(0.5, 0.5, 0.5)
                 end
@@ -2087,11 +2360,8 @@ do
         if not f then return end
         tex.__huiRounded = true
         local mask = f:CreateMaskTexture(nil, "OVERLAY")
-        -- ★★ 蒙版必须按**贴图**的尺寸裁，不是父帧的尺寸。
-        --    图标贴在「行 / 卡片 / 按钮」上时父帧远大于图标 —— 蒙版挂父帧的话圆角落在父帧四个角上，
-        --    图标看上去就是「没倒圆角」（用户 2026-09-30 实机截图报的正是这个）。
-        --    锚到贴图与官方 XML 同构（Blizzard_AzeriteEssenceUI 的 CircleMask 用
-        --    TOPLEFT / BOTTOMRIGHT 锚 relativeKey="$parent.Icon"；动作条 IconMask 用 CENTER）。
+        -- ★ 蒙版必须按贴图的尺寸裁，不是父帧的尺寸：图标贴在行 / 卡片 / 按钮上时
+        --   父帧远大于图标，蒙版挂父帧会让圆角落在父帧四角、图标看上去没倒角。
         mask:SetAllPoints(tex)
         mask:SetTexture("Interface/AddOns/DungeonsForever/Media/LibHUI/HUIRoundRectMask",
             "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")

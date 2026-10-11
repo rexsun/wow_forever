@@ -6,6 +6,10 @@ local D = TalentsForeverBookData
 local G = TF.Game
 local UI = {}
 TF.UI = UI
+local L = TF.L   -- every sentence by its English text; a locale file fills the client's language, English falls through
+-- the Key Bindings menu's names: set here, not in Core.lua, because the locale files load between the two
+BINDING_NAME_TALENTSFOREVERBOOK_TOGGLE = L["Open or close the planner"]
+BINDING_NAME_TALENTSFOREVERBOOK_NEXT = L["Apply the next planned point"]
 
 local MEDIA = "Interface\\AddOns\\TalentsForeverBook\\Media\\"
 local SKIN = MEDIA .. "skin\\"
@@ -42,7 +46,7 @@ local C = {
   panel = { 0.118, 0.118, 0.118 }, raised = { 0.15, 0.15, 0.15 }, line = { 0.23, 0.23, 0.23 },
 }
 local STATUS_COLOR = { new = C.gold, changed = C.blue, moved = C.purple }
-local STATUS_WORD = { new = "New in Forever", changed = "Changed from Classic", moved = "Moved since Classic", same = "Same as Classic" }
+local STATUS_WORD = { new = L["New in Forever"], changed = L["Changed from Classic"], moved = L["Moved since Classic"], same = L["Same as Classic"] }
 local function rgb(c) return c[1], c[2], c[3] end
 local atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
 local function S() return TF.db.settings end
@@ -65,7 +69,8 @@ local function Backdrop(f, bg, border, alpha)
 end
 -- every word is in the game's own face, with the game's one-pixel shadow under it, so the window reads as part of the game
 local function Font(fs, size, display, flags)
-  if display and (LOOK() == "site" or size >= 14) then
+  -- Cinzel carries Latin letters only: a Russian, Chinese or Korean client keeps the game's own face for headings too
+  if display and TF.LatinClient() and (LOOK() == "site" or size >= 14) then
     local ok = pcall(fs.SetFont, fs, CINZEL, size, flags or "")
     if ok then return fs end
   end
@@ -214,9 +219,15 @@ end
 local NOPLATE = { Paint = function() end }
 -- a Copy button cannot copy (no addon can write the clipboard): after the click it says the key to press, for a moment
 function UI.CopyCue(b)
-  b.cueLabel = b.cueLabel or b:GetText() or "Select"
-  b:SetText("Ctrl+C"); b.cueAt = GetTime()
+  b.cueLabel = b.cueLabel or b:GetText() or L["Select"]
+  b:SetText(L["Ctrl+C"]); b.cueAt = GetTime()
   C_Timer.After(6, function() if b.cueAt and GetTime() - b.cueAt >= 5.9 then b:SetText(b.cueLabel); b.cueAt = nil end end)
+end
+-- 0.38.0: a fixed-width button beside a box grows to its word (Seleccionar, Selecionar) and the box gives up the same room
+function UI.FitBeside(b, box)
+  local tw = b.label and b.label.GetStringWidth and b.label:GetStringWidth() or 0
+  local grow = math.ceil(tw + 24 - b:GetWidth())
+  if grow > 0 then b:SetWidth(b:GetWidth() + grow); box:SetWidth(box:GetWidth() - grow) end
 end
 local function Button(parent, label, w, h, onClick, primary)
   h = h or 24
@@ -566,7 +577,7 @@ local CLASS_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN
 local function SetClassIcon(tex, cf)
   local cd0 = TalentsForeverBookData.classes[cf]
   if cd0 then
-    local ok, r = pcall(tex.SetTexture, tex, "Interface\\Icons\\ClassIcon_" .. cd0.name)
+    local ok, r = pcall(tex.SetTexture, tex, "Interface\\Icons\\ClassIcon_" .. (cd0.en or cd0.name))
     if ok and r ~= false then tex:SetTexCoord(0.07, 0.93, 0.07, 0.93); return end
   end
   local tc = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[cf]
@@ -703,7 +714,7 @@ local sheets = {}
 local applying = false
 local tabs = {}       -- side panel tabs: key -> { button, frame, refresh }
 local TAB_ORDER = { "home", "plan", "coach", "builds", "popular", "racials" }
-local TAB_LABEL = { home = "Home", plan = "Plan", coach = "Coach", builds = "Builds", popular = "Popular", classic = "Classic", racials = "Races" }
+local TAB_LABEL = { home = L["Home"], plan = L["Plan"], coach = L["Coach"], builds = L["Builds"], popular = L["Popular"], classic = L["Classic"], racials = L["Races"] }
 
 local function plan() return TF.plan end
 local function classData() return D.classes[plan().cls] end
@@ -748,7 +759,7 @@ function UI.ShowTip(b, owner, mode, extra)
     if rec and rec.ids then
       local k = 1
       for j, lv in ipairs(rec.levels or {}) do if lv <= p.level and rec.ids[j] then k = j end end
-      if rec.ids[k] then refs[#refs + 1] = { name = name, id = rec.ids[k] } end
+      if rec.ids[k] then refs[#refs + 1] = { name = rec.loc or name, id = rec.ids[k] } end
     end
   end
   if #refs > 0 and IsControlKeyDown and IsControlKeyDown() then
@@ -759,14 +770,14 @@ function UI.ShowTip(b, owner, mode, extra)
       local lines = TipLines(C_TooltipInfo and C_TooltipInfo.GetSpellByID, s.id)
       if lines then
         if first then GameTooltip:SetText(s.name, rgb(C.purple)) else GameTooltip:AddLine(s.name, rgb(C.purple)) end
-        for k = 2, #lines do local L = lines[k]; if not TipNoise(L.leftText) then GameTooltip:AddLine(L.leftText, 1, 1, 1, true) end end
+        for k = 2, #lines do local ln = lines[k]; if not TipNoise(ln.leftText) then GameTooltip:AddLine(ln.leftText, 1, 1, 1, true) end end
       else
         local ok = first and GameTooltip.SetSpellByID and pcall(GameTooltip.SetSpellByID, GameTooltip, s.id)
         if not ok then if first then GameTooltip:SetText(s.name, rgb(C.purple)) else GameTooltip:AddLine(s.name, rgb(C.purple)) end end
       end
       first = false
     end
-    GameTooltip:AddLine(" "); GameTooltip:AddLine("Let go of Ctrl for the talent.", 0.54, 0.54, 0.54, true)
+    GameTooltip:AddLine(" "); GameTooltip:AddLine(L["Let go of Ctrl for the talent."], 0.54, 0.54, 0.54, true)
     TipEnd(owner, mode)
     return
   end
@@ -776,10 +787,10 @@ function UI.ShowTip(b, owner, mode, extra)
   if lines then
     GameTooltip:SetText(TipTitle(t), 1, 0.82, 0)
     for k = 2, #lines do
-      local L = lines[k]; local lt = L.leftText
+      local ln = lines[k]; local lt = ln.leftText
       if not TipNoise(lt) then
-        local lc, rc = L.leftColor or {}, L.rightColor or {}
-        if type(L.rightText) == "string" and L.rightText ~= "" then GameTooltip:AddDoubleLine(lt, L.rightText, lc.r or 1, lc.g or 1, lc.b or 1, rc.r or 1, rc.g or 1, rc.b or 1)
+        local lc, rc = ln.leftColor or {}, ln.rightColor or {}
+        if type(ln.rightText) == "string" and ln.rightText ~= "" then GameTooltip:AddDoubleLine(lt, ln.rightText, lc.r or 1, lc.g or 1, lc.b or 1, rc.r or 1, rc.g or 1, rc.b or 1)
         else GameTooltip:AddLine(lt, lc.r or 1, lc.g or 1, lc.b or 1, true) end
       end
     end
@@ -789,10 +800,10 @@ function UI.ShowTip(b, owner, mode, extra)
   if not shown and t.spell and GameTooltip.SetSpellByID then shown = pcall(GameTooltip.SetSpellByID, GameTooltip, t.spell) end
   if not shown then GameTooltip:SetText(TipTitle(t), 1, 0.82, 0) end
   GameTooltip:AddLine(" ")
-  GameTooltip:AddDoubleLine("Your plan", string.format("%d / %d", r, t.max), 1, 0.82, 0, 1, 1, 1)
+  GameTooltip:AddDoubleLine(L["Your plan"], string.format(L["%d / %d"], r, t.max), 1, 0.82, 0, 1, 1, 1)
   if n then
     local same = n.rank == r
-    GameTooltip:AddDoubleLine("In game", string.format("%d / %d", n.rank, n.max), 0.35, 0.65, 1, same and 1 or 0.35, same and 1 or 0.65, 1)
+    GameTooltip:AddDoubleLine(L["In game"], string.format(L["%d / %d"], n.rank, n.max), 0.35, 0.65, 1, same and 1 or 0.35, same and 1 or 0.65, 1)
   end
   if r > 0 then
     local first, last, nextOne
@@ -800,17 +811,21 @@ function UI.ShowTip(b, owner, mode, extra)
       if e.ti == ti and e.i == i then first = first or e.level; last = e.level end
     end
     if first then
-      local when = first == last and string.format("level %d", first) or string.format("levels %d to %d", first, last)
-      GameTooltip:AddDoubleLine("In your plan", when, 1, 0.82, 0, 0.74, 0.74, 0.74)
+      local when = first == last and string.format(L["level %d"], first) or string.format(L["levels %d to %d"], first, last)
+      GameTooltip:AddDoubleLine(L["In your plan"], when, 1, 0.82, 0, 0.74, 0.74, 0.74)
     end
   end
-  if UI.nextTile == b then GameTooltip:AddLine("Your next point goes here.", 0.31, 0.75, 0.23, true) end
-  if TF.trial and TF.TrialRank(ti, i) > 0 then GameTooltip:AddDoubleLine(TF.trial.name, string.format("%d / %d", TF.TrialRank(ti, i), t.max), 1, 0.82, 0, 1, 0.82, 0) end
+  if UI.nextTile == b then GameTooltip:AddLine(L["Your next point goes here."], 0.31, 0.75, 0.23, true) end
+  if TF.trial and TF.TrialRank(ti, i) > 0 then GameTooltip:AddDoubleLine(TF.trial.name, string.format(L["%d / %d"], TF.TrialRank(ti, i), t.max), 1, 0.82, 0, 1, 0.82, 0) end
   local bk = TF.SettledAt(ti, i)
-  if bk then GameTooltip:AddLine(string.format("This build had %d point%s here. %s now, so %s back in your pool.", bk.pts, bk.pts == 1 and "" or "s", (bk.why:gsub(" Talents$", "")), bk.pts == 1 and "it is" or "they are"), 1, 0.69, 0.40, true) end
+  if bk then GameTooltip:AddLine(string.format(TF.Plural(bk.pts, "This build had %d point here. %s now, so it is back in your pool.", "This build had %d points here. %s now, so they are back in your pool."), bk.pts, (bk.why:gsub(" Talents$", ""))), 1, 0.69, 0.40, true) end
   local pr = pickRate(ti, i)
-  if pr then GameTooltip:AddDoubleLine("Pick rate on the site", pr .. "%", 0.54, 0.54, 0.54, 0.74, 0.74, 0.74) end
-  if t.mentions and #t.mentions > 0 then local pr, pg, pb = rgb(C.purple); GameTooltip:AddLine("Changes " .. TF.JoinNames(t.mentions) .. "." .. (#refs > 0 and (" Hold Ctrl to read " .. (#refs == 1 and "it" or "them") .. ".") or ""), pr, pg, pb, true) end
+  if pr then GameTooltip:AddDoubleLine(L["Pick rate on the site"], pr .. "%", 0.54, 0.54, 0.54, 0.74, 0.74, 0.74) end
+  if t.mentions and #t.mentions > 0 then
+    local pr, pg, pb = rgb(C.purple)
+    local names = {}; for k, m in ipairs(t.mentions) do names[k] = TF.SpellLoc(p.cls, m) end
+    GameTooltip:AddLine(string.format(L["Changes %s."], TF.JoinNames(names)) .. (#refs > 0 and (" " .. TF.Plural(#refs, L["Hold Ctrl to read it."], L["Hold Ctrl to read them."])) or ""), pr, pg, pb, true)
+  end
   if r > 0 and r < t.max and n and n.entry and C_TooltipInfo and C_TooltipInfo.GetTraitEntry then
     local ok, data = pcall(C_TooltipInfo.GetTraitEntry, n.entry, r + 1)
     if ok and data and data.lines then
@@ -820,19 +835,19 @@ function UI.ShowTip(b, owner, mode, extra)
         local s = line.leftText
         if k > 1 and s and #s > 30 then words[#words + 1] = s end
       end
-      if #words > 0 then GameTooltip:AddLine(" "); GameTooltip:AddLine("Next rank", 1, 0.82, 0); GameTooltip:AddLine(words[#words], 0.62, 0.62, 0.62, true) end
+      if #words > 0 then GameTooltip:AddLine(" "); GameTooltip:AddLine(L["Next rank"], 1, 0.82, 0); GameTooltip:AddLine(words[#words], 0.62, 0.62, 0.62, true) end
     end
   end
   if t.classic and t.classic ~= "same" then
     local col = STATUS_COLOR[t.classic] or C.ink2
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine(STATUS_WORD[t.classic] .. (t.cwas and (" (was " .. t.cwas .. ")") or ""), col[1], col[2], col[3])
-    if t.ctext then GameTooltip:AddLine("Classic: " .. t.ctext, 0.6, 0.6, 0.6, true) end
+    GameTooltip:AddLine(STATUS_WORD[t.classic] .. (t.cwas and string.format(L[" (was %s)"], t.cwas) or ""), col[1], col[2], col[3])
+    if t.ctext then GameTooltip:AddLine(string.format(L["Classic: %s"], L[t.ctext]), 0.6, 0.6, 0.6, true) end
   end
   local why = TF.CanAdd(p, ti, i)
-  if why and why ~= "Max rank" and r == 0 then GameTooltip:AddLine(why, 1, 0.3, 0.3, true) end
-  if TF.TotalPts(p) < 5 then GameTooltip:AddLine("Left click adds a point, right click takes one back.", 0.54, 0.54, 0.54, true) end
-  if n and n.rank > 0 and G.CanRefund() and n.canRefund ~= false then GameTooltip:AddLine("Shift right click gives the real point back on your character.", 0.35, 0.65, 1, true) end
+  if why and why ~= L["Max rank"] and r == 0 then GameTooltip:AddLine(why, 1, 0.3, 0.3, true) end
+  if TF.TotalPts(p) < 5 then GameTooltip:AddLine(L["Left click adds a point, right click takes one back."], 0.54, 0.54, 0.54, true) end
+  if n and n.rank > 0 and G.CanRefund() and n.canRefund ~= false then GameTooltip:AddLine(L["Shift right click gives the real point back on your character."], 0.35, 0.65, 1, true) end
   if extra then extra() end
   TipEnd(owner, mode)
 end
@@ -880,12 +895,12 @@ end
 local function tileClicked(b, btn)
   if btn == "RightButton" and IsShiftKeyDown and IsShiftKeyDown() and isOwnClass() and G.CanRefund() then
     local ok, msg = G.Refund(b.ti, b.i)
-    UI.Note(ok and ("Took a point back from " .. msg .. " on your character.") or msg)
+    UI.Note(ok and string.format(L["Took a point back from %s on your character."], msg) or msg)
     return
   end
   local view, partial = TF.ViewRanks(plan())
   if btn == "RightButton" then
-    if partial and view[b.ti][b.i] <= 0 then UI.Note("That point comes later in your plan. Raise the level to reach it."); UI.ShowTip(b); return end
+    if partial and view[b.ti][b.i] <= 0 then UI.Note(L["That point comes later in your plan. Raise the level to reach it."]); UI.ShowTip(b); return end
     local ok, why = TF.Remove(b.ti, b.i, partial and TF.Pool(plan()) or nil)
     if ok then Sound("IG_MAINMENU_OPTION_CHECKBOX_OFF"); Unhit(b) elseif why then UI.Note(why) end
   else
@@ -895,7 +910,7 @@ local function tileClicked(b, btn)
       local pl = plan()
       if pl.level == 60 and TF.TotalPts(pl) == TF.Pool(pl) then
         UI.EmblemPulse()
-        UI.Note("That is every point. Save it, or take the link with you.", { { label = "Share", fn = function() UI.OpenSheet("share") end } }, 10)
+        UI.Note(L["That is every point. Save it, or take the link with you."], { { label = L["Share"], fn = function() UI.OpenSheet("share") end } }, 10)
       end
     elseif why then UI.Note(why) end
   end
@@ -1082,9 +1097,9 @@ local function MakeTree(ti, tree)
     local cd = classData(); local tr = cd.trees[ti]; local pop = TF.Popular(plan().cls)
     local share; for _, sp in ipairs(pop and pop.spec or {}) do if sp[1] == tr.name then share = sp[2] end end
     TipBegin(self); GameTooltip:SetText(tr.name, 1, 0.82, 0)
-    if share then GameTooltip:AddLine(string.format("%d%% of %s builds on the site lead %s.", share, cd.name, tr.name), 0.9, 0.9, 0.9, true) end
+    if share then GameTooltip:AddLine(string.format(L["%d%% of %s builds on the site lead %s."], share, cd.name, tr.name), 0.9, 0.9, 0.9, true) end
     local n = 0; for _, r in ipairs(plan().ranks[ti]) do n = n + r end
-    GameTooltip:AddLine(string.format("%d of your points here.", n), 0.74, 0.74, 0.74)
+    GameTooltip:AddLine(string.format(L["%d of your points here."], n), 0.74, 0.74, 0.74)
     TipEnd(self, "above")
   end
   p.fill = p:CreateTexture(nil, "BORDER", nil, 2); p.fill:SetTexture(WHITE); p.fill:SetHeight(3); p.fill:SetPoint("TOPLEFT", 1, -TREE_HEAD); p.fill:SetWidth(1); p.fill:SetAlpha(0)
@@ -1093,7 +1108,7 @@ local function MakeTree(ti, tree)
   if p.gameHeader then
     -- the points as a plain line under the name: "17 points", clear at a glance (the game's small box at the ring's foot was hard to read)
     p.pts = Text(p, 13, C.gold); p.pts:SetPoint("TOPLEFT", p, "TOPLEFT", 60, -36); p.pts:SetJustifyH("LEFT"); p.pts:SetText("0")
-    p.ptsWord = Text(p, 11, C.muted); p.ptsWord:SetPoint("LEFT", p.pts, "RIGHT", 4, 0); p.ptsWord:SetText("points")
+    p.ptsWord = Text(p, 11, C.muted); p.ptsWord:SetPoint("LEFT", p.pts, "RIGHT", 4, 0); p.ptsWord:SetText(L["points"])
     p.rowNote = Text(p, 11, C.muted); p.rowNote:SetPoint("TOPRIGHT", p, "TOPRIGHT", -12, -37); p.rowNote:SetJustifyH("RIGHT")
     p.edge:SetColor(0, 0, 0, 0); p.fill:SetHeight(2); p.fill:ClearAllPoints(); p.fill:SetPoint("TOPLEFT", 1, -(TREE_HEAD - 1)); p.fillGlow:Hide()
   else
@@ -1127,11 +1142,11 @@ local function ListRows(parent, w, rowH, top, bottom, hasDel)
     r.tagBtn = CreateFrame("Button", nil, r); r.tagBtn:SetSize(44, 16); r.tagBtn:SetPoint("TOPRIGHT", hasDel and -28 or -6, -6); r.tagBtn:Hide()
     r.tagBtn:SetHighlightTexture(WHITE); r.tagBtn:GetHighlightTexture():SetVertexColor(1, 0.82, 0, 0.12)
     r.tagBtn:SetScript("OnClick", function() if r.onTag then r.onTag() end end)
-    Tip(r.tagBtn, "PvE or PvP?", "Click to mark what this build is for. The mark stays with the saved build on this computer; a link does not carry it.")
+    Tip(r.tagBtn, L["PvE or PvP?"], L["Click to mark what this build is for. The mark stays with the saved build on this computer; a link does not carry it."])
     r.del = CloseX(r, 16); r.del:SetPoint("TOPRIGHT", -8, -6); r.del:SetScript("OnClick", function() if r.onDelete then r.onDelete() end end)
     if not hasDel then r.del:Hide() end
-    r.ghost = Button(r, "Try it", "auto", 20, function() if r.onGhost then r.onGhost() end end); r.ghost.minW = 72; r.ghost:Fit(); r.ghost:SetPoint("BOTTOMRIGHT", -8, 6)
-    r.load = Button(r, "Load", "auto", 20, function() if r.onLoad then r.onLoad() end end); r.load.minW = 64; r.load:Fit(); r.load:SetPoint("RIGHT", r.ghost, "LEFT", -8, 0)
+    r.ghost = Button(r, L["Try it"], "auto", 20, function() if r.onGhost then r.onGhost() end end); r.ghost.minW = 72; r.ghost:Fit(); r.ghost:SetPoint("BOTTOMRIGHT", -8, 6)
+    r.load = Button(r, L["Load"], "auto", 20, function() if r.onLoad then r.onLoad() end end); r.load.minW = 64; r.load:Fit(); r.load:SetPoint("RIGHT", r.ghost, "LEFT", -8, 0)
     if rowH <= 40 then   -- compact: everything on one band, so three rows show where two did
       r.icon:SetSize(24, 24); r.icon:SetPoint("LEFT", 6, 0)
       r.del:ClearAllPoints(); r.del:SetPoint("RIGHT", -4, 0)
@@ -1142,8 +1157,8 @@ local function ListRows(parent, w, rowH, top, bottom, hasDel)
       r.tag:Hide(); r.tagBtn:Hide(); r.compact = true
     end
     r.sub:SetPoint("RIGHT", r.load, "LEFT", -8, 0)
-    Tip(r.ghost, "See it next to yours", "Rings the talents this build takes on your trees, over your own points, so you can see where it differs. Load makes it your plan.")
-    Tip(r.load, "Put it on your trees", "Replaces the plan you have open. Undo brings yours back.")
+    Tip(r.ghost, L["See it next to yours"], L["Rings the talents this build takes on your trees, over your own points, so you can see where it differs. Load makes it your plan."])
+    Tip(r.load, L["Put it on your trees"], L["Replaces the plan you have open. Undo brings yours back."])
     self.rows[k] = r
     return r
   end
@@ -1223,7 +1238,7 @@ local function MakeHero(parent, y)
   hero.nextBtn:SetScript("OnClick", function() local b = hero.nextTile; if b then Land(b, true) end end); hero.nextName:SetWordWrap(false); hero.nextName:SetShadowColor(0, 0, 0, 1); hero.nextName:SetShadowOffset(1, -1)
   -- a band of the game's own painting for the lead tree: one third of the triptych, a strip of it at the card's shape
   function hero:SetArt(cf, lead)
-    local c = D.classes[cf]; local name = c and "talent-background-" .. c.name:lower()
+    local c = D.classes[cf]; local name = c and "talent-background-" .. (c.en or c.name):lower()
     local ok, info = pcall(function() return name and AtlasOK(name) and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(name) end)
     if ok and info and info.file and info.leftTexCoord then
       local l, r, t, b = info.leftTexCoord, info.rightTexCoord, info.topTexCoord, info.bottomTexCoord
@@ -1244,27 +1259,27 @@ local function MakeHero(parent, y)
     if hero.artFor ~= p.cls .. lead then hero.artFor = p.cls .. lead; hero:SetArt(p.cls, lead) end
     local cr, cg, cb = TF.ClassColor(p.cls)
     local title
-    if S().starter and isOwnClass() then local b = TF.TopBuild(p.cls); title = b and string.format("Following the #%d %s build", b.rank or 1, b.lead or cd.trees[lead].name) or "Following the top build"
-    elseif total == 0 then title = string.format("Your %s plan", cd.name)
+    if S().starter and isOwnClass() then local b = TF.TopBuild(p.cls); title = b and string.format(L["Following the #%d %s build"], b.rank or 1, b.lead and TF.TreeLoc(p.cls, b.lead) or cd.trees[lead].name) or L["Following the top build"]
+    elseif total == 0 then title = string.format(L["Your %s plan"], cd.name)
     else title = string.format("%s %s", cd.trees[lead].name, cd.name) end
     hero.title:SetText(title); hero.title:SetTextColor(cr, cg, cb)
     local parts = {}
     for ti = 1, #cd.trees do parts[ti] = TF.TreePts(p, ti) end
-    hero.sub:SetText(total > 0 and string.format("%s%s at level %d", TF.PlanNamed(p.cls) and (TF.PlanName() .. ", ") or "", table.concat(parts, " / "), TF.FullLevel(p)) or string.format("No points yet. They start at level %d.", TF.StartLevel()))
+    hero.sub:SetText(total > 0 and string.format(L["%s%s at level %d"], TF.PlanNamed(p.cls) and (TF.PlanName() .. ", ") or "", table.concat(parts, " / "), TF.FullLevel(p)) or string.format(L["No points yet. They start at level %d."], TF.StartLevel()))
     hero.bar:Set(pool > 0 and total / pool or 0, cr, cg, cb)
-    hero.count:SetText(string.format("%d / %d", total, pool))
+    hero.count:SetText(string.format(L["%d / %d"], total, pool))
     local e, why = TF.WhyNext(p)
     if e then
       local t = cd.trees[e.ti].talents[e.i]
-      hero.next:SetText(string.format("NEXT POINT, LEVEL %d", e.level)); hero.next:SetTextColor(rgb(C.green))
+      hero.next:SetText(string.format(L["NEXT POINT, LEVEL %d"], e.level)); hero.next:SetTextColor(rgb(C.green))
       hero.nextIcon:SetTexture(IconFor(t)); hero.nextIcon:Show(); hero.nextName:SetText(string.format("%s %d/%d", t.name, e.rank, t.max)); hero.nextName:Show()
       hero.nextTile = trees[e.ti] and trees[e.ti].tiles[e.i]; hero.nextBtn:EnableMouse(hero.nextTile ~= nil)
     elseif total > 0 then
-      hero.next:SetText(total >= pool and "EVERY POINT PLACED" or "PLAN COMPLETE FOR NOW"); hero.next:SetTextColor(rgb(C.gold))
+      hero.next:SetText(total >= pool and L["EVERY POINT PLACED"] or L["PLAN COMPLETE FOR NOW"]); hero.next:SetTextColor(rgb(C.gold))
       hero.nextIcon:Hide(); hero.nextName:SetText(""); hero.nextName:Hide(); hero.nextTile = nil; hero.nextBtn:EnableMouse(false)
     else
-      hero.next:SetText("START"); hero.next:SetTextColor(rgb(C.gold)); hero.nextTile = nil; hero.nextBtn:EnableMouse(false)
-      hero.nextIcon:Hide(); hero.nextName:SetText("Click a talent, or take a popular build."); hero.nextName:Show(); hero.nextName:ClearAllPoints(); hero.nextName:SetPoint("TOPLEFT", 12, -76); hero.nextName:SetWidth(PAGE_W - 24)
+      hero.next:SetText(L["START"]); hero.next:SetTextColor(rgb(C.gold)); hero.nextTile = nil; hero.nextBtn:EnableMouse(false)
+      hero.nextIcon:Hide(); hero.nextName:SetText(L["Click a talent, or take a popular build."]); hero.nextName:Show(); hero.nextName:ClearAllPoints(); hero.nextName:SetPoint("TOPLEFT", 12, -76); hero.nextName:SetWidth(PAGE_W - 24)
     end
     if e then hero.nextName:ClearAllPoints(); hero.nextName:SetPoint("TOPLEFT", 36, -76); hero.nextName:SetWidth(PAGE_W - 48) end
   
@@ -1278,13 +1293,13 @@ local function BuildPlanTab()
   f.scroll = CreateFrame("ScrollFrame", "TalentsForeverBookPlanScroll", f, "UIPanelScrollFrameTemplate")
   f.scroll:SetPoint("TOPLEFT", PAD, -26); f.scroll:SetPoint("BOTTOMRIGHT", -28, 10); Slim(f.scroll)
   f.cap = Text(f, 10, C.muted); f.cap:SetPoint("TOPLEFT", 12, -12); f.cap:SetPoint("TOPRIGHT", -28, -12); f.cap:SetJustifyH("LEFT"); f.cap:SetWordWrap(false)
-  f.cap:SetText("A POINT PER LEVEL, IN ORDER")
+  f.cap:SetText(L["A POINT PER LEVEL, IN ORDER"])
   f.list = CreateFrame("Frame", nil, f.scroll); f.list:SetSize(PAGE_W, 10); f.scroll:SetScrollChild(f.list)
   f.rows = {}
   f.empty = Text(f, 13, C.muted); f.empty:SetPoint("TOPLEFT", 12, -14); f.empty:SetPoint("TOPRIGHT", -28, -14); f.empty:SetJustifyH("LEFT"); f.empty:SetWordWrap(true)
-  f.start = Button(f, "See popular builds", "auto", 24, function() UI.SetTab("popular") end); f.start:SetPoint("TOPLEFT", f.empty, "BOTTOMLEFT", 0, -12); f.start:Hide()
-  f.follow = Button(f, "Follow the top build", "auto", 24, function() UI.SetStarter(true) end); f.follow:SetPoint("TOPLEFT", f.start, "BOTTOMLEFT", 0, -8); f.follow:Hide()
-  Tip(f.follow, "Follow the top build", "The most popular build for your class becomes your plan. Each level, a card asks before the next point goes in. Change a point by hand and it stops following.")
+  f.start = Button(f, L["See popular builds"], "auto", 24, function() UI.SetTab("popular") end); f.start:SetPoint("TOPLEFT", f.empty, "BOTTOMLEFT", 0, -12); f.start:Hide()
+  f.follow = Button(f, L["Follow the top build"], "auto", 24, function() UI.SetStarter(true) end); f.follow:SetPoint("TOPLEFT", f.start, "BOTTOMLEFT", 0, -8); f.follow:Hide()
+  Tip(f.follow, L["Follow the top build"], L["The most popular build for your class becomes your plan. Each level, a card asks before the next point goes in. Change a point by hand and it stops following."])
   local function Row(k)
     local r = f.rows[k]
     if r then return r end
@@ -1302,9 +1317,9 @@ local function BuildPlanTab()
       if b then
         UI.ShowTip(b, self, nil, function()
           local why = self.k and TF.WhyPoint(plan(), self.k) or {}
-          if #why > 0 then GameTooltip:AddLine(" "); GameTooltip:AddLine("Why here", 1, 0.82, 0); for _, w in ipairs(why) do GameTooltip:AddLine(w, 0.74, 0.74, 0.74, true) end end
+          if #why > 0 then GameTooltip:AddLine(" "); GameTooltip:AddLine(L["Why here"], 1, 0.82, 0); for _, w in ipairs(why) do GameTooltip:AddLine(w, 0.74, 0.74, 0.74, true) end end
           local spells = self.level and TF.NewSpellsAt(plan().cls, self.level) or {}
-          if #spells > 0 then GameTooltip:AddLine(" "); GameTooltip:AddLine(string.format("Trainer at level %d", self.level), 1, 0.82, 0); GameTooltip:AddLine(TF.SpellsSummary(spells), 0.74, 0.74, 0.74, true) end
+          if #spells > 0 then GameTooltip:AddLine(" "); GameTooltip:AddLine(string.format(L["Trainer at level %d"], self.level), 1, 0.82, 0); GameTooltip:AddLine(TF.SpellsSummary(spells), 0.74, 0.74, 0.74, true) end
         end)
         Land(b, true)
       end
@@ -1324,7 +1339,7 @@ local function BuildPlanTab()
     local live = isOwnClass() and TF.LiveRanks(p.cls)
     for _, r in ipairs(f.rows) do r:Hide(); r.pulse:Stop() end
     if #list == 0 then
-      f.empty:SetText(string.format("The plan writes itself here, one line per level from %d. Or begin from what other %ss built.", TF.StartLevel(), cd.name))
+      f.empty:SetText(string.format(L["The plan writes itself here, one line per level from %d. Or begin from what other %ss built."], TF.StartLevel(), cd.name))
       f.empty:Show(); f.start:Show(); f.follow:SetShown(isOwnClass() and TF.TopBuild(plan().cls) ~= nil); f.cap:Hide(); f.list:SetHeight(10)
       local eh = math.ceil(math.max(f.empty:GetStringHeight() or 0, estHeight(f.empty:GetText() or "", PAGE_W - 40, 13)))
       f.start:ClearAllPoints(); f.start:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -(14 + eh + 12))   -- whole pixels: a text's measured bottom can be a half
@@ -1365,17 +1380,17 @@ local function BuildHomeTab()
   a.iconEdge = Edges(a, a.icon, "OVERLAY", 1); a.iconEdge:SetColor(0, 0, 0, 0.9)
   a.title = Text(a, 13, C.gold); a.title:SetPoint("TOPLEFT", 40, -7); a.title:SetWidth(PAGE_W - 48); a.title:SetJustifyH("LEFT"); a.title:SetWordWrap(false)
   a.body = Text(a, 12, C.ink2); a.body:SetPoint("TOPLEFT", 40, -25); a.body:SetWidth(PAGE_W - 48); a.body:SetJustifyH("LEFT"); a.body:SetJustifyV("TOP"); a.body:SetWordWrap(true); a.body:SetHeight(28)
-  a.btn = Button(a, "Learn it", "auto", 20, function() if a.fn then a.fn() end end); a.btn:SetPoint("TOPRIGHT", -8, -4); a.btn.minW = 72
+  a.btn = Button(a, L["Learn it"], "auto", 20, function() if a.fn then a.fn() end end); a.btn:SetPoint("TOPRIGHT", -8, -4); a.btn.minW = 72
   -- this level: how far to the next one, and what the plan places when it comes
   local x = CreateFrame("Frame", nil, f); x:SetPoint("TOPLEFT", PAD, -(HERO_H + 72)); x:SetSize(PAGE_W, 54); f.xp = x
   x.bg = Solid(x, "BACKGROUND", C.raised, 0.35); x.bg:SetAllPoints(); x.edge = Edges(x, x, "OVERLAY", 0); x.edge:SetColor(0.78, 0.61, 0.10, 0.3)
-  x.head = Text(x, 11, C.muted); x.head:SetPoint("TOPLEFT", 10, -7); x.head:SetText("YOU ARE LEVEL 1")
+  x.head = Text(x, 11, C.muted); x.head:SetPoint("TOPLEFT", 10, -7); x.head:SetText(L["YOU ARE LEVEL 1"])
   x.right = Text(x, 11, C.muted); x.right:SetPoint("TOPRIGHT", -10, -7); x.right:SetJustifyH("RIGHT")
   x.bar = Bar(x, PAGE_W - 20, 8); x.bar:SetPoint("TOPLEFT", 10, -23)
   x.line = Text(x, 12, C.ink2); x.line:SetPoint("TOPLEFT", 10, -36); x.line:SetPoint("TOPRIGHT", -10, -36); x.line:SetJustifyH("LEFT"); x.line:SetWordWrap(false)
   -- coming up: the next five points of the plan from where the character stands. Hover lights the tile and opens
   -- its tooltip beside the window; a click looks at the build as it stands at that level.
-  f.comingSec = Section(f, "AFTER THAT", -(HERO_H + 134))
+  f.comingSec = Section(f, L["AFTER THAT"], -(HERO_H + 134))
   f.coming = {}
   for k = 1, 4 do
     local r = CreateFrame("Button", nil, f); r:SetSize(PAGE_W, 21); r:SetPoint("TOPLEFT", PAD, -(HERO_H + 152 + (k - 1) * 21))
@@ -1385,7 +1400,7 @@ local function BuildHomeTab()
     r.iconEdge = Edges(r, r.icon, "OVERLAY", 1); r.iconEdge:SetColor(0, 0, 0, 0.9)
     r.name = Text(r, 13, C.ink); r.name:SetPoint("LEFT", 53, 0); r.name:SetPoint("RIGHT", -40, 0); r.name:SetJustifyH("LEFT"); r.name:SetWordWrap(false)
     r.rank = Text(r, 12, C.ink2); r.rank:SetPoint("RIGHT", -4, 0); r.rank:SetJustifyH("RIGHT")
-    r:SetScript("OnEnter", function(self) local b = self.tile; if b then UI.ShowTip(b, self, nil, function() GameTooltip:AddLine(" "); GameTooltip:AddLine(string.format("Level %d in your plan. Click to see the build as it stands then.", self.level0 or 0), 0.54, 0.54, 0.54, true) end); Land(b, true) end end)
+    r:SetScript("OnEnter", function(self) local b = self.tile; if b then UI.ShowTip(b, self, nil, function() GameTooltip:AddLine(" "); GameTooltip:AddLine(string.format(L["Level %d in your plan. Click to see the build as it stands then."], self.level0 or 0), 0.54, 0.54, 0.54, true) end); Land(b, true) end end)
     r:SetScript("OnLeave", function() GameTooltip:Hide() end)
     r:SetScript("OnClick", function(self) local b = self.tile; if self.level0 then TF.SetLevel(self.level0) end; if b then Land(b, true) end end)
     f.coming[k] = r
@@ -1393,17 +1408,17 @@ local function BuildHomeTab()
   f.comingNone = Text(f, 12, C.muted); f.comingNone:SetPoint("TOPLEFT", PAD, -(HERO_H + 154)); f.comingNone:SetPoint("TOPRIGHT", -PAD, -(HERO_H + 154)); f.comingNone:SetJustifyH("LEFT"); f.comingNone:SetWordWrap(true)
   -- since Classic: what changed for this class, in one line; the row opens the Classic page. Under it the two switches
   -- for the trees (the Classic marks, the pick rates), where they can be seen: they used to live on the Classic page only
-  f.classicSec = Section(f, "SINCE CLASSIC", -(HERO_H + 244))
+  f.classicSec = Section(f, L["SINCE CLASSIC"], -(HERO_H + 244))
   local cr = CreateFrame("Button", nil, f); cr:SetSize(PAGE_W, 22); cr:SetPoint("TOPLEFT", PAD, -(HERO_H + 262)); f.classicRow = cr
   cr:SetHighlightTexture(WHITE); cr:GetHighlightTexture():SetVertexColor(1, 0.82, 0, 0.07)
   cr.text = Text(cr, 13, C.ink); cr.text:SetPoint("LEFT", 0, 0); cr.text:SetPoint("RIGHT", -18, 0); cr.text:SetJustifyH("LEFT"); cr.text:SetWordWrap(false)
   cr.arrow = Text(cr, 13, C.gold); cr.arrow:SetPoint("RIGHT", -4, 0); cr.arrow:SetText(">")
   cr:SetScript("OnClick", function() UI.SetTab("classic") end)
-  Tip(cr, "Compare to Classic", "Every talent that is new, changed, moved or gone since Classic, tree by tree, with the Classic text beside it.")
-  f.marks = Check(f, "Compare to Classic", function() return S().marks end, function(v) S().marks = v end)
-  f.picks = Check(f, "Pick rates", function() return S().pickRates end, function(v) S().pickRates = v end)
-  Tip(f.marks, "Compare to Classic", "Like the site: a gold edge on a talent new in Forever, blue on one that changed, purple on one that moved. Hover a tile for the Classic text.")
-  Tip(f.picks, "Pick rates on the trees", "The share of this class's builds on the site with at least one point in the talent, on every tile.")
+  Tip(cr, L["Compare to Classic"], L["Every talent that is new, changed, moved or gone since Classic, tree by tree, with the Classic text beside it."])
+  f.marks = Check(f, L["Compare to Classic"], function() return S().marks end, function(v) S().marks = v end)
+  f.picks = Check(f, L["Pick rates"], function() return S().pickRates end, function(v) S().pickRates = v end)
+  Tip(f.marks, L["Compare to Classic"], L["Like the site: a gold edge on a talent new in Forever, blue on one that changed, purple on one that moved. Hover a tile for the Classic text."])
+  Tip(f.picks, L["Pick rates on the trees"], L["The share of this class's builds on the site with at least one point in the talent, on every tile."])
   tabs.home.refresh = function()
     local p = plan(); local cd = classData(); local own = isOwnClass()
     local live = own and TF.LiveRanks(p.cls)
@@ -1415,19 +1430,19 @@ local function BuildHomeTab()
     local owed = own and TF.OwedSpells() or nil
     local icon, title, body, label, fn, tone
     if not own then
-      icon = "Interface\\Icons\\ClassIcon_" .. cd.name; title = string.format("A %s plan", cd.name); body = string.format("Save it, share it, try builds on it. Apply waits for a %s.", cd.name); tone = C.muted
+      icon = "Interface\\Icons\\ClassIcon_" .. (cd.en or cd.name); title = string.format(L["A %s plan"], cd.name); body = string.format(L["Save it, share it, try builds on it. Apply waits for a %s."], cd.name); tone = C.muted
     elseif G.live and G.Unspent() > 0 and nt and G.CanApply() then
-      icon = "Interface\\Icons\\ClassIcon_" .. cd.name; title = string.format("%d unspent point%s", G.Unspent(), G.Unspent() == 1 and "" or "s"); body = "Learn it places your plan's next point."; label = "Learn it"; fn = UI.ApplyNext; tone = C.gold
+      icon = "Interface\\Icons\\ClassIcon_" .. (cd.en or cd.name); title = string.format(TF.Plural(G.Unspent(), "%d unspent point", "%d unspent points"), G.Unspent()); body = L["Learn it places your plan's next point."]; label = L["Learn it"]; fn = UI.ApplyNext; tone = C.gold
     elseif total == 0 then
-      icon = "Interface\\Icons\\ClassIcon_" .. cd.name; title = "No plan yet"; body = string.format("Start from what other %ss built.", cd.name); label = "Popular"; fn = function() UI.SetTab("popular") end; tone = C.gold
+      icon = "Interface\\Icons\\ClassIcon_" .. (cd.en or cd.name); title = L["No plan yet"]; body = string.format(L["Start from what other %ss built."], cd.name); label = L["Popular"]; fn = function() UI.SetTab("popular") end; tone = C.gold
     elseif owed and #owed > 0 then
-      icon = IconFor({ icon = owed[1].icon }); title = string.format("%d spell%s at the trainer", #owed, #owed == 1 and "" or "s"); local ct = TF.OwedCostText(owed); body = ct and (ct .. " to learn.") or "Waiting at your class trainer."; label = "The list"; fn = function() UI.OpenTrainer() end; tone = C.gold
+      icon = IconFor({ icon = owed[1].icon }); title = string.format(TF.Plural(#owed, "%d spell at the trainer", "%d spells at the trainer"), #owed); local ct = TF.OwedCostText(owed); body = ct and string.format(L["%s to learn."], ct) or L["Waiting at your class trainer."]; label = L["The list"]; fn = function() UI.OpenTrainer() end; tone = C.gold
     elseif G.live and lvl < TF.StartLevel() then
-      icon = "Interface\\Icons\\ClassIcon_" .. cd.name; title = string.format("Points start at level %d", TF.StartLevel()); body = string.format("You are %d. The plan is ready for then.", lvl); tone = C.green
+      icon = "Interface\\Icons\\ClassIcon_" .. (cd.en or cd.name); title = string.format(L["Points start at level %d"], TF.StartLevel()); body = string.format(L["You are %d. The plan is ready for then."], lvl); tone = C.green
     elseif total >= pool then
-      icon = "Interface\\Icons\\ClassIcon_" .. cd.name; title = "Every point placed"; body = "The plan is complete. Share it."; label = "Share"; fn = function() UI.OpenSheet("share") end; tone = C.green
+      icon = "Interface\\Icons\\ClassIcon_" .. (cd.en or cd.name); title = L["Every point placed"]; body = L["The plan is complete. Share it."]; label = L["Share"]; fn = function() UI.OpenSheet("share") end; tone = C.green
     else
-      icon = "Interface\\Icons\\ClassIcon_" .. cd.name; title = "Up to date"; body = string.format("%d of %d points planned. Nothing to do until you level.", total, pool); tone = C.green
+      icon = "Interface\\Icons\\ClassIcon_" .. (cd.en or cd.name); title = L["Up to date"]; body = string.format(L["%d of %d points planned. Nothing to do until you level."], total, pool); tone = C.green
     end
     a.icon:SetTexture(icon); a.title:SetText(title); a.body:SetText(body); a.title:SetTextColor(rgb(tone))
     a.edge:SetColor(tone[1], tone[2], tone[3], 0.55)
@@ -1437,16 +1452,16 @@ local function BuildHomeTab()
     -- this level
     local xp, xpMax = UnitXP and UnitXP("player"), UnitXPMax and UnitXPMax("player")
     local frac = (xp and xpMax and xpMax > 0) and xp / xpMax or nil
-    if lvl >= 60 then x.head:SetText("YOU ARE LEVEL 60"); x.right:SetText(""); x.bar:Set(1, 0.42, 0.05, 0.50); x.line:SetText(string.format("All %d points earned. %d of them planned.", pool, total))
+    if lvl >= 60 then x.head:SetText(L["YOU ARE LEVEL 60"]); x.right:SetText(""); x.bar:Set(1, 0.42, 0.05, 0.50); x.line:SetText(string.format(L["All %d points earned. %d of them planned."], pool, total))
     else
-      x.head:SetText(string.format("YOU ARE LEVEL %d", lvl))
-      if frac then x.bar:Set(frac, 0.42, 0.05, 0.50); x.right:SetText(string.format("%d%% TO %d", math.floor(frac * 100 + 0.5), lvl + 1))
-      else x.bar:Set(0); x.right:SetText(string.format("TO %d", lvl + 1)) end
+      x.head:SetText(string.format(L["YOU ARE LEVEL %d"], lvl))
+      if frac then x.bar:Set(frac, 0.42, 0.05, 0.50); x.right:SetText(string.format(L["%d%% TO %d"], math.floor(frac * 100 + 0.5), lvl + 1))
+      else x.bar:Set(0); x.right:SetText(string.format(L["TO %d"], lvl + 1)) end
       local coming
       for _, en in ipairs(TF.NextUp(p)) do if en.level > lvl and not en.done then coming = en; break end end
-      if coming then local ct = cd.trees[coming.ti].talents[coming.i]; x.line:SetText(string.format("Level %d brings %s %d/%d.", coming.level, ct.name, coming.rank, ct.max))
-      elseif nt then x.line:SetText(string.format("Next point: %s %d/%d.", nt.name, e.rank, nt.max))
-      else x.line:SetText("Nothing planned past this level yet.") end
+      if coming then local ct = cd.trees[coming.ti].talents[coming.i]; x.line:SetText(string.format(L["Level %d brings %s %d/%d."], coming.level, ct.name, coming.rank, ct.max))
+      elseif nt then x.line:SetText(string.format(L["Next point: %s %d/%d."], nt.name, e.rank, nt.max))
+      else x.line:SetText(L["Nothing planned past this level yet."]) end
     end
     x.bar.fill:SetShown(true)
     -- coming up
@@ -1469,14 +1484,14 @@ local function BuildHomeTab()
     f.picks:ClearAllPoints(); f.picks:SetPoint("TOPLEFT", PAD + 186 - (f.picks.air or 0), -(cy + 42)); f.picks:SetChecked(S().pickRates)
     if total == 0 then f.comingNone:Hide()
     elseif k == 0 then
-      f.comingNone:SetText(total == 0 and "Nothing planned yet. Click a talent on the trees, or take a popular build." or (skipped and "That is the last point of the plan." or "Every planned point is placed. Add more on the trees."))
+      f.comingNone:SetText(total == 0 and L["Nothing planned yet. Click a talent on the trees, or take a popular build."] or (skipped and L["That is the last point of the plan."] or L["Every planned point is placed. Add more on the trees."]))
       f.comingNone:Show()
     else f.comingNone:Hide() end
     -- since Classic
     local nn, nc, nm = 0, 0, 0
     for _, tr in ipairs(cd.trees) do for _, ct in ipairs(tr.talents) do if ct.classic == "new" then nn = nn + 1 elseif ct.classic == "changed" then nc = nc + 1 elseif ct.classic == "moved" then nm = nm + 1 end end end
     local gone = cd.removed and #cd.removed or 0
-    cr.text:SetText(string.format("%d new, %d changed, %d moved%s.", nn, nc, nm, gone > 0 and string.format(", %d gone", gone) or ""))
+    cr.text:SetText(string.format(L["%d new, %d changed, %d moved%s."], nn, nc, nm, gone > 0 and string.format(L[", %d gone"], gone) or ""))
   end
 end
 
@@ -1524,63 +1539,63 @@ local function BuildBuildsTab()
   local function label(text, y, gap) return Section(f, text, y, gap) end
   local function shared() return f.shareRec and TF.Decode(f.shareRec.code) or nil end
   -- share
-  f.linkLabel = label("SHARE THIS PLAN", -8)
+  f.linkLabel = label(L["SHARE THIS PLAN"], -8)
   f.link = EditBox(f, W - 72, 24); f.link:SetPoint("TOPLEFT", 12, -26); f.link.selectAll = true
   f.link.hint:Hide()
   f.link:SetScript("OnTextChanged", function(self) if self:GetText() ~= (f.url or "") then self:SetText(f.url or ""); self:HighlightText() end end)
   f.link:SetScript("OnMouseUp", function(self)
-    if IsShiftKeyDown and IsShiftKeyDown() then if TF.InsertLink(f.shareRec and TF.Decode(f.shareRec.code) or plan()) then UI.Note("Link put in the chat box.") end; return end
+    if IsShiftKeyDown and IsShiftKeyDown() then if TF.InsertLink(f.shareRec and TF.Decode(f.shareRec.code) or plan()) then UI.Note(L["Link put in the chat box."]) end; return end
     self:HighlightText()
   end)
-  f.copy = Button(f, "Select", 64, 24, function(self) f.link:SetFocus(); f.link:HighlightText(); UI.CopyCue(self); UI.Note("Link selected. Now press Ctrl+C, then paste it anywhere: Discord, a browser, a friend.", nil, 8) end); f.copy:SetPoint("LEFT", f.link, "RIGHT", 8, 0)
-  Tip(f.copy, "Select the link", "Selects the whole link so Ctrl+C takes it. No addon can copy to the clipboard for you; the game does not allow it.")
+  f.copy = Button(f, L["Select"], 64, 24, function(self) f.link:SetFocus(); f.link:HighlightText(); UI.CopyCue(self); UI.Note(L["Link selected. Now press Ctrl+C, then paste it anywhere: Discord, a browser, a friend."], nil, 8) end); f.copy:SetPoint("LEFT", f.link, "RIGHT", 8, 0); UI.FitBeside(f.copy, f.link)
+  Tip(f.copy, L["Select the link"], L["Selects the whole link so Ctrl+C takes it. No addon can copy to the clipboard for you; the game does not allow it."])
   f.copyCap = Text(f, 10, C.muted); f.copyCap:SetPoint("TOPLEFT", 12, -80); f.copyCap:SetPoint("TOPRIGHT", -28, -80); f.copyCap:SetJustifyH("LEFT"); f.copyCap:SetWordWrap(false)
-  f.copyCap:SetText("Select, then Ctrl+C. An addon cannot copy for you.")
+  f.copyCap:SetText(L["Select, then Ctrl+C. An addon cannot copy for you."])
   local bw = (W - 24) / 4
-  f.qrBtn = Button(f, "Phone QR", bw, 20, function() f.qrOn = not f.qrOn; if not f.qrOn then f.qrAlt = nil end; tabs.builds.refresh() end); f.qrBtn:SetPoint("TOPLEFT", 12, -58)
-  Tip(f.qrBtn, "Open it on your phone", "Shows this link as a code. Point your phone's camera at it and the same build opens on talentsforever.com.")
-  f.party = Button(f, "Party", bw, 20, function()
-    if IsShiftKeyDown and IsShiftKeyDown() then local ok, why = TF.AskParty(); UI.Note(ok and "Asked your group for their builds. Each one arrives as a card." or why); return end
-    local ok = TF.SendBuild(IsInRaid and IsInRaid() and "RAID" or "PARTY", nil, shared()); UI.Note(ok and "Sent to the group. Anyone with the addon can try it on their trees." or "Posted the link to the group.")
+  f.qrBtn = Button(f, L["Phone QR"], bw, 20, function() f.qrOn = not f.qrOn; if not f.qrOn then f.qrAlt = nil end; tabs.builds.refresh() end); f.qrBtn:SetPoint("TOPLEFT", 12, -58)
+  Tip(f.qrBtn, L["Open it on your phone"], L["Shows this link as a code. Point your phone's camera at it and the same build opens on talentsforever.com."])
+  f.party = Button(f, L["Party"], bw, 20, function()
+    if IsShiftKeyDown and IsShiftKeyDown() then local ok, why = TF.AskParty(); UI.Note(ok and L["Asked your group for their builds. Each one arrives as a card."] or why); return end
+    local ok = TF.SendBuild(IsInRaid and IsInRaid() and "RAID" or "PARTY", nil, shared()); UI.Note(ok and L["Sent to the group. Anyone with the addon can try it on their trees."] or L["Posted the link to the group."])
   end); f.party:SetPoint("LEFT", f.qrBtn, "RIGHT", 8, 0)
-  f.guild = Button(f, "Guild", bw, 20, function() local ok = TF.SendBuild("GUILD", nil, shared()); UI.Note(ok and "Sent to the guild. Anyone with the addon can try it on their trees." or "Posted the link to the guild.") end); f.guild:SetPoint("LEFT", f.party, "RIGHT", 8, 0)
-  f.whisper = Button(f, "To target", bw, 20, function()
+  f.guild = Button(f, L["Guild"], bw, 20, function() local ok = TF.SendBuild("GUILD", nil, shared()); UI.Note(ok and L["Sent to the guild. Anyone with the addon can try it on their trees."] or L["Posted the link to the guild."]) end); f.guild:SetPoint("LEFT", f.party, "RIGHT", 8, 0)
+  f.whisper = Button(f, L["To target"], bw, 20, function()
     local who = UnitName and UnitIsPlayer and UnitIsPlayer("target") and UnitName("target") or nil
-    if not who then UI.Note("Target a player first, then press To target."); return end
-    TF.SendBuild("WHISPER", who, shared()); UI.Note("Sent to " .. who .. ".")
+    if not who then UI.Note(L["Target a player first, then press To target."]); return end
+    TF.SendBuild("WHISPER", who, shared()); UI.Note(string.format(L["Sent to %s."], who))
   end); f.whisper:SetPoint("LEFT", f.guild, "RIGHT", 8, 0)
-  Tip(f.party, "Send to your group", "Posts the link in party or raid chat and hands the build to anyone there who runs the addon. Shift-click asks the group for THEIR builds instead.")
-  Tip(f.guild, "Send to your guild", "Posts the link in guild chat and hands the build to anyone there who runs the addon.")
-  Tip(f.whisper, "Whisper it to your target", "Target a player and press this: the link goes to them in a whisper. If they run the addon they can try it on their trees.")
+  Tip(f.party, L["Send to your group"], L["Posts the link in party or raid chat and hands the build to anyone there who runs the addon. Shift-click asks the group for THEIR builds instead."])
+  Tip(f.guild, L["Send to your guild"], L["Posts the link in guild chat and hands the build to anyone there who runs the addon."])
+  Tip(f.whisper, L["Whisper it to your target"], L["Target a player and press this: the link goes to them in a whisper. If they run the addon they can try it on their trees."])
   -- load
-  f.pasteLabel = label("LOAD A BUILD", -94, 118)
-  f.inspect = Button(f, "Inspect target", "auto", 20, function() local ok, why = TF.RequestInspect("target"); if not ok then UI.Note(why) else UI.Note("Asking the game for their talents...") end end)
+  f.pasteLabel = label(L["LOAD A BUILD"], -94, 118)
+  f.inspect = Button(f, L["Inspect target"], "auto", 20, function() local ok, why = TF.RequestInspect("target"); if not ok then UI.Note(why) else UI.Note(L["Asking the game for their talents..."]) end end)
   f.inspect:SetPoint("TOPRIGHT", f, "TOPLEFT", 12 + W, -90)
-  Tip(f.inspect, "Someone else's build", "Target a player and press this: their talents come back as a build you can try or load.")
-  f.paste = EditBox(f, W - 80, 24); f.paste:SetPoint("TOPLEFT", 12, -112); f.paste.hint:SetText("Paste a link or a code")
-  f.load = Button(f, "Load", 72, 24, function()
+  Tip(f.inspect, L["Someone else's build"], L["Target a player and press this: their talents come back as a build you can try or load."])
+  f.paste = EditBox(f, W - 80, 24); f.paste:SetPoint("TOPLEFT", 12, -112); f.paste.hint:SetText(L["Paste a link or a code"])
+  f.load = Button(f, L["Load"], 72, 24, function()
     local ok, err, back = TF.LoadCode(f.paste:GetText())
-    if ok then f.paste:SetText(""); f.paste:ClearFocus(); Sound("IG_MAINMENU_OPEN"); UI.Note("Build loaded into the plan." .. TF.SettledText(back), { { label = "Undo", fn = function() TF.Undo() end } }, back and 12 or nil); if back then UI.SettledCard(back) end
-    else UI.Note(err or "That did not read as a build.") end
-  end); f.load:SetPoint("LEFT", f.paste, "RIGHT", 8, 0)
+    if ok then f.paste:SetText(""); f.paste:ClearFocus(); Sound("IG_MAINMENU_OPEN"); UI.Note(L["Build loaded into the plan."] .. TF.SettledText(back), { { label = L["Undo"], fn = function() TF.Undo() end } }, back and 12 or nil); if back then UI.SettledCard(back) end
+    else UI.Note(err or L["That did not read as a build."]) end
+  end); f.load:SetPoint("LEFT", f.paste, "RIGHT", 8, 0); UI.FitBeside(f.load, f.paste)
   f.paste:SetScript("OnEnterPressed", function() f.load:Click() end)
   -- saved
-  f.savedLabel = label("SAVED BUILDS", -152)
-  f.name = EditBox(f, W - 80, 24); f.name:SetPoint("TOPLEFT", 12, -170); f.name.hint:SetText("Name this plan")
-  f.save = Button(f, "Save", 72, 24, function()
-    local rec = TF.SaveBuild(f.name:GetText()); f.name:SetText(""); f.name:ClearFocus(); UI.Note("Saved as " .. rec.name .. ".")
-  end); f.save:SetPoint("LEFT", f.name, "RIGHT", 8, 0)
+  f.savedLabel = label(L["SAVED BUILDS"], -152)
+  f.name = EditBox(f, W - 80, 24); f.name:SetPoint("TOPLEFT", 12, -170); f.name.hint:SetText(L["Name this plan"])
+  f.save = Button(f, L["Save"], 72, 24, function()
+    local rec = TF.SaveBuild(f.name:GetText()); f.name:SetText(""); f.name:ClearFocus(); UI.Note(string.format(L["Saved as %s."], rec.name))
+  end); f.save:SetPoint("LEFT", f.name, "RIGHT", 8, 0); UI.FitBeside(f.save, f.name)
   f.name:SetScript("OnEnterPressed", function() f.save:Click() end)
-  Tip(f.save, "Save the plan you have open", "Kept on this account, for every character. It opens on the site too.")
+  Tip(f.save, L["Save the plan you have open"], L["Kept on this account, for every character. It opens on the site too."])
   f.list = ListRows(f, W, 36, 202, 88, true)
   f.empty = Text(f, 12, C.muted); f.empty:SetPoint("TOPLEFT", 12, -206); f.empty:SetPoint("TOPRIGHT", -28, -206); f.empty:SetWordWrap(true); f.empty:SetJustifyH("LEFT")
-  f.empty:SetText("Nothing saved yet. Name the plan above and press Save.")
+  f.empty:SetText(L["Nothing saved yet. Name the plan above and press Save."])
   -- popular: a card at the foot with the five most shared builds as faces; one click loads one
   local pc = CreateFrame("Frame", nil, f); pc:SetPoint("TOPLEFT", 12, -331); pc:SetSize(W, 74); f.popCard = pc
   pc.bg = Solid(pc, "BACKGROUND", C.raised, 0.7); pc.bg:SetAllPoints(); pc.edge = Edges(pc, pc, "OVERLAY", 0); pc.edge:SetColor(1, 0.82, 0, 0.8)
-  pc.title = Text(pc, 12, C.gold); pc.title:SetPoint("TOPLEFT", 10, -8); pc.title:SetText("POPULAR BUILDS")
-  pc.all = Button(pc, "See all", "auto", 20, function() UI.SetTab("popular") end); pc.all:SetPoint("TOPRIGHT", -6, -4)
-  Tip(pc.all, "Popular builds", "What other players of your class build, from the site. Try one on your trees, or load it.")
+  pc.title = Text(pc, 12, C.gold); pc.title:SetPoint("TOPLEFT", 10, -8); pc.title:SetText(L["POPULAR BUILDS"])
+  pc.all = Button(pc, L["See all"], "auto", 20, function() UI.SetTab("popular") end); pc.all:SetPoint("TOPRIGHT", -6, -4)
+  Tip(pc.all, L["Popular builds"], L["What other players of your class build, from the site. Try one on your trees, or load it."])
   pc.btns = {}
   for k = 1, 5 do
     local b = CreateFrame("Button", nil, pc); b:SetSize(34, 34); b:SetPoint("TOPLEFT", 10 + (k - 1) * 42, -30)
@@ -1590,58 +1605,58 @@ local function BuildBuildsTab()
     b.rank = Text(b, 10, C.gold); b.rank:SetPoint("BOTTOMRIGHT", -2, 1); b.rank:SetShadowColor(0, 0, 0, 1); b.rank:SetShadowOffset(1, -1)
     b:SetScript("OnEnter", function(self)
       local pb = self.b; if not pb then return end
-      TipBegin(self); GameTooltip:SetText(string.format("#%d %s, %s / %s / %s", pb.rank, pb.lead, tostring(pb.pts[1]), tostring(pb.pts[2]), tostring(pb.pts[3])), 1, 0.82, 0)
-      GameTooltip:AddLine(string.format("Shared %d times on the site. Click to make it your plan; Undo brings yours back.", pb.shared or 0), 0.9, 0.9, 0.9, true); TipEnd(self)
+      TipBegin(self); GameTooltip:SetText(string.format("#%d %s, %s / %s / %s", pb.rank, TF.TreeLoc(plan().cls, pb.lead), tostring(pb.pts[1]), tostring(pb.pts[2]), tostring(pb.pts[3])), 1, 0.82, 0)
+      GameTooltip:AddLine(string.format(L["Shared %d times on the site. Click to make it your plan; Undo brings yours back."], pb.shared or 0), 0.9, 0.9, 0.9, true); TipEnd(self)
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     b:SetScript("OnClick", function(self)
       local pb = self.b; if not pb then return end
       local ok, err, back = TF.LoadCode(pb.code)
-      if ok then UI.Note(string.format("Loaded the #%d %s build.", pb.rank, pb.lead) .. TF.SettledText(back), { { label = "Undo", fn = function() TF.Undo() end } }, back and 12 or nil); if back then UI.SettledCard(back) end else UI.Note(err) end
+      if ok then UI.Note(string.format(L["Loaded the #%d %s build."], pb.rank, TF.TreeLoc(plan().cls, pb.lead)) .. TF.SettledText(back), { { label = L["Undo"], fn = function() TF.Undo() end } }, back and 12 or nil); if back then UI.SettledCard(back) end else UI.Note(err) end
     end)
     pc.btns[k] = b
   end
   -- the phone code takes the whole page while it is up
-  f.phoneLabel = label("ON YOUR PHONE", -8, 84); f.phoneLabel:Hide()
+  f.phoneLabel = label(L["ON YOUR PHONE"], -8, 84); f.phoneLabel:Hide()
   f.phoneLabel.line:ClearAllPoints(); f.phoneLabel.line:SetPoint("LEFT", f.phoneLabel.text, "RIGHT", 8, 0); f.phoneLabel.line:SetPoint("RIGHT", f.qrBtn, "LEFT", -8, 0)
   f.qr = MakeQR(f, W); f.qr:SetPoint("TOP", f, "TOPLEFT", 12 + W / 2, -36)
   f.qrCaption = Text(f, 12, C.ink2); f.qrCaption:SetPoint("TOP", f.qr, "BOTTOM", 0, -12); f.qrCaption:SetWidth(W - 16); f.qrCaption:SetJustifyH("CENTER"); f.qrCaption:SetWordWrap(true); f.qrCaption:Hide()
   f.qrLink = EditBox(f, W - 72, 24); f.qrLink:SetPoint("TOPLEFT", 12, -352); f.qrLink.selectAll = true; f.qrLink.hint:Hide(); f.qrLink:Hide()
   f.qrLink:SetScript("OnTextChanged", function(self) if self:GetText() ~= (f.qrUrl or "") then self:SetText(f.qrUrl or ""); self:HighlightText() end end)
   f.qrLink:SetScript("OnMouseUp", function(self) self:HighlightText() end)
-  f.qrCopy = Button(f, "Select", 64, 24, function(self) f.qrLink:SetFocus(); f.qrLink:HighlightText(); UI.CopyCue(self); UI.Note("Link selected. Now press Ctrl+C, then paste it anywhere.", nil, 8) end); f.qrCopy:SetPoint("LEFT", f.qrLink, "RIGHT", 8, 0); f.qrCopy:Hide()
-  Tip(f.qrCopy, "Select the link", "Selects the link so Ctrl+C takes it. No addon can copy to the clipboard for you.")
+  f.qrCopy = Button(f, L["Select"], 64, 24, function(self) f.qrLink:SetFocus(); f.qrLink:HighlightText(); UI.CopyCue(self); UI.Note(L["Link selected. Now press Ctrl+C, then paste it anywhere."], nil, 8) end); f.qrCopy:SetPoint("LEFT", f.qrLink, "RIGHT", 8, 0); UI.FitBeside(f.qrCopy, f.qrLink); f.qrCopy:Hide()
+  Tip(f.qrCopy, L["Select the link"], L["Selects the link so Ctrl+C takes it. No addon can copy to the clipboard for you."])
   f.qrLinkCap = Text(f, 11, C.muted); f.qrLinkCap:SetPoint("TOPLEFT", 12, -380); f.qrLinkCap:SetPoint("TOPRIGHT", -28, -380); f.qrLinkCap:SetJustifyH("LEFT"); f.qrLinkCap:SetWordWrap(false); f.qrLinkCap:Hide()
-  f.qrLinkCap:SetText("Or Select, then Ctrl+C. An addon cannot copy for you.")
+  f.qrLinkCap:SetText(L["Or Select, then Ctrl+C. An addon cannot copy for you."])
   local function drawQR(url, caption)
     local ok = f.qr:Draw(url)
-    f.qrCaption:SetText(ok and (caption or "Point your phone's camera at it. The same build opens on talentsforever.com.") or "This link is too long for a code. Copy it from the box below instead.")
+    f.qrCaption:SetText(ok and (caption or L["Point your phone's camera at it. The same build opens on talentsforever.com."]) or L["This link is too long for a code. Copy it from the box below instead."])
   end
   tabs.builds.refresh = function()
     local builds = TF.db.builds
     if f.shareRec then local still = false; for _, b in ipairs(builds) do if b == f.shareRec then still = true end end; if not still then f.shareRec = nil end end
     local sp = shared()
     f.url = TF.ShareURL(sp or plan())
-    f.linkLabel:SetText(f.shareRec and (f.shareRec.name:upper():sub(1, 16) .. "'S LINK") or "SHARE THIS PLAN")
+    f.linkLabel:SetText(f.shareRec and (TF.USub(TF.Upper(f.shareRec.name), 16) .. L["'S LINK"]) or L["SHARE THIS PLAN"])
     if f.link:GetText() ~= f.url then f.link:SetText(f.url) end
     f.link:SetCursorPosition(0)
     local qr = f.qrOn and true or false
     for _, w in ipairs({ f.linkLabel, f.link, f.copy, f.copyCap, f.party, f.guild, f.whisper, f.pasteLabel, f.inspect, f.paste, f.load, f.savedLabel, f.name, f.save, f.list, f.popCard }) do w:SetShown(not qr) end
     f.qr:SetShown(qr); f.qrCaption:SetShown(qr); f.phoneLabel:SetShown(qr); f.qrLink:SetShown(qr); f.qrLinkCap:SetShown(qr); f.qrCopy:SetShown(qr)
     if qr then f.qrUrl = f.qrAlt or f.url; if f.qrLink:GetText() ~= f.qrUrl then f.qrLink:SetText(f.qrUrl) end; f.qrLink:SetCursorPosition(0) end
-    f.qrBtn:SetText(qr and "Back" or "Phone QR"); f.qrBtn:ClearAllPoints()
+    f.qrBtn:SetText(qr and L["Back"] or L["Phone QR"]); f.qrBtn:ClearAllPoints()
     if qr then f.qrBtn:SetPoint("TOPRIGHT", f, "TOPLEFT", 12 + W, -2) else f.qrBtn:SetPoint("TOPLEFT", 12, -58) end
-    if qr then drawQR(f.qrAlt or f.url, f.qrAlt and "Point your phone's camera at it. It opens the ideas page on talentsforever.com." or nil) end
+    if qr then drawQR(f.qrAlt or f.url, f.qrAlt and L["Point your phone's camera at it. It opens the ideas page on talentsforever.com."] or nil) end
     f.empty:SetShown(not qr and #builds == 0)
-    f.savedLabel:SetText(#builds > 3 and string.format("SAVED BUILDS (%d, SCROLL FOR MORE)", #builds) or (#builds > 0 and string.format("SAVED BUILDS (%d)", #builds) or "SAVED BUILDS"))
+    f.savedLabel:SetText(#builds > 3 and string.format(L["SAVED BUILDS (%d, SCROLL FOR MORE)"], #builds) or (#builds > 0 and string.format(L["SAVED BUILDS (%d)"], #builds) or L["SAVED BUILDS"]))
     -- the popular card: this class's five most shared, always there
     local pop = TF.Popular(plan().cls); local c0 = D.classes[plan().cls]
     local pc = f.popCard
-    pc.title:SetText(string.format("POPULAR %s BUILDS", c0.name:upper()))
+    pc.title:SetText(string.format(L["POPULAR %s BUILDS"], TF.Upper(c0.name)))
     for k, b in ipairs(pc.btns) do
       local pb = pop and pop.top and pop.top[k]
       if pb then
-        local lead = 1; for ti, tree in ipairs(c0.trees) do if tree.name == pb.lead then lead = ti end end
+        local lead = 1; for ti, tree in ipairs(c0.trees) do if (tree.en or tree.name) == pb.lead then lead = ti end end
         b.b = pb; b.icon:SetTexture(IconFor({ icon = c0.trees[lead].icon })); b.rank:SetText("#" .. pb.rank); b:Show()
       else b.b = nil; b:Hide() end
     end
@@ -1657,21 +1672,21 @@ local function BuildBuildsTab()
       r.icon:SetTexture(IconFor({ icon = c and c.trees[lead].icon or "inv_misc_questionmark" }))
       r.name:SetText(c and string.format("|cff%s%s|r", c.color, b.name) or b.name)
       local me = UnitName and UnitName("player") or nil
-      r.sub:SetText(string.format("%s, %s%s%s", table.concat(b.pts or {}, "/"), date("%d %b", b.when), (b.who and b.who ~= me) and (", " .. b.who) or "", b.tag and (", " .. b.tag) or ""))
-      r.tag:SetText(b.tag or "mark"); r.tag:SetTextColor(rgb(b.tag and C.gold or C.muted)); if not r.compact then r.tagBtn:Show() end
+      r.sub:SetText(string.format("%s, %s%s%s", table.concat(b.pts or {}, "/"), TF.ShortDate(b.when), (b.who and b.who ~= me) and (", " .. b.who) or "", b.tag and (", " .. b.tag) or ""))
+      r.tag:SetText(b.tag or L["mark"]); r.tag:SetTextColor(rgb(b.tag and C.gold or C.muted)); if not r.compact then r.tagBtn:Show() end
       r.onTag = function() b.tag = (b.tag == nil and "PvE") or (b.tag == "PvE" and "PvP") or nil; tabs.builds.refresh() end
       local isGhost = TF.trial and TF.trial.name == b.name
       r.accent:SetAlpha((isGhost or f.shareRec == b) and 1 or 0)
-      r.ghost:SetText(isGhost and "Stop" or "Try it")
-      r.onLoad = function() local ok, err = TF.LoadBuild(k); if ok then UI.Note("Loaded " .. b.name .. ".", { { label = "Undo", fn = function() TF.Undo() end } }) else UI.Note(err) end end
+      r.ghost:SetText(isGhost and L["Stop"] or L["Try it"])
+      r.onLoad = function() local ok, err = TF.LoadBuild(k); if ok then UI.Note(string.format(L["Loaded %s."], b.name), { { label = L["Undo"], fn = function() TF.Undo() end } }) else UI.Note(err) end end
       r.onGhost = function() if isGhost then TF.TrialBack() else local p = TF.Decode(b.code); if p then TF.TryBuild(p, b.name) end end end
       r.onDelete = function() TF.DeleteBuild(k) end
       r.del:Show()
       r:SetScript("OnClick", function()
-        if IsShiftKeyDown and IsShiftKeyDown() then local p = TF.Decode(b.code); if p and TF.InsertLink(p) then UI.Note("Link put in the chat box.") end; return end
+        if IsShiftKeyDown and IsShiftKeyDown() then local p = TF.Decode(b.code); if p and TF.InsertLink(p) then UI.Note(L["Link put in the chat box."]) end; return end
         f.shareRec = (f.shareRec ~= b) and b or nil; tabs.builds.refresh(); f.link:SetFocus()
       end)
-      Tip(r, b.name, string.format("%s, level %d, saved %s%s. Click to put its link in the box above, shift-click to put it in chat. Try it rings its talents on your trees.", c and c.name or "?", b.level or 60, date("%d %b %Y", b.when), b.who and (" on " .. b.who) or ""))
+      Tip(r, b.name, string.format(L["%s, level %d, saved %s%s. Click to put its link in the box above, shift-click to put it in chat. Try it rings its talents on your trees."], c and c.name or "?", b.level or 60, date("%d %b %Y", b.when), b.who and string.format(L[" on %s"], b.who) or ""))
       r.buildCode = b.code
     end
     f.list:Fill(#builds)
@@ -1688,12 +1703,12 @@ local function BuildPopularTab()
   f.list.offset = 44
   f.lines = {}
   -- your group: what the people you play with have planned, above the site's list
-  f.gLabel = Text(body, 10, C.muted); f.gLabel:SetPoint("TOPLEFT", 0, -8); f.gLabel:SetText("YOUR GROUP"); f.gLabel:Hide()
-  f.ask = Button(body, "Ask for their builds", "auto", 20, function() local ok, why = TF.AskParty(); UI.Note(ok and "Asked your group. Each build lands here as it arrives." or why) end)
+  f.gLabel = Text(body, 10, C.muted); f.gLabel:SetPoint("TOPLEFT", 0, -8); f.gLabel:SetText(L["YOUR GROUP"]); f.gLabel:Hide()
+  f.ask = Button(body, L["Ask for their builds"], "auto", 20, function() local ok, why = TF.AskParty(); UI.Note(ok and L["Asked your group. Each build lands here as it arrives."] or why) end)
   f.ask:SetPoint("TOPRIGHT", -4, -2); f.ask:Hide()
-  Tip(f.ask, "Your group's builds", "Everyone in your group who runs the addon answers with their plan. Nothing is posted in chat.")
+  Tip(f.ask, L["Your group's builds"], L["Everyone in your group who runs the addon answers with their plan. Nothing is posted in chat."])
   f.gNone = Text(body, 11, C.muted); f.gNone:SetPoint("TOPLEFT", 0, -30); f.gNone:SetPoint("TOPRIGHT", -4, -30); f.gNone:SetWordWrap(true); f.gNone:SetJustifyH("LEFT"); f.gNone:Hide()
-  f.gNone:SetText("Nothing yet. Press the button; anyone in your group with the addon answers.")
+  f.gNone:SetText(L["Nothing yet. Press the button; anyone in your group with the addon answers."])
   -- one talent per line: point at it and the tile lights up, with its tooltip beside the window
   local function Line(k)
     local l = f.lines[k]
@@ -1728,17 +1743,17 @@ local function BuildPopularTab()
         for ti = 1, #g.p.ranks do local v = TF.TreePts(g.p, ti); if v > best then best, lead = v, ti end end
         local pts = {}
         for ti = 1, #g.p.ranks do pts[ti] = TF.TreePts(g.p, ti) end
-        local name = g.who .. "'s " .. (gc and gc.name or "") .. " build"
+        local name = string.format(L["%s's %s build"], g.who, gc and gc.name or "")
         r.icon:SetTexture(IconFor({ icon = gc and gc.trees[lead].icon or "inv_misc_questionmark" }))
         r.name:SetText(string.format("|cff%s%s|r", gc and gc.color or "ffffff", g.who)); r.tag:SetText("")
         r.name:ClearAllPoints(); r.name:SetPoint("TOPLEFT", 44, -5); r.name:SetPoint("RIGHT", -8, 0)
         r.sub:SetText(string.format("%s %s, %s", gc and gc.name or "", table.concat(pts, " / "), TF.Ago(g.when)))
         local isGhost = TF.trial and TF.trial.name == name
-        r.accent:SetAlpha(isGhost and 1 or 0); r.ghost:SetText(isGhost and "Stop" or "Try it")
-        Tip(r, name, string.format("Level %d, %s. Try it rings its talents on your trees next to yours, Load makes it your plan, shift-click puts its link in chat.", g.p.level or 60, TF.Ago(g.when)))
-        r.onLoad = function() TF.Remember(); TF.SetPlan(TF.Decode(g.code) or g.p); UI.Note("Loaded " .. name .. ".", { { label = "Undo", fn = function() TF.Undo() end } }) end
+        r.accent:SetAlpha(isGhost and 1 or 0); r.ghost:SetText(isGhost and L["Stop"] or L["Try it"])
+        Tip(r, name, string.format(L["Level %d, %s. Try it rings its talents on your trees next to yours, Load makes it your plan, shift-click puts its link in chat."], g.p.level or 60, TF.Ago(g.when)))
+        r.onLoad = function() TF.Remember(); TF.SetPlan(TF.Decode(g.code) or g.p); UI.Note(string.format(L["Loaded %s."], name), { { label = L["Undo"], fn = function() TF.Undo() end } }) end
         r.onGhost = function() if isGhost then TF.TrialBack() else TF.TryBuild(TF.Decode(g.code) or g.p, name) end end
-        r:SetScript("OnClick", function() if IsShiftKeyDown and IsShiftKeyDown() then if TF.InsertLink(g.p) then UI.Note("Link put in the chat box.") end end end)
+        r:SetScript("OnClick", function() if IsShiftKeyDown and IsShiftKeyDown() then if TF.InsertLink(g.p) then UI.Note(L["Link put in the chat box."]) end end end)
         r.buildCode = g.code
         f.list.rowY[k] = top + (k - 1) * f.list.rowH
       end
@@ -1747,48 +1762,50 @@ local function BuildPopularTab()
     f.note:ClearAllPoints(); f.note:SetPoint("TOPLEFT", 0, -(top + 4)); f.note:SetPoint("TOPRIGHT", -4, -(top + 4))
     f.spec:ClearAllPoints(); f.spec:SetPoint("TOPLEFT", 0, -(top + 22)); f.spec:SetPoint("TOPRIGHT", -4, -(top + 22))
     local gn = #group
-    if not pop then f.note:SetText("No numbers for this class yet."); f.spec:SetText(""); f.list:Fill(gn); return end
-    f.note:SetText(string.format("%s builds on talentsforever.com", c.name))
+    if not pop then f.note:SetText(L["No numbers for this class yet."]); f.spec:SetText(""); f.list:Fill(gn); return end
+    f.note:SetText(string.format(L["%s builds on talentsforever.com"], c.name))
     local parts = {}
-    for _, sp in ipairs(pop.spec or {}) do parts[#parts + 1] = string.format("%s %d%%", sp[1], sp[2]) end
-    f.spec:SetText((pop.window or ""):gsub(" %d%d%d%d$", "") .. ". " .. table.concat(parts, ", ") .. ".")
+    for _, sp in ipairs(pop.spec or {}) do parts[#parts + 1] = string.format("%s %d%%", TF.TreeLoc(cf, sp[1]), sp[2]) end
+    f.spec:SetText(TF.WindowText(pop.window) .. ". " .. table.concat(parts, ", ") .. ".")
     f.list.offset = top + math.ceil(26 + math.max(f.spec:GetStringHeight() or 0, estHeight(f.spec:GetText() or "", PAGE_W - 4, 11)) + 8)
     for kk, b in ipairs(pop.top) do
       local k = gn + kk
       f.list.rowY[k] = f.list.offset + (kk - 1) * f.list.rowH
       local r = f.list:Row(k)
       local lead = 1
-      for ti, tree in ipairs(c.trees) do if tree.name == b.lead then lead = ti end end
-      local name = string.format("#%d %s", b.rank, b.lead)
+      for ti, tree in ipairs(c.trees) do if (tree.en or tree.name) == b.lead then lead = ti end end
+      local leadLoc = TF.TreeLoc(cf, b.lead)
+      local name = string.format("#%d %s", b.rank, leadLoc)
       r.icon:SetTexture(IconFor({ icon = c.trees[lead].icon }))
-      r.name:SetText(string.format("|cff%s%s|r", c.color, name)); r.tag:SetText(b.seated and "most built" or "")
+      r.name:SetText(string.format("|cff%s%s|r", c.color, name)); r.tag:SetText(b.seated and L["most built"] or "")
       r.name:ClearAllPoints(); r.name:SetPoint("TOPLEFT", 44, -5); r.name:SetPoint("RIGHT", b.seated and -84 or -8, 0)
       r.sub:SetText(string.format("%s / %s / %s", tostring(b.pts[1]), tostring(b.pts[2]), tostring(b.pts[3])))
       local isGhost = TF.trial and TF.trial.name == name
-      r.accent:SetAlpha(isGhost and 1 or 0); r.ghost:SetText(isGhost and "Stop" or "Try it")
-      Tip(r, string.format("#%d %s, %s / %s / %s", b.rank, b.lead, tostring(b.pts[1]), tostring(b.pts[2]), tostring(b.pts[3])),
-        string.format("%sShared %d, saved %d, opened %d times%s. Try it rings its talents on your trees next to yours, Load makes it your plan.", b.seated and string.format("The most built %s build, #%d overall. ", b.lead, b.rank) or "", b.shared or 0, b.saved or 0, b.opened or 0,
-          (b.variants or 0) > 0 and string.format(", across %d close builds (every full build within four points of this one)", b.variants + 1) or ""))
-      r.onLoad = function() local ok, err, back = TF.LoadCode(b.code); if ok then UI.Note(string.format("Loaded the #%d %s build.", b.rank, b.lead) .. TF.SettledText(back), { { label = "Undo", fn = function() TF.Undo() end } }, back and 12 or nil); if back then UI.SettledCard(back) end else UI.Note(err) end end
+      r.accent:SetAlpha(isGhost and 1 or 0); r.ghost:SetText(isGhost and L["Stop"] or L["Try it"])
+      Tip(r, string.format("#%d %s, %s / %s / %s", b.rank, leadLoc, tostring(b.pts[1]), tostring(b.pts[2]), tostring(b.pts[3])),
+        string.format(L["%sShared %d, saved %d, opened %d times%s. Try it rings its talents on your trees next to yours, Load makes it your plan."], b.seated and string.format(L["The most built %s build, #%d overall. "], leadLoc, b.rank) or "", b.shared or 0, b.saved or 0, b.opened or 0,
+          (b.variants or 0) > 0 and string.format(L[", across %d close builds (every full build within four points of this one)"], b.variants + 1) or ""))
+      r.onLoad = function() local ok, err, back = TF.LoadCode(b.code); if ok then UI.Note(string.format(L["Loaded the #%d %s build."], b.rank, leadLoc) .. TF.SettledText(back), { { label = L["Undo"], fn = function() TF.Undo() end } }, back and 12 or nil); if back then UI.SettledCard(back) end else UI.Note(err) end end
       r.onGhost = function() if isGhost then TF.TrialBack() else local p = TF.Decode(b.code); if p then TF.TryBuild(p, name) end end end
-      r:SetScript("OnClick", function() if IsShiftKeyDown and IsShiftKeyDown() then local p = TF.Decode(b.code); if p and TF.InsertLink(p) then UI.Note("Link put in the chat box.") end end end)
+      r:SetScript("OnClick", function() if IsShiftKeyDown and IsShiftKeyDown() then local p = TF.Decode(b.code); if p and TF.InsertLink(p) then UI.Note(L["Link put in the chat box."]) end end end)
       r.buildCode = b.code
     end
     local y = f.list.offset + #pop.top * f.list.rowH + 10
     local n = 0
     local nRows = gn + #pop.top
-    local function find(name) for ti, tree in ipairs(c.trees) do for i, t in ipairs(tree.talents) do if t.name == name then return ti, i end end end end
+    local function find(name) for ti, tree in ipairs(c.trees) do for i, t in ipairs(tree.talents) do if (t.en or t.name) == name then return ti, i end end end end   -- the site's lists name talents in English
     local function header(text)
       n = n + 1; local l = Line(n); l:Show(); l:ClearAllPoints(); l:SetPoint("TOPLEFT", 0, -y)
-      l.head:SetText(text:upper()); l.head:Show(); l.rule:Show(); l.name:SetText(""); l.pct:SetText(""); l.tile = nil; l:EnableMouse(false); y = y + 22
+      l.head:SetText(TF.Upper(text)); l.head:Show(); l.rule:Show(); l.name:SetText(""); l.pct:SetText(""); l.tile = nil; l:EnableMouse(false); y = y + 22
     end
     local function item(x)
       n = n + 1; local l = Line(n); l:Show(); l:ClearAllPoints(); l:SetPoint("TOPLEFT", 0, -y)
-      l.head:Hide(); l.rule:Hide(); l.name:SetText(x[2]); l.pct:SetText(x[1] .. "%")
-      local ti, i = find(x[2]); l.tile = ti and trees[ti] and trees[ti].tiles[i] or nil; l:EnableMouse(true); y = y + 20
+      local ti, i = find(x[2])
+      l.head:Hide(); l.rule:Hide(); l.name:SetText(ti and c.trees[ti].talents[i].name or x[2]); l.pct:SetText(x[1] .. "%")
+      l.tile = ti and trees[ti] and trees[ti].tiles[i] or nil; l:EnableMouse(true); y = y + 20
     end
-    if pop.most and #pop.most > 0 then header("Almost everyone takes"); for _, x in ipairs(pop.most) do item(x) end; y = y + 8 end
-    if pop.least and #pop.least > 0 then header("Almost nobody takes"); for _, x in ipairs(pop.least) do item(x) end end
+    if pop.most and #pop.most > 0 then header(L["Almost everyone takes"]); for _, x in ipairs(pop.most) do item(x) end; y = y + 8 end
+    if pop.least and #pop.least > 0 then header(L["Almost nobody takes"]); for _, x in ipairs(pop.least) do item(x) end end
     f.list:Fill(nRows, y - (f.list.offset + #pop.top * f.list.rowH) + 10)
   end
   TF.On("GROUP_CHANGED", function() if F and F:IsShown() and S().sideTab == "popular" then tabs.popular.refresh() end end)
@@ -1797,10 +1814,10 @@ end
 -- Classic: what changed since vanilla, the site's signature
 local function BuildClassicTab()
   local f = TabFrame("classic")
-  f.marks = Check(f, "Compare to Classic", function() return S().marks end, function(v) S().marks = v end); f.marks:SetPoint("TOPLEFT", 12 - (f.marks.air or 0), -4)
-  f.picks = Check(f, "Show pick rates", function() return S().pickRates end, function(v) S().pickRates = v end); f.picks:SetPoint("TOPLEFT", 12 - (f.picks.air or 0), -30)
-  Tip(f.marks, "Compare to Classic", "A gold edge is a talent new in Forever, blue changed its numbers or words, purple moved trees or rows. Hover a tile for the Classic text.")
-  Tip(f.picks, "Pick rates", "The share of this class's builds on the site with at least one point in the talent.")
+  f.marks = Check(f, L["Compare to Classic"], function() return S().marks end, function(v) S().marks = v end); f.marks:SetPoint("TOPLEFT", 12 - (f.marks.air or 0), -4)
+  f.picks = Check(f, L["Show pick rates"], function() return S().pickRates end, function(v) S().pickRates = v end); f.picks:SetPoint("TOPLEFT", 12 - (f.picks.air or 0), -30)
+  Tip(f.marks, L["Compare to Classic"], L["A gold edge is a talent new in Forever, blue changed its numbers or words, purple moved trees or rows. Hover a tile for the Classic text."])
+  Tip(f.picks, L["Pick rates"], L["The share of this class's builds on the site with at least one point in the talent."])
   f.legend = Text(f, 12, C.ink2); f.legend:SetPoint("TOPLEFT", 12, -58); f.legend:SetPoint("TOPRIGHT", -28, -58); f.legend:SetWordWrap(true); f.legend:SetJustifyH("LEFT")
   f.scroll = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate"); f.scroll:SetPoint("TOPLEFT", PAD, -98); f.scroll:SetPoint("BOTTOMRIGHT", -28, 10); Slim(f.scroll)
   f.body = CreateFrame("Frame", nil, f.scroll); f.body:SetSize(PAGE_W, 10); f.scroll:SetScrollChild(f.body)
@@ -1820,7 +1837,7 @@ local function BuildClassicTab()
     for _, tree in ipairs(cd.trees) do
       for _, t in ipairs(tree.talents) do n[t.classic or "new"] = (n[t.classic or "new"] or 0) + 1 end
     end
-    f.legend:SetText(string.format("%s against Classic: |cffffd75e%d new|r, |cff58a6ff%d changed|r, |cffb88cff%d moved|r, %d the same.", cd.name, n.new, n.changed, n.moved, n.same))
+    f.legend:SetText(string.format(L["%s against Classic: |cffffd75e%d new|r, |cff58a6ff%d changed|r, |cffb88cff%d moved|r, %d the same."], cd.name, n.new, n.changed, n.moved, n.same))
     for _, b in ipairs(f.blocks) do b.sec:Hide(); b.text:Hide() end
     local y = 0
     for ti, tree in ipairs(cd.trees) do
@@ -1829,9 +1846,9 @@ local function BuildClassicTab()
       for _, r in ipairs(tree.removed or {}) do gone[#gone + 1] = r.name end
       if #news > 0 or #gone > 0 then
         local b = Block(ti)
-        b.sec:Show(); b.sec:SetPoint("TOPLEFT", f.body, "TOPLEFT", 0, -y); b.sec:SetText(tree.name:upper()); y = y + 20
-        if #news > 0 then lines[#lines + 1] = "|cffffd75eNew:|r " .. table.concat(news, ", ") .. "." end
-        if #gone > 0 then lines[#lines + 1] = "|cffff4d4dGone from Classic:|r " .. table.concat(gone, ", ") .. "." end
+        b.sec:Show(); b.sec:SetPoint("TOPLEFT", f.body, "TOPLEFT", 0, -y); b.sec:SetText(TF.Upper(tree.name)); y = y + 20
+        if #news > 0 then lines[#lines + 1] = L["|cffffd75eNew:|r "] .. table.concat(news, ", ") .. "." end
+        if #gone > 0 then lines[#lines + 1] = L["|cffff4d4dGone from Classic:|r "] .. table.concat(gone, ", ") .. "." end
         local body = table.concat(lines, "\n"); lines = {}
         b.text:Show(); b.text:ClearAllPoints(); b.text:SetPoint("TOPLEFT", f.body, "TOPLEFT", 0, -y); b.text:SetText(body)
         local measured = b.text:GetStringHeight() or 0
@@ -1855,9 +1872,9 @@ local function BuildRacialsTab()
     b:SetHighlightTexture(WHITE); local hl = b:GetHighlightTexture(); if hl then hl:SetVertexColor(1, 0.82, 0, 0.2) end
     b:SetScript("OnClick", function(self) Sound("IG_MAINMENU_OPTION_CHECKBOX_ON"); f.race = self.race; tabs.racials.refresh() end)
     b:SetScript("OnEnter", function(self)
-      TipBegin(self); GameTooltip:SetText(self.race or "", 1, 0.82, 0)
-      if self.can == false then GameTooltip:AddLine(string.format("Cannot be a %s. Click for its racials anyway.", classData().name), 0.74, 0.74, 0.74, true)
-      else GameTooltip:AddLine(self.mine and "Your race. Click another face for its racials with this class." or "Click for its racials with this class.", 0.9, 0.9, 0.9, true) end
+      TipBegin(self); GameTooltip:SetText(TF.RaceLoc(self.race) or "", 1, 0.82, 0)
+      if self.can == false then GameTooltip:AddLine(string.format(L["Cannot be a %s. Click for its racials anyway."], classData().name), 0.74, 0.74, 0.74, true)
+      else GameTooltip:AddLine(self.mine and L["Your race. Click another face for its racials with this class."] or L["Click for its racials with this class."], 0.9, 0.9, 0.9, true) end
       TipEnd(self)
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1881,7 +1898,7 @@ local function BuildRacialsTab()
   end
   tabs.racials.refresh = function()
     local R = D.racials; local cf = plan().cls; local cd = D.classes[cf]
-    local myRace = (UnitRace("player")) or ""
+    local myRace = select(2, UnitRace("player")) or (UnitRace("player")) or ""   -- the English token, whatever the client speaks
     local myFac = (UnitFactionGroup and UnitFactionGroup("player")) or nil
     -- every race, Horde then Alliance, yours first; the ones that cannot be this class stay in the row, dimmed
     local list, mine = {}, nil
@@ -1911,19 +1928,19 @@ local function BuildRacialsTab()
         if r == sel then b.edge:SetColor(1, 0.82, 0, 1) elseif r == mine then b.edge:SetColor(0.78, 0.61, 0.10, 0.8) else b.edge:SetColor(0.45, 0.38, 0.22, r.can and 0.8 or 0.35) end
       else b:Hide(); b.race = nil end
     end
-    f.raceName:SetText(sel and sel.race or "Races")
-    f.raceTag:SetText(sel and (sel == mine and "YOUR RACE" or (sel.can == false and ("NOT A " .. cd.name:upper() .. " RACE") or (mine and ("YOU ARE " .. mine.race:gsub("%s*%(.*$", ""):upper()) or ""))) or "")
+    f.raceName:SetText(sel and TF.RaceLoc(sel.race) or L["Races"])
+    f.raceTag:SetText(sel and (sel == mine and L["YOUR RACE"] or (sel.can == false and string.format(L["NOT A %s RACE"], TF.Upper(cd.name)) or (mine and string.format(L["YOU ARE %s"], TF.Upper(TF.RaceLoc((mine.race:gsub("%s*%(.*$", ""))))) or ""))) or "")
     local entries = {}
     local function add(head) entries[#entries + 1] = { head = head } end
-    local function ab(a) entries[#entries + 1] = { name = a.name, text = a.text, icon = a.icon } end
+    local function ab(a) entries[#entries + 1] = { name = TF.WantsEnglishNames() and a.name or rawget(L, "RACIAL:" .. a.name) or L[a.name], text = a.text and L[a.text], icon = a.icon } end   -- the site's English; a locale file may carry the client's words
     if sel then
       for _, a in ipairs(sel.abilities or {}) do ab(a) end
       local cr = R.classRacials and R.classRacials[cf]
       local lst = cr and cr.races and cr.races[sel.race]
       if not lst and cr and cr.races then for rn, l in pairs(cr.races) do if sel.race:find(rn, 1, true) then lst = l end end end
-      if lst and #lst > 0 then add(string.format("%s %s ONLY", sel.race:gsub("%s*%(.*$", ""):upper(), cd.name:upper())); for _, a in ipairs(lst) do ab(a) end end
+      if lst and #lst > 0 then add(string.format(L["%s %s ONLY"], TF.Upper(TF.RaceLoc((sel.race:gsub("%s*%(.*$", "")))), TF.Upper(cd.name))); for _, a in ipairs(lst) do ab(a) end end
     else
-      entries[#entries + 1] = { name = myRace, text = "No racial notes for this race on the site yet.", icon = "inv_misc_questionmark" }
+      entries[#entries + 1] = { name = (UnitRace("player")) or myRace, text = L["No racial notes for this race on the site yet."], icon = "inv_misc_questionmark" }
     end
     for _, it in ipairs(f.items) do it:Hide() end
     local y = 0
@@ -1978,7 +1995,7 @@ local function BuildCoachTab()
     r.icon = r:CreateTexture(nil, "ARTWORK"); r.icon:SetSize(20, 20); r.icon:SetPoint("LEFT", 12, 0); r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     r.name = Text(r, 13, C.ink); r.name:SetPoint("LEFT", 40, 0); r.name:SetPoint("RIGHT", -64, 0); r.name:SetJustifyH("LEFT"); r.name:SetWordWrap(false)
     r.cost = Text(r, 11, C.gold); r.cost:SetPoint("RIGHT", -10, 0); r.cost:SetJustifyH("RIGHT")
-    r.btn = Button(r, "Skip", "auto", 20, function() if r.spell then TF.SkipSpell(r.spell.name, r.spell.rank, not r.skipped); tabs.coach.refresh() end end)
+    r.btn = Button(r, L["Skip"], "auto", 20, function() if r.spell then TF.SkipSpell(r.spell.name, r.spell.rank, not r.skipped); tabs.coach.refresh() end end)
     r.btn.minW = 56; r.btn:Fit(); r.btn:SetPoint("RIGHT", -8, 0)
     -- Skip shows when the row is under the mouse (a page of red buttons is noise); Back stays, a skipped row is rare
     -- leaving the row hides Skip; stepping onto the button fires the row's leave first and then the button's enter, which shows it again
@@ -1992,10 +2009,10 @@ local function BuildCoachTab()
       TipBegin(r)
       local shown = false
       if s.id and GameTooltip.SetSpellByID then shown = pcall(GameTooltip.SetSpellByID, GameTooltip, s.id) end
-      if not shown then GameTooltip:SetText(s.name, 1, 0.82, 0) end
-      local co = TF.Coef(s.id); if co then GameTooltip:AddLine("Scales with " .. co .. ".", 0.62, 0.62, 0.62, true) end
-      GameTooltip:AddLine(string.format("The trainer sells this from level %d%s.%s", s.level, s.cost and (" for " .. TF.Money(s.cost)) or "", s.portal and " A portal trainer, not the class trainer." or ""), 0.74, 0.74, 0.74, true)
-      GameTooltip:AddLine(r.skipped and "Skipped: it stays out of the reminders. Back, or a right click, puts it back." or "Skip, or a right click, keeps it out of the reminders for this character.", 0.54, 0.54, 0.54, true)
+      if not shown then GameTooltip:SetText(s.loc or s.name, 1, 0.82, 0) end
+      local co = TF.Coef(s.id); if co then GameTooltip:AddLine(string.format(L["Scales with %s."], TF.CoefText(co)), 0.62, 0.62, 0.62, true) end
+      GameTooltip:AddLine(string.format(L["The trainer sells this from level %d%s.%s"], s.level, s.cost and string.format(L[" for %s"], TF.Money(s.cost)) or "", s.portal and L[" A portal trainer, not the class trainer."] or ""), 0.74, 0.74, 0.74, true)
+      GameTooltip:AddLine(r.skipped and L["Skipped: it stays out of the reminders. Back, or a right click, puts it back."] or L["Skip, or a right click, keeps it out of the reminders for this character."], 0.54, 0.54, 0.54, true)
       TipEnd(r)
     end)
     r:SetScript("OnLeave", function() GameTooltip:Hide(); leave() end)
@@ -2011,7 +2028,7 @@ local function BuildCoachTab()
     local owed, skipped
     if isOwnClass() then
       owed, skipped = TF.OwedSpells()
-      if owed and #owed == 0 and #skipped == 0 then table.insert(notes, 1, { kind = "good", head = "Spellbook up to date", text = "It has everything the trainer sells at your level." }) end
+      if owed and #owed == 0 and #skipped == 0 then table.insert(notes, 1, { kind = "good", head = L["Spellbook up to date"], text = L["It has everything the trainer sells at your level."] }) end
     end
     -- the reading of the plan: one card per thing worth saying, headline first
     for k, n in ipairs(notes) do
@@ -2033,17 +2050,17 @@ local function BuildCoachTab()
     if owed and (#owed > 0 or #skipped > 0) then
       y = y + 6
       f.thead:Show(); f.thead:ClearAllPoints(); f.thead:SetPoint("TOPLEFT", 12, -y)
-      f.thead:SetText(#owed > 0 and string.format("AT THE TRAINER, %d YOU CAN LEARN NOW", #owed) or "AT THE TRAINER, NOTHING NEW")
+      f.thead:SetText(#owed > 0 and string.format(L["AT THE TRAINER, %d YOU CAN LEARN NOW"], #owed) or "AT THE TRAINER, NOTHING NEW")
       y = y + 18
       local ct = #owed > 0 and TF.OwedCostText(owed) or nil
-      if ct then f.tcost:Show(); f.tcost:ClearAllPoints(); f.tcost:SetPoint("TOPLEFT", 12, -y); f.tcost:SetWidth(PAGE_W - 24); f.tcost:SetWordWrap(true); f.tcost:SetJustifyH("LEFT"); f.tcost:SetText(ct .. " to learn them."); y = y + math.ceil(math.max(f.tcost:GetStringHeight() or 0, estHeight(ct .. " to learn them.", PAGE_W - 24, 11))) + 6 end
+      if ct then f.tcost:Show(); f.tcost:ClearAllPoints(); f.tcost:SetPoint("TOPLEFT", 12, -y); f.tcost:SetWidth(PAGE_W - 24); f.tcost:SetWordWrap(true); f.tcost:SetJustifyH("LEFT"); f.tcost:SetText(string.format(L["%s to learn them."], ct)); y = y + math.ceil(math.max(f.tcost:GetStringHeight() or 0, estHeight(string.format(L["%s to learn them."], ct), PAGE_W - 24, 11))) + 6 end
       local k = 0
       local function row(s, isSkipped)
         k = k + 1; local r = TRow(k); r:Show(); r:ClearAllPoints(); r:SetPoint("TOPLEFT", 0, -y)
         r.icon:SetAlpha(isSkipped and 0.4 or 1); r.name:SetAlpha(isSkipped and 0.5 or 1); r.icon:SetDesaturated(isSkipped)
         r.icon:SetTexture(IconFor({ icon = s.icon }))
-        r.name:SetText(s.ranks > 1 and string.format("%s (rank %d)", s.name, s.rank) or s.name)
-        r.btn:SetText(isSkipped and "Back" or "Skip"); r.btn:Fit(); r.btn:SetShown(isSkipped)
+        r.name:SetText(s.ranks > 1 and string.format(L["%s (rank %d)"], s.loc or s.name, s.rank) or (s.loc or s.name))
+        r.btn:SetText(isSkipped and L["Back"] or L["Skip"]); r.btn:Fit(); r.btn:SetShown(isSkipped)
         r.spell = s; r.skipped = isSkipped
         r.cost:SetText(s.cost and TF.Money(s.cost) or ""); r.cost:SetShown(not isSkipped and s.cost and true or false)
         y = y + TROW_H
@@ -2060,7 +2077,7 @@ local function BuildSettingsTab()
   local page = TabFrame("settings")
   page.scroll = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate"); page.scroll:SetPoint("TOPLEFT", 0, 0); page.scroll:SetPoint("BOTTOMRIGHT", 0, 6); Slim(page.scroll)
   local f = CreateFrame("Frame", nil, page.scroll); f:SetSize(PAGE_W + 12, 760); page.scroll:SetScrollChild(f)
-  f.title = Text(f, 15, C.gold, true); f.title:SetPoint("TOPLEFT", 12, -8); f.title:SetText("Settings"); f.title:SetShadowColor(0, 0, 0, 0.9); f.title:SetShadowOffset(1, -1)
+  f.title = Text(f, 15, C.gold, true); f.title:SetPoint("TOPLEFT", 12, -8); f.title:SetText(L["Settings"]); f.title:SetShadowColor(0, 0, 0, 0.9); f.title:SetShadowOffset(1, -1)
   local y = -36
   f.boxes = {}
   -- a switch: the box, a small picture of what it is about, the words; one plain sentence on hover
@@ -2075,55 +2092,59 @@ local function BuildSettingsTab()
     return cb
   end
   local function head(text) local s = Section(f, text, y); y = y - 22; return s end
-  head("REMINDERS")
-  row("Level-up reminders", "inv_misc_bell_01", function() return S().levelUpNudge end, function(v) S().levelUpNudge = v end, "When you level up, a small card says which talent is next and offers to place it.")
-  row("Trainer reminders", "inv_misc_book_07", function() return S().trainerAlerts end, function(v) S().trainerAlerts = v; S().trainerAlertsSet = true end, "A card when you level, or walk into a city, with spells you could learn. Once per level, per place. Off by itself if What's Training is installed.")
-  row("Trainer cards only for what you can afford", "inv_misc_coin_01", function() return S().purseOnly == true end, function(v) S().purseOnly = v or nil end, "The card counts only the spells your gold covers, with one line for the rest, and stays away while none is affordable; it comes when the gold does. The card itself offers this the first time it lists something you cannot pay for. Prices come from the trainer window once you have opened one on this character.")
-  row("Game-style class list", "inv_misc_note_01", function() return not S().plainClassList end, function(v) S().plainClassList = (not v) or nil; UI.Note("The class picker changes on the next /reload.") end, "The class picker at the top is the game's own dropdown. Off uses a plain button instead. It switches itself off if the game ever blocks the dropdown, and while a gamepad is on.")
-  head("OTHER PLAYERS")
-  row("Show other people's builds", "inv_misc_groupneedmore", function() return S().othersBuilds ~= false end, function(v) S().othersBuilds = v; UI.LayoutTabs() end, "Off hides the Popular page and the cards other players send. Links in chat still work.")
-  row("Answer build requests", "inv_letter_15", function() return S().answerParty ~= false end, function(v) S().answerParty = v end, "Someone in your group can ask everyone for their build. On, yours goes to them as a link. Off, nothing goes.")
-  head("HANDS-FREE")
-  row("Follow the top build", "ability_hunter_pathfinding", function() return S().starter end, function(v) UI.SetStarter(v) end, "The #1 build for your class becomes your plan. Each level, a card asks before the next point goes in. Change a point by hand and it stops.")
-  row("Place points for me, no asking", "achievement_level_10", function() return S().autoApply end, function(v) S().autoApply = v end, "Each time you level, the plan's next point is placed without a card. Never your first point in a tree: that one always asks. Off unless you want it.")
-  head("THE WINDOW")
-  row("Show plan on the game's talents", "inv_misc_map02", function() return S().overlay end, function(v) S().overlay = v; UI.RefreshOverlay() end, "Your plan's numbers and a ring on your next point, drawn on the game's own talent window.")
-  row("Leveling rail", "ability_rogue_sprint", function() return UI.RailOn() end, function(v) S().rail = v; UI.LayoutFoot(); UI.Refresh() end, "The bar under the trees, one mark per level. Off, the window is shorter. At 60 it is off by itself.")
-  row("Sounds", "inv_misc_horn_01", function() return S().sounds ~= false end, function(v) S().sounds = v end, "Small clicks and chimes.")
-  row("Minimap button", "inv_misc_map_01", function() return not S().minimap.hide end, function(v) S().minimap.hide = not v; UI.SetMinimapShown(v) end, "The book on the minimap. Left click opens the planner, right click the popular builds.")
-  row("Book tab on the character pane", "inv_misc_book_09", function() return S().charTab ~= false end, function(v) S().charTab = v; if TalentsForeverBookCharacterTab then TalentsForeverBookCharacterTab:SetShown(v) end end, "The book among the tabs on your character pane. Same as /tf.")
-  row("Train all at the trainer", "inv_misc_coin_02", function() return S().trainAll ~= false end, function(v) S().trainAll = v; if not v then local b = _G.TalentsForeverBookTrainAll; if b then b:Hide() end end end, "The Train all button on the trainer window, with what it would cost. Off, the trainer window is the game's own; /talents trainall still buys the lot.")
-  row("The talents key opens this", "inv_misc_key_03", function() return S().talentsKey end, function(v) S().talentsKey = v; UI.ApplyTalentsKey(true) end, "Whatever key opens the game's talents (N, unless you changed it) opens Talents Forever instead. Your key bindings stay as they are; off gives the game's window back.")
-  row("Open this instead of the game's talents", "inv_misc_book_11", function() return S().replaceTalents end, function(v) S().replaceTalents = v; UI.Note(v and "The game's talent tab opens Talents Forever now. Hold Shift while opening it for the game's window." or "The game's talent window is its own again.", nil, 8) end, "Open the game's talents any way at all (the key, the micro bar, the spellbook's tab) and it closes again with Talents Forever in its place. Hold Shift while opening it to get the game's window that once. Never during a fight.")
+  head(L["REMINDERS"])
+  row(L["Level-up reminders"], "inv_misc_bell_01", function() return S().levelUpNudge end, function(v) S().levelUpNudge = v end, L["When you level up, a small card says which talent is next and offers to place it."])
+  row(L["Trainer reminders"], "inv_misc_book_07", function() return S().trainerAlerts end, function(v) S().trainerAlerts = v; S().trainerAlertsSet = true end, L["A card when you level, or walk into a city, with spells you could learn. Once per level, per place. Off by itself if What's Training is installed."])
+  row(L["Trainer cards only for what you can afford"], "inv_misc_coin_01", function() return S().purseOnly == true end, function(v) S().purseOnly = v or nil end, L["The card counts only the spells your gold covers, with one line for the rest, and stays away while none is affordable; it comes when the gold does. The card itself offers this the first time it lists something you cannot pay for. Prices come from the trainer window once you have opened one on this character."])
+  row(L["Game-style class list"], "inv_misc_note_01", function() return not S().plainClassList end, function(v) S().plainClassList = (not v) or nil; UI.Note(L["The class picker changes on the next /reload."]) end, L["The class picker at the top is the game's own dropdown. Off uses a plain button instead. It switches itself off if the game ever blocks the dropdown, and while a gamepad is on."])
+  head(L["OTHER PLAYERS"])
+  row(L["Show other people's builds"], "inv_misc_groupneedmore", function() return S().othersBuilds ~= false end, function(v) S().othersBuilds = v; UI.LayoutTabs() end, L["Off hides the Popular page and the cards other players send. Links in chat still work."])
+  row(L["Answer build requests"], "inv_letter_15", function() return S().answerParty ~= false end, function(v) S().answerParty = v end, L["Someone in your group can ask everyone for their build. On, yours goes to them as a link. Off, nothing goes."])
+  head(L["HANDS-FREE"])
+  row(L["Follow the top build"], "ability_hunter_pathfinding", function() return S().starter end, function(v) UI.SetStarter(v) end, L["The #1 build for your class becomes your plan. Each level, a card asks before the next point goes in. Change a point by hand and it stops."])
+  row(L["Place points for me, no asking"], "achievement_level_10", function() return S().autoApply end, function(v) S().autoApply = v end, L["Each time you level, the plan's next point is placed without a card. Never your first point in a tree: that one always asks. Off unless you want it."])
+  head(L["THE WINDOW"])
+  row(L["Show plan on the game's talents"], "inv_misc_map02", function() return S().overlay end, function(v) S().overlay = v; UI.RefreshOverlay() end, L["Your plan's numbers and a ring on your next point, drawn on the game's own talent window."])
+  row(L["Leveling rail"], "ability_rogue_sprint", function() return UI.RailOn() end, function(v) S().rail = v; UI.LayoutFoot(); UI.Refresh() end, L["The bar under the trees, one mark per level. Off, the window is shorter. At 60 it is off by itself."])
+  row(L["Sounds"], "inv_misc_horn_01", function() return S().sounds ~= false end, function(v) S().sounds = v end, L["Small clicks and chimes."])
+  row(L["Minimap button"], "inv_misc_map_01", function() return not S().minimap.hide end, function(v) S().minimap.hide = not v; UI.SetMinimapShown(v) end, L["The book on the minimap. Left click opens the planner, right click the popular builds."])
+  row(L["Book tab on the character pane"], "inv_misc_book_09", function() return S().charTab ~= false end, function(v) S().charTab = v; if TalentsForeverBookCharacterTab then TalentsForeverBookCharacterTab:SetShown(v) end end, L["The book among the tabs on your character pane. Same as /tf."])
+  row(L["Train all at the trainer"], "inv_misc_coin_02", function() return S().trainAll ~= false end, function(v) S().trainAll = v; if not v then local b = _G.TalentsForeverBookTrainAll; if b then b:Hide() end end end, L["The Train all button on the trainer window, with what it would cost. Off, the trainer window is the game's own; /talents trainall still buys the lot."])
+  row(L["The talents key opens this"], "inv_misc_key_03", function() return S().talentsKey end, function(v) S().talentsKey = v; UI.ApplyTalentsKey(true) end, L["Whatever key opens the game's talents (N, unless you changed it) opens Talents Forever instead. Your key bindings stay as they are; off gives the game's window back."])
+  if TF.ClientLocale() ~= "enUS" and TF.ClientLocale() ~= "enGB" then
+    -- 0.38.0: a client in another language reads talent and spell names from the game; this puts the English back, for guides and chat
+    row(L["Talent and spell names in English"], "inv_misc_note_06", function() return S().englishNames == true end, function(v) S().englishNames = v or nil; TF.Localise(); UI.RebuildTrees(); UI.Refresh() end, L["The names come from the game in its own language. On, they read in English instead, the way guides and the site write them. The addon's own words stay in your language."])
+  end
+  row(L["Open this instead of the game's talents"], "inv_misc_book_11", function() return S().replaceTalents end, function(v) S().replaceTalents = v; UI.Note(v and L["The game's talent tab opens Talents Forever now. Hold Shift while opening it for the game's window."] or L["The game's talent window is its own again."], nil, 8) end, L["Open the game's talents any way at all (the key, the micro bar, the spellbook's tab) and it closes again with Talents Forever in its place. Hold Shift while opening it to get the game's window that once. Never during a fight."])
   y = y - 8
-  f.sizeLabel = Text(f, 12, C.gold); f.sizeLabel:SetPoint("TOPLEFT", PAD, y - 6); f.sizeLabel:SetText("Window size")
+  f.sizeLabel = Text(f, 12, C.gold); f.sizeLabel:SetPoint("TOPLEFT", PAD, y - 6); f.sizeLabel:SetText(L["Window size"])
   f.smaller = Stepper(f, false, function() S().scaleSet = true; UI.SetScale((F:GetScale() or 1) - 0.1); tabs.settings.refresh() end); f.smaller:SetPoint("TOPLEFT", PAD + 108, y)
   f.sizeValue = Text(f, 13, C.gold); f.sizeValue:SetPoint("LEFT", f.smaller, "RIGHT", 6, 0); f.sizeValue:SetWidth(46); f.sizeValue:SetJustifyH("CENTER")
   f.bigger = Stepper(f, true, function() S().scaleSet = true; UI.SetScale((F:GetScale() or 1) + 0.1); tabs.settings.refresh() end); f.bigger:SetPoint("LEFT", f.sizeValue, "RIGHT", 6, 0)
   -- the slider: 50 to 160 percent, one percent at a time; drag the knob or click the bar
   f.slider = UI.Slider(f, PAGE_W - 8, 50, 160, function() return math.floor((F:GetScale() or 1) * 100 + 0.5) end, function(v) S().scaleSet = true; UI.SetScale(v / 100); f.sizeValue:SetText(v .. "%") end)
   f.slider:SetPoint("TOPLEFT", PAD, y - 34)
-  Tip(f.slider, "Window size", "Drag the knob, or click anywhere on the bar. One percent at a time. Ctrl and the wheel on the window do the same.")
-  f.center = Button(f, "Center the window", "auto", 24, function() UI.Centre(); UI.Note("Window centered.") end); f.center:SetPoint("TOPLEFT", PAD, y - 60)
+  Tip(f.slider, L["Window size"], L["Drag the knob, or click anywhere on the bar. One percent at a time. Ctrl and the wheel on the window do the same."])
+  f.center = Button(f, L["Center the window"], "auto", 24, function() UI.Centre(); UI.Note(L["Window centered."]) end); f.center:SetPoint("TOPLEFT", PAD, y - 60)
   -- the cards (level-up, trainer, a build sent) can be dragged anywhere; this puts them back
-  f.card = Button(f, "Reminder card back to the middle", "auto", 24, function() UI.ResetCard(); UI.Note("The cards show above the bottom of the screen again. Drag one to put them somewhere else.", nil, 8) end); f.card:SetPoint("TOPLEFT", PAD, y - 92)
-  Tip(f.card, "Where the cards show", "The level-up, trainer and build cards can be dragged anywhere on the screen; they stay where you drop them. This puts them back above the bottom, in the middle.")
+  f.card = Button(f, L["Reminder card back to the middle"], "auto", 24, function() UI.ResetCard(); UI.Note(L["The cards show above the bottom of the screen again. Drag one to put them somewhere else."], nil, 8) end); f.card:SetPoint("TOPLEFT", PAD, y - 92)
+  Tip(f.card, L["Where the cards show"], L["The level-up, trainer and build cards can be dragged anywhere on the screen; they stay where you drop them. This puts them back above the bottom, in the middle."])
   f.hint = Text(f, 12, C.muted); f.hint:SetPoint("TOPLEFT", PAD, y - 124); f.hint:SetPoint("TOPRIGHT", -28, y - 124); f.hint:SetWordWrap(true); f.hint:SetJustifyH("LEFT")
-  f.hint:SetText("Ctrl + wheel resizes, so do the bottom corners. Escape closes.")
-  Tip(f.center, "Back to the middle", "Puts the window in the middle of the screen. Drag the title to move it, the corner to resize it.")
+  f.hint:SetText(L["Ctrl + wheel resizes, so do the bottom corners. Escape closes."])
+  Tip(f.center, L["Back to the middle"], L["Puts the window in the middle of the screen. Drag the title to move it, the corner to resize it."])
   f.quiet = Text(f, 12, C.muted); f.quiet:SetPoint("TOPLEFT", PAD, y - 184); f.quiet:SetPoint("TOPRIGHT", -28, y - 184); f.quiet:SetWordWrap(true); f.quiet:SetJustifyH("LEFT")
-  f.quiet:SetText("Never posts in chat on its own. A link goes out only when you send it.")
+  f.quiet:SetText(L["Never posts in chat on its own. A link goes out only when you send it."])
   -- the pages: switch off the ones you never open and their tabs close up
-  f.pagesLabel = Text(f, 10, C.muted); f.pagesLabel:SetPoint("TOPLEFT", PAD, y - 222); f.pagesLabel:SetText("PAGES")
+  f.pagesLabel = Text(f, 10, C.muted); f.pagesLabel:SetPoint("TOPLEFT", PAD, y - 222); f.pagesLabel:SetText(L["PAGES"])
   local py = y - 238
   for _, key in ipairs({ "coach", "builds", "popular", "classic", "racials" }) do
     local cb = Check(f, TAB_LABEL[key], function() return not UI.HiddenTab(key) end, function(v) S().hiddenTabs = S().hiddenTabs or {}; S().hiddenTabs[key] = (not v) or nil; UI.LayoutTabs() end)
     cb:SetPoint("TOPLEFT", PAD - (cb.air or 0), py); py = py - 26; f.boxes[#f.boxes + 1] = cb
-    if key == "popular" then Tip(cb, "Popular", "Also goes away when Show other people's builds is off.") end
+    if key == "popular" then Tip(cb, L["Popular"], L["Also goes away when Show other people's builds is off."]) end
   end
   f:SetHeight(math.abs(py) + 24)
-  f.ideas = Button(f, "Feedback", "auto", 20, function() UI.SetTab("feedback") end); f.ideas:SetPoint("TOPLEFT", PAD, y - 156)
-  Tip(f.ideas, "Say what would help", "A bug, a wish, a talent that reads wrong: it goes to the inbox of the person who builds this.")
+  f.ideas = Button(f, L["Feedback"], "auto", 20, function() UI.SetTab("feedback") end); f.ideas:SetPoint("TOPLEFT", PAD, y - 156)
+  Tip(f.ideas, L["Say what would help"], L["A bug, a wish, a talent that reads wrong: it goes to the inbox of the person who builds this."])
   tabs.settings.refresh = function()
     for _, cb in ipairs(f.boxes) do cb:SetChecked(cb.get()) end
     if f.slider then f.slider:Sync() end
@@ -2137,65 +2158,67 @@ end
 -- to it. A note sent from this account has its answer under "your note": the link carries a tag the addon made up, the
 -- reply comes back with the same tag, and nothing about who sent it is anywhere.
 -- one table, not five locals: the main chunk of this file is at Lua's limit of 200
-local REPLY = { WORD = { done = "Done", way = "On the way", thinking = "Thinking about it", ["not"] = "Not this one" },
+local REPLY = { WORD = { done = L["Done"], way = L["On the way"], thinking = L["Thinking about it"], ["not"] = L["Not this one"] },
                 COLOR = { done = C.gold, way = C.green, thinking = C.blue, ["not"] = C.red },
                 MONTHS = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" } }
 function REPLY.date(s)
   local y, m, d = tostring(s or ""):match("^(%d+)%-(%d+)%-(%d+)")
   if not y then return tostring(s or "") end
-  return string.format("%d %s", tonumber(d), REPLY.MONTHS[tonumber(m)] or m)
+  return TF.DayMonth(tostring(tonumber(d)), tonumber(m))
 end
 -- who asked, without saying who: "u/Konis, Warrior 9, 24 Sep" or "a Warlock, level 3, 23 Sep" or "someone on the site, 23 Sep"
+-- the site writes the class in English ("Warrior"); the player reads it in the client's words (the same word in English)
+function REPLY.cls(n) local cf = n and TF.ClassByName(n); return cf and D.classes[cf] and D.classes[cf].name or n end
 function REPLY.by(r)
   local who = r.who and r.who ~= "" and ((r.who:find("^u/") and r.who) or ("u/" .. r.who)) or nil
   local when = REPLY.date(r.when)
-  if who and r.cls then return string.format("%s, %s %d, %s", who, r.cls, r.level or 0, when) end
-  if who then return string.format("%s, %s, %s", who, r.from == "reddit" and "on Reddit" or "on the site", when) end
-  if r.cls then return string.format("a %s, level %d, %s", r.cls, r.level or 0, when) end
-  return string.format("someone %s, %s", r.from == "addon" and "from inside the addon" or r.from == "reddit" and "on Reddit" or "on the site", when)
+  if who and r.cls then return string.format("%s, %s %d, %s", who, REPLY.cls(r.cls), r.level or 0, when) end
+  if who then return string.format("%s, %s, %s", who, r.from == "reddit" and L["on Reddit"] or L["on the site"], when) end
+  if r.cls then return string.format(L["a %s, level %d, %s"], REPLY.cls(r.cls), r.level or 0, when) end
+  return string.format(L["someone %s, %s"], r.from == "addon" and L["from inside the addon"] or r.from == "reddit" and L["on Reddit"] or L["on the site"], when)
 end
 local function BuildFeedbackTab()
   local f = TabFrame("feedback")
   f.scroll = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate"); f.scroll:SetPoint("TOPLEFT", 0, 0); f.scroll:SetPoint("BOTTOMRIGHT", 0, 6); Slim(f.scroll)
   local body = CreateFrame("Frame", nil, f.scroll); body:SetSize(PAGE_W + 12, 420); f.scroll:SetScrollChild(body); f.body = body
-  f.title = Text(body, 15, C.gold, true); f.title:SetPoint("TOPLEFT", 12, -8); f.title:SetText("Say what would help"); f.title:SetShadowColor(0, 0, 0, 0.9); f.title:SetShadowOffset(1, -1)
+  f.title = Text(body, 15, C.gold, true); f.title:SetPoint("TOPLEFT", 12, -8); f.title:SetText(L["Say what would help"]); f.title:SetShadowColor(0, 0, 0, 0.9); f.title:SetShadowOffset(1, -1)
   f.sub = Text(body, 12, C.ink2); f.sub:SetPoint("TOPLEFT", 12, -30); f.sub:SetPoint("TOPRIGHT", -28, -30); f.sub:SetWordWrap(true); f.sub:SetJustifyH("LEFT")
-  f.sub:SetText("A bug, a wish, a talent that reads wrong. It goes to the person who builds this.")
+  f.sub:SetText(L["A bug, a wish, a talent that reads wrong. It goes to the person who builds this."])
   local well = CreateFrame("Frame", nil, body); well:SetPoint("TOPLEFT", 12, -56); well:SetSize(PAGE_W, 96); f.well = well
   well.bg = Solid(well, "BACKGROUND", C.bg, 0.92); well.bg:SetAllPoints(); well.edge = Edges(well, well, "BORDER", 0); well.edge:SetColor(0.78, 0.61, 0.10, 0.45)
   local sc = CreateFrame("ScrollFrame", nil, well); sc:SetPoint("TOPLEFT", 8, -6); sc:SetPoint("BOTTOMRIGHT", -8, 6)
   local e = CreateFrame("EditBox", nil, sc); e:SetMultiLine(true); e:SetMaxLetters(460); e:SetAutoFocus(false); e:SetFont(BODY, 12, ""); e:SetTextColor(0.91, 0.91, 0.91)
   e:SetWidth(PAGE_W - 16); e:SetHeight(84); sc:SetScrollChild(e); f.box = e
-  f.hint = Text(well, 12, C.muted); f.hint:SetPoint("TOPLEFT", 10, -8); f.hint:SetText("Say it how you would say it to a friend.")
-  f.left = Text(body, 11, C.muted); f.left:SetPoint("TOPRIGHT", -28, -156); f.left:SetJustifyH("RIGHT"); f.left:SetText("460 left")
+  f.hint = Text(well, 12, C.muted); f.hint:SetPoint("TOPLEFT", 10, -8); f.hint:SetText(L["Say it how you would say it to a friend."])
+  f.left = Text(body, 11, C.muted); f.left:SetPoint("TOPRIGHT", -28, -156); f.left:SetJustifyH("RIGHT"); f.left:SetText(L["460 left"])
   e:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
   e:SetScript("OnTextChanged", function(self)
     local n = #(self:GetText() or "")
-    f.hint:SetShown(n == 0); f.left:SetText(string.format("%d left", 460 - n)); f.send:SetEnabled(#((self:GetText() or ""):gsub("%s", "")) >= 3)
+    f.hint:SetShown(n == 0); f.left:SetText(string.format(L["%d left"], 460 - n)); f.send:SetEnabled(#((self:GetText() or ""):gsub("%s", "")) >= 3)
   end)
   e:SetScript("OnEditFocusGained", function() well.edge:SetColor(1, 0.82, 0, 0.95) end)
   e:SetScript("OnEditFocusLost", function() well.edge:SetColor(0.78, 0.61, 0.10, 0.45) end)
   well:EnableMouse(true); well:SetScript("OnMouseDown", function() e:SetFocus() end)
-  f.who = EditBox(body, PAGE_W, 24); f.who:SetPoint("TOPLEFT", 12, -172); f.who.hint:SetText("Reddit name, if you want a reply")
-  f.send = Button(body, "Send", "auto", 24, function()
+  f.who = EditBox(body, PAGE_W, 24); f.who:SetPoint("TOPLEFT", 12, -172); f.who.hint:SetText(L["Reddit name, if you want a reply"])
+  f.send = Button(body, L["Send"], "auto", 24, function()
     f.url = TF.FeedbackURL(e:GetText(), f.who:GetText()); e:ClearFocus(); f.who:ClearFocus(); tabs.feedback.refresh()
-    UI.Note("Link ready and selected: Ctrl+C, then paste it in a browser.", nil, 8)
+    UI.Note(L["Link ready and selected: Ctrl+C, then paste it in a browser."], nil, 8)
   end, true); f.send:SetPoint("TOPLEFT", 12, -206); f.send:SetEnabled(false)
-  Tip(f.send, "Send", "Makes a link out of the note and selects it. Ctrl+C, paste it in any browser, and it is delivered.")
+  Tip(f.send, L["Send"], L["Makes a link out of the note and selects it. Ctrl+C, paste it in any browser, and it is delivered."])
   -- the link, right under the button, already selected
-  f.linkSec = Section(body, "YOUR NOTE, AS A LINK", -244); f.linkSec:Hide()
+  f.linkSec = Section(body, L["YOUR NOTE, AS A LINK"], -244); f.linkSec:Hide()
   f.link = EditBox(body, PAGE_W - 72, 24); f.link:SetPoint("TOPLEFT", 12, -262); f.link.selectAll = true; f.link.hint:Hide(); f.link:Hide()
-  f.copy = Button(body, "Select", 64, 24, function(self) f.link:SetFocus(); f.link:HighlightText(); UI.CopyCue(self); UI.Note("Link selected. Now press Ctrl+C, then paste it in any browser.", nil, 8) end); f.copy:SetPoint("LEFT", f.link, "RIGHT", 8, 0); f.copy:Hide()
-  Tip(f.copy, "Select the link", "Selects the whole link so Ctrl+C takes it. No addon can copy to the clipboard for you; the game does not allow it.")
+  f.copy = Button(body, L["Select"], 64, 24, function(self) f.link:SetFocus(); f.link:HighlightText(); UI.CopyCue(self); UI.Note(L["Link selected. Now press Ctrl+C, then paste it in any browser."], nil, 8) end); f.copy:SetPoint("LEFT", f.link, "RIGHT", 8, 0); UI.FitBeside(f.copy, f.link); f.copy:Hide()
+  Tip(f.copy, L["Select the link"], L["Selects the whole link so Ctrl+C takes it. No addon can copy to the clipboard for you; the game does not allow it."])
   -- the one thing to do, in the game's epic purple
   f.how = Text(body, 12, C.purple); f.how:SetPoint("TOPLEFT", 12, -294); f.how:SetPoint("TOPRIGHT", -28, -294); f.how:SetWordWrap(true); f.how:SetJustifyH("LEFT"); f.how:Hide()
-  f.how:SetText("To send it: Select, then Ctrl+C, then paste the link in any browser. An addon cannot copy for you.")
+  f.how:SetText(L["To send it: Select, then Ctrl+C, then paste the link in any browser. An addon cannot copy for you."])
   f.link:SetScript("OnTextChanged", function(self) if self:GetText() ~= (f.url or "") then self:SetText(f.url or ""); self:HighlightText() end end)
   f.link:SetScript("OnMouseUp", function(self) self:HighlightText() end)
   f.cap = Text(body, 12, C.ink2); f.cap:SetPoint("TOPLEFT", 12, -336); f.cap:SetPoint("TOPRIGHT", -28, -336); f.cap:SetWordWrap(true); f.cap:SetJustifyH("LEFT"); f.cap:Hide()
-  f.cap:SetText("The page answers Got it. Nothing leaves the game by itself, and your character's name is not in it. The link carries a six-letter tag the addon made up, so a reply can show up here, under your note.")
+  f.cap:SetText(L["The page answers Got it. Nothing leaves the game by itself, and your character's name is not in it. The link carries a six-letter tag the addon made up, so a reply can show up here, under your note."])
   -- the replies: what people asked for and what happened to it, yours first
-  f.repSec = Section(body, "WHAT PEOPLE ASKED FOR", -400); f.repSec:Hide()
+  f.repSec = Section(body, L["WHAT PEOPLE ASKED FOR"], -400); f.repSec:Hide()
   f.repNote = Text(body, 12, C.ink2); f.repNote:SetPoint("TOPLEFT", 12, -422); f.repNote:SetPoint("TOPRIGHT", -28, -422); f.repNote:SetWordWrap(true); f.repNote:SetJustifyH("LEFT"); f.repNote:Hide()
   f.reps = {}
   local function Rep(k)
@@ -2225,15 +2248,15 @@ local function BuildFeedbackTab()
     for _, r in ipairs(list) do if r.mine then ordered[#ordered + 1] = r end end
     for _, r in ipairs(list) do if not r.mine then ordered[#ordered + 1] = r end end
     local y = top
-    f.repSec:ClearAllPoints(); f.repSec:SetPoint("TOPLEFT", 12, -y); f.repSec:SetText(ordered[1].mine and "YOUR NOTE, AND WHAT OTHERS ASKED FOR" or "WHAT PEOPLE ASKED FOR"); f.repSec:Show(); y = y + 22
-    local note = "Every note that turned into something, in the words it came in."
-    if R.asOf then note = note .. " As of " .. REPLY.date(R.asOf) .. "." end
-    if (R.thanks or 0) > 0 then note = note .. string.format(" And %d of you just said thanks. Noted.", R.thanks) end
+    f.repSec:ClearAllPoints(); f.repSec:SetPoint("TOPLEFT", 12, -y); f.repSec:SetText(ordered[1].mine and L["YOUR NOTE, AND WHAT OTHERS ASKED FOR"] or L["WHAT PEOPLE ASKED FOR"]); f.repSec:Show(); y = y + 22
+    local note = L["Every note that turned into something, in the words it came in."]
+    if R.asOf then note = note .. string.format(L[" As of %s."], REPLY.date(R.asOf)) end
+    if (R.thanks or 0) > 0 then note = note .. string.format(L[" And %d of you just said thanks. Noted."], R.thanks) end
     f.repNote:ClearAllPoints(); f.repNote:SetPoint("TOPLEFT", 12, -y); f.repNote:SetPoint("TOPRIGHT", -28, -y); f.repNote:SetText(note); f.repNote:Show()
     y = y + math.ceil(math.max(f.repNote:GetStringHeight() or 0, estHeight(note, PAGE_W - 24, 12))) + 10
     for k, r in ipairs(ordered) do
       local row = Rep(k); row:Show(); row:ClearAllPoints(); row:SetPoint("TOPLEFT", 12, -y)
-      row.who:SetText(r.mine and ("Your note. " .. REPLY.by(r)) or REPLY.by(r)); row.who:SetTextColor(rgb(r.mine and C.gold or C.muted))
+      row.who:SetText(r.mine and string.format(L["Your note. %s"], REPLY.by(r)) or REPLY.by(r)); row.who:SetTextColor(rgb(r.mine and C.gold or C.muted))
       row.text:SetText(r.text or "")
       local th = math.ceil(math.max(row.text:GetStringHeight() or 0, estHeight(r.text or "", PAGE_W - 20, 12)))
       local sc = REPLY.COLOR[r.status] or C.muted
@@ -2260,10 +2283,10 @@ local function MakeTab(parent, label, onClick, isOpen)
   if not OWN_LOOK and AtlasOK("uiframe-tab-left") and AtlasOK("uiframe-activetab-left") then
     b.native = true
     local function trio(prefix, h, layer, add)
-      local L = b:CreateTexture(nil, layer); L:SetAtlas(prefix .. "-left"); L:SetTexCoord(0, 14 / 35, 1, 0.25); L:SetSize(14, h); L:SetPoint("BOTTOMLEFT", -3, 0)
+      local LT = b:CreateTexture(nil, layer); LT:SetAtlas(prefix .. "-left"); LT:SetTexCoord(0, 14 / 35, 1, 0.25); LT:SetSize(14, h); LT:SetPoint("BOTTOMLEFT", -3, 0)
       local R = b:CreateTexture(nil, layer); R:SetAtlas(prefix .. "-right"); R:SetTexCoord(19 / 37, 1, 1, 0.25); R:SetSize(18, h); R:SetPoint("BOTTOMRIGHT", 7, 0)
-      local M = b:CreateTexture(nil, layer); M:SetAtlas("_" .. prefix .. "-center"); M:SetTexCoord(0, 1, 1, 0.25); M:SetHeight(h); M:SetPoint("BOTTOMLEFT", L, "BOTTOMRIGHT", 0, 0); M:SetPoint("BOTTOMRIGHT", R, "BOTTOMLEFT", 0, 0)
-      local t = { L, M, R }
+      local M = b:CreateTexture(nil, layer); M:SetAtlas("_" .. prefix .. "-center"); M:SetTexCoord(0, 1, 1, 0.25); M:SetHeight(h); M:SetPoint("BOTTOMLEFT", LT, "BOTTOMRIGHT", 0, 0); M:SetPoint("BOTTOMRIGHT", R, "BOTTOMLEFT", 0, 0)
+      local t = { LT, M, R }
       if add then for _, x in ipairs(t) do x:SetBlendMode("ADD"); x:SetAlpha(0.4) end end
       return t
     end
@@ -2444,12 +2467,12 @@ local function Milestones(p)
   end end
   local pri = {}
   for k, name in ipairs(ICONIC[p.cls] or {}) do pri[name] = k end
-  local L = D.learn and D.learn[p.cls]
-  if L then
-    for name, rec in pairs(L) do
+  local LN = D.learn and D.learn[p.cls]
+  if LN then
+    for name, rec in pairs(LN) do
       local lv = rec.levels and rec.levels[1]
       if lv and lv >= start and lv <= 60 and not rec.passive and TF.TrainerTeaches(p.cls, name, rec, 1) then
-        local s = slot(lv); s.spells[#s.spells + 1] = { name = name, icon = IconFor({ icon = rec.icon }), pri = pri[name] or 99 }
+        local s = slot(lv); s.spells[#s.spells + 1] = { name = name, loc = rec.loc, icon = IconFor({ icon = rec.icon }), pri = pri[name] or 99 }
       end
     end
   end
@@ -2488,10 +2511,10 @@ local function MakeJourney(parent)
   j.you = CreateFrame("Button", nil, j); j.you:SetSize(14, 14); j.you:SetFrameLevel(j:GetFrameLevel() + 6)
   j.you.back = j.you:CreateTexture(nil, "ARTWORK", nil, 1); j.you.back:SetTexture(WHITE); j.you.back:SetSize(11, 11); j.you.back:SetPoint("CENTER"); j.you.back:SetRotation(math.rad(45)); j.you.back:SetVertexColor(0.1, 0.07, 0.02, 1)
   j.you.icon = j.you:CreateTexture(nil, "ARTWORK", nil, 2); j.you.icon:SetTexture(WHITE); j.you.icon:SetSize(8, 8); j.you.icon:SetPoint("CENTER"); j.you.icon:SetRotation(math.rad(45)); j.you.icon:SetVertexColor(1, 0.82, 0, 1)
-  j.youText = Text(j, 10, C.gold); j.youText:SetJustifyH("CENTER"); j.youText:SetText("you")
+  j.youText = Text(j, 10, C.gold); j.youText:SetJustifyH("CENTER"); j.youText:SetText(L["you"])
   j.you:SetScript("OnEnter", function(self)
-    TipBegin(self); GameTooltip:SetText(string.format("You are level %d", UnitLevel("player") or 1), 1, 0.82, 0)
-    if (UnitLevel("player") or 1) < TF.StartLevel() then GameTooltip:AddLine(string.format("Talent points start at level %d.", TF.StartLevel()), 0.9, 0.9, 0.9) else GameTooltip:AddLine("Click to look at your build at your level.", 0.9, 0.9, 0.9) end
+    TipBegin(self); GameTooltip:SetText(string.format(L["You are level %d"], UnitLevel("player") or 1), 1, 0.82, 0)
+    if (UnitLevel("player") or 1) < TF.StartLevel() then GameTooltip:AddLine(string.format(L["Talent points start at level %d."], TF.StartLevel()), 0.9, 0.9, 0.9) else GameTooltip:AddLine(L["Click to look at your build at your level."], 0.9, 0.9, 0.9) end
     TipEnd(self)
   end)
   j.you:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2519,12 +2542,12 @@ local function RefreshJourney()
       t.tex = Solid(t, "ARTWORK", C.muted, 0.8); t.tex:SetPoint("CENTER"); t.tex:SetSize(2, 8)
       t:SetScript("OnEnter", function(self)
         local e = self.e
-        UI.LevelPeek(self.level); TipBegin(self); GameTooltip:SetText(string.format("Level %d", self.level), 1, 0.82, 0)
-        if e then local tt = classData().trees[e.ti].talents[e.i]; GameTooltip:AddLine(string.format("%s %d/%d%s", tt.name, e.rank, tt.max, e.done and "  (placed)" or ""), 0.9, 0.9, 0.9)
-        else GameTooltip:AddLine("Nothing planned for this point yet.", 0.6, 0.6, 0.6) end
+        UI.LevelPeek(self.level); TipBegin(self); GameTooltip:SetText(string.format(L["Level %d"], self.level), 1, 0.82, 0)
+        if e then local tt = classData().trees[e.ti].talents[e.i]; GameTooltip:AddLine(string.format("%s %d/%d%s", tt.name, e.rank, tt.max, e.done and L["  (placed)"] or ""), 0.9, 0.9, 0.9)
+        else GameTooltip:AddLine(L["Nothing planned for this point yet."], 0.6, 0.6, 0.6) end
         local sp = TF.NewSpellsAt(plan().cls, self.level)
-        if #sp > 0 then GameTooltip:AddLine("Trainer: " .. TF.SpellsSummary(sp, 4) .. ".", 0.74, 0.74, 0.74, true) end
-        GameTooltip:AddLine("The talents lit gold on the trees are what the plan gains by then. Click to look at the build at this level.", 0.54, 0.54, 0.54, true)
+        if #sp > 0 then GameTooltip:AddLine(string.format(L["Trainer: %s."], TF.SpellsSummary(sp, 4)), 0.74, 0.74, 0.74, true) end
+        GameTooltip:AddLine(L["The talents lit gold on the trees are what the plan gains by then. Click to look at the build at this level."], 0.54, 0.54, 0.54, true)
         GameTooltip:Show(); self.tex:SetHeight(14)
       end)
       t:SetScript("OnLeave", function(self) GameTooltip:Hide(); self.tex:SetHeight(self.h or 8) end)
@@ -2552,7 +2575,7 @@ local function RefreshJourney()
   local to = xAt(p.level)
   local from = j.needleX or to
   j.needleX = to
-  j.needleText:SetText((isOwnClass() and p.level == lvl) and (p.level .. ", you") or p.level)
+  j.needleText:SetText((isOwnClass() and p.level == lvl) and string.format(L["%d, you"], p.level) or p.level)
   local function place(x)
     j.needle:ClearAllPoints(); j.needle:SetPoint("CENTER", j, "LEFT", x, -9)
     j.needleText:ClearAllPoints(); j.needleText:SetPoint("TOP", j, "LEFT", x, -16)
@@ -2580,14 +2603,14 @@ local function RefreshJourney()
       b.more = b:CreateTexture(nil, "OVERLAY", nil, 3); b.more:SetTexture(WHITE); b.more:SetSize(5, 5); b.more:SetPoint("CENTER", b, "TOPRIGHT", 0, 0); b.more:SetVertexColor(1, 0.82, 0)
       b:SetScript("OnEnter", function(self)
         local m2 = self.m
-        UI.LevelPeek(m2.level); TipBegin(self); GameTooltip:SetText(string.format("Level %d", m2.level), 1, 0.82, 0)
-        for _, t in ipairs(m2.talents) do GameTooltip:AddLine(t.name .. ", from your plan.", 1, 1, 1) end
+        UI.LevelPeek(m2.level); TipBegin(self); GameTooltip:SetText(string.format(L["Level %d"], m2.level), 1, 0.82, 0)
+        for _, t in ipairs(m2.talents) do GameTooltip:AddLine(string.format(L["%s, from your plan."], t.name), 1, 1, 1) end
         if #m2.spells > 0 then
           local names = {}
-          for _, sp in ipairs(m2.spells) do names[#names + 1] = sp.name end
-          GameTooltip:AddLine("New at the trainer: " .. table.concat(names, ", ") .. ".", 0.9, 0.9, 0.9, true)
+          for _, sp in ipairs(m2.spells) do names[#names + 1] = sp.loc or sp.name end
+          GameTooltip:AddLine(string.format(L["New at the trainer: %s."], table.concat(names, ", ")), 0.9, 0.9, 0.9, true)
         end
-        GameTooltip:AddLine("The talents lit gold on the trees are what the plan gains by then. Click to look at the build at this level.", 0.54, 0.54, 0.54, true)
+        GameTooltip:AddLine(L["The talents lit gold on the trees are what the plan gains by then. Click to look at the build at this level."], 0.54, 0.54, 0.54, true)
         GameTooltip:Show()
         local t1 = m2.talents[1]
         if t1 then local tile = trees[t1.ti] and trees[t1.ti].tiles[t1.i]; if tile then Land(tile, true) end end
@@ -2609,7 +2632,7 @@ local function RefreshJourney()
   end
   for k = #ms + 1, #j.marks do j.marks[k]:Hide() end
   local fullPool = math.min(51, 60 - 9 + TF.TalentedRank())
-  j.hint:SetText(string.format("%d of %d planned%s", #list, fullPool, live and doneCount > 0 and string.format(", %d placed", doneCount) or ""))
+  j.hint:SetText(string.format(L["%d of %d planned%s"], #list, fullPool, live and doneCount > 0 and string.format(L[", %d placed"], doneCount) or ""))
 end
 
 -- ---------- header and footer ----------
@@ -2632,7 +2655,7 @@ local function MakeHead()
   -- the class: its crest, then the game's own dropdown with the nine classes in it, then what the build is
   h.classIcon = h:CreateTexture(nil, "ARTWORK"); h.classIcon:SetSize(24, 24); h.classIcon:SetPoint("LEFT", h, "TOPLEFT", x0, mid)
   h.classEdge = Edges(h, h.classIcon, "OVERLAY", 1); h.classEdge:SetColor(0.78, 0.61, 0.10, 0.85)
-  local CLASS_TIP = "Each class keeps its own plan on this character. Apply only ever touches your own."
+  local CLASS_TIP = L["Each class keeps its own plan on this character. Apply only ever touches your own."]
   -- The game's dropdown template reaches into the gamepad interact path when it opens; on one reader's client (0.34.2,
   -- 27 Sep) that raised ADDON_ACTION_FORBIDDEN and froze the game, and the plain button fixed it. So: the plain button when
   -- a gamepad is enabled, when the game has blocked us once (the boot frame remembers it), or when Settings says so.
@@ -2649,7 +2672,7 @@ local function MakeHead()
           local radio = root:CreateRadio(name, function() return plan().cls == cf end, function()
             if plan().cls ~= cf then
               local was = classData().name
-              if TF.SetClass(cf) then UI.Note(string.format("%s plan open. Your %s plan is kept.", cd.name, was)) end
+              if TF.SetClass(cf) then UI.Note(string.format(L["%s plan open. Your %s plan is kept."], cd.name, was)) end
             end
             return MenuResponse and MenuResponse.Close or nil    -- a pick closes the list, like picking from any of the game's lists
           end)
@@ -2659,13 +2682,13 @@ local function MakeHead()
         end
       end
     end)
-    drop:HookScript("OnEnter", function(self) TipBegin(self); GameTooltip:SetText("Plan another class", 1, 0.82, 0); GameTooltip:AddLine(CLASS_TIP, 0.9, 0.9, 0.9, true); TipEnd(self, "beside") end)
+    drop:HookScript("OnEnter", function(self) TipBegin(self); GameTooltip:SetText(L["Plan another class"], 1, 0.82, 0); GameTooltip:AddLine(CLASS_TIP, 0.9, 0.9, 0.9, true); TipEnd(self, "beside") end)
     drop:HookScript("OnLeave", function() GameTooltip:Hide() end)
     drop:HookScript("OnMouseDown", function() GameTooltip:Hide() end)   -- the list opens where the tooltip sat
     h.sub = Text(h, 13, C.ink2); h.sub:SetPoint("LEFT", drop, "RIGHT", 14, -1)
   else
     -- no dropdown in this client: the class name is a button that opens the other classes in place
-    h.classBtn = Button(h, "Class", 104, 24, function() UI.OpenClassCard() end); h.classBtn:SetPoint("LEFT", h.classIcon, "RIGHT", 8, 0)
+    h.classBtn = Button(h, L["Class"], 104, 24, function() UI.OpenClassCard() end); h.classBtn:SetPoint("LEFT", h.classIcon, "RIGHT", 8, 0)
     if LOOK() == "site" then
       -- the site's banner: the emblem, the class name in Cinzel gold (click it for the other classes), the sentence under it
       h.classIcon:SetSize(34, 34); h.classIcon:ClearAllPoints(); h.classIcon:SetPoint("LEFT", h, "TOPLEFT", x0 - 40, mid)
@@ -2677,7 +2700,7 @@ local function MakeHead()
       function h.classBtn:Ink() self.label:SetTextColor(1, 0.84, 0.37); self.label:SetShadowColor(0.48, 0.35, 0.06, 1); self.label:SetShadowOffset(0, -1) end
       h.classBtn:Ink()
     end
-    Tip(h.classBtn, "Plan another class", "Opens the classes right here. " .. CLASS_TIP)
+    Tip(h.classBtn, L["Plan another class"], L["Opens the classes right here. "] .. CLASS_TIP)
     h.sub = Text(h, 13, C.ink2); h.sub:SetPoint("LEFT", h.classBtn, "RIGHT", 10, 0)
     if LOOK() == "site" then h.sub:ClearAllPoints(); h.sub:SetPoint("TOPLEFT", h.classBtn, "BOTTOMLEFT", 0, -2); h.sub:SetWidth(360); h.sub:SetJustifyH("LEFT"); h.sub:SetWordWrap(false); Font(h.sub, 12) end
     h.strip = CreateFrame("Frame", nil, h); h.strip:SetSize(#CLASS_ORDER * 30, 24); h.strip:SetPoint("LEFT", h.classBtn, "RIGHT", 10, 0); h.strip:Hide()
@@ -2693,14 +2716,14 @@ local function MakeHead()
           local cd = TF.CharDB(); local has = (self.cf == plan().cls) and TF.TotalPts(plan()) or (cd.plans and cd.plans[self.cf] and TF.TotalPts(cd.plans[self.cf]) or 0)
           local r, g, bb = TF.ClassColor(self.cf)
           TipBegin(self); GameTooltip:SetText(D.classes[self.cf].name, r, g, bb)
-          GameTooltip:AddLine(has > 0 and string.format("%d points planned on this character.", has) or "No plan yet.", 0.9, 0.9, 0.9); TipEnd(self)
+          GameTooltip:AddLine(has > 0 and string.format(L["%d points planned on this character."], has) or L["No plan yet."], 0.9, 0.9, 0.9); TipEnd(self)
         end)
         b:SetScript("OnLeave", function() GameTooltip:Hide() end)
         b:SetScript("OnClick", function(self)
           Sound("IG_MAINMENU_OPTION_CHECKBOX_ON"); GameTooltip:Hide()
           local was = classData().name
           h.strip:Hide(); h.sub:Show(); if h.planBtn then h.planBtn:Show() end
-          if TF.SetClass(self.cf) then UI.Note(string.format("%s plan open. Your %s plan is kept.", D.classes[self.cf].name, was)) end
+          if TF.SetClass(self.cf) then UI.Note(string.format(L["%s plan open. Your %s plan is kept."], D.classes[self.cf].name, was)) end
         end)
         h.strip.buttons[#h.strip.buttons + 1] = b
       end
@@ -2709,60 +2732,60 @@ local function MakeHead()
   end
   -- Plans, a small chip after the class (0.37.0): this character's plans for the class, a new one, a copy, a rename. The chip
   -- names what it does (Chris, 4 Oct); the open plan's name goes on the line beside it once the class keeps more than one.
-  h.planBtn = Button(h, "Plans", "auto", 20, function() UI.OpenPlans() end); h.planBtn.minW = 56; h.planBtn:Fit()
+  h.planBtn = Button(h, L["Plans"], "auto", 20, function() UI.OpenPlans() end); h.planBtn.minW = 56; h.planBtn:Fit()
   h.planBtn:SetPoint("LEFT", h.classDrop or h.classBtn, "RIGHT", 10, h.classDrop and -1 or 0)
   h.sub:ClearAllPoints(); h.sub:SetPoint("LEFT", h.planBtn, "RIGHT", 10, 0); UI.planBtn = h.planBtn
-  Tip(h.planBtn, "Your plans for this class", "Keep more than one plan on this character, like the game's equipment sets: one for leveling, one for later. Click to switch, or to make, copy or rename one. Apply follows the open plan.")
+  Tip(h.planBtn, L["Your plans for this class"], L["Keep more than one plan on this character, like the game's equipment sets: one for leveling, one for later. Click to switch, or to make, copy or rename one. Apply follows the open plan."])
   -- on the right: the points, and beside them the level you are looking at between the game's page arrows
   if AtlasOK("Talents-Square-Box-c60") then
     -- the game's points box: the number of points still free in the dark square, what is placed beside it
     h.ptsBox = h:CreateTexture(nil, "ARTWORK"); Atlas(h.ptsBox, "Talents-Square-Box-c60", 125, 45); h.ptsBox:SetPoint("TOPRIGHT", h, "TOPRIGHT", 4, 2)
     h.points = Text(h, 20, C.gold); h.points:SetPoint("CENTER", h.ptsBox, "RIGHT", -26, 4); h.points:SetJustifyH("CENTER")
-    h.leftLabel = Text(h, 10, C.muted); h.leftLabel:SetPoint("TOP", h.points, "BOTTOM", 0, -1); h.leftLabel:SetJustifyH("CENTER"); h.leftLabel:SetText("LEFT")
+    h.leftLabel = Text(h, 10, C.muted); h.leftLabel:SetPoint("TOP", h.points, "BOTTOM", 0, -1); h.leftLabel:SetJustifyH("CENTER"); h.leftLabel:SetText(L["LEFT"])
     h.pointsLabel = Text(h, 12, C.ink2); h.pointsLabel:SetPoint("RIGHT", h.ptsBox, "LEFT", 58, 7); h.pointsLabel:SetJustifyH("RIGHT"); h.pointsLabel:SetText("0 / 51")
-    h.placedLabel = Text(h, 10, C.muted); h.placedLabel:SetPoint("RIGHT", h.ptsBox, "LEFT", 58, -8); h.placedLabel:SetJustifyH("RIGHT"); h.placedLabel:SetText("PLACED")
+    h.placedLabel = Text(h, 10, C.muted); h.placedLabel:SetPoint("RIGHT", h.ptsBox, "LEFT", 58, -8); h.placedLabel:SetJustifyH("RIGHT"); h.placedLabel:SetText(L["PLACED"])
     h.gameBox = true
   else
     h.points = Text(h, 18, C.gold); h.points:SetPoint("TOPRIGHT", h, "TOPRIGHT", 0, -2); h.points:SetJustifyH("RIGHT")
-    h.pointsLabel = Text(h, 10, C.muted); h.pointsLabel:SetPoint("TOPRIGHT", h.points, "BOTTOMRIGHT", 0, -2); h.pointsLabel:SetJustifyH("RIGHT"); h.pointsLabel:SetText("POINTS")
+    h.pointsLabel = Text(h, 10, C.muted); h.pointsLabel:SetPoint("TOPRIGHT", h.points, "BOTTOMRIGHT", 0, -2); h.pointsLabel:SetJustifyH("RIGHT"); h.pointsLabel:SetText(L["POINTS"])
   end
   h.plus = Stepper(h, true, function() TF.SetLevel(plan().level + 1) end); h.plus:SetPoint("RIGHT", h, "TOPRIGHT", -166, mid)
   h.seal = CreateFrame("Button", nil, h); h.seal:SetSize(44, 34); h.seal:SetPoint("RIGHT", h.plus, "LEFT", -2, 0)
   h.lv = Text(h.seal, 20, C.ink); h.lv:SetPoint("TOP", 0, 0); h.lv:SetJustifyH("CENTER")
-  h.lvLabel = Text(h.seal, 10, C.muted); h.lvLabel:SetPoint("TOP", h.lv, "BOTTOM", 0, -2); h.lvLabel:SetText("LEVEL"); h.lvLabel:SetJustifyH("CENTER")
+  h.lvLabel = Text(h.seal, 10, C.muted); h.lvLabel:SetPoint("TOP", h.lv, "BOTTOM", 0, -2); h.lvLabel:SetText(L["LEVEL"]); h.lvLabel:SetJustifyH("CENTER")
   h.seal:SetHighlightTexture(WHITE); local shl = h.seal:GetHighlightTexture(); if shl then shl:SetVertexColor(1, 0.82, 0, 0.08) end
   h.minus = Stepper(h, false, function() TF.SetLevel(plan().level - 1) end); h.minus:SetPoint("RIGHT", h.seal, "LEFT", -2, 0)
   -- find a talent: by its name, or by a spell it changes. Matches light up on the trees, the rest step back.
-  h.search = EditBox(h, 150, 20); h.search:SetPoint("RIGHT", h.minus, "LEFT", -18, 0); h.search.hint:SetText("Find a talent")
+  h.search = EditBox(h, 150, 20); h.search:SetPoint("RIGHT", h.minus, "LEFT", -18, 0); h.search.hint:SetText(L["Find a talent"])
   local bb = CreateFrame("Button", nil, h); bb:SetSize(108, 26); bb:SetPoint("RIGHT", h.search, "LEFT", -16, 0); h.bookBtn = bb
   -- the site's header chip: a purple disc, the game's own spellbook icon cut round on it, the word beside it. No plate, no square.
   bb.disc = bb:CreateTexture(nil, "BACKGROUND"); bb.disc:SetTexture(SkinPath() .. "disc.png"); bb.disc:SetSize(36, 36); bb.disc:SetPoint("LEFT", -3, 0); bb.disc:SetVertexColor(0.55, 0.36, 1, 0.9); bb.disc:SetBlendMode("ADD")
   bb.halo = bb:CreateTexture(nil, "BACKGROUND", nil, -1); bb.halo:SetTexture(SkinPath() .. "disc.png"); bb.halo:SetSize(48, 48); bb.halo:SetPoint("CENTER", bb.disc, "CENTER", 0, 0); bb.halo:SetVertexColor(0.62, 0.42, 1, 0.3); bb.halo:SetBlendMode("ADD")
   bb.icon = bb:CreateTexture(nil, "ARTWORK"); bb.icon:SetSize(20, 20); bb.icon:SetPoint("CENTER", bb.disc, "CENTER", 0, 0); bb.icon:SetTexture("Interface\\Icons\\INV_Misc_Book_09"); bb.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-  bb.label = Text(bb, 13, C.purple); bb.label:SetPoint("LEFT", bb.disc, "RIGHT", 8, 0); bb.label:SetText("Spellbook"); bb.label:SetShadowColor(0.15, 0.05, 0.35, 1); bb.label:SetShadowOffset(1, -1)
+  bb.label = Text(bb, 13, C.purple); bb.label:SetPoint("LEFT", bb.disc, "RIGHT", 8, 0); bb.label:SetText(L["Spellbook"]); bb.label:SetShadowColor(0.15, 0.05, 0.35, 1); bb.label:SetShadowOffset(1, -1)
   bb.pulse = Pulse(bb.halo, 0.2, 0.5, 2.4); bb.pulse:Play()
   bb:SetScript("OnEnter", function(self) self.label:SetTextColor(0.92, 0.85, 1); self.disc:SetVertexColor(0.72, 0.55, 1, 1) end)
   bb:SetScript("OnLeave", function(self) self.label:SetTextColor(rgb(C.purple)); self.disc:SetVertexColor(0.55, 0.36, 1, 0.9); GameTooltip:Hide() end)
   bb:SetScript("OnClick", function() Sound("IG_MAINMENU_OPTION_CHECKBOX_ON"); UI.OpenTrainer(true, "book") end)
   bb:SetScript("OnMouseDown", function(self) self.icon:SetPoint("CENTER", self.disc, "CENTER", 0, -1) end); bb:SetScript("OnMouseUp", function(self) self.icon:SetPoint("CENTER", self.disc, "CENTER", 0, 0) end)
-  do local enter = bb:GetScript("OnEnter"); bb:SetScript("OnEnter", function(self) enter(self); TipBegin(self); GameTooltip:SetText("Your spellbook, by level", 1, 0.82, 0); GameTooltip:AddLine("Every ability of the class from 1 to 60, the level each rank comes, what you have and what is still to come. The game's own book only shows what you have.", 0.9, 0.9, 0.9, true); TipEnd(self) end) end
+  do local enter = bb:GetScript("OnEnter"); bb:SetScript("OnEnter", function(self) enter(self); TipBegin(self); GameTooltip:SetText(L["Your spellbook, by level"], 1, 0.82, 0); GameTooltip:AddLine(L["Every ability of the class from 1 to 60, the level each rank comes, what you have and what is still to come. The game's own book only shows what you have."], 0.9, 0.9, 0.9, true); TipEnd(self) end) end
   h.sub:SetPoint("RIGHT", h.bookBtn, "LEFT", -10, 0); h.sub:SetWordWrap(false)
   h.search:HookScript("OnTextChanged", function(self) UI.Search(self:GetText()) end)
   h.search:SetScript("OnEnterPressed", function(self) UI.SearchJump(); self:ClearFocus() end)
   h.search:HookScript("OnEscapePressed", function(self) self:SetText("") end)
-  Tip(h.search, "Find a talent", "Type part of a name, or of a spell: 'frostbolt' lights every talent that changes Frostbolt. Enter jumps to the first. Escape clears.")
+  Tip(h.search, L["Find a talent"], L["Type part of a name, or of a spell: 'frostbolt' lights every talent that changes Frostbolt. Enter jumps to the first. Escape clears."])
   h.seal:SetScript("OnClick", function()
     Sound("IG_MAINMENU_OPTION_CHECKBOX_ON")
     local me = math.max(TF.StartLevel(), math.min(60, UnitLevel("player") or 60))
     TF.SetLevel(plan().level == 60 and me or 60)
   end)
-  local LEVEL_TIP = "The trees show your build as it stands at this level. Roll the wheel here, press the arrows, or click a mark on the path below. Nothing is lost: later points wait their turn. Click the number to jump between your level and 60."
-  Tip(h.seal, "The level you are looking at", LEVEL_TIP)
+  local LEVEL_TIP = L["The trees show your build as it stands at this level. Roll the wheel here, press the arrows, or click a mark on the path below. Nothing is lost: later points wait their turn. Click the number to jump between your level and 60."]
+  Tip(h.seal, L["The level you are looking at"], LEVEL_TIP)
   for _, fr in ipairs({ h.seal, h.minus, h.plus }) do
     fr:EnableMouseWheel(true); fr:SetScript("OnMouseWheel", function(_, d) TF.SetLevel(plan().level + (d > 0 and 1 or -1)) end)
   end
-  Tip(h.minus, "One level earlier", "The trees show the build as it stands at that level. The wheel here does the same.")
-  Tip(h.plus, "One level later", "The trees show the build as it stands at that level. The wheel here does the same.")
+  Tip(h.minus, L["One level earlier"], L["The trees show the build as it stands at that level. The wheel here does the same."])
+  Tip(h.plus, L["One level later"], L["The trees show the build as it stands at that level. The wheel here does the same."])
   h.rule = h:CreateTexture(nil, "ARTWORK"); h.rule:SetTexture(WHITE); h.rule:SetPoint("BOTTOMLEFT", x0, -2); h.rule:SetPoint("BOTTOMRIGHT", 0, -2); h.rule:SetHeight(1)
   Gradient(h.rule, "HORIZONTAL", 0.78, 0.61, 0.10, 0.8, 0.78, 0.61, 0.10, 0.05)
   return h
@@ -2800,30 +2823,30 @@ function UI.MakePlanCard()
     r.name = Text(r, 13, C.ink); r.name:SetPoint("LEFT", 4, 0); r.name:SetPoint("RIGHT", -96, 0); r.name:SetJustifyH("LEFT"); r.name:SetWordWrap(false)
     r.pts = Text(r, 11, C.muted); r.pts:SetPoint("RIGHT", -26, 0); r.pts:SetJustifyH("RIGHT")
     r.del = CloseX(r, 14); r.del:SetPoint("RIGHT", -4, 0); r.del:SetScript("OnClick", function() if r.onDelete then r.onDelete() end end)
-    Tip(r.del, "Delete this plan", "Only a plan that is not open can go. Open another first to delete the open one.")
+    Tip(r.del, L["Delete this plan"], L["Only a plan that is not open can go. Open another first to delete the open one."])
     r:SetScript("OnClick", function() if r.onPick then r.onPick() end end)
     c.rows[k] = r; return r
   end
-  c.name = EditBox(c, 110, 20); c.name.hint:SetText("Name a plan")
+  c.name = EditBox(c, 110, 20); c.name.hint:SetText(L["Name a plan"])
   local function taken(ok, p) if ok then UI.OpenPlans(false); UI.Refresh() else UI.Note(p) end; return ok, p end
-  c.new = Button(c, "New", "auto", 20, function()
+  c.new = Button(c, L["New"], "auto", 20, function()
     local ok, nm = taken(TF.AddPlan(c.name:GetText(), false))
-    if ok then UI.Note(nm .. " is open and empty. Click a talent, or load a build into it. The chip after your class switches plans.", nil, 10) end
+    if ok then UI.Note(string.format(L["%s is open and empty. Click a talent, or load a build into it. The chip after your class switches plans."], nm), nil, 10) end
   end); c.new.minW = 44; c.new:Fit(); c.new:SetPoint("LEFT", c.name, "RIGHT", 8, 0)
-  c.copy = Button(c, "Copy", "auto", 20, function()
+  c.copy = Button(c, L["Copy"], "auto", 20, function()
     local was = TF.PlanName(); local ok, nm = taken(TF.AddPlan(c.name:GetText(), true))
-    if ok then UI.Note(string.format("%s is open, a copy of %s. Change it as you like; %s is kept as it was.", nm, was, was), nil, 10) end
+    if ok then UI.Note(string.format(L["%s is open, a copy of %s. Change it as you like; %s is kept as it was."], nm, was, was), nil, 10) end
   end); c.copy.minW = 44; c.copy:Fit(); c.copy:SetPoint("LEFT", c.new, "RIGHT", 6, 0)
-  c.rename = Button(c, "Rename", "auto", 20, function()
-    if TF.RenamePlan(c.name:GetText()) then c.name:SetText(""); c.name:ClearFocus(); c:Fill(); UI.Refresh() else UI.Note("Type the new name in the box first.") end
+  c.rename = Button(c, L["Rename"], "auto", 20, function()
+    if TF.RenamePlan(c.name:GetText()) then c.name:SetText(""); c.name:ClearFocus(); c:Fill(); UI.Refresh() else UI.Note(L["Type the new name in the box first."]) end
   end); c.rename.minW = 44; c.rename:Fit(); c.rename:SetPoint("LEFT", c.copy, "RIGHT", 6, 0)
   c.name:SetScript("OnEnterPressed", function() c.rename:Click() end)
-  Tip(c.new, "A new, empty plan", "Opens a fresh plan for this class and keeps the open one. Name it in the box first, or it gets a number.")
-  Tip(c.copy, "This plan again", "Opens a copy of the open plan so you can try changes without touching it. Name it in the box first, or it gets a number.")
-  Tip(c.rename, "Rename the open plan", "Type a name in the box, then press this. Enter does the same.")
+  Tip(c.new, L["A new, empty plan"], L["Opens a fresh plan for this class and keeps the open one. Name it in the box first, or it gets a number."])
+  Tip(c.copy, L["This plan again"], L["Opens a copy of the open plan so you can try changes without touching it. Name it in the box first, or it gets a number."])
+  Tip(c.rename, L["Rename the open plan"], L["Type a name in the box, then press this. Enter does the same."])
   function c:Fill()
     local list = TF.PlanList(); local cd = classData()
-    self.title:SetText(string.format("YOUR %s PLANS ON THIS CHARACTER", cd.name:upper()))
+    self.title:SetText(string.format(L["YOUR %s PLANS ON THIS CHARACTER"], TF.Upper(cd.name)))
     for k, e in ipairs(list) do
       local r = row(k); local parts = {}
       for ti = 1, #cd.trees do parts[ti] = TF.TreePts(e.plan, ti) end
@@ -2832,10 +2855,10 @@ function UI.MakePlanCard()
       r.onPick = function()
         if k == 1 then UI.OpenPlans(false); return end
         local ok, back = TF.SwitchPlan(k)
-        if ok then UI.OpenPlans(false); UI.Refresh(); UI.Note(TF.PlanName() .. " is on your trees." .. TF.SettledText(back), nil, back and 12 or nil); if back then UI.SettledCard(back) end end
+        if ok then UI.OpenPlans(false); UI.Refresh(); UI.Note(string.format(L["%s is on your trees."], TF.PlanName()) .. TF.SettledText(back), nil, back and 12 or nil); if back then UI.SettledCard(back) end end
       end
-      r.onDelete = function() local gone = e.name; if TF.DeletePlan(k) then self:Fill(); UI.Refresh(); UI.Note(gone .. " deleted.") end end
-      Tip(r, e.name, k == 1 and "The open plan. Apply and the level-up card follow it." or "Click to put it on your trees. The open plan waits here for you, as it is.")
+      r.onDelete = function() local gone = e.name; if TF.DeletePlan(k) then self:Fill(); UI.Refresh(); UI.Note(string.format(L["%s deleted."], gone)) end end
+      Tip(r, e.name, k == 1 and L["The open plan. Apply and the level-up card follow it."] or L["Click to put it on your trees. The open plan waits here for you, as it is."])
       r:Show()
     end
     for k = #list + 1, #self.rows do self.rows[k]:Hide() end
@@ -2876,61 +2899,61 @@ local function MakeFoot()
   f.statusY = -76
   journey = MakeJourney(f)
   -- a note can carry one or two small actions (Undo, Learn it); they sit where the count sits, for a few seconds
-  f.act1 = Button(f, "Undo", "auto", 20, function() local fn = f.fn1; UI.ClearNote(); if fn then fn() end end, true); f.act1:Fit(); f.act1:SetPoint("TOPRIGHT", 0, -73); f.act1:Hide()
-  f.act2 = Button(f, "Undo", "auto", 20, function() local fn = f.fn2; UI.ClearNote(); if fn then fn() end end, true); f.act2:Fit(); f.act2:SetPoint("RIGHT", f.act1, "LEFT", -8, 0); f.act2:Hide()
-  f.showAll = Button(f, "Show all", "auto", 20, function() TF.SetLevel(60) end); f.showAll:SetPoint("TOPRIGHT", 0, -73); f.showAll:Hide()
-  Tip(f.showAll, "Back to the whole plan", "Looks at your build at level 60 again, with every planned point on the trees.")
+  f.act1 = Button(f, L["Undo"], "auto", 20, function() local fn = f.fn1; UI.ClearNote(); if fn then fn() end end, true); f.act1:Fit(); f.act1:SetPoint("TOPRIGHT", 0, -73); f.act1:Hide()
+  f.act2 = Button(f, L["Undo"], "auto", 20, function() local fn = f.fn2; UI.ClearNote(); if fn then fn() end end, true); f.act2:Fit(); f.act2:SetPoint("RIGHT", f.act1, "LEFT", -8, 0); f.act2:Hide()
+  f.showAll = Button(f, L["Show all"], "auto", 20, function() TF.SetLevel(60) end); f.showAll:SetPoint("TOPRIGHT", 0, -73); f.showAll:Hide()
+  Tip(f.showAll, L["Back to the whole plan"], L["Looks at your build at level 60 again, with every planned point on the trees."])
   -- the doing buttons, a breath, the plan buttons; on the right the way out to the site
-  f.apply = Button(f, "Apply next point", "auto", 24, function() UI.ApplyNext() end, true); f.apply.minW = 144; f.apply:Fit(); f.apply:SetPoint("BOTTOMLEFT", 0, 0)
+  f.apply = Button(f, L["Apply next point"], "auto", 24, function() UI.ApplyNext() end, true); f.apply.minW = 144; f.apply:Fit(); f.apply:SetPoint("BOTTOMLEFT", 0, 0)
   f.apply:SetMotionScriptsWhileDisabled(true)
-  f.apply:SetScript("OnEnter", function(self) TipBegin(self); GameTooltip:SetText("Apply the next planned point", 1, 0.82, 0); GameTooltip:AddLine(UI.applyWhy or "Places the next point of your plan on your character. Until you press this, nothing on your character changes.", 0.9, 0.9, 0.9, true); TipEnd(self) end)
+  f.apply:SetScript("OnEnter", function(self) TipBegin(self); GameTooltip:SetText(L["Apply the next planned point"], 1, 0.82, 0); GameTooltip:AddLine(UI.applyWhy or L["Places the next point of your plan on your character. Until you press this, nothing on your character changes."], 0.9, 0.9, 0.9, true); TipEnd(self) end)
   f.apply:SetScript("OnLeave", function() GameTooltip:Hide() end)
-  f.applyAll = Button(f, "Apply all", "auto", 24, function() UI.ApplyAll() end); f.applyAll:SetPoint("LEFT", f.apply, "RIGHT", 8, 0)
+  f.applyAll = Button(f, L["Apply all"], "auto", 24, function() UI.ApplyAll() end); f.applyAll:SetPoint("LEFT", f.apply, "RIGHT", 8, 0)
   f.applyAll:SetMotionScriptsWhileDisabled(true)
-  f.applyAll:SetScript("OnEnter", function(self) TipBegin(self); GameTooltip:SetText("Place every point the plan can", 1, 0.82, 0); GameTooltip:AddLine(UI.applyWhy or "Goes down your leveling plan and places each unspent point in order. After a reset at the trainer this rebuilds the whole build in one click.", 0.9, 0.9, 0.9, true); TipEnd(self) end)
+  f.applyAll:SetScript("OnEnter", function(self) TipBegin(self); GameTooltip:SetText(L["Place every point the plan can"], 1, 0.82, 0); GameTooltip:AddLine(UI.applyWhy or L["Goes down your leveling plan and places each unspent point in order. After a reset at the trainer this rebuilds the whole build in one click."], 0.9, 0.9, 0.9, true); TipEnd(self) end)
   f.applyAll:SetScript("OnLeave", function() GameTooltip:Hide() end)
-  f.fromChar = Button(f, "From character", "auto", 24, function()
+  f.fromChar = Button(f, L["From character"], "auto", 24, function()
     local ok, err = TF.PlanFromGame()
-    if ok then UI.Note("Your talents as the game has them, now in the plan.", { { label = "Undo", fn = function() TF.Undo() end } }) else UI.Note(err) end
+    if ok then UI.Note(L["Your talents as the game has them, now in the plan."], { { label = L["Undo"], fn = function() TF.Undo() end } }) else UI.Note(err) end
   end); f.fromChar:SetPoint("LEFT", f.applyAll, "RIGHT", 8, 0)
-  f.reset = Button(f, "Reset", "auto", 24, function()
-    if TF.TotalPts(plan()) == 0 then UI.Note("The plan is already empty."); return end
-    TF.Reset(); UI.Note("Plan cleared. Your character is untouched.", { { label = "Undo", fn = function() TF.Undo() end } })
+  f.reset = Button(f, L["Reset"], "auto", 24, function()
+    if TF.TotalPts(plan()) == 0 then UI.Note(L["The plan is already empty."]); return end
+    TF.Reset(); UI.Note(L["Plan cleared. Your character is untouched."], { { label = L["Undo"], fn = function() TF.Undo() end } })
   end); f.reset:SetPoint("LEFT", f.fromChar, "RIGHT", 8, 0)
-  f.undo = Button(f, "Undo", "auto", 24, function()
-    if not TF.undo then UI.Note("Nothing to undo. Undo brings the plan back after Reset, Load, From character or Keep it."); return end
-    if TF.Undo() then UI.Note("The plan before is back.") end
+  f.undo = Button(f, L["Undo"], "auto", 24, function()
+    if not TF.undo then UI.Note(L["Nothing to undo. Undo brings the plan back after Reset, Load, From character or Keep it."]); return end
+    if TF.Undo() then UI.Note(L["The plan before is back."]) end
   end); f.undo:SetPoint("LEFT", f.reset, "RIGHT", 8, 0); f.undo:SetMotionScriptsWhileDisabled(true)
-  f.clear = Button(f, "Clear", "auto", 24, function() UI.ClearView() end); f.clear:SetPoint("LEFT", f.undo, "RIGHT", 8, 0)
-  f.ghostClear = Button(f, "Stop", "auto", 20, function() TF.TrialBack() end); f.ghostClear:SetPoint("TOPRIGHT", 0, -73); f.ghostClear:Hide()
-  f.trialKeep = Button(f, "Load it", "auto", 20, function() local n = TF.trial and TF.trial.name or "it"; TF.TrialKeep(); UI.Note("Loaded " .. n .. ".", { { label = "Undo", fn = function() TF.Undo() end } }) end); f.trialKeep:SetPoint("RIGHT", f.ghostClear, "LEFT", -8, 0); f.trialKeep:Hide()
-  f.import = Button(f, "Import", "auto", 24, function() UI.OpenSheet("import") end); f.import:SetPoint("BOTTOMRIGHT", 0, 0); f.import:SetIcon("Interface\\Icons\\INV_Scroll_03")
+  f.clear = Button(f, L["Clear"], "auto", 24, function() UI.ClearView() end); f.clear:SetPoint("LEFT", f.undo, "RIGHT", 8, 0)
+  f.ghostClear = Button(f, L["Stop"], "auto", 20, function() TF.TrialBack() end); f.ghostClear:SetPoint("TOPRIGHT", 0, -73); f.ghostClear:Hide()
+  f.trialKeep = Button(f, L["Load it"], "auto", 20, function() local n = TF.trial and TF.trial.name or L["it"]; TF.TrialKeep(); UI.Note(string.format(L["Loaded %s."], n), { { label = L["Undo"], fn = function() TF.Undo() end } }) end); f.trialKeep:SetPoint("RIGHT", f.ghostClear, "LEFT", -8, 0); f.trialKeep:Hide()
+  f.import = Button(f, L["Import"], "auto", 24, function() UI.OpenSheet("import") end); f.import:SetPoint("BOTTOMRIGHT", 0, 0); f.import:SetIcon("Interface\\Icons\\INV_Scroll_03")
   -- the row reads as three groups: doing (apply, plan), tools (settings, feedback), sharing (the site, share, import); a
   -- hairline stands between groups, eight pixels between neighbours inside one
   f.dividers = {}
-  f.share = Button(f, "Share", "auto", 24, function() UI.OpenSheet("share") end); f.share:SetPoint("RIGHT", f.import, "LEFT", -8, 0)
+  f.share = Button(f, L["Share"], "auto", 24, function() UI.OpenSheet("share") end); f.share:SetPoint("RIGHT", f.import, "LEFT", -8, 0)
   f.site = CreateFrame("Button", nil, f); f.site:SetSize(132, 24); f.site:SetPoint("RIGHT", f.share, "LEFT", -8, 0)
   f.site.book = Book(f.site, 18); f.site.book:SetPoint("LEFT", 2, 0)
-  f.feedback = Button(f, "Feedback", "auto", 24, function() UI.SetTab("feedback") end); f.feedback:SetPoint("RIGHT", f.site, "LEFT", -8, 0)
-  f.settings = Button(f, "Settings", "auto", 24, function() UI.OpenSettings() end); f.settings:SetPoint("RIGHT", f.feedback, "LEFT", -8, 0)
-  Tip(f.settings, "Settings", "Reminders, hands-free options, the look, sounds, window size, which pages show.")
-  Tip(f.feedback, "Say what would help", "A bug, a wish, a talent that reads wrong: it goes to the inbox of the person who builds this. Nothing leaves the game by itself; the note becomes a link you paste in a browser.")
+  f.feedback = Button(f, L["Feedback"], "auto", 24, function() UI.SetTab("feedback") end); f.feedback:SetPoint("RIGHT", f.site, "LEFT", -8, 0)
+  f.settings = Button(f, L["Settings"], "auto", 24, function() UI.OpenSettings() end); f.settings:SetPoint("RIGHT", f.feedback, "LEFT", -8, 0)
+  Tip(f.settings, L["Settings"], L["Reminders, hands-free options, the look, sounds, window size, which pages show."])
+  Tip(f.feedback, L["Say what would help"], L["A bug, a wish, a talent that reads wrong: it goes to the inbox of the person who builds this. Nothing leaves the game by itself; the note becomes a link you paste in a browser."])
   f.site.text = Text(f.site, 12, C.gold); f.site.text:SetPoint("LEFT", f.site.book, "RIGHT", 5, 0); f.site.text:SetJustifyH("LEFT"); f.site.text:SetText("talentsforever.com"); f.site.text:SetAlpha(0.95)
   f.site:SetScript("OnEnter", function(self)
     self.text:SetTextColor(rgb(C.gold)); self.text:SetAlpha(1)
     TipBegin(self); GameTooltip:SetText("talentsforever.com", 1, 0.82, 0)
-    GameTooltip:AddLine("This planner is the in-game half of the site. Click for your build's link and a code your phone can read: the same build opens there, on any device. The game does not let an addon open a browser, so the link is copied, not clicked.", 0.9, 0.9, 0.9, true); TipEnd(self)
+    GameTooltip:AddLine(L["This planner is the in-game half of the site. Click for your build's link and a code your phone can read: the same build opens there, on any device. The game does not let an addon open a browser, so the link is copied, not clicked."], 0.9, 0.9, 0.9, true); TipEnd(self)
   end)
   f.site:SetScript("OnLeave", function(self) self.text:SetTextColor(rgb(C.gold)); self.text:SetAlpha(0.95); GameTooltip:Hide() end)
   f.site:SetScript("OnClick", function() Sound("IG_MAINMENU_OPTION_CHECKBOX_ON"); UI.OpenSheet("phone") end)
-  Tip(f.reset, "Empty the plan", "Every point comes back. Nothing happens to your character, and Undo brings the plan back.")
-  Tip(f.undo, "Undo", "Brings the plan back from before the last Reset, Load, From character or Keep it. Lit when there is something to bring back.")
-  Tip(f.clear, "Back to a quiet window", "Takes a tried build's rings off, shows the whole plan again, closes the trainer or spellbook list, empties the search and goes to Home. Your plan and your character stay as they are.")
-  Tip(f.fromChar, "Copy your character into the plan", "Reads the talents you really have, so you can plan the rest from here. Undo brings the old plan back.")
-  Tip(f.share, "Share this build", "Opens the Builds page with this plan's link selected, ready for Ctrl+C. The same link the site makes.")
-  Tip(f.import, "Load a build", "Opens the Builds page with the paste box ready for a talentsforever.com link or code.")
-  Tip(f.ghostClear, "Stop", "Takes the rings off the trees. Your plan was never touched.")
-  Tip(f.trialKeep, "Load it", "The tried build becomes your plan. Undo brings your old one back.")
+  Tip(f.reset, L["Empty the plan"], L["Every point comes back. Nothing happens to your character, and Undo brings the plan back."])
+  Tip(f.undo, L["Undo"], L["Brings the plan back from before the last Reset, Load, From character or Keep it. Lit when there is something to bring back."])
+  Tip(f.clear, L["Back to a quiet window"], L["Takes a tried build's rings off, shows the whole plan again, closes the trainer or spellbook list, empties the search and goes to Home. Your plan and your character stay as they are."])
+  Tip(f.fromChar, L["Copy your character into the plan"], L["Reads the talents you really have, so you can plan the rest from here. Undo brings the old plan back."])
+  Tip(f.share, L["Share this build"], L["Opens the Builds page with this plan's link selected, ready for Ctrl+C. The same link the site makes."])
+  Tip(f.import, L["Load a build"], L["Opens the Builds page with the paste box ready for a talentsforever.com link or code."])
+  Tip(f.ghostClear, L["Stop"], L["Takes the rings off the trees. Your plan was never touched."])
+  Tip(f.trialKeep, L["Load it"], L["The tried build becomes your plan. Undo brings your old one back."])
   return f
 end
 -- the footer's buttons: one chain, eight pixels between each, the chain centred in the row, so every gap is the same
@@ -2954,6 +2977,26 @@ function UI.LayoutFootRow()
   end
   refit(false)
   if total() + 4 * (#row - 1) > fw then refit(true) end
+  -- 0.38.0: a language with longer words (German: Nächsten setzen, Zurücksetzen, Einstellungen, Importieren) can still
+  -- run past the edge: then the labels take the game's small button face, as the small buttons in rows do. English
+  -- fits before this and never gets here.
+  if total() + 4 * (#row - 1) > fw then
+    for _, b in ipairs(row) do
+      if b.Fit and b.minW and not b.smallFace then
+        b.smallFace = true
+        if b.native and b.SetNormalFontObject and GameFontNormalSmall then b:SetNormalFontObject(GameFontNormalSmall); b:SetHighlightFontObject(GameFontHighlightSmall); b:SetDisabledFontObject(GameFontDisableSmall)
+        elseif b.label then Font(b.label, 11) end
+        b:Fit()
+      end
+    end
+  end
+  -- and if even that runs over, the buttons hold their words tighter and the site link is its book alone (its tooltip
+  -- still says talentsforever.com, the click still opens the link and the code)
+  if total() + 4 * (#row - 1) > fw then
+    for _, b in ipairs(row) do if b.Fit and b.minW then b.pad = 6; b.minW = 0; b:Fit() end end
+    if foot.site.text then foot.site.text:Hide(); foot.site:SetWidth(24) end
+  elseif foot.site.text and not foot.site.text:IsShown() then foot.site.text:Show()
+  end
   local sum = total()
   -- eight between neighbours; a wider font closes the gaps down to four before anything could touch
   local gap = math.max(4, math.min(8, math.floor((fw - sum) / (#row - 1))))
@@ -2989,21 +3032,21 @@ end
 
 -- find a talent by name: the tile lights up and its tooltip opens
 function UI.Find(q)
-  q = (q or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
-  if q == "" then TF.Print("/talents find <part of a talent name>"); return end
+  q = TF.Lower(q):gsub("^%s+", ""):gsub("%s+$", "")
+  if q == "" then TF.Print(L["/talents find <part of a talent name>"]); return end
   UI.Show()
   if head and head.search then head.search:SetText(q) end
   for ti, tree in ipairs(classData().trees) do
     for i, t in ipairs(tree.talents) do
-      if t.name:lower():find(q, 1, true) then
+      if TF.Lower(t.name):find(q, 1, true) or (t.en and TF.Lower(t.en):find(q, 1, true)) then
         local b = trees[ti] and trees[ti].tiles[i]
         if b then Land(b, true); UI.ShowTip(b) end
-        TF.Print("%s: %s tree, row %d, %d/%d in the plan.", t.name, tree.name, t.row, plan().ranks[ti][i], t.max)
+        TF.Print(L["%s: %s tree, row %d, %d/%d in the plan."], t.name, tree.name, t.row, plan().ranks[ti][i], t.max)
         return true
       end
     end
   end
-  TF.Print("no %s talent called %s.", classData().name, q)
+  TF.Print(L["no %s talent called %s."], classData().name, q)
 end
 
 -- a note in the footer line: gold for a few seconds, with one or two small actions when there is something to undo
@@ -3035,16 +3078,16 @@ end
 
 -- ---------- apply ----------
 local function liveGate(ti, i)
-  local live = TF.LiveRanks(plan().cls); if not live then return "no data" end
+  local live = TF.LiveRanks(plan().cls); if not live then return L["no data"] end
   local tmp = { cls = plan().cls, level = 60, ranks = live }
   return TF.Gate(tmp, ti, i)
 end
 function UI.ApplyNext()
   if applying then return end
-  if not isOwnClass() then UI.Toast("This is a " .. classData().name .. " plan. Only your own class can be applied."); return end
-  if not G.live then UI.Toast("The game has not answered about your talents yet."); return end
-  if not G.CanApply() then UI.Toast("This client gives addons no way to place a point. The plan on the right shows what to take next in the talent window."); return end
-  if G.Unspent() <= 0 then UI.Toast("No unspent talent points right now."); return end
+  if not isOwnClass() then UI.Toast(string.format(L["This is a %s plan. Only your own class can be applied."], classData().name)); return end
+  if not G.live then UI.Toast(L["The game has not answered about your talents yet."]); return end
+  if not G.CanApply() then UI.Toast(L["This client gives addons no way to place a point. The plan on the right shows what to take next in the talent window."]); return end
+  if G.Unspent() <= 0 then UI.Toast(L["No unspent talent points right now."]); return end
   local list = TF.NextUp()
   for _, e in ipairs(list) do
     if not e.done and not liveGate(e.ti, e.i) then
@@ -3055,23 +3098,23 @@ function UI.ApplyNext()
       if ok then
         Sound("LOOT_WINDOW_COIN_SOUND")
         if b then Land(b, true) end
-        UI.Toast(string.format("Learned %s (%d/%d), as planned for level %d.", msg, e.rank, classData().trees[e.ti].talents[e.i].max, e.level))
+        UI.Toast(string.format(L["Learned %s (%d/%d), as planned for level %d."], msg, e.rank, classData().trees[e.ti].talents[e.i].max, e.level))
       else
-        UI.Toast(msg or "The game did not take the point.")
+        UI.Toast(msg or L["The game did not take the point."])
       end
       return
     end
   end
-  UI.Toast("Nothing in the plan can be placed right now: the points left need rows or talents you do not have yet.")
+  UI.Toast(L["Nothing in the plan can be placed right now: the points left need rows or talents you do not have yet."])
 end
 -- place every unspent point the plan can, one after another (after a reset at the trainer this rebuilds the whole build)
-local applyingAll = false
+UI.applyingAll = false
 function UI.ApplyAll()
-  if applyingAll then return end
+  if UI.applyingAll then return end
   if not (isOwnClass() and G.live and G.CanApply()) then UI.ApplyNext(); return end
   local placed, budget = 0, G.Unspent()
-  if budget <= 0 then UI.Toast("No unspent talent points right now."); return end
-  applyingAll = true
+  if budget <= 0 then UI.Toast(L["No unspent talent points right now."]); return end
+  UI.applyingAll = true
   -- stage every point the plan can place, in order, then apply them all with one commit (one cast, like the window's Apply)
   local lastMsg
   while G.Unspent() > 0 and placed < budget do
@@ -3084,33 +3127,33 @@ function UI.ApplyAll()
     local b = trees[found.ti] and trees[found.ti].tiles[found.i]
     if b then Land(b, true) end
   end
-  applyingAll = false
-  if placed == 0 then UI.Refresh(); UI.Toast(lastMsg or "Nothing in the plan can be placed right now: the points left need rows or talents you do not have yet."); return end
+  UI.applyingAll = false
+  if placed == 0 then UI.Refresh(); UI.Toast(lastMsg or L["Nothing in the plan can be placed right now: the points left need rows or talents you do not have yet."]); return end
   local okC, msgC = G.Commit()
   UI.Refresh()
-  if okC then Sound("LOOT_WINDOW_COIN_SOUND"); UI.Toast(string.format("Applying %d point%s from the plan. The game takes a few seconds to make them stick.", placed, placed == 1 and "" or "s"))
-  else UI.Toast("Staged " .. placed .. " but the game did not apply them: " .. tostring(msgC)) end
+  if okC then Sound("LOOT_WINDOW_COIN_SOUND"); UI.Toast(string.format(TF.Plural(placed, "Applying %d point from the plan. The game takes a few seconds to make it stick.", "Applying %d points from the plan. The game takes a few seconds to make them stick."), placed))
+  else UI.Toast(string.format(L["Staged %d but the game did not apply them: %s"], placed, tostring(msgC))) end
 end
 
 -- ---------- refresh ----------
 local function statusLine()
   local p = plan()
-  if TF.lastSettled and TF.lastSettled.cls == p.cls then return string.format("Older than the trees: %d point%s came back to you, ringed in orange. Hover one to see why.", TF.lastSettled.n, TF.lastSettled.n == 1 and "" or "s") end
+  if TF.lastSettled and TF.lastSettled.cls == p.cls then return string.format(TF.Plural(TF.lastSettled.n, "Older than the trees: %d point came back to you, ringed in orange. Hover it to see why.", "Older than the trees: %d points came back to you, ringed in orange. Hover one to see why."), TF.lastSettled.n) end
   if TF.trial and TF.trial.cls == p.cls then
     local onlyPlan, onlyTrial, shared = TF.TrialDiff()
-    return string.format("Trying %s: its talents are ringed on the trees, next to yours. %d points you share, %d only theirs, %d only yours.", TF.trial.name, shared, onlyTrial, onlyPlan)
+    return string.format(L["Trying %s: its talents are ringed on the trees, next to yours. %d points you share, %d only theirs, %d only yours."], TF.trial.name, shared, onlyTrial, onlyPlan)
   end
-  if not isOwnClass() then return string.format("Planning a %s on your %s. Nothing here touches your character.", classData().name, D.classes[TF.PlayerClass()] and D.classes[TF.PlayerClass()].name or "?") end
-  if not G.live then return "Reading your talents from the game..." end
+  if not isOwnClass() then return string.format(L["Planning a %s on your %s. Nothing here touches your character."], classData().name, D.classes[TF.PlayerClass()] and D.classes[TF.PlayerClass()].name or "?") end
+  if not G.live then return L["Reading your talents from the game..."] end
   local missing, extra = TF.Diff(p)
   local pts = G.points or {}
   local s
-  if missing == 0 and extra == 0 then s = "Your character matches the plan."
+  if missing == 0 and extra == 0 then s = L["Your character matches the plan."]
   else
     local parts = {}
-    if missing > 0 then parts[#parts + 1] = string.format("%d point%s to place", missing, missing == 1 and "" or "s") end
-    if extra > 0 then parts[#parts + 1] = string.format("%d on your character the plan does not have", extra) end
-    if (pts.unspent or 0) > 0 then parts[#parts + 1] = string.format("%d free now", pts.unspent) end
+    if missing > 0 then parts[#parts + 1] = string.format(TF.Plural(missing, "%d point to place", "%d points to place"), missing) end
+    if extra > 0 then parts[#parts + 1] = string.format(L["%d on your character the plan does not have"], extra) end
+    if (pts.unspent or 0) > 0 then parts[#parts + 1] = string.format(L["%d free now"], pts.unspent) end
     s = table.concat(parts, ", ") .. "."
   end
   return s
@@ -3129,7 +3172,7 @@ function UI.Refresh()
   SetClassIcon(head.classIcon, p.cls)
   local lead, best = 1, -1
   for ti = 1, #cd.trees do local n = TF.TreePts(vp, ti); if n > best then best, lead = n, ti end end
-  if shown == 0 then head.sub:SetText("Click a talent to start.")
+  if shown == 0 then head.sub:SetText(L["Click a talent to start."])
   else head.sub:SetText(string.format("%s %s, %d / %d / %d", cd.trees[lead].name, cd.name, TF.TreePts(vp, 1), TF.TreePts(vp, 2), TF.TreePts(vp, 3))) end
   if head.planBtn then
     if TF.PlanNamed(p.cls) then head.sub:SetText(TF.PlanName() .. ": " .. head.sub:GetText()) end   -- the chip says what it does; the name goes on the line beside it
@@ -3137,18 +3180,18 @@ function UI.Refresh()
   end
   head.lv:SetText(p.level)
   Gradient(head.rule, "HORIZONTAL", cr, cg, cb, 0.7, 0.78, 0.61, 0.10, 0.04)
-  local ptxt = head.gameBox and tostring(math.max(0, pool - shown)) or string.format("%d / %d", shown, pool)
+  local ptxt = head.gameBox and tostring(math.max(0, pool - shown)) or string.format(L["%d / %d"], shown, pool)
   if head.points:GetText() ~= ptxt then
     head.points:SetText(ptxt)
     if not head.points.pop then local ag = head.points:CreateAnimationGroup(); local a = ag:CreateAnimation("Alpha"); a:SetFromAlpha(0.4); a:SetToAlpha(1); a:SetDuration(0.18); a:SetSmoothing("OUT"); head.points.pop = ag end
     head.points.pop:Stop(); head.points.pop:Play()
   end
   if head.gameBox then
-    head.pointsLabel:SetText(string.format("%d / %d", shown, pool))
-    head.placedLabel:SetText(partial and string.format("%d MORE LATER", total - shown) or "PLACED")
-  elseif partial then head.pointsLabel:SetText(string.format("%d MORE LATER", total - shown))
-  elseif shown >= pool then head.pointsLabel:SetText("POINTS, FULL")
-  else head.pointsLabel:SetText(string.format("POINTS, %d LEFT", pool - shown)) end
+    head.pointsLabel:SetText(string.format(L["%d / %d"], shown, pool))
+    head.placedLabel:SetText(partial and string.format(L["%d MORE LATER"], total - shown) or L["PLACED"])
+  elseif partial then head.pointsLabel:SetText(string.format(L["%d MORE LATER"], total - shown))
+  elseif shown >= pool then head.pointsLabel:SetText(L["POINTS, FULL"])
+  else head.pointsLabel:SetText(string.format(L["POINTS, %d LEFT"], pool - shown)) end
   -- trees
   local live = isOwnClass() and TF.LiveRanks(p.cls)
   local marks, picks = S().marks, S().pickRates
@@ -3160,7 +3203,7 @@ function UI.Refresh()
     local maxRow = 1; for _, t in ipairs(tree.talents) do if t.row > maxRow then maxRow = t.row end end
     local need
     for row = 2, maxRow do if TF.Above(vp, ti, row) < (row - 1) * 5 then need = (row - 1) * 5 - TF.Above(vp, ti, row); break end end
-    tp.rowNote:SetText(need and string.format("next row in %d", need) or "all rows open")
+    tp.rowNote:SetText(need and string.format(L["next row in %d"], need) or L["all rows open"])
     if ti == lead and best > 0 then tp.pts:SetTextColor(cr, cg, cb); Gradient(tp.fill, "HORIZONTAL", cr * 0.6, cg * 0.6, cb * 0.6, 1, cr, cg, cb, 1)
     else tp.pts:SetTextColor(rgb(C.gold)); Gradient(tp.fill, "HORIZONTAL", 0.78, 0.61, 0.10, 1, 1, 0.82, 0, 1) end
     local fillTo = math.max(1, (TREE_W - 2) * tpts / 51)
@@ -3195,7 +3238,7 @@ function UI.Refresh()
       if lr and lr > 0 and lr ~= r then b.live:SetText(lr); b.live:Show(); b.liveBg:Show() else b.live:Hide(); b.liveBg:Hide() end
       b.ghostRing:SetShown(hasGhost and TF.TrialRank(ti, i) > 0)
       local bk = (vp == p) and TF.SettledAt(ti, i) or nil
-      b.backRing:SetShown(bk ~= nil); if bk then b.backTag:SetText(bk.pts .. " back"); b.backTag:Show() else b.backTag:Hide() end
+      b.backRing:SetShown(bk ~= nil); if bk then b.backTag:SetText(string.format(L["%d back"], bk.pts)); b.backTag:Show() else b.backTag:Hide() end
       local sc = marks and STATUS_COLOR[t.classic]
       if sc then b.mark:SetVertexColor(sc[1], sc[2], sc[3], 0.95); b.mark:Show() else b.mark:Hide() end
       local pr = picks and pickRate(ti, i)
@@ -3205,10 +3248,10 @@ function UI.Refresh()
   end
   -- footer
   local st = statusLine()
-  if partial then st = string.format("Your build at level %d. %d more point%s come later. ", p.level, total - shown, (total - shown) == 1 and "" or "s") .. st end
+  if partial then st = string.format(TF.Plural(total - shown, "Your build at level %d. %d more point comes later. ", "Your build at level %d. %d more points come later. "), p.level, total - shown) .. st end
   if isOwnClass() and not TF.trial and not partial then
     local nl, spells = TF.NextTrainerLevel(p.cls, UnitLevel("player"))
-    if nl and #spells > 0 then st = st .. string.format("  Trainer at %d: %s.", nl, (TF.SpellsSummary(spells, 3):gsub("%s*%(rank %d+%)", ""))) end
+    if nl and #spells > 0 then st = st .. string.format(L["  Trainer at %d: %s."], nl, TF.SpellsSummary(spells, 3, true)) end
   end
   if not foot.noteUntil or GetTime() >= foot.noteUntil then
     foot.noteUntil = nil; if TF.lastSettled and TF.lastSettled.cls == p.cls then foot.status:SetTextColor(1, 0.69, 0.40) else foot.status:SetTextColor(rgb(C.ink2)) end; foot.status:SetText(st)
@@ -3223,20 +3266,20 @@ function UI.Refresh()
   end
   local missing = isOwnClass() and G.live and select(1, TF.Diff(p)) or 0
   local can = isOwnClass() and G.live and G.CanApply() and G.Unspent() > 0 and missing > 0
-  if not isOwnClass() then UI.applyWhy = "This plan is for another class. Only your own class can be applied."
-  elseif not G.live then UI.applyWhy = "Waiting for the game to answer about your talents."
-  elseif not G.CanApply() then UI.applyWhy = "This client gives addons no way to place points."
-  elseif UnitLevel("player") < TF.StartLevel() then UI.applyWhy = string.format("Talent points start at level %d. You are %d. Plan now, apply then.", TF.StartLevel(), UnitLevel("player"))
-  elseif G.Unspent() <= 0 then UI.applyWhy = "No unspent talent points right now. The next one comes with your next level."
-  elseif missing <= 0 then UI.applyWhy = "Your character already has every point the plan has."
+  if not isOwnClass() then UI.applyWhy = L["This plan is for another class. Only your own class can be applied."]
+  elseif not G.live then UI.applyWhy = L["Waiting for the game to answer about your talents."]
+  elseif not G.CanApply() then UI.applyWhy = L["This client gives addons no way to place points."]
+  elseif UnitLevel("player") < TF.StartLevel() then UI.applyWhy = string.format(L["Talent points start at level %d. You are %d. Plan now, apply then."], TF.StartLevel(), UnitLevel("player"))
+  elseif G.Unspent() <= 0 then UI.applyWhy = L["No unspent talent points right now. The next one comes with your next level."]
+  elseif missing <= 0 then UI.applyWhy = L["Your character already has every point the plan has."]
   else UI.applyWhy = nil end
   foot.apply:SetEnabled(can and true or false)
   foot.undo:SetEnabled(TF.undo ~= nil)
   foot.applyAll:SetEnabled(can and true or false)
-  foot.apply:SetText(G.Unspent() > 0 and string.format("Apply next (%d)", G.Unspent()) or "Apply next point")
+  foot.apply:SetText(G.Unspent() > 0 and string.format(L["Apply next (%d)"], G.Unspent()) or L["Apply next point"])
   do local e = TF.WhyNext(p); local nt = e and cd.trees[e.ti].talents[e.i]; foot.apply:SetIcon(nt and IconFor(nt) or nil) end
   UI.LayoutFootRow()
-  if foot.fromChar and foot.fromChar.SetIcon and foot.fromCharCls ~= p.cls then foot.fromCharCls = p.cls; foot.fromChar:SetIcon("Interface\\Icons\\ClassIcon_" .. cd.name) end
+  if foot.fromChar and foot.fromChar.SetIcon and foot.fromCharCls ~= p.cls then foot.fromCharCls = p.cls; foot.fromChar:SetIcon("Interface\\Icons\\ClassIcon_" .. (cd.en or cd.name)) end
   local t = tabs[S().sideTab]
   if side:IsShown() and t and t.refresh then t.refresh() end
   DrawPath()
@@ -3343,7 +3386,7 @@ function LayoutStage()
   end
   for _, tp in ipairs(trees) do tp:SetFrameLevel(F:GetFrameLevel() + 3) end
   -- the class painting: the game's own three-panel picture for this class, one panel behind each tree
-  local c = D.classes[plan().cls]; local name = c and "talent-background-" .. c.name:lower()
+  local c = D.classes[plan().cls]; local name = c and "talent-background-" .. (c.en or c.name):lower()
   local shown = GAME_NODES and name and AtlasOK(name) and Atlas(stage.art, name)
   stageTop:SetShown(GAME_NODES and true or false)
   stage.art:SetShown(shown and true or false); stage.shade:SetShown(shown and true or false)
@@ -3359,6 +3402,8 @@ local function BuildTrees()
   builtFor = cf
   UI.Layout()
 end
+-- the trees again from the data as it reads now (the names switched language in Settings)
+function UI.RebuildTrees() if F then builtFor = nil; BuildTrees() end end
 
 -- ---------- share and import live in the Builds page; the old doors lead there ----------
 -- the search: kept across refreshes, cleared by an empty box
@@ -3401,7 +3446,7 @@ function UI.OpenSheet(key, rec)
     -- the Load a build box glows gold for a moment and the footer says what to do
     if not f.pasteGlow then f.pasteGlow = Edges(f, f.paste, "OVERLAY", 3) end
     Tween("import-glow", 2.2, function(e) local a = e >= 1 and 0 or (0.55 + 0.45 * math.sin(e * math.pi * 5)); f.pasteGlow:SetColor(1, 0.82, 0, a) end, { ease = "linear" })
-    UI.Note("Paste a talentsforever.com link or a build code in the lit box, then Load.", nil, 8)
+    UI.Note(L["Paste a talentsforever.com link or a build code in the lit box, then Load."], nil, 8)
   elseif key == "phone" then f.qrOn = true; if f.pasteGlow then f.pasteGlow:SetColor(1, 0.82, 0, 0) end; tabs.builds.refresh()
   else f.shareRec = rec; tabs.builds.refresh(); f.link:SetFocus(); f.link:HighlightText() end
 end
@@ -3432,8 +3477,8 @@ local function MakeToast()
   t.book = Book(t, 26); t.book:SetPoint("TOPLEFT", 14, -14)
   t.icon = t:CreateTexture(nil, "ARTWORK"); t.icon:SetSize(26, 26); t.icon:SetPoint("TOPLEFT", 14, -14); t.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
   t.text = Text(t, 13, C.ink); t.text:SetPoint("TOPLEFT", 52, -16); t.text:SetPoint("RIGHT", -30, 0); t.text:SetWordWrap(true); t.text:SetJustifyH("LEFT")
-  t.learn = Button(t, "Learn it", "auto", 24, function() if t.fn1 then t.fn1() end; if t.fn2 then t.hideSoon(1.5) else t:Hide() end end); t.learn:SetPoint("BOTTOMRIGHT", -16, 14)
-  t.open = Button(t, "Open plan", "auto", 24, function() if t.fn2 then t.fn2() end; t:Hide() end); t.open:SetPoint("RIGHT", t.learn, "LEFT", -8, 0)
+  t.learn = Button(t, L["Learn it"], "auto", 24, function() if t.fn1 then t.fn1() end; if t.fn2 then t.hideSoon(1.5) else t:Hide() end end); t.learn:SetPoint("BOTTOMRIGHT", -16, 14)
+  t.open = Button(t, L["Open plan"], "auto", 24, function() if t.fn2 then t.fn2() end; t:Hide() end); t.open:SetPoint("RIGHT", t.learn, "LEFT", -8, 0)
   t.close = CloseX(t, 16); t.close:SetPoint("TOPRIGHT", -2, -2); t.close:SetScript("OnClick", function() t:Hide() end)
   local ag = t:CreateAnimationGroup()
   local a = ag:CreateAnimation("Alpha"); a:SetFromAlpha(0); a:SetToAlpha(1); a:SetDuration(0.16); a:SetSmoothing("OUT")
@@ -3448,7 +3493,7 @@ function UI.Toast(text, icon, withButtons, secs)
   -- with the window open the words go to its footer line; a card is for when it is closed
   if F and F:IsShown() then
     local acts
-    if withButtons == true then acts = { { label = "Learn it", fn = UI.ApplyNext } } elseif type(withButtons) == "table" then acts = withButtons end
+    if withButtons == true then acts = { { label = L["Learn it"], fn = UI.ApplyNext } } elseif type(withButtons) == "table" then acts = withButtons end
     UI.Note(text, acts, secs and math.min(secs, 12) or nil)
     return
   end
@@ -3459,28 +3504,28 @@ function UI.SettledCard(back)
   local f, near = TF.Refit(TF.plan, back), TF.ClosestPopular(TF.plan)
   local c = D.classes[TF.plan.cls]
   local function ic(ti, i) return string.format("|T%s:14:14:0:0:64:64:5:59:5:59|t", tostring(IconFor(c.trees[ti].talents[i]))) end
-  local function list(a) if #a == 1 then return a[1] end; return table.concat(a, ", ", 1, #a - 1) .. " and " .. a[#a] end
-  local L = { "|cffffd100This build is older than the trees.|r", string.format("%d point%s came back to you:", back.n, back.n == 1 and "" or "s") }
-  for _, b in ipairs(back.list) do L[#L + 1] = string.format("|cffffb066•|r %s %s  |cffffb066%d back|r", ic(b.ti, b.i), b.name, b.pts) end
-  L[#L + 1] = "|cffffb066Ringed in orange on the trees. Hover one to see why.|r"
+  local function list(a) if #a == 1 then return a[1] end; return table.concat(a, ", ", 1, #a - 1) .. L[" and "] .. a[#a] end
+  local T = { L["|cffffd100This build is older than the trees.|r"], string.format(TF.Plural(back.n, "%d point came back to you:", "%d points came back to you:"), back.n) }
+  for _, b in ipairs(back.list) do T[#T + 1] = string.format(L["|cffffb066•|r %s %s  |cffffb066%d back|r"], ic(b.ti, b.i), b.name, b.pts) end
+  T[#T + 1] = L["|cffffb066Ringed in orange on the trees. Hover one to see why.|r"]
   if f then
-    L[#L + 1] = ""; L[#L + 1] = "|cffffd100Fill it in for me|r"
+    T[#T + 1] = ""; T[#T + 1] = L["|cffffd100Fill it in for me|r"]
     for _, st in ipairs(f.steps) do for _, a in ipairs(st.adds) do
-      L[#L + 1] = string.format("|cffffb066•|r %s %d in %s  |cff8a8a8a%s|r", ic(a.ti, a.i), a.n, c.trees[a.ti].talents[a.i].name, a.arrow and "the new arrow" or (a.rate and (a.rate .. "% take it") or ""))
+      T[#T + 1] = string.format(L["|cffffb066•|r %s %d in %s  |cff8a8a8a%s|r"], ic(a.ti, a.i), a.n, c.trees[a.ti].talents[a.i].name, a.arrow and L["the new arrow"] or (a.rate and (a.rate .. L["% take it"]) or ""))
     end end
     local backs = {}; for _, st in ipairs(f.steps) do backs[#backs + 1] = ic(st.b.ti, st.b.i) .. " " .. c.trees[st.b.ti].talents[st.b.i].name end
-    L[#L + 1] = "|cffffb066•|r then " .. list(backs) .. (#backs == 1 and " goes" or " go") .. " back"
-    for _, a in ipairs(f.extra or {}) do L[#L + 1] = string.format("|cffffb066•|r %s %d more in %s  |cff8a8a8a%d%% take it|r", ic(a.ti, a.i), a.n, c.trees[a.ti].talents[a.i].name, a.rate) end
+    T[#T + 1] = L["|cffffb066•|r then "] .. list(backs) .. TF.Plural(#backs, " goes back", " go back")
+    for _, a in ipairs(f.extra or {}) do T[#T + 1] = string.format(L["|cffffb066•|r %s %d more in %s  |cff8a8a8a%d%% take it|r"], ic(a.ti, a.i), a.n, c.trees[a.ti].talents[a.i].name, a.rate) end
     local tail = {}
-    if f.left > 0 then tail[#tail + 1] = string.format("%d point%s yours%s.", f.left, f.left == 1 and " stays" or "s stay", f.noData and ", nothing in the pick rates to place it by" or "") end
-    for _, x in ipairs(f.cant) do tail[#tail + 1] = string.format("%s %s.", c.trees[x.b.ti].talents[x.b.i].name, (x.need or 0) > 0 and string.format("needs %d more in %s first", x.need, c.trees[x.b.ti].name) or (x.short and string.format("needs %d more free point%s", x.short, x.short == 1 and "" or "s") or "can't come back yet")) end
-    if #tail > 0 then L[#L + 1] = "|cff8a8a8a" .. table.concat(tail, " ") .. "|r" end
+    if f.left > 0 then tail[#tail + 1] = string.format(TF.Plural(f.left, "%d point stays yours%s.", "%d points stay yours%s."), f.left, f.noData and L[", nothing in the pick rates to place it by"] or "") end
+    for _, x in ipairs(f.cant) do tail[#tail + 1] = string.format("%s %s.", c.trees[x.b.ti].talents[x.b.i].name, (x.need or 0) > 0 and string.format(L["needs %d more in %s first"], x.need, c.trees[x.b.ti].name) or (x.short and string.format(TF.Plural(x.short, "needs %d more free point", "needs %d more free points"), x.short) or L["can't come back yet"])) end
+    if #tail > 0 then T[#T + 1] = "|cff8a8a8a" .. table.concat(tail, " ") .. "|r" end
   end
-  if near then L[#L + 1] = ""; L[#L + 1] = string.format("|cffffd100Closest build people make now:|r #%d %s, %d point%s apart.", near.b.rank, near.b.lead, near.d, near.d == 1 and "" or "s") end
+  if near then T[#T + 1] = ""; T[#T + 1] = string.format(TF.Plural(near.d, "|cffffd100Closest build people make now:|r #%d %s, %d point apart.", "|cffffd100Closest build people make now:|r #%d %s, %d points apart."), near.b.rank, TF.TreeLoc(TF.plan.cls, near.b.lead), near.d) end
   local acts = {}
-  if f then acts[#acts + 1] = { label = "Fill it in for me", fn = function() if TF.ApplyRefit(f) then UI.Refresh(); UI.Note(TF.RefitDone(f), { { label = "Undo", fn = function() TF.Undo() end } }, 20) end end } end
-  if near then acts[#acts + 1] = { label = "Closest build now", fn = function() local ok = TF.LoadCode(near.code); if ok then UI.Refresh(); UI.Note(string.format("Loaded the #%d %s build, %d point%s from the one you opened.", near.b.rank, near.b.lead, near.d, near.d == 1 and "" or "s"), { { label = "Undo", fn = function() TF.Undo() end } }, 12) end end } end
-  UI.Card(table.concat(L, "\n"), nil, #acts > 0 and acts or nil, (f or near) and 45 or 30)
+  if f then acts[#acts + 1] = { label = L["Fill it in for me"], fn = function() if TF.ApplyRefit(f) then UI.Refresh(); UI.Note(TF.RefitDone(f), { { label = L["Undo"], fn = function() TF.Undo() end } }, 20) end end } end
+  if near then acts[#acts + 1] = { label = L["Closest build now"], fn = function() local ok = TF.LoadCode(near.code); if ok then UI.Refresh(); UI.Note(string.format(TF.Plural(near.d, "Loaded the #%d %s build, %d point from the one you opened.", "Loaded the #%d %s build, %d points from the one you opened."), near.b.rank, TF.TreeLoc(TF.plan.cls, near.b.lead), near.d), { { label = L["Undo"], fn = function() TF.Undo() end } }, 12) end end } end
+  UI.Card(table.concat(T, "\n"), nil, #acts > 0 and acts or nil, (f or near) and 45 or 30)
 end
 -- the card itself, window open or not: a build that settled against today's rules wants seeing, not a footer line
 function UI.Card(text, icon, withButtons, secs)
@@ -3488,7 +3533,7 @@ function UI.Card(text, icon, withButtons, secs)
   toast.text:SetText(text)
   if icon then toast.icon:SetTexture(icon); toast.icon:Show(); toast.book:Hide() else toast.icon:Hide(); toast.book:Show() end
   local b1, b2
-  if withButtons == true then b1 = { label = "Learn it", fn = UI.ApplyNext }; b2 = { label = "Open plan", fn = UI.Show }
+  if withButtons == true then b1 = { label = L["Learn it"], fn = UI.ApplyNext }; b2 = { label = L["Open plan"], fn = UI.Show }
   elseif type(withButtons) == "table" then b1, b2 = withButtons[1], withButtons[2] end
   toast.learn:SetShown(b1 and true or false); toast.open:SetShown(b2 and true or false)
   toast.fn1, toast.fn2 = nil, nil
@@ -3521,16 +3566,16 @@ local function Nudge(reason)
       end
       if not gate and S().autoApply and not newTree and G.CanApply() then
         local ok, name = G.Learn(e.ti, e.i)
-        if ok then UI.Toast(string.format("%s: placed your point in %s (%d/%d, %s), as planned.", reason, name, e.rank, t.max, classData().trees[e.ti].name), IconFor(t), false, 12); Sound("LOOT_WINDOW_COIN_SOUND"); return true end
+        if ok then UI.Toast(string.format(L["%s: placed your point in %s (%d/%d, %s), as planned."], reason, name, e.rank, t.max, classData().trees[e.ti].name), IconFor(t), false, 12); Sound("LOOT_WINDOW_COIN_SOUND"); return true end
       end
       local _, why = TF.WhyNext(plan())
-      local msg = not gate and string.format("%s: your plan takes %s (%d/%d) next.%s", reason, t.name, e.rank, t.max, why[1] and (" " .. why[1]) or "")
-        or string.format("%s: the plan wants %s next, but it is not open yet (%s).", reason, t.name, gate)
-      if newTree then msg = msg .. string.format(" It would be your first point in %s, so it waits for you.", classData().trees[e.ti].name) end
+      local msg = not gate and string.format(L["%s: your plan takes %s (%d/%d) next.%s"], reason, t.name, e.rank, t.max, why[1] and (" " .. why[1]) or "")
+        or string.format(L["%s: the plan wants %s next, but it is not open yet (%s)."], reason, t.name, gate)
+      if newTree then msg = msg .. string.format(L[" It would be your first point in %s, so it waits for you."], classData().trees[e.ti].name) end
       local spells = TF.NewSpellsAt(plan().cls, UnitLevel("player"))
-      if #spells > 0 then msg = msg .. " Trainer: " .. TF.SpellsSummary(spells, 2) .. "." end
-      local acts = { (not gate and G.CanApply()) and { label = "Learn it", fn = UI.ApplyNext } or { label = "Open plan", fn = UI.Show } }
-      if not (F and F:IsShown()) then acts[2] = { label = "Not again", fn = function() S().levelUpNudge = false; TF.Print("level-up reminders off. Settings, or /talents nudge, turns them back on.") end } end
+      if #spells > 0 then msg = msg .. string.format(L[" Trainer: %s."], TF.SpellsSummary(spells, 2)) end
+      local acts = { (not gate and G.CanApply()) and { label = L["Learn it"], fn = UI.ApplyNext } or { label = L["Open plan"], fn = UI.Show } }
+      if not (F and F:IsShown()) then acts[2] = { label = L["Not again"], fn = function() S().levelUpNudge = false; TF.Print(L["level-up reminders off. Settings, or /talents nudge, turns them back on."]) end } end
       UI.Toast(msg, IconFor(t), acts, 25)
       Sound("IG_QUEST_LIST_OPEN")
       return true
@@ -3574,40 +3619,40 @@ local function TrainerAlert(where, force)
   else can = owed end
   UI.waitingGold = nil
   toldTrainer[key] = true
-  local lead = city and string.format("You are in %s. ", city) or ""
+  local lead = city and string.format(L["You are in %s. "], city) or ""
   local ct = TF.OwedCostText(can)
   local more = ""
-  if #dear > 0 then more = S().purseOnly and string.format(" %d more when you have the gold.", #dear) or string.format(" %d of %s cost more than you have.", #dear, #dear == 1 and "them" or "them") end
-  local acts = { { label = "See the list", fn = function() UI.Show(); UI.SetTab("coach") end } }
-  if not S().purseOnly and #dear > 0 then acts[2] = { label = "Only what I can afford", fn = function()
+  if #dear > 0 then more = S().purseOnly and string.format(L[" %d more when you have the gold."], #dear) or string.format(L[" %d of them cost more than you have."], #dear) end
+  local acts = { { label = L["See the list"], fn = function() UI.Show(); UI.SetTab("coach") end } }
+  if not S().purseOnly and #dear > 0 then acts[2] = { label = L["Only what I can afford"], fn = function()
     S().purseOnly = true
-    UI.Toast("From now on this card counts only what your gold covers and waits while nothing is. Settings, Trainer cards only for what you can afford, turns that off again.", nil, false, 10)
+    UI.Toast(L["From now on this card counts only what your gold covers and waits while nothing is. Settings, Trainer cards only for what you can afford, turns that off again."], nil, false, 10)
   end }
-  elseif cityKey then acts[2] = { label = "Not here", fn = function()
+  elseif cityKey then acts[2] = { label = L["Not here"], fn = function()
     TF.SetNoTrainer(cityKey, TF.PlayerClass(), true)
-    UI.Toast(string.format("Noted: no %s trainer in %s. No more cards here. Opening a class trainer here puts them back.", classData().name, city or cityKey), nil, false, 8)
+    UI.Toast(string.format(L["Noted: no %s trainer in %s. No more cards here. Opening a class trainer here puts them back."], classData().name, city or cityKey), nil, false, 8)
   end } end
-  UI.Toast(string.format("%s%d spell%s waiting at your trainer%s: %s.%s", lead, #can, #can == 1 and "" or "s", ct and (" (" .. ct .. ")") or "", TF.SpellsSummary(can, 3), more), IconFor({ icon = can[1].icon }), acts, 20)
+  UI.Toast(string.format(TF.Plural(#can, "%s%d spell waiting at your trainer%s: %s.%s", "%s%d spells waiting at your trainer%s: %s.%s"), lead, #can, ct and (" (" .. ct .. ")") or "", TF.SpellsSummary(can, 3), more), IconFor({ icon = can[1].icon }), acts, 20)
 end
 UI.TrainerAlert = TrainerAlert
 -- 0.32.1, once: a card at login says "Place points for me, no asking" went off with the update, and where it lives
 function UI.UpgradeCard()
   if not S().autoApplyReset then return false end
   S().autoApplyReset = nil
-  UI.Toast("This update switched off \"Place points for me, no asking\", so the level-up card asks before a point goes in. Settings turns it back on.", nil,
-    { { label = "Settings", fn = function() UI.Show(); UI.SetTab("settings") end } }, 30)
+  UI.Toast(L["This update switched off \"Place points for me, no asking\", so the level-up card asks before a point goes in. Settings turns it back on."], nil,
+    { { label = L["Settings"], fn = function() UI.Show(); UI.SetTab("settings") end } }, 30)
   return true
 end
 function UI.SetStarter(on)
   local ok, why = TF.SetStarter(on)
-  if not ok then UI.Note(why or "Could not start following."); if tabs.settings and tabs.settings.refresh then tabs.settings.refresh() end; return end
+  if not ok then UI.Note(why or L["Could not start following."]); if tabs.settings and tabs.settings.refresh then tabs.settings.refresh() end; return end
   if tabs.settings and tabs.settings.refresh then tabs.settings.refresh() end
 end
 TF.On("STARTER_CHANGED", function(on, b, why)
   if on and b then
     local c = D.classes[plan().cls]
-    UI.Note(string.format("Following the #%d %s build. Each level, the card asks before a point goes in.", b.rank or 1, b.lead or (c and c.name) or ""), { { label = "Undo", fn = function() TF.SetStarter(false); TF.Undo() end } }, 12)
-  elseif why == "edited" then UI.Note("You changed the plan, so it is yours now. Following is off.", nil, 8)
+    UI.Note(string.format(L["Following the #%d %s build. Each level, the card asks before a point goes in."], b.rank or 1, b.lead and TF.TreeLoc(plan().cls, b.lead) or (c and c.name) or ""), { { label = L["Undo"], fn = function() TF.SetStarter(false); TF.Undo() end } }, 12)
+  elseif why == "edited" then UI.Note(L["You changed the plan, so it is yours now. Following is off."], nil, 8)
   end
   if F and F:IsShown() then UI.Refresh() end
 end)
@@ -3625,21 +3670,21 @@ local function RefreshTrainButton()
   local n = #plan.rows
   trainBtn.plan = plan
   if plan.pet then trainBtn:Hide(); return end   -- Beast Training: the pet's window, nothing of ours on it
-  trainBtn:SetText(TF.trainer.queue and "Training..." or (n > 0 and string.format("Train all (%d, %s)", n, TF.Money(plan.cost)) or "Train all"))
+  trainBtn:SetText(TF.trainer.queue and L["Training..."] or (n > 0 and string.format(L["Train all (%d, %s)"], n, TF.Money(plan.cost)) or L["Train all"]))
   if trainBtn.Fit then trainBtn:Fit() end
   trainBtn:SetEnabled(n > 0 and not TF.trainer.queue)
 end
 local function TrainTip()
   local plan = trainBtn and trainBtn.plan; if not plan then return end
   GameTooltip:SetOwner(trainBtn, "ANCHOR_RIGHT")
-  GameTooltip:SetText("Train all", 1, 0.82, 0)
-  if #plan.rows == 0 then GameTooltip:AddLine("Nothing here you want that you can afford.", 0.74, 0.74, 0.74, true)
+  GameTooltip:SetText(L["Train all"], 1, 0.82, 0)
+  if #plan.rows == 0 then GameTooltip:AddLine(L["Nothing here you want that you can afford."], 0.74, 0.74, 0.74, true)
   else
     for _, r in ipairs(plan.rows) do GameTooltip:AddDoubleLine(r.name, TF.Money(r.cost or 0), 1, 1, 1, 0.74, 0.74, 0.74) end
     GameTooltip:AddDoubleLine(" ", TF.Money(plan.cost), 1, 1, 1, 1, 0.82, 0)
   end
-  if plan.skipped > 0 then GameTooltip:AddLine(string.format("%d skipped on the Coach page, left alone.", plan.skipped), 0.54, 0.54, 0.54, true) end
-  if plan.short > 0 then GameTooltip:AddLine(string.format("%d more than your money covers.", plan.short), 1, 0.3, 0.3, true) end
+  if plan.skipped > 0 then GameTooltip:AddLine(string.format(L["%d skipped on the Coach page, left alone."], plan.skipped), 0.54, 0.54, 0.54, true) end
+  if plan.short > 0 then GameTooltip:AddLine(string.format(L["%d more than your money covers."], plan.short), 1, 0.3, 0.3, true) end
   GameTooltip:Show()
 end
 local function MakeTrainButton()
@@ -3647,13 +3692,13 @@ local function MakeTrainButton()
   if trainBtn then if trainBtn:GetParent() ~= tf then trainBtn:SetParent(tf) end; trainBtn:Show(); return true end
   local go = function()
     local n = TF.TrainAll()
-    if n == 0 then UI.Toast("Nothing at this trainer that you want and can afford.", nil, false, 6) else RefreshTrainButton() end
+    if n == 0 then UI.Toast(L["Nothing at this trainer that you want and can afford."], nil, false, 6) else RefreshTrainButton() end
   end
   if S().trainAll == false then if trainBtn then trainBtn:Hide() end return true end   -- off in Settings: nothing on the trainer window, no card either
   trainBtn = Native("Button", "TalentsForeverBookTrainAll", tf, "UIPanelButtonTemplate")
   if trainBtn then trainBtn:SetSize(150, 22); trainBtn:SetScript("OnClick", go)
     if not trainBtn.Fit then function trainBtn:Fit() local fs = self:GetFontString(); if fs then self:SetWidth(math.max(150, math.ceil((fs:GetStringWidth() or 100) + 32))) end end end
-  else trainBtn = Button(tf, "Train all", "auto", 22, go, true); trainBtn.minW = 150 end
+  else trainBtn = Button(tf, L["Train all"], "auto", 22, go, true); trainBtn.minW = 150 end
   -- 0.34: under the window, not in its bottom bar. Left of the Train button it grew over the money display once the
   -- text carried a count and a price (two readers). Right-aligned under the frame it sits below the Train button and
   -- covers nothing of the game's.
@@ -3670,11 +3715,11 @@ TF.On("TRAINER", function(kind)
   if kind == "show" or kind == "update" then
     local ck = UI.CityKey()
     if ck and TF.NoTrainer(ck, TF.PlayerClass()) then
-      local L = D.learn and D.learn[TF.PlayerClass()] or {}
+      local LN = D.learn and D.learn[TF.PlayerClass()] or {}
       for _, r in ipairs(TF.TrainerRows()) do
-        if r.key and L[r.key] then
+        if r.key and LN[r.key] then
           TF.SetNoTrainer(ck, TF.PlayerClass(), false)
-          UI.Toast(string.format("There is a %s trainer in %s after all. The trainer cards are back here.", classData().name, UI.CityHere() or ck), nil, false, 8)
+          UI.Toast(string.format(L["There is a %s trainer in %s after all. The trainer cards are back here."], classData().name, UI.CityHere() or ck), nil, false, 8)
           break
         end
       end
@@ -3685,32 +3730,32 @@ TF.On("TRAINER", function(kind)
     RefreshTrainButton()
     if not placed then
       local plan = TF.TrainerPlan()
-      if #plan.rows > 0 then UI.Toast(string.format("%d spell%s here that you want, %s.", #plan.rows, #plan.rows == 1 and "" or "s", TF.Money(plan.cost)), IconFor({ icon = (TF.OwedSpells() or {})[1] and (TF.OwedSpells())[1].icon }), { { label = "Train all", fn = function() TF.TrainAll() end } }, 30) end
+      if #plan.rows > 0 then UI.Toast(string.format(TF.Plural(#plan.rows, "%d spell here that you want, %s.", "%d spells here that you want, %s."), #plan.rows, TF.Money(plan.cost)), IconFor({ icon = (TF.OwedSpells() or {})[1] and (TF.OwedSpells())[1].icon }), { { label = L["Train all"], fn = function() TF.TrainAll() end } }, 30) end
     end
   elseif kind == "update" then RefreshTrainButton()
   elseif kind == "closed" then if trainBtn then trainBtn:Hide() end end
 end)
 TF.On("TRAINED", function(bought, spent, short, blocked)
   if trainBtn then RefreshTrainButton() end
-  if blocked then UI.Toast(bought > 0 and string.format("Trained %d, then the game stopped the addon here. The window's own Train button does the rest.", bought) or "The game does not let an addon train here. The window's own Train button still works.", nil, false, 8)
-  elseif bought > 0 then Sound("LOOT_WINDOW_COIN_SOUND"); UI.Toast(string.format("Trained %d spell%s for %s.%s", bought, bought == 1 and "" or "s", TF.Money(spent), short > 0 and string.format(" %d more when you have the money.", short) or ""), nil, false, 8)
-  elseif short > 0 then UI.Toast("Not enough money for any of them.", nil, false, 6) end
+  if blocked then UI.Toast(bought > 0 and string.format(L["Trained %d, then the game stopped the addon here. The window's own Train button does the rest."], bought) or L["The game does not let an addon train here. The window's own Train button still works."], nil, false, 8)
+  elseif bought > 0 then Sound("LOOT_WINDOW_COIN_SOUND"); UI.Toast(string.format(TF.Plural(bought, "Trained %d spell for %s.%s", "Trained %d spells for %s.%s"), bought, TF.Money(spent), short > 0 and string.format(L[" %d more when you have the money."], short) or ""), nil, false, 8)
+  elseif short > 0 then UI.Toast(L["Not enough money for any of them."], nil, false, 6) end
   if F and F:IsShown() and S().sideTab == "coach" then tabs.coach.refresh() end
 end)
 TF.On("SKIP_CHANGED", function() if trainBtn and trainBtn:IsShown() then RefreshTrainButton() end end)
 TF.On("INSPECTED", function(p, cf, unit)
   local c = D.classes[cf]; local parts = {}
   for ti = 1, #p.ranks do parts[ti] = TF.TreePts(p, ti) end
-  local who = p.who or "They"
-  local label = string.format("%s's %s build", who, c and c.name or "")
-  UI.Toast(string.format("%s: %s %s, %s. Try it on your trees or load it.", who, c and c.name or "", table.concat(parts, " / "), TF.TotalPts(p) == 0 and "no points yet" or string.format("%d points", TF.TotalPts(p))), IconFor({ icon = c and c.trees[1].icon }),
-    { { label = "Try it", fn = function() TF.TryBuild(p, label); UI.Show() end }, { label = "Load it", fn = function() TF.Remember(); TF.SetPlan(p); UI.Show(); UI.Note("Loaded " .. label .. ".", { { label = "Undo", fn = function() TF.Undo() end } }) end } }, 30)
+  local who = p.who or L["They"]
+  local label = string.format(L["%s's %s build"], who, c and c.name or "")
+  UI.Toast(string.format(L["%s: %s %s, %s. Try it on your trees or load it."], who, c and c.name or "", table.concat(parts, " / "), TF.TotalPts(p) == 0 and L["no points yet"] or string.format(L["%d points"], TF.TotalPts(p))), IconFor({ icon = c and c.trees[1].icon }),
+    { { label = L["Try it"], fn = function() TF.TryBuild(p, label); UI.Show() end }, { label = L["Load it"], fn = function() TF.Remember(); TF.SetPlan(p); UI.Show(); UI.Note(string.format(L["Loaded %s."], label), { { label = L["Undo"], fn = function() TF.Undo() end } }) end } }, 30)
   Sound("IG_QUEST_LIST_OPEN")
 end)
-TF.On("INSPECT_FAILED", function() UI.Toast("The game gave no talents for them. Step closer and try again.", nil, false, 8) end)
+TF.On("INSPECT_FAILED", function() UI.Toast(L["The game gave no talents for them. Step closer and try again."], nil, false, 8) end)
 TF.On("RESPEC", function(wasOn)
-  if wasOn then UI.Toast("Your talents were reset, so hands-free placing is off: nothing gets spent behind your back. Turn it on again in Settings when your plan is right.", nil, false, 20); Sound("IG_QUEST_LIST_OPEN")
-  else UI.Toast("Your talents were reset. Your plan is untouched; Apply next places it from the first point.", nil, false, 12) end
+  if wasOn then UI.Toast(L["Your talents were reset, so hands-free placing is off: nothing gets spent behind your back. Turn it on again in Settings when your plan is right."], nil, false, 20); Sound("IG_QUEST_LIST_OPEN")
+  else UI.Toast(L["Your talents were reset. Your plan is untouched; Apply next places it from the first point."], nil, false, 12) end
   if tabs.settings and tabs.settings.refresh then tabs.settings.refresh() end
 end)
 
@@ -3762,7 +3807,7 @@ local function MakeFrame()
     F.medal.book = Book(F.medal, LOOK() == "site" and 30 or 52); F.medal.book:SetPoint("CENTER", 0, 0)
     if LOOK() == "site" then F.medal.halo:SetSize(40, 40) elseif AtlasOK("Talents-Main-Ring-c60") then F.medal.ring = F.medal:CreateTexture(nil, "OVERLAY"); Atlas(F.medal.ring, "Talents-Main-Ring-c60", 76, 76); F.medal.ring:SetPoint("CENTER", 0, 0) end
     F.titleText = Text(F, LOOK() == "site" and 15 or 16, C.gold, true); F.titleText:SetFont((CINZEL:gsub("Cinzel%.ttf$", "Cinzel-Bold.ttf")), 16, ""); F.titleText:SetShadowOffset(1, -1); F.titleText:SetShadowColor(0, 0, 0, 0.9); if LOOK() == "site" then F.titleText:SetPoint("TOPLEFT", 58, -8); F.titleText:SetJustifyH("LEFT") else F.titleText:SetPoint("TOP", 0, -9) end; F.titleText:SetText("Talents Forever"); F.titleText:SetShadowColor(0, 0, 0, 1); F.titleText:SetShadowOffset(1, -1)
-    if LOOK() == "site" then F.subText = Text(F, 10, C.muted); F.subText:SetPoint("TOPLEFT", 58, -27); F.subText:SetText("WoW Forever talent calculator, in game"); F.titleRuleY = -(TOP - 2) end
+    if LOOK() == "site" then F.subText = Text(F, 10, C.muted); F.subText:SetPoint("TOPLEFT", 58, -27); F.subText:SetText(L["WoW Forever talent calculator, in game"]); F.titleRuleY = -(TOP - 2) end
     F.titleRule = F:CreateTexture(nil, "BORDER", nil, 2); F.titleRule:SetTexture(WHITE); F.titleRule:SetPoint("TOPLEFT", 12, -(TOP - 4)); F.titleRule:SetPoint("TOPRIGHT", -12, -(TOP - 4)); if LOOK() == "site" then F.titleRule:SetVertexColor(0.23, 0.23, 0.23, 1) end; onePixel(F.titleRule, true); F.titleRule:SetVertexColor(0.61, 0.46, 0.18, 0.55)
     F.close = CreateFrame("Button", nil, F); F.close:SetSize(18, 18); F.close:SetPoint("TOPRIGHT", -9, -7); F.close:SetFrameLevel(F:GetFrameLevel() + 12); F.close:SetScript("OnClick", function() UI.Hide() end)
     F.close.tfA = F.close:CreateTexture(nil, "OVERLAY"); F.close.tfA:SetTexture(WHITE); F.close.tfA:SetSize(16, 2); F.close.tfA:SetPoint("CENTER"); F.close.tfA:SetRotation(math.rad(45))
@@ -3779,10 +3824,10 @@ local function MakeFrame()
   F.gear:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
   function F.gear:Paint(hot) self.icon:SetVertexColor(1, 1, 1, 1); self.icon:SetDesaturated(false); self.icon:SetAlpha((hot or self.on) and 1 or 0.8) end
   F.gear:Paint(false)
-  F.gear:SetScript("OnEnter", function(self) self:Paint(true); TipBegin(self); GameTooltip:SetText("Settings", 1, 0.82, 0); GameTooltip:AddLine("Reminders, hands-free options, the look, sounds, window size, which pages show.", 0.9, 0.9, 0.9, true); TipEnd(self) end)
+  F.gear:SetScript("OnEnter", function(self) self:Paint(true); TipBegin(self); GameTooltip:SetText(L["Settings"], 1, 0.82, 0); GameTooltip:AddLine(L["Reminders, hands-free options, the look, sounds, window size, which pages show."], 0.9, 0.9, 0.9, true); TipEnd(self) end)
   F.gear:SetScript("OnLeave", function(self) self:Paint(self.on); GameTooltip:Hide() end)
   F.gear:SetScript("OnClick", function() UI.OpenSettings() end)
-  Tip(F.close, "Close", "Escape works too.")
+  Tip(F.close, L["Close"], L["Escape works too."])
   -- ctrl and the wheel scale the whole window
   F:EnableMouseWheel(true)
   F:SetScript("OnMouseWheel", function(_, d) if IsControlKeyDown and IsControlKeyDown() then UI.SetScale((F:GetScale() or 1) + (d > 0 and 0.05 or -0.05)) end end)
@@ -3821,7 +3866,7 @@ local function MakeFrame()
       end)
     end)
     grip:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil); savePos(); if tabs.settings and tabs.settings.refresh then tabs.settings.refresh() end end)
-    Tip(grip, "Resize", "Drag a bottom corner to make the window bigger or smaller; the top stays put. Ctrl and the wheel work anywhere on it. Drag the title to move it. It remembers both.")
+    Tip(grip, L["Resize"], L["Drag a bottom corner to make the window bigger or smaller; the top stays put. Ctrl and the wheel work anywhere on it. Drag the title to move it. It remembers both."])
     F.grips[which] = grip
   end
   F.grip = F.grips.BOTTOMRIGHT
@@ -3850,22 +3895,22 @@ local function MakeDrawer()
   d.topEdge = Edges(d, d.top, "BORDER", 0); d.topEdge:SetColor(0.47, 0.36, 0.14, 0.8)
   d.grip = CreateFrame("Frame", nil, d); d.grip:SetSize(22, 12); d.grip:SetPoint("TOP", d, "TOP", 0, -6)
   for k = 0, 2 do local bar = d.grip:CreateTexture(nil, "ARTWORK"); bar:SetTexture(WHITE); bar:SetSize(18, 2); bar:SetPoint("TOP", 0, -k * 4); bar:SetVertexColor(1, 0.82, 0, 0.55) end
-  d.grip:EnableMouse(true); d.grip:SetScript("OnEnter", function(self) TipBegin(self); GameTooltip:SetText("Drag to move the list", 1, 0.82, 0); GameTooltip:AddLine("Anywhere you like. Snap back puts it beside the window again.", 0.9, 0.9, 0.9, true); TipEnd(self, "drawer") end)
+  d.grip:EnableMouse(true); d.grip:SetScript("OnEnter", function(self) TipBegin(self); GameTooltip:SetText(L["Drag to move the list"], 1, 0.82, 0); GameTooltip:AddLine(L["Anywhere you like. Snap back puts it beside the window again."], 0.9, 0.9, 0.9, true); TipEnd(self, "drawer") end)
   d.grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
   d.grip:RegisterForDrag("LeftButton"); d.grip:SetScript("OnDragStart", function() if d.StartMoving then d:StartMoving() end; d.loose = true; d:SideWord() end); d.grip:SetScript("OnDragStop", function() if d.StopMovingOrSizing then d:StopMovingOrSizing() end end)
-  d.tab = MakeTab(d, "Trainer", function() end, function() return true end); d.tab:SetPoint("BOTTOMLEFT", d, "TOPLEFT", 4, -TABS_H); d.tab:SetSelected(true)
+  d.tab = MakeTab(d, L["Trainer"], function() end, function() return true end); d.tab:SetPoint("BOTTOMLEFT", d, "TOPLEFT", 4, -TABS_H); d.tab:SetSelected(true)
   d.close = CloseX(d, 20); d.close:SetPoint("TOPRIGHT", -4, -(TABS_H + 4)); d.close:SetScript("OnClick", function() d:Hide() end)
   -- the list sits beside the window, on the side the player picks; dragged, it comes loose and stays where it is dropped
   d:SetMovable(true); d:EnableMouse(true); d:SetClampedToScreen(true); d:RegisterForDrag("LeftButton")
   d:SetScript("OnDragStart", function(self) if self.StartMoving then self:StartMoving() end; self.loose = true; self:SideWord() end)
   d:SetScript("OnDragStop", function(self) if self.StopMovingOrSizing then self:StopMovingOrSizing() end end)
-  d.side = Button(d, "Move left", "auto", 20, function()
+  d.side = Button(d, L["Move left"], "auto", 20, function()
     if d.loose then d.loose = false else S().drawerSide = d.onLeft and "right" or "left" end
     UI.OpenTrainer(false, d.mode)
   end); d.side:SetPoint("TOPRIGHT", d, "TOPRIGHT", -4, -3)
-  function d:SideWord() self.side:SetText(self.loose and "Snap back" or (self.onLeft and "Move right" or "Move left")); if self.side.Fit then self.side:Fit() end end
-  Tip(d.side, "Where the list sits", "Moves the list to the other side of the window. Drag the list by its edge to put it anywhere; Snap back sets it beside the window again.")
-  d.head = Section(d, "AT THE TRAINER", -(TABS_H + 12), 36); Font(d.head.text, 12, true); d.head.text:SetTextColor(1, 1, 1)
+  function d:SideWord() self.side:SetText(self.loose and L["Snap back"] or (self.onLeft and L["Move right"] or L["Move left"])); if self.side.Fit then self.side:Fit() end end
+  Tip(d.side, L["Where the list sits"], L["Moves the list to the other side of the window. Drag the list by its edge to put it anywhere; Snap back sets it beside the window again."])
+  d.head = Section(d, L["AT THE TRAINER"], -(TABS_H + 12), 36); Font(d.head.text, 12, true); d.head.text:SetTextColor(1, 1, 1)
   d.cost = Text(d, 12, C.ink2); d.cost:SetPoint("TOPLEFT", 12, -(TABS_H + 30)); d.cost:SetPoint("TOPRIGHT", -28, -(TABS_H + 30)); d.cost:SetJustifyH("LEFT"); d.cost:SetWordWrap(true)
   d.scroll = CreateFrame("ScrollFrame", nil, d, "UIPanelScrollFrameTemplate"); d.scroll:SetPoint("TOPLEFT", PAD, -(TABS_H + 64)); d.scroll:SetPoint("BOTTOMRIGHT", -28, 10); Slim(d.scroll)
   d.body = CreateFrame("Frame", nil, d.scroll); d.body:SetSize(PAGE_W, 10); d.scroll:SetScrollChild(d.body)
@@ -3890,21 +3935,21 @@ local function MakeDrawer()
       local sp = r.spell; if not sp then return end
       TipBegin(r)
       local shown = sp.id and GameTooltip.SetSpellByID and pcall(GameTooltip.SetSpellByID, GameTooltip, sp.id)
-      if not shown then GameTooltip:SetText(sp.name, 1, 0.82, 0) end
+      if not shown then GameTooltip:SetText(sp.loc or sp.name, 1, 0.82, 0) end
       -- how it scales with spell power, from the client's files (asked for from inside the addon, 23 and 24 Sep)
-      local co = TF.Coef(sp.id); if co then GameTooltip:AddLine("Scales with " .. co .. ".", 0.62, 0.62, 0.62, true) end
-      if sp.state == "now" then GameTooltip:AddLine(string.format("The trainer sells this now%s.%s", sp.cost and (" for " .. TF.Money(sp.cost)) or "", sp.portal and " A portal trainer, not the class trainer." or ""), 0.74, 0.74, 0.74, true); GameTooltip:AddLine(sp.skipped and "Skipped: out of the reminders. Right click puts it back." or "Right click skips it, out of the reminders.", 0.54, 0.54, 0.54, true)
-      elseif sp.state == "later" then GameTooltip:AddLine(string.format("From level %d.", sp.level), 0.74, 0.74, 0.74)
-      else GameTooltip:AddLine("Already in your spellbook.", 0.31, 0.75, 0.23) end
+      local co = TF.Coef(sp.id); if co then GameTooltip:AddLine(string.format(L["Scales with %s."], TF.CoefText(co)), 0.62, 0.62, 0.62, true) end
+      if sp.state == "now" then GameTooltip:AddLine(string.format(L["The trainer sells this now%s.%s"], sp.cost and string.format(L[" for %s"], TF.Money(sp.cost)) or "", sp.portal and L[" A portal trainer, not the class trainer."] or ""), 0.74, 0.74, 0.74, true); GameTooltip:AddLine(sp.skipped and L["Skipped: out of the reminders. Right click puts it back."] or L["Right click skips it, out of the reminders."], 0.54, 0.54, 0.54, true)
+      elseif sp.state == "later" then GameTooltip:AddLine(string.format(L["From level %d."], sp.level), 0.74, 0.74, 0.74)
+      else GameTooltip:AddLine(L["Already in your spellbook."], 0.31, 0.75, 0.23) end
       TipEnd(r, "drawer")
     end)
     r:SetScript("OnLeave", function() GameTooltip:Hide() end)
     d.rows[k] = r; return r
   end
-  local WORD = { now = "LEARN NOW", later = "LATER", known = "IN YOUR BOOK" }
+  local WORD = { now = L["LEARN NOW"], later = L["LATER"], known = L["IN YOUR BOOK"] }
   function d:Refresh()
     if self.mode == "book" then return self:RefreshBook() end
-    if self.tab.text then self.tab.text:SetText("Trainer") end; self.head:SetText("AT THE TRAINER")
+    if self.tab.text then self.tab.text:SetText(L["Trainer"]) end; self.head:SetText(L["AT THE TRAINER"])
     local list = TF.TrainerList()
     for _, r in ipairs(self.rows) do r:Hide() end
     for _, h in ipairs(self.heads) do h:Hide() end
@@ -3912,54 +3957,54 @@ local function MakeDrawer()
     local counts, owedCost = { now = 0, later = 0, known = 0 }, {}
     for _, sp in ipairs(list or {}) do counts[sp.state] = counts[sp.state] + 1; if sp.state == "now" and not sp.skipped then owedCost[#owedCost + 1] = sp end end
     local ct = TF.OwedCostText(owedCost)
-    self.cost:SetText(not list and "This client does not say which spells you know." or (counts.now == 0 and "Nothing new to learn at your level." or string.format("%d to learn now%s. Later ones are listed with their level.", counts.now, ct and (", " .. ct) or "")))
+    self.cost:SetText(not list and L["This client does not say which spells you know."] or (counts.now == 0 and L["Nothing new to learn at your level."] or string.format(L["%d to learn now%s. Later ones are listed with their level."], counts.now, ct and (", " .. ct) or "")))
     for _, sp in ipairs(list or {}) do
       if sp.state ~= state then
         state = sp.state; hk = hk + 1; local h = Head(hk); h:Show(); h:SetPoint("TOPLEFT", self.body, "TOPLEFT", 0, -(y + 6)); h:SetText(string.format("%s (%d)", WORD[state], counts[state])); y = y + 26
       end
       k = k + 1; local r = Row(k); r:Show(); r:ClearAllPoints(); r:SetPoint("TOPLEFT", 0, -y); r:SetHeight(ROWH); r.sub:Hide(); r.spell = sp
       r.icon:SetSize(18, 18); r.icon:SetPoint("LEFT", 6, 0); r.name:ClearAllPoints(); r.name:SetPoint("LEFT", 30, 0); r.name:SetPoint("RIGHT", r.right, "LEFT", -6, 0)
-      r.icon:SetTexture(IconFor({ icon = sp.icon })); r.name:SetText(sp.ranks > 1 and string.format("%s (rank %d)", sp.name, sp.rank) or sp.name)
+      r.icon:SetTexture(IconFor({ icon = sp.icon })); r.name:SetText(sp.ranks > 1 and string.format(L["%s (rank %d)"], sp.loc or sp.name, sp.rank) or (sp.loc or sp.name))
       local dim = sp.state == "known" or sp.skipped
       r.icon:SetDesaturated(dim); r.icon:SetAlpha(dim and 0.45 or 1); r.name:SetAlpha(dim and 0.55 or 1)
-      if sp.state == "now" then r.right:SetText(sp.skipped and "skipped" or (sp.cost and TF.Money(sp.cost) or "no price")); r.right:SetTextColor(rgb(sp.skipped and C.muted or (sp.cost and C.gold or C.muted)))
-      elseif sp.state == "later" then r.right:SetText(string.format("level %d", sp.level)); r.right:SetTextColor(rgb(C.muted))
-      else r.right:SetText("Learned"); r.right:SetTextColor(rgb(C.green)) end
+      if sp.state == "now" then r.right:SetText(sp.skipped and L["skipped"] or (sp.cost and TF.Money(sp.cost) or L["no price"])); r.right:SetTextColor(rgb(sp.skipped and C.muted or (sp.cost and C.gold or C.muted)))
+      elseif sp.state == "later" then r.right:SetText(string.format(L["level %d"], sp.level)); r.right:SetTextColor(rgb(C.muted))
+      else r.right:SetText(L["Learned"]); r.right:SetTextColor(rgb(C.green)) end
       y = y + ROWH
     end
     self.body:SetHeight(math.max(10, y + 10))
   end
   -- the book: every ability by the level it comes, what you have in green, the rest waiting; the next level lit
   function d:RefreshBook()
-    if self.tab.text then self.tab.text:SetText("Spellbook") end; self.head:SetText("YOUR SPELLBOOK, BY LEVEL")
+    if self.tab.text then self.tab.text:SetText(L["Spellbook"]) end; self.head:SetText(L["YOUR SPELLBOOK, BY LEVEL"])
     local list = TF.SpellbookList(plan().cls)
     for _, r in ipairs(self.rows) do r:Hide() end
     for _, h in ipairs(self.heads) do h:Hide() end
     local lvl = UnitLevel("player") or 1; local own = isOwnClass()
     local y, k, hk, level, have, total = 0, 0, 0, nil, 0, 0
     for _, sp in ipairs(list or {}) do total = total + 1; if sp.known then have = have + 1 end end
-    self.cost:SetText(not list and "No spellbook for this class yet." or (own and string.format("%d of %d ranks in your book. The rest come with levels, each at the trainer.", have, total) or string.format("Every %s ability from 1 to 60, the level it comes and its trainer price.", classData().name)))
+    self.cost:SetText(not list and L["No spellbook for this class yet."] or (own and string.format(L["%d of %d ranks in your book. The rest come with levels, each at the trainer."], have, total) or string.format(L["Every %s ability from 1 to 60, the level it comes and its trainer price."], classData().name)))
     for _, sp in ipairs(list or {}) do
       if sp.level ~= level then
         level = sp.level; hk = hk + 1; local h = Head(hk); h:Show(); h:SetPoint("TOPLEFT", self.body, "TOPLEFT", 0, -(y + 6))
-        h:SetText(string.format("LEVEL %d%s", level, (own and level == lvl) and ", YOU ARE HERE" or "")); h.text:SetTextColor(rgb((own and level == lvl) and C.gold or C.muted)); y = y + 26
+        h:SetText(string.format(L["LEVEL %d%s"], level, (own and level == lvl) and L[", YOU ARE HERE"] or "")); h.text:SetTextColor(rgb((own and level == lvl) and C.gold or C.muted)); y = y + 26
       end
       k = k + 1; local r = Row(k); r:Show(); r:ClearAllPoints(); r:SetPoint("TOPLEFT", 0, -y); r:SetHeight(34); r.spell = sp
       sp.state = sp.known and "known" or (own and sp.level <= lvl and "now" or "later")
       r.icon:SetSize(26, 26); r.icon:SetPoint("LEFT", 4, 0); r.name:ClearAllPoints(); r.name:SetPoint("TOPLEFT", 36, -4); r.name:SetPoint("RIGHT", r.right, "LEFT", -6, 0); r.sub:ClearAllPoints(); r.sub:SetPoint("BOTTOMLEFT", 36, 4); r.sub:SetPoint("RIGHT", r.right, "LEFT", -6, 0)
-      r.icon:SetTexture(IconFor({ icon = sp.icon })); r.name:SetText(sp.name)
+      r.icon:SetTexture(IconFor({ icon = sp.icon })); r.name:SetText(sp.loc or sp.name)
       local rec = D.learn and D.learn[plan().cls] and D.learn[plan().cls][sp.name]
-      local what = sp.rank == 1 and (rec and rec.talent and "New, from a talent in your plan" or "New ability") or string.format("Rank %d of %d", sp.rank, sp.ranks)
-      if sp.skill then what = sp.classic and "Passive, from the trainer. Classic's level, until a Forever trainer confirms it" or "Passive, from the trainer" end   -- Dual Wield, Parry (a Rogue at 9 asked, 27 Sep)
-      if sp.quest then what = "From a quest, not the trainer" end   -- Aquatic Form (a Druid at 24, 2 Oct)
-      if sp.portal then what = what .. ", portal trainer" end
+      local what = sp.rank == 1 and (rec and rec.talent and L["New, from a talent in your plan"] or L["New ability"]) or string.format(L["Rank %d of %d"], sp.rank, sp.ranks)
+      if sp.skill then what = sp.classic and L["Passive, from the trainer. Classic's level, until a Forever trainer confirms it"] or L["Passive, from the trainer"] end   -- Dual Wield, Parry (a Rogue at 9 asked, 27 Sep)
+      if sp.quest then what = L["From a quest, not the trainer"] end   -- Aquatic Form (a Druid at 24, 2 Oct)
+      if sp.portal then what = what .. L[", portal trainer"] end
       r.sub:SetText(what); r.sub:Show()
       local dim = sp.known and true or false
       r.icon:SetDesaturated(dim); r.icon:SetAlpha(dim and 0.5 or 1); r.name:SetAlpha(dim and 0.6 or 1); r.sub:SetAlpha(dim and 0.6 or 1)
       r.name:SetTextColor(rgb(sp.rank == 1 and not dim and C.gold or C.ink))
-      if sp.known then r.right:SetText("Learned"); r.right:SetTextColor(rgb(C.green))
-      elseif own and sp.level <= lvl then r.right:SetText(sp.cost and TF.Money(sp.cost) or "trainer"); r.right:SetTextColor(rgb(C.gold))
-      else r.right:SetText(sp.cost and TF.Money(sp.cost) or "no price"); r.right:SetTextColor(rgb(C.muted)) end
+      if sp.known then r.right:SetText(L["Learned"]); r.right:SetTextColor(rgb(C.green))
+      elseif own and sp.level <= lvl then r.right:SetText(sp.cost and TF.Money(sp.cost) or L["trainer"]); r.right:SetTextColor(rgb(C.gold))
+      else r.right:SetText(sp.cost and TF.Money(sp.cost) or L["no price"]); r.right:SetTextColor(rgb(C.muted)) end
       y = y + 34
     end
     self.body:SetHeight(math.max(10, y + 10))
@@ -3971,7 +4016,7 @@ function UI.OpenTrainer(toggle, mode)
   if not F then return end
   UI.drawer = UI.drawer or MakeDrawer()
   local d = UI.drawer
-  mode = mode or "trainer"
+  mode = mode or L["trainer"]
   if toggle and d:IsShown() and d.mode == mode then d:Hide(); return end
   d.mode = mode
   if not F:IsShown() then UI.Show() end
@@ -4017,10 +4062,11 @@ function UI.ClearView()
   UI.SetTab("home")
   UI.Refresh()
   Sound("IG_MAINMENU_OPTION_CHECKBOX_OFF")
-  UI.Note(did > 0 and "Cleared. Your plan and your character are as they were." or "Nothing was on. Reset is the one that empties the plan.")
+  UI.Note(did > 0 and L["Cleared. Your plan and your character are as they were."] or L["Nothing was on. Reset is the one that empties the plan."])
 end
 function UI.Show()
   local first = not F
+  if TF.locale and TF.locale.missing > 0 then pcall(TF.Localise) end   -- a spell name the game had not loaded yet
   if not F then MakeFrame() end
   if toast and toast:IsShown() then toast:Hide() end
   BuildTrees()
@@ -4038,9 +4084,9 @@ function UI.Show()
 end
 -- the walkthrough: one footer line at a time, each waits for Next; it opens the page it talks about
 local WALK = {
-  { "Left click adds a point, right click takes it back. Nothing touches your character until you press Apply.", "home" },
-  { "The right side lists your plan, one point per level. The arrows by the level number show the build as it stands at any level.", "plan" },
-  { "Builds: save yours, share it by link or QR, or load one of the popular builds. /talents opens this window any time.", "builds" },
+  { L["Left click adds a point, right click takes it back. Nothing touches your character until you press Apply."], "home" },
+  { L["The right side lists your plan, one point per level. The arrows by the level number show the build as it stands at any level."], "plan" },
+  { L["Builds: save yours, share it by link or QR, or load one of the popular builds. /talents opens this window any time."], "builds" },
 }
 function UI.Walkthrough(step)
   step = step or 1
@@ -4050,9 +4096,9 @@ function UI.Walkthrough(step)
   if w[2] and not UI.HiddenTab(w[2]) then UI.SetTab(w[2]) end
   if step == 1 and trees[1] and trees[1].tiles[1] then Land(trees[1].tiles[1], true) end
   local last = step == #WALK
-  UI.Note(string.format("%d of %d. %s", step, #WALK, w[1]),
-    { { label = last and "Done" or "Next", fn = function() if last then UI.walkStep = nil; UI.SetTab("plan"); UI.ClearNote() else UI.Walkthrough(step + 1) end end },
-      (not last) and { label = "Skip", fn = function() UI.walkStep = nil; UI.SetTab("plan"); UI.ClearNote() end } or nil }, 600)
+  UI.Note(string.format(L["%d of %d. %s"], step, #WALK, w[1]),
+    { { label = last and L["Done"] or L["Next"], fn = function() if last then UI.walkStep = nil; UI.SetTab("plan"); UI.ClearNote() else UI.Walkthrough(step + 1) end end },
+      (not last) and { label = L["Skip"], fn = function() UI.walkStep = nil; UI.SetTab("plan"); UI.ClearNote() end } or nil }, 600)
 end
 function UI.Hide() if F then F:Hide() end end
 function TF.Toggle() if F and F:IsShown() then UI.Hide() else UI.Show() end end
@@ -4064,11 +4110,11 @@ function TF.Toggle() if F and F:IsShown() then UI.Hide() else UI.Show() end end
 local KEYS = { actions = { "TOGGLETALENTS" } }   -- btn: the named button the key clicks; pending: a change made in combat, waiting
 function UI.ApplyTalentsKey(say)
   if not SetOverrideBindingClick or not GetBindingKey or not ClearOverrideBindings then return end
-  if InCombatLockdown and InCombatLockdown() then KEYS.pending = true; if say then UI.Note("After the fight: the game takes no key changes in combat.", nil, 6) end; return end
+  if InCombatLockdown and InCombatLockdown() then KEYS.pending = true; if say then UI.Note(L["After the fight: the game takes no key changes in combat."], nil, 6) end; return end
   KEYS.pending = nil
   if not KEYS.btn then KEYS.btn = CreateFrame("Button", "TalentsForeverBookKeyButton", UIParent); KEYS.btn:SetScript("OnClick", function() TF.Toggle() end) end
   ClearOverrideBindings(KEYS.btn)
-  if not S().talentsKey then if say then UI.Note("The talents key is the game's again.", nil, 6) end; return end
+  if not S().talentsKey then if say then UI.Note(L["The talents key is the game's again."], nil, 6) end; return end
   local keys = {}
   for _, action in ipairs(KEYS.actions) do
     local k1, k2 = GetBindingKey(action)
@@ -4076,7 +4122,7 @@ function UI.ApplyTalentsKey(say)
     if k2 then keys[#keys + 1] = k2 end
   end
   for _, k in ipairs(keys) do SetOverrideBindingClick(KEYS.btn, true, k, "TalentsForeverBookKeyButton") end
-  if say then UI.Note(#keys > 0 and string.format("%s opens Talents Forever now. Off in Settings gives the game's window back.", table.concat(keys, " and ")) or "The game's talents window has no key in Key Bindings, so there is nothing to take over yet.", nil, 8) end
+  if say then UI.Note(#keys > 0 and string.format(L["%s opens Talents Forever now. Off in Settings gives the game's window back."], table.concat(keys, L[" and "])) or L["The game's talents window has no key in Key Bindings, so there is nothing to take over yet."], nil, 8) end
 end
 -- bindings change (UPDATE_BINDINGS) and combat ends (PLAYER_REGEN_ENABLED) reach the boot frame below
 function UI.TalentsKeyEvent(ev)
@@ -4121,7 +4167,7 @@ local function MakeMinimap()
   end) end)
   b:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
   b:SetScript("OnClick", function(_, btn) if btn == "RightButton" then UI.Show(); S().showPlan = true; UI.Layout(); UI.SetTab("popular") else TF.Toggle() end end)
-  Tip(b, "Talents Forever", "Left click: the planner. Right click: popular builds.\nDrag to move this button.\n|cffc79c1atalentsforever.com|r")
+  Tip(b, "Talents Forever", L["Left click: the planner. Right click: popular builds.\nDrag to move this button.\n|cffc79c1atalentsforever.com|r"])
   place()
   if s.hide then b:Hide() end
 end
@@ -4165,7 +4211,8 @@ function UI.RefreshOverlay()
   local nb = 0
   local buttons = {}
   for ti, tree in ipairs(cd.trees) do for i, t in ipairs(tree.talents) do
-    local ok, btn = pcall(tfr.GetTalentButtonByNodeID, tfr, t.node)
+    local n = G.Node(ti, i); local id = n and n.id or (not G.live and t.node) or nil   -- the game's own node for the talent; the files' id only while the game has not answered
+    local ok, btn; if id then ok, btn = pcall(tfr.GetTalentButtonByNodeID, tfr, id) end
     if ok and btn then
       buttons[ti .. ":" .. i] = btn
       local r = p.ranks[ti][i]
@@ -4181,7 +4228,7 @@ function UI.RefreshOverlay()
     if btn then nb = nb + 1; local b = badge(o, nb); b:Show(); b:ClearAllPoints(); b:SetPoint("CENTER", btn, "CENTER"); b:SetWidth(1); b.text:SetText(""); b.bg:SetAlpha(0); b.ring:SetPoint("CENTER", b, "CENTER"); b.pulse:Play() end
   end
   local missing = select(1, TF.Diff(p)) or 0
-  o.note:SetText(#list > 0 and string.format("Talents Forever: %d planned, %d still to place. Gold numbers are your plan, the ring is your next point.", #list, missing) or "Talents Forever: no plan yet. /talents to make one.")
+  o.note:SetText(#list > 0 and string.format(L["Talents Forever: %d planned, %d still to place. Gold numbers are your plan, the ring is your next point."], #list, missing) or L["Talents Forever: no plan yet. /talents to make one."])
 end
 -- "Open this instead of the game's talents" (a Hunter at 20 asked from inside the addon, 30 Sep): the game's talent tab,
 -- opened any way at all (the key, the micro bar, the spellbook's own tab), closes again on the next frame and the planner
@@ -4229,7 +4276,7 @@ local function MakeCharacterTab()
     if tab.SetFillToInterior then tab:SetFillToInterior(true, 50) end
   end
   if tab.SetCustomOnMouseUpHandler then tab:SetCustomOnMouseUpHandler(function(_, button, upInside) if button == "LeftButton" and upInside then TF.Toggle(); if tab.SetChecked then tab:SetChecked(false) end end end) end
-  tab:SetScript("OnEnter", function(self) GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetText("Talents Forever", 1, 0.82, 0); GameTooltip:AddLine("Plan, path, builds. Same as /talents.", 0.9, 0.9, 0.9); GameTooltip:Show() end)
+  tab:SetScript("OnEnter", function(self) GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetText("Talents Forever", 1, 0.82, 0); GameTooltip:AddLine(L["Plan, path, builds. Same as /talents."], 0.9, 0.9, 0.9); GameTooltip:Show() end)
   tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
   local function place()
     local last
@@ -4261,7 +4308,7 @@ local function HookBlizzard()
       hooked[name] = true
       local b = Button(host, "Talents Forever", "auto", 20, function() TF.Toggle() end)
       b:SetPoint("TOPLEFT", host, "TOPLEFT", 64, -3); b:SetFrameLevel(host:GetFrameLevel() + 10)
-      Tip(b, "Talents Forever", "Plan here, apply there.")
+      Tip(b, "Talents Forever", L["Plan here, apply there."])
       TF.Log("button added to %s", name)
     end
   end
@@ -4275,41 +4322,41 @@ SlashCmdList.TALENTSFOREVERBOOK = function(msg)
   cmd = (cmd or ""):lower()
   if cmd == "" then TF.Toggle()
   elseif cmd == "probe" then G.Probe()
-  elseif cmd == "log" then for k = math.max(1, #TF.log - 25), #TF.log do print("  " .. TF.log[k]) end; TF.Print("%d log lines", #TF.log)
-  elseif cmd == "import" or cmd == "load" then local ok, err = TF.LoadCode(rest); TF.Print(ok and "loaded." or (err or "no")); if ok then UI.Show() end
+  elseif cmd == "log" then for k = math.max(1, #TF.log - 25), #TF.log do print("  " .. TF.log[k]) end; TF.Print(L["%d log lines"], #TF.log)
+  elseif cmd == "import" or cmd == "load" then local ok, err = TF.LoadCode(rest); TF.Print(ok and L["loaded."] or (err or "no")); if ok then UI.Show() end
   elseif cmd == "share" or cmd == "link" then UI.Show(); UI.OpenSheet("share")
-  elseif cmd == "reset" then TF.Reset(); TF.Print("plan cleared (your character is untouched). /talents undo brings it back.")
-  elseif cmd == "undo" then TF.Print(TF.Undo() and "the plan is back." or "nothing to undo.")
+  elseif cmd == "reset" then TF.Reset(); TF.Print(L["plan cleared (your character is untouched). /talents undo brings it back."])
+  elseif cmd == "undo" then TF.Print(TF.Undo() and L["the plan is back."] or L["nothing to undo."])
   elseif cmd == "find" then UI.Find(rest)
   elseif cmd == "settings" or cmd == "options" then UI.Show(); UI.OpenSettings()
   elseif cmd == "next" then UI.ApplyNext()
   elseif cmd == "all" then UI.ApplyAll()
-  elseif cmd == "save" then local rec = TF.SaveBuild(rest); TF.Print("saved as %s.", rec.name)
+  elseif cmd == "save" then local rec = TF.SaveBuild(rest); TF.Print(L["saved as %s."], rec.name)
   elseif cmd == "builds" then
-    if #TF.db.builds == 0 then TF.Print("no saved builds. /talents save <name> keeps the open plan.") end
-    for k, b in ipairs(TF.db.builds) do TF.Print("%d. %s (%s, %s/%s/%s)", k, b.name, D.classes[b.cls] and D.classes[b.cls].name or b.cls, tostring(b.pts[1]), tostring(b.pts[2]), tostring(b.pts[3])) end
+    if #TF.db.builds == 0 then TF.Print(L["no saved builds. /talents save <name> keeps the open plan."]) end
+    for k, b in ipairs(TF.db.builds) do TF.Print(L["%d. %s (%s, %s/%s/%s)"], k, b.name, D.classes[b.cls] and D.classes[b.cls].name or b.cls, tostring(b.pts[1]), tostring(b.pts[2]), tostring(b.pts[3])) end
   elseif cmd == "open" then
     local pick = tonumber(rest)
     if not pick then for k, b in ipairs(TF.db.builds) do if b.name:lower() == (rest or ""):lower() then pick = k; break end end end
-    if pick and TF.LoadBuild(pick) then TF.Print("%s is on your trees.", TF.db.builds[pick].name); UI.Show() else TF.Print("no saved build called %s. /talents builds lists them.", rest) end
+    if pick and TF.LoadBuild(pick) then TF.Print(L["%s is on your trees."], TF.db.builds[pick].name); UI.Show() else TF.Print(L["no saved build called %s. /talents builds lists them."], rest) end
   elseif cmd == "plans" then
-    for k, e in ipairs(TF.PlanList()) do local parts = {}; for ti = 1, #e.plan.ranks do parts[ti] = TF.TreePts(e.plan, ti) end; TF.Print("%d. %s (%s)%s", k, e.name, table.concat(parts, "/"), k == 1 and ", open" or "") end
-    TF.Print("/talents plan <name> opens one; the chip after your class in the window does the same.")
+    for k, e in ipairs(TF.PlanList()) do local parts = {}; for ti = 1, #e.plan.ranks do parts[ti] = TF.TreePts(e.plan, ti) end; TF.Print(L["%d. %s (%s)%s"], k, e.name, table.concat(parts, "/"), k == 1 and L[", open"] or "") end
+    TF.Print(L["/talents plan <name> opens one; the chip after your class in the window does the same."])
   elseif cmd == "plan" then
     local k = TF.SwitchPlanNamed(rest)
-    if k == 0 then TF.Print("%s is already open.", TF.PlanName()) elseif k then TF.Print("%s is on your trees.", TF.PlanName()); UI.Show() else TF.Print("no plan called %s. /talents plans lists them.", rest) end
-  elseif cmd == "scale" then local v = tonumber(rest); if F and v then UI.SetScale(v); TF.Print("scale %.2f", F:GetScale()) else TF.Print("/talents scale 0.5 to 1.6, or drag the corner.") end
-  elseif cmd == "center" then S().pos = nil; if F then restorePos() end; TF.Print("window centered.")
-  elseif cmd == "party" then local ok, why = TF.AskParty(); TF.Print(ok and "asked your group for their builds." or why)
+    if k == 0 then TF.Print(L["%s is already open."], TF.PlanName()) elseif k then TF.Print(L["%s is on your trees."], TF.PlanName()); UI.Show() else TF.Print(L["no plan called %s. /talents plans lists them."], rest) end
+  elseif cmd == "scale" then local v = tonumber(rest); if F and v then UI.SetScale(v); TF.Print(L["scale %.2f"], F:GetScale()) else TF.Print(L["/talents scale 0.5 to 1.6, or drag the corner."]) end
+  elseif cmd == "center" then S().pos = nil; if F then restorePos() end; TF.Print(L["window centered."])
+  elseif cmd == "party" then local ok, why = TF.AskParty(); TF.Print(ok and L["asked your group for their builds."] or why)
   elseif cmd == "inspect" then local ok, why = TF.RequestInspect("target"); if not ok then TF.Print(why) end
-  elseif cmd == "trainall" then if TF.trainer.open then local n = TF.TrainAll(); if n == 0 then TF.Print("nothing here that you want and can afford.") end else TF.Print("open a trainer window first.") end
-  elseif cmd == "trainer" then local owed = TF.OwedSpells(); if not owed then TF.Print("this client cannot say which spells you know.") elseif #owed == 0 then TF.Print("your spellbook has everything the trainer sells at your level.") else local ct = TF.OwedCostText(owed); TF.Print("%d waiting at the trainer%s: %s.", #owed, ct and (" (" .. ct .. ")") or "", TF.SpellsSummary(owed, 12)) end
-  elseif cmd == "nudge" then S().levelUpNudge = not S().levelUpNudge; TF.Print("level-up reminders %s.", S().levelUpNudge and "on" or "off")
+  elseif cmd == "trainall" then if TF.trainer.open then local n = TF.TrainAll(); if n == 0 then TF.Print(L["nothing here that you want and can afford."]) end else TF.Print(L["open a trainer window first."]) end
+  elseif cmd == "trainer" then local owed = TF.OwedSpells(); if not owed then TF.Print(L["this client cannot say which spells you know."]) elseif #owed == 0 then TF.Print(L["your spellbook has everything the trainer sells at your level."]) else local ct = TF.OwedCostText(owed); TF.Print(L["%d waiting at the trainer%s: %s."], #owed, ct and (" (" .. ct .. ")") or "", TF.SpellsSummary(owed, 12)) end
+  elseif cmd == "nudge" then S().levelUpNudge = not S().levelUpNudge; TF.Print(L["level-up reminders %s."], S().levelUpNudge and L["on"] or L["off"])
   elseif cmd == "intro" then UI.Show(); UI.Walkthrough(1)
-  elseif cmd == "sounds" then S().sounds = not S().sounds; TF.Print("sounds %s.", S().sounds and "on" or "off")
+  elseif cmd == "sounds" then S().sounds = not S().sounds; TF.Print(L["sounds %s."], S().sounds and L["on"] or L["off"])
   elseif cmd == "minimap" then S().minimap.hide = not S().minimap.hide; UI.SetMinimapShown(not S().minimap.hide)
   else
-    TF.Print("v%s. /talents opens the planner. /talents next and /talents all place planned points. /talents save <name>, /talents builds, /talents open <name>, /talents plans, /talents plan <name>, /talents find <talent>, /talents undo, /talents settings, /talents import <link or code>, /talents share, /talents reset, /talents scale <n>, /talents center, /talents inspect, /talents party, /talents trainer, /talents trainall, /talents nudge, /talents sounds, /talents minimap, /talents intro, /talents log.", TF.VERSION)
+    TF.Print(L["v%s. /talents opens the planner. /talents next and /talents all place planned points. /talents save <name>, /talents builds, /talents open <name>, /talents plans, /talents plan <name>, /talents find <talent>, /talents undo, /talents settings, /talents import <link or code>, /talents share, /talents reset, /talents scale <n>, /talents center, /talents inspect, /talents party, /talents trainer, /talents trainall, /talents nudge, /talents sounds, /talents minimap, /talents intro, /talents log."], TF.VERSION)
   end
 end
 
@@ -4331,18 +4378,17 @@ local function onBuildMessage(prefix, text, channel, sender)
   TF.RememberGroupBuild(who, p, code)
   local parts = {}
   for ti = 1, #p.ranks do parts[ti] = TF.TreePts(p, ti) end
-  local label = string.format("%s's %s build", who, c.name)
-  UI.Toast(string.format("%s sent you a %s build at level %d (%s).", who, c.name, p.level, table.concat(parts, " / ")), IconFor({ icon = c.trees[1].icon }),
-    { { label = "Try it", fn = function() TF.TryBuild(p, label); UI.Show() end }, { label = "Load it", fn = function() TF.Remember(); TF.SetPlan(p); UI.Show() end } }, 40)
+  local label = string.format(L["%s's %s build"], who, c.name)
+  UI.Toast(string.format(L["%s sent you a %s build at level %d (%s)."], who, c.name, p.level, table.concat(parts, " / ")), IconFor({ icon = c.trees[1].icon }),
+    { { label = L["Try it"], fn = function() TF.TryBuild(p, label); UI.Show() end }, { label = L["Load it"], fn = function() TF.Remember(); TF.SetPlan(p); UI.Show() end } }, 40)
   Sound("IG_QUEST_LIST_OPEN")
 end
-local greeted
 boot:SetScript("OnEvent", function(_, ev, name, arg2, arg3, arg4)
   if ev == "CHAT_MSG_ADDON" then onBuildMessage(name, arg2, arg3, arg4); return end
   if ev == "ADDON_ACTION_FORBIDDEN" then
     if name == "TalentsForeverBook" and TF.db and TF.db.settings and not S().plainClassList then
       S().plainClassList = true
-      TF.Print("the game blocked the class list (%s). The plain class button takes its place from the next /reload.", tostring(arg2))
+      TF.Print(L["the game blocked the class list (%s). The plain class button takes its place from the next /reload."], tostring(arg2))
     end
     return
   end
@@ -4351,7 +4397,7 @@ boot:SetScript("OnEvent", function(_, ev, name, arg2, arg3, arg4)
     if name == "TalentsForeverBook" then TF.InitDB(); if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then pcall(C_ChatInfo.RegisterAddonMessagePrefix, TF.PREFIX) end end
     if name and name:find("^Blizzard_") then noteLoaded(name); C_Timer.After(0.5, HookBlizzard); C_Timer.After(0.6, HookTalentWindow) end
   elseif ev == "PLAYER_LOGIN" then
-    TF.InitDB(); TF.LoadPlan(); MakeMinimap(); pcall(UI.ApplyTalentsKey)
+    TF.InitDB(); pcall(TF.Localise); TF.LoadPlan(); MakeMinimap(); pcall(UI.ApplyTalentsKey)
     C_Timer.After(0.5, function()
       if F then return end
       MakeFrame(); BuildTrees(); UI.Layout(); pcall(UI.Refresh)
@@ -4366,14 +4412,14 @@ boot:SetScript("OnEvent", function(_, ev, name, arg2, arg3, arg4)
     -- What's Training already lists the trainer's spells for most players: until they touch the setting, our reminders stay out of its way
     if not S().trainerAlertsSet then local isl = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded; local ok, on = pcall(isl or error, "WhatsTraining"); S().trainerAlerts = not (ok and on) end C_Timer.After(1, MakeCharacterTab); C_Timer.After(1, HookTalentWindow); pcall(TF.InstallChatLinks); C_Timer.After(3, function() pcall(TF.UpdateBroker) end)
   elseif ev == "PLAYER_ENTERING_WORLD" then
-    TF.InitDB(); TF.LoadPlan()
+    TF.InitDB(); if not TF.locale or TF.locale.missing > 0 then pcall(TF.Localise) end; TF.LoadPlan()   -- names the game had not loaded at login
     C_Timer.After(1, HookBlizzard)
     -- a line in chat once per version, not every login: the addon stays quiet unless something changed
-    if not greeted then greeted = true; if S().greetedVersion ~= TF.VERSION then S().greetedVersion = TF.VERSION; TF.Print("v%s loaded. %s opens the planner, /talents help lists the rest.", TF.VERSION, UI.tfShort and "/tf or /talents" or "/talents") end end
+    if not UI.greeted then UI.greeted = true; if S().greetedVersion ~= TF.VERSION then S().greetedVersion = TF.VERSION; TF.Print(L["v%s loaded. %s opens the planner, /talents help lists the rest."], TF.VERSION, UI.tfShort and L["/tf or /talents"] or L["/talents"]) end end
     -- one card at login, never two: the once-only update card, else the unspent-point card if there is one, else the trainer card
     local loginCard = false
     C_Timer.After(10, function() loginCard = UI.UpgradeCard(); if not loginCard and TF.lastSettled then UI.SettledCard(TF.lastSettled); loginCard = true end end)   -- a plan that settled at login gets the card too
-    C_Timer.After(12, function() if not loginCard and G.live and G.Unspent() > 0 then loginCard = Nudge(string.format("%d unspent point%s", G.Unspent(), G.Unspent() == 1 and "" or "s")) and true or false end end)
+    C_Timer.After(12, function() if not loginCard and G.live and G.Unspent() > 0 then loginCard = Nudge(string.format(TF.Plural(G.Unspent(), "%d unspent point", "%d unspent points"), G.Unspent())) and true or false end end)
     C_Timer.After(16, function() if not loginCard then TrainerAlert((GetRealZoneText and GetRealZoneText()) or nil) end end)
     -- once per batch of replies: a card saying what happened to what people asked for. The Feedback page has the words,
     -- and a note sent from this account has its answer under it there.
@@ -4383,9 +4429,9 @@ boot:SetScript("OnEvent", function(_, ev, name, arg2, arg3, arg4)
         if S().repliesSeen == R.asOf then return end
         S().repliesSeen = R.asOf
         local mine = 0; for _, r in ipairs(TF.Replies() or {}) do if r.mine then mine = mine + 1 end end
-        local words = mine > 0 and string.format("There is a reply to %s. It is on the Feedback page, under your note.", mine == 1 and "the note you sent from here" or "the notes you sent from here")
-          or R.card or "What people asked for from inside the addon, and what happened to it, is on the Feedback page now."
-        UI.Toast(words, nil, { { label = "Read it", fn = function() UI.Show(); UI.SetTab("feedback") end } }, 30)
+        local words = mine > 0 and string.format(L["There is a reply to %s. It is on the Feedback page, under your note."], mine == 1 and L["the note you sent from here"] or L["the notes you sent from here"])
+          or R.card or L["What people asked for from inside the addon, and what happened to it, is on the Feedback page now."]
+        UI.Toast(words, nil, { { label = L["Read it"], fn = function() UI.Show(); UI.SetTab("feedback") end } }, 30)
       end)
     end
   end
@@ -4393,13 +4439,13 @@ end)
 TF.On("PLAN_CHANGED", function() TF.CharDB().plan = TF.plan; if F and F:IsShown() then if builtFor ~= TF.plan.cls then BuildTrees() end; UI.Refresh() end; for k, s in pairs(sheets) do if s:IsShown() and s.refresh and k ~= "import" then s.refresh() end end; UI.RefreshOverlay() end)
 TF.On("GAME_CHANGED", function() UI.Refresh(); UI.RefreshOverlay() end)
 TF.On("XP", function() if F and F:IsShown() and S().sideTab == "home" and tabs.home and tabs.home.refresh then tabs.home.refresh() end end)
-TF.On("COMMIT_FAILED", function() UI.Toast("The game did not accept the last talent change. Your plan is untouched; try again in a moment.") end)
+TF.On("COMMIT_FAILED", function() UI.Toast(L["The game did not accept the last talent change. Your plan is untouched; try again in a moment."]) end)
 TF.On("BUILDS_CHANGED", function() if F and F:IsShown() and S().sideTab == "builds" then tabs.builds.refresh() end end)
-TF.On("SKIP_CHANGED", function(name, rank, on) UI.Note(on and string.format("%s skipped. It stays out of the reminders for this character.", name) or string.format("%s is back on the list.", name)) end)
-TF.On("LEVEL_UP", function(level) local shown = Nudge("Level " .. tostring(level or UnitLevel("player"))); C_Timer.After(shown and 30 or 6, function() TrainerAlert(nil) end) end)
+TF.On("SKIP_CHANGED", function(name, rank, on) local nm = TF.SpellLoc(plan().cls, name); UI.Note(on and string.format(L["%s skipped. It stays out of the reminders for this character."], nm) or string.format(L["%s is back on the list."], nm)) end)
+TF.On("LEVEL_UP", function(level) local shown = Nudge(string.format(L["Level %s"], tostring(level or UnitLevel("player")))); C_Timer.After(shown and 30 or 6, function() TrainerAlert(nil) end) end)
 TF.On("ZONE", function(where) if UI.CityHere(where) then TrainerAlert(where) end end)
 TF.On("LINK_OPENED", function(p)
-  local c = D.classes[p.cls]; UI.Show(); TF.TryBuild(p, "a build from chat")
-  UI.Note(string.format("%s build from chat, ringed on your trees next to yours.", c and c.name or "A"),
-    { { label = "Load it", fn = function() TF.TrialKeep(); UI.Note("Loaded.", { { label = "Undo", fn = function() TF.Undo() end } }) end }, { label = "Stop", fn = function() TF.TrialBack() end } }, 20)
+  local c = D.classes[p.cls]; UI.Show(); TF.TryBuild(p, L["a build from chat"])
+  UI.Note(string.format(L["%s build from chat, ringed on your trees next to yours."], c and c.name or "A"),
+    { { label = L["Load it"], fn = function() TF.TrialKeep(); UI.Note(L["Loaded."], { { label = L["Undo"], fn = function() TF.Undo() end } }) end }, { label = L["Stop"], fn = function() TF.TrialBack() end } }, 20)
 end)
