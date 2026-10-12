@@ -12,7 +12,6 @@ local KEYS = {
   QuestChoiceAutomation = { field = "enableQuestChoiceAutomation", default = false },
   AutoSellJunk = { field = "autoSellJunk", default = false },
   TalentGuides = { field = "enableTalentGuides", default = true },
-  MaxNameplateDistance = { field = "enableMaxNameplateDistance", default = true },
 }
 local OPTIONS_APP = "RestedXP Guides"
 

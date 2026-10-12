@@ -14,62 +14,11 @@ local function NewScripts(frame)
   end
 end
 
-local function NewFrame(objectType, parent)
-  local frame = { objectType = objectType, parent = parent, children = {}, points = {}, events = {} }
+local function NewFrame(objectType)
+  local frame = { objectType = objectType, events = {} }
   NewScripts(frame)
-  function frame:GetObjectType() return self.objectType end
-  function frame:GetChildren() return unpack(self.children) end
-  function frame:GetNumPoints() return #self.points end
-  function frame:GetPoint(i) return unpack(self.points[i]) end
   function frame:RegisterEvent(event) self.events[event] = true end
-  if parent then table.insert(parent.children, frame) end
   return frame
-end
-
-local function BuildLeatrix(world, values, saved)
-  local panel = NewFrame("Frame")
-  for _, name in ipairs({ "AutomateQuests", "AutomateGossip", "MoveChatEditBoxToTop", "SetChatFontSize", "MinimapModder", "ShowFlightTimes", "CombatPlates" }) do
-    values[name] = values[name] or "Off"
-  end
-  local pages = {}
-  for i = 0, 9 do
-    NewFrame("Button", panel).s = {}
-    local page = NewFrame("Frame", panel)
-    page.s = {}
-    page.points = { { "TOPLEFT", panel, "TOPLEFT", 0, 0 }, { "BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0 } }
-    pages[i] = page
-  end
-  local function MakeCB(page, field, x, y, reload)
-    local box = NewFrame("CheckButton", page)
-    box.points = { { "TOPLEFT", page, "TOPLEFT", x, y } }
-    box.f = { GetText = function() return reload and "Label*" or "Label" end }
-    box.enabled, box.checked = true, false
-    function box:GetChecked() return self.checked end
-    function box:SetChecked(v) self.checked = v and true or false end
-    function box:IsEnabled() return self.enabled end
-    function box:Click()
-      if not self.enabled then return end
-      self.checked = not self.checked
-      self:Fire("OnClick")
-    end
-    box:SetScript("OnShow", function(self) self:SetChecked(values[field] == "On") end)
-    box:SetScript("OnClick", function(self) values[field] = self:GetChecked() and "On" or "Off" end)
-    world.leatrixBoxes[field] = box
-    return box
-  end
-  world.leatrixBoxes = {}
-  MakeCB(pages[1], "AutomateQuests", 146, -92, false)
-  MakeCB(pages[1], "AutomateGossip", 146, -112, false)
-  MakeCB(pages[3], "UnclampChat", 146, -172, true)
-  MakeCB(pages[3], "MoveChatEditBoxToTop", 146, -192, true)
-  MakeCB(pages[3], "SetChatFontSize", 146, -212, true)
-  MakeCB(pages[5], "MinimapModder", 146, -92, true)
-  MakeCB(pages[5], "TipModEnable", 146, -112, true)
-  MakeCB(pages[7], "ShowFlightTimes", 340, -252, true)
-  MakeCB(pages[7], "CombatPlates", 340, -192, true)
-  world.leatrixPanel = panel
-  _G.LeaPlusGlobalPanel = panel
-  _G.LeaPlusDB = saved
 end
 
 local function BuildRestedXP(world, rxp)
@@ -86,38 +35,15 @@ local function BuildRestedXP(world, rxp)
   world.rxpRegistry = registry
 end
 
--- options: loaded = { addon = true }, leatrix = { values, saved, version },
--- rxp = { live, profiles, accountDefault, characterDefault }
--- plater = { live, profiles }, personalBar = boolean
 function Stubs.Fresh(root, options)
   local world = { printed = {}, popups = {}, timers = {}, tickers = {}, frames = {}, now = 100, combat = false }
   local loaded = options.loaded or {}
-  local versions = { Leatrix_Plus = (options.leatrix and options.leatrix.version) or "1.60.11" }
 
-  _G.LeaPlusGlobalPanel, _G.LeaPlusDB = nil, nil
   _G.RXP, _G.RXPSettings, _G.RXPData, _G.RXPCData, _G.LibStub = nil, nil, nil, nil, nil
-  _G.Plater, _G.PlaterDB = nil, nil
-  _G.KallyeRaidFramesOptions, _G.K_SHARED_UI = nil, nil
   _G.YUI, _G.YUI_DB = nil, nil
   _G.EllesmereUIDB, _G._ENP_RefreshAllSettings = nil, nil
-  if options.kallye then
-    _G.KallyeRaidFramesOptions = options.kallye
-    _G.K_SHARED_UI = { RefreshOptions = function() end }
-  end
-  world.cvars = { nameplateShowSelf = options.personalBar and "1" or "0" }
-  _G.GetCVar = function(name) return world.cvars[name] end
-  _G.SetCVar = function(name, value) world.cvars[name] = tostring(value) end
-  if loaded.Plater then
-    local profiles = (options.plater and options.plater.profiles) or {}
-    local live = (options.plater and options.plater.live) or {}
-    profiles.Default = live
-    _G.PlaterDB = { profiles = profiles }
-    _G.Plater = { db = { profile = live }, refreshes = 0 }
-    function Plater:RefreshConfig() self.refreshes = self.refreshes + 1 end
-  end
   _G.C_AddOns = {
     IsAddOnLoaded = function(name) return loaded[name] == true, loaded[name] == true end,
-    GetAddOnMetadata = function(name) return versions[name] end,
   }
   _G.C_Timer = {
     After = function(_, fn) table.insert(world.timers, fn) end,
@@ -150,22 +76,14 @@ function Stubs.Fresh(root, options)
     table.insert(world.printed, table.concat(parts, " "))
   end
 
-  if options.leatrix then
-    BuildLeatrix(world, options.leatrix.values or {}, options.leatrix.saved or {})
-    world.leatrixValues = options.leatrix.values
-  end
   if options.rxp then
     BuildRestedXP(world, options.rxp)
   end
 
   local ns = {}
-  for _, file in ipairs({ "Core.lua", "Policy.lua", "Adapters/LeatrixPlus.lua", "Adapters/RestedXP.lua", "Adapters/Plater.lua", "Adapters/Kallye.lua", "Guard.lua" }) do
+  for _, file in ipairs(ADDON_FILES) do
     local chunk = assert(loadfile(root .. file))
     chunk("OverlapSettingsGuard", ns)
-  end
-  for _, file in ipairs({ "Adapters/YUI.lua", "Adapters/EllesmereUI.lua" }) do
-    local chunk = loadfile(root .. file)
-    if chunk then chunk("OverlapSettingsGuard", ns) end
   end
   world.ns = ns
 

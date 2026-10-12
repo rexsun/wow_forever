@@ -16,37 +16,45 @@ local function ok(value, what)
   if not value then error((what or "condition") .. " failed", 2) end
 end
 
+local function ChatContains(w, text)
+  for _, line in ipairs(w.printed) do
+    if line:find(text, 1, true) then return true end
+  end
+  return false
+end
+
 local function StatusOf(results, id)
   for _, result in ipairs(results) do
     if result.rule.id == id then return result.status, result.detail end
   end
 end
 
-local function AllLoaded()
-  return { Leatrix_Plus = true, RXPGuides = true, Plater = true, ClassUIEnhanced = true }
+local function CurrentLoaded()
+  return { YUI = true, RXPGuides = true, TalentsForeverBook = true,
+    EllesmereUIUnitFrames = true, EllesmereUIRaidFrames = true, EllesmereUINameplates = true }
 end
 
 test("the shipped policy has no errors", function()
   local w = Stubs.Fresh(ADDON_ROOT, {})
   local problems = w.ns.ValidatePolicy(w.ns.policy, w.ns.adapters)
   eq(#problems, 0, "policy problems: " .. table.concat(problems, "; "))
-  eq(#w.ns.policy, 21, "rule count")
+  eq(#w.ns.policy, 10, "rule count")
 end)
 
 local function RxpOff()
-  return { autoSellJunk = false, enableTalentGuides = false, enableMaxNameplateDistance = false, enableQuestAutomation = false, enableQuestRewardAutomation = false, enableQuestChoiceAutomation = false, enableGossipAutomation = false }
+  return { autoSellJunk = false, enableTalentGuides = false, enableQuestAutomation = false, enableQuestRewardAutomation = false, enableQuestChoiceAutomation = false, enableGossipAutomation = false }
 end
 
 test("RestedXP settings read with RXP's defaults", function()
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = AllLoaded(), rxp = { live = {} } })
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded(), rxp = { live = {} } })
   local a = w.ns.adapters.RestedXP
   eq(a.Read("AutoSellJunk"), false, "autoSellJunk defaults off")
   eq(a.Read("TalentGuides"), true, "talent guides default on")
-  eq(a.Read("MaxNameplateDistance"), true, "nameplate distance default on")
+  eq(a.Knows("MaxNameplateDistance"), false, "unused nameplate-distance integration removed")
 end)
 
 test("RestedXP settings are switched off in the live profile, every stored profile and both templates", function()
-  local loaded = AllLoaded()
+  local loaded = CurrentLoaded()
   loaded.TalentsForeverBook = true
   local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded, rxp = {
     live = { autoSellJunk = true },
@@ -55,8 +63,6 @@ test("RestedXP settings are switched off in the live profile, every stored profi
     characterDefault = { enableTalentGuides = true },
   } })
   w.Login()
-  -- The templates get explicit values; a stored profile without its own value inherits
-  -- the account template, as AceDB does, so it needs no write.
   for _, store in ipairs({ RXP.settings.profile, RXPData.defaultProfile.profile, RXPCData.localDB.profile }) do
     for field, value in pairs(RxpOff()) do
       if not (field == "autoSellJunk" and store[field] == nil) then
@@ -65,10 +71,11 @@ test("RestedXP settings are switched off in the live profile, every stored profi
     end
   end
   eq(RXP.settings.profile.autoSellJunk, false, "live autoSellJunk")
-  for _, key in ipairs({ "AutoSellJunk", "TalentGuides", "MaxNameplateDistance" }) do
+  for _, key in ipairs({ "AutoSellJunk", "TalentGuides" }) do
     eq(w.ns.adapters.RestedXP.Read(key), false, key .. " off everywhere")
   end
-  eq(w.popups[1].which, "OVERLAPSETTINGSGUARD_OFF_RELOAD", "talent guides and nameplate distance need a reload")
+  eq(#w.popups, 0, "login never opens a popup")
+  ok(ChatContains(w, "/reload"), "reload reminder appears in chat")
   local named = false
   for _, line in ipairs(w.printed) do
     if line:find("Talents Guides", 1, true) and line:find("Also switched off in profiles: account default, character default", 1, true) then
@@ -79,7 +86,7 @@ test("RestedXP settings are switched off in the live profile, every stored profi
 end)
 
 test("a stored RestedXP profile with its own on value is switched off", function()
-  local loaded = AllLoaded()
+  local loaded = CurrentLoaded()
   loaded.TalentsForeverBook = true
   local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded, rxp = {
     live = RxpOff(),
@@ -87,12 +94,13 @@ test("a stored RestedXP profile with its own on value is switched off", function
   } })
   w.Login()
   eq(RXPSettings.profiles["Alt - Realm"].enableTalentGuides, false, "Alt talent guides")
-  eq(RXPSettings.profiles["Alt - Realm"].enableMaxNameplateDistance, false, "Alt nameplate distance (unset = default on)")
-  eq(w.popups[1].which, "OVERLAPSETTINGSGUARD_OFF", "no reload: this character's live values were already off")
+  eq(#w.popups, 0, "stored-profile changes never open a popup")
+  ok(ChatContains(w, "switched off"), "stored-profile changes appear in chat")
+  eq(ChatContains(w, "/reload"), false, "no reload: this character's live values were already off")
 end)
 
 test("a stored RestedXP profile without the value uses the account template", function()
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = AllLoaded(), rxp = {
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded(), rxp = {
     live = RxpOff(),
     profiles = { ["Alt - Realm"] = {} },
     accountDefault = RxpOff(),
@@ -101,211 +109,59 @@ test("a stored RestedXP profile without the value uses the account template", fu
 end)
 
 test("a change in RestedXP's options is undone through AceConfig's NotifyChange", function()
-  local loaded = AllLoaded()
+  local loaded = CurrentLoaded()
   loaded.TalentsForeverBook = true
   local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded, rxp = { live = RxpOff() } })
   w.Login()
   eq(#w.popups, 0, "nothing to do at login")
-  RXP.settings.profile.enableMaxNameplateDistance = true
+  RXP.settings.profile.enableTalentGuides = true
   w.rxpRegistry:NotifyChange("Some Other Addon")
   eq(#w.timers, 0, "other add-ons' changes are ignored")
   w.rxpRegistry:NotifyChange("RestedXP Guides")
   w.RunTimers()
-  eq(RXP.settings.profile.enableMaxNameplateDistance, false, "switched back")
+  eq(RXP.settings.profile.enableTalentGuides, false, "switched back")
 end)
 
 test("ValidatePolicy reports bad rules", function()
   local w = Stubs.Fresh(ADDON_ROOT, {})
   local bad = {
     { id = "a", adapter = "Nope", key = "x", label = "l", reason = "r", when = { "X" } },
-    { id = "a", adapter = "LeatrixPlus", key = "NotASetting", label = "l", reason = "r", when = {} },
+    { id = "a", adapter = "RestedXP", key = "NotASetting", label = "l", reason = "r", when = {} },
   }
   eq(#w.ns.ValidatePolicy(bad, w.ns.adapters), 4, "problem count")
 end)
 
-test("rules are inactive without their add-ons", function()
-  local w = Stubs.Fresh(ADDON_ROOT, {
-    loaded = { Leatrix_Plus = true },
-    leatrix = { values = { AutomateQuests = "On" } },
-  })
+test("every policy dependency belongs to the installed pack", function()
+  local w = Stubs.Fresh(ADDON_ROOT, {})
+  local used = {}
+  for _, rule in ipairs(w.ns.policy) do
+    for _, addon in ipairs(rule.when) do
+      ok(INSTALLED_ADDONS[addon], rule.id .. " requires an absent addon: " .. addon)
+    end
+    used[rule.adapter] = true
+  end
+  for name in pairs(w.ns.adapters) do
+    ok(used[name], "unused adapter: " .. name)
+  end
+end)
+
+test("rules are inactive without their owner addon", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = { RXPGuides = true }, rxp = {
+    live = { enableQuestAutomation = true, enableTalentGuides = true } } })
   local results = w.ns.Check()
-  eq(StatusOf(results, "rxp.autoquests"), "inactive", "autoquests without RXP")
-  eq(w.leatrixValues.AutomateQuests, "On", "Leatrix value left alone")
+  eq(StatusOf(results, "rxp.yui.autoquests"), "inactive")
+  eq(StatusOf(results, "rxp.talentguides"), "inactive")
+  eq(RXP.settings.profile.enableQuestAutomation, true)
+  eq(RXP.settings.profile.enableTalentGuides, true)
 end)
 
-test("Leatrix revert clicks the box and asks for a reload only when the running value was on", function()
-  local values = { CombatPlates = "On", ShowFlightTimes = "On" }
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = AllLoaded(), leatrix = { values = values, saved = { CombatPlates = "On", ShowFlightTimes = "Off" } } })
-  local reverted, reload = w.ns.adapters.LeatrixPlus.Revert("CombatPlates")
-  eq(reverted, true, "reverted")
-  eq(reload, true, "reload for a running reload-only option")
-  eq(values.CombatPlates, "Off", "Leatrix value")
-  reverted, reload = w.ns.adapters.LeatrixPlus.Revert("ShowFlightTimes")
-  eq(reverted, true, "flight times reverted")
-  eq(reload, false, "no reload when the running value was already off")
-  reverted = w.ns.adapters.LeatrixPlus.Revert("CombatPlates")
-  eq(reverted, true, "already-off setting")
-  eq(values.CombatPlates, "Off", "an off setting is not clicked on")
-end)
-
-test("Leatrix rule is blocked when the box at the spot is a different option", function()
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = AllLoaded(), leatrix = { values = {}, version = "1.61.0" } })
-  w.leatrixBoxes.CombatPlates.f = { GetText = function() return "Label" end }
-  local results = w.ns.Check()
-  local status, detail = StatusOf(results, "leatrix.combatplates")
-  eq(status, "blocked", "status")
-  ok(detail:find("different option") and detail:find("1.61.0"), "detail names the cause and version: " .. detail)
-end)
-
-test("Leatrix rule is blocked without the options panel", function()
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = AllLoaded(), leatrix = { values = {} } })
-  _G.LeaPlusGlobalPanel = nil
-  eq(StatusOf(w.ns.Check(), "leatrix.combatplates"), "blocked", "status")
-end)
-
-test("ticking a locked Leatrix box is undone on the next frame", function()
-  local values = {}
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = AllLoaded(), leatrix = { values = values } })
-  w.Login()
-  eq(#w.popups, 0, "nothing to do at login")
-  ok(w.leatrixBoxes.CombatPlates.tiptext:find("Locked off"), "tooltip note")
-  w.leatrixBoxes.CombatPlates:Click()
-  eq(values.CombatPlates, "On", "Leatrix took the click")
-  w.RunTimers()
-  eq(values.CombatPlates, "Off", "switched back")
-  eq(#w.popups, 1, "popup")
-  eq(w.popups[1].which, "OVERLAPSETTINGSGUARD_OFF", "no reload: the running value never changed")
-end)
-
-test("/osg lists every rule", function()
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = { Leatrix_Plus = true }, leatrix = { values = {} } })
+test("/osg lists every current rule", function()
+  local w = Stubs.Fresh(ADDON_ROOT, {})
   w.Login()
   w.printed = {}
-  _G.SlashCmdList.OVERLAPSETTINGSGUARD("")
+  SlashCmdList.OVERLAPSETTINGSGUARD("")
   eq(#w.printed, #w.ns.policy + 1, "header plus every rule")
 end)
-
-test("Leatrix owns quest automation while RestedXP automation stays off across profiles", function()
-  local fields = { "enableQuestAutomation", "enableQuestRewardAutomation", "enableQuestChoiceAutomation", "enableGossipAutomation" }
-  local on = {}
-  for _, field in ipairs(fields) do on[field] = true end
-  local values = { AutomateQuests = "On", AutomateGossip = "On" }
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = AllLoaded(), leatrix = { values = values }, rxp = {
-    live = on, profiles = { Alt = { enableQuestAutomation = true, enableQuestRewardAutomation = true, enableQuestChoiceAutomation = true, enableGossipAutomation = true } },
-    accountDefault = { enableQuestAutomation = true, enableQuestRewardAutomation = true, enableQuestChoiceAutomation = true, enableGossipAutomation = true },
-    characterDefault = { enableQuestAutomation = true, enableQuestRewardAutomation = true, enableQuestChoiceAutomation = true, enableGossipAutomation = true },
-  } })
-  w.Login()
-  for _, store in ipairs({ RXP.settings.profile, RXPSettings.profiles.Alt, RXPData.defaultProfile.profile, RXPCData.localDB.profile }) do
-    for _, field in ipairs(fields) do eq(store[field], false, field .. " off in every copy") end
-  end
-  eq(values.AutomateQuests, "On", "Leatrix quest automation retained")
-  eq(values.AutomateGossip, "On", "Leatrix gossip retained")
-  for _, field in ipairs(fields) do RXP.settings.profile[field] = true end
-  w.rxpRegistry:NotifyChange("RestedXP Guides")
-  w.RunTimers()
-  for _, field in ipairs(fields) do eq(RXP.settings.profile[field], false, field .. " cannot be enabled again") end
-end)
-
-test("Plater owns visibility and distance while Leatrix owns minimap and chat", function()
-  local values = { CombatPlates = "On", MinimapModder = "On", SetChatFontSize = "On", MoveChatEditBoxToTop = "On" }
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = { Leatrix_Plus = true, RXPGuides = true, Plater = true, ClassUIEnhanced = true }, leatrix = { values = values }, rxp = { live = { enableMaxNameplateDistance = true } } })
-  w.Login()
-  eq(values.CombatPlates, "Off", "Leatrix cannot change Plater visibility")
-  eq(RXP.settings.profile.enableMaxNameplateDistance, false, "Plater owns distance")
-  eq(values.MinimapModder, "On", "Leatrix owns minimap")
-  eq(values.SetChatFontSize, "On", "Leatrix owns chat font")
-  eq(values.MoveChatEditBoxToTop, "On", "Leatrix owns editbox")
-  ok(not (w.leatrixBoxes.MinimapModder.tiptext or ""):find("Locked off", 1, true), "inactive minimap rule must not label the option locked")
-end)
-
-test("CUE owns resources across Plater profiles and personal bar CVars", function()
-  local on = { resources_settings = { global_settings = { show = true } }, saved_cvars = { nameplateShowSelf = "1" } }
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = { Plater = true, ClassUIEnhanced = true }, personalBar = true, plater = { live = on, profiles = { Alt = { resources_settings = { global_settings = { show = true } }, saved_cvars = { nameplateShowSelf = "1" } } } } })
-  w.Login()
-  for _, profile in pairs(PlaterDB.profiles) do
-    eq(profile.resources_settings.global_settings.show, false, "resources off")
-    eq(profile.saved_cvars.nameplateShowSelf, "0", "personal bar cannot return on profile switch")
-  end
-  eq(GetCVar("nameplateShowSelf"), "0", "live personal bar off")
-  ok(Plater.refreshes > 0, "Plater refreshed")
-  Plater.db.profile = PlaterDB.profiles.Alt
-  Plater.db.profile.resources_settings.global_settings.show = true
-  Plater:RefreshConfig()
-  w.RunTimers()
-  eq(Plater.db.profile.resources_settings.global_settings.show, false, "profile changes enforced")
-end)
-
-test("Plater overlaps defer in combat and are inactive without CUE", function()
-  local profile = { resources_settings = { global_settings = { show = true } } }
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = { Plater = true, ClassUIEnhanced = true }, personalBar = true, plater = { live = profile } })
-  w.combat = true
-  w.Login()
-  eq(profile.resources_settings.global_settings.show, true, "combat unchanged")
-  eq(GetCVar("nameplateShowSelf"), "1", "combat CVar unchanged")
-  w.combat = false
-  w.Fire("PLAYER_REGEN_ENABLED")
-  w.RunTimers()
-  eq(profile.resources_settings.global_settings.show, false, "resources off after combat")
-  eq(GetCVar("nameplateShowSelf"), "0", "CVar off after combat")
-  local solo = Stubs.Fresh(ADDON_ROOT, { loaded = { Plater = true }, personalBar = true, plater = { live = { resources_settings = { global_settings = { show = true } } } } })
-  solo.Login()
-  eq(Plater.db.profile.resources_settings.global_settings.show, true, "standalone Plater unchanged")
-  eq(GetCVar("nameplateShowSelf"), "1", "standalone personal bar unchanged")
-end)
-
-test("Kallye nameplate styling stays off with Plater without changing group features", function()
-  local settings = { ActiveNameplatesColor = true, UpdateHealthColor = true, ActiveUnitDebuffs = true, ActiveRaidIcons = true }
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = { KallyeRaidFrames = true, Plater = true }, kallye = settings })
-  w.Login()
-  eq(settings.ActiveNameplatesColor, false, "nameplates off")
-  eq(settings.UpdateHealthColor, true, "highlights retained")
-  eq(settings.ActiveUnitDebuffs, true, "auras retained")
-  eq(settings.ActiveRaidIcons, true, "markers retained")
-  settings.ActiveNameplatesColor = true
-  K_SHARED_UI.RefreshOptions()
-  w.RunTimers()
-  eq(settings.ActiveNameplatesColor, false, "options cannot reenable nameplates")
-end)
-
-test("Kallye nameplate rule respects combat and absence of Plater", function()
-  local settings = { ActiveNameplatesColor = true }
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = { KallyeRaidFrames = true, Plater = true }, kallye = settings })
-  w.combat = true
-  w.Login()
-  eq(settings.ActiveNameplatesColor, true, "combat unchanged")
-  w.combat = false
-  w.Fire("PLAYER_REGEN_ENABLED")
-  eq(settings.ActiveNameplatesColor, false, "off after combat")
-  local solo = { ActiveNameplatesColor = true }
-  local standalone = Stubs.Fresh(ADDON_ROOT, { loaded = { KallyeRaidFrames = true }, kallye = solo })
-  standalone.Login()
-  eq(solo.ActiveNameplatesColor, true, "standalone unchanged")
-end)
-
-test("Kallye changes bypassing hooks are caught and popup repetition is limited", function()
-  local settings = { ActiveNameplatesColor = false }
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = { KallyeRaidFrames = true, Plater = true }, kallye = settings })
-  w.Login()
-  settings.ActiveNameplatesColor = true
-  w.Tick()
-  eq(settings.ActiveNameplatesColor, false)
-  eq(#w.popups, 1)
-  settings.ActiveNameplatesColor = true
-  w.now = w.now + 3
-  w.Tick()
-  eq(settings.ActiveNameplatesColor, false)
-  eq(#w.popups, 1)
-  settings.ActiveNameplatesColor = true
-  w.now = w.now + 10
-  w.Tick()
-  eq(#w.popups, 2)
-end)
-
-local function CurrentLoaded()
-  return { YUI = true, RXPGuides = true, TalentsForeverBook = true,
-    EllesmereUIUnitFrames = true, EllesmereUIRaidFrames = true, EllesmereUINameplates = true }
-end
 
 local function HudConfig()
   return { resources = { byGroup = { ["group:system:resources"] = {

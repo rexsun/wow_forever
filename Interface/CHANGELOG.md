@@ -1,3 +1,11 @@
+## [OverlapSettingsGuard 0.4.3] - 2026-10-11
+### Features
+- Remove obsolete policies, adapters, dependencies and tests for addons outside the installed pack; retain ten current overlap rules and chat-only reporting.
+### Design Rationale
+- The guard should describe and maintain the installed pack. Removing unused integrations keeps policy ownership and tests aligned with the actual addon inventory.
+### Notes & Caveats
+- Twenty-four Lua 5.1 tests pass, including installed-pack dependency validation. Removed integrations require implementation again if their addons return. Live game behavior remains unverified.
+
 ## [Portable profiles / resolution-aware adoption] - 2026-10-11
 ### Features
 - Configure RestedXP's supported new-character default and retire conflicting standalone folders; verify shared EUI/YUI profiles.

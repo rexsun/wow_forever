@@ -1,14 +1,10 @@
 local _, OSG = ...
 
 local PREFIX = "|cffff9933OverlapSettingsGuard|r"
-local POPUP = "OVERLAPSETTINGSGUARD_OFF"
-local POPUP_RELOAD = "OVERLAPSETTINGSGUARD_OFF_RELOAD"
 local START_DELAY = 2
 -- Some profile changes bypass option hooks.
 local TICK_SECONDS = 2
-local POPUP_GAP_SECONDS = 10
 
-local lastPopup = {}
 local warnedBlocked = {}
 local checkQueued = false
 local waitingForCombat = false
@@ -20,49 +16,6 @@ end
 
 local function IsLoaded(name)
   return C_AddOns.IsAddOnLoaded(name) and true or false
-end
-
-StaticPopupDialogs[POPUP] = {
-  text = "%s",
-  button1 = OKAY or "OK",
-  timeout = 0,
-  whileDead = true,
-  hideOnEscape = true,
-  preferredIndex = 3,
-}
-
-StaticPopupDialogs[POPUP_RELOAD] = {
-  text = "%s",
-  button1 = "Reload now",
-  button2 = "Later",
-  OnAccept = function()
-    ReloadUI()
-  end,
-  timeout = 0,
-  whileDead = true,
-  hideOnEscape = true,
-  preferredIndex = 3,
-}
-
-local function ShowPopup(rules, reload)
-  local now = GetTime()
-  local lines = {}
-  for _, rule in ipairs(rules) do
-    if not lastPopup[rule.id] or now - lastPopup[rule.id] >= POPUP_GAP_SECONDS then
-      lastPopup[rule.id] = now
-      lines[#lines + 1] = ("%s\n|cffbbbbbb%s|r"):format(rule.label, rule.reason)
-    end
-  end
-  if #lines == 0 then
-    return
-  end
-  local text = "OverlapSettingsGuard switched off:\n\n" .. table.concat(lines, "\n\n")
-    .. "\n\nThese settings overlap another installed add-on and stay off."
-  if reload then
-    StaticPopup_Show(POPUP_RELOAD, text .. "\nA reload applies the change.")
-  else
-    StaticPopup_Show(POPUP, text)
-  end
 end
 
 local function ReportBlocked(results)
@@ -81,14 +34,13 @@ local function Enforce(rules)
     waitingForCombat = true
     return
   end
-  local switchedOff, reload = {}, false
+  local reload = false
   for _, rule in ipairs(rules) do
     local called, ok, needsReload, otherProfiles = pcall(OSG.adapters[rule.adapter].Revert, rule.key, rule)
     if not called then
       ok, needsReload = false, ok
     end
     if ok then
-      switchedOff[#switchedOff + 1] = rule
       reload = reload or (rule.needsReload and needsReload) or false
       local also = ""
       if type(otherProfiles) == "table" and #otherProfiles > 0 then
@@ -99,8 +51,8 @@ local function Enforce(rules)
       Print(("could not switch off %s: %s"):format(rule.label, tostring(needsReload)))
     end
   end
-  if #switchedOff > 0 then
-    ShowPopup(switchedOff, reload)
+  if reload then
+    Print("A reload applies these changes. Type /reload when ready.")
   end
 end
 

@@ -2,6 +2,19 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-11 - Remove obsolete OverlapSettingsGuard integrations
+
+- Updated the local guard to 0.4.3. Deleted 11 obsolete policies for removed addons and the Leatrix, Plater and Kallye adapters; removed their TOC dependencies and unused RestedXP nameplate-distance key. The pack now has ten rules for YUI, EllesmereUI, RestedXP and TalentsForeverBook.
+- Removed obsolete adapter fixtures and tests, plus orphaned Kallye setup test scripts. Retained current-pack profile/template, hook, combat, timer, reload-message and refresh-retry coverage. Added installed-pack dependency and unused-adapter checks.
+- Updated the policy table, inventory and AGENTS.md removal requirements. Existing overlap ownership and chat-only reporting remain intact. No new overlapping setting was introduced; no settings, layout or adoption-script changes are required.
+- Verification: all 24 Lua 5.1 guard tests pass. Live in-game confirmation remains pending.
+
+## 2026-10-11 - OverlapSettingsGuard messages moved to chat
+
+- Updated local OverlapSettingsGuard to 0.4.2. Removed both notification popups; setting names, ownership reasons and affected profiles remain in chat. Changes requiring a reload print a `/reload` reminder instead of a dialog.
+- Existing overlap policies and combat deferral remain unchanged. Chat output uses the existing game print API across 1080p, 1440p and 4K; no layout or adoption-script changes are needed.
+- Verification: all 34 Lua 5.1 guard tests pass, including login, stored-profile changes, option hooks, timer enforcement and chat reload reminders. Live in-game confirmation remains pending.
+
 ## 2026-10-11 - Verify new characters and resolution-aware adoption
 
 - User confirmed the repaired EUI frames and RestedXP arrow work in-game. Verified EUI/YUI shared Default profiles and RestedXP's separate character profiles. Saved the working RXP layout as its supported new-character default with complete upstream defaults and overlap options off; guide progress remains separate.
