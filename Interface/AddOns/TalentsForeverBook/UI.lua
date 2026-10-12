@@ -3772,13 +3772,12 @@ local function MakeFrame()
   local top = F:GetFrameLevel() + 510     -- the frame's edge art is drawn 500 levels up; what stands in the title bar stands above it
   if F.native then
     F:SetTitle("Talents Forever")
-    -- the title in the site's own face: our own string in Cinzel Bold on top of the game's, which goes clear. Setting a
-    -- font on the game's title string does not always take, so this never depends on it.
+    -- Changing the native title's font is unreliable, so use a separate string.
     local tt = F.TitleContainer and F.TitleContainer.TitleText
     if tt and tt.SetAlpha then pcall(tt.SetAlpha, tt, 0) end
     local host = F.TitleContainer or F
     F.tfTitle = host:CreateFontString(nil, "OVERLAY")
-    F.tfTitle:SetFont((CINZEL:gsub("Cinzel%.ttf$", "Cinzel-Bold.ttf")), 16, "")
+    F.tfTitle:SetFont(CINZEL, 16, "")
     F.tfTitle:SetTextColor(1, 0.84, 0.37); F.tfTitle:SetShadowOffset(1, -1); F.tfTitle:SetShadowColor(0, 0, 0, 0.9)
     F.tfTitle:SetText("Talents Forever")
     if tt then F.tfTitle:SetPoint("CENTER", tt, "CENTER", 0, 0) else F.tfTitle:SetPoint("TOP", F, "TOP", 0, -9) end
@@ -3806,7 +3805,7 @@ local function MakeFrame()
     F.medal.halo = F.medal:CreateTexture(nil, "BACKGROUND"); F.medal.halo:SetTexture(SkinPath() .. "disc.png"); F.medal.halo:SetPoint("CENTER"); F.medal.halo:SetSize(64, 64)
     F.medal.book = Book(F.medal, LOOK() == "site" and 30 or 52); F.medal.book:SetPoint("CENTER", 0, 0)
     if LOOK() == "site" then F.medal.halo:SetSize(40, 40) elseif AtlasOK("Talents-Main-Ring-c60") then F.medal.ring = F.medal:CreateTexture(nil, "OVERLAY"); Atlas(F.medal.ring, "Talents-Main-Ring-c60", 76, 76); F.medal.ring:SetPoint("CENTER", 0, 0) end
-    F.titleText = Text(F, LOOK() == "site" and 15 or 16, C.gold, true); F.titleText:SetFont((CINZEL:gsub("Cinzel%.ttf$", "Cinzel-Bold.ttf")), 16, ""); F.titleText:SetShadowOffset(1, -1); F.titleText:SetShadowColor(0, 0, 0, 0.9); if LOOK() == "site" then F.titleText:SetPoint("TOPLEFT", 58, -8); F.titleText:SetJustifyH("LEFT") else F.titleText:SetPoint("TOP", 0, -9) end; F.titleText:SetText("Talents Forever"); F.titleText:SetShadowColor(0, 0, 0, 1); F.titleText:SetShadowOffset(1, -1)
+    F.titleText = Text(F, LOOK() == "site" and 15 or 16, C.gold, true); F.titleText:SetFont(CINZEL, 16, ""); F.titleText:SetShadowOffset(1, -1); F.titleText:SetShadowColor(0, 0, 0, 0.9); if LOOK() == "site" then F.titleText:SetPoint("TOPLEFT", 58, -8); F.titleText:SetJustifyH("LEFT") else F.titleText:SetPoint("TOP", 0, -9) end; F.titleText:SetText("Talents Forever"); F.titleText:SetShadowColor(0, 0, 0, 1); F.titleText:SetShadowOffset(1, -1)
     if LOOK() == "site" then F.subText = Text(F, 10, C.muted); F.subText:SetPoint("TOPLEFT", 58, -27); F.subText:SetText(L["WoW Forever talent calculator, in game"]); F.titleRuleY = -(TOP - 2) end
     F.titleRule = F:CreateTexture(nil, "BORDER", nil, 2); F.titleRule:SetTexture(WHITE); F.titleRule:SetPoint("TOPLEFT", 12, -(TOP - 4)); F.titleRule:SetPoint("TOPRIGHT", -12, -(TOP - 4)); if LOOK() == "site" then F.titleRule:SetVertexColor(0.23, 0.23, 0.23, 1) end; onePixel(F.titleRule, true); F.titleRule:SetVertexColor(0.61, 0.46, 0.18, 0.55)
     F.close = CreateFrame("Button", nil, F); F.close:SetSize(18, 18); F.close:SetPoint("TOPRIGHT", -9, -7); F.close:SetFrameLevel(F:GetFrameLevel() + 12); F.close:SetScript("OnClick", function() UI.Hide() end)

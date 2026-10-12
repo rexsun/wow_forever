@@ -2,6 +2,13 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-12 - Avoid recurring addon font loading failures
+
+- Confirmed both font errors in the October 12 08:02-10:37 session: TalentsForeverBook Cinzel-Bold at 08:03:10 and YUI Inter Black at 08:05:25, each reporting `Can't find file in build manifest`.
+- Changed both TalentsForeverBook title paths to the existing regular Cinzel font. Changed YUI talent rank text and its legacy Inter Black SharedMedia registration to the client locale font, retaining the saved selection key. Font weight/face changes; sizes and layout remain unchanged.
+- No new overlap setting or ownership change; existing policies remain applicable. The adoption script already copies these Interface Lua files. No top-level font overrides or saved settings were changed. The game arrow texture failure remains separate.
+- Verification: Lua 5.1 syntax and overlap guard suite checked locally. A subsequent game session must confirm font loading and appearance at 1080p, 1440p and 4K. Upstream addon updates may overwrite this local patch.
+
 ## 2026-10-11 - Apply loot-effect console setting at startup
 
 - Updated OverlapSettingsGuard to 0.5.0. After initial world entry and a two-second initialization delay, apply `outlineModeShowLootEffectWhenDisabled = 1` using SetCVar, equivalent to `/console outlineModeShowLootEffectWhenDisabled 1`. Run after the initial guard checks on every login and UI reload, regardless of the selected addon profile.

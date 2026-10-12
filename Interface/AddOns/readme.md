@@ -1,6 +1,6 @@
 # WoW: Forever add-ons
 
-Installation dated 2026-10-11 for client 1.60.1.70338 / Interface 16001. Twelve active upstream addon folders remain unmodified, plus the local OverlapSettingsGuard. EllesmereUI owns individual frames, group frames and nameplates; YUI supplies the remaining interface features.
+Installation dated 2026-10-11 for client 1.60.1.70338 / Interface 16001. Twelve active upstream addon folders are installed, plus the local OverlapSettingsGuard. YUI and TalentsForeverBook carry the local font workaround documented below; other upstream folders remain unmodified. EllesmereUI owns individual frames, group frames and nameplates; YUI supplies the remaining interface features.
 
 | Package | Version | Purpose and source |
 | --- | --- | --- |
@@ -60,4 +60,8 @@ The obsolete standalone folders are absent, preventing fresh characters from ena
 
 The adoption tests cover normal/repeated transfers, backup/rollback, rejection of invalid sources and a running client, Unicode preservation and fitting the EUI panel at all three target resolutions. EUI options scales are 0.90 / 1.00 / 1.50 respectively. Eighteen fresh class/faction profiles were checked using the installed database engines; this does not simulate live game APIs or rendering.
 
-The latest tested session has one ADDON_ACTION_BLOCKED report attributed to DungeonsForever for Blizzard PTR feedback's SubmitBug(). No EUI/RestedXP Lua errors were captured. This separate feedback-report issue remains unresolved; no upstream addon source was patched.
+The latest tested session has one ADDON_ACTION_BLOCKED report attributed to DungeonsForever for Blizzard PTR feedback's SubmitBug(). No EUI/RestedXP Lua errors were captured. This separate feedback-report issue remains unresolved; the font workaround below is unrelated to that feedback-report issue.
+
+## Local font workaround - 2026-10-12
+
+YUI v338 and TalentsForeverBook 0.38.1 retain their upstream versions and sources above. TalentsForeverBook titles use its existing regular Cinzel font rather than Cinzel-Bold. YUI talent rank text and the legacy Inter Black SharedMedia selection use the client locale font; the selection name is retained for saved-profile compatibility. These paths failed again in the October 12 session with `Can't find file in build manifest`. Font sizes and layout are unchanged. Upstream updates can overwrite this patch. No new overlapping setting was introduced. Interface copying already includes the patched Lua files. Lua syntax and guard tests are checked locally; fresh-session font rendering and all three resolutions require in-game confirmation. Arrow asset 137237 is a separate unresolved issue.

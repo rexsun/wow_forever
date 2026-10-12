@@ -17,25 +17,13 @@ local function Bundle(bundleId, path)
     return "Interface\\AddOns\\YUI\\Media\\Bundles\\" .. bundleId .. "\\" .. path
 end
 
--- -----
--- BACKGROUND
--- -----
 
--- -----
---  BORDER
--- ----
 -- LSM:Register("border", "|CFFBA55D3YUI Border1|r", Bundle("sharedmedia-borders", "YUI Border1.tga"))
 
--- -----
---  Arrows
--- ----
 -- LSM:Register("media", "|CFFBA55D3EthricArrow|r", Bundle("sharedmedia-arrows", "EthricArrow.tga"))
 
--- -----
---   FONT
--- -----
 if HasBundle("sharedmedia-fonts") then
-    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3Inter Black|r", Bundle("sharedmedia-fonts", "YUI Inter Black.ttf"), 255)
+    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3Inter Black|r", (STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"), 255)
     LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3Inter Bold|r", Bundle("sharedmedia-fonts", "YUI Inter Bold.ttf"), 255)
     LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3Text|r", Bundle("sharedmedia-fonts", "YUI Text.TTF"), 255)
     LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3龙珠|r", Bundle("sharedmedia-fonts", "YUI LongZhu.ttf"), 255)
@@ -46,14 +34,8 @@ end
 
 
 
--- -----
---   SOUND
--- -----
 -- LSM:Register("sound", "|CFFBA55D3SX1|r", Bundle("voice-wyjj", "???.ogg"))
 
--- -----
---   STATUSBAR
--- -----
 local function RegisterStatusBar(name, file)
     LSM:Register("statusbar", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3" .. name .. "|r", Bundle("sharedmedia-statusbars", file))
 end
