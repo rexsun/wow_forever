@@ -2,6 +2,13 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-11 - Apply loot-effect console setting at startup
+
+- Updated OverlapSettingsGuard to 0.5.0. After initial world entry and a two-second initialization delay, apply `outlineModeShowLootEffectWhenDisabled = 1` using SetCVar, equivalent to `/console outlineModeShowLootEffectWhenDisabled 1`. Run after the initial guard checks on every login and UI reload, regardless of the selected addon profile.
+- Startup now waits for PLAYER_ENTERING_WORLD rather than PLAYER_LOGIN and is queued only once per session. Zone transitions and periodic checks do not repeat the CVar write. Arbitrary later addon/profile changes can still overwrite it.
+- No new overlap rule, profile-table mutation, layout or adoption-script change is required. Chat-only notifications remain unchanged.
+- Verification: all 26 Lua 5.1 tests pass, including delayed startup, later world entries and reload reapplication. Live loot rendering remains pending.
+
 ## 2026-10-11 - Remove obsolete OverlapSettingsGuard integrations
 
 - Updated the local guard to 0.4.3. Deleted 11 obsolete policies for removed addons and the Leatrix, Plater and Kallye adapters; removed their TOC dependencies and unused RestedXP nameplate-distance key. The pack now has ten rules for YUI, EllesmereUI, RestedXP and TalentsForeverBook.

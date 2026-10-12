@@ -9,6 +9,7 @@ local warnedBlocked = {}
 local checkQueued = false
 local waitingForCombat = false
 local started = false
+local startQueued = false
 
 local function Print(message)
   print(PREFIX, message)
@@ -97,6 +98,7 @@ local function Start()
   started = true
   OSG.Check()
   C_Timer.NewTicker(TICK_SECONDS, RequestCheck)
+  SetCVar("outlineModeShowLootEffectWhenDisabled", "1")
 end
 
 local STATUS_TEXT = {
@@ -118,10 +120,12 @@ SlashCmdList.OVERLAPSETTINGSGUARD = function()
 end
 
 local events = CreateFrame("Frame")
-events:RegisterEvent("PLAYER_LOGIN")
+events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:SetScript("OnEvent", function(_, event)
-  if event == "PLAYER_LOGIN" then
+  if event == "PLAYER_ENTERING_WORLD" and not startQueued then
+    startQueued = true
+    -- World-entry handlers can overwrite CVars during login initialization.
     C_Timer.After(START_DELAY, Start)
   elseif event == "PLAYER_REGEN_ENABLED" and waitingForCombat then
     waitingForCombat = false

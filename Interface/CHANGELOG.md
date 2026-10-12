@@ -1,3 +1,11 @@
+## [OverlapSettingsGuard 0.5.0] - 2026-10-11
+### Features
+- Apply `outlineModeShowLootEffectWhenDisabled = 1` after initial world entry on every login and UI reload.
+### Design Rationale
+- SetCVar gives the console command's effect for every selected addon profile. Delay startup until two seconds after world entry so normal initialization runs first; write after the guard's initial checks.
+### Notes & Caveats
+- Twenty-six Lua 5.1 tests pass. The startup write is once per session; arbitrary later addon initialization or profile changes can override it. Live loot rendering remains unverified.
+
 ## [OverlapSettingsGuard 0.4.3] - 2026-10-11
 ### Features
 - Remove obsolete policies, adapters, dependencies and tests for addons outside the installed pack; retain ten current overlap rules and chat-only reporting.

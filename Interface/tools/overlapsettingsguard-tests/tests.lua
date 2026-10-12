@@ -34,6 +34,34 @@ local function CurrentLoaded()
     EllesmereUIUnitFrames = true, EllesmereUIRaidFrames = true, EllesmereUINameplates = true }
 end
 
+test("loot effect CVar applies after world-entry handlers finish", function()
+  local name = "outlineModeShowLootEffectWhenDisabled"
+  local w = Stubs.Fresh(ADDON_ROOT, { cvars = { [name] = "0" } })
+  w.Fire("PLAYER_LOGIN")
+  eq(GetCVar(name), "0", "login initialization does not apply it early")
+  for _, frame in ipairs(w.frames) do
+    if frame.events.PLAYER_ENTERING_WORLD then frame:Fire("OnEvent", "PLAYER_ENTERING_WORLD") end
+  end
+  SetCVar(name, "0")
+  w.RunTimers()
+  eq(GetCVar(name), "1", "startup overrides initialization values")
+  eq(#w.popups, 0, "no startup popup")
+end)
+
+test("loot effect startup runs once per session and again after reload", function()
+  local name = "outlineModeShowLootEffectWhenDisabled"
+  local w = Stubs.Fresh(ADDON_ROOT, {})
+  w.Login()
+  eq(GetCVar(name), "1")
+  eq(#w.cvarWrites, 1)
+  w.Fire("PLAYER_ENTERING_WORLD")
+  w.Tick()
+  eq(#w.cvarWrites, 1, "zone transitions and guard ticks do not repeat startup")
+  local reloaded = Stubs.Fresh(ADDON_ROOT, { cvars = { [name] = "0" } })
+  reloaded.Login()
+  eq(GetCVar(name), "1", "every session applies the setting")
+end)
+
 test("the shipped policy has no errors", function()
   local w = Stubs.Fresh(ADDON_ROOT, {})
   local problems = w.ns.ValidatePolicy(w.ns.policy, w.ns.adapters)

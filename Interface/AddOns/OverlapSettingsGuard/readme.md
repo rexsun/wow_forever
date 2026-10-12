@@ -1,6 +1,6 @@
 # OverlapSettingsGuard
 
-Version 0.4.3, for Interface 16001. This local addon keeps duplicate features switched off while all addons named in a rule are loaded. `/osg` lists every rule and its current status. It does not enable disabled addons or lock optional appearance choices on.
+Version 0.5.0, for Interface 16001. This local addon keeps duplicate features switched off while all addons named in a rule are loaded. `/osg` lists every rule and its current status. It does not enable disabled addons or lock optional appearance choices on.
 
 ## Policy
 
@@ -31,6 +31,12 @@ The policy contains ten rules for the installed pack: nine YUI/EllesmereUI rules
 
 Addon enablement is recorded separately in each character's AddOns.txt. Player castbar and eight raid-group visibility preferences are saved in the EllesmereUI core profiles; they remain user-adjustable. Layout positions, general HUD content, route/map-pin displays and optional overlapping statistics are not continuously forced by the guard.
 
+## Startup console setting
+
+Two seconds after the first `PLAYER_ENTERING_WORLD` event on each login or UI reload, after the initial overlap checks, the guard calls `SetCVar("outlineModeShowLootEffectWhenDisabled", "1")`. This has the same effect as entering `/console outlineModeShowLootEffectWhenDisabled 1` in chat. It enables loot effects when outlines are disabled, regardless of which addon profile is selected. This is a game CVar, so no addon-profile tables need to be edited.
+
+The value is applied once per session; zone transitions and the two-second overlap checker do not reapply it. Arbitrary delayed addon initialization or later profile changes can still overwrite it. Startup coverage uses game API stubs; verify the visible loot effect in-game. This adds no overlap rule or resolution-specific layout.
+
 ## Maintenance and verification
 
 Add overlapping settings to `Policy.lua` and this table. Extend the relevant adapter and tests when needed; new adapters must be loaded by the TOC and test harness. Verify against installed source when updating addon versions. When an addon is removed, delete its obsolete policies, adapters, TOC dependencies, tests and current documentation.
@@ -39,4 +45,4 @@ Add overlapping settings to `Policy.lua` and this table. Extend the relevant ada
 uv run --no-project --with lupa python tools/overlapsettingsguard-tests/run_tests.py
 ```
 
-The 24 tests use Lua 5.1 and game/addon stubs. They cover policy validation, stored profiles/templates/HUD sets, form overrides, option hooks, combat deferral, profile resets, inactive dependencies, missing APIs, refresh failure/retry, swing preservation, installed-pack dependency validation and current YUI/EllesmereUI ownership. They do not verify live rendering or game API behavior.
+The 26 tests use Lua 5.1 and game/addon stubs. They cover policy validation, stored profiles/templates/HUD sets, form overrides, option hooks, combat deferral, profile resets, inactive dependencies, missing APIs, refresh failure/retry, swing preservation, installed-pack dependency validation, current YUI/EllesmereUI ownership and startup CVar timing/reloads. They do not verify live rendering or game API behavior.

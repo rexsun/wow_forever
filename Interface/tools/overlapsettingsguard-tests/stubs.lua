@@ -38,6 +38,13 @@ end
 function Stubs.Fresh(root, options)
   local world = { printed = {}, popups = {}, timers = {}, tickers = {}, frames = {}, now = 100, combat = false }
   local loaded = options.loaded or {}
+  world.cvars = options.cvars or {}
+  world.cvarWrites = {}
+  _G.GetCVar = function(name) return world.cvars[name] end
+  _G.SetCVar = function(name, value)
+    world.cvars[name] = tostring(value)
+    table.insert(world.cvarWrites, { name = name, value = tostring(value) })
+  end
 
   _G.RXP, _G.RXPSettings, _G.RXPData, _G.RXPCData, _G.LibStub = nil, nil, nil, nil, nil
   _G.YUI, _G.YUI_DB = nil, nil
@@ -107,7 +114,10 @@ function Stubs.Fresh(root, options)
     end
     world.RunTimers()
   end
-  function world.Login() world.Fire("PLAYER_LOGIN") end
+  function world.Login()
+    world.Fire("PLAYER_LOGIN")
+    world.Fire("PLAYER_ENTERING_WORLD")
+  end
   return world
 end
 
