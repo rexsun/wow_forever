@@ -57,6 +57,9 @@ test("startup CVars apply individually in order once per session and again after
     { "ffxGlow", "0" },
     { "volumeFog", "0" },
     { "ResampleAlwaysSharpen", "1" },
+    { "Contrast", "85" },
+    { "Brightness", "55" },
+    { "Gamma", "1.5" },
   }
   local function CheckWrites(w)
     eq(#w.cvarWrites, #expected)

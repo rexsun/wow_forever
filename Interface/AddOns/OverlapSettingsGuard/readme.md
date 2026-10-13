@@ -1,6 +1,6 @@
 # OverlapSettingsGuard
 
-Version 0.5.1, for Interface 16001. This local addon keeps duplicate features switched off while all addons named in a rule are loaded. `/osg` lists every rule and its current status. It does not enable disabled addons or lock optional appearance choices on.
+Version 0.5.2, for Interface 16001. This local addon keeps duplicate features switched off while all addons named in a rule are loaded. `/osg` lists every rule and its current status. It does not enable disabled addons or lock optional appearance choices on.
 
 ## Policy
 
@@ -43,9 +43,14 @@ Two seconds after the first `PLAYER_ENTERING_WORLD` event on each login or UI re
 /console ffxGlow 0
 /console volumeFog 0
 /console ResampleAlwaysSharpen 1
+/console Contrast 85
+/console Brightness 55
+/console Gamma 1.5
 ```
 
-Startup overlaps: YUI's installer and EllesmereUI's camera options also write camera zoom; EllesmereUINameplates writes nameplate distance 60 and RestedXP's targeting option writes 41 on this client; EllesmereUI's graphics options also write sharpening. These startup preferences do not disable those addon options or add continuous enforcement rules to `Policy.lua`.
+Startup overlaps: YUI's installer and EllesmereUI's camera options also write camera zoom; EllesmereUINameplates writes nameplate distance 60 and RestedXP's targeting option writes 41 on this client; EllesmereUI's graphics options also write sharpening and its Optimize/Restore actions write contrast. These startup preferences do not disable those addon options or add continuous enforcement rules to `Policy.lua`.
+
+Contrast and brightness use percentage values (85 and 55); gamma uses 1.5.
 
 The values are applied once per session; zone transitions and the two-second overlap checker do not reapply them. Delayed addon initialization or later profile changes can still overwrite them. Startup coverage uses game API stubs; verify the client's accepted values and visible effects in-game. No addon-profile tables or resolution-specific layouts are changed; the same values apply at 1080p, 1440p and 4K. The adoption script already copies these addon files.
 

@@ -105,6 +105,9 @@ local function Start()
   SetCVar("ffxGlow", "0")
   SetCVar("volumeFog", "0")
   SetCVar("ResampleAlwaysSharpen", "1")
+  SetCVar("Contrast", "85")
+  SetCVar("Brightness", "55")
+  SetCVar("Gamma", "1.5")
 end
 
 local STATUS_TEXT = {

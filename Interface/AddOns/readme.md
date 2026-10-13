@@ -16,7 +16,7 @@ Installation dated 2026-10-11 for client 1.60.1.70338 / Interface 16001. Twelve 
 | EllesmereUINameplates | 9.4 | Nameplates and cast/aura displays. Same suite release; nameplate class power kept off by the guard. |
 | EllesmereUIOptions | 9.4 | Required load-on-demand options panels. Same suite release. |
 | EllesmereUILocales | 9.4 | Load-on-demand translations, including the current zhTW locale. Same suite release. |
-| OverlapSettingsGuard | 0.5.1 | Local addon restored from ClassUI and extended for YUI/EllesmereUI. Keeps competing settings off, reports changes and reload reminders in chat without popups, applies seven startup CVars individually in order, and exposes `/osg`. [Policy and ownership table](OverlapSettingsGuard/readme.md). Interface 16001. |
+| OverlapSettingsGuard | 0.5.2 | Local addon restored from ClassUI and extended for YUI/EllesmereUI. Keeps competing settings off, reports changes and reload reminders in chat without popups, applies ten startup CVars individually in order, and exposes `/osg`. [Policy and ownership table](OverlapSettingsGuard/readme.md). Interface 16001. |
 
 All prior addon folders, including OverlapSettingsGuard, were removed during the initial trial. WTF was deleted at the user's request with no new backup, and has since been recreated by the game. ClassUI preserves the previous tracked bundle; WTF is excluded from Git.
 
@@ -33,7 +33,7 @@ All prior addon folders, including OverlapSettingsGuard, were removed during the
 
 Frame ownership is configured through saved settings: YUI's nameplateOutline and syncFriendlyNameplates are off. YHUD mana, rage, energy and combo-point displays are disabled for all nine Forever classes, including stored druid form overrides and the saved HUD configuration set; swing timers and cooldown tracking are retained. EllesmereUI owns these frame/resource displays. Its upstream code suppresses the Blizzard frames it replaces, while its nameplate class-power display defaults off to avoid duplicating the unit-frame display.
 
-OverlapSettingsGuard 0.5.1 now enforces the nameplate/resource ownership above across profiles and stored HUD configurations. It also locks off EllesmereUI's nameplate class-power display while its unit frames are loaded, and enforces the RestedXP automation/talent rules. Changes wait until combat ends; `/osg` reports locked-off, inactive and blocked rules. No upstream addon source was edited. Layout positions, map/navigation choices and optional statistics remain user-adjustable. Player/target frames, group frames, nameplates and the RestedXP arrow have been reported working in-game. Appearance at all three resolutions still needs visual validation.
+OverlapSettingsGuard 0.5.2 now enforces the nameplate/resource ownership above across profiles and stored HUD configurations. It also locks off EllesmereUI's nameplate class-power display while its unit frames are loaded, and enforces the RestedXP automation/talent rules. Changes wait until combat ends; `/osg` reports locked-off, inactive and blocked rules. No upstream addon source was edited. Layout positions, map/navigation choices and optional statistics remain user-adjustable. Player/target frames, group frames, nameplates and the RestedXP arrow have been reported working in-game. Appearance at all three resolutions still needs visual validation.
 
 ## YUI frame investigation
 

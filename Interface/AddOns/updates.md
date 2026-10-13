@@ -2,6 +2,12 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-13 - Match screenshot display settings at startup
+
+- Updated OverlapSettingsGuard to 0.5.2. Append separate SetCVar calls for Contrast 85, Brightness 55 and Gamma 1.5 after the existing seven startup commands, matching the screenshot's 85%, 55% and 1.5 values.
+- Retained once-per-login/reload timing and documented EllesmereUI's contrast Optimize/Restore overlap. Later option changes can overwrite these startup values; continuous policies and resolution-specific layouts are unchanged. Adoption already copies the updated files.
+- Verification: all 26 Lua 5.1 tests pass, including the ten calls in order with exact values and reload/zone-transition behavior. Live client rendering remains unverified.
+
 ## 2026-10-13 - Add six startup console settings
 
 - Updated OverlapSettingsGuard to 0.5.1. After the existing loot-effect command, make separate SetCVar calls in order: cameraDistanceMaxZoomFactor 4, nameplateMaxDistance 41, targetNearestDistanceRadius 50, ffxGlow 0, volumeFog 0 and ResampleAlwaysSharpen 1.

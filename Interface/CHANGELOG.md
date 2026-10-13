@@ -1,3 +1,11 @@
+## [OverlapSettingsGuard 0.5.2] - 2026-10-13
+### Features
+- Add startup contrast 85%, brightness 55% and gamma 1.5 to match the requested display settings.
+### Design Rationale
+- Append separate SetCVar calls to the established ordered startup sequence, preserving the world-entry delay and once-per-login/reload behavior.
+### Notes & Caveats
+- EllesmereUI Optimize/Restore can change contrast later. Twenty-six Lua 5.1 stub tests cover all ten startup values and their order; live rendering remains unverified. Values are shared across all three resolutions.
+
 ## [OverlapSettingsGuard 0.5.1] - 2026-10-13
 ### Features
 - Apply six additional startup CVars after the loot-effect setting: camera zoom 4, nameplate distance 41, nearest-target radius 50, glow 0, volume fog 0 and sharpening 1.
