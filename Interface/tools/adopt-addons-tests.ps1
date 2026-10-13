@@ -6,6 +6,7 @@ New-Item -ItemType Directory -Path $testRoot | Out-Null
 $global:adoptTestGameRunning = $false
 $global:adoptTestCopyFails = $false
 $global:adoptTestInstallFails = $false
+$global:adoptTestFontInstallFails = $false
 function Read-Host { param($Prompt) throw "Unexpected interactive prompt: $Prompt" }
 function Get-Process { param($Name) if ($global:adoptTestGameRunning) { [pscustomobject]@{ ProcessName = 'WowB' } } }
 function robocopy.exe {
@@ -14,6 +15,10 @@ function robocopy.exe {
 }
 function Move-Item {
     param($LiteralPath, $Destination)
+    if ($global:adoptTestFontInstallFails -and $LiteralPath -like '*stage*' -and $LiteralPath -like '*\Fonts') {
+        $global:adoptTestFontInstallFails = $false
+        throw 'Simulated font install failure'
+    }
     if ($global:adoptTestInstallFails -and $LiteralPath -like '*stage*' -and $LiteralPath -like '*\WTF') {
         $global:adoptTestInstallFails = $false
         throw 'Simulated install failure'
@@ -29,6 +34,9 @@ function New-Fixture($Name) {
         New-Item -ItemType Directory -Path (Join-Path $root $path) -Force | Out-Null
     }
     Set-Content -LiteralPath (Join-Path $source 'Interface\AddOns\new.txt') -Value 'new'
+    New-Item -ItemType Directory -Path (Join-Path $source 'Fonts') -Force | Out-Null
+    [IO.File]::WriteAllBytes((Join-Path $source 'Fonts\YUILongZhu.ttf'), [byte[]](0, 1, 0, 0, 255))
+    [IO.File]::WriteAllBytes((Join-Path $target 'Fonts\YUILongZhu.ttf'), [byte[]](1, 2, 3))
     Set-Content -LiteralPath (Join-Path $source 'WTF\Config.wtf') -Value 'SET uiScale "0.53333333333333"'
     Set-Content -LiteralPath (Join-Path $target 'Interface\AddOns\old.txt') -Value 'old'
     Set-Content -LiteralPath (Join-Path $target 'WTF\Config.wtf') -Value 'old settings'
@@ -46,11 +54,14 @@ function Invoke-Rejected($Fixture, $Source, $Resolution) {
     Assert $rejected 'Expected rejection'
     Assert (Test-Path -LiteralPath (Join-Path $Fixture.Target 'Interface\AddOns\old.txt')) 'Original Interface lost'
     Assert ((Get-Content -LiteralPath (Join-Path $Fixture.Target 'WTF\Config.wtf') -Raw).Trim() -eq 'old settings') 'Original settings lost'
+    Assert ((Get-Content -LiteralPath (Join-Path $Fixture.Target 'Fonts\keep.txt') -Raw).Trim() -eq 'font') 'Destination-only font lost'
+    Assert ([BitConverter]::ToString([IO.File]::ReadAllBytes((Join-Path $Fixture.Target 'Fonts\YUILongZhu.ttf'))) -eq '01-02-03') 'Original font lost'
 }
 $f = New-Fixture 'success'
 $before = (Get-FileHash -LiteralPath (Join-Path $f.Source 'WTF\Config.wtf')).Hash
 & $f.Entry $f.Source
 Assert (Test-Path -LiteralPath (Join-Path $f.Target 'Interface\AddOns\new.txt')) 'Source addon missing'
+Assert ((Get-FileHash -LiteralPath (Join-Path $f.Target 'Fonts\YUILongZhu.ttf')).Hash -eq (Get-FileHash -LiteralPath (Join-Path $f.Source 'Fonts\YUILongZhu.ttf')).Hash) 'Game-root font missing or damaged'
 Assert (-not (Test-Path -LiteralPath (Join-Path $f.Target 'Interface\AddOns\old.txt'))) 'Obsolete addon retained'
 Assert (Test-Path -LiteralPath $f.Entry) 'Utility not preserved'
 Assert (Test-Path -LiteralPath (Join-Path $f.Target 'Fonts\keep.txt')) 'Fonts changed'
@@ -112,4 +123,11 @@ $global:adoptTestCopyFails = $false
 $f = New-Fixture 'rollback'
 $global:adoptTestInstallFails = $true
 Invoke-Rejected $f $f.Source
-Write-Host "PASS: adoption/repeat use, three resolutions, Unicode/source preservation, backups/Fonts, invalid settings/sources, running game, copy failure and rollback. Fixtures: $testRoot"
+$f = New-Fixture 'font rollback'
+$global:adoptTestFontInstallFails = $true
+Invoke-Rejected $f $f.Source
+$f = New-Fixture 'optional Fonts'
+Rename-Item -LiteralPath (Join-Path $f.Source 'Fonts') -NewName 'OtherFonts'
+& $f.Entry $f.Source
+Assert ([BitConverter]::ToString([IO.File]::ReadAllBytes((Join-Path $f.Target 'Fonts\YUILongZhu.ttf'))) -eq '01-02-03') 'Fonts changed without source Fonts'
+Write-Host "PASS: adoption/repeat use, three resolutions, Unicode/source preservation, font merge/preservation, optional Fonts, invalid sources, running game, copy failure and folder/font rollback. Fixtures: $testRoot"

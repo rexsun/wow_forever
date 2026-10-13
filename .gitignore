@@ -1,8 +1,17 @@
-# Track only the Interface folder; the client, cache, logs and WTF settings stay out.
+# Track Interface and custom YUI fonts; the client, cache, logs and WTF settings stay out.
 /*
 !/.gitignore
 !/readme.md
 !/Interface/
+!/Fonts/
+/Fonts/*
+!/Fonts/YUIInterBlack.ttf
+!/Fonts/YUIInterBold.ttf
+!/Fonts/YUIText.ttf
+!/Fonts/YUILongZhu.ttf
+!/Fonts/YUIHOOGE.ttf
+!/Fonts/YUIDamage1.ttf
+!/Fonts/YUIDark.ttf
 
 Thumbs.db
 desktop.ini

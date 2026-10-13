@@ -1,3 +1,12 @@
+## [Game-root font adoption] - 2026-10-12
+### Features
+- Use copies of all seven YUI custom fonts in the game-root Fonts directory and select LongZhu for damage text.
+- Include optional source Fonts in adoption, preserving destination-only files with backup and rollback.
+### Design Rationale
+- Keep custom faces intact through direct game-root paths. Stage a merged Fonts directory before replacing anything so a failed adoption can restore the original files.
+### Notes & Caveats
+- Sources without Fonts preserve destination Fonts. Upstream YUI updates can overwrite the font registration patch. Game restart and live rendering checks remain required.
+
 ## [OverlapSettingsGuard 0.5.0] - 2026-10-11
 ### Features
 - Apply `outlineModeShowLootEffectWhenDisabled = 1` after initial world entry on every login and UI reload.

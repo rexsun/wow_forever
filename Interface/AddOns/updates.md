@@ -2,6 +2,30 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-12 - Correct custom fonts to the game-root Fonts directory
+
+- Corrected all seven YUI custom-font registrations and talent rank text to `Fonts\YUI*.ttf`, using the game-root Fonts directory beside Interface. Updated EllesmereUI's LongZhu damage-font selection to `Fonts\YUILongZhu.ttf`. Copies match the original YUI files; existing game font overrides are unchanged.
+- Git tracks these seven custom font copies so a checkout includes the assets their paths require. Other game-root font overrides and caches remain excluded.
+- Retained the misplaced Interface font copies and pre-correction EllesmereUI settings under `_classic_beta_/addon-backups/font-root-correction-20261012-164919`. Interface no longer contains a Fonts directory.
+- Restored the disabled border/arrow/sound registrations and commented background values removed during the font change. No texture or sound file bytes or active paths were changed; the YUI source diff now changes only font paths.
+- Adoption now stages source Fonts over a copy of destination Fonts, preserving destination-only files and backing up the original directory. Fonts participates in rollback. Sources without Fonts keep the destination font directory unchanged.
+- Local verification covers all seven font registrations, byte identity/numeric glyphs, EllesmereUI damage-font application, adoption merge/preservation and folder/font rollback. A full game restart and live font loading/appearance checks remain required.
+
+## 2026-10-12 - Move all YUI font references to Interface fonts
+
+- Copied the remaining Inter Bold, Text, HOOGE, Damage1 and Dark files into `Interface\Fonts` using names without spaces, alongside the existing Inter Black and LongZhu copies. All seven files remain byte-identical to the original YUI assets.
+- Inspected YUI Lua, XML, TOC and configuration references. All seven SharedMedia font registrations now use `Interface\Fonts`; talent ranks already use that folder. SharedMedia selection names remain unchanged. Blizzard font references and YBar's legacy missing-bundle path check do not reference these copied assets and remain intact.
+- The adoption script already copies the complete Interface directory, including every font copy. No new overlapping setting or owner was introduced; existing overlap policies remain applicable. LongZhu remains the selected damage font through EllesmereUI.
+- Verification: expanded font checks pass for all seven registered faces, copied hashes and numeric glyphs, plus EllesmereUI's saved LongZhu application. Full game restart and in-game font loading/appearance checks remain required. Upstream YUI updates can overwrite the registration patch.
+
+## 2026-10-12 - Restore custom range font and select LongZhu damage text
+
+- Replaced the previous locale-font substitution with YUI's original Inter Black face for its existing SharedMedia selection and talent rank text. The saved target-distance selection remains valid.
+- Copied `YUI Inter Black.ttf` and `YUI LongZhu.ttf` byte-for-byte to `Interface\Fonts\YUIInterBlack.ttf` and `Interface\Fonts\YUILongZhu.ttf`. YUI uses these short, fresh asset paths for those selections instead of default fonts. This is a path workaround for the prior manifest errors, pending confirmation by the game client.
+- With WoW closed, selected the LongZhu copy through EllesmereUI's existing saved `fctFont` setting. Original settings are backed up at `_classic_beta_/addon-backups/font-restore-20261012-154126/EllesmereUI.lua`. EllesmereUI already owns damage-font application; no new competing writer or overlap policy was added.
+- Clarified adoption-script documentation: Interface fonts and WTF settings are copied; game-root Fonts remain excluded. Added a font-copy regression check. No font-size, UI-scale or layout changes were made.
+- Verification: custom font registrations, copied hashes/numeric glyphs and EllesmereUI's actual startup font application pass locally. All 26 overlap guard tests, 18 fresh-profile compatibility checks and adoption checks (including Interface fonts and all three resolutions) pass. A full game restart is required for new assets and cached damage fonts; in-game appearance and absence of manifest errors at 1080p, 1440p and 4K remain pending. Upstream YUI updates may overwrite the Lua patch. TalentsForeverBook's existing Cinzel workaround is unchanged.
+
 ## 2026-10-12 - Avoid recurring addon font loading failures
 
 - Confirmed both font errors in the October 12 08:02-10:37 session: TalentsForeverBook Cinzel-Bold at 08:03:10 and YUI Inter Black at 08:05:25, each reporting `Can't find file in build manifest`.

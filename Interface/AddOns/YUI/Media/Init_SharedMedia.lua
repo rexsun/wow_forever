@@ -23,13 +23,13 @@ end
 -- LSM:Register("media", "|CFFBA55D3EthricArrow|r", Bundle("sharedmedia-arrows", "EthricArrow.tga"))
 
 if HasBundle("sharedmedia-fonts") then
-    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3Inter Black|r", (STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"), 255)
-    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3Inter Bold|r", Bundle("sharedmedia-fonts", "YUI Inter Bold.ttf"), 255)
-    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3Text|r", Bundle("sharedmedia-fonts", "YUI Text.TTF"), 255)
-    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3龙珠|r", Bundle("sharedmedia-fonts", "YUI LongZhu.ttf"), 255)
-    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3HOOGE|r", Bundle("sharedmedia-fonts", "YUI HOOGE.ttf"), 255)
-    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3胖娃|r", Bundle("sharedmedia-fonts", "YUI Damage1.ttf"), 255)
-    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3Dark|r", Bundle("sharedmedia-fonts", "YUI Dark.ttf"), 255)
+    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3Inter Black|r", "Fonts\\YUIInterBlack.ttf", 255)
+    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3Inter Bold|r", "Fonts\\YUIInterBold.ttf", 255)
+    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3Text|r", "Fonts\\YUIText.ttf", 255)
+    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3龙珠|r", "Fonts\\YUILongZhu.ttf", 255)
+    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3HOOGE|r", "Fonts\\YUIHOOGE.ttf", 255)
+    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3胖娃|r", "Fonts\\YUIDamage1.ttf", 255)
+    LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3Dark|r", "Fonts\\YUIDark.ttf", 255)
 end
 
 

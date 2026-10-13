@@ -3,7 +3,8 @@
 Adopts Interface and WTF from another WoW installation, retaining a local backup.
 .DESCRIPTION
 Close WoW on both machines first. Run this copy of the script on the destination.
-The source must be the game root containing Interface and WTF. Fonts are excluded.
+The source must be the game root containing Interface and WTF. If present, Fonts
+is merged over destination Fonts; destination-only font files are preserved.
 Gameplay settings and UI scale are copied unchanged. Use -Resolution to set the
 destination window size and fit the EUI options panel. Requires Windows PowerShell 5.1.
 .EXAMPLE
@@ -93,7 +94,15 @@ if (-not (Test-Path -LiteralPath (Join-Path $sourceRoot 'WTF\Config.wtf') -PathT
     throw 'Source WTF\Config.wtf is missing; refusing to replace your settings.'
 }
 Assert-WowClosed
-foreach ($name in @('Interface', 'WTF')) {
+$adoptFolders = @('Interface', 'WTF')
+$sourceFonts = Join-Path $sourceRoot 'Fonts'
+if (Test-Path -LiteralPath $sourceFonts) {
+    if (-not (Test-Path -LiteralPath $sourceFonts -PathType Container)) {
+        throw 'Source Fonts must be a directory.'
+    }
+    $adoptFolders += 'Fonts'
+}
+foreach ($name in $adoptFolders) {
     Assert-NoLinks (Join-Path $sourceRoot $name)
     $destination = Join-Path $destinationRoot $name
     if (Test-Path -LiteralPath $destination) { Assert-NoLinks $destination }
@@ -101,7 +110,7 @@ foreach ($name in @('Interface', 'WTF')) {
 Get-Command robocopy.exe -ErrorAction Stop | Out-Null
 Write-Host "Source:      $sourceRoot"
 Write-Host "Destination: $destinationRoot"
-Write-Host 'Interface and WTF will be replaced after backup. Fonts are excluded.'
+Write-Host 'Interface and WTF will be replaced after backup. Source Fonts, if present, will be merged with destination Fonts.'
 
 $backupParent = Join-Path $destinationRoot 'addon-backups'
 if (Test-Path -LiteralPath $backupParent) {
@@ -117,8 +126,15 @@ $movedOriginals = @()
 $installed = @()
 
 try {
-    foreach ($name in @('Interface', 'WTF')) {
+    foreach ($name in $adoptFolders) {
         Write-Host "Staging $name..."
+        $destination = Join-Path $destinationRoot $name
+        if ($name -eq 'Fonts' -and (Test-Path -LiteralPath $destination)) {
+            & robocopy.exe $destination (Join-Path $stageRoot $name) '/E' '/COPY:DAT' '/DCOPY:DAT' '/XJ' '/R:2' '/W:1' '/NP' ('/LOG:' + (Join-Path $backupRoot 'Fonts-preserve.log')) | Out-Host
+            if ($LASTEXITCODE -ge 8) {
+                throw "Copy of destination Fonts failed (robocopy exit $LASTEXITCODE). See $backupRoot."
+            }
+        }
         $copyArgs = @((Join-Path $sourceRoot $name), (Join-Path $stageRoot $name),
             '/E', '/COPY:DAT', '/DCOPY:DAT', '/XJ', '/R:2', '/W:1', '/NP',
             ('/LOG:' + (Join-Path $backupRoot ($name + '-copy.log'))))
@@ -137,14 +153,14 @@ try {
     }
     Set-StagedResolution (Join-Path $stageRoot 'WTF')
     Assert-WowClosed
-    foreach ($name in @('Interface', 'WTF')) {
+    foreach ($name in $adoptFolders) {
         $destination = Join-Path $destinationRoot $name
         if (Test-Path -LiteralPath $destination) {
             Move-Item -LiteralPath $destination -Destination (Join-Path $backupRoot $name)
             $movedOriginals += $name
         }
     }
-    foreach ($name in @('Interface', 'WTF')) {
+    foreach ($name in $adoptFolders) {
         Move-Item -LiteralPath (Join-Path $stageRoot $name) -Destination (Join-Path $destinationRoot $name)
         $installed += $name
     }
@@ -169,5 +185,5 @@ try {
     throw "$failure Original destination folders are unchanged or restored. Retained files: $backupRoot."
 }
 
-Write-Host "Done. Interface and WTF adopted. Backup and copy logs: $backupRoot"
-Write-Host 'To restore, close WoW, move the adopted folders aside, then move the backed-up Interface and WTF into the game root.'
+Write-Host "Done. $($adoptFolders -join ', ') adopted. Backup and copy logs: $backupRoot"
+Write-Host 'To restore, close WoW, move the adopted folders aside, then move the backed-up folders into the game root.'
