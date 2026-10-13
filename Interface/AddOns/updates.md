@@ -2,6 +2,25 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-12 - Complete 1080p UNC adoption after a transient move failure
+
+- A non-mutating DELETE-access scan found no denied handles in 5,015 destination Interface entries. A scratch directory move and the exact original Interface move succeeded; the original was restored immediately after the probe. The earlier sharing error did not establish that any user application was open, and its precise trigger remains unknown.
+- Retried full adoption successfully. Destination Interface, WTF and Fonts were installed, with window resolution 1920x1080 and EUI panel scale 0.90. Original folders and copy logs are retained in destination `addon-backups/20261012-173033-8c0fb3a3e40843d28cd0763971b018e4`.
+- Verified destination resolution, EUI scale and LongZhu selection, all seven custom font hashes, YUI font-path Lua/script hashes and presence of each original-folder backup. No remote processes were stopped or remote-management configuration changed.
+
+## 2026-10-12 - Diagnose a locked destination during UNC adoption
+
+- Exercised adoption against a writable UNC destination at 1920x1080. Interface, WTF and Fonts staged successfully, and the staged EUI panel scale was fitted to 0.90. Windows then refused to back up the destination Interface directory because it was in use; no replacement completed. The staged files and copy logs remain in destination addon-backups.
+- Adoption failures now identify the operation and destination path, including backup and install steps, before reporting preservation or rollback. Added a simulated locked-directory regression that checks the error identifies the affected operation and original folders remain intact.
+- Windows PowerShell regression checks pass. The destination lock must be released before retrying; remote-client state cannot be verified through the available management connection. No remote processes were stopped.
+
+## 2026-10-12 - Push addon adoption from the current game root
+
+- Reversed adoption's direction: run `Interface/adopt_addons.ps1` from the local source game root, passing the destination root as its only positional argument. The named parameter is now `-Destination`; a writable UNC share is supported through filesystem/robocopy operations.
+- Reject runs whose current directory is not the game root containing the invoked script. Validate source Interface/AddOns and WTF/Config.wtf, existing destination directory and non-overlapping roots before staging. Check WoW processes locally on the source; close the remote client separately.
+- Kept destination backups/logs, exact Interface/WTF replacement, optional Fonts merging, rollback and resolution fitting. Source files remain unchanged. Corrected the existing invalid-EUI test fixture so its rejection case actually executes.
+- Verification: Windows PowerShell 5.1 tests with real robocopy pass for both argument forms, repeated transfers, all three resolutions, full source preservation, wrong working directory, invalid/overlapping roots, empty destination, local-client refusal, fonts, copy failure and folder/font rollback. Actual UNC permissions and remote-client state remain untested. No addon ownership or overlap policy changed.
+
 ## 2026-10-12 - Correct custom fonts to the game-root Fonts directory
 
 - Corrected all seven YUI custom-font registrations and talent rank text to `Fonts\YUI*.ttf`, using the game-root Fonts directory beside Interface. Updated EllesmereUI's LongZhu damage-font selection to `Fonts\YUILongZhu.ttf`. Copies match the original YUI files; existing game font overrides are unchanged.

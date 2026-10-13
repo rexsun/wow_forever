@@ -43,7 +43,13 @@ OverlapSettingsGuard 0.5.0 now enforces the nameplate/resource ownership above a
 
 YUI bundles seven fonts under its own Media directory. It does not install Windows fonts. Byte-identical custom font copies now live in the game-root Fonts directory; existing game font overrides were retained.
 
-adopt_addons.ps1 remains available. It copies Interface and WTF, and merges source Fonts when present while preserving destination-only font files. Without -Resolution it preserves all settings. For a 1080p destination, pass -Resolution 1920x1080: it sets gxWindowedResolution and fits the EUI options window while retaining gameplay UI scale and frame positions. The same option supports 2560x1440 and 3840x2160.
+Run `adopt_addons.ps1` from the local source game root (`_classic_beta_`); its positional argument is the destination game root, including a writable UNC share. Close WoW on both installations first. The script checks local source processes; it cannot check the remote client's process state. For example:
+
+```powershell
+.\Interface\adopt_addons.ps1 \\destination\WoW\_classic_beta_ -Resolution 1920x1080
+```
+
+The named form is `-Destination <path>`. The destination directory must already exist and allow file/directory writes and renames. The script replaces destination Interface and WTF after storing backups and logs under destination `addon-backups`. It merges source Fonts when present while preserving destination-only font files, and restores original folders if replacement fails. Source files remain unchanged. Without `-Resolution` it preserves all settings. For a 1080p destination, `-Resolution 1920x1080` sets `gxWindowedResolution` and fits the EUI options window while retaining gameplay UI scale and frame positions. The same option supports `2560x1440` and `3840x2160`.
 
 ## Frame and navigation visibility repair
 
@@ -58,7 +64,7 @@ EUI uses the shared Default profile, with no specialization assignments currentl
 
 The obsolete standalone folders are absent, preventing fresh characters from enabling them and receiving conflict popups. Existing disabled entries in AddOns.txt are harmless. Copying WTF assumes the same WoW account folder; a different account needs its account SavedVariables transferred into that account's folder. WTF stays outside Git.
 
-The adoption tests cover normal/repeated transfers, backup/rollback, rejection of invalid sources and a running client, Unicode preservation and fitting the EUI panel at all three target resolutions. EUI options scales are 0.90 / 1.00 / 1.50 respectively. Eighteen fresh class/faction profiles were checked using the installed database engines; this does not simulate live game APIs or rendering.
+The adoption tests cover source-to-destination and repeated transfers, full source-file preservation, destination backup/rollback, rejection of wrong working directories and overlapping/invalid roots, empty destinations, a running local client, Unicode preservation and fitting the EUI panel at all three target resolutions. EUI options scales are 0.90 / 1.00 / 1.50 respectively. A real writable UNC-share adoption succeeded at 1080p after an initial transient directory-move error; destination settings, custom fonts, source Lua/script copies and original-folder backups were verified. Share permissions and remote-client state remain installation-specific. Eighteen fresh class/faction profiles were checked using the installed database engines; this does not simulate live game APIs or rendering.
 
 The latest tested session has one ADDON_ACTION_BLOCKED report attributed to DungeonsForever for Blizzard PTR feedback's SubmitBug(). No EUI/RestedXP Lua errors were captured. This separate feedback-report issue remains unresolved; the font workaround below is unrelated to that feedback-report issue.
 

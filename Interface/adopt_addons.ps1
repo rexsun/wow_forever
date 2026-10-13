@@ -1,23 +1,24 @@
 <#
 .SYNOPSIS
-Adopts Interface and WTF from another WoW installation, retaining a local backup.
+Copies this installation's Interface, WTF and optional Fonts to a destination game root.
 .DESCRIPTION
-Close WoW on both machines first. Run this copy of the script on the destination.
-The source must be the game root containing Interface and WTF. If present, Fonts
-is merged over destination Fonts; destination-only font files are preserved.
+Close WoW on both machines first. Run from the local source game root containing
+this script in Interface, and supply the destination game root (local or writable
+UNC share). Destination Interface and WTF are replaced after backup. If present,
+source Fonts is merged over destination Fonts; destination-only files are preserved.
 Gameplay settings and UI scale are copied unchanged. Use -Resolution to set the
 destination window size and fit the EUI options panel. Requires Windows PowerShell 5.1.
 .EXAMPLE
-.\Interface\adopt_addons.ps1 \\machine-source\WoW\_classic_beta_
-If the share itself points at _classic_beta_, use \\machine-source\WoW instead.
+.\Interface\adopt_addons.ps1 \\destination\WoW\_classic_beta_
+If the share itself points at _classic_beta_, use \\destination\WoW instead.
 .EXAMPLE
-.\Interface\adopt_addons.ps1 \\source\WoW\_classic_beta_ -Resolution 1920x1080
+.\Interface\adopt_addons.ps1 \\destination\WoW\_classic_beta_ -Resolution 1920x1080
 #>
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
     [ValidateNotNullOrEmpty()]
-    [string]$Source,
+    [string]$Destination,
     [ValidateSet('1920x1080', '2560x1440', '3840x2160')]
     [string]$Resolution
 )
@@ -28,7 +29,7 @@ $ErrorActionPreference = 'Stop'
 function Assert-WowClosed {
     $running = @(Get-Process -Name 'Wow*' -ErrorAction SilentlyContinue)
     if ($running.Count -gt 0) {
-        throw 'Close WoW on this destination machine, then run the script again. No processes will be forcibly stopped.'
+        throw 'Close WoW on this source machine, then run the script again. No processes will be forcibly stopped.'
     }
 }
 
@@ -74,12 +75,21 @@ function Set-StagedResolution([string]$WtfPath) {
 }
 
 if ((Split-Path $PSScriptRoot -Leaf) -ine 'Interface') {
-    throw 'Place this script inside the destination game installation''s Interface folder.'
+    throw 'Place this script inside the source game installation''s Interface folder.'
 }
-$destinationRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent)).TrimEnd('\')
-$resolved = Resolve-Path -LiteralPath $Source
-if ($resolved.Provider.Name -ne 'FileSystem') { throw 'Source must be a filesystem path.' }
-$sourceRoot = $resolved.ProviderPath.TrimEnd('\')
+$sourceLocation = Get-Location
+if ($sourceLocation.Provider.Name -ne 'FileSystem') { throw 'Run from a filesystem game-root directory.' }
+$sourceRoot = $sourceLocation.ProviderPath.TrimEnd('\')
+$scriptGameRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent)).TrimEnd('\')
+if ($sourceRoot -ine $scriptGameRoot) {
+    throw 'Run from the source game root containing this script: .\Interface\adopt_addons.ps1 <destination>.'
+}
+$resolved = Resolve-Path -LiteralPath $Destination
+if ($resolved.Provider.Name -ne 'FileSystem' -or
+    -not (Test-Path -LiteralPath $resolved.ProviderPath -PathType Container)) {
+    throw 'Destination must be an existing filesystem game-root directory.'
+}
+$destinationRoot = $resolved.ProviderPath.TrimEnd('\')
 if ($sourceRoot -ieq $destinationRoot -or
     $sourceRoot.StartsWith($destinationRoot + '\', [StringComparison]::OrdinalIgnoreCase) -or
     $destinationRoot.StartsWith($sourceRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
@@ -124,10 +134,12 @@ $stageRoot = Join-Path $backupRoot 'stage'
 New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
 $movedOriginals = @()
 $installed = @()
+$operation = 'Staging source folders'
 
 try {
     foreach ($name in $adoptFolders) {
         Write-Host "Staging $name..."
+        $operation = "Staging '$name'"
         $destination = Join-Path $destinationRoot $name
         if ($name -eq 'Fonts' -and (Test-Path -LiteralPath $destination)) {
             & robocopy.exe $destination (Join-Path $stageRoot $name) '/E' '/COPY:DAT' '/DCOPY:DAT' '/XJ' '/R:2' '/W:1' '/NP' ('/LOG:' + (Join-Path $backupRoot 'Fonts-preserve.log')) | Out-Host
@@ -151,21 +163,25 @@ try {
     if (-not (Test-Path -LiteralPath $stagedScript)) {
         Copy-Item -LiteralPath $PSCommandPath -Destination $stagedScript
     }
+    $operation = 'Configuring the staged destination resolution'
     Set-StagedResolution (Join-Path $stageRoot 'WTF')
+    $operation = 'Checking local WoW processes'
     Assert-WowClosed
     foreach ($name in $adoptFolders) {
         $destination = Join-Path $destinationRoot $name
         if (Test-Path -LiteralPath $destination) {
+            $operation = "Backing up destination '$destination'"
             Move-Item -LiteralPath $destination -Destination (Join-Path $backupRoot $name)
             $movedOriginals += $name
         }
     }
     foreach ($name in $adoptFolders) {
+        $operation = "Installing destination '$(Join-Path $destinationRoot $name)'"
         Move-Item -LiteralPath (Join-Path $stageRoot $name) -Destination (Join-Path $destinationRoot $name)
         $installed += $name
     }
 } catch {
-    $failure = $_.Exception.Message
+    $failure = "${operation} failed: $($_.Exception.Message)"
     $rollbackErrors = @()
     foreach ($name in $installed) {
         try {

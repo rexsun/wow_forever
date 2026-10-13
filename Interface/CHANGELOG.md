@@ -1,3 +1,12 @@
+## [Source-to-destination adoption] - 2026-10-12
+### Features
+- Use the current game-root directory as adoption's source and the positional `Destination` argument as its target, including writable UNC shares.
+- Preserve source files, destination backup/rollback, optional font merging and resolution fitting.
+### Design Rationale
+- Run the utility where the maintained addon pack lives and send it to another installation. Require the current directory to match the script's source root to prevent accidental direction errors.
+### Notes & Caveats
+- This reverses the former argument meaning; `-Source` becomes `-Destination`. Run from the source root and close both clients. Local tests cover both argument forms and all three resolutions; actual UNC access and the remote client's process state remain unverified.
+
 ## [Game-root font adoption] - 2026-10-12
 ### Features
 - Use copies of all seven YUI custom fonts in the game-root Fonts directory and select LongZhu for damage text.
