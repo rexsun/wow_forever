@@ -1,3 +1,11 @@
+## [OverlapSettingsGuard 0.5.1] - 2026-10-13
+### Features
+- Apply six additional startup CVars after the loot-effect setting: camera zoom 4, nameplate distance 41, nearest-target radius 50, glow 0, volume fog 0 and sharpening 1.
+### Design Rationale
+- Preserve separate SetCVar calls in the requested order and the existing two-second world-entry delay, once per login or reload.
+### Notes & Caveats
+- Other addon options can overwrite these preferences later. Lua 5.1 stub tests cover call order, values and lifecycle; live client acceptance/effects remain unverified. All three resolutions use the same values; adoption already includes the files.
+
 ## [Source-to-destination adoption] - 2026-10-12
 ### Features
 - Use the current game-root directory as adoption's source and the positional `Destination` argument as its target, including writable UNC shares.

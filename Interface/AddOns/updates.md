@@ -2,6 +2,12 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-13 - Add six startup console settings
+
+- Updated OverlapSettingsGuard to 0.5.1. After the existing loot-effect command, make separate SetCVar calls in order: cameraDistanceMaxZoomFactor 4, nameplateMaxDistance 41, targetNearestDistanceRadius 50, ffxGlow 0, volumeFog 0 and ResampleAlwaysSharpen 1.
+- Retained the two-second world-entry delay and once-per-login/reload behavior. Documented existing camera, nameplate-distance and sharpening writers; later addon option/profile changes can overwrite these startup preferences. Continuous overlap rules remain unchanged.
+- Verification: 26 Lua 5.1 tests cover individual calls, exact order/values, startup timing, zone transitions and reloads. Live client acceptance/effects still need in-game verification. Values are shared across 1080p, 1440p and 4K; adoption already copies the changed files.
+
 ## 2026-10-12 - Complete 1080p UNC adoption after a transient move failure
 
 - A non-mutating DELETE-access scan found no denied handles in 5,015 destination Interface entries. A scratch directory move and the exact original Interface move succeeded; the original was restored immediately after the probe. The earlier sharing error did not establish that any user application was open, and its precise trigger remains unknown.

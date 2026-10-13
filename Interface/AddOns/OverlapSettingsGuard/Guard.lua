@@ -99,6 +99,12 @@ local function Start()
   OSG.Check()
   C_Timer.NewTicker(TICK_SECONDS, RequestCheck)
   SetCVar("outlineModeShowLootEffectWhenDisabled", "1")
+  SetCVar("cameraDistanceMaxZoomFactor", "4")
+  SetCVar("nameplateMaxDistance", "41")
+  SetCVar("targetNearestDistanceRadius", "50")
+  SetCVar("ffxGlow", "0")
+  SetCVar("volumeFog", "0")
+  SetCVar("ResampleAlwaysSharpen", "1")
 end
 
 local STATUS_TEXT = {

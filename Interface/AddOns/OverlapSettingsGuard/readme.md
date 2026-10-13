@@ -1,6 +1,6 @@
 # OverlapSettingsGuard
 
-Version 0.5.0, for Interface 16001. This local addon keeps duplicate features switched off while all addons named in a rule are loaded. `/osg` lists every rule and its current status. It does not enable disabled addons or lock optional appearance choices on.
+Version 0.5.1, for Interface 16001. This local addon keeps duplicate features switched off while all addons named in a rule are loaded. `/osg` lists every rule and its current status. It does not enable disabled addons or lock optional appearance choices on.
 
 ## Policy
 
@@ -31,11 +31,23 @@ The policy contains ten rules for the installed pack: nine YUI/EllesmereUI rules
 
 Addon enablement is recorded separately in each character's AddOns.txt. Player castbar and eight raid-group visibility preferences are saved in the EllesmereUI core profiles; they remain user-adjustable. Layout positions, general HUD content, route/map-pin displays and optional overlapping statistics are not continuously forced by the guard.
 
-## Startup console setting
+## Startup console settings
 
-Two seconds after the first `PLAYER_ENTERING_WORLD` event on each login or UI reload, after the initial overlap checks, the guard calls `SetCVar("outlineModeShowLootEffectWhenDisabled", "1")`. This has the same effect as entering `/console outlineModeShowLootEffectWhenDisabled 1` in chat. It enables loot effects when outlines are disabled, regardless of which addon profile is selected. This is a game CVar, so no addon-profile tables need to be edited.
+Two seconds after the first `PLAYER_ENTERING_WORLD` event on each login or UI reload, after the initial overlap checks, the guard makes one separate `SetCVar` call per command, in this order. Each call has the same effect as entering its console command in chat, regardless of the selected addon profile.
 
-The value is applied once per session; zone transitions and the two-second overlap checker do not reapply it. Arbitrary delayed addon initialization or later profile changes can still overwrite it. Startup coverage uses game API stubs; verify the visible loot effect in-game. This adds no overlap rule or resolution-specific layout.
+```text
+/console outlineModeShowLootEffectWhenDisabled 1
+/console cameraDistanceMaxZoomFactor 4
+/console nameplateMaxDistance 41
+/console targetNearestDistanceRadius 50
+/console ffxGlow 0
+/console volumeFog 0
+/console ResampleAlwaysSharpen 1
+```
+
+Startup overlaps: YUI's installer and EllesmereUI's camera options also write camera zoom; EllesmereUINameplates writes nameplate distance 60 and RestedXP's targeting option writes 41 on this client; EllesmereUI's graphics options also write sharpening. These startup preferences do not disable those addon options or add continuous enforcement rules to `Policy.lua`.
+
+The values are applied once per session; zone transitions and the two-second overlap checker do not reapply them. Delayed addon initialization or later profile changes can still overwrite them. Startup coverage uses game API stubs; verify the client's accepted values and visible effects in-game. No addon-profile tables or resolution-specific layouts are changed; the same values apply at 1080p, 1440p and 4K. The adoption script already copies these addon files.
 
 ## Maintenance and verification
 

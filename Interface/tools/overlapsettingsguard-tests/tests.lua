@@ -48,18 +48,35 @@ test("loot effect CVar applies after world-entry handlers finish", function()
   eq(#w.popups, 0, "no startup popup")
 end)
 
-test("loot effect startup runs once per session and again after reload", function()
-  local name = "outlineModeShowLootEffectWhenDisabled"
+test("startup CVars apply individually in order once per session and again after reload", function()
+  local expected = {
+    { "outlineModeShowLootEffectWhenDisabled", "1" },
+    { "cameraDistanceMaxZoomFactor", "4" },
+    { "nameplateMaxDistance", "41" },
+    { "targetNearestDistanceRadius", "50" },
+    { "ffxGlow", "0" },
+    { "volumeFog", "0" },
+    { "ResampleAlwaysSharpen", "1" },
+  }
+  local function CheckWrites(w)
+    eq(#w.cvarWrites, #expected)
+    for i, setting in ipairs(expected) do
+      eq(w.cvarWrites[i].name, setting[1], "command order")
+      eq(w.cvarWrites[i].value, setting[2], setting[1])
+      eq(GetCVar(setting[1]), setting[2], "applied value")
+    end
+  end
   local w = Stubs.Fresh(ADDON_ROOT, {})
+  w.Fire("PLAYER_LOGIN")
+  eq(#w.cvarWrites, 0, "login does not apply commands early")
   w.Login()
-  eq(GetCVar(name), "1")
-  eq(#w.cvarWrites, 1)
+  CheckWrites(w)
   w.Fire("PLAYER_ENTERING_WORLD")
   w.Tick()
-  eq(#w.cvarWrites, 1, "zone transitions and guard ticks do not repeat startup")
-  local reloaded = Stubs.Fresh(ADDON_ROOT, { cvars = { [name] = "0" } })
+  eq(#w.cvarWrites, #expected, "zone transitions and guard ticks do not repeat startup")
+  local reloaded = Stubs.Fresh(ADDON_ROOT, {})
   reloaded.Login()
-  eq(GetCVar(name), "1", "every session applies the setting")
+  CheckWrites(reloaded)
 end)
 
 test("the shipped policy has no errors", function()
