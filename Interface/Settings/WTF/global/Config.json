@@ -1,0 +1,36 @@
+{
+  "$table": [
+    {
+      "key": {
+        "$text": "text-0000001"
+      },
+      "value": {
+        "$text": "text-0000002"
+      }
+    },
+    {
+      "key": {
+        "$text": "text-0000003"
+      },
+      "value": {
+        "$text": "text-0000004"
+      }
+    },
+    {
+      "key": {
+        "$text": "text-0000005"
+      },
+      "value": {
+        "$text": "text-0000006"
+      }
+    },
+    {
+      "key": {
+        "$text": "text-0000007"
+      },
+      "value": {
+        "$text": "text-0000002"
+      }
+    }
+  ]
+}

@@ -2,6 +2,12 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-13 - Add anonymous settings capture after game exit
+
+- Added `Interface/watch_wtf_settings.ps1`, a restricted data parser/exporter and local settings-review documentation. Optional current-user sign-in installation monitors this game installation and exports after all its WoW processes exit and WTF writes settle.
+- Snapshots in `Interface/Settings/WTF` alias every text and numeric value using a private map outside the repository. Live WTF, addon behavior, resolution values, existing overlap policies and adoption's private-copy behavior are unchanged.
+- No automatic staging, commits or pushes. Fixture checks cover privacy, stable aliases, failure preservation, parser safety, concurrent exports, readable review and the Git index; watcher checks cover lifecycle, retries and settling.
+
 ## 2026-10-13 - Match screenshot display settings at startup
 
 - Updated OverlapSettingsGuard to 0.5.2. Append separate SetCVar calls for Contrast 85, Brightness 55 and Gamma 1.5 after the existing seven startup commands, matching the screenshot's 85%, 55% and 1.5 values.

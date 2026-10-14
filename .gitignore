@@ -19,3 +19,6 @@ desktop.ini
 *.local*
 *_local_*
 addon-backups/
+
+__pycache__/
+*.pyc

@@ -1,0 +1,1955 @@
+{
+  "$table": [
+    {
+      "key": {
+        "$text": "text-0000804"
+      },
+      "value": {
+        "$table": [
+          {
+            "key": {
+              "$text": "text-0000805"
+            },
+            "value": {
+              "$number": "number-0000512"
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0000806"
+            },
+            "value": {
+              "$number": "number-0000513"
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0000807"
+            },
+            "value": {
+              "$text": "text-0000808"
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0000809"
+            },
+            "value": {
+              "$number": "number-0000350"
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0000810"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$text": "text-0000352"
+                  },
+                  "value": {
+                    "$table": []
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0000811"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$text": "text-0000812"
+                  },
+                  "value": {
+                    "$text": "text-0000813"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0000814"
+            },
+            "value": {
+              "$text": "text-0000815"
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0000816"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$text": "text-0000817"
+                  },
+                  "value": {
+                    "$table": [
+                      {
+                        "key": {
+                          "$text": "text-0000146"
+                        },
+                        "value": {
+                          "$number": "number-0000002"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000244"
+                        },
+                        "value": {
+                          "$number": "number-0000004"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000263"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000412"
+                        },
+                        "value": {
+                          "$table": [
+                            {
+                              "key": {
+                                "$text": "text-0000413"
+                              },
+                              "value": {
+                                "$number": "number-0000532"
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000818"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000819"
+                        },
+                        "value": {
+                          "$number": "number-0000009"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000820"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000821"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000822"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000823"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000824"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000825"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000826"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000827"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000828"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000829"
+                        },
+                        "value": {
+                          "$number": "number-0000004"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000830"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000831"
+                        },
+                        "value": {
+                          "$text": "text-0000832"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000833"
+                        },
+                        "value": {
+                          "$number": "number-0000514"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000834"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000835"
+                        },
+                        "value": {
+                          "$number": "number-0000004"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000836"
+                        },
+                        "value": {
+                          "$number": "number-0000004"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000837"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000838"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000839"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000840"
+                        },
+                        "value": {
+                          "$table": [
+                            {
+                              "key": {
+                                "$text": "text-0000841"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$table": [
+                                        {
+                                          "key": {
+                                            "$number": "number-0000004"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000456"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000025"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000456"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000074"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000515"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000075"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000516"
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000842"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$table": [
+                                        {
+                                          "key": {
+                                            "$number": "number-0000004"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000843"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000009"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000844"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000025"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000843"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000074"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000002"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000075"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000002"
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000845"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$table": [
+                                        {
+                                          "key": {
+                                            "$number": "number-0000004"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000610"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000009"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000844"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000025"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000610"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000074"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000002"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000075"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000002"
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000846"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$table": [
+                                        {
+                                          "key": {
+                                            "$number": "number-0000004"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000456"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000025"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000456"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000074"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000517"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000075"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000518"
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000847"
+                        },
+                        "value": {
+                          "$table": []
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000848"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000849"
+                        },
+                        "value": {
+                          "$number": "number-0000519"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000850"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000851"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000852"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000853"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000854"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000855"
+                        },
+                        "value": {
+                          "$number": "number-0000004"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000856"
+                        },
+                        "value": {
+                          "$number": "number-0000342"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000857"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000858"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000859"
+                        },
+                        "value": {
+                          "$number": "number-0000341"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000860"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000861"
+                        },
+                        "value": {
+                          "$number": "number-0000069"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000862"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000863"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000864"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000865"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000866"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000867"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000868"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000869"
+                        },
+                        "value": {
+                          "$number": "number-0000520"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000870"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000871"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000872"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000873"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000874"
+                        },
+                        "value": {
+                          "$number": "number-0000004"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000875"
+                        },
+                        "value": {
+                          "$number": "number-0000341"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000876"
+                        },
+                        "value": {
+                          "$number": "number-0000519"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000877"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000878"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000879"
+                        },
+                        "value": {
+                          "$number": "number-0000521"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000880"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000881"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000882"
+                        },
+                        "value": {
+                          "$number": "number-0000001"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000883"
+                        },
+                        "value": {
+                          "$table": [
+                            {
+                              "key": {
+                                "$text": "text-0000151"
+                              },
+                              "value": {
+                                "$text": "text-0000891"
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000884"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000522"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000009"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000522"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000025"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000523"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000075"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000004"
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000885"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000524"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000009"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000525"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000025"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000004"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000075"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000004"
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000886"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000526"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000009"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000527"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000025"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000528"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000075"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000004"
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000887"
+                              },
+                              "value": true
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000888"
+                              },
+                              "value": {
+                                "$text": "text-0000316"
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000889"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000529"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000009"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000529"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000025"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000530"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000075"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000004"
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000890"
+                              },
+                              "value": {
+                                "$text": "text-0000891"
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000892"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$text": "text-0000645"
+                                    },
+                                    "value": {
+                                      "$text": "text-0000894"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$text": "text-0000893"
+                                    },
+                                    "value": {
+                                      "$text": "text-0000894"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$text": "text-0000895"
+                                    },
+                                    "value": {
+                                      "$text": "text-0000894"
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000896"
+                              },
+                              "value": {
+                                "$text": "text-0000897"
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000898"
+                              },
+                              "value": {
+                                "$text": "text-0000899"
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000900"
+                              },
+                              "value": {
+                                "$text": "text-0000901"
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000902"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$text": "text-0000645"
+                                    },
+                                    "value": {
+                                      "$text": "text-0000903"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$text": "text-0000893"
+                                    },
+                                    "value": {
+                                      "$text": "text-0000903"
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000904"
+                              },
+                              "value": {
+                                "$text": "text-0000905"
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000906"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000004"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000009"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000004"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000025"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000004"
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000907"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000908"
+                        },
+                        "value": {
+                          "$text": "text-0000909"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000910"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000911"
+                        },
+                        "value": {
+                          "$number": "number-0000069"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000912"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000913"
+                        },
+                        "value": {
+                          "$number": "number-0000004"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000914"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000915"
+                        },
+                        "value": {
+                          "$text": "text-0000916"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000917"
+                        },
+                        "value": {
+                          "$text": "text-0000918"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000919"
+                        },
+                        "value": {
+                          "$number": "number-0000531"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000920"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000921"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000922"
+                        },
+                        "value": {
+                          "$table": []
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000923"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000924"
+                        },
+                        "value": {
+                          "$text": "text-0000925"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000926"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000927"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000928"
+                        },
+                        "value": {
+                          "$text": "text-0000929"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000930"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000931"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000932"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000933"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000934"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000935"
+                        },
+                        "value": {
+                          "$text": "text-0000936"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000937"
+                        },
+                        "value": {
+                          "$number": "number-0000343"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000938"
+                        },
+                        "value": {
+                          "$text": "text-0000939"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000940"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000941"
+                        },
+                        "value": {
+                          "$number": "number-0000074"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000942"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000943"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000944"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000945"
+                        },
+                        "value": {
+                          "$number": "number-0000359"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000946"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000947"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000948"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000949"
+                        },
+                        "value": {
+                          "$text": "text-0000950"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000951"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000952"
+                        },
+                        "value": {
+                          "$number": "number-0000533"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000953"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000954"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000955"
+                        },
+                        "value": {
+                          "$table": [
+                            {
+                              "key": {
+                                "$text": "text-0000841"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000534"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000009"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000362"
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000842"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000535"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000009"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000533"
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000845"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000536"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000009"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000362"
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000846"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000537"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000009"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000538"
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000956"
+                        },
+                        "value": {
+                          "$number": "number-0000539"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000957"
+                        },
+                        "value": {
+                          "$text": "text-0000958"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000959"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000960"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000961"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000962"
+                        },
+                        "value": true
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000963"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000964"
+                        },
+                        "value": {
+                          "$table": []
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000965"
+                        },
+                        "value": false
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000966"
+                        },
+                        "value": {
+                          "$number": "number-0000004"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0000967"
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "key": {
+        "$text": "text-0000968"
+      },
+      "value": {
+        "$table": [
+          {
+            "key": {
+              "$text": "text-0000265"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$text": "text-0000266"
+                  },
+                  "value": {
+                    "$text": "text-0000491"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0000267"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$text": "text-0000491"
+                  },
+                  "value": {
+                    "$table": []
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "key": {
+        "$text": "text-0000969"
+      },
+      "value": {
+        "$table": [
+          {
+            "key": {
+              "$text": "text-0000265"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$text": "text-0000266"
+                  },
+                  "value": {
+                    "$text": "text-0000266"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0000267"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$text": "text-0000266"
+                  },
+                  "value": {
+                    "$table": [
+                      {
+                        "key": {
+                          "$text": "text-0000840"
+                        },
+                        "value": {
+                          "$table": [
+                            {
+                              "key": {
+                                "$text": "text-0000841"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$table": [
+                                        {
+                                          "key": {
+                                            "$number": "number-0000004"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000456"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000025"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000456"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000074"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000548"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000075"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000547"
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000842"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$table": [
+                                        {
+                                          "key": {
+                                            "$number": "number-0000004"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000843"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000009"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000844"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000025"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000843"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000074"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000544"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000075"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000002"
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000845"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$table": [
+                                        {
+                                          "key": {
+                                            "$number": "number-0000004"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000456"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000009"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000844"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000025"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000456"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000074"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000546"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000075"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000545"
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000846"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$table": [
+                                        {
+                                          "key": {
+                                            "$number": "number-0000004"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000456"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000025"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000456"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000074"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000543"
+                                          }
+                                        },
+                                        {
+                                          "key": {
+                                            "$number": "number-0000075"
+                                          },
+                                          "value": {
+                                            "$number": "number-0000542"
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0000955"
+                        },
+                        "value": {
+                          "$table": [
+                            {
+                              "key": {
+                                "$text": "text-0000841"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000541"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000009"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000362"
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000842"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000535"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000009"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000533"
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000845"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000541"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000009"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000362"
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0000846"
+                              },
+                              "value": {
+                                "$table": [
+                                  {
+                                    "key": {
+                                      "$number": "number-0000004"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000537"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "$number": "number-0000009"
+                                    },
+                                    "value": {
+                                      "$number": "number-0000540"
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "key": {
+        "$text": "text-0000970"
+      },
+      "value": null
+    }
+  ]
+}

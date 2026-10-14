@@ -1,6 +1,6 @@
 # WoW: Forever add-ons
 
-Version control for the user interface of a **World of Warcraft: Forever** client (`wow_classic_beta`). The repository root is the game's `_classic_beta_` folder, and only `Interface/` is tracked. The game client, caches, logs, fonts and `WTF` settings are ignored (see [.gitignore](.gitignore)).
+Version control for the user interface of a **World of Warcraft: Forever** client (`wow_classic_beta`). The repository root is the game's `_classic_beta_` folder. Interface files, selected custom fonts and anonymous settings snapshots are eligible for version control. The game client, caches, logs and live `WTF` settings are ignored (see [.gitignore](.gitignore)).
 
 ## Game version
 
@@ -16,6 +16,7 @@ Every add-on here must declare Interface 16001 in its TOC and work on this clien
 - [Interface/AddOns/readme.md](Interface/AddOns/readme.md): YUI v338, modular EllesmereUI 9.4 frames/nameplates, RXPGuides and four specialist addons, with OverlapSettingsGuard. The frame and arrow setup has been reported working in-game; see the inventory for remaining caveats.
 - [Interface/AddOns/updates.md](Interface/AddOns/updates.md): change log, newest first. It covers installs, removals, setting changes and local patches, which upstream updates can overwrite.
 - [Interface/AGENTS.md](Interface/AGENTS.md): rules for maintaining the add-ons.
+- [Interface/Settings/readme.md](Interface/Settings/readme.md): anonymous settings snapshots after game exit, with readable local review and manual Git staging/commits.
 
 ## Updating
 

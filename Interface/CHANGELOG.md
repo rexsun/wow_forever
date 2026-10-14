@@ -1,3 +1,14 @@
+## [WTF exit snapshots 1.0] - 2026-10-13
+### Features
+- Add a current-user sign-in watcher and manual export/review commands for anonymous settings snapshots after WoW exits.
+- Keep staging, commits and pushes manual; preserve live WTF and the Git index.
+### Design Rationale
+- Parse approved saved-variable data without executing Lua and alias every text and numeric value. Keep the reverse map outside the repository and decode diffs only for local review.
+- Wait for the installation's processes to exit and file writes to settle; publish snapshots as a unit with locking and rollback.
+### Notes & Caveats
+- Coverage is restricted to eight approved addon saved-file names and an explicit CVar allowlist. Snapshots are anonymous JSON review artifacts; adoption continues copying live WTF privately.
+- Preserve the private alias map for consistent future exports. Fixture tests and a successful current-WTF export supplement watcher lifecycle checks; real game shutdown timing remains a live check.
+
 ## [OverlapSettingsGuard 0.5.2] - 2026-10-13
 ### Features
 - Add startup contrast 85%, brightness 55% and gamma 1.5 to match the requested display settings.
