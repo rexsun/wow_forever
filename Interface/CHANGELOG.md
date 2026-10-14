@@ -1,3 +1,14 @@
+## [WTF settings restore 1.1] - 2026-10-13
+### Features
+- Add Restore and Restore -DryRun using the current anonymous snapshot folder, with mapped existing-account destinations, selective CVar merging, private backups and rollback.
+- Move private aliases into ignored Interface/.env and add .env.example; load an optional private state-directory variable from the file.
+### Design Rationale
+- Treat the selected bundle as the recovery source without changing Git. Pause/resume the scheduled watcher and skip its startup export to preserve that source.
+- Retain the full reversible text/number map as flat .env variables; read bulk aliases directly instead of enlarging the Windows process environment. Parse and serialize Lua as data.
+### Notes & Caveats
+- Restore replaces represented addon saved files completely, including profiles; files absent from the bundle and unrepresented Config.wtf fields remain intact. Account/character folders must already exist.
+- Preserve the complete .env privately. Existing aliases are migrated without changing snapshots; the former map.json remains only a private backup. Restore has been validated in fixtures and against the installed bundle with DryRun; live restoration is not run during implementation.
+
 ## [WTF exit snapshots 1.0] - 2026-10-13
 ### Features
 - Add a current-user sign-in watcher and manual export/review commands for anonymous settings snapshots after WoW exits.

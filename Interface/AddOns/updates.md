@@ -2,6 +2,12 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-13 - Add explicit settings restore and private .env aliases
+
+- Added `watch_wtf_settings.ps1 -Mode Restore`, with DryRun validation, strict alias/path checks, complete restoration of represented addon saved files, selective Config.wtf merging, private backups and rollback.
+- Pause/resume the scheduled watcher around restoration without overwriting the selected source bundle at startup. Foreground watchers must be stopped first; a previously stopped task remains stopped.
+- Migrated private mappings to ignored Interface/.env and added .env.example. Existing aliases and anonymous snapshots are preserved. Logs/locks/backups stay outside the repository, with an optional state-directory override. Addon code and overlap policies are unchanged.
+
 ## 2026-10-13 - Add anonymous settings capture after game exit
 
 - Added `Interface/watch_wtf_settings.ps1`, a restricted data parser/exporter and local settings-review documentation. Optional current-user sign-in installation monitors this game installation and exports after all its WoW processes exit and WTF writes settle.

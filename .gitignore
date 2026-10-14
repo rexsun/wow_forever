@@ -22,3 +22,6 @@ addon-backups/
 
 __pycache__/
 *.pyc
+
+/Interface/.env*
+!/Interface/.env.example

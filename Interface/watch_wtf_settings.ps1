@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Watch', 'Export', 'Review', 'Install', 'Uninstall')]
+    [ValidateSet('Watch', 'Export', 'Review', 'Restore', 'Install', 'Uninstall')]
     [string]$Mode = 'Watch',
     [ValidateRange(1, 60)]
     [int]$PollSeconds = 2,
@@ -21,6 +21,36 @@ function Get-InstallationId([string]$Root) {
         $bytes = [Text.Encoding]::UTF8.GetBytes($Root.ToLowerInvariant())
         return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '').Substring(0, 16).ToLowerInvariant()
     } finally { $sha.Dispose() }
+}
+
+function Initialize-SettingsEnvironment {
+    param([string]$Path = (Join-Path $PSScriptRoot '.env'))
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return }
+    $found = $false
+    foreach ($line in Get-Content -LiteralPath $path -Encoding UTF8) {
+        if ($line -match '^\s*(?:export\s+)?WTF_SETTINGS_STATE_DIR\s*=\s*(.*)$') {
+            if ($found) { throw 'Duplicate WTF_SETTINGS_STATE_DIR in .env.' }
+            $found = $true
+            $value = $Matches[1].Trim()
+            if ($value.StartsWith('"')) {
+                $value = ConvertFrom-Json -InputObject $value
+            } elseif ($value.StartsWith("'")) {
+                if (-not $value.EndsWith("'") -or $value.Length -lt 2) { throw 'Invalid quoted .env value.' }
+                $value = $value.Substring(1, $value.Length - 2)
+            } else {
+                $value = ($value -split ' #', 2)[0].TrimEnd()
+            }
+            $env:WTF_SETTINGS_STATE_DIR = [Environment]::ExpandEnvironmentVariables($value)
+        }
+    }
+}
+
+function Get-PrivateStateDirectory {
+    if ($env:WTF_SETTINGS_STATE_DIR) {
+        if (-not [IO.Path]::IsPathRooted($env:WTF_SETTINGS_STATE_DIR)) { throw 'WTF_SETTINGS_STATE_DIR must be an absolute private path.' }
+        return [IO.Path]::GetFullPath($env:WTF_SETTINGS_STATE_DIR)
+    }
+    return Join-Path $env:LOCALAPPDATA ('WowSettings\' + (Get-InstallationId $script:GameRoot))
 }
 
 function Test-InstallationRunning([string]$Root) {
@@ -65,14 +95,14 @@ function Wait-WtfStable {
 
 function Invoke-SettingsHelper([string]$Action, [switch]$ValidateOnly) {
     $uv = if ($UvPath) { $UvPath } else { (Get-Command uv -ErrorAction Stop).Source }
-    $arguments = @('run', '--no-project', 'python', $script:Helper, $Action, '--game-root', $script:GameRoot)
+    $arguments = @('run', '--no-project', 'python', $script:Helper, $Action, '--game-root', $script:GameRoot, '--state', (Get-PrivateStateDirectory))
     if ($ValidateOnly) { $arguments += '--dry-run' }
     & $uv @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Settings helper failed; inspect local settings and retry.' }
 }
 
 function Write-WatcherLog([string]$Message) {
-    $directory = Join-Path $env:LOCALAPPDATA ('WowSettings\' + (Get-InstallationId $script:GameRoot))
+    $directory = Get-PrivateStateDirectory
     [IO.Directory]::CreateDirectory($directory) | Out-Null
     $log = Join-Path $directory 'watcher.log'
     if ((Test-Path -LiteralPath $log) -and (Get-Item -LiteralPath $log).Length -gt 1MB) {
@@ -87,9 +117,10 @@ function Watch-Installation {
         [scriptblock]$ExportAction,
         [scriptblock]$SleepAction = { param($Milliseconds) Start-Sleep -Milliseconds $Milliseconds },
         [int]$Interval = 2,
-        [int]$IterationLimit = 0
+        [int]$IterationLimit = 0,
+        [switch]$SkipInitialExport
     )
-    $pending = $true
+    $pending = -not $SkipInitialExport
     $iteration = 0
     while ($IterationLimit -eq 0 -or $iteration -lt $IterationLimit) {
         try {
@@ -104,6 +135,34 @@ function Watch-Installation {
         }
         $iteration++
         & $SleepAction ($Interval * 1000)
+    }
+}
+
+function Invoke-SettingsRestore {
+    $id = Get-InstallationId $script:GameRoot
+    $taskName = 'WoWSettings-' + $id
+    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    $resumeTask = $task -and $task.State -eq 'Running'
+    $mutex = New-Object Threading.Mutex($false, ('Local\WoWSettings-' + $id))
+    $owned = $false
+    try {
+        if ($resumeTask) { Stop-ScheduledTask -TaskName $taskName }
+        try { $owned = $mutex.WaitOne(5000) } catch [Threading.AbandonedMutexException] { $owned = $true }
+        if (-not $owned) { throw 'Stop the foreground settings watcher before restoring. No live settings were changed.' }
+        if (Test-InstallationRunning $script:GameRoot) { throw 'Close this installation before restoring settings.' }
+        if (-not (Wait-WtfStable -Root $script:GameRoot -Seconds $StableSeconds -ProcessProbe { Test-InstallationRunning $script:GameRoot })) {
+            throw 'WoW restarted; restore cancelled.'
+        }
+        Invoke-SettingsHelper 'restore' -ValidateOnly:$DryRun
+    } finally {
+        if ($owned) { $mutex.ReleaseMutex() }
+        $mutex.Dispose()
+        if ($resumeTask) {
+            $directory = Get-PrivateStateDirectory
+            [IO.Directory]::CreateDirectory($directory) | Out-Null
+            [IO.File]::WriteAllText((Join-Path $directory 'skip-initial-export'), 'restore')
+            Start-ScheduledTask -TaskName $taskName
+        }
     }
 }
 
@@ -123,6 +182,7 @@ function Install-WatcherTask {
     Write-Output 'Installed and started the current-user settings watcher. No automatic Git writes.'
 }
 
+Initialize-SettingsEnvironment
 if ($MyInvocation.InvocationName -eq '.') { return }
 
 $probe = { Test-InstallationRunning $script:GameRoot }
@@ -135,6 +195,7 @@ switch ($Mode) {
         Write-Output 'Watcher removed; exported settings and the private alias map are retained.'
     }
     'Review' { Invoke-SettingsHelper 'review' }
+    'Restore' { Invoke-SettingsRestore }
     'Export' {
         if (& $probe) { throw 'Close this installation before exporting settings.' }
         if (Wait-WtfStable -Root $script:GameRoot -Seconds $StableSeconds -ProcessProbe $probe) {
@@ -148,7 +209,10 @@ switch ($Mode) {
             try { $owned = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $owned = $true }
             if (-not $owned) { throw 'A watcher for this installation is already running.' }
             Write-WatcherLog 'Watcher started.'
-            Watch-Installation -ProcessProbe $probe -Interval $PollSeconds -ExportAction {
+            $skipPath = Join-Path (Get-PrivateStateDirectory) 'skip-initial-export'
+            $skipInitial = Test-Path -LiteralPath $skipPath
+            if ($skipInitial) { Remove-Item -LiteralPath $skipPath }
+            Watch-Installation -ProcessProbe $probe -Interval $PollSeconds -SkipInitialExport:$skipInitial -ExportAction {
                 if (-not (Wait-WtfStable -Root $script:GameRoot -Seconds $StableSeconds -ProcessProbe $probe)) { return $false }
                 Invoke-SettingsHelper 'export' -ValidateOnly:$DryRun | Out-Host
                 Write-WatcherLog 'Anonymous settings exported. Git index and history untouched.'
