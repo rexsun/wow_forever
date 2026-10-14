@@ -592,6 +592,12 @@
                                       "$table": [
                                         {
                                           "key": {
+                                            "$text": "text-0000499"
+                                          },
+                                          "value": true
+                                        },
+                                        {
+                                          "key": {
                                             "$text": "text-0000567"
                                           },
                                           "value": {
@@ -603,7 +609,14 @@
                                             "$text": "text-0000568"
                                           },
                                           "value": {
-                                            "$table": []
+                                            "$table": [
+                                              {
+                                                "key": {
+                                                  "$text": "text-0000499"
+                                                },
+                                                "value": false
+                                              }
+                                            ]
                                           }
                                         },
                                         {
