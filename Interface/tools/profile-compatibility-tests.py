@@ -21,6 +21,7 @@ def check_account(saved: Path, class_name: str, faction: str) -> None:
     lua.globals().TEST_CLASS = class_name
     lua.globals().TEST_FACTION = faction
     lua.execute("""
+        strmatch = string.match
         function GetRealmName() return "Classic Beta PvP" end
         function UnitName() return "Compatibility" .. TEST_CLASS end
         function UnitClass() return TEST_CLASS, TEST_CLASS end
@@ -45,14 +46,14 @@ def check_account(saved: Path, class_name: str, faction: str) -> None:
         C_GameRules={IsGameRuleActive=function(rule) return rule==2 end}
     """)
     for relative in (
-        "RXPGuides/Libs/LibStub/LibStub.lua",
-        "RXPGuides/Libs/CallbackHandler-1.0/CallbackHandler-1.0.lua",
-        "RXPGuides/Libs/AceDB-3.0/AceDB-3.0.lua",
+        "YUI/Libs/LibStub/LibStub.lua",
+        "YUI/Libs/CallbackHandler-1.0/CallbackHandler-1.0.lua",
+        "YUI/Libs/AceDB-3.0/AceDB-3.0.lua",
         "EllesmereUI/EllesmereUI_ClientGate.lua",
         "EllesmereUI/EllesmereUI_Lite.lua",
     ):
         lua.execute((ROOT / "AddOns" / relative).read_text(encoding="utf-8-sig"), "EllesmereUI")
-    for name in ("EllesmereUI", "YUI", "RXPGuides"):
+    for name in ("EllesmereUI", "YUI", "GearInsight_Forever"):
         lua.execute((saved / f"{name}.lua").read_text(encoding="utf-8-sig"))
     lua.execute("""
         assert(EUI_CLIENT_FOREVER and not EUI_CLIENT_BLOCKED)
@@ -72,17 +73,9 @@ def check_account(saved: Path, class_name: str, faction: str) -> None:
         local yui=LibStub("AceDB-3.0"):New("YUI_DB", {}, true)
         assert(yui:GetCurrentProfile()=="Default")
         assert(yui.profile == YUI_DB.profiles.Default)
-        assert(type(RXPData.defaultProfile)=="table")
-        local rxp=LibStub("AceDB-3.0"):New("RXPSettings", RXPData.defaultProfile)
-        assert(rxp:GetCurrentProfile()==UnitName() .. " - PvP")
-        assert(rxp.profile.disableArrow==false and rxp.profile.hideInRaid==false)
-        assert(rxp.profile.showEnabled and rxp.profile.arrowScale==1)
-        assert(rxp.profile.framePositions.arrowFrame)
-        assert(rxp.profile.activeTheme=="RXP Blue" and rxp.profile.questLogSize==40)
-        assert(rxp.profile.textEnemyColor)
-        assert(rxp.profile.enableQuestAutomation==false)
-        assert(rxp.profile.enableGossipAutomation==false)
-        assert(rxp.profile.enableTalentGuides==false)
+        assert(GearInsightForeverDB.keysHud==false)
+        assert(GearInsightForeverDB.leveling.shown==false)
+        assert(GearInsightForeverDB.qm.autoPlates==false)
     """)
 
 
@@ -95,7 +88,7 @@ def main() -> None:
                 check_account(saved, class_name, faction)
     assert not list((ROOT / "AddOns").glob("EUIStandalone*"))
     print(f"PASS: {len(accounts) * len(CLASSES) * 2} fresh character profiles; "
-          "shared EUI/YUI settings, RestedXP layout and overlap defaults. No WTF files written.")
+          "shared EUI/YUI settings and GearInsight overlap defaults. No WTF files written.")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,437 @@
+{
+  "$table": [
+    {
+      "key": {
+        "$text": "text-0002782"
+      },
+      "value": {
+        "$table": [
+          {
+            "key": {
+              "$text": "text-0000270"
+            },
+            "value": {
+              "$table": []
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0000302"
+            },
+            "value": true
+          },
+          {
+            "key": {
+              "$text": "text-0000349"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$text": "text-0001424"
+                  },
+                  "value": {
+                    "$text": "text-0002819"
+                  }
+                },
+                {
+                  "key": {
+                    "$text": "text-0002816"
+                  },
+                  "value": {
+                    "$table": [
+                      {
+                        "key": {
+                          "$text": "text-0001164"
+                        },
+                        "value": {
+                          "$table": [
+                            {
+                              "key": {
+                                "$text": "text-0002817"
+                              },
+                              "value": {
+                                "$number": "number-0000073"
+                              }
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0002818"
+                              },
+                              "value": {
+                                "$number": "number-0000355"
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "key": {
+                    "$text": "text-0002820"
+                  },
+                  "value": {
+                    "$text": "text-0002791"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0000412"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$text": "text-0001104"
+                  },
+                  "value": {
+                    "$number": "number-0000976"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0000786"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$text": "text-0002802"
+                  },
+                  "value": {
+                    "$table": [
+                      {
+                        "key": {
+                          "$text": "text-0001168"
+                        },
+                        "value": {
+                          "$text": "text-0000320"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0002803"
+                        },
+                        "value": {
+                          "$text": "text-0000145"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0002804"
+                        },
+                        "value": {
+                          "$number": "number-0000978"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0002805"
+                        },
+                        "value": {
+                          "$text": "text-0000141"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0002806"
+                        },
+                        "value": {
+                          "$number": "number-0000073"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0002807"
+                        },
+                        "value": {
+                          "$number": "number-0000002"
+                        }
+                      },
+                      {
+                        "key": {
+                          "$text": "text-0002808"
+                        },
+                        "value": {
+                          "$text": "text-0002809"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002783"
+            },
+            "value": false
+          },
+          {
+            "key": {
+              "$text": "text-0002784"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$text": "text-0002785"
+                  },
+                  "value": false
+                }
+              ]
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002786"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$text": "text-0002787"
+                  },
+                  "value": false
+                },
+                {
+                  "key": {
+                    "$text": "text-0002810"
+                  },
+                  "value": true
+                },
+                {
+                  "key": {
+                    "$text": "text-0002811"
+                  },
+                  "value": true
+                },
+                {
+                  "key": {
+                    "$text": "text-0002812"
+                  },
+                  "value": {
+                    "$table": [
+                      {
+                        "key": {
+                          "$text": "text-0001164"
+                        },
+                        "value": {
+                          "$table": []
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "key": {
+                    "$text": "text-0002813"
+                  },
+                  "value": {
+                    "$table": [
+                      {
+                        "key": {
+                          "$text": "text-0001164"
+                        },
+                        "value": {
+                          "$table": []
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "key": {
+                    "$text": "text-0002814"
+                  },
+                  "value": true
+                },
+                {
+                  "key": {
+                    "$text": "text-0002815"
+                  },
+                  "value": {
+                    "$number": "number-0000708"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002788"
+            },
+            "value": {
+              "$text": "text-0002789"
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002790"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$text": "text-0001164"
+                  },
+                  "value": {
+                    "$table": [
+                      {
+                        "key": {
+                          "$text": "text-0002791"
+                        },
+                        "value": {
+                          "$text": "text-0002792"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002793"
+            },
+            "value": {
+              "$number": "number-0000002"
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002794"
+            },
+            "value": {
+              "$table": []
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002795"
+            },
+            "value": {
+              "$table": []
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002796"
+            },
+            "value": {
+              "$table": []
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002797"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$text": "text-0002798"
+                  },
+                  "value": {
+                    "$number": "number-0000977"
+                  }
+                },
+                {
+                  "key": {
+                    "$text": "text-0002799"
+                  },
+                  "value": {
+                    "$text": "text-0002800"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002801"
+            },
+            "value": {
+              "$number": "number-0000002"
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002821"
+            },
+            "value": {
+              "$table": []
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002822"
+            },
+            "value": {
+              "$text": "text-0002823"
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002824"
+            },
+            "value": {
+              "$table": []
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002825"
+            },
+            "value": {
+              "$table": []
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002826"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$text": "text-0002827"
+                  },
+                  "value": {
+                    "$text": "text-0002828"
+                  }
+                },
+                {
+                  "key": {
+                    "$text": "text-0002829"
+                  },
+                  "value": {
+                    "$text": "text-0002830"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "key": {
+              "$text": "text-0002831"
+            },
+            "value": {
+              "$number": "number-0000002"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

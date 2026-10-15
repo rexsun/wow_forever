@@ -2,6 +2,21 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-15 - Inspect the first post-migration session
+
+- Checked the 10:38-10:53 session: no new BugGrabber errors; all four older reports and counters were unchanged. GearInsight persisted the disabled overlapping HUD, floating leveling panel and automatic friendly-nameplate settings.
+- AsyncFile.log recorded one YUIInterBlack.ttf manifest-load failure and two failures for texture ID 137237. The font exists on disk; the texture's caller is not identified. These asset issues remain unresolved. Old FrameXML/taint logs do not describe this session.
+- No new crash artifacts were found. Voice disconnection coincided with shutdown; startup CVar validation messages remain a lower-priority beta-client finding. No runtime settings were changed during inspection.
+
+## 2026-10-15 - Replace the planning addons with GearInsight Forever
+
+- Install unchanged GearInsight Forever 0.4.31 from the official Forever ZIP, latest published release checked 2026-10-15. TOC includes Interface 16001. Archive SHA256: `84edba6d538689323a0775fe10f212bae1d19dde01cdde73780917f31030ce46`.
+- Remove DungeonsForever 1.8.6, TalentsForeverBook 0.38.2 and RestedXP 4.11.23 from active AddOns, along with eight account/character `.lua`/`.lua.bak` saved files. Clean their entries from four character AddOns.txt files and enable GearInsight there. No guide, talent-plan or wishlist migration into GearInsight is attempted.
+- Upgrade OverlapSettingsGuard to 0.7.0: retain the six YUI/EUI ownership rules and replace six obsolete RestedXP rules with five GearInsight rules. Disable its automatic friendly-nameplate toggling, combined resource/cooldown/DoT/proc HUD and floating leveling panel. Keep its key/bar editing actions read-only under YUI without modifying upstream source. Preserve talents, loot, planning, macros and the distinct rotation board.
+- Seed account GearInsight overlap defaults off, preserve YUI/EUI settings and other WTF bytes, and switch anonymous settings capture to EUI/YUI/GearInsight. Remove obsolete RestedXP adapter, dependencies, fixtures, tests and current documentation. Update fresh-profile checks to use YUI's installed AceDB libraries. Preserve historical changelogs and private aliases.
+- Keep private recovery copies outside Interface under `_classic_beta_/addon-backups/gearinsight-20261015-102755`; retired active files were moved there. Existing unrelated working changes remain. The settings watcher was paused for migration and resumed afterward.
+- Verification: 33 Lua 5.1 guard tests, including actual GearInsight bar-editor code; 36 settings tests; 18 fresh class/faction profiles; seven font assets and EUI damage-font application; adoption at 1080p/1440p/4K with rollback; 19 watcher/restore checks. Official archive integrity, removed files and preservation of unrelated active files are checked separately. The existing adoption script copies the new pack without code changes. In-game loading and rendering remain unverified.
+
 ## 2026-10-14 - Upgrade Forever addons and retain EUI frame ownership
 
 - Upgraded YUI v338 to v341, Auctionator 340 to 341, DungeonsForever 1.8.0 to 1.8.6, TalentsForeverBook 0.38.1 to 0.38.2 beta and all six installed EllesmereUI folders from 9.4 to 9.5.5. Official release links are in the inventory; all declare Interface 16001 for the installed 1.60.1.70374 client. RestedXP v4.11.23 and BugGrabber v12.1.0 remain current. YUI's listing dates v341 October 15; the Forever download was already available on October 14 local time.

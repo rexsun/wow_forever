@@ -35,6 +35,15 @@ class SettingsTests(unittest.TestCase):
     def export(self):
         return MODULE.export_settings(self.game, self.state)
 
+    def test_current_pack_exports_gearinsight_and_excludes_retired_addons(self):
+        (self.saved / "GearInsight_Forever.lua").write_text('GearInsightForeverDB = {keysHud=false, qm={autoPlates=false}}')
+        for name in ("RXPGuides", "DungeonsForever", "TalentsForeverBook"):
+            (self.saved / (name + ".lua")).write_text('RetiredDB = {enabled=true}')
+        self.export()
+        files = {p.name for p in self.output.rglob("*.json")}
+        self.assertIn("GearInsight_Forever.json", files)
+        self.assertTrue(files.isdisjoint({"RXPGuides.json", "DungeonsForever.json", "TalentsForeverBook.json"}))
+
     def test_privacy_and_stable_aliases(self):
         self.export()
         first = {p.relative_to(self.output): p.read_bytes() for p in self.output.rglob("*.json")}

@@ -18,21 +18,10 @@ local function NewFrame(objectType)
   local frame = { objectType = objectType, events = {} }
   NewScripts(frame)
   function frame:RegisterEvent(event) self.events[event] = true end
+  function frame:Show() self.shown = true end
+  function frame:Hide() self.shown = false end
+  function frame:IsShown() return self.shown == true end
   return frame
-end
-
-local function BuildRestedXP(world, rxp)
-  local profiles = rxp.profiles or {}
-  profiles["Me - Realm"] = rxp.live or {}
-  _G.RXPSettings = { profiles = profiles }
-  _G.RXP = { settings = { profile = profiles["Me - Realm"] } }
-  _G.RXPData = rxp.accountDefault and { defaultProfile = { profile = rxp.accountDefault } } or { defaultProfile = false }
-  _G.RXPCData = rxp.characterDefault and { localDB = { profile = rxp.characterDefault } } or {}
-  local registry = { NotifyChange = function() end }
-  _G.LibStub = setmetatable({}, {
-    __call = function(_, name) if name == "AceConfigRegistry-3.0" then return registry end end,
-  })
-  world.rxpRegistry = registry
 end
 
 function Stubs.Fresh(root, options)
@@ -46,7 +35,9 @@ function Stubs.Fresh(root, options)
     table.insert(world.cvarWrites, { name = name, value = tostring(value) })
   end
 
-  _G.RXP, _G.RXPSettings, _G.RXPData, _G.RXPCData, _G.LibStub = nil, nil, nil, nil, nil
+  _G.GearInsightForever, _G.GearInsightForeverDB = nil, nil
+  _G.GearInsightForeverLeveling, _G.GearInsightForeverKeysHud = nil, nil
+  _G.LibStub = nil
   _G.YUI, _G.YUI_DB = nil, nil
   _G.EllesmereUIDB, _G._ENP_RefreshAllSettings = nil, nil
   _G.C_AddOns = {
@@ -83,9 +74,6 @@ function Stubs.Fresh(root, options)
     table.insert(world.printed, table.concat(parts, " "))
   end
 
-  if options.rxp then
-    BuildRestedXP(world, options.rxp)
-  end
 
   local ns = {}
   for _, file in ipairs(ADDON_FILES) do

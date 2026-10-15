@@ -1,3 +1,15 @@
+## [GearInsight migration / OverlapSettingsGuard 0.7.0] - 2026-10-15
+### Features
+- Install GearInsight Forever 0.4.31 and remove DungeonsForever, TalentsForeverBook and RestedXP with their active settings and obsolete guard integration.
+- Add five GearInsight ownership rules for friendly nameplates, the combined combat/resource HUD, floating leveling panel and action-bar/keybinding edits.
+- Capture GearInsight anonymous settings and seed overlapping displays off for existing accounts.
+### Design Rationale
+- Retain YUI for bars, bindings and interface helpers and EUI for frames/resources/nameplates. Keep GearInsight's talents, gear, macros, planning and distinct rotation recommendations.
+- Use the local guard for runtime enforcement and conditional editing locks because upstream provides no bar-editor disable setting. Keep the upstream archive unchanged and preserve unrelated saved state.
+### Notes & Caveats
+- Retired active files and a full recovery copy are outside Interface in addon-backups. Saved plans/progress/wishlists are not imported into GearInsight. Historical changes and private alias mappings remain available.
+- Thirty-three guard tests, 36 settings tests, 18 fresh profiles, fonts, three-resolution adoption and 19 watcher checks pass. The adoption script carries the new pack unchanged. Live loading, Chinese terminology and rendering at the three resolutions still need in-game verification.
+
 ## [Forever addon refresh / OverlapSettingsGuard 0.6.0] - 2026-10-14
 ### Features
 - Upgrade YUI to v341, Auctionator to 341, DungeonsForever to 1.8.6, TalentsForeverBook to 0.38.2 beta and the six installed EUI modules to 9.5.5.

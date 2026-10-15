@@ -1,0 +1,56 @@
+## Interface: 16001, 11507
+## Title: GearInsight |cff33ff99Forever|r
+## Title-zhCN: GearInsight |cff33ff99无限版|r
+## Notes: WoW: Forever helper - talent planner, leveling plan, loot table and wishlist, Tier 1 sets, macros, news, change tooltips, beta data
+## Notes-zhCN: 《无限》助手：天赋模拟 · 升级规划 · 掉落表与心愿单 · T1 套装 · 宏库 · 资讯 · 改动提示 · 公测数据
+## Author: GearInsight
+## Version: 0.4.31
+## SavedVariables: GearInsightForeverDB
+## IconTexture: Interface\Icons\inv_misc_map_01
+
+# Interface 16001 = 国服 Beta 实测（10-07 /dump select(4, GetBuildInfo())）；11507 留着兼容
+
+Data.lua
+Core.lua
+DataPack.lua
+QR.lua
+GIWidgets.lua
+TooltipZh.lua
+Tooltip.lua
+Leveling.lua
+DefaultBuildsData.lua
+DefaultBuilds.lua
+Talents.lua
+Loot.lua
+Stats.lua
+Card.lua
+Pack.lua
+UI.lua
+GuildRecruit.lua
+GuildTab.lua
+QuestMates.lua
+DungeonQuestData.lua
+DungeonQuests.lua
+PageTalent.lua
+MacroData.lua
+PageMacro.lua
+PagePlan.lua
+RouteData.lua
+Route.lua
+PageLoot.lua
+PageTier.lua
+PageAch.lua
+NewsData.lua
+PageNews.lua
+Supporters.lua
+Offsite.lua
+PageData.lua
+Keys.lua
+KeysRotData.lua
+KeysRot.lua
+KeysCast.lua
+KeysHud.lua
+KeysKb.lua
+PageKeys.lua
+PageRot.lua
+KeysProbe.lua

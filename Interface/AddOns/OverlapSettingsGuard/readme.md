@@ -1,6 +1,6 @@
 # OverlapSettingsGuard
 
-Version 0.6.0, for Interface 16001. This local addon keeps duplicate features switched off while all addons named in a rule are loaded. `/osg` lists every rule and its current status. It does not enable disabled addons or lock optional appearance choices on.
+Version 0.7.0, for Interface 16001. This local addon keeps duplicate features switched off while all addons named in a rule are loaded. `/osg` lists every rule and its current status. It does not enable disabled addons or lock optional appearance choices on.
 
 ## Policy
 
@@ -12,12 +12,11 @@ Version 0.6.0, for Interface 16001. This local addon keeps duplicate features sw
 | `yui.playerhealth` | YHUD `health` selections across resource groups, specs and druid forms | YUI, EllesmereUIUnitFrames | EllesmereUI owns the player health display. |
 | `yui.playercast` | YHUD `cast` selections, enabled `cast-only` resource groups and `playerCast.hideNative` | YUI, EllesmereUIUnitFrames | EllesmereUI owns the player castbar; stored HUD sets follow the same rule. |
 | `eui.nameplatepower` | EllesmereUI nameplate `showClassPower` | EllesmereUINameplates, EllesmereUIUnitFrames | Unit frames own class resources; no second display on the target nameplate. |
-| `rxp.yui.autoquests` | RestedXP `enableQuestAutomation` | RestedXP, YUI | YUI owns quest acceptance and turn-ins. |
-| `rxp.yui.autogossip` | RestedXP `enableGossipAutomation` | RestedXP, YUI | YUI owns quest gossip. |
-| `rxp.yui.questrewards` | RestedXP `enableQuestRewardAutomation` | RestedXP, YUI | YUI owns turn-ins; RestedXP guide reward selection must not compete. |
-| `rxp.yui.questchoices` | RestedXP `enableQuestChoiceAutomation` | RestedXP, YUI | YUI owns turn-ins; calculated RestedXP choices must not compete. |
-| `rxp.yui.selljunk` | RestedXP `autoSellJunk` | RestedXP, YUI | YUI owns junk selling. |
-| `rxp.talentguides` | RestedXP `enableTalentGuides` | RestedXP, Talents Forever | Talents Forever owns talent planning. |
+| `gi.friendlynameplates` | GearInsight `qm.autoPlates`, restoring any `qm.platesWeOpened` toggle | GearInsight_Forever, EllesmereUINameplates | EllesmereUI owns friendly-nameplate visibility. |
+| `gi.combathud` | GearInsight `keysHud` and its visible runtime frame | GearInsight_Forever, YUI | YUI owns cooldown, DoT and proc tracking. |
+| `gi.resources` | The same combined GearInsight `keysHud` | GearInsight_Forever, EllesmereUIUnitFrames | EllesmereUI owns player power and combo points, even without YUI. |
+| `gi.levelingstats` | GearInsight `leveling.shown` and its floating frame | GearInsight_Forever, YUI | YUI owns the experience display. The main GearInsight leveling plan remains available. |
+| `gi.actionbaredits` | Runtime lock on GearInsight bar placement, binding assignment/presets and restores | GearInsight_Forever, YUI | YUI owns bars and bindings; GearInsight key inspection and macro import remain available. |
 
 EllesmereUI owns individual/group frames and nameplates; YUI owns the remaining interface features.
 
@@ -25,9 +24,10 @@ EllesmereUI owns individual/group frames and nameplates; YUI owns the remaining 
 
 Checks run after login, on supported option hooks and every two seconds as a fallback. Changes wait until combat ends. Chat messages explain reverted settings and name any other affected profiles. When a reload is needed, chat asks you to type `/reload` when ready. The guard never opens a popup. Failed enforcement is also reported in chat.
 
-The policy contains twelve rules for the installed pack. Ownership is conditional on addons being loaded, rather than the owner's optional feature currently being enabled; use the owner's settings when choosing whether to automate a task.
+The policy contains eleven rules for the installed pack. Ownership is conditional on addons being loaded, rather than the owner's optional feature currently being enabled; use the owner's settings when choosing whether to automate a task.
 
-- RestedXP enforcement covers the live profile, stored profiles and account/character templates. Missing stored values inherit the account template or addon defaults. Changes in shared profiles also affect other characters using those profiles.
+- GearInsight enforcement targets its current account database, including upstream defaults when fields are absent. Option hooks request a check on the next frame; periodic checks catch database resets and visible frames left behind after failed refreshes. Missing APIs report blocked before storage changes. The combined resource/cooldown HUD cannot be split with upstream settings, so either relevant owner disables it. The separate rotation recommendation board (`keysBoard`) remains available.
+- GearInsight has no setting to disable its action-bar editor. The adapter wraps only its six public editing methods (`ApplyAll`, `PlaceMissing`, `Restore`, `AssignSlotKey`, `ApplyKeyTemplate`, `RestoreStolen`) with a conditional runtime lock. It preserves caller return types and forwards to the original methods if YUI is not loaded. No protected game APIs or upstream source files are replaced. The lock is checked again after method replacement. A blocked edit explains ownership in chat.
 - YUI enforcement covers the active suite profile, stored profiles and stored HUD configuration sets. Resource selections use v341's Forever specialization catalog, including druid forms; swing timers are untouched. Player health and cast resources are opt-in upstream, so missing selections do not trigger a change. Dedicated cast-only groups bypass selections and are separately disabled; native castbar suppression stays off. Nameplate runtime Disable methods restore/stop their behavior, and YHUD's configuration-change API rebuilds its active display. Missing APIs block enforcement before storage changes. Failed HUD refreshes remain pending per rule for retry.
 - EllesmereUI enforcement covers nameplate profiles, spec presets and encoded spec override keys in EllesmereUIDB, using `_ENP_RefreshAllSettings` for the live display. Missing refresh APIs report a blocked rule; failed refreshes are retried. This adapter was verified against shared-suite 9.5.5.
 
@@ -50,7 +50,7 @@ Two seconds after the first `PLAYER_ENTERING_WORLD` event on each login or UI re
 /console Gamma 1.5
 ```
 
-Startup overlaps: YUI's installer and EllesmereUI's camera options also write camera zoom; EllesmereUINameplates writes nameplate distance 60 and RestedXP's targeting option writes 41 on this client; EllesmereUI's graphics options also write sharpening and its Optimize/Restore actions write contrast. These startup preferences do not disable those addon options or add continuous enforcement rules to `Policy.lua`.
+Startup overlaps: YUI's installer and EllesmereUI's camera options also write camera zoom; EllesmereUINameplates writes nameplate distance 60; EllesmereUI's graphics options also write sharpening and its Optimize/Restore actions write contrast. These startup preferences do not disable those addon options or add continuous enforcement rules to `Policy.lua`.
 
 Contrast and brightness use percentage values (85 and 55); gamma uses 1.5.
 
@@ -64,4 +64,6 @@ Add overlapping settings to `Policy.lua` and this table. Extend the relevant ada
 uv run --no-project --with lupa python tools/overlapsettingsguard-tests/run_tests.py
 ```
 
-The 32 tests use Lua 5.1, game/addon stubs and the installed YUI catalog/normalization code. They cover policy validation, stored profiles/templates/HUD sets, form overrides, option hooks, combat deferral, profile resets, inactive dependencies, missing APIs, independent refresh failure/retry, swing preservation, cast-only groups, installed-pack dependency validation, current YUI/EllesmereUI ownership and startup CVar timing/reloads. They do not verify live rendering or game API behavior.
+The 33 tests use Lua 5.1, game/addon stubs and installed source. They cover policy validation/dependencies, YUI profiles/HUD sets and druid forms, EUI spec overrides, combat deferral, reset detection, runtime refresh failures/retries, GearInsight upstream defaults, visible frames, owner conditions, safe return types and its actual bar-editor code. Tests verify preserved planning/wishlists/rotation advice and no action/binding writes through guarded editor methods. They also verify all ten startup CVars, ordering and once-per-session behavior.
+
+GearInsight 0.4.31 is the verified adapter baseline. Its translated tooltips enrich content rather than replacing YUI/EUI styling. Map destinations and the unique rotation board remain user choices. User-invoked graphics/camera macros can change startup CVars later, just like existing owner options. Layouts are unchanged; actual loading, secret-value handling and rendering at 1080p/1440p/4K still require in-game verification.

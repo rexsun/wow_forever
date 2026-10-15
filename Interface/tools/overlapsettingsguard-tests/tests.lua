@@ -30,7 +30,7 @@ local function StatusOf(results, id)
 end
 
 local function CurrentLoaded()
-  return { YUI = true, RXPGuides = true, TalentsForeverBook = true,
+  return { YUI = true, GearInsight_Forever = true,
     EllesmereUIUnitFrames = true, EllesmereUIRaidFrames = true, EllesmereUINameplates = true }
 end
 
@@ -86,95 +86,14 @@ test("the shipped policy has no errors", function()
   local w = Stubs.Fresh(ADDON_ROOT, {})
   local problems = w.ns.ValidatePolicy(w.ns.policy, w.ns.adapters)
   eq(#problems, 0, "policy problems: " .. table.concat(problems, "; "))
-  eq(#w.ns.policy, 12, "rule count")
-end)
-
-local function RxpOff()
-  return { autoSellJunk = false, enableTalentGuides = false, enableQuestAutomation = false, enableQuestRewardAutomation = false, enableQuestChoiceAutomation = false, enableGossipAutomation = false }
-end
-
-test("RestedXP settings read with RXP's defaults", function()
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded(), rxp = { live = {} } })
-  local a = w.ns.adapters.RestedXP
-  eq(a.Read("AutoSellJunk"), false, "autoSellJunk defaults off")
-  eq(a.Read("TalentGuides"), true, "talent guides default on")
-  eq(a.Knows("MaxNameplateDistance"), false, "unused nameplate-distance integration removed")
-end)
-
-test("RestedXP settings are switched off in the live profile, every stored profile and both templates", function()
-  local loaded = CurrentLoaded()
-  loaded.TalentsForeverBook = true
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded, rxp = {
-    live = { autoSellJunk = true },
-    profiles = { ["Alt - Realm"] = {} },
-    accountDefault = {},
-    characterDefault = { enableTalentGuides = true },
-  } })
-  w.Login()
-  for _, store in ipairs({ RXP.settings.profile, RXPData.defaultProfile.profile, RXPCData.localDB.profile }) do
-    for field, value in pairs(RxpOff()) do
-      if not (field == "autoSellJunk" and store[field] == nil) then
-        eq(store[field] or false, value, field)
-      end
-    end
-  end
-  eq(RXP.settings.profile.autoSellJunk, false, "live autoSellJunk")
-  for _, key in ipairs({ "AutoSellJunk", "TalentGuides" }) do
-    eq(w.ns.adapters.RestedXP.Read(key), false, key .. " off everywhere")
-  end
-  eq(#w.popups, 0, "login never opens a popup")
-  ok(ChatContains(w, "/reload"), "reload reminder appears in chat")
-  local named = false
-  for _, line in ipairs(w.printed) do
-    if line:find("Talents Guides", 1, true) and line:find("Also switched off in profiles: account default, character default", 1, true) then
-      named = true
-    end
-  end
-  ok(named, "chat names the other copies")
-end)
-
-test("a stored RestedXP profile with its own on value is switched off", function()
-  local loaded = CurrentLoaded()
-  loaded.TalentsForeverBook = true
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded, rxp = {
-    live = RxpOff(),
-    profiles = { ["Alt - Realm"] = { enableTalentGuides = true } },
-  } })
-  w.Login()
-  eq(RXPSettings.profiles["Alt - Realm"].enableTalentGuides, false, "Alt talent guides")
-  eq(#w.popups, 0, "stored-profile changes never open a popup")
-  ok(ChatContains(w, "switched off"), "stored-profile changes appear in chat")
-  eq(ChatContains(w, "/reload"), false, "no reload: this character's live values were already off")
-end)
-
-test("a stored RestedXP profile without the value uses the account template", function()
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded(), rxp = {
-    live = RxpOff(),
-    profiles = { ["Alt - Realm"] = {} },
-    accountDefault = RxpOff(),
-  } })
-  eq(w.ns.adapters.RestedXP.Read("TalentGuides"), false, "Alt inherits the template's off")
-end)
-
-test("a change in RestedXP's options is undone through AceConfig's NotifyChange", function()
-  local loaded = CurrentLoaded()
-  loaded.TalentsForeverBook = true
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded, rxp = { live = RxpOff() } })
-  w.Login()
-  eq(#w.popups, 0, "nothing to do at login")
-  RXP.settings.profile.enableTalentGuides = true
-  w.rxpRegistry:NotifyChange("Some Other Addon")
-  eq(#w.timers, 0, "other add-ons' changes are ignored")
-  w.rxpRegistry:NotifyChange("RestedXP Guides")
-  w.RunTimers()
-  eq(RXP.settings.profile.enableTalentGuides, false, "switched back")
+  eq(#w.ns.policy, 11, "rule count")
 end)
 
 test("ValidatePolicy reports bad rules", function()
   local w = Stubs.Fresh(ADDON_ROOT, {})
   local bad = {
     { id = "a", adapter = "Nope", key = "x", label = "l", reason = "r", when = { "X" } },
-    { id = "a", adapter = "RestedXP", key = "NotASetting", label = "l", reason = "r", when = {} },
+    { id = "a", adapter = "YUI", key = "NotASetting", label = "l", reason = "r", when = {} },
   }
   eq(#w.ns.ValidatePolicy(bad, w.ns.adapters), 4, "problem count")
 end)
@@ -191,16 +110,6 @@ test("every policy dependency belongs to the installed pack", function()
   for name in pairs(w.ns.adapters) do
     ok(used[name], "unused adapter: " .. name)
   end
-end)
-
-test("rules are inactive without their owner addon", function()
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = { RXPGuides = true }, rxp = {
-    live = { enableQuestAutomation = true, enableTalentGuides = true } } })
-  local results = w.ns.Check()
-  eq(StatusOf(results, "rxp.yui.autoquests"), "inactive")
-  eq(StatusOf(results, "rxp.talentguides"), "inactive")
-  eq(RXP.settings.profile.enableQuestAutomation, true)
-  eq(RXP.settings.profile.enableTalentGuides, true)
 end)
 
 test("/osg lists every current rule", function()
@@ -241,7 +150,7 @@ test("current YUI and EllesmereUI policy has enforceable rules", function()
   local ids = {}
   for _, rule in ipairs(w.ns.policy) do ids[rule.id] = rule end
   for _, id in ipairs({ "yui.nameplateoutline", "yui.friendlynameplates", "yui.resources", "yui.playerhealth", "yui.playercast", "eui.nameplatepower",
-    "rxp.yui.autoquests", "rxp.yui.autogossip", "rxp.yui.questrewards", "rxp.yui.questchoices", "rxp.yui.selljunk" }) do
+    "gi.friendlynameplates", "gi.combathud", "gi.resources", "gi.levelingstats", "gi.actionbaredits" }) do
     ok(ids[id], id)
   end
 end)
@@ -489,17 +398,6 @@ test("EllesmereUI spec override keys cannot restore nameplate class power", func
   eq(a.Read(), false)
 end)
 
-test("current automation and talent ownership disables competing RestedXP settings", function()
-  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded(), rxp = { live = {
-    autoSellJunk = true, enableQuestAutomation = true, enableGossipAutomation = true,
-    enableQuestRewardAutomation = true, enableQuestChoiceAutomation = true, enableTalentGuides = true } } })
-  w.Login()
-  for _, key in ipairs({ "autoSellJunk", "enableQuestAutomation", "enableGossipAutomation",
-    "enableQuestRewardAutomation", "enableQuestChoiceAutomation", "enableTalentGuides" }) do
-    eq(RXP.settings.profile[key], false, key)
-  end
-end)
-
 test("current frame overlaps defer in combat and catch changes bypassing hooks", function()
   local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
   local live = BuildYUI(w)
@@ -580,6 +478,8 @@ test("new rules stay inactive when their owner addon is absent", function()
   eq(live.Components.UtilityTools_Config.nameplateOutline, true)
   eq(live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].comboPoints, true)
 end)
+
+assert(loadfile(TESTS_ROOT .. "gearinsight.lua"))()(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
 
 for _, t in ipairs(tests) do
   local passed, err = pcall(t.fn)

@@ -18,8 +18,7 @@ import uuid
 
 APPROVED_LUA = frozenset({
     "EllesmereUI.lua", "EllesmereUINameplates.lua", "EllesmereUIRaidFrames.lua",
-    "EllesmereUIUnitFrames.lua", "YUI.lua", "RXPGuides.lua",
-    "DungeonsForever.lua", "TalentsForeverBook.lua",
+    "EllesmereUIUnitFrames.lua", "YUI.lua", "GearInsight_Forever.lua",
 })
 APPROVED_CVARS = frozenset({
     "gxWindowedResolution", "gxMaximize", "gxWindow", "useUiScale", "uiScale",
