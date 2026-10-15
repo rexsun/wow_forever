@@ -15,6 +15,32 @@ end
 local SKYRIDING_GROUP_ID = YHUD.GROUP_IDS and YHUD.GROUP_IDS.SKYRIDING
     or "group:system:skyriding"
 local SUPPORTS_SKYRIDING = not (YHUD.Client and YHUD.Client.skyriding == false)
+local SKYRIDING_GEOMETRY_FIELDS = {
+    width = true, speedHeight = true, vigorHeight = true, secondWindHeight = true,
+    rowGap = true, pipGap = true, resourceHeight = true, iconSize = true, ringThickness = true,
+}
+
+local function ThemeColor(key)
+    return { GUI2:GetColor(key) }
+end
+
+function DesignerUI:ApplySkyridingPreview(appearanceOnly)
+    local session = Designer:GetSession()
+    local skyriding = YHUD.Skyriding
+    if not (session and View.designMode and self.designerMode == "skyriding"
+        and skyriding and skyriding.ApplySettings) then
+        return self:ApplyPreview()
+    end
+    local profile = Designer.GetPresentationProfile
+        and Designer:GetPresentationProfile() or Designer:GetProfile()
+    if not skyriding:ApplySettings(profile, true, appearanceOnly == true) then return false end
+    if appearanceOnly ~= true then
+        local synced = skyriding:SyncConfigurationActivity()
+        if synced == nil then return false end
+        if View.RefreshDesignProjectionAnchors then View:RefreshDesignProjectionAnchors() end
+    end
+    return true
+end
 
 function DesignerUI:RefreshSkyridingSettingsPanel()
     local panel = self.skyridingSettingsPanel
@@ -60,6 +86,16 @@ function DesignerUI:RefreshSkyridingSettingsPanel()
         tonumber(styleSettings.speedFontSize) or 12,
         true
     )
+    panel.fillTexture:SetValue(styleSettings.fillTexture or "solid", true)
+    panel.border:SetValue(styleSettings.border or 1, true)
+    panel.speedText:SetValue(styleSettings.speedText ~= false, true)
+    for _, field in ipairs({ "speedColor", "thrillColor", "backgroundColor", "emptyColor" }) do
+        panel[field]:SetValue(styleSettings[field], true)
+    end
+    panel.borderColor:SetValue(type(styleSettings.borderColor) == "table"
+        and styleSettings.borderColor or ThemeColor("color.border.subtle"), true)
+    panel.speedTextColor:SetValue(type(styleSettings.speedTextColor) == "table"
+        and styleSettings.speedTextColor or ThemeColor("color.text.primary"), true)
     local horizon = styleId == "horizon"
     panel.resourceHeight:SetShown(horizon)
     panel.iconSize:SetShown(horizon)
@@ -73,29 +109,38 @@ function DesignerUI:RefreshSkyridingSettingsPanel()
         control:ClearAllPoints()
         control:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -y)
     end
-    Position(panel.rowGap, 246 + extraHeight)
-    Position(panel.pipGap, 284 + extraHeight)
-    Position(panel.vigorColor, 326 + extraHeight)
-    Position(panel.secondWindColor, 366 + extraHeight)
-    Position(panel.speedFontLabel, 410 + extraHeight)
-    Position(panel.speedFontSizeLabel, 410 + extraHeight)
+    Position(panel.width, 140)
+    Position(panel.speedHeight, 178)
+    Position(panel.vigorHeight, 216)
+    Position(panel.secondWindHeight, 254)
+    Position(panel.rowGap, 292)
+    Position(panel.pipGap, 330)
+    Position(panel.vigorColor, 298)
+    Position(panel.secondWindColor, 332)
+    Position(panel.speedFontLabel, 190)
+    Position(panel.speedFontSizeLabel, 190)
     panel.speedFontSizeLabel:ClearAllPoints()
     panel.speedFontSizeLabel:SetPoint(
         "TOPLEFT",
         panel,
         "TOPLEFT",
         234,
-        -(410 + extraHeight)
+        -190
     )
-    Position(panel.speedFont, 428 + extraHeight)
+    Position(panel.speedFont, 208)
     panel.speedFontSize:ClearAllPoints()
     panel.speedFontSize:SetPoint(
         "TOPLEFT",
         panel,
         "TOPLEFT",
         234,
-        -(428 + extraHeight)
+        -208
     )
+    local page = panel.page or "layout"
+    panel.tabs:SetValue(page, true)
+    for id, controls in pairs(panel.pages) do
+        for index = 1, #controls do controls[index]:SetShown(id == page) end
+    end
     self.skyridingSettingsRefreshing = false
     return true
 end
@@ -171,7 +216,7 @@ function DesignerUI:EnsureSkyridingSettingsPanel()
         set = function(value)
             if DesignerUI.skyridingSettingsRefreshing then return end
             if Designer:SetSkyridingSettings({ enabled = value == true }) then
-                DesignerUI:ApplyPreview()
+                DesignerUI:ApplySkyridingPreview(false)
                 DesignerUI:RefreshSkyridingSettingsPanel()
             end
         end,
@@ -195,7 +240,7 @@ function DesignerUI:EnsureSkyridingSettingsPanel()
         set = function(value)
             if DesignerUI.skyridingSettingsRefreshing then return end
             if Designer:SetSkyridingSettings({ style = value }) then
-                DesignerUI:ApplyPreview()
+                DesignerUI:ApplySkyridingPreview(false)
                 DesignerUI:RefreshSkyridingSettingsPanel()
                 if DesignerUI.PositionSkyridingSettingsPanel then
                     DesignerUI:PositionSkyridingSettingsPanel(false)
@@ -208,13 +253,14 @@ function DesignerUI:EnsureSkyridingSettingsPanel()
 
     local function SetDraftSetting(patch)
         if DesignerUI.skyridingSettingsRefreshing then return end
-        local profile = Designer.GetPresentationProfile
-            and Designer:GetPresentationProfile() or Designer:GetProfile()
-        local current = YHUD:GetSkyridingSettings(profile)
         local styleId = "halo"
         local settings = Designer:SetSkyridingStyleSettings(styleId, patch)
         if not settings then return end
-        DesignerUI:ApplyPreview()
+        local appearanceOnly = true
+        for field in pairs(patch) do
+            if SKYRIDING_GEOMETRY_FIELDS[field] then appearanceOnly = false; break end
+        end
+        DesignerUI:ApplySkyridingPreview(appearanceOnly)
         DesignerUI:RefreshSkyridingSettingsPanel()
     end
 
@@ -399,18 +445,91 @@ function DesignerUI:EnsureSkyridingSettingsPanel()
     })
     panel.speedFontSize:SetPoint("TOPLEFT", panel, "TOPLEFT", 234, -466)
 
+    panel.pages = {
+        layout = { panel.width, panel.speedHeight, panel.vigorHeight, panel.secondWindHeight,
+            panel.rowGap, panel.pipGap },
+        appearance = { panel.vigorColor, panel.secondWindColor },
+        text = { panel.speedFontLabel, panel.speedFont, panel.speedFontSizeLabel, panel.speedFontSize },
+    }
+    panel.page = "layout"
+    panel.tabs = GUI2.Form:CreateUnderlineTabs(panel, {
+        width = 324, height = 30, equalWidth = true, gap = 8, showBaseline = true,
+        value = panel.page,
+        items = {
+            { text = T("designer.page.layout", "布局"), value = "layout" },
+            { text = T("designer.page.appearance", "外观"), value = "appearance" },
+            { text = T("designer.page.text", "文字"), value = "text" },
+        },
+        set = function(value)
+            panel.page = value
+            DesignerUI:RefreshSkyridingSettingsPanel()
+        end,
+    })
+    panel.tabs:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -94)
+
+    local function Keep(page, control)
+        local controls = panel.pages[page]
+        controls[#controls + 1] = control
+        return control
+    end
+    local textureLabel = Keep("appearance", GUI2:CreateText(panel,
+        T("designer.appearance.texture", "条材质"), "font.size.sm", "color.text.secondary", "LEFT"))
+    textureLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -136)
+    panel.fillTexture = Keep("appearance", YUI.Settings:CreateTextureSelector(panel, {
+        width = 324, height = 30,
+        get = function()
+            local profile = Designer.GetPresentationProfile
+                and Designer:GetPresentationProfile() or Designer:GetProfile()
+            return YHUD:GetSkyridingSettings(profile).styles.halo.fillTexture
+        end,
+        set = function(value) SetDraftSetting({ fillTexture = value }) end,
+    }))
+    panel.fillTexture:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -154)
+    Keep("appearance", CreateSettingSlider("border",
+        T("designer.appearance.border", "边框"), 0, 12, 1))
+        :SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -192)
+
+    local function CreateColor(field, label, page, y, defaultToken)
+        local control = GUI2.Form:CreateColorPicker(panel, {
+            width = 324, height = 30, label = label, labelWidth = 178,
+            field = false, hasAlpha = true,
+            set = function(value)
+                local patch = {}; patch[field] = value; SetDraftSetting(patch)
+            end,
+            getDefault = function()
+                if defaultToken then return ThemeColor(defaultToken) end
+                return YHUD:GetDefaultSkyridingStyleSettings("halo")[field]
+            end,
+        })
+        panel[field] = Keep(page, control)
+        control:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -y)
+    end
+    CreateColor("speedColor", T("skyriding.settings.speed_color", "速度颜色"), "appearance", 230)
+    CreateColor("thrillColor", T("skyriding.settings.thrill_color", "高速颜色"), "appearance", 264)
+    CreateColor("backgroundColor", T("skyriding.settings.speed_background", "速度背景"), "appearance", 366)
+    CreateColor("emptyColor", T("skyriding.settings.resource_background", "资源背景"), "appearance", 400)
+    CreateColor("borderColor", T("designer.appearance.border_color", "边框颜色"),
+        "appearance", 434, "color.border.subtle")
+    local speedTextLabel = Keep("text", GUI2:CreateText(panel,
+        T("skyriding.settings.speed_text", "显示速度文字"), "font.size.md", "color.text.primary", "LEFT"))
+    speedTextLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -146)
+    panel.speedText = Keep("text", GUI2.Form:CreateSwitch(panel, {
+        width = 64, height = 24,
+        set = function(value) SetDraftSetting({ speedText = value == true }) end,
+    }))
+    panel.speedText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -18, -140)
+    CreateColor("speedTextColor", T("designer.text.color", "文字颜色"),
+        "text", 258, "color.text.primary")
+
     panel.resetSettings = GUI2.Form:CreateButton(panel, {
         text = T("skyriding.settings.reset", "恢复默认设置"),
         width = 144,
         height = 30,
         onClick = function()
-            local profile = Designer.GetPresentationProfile
-                and Designer:GetPresentationProfile() or Designer:GetProfile()
-            local current = YHUD:GetSkyridingSettings(profile)
             local styleId = "halo"
             local defaults = YHUD:GetDefaultSkyridingStyleSettings(styleId)
             if Designer:SetSkyridingStyleSettings(styleId, defaults) then
-                DesignerUI:ApplyPreview()
+                DesignerUI:ApplySkyridingPreview(false)
                 DesignerUI:RefreshSkyridingSettingsPanel()
             end
         end,

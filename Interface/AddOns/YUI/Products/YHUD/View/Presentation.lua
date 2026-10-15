@@ -290,6 +290,9 @@ local function GetResourcePresets(plan, groupPlan)
     local presets
     if type(plan.resourcePresets) == "table" then
         presets = plan.resourcePresets
+    elseif plan.profile.groups.items[groupPlan.id]
+        and plan.profile.groups.items[groupPlan.id].contentPolicy == "cast-only" then
+        presets = ResourceCatalog:GetGroupPresets(plan.profile, groupPlan.id)
     elseif plan.resourceClassFile and plan.resourceSpecID then
         presets = ResourceCatalog:GetPreviewPresets(
             YHUD:GetResourceProfile(plan.profile, groupPlan.id),
@@ -434,7 +437,7 @@ local function BuildResourcePresentationSpec(plan, groupPlan, preset)
         bindings = {
             rechargeProgress = providerKind == "spell-charges",
             durationProgress = providerKind == "aura-duration"
-                or providerKind == "ironfur-timers" or providerKind == "swing-timer",
+                or providerKind == "ironfur-timers" or providerKind == "swing-timer" or providerKind == "player-cast",
             durationProgressDirection = providerKind == "swing-timer" and "elapsed" or "remaining",
             auraDurationSpellID = providerKind == "aura-duration"
                 and provider.spellID,
@@ -468,8 +471,12 @@ local function BuildResourcePresentationSpec(plan, groupPlan, preset)
             partialPollInterval = provider.safetyPollInterval,
         },
         text = {
-            nameText = false,
-            valueText = style.valueText,
+            nameText = providerKind == "player-cast" and style.cast and style.cast.name == true,
+            namePosition = providerKind == "player-cast" and style.cast and style.cast.namePosition or nil,
+            nameSize = providerKind == "player-cast" and style.cast and (style.cast.nameSize or style.textSize) or nil,
+            nameOffsetX = providerKind == "player-cast" and style.cast and style.cast.nameOffsetX or nil,
+            nameOffsetY = providerKind == "player-cast" and style.cast and style.cast.nameOffsetY or nil,
+            valueText = providerKind == "player-cast" and style.cast and style.cast.progress == true or providerKind ~= "player-cast" and style.valueText,
             valueFormat = style.valueFormat,
             abbreviateValues = style.abbreviateValues,
             text2 = style.text2,
@@ -479,7 +486,7 @@ local function BuildResourcePresentationSpec(plan, groupPlan, preset)
             offsetX = style.textOffsetX,
             offsetY = style.textOffsetY,
             font = style.textFont,
-            size = style.textSize,
+            size = providerKind == "player-cast" and style.cast and style.cast.progressSize or style.textSize,
             runeCooldownTextSize = style.runeCooldownTextSize,
             runeCooldownTextMode = style.runeCooldownTextMode,
             outline = style.textOutline,

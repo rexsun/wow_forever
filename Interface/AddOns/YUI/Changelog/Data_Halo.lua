@@ -1,6 +1,112 @@
 -- Generated from Docs/Products/YUI_YHUD/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yhud", {
+-- YUI-Notes-Record: halo-107|mainline|d6db2e9de496741c0040ad0857c4b2c3723e8c50d19e82e6d10eb0c05ae80e71
+    {
+        version = "halo-107",
+        date = "2026-10-15",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "新增玩家生命条和施法条，支持独立分组、资源混排及文字样式设置。",
+                "完善驭龙术的材质、边框、颜色与速度文字设置。",
+                "导入预览更清楚地展示专精分配与默认方案的影响。",
+                "修复配置导入与原生分类同步，完善失败提示与恢复。",
+                "修复监控台及编辑面板的层级显示问题。",
+            },
+            enUS = {
+                "Added player health and cast bars, with separate groups, mixed resource layouts and text styling.",
+                "Expanded skyriding texture, border, color and speed text settings.",
+                "Import previews now show specialization assignments and default configuration impact more clearly.",
+                "Fixed configuration imports and native category synchronization, with clearer failure messages and recovery.",
+                "Fixed monitor and editor panel layering.",
+            },
+        },
+    },
+-- YUI-Notes-Record: halo-107|forever|15c6299a83b777a048f0fff0d8f45ce6d6fc0379bc240d4e6e8a21c3a9611f89
+    {
+        version = "halo-107",
+        date = "2026-10-15",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增玩家生命条和施法条，支持独立分组、资源混排及文字样式设置。",
+                "导入预览更清楚地展示专精分配与默认方案的影响。",
+                "修复纯图形配置与旧方案字符串的导入，完善失败提示与恢复。",
+                "修复监控台及编辑面板的层级显示问题。",
+            },
+            enUS = {
+                "Added player health and cast bars, with separate groups, mixed resource layouts and text styling.",
+                "Import previews now show specialization assignments and default configuration impact more clearly.",
+                "Fixed imports of graphics-only configurations and legacy configuration strings, with clearer failure messages and recovery.",
+                "Fixed monitor and editor panel layering.",
+            },
+        },
+    },
+-- YUI-Notes-Record: halo-106|forever|758be38d0861766ac291ce0945837d1f9924dc1b260a380bae1aa2c3dbb7f489
+    {
+        version = "halo-106",
+        date = "2026-10-13",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "法师、牧师、术士的默认监控启用魔杖远程计时器。",
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Default monitors for mages, priests and warlocks now enable wand swing timers.",
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: halo-106|mainline|4ed8e1f24960314fb203dd190c6b04964e0dadd1ed17cd4c273a468a7564c408
+    {
+        version = "halo-106",
+        date = "2026-10-13",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: halo-105|mainline|70f0de043c23f898e04e936d22310c9311a6bc3cda1d847910f6445c1972ed5d
+    {
+        version = "halo-105",
+        date = "2026-10-12",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "新增桃桃奶兮 TTNX 语音包推荐，完善语音包安装状态显示。",
+                "新增特别语音分类，支持语音包专属音效；切换语音包后保留配置，切回原包恢复播放。",
+                "优化语音选择器，优先展示与监控名称匹配的条目，并标识当前包的录音状态。",
+                "语音包卡片显示标准与特别语音数量，随机试听同步展示条目名称。",
+            },
+            enUS = {
+                "Added the recommended TTNX voice pack and clearer voice pack installation status.",
+                "Added a Special Voices category for pack-exclusive sounds; selections are preserved when switching packs and resume when switching back.",
+                "Voice selection now prioritizes entries matching the monitor name and indicates recording availability in the selected pack.",
+                "Voice pack cards show standard and special voice counts; random previews display the entry name.",
+            },
+        },
+    },
+-- YUI-Notes-Record: halo-105|forever|2ca3fd825ed34378bd5dd288e6f02ce2bcacb00b6c1676de919f427ee8af8096
+    {
+        version = "halo-105",
+        date = "2026-10-12",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: halo-104|forever|039e2991f501b3d8f1a2243efbd85111cf60d9e0470047458013c50a99f030bb
     {
         version = "halo-104",

@@ -17,11 +17,23 @@ local function Bundle(bundleId, path)
     return "Interface\\AddOns\\YUI\\Media\\Bundles\\" .. bundleId .. "\\" .. path
 end
 
+-- -----
+-- BACKGROUND
+-- -----
 
+-- -----
+--  BORDER
+-- ----
 -- LSM:Register("border", "|CFFBA55D3YUI Border1|r", Bundle("sharedmedia-borders", "YUI Border1.tga"))
 
+-- -----
+--  Arrows
+-- ----
 -- LSM:Register("media", "|CFFBA55D3EthricArrow|r", Bundle("sharedmedia-arrows", "EthricArrow.tga"))
 
+-- -----
+--   FONT
+-- -----
 if HasBundle("sharedmedia-fonts") then
     LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3Inter Black|r", "Fonts\\YUIInterBlack.ttf", 255)
     LSM:Register("font", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3Inter Bold|r", "Fonts\\YUIInterBold.ttf", 255)
@@ -34,8 +46,14 @@ end
 
 
 
+-- -----
+--   SOUND
+-- -----
 -- LSM:Register("sound", "|CFFBA55D3SX1|r", Bundle("voice-wyjj", "???.ogg"))
 
+-- -----
+--   STATUSBAR
+-- -----
 local function RegisterStatusBar(name, file)
     LSM:Register("statusbar", " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3" .. name .. "|r", Bundle("sharedmedia-statusbars", file))
 end

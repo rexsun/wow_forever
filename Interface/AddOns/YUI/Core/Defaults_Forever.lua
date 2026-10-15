@@ -159,6 +159,7 @@ YUI.ForeverFactoryProfile = {
             barColor = { [1] = 1, [2] = 1, [3] = 1, [4] = 1 },
             barSize = 14,
             barTextOffsetY = 16,
+            detailBackgroundAlpha = 0.7,
             detailColor = { [1] = 239/255, [2] = 239/255, [3] = 239/255, [4] = 1 },
             detailFont = "默认",
             detailSize = 14,
@@ -234,6 +235,8 @@ YUI.ForeverFactoryProfile = {
         NativeInterface_Config = {
             _migrationVersion = 2, bagsBarVisibility = "auto", hideMicroMenu = true, hideStatusTrackingBars = false,
             fixBagSortButton = true,
+            fixProfessionsIcon = true,
+            questLootSparkles = true,
             compactBetaReporter = true, importBetaProfile = true, importBetaEditMode = true,
         },
         GameMenuButtons = true,

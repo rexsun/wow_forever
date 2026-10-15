@@ -15,7 +15,7 @@ local TOOLBOX_MANAGED = PRODUCT_ID == "suite" or PRODUCT_ID == "toolbox"
 
 -- 缓存全局函数
 local GetItemIcon = GetItemIcon or C_Item.GetItemIconByID
-local GetItemCount = GetItemCount
+local GetItemCount = YUI.API.Item.GetCount
 local GetItemInfo = GetItemInfo or C_Item.GetItemInfo
 local C_AuctionHouse = C_AuctionHouse
 

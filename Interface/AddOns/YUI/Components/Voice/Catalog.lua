@@ -1,21 +1,31 @@
-local _, YUI = ...
+local ADDON_NAME, YUI = ...
 YUI = _G.YUI or YUI
 if not (YUI and YUI.Sound) then return end
 local S = YUI.Sound
+-- Bind these resources to the addon carrying Voice, even when Core loaded elsewhere.
+if YUI.Assets and YUI.Assets.RegisterComponentRoot then
+    YUI.Assets:RegisterComponentRoot('Voice', 'Interface\\AddOns\\'..ADDON_NAME..'\\Components\\Voice\\Media')
+end
 S.entries = S.entries or {}
 S.voicePacks = S.voicePacks or {}
 -- Discovery metadata does not register recordings or change playback preferences.
 S.knownVoicePacks = {
     ['yui.default'] = { names={enUS='Yanxi',zhCN='言汐',zhTW='言汐'},
-        icon=136183, author='阿言', language='zhCN' },
-    wyjjdb = { names={enUS='WYJJDB'}, icon=134229, author='忘忧景久',language='zhCN',
-        addonIcon='Interface\\AddOns\\WYJJDB\\Media\\icon.tga' },
+        icon=136183, author='阿言', language='zhCN', listOrder=1 },
+    wyjjdb = { names={enUS='忘忧景久',zhCN='忘忧景久',zhTW='忘憂景久'}, icon=134229, author='忘忧景久',language='zhCN',
+        addonName='WYJJDB', addonIcon='Interface\\AddOns\\WYJJDB\\Media\\icon.tga', listOrder=2,
+        builtinIcon='icons\\wyjjdb.tga' },
+    ['voice.e4893b47a0d36bc600d88313'] = {
+        names={enUS='桃桃奶兮TTNX语音包',zhCN='桃桃奶兮TTNX语音包',zhTW='桃桃奶兮TTNX语音包'},
+        icon=136183, author='桃桃奶兮', language='zhCN', listOrder=3, addonName='YUI_VoicePack_TTNX',
+        addonIcon='Interface\\AddOns\\YUI_VoicePack_TTNX\\Icon.tga', builtinIcon='icons\\ttnx.tga' },
 }
 -- Maintainer-reviewed display content. A pack cannot approve its own metadata.
 -- Store the approved text/URL here; never expose replacement content from registration.
 local ReviewedMetadata = {
     ['yui.default'] = { descriptionKey='defaultPackDescription' },
     wyjjdb = { descriptionKey='externalPackDescription', downloadURL='https://www.curseforge.com/wow/addons/wyjjdb' },
+    ['voice.e4893b47a0d36bc600d88313'] = { downloadURL='https://www.curseforge.com/wow/addons/ttnxmedia' },
 }
 
 local function Client()
@@ -28,6 +38,10 @@ local function Language()
     local locale=YUI.Locale
     if locale and type(locale.Current)=="function" then return locale:Current() end
     return type(GetLocale)=="function" and GetLocale() or "enUS"
+end
+
+local function DisplayText(key)
+    return YUI.Locale and YUI.Locale:Get('Core')[key] or key
 end
 
 local function Positive(n)
@@ -107,6 +121,25 @@ end
 
 local function PackText(value, limit)
     return type(value)=='string' and #value<=limit and not value:find('[%z\1-\31\127|]')
+end
+
+-- The origin travels with the saved value, including through config sharing.
+-- Local special IDs are immutable; display names and recordings may change.
+function S:ParseSpecialVoice(value)
+    if type(value)~='string' then return nil end
+    local pack,id=value:match('^VS:(.+):(SP%-%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x)$')
+    if pack and PackText(pack,128) then return pack,id end
+end
+
+function S:IsVoiceReference(value)
+    return type(value)=='string' and (value:match('^VC%-%x%x%x%x%x%x%x%x$')~=nil or self:ParseSpecialVoice(value)~=nil)
+end
+
+function S:SpecialVoiceReference(packId,id)
+    if type(packId)~='string' or type(id)~='string' then return nil end
+    local value='VS:'..packId..':'..id
+    local origin,specialId=self:ParseSpecialVoice(value)
+    return origin==packId and specialId==id and value or nil
 end
 
 local function CopySet(raw, kind)
@@ -209,6 +242,33 @@ function S:RegisterVoicePack(packId, definition)
         end
         pack.entries[id]={file=file,duration=raw.duration}
     end
+    pack.specialEntries={}
+    if definition.specialEntries~=nil then
+        if type(definition.specialEntries)~='table' then return Reject('invalid-special-entry') end
+        local count=0
+        for id,raw in pairs(definition.specialEntries) do
+            count=count+1
+            if count>512 or type(id)~='string' or not self:SpecialVoiceReference(packId,id)
+                or type(raw)~='table' or type(raw.names)~='table' or not PackText(raw.names.enUS,256)
+                or raw.names.enUS=='' or not PackText(raw.file,512) or raw.file==''
+                or not Positive(raw.duration) or raw.duration>300 then return Reject('invalid-special-entry') end
+            local entry={id=id,names={},file=raw.file,duration=raw.duration,icon=raw.icon,listOrder=raw.listOrder or 0}
+            if entry.icon~=nil and not ValidIcon(entry.icon) then return Reject('invalid-special-icon') end
+            if type(entry.listOrder)~='number' or entry.listOrder~=entry.listOrder or entry.listOrder<0
+                or entry.listOrder>=math.huge or entry.listOrder%1~=0 then return Reject('invalid-special-order') end
+            for lang,name in pairs(raw.names) do
+                if type(lang)~='string' or not PackText(name,256) or name=='' then return Reject('invalid-special-name') end
+                entry.names[lang]=name
+            end
+            if pack.manifest then
+                local file=raw.file:match('([^\\/]+)$')
+                local checked=file and pack.manifest.checkedFiles[file]
+                local path=pack.addonName and 'Interface\\AddOns\\'..pack.addonName..'\\Media\\'..(file or '')
+                if not checked or checked.duration~=raw.duration or raw.file~=path then return Reject('invalid-special-recording') end
+            end
+            pack.specialEntries[id]=entry
+        end
+    end
     self.voicePacks[packId]=pack
     if self.rejectedVoicePacks then self.rejectedVoicePacks[packId]=nil end
     if YUI.Event then YUI.Event:Emit("YUI_SOUND_PACKS_CHANGED",packId) end
@@ -219,6 +279,7 @@ function S:GetVoicePackInfo(id)
     local info={}
     for key,value in pairs(self.knownVoicePacks[id] or {}) do info[key]=value end
     for key,value in pairs(self.voicePacks[id] or {}) do info[key]=value end
+    info.builtinIcon=self.knownVoicePacks[id] and self.knownVoicePacks[id].builtinIcon or nil
     -- Every display surface uses these curated fields, including copyable reports.
     local reviewed=ReviewedMetadata[id]
     info.description=reviewed and reviewed.description or nil
@@ -228,14 +289,125 @@ function S:GetVoicePackInfo(id)
     return info
 end
 
+function S:GetVoicePackState(id)
+    if self.voicePacks[id] then return 'ready' end
+    local known=self.knownVoicePacks[id]
+    local addonName=known and known.addonName
+    if not addonName then return 'not-installed' end
+    local system=YUI.API and YUI.API.System
+    if not (system and system.DoesAddOnExist) then return 'unavailable' end
+    if not system.DoesAddOnExist(addonName) then return 'not-installed' end
+    if system.GetAddOnLoadedState and system.GetAddOnLoadedState(addonName)==true then return 'not-registered' end
+    if system.GetAddOnEnabledState and system.GetAddOnEnabledState(addonName)==false then return 'disabled' end
+    return 'not-loaded'
+end
+
+function S:GetVoicePackIcon(id)
+    local info=self:GetVoicePackInfo(id)
+    if info.builtinIcon and YUI.Assets then return YUI.Assets:Component('Voice',info.builtinIcon) end
+    if id=='yui.default' and YUI.Assets then return YUI.Assets:Core('images\\YUI-LOGO-300.png') end
+    return info.addonIcon or info.icon
+end
+
+function S:GetEntryIcon(value)
+    local origin,id=self:ParseSpecialVoice(value)
+    local entry
+    if origin then
+        local pack=self.voicePacks[origin]
+        entry=pack and pack.specialEntries and pack.specialEntries[id]
+    else entry=self.entries[value] end
+    local icon=entry and entry.icon
+    if type(icon)=='table' then icon=icon[Client()] end
+    return icon or origin and self:GetVoicePackIcon(origin)
+end
+
 function S:GetEntryLabel(id, language)
+    local packId,specialId=self:ParseSpecialVoice(id)
+    if packId then
+        local pack=self.voicePacks[packId]
+        local special=pack and pack.specialEntries and pack.specialEntries[specialId]
+        return special and Text(special.names,language or Language()) or DisplayText('voice.entry.specialUnavailable')
+    end
     local entry=self.entries[id]
     return entry and Text(entry.names,language or Language()) or id
 end
 
+function S:GetSpecialEntries(packId,language)
+    local pack=self.voicePacks[packId]
+    local rows={}
+    if not pack or pack.clients and not pack.clients[Client()] then return rows end
+    local packIcon=self:GetVoicePackIcon(packId)
+    for id,entry in pairs(pack.specialEntries or {}) do
+        rows[#rows+1]={id=self:SpecialVoiceReference(packId,id),name=Text(entry.names,language or Language()),
+            icon=entry.icon or packIcon,class='special',listOrder=entry.listOrder,packId=packId}
+    end
+    table.sort(rows,function(a,b)
+        if a.listOrder~=b.listOrder then return a.listOrder<b.listOrder end
+        if a.name~=b.name then return a.name<b.name end
+        return a.id<b.id
+    end)
+    return rows
+end
+
+-- Recording status always describes the selected pack, independent of fallback.
+function S:HasVoiceRecording(value,packId)
+    local origin,id=self:ParseSpecialVoice(value)
+    local pack=self.voicePacks[packId]
+    if not pack or pack.clients and not pack.clients[Client()] then return false end
+    if origin then return origin==packId and pack.specialEntries[id]~=nil end
+    return pack.entries[value]~=nil
+end
+
+local aliases={['寒冰屏障']='冰箱',['隱身術']='隱身',['隐身术']='隐身',['操控时间']='操控',
+    ['操控時間']='操控',['群体隐身']='群隐',['群體隱身']='群隱',
+    ['群体隐形术']='群隐',['群體隱形術']='群隱',['火焰冲击']='火冲',['火焰衝擊']='火衝',
+    ['炽热重生']='春哥',['熾熱重生']='春哥'}
+local function MatchName(name)
+    return string.lower(name):gsub('[%s%p]','')
+end
+local function Subject(name)
+    name=name:gsub('^准备',''):gsub('^準備',''):gsub('就绪$',''):gsub('就緒$','')
+        :gsub('^prepare',''):gsub('ready$','')
+    return aliases[name] or name
+end
+local function Matchable(name)
+    return #name>=(name:byte(1) and name:byte(1)>=128 and 6 or 3)
+end
+
+-- Cold UI work: literal subject matching and six stable buckets, linear in rows.
+-- Never scan or allocate matching tables from the playback/event hot path.
+function S:OrderVoiceEntries(rows,names,packId)
+    local subjects={}
+    for _,name in ipairs(names or {}) do
+        if type(name)=='string' and name~='' then
+            local normalized=MatchName(name)
+            subjects[#subjects+1]={name=normalized,subject=Subject(normalized)}
+        end
+    end
+    local buckets={{},{},{},{},{},{}}
+    for _,entry in ipairs(rows) do
+        local name=MatchName(entry.name)
+        local subject=Subject(name)
+        local match=2
+        for _,monitor in ipairs(subjects) do
+            if name==monitor.name then match=0;break end
+            if Matchable(monitor.subject) and Matchable(subject) and (subject==monitor.subject
+                or subject:find(monitor.subject,1,true) or monitor.subject:find(subject,1,true)) then match=1 end
+        end
+        local row={}
+        for key,value in pairs(entry) do row[key]=value end
+        row.recorded=self:HasVoiceRecording(entry.id,packId)
+        local bucket=buckets[match*2+(row.recorded and 1 or 2)]
+        bucket[#bucket+1]=row
+    end
+    local result={}
+    for _,bucket in ipairs(buckets) do for _,row in ipairs(bucket) do result[#result+1]=row end end
+    return result
+end
+
 function S:GetVoicePackLabel(id, language)
     local pack=self.voicePacks[id] or self.knownVoicePacks[id]
-    return pack and Text(pack.names,language or Language()) or id
+    return pack and Text(pack.names,language or Language()) or DisplayText('voice.pack.unknownName')
 end
 
 function S:GetEntries(options)
@@ -267,6 +439,18 @@ end
 -- An unsupported client is not a missing recording and cannot fall back.
 local function ResolveEntry(self,id, options,preview)
     options=options or {}
+    local origin,specialId=self:ParseSpecialVoice(id)
+    if origin then
+        local selected=options.packId or self._activeVoicePackId or 'yui.default'
+        if selected~=origin then return nil,'special-voice-inactive' end
+        local pack=self.voicePacks[origin]
+        if not pack then return nil,'special-voice-unavailable' end
+        if pack.clients and not pack.clients[options.client or Client()] then return nil,'unsupported-entry-client' end
+        local recording=pack.specialEntries[specialId]
+        if not recording or options.unavailablePacks and options.unavailablePacks[origin] then return nil,'special-voice-unavailable' end
+        return {kind='file',value=recording.file,duration=recording.duration,entryId=id,
+            packId=origin,selectedPackId=selected,fallback=false}
+    end
     local entry=self.entries[id]
     if not entry then return nil,"unknown-entry" end
     if not entry.clients[options.client or Client()] and not (preview and next(entry.clients)==nil) then
@@ -307,6 +491,7 @@ function S:GetForecastIntroDuration(sound,options)
     if (sound.introKind or 'voice')=='voice' then
         local part=self:ResolveEntry(sound.value,options)
         if part and part.kind=='file' and Positive(part.duration) then return part.duration,true end
+        if self:ParseSpecialVoice(sound.value) then return 0,true end
     end
     if Positive(sound.introDuration) and sound.introDuration<=86400 then return sound.introDuration,false end
     return nil,false

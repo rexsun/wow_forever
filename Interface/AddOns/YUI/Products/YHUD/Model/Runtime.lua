@@ -66,6 +66,7 @@ local function CreateState(sourceKey)
 end
 
 local function ClearTransientState(state)
+    state.castDisplayRaw = nil
     state.durationObject = nil
     state.displayCountRaw = nil
     state.valueRaw = nil
@@ -148,6 +149,9 @@ function Model:OnSourceState(source, sourceKey, forced)
     end
 
     if sourceKind == "resource" then
+        state.castActive, state.castMode, state.castStage = source.castActive, source.castMode, source.castStage
+        state.castStages, state.castTotal = source.castStages, source.castTotal
+        state.castTickCount = source.castTickCount
         local secret = source.secret == true
         local value = not secret and type(source.value) == "number"
             and source.value or nil
@@ -290,6 +294,7 @@ function Model:OnSourceState(source, sourceKey, forced)
         state.cellDurationsRaw = source.cellDurationsRaw
         state.durationResourceRaw = source.durationResourceRaw
         state.timerEntriesRaw = source.timerEntriesRaw
+        state.castDisplayRaw = source.castDisplayRaw
     end
     if diff ~= 0 then
         state.revision = state.revision + 1
@@ -302,6 +307,10 @@ function Model:OnSourceState(source, sourceKey, forced)
         local ok, err = pcall(updater.Apply, updater, state, diff)
         ClearTransientState(state)
         if not ok then
+            if source.resourceId == "cast" and YHUD.PlayerBars then
+                YHUD.PlayerBars.renderFailed = true
+                YHUD.PlayerBars:SyncNativeSuppression(nil)
+            end
             RecordTransientDispatchError(sourceKey, err)
         end
     else

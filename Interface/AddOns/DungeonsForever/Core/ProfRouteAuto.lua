@@ -60,10 +60,15 @@ local function CallAPI(fn, ...)
 end
 
 local priceCache = {}   -- itemID → number | false（false = 已查无价）
+local NEG_TTL = 60
 
 local function AHPrice(id)
-    if priceCache[id] ~= nil then
-        return priceCache[id] or nil
+    local c = priceCache[id]
+    if c ~= nil then
+        if c ~= false then return c end
+        local now = (type(time) == "function") and time() or 0
+        local t0 = priceCache.__t and priceCache.__t[id] or nil
+        if t0 and (now - t0) < NEG_TTL then return nil end
     end
     local p
     if RA.Available() then
@@ -80,6 +85,10 @@ local function AHPrice(id)
         end
     end
     priceCache[id] = p or false
+    if not p then
+        priceCache.__t = priceCache.__t or {}
+        priceCache.__t[id] = (type(time) == "function") and time() or 0
+    end
     if p then priceCache.__any = true end
     return p
 end
@@ -241,7 +250,7 @@ function RA.MoneyStr(copper, opt)
         return "-" .. RA.MoneyStr(-copper, opt)
     end
     if not copper or copper <= 0 then
-        return (opt == "copper") and ("0" .. ICON_C) or ("0" .. ICON_S)
+        return "0" .. ICON_C
     end
     if opt == "copper" then
         local g = math.floor(copper / 10000)
@@ -252,11 +261,16 @@ function RA.MoneyStr(copper, opt)
         end
         return format("%d%s%02d%s", s, ICON_S, c, ICON_C)
     end
-    local totalSilver = math.floor(copper / 100 + 0.5)   -- 四舍五入到银
-    local g = math.floor(totalSilver / 100)
-    local s = totalSilver % 100
-    if g > 0 then return format("%d%s%02d%s", g, ICON_G, s, ICON_S) end
-    return format("%d%s", s, ICON_S)
+    local g = math.floor(copper / 10000)
+    local s = math.floor(copper / 100) % 100
+    local c = copper % 100
+    if g > 0 then
+        return format("%d%s%02d%s%02d%s", g, ICON_G, s, ICON_S, c, ICON_C)
+    end
+    if s > 0 then
+        return format("%d%s%02d%s", s, ICON_S, c, ICON_C)
+    end
+    return format("%d%s", c, ICON_C)
 end
 
 -- ── 单次制作的升点概率 P（橙→黄→绿线性插值，与 ProfFollow.expPerPoint 同源）──
@@ -294,18 +308,24 @@ local function LearnKnown(spell)
     return false
 end
 
+function RA.SpellKnown(spell)
+    return LearnKnown(spell)
+end
+
 -- opts = { start=起点技能, onlyAH=bool, noFormula=bool, learnedOnly=bool }
 local function BuildCandidates(slug, opts)
-    local Rg = ns.ProfRecipes and ns.ProfRecipes[slug]
+    local _rf = ns.EnsureProfRecipes
+    local Rg = _rf and _rf()[slug]
     local LV = ns.ProfLeveling and ns.ProfLeveling[slug]
-    if not (Rg and type(Rg.rows) == "table") then return nil end
+    if not (Rg and (type(Rg.rows) == "table"
+                    or (LV and type(LV.rinfo) == "table"))) then return nil end
     local soldSet = {}
     if LV and type(LV.sold) == "table" then
         for _, id in ipairs(LV.sold) do soldSet[id] = true end
     end
 
     local cands, recOf = {}, {}
-    for _, rec in ipairs(Rg.rows) do
+    for _, rec in ipairs(Rg.rows or {}) do
         local spell, learn, yellow, green, grey = rec[1], rec[7], rec[8], rec[9], rec[10]
         local reagents = rec[12]
         if type(spell) == "number" and type(learn) == "number"
@@ -770,15 +790,17 @@ end
 -- 公开入口：固定路线复用同一套聚合/定价/图纸收集（steps = {起,止,spell,次数}）
 function RA.SummarizeSteps(steps, slug, opts)
     opts = opts or {}
-    local Rg = ns.ProfRecipes and ns.ProfRecipes[slug]
+    local _rf = ns.EnsureProfRecipes
+    local Rg = _rf and _rf()[slug]
     local LV = ns.ProfLeveling and ns.ProfLeveling[slug]
-    if not (Rg and type(Rg.rows) == "table") then return nil end
+    if not (Rg and (type(Rg.rows) == "table"
+                    or (LV and type(LV.rinfo) == "table"))) then return nil end
     local soldSet = {}
     if LV and type(LV.sold) == "table" then
         for _, id in ipairs(LV.sold) do soldSet[id] = true end
     end
     local recOf = {}
-    for _, rec in ipairs(Rg.rows) do recOf[rec[1]] = rec end
+    for _, rec in ipairs(Rg.rows or {}) do recOf[rec[1]] = rec end
     if LV and type(LV.rinfo) == "table" then
         for spell, ri in pairs(LV.rinfo) do
             if not recOf[spell] then recOf[spell] = ri end
@@ -831,6 +853,25 @@ local function ToReached(steps)
     return out
 end
 
+local ROD_TOOLS = { { 1, 7421 }, { 130, 7795 }, { 173, 13628 }, { 218, 13702 } }
+
+local function InjectTools(stepsOut, slug, cap, startLv)
+    if slug ~= "enchanting" then return end
+    local have = {}
+    for _, st in ipairs(stepsOut) do have[st[3]] = true end
+    for _, rd in ipairs(ROD_TOOLS) do
+        local P, spell = rd[1], rd[2]
+        if P <= cap and P >= (startLv or 1) and not have[spell] then
+            local at = #stepsOut + 1
+            for i, st in ipairs(stepsOut) do
+                if (tonumber(st[2]) or 0) > P then at = i break end
+            end
+            table.insert(stepsOut, at, { P, P, spell, 1 })
+            have[spell] = true
+        end
+    end
+end
+
 function RA.Compute(slug, opts)
     opts = opts or {}
     local cands, recOf, soldSet = BuildCandidates(slug, opts)
@@ -860,12 +901,14 @@ function RA.Compute(slug, opts)
             if c then st.cost = (c.base or 0) * (st[4] or 0) end
         end
     end
+    local stepsOut = ToReached(steps)
+    InjectTools(stepsOut, slug, cap, opts.start)
     local total, crafts, mats, firstAt, vendorTotal, formulas, formulasTotal,
           productAH, productNPC, productPartial =
-        SummarizeCore(steps, recOf, soldSet, opts.learnedOnly)
+        SummarizeCore(stepsOut, recOf, soldSet, opts.learnedOnly)
     return {
         scheme = scheme,
-        steps = ToReached(steps), gaps = gaps, mats = mats, firstAt = firstAt,
+        steps = stepsOut, gaps = gaps, mats = mats, firstAt = firstAt,
         total = total + formulasTotal, matTotal = total,
         formulas = formulas, formulasTotal = formulasTotal,
         vendorTotal = vendorTotal, ahTotal = total - vendorTotal,
@@ -891,6 +934,20 @@ function RA.Invalidate()
     end
     priceCache.__any = nil
 end
+
+local priceWatchers = {}
+function RA.OnPricesChanged(fn)
+    if type(fn) == "function" then priceWatchers[#priceWatchers + 1] = fn end
+end
+
+local ahWatch = CreateFrame("Frame")
+ahWatch:RegisterEvent("AUCTION_HOUSE_CLOSED")
+ahWatch:SetScript("OnEvent", function()
+    C_Timer.After(0, function()
+        RA.Invalidate()
+        for _, fn in ipairs(priceWatchers) do pcall(fn) end
+    end)
+end)
 
 local function Fingerprint(opts)
     return string.format("%s|%s|%s|%s|%s|%s",

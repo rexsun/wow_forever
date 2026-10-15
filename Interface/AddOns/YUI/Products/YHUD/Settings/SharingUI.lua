@@ -8,8 +8,8 @@ local function T(key, ...)
     return select('#', ...) > 0 and string.format(text, ...) or text
 end
 
-function Sharing:PreviewLines(prepared)
-    local labels, names, lines = {}, {}, {}
+function Sharing:AppendGraphicalPreviewLines(lines, snapshot)
+    local labels, names = {}, {}
     local catalog = YHUD.ResourceCatalog
     for _, class in ipairs(catalog and catalog:GetClasses() or {}) do
         for _, spec in ipairs(catalog:GetSpecializations(class.classFile) or {}) do
@@ -20,18 +20,33 @@ function Sharing:PreviewLines(prepared)
     local sets = Settings.ConfigSets
     for _, item in ipairs(sets:ListUserSets(YHUD.CONFIG_SET_PROVIDER_ID) or {}) do names['user:' .. item.id] = item.name end
     for _, item in ipairs(sets:ListBuiltins(YHUD.CONFIG_SET_PROVIDER_ID) or {}) do names['builtin:' .. item.id] = item.name end
+    lines[#lines + 1] = T('new_set', snapshot.report.name)
+    lines[#lines + 1] = snapshot.scope.kind == 'full' and T('full_graph') or T('partial_graph', #snapshot.scope.specs)
+    if snapshot.report.mode == 'none' then
+        lines[#lines + 1] = T('reserve_effect')
+    else
+        lines[#lines + 1] = T('assignment_effect', #(snapshot.routes or {}))
+        if snapshot.defaultSpecCount ~= nil then
+            lines[#lines + 1] = snapshot.defaultSpecCount == 0 and T('default_unused')
+                or T('default_remaining', snapshot.defaultSpecCount)
+        end
+    end
+    for _, route in ipairs(snapshot.routes or {}) do
+        local reference = route.before
+        local beforeName = reference and (names[reference.kind .. ':' .. reference.id] or reference.id)
+            or T('new_profile_default')
+        lines[#lines + 1] = string.format('%s：%s → %s', labels[route.spec] or route.spec,
+            beforeName, snapshot.report.name)
+    end
+end
+
+function Sharing:PreviewLines(prepared)
+    local lines = {}
     local hasSound = false
     for _, entry in ipairs(prepared.entries) do
         local snapshot = entry.snapshot
         if entry.id == self.MODULE_ID then
-            lines[#lines + 1] = T('new_set', snapshot.report.name)
-            lines[#lines + 1] = snapshot.scope.kind == 'full' and T('full_graph') or T('partial_graph', #snapshot.scope.specs)
-            if snapshot.report.mode == 'none' then lines[#lines + 1] = T('reserve_effect') end
-            for _, route in ipairs(snapshot.routes or {}) do
-                local reference = route.before
-                lines[#lines + 1] = string.format('%s：%s → %s', labels[route.spec] or route.spec,
-                    names[reference.kind .. ':' .. reference.id] or reference.id, snapshot.report.name)
-            end
+            self:AppendGraphicalPreviewLines(lines, snapshot)
         elseif entry.id == 'core.sound.legacy' then
             hasSound = true
             lines[#lines + 1] = T('legacy_counts', snapshot.converted, snapshot.pending, snapshot.unchanged)

@@ -24,35 +24,42 @@ local PAGE_INSET = Host.PAGE_INSET
 local CONTENT_W = Host.CONTENT_W
 local FALLBACK_ICON = Host.FALLBACK_ICON
 
-local BIS = ns.BIS
-if not BIS or type(BIS.classes) ~= "table" then return end
-
+local BIS, VOLS, N_PRESET
 -- ★ 分卷（20级 / 30级）：数据源每个职业/专精只维护一份清单，等级上限一涨就整页换掉，
 --   所以两卷分别冻结/抓取后一起进包，由「预设方案」行切换（见 PaintPlans）。
 --   BIS.classes 是 default 卷的运行期别名；levels 缺失（旧结构数据）时退化成单卷。
-local VOLS = {}
-if type(BIS.levels) == "table" then
-    for lv, v in pairs(BIS.levels) do
-        if type(v) == "table" and type(v.classes) == "table" then
-            VOLS[#VOLS + 1] = { lv = tonumber(lv) or 0, classes = v.classes }
-        end
-    end
-    table.sort(VOLS, function(a, b) return a.lv < b.lv end)
-end
-if #VOLS == 0 then
-    VOLS = { { lv = tonumber(BIS.default) or 0, classes = BIS.classes } }
-end
 -- 三类型定义提到卷常量前：N_PRESET 按「类型 × 卷」展平计数需要它。
 local SPEC_DEFS = { { id = "pve", label = L["副本"] }, { id = "pvp", label = L["战场"] },
                     { id = "tank", label = L["坦克"] } }
-local N_PRESET = #VOLS * #SPEC_DEFS  -- 预设行池上限 = 卷数 × 类型（3×2=6），按职业实有显隐
+local function EnsureBIS()
+    if VOLS then return BIS end
+    VOLS = {}
+    local d = ns.EnsureBISData and ns.EnsureBISData() or nil
+    BIS = (d and type(d.classes) == "table") and d or nil
+    if BIS then
+        if type(BIS.levels) == "table" then
+            for lv, v in pairs(BIS.levels) do
+                if type(v) == "table" and type(v.classes) == "table" then
+                    VOLS[#VOLS + 1] = { lv = tonumber(lv) or 0, classes = v.classes }
+                end
+            end
+            table.sort(VOLS, function(a, b) return a.lv < b.lv end)
+        end
+        if #VOLS == 0 then
+            VOLS = { { lv = tonumber(BIS.default) or 0, classes = BIS.classes } }
+        end
+    end
+    N_PRESET = #VOLS * #SPEC_DEFS
+    return BIS
+end
 local N_USER = 7            -- 用户方案行数
 
 local BG = {}
 ns.BisModule = BG
 
 local function DefaultVol()
-    local d = tonumber(BIS.default)
+    EnsureBIS()
+    local d = BIS and tonumber(BIS.default) or nil
     if d then
         for i, v in ipairs(VOLS) do
             if v.lv == d then return i end
@@ -61,7 +68,7 @@ local function DefaultVol()
     return #VOLS
 end
 
-local function CurVol() return VOLS[BG.vol] or VOLS[#VOLS] end
+local function CurVol() EnsureBIS() return VOLS[BG.vol] or VOLS[#VOLS] end
 
 local CLASS_FILE = {
     warrior = "WARRIOR", paladin = "PALADIN", hunter = "HUNTER",
@@ -191,7 +198,7 @@ end
 BG.cls = "warrior"
 BG.spec = "pve"
 BG.side = "a"
-BG.vol = DefaultVol()      -- 当前预设卷（下标进 VOLS）
+BG.vol = nil               -- 当前预设卷（下标进 VOLS）
 BG.cur = {}
 BG.ench = {}
 BG.usingPlan = nil
@@ -406,7 +413,11 @@ local function SrcText(src)
         local qid = src.q and tonumber(src.q) or nil
         local qn = qid and QuestTitle(qid) or nil
         local head = L["任务："] .. (qn or (qid and ("#" .. qid) or "?"))
-        return head .. (src.note and (" · " .. src.note) or "")
+        if not src.note or src.note == "" then return head end
+        local note = src.note:gsub("(%d+)%s*级起", "%1级可接")
+        note = note:gsub("(%d+)%s*級起", "%1級可接")
+        note = note:gsub("[、，]", " · ")
+        return head .. " · " .. note
     elseif t == "boss" then
         local who = src.boss and (src.boss .. " · ") or ""
         return who .. (src.dung or L["副本"]) .. (src.rate and (" · " .. src.rate) or "")
@@ -512,11 +523,52 @@ end
 
 local function PaintStats()
     local acc = SumStats()
+    -- ★ 动态高度（用户定案 2026-10-11）：无值属性行隐藏、可见行紧凑重排（原全量
+    --   绝对定位，空值行也占位）；汇总卡高 = 内容实高（BG.LayoutMid），剩余高度全部
+    --   让给下方方案卡。
+    local n = 0
     for _, row in ipairs(BG.statRows) do
         local v = acc[row[1]]
-        row.val:SetText(v and tostring(v) or "—")
-        row.val:SetTextColor(Unpack(v and C_GREEN or C_DIM))
+        if v then
+            local ry = 30 + n * 24
+            row.lab:ClearAllPoints()
+            row.lab:SetPoint("TOPLEFT", BG.statParent, "TOPLEFT", 12, -ry)
+            row.val:ClearAllPoints()
+            row.val:SetPoint("TOPRIGHT", BG.statParent, "TOPRIGHT", -12, -ry)
+            row.val:SetText(tostring(v))
+            row.val:SetTextColor(Unpack(C_GREEN))
+            row.lab:Show()
+            row.val:Show()
+            n = n + 1
+        else
+            row.lab:Hide()
+            row.val:Hide()
+        end
     end
+    BG.LayoutMid(n)
+end
+
+-- ★ 布局换向修正（用户截图纠偏 2026-10-11）：中列两卡是「方案（panel2）在上、
+--   属性汇总（panel3）在下且底边钉页底窗沿」。属性汇总卡高随内容向上长（顶边 =
+--   页底窗沿 + 内容实高，TOPLEFT 锚 page BOTTOMLEFT，y 正=上）；方案卡顶钉页顶
+--   窗沿（Build 初值），底边 = 属性汇总顶 - 8 ⇒ 剩余高度全部归方案滚动区（其底边
+--   锚面板底，见 BuildMid）。由 PaintStats 每次渲染调用（可见行数随职业/专精变化）。
+function BG.LayoutMid(n)
+    if not (BG.page and BG.py and BG.panels and BG.panels[2] and BG.panels[3]) then return end
+    local statH = 30 + n * 24 + 8
+    -- ★ ★ 全量重锚纪律（接缝贴死实锤 2026-10-11）：本引擎 SetPoint 对「同点位、
+    --   不同参照系」的旧锚不保证替换（Build 初锚与动态锚共存拉扯）——必须先
+    --   ClearAllPoints 再四边一次锚齐。
+    local p3 = BG.panels[3]
+    p3:ClearAllPoints()
+    p3:SetPoint("TOPLEFT", BG.page, "BOTTOMLEFT", 320, PAGE_INSET + statH)
+    p3:SetPoint("BOTTOMRIGHT", BG.page, "BOTTOMLEFT", 544, PAGE_INSET)
+    local p2 = BG.panels[2]
+    p2:ClearAllPoints()
+    p2:SetPoint("TOPLEFT", BG.page, "TOPLEFT", 320, -BG.py)
+    -- ★ 底部锚 y 正=上（项目铁律）：方案卡底边要在属性汇总顶边「上方 8」⇒ +8。
+    --   （此前写 -8 = 向下伸进属性汇总顶下 8 UI，被上层盖住 ⇒ 可见间距 0。）
+    p2:SetPoint("BOTTOMRIGHT", p3, "TOPLEFT", 224, 8)
 end
 
 -- 当前职业可用的预设条目（类型 × 卷，按 SPEC_DEFS 顺序展平）：
@@ -735,12 +787,21 @@ local function PaintEnchs()
     if BG.needNames then BG.ScheduleSweep() end
 end
 
+local function PY()
+    if coroutine.running and coroutine.running() then coroutine.yield() end
+end
+
 function BG.Render()
     if not BG.built then return end
+    EnsureBIS()
+    if not BG.vol then BG.vol = DefaultVol() end
     PaintTopbar()
+    PY()
     PaintDoll()
+    PY()
     PaintStats()
     PaintPlans()
+    PY()
     PaintBrowser()
     PaintEnchs()
 end
@@ -972,32 +1033,23 @@ local function ClickSlot(key, dkey)
     end
 end
 
--- 职业下拉展开（套装页 OpenClassMenu 同款：LibBG:EasyMenu 是实机验证过的唯一路径，
---   手搓展开面板在本端「点开是空的」；点外关闭由 DungeonUI OutsideMenuMouseDown 兜底，
---   ddBtn 已在其白名单放行）。
--- ★ 宿主必须独立（DG.MenuHost("bis")）：共用宿主时 lib 的 toggle 语义是
---   「列表开着 && OPEN_MENU==宿主 ⇒ 收」，A 开着点 B 会被当同一菜单再点一次直接收掉。
-function BG.OpenClassMenu()
-    local host = DG.MenuHost and DG.MenuHost("bis")
-    if not (host and ns.LibBG and ns.LibBG.EasyMenu) then return end
-    local menu = {}
-    for _, c in ipairs(BIS.classes) do
-        -- 菜单文字按职业色（套装页同款）：lib 的 colorCode 字段 = "|cAARRGGBB" 整段包色
-        local colorCode
+function BG.OpenClassMenu(owner)
+    local items = {}
+    for _, c in ipairs(BIS.classes or {}) do
+        local color
         local rc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[CLASS_FILE[c.slug] or ""]
         if rc and rc.r then
-            colorCode = format("|cFF%02X%02X%02X",
+            color = format("|cFF%02X%02X%02X",
                 math.floor(rc.r * 255 + 0.5), math.floor(rc.g * 255 + 0.5),
                 math.floor(rc.b * 255 + 0.5))
         end
-        menu[#menu + 1] = {
+        items[#items + 1] = {
             text = (c.slug == BG.cls and "● " or "") .. ClassName(c.slug),
-            colorCode = colorCode,
-            notCheckable = true,
+            color = color,
             func = function() BG.SelectClass(c.slug) end,
         }
     end
-    ns.LibBG:EasyMenu(menu, host, "cursor", 0, 0, "MENU")
+    ns.hui.ShowMenu(items, { owner = owner })
 end
 
 -- 顶行（2026-10-10 重排定案）：三类型标签退场 ⇒ 原位放职业下拉；阵营两钮同行右移；
@@ -1020,7 +1072,7 @@ local function BuildSpecRow(parent, yt)
     dd.__icon = ic
     MakeOutline(dd, Unpack(C_GOLD))
     dd.__huiKeepTextColor = true
-    dd:SetScript("OnClick", function() BG.OpenClassMenu() end)
+    dd:SetScript("OnClick", function() BG.OpenClassMenu(dd) end)
     BG.ddBtn = dd
     x = x + 150
     BG.sideBtns = {}
@@ -1198,7 +1250,9 @@ local function BuildMid(m1, m2)
     child:SetSize(w - 8, 10)
     pool:SetScrollChild(child)
     pool:SetPoint("TOPLEFT", m1, "TOPLEFT", x, -60)
-    pool:SetPoint("BOTTOMRIGHT", m1, "TOPRIGHT", -x, -(60 + 160))
+    -- ★ 方案滚动区吃剩余高度（用户定案 2026-10-11）：底边锚面板底（面板本身钉页底
+    --   窗沿、顶随属性汇总卡动态下移，见 BG.LayoutMid），不再写死 160。
+    pool:SetPoint("BOTTOMRIGHT", m1, "BOTTOMRIGHT", -8, -8)
     pool:SetScript("OnMouseWheel", function(_, delta)
         DG.WheelScroll(pool, child, delta)
     end)
@@ -1222,8 +1276,9 @@ local function BuildMid(m1, m2)
         local val = MakeFS(m2, 14, C_GREEN, "RIGHT")
         val:SetPoint("TOPRIGHT", m2, "TOPRIGHT", -(x + 4), -ry)
         val:SetWordWrap(false)
-        BG.statRows[i] = { sr[1], lab = lab, val = val }
-    end
+    BG.statRows[i] = { sr[1], lab = lab, val = val }
+end
+BG.statParent = m2
 end
 
 local function BuildBrowser(parent, bottomLocal)
@@ -1403,30 +1458,46 @@ local function BuildBrowser(parent, bottomLocal)
 end
 
 function BG.Build(page)
-    if BG.built then return end
+    if BG.built or BG.building then return end
+    BG.building = true
+    ns.OpenPerf.Begin("BIS")
+    ns.PhasedStart(8, coroutine.create(function()
+    EnsureBIS()
+    if not BG.vol then BG.vol = DefaultVol() end
     MigratePlans()
+    coroutine.yield()
     -- ★ 页顶收窗沿 20（2026-10-10：顶部职业按钮排退役，原 y=13 顶栏 + py=45 让位）
-    local py = 20
+    local py = 8
+    BG.py = py
+    BG.page = page
+    coroutine.yield()
     BuildPanels(page)
+    coroutine.yield()
     local dollTop = BuildSpecRow(BG.panels[1], 4)
     local dollBotLocal = BuildDoll(BG.panels[1], dollTop)
     -- ★ 底窗沿（用户定案 2026-10-11）：面板底边不再内容驱动（旧 = py+dollBotLocal+6，
     --   页底留一大截空）——一律钉在页底上方窗沿 20，与页顶 py=20 镜像，页高恒定。
-    local pb = 20
+    local pb = PAGE_INSET
+    coroutine.yield()
     BuildMid(BG.panels[2], BG.panels[3])
+    coroutine.yield()
     BuildBrowser(BG.panels[4], dollBotLocal + 6 - 8)
+    coroutine.yield()
 
-    BG.panels[1]:SetPoint("TOPLEFT", page, "TOPLEFT", 8, -py)
-    BG.panels[1]:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", 308, pb)
-    BG.panels[2]:SetPoint("TOPLEFT", page, "TOPLEFT", 316, -py)
-    BG.panels[2]:SetPoint("BOTTOMRIGHT", page, "TOPLEFT", 540, -(py + 228))
-    BG.panels[3]:SetPoint("TOPLEFT", page, "TOPLEFT", 316, -(py + 236))
-    BG.panels[3]:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", 540, pb)
-    BG.panels[4]:SetPoint("TOPLEFT", page, "TOPLEFT", 548, -py)
-    BG.panels[4]:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", 952, pb)
+    BG.panels[1]:SetPoint("TOPLEFT", page, "TOPLEFT", PAGE_INSET, -py)
+    BG.panels[1]:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", 312, pb)
+    BG.panels[2]:SetPoint("TOPLEFT", page, "TOPLEFT", 320, -py)
+    BG.panels[2]:SetPoint("BOTTOMRIGHT", page, "TOPLEFT", 544, -(py + 228))
+    BG.panels[3]:SetPoint("TOPLEFT", page, "TOPLEFT", 320, -(py + 236))
+    BG.panels[3]:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", 544, pb)
+    BG.panels[4]:SetPoint("TOPLEFT", page, "TOPLEFT", 552, -py)
+    BG.panels[4]:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", 948, pb)
 
     BG.built = true
+    BG.building = false
     BG.needNames = true
     BG.ScheduleSweep()
     BG.Render()
+    ns.OpenPerf.Mark("首绘")
+    end))
 end

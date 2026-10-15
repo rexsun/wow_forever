@@ -23,6 +23,8 @@ YUI.Locale:Register("YMapMarkers", "enUS", {
     ["tooltip.action.waypoint"] = "Set waypoint",
     ["tooltip.action.choose"] = "Choose destination",
     ["tooltip.action.menu"] = "Display and filters",
+    ["tooltip.action.hide"] = "Hide markers",
+    ["tooltip.action.show"] = "Show markers",
 
     ["tooltip.skill_rank"] = "Skill level: %s",
     ["tooltip.skill_unlearned"] = "Not learned",

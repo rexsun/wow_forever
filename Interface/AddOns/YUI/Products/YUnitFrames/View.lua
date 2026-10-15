@@ -117,6 +117,7 @@ end
 
 local function ConfigureCast(element)
     local data = element.config
+    element.ticks = GUI:CreateCastMarkers(element.bar, math.max(8, (data.tickCount or 0) - 1), element.ticks)
     element.icon:ClearAllPoints()
     local right = data.iconPosition == "RIGHT"
     element.icon:SetPoint(right and "LEFT" or "RIGHT", element.frame, right and "RIGHT" or "LEFT", right and data.iconGap or -data.iconGap, 0)
@@ -423,8 +424,10 @@ end
 
 function View:Paint(record, domain)
     if not record.active then return end
-    if record.hasCast and not record.preview and (not domain or domain == "cast") then
+    if record.hasCast and not record.preview and (not domain or domain == "cast" or domain == "identity") then
         record.castInfo = YUI.API.Unit.GetCastInfo(record.unit)
+        record.castDisplay = record.castDisplay or { castStages = {} }
+        record.castDuration, record.castIsChannel = YUI.API.Unit.ReadCastDisplay(record.castInfo, record.castDisplay)
     end
     for _, element in ipairs(record.elements) do
         local kind = element.kind
@@ -456,4 +459,10 @@ function View:Paint(record, domain)
             elseif kind == "indicator" then PaintIndicator(element, record) end
         end
     end
+    if record.healthDisplay then
+        record.healthDisplay.valueRaw, record.healthDisplay.maxValueRaw, record.healthDisplay.percentRaw = nil, nil, nil
+        record.healthDisplay.rawValuesAvailable = false
+    end
+    record.healthRead = nil
+    record.castInfo, record.castDuration = nil, nil
 end

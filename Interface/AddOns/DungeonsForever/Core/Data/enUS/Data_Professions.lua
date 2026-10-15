@@ -12,10 +12,10 @@ if (type(GetLocale) ~= "function") or GetLocale() ~= "enUS" then return end
 local _, ns = ...
 
 ns.ProfData = {
-    build = "1.60.1.70245",
-    updated = "2026-10-06",
+    build = "1.60.1.70338",
+    updated = "2026-10-11",
 
-    order = { "alchemy", "blacksmithing", "enchanting", "engineering", "leatherworking", "tailoring", "mining", "herbalism", "skinning", "cooking", "fishing", "first-aid", "camping" },
+    order = { "alchemy", "blacksmithing", "enchanting", "engineering", "leatherworking", "tailoring", "mining", "herbalism", "skinning", "cooking", "fishing", "first-aid", "poisons", "comprehension", "camping" },
 
     perks = {
         ["legacy-perk-bountiful-harvest"] = { "Bountiful Harvest", "inv_misc_bag_18", "Professions", 5, { "Increases rare materials found while Herbalism, Mining and Skinning by 20%.", "Increases rare materials found while Herbalism, Mining and Skinning by 40%.", "Increases rare materials found while Herbalism, Mining and Skinning by 60%.", "Increases rare materials found while Herbalism, Mining and Skinning by 80%.", "Increases rare materials found while Herbalism, Mining and Skinning by 100%." }, "Increases rare materials found while Herbalism, Mining and Skinning by 20%.", "client_data", {} },
@@ -386,6 +386,28 @@ ns.ProfData = {
                 { "Placing your objects", "Once your profession skill reaches 20, you may place that profession's object by the fire; other objects come from other players. Your camp objects share a one-hour cooldown." },
                 { "Sit and rest for one minute", "Anyone who sits or crafts by the fire for a full minute gains the buffs of the surrounding objects. The buff lasts an hour, so you can leave once you have it." },
             },
+        },
+        ["poisons"] = {
+            name = "毒药",
+            icon = 136242,
+            kind = "secondary",
+            section = "crafting",
+            summary = "盗贼的辅助专业：技能越高能调制的毒药越强。材料向毒药商人与黑市贩子购买，调成腐蚀、削弱与消磨敌人的药剂，涂在武器上生效。1.60 新增萎缩、迟钝、解离与玄秘毒药。",
+            status = "待实地核对",
+            recipes = 26,
+            sub = 1,
+            kinds = { Recipe = 26 },
+        },
+
+        ["comprehension"] = {
+            name = "理解",
+            icon = 135933,
+            kind = "secondary",
+            summary = "解读散落世界各处的魔法卷轴：理解技能越高，能解译的卷轴越强。卷轴读取后消耗，提供各类增益效果；在图书馆中研究可以提升理解技能。",
+            status = "待实地核对",
+            recipes = 7,
+            sub = 2,
+            kinds = { Recipe = 7 },
         },
     },
 }

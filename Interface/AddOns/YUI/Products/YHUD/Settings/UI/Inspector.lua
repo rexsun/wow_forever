@@ -163,8 +163,8 @@ function DesignerUI:EnsureUI()
     dimmer = GUI2:CreateFrame(UIParent, {
         name = "YUI_YHUD_DesignerDimmer",
         allPoints = true,
-        strata = "HIGH",
-        level = 900,
+        strata = "LOW",
+        level = 100,
         mouse = false,
         hidden = true,
     })

@@ -1,6 +1,7 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/">
 	<Script file="YBar.lua"/>
 	<Script file="Module.lua"/>
+	<Script file="DurabilityDisplay.lua"/>
 	<Script file="..\..\Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua"/>
 	<Script file="PlayerAPI_Mainline.lua"/>
 	<Script file="InfoModule_Mainline.lua"/>
@@ -14,6 +15,7 @@
 	<!-- Modules -->
 	<Script file="Modules\MicroMenu.lua"/>
 	<Script file="Modules\Stats.lua"/>
+	<Script file="ClockRest.lua"/>
 	<Script file="Modules\Clock.lua"/>
 	<Script file="Modules\Professions.lua"/>
 	<Script file="Modules\Talents_Mainline.lua"/>

@@ -99,6 +99,8 @@ YUI.Locale:Register("ExperienceBar", "enUS", {
     ["setting.barColor"] = "Bar text color",
     ["setting.detailSize"] = "Detail size",
     ["setting.detailColor"] = "Detail color",
+    ["setting.detailBackgroundAlpha"] = "Background opacity",
+    ["setting.detailBackgroundAlpha.tooltip"] = "0 is fully transparent; 1 is fully opaque. Only the panel background is affected.",
     ["time.minutes"] = "%d min",
     ["time.hoursMinutes"] = "%dh %02dm",
     ["setting.showRested"] = "Show rested XP",

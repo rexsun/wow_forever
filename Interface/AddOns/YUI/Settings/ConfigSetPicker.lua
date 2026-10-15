@@ -1630,6 +1630,10 @@ function Picker:OpenAssignmentMenu(anchor, item)
     local options = {
         {
             text = Text("settings.config_sets.assignment.set_default", "设为默认"),
+            description = self.profileOwned and Text(
+                "settings.config_sets.assignment.set_default_description",
+                "保留专用分配，其余专精使用此方案"
+            ) or nil,
             value = "default",
             checked = assignment.mode == "default",
             func = function()
@@ -1659,12 +1663,16 @@ function Picker:OpenAssignmentMenu(anchor, item)
     }
     if self.profileOwned then
         options[#options + 1] = {
-            text = Text("settings.config_sets.assignment.use_all", "全部使用此方案（清除专用分配）"),
+            text = Text("settings.config_sets.assignment.use_all", "所有专精使用此方案"),
+            description = Text(
+                "settings.config_sets.assignment.use_all_description",
+                "更换默认方案，并清除所有专用分配"
+            ),
             value = "all",
             func = function() Picker:SetUnifiedAssignment(item, "all", {}) end,
         }
     end
-    GUI2:OpenDropdown(menuAnchor, options, nil, assignment.mode, self.profileOwned and 280 or 156)
+    GUI2:OpenDropdown(menuAnchor, options, nil, assignment.mode, self.profileOwned and 340 or 156)
 end
 
 function Picker:GetCurrentSpecializationReference()
@@ -2624,6 +2632,8 @@ function Picker:RefreshUnifiedAssignmentVisual(row, assignment)
     UnifiedSetShown(row.assignmentDefaultTag, false)
     UnifiedSetShown(row.assignmentNoneText, false)
     UnifiedSetShown(row.assignmentOverflowText, false)
+    row.assignmentDefaultTag:ClearAllPoints()
+    row.assignmentDefaultTag:SetPoint("LEFT", 0, 0)
     for _, icon in ipairs(row.assignmentIcons or {}) do
         icon:Hide()
     end
@@ -2637,8 +2647,25 @@ function Picker:RefreshUnifiedAssignmentVisual(row, assignment)
     end
     if assignment.mode == "default" then
         row.assignmentDefaultTag:SetText(
-            Text("settings.config_sets.assignment.default", "默认")
+            self.profileOwned
+                and Text("settings.config_sets.assignment.default_role", "默认兜底")
+                or Text("settings.config_sets.assignment.default", "默认")
         )
+        local snapshot = self.assignmentSnapshot
+        if self.profileOwned and snapshot and snapshot.default
+            and #(self.specializationSpecOrder or {}) > 0 then
+            local count = 0
+            for _, spec in ipairs(self.specializationSpecOrder) do
+                local reference = (snapshot.bySpec or {})[spec.key] or snapshot.default
+                if UnifiedReferencesEqual(reference, snapshot.default) then count = count + 1 end
+            end
+            row.assignmentDefaultTag:ClearAllPoints()
+            row.assignmentDefaultTag:SetPoint("LEFT", 0, 8)
+            row.assignmentOverflowText:SetText(count == 0
+                and Text("settings.config_sets.assignment.default_unused", "当前无专精使用")
+                or UnifiedFormat("settings.config_sets.assignment.default_used_count", "当前负责 %d 个专精", count))
+            row.assignmentOverflowText:Show()
+        end
         row.assignmentDefaultTag:Show()
         return
     end
@@ -2655,9 +2682,23 @@ function Picker:RefreshUnifiedAssignmentVisual(row, assignment)
         self.specializationSpecByKey,
         assignment.specKeys
     )
+    local specOrder = self.specializationSpecOrder or {}
+    local allSpecs = #specOrder > 0 and #specs == #specOrder
+    if allSpecs then
+        for index, spec in ipairs(specOrder) do
+            if specs[index].key ~= spec.key then allSpecs = false; break end
+        end
+    end
+    if allSpecs then
+        row.assignmentNoneText:SetText(UnifiedFormat(
+            "settings.config_sets.assignment.all_specs", "全部专精（%d）", #specOrder
+        ))
+        row.assignmentNoneText:Show()
+        return
+    end
     local visibleCount = math_min(#specs, UNIFIED_ASSIGNMENT_ICON_LIMIT)
     local overflowCount = math_max(0, #specs - visibleCount)
-    local iconY = overflowCount > 0 and 8 or 0
+    local iconY = 8
     local previous
     for index = 1, visibleCount do
         local icon = row.assignmentIcons[index]
@@ -2678,16 +2719,11 @@ function Picker:RefreshUnifiedAssignmentVisual(row, assignment)
         icon:Show()
         previous = icon
     end
-    if overflowCount > 0 then
-        row.assignmentOverflowText:SetText(
-            "…" .. UnifiedFormat(
-                "settings.config_sets.assignment.spec_count",
-                "%d 个专精",
-                overflowCount
-            )
-        )
-        row.assignmentOverflowText:Show()
-    end
+    row.assignmentOverflowText:SetText(overflowCount > 0
+        and UnifiedFormat("settings.config_sets.assignment.assigned_overflow",
+            "已分配 %d 个专精 · 另有 %d 个", #specs, overflowCount)
+        or UnifiedFormat("settings.config_sets.assignment.assigned_count", "已分配 %d 个专精", #specs))
+    row.assignmentOverflowText:Show()
 end
 
 function Picker:BindUnifiedRow(row, item)

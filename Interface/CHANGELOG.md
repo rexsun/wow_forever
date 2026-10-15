@@ -1,3 +1,14 @@
+## [Forever addon refresh / OverlapSettingsGuard 0.6.0] - 2026-10-14
+### Features
+- Upgrade YUI to v341, Auctionator to 341, DungeonsForever to 1.8.6, TalentsForeverBook to 0.38.2 beta and the six installed EUI modules to 9.5.5.
+- Keep YUI player health/cast resources, dedicated cast groups and native castbar suppression off while EUI Unit Frames loads.
+### Design Rationale
+- Retain EUI ownership of individual, party/raid and nameplate frames because YUI v341 does not replace party/raid frames and its full unit-frame product is not loaded on Forever.
+- Preserve saved layouts and portable fonts; enforce overlap through the guard rather than changing upstream HUD rendering. Talents Forever now includes the regular Cinzel selection upstream.
+### Notes & Caveats
+- Backups and the archive hash manifest are outside Interface under addon-backups. All live WTF files remain unchanged. Only the two existing YUI font-reference patches differ from the selected upstream releases.
+- Thirty-two guard tests include the installed catalog; font, 18 fresh-profile, three-resolution adoption, settings and watcher checks pass. Live rendering and client API behavior still require an in-game session. The existing adoption script carries the new files without code changes.
+
 ## [WTF settings restore 1.1] - 2026-10-13
 ### Features
 - Add Restore and Restore -DryRun using the current anonymous snapshot folder, with mapped existing-account destinations, selective CVar merging, private backups and rollback.

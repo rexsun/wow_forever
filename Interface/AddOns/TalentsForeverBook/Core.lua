@@ -38,6 +38,11 @@ function TF.Lower(s)
   s = s:gsub("\208\129", "\209\145")
   return s
 end
+-- how many letters, as the site counts them (a JavaScript string's length): ü, Ж or 字 is one, a letter past U+FFFF two
+function TF.ULen(s)
+  s = tostring(s or "")
+  return select(2, s:gsub("[^\128-\191]", "")) + select(2, s:gsub("[\240-\244]", ""))
+end
 -- the first n letters, never half of one (s:sub counts bytes, and ü or Ж is two)
 function TF.USub(s, n)
   local out, k = {}, 0
@@ -92,6 +97,50 @@ function TF.Try(label, fn, ...)
   local r = { pcall(fn, ...) }
   if not r[1] then TF.Log("%s: %s", label, tostring(r[2])); return nil end
   return r[2], r[3], r[4], r[5], r[6], r[7], r[8]
+end
+
+-- 0.38.2: the game blocked something of ours. ev is ADDON_ACTION_FORBIDDEN or ADDON_ACTION_BLOCKED, fn the function the
+-- game names ("UNKNOWN()" when it cannot say). Each goes into the log once a session and into the saved diag with a
+-- count, per version, the last eight kept; the Feedback page's link carries this version's (TF.BlockedText).
+TF.blocksSeen = {}
+function TF.NoteBlock(ev, fn)
+  local kind = (ev == "ADDON_ACTION_BLOCKED") and "BLOCKED" or "FORBIDDEN"
+  local what = kind .. " " .. tostring(fn or "?"):gsub("[%c|]", ""):sub(1, 80)
+  if not TF.blocksSeen[what] then TF.blocksSeen[what] = true; TF.Log("the game: %s", what) end
+  local diag = TF.db and TF.db.diag; if not diag then return what end
+  if type(diag.blocks) ~= "table" then diag.blocks = {} end
+  local when = date("%Y-%m-%d %H:%M")
+  for k, b in ipairs(diag.blocks) do
+    if b.what == what and b.v == TF.VERSION then b.n = (b.n or 1) + 1; b.at = when; table.remove(diag.blocks, k); table.insert(diag.blocks, b); return what end
+  end
+  table.insert(diag.blocks, { what = what, v = TF.VERSION, at = when, n = 1 })
+  while #diag.blocks > 8 do table.remove(diag.blocks, 1) end
+  return what
+end
+-- this version's blocks for a note, the latest three, oldest first: "FORBIDDEN X() x2, BLOCKED UNKNOWN()"; nil when there
+-- are none. The inbox keeps only TF.NOTE_MAX letters of a note, so the list takes at most room letters (TF.BLOCKED_ROOM when
+-- not given): too long, each block goes by its function's name alone ("FORBIDDEN SetPreferredGamepadInteractTarget()"),
+-- and if that is still too long the oldest give way; nil when not even the latest fits
+TF.NOTE_MAX, TF.BLOCKED_ROOM = 500, 100   -- the counter's REMARK_MAX (counter.js): it keeps the first 500 letters, the head included
+function TF.BlockedText(room)
+  room = room or TF.BLOCKED_ROOM
+  local list = TF.db and TF.db.diag and TF.db.diag.blocks
+  if type(list) ~= "table" then return nil end
+  local whole, short = {}, {}
+  for k = #list, 1, -1 do
+    local b = list[k]
+    if type(b) == "table" and b.v == TF.VERSION and b.what then
+      local times = (b.n or 1) > 1 and (" x" .. b.n) or ""
+      table.insert(whole, 1, b.what .. times); table.insert(short, 1, (b.what:gsub("^(%u+ ).*[:%.]([^:%.]+)$", "%1%2")) .. times)
+      if #whole == 3 then break end
+    end
+  end
+  while #whole > 0 do
+    local s = table.concat(whole, ", "); if TF.ULen(s) <= room then return s end
+    s = table.concat(short, ", "); if TF.ULen(s) <= room then return s end
+    table.remove(whole, 1); table.remove(short, 1)
+  end
+  return nil
 end
 
 local callbacks = {}
@@ -234,18 +283,42 @@ function TF.SpellLoc(cf, key)
   local recs = D.learn and D.learn[cf]; local rec = recs and recs[key]
   return (rec and rec.loc) or key
 end
+-- 0.38.2: one race, two spellings. The site's racials are keyed by English race names ("Night Elf", "Undead", "Skyborne
+-- (High Order)"); the game names a race by its file token, UnitRace's second return and GetRaceInfo's clientFileString
+-- on every client language (ChrRaces.ClientFileString in build 70291: "NightElf", "Scourge", "Skyborne"). RaceKey makes
+-- either one word: the side in brackets left off, no spaces or marks, lower case, and Scourge read as the Undead. Looking
+-- for "Night Elf" inside NightElf and "Undead" inside Scourge never matched, so Night Elf and Undead Priests were never
+-- told of their race spells and the Races page never marked either race as the reader's.
+function TF.RaceKey(s)
+  local k = (tostring(s or ""):gsub("%s*%(.*$", ""):gsub("[%s'%-]", ""):lower())
+  if k == "scourge" then k = "undead" end
+  return k
+end
+-- is the site's race name key the race the game names (token: UnitRace's second return, or its first when no token
+-- came)? The two Skyborne share the token Skyborne, so a name the site splits by side ("Skyborne (High Order)") is the
+-- player's only on its own side when the game names one (fac: UnitFactionGroup's first return, English on every client).
+function TF.RaceIs(key, token, fac)
+  local k = TF.RaceKey(key)
+  if k == "" or k ~= TF.RaceKey(token) then return false end
+  if (fac == "Alliance" or fac == "Horde") and tostring(key):find("(", 1, true) then
+    for side, races in pairs(D.racials and D.racials.factions or {}) do
+      for _, r in ipairs(races) do if r.race == key and side ~= fac then return false end end
+    end
+  end
+  return true
+end
 -- a race's name as the player reads it, from the English the site's racials use ("Night Elf", "Skyborne (High Order)")
 function TF.RaceLoc(en)
   if not en or (TF.locale and TF.locale.english) then return en end
   if not TF.localeNames then
     local m = {}
     if C_CreatureInfo and C_CreatureInfo.GetRaceInfo then
-      for id = 1, 90 do local ok, info = pcall(C_CreatureInfo.GetRaceInfo, id); if ok and type(info) == "table" and info.clientFileString and info.raceName then m[info.clientFileString:lower()] = info.raceName end end
+      -- the playable race comes first in the table: a later race on the same token (Gilnean 23 is Human) never renames it
+      for id = 1, 90 do local ok, info = pcall(C_CreatureInfo.GetRaceInfo, id); if ok and type(info) == "table" and info.clientFileString and info.raceName then local k = TF.RaceKey(info.clientFileString); m[k] = m[k] or info.raceName end end
     end
     TF.localeNames = { races = m }
   end
-  local key = (en:lower():gsub("%s*%(.*$", "")):gsub("%s", "")
-  return TF.localeNames.races[key] or en
+  return TF.localeNames.races[TF.RaceKey(en)] or en
 end
 function TF.ClassColor(cf)
   local c = D.classes[cf]
@@ -619,17 +692,53 @@ function TF.Status(p, ti, i)
   if r >= t.max then return "maxed" elseif r > 0 then return "partial" elseif TF.Gate(p, ti, i) then return "locked" else return "avail" end
 end
 
--- the order points were placed in, kept in step with the ranks (points taken back drop out, points the order never saw are appended tree by tree)
+-- the order for points nobody placed by hand (0.38.2). A build that comes without one (a Popular row, Follow the top build, a link
+-- or a saved build made without clicks, an import, From character) took the trees' own order, all of the first tree from its top
+-- left first: the #3 Rogue build, Subtlety 23 of 51, got its first Subtlety point at level 38 (note K63SGH, 8 Oct 2026, a Rogue at
+-- 20 on 0.38.0), 31 of the 45 Popular builds started outside their lead tree, and the #4 Holy Paladin's Divine Precision came
+-- before Holy Shock, its arrow in the same row. Now the trees go by their points, most first (a tie to the earlier tree, as
+-- TF.Refit and TF.Coach find the lead), and inside a tree each point goes to the first talent in the tree's own order that still
+-- wants one and that the game takes then: its row open, its arrow full. So a build whose trees' own order was already lead first
+-- and legal keeps that order exactly. Points the rules cannot reach (a build from before a patch, not settled) go last, in the
+-- trees' own order. A link never carries this order (TF.Encode writes an order only when the reader placed it).
+function TF.GuessOrder(p)
+  local c = D.classes[p.cls]; local out, stuck, trees, pts = {}, {}, {}, {}
+  for ti = 1, #p.ranks do trees[ti] = ti; pts[ti] = TF.TreePts(p, ti) end
+  table.sort(trees, function(a, b) if pts[a] ~= pts[b] then return pts[a] > pts[b] end; return a < b end)
+  for _, ti in ipairs(trees) do
+    local tal, want, have, rowPts, left = c and c.trees[ti] and c.trees[ti].talents or {}, p.ranks[ti], {}, {}, 0
+    for i = 1, math.max(#want, #tal) do have[i] = 0; left = left + (want[i] or 0) end
+    local function above(row) local n = 0; for r = 1, row - 1 do n = n + (rowPts[r] or 0) end; return n end
+    while left > 0 do
+      local pick
+      for i, t in ipairs(tal) do
+        if have[i] < (want[i] or 0) and above(t.row) >= (t.row - 1) * 5 and (not t.req or (have[t.req] or 0) >= tal[t.req].max) then pick = i; break end
+      end
+      if not pick then break end
+      have[pick] = have[pick] + 1; rowPts[tal[pick].row] = (rowPts[tal[pick].row] or 0) + 1; left = left - 1; out[#out + 1] = { ti, pick }
+    end
+    for i = 1, #want do for _ = have[i] + 1, want[i] do stuck[#stuck + 1] = { ti, i } end end
+  end
+  table.sort(stuck, function(a, b) if a[1] ~= b[1] then return a[1] < b[1] end; return a[2] < b[2] end)
+  for _, o in ipairs(stuck) do out[#out + 1] = o end
+  return out
+end
+-- the order points were placed in, kept in step with the ranks (points taken back drop out, points the order never saw follow in
+-- TF.GuessOrder's order); a plan nobody placed by hand has TF.GuessOrder's order whole
 function TF.FixOrder(p)
+  if not p.orderKnown then p.order = TF.GuessOrder(p); return p.order end
   local seen, keep = {}, {}
   for _, o in ipairs(p.order or {}) do
     local k = o[1] .. ":" .. o[2]; seen[k] = (seen[k] or 0) + 1
     if p.ranks[o[1]] and p.ranks[o[1]][o[2]] and seen[k] <= p.ranks[o[1]][o[2]] then keep[#keep + 1] = { o[1], o[2] } end
   end
-  for ti, tr in ipairs(p.ranks) do for i, v in ipairs(tr) do
-    local k = ti .. ":" .. i
-    for _ = math.min(seen[k] or 0, v) + 1, v do keep[#keep + 1] = { ti, i } end
-  end end
+  if #keep < TF.TotalPts(p) then   -- only when some point is missing: a whole clicked order costs what it did before
+    local more = {}
+    for _, o in ipairs(TF.GuessOrder(p)) do
+      local k = o[1] .. ":" .. o[2]; more[k] = (more[k] or 0) + 1
+      if more[k] > math.min(seen[k] or 0, p.ranks[o[1]][o[2]]) then keep[#keep + 1] = { o[1], o[2] } end
+    end
+  end
   p.order = keep
   return keep
 end
@@ -639,6 +748,7 @@ function TF.Add(ti, i)
   local p = TF.plan
   local why = TF.CanAdd(p, ti, i)
   if why then return false, why end
+  TF.FixOrder(p)   -- the order so far, a suggested one too, so the click goes on its end and never in front of it (0.38.2)
   p.ranks[ti][i] = p.ranks[ti][i] + 1
   p.order = p.order or {}; p.order[#p.order + 1] = { ti, i }; p.orderKnown = true
   TF.Fire("PLAN_CHANGED", ti, i, 1)
@@ -1007,9 +1117,16 @@ function TF.TrainerTeaches(cf, name, rec, rank)
   if ro and not rec.seen then
     if cf ~= TF.PlayerClass() then return false end
     local race = select(2, UnitRace("player")) or (UnitRace("player")) or ""   -- the English token: the racials are keyed in English whatever the client speaks
+    local fac = UnitFactionGroup and UnitFactionGroup("player")
     local mine = false
-    for r in pairs(ro) do if race:find(r, 1, true) then mine = true end end
+    for r in pairs(ro) do if TF.RaceIs(r, race, fac) then mine = true end end
     if not mine then return false end
+  end
+  -- a spell one faction learns (the Mage's city teleports and portals, marked from the client's race masks): never for a
+  -- character of the other one (a Horde Mage at 20 was sent for Teleport: Stormwind and Ironforge, note JAUK9R, 9 Oct 2026)
+  if rec.faction and cf == TF.PlayerClass() then
+    local fac = UnitFactionGroup and UnitFactionGroup("player")
+    if (fac == "Alliance" or fac == "Horde") and fac ~= rec.faction then return false end
   end
   return true
 end
@@ -1118,9 +1235,11 @@ local function known(id)
   return nil
 end
 -- The spellbook's own names, read once and kept until the game says the book changed (SPELLS_CHANGED): the last word
--- on whether a spell is known when the id in the files is not the id this character learned it under (Aquatic Form came
--- as 1446 where the files say 1066, and the name lookup below did not settle it for a Druid at 24, 2 Oct 2026). Each
--- name keeps the highest rank the book shows for it, 0 when the book gives no rank.
+-- on whether a spell is known when the id in the files is not the id this character learned it under. Added for a Druid
+-- at 24 still sent for Aquatic Form (2 Oct 2026), but that nag was never the form under another id: 1446 is only the
+-- quest spell that teaches 1066, and the record owed was Aquatic Form (Passive) 5421, the form's own swim speed aura,
+-- which nothing teaches (out of the learn list since 0.38.2, gen_data.py). Each name keeps the highest rank the book
+-- shows for it, 0 when the book gives no rank.
 local bookNames
 local function readBook()
   local names = {}
@@ -1164,9 +1283,9 @@ local function inBook(name, rank)
   return (rank or 1) <= 1 or r >= rank
 end
 -- The same spell by its name: the game resolves a name only to a spell this character has, so a form or spell the
--- character got under another id than the files list still counts as known (a Druid at 20 had Aquatic Form and was
--- nagged to learn it, 27 Sep: the files say 1066 and the client also carries a 1446 of that name). For a ranked spell
--- the rank it resolves to must be this rank or higher, read off the subtext.
+-- character got under another id than the files list still counts as known (added when a Druid at 20 who had Aquatic
+-- Form was nagged to learn it, 27 Sep; the client's 1446 of that name only teaches 1066, and the nag was Aquatic Form
+-- (Passive) 5421, see above). For a ranked spell the rank it resolves to must be this rank or higher, read off the subtext.
 local function knownByName(name, rank)
   if type(name) ~= "string" or name == "" then return false end
   if inBook(name, rank) then return true end
@@ -1745,16 +1864,44 @@ local function chatFilter(_, _, msg, ...)
   local m = TF.LinkifyChat(msg)
   if m ~= msg then return false, m, ... end
 end
+-- a click on a link: ours opens the build, anything else is not ours to touch
+function TF.ClickedLink(link)
+  if type(link) == "string" and link:sub(1, #TF.LINK_TYPE) == TF.LINK_TYPE then return TF.OpenLink(link:sub(#TF.LINK_TYPE + 1)) end
+  return false
+end
+-- 0.38.2: the filters go through the game's own registry, ChatFrameUtil.AddMessageEventFilter (12.x); the old global
+-- ChatFrame_AddMessageEventFilter is only there while the game loads its deprecated names, and is used only without the
+-- new one. A click on one of our links reaches us through the client's channel for addon links: its "addon" link handler
+-- (itemrefhandlersshared.lua, build 70291) fires EventRegistry's "SetItemRef" for addon: links and nothing else, so a
+-- click on a profession, an item, a spell or a player runs no code of ours. Up to 0.38.1 a hook on SetItemRef ran ours
+-- after every link click in chat; it stays only for a client without that channel. The click listener goes in even when
+-- the client has no filter registry, so a build link someone else's addon wrote still opens. TF.chatLinks says which
+-- ways this client took (the probe saves it).
 function TF.InstallChatLinks()
-  if TF.chatLinksOn or not ChatFrame_AddMessageEventFilter then return false end
+  if TF.chatLinksOn then return false end
+  local util = ChatFrameUtil and type(ChatFrameUtil.AddMessageEventFilter) == "function" and ChatFrameUtil.AddMessageEventFilter or nil
+  local add = util or (type(ChatFrame_AddMessageEventFilter) == "function" and ChatFrame_AddMessageEventFilter) or nil
+  local addonType = (LinkTypes and LinkTypes.AddOn) or "addon"
+  local channel = false
+  if EventRegistry and EventRegistry.RegisterCallback and LinkUtil and LinkUtil.IsLinkHandlerRegistered then
+    local ok, on = pcall(LinkUtil.IsLinkHandlerRegistered, addonType); channel = ok and on and true or false
+  end
+  local hook = hooksecurefunc and SetItemRef and true or false
+  if not (add or channel or hook) then return false end
   TF.chatLinksOn = true
-  for _, ev in ipairs({ "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER", "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER", "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER",
-                        "CHAT_MSG_WHISPER", "CHAT_MSG_WHISPER_INFORM", "CHAT_MSG_CHANNEL", "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER", "CHAT_MSG_BN_WHISPER", "CHAT_MSG_BN_WHISPER_INFORM" }) do
-    pcall(ChatFrame_AddMessageEventFilter, ev, chatFilter)
+  local how = { filters = "none", clicks = "none" }
+  if add then
+    for _, ev in ipairs({ "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER", "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER", "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER",
+                          "CHAT_MSG_WHISPER", "CHAT_MSG_WHISPER_INFORM", "CHAT_MSG_CHANNEL", "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER", "CHAT_MSG_BN_WHISPER", "CHAT_MSG_BN_WHISPER_INFORM" }) do
+      pcall(add, ev, chatFilter)
+    end
+    how.filters = util and "ChatFrameUtil.AddMessageEventFilter" or "ChatFrame_AddMessageEventFilter"
   end
-  if hooksecurefunc and SetItemRef then
-    pcall(hooksecurefunc, "SetItemRef", function(link) if type(link) == "string" and link:sub(1, #TF.LINK_TYPE) == TF.LINK_TYPE then TF.OpenLink(link:sub(#TF.LINK_TYPE + 1)) end end)
-  end
+  -- the owner (TF) keys the callback in the registry: one callback however often this runs
+  if channel and pcall(EventRegistry.RegisterCallback, EventRegistry, "SetItemRef", function(_, link) TF.ClickedLink(link) end, TF) then how.clicks = "EventRegistry SetItemRef"
+  elseif hook and pcall(hooksecurefunc, "SetItemRef", TF.ClickedLink) then how.clicks = "hook on SetItemRef" end
+  TF.chatLinks = how
+  TF.Log("chat links: filters through %s, clicks through %s", how.filters, how.clicks)
   return true
 end
 function TF.OpenLink(path)
@@ -1876,10 +2023,24 @@ function TF.NoteTag()
   for i = 1, 6 do local k = math.random(1, #TAG_ALPHABET); t[i] = TAG_ALPHABET:sub(k, k) end
   return table.concat(t)
 end
+-- what goes in front of a note's words: the addon's version, the class and the level, and (0.38.2) what the game blocked
+-- of ours on this version, when given (TF.BlockedText's words). English: the site reads this
+function TF.NoteHead(blocked)
+  local c = TF.plan and D.classes[TF.plan.cls]
+  local who = string.format("%s, %s %d", TF.VERSION or "?", c and (c.en or c.name) or "?", UnitLevel("player") or 0)
+  return blocked and string.format("[addon %s; %s] ", who, blocked) or string.format("[addon %s] ", who)
+end
+-- how many letters the Feedback page's box takes: 460, fewer while the head names blocks, so head and words together stay
+-- within the TF.NOTE_MAX letters the inbox keeps
+function TF.NoteRoom() return math.max(0, math.min(460, TF.NOTE_MAX - TF.ULen(TF.NoteHead(TF.BlockedText())))) end
 function TF.FeedbackURL(text, who)
   local c = D.classes[TF.plan.cls]
   local words = (text or ""):gsub("^%s+", ""):gsub("%s+$", "")
-  local head = string.format("[addon %s, %s %d] ", TF.VERSION or "?", c and (c.en or c.name) or "?", UnitLevel("player") or 0)   -- English: the site reads this
+  local blocked = TF.BlockedText()   -- 0.38.2: what the game blocked of ours on this version, so a report names it
+  -- the words always go whole: a note longer than the room the box gave (typed before a block came) leaves the blocks only
+  -- the letters the inbox has left, and none when it has none ("; " and the list sit inside the head's brackets)
+  if blocked and TF.ULen(TF.NoteHead(blocked) .. words) > TF.NOTE_MAX then blocked = TF.BlockedText(TF.NOTE_MAX - TF.ULen(TF.NoteHead() .. words) - 2) end
+  local head = TF.NoteHead(blocked)
   local tag = TF.NoteTag()
   local url = TF.SITE .. "/said?say=" .. urlEnc(head .. words) .. "&id=" .. tag
   if who and who:gsub("%s", "") ~= "" then url = url .. "&who=" .. urlEnc(who:gsub("^%s+", ""):gsub("%s+$", "")) end

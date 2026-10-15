@@ -7328,12 +7328,12 @@ TalentsForeverBookData = {
       },
       Counterspell = {levels = {24}, icon = "spell_frost_iceshock", ids = {2139}, cost = {3800}},
       ["Remove Lesser Curse"] = {levels = {18}, icon = "spell_nature_removecurse", ids = {475}, cost = {1710}},
-      ["Teleport: Darnassus"] = {levels = {30}, icon = "spell_arcane_teleportdarnassus", ids = {3565}, src = {1}},
-      ["Teleport: Ironforge"] = {levels = {20}, icon = "spell_arcane_teleportironforge", ids = {3562}, src = {1}},
-      ["Teleport: Orgrimmar"] = {levels = {20}, icon = "spell_arcane_teleportorgrimmar", ids = {3567}, src = {1}},
-      ["Teleport: Stormwind"] = {levels = {20}, icon = "spell_arcane_teleportstormwind", ids = {3561}, src = {1}},
-      ["Teleport: Thunder Bluff"] = {levels = {30}, icon = "spell_arcane_teleportthunderbluff", ids = {3566}, src = {1}},
-      ["Teleport: Undercity"] = {levels = {20}, icon = "spell_arcane_teleportundercity", ids = {3563}, src = {1}},
+      ["Teleport: Darnassus"] = {levels = {30}, icon = "spell_arcane_teleportdarnassus", ids = {3565}, src = {1}, faction = "Alliance"},
+      ["Teleport: Ironforge"] = {levels = {20}, icon = "spell_arcane_teleportironforge", ids = {3562}, src = {1}, faction = "Alliance"},
+      ["Teleport: Orgrimmar"] = {levels = {20}, icon = "spell_arcane_teleportorgrimmar", ids = {3567}, src = {1}, faction = "Horde"},
+      ["Teleport: Stormwind"] = {levels = {20}, icon = "spell_arcane_teleportstormwind", ids = {3561}, src = {1}, faction = "Alliance"},
+      ["Teleport: Thunder Bluff"] = {levels = {30}, icon = "spell_arcane_teleportthunderbluff", ids = {3566}, src = {1}, faction = "Horde"},
+      ["Teleport: Undercity"] = {levels = {20}, icon = "spell_arcane_teleportundercity", ids = {3563}, src = {1}, faction = "Horde"},
       Blizzard = {
         levels = {20, 28, 36, 44, 52, 60},
         icon = "spell_frost_icestorm",
@@ -7411,12 +7411,12 @@ TalentsForeverBookData = {
         talent = true,
         cost = {0, 190, 380, 618, 855, 1330, 1710, 1995}
       },
-      ["Portal: Darnassus"] = {levels = {50}, icon = "spell_arcane_portaldarnassus", ids = {11419}, src = {1}},
-      ["Portal: Ironforge"] = {levels = {40}, icon = "spell_arcane_portalironforge", ids = {11416}, src = {1}},
-      ["Portal: Orgrimmar"] = {levels = {40}, icon = "spell_arcane_portalorgrimmar", ids = {11417}, src = {1}},
-      ["Portal: Stormwind"] = {levels = {40}, icon = "spell_arcane_portalstormwind", ids = {10059}, src = {1}},
-      ["Portal: Thunder Bluff"] = {levels = {50}, icon = "spell_arcane_portalthunderbluff", ids = {11420}, src = {1}},
-      ["Portal: Undercity"] = {levels = {40}, icon = "spell_arcane_portalundercity", ids = {11418}, src = {1}},
+      ["Portal: Darnassus"] = {levels = {50}, icon = "spell_arcane_portaldarnassus", ids = {11419}, src = {1}, faction = "Alliance"},
+      ["Portal: Ironforge"] = {levels = {40}, icon = "spell_arcane_portalironforge", ids = {11416}, src = {1}, faction = "Alliance"},
+      ["Portal: Orgrimmar"] = {levels = {40}, icon = "spell_arcane_portalorgrimmar", ids = {11417}, src = {1}, faction = "Horde"},
+      ["Portal: Stormwind"] = {levels = {40}, icon = "spell_arcane_portalstormwind", ids = {10059}, src = {1}, faction = "Alliance"},
+      ["Portal: Thunder Bluff"] = {levels = {50}, icon = "spell_arcane_portalthunderbluff", ids = {11420}, src = {1}, faction = "Horde"},
+      ["Portal: Undercity"] = {levels = {40}, icon = "spell_arcane_portalundercity", ids = {11418}, src = {1}, faction = "Horde"},
       ["Ice Barrier"] = {
         levels = {40, 46, 52, 58},
         icon = "spell_ice_lament",
@@ -7482,7 +7482,7 @@ TalentsForeverBookData = {
         talent = true,
         cost = {0, 2850, 13775, 17100, 30400, 38000}
       },
-      ["Teleport: Dalaran"] = {levels = {50}, icon = "spell_arcane_teleporthalloftheguardian", ids = {1297659}, src = {1}},
+      ["Teleport: Dalaran"] = {levels = {50}, icon = "spell_arcane_teleporthalloftheguardian", ids = {1297659}, src = {1}, faction = "Alliance"},
       ["Comprehend Scroll"] = {levels = {6}, icon = 8188276, seen = true, cost = {95}}
     },
     DRUID = {
@@ -7498,7 +7498,6 @@ TalentsForeverBookData = {
       ["Track Humanoids"] = {levels = {32}, icon = "ability_tracking", ids = {5225}},
       ["Bear Form"] = {levels = {10}, icon = "ability_racial_bearform", ids = {5487}},
       Ravage = {levels = {32, 42, 50, 58}, icon = "ability_druid_ravage", ids = {6785, 6787, 9866, 9867}},
-      ["Aquatic Form (Passive)"] = {levels = {16}, icon = "ability_druid_aquaticform", ids = {5421}, passive = true},
       Maul = {
         levels = {10, 18, 26, 34, 42, 50, 58},
         icon = "ability_druid_maul",
@@ -7827,19 +7826,22 @@ TalentsForeverBookData = {
       ["Desperate Prayer"] = {
         levels = {10, 18, 26, 34, 42, 50, 58},
         icon = "spell_holy_restoration",
-        ids = {13908, 19236, 19238, 19240, 19241, 19242, 19243}
+        ids = {13908, 19236, 19238, 19240, 19241, 19242, 19243},
+        faction = "Alliance"
       },
       ["Fear Ward"] = {levels = {20}, icon = "spell_holy_excorcism", ids = {6346}},
       Starshards = {
         levels = {10, 18, 26, 34, 42, 50, 58},
         icon = "spell_arcane_starfire",
-        ids = {10797, 19296, 19299, 19302, 19303, 19304, 19305}
+        ids = {10797, 19296, 19299, 19302, 19303, 19304, 19305},
+        faction = "Alliance"
       },
-      ["Elune's Grace"] = {levels = {20}, icon = "spell_holy_elunesgrace", ids = {2651}},
+      ["Elune's Grace"] = {levels = {20}, icon = "spell_holy_elunesgrace", ids = {2651}, faction = "Alliance"},
       ["Touch of Weakness"] = {
         levels = {10, 20, 30, 40, 50, 60},
         icon = "spell_shadow_deadofnight",
-        ids = {2652, 19261, 19262, 19264, 19265, 19266}
+        ids = {2652, 19261, 19262, 19264, 19265, 19266},
+        faction = "Horde"
       },
       ["Devouring Plague"] = {
         levels = {20, 28, 36, 44, 52, 60},
@@ -7849,14 +7851,21 @@ TalentsForeverBookData = {
       ["Hex of Weakness"] = {
         levels = {10, 20, 30, 40, 50, 60},
         icon = "spell_shadow_fingerofdeath",
-        ids = {9035, 19281, 19282, 19283, 19284, 19285}
+        ids = {9035, 19281, 19282, 19283, 19284, 19285},
+        faction = "Horde"
       },
       Shadowguard = {
         levels = {20, 28, 36, 44, 52, 60},
         icon = "spell_nature_lightningshield",
-        ids = {18137, 19308, 19309, 19310, 19311, 19312}
+        ids = {18137, 19308, 19309, 19310, 19311, 19312},
+        faction = "Horde"
       },
-      Feedback = {levels = {20, 30, 40, 50, 60}, icon = "spell_shadow_ritualofsacrifice", ids = {13896, 19271, 19273, 19274, 19275}},
+      Feedback = {
+        levels = {20, 30, 40, 50, 60},
+        icon = "spell_shadow_ritualofsacrifice",
+        ids = {13896, 19271, 19273, 19274, 19275},
+        faction = "Alliance"
+      },
       ["Prayer of Fortitude"] = {levels = {48, 60}, icon = "spell_holy_prayeroffortitude", ids = {21562, 21564}},
       ["Prayer of Spirit"] = {levels = {60}, icon = "spell_holy_prayerofspirit", ids = {27681}},
       ["Prayer of Shadow Protection"] = {levels = {56}, icon = "spell_holy_prayerofshadowprotection", ids = {27683}},
@@ -7872,20 +7881,28 @@ TalentsForeverBookData = {
       ["Dark Sacrifice"] = {
         levels = {20, 30, 40, 50, 60},
         icon = "spell_holy_powerinfusion_shadow",
-        ids = {1277324, 1277325, 1277326, 1277327, 1277328}
+        ids = {1277324, 1277325, 1277326, 1277327, 1277328},
+        faction = "Horde"
       },
-      Chastise = {levels = {20, 30, 40, 50, 60}, icon = "spell_holy_chastise", ids = {1277331, 1277332, 1277333, 1277334, 1277335}},
+      Chastise = {
+        levels = {20, 30, 40, 50, 60},
+        icon = "spell_holy_chastise",
+        ids = {1277331, 1277332, 1277333, 1277334, 1277335},
+        faction = "Alliance"
+      },
       ["Divine Grace"] = {
         levels = {10, 18, 26, 34, 42, 50, 58},
         icon = "ability_priest_savinggrace",
-        ids = {1277370, 1277371, 1277372, 1277374, 1277376, 1277377, 1277378}
+        ids = {1277370, 1277371, 1277372, 1277374, 1277376, 1277377, 1277378},
+        faction = "Alliance"
       },
       ["Contingency Plan"] = {
         levels = {20, 30, 40, 50, 60},
         icon = "ability_priest_soulwarding",
-        ids = {1277462, 1277634, 1277638, 1277639, 1277640}
+        ids = {1277462, 1277634, 1277638, 1277639, 1277640},
+        faction = "Alliance"
       },
-      ["Confounding Flash"] = {levels = {10}, icon = "ability_paladin_blindinglight2", ids = {1277455}},
+      ["Confounding Flash"] = {levels = {10}, icon = "ability_paladin_blindinglight2", ids = {1277455}, faction = "Alliance"},
       ["Shadow Word: Death"] = {levels = {32, 40, 48, 56}, icon = "spell_shadow_demonicfortitude", ids = {1309595, 1309633, 1309635, 1309636}},
       ["Prayer of Mending"] = {levels = {40, 50, 60}, icon = "spell_holy_prayerofmendingtga", ids = {401859, 1240826, 1240827}, talent = true}
     },

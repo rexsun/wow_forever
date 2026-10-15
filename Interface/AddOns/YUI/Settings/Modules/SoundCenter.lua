@@ -15,6 +15,9 @@ function Center:ReviewTransfer(prepared, accept, cancel, owner, profileName)
         if entry.id=='core.sound.legacy' then
             lines[#lines+1]=string.format(labels['sound.share.legacy_counts'],snapshot.converted,snapshot.pending,snapshot.unchanged)
             lines[#lines+1]=labels['sound.share.legacy_recovery']
+        elseif entry.id=='product.yhud.selection' and YUI.YHUD and YUI.YHUD.Sharing
+            and YUI.YHUD.Sharing.AppendGraphicalPreviewLines then
+            YUI.YHUD.Sharing:AppendGraphicalPreviewLines(lines,snapshot)
         elseif entry.id=='core.sound' then
             local counts=snapshot.counts
             lines[#lines+1]=snapshot.mode=='replace'
@@ -54,6 +57,8 @@ function Center:ObjectTitle(name,object,extension)
     return name..'  '..color..T(kind)..'|r'
 end
 function Center:ErrorText(code,detail)
+    if code=='special-voice-inactive' then return T('specialVoiceInactive') end
+    if code=='special-voice-unavailable' then return T('specialVoiceUnavailable') end
     if code=='runtime-apply-failed' then
         local reason=type(detail)=='table' and detail.reason
         return T('invalid')..' ('..(type(reason)=='string' and reason or code)..')'
@@ -92,6 +97,20 @@ function Center:PreviewVoice(id)
 end
 function Center:Message(code)
     if self.view then self.view.status:SetText(self:ErrorText(code)); self.view:RefreshRows() end
+end
+function Center:SoundContent(selection,packId)
+    local sound,help=YUI.Sound,{}
+    local function VoiceLabel(value)
+        local label=sound:GetEntryLabel(value)
+        local origin=sound:ParseSpecialVoice(value)
+        if not origin or sound:HasVoiceRecording(value,packId) then return label end
+        local key=sound:HasVoiceRecording(value,origin) and 'specialVoiceMutedHelp' or 'specialVoiceUnavailableHelp'
+        help[#help+1]=string.format(T(key),label,sound:GetVoicePackLabel(origin))
+        local r,g,b=GUI:GetColor('color.state.warning')
+        return label..' · '..string.format('|cff%02x%02x%02x%s|r',math.floor(r*255),math.floor(g*255),math.floor(b*255),T('specialVoiceMuted'))
+    end
+    local content=sound.EditorModel:SoundLabel(selection,VoiceLabel)
+    return content,#help>0 and table.concat(help,'\n\n') or nil
 end
 function Center:AuraBindingText(rule)
     if rule.object.kind~='aura' and rule.object.kind~='equipmentAura' then return end
@@ -435,10 +454,53 @@ function Center:CreatePreferences(view)
     local packTitle=Text(body,T('pack'),'font.size.md'); packTitle:SetPoint('TOPLEFT',0,-8)
     panel.packCards={}
     local cardHeight,cardGap=96,12
+    local packStateKeys={['not-installed']='packNotInstalled',disabled='packDisabled',
+        ['not-loaded']='packNotLoaded',['not-registered']='packNotRegistered',unavailable='packUnavailable'}
+    local previewFloatLimit=12
+    local function ReleasePreviewFloat(handle)
+        local frame=handle.target
+        frame.previewHandle=nil;frame.label:SetText('');frame:Hide()
+    end
+    local function ClearCardPreview(card)
+        if YUI.Animation and card.previewOwner then YUI.Animation:StopOwner(card.previewOwner) end
+        for _,frame in ipairs(card.previewFloats or {}) do
+            frame.previewHandle=nil;frame.label:SetText('');frame:Hide()
+        end
+    end
+    function panel:ClearPreviewFloats()
+        for _,card in ipairs(self.packCards) do ClearCardPreview(card) end
+    end
+    function panel:FloatPreview(card,id)
+        local animation=YUI.Animation
+        if not id or not self:IsShown() or not card:IsShown() or not animation then return end
+        card.previewFloats=card.previewFloats or {}
+        card.previewOwner=card.previewOwner or {}
+        card.previewFloatIndex=(card.previewFloatIndex or 0)%previewFloatLimit+1
+        local frame=card.previewFloats[card.previewFloatIndex]
+        if not frame then
+            frame=GUI:CreateFrame(card,{height=22})
+            frame:SetFrameLevel(card:GetFrameLevel()+5);frame:EnableMouse(false)
+            frame.label=Text(frame,'','font.size.md','color.text.accent')
+            frame.label:SetAllPoints(frame);frame.label:SetWordWrap(false)
+            card.previewFloats[card.previewFloatIndex]=frame
+        end
+        if frame.previewHandle then frame.previewHandle:Stop() end
+        frame.label:SetText(YUI.Sound:GetEntryLabel(id))
+        local width=math.min(card:GetWidth()-32,frame.label:GetStringWidth()+8)
+        frame:SetWidth(width);frame:ClearAllPoints()
+        frame:SetPoint('BOTTOMLEFT',card,'BOTTOMLEFT',math.random(16,math.max(16,math.floor(card:GetWidth()-width-16))),math.random(8,20))
+        frame:SetAlpha(1);frame:Show()
+        -- Reuse the shared tween driver; repeated native groups would accumulate on these pooled frames.
+        frame.previewHandle=animation:FloatText(frame,{owner=card.previewOwner,driver='tween',duration=1.1,
+            distance=54,toX=math.random(-12,12),onFinished=ReleasePreviewFloat})
+        if frame.previewHandle.noop or frame.previewHandle._completed then ReleasePreviewFloat(frame.previewHandle) end
+    end
     local function ShowPackTooltip(card)
         GUI.Tooltip:Show(card,{title=card.title:GetText(),content=function(tip)
             tip:AddLine(card.metadata:GetText())
-            tip:AddLine(card.description:GetText())
+            local description=card.description:GetText()
+            if description~='' then tip:AddSpace();tip:AddLine(description) end
+            tip:AddSpace()
             tip:AddLine(card.count:GetText())
         end,actions=YUI.Sound.voicePacks[card.packId] and {{text=T('randomPreview')}} or nil})
     end
@@ -478,7 +540,12 @@ function Center:CreatePreferences(view)
         end})
     end)
     local randomPreview=Form:CreateButton(preview,{text=T('randomPreview'),height=34,width=120,onClick=function()
-        local ok,code=YUI.Sound:PreviewRandomEntry()
+        local ok,code,id=YUI.Sound:PreviewRandomEntry()
+        if ok then
+            for _,card in ipairs(panel.packCards) do
+                if card.packId==YUI.Sound:GetPreferences().voicePackId then panel:FloatPreview(card,id);break end
+            end
+        end
         if not ok and code then Center:Message(code) end
     end})
     panel.randomPreview=randomPreview
@@ -523,12 +590,15 @@ function Center:CreatePreferences(view)
         local columns=width>600 and 2 or 1; local cell=(width-(columns-1)*16)/columns
         local packs={}
         for id,info in pairs(sound.knownVoicePacks) do
-            packs[#packs+1]={id=id,pack=sound.voicePacks[id],info=sound:GetVoicePackInfo(id)}
+            packs[#packs+1]={id=id,pack=sound.voicePacks[id],info=sound:GetVoicePackInfo(id),listOrder=info.listOrder or math.huge}
         end
         for id,pack in pairs(sound.voicePacks) do
-            if not sound.knownVoicePacks[id] then packs[#packs+1]={id=id,pack=pack,info=sound:GetVoicePackInfo(id)} end
+            if not sound.knownVoicePacks[id] then packs[#packs+1]={id=id,pack=pack,info=sound:GetVoicePackInfo(id),listOrder=math.huge} end
         end
-        table.sort(packs,function(a,b) if a.id==b.id then return false elseif a.id=='yui.default' then return true elseif b.id=='yui.default' then return false end; return a.id<b.id end)
+        table.sort(packs,function(a,b)
+            if a.listOrder~=b.listOrder then return a.listOrder<b.listOrder end
+            return a.id<b.id
+        end)
         for i,entry in ipairs(packs) do
             local card=self.packCards[i]
             if not card then
@@ -538,7 +608,8 @@ function Center:CreatePreferences(view)
                     local prefs,code=sound:GetPreferences()
                     if not prefs then Center:Message(code);return end
                     if prefs.voicePackId~=button.packId and not SetPreference('voicePackId',button.packId) then return end
-                    local ok;ok,code=sound:PreviewRandomEntry()
+                    local ok,id;ok,code,id=sound:PreviewRandomEntry()
+                    if ok then panel:FloatPreview(button,id) end
                     if not ok and code then Center:Message(code) end
                 end})
 
@@ -548,26 +619,33 @@ function Center:CreatePreferences(view)
                 card.description=Text(card,'','font.size.md','color.text.primary');card.description:Hide()
                 card.count=Text(card,'','font.size.md','color.text.primary'); card.count:SetPoint('BOTTOMLEFT',12,10);card.count:SetHeight(28);card.count:SetWordWrap(true)
                 card:HookScript('OnEnter',ShowPackTooltip);card:HookScript('OnLeave',HidePackTooltip);card:HookScript('OnHide',HidePackTooltip)
+                card:HookScript('OnHide',ClearCardPreview)
                 card.download=Form:CreateButton(card,{height=26,width=86,text=T('downloadPack'),onClick=function()
                     if card.downloadURL then Settings:ShowCopyPopup(T('downloadPack'),card.downloadURL) end
                 end})
                 card.download:SetPoint('BOTTOMRIGHT',-12,8)
                 self.packCards[i]=card
             end
-            local recordings,defaults=0,0
-            local defaultPack=sound.voicePacks['yui.default']
+            local recordings,specialRecordings=0,0
             for id in pairs(sound.entries) do
                 if entry.pack and entry.pack.entries[id] then recordings=recordings+1
-                elseif prefs.fallbackDefault~=false and defaultPack and defaultPack.entries[id] then defaults=defaults+1 end
+                end
             end
+            for _ in pairs(entry.pack and entry.pack.specialEntries or {}) do specialRecordings=specialRecordings+1 end
+            if card.packId~=entry.id or not entry.pack then ClearCardPreview(card) end
             card.packId=entry.id;card.downloadURL=entry.info.downloadURL
+            card.packState=sound.GetVoicePackState and sound:GetVoicePackState(entry.id)
+                or entry.pack and 'ready' or 'unavailable'
+            local canDownload=card.packState=='not-installed' and card.downloadURL~=nil
             card:SetWidth(cell); card:ClearAllPoints(); card:SetPoint('TOPLEFT',((i-1)%columns)*(cell+16),-38-math.floor((i-1)/columns)*(cardHeight+cardGap))
             local icon=entry.info.icon
-            if not entry.pack then icon='Interface\\Icons\\INV_Misc_QuestionMark'
+            local builtinIcon=entry.info.builtinIcon and YUI.Assets and YUI.Assets:Component('Voice',entry.info.builtinIcon)
+            if builtinIcon then icon=builtinIcon
+            elseif not entry.pack and (card.packState=='not-installed' or card.packState=='unavailable') then icon='Interface\\Icons\\INV_Misc_QuestionMark'
             elseif entry.id=='yui.default' and YUI.Assets then icon=YUI.Assets:Core('images\\YUI-LOGO-300.png')
-            elseif entry.pack and entry.info.addonIcon then icon=entry.info.addonIcon end
+            elseif entry.info.addonIcon then icon=entry.info.addonIcon end
             card.icon:SetIcon(icon or 136183)
-            if entry.pack then card.icon.icon:SetTexCoord(0,1,0,1)
+            if builtinIcon or entry.pack or card.packState=='disabled' or card.packState=='not-loaded' or card.packState=='not-registered' then card.icon.icon:SetTexCoord(0,1,0,1)
             else card.icon.icon:SetTexCoord(.08,.92,.08,.92) end
             card.title:SetWidth(cell-70); card.title:SetText(sound:GetVoicePackLabel(entry.id))
             card.metadata:SetWidth(cell-70)
@@ -577,14 +655,21 @@ function Center:CreatePreferences(view)
             end
             card.metadata:SetText(string.format(T('packMetadata'),Colored(entry.info.author or T('unknownAuthor'),'color.badge.orange'),Colored(entry.info.language=='zhCN' and T('mandarin') or entry.info.language or T('unknownLanguage'),'color.badge.green'))..(entry.info.version and '  '..entry.info.version or ''))
             card.description:SetText(entry.info.descriptionKey and T(entry.info.descriptionKey) or entry.info.description or '')
-            card.count:SetWidth(cell-(not entry.pack and card.downloadURL and 120 or 24))
-            card.count:SetText(not entry.pack and Colored(T('packNotInstalled'),'color.badge.orange') or entry.id=='yui.default' and string.format(T('defaultVoiceCount'),recordings) or string.format(T('packCoverage'),recordings,defaults))
-            card.download:SetShown(not entry.pack and card.downloadURL~=nil)
+            card.count:SetWidth(cell-(canDownload and 120 or 24))
+            local standardCount=Colored(recordings,'color.badge.green')
+            local countText=specialRecordings>0
+                and string.format(T('packCount'),standardCount,Colored(specialRecordings,'color.badge.pink'))
+                or string.format(T('packStandardCount'),standardCount)
+            card.count:SetText(not entry.pack and Colored(T(packStateKeys[card.packState]),'color.badge.orange') or countText)
+            card.download:SetShown(canDownload)
             card:SetSelected(entry.pack~=nil and prefs.voicePackId==entry.id); card:Show()
         end
         for i=#packs+1,#self.packCards do self.packCards[i]:Hide() end
         local y=54+math.ceil(#packs/columns)*(cardHeight+cardGap)
-        self.notice:ClearAllPoints(); self.notice:SetPoint('TOPLEFT',0,-y); self.notice:SetText(not sound.voicePacks[prefs.voicePackId] and T('missingPack') or '')
+        local selectedState=sound.GetVoicePackState and sound:GetVoicePackState(prefs.voicePackId)
+            or sound.voicePacks[prefs.voicePackId] and 'ready' or 'unavailable'
+        self.notice:ClearAllPoints(); self.notice:SetPoint('TOPLEFT',0,-y)
+        self.notice:SetText(selectedState~='ready' and string.format(T('selectedPackStatus'),sound:GetVoicePackLabel(prefs.voicePackId),T(packStateKeys[selectedState])) or '')
         if not sound.voicePacks[prefs.voicePackId] then y=y+32 end
         local playback=sections.packPlayback; playback:SetSize(width,columns==2 and 120 or 200); playback:ClearAllPoints(); playback:SetPoint('TOPLEFT',0,-y)
         Place(channel,0,38,cell); Place(preview,columns==2 and cell+16 or 0,columns==2 and 38 or 118,cell)
@@ -612,6 +697,7 @@ function Center:CreatePreferences(view)
         panel:Refresh()
     end)
     panel:SetScript('OnHide',function()
+        panel:ClearPreviewFloats()
         view.status:Show(); YUI.Sound:StopPreview(); expiry.control:ClearFocus()
         if view.designerHost and Center.designerWindow then Center.designerWindow.scopeNotice:Show();Center.designerWindow.independentNotice:Show() end
     end)
@@ -773,6 +859,10 @@ function Center:Create(parent,width,height)
                 GameTooltip:AddLine(' ')
                 GameTooltip:AddLine(T('tooltipPlayback')..owner.sound:GetText(),1,1,1,true)
                 GameTooltip:AddLine(T('tooltipSource')..owner.soundKind:GetText(),1,1,1,true)
+                if owner.specialVoiceHelp then
+                    r,g,b=GUI:GetColor('color.state.warning')
+                    GameTooltip:AddLine(' '); GameTooltip:AddLine(owner.specialVoiceHelp,r,g,b,true)
+                end
                 if owner.noticeWarning then
                     r,g,b=GUI:GetColor('color.state.warning')
                     GameTooltip:AddLine(' '); GameTooltip:AddLine(owner.noticeHelp or owner.loadSummary or '',r,g,b,true)
@@ -821,8 +911,13 @@ function Center:Create(parent,width,height)
         row.edit=IconButton(row,'edit','pencil',function() Center:OpenEditor(row.index) end)
         row.edit:SetPoint('RIGHT',row.delete,'LEFT',-4,0)
         row.preview=IconButton(row,'preview','play',function()
-            local ok=YUI.Sound.EditorModel:Preview(row.rule)
-            if not ok then view.status:SetText(T('unavailable')); view:RefreshRows() end
+            local ok,code=YUI.Sound.EditorModel:Preview(row.rule)
+            if not ok then
+                local special=code=='special-voice-inactive' or code=='special-voice-unavailable'
+                local message=special and Center:ErrorText(code) or T('unavailable')
+                view.specialPreview=special and {value=row.rule.sound.value,message=message} or nil
+                view.status:SetText(message); view:RefreshRows()
+            end
         end)
         row.preview:SetPoint('RIGHT',row.edit,'LEFT',-4,0)
         row.toggle=Form:CreateSwitch(row,{variant='compact',set=function()
@@ -832,6 +927,15 @@ function Center:Create(parent,width,height)
     end
     function view:RefreshRows()
         local sound,rows=YUI.Sound,{}
+        local prefs=sound:GetPreferences()
+        local packId=prefs and prefs.voicePackId or 'yui.default'
+        local preview=self.specialPreview
+        if preview then
+            if self.status:GetText()~=preview.message then self.specialPreview=nil
+            elseif sound:HasVoiceRecording(preview.value,packId) then
+                self.specialPreview=nil;self.status:SetText('')
+            end
+        end
         local rules=sound.RuleStore:Read() or {}
         local specNames={}
         for _,group in ipairs(Settings:GetSpecSelectionGroups({})) do
@@ -843,7 +947,8 @@ function Center:Create(parent,width,height)
             else for _,value in ipairs(rule.exceptSpecs or {}) do if value==self.designSpec then inSpec=false end end end
             local displaySpec=tonumber((self.designSpec or ''):match(':(%d+)$')) or sound.EditorModel:RuleSpec(rule)
             local name,icon=sound.EditorModel:ObjectInfo(rule.object,rule.trigger.extension,displaySpec)
-            local when,content=sound.EditorModel:TriggerLabel(rule,displaySpec),sound.EditorModel:SoundLabel(rule.sound)
+            local when=sound.EditorModel:TriggerLabel(rule,displaySpec)
+            local content,specialVoiceHelp=Center:SoundContent(rule.sound,packId)
             if (self.designSpec=='all' or self.designSpec=='general' and rule.category=='general' or self.designSpec~='general' and rule.category=='class' and inSpec)
                 and (self.query=='' or (name..' '..when..' '..content):lower():find(self.query:lower(),1,true)) then
                 local load={}
@@ -870,7 +975,7 @@ function Center:Create(parent,width,height)
                 end
                 local notice,severity=Center:RuleNotice(rule)
                 local noticeHelp=(notice==T('nativeAuraUnavailable') or notice==T('nativeAuraHidden') or notice==T('boneShieldCDM')) and T('nativeAuraUnavailableHelp') or nil
-                rows[#rows+1]={tooltipScope=(not allSpecs and not rule.exceptSpecs and #tooltipScope>0) and table.concat(tooltipScope,' / ') or (#load>0 and table.concat(load,' · ') or T('unlimited')),index=index,rule=rule,name=name,icon=icon,when=when,content=content,icons=icons,notice=notice,noticeHelp=noticeHelp,noticeWarning=notice~=nil and severity~='info',
+                rows[#rows+1]={tooltipScope=(not allSpecs and not rule.exceptSpecs and #tooltipScope>0) and table.concat(tooltipScope,' / ') or (#load>0 and table.concat(load,' · ') or T('unlimited')),index=index,rule=rule,name=name,icon=icon,when=when,content=content,specialVoiceHelp=specialVoiceHelp,icons=icons,notice=notice,noticeHelp=noticeHelp,noticeWarning=notice~=nil and severity~='info',
                     load=notice or (#load>0 and table.concat(load,' · ') or T('unlimited'))}
             end
         end
@@ -948,6 +1053,7 @@ function Center:Create(parent,width,height)
                 row.when:ClearAllPoints(); row.when:SetPoint('TOPLEFT',nameWidth+8,-8); row.when:SetWidth(whenWidth-12)
                 row.load:ClearAllPoints(); row.load:SetPoint('TOPLEFT',nameWidth+8,-26); row.load:SetWidth(whenWidth-12)
                 row.noticeWarning=item.noticeWarning; row.noticeHelp=item.noticeHelp
+                row.specialVoiceHelp=item.specialVoiceHelp
                 GUI:SetTextColorKey(row.load,item.noticeWarning and 'color.state.warning' or 'color.text.secondary')
                 if item.noticeWarning then row.load:SetAlpha(1) end
                 row.loadSummary=item.load; row.tooltipScope=item.tooltipScope
@@ -983,6 +1089,7 @@ function Center:Create(parent,width,height)
         local database=YUI.DB:GetAceDB(sound.storageProductId)
         local profileName=database and database:GetCurrentProfile()
         if self.profileName and (self.database~=database or self.profileName~=profileName) then
+            if self.preferences then self.preferences:ClearPreviewFloats() end
             if Center.editor then Center.editor:Hide() end
             if Center.legacyPanel then Center.legacyPanel:Hide() end
             if GUI.VoicePicker.dialog then GUI.VoicePicker.dialog:Hide() end
@@ -1036,6 +1143,11 @@ function Center:Create(parent,width,height)
     function view:OnCVarChanged(_,name)
         if name=='cooldownViewerEnabled' then self:RequestRefresh() end
     end
+    function view:OnVoicePackAddonLoaded(_,name)
+        for _,info in pairs(YUI.Sound.knownVoicePacks) do
+            if info.addonName==name then self:RequestRefresh();return end
+        end
+    end
     view:SetScript('OnSizeChanged',function() if view.Refresh then view:Refresh() end end)
     view:SetScript('OnShow',function()
         Center:ActivateView(view, view == (Center.designerWindow and Center.designerWindow.view) and Center.designerWindow or Settings.Elements.frame)
@@ -1049,9 +1161,11 @@ function Center:Create(parent,width,height)
         YUI.Event:On('YUI_APPEARANCE_ICON_SET_CHANGED','RefreshSpecIcons',view,{moduleId='sound.settings'})
         YUI.Event:On('YUI_APPEARANCE_ICON_SCOPE_CHANGED','OnIconScopeChanged',view,{moduleId='sound.settings'})
         YUI.Event:On('CVAR_UPDATE','OnCVarChanged',view,{moduleId='sound.settings'})
+        YUI.Event:On('ADDON_LOADED','OnVoicePackAddonLoaded',view,{moduleId='sound.settings'})
         view:Refresh()
     end)
     view:SetScript('OnHide',function()
+        if view.preferences then view.preferences:ClearPreviewFloats() end
         Center:CloseSpecDropdown(spec)
         YUI.Event:OffOwner(view); if YUI.Monitor then YUI.Monitor:CancelTasks(view) end; YUI.Sound:StopPreview(); search:ClearFocus()
         if Center.view==view then Center:CloseChildren() end

@@ -13,12 +13,14 @@
     <Script file="View\Glow.lua"/>
     <Script file="Runtime\Updater.lua"/>
     <Script file="Runtime\SpecialResources.lua"/>
+    <Script file="Runtime\PlayerBars.lua"/>
     <Script file="Runtime\Sources.lua"/>
     <Script file="Runtime\KeybindResolver.lua"/>
     <Script file="Runtime\KeybindText.lua"/>
     <Script file="View\Core.lua"/>
     <Script file="View\Presentation.lua"/>
     <Script file="View\Slots.lua"/>
+    <Script file="View\PlayerBars.lua"/>
     <Script file="View\FilteredAuras.lua"/>
     <Script file="View\Layout.lua"/>
     <Script file="View\Updates.lua"/>

@@ -117,6 +117,7 @@ local function AvailableKey(namespace, key)
         return not YUI.IsForever
     end
     if namespace ~= "NativeInterface" then return true end
+    if YUI.IsMists == true then return false end
     if key:sub(1, 5) == "beta." then return YUI.IsForever == true end
     if key:sub(1, 7) == "manage." or key:sub(1, 9) == "tutorial." or key == "hide.buff_collapse" then
         return YUI.IsRetail == true

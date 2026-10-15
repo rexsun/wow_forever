@@ -75,6 +75,7 @@ local function GroupName(group)
 end
 
 local function GroupTypeName(group)
+    if group and group.contentPolicy == "cast-only" then return T("resource.player_cast", "玩家施法条") end
     local layout = group and group.layout
     if layout == "bars" then
         return T("designer.type.bars", "进度条组")

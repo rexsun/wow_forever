@@ -148,6 +148,7 @@ local COMPONENT_FIELD_WHITELISTS = {
             bonusRoll = true,
             macroFrame = true,
             hideErrors = true,
+            routeGuide = true,
         },
     },
     WhisperManager = {
@@ -482,6 +483,7 @@ function ConfigTransfer:RegisterModule(definition)
         or (definition.beforeCapture ~= nil and type(definition.beforeCapture) ~= "function")
         or (definition.splitImport ~= nil and type(definition.splitImport) ~= "function")
         or (definition.validateSnapshot ~= nil and type(definition.validateSnapshot) ~= "function")
+        or (definition.showCompletion ~= nil and type(definition.showCompletion) ~= "function")
         or (definition.exclusiveWith ~= nil and type(definition.exclusiveWith) ~= "table")
         or (definition.payloadDepthOverhead ~= nil and (not IsInteger(definition.payloadDepthOverhead)
             or definition.payloadDepthOverhead < 0 or definition.payloadDepthOverhead > PROFILE_STATE_WRAPPER_DEPTH))
@@ -728,6 +730,44 @@ end
 local function ResolveProductId(definition)
     if type(definition.productId) == "function" then return definition.productId() end
     return definition.productId or "suite"
+end
+
+-- Background writers defer only while a participating database is being
+-- imported. Keep the token private so an old/canceled owner cannot release a
+-- later import; the synchronous commit busy flag has a different lifetime.
+local importSession
+
+function ConfigTransfer:BeginImportSession(moduleIds)
+    if importSession or self.busy then return nil, "busy" end
+    RegisterAutomaticModules(self)
+    if type(moduleIds) ~= "table" or #moduleIds < 1 then return nil, "invalid_selection" end
+    local databases = {}
+    for _, id in ipairs(moduleIds) do
+        local definition = self.modules[id]
+        if not definition then return nil, "invalid_selection" end
+        local database, _, code = CurrentProfileIdentity(ResolveProductId(definition))
+        if not database then return nil, code or "profile_unavailable" end
+        databases[database] = true
+    end
+    local token = {}
+    importSession = { token = token, databases = databases }
+    return token
+end
+
+function ConfigTransfer:IsImporting(productId)
+    if not importSession then return false end
+    if productId == nil then return true end
+    local database = YUI.DB and YUI.DB.GetAceDB and YUI.DB:GetAceDB(productId)
+    return database ~= nil and importSession.databases[database] == true
+end
+
+function ConfigTransfer:EndImportSession(token)
+    if not importSession or importSession.token ~= token then return false end
+    importSession = nil
+    if YUI.Event and YUI.Event.Emit then
+        pcall(YUI.Event.Emit, YUI.Event, "YUI_CONFIG_TRANSFER_RELEASED")
+    end
+    return true
 end
 
 local function CaptureStandard(definition, context)
@@ -1740,7 +1780,9 @@ function ConfigTransfer:PrepareImport(parsed, moduleIds, context, work)
     end
     if type(parsed) ~= "table" or parsed.registryGeneration ~= self.generation
         or type(moduleIds) ~= "table" or #moduleIds < 1 then
-        return nil, "stale_preview", ImportFailureDetail("prepare", nil, "stale_preview")
+        local reason = type(parsed) == "table" and parsed.registryGeneration ~= self.generation
+            and "registry_changed" or "invalid_plan_or_selection"
+        return nil, "stale_preview", ImportFailureDetail("prepare", nil, reason, { writesStarted = false })
     end
     local prepared = { entries = {}, registryGeneration = self.generation, parsed = parsed }
     local previewProfile = type(context) == 'table' and context.previewNewProfile or nil
@@ -2188,31 +2230,46 @@ end
 function ConfigTransfer:MatchesNewProfilePreview(preview, prepared)
     local reviewed, actual = preparedImports[preview], preparedImports[prepared]
     if not reviewed or not reviewed.previewOnly or not actual or actual.previewOnly
-        or reviewed.count ~= actual.count or preview.registryGeneration ~= self.generation then return false end
+        or reviewed.count ~= actual.count or preview.registryGeneration ~= self.generation then
+        return false, ImportFailureDetail("prepare", nil, "preview_changed", { writesStarted = false })
+    end
     for id, entry in pairs(reviewed.entries) do
         local other = actual.entries[id]
         if not other or entry.definition ~= other.definition
             or entry.includePersonalData ~= other.includePersonalData
             or entry.snapshotFields.mode ~= other.snapshotFields.mode
-            or not SameSnapshotValue(entry.payload, other.payload) then return false end
+            or not SameSnapshotValue(entry.payload, other.payload) then
+            return false, ImportFailureDetail("prepare", id, "preview_payload_changed", { writesStarted = false })
+        end
     end
     return true
 end
 
+local function RejectImportCommit(code, moduleId, reason, changedField)
+    return nil, code, ImportFailureDetail("commit", moduleId, reason or code, {
+        writesStarted = false,
+        changedField = changedField,
+    })
+end
+
 function ConfigTransfer:CommitImport(prepared, owner)
     if self.busy then
-        return nil, "busy", ImportFailureDetail("commit", nil, "busy")
+        return RejectImportCommit("busy")
     end
     if type(prepared) ~= "table" or prepared.registryGeneration ~= self.generation
         or type(prepared.entries) ~= "table" or #prepared.entries < 1 then
-        return nil, "stale_preview", ImportFailureDetail("commit", nil, "stale_preview")
+        local reason = type(prepared) == "table" and prepared.registryGeneration ~= self.generation
+            and "registry_changed" or "prepared_plan_changed"
+        return RejectImportCommit("stale_preview", nil, reason)
     end
     if InCombatLockdown and InCombatLockdown() then
-        return nil, "combat_lockdown", ImportFailureDetail("commit", nil, "combat_lockdown")
+        return RejectImportCommit("combat_lockdown")
     end
     local seal = preparedImports[prepared]
-    if seal and seal.previewOnly then return nil, 'preview-only' end
-    if not seal or seal.consumed or seal.count ~= #prepared.entries then return nil, "stale_preview" end
+    if seal and seal.previewOnly then return RejectImportCommit("preview-only") end
+    if not seal or seal.consumed or seal.count ~= #prepared.entries then
+        return RejectImportCommit("stale_preview", nil, "prepared_plan_changed")
+    end
     local seenEntries = {}
     for _, entry in ipairs(prepared.entries) do
         local original = seal.entries[entry.id]
@@ -2220,13 +2277,15 @@ function ConfigTransfer:CommitImport(prepared, owner)
             or original.definition ~= entry.definition or original.snapshot ~= entry.snapshot
             or original.configSetsPrepared ~= entry.configSetsPrepared
             or original.includePersonalData ~= entry.includePersonalData
-            or not SameSnapshotValue(original.payload, entry.payload) then return nil, "stale_preview" end
+            or not SameSnapshotValue(original.payload, entry.payload) then
+            return RejectImportCommit("stale_preview", entry.id, "prepared_entry_changed")
+        end
         seenEntries[entry.id] = true
         for key, value in pairs(original.snapshotFields) do
-            if entry.snapshot[key] ~= value then return nil, "stale_preview" end
+            if entry.snapshot[key] ~= value then return RejectImportCommit("stale_preview", entry.id, "prepared_snapshot_changed", key) end
         end
         for key in pairs(entry.snapshot) do
-            if original.snapshotFields[key] == nil then return nil, "stale_preview" end
+            if original.snapshotFields[key] == nil then return RejectImportCommit("stale_preview", entry.id, "prepared_snapshot_changed", key) end
         end
     end
     -- Validate every selected participant before the first write. Individual
@@ -2234,28 +2293,28 @@ function ConfigTransfer:CommitImport(prepared, owner)
     for _,entry in ipairs(prepared.entries) do
         local database, profileName = CurrentProfileIdentity(ResolveProductId(entry.definition))
         if database ~= entry.snapshot.database or profileName ~= entry.snapshot.profileName then
-            return nil,'profile_changed',ImportFailureDetail('commit',entry.id,'profile_changed')
+            return RejectImportCommit('profile_changed', entry.id)
         end
         if type(entry.definition.validateSnapshot)=='function' then
             local called,valid,code=pcall(entry.definition.validateSnapshot,entry.snapshot,entry)
             if not called or valid~=true then
-                return nil,'stale_preview',ImportFailureDetail('commit',entry.id,called and code or valid)
+                return RejectImportCommit('stale_preview', entry.id, called and code or valid)
             end
         elseif type(entry.definition.snapshot)~='function' then
             local called,current,code=pcall(SnapshotStandard,entry.definition,entry.payload,
                 entry.includePersonalData,entry.snapshotContext)
             if not called or not current then
-                return nil,'stale_preview',ImportFailureDetail('commit',entry.id,code or 'snapshot_failed')
+                return RejectImportCommit('stale_preview', entry.id, called and code or current or 'snapshot_failed')
             end
             for _,key in ipairs({'data','layouts','layoutPresent','enabled','personalData'}) do
                 if not SameSnapshotValue(current[key],entry.snapshot[key]) then
-                    return nil,'stale_preview',ImportFailureDetail('commit',entry.id,'target_changed')
+                    return RejectImportCommit('stale_preview', entry.id, 'target_changed', key)
                 end
             end
         end
         if entry.configSetsPrepared and S.ConfigSets.ValidateProfileStateImport then
             local valid,code=S.ConfigSets:ValidateProfileStateImport(entry.configSetsPrepared)
-            if not valid then return nil,'stale_preview',ImportFailureDetail('commit',entry.id,code) end
+            if not valid then return RejectImportCommit('stale_preview', entry.id, code) end
         end
     end
     local overallTrace = BeginParseTrace("ConfigTransfer:commit", nil, {
@@ -2459,6 +2518,25 @@ function ConfigTransfer:CommitImport(prepared, owner)
     self.busy = false
     local requiresReload = false
     for _, entry in ipairs(prepared.entries) do requiresReload = requiresReload or entry.definition.requiresReload == true end
+    local result = { moduleCount = #prepared.entries, requiresReload = requiresReload }
+    local completions = {}
+    for _, entry in ipairs(prepared.entries) do
+        if type(entry.definition.showCompletion) == "function" then
+            completions[#completions + 1] = entry
+        end
+    end
+    if #completions > 0 then
+        result.showCompletion = function()
+            local pending = completions
+            completions = nil
+            if not pending then return false end
+            for _, participant in ipairs(pending) do
+                local ok, shown = pcall(participant.definition.showCompletion, participant, owner)
+                if ok and shown == true then return true end
+            end
+            return false
+        end
+    end
     FinishCommit("ok")
-    return true, { moduleCount = #prepared.entries, requiresReload = requiresReload }
+    return true, result
 end

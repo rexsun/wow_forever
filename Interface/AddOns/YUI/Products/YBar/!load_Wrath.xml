@@ -1,10 +1,12 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/">
 	<Script file="YBar.lua"/>
 	<Script file="Module.lua"/>
+	<Script file="DurabilityDisplay.lua"/>
 	
 	<!-- Modules -->
 	<Script file="Modules\MicroMenu.lua"/>
 	<Script file="Modules\Stats.lua"/>
+	<Script file="ClockRest.lua"/>
 	<Script file="Modules\Clock.lua"/>
 	<Script file="Modules\Professions.lua"/>
 	<Script file="Modules\Talents_Wrath.lua"/>

@@ -3,6 +3,10 @@ local YUI = _G.YUI
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("zhCN") then return end
 
 YUI.Locale:Register("NativeInterface", "zhCN", {
+    ["hide.raid_manager"] = "隐藏组队管理面板",
+    ["hide.raid_manager.tooltip"] = "隐藏屏幕左侧的组队管理面板及收缩箭头，不影响队伍和团队血条。关闭后恢复原生显隐；战斗中的更改待脱战后生效。",
+    ["quest.sparkles"] = "显示任务物件闪光",
+    ["quest.sparkles.tooltip"] = "关闭普通和团队画面设置中的轮廓描边，保持任务物件的原生拾取闪光。画质设置变化后自动重新应用；战斗中的更改待脱战后生效。\n\n关闭后恢复开启前的设置。若闪光仍在，请完全重启游戏，/reload 无法移除。",
     ["bags.visibility"] = "背包栏显示",
     ["bags.visibility.auto"] = "自动隐藏",
     ["bags.visibility.hide"] = "始终隐藏",
@@ -10,6 +14,8 @@ YUI.Locale:Register("NativeInterface", "zhCN", {
     ["bags.visibility.tooltip"] = "自动隐藏：打开随身背包时显示背包栏。始终隐藏：打开背包也不显示背包栏。始终显示：遵循原生显示规则和其他界面功能的设置。",
     ["beta.fix_bag_sort"] = "修复背包整理按钮异常",
     ["beta.fix_bag_sort.tooltip"] = "在键鼠界面中检测并隐藏覆盖整理按钮的手柄图标，仅在确认重叠时生效。",
+    ["beta.fix_professions_icon"] = "修复制作成品图标异常",
+    ["beta.fix_professions_icon.tooltip"] = "修复制造业窗口中白色品质成品图标的边框和鼠标高亮色块。关闭后恢复原生材质，战斗中修改会在脱战后生效。",
     ["windows.title"] = "窗口移动与缩放",
     ["windows.enabled"] = "启用",
     ["windows.require_shift"] = "按住 Shift 才能拖动",

@@ -6,6 +6,8 @@
 
 local _, ns = ...
 
+ns.EnsureClassGuide = function()
+if ns.ClassGuide then return ns.ClassGuide end
 ns.ClassGuide = {
     meta = {
         patch = "1.60.1",
@@ -1293,3 +1295,5 @@ ns.ClassGuide = {
         },
     },
 }
+return ns.ClassGuide
+end

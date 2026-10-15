@@ -1,12 +1,32 @@
 -- =============================================================================
 -- 无限副本手册 · 首领技能表
--- ★ 本文件由脚本生成，请勿手改 ★
--- 结构：ns.BossSkills[副本 id][首领英文名] = { 行, … }；只存法术 ID，文案运行期问客户端。
+--
+-- ★ 本文件由 _temp/gen_boss_skills.py 生成，请勿手改 ★
+--   数据更新后重跑：python _temp/gen_boss_skills.py
+--
+-- 结构：ns.BossSkills[副本 id][首领英文名] = { 行, … }
+--   · 键 = 首领**英文名**，与 ns.DungeonLoot 的来源名同一个口径（名字是唯一连接键）。
+--   · 全部副本：行 = { "", "", 法术id[, 图标slug] } —— 技能 id 唯一来源是
+--     wowhead 能力表；名字/说明/图标运行期全部按 id 取自客户端，数据侧不存文案。
+--     第 4 位 slug 仅在客户端查不到图标时兜底。
+--   · wowhead 页无 Abilities 段的单位 → 无技能行（与「真无能力」同类）。
+--   · 本文件不存任何技能文案（2026-10-01 用户定：名字/说明/图标只来自客户端）；
+--     原 ns.SpellTips wowhead 兜底表整体退役，备份在 _temp/SpellTips_backup/。
+--   · zhTW/enUS 覆盖层为**合并**语义（见同名覆盖层文件）。
 -- =============================================================================
 
 local _, ns = ...
 
 ns.BossSkills = {
+    onyxias_lair = {
+        ["Onyxia"] = {
+            { "", "", 15847, "inv_misc_monsterscales_05" },
+            { "", "", 18500, "inv_misc_monsterscales_14" },
+            { "", "", 18392, "spell_fire_flamebolt" },
+            { "", "", 17086, "spell_fire_fire" },
+            { "", "", 14100, "ability_devour" },
+        },
+    },
     hall_of_thanes = {
         ["Faldrim Anvilmar"] = {
             { "", "", 26048, "spell_shadow_unholyfrenzy" },

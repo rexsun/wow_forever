@@ -275,4 +275,7 @@ ns.BossPos = {
         ["Nerub'enkan"] = { { 56.4, 46.9, 2 } },
         ["Stonespine"] = { { 64.9, 48.9, 2 } },
     },
+    ["onyxias_lair"] = {
+        ["Onyxia"] = { { 67.2, 30.7 } },
+    },
 }

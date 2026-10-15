@@ -337,6 +337,18 @@ local DEFAULT_SPEC_CONTENT = {
     groupMembers = {},
 }
 
+local DEFAULT_SKYRIDING_VISUAL_SETTINGS = {
+    fillTexture = "solid",
+    speedColor = { r = 0.08, g = 0.72, b = 0.82, a = 1 },
+    thrillColor = { r = 1.00, g = 0.58, b = 0.12, a = 1 },
+    backgroundColor = { r = 0.025, g = 0.035, b = 0.055, a = 0.88 },
+    emptyColor = { r = 0.08, g = 0.10, b = 0.14, a = 0.94 },
+    border = 1,
+    borderColor = "default",
+    speedText = true,
+    speedTextColor = "default",
+}
+
 local DEFAULT_SKYRIDING_STYLE_SETTINGS = {
     horizon = {
         width = 420,
@@ -417,6 +429,7 @@ local RESOURCE_SETTINGS_DELTA_VERSION = 1
 YHUD._RESOURCE_SETTINGS_DELTA_VERSION = RESOURCE_SETTINGS_DELTA_VERSION
 -- 历史存储基线固定不随客户端默认方案变化，保留已保存的资源文字偏好。
 local RESOURCE_SETTINGS_STORAGE_BASELINE_V31 = {
+    cast = { heightOverride = 24 },
     ["arcaneCharges"] = {
         ["valueText"] = false,
         ["visibilityMode"] = "nonzeroOrCombat",
@@ -1635,6 +1648,19 @@ local function NormalizeSkyridingStyleSettings(styleId, settings)
         or DEFAULT_SKYRIDING_STYLE_SETTINGS.horizon
     local normalized = {
         width = ClampInteger(settings.width, 180, 720, fallback.width),
+        fillTexture = NormalizeStatusBarTexture(
+            settings.fillTexture, DEFAULT_SKYRIDING_VISUAL_SETTINGS.fillTexture
+        ),
+        speedColor = NormalizeColor(settings.speedColor, DEFAULT_SKYRIDING_VISUAL_SETTINGS.speedColor),
+        thrillColor = NormalizeColor(settings.thrillColor, DEFAULT_SKYRIDING_VISUAL_SETTINGS.thrillColor),
+        backgroundColor = NormalizeColor(settings.backgroundColor, DEFAULT_SKYRIDING_VISUAL_SETTINGS.backgroundColor),
+        emptyColor = NormalizeColor(settings.emptyColor, DEFAULT_SKYRIDING_VISUAL_SETTINGS.emptyColor),
+        border = ClampInteger(settings.border, 0, 12, DEFAULT_SKYRIDING_VISUAL_SETTINGS.border),
+        borderColor = type(settings.borderColor) == "table"
+            and NormalizeColor(settings.borderColor) or "default",
+        speedText = NormalizeBoolean(settings.speedText, DEFAULT_SKYRIDING_VISUAL_SETTINGS.speedText),
+        speedTextColor = type(settings.speedTextColor) == "table"
+            and NormalizeColor(settings.speedTextColor) or "default",
         speedHeight = ClampInteger(
             settings.speedHeight,
             8,
@@ -2561,12 +2587,12 @@ local function NormalizeResourceText(setting, definition, legacyValueText, secon
     if not RESOURCE_VALUE_FORMATS[valueFormat]
         or (valueFormat == "whole" and not discrete)
         or (valueFormat == "duration" and providerKind ~= "aura-duration" and providerKind ~= "absorb"
-            and providerKind ~= "swing-timer") then
+            and providerKind ~= "swing-timer" and providerKind ~= "player-cast") then
         valueFormat = definition.defaultValueFormat or (discrete and "value" or "percent")
     end
     if discrete and valueFormat ~= "valueMax" and valueFormat ~= "whole" then
         valueFormat = "value"
-    elseif providerKind == "aura-duration" or providerKind == "swing-timer" then
+    elseif providerKind == "aura-duration" or providerKind == "swing-timer" or providerKind == "player-cast" then
         valueFormat = "duration"
     elseif definition.id == "stagger" or definition.id == "ignorePain" then
         valueFormat = providerKind == "absorb" and valueFormat == "duration" and "duration"
@@ -2577,7 +2603,7 @@ local function NormalizeResourceText(setting, definition, legacyValueText, secon
     return {
         valueText = NormalizeBoolean(setting.valueText, not second and defaultValueText),
         valueFormat = valueFormat,
-        textPosition = NormalizeChoice(setting.textPosition, RESOURCE_TEXT_POSITIONS, second and "end" or "center"),
+        textPosition = NormalizeChoice(setting.textPosition, RESOURCE_TEXT_POSITIONS, (second or providerKind == "player-cast") and "end" or "center"),
         textOffsetX = ClampInteger(setting.textOffsetX, -64, 64, 0),
         textOffsetY = ClampInteger(setting.textOffsetY, -64, 64, 0),
     }
@@ -2719,6 +2745,23 @@ local function NormalizeResourceSetting(
             DEFAULT_RESOURCE_GROUP_STYLE
         ),
     }
+    if definition.id == "cast" then
+        result.cast = {
+            icon = not (type(setting.cast) == "table" and setting.cast.icon == false),
+            iconSide = type(setting.cast) == "table" and setting.cast.iconSide == "right" and "right" or "left",
+            iconGap = ClampInteger(type(setting.cast) == "table" and setting.cast.iconGap, 0, 12, 0),
+            name = not (type(setting.cast) == "table" and setting.cast.name == false),
+            nameSize = type(setting.cast) == "table" and tonumber(setting.cast.nameSize)
+                and ClampInteger(setting.cast.nameSize, 8, 32, 12) or nil,
+            namePosition = NormalizeChoice(type(setting.cast) == "table" and setting.cast.namePosition, RESOURCE_TEXT_POSITIONS, "start"),
+            nameOffsetX = ClampInteger(type(setting.cast) == "table" and setting.cast.nameOffsetX, -64, 64, 0),
+            nameOffsetY = ClampInteger(type(setting.cast) == "table" and setting.cast.nameOffsetY, -64, 64, 0),
+            progress = not (type(setting.cast) == "table" and setting.cast.progress == false),
+            progressSize = type(setting.cast) == "table" and tonumber(setting.cast.progressSize)
+                and ClampInteger(setting.cast.progressSize, 8, 32, 12) or nil,
+            idle = type(setting.cast) == "table" and setting.cast.idle == "collapse" and "collapse" or "reserve",
+        }
+    end
     return result
 end
 
@@ -5696,6 +5739,9 @@ function YHUD:GetEffectiveResourceStyle(profile, groupId, resourceId, specID)
     local text = setting.textOverride or global
     local appearance = setting.appearanceOverride or global
     local fillColor = setting.fillColor
+    local heightOverride = setting.heightOverride
+    local group = profile and profile.groups and profile.groups.items[groupId]
+    if group and group.contentPolicy == "cast-only" then heightOverride = nil end
     if resourceId == "runes" and type(setting.runeColors) == "table" then
         local runeColorKey = tonumber(specID) == 250 and "blood"
             or (tonumber(specID) == 252 and "unholy" or "frost")
@@ -5712,7 +5758,8 @@ function YHUD:GetEffectiveResourceStyle(profile, groupId, resourceId, specID)
         textPosition = setting.textPosition,
         textOffsetX = setting.textOffsetX,
         textOffsetY = setting.textOffsetY,
-        heightOverride = setting.heightOverride,
+        heightOverride = heightOverride,
+        cast = setting.cast and CopyValue(setting.cast) or nil,
         textFont = text.textFont,
         textSize = text.textSize,
         textOutline = text.textOutline,
@@ -5895,6 +5942,9 @@ function YHUD:NormalizeProfile(profile, specKey)
     end
 
     local cdm = profile.cdm
+    profile.playerCast = {
+        hideNative = type(profile.playerCast) == "table" and profile.playerCast.hideNative == true,
+    }
     cdm.sourceMode = "readOnly"
     cdm.importEnabled = NormalizeBoolean(cdm.importEnabled, true)
     cdm.writeBackEnabled = false

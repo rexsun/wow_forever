@@ -61,6 +61,15 @@ local function ApplyDefaults(config)
     if YUI.IsForever == true and type(config.fixBagSortButton) ~= "boolean" then
         config.fixBagSortButton = true
     end
+    if YUI.IsForever == true and type(config.fixProfessionsIcon) ~= "boolean" then
+        config.fixProfessionsIcon = true
+    end
+    if YUI.IsForever == true and type(config.questLootSparkles) ~= "boolean" then
+        config.questLootSparkles = true
+    end
+    if YUI.IsForever == true and type(config.hideRaidManager) ~= "boolean" then
+        config.hideRaidManager = false
+    end
     for key, value in pairs(COMMON_DEFAULTS) do
         if config[key] == nil then config[key] = value end
     end
@@ -82,13 +91,15 @@ local function ApplyDefaults(config)
 end
 
 function Native:IsOptionSupported(key)
-    if key == "compactBetaReporter" or key == "fixBagSortButton" then return YUI.IsForever == true end
+    if key == "hideRaidManager" then return YUI.IsForever == true end
+    if key == "compactBetaReporter" or key == "fixBagSortButton" or key == "fixProfessionsIcon" or key == "questLootSparkles" then return YUI.IsForever == true end
     if key == "bagsBarVisibility" or key == "hideBagsBar" then return true end
     return COMMON_KEYS[key] == true or (YUI.IsRetail == true and RETAIL_KEYS[key] == true)
 end
 
 function Native:GetOptionDefault(key)
-    if (key == "compactBetaReporter" or key == "fixBagSortButton") and YUI.IsForever == true then return true end
+    if key == "hideRaidManager" and YUI.IsForever == true then return false end
+    if (key == "compactBetaReporter" or key == "fixBagSortButton" or key == "fixProfessionsIcon" or key == "questLootSparkles") and YUI.IsForever == true then return true end
     if COMMON_DEFAULTS[key] ~= nil then return COMMON_DEFAULTS[key] end
     if YUI.IsRetail == true then return RETAIL_DEFAULTS[key] end
     return nil
@@ -144,6 +155,9 @@ end
 function Native:Refresh(reason)
     if self.RefreshVisibility then self:RefreshVisibility(reason) end
     if self.RefreshBagSortFix then self:RefreshBagSortFix(reason) end
+    if self.RefreshProfessionsIconFix then self:RefreshProfessionsIconFix(reason) end
+    if self.RefreshRaidManager then self:RefreshRaidManager(reason) end
+    if self.RefreshQuestLootSparkles then self:RefreshQuestLootSparkles(reason) end
     if self.RefreshWindowMovement then self:RefreshWindowMovement(reason) end
     if YUI.IsRetail == true then
         if self.RefreshRetail then self:RefreshRetail(reason) end
@@ -158,7 +172,11 @@ function Native:GetDiagnostics()
         client = YUI.IsForever and "forever" or (YUI.IsRetail == true and "mainline" or "wrath"),
     }
     if self.GetVisibilityDiagnostics then result.visibility = self:GetVisibilityDiagnostics() end
+    if self.GetTooltipFadeDiagnostics then result.tooltipFade = self:GetTooltipFadeDiagnostics() end
     if self.GetBagSortFixDiagnostics then result.bagSortFix = self:GetBagSortFixDiagnostics() end
+    if self.GetProfessionsIconFixDiagnostics then result.professionsIconFix = self:GetProfessionsIconFixDiagnostics() end
+    if self.GetRaidManagerDiagnostics then result.raidManager = self:GetRaidManagerDiagnostics() end
+    if self.GetQuestLootSparklesDiagnostics then result.questLootSparkles = self:GetQuestLootSparklesDiagnostics() end
     if self.GetWindowMovementDiagnostics then result.windows = self:GetWindowMovementDiagnostics() end
     if self.GetRetailDiagnostics then result.retail = self:GetRetailDiagnostics() end
     if self.GetTutorialDiagnostics then result.tutorial = self:GetTutorialDiagnostics() end

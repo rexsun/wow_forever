@@ -1,6 +1,6 @@
 # OverlapSettingsGuard
 
-Version 0.5.2, for Interface 16001. This local addon keeps duplicate features switched off while all addons named in a rule are loaded. `/osg` lists every rule and its current status. It does not enable disabled addons or lock optional appearance choices on.
+Version 0.6.0, for Interface 16001. This local addon keeps duplicate features switched off while all addons named in a rule are loaded. `/osg` lists every rule and its current status. It does not enable disabled addons or lock optional appearance choices on.
 
 ## Policy
 
@@ -9,6 +9,8 @@ Version 0.5.2, for Interface 16001. This local addon keeps duplicate features sw
 | `yui.nameplateoutline` | YUI `UtilityTools_Config.nameplateOutline` | YUI, EllesmereUINameplates | EllesmereUI owns nameplate fonts and styling. |
 | `yui.friendlynameplates` | YUI `UtilityTools_Config.syncFriendlyNameplates` | YUI, EllesmereUINameplates | EllesmereUI owns friendly nameplate visibility and CVars. |
 | `yui.resources` | YHUD mana, rage, energy and combo-point selections, including druid forms | YUI, EllesmereUIUnitFrames | EllesmereUI owns player power/class resources. YUI swing timers and cooldown tracking stay available. |
+| `yui.playerhealth` | YHUD `health` selections across resource groups, specs and druid forms | YUI, EllesmereUIUnitFrames | EllesmereUI owns the player health display. |
+| `yui.playercast` | YHUD `cast` selections, enabled `cast-only` resource groups and `playerCast.hideNative` | YUI, EllesmereUIUnitFrames | EllesmereUI owns the player castbar; stored HUD sets follow the same rule. |
 | `eui.nameplatepower` | EllesmereUI nameplate `showClassPower` | EllesmereUINameplates, EllesmereUIUnitFrames | Unit frames own class resources; no second display on the target nameplate. |
 | `rxp.yui.autoquests` | RestedXP `enableQuestAutomation` | RestedXP, YUI | YUI owns quest acceptance and turn-ins. |
 | `rxp.yui.autogossip` | RestedXP `enableGossipAutomation` | RestedXP, YUI | YUI owns quest gossip. |
@@ -23,11 +25,11 @@ EllesmereUI owns individual/group frames and nameplates; YUI owns the remaining 
 
 Checks run after login, on supported option hooks and every two seconds as a fallback. Changes wait until combat ends. Chat messages explain reverted settings and name any other affected profiles. When a reload is needed, chat asks you to type `/reload` when ready. The guard never opens a popup. Failed enforcement is also reported in chat.
 
-The policy contains ten rules for the installed pack: nine YUI/EllesmereUI rules plus `rxp.talentguides`. Ownership is conditional on addons being loaded, rather than the owner's optional feature currently being enabled; use the owner's settings when choosing whether to automate a task.
+The policy contains twelve rules for the installed pack. Ownership is conditional on addons being loaded, rather than the owner's optional feature currently being enabled; use the owner's settings when choosing whether to automate a task.
 
 - RestedXP enforcement covers the live profile, stored profiles and account/character templates. Missing stored values inherit the account template or addon defaults. Changes in shared profiles also affect other characters using those profiles.
-- YUI enforcement covers the active suite profile, stored profiles and stored HUD configuration sets. Resource selections use v338's Forever specialization catalog, including druid forms; swing timers are untouched. Nameplate runtime Disable methods restore/stop their behavior, and YHUD's configuration-change API rebuilds its active display. Missing APIs block enforcement before storage changes. Failed HUD refreshes remain pending for retry.
-- EllesmereUI enforcement covers nameplate profiles, spec presets and encoded spec override keys in EllesmereUIDB, using `_ENP_RefreshAllSettings` for the live display. Missing refresh APIs report a blocked rule; failed refreshes are retried. This adapter was verified against shared-suite 9.4.
+- YUI enforcement covers the active suite profile, stored profiles and stored HUD configuration sets. Resource selections use v341's Forever specialization catalog, including druid forms; swing timers are untouched. Player health and cast resources are opt-in upstream, so missing selections do not trigger a change. Dedicated cast-only groups bypass selections and are separately disabled; native castbar suppression stays off. Nameplate runtime Disable methods restore/stop their behavior, and YHUD's configuration-change API rebuilds its active display. Missing APIs block enforcement before storage changes. Failed HUD refreshes remain pending per rule for retry.
+- EllesmereUI enforcement covers nameplate profiles, spec presets and encoded spec override keys in EllesmereUIDB, using `_ENP_RefreshAllSettings` for the live display. Missing refresh APIs report a blocked rule; failed refreshes are retried. This adapter was verified against shared-suite 9.5.5.
 
 Addon enablement is recorded separately in each character's AddOns.txt. Player castbar and eight raid-group visibility preferences are saved in the EllesmereUI core profiles; they remain user-adjustable. Layout positions, general HUD content, route/map-pin displays and optional overlapping statistics are not continuously forced by the guard.
 
@@ -62,4 +64,4 @@ Add overlapping settings to `Policy.lua` and this table. Extend the relevant ada
 uv run --no-project --with lupa python tools/overlapsettingsguard-tests/run_tests.py
 ```
 
-The 26 tests use Lua 5.1 and game/addon stubs. They cover policy validation, stored profiles/templates/HUD sets, form overrides, option hooks, combat deferral, profile resets, inactive dependencies, missing APIs, refresh failure/retry, swing preservation, installed-pack dependency validation, current YUI/EllesmereUI ownership and startup CVar timing/reloads. They do not verify live rendering or game API behavior.
+The 32 tests use Lua 5.1, game/addon stubs and the installed YUI catalog/normalization code. They cover policy validation, stored profiles/templates/HUD sets, form overrides, option hooks, combat deferral, profile resets, inactive dependencies, missing APIs, independent refresh failure/retry, swing preservation, cast-only groups, installed-pack dependency validation, current YUI/EllesmereUI ownership and startup CVar timing/reloads. They do not verify live rendering or game API behavior.

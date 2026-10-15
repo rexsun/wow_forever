@@ -408,12 +408,12 @@ function E:TriggerLabel(rule,spec)
     if trigger.event=='auraStacks' then return string.format(label,trigger.operator=='ge' and '≥' or '≤',trigger.value) end
     return label
 end
-function E:ForecastPartLabel(sound,ending)
+function E:ForecastPartLabel(sound,ending,voiceLabel)
     local kind=ending and (sound.endingKind or 'voice') or (sound.introKind or 'voice')
     local value=ending and sound.ending or sound.value
     if kind=='none' then return Text('none') end
     if not value or value=='' then return Text('playContent') end
-    if kind=='voice' then return S:GetEntryLabel(value) end
+    if kind=='voice' then return voiceLabel and voiceLabel(value) or S:GetEntryLabel(value) end
     if kind=='system' and S.GetSoundChoices then
         for _,choice in ipairs(S:GetSoundChoices({source=kind})) do
             if choice.value==kind..':'..value then return choice.text end
@@ -426,15 +426,15 @@ function E:ForecastIntroDuration(sound)
     return S:GetForecastIntroDuration(sound,prefs and {packId=prefs.voicePackId,
         fallbackDefault=prefs.fallbackDefault,fallbackTTS=false})
 end
-function E:SoundLabel(sound)
+function E:SoundLabel(sound,voiceLabel)
     if sound.kind=='boneShield' or sound.kind=='eventWindow' then
-        return self:ForecastPartLabel(sound)..' / '..self:ForecastPartLabel(sound,true)
+        return self:ForecastPartLabel(sound,nil,voiceLabel)..' / '..self:ForecastPartLabel(sound,true,voiceLabel)
     end
-    if sound.kind=='voice' then return S:GetEntryLabel(sound.value) end
+    if sound.kind=='voice' then return voiceLabel and voiceLabel(sound.value) or S:GetEntryLabel(sound.value) end
     if sound.kind=='forecast' then
         local digits={}
         for i=sound.countdown,1,-1 do digits[#digits+1]=tostring(i) end
-        return self:ForecastPartLabel(sound)..' → '..table.concat(digits,Text('countdownSeparator'))..' → '..self:ForecastPartLabel(sound,true)
+        return self:ForecastPartLabel(sound,nil,voiceLabel)..' → '..table.concat(digits,Text('countdownSeparator'))..' → '..self:ForecastPartLabel(sound,true,voiceLabel)
     end
     return sound.value
 end

@@ -196,6 +196,7 @@ Search:RegisterCatalog("component:MinimapCollection", "Core", "", [[
 
 ]])
 Search:RegisterCatalog("component:MouseEnhancement", "MouseEnhancement", "", [[
+settings.tooltip_instant_hide
 settings.cursor_motion_scale
 settings.cursor_motion_scale_max
 settings.cursor_scene
@@ -265,6 +266,10 @@ Search:RegisterCatalog("component:TradeEnhancement", "Core", "", [[
 
 ]])
 Search:RegisterCatalog("component:UtilityTools", "UtilityTools", "", [[
+settings.route_guide
+settings.route_guide.tooltip
+settings.route_guide.scale
+settings.route_guide.scale.tooltip
 settings.sync_friendly_nameplates
 settings.sync_friendly_nameplates.tooltip
 settings.hide_mode

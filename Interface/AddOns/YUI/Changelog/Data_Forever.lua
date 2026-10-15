@@ -1,6 +1,70 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v341|forever|2243aac63a6335b65b8332b39c02c33c3a2ea3a185f9eddc6e202b25fe0a8e9b
+    {
+        version = "v341",
+        date = "2026-10-15",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "监控台新增玩家生命条和施法条，支持独立分组与混排。",
+                "信息条时钟新增可配置休息动效。",
+                "新增鼠标提示立即隐藏选项，默认启用。",
+                "地图设置支持随配置导入导出。",
+                "完善配置导入、专精分配提示与失败恢复。",
+                "修复聊天字体选择、耐久登录刷新与监控台层级显示问题。",
+            },
+            enUS = {
+                "Added player health and cast bars to the monitor, with separate groups and mixed resource layouts.",
+                "Added configurable resting animations to the information bar clock.",
+                "Added an instant tooltip hiding option, enabled by default.",
+                "Map settings can now be included in configuration imports and exports.",
+                "Improved configuration imports, specialization assignment feedback and recovery after failed imports.",
+                "Fixed chat font selection, durability updates after login and monitor layering.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v340|forever|95c49d46b93dae2d3fe70dade73b2bbebbac92a88c735e674f2b4033cfe1e9a0
+    {
+        version = "v340",
+        date = "2026-10-13",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增任务物体闪光与组队管理面板隐藏选项。",
+                "新增RXP插件点击缩放功能，界面更清爽；",
+                "地图标记按钮支持左键显隐、右键筛选，完善小地图插件按钮收纳。",
+                "经验条详情支持背景透明度设置，优化底部提示颜色。",
+                "法师、牧师、术士的默认监控启用魔杖远程计时器。",
+                "新增屏蔽一些测试服红字",
+                "修复专业制作成品的白色边框与高亮，支持开关控制。",
+            },
+            enUS = {
+                "Added options for quest object sparkles and hiding the group management panel.",
+                "Added click-to-collapse support for the RXP addon for a cleaner interface.",
+                "Map marker buttons now use left-click to toggle markers and right-click for filters; improved minimap addon button collection.",
+                "Added background opacity settings for experience details and improved the bottom hint color.",
+                "Default monitors for mages, priests and warlocks now enable wand swing timers.",
+                "Added filtering for some red beta messages.",
+                "Fixed white borders and highlights on profession crafting output icons, with an optional toggle.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v339|forever|6dc852632bcbe84f4e516c163ef6a33dd89db81dd5cf87b3db3a8045393eb454
+    {
+        version = "v339",
+        date = "2026-10-12",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v338|forever|9520d614019a6c82661e678ab108f6f92ab07bf372ef294034f9e04cd69398ff
     {
         version = "v338",
@@ -148,91 +212,6 @@ CL:Register("suite", {
             enUS = {
                 "Setup Wizard: added an option to switch to the existing YUI profile and save the current character's assignment.",
                 "Removed the layout icon from the first step to prevent it from overlapping the description.",
-            },
-        },
-    },
--- YUI-Notes-Record: v331|forever|cffe2a0f7540f8883a898ef27df2e184818caf2d0f67afa1a2ddab90d9102d51
-    {
-        version = "v331",
-        date = "2026-10-06",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "接入监控台，提供三系独立方案与专用预设；声音提醒暂未开放。",
-                "新增独立资源组及主手、副手、远程攻击计时器，支持主副手合并并自动隐藏原生计时条。",
-                "监控台：新增低等级仅显示资源，等级门槛默认 20，可调整。",
-                "接入自定义动作条、图标阴影和背景颜色，修复姿态冷却与灰色残留。",
-                "新增安装向导，支持布局、可选 YUI-Beta 配置与常用设置，包含漂浮文字及关闭死亡灰白特效。",
-                "完善监控与战斗工具的天赋配置识别和切换。",
-                "地图：修复标记保护调用报错，新增右键追踪提示，默认关闭。",
-                "新增颜色选择器与双语日志，优化设置显示及经验条默认配色。",
-            },
-            enUS = {
-                "Added Halo with separate presets for all three talent trees; sound reminders remain unavailable.",
-                "Added independent resource groups and main-hand, off-hand and ranged swing timers, with combined hand layouts and automatic native timer hiding.",
-                "Halo: added resource-only display below a configurable level, defaulting to 20.",
-                "Added custom Action Bars, icon shadows and background colors; fixed stance cooldowns and lingering gray icons.",
-                "Added an installation wizard for layouts, optional YUI-Beta profiles and common settings, including floating combat text and disabling the grayscale death effect.",
-                "Improved talent-based configuration switching for monitoring and combat tools.",
-                "Map: fixed protected-call errors on markers; added a right-click tracking hint, off by default.",
-                "Added a color picker and bilingual release notes; improved settings display and Experience Bar default colors.",
-            },
-        },
-    },
--- YUI-Notes-Record: v328|forever|81709d5d5c9b97b449eb9f33a21c27cde77fed9fd8266449738d4d06b89100c6
-    {
-        version = "v328",
-        date = "2026-09-27",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "整合包：改为多客户端通用包，统一版本号，保留各版本独立加载与更新日志",
-                "地图：新增地点标记，支持职业与专业筛选、合集展开和点击导航",
-                "地图：补充主城、新手区域与飞行点，支持航点开启状态记录",
-                "地图：新增移动时半透明与不透明度设置，支持标记按钮位置调整",
-                "专业助手：新增附魔分解面板，支持装备筛选、待分解队列与结果显示",
-                "工具箱：接入战斗增强、焦点助手、法术警报和鼠标增强",
-                "工具箱：新增友方姓名板联动，修复施法序列布局与图标尺寸",
-                "原生界面：支持窗口移动与缩放，更新编辑模式布局至 v3",
-                "装备观察：优化摘要与属性汇总，完善宝石、附魔和耐久显示",
-                "信息条：修复组队入口，补回集合石与团队标记，完善天赋点数与图标显示",
-                "聊天条：【掉】按钮支持打开无限副本手册",
-                "升级经验条：新增等级文字 X / Y 偏移设置",
-                "界面：修复布局导入与人物面板入口问题，支持非战斗点击按钮直接重载",
-            },
-            enUS = {
-                "Suite: unified the release version across clients while keeping separate loading and release notes.",
-                "Map: added location markers with class and profession filters, expandable groups and click navigation.",
-                "Map: added city, starting-zone and flight-point locations with waypoint unlock tracking.",
-                "Map: added fading while moving, opacity settings and marker button positioning.",
-                "Profession Assistant: added a disenchanting panel with equipment filters, a queue and results.",
-                "Toolbox: added Combat Enhancement, Focus Assistant, Spell Alert and Mouse Enhancement.",
-                "Toolbox: added friendly nameplate synchronization and fixed cast sequence layout and icon sizing.",
-                "Native UI: added window movement and scaling; updated the edit-mode layout to v3.",
-                "Equipment Info: improved the summary, stat totals, gems, enchants and durability display.",
-                "InfoBar: fixed group access and restored group-finder and raid markers; improved talent points and icons.",
-                "Chat Bar: the Loot button now opens the Forever dungeon journal.",
-                "Experience Bar: added X / Y offsets for level text.",
-                "UI: fixed layout import and character-panel access; buttons can reload the UI out of combat.",
-            },
-        },
-    },
--- YUI-Notes-Record: v102|forever|b4c90d19ae11b9860c5e3dd3d209928d56ead7319a93ed0e6b43443d598ce60e
-    {
-        version = "v102",
-        date = "2026-09-25",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "装备观察：新增装等、附魔、宝石与耐久显示，支持外观调整和预览。",
-                "装备观察：完善 ALT 换装信息与装备槽布局。",
-                "编辑模式：更新 YUI v2 布局，新增切换提醒。",
-                "商人：改善自动出售垃圾的兼容性。",
-                "设置：修复部分按钮报错，优化字体显示。",
-                "邮件助手：完善窗口皮肤适配。",
-                "默认配置：取消专用配置自动套用与姓名板预设自动导入，保留已有设置。",
-            },
-            enUS = {
             },
         },
     },

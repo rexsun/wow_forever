@@ -1,6 +1,82 @@
 -- Generated from Docs/Products/YUI_NovaToolbox/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("toolbox", {
+-- YUI-Notes-Record: nova-125|mainline|1dcb0c44fa018d1636b9243c19797405bd8091b74b49fd7754972d6043287fbb
+    {
+        version = "nova-125",
+        date = "2026-10-15",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "新增鼠标提示立即隐藏选项，默认启用。",
+                "修复角色观察摘要的层级显示，改善 12.1.5 物品计数兼容性。",
+                "完善配置导入与失败恢复。",
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Added an instant tooltip hiding option, enabled by default.",
+                "Fixed character inspection summary layering and improved 12.1.5 item count compatibility.",
+                "Improved configuration imports and recovery after failed imports.",
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: nova-125|forever|4a9e252f3030f5b5d05bb5c18646032c6baa13ea9da7eab291c765f91b90fe3b
+    {
+        version = "nova-125",
+        date = "2026-10-15",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增鼠标提示立即隐藏选项，默认启用。",
+                "地图设置支持随配置导入导出。",
+                "完善配置导入与失败恢复。",
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Added an instant tooltip hiding option, enabled by default.",
+                "Map settings can now be included in configuration imports and exports.",
+                "Improved configuration imports and recovery after failed imports.",
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: nova-124|mainline|2e5b174ce8e82a0b4c2dc714b7205483cdcf2a9b3b348ee758f5eecf164e2eab
+-- YUI-Notes-Record: nova-124|forever|d9e2bd007346e8462758483354bba5b741e2d2fc89c7878bb00048b4730e9ad5
+    {
+        version = "nova-124",
+        date = "2026-10-13",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "新增RXP插件点击缩放功能，界面更清爽；",
+                "地图标记按钮支持左键显隐、右键筛选，完善小地图插件按钮收纳。",
+                "经验条详情支持背景透明度设置，优化底部提示颜色。",
+                "新增屏蔽一些测试服红字",
+            },
+            enUS = {
+                "Added click-to-collapse support for the RXP addon for a cleaner interface.",
+                "Map marker buttons now use left-click to toggle markers and right-click for filters; improved minimap addon button collection.",
+                "Added background opacity settings for experience details and improved the bottom hint color.",
+                "Added filtering for some red beta messages.",
+            },
+        },
+    },
+-- YUI-Notes-Record: nova-123|mainline|3b4f0129cb957114bb62a871411ed5d665c38f2b373ecd89130b3c1b83198b73
+-- YUI-Notes-Record: nova-123|forever|5e481c35eccaf9215f99b1394a9ae44a2281c92608425af186ef0f2fffd900bb
+    {
+        version = "nova-123",
+        date = "2026-10-12",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: nova-122|forever|4555f5e33a361167532bd733a9dac9499e446e7f165e3bbd2fee29eae419a0a2
     {
         version = "nova-122",
@@ -164,72 +240,6 @@ CL:Register("toolbox", {
                 "Trade Enhancement: bulk buying now supports item exchanges.",
                 "Fixed whisper history, notification sounds and distance indicator refresh.",
                 "Updated Mythic+ rating data and shared Core.",
-            },
-        },
-    },
--- YUI-Notes-Record: nova-115|mainline|5347316a591a96942e5f9999271d737e3f4c8ec77445d53f8d0cc5c892e37802
-    {
-        version = "nova-115",
-        date = "2026-09-19",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "修复法术警报倒计时颜色。",
-                "更新共享 Core，请同步更新已安装的 YUI 插件。",
-            },
-            enUS = {
-                "Fixed Spell Alert countdown colors.",
-                "Updated shared Core. Please update all installed YUI addons together.",
-            },
-        },
-    },
--- YUI-Notes-Record: nova-114|mainline|2b6219c17dffae3e4f218dc3c764e35b37ef0250dd4ce0740c7edb3bf4869d41
-    {
-        version = "nova-114",
-        date = "2026-09-19",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "修复地图配置导入及旧版地图配置兼容问题。",
-                "修复聊天条导入时误报配置变化的问题。",
-                "修复配置导入弹窗被设置窗口遮挡的问题。",
-            },
-            enUS = {
-                "Fixed map configuration imports and compatibility with older map settings.",
-                "Fixed false configuration-change errors when importing Chat Bar settings.",
-                "Fixed import dialogs appearing behind the settings window.",
-            },
-        },
-    },
--- YUI-Notes-Record: nova-113|mainline|4ad2763d793434810418bcd40b62411486d6184a2c5da5454ac78241f77a05b4
-    {
-        version = "nova-113",
-        date = "2026-09-18",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "EUI 增强：将伤害统计的大秘境自动重置与团本重置提醒拆分设置。",
-                "鼠标增强：新增物品使用法术 ID。",
-                "交易增强：新增自动修理设置。",
-                "大秘境工具：新增传送喊话设置，与 Orbit 同时启用时共用。",
-                "聊天条：尝试修复偶尔无法点击频道的问题。",
-                "玩家属性：修复战斗中的移动速度百分比显示。",
-                "社交增强：Shift + Tab 支持退出密语并返回合适频道。",
-                "密语管家：受限消息在条件允许后重试记录；支持记录以“[”开头的密语。",
-                "地图增强：将小地图、世界地图、地图标记和世界活动整合到同一设置入口；Nova 的小地图与世界地图增强默认关闭。",
-                "内嵌运行时更新至 YUI Core 13，请同步更新所有已安装的 YUI 插件。",
-            },
-            enUS = {
-                "EUI Enhancement: separated automatic Mythic+ damage-meter resets from raid reset reminders.",
-                "Mouse Enhancement: added item-use spell IDs.",
-                "Trade Enhancement: added automatic repair settings.",
-                "Mythic+ Tools: added teleport announcement settings, shared with Orbit when both are enabled.",
-                "Chat Bar: attempted to fix occasional unclickable channel buttons.",
-                "Character Stats: fixed movement-speed percentages in combat.",
-                "Social Enhancement: Shift + Tab can exit whispers and return to an appropriate channel.",
-                "Whisper Manager: retry recording restricted messages when conditions permit; retain whispers beginning with “[”.",
-                "Map Enhancement: integrated minimap, world map, map markers and world events into one settings entry. Minimap and world-map enhancements remain off by default in Nova.",
-                "Updated the embedded runtime to YUI Core 13. Update all installed YUI addons together.",
             },
         },
     },

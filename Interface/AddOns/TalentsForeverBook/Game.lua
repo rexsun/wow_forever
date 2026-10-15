@@ -262,7 +262,11 @@ function G.Probe()
   local tr = {}
   for _, n in ipairs({ "ClassTrainerFrame", "TrainerFrame", "ClassTrainerTrainButton", "BuyTrainerService", "GetTrainerServiceCost", "GetNumTrainerServices", "GetTrainerServiceInfo", "SetItemRef", "ChatFrame_AddMessageEventFilter", "ChatEdit_InsertLink" }) do tr[n] = _G[n] and type(_G[n]) or false end
   tr.C_TooltipInfo_GetTraitEntry = (C_TooltipInfo and C_TooltipInfo.GetTraitEntry) and true or false
+  -- 0.38.2: chat links on this client: the 12.x filter registry, the addon-link channel, and which ways the addon took
+  tr.ChatFrameUtil_AddMessageEventFilter = (ChatFrameUtil and type(ChatFrameUtil.AddMessageEventFilter) == "function") and true or false
+  if LinkUtil and LinkUtil.IsLinkHandlerRegistered then local ok, on = pcall(LinkUtil.IsLinkHandlerRegistered, (LinkTypes and LinkTypes.AddOn) or "addon"); tr.addonLinkChannel = ok and on and true or false else tr.addonLinkChannel = false end
   diag.trainer = tr
+  diag.chatLinks = TF.chatLinks or false
   local sib = {}
   for _, a in ipairs({ "WhatsTraining", "TalentsForever", "Talented", "TalentTreeTweaks", "TitanPanel", "Bartender4", "ElvUI", "TalentsForeverSim", "TalentsForeverCheck" }) do
     local isl = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded
@@ -271,7 +275,7 @@ function G.Probe()
   sib.otherTalentsForeverFrame = _G["TalentsForever_MainFrame"] and true or false
   diag.siblings = sib
   -- a chat link only the real client can judge: if the gold text below is clickable, addon links work here
-  if TF.ShareURL then local ok, url = pcall(TF.ShareURL, TF.plan); if ok and url and TF.LinkifyChat then local okl, line = pcall(TF.LinkifyChat, nil, nil, "Click this if it is gold: " .. url); if okl and line then TF.Print(line) end end end
+  if TF.ShareURL then local ok, url = pcall(TF.ShareURL, TF.plan); if ok and url and TF.LinkifyChat then local okl, line = pcall(TF.LinkifyChat, "Click this if it is gold: " .. url); if okl and line then TF.Print("%s", line) end end end
   -- the live config and currency
   if G.Available() and c then
     local cfg = G.ConfigFor(c.tree)

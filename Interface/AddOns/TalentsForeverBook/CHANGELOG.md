@@ -1,5 +1,46 @@
 # Talents Forever changelog
 
+## 0.38.2
+- If you play with a gamepad, opening the class list at the top of the planner could freeze the game. A reader asked on
+  the ideas page on 12 Oct whether controllers are supported, as the game kept crashing with the gamepad interface on,
+  and on 27 Sep another reader's game froze as that list opened. The addon looked for a gamepad only once, at login, and
+  by only one of the game's two switches. While a gamepad is on, the list now stays shut and says why, even when the
+  gamepad comes on after login, and a /reload swaps in the plain class button. With mouse and keyboard nothing changes.
+- neverscream wrote on the ideas page on 11 Oct that with the addon on, another player's profession link in chat would
+  not open, and that turning addons off one at a time pointed here. What stops the link is not proven yet, so this
+  release does two things. A click on a profession, item, spell or player link no longer runs any Talents Forever code,
+  and only Talents Forever build links reach the addon. And if the game blocks something the addon does, chat names it
+  once and your next note from the Feedback page carries that name, so the next report can settle it. A block that has
+  nothing to do with the class list no longer swaps it for the plain button. Thanks, neverscream.
+- A Horde Mage at 20 wrote in from inside the addon on 9 Oct: every new zone said there were spells to buy,
+  Teleport: Stormwind and Teleport: Ironforge. The addon's spell list did not say which side teaches what, so Horde
+  Mages were sent for the Alliance cities, Alliance Mages for the Horde ones, and the card never cleared. The trainer
+  card, the trainer page and the book by level now list only the teleports and portals your side can learn. The card
+  also came back after every loading screen, in whatever zone it ended. Now it comes once when you log in, on a
+  level-up, and when you walk into a capital.
+- A Warlock at 6 asked from inside the addon on 8 Oct for a key that opens Talents Forever. The key was already there,
+  but in the game's Keybindings it sat under AddOns, folded shut, below a blank row. Your Talents Forever keys now have
+  their own Talents Forever section, near the bottom of the list, and a key you set before is kept. Settings shows which
+  key opens the planner and has a button that takes you to that section, and /talents key does the same.
+- A Subtlety Rogue at 20 asked from inside the addon on 8 Oct which point to take at which level: on a Popular Subtlety
+  build the Plan page reached Subtlety only at 38. Builds that come without a leveling order, like Popular builds,
+  Follow the top build and imported links, now start in your lead tree and take each row as it opens, so that build gets
+  Camouflage at 10. The Plan page says when the order is only a suggestion and how to set your own. An order you placed
+  yourself stays as you placed it, and build links are unchanged.
+- Druids were sent to the trainer for Aquatic Form (Passive) from level 16 on: on the city and level-up cards, on the
+  trainer page, and as a second Aquatic row in the book by level that never ticked. Druids at 20 and 24 wrote in about
+  it from inside the addon, and another reader on the ideas page on 6 Oct. Aquatic Form (Passive) is the swim speed that
+  comes with Aquatic Form itself and no trainer teaches it, so it is off the list. The two earlier fixes took
+  Aquatic Form off the list and missed this one.
+- Night Elf and Undead Priests now see their own race spells on the trainer cards, the trainer page and the book by
+  level: Starshards and Elune's Grace for Night Elves, Touch of Weakness and Dark Sacrifice for the Undead. The game
+  names those two races NightElf and Scourge, and the addon never matched them. The Races page now opens on your own
+  race for those two as well and marks it as yours (it opened on the Orc), and a translated client names the Undead in
+  its own words. Found while checking the trainer lists for this release.
+- The Feedback page: right after the game has blocked something, the box leaves room for the names the note carries, so
+  your words always arrive whole. The count of letters left counts letters now, so a note in Russian, Chinese or Korean
+  no longer runs down two or three times too fast.
+
 ## 0.38.1
 - Beta build 70291 (8 Oct): the trees as the new client has them. Warrior Impale now needs Deep Wounds at 3 points,
   with an arrow from Deep Wounds to Impale. Druid Predatory Instincts is called Natural Instinct, same spot and same

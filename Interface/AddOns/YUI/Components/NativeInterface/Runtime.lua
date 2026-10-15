@@ -52,6 +52,11 @@ local function NormalizeTransferPayload(payload, path, fields, layouts)
             end
             config.hideBagsBar = nil
         end
+        -- Accept the retired tooltip field without restoring its former ownership.
+        if config.tooltipInstantHide ~= nil then
+            if type(config.tooltipInstantHide) ~= "boolean" then return nil, "invalid_data_field" end
+            config.tooltipInstantHide = nil
+        end
         -- Accept older exports without reviving retired login workarounds.
         if YUI.IsForever == true then
             config.importBetaProfile = nil
@@ -138,6 +143,9 @@ local definition = {
         if YUI.Event and YUI.Event.OffOwner then YUI.Event:OffOwner(externalOwner) end
         if self.ReleaseVisibility then self:ReleaseVisibility() end
         if self.ReleaseBagSortFix then self:ReleaseBagSortFix() end
+        if self.ReleaseProfessionsIconFix then self:ReleaseProfessionsIconFix() end
+        if self.ReleaseRaidManager then self:ReleaseRaidManager() end
+        if self.ReleaseQuestLootSparkles then self:ReleaseQuestLootSparkles() end
         if self.RefreshWindowMovement then self:RefreshWindowMovement("disable") end
         if self.RefreshRetail then self:RefreshRetail("disable") end
         if self.ReleaseTutorial then self:ReleaseTutorial() end
@@ -164,6 +172,9 @@ if transfer and transfer.RegisterModule then
     if YUI.IsForever == true then
         fields.compactBetaReporter = true
         fields.fixBagSortButton = true
+        fields.fixProfessionsIcon = true
+        fields.questLootSparkles = true
+        fields.hideRaidManager = true
         if Native.NormalizeWindowMovement then fields.windowMovement = true end
     end
     if YUI.IsRetail == true then

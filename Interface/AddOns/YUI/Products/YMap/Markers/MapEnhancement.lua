@@ -684,13 +684,24 @@ end
 
 function MapEnhancement:HandleQuickFilterClick(button)
     if button=="LeftButton" and IsAltKeyDownSafe() then YUI.YMap:OpenSettings("markers"); return end
+    if button == "LeftButton" then
+        self:HideMarkerMenu()
+        local config = self:GetConfig()
+        config.markersHidden = not config.markersHidden
+        Refresh()
+        return
+    end
     if runtime.menu and Menu and Menu.GetManager():GetOpenMenu() == runtime.menu then self:HideMarkerMenu()
     else self:ShowMarkerMenu(runtime.quickFilterButton) end
 end
 function MapEnhancement:ShowQuickFilterTooltip(button)
+    local leftClickAction = self:GetConfig().markersHidden and "tooltip.action.show" or "tooltip.action.hide"
     YUI.GUI.Tooltip:Show(button, {
         title = T("menu.title"),
-        actions = { {button="LeftButton",text=T("tooltip.action.menu")} },
+        actions = {
+            {button="LeftButton",text=T(leftClickAction)},
+            {button="RightButton",text=T("tooltip.action.menu")},
+        },
         settings = {button="LeftButton",modifiers={"ALT"}},
     })
 end

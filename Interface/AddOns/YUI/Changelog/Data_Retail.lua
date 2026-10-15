@@ -1,6 +1,56 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v341|mainline|8b2927a40aa4cca00ce539cbd57e24eebfb30f6d7d544695cd03437e232797f8
+    {
+        version = "v341",
+        date = "2026-10-15",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "监控台新增玩家生命条和施法条，支持独立分组与混排。",
+                "完善驭龙术的材质、边框、颜色与速度文字设置。",
+                "信息条时钟新增可配置休息动效。",
+                "新增鼠标提示立即隐藏选项，默认启用。",
+                "强化RestedXP插件，支持一键收纳",
+                "地图标记支持左键显隐、右键筛选，完善小地图插件按钮收纳。",
+                "经验条详情支持背景透明度设置。",
+                "完善配置导入、专精分配提示与失败恢复。",
+                "修复聊天字体、耐久信息与窗口层级显示问题，改善 12.1.5 兼容性。",
+            },
+            enUS = {
+                "Added player health and cast bars to the monitor, with separate groups and mixed resource layouts.",
+                "Expanded skyriding texture, border, color and speed text settings.",
+                "Added configurable resting animations to the information bar clock.",
+                "Added an instant tooltip hiding option, enabled by default.",
+                "Enhanced RestedXP with one-click collapse support.",
+                "Map markers now use left-click to toggle visibility and right-click for filters; improved minimap addon button collection.",
+                "Experience details now support background opacity settings.",
+                "Improved configuration imports, specialization assignment feedback and recovery after failed imports.",
+                "Fixed chat fonts, durability information and window layering; improved 12.1.5 compatibility.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v339|mainline|724364bd2face0a6631b00371f4d57c685a17d460a07eb2437488c1e10619dcd
+    {
+        version = "v339",
+        date = "2026-10-12",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "新增桃桃奶兮 TTNX 语音包推荐，完善语音包安装状态显示。",
+                "新增特别语音分类，支持语音包专属音效；切换语音包后保留配置，切回原包恢复播放。",
+                "优化语音选择器，优先展示与监控名称匹配的条目，并标识当前包的录音状态。",
+                "语音包卡片显示标准与特别语音数量，随机试听同步展示条目名称。",
+            },
+            enUS = {
+                "Added the recommended TTNX voice pack and clearer voice pack installation status.",
+                "Added a Special Voices category for pack-exclusive sounds; selections are preserved when switching packs and resume when switching back.",
+                "Voice selection now prioritizes entries matching the monitor name and indicates recording availability in the selected pack.",
+                "Voice pack cards show standard and special voice counts; random previews display the entry name.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v338|mainline|ef6fb8d886b668398085b000dd9b5dac312d44fd2bc4c362c76735d9b7f2c878
     {
         version = "v338",
@@ -168,51 +218,6 @@ CL:Register("suite", {
                 "Minimap: added a right-click tracking hint, off by default.",
                 "Experience Bar: changed default colors to solid purple, blue and orange.",
                 "Release notes follow the client language; improved settings navigation icons and alignment.",
-            },
-        },
-    },
--- YUI-Notes-Record: v330|mainline|1d517dc4b40f50fea97c32c96bb572d74d2a104c8b7e26e0cd529ccf68ba6a4f
-    {
-        version = "v330",
-        date = "2026-10-04",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "法术警报：完善增益倒计时，修复文字显示与动画问题。",
-                "法术警报：新增牧师警报自动避让，减少重叠。",
-                "优化内存占用。",
-                "聊天条：默认使用游戏字体，保留自定义设置。",
-                "插件语言跟随游戏客户端，取消手动切换。",
-                "更新大秘境评分数据。",
-            },
-            enUS = {
-                "Spell Alert: improved buff countdowns and fixed text and animation issues.",
-                "Spell Alert: added automatic spacing for priest alerts to reduce overlap.",
-                "Optimized memory usage.",
-                "Chat Bar: use the game font by default while keeping custom settings.",
-                "Addon language now follows the game client; manual switching has been removed.",
-                "Updated Mythic+ rating data.",
-            },
-        },
-    },
--- YUI-Notes-Record: v329|mainline|88fcd89810d7b1d274486340860f39dfc9e84d6f0fad7ed26ec970b6ea8a6cb7
-    {
-        version = "v329",
-        date = "2026-09-28",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "整合包：统一多客户端版本号，保留独立加载与更新日志。",
-                "界面：新增颜色选择器，支持收藏、最近颜色与恢复默认。",
-                "地图：优化地点标记与导航，新增移动时半透明。",
-                "装备观察：新增装等、附魔、宝石和耐久显示，完善换装提示与界面兼容。",
-                "监控台：修复登录饰品图标漏刷、设计模式层级及分页按钮问题。",
-                "升级经验条：支持调整等级文字位置。",
-                "声音提醒：补充盗贼、战士、死亡骑士及焦点打断语音。",
-                "修复部分界面、施法序列与皮肤适配问题。",
-                "更新大秘境评分数据。",
-            },
-            enUS = {
             },
         },
     },

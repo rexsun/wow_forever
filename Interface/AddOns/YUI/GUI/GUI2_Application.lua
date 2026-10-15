@@ -544,6 +544,59 @@ local function GetCastTimerDirection(isChannel)
     return isChannel and 1 or 0
 end
 
+function GUI2:BindCastTimer(statusBar, duration, isChannel, interpolation)
+    if not (duration and statusBar and statusBar.SetTimerDuration) then return false end
+    return pcall(statusBar.SetTimerDuration, statusBar, duration,
+        interpolation or GetStatusBarImmediateInterpolation(), GetCastTimerDirection(isChannel == true)) == true
+end
+
+-- Allocate at the configuration boundary; updates only reuse bounded textures.
+function GUI2:CreateCastMarkers(parent, capacity, markers)
+    markers = markers or {}
+    for index = #markers + 1, math_min(31, math_max(0, capacity or 8)) do
+        local marker = self:CreateTexture(parent, "color.text.primary", "OVERLAY")
+        marker:SetAlpha(0.7); marker:Hide()
+        marker.gui2CastShown = false
+        markers[index] = marker
+    end
+    return markers
+end
+
+function GUI2:UpdateCastMarkers(markers, track, stages, total, ticks, vertical, reverse)
+    if not markers then return end
+    local pixel = self:GetPixelSize(track, 1, 1)
+    local width, height = track:GetWidth(), track:GetHeight()
+    local extent = vertical and height or width
+    for index, marker in ipairs(markers) do
+        local fraction
+        if total and total > 0 then
+            local position = stages and stages[index]
+            if position and position > 0 and position < total then fraction = position / total end
+        elseif ticks and index < ticks then
+            fraction = index / ticks
+        end
+        local shown = fraction ~= nil
+        if marker.gui2CastShown ~= shown then
+            marker:SetShown(shown); marker.gui2CastShown = shown
+        end
+        if shown then
+            if reverse then fraction = 1 - fraction end
+            local offset = math_max(0, math_min(extent - pixel,
+                math_floor((extent * fraction - pixel * 0.5) / pixel + 0.5) * pixel))
+            if marker.gui2CastOffset ~= offset or marker.gui2CastWidth ~= width
+                or marker.gui2CastHeight ~= height or marker.gui2CastVertical ~= vertical
+                or marker.gui2CastPixel ~= pixel then
+                marker.gui2CastOffset, marker.gui2CastWidth, marker.gui2CastHeight = offset, width, height
+                marker.gui2CastVertical, marker.gui2CastPixel = vertical, pixel
+                marker:ClearAllPoints()
+                marker:SetSize(vertical and width or pixel, vertical and pixel or height)
+                marker:SetPoint(vertical and "BOTTOMLEFT" or "TOPLEFT", track,
+                    vertical and "BOTTOMLEFT" or "TOPLEFT", vertical and 0 or offset, vertical and offset or 0)
+            end
+        end
+    end
+end
+
 local function GetFrameNativeStatusBarStyle(frame)
     local style = frame and frame.gui2NativeStatusBarStyle
     if not style and frame then
@@ -2503,7 +2556,22 @@ do
         local nameText = frame.resourceNameText
         if nameText then
             nameText:ClearAllPoints()
-            if vertical then
+            local appearance = frame.gui2ResourceTextAppearance or {}
+            local position = appearance.namePosition
+            if position == "start" or position == "center" or position == "end" then
+                local point = vertical
+                    and (position == "start" and "BOTTOM" or position == "end" and "TOP" or "CENTER")
+                    or (position == "start" and "LEFT" or position == "end" and "RIGHT" or "CENTER")
+                local inset = position == "start" and (vertical and 4 or 5)
+                    or position == "end" and (vertical and -4 or -5) or 0
+                local x, y = tonumber(appearance.nameOffsetX) or 0, tonumber(appearance.nameOffsetY) or 0
+                nameText:SetPoint(point, frame.resourceOverlay, point,
+                    x + (vertical and 0 or inset), y + (vertical and inset or 0))
+                nameText:SetWidth(math_max(1, vertical and frame.gui2ResourceHeight - 8
+                    or frame.gui2ResourceWidth - 64))
+                nameText:SetJustifyH(vertical and "CENTER"
+                    or position == "start" and "LEFT" or position == "end" and "RIGHT" or "CENTER")
+            elseif vertical then
                 nameText:SetPoint(
                     "BOTTOM",
                     frame.resourceOverlay,
@@ -2532,9 +2600,19 @@ do
                 )
             end
         end
-        for textIndex = 1, 2 do
-            local valueText = textIndex == 1 and frame.resourceValueText or frame.resourceValueText2
-            local appearance = textIndex == 1 and frame.gui2ResourceTextAppearance
+        -- Native countdowns use the same anchors as their public preview labels.
+        for textIndex = 1, 4 do
+            local index = (textIndex - 1) % 2 + 1
+            local valueText = index == 1 and frame.resourceValueText or frame.resourceValueText2
+            if textIndex > 2 then
+                local countdown = index == 1 and frame.resourceDurationCountdown or frame.resourceDurationCountdown2
+                valueText = nil
+                if countdown and countdown.GetCountdownFontString then
+                    local ok, text = pcall(countdown.GetCountdownFontString, countdown)
+                    if ok then valueText = text end
+                end
+            end
+            local appearance = index == 1 and frame.gui2ResourceTextAppearance
                 or frame.gui2ResourceTextAppearance2
             appearance = appearance or {}
             if valueText then
@@ -2561,6 +2639,7 @@ do
                         1,
                         frame.gui2ResourceHeight - 8
                     ))
+                    if valueText.SetJustifyH then valueText:SetJustifyH("CENTER") end
                 else
                     -- FontString 会保留之前由方向写入的显式宽度。每次都重写
                     -- 横向可用宽度和唯一锚点，避免连续切换左/中/右时旧状态
@@ -4788,14 +4867,9 @@ do
             frame.gui2ResourceSmoothProgress,
             frame.gui2ResourceDurationBound
         )
-        local ok = pcall(
-            statusBar.SetTimerDuration,
-            statusBar,
-            durationObject,
-            interpolation,
-            GetCastTimerDirection(not (frame.gui2ResourceDisplayConfig
-                and frame.gui2ResourceDisplayConfig.durationProgressDirection == "elapsed"))
-        ) == true
+        local ok = GUI2:BindCastTimer(statusBar, durationObject,
+            not (frame.gui2ResourceDisplayConfig
+                and frame.gui2ResourceDisplayConfig.durationProgressDirection == "elapsed"), interpolation)
         if ok then
             frame.gui2ResourceDurationBound = true
             RestoreResourceStatusBarColor(statusBar)
@@ -7032,7 +7106,10 @@ do
                 if GUI2.ApplyFontAppearance then
                     GUI2:ApplyFontAppearance(
                         self.resourceNameText,
-                        appearance
+                        appearance.nameSize and {
+                            font = appearance.font, size = appearance.nameSize,
+                            outline = appearance.outline, color = appearance.color, fontScale = appearance.fontScale,
+                        } or appearance
                     )
                 end
             end

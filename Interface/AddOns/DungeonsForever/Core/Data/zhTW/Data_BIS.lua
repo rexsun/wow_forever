@@ -10,6 +10,8 @@ if gl ~= 'zhTW' then return end
 
 local _, ns = ...
 
+ns.EnsureBISData = function()
+if ns.BIS then return ns.BIS end
 ns.BIS = {
     updated = "2026-10-07",
     default = 30,
@@ -97,3 +99,5 @@ ns.BIS = {
     },
 }
 ns.BIS.classes = ns.BIS.levels[ns.BIS.default].classes
+return ns.BIS
+end

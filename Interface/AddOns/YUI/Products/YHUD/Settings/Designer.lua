@@ -2261,6 +2261,12 @@ function Designer:SetGroupResourceStyle(groupId, patch)
     )
 end
 
+function Designer:SetPlayerCastSettings(patch)
+    local session, code = EnsureSession(self)
+    if not session then return nil, code end
+    return ProfileModel:SetPlayerCastSettings(session.draft, patch)
+end
+
 function Designer:SetResourceSetting(resourceId, patch)
     local session, code = EnsureSession(self)
     if not session then return nil, code end

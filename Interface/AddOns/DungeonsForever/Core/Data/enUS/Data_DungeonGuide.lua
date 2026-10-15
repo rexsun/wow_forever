@@ -1333,4 +1333,35 @@ ns.DungeonGuide = {
             },
         },
     },
+    onyxias_lair = {
+        tagline = "A classic 40-player raid whose only boss is Onyxia the black dragon princess. No key is needed to enter, but every raider must carry a Drakefire Amulet in their bags.",
+        tips = {
+            "Entry requirement: every raid member must have a Drakefire Amulet in their bags (the bank does not count). The raid leader having one does not cover anyone else — if one person lacks the amulet, nobody gets in.",
+            "The Drakefire Amulet comes from the attunement quest chain, with separate Alliance and Horde paths: roughly 11 steps for Alliance and 14 for Horde. The full walkthrough is on the Quests tab.",
+            "Both chains end the same way: kill General Drakkisath in Upper Blackrock Spire and trade the Blood of the Black Dragon Champion to the quest giver for the amulet.",
+            "The Alliance chain includes two escorts (Jail Break! and The Great Masquerade) that can be retried on failure; during the Masquerade the nearby guard NPCs help tank the elite dragonkin.",
+            "The four Horde \"Test of Skulls\" dragons can be fought in any order and in a raid group — remember to loot every skull.",
+            "The fight has three phases: 100%-65% on the ground, 65%-40% in the air, then she lands below 40% and the fight resumes. Phase 2 is the deadliest — hold the raid's burst cooldowns to push her health before 65%; the more you burn before she takes off, the easier the fight.",
+            "Always fight from her sides on the ground: her front has a breath attack and her tail has Tail Sweep, which knocks players back — getting swept into the egg nest spawns a swarm of whelps. Avoid standing behind her as well.",
+            "Bring a few Greater Fire Protection Potions for everyone: the Phase 2 Fireballs and the lava pulsing from the cracked floor in Phase 3 are all fire damage, and the potion absorbs a real chunk of it.",
+        },
+        entrance = {
+            H = "The lair is the island cave in southern Dustwallow Marsh. The Horde attunement chain starts with Warlord Goretooth in Kargath, Badlands, and runs through Orgrimmar, Desolace, Western Plaguelands and Dustwallow Marsh before finishing in Upper Blackrock Spire.",
+            A = {
+                "副本在尘泥沼泽南部的岛洞里，联盟开门链从燃烧平原摩根的岗哨起步，途经赤脊山湖畔镇、暴风城、黑石深渊、冬泉谷，最后在黑石塔上层收尾。",
+                "赤脊山湖畔镇接「真与假」，护送赫林迪斯·河角杀黑龙人；之后去暴风城找所罗门镇长、伯瓦尔·弗塔根与雷吉纳德·温德索尔接后续。",
+                "黑石深渊「监狱风云」：救出雷吉纳德·温德索尔并一路护送到出口，护送失败可以重接。",
+                "回暴风城参加「假面游行」护送温德索尔到伯瓦尔面前，大主教于公开场合揭穿黑龙公主；随后接「龙火护符」进入冬泉谷段。",
+                "冬泉谷找巫女麦兰达获取伪装，进黑石塔上层击杀达基萨斯将军，取黑龙勇士之血回麦兰达处换取龙火护符。",
+            },
+        },
+        trash = {
+            { title = "Onyxian Warder patrols",
+              text = "Several Warder patrols are spread along the path to the lair; their deadliest ability is Fire Nova, an area-of-effect fire blast. The standard play is to have the tank pull the Warder facing away from the raid, and have melee wait out the first Fire Nova before moving in — this saves the healers a lot of pressure." },
+        },
+        bosses = {
+            { en = "Onyxia",
+              text = "The fight has three phases. Phase 1 (100%-65%, ground): positioning comes first — fight from her sides; standing too close to the tail risks Tail Sweep knocking you into the egg nest and spawning a swarm of whelps, and her front has a breath attack. After the pull the tank slowly turns her head toward the entrance and positions himself against the back wall (so Wing Buffet cannot knock him across the room). Until she is positioned, all damage stays light and every major cooldown is saved for Phase 2. Phase 2 (65%-40%, air): the most dangerous segment. She takes off and flies to one of eight spots around the lair, periodically throwing Fireballs at random players — spread out at least 8 yards from each other. As soon as the \"taking a deep breath\" warning appears, everyone runs to the safe zones on the sides of wherever she is facing; a slow reaction means raid-wiping damage. Greater Fire Protection Potions are worth a lot here. Phase 3 (below 40%, landed): she lands in the center of the room with the same positioning rules as Phase 1 — do not attack before she is repositioned. She gains Bellowing Roar (a fear): tanks counter it with Berserker Rage, or rely on Shaman Tremor Totems and Priest Fear Ward. Whelps spawn occasionally — have the off-tank pick them all up and AoE them down. The cracked floor starts pulsing lava every few seconds; watch your step to avoid the fire damage." },
+        },
+    },
 }

@@ -6,6 +6,8 @@ YUI.Locale:Register("MouseEnhancement", "zhTW", {
     ["name"] = "滑鼠增強",
     ["description"] = "增強玩家滑鼠提示，並在物品、法術、光環、任務、貨幣和 NPC 提示資訊底部顯示 ID。",
     ["settings.section.tooltip"] = "滑鼠提示",
+    ["settings.tooltip_instant_hide"] = "立即隱藏滑鼠提示",
+    ["settings.tooltip_instant_hide_help"] = "滑鼠移開後立即隱藏，取消延遲和淡出。",
     ["settings.tooltip_cursor_enabled"] = "跟隨滑鼠",
     ["settings.tooltip_cursor_help"] = "讓一般滑鼠提示跟隨滑鼠，並調整顯示方位和距離。",
     ["settings.tooltip_cursor_position"] = "顯示位置",

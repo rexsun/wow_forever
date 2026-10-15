@@ -18,6 +18,7 @@ local function GetYBarDB()
 end
 local YBar = YUI.YBar
 local GUI2 = YUI.GUI2
+local Rest = YBar.ClockRest
 local Module = YBar.Module:New(context and context.id or "Clock")
 local LegacyAPI = YUI.WOW_API
 local CombatAPI = (YUI.API and YUI.API.Combat) or LegacyAPI
@@ -417,8 +418,55 @@ function Module:OnClockEvent(event, ...)
     elseif event == "PLAYER_REGEN_ENABLED" then
         self:StopCombatTimer()
     elseif event == "YUI_WORLD_READY" then
+        self.pendingRestLevel = nil
         self:SyncCombatState()
+        self:RefreshRestState()
+    elseif event == "PLAYER_UPDATE_RESTING" then
+        self:RefreshRestState()
+    elseif event == "PLAYER_LEVEL_UP" then
+        self:RefreshRestState((...))
+    elseif event == "PLAYER_MAX_LEVEL_UPDATE" then
+        self:RefreshRestState()
     end
+end
+
+function Module:RefreshRestState(newLevel)
+    if not Rest then return end
+    local eventLevel = Rest.ValidateLevel(newLevel)
+    if eventLevel then
+        self.pendingRestLevel = math.max(eventLevel, self.pendingRestLevel or 0)
+    end
+    if not self.clockRest then return end
+    local db = GetYBarDB() and GetYBarDB().Clock or {}
+    if not self._runtimeAttached or db.restEnabled == false
+        or (self.content and self.content.IsVisible and not self.content:IsVisible()) then
+        self.clockRest:SetActive(false)
+        return
+    end
+    if db.restHideAtMaxLevel == true then
+        local level = eventLevel
+        if not level then
+            if context and Events.ReadData then level = Events:ReadData("clock-player-level", Rest.ReadPlayerLevel)
+            else level = Rest.ReadPlayerLevel() end
+        end
+        -- Keep the upgrade payload until the public provider catches up.
+        if self.pendingRestLevel then
+            if not eventLevel and level and level >= self.pendingRestLevel then
+                self.pendingRestLevel = nil
+            else
+                level = self.pendingRestLevel
+            end
+        end
+        local maximum
+        if context and Events.ReadData then maximum = Events:ReadData("clock-max-level", Rest.ReadMaxPlayerLevel)
+        else maximum = Rest.ReadMaxPlayerLevel() end
+        if level and maximum and level >= maximum then self.clockRest:SetActive(false); return end
+    end
+    self.clockRest:UpdateDirection(self.parent)
+    local resting
+    if context and Events.ReadData then resting = Events:ReadData("clock-resting", Rest.ReadResting)
+    else resting = Rest.ReadResting() end
+    self.clockRest:SetActive(resting)
 end
 
 function Module:AttachRuntime()
@@ -430,6 +478,9 @@ function Module:AttachRuntime()
         Events:On("YUI_WORLD_READY", "OnClockEvent", self)
         Events:On("PLAYER_REGEN_DISABLED", "OnClockEvent", self)
         Events:On("PLAYER_REGEN_ENABLED", "OnClockEvent", self)
+        Events:On("PLAYER_UPDATE_RESTING", "OnClockEvent", self)
+        Events:On("PLAYER_LEVEL_UP", "OnClockEvent", self)
+        Events:On("PLAYER_MAX_LEVEL_UPDATE", "OnClockEvent", self)
         self.eventsAttached = true
     end
 
@@ -443,6 +494,7 @@ end
 
 function Module:DetachRuntime()
     self._runtimeAttached = false
+    self.pendingRestLevel = nil
     StopClockTicker()
 
     if Events then
@@ -454,6 +506,7 @@ function Module:DetachRuntime()
     self.combatStartTime = nil
     self.inCombatTimeMode = false
     self.combatTimeSceneMatched = false
+    if self.clockRest then self.clockRest:SetActive(false) end
 
     if self.content then
         if GameTooltip and GameTooltip.GetOwner and GameTooltip:GetOwner() == self.content then
@@ -747,6 +800,11 @@ function Module:CreateBarItem(parent)
     self.frame = frame -- 保存引用
     self.content = content
     self.parent = parent
+    if Rest then
+        self.clockRest = Rest.New(content)
+        content:HookScript("OnHide", function() Module.clockRest:SetActive(false) end)
+        content:HookScript("OnShow", function() Module:RefreshRestState() end)
+    end
     
     if not YUI.YBar or YUI.YBar:IsSubModuleEnabled(self.name) then
         self:AttachRuntime()
@@ -899,6 +957,9 @@ function Module:UpdateBarItem(frame, parent)
     
     -- 更新 content 尺寸以匹配内容 (宽度)
     content:SetWidth(self.fixedWidth)
+    if self.clockRest then
+        self.clockRest:Configure(db, widthM * 2 + widthSep, font, size, globalDB, ApplyTextStyle, self.parent)
+    end
     self:UpdateTimeText(content)
     if self._runtimeAttached then
         self:RefreshRuntime(true)
@@ -909,6 +970,9 @@ end
 function Module:GetWidth()
     local db = GetYBarDB() and GetYBarDB().Clock or {}
     local padding = db.padding or 0
+    local restPadding = self.clockRest and self.clockRest.sideReserve or 0
+    -- Existing margins already provide space for the indicator on both sides.
+    if restPadding > 0 then padding = math.max(padding, restPadding) end
     
     if self.fixedWidth then
         return self.fixedWidth + (padding * 2)
@@ -928,11 +992,13 @@ function Module:RefreshRuntime(skipTimeUpdate)
     if not self._runtimeAttached then
         StopClockTicker()
         StopClockFlashDriver(self.content)
+        if self.clockRest then self.clockRest:SetActive(false) end
         return
     end
 
     StartClockTicker()
     StartClockFlashDriver(self.content)
+    self:RefreshRestState()
 
     if not skipTimeUpdate then
         self:UpdateTimeText()
@@ -990,6 +1056,93 @@ function Module:GetOptions()
         }
     end
     
+    local restFields = {
+        InlineSwitch(L["clock.rest.enabled"], true,
+            function() return EnsureClockDB().restEnabled ~= false end,
+            function(value) EnsureClockDB().restEnabled = value; RefreshClockLayout() end),
+        InlineSwitch(L["clock.rest.hide_max_level"], false,
+            function() return EnsureClockDB().restHideAtMaxLevel == true end,
+            function(value) EnsureClockDB().restHideAtMaxLevel = value; Module:RefreshRestState() end),
+        {
+            type = "dropdown", label = L["clock.rest.style"], inlineLabel = true,
+            width = 220, labelWidth = 90, default = "zzz",
+            options = {
+                {text = "zZZ", value = "zzz"},
+                {text = L["clock.rest.moon"], value = "moon"},
+                {text = L["clock.rest.dots"], value = "dots"},
+                {text = L["clock.rest.cup"], value = "cup"},
+            },
+            get = function()
+                if Rest then local style = Rest.Resolve(EnsureClockDB()); return style end
+                return EnsureClockDB().restStyle or "zzz"
+            end,
+            set = function(value)
+                local db = EnsureClockDB()
+                db.restStyle = value
+                if value ~= "dots" and db.restPosition == "symmetric" then db.restPosition = "right" end
+                RefreshClockLayout()
+            end,
+        },
+        {
+            type = "dropdown", label = L["clock.rest.size"], inlineLabel = true,
+            width = 220, labelWidth = 90, default = "small",
+            options = {
+                {text = L["clock.rest.small"], value = "small"},
+                {text = L["clock.rest.medium"], value = "medium"},
+                {text = L["clock.rest.large"], value = "large"},
+            },
+            get = function()
+                if Rest then local _, _, size = Rest.Resolve(EnsureClockDB()); return size end
+                return EnsureClockDB().restSize or "small"
+            end,
+            set = function(value) EnsureClockDB().restSize = value; RefreshClockLayout() end,
+        },
+        {
+            type = "dropdown", label = L["clock.rest.position"], tooltip = L["clock.rest.position_help"],
+            inlineLabel = true, width = 400, labelWidth = 90, default = "corner",
+            options = function()
+                local values = {
+                    {text = L["clock.rest.corner"], value = "corner"},
+                    {text = L["clock.rest.right"], value = "right"},
+                    {text = L["clock.rest.corner_top"], value = "corner_top"},
+                    {text = L["clock.rest.corner_bottom"], value = "corner_bottom"},
+                    {text = L["clock.rest.top"], value = "top"},
+                    {text = L["clock.rest.bottom"], value = "bottom"},
+                    {text = L["clock.rest.auto"], value = "auto"},
+                }
+                if EnsureClockDB().restStyle == "dots" then
+                    values[#values+1] = {text = L["clock.rest.symmetric"], value = "symmetric"}
+                end
+                return values
+            end,
+            get = function()
+                if Rest then local _, position = Rest.Resolve(EnsureClockDB()); return position end
+                return EnsureClockDB().restPosition or "corner"
+            end,
+            set = function(value) EnsureClockDB().restPosition = value; RefreshClockLayout() end,
+        },
+        {
+            type = "color", label = L["clock.rest.color"], field = false, controlWidth = 32, hasAlpha = true,
+            get = function()
+                local color = EnsureClockDB().restColor
+                if color then return color end
+                return {GUI2:GetColor("color.text.accent")}
+            end,
+            set = function(value)
+                EnsureClockDB().restColor = value
+                if Module.clockRest then Module.clockRest:ApplyColor(value) end
+            end,
+        },
+    }
+    -- Custom fields retain their bindings and use the designer transaction when present.
+    for _, field in ipairs(restFields) do
+        local set = field.set
+        field.set = function(value)
+            if self.RunConfigEdit then return self:RunConfigEdit(function() return set(value) end) end
+            return set(value)
+        end
+    end
+
     local options = {
         {
             type = "row",
@@ -1132,6 +1285,31 @@ function Module:GetOptions()
                 end
             ),
         }},
+        {type = "divider", label = L["clock.rest.title"], width = 400, alignLeft = true},
+        {
+            type = "custom", retainedFields = restFields,
+            render = function(parent, x, y, width)
+                local labelWidth, bodyWidth, gap = 90, 120, 10
+                local measure = GUI2:CreateText(parent, "", "font.size.md", "color.text.primary")
+                measure:Hide()
+                for _, field in ipairs(restFields) do
+                    measure:SetText(field.label)
+                    labelWidth = math.max(labelWidth, math.ceil(measure:GetStringWidth())+8)
+                    local choices = type(field.options) == "function" and field.options() or field.options
+                    if type(choices) == "table" then
+                        for _, choice in ipairs(choices) do
+                            measure:SetText(choice.text)
+                            bodyWidth = math.max(bodyWidth, math.ceil(measure:GetStringWidth())+24)
+                        end
+                    end
+                end
+                local _, gridWidth, gridHeight = S:RenderAlignedFields(parent, {
+                    x=x, y=y, width=width, columns=2, labelWidth=labelWidth, labelGap=gap,
+                    bodyWidth=bodyWidth, columnGap=20, rowGap=10, fields=restFields,
+                })
+                return gridWidth, gridHeight
+            end,
+        },
         {
             type = "divider",
             label = L["clock.option.combat_time"],

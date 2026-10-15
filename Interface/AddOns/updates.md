@@ -2,6 +2,16 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-14 - Upgrade Forever addons and retain EUI frame ownership
+
+- Upgraded YUI v338 to v341, Auctionator 340 to 341, DungeonsForever 1.8.0 to 1.8.6, TalentsForeverBook 0.38.1 to 0.38.2 beta and all six installed EllesmereUI folders from 9.4 to 9.5.5. Official release links are in the inventory; all declare Interface 16001 for the installed 1.60.1.70374 client. RestedXP v4.11.23 and BugGrabber v12.1.0 remain current. YUI's listing dates v341 October 15; the Forever download was already available on October 14 local time.
+- Kept EUI Unit Frames, Raid Frames, Nameplates, Options, Locales and shared core; installed no other suite modules. Inspection of YUI v341 confirms no party/raid replacement, an unloaded YUnitFrames product and player-only health/cast HUD resources.
+- Updated OverlapSettingsGuard to 0.6.0 with separate player-health and player-cast policies. Cover resource selections, all 27 Forever specialization IDs, druid forms, stored profiles/HUD sets, dedicated cast-only groups and native castbar suppression. Retain swing timers and other HUD content; defer changes in combat and retry failed refreshes independently per rule.
+- Reapplied YUI's portable SharedMedia font references and talent-rank Inter Black path. All seven game-root font copies match the new upstream font bytes. TalentsForeverBook 0.38.2 already selects regular Cinzel upstream, removing the need for its previous local patch. EUI damage-font settings and all live WTF files are preserved byte-for-byte.
+- Upstream changes include YUI player bars and interface fixes; EUI frame/aura customization and CPU improvements; DungeonsForever gear/reputation pages and expanded datasets; Talents Forever gamepad, trainer, keybinding and leveling-order fixes; Auctionator Retail compatibility metadata. DungeonsForever publishes no changelog; its changes were identified by archive comparison. New EUI suite features outside the six retained modules are not installed. Existing optional map/navigation, quest-item and statistics overlaps remain user choices.
+- Backed up AddOns, WTF, tools, the root changelog and adoption script under `_classic_beta_/addon-backups/upgrade-20261014-155318`; retained moved original package folders there as well. The archive hash manifest is stored with the backup. No settings were reset.
+- Verification: 32 Lua 5.1 guard tests, including installed YUI catalog normalization; seven font assets and EUI damage-font application; 18 fresh class/faction profiles; adoption at 1080p/1440p/4K plus backup/rollback; 35 settings tests and 19 watcher/restore checks. Package integrity and exact file sets are checked against the release archives except the two documented YUI font-reference files. `adopt_addons.ps1` already copies the updated pack and guard, so its code is unchanged. Live loading, errors and rendering at all three resolutions still need an in-game session.
+
 ## 2026-10-13 - Add explicit settings restore and private .env aliases
 
 - Added `watch_wtf_settings.ps1 -Mode Restore`, with DryRun validation, strict alias/path checks, complete restoration of represented addon saved files, selective Config.wtf merging, private backups and rollback.

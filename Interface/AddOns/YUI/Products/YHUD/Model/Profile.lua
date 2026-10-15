@@ -328,6 +328,15 @@ function ProfileModel:MarkDraftChanged(draft)
     return true
 end
 
+function ProfileModel:SetPlayerCastSettings(draft, patch)
+    local open, code = EnsureOpenDraft(draft)
+    if not open then return nil, code end
+    if type(patch) ~= "table" or type(patch.hideNative) ~= "boolean" then return nil, "invalid-settings" end
+    draft.root.playerCast = { hideNative = patch.hideNative }
+    MarkChanged(draft)
+    return YHUD:CopyValue(draft.root.playerCast)
+end
+
 function ProfileModel:SetSkyridingSettings(draft, patch)
     local open, code = EnsureOpenDraft(draft)
     if not open then return nil, code end
@@ -773,7 +782,8 @@ function ProfileModel:CreateGroup(draft, definition)
     local contentPolicy = definition.contentPolicy
     if contentPolicy ~= "cooldown-primary"
         and contentPolicy ~= "buff-only"
-        and contentPolicy ~= "resource-only" then
+        and contentPolicy ~= "resource-only"
+        and contentPolicy ~= "cast-only" then
         return nil, "invalid-content-policy"
     end
     if contentPolicy == "cooldown-primary" and layout ~= "icons" then
@@ -786,7 +796,7 @@ function ProfileModel:CreateGroup(draft, definition)
         return nil, "content-layout-mismatch"
     end
 
-    if (layout == "resource") ~= (contentPolicy == "resource-only") then
+    if (layout == "resource") ~= (contentPolicy == "resource-only" or contentPolicy == "cast-only") then
         return nil, "content-layout-mismatch"
     end
 
@@ -853,6 +863,11 @@ function ProfileModel:CreateGroup(draft, definition)
     elseif layout == "resource" then
         profile.layout.groups[groupId] = YHUD:GetResourceGroupLayout(profile, groupId)
         profile.style.groups[groupId] = YHUD:GetResourceGroupStyle(profile, groupId)
+        if contentPolicy == "cast-only" then
+            profile.layout.groups[groupId].width = 300
+            profile.layout.groups[groupId].widthMode = "fixed"
+            profile.layout.groups[groupId].height = 24
+        end
     elseif layout == "bars" or layout == "rings" then
         profile.layout = type(profile.layout) == "table"
             and profile.layout or {}
@@ -1386,6 +1401,7 @@ function ProfileModel:SetResourceSetting(draft, resourceId, patch, groupId)
         thresholdMode = true,
         fillCeilingPercent = true,
         thresholdValues = true,
+        cast = true,
         thresholdMarkerColor = true,
         thresholdMarkerThickness = true,
     }
@@ -3883,6 +3899,23 @@ local function ValidateResourceSettings(profile, groupId)
         return next(settings) == nil
     end
     for resourceId, setting in pairs(settings) do
+        if resourceId == "cast" then
+            local cast = type(setting) == "table" and setting.cast
+            if type(cast) ~= "table" or type(cast.icon) ~= "boolean" or type(cast.name) ~= "boolean"
+                or type(cast.progress) ~= "boolean" or (cast.idle ~= "reserve" and cast.idle ~= "collapse")
+                or (cast.iconSide ~= "left" and cast.iconSide ~= "right")
+                or type(cast.iconGap) ~= "number" or cast.iconGap < 0 or cast.iconGap > 12 or cast.iconGap % 1 ~= 0 then return false end
+            if cast.namePosition ~= "start" and cast.namePosition ~= "center" and cast.namePosition ~= "end" then return false end
+            for _, key in ipairs({ "nameSize", "progressSize" }) do
+                local value = cast[key]
+                if value ~= nil and (type(value) ~= "number" or value < 8
+                    or value > 32 or value % 1 ~= 0) then return false end
+            end
+            for _, key in ipairs({ "nameOffsetX", "nameOffsetY" }) do
+                local value = cast[key]
+                if type(value) ~= "number" or value < -64 or value > 64 or value % 1 ~= 0 then return false end
+            end
+        end
         local definition = Catalog:GetDefinition(resourceId)
         if not definition or type(setting) ~= "table"
             or (setting.visibilityMode ~= "always"

@@ -7,8 +7,6 @@
 
 local _, ns = ...
 
-local LibBG = ns.LibBG
-
 local tinsert = table.insert
 local format = format
 local wipe = wipe
@@ -89,15 +87,6 @@ end
 
 ns.hui.CharStep = HCharStep
 
-if BackdropTemplateMixin and BackdropTemplateMixin.SetupTextureCoordinates
-        and not BackdropTemplateMixin.__dfSafeTexCoords then
-    BackdropTemplateMixin.__dfSafeTexCoords = true
-    local origSetupTexCoords = BackdropTemplateMixin.SetupTextureCoordinates
-    function BackdropTemplateMixin:SetupTextureCoordinates()
-        pcall(origSetupTexCoords, self)
-    end
-end
-
 do
     local HUI_L1 = {0x10 / 255, 0x13 / 255, 0x1A / 255, 0.95}
     local HUI_ACCENT = {0x46 / 255, 0xbf / 255, 0x72 / 255, 0.95}
@@ -127,7 +116,8 @@ do
     local HUI_CIRCLE = "Interface/AddOns/DungeonsForever/Media/LibHUI/HUICircle"
     local C_TRACKOFF = {0x33 / 255, 0x3A / 255, 0x49 / 255}
     local C_KNOB = {0x17 / 255, 0x18 / 255, 0x1c / 255}
-    local C_TOGGLE_BORDER = {0.42, 0.42, 0.46}
+    local C_CTRL_BORDER = {0x4A / 255, 0x52 / 255, 0x63 / 255}
+    local C_TOGGLE_BORDER = C_CTRL_BORDER
     local HUI_PILL_L = "Interface/AddOns/DungeonsForever/Media/LibHUI/HUIPillL"
     local HUI_PILL_R = "Interface/AddOns/DungeonsForever/Media/LibHUI/HUIPillR"
     local HUI_CORNER = "Interface/AddOns/DungeonsForever/Media/LibHUI/HUIRoundCornerFill"
@@ -554,26 +544,32 @@ do
         local ins = inset or 0
         local sl = sub or 0
 
+        local snapR = SnapCornerR(cornerSize)
+        local cornerTex = GLASS_FILL_TEX .. snapR
         local tl = f:CreateTexture(nil, "BACKGROUND", nil, sl)
-        tl:SetTexture(HUI_CORNER_TL)
+        tl:SetTexture(cornerTex)
+        tl:SetTexCoord(CornerQuadUV("TOPLEFT", snapR))
         tl:SetSize(cornerSize, cornerSize)
         tl:SetPoint("TOPLEFT", f, "TOPLEFT", ins, -ins)
         Paint(tl, color)
 
         local tr = f:CreateTexture(nil, "BACKGROUND", nil, sl)
-        tr:SetTexture(HUI_CORNER_TR)
+        tr:SetTexture(cornerTex)
+        tr:SetTexCoord(CornerQuadUV("TOPRIGHT", snapR))
         tr:SetSize(cornerSize, cornerSize)
         tr:SetPoint("TOPRIGHT", f, "TOPRIGHT", -ins, -ins)
         Paint(tr, color)
 
         local bl = f:CreateTexture(nil, "BACKGROUND", nil, sl)
-        bl:SetTexture(HUI_CORNER_BL)
+        bl:SetTexture(cornerTex)
+        bl:SetTexCoord(CornerQuadUV("BOTTOMLEFT", snapR))
         bl:SetSize(cornerSize, cornerSize)
         bl:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", ins, ins)
         Paint(bl, color)
 
         local br = f:CreateTexture(nil, "BACKGROUND", nil, sl)
-        br:SetTexture(HUI_CORNER_BR)
+        br:SetTexture(cornerTex)
+        br:SetTexCoord(CornerQuadUV("BOTTOMRIGHT", snapR))
         br:SetSize(cornerSize, cornerSize)
         br:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -ins, ins)
         Paint(br, color)
@@ -682,7 +678,9 @@ do
     do
         local ev = CreateFrame("Frame")
         ev:RegisterEvent("PLAYER_LOGIN")
-        ev:SetScript("OnEvent", function() ReapplyStripPixels(nil) end)
+        ev:SetScript("OnEvent", function()
+            C_Timer.After(0, function() ReapplyStripPixels(nil) end)
+        end)
         pcall(function() ev:RegisterEvent("UI_SCALE_CHANGED") end)
     end
     -- 旧整图角贴图翻转 UV（RoundIcon 等路径仍在用）
@@ -1163,67 +1161,129 @@ do
         return pieces
     end
 
-    local dropdownSkinSeen = {}
-    local function ApplyDropDownListSkin(f, on)
-        local s = f.__huiDropDownSkin
-        if not s then return end
-        for _, tex in ipairs(s.pieces) do tex:SetShown(on) end
-        for _, tex in ipairs(s.border) do tex:SetShown(on) end
-        for _, tex in ipairs(s.shadow or {}) do tex:SetShown(on) end
-        for _, bd in ipairs(s.libBackdrops) do
-            if bd then bd:SetShown(not on) end
+    local menuPopup = nil
+    local menuOwner = nil
+
+    local function HideDFMenu()
+        if menuPopup then
+            menuPopup:Hide()
+            menuPopup:SetParent(nil)
         end
+        menuPopup = nil
+        menuOwner = nil
     end
-    local function SkinDropDownList(f)
-        if not f or dropdownSkinSeen[f] then return end
-        dropdownSkinSeen[f] = true
-        local pieces = BuildRoundedBG(f, 8, ns.hui.layer.L1, "both")
-        local border = DrawRoundBorder(f, 8, C_CARD_BORDER) or {}
-        for _, tex in ipairs(border) do
-            tex:SetDrawLayer("OVERLAY")
+
+    local function MenuParseColor(c)
+        if type(c) == "table" and c[1] then
+            return c[1], c[2], c[3], c[4] or 1
         end
-        local shadow = (f:GetParent() == UIParent) and BuildCardShadow(f, 14, 0.7) or nil
-        f.__huiDropDownSkin = { pieces = pieces, border = border, shadow = shadow, libBackdrops = { f.Backdrop, f.MenuBackdrop } }
-        ns.hui.AddRepaint(f, function()
-            local DIV = C_CARD_BORDER   -- 2026-10-10 用户定：下拉菜单边框用白 10% 卡边，不用 DIV
-            for _, tex in ipairs(border) do
-                if tex.__huiBorderStrip then
-                    tex:SetColorTexture(DIV[1], DIV[2], DIV[3], 1)
-                    tex:SetAlpha(DIV[4] or 1)
-                else
-                    tex:SetVertexColor(DIV[1], DIV[2], DIV[3])
-                    tex:SetAlpha(DIV[4] or 1)
-                end
+        if type(c) == "string" and #c >= 10 and c:sub(1, 2) == "|c" then
+            local r = tonumber(c:sub(5, 6), 16)
+            local g = tonumber(c:sub(7, 8), 16)
+            local b = tonumber(c:sub(9, 10), 16)
+            if r and g and b then
+                return r / 255, g / 255, b / 255, 1
             end
-        end)
-        ns.hui.AddRepaint(f, function()
-            if ns.huiTheme ~= "hui" then return end
-            local L3 = ns.hui.layer.L3
-            for _, bt in ipairs({ f:GetChildren() }) do
-                if bt.Highlight then
-                    bt.Highlight:SetColorTexture(L3[1], L3[2], L3[3], 1)
-                end
+        end
+        return nil
+    end
+
+    local MENU_EV = CreateFrame("Frame", nil, UIParent)
+    MENU_EV:Hide()
+    MENU_EV:RegisterEvent("GLOBAL_MOUSE_DOWN")
+    MENU_EV:SetScript("OnEvent", function()
+        if not (menuPopup and menuPopup:IsShown()) then return end
+        if menuPopup:IsMouseOver() then return end
+        if menuOwner and menuOwner.IsMouseOver and menuOwner:IsMouseOver() then return end
+        HideDFMenu()
+    end)
+
+    function ns.hui.ShowMenu(items, opts)
+        if type(items) ~= "table" or #items == 0 then return end
+        opts = opts or {}
+        if menuPopup and menuPopup:IsShown() and opts.owner and opts.owner == menuOwner then
+            HideDFMenu()
+            return
+        end
+        if menuPopup then
+            menuPopup:Hide()
+            menuPopup:SetParent(nil)
+            menuPopup = nil
+        end
+        menuOwner = opts.owner
+
+        local popup = CreateFrame("Frame", nil, UIParent)
+        popup:SetFrameStrata("FULLSCREEN_DIALOG")
+        popup:SetToplevel(true)
+        popup:SetClampedToScreen(true)
+        popup:EnableMouse(true)
+        menuPopup = popup
+
+        local rowH = 22
+        local padX = 12
+        local iconSz = 18
+        local iconGap = 6
+        local measure = popup:CreateFontString(nil, "OVERLAY")
+        measure:SetFont(ns.FONT, 13, "")
+        local maxW = 0
+        for i = 1, #items do
+            local it = items[i]
+            measure:SetText(it.text or "")
+            local w = measure:GetStringWidth() + padX * 2
+            if it.icon then w = w + iconSz + iconGap end
+            if w > maxW then maxW = w end
+        end
+        maxW = math.max(120, math.min(maxW + 6, 360))
+        popup:SetSize(maxW, #items * rowH + 2)
+
+        local L5 = ns.hui.layer.L5
+        for i = 1, #items do
+            local it = items[i]
+            local row = CreateFrame("Button", nil, popup)
+            row:SetSize(maxW - 2, rowH)
+            row:SetPoint("TOPLEFT", popup, "TOPLEFT", 1, -1 - (i - 1) * rowH)
+            local hl = row:CreateTexture(nil, "BACKGROUND")
+            hl:SetAllPoints()
+            hl:SetColorTexture(0, 0, 0, 0)
+            row:SetScript("OnEnter", function()
+                hl:SetColorTexture(L5[1], L5[2], L5[3], 1)
+            end)
+            row:SetScript("OnLeave", function()
+                hl:SetColorTexture(0, 0, 0, 0)
+            end)
+            local tx = padX
+            if it.icon then
+                local ic = row:CreateTexture(nil, "ARTWORK")
+                ic:SetSize(iconSz, iconSz)
+                ic:SetPoint("LEFT", row, "LEFT", padX, 0)
+                ic:SetTexture(it.icon)
+                tx = padX + iconSz + iconGap
             end
-        end)
-        f:HookScript("OnShow", function(frame)
-            ApplyDropDownListSkin(frame, ns.huiTheme == "hui")
-        end)
-    end
-    for i = 1, 3 do
-        SkinDropDownList(_G["L_DropDownList" .. i])
-    end
-    local LibBG = ns.LibBG
-    if LibBG and LibBG.UIDropDownMenu_CreateFrames then
-        hooksecurefunc(LibBG, "UIDropDownMenu_CreateFrames", function()
-            for i = 4, 20 do
-                SkinDropDownList(_G["L_DropDownList" .. i])
+            local fs = row:CreateFontString(nil, "OVERLAY")
+            fs:SetPoint("LEFT", row, "LEFT", tx, 0)
+            fs:SetFont(ns.FONT, 13, "")
+            fs:SetJustifyH("LEFT")
+            fs:SetText(it.text or "")
+            local cr, cg, cb, ca = MenuParseColor(it.color)
+            if not cr then
+                cr, cg, cb = ns.hui.TextColor(nil, 1)
+                ca = 1
             end
-        end)
-    end
-    if LibBG and LibBG.UIDropDownMenu_InitializeHelper then
-        hooksecurefunc(LibBG, "UIDropDownMenu_InitializeHelper", function(_, frame)
-            if frame and frame.__huiDDH then frame:SetHeight(frame.__huiDDH) end
-        end)
+            fs:SetTextColor(cr, cg, cb, ca)
+            local fn = it.func
+            row:SetScript("OnClick", function()
+                HideDFMenu()
+                if type(fn) == "function" then fn() end
+            end)
+        end
+
+        ns.hui.SkinPopup(popup, 8, "both", ns.hui.layer.L3)
+
+        local scale = UIParent:GetEffectiveScale()
+        local cx, cy = GetCursorPosition()
+        popup:ClearAllPoints()
+        popup:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", cx / scale + 2, cy / scale - 4)
+        popup:Show()
     end
 
     function ns.hui.AttachContentPanel(page, anchor, topInset, bottomInset, sideInset)
@@ -1799,7 +1859,9 @@ do
         local f = CreateFrame("Frame")
         f:RegisterEvent("PLAYER_LOGIN")
         f:SetScript("OnEvent", function()
-            ns.hui.RefreshGameTooltipSkin()
+            C_Timer.After(0, function()
+                ns.hui.RefreshGameTooltipSkin()
+            end)
         end)
     end
 
@@ -1903,7 +1965,7 @@ do
         if not bt or bt.__huiAction or not bt.SetBackdropBorderColor then return end
         if ns.huiTheme ~= "hui" then return end
         bt.__huiAction = true
-        local C_BORDER = {0x4A / 255, 0x52 / 255, 0x63 / 255}
+        local C_BORDER = C_CTRL_BORDER
         local C_BG = {0x16 / 255, 0x1A / 255, 0x22 / 255}
         bt:SetBackdrop({
             bgFile = "Interface/ChatFrame/ChatFrameBackground",

@@ -87,13 +87,18 @@ function Info.Display(self, text, icon)
     text = tostring(text or "")
     local showIcon, showText = db.display ~= "text", db.display ~= "icon"
     local maxWidth = tonumber(db.maxWidth) or 180
+    local reservedWidth = showText and self.GetReservedTextWidth and self:GetReservedTextWidth(font, size, flags) or 0
+    local deferWidth = self.GetReservedTextWidth and YUI.API.Security.InCombatLockdown()
     if self.font == font and self.size == size and self.flags == flags
         and self.text == text and self.icon == icon and self.display == db.display and self.maxWidth == maxWidth
         and self.measuredSize == size and self.measuredFont == font and self.measuredFlags == flags
-        and self.measuredIconSize == iconSize and self.measuredIconGap == iconGap then return end
+        and self.measuredIconSize == iconSize and self.measuredIconGap == iconGap
+        and self.measuredReservedWidth == reservedWidth
+        and not (self.reservedWidthPending and not deferWidth) then return end
     self.text, self.icon, self.display, self.maxWidth = text, icon, db.display, maxWidth
     self.measuredSize, self.measuredFont = size, font
     self.measuredFlags,self.measuredIconSize,self.measuredIconGap=flags,iconSize,iconGap
+    self.measuredReservedWidth = reservedWidth
     f.iconSlot:SetShown(showIcon)
     f.text:SetShown(showText)
     YBar:SetIconSlotTexture(f.iconSlot, icon or self.defaultIcon or 134400)
@@ -114,9 +119,17 @@ function Info.Display(self, text, icon)
         -- the next normal refresh instead of caching a permanent one-pixel label.
         if measured<=0 and text~="" then self.text=nil end
     end
-    local width=showText and math.min(math.ceil(measured)+1,maxWidth) or 0
+    local width=showText and math.min(math.ceil(math.max(measured, reservedWidth))+1,maxWidth) or 0
+    local iconWidth = showIcon and iconSize + iconGap or 0
+    if deferWidth and self.width and width + iconWidth + 2 ~= self.width then
+        -- 耐久下降、首屏测量恢复或外观变化恰逢战斗时，保留已应用的空间，脱战再收紧。
+        self.reservedWidthPending = true
+        width = math.max(self.width - iconWidth - 2, 0)
+    else
+        self.reservedWidthPending = nil
+    end
     f.text:SetWidth(math.max(width, 1))
-    width = math.ceil(width + (showIcon and iconSize + iconGap or 0) + 2)
+    width = math.ceil(width + iconWidth + 2)
     self.contentHeight = math.max(showText and size or 0,showIcon and iconSize or 0)
     if self.width ~= width then
         self.width = width

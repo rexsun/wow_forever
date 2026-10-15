@@ -22,6 +22,7 @@ local C_GOLD, C_GREY = Host.C_GOLD, Host.C_GREY
 local C_DIM, C_WHITE, C_TEXT = Host.C_DIM, Host.C_WHITE, Host.C_TEXT
 local C_GREEN = Host.C_GREEN
 local FALLBACK_ICON = Host.FALLBACK_ICON
+local PAGE_INSET = Host.PAGE_INSET
 
 local MOUNTS = ns.CollectionMounts
 if type(MOUNTS) ~= "table" or #MOUNTS == 0 then return end
@@ -725,6 +726,10 @@ local function PaintDetail()
     CG.SyncHint()
 end
 
+local function PY()
+    if coroutine.running and coroutine.running() then coroutine.yield() end
+end
+
 local function Paint()
     if not CG.built then return end
     local list = VisibleList()
@@ -787,6 +792,7 @@ local function Paint()
                     r:SetPoint("RIGHT", CG.listChild, "RIGHT", 0, 0)   -- 双锚点撑宽（BisUI 同款）
                 end
                 y = y - (ROW_H + 8)   -- 行卡↔行卡缝 8
+                if ri % 8 == 0 then PY() end
             end
         end
     end
@@ -865,10 +871,10 @@ local function BuildListPanel(page)
         Cardify(p, 0.05, 0.12)
     end
     -- ★ 顶边 -8（窗沿 20 = PAGE_INSET 12 + GUTTER 8：页级卡片距页缘一律 8，四边对齐）
-    p:SetPoint("TOPLEFT", page, "TOPLEFT", 8, -8)
+    p:SetPoint("TOPLEFT", page, "TOPLEFT", PAGE_INSET, -8)
     -- ★ 底边必须锚 page 的 BOTTOMLEFT（此前误锚 TOPLEFT ⇒ 面板只剩 33px 高，
     --   ScrollFrame 高度算成负值把整个列表裁没了 —— 2026-10-07 实机截图定位）
-    p:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", 8 + LIST_W, 8)   -- ★ BOTTOM 系锚点 y 正值才是往上（负值会伸出页外）
+    p:SetPoint("BOTTOMRIGHT", page, "BOTTOMLEFT", PAGE_INSET + LIST_W, PAGE_INSET)   -- ★ BOTTOM 系锚点 y 正值才是往上（负值会伸出页外）
 
     CG.count = MakeFS(p, 12, C_DIM, "RIGHT")
     CG.count:SetPoint("TOPRIGHT", p, "TOPRIGHT", -PAD, -8)
@@ -950,6 +956,7 @@ local function BuildListPanel(page)
         end)
         CG.filterBtns[i] = bt
     end
+    coroutine.yield()
 
     -- 按子页刷新芯片文案与显隐 / 搜索占位符
     function CG.PaintFilters()
@@ -1070,6 +1077,7 @@ local function BuildListPanel(page)
     thumb:SetScript("OnHide", function(self)
         self:SetScript("OnUpdate", nil)
     end)
+    coroutine.yield()
 
     CG.secs = {}
     for i = 1, #GROUP_ORDER do
@@ -1081,6 +1089,7 @@ local function BuildListPanel(page)
         hd:Hide()
         CG.secs[i] = hd
     end
+    coroutine.yield()
 
     CG.rows = {}
     -- ★ 行池按**两个子页里条目多的那个**建满（坐骑 N vs 宠物 M 取大者）：
@@ -1148,6 +1157,7 @@ local function BuildListPanel(page)
         end)
         r:Hide()
         CG.rows[i] = r
+        if i % 14 == 0 then coroutine.yield() end
     end
 end
 
@@ -1158,8 +1168,8 @@ local function BuildDetailPanel(page)
     else
         Cardify(p, 0.05, 0.12)
     end
-    p:SetPoint("TOPLEFT", page, "TOPLEFT", 8 + LIST_W + 8, -8)
-    p:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -8, 8)
+    p:SetPoint("TOPLEFT", page, "TOPLEFT", PAGE_INSET + LIST_W + 8, -8)
+    p:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -PAGE_INSET, PAGE_INSET)
 
     -- 模型视口
     local vp = CreateFrame("Frame", nil, p, "BackdropTemplate")
@@ -1433,16 +1443,21 @@ local function BuildDetailPanel(page)
 end
 
 function CG.Build(page)
-    if CG.built then return end
-    CG.built = true
+    if CG.built or CG.building then return end
+    CG.building = true
+    ns.PhasedStart(34, coroutine.create(function()
     CG.page = page
     CG.sub = SUB_MOUNT
     CG.filter = "all"
     CG.search = ""
     BuildListPanel(page)
+    coroutine.yield()
     BuildDetailPanel(page)
+    coroutine.yield()
+    CG.built = true
     if CG.PaintFilters then CG.PaintFilters() end
     CG.Render()
+    end))
 end
 
 function CG.Open()

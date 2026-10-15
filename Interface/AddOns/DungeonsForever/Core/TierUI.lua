@@ -34,7 +34,7 @@ ns.TierModule = TT
 --   卡坐窗：左右底 = 窗沿 20；★ 顶 = CARD_TOP 8（二十八轮对齐全局标准：大卡顶 =
 --   主窗页签轨道底 + 8，专业页 17:29 同款修正，原窗沿 20 比其他页低 12 UI）；
 --   卡↔卡 8，卡内四周内衬 8（右列内容统一内收 INSET）。
-TT.EDGE = 20
+TT.EDGE = PAGE_INSET
 TT.CARD_TOP = 8
 TT.NAV_X, TT.NAV_PAD = TT.EDGE, 8
 TT.NAV_TOP = TT.CARD_TOP + 8
@@ -257,8 +257,14 @@ local function PatchBadge(frame)
     frame:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
 end
 
-local G = ns.ClassGuide
-if not G or type(G.specs) ~= "table" then G = nil end
+local G
+local function EnsureCG()
+    if not G then
+        local cg = ns.EnsureClassGuide and ns.EnsureClassGuide() or nil
+        G = (cg and type(cg.specs) == "table") and cg or nil
+    end
+    return G
+end
 
 TT.CLASS_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
 
@@ -422,6 +428,7 @@ local function BuildNav(page)
     end)
     TT.navBtn = bt
 
+    G = EnsureCG()
     if not G then return end
     local glabel = MakeFS(page, TT.NAV_HEAD_FS, C_GREY, "LEFT")
     glabel:SetPoint("TOPLEFT", page, "TOPLEFT", TT.NAV_X + TT.NAV_PAD + 2, -TT.NAV_GROUP_Y)
@@ -504,6 +511,7 @@ local function BuildSubTabs(page)
         x = x + TT.SUB_STEP
     end
 
+    G = EnsureCG()
     if not G then return end
     TT.specTabs = {}
     for i = 1, 3 do
@@ -528,6 +536,7 @@ end
 local RenderSpec
 
 local function BuildSecTabs(page)
+    G = EnsureCG()
     if not G then return end
     TT.secTabs = {}
     for i = 1, TT.SEC_TAB_MAX do
@@ -619,7 +628,8 @@ local function BuildCards(parent)
                 GameTooltip:Hide()
             end)
             cell:SetScript("OnClick", function(self)
-                if self.cls and self.spec and G and G.specs[self.cls] and G.specs[self.cls][self.spec] then
+                local cg = EnsureCG()
+                if self.cls and self.spec and cg and cg.specs[self.cls] and cg.specs[self.cls][self.spec] then
                     TT.OpenSpec(self.cls, self.spec)
                 end
             end)
@@ -645,6 +655,7 @@ local function BuildNotes(parent)
 end
 
 local function BuildSpecHero(page)
+    G = EnsureCG()
     if not G then return end
     -- ★ 顶卡（卡中卡，2026-10-10 用户定案）：spec 页签行 + hero + 板块页签行整体装进
     --   一张固定 L2 边框内卡（与 specPlate 同材同色 ⇒ 大卡内上下两张内卡）；不随滚动
@@ -704,6 +715,7 @@ local function BuildSpecHero(page)
 end
 
 local function BuildSpecPool(parent)
+    G = EnsureCG()
     if not G then return end
     local child = TT.child
 
@@ -1143,6 +1155,8 @@ RenderSpec = function()
     -- ★ 顶卡接管 spec 模式：显示顶卡（纯卡中卡外观）；rank 模式顶卡由
     --   HideSpec 隐藏（其视口上缘改为严格剔除，无遮罩板）。
     if TT.specTopCard then TT.specTopCard:Show() end
+    G = EnsureCG()
+    if not G then return end
     local db = DB()
     local cls = db.cls or TT.CLASS_ORDER[1]
     local rec = G.specs[cls]
@@ -1453,7 +1467,9 @@ end
 
 function TT.Build(page)
     if TT.built or TT.building then return end
+    ns.OpenPerf.Begin("职业指南")
     TT.building = true
+    ns.PhasedStart(15, coroutine.create(function()
     TT.page = page
 
     -- ★ 双大卡最先建（模板=探索页 navCard/listCard）：后续兄弟帧（按钮/滚动区/hero）
@@ -1481,10 +1497,13 @@ function TT.Build(page)
         end
         TT.navCard, TT.contentCard = navCard, contentCard
     end
+    coroutine.yield()
 
     BuildNav(page)
     BuildSubTabs(page)
+    coroutine.yield()
     BuildScroll(page)
+    coroutine.yield()
 
     local child = TT.child
     -- ★ 行文字宿主层（探索页 labelHost 同款）：内容卡是 L2 实底帧，child 直挂
@@ -1498,15 +1517,20 @@ function TT.Build(page)
     TT.meta:SetPoint("RIGHT", page, "TOPRIGHT", -(TT.EDGE + TT.INSET), -(TT.SUB_Y + TT.SUB_H / 2))
     TT.intro = MakeFS(TT.rowHost, 14, C_DIM, "LEFT")
     TT.intro:SetWidth(TT.CARD_W - 100)
+    coroutine.yield()
 
     BuildCards(child)
+    coroutine.yield()
     BuildNotes(TT.rowHost)
+    coroutine.yield()
     BuildSpecHero(page)
     BuildSecTabs(page)
     BuildSpecPool(child)
+    coroutine.yield()
 
     TT.built = true
     TT.building = false
+    ns.OpenPerf.Mark("就绪")
 
     -- ★ 层级收口（实底卡时代的静默杀手，探索页同款）：两块大卡之上的兄弟帧显式抬高；
     --   page 直挂 FontString（组标题 / 元信息行）是 region，永远画在子帧之下、
@@ -1556,13 +1580,15 @@ function TT.Build(page)
         for _, bt in pairs(TT.secTabs or {}) do bt:SetFrameLevel(fixLvl) end
         for _, bt in pairs(TT.subBtns or {}) do bt:SetFrameLevel(fixLvl) end
     end
+    coroutine.yield()
 
     TT.Render()
+    end))
 end
 
 function TT.PaintNav()
     local db = DB()
-    local specMode = (db.nav == "spec") and (G ~= nil) or false
+    local specMode = (db.nav == "spec") and (EnsureCG() ~= nil) or false
     local rankSel = not specMode
     SetOutline(TT.navBtn, rankSel, 1, 0.82, 0)
     TT.navBtn:GetFontString():SetTextColor(Unpack(rankSel and C_WHITE or C_DIM))
@@ -1612,6 +1638,7 @@ function TT.PaintNav()
 end
 
 function TT.OpenSpec(cls, spec)
+    G = EnsureCG()
     if not G then return end
     local db = DB()
     db.nav = "spec"
@@ -1657,12 +1684,17 @@ function TT.HideSpec()
     end
 end
 
+local function PY()
+    if coroutine.running and coroutine.running() then coroutine.yield() end
+end
+
 function TT.Render()
     if not TT.built then return end
     -- ★ 十五轮：渲染代自增——本轮渲染登记的元素才参与滚动剔除（见 CullScrollContent）。
     TT.__renderGen = (TT.__renderGen or 0) + 1
     local specMode = TT.PaintNav()
     TT.__mode = specMode and "spec" or "rank"
+    PY()
     if specMode then
         TT.PlaceScroll(TT.SEC_TOP)
         TT.HideRank()
@@ -1729,6 +1761,7 @@ function TT.RenderRank()
         local ui = TT.cards[i]
         local tier = tiers[i]
         ui.frame:Hide()
+        if i % 2 == 0 then PY() end
         if tier then
             local key = tier.key
             local specs = tier.specs or {}

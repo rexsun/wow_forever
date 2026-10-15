@@ -93,6 +93,45 @@ function UI:HideSchemePicker()
     if self.schemePicker then self.schemePicker:Hide() end
 end
 
+function UI:ToggleSchemeSettings()
+    if self.busyKind then return end
+    local panel = self.schemeSettings
+    if panel and panel:IsShown() then panel:Hide(); return end
+    local profile = Designer:GetProfile()
+    local session = Designer:GetSession()
+    if not (profile and session) then return end
+    self:HideSchemePicker(); self:HideSpecializationPicker()
+    if not panel then
+        panel = GUI:CreatePanel(UIParent, { width=350, height=112,
+            surface='color.surface.popup', border='color.popup.border', shadow=true })
+        self.schemeSettings = panel
+        panel:SetFrameStrata('FULLSCREEN_DIALOG'); panel:SetFrameLevel(660); panel:EnableMouse(true)
+        Text(panel,T('settings'),'color.text.heading'):SetPoint('TOPLEFT',16,-14)
+        GUI:CreateCloseButton(panel,function() panel:Hide() end):SetPoint('TOPRIGHT',-8,-8)
+        Text(panel,HUD:T('player_cast.hide_native')):SetPoint('TOPLEFT',16,-59)
+        panel.native = GUI.Form:CreateSwitch(panel, { width=54, set=function(value)
+            local current = Designer:GetSession()
+            if UI.busyKind or not panel:IsShown() or not current or current ~= panel.session or current.setId ~= panel.setId then return end
+            if Designer:SetPlayerCastSettings({hideNative=value == true}) then UI:Refresh(false, true) end
+        end })
+        panel.native:SetPoint('TOPRIGHT',-16,-53)
+        panel:EnableKeyboard(true)
+        panel:SetScript('OnKeyDown',function(frame,key)
+            if not InCombatLockdown() then frame:SetPropagateKeyboardInput(key ~= 'ESCAPE') end
+            if key == 'ESCAPE' then frame:Hide() end
+        end)
+        panel:SetScript('OnEvent',function(frame)
+            if not frame:IsMouseOver() then frame:Hide() end
+        end)
+        panel:SetScript('OnHide',function(frame) frame:UnregisterEvent('GLOBAL_MOUSE_DOWN'); frame.session,frame.setId=nil,nil end)
+    end
+    panel.session, panel.setId = session, session.setId
+    panel:ClearAllPoints(); panel:SetPoint('TOPLEFT',self.profileDropdown,'BOTTOMLEFT',0,-5)
+    panel:SetScale(self.toolbar:GetScale())
+    panel.native:SetValue(profile.playerCast and profile.playerCast.hideNative == true, true)
+    panel:Show(); panel:RegisterEvent('GLOBAL_MOUSE_DOWN')
+end
+
 local function EnsureSchemePickerRow(self, picker, index)
     local row = picker.pool[index]
     if not row then
@@ -135,7 +174,7 @@ function UI:RefreshSchemePicker()
     end
     for index=#picker.rows+1,#picker.pool do picker.pool[index]:Hide() end
     picker.viewportHeight=math.max(36,math.min(8,#picker.rows)*36)
-    picker:SetHeight(picker.viewportHeight+94)
+    picker:SetHeight(picker.viewportHeight+130)
     picker.scroll:SetHeight(picker.viewportHeight)
     GUI:FitScrollContent(picker.scroll,math.max(36, #picker.rows*36))
 end
@@ -144,6 +183,7 @@ function UI:ToggleSchemePicker()
     if self.busyKind then return end
     if self.schemePicker and self.schemePicker:IsShown() then self:HideSchemePicker(); return end
     self:HideSpecializationPicker()
+    if self.schemeSettings then self.schemeSettings:Hide() end
     HideTip()
     local picker = self.schemePicker
     if not picker then
@@ -156,7 +196,11 @@ function UI:ToggleSchemePicker()
         picker.scroll:SetPoint('TOPLEFT',8,-40)
         local divider=GUI:CreateTexture(picker,nil,'ARTWORK')
         GUI:SetTexturePaintKey(divider,'color.border.subtle')
-        divider:SetPoint('BOTTOMLEFT',8,46); divider:SetSize(360,GUI.mult or 1)
+        divider:SetPoint('BOTTOMLEFT',8,82); divider:SetSize(360,GUI.mult or 1)
+        self.schemeSettingsButton=GUI.Form:CreateButton(picker,{text=T('settings'),width=360,height=32,contentAlign='left',justifyH='LEFT',textLeftPadding=10,onClick=function()
+            self:ToggleSchemeSettings()
+        end})
+        self.schemeSettingsButton:SetPoint('BOTTOMLEFT',8,44)
         self.configSetManagerButton=GUI.Form:CreateButton(picker,{text=T('manage'),width=360,height=32,contentAlign='left',justifyH='LEFT',textLeftPadding=10,onClick=function()
             if self.busyKind then return end
             self:HideSchemePicker(); self:OpenConfigSetManagerFromToolbar()
@@ -173,11 +217,13 @@ function UI:ToggleSchemePicker()
             if not handled then return end
             if key=='ESCAPE' then self:HideSchemePicker(); return end
             if self.busyKind then return end
-            local count=#frame.rows+1
+            local count=#frame.rows+2
             local index=frame.highlight or 1
             if key=='ENTER' then
                 self:HideSchemePicker()
-                if index==count then self:OpenConfigSetManagerFromToolbar() else self:RequestSwitch(frame.rows[index].id) end
+                if index==count then self:OpenConfigSetManagerFromToolbar()
+                elseif index==count-1 then self:ToggleSchemeSettings()
+                else self:RequestSwitch(frame.rows[index].id) end
                 return
             end
             if key=='HOME' then index=1 elseif key=='END' then index=count
@@ -185,7 +231,8 @@ function UI:ToggleSchemePicker()
             frame.highlight=index
             for i,row in ipairs(frame.pool) do row:SetSelected(i==index) end
             self.configSetManagerButton:SetSelected(index==count)
-            if index<count then frame.scroll:SetVerticalScroll(math.max(0,math.min((index-1)*36, #frame.rows*36-frame.viewportHeight))) end
+            self.schemeSettingsButton:SetSelected(index==count-1)
+            if index<=#frame.rows then frame.scroll:SetVerticalScroll(math.max(0,math.min((index-1)*36, #frame.rows*36-frame.viewportHeight))) end
         end)
         picker:SetScript('OnHide',function(frame) frame:UnregisterEvent('GLOBAL_MOUSE_DOWN'); HideTip() end)
         picker:SetScript('OnEvent',function(frame)
@@ -196,6 +243,7 @@ function UI:ToggleSchemePicker()
     picker:SetScale(self.toolbar:GetScale()); picker:Show(); picker:RegisterEvent('GLOBAL_MOUSE_DOWN')
     self:RefreshSchemePicker()
     self.configSetManagerButton:SetSelected(false)
+    self.schemeSettingsButton:SetSelected(false)
     picker.highlight=1
     for i,row in ipairs(picker.rows) do if row.id==self.profileDropdown:GetValue() then picker.highlight=i break end end
     picker.scroll:SetVerticalScroll(math.max(0,math.min((picker.highlight-1)*36,#picker.rows*36-picker.viewportHeight)))
@@ -204,6 +252,7 @@ end
 function UI:RefreshToolbarContext()
     if not self.toolbarWarning then return end
     local session = Designer:GetSession(); if not session then return end
+    if self.schemeSettings and (self.schemeSettings.session ~= session or self.schemeSettings.setId ~= session.setId) then self.schemeSettings:Hide() end
     local rows = self:BuildToolbarSchemeRows() or {}
     local current
     for _,row in ipairs(rows) do if row.id==session.setId then current=row break end end
@@ -256,6 +305,7 @@ function UI:CreateDesignerToolbar()
     bar:SetScript('OnDragStart',function(frame)
         if not self.active or self.busyKind then return end
         self:HideSchemePicker(); self:HideSpecializationPicker(); HideTip()
+        if self.schemeSettings then self.schemeSettings:Hide() end
         frame.dragging=true; frame:StartMoving()
     end)
     bar:SetScript('OnDragStop',function(frame)
@@ -337,6 +387,7 @@ function UI:CreateDesignerToolbar()
     bar:SetScript('OnHide',function()
         if bar.dragging then bar:StopMovingOrSizing(); bar.dragging=nil end
         self:HideSchemePicker()
+        if self.schemeSettings then self.schemeSettings:Hide() end
         if self.recommendedLibrary then self.recommendedLibrary:Hide() end
         if Settings.SoundCenter and Settings.SoundCenter.CloseDesignerWindow then Settings.SoundCenter:CloseDesignerWindow() end
         YUI.Event:Off('DISPLAY_SIZE_CHANGED','LayoutToolbar',self); YUI.Event:Off('UI_SCALE_CHANGED','LayoutToolbar',self); YUI.Event:Off('YUI_CONFIG_SETS_CHANGED','RefreshToolbarContext',self)

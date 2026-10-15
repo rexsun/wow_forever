@@ -105,6 +105,10 @@ local function RootOnUpdate(_, elapsed)
     end
 end
 
+local function RootRefreshTheme()
+    if Skyriding.activeSurface then Skyriding:ApplyAppearance() end
+end
+
 local function T(key, fallback)
     return YHUD:T(key, fallback)
 end
@@ -147,8 +151,17 @@ local function CreateBar(parent, height, color, emptyColor)
     bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
     bar:SetStatusBarColor(color[1], color[2], color[3], color[4] or 1)
     bar.bg = CreateSolidTexture(bar, "BACKGROUND", emptyColor)
+    GUI2:EnsureProjectedStatusBarFill(bar, bar, bar, { parent = bar })
+    bar.chrome = GUI2:CreateFrame(bar, {})
+    bar.chrome:SetAllPoints(bar)
+    bar.chrome:SetFrameLevel(bar:GetFrameLevel() + 4)
+    bar.visualTarget = {
+        statusBar = bar.nativeVisibleStatusBar,
+        background = bar.bg,
+        border = GUI2:EnsureStatusBarBorder(bar.chrome),
+        pixelOwner = bar,
+    }
     SetStatusBarValue(bar, 0)
-    if GUI2.CreateBorder then GUI2:CreateBorder(bar, "color.border.subtle") end
     return bar
 end
 
@@ -209,10 +222,10 @@ local function CreateSpeedBar(parent, height, style)
         style.normalColor,
         style.backgroundColor
     )
-    speed.tick = speed:CreateTexture(nil, "OVERLAY")
+    speed.tick = speed.chrome:CreateTexture(nil, "OVERLAY")
     speed.tick:SetTexture("Interface\\Buttons\\WHITE8x8")
     speed.text = GUI2:CreateText(
-        speed,
+        speed.chrome,
         "0%",
         "font.size.sm",
         "color.text.primary",
@@ -223,12 +236,14 @@ end
 
 local function SetStatusColor(target, color)
     if not (target and color) then return end
-    target:SetStatusBarColor(
-        color.r or color[1],
-        color.g or color[2],
-        color.b or color[3],
-        color.a or color[4] or 1
-    )
+    local r, g, b, a = color.r or color[1], color.g or color[2],
+        color.b or color[3], color.a or color[4] or 1
+    if target._yhudSkyridingColorR == r and target._yhudSkyridingColorG == g
+        and target._yhudSkyridingColorB == b and target._yhudSkyridingColorA == a then return end
+    target._yhudSkyridingColorR, target._yhudSkyridingColorG = r, g
+    target._yhudSkyridingColorB, target._yhudSkyridingColorA = b, a
+    local visible = target.nativeVisibleStatusBar or target
+    visible:SetStatusBarColor(r, g, b, a)
 end
 
 local function LayoutPips(row, width, gap)
@@ -259,8 +274,15 @@ local function ApplySpeedFont(surface, settings)
             font = settings.speedFont or "default",
             size = tonumber(settings.speedFontSize) or 12,
             outline = "outline",
+            color = type(settings.speedTextColor) == "table" and settings.speedTextColor or nil,
         })
     end
+    if type(settings.speedTextColor) == "table" then
+        text.gui2ColorKey = nil
+    elseif GUI2.SetTextColorKey then
+        GUI2:SetTextColorKey(text, "color.text.primary")
+    end
+    text:SetShown(settings.speedText ~= false)
 end
 
 local function BuildHaloSurface(root, style)
@@ -420,7 +442,7 @@ function Skyriding:SetStyle(id)
     return true
 end
 
-function Skyriding:ApplySettings(profile, deferRuntimeSync)
+function Skyriding:ApplySettings(profile, deferRuntimeSync, appearanceOnly)
     local settings = YHUD.GetSkyridingSettings
         and YHUD:GetSkyridingSettings(profile)
         or { enabled = false, style = DEFAULT_STYLE_ID, styles = {} }
@@ -435,8 +457,8 @@ function Skyriding:ApplySettings(profile, deferRuntimeSync)
     if changed then self.activeSurface = nil end
     self.cooldownDirty = true
     self.gcdDirty = true
-    if self.root then self:ApplyStyle() end
-    if YUI.Layout and YUI.Layout.InvalidateAnchorProvider then
+    if self.root then self:ApplyStyle(appearanceOnly == true and not changed) end
+    if appearanceOnly ~= true and YUI.Layout and YUI.Layout.InvalidateAnchorProvider then
         YUI.Layout:InvalidateAnchorProvider(LAYOUT_ID)
     end
     if self.active and deferRuntimeSync ~= true
@@ -466,12 +488,13 @@ function Skyriding:MeasureHaloLayout(settings)
         + (tonumber(settings.rowGap) or 4) * 2
 end
 
-function Skyriding:ApplyStyle()
+function Skyriding:ApplyStyle(appearanceOnly)
     local root = self.root
     local style = self:GetStyle()
     if not (root and style) then return false end
     local surface = self.surfaces[self.styleId]
     if not surface then
+        appearanceOnly = false
         surface = style.buildKind == "halo"
             and BuildHaloSurface(root, style)
             or BuildHorizonSurface(root, style)
@@ -488,12 +511,17 @@ function Skyriding:ApplyStyle()
     root.gcdRing = surface.gcdRing
 
     local settings = self:GetStyleSettings(self.styleId)
+    if appearanceOnly ~= true then self:ApplyLayout(surface, style, settings) end
+    self:ApplyAppearance()
+    return true
+end
+
+function Skyriding:ApplyLayout(surface, style, settings)
+    local root = self.root
     local totalWidth = tonumber(settings.width) or 340
     local speedHeight = tonumber(settings.speedHeight) or 16
     local rowGap = tonumber(settings.rowGap) or 4
     local pipGap = tonumber(settings.pipGap) or 3
-    local vigorColor = settings.vigorColor or style.vigorColor
-    local secondWindColor = settings.secondWindColor or style.secondWindColor
     local speedWidth = totalWidth
     local rootHeight
 
@@ -648,17 +676,6 @@ function Skyriding:ApplyStyle()
 
     root:SetSize(totalWidth, rootHeight)
     root:SetScale(1)
-    ApplySpeedFont(surface, settings)
-    surface.speed:SetStatusBarColor(unpack(style.normalColor))
-    surface.speed.bg:SetVertexColor(unpack(style.backgroundColor))
-    for index = 1, #surface.vigor.pips do
-        SetStatusColor(surface.vigor.pips[index], vigorColor)
-        surface.vigor.pips[index].bg:SetVertexColor(unpack(style.emptyColor))
-    end
-    for index = 1, #surface.secondWind.pips do
-        SetStatusColor(surface.secondWind.pips[index], secondWindColor)
-        surface.secondWind.pips[index].bg:SetVertexColor(unpack(style.emptyColor))
-    end
     local threshold = (tonumber(style.thrillSpeedPercent) or 0)
         / math_max(1, tonumber(style.maxSpeedPercent) or 1)
     threshold = math_max(0, math_min(1, threshold))
@@ -680,6 +697,43 @@ function Skyriding:ApplyStyle()
         and view.RefreshDesignChromeGeometry then
         view:RefreshDesignChromeGeometry(self.runtime)
     end
+    return true
+end
+
+function Skyriding:ApplyAppearance()
+    local surface = self.activeSurface
+    if not surface then return false end
+    local style = self:GetStyle()
+    local settings = self:GetStyleSettings(self.styleId)
+    local borderColor = type(settings.borderColor) == "table"
+        and settings.borderColor or "color.border.subtle"
+    local function ApplyBar(bar, color, background)
+        local snapshot = GUI2:CompileStatusBarStyle({
+            fillTexture = settings.fillTexture or "solid",
+            fillColor = color,
+            backgroundColor = background,
+            border = settings.border or 1,
+            borderColor = borderColor,
+        }, bar.visualStyle)
+        bar.visualStyle = snapshot
+        GUI2:ApplyStatusBarChrome(bar.visualTarget, snapshot)
+        bar._yhudSkyridingColorR = nil
+        local texture = bar.nativeVisibleStatusBar:GetStatusBarTexture()
+        texture:SetAlpha(bar._yhudSkyridingRecharging and RECHARGE_ALPHA or 1)
+    end
+    self.speedNormalColor = settings.speedColor or style.normalColor
+    self.speedThrillColor = settings.thrillColor or style.thrillColor
+    ApplyBar(surface.speed, self.speedNormalColor, settings.backgroundColor or style.backgroundColor)
+    for index = 1, #surface.vigor.pips do
+        ApplyBar(surface.vigor.pips[index], settings.vigorColor or style.vigorColor,
+            settings.emptyColor or style.emptyColor)
+    end
+    for index = 1, #surface.secondWind.pips do
+        ApplyBar(surface.secondWind.pips[index], settings.secondWindColor or style.secondWindColor,
+            settings.emptyColor or style.emptyColor)
+    end
+    ApplySpeedFont(surface, settings)
+    self:UpdateSpeed(0, self.smoothedSpeed)
     return true
 end
 
@@ -744,6 +798,8 @@ function Skyriding:Build()
     })
     root:Hide()
     root.surfaces = self.surfaces
+    root.RefreshTheme = RootRefreshTheme
+    GUI2:RegisterThemeObject(root)
     self.root = root
     self:RegisterRuntimeGroup()
     self:ApplyStyle()
@@ -843,15 +899,19 @@ function Skyriding:UpdateSpeed(dt, forwardSpeed)
         1,
         speedPercent / math_max(1, style.maxSpeedPercent or 1)
     ))
-    if SetStatusBarValue(self.root.speed, fraction, SPEED_EPSILON) then
+    SetStatusBarValue(self.root.speed, fraction, SPEED_EPSILON)
+    local displayedPercent = math_floor(speedPercent + 0.5)
+    if self.root.speed._yhudSkyridingTextPercent ~= displayedPercent then
+        self.root.speed._yhudSkyridingTextPercent = displayedPercent
         self.root.speed.text:SetText(string_format(
             "%d%%",
-            math_floor(speedPercent + 0.5)
+            displayedPercent
         ))
-        local color = speedPercent >= (style.thrillSpeedPercent or 0)
-            and style.thrillColor or style.normalColor
-        self.root.speed:SetStatusBarColor(unpack(color))
     end
+    local color = speedPercent >= (style.thrillSpeedPercent or 0)
+        and (self.speedThrillColor or style.thrillColor)
+        or (self.speedNormalColor or style.normalColor)
+    SetStatusColor(self.root.speed, color)
 end
 
 local function ApplyChargeRow(row, count, info, previewCurrent, previewProgress)
@@ -873,7 +933,8 @@ local function ApplyChargeRow(row, count, info, previewCurrent, previewProgress)
         local value = index <= current and 1
             or (recharging and progress or 0)
         if pip._yhudSkyridingRecharging ~= recharging then
-            pip:GetStatusBarTexture():SetAlpha(recharging and RECHARGE_ALPHA or 1)
+            local visible = pip.nativeVisibleStatusBar or pip
+            visible:GetStatusBarTexture():SetAlpha(recharging and RECHARGE_ALPHA or 1)
             pip._yhudSkyridingRecharging = recharging
         end
         SetStatusBarValue(pip, value, PIP_EPSILON)
@@ -1053,6 +1114,7 @@ function Skyriding:HidePresentation()
             pcall(SetStatusBarValue, root.speed, 0)
             if root.speed.text and root.speed.text.SetText then
                 pcall(root.speed.text.SetText, root.speed.text, "0%")
+                root.speed._yhudSkyridingTextPercent = nil
             end
         end
         local ring = self.activeSurface and self.activeSurface.gcdRing

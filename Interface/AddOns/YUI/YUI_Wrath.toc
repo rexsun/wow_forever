@@ -5,7 +5,7 @@
 ## Notes-zhCN: YUI 整合界面插件。
 ## Notes-zhTW: YUI 整合介面插件。
 ## Author: 阿言
-## Version: v338
+## Version: v341
 ## SavedVariables: YUI_DB, YUI_CPUDiagnostics
 ## Interface: 38001
 ## OptionalDeps: NDUI, ElvUI, Details, !Pig, ExtendedVendorFrame_YUI, BugSack

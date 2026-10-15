@@ -17,6 +17,16 @@ OSG.policy = {
     reason = "EllesmereUI unit frames own player power and class resources; YUI swing timers remain available.",
   },
   {
+    id = "yui.playerhealth", adapter = "YUI", key = "PlayerHealth",
+    label = "YUI: Player health HUD bar", when = { "YUI", "EllesmereUIUnitFrames" },
+    reason = "EllesmereUI unit frames own player health; do not duplicate it in YHUD.",
+  },
+  {
+    id = "yui.playercast", adapter = "YUI", key = "PlayerCast",
+    label = "YUI: Player cast HUD bars", when = { "YUI", "EllesmereUIUnitFrames" },
+    reason = "EllesmereUI owns the player castbar; YHUD cast selections, cast-only groups and native castbar suppression stay off.",
+  },
+  {
     id = "eui.nameplatepower", adapter = "EllesmereUI", key = "NameplatePower",
     label = "EllesmereUI: Nameplate class power", when = { "EllesmereUINameplates", "EllesmereUIUnitFrames" },
     reason = "EllesmereUI unit frames own class resources; do not duplicate them on the target nameplate.",

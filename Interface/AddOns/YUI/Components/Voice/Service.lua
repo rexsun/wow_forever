@@ -249,9 +249,11 @@ function NotificationProvider:Submit(owner, key, selection, options, preview)
     if selection.kind == 'native' then resource = native
     else resource, code = Runtime:Resolve(selection, prefs) end
     local resolved = resource ~= nil
+    local special=selection.kind=='voice' and S:ParseSpecialVoice(selection.value)~=nil
+    if special and not resource then return false,code end
     if not resource then resource = native end
     if not resource then return false, code or 'missing-native-sound' end
-    if selection.kind ~= 'native' then resource.notificationFallback = native end
+    if selection.kind ~= 'native' and not special then resource.notificationFallback = native end
     if not resolved then resource.notificationFallbackUsed = true end
     resource.preferences, resource.preview = prefs, preview == true
     if not prefs.dedup then
@@ -283,14 +285,18 @@ function S:PreviewRandomEntry()
     for _,entry in ipairs(self:GetEntries()) do
         if pack.entries[entry.id] then candidates[#candidates+1]=entry.id end
     end
+    for _,entry in ipairs(self:GetSpecialEntries(prefs.voicePackId)) do candidates[#candidates+1]=entry.id end
     if #candidates==0 then return nil,'missing-recording' end
+    local id=candidates[math.random(#candidates)]
     local resource
-    resource,code=self:ResolveEntry(candidates[math.random(#candidates)],
+    resource,code=self:ResolveEntry(id,
         {packId=prefs.voicePackId,fallbackDefault=false,fallbackTTS=false})
     if not resource then return nil,code end
     resource.preferences,resource.preview=prefs,true
     -- No fallback options: a failed audition must not switch voice packs or use TTS.
-    return Runtime.playback:Submit(Runtime.previewOwner,'preview',resource,GetTime()+prefs.expiry)
+    local ok
+    ok,code=Runtime.playback:Submit(Runtime.previewOwner,'preview',resource,GetTime()+prefs.expiry)
+    return ok,code,ok and id or nil
 end
 
 -- Author auditions bypass fallback at both resolution and actual file playback.
@@ -367,7 +373,11 @@ end
 local digits = { 'VC-6b86b273', 'VC-d4735e3a', 'VC-4e074085', 'VC-4b227777', 'VC-ef2d127d',
     'VC-e7f6c011', 'VC-7902699b', 'VC-2c624232', 'VC-19581e27', 'VC-4a44dc15' }
 local function ResolveForecastPart(kind,value,options)
-    if kind=='voice' then return S:ResolveEntry(value,options) end
+    if kind=='voice' then
+        local resource,code=S:ResolveEntry(value,options)
+        if not resource and S:ParseSpecialVoice(value) then return {kind='none'} end
+        return resource,code
+    end
     if (kind~='system' and kind~='lsm') or type(value)~='string' or value=='' then return nil,'invalid-forecast-sound' end
     local resolved,file,_,why=S:Resolve(kind..':'..value)
     if not resolved then return nil,why end

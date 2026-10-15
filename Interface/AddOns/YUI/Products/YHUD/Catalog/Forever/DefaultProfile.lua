@@ -5267,6 +5267,15 @@ YHUD.Client.defaultProfile = {
                 },
             },
             ["MAGE"] = {
+                ["11582"] = {
+                    ["swingRanged"] = true,
+                },
+                ["11594"] = {
+                    ["swingRanged"] = true,
+                },
+                ["11601"] = {
+                    ["swingRanged"] = true,
+                },
             },
             ["PALADIN"] = {
                 ["11486"] = {
@@ -5284,6 +5293,15 @@ YHUD.Client.defaultProfile = {
                 },
             },
             ["PRIEST"] = {
+                ["11608"] = {
+                    ["swingRanged"] = true,
+                },
+                ["11615"] = {
+                    ["swingRanged"] = true,
+                },
+                ["11622"] = {
+                    ["swingRanged"] = true,
+                },
             },
             ["ROGUE"] = {
                 ["11572"] = {
@@ -5320,6 +5338,15 @@ YHUD.Client.defaultProfile = {
                 },
             },
             ["WARLOCK"] = {
+                ["11629"] = {
+                    ["swingRanged"] = true,
+                },
+                ["11636"] = {
+                    ["swingRanged"] = true,
+                },
+                ["11637"] = {
+                    ["swingRanged"] = true,
+                },
             },
             ["WARRIOR"] = {
                 ["11650"] = {
@@ -5511,6 +5538,7 @@ YHUD.Client.defaultProfile = {
         },
         ["selectionDefault"] = "catalog",
         ["settingsByResource"] = {
+            ["cast"] = { heightOverride = 24, cast = { icon = true, iconSide = "left", iconGap = 0 } },
             ["comboPoints"] = {
                 ["abbreviateValues"] = false,
                 ["displayMode"] = "divided",

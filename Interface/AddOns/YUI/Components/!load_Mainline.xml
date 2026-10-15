@@ -18,6 +18,7 @@
     <Include file="UtilityTools\Locales\!load.xml"/>
     <Script file="UtilityTools\FriendlyNameplates.lua"/>
     <Script file="UtilityTools\NameplateOutline.lua"/>
+    <Script file="UtilityTools\RouteGuide.lua"/>
     <Script file="UtilityTools\UtilityTools.lua"/>
     <Include file="AutoGossip\Locales\!load.xml"/>
     <Script file="AutoGossip\AutoGossip.lua"/>
@@ -25,6 +26,7 @@
     <Script file="NativeInterface\Visibility.lua"/>
     <Script file="NativeInterface\Retail_Mainline.lua"/>
     <Script file="NativeInterface\Tutorial_Mainline.lua"/>
+    <Script file="NativeInterface\TooltipFade.lua"/>
     <Script file="NativeInterface\Runtime.lua"/>
     <Include file="EllesmereUIEnhancement\Locales\!load.xml"/>
     <Script file="EllesmereUIEnhancement\Hotkeys.lua"/>
@@ -32,6 +34,7 @@
     <Include file="MouseEnhancement\Locales\!load.xml"/>
     <Script file="MouseEnhancement\PlayerTooltip.lua"/>
     <Script file="MouseEnhancement\TooltipCursor.lua"/>
+    <Script file="MouseEnhancement\TooltipFade.lua"/>
     <Script file="MouseEnhancement\MouseEnhancement.lua"/>
     <Script file="GameMenuButtons\GameMenuButtons.lua"/>
     <Include file="SocialEnhancement\Locales\!load.xml"/>

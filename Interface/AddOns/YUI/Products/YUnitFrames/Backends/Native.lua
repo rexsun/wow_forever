@@ -140,18 +140,27 @@ function Backend:PaintBar(element, unit)
     if kind ~= "cast" then element.frame:Show() end
     if kind == "cast" then
         local info = element.record.castInfo
-        if not info or not info.durationObject then
+        if not info or not element.record.castDuration then
             element.frame:Hide(); if element.binding then element.binding:SetEnabled(false) end; return false
         end
         element.frame:Show()
         self:PaintTicks(element, info)
-        bar:SetTimerDuration(info.durationObject, Enum.StatusBarInterpolation.Immediate,
-            info.isChannel and Enum.StatusBarTimerDirection.RemainingTime or Enum.StatusBarTimerDirection.ElapsedTime)
+        if not GUI:BindCastTimer(bar, element.record.castDuration, element.record.castIsChannel) then
+            element.frame:Hide(); if element.binding then element.binding:SetEnabled(false) end; return false
+        end
         element.label:SetText(info.displayNameRaw)
         element.icon:SetTexture(info.displayTextureRaw)
-        if element.binding then element.binding:SetDuration(info.durationObject); element.binding:SetEnabled(true) end
+        if element.binding then element.binding:SetDuration(element.record.castDuration); element.binding:SetEnabled(true) end
     elseif kind == "health" then
-        bar:SetMinMaxValues(0, UnitHealthMax(unit)); bar:SetValue(UnitHealth(unit))
+        local record = element.record
+        if not record.healthRead then
+            record.healthDisplay = YUI.API.Unit.ReadHealthDisplay(unit, record.healthDisplay)
+            record.healthRead = true
+        end
+        local display = record.healthDisplay
+        if display.rawValuesAvailable then
+            bar:SetMinMaxValues(0, display.maxValueRaw); bar:SetValue(display.valueRaw)
+        end
     elseif kind == "power" then
         bar:SetMinMaxValues(0, UnitPowerMax(unit)); bar:SetValue(UnitPower(unit))
     elseif kind == "absorbs" then
@@ -166,39 +175,21 @@ end
 function Backend:PaintTicks(element, info, preview)
     local config = element.config
     local count = 0
-    if config.showTicks and (preview or (info and info.isChannel)) then
-        local id = info and info.spellID
+    if config.showTicks and (preview or (info and info.isChannel and not info.isEmpowered)) then
         count = config.tickCount or 0
         if count == 0 then
-            count = preview and 5 or (id and not YUI.API.Security.IsSecretValue(id) and UF.Client.channelTicks and UF.Client.channelTicks[id]) or 0
+            count = preview and 5 or element.record.castDisplay and element.record.castDisplay.castTickCount or 0
         end
     end
-    element.ticks = element.ticks or {}
-    for i = 1, math.max(#element.ticks, count - 1) do
-        local tick = element.ticks[i]
-        if not tick then
-            tick = GUI:CreateTexture(element.bar, { layer = "OVERLAY", subLevel = 4 })
-            GUI:SetTexturePaintKey(tick, "color.text.primary"); tick:SetAlpha(0.65)
-            element.ticks[i] = tick
-        end
-        tick:SetShown(i < count)
-        if i < count then
-            tick:ClearAllPoints()
-            if config.vertical then
-                tick:SetSize(config.width, GUI:GetPixelSize(element.frame, 1))
-                tick:SetPoint("BOTTOM", element.bar, "BOTTOM", 0, config.height * i / count)
-            else
-                tick:SetSize(GUI:GetPixelSize(element.frame, 1), config.height)
-                tick:SetPoint("LEFT", element.bar, "LEFT", config.width * i / count, 0)
-            end
-        end
-    end
+    local display = not preview and config.showTicks and element.record.castDisplay
+    GUI:UpdateCastMarkers(element.ticks, element.bar, display and display.castStages,
+        display and display.castTotal, count, config.vertical, config.reverse)
 end
 
 function Backend:PaintCastPart(element, record)
     local info = record.castInfo
     if element.binding then element.binding:SetEnabled(false) end
-    if not record.preview and (not info or not info.durationObject) then element.frame:Hide(); return end
+    if not record.preview and (not info or not record.castDuration) then element.frame:Hide(); return end
     element.frame:Show()
     if element.kind == "casticon" then
         element.texture:SetTexture(record.preview and 135846 or info.displayTextureRaw)
@@ -206,7 +197,7 @@ function Backend:PaintCastPart(element, record)
     elseif element.kind == "castname" then element.text:SetText(record.preview and UF:T("preview.cast") or info.displayNameRaw)
     elseif element.kind == "casttime" then
         if record.preview then element.text:SetText("1.4")
-        elseif element.binding then element.binding:SetDuration(info.durationObject); element.binding:SetEnabled(true) end
+        elseif element.binding then element.binding:SetDuration(record.castDuration); element.binding:SetEnabled(true) end
     elseif element.kind == "casttarget" then
         if record.preview then element.text:SetText("Astra")
         else

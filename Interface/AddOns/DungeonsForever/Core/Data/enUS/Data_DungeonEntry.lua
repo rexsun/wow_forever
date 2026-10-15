@@ -35,6 +35,7 @@ ns.DungeonEntry = {
     ["dire_maul_west"] = { 1444, 60.3, 30.2, "Feralas" },
     ["dire_maul_north"] = { 1444, 62.5, 24.9, "Feralas" },
     ["dire_maul_east"] = { 1444, 64.8, 30.2, "Feralas" },
+    ["onyxias_lair"] = { 1445, 52.3, 76.1, "Dustwallow Marsh" },
     ["zul_farrak"] = { 1446, 38.7, 20.0, "Tanaris" },
     ["the_stockade"] = { 1453, 50.4, 66.4, "Stormwind City" },
     ["ragefire_chasm"] = { 1454, 51.5, 49.7, "Orgrimmar" },

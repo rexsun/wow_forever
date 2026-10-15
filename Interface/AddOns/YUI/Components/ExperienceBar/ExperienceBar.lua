@@ -12,6 +12,7 @@ local defaults = {
     font = "默认", outline = "OUTLINE", shadow = true,
     textStyle = "outlineShadow", detailFont = "默认", detailTextStyle = "none",
     levelSize = 20, barSize = 14, detailSize = 14, barTextOffsetY = 16,
+    detailBackgroundAlpha = 0.7,
     levelTextOffsetX = 0, levelTextOffsetY = 0,
     levelColor = { 1, 0.85, 0.52, 1 }, barColor = { 1, 1, 1, 1 }, detailColor = { 239/255, 239/255, 239/255, 1 },
     texture = " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3Solid|r", gradient = false, vertical = false,
@@ -83,6 +84,7 @@ local function Config()
     config.barSize = math.max(9, math.min(22, tonumber(config.barSize) or defaults.barSize))
     config.barTextOffsetY = math.max(-20, math.min(20, tonumber(config.barTextOffsetY) or defaults.barTextOffsetY))
     config.detailSize = math.max(9, math.min(20, tonumber(config.detailSize) or defaults.detailSize))
+    config.detailBackgroundAlpha = math.max(0, math.min(1, tonumber(config.detailBackgroundAlpha) or defaults.detailBackgroundAlpha))
     if config.outline ~= "" and config.outline ~= "OUTLINE" and config.outline ~= "THICKOUTLINE" then config.outline = "OUTLINE" end
     config.width = math.max(300, math.min(700, tonumber(config.width) or defaults.width))
     config.diameter = math.max(36, math.min(80, tonumber(config.diameter) or defaults.diameter))
@@ -299,7 +301,6 @@ local function EnsureFrame()
     etaText = GUI2:CreateText(fill, "", 12)
     panel = GUI2:CreateFrame(frame, { type = "Button", template = "BackdropTemplate", strata = "TOOLTIP" })
     panel:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12, insets = { left = 3, right = 3, top = 3, bottom = 3 } })
-    panel:SetBackdropColor(0.045, 0.04, 0.065, 0.97)
     panel:SetBackdropBorderColor(0.55, 0.46, 0.31, 1)
     panel:SetWidth(300)
     panel:EnableMouse(true)
@@ -390,6 +391,7 @@ ApplyAppearance = function()
     forecastColors.rested = { db.restedColor, db.restedGradient and db.restedEndColor or db.restedColor, db.restedVertical }
     forecastColors.quest = { db.questColor, db.questGradient and db.questEndColor or db.questColor, db.questVertical }
     EnsureFrame()
+    panel:SetBackdropColor(0.045, 0.04, 0.065, db.detailBackgroundAlpha)
     local plain = db.layout == "plain"
     local asset = rings[db.ring]
     local pixel = GUI2:GetPixelSize(track, 1, 1)
@@ -483,6 +485,7 @@ ApplyAppearance = function()
         StyleText(row.value, db.detailSize, db.detailColor, true)
     end
     StyleText(hint, math.max(9, db.detailSize - 1), db.detailColor, true)
+    GUI2:SetTextColorKey(hint, "color.tooltip.success")
     PaintFill(fill, 0, split and 0.5 or 1)
     PaintFill(secondFill, 0.5, 1)
     if YUI.Layout then YUI.Layout:RefreshFrame(LAYOUT) end
@@ -807,6 +810,7 @@ function Feature:GetOptions()
         Row(Field("slider", "barTextOffsetY", { min = -20, max = 20, step = 1 })),
         Row(Field("checkbox", "showPercent"), Field("checkbox", "showETA")),
         Section("detailText"),
+        Row(Field("slider", "detailBackgroundAlpha", { min = 0, max = 1, step = 0.01, precision = 2, tooltip = L["setting.detailBackgroundAlpha.tooltip"] })),
         Row(Font("detailFont"), Field("dropdown", "detailTextStyle", { options = GUI2.Form:BuildFontOutlineOptions() })),
         Row(Field("slider", "detailSize", { min = 9, max = 20, step = 1 }), Field("color", "detailColor", { hasAlpha = true })),
         Section("details"),

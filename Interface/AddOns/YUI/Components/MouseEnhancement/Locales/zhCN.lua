@@ -6,6 +6,8 @@ YUI.Locale:Register("MouseEnhancement", "zhCN", {
     ["name"] = "鼠标增强",
     ["description"] = "增强玩家鼠标提示，并在物品、法术、光环、任务、货币和 NPC 鼠标提示底部显示 ID。",
     ["settings.section.tooltip"] = "鼠标提示",
+    ["settings.tooltip_instant_hide"] = "立即隐藏鼠标提示",
+    ["settings.tooltip_instant_hide_help"] = "鼠标移开后立即隐藏，取消延迟和淡出。",
     ["settings.tooltip_cursor_enabled"] = "跟随鼠标",
     ["settings.tooltip_cursor_help"] = "让常规鼠标提示跟随鼠标，并调整显示方位和距离。",
     ["settings.tooltip_cursor_position"] = "显示位置",

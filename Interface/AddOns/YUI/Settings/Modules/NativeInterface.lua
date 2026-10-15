@@ -118,6 +118,10 @@ local function Render(parent)
         },
     }
 
+    if YUI.IsForever == true then
+        config[#config + 1] = Checkbox("hideRaidManager", "hide.raid_manager", "hide.raid_manager.tooltip")
+    end
+
     if YUI.IsRetail == true then
         local native = GetNative()
         local topAvailability = native and native.GetSettingsAvailability
@@ -160,10 +164,13 @@ local function Render(parent)
     end
 
     if YUI.IsForever == true then
+        config[#config + 1] = { type = "divider", label = T("section.enhancements"), width = 620, alignLeft = true }
+        config[#config + 1] = Checkbox("questLootSparkles", "quest.sparkles", "quest.sparkles.tooltip")
         AddWindowSettings(config)
         config[#config + 1] = { type = "divider", label = T("section.beta"), width = 620, alignLeft = true }
         config[#config + 1] = Checkbox("compactBetaReporter", "beta.compact_reporter", "beta.compact_reporter.tooltip")
         config[#config + 1] = Checkbox("fixBagSortButton", "beta.fix_bag_sort", "beta.fix_bag_sort.tooltip")
+        config[#config + 1] = Checkbox("fixProfessionsIcon", "beta.fix_professions_icon", "beta.fix_professions_icon.tooltip")
     end
 
     S:RenderConfig(parent, config)

@@ -14,6 +14,7 @@ local function GetYBarDB()
     return profile.YBar
 end
 local YBar = YUI.YBar
+local Display = YBar.DurabilityDisplay
 local GUI2 = YUI.GUI2
 local LegacyAPI = YUI.WOW_API
 local ItemAPI = YUI.API and YUI.API.Item or LegacyAPI
@@ -241,6 +242,8 @@ local function DurabilityMountOnEvent(event)
         return
     end
 
+    if event == "YUI_WORLD_READY" then Display.BeginRetry(Module) end
+
     if event == "YUI_AUTO_REPAIR_CHANGED" and GameTooltip and GameTooltip.GetOwner then
         local owner = GameTooltip:GetOwner()
         if owner and (owner == Module.secure or owner == Module.frame) then
@@ -252,6 +255,9 @@ end
 
 function Module:AttachRuntime()
     if self._hasError or not self.secure or not IsDurabilityFrameReady(self.frame) then return end
+
+    if not self.runtimeAttached then Display.BeginRetry(self) end
+    self.runtimeAttached = true
 
     YUI.Event:OffOwner(self)
     YUI.Event:On("UPDATE_INVENTORY_DURABILITY", DurabilityMountOnEvent, self)
@@ -265,6 +271,8 @@ function Module:AttachRuntime()
 end
 
 function Module:DetachRuntime()
+    self.runtimeAttached = false
+    Display.StopRetry(self)
     YUI.Event:OffOwner(self)
 
     self.needsUpdate = false
@@ -352,6 +360,7 @@ function Module:CreateBarItem(parent)
     })
     frame.text:ClearAllPoints()
     frame.text:SetPoint("LEFT", frame.iconSlot or frame.icon, "RIGHT", 4, 0)
+    frame.text:SetWordWrap(false)
     YBar:RegisterBarItemHoverText(frame, frame.text)
 
     self.secure = secure
@@ -370,7 +379,7 @@ function Module:CreateBarItem(parent)
     return frame
 end
 
-function Module:UpdateBarItem(frame, parent, totalCurrent, totalMax, lowest)
+function Module:UpdateBarItem(frame, parent, totalCurrent, totalMax, lowest, restricted)
     if parent then self.parent = parent end
     if not frame then frame = self.frame end
     if self._hasError or not IsDurabilityFrameReady(frame) then return end
@@ -402,9 +411,12 @@ function Module:UpdateBarItem(frame, parent, totalCurrent, totalMax, lowest)
     -- 悬停时复用提示框已经读取的耐久，不再扫描一遍装备。
     if totalMax == nil then
         totalCurrent, totalMax, lowest = 0, 0, 100
+        restricted = false
         for _, slot in ipairs(SLOTS) do
             local current, max = ItemAPI.GetInventoryItemDurability(slot)
-            if current and max and max > 0 then
+            if SecurityAPI.IsSecretValue(current) or SecurityAPI.IsSecretValue(max) then
+                restricted = true
+            elseif type(current) == "number" and type(max) == "number" and max > 0 then
                 totalCurrent = totalCurrent + current
                 totalMax = totalMax + max
                 local perc = (current / max) * 100
@@ -413,9 +425,10 @@ function Module:UpdateBarItem(frame, parent, totalCurrent, totalMax, lowest)
         end
     end
     self.totalCurrent, self.totalMax, self.lowestDurability = totalCurrent, totalMax, lowest
+    self.durabilityRestricted = restricted == true
     
     local avg
-    if totalMax > 0 then
+    if totalMax > 0 and not restricted then
         avg = (totalCurrent / totalMax) * 100
     end
     self.avgDurability = avg
@@ -424,7 +437,7 @@ function Module:UpdateBarItem(frame, parent, totalCurrent, totalMax, lowest)
     local displayPercent = avg
     local textStr
 
-    if totalMax == 0 then
+    if totalMax == 0 or restricted then
         textStr = "--"
     elseif displayMode == "lowest" then
         displayPercent = lowest
@@ -520,23 +533,26 @@ function Module:UpdateBarItem(frame, parent, totalCurrent, totalMax, lowest)
     end
     
     -- 计算宽度
-    local width = 0
-    if db.showIcon then
-        width = width + (size + 2) + 4
-    end
-    local textWidth = frame.text:GetStringWidth() or 0
-    width = width + textWidth + 2
+    local iconWidth = db.showIcon and (size + 2) + 4 or 0
+    local textWidth, widthReady = Display.MeasureText(self, font, size, fontFlag, displayMode, avg, lowest)
+    textWidth = math.ceil(textWidth) + 1
+    local width = iconWidth + textWidth + 2
     
     local oldWidth = self.width
-    self.width = width
-    
     if not SecurityAPI.InCombatLockdown() then
+        self.width = width
         frame:SetWidth(width)
+        self.appliedWidth = width
     else
         self.needsUpdate = true
+        -- 战斗内始终报告已应用的占位；下降后的范围在脱战时统一收紧。
+        self.width = self.appliedWidth or oldWidth or width
+        textWidth = math.max(self.width - iconWidth - 2, 1)
     end
+    frame.text:SetWidth(textWidth)
+    Display.UpdateRetry(self, (totalMax == 0 and not restricted) or not widthReady)
     
-    if not parent and oldWidth and math.abs(width - oldWidth) > 1 then
+    if not parent and oldWidth and self.width ~= oldWidth then
         if YBar and YBar.UpdateLayout then
             YBar:UpdateLayout()
         end
@@ -569,9 +585,12 @@ function Module:OnEnter(frame)
     
     -- 装备列表
     local totalCurrent, totalMax, lowest = 0, 0, 100
+    local restricted = false
     for _, slot in ipairs(SLOTS) do
         local current, max = ItemAPI.GetInventoryItemDurability(slot)
-        if current and max and max > 0 then
+        if SecurityAPI.IsSecretValue(current) or SecurityAPI.IsSecretValue(max) then
+            restricted = true
+        elseif type(current) == "number" and type(max) == "number" and max > 0 then
             local perc = (current / max) * 100
             totalCurrent = totalCurrent + current
             totalMax = totalMax + max
@@ -608,8 +627,9 @@ function Module:OnEnter(frame)
     end
 
     -- 两处显示使用同一次读数；数值未变化时不重设字体、坐骑动作或布局。
-    if totalCurrent ~= self.totalCurrent or totalMax ~= self.totalMax or lowest ~= self.lowestDurability then
-        self:UpdateBarItem(self.frame, nil, totalCurrent, totalMax, lowest)
+    if totalCurrent ~= self.totalCurrent or totalMax ~= self.totalMax or lowest ~= self.lowestDurability
+        or restricted ~= self.durabilityRestricted then
+        self:UpdateBarItem(self.frame, nil, totalCurrent, totalMax, lowest, restricted)
     end
     
     GameTooltip:AddLine(" ")

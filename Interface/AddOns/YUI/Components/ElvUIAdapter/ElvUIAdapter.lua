@@ -377,7 +377,8 @@ local function UpdateItemLevelTooltipHooks()
             end
             if not itemLink then return end
 
-            local itemLevel = select(4, GetItemInfo(itemLink))
+            local itemInfo = YUI.API.Item.GetInfo(itemLink)
+            local itemLevel = itemInfo and itemInfo.level
             if not itemLevel then
                 local tries = (tt._yuiItemLevelRetryCount or 0)
                 if tries >= 2 then
@@ -394,7 +395,7 @@ local function UpdateItemLevelTooltipHooks()
                 return
             end
 
-            local equipLoc = select(9, GetItemInfo(itemLink))
+            local equipLoc = itemInfo.equipLoc
             if not equipLoc or equipLoc == "" or equipLoc == "INVTYPE_NON_EQUIP_IGNORE" then
                 return
             end
@@ -436,10 +437,11 @@ local function UpdateItemLevelTooltipHooks()
         local _, itemLink = tt:GetItem()
         if not itemLink then return ClearState(tt) end
 
-        local itemLevel = select(4, GetItemInfo(itemLink))
+        local itemInfo = YUI.API.Item.GetInfo(itemLink)
+        local itemLevel = itemInfo and itemInfo.level
         if not itemLevel then return end
 
-        local equipLoc = select(9, GetItemInfo(itemLink))
+        local equipLoc = itemInfo.equipLoc
         if not equipLoc or equipLoc == "" or equipLoc == "INVTYPE_NON_EQUIP_IGNORE" then
             return
         end
@@ -462,7 +464,7 @@ local function UpdateItemLevelTooltipHooks()
             local numLines = tt:NumLines() or 0
             if numLines <= 0 then return 1 end
 
-            local itemName = GetItemInfo(itemLink)
+            local itemName = itemInfo.name
             if itemName and itemName ~= "" then
                 local normalizedItemName = NormalizeText(itemName)
                 for i = 1, math.min(8, numLines) do

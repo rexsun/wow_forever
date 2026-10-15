@@ -707,7 +707,7 @@ if Transfer then
         id = "product.ymap", kind = "product", schemaVersion = 1,
         labelKey = "product.title", labelNamespace = "YMap",
         productId = function() return YMap.Host and YMap.Host.productId or "suite" end,
-        clients = { retail = true }, dataPaths = { "YMap" }, layoutIds = layoutIds,
+        clients = { retail = true, forever = true }, dataPaths = { "YMap" }, layoutIds = layoutIds,
         requiresReload = true,
         importAliases = { "component.map_enhancement", "component.world_event_tracker" },
         mergeCanonicalImportAliases = true,

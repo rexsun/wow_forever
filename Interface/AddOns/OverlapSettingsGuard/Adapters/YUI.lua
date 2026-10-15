@@ -7,7 +7,7 @@ local UTILITY = {
   FriendlyNameplates = { field = "syncFriendlyNameplates", default = false, runtime = "UtilityToolsNameplates" },
 }
 
--- YUI v338's Forever catalog uses configuration-specialization IDs, not retail spec IDs.
+-- Forever uses configuration-specialization IDs, not retail spec IDs.
 local CLASSES = {
   WARRIOR = { specs = { 11650, 11657, 11670 }, resources = { "rage" } },
   PALADIN = { specs = { 11486, 11541, 11559 }, resources = { "mana" } },
@@ -23,7 +23,8 @@ local FORMS = {
   caster = { "mana" }, moonkin = { "mana" }, travel = { "mana" },
   cat = { "energy", "comboPoints", "mana" }, bear = { "rage", "mana" },
 }
-local pendingRefresh = false
+local pendingRefresh = {}
+local PLAYER_RESOURCES = { PlayerHealth = { "health" }, PlayerCast = { "cast" } }
 
 local function LiveProfile()
   local yui = _G.YUI
@@ -80,10 +81,19 @@ local function ResourceState()
     and type(canonical.resources.byGroup) == "table") then
     return nil, "YHUD resource schema is unavailable"
   end
-  local configs, seen = {}, {}
+  local configs, castGroups, nativeCast, seen = {}, {}, {}, {}
   local function Visit(node, name)
     if type(node) ~= "table" or seen[node] then return end
     seen[node] = true
+    local groups = type(node.groups) == "table" and node.groups.items
+    for _, group in pairs(type(groups) == "table" and groups or {}) do
+      if type(group) == "table" and group.layout == "resource" and group.contentPolicy == "cast-only" then
+        castGroups[#castGroups + 1] = { store = group, name = name }
+      end
+    end
+    if type(node.playerCast) == "table" then
+      nativeCast[#nativeCast + 1] = { store = node.playerCast, name = name }
+    end
     if type(node.resources) == "table" and type(node.resources.byGroup) == "table" then
       for _, config in pairs(node.resources.byGroup) do
         if type(config) == "table" then configs[#configs + 1] = { store = config, name = name } end
@@ -93,16 +103,16 @@ local function ResourceState()
   end
   Visit(canonical, "active HUD")
   for _, profile in ipairs(Profiles(live)) do Visit(profile.store, profile.name) end
-  return { hud = hud, configs = configs }
+  return { hud = hud, configs = configs, castGroups = castGroups, nativeCast = nativeCast }
 end
 
-local function ResourceOn(config)
-  local fallback = config.selectionDefault ~= "none"
+local function ResourceOn(config, key)
+  local fallback = key == "Resources" and config.selectionDefault ~= "none"
   for class, pack in pairs(CLASSES) do
     local byClass = type(config.bySpec) == "table" and config.bySpec[class]
     for _, spec in ipairs(pack.specs) do
       local selected = type(byClass) == "table" and (byClass[tostring(spec)] or byClass[spec]) or {}
-      for _, resource in ipairs(pack.resources) do
+      for _, resource in ipairs(PLAYER_RESOURCES[key] or pack.resources) do
         local value = type(selected) == "table" and selected[resource]
         if value == true or (value == nil and fallback) then return true end
       end
@@ -114,7 +124,7 @@ local function ResourceOn(config)
     for form, resources in pairs(FORMS) do
       local override = type(overrides) == "table" and overrides[form]
       local enabled = type(override) == "table" and override.enabled or {}
-      for _, resource in ipairs(resources) do
+      for _, resource in ipairs(PLAYER_RESOURCES[key] or resources) do
         local value = type(enabled) == "table" and enabled[resource]
         if value == true or (value == nil and fallback) then return true end
       end
@@ -128,7 +138,7 @@ local function Ensure(parent, key)
   return parent[key]
 end
 
-local function DisableResources(config)
+local function DisableResources(config, resourceKey)
   local bySpec = Ensure(config, "bySpec")
   for class, pack in pairs(CLASSES) do
     local byClass = Ensure(bySpec, class)
@@ -136,7 +146,7 @@ local function DisableResources(config)
       local key = tostring(spec)
       if byClass[key] == nil and type(byClass[spec]) == "table" then byClass[key] = byClass[spec] end
       local selected = Ensure(byClass, key)
-      for _, resource in ipairs(pack.resources) do selected[resource] = false end
+      for _, resource in ipairs(PLAYER_RESOURCES[resourceKey] or pack.resources) do selected[resource] = false end
     end
   end
   local forms = Ensure(Ensure(config, "formOverrides"), "DRUID")
@@ -146,19 +156,23 @@ local function DisableResources(config)
     local overrides = Ensure(forms, key)
     for form, resources in pairs(FORMS) do
       local enabled = Ensure(Ensure(overrides, form), "enabled")
-      for _, resource in ipairs(resources) do enabled[resource] = false end
+      for _, resource in ipairs(PLAYER_RESOURCES[resourceKey] or resources) do enabled[resource] = false end
     end
   end
 end
 
-function adapter.Knows(key) return UTILITY[key] ~= nil or key == "Resources" end
+function adapter.Knows(key) return UTILITY[key] ~= nil or key == "Resources" or PLAYER_RESOURCES[key] ~= nil end
 
 function adapter.Read(key)
-  if key == "Resources" then
+  if key == "Resources" or PLAYER_RESOURCES[key] then
     local state, problem = ResourceState()
     if not state then return nil, problem end
-    if pendingRefresh then return true end
-    for _, config in ipairs(state.configs) do if ResourceOn(config.store) then return true end end
+    if pendingRefresh[key] then return true end
+    for _, config in ipairs(state.configs) do if ResourceOn(config.store, key) then return true end end
+    if key == "PlayerCast" then
+      for _, group in ipairs(state.castGroups) do if group.store.enabled ~= false then return true end end
+      for _, config in ipairs(state.nativeCast) do if config.store.hideNative == true then return true end end
+    end
     return false
   end
   local state, problem = UtilityState(key)
@@ -171,22 +185,36 @@ function adapter.Read(key)
 end
 
 function adapter.Revert(key)
-  if key == "Resources" then
+  if key == "Resources" or PLAYER_RESOURCES[key] then
     local state, problem = ResourceState()
     if not state then return false, problem end
     local changed = {}
     for _, config in ipairs(state.configs) do
-      if ResourceOn(config.store) then
-        DisableResources(config.store)
+      if ResourceOn(config.store, key) then
+        DisableResources(config.store, key)
         changed[config.name] = true
       end
     end
-    pendingRefresh = true
+    if key == "PlayerCast" then
+      for _, group in ipairs(state.castGroups) do
+        if group.store.enabled ~= false then
+          group.store.enabled = false
+          changed[group.name] = true
+        end
+      end
+      for _, config in ipairs(state.nativeCast) do
+        if config.store.hideNative == true then
+          config.store.hideNative = false
+          changed[config.name] = true
+        end
+      end
+    end
+    pendingRefresh[key] = true
     local ok, result, reason = pcall(state.hud.OnLifecycleConfigChanged, state.hud)
     if not ok or result == false or (result == nil and reason ~= nil) then
       return false, "YHUD refresh failed: " .. tostring(ok and reason or result)
     end
-    pendingRefresh = false
+    pendingRefresh[key] = nil
     local names = {}
     for name in pairs(changed) do if name ~= "active HUD" then names[#names + 1] = name end end
     table.sort(names)

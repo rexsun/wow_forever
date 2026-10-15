@@ -109,6 +109,12 @@ function Runtime:ReconcileProvider(providerId, reason)
         return false, "automatic_assignments_disabled"
     end
 
+    local transfer = S.ConfigTransfer
+    if transfer and transfer.IsImporting and transfer:IsImporting(provider.productId) then
+        self:SetPending(providerId, "import-in-progress")
+        return nil, "import-in-progress"
+    end
+
     local code, detail
     local configurationMode
     if SupportsConfigurationModes(provider) then
@@ -349,6 +355,10 @@ function Runtime:OnPlayerRegenEnabled()
     self:FlushPending("combat-ended")
 end
 
+function Runtime:OnImportReleased()
+    if self._enabled then self:FlushPending("import-released") end
+end
+
 function Runtime:OnTransactionsInvalidated()
     local service = S.ConfigSets
     for providerId, provider in pairs(service and service.providers or {}) do
@@ -419,6 +429,10 @@ function Runtime:OnEnable()
     Event:On("YUI_MODULE_ENABLED", "OnModuleEnabled", self, {
         moduleId = self.MODULE_ID,
         phase = "module-enabled",
+    })
+    Event:On("YUI_CONFIG_TRANSFER_RELEASED", "OnImportReleased", self, {
+        moduleId = self.MODULE_ID,
+        phase = "import-released",
     })
 
     if IsWorldReady() then

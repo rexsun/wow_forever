@@ -141,7 +141,7 @@ local function HuiCardFX(f, hoverR, baseN)
     local fill, border = ns.hui.BuildRoundedBG(f, 6, base, "both", true, 1)
     f.__huiCard = { fill = fill, border = border }
     if hoverR and ns.hui.BuildCapsule then
-        local hp = ns.hui.BuildCapsule(f, hoverR, hov, 1, 2)
+        local hp = ns.hui.BuildCapsule(f, 6, hov, 1, 2)
         for _, t in ipairs(hp) do t:Hide() end
         f.__hov = hp
     end
@@ -158,6 +158,8 @@ local function HuiCardState(f, st)
     if f.__hov then for _, t in ipairs(f.__hov) do t:SetShown(hov) end end
     return true
 end
+ns.hui.HuiCardFX = HuiCardFX
+ns.hui.HuiCardState = HuiCardState
 
 local function SetOutline(bt, on, r, g, b)
     if bt.__outlineFrame then
@@ -305,9 +307,19 @@ DG.HERO_CAMELOT = {
     ruins_of_lordaeron = 7963782,
     hall_of_thanes = 7963781,
 }
+-- 插件自带美术（键 = 副本 id，值 = TGA 路径，无扩展名）：hero / 卡面各一条预裁带
+local MEDIA_HERO = {
+    onyxias_lair = "Interface\\AddOns\\DungeonsForever\\Media\\Loadings\\OnyxiasLairHero",
+}
+local MEDIA_WIDE = {
+    onyxias_lair = "Interface\\AddOns\\DungeonsForever\\Media\\Loadings\\OnyxiasLairWide",
+}
 
 function DG.ArtOf(d, kind)
     local wide = (kind == "wide")
+    -- 插件自带媒体图（2026-10-11 奥巢：客户端加载图导出 TGA，预裁好比例、坐标取满）
+    local mpath = wide and MEDIA_WIDE[d.id] or MEDIA_HERO[d.id]
+    if mpath then return mpath, nil end
     if ns.IsForever then
         local cam = DG.HERO_CAMELOT[d.id]
         if cam then return cam, (wide and DG.WIDE_TEX_CAMELOT or DG.HERO_TEX_CAMELOT) end
@@ -316,6 +328,12 @@ function DG.ArtOf(d, kind)
     if fd then return fd, (wide and DG.WIDE_TEX_OFFICIAL or DG.HERO_TEX_OFFICIAL) end
     return nil
 end
+
+-- 卡面美术查询（团本列表卡用）：返回 路径, 坐标
+function DG.CardArtFor(d)
+    return DG.ArtOf(d, "wide")
+end
+U.CardArtFor = DG.CardArtFor
 
 function DG.PaintArt(tex, d, kind)
     -- ★ 原画抬到 BACKGROUND sub=2（2026-10-10）：卡背 backdrop 填充与原画同层，
@@ -386,6 +404,9 @@ function DG.WheelScroll(scroll, child, delta)
     if not (scroll and child) then return end
     local maxScroll = math.max(0, child:GetHeight() - scroll:GetHeight())
     scroll:SetVerticalScroll(math.max(0, math.min(maxScroll, scroll:GetVerticalScroll() - delta * 48)))
+    if scroll == U.dungeonQuestScroll then DG.CullQuestRows()
+    elseif scroll == U.dungeonGuideScroll then DG.CullGuideCards()
+    elseif scroll == U.dungeonDetailScroll then DG.CullLootCards() end
 end
 
 -- 副本卡描边统一入口：hui 走圆角描边件（OVERLAY），非 hui 走方形 backdrop 边。
@@ -727,6 +748,102 @@ function DG.ListFadesVisible(vis)
     end
 end
 
+function DG.DetailTopMask(topY)
+    local detail = U.dungeonDetail
+    local base = U.dungeonDetailBase
+    if not (detail and base) then return end
+    if not (IsHui() and ns.hui and ns.hui.layer and ns.hui.layer.L0) then return end
+    local L0 = ns.hui.layer.L0
+    local mask = CreateFrame("Frame", nil, detail)
+    mask:SetFrameLevel(base + 2)
+    mask:SetPoint("TOPLEFT", detail, "TOPLEFT", 0, 8)
+    mask:SetPoint("TOPRIGHT", detail, "TOPRIGHT", 0, 8)
+    mask:SetPoint("BOTTOMLEFT", detail, "TOPLEFT", 0, -topY)
+    mask:SetPoint("BOTTOMRIGHT", detail, "TOPRIGHT", 0, -topY)
+    local tex = mask:CreateTexture(nil, "OVERLAY")
+    tex:SetAllPoints()
+    tex:SetTexture("Interface\\Buttons\\WHITE8x8")
+    tex:SetVertexColor(L0[1], L0[2], L0[3], L0[4] or 1)
+    mask:Hide()
+    return mask
+end
+
+function DG.RaiseDetailChrome()
+    local base = U.dungeonDetailBase
+    if not base then return end
+    if U.dungeonDetailHero then U.dungeonDetailHero:SetFrameLevel(base + 3) end
+    if U.dungeonDetailTipZone then U.dungeonDetailTipZone:SetFrameLevel(base + 3) end
+    if U.dungeonBack then U.dungeonBack:SetFrameLevel(base + 3) end
+    local lv = base + 4
+    for _, bt in pairs(U.dungeonTabBtns or {}) do bt:SetFrameLevel(lv) end
+    for _, chip in ipairs(U.dungeonEntChips or {}) do chip:SetFrameLevel(lv) end
+    for _, bt in ipairs(U.dungeonFilterBtns or {}) do bt:SetFrameLevel(lv) end
+    if U.dungeonQDoneTg then U.dungeonQDoneTg:SetFrameLevel(lv) end
+    if U.dungeonLootBossDd then U.dungeonLootBossDd:SetFrameLevel(lv) end
+    for _, bt in ipairs(U.dungeonLootViewBtns or {}) do bt:SetFrameLevel(lv) end
+    if U.lootFilterBar then U.lootFilterBar:SetFrameLevel(lv) end
+end
+
+local function VScrollBounds(sc)
+    local gt = sc.GetTop and sc:GetTop()
+    if type(gt) ~= "number" then return nil end
+    local viewH = sc.GetHeight and sc:GetHeight()
+    if type(viewH) ~= "number" then return nil end
+    local v = sc.GetVerticalScroll and sc:GetVerticalScroll() or 0
+    if type(v) ~= "number" then v = 0 end
+    return v - 2, v + viewH + 2
+end
+
+local function CullVItems(sc, items, defH)
+    if type(items) ~= "table" then return end
+    local vTop, vBot = VScrollBounds(sc)
+    if not vTop then return end
+    for _, el in ipairs(items) do
+        if el.__vgen == DG.__vgen and type(el.__vtop) == "number" then
+            if (el.__vtop + (el.__vh or defH)) > vTop and el.__vtop < vBot then
+                el:Show()
+            else
+                el:Hide()
+            end
+        end
+    end
+end
+
+function DG.CullQuestRows()
+    local sc, pool = U.dungeonQuestScroll, U.dungeonQuestPool
+    if not (sc and pool and sc.IsShown and sc:IsShown()) then return end
+    CullVItems(sc, pool.row, DG.Q_ROW_H)
+    local vTop, vBot = VScrollBounds(sc)
+    if not vTop then return end
+    for _, hd in ipairs(pool.hdr or {}) do
+        if hd.__vgen == DG.__vgen and type(hd.__vtop) == "number" then
+            local vis = (hd.__vtop + (hd.__vh or DG.Q_HDR_H)) > vTop and hd.__vtop < vBot
+            if vis then hd.name:Show() hd.cnt:Show() else hd.name:Hide() hd.cnt:Hide() end
+        end
+    end
+end
+
+function DG.CullGuideCards()
+    local sc, pool = U.dungeonGuideScroll, U.dungeonGuidePool
+    if not (sc and pool and sc.IsShown and sc:IsShown()) then return end
+    CullVItems(sc, pool.card, 100)
+end
+
+function DG.CullLootCards()
+    local sc, pool = U.dungeonDetailScroll, U.dungeonDetailPool
+    if not (sc and pool and sc.IsShown and sc:IsShown()) then return end
+    CullVItems(sc, pool.card, DG.LOOT_CARD_MIN_H)
+    CullVItems(sc, pool.item, DG.LOOT_CARD_H)
+    local vTop, vBot = VScrollBounds(sc)
+    if not vTop then return end
+    for _, hd in ipairs(pool.hdr or {}) do
+        if hd.__vgen == DG.__vgen and type(hd.__vtop) == "number" then
+            local vis = (hd.__vtop + (hd.__vh or DG.LOOT_HDR_H)) > vTop and hd.__vtop < vBot
+            if vis then hd.name:Show() hd.cnt:Show() else hd.name:Hide() hd.cnt:Hide() end
+        end
+    end
+end
+
 function DG.BuildDungeons()
     if U.dungeonBuilt then return end
     local data = ns.DungeonData
@@ -739,7 +856,7 @@ function DG.BuildDungeons()
     local CARD_TOP = DG.GUTTER                    -- 大卡片顶 = 轨道底下 8（page 顶=轨道底，同探索页 TOP_EDGE=8 口径）
     local DETAIL_Y = DG.GUTTER                    -- 详情页 hero 顶 = 轨道底下 8
     local LIST_Y = CARD_TOP + DG.GUTTER           -- 列表滚动区顶 = 卡顶 + 内衬 8
-    local CARD_BOTTOM = PAGE_INSET + DG.GUTTER    -- 大卡片底 = 窗沿 20
+    local CARD_BOTTOM = PAGE_INSET    -- 大卡片底 = 窗沿 20
     local listW = CONTENT_W - PAGE_INSET * 2
 
     -- 大卡片（L1 容器卡，固定外壳）：包住推荐 / 现在可以进入 / 还需升级 三组全部内容，
@@ -1092,6 +1209,7 @@ function DG.BuildPendRows()
     else
         DG.Gate.Finish()
     end
+    DG.CullLootCards()
 end
 
 -- 渲染收尾入口：量小同步建完（快速通道，不闪进度条）；量大交分帧器 + 进度条。
@@ -1241,6 +1359,41 @@ function DG.RunSteps()
     else
         pump()
     end
+end
+
+ns.PhasedStart = function(total, body, onFail)
+    pcall(collectgarbage, "stop")
+    local co = type(body) == "thread" and body or coroutine.create(body)
+    local function step()
+        if coroutine.status(co) == "dead" then
+            pcall(collectgarbage, "restart")
+            DG.Gate.Finish()
+            return
+        end
+        local t0 = DG.__nowMs()
+        while true do
+            local ok, err = coroutine.resume(co)
+            if not ok then
+                pcall(collectgarbage, "restart")
+                DG.Gate.Finish()
+                if type(onFail) == "function" then pcall(onFail) end
+                print("|cffff5040[无限副本手册] 分页构建出错：|r" .. tostring(err))
+                return
+            end
+            DG.Gate.Advance(1)
+            if coroutine.status(co) == "dead" then
+                pcall(collectgarbage, "restart")
+                DG.Gate.Finish()
+                return
+            end
+            local t1 = t0 and DG.__nowMs()
+            if t1 and (t1 - t0) >= (DG.Loader.budgetMs or 4) then break end
+        end
+        DG.PushStep(step)
+    end
+    DG.Gate.Begin(total)
+    DG.PushStep(step)
+    DG.RunSteps()
 end
 
 -- ══ 详情页四个「重池」（幂等；分帧 + 按需同步双入口）══════════════════════
@@ -1413,10 +1566,10 @@ function DG.EnsureQuestLane()
     if not detail then return end
     U.questLaneBuilt = true
     local qscroll = CreateFrame("ScrollFrame", nil, detail)
-    qscroll:SetFrameLevel(U.dungeonDetailHero:GetFrameLevel() + 1)
+    qscroll:SetFrameLevel(U.dungeonDetailBase + 1)
     -- ★ 间距标准 2026-10-10：左栏列 = GUTTER…GUTTER+Q_LIST_W（8…528），行在板内衬 Q_PAD 里
-    qscroll:SetPoint("TOPLEFT", detail, "TOPLEFT", DG.GUTTER, -DG.SCROLL_Y)
-    qscroll:SetPoint("BOTTOMRIGHT", detail, "BOTTOMLEFT", DG.GUTTER + DG.Q_LIST_W, 0)
+    qscroll:SetPoint("TOPLEFT", detail, "TOPLEFT", 0, -DG.FILTER_Y)
+    qscroll:SetPoint("BOTTOMRIGHT", detail, "BOTTOMLEFT", DG.Q_LIST_W, 0)
     local qchild = CreateFrame("Frame", nil, qscroll)
     qchild:SetSize(DG.Q_LIST_W, 10)
     qscroll:SetScrollChild(qchild)
@@ -1425,18 +1578,21 @@ function DG.EnsureQuestLane()
         DG.WheelScroll(self, U.dungeonQuestChild, delta)
     end)
     qscroll:Hide()
+    qscroll:HookScript("OnShow", function() DG.CullQuestRows() end)
     U.dungeonQuestScroll = qscroll
     U.dungeonQuestChild = qchild
     U.dungeonQuestPool = { hdr = {}, row = {} }
+    U.dungeonQMask = DG.DetailTopMask(DG.FILTER_Y)
+    DG.RaiseDetailChrome()
     U.dungeonQuestSum = MakeFS(qchild, 14, C_GOLD, "LEFT")
     U.dungeonQuestNote = MakeFS(qchild, 14, C_GREY, "LEFT")
 
     local qdet = CreateFrame("ScrollFrame", nil, detail)
-    qdet:SetFrameLevel(U.dungeonDetailHero:GetFrameLevel() + 1)
+    qdet:SetFrameLevel(U.dungeonDetailBase + 1)
     -- ★ 间距标准 2026-10-10：右栏内容 = 544…920（板R 536…928 内衬 Q_PAD）
     qdet:SetPoint("TOPLEFT", detail, "TOPLEFT",
-                  DG.GUTTER + DG.Q_LIST_W + DG.Q_DET_GAP + DG.Q_PAD, -DG.SCROLL_Y)
-    qdet:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -(DG.GUTTER + DG.Q_PAD), 0)
+                  DG.Q_LIST_W + DG.Q_DET_GAP + DG.Q_PAD, -DG.FILTER_Y)
+    qdet:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -(DG.Q_PAD), 0)
     local qdchild = CreateFrame("Frame", nil, qdet)
     qdchild:SetSize(DG.Q_DET_W, 10)
     qdet:SetScrollChild(qdchild)
@@ -1445,6 +1601,7 @@ function DG.EnsureQuestLane()
         DG.WheelScroll(self, U.dungeonQDetChild, delta)
     end)
     qdet:Hide()
+    qdet:HookScript("OnShow", function() DG.CullQuestRows() end)
     U.dungeonQDet = qdet
     U.dungeonQDetChild = qdchild
     U.dungeonQDetPool = { lab = {}, kv = {}, txt = {}, node = {}, chip = {}, npc = {} }
@@ -1472,13 +1629,13 @@ function DG.EnsureQuestLane()
     -- ★ 间距标准 2026-10-10：两板收进栅格 —— 板L = 8…528、板R = 536…928（距窗沿 12+8=20，
     --   板间隙 8、板顶与滚动区同顶：筛选行→板 = 8）。原来 −8/+8 外扩是给旧内容面板皮肤让位，
     --   皮肤已删，外扩只会把板推到距窗沿 4px。
-    plateL:SetPoint("TOPLEFT", detail, "TOPLEFT", DG.GUTTER, -DG.SCROLL_Y)
-    plateL:SetPoint("BOTTOMRIGHT", detail, "BOTTOMLEFT", DG.GUTTER + DG.Q_LIST_W, 0)
+    plateL:SetPoint("TOPLEFT", detail, "TOPLEFT", 0, -DG.FILTER_Y)
+    plateL:SetPoint("BOTTOMRIGHT", detail, "BOTTOMLEFT", DG.Q_LIST_W, 0)
     plateL:SetFrameLevel(qscroll:GetFrameLevel() - 1)
     local plateR = questPlate()
     plateR:SetPoint("TOPLEFT", detail, "TOPLEFT",
-                    DG.GUTTER + DG.Q_LIST_W + DG.Q_DET_GAP, -DG.SCROLL_Y)
-    plateR:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -DG.GUTTER, 0)
+                    DG.Q_LIST_W + DG.Q_DET_GAP, -DG.FILTER_Y)
+    plateR:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", 0, 0)
     plateR:SetFrameLevel(qdet:GetFrameLevel() - 1)
     U.dungeonQPlateL = plateL
     U.dungeonQPlateR = plateR
@@ -1491,7 +1648,7 @@ function DG.EnsureGuideLane()
     if not detail then return end
     U.guideLaneBuilt = true
     local gscroll = CreateFrame("ScrollFrame", nil, detail)
-    gscroll:SetFrameLevel(U.dungeonDetailHero:GetFrameLevel() + 1)
+    gscroll:SetFrameLevel(U.dungeonDetailBase + 1)
     gscroll:SetPoint("TOPLEFT", detail, "TOPLEFT", 0, -DG.GUIDE_TOP_Y)
     gscroll:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", 0, 0)
     local gchild = CreateFrame("Frame", nil, gscroll)
@@ -1502,9 +1659,12 @@ function DG.EnsureGuideLane()
         DG.WheelScroll(self, U.dungeonGuideChild, delta)
     end)
     gscroll:Hide()
+    gscroll:HookScript("OnShow", function() DG.CullGuideCards() end)
     U.dungeonGuideScroll = gscroll
     U.dungeonGuideChild = gchild
     U.dungeonGuidePool = { card = {} }
+    U.dungeonGMask = DG.DetailTopMask(DG.GUIDE_TOP_Y)
+    DG.RaiseDetailChrome()
 
 end
 
@@ -1550,11 +1710,17 @@ function DG.EnsureDetailBuilt()
     heroPlate:SetHeight(DG.HERO_PLATE_H)
     heroPlate:SetColorTexture(0, 0, 0, 0.66)
     U.dungeonDetailHero = hero
+    U.dungeonDetailBase = hero:GetFrameLevel()
 
     local back = NewButton(detail, L["‹ 副本"], 70, 24, 14)
     back:SetFrameLevel(hero:GetFrameLevel() + 1)
     back:SetPoint("TOPLEFT", detail, "TOPLEFT", 8, -8)
     back:SetScript("OnClick", function()
+        if U.dungeonDetailCur and U.dungeonDetailCur.raid and U.SwitchSub then
+            U:SwitchSub("Raids")
+            ns.PlaySound(1)
+            return
+        end
         detail:Hide()
         listScroll:Show()
         if U.dungeonListCard then U.dungeonListCard:Show() end
@@ -1587,7 +1753,7 @@ function DG.EnsureDetailBuilt()
 
     local dscroll = CreateFrame("ScrollFrame", nil, detail)
     if dscroll.SetClipsChildren then dscroll:SetClipsChildren(true) end
-    dscroll:SetFrameLevel(hero:GetFrameLevel() + 1)
+    dscroll:SetFrameLevel(U.dungeonDetailBase + 1)
     dscroll:SetPoint("TOPLEFT", detail, "TOPLEFT", 0, -DG.SCROLL_Y)
     dscroll:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", 0, 0)
     local dchild = CreateFrame("Frame", nil, dscroll)
@@ -1601,6 +1767,9 @@ function DG.EnsureDetailBuilt()
     U.dungeonDetailChild = dchild
     U.dungeonDetailPool = { hdr = {}, item = {} }
     U.dungeonDetailNote = MakeFS(dchild, 14, C_GREY, "LEFT")
+    dscroll:HookScript("OnShow", function() DG.CullLootCards() end)
+    U.dungeonLMask = DG.DetailTopMask(DG.SCROLL_Y)
+    DG.RaiseDetailChrome()
 
     -- ★ 分帧：重池摊到随后的空闲帧里建（首屏只付壳体）。
     --   每块都幂等；切页/切视图时若还没轮到，会由对应的 Ensure* 同步补建。
@@ -1702,6 +1871,7 @@ end
 --   ⇒ 渲染路径（U:RenderDungeonTab 末尾）与外壳分片**共用这一个按钮补刷口**。
 function DG.ApplyDetailChrome(cur)
     cur = cur or U.dungeonTab or "loot"
+    DG.RaiseDetailChrome()
     local isQuest = (cur == "quest")
     local isGuide = (cur == "guide")
     local isMap   = (cur == "map")
@@ -1724,7 +1894,7 @@ function DG.ApplyDetailChrome(cur)
         local bt = U.dungeonFilterBtns[i]
         if bt and bt.__em then
             if isQuest and (i == 2 or i == 3) then
-                local tex = DG.FactionTex(i == 2 and "A" or "H")
+                local tex = DG.Q_FAC_ICON[(i == 2) and "A" or "H"]
                 if tex then
                     bt.__em:SetTexture(tex)
                     bt.__em:Show()
@@ -1734,6 +1904,38 @@ function DG.ApplyDetailChrome(cur)
             else
                 bt.__em:Hide()
             end
+        end
+    end
+    if isQuest and U.dungeonQPlateL then
+        local plateL = U.dungeonQPlateL
+        for i = 1, #(U.dungeonFilterBtns or {}) do
+            local bt = U.dungeonFilterBtns[i]
+            if bt then
+                bt:ClearAllPoints()
+                bt:SetPoint("TOPLEFT", plateL, "TOPLEFT", DG.Q_PAD + (i - 1) * 100, -DG.Q_PAD)
+                bt:SetFrameLevel(plateL:GetFrameLevel() + 5)
+            end
+        end
+    elseif U.dungeonDetail then
+        for i = 1, #(U.dungeonFilterBtns or {}) do
+            local bt = U.dungeonFilterBtns[i]
+            if bt then
+                local bx = (cur == "loot" and i == 1) and 0 or DG.GUTTER + (i - 1) * 100
+                bt:ClearAllPoints()
+                bt:SetPoint("TOPLEFT", U.dungeonDetail, "TOPLEFT", bx, -DG.FILTER_Y)
+            end
+        end
+    end
+    if U.dungeonQDoneTg then
+        local tg = U.dungeonQDoneTg
+        if isQuest and U.dungeonQPlateL then
+            local plateL = U.dungeonQPlateL
+            tg:ClearAllPoints()
+            tg:SetPoint("TOPRIGHT", plateL, "TOPRIGHT", -DG.Q_PAD, -DG.Q_PAD - 2)
+            tg:SetFrameLevel(plateL:GetFrameLevel() + 5)
+            tg:Show()
+        else
+            tg:Hide()
         end
     end
     for key, bt in pairs(U.dungeonTabBtns or {}) do
@@ -1795,13 +1997,14 @@ function DG.BuildDetailFilterRow()
         bt.__huiKeepTextColor = true
         bt.__mode, bt.__key = "loot", "all"
         local em = bt:CreateTexture(nil, "OVERLAY")
-        em:SetSize(12, 12)
-        em:SetPoint("LEFT", bt, "LEFT", 4, 0)
+        em:SetSize(16, 16)
+        em:SetPoint("LEFT", bt, "LEFT", 7, 0)
+        if ns.hui and ns.hui.RoundIcon then ns.hui.RoundIcon(em) end
         em:Hide()
         bt.__em = em
         bt:SetScript("OnClick", function()
             if bt.__mode == "loot" and bt.__key == "__typeMenu" then
-                DG.OpenLootTypeMenu()
+                DG.OpenLootTypeMenu(bt)
             elseif bt.__mode == "quest" then
                 if bt.__key == "A" or bt.__key == "H" then
                     U:SetQuestSide(bt.__key)
@@ -1816,6 +2019,21 @@ function DG.BuildDetailFilterRow()
             ns.PlaySound(1)
         end)
         U.dungeonFilterBtns[i] = bt
+    end
+    if not U.dungeonQDoneTg then
+        local tg = CreateFrame("CheckButton", nil, detail)
+        tg:SetSize(36, 20)
+        tg:EnableMouse(true)
+        if ns.hui and ns.hui.ReskinToggle then ns.hui.ReskinToggle(tg) end
+        tg.label = MakeFS(tg, 14, C_TEXT, "RIGHT")
+        tg.label:SetPoint("RIGHT", tg, "LEFT", -6, 0)
+        tg.label:SetText(L["显示已完成"])
+        tg:SetHitRectInsets(-((tg.label:GetStringWidth() or 60) + 6), 0, 0, 0)
+        tg:Hide()
+        tg:SetScript("OnClick", function(self)
+            U:SetQuestShowDone(self:GetChecked() and true or false)
+        end)
+        U.dungeonQDoneTg = tg
     end
     DG.RefreshFilterRow()
     DG.ApplyDetailChrome(U.dungeonTab or "loot")
@@ -2036,7 +2254,7 @@ DG.LOOT_GRP_GAP = 8              -- ★ 间距标准 2026-10-10：12 → 8（组
 DG.LOOT_CARD_BG, DG.LOOT_CARD_EDGE = 0.03, 0.05
 DG.LOOT_CARD_BG_HOVER, DG.LOOT_CARD_EDGE_HOVER = 0.09, 0.18
 DG.LOOT_ROW_HOVER = 0.06         -- 卡片视图里卡内行的悬停底（扁平行：只浮一层极淡的底、无边框）
-DG.LOOT_CARD_W = math.floor((DG.CHILD_W - DG.GUTTER * 2 - (DG.LOOT_COLS - 1) * DG.LOOT_GAP_X) / DG.LOOT_COLS)
+DG.LOOT_CARD_W = math.floor((DG.CHILD_W - (DG.LOOT_COLS - 1) * DG.LOOT_GAP_X) / DG.LOOT_COLS)
 
 -- ★★ 掉落页「显示方式」（2026-10-01 用户：「可以选择显示方式：1 目前这样 / 2 卡片的形式，
 --   一个 boss 一张卡片」）----------------------------------------------------
@@ -2056,7 +2274,7 @@ DG.LOOT_VIEW_GAP = 8             -- 两段之间的间隔（间距标准 2026-10
 --     LOOT_BOSS_W（任务页在 RenderDungeonQuests 里回设 92），BOSS 左缘随之从 100 → 158。
 --     ★ 间距标准 2026-10-10：工具行整体内衬 GUTTER，下拉间隙 8（类型下拉 8…158、BOSS 166…316）。
 DG.LOOT_BOSS_W = 150             -- 两个下拉统一宽
-DG.LOOT_BOSS_X = DG.GUTTER + DG.LOOT_BOSS_W + DG.GUTTER
+DG.LOOT_BOSS_X = DG.LOOT_BOSS_W + DG.GUTTER
                                  -- BOSS 下拉左缘 166（= 8 + 150 + 8，与类型下拉间隙 8）
 DG.LOOT_VIEW_X = DG.LOOT_BOSS_X + DG.LOOT_BOSS_W + DG.GUTTER
                                  -- 切换按钮左缘（= 166 + 150 + 8 = 324，与 BOSS 下拉间隙 8）
@@ -2083,12 +2301,12 @@ DG.LOOT_MODEL_W = 160
 --   **撑满详情视口 − 底边距**（卡底距窗沿 PAGE_INSET+GUTTER=20，与列表大卡同款 UI 规则）。
 --   此常量只作视口高拿不到时的兜底（离线桩 / 异常客户端）。
 DG.LOOT_MODEL_H = 256
-DG.LOOT_CARD_W3 = math.floor((DG.CHILD_W - DG.GUTTER * 2 - DG.LOOT_MODEL_W - DG.LOOT_COLS3 * DG.LOOT_GAP_X) / DG.LOOT_COLS3)
-DG.LOOT_MODEL_X = DG.CHILD_W - DG.GUTTER - DG.LOOT_MODEL_W   -- 模型卡左缘（右缘贴内容右栅格）
+DG.LOOT_CARD_W3 = math.floor((DG.CHILD_W - DG.LOOT_MODEL_W - DG.LOOT_COLS3 * DG.LOOT_GAP_X) / DG.LOOT_COLS3)
+DG.LOOT_MODEL_X = DG.CHILD_W - DG.LOOT_MODEL_W   -- 模型卡左缘（右缘贴内容右栅格）
 
 DG.GUIDE_COLS, DG.GUIDE_GAP_X, DG.GUIDE_GAP_Y = 2, 8, 8
 DG.GUIDE_PAD, DG.GUIDE_HDR_H = 10, 26
-DG.GUIDE_SIDE = 8
+DG.GUIDE_SIDE = 0
 DG.GUIDE_GRID_W = CONTENT_W - PAGE_INSET * 2 - DG.GUIDE_SIDE * 2
 DG.GUIDE_CARD_W = math.floor((DG.GUIDE_GRID_W - (DG.GUIDE_COLS - 1) * DG.GUIDE_GAP_X) / DG.GUIDE_COLS)
 DG.GUIDE_ACCENT = {
@@ -2202,6 +2420,8 @@ function DG.RefreshItemCards(itemID)
     if EGM and EGM.OnItemData then EGM.OnItemData(itemID) end
     local CGM = ns.CollectionModule
     if CGM and CGM.OnItemData then CGM.OnItemData(itemID) end
+    local FCM = ns.FactionModule
+    if FCM and FCM.OnItemData then FCM.OnItemData(itemID) end
     local pool = U.dungeonDetailPool and U.dungeonDetailPool.item
     if not pool then return end
     -- ★★ 第七刀（整合包悬停卡死）：整合包里其他插件会把客户端物品缓存挤掉
@@ -2428,11 +2648,13 @@ function DG.EnsureItemListener()
         --   —— 整合包里成百上千条陌生 itemID 事件，每条都走「全池扫 + 整池 ApplyAll」会把弱机按死。
         --   这里 O(1) 查「是否本插件请过的物品」（DG.RequestItem 会记 DG.__asked），陌生的直接忽略。
         if not (itemID and DG.__asked[itemID]) then return end
-        local r = U.dungeonDetailHover
-        if r and r.__it and r.__it[1] == itemID and r:IsMouseOver() then
-            DG.ShowItemTip(r, r.__it)
-        end
-        DG.RefreshItemCards(itemID)
+        C_Timer.After(0, function()
+            local r = U.dungeonDetailHover
+            if r and r.__it and r.__it[1] == itemID and r:IsMouseOver() then
+                DG.ShowItemTip(r, r.__it)
+            end
+            DG.RefreshItemCards(itemID)
+        end)
     end)
     DG.__itemEvt = ev
 end
@@ -2692,21 +2914,6 @@ function U:SetDungeonFilter(key)
     U:RenderDungeonLoot()
 end
 
--- ★★ 方案 A 收纳式（2026-10-04）：类型 / BOSS 两个下拉 --------------------------------
---   菜单宿主与 LootFilterUI 同款：懒建挂 UIParent 的 UIDropDownMenu。
---   ★ 2026-10-04 用户反馈后改为**各用各的宿主**：共用一个时 lib 的 toggle 语义是
---     「列表开着 && OPEN_MENU==宿主 ⇒ 收」——A 菜单开着去点 B 按钮，会被当成
---     「同一个下拉再点一次」直接收掉，B 永远打不开。分宿主后切换 / 再点关闭都正常。
-function DG.MenuHost(which)
-    local key = which or "main"
-    local cache = DG.__menuHosts or {}
-    if cache[key] then return cache[key] end
-    if not (ns.LibBG and ns.LibBG.Create_UIDropDownMenu) then return nil end
-    cache[key] = ns.LibBG:Create_UIDropDownMenu(nil, UIParent)
-    DG.__menuHosts = cache
-    return cache[key]
-end
-
 -- 当前副本的 boss 名单（出现序去重）。判定口径：附加说明含「敌人 / 物件」的是
 --   小怪 / 宝箱类特殊来源（UI 恒置底那批），不算 boss；其余（含无限新副本那批
 --   没有 NPC id 的首领、稀有、任务召唤）都算 —— 不能拿 NPC id 判，新副本首领
@@ -2734,27 +2941,23 @@ function U:SetLootBoss(name)
 end
 
 -- 「类型」下拉：五个筛选档（件数取渲染时存下的 DG.__filterCounts，按当前 boss 收窄）。
-function DG.OpenLootTypeMenu()
-    local host = DG.MenuHost("type")
-    if not (host and ns.LibBG and ns.LibBG.EasyMenu) then return end
-    local menu = {}
+function DG.OpenLootTypeMenu(owner)
+    local items = {}
     for _, key in ipairs(DG.FILTERS) do
-        menu[#menu + 1] = {
+        items[#items + 1] = {
             text = (DG.FILTER_LABEL[key] or key) .. " " .. tostring(DG.__filterCounts and DG.__filterCounts[key] or 0),
-            notCheckable = true,
             func = function() U:SetDungeonFilter(key) end,
         }
     end
-    ns.LibBG:EasyMenu(menu, host, "cursor", 0, 0, "MENU")
+    ns.hui.ShowMenu(items, { owner = owner })
 end
 
 -- 「BOSS」下拉：全部 + 当前副本 boss 名单（每次点开现算，不缓存）。
-function DG.OpenLootBossMenu()
+function DG.OpenLootBossMenu(owner)
     local d = U.dungeonDetailCur
-    local host = DG.MenuHost("boss")
-    if not (d and host and ns.LibBG and ns.LibBG.EasyMenu) then return end
+    if not d then return end
     local loot = (ns.DungeonLoot or {})[d.id] or {}
-    local menu = { { text = L["全部"], notCheckable = true, func = function() U:SetLootBoss(nil) end } }
+    local items = { { text = L["全部"], func = function() U:SetLootBoss(nil) end } }
     -- 「小怪」档：说明含「敌人」的来源，有才出（置于 boss 名单之上）
     local hasTrash = false
     for _, s in ipairs(loot) do
@@ -2762,13 +2965,13 @@ function DG.OpenLootBossMenu()
         if note:find("敌人", 1, true) then hasTrash = true break end
     end
     if hasTrash then
-        menu[#menu + 1] = { text = DG.LOOT_TRASH_LABEL, notCheckable = true,
-                            func = function() U:SetLootBoss(DG.LOOT_TRASH) end }
+        items[#items + 1] = { text = DG.LOOT_TRASH_LABEL,
+                              func = function() U:SetLootBoss(DG.LOOT_TRASH) end }
     end
     for _, nm in ipairs(DG.LootBossNames(loot)) do
-        menu[#menu + 1] = { text = nm, notCheckable = true, func = function() U:SetLootBoss(nm) end }
+        items[#items + 1] = { text = nm, func = function() U:SetLootBoss(nm) end }
     end
-    ns.LibBG:EasyMenu(menu, host, "cursor", 0, 0, "MENU")
+    ns.hui.ShowMenu(items, { owner = owner })
 end
 
 -- ★★ 两个下拉的「上字 + 选中态」统一出口（2026-10-04 用户：偶尔显示为空）----------
@@ -2805,47 +3008,15 @@ function DG.ApplyLootDropdownChrome()
     end
 end
 
--- ★★ 下拉「点外面就关」（2026-10-04 用户）----------------------------------------
---   根因：下拉库在本端没有挂 GLOBAL_MOUSE_DOWN 关闭钩
---   （lib 行 ~1953 `if lib and WoWRetail`），MoP 端 wowversion 5.x 落在 lib 的
---   「n/a」分支 ⇒ 钩子没上 ⇒ 菜单开着点别处不关（只能选中一项或再点一次按钮）。
---   这里补一个事件帧（隐藏帧照收事件）：任一 L_DropDownList 开着 + 鼠标不在菜单
---   列表上 ⇒ 全部收掉。点我们的两个触发按钮时放行——lib 的 toggle 语义是
---   「开着再点就收」，若我们先收，按钮 OnClick（抬键）又把它开回来 = 永远关不掉。
-local function OutsideMenuMouseDown()
-    local open, overList = false, false
-    for i = 1, 3 do
-        local lf = _G["L_DropDownList" .. i]
-        if lf and lf:IsShown() then
-            open = true
-            if lf:IsMouseOver() then overList = true end
-        end
-    end
-    if not open or overList then return end
-    local om = _G.L_UIDROPDOWNMENU_OPEN_MENU
-    if om and om.Button and om.Button:IsVisible() and om.Button:IsMouseOver() then return end
-    local t1 = U.dungeonFilterBtns and U.dungeonFilterBtns[1]
-    if t1 and t1:IsVisible() and t1:IsMouseOver() then return end
-    if U.dungeonLootBossDd and U.dungeonLootBossDd:IsVisible() and U.dungeonLootBossDd:IsMouseOver() then return end
-    -- 探索地图设置面板的下拉触发按钮（2026-10-05）：同款放行，理由同上
-    if ns.ExploreMapMenuGuard and ns.ExploreMapMenuGuard() then return end
-    -- 套装页职业下拉按钮（2026-10-07）：同款放行 —— 不放行会先收后开 = 永远关不掉
-    local RM = ns.RaidModule
-    if RM and RM.ddBtn and RM.ddBtn:IsVisible() and RM.ddBtn:IsMouseOver() then return end
-    -- BIS 配装页职业下拉按钮（2026-10-10 重排）：同款放行，理由同上
-    local BM = ns.BisModule
-    if BM and BM.ddBtn and BM.ddBtn:IsVisible() and BM.ddBtn:IsMouseOver() then return end
-    -- LootFilterUI 的方案菜单同库同列表，一并受益；对普通 UI 的点击照常透传（不吞）。
-    ns.LibBG:CloseDropDownMenus()
-end
-local OUT_EV = CreateFrame("Frame", nil, UIParent)
-OUT_EV:RegisterEvent("GLOBAL_MOUSE_DOWN")
-OUT_EV:Hide()   -- 隐藏帧照收事件
-OUT_EV:SetScript("OnEvent", OutsideMenuMouseDown)
-
 function U:SetQuestFilter(key)
     local cur = U.dungeonQFilter or "all"
     U.dungeonQFilter = (key == cur) and "all" or key
+    DB().dungeonQuestFilter = (U.dungeonQFilter ~= "all") and U.dungeonQFilter or nil
+    U:RenderDungeonQuests()
+end
+
+function U:SetQuestShowDone(on)
+    U.dungeonQFilter = on and "all" or "todo"
     DB().dungeonQuestFilter = (U.dungeonQFilter ~= "all") and U.dungeonQFilter or nil
     U:RenderDungeonQuests()
 end
@@ -2871,6 +3042,7 @@ function U:ShowDungeonDetail(d)
     local hero = U.dungeonDetailHero
     if hero then DG.PaintArt(hero.art, d, "hero") end
     U.dungeonDetailCur = d
+    if U.dungeonBack then U.dungeonBack:SetText(d.raid and L["‹ 团本"] or L["‹ 副本"]) end
     DG.PrewarmLoot(d)
 
     U.dungeonDetailTitle:SetText(d.name .. "  " .. d.nameEn)
@@ -2895,7 +3067,7 @@ function U:RenderDungeonLoot()
     --   它们随后建出来就会在新页面上冒出来（版式属于上一本）。
     -- ★★★ 第六刀：外壳分片补建时只借下面「筛选行上字」那一段，别动待建表
     --   （那些行还在队列里等着建 —— 丢了就是真丢行）。
-    if not DG.__chromeOnly then DG.__pendRows = {} end
+    if not DG.__chromeOnly then DG.__pendRows = {} DG.__vgen = (DG.__vgen or 0) + 1 end
 
     -- ★★ BOSS 聚焦（2026-10-04 方案 A）：先按 BOSS 下拉把来源表收窄，类型计数与
     --   分组渲染全部吃收窄后的来源 ⇒ 选中 boss 后计数就是「这一 boss 里」各类型的件数。
@@ -3155,11 +3327,12 @@ function U:RenderDungeonLoot()
             if sub ~= "" then en = (en ~= "" and (en .. " · " .. sub) or sub) end
             hd.name:SetText(s[2] .. (en ~= "" and ("  " .. DG.Hex(C_GREY) .. en .. "|r") or ""))
             hd.name:ClearAllPoints()
-            hd.name:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUTTER, y)
+            hd.name:SetPoint("TOPLEFT", child, "TOPLEFT", 0, y)
+            hd.__vtop, hd.__vh, hd.__vgen = -y, DG.LOOT_HDR_H, DG.__vgen
             hd.name:Show()
             hd.cnt:SetText(format(L["%d 件"], #items))
             hd.cnt:ClearAllPoints()
-            hd.cnt:SetPoint("TOPRIGHT", child, "TOPRIGHT", -DG.GUTTER, y - 1)
+            hd.cnt:SetPoint("TOPRIGHT", child, "TOPRIGHT", 0, y - 1)
             hd.cnt:Show()
             y = y - DG.LOOT_HDR_H
 
@@ -3181,7 +3354,8 @@ function U:RenderDungeonLoot()
                         r:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
                     end
                     r:ClearAllPoints()
-                    r:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUTTER, baseY)
+                    r:SetPoint("TOPLEFT", child, "TOPLEFT", 0, baseY)
+                    r.__vtop, r.__vh, r.__vgen = -baseY, DG.LOOT_CARD_H, DG.__vgen
                     r:Show()
                 end)
                 y = y - stepY
@@ -3228,10 +3402,11 @@ function U:RenderDungeonLoot()
                     end
                     r:ClearAllPoints()
                     r:SetPoint("TOPLEFT", child, "TOPLEFT", rx, ry)
+                    r.__vtop, r.__vh, r.__vgen = -ry, DG.LOOT_CARD_H, DG.__vgen
                     r:Show()
                 end
                 for i, it in ipairs(items) do
-                    local rx = DG.GUTTER + ((i - 1) % cols) * stepX
+                    local rx = ((i - 1) % cols) * stepX
                     local ry = baseY - math.floor((i - 1) / cols) * stepY
                     takeRow(makeRow, function(r) paintRow(r, it, rx, ry) end)
                 end
@@ -3244,11 +3419,12 @@ function U:RenderDungeonLoot()
     for i = nH + 1, #hdr do hdr[i].name:Hide(); hdr[i].cnt:Hide() end
     for i = nI + 1, #rows do rows[i]:Hide() end
     DG.FlushPendingRows()          -- ★ 这一轮排下的待建行：量小同步、量大分帧
+    DG.CullLootCards()
 
     local note = U.dungeonDetailNote
     if nH == 0 then
         note:ClearAllPoints()
-        note:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUTTER, 0)
+        note:SetPoint("TOPLEFT", child, "TOPLEFT", 0, 0)
         if #loot == 0 then
             note:SetText(L["尚未收录这个副本的 boss 名单，数据补上后会自动出现。"])
         else
@@ -3308,6 +3484,23 @@ function U:RenderDungeonLootCards(groups, filter, takeRow, makeRow, bossMode, bo
     local ix = DG.LOOT_CARD_PAD + DG.LOOT_ICON + DG.LOOT_ICON_GAP
     local nameW = cw - DG.LOOT_CARD_PAD - DG.LOOT_CARD_NAME_R
 
+    -- ★★ 团本卡片视图（2026-10-11 用户）：boss 卡**整宽** + 卡内物品 4 列网格 --------------
+    --   团本 boss 少、单 boss 掉落多 —— 原「boss 卡 4 列墙 + 卡内单列行」在单 boss 团本
+    --   （奥巢 20 件）下退化成一条 221 宽、20 行的长单列。整宽卡 + 卡内 4 列后，
+    --   奥巢 = 1 张整宽卡、物品 5 行 × 4 列。五人本不进此分支（4 列 boss 卡墙维持原样）；
+    --   boss 下拉聚焦 / 小怪档走类型分组网格，也不进此分支。
+    --   ★ 卡片帧池是按 paint 重设尺寸的（列表 221 ↔ 聚焦 295 已实测互切），整宽复用同一池。
+    local raidWide = (d.raid == true) and not bossMode and U.dungeonLootBoss ~= DG.LOOT_TRASH
+    local wideCols = DG.LOOT_COLS
+    local wideStepY = DG.LOOT_CARD_H + DG.LOOT_CARD_ROW_GAP
+    if raidWide then
+        cols = 1
+        cw = DG.CHILD_W
+        stepX = 0
+        rowW = math.floor((cw - DG.LOOT_CARD_PAD * 2 - (wideCols - 1) * DG.LOOT_GAP_X) / wideCols)
+        nameW = cw - DG.LOOT_CARD_PAD - DG.LOOT_CARD_NAME_R
+    end
+
     local fold = DB().dungeonLootFold
     if type(fold) ~= "table" then
         fold = {}
@@ -3329,10 +3522,12 @@ function U:RenderDungeonLootCards(groups, filter, takeRow, makeRow, bossMode, bo
             local key = d.id .. "#" .. gi
             local closed = fold[key] and true or false
             local n = closed and 0 or #items
+            local visRows = n
+            if raidWide and n > 0 then visRows = math.ceil(n / wideCols) end
             local h = DG.LOOT_CARD_HDR_H + DG.LOOT_CARD_PAD
-            if n > 0 then h = h + n * DG.LOOT_CARD_H + (n - 1) * DG.LOOT_CARD_ROW_GAP end
+            if n > 0 then h = h + visRows * DG.LOOT_CARD_H + (visRows - 1) * DG.LOOT_CARD_ROW_GAP end
             local col = ((nC - 1) % cols) + 1
-            local cx, cy = DG.GUTTER + (col - 1) * stepX, colY[col]
+            local cx, cy = (col - 1) * stepX, colY[col]
             colY[col] = cy - (h + DG.LOOT_GAP_Y)
 
             local en = s[1] or ""
@@ -3344,6 +3539,7 @@ function U:RenderDungeonLootCards(groups, filter, takeRow, makeRow, bossMode, bo
             card:ClearAllPoints()
             card:SetPoint("TOPLEFT", child, "TOPLEFT", cx, cy)
             card:SetSize(cw, h)
+            card.__vtop, card.__vh, card.__vgen = -cy, h, DG.__vgen
             card.hit:SetPoint("TOPLEFT", card, "TOPLEFT", 0, 0)
             card.hit:SetPoint("TOPRIGHT", card, "TOPRIGHT", 0, 0)
             card.arrD:SetShown(not closed)
@@ -3361,6 +3557,13 @@ function U:RenderDungeonLootCards(groups, filter, takeRow, makeRow, bossMode, bo
                 local it = items[ii]
                 local rx = cx + DG.LOOT_CARD_PAD
                 local ry = cy - DG.LOOT_CARD_HDR_H - (ii - 1) * (DG.LOOT_CARD_H + DG.LOOT_CARD_ROW_GAP)
+                -- ★ 团本整宽卡：物品在卡内按 4 列折行（行宽 rowW 已换成卡内列宽）
+                if raidWide then
+                    local cc = ((ii - 1) % wideCols) + 1
+                    local rr = math.floor((ii - 1) / wideCols)
+                    rx = rx + (cc - 1) * (rowW + DG.LOOT_GAP_X)
+                    ry = cy - DG.LOOT_CARD_HDR_H - rr * wideStepY
+                end
                 takeRow(makeRow, function(r)
                     -- ★ 行宽按卡片路收窄（卡宽 − 2×内边距）：行池是两路共用的，
                     --   不显式拨回去就会顶着列表卡的全宽 221 戳出卡右缘 6px（「新」徽标出界实锤）。
@@ -3403,6 +3606,7 @@ function U:RenderDungeonLootCards(groups, filter, takeRow, makeRow, bossMode, bo
                     -- ★ 行 1 紧贴卡头下缘起排：偏移 = 卡头高 + (序号−1)×(行高+行距)。
                     --   曾经写成 ii*(行高+行距)（第 1 行整行下坠）⇒ 末行被推出卡底（实机截图实锤）。
                     r:SetPoint("TOPLEFT", child, "TOPLEFT", rx, ry)
+                    r.__vtop, r.__vh, r.__vgen = -ry, DG.LOOT_CARD_H, DG.__vgen
                     -- ★ 单向门补 Show（2026-10-10）：boss 筛选收尾 Hide 掉的行，切回「全部」
                     --   复用时必须重新 Show，否则除首轮外其余 boss 卡内容全空（实机截图实锤）。
                     r:Show()
@@ -3414,6 +3618,7 @@ function U:RenderDungeonLootCards(groups, filter, takeRow, makeRow, bossMode, bo
     for i = nC + 1, #cards do cards[i]:Hide() end
     for i = nR + 1, #rows do rows[i]:Hide() end
     DG.FlushPendingRows()          -- ★ 同上：待建行按预算落地
+    DG.CullLootCards()
     -- 列表视图的分组标题行（pool.hdr）在卡片视图里一条都不出 —— 但**要显式收回池**，
     -- 否则从列表切过来时上一轮的标题会留在屏上（残影）。
     for i = 1, #(pool.hdr or {}) do
@@ -3424,7 +3629,7 @@ function U:RenderDungeonLootCards(groups, filter, takeRow, makeRow, bossMode, bo
     local note = U.dungeonDetailNote
     if nC == 0 then
         note:ClearAllPoints()
-        note:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUTTER, 0)
+        note:SetPoint("TOPLEFT", child, "TOPLEFT", 0, 0)
         if #loot == 0 then
             note:SetText(L["尚未收录这个副本的 boss 名单，数据补上后会自动出现。"])
         else
@@ -4008,12 +4213,14 @@ function DG.EnsureQuestRewardListener()
     pcall(ev.RegisterEvent, ev, "QUEST_DATA_LOAD_RESULT")
     pcall(ev.RegisterEvent, ev, "TOOLTIP_DATA_UPDATE")
     ev:SetScript("OnEvent", function(_, event, arg1)
-        if event == "QUEST_DATA_LOAD_RESULT" then
-            if arg1 then DG.RewardsArrived(arg1) end
-        else
-            local g = U.dungeonQDetGains
-            if g then DG.RewardsArrived(g.questID) end
-        end
+        C_Timer.After(0, function()
+            if event == "QUEST_DATA_LOAD_RESULT" then
+                if arg1 then DG.RewardsArrived(arg1) end
+            else
+                local g = U.dungeonQDetGains
+                if g then DG.RewardsArrived(g.questID) end
+            end
+        end)
     end)
     DG.__rewEvt = ev
     return ev
@@ -4027,16 +4234,18 @@ function DG.EnsureQuestListener()
     ev:RegisterEvent("PLAYER_LOGIN")
     ev:RegisterEvent("QUEST_LOG_UPDATE")
     ev:SetScript("OnEvent", function(_, event, arg1)
-        if event == "QUEST_TURNED_IN" then
-            if arg1 then
-                if DG.questDoneSet then DG.questDoneSet[arg1] = true end
-                DG.questDoneCache[arg1] = true
+        C_Timer.After(0, function()
+            if event == "QUEST_TURNED_IN" then
+                if arg1 then
+                    if DG.questDoneSet then DG.questDoneSet[arg1] = true end
+                    DG.questDoneCache[arg1] = true
+                end
+            elseif event == "QUEST_LOG_UPDATE" then
+            else
+                DG.BuildQuestSnap()
             end
-        elseif event == "QUEST_LOG_UPDATE" then
-        else
-            DG.BuildQuestSnap()
-        end
-        if U.RefreshQuestRows then U.RefreshQuestRows() end
+            if U.RefreshQuestRows then U.RefreshQuestRows() end
+        end)
     end)
     DG.__questEvt = ev
     return ev
@@ -4106,27 +4315,34 @@ end
 DG.Q_LIST_W = 520                -- 左栏列宽（含两侧板内衬；行宽 = 列宽 − 2×Q_PAD）
 DG.Q_DET_GAP = 8                 -- 左右两块底板的间隙
 DG.Q_PAD = 8                     -- 底板内衬（行距板边 8/8 对称）
-DG.Q_DET_W = DG.CHILD_W - DG.GUTTER * 2 - DG.Q_LIST_W - DG.Q_DET_GAP - DG.Q_PAD * 2
+DG.Q_DET_W = DG.CHILD_W - DG.Q_LIST_W - DG.Q_DET_GAP - DG.Q_PAD * 2
                                  -- 右栏内容宽 376（板R 536…928 内衬 8/8）
 DG.Q_ROW_H = 34
 DG.Q_GAP_Y = 4
 DG.Q_X_NAME = 30
-DG.Q_X_LOC = 200
-DG.Q_X_LV = 348
-DG.Q_X_PRE = 416
-DG.Q_W_NAME = 164
-DG.Q_W_LOC = 144
+DG.Q_X_LOC = 288
+DG.Q_X_LV = 386
+DG.Q_W_NAME = 150
+DG.Q_W_LOC = 90
+DG.Q_BADGE_H = 14
+DG.Q_BADGE_GAP = 4
+DG.Q_BADGE_PAD = 3
+DG.Q_BADGE_DY = 2
+DG.Q_BADGE_FS = 12
+DG.Q_BADGE_CLS_BG = { 0.30, 0.30, 0.34, 1 }
+DG.Q_BADGE_PRE_BG = { 0.78, 0.60, 0.10, 1 }
+DG.Q_BADGE_SHARE_BG = { 0.16, 0.52, 0.26, 1 }
 DG.Q_FS_DET = 14
 DG.Q_DET_ICON = 20
 DG.C_FAC_A = { 0.45, 0.65, 1 }
 DG.C_FAC_H = { 1, 0.40, 0.40 }
-DG.Q_BAR_W = 3
 DG.Q_FS_NAME = 14
 DG.Q_FS_META = 14
 DG.Q_FS_HDR = 16
 DG.Q_HDR_H = 26
 DG.Q_GRP_GAP = 8                 -- ★ 间距标准 2026-10-10：10 → 8（组间距也是卡↔卡）
 DG.Q_SUM_H = 28
+DG.Q_HEAD_H = DG.Q_PAD + 24 + DG.Q_PAD
 DG.Q_STATUS_TAG = { done = L["已完成"], active = L["进行中"], todo = L["未完成"] }
 DG.QFILTERS = { "all", "todo", "done" }
 DG.QFILTER_LABEL = { all = L["全部"], todo = L["未完成"], done = L["已完成"] }
@@ -4135,22 +4351,126 @@ DG.Q_DIFF_COLOR = {
     [1] = { 1, 0.12, 0.12 }, [2] = { 1, 0.5, 0.25 }, [3] = { 1, 0.82, 0 },
     [4] = { 0.12, 1, 0 }, [5] = { 0.6, 0.6, 0.6 },
 }
+DG.QCLASS_DIM = 0.78
+DG.QCLASS_LUM = 0.62
 DG.QCLASS_TOKEN = {
     [ns.DL("战士")] = "WARRIOR", [ns.DL("圣骑士")] = "PALADIN", [ns.DL("猎人")] = "HUNTER", [ns.DL("盗贼")] = "ROGUE",
     [ns.DL("牧师")] = "PRIEST", [ns.DL("萨满")] = "SHAMAN", [ns.DL("法师")] = "MAGE", [ns.DL("术士")] = "WARLOCK", [ns.DL("德鲁伊")] = "DRUID",
-}
-DG.QCLASS_CHAR = {
-    [ns.DL("战士")] = L["战"], [ns.DL("圣骑士")] = L["骑"], [ns.DL("猎人")] = L["猎"], [ns.DL("盗贼")] = L["盗"], [ns.DL("牧师")] = L["牧"],
-    [ns.DL("萨满")] = L["萨"], [ns.DL("法师")] = L["法"], [ns.DL("术士")] = L["术"], [ns.DL("德鲁伊")] = L["德"],
 }
 function DG.QClassColor(cls)
     local t = RAID_CLASS_COLORS and RAID_CLASS_COLORS[DG.QCLASS_TOKEN[cls] or ""]
     if t and t.r then return { t.r, t.g, t.b } end
     return C_GOLD
 end
-function DG.QClassChar(cls)
-    local first = string.match(cls or "", "^([^/]+)")
-    return DG.QCLASS_CHAR[first]
+function DG.QClassFill(cls)
+    local c = DG.QClassColor(cls)
+    local avg = (c[1] + c[2] + c[3]) / 3
+    local k = DG.QCLASS_DIM
+    if avg > 0 and avg * k > DG.QCLASS_LUM then k = DG.QCLASS_LUM / avg end
+    return { c[1] * k, c[2] * k, c[3] * k, 1 }
+end
+function DG.QClassList(cls)
+    if not cls or cls == "" then return nil end
+    local s = string.gsub(string.gsub(cls, "、", "/"), ",", "/")
+    local out = {}
+    for seg in string.gmatch(s, "[^/]+") do
+        seg = string.gsub(seg, "^%s*(.-)%s*$", "%1")
+        if seg ~= "" then out[#out + 1] = seg end
+    end
+    if #out == 0 then return nil end
+    return out
+end
+function DG.QClassLabel(cls)
+    if not cls or cls == "" then return nil end
+    local nm = L[cls] or cls
+    if DG.QCLASS_TOKEN[cls] == "PALADIN" then
+        nm = string.gsub(nm, "^圣", "")
+        nm = string.gsub(nm, "^聖", "")
+    end
+    return nm
+end
+
+function DG.QuestShare(id)
+    if not id then return false end
+    local v = DG.QLCall("IsPushableQuest", id)
+    if v ~= nil then return v == true end
+    return (ns.DungeonQuestShare and ns.DungeonQuestShare[id]) and true or false
+end
+
+function DG.QuestMapName(s)
+    if not s or s == "" then return s end
+    s = s:gsub("%s*[%d%.]+%s*,%s*[%d%.]+%s*$", "")
+    s = s:gsub("%s*%-%s*[^%-]*$", "")
+    return s
+end
+
+function DG.MakeBadge(parent, bg)
+    local b = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    b:SetSize(10, DG.Q_BADGE_H)
+    local painted = false
+    if IsHui() and ns.hui and ns.hui.BuildRoundedBG then
+        local fill, border = ns.hui.BuildRoundedBG(b, 4, bg or ns.hui.layer.L3, "both", true, 1)
+        b.__huiCard = { fill = fill, border = border }
+        painted = true
+    end
+    if not painted then
+        b:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+        })
+        b:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
+        b:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
+    end
+    b.lab = MakeFS(b, DG.Q_BADGE_FS, C_WHITE, "CENTER")
+    b.lab:SetPoint("CENTER", b, "CENTER", 0, 0)
+    b:Hide()
+    return b
+end
+
+function DG.PlaceBadge(b, x, text, maxX)
+    b.lab:SetText(text)
+    local w = (b.lab:GetStringWidth() or 20) + DG.Q_BADGE_PAD * 2
+    if maxX and x + w > maxX then
+        b:Hide()
+        return x
+    end
+    b:SetWidth(w)
+    b:ClearAllPoints()
+    b:SetPoint("TOPLEFT", b:GetParent(), "TOPLEFT", x, -(DG.Q_ROW_H - DG.Q_BADGE_H) / 2 - DG.Q_BADGE_DY)
+    b:Show()
+    return x + w + DG.Q_BADGE_GAP
+end
+
+function DG.BadgeTint(b, col)
+    if not (b and col) then return end
+    local hc = b.__huiCard
+    local fill = type(hc) == "table" and hc.fill or nil
+    if type(fill) == "table" then
+        for i = 1, #fill do
+            local t = fill[i]
+            if t and t.__huiGlass and ns.hui and ns.hui.GlassPaint then
+                t.__huiGlass.c = col
+                ns.hui.GlassPaint(t)
+            end
+        end
+    elseif b.SetBackdropColor then
+        b:SetBackdropColor(col[1], col[2], col[3], 1)
+    end
+end
+
+function DG.ClsBadgeAt(r, i)
+    local t = r.clsB
+    if type(t) ~= "table" then
+        t = {}
+        r.clsB = t
+    end
+    local b = t[i]
+    if not b then
+        b = DG.MakeBadge(r, DG.Q_BADGE_CLS_BG)
+        t[i] = b
+    end
+    return b
 end
 
 function DG.QuestState(id)
@@ -4167,7 +4487,7 @@ function DG.PlayerSide()
 end
 
 function DG.QuestRows(d)
-    local all = (ns.DungeonQuests or {})[d.id] or {}
+    local all = DG.QuestList(d)
     local n = #all
     local ps = DG.PlayerSide()
     if not ps or n == 0 then return all, n, nil end
@@ -4186,18 +4506,33 @@ function DG.QuestRows(d)
 end
 
 function DG.QuestList(d)
+    local alias = ns.DungeonQuestAlias and ns.DungeonQuestAlias[d.id]
+    if alias then
+        DG.EnsureRowByID()
+        local out = {}
+        for i = 1, #alias do
+            local r = DG.__rowByID[alias[i]]
+            if r then out[#out + 1] = r end
+        end
+        return out
+    end
     return (ns.DungeonQuests or {})[d.id] or {}
 end
 
 DG.__rowByID = nil
-function DG.QuestRowByID(id)
-    if not DG.__rowByID then
-        local map = {}
-        for _, rows in pairs(ns.DungeonQuests or {}) do
-            for _, q in ipairs(rows) do map[q[1]] = q end
-        end
-        DG.__rowByID = map
+function DG.EnsureRowByID()
+    if DG.__rowByID then return end
+    local map, keys = {}, {}
+    for k in pairs(ns.DungeonQuests or {}) do keys[#keys + 1] = k end
+    table.sort(keys)
+    for i = 1, #keys do
+        for _, q in ipairs(ns.DungeonQuests[keys[i]]) do map[q[1]] = q end
     end
+    DG.__rowByID = map
+end
+
+function DG.QuestRowByID(id)
+    DG.EnsureRowByID()
     return DG.__rowByID[id]
 end
 
@@ -4224,25 +4559,12 @@ function DG.QuestFollowers(id)
     return DG.__followers[id] or {}
 end
 
-DG.__facTex = {}
-function DG.FactionTex(side)
-    if side ~= "A" and side ~= "H" then return nil end
-    if DG.__facTex[side] == nil then
-        local p = "Interface\\PVPFrame\\PVP-Capture" .. (side == "A" and "Alliance" or "Horde")
-        local ok = false
-        if type(GetFileIDFromPath) == "function" then
-            local ok2, fid = pcall(GetFileIDFromPath, p)
-            ok = (ok2 and type(fid) == "number" and fid > 0) or false
-        end
-        DG.__facTex[side] = ok and p or false
-    end
-    return DG.__facTex[side] or nil
-end
-function DG.FactionLetter(side)
-    if side == "A" then return L["盟"] end
-    if side == "H" then return L["部"] end
-    return nil
-end
+DG.Q_FAC_ICON = {
+    A = "Interface\\AddOns\\DungeonsForever\\Media\\icon\\FACTION\\FactionIcon_Alliance",
+    H = "Interface\\AddOns\\DungeonsForever\\Media\\icon\\FACTION\\FactionIcon_Horde",
+}
+-- 行内阵营图标边长（ 12 × 1.5 = 18，2026-10-13 用户定）
+DG.Q_FAC_ICON_SZ = 18
 
 function U:RenderDungeonQuests()
     local d = U.dungeonDetailCur
@@ -4275,21 +4597,44 @@ function U:RenderDungeonQuests()
 
     for i = 1, #(U.dungeonFilterBtns or {}) do
         local bt = U.dungeonFilterBtns[i]
-        if bt then
+        if bt and i > 3 then
+            bt.__mode, bt.__key = "quest", nil
+            bt:Hide()
+            if bt.__em then bt.__em:Hide() end
+        elseif bt then
             local key, label, n
             if i == 1 then key, label, n = "qall", DG.QSIDE_LABEL.all, cnt.all
             elseif i == 2 then key, label, n = "A", DG.QSIDE_LABEL.A, cnt.A
-            elseif i == 3 then key, label, n = "H", DG.QSIDE_LABEL.H, cnt.H
-            elseif i == 4 then key, label, n = "todo", DG.QFILTER_LABEL.todo, cnt.todo
-            else key, label, n = "done", DG.QFILTER_LABEL.done, cnt.done end
+            else key, label, n = "H", DG.QSIDE_LABEL.H, cnt.H end
             bt.__mode, bt.__key = "quest", key
             bt:SetWidth(92)   -- 掉落页把 1 号拉宽到 LOOT_BOSS_W（同宽下拉），回任务页先还原
-            local tex = (i == 2 or i == 3) and DG.FactionTex(i == 2 and "A" or "H") or nil
-            bt:SetText((tex and "  " or "") .. label .. " " .. n)
+            local tex = (i == 2 or i == 3) and DG.Q_FAC_ICON[(i == 2) and "A" or "H"] or nil
+            bt:SetText(label .. " " .. n)
+            local bfs = bt:GetFontString()
+            if bfs then
+                bfs:ClearAllPoints()
+                if tex then
+                    bfs:SetPoint("TOPLEFT", bt, "TOPLEFT", 26, 0)
+                    bfs:SetPoint("BOTTOMRIGHT", bt, "BOTTOMRIGHT", -2, 0)
+                else
+                    bfs:SetAllPoints(bt)
+                end
+                bfs:SetJustifyH("CENTER")
+            end
             bt:SetShown(true)
-            local sel = (i <= 3 and side == key) or (i == 4 and status == "todo") or (i == 5 and status == "done")
+            local sel = (i <= 3 and side == (i == 1 and "all" or key)) or (i == 4 and status == "todo") or (i == 5 and status == "done")
             SetOutline(bt, sel, 1, 0.82, 0)
-            bt:GetFontString():SetTextColor(Unpack(sel and C_GOLD or C_GREY))
+            if bfs then
+                if sel then
+                    bfs:SetTextColor(Unpack(C_GOLD))
+                elseif i == 2 then
+                    bfs:SetTextColor(0.40, 0.62, 1.00, 1)
+                elseif i == 3 then
+                    bfs:SetTextColor(1.00, 0.36, 0.26, 1)
+                else
+                    bfs:SetTextColor(Unpack(C_GREY))
+                end
+            end
         end
     end
 
@@ -4320,7 +4665,8 @@ function U:RenderDungeonQuests()
     U.dungeonQuestSum:ClearAllPoints()
     U.dungeonQuestSum:SetPoint("TOPLEFT", child, "TOPLEFT", DG.Q_PAD, 2)
     U.dungeonQuestSum:SetText(format(L["已完成 %d / %d"], doneVis, nVis) .. seg)
-    U.dungeonQuestSum:Show()
+    U.dungeonQuestSum:Hide()
+    if U.dungeonQDoneTg then U.dungeonQDoneTg:SetChecked(status ~= "todo") end
 
     local groups = { { inside = false, rows = {} }, { inside = true, rows = {} } }
     for i = 1, nAll do
@@ -4350,8 +4696,9 @@ function U:RenderDungeonQuests()
         U.dungeonQuestSel = first and first[1] or nil
     end
 
+    DG.__vgen = (DG.__vgen or 0) + 1
     local hdr, rows = pool.hdr, pool.row
-    local nH, nR, y = 0, 0, -DG.Q_SUM_H
+    local nH, nR, y = 0, 0, -DG.Q_HEAD_H
 
     local function takeRow()
         nR = nR + 1
@@ -4377,17 +4724,9 @@ function U:RenderDungeonQuests()
                     U:RenderDungeonQuests()
                 end
             end)
-            r.bar = r:CreateTexture(nil, "ARTWORK")
-            r.bar:SetPoint("TOPLEFT", r, "TOPLEFT", 0, 0)
-            r.bar:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 0)
-            r.bar:SetWidth(DG.Q_BAR_W)
             r.em = r:CreateTexture(nil, "ARTWORK")
-            r.em:SetSize(12, 12)
-            r.em:SetPoint("TOPLEFT", r, "TOPLEFT", 12, -(DG.Q_ROW_H - 12) / 2)
-            r.emL = MakeFS(r, 14, C_GREY, "LEFT")
-            r.emL:SetPoint("TOPLEFT", r, "TOPLEFT", 13, -(DG.Q_ROW_H - 14) / 2 - 1)
-            r.cls = MakeFS(r, 14, C_GREY, "LEFT")
-            r.cls:SetPoint("TOPLEFT", r, "TOPLEFT", 30, -(DG.Q_ROW_H - 14) / 2 - 1)
+            r.em:SetSize(DG.Q_FAC_ICON_SZ, DG.Q_FAC_ICON_SZ)
+            r.em:SetPoint("TOPLEFT", r, "TOPLEFT", 12, -(DG.Q_ROW_H - DG.Q_FAC_ICON_SZ) / 2)
             r.name = MakeFS(r, DG.Q_FS_NAME, C_TEXT, "LEFT")
             r.name:SetPoint("TOPLEFT", r, "TOPLEFT", DG.Q_X_NAME, -(DG.Q_ROW_H - DG.Q_FS_NAME) / 2 - 1)
             r.name:SetWidth(DG.Q_W_NAME)
@@ -4398,17 +4737,10 @@ function U:RenderDungeonQuests()
             r.sub:SetWordWrap(false)
             r.lv = MakeFS(r, DG.Q_FS_META, C_GREY, "LEFT")
             r.lv:SetPoint("TOPLEFT", r, "TOPLEFT", DG.Q_X_LV, -(DG.Q_ROW_H - DG.Q_FS_META) / 2 - 1)
-            r.pre = MakeFS(r, 14, C_GREY, "LEFT")
-            r.pre:SetPoint("TOPLEFT", r, "TOPLEFT", DG.Q_X_PRE, -(DG.Q_ROW_H - 14) / 2 - 1)
-            r.pre:SetText(L["前置"])
+            r.preB = DG.MakeBadge(r, DG.Q_BADGE_PRE_BG)
+            r.shareB = DG.MakeBadge(r, DG.Q_BADGE_SHARE_BG)
             r.meta = MakeFS(r, DG.Q_FS_META, C_GREY, "RIGHT")
             r.meta:SetPoint("TOPRIGHT", r, "TOPRIGHT", -6, -(DG.Q_ROW_H - DG.Q_FS_META) / 2 - 1)
-            r.selMark = r:CreateTexture(nil, "OVERLAY")
-            r.selMark:SetColorTexture(1, 0.82, 0, 0.95)
-            r.selMark:SetPoint("TOPRIGHT", r, "TOPRIGHT", 0, 0)
-            r.selMark:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 0, 0)
-            r.selMark:SetWidth(3)
-            r.selMark:Hide()
             r:SetScript("OnEnter", function(self)
                 U.dungeonQuestHover = self
                 if self.__huiCard then
@@ -4450,6 +4782,7 @@ function U:RenderDungeonQuests()
             hd.name:SetText(g.inside and L["副本内领取 / 交付"] or L["进本前先去接"])
             hd.name:ClearAllPoints()
             hd.name:SetPoint("TOPLEFT", child, "TOPLEFT", DG.Q_PAD, y)
+            hd.__vtop, hd.__vh, hd.__vgen = -y, DG.Q_HDR_H, DG.__vgen
             hd.name:Show()
             hd.cnt:SetText(format(L["%d 个"], #g.rows))
             hd.cnt:ClearAllPoints()
@@ -4463,38 +4796,14 @@ function U:RenderDungeonQuests()
                 local st = DG.QuestState(q[1])
                 local col = (st == "done" and C_GREEN) or (st == "active" and C_GOLD) or C_GREY
                 local nm, hasName = DG.QuestName(q[1])
-                r.bar:SetColorTexture(col[1], col[2], col[3], 1)
-                r.bar:Show()
-                local ftex = q[2] and DG.FactionTex(q[2]) or nil
+                local ftex = q[2] and DG.Q_FAC_ICON[q[2]] or nil
                 if ftex then
                     r.em:SetTexture(ftex)
                     r.em:Show()
-                    r.emL:Hide()
                 else
                     r.em:Hide()
-                    local lt = q[2] and DG.FactionLetter(q[2]) or nil
-                    if lt then
-                        r.emL:SetText(lt)
-                        r.emL:SetTextColor(Unpack(q[2] == "A" and DG.C_FAC_A or DG.C_FAC_H))
-                        r.emL:Show()
-                    else
-                        r.emL:Hide()
-                    end
                 end
-                local clsChar = q[15] and DG.QClassChar(q[15]) or nil
-                if clsChar then
-                    r.cls:SetText(clsChar)
-                    r.cls:SetTextColor(Unpack(DG.QClassColor(q[15])))
-                    r.cls:Show()
-                    r.name:ClearAllPoints()
-                    r.name:SetPoint("TOPLEFT", r, "TOPLEFT", DG.Q_X_NAME + 14, -(DG.Q_ROW_H - DG.Q_FS_NAME) / 2 - 1)
-                    r.name:SetWidth(DG.Q_W_NAME - 14)
-                else
-                    r.cls:Hide()
-                    r.name:ClearAllPoints()
-                    r.name:SetPoint("TOPLEFT", r, "TOPLEFT", DG.Q_X_NAME, -(DG.Q_ROW_H - DG.Q_FS_NAME) / 2 - 1)
-                    r.name:SetWidth(DG.Q_W_NAME)
-                end
+                local clsList = DG.QClassList(q[15])
                 r.name:SetText(nm)
                 if not hasName then
                     r.name:SetTextColor(Unpack(C_GREY))
@@ -4508,7 +4817,7 @@ function U:RenderDungeonQuests()
                 r.name:Show()
                 local loc = q[6] or ""
                 if loc == "" and q[8] then loc = L["副本内"] end
-                r.sub:SetText(loc)
+                r.sub:SetText(DG.QuestMapName(loc))
                 r.sub:Show()
                 if hasName and q[3] then
                     r.lv:SetText(format(L["%d 级可接"], q[3]))
@@ -4517,10 +4826,33 @@ function U:RenderDungeonQuests()
                 else
                     r.lv:Hide()
                 end
-                if (q[7] or q[9]) and hasName then
-                    r.pre:Show()
+                local bmax = DG.Q_X_LOC - 4
+                local bx = DG.Q_X_NAME + (r.name:GetStringWidth() or 0) + DG.Q_BADGE_GAP
+                local ci = 0
+                if hasName and clsList then
+                    for k = 1, #clsList do
+                        local cnm = DG.QClassLabel(clsList[k])
+                        if cnm then
+                            ci = ci + 1
+                            local cb = DG.ClsBadgeAt(r, ci)
+                            DG.BadgeTint(cb, DG.QClassFill(clsList[k]))
+                            bx = DG.PlaceBadge(cb, bx, cnm, bmax)
+                        end
+                    end
+                end
+                local cbs = r.clsB
+                if type(cbs) == "table" then
+                    for k = ci + 1, #cbs do cbs[k]:Hide() end
+                end
+                if hasName and (q[7] or q[9]) then
+                    bx = DG.PlaceBadge(r.preB, bx, L["前置"], bmax)
                 else
-                    r.pre:Hide()
+                    r.preB:Hide()
+                end
+                if hasName and DG.QuestShare(q[1]) then
+                    DG.PlaceBadge(r.shareB, bx, L["可共享"], bmax)
+                else
+                    r.shareB:Hide()
                 end
                 r.meta:SetText(hasName and (DG.Q_STATUS_TAG[st] or "") or L["暂时没有客户端数据"])
                 r.meta:SetTextColor(Unpack(hasName and col or C_DARKGREY))
@@ -4536,9 +4868,9 @@ function U:RenderDungeonQuests()
                     r:SetBackdropColor(1, 1, 1, DG.LOOT_CARD_BG)
                     r:SetBackdropBorderColor(1, 1, 1, DG.LOOT_CARD_EDGE)
                 end
-                r.selMark:SetShown(isSel)
                 r:ClearAllPoints()
                 r:SetPoint("TOPLEFT", child, "TOPLEFT", DG.Q_PAD, y - (i - 1) * (DG.Q_ROW_H + DG.Q_GAP_Y))
+                r.__vtop, r.__vh, r.__vgen = -(y - (i - 1) * (DG.Q_ROW_H + DG.Q_GAP_Y)), DG.Q_ROW_H, DG.__vgen
                 r:Show()
             end
             y = y - #g.rows * (DG.Q_ROW_H + DG.Q_GAP_Y) - DG.Q_GRP_GAP
@@ -4565,6 +4897,7 @@ function U:RenderDungeonQuests()
 
     child:SetHeight(math.max(10, -y + 12))
     U.dungeonQuestScroll:SetVerticalScroll(0)
+    DG.CullQuestRows()
     U:RenderQuestDetail()
 end
 
@@ -4843,18 +5176,14 @@ function U:RenderQuestDetail()
             r:SetScript("OnClick", function(self)
                 if self.__npc then DG.MarkNPC(self.__npc) end
             end)
-            r.bar = r:CreateTexture(nil, "ARTWORK")
-            r.bar:SetPoint("TOPLEFT", r, "TOPLEFT", 0, 0)
-            r.bar:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 0)
-            r.bar:SetWidth(3)
             r.name = MakeFS(r, 14, C_TEXT, "LEFT")
-            r.name:SetPoint("TOPLEFT", r, "TOPLEFT", 10, -3)
+            r.name:SetPoint("TOPLEFT", r, "TOPLEFT", 8, -3)
             r.name:SetWidth(detW - 100)
             r.name:SetWordWrap(false)
             r.st = MakeFS(r, 14, C_GREY, "RIGHT")
             r.st:SetPoint("TOPRIGHT", r, "TOPRIGHT", -8, -3)
             r.sub = MakeFS(r, 14, C_GREY, "LEFT")
-            r.sub:SetPoint("TOPLEFT", r, "TOPLEFT", 10, -21)
+            r.sub:SetPoint("TOPLEFT", r, "TOPLEFT", 8, -21)
             r.sub:SetWidth(detW - 18)
             r.sub:SetWordWrap(false)
             pool.node[i] = r
@@ -5048,7 +5377,7 @@ function U:RenderQuestDetail()
         local pnote = ns.DungeonQuestPreNote and ns.DungeonQuestPreNote[q[1]]
         if #nodes > 0 or pnote then
             local f = takeLab()
-            f:SetText(L["前导任务"])
+            f:SetText(L["前置任务"])
             put(f, 20)
             local frontier = true
             for _, seg in ipairs(nodes) do
@@ -5057,7 +5386,6 @@ function U:RenderQuestDetail()
                     local pnm, pok = DG.QuestName(seg)
                     local pst = DG.QuestState(seg)
                     local pcol = (pst == "done" and C_GREEN) or (pst == "active" and C_GOLD) or C_GREY
-                    r.bar:SetColorTexture(pcol[1], pcol[2], pcol[3], 1)
                     r.name:SetText(pok and (pnm .. format(" |cff9a9a9a#%d|r", seg)) or pnm)
                     r.name:SetTextColor(Unpack(pok and pcol or C_GREY))
                     local stag = (pok and DG.Q_STATUS_TAG[pst]) or ""
@@ -5092,7 +5420,6 @@ function U:RenderQuestDetail()
                     if not nid and ns.QuestPreNpcID then nid = ns.QuestPreNpcID[seg] end
                     r.__npc = nid
                 else
-                    r.bar:SetColorTexture(0.43, 0.4, 0.32, 1)
                     r.name:SetText(seg)
                     r.name:SetTextColor(Unpack(C_GREY))
                     r.st:Hide()
@@ -5128,7 +5455,6 @@ function U:RenderQuestDetail()
                 local fnm, fok = DG.QuestName(fq[1])
                 local fst = DG.QuestState(fq[1])
                 local fcol = (fst == "done" and C_GREEN) or (fst == "active" and C_GOLD) or C_GREY
-                r.bar:SetColorTexture(fcol[1], fcol[2], fcol[3], 1)
                 r.name:SetText(fok and (fnm .. format(" |cff9a9a9a#%d|r", fq[1])) or fnm)
                 r.name:SetTextColor(Unpack(fok and fcol or C_GREY))
                 r.st:SetText(fok and (DG.Q_STATUS_TAG[fst] or "") or "")
@@ -5298,6 +5624,7 @@ function U:RenderDungeonGuide()
     local g = (ns.DungeonGuide or {})[d.id]
     local cards = pool.card
     local nC = 0
+    DG.__vgen = (DG.__vgen or 0) + 1
 
     local function takeCard()
         nC = nC + 1
@@ -5410,10 +5737,10 @@ function U:RenderDungeonGuide()
             pool.note:SetWordWrap(true)
         end
         local f = pool.note
-        f:SetWidth(DG.CHILD_W - DG.GUTTER * 2)
+        f:SetWidth(DG.CHILD_W)
         f:SetText(L["这个副本还没有攻略，数据补上后会自动出现。"])
         f:ClearAllPoints()
-        f:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUTTER, 0)
+        f:SetPoint("TOPLEFT", child, "TOPLEFT", 0, 0)
         f:Show()
         for i = 1, #cards do cards[i]:Hide() end
         child:SetHeight(30)
@@ -5436,10 +5763,12 @@ function U:RenderDungeonGuide()
         a.frame:ClearAllPoints()
         a.frame:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUIDE_SIDE, top)
         a.frame:SetSize(DG.GUIDE_CARD_W, rh)
+        a.frame.__vtop, a.frame.__vh, a.frame.__vgen = -top, rh, DG.__vgen
         if b then
             b.frame:ClearAllPoints()
             b.frame:SetPoint("TOPLEFT", child, "TOPLEFT", DG.GUIDE_SIDE + DG.GUIDE_CARD_W + DG.GUIDE_GAP_X, top)
             b.frame:SetSize(DG.GUIDE_CARD_W, rh)
+            b.frame.__vtop, b.frame.__vh, b.frame.__vgen = -top, rh, DG.__vgen
         end
         top = top - rh - DG.GUIDE_GAP_Y
         i = i + 2
@@ -5448,6 +5777,7 @@ function U:RenderDungeonGuide()
     for i = nC + 1, #cards do cards[i]:Hide() end
     child:SetHeight(math.max(10, -top - DG.GUIDE_GAP_Y + DG.GUIDE_PAD))
     U.dungeonGuideScroll:SetVerticalScroll(0)
+    DG.CullGuideCards()
 end
 
 function U:SetDungeonTab(tab)
@@ -5499,6 +5829,9 @@ function U:RenderDungeonTab()
     if U.dungeonQDet then U.dungeonQDet:SetShown(isQuest) end
     if U.dungeonQPlateL then U.dungeonQPlateL:SetShown(isQuest) end
     if U.dungeonQPlateR then U.dungeonQPlateR:SetShown(isQuest) end
+    if U.dungeonQMask then U.dungeonQMask:SetShown(isQuest) end
+    if U.dungeonGMask then U.dungeonGMask:SetShown(isGuide) end
+    if U.dungeonLMask then U.dungeonLMask:SetShown(not isQuest and not isGuide and not isMap) end
     do
         local LFUI = ns.LootFilterUI
         if cur == "loot" then
@@ -5521,9 +5854,11 @@ local function BuildSubTabs()
         defs[#defs + 1] = { key = "Professions", text = L["专业"], width = DG.CAPSULE_W }
         defs[#defs + 1] = { key = "Explore", text = L["探索"], width = DG.CAPSULE_W }
         defs[#defs + 1] = { key = "Collections", text = L["藏品"], width = DG.CAPSULE_W }
+        defs[#defs + 1] = { key = "Factions", text = L["声望"], width = DG.CAPSULE_W }
         defs[#defs + 1] = { key = "Bis", text = L["BIS配装"], width = DG.CAPSULE_W }
         defs[#defs + 1] = { key = "Tier", text = L["职业指南"], width = DG.CAPSULE_W }
         defs[#defs + 1] = { key = "PvP", text = L["PvP"], width = DG.CAPSULE_W }
+        defs[#defs + 1] = { key = "Gear", text = L["装备库"], width = DG.CAPSULE_W }
     end
     local BTN_H = IsHui() and 20 or 26
     local GAP = IsHui() and 0 or 6
@@ -5653,6 +5988,9 @@ function U:EnsureBuilt(k)
     elseif k == "Collections" and ns.CollectionModule and U.collectionPage then
         U.subBuilt[k] = true
         ns.CollectionModule.Build(U.collectionPage)
+    elseif k == "Factions" and ns.FactionModule and U.factionPage then
+        U.subBuilt[k] = true
+        ns.FactionModule.Build(U.factionPage)
     elseif k == "Bis" and ns.BisModule and U.bisPage then
         U.subBuilt[k] = true
         ns.BisModule.Build(U.bisPage)
@@ -5662,6 +6000,9 @@ function U:EnsureBuilt(k)
     elseif k == "PvP" and ns.PvPModule and U.pvpPage then
         U.subBuilt[k] = true
         ns.PvPModule.Build(U.pvpPage)
+    elseif k == "Gear" and ns.GearModule and U.gearPage then
+        U.subBuilt[k] = true
+        ns.GearModule.Build(U.gearPage)
     end
 end
 
@@ -5669,41 +6010,7 @@ end
 --   切页因此仍是「零等待」，而打开动作不再被 6 页的建帧量一次性阻塞。
 --   C_Timer 不可用时直接返回，退化为「首次切到时同步建」（U:EnsureBuilt 兜底）。
 function U:SchedulePrebuild()
-    if U.prebuildOn then return end
-    if type(C_Timer) ~= "table" or type(C_Timer.After) ~= "function" then return end
-    U.prebuildOn = true
-    local order = { "Raids" }
-    if ns.LoadForeverPages then
-        order[#order + 1] = "Professions"
-        order[#order + 1] = "Explore"
-        order[#order + 1] = "Collections"
-        order[#order + 1] = "Bis"
-        order[#order + 1] = "Tier"
-        order[#order + 1] = "PvP"
-    end
-    local left = 0
-    for _, k2 in ipairs(order) do
-        if not (U.subBuilt and U.subBuilt[k2]) then left = left + 1 end
-    end
-    if left == 0 then return end     -- 全部建齐：不再排程（每次开窗都排会白跑一轮）
-    local i = 0
-    local function step()
-        local frame = ns.TalentSimFrame
-        if not frame or not frame:IsShown() then
-            U.prebuildOn = false            -- 界面已关：停止预热，下次开窗重启排程
-            return
-        end
-        i = i + 1
-        local k = order[i]
-        if not k then U.prebuildOn = false return end
-        if k ~= U.curSub then U:EnsureBuilt(k) end
-        if order[i + 1] then
-            C_Timer.After(0.2, step)     -- 0.2s：给主线程留喘息，切页前基本已建好
-        else
-            U.prebuildOn = false
-        end
-    end
-    C_Timer.After(0.6, step)
+    return
 end
 
 function U:SwitchSub(key)
@@ -5716,17 +6023,24 @@ function U:SwitchSub(key)
         k = "Explore"
     elseif key == "Collections" and ns.LoadForeverPages then
         k = "Collections"
+    elseif key == "Factions" and ns.LoadForeverPages then
+        k = "Factions"
     elseif key == "Bis" and ns.LoadForeverPages then
         k = "Bis"
     elseif key == "Tier" and ns.LoadForeverPages then
         k = "Tier"
     elseif key == "PvP" and ns.LoadForeverPages then
         k = "PvP"
+    elseif key == "Gear" and ns.LoadForeverPages then
+        k = "Gear"
     end
     U.curSub = k
     DB().subTab = k
+    ns.OpenPerf.Begin(({ Dungeons = "副本", Raids = "团本", Professions = "专业", Explore = "探索", Collections = "收藏", Factions = "阵营", Bis = "BIS", Tier = "职业指南", PvP = "PvP", Gear = "装备库" })[k] or k)
     local isDun, isRaid, isProf, isExpl, isColl, isBis, isTier = (k == "Dungeons"), (k == "Raids"), (k == "Professions"), (k == "Explore"), (k == "Collections"), (k == "Bis"), (k == "Tier")
     local isPvP = (k == "PvP")
+    local isFac = (k == "Factions")
+    local isGear = (k == "Gear")
     if U.dungeonPage then U.dungeonPage:SetShown(isDun) end
     if U.raidPage then U.raidPage:SetShown(isRaid) end
     if U.profPage then U.profPage:SetShown(isProf) end
@@ -5735,9 +6049,15 @@ function U:SwitchSub(key)
     if U.bisPage then U.bisPage:SetShown(isBis) end
     if U.tierPage then U.tierPage:SetShown(isTier) end
     if U.pvpPage then U.pvpPage:SetShown(isPvP) end
+    if U.factionPage then U.factionPage:SetShown(isFac) end
+    if U.gearPage then U.gearPage:SetShown(isGear) end
     if isRaid then
         U:EnsureBuilt("Raids")
     elseif isDun then
+        if U.dungeonDetail and U.dungeonDetailCur and U.dungeonDetailCur.raid
+            and U.dungeonDetail:IsShown() then
+            U.dungeonDetail:Hide()
+        end
         DG.BuildDungeons()
         U:UpdateDungeons()
     elseif isProf and ns.ProfModule then
@@ -5758,9 +6078,24 @@ function U:SwitchSub(key)
     elseif isPvP and ns.PvPModule then
         U:EnsureBuilt("PvP")
         ns.PvPModule.Open()
+    elseif isFac and ns.FactionModule then
+        U:EnsureBuilt("Factions")
+        ns.FactionModule.Open()
+    elseif isGear and ns.GearModule then
+        U:EnsureBuilt("Gear")
+        ns.GearModule.Open()
     end
+    ns.OpenPerf.Mark("就绪")
     for _, tab in ipairs(U.subTabs or {}) do
         local selected = (tab.key == k)
+        if U.subCtrl and selected then U.subCtrl:SetSelected(tab.button, true) end
+        tab.button:GetFontString():SetTextColor(Unpack(selected and C_WHITE or C_DIM))
+    end
+end
+
+function U:SetSubCapsule(key)
+    for _, tab in ipairs(U.subTabs or {}) do
+        local selected = (tab.key == key)
         if U.subCtrl and selected then U.subCtrl:SetSelected(tab.button, true) end
         tab.button:GetFontString():SetTextColor(Unpack(selected and C_WHITE or C_DIM))
     end
@@ -5792,6 +6127,14 @@ function U:UpdateActiveSub()
         if ns.PvPModule then ns.PvPModule.Refresh() end
         return
     end
+    if self.curSub == "Factions" then
+        if ns.FactionModule then ns.FactionModule.Refresh() end
+        return
+    end
+    if self.curSub == "Gear" then
+        if ns.GearModule then ns.GearModule.Refresh() end
+        return
+    end
     self:UpdateDungeons()
 end
 
@@ -5817,6 +6160,10 @@ function U:Build()
         U.curSub = "Tier"
     elseif saved == "PvP" and ns.LoadForeverPages then
         U.curSub = "PvP"
+    elseif saved == "Factions" and ns.LoadForeverPages then
+        U.curSub = "Factions"
+    elseif saved == "Gear" and ns.LoadForeverPages then
+        U.curSub = "Gear"
     else
         U.curSub = "Dungeons"
     end
@@ -5851,10 +6198,17 @@ function U:Build()
         U.tierPage = CreateFrame("Frame", nil, panel)
         U.tierPage:SetAllPoints(panel)
         U.tierPage:Hide()
+        U.factionPage = CreateFrame("Frame", nil, panel)
+        U.factionPage:SetAllPoints(panel)
+        U.factionPage:Hide()
         U.pvpPage = CreateFrame("Frame", nil, panel)
         U.pvpPage:SetAllPoints(panel)
         U.pvpPage:Hide()
         -- ★ 懒构建：职业指南页内容见 U:EnsureBuilt("Tier")
+        U.gearPage = CreateFrame("Frame", nil, panel)
+        U.gearPage:SetAllPoints(panel)
+        U.gearPage:Hide()
+        -- ★ 懒构建：装备库页内容见 U:EnsureBuilt("Gear")
     end
 
     U.dungeonBuilt = false
@@ -5896,12 +6250,18 @@ function U:Build()
     U.dungeonQDetSt = nil
     U.dungeonQuestSel = nil
     U.dungeonQSide = nil
+    U.dungeonQMask = nil
+    U.dungeonGMask = nil
+    U.dungeonLMask = nil
+    U.dungeonDetailBase = nil
+    DG.__vgen = nil
     -- ★ 2026-10-10 定案：列表为唯一视图，老存档的 overview 归位 list
     U.dungeonView = "list"
     if DB().dungeonView ~= "list" then DB().dungeonView = "list" end
     U.dungeonFilter = DB().dungeonFilter or "all"
     U.dungeonLootBoss = DB().dungeonLootBoss
     U.dungeonQFilter = DB().dungeonQuestFilter or "all"
+    if U.dungeonQFilter == "done" then U.dungeonQFilter = "all" end
     -- ★ 掉落页显示方式（"list" / "card"）：缺省列表，选中卡片视图跨会话记住
     U.lootView = (DB().lootView == "card") and "card" or "list"
     do

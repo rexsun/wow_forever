@@ -5,9 +5,9 @@
 ## Notes-zhCN: YUI 整合界面插件。
 ## Notes-zhTW: YUI 整合介面插件。
 ## Author: 阿言
-## Version: v338
+## Version: v341
 ## SavedVariables: YUI_DB, YUI_CPUDiagnostics
-## Interface: 120100, 120007, 120005, 120001, 120000, 38001, 16001
+## Interface: 120105, 120100, 120007, 120005, 120001, 120000, 38001, 16001
 ## OptionalDeps: LibEQOLEditMode-1.0, SenseiClassResourceBar, NDUI, ElvUI, ElvUI_ToxiUI, EnhanceQoL, Details, EllesmereUIActionBars, EllesmereUICooldownManager, EllesmereUIMinimap, BugSack
 ## Group: YUI
 ## X-YUI-Package: universal

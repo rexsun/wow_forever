@@ -2,7 +2,7 @@ local YUI = _G.YUI
 local YHUD = YUI and YUI.YHUD
 if not YHUD then return end
 
-YHUD.CONTENT_POLICY_REVISION = 17
+YHUD.CONTENT_POLICY_REVISION = 18
 
 function YHUD:CanConfigureSkillAuraDisplay(entry)
     return type(entry) == "table"
@@ -1131,6 +1131,12 @@ local POLICY = {
         addCooldown = false,
         addBuff = false,
     },
+    ["cast-only"] = {
+        semantics = { resource = true },
+        layouts = { resource = true },
+        addCooldown = false,
+        addBuff = false,
+    },
 }
 
 local DEFAULT_GROUP_POLICY = {
@@ -1497,7 +1503,7 @@ function YHUD:NormalizeGroupContentPolicy(group)
     if not policy.layouts[group.layout] then
         if policyId == "buff-only" then
             group.layout = "icons"
-        elseif policyId == "resource-only" then
+        elseif policyId == "resource-only" or policyId == "cast-only" then
             group.layout = "resource"
         else
             group.layout = "icons"

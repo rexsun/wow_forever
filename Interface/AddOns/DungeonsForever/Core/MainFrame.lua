@@ -27,7 +27,6 @@ do
 end
 
 local f = CreateFrame("Frame", "DungeonsForever_MainFrame", UIParent, "BackdropTemplate")
-tinsert(UISpecialFrames, "DungeonsForever_MainFrame")
 f:SetSize(W, H)
 f:SetFrameStrata("HIGH")
 f:SetToplevel(true)
@@ -37,6 +36,16 @@ f:EnableMouse(true)
 f:RegisterForDrag("LeftButton")
 f:SetPoint("CENTER")
 f:Hide()
+
+f:EnableKeyboard(true)
+f:SetScript("OnKeyDown", function(self, key)
+    if key == "ESCAPE" and self:IsShown() then
+        self:SetPropagateKeyboardInput(false)
+        self:Hide()
+    else
+        self:SetPropagateKeyboardInput(true)
+    end
+end)
 
 ns.MainFrame = f
 ns.TalentSimFrame = f
@@ -181,7 +190,7 @@ do
         { L["指令"], "|cff46bf72/df|r · |cff46bf72/fbsc|r · /副本手册 — " .. L["开关窗口"] },
         { L["页面"], "|cff46bf72/df fb|r" .. L["副本"] .. " · |cff46bf72tb|r" .. L["团本"]
             .. " · |cff46bf72zy|r" .. L["专业"] .. " · |cff46bf72ts|r" .. L["探索"]
-            .. " · |cff46bf72hp|r" .. L["藏品"] .. " · |cff46bf72bis|r" .. L["配装"] },
+            .. " · |cff46bf72hp|r" .. L["藏品"] .. " · |cff46bf72wm|r" .. L["声望"] .. " · |cff46bf72bis|r" .. L["配装"] },
     }
     for i, row in ipairs(rows) do
         local ln = about:CreateFontString(nil, "OVERLAY")
@@ -248,17 +257,17 @@ end)
 
 settingsPop = CreateFrame("Frame", nil, f, "BackdropTemplate")
 settingsPop:SetFrameLevel(512)
-settingsPop:SetPoint("TOPLEFT", f, "TOPRIGHT", 8, 0)
-settingsPop:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT", 8, 0)
+settingsPop:SetPoint("TOPLEFT", f, "TOPRIGHT", 4, 0)
+settingsPop:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT", 4, 0)
 settingsPop:SetWidth(220)
 settingsPop:EnableMouse(true)
 settingsPop:SetScript("OnMouseWheel", function() end)
 settingsPop:Hide()
-if ns.hui and ns.hui.SkinPopup then
-    ns.hui.SkinPopup(settingsPop, 8)
+if ns.hui and ns.hui.SkinPopup and ns.hui.layer then
+    ns.hui.SkinPopup(settingsPop, 8, nil, ns.hui.layer.L0)
 else
     settingsPop:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
-    settingsPop:SetBackdropColor(0x10 / 255, 0x13 / 255, 0x1A / 255, 1)
+    settingsPop:SetBackdropColor(0x0A / 255, 0x0C / 255, 0x10 / 255, 1)
 end
 
 -- 供掉落页「装备过滤」面板互斥调用：打开过滤面板时先收起设置弹窗（含图标态复位）。
@@ -372,7 +381,7 @@ local function MakeGlyphButton(width, label, anchor)
     bt:SetPoint(anchor, scaleGroup, anchor, 0, 0)
     local t = bt:CreateFontString(nil, "OVERLAY")
     bt:SetFontString(t)
-    t:SetFont(ns.FONT, 13, "")
+    t:SetFont(ns.FONT, 14, "")
     t:SetText(label)
     t:SetPoint("CENTER")
     t:SetTextColor(C_GLYPH[1], C_GLYPH[2], C_GLYPH[3])
@@ -387,7 +396,7 @@ scaleText:SetSize(44, PILL_H)
 scaleText:SetPoint("TOPLEFT", minusBtn, "TOPRIGHT")
 do
     local t = scaleText:CreateFontString(nil, "OVERLAY")
-    t:SetFont(ns.FONT, 12, "")
+    t:SetFont(ns.FONT, 14, "")
     t:SetText("100%")
     t:SetPoint("CENTER")
     t:SetTextColor(C_NUM[1], C_NUM[2], C_NUM[3])
@@ -493,8 +502,160 @@ ns.Init(function()
     scaleReady = true
 end)
 
+local reveal = { on = false, q = nil, total = 0, done = 0 }
+local revealBar, revealFill, revealText
+
+local function RevealUI()
+    if revealBar then return end
+    revealBar = CreateFrame("Frame", nil, f)
+    revealBar:SetFrameLevel(f:GetFrameLevel() + 80)
+    revealBar:SetPoint("TOPLEFT", f, "TOPLEFT", 8, 0)
+    revealBar:SetPoint("TOPRIGHT", f, "TOPRIGHT", -8, 0)
+    revealBar:SetHeight(3)
+    local bg = revealBar:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    if ns.hui and ns.hui.layer then
+        local c = ns.hui.layer.L1
+        bg:SetColorTexture(c[1], c[2], c[3], 0.9)
+    else
+        bg:SetColorTexture(0, 0, 0, 0.45)
+    end
+    revealFill = revealBar:CreateTexture(nil, "OVERLAY")
+    revealFill:SetPoint("TOPLEFT", revealBar, "TOPLEFT", 0, 0)
+    revealFill:SetPoint("BOTTOMLEFT", revealBar, "BOTTOMLEFT", 0, 0)
+    revealFill:SetWidth(1)
+    revealFill:SetColorTexture(1, 0.82, 0, 1)
+    revealText = revealBar:CreateFontString(nil, "OVERLAY")
+    revealText:SetFont(ns.FONT, 11, "")
+    revealText:SetPoint("TOP", f, "TOP", 0, -9)
+    revealText:SetTextColor(0.7, 0.76, 0.84)
+    revealBar:Hide()
+end
+
+local function RevealCollect(root)
+    local order, queue = {}, { root }
+    local i = 1
+    while i <= #queue do
+        local fr = queue[i]
+        i = i + 1
+        if fr.GetChildren then
+            local kids = { fr:GetChildren() }
+            for _, c in ipairs(kids) do
+                if c.IsShown and c:IsShown() then
+                    order[#order + 1] = c
+                    queue[#queue + 1] = c
+                end
+            end
+        end
+    end
+    return order
+end
+
+local function RevealPaint()
+    if not revealBar then return end
+    local pct = 0
+    if reveal.total > 0 then pct = math.floor(reveal.done / reveal.total * 100 + 0.5) end
+    if pct < 0 then pct = 0 elseif pct > 100 then pct = 100 end
+    revealFill:SetWidth(math.max(1, math.floor((W - 16) * pct / 100)))
+    revealText:SetText(L["正在载入…"] .. " " .. pct .. "%")
+end
+
+local function RevealFinishAll()
+    local ghost = DungeonsForeverDB and DungeonsForeverDB.dfGhost
+    reveal.on = false
+    local q = reveal.q
+    if q and not ghost then
+        for i = 1, #q do
+            local cfr = q[i]
+            if cfr and cfr.Show then pcall(cfr.Show, cfr) end
+        end
+    end
+    reveal.q = nil
+    if reveal.heavy and DungeonsForeverDB then
+        DungeonsForeverDB.dfRevealHeavy = table.concat(reveal.heavy, " ")
+        reveal.heavy = nil
+    end
+    if revealBar then revealBar:Hide() end
+end
+
+local revealedOnce = false
+
+local function RevealStart()
+    if revealedOnce then return end
+    local db = ns.DB and ns.DB().ui
+    if db and db.reveal == false then return end
+    RevealUI()
+    if reveal.on then RevealFinishAll() end
+    local order = RevealCollect(f)
+    if #order < 20 then return end
+    for i = 1, #order do
+        local cfr = order[i]
+        if cfr.Hide then pcall(cfr.Hide, cfr) end
+    end
+    revealedOnce = true
+    reveal.on = true
+    reveal.q = order
+    reveal.total = #order
+    reveal.done = 0
+    reveal.k = 3
+    reveal.lastT = nil
+    reveal.heavy = nil
+    revealBar:Show()
+    RevealPaint()
+end
+
+f:HookScript("OnUpdate", function()
+    if not reveal.on then return end
+    local now = debugprofilestop()
+    local dt = now - (reveal.lastT or now)
+    reveal.lastT = now
+    if dt > 45 then
+        reveal.k = math.max(1, (reveal.k or 2) - 1)
+        reveal.pause = 1
+    elseif dt < 20 then
+        reveal.k = math.min(2, (reveal.k or 2) + 1)
+        reveal.pause = nil
+    end
+    local q = reveal.q
+    if not q or #q == 0 then
+        RevealFinishAll()
+        return
+    end
+    if not reveal.pause and not (DungeonsForeverDB and DungeonsForeverDB.dfGhost) then
+        local k = reveal.k or 2
+        for _ = 1, k do
+            local cfr = q[1]
+            if not cfr then break end
+            table.remove(q, 1)
+            local t0 = debugprofilestop()
+            if cfr.Show then pcall(cfr.Show, cfr) end
+            local cost = debugprofilestop() - t0
+            if cost > 30 then
+                local nm = "?"
+                if cfr.GetName then
+                    local gn = cfr:GetName()
+                    if type(gn) == "string" and gn ~= "" then nm = gn end
+                end
+                reveal.heavy = reveal.heavy or {}
+                local h = reveal.heavy
+                h[#h + 1] = format("%d%%:%s:%.0f", math.floor(reveal.done / math.max(1, reveal.total) * 100 + 0.5), nm, cost)
+            end
+            reveal.done = reveal.done + 1
+        end
+    end
+    RevealPaint()
+    if #q == 0 then RevealFinishAll() end
+end)
+
+f:HookScript("OnHide", function()
+    if reveal.on then RevealFinishAll() end
+end)
+
 function ns.Open()
-    if not f:IsShown() then f:Show() end
+    if not f:IsShown() then
+        f:Show()
+        RevealStart()
+    end
     f:Raise()
 end
 
@@ -536,6 +697,7 @@ local PAGE_ALIASES = {
     zy = "Professions", ["专业"] = "Professions",
     ts = "Explore",     ["探索"] = "Explore",
     hp = "Collections", ["藏品"] = "Collections",
+    wm = "Factions",    ["声望"] = "Factions",
     bis = "Bis",        ["配装"] = "Bis",
     zn = "Tier",        ["指南"] = "Tier",
 }
@@ -555,7 +717,7 @@ SlashCmdList["DUNGEONSFOREVER"] = function(msg)
         return
     end
     print("|cff46bf72[" .. L["无限副本手册"] .. "]|r " .. L["用法：/df 或 /fbsc 打开或关闭界面。"])
-    print("  /df fb|副本 · tb|团本 · zy|专业 · ts|探索 · hp|藏品 · bis|配装 · zn|指南 — " .. L["直达对应页"])
+    print("  /df fb|副本 · tb|团本 · zy|专业 · ts|探索 · hp|藏品 · wm|声望 · bis|配装 · zn|指南 — " .. L["直达对应页"])
     -- ★ 2026-10-03 第五刀：载入闸门的速度档位（省电 2ms / 标准 4ms / 激进 8ms）。
     --   电脑差的用户不必猜命令 —— /df 就把它列出来。
     print("  /dfspeed — " .. L["载入速度"]

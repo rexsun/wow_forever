@@ -26,27 +26,17 @@ ns.RaidModule = RU
 
 RU.X = PAGE_INSET
 RU.W = CONTENT_W - 2 * PAGE_INSET
-RU.TITLE_Y = 19
-RU.NOTE_Y = 42
-RU.TAB_Y, RU.TAB_W, RU.TAB_H, RU.TAB_STEP = 58, 76, 24, 82
-RU.BODY_Y = 96
+RU.CARD_TOP = 8
+RU.LIST_Y = 16
+RU.CARD_BOTTOM = PAGE_INSET
 
-RU.TL_AXIS = 14
-RU.TL_NODE_H = 30
-RU.TL_ROW_H = 40
-RU.TL_NODE_GAP = 16
-RU.TL_TEXT_X = 34
-RU.TL_NOTE_Y = 540
-
+RU.GRID_PAD = 8
+RU.GRID_X = 0
 RU.LS_LABEL_H = 26
-RU.LS_GAP = 10
-RU.LS_BIG_W, RU.LS_BIG_H = 304, 108
-RU.LS_SMALL_W, RU.LS_SMALL_H = 226, 96
-RU.RULES_RULE_Y = 430
-RU.RULES_TITLE_Y = 452
-RU.RULES_TOP, RU.RULES_ROW_H = 466, 26
-RU.RULES_COL2 = 478
-RU.RULES_DESC_X = 96
+RU.LS_COLS = 2
+RU.LS_COL_H = 145
+RU.LS_GAP = 8
+RU.LS_COL_W = math.floor((RU.W - 2 * RU.GRID_PAD - (RU.LS_COLS - 1) * RU.LS_GAP) / RU.LS_COLS)
 
 RU.CN_SHIFT = 1
 
@@ -57,7 +47,7 @@ RU.DATA = {
     raids = {
         { name = "深穴", size = 10, first = true },
         { name = "海加尔峰", size = 20, zone = "海加尔山", first = true },
-        { name = "奥妮克希亚的巢穴", size = 40, zone = "尘泥沼泽", first = true },
+        { name = "奥妮克希亚的巢穴", size = 40, zone = "尘泥沼泽", first = true, entry = true },
         { size = 10, date = "2027 春季" },
         { size = 20, date = "2027 春季" },
         { name = "经典团本重制", date = "2027 夏季" },
@@ -73,16 +63,21 @@ RU.DATA = {
     },
 }
 
+RU.DETAILS = {
+    ["奥妮克希亚的巢穴"] = {
+        id = "onyxias_lair",
+        nameEn = "Onyxia's Lair",
+        levelMin = 60,
+        levelMax = 60,
+        zone = "尘泥沼泽",
+        bosses = { "奥妮克希亚" },
+    },
+}
+
 local function DB()
     local db = ns.DB()
     db.raid = db.raid or {}
     return db.raid
-end
-
-local function CurTab()
-    local t = DB().tab
-    if t == "list" or t == "sets" then return t end
-    return "timeline"
 end
 
 local function SizeColor(n)
@@ -152,29 +147,6 @@ function RU.CountdownText(nowSec, shift)
     return format(L["距首批开放还有 %d 天 %d 小时 %d 分"], d, h, m)
 end
 
-local function UpdateCD()
-    if not RU.cd then return end
-    local txt = RU.CountdownText()
-    if RU.cdTxt ~= txt then
-        RU.cdTxt = txt
-        RU.cd:SetText(txt)
-    end
-end
-
-local function BuildNodes()
-    local out = {}
-    for _, rec in ipairs(RU.DATA.raids) do
-        local label = RecDateText(rec)
-        local last = out[#out]
-        if last and last.date == label then
-            last.rows[#last.rows + 1] = rec
-        else
-            out[#out + 1] = { date = label, first = rec.first == true, rows = { rec } }
-        end
-    end
-    return out
-end
-
 local function BuildTiers()
     local big, small = {}, {}
     for _, rec in ipairs(RU.DATA.raids) do
@@ -183,8 +155,16 @@ local function BuildTiers()
     return big, small
 end
 
-local function SetHover(card, on)
-    card.edge:SetColorTexture(1, 1, 1, on and 0.22 or 0.10)
+local function CardEdge(c, r, g, b, a)
+    a = a or 1
+    if c.__rborder then
+        for _, t in ipairs(c.__rborder) do
+            t:SetVertexColor(r, g, b)
+            t:SetAlpha(a)
+        end
+    else
+        c:SetBackdropBorderColor(r, g, b, a)
+    end
 end
 
 function RU.LayoutCards(list, w, h, y0)
@@ -195,7 +175,7 @@ function RU.LayoutCards(list, w, h, y0)
             col, row = 0, row + 1
         end
         out[i] = {
-            x = RU.X + col * (w + RU.LS_GAP),
+            x = RU.GRID_X + col * (w + RU.LS_GAP),
             y = -(y0 + row * (h + RU.LS_GAP)),
         }
         col = col + 1
@@ -205,75 +185,109 @@ function RU.LayoutCards(list, w, h, y0)
     return out
 end
 
-function RU.NewRow(page)
-    local r = CreateFrame("Frame", nil, page)
-    r:SetSize(RU.W - RU.TL_TEXT_X, RU.TL_ROW_H)
-    r:EnableMouse(true)
-    r.bg = r:CreateTexture(nil, "BACKGROUND")
-    r.bg:SetAllPoints(r)
-    r.bg:SetColorTexture(1, 1, 1, 0.05)
-    r.bg:Hide()
-    r.bar = r:CreateTexture(nil, "ARTWORK")
-    r.bar:SetSize(3, RU.TL_ROW_H - 12)
-    r.bar:SetPoint("LEFT", r, "LEFT", 2, 0)
-    r.name = MakeFS(r, 14, C_TEXT, "LEFT")
-    r.name:SetPoint("LEFT", r, "LEFT", 14, 0)
-    r.meta = MakeFS(r, 14, C_GREY, "RIGHT")
-    r.meta:SetPoint("RIGHT", r, "RIGHT", -4, 0)
-    r:SetScript("OnEnter", function(self) self.bg:Show() end)
-    r:SetScript("OnLeave", function(self) self.bg:Hide() end)
-    return r
-end
-
-function RU.PaintRow(r, rec)
-    local cr, cg, cb = SizeColor(rec.size)
-    r.bar:SetColorTexture(cr, cg, cb, rec.first and 0.95 or 0.35)
-    r.name:SetText(rec.name or L["未定名团本"])
-    r.name:SetTextColor(Unpack(rec.first and C_WHITE or C_DIM))
-    local where = rec.zone and L[rec.zone] or L["地点未公布"]
-    r.meta:SetText(SizeText(rec.size) .. " · " .. where)
-    r.meta:SetTextColor(cr, cg, cb)
-    r:SetShown(true)
-end
-
 function RU.NewCard(page)
-    local c = CreateFrame("Frame", nil, page)
+    local c = CreateFrame("Button", nil, page, "BackdropTemplate")
     c:EnableMouse(true)
-    c.edge = c:CreateTexture(nil, "BACKGROUND")
-    c.edge:SetAllPoints(c)
-    c.edge:SetColorTexture(1, 1, 1, 0.10)
-    c.bg = c:CreateTexture(nil, "BACKGROUND", nil, 1)
-    c.bg:SetPoint("TOPLEFT", c, "TOPLEFT", 1, -1)
-    c.bg:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -1, 1)
+    c:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    c:SetBackdropColor(0, 0, 0, 0)
+    c:SetBackdropBorderColor(1, 1, 1, 0.10)
+    local rounded = false
+    local layer = ns.hui and ns.hui.layer
+    if ns.hui and ns.hui.BuildRoundedBG and layer then
+        ns.hui.BuildRoundedBG(c, 6, layer.L2, "both", false)
+        c:SetBackdropBorderColor(0, 0, 0, 0)
+        if ns.hui.BuildRoundBorder then
+            c.__rborder = ns.hui.BuildRoundBorder(c, 6, ns.hui.CARD_BORDER, c, "OVERLAY", "both", 1)
+        end
+        rounded = true
+    end
+    c.bg = c:CreateTexture(nil, "BACKGROUND")
+    c.bg:SetAllPoints(c)
     c.bg:SetColorTexture(0, 0, 0, 0.35)
-    c.bar = c:CreateTexture(nil, "ARTWORK")
-    c.bar:SetPoint("TOPLEFT", c, "TOPLEFT", 1, -1)
-    c.bar:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 1, 1)
-    c.bar:SetWidth(3)
+    c.bg:SetShown(not rounded)
+    c.art = c:CreateTexture(nil, "BACKGROUND", nil, 2)
+    c.art:SetAllPoints(c)
+    c.art:Hide()
+    if rounded and ns.hui and ns.hui.RoundIcon then ns.hui.RoundIcon(c.art) end
+    c.dim = c:CreateTexture(nil, "ARTWORK")
+    c.dim:SetAllPoints(c)
+    c.dim:SetColorTexture(0, 0, 0, 0.38)
+    c.dim:Hide()
     c.name = MakeFS(c, 16, C_WHITE, "LEFT")
-    c.name:SetPoint("TOPLEFT", c, "TOPLEFT", 16, -18)
+    c.name:SetPoint("TOPLEFT", c, "TOPLEFT", 20, -22)
     c.size = MakeFS(c, 14, C_GREY, "RIGHT")
-    c.size:SetPoint("TOPRIGHT", c, "TOPRIGHT", -16, -20)
+    c.size:SetPoint("TOPRIGHT", c, "TOPRIGHT", -20, -24)
     c.zone = MakeFS(c, 14, C_DIM, "LEFT")
-    c.zone:SetPoint("TOPLEFT", c, "TOPLEFT", 16, -48)
+    c.zone:SetPoint("TOPLEFT", c, "TOPLEFT", 20, -58)
     c.date = MakeFS(c, 14, C_GOLD, "LEFT")
-    c.date:SetPoint("TOPLEFT", c, "TOPLEFT", 16, -72)
-    c:SetScript("OnEnter", function(self) SetHover(self, true) end)
-    c:SetScript("OnLeave", function(self) SetHover(self, false) end)
+    c.date:SetPoint("TOPLEFT", c, "TOPLEFT", 20, -86)
+    c.__hovOn = false
+    c:SetScript("OnEnter", function(self)
+        self.__hovOn = true
+        CardEdge(self, 1, 1, 1, 0.9)
+        if self.rec and RU.DETAILS[self.rec.name] then
+            GameTooltip:SetOwner(self, "ANCHOR_TOPLEFT")
+            GameTooltip:ClearLines()
+            GameTooltip:SetText(L["点击查看详情"])
+            GameTooltip:Show()
+        end
+    end)
+    c:SetScript("OnLeave", function(self)
+        self.__hovOn = false
+        local e = self.__edge
+        if e then CardEdge(self, e[1], e[2], e[3], e[4]) end
+        GameTooltip:Hide()
+    end)
+    c:SetScript("OnClick", function(self)
+        if self.rec and RU.DETAILS[self.rec.name] then RU.OpenDetail(self.rec.name) end
+    end)
     return c
 end
 
-function RU.PaintCard(c, rec)
-    local cr, cg, cb = SizeColor(rec.size)
-    c.bar:SetColorTexture(cr, cg, cb, rec.first and 0.95 or 0.35)
+function RU.PaintCard(c, rec, ec, ea)
+    c.rec = rec
+    local det = RU.DETAILS[rec.name]
     c.name:SetText(rec.name or L["未定名团本"])
     c.name:SetTextColor(Unpack(rec.first and C_WHITE or C_DIM))
     c.size:SetText(SizeText(rec.size))
+    local cr, cg, cb = SizeColor(rec.size)
     c.size:SetTextColor(cr, cg, cb)
-    c.zone:SetText(rec.zone and L[rec.zone] or L["地点未公布"])
+    local where = rec.zone and L[rec.zone] or L["地点未公布"]
+    if det and det.levelMin then
+        where = where .. " · " .. format(L["等级 %d"], det.levelMin)
+    end
+    c.zone:SetText(where)
     c.zone:SetTextColor(Unpack(rec.first and C_DIM or C_GREY))
     c.date:SetText(RecDateText(rec))
     c.date:SetTextColor(Unpack(rec.first and C_GOLD or C_DIM))
+    c.__edge = { ec[1], ec[2], ec[3], ea or 0.7 }
+    if c.IsMouseOver and c:IsMouseOver() then
+        c.__hovOn = true
+        CardEdge(c, 1, 1, 1, 0.9)
+    else
+        c.__hovOn = false
+        CardEdge(c, ec[1], ec[2], ec[3], ea or 0.7)
+    end
+    local art, coord
+    if det and ns.DungeonUI and ns.DungeonUI.CardArtFor then
+        art, coord = ns.DungeonUI.CardArtFor({ id = det.id })
+    end
+    if art then
+        c.art:SetTexture(art)
+        if coord then c.art:SetTexCoord(coord[1], coord[2], coord[3], coord[4])
+        else c.art:SetTexCoord(0, 1, 0, 1) end
+        c.art:SetShown(true)
+        c.dim:SetShown(true)
+        c.bg:SetAlpha(0)
+    else
+        c.art:SetShown(false)
+        c.dim:SetShown(false)
+        c.bg:SetAlpha(1)
+    end
     c:SetShown(true)
 end
 
@@ -307,9 +321,9 @@ end
 --   ⑧ **职业筛选从 10 枚芯片改为下拉**：原先 10 枚等宽芯片吃满页签行右侧 678，
 --      腾不出批次芯片的位置 ⇒ 收成一枚常驻按钮（文本 = 「职业：」+ 当前职业，
 --      2026-10-07 用户：光一个职业名看不出按钮是干嘛的）。
---      ★ 展开菜单走 **LibBG:EasyMenu**（BOSS / 类型下拉同款，实机验证过的唯一路径）
+--      ★ 展开菜单走 **Hui ShowMenu**（BOSS / 类型下拉同款）
 --        —— 首版手搓展开面板在实机「点开是空的」，无法离线复现，整条退役；
---        点外关闭由 DungeonUI 的 OutsideMenuMouseDown 兜底（ddBtn 已加放行）。
+--        点外关闭由 ShowMenu 自带 GLOBAL_MOUSE_DOWN 兜底。
 --   ⑨ **卡墙按 revealed 分两段**，段前各一条分节标签（18 套已公开 / 9 套未揭示）。
 --      revealed = false 的套装渲染**占位卡**：只有徽记（兜底问号）+ 名称 + 副行 +
 --      「效果未揭示」+ 部件编号，不渲染效果区（这类套装数据里没有 bonuses）。
@@ -354,7 +368,7 @@ RU.SET_BATCH_Y  = 90
 RU.SET_TOP      = 124
 -- 分节头行高（左列表内每段的标签占位）
 RU.SET_SEC_H    = 26
--- 职业下拉：按钮宽 128（容纳最宽的「职业：全部职业」），菜单走 LibBG:EasyMenu
+-- 职业下拉：按钮宽 128（容纳最宽的「职业：全部职业」），菜单走 Hui ShowMenu
 RU.SET_DD_W     = 128
 RU.SET_DD_H     = RU.TAB_H                                     -- 24，与页签同高
 RU.SET_LINE_H   = 18                                           -- 14 号字一行高的兜底（真机走 GetStringHeight）
@@ -522,7 +536,7 @@ function RU.NewSetRow(parent)
     fs:ClearAllPoints()
     fs:SetPoint("LEFT", it, "RIGHT", 6, 0)
     fs:SetJustifyH("LEFT")
-    local count = MakeFS(bt, 11, C_GREY, "RIGHT")
+    local count = MakeFS(bt, 14, C_GREY, "RIGHT")
     count:SetPoint("RIGHT", bt, "RIGHT", -8, 0)
     bt.iconTex = it
     bt.countFs = count
@@ -561,7 +575,7 @@ function RU.NewPieceCard(parent)
     f.name:SetPoint("TOPLEFT", f, "TOPLEFT", RU.SET_PIECE_TX, -4)
     f.name:SetWidth(RU.SET_PIECE_W - RU.SET_PIECE_TX - RU.SET_PIECE_NAME_R)
     f.name:SetWordWrap(false)
-    f.meta = MakeFS(f, 11, C_GREY, "LEFT")
+    f.meta = MakeFS(f, 14, C_GREY, "LEFT")
     f.meta:SetPoint("TOPLEFT", f, "TOPLEFT", RU.SET_PIECE_TX, -23)
     f.meta:SetWordWrap(false)
     -- 悬停浮白：五人本卡内行同款极淡高亮（OVERLAY 一层白，Build 期建好）
@@ -892,13 +906,7 @@ function RU.PaintDropButton()
     SetOutline(RU.ddBtn, cur ~= "ALL", 1, 0.82, 0)
 end
 
--- ★★ 展开菜单走 LibBG:EasyMenu（BOSS / 类型下拉同款，实机验证过的唯一路径）：
---   宿主懒建挂 UIParent（各用各的宿主，避免 lib toggle 语义串台）；
---   点外关闭由 DungeonUI 的 OutsideMenuMouseDown 兜底（ddBtn 已加放行）。
--- ★ 首版手搓展开面板实机「点开是空的」且无法离线复现 ⇒ 整条退役，只留此路。
-function RU.OpenClassMenu()
-    local host = Host.DG and Host.DG.MenuHost and Host.DG.MenuHost("raidsets")
-    if not (host and ns.LibBG and ns.LibBG.EasyMenu) then return end
+function RU.OpenClassMenu(owner)
     local batch = CurBatch()
     local counts = {}
     for _, rec in ipairs((SetsData() and SetsData().sets) or {}) do
@@ -906,28 +914,25 @@ function RU.OpenClassMenu()
             counts[rec.class or ""] = (counts[rec.class or ""] or 0) + 1
         end
     end
-    local menu = {}
+    local items = {}
     for _, key in ipairs(SET_CHIPS) do
         local n = (key == "ALL") and 0 or (counts[key] or 0)
         local name = (key == "ALL") and L["全部职业"] or ClassNameOf(key)
-        -- ★ 菜单文字按职业色（2026-10-07 用户定）：lib 的 colorCode 字段 = "|cAARRGGBB"
-        --   整段包色（含「 · n」计数），全部职业行保持默认白。
-        local colorCode
+        local color
         if key ~= "ALL" then
             local rc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[key]
             if rc then
-                colorCode = format("|cFF%02X%02X%02X",
+                color = format("|cFF%02X%02X%02X",
                     floor(rc.r * 255 + 0.5), floor(rc.g * 255 + 0.5), floor(rc.b * 255 + 0.5))
             end
         end
-        menu[#menu + 1] = {
+        items[#items + 1] = {
             text = (key ~= "ALL" and n > 0) and format("%s · %d", name, n) or name,
-            colorCode = colorCode,
-            notCheckable = true,
+            color = color,
             func = function() RU.SetFilter(key) end,
         }
     end
-    ns.LibBG:EasyMenu(menu, host, "cursor", 0, 0, "MENU")
+    ns.hui.ShowMenu(items, { owner = owner })
 end
 
 -- 渲染入口：批次芯片 + 职业下拉按钮态
@@ -1013,61 +1018,6 @@ function RU.RenderSets()
     end
 
     RU.PaintSetDetail(sel)
-end
-
-function RU.SyncHeader(tab)
-    local data = SetsData()
-    local onSets = (tab == "sets") and data ~= nil
-    local batch = onSets and CurBatch() or SET_BATCH_ALL
-    if RU.note then
-        if onSets then
-            if batch == SET_BATCH_ALL then
-                -- 「全部」：口径覆盖两批 ⇒ 说明「N 套效果已公开 / M 套待揭示」
-                local nOpen, nHid = 0, 0
-                for _, rec in ipairs(data.sets or {}) do
-                    if rec.revealed == false then nHid = nHid + 1 else nOpen = nOpen + 1 end
-                end
-                RU.note:SetText(format(L["共 %d 套 · %d 套效果已公开 / %d 套待揭示"],
-                    data.total or 0, nOpen, nHid))
-            else
-                local bt = BatchList(data)
-                local label, count = batch, 0
-                for _, b in ipairs(bt) do
-                    if b.key == batch then
-                        label = b.label or batch
-                        count = b.count or 0
-                        break
-                    end
-                end
-                if batch == "exclusive" then
-                    -- ★★ 七稿 D：专属批揭示态混合 ⇒ 头行报揭示进度（随记录级 revealed 走）
-                    local nOpen, nHid = 0, 0
-                    for _, rec in ipairs(data.sets or {}) do
-                        if rec.batch == batch then
-                            if rec.revealed == false then nHid = nHid + 1 else nOpen = nOpen + 1 end
-                        end
-                    end
-                    RU.note:SetText(format(L["%s · %d 套 · %d 套效果已公开 / %d 套待揭示"],
-                        L[label] or label, count, nOpen, nHid))
-                else
-                    RU.note:SetText(format(L["%s · %d 套 / %d 职业 · 每套 %d 件 %d 项效果"],
-                        L[label] or label, count, SetsClassCount(data),
-                        data.pieces or 6, 4))
-                end
-            end
-        else
-            RU.note:SetText(L["首发即开放 10 / 20 / 40 人团本，2027 年的后续梯队已在排期"])
-        end
-    end
-    if RU.count then
-        if onSets then
-            RU.count:SetText(format(L["共 %d 套 · 更新于 %s"],
-                data.total or 0, data.updated or ""))
-        else
-            RU.count:SetText(format(L["共 %d 座 · 更新于 %s"],
-                #RU.DATA.raids, RU.DATA.updated))
-        end
-    end
 end
 
 function RU.BuildSets(page)
@@ -1160,212 +1110,226 @@ function RU.BuildSets(page)
         x = x + w + gap
     end
 
-    -- ★★ 五稿：职业下拉 —— 常驻按钮（右对齐批次行右端），展开走 LibBG:EasyMenu
+    -- ★★ 五稿：职业下拉 —— 常驻按钮（右对齐批次行右端），展开走 Hui ShowMenu
     --   （OpenClassMenu；手搓展开面板实机「点开是空的」已整条退役）。按钮文本由
     --   PaintDropButton 上「职业：」前缀，Build 期先垫一份防竞态空壳。
     local dd = NewButton(sets, L["职业："] .. L["全部职业"], RU.SET_DD_W, RU.SET_DD_H, RU.SET_CHIP_FS)
     MakeOutline(dd, 1, 0.82, 0)
     dd.__huiKeepTextColor = true
     dd:SetPoint("TOPRIGHT", page, "TOPRIGHT", -(RU.X + 2), -RU.SET_BATCH_Y)
-    dd:SetScript("OnClick", function() RU.OpenClassMenu() end)
+    dd:SetScript("OnClick", function() RU.OpenClassMenu(dd) end)
     RU.ddBtn = dd
 end
 
-function RU.RenderTimeline()
-    local nodes = RU.nodes
-    local y = RU.BODY_Y
-    local ri = 0
-    for ni, nd in ipairs(nodes) do
-        local mk = RU.nodeMarks[ni]
-        mk:SetPoint("TOPLEFT", RU.page, "TOPLEFT", RU.X + RU.TL_AXIS - 5, -(y + 4))
-        mk:SetColorTexture(1, 0.82, 0, nd.first and 0.95 or 0.35)
-        mk:Show()
-        local dl = RU.nodeLabels[ni]
-        dl:SetPoint("TOPLEFT", RU.page, "TOPLEFT", RU.X + RU.TL_TEXT_X, -y)
-        dl:SetText(nd.date)
-        dl:SetTextColor(Unpack(nd.first and C_GOLD or C_DIM))
-        dl:Show()
-        y = y + RU.TL_NODE_H
-        for _, rec in ipairs(nd.rows) do
-            ri = ri + 1
-            local r = RU.rows[ri]
-            r:SetPoint("TOPLEFT", RU.page, "TOPLEFT", RU.X + RU.TL_TEXT_X, -y)
-            RU.PaintRow(r, rec)
-            y = y + RU.TL_ROW_H
+function RU.CullCards()
+    local sc = RU.listScroll
+    if not (sc and RU.listChild) then return end
+    local top = 0
+    if sc.GetVerticalScroll then top = sc:GetVerticalScroll() end
+    if type(top) ~= "number" then top = 0 end
+    local vh = 0
+    if sc.GetHeight then vh = sc:GetHeight() end
+    if type(vh) ~= "number" then vh = 0 end
+    if vh <= 0 then return end
+    local bot = top + vh
+    for _, e in ipairs(RU.cullables or {}) do
+        local ok = e.yTop >= top and e.yBot <= bot
+        if e.card then
+            e.f:SetShown(ok and e.card.__shown)
+        else
+            e.f:SetShown(ok)
         end
-        y = y + RU.TL_NODE_GAP
     end
-    for j = ri + 1, #RU.rows do RU.rows[j]:Hide() end
-    for j = #nodes + 1, #RU.nodeLabels do
-        RU.nodeLabels[j]:Hide()
-        RU.nodeMarks[j]:Hide()
-    end
-    RU.axis:SetPoint("BOTTOMLEFT", RU.page, "TOPLEFT", RU.X + RU.TL_AXIS, -(y - RU.TL_NODE_GAP))
+end
+
+local function CullAdd(f, yTop, yBot, card)
+    RU.cullables[#RU.cullables + 1] = { f = f, yTop = yTop, yBot = yBot, card = card }
+end
+
+function RU.DungeonRec(name)
+    local d = name and RU.DETAILS[name]
+    if not d then return nil end
+    return {
+        id = d.id,
+        name = name,
+        nameEn = d.nameEn,
+        levelMin = d.levelMin,
+        levelMax = d.levelMax or d.levelMin,
+        zone = d.zone,
+        bossCount = d.bosses and #d.bosses or nil,
+        raid = true,
+    }
+end
+
+function RU.OpenDetail(name)
+    local rec = RU.DungeonRec(name)
+    local MJ = ns.DungeonUI
+    if not (rec and MJ and MJ.SwitchSub and MJ.ShowDungeonDetail) then return end
+    MJ:SwitchSub("Dungeons")
+    if MJ.SetDungeonTab then MJ:SetDungeonTab("loot") end
+    MJ:SetDungeonView("list")
+    MJ:ShowDungeonDetail(rec)
+    if MJ.SetSubCapsule then MJ:SetSubCapsule("Raids") end
+    if ns.PlaySound then ns.PlaySound(1) end
 end
 
 function RU.RenderList()
-    local tiers = RU.tiers
-    local groups = {
-        { list = tiers[1], w = RU.LS_BIG_W, h = RU.LS_BIG_H,
-          title = L["首批开启"], note = RU.FirstOpenText() .. " · " .. L["同日开启"] },
-        { list = tiers[2], w = RU.LS_SMALL_W, h = RU.LS_SMALL_H,
-          title = L["后续预告"], note = L["官方只给了窗口，名称与地点均未公布"] },
-    }
-    local y = RU.BODY_Y
     local ci = 0
-    for gi, g in ipairs(groups) do
+    for gi, g in ipairs(RU.groups) do
         local lb = RU.wallLabels[(gi - 1) * 2 + 1]
         local nt = RU.wallLabels[(gi - 1) * 2 + 2]
-        lb:SetPoint("TOPLEFT", RU.page, "TOPLEFT", RU.X + 2, -y)
         lb:SetText(g.title)
-        nt:SetPoint("TOPRIGHT", RU.page, "TOPRIGHT", -(RU.X + 2), -y)
         nt:SetText(g.note)
-        y = y + RU.LS_LABEL_H
-        local pos = RU.LayoutCards(g.list, g.w, g.h, y)
         for i, rec in ipairs(g.list) do
             ci = ci + 1
-            local c = RU.cards[ci]
-            c:SetSize(g.w, g.h)
-            c:SetPoint("TOPLEFT", RU.page, "TOPLEFT", pos[i].x, pos[i].y)
-            RU.PaintCard(c, rec)
+            RU.PaintCard(RU.cards[ci], rec, g.edge, g.ea)
+            RU.cards[ci].__shown = true
         end
-        y = pos.bottom + RU.LS_LABEL_H
     end
-    for j = ci + 1, #RU.cards do RU.cards[j]:Hide() end
+    for j = ci + 1, #RU.cards do
+        RU.cards[j].__shown = false
+        RU.cards[j]:Hide()
+    end
+    RU.CullCards()
 end
 
 function RU.Render()
     if not RU.built then return end
-    local tab = CurTab()
-    for key, bt in pairs(RU.tabs) do
-        local sel = (key == tab)
-        SetOutline(bt, sel, 1, 0.82, 0)
-        bt:GetFontString():SetTextColor(Unpack(sel and C_GOLD or C_DIM))
-    end
-    RU.timeline:SetShown(tab == "timeline")
-    RU.list:SetShown(tab == "list")
-    if RU.sets then RU.sets:SetShown(tab == "sets") end
-    RU.SyncHeader(tab)
-    UpdateCD()
-    if tab == "timeline" then
-        RU.RenderTimeline()
-    elseif tab == "list" then
-        RU.RenderList()
-    else
-        RU.RenderSets()
-    end
-end
-
-function RU.SetTab(key)
-    DB().tab = key
-    RU.Render()
-    if ns.PlaySound then ns.PlaySound(1) end
+    RU.RenderList()
 end
 
 function RU.Build(page)
     if RU.built then return end
-    RU.built = true
     RU.page = page
-    RU.nodes = BuildNodes()
     RU.tiers = { BuildTiers() }
-    RU.rows, RU.cards, RU.nodeMarks, RU.nodeLabels, RU.wallLabels = {}, {}, {}, {}, {}
-    RU.tabs = {}
+    RU.cards, RU.wallLabels, RU.groups, RU.cullables = {}, {}, {}, {}
 
-    local title = MakeFS(page, 16, C_WHITE, "LEFT")
-    title:SetPoint("TOPLEFT", page, "TOPLEFT", RU.X + 2, -RU.TITLE_Y)
-    title:SetText(L["团本"])
-    local count = MakeFS(page, 14, C_GREY, "RIGHT")
-    count:SetPoint("TOPRIGHT", page, "TOPRIGHT", -(RU.X + 2), -RU.TITLE_Y)
-    count:SetText(format(L["共 %d 座 · 更新于 %s"], #RU.DATA.raids, RU.DATA.updated))
-    local note = MakeFS(page, 14, C_DIM, "LEFT")
-    note:SetPoint("TOPLEFT", page, "TOPLEFT", RU.X + 2, -RU.NOTE_Y)
-    note:SetText(L["首发即开放 10 / 20 / 40 人团本，2027 年的后续梯队已在排期"])
-    RU.count, RU.note = count, note
+    local layer = ns.hui and ns.hui.layer
+    local card = CreateFrame("Frame", nil, page)
+    card:SetPoint("TOPLEFT", page, "TOPLEFT", RU.X, -RU.CARD_TOP)
+    card:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -RU.X, RU.CARD_BOTTOM)
+    if ns.hui and ns.hui.BuildRoundedBG and layer then
+        ns.hui.BuildRoundedBG(card, 6, layer.L1, "both", true, 1)
+    end
+    local baseLv = page:GetFrameLevel() or 0
+    card:SetFrameLevel(baseLv + 1)
+    RU.listCard = card
 
-    RU.cd = MakeFS(page, 14, C_GOLD, "RIGHT")
-    RU.cd:SetPoint("TOPRIGHT", page, "TOPRIGHT", -(RU.X + 2), -RU.NOTE_Y)
-
-    local tick = CreateFrame("Frame", nil, page)
-    tick:SetScript("OnUpdate", function(_, elapsed)
-        RU.cdAcc = (RU.cdAcc or 0) + elapsed
-        if RU.cdAcc >= 1 then
-            RU.cdAcc = 0
-            UpdateCD()
-        end
+    local scroll = CreateFrame("ScrollFrame", nil, page)
+    if scroll.SetClipsChildren then scroll:SetClipsChildren(true) end
+    scroll:SetFrameLevel(baseLv + 2)
+    scroll:SetPoint("TOPLEFT", page, "TOPLEFT", RU.X + RU.GRID_PAD, -RU.LIST_Y)
+    scroll:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -(RU.X + RU.GRID_PAD), RU.CARD_BOTTOM)
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(self, delta)
+        local ch = RU.listChild
+        if not ch then return end
+        local maxScroll = math.max(0, ch:GetHeight() - self:GetHeight())
+        self:SetVerticalScroll(math.max(0, math.min(maxScroll, self:GetVerticalScroll() - delta * 48)))
+        RU.CullCards()
     end)
+    scroll:HookScript("OnShow", function() RU.CullCards() end)
+    RU.listScroll = scroll
 
-    local defs = { { key = "timeline", text = L["时间线"] }, { key = "list", text = L["列表"] },
-                   { key = "sets", text = L["套装"] } }
-    for i, def in ipairs(defs) do
-        local bt = NewButton(page, def.text, RU.TAB_W, RU.TAB_H, 14)
-        bt:SetPoint("TOPLEFT", page, "TOPLEFT", RU.X + 2 + (i - 1) * RU.TAB_STEP, -RU.TAB_Y)
-        MakeOutline(bt, 1, 0.82, 0)
-        bt.__huiKeepTextColor = true
-        bt:SetScript("OnClick", function() RU.SetTab(def.key) end)
-        RU.tabs[def.key] = bt
+    if ns.hui and ns.hui.layer and ns.hui.layer.L0 then
+        local L0 = ns.hui.layer.L0
+        local mask = CreateFrame("Frame", nil, page)
+        mask:SetFrameLevel(baseLv + 3)
+        mask:SetPoint("TOPLEFT", card, "BOTTOMLEFT", 0, -1)
+        mask:SetPoint("TOPRIGHT", card, "BOTTOMRIGHT", 0, -1)
+        mask:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", 0, 0)
+        mask:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
+        local tex = mask:CreateTexture(nil, "OVERLAY")
+        tex:SetAllPoints()
+        tex:SetTexture("Interface\\Buttons\\WHITE8x8")
+        tex:SetVertexColor(L0[1], L0[2], L0[3], L0[4] or 1)
+        mask:Hide()
+        RU.listFades = { mask }
     end
 
-    local tl = CreateFrame("Frame", nil, page)
-    tl:SetAllPoints(page)
-    RU.timeline = tl
-    local axis = tl:CreateTexture(nil, "BACKGROUND")
-    axis:SetColorTexture(1, 1, 1, 0.12)
-    axis:SetWidth(1)
-    axis:SetPoint("TOPLEFT", page, "TOPLEFT", RU.X + RU.TL_AXIS, -RU.BODY_Y)
-    RU.axis = axis
-    for i = 1, #RU.nodes do
-        local mk = tl:CreateTexture(nil, "ARTWORK")
-        mk:SetSize(10, 10)
-        mk:SetColorTexture(1, 0.82, 0, 0.9)
-        RU.nodeMarks[i] = mk
-        RU.nodeLabels[i] = MakeFS(tl, 16, C_GOLD, "LEFT")
-    end
-    for _ = 1, #RU.DATA.raids do
-        RU.rows[#RU.rows + 1] = RU.NewRow(tl)
-    end
-    local tlNote = MakeFS(tl, 14, C_GREY, "LEFT")
-    tlNote:SetPoint("TOPLEFT", page, "TOPLEFT", RU.X + 2, -RU.TL_NOTE_Y)
-    tlNote:SetText(L["排期窗口以官方公布为准，未定名的条目仍会变动"])
+    local child = CreateFrame("Frame", nil, scroll)
+    RU.listChild = child
+    child:SetSize(RU.W - 2 * RU.GRID_PAD, 10)
+    scroll:SetScrollChild(child)
 
-    local ls = CreateFrame("Frame", nil, page)
-    ls:SetAllPoints(page)
-    RU.list = ls
     for i = 1, 4 do
         if i % 2 == 1 then
-            RU.wallLabels[i] = MakeFS(ls, 14, C_GOLD, "LEFT")
+            RU.wallLabels[i] = MakeFS(child, 14, C_GOLD, "LEFT")
         else
-            RU.wallLabels[i] = MakeFS(ls, 11, C_GREY, "RIGHT")
+            RU.wallLabels[i] = MakeFS(child, 14, C_GREY, "RIGHT")
         end
     end
     for _ = 1, #RU.DATA.raids do
-        RU.cards[#RU.cards + 1] = RU.NewCard(ls)
+        RU.cards[#RU.cards + 1] = RU.NewCard(child)
     end
-    local ruleRule = ls:CreateTexture(nil, "ARTWORK")
-    ruleRule:SetColorTexture(1, 1, 1, 0.10)
-    ruleRule:SetPoint("TOPLEFT", page, "TOPLEFT", RU.X, -RU.RULES_RULE_Y)
-    ruleRule:SetSize(RU.W, 1)
-    local rtitle = MakeFS(ls, 16, C_WHITE, "LEFT")
-    rtitle:SetPoint("TOPLEFT", page, "TOPLEFT", RU.X + 2, -RU.RULES_TITLE_Y)
+
+    local y = RU.GRID_PAD
+    local groups = {
+        { list = RU.tiers[1],
+          title = L["首批开启"], note = RU.FirstOpenText() .. " · " .. L["同日开启"],
+          edge = C_GOLD, ea = 0.70 },
+        { list = RU.tiers[2],
+          title = L["后续预告"], note = L["官方只给了窗口，名称与地点均未公布"],
+          edge = { 0.60, 0.63, 0.68 }, ea = 0.30 },
+    }
+    local ci = 0
+    for gi, g in ipairs(groups) do
+        local lb = RU.wallLabels[(gi - 1) * 2 + 1]
+        local nt = RU.wallLabels[(gi - 1) * 2 + 2]
+        lb:SetPoint("TOPLEFT", child, "TOPLEFT", RU.GRID_X, -y)
+        nt:SetPoint("TOPRIGHT", child, "TOPRIGHT", -RU.GRID_X, -y)
+        CullAdd(lb, y, y + RU.LS_LABEL_H)
+        CullAdd(nt, y, y + RU.LS_LABEL_H)
+        y = y + RU.LS_LABEL_H
+        local pos = RU.LayoutCards(g.list, RU.LS_COL_W, RU.LS_COL_H, y)
+        for i, rec in ipairs(g.list) do
+            ci = ci + 1
+            local c = RU.cards[ci]
+            c:SetSize(RU.LS_COL_W, RU.LS_COL_H)
+            c:SetPoint("TOPLEFT", child, "TOPLEFT", pos[i].x, pos[i].y)
+            CullAdd(c, -pos[i].y, -pos[i].y + RU.LS_COL_H, c)
+        end
+        g.pos = pos
+        y = pos.bottom + RU.LS_LABEL_H
+        RU.groups[gi] = g
+    end
+
+    local rulesTop = y + 4
+    local ruleRule = child:CreateTexture(nil, "ARTWORK")
+    if layer and layer.DIV then
+        ruleRule:SetColorTexture(layer.DIV[1], layer.DIV[2], layer.DIV[3], 1)
+    else
+        ruleRule:SetColorTexture(1, 1, 1, 0.10)
+    end
+    ruleRule:SetPoint("TOPLEFT", child, "TOPLEFT", RU.GRID_X, -rulesTop)
+    ruleRule:SetSize(RU.W - 2 * RU.GRID_PAD, 1)
+    CullAdd(ruleRule, rulesTop, rulesTop + 1)
+    local rtitle = MakeFS(child, 16, C_WHITE, "LEFT")
+    rtitle:SetPoint("TOPLEFT", child, "TOPLEFT", RU.GRID_X, -(rulesTop + 14))
     rtitle:SetText(L["团本规则"])
+    CullAdd(rtitle, rulesTop + 14, rulesTop + 34)
+    local ruleRowH, ruleCol2, ruleDescX = 26, 478, 96
     local gdkpDesc
     for i, rule in ipairs(RU.DATA.rules) do
-        local rx = RU.X + 2 + ((i - 1) % 2) * RU.RULES_COL2
-        local ry = RU.RULES_TOP + floor((i - 1) / 2) * RU.RULES_ROW_H
-        local rn = MakeFS(ls, 14, C_TEXT, "LEFT")
-        rn:SetPoint("TOPLEFT", page, "TOPLEFT", rx, -ry)
+        local rx = RU.GRID_X + ((i - 1) % 2) * ruleCol2
+        local ry = rulesTop + 32 + floor((i - 1) / 2) * ruleRowH
+        local rn = MakeFS(child, 14, C_TEXT, "LEFT")
+        rn:SetPoint("TOPLEFT", child, "TOPLEFT", rx, -ry)
         rn:SetText(L[rule[1]])
-        local rd = MakeFS(ls, 14, C_DIM, "LEFT")
-        rd:SetPoint("TOPLEFT", page, "TOPLEFT", rx + RU.RULES_DESC_X, -ry)
+        local rd = MakeFS(child, 14, C_DIM, "LEFT")
+        rd:SetPoint("TOPLEFT", child, "TOPLEFT", rx + ruleDescX, -ry)
         rd:SetText(L[rule[2]])
+        CullAdd(rn, ry, ry + ruleRowH)
+        CullAdd(rd, ry, ry + ruleRowH)
         if rule[1] == "禁止 GDKP" then gdkpDesc = rd end
     end
     if gdkpDesc then
-        RU.cnNote = MakeFS(ls, 14, C_GREY, "LEFT")
+        RU.cnNote = MakeFS(child, 14, C_GREY, "LEFT")
         RU.cnNote:SetPoint("LEFT", gdkpDesc, "RIGHT", 14, 0)
         RU.cnNote:SetText(L["国服待确定"])
     end
+    child:SetHeight(rulesTop + 32 + floor((#RU.DATA.rules + 1) / 2) * ruleRowH + 16)
 
-    RU.BuildSets(page)
-
+    RU.built = true
     RU.Render()
 end

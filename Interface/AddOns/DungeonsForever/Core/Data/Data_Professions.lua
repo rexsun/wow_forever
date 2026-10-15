@@ -17,10 +17,10 @@
 local _, ns = ...
 
 ns.ProfData = {
-    build = "1.60.1.70245",
-    updated = "2026-10-06",
+    build = "1.60.1.70338",
+    updated = "2026-10-11",
 
-    order = { "alchemy", "blacksmithing", "enchanting", "engineering", "leatherworking", "tailoring", "mining", "herbalism", "skinning", "cooking", "fishing", "first-aid", "camping" },
+    order = { "alchemy", "blacksmithing", "enchanting", "engineering", "leatherworking", "tailoring", "mining", "herbalism", "skinning", "cooking", "fishing", "first-aid", "poisons", "comprehension", "camping" },
 
     perks = {
         ["legacy-perk-bountiful-harvest"] = { "丰收", "inv_misc_bag_18", "Professions", 5, { "采药、采矿与剥皮时发现的稀缺材料增加 20%。", "采药、采矿与剥皮时发现的稀缺材料增加 40%。", "采药、采矿与剥皮时发现的稀缺材料增加 60%。", "采药、采矿与剥皮时发现的稀缺材料增加 80%。", "采药、采矿与剥皮时发现的稀缺材料增加 100%。" }, "采药、采矿与剥皮时发现的稀缺材料增加 20%。", "client_data", {} },
@@ -391,6 +391,28 @@ ns.ProfData = {
                 { "放置你的物件", "专业技能达到 20 后，你可以把该专业的物件放到火边；其他物件由其他玩家提供。你的营地物件共享一小时冷却。" },
                 { "坐下休息一分钟", "任何人在火边坐下或制作满一分钟，即可获得周围物件的增益。增益持续一小时，所以拿到后就可以离开。" },
             },
+        },
+        ["poisons"] = {
+            name = "毒药",
+            icon = 136242,
+            kind = "secondary",
+            section = "crafting",
+            summary = "盗贼的辅助专业：技能越高能调制的毒药越强。材料向毒药商人与黑市贩子购买，调成腐蚀、削弱与消磨敌人的药剂，涂在武器上生效。1.60 新增萎缩、迟钝、解离与玄秘毒药。",
+            status = "待实地核对",
+            recipes = 26,
+            sub = 1,
+            kinds = { Recipe = 26 },
+        },
+
+        ["comprehension"] = {
+            name = "理解",
+            icon = 135933,
+            kind = "secondary",
+            summary = "解读散落世界各处的魔法卷轴：理解技能越高，能解译的卷轴越强。卷轴读取后消耗，提供各类增益效果；在图书馆中研究可以提升理解技能。",
+            status = "待实地核对",
+            recipes = 7,
+            sub = 2,
+            kinds = { Recipe = 7 },
         },
     },
 }

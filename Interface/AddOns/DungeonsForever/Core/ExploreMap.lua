@@ -810,27 +810,7 @@ local function mkCyclerRow(content, y, label, items, get, set)
     return b
 end
 
--- 下拉选择行（2026-10-05 用户：连接方式 / 书籍显示改下拉）。LibBG EasyMenu + Hui
---   SkinDropDownList 统一主题。★ 每个下拉独立宿主：共用宿主时 lib 的 toggle 语义
---   是「列表开着 && OPEN_MENU==宿主 ⇒ 收」，A 开着点 B 会被当「同一菜单再点一次」
---   直接收掉，B 永远打不开（DungeonUI 2026-10-04 实锤同款坑）。
-local __ddHosts = {}
-local function ddMenuHost(key)
-    if __ddHosts[key] then return __ddHosts[key] end
-    if not (ns.LibBG and ns.LibBG.Create_UIDropDownMenu) then return nil end
-    __ddHosts[key] = ns.LibBG:Create_UIDropDownMenu(nil, UIParent)
-    return __ddHosts[key]
-end
--- 触发按钮登记：DungeonUI 的「点外面就关」事件帧靠它放行我们的按钮
---   （不放行 = 先被 GLOBAL_MOUSE_DOWN 收掉、抬键又开回来 = 永远关不掉）。
-local ddButtons = {}
-function ns.ExploreMapMenuGuard()
-    for _, b in ipairs(ddButtons) do
-        if b.IsVisible and b:IsVisible() and b:IsMouseOver() then return true end
-    end
-    return false
-end
-
+-- 下拉选择行（2026-10-05 用户：连接方式 / 书籍显示改下拉）。Hui ShowMenu 统一主题
 local function mkDropdownRow(content, y, label, items, get, set, onChange)
     local lab = setFs(content, 14, C_TXT)
     lab:SetJustifyH("LEFT")
@@ -847,14 +827,11 @@ local function mkDropdownRow(content, y, label, items, get, set, onChange)
     end
     b.sync = function() b:SetText(curItem().t) end
     b:SetScript("OnClick", function()
-        local host = ddMenuHost(label)
-        if not (host and ns.LibBG and ns.LibBG.EasyMenu) then return end
         local cur = get()
         local menu = {}
         for _, it in ipairs(items) do
             menu[#menu + 1] = {
                 text = (it.v == cur and "● " or "") .. it.t,
-                notCheckable = true,
                 func = function()
                     set(it.v)
                     b:sync()
@@ -863,9 +840,8 @@ local function mkDropdownRow(content, y, label, items, get, set, onChange)
                 end,
             }
         end
-        ns.LibBG:EasyMenu(menu, host, "cursor", 0, 0, "MENU")
+        ns.hui.ShowMenu(menu, { owner = b })
     end)
-    ddButtons[#ddButtons + 1] = b
     b:sync()
     return b
 end
@@ -1425,11 +1401,13 @@ end
 local boot = CreateFrame("Frame")
 pcall(boot.RegisterEvent, boot, "PLAYER_LOGIN")
 boot:SetScript("OnEvent", function()
-    Init()
-    if routeOn then
-        BuildRoute()
-        tracker = tracker or createTracker()
-        tracker:Show()
-        updateTracker()
-    end
+    C_Timer.After(0, function()
+        Init()
+        if routeOn then
+            BuildRoute()
+            tracker = tracker or createTracker()
+            tracker:Show()
+            updateTracker()
+        end
+    end)
 end)

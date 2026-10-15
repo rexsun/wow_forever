@@ -1318,6 +1318,8 @@ local function NormalizeCastInfoTable(unit, info, isChannel)
 
     local notInterruptibleRaw = FirstRawDisplayValue(info.notInterruptible, info.uninterruptible)
     local notInterruptible, notInterruptibleKnown = SafeInterruptibleFlag(notInterruptibleRaw)
+
+    local isEmpowered = isChannel == true and YUI.IsRetail == true and SafeRawValue(info.isEmpowered) == true
     local startTimeMS = FirstSafeNumberValue(info.startTimeMS, info.startTime, info.startTimeMilliseconds)
     local endTimeMS = FirstSafeNumberValue(info.endTimeMS, info.endTime, info.endTimeMilliseconds)
     local texture = FirstSafeRawValue(info.texture, info.textureID, info.icon, info.iconID)
@@ -1337,6 +1339,8 @@ local function NormalizeCastInfoTable(unit, info, isChannel)
         castID = FirstSafeRawValue(info.castID, info.castId, info.castGUID),
         castIDRaw = FirstRawDisplayValue(info.castID, info.castId, info.castGUID),
         isChannel = isChannel == true,
+        isEmpowered = isEmpowered,
+        numEmpowerStages = isEmpowered and SafeNumberValue(info.numEmpowerStages) or nil,
         startTimeMS = startTimeMS,
         endTimeMS = endTimeMS,
         durationObject = SafeRawValue(info.durationObject),
@@ -1369,7 +1373,7 @@ local function ReadCastInfo(unit, isChannel)
         }, durationObject)
     end
 
-    local ok, name, text, texture, startTimeMS, endTimeMS, isTradeSkill, arg7, arg8, arg9 = pcall(func, unit)
+    local ok, name, text, texture, startTimeMS, endTimeMS, isTradeSkill, arg7, arg8, arg9, arg10 = pcall(func, unit)
     if not ok then
         if durationObject == nil then
             return nil
@@ -1443,6 +1447,8 @@ local function ReadCastInfo(unit, isChannel)
     local safeStartTimeMS = SafeNumberValue(startTimeMS)
     local safeEndTimeMS = SafeNumberValue(endTimeMS)
     local notInterruptible, notInterruptibleKnown = SafeInterruptibleFlag(notInterruptibleRaw)
+    local isEmpowered = isChannel == true and YUI.IsRetail == true and SafeRawValue(arg9) == true
+    if isEmpowered then durationObject = SafeDurationObject(UnitEmpoweredChannelDuration, unit) or durationObject end
 
     return ApplyDurationClock({
         unit = unit,
@@ -1461,6 +1467,8 @@ local function ReadCastInfo(unit, isChannel)
         isChannel = isChannel == true,
         startTimeMS = safeStartTimeMS,
         endTimeMS = safeEndTimeMS,
+        isEmpowered = isEmpowered,
+        numEmpowerStages = isChannel == true and YUI.IsRetail == true and SafeNumberValue(arg10) or nil,
         durationObject = durationObject,
         notInterruptibleRaw = notInterruptibleRaw,
         visualNotInterruptibleRaw = notInterruptibleRaw,
@@ -1479,6 +1487,67 @@ end
 
 function Unit.GetChannelInfo(unit)
     return ReadCastInfo(unit, true)
+end
+
+-- Public stage metadata only; unavailable/restricted timing never becomes zero.
+-- The caller owns/reuses target. Returns stages, total seconds including hold.
+function Unit.ReadPlayerEmpowerStages(count, target)
+    target = type(target) == "table" and target or {}
+    for index = #target, 1, -1 do target[index] = nil end
+    if YUI.IsRetail ~= true or IsSecretValue(count) or type(count) ~= "number" or count < 1 or count > 8 then
+        return target, nil
+    end
+    local total = 0
+    for index = 1, math.floor(count) do
+        local duration = SafeValue(GetUnitEmpowerStageDuration, "player", index - 1)
+        if type(duration) ~= "number" or duration < 0 then
+            for clear = #target, 1, -1 do target[clear] = nil end
+            return target, nil
+        end
+        total = total + duration / 1000
+        target[index] = total
+    end
+    local hold = SafeValue(GetUnitEmpowerHoldAtMaxTime, "player")
+    if type(hold) ~= "number" or hold < 0 then return target, nil end
+    return target, total + hold / 1000
+end
+
+-- Client catalog, shared by every cast display. Unknown or restricted
+-- spells have no inferred tick count; empower stages are separate metadata.
+local FOREVER_CHANNEL_TICKS = {
+    [5143] = 3, [5144] = 4, [5145] = 5, [8416] = 5, [8417] = 5,
+    [10211] = 5, [10212] = 5, [12051] = 4, [10] = 8, [6141] = 8,
+    [8427] = 8, [10185] = 8, [10186] = 8, [10187] = 8,
+}
+
+function Unit.GetChannelTickCount(spellID)
+    if YUI.IsForever ~= true or IsSecretValue(spellID) then return 0 end
+    return FOREVER_CHANNEL_TICKS[spellID] or 0
+end
+
+-- Caller-owned public metadata and reusable empower timer. Raw cast fields are
+-- never copied here. The returned native duration goes straight to a sink.
+function Unit.ReadCastDisplay(info, target)
+    target.castStages = target.castStages or {}
+    target.castTotal, target.castTickCount = nil, 0
+    if info and info.isEmpowered and info.unit == "player" then
+        local _, total = Unit.ReadPlayerEmpowerStages(info.numEmpowerStages, target.castStages)
+        target.castTotal = total
+        if total and info.startTimeMS and C_DurationUtil and C_DurationUtil.CreateDuration then
+            local duration = target.empowerDuration or C_DurationUtil.CreateDuration()
+            target.empowerDuration = duration
+            if duration and duration.SetTimeFromStart then
+                duration:SetTimeFromStart(info.startTimeMS / 1000, total, 1)
+                return duration, false
+            end
+        end
+    else
+        for index = #target.castStages, 1, -1 do target.castStages[index] = nil end
+        if info and info.isChannel and not info.isEmpowered then
+            target.castTickCount = Unit.GetChannelTickCount(info.spellID)
+        end
+    end
+    return info and info.durationObject, info and info.isChannel and not info.isEmpowered or false
 end
 
 function Unit.GetSpellTargetInfo(unit)
@@ -1787,6 +1856,41 @@ function Unit.ReadPowerDisplay(unit, powerType, state, colorCurve)
     state.colorRaw = nil
     if secret and not targetComboPoints and colorCurve then
         state.colorRaw = Unit.ReadPowerColor(unit, powerType, colorCurve)
+    end
+    return state, changed
+end
+
+-- Matches ReadPowerDisplay's transient display contract without power identity.
+-- Raw health and percent go only to native display sinks; no secret arithmetic.
+function Unit.ReadHealthColor(unit, curve)
+    return SafeCall(UnitHealthPercent, unit, false, curve)
+end
+
+function Unit.ReadHealthDisplay(unit, state)
+    state = type(state) == "table" and state or {}
+    unit = type(unit) == "string" and unit or "player"
+    local raw = SafeCall(UnitHealth, unit)
+    local maximum = SafeCall(UnitHealthMax, unit)
+    local rawSecret, maxSecret = IsSecretValue(raw), IsSecretValue(maximum)
+    local available = (rawSecret or type(raw) == "number")
+        and (maxSecret or type(maximum) == "number")
+    local secret = available and (rawSecret or maxSecret)
+    local value = not rawSecret and type(raw) == "number" and raw or nil
+    local maxValue = not maxSecret and type(maximum) == "number" and maximum or nil
+    local changed = state.available ~= available or state.secret ~= secret
+        or state.value ~= value or state.maxValue ~= maxValue
+    state.available, state.secret = available, secret
+    state.value, state.maxValue, state.publicMaxValue = value, maxValue, maxValue
+    state.rawValuesAvailable = available
+    state.valueRaw, state.maxValueRaw, state.percentRaw = nil, nil, nil
+    if available then state.valueRaw, state.maxValueRaw = raw, maximum end
+    if secret then
+        state.value, state.maxValue = nil, nil
+        state.opaqueRevision = (state.opaqueRevision or 0) + 1
+        changed = true
+        if type(UnitHealthPercent) == "function" then
+            state.percentRaw = SafeCall(UnitHealthPercent, unit, false, GetPowerPercentDisplayCurve())
+        end
     end
     return state, changed
 end

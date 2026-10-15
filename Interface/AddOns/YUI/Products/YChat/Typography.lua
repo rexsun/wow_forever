@@ -8,8 +8,7 @@ if not Adapter then return end
 local Typography = {}
 YChat.Typography = Typography
 
-local LibStub = _G.LibStub
-local LSM = type(LibStub) == "function" and LibStub("LibSharedMedia-3.0", true) or nil
+local LSM
 local pairs = pairs
 local pcall = pcall
 local type = type
@@ -79,9 +78,12 @@ local function ResolveFont(mediaName)
         mediaName = YChat:NormalizeFontMediaName(mediaName)
     end
     if mediaName == nil then return nil end
-    if not LSM and type(LibStub) == "function" then
-        local ok, media = pcall(LibStub, "LibSharedMedia-3.0", true)
-        if ok then LSM = media end
+    if not LSM then
+        local LibStub = _G.LibStub
+        if type(LibStub) == "table" and type(LibStub.GetLibrary) == "function" then
+            local ok, media = pcall(LibStub.GetLibrary, LibStub, "LibSharedMedia-3.0", true)
+            if ok and type(media) == "table" then LSM = media end
+        end
     end
     if not LSM or type(LSM.Fetch) ~= "function" then return nil end
     local ok, fontFile = pcall(LSM.Fetch, LSM, "font", mediaName, true)

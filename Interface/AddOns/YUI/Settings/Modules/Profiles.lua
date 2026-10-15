@@ -357,6 +357,12 @@ local function SwitchToProfile(db, profileName, savedVariableName)
         db.profiles = sv.profiles
     end
 
+    if YUI.DB and type(YUI.DB.SwitchProfile) == "function" then
+        if type(sv) ~= "table" then return false end
+        WriteProfileToSavedVariables(sv, profileName, nil, false)
+        return YUI.DB:SwitchProfile(db, profileName) == true
+    end
+
     db:SetProfile(profileName)
     if YUI.DB and YUI.DB.PersistCurrentProfile then
         YUI.DB:PersistCurrentProfile(db, savedVariableName)
@@ -400,7 +406,14 @@ local function SaveProfileBeforeSwitch(db, profileName, source, savedVariableNam
         end
         WriteProfileToSavedVariables(sv, profileName, copied, false)
         db.profiles = sv.profiles
-        if profileName == originalName then RefreshSameProfile(copied) else db:SetProfile(profileName) end
+        if profileName == originalName then
+            RefreshSameProfile(copied)
+        elseif YUI.DB and type(YUI.DB.SwitchProfile) == "function" then
+            local switched, switchCode = YUI.DB:SwitchProfile(db, profileName)
+            if not switched then return false, switchCode end
+        else
+            db:SetProfile(profileName)
+        end
         if YUI.DB and YUI.DB.PersistCurrentProfile then YUI.DB:PersistCurrentProfile(db, savedVariableName) end
         if db:GetCurrentProfile() ~= profileName then return false, 'AceDB current profile mismatch' end
         if type(sv.profiles[profileName]) ~= 'table' then return false, 'profile table was not saved' end
@@ -414,7 +427,13 @@ local function SaveProfileBeforeSwitch(db, profileName, source, savedVariableNam
         local restored = pcall(function()
             db.profiles = originalProfiles or originalDBProfiles
             if originalProfiles then originalProfiles[originalName] = originalProfile end
-            if db:GetCurrentProfile() ~= originalName then db:SetProfile(originalName)
+            if db:GetCurrentProfile() ~= originalName then
+                if YUI.DB and type(YUI.DB.SwitchProfile) == "function" then
+                    local switched, switchCode = YUI.DB:SwitchProfile(db, originalName)
+                    if not switched then error(switchCode or 'profile_rollback_failed') end
+                else
+                    db:SetProfile(originalName)
+                end
             elseif db.profile ~= originalProfile then RefreshSameProfile(originalProfile) end
         end)
         if originalProfiles then originalProfiles[profileName] = originalTarget end
@@ -451,7 +470,9 @@ end
 
 local function RestoredImportFailure(phase, moduleId, reason, source)
     local detail = ImportFailureDetail(phase, moduleId, reason, source)
-    detail.rollbackRestored = true
+    -- Restoring the profile does not repair a failed account-data participant.
+    detail.profileRestored = true
+    if detail.rollbackRestored ~= false then detail.rollbackRestored = true end
     return detail
 end
 
@@ -466,7 +487,7 @@ local function RollbackImportFailure(originalCode, originalDetail, rollbackReaso
     })
 end
 
-local function RollbackNewImportProfile(db, savedVariableName, originalProfile, targetProfile)
+local function RestoreNewImportProfile(db, savedVariableName, originalProfile, targetProfile)
     if not SwitchToProfile(db, originalProfile, savedVariableName) then
         return nil, "rollback_failed", "profile_switch_failed"
     end
@@ -487,7 +508,13 @@ local function RollbackNewImportProfile(db, savedVariableName, originalProfile, 
     return true
 end
 
-local function ImportModularPackage(parsed, moduleIds, target, owner, context)
+local function RollbackNewImportProfile(...)
+    local called, restored, code, reason = pcall(RestoreNewImportProfile, ...)
+    if not called then return nil, "rollback_failed", restored end
+    return restored, code, reason
+end
+
+local function ImportModularPackageBody(parsed, moduleIds, target, owner, context)
     local Transfer = S.ConfigTransfer
     local db = GetActiveDB()
     local savedVariableName = GetActiveSavedVariableName()
@@ -532,10 +559,17 @@ local function ImportModularPackage(parsed, moduleIds, target, owner, context)
 
     local originalProfile = GetCurrentProfileName(db, savedVariableName)
     if not SwitchToProfile(db, targetProfile, savedVariableName) then
-        return nil, "profile_switch_failed", ImportFailureDetail(
-            "profile",
-            nil,
-            "profile_switch_failed"
+        local diagnostic = ImportFailureDetail("profile", nil, "profile_switch_failed")
+        local rolledBack, rollbackCode, rollbackReason = RollbackNewImportProfile(
+            db, savedVariableName, originalProfile, targetProfile
+        )
+        if rolledBack then
+            return nil, "profile_switch_failed", RestoredImportFailure(
+                "profile", nil, "profile_switch_failed", diagnostic
+            )
+        end
+        return nil, rollbackCode, RollbackImportFailure(
+            "profile_switch_failed", diagnostic, rollbackReason
         )
     end
     if type(db.ResetProfile) == "function" then db:ResetProfile() end
@@ -616,6 +650,39 @@ local function ImportModularPackage(parsed, moduleIds, target, owner, context)
     return true, detail
 end
 
+local function ImportModularPackage(parsed, moduleIds, target, owner, context)
+    local Transfer, session = S.ConfigTransfer
+    local db = GetActiveDB()
+    local savedVariableName = GetActiveSavedVariableName()
+    local originalProfile = db and GetCurrentProfileName(db, savedVariableName)
+    local targetProfile = type(target) == "table" and TrimProfileName(target.profileName) or ""
+    local canRestoreNew = db and type(target) == "table" and target.mode == "new"
+        and targetProfile ~= "" and not ProfileExists(db, savedVariableName, targetProfile)
+    if Transfer and Transfer.BeginImportSession then
+        local code
+        session, code = Transfer:BeginImportSession(moduleIds)
+        if not session then return nil, code, ImportFailureDetail("prepare", nil, code, { writesStarted = false }) end
+    end
+    local called, ok, detail, diagnostic = pcall(ImportModularPackageBody, parsed, moduleIds, target, owner, context)
+    if not called then
+        local reason = ok
+        if canRestoreNew and ProfileExists(db, savedVariableName, targetProfile) then
+            local restored, _, rollbackReason = RollbackNewImportProfile(db, savedVariableName, originalProfile, targetProfile)
+            detail = restored and "import_failed" or "rollback_failed"
+            diagnostic = ImportFailureDetail(restored and "commit" or "rollback", nil, rollbackReason or reason, {
+                rollbackRestored = restored == true,
+                originalCode = "import_failed", originalReason = reason,
+            })
+        else
+            detail = "import_failed"
+            diagnostic = ImportFailureDetail("commit", nil, reason, { rollbackRestored = false })
+        end
+        ok = nil
+    end
+    if session then Transfer:EndImportSession(session) end
+    return ok, detail, diagnostic
+end
+
 local function StartImportModularPackage(
     parsed,
     moduleIds,
@@ -654,6 +721,10 @@ local function StartImportModularPackage(
         handle.prepareJob = nil
         handle.prepared = nil
         handle.reviewedPrepared = nil
+        if handle.importSession then
+            Transfer:EndImportSession(handle.importSession)
+            handle.importSession = nil
+        end
     end
 
     local function Finish(ok, detail, diagnostic, phase)
@@ -671,6 +742,7 @@ local function StartImportModularPackage(
     local function RollbackFailure(code, diagnostic, phase)
         diagnostic = ImportFailureDetail(phase, nil, code, diagnostic)
         if not handle.targetCreated then
+            if phase == "prepare" or phase == "review" then diagnostic.writesStarted = false end
             return Finish(nil, code, diagnostic, phase)
         end
         local rolledBack, rollbackCode, rollbackReason = RollbackNewImportProfile(
@@ -698,13 +770,23 @@ local function StartImportModularPackage(
 
     local function Schedule(callback)
         if handle.finished then return end
+        local function Run()
+            if handle.finished then return end
+            local called, reason = pcall(callback)
+            if not called then
+                local phase = handle.state == "committing" and "commit" or "prepare"
+                local diagnostic = ImportFailureDetail(phase, nil, reason)
+                if phase == "commit" then diagnostic.rollbackRestored = false end
+                RollbackFailure("import_failed", diagnostic, phase)
+            end
+        end
         if C_Timer and C_Timer.NewTimer then
             handle.timer = C_Timer.NewTimer(0, function()
                 handle.timer = nil
-                if not handle.finished then callback() end
+                Run()
             end)
         else
-            callback()
+            Run()
         end
     end
 
@@ -733,9 +815,9 @@ local function StartImportModularPackage(
             return RollbackFailure(code, diagnostic, "prepare")
         end
         handle.prepared = prepared
-        if handle.reviewAccepted and Transfer.MatchesNewProfilePreview
-            and not Transfer:MatchesNewProfilePreview(handle.reviewedPrepared, prepared) then
-            return RollbackFailure('stale_preview',nil,'prepare')
+        if handle.reviewAccepted and Transfer.MatchesNewProfilePreview then
+            local matches, mismatch = Transfer:MatchesNewProfilePreview(handle.reviewedPrepared, prepared)
+            if not matches then return RollbackFailure('stale_preview', mismatch, 'prepare') end
         end
         local function Accept()
             if handle.finished or handle.state=='commit-pending' or handle.state=='committing' then return end
@@ -763,7 +845,7 @@ local function StartImportModularPackage(
         if handle.finished then return end
         handle.state = "preparing"
         if type(Transfer.StartPrepareImport) == "function" then
-            handle.prepareJob = Transfer:StartPrepareImport(
+            local job = Transfer:StartPrepareImport(
                 parsed,
                 moduleIds,
                 context,
@@ -782,14 +864,36 @@ local function StartImportModularPackage(
                             moduleCount = detail.moduleCount,
                         })
                     end,
-                    onComplete = Prepared,
+                    onComplete = function(...)
+                        local called, reason = pcall(Prepared, ...)
+                        if not called then
+                            RollbackFailure("import_failed", ImportFailureDetail("prepare", nil, reason), "prepare")
+                        end
+                    end,
                 }
             )
+            if handle.finished then
+                if job and job.Cancel then job:Cancel() end
+            else
+                handle.prepareJob = job
+            end
             return
         end
         Schedule(function()
             Prepared(Transfer:PrepareImport(parsed, moduleIds, context))
         end)
+    end
+
+    local function AcquireImportSession()
+        if handle.finished then return false end
+        if handle.importSession or not Transfer.BeginImportSession then return true end
+        local code
+        handle.importSession, code = Transfer:BeginImportSession(moduleIds)
+        if not handle.importSession then
+            Finish(nil, code, ImportFailureDetail("prepare", nil, code, { writesStarted = false }), "prepare")
+            return false
+        end
+        return true
     end
 
     Begin = function()
@@ -802,6 +906,7 @@ local function StartImportModularPackage(
             )
         end
         EmitProgress({ phase = "profile", progress = 0.02 })
+        if handle.finished then return end
         if target.mode ~= "new" then
             local expectedProfile = TrimProfileName(target.profileName)
             if expectedProfile ~= ""
@@ -813,7 +918,8 @@ local function StartImportModularPackage(
                     "profile"
                 )
             end
-            return StartPrepare()
+            if AcquireImportSession() then return StartPrepare() end
+            return
         end
 
         local targetProfile = TrimProfileName(target.profileName)
@@ -848,6 +954,7 @@ local function StartImportModularPackage(
             handle.previewingNew = true
             return StartPrepare()
         end
+        if not AcquireImportSession() then return end
         local sv = ResolveSavedVariablesTable(db, savedVariableName)
         if type(sv) ~= "table" then
             return Finish(

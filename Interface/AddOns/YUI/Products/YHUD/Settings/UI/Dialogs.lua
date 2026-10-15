@@ -154,6 +154,7 @@ function DesignerUI:EnsureNewGroupDialog()
     end
     if not (GUI2 and GUI2.CreatePanel and GUI2.CreateText and GUI2.Form
         and GUI2.Form.CreateButton and GUI2.Form.CreateSegmentedControl
+        and GUI2.Form.CreateEditBox
         and UIParent) then
         return nil, "gui-unavailable"
     end
@@ -210,14 +211,16 @@ function DesignerUI:EnsureNewGroupDialog()
                     text = T("designer.type.resource", "资源条"),
                     value = "resource-only",
                 },
+                { text = T("resource.player_cast", "玩家施法条"), value = "cast-only" },
             },
             value = "cooldown-primary",
             set = function(value)
-                DesignerUI.pendingNewGroupPolicy = value == "resource-only" and value
+                DesignerUI.pendingNewGroupPolicy = (value == "resource-only" or value == "cast-only") and value
                     or (value == "buff-only" and "buff-only" or "cooldown-primary")
-                local resource = value == "resource-only"
+                local resource = value == "resource-only" or value == "cast-only"
                 SetShown(DesignerUI.newGroupLayout, not resource)
                 SetShown(DesignerUI.newGroupLayoutLabel, not resource)
+                for _, control in ipairs(DesignerUI.newCastGroupControls or {}) do SetShown(control, value == "cast-only") end
                 if resource then DesignerUI.pendingNewGroupLayout = "resource" end
                 if DesignerUI.newGroupLayout then
                     local cooldown = DesignerUI.pendingNewGroupPolicy
@@ -271,6 +274,17 @@ function DesignerUI:EnsureNewGroupDialog()
     )
     newGroupLayout:SetPoint("TOPLEFT", 20, -150)
 
+    local castNameLabel = GUI2:CreateText(newGroupDialog, T("designer.group_name", "名称"), "font.size.md", "color.text.primary", "LEFT")
+    castNameLabel:SetPoint("TOPLEFT", 20, -130)
+    local castName = GUI2.Form:CreateEditBox(newGroupDialog, { width = 390, height = 30, autoFocus = false })
+    castName:SetPoint("TOPLEFT", 20, -150)
+    castName:SetText(T("resource.player_cast", "玩家施法条"))
+    local castSource = GUI2:CreateText(newGroupDialog, T("player_cast.source", "施法来源：玩家自身"), "font.size.md", "color.text.primary", "LEFT")
+    castSource:SetPoint("TOPLEFT", 20, -198)
+    self.newCastGroupName = castName
+    self.newCastGroupControls = { castNameLabel, castName, castSource }
+    for _, control in ipairs(self.newCastGroupControls) do control:Hide() end
+
     local newGroupCancel = GUI2.Form:CreateButton(newGroupDialog, {
         text = T("designer.cancel", "取消"),
         width = 120,
@@ -321,6 +335,8 @@ function DesignerUI:ShowNewGroupDialog()
     self:HideSwitchDialog()
     self.pendingNewGroupPolicy = "cooldown-primary"
     self.pendingNewGroupLayout = "icons"
+    if self.newCastGroupName then self.newCastGroupName:SetText(T("resource.player_cast", "玩家施法条")) end
+    for _, control in ipairs(self.newCastGroupControls or {}) do control:Hide() end
     if self.newGroupType and self.newGroupType.SetValue then
         self.newGroupType:SetValue("cooldown-primary", true)
     end
@@ -340,14 +356,17 @@ end
 
 function DesignerUI:CreateGroup(contentPolicy, layout)
     self:HideMonitorPicker()
-    contentPolicy = contentPolicy == "resource-only" and contentPolicy
+    contentPolicy = (contentPolicy == "resource-only" or contentPolicy == "cast-only") and contentPolicy
         or (contentPolicy == "buff-only" and "buff-only" or "cooldown-primary")
     layout = MONITOR_LAYOUTS[layout] and layout or "icons"
-    if contentPolicy == "resource-only" then layout = "resource"
+    if contentPolicy == "resource-only" or contentPolicy == "cast-only" then layout = "resource"
     elseif contentPolicy == "cooldown-primary" then layout = "icons" end
+    local name = contentPolicy == "cast-only" and self.newCastGroupName and self.newCastGroupName:GetText()
+    if type(name) == "string" then name = name:match("^%s*(.-)%s*$") end
+    if contentPolicy == "cast-only" and (not name or name == "") then return false end
     self:HideNewGroupDialog()
     local group, code = Designer:CreateGroup(
-        self:BuildNewGroupName(),
+        name or self:BuildNewGroupName(),
         contentPolicy,
         layout
     )

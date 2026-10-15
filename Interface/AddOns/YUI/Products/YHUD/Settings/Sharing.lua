@@ -139,12 +139,15 @@ function Sharing:ConvertLegacyString(value)
     local profile
     profile, code = YHUD.ConfigSets:PrepareProfileForTransfer(item.data.profile)
     if not profile then return nil, code end
-    local migration = YHUD.LegacySoundMigration
-    if not migration then return nil, 'legacy-migration-unavailable' end
-    local specs = {}; for key in pairs(known) do specs[key] = true end
-    local native, reader = {}, YUI.API and YUI.API.CooldownViewer
-    for _, entry in ipairs(reader and reader.ReadEntries and reader:ReadEntries({includeHidden=true,allowUnlearned=true}) or {}) do native[entry.cooldownID] = entry end
-    local records = migration:Collect(profile, 'incoming', specs, native)
+    local records = {}
+    if not AttachedSounds(profile, true) then
+        local migration = YHUD.LegacySoundMigration
+        if not migration then return nil, 'legacy-migration-unavailable' end
+        local specs = {}; for key in pairs(known) do specs[key] = true end
+        local native, reader = {}, YUI.API and YUI.API.CooldownViewer
+        for _, entry in ipairs(reader and reader.ReadEntries and reader:ReadEntries({includeHidden=true,allowUnlearned=true}) or {}) do native[entry.cooldownID] = entry end
+        records = migration:Collect(profile, 'incoming', specs, native)
+    end
     AttachedSounds(profile, false)
     local payload = { scope = {kind='full'}, recommendedSpecs = {}, item = {
         key='shared',name=item.name,description=item.description,providerSchemaVersion=legacy.providerSchemaVersion,
@@ -157,7 +160,6 @@ end
 function Sharing:SplitProfileImport(payload)
     local result = YHUD:CopyValue(payload)
     local migration = YHUD.LegacySoundMigration
-    if not migration then return nil end
     local records, native = {}, nil
     local function Native()
         if native then return native end
@@ -174,7 +176,8 @@ function Sharing:SplitProfileImport(payload)
             and AttachedSounds(container.profile,true) then return true end
         local profile=YHUD.ConfigSets:PrepareProfileForTransfer(container.profile)
         if not profile then return false end
-        if collect then
+        if not AttachedSounds(profile, true) and not migration then return false end
+        if collect and migration then
             for _,record in ipairs(migration:Collect(profile,key,assigned,Native())) do
                 records[#records+1]=record
                 if #records>4096 then return false end
@@ -245,23 +248,55 @@ Transfer:RegisterModule({ id = MODULE_ID, kind = 'product', schemaVersion = 1,
         local token, report = Sets:PrepareIndependentSetImport(YHUD.CONFIG_SET_PROVIDER_ID, item, mode, selected)
         if not token then return nil, report end
         local routes = {}
+        local defaultSpecCount
         if mode ~= 'none' then
+            local assignments, why = Sets:GetAssignments(YHUD.CONFIG_SET_PROVIDER_ID)
+            if not assignments then return nil, why end
+            local assigned = {}
             for _, spec in ipairs(selected) do
-                local reference, why = Sets:ResolveAssignment(YHUD.CONFIG_SET_PROVIDER_ID, spec)
-                if not reference then return nil, why end
+                assigned[spec] = true
+                local reference
+                if not (context and context.previewNewProfile) then
+                    reference, why = Sets:ResolveAssignment(YHUD.CONFIG_SET_PROVIDER_ID, spec)
+                    if not reference then return nil, why end
+                end
                 routes[#routes + 1] = { spec = spec, before = YHUD:CopyValue(reference) }
+            end
+            defaultSpecCount = 0
+            for _, spec in ipairs(YHUD:GetSupportedSpecKeys()) do
+                local reference = assignments.bySpec[spec] or assignments.default
+                if not assigned[spec] and (context and context.previewNewProfile
+                    or reference.kind == assignments.default.kind and reference.id == assignments.default.id) then
+                    defaultSpecCount = defaultSpecCount + 1
+                end
             end
         end
         local provider = Sets.providers[YHUD.CONFIG_SET_PROVIDER_ID]
         local db = YUI.DB:GetAceDB(provider.productId)
         return { database = db, profileName = db:GetCurrentProfile(), token = token,
-            report = report, specs = selected, routes = routes, scope = YHUD:CopyValue(payload.scope) }
+            report = report, specs = selected, routes = routes, defaultSpecCount = defaultSpecCount,
+            scope = YHUD:CopyValue(payload.scope) }
     end,
     validateSnapshot = function(snapshot) return Sets:ValidateIndependentSetImport(snapshot.token) end,
     apply = function(_, entry)
-        local ok, code = Sets:CommitIndependentSetImport(entry.snapshot.token)
+        local ok, code, detail = Sets:CommitIndependentSetImport(entry.snapshot.token)
         entry.snapshot.applied = ok == true
-        return ok, code
+        local result = ok and type(code) == 'table' and code.result
+        if type(result) == 'table' and result.nativeCategoryReloadDeferred == true then
+            entry.snapshot.nativeCategoryReload = {
+                automatic = true, plan = result.nativeCategoryPlan, report = result.nativeCategoryReport,
+                reference = YHUD:CopyValue(entry.snapshot.report.currentReference),
+                database = entry.snapshot.database, profileName = entry.snapshot.profileName,
+                specKey = YHUD:GetCurrentSpecKey(),
+            }
+        end
+        return ok, not ok and code or nil, detail
+    end,
+    showCompletion = function(entry)
+        local request = entry.snapshot.nativeCategoryReload
+        if not request then return false end
+        entry.snapshot.nativeCategoryReload = nil
+        return YHUD.ConfigSets:RequestNativeCategoryReloadPrompt(request)
     end,
     restore = function(snapshot)
         if not snapshot.applied then return true end

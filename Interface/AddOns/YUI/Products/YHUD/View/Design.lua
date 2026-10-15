@@ -2870,6 +2870,11 @@ function View:InvalidateDesignResourcePreviewAppearance(slot)
 end
 
 function View:ApplyDesignResourcePreviewSlot(slot, preset, progress, absoluteValue)
+    if preset and preset.id == "cast" and I.UpdatePlayerCast then
+        if slot._yhudDesignResourcePreview then slot._yhudDesignResourcePreview:Hide() end
+        I.UpdatePlayerCast(slot, nil, true)
+        return true
+    end
     local startedAt = ProfileNowMS()
     local preview = slot and slot._yhudDesignResourcePreview
     if not preview or slot._yhudDesignResourcePreviewAppearanceDirty then
@@ -2887,8 +2892,9 @@ function View:ApplyDesignResourcePreviewSlot(slot, preset, progress, absoluteVal
     if preset and preset.appearanceExtension and type(absoluteValue) == "number" then
         value = math.max(0, math.min(600, absoluteValue))
     end
-    -- Ordinary power previews follow whole resource units, not animation fractions.
-    if providerKind == "unit-power" and not (preset and preset.appearanceExtension) then
+    -- Health and ordinary power use whole units, just like their live values.
+    if (providerKind == "unit-power" or providerKind == "unit-health")
+        and not (preset and preset.appearanceExtension) then
         value = math.floor(value + 0.00001)
     end
     -- Ironfur fill represents duration; its text represents an independent stack count.
@@ -3504,7 +3510,7 @@ local function AcquireProjectionGroup(self, projection, groupPlan)
     -- previous group's width, including groups that exist only in the draft.
     runtime.effectiveResourceWidth = runtime.view == "resource"
         and I.ResolveResourceWidth(self, runtime) or nil
-    frame:SetFrameStrata("DIALOG")
+    frame:SetFrameStrata("FULLSCREEN")
     frame:SetFrameLevel(DESIGN_PROJECTION_FRAME_LEVEL)
     frame:SetAlpha(0)
     frame:Hide()

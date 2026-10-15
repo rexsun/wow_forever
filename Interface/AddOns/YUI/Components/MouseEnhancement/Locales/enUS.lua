@@ -6,6 +6,8 @@ YUI.Locale:Register("MouseEnhancement", "enUS", {
     ["name"] = "Mouse Enhancement",
     ["description"] = "Enhances player tooltips and shows IDs at the bottom of item, spell, aura, quest, currency, and NPC tooltips.",
     ["settings.section.tooltip"] = "Tooltips",
+    ["settings.tooltip_instant_hide"] = "Hide tooltips instantly",
+    ["settings.tooltip_instant_hide_help"] = "Hide immediately when the mouse leaves, skipping the delay and fade.",
     ["settings.tooltip_cursor_enabled"] = "Follow cursor",
     ["settings.tooltip_cursor_help"] = "Make standard mouseover tooltips follow the cursor, with adjustable position and offsets.",
     ["settings.tooltip_cursor_position"] = "Position",

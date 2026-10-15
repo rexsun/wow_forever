@@ -46,7 +46,7 @@ local FILTERED_AURA_ANCHOR_SPECIAL_ROW_BASE = 100
 local FILTERED_AURA_ANCHOR_SPECIAL_ORIGIN_BASE = 200
 local FILTERED_AURA_ANCHOR_SPECIAL_FIXED_HALF_BASE = 300
 local DESIGN_DISPLAY_LAYER_BASE = 180
-local DESIGN_DISPLAY_STRATA = "DIALOG"
+local DESIGN_DISPLAY_STRATA = "FULLSCREEN"
 
 function View:CreateGroupHolder(groupId, group)
     local runtime = self.groups[groupId]
@@ -1494,22 +1494,33 @@ local function RelayoutResourceFrames(
         and GUI2:GetPixelSize(runtime.frame, 1, 1)
         or (GUI2.mult or 1)
     local resourceMetrics = {}
+    local layoutScale = GetPixelLayoutScale(runtime.frame)
     local presentationMembers = runtime.presentationGroupPlan
         and runtime.presentationGroupPlan.memberById or nil
     for index = 1, count do
-        local monitorId = runtime.monitorIds[index]
+        -- Auto layout compacts hidden members; the visible slot retains its own
+        -- presentation even when it no longer occupies the original index.
+        local slot = frames[index]
+        local monitorId = slot and slot._yhudMonitorId or runtime.monitorIds[index]
         local member = monitorId and presentationMembers
             and presentationMembers[monitorId] or nil
         local spec = member and member.resourceSpec
-        local slot = frames[index]
+        local height = spec and spec.height
+            or slot and slot.gui2ResourceHeight
+            or slot and slot.height
+            or runtime.resourceHeight
+            or DEFAULT_RESOURCE_HEIGHT
+        -- Quantize the actual bars before accumulating their positions. Snapping
+        -- only the cumulative offsets leaves fractional heights at shared edges.
+        height = math.max(minimumStep, SnapLayoutBoundary(runtime.frame, height, layoutScale))
+        if slot and slot.SetResourceBarSize and slot.gui2ResourceHeight ~= height then
+            slot:SetResourceBarSize(effectiveWidth, height, runtime.orientation)
+            wrote = true
+        end
         resourceMetrics[index] = {
             resourceId = slot and slot._yhudResourceId,
             width = effectiveWidth,
-            height = spec and spec.height
-                or slot and slot.gui2ResourceHeight
-                or slot and slot.height
-                or runtime.resourceHeight
-                or DEFAULT_RESOURCE_HEIGHT,
+            height = height,
         }
     end
     local geometry = BuildGroupGeometry(
@@ -1530,7 +1541,6 @@ local function RelayoutResourceFrames(
     local height = geometry.height
     local fallbackHeight = runtime.resourceHeight or runtime.itemHeight
         or DEFAULT_RESOURCE_HEIGHT
-    local layoutScale = GetPixelLayoutScale(runtime.frame)
     if prefixCache then
         local prefixWidths = prefixCache.prefixWidths
         local prefixHeights = prefixCache.prefixHeights
@@ -1832,6 +1842,7 @@ function View:IsMonitorLayoutParticipating(monitor, state, fixedLayout)
     if monitor._yhudPreviewOnly == true then
         return self.preview == true
     end
+    if I.IsPlayerCastCollapsed and I.IsPlayerCastCollapsed(self, monitor, state) then return false end
     if monitor._yhudEquipmentTriggerKind ~= "active-timer" then
         return true
     end
@@ -2578,6 +2589,7 @@ function View:RelayoutGroupCore(groupId, combatResourceEdge)
     local visibleCount = 0
     local fixedLayout = runtime.layoutMode == "fixed"
     local layoutCount = fixedLayout and runtime.monitorCount or 0
+    local collapsedCastCount = 0
     local usedNative = {}
     local hasNativeFrames = false
     for index = 1, runtime.monitorCount do
@@ -2586,6 +2598,9 @@ function View:RelayoutGroupCore(groupId, combatResourceEdge)
         local nativeFrame = runtime.nativeByMonitor
             and runtime.nativeByMonitor[monitorId]
         local ownedFrame = self.byMonitor[monitorId]
+        if I.IsPlayerCastCollapsed and I.IsPlayerCastCollapsed(self, monitor) then
+            collapsedCastCount = collapsedCastCount + 1
+        end
         if ownedFrame
             and not self:IsMonitorLayoutParticipating(
                 monitor,
@@ -2631,7 +2646,7 @@ function View:RelayoutGroupCore(groupId, combatResourceEdge)
         end
         if frame then
             frameCount = frameCount + 1
-            local frameIndex = fixedLayout and index or frameCount
+            local frameIndex = fixedLayout and (index - collapsedCastCount) or frameCount
             frames[frameIndex] = frame
             usedNative[frame] = true
             if frame == nativeFrame then hasNativeFrames = true end
@@ -2640,6 +2655,7 @@ function View:RelayoutGroupCore(groupId, combatResourceEdge)
             end
         end
     end
+    layoutCount = layoutCount - collapsedCastCount
     for index = 1, #(runtime.nativeFrames or {}) do
         local frame = runtime.nativeFrames[index]
         if frame and not usedNative[frame] then

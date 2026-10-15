@@ -1,11 +1,26 @@
 -- Generated from Docs/Products/YUI_YActionBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yactionbar", {
--- YUI-Notes-Record: yactionbar-105|mainline|fabd1350c548be56d29215bff2fc4543376087725fd99b5eb4a3d8e7f118d775
--- YUI-Notes-Record: yactionbar-105|forever|8bd83ce39def58363e72311f2f516f68f6903d465ea8f3d6afed049ce2659a0d
+-- YUI-Notes-Record: yactionbar-106|mainline|39ee4a9073d3463a5d7ba213a1fdf898ddea51f60f00ea651655336bacf0b865
+-- YUI-Notes-Record: yactionbar-106|forever|0f3880202e1afff519e070433c428983ea94b4132b3eceef171dde786b9292f9
+    {
+        version = "yactionbar-106",
+        date = "2026-10-15",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yactionbar-105|mainline|c5eab6bac9eb919991582aa0ce1de99383431521494af546413a87cbe0f7cf1f
+-- YUI-Notes-Record: yactionbar-105|forever|52bc1f5f3fb557a5f6a655a7e1c87d6e19141682c00907b446d3a4cdfbde0937
     {
         version = "yactionbar-105",
-        date = "2026-10-11",
+        date = "2026-10-13",
         clients = { "Retail", "Forever" },
         content = {
             zhCN = {

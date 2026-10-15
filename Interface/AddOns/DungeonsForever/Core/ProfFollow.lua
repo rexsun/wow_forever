@@ -35,7 +35,14 @@ local Unpack = Host.Unpack
 local C_GOLD, C_GREY, C_DIM, C_TEXT = Host.C_GOLD, Host.C_GREY, Host.C_DIM, Host.C_TEXT
 
 local D  = ns.ProfData
-local R  = ns.ProfRecipes
+local R
+local function RGet(k)
+    if not R then
+        local fn = ns.EnsureProfRecipes
+        R = type(fn) == "function" and fn() or nil
+    end
+    return R and R[k] or nil
+end
 local LV = ns.ProfLeveling
 local RA = ns.ProfRouteAuto   -- 自动路线计算（Core/ProfRouteAuto.lua，先于本文件加载）
 
@@ -63,15 +70,6 @@ local IMPORT_TRIES = 5     -- 一键导入物品名懒加载重试上限
 local C_OK   = { 0.27, 0.75, 0.45 }
 local C_BAD  = { 0.85, 0.30, 0.30 }
 local C_HEAD = { 0.95, 0.78, 0.35 }
-
--- 药丸实际底色：HUD 背板（L2 层 0.95）+ 购物面板自身 0.04 白底，供药丸不透明预混
-local function PillBaseCol()
-    local l2 = (ns.huiTheme == "hui" and ns.hui and ns.hui.layer and ns.hui.layer.L2) or nil
-    if l2 then
-        return 0.04 + 0.96 * (l2[1] or 0), 0.04 + 0.96 * (l2[2] or 0), 0.04 + 0.96 * (l2[3] or 0)
-    end
-    return 0, 0, 0
-end
 
 local function Accent()
     local PD = ns.ProfModule
@@ -255,7 +253,7 @@ local function recMap(slug)
     local c = recCache[slug]
     if not c then
         c = {}
-        local rr = R[slug]
+        local rr = RGet(slug)
         if rr and rr.rows then
             for _, r in ipairs(rr.rows) do c[r[1]] = r end
         end
@@ -498,7 +496,9 @@ local function jumpEvtInit()
     --   pcall 逐个注册，缺的静默跳过；定位另有 0.5s/1.5s 延时兜底
     pcall(function() jumpEvt:RegisterEvent("TRADE_SKILL_LIST_UPDATE") end)
     jumpEvt:SetScript("OnEvent", function()
-        if jumpPending then jumpApply() end
+        C_Timer.After(0, function()
+            if jumpPending then jumpApply() end
+        end)
     end)
 end
 
@@ -707,14 +707,8 @@ local f
 local rowsMat, rowsShop = {}, {}
 local rowsMatIcon = {}          -- 材料行图标池（与 rowsMat 同索引）
 local rowsMatBadge = {}         -- 材料行数量角标池（挂图标右下角，显示单次用量）
-local rowsShopTag = {}          -- 购物行「等级X开始使用」右缘标签池
-local rowsShopNum, rowsShopMiss, rowsShopSold = {}, {}, {}   -- 购物行分段着色池（金/红/绿）
-local rowsShopMissBg, rowsShopSoldBg, rowsShopTagBg = {}, {}, {}   -- 药丸底纹理池（方案 D：缺口红丸/直售绿徽/等级灰丸）
-
--- 药丸底三段式 {L,M,R} 统一隐藏
-local function hidePillBG(bg)
-    if bg then bg.L:Hide() bg.M:Hide() bg.R:Hide() end
-end
+local rowsShopNum = {}          -- 已有/总需数字列（普通文字，非胶囊）
+local rowsShopMissPill, rowsShopSoldPill, rowsShopTagPill = {}, {}, {}   -- 胶囊宿主帧池（UI_RULES §4：BuildCapsule 小件）
 
 local function MakeLine(parent, fs, color)
     local t = MakeFS(parent, fs, color, "LEFT")
@@ -747,7 +741,14 @@ function PF.Build()
         PF.view = math.max(-(s.step - 1), math.min(#steps - s.step + 1, (PF.view or 0) - delta))
         PF.Paint()
     end)
-    f:SetScript("OnEvent", function() if f:IsShown() then PF.Sync() PF.Paint() end end)
+    f:SetScript("OnEvent", function()
+        if f:IsShown() then
+            C_Timer.After(0, function()
+                PF.Sync()
+                PF.Paint()
+            end)
+        end
+    end)
     f:RegisterEvent("BAG_UPDATE_DELAYED")
     f:RegisterEvent("CHAT_MSG_SKILL")
 
@@ -954,42 +955,33 @@ function PF.Build()
     for i = 1, SHOP_MAX + 1 do
         rowsShop[i] = MakeLine(f.shop, 14, C_TEXT)      -- 名字（白）
         rowsShopNum[i] = MakeLine(f.shop, 14, C_GOLD)   -- 已有/总需（金）
-        -- 方案 D 药丸：左右方形圆角帽（蒙版不拉伸，圆角是正圆弧）+ 中段矩形。
-        --   整条蒙版直接拉到宽药丸上会把圆角拉成椭圆（用户 2026-10-08 实机截图反馈），
-        --   故拆三段：cap 17×17 蒙版帽 + mid 纯矩形；字 CENTER 锚中段（= 药丸几何中心）。
-        local function pillBG()
-            local function tex()
-                local t = f.shop:CreateTexture(nil, "BACKGROUND")
-                t:SetColorTexture(1, 1, 1, 1)
-                t:Hide()
-                return t
+        -- UI_RULES §4 胶囊小件（2026-10-11 用户重做）：旧「三段贴图压帽 + 0.99 预混」整体退役。
+        --   新做法 = 专用宿主帧 + BuildCapsule（四角/边条**锚定帧角**，SetSize 改宽自动跟随，
+        --   无缝无重叠 ⇒ 不再有预混/不透明批烦恼）；文字挂宿主帧自己的 FontString（ARTWORK
+        --   画在胶囊之上，§5-2「父 FontString 永远画在子帧下」由此规避）。
+        --   染色 = 每帧遍历 __cols SetVertexColor（语义色 C_BAD/C_OK 不变，§6）。
+        local function MakePill(color)
+            local p = CreateFrame("Frame", nil, f.shop)
+            p:SetHeight(17)
+            local cols
+            if ns.hui and ns.hui.BuildCapsule then
+                cols = ns.hui.BuildCapsule(p, 8, ns.hui.layer.L2)
+            else
+                local tx = p:CreateTexture(nil, "BACKGROUND")
+                tx:SetAllPoints()
+                tx:SetColorTexture(1, 1, 1, 1)
+                cols = { tx }
             end
-            -- 创建顺序 L → R → M：中段最后建，压在两帽内侧圆角之上（否则帽子四角全圆、拼出鼓包）
-            local L_, R_ = tex(), tex()
-            local M_ = tex()
-            local g = { L = L_, M = M_, R = R_ }
-            if ns.hui and ns.hui.RoundIcon then
-                ns.hui.RoundIcon(g.L)
-                ns.hui.RoundIcon(g.R)
-            end
-            return g
+            p.__cols = cols
+            p.fs = MakeFS(p, 14, color, "CENTER")
+            p.fs:SetAllPoints(p)
+            p.fs:SetWordWrap(false)
+            p:Hide()
+            return p
         end
-        local mbg = pillBG()
-        rowsShopMissBg[i] = mbg
-        rowsShopMiss[i] = MakeLine(f.shop, 14, C_TEXT)  -- 药丸字（白字压红/绿底）
-        rowsShopMiss[i]:ClearAllPoints()
-        rowsShopMiss[i]:SetPoint("CENTER", mbg.M, "CENTER", 0, 0)
-        local sbg = pillBG()
-        rowsShopSoldBg[i] = sbg
-        rowsShopSold[i] = MakeLine(f.shop, 14, C_TEXT)  -- 直售徽（白字压绿底）
-        rowsShopSold[i]:ClearAllPoints()
-        rowsShopSold[i]:SetPoint("CENTER", sbg.M, "CENTER", 0, 0)
-        local tbg = pillBG()
-        rowsShopTagBg[i] = tbg
-        rowsShopTag[i] = MakeLine(f.shop, 14, C_DIM)    -- 等级丸（灰字压淡灰底）
-        rowsShopTag[i]:ClearAllPoints()
-        rowsShopTag[i]:SetPoint("CENTER", tbg.M, "CENTER", 0, 0)
-        rowsShopTag[i]:Hide()
+        rowsShopMissPill[i] = MakePill(C_TEXT)   -- 缺口红丸 / 已备齐淡绿丸（白字）
+        rowsShopSoldPill[i] = MakePill(C_TEXT)   -- 直售绿徽（白字）
+        rowsShopTagPill[i] = MakePill(C_DIM)     -- 等级丸 X+（灰字压淡灰底）
     end
 
     -- 一键导入：把当前购物清单推送到拍卖行插件（未装时降级为导入串弹窗）。
@@ -1372,41 +1364,21 @@ function PF.Paint()
         for ri = scroll + 1, math.min(#rows, scroll + SHOP_MAX) do
             local row = rows[ri]
             local ry = -(30 + n * 20)
-            -- 方案 D 药丸化 + 固定列：名字白 / 数字金 / 缺口红丸（备齐绿丸）/ 直售绿徽 / 等级丸(X+)贴右
+            -- UI_RULES §4 胶囊 + 固定列：名字白 / 数字金 / 缺口红丸（备齐淡绿丸）/ 直售绿徽 / 等级丸(X+)贴右
             local nmFS = rowsShop[n + 1]
             local num = rowsShopNum[n + 1]
-            local miss = rowsShopMiss[n + 1]
-            local sl = rowsShopSold[n + 1]
-            local CAP = 17
-            local OV = 10                -- 中段压帽重叠量（盖住帽子内侧圆角，≥蒙版半径）
-            local function pill(fs, bg, txt, x0, wpx, r, g, b, a)
-                fs:SetText(txt)
-                wpx = math.max(wpx, CAP * 2 + 2)
-                bg.L:ClearAllPoints()
-                bg.L:SetPoint("TOPLEFT", f.shop, "TOPLEFT", x0, ry + 1)
-                bg.L:SetSize(CAP, 17)
-                bg.R:ClearAllPoints()
-                bg.R:SetPoint("TOPLEFT", f.shop, "TOPLEFT", x0 + wpx - CAP, ry + 1)
-                bg.R:SetSize(CAP, 17)
-                bg.M:ClearAllPoints()
-                bg.M:SetPoint("TOPLEFT", f.shop, "TOPLEFT", x0 + OV, ry + 1)
-                bg.M:SetSize(wpx - OV * 2, 17)
-                -- 半透明三段一重叠就双重混色，拼出「叠加带」（用户 2026-10-08 截图反馈）：
-                -- 改为按实际底色预混。★ 但顶点 alpha 绝不能给 1：全不透明+无蒙版的贴图会被
-                -- 渲染器分进「不透明批」，画在 f.shop 自身 0.04 白底 backdrop 之下（实测中段
-                -- 恰好比帽子亮 255×0.04×(1-色)），肉眼就是「药丸里又叠了一颗」；带蒙版的帽子
-                -- 走 alpha 批不受影响。0.99 强制三段全走 alpha 批，重叠区双重混色误差 (0.01)²
-                -- ≈ 0.0003 不可见（2026-10-08 第二轮截图实锤定位）。
-                local a2 = a or 0.9
-                local br, bgc, bbc = PillBaseCol()
-                local rr = r * a2 + br * (1 - a2)
-                local gg = g * a2 + bgc * (1 - a2)
-                local bb2 = b * a2 + bbc * (1 - a2)
-                bg.L:SetVertexColor(rr, gg, bb2, 0.99)
-                bg.M:SetVertexColor(rr, gg, bb2, 0.99)
-                bg.R:SetVertexColor(rr, gg, bb2, 0.99)
-                bg.L:Show() bg.M:Show() bg.R:Show()
-                fs:Show()
+            local mp = rowsShopMissPill[n + 1]
+            local sp = rowsShopSoldPill[n + 1]
+            -- 胶囊染色：a 缺省 0.99（f.shop 是 0.04 白底半透明 backdrop，顶点 alpha=1 会被
+            --   分进不透明批画到背板之下——见 2026-10-08 教训；胶囊件间无缝无重叠，0.99 无预混误差）
+            local function paintPill(p, txt, x0, wpx, cr, cg, cb, ca)
+                p:ClearAllPoints()
+                p:SetPoint("TOPLEFT", f.shop, "TOPLEFT", x0, ry + 1)
+                p:SetSize(math.max(wpx, 34), 17)
+                local a2 = ca or 0.99
+                for _, t in ipairs(p.__cols) do t:SetVertexColor(cr, cg, cb, a2) end
+                p.fs:SetText(txt)
+                p:Show()
             end
             nmFS:SetText(row.nm)
             num:SetText(format("%d/%d", math.min(row.have, row.need), row.need))
@@ -1417,44 +1389,26 @@ function PF.Paint()
             num:SetPoint("TOPLEFT", f.shop, "TOPLEFT", xNum, ry)
             num:Show()
             if row.missing > 0 then
-                pill(miss, rowsShopMissBg[n + 1], format(L["缺%d"], row.missing), xMiss, missW, Unpack(C_BAD))
+                paintPill(mp, format(L["缺%d"], row.missing), xMiss, missW, Unpack(C_BAD))
             else
                 -- ★ Unpack 处于非末位实参时 Lua 只展开首值（g 接收 0.5、b 为 nil）
                 -- → 必须先接住三通道再传 a。
                 local okr, okg, okb = Unpack(C_OK)
-                pill(miss, rowsShopMissBg[n + 1], L["已备齐"], xMiss, missW, okr, okg, okb, 0.5)
+                paintPill(mp, L["已备齐"], xMiss, missW, okr, okg, okb, 0.5)
             end
             if row.sold then
-                pill(sl, rowsShopSoldBg[n + 1], L["直售"], xSold, soldW, Unpack(C_OK))
+                paintPill(sp, L["直售"], xSold, soldW, Unpack(C_OK))
             else
-                sl:Hide()
-                hidePillBG(rowsShopSoldBg[n + 1])
+                sp:Hide()
             end
-            -- 等级药丸（X+）贴右：三段式，中段压帽重叠盖住内侧圆角（右缘 -14 让开滚动条）
-            local tag = rowsShopTag[n + 1]
-            local tbg = rowsShopTagBg[n + 1]
-            tag:SetText(format("%d+", row.at))
-            local twTag = math.max(tagW, CAP * 2 + 2)
-            tbg.R:ClearAllPoints()
-            tbg.R:SetPoint("TOPRIGHT", f.shop, "TOPRIGHT", -14, ry + 1)
-            tbg.R:SetSize(CAP, 17)
-            tbg.M:ClearAllPoints()
-            tbg.M:SetPoint("TOPRIGHT", tbg.R, "TOPLEFT", CAP - OV, 0)
-            tbg.M:SetSize(twTag - OV * 2, 17)
-            tbg.L:ClearAllPoints()
-            tbg.L:SetPoint("TOPRIGHT", tbg.M, "TOPLEFT", CAP - OV, 0)
-            tbg.L:SetSize(CAP, 17)
-            -- 等级丸同口径预混；alpha 0.99 防掉进不透明批（见 pill() 内注释）
-            local a3 = 0.22
-            local tr, tg, tb = PillBaseCol()
-            tr = 0.55 * a3 + tr * (1 - a3)
-            tg = 0.55 * a3 + tg * (1 - a3)
-            tb = 0.55 * a3 + tb * (1 - a3)
-            tbg.L:SetVertexColor(tr, tg, tb, 0.99)
-            tbg.M:SetVertexColor(tr, tg, tb, 0.99)
-            tbg.R:SetVertexColor(tr, tg, tb, 0.99)
-            tbg.L:Show() tbg.M:Show() tbg.R:Show()
-            tag:Show()
+            -- 等级药丸（X+）贴右：胶囊宿主帧右锚（右缘 -14 让开滚动条），淡灰底
+            local tp = rowsShopTagPill[n + 1]
+            tp:ClearAllPoints()
+            tp:SetPoint("TOPRIGHT", f.shop, "TOPRIGHT", -14, ry + 1)
+            tp:SetSize(math.max(tagW, 34), 17)
+            for _, t in ipairs(tp.__cols) do t:SetVertexColor(0.55, 0.55, 0.55, 0.22) end
+            tp.fs:SetText(format("%d+", row.at))
+            tp:Show()
             n = n + 1
         end
         -- 右缘滚动条（全部收录、超出可视行数时出现；thumb 反映窗口位置）
@@ -1477,14 +1431,11 @@ function PF.Paint()
         for i = n + 1, #rowsShop do
             rowsShop[i]:Hide()
             rowsShopNum[i]:Hide()
-            rowsShopMiss[i]:Hide()
-            hidePillBG(rowsShopMissBg[i])
-            rowsShopSold[i]:Hide()
-            hidePillBG(rowsShopSoldBg[i])
+            rowsShopMissPill[i]:Hide()
+            rowsShopSoldPill[i]:Hide()
         end
-        for i = n + 1, #rowsShopTag do
-            rowsShopTag[i]:Hide()
-            hidePillBG(rowsShopTagBg[i])
+        for i = n + 1, #rowsShopTagPill do
+            rowsShopTagPill[i]:Hide()
         end
         if n > 0 then
             local shopH = 30 + n * 20 + 10   -- 2026-10-08 晚：导入按钮挪到底部按钮排，页脚 26px 预留取消

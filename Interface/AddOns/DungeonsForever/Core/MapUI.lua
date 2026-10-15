@@ -32,24 +32,27 @@ M.N = M.COLS * M.ROWS
 --   **不读 GetWidth** —— 离线桩的 GetWidth 恒回 100，读它所有几何断言都成空话；
 --   真机这个面板尺寸也是常量（panel:SetSize(CONTENT_W, CONTENT_H)），不会变。
 M.FRAME_W = Host.CONTENT_W - Host.PAGE_INSET * 2
-M.FRAME_H = Host.CONTENT_H - (Host.ROW_CLASS + 36) - Host.PAGE_INSET - DG.GUIDE_TOP_Y
+M.FRAME_H = Host.CONTENT_H - DG.GUTTER - Host.PAGE_INSET - DG.GUIDE_TOP_Y
 
 -- ★ 地图**满高**（2026-09-30 用户：地图再放大一点，高 = 右边卡片的高）：
 --   图高 = FRAME_H，图宽 = 高 × 1002/668（恰 3:2）= 663；右栏宽反过来由总宽推出
---   （936 − 663 − 10 = 263）。这三者是一组**联动值**：改图宽必须同步改栏宽。
-M.SIDE_GAP = 10
-M.MAP_W = math.floor(M.FRAME_H * M.ART_W / M.ART_H)   -- 满高时的图宽（442 × 3/2 = 663）
+--   （936 − 663 − 8 = 265）。这三者是一组**联动值**：改图宽必须同步改栏宽。
+M.HDR_CARD_H = 50
+M.HDR_GAP = 8
+M.SIDE_GAP = 8
+M.MAP_H = M.FRAME_H - M.HDR_CARD_H - M.HDR_GAP
+M.MAP_W = math.floor(M.MAP_H * M.ART_W / M.ART_H)   -- 满高时的图宽（442 × 3/2 = 663）
 M.SIDE_W = M.FRAME_W - M.MAP_W - M.SIDE_GAP           -- 右栏宽（联动推出，不再是写死的 300）
 M.SIDE_PAD = 8
 
 M.MAX_LAYERS = 8                 -- 楼层按钮池大小（本客户端最多 7 层）
-M.LAYER_W, M.LAYER_GAP = 46, 4
-M.BAR_H = 20                     -- 楼层按钮条高度（★ 悬浮：不再从地图高度里扣）
+M.LAYER_W, M.LAYER_GAP = 66, 8
+M.BAR_H = 24                     -- 楼层按钮条高度（★ 悬浮：不再从地图高度里扣）
 M.FLOOR_INSET = 6                -- 楼层按钮距地图右上角的边距
 -- ★ 左上角「隐藏 boss」开关（2026-10-01 用户）——与楼层按钮**同一套悬浮版面**、
 --   同一组边距常量（FLOOR_INSET / BAR_H），一左一右对称；宽度取 72 是因为
 --   「隐藏boss / 显示boss」（enUS: Hide bosses / Show bosses）四种文案等宽 ⇒ 点击切换不跳字。
-M.BOSS_BTN_W = 72
+M.BOSS_BTN_W = 80
 
 -- ★ boss 详情 3D 模型（2026-10-06 用户定稿）：**贴 hero 横幅右上**——纵向双锚点
 --   钉死「窗口顶内侧 → hero 底沿（页签行上方）」区间，宽 260。只在地图页签显示
@@ -204,6 +207,8 @@ local ART = {
     stratholme_main       = ST,
     stratholme_service    = ST,
     city_of_dalaran       = { "Dalaran", { "Dalaran1_", "Dalaran2_" } },
+    -- 奥妮克希亚的巢穴（2026-10-11：客户端自带单层 12 块，FDID 448070-81 实测存在）
+    onyxias_lair          = { "OnyxiasLair", { "OnyxiasLair1_" } },
 }
 M.ART = ART
 
@@ -219,8 +224,6 @@ M.ART = ART
 --   ★ 转换口径（_temp/_map_tga.py）：**整幅映射**到 3:2 画面区（源图≈3:2 时与「中心裁」
 --     等价）。2026-10-03 挖掘场湿地源图 1.383、带完整装饰边框 ⇒ 若按中心裁会切掉上下边框，
 --     故统一用整幅映射（只横向拉伸 8.5%，边框四面完整，观感与既有两张一致）。
-M.CUSTOM_W = 663                        -- 贴图宽 = M.MAP_W（画布实际像素）
-M.CUSTOM_H = 442                        -- 贴图高 = M.FRAME_H
 local CUSTOM = {
     hall_of_thanes      = "Interface\\AddOns\\DungeonsForever\\Media\\Maps\\HallOfThanes",
     ruins_of_lordaeron  = "Interface\\AddOns\\DungeonsForever\\Media\\Maps\\RuinsOfLordaeron",
@@ -546,7 +549,7 @@ end
 -- ★ 满高排（2026-09-30）：图高 = FRAME_H、图宽 = MAP_W、x/y = 0（不留居中边）。
 --   不再走 FitBox —— 663/1002 与 442/668 数学上相等，但浮点末位可能把图宽压成 662。
 function M.Box()
-    return M.MAP_W, M.MAP_W, M.FRAME_H, 0, 0
+    return M.MAP_W, M.MAP_W, M.MAP_H, 0, M.HDR_CARD_H + M.HDR_GAP
 end
 
 function M.Layout(cw, ch)
@@ -748,8 +751,8 @@ local function BuildBlocks()
     -- 卡片 ①「掉落」：标题（14 金，与其余两张同款）+ 右上角件数 + 空态注释
     local detLtTtl = MakeFS(blkLoot, 14, C_GOLD, "LEFT")
     detLtTtl:SetText(L["掉落"])
-    local detLtCnt = MakeFS(blkLoot, 12, C_GREY, "RIGHT")
-    local detLtNote = MakeFS(blkLoot, 13, C_GREY, "LEFT")
+    local detLtCnt = MakeFS(blkLoot, 14, C_GREY, "RIGHT")
+    local detLtNote = MakeFS(blkLoot, 14, C_GREY, "LEFT")
     detLtNote:SetText(L["暂无掉落数据"])
     detLtNote:Hide()
 
@@ -838,7 +841,7 @@ local function BuildSideRows()
         r.fs:SetWidth(skW - M.CARD_ICON - 6)
         r.fs:SetWordWrap(true)
         r.fs:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 6, 0)
-        r.ds = MakeFS(r, 12, C_TEXT, "LEFT")
+        r.ds = MakeFS(r, 14, C_TEXT, "LEFT")
         r.ds:SetWidth(skW - M.CARD_ICON - 6)
         r.ds:SetWordWrap(true)
         r.ds:SetPoint("TOPLEFT", r.fs, "BOTTOMLEFT", 0, -2)
@@ -874,6 +877,22 @@ function M.Build(detail, hero)
     if hero then frame:SetFrameLevel(hero:GetFrameLevel() + 1) end
     frame:Hide()
 
+    local hdrCard = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    hdrCard:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+    hdrCard:SetSize(M.MAP_W, M.HDR_CARD_H)
+    hdrCard:SetFrameLevel(frame:GetFrameLevel() + 1)
+    if ns.hui and ns.hui.BuildRoundedBG then
+        ns.hui.BuildRoundedBG(hdrCard, M.BLK_RADIUS, ns.hui.layer.L2, "both", true, 1)
+    else
+        hdrCard:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+        })
+        hdrCard:SetBackdropColor(1, 1, 1, 0.03)
+        hdrCard:SetBackdropBorderColor(1, 1, 1, 0.10)
+    end
+
     -- 地图画布（12 块瓦片）
     local canvas = CreateFrame("Frame", nil, frame)
     canvas:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
@@ -895,7 +914,7 @@ function M.Build(detail, hero)
 
     -- 空态（居左半区）
     local empty = MakeFS(frame, 14, C_GREY, "CENTER")
-    empty:SetPoint("CENTER", frame, "TOPLEFT", (M.FRAME_W - M.SIDE_W - M.SIDE_GAP) / 2, -M.FRAME_H / 2)
+    empty:SetPoint("CENTER", frame, "TOPLEFT", (M.FRAME_W - M.SIDE_W - M.SIDE_GAP) / 2, -(M.HDR_CARD_H + M.HDR_GAP + M.MAP_H / 2))
     empty:SetText(L["这个副本没有客户端自带的地图。"])
     empty:Hide()
 
@@ -912,7 +931,7 @@ function M.Build(detail, hero)
 
     local btns = {}
     for i = 1, M.MAX_LAYERS do
-        local bt = Host.NewButton(bar, "", M.LAYER_W, M.BAR_H, 12)
+        local bt = Host.NewButton(bar, "", M.LAYER_W, M.BAR_H, 14)
         bt:SetFrameLevel(frame:GetFrameLevel() + 2)
         bt.__idx = i
         Host.MakeOutline(bt, 1, 0.82, 0)
@@ -927,7 +946,7 @@ function M.Build(detail, hero)
     --   （那两处是文字与卡片，不是「地图上的 boss 按钮」）。文案随状态双向切换，
     --   隐藏时描边点亮（复用楼层按钮选中态那一套视觉语言：金描边 = 开关已打开）。
     --   显隐由 M.HasPins(副本) 决定（本副本压根没钉点 → 不出开关），在 SyncPins 里刷。
-    local bossBtn = Host.NewButton(frame, "", M.BOSS_BTN_W, M.BAR_H, 12)
+    local bossBtn = Host.NewButton(frame, "", M.BOSS_BTN_W, M.BAR_H, 14)
     bossBtn:SetFrameLevel(frame:GetFrameLevel() + 2)
     bossBtn.__idx = -1                       -- 非楼层按钮（-1 = 开关；层池 1..MAX_LAYERS）
     Host.MakeOutline(bossBtn, 1, 0.82, 0)
@@ -964,7 +983,7 @@ function M.Build(detail, hero)
     -- ★ 右栏面板同样倒圆角（用户 2026-10-01：「所有的卡片都需要倒圆角」）——
     --   与三张分组卡片同一套 HUI 原语（圆角填充底 + 主题描边）；无 HUI 时退回直角 backdrop。
     if ns.hui and ns.hui.BuildRoundedBG then
-        ns.hui.BuildRoundedBG(side, M.BLK_RADIUS, { 1, 1, 1, 0.03 }, "both", true, 1)
+        ns.hui.BuildRoundedBG(side, M.BLK_RADIUS, ns.hui.layer.L2, "both", true, 1)
     else
         side:SetBackdrop({
             bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -993,7 +1012,7 @@ function M.Build(detail, hero)
     listHdr:SetPoint("TOPLEFT", listChild, "TOPLEFT", 2, 0)
     listHdr:SetText(L["首领"])
 
-    local listNote = MakeFS(listChild, 13, C_GREY, "LEFT")
+    local listNote = MakeFS(listChild, 14, C_GREY, "LEFT")
     listNote:SetPoint("TOPLEFT", listChild, "TOPLEFT", 2, -26)
     listNote:SetWidth(innerW - 4)
     listNote:SetWordWrap(true)
@@ -1011,7 +1030,7 @@ function M.Build(detail, hero)
         M.WheelScroll(self, detChild, delta)
     end)
 
-    local detBack = Host.NewButton(detChild, L["‹ 全部首领"], 84, 20, 12)
+    local detBack = Host.NewButton(detChild, L["‹ 全部首领"], 96, 24, 14)
     detBack:SetScript("OnClick", function() M.ShowList() end)
     -- ★ 右上角（2026-09-30 用户点名）：此前无锚点 → 默认落父容器中心被内容盖住「消失」
     detBack:SetPoint("TOPRIGHT", detChild, "TOPRIGHT", 0, 0)
@@ -1021,6 +1040,7 @@ function M.Build(detail, hero)
 
     -- ── 池化字段（外壳部分；四个重池的字段由各自的分帧块补）──
     frame.canvas = canvas
+    frame.hdrCard = hdrCard
     frame.tiles = tiles
     frame.customTex = customTex
     frame.empty = empty
@@ -1739,12 +1759,10 @@ function M.Paint(d)
     frame.pins:SetSize(cw, ch)
     -- 楼层按钮条贴地图右上角（跟随实际图像框，不写死在 frame 右上角）
     frame.bar:ClearAllPoints()
-    frame.bar:SetPoint("TOPRIGHT", frame, "TOPLEFT",
-                       cx + cw - M.FLOOR_INSET, -(cy + M.FLOOR_INSET))
+    frame.bar:SetPoint("RIGHT", frame.hdrCard, "RIGHT", -M.SIDE_PAD, 0)
     -- 「隐藏 boss」开关贴地图**左上角**内侧（与右上角楼层按钮对称，同一组边距常量）
     frame.bossBtn:ClearAllPoints()
-    frame.bossBtn:SetPoint("TOPLEFT", frame, "TOPLEFT",
-                           cx + M.FLOOR_INSET, -(cy + M.FLOOR_INSET))
+    frame.bossBtn:SetPoint("LEFT", frame.hdrCard, "LEFT", M.SIDE_PAD, 0)
 
     if not layers then
         M.curLayer = nil

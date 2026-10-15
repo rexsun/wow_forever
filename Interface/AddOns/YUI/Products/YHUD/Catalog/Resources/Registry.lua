@@ -10,6 +10,26 @@ YHUD.ResourceCatalog = Catalog
 local UnitAPI = YUI.API and YUI.API.Unit or {}
 local TalentAPI = YUI.API and YUI.API.Talent or {}
 local SpellAPI = YUI.API and YUI.API.Spell or {}
+
+-- These candidates belong to both supported clients and stay opt-in in every
+-- existing resource selection. Independent cast groups use the same source.
+if YUI.IsRetail or YUI.IsForever then
+    YHUD.ResourceCommonCandidateIds = YHUD.ResourceCommonCandidateIds or {}
+    for _, item in ipairs({
+        { "health", "resource.player_health", "unit-health", { 0.26, 0.72, 0.49, 1 } },
+        { "cast", "resource.player_cast", "player-cast", { 0.87, 0.72, 0.33, 1 } },
+    }) do
+        YHUD.ResourceDefinitions[item[1]] = {
+            id = item[1], nameKey = item[2], valueKind = "continuous",
+            defaultEnabled = false, defaultValueText = true,
+            defaultValueFormat = item[1] == "cast" and "duration" or "percentSign",
+            previewMax = 100, color = item[4], provider = { kind = item[3] },
+            defaultSettings = item[1] == "cast" and { heightOverride = 24 } or nil,
+        }
+        YHUD.ResourceDefinitionIds[#YHUD.ResourceDefinitionIds + 1] = item[1]
+        YHUD.ResourceCommonCandidateIds[#YHUD.ResourceCommonCandidateIds + 1] = item[1]
+    end
+end
 local DEFINITIONS = YHUD.ResourceDefinitions or {}
 local DEFINITION_IDS = YHUD.ResourceDefinitionIds or {}
 
@@ -179,6 +199,8 @@ function Catalog:BuildSourceKey(classFile, specID, resourceId)
     if provider and provider.kind == "swing-timer" then
         return "swing:player:" .. provider.swingHand
     end
+    if provider and provider.kind == "player-cast" then return "cast:player" end
+    if provider and provider.kind == "unit-health" then return "health:player" end
     return string.format("resource:%s:%d:%s", classFile, specID, resourceId)
 end
 
@@ -929,6 +951,16 @@ end
 -- Runtime source subscriptions are the union of enabled groups. Projection
 -- identities include the group, even when this source union is unchanged.
 function Catalog:GetGroupPresets(profile, groupId, eligible, target)
+    local group = profile.groups and profile.groups.items[groupId]
+    if group and group.contentPolicy == "cast-only" then
+        target = type(target) == "table" and target or {}
+        for index = #target, 1, -1 do target[index] = nil end
+        local classFile, specID = self:GetCurrentContext()
+        local preset = CopyDefinition(DEFINITIONS.cast, classFile, specID, true)
+        preset.sourceKey = "cast:player"
+        target[1] = preset
+        return target
+    end
     local scoped = YHUD:GetResourceProfile(profile, groupId)
     if eligible and scoped._yhudInitialResourceOnly ~= true then
         local classFile, specID = self:GetCurrentContext()

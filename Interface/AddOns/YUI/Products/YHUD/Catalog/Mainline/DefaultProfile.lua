@@ -739,6 +739,7 @@ YHUD.Client.defaultProfile = {
             },
         },
         ["settingsByResource"] = {
+            ["cast"] = { heightOverride = 24, cast = { icon = true, iconSide = "left", iconGap = 0 } },
             ["arcaneCharges"] = {
                 ["valueText"] = false,
                 ["visibilityMode"] = "nonzeroOrCombat",

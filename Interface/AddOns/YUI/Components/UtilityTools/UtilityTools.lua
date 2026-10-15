@@ -34,6 +34,7 @@ local MODE_THROTTLE_ONCE = "throttle_once"
 local DEFAULTS = {
     syncFriendlyNameplates = false,
     nameplateOutline = true,
+    routeGuide = { enabled = true, scale = 100 },
     bonusRoll = {
         rollConfirm = true,
         passConfirm = true,
@@ -44,6 +45,7 @@ local DEFAULTS = {
     },
     hideErrors = {
         enabled = false,
+        blockDebugMessages = false,
         mode = MODE_BLOCK_ALLOWLIST,
         throttleWindow = 3,
     },
@@ -75,7 +77,10 @@ local MACRO_SELECTOR_PADDING = { 5, 5, 5, 5, 13, 13 }
 
 local featureEnabled = false
 local hideErrorsFiltering = false
+local hideRedErrors = false
+local blockBetaDebugMessages = false
 local originalTryDisplayMessage
+local originalCheckAddMessage
 local originalPingSystemErrorRegistered
 local throttleRecords = {}
 local macroFrameApplied = false
@@ -165,6 +170,12 @@ local function NormalizeMacroVisibleCount(value)
     return MACRO_DEFAULT_VISIBLE_COUNT
 end
 
+local function NormalizeRouteGuideScale(value)
+    value = tonumber(value)
+    if not value or value ~= value then return DEFAULTS.routeGuide.scale end
+    return math.floor(math.max(50, math.min(200, value)) + 0.5)
+end
+
 local function MigrateLegacyHideErrors(config, store)
     if type(config) ~= "table" or type(store) ~= "table" then
         return
@@ -196,6 +207,11 @@ local function MigrateLegacyHideErrors(config, store)
 end
 
 local function NormalizeDB(config)
+    if type(config.routeGuide) ~= "table" then
+        config.routeGuide = CopyDefaultValue(DEFAULTS.routeGuide)
+    end
+    FillMissing(config.routeGuide, DEFAULTS.routeGuide)
+    config.routeGuide.scale = NormalizeRouteGuideScale(config.routeGuide.scale)
     if type(config.bonusRoll) ~= "table" then
         config.bonusRoll = CopyDefaultValue(DEFAULTS.bonusRoll)
     end
@@ -204,6 +220,10 @@ local function NormalizeDB(config)
     end
     if type(config.hideErrors) ~= "table" then
         config.hideErrors = CopyDefaultValue(DEFAULTS.hideErrors)
+    end
+    if config.hideErrors.blockSysMessages ~= nil then
+        config.hideErrors.blockDebugMessages = config.hideErrors.blockSysMessages == true
+        config.hideErrors.blockSysMessages = nil
     end
     FillMissing(config.bonusRoll, DEFAULTS.bonusRoll)
     FillMissing(config.macroFrame, DEFAULTS.macroFrame)
@@ -248,6 +268,11 @@ end
 local function IsHideErrorsOptionEnabled()
     local db = GetDB()
     return featureEnabled and db.hideErrors and db.hideErrors.enabled == true
+end
+
+local function IsBlockDebugMessagesOptionEnabled()
+    local db = GetDB()
+    return featureEnabled and db.hideErrors and db.hideErrors.blockDebugMessages == true
 end
 
 local IMPORTANT_ERRORS = {}
@@ -345,15 +370,33 @@ local function DisplayRedMessage(self, messageType, message, r, g, b)
     end
 end
 
+local function IsBetaDebugMessage(message)
+    if type(message) ~= "string" then return false end
+    return message:find("^Deferring %d+ object creates$") ~= nil
+        or message:find("^Seamless transfer to simulation %x+ complete$") ~= nil
+        or message:find("^In area .+ %(%d+%): evaluating crz transfer$") ~= nil
+end
+
+local function CheckAddMessage(self, message, ...)
+    if not (issecretvalue and issecretvalue(message))
+        and blockBetaDebugMessages and IsBetaDebugMessage(message) then
+        return
+    end
+    if originalCheckAddMessage then
+        return originalCheckAddMessage(self, message, ...)
+    end
+end
+
 local function TryDisplayMessage(self, messageType, message, r, g, b)
-    if YUI.IsForever and issecretvalue and (issecretvalue(messageType) or issecretvalue(message)
+    if issecretvalue and (issecretvalue(messageType) or issecretvalue(message)
         or issecretvalue(r) or issecretvalue(g) or issecretvalue(b)) then
         if originalTryDisplayMessage then
             return originalTryDisplayMessage(self, messageType, message, r, g, b)
         end
         return
     end
-    if IsRedErrorColor(r, g, b) and not IsImportantError(message) then
+    if blockBetaDebugMessages and IsBetaDebugMessage(message) then return end
+    if hideRedErrors and IsRedErrorColor(r, g, b) and not IsImportantError(message) then
         local db = GetDB()
         local hideDB = db.hideErrors or DEFAULTS.hideErrors
         if hideDB.mode == MODE_THROTTLE_ONCE then
@@ -394,18 +437,26 @@ local function SetPingSystemErrorHidden(hidden)
     end
 end
 
-local function ToggleHideErrorsFiltering(enable)
+local function ToggleHideErrorsFiltering(enable, blockDebugMessages)
     if not UIErrorsFrame then
         return
     end
 
-    if enable then
-        if YUI.IsForever and type(UIErrorsFrame.TryDisplayMessage) ~= "function" then return end
+    enable = enable == true
+    blockDebugMessages = blockDebugMessages == true
+    if (enable or blockDebugMessages) and type(UIErrorsFrame.TryDisplayMessage) ~= "function" then return end
+    if enable ~= hideRedErrors or blockDebugMessages ~= blockBetaDebugMessages then
+        ClearThrottleRecords()
+    end
+    if enable ~= hideRedErrors then SetPingSystemErrorHidden(enable) end
+    hideRedErrors = enable
+    blockBetaDebugMessages = blockDebugMessages
+
+    if enable or blockDebugMessages then
         if not hideErrorsFiltering then
             ClearThrottleRecords()
             originalTryDisplayMessage = UIErrorsFrame.TryDisplayMessage
             UIErrorsFrame.TryDisplayMessage = TryDisplayMessage
-            SetPingSystemErrorHidden(true)
             hideErrorsFiltering = true
         end
     else
@@ -414,11 +465,26 @@ local function ToggleHideErrorsFiltering(enable)
                 UIErrorsFrame.TryDisplayMessage = originalTryDisplayMessage
             end
             originalTryDisplayMessage = nil
-            SetPingSystemErrorHidden(false)
             ClearThrottleRecords()
             hideErrorsFiltering = false
         end
     end
+
+    if blockDebugMessages then
+        if not originalCheckAddMessage and type(UIErrorsFrame.CheckAddMessage) == "function" then
+            originalCheckAddMessage = UIErrorsFrame.CheckAddMessage
+            UIErrorsFrame.CheckAddMessage = CheckAddMessage
+        end
+    elseif originalCheckAddMessage then
+        if UIErrorsFrame.CheckAddMessage == CheckAddMessage then
+            UIErrorsFrame.CheckAddMessage = originalCheckAddMessage
+        end
+        originalCheckAddMessage = nil
+    end
+end
+
+local function RefreshErrorFiltering()
+    ToggleHideErrorsFiltering(IsHideErrorsOptionEnabled(), IsBlockDebugMessagesOptionEnabled())
 end
 
 local function CapturePoint(region)
@@ -1333,11 +1399,25 @@ local function RefreshNameplateRuntime()
     end
 end
 
+local function RefreshRouteGuideRuntime()
+    local routeGuide = YUI.UtilityToolsRouteGuide
+    if routeGuide then
+        local config = GetDB().routeGuide
+        if featureEnabled and config.enabled == true then
+            if type(routeGuide.SetScale) == "function" then routeGuide:SetScale(config.scale) end
+            routeGuide:Enable()
+        else
+            routeGuide:Disable()
+        end
+    end
+end
+
 local function RefreshRuntime()
-    ToggleHideErrorsFiltering(IsHideErrorsOptionEnabled())
+    RefreshErrorFiltering()
     RefreshMacroFrameRuntime()
     RefreshBonusRollRuntime()
     RefreshNameplateRuntime()
+    RefreshRouteGuideRuntime()
 end
 
 local function ReloadUIFromCommand()
@@ -1471,7 +1551,8 @@ local function GetSubFeatureStates()
         rows[#rows + 1] = { label = T("settings.bonus_roll_confirm_pass", "放弃前确认"), enabled = db.bonusRoll.passConfirm == true }
     end
     rows[#rows + 1] = { label = T("settings.macro_frame", "宏命令界面扩展"), enabled = db.macroFrame.enabled == true }
-    rows[#rows + 1] = { label = T("settings.hide_errors", "隐藏错误提示"), enabled = db.hideErrors.enabled == true }
+    rows[#rows + 1] = { label = T("settings.hide_errors", "隐藏错误提示"), enabled = db.hideErrors.enabled == true or db.hideErrors.blockDebugMessages == true }
+    rows[#rows + 1] = { label = T("settings.route_guide"), enabled = db.routeGuide and db.routeGuide.enabled == true }
     return rows
 end
 
@@ -1565,7 +1646,18 @@ local function GetOptions(feature)
                     get = function() return db.hideErrors.enabled == true end,
                     set = function(value)
                         db.hideErrors.enabled = value == true
-                        ToggleHideErrorsFiltering(IsHideErrorsOptionEnabled())
+                        RefreshErrorFiltering()
+                    end,
+                },
+                {
+                    type = "checkbox",
+                    text = T("settings.block_debug_messages", "仅屏蔽测试服调试提示"),
+                    tooltip = T("settings.block_debug_messages.tooltip", "仅屏蔽已知的区域转移、对象创建调试文案，保留其他消息。独立生效，默认关闭。"),
+                    width = optionWidth,
+                    get = function() return db.hideErrors.blockDebugMessages == true end,
+                    set = function(value)
+                        db.hideErrors.blockDebugMessages = value == true
+                        RefreshErrorFiltering()
                     end,
                 },
             },
@@ -1613,6 +1705,43 @@ local function GetOptions(feature)
     for _, option in ipairs(commonOptions) do
         options[#options + 1] = option
     end
+
+    options[#options + 1] = {
+        type = "row",
+        gap = 16,
+        children = {
+            {
+                type = "checkbox",
+                text = T("settings.route_guide"),
+                tooltip = T("settings.route_guide.tooltip"),
+                width = optionWidth,
+                get = function() return db.routeGuide.enabled == true end,
+                set = function(value)
+                    db.routeGuide.enabled = value == true
+                    RefreshRouteGuideRuntime()
+                end,
+            },
+            {
+                type = "slider",
+                label = T("settings.route_guide.scale"),
+                tooltip = T("settings.route_guide.scale.tooltip"),
+                inline = true,
+                width = 320,
+                labelWidth = 150,
+                inputWidth = 42,
+                min = 50,
+                max = 200,
+                step = 1,
+                default = DEFAULTS.routeGuide.scale,
+                get = function() return db.routeGuide.scale end,
+                set = function(value)
+                    db.routeGuide.scale = NormalizeRouteGuideScale(value)
+                    local routeGuide = YUI.UtilityToolsRouteGuide
+                    if routeGuide and type(routeGuide.SetScale) == "function" then routeGuide:SetScale(db.routeGuide.scale) end
+                end,
+            },
+        },
+    }
 
     if HAS_NAMEPLATE_SYNC then
         options[#options + 1] = CreateSectionDivider(feature, "nameplates", T("settings.nameplates", "姓名板"))

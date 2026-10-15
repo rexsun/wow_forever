@@ -1292,6 +1292,7 @@ local function ConfigureResourceAppearance(
         })
     end
     slot._yhudResourceStyle = style
+    if I.ConfigurePlayerCast then I.ConfigurePlayerCast(slot, preset, style) end
     slot._yhudResourceColorPolicy = {
         thresholdColorEnabled = style.thresholdColorEnabled == true,
         thresholdMode = style.thresholdMode,
@@ -1386,7 +1387,9 @@ function View:RefreshResourceTextLayers(slot, runtime)
     local preview = slot._yhudDesignResourcePreview
     if preview and preview.SetResourceTextLayer then
         SetFrameLevelIfChanged(preview, (slot:GetFrameLevel() or 0) + 1)
-        if strata and preview.SetFrameStrata then preview:SetFrameStrata(strata) end
+        if strata and preview.SetFrameStrata and preview:GetFrameStrata() ~= strata then
+            preview:SetFrameStrata(strata)
+        end
         preview:SetResourceTextLayer(level, strata)
     end
     return true
@@ -2215,6 +2218,7 @@ function View:ReleaseSlot(monitorId)
     local runtime = groupId and self.groups[groupId]
     local releaseStartedAt = view == "resource" and ProfileNowMS() or nil
     if view == "resource" then
+        if I.ConfigurePlayerCast then I.ConfigurePlayerCast(slot, {}, {}) end
         slot._yhudResourceColorPolicy, slot._yhudResourceColorCurve = nil, nil
         slot._yhudResourceCurveInitialized, slot._yhudResourceCurveMax = nil, nil
         if runtime then runtime.fixedResourceGeometryReady = false end

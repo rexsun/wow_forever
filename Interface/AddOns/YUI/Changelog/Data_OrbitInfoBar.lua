@@ -1,6 +1,68 @@
 -- Generated from Docs/Products/YUI_OrbitInfoBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("ybar", {
+-- YUI-Notes-Record: orbit-118|mainline|319a446aaeef075707a020aeed2a14bba51b2942cac58a14a3cd5c898e31dc3e
+-- YUI-Notes-Record: orbit-118|forever|6fca818e200881ad4e6c58bf13c74d1450fd5b7ed9ec1dd44489ac87612af5e4
+    {
+        version = "orbit-118",
+        date = "2026-10-15",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "时钟新增可配置休息动效，支持样式、颜色、位置与满级隐藏。",
+                "改善时钟布局与显隐，修复登录后的耐久刷新和战斗中布局占位。",
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Added configurable clock resting animations, with style, color, position and max-level hiding options.",
+                "Improved clock layout and visibility; fixed durability updates after login and layout spacing during combat.",
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-117|mainline|55f3479b84d10eff2247ecd09d205955a8465710bbf91a395403ac98f23b1f67
+-- YUI-Notes-Record: orbit-117|forever|868f650fb71761739774c853cd659b846247d20c1cacb53c2ed3888867762df3
+    {
+        version = "orbit-117",
+        date = "2026-10-13",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-116|mainline|56a43f2322ae16e4723dae0348eb9bc91835af893e722a1e4d7be039a76e7136
+    {
+        version = "orbit-116",
+        date = "2026-10-12",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-116|forever|f771ae1e6d14fc9bf79236bba46485ca5d2a45f48dc11bc899f855e0dbc0a9e8
+    {
+        version = "orbit-116",
+        date = "2026-10-12",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: orbit-115|mainline|3dfd35eb2726facb40267fa7df18676bff6ef24a25aac44f52615ddd8179ea03
     {
         version = "orbit-115",
@@ -153,12 +215,11 @@ CL:Register("ybar", {
             },
         },
     },
--- YUI-Notes-Record: orbit-108|mainline|2e3fccd1235298b056b0c0808e96b2136d5854acc25105609240db2460c474e5
 -- YUI-Notes-Record: orbit-108|wrath|be07038562ae4f3635fc207023f9d2de66236a64ee84dee5dd7e1810b02e7b6f
     {
         version = "orbit-108",
         date = "2026-09-19",
-        clients = { "Retail", "Wrath" },
+        clients = { "Wrath" },
         content = {
             zhCN = {
                 "修复耐久、字体与外观设置问题。",
@@ -172,12 +233,11 @@ CL:Register("ybar", {
             },
         },
     },
--- YUI-Notes-Record: orbit-107|mainline|3a695cd41c61ebddb3b82e4d66c5339416374acdbbe3477d8c3805506048c3e2
 -- YUI-Notes-Record: orbit-107|wrath|b623e05ca013775ca1a1756fa3fe15ae04d2247fb499d3cc8e80b2b6d9e4b664
     {
         version = "orbit-107",
         date = "2026-09-19",
-        clients = { "Retail", "Wrath" },
+        clients = { "Wrath" },
         content = {
             zhCN = {
                 "改善配置导入稳定性。",
@@ -189,12 +249,11 @@ CL:Register("ybar", {
             },
         },
     },
--- YUI-Notes-Record: orbit-106|mainline|387ffec7d078ee3b7a98ed94b024f7c388c9adb37770c8348a91c88c48a82345
 -- YUI-Notes-Record: orbit-106|wrath|d38d8bcfb30ac42501f8e1ebb7aa2ba7d4c9fd298f7616e089c4e52cac087cff
     {
         version = "orbit-106",
         date = "2026-09-18",
-        clients = { "Retail", "Wrath" },
+        clients = { "Wrath" },
         content = {
             zhCN = {
                 "耐久坐骑：接入统一自动修理服务。",

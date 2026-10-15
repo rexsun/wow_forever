@@ -7,7 +7,9 @@ local G = TF.Game
 local UI = {}
 TF.UI = UI
 local L = TF.L   -- every sentence by its English text; a locale file fills the client's language, English falls through
--- the Key Bindings menu's names: set here, not in Core.lua, because the locale files load between the two
+-- the Key Bindings menu's names: set here, not in Core.lua, because the locale files load between the two. The beta's only
+-- key binding page (the game's options, Keybindings) lists them under a section titled BINDING_HEADER_TALENTSFOREVERBOOK,
+-- the category Bindings.xml gives them (0.38.2), so the names stay short: its row label is 170 px and cuts anything longer
 BINDING_NAME_TALENTSFOREVERBOOK_TOGGLE = L["Open or close the planner"]
 BINDING_NAME_TALENTSFOREVERBOOK_NEXT = L["Apply the next planned point"]
 
@@ -1296,6 +1298,8 @@ local function BuildPlanTab()
   f.cap:SetText(L["A POINT PER LEVEL, IN ORDER"])
   f.list = CreateFrame("Frame", nil, f.scroll); f.list:SetSize(PAGE_W, 10); f.scroll:SetScrollChild(f.list)
   f.rows = {}
+  -- over the rows when nobody placed these points by hand: the order is a suggestion, and how to choose your own (0.38.2)
+  f.guess = Text(f.list, 11, C.muted); f.guess:SetPoint("TOPLEFT", 0, -2); f.guess:SetWidth(PAGE_W - 4); f.guess:SetJustifyH("LEFT"); f.guess:SetWordWrap(true); f.guess:Hide()
   f.empty = Text(f, 13, C.muted); f.empty:SetPoint("TOPLEFT", 12, -14); f.empty:SetPoint("TOPRIGHT", -28, -14); f.empty:SetJustifyH("LEFT"); f.empty:SetWordWrap(true)
   f.start = Button(f, L["See popular builds"], "auto", 24, function() UI.SetTab("popular") end); f.start:SetPoint("TOPLEFT", f.empty, "BOTTOMLEFT", 0, -12); f.start:Hide()
   f.follow = Button(f, L["Follow the top build"], "auto", 24, function() UI.SetStarter(true) end); f.follow:SetPoint("TOPLEFT", f.start, "BOTTOMLEFT", 0, -8); f.follow:Hide()
@@ -1340,15 +1344,24 @@ local function BuildPlanTab()
     for _, r in ipairs(f.rows) do r:Hide(); r.pulse:Stop() end
     if #list == 0 then
       f.empty:SetText(string.format(L["The plan writes itself here, one line per level from %d. Or begin from what other %ss built."], TF.StartLevel(), cd.name))
-      f.empty:Show(); f.start:Show(); f.follow:SetShown(isOwnClass() and TF.TopBuild(plan().cls) ~= nil); f.cap:Hide(); f.list:SetHeight(10)
+      f.empty:Show(); f.start:Show(); f.follow:SetShown(isOwnClass() and TF.TopBuild(plan().cls) ~= nil); f.cap:Hide(); f.guess:Hide(); f.list:SetHeight(10)
       local eh = math.ceil(math.max(f.empty:GetStringHeight() or 0, estHeight(f.empty:GetText() or "", PAGE_W - 40, 13)))
       f.start:ClearAllPoints(); f.start:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -(14 + eh + 12))   -- whole pixels: a text's measured bottom can be a half
       return
     end
     f.empty:Hide(); f.start:Hide(); f.follow:Hide(); f.cap:Show()
+    -- an order nobody placed by hand (a Popular row, Follow the top build, a link without one) is TF.GuessOrder's, and the page says so
+    local guess = not p.orderKnown; local off = 0
+    f.cap:SetText(guess and L["A POINT PER LEVEL, LEAD TREE FIRST"] or L["A POINT PER LEVEL, IN ORDER"])
+    if guess then
+      f.guess:SetText(L["This build came without an order, so the one here is a suggestion: lead tree first, a row at a time. A point you place goes at the end. Press Reset to place every point in your own order."])
+      off = 2 + math.ceil(math.max(f.guess:GetStringHeight() or 0, estHeight(f.guess:GetText() or "", PAGE_W - 4, 11))) + 8
+    end
+    f.guess:SetShown(guess)
     local nextSeen, lvl = false, UnitLevel("player")
     for k, e in ipairs(list) do
       local r = Row(k); r:Show(); r.ti, r.i, r.level, r.k = e.ti, e.i, e.level, k
+      r:ClearAllPoints(); r:SetPoint("TOPLEFT", 0, -(off + (k - 1) * ROW_H))
       local t = cd.trees[e.ti].talents[e.i]
       r.lv:SetText(e.level); r.icon:SetTexture(IconFor(t)); r.name:SetText(t.name); r.rank:SetText(e.rank .. "/" .. t.max)
       local isNext = live and not e.done and not nextSeen
@@ -1363,8 +1376,8 @@ local function BuildPlanTab()
       r.icon:SetDesaturated(dim and true or false); r.icon:SetAlpha(dim and 0.55 or 1)
       r.dimTo = (e.level > p.level) and 0.35 or 1; r:SetAlpha(r.dimTo)
     end
-    f.list:SetHeight(#list * ROW_H + 4)
-    if f.spinPending then f.spinPending = false; SpinRows(f.rows, ROW_H, #list) end
+    f.list:SetHeight(off + #list * ROW_H + 4)
+    if f.spinPending then f.spinPending = false; SpinRows(f.rows, ROW_H, #list, off) end
   end
 end
 
@@ -1908,8 +1921,7 @@ local function BuildRacialsTab()
         for _, c in ipairs(r.classes or {}) do if c == cf then can = true end end
         r.can = can
         list[#list + 1] = r
-        local base = r.race:gsub("%s*%(.*$", "")
-        if myRace:find(base, 1, true) and (not mine or fac == myFac) then mine = r end
+        if TF.RaceIs(r.race, myRace, myFac) and (not mine or fac == myFac) then mine = r end   -- NightElf is Night Elf, Scourge the Undead (0.38.2)
       end
     end
     if mine then for k, r in ipairs(list) do if r == mine then table.remove(list, k); table.insert(list, 1, r) end end end
@@ -2110,12 +2122,20 @@ local function BuildSettingsTab()
   row(L["Minimap button"], "inv_misc_map_01", function() return not S().minimap.hide end, function(v) S().minimap.hide = not v; UI.SetMinimapShown(v) end, L["The book on the minimap. Left click opens the planner, right click the popular builds."])
   row(L["Book tab on the character pane"], "inv_misc_book_09", function() return S().charTab ~= false end, function(v) S().charTab = v; if TalentsForeverBookCharacterTab then TalentsForeverBookCharacterTab:SetShown(v) end end, L["The book among the tabs on your character pane. Same as /tf."])
   row(L["Train all at the trainer"], "inv_misc_coin_02", function() return S().trainAll ~= false end, function(v) S().trainAll = v; if not v then local b = _G.TalentsForeverBookTrainAll; if b then b:Hide() end end end, L["The Train all button on the trainer window, with what it would cost. Off, the trainer window is the game's own; /talents trainall still buys the lot."])
-  row(L["The talents key opens this"], "inv_misc_key_03", function() return S().talentsKey end, function(v) S().talentsKey = v; UI.ApplyTalentsKey(true) end, L["Whatever key opens the game's talents (N, unless you changed it) opens Talents Forever instead. Your key bindings stay as they are; off gives the game's window back."])
+  row(L["The talents key opens this"], "inv_misc_key_03", function() return S().talentsKey end, function(v) S().talentsKey = v; UI.ApplyTalentsKey(true); UI.KeysRefresh() end, L["Whatever key opens the game's talents (N, unless you changed it) opens Talents Forever instead. Your key bindings stay as they are; off gives the game's window back."])
   if TF.ClientLocale() ~= "enUS" and TF.ClientLocale() ~= "enGB" then
     -- 0.38.0: a client in another language reads talent and spell names from the game; this puts the English back, for guides and chat
     row(L["Talent and spell names in English"], "inv_misc_note_06", function() return S().englishNames == true end, function(v) S().englishNames = v or nil; TF.Localise(); UI.RebuildTrees(); UI.Refresh() end, L["The names come from the game in its own language. On, they read in English instead, the way guides and the site write them. The addon's own words stay in your language."])
   end
   row(L["Open this instead of the game's talents"], "inv_misc_book_11", function() return S().replaceTalents end, function(v) S().replaceTalents = v; UI.Note(v and L["The game's talent tab opens Talents Forever now. Hold Shift while opening it for the game's window."] or L["The game's talent window is its own again."], nil, 8) end, L["Open the game's talents any way at all (the key, the micro bar, the spellbook's tab) and it closes again with Talents Forever in its place. Hold Shift while opening it to get the game's window that once. Never during a fight."])
+  -- 0.38.2: the planner's own key, which a Warlock at 6 asked for on 8 Oct without finding it. The game keeps it in its
+  -- options, Keybindings, in a Talents Forever section near the bottom of the list and folded shut; this line says which
+  -- key opens the planner now, and the button opens that page at that section. Room for the line on two rows.
+  f.keys = Text(f, 12, C.ink2); f.keys:SetPoint("TOPLEFT", PAD, y - 2); f.keys:SetPoint("TOPRIGHT", -28, y - 2); f.keys:SetWordWrap(true); f.keys:SetJustifyH("LEFT")
+  f.keysBtn = Button(f, UI.KeyPageName(), "auto", 20, function() UI.OpenKeyBindings() end); f.keysBtn:SetPoint("TOPLEFT", f.keys, "BOTTOMLEFT", 0, -6)
+  Tip(f.keysBtn, UI.KeyPageName(), UI.KeyWhere())
+  UI.keysLine, UI.keysButton = f.keys, f.keysBtn
+  y = y - 56
   y = y - 8
   f.sizeLabel = Text(f, 12, C.gold); f.sizeLabel:SetPoint("TOPLEFT", PAD, y - 6); f.sizeLabel:SetText(L["Window size"])
   f.smaller = Stepper(f, false, function() S().scaleSet = true; UI.SetScale((F:GetScale() or 1) - 0.1); tabs.settings.refresh() end); f.smaller:SetPoint("TOPLEFT", PAD + 108, y)
@@ -2149,6 +2169,7 @@ local function BuildSettingsTab()
     for _, cb in ipairs(f.boxes) do cb:SetChecked(cb.get()) end
     if f.slider then f.slider:Sync() end
     f.sizeValue:SetText(string.format("%d%%", math.floor(((F and F:GetScale()) or 1) * 100 + 0.5)))
+    UI.KeysRefresh()
   end
 end
 
@@ -2192,9 +2213,19 @@ local function BuildFeedbackTab()
   f.hint = Text(well, 12, C.muted); f.hint:SetPoint("TOPLEFT", 10, -8); f.hint:SetText(L["Say it how you would say it to a friend."])
   f.left = Text(body, 11, C.muted); f.left:SetPoint("TOPRIGHT", -28, -156); f.left:SetJustifyH("RIGHT"); f.left:SetText(L["460 left"])
   e:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+  -- 0.38.2: the inbox keeps the first 500 letters of a note, the head in front included, and the head names what the game
+  -- blocked of ours: so the box takes 460 letters, fewer while there are blocks to name (TF.NoteRoom), and the count says
+  -- so in letters. Never fewer than are typed already: the box would cut the words, and the blocks give way instead.
+  f.fit = function()
+    local n, room = TF.ULen(e:GetText() or ""), TF.NoteRoom()
+    local most = math.max(room, n)
+    if most ~= f.most then f.most = most; e:SetMaxLetters(most) end
+    f.left:SetText(string.format(L["%d left"], math.max(0, room - n)))
+    return n
+  end
   e:SetScript("OnTextChanged", function(self)
-    local n = #(self:GetText() or "")
-    f.hint:SetShown(n == 0); f.left:SetText(string.format(L["%d left"], 460 - n)); f.send:SetEnabled(#((self:GetText() or ""):gsub("%s", "")) >= 3)
+    local n = f.fit()
+    f.hint:SetShown(n == 0); f.send:SetEnabled(#((self:GetText() or ""):gsub("%s", "")) >= 3)
   end)
   e:SetScript("OnEditFocusGained", function() well.edge:SetColor(1, 0.82, 0, 0.95) end)
   e:SetScript("OnEditFocusLost", function() well.edge:SetColor(0.78, 0.61, 0.10, 0.45) end)
@@ -2233,6 +2264,7 @@ local function BuildFeedbackTab()
     f.reps[k] = r; return r
   end
   tabs.feedback.refresh = function()
+    f.fit()
     local sent = f.url and true or false
     f.linkSec:SetShown(sent); f.link:SetShown(sent); f.copy:SetShown(sent); f.how:SetShown(sent); f.cap:SetShown(sent)
     if sent then
@@ -2636,11 +2668,83 @@ local function RefreshJourney()
 end
 
 -- ---------- header and footer ----------
+-- A gamepad is on in either of two ways. The game's gamepad interface, asked the way the Forever client asks it
+-- (Blizzard_SharedXML InputUtil.IsGamepadUIEnabled: C_InputInterfaceStyle.GetCurrentStyle() is
+-- Enum.InputDeviceInterfaceType.Gamepad), can come on in the middle of a session (INPUT_DEVICE_INTERFACE_TRANSITION).
+-- Gamepad input is the GamePadEnable cvar, 0.34.3's signal. A client without the interface API answers false.
+function UI.GamepadUI()
+  local get = C_InputInterfaceStyle and C_InputInterfaceStyle.GetCurrentStyle
+  local pad = Enum and Enum.InputDeviceInterfaceType and Enum.InputDeviceInterfaceType.Gamepad
+  if type(get) ~= "function" or pad == nil then return false end
+  local ok, style = pcall(get)
+  return (ok and style == pad) and true or false
+end
+function UI.GamepadInput()
+  if not GetCVarBool then return false end
+  local ok, on = pcall(GetCVarBool, "GamePadEnable")
+  return (ok and on) and true or false
+end
 -- the plain class button instead of the game's dropdown: chosen in Settings, forced once the game blocks the dropdown, or while a gamepad is on
 function UI.PlainClassList()
   if S().plainClassList then return true end
-  if GetCVarBool then local ok, on = pcall(GetCVarBool, "GamePadEnable"); if ok and on then return true end end
+  return UI.GamepadUI() or UI.GamepadInput()
+end
+-- The dropdown is chosen once, when the window is built. One built with mouse and keyboard stays shut while a gamepad is on
+-- and, once the game has blocked us, for the rest of the session: the game's DropdownButton:OpenMenu returns on a disabled
+-- dropdown before it asks for our list (Blizzard_Menu DropdownButton.lua), so none of our code runs in the menu's gamepad
+-- path (27 Sep: ADDON_ACTION_FORBIDDEN, GamepadMainActionBarFrame:SetPreferredGamepadInteractTarget; 12 Oct: "it keeps
+-- crashing when i use the gamepadui"). style: the new style, when the switch event names it. A list already open at the
+-- moment of the switch is left to the game: closing it from here would run the menu's gamepad code under our name.
+function UI.GamepadCheck(style)
+  local d = head and head.classDrop
+  if not (d and d.SetEnabled) then return end
+  local E = Enum and Enum.InputDeviceInterfaceType
+  local pad; if style ~= nil and E and E.Gamepad ~= nil then pad = (style == E.Gamepad) else pad = UI.GamepadUI() end
+  local want = not (pad or UI.GamepadInput() or UI.dropBlocked)
+  if (d:IsEnabled() and true or false) ~= want then d:SetEnabled(want) end
+end
+-- 0.38.2: a block from the game that belongs to the class dropdown's path. Its list is Blizzard's menu, whose gamepad code
+-- (focus, the footer's bindings) is what the game refused on 27 Sep (GamepadMainActionBarFrame:
+-- SetPreferredGamepadInteractTarget); so a function named for the gamepad or a dropdown, or any block while the class list
+-- is open, opening or closing (UI.ClassListMark). Anything else (a refused options call, a trainer purchase, UNKNOWN()
+-- at any other moment) is not the class list's.
+function UI.ClassListBlock(fn)
+  local s = type(fn) == "string" and fn:lower() or ""
+  if s:find("gamepad", 1, true) or s:find("dropdown", 1, true) then return true end
+  local d = head and head.classDrop
+  if d and d.IsMenuOpen then local ok, open = pcall(d.IsMenuOpen, d); if ok and open then return true end end
+  local now = GetTime and GetTime()
+  if now and (now == UI.classListOpening or (UI.classListSeen and now - UI.classListSeen <= UI.CLASS_LIST_GRACE)) then return true end
   return false
+end
+-- 0.38.2: the class list's own moments. Blizzard_Menu runs its gamepad code for the list as the list shows and as it hides,
+-- and at both IsMenuOpen() is already false: DropdownButtonMixin:OpenMenu sets self.menu only once the menu has opened, and
+-- the menu's close callback clears it before the menu hides (Blizzard_Menu dropdownbutton.lua 118-125 and 84-87, menu.lua
+-- 1710-1718, build 69913). So the list's generator, which the game runs inside OpenMenu just before the menu opens, marks
+-- that frame (GetTime is the same all through a frame; not when the addon itself asks for the dropdown's words,
+-- UI.ownMenu), and a watcher on a frame of ours marks each frame the list is seen open and the first frame it is gone. No
+-- code of ours goes into the menu's open or close path for this: a callback there would run under the addon's name in the
+-- very code it is meant to watch.
+UI.CLASS_LIST_GRACE = 0.5   -- seconds after the list was last seen open in which a block is still the class list's
+function UI.ClassListMark()
+  if UI.ownMenu or not GetTime then return end
+  UI.classListOpening = GetTime()
+  local w = head and head.classWatch
+  if not w or w:GetScript("OnUpdate") then return end
+  local seen = false
+  w:SetScript("OnUpdate", function(self)
+    local d, ok, open = head and head.classDrop, false, false
+    if d and d.IsMenuOpen then ok, open = pcall(d.IsMenuOpen, d) end
+    if ok and open then seen = true; UI.classListSeen = GetTime(); return end
+    if seen then UI.classListSeen = GetTime() end   -- the first frame it is gone: it hid just now
+    self:SetScript("OnUpdate", nil)
+  end)
+end
+-- why the dropdown is shut, for its tooltip and a press on it; nil while it opens
+function UI.ClassListShut(d)
+  if not d or d:IsEnabled() then return nil end
+  if UI.dropBlocked then return L["The class picker changes on the next /reload."] end
+  return L["The class list is off while a gamepad is on. Type /reload and the plain class button takes its place."]
 end
 local function MakeHead()
   local h = CreateFrame("Frame", nil, F)
@@ -2662,8 +2766,11 @@ local function MakeHead()
   local drop = (not UI.PlainClassList()) and Native("DropdownButton", nil, h, "WowStyle1DropdownTemplate") or nil
   if drop and drop.SetupMenu then
     h.classDrop = drop
+    h.classWatch = CreateFrame("Frame", nil, UIParent)   -- UI.ClassListMark's watcher; on UIParent, so it sees the list close with the window
     drop:SetSize(150, 25); drop:SetPoint("LEFT", h.classIcon, "RIGHT", 8, 1)
+    UI.ownMenu = true   -- the game may ask for the words at once (SetupMenu on a shown dropdown): not the list opening
     drop:SetupMenu(function(_, root)
+      UI.ClassListMark()   -- inside the game's OpenMenu, the menu opens next; or the words asked for when it shows
       for _, cf in ipairs(CLASS_ORDER) do
         local cd = D.classes[cf]
         if cd then
@@ -2682,9 +2789,19 @@ local function MakeHead()
         end
       end
     end)
-    drop:HookScript("OnEnter", function(self) TipBegin(self); GameTooltip:SetText(L["Plan another class"], 1, 0.82, 0); GameTooltip:AddLine(CLASS_TIP, 0.9, 0.9, 0.9, true); TipEnd(self, "beside") end)
+    UI.ownMenu = nil
+    if drop.SetMotionScriptsWhileDisabled then drop:SetMotionScriptsWhileDisabled(true) end   -- shut, it still says why under the pointer
+    drop:HookScript("OnEnter", function(self)
+      UI.GamepadCheck()   -- the pointer is over it before any press: a gamepad that came on without an event shuts it here
+      TipBegin(self); GameTooltip:SetText(L["Plan another class"], 1, 0.82, 0); GameTooltip:AddLine(CLASS_TIP, 0.9, 0.9, 0.9, true)
+      local why = UI.ClassListShut(self); if why then GameTooltip:AddLine(why, 1, 0.3, 0.3, true) end
+      TipEnd(self, "beside")
+    end)
     drop:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    drop:HookScript("OnMouseDown", function() GameTooltip:Hide() end)   -- the list opens where the tooltip sat
+    drop:HookScript("OnMouseDown", function(self)   -- the list opens where the tooltip sat
+      GameTooltip:Hide()
+      local why = UI.ClassListShut(self); if why then UI.Note(why, nil, 8) end
+    end)
     h.sub = Text(h, 13, C.ink2); h.sub:SetPoint("LEFT", drop, "RIGHT", 14, -1)
   else
     -- no dropdown in this client: the class name is a button that opens the other classes in place
@@ -3167,7 +3284,8 @@ function UI.Refresh()
   local total, shown, pool = TF.TotalPts(p), TF.TotalPts(vp), TF.Pool(p)
   -- header
   if head.classDrop then
-    if head.dropCls ~= p.cls then head.dropCls = p.cls; head.classDrop:GenerateMenu() end   -- the dropdown's words follow the class
+    UI.GamepadCheck()   -- a gamepad on since the last look shuts it
+    if head.dropCls ~= p.cls then head.dropCls = p.cls; UI.ownMenu = true; head.classDrop:GenerateMenu(); UI.ownMenu = nil end   -- the dropdown's words follow the class
   else head.classBtn:SetText(cd.name); if head.classBtn.label then head.classBtn.label:SetTextColor(cr, cg, cb) end end
   SetClassIcon(head.classIcon, p.cls)
   local lead, best = 1, -1
@@ -3772,12 +3890,13 @@ local function MakeFrame()
   local top = F:GetFrameLevel() + 510     -- the frame's edge art is drawn 500 levels up; what stands in the title bar stands above it
   if F.native then
     F:SetTitle("Talents Forever")
-    -- Changing the native title's font is unreliable, so use a separate string.
+    -- the title in the site's own face: our own string in Cinzel Bold on top of the game's, which goes clear. Setting a
+    -- font on the game's title string does not always take, so this never depends on it.
     local tt = F.TitleContainer and F.TitleContainer.TitleText
     if tt and tt.SetAlpha then pcall(tt.SetAlpha, tt, 0) end
     local host = F.TitleContainer or F
     F.tfTitle = host:CreateFontString(nil, "OVERLAY")
-    F.tfTitle:SetFont(CINZEL, 16, "")
+    F.tfTitle:SetFont((CINZEL:gsub("Cinzel%.ttf$", "Cinzel-Bold.ttf")), 16, "")
     F.tfTitle:SetTextColor(1, 0.84, 0.37); F.tfTitle:SetShadowOffset(1, -1); F.tfTitle:SetShadowColor(0, 0, 0, 0.9)
     F.tfTitle:SetText("Talents Forever")
     if tt then F.tfTitle:SetPoint("CENTER", tt, "CENTER", 0, 0) else F.tfTitle:SetPoint("TOP", F, "TOP", 0, -9) end
@@ -3805,7 +3924,7 @@ local function MakeFrame()
     F.medal.halo = F.medal:CreateTexture(nil, "BACKGROUND"); F.medal.halo:SetTexture(SkinPath() .. "disc.png"); F.medal.halo:SetPoint("CENTER"); F.medal.halo:SetSize(64, 64)
     F.medal.book = Book(F.medal, LOOK() == "site" and 30 or 52); F.medal.book:SetPoint("CENTER", 0, 0)
     if LOOK() == "site" then F.medal.halo:SetSize(40, 40) elseif AtlasOK("Talents-Main-Ring-c60") then F.medal.ring = F.medal:CreateTexture(nil, "OVERLAY"); Atlas(F.medal.ring, "Talents-Main-Ring-c60", 76, 76); F.medal.ring:SetPoint("CENTER", 0, 0) end
-    F.titleText = Text(F, LOOK() == "site" and 15 or 16, C.gold, true); F.titleText:SetFont(CINZEL, 16, ""); F.titleText:SetShadowOffset(1, -1); F.titleText:SetShadowColor(0, 0, 0, 0.9); if LOOK() == "site" then F.titleText:SetPoint("TOPLEFT", 58, -8); F.titleText:SetJustifyH("LEFT") else F.titleText:SetPoint("TOP", 0, -9) end; F.titleText:SetText("Talents Forever"); F.titleText:SetShadowColor(0, 0, 0, 1); F.titleText:SetShadowOffset(1, -1)
+    F.titleText = Text(F, LOOK() == "site" and 15 or 16, C.gold, true); F.titleText:SetFont((CINZEL:gsub("Cinzel%.ttf$", "Cinzel-Bold.ttf")), 16, ""); F.titleText:SetShadowOffset(1, -1); F.titleText:SetShadowColor(0, 0, 0, 0.9); if LOOK() == "site" then F.titleText:SetPoint("TOPLEFT", 58, -8); F.titleText:SetJustifyH("LEFT") else F.titleText:SetPoint("TOP", 0, -9) end; F.titleText:SetText("Talents Forever"); F.titleText:SetShadowColor(0, 0, 0, 1); F.titleText:SetShadowOffset(1, -1)
     if LOOK() == "site" then F.subText = Text(F, 10, C.muted); F.subText:SetPoint("TOPLEFT", 58, -27); F.subText:SetText(L["WoW Forever talent calculator, in game"]); F.titleRuleY = -(TOP - 2) end
     F.titleRule = F:CreateTexture(nil, "BORDER", nil, 2); F.titleRule:SetTexture(WHITE); F.titleRule:SetPoint("TOPLEFT", 12, -(TOP - 4)); F.titleRule:SetPoint("TOPRIGHT", -12, -(TOP - 4)); if LOOK() == "site" then F.titleRule:SetVertexColor(0.23, 0.23, 0.23, 1) end; onePixel(F.titleRule, true); F.titleRule:SetVertexColor(0.61, 0.46, 0.18, 0.55)
     F.close = CreateFrame("Button", nil, F); F.close:SetSize(18, 18); F.close:SetPoint("TOPRIGHT", -9, -7); F.close:SetFrameLevel(F:GetFrameLevel() + 12); F.close:SetScript("OnClick", function() UI.Hide() end)
@@ -4123,10 +4242,60 @@ function UI.ApplyTalentsKey(say)
   for _, k in ipairs(keys) do SetOverrideBindingClick(KEYS.btn, true, k, "TalentsForeverBookKeyButton") end
   if say then UI.Note(#keys > 0 and string.format(L["%s opens Talents Forever now. Off in Settings gives the game's window back."], table.concat(keys, L[" and "])) or L["The game's talents window has no key in Key Bindings, so there is nothing to take over yet."], nil, 8) end
 end
+-- ---------- the planner's own key (0.38.2) ----------
+-- Bindings.xml gives the game two keys, open or close the planner and apply the next point. This client sets keys only in
+-- its options, Keybindings (Blizzard_SettingsDefinitions_Frame; there is no Blizzard_BindingUI), where they sit in a section
+-- titled Talents Forever near the bottom of the list, folded shut. A Warlock at 6 asked on 8 Oct for a key there and did not
+-- find it. Settings says which key opens the planner and has a button to that page; /talents key does the same.
+-- the game's own word for the page (Keybindings), which is also the button's label
+function UI.KeyPageName() return SETTINGS_KEYBINDINGS_LABEL or KEY_BINDINGS or L["Key Bindings"] end
+-- what opens the planner now, as the game writes keys: its own key, both if there are two, and with "The talents key opens
+-- this" on the talents key too. That one is a click on TalentsForeverBookKeyButton (UI.ApplyTalentsKey), so GetBindingKey
+-- never names it under our action. With no key at all, the game's own Not Bound.
+function UI.KeyText()
+  local out, seen = {}, {}
+  local function add(k, fmt)
+    if not k or k == "" or seen[k] then return end
+    seen[k] = true
+    local t = (GetBindingText and GetBindingText(k)) or k
+    out[#out + 1] = fmt and string.format(fmt, t) or t
+  end
+  if GetBindingKey then
+    local k1, k2 = GetBindingKey("TALENTSFOREVERBOOK_TOGGLE"); add(k1); add(k2)
+    if TF.db and TF.db.settings and S().talentsKey and not KEYS.pending then
+      for _, action in ipairs(KEYS.actions) do local t1, t2 = GetBindingKey(action); add(t1, L["%s (the talents key)"]); add(t2, L["%s (the talents key)"]) end
+    end
+  end
+  return #out > 0 and table.concat(out, L[" and "]) or (NOT_BOUND or "-")
+end
+-- the Settings line, when the page is built
+function UI.KeysRefresh()
+  if UI.keysLine then UI.keysLine:SetText(string.format(L["Open or close the planner: %s"], UI.KeyText())) end
+end
+-- the way there in words, for the button's tooltip and the footer when the page cannot be opened from here (short enough
+-- for the footer's one line). Another addon's section can come after ours, so "near the bottom", not "last".
+function UI.KeyWhere()
+  return string.format(L["Set the key in the game's options: %s, the %s section near the bottom of the list."], UI.KeyPageName(), BINDING_HEADER_TALENTSFOREVERBOOK)
+end
+-- The game's options at Keybindings, scrolled to the Talents Forever section (Settings.OpenToCategory asks the game through
+-- C_SettingsUtil.OpenSettingsPanel, a call with restrictions, and the panel opens itself on its own SETTINGS_PANEL_OPEN).
+-- Never in a fight. A refused call raises no Lua error, so pcall's true proves nothing: the window steps aside only when the
+-- panel is up, and otherwise says the way there. The call runs through UI.Unblamed (by the boot frame below), so a refusal
+-- here is written down but never said in chat or taken for the class list's.
+function UI.OpenKeyBindings()
+  local function say(s) if F and F:IsShown() then UI.Note(s, nil, 12) else TF.Print("%s", s) end end
+  if InCombatLockdown and InCombatLockdown() then say(L["After the fight: the game's options cannot be opened from here in combat."]); return false end
+  local id = Settings and Settings.KEYBINDINGS_CATEGORY_ID
+  if id and Settings.OpenToCategory then (UI.Unblamed or pcall)(Settings.OpenToCategory, id, BINDING_HEADER_TALENTSFOREVERBOOK) end
+  if SettingsPanel and SettingsPanel.IsShown and SettingsPanel:IsShown() then UI.Hide(); return true end
+  say(UI.KeyWhere())
+  return false
+end
 -- bindings change (UPDATE_BINDINGS) and combat ends (PLAYER_REGEN_ENABLED) reach the boot frame below
 function UI.TalentsKeyEvent(ev)
   if ev == "PLAYER_REGEN_ENABLED" and not KEYS.pending then return end
   if TF.db and TF.db.settings then UI.ApplyTalentsKey() end
+  UI.KeysRefresh()   -- a key set in Keybindings, or the talents key taken over after a fight, shows on the Settings line
 end
 
 -- ---------- minimap button ----------
@@ -4328,6 +4497,7 @@ SlashCmdList.TALENTSFOREVERBOOK = function(msg)
   elseif cmd == "undo" then TF.Print(TF.Undo() and L["the plan is back."] or L["nothing to undo."])
   elseif cmd == "find" then UI.Find(rest)
   elseif cmd == "settings" or cmd == "options" then UI.Show(); UI.OpenSettings()
+  elseif cmd == "key" or cmd == "keys" or cmd == "bind" then TF.Print(L["Open or close the planner: %s"], UI.KeyText()); UI.OpenKeyBindings()
   elseif cmd == "next" then UI.ApplyNext()
   elseif cmd == "all" then UI.ApplyAll()
   elseif cmd == "save" then local rec = TF.SaveBuild(rest); TF.Print(L["saved as %s."], rec.name)
@@ -4355,15 +4525,48 @@ SlashCmdList.TALENTSFOREVERBOOK = function(msg)
   elseif cmd == "sounds" then S().sounds = not S().sounds; TF.Print(L["sounds %s."], S().sounds and L["on"] or L["off"])
   elseif cmd == "minimap" then S().minimap.hide = not S().minimap.hide; UI.SetMinimapShown(not S().minimap.hide)
   else
-    TF.Print(L["v%s. /talents opens the planner. /talents next and /talents all place planned points. /talents save <name>, /talents builds, /talents open <name>, /talents plans, /talents plan <name>, /talents find <talent>, /talents undo, /talents settings, /talents import <link or code>, /talents share, /talents reset, /talents scale <n>, /talents center, /talents inspect, /talents party, /talents trainer, /talents trainall, /talents nudge, /talents sounds, /talents minimap, /talents intro, /talents log."], TF.VERSION)
+    TF.Print(L["v%s. /talents opens the planner. /talents next and /talents all place planned points. /talents save <name>, /talents builds, /talents open <name>, /talents plans, /talents plan <name>, /talents find <talent>, /talents undo, /talents settings, /talents key, /talents import <link or code>, /talents share, /talents reset, /talents scale <n>, /talents center, /talents inspect, /talents party, /talents trainer, /talents trainall, /talents nudge, /talents sounds, /talents minimap, /talents intro, /talents log."], TF.VERSION)
   end
 end
 
 local boot = CreateFrame("Frame")
 boot:RegisterEvent("ADDON_LOADED"); boot:RegisterEvent("PLAYER_LOGIN"); boot:RegisterEvent("PLAYER_ENTERING_WORLD")
-pcall(boot.RegisterEvent, boot, "ADDON_ACTION_FORBIDDEN")   -- the game blocked something of ours: the class dropdown is the one piece that can do that
+pcall(boot.RegisterEvent, boot, "ADDON_ACTION_FORBIDDEN")   -- the game refused something of ours (UI.GameBlocked)
+pcall(boot.RegisterEvent, boot, "ADDON_ACTION_BLOCKED")     -- 0.38.2: or blocked it ("Interface action failed because of an AddOn")
+pcall(boot.RegisterEvent, boot, "INPUT_DEVICE_INTERFACE_TRANSITION")   -- the game's gamepad interface coming on or off
+pcall(boot.RegisterEvent, boot, "CVAR_UPDATE")   -- gamepad input switched on or off in the game's settings
 pcall(boot.RegisterEvent, boot, "CHAT_MSG_ADDON")
 pcall(boot.RegisterEvent, boot, "UPDATE_BINDINGS"); pcall(boot.RegisterEvent, boot, "PLAYER_REGEN_ENABLED")   -- the talents key switch
+-- 0.38.2: a call into the game that may be refused (UI.OpenKeyBindings opens the game's options). The options call says
+-- the way there itself when it is refused, so a block raised during it is only written down (log and saved diag), never
+-- said in chat and never taken for the class list's. The game raises the event during the refused call (error grabbers
+-- record the caller's stack from it), so UI.GameBlocked sees UI.unblamed set. Returns pcall's two answers.
+function UI.Unblamed(fn, ...)
+  UI.unblamed = (UI.unblamed or 0) + 1
+  local ok, err = pcall(fn, ...)
+  UI.unblamed = UI.unblamed - 1
+  return ok, err
+end
+-- 0.38.2: the game blocked something of ours (ADDON_ACTION_FORBIDDEN or ADDON_ACTION_BLOCKED; fn is the function it names).
+-- Every one goes into the log and the saved diag (TF.NoteBlock), and so into the next note from the Feedback page. Only a
+-- block on the class dropdown's path (UI.ClassListBlock) shuts the dropdown for the session, keeps the plain class button
+-- for the next /reload and says so, as 0.34.3 did for every block; any other gets one plain line a session naming the
+-- function, and the class list is left as it is.
+function UI.GameBlocked(ev, who, fn)
+  if who ~= "TalentsForeverBook" then return end
+  TF.NoteBlock(ev, fn)
+  if (UI.unblamed or 0) > 0 then return end   -- a call that says its own refusal (UI.Unblamed)
+  if UI.ClassListBlock(fn) then
+    UI.dropBlocked = true; UI.GamepadCheck()   -- shut now, for the rest of this session
+    if TF.db and TF.db.settings and not S().plainClassList then
+      S().plainClassList = true
+      TF.Print(L["the game blocked the class list (%s). The plain class button takes its place from the next /reload."], tostring(fn))
+    end
+  elseif not UI.blockSaid then
+    UI.blockSaid = true
+    TF.Print(L["the game blocked an action of the addon (%s). If something did not work just then, a note from the Feedback page names it."], tostring(fn))
+  end
+end
 local function onBuildMessage(prefix, text, channel, sender)
   if prefix ~= TF.PREFIX or type(text) ~= "string" then return end
   local me = UnitName("player")
@@ -4384,13 +4587,9 @@ local function onBuildMessage(prefix, text, channel, sender)
 end
 boot:SetScript("OnEvent", function(_, ev, name, arg2, arg3, arg4)
   if ev == "CHAT_MSG_ADDON" then onBuildMessage(name, arg2, arg3, arg4); return end
-  if ev == "ADDON_ACTION_FORBIDDEN" then
-    if name == "TalentsForeverBook" and TF.db and TF.db.settings and not S().plainClassList then
-      S().plainClassList = true
-      TF.Print(L["the game blocked the class list (%s). The plain class button takes its place from the next /reload."], tostring(arg2))
-    end
-    return
-  end
+  if ev == "INPUT_DEVICE_INTERFACE_TRANSITION" then UI.GamepadCheck(name); return end   -- name: the new style
+  if ev == "CVAR_UPDATE" then if type(name) == "string" and name:lower():gsub("_", "") == "gamepadenable" then UI.GamepadCheck() end; return end
+  if ev == "ADDON_ACTION_FORBIDDEN" or ev == "ADDON_ACTION_BLOCKED" then UI.GameBlocked(ev, name, arg2); return end
   if ev == "UPDATE_BINDINGS" or ev == "PLAYER_REGEN_ENABLED" then UI.TalentsKeyEvent(ev); return end
   if ev == "ADDON_LOADED" then
     if name == "TalentsForeverBook" then TF.InitDB(); if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then pcall(C_ChatInfo.RegisterAddonMessagePrefix, TF.PREFIX) end end
@@ -4415,11 +4614,17 @@ boot:SetScript("OnEvent", function(_, ev, name, arg2, arg3, arg4)
     C_Timer.After(1, HookBlizzard)
     -- a line in chat once per version, not every login: the addon stays quiet unless something changed
     if not UI.greeted then UI.greeted = true; if S().greetedVersion ~= TF.VERSION then S().greetedVersion = TF.VERSION; TF.Print(L["v%s loaded. %s opens the planner, /talents help lists the rest."], TF.VERSION, UI.tfShort and L["/tf or /talents"] or L["/talents"]) end end
-    -- one card at login, never two: the once-only update card, else the unspent-point card if there is one, else the trainer card
-    local loginCard = false
-    C_Timer.After(10, function() loginCard = UI.UpgradeCard(); if not loginCard and TF.lastSettled then UI.SettledCard(TF.lastSettled); loginCard = true end end)   -- a plan that settled at login gets the card too
-    C_Timer.After(12, function() if not loginCard and G.live and G.Unspent() > 0 then loginCard = Nudge(string.format(TF.Plural(G.Unspent(), "%d unspent point", "%d unspent points"), G.Unspent())) and true or false end end)
-    C_Timer.After(16, function() if not loginCard then TrainerAlert((GetRealZoneText and GetRealZoneText()) or nil) end end)
+    -- one card at login, never two: the once-only update card, else the unspent-point card if there is one, else the trainer card.
+    -- Once a session (a /reload is a new session): every loading screen fires this event too, a boat, a dungeon, a hearthstone, and each
+    -- one brought the card back in whatever zone it ended in (a Horde Mage at 20, note JAUK9R, 9 Oct 2026: "every time I go to a new zone").
+    -- Level-ups and walking into a capital still bring the trainer card.
+    if not UI.loginCards then
+      UI.loginCards = true
+      local loginCard = false
+      C_Timer.After(10, function() loginCard = UI.UpgradeCard(); if not loginCard and TF.lastSettled then UI.SettledCard(TF.lastSettled); loginCard = true end end)   -- a plan that settled at login gets the card too
+      C_Timer.After(12, function() if not loginCard and G.live and G.Unspent() > 0 then loginCard = Nudge(string.format(TF.Plural(G.Unspent(), "%d unspent point", "%d unspent points"), G.Unspent())) and true or false end end)
+      C_Timer.After(16, function() if not loginCard then TrainerAlert((GetRealZoneText and GetRealZoneText()) or nil) end end)
+    end
     -- once per batch of replies: a card saying what happened to what people asked for. The Feedback page has the words,
     -- and a note sent from this account has its answer under it there.
     local R = D.replies

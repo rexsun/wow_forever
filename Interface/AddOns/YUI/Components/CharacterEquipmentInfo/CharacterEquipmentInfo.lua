@@ -840,7 +840,6 @@ local function BuildCard(kind)
         name = kind == "player" and "YUICharacterEquipmentInfoPlayer" or "YUICharacterEquipmentInfoInspect",
         width = CARD_WIDTH,
         height = 120,
-        frameStrata = "HIGH",
         clampedToScreen = true,
     })
     card.kind = kind
@@ -1634,6 +1633,13 @@ local function ResolveHost()
     return nil, false
 end
 
+local function AttachCardToHost(card, host)
+    if card:GetParent() == host then return end
+    -- 原生父子关系继承宿主 strata，并随宿主 Raise 一起升降。
+    card:SetParent(host)
+    card:SetFrameLevel(host:GetFrameLevel() + 1)
+end
+
 local function IsCharacterPaperDollActive()
     return _G.CharacterFrame
         and _G.CharacterFrame.activeSubframe == "PaperDollFrame"
@@ -1681,6 +1687,8 @@ local function RefreshRuntime()
     if not runtime.enabled then return end
 
     if YUI.CharacterEquipmentOverlays then YUI.CharacterEquipmentOverlays:Refresh(GetDB()) end
+    -- 摘要属于原生窗口的子框架；结构刷新复用已有脱战事件补做。
+    if Security and Security.InCombatLockdown and Security.InCombatLockdown() then return end
     if GetDB().showSummary == false then
         if runtime.playerCard then runtime.playerCard:Hide() end
         if runtime.inspectCard then runtime.inspectCard:Hide() end
@@ -1700,10 +1708,11 @@ local function RefreshRuntime()
         return
     end
 
-    local level = type(host.GetFrameLevel) == "function" and host:GetFrameLevel() or 1
     local hostHeight = ReadHostHeight(host)
     local playerCard = runtime.playerCard
     local inspectCard = runtime.inspectCard
+    AttachCardToHost(playerCard, host)
+    AttachCardToHost(inspectCard, host)
     playerCard.sharedWidth, inspectCard.sharedWidth = nil, nil
     playerCard.sharedHeight, inspectCard.sharedHeight = nil, nil
     SetCardDimensions(playerCard, nil, hostHeight)
@@ -1715,13 +1724,11 @@ local function RefreshRuntime()
     if inspecting then
         playerCard:ClearAllPoints()
         playerCard:SetPoint("TOPLEFT", inspectCard, "TOPRIGHT", CARD_GAP, 0)
-        playerCard:SetFrameLevel(level + 20)
         playerCard:Show()
         UpdateCard(playerCard, "player", false)
 
         inspectCard:ClearAllPoints()
         inspectCard:SetPoint("TOPLEFT", host, "TOPRIGHT", GetHostCardGap(host, inspectCard), 0)
-        inspectCard:SetFrameLevel(level + 20)
         inspectCard:Show()
         UpdateCard(
             inspectCard,
@@ -1733,7 +1740,6 @@ local function RefreshRuntime()
     else
         playerCard:ClearAllPoints()
         playerCard:SetPoint("TOPLEFT", host, "TOPRIGHT", GetHostCardGap(host, playerCard), 0)
-        playerCard:SetFrameLevel(level + 20)
         playerCard:Show()
         UpdateCard(playerCard, "player", false)
         inspectCard:Hide()

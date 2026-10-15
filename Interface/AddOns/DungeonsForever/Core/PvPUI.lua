@@ -40,6 +40,8 @@ PV.TOP = 104
 -- 滚动视口高（648 - TOP 104 - 底衬 12）：声望/套装容器卡固定到此高度，
 -- 卡底距窗口下边框恒为 12，与军衔页双卡一致
 PV.VIEW_H = 532
+PV.WEEK_PAD = 8
+PV.WEEK_CARD_W = PV.W - 2 * PV.WEEK_PAD
 PV.HEAD_ART = 131883
 PV.HEAD_TEX = { 0.0, 1.0, 0.36, 0.455 }
 PV.FAC_ICON = {
@@ -458,8 +460,9 @@ function PV.OnItemData(itemID)
 end
 
 function PV.Build(page)
-    if PV.built then return end
-    PV.built = true
+    if PV.built or PV.building then return end
+    PV.building = true
+    ns.PhasedStart(60, coroutine.create(function()
     PV.page = page
     PV.tabs = {}
     PV.chips = {}
@@ -484,6 +487,7 @@ function PV.Build(page)
     PV.selRep = "spear"
     PV.goal = 14
     PV.simRank = nil
+    coroutine.yield()
 
     -- 页头卡：标题 / 说明 / 子页签 / 阵营切换共用一张卡，满幅铺战场加载图压黑保证可读
     local headCard = CreateFrame("Frame", nil, page)
@@ -536,11 +540,10 @@ function PV.Build(page)
         bt:SetScript("OnClick", function() PV.SetTab(def.key) end)
         PV.tabs[def.key] = bt
     end
+    coroutine.yield()
 
     local scroll = CreateFrame("ScrollFrame", nil, page)
     scroll:SetPoint("TOPLEFT", page, "TOPLEFT", PV.X, -PV.TOP)
-    -- ★ 右卡延伸至距面板皮框 8px 处（panel 952），滚动框右缘收至 956，
---   保证卡右缘不被裁剪（其他页内容最宽 936，不受影响）。
     scroll:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -4, PV.X)
     scroll:EnableMouseWheel(true)
     scroll:SetScript("OnMouseWheel", function(_, delta)
@@ -552,16 +555,19 @@ function PV.Build(page)
     child:SetSize(PV.W, 10)
     scroll:SetScrollChild(child)
     PV.scroll, PV.child = scroll, child
+    coroutine.yield()
     -- ★★ 军衔页双卡片容器（左「军衔」/ 右「每周上限」，2026-10-08 反馈：卡片倒圆角）：
     --   圆角底复用套装卡的 ns.hui.BuildRoundedBG（radius 4 / layer L3 / both），
     --   离线桩（ns.hui 不在）走平铺底+描边兜底。先建卡片再建行池/芯片/列头，
     --   同层后建者后画 → 行与芯片必然盖在卡片底之上（帧数纪律：全部 Build 期建）。
-    local function NewRoundCard(w, h)
+    local function NewRoundCard(w, h, inner)
         local f = CreateFrame("Frame", nil, child)
         f:SetSize(w, h)
         local layer = ns.hui and ns.hui.layer
+        local r1, g1, b1 = 0x10, 0x13, 0x1A
+        if inner then r1, g1, b1 = 0x16, 0x1A, 0x22 end
         if ns.hui and ns.hui.BuildRoundedBG and layer then
-            ns.hui.BuildRoundedBG(f, 4, layer.L1, "both", true, 1)
+            ns.hui.BuildRoundedBG(f, 4, inner and layer.L2 or layer.L1, "both", true, 1)
         else
             f.edge = f:CreateTexture(nil, "BACKGROUND")
             f.edge:SetAllPoints(f)
@@ -569,26 +575,30 @@ function PV.Build(page)
             f.bg = f:CreateTexture(nil, "BACKGROUND", nil, 1)
             f.bg:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
             f.bg:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
-            f.bg:SetColorTexture(0x10 / 255, 0x13 / 255, 0x1A / 255, 1)
+            f.bg:SetColorTexture(r1 / 255, g1 / 255, b1 / 255, 1)
         end
         return f
     end
     PV.rankCard = NewRoundCard(500, 532)
-    PV.capCard = NewRoundCard(PV.W - 508, 532)
-    -- 本周 / 声望 / 套装三页容器卡：内容直接坐窗面（L0）上，按规则套 L1 卡，
-    -- 卡内物品卡走 L2 提亮；渲染期动态定高（圆角底/描边件都锚帧角，随帧伸缩）。
-    PV.weekCard1 = NewRoundCard(PV.W, 100)
-    PV.weekCard2 = NewRoundCard(PV.W, 100)
+    PV.capCard = NewRoundCard(PV.W - 512, 532)
+    -- 声望 / 套装容器卡 + 本周页大卡：坐窗面（L0）上按规则套 L1 卡；本周页两张
+    -- 内卡为 L2 卡中卡（大卡内衬 8）；渲染期动态定高（圆角底/描边件都锚帧角，随帧伸缩）。
+    PV.weekBig = NewRoundCard(PV.W, 100)
+    PV.weekCard1 = NewRoundCard(PV.WEEK_CARD_W, 100, true)
+    PV.weekCard2 = NewRoundCard(PV.WEEK_CARD_W, 100, true)
     PV.repCard = NewRoundCard(PV.W, 100)
     PV.setsLeftCard = NewRoundCard(252, 100)
     PV.setsRightCard = NewRoundCard(PV.W - 264, 100)
+    coroutine.yield()
     -- 压到内容层之下：forever 引擎同层兄弟绘制次序不可靠，显式降一级
     local baseLvl = (child.GetFrameLevel and type(child:GetFrameLevel()) == "number") and child:GetFrameLevel() or 0
     if baseLvl > 0 then
         for _, f in ipairs({ PV.weekCard1, PV.weekCard2, PV.repCard, PV.setsLeftCard, PV.setsRightCard }) do
             if f.SetFrameLevel then f:SetFrameLevel(baseLvl - 1) end
         end
+        if baseLvl > 2 and PV.weekBig.SetFrameLevel then PV.weekBig:SetFrameLevel(baseLvl - 2) end
     end
+    coroutine.yield()
     -- ★ 标题/列头承载层：卡内透明框，文字挂其上恒在圆角底板之上
     PV.rankUI = CreateFrame("Frame", nil, PV.rankCard)
     PV.rankUI:SetAllPoints(PV.rankCard)
@@ -599,10 +609,7 @@ function PV.Build(page)
         PV.chips[i] = PV.NewChip(child)
         PV.chips[i]:Hide()
     end
-    for i = 1, PV.CARD_MAX do
-        PV.cards[i] = PV.NewCard(child)
-        PV.cards[i]:Hide()
-    end
+    coroutine.yield()
 
     -- ★★ 军衔行（两列布局左卡）：徽章贴图 + 按阵营单军衔名（去 nameA/slash/nameH
     --   三件套）+ 点数/累计 + 独立奖励列（芯片由 RenderRanks 锚到行右侧，行内只留
@@ -634,7 +641,9 @@ function PV.Build(page)
         r.sep:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 0, 0)
         r.sep:SetHeight(1)
         r.sep:SetColorTexture(1, 1, 1, 0.06)
-        ForwardWheel(r)        PV.rankRows[i] = r
+        ForwardWheel(r)
+        PV.rankRows[i] = r
+        if i % 2 == 0 then coroutine.yield() end
     end
 
     -- ★★ 军衔页表头：五个独立列头，x 锚点与行内各列完全一致（2026-10-08 反馈：
@@ -655,9 +664,10 @@ function PV.Build(page)
     PV.rankBadge = child:CreateTexture(nil, "ARTWORK")
     PV.rankBadge:SetSize(24, 24)
     if ns.hui and ns.hui.RoundIcon then ns.hui.RoundIcon(PV.rankBadge) end
+    coroutine.yield()
 
     -- ★★ 周上限行：并入本周页后改双列网格，行内列随之紧凑（行高 30、条宽 120）。
-    local capColW = floor((PV.W - 24) / 2) - 16
+    local capColW = floor((PV.WEEK_CARD_W - 24) / 2) - 16
     for i = 1, 10 do
         local r = CreateFrame("Frame", nil, child)
         r:SetSize(capColW, 30)
@@ -683,6 +693,7 @@ function PV.Build(page)
         r.sep:SetColorTexture(1, 1, 1, 0.06)
         PV.capRows[i] = r
     end
+    coroutine.yield()
     -- ★★ 军衔页右卡「每周上限」行池（独立于本周页 capRows 双列网格，RenderWeek
     --   零改动、两条闸互不干扰）：周标签 / 军衔名全部 SetWordWrap(false)，
     --   「第 10 周」「R14 高阶督军」保证单行不折行（用户点名）。增量为项目绿。
@@ -716,6 +727,7 @@ function PV.Build(page)
         r.sep:SetColorTexture(1, 1, 1, 0.06)
         ForwardWheel(r)
         PV.wkRows[i] = r
+        if i % 2 == 0 then coroutine.yield() end
     end
 
     -- 右卡列头四枚 + 注释行：不进 secSpecs（fs=11 分支会按整页宽 SetWidth），
@@ -734,6 +746,7 @@ function PV.Build(page)
     PV.capNote:SetWidth(400)
     PV.capNote:SetWordWrap(false)
     PV.labels.capNote = PV.capNote
+    coroutine.yield()
 
     for i = 1, #SD.sets do
         local bt = CreateFrame("Button", nil, child)
@@ -792,6 +805,7 @@ function PV.Build(page)
         end)
         ForwardWheel(bt)
         PV.setRows[i] = bt
+        if i % 4 == 0 then coroutine.yield() end
     end
 
     for i = 1, 8 do
@@ -816,6 +830,7 @@ function PV.Build(page)
         ForwardWheel(bt)
         PV.markChips[i] = bt
     end
+    coroutine.yield()
 
     for i = 1, 2 do
         local bt = NewButton(headCard, i == 1 and L["联盟"] or L["部落"], PV.TAB_W, PV.TAB_H, 14)
@@ -845,6 +860,7 @@ function PV.Build(page)
         end)
         PV["facBtn" .. i] = bt
     end
+    coroutine.yield()
 
     -- ★★ 本周页战场轮换芯片：悬浮提示 等级段 / 人数 / 召唤轮换 全量信息。
     for i, rec in ipairs(RD.battlefields) do
@@ -865,6 +881,7 @@ function PV.Build(page)
         ForwardWheel(bt)
         PV.weekBf[i] = bt
     end
+    coroutine.yield()
 
     -- ★★ 声望页二级阵营按钮：按 REP_DEFS 注册表生成，新阵营插一条即多一枚。
     for i, def in ipairs(REP_DEFS) do
@@ -878,6 +895,7 @@ function PV.Build(page)
         end)
         PV.repBtns[i] = bt
     end
+    coroutine.yield()
 
     -- ★★ 战场三枚（奥特兰克山谷 / 战歌峡谷 / 阿拉希盆地）与暗矛 / 荣誉之地同排，
     --   作为独立二级页签（用户定：放暗矛群岛右边），点击直达对应战场。
@@ -892,6 +910,7 @@ function PV.Build(page)
         end)
         PV.battleBtns[i] = bt
     end
+    coroutine.yield()
 
     for i = 1, #TASK_TEXTS do
         local r = CreateFrame("Frame", nil, child)
@@ -904,6 +923,7 @@ function PV.Build(page)
         r.txt:SetText(TASK_TEXTS[i])
         PV.taskRows[i] = r
     end
+    coroutine.yield()
 
     for i = 1, #LEGACY_TEXTS do
         local r = CreateFrame("Frame", nil, child)
@@ -916,6 +936,7 @@ function PV.Build(page)
         r.txt:SetText(LEGACY_TEXTS[i])
         PV.legacyRows[i] = r
     end
+    coroutine.yield()
 
     local secSpecs = {
         { key = "ranksHead", fs = 14, col = C_GOLD },
@@ -962,7 +983,18 @@ function PV.Build(page)
         end
         PV.labels[sp.key] = fs
     end
+    coroutine.yield()
 
+    PV.cur = "ranks"
+    PV.RenderRanks()
+    coroutine.yield()
+
+    for i = 1, PV.CARD_MAX do
+        PV.cards[i] = PV.NewCard(child)
+        PV.cards[i]:Hide()
+        if i % 14 == 0 then coroutine.yield() end
+    end
+    coroutine.yield()
     PV.setDetailIcon = child:CreateTexture(nil, "ARTWORK")
     PV.setDetailIcon:SetSize(24, 24)
     PV.setDetailIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
@@ -982,11 +1014,13 @@ function PV.Build(page)
     PV.mileRed:SetColorTexture(0.85, 0.3, 0.25, 0.5)
     PV.mileMark = child:CreateTexture(nil, "OVERLAY")
     PV.mileMark:SetColorTexture(1, 0.82, 0, 0.95)
+    coroutine.yield()
     for i = 1, 4 do
         PV.mileTicks[i] = child:CreateTexture(nil, "OVERLAY")
         PV.mileTicks[i]:SetColorTexture(1, 1, 1, 0.35)
         PV.mileLabels[i] = MakeFS(child, 11, C_GREY, "CENTER")
     end
+    coroutine.yield()
 
     for i = 1, 5 do
         local r = CreateFrame("Frame", nil, child)
@@ -1007,6 +1041,7 @@ function PV.Build(page)
         ForwardWheel(r)
         PV.spRows[i] = r
     end
+    coroutine.yield()
 
     for i = 1, 13 do
         local bt = NewButton(child, format("R%d", i + 1), 34, 22, 11)
@@ -1018,6 +1053,7 @@ function PV.Build(page)
         end)
         PV.goalBtns[i] = bt
     end
+    coroutine.yield()
     for i = 1, 14 do
         local bt = NewButton(child, format("R%d", i), 34, 22, 11)
         MakeOutline(bt, 1, 0.82, 0)
@@ -1033,7 +1069,14 @@ function PV.Build(page)
         PV.simBtns[i] = bt
     end
 
-    PV.SetTab("ranks")
+    coroutine.yield()
+    PV.built = true
+    PV.building = false
+    end))
+end
+
+local function PY()
+    if coroutine.running and coroutine.running() then coroutine.yield() end
 end
 
 function PV.SetTab(key)
@@ -1067,6 +1110,7 @@ local function HideAll()
     for i = 1, 10 do PV.wkRows[i]:Hide() end
     PV.rankCard:Hide()
     PV.capCard:Hide()
+    PV.weekBig:Hide()
     PV.weekCard1:Hide()
     PV.weekCard2:Hide()
     PV.repCard:Hide()
@@ -1124,6 +1168,7 @@ function PV.RenderRanks()
     PV.capCard:SetPoint("TOPLEFT", PV.child, "TOPLEFT", LW + 12, 0)
     PV.rankCard:Show()
     PV.capCard:Show()
+    PY()
     local head = PV.labels.ranksHead
     head:SetPoint("TOPLEFT", PV.rankCard, "TOPLEFT", 12, -8)
     head:SetParent(PV.rankUI)
@@ -1174,6 +1219,7 @@ function PV.RenderRanks()
         row.cum:SetText(format("%d", rec.cum))
         row:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 12, -(y0 + (i - 1) * 34))
         row:Show()
+        if i % 2 == 0 then PY() end
         local all = {}
         local own = (PV.faction == "H") and rec.h or rec.a
         for _, id in ipairs(own) do all[#all + 1] = id end
@@ -1211,6 +1257,7 @@ function PV.RenderRanks()
     ch.cum:SetPoint("TOPRIGHT", PV.capCard, "TOPLEFT", 304, -(RH + 24))
     ch.inc:SetPoint("TOPRIGHT", PV.capCard, "TOPLEFT", 380, -(RH + 24))
     for _, fs in pairs(ch) do fs:Show() end
+    PY()
     for i = 1, 10 do
         local rec = RD.caps[i]
         local row = PV.wkRows[i]
@@ -1222,6 +1269,7 @@ function PV.RenderRanks()
         row.inc:SetText(format("+%d", rec.inc))
         row:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 512 + 12, -(RH + 46 + (i - 1) * 44))
         row:Show()
+        if i % 2 == 0 then PY() end
     end
     PV.child:SetHeight(532)
 end
@@ -1543,32 +1591,35 @@ LiveState = function()
 end
 
 function PV.RenderWeek()
-    -- 本周页两张容器卡：上卡 = 结算模型 / 场景 / 冲刺目标，下卡 = 周上限；
-    -- 内容统一内缩 12（卡内衬），卡间距 8（全局间距标准）。
-    local IW = PV.W - 24
+    -- 本周页大卡 + 两张 L2 卡中卡：上卡 = 结算模型 / 场景 / 冲刺目标，下卡 = 周上限；
+    -- 大卡坐页面面（外缘三边距 12），内卡上下/间距 8，内容统一内缩 12（卡内衬）。
+    local IW = PV.WEEK_CARD_W - 24
     local liveRank, liveProg, honor, hk = LiveState()
     local rank = PV.simRank or liveRank
     local prog = PV.simRank and 0 or liveProg
     if rank == 0 then rank = 1 end
 
+    PV.weekBig:ClearAllPoints()
+    PV.weekBig:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 0, 0)
+    PV.weekBig:Show()
     PV.weekCard1:ClearAllPoints()
-    PV.weekCard1:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 0, 0)
+    PV.weekCard1:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD, -PV.WEEK_PAD)
     PV.weekCard1:Show()
-    local y = 12
+    local y = PV.WEEK_PAD + 12
 
     local head = PV.labels.sprHead
-    head:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 16, -y)
+    head:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD + 16, -y)
     head:SetText(format("%s · %s", L["本周荣誉"], L["每周结算模型"]))
     head:Show()
     y = y + 26
 
-    PV.badge:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 16, -(y + 4))
+    PV.badge:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD + 16, -(y + 4))
     if rank >= 1 then
         PV.badge:SetTexture(format("Interface\\PvPRankBadges\\PvPRank%02d", rank))
         PV.badge:Show()
     end
     local st = PV.labels.sprState
-    st:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 66, -y)
+    st:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD + 66, -y)
     local line1 = (rank >= 2)
         and format(L["军衔 %d · 进度 %.1f%%"], rank, prog * 100)
         or L["军衔 1 及以下无需荣誉：本周 15 次荣誉击杀即可晋级"]
@@ -1589,24 +1640,24 @@ function PV.RenderWeek()
 
     if rank >= 2 and HD.milestones[rank] then
         local mh = PV.labels.sprMile
-        mh:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 16, -y)
+        mh:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD + 16, -y)
         mh:SetText(format(L["本周荣誉里程碑（军衔 %d）"], rank))
         mh:Show()
         y = y + 26
         local ms = HD.milestones[rank]
         local bw = IW - 8
         local lastM = ms[#ms]
-        PV.mileBG:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 16, -(y + 4))
+        PV.mileBG:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD + 16, -(y + 4))
         PV.mileBG:SetWidth(bw)
         PV.mileBG:SetHeight(12)
         PV.mileBG:Show()
-        local x1 = 16 + bw * ms[1] / lastM
-        PV.mileRed:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 16, -(y + 4))
-        PV.mileRed:SetWidth(math.max(x1 - 16, 1))
+        local x1 = PV.WEEK_PAD + 16 + bw * ms[1] / lastM
+        PV.mileRed:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD + 16, -(y + 4))
+        PV.mileRed:SetWidth(math.max(x1 - (PV.WEEK_PAD + 16), 1))
         PV.mileRed:SetHeight(12)
         PV.mileRed:Show()
         for i, m in ipairs(ms) do
-            local tx = 16 + bw * m / lastM
+            local tx = PV.WEEK_PAD + 16 + bw * m / lastM
             PV.mileTicks[i]:SetPoint("TOPLEFT", PV.child, "TOPLEFT", tx - 1, -(y + 2))
             PV.mileTicks[i]:SetWidth(2)
             PV.mileTicks[i]:SetHeight(16)
@@ -1614,10 +1665,10 @@ function PV.RenderWeek()
             local lb = PV.mileLabels[i]
             lb:SetText(fmtN(m))
             lb:SetPoint("TOPLEFT", PV.child, "TOPLEFT",
-                math.min(math.max(tx - 32, 16), 16 + IW - 64), -(y + 20))
+                math.min(math.max(tx - 32, PV.WEEK_PAD + 16), PV.WEEK_PAD + 16 + IW - 64), -(y + 20))
             lb:Show()
         end
-        local mx = 16 + bw * math.min(honor, lastM) / lastM
+        local mx = PV.WEEK_PAD + 16 + bw * math.min(honor, lastM) / lastM
         PV.mileMark:SetPoint("TOPLEFT", PV.child, "TOPLEFT", mx - 1, -y)
         PV.mileMark:SetWidth(2)
         PV.mileMark:SetHeight(20)
@@ -1626,24 +1677,24 @@ function PV.RenderWeek()
     end
 
     local gl = PV.labels.sprGoal
-    gl:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 16, -(y + 4))
+    gl:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD + 16, -(y + 4))
     gl:SetText(L["冲刺目标"])
     gl:Show()
     for i = 1, 13 do
         local bt = PV.goalBtns[i]
-        bt:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 122 + (i - 1) * 36, -y)
+        bt:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD + 122 + (i - 1) * 36, -y)
         SetOutline(bt, PV.goal == i + 1, 1, 0.82, 0)
         bt:Show()
     end
     y = y + 30
 
     local sl = PV.labels.sprSim
-    sl:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 16, -(y + 4))
+    sl:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD + 16, -(y + 4))
     sl:SetText(L["起点模拟 0%"])
     sl:Show()
     for i = 1, 14 do
         local bt = PV.simBtns[i]
-        bt:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 122 + (i - 1) * 36, -y)
+        bt:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD + 122 + (i - 1) * 36, -y)
         SetOutline(bt, PV.simRank == i, 1, 0.82, 0)
         bt:Show()
     end
@@ -1654,7 +1705,7 @@ function PV.RenderWeek()
     local startProg = PV.simRank and 0 or prog
     local p1 = PV.labels.sprPath1
     local p2 = PV.labels.sprPath2
-    p1:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 16, -y)
+    p1:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD + 16, -y)
     if start >= goal then
         p1:SetText(L["已达该军衔"])
         p2:SetText("")
@@ -1675,19 +1726,20 @@ function PV.RenderWeek()
     p2:SetPoint("TOPLEFT", p1, "TOPRIGHT", 12, 0)
     p2:Show()
     y = y + 28
-    PV.weekCard1:SetHeight(y + 12)
+    PV.weekCard1:SetHeight(y + 12 - PV.WEEK_PAD)
+    local h1 = y + 12 - PV.WEEK_PAD
 
     -- 下卡：周上限双列网格（卡↔卡 8）
-    local card2Top = y + 12 + 8
+    local card2Top = PV.WEEK_PAD + h1 + PV.WEEK_PAD
     PV.weekCard2:ClearAllPoints()
-    PV.weekCard2:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 0, -card2Top)
+    PV.weekCard2:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD, -card2Top)
     PV.weekCard2:Show()
     y = card2Top + 12
 
     local capsHead = PV.labels.weekCaps
     -- 该标题与军衔页「每周上限」共用一枚 FS，军衔页会把它挂进右卡宿主，回本周页须挂回
     capsHead:SetParent(PV.child)
-    capsHead:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 16, -y)
+    capsHead:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD + 16, -y)
     capsHead:SetText(L["周上限 · 按赛季累计点数"])
     capsHead:Show()
     y = y + 26
@@ -1704,16 +1756,19 @@ function PV.RenderWeek()
         row.bar:SetWidth(floor(120 * rec.cum / maxCum))
         row.cum:SetText(format("%d", rec.cum))
         row.inc:SetText(format("+%d", rec.inc))
-        row:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 12 + col * (halfW + 32), -(y + rowi * 30))
+        row:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD + 12 + col * (halfW + 32), -(y + rowi * 30))
         row:Show()
     end
     y = y + 5 * 30
     local cfoot = PV.labels.capsFoot
     local cfootH = FSHeight(cfoot, 14)
-    cfoot:SetPoint("TOPLEFT", PV.child, "TOPLEFT", 16, -(y + 6))
+    cfoot:SetPoint("TOPLEFT", PV.child, "TOPLEFT", PV.WEEK_PAD + 16, -(y + 6))
     cfoot:SetText(L["等级 4 和 10 永远不是某周的上限；第 7 周一次跳两级（等级 11 与黑色战争坐骑）；上限按赛季累计点数计算，晚开始可直接冲级"])
     cfoot:Show()
-    PV.weekCard2:SetHeight(y + 6 + cfootH + 12 - card2Top)
-    y = card2Top + (y + 6 + cfootH + 12 - card2Top) + 8
-    PV.child:SetHeight(y + 8)
+    local h2 = y + 6 + cfootH + 12 - card2Top
+    h2 = math.max(h2, PV.VIEW_H - card2Top - PV.WEEK_PAD)
+    PV.weekCard2:SetHeight(h2)
+    local bigH = math.max(card2Top + h2 + PV.WEEK_PAD, PV.VIEW_H)
+    PV.weekBig:SetHeight(bigH)
+    PV.child:SetHeight(bigH)
 end

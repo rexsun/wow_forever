@@ -12,6 +12,9 @@ if (type(GetLocale) ~= "function") or GetLocale() ~= "enUS" then return end
 local _, ns = ...
 
 ns.MapPins = {
+    ["onyxias_lair"] = {
+        entrance = { { 33.9, 20.7 } },
+    },
     ["city_of_dalaran"] = {
         entrance = { { 14.4, 79.2, nil, 2 } },
     },

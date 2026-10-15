@@ -10,9 +10,6 @@ YUI.YUnitFrames = { Client = {
     },
     -- Keep native combo-point visibility independent of target-frame suppression.
     preserveNativeChildren = { target = { "ComboFrame" } },
-    channelTicks = { [5143] = 3, [5144] = 4, [5145] = 5, [8416] = 5, [8417] = 5,
-        [10211] = 5, [10212] = 5, [12051] = 4, [10] = 8, [6141] = 8,
-        [8427] = 8, [10185] = 8, [10186] = 8, [10187] = 8 },
     visibilityPrefix = "[petbattle] hide; ",
     auraAddon = "Blizzard_AuraContainer", auraTemplate = "CustomAuraContainerTemplate",
     extraUnitEvents = {

@@ -59,9 +59,11 @@ do
     f:RegisterEvent("MERCHANT_SHOW")
     f:RegisterEvent("MERCHANT_UPDATE")
     f:SetScript("OnEvent", function(_, event)
+        C_Timer.After(0, function()
         -- 扫描是纯读 API + 表写入，代价可忽略；MERCHANT_UPDATE 会重复触发，
         -- Scan 内部「价同不写」保证幂等。
         pcall(Scan)
+        end)
     end)
 end
 

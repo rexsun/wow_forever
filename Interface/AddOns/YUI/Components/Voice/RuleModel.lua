@@ -137,14 +137,18 @@ function M:Normalize(raw)
     end
     if sound.kind~="voice" and sound.kind~="system" and sound.kind~="tts" and sound.kind~="custom" and sound.kind~="lsm" and sound.kind~='forecast' and sound.kind~='eventWindow' and sound.kind~='boneShield' then return nil,"invalid-sound-kind" end
     if (sound.introKind~='none' or (sound.kind~='forecast' and sound.kind~='eventWindow' and sound.kind~='boneShield')) and (type(sound.value)~="string" or sound.value=="" or #sound.value>2048) then return nil,"invalid-sound-value" end
-    if sound.kind=="voice" and not sound.value:match("^VC%-%x%x%x%x%x%x%x%x$") then return nil,"invalid-voice-id" end
+    local function VoiceReference(value)
+        if YUI.Sound.IsVoiceReference then return YUI.Sound:IsVoiceReference(value) end
+        return type(value)=='string' and value:match('^VC%-%x%x%x%x%x%x%x%x$')~=nil
+    end
+    if sound.kind=="voice" and not VoiceReference(sound.value) then return nil,"invalid-voice-id" end
     if (sound.kind=='forecast')~=(t.extension=='arcane-soul') then return nil,'invalid-forecast-trigger' end
     if (sound.kind=='eventWindow')~=(t.extension=='boiling-point') then return nil,'invalid-window-trigger' end
     if (sound.kind=='boneShield')~=bone then return nil,'invalid-window-trigger' end
     if sound.kind=='forecast' or sound.kind=='eventWindow' or sound.kind=='boneShield' then
         local function ValidPart(kind,value)
             return kind=='none' and (value==nil or value=='') or (kind=='voice' or kind=='system' or kind=='lsm') and type(value)=='string' and value~='' and #value<=2048
-                and (kind~='voice' or value:match('^VC%-%x%x%x%x%x%x%x%x$'))
+                and (kind~='voice' or VoiceReference(value))
         end
         if not ValidPart(sound.introKind==nil and 'voice' or sound.introKind,sound.value)
             or not ValidPart(sound.endingKind==nil and 'voice' or sound.endingKind,sound.ending)

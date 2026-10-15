@@ -223,18 +223,20 @@ local BM_BUNDLE = {
 
 local EG = {}
 ns.ExploreModule = EG
+EG.BM_TIERS = BM_TIERS
+EG.BM_BUNDLE = BM_BUNDLE
 
--- ★ 间距标准 2026-10-10：窗沿统一 20（PAGE_INSET 12 + GUTTER 8），卡片/子页框架
+-- ★ 间距标准：三外缘（左/右/底）统一 12（§3.3 PAGE_INSET），卡片/子页框架
 --   内衬 EG.EDGE（左右底）；顶缘 = EG.TOP_EDGE 8（页签轨道底↔卡顶 8，与藏品页同口径）；
 --   内容左缘 = X0，卡↔卡 / 卡↔按钮 / 组↔组 = 8；
 --   列表行↔行 = ROW_GAP 4（卡内条目次档，与 MapUI ROW_GAP / 掉落卡行距同口径）。
-EG.NAV_X, EG.NAV_W = 20, 148
+EG.NAV_X, EG.NAV_W = PAGE_INSET, 148
 EG.NAV_GROUP_H = 24
 EG.NAV_ITEM_H, EG.NAV_GAP = 26, 8
 EG.NAV_ICON = 18
 EG.W = CONTENT_W - 2 * PAGE_INSET
-EG.EDGE = 20
-EG.TOP_EDGE = 8   -- 顶缘单独 8：页签轨道底↔卡顶 = 8（2026-10-10 与藏品页同口径）；左右底仍 20
+EG.EDGE = PAGE_INSET
+EG.TOP_EDGE = 8   -- 顶缘单独 8：页签轨道底↔卡顶 = 8（2026-10-10 与藏品页同口径）；左右底仍 12（§3.3）
 -- 导航卡竖链（2026-10-10 规整）：卡顶↔首标题 8（NAV_TOP = TOP_EDGE+8）→ 标题↔按钮 8
 --   （NAV_GROUP_H = 标题高16 + 8）→ 按钮↔按钮 8（NAV_GAP）→ 末按钮↔下组标题 8（PAD 退役）。
 --   水平：按钮左右内衬 = NAV_PAD 8，卡右缘 = X0-8（卡↔卡 8），X0 = NAV_X+8+148+8+8。
@@ -246,7 +248,8 @@ EG.RIGHT_W = CONTENT_W - EG.X0 - EG.EDGE
 EG.TICK_Y = EG.TOP_EDGE + 8
 EG.BAR_H = 4
 EG.BAR_Y = EG.TICK_Y + 14 + 8
-EG.TOOL_Y, EG.TOOL_H, EG.TOOL_GAP, EG.TOOL_W = EG.BAR_Y + EG.BAR_H + 8, 20, 8, 84
+--   工具行 7 颗文字钮（筛选 5 + 奖励 + 找书HUD）统一 TOOL_W；齿轮钮 TOOL_H 见方贴内容右缘。
+EG.TOOL_Y, EG.TOOL_H, EG.TOOL_GAP, EG.TOOL_W = EG.BAR_Y + EG.BAR_H + 8, 20, 8, 96
 EG.NOTE_Y = EG.TOOL_Y + EG.TOOL_H + 8
 EG.BODY_TOP = EG.NOTE_Y + 22
 -- ★ 奖励页正文顶（2026-10-10 用户定「收掉空档」）：提示行在奖励视图隐藏，
@@ -274,13 +277,24 @@ local C_RW = { 0.72, 0.45, 0.9 }
 local C_RW_HI = { 0.87, 0.65, 0.98 }
 
 EG.FILTERS = {
-    { key = "all",   text = L["全部"] },
-    { key = "aok",   text = L["联盟可用"] },
-    { key = "hok",   text = L["部落可用"] },
-    { key = "A",     text = L["联盟限定"] },
-    { key = "H",     text = L["部落限定"] },
-    { key = "todo",  text = L["只看没找到"] },
+    { key = "all",       text = L["全部"] },
+    { key = "ally",      text = L["联盟领地"], icon = "Interface\\AddOns\\DungeonsForever\\Media\\icon\\FACTION\\FactionIcon_Alliance" },
+    { key = "horde",     text = L["部落领地"], icon = "Interface\\AddOns\\DungeonsForever\\Media\\icon\\FACTION\\FactionIcon_Horde" },
+    { key = "contested", text = L["争夺中的领地"] },
+    { key = "todo",      text = L["只看没找到"] },
 }
+
+-- ★ 领地归属：按书的主区域(areaID)归类；A=联盟领地 H=部落领地 C=争夺中的领地。
+--   经典旧世区域归属（蓝/绿/红 地图口径）；多数书落于争夺区。
+local TERRITORY = {
+    [10] = "A", [12] = "A", [38] = "A", [40] = "A", [1537] = "A",  -- 暮色森林/艾尔文森林/洛克莫丹/西部荒野/铁炉堡
+    [17] = "H", [85] = "H", [1637] = "H",                           -- 贫瘠之地/提瑞斯法林地/奥格瑞玛
+    [148] = "A",
+    [130] = "H",
+}
+local function BookTerr(rec)
+    return TERRITORY[rec[2]] or "C"
+end
 
 EG.NECK_AT, EG.RING_AT, EG.CHOICE_AT = 10, 20, 25
 EG.SWEEP_AT = { 0.5, 1.5, 3, 5, 8 }
@@ -833,9 +847,10 @@ local function PaintRow(i, y, rec, zebra)
 
     local isRec = ns.ExploreRecIDs and ns.ExploreRecIDs[id] and true or false
     local isUnver = ns.ExploreUnverIDs and ns.ExploreUnverIDs[id] and true or false
-    if rec[6] == "A" or rec[6] == "H" then
-        local c = FAC_PILL[rec[6]]
-        PaintPill(r, r.fTag, rec[6] == "A" and L["联盟领地"] or L["部落领地"], true,
+    local terr = BookTerr(rec)
+    if terr == "A" or terr == "H" then
+        local c = FAC_PILL[terr]
+        PaintPill(r, r.fTag, terr == "A" and L["联盟领地"] or L["部落领地"], true,
                   c[1], c[2], c[3], c[4], c[5], c[6])
     else
         r.fTag:Hide()
@@ -986,7 +1001,14 @@ local function PaintFilter(bt, sel)
     local r, g, b = sel and 1 or 0.55, sel and 0.82 or 0.55, sel and 0 or 0.58
     SetOutline(bt, true, r, g, b)
     TintOutline(bt, r, g, b)
-    bt:GetFontString():SetTextColor(Unpack(sel and C_GOLD or C_DIM))
+    local fs = bt:GetFontString()
+    if bt.__baseColor then
+        local c = bt.__baseColor
+        local m = sel and 1.25 or 0.92
+        fs:SetTextColor(min(1, c[1] * m), min(1, c[2] * m), min(1, c[3] * m))
+    else
+        fs:SetTextColor(Unpack(sel and C_GOLD or C_DIM))
+    end
 end
 
 function EG.PickFilter()
@@ -1183,6 +1205,10 @@ local function PaintProgress()
 end
 
 local BAG_FAC_COL = { A = { 0.45, 0.68, 0.98 }, H = { 0.95, 0.5, 0.45 } }
+local BAG_FAC_ICON = {
+    A = "Interface\\AddOns\\DungeonsForever\\Media\\icon\\FACTION\\FactionIcon_Alliance",
+    H = "Interface\\AddOns\\DungeonsForever\\Media\\icon\\FACTION\\FactionIcon_Horde",
+}
 
 local function BagRowTint(r)
     local t = r.tint
@@ -1496,6 +1522,7 @@ local function PaintBag()
         TintOutline(bt, Unpack(col))
         local fs = bt.GetFontString and bt:GetFontString()
         if fs then fs:SetTextColor(Unpack(sel and col or C_GREY)) end
+        if bt.__icon then bt.__icon:SetAlpha(sel and 1 or 0.55) end
     end
     local done = 0
     for _, e in ipairs(BAG_CHAIN) do
@@ -2164,6 +2191,7 @@ local function BuildPets(page)
 
         EG.petCards, EG.petIds, EG.toyIds, EG.bannerIds = {}, {}, {}, {}
         for i = 1, EG.PET_CARDS do
+            if i % 3 == 0 then coroutine.yield() end
         local card = CreateFrame("Frame", nil, host, "BackdropTemplate")
         card:SetHeight(EG.PET_CARD_H)
         card:SetPoint("TOPLEFT", host, "TOPLEFT", 8, -((i - 1) * (EG.PET_CARD_H + EG.PET_GAP)))
@@ -2328,6 +2356,10 @@ function EG.LayoutBody()
     end
 end
 
+local function PY()
+    if coroutine.running and coroutine.running() then coroutine.yield() end
+end
+
 function EG.Render()
     if not EG.built then return end
     EG.found = Found()
@@ -2344,6 +2376,7 @@ function EG.Render()
     local isBanner = sub == "banner"
     local isCard = isPets or isTorch or isBanner
     EG.scroll:SetShown(not isRw and not isBag and not isBm and not isCard)
+    if EG.UpdateVScroll then EG.UpdateVScroll() end
     EG.note:SetShown(not isRw and not isBag and not isBm and not isCard)
     local booksVis = not isBag and not isBm and not isCard
     EG.prog:SetShown(booksVis)
@@ -2390,12 +2423,13 @@ function EG.Render()
 
     local list = {}
     for _, rec in ipairs(B) do
-        local side, id = rec[6], rec[1]
+        local id = rec[1]
+        local terr = BookTerr(rec)
         local pass = (EG.view == "all")
             or (EG.view == "todo" and not IsFound(id))
-            or (EG.view == "aok" and side ~= "H")
-            or (EG.view == "hok" and side ~= "A")
-            or (EG.view == side)
+            or (EG.view == "ally" and terr == "A")
+            or (EG.view == "horde" and terr == "H")
+            or (EG.view == "contested" and terr == "C")
         if pass then list[#list + 1] = rec end
     end
     EG.pool = list
@@ -2407,6 +2441,7 @@ function EG.Render()
         PaintRow(i, y, rec, zc)
         zc = not zc
         y = y + EG.ROW_H + EG.ROW_GAP
+        if i % 4 == 0 then PY() end
     end
 
     if #list == 0 and EG.rows and EG.rows[1] then
@@ -2432,6 +2467,7 @@ function EG.Render()
     end
 
     EG.child:SetHeight(y)
+    if EG.UpdateVScroll then EG.UpdateVScroll() end
     PaintProgress()
     if EG.needNames then EG.ScheduleSweep() end
     -- 地图书钉 / 路线层跟随打卡与筛选刷新（模块缺失或桩环境时无操作）
@@ -2505,6 +2541,9 @@ function EG.Refresh()
 end
 
 function EG.Build(page)
+    if EG.built or EG.building then return end
+    EG.building = true
+    ns.PhasedStart(76, coroutine.create(function()
     if EG.built then return end
     EG.found = Found()
     EG.view = View()
@@ -2516,6 +2555,7 @@ function EG.Build(page)
     local labelHost = CreateFrame("Frame", nil, page)
     local navY = 0
     local nlab = MakeFS(labelHost, 16, C_GREY, "LEFT")
+    coroutine.yield()
     nlab:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X + EG.NAV_PAD + 2, -EG.NAV_TOP)
     nlab:SetText(L["收集"])
     navY = navY + EG.NAV_GROUP_H
@@ -2540,6 +2580,7 @@ function EG.Build(page)
         bt.__pv:SetText("0/40")
         bt:SetScript("OnClick", function() SetSub("books") end)
         EG.navBtns["books"] = bt
+        coroutine.yield()
         EG.navBooks = bt
         navY = navY + EG.NAV_ITEM_H + EG.NAV_GAP
     end
@@ -2561,6 +2602,7 @@ function EG.Build(page)
         bt.__icon:SetTexture("Interface\\Icons\\inv_misc_bag_08")
         bt:SetScript("OnClick", function() SetSub("bag") end)
         EG.navBtns["bag"] = bt
+        coroutine.yield()
         EG.navBag = bt
         navY = navY + EG.NAV_ITEM_H + EG.NAV_GAP
     end
@@ -2583,6 +2625,7 @@ function EG.Build(page)
         bt:SetScript("OnClick", function() SetSub("bm") end)
         EG.navBtns["bm"] = bt
         EG.navBM = bt
+        coroutine.yield()
         navY = navY + EG.NAV_ITEM_H + EG.NAV_GAP
     end
 
@@ -2590,6 +2633,7 @@ function EG.Build(page)
         -- 组标题顶 = 上一组末按钮底 + NAV_GAP（按钮↔标题 = 8，随 NAV_GAP 走）。
         local glab = MakeFS(labelHost, 16, C_GREY, "LEFT")
         glab:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X + EG.NAV_PAD + 2, -(EG.NAV_TOP + navY))
+        coroutine.yield()
         glab:SetText(L["宠物"])
         navY = navY + EG.NAV_GROUP_H
     end
@@ -2612,12 +2656,14 @@ function EG.Build(page)
         bt:SetScript("OnClick", function() SetSub("pets") end)
         EG.navBtns["pets"] = bt
         EG.navPets = bt
+        coroutine.yield()
         navY = navY + EG.NAV_ITEM_H + EG.NAV_GAP
     end
 
     do
         local glab = MakeFS(labelHost, 16, C_GREY, "LEFT")
         glab:SetPoint("TOPLEFT", page, "TOPLEFT", EG.NAV_X + EG.NAV_PAD + 2, -(EG.NAV_TOP + navY))
+        coroutine.yield()
         glab:SetText(L["玩具"])
         navY = navY + EG.NAV_GROUP_H
     end
@@ -2639,6 +2685,7 @@ function EG.Build(page)
         bt.__icon:SetTexture("Interface\\Icons\\inv_torch_lit")
         bt:SetScript("OnClick", function() SetSub("torch") end)
         EG.navBtns["torch"] = bt
+        coroutine.yield()
         EG.navTorch = bt
         navY = navY + EG.NAV_ITEM_H + EG.NAV_GAP
     end
@@ -2698,16 +2745,34 @@ function EG.Build(page)
     EG.bar = bar
 
     EG.filterBtns = {}
+    local FAC_COLOR = {
+        ally = { 0x3F / 255, 0x7F / 255, 0xA0 / 255 },
+        horde = { 0xC7 / 255, 0x4A / 255, 0x3C / 255 },
+        contested = { 0xD9 / 255, 0xB9 / 255, 0x3C / 255 },
+    }
+    coroutine.yield()
     for fi, f in ipairs(EG.FILTERS) do
         local bt = CreateFrame("Button", nil, page)
         bt:SetSize(EG.TOOL_W, EG.TOOL_H)
         bt:SetPoint("TOPLEFT", page, "TOPLEFT",
                     EG.X0 + EG.LIST_PAD + (fi - 1) * (EG.TOOL_W + EG.TOOL_GAP), -EG.TOOL_Y)
-        local tf = MakeFS(bt, 14, C_DIM, "CENTER")
-        tf:SetAllPoints()
+        bt.__key = f.key
+        bt.__baseColor = FAC_COLOR[f.key]
+        local tf
+        if f.icon then
+            local ic = bt:CreateTexture(nil, "ARTWORK")
+            ic:SetSize(16, 16)
+            ic:SetPoint("LEFT", bt, "LEFT", 8, 0)
+            ic:SetTexture(f.icon)
+            tf = MakeFS(bt, 14, C_DIM, "LEFT")
+            tf:SetPoint("LEFT", ic, "RIGHT", 4, 0)
+            tf:SetPoint("RIGHT", bt, "RIGHT", -8, 0)
+        else
+            tf = MakeFS(bt, 14, C_DIM, "CENTER")
+            tf:SetAllPoints()
+        end
         tf:SetText(f.text)
         bt:SetFontString(tf)
-        bt.__key = f.key
         bt:SetScript("OnClick", function(self)
             local db = ns.DB()
             db.explore = db.explore or {}
@@ -2719,17 +2784,23 @@ function EG.Build(page)
         MakeOutline(bt, 1, 0.82, 0)
         bt:SetScript("OnEnter", function(self)
             if self.__key ~= EG.view then
-                self:GetFontString():SetTextColor(Unpack(C_WHITE))
+                if self.__baseColor then
+                    local c = self.__baseColor
+                    self:GetFontString():SetTextColor(min(1, c[1] * 1.25), min(1, c[2] * 1.25), min(1, c[3] * 1.25))
+                else
+                    self:GetFontString():SetTextColor(Unpack(C_WHITE))
+                end
                 TintOutline(self, 0.75, 0.75, 0.78)
             end
         end)
         bt:SetScript("OnLeave", function(self) PaintFilter(self, self.__key == EG.view) end)
+        coroutine.yield()
         EG.filterBtns[f.key] = bt
     end
 
     do
         local rw = CreateFrame("Button", nil, page)
-        rw:SetSize(72, EG.TOOL_H)
+        rw:SetSize(EG.TOOL_W, EG.TOOL_H)
         rw:SetPoint("LEFT", EG.filterBtns.todo, "RIGHT", 8, 0)
         local rf = MakeFS(rw, 14, C_RW, "CENTER")
         rf:SetAllPoints()
@@ -2753,7 +2824,7 @@ function EG.Build(page)
     -- 路线模式开关（地图钉 + 规划路线 + 追踪条，实现在 Core/ExploreMap.lua）
     do
         local rb = CreateFrame("Button", nil, page)
-        rb:SetSize(60, EG.TOOL_H)
+        rb:SetSize(EG.TOOL_W, EG.TOOL_H)
         rb:SetPoint("LEFT", EG.rwBtn, "RIGHT", 8, 0)
         local rf = MakeFS(rb, 14, C_RW, "CENTER")
         rf:SetAllPoints()
@@ -2765,18 +2836,20 @@ function EG.Build(page)
             if ns.ExploreMapToggle then pcall(ns.ExploreMapToggle) end
             PaintRouteBtn()
         end)
+                coroutine.yield()
         rb:SetScript("OnEnter", function(self)
             TintOutline(self, 0.85, 0.55, 0.98)
         end)
         rb:SetScript("OnLeave", function() PaintRouteBtn() end)
         EG.routeBtn = rb
+    coroutine.yield()
     end
 
-    -- 地图设置入口（面板在 Core/ExploreMap.lua）：齿轮紧挨路线钮右侧
+    -- 地图设置入口（面板在 Core/ExploreMap.lua）：齿轮见方贴内容区右缘（工具行右端）
     do
         local gb = CreateFrame("Button", nil, page)
         gb:SetSize(EG.TOOL_H, EG.TOOL_H)
-        gb:SetPoint("LEFT", EG.routeBtn, "RIGHT", 8, 0)
+        gb:SetPoint("TOPRIGHT", page, "TOPRIGHT", -EG.EDGE, -EG.TOOL_Y)
         gb.gear = gb:CreateTexture(nil, "ARTWORK")
         gb.gear:SetAllPoints()
         gb.gear:SetTexture("Interface\\AddOns\\DungeonsForever\\Media\\textures\\DF_Settings")
@@ -2796,6 +2869,7 @@ function EG.Build(page)
         gb:SetScript("OnClick", function()
             if ns.ExploreMapSettingsToggle then pcall(ns.ExploreMapSettingsToggle) end
         end)
+        coroutine.yield()
         EG.mapSetBtn = gb
     end
 
@@ -2806,6 +2880,7 @@ function EG.Build(page)
         edgeSize = 1,
     })
     listCard:SetBackdropColor(1, 1, 1, 0.03)
+    coroutine.yield()
     listCard:SetBackdropBorderColor(1, 1, 1, 0.05)
     EG.listCard = listCard
 
@@ -2827,6 +2902,7 @@ function EG.Build(page)
     --   （navBtns 标题、petFrame、顶部筛选/进度条、地图设置钮——旧白 α0.03 半透明盖不住所以从未暴露）。
     --   显式把既存兄弟帧整体抬到底卡之上。
     --   ★★ 二修（2026-10-10 晚）：WoW 子帧默认层级 = 父级+1，与 listCard **同层**——
+    coroutine.yield()
     --     此处之后才创建的 scroll/rw/bag/bm 并不会「自动更高」（旧注释理解错误）。
     --     forever 引擎同层兄弟绘制次序不可靠 ⇒ 某些次 /reload 后整块内容沉到
     --     不透明底卡之下（找书列表/奖励/睡袋全页面消失）。Build 收尾统一再抬一遍。
@@ -2845,6 +2921,7 @@ function EG.Build(page)
         for _, rg in ipairs({ page:GetRegions() }) do
             rg:SetParent(tl)
         end
+        coroutine.yield()
         EG.textLayer = tl
     end
 
@@ -2852,6 +2929,7 @@ function EG.Build(page)
     scroll:EnableMouseWheel(true)
     scroll:SetScript("OnMouseWheel", function(_, delta)
         DG.WheelScroll(EG.scroll, EG.child, delta)
+        if EG.UpdateVScroll then EG.UpdateVScroll() end
     end)
     local child = CreateFrame("Frame", nil, scroll)
     child:SetSize(EG.RIGHT_W - 2 * EG.LIST_PAD, 10)
@@ -2869,8 +2947,104 @@ function EG.Build(page)
         EG.SyncHover()
     end)
 
+    coroutine.yield()
+    -- ── 书列表滚动条（2026-10-13 用户：40 本书加上下滑块，样式对齐专业配方页）──
+    --   轨道 = L2 圆角胶囊（宽 9）/ 滑块 = L4 胶囊（宽 6）悬停提亮 L5，可拖拽；
+    --   内容不足一屏整条隐藏；非书列表视图（奖励/睡袋/图鉴/宠物）随 scroll 显隐一起收。
+    local track = CreateFrame("Frame", nil, page, "BackdropTemplate")
+    if ns.hui and ns.hui.BuildCapsule then
+        ns.hui.BuildCapsule(track, 3, ns.hui.layer.L2)
+    else
+        track:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+        })
+        track:SetBackdropColor(0, 0, 0, 0.25)
+        track:SetBackdropBorderColor(1, 1, 1, 0.08)
+    end
+    track:SetWidth(9)
+    track:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -1, -2)
+    track:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", -1, 2)
+    track:SetFrameLevel((scroll:GetFrameLevel() or 0) + 10)
+    track:Hide()
+    local thumb = CreateFrame("Button", nil, track)
+    thumb:SetWidth(6)
+    thumb:EnableMouse(true)
+    local tp, tx = nil, nil
+    if ns.hui and ns.hui.BuildCapsule then
+        tp = ns.hui.BuildCapsule(thumb, 2, ns.hui.layer.L4)
+    else
+        tx = thumb:CreateTexture(nil, "OVERLAY")
+        tx:SetAllPoints()
+        tx:SetColorTexture(1, 1, 1, 0.30)
+    end
+    thumb:SetScript("OnEnter", function()
+        if tp then
+            local L5 = ns.hui.layer.L5
+            for _, t in ipairs(tp) do t:SetVertexColor(L5[1], L5[2], L5[3]) end
+        elseif tx then
+            tx:SetColorTexture(1, 1, 1, 0.45)
+        end
+    end)
+    thumb:SetScript("OnLeave", function()
+        if tp then
+            local L4 = ns.hui.layer.L4
+            for _, t in ipairs(tp) do t:SetVertexColor(L4[1], L4[2], L4[3]) end
+        elseif tx then
+            tx:SetColorTexture(1, 1, 1, 0.30)
+        end
+    end)
+    thumb:SetPoint("TOP", track, "TOP", 0, -1)
+    function EG.UpdateVScroll()
+        local sc, ch = EG.scroll, EG.child
+        if not (sc and ch) then return end
+        if not sc:IsShown() then track:Hide() return end
+        local viewH = sc:GetHeight()
+        local contentH = ch:GetHeight()
+        if contentH <= viewH + 2 or viewH <= 0 then track:Hide() return end
+        track:Show()
+        local trackH = track:GetHeight() - 2
+        local maxScroll = contentH - viewH
+        -- ★ GetVerticalScroll 桩回 table（离线路径），算术前必须过类型闸。
+        local vpos = sc.GetVerticalScroll and sc:GetVerticalScroll() or 0
+        if type(vpos) ~= "number" then vpos = 0 end
+        local frac = math.min(1, math.max(0, vpos / maxScroll))
+        local th = math.max(24, trackH * viewH / contentH)
+        thumb:SetHeight(th)
+        thumb:ClearAllPoints()
+        thumb:SetPoint("TOP", track, "TOP", 0, -1 - frac * (trackH - th))
+    end
+    scroll:SetScript("OnVerticalScroll", function() EG.UpdateVScroll() end)
+    thumb:SetScript("OnMouseDown", function(self, btn)
+        if btn ~= "LeftButton" then return end
+        local scale = UIParent and UIParent:GetEffectiveScale() or 1
+        local cy0 = select(2, GetCursorPosition()) / scale
+        local sc0 = EG.scroll:GetVerticalScroll()
+        if type(sc0) ~= "number" then sc0 = 0 end
+        self:SetScript("OnUpdate", function(self)
+            local cy = select(2, GetCursorPosition()) / scale
+            local trackH = track:GetHeight() - 2
+            local span = trackH - thumb:GetHeight()
+            if span <= 0 then return end
+            local maxScroll = EG.child:GetHeight() - EG.scroll:GetHeight()
+            EG.scroll:SetVerticalScroll(math.min(maxScroll, math.max(0, sc0 + (cy0 - cy) / span * maxScroll)))
+        end)
+    end)
+    thumb:SetScript("OnMouseUp", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+    thumb:SetScript("OnHide", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+    coroutine.yield()
+
+    coroutine.yield()
     EG.rows = {}
-    for i = 1, #B do Row(i) end
+    for i = 1, #B do
+        Row(i)
+        if i % 4 == 0 then coroutine.yield() end
+    end
 
     local rw = CreateFrame("Frame", nil, page)
     EG.rwFrame = rw
@@ -2883,12 +3057,14 @@ function EG.Build(page)
         --   （同档共用一个任务状态），行内不再摆 A/H 底条与状态列。
         --   ★ 间距标准 2026-10-10 二修：奖励卡坐在恒显示的 L1 listCard 上 = 卡中卡，
         --     提亮一级（SkinPopup L2）+ 左右内衬 8（PADX=LIST_PAD，与书行同栅格）。
+        coroutine.yield()
         local PADX, GAP, ROW_H = EG.LIST_PAD, 8, 44
         local CW = math.floor((EG.RIGHT_W - 2 * PADX - 2 * GAP) / 3)
         local maxN = 2
         for _, tier in ipairs(REWARDS) do
             local n = tier.choices and #tier.choices or 2
             if n > maxN then maxN = n end
+        coroutine.yield()
         end
         local CH = 28 + maxN * ROW_H + 8
         local y = 14
@@ -2927,6 +3103,7 @@ function EG.Build(page)
             card.state = st
             local sides = { "A", "H" }
             if tier.choices then
+                coroutine.yield()
                 sides = {}
                 for ci in ipairs(tier.choices) do sides[#sides + 1] = ci end
             end
@@ -2993,6 +3170,7 @@ function EG.Build(page)
         cy = cy + 34
         -- 3 步横排：等分三列，金色序号 + 步骤标题（14）+ 灰色说明（11，按列宽折行）
         EG.howSteps = {}
+        coroutine.yield()
         local SGAP = 16
         local stepW = math.floor((iw - 2 * SGAP) / 3)
         local maxStepH = 0
@@ -3017,7 +3195,9 @@ function EG.Build(page)
             local lines = math.max(1, math.ceil(sw / math.max(1, stepW - 18)))
             local h = 20 + lines * 13 + 6
             if h > maxStepH then maxStepH = h end
+            coroutine.yield()
         end
+        coroutine.yield()
         cy = cy + maxStepH
         card:SetHeight(cy + 4)
         y = y + cy + 8
@@ -3025,6 +3205,7 @@ function EG.Build(page)
         mh:SetPoint("TOPLEFT", rw, "TOPLEFT", PADX, -y)
         EG.rwMageHead = mh
         mh:Hide()
+        coroutine.yield()
         y = y + 30
         EG.rwMageLines = {}
         local MB = ns.ExploreMageBonus
@@ -3040,6 +3221,7 @@ function EG.Build(page)
         rw:Hide()
     end
 
+    coroutine.yield()
     local bag = CreateFrame("Frame", nil, page)
     EG.bagFrame = bag
     EG.bagMode, EG.bagSel = "detail", nil
@@ -3056,19 +3238,29 @@ function EG.Build(page)
 
         local fc = CreateFrame("Frame", nil, bag)
         -- ★ 阵营钮 46→66（4 字「联盟领地」）⇒ 容器 96→136、tag1/tag2 右移 40
-        fc:SetSize(136, 20)
+        coroutine.yield()
+        fc:SetSize(182, 20)
         fc:SetPoint("TOPLEFT", bag, "TOPLEFT", 86, -8)
         EG.bagFacBtns = {}
         for fi, f in ipairs({ "A", "H" }) do
-            local bt = CreateFrame("Button", nil, fc)
             -- ★ 2026-10-04 用户定：阵营口径改「联盟领地/部落领地」（4 字 14px ⇒ 钮 46→66、间距 47→67）
-            bt:SetSize(66, 16)
-            bt:SetPoint("TOPLEFT", fc, "TOPLEFT", (fi - 1) * 67 + 2, 2)
-            local tf = MakeFS(bt, 14, C_GREY, "CENTER")
-            tf:SetAllPoints()
-            tf:SetText(f == "A" and L["联盟领地"] or L["部落领地"])
-            bt:SetFontString(tf)
+            local bt = NewButton(fc, f == "A" and L["联盟领地"] or L["部落领地"], 88, 18, 14)
+            bt:SetPoint("TOPLEFT", fc, "TOPLEFT", (fi - 1) * 90 + 2, 1)
             MakeOutline(bt, 1, 0.82, 0)
+            bt.__huiKeepTextColor = true
+            local tf = bt:GetFontString()
+            if tf then
+                tf:ClearAllPoints()
+                tf:SetPoint("LEFT", bt, "LEFT", 25, 0)
+                tf:SetPoint("RIGHT", bt, "RIGHT", -3, 0)
+                tf:SetJustifyH("CENTER")
+            end
+            local ic = bt:CreateTexture(nil, "OVERLAY")
+            ic:SetSize(16, 16)
+            ic:SetPoint("LEFT", bt, "LEFT", 6, 0)
+            ic:SetTexture(BAG_FAC_ICON[f])
+            if ns.hui and ns.hui.RoundIcon then ns.hui.RoundIcon(ic) end
+            bt.__icon = ic
             bt:SetScript("OnClick", function()
                 local db = ns.DB()
                 db.explore = db.explore or {}
@@ -3097,6 +3289,7 @@ function EG.Build(page)
         lc:SetPoint("TOPLEFT", bag, "TOPLEFT", 0, -32)
         -- 底衬 = 注释卡顶(NOTE_H+8) 再让 8 缝；行高由 BagLayoutRows 按剩余高度均分。
         lc:SetPoint("BOTTOMRIGHT", bag, "BOTTOMRIGHT", -(RWd + 8), NOTE_H + 16)
+        coroutine.yield()
         -- 2026-10-10 用户定：外层卡皮删除——任务行已是独立圆角卡，lc 只当布局容器。
         EG.bagLC = lc
         EG.bagRows = {}
@@ -3259,6 +3452,7 @@ function EG.Build(page)
         dCoHint:SetPoint("RIGHT", dCo, "LEFT", 8, 0)
         dCoHint:SetText(L["点击坐标在地图上定位"])
         dCoHint:SetWordWrap(false)
+        coroutine.yield()
         EG.bagDCoHint = dCoHint
         EG.bagDL, EG.bagDV = {}, {}
         local FIELDS = { L["状态："], L["可接等级："], L["起始："], L["阵营："] }
@@ -3301,6 +3495,7 @@ function EG.Build(page)
         EG.bagDNH = dNH
         local dN = MakeFS(det, 14, C_GREY, "LEFT")
         dN:SetJustifyV("TOP")
+        coroutine.yield()
         dN:Hide()
         EG.bagDN = dN
         EG.bagNSegs = {}
@@ -3352,6 +3547,7 @@ function EG.Build(page)
         fDesc:SetPoint("TOPLEFT", fcard, "TOPLEFT", 52, -30)
         fDesc:SetPoint("RIGHT", fcard, "RIGHT", -8, 0)
         fDesc:SetJustifyV("TOP")
+        coroutine.yield()
         fDesc:SetHeight(50)
         fDesc:SetText(L[BAG_FINAL_DESC])
         EG.bagTotHeads = {}
@@ -3360,6 +3556,7 @@ function EG.Build(page)
             gh:SetText(L[g.head])
             gh:SetWordWrap(false)
             EG.bagTotHeads[gi] = gh
+        coroutine.yield()
         end
 
         EG.bagChips = {}
@@ -3383,6 +3580,7 @@ function EG.Build(page)
         end
         bag:Hide()
     end
+coroutine.yield()
 
     local bm = CreateFrame("Frame", nil, page)
     EG.bmFrame = bm
@@ -3396,6 +3594,7 @@ function EG.Build(page)
         EG.bmHint:SetPoint("LEFT", btitle, "RIGHT", 8, 0)
         EG.bmHint:SetText(L["法师专属内容 ——「理解」为法师职业副技能"])
         EG.bmHint:SetWordWrap(false)
+coroutine.yield()
 
         EG.bmTabBtns = {}
         local tx = 8
@@ -3424,6 +3623,7 @@ function EG.Build(page)
         chain:SetHeight(72)
         chain:SetPoint("TOPLEFT", bm, "TOPLEFT", 8, -62)
         chain:SetPoint("TOPRIGHT", bm, "TOPRIGHT", -8, -62)
+        coroutine.yield()
         ns.hui.SkinPopup(chain, 8, nil, ns.hui.layer.L2)
         EG.bmChain = chain
         EG.bmNodes, EG.bmArrows = {}, {}
@@ -3490,6 +3690,7 @@ function EG.Build(page)
         dsf:SetScrollChild(dcc)
         dsf:SetPoint("TOPLEFT", bm, "TOPLEFT", 8, -142)
         dsf:SetPoint("BOTTOMRIGHT", bm, "BOTTOMRIGHT", -8, -8)
+        coroutine.yield()
         ns.hui.SkinPopup(dsf, 8, nil, ns.hui.layer.L2)
         EG.bmDetail, EG.bmDChild = dsf, dcc
         EG.bmSteps = {}
@@ -3525,6 +3726,7 @@ function EG.Build(page)
             end)
             st.loc:SetScript("OnLeave", function(self)
                 self.fs:SetTextColor(Unpack(C_GOLD))
+                coroutine.yield()
                 if GameTooltip then pcall(GameTooltip.Hide, GameTooltip) end
             end)
             st.lines = {}
@@ -3582,6 +3784,7 @@ function EG.Build(page)
         local ohsep = tc:CreateTexture(nil, "BORDER")
         ohsep:SetHeight(1)
         ohsep:SetColorTexture(1, 1, 1, 0.09)
+        coroutine.yield()
         ohsep:SetPoint("TOPLEFT", tc, "TOPLEFT", 8, -28)
         ohsep:SetPoint("TOPRIGHT", tc, "TOPRIGHT", -8, -28)
         EG.bmOvRows = {}
@@ -3604,6 +3807,7 @@ function EG.Build(page)
             rw:Hide()
             EG.bmOvRows[ti] = rw
         end
+coroutine.yield()
 
         EG.bmTierBtns = {}
         local cx = 8
@@ -3633,6 +3837,7 @@ function EG.Build(page)
         EG.bmBundle = bd
         local bh = MakeFS(bd, 14, C_GREY, "LEFT")
         bh:SetPoint("TOPLEFT", bd, "TOPLEFT", 8, -6)
+        coroutine.yield()
         bh:SetText(L["「一捆卷轴」开出率（17 捆样本）"])
         bh:SetWordWrap(false)
         EG.bmBundleRows = {}
@@ -3677,6 +3882,7 @@ function EG.Build(page)
         rcc:SetSize(CW - 16, 10)
         rs:SetScrollChild(rcc)
         rs:SetPoint("TOPLEFT", bm, "TOPLEFT", 8, -90)
+        coroutine.yield()
         rs:SetPoint("BOTTOMRIGHT", bm, "BOTTOMRIGHT", -8, -8)
         EG.bmScroll, EG.bmChild = rs, rcc
         EG.bmRows = {}
@@ -3728,6 +3934,7 @@ function EG.Build(page)
             rw2:Hide()
             EG.bmRows[i] = rw2
         end
+        coroutine.yield()
         bm:Hide()
     end
 
@@ -3748,16 +3955,20 @@ function EG.Build(page)
     end
 
     EG.built = true
+    EG.building = false
     local ev = CreateFrame("Frame")
     if ev.RegisterEvent then
         pcall(ev.RegisterEvent, ev, "BAG_UPDATE_DELAYED")
         pcall(ev.RegisterEvent, ev, "QUEST_LOG_UPDATE")
         ev:SetScript("OnEvent", function()
-            if not EG.built or not EG.page or not EG.page.IsShown
-               or not EG.page:IsShown() then return end
-            EG.ScanAuto()
-            EG.Render()
+            C_Timer.After(0, function()
+                if not EG.built or not EG.page or not EG.page.IsShown
+                   or not EG.page:IsShown() then return end
+                EG.ScanAuto()
+                EG.Render()
+            end)
         end)
     end
     EG.Render()
+    end))
 end

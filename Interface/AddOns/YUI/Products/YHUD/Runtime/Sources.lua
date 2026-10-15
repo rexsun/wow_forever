@@ -53,6 +53,8 @@ local PLAYER_FILTERED_AURA_RESOURCE_TYPES = {
     [AURA_DURATION_RESOURCE_SOURCE_TYPE] = true,
 }
 local TRANSIENT_REHYDRATE_TYPES = {
+    ["yhud.player-health"] = true,
+    ["yhud.player-cast"] = true,
     [SPELL_SOURCE_TYPE] = true,
     [OFFICIAL_AURA_SOURCE_TYPE] = true,
     [RESOURCE_SOURCE_TYPE] = true,
@@ -1171,6 +1173,7 @@ function Sources:RegisterSourceTypes()
     local resourceOK = self:RegisterResourceSourceType()
     local specialResourceOK = self:RegisterSpecialResourceSourceTypes()
     if YHUD.SwingTimers then YHUD.SwingTimers:RegisterSourceType() end
+    if YHUD.PlayerBars then YHUD.PlayerBars:RegisterSourceTypes() end
     if YHUD.Ammo then YHUD.Ammo:RegisterSourceType() end
     local buffTimerOK = self:RegisterBuffTimerSourceType()
     local spellEventWindowOK = self:RegisterSpellEventWindowSourceType()
@@ -1191,7 +1194,8 @@ end
 
 function Sources:OnSourceState(state, sourceKey, _, forced)
     if YHUD.Model then
-        return YHUD.Model:OnSourceState(state, sourceKey, forced == true)
+        local changed = YHUD.Model:OnSourceState(state, sourceKey, forced == true)
+        return changed
     end
     return false
 end
@@ -1646,6 +1650,10 @@ function Sources:ApplyConfig(profile, deferTrinketView)
             elseif providerKind == "swing-timer" and YHUD.SwingTimers then
                 typeId = YHUD.SwingTimers.SOURCE_TYPE
                 identity = provider.swingHand
+            elseif providerKind == "player-cast" and YHUD.PlayerBars then
+                typeId, identity = YHUD.PlayerBars.CAST_SOURCE, "player"
+            elseif providerKind == "unit-health" and YHUD.PlayerBars then
+                typeId, identity = YHUD.PlayerBars.HEALTH_SOURCE, "player"
             end
             local bridgeCategory
             local bridgeCooldownID
@@ -1873,6 +1881,10 @@ function Sources:ApplyConfig(profile, deferTrinketView)
     end
     if YHUD.SwingTimers and YHUD.SwingTimers.SyncNativeSuppression then
         YHUD.SwingTimers:SyncNativeSuppression(self.handles)
+    end
+    if YHUD.PlayerBars then
+        YHUD.PlayerBars.renderFailed = nil
+        YHUD.PlayerBars:SyncNativeSuppression(profile, self.handles)
     end
     self.auraApplicationMaxRefreshPending =
         auraApplicationMaxRetryPending == true
@@ -2857,6 +2869,7 @@ function Sources:Disable()
     if YHUD.SwingTimers and YHUD.SwingTimers.SyncNativeSuppression then
         YHUD.SwingTimers:SyncNativeSuppression(nil)
     end
+    if YHUD.PlayerBars then YHUD.PlayerBars:SyncNativeSuppression(nil) end
 end
 
 Sources:RegisterSourceTypes()

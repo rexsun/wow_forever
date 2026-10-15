@@ -14,17 +14,17 @@ ns.QuickBar = QB
 
 -- 几何 -----------------------------------------------------------------------
 QB.W = 120                     -- 面板宽（标题 14px 的「5人本专业探索」≈92px，100 装不下）
-QB.SLOT1 = 8                   -- 贴主窗右缘（设置 / 装备过滤 弹窗都关着时用这一档）
-QB.SLOT2 = 236                 -- 第二槽左缘 = 第一槽 220 + 间距 8 + 再留 8（有弹窗占第一槽时让位）
+QB.SLOT1 = 4                   -- 贴主窗右缘（设置 / 装备过滤 弹窗都关着时用这一档）
+QB.SLOT2 = 228                 -- 第二槽左缘 = 第一槽 220 + 间距 8 + 再留 8（有弹窗占第一槽时让位）
 QB.PAD = 8                     -- 左右内边距
 QB.CW = QB.W - QB.PAD * 2      -- 内容宽 104
 QB.TEXT_PAD = 4                -- 无图标条目的文本左缩进
-QB.FS_HEAD, QB.FS_NAME, QB.FS_AUX = 14, 14, 16 -- FS_AUX：设置弹窗分组头（标签页/快捷按钮栏/显示分组/专业列表/探索子页；2026-10-08 用户定：16）
+QB.FS_NAME, QB.FS_AUX = 14, 16 -- FS_AUX：设置弹窗分组头（标签页/快捷按钮栏/显示分组/专业列表/探索子页；2026-10-08 用户定：16）
 QB.FS_GRP = 14                 -- 分组头字号（推荐五人本 / 专业 / 探索；2026-09-30 用户定：与条目同号）
 QB.ICON = 16                   -- 专业条目内的图标边长（行高 22，上下各留 3px）
 QB.ICON_X = 3                  -- 图标左缩进
 QB.NAME_ICON_X = QB.ICON_X + QB.ICON + 4   -- 带图标条目的文本左缩进 = 23
-QB.HEAD_Y, QB.BODY_Y = -10, -36
+QB.BODY_Y = -10
 QB.GRP_H, QB.GAP = 20, 3
 QB.ROW_H = 22                  -- 条目恒单行 → 固定行高
 QB.RADIUS = 6                  -- 条目圆角半径（与 hui.SkinButton / SkinPopup 同规格）
@@ -61,9 +61,23 @@ local function Fs(parent, size, color)
 end
 
 local function Outline(bt, on)
-    local H = ns.ProfHost
-    if not (H and H.SetOutline) then return end
-    H.SetOutline(bt, on, 1, 0.82, 0)
+    local bars = bt.__bars
+    if not bars then
+        local H = ns.ProfHost
+        if H and H.SetOutline then H.SetOutline(bt, on, 1, 0.82, 0) end
+        return
+    end
+    local c = on and C_GOLD or C_EDGE
+    if bt.__outlineFrame then bt.__outlineFrame:SetShown(true) end
+    for _, t in ipairs(bars) do
+        t:SetAlpha(1)
+        if t.__huiBorderStrip then
+            t:SetColorTexture(c[1], c[2], c[3], 1)
+        else
+            t:SetShown(true)
+            t:SetVertexColor(c[1], c[2], c[3])
+        end
+    end
 end
 
 -- 图标 -------------------------------------------------------------------
@@ -232,14 +246,17 @@ function QB:Collect()
     end
 
     if cfg.groups.explore and ns.LoadForeverPages then
-        out[#out + 1] = { grp = L["探索"] }
+        local picked = {}
         for _, e in ipairs(EXPLORE_DEFS) do
-            if cfg.expl[e.key] then
+            if cfg.expl[e.key] then picked[#picked + 1] = e end
+        end
+        if #picked > 0 then
+            out[#out + 1] = { grp = L["探索"] }
+            for _, e in ipairs(picked) do
                 out[#out + 1] = { text = e.text, act = "explore", key = e.key }
                 n.explore = n.explore + 1
             end
         end
-        if n.explore == 0 then out[#out + 1] = { text = L["未选任何探索子页"], dead = true } end
     end
 
     self.counts = n
@@ -365,18 +382,8 @@ function QB:Ensure()
     f:SetFrameLevel(512)
     f:EnableMouse(true)
     f:SetScript("OnMouseWheel", function() end)
-    if ns.hui and ns.hui.SkinPopup then ns.hui.SkinPopup(f, 8) end
+    if ns.hui and ns.hui.SkinPopup and ns.hui.layer then ns.hui.SkinPopup(f, 8, nil, ns.hui.layer.L0) end
     self.frame = f
-
-    local head = Fs(f, self.FS_HEAD, C_WHITE)
-    head:SetText(L["5人本专业探索"])
-    head:SetPoint("TOPLEFT", f, "TOPLEFT", self.PAD, self.HEAD_Y)
-
-    local line = f:CreateTexture(nil, "ARTWORK")
-    line:SetColorTexture(1, 1, 1, 0.08)
-    line:SetPoint("TOPLEFT", f, "TOPLEFT", self.PAD, self.BODY_Y + 6)
-    line:SetPoint("TOPRIGHT", f, "TOPRIGHT", -self.PAD, self.BODY_Y + 6)
-    line:SetHeight(1)
 
     local scroll = CreateFrame("ScrollFrame", nil, f)
     scroll:SetPoint("TOPLEFT", f, "TOPLEFT", self.PAD, self.BODY_Y)
@@ -651,9 +658,11 @@ function QB:EnsureSettings()
             { key = "Professions", label = L["专业"] },
             { key = "Explore",     label = L["探索"] },
             { key = "Collections", label = L["藏品"] },
+            { key = "Factions",    label = L["声望"] },
             { key = "Bis",         label = L["BIS配装"] },
             { key = "Tier",        label = L["职业指南"] },
             { key = "PvP",         label = L["PvP"] },
+            { key = "Gear",        label = L["装备库"] },
         }) do
             if ns.LoadForeverPages or def.key == "Dungeons" or def.key == "Raids" then vis[#vis + 1] = def end
         end
@@ -831,11 +840,13 @@ ns.Init(function()
     ev:RegisterEvent("PLAYER_ENTERING_WORLD")
     ev:RegisterEvent("SKILL_LINES_CHANGED")
     ev:SetScript("OnEvent", function()
+        C_Timer.After(0, function()
         if QB.built then QB:Render() end
         -- 兜底：主窗已经开着但面板还没建（或钩子没跑到）→ 在这里补建一次，
         -- 免得「打开主窗看不到快捷栏、关掉重开才出来」。
         local mf = ns.MainFrame
         if mf and mf.IsShown and mf:IsShown() and not QB.built then QB:Boot() end
+        end)
     end)
     QB.events = ev
 end)

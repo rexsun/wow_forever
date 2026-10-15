@@ -504,6 +504,31 @@ ns.DungeonQuests = {
         { 8994, nil, 58, nil, "Bodley", "Blackrock Mountain dungeon-entrance map [D]", "The Right Half of the Vatalak Trinket", false, {8989}, nil, "Collect 40 Blackrock bracers from the orcs of Blackrock Spire and hand them, together with 1 Super Energy Potion, to Bodley at Blackrock Mountain.", "You need the Extraplanar Ghost Revealer to see Bodley (from 'Finding Anthion'). The bracers drop from Blackrock Spire orcs; the Super Energy Potion is an alchemy product.", {{58,3}, {63,4}, {72,5}}, {22138, 13512, 22048}, nil, 16033, "Bodley", nil },
         { 8995, nil, 58, 60, "Bodley", "Blackrock Mountain dungeon-entrance map [D]", "The Final Preparation", false, {8994}, nil, "Use the summoning brazier in the Beast's room to call out Duke Vatalak; after killing him, use the Vatalak Trinket on the corpse, then return the trinket to the Spirit of Duke Vatalak.", "You need the Extraplanar Ghost Revealer to see Bodley (from 'Finding Anthion'). Duke Vatalak is summoned inside the dungeon; claim the reward from Bodley.", {{58,3}, {63,4}, {72,5}}, {22048, 22056}, nil, 16033, "Bodley", { xp = 9950 } },
     },
+    ["onyxias_lair"] = {
+        { 4182, "A", 48, 54, "Helendis Riverhorn", "Burning Steppes - Morgan's Vigil 85.6,69", nil, false, nil, nil, "Slay the black dragonkin in Burning Steepes and report back to Helendis Riverhorn.", "Alliance attunement step one. Black Broodlings and whelps are non-elite; Black Dragonspawn, Wyrmkin and Drakes are level 50-54 elites — bring a group. They are all strung along the eastern edge of the zone.", {{48,1}, {50,2}, {52,3}, {57,4}, {65,5}}, nil, nil, 9562, "Helendis Riverhorn", nil },
+        { 4183, "A", 48, 54, "Helendis Riverhorn", "Burning Steppes - Morgan's Vigil 85.6,69", nil, false, {4182}, nil, "Deliver Helendis Riverhorn's letter to Magistrate Solomon in Lakeshire, Redridge Mountains.", "Five quests share this name, moving step by step from Lakeshire to Stormwind City. This leg ends at the Lakeshire town hall (30,44).", {{48,1}, {50,2}, {52,3}, {57,4}, {65,5}}, nil, nil, 344, "Magistrate Solomon", nil },
+        { 4241, "A", 50, 58, "Marshal Maxwell", "Burning Steppes - Morgan's Vigil 84.6,68.8", nil, false, {4183}, nil, "Visit Marshal Windsor in the Blackrock Depths jail and deliver Marshal Maxwell's letter to him.", "Windsor is in the cell at the end of the corridor on the right side of the BRD jail block. Do not mix the two up: Marshal Maxwell is at Morgan's Vigil in Burning Steepes, while Marshal Windsor is in the BRD jail.", {{50,1}, {54,2}, {56,3}, {61,4}, {69,5}}, nil, nil, 9023, "Marshal Windsor", nil },
+        { 6402, "A", 50, 60, "Marshal Maxwell", "Burning Steppes - Morgan's Vigil 84.6,68.8", nil, false, {4322}, nil, "Find Squire Rowe at the gates of Stormwind City to summon Reginald Windsor, then escort him from the gates to Stormwind Keep.", "The escort takes about 10 minutes. If another party is already escorting him, Windsor says he is indisposed at the moment — wait a few minutes and he will show up.", {{50,1}, {54,2}, {56,3}, {61,4}, {69,5}}, nil, nil, 12580, "Reginald Windsor", nil },
+        { 6403, "A", 50, 60, "Reginald Windsor", "Stormwind City - main gates 70.4,85.6", nil, false, {6402}, nil, "March with Reginald Windsor to Stormwind Keep, defeat the elite dragonkin guards summoned when Lady Katrana Prestor reveals her true form, then report to Highlord Bolvar Fordragon.", "The Great Masquerade: Lady Prestor reveals herself as Onyxia and summons elite dragonkin guards; the nearby guard NPCs help tank them. Turn in the quest once everything is defeated.", {{50,1}, {54,2}, {56,3}, {61,4}, {69,5}}, nil, nil, 1748, "Highlord Bolvar Fordragon", nil },
+        { 6501, "A", 50, 60, "Highlord Bolvar Fordragon", "Stormwind City", nil, false, {6403}, nil, "Take the Fragment of the Dragon's Eye deep into the cave of Mazthoril in southern Winterspring to find Haleh, a dragon disguised as a humanoid.", "Haleh stands at the teleport runes at the end of the cave — step on the runes to reach her. The cave is stuffed with elite dragons: clear through with a group, stealth down, or sprint straight to her.", {{50,1}, {54,2}, {56,3}, {61,4}, {69,5}}, nil, nil, 10929, "Haleh", nil },
+        { 4941, "H", 55, 60, "Warlord Goretooth", "Badlands - Kargath 5.8,47.6", nil, false, {4903}, nil, "Speak with Eitrigg in the Valley of Wisdom in Orgrimmar, then bring his words to Thrall.", "Eitrigg is in the Valley of Wisdom (34.4,38.4); after talking to him, turn the quest in to Thrall (31,38).", {{55,1}, {56,2}, {58,3}, {63,4}, {72,5}}, nil, nil, 4949, "Thrall", nil },
+        { 6566, "H", 55, 60, "Thrall", "Orgrimmar 31,38", nil, false, {4974}, nil, "Listen to Thrall's tale, then turn the quest in to him.", "A pure dialogue quest — just stand there and listen.", {{55,1}, {56,2}, {58,3}, {63,4}, {72,5}}, nil, nil, 4949, "Thrall", nil },
+        { 6567, "H", 55, 60, "Thrall", "Orgrimmar 31,38", nil, false, {6566}, nil, "Find Rexxar, champion of the Horde, in Desolace.", "Rexxar patrols back and forth along the road between Stonetalon Mountains and Feralas, cutting through the Kodo Graveyard midway. If you cannot find him, ask in Desolace general chat, or run north from Feralas — that is the easiest way to catch him.", {{55,1}, {56,2}, {58,3}, {63,4}, {72,5}}, nil, nil, 10182, "Rokaro", nil },
+        { 6568, "H", 55, 60, "Rokaro", "Desolace - road toward Feralas", nil, false, {6567}, nil, "Deliver Rexxar's testament to Myranda the Hag near Uther's Tomb in Western Plaguelands.", "Myranda is in Western Plaguelands (50,77); she teaches you how to disguise yourself as a member of the Black Dragonflight.", {{55,1}, {56,2}, {58,3}, {63,4}, {72,5}}, nil, nil, 11872, "Myranda the Hag", nil },
+        { 6570, "H", 55, 60, "Myranda the Hag", "Western Plaguelands 50,77", nil, false, {6569}, nil, "Wear the Amulet of Draconic Subversion and speak with Emberstrife inside the cave at the southernmost tip of Dustwallow Marsh.", "Walk to the back of the cave, use the Amulet of Draconic Subversion first, then talk to Emberstrife.", {{55,1}, {56,2}, {58,3}, {63,4}, {72,5}}, nil, nil, 10321, "Emberstrife", nil },
+        { 6582, "H", 55, 60, "Emberstrife", "Dustwallow Marsh - Emberstrife's Cave 56.8,87.4", nil, false, {6570}, nil, "Kill Scryer, the blue dragon in the cave of Mazthoril in Winterspring, and bring his skull back to Emberstrife.", "The three Test of Skulls hunts can be done in any order and in a raid group. Scryer is deep in Mazthoril (53.2,56), cave entrance at (57,50) — expect to clear many elite dragonkin. Remember to loot all three dragon skulls.", {{55,1}, {56,2}, {58,3}, {63,4}, {72,5}}, nil, nil, 10321, "Emberstrife", nil },
+        { 6583, "H", 55, 60, "Emberstrife", "Dustwallow Marsh - Emberstrife's Cave 56.8,87.4", nil, false, {6570}, nil, "Kill Somnus, the green dragon in Swamp of Sorrows, and bring his skull back to Emberstrife.", "Somnus patrols a wide area of the southeastern map (around 80,70) — clear a spot and wait for him to pass. He has a very strong knockback, and Nature resistance helps a lot. The tests can be done in any order; remember to loot the skull.", {{55,1}, {56,2}, {58,3}, {63,4}, {72,5}}, nil, nil, 10321, "Emberstrife", nil },
+        { 6584, "H", 55, 60, "Emberstrife", "Dustwallow Marsh - Emberstrife's Cave 56.8,87.4", nil, false, {6570}, nil, "Kill Chronalis, the bronze dragon outside the Caverns of Time in Tanaris, and bring his skull back to Emberstrife.", "Chronalis is right outside the Caverns of Time (64.6,50.2). The tests can be done in any order and in a raid group; remember to loot the skull.", {{55,1}, {56,2}, {58,3}, {63,4}, {72,5}}, nil, nil, 10321, "Emberstrife", nil },
+        { 6585, "H", 55, 60, "Emberstrife", "Dustwallow Marsh - Emberstrife's Cave 56.8,87.4", nil, false, {6582, 6583, 6584}, nil, "Kill Axtroz, the red dragon in the Wetlands, and bring his skull back to Emberstrife.", "Unlocks only after the first three Test of Skulls quests are turned in. Axtroz patrols near Grim Batol (around 85,49), is immune to fire, and requires 310 Skinning to skin.", {{55,1}, {56,2}, {58,3}, {63,4}, {72,5}}, nil, nil, 10321, "Emberstrife", nil },
+        { 6601, "H", 55, 60, "Emberstrife", "Dustwallow Marsh - Emberstrife's Cave 56.8,87.4", nil, false, {6585}, nil, "Take the Dull Drakefire Amulet to Rexxar in Desolace.", "The quest text sends you back to General Drakkisath in Blackrock Spire, but the disguise amulet does not work inside the Spire — go straight to Rexxar in Desolace instead (same patrol route as The Champion of the Horde).", {{55,1}, {56,2}, {58,3}, {63,4}, {72,5}}, nil, nil, 10182, "Rokaro", nil },
+    },
+}
+
+ns.DungeonQuestAlias = {
+    onyxias_lair = {
+        4182, 4183, 4241, 4242, 4264, 4282, 4322, 6402, 6403, 6501, 6502,
+        4903, 4941, 4974, 6566, 6567, 6568, 6569, 6570, 6582, 6583, 6584, 6585, 6601, 6602,
+    },
 }
 
 ns.DungeonQuestPreExtra = {
@@ -758,4 +783,31 @@ ns.DungeonQuestPreExtra = {
 
 ns.DungeonQuestPreNote = {
     [2040] = "Note: quest 2041 is not required — this quest can be taken directly.",
+}
+
+ns.DungeonQuestShare = {
+    [17] = true, [166] = true, [167] = true, [168] = true, [214] = true, [377] = true, [378] = true, [386] = true,
+    [387] = true, [388] = true, [391] = true, [704] = true, [709] = true, [721] = true, [722] = true, [914] = true,
+    [959] = true, [962] = true, [971] = true, [1013] = true, [1014] = true, [1048] = true, [1049] = true, [1050] = true,
+    [1051] = true, [1053] = true, [1098] = true, [1101] = true, [1102] = true, [1109] = true, [1113] = true, [1139] = true,
+    [1142] = true, [1160] = true, [1192] = true, [1193] = true, [1198] = true, [1199] = true, [1200] = true, [1275] = true,
+    [1360] = true, [1445] = true, [1446] = true, [1475] = true, [1486] = true, [1487] = true, [1491] = true, [1740] = true,
+    [1951] = true, [1956] = true, [2040] = true, [2199] = true, [2202] = true, [2204] = true, [2240] = true, [2283] = true,
+    [2284] = true, [2341] = true, [2342] = true, [2361] = true, [2398] = true, [2418] = true, [2768] = true, [2770] = true,
+    [2846] = true, [2865] = true, [2922] = true, [2924] = true, [2928] = true, [2929] = true, [2930] = true, [2936] = true,
+    [2951] = true, [2952] = true, [2991] = true, [3042] = true, [3341] = true, [3380] = true, [3445] = true, [3447] = true,
+    [3527] = true, [3802] = true, [3906] = true, [3907] = true, [3981] = true, [4003] = true, [4004] = true, [4063] = true,
+    [4081] = true, [4082] = true, [4083] = true, [4123] = true, [4126] = true, [4132] = true, [4134] = true, [4136] = true,
+    [4143] = true, [4182] = true, [4241] = true, [4242] = true, [4262] = true, [4263] = true, [4282] = true, [4286] = true,
+    [4341] = true, [4362] = true, [4363] = true, [4701] = true, [4724] = true, [4742] = true, [4764] = true, [4768] = true,
+    [4788] = true, [4862] = true, [4866] = true, [4941] = true, [4974] = true, [4981] = true, [4982] = true, [5001] = true,
+    [5081] = true, [5102] = true, [5103] = true, [5125] = true, [5212] = true, [5213] = true, [5214] = true, [5243] = true,
+    [5251] = true, [5263] = true, [5305] = true, [5306] = true, [5307] = true, [5341] = true, [5343] = true, [5382] = true,
+    [5515] = true, [5518] = true, [5525] = true, [5528] = true, [5529] = true, [5722] = true, [5723] = true, [5725] = true,
+    [5728] = true, [5761] = true, [5848] = true, [6163] = true, [6402] = true, [6502] = true, [6521] = true, [6561] = true,
+    [6563] = true, [6565] = true, [6566] = true, [6567] = true, [6569] = true, [6582] = true, [6583] = true, [6584] = true,
+    [6585] = true, [6602] = true, [6626] = true, [6821] = true, [6921] = true, [7028] = true, [7044] = true, [7064] = true,
+    [7065] = true, [7068] = true, [7070] = true, [7201] = true, [7441] = true, [7461] = true, [7462] = true, [7463] = true,
+    [7481] = true, [7482] = true, [7483] = true, [7484] = true, [7485] = true, [7488] = true, [7489] = true, [7581] = true,
+    [7877] = true, [8181] = true, [8418] = true, [8945] = true, [8949] = true, [8950] = true,
 }

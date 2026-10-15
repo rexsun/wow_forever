@@ -3154,6 +3154,17 @@ function ConfigSets:ApplyPendingNativeCategoryReload(request)
     if type(request) ~= "table" or type(request.reference) ~= "table" then
         return nil, "native-category-request-unavailable"
     end
+    if request.database then
+        local provider = Service:GetProvider(self.PROVIDER_ID)
+        local db = provider and YUI.DB:GetAceDB(provider.productId)
+        local active = Service:GetActiveReference(self.PROVIDER_ID)
+        if db ~= request.database or db:GetCurrentProfile() ~= request.profileName
+            or YHUD:GetCurrentSpecKey() ~= request.specKey
+            or not active or active.kind ~= request.reference.kind
+            or active.id ~= request.reference.id then
+            return nil, "stale-native-category-plan"
+        end
+    end
     local result, code, detail = Service:Apply(
         self.PROVIDER_ID,
         request.reference,
@@ -3199,6 +3210,7 @@ local function Apply(data, _, context)
     end
     local nativeCategoryPlan
     local nativeCategoryReport
+    local nativeCategoryReloadDeferred = false
     local nativeCategorySyncEligible = not options
         or options.nativeCategorySyncEligible ~= false
     if targetRuntime and not rollback and nativeCategorySyncEligible then
@@ -3223,14 +3235,18 @@ local function Apply(data, _, context)
             and nativeCategoryReport.changedCount > 0
             and not (options
                 and options.nativeCategoryReloadApproved == true) then
-            ConfigSets:RequestNativeCategoryReloadPrompt({
-                automatic = automatic,
-                plan = nativeCategoryPlan,
-                report = nativeCategoryReport,
-                reference = type(context) == "table"
-                    and context.reference or nil,
-            })
-            error("native-category-reload-confirmation-required")
+            if options and options.deferNativeCategoryReloadPrompt == true then
+                nativeCategoryReloadDeferred = true
+            else
+                ConfigSets:RequestNativeCategoryReloadPrompt({
+                    automatic = automatic,
+                    plan = nativeCategoryPlan,
+                    report = nativeCategoryReport,
+                    reference = type(context) == "table"
+                        and context.reference or nil,
+                })
+                error("native-category-reload-confirmation-required")
+            end
         end
     end
     local currentRuntime = current
@@ -3277,6 +3293,7 @@ local function Apply(data, _, context)
             catalogMaterialized = targetRuntime ~= nil,
             nativeCategoryPlan = nativeCategoryPlan,
             nativeCategoryReport = nativeCategoryReport,
+            nativeCategoryReloadDeferred = nativeCategoryReloadDeferred,
         }
     end
     local profile, code = YHUD:ReplaceConfigProfile(targetStored)
@@ -3306,6 +3323,7 @@ local function Apply(data, _, context)
         previewSynchronized = previewSynchronized,
         nativeCategoryPlan = nativeCategoryPlan,
         nativeCategoryReport = nativeCategoryReport,
+        nativeCategoryReloadDeferred = nativeCategoryReloadDeferred,
     }
 end
 
@@ -3324,7 +3342,9 @@ local function Refresh(reason, applyResult, context)
                 {
                     catalogMaterialized = type(applyResult) == "table"
                         and applyResult.catalogMaterialized == true,
-                    immediate = false,
+                    immediate = options ~= nil
+                        and options.nativeCategoryReloadApproved == true
+                        and context.action ~= "rollback",
                 }
             )
         end

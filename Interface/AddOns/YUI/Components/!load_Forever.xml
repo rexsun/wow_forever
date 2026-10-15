@@ -10,6 +10,10 @@
     <Script file="NativeInterface\WindowMovement_Forever.lua"/>
     <Script file="NativeInterface\Visibility.lua"/>
     <Script file="NativeInterface\BagSort_Forever.lua"/>
+    <Script file="NativeInterface\ProfessionsIcon_Forever.lua"/>
+    <Script file="NativeInterface\RaidManager_Forever.lua"/>
+    <Script file="NativeInterface\QuestLootSparkles_Forever.lua"/>
+    <Script file="NativeInterface\TooltipFade.lua"/>
     <Script file="NativeInterface\Runtime.lua"/>
     <Script file="EditMode\EditMode.lua"/>
     <Script file="EditMode\EditMode_Forever.lua"/>
@@ -21,10 +25,12 @@
     <Include file="UtilityTools\Locales\!load.xml"/>
     <Script file="UtilityTools\FriendlyNameplates.lua"/>
     <Script file="UtilityTools\NameplateOutline.lua"/>
+    <Script file="UtilityTools\RouteGuide.lua"/>
     <Script file="UtilityTools\UtilityTools.lua"/>
     <Include file="MouseEnhancement\Locales\!load.xml"/>
     <Script file="MouseEnhancement\PlayerTooltip.lua"/>
     <Script file="MouseEnhancement\TooltipCursor.lua"/>
+    <Script file="MouseEnhancement\TooltipFade.lua"/>
     <Script file="MouseEnhancement\MouseEnhancement.lua"/>
     <Include file="SocialEnhancement\Locales\!load.xml"/>
     <Script file="SocialEnhancement\SocialEnhancement.lua"/>

@@ -273,8 +273,6 @@ local function IsRoutineImportError(code)
     return code == "profile_name_required"
         or code == "profile_exists"
         or code == "combat_lockdown"
-        or code == "stale_preview"
-        or code == "profile_changed"
 end
 
 local function ImportErrorText(frame, code, phase, diagnostic)
@@ -294,7 +292,7 @@ local function ImportErrorText(frame, code, phase, diagnostic)
         and type(diagnostic) ~= "table" then
         return T("settings.config_transfer.error.profile_unavailable", "无法创建或切换配置。")
     end
-    if code == "stale_preview" or code == "profile_changed" then
+    if (code == "stale_preview" or code == "profile_changed") and type(diagnostic) ~= "table" then
         return T("settings.config_transfer.error.state_changed", "配置已变化，请重新导入。")
     end
     if phase == "parse" then
@@ -319,6 +317,13 @@ local function ImportErrorText(frame, code, phase, diagnostic)
                 diagnosticPhase,
                 moduleText,
                 tostring(code or "-")
+            )
+        end
+        if diagnostic.writesStarted == false then
+            return T(
+                "settings.config_transfer.error.diagnostic_unchanged",
+                "导入已停止（%s；%s；错误码：%s），尚未写入配置。",
+                diagnosticPhase, moduleText, tostring(code or "-")
             )
         end
         return T(
@@ -358,6 +363,15 @@ local function PrintImportDiagnostic(frame, code, phase, diagnostic)
             DiagnosticReason(diagnostic.originalReason)
         )
     end
+    if diagnostic.changedField then
+        text = text .. T("settings.config_transfer.error.diagnostic_field", "；变化字段=%s",
+            DiagnosticReason(diagnostic.changedField))
+    end
+    local outcome = diagnostic.rollbackRestored == true and T("settings.config_transfer.outcome.restored", "已恢复")
+        or diagnostic.rollbackRestored == false and T("settings.config_transfer.outcome.incomplete", "恢复不完整")
+        or diagnostic.writesStarted == false and T("settings.config_transfer.outcome.unchanged", "尚未写入")
+        or T("settings.config_transfer.outcome.unknown", "未执行回滚")
+    text = text .. T("settings.config_transfer.error.diagnostic_outcome", "；恢复结果=%s", outcome)
     YUI:Print(text)
 end
 
@@ -934,6 +948,8 @@ local function CompletePackageImport(frame, ok, detail, diagnostic, phase)
     frame:Hide()
     if detail.requiresReload then
         ShowImportReloadPrompt()
+    elseif type(detail.showCompletion) == "function" and detail.showCompletion() == true then
+        return
     else
         ShowImportCompletePrompt(detail.moduleCount)
     end
@@ -955,6 +971,11 @@ local function StartDefaultPackageImport(parsed, moduleIds, owner, context, call
         if handle.timer and handle.timer.Cancel then handle.timer:Cancel() end
         handle.timer = nil
         handle.prepareJob = nil
+        handle.prepared = nil
+        if handle.importSession then
+            Transfer:EndImportSession(handle.importSession)
+            handle.importSession = nil
+        end
         local callback = callbacks.onComplete
         callbacks = {}
         if type(callback) == "function" then
@@ -962,14 +983,25 @@ local function StartDefaultPackageImport(parsed, moduleIds, owner, context, call
         end
     end
 
+    local function RunProtected(callback, ...)
+        local called, reason = pcall(callback, ...)
+        if not called then
+            local phase = handle.state == "committing" and "commit" or "prepare"
+            local diagnostic = { phase = phase, reason = reason }
+            if phase == "commit" then diagnostic.rollbackRestored = false
+            else diagnostic.writesStarted = false end
+            Finish(nil, "import_failed", diagnostic, phase)
+        end
+    end
+
     local function Schedule(callback)
         if C_Timer and C_Timer.NewTimer then
             handle.timer = C_Timer.NewTimer(0, function()
                 handle.timer = nil
-                if not handle.finished then callback() end
+                if not handle.finished then RunProtected(callback) end
             end)
         else
-            callback()
+            RunProtected(callback)
         end
     end
 
@@ -1010,25 +1042,45 @@ local function StartDefaultPackageImport(parsed, moduleIds, owner, context, call
         self.finished = true
         self.prepareJob = nil
         self.prepared = nil
+        if self.importSession then
+            Transfer:EndImportSession(self.importSession)
+            self.importSession = nil
+        end
         callbacks = {}
         return true
     end
 
-    if type(Transfer.StartPrepareImport) == "function" then
-        handle.prepareJob = Transfer:StartPrepareImport(
-            parsed,
-            moduleIds,
-            context,
-            {
-                onProgress = EmitProgress,
-                onComplete = Prepared,
-            }
-        )
-    else
-        Schedule(function()
-            Prepared(Transfer:PrepareImport(parsed, moduleIds, context))
-        end)
+    if Transfer.BeginImportSession then
+        local code
+        handle.importSession, code = Transfer:BeginImportSession(moduleIds)
+        if not handle.importSession then
+            Finish(nil, code, { phase = "prepare", reason = code, writesStarted = false }, "prepare")
+            return handle
+        end
     end
+    local function StartPrepare()
+        if type(Transfer.StartPrepareImport) == "function" then
+            local job = Transfer:StartPrepareImport(
+                parsed,
+                moduleIds,
+                context,
+                {
+                    onProgress = EmitProgress,
+                    onComplete = function(...) RunProtected(Prepared, ...) end,
+                }
+            )
+            if handle.finished then
+                if job and job.Cancel then job:Cancel() end
+            else
+                handle.prepareJob = job
+            end
+        else
+            Schedule(function()
+                Prepared(Transfer:PrepareImport(parsed, moduleIds, context))
+            end)
+        end
+    end
+    RunProtected(StartPrepare)
     return handle
 end
 

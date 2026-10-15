@@ -99,6 +99,8 @@ YUI.Locale:Register("ExperienceBar", "zhCN", {
     ["setting.barColor"] = "进度条文字颜色",
     ["setting.detailSize"] = "详情字号",
     ["setting.detailColor"] = "详情文字颜色",
+    ["setting.detailBackgroundAlpha"] = "信息背景透明度",
+    ["setting.detailBackgroundAlpha.tooltip"] = "0 为完全透明，1 为完全不透明。只影响信息面板背景。",
     ["time.minutes"] = "%d分",
     ["time.hoursMinutes"] = "%d小时%02d分",
     ["setting.showRested"] = "显示双倍经验区段",

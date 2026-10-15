@@ -1,6 +1,36 @@
 -- Generated from Docs/Products/YUI_AuctionHelper/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("auction_helper", {
+-- YUI-Notes-Record: yah-121|mainline|7a4723d755be13fe2b3c0df99ff7eeae0f46e1ab73cdce56df88cce9fe626598
+    {
+        version = "yah-121",
+        date = "2026-10-15",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "修复 12.1.5 下的物品数量读取兼容问题。",
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Fixed item count compatibility with 12.1.5.",
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yah-120|mainline|9860266b5c5e1eb5e655ca6c6f99565825f6b3c3e34cc6a6f98e219150856e6d
+    {
+        version = "yah-120",
+        date = "2026-10-12",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: yah-119|mainline|d4ab158813ed1798aa856f3b7baaf5231bc31a785f6659bb4ff1827dd6a6949a
     {
         version = "yah-119",
@@ -118,22 +148,6 @@ CL:Register("auction_helper", {
             },
             enUS = {
                 "Updated embedded Core fixes for compatibility with the latest Nova and Orbit releases. Please update all installed YUI addons together.",
-            },
-        },
-    },
--- YUI-Notes-Record: yah-111|mainline|521f569517d5aa553f0a43aab7f9576d8cba9bc584935411ebe2b3bbe179a357
-    {
-        version = "yah-111",
-        date = "2026-09-18",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "内嵌运行时更新至 YUI Core 13，适配新版 Nova 与 Orbit。",
-                "与 Nova 或完整 YUI 同时启用时，自动由对应载体提供购物助手，单体副本停止加载。",
-            },
-            enUS = {
-                "Updated the embedded runtime to YUI Core 13 for compatibility with the latest Nova and Orbit releases.",
-                "When Nova or the full YUI suite is enabled, its Auction Helper takes priority and the standalone copy stops loading automatically.",
             },
         },
     },

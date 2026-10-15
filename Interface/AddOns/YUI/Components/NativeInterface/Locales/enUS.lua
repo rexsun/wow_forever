@@ -3,6 +3,10 @@ local YUI = _G.YUI
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("enUS") then return end
 
 YUI.Locale:Register("NativeInterface", "enUS", {
+    ["hide.raid_manager"] = "Hide Group Management Panel",
+    ["hide.raid_manager.tooltip"] = "Hide the left-side group management panel and its collapse arrows. Party and raid health frames remain unchanged. Turning this off restores native visibility; changes during combat wait until combat ends.",
+    ["quest.sparkles"] = "Show Quest Object Sparkles",
+    ["quest.sparkles.tooltip"] = "Keep native loot sparkles on quest objects by turning off outline mode in both normal and raid graphics settings. Reapply after graphics changes; changes during combat wait until combat ends.\n\nTurning this off restores your original settings. Fully restart the game if sparkles remain. /reload is not enough.",
     ["bags.visibility"] = "Bag bar visibility",
     ["bags.visibility.auto"] = "Auto hide",
     ["bags.visibility.hide"] = "Always hide",
@@ -10,6 +14,8 @@ YUI.Locale:Register("NativeInterface", "enUS", {
     ["bags.visibility.tooltip"] = "Auto hide shows the bag bar while a carried bag is open. Always hide keeps it hidden. Always show follows native visibility and other UI owners.",
     ["beta.fix_bag_sort"] = "Fix bag sort button overlap",
     ["beta.fix_bag_sort.tooltip"] = "Detect and hide an overlapping gamepad icon in the keyboard and mouse interface. Only applies when the overlap is confirmed.",
+    ["beta.fix_professions_icon"] = "Fix crafting output icon artifacts",
+    ["beta.fix_professions_icon.tooltip"] = "Fix border and mouse highlight artifacts on common-quality output icons in the crafting window. Disabling restores native textures. Changes made in combat apply after combat.",
     ["windows.title"] = "Window Movement and Scaling",
     ["windows.enabled"] = "Enable",
     ["windows.require_shift"] = "Hold Shift to Drag",

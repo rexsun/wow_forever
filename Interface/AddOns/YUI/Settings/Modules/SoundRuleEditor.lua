@@ -127,11 +127,17 @@ local function Summary(parent,styled)
 end
 local function VoiceButton(parent,click,width)
     return Form:CreateButton(parent,{text=T('chooseVoice'),width=width or 300,height=54,tone='default',
-        icon=134400,iconSize=28,preserveIconColor=true,contentAlign='left',iconGap=12,onClick=click})
+        icon=GUI:GetSettingsIcon('sound'),iconSize=28,crop=false,preserveIconColor=true,contentAlign='left',iconGap=12,onClick=click})
 end
 local function VoicePicker(dialog,field)
     local rule=dialog.edit.rule
-    GUI.VoicePicker:Open(Center:GetModalParent(),{current=rule.sound[field],
+    local name=YUI.Sound.EditorModel:ObjectInfo(rule.object,rule.trigger.extension,DisplaySpec(dialog))
+    local names={name}
+    local presentation=YUI.Sound.EditorModel.PresetPresentation
+    local preset=presentation and presentation[rule.trigger.extension]
+    local spell=YUI.API and YUI.API.Spell
+    if preset and spell and spell.GetName then names[#names+1]=spell.GetName(preset.tooltipSpellID) end
+    GUI.VoicePicker:Open(Center:GetModalParent(),{current=rule.sound[field],matchNames=names,
         onSelect=function(id)
             if dialog.edit then
                 local selected=dialog.edit.rule.sound
@@ -919,7 +925,13 @@ function Center:OpenEditor(index,category,spec)
             introDuration:SetDisabled(locked)
         end
         for _,entry in ipairs({{chooseVoice,value.value},{intro,value.value},{ending,value.ending}}) do
-            if entry[1].icon then entry[1].icon:SetTexture(sound.entries[entry[2]] and sound.entries[entry[2]].icon or 134400) end
+            if entry[1].icon then
+                local icon=sound:GetEntryIcon(entry[2])
+                if not icon or sound:GetIconText(icon) then icon=GUI:GetSettingsIcon('sound') end
+                entry[1].icon:SetTexture(icon)
+                if type(icon)=='number' then entry[1].icon:SetTexCoord(.08,.92,.08,.92)
+                else entry[1].icon:SetTexCoord(0,1,0,1) end
+            end
         end
         timeline:SetShown(forecast); timeline:SetWidth(self:GetWidth()-70)
         if forecast then

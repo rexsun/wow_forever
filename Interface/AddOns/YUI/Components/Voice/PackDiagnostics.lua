@@ -27,7 +27,7 @@ function S:GetVoicePackReport(packId,client)
     local rejected=self.rejectedVoicePacks and self.rejectedVoicePacks[packId]
     local report={packId=packId,client=client,registered=pack~=nil,reason=rejected and rejected.code,
         info=self:GetVoicePackInfo(packId),missing={},outside={},newEntries={},unknown={},removed={},
-        targetCount=0,mappedCount=0,checkedFileCount=0,files={},manifest=pack and pack.manifest}
+        targetCount=0,mappedCount=0,specialCount=0,checkedFileCount=0,files={},manifest=pack and pack.manifest}
     if not pack then return report end
     local manifest=pack.manifest
     report.supported=not pack.clients or pack.clients[client]==true
@@ -54,6 +54,13 @@ function S:GetVoicePackReport(packId,client)
     for id in pairs(pack.entries) do
         if not self.entries[id] then report.unknown[#report.unknown+1]=Row(id) end
     end
+    if report.supported then
+        for id,entry in pairs(pack.specialEntries or {}) do
+            local reference=self:SpecialVoiceReference(packId,id)
+            report.specialCount=report.specialCount+1
+            report.files[#report.files+1]={id=reference,name=self:GetEntryLabel(reference),file=entry.file,duration=entry.duration}
+        end
+    end
     if manifest then
         for id,file in pairs(manifest.expectedEntries) do
             if not self.entries[id] then report.removed[#report.removed+1]=Row(id,file) end
@@ -72,6 +79,7 @@ function D:Format(report)
         T('registration',report.registered and T('registered') or report.reason or T('notRegistered'))}
     if report.registered then
         lines[#lines+1]=T('coverage',report.mappedCount,report.targetCount,#report.missing,#report.outside)
+        if report.specialCount>0 then lines[#lines+1]=T('special',report.specialCount) end
         if report.supported==false then lines[#lines+1]=T('unsupported') end
         if report.manifest then
             lines[#lines+1]=T('catalog',report.manifest.catalogVersion,S.voiceCatalogVersion or '-')
@@ -95,9 +103,14 @@ end
 local function Print(message)
     if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then DEFAULT_CHAT_FRAME:AddMessage(message) end
 end
-local function FindEntry(value)
+local function FindEntry(value,packId)
     if S.entries[value] then return value end
     for id,file in pairs(S.voiceRecordingNames or {}) do if file==value then return id end end
+    if S:ParseSpecialVoice(value) then return value end
+    local pack=S.voicePacks[packId]
+    for id,entry in pairs(pack and pack.specialEntries or {}) do
+        if id==value or entry.file:match('([^\\/]+)$')==value then return S:SpecialVoiceReference(packId,id) end
+    end
 end
 
 function D:Command(message)
@@ -119,12 +132,12 @@ function D:Command(message)
         local packId=args[2] or selected
         local ok,code
         if command=='play' then
-            local id=FindEntry(args[3] or '')
+            local id=FindEntry(args[3] or '',packId)
             if id and S.PreviewVoicePackEntry then ok,code=S:PreviewVoicePackEntry(packId,id)
             else code='unknown-entry' end
         elseif S.PreviewVoicePackForecast then
-            local intro=FindEntry(args[3] or 'arcane_soul_prepare.ogg')
-            local ending=FindEntry(args[4] or 'arcane_soul.ogg')
+            local intro=FindEntry(args[3] or 'arcane_soul_prepare.ogg',packId)
+            local ending=FindEntry(args[4] or 'arcane_soul.ogg',packId)
             local count=args[5] and tonumber(args[5]) or 3
             if args[5] and not tonumber(args[5]) then code='invalid-forecast-count'
             elseif intro and ending then ok,code=S:PreviewVoicePackForecast(packId,intro,ending,count)

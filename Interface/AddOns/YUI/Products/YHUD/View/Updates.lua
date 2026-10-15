@@ -575,10 +575,11 @@ function View:UpdateMonitor(monitorId, state)
                     or (state and state.available == true)))
     end
     local resourceVisibilitySuppressed = false
+    local playerCast = monitor._yhudResource and monitor._yhudResource.id == "cast"
     if state and state.sourceKind == "ammo" and state.nameKey == "monitor.ammo.unsupported" then
         visible = false
     end
-    if visible and runtime.view == "resource" and not self.preview
+    if visible and runtime.view == "resource" and not self.preview and not playerCast
         and state and state.secret ~= true
         and type(state.value) == "number" and state.value <= 0 then
         local mode = monitor.resourceVisibilityMode
@@ -623,7 +624,13 @@ function View:UpdateMonitor(monitorId, state)
     end
 
     local slot, acquired = self:AcquireSlot(monitorId, runtime)
-    if not slot then return false, monitor.groupId end
+    if not slot then
+        if playerCast and YHUD.PlayerBars then
+            YHUD.PlayerBars.renderFailed = true
+            YHUD.PlayerBars:SyncNativeSuppression(nil)
+        end
+        return false, monitor.groupId
+    end
     slot._yhudLayoutParticipating =
         monitor._yhudEquipmentTriggerKind == "active-timer"
             and true or nil
@@ -644,6 +651,10 @@ function View:UpdateMonitor(monitorId, state)
             AddViewWrite(false)
         end
         ApplyResourceStructuralMax(slot, state)
+        if playerCast and I.UpdatePlayerCast then
+            I.UpdatePlayerCast(slot, state, self.preview or self.designMode or self.layoutEditMode)
+            return acquired, monitor.groupId
+        end
 
         local curveMaximum = state and (state.structuralMax or state.publicMaxValue)
         if curveMaximum ~= slot._yhudResourceCurveMax and I.RefreshResourceColorCurve then
@@ -653,7 +664,11 @@ function View:UpdateMonitor(monitorId, state)
         local unitAPI = YUI.API and YUI.API.Unit
         if state and state.secret == true and state.rawValuesAvailable == true
             and slot._yhudResourceColorCurve and unitAPI and unitAPI.ReadPowerColor then
-            colorRaw = unitAPI.ReadPowerColor("player", preset.powerType, slot._yhudResourceColorCurve)
+            if preset.provider and preset.provider.kind == "unit-health" then
+                colorRaw = unitAPI.ReadHealthColor and unitAPI.ReadHealthColor("player", slot._yhudResourceColorCurve)
+            else
+                colorRaw = unitAPI.ReadPowerColor("player", preset.powerType, slot._yhudResourceColorCurve)
+            end
         end
 
         local applied = false

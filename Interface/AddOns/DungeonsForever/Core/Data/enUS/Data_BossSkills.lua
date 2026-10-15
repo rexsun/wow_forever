@@ -12,6 +12,15 @@ if (type(GetLocale) ~= "function") or GetLocale() ~= "enUS" then return end
 local _, ns = ...
 
 ns.BossSkills = {
+    onyxias_lair = {
+        ["Onyxia"] = {
+            { "", "", 15847, "inv_misc_monsterscales_05" },
+            { "", "", 18500, "inv_misc_monsterscales_14" },
+            { "", "", 18392, "spell_fire_flamebolt" },
+            { "", "", 17086, "spell_fire_fire" },
+            { "", "", 14100, "ability_devour" },
+        },
+    },
     hall_of_thanes = {
         ["Faldrim Anvilmar"] = {
             { "", "", 26048, "spell_shadow_unholyfrenzy" },

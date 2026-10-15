@@ -144,18 +144,13 @@ local function MakePager(parent, right)
     return bt
 end
 
-local function MenuHost()
-    if UI.menuFrame then return UI.menuFrame end
-    if not (ns.LibBG and ns.LibBG.Create_UIDropDownMenu) then return nil end
-    UI.menuFrame = ns.LibBG:Create_UIDropDownMenu(nil, UIParent)
-    return UI.menuFrame
-end
-
 local function OpenMenu(anchor, menu)
-    local host = MenuHost()
-    if host and ns.LibBG and ns.LibBG.EasyMenu then
-        ns.LibBG:EasyMenu(menu, host, "cursor", 0, 0, "MENU")
+    local items = {}
+    for i = 1, #menu do
+        local m = menu[i]
+        items[#items + 1] = { text = m.text, icon = m.icon, color = m.colorCode, func = m.func }
     end
+    ns.hui.ShowMenu(items, { owner = anchor })
 end
 
 local function SchemeActionMenu(idx)

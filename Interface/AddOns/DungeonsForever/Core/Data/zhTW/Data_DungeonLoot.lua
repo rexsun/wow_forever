@@ -10,6 +10,30 @@ if gl ~= 'zhTW' then return end
 
 local _, ns = ...
 ns.DungeonLoot = {
+    ["onyxias_lair"] = {
+        { "Onyxia", "奧妮克希亞", "", "10184", {
+            { 18423, 100, false },
+            { 17966, 100, false },
+            { 18705, nil, false },
+            { 15410, nil, false },
+            { 16908, nil, false },
+            { 16939, nil, false },
+            { 16921, nil, false },
+            { 16963, nil, false },
+            { 16947, nil, false },
+            { 16955, nil, false },
+            { 16929, nil, false },
+            { 16914, nil, false },
+            { 16900, nil, false },
+            { 17068, nil, false },
+            { 17075, nil, false },
+            { 17067, nil, false },
+            { 18205, nil, false },
+            { 18813, nil, false },
+            { 17078, nil, false },
+            { 17064, nil, false },
+        } },
+    },
     ["hall_of_thanes"] = {
         { "Faldrim Anvilmar", "法德林·安威瑪爾", "", "261306", {
             { 270227, nil, true },
@@ -567,6 +591,10 @@ ns.DungeonLoot = {
             { 273052, 24, true },
             { 273103, 6.4, true },
         } },
+        { "Trash mobs", "小怪", "副本內任意敵人", "", {
+            { 276160, nil, true },
+            { 276158, nil, true },
+        } },
     },
     ["gnomeregan"] = {
         { "Techbot", "科技機器人", "26 級", "7288", {
@@ -759,6 +787,8 @@ ns.DungeonLoot = {
             { 252822, nil, true },
             { 252455, nil, true },
             { 252513, nil, true },
+            { 252456, nil, true },
+            { 252514, nil, true },
         } },
         { "Azshir the Sleepless", "永醒的艾希爾", "稀有", "5534", {
             { 7709, 31, false },
@@ -767,6 +797,7 @@ ns.DungeonLoot = {
 
             { 7731, 34, false },
             { 252512, nil, true },
+            { 252456, nil, true },
         } },
         { "Fallen Champion", "死靈勇士", "稀有", "5230", {
             { 7691, 39, false },
@@ -775,6 +806,7 @@ ns.DungeonLoot = {
 
             { 7689, 18, false },
             { 252820, nil, true },
+            { 252456, nil, true },
         } },
         { "Ironspine", "鐵脊死靈", "稀有", "5231", {
             { 7688, 33, false },
@@ -795,6 +827,7 @@ ns.DungeonLoot = {
 
             { 252822, nil, true },
             { 252513, nil, true },
+            { 252514, nil, true },
         } },
         { "Scorn", "瑟克恩", "稀有 · 34 級", "14693", {
             { 23169, 38, false },
@@ -840,6 +873,7 @@ ns.DungeonLoot = {
 
             { 3456, 25, false },
             { 274292, nil, true },
+            { 252512, nil, true },
         } },
         { "Arcanist Doan", "奧法師杜安", "", "6487", {
             { 7714, 47, false },

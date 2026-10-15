@@ -107,11 +107,18 @@ local hookedLandingButtons = setmetatable({}, { __mode = "k" })
 local seenCandidates = setmetatable({}, { __mode = "k" })
 local ignoredObjects = setmetatable({}, { __mode = "k" })
 local allowedParents = setmetatable({}, { __mode = "k" })
+local registeredLaunchers = setmetatable({}, { __mode = "k" })
 ButtonDrawer.hookedLayeredLogoButtons = ButtonDrawer.hookedLayeredLogoButtons
     or setmetatable({}, { __mode = "k" })
 
 local externalButtons = {}
 local slotFrames = {}
+local mapPinRegistries = {}
+local discoveredMapPinRegistries = {}
+local MAP_PIN_LIBRARIES = {
+    "HereBeDragons-Pins-2.0",
+    "HereBeDragonsQuestie-Pins-2.0",
+}
 local buttonWriteGuard = false
 local landingRefreshGuard = false
 local nativeLandingRefreshRequested = false
@@ -130,6 +137,7 @@ local stats = {
     compartmentEntries = 0,
     skippedCandidates = 0,
     ownershipLosses = 0,
+    mapPinDiscoveryFailures = 0,
     panelShown = false,
     transitionState = "parked",
     animationActive = false,
@@ -1133,9 +1141,64 @@ local function AddIgnoredObject(object)
     if object then ignoredObjects[object] = true end
 end
 
+local function CollectMapPinRegistries(libStub)
+    for libraryIndex = 1, #MAP_PIN_LIBRARIES do
+        local library = libStub(MAP_PIN_LIBRARIES[libraryIndex], true)
+        if type(library) == "table" then
+            local registry = rawget(library, "minimapPins")
+            if type(registry) == "table"
+                and type(rawget(library, "AddMinimapIconWorld")) == "function"
+                and type(rawget(library, "RemoveMinimapIcon")) == "function"
+            then
+                local duplicate = false
+                for index = 1, #discoveredMapPinRegistries do
+                    if rawequal(discoveredMapPinRegistries[index], registry) then
+                        duplicate = true
+                        break
+                    end
+                end
+                if not duplicate then
+                    discoveredMapPinRegistries[#discoveredMapPinRegistries + 1] = registry
+                end
+            end
+        end
+    end
+end
+
+local function RefreshMapPinRegistries()
+    ClearTable(discoveredMapPinRegistries)
+    local libStub = _G.LibStub
+    if not libStub then
+        ClearTable(mapPinRegistries)
+        return
+    end
+
+    -- 整次读取成功后才替换引用，避免异常留下半份识别结果。
+    if pcall(CollectMapPinRegistries, libStub) then
+        mapPinRegistries, discoveredMapPinRegistries = discoveredMapPinRegistries, mapPinRegistries
+    else
+        stats.mapPinDiscoveryFailures = stats.mapPinDiscoveryFailures + 1
+    end
+    ClearTable(discoveredMapPinRegistries)
+end
+
+local function RefreshRegisteredLaunchers()
+    ClearTable(registeredLaunchers)
+    local library = GetLibDBIcon()
+    local objects = library and rawget(library, "objects")
+    if type(objects) ~= "table" then return end
+    for _, button in next, objects do
+        if type(button) == "table" or type(button) == "userdata" then
+            registeredLaunchers[button] = true
+        end
+    end
+end
+
 local function RebuildDiscoveryBoundaries()
     ClearTable(allowedParents)
     ClearTable(ignoredObjects)
+    RefreshRegisteredLaunchers()
+    RefreshMapPinRegistries()
 
     local minimap = _G.Minimap
     local cluster = _G.MinimapCluster
@@ -1197,6 +1260,42 @@ local function IsIgnoredName(name, button)
     return false
 end
 
+local function IsIgnoredButton(button, name)
+    if not button or ignoredObjects[button] then return true end
+    -- 已确认的入口只豁免新增的图钉规则，原有安全和名称排除继续生效。
+    local icons = YUI.MinimapIcon and YUI.MinimapIcon.buttons
+    local snapshot = snapshots[button]
+    local isLauncher = registeredLaunchers[button]
+        or (icons and button.productId and icons[button.productId] == button)
+    if not isLauncher then
+        if snapshot and snapshot.mapPinExcluded == true then return true end
+        for index = 1, #mapPinRegistries do
+            if rawget(mapPinRegistries[index], button) ~= nil then return true end
+        end
+    end
+    if name == nil then
+        local _, value = CallMethod(button, "GetName")
+        name = value
+    end
+    if IsIgnoredName(name, button) then return true end
+    if isLauncher then
+        if snapshot then snapshot.mapPinExcluded = nil end
+        return false
+    end
+
+    -- 对象池暂时未登记时，仍只识别无限服中已核实的帧身份。
+    if YUI.IsForever and type(name) == "string" and type(button) == "table" then
+        local frameId = name:match("^QuestieFrame([1-9]%d*)$")
+        if frameId
+            and rawget(button, "frameId") == tonumber(frameId)
+            and rawequal(rawget(_G, name), button)
+        then
+            return true
+        end
+    end
+    return false
+end
+
 local function IsSafeCandidate(button, source, suppressNativeLanding)
     if not button or ignoredObjects[button] or captured[button] == ownershipToken then return false end
     if seenCandidates[button] then return false end
@@ -1210,7 +1309,7 @@ local function IsSafeCandidate(button, source, suppressNativeLanding)
     if ok and forbidden == true then return false end
 
     local _, name = CallMethod(button, "GetName")
-    if IsIgnoredName(name, button) then return false end
+    if IsIgnoredButton(button, name) then return false end
     if suppressNativeLanding and IsNativeLandingPageButton(button, name) then return false end
     if IsLandingPageButton(button, name) and ButtonDrawer:_IsExpansionEntryHidden() then return false end
     if source ~= "libdbicon" and (type(name) ~= "string" or name == "") then
@@ -1929,7 +2028,7 @@ function ButtonDrawer:_ReleaseIgnoredButtons()
         local button = externalButtons[index]
         local snapshot = snapshots[button]
         local _, name = CallMethod(button, "GetName")
-        if snapshot and IsIgnoredName(name, button) then
+        if snapshot and IsIgnoredButton(button, name) then
             local parent = GetFrameParent(button)
             if parent == panel then
                 if RestoreSnapshot(button, snapshot, true) then
@@ -1942,6 +2041,7 @@ function ButtonDrawer:_ReleaseIgnoredButtons()
                     SetSnapshotVisualApplied(snapshot, false)
                     captured[button] = nil
                     snapshot.yielded = true
+                    snapshot.mapPinExcluded = not IsIgnoredName(name, button)
                 end
                 changed = true
             elseif parent == snapshot.parent then
@@ -1982,7 +2082,10 @@ OnExternalParentChanged = function(button)
     if snapshot.yielded ~= true then return end
 
     if parent == panel then
-        if active and not (IsLandingEntrySnapshot(snapshot) and ButtonDrawer:_IsExpansionEntryHidden()) then
+        if active
+            and not IsIgnoredButton(button)
+            and not (IsLandingEntrySnapshot(snapshot) and ButtonDrawer:_IsExpansionEntryHidden())
+        then
             snapshot.yielded = false
             captured[button] = ownershipToken
             ApplySpecialVisual(button, snapshot)
@@ -2023,7 +2126,10 @@ local function OnRecovery()
         if snapshot and snapshot.yielded == true then
             local parent = GetFrameParent(button)
             if parent == panel then
-                if active and not (IsLandingEntrySnapshot(snapshot) and ButtonDrawer:_IsExpansionEntryHidden()) then
+                if active
+                    and not IsIgnoredButton(button)
+                    and not (IsLandingEntrySnapshot(snapshot) and ButtonDrawer:_IsExpansionEntryHidden())
+                then
                     snapshot.yielded = false
                     captured[button] = ownershipToken
                     ApplySpecialVisual(button, snapshot)
@@ -2136,6 +2242,7 @@ local function PruneLostButtons()
             elseif snapshot.yielded == true
                 and parent == panel
                 and active
+                and not IsIgnoredButton(button)
                 and not (IsLandingEntrySnapshot(snapshot) and ButtonDrawer:_IsExpansionEntryHidden())
             then
                 snapshot.yielded = false
@@ -3088,6 +3195,9 @@ function ButtonDrawer:SetSettingsPreview(enabled)
 end
 
 function ButtonDrawer:Disable()
+    ClearTable(registeredLaunchers)
+    ClearTable(mapPinRegistries)
+    ClearTable(discoveredMapPinRegistries)
     settingsPreviewActive = false
     settingsPreviewPanelWasShown = false
     stats.settingsPreviewActive = false
@@ -3150,6 +3260,8 @@ function ButtonDrawer:GetStats(target)
     target.buttonDrawerCompartmentEntries = stats.compartmentEntries
     target.buttonDrawerSkippedCandidates = stats.skippedCandidates
     target.buttonDrawerOwnershipLosses = stats.ownershipLosses
+    target.buttonDrawerMapPinRegistries = #mapPinRegistries
+    target.buttonDrawerMapPinDiscoveryFailures = stats.mapPinDiscoveryFailures
     target.buttonDrawerPanelShown = stats.panelShown
     target.buttonDrawerCompartmentHidden = stats.compartmentHidden
     target.drawerHoverCloseTimerActive = stats.drawerHoverCloseTimerActive

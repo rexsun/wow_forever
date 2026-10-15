@@ -23,6 +23,8 @@ YUI.Locale:Register("YMapMarkers", "zhTW", {
     ["tooltip.action.waypoint"] = "設定導航點",
     ["tooltip.action.choose"] = "選擇導航地點",
     ["tooltip.action.menu"] = "顯示與篩選",
+    ["tooltip.action.hide"] = "關閉標記",
+    ["tooltip.action.show"] = "顯示標記",
 
     ["tooltip.skill_rank"] = "技能等級：%s",
     ["tooltip.skill_unlearned"] = "未學習",

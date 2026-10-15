@@ -4362,6 +4362,11 @@ end
 local function BuildResourceOptions()
     local classFile, specID, formKey = Designer:GetResourcePreviewContext()
     local profile = Designer:GetProfile()
+    local session = Designer:GetSession()
+    if profile and session and profile.groups.items[session.selectedGroupId]
+        and profile.groups.items[session.selectedGroupId].contentPolicy == "cast-only" then
+        return { { text = T("resource.player_cast", "玩家施法条"), value = "cast" } }
+    end
     local options = {}
     local seen = {}
     local function Append(resourceId)
@@ -4386,6 +4391,9 @@ local function BuildResourceOptions()
         for index = 1, #ids do Append(ids[index]) end
     end
 
+    -- 通用玩家条固定在菜单顶部；不改变实际资源的混排顺序。
+    Append("health")
+    Append("cast")
     if formKey and ResourceCatalog and ResourceCatalog.GetFormPresets then
         local formPresets = ResourceCatalog:GetFormPresets(
             profile,
@@ -4956,6 +4964,164 @@ local function RestoreResourceGlobalStyle(scope)
     return RefreshResourceMutation(
         Designer:SetGroupResourceStyle(session.selectedGroupId, patch)
     )
+end
+
+function I.RefreshPlayerCastOptions(self, profile, group, page, y)
+    self.playerCastPages = self.playerCastPages or {}
+    local ui = self.playerCastPages[page]
+    if not ui then
+        ui = { controls = {} }
+        self.playerCastPages[page] = ui
+        local root = EnsureV2PageRoots(self)[page == "monitor" and "resourceMonitor" or page]
+        local function Keep(control)
+            ui.controls[#ui.controls + 1] = control
+            control:Hide()
+            return control
+        end
+        local function Patch(field, value, refreshControls)
+            if self.v2Refreshing then return end
+            local session = Designer:GetSession()
+            if not session then return end
+            local patch
+            if field == "textPosition" or field == "textOffsetX" or field == "textOffsetY" then
+                patch = { [field] = value }
+            else
+                local cast = YHUD:CopyValue(YHUD:GetResourceSetting(Designer:GetProfile(), "cast", session.selectedGroupId).cast)
+                if (field == "nameSize" or field == "progressSize") and value == false then cast[field] = nil
+                else cast[field] = value end
+                patch = { cast = cast }
+            end
+            local result = Designer:SetResourceSetting("cast", patch)
+            local size = field == "nameSize" or field == "progressSize"
+            if result and size then
+                ui.sizeGlobal:SetValue(value == false, true)
+            end
+            if not refreshControls and (field == "iconGap" or (size and value ~= false) or field:find("Offset", 1, true)) then
+                RefreshResourceSliderMutation(result, "cast")
+            else
+                RefreshResourceMutation(result)
+            end
+        end
+        local function Switch(field, key, fallback)
+            ui[field .. "Label"] = Keep(NewResourceLabel(root, key, fallback))
+            ui[field] = Keep(GUI2.Form:CreateSwitch(root, { width = SWITCH_WIDTH,
+                tooltip = field == "progress" and YUI.IsRetail and T("player_cast.progress_tip", "普通施法和引导显示剩余时间，蓄力显示阶段。") or nil,
+                set = function(value) Patch(field, value == true) end }))
+        end
+        if page == "monitor" then
+            ui.source = Keep(NewResourceLabel(root, "player_cast.source", "施法来源：玩家自身"))
+        elseif page == "appearance" then
+            ui.idleLabel = Keep(NewResourceLabel(root, "player_cast.idle", "未施法时"))
+            ui.idle = Keep(GUI2.Form:CreateDropdown(root, { width = COLUMN_WIDTH, options = {
+                { text = T("player_cast.reserve", "占位"), value = "reserve" },
+                { text = T("player_cast.collapse", "不占位"), value = "collapse" },
+            }, set = function(value) Patch("idle", value) end }))
+            Switch("icon", "player_cast.icon", "显示图标")
+            ui.iconSideLabel = Keep(NewResourceLabel(root, "player_cast.icon_side", "图标位置"))
+            ui.iconSide = Keep(GUI2.Form:CreateDropdown(root, { width = COLUMN_WIDTH, options = {
+                { text = T("player_cast.left", "左侧"), value = "left" }, { text = T("player_cast.right", "右侧"), value = "right" },
+            }, set = function(value) Patch("iconSide", value) end }))
+            ui.iconGapLabel = Keep(NewResourceLabel(root, "player_cast.icon_gap", "图标间距"))
+            ui.iconGap = Keep(CreateSlider(root, nil, 0, 12, 1, 0, function(value) Patch("iconGap", value) end, COLUMN_WIDTH))
+        else
+            ui.target = "name"
+            local function Prefix() return ui.target == "name" and "name" or "text" end
+            local function SizeField() return ui.target == "name" and "nameSize" or "progressSize" end
+            ui.targetPicker = Keep(GUI2.Form:CreateSegmentedControl(root, {
+                width = CONTENT_WIDTH - SWITCH_WIDTH - 12,
+                items = {
+                    { text = T("player_cast.name", "法术名称"), value = "name" },
+                    { text = T("player_cast.progress", "施法进度"), value = "progress" },
+                },
+                set = function(value)
+                    if self.v2Refreshing or ui.target == value then return end
+                    ui.target = value
+                    self:Refresh(false, false)
+                end,
+            }))
+            ui.enabledOptions = {
+                width = SWITCH_WIDTH,
+                tooltip = T("player_cast.name", "法术名称"),
+                set = function(value) Patch(ui.target, value == true) end,
+            }
+            ui.enabled = Keep(GUI2.Form:CreateSwitch(root, ui.enabledOptions))
+            ui.positionLabel = Keep(NewResourceLabel(root, "designer.resource.position", "位置"))
+            ui.position = Keep(GUI2.Form:CreateDropdown(root, {
+                width = COLUMN_WIDTH, options = ResourcePositionOptions,
+                set = function(value) Patch(Prefix() .. "Position", value) end,
+            }))
+            ui.sizeLabel = Keep(NewResourceLabel(root, "designer.text.size", "字号"))
+            ui.size = Keep(CreateSlider(root, nil, 8, 32, 1, 12,
+                function(value) Patch(SizeField(), value) end, COLUMN_WIDTH))
+            ui.sizeGlobal = Keep(GUI2.Form:CreateCheckbox(root, {
+                width = 104, height = 20,
+                text = T("player_cast.follow_global", "跟随全局"),
+                tooltip = T("player_cast.name_size_reset", "跟随全局字号"),
+                set = function(value)
+                    if value == true then Patch(SizeField(), false, true)
+                    else Patch(SizeField(), ui.size:GetValue(), true) end
+                end,
+            }))
+            for _, axis in ipairs({ "X", "Y" }) do
+                ui["offset" .. axis .. "Label"] = Keep(NewResourceTextLabel(root,
+                    TC("common.offset_" .. axis:lower(), axis .. " 偏移")))
+                ui["offset" .. axis] = Keep(CreateSlider(root, nil, -64, 64, 1, 0,
+                    function(value) Patch(Prefix() .. "Offset" .. axis, value) end, COLUMN_WIDTH))
+            end
+        end
+    end
+    local setting = YHUD:GetResourceSetting(profile, "cast", group.id)
+    local cast = setting.cast
+    ShowControls(ui.controls)
+    local body = self.groupInspectorBody
+    if page == "monitor" then
+        ui.source:SetShown(group.contentPolicy == "cast-only")
+        if group.contentPolicy == "cast-only" then
+            Place(ui.source, body, 0, y, CONTENT_WIDTH)
+            y = y - 40
+        end
+        return y
+    elseif page == "appearance" then
+        PlaceResourceSwitch(ui.iconLabel, ui.icon, body, 0, y)
+        PlaceResourceField(ui.iconSideLabel, ui.iconSide, body, SECOND_COLUMN_X, y)
+        PlaceResourceField(ui.iconGapLabel, ui.iconGap, body, 0, y - 64)
+        ui.icon:SetValue(cast.icon, true)
+        ui.iconSide:SetValue(cast.iconSide, true)
+        ui.iconGap:SetValue(cast.iconGap, true)
+        SetDisabled(ui.iconSide, not cast.icon)
+        SetDisabled(ui.iconGap, not cast.icon)
+        return y - 128
+    else
+        local name = ui.target == "name"
+        local text, prefix = name and cast or setting, name and "name" or "text"
+        Place(ui.targetPicker, body, 0, y, CONTENT_WIDTH - SWITCH_WIDTH - 12)
+        Place(ui.enabled, body, CONTENT_WIDTH - SWITCH_WIDTH, y, SWITCH_WIDTH)
+        ui.targetPicker:SetValue(ui.target, true)
+        ui.enabled:SetValue(cast[ui.target], true)
+        ui.enabledOptions.tooltip = name and T("player_cast.name", "法术名称")
+            or (YUI.IsRetail and T("player_cast.progress_tip", "普通施法和引导显示剩余时间，蓄力显示阶段。")
+                or T("player_cast.progress", "施法进度"))
+        y = y - 40
+        PlaceResourceField(ui.positionLabel, ui.position, body, 0, y)
+        PlaceResourceField(ui.sizeLabel, ui.size, body, SECOND_COLUMN_X, y)
+        ui.sizeLabel:SetWidth(COLUMN_WIDTH - 112)
+        Place(ui.sizeGlobal, body, CONTENT_WIDTH - 104, y + 1, 104)
+        local style = YHUD:GetEffectiveResourceStyle(profile, group.id, "cast")
+        local size = cast[name and "nameSize" or "progressSize"]
+        ui.size:SetValue(size or style.textSize, true)
+        ui.sizeGlobal:SetValue(size == nil, true)
+        SetDisabled(ui.size, not cast[ui.target])
+        SetDisabled(ui.sizeGlobal, not cast[ui.target])
+        ui.position:SetValue(text[prefix .. "Position"] or (name and "start" or "end"), true)
+        SetDisabled(ui.position, not cast[ui.target])
+        for index, axis in ipairs({ "X", "Y" }) do
+            PlaceResourceField(ui["offset" .. axis .. "Label"], ui["offset" .. axis], body,
+                (index - 1) * SECOND_COLUMN_X, y - 64)
+            ui["offset" .. axis]:SetValue(text[prefix .. "Offset" .. axis] or 0, true)
+            SetDisabled(ui["offset" .. axis], not cast[ui.target])
+        end
+        return y - 128
+    end
 end
 
 local function BuildResourceEditors(self)
@@ -6579,6 +6745,7 @@ function DesignerUI:RefreshMonitorBrowser()
 end
 
 local function HideAllPageControls(self)
+    for _, page in pairs(self.playerCastPages or {}) do HideControls(page.controls) end
     HideControls(self.monitorStackThresholdControls)
     if self.visibilityRuleEditor and self.visibilityRuleEditor.ClosePanel then
         self.visibilityRuleEditor:ClosePanel()
@@ -6772,6 +6939,14 @@ end
 function I.RefreshResourceMonitorPage(self, profile, group)
     local body = self.groupInspectorBody
     body:Show()
+    if group.contentPolicy == "cast-only" then
+        HideControls(self.resourceBaseControls)
+        HideControls(self.resourcePresetRows)
+        SetShown(self.resourceEmptyGroupHint, false)
+        local bottom = I.RefreshPlayerCastOptions(self, profile, group, "monitor", -4)
+        SetV2InspectorScrollContentHeight(self, -bottom + 24)
+        return
+    end
     local contentBottom
     RefreshResourceCommonData(self, profile, group)
     ShowControls(self.resourceBaseControls)
@@ -7018,7 +7193,6 @@ local function RefreshLayoutPage(self, profile, group)
         FIELD_CONTROL_WIDTH
     )
     if group.layout == "resource" then
-        I.EnsureHandLayoutControls(self)
         local layout = YHUD:GetResourceGroupLayout(profile, group.id)
         self.resourceWidthModeDropdown:SetValue(layout.widthMode, true)
         sliders.resourceWidth:SetValue(layout.width, true)
@@ -7032,6 +7206,32 @@ local function RefreshLayoutPage(self, profile, group)
             layout.fillDirection,
             true
         )
+        if group.contentPolicy == "cast-only" then
+            HideControls(self.layoutModeControls)
+            HideControls(self.resourceLayoutControls)
+            HideControls(self.resourceHandControls)
+            ShowControls({ self.displayLayerLabel, self.displayLayerDropdown,
+                self.resourceWidthModeLabel, self.resourceWidthModeDropdown })
+            Place(self.displayLayerLabel, body, 0, -8, FIELD_LABEL_WIDTH)
+            Place(self.displayLayerDropdown, body, FIELD_LABEL_WIDTH, 0, FIELD_CONTROL_WIDTH)
+            Place(self.resourceWidthModeLabel, body, 0, -48, FIELD_LABEL_WIDTH)
+            Place(self.resourceWidthModeDropdown, body, FIELD_LABEL_WIDTH, -40, FIELD_CONTROL_WIDTH)
+            local widthSlider = layout.widthMode == "auto" and sliders.resourceMinWidth or sliders.resourceWidth
+            sliders.resourceWidth:Hide()
+            sliders.resourceMinWidth:Hide()
+            sliders.resourceSpacing:Hide()
+            Place(widthSlider, body, 0, -82)
+            Place(sliders.resourceHeight, body, 0, -122)
+            widthSlider:Show()
+            sliders.resourceHeight:Show()
+            ShowControls({ self.resourceLayoutControls[11], self.resourceLayoutControls[13],
+                self.resourceLayoutControls[12], self.resourceLayoutControls[14] })
+            PlaceResourceField(self.resourceLayoutControls[11], self.resourceLayoutControls[13], body, 0, -176)
+            PlaceResourceField(self.resourceLayoutControls[12], self.resourceLayoutControls[14], body, SECOND_COLUMN_X, -176)
+            SetV2InspectorScrollContentHeight(self, 252)
+            return
+        end
+        I.EnsureHandLayoutControls(self)
         Place(self.resourceWidthModeLabel, body, 0, -88, FIELD_LABEL_WIDTH)
         Place(
             self.resourceWidthModeDropdown,
@@ -7199,7 +7399,16 @@ local function EnsureResourceStyleSelection(self, profile)
     for index = 1, #options do
         if options[index].value == selected then found = true break end
     end
-    if not found then selected = options[1] and options[1].value or nil end
+    if not found then
+        selected = options[1] and options[1].value or nil
+        -- Menu pinning must not change the initial item chosen for a spec.
+        -- Ordinary resources already follow current form/spec priority below
+        -- the two common player bars.
+        for index = 1, #options do
+            local id = options[index].value
+            if id ~= "health" and id ~= "cast" then selected = id break end
+        end
+    end
     self.resourceStyleResourceId = selected
     return selected, selected and YHUD:GetResourceSetting(profile, selected, Designer:GetSession().selectedGroupId) or nil
 end
@@ -7338,6 +7547,55 @@ local function RefreshResourceAppearancePage(self, profile, group)
     ui.thresholdColorEnabledLabel:SetText(T("designer.resource.threshold_color_enabled", "阈值变色"))
     local style = YHUD:GetResourceGroupStyle(profile, group.id)
     local resourceId, setting = EnsureResourceStyleSelection(self, profile)
+    if resourceId == "cast" then
+        ui.fillColorLabel:SetText(T("player_cast.color", "普通施法颜色"))
+        local mixed = group.contentPolicy ~= "cast-only"
+        local y = mixed and -32 or -4
+        if mixed then PlaceSection(ui.globalDivider, body, -4) end
+        local global = self.resourceAppearanceControls
+        local rows = {
+            { global[1], global[3], global[2], global[4] },
+            { global[5], global[6], global[11], global[12] },
+        }
+        for _, row in ipairs(rows) do
+            ShowControls(row)
+            PlaceResourceField(row[1], row[2], body, 0, y)
+            PlaceResourceField(row[3], row[4], body, SECOND_COLUMN_X, y)
+            y = y - 64
+        end
+        self.resourceBorderDropdown:SetValue(style.border, true)
+        self.resourceBackgroundPicker:SetValue(style.backgroundColor, true)
+        self.resourceTextureDropdown:SetValue(style.fillTexture, true)
+        self.resourceBorderColorPicker:SetValue(style.borderColor, true)
+        if mixed then
+            PlaceSection(ui.itemDivider, body, y)
+            y = y - 28
+            ShowControls({ ui.resourceLabel, ui.resource })
+            PlaceResourceField(ui.resourceLabel, ui.resource, body, 0, y)
+            ui.resource:SetValue("cast", true)
+            y = y - 64
+        end
+        y = I.RefreshPlayerCastOptions(self, profile, group, "appearance", y)
+        ShowControls({ ui.fillColorLabel, ui.fillColor })
+        PlaceResourceField(ui.fillColorLabel, ui.fillColor, body, SECOND_COLUMN_X, y + 64)
+        ui.fillColor:SetValue(setting.fillColor, true)
+        if group.contentPolicy ~= "cast-only" then
+            ShowControls({ ui.heightOverrideLabel, ui.heightOverride, ui.heightLabel, ui.height })
+            PlaceResourceSwitch(ui.heightOverrideLabel, ui.heightOverride, body, 0, y)
+            PlaceResourceField(ui.heightLabel, ui.height, body, SECOND_COLUMN_X, y)
+            local heightOverridden = setting.heightOverride ~= nil
+            ui.heightOverride:SetValue(heightOverridden, true)
+            ui.height:SetValue(setting.heightOverride or YHUD:GetResourceGroupLayout(profile, group.id).height, true)
+            SetDisabled(ui.height, not heightOverridden)
+            y = y - 64
+        end
+        local castUI = self.playerCastPages.appearance
+        PlaceResourceField(castUI.idleLabel, castUI.idle, body, 0, y)
+        castUI.idle:SetValue(setting.cast.idle, true)
+        y = y - 64
+        SetV2InspectorScrollContentHeight(self, -y + 24)
+        return
+    end
     local override = setting and setting.appearanceOverride
     local effective = override or style
     self.resourceBorderDropdown:SetValue(style.border, true)
@@ -8166,6 +8424,39 @@ local function RefreshTextPage(self, profile, group)
     local body = self.groupInspectorBody
     body:Show()
     local editing = self.textEditorTarget ~= nil
+    if group.layout == "resource" then
+        local id = EnsureResourceStyleSelection(self, profile)
+        if id == "cast" then
+            local ui = self.resourceV2Text
+            local mixed = group.contentPolicy ~= "cast-only"
+            local y = mixed and -32 or -4
+            if mixed then PlaceSection(ui.globalDivider, body, -4) end
+            local style = YHUD:GetResourceGroupStyle(profile, group.id)
+            local controls = self.resourceTextControls
+            ShowControls({ controls[5], controls[7], controls[6], self.v2Sliders.resourceTextSize,
+                controls[9], controls[11], controls[10], controls[12] })
+            PlaceResourceField(controls[5], controls[7], body, 0, y)
+            PlaceResourceField(controls[9], controls[11], body, SECOND_COLUMN_X, y)
+            PlaceResourceField(controls[6], self.v2Sliders.resourceTextSize, body, 0, y - 64)
+            PlaceResourceField(controls[10], controls[12], body, SECOND_COLUMN_X, y - 64)
+            self.resourceFontDropdown:SetValue(style.textFont, true)
+            self.v2Sliders.resourceTextSize:SetValue(style.textSize, true)
+            self.resourceOutlineDropdown:SetValue(style.textOutline, true)
+            self.resourceTextColorPicker:SetValue(style.textColor, true)
+            y = y - 128
+            if mixed then
+                PlaceSection(ui.itemDivider, body, y)
+                y = y - 28
+                ShowControls({ ui.resourceLabel, ui.resource })
+                PlaceResourceField(ui.resourceLabel, ui.resource, body, 0, y)
+                ui.resource:SetValue("cast", true)
+                y = y - 64
+            end
+            y = I.RefreshPlayerCastOptions(self, profile, group, "text", y)
+            SetV2InspectorScrollContentHeight(self, -y + 24)
+            return
+        end
+    end
     if group.layout == "resource" then
         local style = YHUD:GetResourceGroupStyle(profile, group.id)
         self.textEditorTarget = nil

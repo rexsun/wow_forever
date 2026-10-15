@@ -10,13 +10,16 @@
     <Script file="Luxthos\Luxthos.lua"/>
     <Script file="WrathElvUI\ElvUI.lua"/>
     <Include file="UtilityTools\Locales\!load.xml"/>
+    <Script file="UtilityTools\RouteGuide.lua"/>
     <Script file="UtilityTools\UtilityTools.lua"/>
     <Script file="NativeInterface\NativeInterface.lua"/>
     <Script file="NativeInterface\Visibility.lua"/>
+    <Script file="NativeInterface\TooltipFade.lua"/>
     <Script file="NativeInterface\Runtime.lua"/>
     <Include file="MouseEnhancement\Locales\!load.xml"/>
     <Script file="MouseEnhancement\PlayerTooltip.lua"/>
     <Script file="MouseEnhancement\TooltipCursor.lua"/>
+    <Script file="MouseEnhancement\TooltipFade.lua"/>
     <Script file="MouseEnhancement\MouseEnhancement.lua"/>
     <!-- <Script file="MapPosition\MapPosition.lua"/> -->
     <Script file="GameMenuButtons\GameMenuButtons.lua"/>

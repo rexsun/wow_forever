@@ -447,8 +447,11 @@ function Service:RestoreIndependentSetImport(token)
     self.transactions[staged.provider.id] = staged.transaction
     staged.restored = true
     if staged.runtimeTouched then
+        local rollbackContext = Context.buildContext(staged.provider, 'rollback', {
+            database = staged.database, profileName = staged.name,
+        })
         local ok, code, detail = Context.restoreSnapshot(staged.provider, staged.snapshot,
-            staged.provider.scopeOrder, staged.context)
+            staged.provider.scopeOrder, rollbackContext)
         if not ok then return nil, 'rollback_failed', detail or code end
     end
     Context.emit('YUI_CONFIG_SETS_CHANGED', staged.provider.id, 'local-share-rollback')
@@ -464,18 +467,23 @@ function Service:CommitIndependentSetImport(token)
     local staged = additions[token]
     staged.profile[Migration.STORAGE_KEY].providers[staged.provider.id] = staged.nextCatalog
     staged.committed = true
+    local application
     if staged.report.runtimeChanged then
         staged.runtimeTouched = true
         local called, applied, why, detail = pcall(self.Apply, self, staged.provider.id,
-            staged.report.currentReference, token, { reason = 'local-share' })
+            staged.report.currentReference, token, {
+                reason = 'local-share', deferNativeCategoryReloadPrompt = true,
+            })
         if not called or not applied then
+            local reason = not called and applied or detail or why
             local restored, restoreCode = self:RestoreIndependentSetImport(token)
-            return nil, restored and 'apply_failed' or 'rollback_failed', detail or why or restoreCode
+            return nil, restored and 'apply_failed' or 'rollback_failed', reason or restoreCode
         end
+        application = applied
     end
     Context.emit('YUI_CONFIG_SETS_CHANGED', staged.provider.id, 'local-share')
     Context.emit('YUI_CONFIG_SET_ASSIGNMENTS_CHANGED', staged.provider.id)
-    return true
+    return true, application
 end
 
 Service.ProfileOwnership = Ownership

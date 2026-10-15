@@ -1,6 +1,7 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/">
 	<Script file="YBar.lua"/>
 	<Script file="Module.lua"/>
+	<Script file="DurabilityDisplay.lua"/>
 	<Script file="..\..\Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua"/>
 	<Script file="InfoModule_Mainline.lua"/>
 	<Script file="LocationAPI.lua"/>
@@ -13,6 +14,7 @@
 	<Script file="Modules\Teleports_Forever.lua"/>
 	<Script file="Modules\DurabilityMount_Forever.lua"/>
 	<Script file="Modules\Stats.lua"/>
+	<Script file="ClockRest.lua"/>
 	<Script file="Modules\Clock.lua"/>
 	<Script file="Modules\Currency.lua"/>
 	<Include file="..\..\Components\SystemMetrics\!load.xml"/>

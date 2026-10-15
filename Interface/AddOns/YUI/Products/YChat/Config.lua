@@ -207,8 +207,8 @@ end
 local function GetSharedMedia()
     if sharedMedia then return sharedMedia end
     local LibStub = _G.LibStub
-    if type(LibStub) ~= "function" then return nil end
-    local ok, media = pcall(LibStub, "LibSharedMedia-3.0", true)
+    if type(LibStub) ~= "table" or type(LibStub.GetLibrary) ~= "function" then return nil end
+    local ok, media = pcall(LibStub.GetLibrary, LibStub, "LibSharedMedia-3.0", true)
     if ok and type(media) == "table" then sharedMedia = media end
     return sharedMedia
 end

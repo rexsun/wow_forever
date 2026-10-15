@@ -1006,6 +1006,13 @@ end
 function CDMCatalog:RunPendingReconcile()
     if not self.active then return false end
     self.pendingTimer = nil
+    local transfer = YUI.Settings and YUI.Settings.ConfigTransfer
+    if transfer and transfer.IsImporting and transfer:IsImporting(YHUD.PRODUCT_ID) then
+        self.pendingImport = true
+        self.pendingReason = self.pendingReason or "native-settings"
+        return false
+    end
+    self.pendingImport = nil
     if InCombatLockdown and InCombatLockdown() then
         self.pendingCombat = true
         return false
@@ -1112,7 +1119,14 @@ function CDMCatalog:CancelPendingReconcile()
     self.pendingTimer = nil
     self.pendingReason = nil
     self.pendingCombat = false
+    self.pendingImport = nil
     return reason
+end
+
+function CDMCatalog:OnImportReleased()
+    if not self.active or not self.pendingImport then return end
+    self.pendingImport = nil
+    return self:RequestReconcile(self.pendingReason)
 end
 
 function CDMCatalog:OnNativeSettingsChanged()
@@ -1160,6 +1174,10 @@ function CDMCatalog:RegisterCallbacks()
         )
     end
     if YUI.Event and YUI.Event.On then
+        YUI.Event:On("YUI_CONFIG_TRANSFER_RELEASED", "OnImportReleased", self, {
+            moduleId = YHUD.PRODUCT_ID,
+            traceName = "YHUD.CDMCatalog.ImportReleased",
+        })
         YUI.Event:On(
             "PLAYER_SPECIALIZATION_CHANGED",
             "OnContextChanged",

@@ -12,6 +12,8 @@ local SUPPRESSION_LATE_ADDONS = {
     Blizzard_TutorialManager = true,
     Blizzard_Tutorials = true,
     Blizzard_SwingTimer = true,
+    Blizzard_UnitFrame = true,
+    Blizzard_UIPanels_Game = true,
 }
 
 local ELEMENTS = {
@@ -48,6 +50,13 @@ if YUI.IsForever == true then
             { "SwingTimerMainHandFrame", "SwingTimerOffHandFrame", "SwingTimerRangedFrame" },
         },
         restoreMethod = "UpdateShownState",
+    }
+end
+
+if YUI.IsRetail or YUI.IsForever then
+    ELEMENTS.playerCastBar = {
+        frameGroups = { { "PlayerCastingBarFrame" }, { "CastingBarFrame" } },
+        restoreMethod = "player-cast",
     }
 end
 
@@ -318,7 +327,7 @@ local function EnsureSuppressionLoadFrame()
     local frame = CreateFrame("Frame")
     frame:SetScript("OnEvent", function(_, event, addonName)
         if event ~= "ADDON_LOADED" or SUPPRESSION_LATE_ADDONS[addonName] ~= true then return end
-        if IsHelpTipSuppressionActive() or IsElementClaimed("swingTimers") then
+        if IsHelpTipSuppressionActive() or IsElementClaimed("swingTimers") or IsElementClaimed("playerCastBar") then
             BlizzardUI:Refresh("suppression-addon-loaded")
         end
     end)
@@ -514,7 +523,17 @@ local function RestoreFrame(frame)
     if not state then return true end
 
     local ok
-    if state.restoreMethod then
+    if state.restoreMethod == "player-cast" then
+        local unit = YUI.API and YUI.API.Unit
+        local info = unit and unit.GetCastInfo and unit.GetCastInfo("player")
+        if info then
+            local event = info.isEmpowered and "UNIT_SPELLCAST_EMPOWER_START"
+                or info.isChannel and "UNIT_SPELLCAST_CHANNEL_START" or "UNIT_SPELLCAST_START"
+            ok = SafeMethod(frame, "OnEvent", event, "player")
+        else
+            ok = SafeMethod(frame, "UpdateShownState", false)
+        end
+    elseif state.restoreMethod then
         -- Re-evaluate native CVars, weapon availability and visibility rules
         -- instead of restoring a snapshot taken before the suppression claim.
         ok = SafeMethod(frame, state.restoreMethod)
@@ -553,7 +572,7 @@ function BlizzardUI:Refresh()
         if not EnsureHelpTipHook() then failures = failures + 1 end
         if not SuppressHelpTips() then failures = failures + 1 end
     end
-    if not SetSuppressionLoadWatching(helpTipSuppressionActive or IsElementClaimed("swingTimers")) then
+    if not SetSuppressionLoadWatching(helpTipSuppressionActive or IsElementClaimed("swingTimers") or IsElementClaimed("playerCastBar")) then
         failures = failures + 1
     end
 

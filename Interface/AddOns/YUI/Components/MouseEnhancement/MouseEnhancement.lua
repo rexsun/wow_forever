@@ -168,6 +168,7 @@ local DEFAULTS = {
     playerTooltipModifier = MOD_SHIFT,
     tooltipIDEnabled = true,
     itemSpellIDEnabled = true,
+    tooltipInstantHide = true,
     tooltipCursorEnabled = false,
     tooltipCursorPosition = "TOPRIGHT",
     tooltipCursorOffsetX = 0,
@@ -324,10 +325,12 @@ local function NormalizeDB(db)
 end
 
 local function GetDB()
-    local db = Components:EnsureConfig(CONFIG_KEY, DEFAULTS, PRODUCT_ID)
+    local db, store = Components:EnsureConfig(CONFIG_KEY, nil, PRODUCT_ID)
     if type(db) ~= "table" then
         return DEFAULTS
     end
+    local tooltipFade = YUI._MouseEnhancementTooltipFade
+    if tooltipFade then tooltipFade.NormalizeConfig(db, store) end
     NormalizeDB(db)
     return db
 end
@@ -2522,13 +2525,19 @@ local function GetMotionScaleMaxOptions()
     }
 end
 
+function State.ConfigureTooltips(db, enabled)
+    local tooltipCursor = YUI._MouseEnhancementTooltipCursor
+    if tooltipCursor then tooltipCursor.Configure(db, enabled) end
+    local tooltipFade = YUI._MouseEnhancementTooltipFade
+    if tooltipFade then tooltipFade.Configure(db, enabled) end
+end
+
 local function RefreshFeatureSettings(feature)
     local db = GetDB()
     State.SyncNativeAuraIDCVar()
     SetMouseRuntimeEventFrameEnabled(State.featureEnabled and db.cursorEffectsEnabled == true)
     RefreshCursorRuntime()
-    local tooltipCursor = YUI._MouseEnhancementTooltipCursor
-    if tooltipCursor then tooltipCursor.Configure(db, State.featureEnabled) end
+    State.ConfigureTooltips(db, State.featureEnabled)
     if feature and feature.RefreshCurrentModule then
         feature:RefreshCurrentModule()
     end
@@ -2567,6 +2576,17 @@ local function GetOptions(feature)
                             get = function() return db.tooltipCursorEnabled == true end,
                             set = function(value)
                                 db.tooltipCursorEnabled = value == true
+                                RefreshFeatureSettings(feature)
+                            end,
+                        },
+                        {
+                            type = "checkbox",
+                            label = T("settings.tooltip_instant_hide", "立即隐藏鼠标提示"),
+                            tooltip = T("settings.tooltip_instant_hide_help"),
+                            labelPosition = "left",
+                            get = function() return db.tooltipInstantHide == true end,
+                            set = function(value)
+                                db.tooltipInstantHide = value == true
                                 RefreshFeatureSettings(feature)
                             end,
                         },
@@ -3202,8 +3222,7 @@ local function ToggleFeature(enabled)
         InstallHooks()
     end
     local db = GetDB()
-    local tooltipCursor = YUI._MouseEnhancementTooltipCursor
-    if tooltipCursor then tooltipCursor.Configure(db, State.featureEnabled) end
+    State.ConfigureTooltips(db, State.featureEnabled)
     State.SyncNativeAuraIDCVar()
     SetMouseRuntimeEventFrameEnabled(State.featureEnabled and db.cursorEffectsEnabled == true)
     RefreshCursorRuntime()
@@ -3220,7 +3239,11 @@ Components:RegisterFeature(FEATURE_KEY, {
     GetOptions = GetOptions,
     GetStats = function()
         local tooltipCursor = YUI._MouseEnhancementTooltipCursor
-        return { tooltipCursor = tooltipCursor and tooltipCursor.GetDiagnostics() or nil }
+        local tooltipFade = YUI._MouseEnhancementTooltipFade
+        return {
+            tooltipCursor = tooltipCursor and tooltipCursor.GetDiagnostics() or nil,
+            tooltipFade = tooltipFade and tooltipFade.GetDiagnostics() or nil,
+        }
     end,
 })
 
@@ -3232,20 +3255,15 @@ if YUI.Module and YUI.Module.Register then
         dependencies = { "core.db", "core.api", "core.event", "core.locale" },
         getEnabled = function() return Components:IsEnabled(FEATURE_KEY) end,
         OnEnable = function()
-            local tooltipCursor = YUI._MouseEnhancementTooltipCursor
-            if tooltipCursor then tooltipCursor.Configure(GetDB(), true) end
+            State.ConfigureTooltips(GetDB(), true)
         end,
         OnDisable = function()
-            local tooltipCursor = YUI._MouseEnhancementTooltipCursor
-            if tooltipCursor then tooltipCursor.Configure(GetDB(), false) end
+            State.ConfigureTooltips(GetDB(), false)
         end,
         OnProfileChanged = function()
-            local tooltipCursor = YUI._MouseEnhancementTooltipCursor
-            if tooltipCursor then
-                local db = GetDB()
-                tooltipCursor.Configure(db, false)
-                tooltipCursor.Configure(db, Components:IsEnabled(FEATURE_KEY))
-            end
+            local db = GetDB()
+            State.ConfigureTooltips(db, false)
+            State.ConfigureTooltips(db, Components:IsEnabled(FEATURE_KEY))
         end,
     })
 end
