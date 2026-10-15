@@ -1,3 +1,14 @@
+## [WTF settings snapshots 1.2] - 2026-10-15
+### Features
+- Capture reusable account-level addon configuration while excluding character records, assignments, progression, social history and runtime caches. Regenerate current snapshots using the filter.
+- Preserve excluded current live data during restore, including when restoring older unfiltered snapshots. Skip legacy character-file snapshots.
+### Design Rationale
+- Anonymization alone does not make gameplay records useful configuration. Filter known data boundaries before aliasing; use an explicit preference allowlist for GearInsight's mixed settings/character database.
+- Apply the same policy during restore so a settings rollback cannot roll back or erase character history. Preserve migration markers to avoid rerunning migrations against restored layouts.
+### Notes & Caveats
+- Existing Git history and ignored private aliases are not rewritten. Named shared profiles and class/spec display preferences remain included; addon schema updates require filter review.
+- Private adoption still transfers full live WTF. Display resolution/scale handling and installed addon sources/versions are unchanged.
+
 ## [Details combat analysis 15330.172] - 2026-10-15
 ### Features
 - Install Details.20261014.15330.172 and its bundled Storage, Compare2, Encounter Breakdown, Raid Check and Tiny Threat modules for Interface 16001.

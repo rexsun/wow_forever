@@ -2,6 +2,13 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-15 - Restrict tracked snapshots to reusable configuration
+
+- Filter account-level addon settings before anonymization; exclude character files/scopes, profile-to-character mappings, gold, XP, session statistics, known flights, social/history records and runtime caches. Retain shared UI profiles, layouts, fonts, feature preferences and migration markers. GearInsight preferences use an explicit allowlist.
+- Restore shared configuration while preserving current excluded data, including nested caches and records absent from the selected bundle. Ignore excluded data in older snapshots and skip legacy character-file snapshots. Regenerate the current settings bundle without modifying live WTF.
+- Keep private adoption as a full live-WTF transfer. Filtering applies to version-controlled snapshots, not the private game installation or adoption backups. Existing Git history and private aliases are retained.
+- Verification: 44 settings tests and 19 watcher/restore lifecycle checks pass, including gameplay-only export stability, shared-preference retention, old-snapshot protection and missing-file restore. Seven real settings targets validate in restore dry run; all 106 live WTF files remain byte-identical after export, and a repeated export produces identical snapshots.
+
 ## 2026-10-15 - Install Details combat analysis
 
 - Install unchanged Details.20261014.15330.172 from [CurseForge file 9177176](https://www.curseforge.com/wow/addons/details/files/9177176), the latest release checked 2026-10-15. The release supports Forever 1.60.1; all six selected modules have Interface 16001 Camelot TOCs. Archive SHA256: `67c4fe6c81e7bc331098e67bce00ee049735d278a7c9d04c9d749930233e5086`.

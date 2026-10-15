@@ -19,7 +19,7 @@ class SettingsTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.game = self.root / "game"
-        self.saved = self.game / "WTF/Account/SECRET123/HiddenRealm/HiddenCharacter/SavedVariables"
+        self.saved = self.game / "WTF/Account/SECRET123/SavedVariables"
         self.saved.mkdir(parents=True)
         (self.game / "Interface").mkdir()
         self.state = self.root / "private"
@@ -54,7 +54,7 @@ class SettingsTests(unittest.TestCase):
         self.assertIn("true", text)
         self.export()
         self.assertEqual(first, {p.relative_to(self.output): p.read_bytes() for p in self.output.rglob("*.json")})
-        self.assertIn("HiddenCharacter", (self.game / 'Interface/.env').read_text())
+        self.assertIn("SECRET123", (self.game / 'Interface/.env').read_text())
 
     def test_failure_preserves_previous_snapshot(self):
         self.export()
@@ -340,6 +340,107 @@ class SettingsTests(unittest.TestCase):
     def test_restore_rejects_lua_keyword_global(self):
         with self.assertRaises(MODULE.SettingsError):
             MODULE.serialize_lua({'end': 1})
+
+    def test_character_only_gameplay_does_not_change_export(self):
+        character = self.saved.parent / 'Realm/Hero/SavedVariables'
+        character.mkdir(parents=True)
+        personal = character / 'YUI.lua'
+        personal.write_text('PersonalDB = {xp=100}')
+        self.source.write_text('YUI_DB = {profiles={Default={scale=0.8}}, profileKeys={Hero="Default"}, char={Hero={xp=100, gold=50}}, global={Gold={Hero=50}, settingsWindowScale=1}, realm={Realm={data=true}}}')
+        self.export()
+        before = {p.relative_to(self.output): p.read_bytes() for p in self.output.rglob('*.json')}
+        self.assertEqual(len(before), 1)
+        self.source.write_text('YUI_DB = {profiles={Default={scale=0.8}}, profileKeys={Other="Default"}, char={Hero={xp=500, gold=90}}, global={Gold={Hero=90}, settingsWindowScale=1}, realm={Realm={data=false}}}')
+        personal.write_text('PersonalDB = {xp=500}')
+        self.export()
+        self.assertEqual(before, {p.relative_to(self.output): p.read_bytes() for p in self.output.rglob('*.json')})
+        readable = MODULE.readable_snapshot(self.output, self.state)
+        self.assertNotIn('Hero', readable)
+        self.assertNotIn('Gold', readable)
+        self.assertIn('scale', readable)
+
+    def test_runtime_caches_are_excluded_without_removing_display_preferences(self):
+        self.source.write_text('YUI_DB={profiles={Default={YHUD={enabled=true,nativePreviewCache={characters={Hero={xp=5}}}}, YActionBar={runtime={blocked=true},bars={main={size=36}}}, YChat={history={enabled=true,limit=200}}}},global={WhisperManager={history={"private message"}},MailAssistant={characters={Hero={}}},inputHistoryByCharacter={Hero={"private input"}},installedCharsByClient={Hero=true}}}')
+        self.export()
+        readable = MODULE.readable_snapshot(self.output, self.state)
+        for unwanted in ('nativePreviewCache', 'runtime', 'Hero', 'private message', 'private input'):
+            self.assertNotIn(unwanted, readable)
+        for wanted in ('size', 'limit', 'enabled'):
+            self.assertIn(wanted, readable)
+
+    def test_gearinsight_exports_preferences_without_character_or_navigation_state(self):
+        gear = self.saved / 'GearInsight_Forever.lua'
+        gear.write_text('GearInsightForeverDB={keysHud=false,collect=true,leveling={shown=false,pos={"CENTER",0,0}},minimap={angle=90},qm={autoPlates=false,share=true,declined={Hero=true},busy={Hero=true}},ui={page="tier",planRange={Hero={1,60}}},chars={Hero={level=26}},uid="private-id",buildPick={Hero="tank"},wish={123},loot={456},autoExport={stats="private"}}')
+        self.export()
+        snapshot = next(self.output.rglob('GearInsight_Forever.json'))
+        aliases = MODULE.load_aliases(self.game)
+        reverse = {k: {v: a for a, v in aliases[k].items()} for k in ('strings', 'numbers')}
+        actual = MODULE.restore_decode(json.loads(snapshot.read_bytes()), reverse)
+        self.assertEqual(actual, {'GearInsightForeverDB': {'keysHud': False, 'collect': True, 'leveling': {'shown': False, 'pos': {1: 'CENTER', 2: 0, 3: 0}}, 'minimap': {'angle': 90}, 'qm': {'autoPlates': False, 'share': True}}})
+
+    def test_restore_preserves_current_excluded_data_even_from_old_snapshots(self):
+        self.source.write_text('YUI_DB={profiles={Default={scale=0.8,YHUD={enabled=false,nativePreviewCache={characters={Hero={xp=100}}}}}},char={Hero={xp=100}},profileKeys={Hero="Default"},global={Gold={Hero=5},settingsWindowScale=1}}')
+        self.export()
+        snapshot = next(self.output.rglob('YUI.json'))
+        aliases = MODULE.load_aliases(self.game)
+        legacy = MODULE.Aliases(aliases).encode(MODULE.parse_lua(self.source.read_text()))
+        MODULE.save_aliases(self.game, aliases)
+        snapshot.write_text(json.dumps(legacy))
+        current = {'YUI_DB': {'profiles': {'Default': {'scale': 0.4, 'YHUD': {'enabled': True, 'nativePreviewCache': {'characters': {'Hero': {'xp': 900}}}}}, 'New': {'YHUD': {'nativePreviewCache': {'characters': {'Alt': {}}}}}}, 'char': {'Hero': {'xp': 900}}, 'profileKeys': {'Hero': 'New'}, 'global': {'Gold': {'Hero': 90}, 'settingsWindowScale': 2}}}
+        self.source.write_text(MODULE.serialize_lua(current))
+        MODULE.restore_settings(self.game, self.state)
+        actual = MODULE.parse_lua(self.source.read_text())['YUI_DB']
+        self.assertEqual(actual['char'], {'Hero': {'xp': 900}})
+        self.assertEqual(actual['profileKeys'], {'Hero': 'New'})
+        self.assertEqual(actual['global'], {'Gold': {'Hero': 90}, 'settingsWindowScale': 1})
+        self.assertEqual(actual['profiles']['Default']['scale'], 0.8)
+        self.assertFalse(actual['profiles']['Default']['YHUD']['enabled'])
+        self.assertEqual(actual['profiles']['Default']['YHUD']['nativePreviewCache']['characters']['Hero']['xp'], 900)
+        self.assertIn('New', actual['profiles'])
+
+    def test_ellesmere_character_cache_excluded_but_spec_layouts_retained(self):
+        (self.saved / 'EllesmereUI.lua').write_text('EllesmereUIDB={lastSpecByChar={Hero=1},restoreOnUninstall={chars={Hero={cvar=1}}},lastLoginVersion="9.5.5",patchDotPending=true,activeProfile="Default",specProfiles={[1]="Default"},profiles={Default={fonts={global="Font"},_migrations={fixed=true}}}}')
+        self.export()
+        readable = MODULE.readable_snapshot(self.output, self.state)
+        for unwanted in ('lastSpecByChar', 'lastLoginVersion', 'patchDotPending', 'Hero'):
+            self.assertNotIn(unwanted, readable)
+        for wanted in ('specProfiles', 'Font', '_migrations'):
+            self.assertIn(wanted, readable)
+
+    def test_restore_skips_legacy_character_files_and_missing_character_folders(self):
+        self.export()
+        aliases = MODULE.load_aliases(self.game)
+        encoder = MODULE.Aliases(aliases)
+        realm, hero = encoder.text('Realm'), encoder.text('Hero')
+        account = aliases['strings']['SECRET123']
+        legacy = self.output / 'scopes/Account' / account / realm / hero / 'SavedVariables/YUI.json'
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text(json.dumps(encoder.encode({'PersonalDB': {'xp': 1}})))
+        MODULE.save_aliases(self.game, aliases)
+        count, _ = MODULE.restore_settings(self.game, self.state)
+        self.assertEqual(count, 1)
+        self.assertFalse((self.saved.parent / 'Realm').exists())
+
+    def test_restore_gearinsight_preserves_current_character_data_and_unknown_fields(self):
+        gear = self.saved / 'GearInsight_Forever.lua'
+        gear.write_text('GearInsightForeverDB={keysHud=false,chars={Hero={level=10}},qm={autoPlates=false,declined={Old=true}},futureRecords={Hero=100}}')
+        self.export()
+        gear.write_text('GearInsightForeverDB={keysHud=true,chars={Hero={level=26}},qm={autoPlates=true,declined={New=true}},futureRecords={Hero=900}}')
+        MODULE.restore_settings(self.game, self.state)
+        actual = MODULE.parse_lua(gear.read_text())
+        self.assertEqual(actual, {'GearInsightForeverDB': {'keysHud': False, 'chars': {'Hero': {'level': 26}}, 'qm': {'autoPlates': False, 'declined': {'New': True}}, 'futureRecords': {'Hero': 900}}})
+
+    def test_restore_missing_file_never_resurrects_legacy_character_data(self):
+        self.source.write_text('YUI_DB={profiles={Default={scale=0.8}},char={Hero={xp=10}},global={Gold={Hero=50}}}')
+        self.export()
+        snapshot = next(self.output.rglob('YUI.json'))
+        aliases = MODULE.load_aliases(self.game)
+        legacy = MODULE.Aliases(aliases).encode(MODULE.parse_lua(self.source.read_text()))
+        MODULE.save_aliases(self.game, aliases)
+        snapshot.write_text(json.dumps(legacy))
+        self.source.unlink()
+        MODULE.restore_settings(self.game, self.state)
+        self.assertEqual(MODULE.parse_lua(self.source.read_text()), {'YUI_DB': {'profiles': {'Default': {'scale': 0.8}}, 'global': {}}})
 
 
 if __name__ == "__main__":

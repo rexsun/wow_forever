@@ -27,6 +27,21 @@ APPROVED_CVARS = frozenset({
     "contrast", "brightness", "gamma", "Sound_MasterVolume", "Sound_MusicVolume",
     "Sound_SFXVolume", "Sound_AmbienceVolume", "Sound_DialogVolume",
 })
+CHARACTER_SCOPES = frozenset({
+    'char', 'chars', 'character', 'characters', 'profileKeys', 'realm',
+    'class', 'race', 'faction', 'factionrealm',
+})
+YUI_GLOBAL_SETTINGS = frozenset({
+    '_yuiMigrations', '_yuiDBSchemaVersion', 'ignoreYUISwitchPrompt', 'settingsWindowScale',
+})
+GEARINSIGHT_SETTINGS = {
+    'collect': None, 'keysHud': None, 'keysMode': None, 'keysBoard': None,
+    'keysBoardPos': None, 'keysHudPos': None,
+    'minimap': frozenset({'hide', 'angle', 'minimapPos', 'lock', 'radius'}),
+    'leveling': frozenset({'shown', 'pos'}),
+    'qm': frozenset({'share', 'onlyBehind', 'onlyZone', 'range', 'autoPlates'}),
+}
+MISSING = object()
 
 
 class SettingsError(Exception):
@@ -326,6 +341,56 @@ def approved_inventory(wtf):
     return {p for p in wtf.rglob("*") if p.is_file() and (p.name in APPROVED_LUA or p == wtf / "Config.wtf")}
 
 
+def settings_path_allowed(filename, path):
+    if path == ('YUI_CPUDiagnostics',):
+        return False
+    if len(path) == 2 and path[1] in CHARACTER_SCOPES:
+        return False
+    if filename == 'YUI.lua':
+        if len(path) == 3 and path[1] == 'global':
+            return path[2] in YUI_GLOBAL_SETTINGS
+        if len(path) == 5 and path[1] == 'profiles':
+            return path[3:] not in {('YHUD', 'nativePreviewCache'), ('YActionBar', 'runtime')}
+    elif filename == 'GearInsight_Forever.lua':
+        if len(path) == 2:
+            return path[1] in GEARINSIGHT_SETTINGS
+        if len(path) == 3:
+            fields = GEARINSIGHT_SETTINGS.get(path[1])
+            return fields is None or path[2] in fields
+    elif filename == 'EllesmereUI.lua' and len(path) == 2:
+        return path[1] not in {'lastSpecByChar', 'lastLoginVersion', 'patchDotPending', 'restoreOnUninstall'}
+    return True
+
+
+def settings_only(filename, values, path=()):
+    if not isinstance(values, dict):
+        return values
+    return {key: settings_only(filename, value, path + (key,))
+            for key, value in values.items()
+            if settings_path_allowed(filename, path + (key,))}
+
+
+def merge_settings(filename, snapshot, live, path=()):
+    """Restore represented configuration while preserving excluded live subtrees."""
+    if not settings_path_allowed(filename, path):
+        return live
+    if isinstance(snapshot, dict) or isinstance(live, dict):
+        saved = snapshot if isinstance(snapshot, dict) else {}
+        current = live if isinstance(live, dict) else {}
+        merged = {}
+        for key in saved.keys() | current.keys():
+            value = merge_settings(filename, saved.get(key, MISSING), current.get(key, MISSING), path + (key,))
+            if value is not MISSING:
+                merged[key] = value
+        if not isinstance(snapshot, dict):
+            if not merged:
+                return snapshot
+            if snapshot is not MISSING:
+                raise SettingsError('Snapshot would replace a table containing excluded live data.')
+        return merged if merged or snapshot is not MISSING else MISSING
+    return snapshot
+
+
 def export_settings(game, state, dry_run=False, before_publish=None):
     game, state = Path(game).resolve(), Path(state).absolute()
     output = game / "Interface/Settings/WTF"
@@ -378,7 +443,10 @@ def export_settings(game, state, dry_run=False, before_publish=None):
                             values[match[1]] = match[2]
                     relative = Path("global/Config.json")
                 else:
-                    values = parse_lua(text)
+                    parts = path.relative_to(wtf).parts
+                    if len(parts) != 4 or parts[0] != 'Account' or parts[2] != 'SavedVariables':
+                        continue
+                    values = settings_only(name, parse_lua(text))
                     parts = path.relative_to(wtf).parts[:-1]
                     anonymous = [part if part in {"Account", "SavedVariables"} else aliases.text(part) for part in parts]
                     relative = Path("scopes", *anonymous, path.stem + ".json")
@@ -602,6 +670,7 @@ def restore_settings(game, state, dry_run=False, before_publish=None):
             parts = source.relative_to(bundle).parts
             raw = source.read_bytes()
             values = restore_decode(json.loads(raw), reverse)
+            sources[source] = raw
             if parts == ('global', 'Config.json'):
                 relative = Path('Config.wtf')
             else:
@@ -615,12 +684,17 @@ def restore_settings(game, state, dry_run=False, before_publish=None):
                 except KeyError:
                     raise SettingsError("Destination alias is missing from the private map.") from None
                 relative = Path('Account', *components, 'SavedVariables', filename)
+                if len(parts) == 7:
+                    continue
             target = checked_destination(wtf, relative)
             if target in plan:
                 raise SettingsError("Multiple snapshots resolve to the same destination.")
             old = target.read_bytes() if target.exists() else None
-            replacement = merge_config(old, values) if parts == ('global', 'Config.json') else serialize_lua(values).encode('utf-8')
-            sources[source] = raw
+            if parts == ('global', 'Config.json'):
+                replacement = merge_config(old, values)
+            else:
+                live = parse_lua(old.decode('utf-8-sig')) if old is not None else {}
+                replacement = serialize_lua(merge_settings(filename, values, live)).encode('utf-8')
             plan[target] = (relative, old, replacement)
         if not plan:
             raise SettingsError("The restore bundle is empty.")

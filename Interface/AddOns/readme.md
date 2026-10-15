@@ -44,7 +44,7 @@ The six selected Details modules are enabled in existing character addon lists. 
 
 The three replaced packages and their `.lua`/`.lua.bak` saved settings were removed from active AddOns/WTF. Obsolete guard integration and active settings snapshots were removed. Private recovery copies live outside Interface under `_classic_beta_/addon-backups/gearinsight-20261015-102755`. Historical changelogs are retained.
 
-`Settings/WTF` captures anonymous EUI/YUI/GearInsight settings; live WTF and the private alias map remain outside Git. The settings watcher resumes after migration. See [settings documentation](../Settings/readme.md).
+`Settings/WTF` captures anonymous, reusable account-level EUI/YUI/GearInsight configuration. Character records, progression, profile-to-character assignments and runtime caches are excluded; restore preserves their current live values. Live WTF and the private alias map remain outside Git. See [settings documentation](../Settings/readme.md).
 
 Run the adoption script from the source game root with WoW closed on both installations:
 
