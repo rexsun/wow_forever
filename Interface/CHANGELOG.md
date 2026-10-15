@@ -1,3 +1,11 @@
+## [Details combat analysis 15330.172] - 2026-10-15
+### Features
+- Install Details.20261014.15330.172 and its bundled Storage, Compare2, Encounter Breakdown, Raid Check and Tiny Threat modules for Interface 16001.
+### Design Rationale
+- Use Details as the sole combat meter. YUI's Forever damage-meter module is not loaded and the EUI damage-meter module is absent. Exclude optional Streamer/Vanguard displays to retain existing cast/group-frame ownership without adding unnecessary guard rules.
+### Notes & Caveats
+- Existing layouts, fonts and saved addon settings are preserved. Adoption already copies the selected folders and live WTF; Details combat databases are not added to anonymous snapshots. Live loading and window placement at 1080p/1440p/4K need in-game verification.
+
 ## [GearInsight migration / OverlapSettingsGuard 0.7.0] - 2026-10-15
 ### Features
 - Install GearInsight Forever 0.4.31 and remove DungeonsForever, TalentsForeverBook and RestedXP with their active settings and obsolete guard integration.

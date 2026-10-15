@@ -2,6 +2,14 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-15 - Install Details combat analysis
+
+- Install unchanged Details.20261014.15330.172 from [CurseForge file 9177176](https://www.curseforge.com/wow/addons/details/files/9177176), the latest release checked 2026-10-15. The release supports Forever 1.60.1; all six selected modules have Interface 16001 Camelot TOCs. Archive SHA256: `67c4fe6c81e7bc331098e67bce00ee049735d278a7c9d04c9d749930233e5086`.
+- Install Details, Details_DataStorage, Details_Compare2, Details_EncounterDetails, Details_RaidCheck and Details_TinyThreat; enable them in existing character addon lists. Omit optional Details_Streamer and Details_Vanguard to avoid duplicate cast/action overlays and tank health/debuff frames.
+- Confirm YUI's Forever loader excludes YDamageMeter and EUI Damage Meters is absent. Details is the sole combat meter; YUI icon synchronization and EUI threat indicators remain complementary. No new overlapping setting remains in the selected modules, so the guard's existing eleven rules stay unchanged. Document the overlap review in its readme.
+- Preserve all existing saved addon settings, UI scale, fonts and layouts. First-run Details window setup is upstream. Private recovery copies of WTF, current documentation and the release ZIP live outside Interface under `_classic_beta_/addon-backups/details-20261015-111109`. The adoption script already copies the new folders and future live saved variables at all three target resolutions.
+- Verification: all 636 installed files match the official archive; six Camelot TOCs and 311 reachable load files/dependencies resolve; all 33 guard tests and three-resolution adoption/rollback checks pass. Four character lists enable the modules; all other live WTF files are byte-identical to the recovery copy. In-game loading, combat data, Chinese UI text and meter placement at 1080p/1440p/4K still need a fresh client session.
+
 ## 2026-10-15 - Inspect the first post-migration session
 
 - Checked the 10:38-10:53 session: no new BugGrabber errors; all four older reports and counters were unchanged. GearInsight persisted the disabled overlapping HUD, floating leveling panel and automatic friendly-nameplate settings.

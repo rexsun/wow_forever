@@ -20,6 +20,8 @@ Version 0.7.0, for Interface 16001. This local addon keeps duplicate features sw
 
 EllesmereUI owns individual/group frames and nameplates; YUI owns the remaining interface features.
 
+Details.20261014.15330.172 adds the pack's only combat meter and the bundled DataStorage, Compare2, EncounterDetails, RaidCheck and TinyThreat modules. YUI's Forever loader excludes YDamageMeter, and EllesmereUIDamageMeters is not installed. YUI's Details icon synchronization is complementary. TinyThreat group rankings do not replace EUI's per-unit threat styling. The optional Details_Streamer cast/action overlay and Details_Vanguard tank frames are excluded because YUI/EUI own those displays. No additional setting needs enforcement for this selected package, so `Policy.lua` retains eleven rules. Reassess overlap policies before adding those optional plugins or another meter.
+
 ## Enforcement and scope
 
 Checks run after login, on supported option hooks and every two seconds as a fallback. Changes wait until combat ends. Chat messages explain reverted settings and name any other affected profiles. When a reload is needed, chat asks you to type `/reload` when ready. The guard never opens a popup. Failed enforcement is also reported in chat.

@@ -1,6 +1,6 @@
 # WoW: Forever add-ons
 
-Updated 2026-10-15 for client 1.60.1.70374 / Interface 16001. Ten upstream addon folders plus the local OverlapSettingsGuard are installed. EllesmereUI owns individual/group frames and nameplates; YUI owns bars, bindings and the remaining interface features. GearInsight provides talents, loot, gear farming, macros and leveling planning.
+Updated 2026-10-15 for client 1.60.1.70374 / Interface 16001. Sixteen upstream addon folders plus the local OverlapSettingsGuard are installed. EllesmereUI owns individual/group frames and nameplates; YUI owns bars, bindings and interface helpers. GearInsight provides talents, loot, gear farming, macros and leveling planning. Details owns combat meters and analysis.
 
 | Package | Version | Purpose and source |
 | --- | --- | --- |
@@ -8,6 +8,12 @@ Updated 2026-10-15 for client 1.60.1.70374 / Interface 16001. Ten upstream addon
 | GearInsight Forever | 0.4.31 | Talent simulator/default builds, leveling plan, gear farm suggestions, loot/wishlists, macros, dungeon quests, achievements/legacy and beta information. `/gi` or `/gif`. [Official site](https://gearinsight.app/wow/forever), [release listing](https://www.curseforge.com/wow/addons/gearinsight-forever), [installed ZIP](https://gearinsight.app/wow/dl/GearInsight-Forever-0.4.31.zip?s=forever_zip). Latest published release checked 2026-10-15; released 2026-10-14. TOC includes Interface 16001. Upstream files are unchanged. |
 | Auctionator | 341 | Auction shopping, selling and pricing. [Release](https://www.curseforge.com/wow/addons/auctionator/files/9162359). Interface 16001. |
 | !BugGrabber | v12.1.0 | Captures Lua errors; `/buggrabber 1` prints a captured error. [Release](https://www.curseforge.com/wow/addons/bug-grabber/files/8907587). Interface 16001. |
+| Details | Details.20261014.15330.172 | Damage/healing meters and combat analysis; `/details`. [Release](https://www.curseforge.com/wow/addons/details/files/9177176), 2026-10-14; latest checked 2026-10-15. `Details_Camelot.toc` supports Interface 16001. Upstream files unchanged. |
+| Details_DataStorage | Bundled with 15330.172 | Load-on-demand combat data storage. Same Details release; Interface 16001. |
+| Details_Compare2 | Bundled with 15330.172 | Player comparison tab in combat breakdowns. Same Details release; Interface 16001. |
+| Details_EncounterDetails | Bundled with 15330.172 | Encounter summaries, phases, charts and emotes. Same Details release; Interface 16001. |
+| Details_RaidCheck | Bundled with 15330.172 | Group talent/item-level and food/flask inspection. Same Details release; Interface 16001. |
+| Details_TinyThreat | Bundled with 15330.172 | Group threat ranking within a Details window. Same Details release; Interface 16001. |
 | EllesmereUI | 9.5.5 | Shared framework. [Suite release](https://www.curseforge.com/wow/addons/ellesmereui/files/9182709). Interface 16001. |
 | EllesmereUIUnitFrames | 9.5.5 | Player, target, focus, pet and boss frames; player castbar retained. Same suite release. |
 | EllesmereUIRaidFrames | 9.5.5 | Party/raid frames; all eight raid groups enabled. Same suite release. |
@@ -25,12 +31,16 @@ Updated 2026-10-15 for client 1.60.1.70374 / Interface 16001. Ten upstream addon
 - GearInsight automatic friendly-nameplate toggling is off while EUI Nameplates loads. The guard restores only a pending toggle recorded by GearInsight; it does not force user-selected friendly visibility.
 - GearInsight's bar-placement, key assignment/presets and restore actions are read-only while YUI loads. Its key inspection and macro creation/import remain available. Place imported macros using the normal owner UI.
 - GearInsight item translations and Forever change notes supplement tooltip styling. Map destinations, its unique rotation board and user-invoked system macros remain optional; these may change the shared map waypoint or startup CVars when used.
+- Details is the only installed combat meter: YUI's Forever loader does not load YDamageMeter, and EllesmereUIDamageMeters is absent. YUI's Details specialization-icon integration remains enabled because it supplements the meter. TinyThreat group rankings supplement EUI's per-unit threat indicators. Details Raid Check and GearInsight talent planning serve different purposes.
+- The optional Details_Streamer cast/action overlay and Details_Vanguard tank-health/debuff frames are not installed because existing YUI/EUI displays own those features. No new continuously competing setting remains in the selected six-module installation; the guard's eleven rules and upstream files are unchanged. Review these exclusions again if installing additional Details plugins.
 
 GearInsight uses the same Chinese strings for zhCN and zhTW, largely Simplified Chinese. The zhTW client remains selected. Client terminology can differ from its bundled Chinese names; name-dependent features require live verification.
 
 ## Settings and transfer
 
 Existing YUI/EUI settings, resolution, UI scale, fonts, macros and bindings are preserved. GearInsight account defaults start with `qm.autoPlates=false`, `keysHud=false` and `leveling.shown=false`; the guard enforces ownership again after login, including new characters. Existing character addon lists enable GearInsight. Guide progress, saved talent plans and wishlists from the retired packages are not migrated into GearInsight.
+
+The six selected Details modules are enabled in existing character addon lists. Their first-run window/options setup is left to upstream; no new profile or fixed window position is imposed. Details saved combat databases are not part of anonymous settings capture, but the private adoption script copies them with the rest of live WTF. Existing settings and gameplay UI scale are unchanged at all three target resolutions; verify meter placement and text in-game at each resolution.
 
 The three replaced packages and their `.lua`/`.lua.bak` saved settings were removed from active AddOns/WTF. Obsolete guard integration and active settings snapshots were removed. Private recovery copies live outside Interface under `_classic_beta_/addon-backups/gearinsight-20261015-102755`. Historical changelogs are retained.
 
