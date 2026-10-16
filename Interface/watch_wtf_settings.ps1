@@ -95,10 +95,38 @@ function Wait-WtfStable {
 
 function Invoke-SettingsHelper([string]$Action, [switch]$ValidateOnly) {
     $uv = if ($UvPath) { $UvPath } else { (Get-Command uv -ErrorAction Stop).Source }
-    $arguments = @('run', '--no-project', 'python', $script:Helper, $Action, '--game-root', $script:GameRoot, '--state', (Get-PrivateStateDirectory))
+    $python = Invoke-ConsolelessProcess $uv @('python', 'find', '--no-project')
+    $arguments = @($script:Helper, $Action, '--game-root', $script:GameRoot, '--state', (Get-PrivateStateDirectory))
     if ($ValidateOnly) { $arguments += '--dry-run' }
-    & $uv @arguments
-    if ($LASTEXITCODE -ne 0) { throw 'Settings helper failed; inspect local settings and retry.' }
+    # uv run can allocate a console for Python even when uv itself has no window.
+    Invoke-ConsolelessProcess $python $arguments
+}
+
+function Invoke-ConsolelessProcess([string]$Executable, [string[]]$Arguments) {
+    $start = New-Object Diagnostics.ProcessStartInfo
+    $start.FileName = $Executable
+    $start.Arguments = ($Arguments | ForEach-Object {
+        '"' + ($_ -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+    }) -join ' '
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $process = New-Object Diagnostics.Process
+    $process.StartInfo = $start
+    try {
+        $null = $process.Start()
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $output = $stdout.GetAwaiter().GetResult()
+        $errorOutput = $stderr.GetAwaiter().GetResult()
+        if ($process.ExitCode -ne 0) { throw 'Settings helper failed; inspect local settings and retry.' }
+        if ($output) { Write-Output $output.TrimEnd("`r", "`n") }
+        if ($errorOutput) { Write-Warning $errorOutput.TrimEnd("`r", "`n") }
+    } finally {
+        $process.Dispose()
+    }
 }
 
 function Write-WatcherLog([string]$Message) {
@@ -171,9 +199,9 @@ function Install-WatcherTask {
     $id = Get-InstallationId $script:GameRoot
     $taskName = 'WoWSettings-' + $id
     $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-    $shell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $scriptPath = Join-Path $PSScriptRoot 'watch_wtf_settings.ps1'
-    $action = New-ScheduledTaskAction -Execute $shell -Argument ('-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -Mode Watch -UvPath "{1}"' -f $scriptPath, $uv) -WorkingDirectory $PSScriptRoot
+    $shell = Join-Path $env:SystemRoot 'System32\wscript.exe'
+    $launcher = Join-Path $PSScriptRoot 'watch_wtf_settings.vbs'
+    $action = New-ScheduledTaskAction -Execute $shell -Argument ('//B //NoLogo "{0}" "{1}"' -f $launcher, $uv) -WorkingDirectory $PSScriptRoot
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
     $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
@@ -214,7 +242,7 @@ switch ($Mode) {
             if ($skipInitial) { Remove-Item -LiteralPath $skipPath }
             Watch-Installation -ProcessProbe $probe -Interval $PollSeconds -SkipInitialExport:$skipInitial -ExportAction {
                 if (-not (Wait-WtfStable -Root $script:GameRoot -Seconds $StableSeconds -ProcessProbe $probe)) { return $false }
-                Invoke-SettingsHelper 'export' -ValidateOnly:$DryRun | Out-Host
+                Invoke-SettingsHelper 'export' -ValidateOnly:$DryRun | Out-Null
                 Write-WatcherLog 'Anonymous settings exported. Git index and history untouched.'
                 return $true
             }

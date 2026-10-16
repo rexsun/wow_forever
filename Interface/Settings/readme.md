@@ -18,6 +18,8 @@ Alternatively run the watcher in a terminal, stopping it with Ctrl+C:
 .\watch_wtf_settings.ps1 -Mode Watch
 ```
 
+The sign-in task uses `watch_wtf_settings.vbs` through Windows Script Host to launch PowerShell invisibly from the outset. Export helpers also run without console windows; background status stays in the private `watcher.log`. Manual Export, Review and Restore still return output to the invoking terminal. Run Install again to upgrade an existing task after stopping it.
+
 The watcher polls every two seconds. It observes only WoW executables directly in this installation, waits until all of them have exited, then requires six seconds without WTF file changes. A restart during export defers the snapshot. Starting the watcher while the game is closed exports one baseline. Failed exports retry after 30 seconds and preserve the previous snapshot. Duplicate watcher instances are prevented.
 
 Manual export or validation, with the game closed:
@@ -112,6 +114,7 @@ Windows PowerShell 5.1, `uv`, a uv-managed Python 3.13+ and Git are required. Th
 ```powershell
 uv run --no-project python tools/test_wtf_settings.py
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/wtf-watcher-tests.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/wtf-helper-process-tests.ps1
 ```
 
 Fixture tests exercise privacy, repeatable output, safe parsing/serialization, .env mappings, unchanged source/index, selective Config merging, private backups, missing destinations, restart refusal and rollback. PowerShell checks exercise session transitions, initial baseline, retry, settling, process filtering and restore's watcher suspension/resumption.

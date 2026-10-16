@@ -2,6 +2,11 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-15 - Keep settings monitoring invisible
+
+- Launch the sign-in watcher through Windows Script Host with a hidden PowerShell child, avoiding a console at startup. Start uv interpreter discovery and Python exports with console creation disabled and captured output; retain manual command output and failure handling. Background export status goes to the existing private watcher log.
+- Add helper checks for no console window, quoted paths and nonzero exits with large output on both streams. Addons, overlap policies and adoption behavior are unchanged.
+
 ## 2026-10-15 - Restrict tracked snapshots to reusable configuration
 
 - Filter account-level addon settings before anonymization; exclude character files/scopes, profile-to-character mappings, gold, XP, session statistics, known flights, social/history records and runtime caches. Retain shared UI profiles, layouts, fonts, feature preferences and migration markers. GearInsight preferences use an explicit allowlist.
