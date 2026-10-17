@@ -1,6 +1,6 @@
 # WoW: Forever add-ons
 
-Updated 2026-10-15 for client 1.60.1.70374 / Interface 16001. Sixteen upstream addon folders plus the local OverlapSettingsGuard are installed. EllesmereUI owns individual/group frames and nameplates; YUI owns bars, bindings and interface helpers. GearInsight provides talents, loot, gear farming, macros and leveling planning. Details owns combat meters and analysis.
+Updated 2026-10-17 for client 1.60.1.70450 / Interface 16001. Seventeen upstream addon folders plus two local addons are installed. EllesmereUI owns individual/group frames and nameplates; YUI owns bars, bindings and interface helpers. GearInsight provides talents, loot, gear farming, macros and leveling planning. Details owns combat meters and analysis. Skinner supplies complementary Blizzard-window skins.
 
 | Package | Version | Purpose and source |
 | --- | --- | --- |
@@ -20,7 +20,9 @@ Updated 2026-10-15 for client 1.60.1.70374 / Interface 16001. Sixteen upstream a
 | EllesmereUINameplates | 9.5.5 | Nameplates and cast/aura displays; duplicate class power kept off. Same suite release. |
 | EllesmereUIOptions | 9.5.5 | Required load-on-demand settings panels. Same suite release. |
 | EllesmereUILocales | 9.5.5 | Load-on-demand translations, including zhTW. Same suite release. |
-| OverlapSettingsGuard | 0.7.0 | Local ownership enforcement, eleven conditional rules, chat reporting and ten startup CVars. `/osg`. [Policy table](OverlapSettingsGuard/readme.md). Interface 16001. |
+| Skinner | beta12.70425.2 | Styles Blizzard windows and supported addon windows. `/skinner` or `/skin`. [Author's packaged release](https://github.com/jncl/Skinner/releases/tag/beta12.70425.2), published 2026-10-16; latest checked 2026-10-17. Includes Interface 16001 and dedicated Forever/Camelot support. Bundled libraries; upstream files unchanged. |
+| OverlapSettingsGuard | 0.8.0 | Local ownership enforcement, 23 conditional rules, chat reporting and ten startup CVars. `/osg`. [Policy table](OverlapSettingsGuard/readme.md). Interface 16001. |
+| CharacterUIBaseline | 0.2.0 | Local per-login UI sync from a configurable source account/character; source logout publication and automatic post-exit refresh. `/uib`, `/uib apply`, `/uib capture`. [Configuration and scope](CharacterUIBaseline/readme.md). Interface 16001. |
 
 ## Feature ownership and overlaps
 
@@ -32,7 +34,8 @@ Updated 2026-10-15 for client 1.60.1.70374 / Interface 16001. Sixteen upstream a
 - GearInsight's bar-placement, key assignment/presets and restore actions are read-only while YUI loads. Its key inspection and macro creation/import remain available. Place imported macros using the normal owner UI.
 - GearInsight item translations and Forever change notes supplement tooltip styling. Map destinations, its unique rotation board and user-invoked system macros remain optional; these may change the shared map waypoint or startup CVars when used.
 - Details is the only installed combat meter: YUI's Forever loader does not load YDamageMeter, and EllesmereUIDamageMeters is absent. YUI's Details specialization-icon integration remains enabled because it supplements the meter. TinyThreat group rankings supplement EUI's per-unit threat indicators. Details Raid Check and GearInsight talent planning serve different purposes.
-- The optional Details_Streamer cast/action overlay and Details_Vanguard tank-health/debuff frames are not installed because existing YUI/EUI displays own those features. No new continuously competing setting remains in the selected six-module installation; the guard's eleven rules and upstream files are unchanged. Review these exclusions again if installing additional Details plugins.
+- The optional Details_Streamer cast/action overlay and Details_Vanguard tank-health/debuff frames are not installed because existing YUI/EUI displays own those features. Review these exclusions again if installing additional Details plugins.
+- Skinner's individual/party/compact frames, castbar and nameplate skins stay off under the corresponding EUI owners. Its action/status bars, minimap/buttons, world map, chat and tooltip skins stay off while YUI loads. Details and DetailsFramework widget skinning stay off while Details loads. Every guarded setting is listed in the [policy table](OverlapSettingsGuard/readme.md); Blizzard-window and Auctionator skins remain available.
 
 GearInsight uses the same Chinese strings for zhCN and zhTW, largely Simplified Chinese. The zhTW client remains selected. Client terminology can differ from its bundled Chinese names; name-dependent features require live verification.
 
@@ -41,6 +44,12 @@ GearInsight uses the same Chinese strings for zhCN and zhTW, largely Simplified 
 Existing YUI/EUI settings, resolution, UI scale, fonts, macros and bindings are preserved. GearInsight account defaults start with `qm.autoPlates=false`, `keysHud=false` and `leveling.shown=false`; the guard enforces ownership again after login, including new characters. Existing character addon lists enable GearInsight. Guide progress, saved talent plans and wishlists from the retired packages are not migrated into GearInsight.
 
 The six selected Details modules are enabled in existing character addon lists. Their first-run window/options setup is left to upstream; no new profile or fixed window position is imposed. Details saved combat databases are not part of anonymous settings capture, but the private adoption script copies them with the rest of live WTF. Existing settings and gameplay UI scale are unchanged at all three target resolutions; verify meter placement and text in-game at each resolution.
+
+Skinner is enabled in the four existing character addon lists. The guard applies its ownership settings before login skinning and after profile changes, including new accounts; it covers stored profiles and UnitFrames namespace defaults. Skinner settings are not yet included in anonymous snapshots, but adoption copies all live WTF, including future SkinnerDB saved profiles. No resolution, UI scale, map size or viewport is changed. If a skin was already applied before a later option change, follow the guard's chat request to `/reload`.
+
+YUI's official buff icons and tracked buff bars retain their original relative anchors in the active placement stores and saved HUD preset; the direct-center override was reverted. The combined bag window keeps its normalized center at x=0.88, y=0.30, leaving room above the lower-right bag bar while retaining automatic bag-bar visibility. Buff visibility settings and assignments are preserved. Actual bag clearance depends on bag dimensions; check it in-game at the three supported resolutions.
+
+All four existing characters use the reference native UI baseline. CharacterUIBaseline 0.2.0 now reapplies the supported baseline on every target login/reload, skipping the configured source character. Edit `Settings/character-ui-source.local.json` to change its account/character. Source logout publishes current UI values for same-account character switching; the existing post-exit watcher refreshes generated files for subsequent client starts and other accounts. EUI/YUI shared settings remain in place; Details retains its shared reference profile. Spec/talent selections, spec-to-profile assignments, macros, bindings, subscriptions, tracking and combat history are excluded. See the addon readme for exact scope and refresh commands.
 
 The three replaced packages and their `.lua`/`.lua.bak` saved settings were removed from active AddOns/WTF. Obsolete guard integration and active settings snapshots were removed. Private recovery copies live outside Interface under `_classic_beta_/addon-backups/gearinsight-20261015-102755`. Historical changelogs are retained.
 

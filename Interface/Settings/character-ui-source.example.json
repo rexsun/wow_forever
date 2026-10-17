@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "sourceAccount": "ACCOUNT_FOLDER",
+  "sourceRealm": "REALM_FOLDER",
+  "sourceCharacter": "FirstName-Surname",
+  "sourceRealmName": "In-game Realm Name",
+  "fallbackLayoutName": "YUI v3"
+}

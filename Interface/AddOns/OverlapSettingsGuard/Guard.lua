@@ -57,8 +57,15 @@ local function Enforce(rules)
   end
 end
 
-function OSG.Check()
-  local results = OSG.Evaluate(OSG.policy, OSG.adapters, IsLoaded)
+function OSG.Check(earlyOnly)
+  local policy = OSG.policy
+  if earlyOnly then
+    policy = {}
+    for _, rule in ipairs(OSG.policy) do
+      if rule.early then policy[#policy + 1] = rule end
+    end
+  end
+  local results = OSG.Evaluate(policy, OSG.adapters, IsLoaded)
   ReportBlocked(results)
   local violations = OSG.Violations(results)
   if #violations > 0 then
@@ -131,8 +138,11 @@ end
 local events = CreateFrame("Frame")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
+events:RegisterEvent("PLAYER_LOGIN")
 events:SetScript("OnEvent", function(_, event)
-  if event == "PLAYER_ENTERING_WORLD" and not startQueued then
+  if event == "PLAYER_LOGIN" then
+    OSG.Check(true)
+  elseif event == "PLAYER_ENTERING_WORLD" and not startQueued then
     startQueued = true
     -- World-entry handlers can overwrite CVars during login initialization.
     C_Timer.After(START_DELAY, Start)
@@ -141,3 +151,6 @@ events:SetScript("OnEvent", function(_, event)
     RequestCheck()
   end
 end)
+
+-- Skinner can enable its UnitFrames module during PLAYER_LOGIN, before our handler.
+OSG.Check(true)

@@ -4,6 +4,8 @@
 
 The tool never stages, commits or pushes. Export leaves live WTF untouched; Restore changes only the represented approved live files.
 
+With `character-ui-source.local.json` configured, export also refreshes CharacterUIBaseline's two generated addon files from the selected source's persisted UI settings. This runs in the existing post-exit watcher; live WTF remains read-only. The private JSON makes the source account, realm folder, character folder and in-game realm configurable. Copy `character-ui-source.example.json` to that private filename to configure another installation; do not publish the private file. See [login UI sync](../AddOns/CharacterUIBaseline/readme.md).
+
 ## Operation
 
 From the game's Interface directory, install and immediately start the current-user sign-in task:

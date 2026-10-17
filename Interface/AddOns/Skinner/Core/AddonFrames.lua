@@ -1,0 +1,166 @@
+local _, aObj = ...
+
+local _G = _G
+
+--[==[@debug@
+local index = {}
+local mt = {
+	__index = function (t, k)
+		-- print("*access to element " .. tostring(k))
+		return t[index][k] -- access the original table
+	end,
+	__newindex = function (t, k, v)
+		-- print("*update of element " .. tostring(k) .. " to " .. tostring(v))
+		if _G.rawget(t[index], k) then
+			aObj:CustomPrint(1, 0, 0, k, "already exists in the table, please remove the static entry in AddonFrames code")
+		end
+		t[index][k] = v -- update original table
+	end
+}
+local function track (t)
+	local proxy = {}
+	proxy[index] = t
+	_G.setmetatable(proxy, mt)
+	return proxy
+end
+local function untrack (t)
+	return t[index]
+end
+--@end-debug@]==]
+
+local addonSkins = {
+	"BindPad", "BossNotes", "BossNotes_PersonalNotes",
+	"CensusPlus", "Chatter",
+	"Examiner",
+	"FlaresThatWork", "FramesResized",
+	"Livestock",
+	"MogIt",
+	"OneBag3", "OneBank3",
+	"QuickMark",
+	"TooManyAddons",
+	"Vendomatic",
+	"XLoot", "xMerchant",
+}
+aObj.addonsToSkin = {}
+_G.MergeTable(aObj.addonsToSkin, _G.CopyValuesAsKeys(addonSkins))
+
+aObj.libsToSkin = {}
+aObj.otherAddons = {}
+
+local lodFrames = {
+	"GarrisonMissionManager",
+	"GuildBankSearch",
+}
+aObj.lodAddons = {}
+_G.MergeTable(aObj.lodAddons, _G.CopyValuesAsKeys(lodFrames))
+
+--[==[@debug@
+aObj.addonsToSkin = track(aObj.addonsToSkin)
+aObj.libsToSkin   = track(aObj.libsToSkin)
+aObj.otherAddons  = track(aObj.otherAddons)
+aObj.lodAddons    = track(aObj.lodAddons)
+aObj.RegisterCallback("AddonFrames", "AddOn_OnInitialize", function()
+	aObj.addonsToSkin = untrack(aObj.addonsToSkin)
+	aObj.libsToSkin   = untrack(aObj.libsToSkin)
+	aObj.otherAddons  = untrack(aObj.otherAddons)
+	aObj.lodAddons    = untrack(aObj.lodAddons)
+	aObj.UnregisterCallback("AddonFrames", "AddOn_OnInitialize")
+end)
+--@end-debug@]==]
+
+local function skinLibs()
+	for libName, skinFunc in _G.pairs(aObj.libsToSkin) do
+		if _G.LibStub:GetLibrary(libName, true) then
+			if _G.type(skinFunc) == "function" then
+				aObj:checkAndRun(libName, "l")
+			elseif aObj[skinFunc] then
+				aObj:checkAndRun(skinFunc, "s")
+			else
+				if aObj.prdb.Warnings then
+					aObj:CustomPrint(1, 0, 0, libName, "loaded but skin not found in AddonSkins directory (sL)")
+				end
+			end
+		end
+	end
+end
+local function skinBLoD(addon)
+	-- skin Blizzard LoD AddOns, either by passed name or if it is already loaded
+	for fType, fTab in _G.pairs(aObj.blizzLoDFrames) do
+		for fName, _ in _G.pairs(fTab) do
+			if (addon
+			and addon == "Blizzard_" .. fName)
+			or _G.C_AddOns.IsAddOnLoaded("Blizzard_" .. fName)
+			then
+				aObj:checkAndRun(fName, fType, true)
+			end
+		end
+	end
+end
+function aObj:AddonFrames()
+
+	-- used for Addons that aren't LoadOnDemand
+	for addonName, skinFunc in _G.pairs(self.addonsToSkin) do
+		if self:isAddonEnabled(addonName) then
+			self:checkAndRunAddOn(addonName, skinFunc)
+		end
+	end
+
+	-- skin any Blizzard LoD frames or LoD addons that have already been loaded by other addons, waiting to allow them to be loaded
+	-- (Tukui does this for the PetJournal, other addons do it as well)
+	_G.RunNextFrame(function()
+		for addonName, skinFunc in _G.pairs(self.lodAddons) do
+			if _G.C_AddOns.IsAddOnLoaded(addonName) then
+				self:checkAndRunAddOn(addonName, skinFunc, true)
+			end
+		end
+		skinBLoD()
+	end)
+
+	-- skin library objects
+	skinLibs()
+
+end
+
+function aObj:BlizzardFrames()
+
+	-- skin Blizzard frames
+	for type, fTab in _G.pairs(self.blizzFrames) do
+		for func, _ in _G.pairs(fTab) do
+			self:checkAndRun(func, type)
+		end
+	end
+
+end
+
+local function LoDFrames(addon)
+	-- aObj:Debug("LoDFrames: [%s, %s]", addon, aObj.lodAddons[addon])
+
+	-- check to see if it's a Blizzard LoD Frame
+	skinBLoD(addon)
+
+	-- used for User LoadOnDemand Addons
+	if aObj.lodAddons[addon] then
+		aObj:checkAndRunAddOn(addon, aObj.lodAddons[addon], true)
+	end
+
+	-- deal with Addons under the control of an LoadManager
+	-- use lowercase addonname (lazyafk issue)
+	if aObj.lmAddons[addon:lower()] then
+		aObj:checkAndRunAddOn(addon, aObj.lmAddons[addon:lower()], true)
+		aObj.lmAddons[addon:lower()] = nil
+	end
+
+	-- load library skins here as well, they may only get loaded by a LoD AddOn
+	-- e.g. ArkDewdrop by ArkInventory when an AddonLoader is used
+	skinLibs()
+
+end
+
+-- Event processing here
+_G.RunNextFrame(function()
+	_G.EventRegistry:RegisterFrameEventAndCallback("ADDON_LOADED", function(_, addon, _)
+		-- aObj:Debug("ROFEAC ADDON_LOADED: [%s, %s, %s]", addon)
+		LoDFrames(addon)
+		aObj.callbacks:Fire("AddOn_Loaded", addon)
+	end, aObj)
+end)

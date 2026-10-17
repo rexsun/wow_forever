@@ -57,3 +57,28 @@ OSG.policy = {
     reason = "YUI owns action bars and bindings; GearInsight's key display is read-only and macro import remains available.",
   },
 }
+
+local skinnerSettings = {
+  { key = "unitframes", namespace = "UnitFrames", fields = { "player", "target", "focus", "pet", "petlvl", "arena" }, owner = "EllesmereUIUnitFrames", label = "Individual unit frames", reason = "EllesmereUI owns individual unit frames." },
+  { key = "partyframes", namespace = "UnitFrames", fields = { "party" }, owner = "EllesmereUIRaidFrames", label = "Party unit frames", reason = "EllesmereUI owns party frames." },
+  { key = "castingbar", root = "CastingBar", fields = { "skin", "glaze" }, owner = "EllesmereUIUnitFrames", label = "Castbar skin and texture", reason = "EllesmereUI owns the player castbar." },
+  { key = "compactframes", root = "CompactFrames", fields = { "skin", "sbars" }, owner = "EllesmereUIRaidFrames", label = "Compact party/raid skins and bars", reason = "EllesmereUI owns party and raid frames." },
+  { key = "nameplates", fields = { "Nameplates" }, owner = "EllesmereUINameplates", label = "Nameplate skin", reason = "EllesmereUI owns nameplates." },
+  { key = "actionbars", root = "MainMenuBar", fields = { "skin", "glazesb", "altpowerbar", "actbtns", "extraab" }, owner = "YUI", label = "Action and status bar skins", reason = "YUI owns action bars and their supporting displays." },
+  { key = "minimap", fields = { "Minimap.skin", "Minimap.gloss", "MinimapButtons.skin", "MinimapButtons.style" }, owner = "YUI", label = "Minimap and button skins", reason = "YUI owns the minimap and its buttons." },
+  { key = "worldmap", root = "WorldMap", fields = { "skin" }, owner = "YUI", label = "World map skin", reason = "YUI owns the world map appearance and layout." },
+  { key = "chat", fields = { "ChatBubbles.skin", "ChatButtons", "ChatConfig", "ChatEditBox.skin", "ChatFrames", "ChatTabs", "ChatTabsFade", "CombatLogQBF" }, owner = "YUI", label = "Chat window, input, tab and bubble skins", reason = "YUI owns chat appearance and behavior." },
+  { key = "tooltips", root = "Tooltips", fields = { "skin", "glazesb" }, owner = "YUI", label = "Tooltip skin and health-bar texture", reason = "YUI retains tooltip appearance and behavior." },
+  { key = "details", root = "DisabledSkins", fields = { "Details" }, value = true, owner = "Details", label = "Details skin", reason = "Details retains its own meter appearance." },
+  { key = "detailsframework", root = "DisabledSkins", fields = { "DetailsFramework-1.0 (Lib)" }, value = true, owner = "Details", label = "Details framework skin", reason = "Details retains its own framework widget appearance." },
+}
+
+for _, setting in ipairs(skinnerSettings) do
+  OSG.policy[#OSG.policy + 1] = {
+    id = "skinner." .. setting.key, adapter = "Skinner", key = setting.key,
+    label = "Skinner: " .. setting.label, reason = setting.reason,
+    when = { "Skinner", setting.owner }, early = true, needsReload = true,
+    namespace = setting.namespace, root = setting.root, fields = setting.fields,
+    value = setting.value == true,
+  }
+end

@@ -1,0 +1,52 @@
+## Interface: 120105, 50504, 20506, 16001, 11509
+
+## Title: Skinner
+## Author: Jncl
+## Version: beta12.70425.2
+
+## IconTexture: Interface\Icons\INV_Misc_Pelt_Wolf_01
+
+## Notes: Changes the look of the default UI
+## Notes-esES: Cambia el aspecto del UI predeterminado
+## Notes-zhCN: 更改默认用户界面的视觉样式。
+## Notes-zhTW: 更改預設用戶介面的視覺樣式。
+
+## DefaultState: Enabled
+## LoadOnDemand: 0
+## SavedVariables: SkinnerDB
+## OptionalDeps: Ace3, LibSharedMedia-3.0, AceGUI-3.0-SharedMediaWidgets
+## Globe: check-classic
+
+## X-Category: Interface Enhancements
+## X-Curse-Project-ID: 14661
+## X-Wago-ID: aN0YXL6j
+## X-Website: https://www.curseforge.com/wow/addons/skinner
+
+## Category-enUS: UI Overhaul
+## Category-deDE: UI-Überholung
+## Category-esES: Renovación de la Interfaz de Usuario
+## Category-esMX: Renovación de la Interfaz de Usuario
+## Category-frFR: Révision de l'Interface Utilisateur
+## Category-itIT: Revisione dell'interfaccia utent
+## Category-koKR: UI 개편
+## Category-ptBR: Reformulação da Interface do Usuário
+## Category-ruRU: Переработка UI
+## Category-zhCN: UI整合
+## Category-zhTW: UI大改
+
+Libs\_Required.xml
+Libs\_Optional.xml
+
+Locales\_Locales.xml
+
+Forever\Forever.lua [AllowLoadGameType camelot][ExcludeLoadGameType standard, classic]
+
+Core\_Core.xml
+
+[Family]\_Support.xml
+
+Forever\_Support.xml [AllowLoadGameType camelot][ExcludeLoadGameType standard, classic]
+
+Modules\_Modules.xml
+
+AddonSkins\_AddonSkins.xml

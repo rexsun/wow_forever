@@ -819,6 +819,9 @@ def main():
                 print('Private backup: ' + backup.name)
         else:
             require_game_closed(game)
+            if (game / 'Interface/Settings/character-ui-source.local.json').exists():
+                from character_ui_baseline import refresh
+                refresh(game, dry_run=args.dry_run, before_publish=lambda: require_game_closed(game))
             count = export_settings(game, state, dry_run=args.dry_run, before_publish=lambda: require_game_closed(game))
             print(f"{'Validated' if args.dry_run else 'Exported'} {count} anonymous settings files. Git index and history untouched.")
     except (SettingsError, OSError, ValueError, KeyError, TypeError, RecursionError) as error:

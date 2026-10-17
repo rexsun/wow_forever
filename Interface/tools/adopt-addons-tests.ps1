@@ -44,6 +44,10 @@ function New-Fixture($Name) {
         New-Item -ItemType Directory -Path (Join-Path $root $path) -Force | Out-Null
     }
     Set-Content -LiteralPath (Join-Path $source 'Interface\AddOns\new.txt') -Value 'new'
+    New-Item -ItemType Directory -Path (Join-Path $source 'Interface\AddOns\CharacterUIBaseline') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $source 'Interface\Settings') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $source 'Interface\AddOns\CharacterUIBaseline\Source.local.lua') -Value 'local _, baseline = ...; baseline.source = { enabled = true }'
+    Set-Content -LiteralPath (Join-Path $source 'Interface\Settings\character-ui-source.local.json') -Value '{"sourceAccount":"portable-test"}'
     New-Item -ItemType Directory -Path (Join-Path $source 'Fonts') -Force | Out-Null
     [IO.File]::WriteAllBytes((Join-Path $source 'Fonts\YUILongZhu.ttf'), [byte[]](0, 1, 0, 0, 255))
     [IO.File]::WriteAllBytes((Join-Path $target 'Fonts\YUILongZhu.ttf'), [byte[]](1, 2, 3))
@@ -114,6 +118,9 @@ EllesmereUIDB = {
 '@
     $sourceHash = (Get-FileHash -LiteralPath $eui).Hash
     Invoke-Adoption $f $f.Target $resolution
+    foreach ($relative in @('Interface\AddOns\CharacterUIBaseline\Source.local.lua', 'Interface\Settings\character-ui-source.local.json')) {
+        Assert ((Get-FileHash -LiteralPath (Join-Path $f.Source $relative)).Hash -eq (Get-FileHash -LiteralPath (Join-Path $f.Target $relative)).Hash) 'Private login UI configuration was not adopted intact'
+    }
     $config = Get-Content -LiteralPath (Join-Path $f.Target 'WTF\Config.wtf') -Raw
     Assert ($config -match ('SET gxWindowedResolution "' + $resolution + '"')) 'Resolution was not configured'
     Assert ($config -match 'SET uiScale "0.53333333333333"') 'Gameplay UI scale changed'

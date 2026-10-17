@@ -2,12 +2,13 @@
 ## Title: OverlapSettingsGuard
 ## Notes: Keeps settings that overlap another installed add-on switched off, and explains why when one is switched on. Type /osg.
 ## Author: Rex Sun
-## Version: 0.7.0
-## OptionalDeps: GearInsight_Forever, YUI, EllesmereUI, EllesmereUIUnitFrames, EllesmereUIRaidFrames, EllesmereUINameplates
+## Version: 0.8.0
+## OptionalDeps: GearInsight_Forever, YUI, EllesmereUI, EllesmereUIUnitFrames, EllesmereUIRaidFrames, EllesmereUINameplates, Skinner, Details
 
 Core.lua
 Policy.lua
 Adapters/GearInsight.lua
 Adapters/YUI.lua
 Adapters/EllesmereUI.lua
+Adapters/Skinner.lua
 Guard.lua

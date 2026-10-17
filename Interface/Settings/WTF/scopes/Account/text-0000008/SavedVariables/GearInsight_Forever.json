@@ -92,6 +92,39 @@
             "value": {
               "$text": "text-0002789"
             }
+          },
+          {
+            "key": {
+              "$text": "text-0002886"
+            },
+            "value": {
+              "$table": [
+                {
+                  "key": {
+                    "$number": "number-0000004"
+                  },
+                  "value": {
+                    "$text": "text-0000610"
+                  }
+                },
+                {
+                  "key": {
+                    "$number": "number-0000009"
+                  },
+                  "value": {
+                    "$number": "number-0000996"
+                  }
+                },
+                {
+                  "key": {
+                    "$number": "number-0000025"
+                  },
+                  "value": {
+                    "$number": "number-0000997"
+                  }
+                }
+              ]
+            }
           }
         ]
       }

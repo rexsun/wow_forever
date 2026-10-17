@@ -39,6 +39,7 @@ function Stubs.Fresh(root, options)
   _G.GearInsightForeverLeveling, _G.GearInsightForeverKeysHud = nil, nil
   _G.LibStub = nil
   _G.YUI, _G.YUI_DB = nil, nil
+  _G.Skinner, _G.SkinnerDB = nil, nil
   _G.EllesmereUIDB, _G._ENP_RefreshAllSettings = nil, nil
   _G.C_AddOns = {
     IsAddOnLoaded = function(name) return loaded[name] == true, loaded[name] == true end,
@@ -75,6 +76,7 @@ function Stubs.Fresh(root, options)
   end
 
 
+  if options.beforeGuard then options.beforeGuard(world) end
   local ns = {}
   for _, file in ipairs(ADDON_FILES) do
     local chunk = assert(loadfile(root .. file))

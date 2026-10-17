@@ -1,0 +1,11 @@
+{
+	"folders":
+	[
+		{
+			"path": ".",
+            // "folder_exclude_patterns": [".github", "Fonts", "Libs", "ObsoleteSkins", "Textures"],
+            // The folder_exclude_patterns DON'T work in project files anymore !!
+            // Put them in the User Preferences file
+		}
+	]
+}

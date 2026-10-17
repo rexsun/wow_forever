@@ -1,3 +1,36 @@
+## [Per-login source UI sync / CharacterUIBaseline 0.2.0] - 2026-10-17
+### Features
+- Synchronize targets from a configurable source account/character on every login/reload; exclude the source and publish its latest UI at logout.
+- Refresh generated fallback settings through the existing post-exit watcher. Support changed source identities, native layout import, safe path validation, dry runs and rollback.
+### Design Rationale
+- Game addons cannot read another character/account's WTF directly. Use account SavedVariables for source-to-target character switches and an offline bridge for persisted/cross-account updates.
+- Apply only whitelisted UI values, leaving specialization/talent choices and profile assignments intact. Use a session gate rather than a permanent revision skip.
+### Notes & Caveats
+- Cross-account source updates require the post-exit refresh and another client start. Source changes must be published by logout or `/uib capture`; another running client's unsaved settings are unavailable.
+- Runtime scope remains native layout, display CVars, chat font/primary geometry and EUI party/raid positions. Other addon appearance remains managed by existing shared profiles. Live timing and visuals need in-game verification.
+
+## [Shared character UI / CharacterUIBaseline 0.1.0] - 2026-10-17
+### Features
+- Synchronize existing characters' native UI layout, window placement, chat presentation and display-only preferences from the reference character. Use its existing Details profile account-wide.
+- Add a first-login initializer for supported captured defaults, with combat/editing deferral, bounded retries and explicit `/uib apply`.
+### Design Rationale
+- EUI/YUI settings already share account profiles. Preserve that ownership, select the native layout by name and refresh EUI frames afterward instead of copying mixed character databases or patching upstream addons.
+- Mark successful initialization per character so later deliberate customization survives subsequent logins.
+### Notes & Caveats
+- Preserve macros, bindings, subscriptions, progression/tracking and combat history. The initializer uses a captured template rather than following future filesystem changes to the reference character.
+- Adoption carries the addon and live markers. API-stub tests cover onboarding and the three target resolutions; actual first-login behavior and visual placement need in-game verification.
+
+## [Skinner beta12.70425.2 / OverlapSettingsGuard 0.8.0] - 2026-10-17
+### Features
+- Install the author's packaged Skinner prerelease with Interface 16001/Forever support and enable it in existing character addon lists.
+- Add twelve conditional Skinner policies covering all competing frame/castbar/nameplate, action-bar, map/minimap, chat, tooltip and Details skins, bringing the guard to 23 rules.
+### Design Rationale
+- Keep EUI/YUI/Details appearance ownership and let Skinner style complementary Blizzard windows and Auctionator. Use a local adapter for active/stored/namespace AceDB profiles rather than patching upstream source.
+- Enforce before Skinner's login module enable and delayed skin passes, then use profile callbacks and periodic checks. Request reload when texture/hook changes have already been applied.
+### Notes & Caveats
+- All 377 Skinner files match the release archive. Thirty-nine guard tests include its installed AceDB and default/schema code. Live WTF changes are limited to four addon-list enablement entries; existing saved settings and three-resolution layouts/scales are preserved.
+- Adoption already copies the new addon, guard and future live SkinnerDB settings; its three-resolution and rollback tests pass. Skinner is not yet part of anonymous settings capture. Backups are outside Interface; in-game loading and rendering at 1080p/1440p/4K remain unverified.
+
 ## [WTF settings snapshots 1.2] - 2026-10-15
 ### Features
 - Capture reusable account-level addon configuration while excluding character records, assignments, progression, social history and runtime caches. Regenerate current snapshots using the filter.
