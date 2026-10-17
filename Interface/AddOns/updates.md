@@ -2,6 +2,14 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-17 - Stop CharacterUIBaseline Edit Mode writes
+
+- Problem: on a target character, 0.2.0 called `C_EditMode.SetActiveLayout` from addon code. BugGrabber recorded `EditMode: Error updating layout info in EDIT_MODE_LAYOUTS_UPDATED handler` with that call on the stack, and the character could not log out. It also switched the character to Blizzard's `現代模式` (Modern) preset, because the source's latest logout publication (09:39) recorded that preset rather than `YUI v3`.
+- CharacterUIBaseline 0.3.0 never selects or imports Edit Mode layouts. It compares the active layout name read-only and prints both names when they differ; the player selects the layout once in Edit Mode. CVars are written only when they differ from the source value. Chat font/geometry and EUI party/raid positions still sync each login. The source still publishes its layout name (no native layout export).
+- Follow-up: the source's saved Edit Mode selection is layout `11` (first spec) and `YUI v3` (other specs); neither is Modern, so the logout-time API value was wrong. The source now remembers its layout on world entry and `EDIT_MODE_LAYOUTS_UPDATED` and publishes that at logout. Lu Jessica's per-spec selection (`edit-mode-cache-character.txt`) was restored offline to match the source; the previous file is in the backup under `WTF-Lu-Jessica`. The stale published layout name refreshes on the source's next login/logout.
+- The 10:44 logout "crash" was a Windows-reported hang (AppHangB1) while the client rewrote large `.slug`/`.slugo` font caches (latest written 11 seconds before the hang ended), the first rebuild after the Rurutia font replacement. No add-on error was saved; saved variables from that session were not written.
+- Backup: `addon-backups/uib-no-editmode-20261017-104044`. Verification: 12 runtime checks (including no Edit Mode writes, mismatch reporting and three resolutions), helper unit tests and 39 guard tests pass; all addon Lua compiles under Lua 5.1. Logout and layout selection still require an in-game check after `/reload`.
+
 ## 2026-10-17 - Install Bagnon 12.1.7
 
 - Install upstream Bagnon 12.1.7 (CurseForge file 9193505, 2026-10-15) unchanged: `Bagnon`, required `BagBrother` and load-on-demand `Bagnon_Bank`, `Bagnon_GuildBank`, `Bagnon_Config`. Every TOC lists Interface 16001. All 188 files are byte-identical to the release archive.

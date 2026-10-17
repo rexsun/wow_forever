@@ -2,7 +2,7 @@
 ## Title: CharacterUIBaseline
 ## Notes: Synchronizes the configured source UI on each login. /uib apply retries; /uib capture publishes on the source.
 ## Author: Rex Sun
-## Version: 0.2.0
+## Version: 0.3.0
 ## DefaultState: Enabled
 ## OptionalDeps: YUI, EllesmereUI, EllesmereUIRaidFrames, Details, OverlapSettingsGuard
 ## SavedVariablesPerCharacter: CharacterUIBaselineDB

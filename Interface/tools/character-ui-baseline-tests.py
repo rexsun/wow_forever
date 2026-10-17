@@ -15,8 +15,9 @@ def world(source=False, saved=False):
         C_Timer={After=function(_,fn) timers[#timers+1]=fn end}
         function flush() local list=timers timers={} for _,fn in ipairs(list) do fn() end end
         function InCombatLockdown() return combat == true end
-        function SetCVar(k,v) record(k) end
-        function GetCVar(k) return 'source:' .. k end
+        cvarValues={}
+        function SetCVar(k,v) record(k) cvarValues[k]=v end
+        function GetCVar(k) return cvarValues[k] or ('source:' .. k) end
         function GetRealmName() return 'Test Realm' end
         function UnitNameUnmodified() return playerName or 'Alt', 'Surname' end
         function GetServerTime() return 12345 end
@@ -45,7 +46,8 @@ def world(source=False, saved=False):
                 partyUnlockPos={point='CENTER',relPoint='CENTER',x=10,y=20},
                 talentChoice='keep',specOverrides={test=true}}}}}}
         function _ERF_RefreshAll() record('eui') end
-        function print() end
+        printed={}
+        function print(m) printed[#printed+1]=m end
         SlashCmdList={}
         baseline={revision=2,layoutName='YUI v3',cvars={showQuestLevel='1'},
             source={enabled=true,key='source-key',character='Source-Surname',realmName='Test Realm'},
@@ -61,23 +63,23 @@ def world(source=False, saved=False):
 
 def run():
     lua = world(saved=True)
-    lua.execute('handlers.event(nil,"PLAYER_ENTERING_WORLD"); flush(); assert(active==4); assert(calls.eui==1); assert(calls.chatSave==1); handlers.event(nil,"PLAYER_ENTERING_WORLD"); flush(); assert(calls.layout==1)')
+    lua.execute('handlers.event(nil,"PLAYER_ENTERING_WORLD"); flush(); assert(calls.eui==1); assert(calls.chatSave==1); handlers.event(nil,"PLAYER_ENTERING_WORLD"); flush(); assert(calls.eui==1); assert(not calls.layout)')
     print('PASS every login syncs despite a saved revision; zone transitions do not repeat it')
     lua = world()
     lua.execute('combat=true; handlers.event(nil,"PLAYER_ENTERING_WORLD"); flush(); assert(not next(calls)); assert(not CharacterUIBaselineDB.revision); combat=false; handlers.event(nil,"PLAYER_REGEN_ENABLED"); flush(); assert(CharacterUIBaselineDB.revision==2)')
     print('PASS combat defers every write until combat ends')
     lua = world()
-    lua.execute('missing=true; handlers.event(nil,"PLAYER_ENTERING_WORLD"); for i=1,35 do flush() end; assert(not next(calls)); assert(not CharacterUIBaselineDB.revision); assert(#timers==0); missing=false; SlashCmdList.CHARACTERUIBASELINE("apply"); flush(); assert(CharacterUIBaselineDB.revision==2)')
-    print('PASS missing layout uses bounded retries and supports explicit reapply')
+    lua.execute('width=0; handlers.event(nil,"PLAYER_ENTERING_WORLD"); for i=1,35 do flush() end; assert(not next(calls)); assert(not CharacterUIBaselineDB.revision); assert(#timers==0); width=1920; SlashCmdList.CHARACTERUIBASELINE("apply"); flush(); assert(CharacterUIBaselineDB.revision==2); SlashCmdList.CHARACTERUIBASELINE("apply"); flush(); assert(calls.eui==2)')
+    print('PASS unavailable UI uses bounded retries and supports explicit reapply')
     lua = world()
-    lua.execute('editing=true; handlers.event(nil,"PLAYER_ENTERING_WORLD"); flush(); assert(not next(calls)); editing=false; flush(); assert(CharacterUIBaselineDB.revision==2); SlashCmdList.CHARACTERUIBASELINE("apply"); flush(); assert(calls.eui==2)')
-    print('PASS active layout editing defers writes and manual reapply works')
+    lua.execute('cvarValues.showQuestLevel="1"; handlers.event(nil,"PLAYER_ENTERING_WORLD"); flush(); assert(not calls.showQuestLevel); assert(calls.eui==1)')
+    print('PASS CVars already at the source value are not rewritten')
     for w, h in ((1920,1080),(2560,1440),(3840,2160)):
         lua = world()
         lua.execute(f'width={w};height={h};handlers.event(nil,"PLAYER_ENTERING_WORLD");flush();assert(math.abs(lastX-width*.005375)<.001);assert(math.abs(lastY-height*.028333)<.001);assert(lastWidth==475 and lastHeight==265)')
     print('PASS normalized chat placement at all three resolutions')
     lua = world(source=True)
-    lua.execute('active=4; handlers.event(nil,"PLAYER_ENTERING_WORLD"); flush(); assert(not next(calls)); handlers.event(nil,"PLAYER_LOGOUT"); assert(not next(calls)); local d=CharacterUIBaselineAccountDB; assert(d.sourceKey=="source-key"); assert(d.baseline.chatFontSize==20); assert(d.baseline.cvars.showQuestLevel=="source:showQuestLevel"); assert(d.baseline.euiPositions.partyUnlockPos.x==10); assert(d.baseline.nativeLayout=="old-ui"); assert(not d.baseline.specProfiles and not d.baseline.talents)')
+    lua.execute('active=4; handlers.event(nil,"PLAYER_ENTERING_WORLD"); flush(); assert(not next(calls)); handlers.event(nil,"PLAYER_LOGOUT"); assert(not next(calls)); local d=CharacterUIBaselineAccountDB; assert(d.sourceKey=="source-key"); assert(d.baseline.chatFontSize==20); assert(d.baseline.cvars.showQuestLevel=="source:showQuestLevel"); assert(d.baseline.euiPositions.partyUnlockPos.x==10); assert(d.baseline.layoutName=="YUI v3" and not d.baseline.nativeLayout); assert(not d.baseline.specProfiles and not d.baseline.talents)')
     print('PASS source login is not overwritten and logout publishes whitelisted UI values')
     lua = world()
     lua.execute('''
@@ -102,24 +104,38 @@ def run():
     print('PASS disabled configuration performs no UI writes')
     lua = world()
     lua.execute('''
-        baseline.nativeLayout='source-ui';missing=true
-        EllesmereUI={ApplyPresetEditMode=function(text,name)
-            assert(text=='source-ui' and name=='YUI v3');nativeString=text;missing=false;record('import');return true end}
-        handlers.event(nil,'PLAYER_ENTERING_WORLD');flush();assert(calls.import==1 and active==4)
-        SlashCmdList.CHARACTERUIBASELINE('apply');flush();assert(calls.import==1)
+        baseline.nativeLayout='source-ui';baseline.presetLayout=1;active=1
+        EditModePresetLayoutManager={GetCopyOfPresetLayouts=function() return {{layoutName='Modern'},{layoutName='Classic'}} end}
+        EllesmereUI={ApplyPresetEditMode=function() record('import') return true end}
+        handlers.event(nil,'PLAYER_ENTERING_WORLD');flush()
+        assert(not calls.layout and not calls.import and active==1 and calls.eui==1)
+        local found
+        for _,m in ipairs(printed) do if m:find("'Modern'",1,true) and m:find("'YUI v3'",1,true) then found=true end end
+        assert(found)
     ''')
-    print('PASS source native layout is imported when missing or different without repeated identical imports')
+    lua = world()
+    lua.execute("active=4;handlers.event(nil,'PLAYER_ENTERING_WORLD');flush();assert(#printed==1 and not calls.layout)")
+    print('PASS Edit Mode layouts are never selected or imported; a mismatch is reported once')
     lua = world(source=True)
     lua.execute('''
         active=1
         EditModePresetLayoutManager={GetCopyOfPresetLayouts=function() return {{layoutName='Modern'},{layoutName='Classic'}} end}
-        handlers.event(nil,'PLAYER_LOGOUT')
-        assert(CharacterUIBaselineAccountDB.baseline.presetLayout==1)
+        handlers.event(nil,'PLAYER_ENTERING_WORLD');handlers.event(nil,'PLAYER_LOGOUT')
+        local d=CharacterUIBaselineAccountDB.baseline
+        assert(d.presetLayout==1 and d.layoutName=='Modern' and not d.nativeLayout)
     ''')
-    lua = world()
-    lua.execute("baseline.presetLayout=1;baseline.nativeLayout='preset-ui';handlers.event(nil,'PLAYER_ENTERING_WORLD');flush();assert(active==1 and calls.eui==1 and not calls.import)")
-    print('PASS built-in source layouts are captured and selected without importing a custom layout')
-
+    print('PASS built-in source layouts are captured by name without a native layout export')
+    lua = world(source=True)
+    lua.execute('''
+        EditModePresetLayoutManager={GetCopyOfPresetLayouts=function() return {{layoutName='Modern'},{layoutName='Classic'}} end}
+        active=3;handlers.event(nil,'PLAYER_ENTERING_WORLD');active=4;handlers.event(nil,'EDIT_MODE_LAYOUTS_UPDATED')
+        active=1;handlers.event(nil,'PLAYER_LOGOUT')
+        local d=CharacterUIBaselineAccountDB.baseline
+        assert(d.layoutName=='YUI v3' and not d.presetLayout)
+    ''')
+    lua = world(source=True)
+    lua.execute("handlers.event(nil,'PLAYER_LOGOUT');assert(not CharacterUIBaselineAccountDB.baseline)")
+    print('PASS the source publishes the layout last seen in the world, not the logout-time preset')
 
 if __name__ == '__main__':
     run()
