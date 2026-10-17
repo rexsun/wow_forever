@@ -2,6 +2,24 @@
 
 This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-10-17 - Install Bagnon 12.1.7
+
+- Install upstream Bagnon 12.1.7 (CurseForge file 9193505, 2026-10-15) unchanged: `Bagnon`, required `BagBrother` and load-on-demand `Bagnon_Bank`, `Bagnon_GuildBank`, `Bagnon_Config`. Every TOC lists Interface 16001. All 188 files are byte-identical to the release archive.
+- Overlap review: Bagnon replaces Blizzard bag/bank windows, so YUI's combined-bag position, bag-sort fix and Profession Assistant backpack entry go inactive, and YUI's `auto` bag-bar visibility keeps the Blizzard bag bar hidden. EUI's competing EllesmereUIBags is absent; no installed addon adds tooltip item counts; Skinner's Bagnon skin is complementary. No guard policy added; the guard readme records the review.
+- `BrotherBags` stores per-character inventory caches; it is outside the anonymous settings allowlist and travels only with live WTF through adoption. No saved settings were changed. Window placement at 1080p/1440p/4K, bank/guild-bank loading and the Profession Assistant entry still require in-game checks.
+
+## 2026-10-17 - Install Waypoint UI 1.7.3
+
+- Install upstream Waypoint UI 1.7.3 (CurseForge file 8961715, 2026-09-24) unchanged; its `WaypointUI_Camelot.toc` declares Interface 16001. 240 files are byte-identical to the release archive.
+- Overlap review: it hides Blizzard's in-world super-tracking frame, forces `showInGameNavigation` on until logout and registers `/way`, `/waypoint`, `/wp`. YUI map markers/event navigation and GearInsight map destinations set the target it displays; no installed addon owns these slash commands (EUI's optional `/way` lives in the absent EllesmereUIQoL), and Skinner has no competing skin. No guard policy was added; the guard readme records the review.
+- Its default font is the client game font, so it follows Rurutia. No saved settings or adoption changes; first-load settings come from upstream defaults. Settings persistence across `/reload` and a full restart still requires an in-game check.
+
+## 2026-10-17 - Use Rurutia as the default game font
+
+- Replace eleven non-damage client font files in game-root Fonts (Latin/Cyrillic standard, header and narrow; zhCN and zhTW standard, unit-name and chat) with Rurutia v2.2.9, superseding the previous Maple Mono NF CN copies. Keep the four damage-text files (`skurri.ttf`, `SKURRI_CYR.TTF`, `ARKai_C.ttf`, `bKAI00M.ttf`) and YUI's bundled fonts unchanged.
+- Coverage check: Big5 13,741/13,742 (missing only U+02CD) and GBK 21,791/21,791. No add-on code or saved setting changed; EUI's zhTW system font resolves to `bLEI00D.ttf`.
+- Backup of the eleven replaced files: `addon-backups/default-font-rurutia-20261017-081346/Fonts`. All replacements are byte-identical to the source file. In-game rendering needs a full client restart and visual check.
+
 ## 2026-10-17 - Revert YUI buff placement overrides
 
 - Restore the original relative anchors for official buff icons and tracked buff bars in all six active/saved placement tables from the pre-change backup. Preserve buff visibility, tracked content and specialization settings.

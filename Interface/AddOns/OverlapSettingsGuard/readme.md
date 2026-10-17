@@ -72,6 +72,8 @@ Startup overlaps: YUI's installer and EllesmereUI's camera options also write ca
 Contrast and brightness use percentage values (85 and 55); gamma uses 1.5.
 
 The values are applied once per session; zone transitions and the two-second overlap checker do not reapply them. Delayed addon initialization or later profile changes can still overwrite them. Startup coverage uses game API stubs; verify the client's accepted values and visible effects in-game. No addon-profile tables or resolution-specific layouts are changed; the same values apply at 1080p, 1440p and 4K. The adoption script already copies these addon files.
+Waypoint UI 1.7.3 was reviewed on install: it owns in-world navigation display, while YUI and GearInsight only set the super-tracked destination it displays. No installed addon registers its `/way`, `/waypoint` or `/wp` commands (EllesmereUIQoL, which has an optional `/way`, is absent), so no rule is added. Re-review if TomTom, EllesmereUIQoL or another navigation addon is installed.
+Bagnon 12.1.7 was reviewed on install: it owns bag, bank and guild-bank windows. YUI's combined-bag position, `fixBagSortButton` and Profession Assistant backpack entry only act on Blizzard bag frames, which Bagnon no longer shows, so they are inert rather than competing; YUI `bagsBarVisibility="auto"` keeps the Blizzard bag bar hidden. Skinner's Bagnon skin is complementary. No rule is added. Re-review if EllesmereUIBags or another bag addon is installed.
 
 ## Maintenance and verification
 

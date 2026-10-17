@@ -1,0 +1,25 @@
+local env = select(2, ...)
+local UIKit = env.modules:Import("packages\\ui-kit")
+local UICCommon = env.modules:Import("packages\\uic-common")
+
+UICCommon.PromptText("WUISharedPrompt")
+    :id("WUISharedPrompt")
+    :frameStrata(UIKit.Enum.FrameStrata.FullscreenDialog)
+    :parent(UIParent)
+    :anchor(StaticPopup1)
+    :point(UIKit.Enum.Point.Center)
+    :_Render()
+
+WUISharedPrompt = UIKit.GetElementById("WUISharedPrompt")
+WUISharedPrompt:Hide()
+
+UICCommon.PromptInput("WUISharedInputPrompt")
+    :id("WUISharedInputPrompt")
+    :frameStrata(UIKit.Enum.FrameStrata.FullscreenDialog)
+    :parent(UIParent)
+    :anchor(StaticPopup1)
+    :point(UIKit.Enum.Point.Center)
+    :_Render()
+
+WUISharedInputPrompt = UIKit.GetElementById("WUISharedInputPrompt")
+WUISharedInputPrompt:Hide()

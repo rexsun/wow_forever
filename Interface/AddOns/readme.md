@@ -1,6 +1,6 @@
 # WoW: Forever add-ons
 
-Updated 2026-10-17 for client 1.60.1.70450 / Interface 16001. Seventeen upstream addon folders plus two local addons are installed. EllesmereUI owns individual/group frames and nameplates; YUI owns bars, bindings and interface helpers. GearInsight provides talents, loot, gear farming, macros and leveling planning. Details owns combat meters and analysis. Skinner supplies complementary Blizzard-window skins.
+Updated 2026-10-17 for client 1.60.1.70450 / Interface 16001. Twenty-three upstream addon folders plus two local addons are installed. EllesmereUI owns individual/group frames and nameplates; YUI owns bars, bindings and interface helpers. GearInsight provides talents, loot, gear farming, macros and leveling planning. Details owns combat meters and analysis. Skinner supplies complementary Blizzard-window skins. Waypoint UI owns in-world navigation display. Bagnon owns bag, bank and guild-bank windows.
 
 | Package | Version | Purpose and source |
 | --- | --- | --- |
@@ -21,6 +21,10 @@ Updated 2026-10-17 for client 1.60.1.70450 / Interface 16001. Seventeen upstream
 | EllesmereUIOptions | 9.5.5 | Required load-on-demand settings panels. Same suite release. |
 | EllesmereUILocales | 9.5.5 | Load-on-demand translations, including zhTW. Same suite release. |
 | Skinner | beta12.70425.2 | Styles Blizzard windows and supported addon windows. `/skinner` or `/skin`. [Author's packaged release](https://github.com/jncl/Skinner/releases/tag/beta12.70425.2), published 2026-10-16; latest checked 2026-10-17. Includes Interface 16001 and dedicated Forever/Camelot support. Bundled libraries; upstream files unchanged. |
+| Waypoint UI | 1.7.3 | In-world waypoint, pinpoint and navigator arrow for the super-tracked quest, map pin or point of interest; `/way`, `/waypoint`, `/wp`. [Release](https://www.curseforge.com/wow/addons/waypointui/files/8961715), 2026-09-24; latest checked 2026-10-17. `WaypointUI_Camelot.toc` supports Interface 16001. GPLv3; upstream files unchanged. |
+| Bagnon | 12.1.7 | Single-window inventory/bank/guild-bank replacement with search, sorting, cross-character views and tooltip item counts; `/bagnon`, `/bgn`. [Release](https://www.curseforge.com/wow/addons/bagnon/files/9193505), 2026-10-15; latest checked 2026-10-17. Interface list includes 16001. Upstream files unchanged. |
+| BagBrother | Bundled with 12.1.7 | Required shared core and character inventory cache (`BrotherBags`). Same release; Interface 16001. |
+| Bagnon_Bank, Bagnon_GuildBank, Bagnon_Config | Bundled with 12.1.7 | Load-on-demand bank, guild-bank and options modules. Same release; Interface 16001. |
 | OverlapSettingsGuard | 0.8.0 | Local ownership enforcement, 23 conditional rules, chat reporting and ten startup CVars. `/osg`. [Policy table](OverlapSettingsGuard/readme.md). Interface 16001. |
 | CharacterUIBaseline | 0.2.0 | Local per-login UI sync from a configurable source account/character; source logout publication and automatic post-exit refresh. `/uib`, `/uib apply`, `/uib capture`. [Configuration and scope](CharacterUIBaseline/readme.md). Interface 16001. |
 
@@ -36,6 +40,8 @@ Updated 2026-10-17 for client 1.60.1.70450 / Interface 16001. Seventeen upstream
 - Details is the only installed combat meter: YUI's Forever loader does not load YDamageMeter, and EllesmereUIDamageMeters is absent. YUI's Details specialization-icon integration remains enabled because it supplements the meter. TinyThreat group rankings supplement EUI's per-unit threat indicators. Details Raid Check and GearInsight talent planning serve different purposes.
 - The optional Details_Streamer cast/action overlay and Details_Vanguard tank-health/debuff frames are not installed because existing YUI/EUI displays own those features. Review these exclusions again if installing additional Details plugins.
 - Skinner's individual/party/compact frames, castbar and nameplate skins stay off under the corresponding EUI owners. Its action/status bars, minimap/buttons, world map, chat and tooltip skins stay off while YUI loads. Details and DetailsFramework widget skinning stay off while Details loads. Every guarded setting is listed in the [policy table](OverlapSettingsGuard/readme.md); Blizzard-window and Auctionator skins remain available.
+- Waypoint UI replaces Blizzard's in-world navigation frame and sets `showInGameNavigation` on until logout at each load. YUI map markers/event navigation and GearInsight map destinations only choose the super-tracked target, which Waypoint UI then displays; GearInsight's printed `/way` coordinates become usable. EUI's `/way` command belongs to the absent EllesmereUIQoL module. No installed addon registers `/way`, `/waypoint` or `/wp`, and Skinner has no Waypoint UI skin. No guard policy is required. Its default "Game Font" follows the client font (Rurutia).
+- Bagnon replaces Blizzard's bag, bank and guild-bank windows. YUI's Blizzard-bag enhancements become inactive while it loads: the combined-bag position (x=0.88, y=0.30), `fixBagSortButton`, and the Profession Assistant entry docked on the Blizzard backpack. With YUI `bagsBarVisibility="auto"`, Blizzard bags never report open, so the Blizzard bag bar stays hidden; Bagnon's own bag-slot toggle replaces it. Set that YUI option to `show` to keep the bar visible. EllesmereUIBags, which EUI auto-disables beside Bagnon, is absent. No installed addon adds tooltip item counts. Skinner's Bagnon skin follows its `ContainerFrames` setting as complementary styling. No guard policy is required because the YUI settings are inert rather than competing.
 
 GearInsight uses the same Chinese strings for zhCN and zhTW, largely Simplified Chinese. The zhTW client remains selected. Client terminology can differ from its bundled Chinese names; name-dependent features require live verification.
 
@@ -66,6 +72,10 @@ The positional destination must already exist and be writable; `-Destination <pa
 ## Portable fonts
 
 YUI's seven bundled fonts have byte-identical copies under game-root Fonts: `YUIInterBlack.ttf`, `YUIInterBold.ttf`, `YUIText.ttf`, `YUILongZhu.ttf`, `YUIHOOGE.ttf`, `YUIDamage1.ttf` and `YUIDark.ttf`. Two YUI source files use those paths while retaining font-selection names. EllesmereUI's saved `fctFont` selects the LongZhu copy; EUI owns damage text. Font sizes/layouts are unchanged. Updates can overwrite the YUI references; retain the copies and reapply those references. Adoption copies and backs up Fonts. Fully exit/restart to discover new assets.
+
+## Default game font
+
+Rurutia (Montserrat + Source Han Sans SC ExtraBold, from SharedMedia_Rurutia v2.2.9) replaces the client's standard, header, unit-name and chat font files in game-root Fonts: `FRIZQT__.TTF`, `FRIZQT___CYR.TTF`, `ARIALN.TTF`, `MORPHEUS.ttf`, `MORPHEUS_CYR.TTF`, `ARHei.ttf`, `ARKai_T.ttf`, `arheiuhk_bd.ttf`, `bHEI00M.ttf`, `bHEI01B.ttf` and `bLEI00D.ttf`. It covers Big5 (zhTW) and GBK (zhCN) except one unused bopomofo tone mark; Traditional text uses Simplified-standard glyph shapes. The damage-text files `skurri.ttf`, `SKURRI_CYR.TTF`, `ARKai_C.ttf` and `bKAI00M.ttf` are unchanged. Add-ons on default/system fonts follow it; explicit picks such as YUI's bundled faces do not. These copies are not tracked by Git; adoption carries them with Fonts.
 
 YUI's full YUnitFrames product is not loaded by its Forever loader, and it has no party/raid replacement in this pack. Keep EUI for those frames. YUI's Platynator installer step remains unused. Old standalone EUI folders remain absent.
 
