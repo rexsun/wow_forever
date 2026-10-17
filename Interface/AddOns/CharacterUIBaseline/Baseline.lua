@@ -9,7 +9,7 @@ local defaults = {
 	["chatFontSize"] = 18.0,
 	["cvars"] = {
 		["cameraSavedDistance"] = "50.000000",
-		["cameraSavedPitch"] = "-0.287706",
+		["cameraSavedPitch"] = "20.685104",
 		["cooldownViewerEnabled"] = "1",
 		["enableMultiActionBars"] = "15",
 		["mapFade"] = "0",
@@ -28,14 +28,14 @@ local defaults = {
 		["partyUnlockPos"] = {
 			["point"] = "CENTER",
 			["relPoint"] = "CENTER",
-			["x"] = -446.4761980796349,
-			["y"] = 20.57142892175792,
+			["x"] = -502.7777890157371,
+			["y"] = -365,
 		},
 		["unlockPos"] = {
 			["point"] = "CENTER",
 			["relPoint"] = "CENTER",
 			["x"] = -688.8889042867559,
-			["y"] = -88.88889087571043,
+			["y"] = -69.44444599664877,
 		},
 	},
 	["layoutName"] = "現代模式",
