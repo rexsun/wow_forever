@@ -1,6 +1,19 @@
 # WoW: Forever add-on updates
 
-This log records changes made in `World of Warcraft/_classic_beta_/Interface/AddOns`. See [readme.md](readme.md) for the current inventory and sources.
+This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
+
+## 2026-10-23 - Inspect release client language resources
+
+- Verify release `wowf` installed-language tags include enUS and zhTW only, with no zhCN; live WTF selects zhTW text and enUS audio. No separate zhCN client pack is registered for release, so no client-resource deletion is needed.
+- Keep all custom fonts (including zhCN-named overrides), addon translations and zhTW resources. The three temporarily removed font overrides were restored byte-for-byte from beta.
+- Beta's separate installed-language record still lists zhCN. Shared game archives, beta installation and migration backups are unchanged.
+
+## 2026-10-23 - Migrate beta project to release
+
+- Migrate the working repository, complete Interface, live WTF and Fonts to `_forever_`, the installed `wowf` 1.60.1.70532 release. Retain Git history, branches, index and the four existing uncommitted files. No addon is installed, updated or removed; feature ownership and overlap policies are unchanged.
+- Preserve existing addon backups, font backup, diagnostics, utility files and private watcher state under `addon-backups/beta-migration-20261023-141603`. Keep beta files intact until uninstall.
+- Update the current inventory and adoption examples for release; replace the beta scheduled settings watcher with the release watcher. Private source-character identities are retained rather than guessed for new release realms.
+- Verify copied files with SHA256 and run existing adoption, overlap guard and settings checks from release. First release login, profile/realm mapping and visuals at 1080p/1440p/4K require in-game verification.
 
 ## 2026-10-17 - Stop CharacterUIBaseline Edit Mode writes
 

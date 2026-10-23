@@ -9,10 +9,10 @@ source Fonts is merged over destination Fonts; destination-only files are preser
 Gameplay settings and UI scale are copied unchanged. Use -Resolution to set the
 destination window size and fit the EUI options panel. Requires Windows PowerShell 5.1.
 .EXAMPLE
-.\Interface\adopt_addons.ps1 \\destination\WoW\_classic_beta_
-If the share itself points at _classic_beta_, use \\destination\WoW instead.
+.\Interface\adopt_addons.ps1 \\destination\WoW\_forever_
+If the share itself points at _forever_, use \\destination\WoW instead.
 .EXAMPLE
-.\Interface\adopt_addons.ps1 \\destination\WoW\_classic_beta_ -Resolution 1920x1080
+.\Interface\adopt_addons.ps1 \\destination\WoW\_forever_ -Resolution 1920x1080
 #>
 [CmdletBinding(PositionalBinding = $false)]
 param(

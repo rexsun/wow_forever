@@ -1,3 +1,12 @@
+## [Release migration] - 2026-10-23
+### Features
+- Migrate the beta working project, Git history, live settings, private mappings and complete fonts to the installed `_forever_` release build 1.60.1.70532 / Interface 16001.
+- Move settings capture to the release installation and preserve historical backups outside beta.
+### Design Rationale
+- Use the existing adoption utility to preserve UI configuration and rollback behavior. Keep addon versions and overlap ownership unchanged because the installed beta and release clients share the same build and interface version.
+### Notes & Caveats
+- Existing beta realm/character identities are retained. New release identities may require selecting shared profiles and updating the private UI source configuration. In-game loading and all three display resolutions remain to be checked.
+
 ## [Per-login source UI sync / CharacterUIBaseline 0.2.0] - 2026-10-17
 ### Features
 - Synchronize targets from a configurable source account/character on every login/reload; exclude the source and publish its latest UI at logout.

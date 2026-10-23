@@ -1,6 +1,6 @@
 # WoW: Forever add-ons
 
-Updated 2026-10-17 for client 1.60.1.70450 / Interface 16001. Twenty-three upstream addon folders plus two local addons are installed. EllesmereUI owns individual/group frames and nameplates; YUI owns bars, bindings and interface helpers. GearInsight provides talents, loot, gear farming, macros and leveling planning. Details owns combat meters and analysis. Skinner supplies complementary Blizzard-window skins. Waypoint UI owns in-world navigation display. Bagnon owns bag, bank and guild-bank windows.
+Migrated 2026-10-23 to the installed release client 1.60.1.70532 (`wowf`, `_forever_`) / Interface 16001. Addon versions and source links below are unchanged; release loading still needs an in-game check. Twenty-three upstream addon folders plus two local addons are installed. EllesmereUI owns individual/group frames and nameplates; YUI owns bars, bindings and interface helpers. GearInsight provides talents, loot, gear farming, macros and leveling planning. Details owns combat meters and analysis. Skinner supplies complementary Blizzard-window skins. Waypoint UI owns in-world navigation display. Bagnon owns bag, bank and guild-bank windows.
 
 | Package | Version | Purpose and source |
 | --- | --- | --- |

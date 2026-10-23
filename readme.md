@@ -1,12 +1,12 @@
 # WoW: Forever add-ons
 
-Version control for the user interface of a **World of Warcraft: Forever** client (`wow_classic_beta`). The repository root is the game's `_classic_beta_` folder. Interface files, selected custom fonts and anonymous settings snapshots are eligible for version control. The game client, caches, logs and live `WTF` settings are ignored (see [.gitignore](.gitignore)).
+Version control for the user interface of a **World of Warcraft: Forever** client (`wowf`). The repository root is the game's `_forever_` folder. Interface files, selected custom fonts and anonymous settings snapshots are eligible for version control. The game client, caches, logs and live `WTF` settings are ignored (see [.gitignore](.gitignore)).
 
 ## Game version
 
 | | |
 | --- | --- |
-| Client | 1.60.1.70338 (`wow_classic_beta`, region `us`) |
+| Client | 1.60.1.70532 (`wowf`, region `us`) |
 | Add-on interface | 16001 |
 
 Every add-on here must declare Interface 16001 in its TOC and work on this client.
@@ -26,12 +26,20 @@ The `ForeverUI` branch preserves the addon bundle before the 2026-10-10 replacem
 
 ## Moving to another display
 
-Run the adoption utility on the destination after closing WoW on both machines:
+Run the adoption utility from the source game root after closing WoW on both machines:
 
 ```powershell
-.\Interface\adopt_addons.ps1 '\\source\WoW\_classic_beta_' -Resolution 1920x1080
+.\Interface\adopt_addons.ps1 '\\destination\WoW\_forever_' -Resolution 1920x1080
 ```
 
-The source path is the game root containing Interface and WTF. Resolution also accepts 2560x1440 or 3840x2160. The script fits EUI's options window and sets the windowed resolution; it preserves gameplay UI scale, frame positions and fonts. Without Resolution it copies settings unchanged. Maximized mode uses the destination display's native resolution. Destination Interface/WTF are backed up before replacement, with rollback on failure. Source WTF is never modified.
+The argument is the existing destination game root. The script copies Interface, WTF and Fonts from the source installation where it runs. Resolution also accepts 2560x1440 or 3840x2160. The script fits EUI's options window and sets the windowed resolution; it preserves gameplay UI scale, frame positions and fonts. Without Resolution it copies settings unchanged. Maximized mode uses the destination display's native resolution. Destination Interface/WTF are backed up before replacement, with rollback on failure. Source WTF is never modified.
 
 EUI and YUI share Default with new characters. RestedXP uses a supported default template for new character profiles; guide progress, Blizzard keybindings and character-only layout settings remain separate. WTF is ignored by Git, so pulling this repository alone does not install the configured settings. Use the adoption utility with the same account, or transfer SavedVariables into the destination account folder.
+
+## Release migration
+
+The active project is now in `_forever_` for the installed `wowf` release build 1.60.1.70532 (Interface 16001). The beta copy is retained only as a migration source; use the release folder for subsequent edits and Git operations.
+
+The 2026-10-23 migration carries Git history and uncommitted changes, the complete Interface (including private snapshot aliases and source configuration), live WTF and Fonts. Historical addon backups, diagnostics, utility files and private watcher state are preserved in `_forever_/addon-backups/beta-migration-20261023-141603/`. These private files stay outside version control. Client binaries and caches come from the release installation.
+
+The beta settings watcher is removed and the release watcher uses the release installation path. Existing beta realm/character folders remain intact; release realms and characters may have different identities, so select the intended shared profiles and update the private source-character configuration if needed after first login. Migration and offline tests do not establish in-game compatibility or rendering at 1080p, 1440p and 4K.
