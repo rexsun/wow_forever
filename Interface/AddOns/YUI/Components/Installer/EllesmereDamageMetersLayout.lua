@@ -7,6 +7,7 @@ YUI.EllesmereDamageMetersLayout = Layout
 local DAMAGE_METERS_ADDON = "EllesmereUIDamageMeters"
 local UNIT_FRAMES_ADDON = "EllesmereUIUnitFrames"
 local RAID_FRAMES_ADDON = "EllesmereUIRaidFrames"
+local MYTHIC_TIMER_ADDON = "EllesmereUIMythicTimer"
 local ELLESMERE_MINIMAP_ADDON = "EllesmereUIMinimap"
 local ENHANCE_QOL_ADDON = "EnhanceQoL"
 local WINDOW_KEY_PREFIX = "EDM_Win"
@@ -20,6 +21,7 @@ local PLAYER_AURA_BUFFS_KEY = "PAB_Buffs"
 local PLAYER_AURA_DEBUFFS_KEY = "PAB_Debuffs"
 local ELLESMERE_MINIMAP_KEY = "EBS_Minimap"
 local ELLESMERE_PARTY_KEY = "RF_PartyFrames"
+local ELLESMERE_KICK_BARS_KEY = "EMT_KickBars"
 local ENHANCE_QOL_PARTY_EDIT_MODE_ID = "EQOL_UF_GROUP_PARTY"
 
 local PARTY_PRESETS = {
@@ -454,6 +456,91 @@ local function GetEnhanceQoLPartyContext()
     return { addon = addon, groupFrames = groupFrames, config = config }
 end
 
+local function SyncEllesmerePartyKickBars(provider)
+    if not IsAddonLoaded(MYTHIC_TIMER_ADDON) then return end
+    if type(provider.ReapplyUnlockAnchor) ~= "function"
+        or type(provider.SaveBarPosition) ~= "function"
+    then
+        return
+    end
+
+    local anchors = GetUnlockAnchors(false)
+    local info = anchors and anchors[ELLESMERE_KICK_BARS_KEY]
+    if type(info) ~= "table" or info.target ~= ELLESMERE_PARTY_KEY then return end
+    local elements = provider._unlockRegisteredElements
+    local element = type(elements) == "table" and elements[ELLESMERE_KICK_BARS_KEY]
+    if type(element) ~= "table" or type(element.getFrame) ~= "function"
+        or type(element.savePosition) ~= "function"
+    then
+        return
+    end
+    local frame = element.getFrame(ELLESMERE_KICK_BARS_KEY)
+    if not frame or type(frame.GetPoint) ~= "function" then return end
+
+    -- 解锁预览会重用独立保存位置，跟随刷新后同步其已解析的坐标。
+    provider.ReapplyUnlockAnchor(ELLESMERE_KICK_BARS_KEY)
+    local point, relativeTo, relPoint, x, y = frame:GetPoint(1)
+    if issecretvalue and (issecretvalue(point) or issecretvalue(relativeTo)
+        or issecretvalue(relPoint) or issecretvalue(x) or issecretvalue(y))
+    then
+        return
+    end
+    if point ~= "CENTER" or relativeTo ~= UIParent or relPoint ~= "CENTER"
+        or type(x) ~= "number" or type(y) ~= "number"
+    then
+        return
+    end
+    provider.SaveBarPosition(ELLESMERE_KICK_BARS_KEY, point, relPoint, x, y)
+end
+
+local function RunPartyAnchorCallback(callback, ...)
+    local ok, detail = pcall(callback, ...)
+    if ok then
+        Layout.lastPartyAnchorSyncError = nil
+    else
+        Layout.lastPartyAnchorSyncError = detail
+    end
+end
+
+local pendingPartyAnchorSync
+local function QueueEllesmerePartyKickBarsSync(provider)
+    if GetEllesmereProvider() ~= provider then return end
+    if pendingPartyAnchorSync then
+        pendingPartyAnchorSync:Cancel()
+        pendingPartyAnchorSync = nil
+    end
+    if not IsAddonLoaded(MYTHIC_TIMER_ADDON) then return end
+    if type(provider.ReapplyUnlockAnchor) ~= "function"
+        or type(provider.SaveBarPosition) ~= "function"
+    then
+        return
+    end
+    pendingPartyAnchorSync = C_Timer.NewTimer(0, function()
+        pendingPartyAnchorSync = nil
+        RunPartyAnchorCallback(function()
+            if GetEllesmereProvider() ~= provider or not IsAddonLoaded(RAID_FRAMES_ADDON) then return end
+            if InCombatLockdown and InCombatLockdown() then
+                local queue = provider._UnlockCombatQueue
+                if type(queue) == "table" and type(queue.Defer) == "function" then
+                    queue.Defer("YUI_InstallerPartyAnchors", function()
+                        RunPartyAnchorCallback(QueueEllesmerePartyKickBarsSync, provider)
+                    end)
+                end
+                return
+            end
+            SyncEllesmerePartyKickBars(provider)
+        end)
+    end)
+end
+
+local function RefreshEllesmerePartyAnchors(provider)
+    if GetEllesmereProvider() ~= provider or not IsAddonLoaded(RAID_FRAMES_ADDON) then return end
+    if type(provider.PropagateAnchorChain) == "function" then
+        provider.PropagateAnchorChain(ELLESMERE_PARTY_KEY)
+    end
+    QueueEllesmerePartyKickBarsSync(provider)
+end
+
 function Layout:ApplyEllesmereParty(side)
     local context = GetEllesmerePartyContext()
     if not context then return false, "not-ready" end
@@ -487,6 +574,21 @@ function Layout:ApplyEllesmereParty(side)
     end
     if not pcall(namespace.ReloadPartyFrames) then
         return false, "layout-refresh-failed"
+    end
+    local provider = GetEllesmereProvider()
+    if provider then
+        if inCombat then
+            local queue = provider._UnlockCombatQueue
+            if type(queue) == "table" and type(queue.Defer) == "function"
+                and not pcall(queue.Defer, "YUI_InstallerPartyAnchors", function()
+                    RunPartyAnchorCallback(RefreshEllesmerePartyAnchors, provider)
+                end)
+            then
+                return false, "combat-defer-failed"
+            end
+        elseif not pcall(RefreshEllesmerePartyAnchors, provider) then
+            return false, "anchor-reapply-failed"
+        end
     end
     return true, side
 end
@@ -524,12 +626,17 @@ function Layout:ApplyEnhanceQoLParty(side)
     return true, side
 end
 
+local function IsLayoutTargetReady(check)
+    local ok, context = pcall(check)
+    return ok and context ~= nil and context ~= false
+end
+
 function Layout:GetCapabilities()
     local capabilities = {
-        damageMeters = CanApplyDamageMeters(),
-        playerAuras = GetPlayerAuraContext() ~= nil,
-        ellesmereParty = GetEllesmerePartyContext() ~= nil,
-        enhanceQoLParty = GetEnhanceQoLPartyContext() ~= nil,
+        damageMeters = IsLayoutTargetReady(CanApplyDamageMeters),
+        playerAuras = IsLayoutTargetReady(GetPlayerAuraContext),
+        ellesmereParty = IsLayoutTargetReady(GetEllesmerePartyContext),
+        enhanceQoLParty = IsLayoutTargetReady(GetEnhanceQoLPartyContext),
     }
     capabilities.hasPartyFrames = capabilities.ellesmereParty or capabilities.enhanceQoLParty
     capabilities.any = capabilities.damageMeters

@@ -40,6 +40,7 @@ local runtime = {
     profileCallbacksRegistered = false,
     zoomMapID = nil,
     compactZoom = false,
+    pendingCombatRefresh = false,
     quickFilterButton = nil,
     primaryProfessionIDs = {},
     primaryProfessionCount = 0,
@@ -140,6 +141,7 @@ end
 function MapEnhancement:GetConfig()
     local config = YUI.YMap:GetDB().markers
     CopyDefaults(config, DEFAULTS)
+    if YUI.IsForever then config.showOpposingFactionNPCs = config.showOpposingFactionNPCs == true end
     -- 正式服只提供文字；Forever 保留原有模式及默认值。
     config.buttonOffsetX = NormalizeButtonOffset(config.buttonOffsetX)
     config.buttonOffsetY = NormalizeButtonOffset(config.buttonOffsetY)
@@ -179,13 +181,13 @@ function MapEnhancement:CaptureFlightKnowledge()
     local current, reachable, unreachable = states.Current or 0, states.Reachable or 1, states.Unreachable or 2
     local hasCurrent = false
     for _, node in ipairs(nodes) do
-        if node.nodeID and not node.isMapLayerTransition and node.state == current then hasCurrent = true; break end
+        if not node.isMapLayerTransition and node.state == current and self.Data:IsPlayerFlight(node.nodeID) then hasCurrent = true; break end
     end
     if not hasCurrent then return end -- 空响应或非当前航线图不构成同步证据。
     local known = GetFlightKnowledge()
     local usable, blocked = {}, {}
     for _, node in ipairs(nodes) do
-        if node.nodeID and not node.isMapLayerTransition then
+        if not node.isMapLayerTransition and self.Data:IsPlayerFlight(node.nodeID) then
             if node.state == current or node.state == reachable then
                 known[node.nodeID] = true
                 usable[node.nodeID] = true
@@ -218,6 +220,7 @@ end
 
 function MapEnhancement:GetFlightState(nodeID,node)
     if YUI.IsForever then
+        if not self.Data:IsPlayerFlight(nodeID) then return nil end
         local state = GetFlightKnowledge()[nodeID]
         if state == true then return "discovered" end
         if state == false then return "undiscovered" end
@@ -239,7 +242,7 @@ local function HideDuplicateFlight(pin, info)
     local config = MapEnhancement:GetConfig()
     local mapID = map:GetMapID()
     if config.maps[mapID] == false then return end
-    if info and MapEnhancement.Data:HasFlight(mapID,info.nodeID) then
+    if info and MapEnhancement.Data:HasFlight(mapID,info.nodeID,config.showOpposingFactionNPCs == true) then
         nativeFlightsHidden[pin] = true
         pin:Hide()
     end
@@ -428,7 +431,19 @@ function ProviderMixin:RemoveAllData()
     runtime.stats.activePins = 0
 end
 
+local function DeferCombatRefresh(provider)
+    local security = YUI.API and YUI.API.Security
+    local check = security and security.InCombatLockdown or InCombatLockdown
+    if type(check) ~= "function" or check() ~= true then return false end
+    -- Acquiring native map pins changes protected mouse passthrough attributes.
+    -- Discard old-map markers now and rebuild once after combat has ended.
+    runtime.pendingCombatRefresh = true
+    provider:RemoveAllData()
+    return true
+end
+
 function ProviderMixin:RenderPoints()
+    if DeferCombatRefresh(self) then return end
     if MapEnhancement.expandedPin then MapEnhancement.expandedPin:CloseExpansion() end
     local map = self:GetMap()
     if YUI.IsRetail then
@@ -482,6 +497,8 @@ function ProviderMixin:RenderPoints()
 end
 
 function ProviderMixin:RefreshAllData()
+    if DeferCombatRefresh(self) then return end
+    runtime.pendingCombatRefresh = false
     MapEnhancement:HideMarkerMenu(true)
     self:RemoveAllData()
     self.visiblePoints, self.membership, self.signature = {}, nil, nil
@@ -489,12 +506,16 @@ function ProviderMixin:RefreshAllData()
     local map = self:GetMap()
     local mapID = map and map:GetMapID()
     local data, config = MapEnhancement.Data, MapEnhancement:GetConfig()
+    if YUI.IsForever and data then
+        data:LoadPlayerFactionPoints()
+        if config.showOpposingFactionNPCs then data:LoadOpposingFactionPoints() end
+    end
     local playerClass = GetPlayerClassToken()
     SyncNativeFlights(true)
     SyncNativeFlights(false)
     runtime.stats.refreshes = runtime.stats.refreshes + 1
     if config.markersHidden or not data or config.maps[mapID] == false then return end
-    local points = data:GetMapPoints(mapID)
+    local points = data:GetMapPoints(mapID, config.showOpposingFactionNPCs == true)
     if not points then return end
     local taxi = {}
     if C_TaxiMap and C_TaxiMap.GetTaxiNodesForMap then
@@ -521,10 +542,14 @@ function ProviderMixin:RefreshAllData()
             if PreparePointLabel(point, playerClass) then
                 point.displayMode = not YUI.IsRetail and point.taxiNodeID and "icon" or config.displayMode
                 point.displayLabel = point.resolvedLabel or T(point.labelKey)
+                if data:IsOpposingFaction(point.faction) then
+                    point.opposingFactionLabel = T("faction." .. point.faction)
+                    point.displayLabel = point.displayLabel .. " · " .. point.opposingFactionLabel
+                end
                 if point.taxiNodeID then
                     local node = taxi[point.taxiNodeID]
                     point.flightState = MapEnhancement:GetFlightState(point.taxiNodeID,node)
-                    point.atlas = node and node.atlasName or "TaxiNode_Neutral"
+                    point.atlas = not point.opposingFactionLabel and node and node.atlasName or "TaxiNode_Neutral"
                     if point.flightState == "undiscovered" then point.atlas = "TaxiNode_Undiscovered" end
                 end
                 if point.displayMode == "text" then
@@ -796,6 +821,13 @@ local function RegisterRuntimeEvents()
         moduleId = "product:ymap:markers",
         traceName = "MapEnhancement:professions",
     })
+    Event:On("PLAYER_REGEN_ENABLED", function()
+        if not runtime.pendingCombatRefresh then return end
+        runtime.pendingCombatRefresh = false
+        if runtime.enabled and runtime.provider and runtime.map and runtime.map:IsShown() then
+            runtime.provider:RefreshAllData()
+        end
+    end, runtime.eventOwner, { moduleId = "product:ymap:markers" })
 end
 
 local function DetachMap()
@@ -809,6 +841,7 @@ local function DetachMap()
     runtime.map = nil
     runtime.zoomMapID = nil
     runtime.compactZoom = false
+    runtime.pendingCombatRefresh = false
     runtime.stats.providerAttached = false
     runtime.stats.activePins = 0
 end
@@ -896,6 +929,7 @@ function MapEnhancement:GetStats(target)
     target.refreshes = runtime.stats.refreshes
     target.compactZoom = runtime.compactZoom
     target.zoomModeChanges = runtime.stats.zoomModeChanges
+    target.pendingCombatRefresh = runtime.pendingCombatRefresh
     target.professionScope = GetResolvedProfessionScope()
     target.professionScopeAutomatic = self:GetConfig().professionScope == "auto"
     target.markersHidden = self:GetConfig().markersHidden
@@ -984,6 +1018,16 @@ function MapEnhancement:GetOptions()
         },
     }
 
+    if YUI.IsForever then
+        local fields = options[2].children
+        fields[#fields + 1] = {
+            type = "checkbox", label = T("settings.opposing_faction_npcs"),
+            tooltip = T("settings.opposing_faction_npcs_tooltip"),
+            get = function() return config.showOpposingFactionNPCs end,
+            set = function(value) config.showOpposingFactionNPCs = value == true end,
+            onChange = Refresh,
+        }
+    end
     if YUI.IsRetail then table.remove(options, 1) end
     for index = 1, #CATEGORY_ORDER do
         local category = CATEGORY_ORDER[index]

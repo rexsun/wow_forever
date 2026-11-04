@@ -369,6 +369,130 @@ local function RenderOverview(
     return contentWidth, OVERVIEW_HEIGHT
 end
 
+-- Both settings hosts share these fields and refresh only their retained controls.
+local GlobalSettings = {}
+YHUD.GlobalSettings = GlobalSettings
+local globalSettingsViews = {}
+
+local function RefreshGlobalSettingsView(parent)
+    -- These bindings keep the same getters; value-only refresh must not rebind search targets.
+    for _, binding in ipairs(parent.yuiRetainedBindings) do
+        binding.widget:SetValue(binding.opts.get(), true)
+    end
+end
+
+function GlobalSettings:Refresh()
+    for _, view in pairs(globalSettingsViews) do
+        RefreshGlobalSettingsView(view)
+    end
+end
+
+function GlobalSettings:Bind(viewKey, parent)
+    for _, binding in ipairs(parent.yuiRetainedBindings) do
+        if binding.opts.searchKey == "settings.assisted_highlight" then
+            GUI2.AssistedHighlightTooltip:Bind(binding.widget, binding.opts.text)
+        end
+    end
+    globalSettingsViews[viewKey] = parent
+    parent:HookScript("OnShow", function()
+        globalSettingsViews[viewKey] = parent
+        RefreshGlobalSettingsView(parent)
+    end)
+    parent:HookScript("OnHide", function()
+        if globalSettingsViews[viewKey] == parent then
+            globalSettingsViews[viewKey] = nil
+        end
+    end)
+end
+
+function GlobalSettings:GetConfig()
+    local leftConfig = { {
+        type = "checkbox",
+        rowHeight = 32,
+        rowGap = 10,
+        searchKey = "settings.auto_hide_personal_resource",
+        text = T("settings.auto_hide_personal_resource", "自动隐藏系统个人资源"),
+        tooltip = T("settings.auto_hide_personal_resource.tooltip",
+            "使用监控台资源条时，隐藏系统个人资源；关闭后恢复原设置。"),
+        get = function() return YHUD:GetConsolePreference("autoHidePersonalResource") end,
+        set = function(value) YHUD:SetConsolePreference("autoHidePersonalResource", value); self:Refresh() end,
+    }, {
+        type = "checkbox",
+        rowHeight = 32,
+        rowGap = 10,
+        searchKey = "settings.sound_enabled",
+        disabled = YHUD.Client and YHUD.Client.soundReminders == false,
+        text = T("settings.sound_enabled", "监控台声音全局开关"),
+        get = function() return YHUD:GetConsolePreference("soundEnabled") end,
+        set = function(value) YHUD:SetConsolePreference("soundEnabled", value); self:Refresh() end,
+    } }
+    if YHUD.Client and YHUD.Client.assistedHighlight == true then
+        local coreLocale = YUI.Locale and YUI.Locale:Get("Core")
+        leftConfig[#leftConfig + 1] = {
+            type = "checkbox",
+            rowHeight = 32,
+            rowGap = 10,
+            searchKey = "settings.assisted_highlight",
+            text = T("designer.monitor.assisted_highlight", "辅助提示"),
+            tooltip = coreLocale and coreLocale["assisted_highlight.requirement"],
+            get = function() return YHUD:GetConsolePreference("assistedHighlight") end,
+            set = function(value) YHUD:SetConsolePreference("assistedHighlight", value); self:Refresh() end,
+        }
+    end
+    leftConfig[#leftConfig + 1] = {
+        type = "checkbox",
+        rowHeight = 32,
+        rowGap = 10,
+        searchKey = "settings.press_feedback",
+        text = T("settings.press_feedback", "按压效果"),
+        tooltip = T("settings.press_feedback.tooltip",
+            "按下动作按钮时，对应监控图标同步显示按压效果。"),
+        get = function() return YHUD:GetConsolePreference("pressFeedback") end,
+        set = function(value) YHUD:SetConsolePreference("pressFeedback", value); self:Refresh() end,
+    }
+    local rightConfig = { {
+        type = "slider",
+        searchKey = "settings.resource_only_below_level",
+        label = T("settings.low_level_hide", "低等级时隐藏"),
+        labelWidth = 120,
+        controlWidth = 154,
+        valueWidth = 56,
+        gap = 10,
+        rowWidth = 350,
+        rowHeight = 32,
+        rowGap = 10,
+        tooltip = T("settings.resource_only_below_level.tooltip",
+            "低于此等级时隐藏所选分组。0 为关闭。"),
+        min = 0,
+        max = YHUD:GetLevelDisplayMaximum(),
+        step = 1,
+        default = 10,
+        get = function() return YHUD:GetResourceOnlyBelowLevel() end,
+        set = function(value) YHUD:SetResourceOnlyBelowLevel(value); self:Refresh() end,
+    }, {
+        type = "dropdown",
+        inlineLabel = true,
+        label = T("settings.low_level_hide_scope", "隐藏范围"),
+        searchKey = "settings.low_level_hide_scope",
+        labelWidth = 120,
+        controlWidth = 220,
+        rowWidth = 350,
+        gap = 10,
+        rowHeight = 32,
+        rowGap = 10,
+        tooltip = T("settings.low_level_hide_scope.tooltip",
+            "原生分组：重要技能、效能技能、增益效果和状态栏。"),
+        options = {
+            { value = "all", text = T("settings.low_level_hide_scope.all", "所有分组") },
+            { value = "non-resource", text = T("settings.low_level_hide_scope.non_resource", "资源条以外所有分组") },
+            { value = "native", text = T("settings.low_level_hide_scope.native", "仅隐藏原生分组") },
+        },
+        get = function() return YHUD:GetLowLevelHideScope() end,
+        set = function(value) YHUD:SetLowLevelHideScope(value); self:Refresh() end,
+    } }
+    return leftConfig, rightConfig
+end
+
 local function Render(parent)
     local controller, yielded = YHUD.GetYieldController
         and YHUD:GetYieldController()
@@ -430,68 +554,7 @@ local function Render(parent)
         searchKey = "settings.global",
         label = T("settings.global", "全局设置"),
     }
-    local leftConfig = { {
-        type = "checkbox",
-        rowHeight = 32,
-        rowGap = 10,
-        searchKey = "settings.auto_hide_personal_resource",
-        text = T("settings.auto_hide_personal_resource", "自动隐藏系统个人资源"),
-        tooltip = T("settings.auto_hide_personal_resource.tooltip",
-            "监控台及其资源条启用时，自动隐藏系统个人资源；关闭后恢复接管前的设置。"),
-        get = function() return YHUD:GetConsolePreference("autoHidePersonalResource") end,
-        set = function(value) YHUD:SetConsolePreference("autoHidePersonalResource", value) end,
-    }, {
-        type = "checkbox",
-        rowHeight = 32,
-        rowGap = 10,
-        searchKey = "settings.sound_enabled",
-        disabled = YHUD.Client and YHUD.Client.soundReminders == false,
-        text = T("settings.sound_enabled", "监控台声音全局开关"),
-        tooltip = T("settings.sound_enabled.tooltip",
-            "控制全部监控声音提醒，不修改各监控的声音规则。"),
-        get = function() return YHUD:GetConsolePreference("soundEnabled") end,
-        set = function(value) YHUD:SetConsolePreference("soundEnabled", value) end,
-    } }
-    local rightConfig = { {
-        type = "slider",
-        searchKey = "settings.resource_only_below_level",
-        label = T("settings.low_level_hide", "低等级时隐藏"),
-        labelWidth = 120,
-        controlWidth = 154,
-        valueWidth = 56,
-        gap = 10,
-        rowWidth = 350,
-        rowHeight = 32,
-        rowGap = 10,
-        tooltip = T("settings.resource_only_below_level.tooltip",
-            "角色低于所设等级时，隐藏所选范围的分组；达到该等级后恢复原有显示规则。0 表示关闭。账号内所有角色共用，设计和布局编辑仍可预览全部分组，不影响声音提醒。"),
-        min = 0,
-        max = YHUD:GetLevelDisplayMaximum(),
-        step = 1,
-        default = 10,
-        get = function() return YHUD:GetResourceOnlyBelowLevel() end,
-        set = function(value) YHUD:SetResourceOnlyBelowLevel(value) end,
-    }, {
-        type = "dropdown",
-        inlineLabel = true,
-        label = T("settings.low_level_hide_scope", "隐藏范围"),
-        searchKey = "settings.low_level_hide_scope",
-        labelWidth = 120,
-        controlWidth = 220,
-        rowWidth = 350,
-        gap = 10,
-        rowHeight = 32,
-        rowGap = 10,
-        tooltip = T("settings.low_level_hide_scope.tooltip",
-            "原生分组指重要技能、效能技能、增益效果和状态栏，按分组身份判断。选择所有分组时，系统个人资源恢复接管前状态；达到阈值后恢复自动隐藏。"),
-        options = {
-            { value = "all", text = T("settings.low_level_hide_scope.all", "所有分组") },
-            { value = "non-resource", text = T("settings.low_level_hide_scope.non_resource", "资源条以外所有分组") },
-            { value = "native", text = T("settings.low_level_hide_scope.native", "仅隐藏原生分组") },
-        },
-        get = function() return YHUD:GetLowLevelHideScope() end,
-        set = function(value) YHUD:SetLowLevelHideScope(value) end,
-    } }
+    local leftConfig, rightConfig = GlobalSettings:GetConfig()
     config[#config + 1] = {
         type = "custom",
         render = function(container, x, y, availableWidth)
@@ -507,8 +570,11 @@ local function Render(parent)
             -- Nested standard forms supply their own insets; align their content to this block.
             left:SetPoint("TOPLEFT", container, "TOPLEFT", x - insetX, y + titleTop)
             right:SetPoint("TOPLEFT", container, "TOPLEFT", x + leftWidth + gap - insetX, y + titleTop)
+            left.yuiRetainedBindings, right.yuiRetainedBindings = {}, {}
             S:RenderConfig(left, leftConfig)
             S:RenderConfig(right, rightConfig)
+            GlobalSettings:Bind("settingsLeft", left)
+            GlobalSettings:Bind("settingsRight", right)
             return width, math.max(left:GetHeight(), right:GetHeight()) - titleTop - 20
         end,
     }

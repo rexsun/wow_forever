@@ -2291,6 +2291,36 @@ function Adapter:ApplyMainLayoutRect(frame, holder, width, height)
     return true
 end
 
+local bnetToastFrameHooks = setmetatable({}, { __mode = "k" })
+local bnetToastContainerHooks = setmetatable({}, { __mode = "k" })
+
+function Adapter:InstallBNetToastLayoutHooks(frame, onAnchors, onShow, onSize)
+    local container = _G.ChatAlertFrame
+    if frame ~= _G.BNToastFrame or not frame
+        or not container or type(container.UpdateAnchors) ~= "function"
+        or type(frame.HookScript) ~= "function" or type(hooksecurefunc) ~= "function"
+        or type(onAnchors) ~= "function" or type(onShow) ~= "function" or type(onSize) ~= "function"
+    then
+        return false, "bnet-toast-hook-structure-mismatch"
+    end
+    if not bnetToastContainerHooks[container] then
+        -- Observe the existing layout method without replacing toast anchors or clicks.
+        if not pcall(hooksecurefunc, container, "UpdateAnchors", onAnchors) then return false end
+        bnetToastContainerHooks[container] = true
+    end
+    local state = bnetToastFrameHooks[frame]
+    if not state then state = {}; bnetToastFrameHooks[frame] = state end
+    if not state.show then
+        if not pcall(frame.HookScript, frame, "OnShow", onShow) then return false end
+        state.show = true
+    end
+    if not state.size then
+        if not pcall(frame.HookScript, frame, "OnSizeChanged", onSize) then return false end
+        state.size = true
+    end
+    return true
+end
+
 function Adapter:InstallMainLayoutHooks(frame, holder, callback)
     local editModeManager = _G.EditModeManagerFrame
     if type(callback) ~= "function"
@@ -3265,7 +3295,40 @@ function Adapter:ReadStoredChatWindowFontSize(frame)
     end
     fontSize = ValidatePositiveFiniteNumber(fontSize)
     if fontSize == nil then return nil, "chat-window-font-size-invalid" end
-    return fontSize
+    return fontSize, nil, id
+end
+
+-- Cold, explicit settings writes only. Blizzard remains the persistent owner.
+function Adapter:CaptureChatWindowFontSizes()
+    local names = _G.CHAT_FRAMES
+    if type(names) ~= "table" then return nil, "chat-window-font-size-unavailable" end
+    local sizes, frames = {}, {}
+    for index = 1, #names do
+        local frame = _G[names[index]]
+        local supported, classification = self:ClassifyTypographyFrame(frame)
+        if supported and classification ~= "temporary-whisper-typography-frame" then
+            local size, reason, id = self:ReadStoredChatWindowFontSize(frame)
+            if not size then return nil, reason end
+            sizes[id], frames[id] = size, frame
+        end
+    end
+    if not next(sizes) then return nil, "chat-window-font-size-unavailable" end
+    return sizes, nil, frames
+end
+
+function Adapter:WriteStoredChatWindowFontSize(frame, size)
+    if self:GetRestrictionState() ~= "OPEN" then return false, "chat-window-font-size-restricted" end
+    if self:IsExplicitlySafeValue(size) ~= true or not ValidatePositiveFiniteNumber(size) then
+        return false, "chat-window-font-size-invalid"
+    end
+    local before, reason = self:ReadStoredChatWindowFontSize(frame)
+    if before == nil then return false, reason end
+    if before == size then return true end
+    local setter = _G.FCF_SetChatWindowFontSize
+    if type(setter) ~= "function" then return false, "chat-window-font-size-write-api-missing" end
+    local ok = pcall(setter, nil, frame, size)
+    local actual = self:ReadStoredChatWindowFontSize(frame)
+    return ok and actual == size, "chat-window-font-size-readback-failed"
 end
 
 local function EnsureManagedChatFontFamily(frame, snapshot)

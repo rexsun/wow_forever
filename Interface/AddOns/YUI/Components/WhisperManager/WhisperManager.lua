@@ -132,8 +132,12 @@ local Manager = YUI.WhisperManager or {}
 YUI.WhisperManager = Manager
 local soundOwner = {}
 local soundOptions = { nativeSound = "TELL_MESSAGE", defaultChannel = "Master" }
-local function PlayNotification(db)
-    if YUI.NotificationSound then
+function Manager:IsEventSoundManaged()
+    return YUI.Sound and YUI.Sound.HasEventRule and YUI.Sound:HasEventRule('whisper-received') or false
+end
+local function PlayNotification(db,eventName)
+    if YUI.Sound and YUI.Sound.NotifyWhisperEvent and YUI.Sound:NotifyWhisperEvent(eventName) then return end
+    if db.sound and YUI.NotificationSound then
         -- Arrival payloads (including restricted values) never enter sound services.
         Manager.soundSerial = (Manager.soundSerial or 0) + 1
         return YUI.NotificationSound:Play(soundOwner, tostring(Manager.soundSerial), db.soundSelection, soundOptions)
@@ -2685,7 +2689,7 @@ function Manager:ProcessChatMessage(name, class, text, inform, bnid, playerInfo,
 
     if not self.deferredBatch then TrimHistory(db) end
 
-    if not deferred and not inform and db.sound then PlayNotification(db) end
+    if not deferred and not inform then PlayNotification(db,class=='BN' and 'CHAT_MSG_BN_WHISPER' or 'CHAT_MSG_WHISPER') end
 
     FireCompat("OnNewMessage", data.name, data.class, text, inform)
     BroadcastUpdate()
@@ -2751,7 +2755,7 @@ do
         Count(self, "queued")
         self:ScheduleDeferredWhispers()
         local db = GetDB()
-        if not inform and db and db.sound then PlayNotification(db) end
+        if not inform and db then PlayNotification(db,'CHAT_MSG_BN_WHISPER') end
     end
 
     function Manager:DeferWhisper(eventName, ...)
@@ -3666,6 +3670,24 @@ function Manager:GetSelectedConversation()
     return data
 end
 
+function Manager:GetConversationTargetName(data)
+    if not data then return nil end
+    if IsSecretValue(data.name) then return nil end
+    local target = NonEmptyString(data.name)
+    if not target then return nil end
+    if YUI.IsForever and data.kind == "player" then
+        -- History uses a realm-qualified key; native actions need the regional full name.
+        -- Only remove the exact local suffix from a complete name, without rewriting history.
+        local realm = self:GetNormalizedRealm()
+        local suffix = realm and ("-" .. realm)
+        if suffix and strsub(target, -#suffix) == suffix then
+            local name = strsub(target, 1, #target - #suffix)
+            if strfind(name, " ", 1, true) then target = name end
+        end
+    end
+    return target
+end
+
 function Manager:GetConversationFullName(data)
     if not data then
         return ""
@@ -3679,6 +3701,9 @@ function Manager:GetConversationFullName(data)
         return battleTag or data.battleTag or data.name or ""
     end
 
+    if YUI.IsForever and data.kind == "player" then
+        return self:GetConversationTargetName(data) or ""
+    end
     return data.name or self:GetDisplayName(data, true) or self:GetDisplayName(data) or ""
 end
 
@@ -3864,7 +3889,7 @@ function Manager:ShowNativeConversationMenu(data)
         return false
     end
 
-    local name = GetConversationLookupName(data) or data.name
+    local name = self:GetConversationTargetName(data)
     if Social.ShowPlayerDropdown and name then
         local ok = Social.ShowPlayerDropdown(name, {
             connected = self:GetKnownPresence(data) ~= false,
@@ -5505,8 +5530,9 @@ function Manager:ReplySelected()
         return
     end
 
-    if Social.SendTell then
-        Social.SendTell(data.name)
+    local target = self:GetConversationTargetName(data)
+    if target and Social.SendTell then
+        Social.SendTell(target)
     end
 end
 
@@ -5546,7 +5572,8 @@ function Manager:InviteSelected()
     end
 
     if data.kind == "player" and Social.InviteUnit then
-        Social.InviteUnit(data.name)
+        local target = self:GetConversationTargetName(data)
+        if target then Social.InviteUnit(target) end
     elseif data.kind == "bn" then
         local bnetID, ignoredName, ignoredTag, ignoredOnline, friendIndex
         if ResolveBNRuntimeInfo then
@@ -5616,7 +5643,7 @@ end
 local soundAttached = false
 local function OnIncomingSound(eventName, ...)
     local db = GetDB()
-    if not Manager.featureEnabled or not db or not db.sound then return end
+    if not Manager.featureEnabled or not db or not db.sound and not Manager:IsEventSoundManaged() then return end
     local hide = select(16, ...)
     if IsSecretValue(hide) or hide then return end
     local restricted = HasAnySecretValue(...)
@@ -5624,13 +5651,13 @@ local function OnIncomingSound(eventName, ...)
     if not restricted and Manager.enabled then return end
     -- Do not pass restricted payloads to Lua filters. Arrival itself is public.
     if not restricted and ShouldFilterIncoming(eventName, ...) then return end
-    PlayNotification(db)
+    PlayNotification(db,eventName)
 end
 
 function Manager:RefreshSoundRuntime()
     CancelNotifications()
     local db = GetDB()
-    local active = self.featureEnabled == true and db and db.sound == true
+    local active = self.featureEnabled == true and db and (db.sound == true or self:IsEventSoundManaged())
     active = active == true
     if active == soundAttached or not Event then return end
     soundAttached = active
@@ -5640,6 +5667,10 @@ function Manager:RefreshSoundRuntime()
     else
         Event:OffOwner(soundOwner)
     end
+end
+
+function Manager:IsEventSoundSource()
+    return self.featureEnabled==true and (self.enabled==true or soundAttached)
 end
 
 function Manager:RefreshHistoryRuntime()
@@ -5690,15 +5721,26 @@ function Manager:OnProfileChanged()
     self:RefreshHistoryRuntime()
 end
 
+Manager.soundIntegrationOwner={}
 local function ToggleFeature(enabled)
     RegisterProfileCallbacks()
     Manager.featureEnabled = enabled == true
+    if Event then
+        Event:OffOwner(Manager.soundIntegrationOwner)
+        if Manager.featureEnabled then
+            for _,event in ipairs({'YUI_SOUND_RULES_CHANGED','YUI_SOUND_PREFERENCES_CHANGED','YUI_NOTIFICATION_SOUND_CAPABILITIES_CHANGED'}) do
+                Event:On(event,function() Manager:RefreshSoundRuntime() end,Manager.soundIntegrationOwner,{moduleId='component:'..FEATURE_KEY})
+            end
+        end
+    end
     Manager:RefreshHistoryRuntime()
 end
 
 local function GetOptions(feature)
     feature = feature or (Components.features and Components.features[FEATURE_KEY])
     local db = GetDB()
+    local managed=Manager:IsEventSoundManaged()
+    local managedHint=managed and YUI.Locale:Get('Core')['sound.event.managedWhisper'] or nil
     local foreignField
     local groups = {
         { label = T("settings.group_history"), fields = {
@@ -5725,7 +5767,7 @@ local function GetOptions(feature)
         { label = T("settings.group_sound"), fields = {
             {
                 type = "checkbox", label = T("settings.sound"), span = "full",
-                tooltip = T("settings.sound_tooltip"),
+                tooltip = managedHint or T("settings.sound_tooltip"), disabled=managed,
                 get = function() return db.sound end,
                 set = function(value)
                     db.sound = value == true
@@ -5734,6 +5776,7 @@ local function GetOptions(feature)
             },
             {
                 type = "notificationSound", label = T("settings.sound_selection"), span = "full",
+                tooltip=managedHint, disabled=managed,
                 nativeSound = soundOptions.nativeSound, defaultChannel = soundOptions.defaultChannel,
                 height = 32,
                 get = function() return db.soundSelection end,

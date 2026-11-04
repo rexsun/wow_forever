@@ -33,6 +33,8 @@ local REASON = {
     nocmd = { "这一格没有能绑键的命令（条 6-8 请在条插件里设）", "That slot has no bindable command (set it in your bar addon)" },
     bad = { "这个键系统不认、没绑上", "The game rejected that key" },
     api = { "客户端不能改键位", "Key binding not available" },
+    mainlocked = { "主动作条（1 到 =）的键固定不改：把技能放进主动作条对应的格子就行，换姿态 / 形态也不会乱", "Main action bar keys (1 to =) are fixed - put the spell into that slot instead" },
+    mainkey = { "这个键是主动作条的，固定不挪给别的格（换姿态 / 形态会乱）；换个键", "That key belongs to the main action bar and stays there - pick another key" },
 }
 -- 改键结果统一打印（录键 / 模板 / 键盘共用）
 function KB.Report(key, ok, why, act)
@@ -66,14 +68,74 @@ local function slotName(slot)
     local info = K.SlotInfo(slot)
     return info and info.name or (L("格 ", "slot ") .. tostring(slot))
 end
+-- 10-17 用户「左键拿到鼠标上，右键设置快捷键；按 1 至 9（主条键）多一个对话框选形态，把技能移过去；
+--   其他键先检查在不在动作条，不在先提示放到动作条才能设置快捷键」
+local function finishSpellCapture(key)
+    local p = CS.spell; CS.spell = nil; capture:Hide()
+    if key == nil or key == false or not p then return end
+    local n = K.MainPosOfKey and K.MainPosOfKey(key)
+    if n then
+        local q = {}
+        for k, v in pairs(p) do q[k] = v end
+        q.moveFrom = p.slot
+        if ns.KeysAskForm then ns.KeysAskForm(q, n) end
+        return
+    end
+    local sl = p.slot
+    if not sl then
+        ns.Print("|cffffd100" .. string.format(L("「%s」还没在动作条上：先左键拿起放到动作条上，才能设置快捷键", "%s isn't on your bars yet - left-click to pick it up and place it first"), p.name or "?") .. "|r")
+        return
+    end
+    if (sl >= 1 and sl <= 12) or (sl >= 73 and sl <= 120) then
+        -- 10-17 用户截图（按 X 给「踏空而行」设键，被提示先挪到左下 / 右下）：直接帮他放一份到左下 / 右下第一个空格，再把这个键绑过去；
+        --   主动作条那格不动（主条键 1 至 = 照旧）
+        local free
+        for _, rng in ipairs({ { 61, 72 }, { 49, 60 } }) do
+            for x = rng[1], rng[2] do
+                if not (HasAction and HasAction(x)) then free = x; break end
+            end
+            if free then break end
+        end
+        if not free then
+            ns.Print("|cffffd100" .. L("左下 / 右下动作条都满了：先清出一格，再设这个键", "Bottom bars are full - free a slot first") .. "|r")
+            return
+        end
+        K.PlaceSpellAt(p, free, string.format(L("左下 / 右下动作条第 %d 格", "bottom bar slot %d"), free))
+        local ok, why, act = K.AssignSlotKey(free, key)
+        if ok then
+            KB.Report(key, true, act, why)
+            ns.Print(string.format(L("「%s」的快捷键：%s（放在第 %d 格；主动作条第 %d 格的那个也还在）", "%s key: %s (slot %d; the main bar copy in slot %d stays)"), p.name or "?", bindText(key), free, sl))
+        else KB.Report(key, false, why, act) end
+        return
+    end
+    local ok, why, act = K.AssignSlotKey(sl, key)
+    if ok then
+        KB.Report(key, true, act, why)
+        ns.Print(string.format(L("「%s」的快捷键：%s", "%s key: %s"), p.name or "?", bindText(key)))
+    else KB.Report(key, false, why, act) end
+end
+
 local function finishCapture(key)
     if not capture or CS.finished then return end
     CS.finished = true
+    if CS.spell then
+        finishSpellCapture(key)
+        if page and page.refresh then pcall(page.refresh) end
+        return
+    end
     local slot = CS.slot; CS.slot = nil; capture:Hide()
     local q = CS.queue
     if slot and key ~= nil and not (q and key == false) then
         local ok, why, act = K.AssignSlotKey(slot, key)
-        if ok then KB.Report(key, true, act, why) else KB.Report(key or nil, false, why, act) end
+        -- 10-16 用户「设置 123456 的时候，多弹出一个对话框问是设置给哪个形态的」：给有技能的格按了主条键（1 至 =）
+        --   = 想用这个键放它 → 主条键不动，改成把技能放进所选形态那一页的同位格（KeysAskForm 先问形态）
+        local n = (not ok) and (why == "mainkey" or why == "mainlocked") and K.MainPosOfKey and K.MainPosOfKey(key)
+        local info = n and K.SlotInfo(slot)
+        if n and info and info.t == "spell" and ns.KeysAskForm then
+            local p
+            for _, r in ipairs(K.Plan()) do if r.name == info.name then p = r; break end end
+            ns.KeysAskForm(p or { id = info.id, name = info.name }, n)
+        elseif ok then KB.Report(key, true, act, why) else KB.Report(key or nil, false, why, act) end
     end
     if q then
         if key == nil or #q == 0 then
@@ -118,7 +180,10 @@ local function buildCapture(p)
     local hint2 = box:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); hint2:SetPoint("TOP", hint, "BOTTOM", 0, -14); hint2:SetWidth(420); hint2:SetJustifyH("CENTER")
     c.hint, c.hint2 = hint, hint2
     c:HookScript("OnShow", function()
-        if CS.queue and CS.qn then
+        if CS.spell then
+            hint:SetText(string.format(L("给「%s」按一个快捷键...", "Press a key for %s..."), CS.spell.name or "?"))
+            hint2:SetText(L("按 1 至 =：先选形态，把技能移到那个形态的这一格\n按其他键：技能要先在动作条上 · Esc 取消", "1 to =: pick a form, the spell moves to that form's slot\nOther keys: the spell must be on a bar first - Esc cancels"))
+        elseif CS.queue and CS.qn then
             hint:SetText(string.format(L("「%s」第 %d / %d 格：%s", "\"%s\" %d / %d: %s"), CS.qlabel or "", CS.qi or 1, CS.qn, slotName(CS.slot)))
             hint2:SetText(L("按下这一格的新键，自动跳到下一格\nBackspace 跳过这一格 · Esc 结束", "Press the new key - moves on to the next slot\nBackspace skips - Esc stops"))
         else
@@ -141,6 +206,15 @@ local function buildCapture(p)
     end)
     c:SetScript("OnMouseWheel", function(_, d) finishCapture(withMods(d > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN")) end)
     return c
+end
+
+-- 技能格右键：按下的键决定怎么做（见 finishSpellCapture）
+function KB.BeginSpellKeyCapture(p)
+    if not capture or not p then return end
+    if InCombatLockdown and InCombatLockdown() then KB.Report(nil, false, "combat"); return end
+    CS.queue, CS.qi, CS.qn = nil, nil, nil
+    CS.finished = nil; CS.slot = nil; CS.spell = p
+    capture:Show()
 end
 
 function KB.BeginKeyCapture(slot, keepQueue)
@@ -175,6 +249,7 @@ function KB.Menu(anchor, title, items)
         menu.t = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); menu.t:SetPoint("TOPLEFT", 10, -8)
         menu.rows = {}
         local cl = CreateFrame("Button", nil, menu, "UIPanelCloseButton"); cl:SetSize(20, 20); cl:SetPoint("TOPRIGHT", 0, 0)
+        cl:SetScript("OnClick", function() menu:Hide() end)   -- 10-18 战斗中关不掉：原生红叉走 HideUIPanel，战斗中被拦 → 直接 Hide
     end
     menu.t:SetText(title or "")
     for _, r in ipairs(menu.rows) do r:Hide() end
@@ -195,6 +270,7 @@ function KB.Menu(anchor, title, items)
     menu:SetSize(214, 32 + #items * 18)
     menu:ClearAllPoints(); menu:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
     menu:Show()
+    KB._menu = menu   -- 测试用
     return menu
 end
 
@@ -221,6 +297,55 @@ local ROW_OFF = { 0, 0, 0, 0.9, 0, 0 }
 local function kbMod() return (ns.db and ns.db.kbMod) or "" end
 local function kbKey(base) local m = kbMod(); return (m ~= "" and (m .. "-") or "") .. base end
 
+-- 10-16 用户「左键设置，右键清除」（键帽）：
+--   左键 = 选这个键放什么技能（列当前形态视图能用、学会的技能）：
+--     主条键 1 至 = → 先问哪个形态，放进那个形态那一页的同位格（键不动）；
+--     绑在别的动作条格 → 放进那一格；空闲键 → 放进左 / 右下条第一个空格并把这个键绑过去（移动 / 聊天键不抢，主条键不挪）
+--   右键 = 清除：主条键 → 先问哪个形态，清那一页那一格（键不动）；别的键 → 清它那格的技能并解开这个键（先备份；移动 / 聊天键不碰）
+local CAP_TIP = { "左键：设置这个键放什么技能 · 右键：把这个技能从所有格子清掉、解开它的键", "Left-click: choose the spell for this key · Right-click: remove that spell from every slot and unbind its keys" }
+KB.CAP_TIP = CAP_TIP
+function KB.SetKey(key, slot, anchor)
+    if InCombatLockdown and InCombatLockdown() then KB.Report(key, false, "combat"); return end
+    local n = K.MainPosOfKey(key)
+    local act, prot = K.KeyAction(key)
+    if not n and not slot and prot then KB.Report(key, false, "taken", act); return end
+    local view = K.ActiveView and K.ActiveView() or nil
+    local items = {}
+    for _, p in ipairs((K.Status(nil, view))) do
+        if p.id then
+            items[#items + 1] = { text = p.name or "?", fn = function()
+                if n and ns.KeysAskForm then
+                    ns.KeysAskForm(p, n)
+                elseif slot then
+                    K.PlaceSpellAt(p, slot, string.format(L("按键 %s 那一格（格 %d）", "the slot on %s (slot %d)"), bindText(key), slot))
+                else
+                    local sl = K.FirstFreeSideSlot()
+                    if not sl then ns.Print(L("左下 / 右下动作条没有空格了", "No empty slot on the bottom bars")); return end
+                    local ok, why, a2 = K.AssignSlotKey(sl, key)
+                    if not ok then KB.Report(key, false, why, a2); return end
+                    K.PlaceSpellAt(p, sl, string.format(L("动作条格 %d，按键 %s", "slot %d, key %s"), sl, bindText(key)))
+                end
+            end }
+        end
+    end
+    if #items == 0 then ns.Print(L("这个形态下没有学会的技能可放", "No learned spells for this form")); return end
+    KB.Menu(anchor, string.format(L("按键 %s 放什么技能？", "What should %s cast?"), bindText(key)), items)
+end
+-- 10-16 用户「右键清除技能的所有快捷键设置并放回法术书」：右键 = 这个键放的那个技能从所有格子（各形态页都算）清掉，
+--   解开指向那些格的键（主条键 1 至 = 锁死不动），技能只剩法术书里；先备份，还原上次能恢复。所有形态一起清，不用问形态
+function KB.ClearKey(key)
+    if InCombatLockdown and InCombatLockdown() then KB.Report(key, false, "combat"); return end
+    local act, prot = K.KeyAction(key)
+    local view = K.ActiveView and K.ActiveView() or nil
+    local info = K.SpellOfKey(key, view)
+    if not info then
+        if prot then KB.Report(key, false, "taken", act); return end
+        ns.Print(string.format(L("%s 现在没放技能", "%s doesn't cast a spell"), bindText(key)))
+        return
+    end
+    K.ClearSpellEverywhere(info.name)
+end
+
 local function kbCell()
     local c = CreateFrame("Button", nil, kbf, BackdropTemplateMixin and "BackdropTemplate" or nil)
     if c.SetBackdrop then c:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 }) end
@@ -229,6 +354,8 @@ local function kbCell()
     c.cap = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); c.cap:SetPoint("TOPLEFT", 3, -2)
     c.sub = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); c.sub:SetPoint("BOTTOM", 0, 2); c.sub:SetWidth(40); c.sub:SetWordWrap(false)
     c.mark = c:CreateTexture(nil, "OVERLAY"); c.mark:SetSize(8, 8); c.mark:SetPoint("TOPRIGHT", -1, -1); c.mark:SetColorTexture(1, 0.25, 0.25, 1); c.mark:Hide()
+    -- 10-16 随形态变的键（主条 1–12 的键）：右下角黄色小字「形」
+    c.ft = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); c.ft:SetPoint("BOTTOMRIGHT", -2, 2); c.ft:SetText("|cffffd100" .. L("形", "F") .. "|r"); c.ft:Hide()
     c:SetScript("OnEnter", function(x)
         GameTooltip:SetOwner(x, "ANCHOR_RIGHT")
         GameTooltip:AddLine(bindText(x._key or ""), 1, 0.82, 0)
@@ -238,20 +365,25 @@ local function kbCell()
                 local kind = (info.t == "macro" and L("宏", "macro")) or (info.t == "item" and L("物品", "item")) or nil
                 GameTooltip:AddLine(L("动作条：", "Bar: ") .. (info.name or "?") .. (kind and ("（" .. kind .. "）") or "") .. string.format(L("  (格 %d)", "  (slot %d)"), x._slot), 1, 1, 1)
                 if x._plan then GameTooltip:AddLine(L("GI 铺条计划里的技能", "In the GI layout plan"), 1, 0.82, 0) end
+            if x._form then GameTooltip:AddLine(string.format(L("主条的键：现在显示的是「%s」下按它放出来的技能；换形态 / 姿态后会变", "Main-bar key: showing what it casts in %s; changes with form / stance"), x._form), 1, 0.85, 0.3, true) end
             else
                 GameTooltip:AddLine(string.format(L("键绑在空格上（格 %d）：键白占着", "Bound to an empty slot (%d)"), x._slot), 1, 0.4, 0.4)
             end
-            GameTooltip:AddLine(L("点击 = 给这一格改键", "Click = rebind this slot"), 0.5, 0.75, 1)
         else
             local act = x._act
             if act and act ~= "" then GameTooltip:AddLine(L("现在：", "Now: ") .. (bindName(act) or act), 0.7, 0.7, 0.7)
             else GameTooltip:AddLine(L("现在：空闲", "Now: free"), 0.5, 0.5, 0.5) end
             if x._move then GameTooltip:AddLine(L("留给移动（W A S D Q E 空格）", "Kept for movement"), 0.6, 0.6, 0.6) end
         end
+        GameTooltip:AddLine(L(CAP_TIP[1], CAP_TIP[2]), 0.5, 0.75, 1, true)
         GameTooltip:Show()
     end)
     c:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    c:SetScript("OnClick", function(x) if x._slot then KB.BeginKeyCapture(x._slot) end end)
+    if c.RegisterForClicks then c:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
+    c:SetScript("OnClick", function(x, button)
+        if not x._key then return end
+        if button == "RightButton" then KB.ClearKey(x._key) else KB.SetKey(x._key, x._slot or nil, x) end
+    end)
     return c
 end
 
@@ -259,7 +391,9 @@ local function layoutKb()
     if not (kbf and kbf:IsShown()) then return end
     local X0, y = 10, -10
     kbf.hd:ClearAllPoints(); kbf.hd:SetPoint("TOPLEFT", X0, y); kbf.hd:SetPoint("RIGHT", kbf, "RIGHT", -30, 0); kbf.hd:SetJustifyH("LEFT"); kbf.hd:SetWordWrap(false)
-    kbf.hd:SetText(L("虚拟键盘 · 这一层的键都指向什么", "Virtual keyboard - what each key does on this layer"))
+    local view = K.ActiveView and K.ActiveView() or nil
+    kbf.hd:SetText(L("虚拟键盘 · ", "Virtual keyboard - ") .. (view and ("|cffffd100" .. L(view.zh, view.en) .. "|r" .. L(" · ", " - ")) or "")
+        .. L("这一层的键都指向什么", "what each key does on this layer"))
     local mods = { { "", L("无修饰", "None") }, { "SHIFT", "Shift" }, { "CTRL", "Ctrl" }, { "ALT", "Alt" } }
     local x = 0
     for i, m in ipairs(mods) do
@@ -292,15 +426,19 @@ local function layoutKb()
     end
     for j = idx + 1, #kbCells do kbCells[j]:Hide() end
     kbf.foot:ClearAllPoints(); kbf.foot:SetPoint("TOPLEFT", X0, y - 2); kbf.foot:SetPoint("RIGHT", kbf, "RIGHT", -10, 0)
-    kbf.foot:SetText(L("点键帽 = 给那格改键；Shift / Ctrl / Alt 层切上面按钮看。裸 W A S D Q E / 空格留给移动。",
-        "Click a cap to rebind that slot; switch layers above. Bare W A S D Q E / Space stay on movement."))
+    kbf.foot:SetText((view and (string.format(L("|cffffd100形|r = 主条的键，随形态 / 姿态变：现在显示的是「%s」下按出来的技能（键位页上面切形态，这里跟着变）。\n",
+        "|cffffd100F|r = main-bar key, changes with form / stance: showing what it casts in %s (switch forms on the Keys page).\n"), L(view.zh, view.en))) or "")
+        .. L("键帽：左键设置放什么技能 · 右键把这个技能从所有格子清掉、解开它的键；Shift / Ctrl / Alt 层切上面按钮看。裸 W A S D Q E / 空格留给移动。",
+        "Caps: left-click to choose a spell, right-click to remove that spell everywhere and unbind its keys; switch layers above. Bare W A S D Q E / Space stay on movement."))
     kbf:SetSize(X0 * 2 + maxW, -y + 44)
 end
 
 local function refreshKb()
     if not (kbf and kbf:IsShown()) then return end
     layoutKb()
-    local byKey = K.KeyMap()
+    local view = K.ActiveView and K.ActiveView() or nil
+    local byKey, formKeys = K.KeyMap(view)
+    formKeys = formKeys or {}
     local planned = {}
     for _, p in ipairs(K.Plan()) do if p.name then planned[p.name] = true end end
     local mod = kbMod()
@@ -315,6 +453,8 @@ local function refreshKb()
             local lb = KB_LABEL[c._base]
             c.cap:SetText(lb and L(lb[1], lb[2]) or c._base); c.cap:SetTextColor(1, 1, 1)
             c.icon:SetTexture(nil); c.sub:SetText(""); c.mark:Hide(); c:SetAlpha(1)
+            c._form = (view and formKeys[key]) and L(view.zh, view.en) or false
+            c.ft:SetShown(c._form and true or false)
             local info = slot and K.SlotInfo(slot)
             if slot and info then
                 c.icon:SetTexture(actionTex(slot))
@@ -365,7 +505,7 @@ local function buildKb(p)
     else
         -- 默认贴主面板右边；右外侧挂着公会页签时让开它
         local main = _G.GearInsightForeverMain
-        local gt = main and rawget(main, "_giGuildTab")
+        local gt = main and (rawget(main, "_giGuildTab") or rawget(main, "_giGuildStub") or rawget(main, "_giGroupStub"))
         local dx = 6
         if type(gt) == "table" and gt.GetWidth then local ok, w = pcall(gt.GetWidth, gt); if ok and type(w) == "number" then dx = dx + w end end
         f:SetPoint("TOPLEFT", main or p, "TOPRIGHT", dx, 0)

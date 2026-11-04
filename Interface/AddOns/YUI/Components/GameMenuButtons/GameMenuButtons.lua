@@ -9,7 +9,6 @@ if not YUI.IsRetail and not YUI.IsWrath and not YUI.IsForever then return end
 local Feature = nil
 local featureEnabled = false
 local menuHooked = false
-
 local function CloseGameMenu()
     local closed, reason
     if FrameAPI.HideGameMenu then
@@ -117,7 +116,7 @@ local function CreateGameMenuButton(parent, text, iconPath, onClick, tooltipTitl
         YUI.HideGameTooltip()
         self.textLabel:SetTextColor(1, 0.82, 0) -- 恢复金色
     end)
-    
+
     return btn
 end
 
@@ -217,6 +216,10 @@ end
 
 local function OnHaloStateChanged(_, id)
     if id == "yhud" then RefreshHaloButton() end
+end
+
+local function RefreshGameMenuButtons()
+    RefreshHaloButton()
 end
 
 local function InitGameMenu()
@@ -322,6 +325,7 @@ local function InitGameMenu()
     -- 让右侧容器高度与 GameMenuFrame 保持一致，这样 BOTTOM 锚点才是真正的底部
     rightFrame:SetPoint("TOPLEFT", GameMenuFrame, "TOPRIGHT", 5, 0)
     rightFrame:SetPoint("BOTTOMLEFT", GameMenuFrame, "BOTTOMRIGHT", 5, 0)
+    local lastRightBtn
 
     if YUI.IsForever then
         local installBtn = CreateGameMenuButton(rightFrame, LC["game_menu.short.setup"],
@@ -347,6 +351,7 @@ local function InitGameMenu()
         rightFrame.haloButtonAnchor = settingsBtn
         local cdBtn = CreateBlizzardCooldownButton(rightFrame, settingsBtn)
         rightFrame.haloFollowingButton = cdBtn
+        lastRightBtn = cdBtn
         if C_AddOns and C_AddOns.IsAddOnLoaded("Platynator") then
             local platyBtn = CreateGameMenuButton(rightFrame, LC["game_menu.short.nameplates"],
                 "Interface\\AddOns\\Platynator\\Assets\\logo.tga",
@@ -357,6 +362,7 @@ local function InitGameMenu()
                 LC["game_menu.text.021"], LC["game_menu.text.022"], 36, 36, 0
             )
             platyBtn:SetPoint("TOP", cdBtn, "BOTTOM", 0, -10)
+            lastRightBtn = platyBtn
         end
     elseif YUI.IsRetail then
         -- [一键安装] 按钮
@@ -403,7 +409,7 @@ local function InitGameMenu()
         -- [暴雪冷却] 按钮
         local cdBtn = CreateBlizzardCooldownButton(rightFrame, qaBtn)
         rightFrame.haloFollowingButton = cdBtn
-        local lastRightBtn = cdBtn
+        lastRightBtn = cdBtn
     
         -- [首领警报] 按钮
         if C_AddOns.IsAddOnLoaded("EXBoss") then
@@ -431,6 +437,7 @@ local function InitGameMenu()
                 LC["game_menu.text.021"], LC["game_menu.text.022"], 36, 36, 0
             )
             platyBtn:SetPoint("TOP", lastRightBtn, "BOTTOM", 0, -10)
+            lastRightBtn = platyBtn
         end
     elseif YUI.IsWrath then
         -- [语音提醒] 按钮
@@ -467,6 +474,7 @@ local function InitGameMenu()
             LC["game_menu.text.011"], LC["game_menu.text.012"], 36, 36, -5
         )
         qaBtn:SetPoint("TOP", settingsBtn, "BOTTOM", 0, -10)
+        lastRightBtn = qaBtn
 
         -- [Platynator] 按钮
         if C_AddOns.IsAddOnLoaded("Platynator") then
@@ -479,7 +487,26 @@ local function InitGameMenu()
                 LC["game_menu.text.021"], LC["game_menu.text.022"], 36, 36, 0
             )
             platyBtn:SetPoint("TOP", qaBtn, "BOTTOM", 0, -10)
+            lastRightBtn = platyBtn
         end
+    end
+
+    if C_AddOns and C_AddOns.IsAddOnLoaded("Blinkiis_Portraits") then
+        local fallbackIcon = "Interface\\AddOns\\Blinkiis_Portraits\\media\\icon"
+        local portraitIcon = YUI.WOW_API.GetAddOnMetadata("Blinkiis_Portraits", "IconTexture") or fallbackIcon
+        local portraitBtn = CreateGameMenuButton(rightFrame, LC["game_menu.short.portraits"],
+            portraitIcon,
+            function()
+                if not CloseGameMenu() then return end
+                YUI.WOW_API.RunSlashCmd("/bp")
+            end,
+            LC["game_menu.portraits.title"], LC["game_menu.portraits.tooltip"], 30, 30, -8
+        )
+        -- 优先使用插件声明的小尺寸图标，仅旧版原图需要裁去透明留白。
+        if portraitIcon == fallbackIcon then
+            portraitBtn.icon:SetTexCoord(76 / 512, 436 / 512, 76 / 512, 436 / 512)
+        end
+        portraitBtn:SetPoint("TOP", lastRightBtn, "BOTTOM", 0, -10)
     end
     RefreshHaloButton()
 end
@@ -496,7 +523,7 @@ function Feature.callback(enable)
         end
         InitGameMenu()
         if (YUI.IsRetail or YUI.IsForever) and GameMenuFrame and not menuHooked then
-            GameMenuFrame:HookScript("OnShow", RefreshHaloButton)
+            GameMenuFrame:HookScript("OnShow", RefreshGameMenuButtons)
             menuHooked = true
         end
         if (YUI.IsRetail or YUI.IsForever) and not wasEnabled and YUI.Event then

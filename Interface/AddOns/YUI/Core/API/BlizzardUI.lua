@@ -105,15 +105,32 @@ local function IsFrameShown(frame)
     return ok and shown == true
 end
 
--- IsBagOpen returns a boolean on modern clients and a frame index on Wrath.
--- Limit the query to equipped bags so bank containers do not keep the bar visible.
+local function IsBagFrameVisible(frame)
+    local security = YUI.API.Security
+    if not security or type(security.IsSecretValue) ~= "function" then return false end
+    local ok, forbidden = SafeMethod(frame, "IsForbidden")
+    if not ok or security.IsSecretValue(forbidden) or forbidden ~= false then return false end
+    local shownOK, shown = SafeMethod(frame, "IsVisible")
+    return shownOK and not security.IsSecretValue(shown) and shown == true
+end
+
+-- Read existing frames without initializing Blizzard's shared container enumerator.
+-- That lazy state also participates in native bag mode changes and ESC handling.
+-- Missing or unreadable frames count as closed; bank and keyring IDs are excluded.
 function BlizzardUI:IsPlayerBagOpen()
-    if type(IsBagOpen) ~= "function" then return false end
+    if IsBagFrameVisible(_G.ContainerFrameCombinedBags) then return true end
     local lastBag = NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_TOTAL_BAG_FRAMES
         or NUM_BAG_FRAMES or NUM_BAG_SLOTS or 4
-    for bagID = 0, lastBag do
-        local ok, open = pcall(IsBagOpen, bagID)
-        if ok and open ~= nil and open ~= false then return true end
+    for index = 1, NUM_CONTAINER_FRAMES or 13 do
+        local frame = _G["ContainerFrame" .. index]
+        if IsBagFrameVisible(frame) then
+            -- Container frame indices are pooled; GetID identifies the actual bag.
+            local ok, bagID = SafeMethod(frame, "GetID")
+            if ok and not YUI.API.Security.IsSecretValue(bagID)
+                and type(bagID) == "number" and bagID >= 0 and bagID <= lastBag then
+                return true
+            end
+        end
     end
     return false
 end

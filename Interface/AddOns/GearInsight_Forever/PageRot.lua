@@ -355,7 +355,8 @@ ev:SetScript("OnEvent", function()
     C_Timer.After(0.3, function() queued = false; pcall(refresh) end)
 end)
 
-ns.RegisterPage({ key = "rot", order = 1.65, title = ns.L("手法", "Rotation"), tabTitle = ns.L("手法", "Rotation"),
+ns.RegisterPage({ key = "rot", order = 1.65, hiddenTab = true,   -- 10-16 用户「先隐藏这个 TAB」：手法页先不出左侧页签（职业手法还没做全）
+    title = ns.L("手法", "Rotation"), tabTitle = ns.L("手法", "Rotation"),
     icon = "Interface\\Icons\\Ability_Warrior_BattleShout", build = build, refresh = refresh })
 ns.ExtraSlash = ns.ExtraSlash or {}
 ns.ExtraSlash.rot = function()   -- /gif rot：打开手法页

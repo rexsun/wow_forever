@@ -85,6 +85,10 @@ local function NormalizeTextStyle(config)
     config.font = type(config.font) == "string" and config.font ~= "" and config.font or "inherit"
     config.outline = Enum(config.outline, VALID_TEXT_OUTLINES, "inherit")
     config.shadow = Enum(config.shadow, VALID_TEXT_SHADOWS, "inherit")
+    if type(config.fontShadow) ~= "boolean" and config.fontShadow ~= "inherit" then config.fontShadow = nil end
+    if type(config.monochrome) ~= "boolean" and config.monochrome ~= "inherit" then config.monochrome = nil end
+    if type(config.fontColor) ~= "table" or config.fontColor.mode ~= "class" then config.fontColor = nil
+    else config.fontColor.alpha = Clamp(config.fontColor.alpha, 0, 1, 1) end
     config.customColor = config.customColor == true
     config.color = NormalizeColor(config.color, DEFAULT_TEXT_COLOR)
     config.layoutMode = config.layoutMode == "custom" and "custom" or "auto"
@@ -577,7 +581,7 @@ if YUI.RegisterProduct then
         notes = "地图增强产品",
         notesKey = "product.notes",
         notesNamespace = "YMap",
-        author = "阿言",
+        author = "Ayan",
         addonName = ADDON_NAME or YUI.AddonName,
         profileExportPrefix = "!YUI-YMap-v1:",
         settingsScope = YMap.PRODUCT_ID,

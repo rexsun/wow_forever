@@ -95,6 +95,11 @@ Data.types = {
     ["travel.harbor"] = { atlas = "FlightMasterFerry", labelKey = "travel.harbor", category = "travel", icon = "Interface\\Icons\\Spell_Arcane_TeleportStormWind" },
     ["travel.tram"] = { atlas = "Vehicle-SilvershardMines-MineCartBlue", labelKey = "travel.tram", category = "travel", icon = "Interface\\Icons\\Spell_Arcane_TeleportStormWind" },
 }
+if YUI.IsForever then
+    Data.types["travel.dalaran"].tooltipKey = "travel.dalaran.description"
+    Data.types["travel.zeppelin.thunder_bluff"] = { atlas = "FlightMasterFerry", labelKey = "travel.zeppelin.thunder_bluff", tooltipKey = "travel.zeppelin.thunder_bluff.description", category = "travel" }
+    Data.types["travel.zeppelin.map2521"] = { atlas = "FlightMasterFerry", labelKey = "travel.zeppelin.map2521", tooltipKey = "travel.zeppelin.map2521.description", category = "travel" }
+end
 if YUI.IsRetail then
     Data.types["collection.black_market"] = { labelKey = "poi.recorded.2393.023", category = "collection", icon = "Interface\\Icons\\INV_Misc_Gift_01" }
     Data.types["collection.curious_coins"] = { labelKey = "poi.recorded.627.112", category = "collection", icon = "Interface\\Icons\\INV_Misc_Gift_01" }
@@ -199,19 +204,26 @@ function Data:RegisterGroup(mapID, typeID, faction, values, tips)
     groups[#groups+1] = values
 end
 
--- 不缓存解码结果；调用者仅持有当前地图，关闭/切图即可释放。
-function Data:GetMapPoints(mapID)
+function Data:IsOpposingFaction(faction)
+    return YUI.IsForever == true and self.foreverFactionLoaded ~= nil
+        and (faction == "Alliance" or faction == "Horde") and faction ~= self.foreverFactionLoaded
+end
+
+-- 不缓存解码结果；关闭跨阵营显示时，在解码前跳过敌方组。
+function Data:GetMapPoints(mapID, includeOpposingFaction)
     local groups = self.records and self.records[mapID]
     if not groups then return nil end
     local points = {}
     for _, group in ipairs(groups) do
-        for offset=1,#group,group.stride do
-            local index = (offset-1)/group.stride+1
-            local point = {id=group[offset],x=group[offset+1],y=group[offset+2]}
-            if group.stride == 4 then point.taxiNodeID = group[offset+3] end
-            if group.weaponTrainerSiteID then point.weaponTrainerSiteID = group.weaponTrainerSiteID end
-            if group.tips then point.tooltipKey = group.tips[index] end
-            points[#points+1] = setmetatable(point,group.definition)
+        if includeOpposingFaction or not self:IsOpposingFaction(group.definition.faction) then
+            for offset=1,#group,group.stride do
+                local index = (offset-1)/group.stride+1
+                local point = {id=group[offset],x=group[offset+1],y=group[offset+2]}
+                if group.stride == 4 then point.taxiNodeID = group[offset+3] end
+                if group.weaponTrainerSiteID then point.weaponTrainerSiteID = group.weaponTrainerSiteID end
+                if group.tips then point.tooltipKey = group.tips[index] end
+                points[#points+1] = setmetatable(point,group.definition)
+            end
         end
     end
     return points
@@ -229,11 +241,24 @@ function Data:SetPointPosition(mapID, pointID, x, y)
     return false
 end
 
-function Data:HasFlight(mapID, nodeID)
+function Data:HasFlight(mapID, nodeID, includeOpposingFaction)
     if not nodeID then return false end
     for _, group in ipairs(self.records and self.records[mapID] or {}) do
-        if group.stride == 4 then
+        if group.stride == 4 and (includeOpposingFaction or not self:IsOpposingFaction(group.definition.faction)) then
             for offset=4,#group,4 do if group[offset] == nodeID then return true end end
+        end
+    end
+    return false
+end
+
+-- 直接检查紧凑组，不为航点同步构建全世界地点表或额外索引。
+function Data:IsPlayerFlight(nodeID)
+    if not nodeID then return false end
+    for _, groups in pairs(self.records or {}) do
+        for _, group in ipairs(groups) do
+            if group.stride == 4 and not self:IsOpposingFaction(group.definition.faction) then
+                for offset=4,#group,4 do if group[offset] == nodeID then return true end end
+            end
         end
     end
     return false
@@ -242,7 +267,7 @@ end
 function Data:HasUnsyncedFlight(known)
     for _, groups in pairs(self.records or {}) do
         for _, group in ipairs(groups) do
-            if group.stride == 4 then
+            if group.stride == 4 and not self:IsOpposingFaction(group.definition.faction) then
                 for offset=4,#group,4 do if known[group[offset]] == nil then return true end end
             end
         end

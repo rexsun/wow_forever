@@ -21,6 +21,8 @@ YUI.Locale:Register("ProfessionAssistant", "zhCN", {
     ["added"] = "已添加，点击移除。",
     ["queue.clear"] = "清空",
     ["entryHint"] = "点击：打开分解助手",
+    ["bagEntry.enabled"] = "Bagnon 附魔入口",
+    ["bagEntry.tooltip"] = "在 Bagnon 背包中显示附魔助手入口。关闭后仍可从设置或原生背包打开附魔助手。",
     ["addBatch"] = "添加 %d 件",
     ["changed"] = "装备已移动或暂不可用，请重试。",
     ["combat"] = "战斗中不可使用。",

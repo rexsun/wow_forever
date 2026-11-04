@@ -223,14 +223,8 @@ function DesignerUI:EnsureNewGroupDialog()
                 for _, control in ipairs(DesignerUI.newCastGroupControls or {}) do SetShown(control, value == "cast-only") end
                 if resource then DesignerUI.pendingNewGroupLayout = "resource" end
                 if DesignerUI.newGroupLayout then
-                    local cooldown = DesignerUI.pendingNewGroupPolicy
-                        == "cooldown-primary"
-                    DesignerUI.newGroupLayout:SetItemDisabled("bars", cooldown)
-                    DesignerUI.newGroupLayout:SetItemDisabled("rings", cooldown)
-                    if cooldown then
-                        DesignerUI.pendingNewGroupLayout = "icons"
-                        DesignerUI.newGroupLayout:SetValue("icons", true)
-                    end
+                    DesignerUI.newGroupLayout:SetItemDisabled("bars", false)
+                    DesignerUI.newGroupLayout:SetItemDisabled("rings", false)
                 end
             end,
         }
@@ -344,8 +338,8 @@ function DesignerUI:ShowNewGroupDialog()
         self.newGroupLayout:SetValue("icons", true)
     end
     if self.newGroupLayout and self.newGroupLayout.SetItemDisabled then
-        self.newGroupLayout:SetItemDisabled("bars", true)
-        self.newGroupLayout:SetItemDisabled("rings", true)
+        self.newGroupLayout:SetItemDisabled("bars", false)
+        self.newGroupLayout:SetItemDisabled("rings", false)
     end
     SetShown(self.newGroupLayout, true)
     SetShown(self.newGroupLayoutLabel, true)
@@ -359,8 +353,7 @@ function DesignerUI:CreateGroup(contentPolicy, layout)
     contentPolicy = (contentPolicy == "resource-only" or contentPolicy == "cast-only") and contentPolicy
         or (contentPolicy == "buff-only" and "buff-only" or "cooldown-primary")
     layout = MONITOR_LAYOUTS[layout] and layout or "icons"
-    if contentPolicy == "resource-only" or contentPolicy == "cast-only" then layout = "resource"
-    elseif contentPolicy == "cooldown-primary" then layout = "icons" end
+    if contentPolicy == "resource-only" or contentPolicy == "cast-only" then layout = "resource" end
     local name = contentPolicy == "cast-only" and self.newCastGroupName and self.newCastGroupName:GetText()
     if type(name) == "string" then name = name:match("^%s*(.-)%s*$") end
     if contentPolicy == "cast-only" and (not name or name == "") then return false end

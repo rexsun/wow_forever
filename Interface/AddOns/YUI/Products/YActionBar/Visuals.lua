@@ -36,32 +36,17 @@ Visuals.stats = Visuals.stats or {
 
 local DEFAULT_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local EMPTY_ICON_COLOR = { 0.35, 0.35, 0.35, 0.35 }
+local ASPECT_DIMMED_ICON_COLOR = { 0.4, 0.4, 0.4, 1 }
 local DEFAULT_TEXT_COLOR = { 1, 1, 1, 1 }
-local PET_AUTOCAST_RECT_OUTSET = 1
-local PET_AUTOCAST_RECT_SHINE_OUTSET = 5
-local PET_AUTOCAST_RECT_MASK_INSET = 4
-local PET_AUTOCAST_CIRCLE_MARKER_COLOR = { 1, 0.82, 0.12, 0.95 }
-local PET_AUTOCAST_CIRCLE_ANTS_COLOR = { 1, 0.9, 0.18, 1 }
-local PET_AUTOCAST_CIRCLE_MARKER_ALPHA = 0.96
-local PET_AUTOCAST_CIRCLE_ANTS_ALPHA = 1
-local PET_AUTOCAST_CIRCLE_ANTS_DURATION = 4
-local PET_AUTOCAST_CIRCLE_MARKER_SUBLEVEL = 6
-local PET_AUTOCAST_CIRCLE_ANTS_SUBLEVEL = 7
 local MAIN_COOLDOWN_LEVEL_OFFSET = 8
 local MAIN_COOLDOWN_SWIPE_ALPHA = 0.82
 local CHARGE_COOLDOWN_LEVEL_OFFSET = MAIN_COOLDOWN_LEVEL_OFFSET - 1
 local CHARGE_COOLDOWN_SWIPE_ALPHA = 0.42
-local CHARGE_COOLDOWN_EDGE_SCALE = 2.1
-local CHARGE_COOLDOWN_EDGE_R = 0.973
-local CHARGE_COOLDOWN_EDGE_G = 0.839
-local CHARGE_COOLDOWN_EDGE_B = 0.604
-local CHARGE_COOLDOWN_EDGE_A = 1
 local BLACK_BG_COLOR = { 34 / 255, 34 / 255, 34 / 255, 0.72 }
 local BLIZZARD_BG_COLOR = { 1, 1, 1, 0.92 }
 local DEFAULT_BORDER_COLOR = { 0, 0, 0, 1 }
 local FALLBACK_SURFACE_COLOR = { 0.02, 0.02, 0.02, 0.88 }
 local FALLBACK_HOVER_COLOR = { 1, 1, 1, 0.16 }
-local FALLBACK_PRESSED_COLOR = { 1, 1, 1, 0.24 }
 local FALLBACK_CHECKED_COLOR = { 1, 0.82, 0.18, 0.16 }
 local PET_CHECKED_FILL_COLOR = { 1, 0.82, 0.18, 0.06 }
 local PET_CHECKED_INNER_COLOR = { 1, 0.82, 0.18, 0.96 }
@@ -69,13 +54,13 @@ local PET_CHECKED_GLOW_COLOR = { 1, 0.70, 0.12, 0.28 }
 local PET_CHECKED_FILL_ALPHA = 0.06
 local BUTTON_STATE_COLORS = {
     actionChecked = { 1, 1, 1, 0.9 },
-    pressedInnerGlow = { 1, 0.78, 0.18, 0.95 },
     assistedCombat = { 1, 0.78, 0.12, 0.96 },
     petChecked = { 1, 0.78, 0.12, 0.95 },
     flyoutHover = { 1, 0.92, 0.50, 0.42 },
     flyoutPushed = { 1, 0.78, 0.18, 0.62 },
     flyoutChecked = { 1, 0.82, 0.18, 0.72 },
 }
+local ASSISTED_HIGHLIGHT_LEVEL_OFFSET = 15
 local PET_CHECKED_INNER_ALPHA = 0.96
 local PET_CHECKED_GLOW_ALPHA = 0.28
 local PET_CHECKED_INNER_THICKNESS = 2
@@ -104,8 +89,7 @@ local ApplyVisualRect
 local AttachMaskTexture
 local LayoutCheckedRing
 local HidePetCheckedInnerVisual
-local SetPetAutoCastCircleVisual
-local HidePetAutoCastCircleVisual
+local HidePetAutoCastVisual
 local HideNativeButtonStateArt
 
 local function ProductMedia(path)
@@ -153,7 +137,6 @@ local SOLID_SWIPE_TEXTURE =
 Visuals.vehicleExitIconPath = Visuals.vehicleExitIconPath or ProductMedia("icons\\vehicle-exit-modern.tga")
 local CIRCLE_PROC_GLOW_SOFT_TEXTURE = ProductMedia("shapes\\circle-border-3.tga")
 local PET_AUTOCAST_CIRCLE_MARKER_TEXTURE = ProductMedia("shapes\\pet-autocast-circle-bottom-dot.tga")
-local PET_AUTOCAST_CIRCLE_ANTS_TEXTURE = ProductMedia("shapes\\pet-autocast-circle-ants.tga")
 local BUTTON_STATE_INNER_TEXTURES =
     GUI2 and GUI2.IconStateInnerTextures or {
         square = Visuals:ResolveCoreMedia(
@@ -194,11 +177,19 @@ local function BuildActionShapeStyle(shape, fallback, chargeEdge, stateTexture)
         swipe = common.swipe,
         chargeEdge = chargeEdge,
         aspect = common.aspect,
+        cooldownInsets = common.cooldownInsets,
         stateTexture = stateTexture,
     }
 end
 
 local SHAPE_STYLES = {
+    diamond = BuildActionShapeStyle("diamond", {
+        mask = Visuals:ResolveCoreMedia("gui2\\shapes\\diamond-mask.tga"),
+        borderFamily = "diamond",
+        circular = false,
+        swipe = Visuals:ResolveCoreMedia("gui2\\shapes\\diamond-mask.tga"),
+        aspect = 1,
+    }, false, Visuals:ResolveCoreMedia("gui2\\shapes\\button-state-inner-diamond.tga")),
     square = BuildActionShapeStyle("square", {
         mask = nil,
         borderFamily = nil,
@@ -674,14 +665,27 @@ function Visuals:ApplyOutlineShadow(text)
     end
 end
 
-local function SetFont(text, snapshot, sizeOverride)
-    if not (text and text.SetFont and snapshot) then return end
-    local font = snapshot.fonts and snapshot.fonts.body
-    local size = tonumber(sizeOverride) or (snapshot.metrics and snapshot.metrics.fontSize)
+local function SetFont(text, snapshot, sizeOverride, config, prefix, fallbackFont)
+    if not (text and text.SetFont) then return end
+    local defaultFont = snapshot and snapshot.fonts and snapshot.fonts.body or fallbackFont
+    local font = config and config[prefix .. "Font"] or defaultFont
+    local size = tonumber(sizeOverride) or (snapshot and snapshot.metrics and snapshot.metrics.fontSize)
     if font and size then
         Visuals:ApplyShadowFontObject(text)
-        text:SetFont(font, size, "OUTLINE")
-        Visuals:ApplyOutlineShadow(text)
+        local outline = config and config[prefix .. "Outline"] or "OUTLINE"
+        local flags = outline == "NONE" and "" or outline
+        if config and config[prefix .. "Monochrome"] then flags = flags == "" and "MONOCHROME" or flags .. ",MONOCHROME" end
+        local style = GUI2 and GUI2.FontStyle
+        local applied
+        if style and style.TryFont then applied = style.TryFont(text, font, size, flags)
+        else
+            local ok, result = pcall(text.SetFont, text, font, size, flags)
+            applied = ok and result ~= false
+        end
+        if not applied and defaultFont and defaultFont ~= font then pcall(text.SetFont, text, defaultFont, size, flags) end
+        if config and config[prefix .. "Shadow"] == false then
+            text:SetShadowOffset(0, 0)
+        else Visuals:ApplyOutlineShadow(text) end
     end
 end
 
@@ -689,16 +693,17 @@ Visuals.TextAnchors = Visuals.TextAnchors or {}
 
 function Visuals.TextAnchors:OffsetValue(snapshot, key)
     local value = tonumber(snapshot and snapshot[key]) or 0
-    if value < -16 then
-        return -16
-    elseif value > 16 then
-        return 16
+    if value < -64 then
+        return -64
+    elseif value > 64 then
+        return 64
     end
     return value
 end
 
 function Visuals.TextAnchors:ApplySingle(text, button, point, baseX, baseY, offsetX, offsetY)
     if not (text and button and text.ClearAllPoints and text.SetPoint) then return end
+    if GUI2.IsIconSkinManaged and GUI2:IsIconSkinManaged(text) then return end
     local x = baseX + offsetX
     local y = baseY + offsetY
     local signature = point .. ":" .. tostring(x) .. ":" .. tostring(y)
@@ -710,6 +715,7 @@ end
 
 function Visuals.TextAnchors:ApplyHotkey(text, button, snapshot)
     if not (text and button and text.ClearAllPoints and text.SetPoint) then return end
+    if GUI2.IsIconSkinManaged and GUI2:IsIconSkinManaged(text) then return end
     local offsetX = self:OffsetValue(snapshot, "hotkeyOffsetX")
     local offsetY = self:OffsetValue(snapshot, "hotkeyOffsetY")
     local left = 2 + offsetX
@@ -726,10 +732,16 @@ end
 
 function Visuals.TextAnchors:ApplyMacroName(text, button, visual, snapshot)
     if not (text and button and text.ClearAllPoints and text.SetPoint) then return end
+    if GUI2.IsIconSkinManaged and GUI2:IsIconSkinManaged(text) then return end
     local width = math.max(tonumber(visual and visual.visualWidth) or 36, 1)
     local visualHeight = math.max(tonumber(visual and visual.visualHeight) or width, 1)
     local fontHeight = math.max(math.floor((tonumber(snapshot and snapshot.macroNameSize) or 10) + 0.5), 1)
     local height = math.min(visualHeight, fontHeight)
+    if snapshot and (snapshot.macroNameFont or snapshot.macroNameOutline or snapshot.macroNameShadow ~= nil or snapshot.macroNameMonochrome ~= nil) then
+        local outline = snapshot.macroNameOutline or "OUTLINE"
+        local padding = outline == "THICKOUTLINE" and 4 or outline == "OUTLINE" and 2 or 0
+        height = fontHeight + padding + (snapshot.macroNameShadow ~= false and 2 or 0)
+    end
     local offsetX = self:OffsetValue(snapshot, "macroNameOffsetX")
     local offsetY = self:OffsetValue(snapshot, "macroNameOffsetY")
     local y = 1 + offsetY
@@ -792,9 +804,9 @@ local function ApplyTextFonts(button, visual, snapshot)
     Visuals:ApplySingleLineTextConstraints(visual.hotkey)
     Visuals:ApplySingleLineTextConstraints(visual.count)
     Visuals:ApplySingleLineTextConstraints(visual.name)
-    SetFont(visual.hotkey, Visuals.theme, snapshot.hotkeySize)
-    SetFont(visual.count, Visuals.theme, snapshot.countSize)
-    SetFont(visual.name, Visuals.theme, snapshot.macroNameSize)
+    SetFont(visual.hotkey, Visuals.theme, snapshot.hotkeySize, snapshot, "hotkey")
+    SetFont(visual.count, Visuals.theme, snapshot.countSize, snapshot, "count")
+    SetFont(visual.name, Visuals.theme, snapshot.macroNameSize, snapshot, "macroName")
     local external = visual.regions ~= nil
     local themeColor = Visuals.theme and Visuals.theme.colors and Visuals.theme.colors.text or DEFAULT_TEXT_COLOR
     if snapshot.hotkeyColor or not external then SetTextColor(visual.hotkey, snapshot.hotkeyColor or themeColor) end
@@ -914,9 +926,7 @@ function Visuals:ApplyCooldownTextFont(cooldown, snapshot)
 
     local font = self.theme and self.theme.fonts and self.theme.fonts.body or cache.countdownFont
     if font then
-        self:ApplyShadowFontObject(text)
-        pcall(text.SetFont, text, font, size, "OUTLINE")
-        self:ApplyOutlineShadow(text)
+        SetFont(text, self.theme, size, snapshot, "cooldownText", font)
     end
 end
 
@@ -1235,6 +1245,35 @@ local function PrepareText(text, justify)
     Visuals:ApplySingleLineTextConstraints(text)
 end
 
+function Visuals:PrepareMacroNameLayer(button, visual)
+    if not (button and visual and visual.isAction and not visual.externalSpecial)
+        or (InCombat() and button.yabEffectPreview ~= true) then return 0 end
+    local text, overlay = visual.name, button.TextOverlayContainer
+    if not (text and overlay and text.GetParent and text.SetParent) then return 0 end
+    local parent = text:GetParent()
+    if parent == overlay then return 0 end
+    -- The native high text container owns hotkeys/counts, but not macro names.
+    -- Reuse it so assisted/proc art cannot cover the name. Anchors stay on the button.
+    if visual.macroNameLayerRegion ~= text then
+        visual.macroNameLayerRegion, visual.macroNameOriginalParent = text, parent
+    end
+    text:SetParent(overlay)
+    visual.macroNameLayerParent = overlay
+    return 1
+end
+
+function Visuals:RestoreMacroNameLayer(button, visual)
+    if not visual or (InCombat() and not (button and button.yabEffectPreview)) then return 0 end
+    local text, original = visual.macroNameLayerRegion, visual.macroNameOriginalParent
+    local writes = 0
+    if text and original and text:GetParent() == visual.macroNameLayerParent then
+        text:SetParent(original)
+        writes = 1
+    end
+    visual.macroNameLayerRegion, visual.macroNameOriginalParent, visual.macroNameLayerParent = nil, nil, nil
+    return writes
+end
+
 local function ApplyIconCrop(icon, zoom)
     if not (icon and icon.SetTexCoord) then return end
     zoom = tonumber(zoom) or 0.08
@@ -1307,103 +1346,62 @@ local function HideNativePetAutoCastOverlay(overlay)
     return writes
 end
 
-local function LayoutPetAutoCastOverlay(button, visual)
-    local overlay = visual and (visual.autoCastOverlay or (button and button.AutoCastOverlay))
-    if not (button and visual and overlay) then return 0 end
-    local style = SHAPE_STYLES[visual.runtimeSkin or "square"] or SHAPE_STYLES.square
-    if style.circular == true then
-        local writes = HideNativePetAutoCastOverlay(overlay)
-        if SetPetAutoCastCircleVisual then
-            writes = writes + SetPetAutoCastCircleVisual(button, visual, visual.petAutoCastAllowed == true, visual.petAutoCastEnabled == true)
+local function SetPetAutoCastVisual(button, visual, allowed, enabled)
+    if not (button and visual) then return 0 end
+    allowed = allowed == true
+    enabled = allowed and enabled == true
+    local unchanged = visual.petAutoCastAllowed == allowed and visual.petAutoCastEnabled == enabled
+    visual.petAutoCastAllowed, visual.petAutoCastEnabled = allowed, enabled
+    local overlay = visual.autoCastOverlay or button.AutoCastOverlay
+    if visual.masqueActive then
+        if unchanged and visual.petAutoCastMode == "masque" then return 0 end
+        local writes = HidePetAutoCastVisual(visual)
+        if overlay then
+            overlay:SetAlpha(1)
+            if allowed then overlay:Show() else overlay:Hide() end
+            if overlay.Mask then overlay.Mask:SetAlpha(1) end
+            if overlay.Corners then overlay.Corners:SetAlpha(1) end
+            if overlay.Shine then overlay.Shine:SetAlpha(1) end
+            if overlay.Mask then if allowed then overlay.Mask:Show() else overlay.Mask:Hide() end end
+            if overlay.Corners then if allowed then overlay.Corners:Show() else overlay.Corners:Hide() end end
+            if overlay.ShowAutoCastEnabled then overlay:ShowAutoCastEnabled(enabled) end
         end
+        visual.petAutoCastMode = "masque"
         return writes
     end
-    if InCombat() then
+    local indicator = visual.petAutoCastIndicator
+    if not InCombat() then
+        if not indicator and GUI2 and GUI2.CreateAutoCastIndicator then
+            indicator = GUI2:CreateAutoCastIndicator(button, overlay, PET_AUTOCAST_CIRCLE_MARKER_TEXTURE)
+            visual.petAutoCastIndicator = indicator
+        end
+        if indicator then
+            indicator:Configure(visual.runtimeSkin or "square",
+                visual.visualWidth or 36, visual.visualHeight or 36,
+                (button.GetFrameLevel and button:GetFrameLevel() or 1) + 7)
+            visual.pendingPetAutoCastLayout = nil
+        end
+    elseif not indicator then
         visual.pendingPetAutoCastLayout = true
-        return 0
     end
-    local writes = 0
-    local restoringNativeOverlay = visual.petAutoCastMode ~= "native-rect"
-    if restoringNativeOverlay and HidePetAutoCastCircleVisual then
-        writes = writes + HidePetAutoCastCircleVisual(visual)
-    end
-    visual.petAutoCastMode = "native-rect"
-    local insetX = (tonumber(visual.visualInsetX) or 0) - PET_AUTOCAST_RECT_OUTSET
-    local insetY = (tonumber(visual.visualInsetY) or 0) - PET_AUTOCAST_RECT_OUTSET
-    if overlay.ClearAllPoints then overlay:ClearAllPoints() end
-    if overlay.SetPoint then
-        overlay:SetPoint("TOPLEFT", button, "TOPLEFT", insetX, -insetY)
-        overlay:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -insetX, insetY)
-    end
-    if button.GetFrameLevel and overlay.SetFrameLevel then
-        overlay:SetFrameLevel((button:GetFrameLevel() or 1) + 7)
-    end
-    local shine = overlay.Shine
-    if shine and shine.ClearAllPoints and shine.SetPoint then
-        if restoringNativeOverlay and shine.Anim and shine.Anim.Stop then
-            shine.Anim:Stop()
-        end
-        shine:ClearAllPoints()
-        shine:SetPoint("TOPLEFT", overlay, "TOPLEFT", -PET_AUTOCAST_RECT_SHINE_OUTSET, PET_AUTOCAST_RECT_SHINE_OUTSET)
-        shine:SetPoint("BOTTOMRIGHT", overlay, "BOTTOMRIGHT", PET_AUTOCAST_RECT_SHINE_OUTSET, -PET_AUTOCAST_RECT_SHINE_OUTSET)
-        writes = writes + RegionAlpha(shine, 1)
-        if restoringNativeOverlay then
-            writes = writes + RegionShown(shine, false)
-        end
-    end
-    local mask = overlay.Mask
-    if mask and mask.ClearAllPoints and mask.SetPoint then
-        mask:ClearAllPoints()
-        mask:SetPoint("TOPLEFT", overlay, "TOPLEFT", PET_AUTOCAST_RECT_MASK_INSET, -PET_AUTOCAST_RECT_MASK_INSET)
-        mask:SetPoint("BOTTOMRIGHT", overlay, "BOTTOMRIGHT", -PET_AUTOCAST_RECT_MASK_INSET, PET_AUTOCAST_RECT_MASK_INSET)
-        writes = writes + RegionAlpha(mask, 1)
-        writes = writes + RegionShown(mask, true)
-    end
-    local corners = overlay.Corners
-    if corners and corners.SetAllPoints then
-        if corners.ClearAllPoints then corners:ClearAllPoints() end
-        corners:SetAllPoints(overlay)
-        writes = writes + RegionAlpha(corners, 1)
-        writes = writes + RegionShown(corners, true)
-    end
-    if restoringNativeOverlay then
-        overlay.autoCastEnabled = false
-    end
-    visual.autoCastOverlay = overlay
-    visual.pendingPetAutoCastLayout = nil
-    return writes + 1
+    if not indicator then return 0 end
+    indicator.nativeOwned = true
+    visual.petAutoCastMode = "shared"
+    return indicator:SetState(allowed, enabled)
 end
 
-local function SetPetAutoCastVisual(button, visual, allowed, enabled)
-    local overlay = visual and (visual.autoCastOverlay or (button and button.AutoCastOverlay))
-    allowed = allowed == true
-    enabled = enabled == true
-    local style = SHAPE_STYLES[visual and visual.runtimeSkin or "square"] or SHAPE_STYLES.square
-    if style.circular == true then
-        local writes = overlay and HideNativePetAutoCastOverlay(overlay) or 0
-        if SetPetAutoCastCircleVisual then
-            writes = writes + SetPetAutoCastCircleVisual(button, visual, allowed, enabled)
+function Visuals:FlushPendingAutoCastIndicators()
+    if InCombat() then return end
+    for button, visual in pairs(self.buttons) do
+        if visual.pendingPetAutoCastLayout then
+            SetPetAutoCastVisual(button, visual, visual.petAutoCastAllowed, visual.petAutoCastEnabled)
         end
-        visual.petAutoCastAllowed = allowed
-        visual.petAutoCastEnabled = enabled
-        return writes
     end
-    if not overlay then return 0 end
-    local writes = LayoutPetAutoCastOverlay(button, visual)
-    writes = writes + RegionShown(overlay, allowed)
-    writes = writes + RegionShown(overlay.Mask, allowed)
-    writes = writes + RegionShown(overlay.Corners, allowed)
-    if overlay.ShowAutoCastEnabled then
-        overlay:ShowAutoCastEnabled(allowed and enabled)
-    end
-    visual.petAutoCastAllowed = allowed
-    visual.petAutoCastEnabled = enabled
-    return writes
 end
 
 local function UpdateVisualGeometry(button, visual, style, padding, options)
     if not (button and visual) then return 0 end
-    if InCombat() then
+    if InCombat() and button.yabEffectPreview ~= true then
         visual.pendingGeometry = true
         return 0
     end
@@ -1497,142 +1495,17 @@ local function EnsurePetCheckedInnerVisual(button, visual)
     return true
 end
 
-local function StopTextureAnimation(texture, alpha)
-    if not texture then return 0 end
-    local group = texture.yabPetAutoCastRotationAnim or texture.yabPulseAnim
-    if group and group.Stop and (not group.IsPlaying or group:IsPlaying()) then
-        group:Stop()
-    end
-    if texture.SetRotation then texture:SetRotation(0) end
-    return RegionAlpha(texture, alpha or 1)
-end
-
-local function EnsurePetAutoCastRotationAnimation(texture)
-    if not (texture and texture.CreateAnimationGroup) then return nil end
-    if texture.yabPetAutoCastRotationAnim then return texture.yabPetAutoCastRotationAnim end
-    local group = texture:CreateAnimationGroup()
-    if not group then return nil end
-    if group.SetLooping then group:SetLooping("REPEAT") end
-    if not group.CreateAnimation then
-        if group.Stop then group:Stop() end
-        return nil
-    end
-    local created, rotation = pcall(group.CreateAnimation, group, "Rotation")
-    if not (created and rotation) then
-        if group.Stop then group:Stop() end
-        return nil
-    end
-    local ok = true
-    if rotation.SetDegrees then
-        ok = pcall(rotation.SetDegrees, rotation, -360) and ok
-    elseif rotation.SetRadians then
-        ok = pcall(rotation.SetRadians, rotation, -math.pi * 2) and ok
-    end
-    if rotation.SetDuration then ok = pcall(rotation.SetDuration, rotation, PET_AUTOCAST_CIRCLE_ANTS_DURATION) and ok end
-    if rotation.SetOrder then ok = pcall(rotation.SetOrder, rotation, 1) and ok end
-    if rotation.SetOrigin then ok = pcall(rotation.SetOrigin, rotation, "CENTER", 0, 0) and ok end
-    if not ok then
-        if group.Stop then group:Stop() end
-        return nil
-    end
-    texture.yabPetAutoCastRotationAnim = group
-    return group
-end
-
-local function EnsurePetAutoCastCircleVisual(button, visual)
-    if not (button and visual) then return nil end
-    local circle = visual.petAutoCastCircle
-    if circle then return circle end
-    if InCombat() then return nil end
-    local marker = CreateSkinTexture(button, "OVERLAY", nil, PET_AUTOCAST_CIRCLE_MARKER_SUBLEVEL)
-    local ants = CreateSkinTexture(button, "OVERLAY", nil, PET_AUTOCAST_CIRCLE_ANTS_SUBLEVEL)
-    marker:Hide()
-    ants:Hide()
-    SetTexturePath(marker, PET_AUTOCAST_CIRCLE_MARKER_TEXTURE)
-    SetTexturePath(ants, PET_AUTOCAST_CIRCLE_ANTS_TEXTURE)
-    SetVertexColor(marker, PET_AUTOCAST_CIRCLE_MARKER_COLOR, PET_AUTOCAST_CIRCLE_MARKER_COLOR)
-    SetVertexColor(ants, PET_AUTOCAST_CIRCLE_ANTS_COLOR, PET_AUTOCAST_CIRCLE_ANTS_COLOR)
-    if marker.SetBlendMode then marker:SetBlendMode("ADD") end
-    if ants.SetBlendMode then ants:SetBlendMode("BLEND") end
-    EnsurePetAutoCastRotationAnimation(ants)
-    circle = { marker = marker, ants = ants }
-    visual.petAutoCastCircle = circle
-    return circle
-end
-
-local function LayoutPetAutoCastCircleVisual(button, visual)
-    local circle = visual and visual.petAutoCastCircle
-    if not circle then return 0 end
-    if InCombat() then
-        visual.pendingPetAutoCastLayout = true
-        return 0
-    end
-    ApplyVisualRect(button, visual, circle.marker, 0)
-    ApplyVisualRect(button, visual, circle.ants, 0)
-    visual.pendingPetAutoCastLayout = nil
-    return 1
-end
-
-HidePetAutoCastCircleVisual = function(visual)
-    local writes = 0
-    local circle = visual and visual.petAutoCastCircle
-    if circle then
-        writes = writes + StopTextureAnimation(circle.ants, 0)
-        writes = writes + RegionShown(circle.ants, false)
-        writes = writes + RegionShown(circle.marker, false)
-        writes = writes + RegionAlpha(circle.marker, PET_AUTOCAST_CIRCLE_MARKER_ALPHA)
-    end
-    return writes
-end
-
-SetPetAutoCastCircleVisual = function(button, visual, allowed, enabled)
-    if not (button and visual) then return 0 end
-    allowed = allowed == true
-    enabled = allowed and enabled == true
-    local circle = EnsurePetAutoCastCircleVisual(button, visual)
-    if not circle then
-        visual.pendingPetAutoCastLayout = true
-        return 0
-    end
-    local writes = 0
-    writes = writes + LayoutPetAutoCastCircleVisual(button, visual)
-    if circle.marker then
-        writes = writes + SetTexturePath(circle.marker, PET_AUTOCAST_CIRCLE_MARKER_TEXTURE)
-        writes = writes + SetVertexColor(circle.marker, PET_AUTOCAST_CIRCLE_MARKER_COLOR, PET_AUTOCAST_CIRCLE_MARKER_COLOR)
-        writes = writes + RegionAlpha(circle.marker, PET_AUTOCAST_CIRCLE_MARKER_ALPHA)
-    end
-    if circle.ants then
-        writes = writes + SetTexturePath(circle.ants, PET_AUTOCAST_CIRCLE_ANTS_TEXTURE)
-        writes = writes + SetVertexColor(circle.ants, PET_AUTOCAST_CIRCLE_ANTS_COLOR, PET_AUTOCAST_CIRCLE_ANTS_COLOR)
-    end
-    if allowed then
-        if enabled then
-            local group = EnsurePetAutoCastRotationAnimation(circle.ants)
-            writes = writes + RegionShown(circle.marker, false)
-            writes = writes + RegionAlpha(circle.ants, PET_AUTOCAST_CIRCLE_ANTS_ALPHA)
-            writes = writes + RegionShown(circle.ants, group ~= nil)
-            if group and group.Play and not (group.IsPlaying and group:IsPlaying()) then
-                group:Play()
-            end
-        else
-            writes = writes + RegionShown(circle.marker, true)
-            writes = writes + StopTextureAnimation(circle.ants, 0)
-            writes = writes + RegionShown(circle.ants, false)
-        end
-    else
-        writes = writes + RegionShown(circle.marker, false)
-        writes = writes + StopTextureAnimation(circle.ants, 0)
-        writes = writes + RegionShown(circle.ants, false)
-    end
-    visual.petAutoCastMode = "yui-circle-rotation"
-    return writes
+HidePetAutoCastVisual = function(visual)
+    local indicator = visual and visual.petAutoCastIndicator
+    if indicator then indicator.nativeOwned = false end
+    return indicator and indicator:SetState(false, false) or 0
 end
 
 local function ReleasePetAutoCastVisual(button, visual)
     if not visual then return 0 end
     local overlay = visual.autoCastOverlay or (button and button.AutoCastOverlay)
     local writes = overlay and HideNativePetAutoCastOverlay(overlay) or 0
-    writes = writes + HidePetAutoCastCircleVisual(visual)
+    writes = writes + HidePetAutoCastVisual(visual)
     visual.petAutoCastAllowed = false
     visual.petAutoCastEnabled = false
     visual.petAutoCastMode = nil
@@ -1675,53 +1548,50 @@ function Visuals:ApplyAssistedCombatVisual(button, visual, shown)
     local writes = 0
     if shown then
         local style = SHAPE_STYLES[visual.runtimeSkin or "square"] or SHAPE_STYLES.square
-        writes = writes + SetTexturePath(visual.assistedCombatBorder, self:GetButtonStateInnerTexture(style))
-        if visual.assistedCombatBorderColorApplied ~= true then
-            writes = writes + SetVertexColor(
-                visual.assistedCombatBorder,
-                BUTTON_STATE_COLORS.assistedCombat,
-                BUTTON_STATE_COLORS.assistedCombat
-            )
-            visual.assistedCombatBorderColorApplied = true
-        end
+        writes = writes + GUI2:PaintIconStateTexture(visual.assistedCombatBorder,
+            visual.runtimeSkin, BUTTON_STATE_COLORS.assistedCombat, self:GetButtonStateInnerTexture(style))
     end
     writes = writes + RegionShown(visual.assistedCombatBorder, shown)
     return writes
 end
 
-function Visuals:ApplyPressedVisual(visual, colors)
-    local texture = visual and visual.pressedOverlay
-    if not texture then return 0 end
+function Visuals:PrepareAssistedHighlightGlow(button, visual)
+    if visual and visual.masqueActive then return end
+    if not (button and visual and visual.isAction == true
+        and YAB.Client and YAB.Client.assistedHighlight == true
+        and CreateFrame)
+        or (InCombat() and button.yabEffectPreview ~= true) or IsNativeVisualMode() then return end
 
-    local effect = visual.pressedEffect == "innerGlow" and "innerGlow" or "darken"
-    local writes = 0
-    if effect == "innerGlow" then
-        local style = SHAPE_STYLES[visual.runtimeSkin or "square"] or SHAPE_STYLES.square
-        local texturePath = self:GetButtonStateInnerTexture(style)
-        if visual.pressedVisualMode ~= effect or visual.pressedTexturePath ~= texturePath then
-            writes = writes + SetTexturePath(texture, texturePath)
-            writes = writes + SetVertexColor(texture, BUTTON_STATE_COLORS.pressedInnerGlow, BUTTON_STATE_COLORS.pressedInnerGlow)
-            if texture.SetBlendMode then texture:SetBlendMode("ADD") end
-            texture.yabNativeVisualAlpha = nil
-            writes = writes + RegionAlpha(texture, 0.95)
-            visual.pressedVisualMode = effect
-            visual.pressedTexturePath = texturePath
-            visual.pressedColor = nil
-        end
+    local width, height = visual.visualWidth, visual.visualHeight
+    if not (width and height) then width, height = GetFrameSize(button, 36, 36) end
+    local level = (button.GetFrameLevel and button:GetFrameLevel() or 0) + ASSISTED_HIGHLIGHT_LEVEL_OFFSET
+    local glow = visual.assistedHighlightGlowFrame
+    if not glow then
+        glow = GUI2:CreateManagedAssistedHighlight(button, width, height, level, nil, visual.runtimeSkin or "square")
+        visual.assistedHighlightGlowFrame = glow
     else
-        local pressedColor = colors and colors.pressed or FALLBACK_PRESSED_COLOR
-        if visual.pressedVisualMode ~= effect or visual.pressedColor ~= pressedColor then
-            if texture.SetBlendMode then texture:SetBlendMode("BLEND") end
-            writes = writes + SetColorTexture(texture, pressedColor, FALLBACK_PRESSED_COLOR)
-            -- RGBA material writes may replace the alpha cached before repaint.
-            texture.yabNativeVisualAlpha = nil
-            writes = writes + RegionAlpha(texture, 0.28)
-            visual.pressedVisualMode = effect
-            visual.pressedTexturePath = nil
-            visual.pressedColor = pressedColor
-        end
+        GUI2:LayoutManagedAssistedHighlight(glow, button, width, height, level, nil, visual.runtimeSkin or "square")
     end
-    return writes
+end
+
+function Visuals:SyncAssistedHighlightGlow(visual, shown)
+    local glow = visual and visual.assistedHighlightGlowFrame
+    if not glow then return 0 end
+    shown = shown == true and not IsNativeVisualMode()
+    return GUI2:SetManagedAssistedHighlightShown(glow, shown) and 1 or 0
+end
+
+function Visuals:SetAssistedHighlight(button, shown)
+    local visual = self.buttons[button]
+    if not (visual and visual.isAction == true) then return 0 end
+    visual.assistedHighlight = shown == true
+    return self:SyncAssistedHighlightGlow(visual, visual.assistedHighlight)
+end
+
+function Visuals:ApplyPressedVisual(visual, colors)
+    if not visual then return 0 end
+    local style = SHAPE_STYLES[visual.runtimeSkin or "square"] or SHAPE_STYLES.square
+    return GUI2:PaintIconPressedVisual(visual, visual.runtimeSkin, colors, self:GetButtonStateInnerTexture(style))
 end
 
 function Visuals:LayoutPetCheckedStateTexture(button, visual, style)
@@ -1736,10 +1606,13 @@ function Visuals:LayoutPetCheckedStateTexture(button, visual, style)
     else
         visual.pendingCheckedRingLayout = true
     end
-    writes = writes + SetTexturePath(texture, texturePath)
-    writes = writes + SetVertexColor(texture, BUTTON_STATE_COLORS.petChecked, BUTTON_STATE_COLORS.petChecked)
-    if texture.SetBlendMode then texture:SetBlendMode("ADD") end
+    writes = writes + GUI2:PaintIconStateTexture(texture, visual.runtimeSkin,
+        BUTTON_STATE_COLORS.petChecked, texturePath)
     return writes
+end
+
+local function GetNativeCheckedAlpha(visual)
+    return (IsNativeVisualMode() or (visual.isAction and visual.showActionState == false)) and 0 or 1
 end
 
 LayoutCheckedRing = function(button, visual, style)
@@ -1747,19 +1620,25 @@ LayoutCheckedRing = function(button, visual, style)
     if not (button and visual and ring) then return 0 end
     style = style or SHAPE_STYLES[visual.runtimeSkin or "square"] or SHAPE_STYLES.square
     if visual.nativeChecked then
-        if InCombat() then
+        if InCombat() and button.yabEffectPreview ~= true then
             visual.pendingCheckedRingLayout = true
             return 0
         end
-        -- The CheckButton owns visibility; only its artwork is configured here.
-        ApplyVisualRect(button, visual, ring, 0)
-        SetTexturePath(ring, Visuals:GetButtonStateInnerTexture(style))
-        ring:SetTexCoord(0, 1, 0, 1)
+        -- The CheckButton owns visibility; fit the inward light inside visible chrome.
+        local snapshot = visual.sharedIconSnapshot or visual.runtimeSnapshot or {}
+        local border = snapshot.border or "thin"
+        local ratio = (style.cooldownInsets and style.cooldownInsets[border])
+            or (GUI2.IconCooldownInsets and GUI2.IconCooldownInsets[border])
+        local pixel = GUI2.GetPixelSize and GUI2:GetPixelSize(button, 1, 1) or 1
+        local inset = ratio and (visual.visualWidth or 36) * ratio
+            or (visual.configuredBorderThickness or 1) * pixel
+        ApplyVisualRect(button, visual, ring, -inset)
         local color = visual.isAction and BUTTON_STATE_COLORS.actionChecked or BUTTON_STATE_COLORS.petChecked
-        SetVertexColor(ring, color, color)
-        ring:SetBlendMode("ADD")
+        GUI2:PaintIconStateTexture(ring, visual.runtimeSkin, color, Visuals:GetButtonStateInnerTexture(style), true)
+        -- Repainting RGBA replaces alpha, including a previously hidden state.
+        ring.yabNativeVisualAlpha = nil
         ring:SetDrawLayer("OVERLAY", 5)
-        RegionAlpha(ring, IsNativeVisualMode() and 0 or 1)
+        RegionAlpha(ring, GetNativeCheckedAlpha(visual))
         RegionShown(ring, button:GetChecked() == true)
         visual.pendingCheckedRingLayout = nil
         return 1
@@ -1854,7 +1733,8 @@ local function SetBorderColor(visual, color)
         writes = writes + 1
     end
     if visual.shapeBorder then
-        writes = writes + SetVertexColor(visual.shapeBorder, color)
+        writes = writes + SetVertexColor(visual.shapeBorder,
+            visual.materialBorder and DEFAULT_TEXT_COLOR or color)
     end
     return writes
 end
@@ -1969,7 +1849,7 @@ end
 
 local function ApplyMaskToVisual(button, visual, maskPath)
     if not (button and visual) then return 0 end
-    if InCombat() then
+    if InCombat() and button.yabEffectPreview ~= true then
         visual.pendingMaskPath = maskPath
         return 0
     end
@@ -1985,6 +1865,7 @@ local function ApplyMaskToVisual(button, visual, maskPath)
             writes = writes + AttachMaskTexture(visual.hover, mask)
             writes = writes + AttachMaskTexture(visual.pressedOverlay, mask)
             writes = writes + AttachMaskTexture(visual.checkedOverlay, mask)
+            writes = writes + AttachMaskTexture(visual.petCheckedState, mask)
             writes = writes + AttachMaskTexture(visual.procGlowTexture, mask)
         end
     else
@@ -1994,12 +1875,13 @@ local function ApplyMaskToVisual(button, visual, maskPath)
         writes = writes + DetachMaskTexture(visual.hover)
         writes = writes + DetachMaskTexture(visual.pressedOverlay)
         writes = writes + DetachMaskTexture(visual.checkedOverlay)
+        writes = writes + DetachMaskTexture(visual.petCheckedState)
         writes = writes + DetachMaskTexture(visual.procGlowTexture)
     end
     if visual.nativeChecked then
         -- Rounded checked artwork must stay inside the icon's content contour.
         local rounded = visual.runtimeSkin == "roundedSquare" or visual.runtimeSkin == "flatRounded"
-            or visual.runtimeSkin == "wideRounded"
+            or visual.runtimeSkin == "wideRounded" or visual.runtimeSkin == "diamond"
         local mask = maskPath and rounded and visual.shapeMask
         if mask then
             writes = writes + AttachMaskTexture(visual.checkedRing, mask)
@@ -2319,6 +2201,7 @@ end
 
 function Visuals:ApplyButtonShadow(button, visual, snapshot, canLayout, native)
     if not visual or not GUI2 or not GUI2.BindShapeShadow then return 0 end
+    if visual.masqueActive then return GUI2:HideShapeShadow(visual.shadowHandle) end
     snapshot = snapshot or DEFAULT_RUNTIME_SNAPSHOT
     if not native and self.nativeShadowStates then
         local state = self.nativeShadowStates[button]
@@ -2377,11 +2260,12 @@ function Visuals:HideEnhancedVisualExtras(button, visual)
     writes = writes + HideExtraVisualRegion(visual.shapeBorder)
     writes = writes + SetBorderShown(visual, false)
     writes = writes + HidePetCheckedInnerVisual(visual)
-    writes = writes + HidePetAutoCastCircleVisual(visual)
+    writes = writes + HidePetAutoCastVisual(visual)
     writes = writes + ApplyMaskToVisual(button, visual, nil)
     if visual.procGlowFrame then
         StopManagedProcGlow(visual.procGlowFrame)
     end
+    writes = writes + self:SyncAssistedHighlightGlow(visual, false)
     return writes
 end
 
@@ -2718,6 +2602,7 @@ function Visuals:RestoreExternalSpecialButton(button)
     return writes
 end
 
+
 function Visuals:EnsureBlizzardBackgroundArtMask(button, visual)
     if not (button and visual and visual.bgSlotArt and button.CreateMaskTexture) then return nil end
     if visual.bgSlotArtMask then return visual.bgSlotArtMask end
@@ -2814,6 +2699,7 @@ local function SetCooldownDrawEdge(cooldown, drawEdge)
     if not (cooldown and cooldown.SetDrawEdge) then return 0 end
     drawEdge = drawEdge == true
     local cache = EnsureCooldownCache(cooldown)
+    cache.baseDrawEdge = drawEdge
     if cache.drawEdge == drawEdge then return 0 end
     cooldown:SetDrawEdge(drawEdge)
     cache.drawEdge = drawEdge
@@ -2830,7 +2716,7 @@ local function ApplyCooldownShape(visual, style, swipeOverride)
     local swipe = swipeOverride or style.swipe or SOLID_SWIPE_TEXTURE
     local writes = 0
     local externalShapeManaged = visual.externalSpecialKind == "extraAction" or visual.externalSpecialKind == "zoneAbility"
-    local nativeShapeManaged = visual.nativeSpecialKind == "stance"
+    local nativeShapeManaged = visual.nativeSpecialKind == "stance" or visual.nativeSpecialKind == "pet"
     local mainSwipeAlpha = externalShapeManaged and 0.58 or MAIN_COOLDOWN_SWIPE_ALPHA
     local chargeSwipeAlpha = externalShapeManaged and 0.32 or CHARGE_COOLDOWN_SWIPE_ALPHA
     if (visual.nativeSpecial == true and nativeShapeManaged ~= true)
@@ -2839,10 +2725,20 @@ local function ApplyCooldownShape(visual, style, swipeOverride)
         visual.pendingCooldownStyle = nil
         return 0
     end
+    if GUI2.IsIconSkinManaged and GUI2:IsIconSkinManaged(visual.cooldown) then
+        visual.pendingCooldownStyle = nil
+        return 0
+    end
     writes = writes + SetCooldownCircularEdge(visual.cooldown, circular)
     writes = writes + SetCooldownCircularEdge(visual.chargeCooldown, circular)
     writes = writes + SetCooldownSwipeTexture(visual.cooldown, swipe, 0, 0, 0, mainSwipeAlpha)
     writes = writes + SetCooldownSwipeTexture(visual.chargeCooldown, swipe, 0, 0, 0, chargeSwipeAlpha)
+    local gui = YUI.GUI2
+    if visual.nativeSpecial ~= true and visual.externalSpecial ~= true
+        and visual.chargeCooldown and gui and gui.ApplyCooldownEdgeStyle then
+        writes = writes + gui:ApplyCooldownEdgeStyle(visual.chargeCooldown,
+            visual.sharedIconSnapshot, EnsureCooldownCache(visual.chargeCooldown))
+    end
     writes = writes + SetCooldownDrawEdge(visual.cooldown, false)
     writes = writes + SetCooldownDrawEdge(visual.chargeCooldown, style.chargeEdge == true)
     visual.pendingCooldownStyle = nil
@@ -2910,6 +2806,7 @@ end
 
 local function ApplyDiagnosticVisualMode(button, visual)
     if not (button and visual and visual.enhanced) then return 0 end
+    if visual.masqueActive then return RefreshSkinState(button, visual) end
     local writes = 0
     local oldProcGlowFrame = visual.procGlowFrame
     local oldProcGlowShape = oldProcGlowFrame and oldProcGlowFrame.yabProcShape
@@ -2925,7 +2822,7 @@ local function ApplyDiagnosticVisualMode(button, visual)
             writes = writes + HideExtraVisualRegion(visual.checkedRing)
         end
         writes = writes + HidePetCheckedInnerVisual(visual)
-        writes = writes + HidePetAutoCastCircleVisual(visual)
+        writes = writes + HidePetAutoCastVisual(visual)
         writes = writes + SetBorderShown(visual, false)
         if visual.procGlowFrame then
             StopManagedProcGlow(visual.procGlowFrame)
@@ -2936,7 +2833,7 @@ local function ApplyDiagnosticVisualMode(button, visual)
         writes = writes + ShowExtraVisualRegion(visual.pressedOverlay, visual.pressedEffect == "innerGlow" and 0.95 or 0.28)
         writes = writes + ShowExtraVisualRegion(visual.checkedOverlay, 0.18)
         if visual.nativeChecked then
-            writes = writes + RegionAlpha(visual.checkedRing, 1)
+            writes = writes + RegionAlpha(visual.checkedRing, GetNativeCheckedAlpha(visual))
             writes = writes + RegionShown(visual.checkedRing, button:GetChecked() == true)
         end
         writes = writes + SetBorderShown(visual, visual.borderEnabled == true)
@@ -2951,6 +2848,7 @@ local function ApplyDiagnosticVisualMode(button, visual)
         RefreshSkinState(button, visual)
         writes = writes + SyncManagedProcGlow(button, visual, oldProcGlowFrame, oldProcGlowShape)
     end
+    writes = writes + Visuals:SetAssistedHighlight(button, visual.assistedHighlight == true)
     writes = writes + Visuals:ApplyButtonShadow(button, visual, visual.runtimeSnapshot, not InCombat())
     if writes > 0 then
         Visuals.stats.visualExtraHidden = (Visuals.stats.visualExtraHidden or 0) + writes
@@ -3085,6 +2983,7 @@ local function LayoutPetCheckedLineSet(button, visual, lines, thickness, offset)
 end
 
 local function ApplyPetCheckedEdge(button, visual, colors)
+    if visual and visual.masqueActive then return 0 end
     if not IsPetCheckedVisual(button, visual) then return 0 end
     EnsurePetCheckedInnerVisual(button, visual)
     local style = SHAPE_STYLES[visual.runtimeSkin or "square"] or SHAPE_STYLES.square
@@ -3188,7 +3087,9 @@ end
 
 LayoutCooldown = function(cooldown, button, padding, r, g, b, a, drawSwipe, levelOffset, drawEdge, visual)
     if not (cooldown and button) then return end
+    if GUI2.IsIconSkinManaged and GUI2:IsIconSkinManaged(cooldown) then return end
     padding = tonumber(padding) or 2
+    if GUI2.RestoreIconCooldownLayout then GUI2:RestoreIconCooldownLayout(cooldown) end
     if cooldown.ClearAllPoints then cooldown:ClearAllPoints() end
     if visual then
         ApplyVisualRect(button, visual, cooldown)
@@ -3200,6 +3101,16 @@ LayoutCooldown = function(cooldown, button, padding, r, g, b, a, drawSwipe, leve
     elseif cooldown.SetAllPoints then
         cooldown:SetAllPoints(button)
     end
+    local shapeManaged = visual and ((visual.nativeSpecial ~= true and visual.externalSpecial ~= true)
+        or visual.nativeSpecialKind == "stance"
+        or visual.nativeSpecialKind == "pet"
+        or (visual.externalArtMode == "yui"
+            and (visual.externalSpecialKind == "extraAction" or visual.externalSpecialKind == "zoneAbility")))
+    if shapeManaged and visual.sharedIconSnapshot and GUI2.ApplyIconCooldownLayout then
+        local snapshot = visual.sharedIconSnapshot
+        GUI2:ApplyIconCooldownLayout(cooldown, visual.icon or button, snapshot.shape, snapshot.border,
+            visual.visualWidth, visual.visualHeight)
+    end
     if cooldown.SetFrameLevel and button.GetFrameLevel then
         cooldown:SetFrameLevel((button:GetFrameLevel() or 0) + (levelOffset or 4))
     end
@@ -3210,26 +3121,36 @@ LayoutCooldown = function(cooldown, button, padding, r, g, b, a, drawSwipe, leve
             local drawEdgeValue = drawEdge == true
             cooldown:SetDrawEdge(drawEdgeValue)
             EnsureCooldownCache(cooldown).drawEdge = drawEdgeValue
+            EnsureCooldownCache(cooldown).baseDrawEdge = drawEdgeValue
         end
         if cooldown.SetDrawBling then cooldown:SetDrawBling(false) end
-        if cooldown.SetDrawSwipe then cooldown:SetDrawSwipe(drawSwipe ~= false) end
+        if cooldown.SetDrawSwipe then
+            cooldown:SetDrawSwipe(drawSwipe ~= false)
+            EnsureCooldownCache(cooldown).drawSwipe = drawSwipe ~= false
+        end
         if cooldown.SetSwipeColor then cooldown:SetSwipeColor(r or 0, g or 0, b or 0, a or 0.58) end
     end
 end
 
 local function StyleChargeCooldown(cooldown)
     if not cooldown then return end
+    local gui = YUI.GUI2
+    if gui and gui.ApplyCooldownEdgeStyle then
+        gui:ApplyCooldownEdgeStyle(cooldown, nil, EnsureCooldownCache(cooldown))
+    end
     if cooldown.SetDrawEdge then
         cooldown:SetDrawEdge(true)
         EnsureCooldownCache(cooldown).drawEdge = true
+        EnsureCooldownCache(cooldown).baseDrawEdge = true
     end
     if cooldown.SetDrawBling then cooldown:SetDrawBling(false) end
-    if cooldown.SetDrawSwipe then cooldown:SetDrawSwipe(true) end
-    if cooldown.SetSwipeColor then cooldown:SetSwipeColor(0, 0, 0, CHARGE_COOLDOWN_SWIPE_ALPHA) end
-    if cooldown.SetEdgeColor then
-        cooldown:SetEdgeColor(CHARGE_COOLDOWN_EDGE_R, CHARGE_COOLDOWN_EDGE_G, CHARGE_COOLDOWN_EDGE_B, CHARGE_COOLDOWN_EDGE_A)
+    if cooldown.SetDrawSwipe then
+        cooldown:SetDrawSwipe(true)
+        EnsureCooldownCache(cooldown).drawSwipe = true
     end
-    if cooldown.SetEdgeScale then cooldown:SetEdgeScale(CHARGE_COOLDOWN_EDGE_SCALE) end
+    if cooldown.SetSwipeColor and not (gui and gui.IsIconSkinManaged and gui:IsIconSkinManaged(cooldown)) then
+        cooldown:SetSwipeColor(0, 0, 0, CHARGE_COOLDOWN_SWIPE_ALPHA)
+    end
 end
 
 local function SetCooldown(cooldown, durationObject, rawStart, rawDuration, enable, rawModRate)
@@ -3241,9 +3162,7 @@ local function SetCooldown(cooldown, durationObject, rawStart, rawDuration, enab
     local modRateValue = type(rawModRate) == "number" and rawModRate or nil
     if active and durationObject and cooldown.SetCooldownFromDurationObject then
         cooldown:SetCooldownFromDurationObject(durationObject)
-        if cooldown.Show then
-            cooldown:Show()
-        end
+        -- The native sink clears zero durations; do not reshow its cleared clock.
         cache.active = true
         cache.durationObject = true
         cache.start = startValue
@@ -3332,8 +3251,35 @@ local function SetMainCooldownNumbersHidden(cooldown, snapshot)
     return SetCooldownNumbersHidden(cooldown, ShouldHideCooldownNumbers(snapshot))
 end
 
+function Visuals:ApplyChargeCooldownPresentation(cooldown, snapshot)
+    if not cooldown then return 0 end
+    -- The ordinary cooldown owns depletion, GCD and independent cooldowns.
+    -- Only the separate recovery layer is suppressed; its clock keeps running.
+    local mode = snapshot and snapshot.chargeRecoveryDisplay or "hideSwipeOnly"
+    local draw = mode ~= "hideSwipe" and mode ~= "hideBoth"
+        and mode ~= "hideSwipeOnly" and mode ~= "hideSwipeAndCountdown"
+    local hidden = ShouldHideCooldownNumbers(snapshot)
+        or mode == "hideCountdown" or mode == "hideBoth"
+        or mode == "hideEdgeAndCountdown" or mode == "hideSwipeAndCountdown"
+    local writes = SetCooldownNumbersHidden(cooldown, hidden)
+    local cache = EnsureCooldownCache(cooldown)
+    if cooldown.SetDrawSwipe and cache.drawSwipe ~= draw then
+        cooldown:SetDrawSwipe(draw)
+        cache.drawSwipe = draw
+        writes = writes + 1
+    end
+    local drawEdge = mode == "normal" or mode == "hideCountdown"
+        or mode == "hideSwipeOnly" or mode == "hideSwipeAndCountdown"
+    if cooldown.SetDrawEdge and cache.drawEdge ~= drawEdge then
+        cooldown:SetDrawEdge(drawEdge)
+        cache.drawEdge = drawEdge
+        writes = writes + 1
+    end
+    return writes
+end
+
 local function SetChargeCooldownNumbersHidden(cooldown, snapshot)
-    return SetCooldownNumbersHidden(cooldown, ShouldHideCooldownNumbers(snapshot))
+    return Visuals:ApplyChargeCooldownPresentation(cooldown, snapshot)
 end
 
 local function CreateFallbackText(button, point, justify)
@@ -3391,18 +3337,21 @@ local function EnsureVisual(button, options)
             return visual
         end
     end
-    if InCombat() then return nil end
+    if InCombat() and button.yabEffectPreview ~= true then return nil end
 
     local isAction = (options and options.previewAction == true) or IsActionButton(button)
     local isFlyoutPopup = false
     local meta = GetButtonMeta(button)
     local isQuestItem = meta and meta.kind == "questItems"
         and YAB.Client and YAB.Client.questItems == true
+    local isClassSpell = meta and (meta.barId == "aspects" or meta.kind == "totems")
+        and YAB.Client and YAB.Client.classBars == true
     local isNativeSpecial = meta
         and (meta.nativeSpecial == true or meta.ownedStanceTemplate == true) or false
     local isExternalSpecial = externalSpecialKind ~= nil
-    local nativeChecked = (isAction or (meta and meta.ownedStanceTemplate == true))
+    local nativeChecked = (isAction or (options and options.nativeChecked == true) or (meta and meta.ownedStanceTemplate == true))
         and button.GetCheckedTexture and button:GetCheckedTexture() or nil
+    local buttonName = isExternalSpecial and button.GetName and button:GetName()
     visual = {
         isAction = isAction,
         nativeSpecial = isNativeSpecial,
@@ -3410,10 +3359,12 @@ local function EnsureVisual(button, options)
         externalSpecialKind = externalSpecialKind,
         nativeSpecialKind = isNativeSpecial and meta and meta.barId or externalSpecialKind,
         flyoutPopup = isFlyoutPopup,
-        enhanced = isAction or isNativeSpecial or isExternalSpecial or isQuestItem,
+        enhanced = isAction or isNativeSpecial or isExternalSpecial or isQuestItem or isClassSpell,
+        classSpell = isClassSpell == true,
         nativeChecked = nativeChecked ~= nil,
-        icon = button.icon or button.Icon,
-        cooldown = button.cooldown or button.Cooldown,
+        icon = button.icon or button.Icon or (isExternalSpecial and Visuals:GetExternalButtonIcon(button)),
+        cooldown = button.cooldown or button.Cooldown
+            or (buttonName and _G[buttonName .. "Cooldown"]),
         chargeCooldown = button.chargeCooldown,
         autoCastOverlay = button.AutoCastOverlay,
         hotkey = button.HotKey,
@@ -3421,8 +3372,8 @@ local function EnsureVisual(button, options)
         name = button.Name,
     }
     Visuals.buttons[button] = visual
-    -- Owned quest item hosts have no template regions, but use the full skin.
-    if isQuestItem then EnsureFallbackVisual(button, visual) end
+    -- Owned item and class spell hosts have no template regions, but use the full skin.
+    if isQuestItem or isClassSpell then EnsureFallbackVisual(button, visual) end
     if visual.enhanced then
         if visual.isAction then
             EnsureCooldown(button, visual, "cooldown", "action")
@@ -3438,6 +3389,9 @@ local function EnsureVisual(button, options)
         if isQuestItem and visual.hover.SetBlendMode then visual.hover:SetBlendMode("ADD") end
         visual.pressedOverlay = CreateSkinTexture(button, "OVERLAY", 0.28)
         visual.checkedOverlay = CreateSkinTexture(button, "OVERLAY", 0.18)
+        if isClassSpell then
+            visual.classActivePaint = { pressedOverlay = visual.checkedOverlay, pressedEffect = "innerGlow" }
+        end
         visual.checkedRing = nativeChecked or CreateSkinTexture(button, "OVERLAY", nil, 5)
         if visual.isAction then
             visual.assistedCombatBorder = CreateSkinTexture(button, "OVERLAY", nil, 5)
@@ -3528,6 +3482,8 @@ function Visuals:PrepareExternalSpecialState(visual, preserveActionState)
 end
 
 function Visuals:GetIconCooldownDesaturation(visual, state)
+    if state and state.unlearned == true then return 1 end
+    if visual.classSpell and state and state.aspectActiveStyle == "dimOthers" then return 0 end
     if ShouldDesaturate(state) then
         return visual.cooldownDesaturation or ((visual.skin and visual.skin.cooldownDesaturation) or 1)
     end
@@ -3536,11 +3492,22 @@ end
 
 local function ApplyRuntimeSnapshot(button, visual, snapshot, options)
     if not (button and visual) then return 0 end
+    if GUI2.ClaimIconSkin and not GUI2:ClaimIconSkin(button) then
+        GUI2:DeferIconSkin(button, function() ApplyRuntimeSnapshot(button, visual, snapshot, options) end)
+        return 0
+    end
+    if GUI2.BeginIconSkin and not GUI2:BeginIconSkin(button) then
+        GUI2:DeferIconSkin(button, function() ApplyRuntimeSnapshot(button, visual, snapshot, options) end)
+        return 0
+    end
+    visual.masqueActive = false
     snapshot = snapshot or DEFAULT_RUNTIME_SNAPSHOT
     options = options or {}
+    visual.iconSkinOptions = options
     local oldProcGlowFrame = visual.procGlowFrame
     local oldProcGlowShape = oldProcGlowFrame and oldProcGlowFrame.yabProcShape
     visual.runtimeSnapshot = snapshot
+    visual.showActionState = snapshot.showActionState ~= false
     local runtimeSkin = snapshot.skin or "square"
     if runtimeSkin == "blizzard" then runtimeSkin = "square" end
     visual.runtimeSkin = runtimeSkin
@@ -3565,6 +3532,10 @@ local function ApplyRuntimeSnapshot(button, visual, snapshot, options)
     ) or 1
     visual.configuredBorderThickness = thickness
     visual.borderEnabled = thickness > 0
+    visual.materialBorder = GUI2 and GUI2.IsIconBorderMaterial
+        and GUI2:IsIconBorderMaterial(snapshot.border) or false
+    local borderFamily = GUI2 and GUI2.GetIconBorderFamily
+        and GUI2:GetIconBorderFamily(visual.runtimeSkin, snapshot.border) or style.borderFamily
     if GUI2 and GUI2.CompileIconStyle then
         local input = visual.sharedIconInput
         if not input then
@@ -3584,11 +3555,12 @@ local function ApplyRuntimeSnapshot(button, visual, snapshot, options)
             visual.sharedIconSnapshot
         )
     end
-    local canLayout = not InCombat()
+    local canLayout = not InCombat() or button.yabEffectPreview == true
 
     local writes = 0
     writes = writes + UpdateVisualGeometry(button, visual, style, padding, options)
     if canLayout then
+        writes = writes + Visuals:PrepareMacroNameLayer(button, visual)
         ApplyVisualRect(button, visual, visual.bg)
         ApplyVisualRect(button, visual, visual.hover)
         ApplyVisualRect(button, visual, visual.pressedOverlay)
@@ -3598,9 +3570,6 @@ local function ApplyRuntimeSnapshot(button, visual, snapshot, options)
         LayoutCooldown(visual.chargeCooldown, button, 0, 0, 0, 0, CHARGE_COOLDOWN_SWIPE_ALPHA, true, CHARGE_COOLDOWN_LEVEL_OFFSET, true, visual)
         if visual.procGlowFrame then
             LayoutManagedProcGlow(button, visual)
-        end
-        if visual.nativeSpecial and (visual.autoCastOverlay or visual.petAutoCastCircle) then
-            SetPetAutoCastVisual(button, visual, visual.petAutoCastAllowed == true, visual.petAutoCastEnabled == true)
         end
     end
     writes = writes + Visuals:ApplyButtonShadow(button, visual, snapshot, canLayout)
@@ -3614,15 +3583,15 @@ local function ApplyRuntimeSnapshot(button, visual, snapshot, options)
     writes = writes + ApplyCooldownShape(
         visual,
         style,
-        appearanceMask
+        (visual.sharedIconSnapshot and visual.sharedIconSnapshot.swipeTexture) or appearanceMask
     )
-    local nextLineBorderActive = visual.enhanced == true and thickness > 0 and not style.borderFamily
+    local nextLineBorderActive = visual.enhanced == true and thickness > 0 and not borderFamily
     if visual.enhanced then
         if canLayout then
             visual.lineBorderActive = nextLineBorderActive
             visual.pendingLineBorderActive = nil
             UpdateBorderPixel(button, visual, thickness > 0 and thickness or 1)
-            writes = writes + ApplyShapeBorderTexture(button, visual, style.borderFamily, thickness)
+            writes = writes + ApplyShapeBorderTexture(button, visual, borderFamily, thickness)
             if LayoutCheckedRing then
                 writes = writes + LayoutCheckedRing(button, visual, style)
             end
@@ -3650,10 +3619,24 @@ local function ApplyRuntimeSnapshot(button, visual, snapshot, options)
     end
     writes = writes + SyncManagedProcGlow(button, visual, oldProcGlowFrame, oldProcGlowShape)
     writes = writes + Visuals:ApplyAssistedCombatVisual(button, visual, visual.assistedCombat == true)
+    if canLayout then Visuals:PrepareAssistedHighlightGlow(button, visual) end
+    writes = writes + Visuals:SetAssistedHighlight(button, visual.assistedHighlight == true)
     if visual.isAction == true then
         writes = writes + Visuals:ApplyProfessionQuality(button, visual.professionQualityAtlas, snapshot)
     end
+    if YAB.IconSkinAdapter then
+        if snapshot.skinId == "masque" and canLayout then EnsureManagedProcGlow(button, visual) end
+        YAB.IconSkinAdapter:Apply(button, visual, snapshot)
+    end
+    if canLayout and visual.nativeSpecial and (visual.autoCastOverlay or visual.petAutoCastIndicator) then
+        writes = writes + SetPetAutoCastVisual(button, visual, visual.petAutoCastAllowed == true, visual.petAutoCastEnabled == true)
+    end
     return writes
+end
+
+function Visuals:RefreshIconSkin(button)
+    local visual = self.buttons[button]
+    if visual then return ApplyRuntimeSnapshot(button, visual, visual.runtimeSnapshot, visual.iconSkinOptions) end
 end
 
 function RefreshSkinState(button, visual)
@@ -3674,7 +3657,10 @@ function RefreshSkinState(button, visual)
     end
 
     local writes = Visuals:ApplyActionTintFast(button, visual.usable, visual.noMana, visual.outOfRange, true)
-    if visual.enhanced then
+    if visual.enhanced and visual.masqueActive then
+        writes = writes + RegionShown(visual.pressedOverlay, visual.pressed == true)
+        writes = writes + RegionShown(visual.checkedOverlay, visual.checked == true)
+    elseif visual.enhanced then
         local colors = Visuals.theme and Visuals.theme.colors or DEFAULT_RUNTIME_SNAPSHOT
         local petCheckedVisual = IsPetCheckedVisual(button, visual)
         writes = writes + SetBorderColorCached(visual, visual.borderColorOverride or DEFAULT_BORDER_COLOR)
@@ -3691,7 +3677,12 @@ function RefreshSkinState(button, visual)
         end
         writes = writes + Visuals:ApplyPressedVisual(visual, colors)
         local checkedColorMode = petCheckedVisual and "pet" or "default"
-        if not visual.nativeChecked and (visual.checkedColor ~= colors.checked or visual.checkedColorMode ~= checkedColorMode) then
+        if visual.classActivePaint then
+            local style = SHAPE_STYLES[visual.runtimeSkin or "square"] or SHAPE_STYLES.square
+            writes = writes + GUI2:PaintIconPressedVisual(visual.classActivePaint, visual.runtimeSkin, colors,
+                Visuals:GetButtonStateInnerTexture(style))
+            writes = writes + RegionAlpha(visual.checkedOverlay, 0.95)
+        elseif not visual.nativeChecked and (visual.checkedColor ~= colors.checked or visual.checkedColorMode ~= checkedColorMode) then
             visual.checkedColor = colors.checked
             visual.checkedColorMode = checkedColorMode
             if petCheckedVisual then
@@ -3701,9 +3692,15 @@ function RefreshSkinState(button, visual)
             end
         end
         writes = writes + RegionShown(visual.pressedOverlay, visual.pressed == true)
-        writes = writes + RegionShown(visual.checkedOverlay, not visual.nativeChecked and visual.checked == true)
+        if visual.nativeChecked then
+            writes = writes + RegionAlpha(visual.checkedRing, GetNativeCheckedAlpha(visual))
+        end
+        writes = writes + RegionShown(visual.checkedOverlay, not visual.nativeChecked and visual.checked == true
+            and (not visual.classSpell or visual.aspectActiveStyle == "innerGlow"))
         if petCheckedVisual then
             writes = writes + ApplyPetCheckedEdge(button, visual, colors)
+        elseif visual.classSpell then
+            writes = writes + RegionShown(visual.checkedRing, false)
         elseif visual.checkedRing and not visual.nativeChecked then
             local checkedColor = colors.checked or FALLBACK_CHECKED_COLOR
             writes = writes + SetVertexColor(visual.checkedRing, checkedColor, FALLBACK_CHECKED_COLOR)
@@ -3747,7 +3744,9 @@ end
 function Visuals:RefreshPixel(reason)
     self.stats.pixelRefreshes = (self.stats.pixelRefreshes or 0) + 1
     for button, visual in pairs(self.buttons) do
-        if visual.enhanced and not IsNativeVisualMode()
+        if visual.masqueActive then
+            self:RefreshIconSkin(button)
+        elseif visual.enhanced and not IsNativeVisualMode()
             and (visual.externalSpecial ~= true or self.externalTextSnapshots[button] ~= nil)
         then
             if InCombat() then
@@ -3778,6 +3777,7 @@ function Visuals:SetManagedPressedState(button, pressed)
     end
     visual.pressed = pressed
     RefreshSkinState(button, visual)
+    if self.pressObserver then self.pressObserver(button, pressed, visual) end
 end
 
 function Visuals:SetKeyboardPressedState(button, pressed)
@@ -3820,6 +3820,7 @@ function Visuals.ManagedButtonShow(button)
 end
 
 function Visuals.ManagedButtonPostClick(button, mouseButton, down)
+    local visual = Visuals.buttons[button]
     -- Click-based keyboard input reports both edges here even without mouse-up.
     -- Change visuals only; the secure action and its release remain untouched.
     if mouseButton == "Keybind" then
@@ -3857,7 +3858,12 @@ function Visuals:ApplyExtraActionVisualMode(button, snapshot, options)
     snapshot = snapshot or options.snapshot or button.yabConfigSnapshot or DEFAULT_RUNTIME_SNAPSHOT
 
     if snapshot and snapshot.skin == "blizzard" then
+        if GUI2.BeginIconSkin and not GUI2:BeginIconSkin(button) then
+            GUI2:DeferIconSkin(button, function() self:ApplyExtraActionVisualMode(button, snapshot, options) end)
+            return false
+        end
         self:RestoreExternalSpecialButton(button)
+        if GUI2.ReleaseIconSkin then GUI2:ReleaseIconSkin(button) end
         self:ApplyNativeButtonShadow(button, snapshot)
         self:ApplyExternalTextSnapshot(button, snapshot)
         self:HookButton(button)
@@ -4387,7 +4393,13 @@ function Visuals:ApplySpellFlyoutBorder(button, state, style, snapshot)
         return writes
     end
     local r, g, b, a = self:GetSpellFlyoutRGBA(snapshot and snapshot.borderColor, DEFAULT_BORDER_COLOR)
-    local familyTextures = style and style.borderFamily and SHAPE_BORDER_TEXTURES[style.borderFamily]
+    local material = GUI2 and GUI2.IsIconBorderMaterial
+        and GUI2:IsIconBorderMaterial(snapshot and snapshot.border)
+    if material then r, g, b, a = 1, 1, 1, 1 end
+    local family = GUI2 and GUI2.GetIconBorderFamily
+        and GUI2:GetIconBorderFamily(snapshot and snapshot.skin, snapshot and snapshot.border)
+        or (style and style.borderFamily)
+    local familyTextures = family and SHAPE_BORDER_TEXTURES[family]
     local texturePath = familyTextures and familyTextures[thickness]
     if texturePath then
         local border = self:EnsureSpellFlyoutShapeBorder(button, state)
@@ -4427,14 +4439,9 @@ function Visuals:ApplySpellFlyoutStateTexture(button, texture, style, color)
     local texturePath = self:GetButtonStateInnerTexture(style)
     if not texturePath then return 0 end
     local writes = self:LayoutSpellFlyoutStateTexture(button, texture, style)
-    if texture.SetTexture then pcall(texture.SetTexture, texture, texturePath) end
-    if texture.SetTexCoord then pcall(texture.SetTexCoord, texture, 0, 1, 0, 1) end
-    if texture.SetVertexColor then
-        pcall(texture.SetVertexColor, texture, color[1] or 1, color[2] or 1, color[3] or 1, color[4] == nil and 1 or color[4])
-    end
+    writes = writes + GUI2:PaintIconStateTexture(texture, nil, color, texturePath, true)
     if texture.SetAlpha then pcall(texture.SetAlpha, texture, 1) end
-    if texture.SetBlendMode then pcall(texture.SetBlendMode, texture, "ADD") end
-    return writes + 1
+    return writes
 end
 
 function Visuals:ApplySpellFlyoutStateTextures(button, state, style)
@@ -4493,6 +4500,15 @@ function Visuals:ApplySpellFlyoutButtonVisual(button, owner, snapshot)
             state.visualHeight = math.min(state.visualHeight, (state.originalWidth or snapshot.size or 36) / style.aspect)
         end
         state.visualHeight = state.visualHeight + (state.visualOutsetY or 0) * 2
+        local cooldown = button.cooldown or button.Cooldown
+        if cooldown and GUI2.ApplyIconCooldownLayout then
+            GUI2:ApplyIconCooldownLayout(cooldown, icon, snapshot.skin, snapshot.border,
+                state.visualWidth, state.visualHeight)
+            if cooldown.gui2CooldownLayout and cooldown.gui2CooldownLayout.active
+                and cooldown.SetSwipeTexture and GUI2.GetIconCooldownTexture then
+                cooldown:SetSwipeTexture(GUI2:GetIconCooldownTexture(snapshot.skin, snapshot.border))
+            end
+        end
     end
     state.runtimeSkin = snapshot.skin
     state.shadowContour = icon
@@ -4597,6 +4613,9 @@ function Visuals:ApplyActionTintFast(button, usable, noMana, outOfRange, deferSt
         color = skin.noManaIconColor
     elseif visual.usable == false then
         color = skin.unusableIconColor
+    end
+    if visual.classSpell and visual.aspectActiveStyle == "dimOthers" then
+        color = visual.aspectDimmed and ASPECT_DIMMED_ICON_COLOR or skin.normalIconColor
     end
     local writes = 0
     if visual.lastColor ~= color then
@@ -4897,6 +4916,11 @@ function Visuals:UpdateButton(button, state, mode)
     visual.noMana = state.noMana == true
     visual.outOfRange = (state.rangeMode == "red" or visual.rangeMode == "red") and state.inRange == false
     visual.checked = state.checked == true
+    if visual.classSpell then
+        local style = state.aspectActiveStyle
+        visual.aspectActiveStyle = (style == "nativeIcon" or style == "dimOthers") and style or "innerGlow"
+        visual.aspectDimmed = state.aspectDimmed == true
+    end
     if visual.nativeChecked and (mode == "full" or RefreshModeHas(mode, "state")) then
         writes = writes + YAB.BarManager:SetButtonCheckedState(button, state.hasAction == true and visual.checked)
     end
@@ -5052,6 +5076,42 @@ function Visuals:UpdateEmpty(button)
     return self:UpdateButton(button, { hasAction = false, countText = "" })
 end
 
+-- Prepared only for the pet utility toggle during its OOC layout pass.
+function Visuals:PreparePetHappiness(button)
+    local visual = self.buttons[button]
+    if not visual or InCombat() then return end
+    local dot = visual.petHappinessDot
+    if not dot then
+        dot = CreateSkinTexture(button, "OVERLAY", nil, 7)
+        dot:SetTexture(CIRCLE_MASK_TEXTURE)
+        dot:Hide()
+        visual.petHappinessDot = dot
+    end
+    local edge = math.min(button:GetWidth(), button:GetHeight())
+    local size = math.max(3, math.min(10, math.floor(edge * 0.16 + 0.5)))
+    local inset = math.max(1, math.floor(edge * 0.04 + 0.5))
+    if visual.petHappinessSize ~= size or visual.petHappinessInset ~= inset then
+        dot:SetSize(size, size)
+        dot:ClearAllPoints()
+        dot:SetPoint("BOTTOM", button, "BOTTOM", 0, inset)
+        visual.petHappinessSize, visual.petHappinessInset = size, inset
+    end
+end
+
+function Visuals:SetPetHappiness(button, color)
+    local visual = self.buttons[button]
+    local dot = visual and visual.petHappinessDot
+    if not dot then return 0 end
+    local writes = 0
+    if color and visual.petHappinessColor ~= color then
+        writes = SetVertexColor(dot, color, color)
+        visual.petHappinessColor = color
+    end
+    writes = writes + RegionShown(dot, color ~= nil)
+    self.stats.writes = (self.stats.writes or 0) + writes
+    return writes
+end
+
 function Visuals:CreateBindHighlightRegion(button, subLevel)
     if not (button and button.CreateTexture) then return nil end
     local ok, region = pcall(button.CreateTexture, button, nil, "OVERLAY", nil, subLevel or 7)
@@ -5123,14 +5183,25 @@ function Visuals:SetBindHighlight(button, shown, hovered)
 end
 
 function Visuals:ReleaseButton(button)
+    local visual = self.buttons[button]
+    if visual and visual.macroNameLayerRegion and InCombat() and not button.yabEffectPreview
+        and GUI2 and GUI2.DeferIconSkin then
+        GUI2:DeferIconSkin(button, function() self:ReleaseButton(button) end)
+        return
+    end
+    if GUI2 and GUI2.BeginIconSkin and not GUI2:BeginIconSkin(button) then
+        GUI2:DeferIconSkin(button, function() self:ReleaseButton(button) end)
+        return
+    end
     self:StopRankUpgrade(button)
     self:SetBindHighlight(button, false, false)
     if GUI2 and GUI2.HideShapeShadow and self.nativeShadowStates then
         local state = self.nativeShadowStates[button]
         if state then GUI2:HideShapeShadow(state.shadowHandle) end
     end
-    local visual = self.buttons[button]
     if not visual then return end
+    self:RestoreMacroNameLayer(button, visual)
+    RegionShown(visual.petHappinessDot, false)
     if visual.nativeChecked then YAB.BarManager:ClearButtonCheckedState(button) end
     if GUI2 and GUI2.HideShapeShadow then GUI2:HideShapeShadow(visual.shadowHandle) end
     self.pendingProfessionQuality[button] = nil
@@ -5144,6 +5215,7 @@ function Visuals:ReleaseButton(button)
     end
     self:SetProcGlow(button, false)
     self:ApplyAssistedCombatVisual(button, visual, false)
+    self:SetAssistedHighlight(button, false)
     ReleasePetAutoCastVisual(button, visual)
     visual.checked = false
     HideExtraVisualRegion(visual.bgSlotArt)
@@ -5171,14 +5243,20 @@ function Visuals:ReleaseButton(button)
     end
     if visual.cooldown then COOLDOWN_CACHE[visual.cooldown] = nil end
     if visual.chargeCooldown then COOLDOWN_CACHE[visual.chargeCooldown] = nil end
+    visual.masqueActive = false
+    if GUI2 and GUI2.ReleaseIconSkin then GUI2:ReleaseIconSkin(button) end
+end
+
+local function RankUpgradeStopped(flash)
+    local visual = flash.rankUpgradeVisual
+    if visual then visual.rankUpgradeSpellID = nil end
 end
 
 function Visuals:StopRankUpgrade(button)
     local visual = self.buttons[button]
-    if not (visual and visual.rankUpgradeAnimation) then return end
+    if not visual then return end
     visual.rankUpgradeSpellID = nil
-    visual.rankUpgradeAnimation:Stop()
-    visual.rankUpgradeTexture:Hide()
+    if visual.rankUpgradeFlash then visual.rankUpgradeFlash:Stop() end
 end
 
 function Visuals:StopAllRankUpgrades()
@@ -5188,38 +5266,23 @@ end
 function Visuals:FlashRankUpgrade(button, spellID)
     local visual = self.buttons[button]
     if not (visual and visual.isAction and button.IsVisible and button:IsVisible()) or InCombat() then return false end
-    self:StopRankUpgrade(button)
-    local texture = visual.rankUpgradeTexture
-    if not texture then
-        texture = CreateSkinTexture(button, "OVERLAY", nil, 7)
-        if not texture then return false end
-        visual.rankUpgradeTexture = texture
-        local group = texture:CreateAnimationGroup()
-        visual.rankUpgradeAnimation = group
-        group:SetLooping("NONE")
-        group:SetToFinalAlpha(true)
-        local phases = { { 0, 1, 0.12 }, { 1, 0.35, 0.18 }, { 0.35, 1, 0.12 }, { 1, 0, 1.08 } }
-        for order, phase in ipairs(phases) do
-            local animation = group:CreateAnimation("Alpha")
-            animation:SetOrder(order)
-            animation:SetFromAlpha(phase[1])
-            animation:SetToAlpha(phase[2])
-            animation:SetDuration(phase[3])
-        end
-        group:SetScript("OnFinished", function()
-            visual.rankUpgradeSpellID = nil
-            texture:Hide()
-        end)
+    local flash = visual.rankUpgradeFlash
+    if not flash then
+        flash = GUI2:CreateIconCooldownFlash(button)
+        if not flash then return false end
+        visual.rankUpgradeFlash = flash
+        flash.rankUpgradeVisual, flash.onStopped = visual, RankUpgradeStopped
     end
-    local style = SHAPE_STYLES[visual.runtimeSkin or "square"] or SHAPE_STYLES.square
-    ApplyVisualRect(button, visual, texture, 0)
-    texture:SetTexture(self:GetButtonStateInnerTexture(style))
-    texture:SetVertexColor(1, 0.78, 0.12, 1)
-    texture:SetBlendMode("ADD")
-    texture:SetAlpha(0)
-    texture:Show()
+    local snapshot = visual.sharedIconSnapshot or visual.runtimeSnapshot
+    if not snapshot then
+        snapshot = GUI2:CompileIconStyle({ shape = visual.runtimeSkin or "square" })
+    end
+    local width, height = visual.visualWidth, visual.visualHeight
+    if not (width and height) then width, height = GetFrameSize(button, 36, 36) end
+    GUI2:LayoutIconCooldownFlash(flash, visual.cooldown or button, snapshot, width, height,
+        (button.GetFrameLevel and button:GetFrameLevel() or 0) + MAIN_COOLDOWN_LEVEL_OFFSET + 1)
+    if not GUI2:PlayIconCooldownFlash(flash) then return false end
     visual.rankUpgradeSpellID = spellID
-    visual.rankUpgradeAnimation:Play()
     return true
 end
 
@@ -5284,7 +5347,7 @@ function Visuals:GetStats()
     for _, visual in pairs(self.buttons) do
         if visual.nativeVisualExtrasHidden == true then hidden = hidden + 1 end
         if visual.procGlowFrame then procGlowFrames = procGlowFrames + 1 end
-        if visual.autoCastOverlay or visual.petAutoCastCircle then petAutoCastOverlays = petAutoCastOverlays + 1 end
+        if visual.autoCastOverlay or visual.petAutoCastIndicator then petAutoCastOverlays = petAutoCastOverlays + 1 end
     end
     self.stats.visualExtraHidden = hidden
     self.stats.procGlowFrames = procGlowFrames

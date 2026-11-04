@@ -2,7 +2,7 @@ local ADDON_NAME, YUI = ...
 local bootstrapState = _G.YUI_CORE_EMBED_STATE and _G.YUI_CORE_EMBED_STATE[ADDON_NAME]
 
 YUI.AddonName = ADDON_NAME
-YUI.CoreVersion = YUI.CoreVersion or (bootstrapState and bootstrapState.embeddedCoreVersion) or 26
+YUI.CoreVersion = YUI.CoreVersion or (bootstrapState and bootstrapState.embeddedCoreVersion) or 35
 YUI.CoreMode = YUI.CoreMode or (bootstrapState and bootstrapState.coreMode) or "suite"
 YUI.ProductId = YUI.ProductId or (bootstrapState and bootstrapState.productId) or "suite"
 YUI.SettingsScope = YUI.SettingsScope or (bootstrapState and bootstrapState.settingsScope) or "suite"
@@ -1021,7 +1021,7 @@ function YUI:InitializeDB()
     local bootstrapProduct = {
         addonName = ADDON_NAME,
         id = (bootstrapState and bootstrapState.productId) or self.ProductId or "suite",
-        title = (bootstrapState and bootstrapState.productTitle) or (((bootstrapState and bootstrapState.productId) or self.ProductId) == "suite" and "YUI · YanForge" or self.ProductId) or "YUI",
+        title = (bootstrapState and bootstrapState.productTitle) or (((bootstrapState and bootstrapState.productId) or self.ProductId) == "suite" and "YUI · Ayan" or self.ProductId) or "YUI",
         localizedTitles = ((bootstrapState and bootstrapState.productId) or self.ProductId) == "suite" and {
             zhCN = "YUI · 言工坊",
             zhTW = "YUI · 言工坊",
@@ -1032,7 +1032,7 @@ function YUI:InitializeDB()
             zhTW = "YUI",
         },
         logo = bootstrapState and bootstrapState.productLogo,
-        author = "阿言",
+        author = "Ayan",
         notes = "The YUI all-in-one interface suite.",
         localizedNotes = ((bootstrapState and bootstrapState.productId) or self.ProductId) == "suite" and {
             zhCN = "YUI 整合界面插件。",
@@ -1141,6 +1141,8 @@ function DB:InitializeSavedVariables()
 end
 
 function YUI:OnProfileChanged(event, database, newProfileKey)
+    local fontStyle = self.GUI2 and self.GUI2.FontStyle
+    if fontStyle and fontStyle.Close then fontStyle:Close(true) end
     local colorPicker = self.GUI2 and self.GUI2.ColorPicker
     if colorPicker then colorPicker:Close("abandon") end
     if database and DB.PersistCurrentProfile then

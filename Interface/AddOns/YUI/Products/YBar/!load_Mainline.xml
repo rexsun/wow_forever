@@ -26,6 +26,7 @@
 	<Include file="..\..\Components\SystemMetrics\!load.xml"/>
 	<Script file="Modules\System.lua"/>
 	<Script file="Modules\MeetingStone.lua"/>
+	<Script file="RaidMarkerLogging.lua"/>
 	<Script file="Modules\RaidMarkers.lua"/>
 	<Script file="Modules\BugSack.lua"/>
 	<Script file="Modules\Shard_Mainline.lua"/>
@@ -46,5 +47,6 @@
 	<Script file="DesignerOptions_Mainline.lua"/>
 	<Script file="Designer_Mainline.lua"/>
 	<Script file="LayoutBridge_Mainline.lua"/>
+	<Script file="FontStyle_Mainline.lua"/>
 	<Script file="LayoutBootstrap_Mainline.lua"/>
 </Ui>

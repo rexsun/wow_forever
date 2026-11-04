@@ -25,7 +25,7 @@ local PERSONAL_DATA_SCHEMA_VERSION = 2
 local MAIL_ADDON = "Blizzard_MailFrame"
 local PANEL_LAYOUT_ID = "mailassistant.contacts"
 local PAGE_SIZE = 14
-local PANEL_WIDTH = 190
+local PANEL_WIDTH = 260
 local ROW_GAP = 2
 local COMPACT_TAB_WIDTH = PANEL_WIDTH - 6
 local COMPACT_ROW_WIDTH = PANEL_WIDTH - 16
@@ -45,12 +45,12 @@ local LAYOUT_INSET = "inset"
 local PANEL_LAYOUTS = {
     [LAYOUT_COMPACT] = {
         tabX = 3, tabY = -28, tabWidth = COMPACT_TAB_WIDTH,
-        rowX = 8, rowY = -64, rowWidth = COMPACT_ROW_WIDTH, rowHeight = 22,
+        rowX = 8, rowY = -64, rowWidth = COMPACT_ROW_WIDTH, rowHeight = 28,
         emptyInset = 12, emptyY = -86, footerInset = 8,
     },
     [LAYOUT_INSET] = {
         tabX = 10, tabY = -30, tabWidth = INSET_CONTENT_WIDTH,
-        rowX = 10, rowY = -68, rowWidth = INSET_CONTENT_WIDTH, rowHeight = 24,
+        rowX = 10, rowY = -72, rowWidth = INSET_CONTENT_WIDTH, rowHeight = 30,
         emptyInset = 16, emptyY = -90, footerInset = 10,
     },
 }
@@ -71,6 +71,9 @@ local DEFAULTS = {
     defaultCategory = CATEGORY_ALTS,
     autoTrackAlts = true,
     themeStyle = "auto",
+    inboxEnabled = true,
+    contactsEnabled = true,
+    bagReserve = 1,
 }
 
 local MailAssistant = YUI.MailAssistant or {}
@@ -128,6 +131,293 @@ local function T(key, fallback)
     return L[key] or fallback or key
 end
 
+local function LayoutMailButtonContent(control, face, label, icon, padding, gap)
+    if not (face and label) then return end
+    local width = control:GetWidth()
+    if not width or width <= 0 then return end
+    local iconWidth = icon and icon:GetWidth() or 0
+    gap = icon and gap or 0
+    label:ClearAllPoints()
+    label:SetWidth(0)
+    label:SetWordWrap(false)
+    local textWidth = label.GetUnboundedStringWidth and label:GetUnboundedStringWidth() or label:GetStringWidth()
+    textWidth = math.min(textWidth, math.max(1, width - padding * 2 - iconWidth - gap))
+    local groupWidth = iconWidth + gap + textWidth
+    local pressed = not face.gui2Disabled and face.gui2State == "pressed"
+    local x, y = pressed and 1 or 0, pressed and -1 or 0
+    label:SetWidth(textWidth)
+    label:SetPoint("LEFT", face, "CENTER", -groupWidth / 2 + iconWidth + gap + x, y)
+    label:SetJustifyH("CENTER")
+    if icon then
+        icon:ClearAllPoints()
+        icon:SetPoint("LEFT", face, "CENTER", -groupWidth / 2 + x, y)
+    end
+end
+
+-- Owned button instances keep shared Form behavior and use local paint roles.
+local function StyleMailActionButton(control, button, opts)
+    local function Paint()
+        local disabled = button.gui2Disabled == true
+        local state = disabled and "disabled" or button.gui2State or "normal"
+        local surface = disabled and "color.surface.panel" or (opts.primary and "color.accent.fill" or "color.surface.raised")
+        local border = disabled and "color.border.default" or (opts.primary and "color.border.accent" or "color.border.strong")
+        local text = disabled and "color.text.secondary" or (opts.primary and "color.accent.text" or "color.text.primary")
+        local tint, blend
+        if not disabled then
+            if opts.mailAction == "gold" then text = "color.state.warning" end
+            if state == "pressed" then
+                surface = opts.primary and "color.interaction.primaryPressed" or "color.control.pressed"
+            elseif state == "hover" then
+                tint, blend = "color.text.primary", 0.10
+                if opts.primary then surface, tint = "color.interaction.primaryHover", nil end
+                if opts.mailAction == "delete" then border, text, tint, blend = "color.state.danger", "color.state.danger", "color.state.danger", 0.10 end
+            elseif state == "selected" or state == "active" then
+                border, tint, blend = "color.border.accent", "color.accent.primary", 0.18
+            elseif not opts.primary then
+                tint, blend = opts.mailAction == "gold" and "color.state.warning" or "color.text.secondary", 0.06
+            end
+        end
+        local r, g, b = GUI2:GetColor(surface)
+        if tint then
+            local tr, tg, tb = GUI2:GetColor(tint)
+            r, g, b = r + (tr - r) * blend, g + (tg - g) * blend, b + (tb - b) * blend
+        end
+        button:SetBackdropColor(r, g, b, 1)
+        GUI2:SetBorderColor(button, border)
+        GUI2:SetTextColorKey(button.text, text)
+        if button.icon then
+            if not button.gui2PreserveIconColor then button.icon:SetVertexColor(GUI2:GetColor(text)) end
+            button.icon:SetAlpha(disabled and 0.65 or 1)
+        end
+        if button.gui2HairlineEdges then
+            local edges = button.gui2HairlineEdges
+            edges.top:SetAlpha(disabled and 0.10 or (state == "pressed" and 0.65 or 0.32))
+            edges.left:SetAlpha(disabled and 0.10 or (state == "pressed" and 0.65 or 0.32))
+            edges.bottom:SetAlpha(disabled and 0.22 or (state == "pressed" and 0.12 or 0.55))
+            edges.right:SetAlpha(disabled and 0.22 or (state == "pressed" and 0.12 or 0.55))
+        end
+        control:LayoutButtonContent()
+    end
+    for _, method in ipairs({ "SetState", "SetSelected", "SetDisabled", "RefreshTheme" }) do
+        local original = button[method]
+        button[method] = function(self, ...)
+            local result = original(self, ...)
+            Paint()
+            return result
+        end
+    end
+    for _, event in ipairs({ "OnEnter", "OnLeave", "OnMouseDown", "OnMouseUp" }) do button:HookScript(event, Paint) end
+    Paint()
+end
+
+-- Ordinary Blizzard templates are the skin boundary; both faces share one
+-- owner, value and callback. Theme switches never replace native mail controls.
+function MailAssistant:CreateMailControl(parent, kind, opts)
+    opts = opts or {}
+    local control = GUI2:CreateFrame(parent, { type = "Button", width = opts.width, height = opts.height or 32 })
+    local modernOpts = {}
+    for key, value in pairs(opts) do modernOpts[key] = value end
+    if opts.mailAction then modernOpts.contentAlign = "center" end
+    if kind == "dropdown" then modernOpts.options = opts.items end
+    modernOpts.onClick = opts.onClick and function(_, mouse)
+        if not control.disabled then opts.onClick(control, mouse) end
+    end
+    modernOpts.onChange = function(_, value)
+        control.value = value
+        if control.native and kind == "edit" then
+            control.silent = true; control.native:SetText(value); control.silent = false
+        elseif control.native and kind == "dropdown" then
+            control:SetValue(value, true)
+        end
+        if opts.onChange then opts.onChange(control, value) end
+    end
+    local modern = kind == "edit" and GUI2.Form:CreateEditBox(control, modernOpts)
+        or kind == "dropdown" and GUI2.Form:CreateDropdown(control, modernOpts)
+        or GUI2.Form:CreateButton(control, modernOpts)
+    modern:SetAllPoints(control)
+    if kind == "dropdown" then
+        if modern.arrow then modern.arrow:Hide() end
+        modern.arrow = GUI2:CreateGlyph(modern, { glyph = "dropdownDown", size = 12, colorKey = "color.text.secondary" })
+        modern.arrow:SetPoint("RIGHT", modern, "RIGHT", -9, 0)
+    end
+    if opts.onEnter then modern:HookScript("OnEnter", function() opts.onEnter(control) end) end
+    if opts.onLeave then modern:HookScript("OnLeave", function() opts.onLeave(control) end) end
+    control.modern, control.text = modern, modern.text
+    control:SetScript("OnClick", modernOpts.onClick)
+    control.value = opts.value or opts.text or ""
+    if opts.primary and GUI2.Form.StyleDialogPrimary then
+        GUI2.Form:StyleDialogPrimary(modern)
+        if modern.SetRelief then modern:SetRelief("hairline") end
+    end
+    function control:LayoutButtonContent()
+        if not opts.mailAction then return end
+        LayoutMailButtonContent(self, self.modern, self.modern.text, self.modern.icon, opts.primary and 12 or (opts.mailAction == "quick" and 4 or 8), opts.iconGap or 5)
+        if self.native then
+            LayoutMailButtonContent(self, self.native, self.native:GetFontString(), self.nativeIcon, 12, opts.iconGap or 5)
+        end
+    end
+    if opts.mailAction then
+        StyleMailActionButton(control, modern, opts)
+        control:HookScript("OnSizeChanged", function() control:LayoutButtonContent() end)
+    end
+    function control:SetText(value)
+        self.value = value or ""
+        if kind == "edit" and self.modern.SetValue then self.modern:SetValue(self.value, true)
+        else self.modern:SetText(self.value) end
+        if self.native and kind ~= "dropdown" and self.native:GetText() ~= self.value then
+            self.silent = true; self.native:SetText(self.value); self.silent = false
+        end
+        if self.nativeHint then self.nativeHint:SetShown(self.value == "") end
+        self:LayoutButtonContent()
+    end
+    function control:GetText() return self.value end
+    function control:SetTextColor(...)
+        self.modern:SetTextColor(...)
+        if self.native and self.native.GetFontString and self.native:GetFontString() then
+            self.native:GetFontString():SetTextColor(...)
+        end
+    end
+    function control:SetDisabled(value, force)
+        if self.disabledInitialized and self.disabled == (value == true) and not force then return end
+        self.disabled = value == true
+        self.disabledInitialized = true
+        self:SetEnabled(not self.disabled)
+        self.modern:SetDisabled(self.disabled)
+        if self.native then
+            if self.native.SetEnabled then self.native:SetEnabled(not self.disabled)
+            elseif self.disabled then self.native:Disable() else self.native:Enable() end
+        end
+        if self.nativeIcon then self.nativeIcon:SetAlpha(self.disabled and 0.65 or 1) end
+        if self.native and kind == "button" and opts.mailAction then
+            local text = self.native:GetFontString()
+            if self.disabled then text:SetTextColor(GUI2:GetColor("color.text.secondary"))
+            elseif _G.NORMAL_FONT_COLOR then
+                local color = _G.NORMAL_FONT_COLOR
+                text:SetTextColor(color.r, color.g, color.b, 1)
+            end
+        end
+    end
+    function control:SetSelected(value, force)
+        if self.selectedInitialized and self.selected == (value == true) and not force then return end
+        self.selected = value == true
+        self.selectedInitialized = true
+        if self.modern.SetSelected then self.modern:SetSelected(value) end
+        if self.native and self.native.SetButtonState then
+            self.native:SetButtonState(self.selected and "PUSHED" or "NORMAL", self.selected)
+        end
+    end
+    function control:GetValue() return self.value end
+    function control:SetValue(value, silent)
+        self.value = value
+        if kind == "dropdown" then
+            self.modern:SetValue(value, true)
+            for _, item in ipairs(opts.items or {}) do
+                if item.value == value and self.native then self.native:OverrideText(item.text) end
+            end
+        else self:SetText(value) end
+        if not silent and opts.onChange then opts.onChange(self, value) end
+    end
+    function control:ApplySkin(context)
+        local native = context and context.source == "native"
+        if native and not self.native then
+            local template = kind == "edit" and "InputBoxTemplate"
+                or kind == "dropdown" and "WowStyle1DropdownTemplate" or "UIPanelButtonTemplate"
+            local frameType = kind == "edit" and "EditBox" or kind == "dropdown" and "DropdownButton" or "Button"
+            local face = _G.CreateFrame(frameType, nil, self, template)
+            self.native = face
+            if kind == "edit" then
+                face:SetPoint("TOPLEFT", self, "TOPLEFT", 6, 0)
+                face:SetPoint("BOTTOMRIGHT", self, "BOTTOMRIGHT", -4, 0)
+                face:SetAutoFocus(false)
+                if opts.placeholder then
+                    self.nativeHint = GUI2:CreateText(face, opts.placeholder, 12, "color.text.secondary", "LEFT")
+                    self.nativeHint:SetPoint("LEFT", face, "LEFT", 0, 0)
+                    self.nativeHint:SetWidth(opts.width - 20)
+                    self.nativeHint:SetWordWrap(false)
+                    Appearance:ApplyFont(self.nativeHint, context)
+                end
+                face:SetScript("OnTextChanged", function(box)
+                    if self.silent then return end
+                    self.value = box:GetText()
+                    if self.modern.SetValue then self.modern:SetValue(self.value, true)
+                    else self.modern:SetText(self.value) end
+                    if self.nativeHint then self.nativeHint:SetShown(self.value == "") end
+                    if opts.onChange then opts.onChange(self, self.value) end
+                end)
+                face:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
+                face:SetScript("OnEnterPressed", function(box) box:ClearFocus() end)
+            elseif kind == "dropdown" then
+                -- Keep the template's text holder and arrow at their native size.
+                face:SetPoint("LEFT", self, "LEFT", 8, 0)
+                face:SetPoint("RIGHT", self, "RIGHT", -8, 0)
+                face:SetHeight(25)
+                face:SetupMenu(function(_, menu)
+                    for _, item in ipairs(opts.items or {}) do
+                        menu:CreateRadio(item.text, function() return self.value == item.value end,
+                            function() self:SetValue(item.value) end)
+                    end
+                end)
+            else
+                face:SetPoint("LEFT", self, "LEFT", 0, 0)
+                face:SetPoint("RIGHT", self, "RIGHT", 0, 0)
+                local templateHeight, buttonHeight = face:GetHeight(), opts.primary and 28 or 26
+                face:SetHeight(buttonHeight)
+                -- Preserve the native end-cap ratio once, before any theme switch.
+                if face.Left and face.Right and templateHeight > 0 then
+                    local scale = buttonHeight / templateHeight
+                    face.Left:SetWidth(face.Left:GetWidth() * scale)
+                    face.Right:SetWidth(face.Right:GetWidth() * scale)
+                end
+                face:SetScript("OnClick", function(_, mouse)
+                    if self.disabled then return end
+                    if opts.onClick then opts.onClick(self, mouse) end
+                end)
+                face:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+            end
+            if kind ~= "edit" then
+                face:HookScript("OnEnter", function()
+                    if opts.onEnter then opts.onEnter(self)
+                    elseif opts.tooltip and _G.GameTooltip then
+                        _G.GameTooltip:SetOwner(face, "ANCHOR_RIGHT"); _G.GameTooltip:SetText(opts.tooltip); _G.GameTooltip:Show()
+                    end
+                end)
+                face:HookScript("OnLeave", function()
+                    if opts.onLeave then opts.onLeave(self) elseif _G.GameTooltip then _G.GameTooltip:Hide() end
+                end)
+            end
+            local fontString = face.Text or (face.GetFontString and face:GetFontString())
+            if fontString then
+                local fontPath, _, flags = fontString:GetFont()
+                fontString:SetFont(fontPath, opts.fontSize or 13, flags)
+                Appearance:ApplyFont(fontString, context)
+                local icon = type(opts.nativeIcon) == "table" and opts.nativeIcon or opts
+                if kind == "button" and opts.nativeIcon ~= false and (icon.microIcon or icon.icon or icon.atlas) then
+                    local iconSize = icon.iconSize or 16
+                    self.nativeIcon = icon.microIcon and GUI2:CreateMicroIcon(face, {
+                        iconName = icon.microIcon, size = iconSize, colorKey = "color.text.primary",
+                    }) or GUI2:CreateIcon(face, { icon = icon.icon, atlas = icon.atlas, size = iconSize, crop = false })
+                end
+            end
+            self:SetValue(self.value, true)
+            self:SetDisabled(self.disabled, true)
+            self:SetSelected(self.selected, true)
+        end
+        self.modern:SetShown(not native)
+        if self.native then self.native:SetShown(native) end
+        if not native and kind == "edit" and self.native then self.native:ClearFocus() end
+        if native and kind == "edit" and self.modern.ClearFocus then self.modern:ClearFocus() end
+        self:LayoutButtonContent()
+    end
+    runtime.mailControls = runtime.mailControls or {}
+    runtime.mailControls[#runtime.mailControls + 1] = control
+    control:ApplySkin(runtime.appearanceContext)
+    return control
+end
+
+function MailAssistant:CreateMailButton(parent, opts)
+    return self:CreateMailControl(parent, "button", opts)
+end
+
 local function NonEmptyString(value)
     if type(Security.IsSecretValue) == "function" and Security.IsSecretValue(value) == true then
         return nil
@@ -143,11 +433,23 @@ local function NormalizeRealm(value)
     return string_gsub(value, "%s+", "")
 end
 
-local function SplitNameRealm(value)
+local function SplitNameRealm(value, explicitRealm)
     value = NonEmptyString(value)
     if not value then return nil, nil end
     local name, realm = string_match(value, "^(.+)%-(.+)$")
+    if YUI.IsForever and name and not string_match(name, "%s")
+        and NormalizeRealm(realm) ~= NormalizeRealm(explicitRealm) then
+        return string_gsub(value, "%-", " "), nil
+    end
     return name or value, NormalizeRealm(realm)
+end
+
+local function IsValidContactName(value)
+    value = NonEmptyString(value)
+    if not value or #value > 64 then return false end
+    if not string_match(value, "%s") then return true end
+    -- Forever regional names have exactly one space between given name and surname.
+    return YUI.IsForever == true and string_match(value, "^[^%s]+ [^%s]+$") ~= nil
 end
 
 local function GetCurrentRealm()
@@ -193,7 +495,34 @@ local function GetConfig()
     config.defaultCategory = NormalizeCategory(config.defaultCategory)
     config.autoTrackAlts = config.autoTrackAlts ~= false
     config.themeStyle = NormalizeThemeStyle(config.themeStyle)
+    config.inboxEnabled = config.inboxEnabled ~= false
+    config.contactsEnabled = config.contactsEnabled ~= false
+    config.bagReserve = math_min(20, math_max(0, math_floor(tonumber(config.bagReserve) or DEFAULTS.bagReserve)))
     return config
+end
+
+function MailAssistant:GetConfiguration() return GetConfig() end
+function MailAssistant:Translate(key, fallback) return T(key, fallback) end
+function MailAssistant:GetMailThemeStyle()
+    local style = NormalizeThemeStyle(GetConfig().themeStyle)
+    return self.Compatibility and self.Compatibility:GetThemeStyle(style) or style
+end
+
+function MailAssistant:GetMailLogStore()
+    local global = YUI.DB and YUI.DB:GetGlobal(PRODUCT_ID)
+    if type(global) ~= "table" then return nil end
+    if type(global.MailAssistantLog) ~= "table" then
+        global.MailAssistantLog = { schemaVersion = 1, records = {}, nextId = 0 }
+    end
+    return global.MailAssistantLog
+end
+
+function MailAssistant:ClearMailLog()
+    if self.MailLog then return self.MailLog:Clear() end
+    local store = self:GetMailLogStore()
+    if not store then return false end
+    store.records, store.nextId = {}, 0
+    return true
 end
 
 local function GetPersonalStore(create)
@@ -227,7 +556,19 @@ end
 local function GetCurrentIdentity()
     local name, realm
     local classFile
-    if type(UnitAPI.GetDisplayNameInfo) == "function" then
+    if YUI.IsForever then
+        local names = _G.NameUtil
+        local getName = names and names.GetUnmodifiedUnitFullName or _G.UnitNameUnmodified
+        if type(getName) == "function" then
+            local ok, first, surname = pcall(getName, "player")
+            if ok then
+                name = NonEmptyString(first)
+                if name and NonEmptyString(surname) then name = name .. " " .. surname end
+                realm = GetCurrentRealm()
+            end
+        end
+    end
+    if not name and type(UnitAPI.GetDisplayNameInfo) == "function" then
         local info = UnitAPI.GetDisplayNameInfo("player")
         if type(info) == "table" then
             name, realm = SplitNameRealm(info.displayName or info.name)
@@ -243,7 +584,15 @@ local function GetCurrentIdentity()
         if not ok then name, realm = nil, nil end
     end
     if not NonEmptyString(name) and type(_G.UnitName) == "function" then
-        name = _G.UnitName("player")
+        if YUI.IsForever then name, realm = _G.UnitName("player")
+        else name = _G.UnitName("player") end
+    end
+    if YUI.IsForever then
+        -- The second unit-name result is a surname on this client.
+        local currentRealm = GetCurrentRealm()
+        if NonEmptyString(name) and NonEmptyString(realm) and NormalizeRealm(realm) ~= currentRealm
+            and not string_match(name, "%s") then name = name .. " " .. realm end
+        realm = currentRealm
     end
     realm = NormalizeRealm(realm) or GetCurrentRealm()
     if not NonEmptyString(name) or not realm then return nil end
@@ -271,6 +620,56 @@ end
 local function IsCurrentCharacter(contact)
     local current = GetCurrentIdentity()
     return current and contact and contact.key == current.key or false
+end
+
+local function RepairForeverPersonalNames(store)
+    if not YUI.IsForever or not store then return end
+    local identity = GetCurrentIdentity()
+    if not identity then return end
+    local surname = string_match(identity.name, "^[^%s]+ ([^%s]+)$")
+    local repairs = {}
+    for key, entry in pairs(store.characters) do
+        if type(entry) == "table" and entry.manuallyAdded ~= true then
+            local legacy = surname and surname ~= identity.realm and entry.realm == surname
+                and NonEmptyString(entry.name) and not string_match(entry.name, "[%s%-]")
+                and (NonEmptyString(entry.classFile) or NonEmptyString(entry.faction))
+            local verified = entry.realmUnknown == true and entry.name == identity.name
+            if legacy or verified then
+                local fullName = legacy and (entry.name .. " " .. surname) or identity.name
+                repairs[#repairs + 1] = { oldKey = key, key = ContactKey(fullName, identity.realm),
+                    oldName = entry.name, oldRealm = entry.realm, name = fullName,
+                    realmUnknown = fullName ~= identity.name and true or nil }
+            end
+        end
+    end
+    for _, repair in ipairs(repairs) do
+        for _, collection in ipairs({ store.characters, store.favorites }) do
+            local old = collection[repair.oldKey]
+            if type(old) == "table" and old.name == repair.oldName and old.realm == repair.oldRealm then
+                local existing = collection[repair.key]
+                if type(existing) == "table" and existing ~= old then
+                    for _, field in ipairs({ "classFile", "faction", "sortOrder", "manuallyAdded" }) do
+                        if existing[field] == nil then existing[field] = old[field] end
+                    end
+                    if not repair.realmUnknown then existing.realmUnknown = nil end
+                else
+                    local replacement = {}
+                    for field, value in pairs(old) do replacement[field] = value end
+                    replacement.name, replacement.realm = repair.name, identity.realm
+                    -- The legacy surname field lost the actual realm; retain only a local key until verified.
+                    replacement.realmUnknown = repair.realmUnknown
+                    collection[repair.key] = replacement
+                end
+                if repair.oldKey ~= repair.key then collection[repair.oldKey] = nil end
+            end
+        end
+    end
+    if #repairs > 0 then runtime.dirty[CATEGORY_ALTS], runtime.dirty[CATEGORY_FAVORITES] = true, true end
+end
+
+function MailAssistant:GetMailLogCharacter()
+    local identity = GetCurrentIdentity()
+    return identity and (identity.name .. "-" .. identity.realm)
 end
 
 local classFileByLocalizedName
@@ -355,7 +754,7 @@ end
 
 local function NewContact(name, realm, options)
     local explicitRealm = realm
-    name, realm = SplitNameRealm(name)
+    name, realm = SplitNameRealm(name, explicitRealm or (options and options.realm) or GetCurrentRealm())
     realm = realm or NormalizeRealm(explicitRealm) or NormalizeRealm(options and options.realm) or GetCurrentRealm()
     local key = ContactKey(name, realm)
     if not key then return nil end
@@ -363,6 +762,7 @@ local function NewContact(name, realm, options)
         key = key,
         name = name,
         realm = realm,
+        realmUnknown = options and options.realmUnknown == true or nil,
         classFile = options and options.classFile,
         className = options and options.className,
         faction = options and options.faction,
@@ -441,6 +841,7 @@ function MailAssistant:RegisterCurrentCharacter()
     local store = GetPersonalStore(true)
     if not store then return false end
 
+    RepairForeverPersonalNames(store)
     local previous = store.characters[identity.key]
     store.characters[identity.key] = {
         name = identity.name,
@@ -460,9 +861,11 @@ end
 function MailAssistant:BuildAlts()
     local list, seen = {}, {}
     local store = GetPersonalStore(false)
+    RepairForeverPersonalNames(store)
     for _, entry in pairs(store and store.characters or {}) do
         if type(entry) == "table" then
             AddUniqueContact(list, seen, NewContact(entry.name, entry.realm, {
+                realmUnknown = entry.realmUnknown,
                 classFile = entry.classFile,
                 faction = entry.faction,
                 manuallyAdded = entry.manuallyAdded,
@@ -479,20 +882,24 @@ local function GetCurrentFaction()
     return current and current.faction or nil
 end
 
-local function IsRetailWowGameAccount(info)
+local function IsCurrentWowGameAccount(info)
     if type(info) ~= "table" or info.isOnline ~= true then return false end
     local client = info.clientProgram
     local wowClient = _G.BNET_CLIENT_WOW
     if client ~= "WoW" and (wowClient == nil or client ~= wowClient) then return false end
-    local mainline = _G.WOW_PROJECT_MAINLINE or 1
-    if info.wowProjectID ~= nil and info.wowProjectID ~= mainline then return false end
-    return true
+    local project = _G.WOW_PROJECT_ID
+    return type(project) == "number" and info.wowProjectID == project
+        and info.isInCurrentRegion == true
 end
 
 local function AddBattleNetGameAccount(list, seen, info, accountName, faction)
-    if not IsRetailWowGameAccount(info) then return end
+    if not IsCurrentWowGameAccount(info) then return end
+    -- Battle.net spans products and regions; never infer a missing address from this character.
+    local name = NonEmptyString(info.characterName)
+    local realm = NormalizeRealm(info.realmName)
+    if not name or not NonEmptyString(realm) then return end
     if faction and NonEmptyString(info.factionName) and info.factionName ~= faction then return end
-    AddUniqueContact(list, seen, NewContact(info.characterName, info.realmName, {
+    AddUniqueContact(list, seen, NewContact(name, realm, {
         className = info.className,
         classFile = GetClassFile(info.className),
         faction = info.factionName or faction,
@@ -592,9 +999,11 @@ end
 function MailAssistant:BuildFavorites()
     local list, seen = {}, {}
     local store = GetPersonalStore(false)
+    RepairForeverPersonalNames(store)
     for _, entry in pairs(store and store.favorites or {}) do
         if type(entry) == "table" then
             AddUniqueContact(list, seen, NewContact(entry.name, entry.realm, {
+                realmUnknown = entry.realmUnknown,
                 classFile = entry.classFile,
                 faction = entry.faction,
                 manuallyAdded = entry.manuallyAdded,
@@ -620,6 +1029,7 @@ function MailAssistant:SetFavorite(contact, favorite)
         store.favorites[contact.key] = {
             name = contact.name,
             realm = contact.realm,
+            realmUnknown = contact.realmUnknown,
             classFile = contact.classFile,
             faction = contact.faction,
             sortOrder = type(previous) == "table" and previous.sortOrder or nil,
@@ -633,7 +1043,7 @@ end
 
 local function CopyContactMetadata(target, source)
     if type(target) ~= "table" or type(source) ~= "table" then return target end
-    for _, field in ipairs({ "classFile", "faction" }) do
+    for _, field in ipairs({ "classFile", "faction", "realmUnknown" }) do
         if target[field] == nil and source[field] ~= nil then target[field] = source[field] end
     end
     return target
@@ -643,8 +1053,8 @@ function MailAssistant:RecordSentRecipient(value)
     value = NonEmptyString(value)
     if not value then return false end
     local contact = NewContact(string_match(value, "^%s*(.-)%s*$"))
-    if not contact or not NonEmptyString(contact.name) or not NonEmptyString(contact.realm)
-        or #contact.name > 64 or #contact.realm > 128 or string_match(contact.name, "%s")
+    if not contact or not IsValidContactName(contact.name) or not NonEmptyString(contact.realm)
+        or #contact.realm > 128
         or IsCurrentCharacter(contact) then return false end
 
     local store = GetPersonalStore(false)
@@ -675,8 +1085,8 @@ function MailAssistant:AddPersonalContact(category, value, metadata)
     if not value then return nil, "invalid" end
     value = string_match(value, "^%s*(.-)%s*$")
     local contact = NewContact(value, nil, { source = category })
-    if not contact or not NonEmptyString(contact.name) or not NonEmptyString(contact.realm)
-        or #contact.name > 64 or #contact.realm > 128 or string_match(contact.name, "%s") then
+    if not contact or not IsValidContactName(contact.name) or not NonEmptyString(contact.realm)
+        or #contact.realm > 128 then
         return nil, "invalid"
     end
     if IsCurrentCharacter(contact) then return nil, "current_character" end
@@ -698,6 +1108,7 @@ function MailAssistant:AddPersonalContact(category, value, metadata)
     local other = category == CATEGORY_ALTS and store.favorites or store.characters
     CopyContactMetadata(entry, other[contact.key])
     collection[contact.key] = entry
+    contact.realmUnknown = entry.realmUnknown
     contact.classFile = entry.classFile
     contact.faction = entry.faction
     contact.manuallyAdded = true
@@ -802,6 +1213,7 @@ end
 
 function MailAssistant:FormatRecipient(contact)
     if type(contact) ~= "table" or not NonEmptyString(contact.name) then return nil end
+    if YUI.IsForever and contact.realmUnknown == true then return contact.name end
     local currentRealm = GetCurrentRealm()
     local contactRealm = NormalizeRealm(contact.realm)
     if currentRealm and contactRealm and string_lower(contactRealm) == string_lower(currentRealm) then return contact.name end
@@ -818,6 +1230,31 @@ local function GetClassColor(classFile)
     if not color then return 1, 1, 1 end
     if type(color.GetRGB) == "function" then return color:GetRGB() end
     return color.r or 1, color.g or 1, color.b or 1
+end
+
+function MailAssistant:GetMailLogParty(value)
+    local contact = NewContact(value)
+    if not contact then return value end
+    local store = GetPersonalStore(false)
+    local saved = store and (store.characters[contact.key] or store.favorites[contact.key])
+    local classFile = type(saved) == "table" and NonEmptyString(saved.classFile)
+    if not classFile then
+        for _, list in pairs(runtime.cache) do
+            for _, cached in ipairs(list) do
+                if cached.key == contact.key then classFile = NonEmptyString(cached.classFile); break end
+            end
+            if classFile then break end
+        end
+    end
+    if not classFile then
+        local current = GetCurrentIdentity()
+        if current and current.key == contact.key then classFile = current.classFile end
+    end
+    return YUI.IsForever and self:FormatRecipient(contact) or value, classFile
+end
+
+function MailAssistant:GetMailClassColor(classFile)
+    return GetClassColor(NonEmptyString(classFile))
 end
 
 local function GetClassDisplayName(contact)
@@ -877,7 +1314,8 @@ function MailAssistant:ShowContactTooltip(button)
             1, 0.15, 0.15, true)
     end
     tooltip:AddLine(" ")
-    tooltip:AddDoubleLine(T("tooltip.realm", "Realm"), contact.realm or T("value.unknown", "Unknown"), 1, 1, 1, 1, 1, 1)
+    local realm = contact.realmUnknown ~= true and contact.realm or T("value.unknown", "Unknown")
+    tooltip:AddDoubleLine(T("tooltip.realm", "Realm"), realm or T("value.unknown", "Unknown"), 1, 1, 1, 1, 1, 1)
     local className = GetClassDisplayName(contact)
     if className then tooltip:AddDoubleLine(T("tooltip.class", "Class"), className, 1, 1, 1, r, g, b) end
     local faction = GetFactionDisplayName(contact.faction)
@@ -950,11 +1388,13 @@ local function CreateChromeIconButton(parent, options)
             self.horizontal:SetVertexColor(r, g, b, a)
             self.vertical:SetVertexColor(r, g, b, a)
         end
+    elseif options.microIcon then
+        icon = GUI2:CreateMicroIcon(button, { iconName = options.microIcon, size = options.iconSize or HEADER_ICON_SIZE })
     else
         icon = GUI2:CreateTexture(button, { layer = "ARTWORK" })
         icon:SetSize(options.iconSize or HEADER_ICON_SIZE, options.iconSize or HEADER_ICON_SIZE)
         icon:SetPoint("CENTER")
-        icon:SetAtlas(options.atlas)
+        if options.icon then icon:SetTexture(options.icon) else icon:SetAtlas(options.atlas) end
         if options.rotation then icon:SetRotation(options.rotation) end
     end
     button.icon = icon
@@ -1010,6 +1450,24 @@ local function CreateChromeIconButton(parent, options)
     end)
     Paint(button, "normal")
     return button
+end
+
+function MailAssistant:CreateMailChromeButton(parent, options)
+    return CreateChromeIconButton(parent, options)
+end
+
+function MailAssistant:EnsureMailLogButton()
+    if not self.MailLogView or not runtime.panel or not runtime.settingsButton or runtime.logButton then return end
+    local button = CreateChromeIconButton(runtime.panel, {
+        icon = runtime.appearanceContext and runtime.appearanceContext.source == "native"
+            and "Interface\\MailFrame\\Mail-Icon" or GUI2:GetUIIcon("file-text", HEADER_ICON_SIZE),
+        tooltip = T("log.title", "Mail History"),
+        onClick = function() MailAssistant.MailLogView:Toggle() end,
+    })
+    button:SetPoint("RIGHT", runtime.settingsButton, "LEFT", -4, 0)
+    runtime.logButton = button
+    runtime.title:SetWidth(PANEL_WIDTH - 104)
+    runtime.dragHandle:SetWidth(PANEL_WIDTH - 96 - (runtime.appearanceContext and runtime.appearanceContext.source == "native" and 12 or 0))
 end
 
 local function SetEditorFeedback(message, colorKey)
@@ -1247,12 +1705,14 @@ function MailAssistant:ConstructContactEditor()
     inputLabel:SetPoint("TOPLEFT", editor, "TOPLEFT", 16, -84)
     editor.inputLabel = inputLabel
 
+    local inputHint = YUI.IsForever and T("editor.input_hint.forever", "Enter the full Firstname Surname; append -Realm for another realm")
+        or T("editor.input_hint", "Use Name for this realm or Name-Realm for another realm")
     local input = GUI2.Form:CreateEditBox(editor, {
         width = EDITOR_WIDTH - 126,
         height = 28,
         text = "",
         autoFocus = false,
-        tooltip = T("editor.input_hint", "Use Name for this realm or Name-Realm for another realm"),
+        tooltip = inputHint,
     })
     input:SetPoint("TOPLEFT", editor, "TOPLEFT", 16, -104)
     editor.input = input
@@ -1267,7 +1727,7 @@ function MailAssistant:ConstructContactEditor()
     add:SetPoint("LEFT", input, "RIGHT", 8, 0)
     editor.add = add
 
-    local hint = GUI2:CreateText(editor, T("editor.input_hint", "Use Name for this realm or Name-Realm for another realm"),
+    local hint = GUI2:CreateText(editor, inputHint,
         "font.size.sm", "color.text.muted")
     hint:SetPoint("TOPLEFT", input, "BOTTOMLEFT", 0, -6)
     hint:SetWidth(EDITOR_WIDTH - 32)
@@ -1453,7 +1913,7 @@ function MailAssistant:ConstructContactEditor()
     if Appearance and type(Appearance.Register) == "function" then
         Appearance:Register(editor, {
             blizzardWindow = "mail",
-            themeProvider = function() return NormalizeThemeStyle(GetConfig().themeStyle) end,
+            themeProvider = function() return MailAssistant:GetMailThemeStyle() end,
             heading = title,
             role = "dialog",
             onRefresh = function(owner, context)
@@ -1517,6 +1977,7 @@ function MailAssistant:ShowContactMenu(button)
 end
 
 function MailAssistant:HandleRowClick(button, mouseButton)
+    if runtime.pendingRecipient then return end
     local contact = button and button.contact
     if not contact then return end
     if mouseButton == "RightButton" then
@@ -1529,7 +1990,8 @@ function MailAssistant:HandleRowClick(button, mouseButton)
 end
 
 function MailAssistant:SetPage(page)
-    local contacts = self:GetContacts(runtime.category)
+    if runtime.panelMode == "inbox" then return end
+    local contacts = self:GetDisplayedContacts()
     local pageSize = math_min(math_max(tonumber(runtime.pageSize) or PAGE_SIZE, 1), PAGE_SIZE)
     local pageCount = math_max(1, math_ceil(#contacts / pageSize))
     runtime.page = math_min(math_max(tonumber(page) or 1, 1), pageCount)
@@ -1541,12 +2003,16 @@ function MailAssistant:ChangeCategory(category, useDefault)
     runtime.category = NormalizeCategory(useDefault and config.defaultCategory or category)
     runtime.page = 1
     if runtime.tabs and runtime.tabs.SetValue then runtime.tabs:SetValue(runtime.category, true) end
+    for _, button in ipairs(runtime.nativeTabs and runtime.nativeTabs.buttons or {}) do
+        button:SetSelected(button.category == runtime.category)
+    end
     self:RefreshNow(true)
 end
 
 function MailAssistant:RefreshRows(contacts, pageCount)
     if not runtime.panel then return end
-    contacts = contacts or self:GetContacts(runtime.category)
+    if runtime.panelMode == "inbox" then return end
+    contacts = contacts or self:GetDisplayedContacts()
     local pageSize = math_min(math_max(tonumber(runtime.pageSize) or PAGE_SIZE, 1), PAGE_SIZE)
     pageCount = pageCount or math_max(1, math_ceil(#contacts / pageSize))
     runtime.page = math_min(math_max(runtime.page, 1), pageCount)
@@ -1555,6 +2021,7 @@ function MailAssistant:RefreshRows(contacts, pageCount)
         local row = runtime.rows[rowIndex]
         local contact = rowIndex <= pageSize and contacts[startIndex + rowIndex - 1] or nil
         row.contact = contact
+        row:SetDisabled(runtime.pendingRecipient ~= nil)
         if contact then
             row.nameText:SetText(contact.name or "")
             row.nameText:SetTextColor(GetClassColor(contact.classFile))
@@ -1568,7 +2035,8 @@ function MailAssistant:RefreshRows(contacts, pageCount)
     end
     local empty = #contacts == 0
     if empty then
-        runtime.emptyText:SetText(runtime.category == CATEGORY_ALTS
+        runtime.emptyText:SetText(runtime.searchText and runtime.searchText ~= ""
+            and T("contacts.no_match", "No matching contacts") or runtime.category == CATEGORY_ALTS
             and T("state.empty_alts", "No saved alts")
             or runtime.category == CATEGORY_FAVORITES
                 and T("state.empty_favorites", "No saved favorites")
@@ -1584,10 +2052,90 @@ function MailAssistant:RefreshRows(contacts, pageCount)
     runtime.nextButton:SetDisabled(runtime.page >= pageCount)
 end
 
+function MailAssistant:GetDisplayedContacts()
+    local contacts = self:GetContacts(runtime.category)
+    local query = runtime.searchText
+    if not query or query == "" then return contacts end
+    query = string.lower(query)
+    local filtered = {}
+    for _, contact in ipairs(contacts) do
+        local recipient = self:FormatRecipient(contact) or contact.name or ""
+        if string.find(string.lower(recipient), query, 1, true) then filtered[#filtered + 1] = contact end
+    end
+    return filtered
+end
+
+function MailAssistant:EnsureContactExtras()
+    if runtime.search or not self.Inbox or not runtime.panel then return end
+    runtime.search = self:CreateMailControl(runtime.panel, "edit", { width = PANEL_WIDTH - 24, height = 32,
+        text = "", placeholder = T("contacts.search", "Search name or realm"),
+        onChange = function(_, value)
+            runtime.searchText, runtime.page = value, 1
+            MailAssistant:RefreshNow(true)
+        end })
+    runtime.search:SetPoint("TOPLEFT", runtime.panel, "TOPLEFT", 12, -68)
+    runtime.sendStatus = GUI2:CreateText(runtime.panel, "", 11, "color.text.secondary", "LEFT")
+    runtime.sendStatus:SetPoint("TOPLEFT", runtime.panel, "TOPLEFT", 10, -94)
+    runtime.sendStatus:SetWidth(PANEL_WIDTH - 24)
+    runtime.recentButtons = {}
+    for index = 1, 2 do
+        local button = self:CreateMailButton(runtime.panel, { text = "", width = PANEL_WIDTH - 24, height = 30,
+            onClick = function(owner, mouseButton)
+                if mouseButton ~= "RightButton" then return MailAssistant:HandleRowClick(owner, mouseButton) end
+                local contact = owner.contact
+                if runtime.pendingRecipient or not contact then return end
+                if not MailAssistant:SetFavorite(contact, not MailAssistant:IsFavorite(contact)) then return end
+                MailAssistant:RefreshNow(true)
+                if runtime.contactEditor and runtime.contactEditor:IsShown() then MailAssistant:RefreshContactEditor() end
+                MailAssistant:ShowContactTooltip(owner)
+            end,
+            onEnter = function(owner) MailAssistant:ShowContactTooltip(owner) end,
+            onLeave = function() MailAssistant:HideContactTooltip() end })
+        button:SetPoint("TOPLEFT", runtime.panel, "TOPLEFT", 10, -110 - (index - 1) * 24)
+        runtime.recentButtons[index] = button
+    end
+    self:ApplyPanelLayout(runtime.layoutProfile or LAYOUT_COMPACT, true)
+end
+
+function MailAssistant:RefreshContactExtras()
+    if not runtime.search then return end
+    local state = runtime.sendState or "recent"
+    local fallback = state == "sending" and "Sending…" or state == "success" and "Sent successfully"
+        or state == "failed" and "Send failed; check the game message" or "Recently sent"
+    runtime.sendStatus:SetText(T("contacts." .. state, fallback))
+    runtime.sendStatus:SetShown(state ~= "recent" or #runtime.recentRecipients > 0)
+    runtime.search:SetDisabled(runtime.pendingRecipient ~= nil)
+    for index, button in ipairs(runtime.recentButtons) do
+        button.contact = runtime.recentRecipients[index]
+        button:SetShown(button.contact ~= nil)
+        button:SetText(button.contact and ((self:IsFavorite(button.contact) and T("editor.recent_saved", "Saved") .. " " or "")
+            .. self:FormatRecipient(button.contact)) or "")
+        button:SetDisabled(runtime.pendingRecipient ~= nil)
+    end
+    self:ApplyPanelLayout(runtime.layoutProfile or LAYOUT_COMPACT, true)
+end
+
+function MailAssistant:SetContactControlsShown(shown)
+    for _, control in ipairs({ runtime.tabs, runtime.footer, runtime.addContactButton,
+        runtime.emptyText, runtime.emptyAddButton, runtime.search, runtime.sendStatus }) do
+        control:SetShown(shown)
+    end
+    for _, row in ipairs(runtime.rows or {}) do if not shown then row:Hide() end end
+    for _, button in ipairs(runtime.recentButtons or {}) do if not shown then button:Hide() end end
+    local native = runtime.appearanceContext and runtime.appearanceContext.source == "native"
+    if runtime.nativeTabs then runtime.nativeTabs:SetShown(shown and native) end
+    if native then runtime.tabs:Hide() end
+end
+
 function MailAssistant:RefreshNow(force)
     if not runtime.enabled or not runtime.panel then return false end
     if force ~= true and runtime.panel.IsVisible and not runtime.panel:IsVisible() then return false end
-    self:RefreshRows(self:GetContacts(runtime.category))
+    if runtime.panelMode == "inbox" then
+        if self.Inbox then self.Inbox:RefreshView() end
+        return true
+    end
+    self:RefreshContactExtras()
+    self:RefreshRows(self:GetDisplayedContacts())
     return true
 end
 
@@ -1617,10 +2165,24 @@ end
 
 function MailAssistant:ApplyPanelVisibility()
     if not runtime.panel then return false end
+    if self.Compatibility and runtime.enabled then self.Compatibility:EnsureHooks() end
     local sendMailShown = not (_G.SendMailFrame and type(_G.SendMailFrame.IsShown) == "function")
         or _G.SendMailFrame:IsShown()
-    local shown = runtime.enabled and sendMailShown and runtime.temporarilyClosed ~= true
+    local config = GetConfig()
+    local inboxOwner, contactsOwner
+    if self.Compatibility then inboxOwner, contactsOwner = self.Compatibility:GetOwners() end
+    local inboxShown = self.Inbox and self.Inbox.open and not sendMailShown
+    runtime.panelMode = inboxShown and "inbox" or "send"
+    self:SyncPanelSize()
+    self:EnsureContactExtras()
+    if self.Inbox then self.Inbox:EnsureUI() end
+    self:SetContactControlsShown(not inboxShown)
+    local shown = runtime.enabled and runtime.temporarilyClosed ~= true
+        and ((inboxShown and config.inboxEnabled and not inboxOwner)
+            or (sendMailShown and config.contactsEnabled and not contactsOwner))
+        and not (self.Inbox and self.Inbox.open and _G.OpenMailFrame and _G.OpenMailFrame:IsShown())
     runtime.panel:SetShown(shown)
+    if self.Inbox then self.Inbox:RefreshView() end
     if shown then self:RefreshNow(true) end
     return shown
 end
@@ -1634,6 +2196,7 @@ function MailAssistant:RefreshAppearance()
             refreshed = true
         end
     end
+    if self.MailLogView and self.MailLogView.window then Appearance:Refresh(self.MailLogView.window) end
     return refreshed
 end
 
@@ -1651,7 +2214,9 @@ function MailAssistant:OpenSettings()
 end
 
 function MailAssistant:CloseForMailSession()
+    if self.Inbox then self.Inbox:CancelDelete() end
     runtime.temporarilyClosed = true
+    if self.Inbox then self.Inbox:Stop("stopped") end
     self:StopPanelDrag(true)
     self:HideContactTooltip()
     self:HideContactEditor()
@@ -1663,7 +2228,7 @@ local function DefaultPanelPlacement()
     return {
         version = 2,
         anchor = { point = "TOPLEFT", relative = "MailFrame", relativePoint = "TOPRIGHT" },
-        offset = { x = 6, y = 0 },
+        offset = { x = MailAssistant.Inbox and MailAssistant.Inbox.dockOffset or 6, y = 0 },
     }
 end
 
@@ -1684,9 +2249,14 @@ function MailAssistant:RegisterPanelLayout()
         snap = true,
         anchorTargets = { "UIParent" },
         lateAnchorTargets = { "MailFrame" },
+        onApply = function()
+            if MailAssistant.Inbox then MailAssistant.Inbox:Layout() end
+        end,
         isEnabled = function()
             return runtime.enabled and runtime.temporarilyClosed ~= true
-                and _G.SendMailFrame and _G.SendMailFrame:IsVisible()
+                and runtime.panel and runtime.panel:IsVisible()
+                and ((_G.SendMailFrame and _G.SendMailFrame:IsVisible())
+                    or (MailAssistant.Inbox and MailAssistant.Inbox.open and _G.InboxFrame:IsVisible())) or false
         end,
         openPluginSettings = function() MailAssistant:OpenSettings() end,
     })
@@ -1696,6 +2266,7 @@ function MailAssistant:RegisterPanelLayout()
 end
 
 function MailAssistant:SyncPanelSize()
+    if self.Compatibility then self.Compatibility:LayoutSendSubject() end
     local panel, mailFrame = runtime.panel, _G.MailFrame
     local height = mailFrame and mailFrame:GetHeight()
     if not panel or type(height) ~= "number" or height <= 0 or panel:GetHeight() == height then return false end
@@ -1724,7 +2295,46 @@ function MailAssistant:StopPanelDrag(cancel)
     local layout = runtime.panelDragLayout
     runtime.panelDragging = false
     runtime.panelDragLayout = nil
-    return layout and layout:EndDirectDrag(cancel) or false
+    local result = layout and layout:EndDirectDrag(cancel) or false
+    if result and not cancel then self:SnapPanelToMailbox() end
+    if self.Inbox then self.Inbox:Layout() end
+    return result
+end
+
+function MailAssistant:SnapPanelToMailbox()
+    local panel, mail, layout = runtime.panel, _G.MailFrame, YUI.Layout
+    if not (panel and mail and panel:IsShown() and mail:IsShown() and layout and layout.SetPlacement)
+        or (_G.InCombatLockdown and _G.InCombatLockdown()) then return false end
+    if not (panel.GetLeft and panel.GetRight and panel.GetTop and mail.GetLeft and mail.GetRight and mail.GetTop) then return false end
+    local panelScale, mailScale = panel:GetEffectiveScale(), mail:GetEffectiveScale()
+    local left, right, top = panel:GetLeft(), panel:GetRight(), panel:GetTop()
+    local mailLeft, mailRight, mailTop = mail:GetLeft(), mail:GetRight(), mail:GetTop()
+    if not (left and right and top and mailLeft and mailRight and mailTop) then return false end
+    local gap = self.Inbox and self.Inbox.dockOffset or 6
+    local threshold = 20 * mailScale
+    if math.abs(top * panelScale - mailTop * mailScale) > threshold then return false end
+    local leftDistance = math.abs(right * panelScale - (mailLeft - gap) * mailScale)
+    local rightDistance = math.abs(left * panelScale - (mailRight + gap) * mailScale)
+    if math.min(leftDistance, rightDistance) > threshold then return false end
+    local dockLeft = leftDistance < rightDistance
+    local screen = _G.UIParent
+    if screen and screen.GetLeft and screen.GetRight then
+        local screenLeft, screenRight = screen:GetLeft(), screen:GetRight()
+        if screenLeft and screenRight then
+            local screenScale = screen:GetEffectiveScale()
+            local dockX = dockLeft and ((mailLeft - gap) * mailScale - panel:GetWidth() * panelScale)
+                or (mailRight + gap) * mailScale
+            if dockX < screenLeft * screenScale
+                or dockX + panel:GetWidth() * panelScale > screenRight * screenScale then return false end
+        end
+    end
+    -- Commit through the public layout API only after a successful native drag.
+    return layout:SetPlacement(PANEL_LAYOUT_ID, {
+        version = 2,
+        anchor = { point = dockLeft and "TOPRIGHT" or "TOPLEFT", relative = "MailFrame",
+            relativePoint = dockLeft and "TOPLEFT" or "TOPRIGHT" },
+        offset = { x = dockLeft and -gap or gap, y = 0 },
+    }, true)
 end
 
 local function UsesInsetLayout(context)
@@ -1776,7 +2386,7 @@ local function CalculatePageSize(layout)
     local height = runtime.panel and type(runtime.panel.GetHeight) == "function"
         and tonumber(runtime.panel:GetHeight()) or nil
     if not height or height <= 0 then return PAGE_SIZE end
-    local listTop = -layout.rowY
+    local listTop = -layout.rowY + (runtime.contactExtraHeight or 0)
     local footerTop = height - layout.footerInset - FOOTER_HEIGHT
     local available = footerTop - LIST_FOOTER_GAP - listTop
     return math_min(PAGE_SIZE, math_max(1,
@@ -1786,6 +2396,18 @@ end
 function MailAssistant:ApplyPanelLayout(layoutID, force)
     local layout = PANEL_LAYOUTS[layoutID] or PANEL_LAYOUTS[LAYOUT_COMPACT]
     if runtime.layoutProfile == layoutID and force ~= true then return false end
+    local recentCount = runtime.search and math_min(2, #runtime.recentRecipients) or 0
+    local statusShown = runtime.search and (recentCount > 0 or runtime.sendState and runtime.sendState ~= "recent")
+    local native = runtime.appearanceContext and runtime.appearanceContext.source == "native"
+    local tabColumns = 4
+    if native then
+        for _, button in ipairs(runtime.nativeTabs and runtime.nativeTabs.buttons or {}) do
+            local font = button.native and button.native:GetFontString()
+            if font and font:GetStringWidth() + 24 > (PANEL_WIDTH - 26) / 4 then tabColumns = 2 end
+        end
+    end
+    local extraTabs = tabColumns == 2 and 34 or 0
+    runtime.contactExtraHeight = extraTabs + (runtime.search and (40 + (statusShown and 22 or 0) + recentCount * 32) or 0)
     local previousPageSize = math_min(math_max(tonumber(runtime.pageSize) or PAGE_SIZE, 1), PAGE_SIZE)
     local firstVisibleIndex = ((runtime.page - 1) * previousPageSize) + 1
     local nextPageSize = CalculatePageSize(layout)
@@ -1799,17 +2421,41 @@ function MailAssistant:ApplyPanelLayout(layoutID, force)
     runtime.tabs:ClearAllPoints()
     runtime.tabs:SetPoint("TOPLEFT", runtime.panel, "TOPLEFT", layout.tabX, layout.tabY)
     LayoutEqualTabs(runtime.tabs, layout.tabWidth)
+    if runtime.search then
+        runtime.search:ClearAllPoints()
+        runtime.search:SetPoint("TOPLEFT", runtime.panel, "TOPLEFT", 12, -68 - extraTabs)
+        runtime.sendStatus:ClearAllPoints()
+        runtime.sendStatus:SetPoint("TOPLEFT", runtime.panel, "TOPLEFT", 12, -106 - extraTabs)
+        for index, button in ipairs(runtime.recentButtons) do
+            button:ClearAllPoints()
+            button:SetPoint("TOPLEFT", runtime.panel, "TOPLEFT", 12, -126 - extraTabs - (index - 1) * 32)
+        end
+    end
+    if runtime.nativeTabs then
+        runtime.nativeTabs:SetPoint("TOPLEFT", runtime.panel, "TOPLEFT", 10, -32)
+        for index, button in ipairs(runtime.nativeTabs.buttons) do
+            local width = (PANEL_WIDTH - 22 - (tabColumns - 1) * 2) / tabColumns
+            button:SetSize(width, 32)
+            button:ClearAllPoints()
+            button:SetPoint("TOPLEFT", runtime.nativeTabs, "TOPLEFT", ((index - 1) % tabColumns) * (width + 2),
+                -math_floor((index - 1) / tabColumns) * 34)
+            button:SetSelected(button.category == runtime.category)
+        end
+    end
 
     for index, row in ipairs(runtime.rows) do
         row:SetSize(layout.rowWidth, layout.rowHeight)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", runtime.panel, "TOPLEFT", layout.rowX,
-            layout.rowY - ((index - 1) * (layout.rowHeight + ROW_GAP)))
+            layout.rowY - (runtime.contactExtraHeight or 0) - ((index - 1) * (layout.rowHeight + ROW_GAP)))
+        local native = runtime.appearanceContext and runtime.appearanceContext.source == "native"
+        row.nameText:SetParent(native and row.native or row.modern)
+        row.favoriteIcon:SetParent(native and row.native or row.modern)
     end
 
     runtime.emptyText:ClearAllPoints()
-    runtime.emptyText:SetPoint("TOPLEFT", runtime.panel, "TOPLEFT", layout.emptyInset, layout.emptyY)
-    runtime.emptyText:SetPoint("TOPRIGHT", runtime.panel, "TOPRIGHT", -layout.emptyInset, layout.emptyY)
+    runtime.emptyText:SetPoint("TOPLEFT", runtime.panel, "TOPLEFT", layout.emptyInset, layout.emptyY - (runtime.contactExtraHeight or 0))
+    runtime.emptyText:SetPoint("TOPRIGHT", runtime.panel, "TOPRIGHT", -layout.emptyInset, layout.emptyY - (runtime.contactExtraHeight or 0))
 
     runtime.footer:ClearAllPoints()
     runtime.footer:SetPoint("BOTTOMLEFT", runtime.panel, "BOTTOMLEFT", layout.footerInset, layout.footerInset)
@@ -1819,8 +2465,11 @@ function MailAssistant:ApplyPanelLayout(layoutID, force)
 end
 
 function MailAssistant:ApplyPanelAppearance(_, context)
+    runtime.appearanceContext = context
+    for _, control in ipairs(runtime.mailControls or {}) do control:ApplySkin(context) end
+    if self.Inbox then self.Inbox:ApplyAppearance(context) end
     local layoutID = UsesInsetLayout(context) and LAYOUT_INSET or LAYOUT_COMPACT
-    local _, pageSizeChanged = self:ApplyPanelLayout(layoutID)
+    local _, pageSizeChanged = self:ApplyPanelLayout(layoutID, true)
 
     local r, g, b = GetPanelAccent(context)
     SetColorTable(runtime.tabIndicatorColor, r, g, b, 1)
@@ -1851,9 +2500,27 @@ function MailAssistant:ApplyPanelAppearance(_, context)
         if row.RefreshTheme then row:RefreshTheme() end
     end
     runtime.addContactButton:SetAccent(r, g, b)
+    runtime.addContactButton:ClearAllPoints()
+    runtime.addContactButton:SetPoint("TOPLEFT", runtime.panel, "TOPLEFT", context and context.source == "native" and 12 or 4, -4)
+    runtime.dragHandle:ClearAllPoints()
+    runtime.dragHandle:SetPoint("TOPLEFT", runtime.panel, "TOPLEFT", context and context.source == "native" and 36 or 24, -2)
+    runtime.dragHandle:SetWidth(runtime.panel:GetWidth() - (self.MailLog and 96 or 74) - (context and context.source == "native" and 12 or 0))
+    if runtime.logButton then
+        runtime.logButton:SetAccent(r, g, b)
+        if context and context.source == "native" then
+            runtime.logButton.icon:SetTexture("Interface\\MailFrame\\Mail-Icon")
+        else runtime.logButton.icon:SetTexture(GUI2:GetUIIcon("file-text", HEADER_ICON_SIZE)) end
+        runtime.logButton.icon:SetTexCoord(0, 1, 0, 1)
+    end
     runtime.previousButton:SetAccent(r, g, b)
     runtime.nextButton:SetAccent(r, g, b)
     if pageSizeChanged and runtime.enabled then self:RefreshNow(true) end
+    local contacts = runtime.panelMode ~= "inbox"
+    local native = context and context.source == "native"
+    runtime.tabs:SetShown(contacts and not native)
+    if runtime.nativeTabs then runtime.nativeTabs:SetShown(contacts and native) end
+    if self.Inbox and self.Inbox.ui and self.Inbox.ui.confirm then Appearance:Refresh(self.Inbox.ui.confirm) end
+    if self.Compatibility then self.Compatibility:LayoutSendSubject() end
 end
 
 function MailAssistant:ApplyContactEditorAppearance(_, context)
@@ -1900,13 +2567,15 @@ function MailAssistant:ConstructUI()
     if runtime.panel then return runtime.panel end
     if not (GUI2 and GUI2.Form and _G.MailFrame and _G.SendMailFrame) then return nil end
 
-    local panel = GUI2:CreateFrame(_G.SendMailFrame, {
+    local panel = GUI2:CreateFrame(_G.MailFrame, {
         width = PANEL_WIDTH,
     })
     panel:ClearAllPoints()
     panel:SetPoint("TOPLEFT", _G.MailFrame, "TOPRIGHT", 6, 0)
     panel:SetWidth(PANEL_WIDTH)
     panel:SetHeight(_G.MailFrame:GetHeight())
+    panel:SetScale(1)
+    if panel.SetIgnoreParentScale then panel:SetIgnoreParentScale(false) end
     panel:EnableMouse(true)
     panel:EnableMouseWheel(true)
     panel:SetScript("OnMouseWheel", function(_, delta)
@@ -1921,27 +2590,24 @@ function MailAssistant:ConstructUI()
     panel:SetScript("OnHide", function()
         MailAssistant:StopPanelDrag(true)
         HideSharedTooltip()
+        if runtime.search then
+            runtime.search.modern:ClearFocus()
+            if runtime.search.native then runtime.search.native:ClearFocus() end
+        end
     end)
     runtime.panel = panel
 
-    local dragHandle = GUI2:CreateFrame(panel, { width = PANEL_WIDTH - 74, height = 22 })
+    local dragHandle = GUI2:CreateFrame(panel, { width = PANEL_WIDTH - (self.MailLog and 96 or 74), height = 22 })
     dragHandle:SetPoint("TOPLEFT", panel, "TOPLEFT", 24, -2)
     dragHandle:EnableMouse(true)
     dragHandle:RegisterForDrag("LeftButton")
     dragHandle:SetScript("OnDragStart", function() MailAssistant:StartPanelDrag() end)
     dragHandle:SetScript("OnDragStop", function() MailAssistant:StopPanelDrag(false) end)
-    dragHandle:SetScript("OnEnter", function(owner)
-        if not _G.GameTooltip then return end
-        _G.GameTooltip:SetOwner(owner, "ANCHOR_TOP")
-        _G.GameTooltip:SetText(T("tooltip.move_panel", "Drag the title to move the contact list"))
-        _G.GameTooltip:Show()
-    end)
-    dragHandle:SetScript("OnLeave", HideSharedTooltip)
     runtime.dragHandle = dragHandle
 
     local title = GUI2:CreateText(panel, T("title.short", "Mail Assistant"), 14, "color.text.accent", "CENTER")
     title:SetPoint("TOP", panel, "TOP", 0, -5)
-    title:SetWidth(PANEL_WIDTH - 52)
+    title:SetWidth(PANEL_WIDTH - (self.MailLog and 104 or 52))
     title:SetJustifyH("CENTER")
     runtime.title = title
 
@@ -1972,6 +2638,8 @@ function MailAssistant:ConstructUI()
     settingsButton:SetPoint("RIGHT", closeButton, "LEFT", -4, 0)
     runtime.settingsButton = settingsButton
 
+    self:EnsureMailLogButton()
+
     runtime.tabIndicatorColor = runtime.tabIndicatorColor or { 1, 0.82, 0, 1 }
     runtime.tabHoverColor = runtime.tabHoverColor or { 1, 0.82, 0, 1 }
 
@@ -1996,10 +2664,24 @@ function MailAssistant:ConstructUI()
         end,
     })
     runtime.tabs = tabs
+    runtime.nativeTabs = GUI2:CreateFrame(panel, { width = PANEL_WIDTH - 20, height = 32 })
+    runtime.nativeTabs.buttons = {}
+    for _, item in ipairs(tabs.options and tabs.options.items or {
+        { text = T("category.alts", "Alts"), value = CATEGORY_ALTS },
+        { text = T("category.friends", "Online"), value = CATEGORY_FRIENDS },
+        { text = T("category.guild", "Guild"), value = CATEGORY_GUILD },
+        { text = T("category.favorites", "Favorites"), value = CATEGORY_FAVORITES },
+    }) do
+        local button = self:CreateMailButton(runtime.nativeTabs, { text = item.text, width = 58, height = 32,
+            onClick = function() MailAssistant:ChangeCategory(item.value) end })
+        button.category = item.value
+        runtime.nativeTabs.buttons[#runtime.nativeTabs.buttons + 1] = button
+    end
+    runtime.nativeTabs:Hide()
 
     runtime.rows = {}
     for index = 1, PAGE_SIZE do
-        local row = GUI2.Form:CreateButton(panel, {
+        local row = self:CreateMailButton(panel, {
             text = "",
             width = COMPACT_ROW_WIDTH,
             height = 22,
@@ -2010,6 +2692,8 @@ function MailAssistant:ConstructUI()
             onClick = function(button, mouseButton)
                 MailAssistant:HandleRowClick(button, mouseButton)
             end,
+            onEnter = function(button) MailAssistant:ShowContactTooltip(button) end,
+            onLeave = function() MailAssistant:HideContactTooltip() end,
         })
         if row.text then row.text:Hide() end
         local favoriteIcon = GUI2:CreateText(row, "♥", 12, "color.state.warning", "RIGHT")
@@ -2037,10 +2721,11 @@ function MailAssistant:ConstructUI()
     emptyText:SetJustifyH("CENTER")
     runtime.emptyText = emptyText
 
-    local emptyAddButton = GUI2.Form:CreateButton(panel, {
+    local emptyAddButton = self:CreateMailButton(panel, {
         text = T("editor.add_alt", "Add Alt"),
-        width = 118,
-        height = 24,
+        width = PANEL_WIDTH - 40,
+        height = 36,
+        primary = true,
         tone = "default",
         relief = "hairline",
         onClick = function() MailAssistant:ShowContactEditor(runtime.category) end,
@@ -2076,9 +2761,12 @@ function MailAssistant:ConstructUI()
     nextButton:SetPoint("RIGHT", footer, "RIGHT", 0, 0)
     runtime.nextButton = nextButton
 
+    self:EnsureContactExtras()
+
     runtime.layoutProfile = nil
     runtime.pageSize = PAGE_SIZE
     panel:HookScript("OnSizeChanged", function()
+        if MailAssistant.Inbox then MailAssistant.Inbox:Layout() end
         if runtime.layouting or not runtime.tabs then return end
         runtime.layouting = true
         local _, pageSizeChanged = MailAssistant:ApplyPanelLayout(
@@ -2092,7 +2780,8 @@ function MailAssistant:ConstructUI()
     if Appearance and type(Appearance.Register) == "function" then
         Appearance:Register(panel, {
             blizzardWindow = "mail",
-            themeProvider = function() return NormalizeThemeStyle(GetConfig().themeStyle) end,
+            nativeBorderOverflow = true,
+            themeProvider = function() return MailAssistant:GetMailThemeStyle() end,
             heading = title,
             role = "mail-assistant",
             onRefresh = function(owner, context)
@@ -2105,7 +2794,7 @@ function MailAssistant:ConstructUI()
 
     _G.SendMailFrame:HookScript("OnShow", function()
         if not runtime.enabled then return end
-        runtime.temporarilyClosed = false
+        if not MailAssistant.Inbox then runtime.temporarilyClosed = false end
         MailAssistant:SyncPanelSize()
         MailAssistant:RegisterPanelLayout()
         MailAssistant:Invalidate(CATEGORY_FRIENDS)
@@ -2115,6 +2804,7 @@ function MailAssistant:ConstructUI()
     _G.MailFrame:HookScript("OnSizeChanged", function()
         if runtime.enabled then MailAssistant:SyncPanelSize() end
     end)
+    _G.SendMailFrame:HookScript("OnHide", function() MailAssistant:ApplyPanelVisibility() end)
     self:RegisterPanelLayout()
     self:ChangeCategory(nil, true)
     self:ApplyPanelVisibility()
@@ -2146,18 +2836,29 @@ local function OnPlayerLogin()
     MailAssistant:RegisterCurrentCharacter()
 end
 
-local function OnSendMail(recipient)
-    if runtime.enabled then runtime.pendingRecipient = NonEmptyString(recipient) end
+local function OnSendMail(recipient, subject)
+    if runtime.enabled then
+        if MailAssistant.MailLog then MailAssistant.MailLog:BeginSend(recipient, subject) end
+        runtime.pendingRecipient = NonEmptyString(recipient)
+        runtime.sendState = runtime.pendingRecipient and "sending" or nil
+        MailAssistant:RefreshNow(false)
+    end
 end
 
 local function OnMailSendSuccess()
+    if MailAssistant.MailLog then MailAssistant.MailLog:ConfirmSend() end
     local recipient = runtime.pendingRecipient
     runtime.pendingRecipient = nil
     if recipient then MailAssistant:RecordSentRecipient(recipient) end
+    runtime.sendState = "success"
+    MailAssistant:RefreshNow(false)
 end
 
-local function OnMailSendCancelled()
+local function OnMailSendCancelled(event)
+    if event == "MAIL_FAILED" and MailAssistant.MailLog then MailAssistant.MailLog:CancelSend() end
+    runtime.sendState = event == "MAIL_FAILED" and runtime.pendingRecipient and "failed" or nil
     runtime.pendingRecipient = nil
+    MailAssistant:RefreshNow(false)
 end
 
 function MailAssistant:AttachEvents()
@@ -2203,6 +2904,8 @@ function MailAssistant:SetEnabled(enabled)
         return false
     end
     runtime.enabled = enabled
+    if self.MailLog then self.MailLog:SetEnabled(enabled) end
+    if self.Inbox then self.Inbox:SetEnabled(enabled) end
     if enabled then
         self:AttachEvents()
         self:RegisterCurrentCharacter()
@@ -2216,6 +2919,7 @@ function MailAssistant:SetEnabled(enabled)
         self:ApplyPanelVisibility()
     else
         self:StopPanelDrag(true)
+        if self.Compatibility then self.Compatibility:LayoutSendSubject() end
         self:DetachEvents()
         self:HideContactTooltip()
         self:HideContactEditor()
@@ -2226,9 +2930,14 @@ end
 
 function MailAssistant:ApplyProfile()
     self:StopPanelDrag(true)
+    if self.MailLogView then self.MailLogView:Hide() end
+    local temporarilyClosed = runtime.temporarilyClosed
+    if self.Inbox then self.Inbox:Close() end
     local enabled = Components:IsEnabled(FEATURE_KEY)
     self:SetEnabled(enabled)
     if enabled then
+        if self.Inbox and _G.MailFrame and _G.MailFrame:IsVisible() then self.Inbox:Open() end
+        runtime.temporarilyClosed = temporarilyClosed
         self:RegisterPanelLayout()
         runtime.category = NormalizeCategory(GetConfig().defaultCategory)
         runtime.page = 1
@@ -2284,7 +2993,7 @@ function MailAssistant:ConfirmClearPersonalData()
     return true
 end
 
-local PERSONAL_FIELDS = { "name", "realm", "classFile", "faction", "manuallyAdded", "sortOrder" }
+local PERSONAL_FIELDS = { "name", "realm", "realmUnknown", "classFile", "faction", "manuallyAdded", "sortOrder" }
 local PERSONAL_MERGE_FIELDS = { "name", "realm", "classFile", "faction", "sortOrder" }
 
 local function CopyPersonalEntry(entry)
@@ -2313,7 +3022,7 @@ local function NormalizePersonalEntry(entry)
     if type(entry) ~= "table" then return nil, "invalid_personal_data" end
     for field in pairs(entry) do
         if field ~= "name" and field ~= "realm" and field ~= "classFile"
-            and field ~= "faction" and field ~= "manuallyAdded" and field ~= "sortOrder" then
+            and field ~= "faction" and field ~= "manuallyAdded" and field ~= "sortOrder" and field ~= "realmUnknown" then
             return nil, "invalid_personal_data"
         end
     end
@@ -2332,12 +3041,16 @@ local function NormalizePersonalEntry(entry)
     if entry.manuallyAdded ~= nil and type(entry.manuallyAdded) ~= "boolean" then
         return nil, "invalid_personal_data"
     end
+    if entry.realmUnknown ~= nil and type(entry.realmUnknown) ~= "boolean" then
+        return nil, "invalid_personal_data"
+    end
     if entry.sortOrder ~= nil and not NormalizeSortOrder(entry.sortOrder) then
         return nil, "invalid_personal_data"
     end
     return {
         name = name,
         realm = realm,
+        realmUnknown = entry.realmUnknown == true and true or nil,
         classFile = classFile,
         faction = faction,
         manuallyAdded = entry.manuallyAdded == true and true or nil,
@@ -2346,6 +3059,7 @@ local function NormalizePersonalEntry(entry)
 end
 
 local function MergeMissingFields(target, source)
+    if target.realmUnknown and not source.realmUnknown then target.realmUnknown = nil end
     for _, field in ipairs(PERSONAL_MERGE_FIELDS) do
         if target[field] == nil and source[field] ~= nil then target[field] = source[field] end
     end
@@ -2448,7 +3162,7 @@ local Feature = {
     assetFolders = { "Components\\MailAssistant\\Media" },
     modSwitchImage = "modswitch\\mailassistant-bg.png",
     modSwitchImageCrop = false,
-    versions = { "mainline" },
+    versions = { "mainline", "forever" },
     transfer = {
         personalData = {
             schemaVersion = PERSONAL_DATA_SCHEMA_VERSION,
@@ -2466,6 +3180,30 @@ local Feature = {
 function Feature:GetOptions()
     local config = GetConfig()
     return {
+        {
+            type = "row", gap = 24,
+            children = {
+                {
+                    type = "checkbox", label = T("settings.inbox_enabled", "Selective collection"), width = 260,
+                    hidden = function() return MailAssistant.Inbox == nil end,
+                    get = function() return config.inboxEnabled end,
+                    set = function(value)
+                        config.inboxEnabled = value == true
+                        if MailAssistant.Inbox and not value then MailAssistant.Inbox:Stop("off") end
+                        MailAssistant:ApplyPanelVisibility()
+                    end,
+                },
+                {
+                    type = "checkbox", label = T("settings.contacts_enabled", "Contacts"), width = 180,
+                    get = function() return config.contactsEnabled end,
+                    set = function(value) config.contactsEnabled = value == true; MailAssistant:ApplyPanelVisibility() end,
+                },
+            },
+        },
+        { type = "text", label = T("settings.coexistence", "Collection and contacts yield independently when another addon provides the same feature."), colorKey = "color.text.secondary" },
+        { type = "button", label = T("log.title", "Mail History"), width = 200,
+            hidden = function() return MailAssistant.MailLogView == nil end,
+            onClick = function() if MailAssistant.MailLogView then MailAssistant.MailLogView:Toggle() end end },
         {
             type = "row",
             gap = 24,

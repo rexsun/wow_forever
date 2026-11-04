@@ -34,7 +34,7 @@ function Catalog.Build(root)
         if name=="Clock" then fields={font="font",fontSize="size"}
         elseif name=="Stats" then fields={barFont="font",barFontSize="size"} end
         fields[name=="Stats" and "barFont" or "font"]=fontField
-        local appearance={font=true,size=true,outline=true,shadow=true,color=true,colorMode=true}
+        local appearance={font=true,size=true,outline=true,shadow=true,monochrome=true,color=true,colorMode=true}
         if info[name] then
             fields.iconBackground="iconBackground"
             fields.iconSize="iconSize";fields.iconGap="iconGap"
@@ -70,7 +70,7 @@ function Catalog.Build(root)
         adapters["Broker:"..name]={multi=false,brokerName=name,
             fields={font=fontField,size="size",display="display",iconBackground="iconBackground",
                 iconSize="iconSize",iconGap="iconGap",color="color",colorMode="colorMode"},
-            appearance={font=true,size=true,outline=true,shadow=true,color=true,colorMode=true,
+            appearance={font=true,size=true,outline=true,shadow=true,monochrome=true,color=true,colorMode=true,
                 display=true,iconSize=true,iconGap=true,iconBackground=true},
             read=function(db)return db.DataBroker and db.DataBroker.entries and db.DataBroker.entries[name] end,
             write=function(db,config)

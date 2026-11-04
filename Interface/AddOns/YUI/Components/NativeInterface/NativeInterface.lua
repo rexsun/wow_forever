@@ -19,14 +19,15 @@ Native.MODULE_ID = IS_SUITE and "component.native_interface" or "ybar.native_int
 Native.SETTINGS_MODULE_ID = IS_SUITE and "suite.settings.native_interface" or "ybar.settings.native_interface"
 Native.TRANSFER_ID = IS_SUITE and "core.native_interface" or "ybar.native_interface"
 Native.CONFIG_KEY = "NativeInterface_Config"
-Native.MIGRATION_VERSION = 2
+Native.MIGRATION_VERSION = 3
 Native.runtimeEnabled = false
 
 local COMMON_DEFAULTS = {
     hideStatusTrackingBars = false,
     hideMicroMenu = false,
+    manageBagsBar = true,
     bagsBarVisibility = "auto",
-    _migrationVersion = 2,
+    _migrationVersion = 3,
 }
 
 local RETAIL_DEFAULTS = {
@@ -39,6 +40,7 @@ local RETAIL_DEFAULTS = {
 local COMMON_KEYS = {
     hideStatusTrackingBars = true,
     hideMicroMenu = true,
+    manageBagsBar = true,
 }
 
 local RETAIL_KEYS = {
@@ -49,6 +51,9 @@ local RETAIL_KEYS = {
 }
 
 local function ApplyDefaults(config)
+    if type(rawget(config, "manageBagsBar")) ~= "boolean" then
+        config.manageBagsBar = COMMON_DEFAULTS.manageBagsBar
+    end
     local mode = rawget(config, "bagsBarVisibility")
     if mode ~= "auto" and mode ~= "hide" and mode ~= "show" then
         config.bagsBarVisibility = config.hideBagsBar == false and "show" or "auto"

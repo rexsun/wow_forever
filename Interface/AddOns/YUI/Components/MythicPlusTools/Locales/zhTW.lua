@@ -3,6 +3,7 @@ local YUI = _G.YUI
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("zhTW") then return end
 
 YUI.Locale:Register("MythicPlusTools", "zhTW", {
+    ["settings.text"] = "文字",
     ["settings.teleport_announcement"] = "傳送喊話",
     ["settings.description.battleRes"] = "顯示隊伍戰復次數與充能情況。",
     ["settings.description.keystoneTools"] = "提供鑰石自動放入、通報等輔助功能。",
@@ -128,4 +129,10 @@ YUI.Locale:Register("MythicPlusTools", "zhTW", {
     ["pve.keystone.no_keystone"] = "暫無鑰石",
     ["pve.keystone.loading"] = "取得中...",
     ["layout.battle_res"] = "戰復監控",
+    ["settings.pve_icon_name_text"] = "副本名稱文字",
+    ["settings.pve_icon_level_text"] = "層數文字",
+    ["settings.pve_open_settings"] = "PVE介面擴展設定",
+    ["settings.pve_level_color_rule"] = "隨層數變化",
+    ["settings.pve_score_color_rule"] = "隨分數變化",
+    ["settings.pve_icon_score_text"] = "分數文字",
 })

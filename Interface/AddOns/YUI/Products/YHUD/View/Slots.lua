@@ -36,6 +36,7 @@ local ICON_CUSTOM_GLOW_FRAME_LEVEL_OFFSET = 9
 local ICON_TEXT_FRAME_LEVEL_OFFSET = 10
 local ICON_TEXT_DRAW_LAYER = "OVERLAY"
 local ICON_TEXT_DRAW_SUBLEVEL = 7
+local cooldownOwners = setmetatable({}, { __mode = "kv" })
 
 local function SetFrameLevelIfChanged(frame, level, trustedLevel)
     local frameType = type(frame)
@@ -137,6 +138,15 @@ local function EnsureIconTextOverlay(slot, cooldownText)
     return overlay, changed
 end
 
+local function GetNativeProcGlowTarget(slot, runtime)
+    if runtime and runtime.view == "bar" then
+        if runtime.showIcon == false then return nil end
+        return slot.icon and slot.icon.icon and slot.icon or nil
+    end
+    return slot
+end
+I.GetNativeProcGlowTarget = GetNativeProcGlowTarget
+
 local function ApplyIconTextLayers(slot, runtime)
     if not slot then return false end
     runtime = ResolveSlotRuntime(slot, runtime)
@@ -188,20 +198,32 @@ local function ApplyIconTextLayers(slot, runtime)
             displayStrata
         ) or changed
     end
-    if slot._yhudNativeProcGlow and GUI2.LayoutManagedProcGlow
+    local procTarget = GetNativeProcGlowTarget(slot, runtime)
+    if slot._yhudNativeProcGlow and not procTarget
+        and slot._yhudNativeProcGlowShown == true
+        and GUI2.SetManagedProcGlowShown then
+        GUI2:SetManagedProcGlowShown(slot._yhudNativeProcGlow, false)
+        slot._yhudNativeProcGlowShown = false
+        changed = true
+    end
+    if slot._yhudNativeProcGlow and procTarget and GUI2.LayoutManagedProcGlow
         and (slot._yhudNativeProcGlowFrameLevel ~= glowLevel
-            or slot._yhudNativeProcGlowFrameStrata ~= displayStrata) then
+            or slot._yhudNativeProcGlowFrameStrata ~= displayStrata
+            or slot._yhudNativeProcGlowTarget ~= procTarget) then
+        local procWidth = procTarget ~= slot and runtime.iconSize or displayWidth
+        local procHeight = procTarget ~= slot and runtime.iconSize or displayHeight
         GUI2:LayoutManagedProcGlow(
             slot._yhudNativeProcGlow,
-            slot,
-            displayWidth,
-            displayHeight,
+            procTarget,
+            procWidth,
+            procHeight,
             glowLevel,
             displayStrata,
             targetShape
         )
         slot._yhudNativeProcGlowFrameLevel = glowLevel
         slot._yhudNativeProcGlowFrameStrata = displayStrata
+        slot._yhudNativeProcGlowTarget = procTarget
         changed = true
     end
     local cooldown = slot.cooldown
@@ -271,10 +293,30 @@ local function ApplyIconTextLayers(slot, runtime)
 end
 
 local function OnCooldownDone(cooldown)
-    if View.preview or View.designMode then return end
-    local slot = cooldown and cooldown.GetParent and cooldown:GetParent()
+    if View.preview then return end
+    local slot = cooldown and cooldownOwners[cooldown]
     if not (slot and slot._yhudCooldownRefreshArmed == true) then return end
+    -- Independent designer samples must not stop the live skill timer below.
+    if slot._yhudDesignProjection == true
+        or View.designMode and (not View.designProjection or slot._yhudView == "icon") then
+        return
+    end
+    local monitorId = slot._yhudMonitorId
+    local monitor = monitorId and View.desiredMonitors[monitorId]
+    local entry = monitor and View.profile and View.profile.entries
+        and View.profile.entries[monitor.entryKey]
+    if slot._yhudView ~= "icon" then
+        if not YHUD:CanUseSkillDurationSource(entry, monitor)
+            or (slot._yhudBarProgress and slot._yhudBarProgress.source ~= "time") then
+            return
+        end
+    end
     slot._yhudCooldownRefreshArmed = false
+    if slot._yhudView == "icon" and slot._yhudCompletionFlashEnabled
+        and slot._yhudCooldownFlashEligible == true then
+        GUI2:PlayIconCooldownFlash(slot._yhudCompletionFlash)
+    end
+    slot._yhudCooldownFlashEligible = false
     slot._yhudDurationMode = nil
     slot._yhudOpaqueRevision = nil
     slot._yhudStart = nil
@@ -286,9 +328,7 @@ local function OnCooldownDone(cooldown)
     elseif slot.SetCooldown then
         slot:SetCooldown(0, 0)
     end
-    local monitorId = slot and slot._yhudMonitorId
-    local monitor = monitorId and View.desiredMonitors[monitorId]
-    local sourceKey = monitor and monitor.sourceKey
+    local sourceKey = YHUD:GetMonitorRuntimeSourceKey(entry, monitor)
     local Monitor = YUI.Monitor
     if not (sourceKey and Monitor and Monitor.QueueSource) then return end
     Monitor:QueueSource(sourceKey, "cooldown-done")
@@ -296,7 +336,9 @@ end
 
 local function InstallCooldownDoneHook(slot)
     if not slot or slot._yhudCooldownDoneHooked == true then return false end
-    local cooldown = slot.cooldown
+    -- Duration views put their native countdown under a text overlay.
+    -- Its parent is not the owning slot, including when numbers are hidden.
+    local cooldown = slot.countdown or slot.cooldown
     if not (cooldown and type(cooldown.HookScript) == "function") then
         return false
     end
@@ -306,7 +348,10 @@ local function InstallCooldownDoneHook(slot)
         "OnCooldownDone",
         OnCooldownDone
     )
-    if ok then slot._yhudCooldownDoneHooked = true end
+    if ok then
+        cooldownOwners[cooldown] = slot
+        slot._yhudCooldownDoneHooked = true
+    end
     return ok == true
 end
 
@@ -615,7 +660,12 @@ local function SetSlotIcon(slot, texture)
 end
 
 local function ClearSlotDuration(slot)
+    slot._yhudBarPublicValue, slot._yhudBarValueValid = nil, nil
+    slot._yhudBarCountdownMode, slot._yhudBarCountdownRevision = nil, nil
+    if YHUD.ClassExtra then YHUD.ClassExtra:ClearClock(slot) end
     slot._yhudCooldownRefreshArmed = false
+    slot._yhudCooldownFlashEligible = false
+    if slot._yhudCompletionFlash then slot._yhudCompletionFlash:Stop() end
     if slot.ClearResourceValues then
         slot:ClearResourceValues()
     elseif slot.ClearDuration then
@@ -676,14 +726,15 @@ local function EnsureKeybindText(slot, runtime)
     slot._yhudKeybindTextState = {}
     slot._yhudKeybindTextValue = ""
     ApplyIconTextLayers(slot, runtime)
+    if GUI2.RefreshIconSkinRegion then GUI2:RefreshIconSkinRegion(slot, "HotKey", text) end
     return text
 end
 
-function View:ApplyKeybindText(slot, runtime, monitor, entry)
+function View:ApplyKeybindText(slot, runtime, monitor, entry, state)
     local service = YHUD.KeybindText
     local text
     if runtime and runtime.view == "icon" and service and service.Resolve then
-        text = service:Resolve(runtime, monitor, entry)
+        text = service:Resolve(runtime, monitor, entry, nil, state)
     end
     if not text and not slot._yhudKeybindText then return 0 end
     local target = EnsureKeybindText(slot, runtime)
@@ -705,6 +756,7 @@ function View:ApplyKeybindText(slot, runtime, monitor, entry)
     snapshot.font = runtime.keybindTextFont
     snapshot.size = runtime.keybindTextSize
     snapshot.outline = runtime.keybindTextOutline
+    snapshot.monochrome = runtime.keybindTextMonochrome
     snapshot.position = runtime.keybindTextPosition
     snapshot.offsetX = runtime.keybindTextOffsetX
     snapshot.offsetY = runtime.keybindTextOffsetY
@@ -832,7 +884,154 @@ local function ApplySharedIconStyle(slot, runtime, preserveDurationSwipe)
     ApplySharedCountStyle(slot, runtime)
 end
 
-function View:ApplyIconCooldownPresentation(slot, runtime, entry)
+local function PrepareChargeRecoveryCurves(runtime, skinAlpha)
+    local curveUtil, enum = _G.C_CurveUtil, _G.Enum
+    local color = runtime.iconStyle and runtime.iconStyle.swipeColor
+    if not (curveUtil and curveUtil.CreateCurve and enum and enum.LuaCurveType and color) then return end
+    local alpha = skinAlpha or color[4]
+    if runtime.chargeRecoveryCurveAlpha == alpha then return end
+    local swipe = curveUtil.CreateCurve()
+    swipe:SetType(enum.LuaCurveType.Step)
+    swipe:AddPoint(0, 0)
+    swipe:AddPoint(0.000001, alpha or 0.7)
+    runtime.chargeRecoverySwipeCurve = swipe
+    local text = curveUtil.CreateCurve()
+    text:SetType(enum.LuaCurveType.Step)
+    text:AddPoint(0, 0)
+    text:AddPoint(0.000001, 1)
+    runtime.chargeRecoveryTextCurve = text
+    local edge = curveUtil.CreateCurve()
+    edge:SetType(enum.LuaCurveType.Step)
+    edge:AddPoint(0, 1)
+    edge:AddPoint(0.000001, 0)
+    runtime.chargeRecoveryEdgeCurve = edge
+    runtime.chargeRecoveryCurveAlpha = alpha
+end
+
+function View:RefreshIconSkinCooldown(slot, runtime)
+    local iconSlot = slot.icon and slot.icon.icon and slot.icon or slot
+    local cooldown = iconSlot.cooldown or slot.cooldown
+    local alpha = cooldown and GUI2.GetIconSkinSwipeAlpha and GUI2:GetIconSkinSwipeAlpha(cooldown)
+    PrepareChargeRecoveryCurves(runtime, alpha)
+    if slot._yhudSharedCooldownState then slot._yhudSharedCooldownState.chargeRecoveryRuntime = nil end
+end
+
+local function ApplyRecoverySwipeColor(cooldown, color, alpha)
+    if GUI2.ApplyIconSkinSwipeAlpha and GUI2:ApplyIconSkinSwipeAlpha(cooldown, alpha) then return end
+    cooldown:SetSwipeColor(color[1], color[2], color[3], alpha)
+end
+
+local SKIN_EDGE_COLOR = { 1, 1, 1, 1 }
+
+local function ApplyChargeRecoveryPresentation(slot, cooldown, runtime, state)
+    local cache = slot._yhudSharedCooldownState
+    local mode = runtime.chargeRecoveryDisplay or "hideSwipeOnly"
+    local recovering = state and state.sourceKind == "spell"
+        and state.durationMode == "charge" and state.hasCharges == true
+    local hideSwipe = recovering and (mode == "hideSwipe" or mode == "hideBoth"
+        or mode == "hideSwipeOnly" or mode == "hideSwipeAndCountdown")
+    local hideText = recovering and (mode == "hideCountdown" or mode == "hideBoth"
+        or mode == "hideEdgeAndCountdown" or mode == "hideSwipeAndCountdown")
+    local showEdge = recovering and (mode == "normal" or mode == "hideCountdown"
+        or mode == "hideSwipeOnly" or mode == "hideSwipeAndCountdown")
+    if not (hideSwipe or hideText or showEdge or cache.chargeRecoveryEdgeApplied
+        or cache.chargeRecoverySwipeApplied or cache.chargeRecoveryTextApplied) then
+        return 0
+    end
+    local color = runtime.iconStyle and runtime.iconStyle.swipeColor
+    if not color then return 0 end
+    local text = (hideText or cache.chargeRecoveryTextApplied)
+        and cooldown.GetCountdownFontString and cooldown:GetCountdownFontString() or nil
+    if cache.chargeRecoveryRuntime == runtime and cache.chargeRecoveryMode == mode
+        and cache.chargeRecoveryRevision == (state and state.opaqueRevision)
+        and cache.chargeRecoverySpell == (state and state.spellID)
+        and cache.chargeRecoveryActive == recovering and cache.chargeRecoveryText == text then
+        return 0
+    end
+    local duration
+    local hidden = false
+    if hideSwipe or hideText or showEdge then
+        local count = state.currentCharges
+        if not (Security and Security.IsSecretValue and Security.IsSecretValue(count))
+            and type(count) == "number" then
+            hidden = count > 0 and state.cooldownActive ~= true
+        else
+            local spell = YUI.API and YUI.API.Spell
+            if runtime.chargeRecoverySwipeCurve and spell and spell.GetCooldownDurationObject then
+                duration = spell.GetCooldownDurationObject(state.spellID, true)
+            end
+        end
+    end
+    local samePublic = duration == nil and cache.chargeRecoveryOpaque ~= true
+        and cache.chargeRecoveryRuntime == runtime and cache.chargeRecoveryMode == mode
+        and cache.chargeRecoveryActive == recovering and cache.chargeRecoveryText == text
+        and cache.chargeRecoveryHidden == hidden
+    local writes = 0
+    if not samePublic and cooldown.SetSwipeColor and (hideSwipe or cache.chargeRecoverySwipeApplied) then
+        -- The result goes straight to a native sink; never inspect or cache it.
+        if hideSwipe and duration then
+            ApplyRecoverySwipeColor(cooldown, color, duration:EvaluateRemainingDuration(runtime.chargeRecoverySwipeCurve, 0))
+        else
+            local alpha = GUI2.GetIconSkinSwipeAlpha and GUI2:GetIconSkinSwipeAlpha(cooldown) or color[4]
+            ApplyRecoverySwipeColor(cooldown, color, hideSwipe and hidden and 0 or alpha)
+        end
+        writes = writes + 1
+    end
+    if not samePublic and text and text.SetAlpha and (hideText or cache.chargeRecoveryTextApplied) then
+        if hideText and duration then
+            text:SetAlpha(duration:EvaluateRemainingDuration(runtime.chargeRecoveryTextCurve, 0))
+        else
+            text:SetAlpha(hideText and hidden and 0 or 1)
+        end
+        writes = writes + 1
+    end
+    if not samePublic and (showEdge or cache.chargeRecoveryEdgeApplied) then
+        local drawEdge = showEdge == true and (hidden or duration ~= nil)
+        if cooldown.SetDrawEdge and cache.drawEdge ~= drawEdge then
+            cooldown:SetDrawEdge(drawEdge)
+            cache.drawEdge = drawEdge
+            writes = writes + 1
+        end
+        if cooldown.SetEdgeColor then
+            local edgeColor = GUI2.IsIconSkinManaged and GUI2:IsIconSkinManaged(cooldown)
+                and SKIN_EDGE_COLOR or GUI2:GetCooldownEdgeStyle(runtime.iconStyle).color
+            if showEdge and duration and runtime.chargeRecoveryEdgeCurve then
+                cooldown:SetEdgeColor(edgeColor[1], edgeColor[2], edgeColor[3], duration:EvaluateRemainingDuration(runtime.chargeRecoveryEdgeCurve, 0))
+            else
+                cooldown:SetEdgeColor(edgeColor[1], edgeColor[2], edgeColor[3], 1)
+            end
+            writes = writes + 1
+        end
+    end
+    cache.chargeRecoveryRuntime, cache.chargeRecoveryMode = runtime, mode
+    cache.chargeRecoveryRevision = state and state.opaqueRevision
+    cache.chargeRecoverySpell = state and state.spellID
+    cache.chargeRecoveryActive, cache.chargeRecoveryText = recovering, hideText and text or nil
+    cache.chargeRecoverySwipeApplied, cache.chargeRecoveryTextApplied = hideSwipe, hideText
+    cache.chargeRecoveryEdgeApplied = showEdge
+    cache.chargeRecoveryHidden, cache.chargeRecoveryOpaque = hidden, duration ~= nil
+    return writes
+end
+
+local function ConfigureIconCompletionFlash(slot, runtime)
+    -- Cold configuration only. Reuse the pooled slot's optional flash, and let
+    -- its existing native OnCooldownDone event trigger playback (no time reads).
+    local flash = slot._yhudCompletionFlash
+    if runtime.cooldownBling == true and not flash and GUI2.CreateIconCooldownFlash then
+        flash = GUI2:CreateIconCooldownFlash(slot)
+        slot._yhudCompletionFlash = flash
+    end
+    slot._yhudCompletionFlashEnabled = runtime.cooldownBling == true and flash ~= nil
+    if flash then
+        flash:Stop()
+        if slot._yhudCompletionFlashEnabled then
+            GUI2:LayoutIconCooldownFlash(flash, slot.cooldown, runtime.iconStyle,
+                runtime.iconWidth, runtime.iconHeight, slot:GetFrameLevel() + ICON_CUSTOM_GLOW_FRAME_LEVEL_OFFSET)
+        end
+    end
+end
+
+function View:ApplyIconCooldownPresentation(slot, runtime, entry, state)
     if not (slot and runtime and runtime.view == "icon"
         and GUI2.ApplyCooldownSwipe) then
         return false
@@ -856,8 +1055,10 @@ function View:ApplyIconCooldownPresentation(slot, runtime, entry)
         reverse,
         slot._yhudSharedCooldownState
     )
+    writes = writes + ApplyChargeRecoveryPresentation(slot, cooldown, runtime, state)
     local drawBling = runtime.cooldownBling == true
         and slot._yhudDurationMode ~= "gcd"
+        and not slot._yhudCompletionFlashEnabled
     if cooldown.SetDrawBling
         and slot._yhudSharedCooldownState.drawBling ~= drawBling then
         cooldown:SetDrawBling(drawBling)
@@ -1008,6 +1209,10 @@ local function PreviewSlotColor(slot, field, color)
             and View:PreviewIconShadowColor(slot, color) or false
     end
     if not slot or (slot.IsShown and not slot:IsShown()) then return false end
+    if slot._yhudBarProgress and slot._yhudBarProgress.source == "spell-charges"
+        and (field == "fillColor" or field == "rechargeColor") and View.PreviewBarChargeColor then
+        return View:PreviewBarChargeColor(slot, field, color)
+    end
     if field == "fillColor" then
         if slot.PreviewResourceColor then
             return slot:PreviewResourceColor("fill", color)
@@ -1104,7 +1309,7 @@ function View:PreviewGroupTextColor(groupId, target, color)
     return changed
 end
 
-function View:PreviewResourceColor(groupId, resourceId, field, color)
+function View:PreviewResourceColor(groupId, resourceId, field, color, finish)
     local changed = false
     local slots, desiredMonitors = ColorPreviewContext(self)
     for monitorId, slot in pairs(slots) do
@@ -1113,6 +1318,19 @@ function View:PreviewResourceColor(groupId, resourceId, field, color)
             local resource = monitor and monitor._yhudResource
             if resourceId == nil or resource and resource.id == resourceId then
                 changed = slot:PreviewResourceColor(field, color) or changed
+                if self.designMode then
+                    if finish then
+                        slot._yhudDesignResourcePreviewColor = nil
+                    else
+                        local pending = slot._yhudDesignResourcePreviewColor or {}
+                        pending.field, pending.color = field, color
+                        slot._yhudDesignResourcePreviewColor = pending
+                    end
+                    local preview = slot._yhudDesignResourcePreview
+                    if preview and preview.PreviewResourceColor then
+                        changed = preview:PreviewResourceColor(field, color) or changed
+                    end
+                end
             end
         end
     end
@@ -1130,6 +1348,63 @@ local function RefreshResourceColorCurve(slot, maximum, force)
 end
 I.RefreshResourceColorCurve = RefreshResourceColorCurve
 
+-- Only our public configuration records enter this cache, never resource values
+-- or native duration/geometry. Copies detect in-place editor mutations.
+local function SameResourceConfig(a, b)
+    if type(a) ~= type(b) then return false end
+    if type(a) ~= "table" then return a == b end
+    for key, value in pairs(a) do
+        if not SameResourceConfig(value, b[key]) then return false end
+    end
+    for key in pairs(b) do if a[key] == nil then return false end end
+    return true
+end
+
+local function CopyResourceConfig(value)
+    if type(value) ~= "table" then return value end
+    local copy = {}
+    for key, item in pairs(value) do copy[key] = CopyResourceConfig(item) end
+    return copy
+end
+
+local function ResourceConfigChanged(slot, key, value)
+    local cache = slot._yhudResourceConfigCache
+    local revision = View.resourceConfigRevision
+    if not cache or cache.revision ~= revision then
+        cache = { revision = revision }
+        slot._yhudResourceConfigCache = cache
+    end
+    if cache[key] and SameResourceConfig(cache[key], value) then return false end
+    cache[key] = CopyResourceConfig(value)
+    return true
+end
+
+local function ApplyResourceDisplayConfig(slot, config)
+    -- Release clears live sinks and stops drivers. Such bindings always need
+    -- the original setup path, even with identical appearance after pooling.
+    local static = not config.rechargeProgress and not config.durationProgress
+        and not config.independentCells and not config.timerMarkers
+        and not config.partialRecharge and not config.auraDurationSpellID
+        and not config.auraDurationSpellIDs and not config.auraTextSpellID
+        and not config.auraApplicationSpellIDs and not config.auraApplicationVariants
+    if static then
+        -- Presentation carries Aura appearance for every provider. Plain power
+        -- bars never consume it; a power color change must not rebuild cells
+        -- or text solely because these inactive binding fields changed.
+        config.auraDurationFillColor = nil
+        config.auraDurationTextAppearance = nil
+        config.auraApplicationFillColor = nil
+        config.auraApplicationTextAppearance = nil
+        config.partialUnit, config.partialPowerType, config.partialScale = nil, nil, nil
+        config.partialSource, config.partialPollInterval, config.partialProgressReader = nil, nil, nil
+    end
+    local changed = ResourceConfigChanged(slot, "display", config)
+    if not static or changed then
+        slot:SetResourceDisplayConfig(config)
+    end
+    return not static or changed
+end
+
 local function ConfigureResourceAppearance(
     slot,
     runtime,
@@ -1138,7 +1413,16 @@ local function ConfigureResourceAppearance(
 )
     local preset = monitor and monitor._yhudResource or {}
     local presentation = monitor and monitor._yhudResourcePresentation
+    slot._yhudResourceRowKey = preset.resourceRowKey
     if slot._yhudResourceId ~= preset.id then
+        -- Structural maximum updates can mutate the native display config
+        -- after its cold setup. Do not reuse that config for another resource.
+        local cachedDisplay = slot._yhudResourceConfigCache
+            and slot._yhudResourceConfigCache.display
+        if slot._yhudResourceStructuralMax and cachedDisplay
+            and cachedDisplay.segmentCount ~= slot._yhudResourceStructuralMax then
+            slot._yhudResourceConfigCache.display = nil
+        end
         slot._yhudResourceId = preset.id
         slot._yhudResourceStructuralMax = nil
     end
@@ -1150,45 +1434,56 @@ local function ConfigureResourceAppearance(
             preset.id,
             preset.specID
         ) or runtime
-    if slot.SetResourceBarSize then
+    if slot.SetResourceFillDirection then
+        local hand = preset.provider and preset.provider.swingHand
+        slot:SetResourceFillDirection(style.fillDirection
+            or hand == "mainhand" and runtime.mainHandFillDirection
+            or hand == "offhand" and runtime.offHandFillDirection or runtime.fillDirection)
+    end
+    -- Design geometry owns the assigned share; appearance-only slider updates
+    -- retain it. Thickness changes explicitly request a shared layout pass.
+    if slot.SetResourceBarSize and projectionOnly ~= true then
         -- Layout owns the resolved group width. Reconfiguring appearance while
         -- leaving design mode must not collapse an automatic-width resource to
         -- its configured minimum before the final layout pass; GUI2 cell
         -- geometry can otherwise retain that transient width until a later
         -- resource update. A real geometry change is still resolved by the
         -- synchronous RelayoutGroup that follows the cold config boundary.
-        slot:SetResourceBarSize(
+        local width, height = I.ResolveResourceSize(runtime,
             runtime.effectiveResourceWidth or runtime.resourceWidth,
-            style.heightOverride or runtime.resourceHeight,
-            runtime.orientation
+            style.heightOverride or runtime.resourceHeight
         )
+        slot:SetResourceBarSize(width, height, runtime.orientation)
     end
-    local snapshot = GUI2.CompileStatusBarStyle
-        and GUI2:CompileStatusBarStyle({
-            fillTexture = style.fillTexture,
-            fillColorMode = style.fillColorMode,
-            fillColor = style.fillColor,
-            trackColor = style.backgroundColor,
-            border = style.border,
-            borderColor = style.borderColor,
-        }) or runtime.statusBarStyle
-    if slot.SetResourceBorder then slot:SetResourceBorder(style.border) end
-    if slot.SetResourceBorderColor then
-        slot:SetResourceBorderColor(style.borderColor)
-    end
-    if slot.SetResourceBackgroundColor then
-        slot:SetResourceBackgroundColor(style.backgroundColor)
-    end
-    if slot.SetResourceFillStyle and snapshot then
-        slot:SetResourceFillStyle(snapshot)
-    elseif slot.SetResourceFillTexture then
-        slot:SetResourceFillTexture(
-            snapshot and snapshot.texture or style.fillTexture
-        )
+    local styleConfig = {
+        fillTexture = style.fillTexture,
+        fillColorMode = style.fillColorMode,
+        fillColor = style.fillColor,
+        trackColor = style.backgroundColor,
+        border = style.border,
+        borderColor = style.borderColor,
+    }
+    local styleChanged = ResourceConfigChanged(slot, "style", styleConfig)
+    local snapshot = slot._yhudResourceCompiledStyle
+    if styleChanged then
+        snapshot = GUI2.CompileStatusBarStyle
+            and GUI2:CompileStatusBarStyle(styleConfig) or runtime.statusBarStyle
+        slot._yhudResourceCompiledStyle = snapshot
+        if slot.SetResourceBorder then slot:SetResourceBorder(style.border) end
+        if slot.SetResourceBorderColor then slot:SetResourceBorderColor(style.borderColor) end
+        if slot.SetResourceBackgroundColor then
+            slot:SetResourceBackgroundColor(style.backgroundColor)
+        end
+        if slot.SetResourceFillStyle and snapshot then
+            slot:SetResourceFillStyle(snapshot)
+        elseif slot.SetResourceFillTexture then
+            slot:SetResourceFillTexture(snapshot and snapshot.texture or style.fillTexture)
+        end
     end
     if slot.SetResourceFillColor then
         slot:SetResourceFillColor(style.fillColor)
     end
+    local displayChanged = true
     if slot.SetResourceDisplayConfig then
         local segmentCount = slot._yhudResourceStructuralMax
             or presentation and presentation.display
@@ -1199,8 +1494,10 @@ local function ConfigureResourceAppearance(
         local auraApplicationVariants = projectionOnly ~= true
             and ResolveResourceAuraApplicationVariants(bindings, segmentCount)
             or nil
-        slot:SetResourceDisplayConfig({
+        displayChanged = ApplyResourceDisplayConfig(slot, {
             mode = source.mode or style.displayMode,
+            pointShape = source.pointShape or style.pointShape,
+            nativePointStyle = source.nativePointStyle,
             inverseFill = source.inverseFill == true,
             smoothProgress = source.smoothProgress == true,
             valueKind = source.valueKind or preset.valueKind,
@@ -1225,6 +1522,8 @@ local function ConfigureResourceAppearance(
             durationProgressDirection = bindings.durationProgressDirection,
             auraDurationSpellID = projectionOnly ~= true
                 and bindings.auraDurationSpellID or nil,
+            auraDurationSpellIDs = projectionOnly ~= true and bindings.auraDurationSpellIDs or nil,
+            auraDurationRequirePlayerSource = bindings.auraDurationRequirePlayerSource,
             auraDurationUnit = projectionOnly ~= true
                 and bindings.auraDurationUnit or nil,
             auraDurationFilter = projectionOnly ~= true
@@ -1272,7 +1571,7 @@ local function ConfigureResourceAppearance(
         })
     end
     if slot.SetResourceTextAppearance then
-        slot:SetResourceTextAppearance(presentation and presentation.text or {
+        local textAppearance = presentation and presentation.text or {
             nameText = false,
             valueText = style.valueText,
             valueFormat = style.valueFormat,
@@ -1288,11 +1587,15 @@ local function ConfigureResourceAppearance(
             runeCooldownTextSize = style.runeCooldownTextSize,
             runeCooldownTextMode = style.runeCooldownTextMode,
             outline = style.textOutline,
+            monochrome = style.textMonochrome,
             color = style.textColor,
-        })
+        }
+        local textChanged = ResourceConfigChanged(slot, "text", textAppearance)
+        if displayChanged or textChanged then slot:SetResourceTextAppearance(textAppearance) end
     end
     slot._yhudResourceStyle = style
     if I.ConfigurePlayerCast then I.ConfigurePlayerCast(slot, preset, style) end
+    if I.ConfigureResourceProgress then I.ConfigureResourceProgress(slot, runtime, preset) end
     slot._yhudResourceColorPolicy = {
         thresholdColorEnabled = style.thresholdColorEnabled == true,
         thresholdMode = style.thresholdMode,
@@ -1302,12 +1605,10 @@ local function ConfigureResourceAppearance(
     }
     RefreshResourceColorCurve(slot, slot._yhudResourceStructuralMax or preset.segmentCountFallback
         or slot._yhudResourceCurveMax, true)
-    slot._yhudResourceStatusRuntime = { statusBarStyle = snapshot }
-    ApplySharedStatusBarStyle(
-        slot,
-        slot._yhudResourceStatusRuntime,
-        true
-    )
+    if styleChanged then
+        slot._yhudResourceStatusRuntime = { statusBarStyle = snapshot }
+        ApplySharedStatusBarStyle(slot, slot._yhudResourceStatusRuntime, true)
+    end
 end
 
 I.SetSlotIcon = SetSlotIcon
@@ -1364,6 +1665,9 @@ function View:ReapplyMonitorVisual(monitorId, appearanceOverride)
                 monitor.appearanceOverride = appearanceOverride
             end
             changed = self:ReapplySlotVisual(slot) or changed
+            if self.designMode and slot._yhudBarProgress and self.ApplyDesignDurationPreview then
+                self:ApplyDesignDurationPreview(slot)
+            end
         end
     end
     return changed
@@ -1397,6 +1701,11 @@ end
 
 function View:ConfigureSlot(slot, runtime, monitor)
     if not slot then return end
+    if runtime.view ~= "resource" then slot._yhudResourceRowKey = nil end
+    if GUI2.BeginIconSkin and not GUI2:BeginIconSkin(slot) then
+        GUI2:DeferIconSkin(slot, function() self:ConfigureSlot(slot, runtime, monitor) end)
+        return
+    end
     if runtime.view ~= "icon" and self.HideIconShadow then self:HideIconShadow(slot) end
     if self.GetMonitorDisplayLayer then
         local level, strata = self:GetMonitorDisplayLayer(
@@ -1412,6 +1721,12 @@ function View:ConfigureSlot(slot, runtime, monitor)
         and (monitor._yhudProjectionEntry
             or profile and profile.entries
                 and profile.entries[monitor.entryKey])
+    if YHUD.AssistedHighlight then
+        YHUD.AssistedHighlight:Bind(slot, runtime, monitor, entry)
+    end
+    if YHUD.PressFeedback and YHUD.PressFeedback.active then
+        YHUD.PressFeedback:Bind(slot, runtime, monitor, entry)
+    end
     ConfigureSlotTooltip(slot, runtime, monitor, entry, self.designMode)
     self:ApplyKeybindText(slot, runtime, monitor, entry)
     self:ApplyIconLabel(slot, runtime, entry)
@@ -1432,20 +1747,22 @@ function View:ConfigureSlot(slot, runtime, monitor)
     end
     slot._yhudNativeProcGlowLayoutDirty = true
     if runtime.view == "resource" then
-        if slot.SetResourceFillDirection then
-            local hand = monitor and monitor._yhudResource and monitor._yhudResource.provider
-                and monitor._yhudResource.provider.swingHand
-            slot:SetResourceFillDirection(hand == "mainhand" and runtime.mainHandFillDirection
-                or hand == "offhand" and runtime.offHandFillDirection or runtime.fillDirection)
-        end
-        monitor = monitor or self.desiredMonitors[slot._yhudMonitorId]
-        ConfigureResourceAppearance(
-            slot,
-            runtime,
-            monitor,
-            slot._yhudDesignProjection == true
-        )
+        -- Seed text layers before native Aura initialization seals its children.
         self:RefreshResourceTextLayers(slot, runtime)
+        monitor = monitor or self.desiredMonitors[slot._yhudMonitorId]
+        if slot.BeginResourceLayoutUpdate and slot.EndResourceLayoutUpdate then
+            slot:BeginResourceLayoutUpdate()
+            local ok, message = pcall(ConfigureResourceAppearance,
+                slot, runtime, monitor, slot._yhudDesignProjection == true)
+            local ended, endMessage = pcall(slot.EndResourceLayoutUpdate, slot)
+            if not ok or not ended then
+                slot._yhudResourceConfigCache = nil
+                error(not ok and message or endMessage, 0)
+            end
+        else
+            ConfigureResourceAppearance(
+                slot, runtime, monitor, slot._yhudDesignProjection == true)
+        end
         return
     end
 
@@ -1453,6 +1770,7 @@ function View:ConfigureSlot(slot, runtime, monitor)
         and type(monitor.appearanceOverride) == "table"
         and monitor.appearanceOverride or nil
     if runtime.view == "icon" then
+        PrepareChargeRecoveryCurves(runtime)
         slot._yhudCooldownSwipeDraw, slot._yhudCooldownSwipeReverse =
             YHUD:ResolveMonitorCooldownSwipe(
                 appearance and appearance.cooldownSwipeMode,
@@ -1472,6 +1790,7 @@ function View:ConfigureSlot(slot, runtime, monitor)
         font = runtime.cooldownTextFont,
         size = runtime.cooldownTextSize,
         outline = runtime.cooldownTextOutline,
+        monochrome = runtime.cooldownTextMonochrome,
         position = runtime.cooldownTextPosition,
         anchor = runtime.cooldownTextAnchor,
         offsetX = runtime.cooldownTextOffsetX,
@@ -1483,6 +1802,7 @@ function View:ConfigureSlot(slot, runtime, monitor)
         font = runtime.nameTextFont,
         size = runtime.nameTextSize,
         outline = runtime.nameTextOutline,
+        monochrome = runtime.nameTextMonochrome,
         position = runtime.nameTextPosition,
         anchor = runtime.nameTextAnchor,
         offsetX = runtime.nameTextOffsetX,
@@ -1499,6 +1819,7 @@ function View:ConfigureSlot(slot, runtime, monitor)
             font = runtime.countTextFont,
             size = runtime.countTextSize,
             outline = runtime.countTextOutline,
+            monochrome = runtime.countTextMonochrome,
             position = runtime.countTextPosition,
             anchor = runtime.countTextAnchor,
             offsetX = runtime.countTextOffsetX,
@@ -1546,7 +1867,7 @@ function View:ConfigureSlot(slot, runtime, monitor)
                 fillTexture = runtime.fillTexture,
                 fillColor = fillColor,
                 trackColor = trackColor,
-                border = runtime.border,
+                border = runtime.barBorder or runtime.border,
                 borderColor = runtime.borderColor,
                 showIcon = runtime.showIcon,
             })
@@ -1573,10 +1894,15 @@ function View:ConfigureSlot(slot, runtime, monitor)
             slot:SetDurationFillColor(fillColor)
         end
         self:RefreshDurationBarTextLayers(slot, runtime)
+        if self.ConfigureBarProgress then
+            self:ConfigureBarProgress(slot, runtime, monitor, entry)
+        end
         if self.ConfigureBarStackThresholds then
             self:ConfigureBarStackThresholds(slot, runtime, monitor, entry,
                 slot.barWidth or runtime.barWidth or runtime.itemWidth or 1)
         end
+        if self.LayoutBarTicks then self:LayoutBarTicks(slot, runtime, slot._yhudBarMaximum) end
+        if self.ApplySlotIconSkin then self:ApplySlotIconSkin(slot, runtime, monitor) end
         return
     end
 
@@ -1609,6 +1935,7 @@ function View:ConfigureSlot(slot, runtime, monitor)
                 font = runtime.countTextFont,
                 size = runtime.countTextSize,
                 outline = runtime.countTextOutline,
+                monochrome = runtime.countTextMonochrome,
                 position = runtime.countTextPosition,
                 anchor = runtime.countTextAnchor,
                 offsetX = runtime.countTextOffsetX,
@@ -1639,9 +1966,18 @@ function View:ConfigureSlot(slot, runtime, monitor)
         slot:SetCooldownTextAppearance(cooldownText)
     end
     ApplySharedIconStyle(slot, runtime)
-    self:ApplyIconCooldownPresentation(slot, runtime, entry)
+    if slot._yhudSharedCooldownState then
+        slot._yhudSharedCooldownState.chargeRecoveryRuntime = nil
+    end
+    local state = monitor and YHUD.Model and YHUD.Model:GetState(monitor.sourceKey)
     ApplyIconTextLayers(slot, runtime)
     if self.ApplyIconShadow then self:ApplyIconShadow(slot, runtime) end
+    if self.ApplySlotIconSkin then self:ApplySlotIconSkin(slot, runtime, monitor) end
+    ConfigureIconCompletionFlash(slot, runtime)
+    self:ApplyIconCooldownPresentation(slot, runtime, entry, state)
+    if self.ConfigureBuffTimerStacks then
+        self:ConfigureBuffTimerStacks(slot, runtime, monitor, entry)
+    end
 end
 
 function View:RefreshFilteredAuraSlotLayers(slot, runtime)
@@ -1716,6 +2052,19 @@ function View:CreateFilteredAuraSlot(parent, runtime, monitor, nativeTooltip)
     slot._yhudBarStackLive = nativeTooltip == true
     self:ConfigureSlot(slot, runtime, monitor)
     if slot.SetAllPoints then slot:SetAllPoints(parent) end
+    if runtime.view == "bar" and runtime.orientation ~= "vertical"
+        and runtime.barWidthMode == "auto" and slot.track then
+        -- Native group layout can resize the Aura button in its secure
+        -- partition. Anchor the material once, before native bindings exist.
+        local inset = runtime.showIcon ~= false and runtime.iconSize + runtime.iconGap or 0
+        local left = runtime.iconPosition == "left" and inset or 0
+        local right = runtime.iconPosition == "right" and inset or 0
+        local top = runtime.iconPosition == "top" and inset or 0
+        local bottom = runtime.iconPosition == "bottom" and inset or 0
+        slot.track:ClearAllPoints()
+        slot.track:SetPoint("TOPLEFT", slot, "TOPLEFT", left, -top)
+        slot.track:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", -right, bottom)
+    end
     if runtime.view == "ring"
         and runtime.timeText ~= false
         and slot.CreateAuraDurationText then
@@ -1748,7 +2097,19 @@ function View:GetFilteredAuraSlotBindings(slot, runtime)
         if slot.SetNativeFillShown then
             slot:SetNativeFillShown(true)
         end
-        bindings.durationBar = slot.durationStatusBar
+        local progress = slot._yhudBarProgress
+        if progress and progress.source == "aura-stacks" then
+            if self.PrepareBarValueDriver then self:PrepareBarValueDriver(slot, runtime) end
+            local maximum = slot._yhudBarMaximum
+            if maximum then
+                bindings.applicationBar = { target = slot.durationStatusBar,
+                    options = { maxApplications = maximum, interpolation = 0 } }
+            elseif slot.SetNativeFillShown then
+                slot:SetNativeFillShown(false)
+            end
+        else
+            bindings.durationBar = slot.durationStatusBar
+        end
         bindings.durationCooldown = slot.countdown
     elseif runtime.view == "ring" then
         bindings.durationCooldown = slot.durationRingProgress or slot.cooldown
@@ -1774,6 +2135,7 @@ function View:ConfigureFilteredAuraStaticSlot(
     if YHUD.Ammo and entry and entry.sourceType == YHUD.Ammo.SOURCE_TYPE then
         icon = monitor and monitor._yhudDisplayIcon or YHUD.Ammo:GetPreviewIcon()
     end
+    slot._yhudIcon = icon
     SetSlotIcon(slot, icon)
     if (runtime.view == "bar" or runtime.view == "ring")
         and slot.SetDurationName then
@@ -1879,6 +2241,7 @@ local function AcquireFilteredAuraChainIcon(self, runtime)
                 font = runtime.cooldownTextFont,
                 size = runtime.cooldownTextSize,
                 outline = runtime.cooldownTextOutline,
+                monochrome = runtime.cooldownTextMonochrome,
                 position = runtime.cooldownTextPosition,
                 color = runtime.cooldownTextColor,
             },
@@ -1922,14 +2285,36 @@ function View:AcquireSlot(monitorId, runtime)
 
     if runtime.view == "resource" then
         if self.freeResourceCount > 0 then
-            slot = self.freeResources[self.freeResourceCount]
+            local desired = self.desiredMonitors[monitorId]
+            local preset = desired and desired._yhudResource
+            local display = desired and desired._yhudResourcePresentation
+                and desired._yhudResourcePresentation.display
+            local freeIndex, sameMode = self.freeResourceCount, nil
+            -- Reuse the same resource first, then the same display shape. The
+            -- pool stays bounded; configuration still validates every field.
+            for index = self.freeResourceCount, 1, -1 do
+                local candidate = self.freeResources[index]
+                if preset and candidate._yhudResourceId == preset.id then
+                    freeIndex, sameMode = index, nil
+                    break
+                end
+                local cached = candidate._yhudResourceConfigCache
+                    and candidate._yhudResourceConfigCache.display
+                if not sameMode and display and cached and cached.mode == display.mode then
+                    sameMode = index
+                end
+            end
+            freeIndex = sameMode or freeIndex
+            slot = self.freeResources[freeIndex]
+            self.freeResources[freeIndex] = self.freeResources[self.freeResourceCount]
             self.freeResources[self.freeResourceCount] = nil
             self.freeResourceCount = self.freeResourceCount - 1
             AddMonitorStat("poolFree", -1)
         elseif App.CreateResourceBar then
+            local width, height = I.ResolveResourceSize(runtime, runtime.resourceWidth, runtime.resourceHeight)
             slot = App:CreateResourceBar(runtime.frame, {
-                width = runtime.resourceWidth,
-                height = runtime.resourceHeight,
+                width = width,
+                height = height,
                 orientation = runtime.orientation,
                 fillDirection = runtime.fillDirection,
                 border = runtime.border,
@@ -1945,6 +2330,7 @@ function View:AcquireSlot(monitorId, runtime)
                     font = runtime.textFont,
                     size = runtime.textSize,
                     outline = runtime.textOutline,
+                    monochrome = runtime.textMonochrome,
                     color = runtime.textColor,
                 },
             })
@@ -1978,6 +2364,7 @@ function View:AcquireSlot(monitorId, runtime)
                     font = runtime.cooldownTextFont,
                     size = runtime.cooldownTextSize,
                     outline = runtime.cooldownTextOutline,
+                    monochrome = runtime.cooldownTextMonochrome,
                     position = runtime.cooldownTextPosition,
                     anchor = runtime.cooldownTextAnchor,
                     offsetX = runtime.cooldownTextOffsetX,
@@ -1989,6 +2376,7 @@ function View:AcquireSlot(monitorId, runtime)
                     font = runtime.nameTextFont,
                     size = runtime.nameTextSize,
                     outline = runtime.nameTextOutline,
+                    monochrome = runtime.nameTextMonochrome,
                     position = runtime.nameTextPosition,
                     anchor = runtime.nameTextAnchor,
                     offsetX = runtime.nameTextOffsetX,
@@ -2000,6 +2388,7 @@ function View:AcquireSlot(monitorId, runtime)
                     font = runtime.countTextFont,
                     size = runtime.countTextSize,
                     outline = runtime.countTextOutline,
+                    monochrome = runtime.countTextMonochrome,
                     position = runtime.countTextPosition,
                     anchor = runtime.countTextAnchor,
                     offsetX = runtime.countTextOffsetX,
@@ -2030,6 +2419,7 @@ function View:AcquireSlot(monitorId, runtime)
                     font = runtime.cooldownTextFont,
                     size = runtime.cooldownTextSize,
                     outline = runtime.cooldownTextOutline,
+                    monochrome = runtime.cooldownTextMonochrome,
                     position = runtime.cooldownTextPosition,
                     offsetX = runtime.cooldownTextOffsetX,
                     offsetY = runtime.cooldownTextOffsetY,
@@ -2040,6 +2430,7 @@ function View:AcquireSlot(monitorId, runtime)
                     font = runtime.nameTextFont,
                     size = runtime.nameTextSize,
                     outline = runtime.nameTextOutline,
+                    monochrome = runtime.nameTextMonochrome,
                     position = runtime.nameTextPosition,
                     offsetX = runtime.nameTextOffsetX,
                     offsetY = runtime.nameTextOffsetY,
@@ -2068,6 +2459,7 @@ function View:AcquireSlot(monitorId, runtime)
                     font = runtime.cooldownTextFont,
                     size = runtime.cooldownTextSize,
                     outline = runtime.cooldownTextOutline,
+                    monochrome = runtime.cooldownTextMonochrome,
                     position = runtime.cooldownTextPosition,
                     color = runtime.cooldownTextColor,
                 },
@@ -2076,7 +2468,7 @@ function View:AcquireSlot(monitorId, runtime)
     end
 
     if not slot then return nil, false end
-    if runtime.view == "icon" then InstallCooldownDoneHook(slot) end
+    InstallCooldownDoneHook(slot)
     if slot._yhudFilteredAuraChainCompatible ~= true
         and slot.SetParent then
         slot:SetParent(runtime.frame)
@@ -2198,8 +2590,16 @@ function View:SetResourceAuraIdentitySuppressed(monitorId, suppressed)
 end
 
 function View:ReleaseSlot(monitorId)
+    if self.byMonitor[monitorId] and self.ReleaseIconSkin then self:ReleaseIconSkin(self.byMonitor[monitorId]) end
+    if YHUD.PressFeedback and YHUD.PressFeedback.active then
+        YHUD.PressFeedback:Release(self.byMonitor[monitorId])
+    end
     local slot = self.byMonitor[monitorId]
     if not slot then return false end
+    if YUI.GUI2.HideBarShadow then YUI.GUI2:HideBarShadow(slot) end
+    if self.ClearBarProgress then self:ClearBarProgress(slot) end
+    if self.SuspendBuffTimerStacks then self:SuspendBuffTimerStacks(slot) end
+    if YHUD.AssistedHighlight then YHUD.AssistedHighlight:Release(slot) end
     if self.HideIconShadow then self:HideIconShadow(slot) end
     if YUI.GUI2 and YUI.GUI2.ReleaseAuraBarThresholds then
         YUI.GUI2:ReleaseAuraBarThresholds(slot)
@@ -2237,6 +2637,7 @@ function View:ReleaseSlot(monitorId)
     slot._yhudMonitorId = nil
     slot._yhudLogicalMonitorId = nil
     slot._yhudGroupId = nil
+    slot._yhudResourceRowKey = nil
     slot._yhudIcon = nil
     slot._yhudName = nil
     slot._yhudStart = nil
@@ -2263,6 +2664,7 @@ function View:ReleaseSlot(monitorId)
     slot._yhudTooltipItemID = nil
     slot._yhudTooltipSlotID = nil
     slot._yhudTooltipName = nil
+    slot._yhudKeybindItemID, slot._yhudKeybindSpellID = nil, nil
     if slot._yhudKeybindText then
         if slot._yhudKeybindTextValue ~= "" then
             slot._yhudKeybindText:SetText("")
@@ -2306,11 +2708,24 @@ function View:ReleaseSlot(monitorId)
         )
     end
     slot._yhudGlowShown = nil
+    if slot._yhudAuraStackSet then
+        Glow:ReleaseStackSet(slot._yhudAuraStackSet)
+        slot._yhudAuraStackSet = nil
+    end
+    if slot._yhudAuraStackGate then
+        slot._yhudAuraStackGate.driver:SetValue(0)
+        slot._yhudAuraStackGate.lastPublicValue = nil
+    end
+    slot._yhudAuraStackGate = nil
+    if slot.gui2Glow and slot.gui2Glow.SetGlowClipParent then
+        slot.gui2Glow:SetGlowClipParent(nil)
+    end
     slot._yhudFilteredAuraGlow = nil
     slot._yhudGlowShape = nil
     slot._yhudNativeProcGlowShown = nil
     slot._yhudNativeProcGlowFrameLevel = nil
     slot._yhudNativeProcGlowFrameStrata = nil
+    slot._yhudNativeProcGlowTarget = nil
     slot._yhudDesignSelected = nil
     slot._yhudGlowStyle = nil
     slot._yhudGlowSize = nil
@@ -2458,6 +2873,7 @@ function View:ConfigureGroup(
     end
     local layoutModeChanged = runtime.layoutMode ~= nextLayoutMode
     local structural = ApplyRuntimeLayout(runtime, layout)
+    if self.ClearBarShadows then self:ClearBarShadows(runtime) end
     runtime.group = group
     runtime.visibilityRule = group.visibility
     runtime.configuredLayoutMode = configuredLayoutMode

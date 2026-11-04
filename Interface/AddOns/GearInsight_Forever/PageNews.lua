@@ -38,6 +38,7 @@ function ns.ShowWxGroupQR()
         qrF:EnableMouse(true); qrF:SetMovable(true); qrF:RegisterForDrag("LeftButton")
         qrF:SetScript("OnDragStart", qrF.StartMoving); qrF:SetScript("OnDragStop", qrF.StopMovingOrSizing)
         local cb = CreateFrame("Button", nil, qrF, "UIPanelCloseButton"); cb:SetPoint("TOPRIGHT", -2, -2)
+        cb:SetScript("OnClick", function() qrF:Hide() end)   -- 10-18 战斗中关不掉：原生红叉走 HideUIPanel，战斗中被拦 → 直接 Hide
         qrF.title = qrF:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"); qrF.title:SetPoint("TOP", 0, -pad); qrF.title:SetTextColor(0.1, 0.1, 0.1)
         qrF.foot = qrF:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); qrF.foot:SetPoint("BOTTOM", 0, pad - 4); qrF.foot:SetTextColor(0.35, 0.35, 0.35)
         qrF.cells = {}

@@ -139,7 +139,7 @@ function Playback:Submit(owner,key,resource,expiresAt)
     return true
 end
 
-function Playback:CancelOwner(owner)
+function Playback:CancelQueued(owner)
     local pending=self.pending[owner]
     for i=#self.queue,1,-1 do
         if self.queue[i].owner==owner then
@@ -147,6 +147,12 @@ function Playback:CancelOwner(owner)
             table.remove(self.queue,i); self.stats.canceled=self.stats.canceled+1
         end
     end
+    if pending and not next(pending) then self.pending[owner]=nil end
+end
+
+function Playback:CancelOwner(owner)
+    self:CancelQueued(owner)
+    local pending=self.pending[owner]
     local receipt=self.busy
     if receipt and receipt.owner==owner then
         if self:_Stop(receipt) then

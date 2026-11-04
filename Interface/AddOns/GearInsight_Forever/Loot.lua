@@ -84,13 +84,17 @@ function ns.LootExportString(all)
     local db = ns.db
     local recs = {}
     for i = all and 1 or (db.lootSent + 1), #db.loot do recs[#recs + 1] = db.loot[i] end
-    if #recs == 0 then return nil, 0 end
+    -- 10-20 GI-22：游戏内见过的图纸出处（ProfSeen.lua，HOLD 时没有）一起带上；服务端按 (uid, 图纸, 类别, NPC) 去重
+    local rs = ns.ProfSeenExport and ns.ProfSeenExport()
+    -- 10-22 GI-14：游戏内观测（Obs.lua，HOLD 时没有）：训练师 / 采集需求 / 营地 / 天赋…；服务端按 (uid, 类型, 键, 值) 去重
+    local ob = ns.Obs and ns.Obs.Export and ns.Obs.Export()
+    if #recs == 0 and not rs and not ob then return nil, 0 end
     local _, token = UnitClass("player")
     local build = GetBuildInfo and select(1, GetBuildInfo()) or ""
     local bnum = GetBuildInfo and select(2, GetBuildInfo()) or ""
     local region = GetCurrentRegionName and GetCurrentRegionName() or ""
     local doc = { v = 1, build = build .. "." .. bnum, region = string.lower(region or ""), uid = db.uid,
-        lvl = UnitLevel("player") or 0, cls = token or "", recs = recs }
+        lvl = UnitLevel("player") or 0, cls = token or "", recs = recs, rs = rs, ob = ob, loc = GetLocale and GetLocale() or "" }
     -- 只带这批记录用到的名字
     local N, used = db.lootNames or {}, { items = {}, enc = {}, npc = {}, inst = {} }
     local function pick(kind, id)

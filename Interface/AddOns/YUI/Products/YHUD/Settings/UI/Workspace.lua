@@ -124,6 +124,7 @@ function DesignerUI:EnsureBusyOverlay()
 end
 
 function DesignerUI:SetBusyInteractionBlocked(blocked)
+    if blocked and self.HideSpellAlertPreview then self:HideSpellAlertPreview() end
     local controls = {
         self.finishButton,
         self.cancelButton,
@@ -131,9 +132,15 @@ function DesignerUI:SetBusyInteractionBlocked(blocked)
         self.layoutButton,
         self.viewSpecButton,
         self.configSetManagerButton or false,
+        self.globalSettingsButton or false,
         self.globalSoundButton,
         self.libraryButton,
         self.blizzardCooldownButton,
+        self.backgroundButton or false,
+        self.gridButton or false,
+        self.creditsButton or false,
+        self.tutorialButton or false,
+        self.spellAlertPreviewButton or false,
     }
     for index = 1, #controls do
         local control = controls[index]
@@ -141,6 +148,8 @@ function DesignerUI:SetBusyInteractionBlocked(blocked)
             control:SetDisabled(blocked == true)
         end
     end
+    if blocked and self.HideGlobalSettings then self:HideGlobalSettings() end
+    if blocked and self.HideToolbarNotice then self:HideToolbarNotice() end
 end
 
 function DesignerUI:ShowBusyOperation(kind, generation, cancelable)
@@ -204,10 +213,16 @@ function DesignerUI:CancelBusyOperation()
     return true
 end
 
-function DesignerUI:PositionPanelBesideGroup(panel, groupId, animate)
+function DesignerUI:PositionPanelBesideGroup(panel, groupId, animate, keepPosition)
     if not panel then return false end
-    local target = groupId and YHUD.View
-        and YHUD.View:GetGroupFrame(groupId)
+    local View = YHUD.View
+    local projection = View and View.designProjection
+    local preview = groupId and projection and projection.groups
+        and projection.groups[groupId]
+    local target = preview and preview.frame
+    if not (target and target.IsShown and target:IsShown()) then
+        target = groupId and View and View:GetGroupFrame(groupId)
+    end
     local screenWidth = UIParent and UIParent.GetWidth and UIParent:GetWidth()
     local screenHeight = UIParent and UIParent.GetHeight and UIParent:GetHeight()
     local panelWidth = panel.GetWidth and panel:GetWidth() or 360
@@ -220,7 +235,6 @@ function DesignerUI:PositionPanelBesideGroup(panel, groupId, animate)
         targetX, targetY = target:GetCenter()
     end
 
-    panel:ClearAllPoints()
     if screenWidth and screenHeight and targetLeft and targetRight and targetY then
         local margin = 20
         local gap = 200
@@ -240,6 +254,21 @@ function DesignerUI:PositionPanelBesideGroup(panel, groupId, animate)
         local rightSpace = screenWidth - targetRight - margin
         local placeRight = rightSpace >= panelWidth + gap
             or rightSpace >= leftSpace
+        local side = placeRight and "right" or "left"
+        if keepPosition and self.inspectorSide == side
+            and panel.GetLeft and panel.GetRight and panel.GetTop and panel.GetBottom then
+            local left, right = panel:GetLeft(), panel:GetRight()
+            local top, bottom = panel:GetTop(), panel:GetBottom()
+            local separated = left and right and (placeRight and left >= targetRight + 16
+                or not placeRight and right <= targetLeft - 16)
+            if separated and top and bottom and left >= margin
+                and right <= screenWidth - margin and bottom >= bottomMargin
+                and top <= screenHeight - topMargin then
+                self.inspectorSide = side
+                return false
+            end
+        end
+        panel:ClearAllPoints()
         local x
         if placeRight then
             self.inspectorSide = "right"
@@ -263,6 +292,7 @@ function DesignerUI:PositionPanelBesideGroup(panel, groupId, animate)
             top
         )
     else
+        panel:ClearAllPoints()
         local screenX = UIParent and UIParent.GetCenter and UIParent:GetCenter()
         if targetX and screenX and targetX >= screenX then
             self.inspectorSide = "left"
@@ -286,11 +316,15 @@ end
 function DesignerUI:PositionInspector(animate)
     if not self.panel or self.manualPanel then return false end
     local session = Designer:GetSession()
-    return self:PositionPanelBesideGroup(
+    local result = self:PositionPanelBesideGroup(
         self.panel,
         session and session.selectedGroupId,
-        animate
+        animate,
+        self.lastDockedGroupId ~= nil and not self.inspectorDockRequested
     )
+    self.lastDockedGroupId = session and session.selectedGroupId
+    self.inspectorDockRequested = nil
+    return result
 end
 
 function DesignerUI:PositionSkyridingSettingsPanel(animate)
@@ -397,12 +431,20 @@ local function ReorderDesignMonitor(
     end
     local selected = Designer:SelectMonitor(monitorId)
     if not selected then return false end
+    if placement and placement.targetGroupId
+        and placement.targetGroupId ~= selected.groupId then
+        return DesignerUI:MoveSelectedMonitor(placement.targetGroupId, placement) ~= nil
+    end
     return DesignerUI:ReorderSelectedMonitor(
         nil,
         targetIndex,
         targetLane,
         placement
     ) ~= nil
+end
+
+local function GetDesignMonitorTargets(monitorId)
+    return Designer:ListMonitorDropTargets(monitorId)
 end
 
 local function BeginDesignGroupDrag(groupId)
@@ -419,6 +461,7 @@ end
 
 local function PrepareViewDesignMode(View, session)
     if not (View and View.PrepareDesignMode) then return nil end
+    DesignerUI:SyncResourcePreviewContext()
     local prepared, wasEnabled = View:PrepareDesignMode(
         true,
         session.selectedGroupId,
@@ -428,7 +471,8 @@ local function PrepareViewDesignMode(View, session)
         SelectDesignMonitor,
         ReorderDesignMonitor,
         BeginDesignGroupDrag,
-        EndDesignGroupDrag
+        EndDesignGroupDrag,
+        GetDesignMonitorTargets
     )
     return prepared == true and wasEnabled or nil, prepared == true
 end
@@ -447,7 +491,8 @@ local function FinishViewDesignMode(View, session, wasEnabled, prepared)
         SelectDesignMonitor,
         ReorderDesignMonitor,
         BeginDesignGroupDrag,
-        EndDesignGroupDrag
+        EndDesignGroupDrag,
+        GetDesignMonitorTargets
     )
 end
 
@@ -1131,6 +1176,7 @@ function DesignerUI:StartStagedEnter(session, source)
         coroutine.yield("projection-context-ready")
 
         operation.stage = "base-handoff"
+        self:SyncResourcePreviewContext()
         if not View.PrepareStagedDesignMode
             or not View:PrepareStagedDesignMode(
                 profile,
@@ -1142,7 +1188,8 @@ function DesignerUI:StartStagedEnter(session, source)
                 SelectDesignMonitor,
                 ReorderDesignMonitor,
                 BeginDesignGroupDrag,
-                EndDesignGroupDrag
+                EndDesignGroupDrag,
+                GetDesignMonitorTargets
             ) then
             error("design-stage-unavailable")
         end
@@ -1294,6 +1341,13 @@ local function ExitViewDesignMode(View, suppressRelayout)
     return View.SetDesignMode and View:SetDesignMode(false) or false
 end
 
+function DesignerUI:SyncResourcePreviewContext()
+    local View = YHUD.View
+    if not (View and View.SetResourcePreviewContext and Designer:GetSession()) then return false end
+    local classFile, specID, formKey = Designer:GetResourcePreviewContext()
+    return View:SetResourcePreviewContext(classFile, specID, formKey, true)
+end
+
 function DesignerUI:ApplyPreview()
     local profile = Designer.GetPresentationProfile
         and Designer:GetPresentationProfile() or Designer:GetProfile()
@@ -1304,6 +1358,7 @@ function DesignerUI:ApplyPreview()
         local _, prepared = PrepareViewDesignMode(View, session)
         if prepared ~= true then return false end
     end
+    self:SyncResourcePreviewContext()
     local projectionContext = YHUD.BuildMonitorLayoutProjectionContext
         and YHUD:BuildMonitorLayoutProjectionContext(profile, true) or nil
     if not (View.RefreshDesignProjection
@@ -1340,6 +1395,11 @@ function DesignerUI:RefreshSelectionPreview()
     local View = YHUD.View
     if not (profile and session and View and View.active) then return false end
 
+    -- A selection boundary can end resource browsing. Reproject only when
+    -- its context actually changed; ordinary selections stay lightweight.
+    if self:SyncResourcePreviewContext() then
+        if not self:ApplyPreview() then return false end
+    end
     if View.SetDesignSelection then
         View:SetDesignSelection(
             session.selectedGroupId,
@@ -1371,7 +1431,8 @@ function DesignerUI:RestoreRuntimeView(reason, runtimeAlreadyApplied)
     if self.previewOwnsView and not YHUD:IsEnabled() then
         if View then View:Disable() end
     elseif runtimeAlreadyApplied ~= true
-        and self.previewRuntimeDirty ~= true then
+        and self.previewRuntimeDirty ~= true
+        and not (View and View.designRuntimeRestoreRequired == true) then
         -- Independent design projections never mutate the live View. Exiting
         -- only releases the projection; Sources, Native and secret values keep
         -- running underneath and need no synthetic restore pass.
@@ -1436,6 +1497,7 @@ function DesignerUI:RestoreRuntimeView(reason, runtimeAlreadyApplied)
             YHUD:Refresh(reason or "designer-close")
         end
     end
+    if View then View.designRuntimeRestoreRequired = nil end
     self.previewOwnsView = false
     self.previewRuntimeDirty = false
     return true
@@ -1502,6 +1564,11 @@ function DesignerUI:ShowWorkspace()
 end
 
 function DesignerUI:HandleEscape()
+    local View = YHUD.View
+    if View and View.activeMonitorDrag then
+        View:CancelMonitorDrag()
+        return true
+    end
     if self.busyKind then
         if self.busyCancelable == true then self:CancelBusyOperation() end
         return true
@@ -1535,6 +1602,7 @@ function DesignerUI:HandleEscape()
         elseif S.ConfigTransferDialog then S.ConfigTransferDialog:Hide() end
         return true
     end
+    if self.globalSettingsPanel and self.globalSettingsPanel:IsShown() then self:HideGlobalSettings(); return true end
     if self.schemePicker and self.schemePicker:IsShown() then self:HideSchemePicker(); return true end
     if self.recommendedLibrary and self.recommendedLibrary:IsShown() then self.recommendedLibrary:Hide(); return true end
     local confirm = S and S.ConfirmFrame
@@ -1592,10 +1660,7 @@ function DesignerUI:CloseInspector()
     self.inspectorSection = "group"
     self.manualPanel = false
     if self.panel then self.panel:Hide() end
-    local View = YHUD.View
-    if View and View.SetDesignSelection then
-        View:SetDesignSelection(nil, nil)
-    end
+    self:RefreshSelectionPreview()
     return true
 end
 
@@ -1604,6 +1669,9 @@ function DesignerUI:ClearLayoutListener()
         YUI.Event:Off(self.layoutListener)
     end
     self.layoutListener = nil
+    if YHUD.LayoutBridge and YHUD.LayoutBridge.EndDesignLayout then
+        YHUD.LayoutBridge:EndDesignLayout(true)
+    end
 end
 
 function DesignerUI:OpenLayoutMode()
@@ -1621,17 +1689,19 @@ function DesignerUI:OpenLayoutMode()
     end
 
     self:ClearLayoutListener()
-    ExitViewDesignMode(YHUD.View, true)
-    local profile = Designer:GetProfile()
-    if profile and YHUD.LayoutBridge.Sync then
-        YHUD.LayoutBridge:Sync(profile)
+    local projection = YHUD.View and YHUD.View.designProjection
+    if not (YHUD.LayoutBridge.BeginDesignLayout
+        and YHUD.LayoutBridge:BeginDesignLayout(projection)) then
+        self:SetStatus(T("designer.error_layout", "位置设置当前不可用。"))
+        return false
     end
     self:HideWorkspace()
     self.layoutListener = YUI.Event:Once(
         "YUI_LAYOUT_EDIT_MODE_CLOSED",
         function()
             DesignerUI.layoutListener = nil
-            if not Designer:IsOpen() then return end
+            YHUD.LayoutBridge:EndDesignLayout()
+            if not Designer:IsOpen() or projection.releasing then return end
             DesignerUI.active = true
             DesignerUI:ShowWorkspace()
             DesignerUI:ApplyPreview()
@@ -1699,14 +1769,11 @@ function DesignerUI:CaptureLayoutSnapshot()
 end
 
 function DesignerUI:CaptureDraftPlacements()
-    local bridge = YHUD.LayoutBridge
-    local profile = Designer:GetProfile()
-    if not (bridge and bridge.CaptureProfilePlacements and profile) then
-        return true
-    end
-    local placements, code = bridge:CaptureProfilePlacements(profile)
-    if not placements then return nil, code or "placement-capture-failed" end
-    return Designer:SetGroupPlacements(placements)
+    local profile, code = Designer:GetProfile()
+    if not profile then return nil, code or "profile-unavailable" end
+    -- Placement commits already update the draft. Live Layout entries retain
+    -- the runtime positions until save and must not overwrite those edits.
+    return Designer:SetGroupPlacements(profile.layout and profile.layout.placements)
 end
 
 function DesignerUI:RestoreLayoutSnapshot()

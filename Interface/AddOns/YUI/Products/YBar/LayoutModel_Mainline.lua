@@ -256,6 +256,7 @@ function Model.Sync(db, source, targets, keys, mode, capabilities)
         end
         values[key] = Copy(Model.Resolve(db, source, key))
     end
+    local classAlpha = values.colorMode == "class" and (Model.Resolve(db, source, "colorAlpha") or 1) or nil
     for _, id in ipairs(targets) do
         if not db.instances[id] then return false, "missing-target" end
     end
@@ -269,6 +270,7 @@ function Model.Sync(db, source, targets, keys, mode, capabilities)
                 if cap and cap.appearance and cap.appearance[key] and (mode=="inherit" or not allowed or allowed[values[key]]) then
                     if mode == "inherit" then instance.appearance[key] = nil
                     else instance.appearance[key] = Copy(values[key]) end
+                    if key == "colorMode" then instance.appearance.colorAlpha = mode == "copy" and classAlpha or nil end
                 else skipped = skipped + 1 end
             end
         end
@@ -295,7 +297,9 @@ local function Appearance(value)
     if value.size~=nil and value.size<6 then return false end
     if value.font~=nil and type(value.font)~="string" then return false end
     if value.shadow~=nil and type(value.shadow)~="boolean" then return false end
+    if value.monochrome~=nil and type(value.monochrome)~="boolean" then return false end
     if value.color~=nil and not Color(value.color) then return false end
+    if value.colorAlpha~=nil and (not Finite(value.colorAlpha) or value.colorAlpha<0 or value.colorAlpha>1) then return false end
     if value.outline~=nil and value.outline~="NONE" and value.outline~="OUTLINE" and value.outline~="THICKOUTLINE" then return false end
     if value.display~=nil and value.display~="icon" and value.display~="both" and value.display~="text" and value.display~="none" then return false end
     if value.colorMode~=nil and value.colorMode~="state" and value.colorMode~="class" and value.colorMode~="custom" then return false end

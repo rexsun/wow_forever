@@ -156,9 +156,11 @@ local function ReadStyle(db, key, target)
     target.x = Number(db[prefix .. "OffsetX"], defaults.x, -40, 60)
     target.y = Number(db[prefix .. "OffsetY"], defaults.y, -60, 40)
     local outline = db[prefix .. "Outline"] or "outlineShadow"
-    target.outline = (outline == "" or outline == "THICKOUTLINE") and outline or "OUTLINE"
-    if outline == "shadow" then target.outline = "" end
-    target.shadow = outline == "shadow" or outline == "outlineShadow"
+    local effect=outline:lower()
+    target.outline = (outline=="" or effect=="none" or effect=="shadow") and ""
+        or effect:find("thick",1,true) and "THICKOUTLINE" or "OUTLINE"
+    target.shadow = effect:find("shadow",1,true) ~= nil
+    if db[prefix.."Monochrome"] then target.outline=target.outline~="" and target.outline..",MONOCHROME" or "MONOCHROME" end
     target.mode = db[prefix .. "ColorMode"] or (key == "level" and db.slotColorMode) or defaults.mode
     target.color = db[prefix .. "Color"] or (key == "level" and db.slotColor) or (key == "enchant" and ENCHANT_COLOR) or WHITE
     return target
@@ -557,7 +559,7 @@ function Overlays:BuildOptions(db, fonts, refresh)
             set = function(value) db[key] = value == true; refresh() end }
     end
     local function Slider(key, label, default, minimum, maximum)
-        return { type = "slider", label = T("settings." .. label), min = minimum, max = maximum, step = 1,
+        return { type = "slider", fontStyleSource=key, label = T("settings." .. label), min = minimum, max = maximum, step = 1,
             get = function() return Number(db[key], default, minimum, maximum) end,
             set = function(value) db[key] = Number(value, default, minimum, maximum); refresh() end }
     end
@@ -573,11 +575,11 @@ function Overlays:BuildOptions(db, fonts, refresh)
         local modes = { { text = T("settings.color_quality"), value = "quality" }, { text = T("settings.color_fixed"), value = "fixed" } }
         if key == "durability" then table.insert(modes, 1, { text = T("settings.color_gradient"), value = "gradient" }) end
         local fields = { Toggle(enabled),
-            { type = "dropdown", label = T("settings.font"), options = fonts,
+            { type = "dropdown", fontStyleSource=prefix.."Font", label = T("settings.font"), options = fonts,
                 get = function() return ReadStyle(db, key).font end,
                 set = function(value) db[prefix .. "Font"] = value; refresh() end },
             Slider(prefix .. "Size", "size", default.size, 8, 24),
-            { type = "dropdown", label = T("settings.outline"), options = GUI.Form:BuildFontOutlineOptions({
+            { type = "dropdown", fontStyleSource=prefix.."Outline", label = T("settings.outline"), options = GUI.Form:BuildFontOutlineOptions({
                 values = { none = "", outline = "OUTLINE", thick = "THICKOUTLINE" },
             }),
                 get = function()
@@ -597,6 +599,9 @@ function Overlays:BuildOptions(db, fonts, refresh)
         }
         colorField = fields[6]
         colorField.updateVisibility = UpdateColorVisibility
+        if GUI.FontStyle and GUI.FontStyle.MergeOptions then
+            GUI.FontStyle:MergeOptions(fields, {{key="equipment_slots:"..key,sources={prefix.."Font",prefix.."Size",prefix.."Outline"}}})
+        end
         return fields
     end
     local fields = TextFields("level", "slotItemLevel")

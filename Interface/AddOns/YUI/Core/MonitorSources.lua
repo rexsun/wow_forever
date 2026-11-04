@@ -105,12 +105,13 @@ local function CreateSpellState(params)
 end
 
 local function CaptureSpellReadyStart(source)
-    if not YUI.IsRetail or not source.readyConsumers or source.readyConsumers <= 0 then return end
-    local active, resolved = Spell.ReadCooldownRuleState(source.params.spellID)
+    if not (YUI.IsRetail or YUI.IsForever) or not source.readyConsumers or source.readyConsumers <= 0 then return end
+    local active, resolved = Spell.ReadCooldownRuleState(source.params.spellID, source.state)
     if resolved == true and active == true then
         local state = source.state
         state.readyStartSequence = (state.readyStartSequence or 0) + 1
         state.readyStartSpellID = source.params.spellID
+        state.readyStartObservedAt = GetTime()
         source.readyStartDirty = true
     end
 end

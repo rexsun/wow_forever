@@ -140,7 +140,7 @@ function ns.PlanTalentSteps(targetLevel, baseLevel)
                 local tr, t = trees[ti], trees[ti].t[i]
                 local lv = 9 + k
                 steps[#steps + 1] = { lv = lv, avail = lv <= curLv, tree = ns.L(tr.c, tr.n), name = ns.L(t.c, t.n),
-                    d = ns.L(t.d, t.dEn), icon = t.i, row = t.r, col = t.col, rank = used[ti][i], rankMax = t.m }
+                    d = ns.L(t.d, t.dEn), icon = t.i, tab = ti, row = t.r, col = t.col, rank = used[ti][i], rankMax = t.m }
             end
         end
         return steps, nil, plan
@@ -164,7 +164,7 @@ function ns.PlanTalentSteps(targetLevel, baseLevel)
                         work[ti][i] = work[ti][i] + 1
                         local lv = 9 + n
                         steps[#steps + 1] = { lv = lv, avail = lv <= curLv, tree = ns.L(tr.c, tr.n), name = ns.L(t.c, t.n),
-                            d = ns.L(t.d, t.dEn), icon = t.i, row = t.r, col = t.col }
+                            d = ns.L(t.d, t.dEn), icon = t.i, tab = ti, row = t.r, col = t.col, rank = work[ti][i], rankMax = t.m }
                         placed = true
                         break
                     end
@@ -244,6 +244,7 @@ local function buildPanel()
     clear:SetScript("OnClick", function() ns.db.talentPlan = nil; f:Hide() end)
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 0, 0); close:SetScale(0.8)
+    close:SetScript("OnClick", function() f:Hide() end)   -- 10-18 战斗中关不掉：原生红叉走 HideUIPanel，战斗中被拦 → 直接 Hide
     f:RegisterEvent("CHARACTER_POINTS_CHANGED")
     f:RegisterEvent("PLAYER_LEVEL_UP")
     f:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -296,35 +297,277 @@ table.insert(ns.modules, function()
 end)
 
 -- ---------- 天赋面板上的绿框（自己的框，锚在暴雪格子上；⛔不调用 / 不改暴雪天赋面板的任何东西）----------
-local glow
-function ns.HighlightTalentStep()
-    local tf = _G.PlayerTalentFrame or _G.TalentFrame
-    local step = ns.db and ns.db.talentPlan and ns.NextTalentStep(ns.db.talentPlan)
-    if glow then glow:Hide() end
-    if not tf or not tf:IsShown() or not step then return end
-    local selTab = PanelTemplates_GetSelectedTab and PanelTemplates_GetSelectedTab(tf)
-    if selTab and selTab ~= step.tab then return end
-    local btn = _G[(tf:GetName() or "PlayerTalentFrame") .. "Talent" .. step.index]
-    if not btn or not btn:IsShown() then return end
-    if not glow then
-        glow = CreateFrame("Frame", nil, UIParent)
-        glow:SetFrameStrata("TOOLTIP")
-        local t = glow:CreateTexture(nil, "OVERLAY")
-        t:SetAllPoints(); t:SetTexture("Interface\\Buttons\\CheckButtonHilight"); t:SetBlendMode("ADD")
-        t:SetVertexColor(0.2, 1, 0.4)
-        glow.tex = t
+-- 10-16 用户「天赋可以做到点击直接加点吗？打开天赋页然后高亮」：学天赋插件做不到（见上面 10-07 的注释），
+--   改成升级规划天赋行的「去点」：打开天赋面板 + 绿框套这一行的天赋；不在那棵树就给页签套绿框。
+--   ⛔ 不替玩家切页签：插件改面板状态会污染它，玩家自己点格子那一下也可能被拦（又弹「已被禁用」）
+local glow, tabGlow
+-- 10-16 实测：「去点」第一下能打开面板，但插件按 PlayerTalentFrame / TalentFrame 认不出 → 《无限》的天赋面板叫别的名字。
+--   候选名挨个试；都不对就扫一遍全局里名字带 Talent 的、正显示着的框体，记下来（/gi talentprobe 能看到）
+local TF_NAMES = { "PlayerTalentFrame", "TalentFrame", "ClassTalentFrame", "PlayerSpellsFrame", "TalentUIFrame" }
+local tfFound
+local function findTalentFrame(scan)
+    if tfFound and tfFound:IsShown() then return tfFound end
+    for _, n in ipairs(TF_NAMES) do
+        local f = _G[n]
+        if type(f) == "table" and f.IsShown and f:IsShown() then tfFound = f; return f end
     end
+    if scan then
+        for k, v in pairs(_G) do
+            if type(k) == "string" and k:find("Talent", 1, true) and not k:find("GearInsight", 1, true) and type(v) == "table"
+                and type(v.IsShown) == "function" and type(v.GetParent) == "function" then
+                local ok, shown = pcall(v.IsShown, v)
+                local okp, parent = pcall(v.GetParent, v)
+                if ok and shown and okp and parent == UIParent then tfFound = v; return v end
+            end
+        end
+    end
+    return nil
+end
+ns.FindTalentFrame = findTalentFrame
+local target   -- 规划行指定的天赋 { tab, row, col, name, tree }；点掉一点后清掉，回到「计划的下一点」
+
+local function makeGlow()
+    local g = CreateFrame("Frame", nil, UIParent)
+    g:SetFrameStrata("TOOLTIP")
+    local t = g:CreateTexture(nil, "OVERLAY")
+    t:SetAllPoints(); t:SetTexture("Interface\\Buttons\\CheckButtonHilight"); t:SetBlendMode("ADD")
+    t:SetVertexColor(0.2, 1, 0.4)
+    g.tex = t
+    -- 10-16 用户「有绿框了，可以闪动吗」：亮暗来回呼吸（0.45 秒一程），显示时自动开始
+    local ag = g:CreateAnimationGroup()
+    ag:SetLooping("BOUNCE")
+    local a = ag:CreateAnimation("Alpha")
+    a:SetFromAlpha(1); a:SetToAlpha(0.2); a:SetDuration(0.45)
+    -- 用户「设定个时间吧，比如说10S」：闪 10 秒后停下，变成常亮框（还在指着那一格）；每次重新显示重新计时
+    local token = 0
+    g:SetScript("OnShow", function()
+        token = token + 1
+        local my = token
+        ag:Play()
+        C_Timer.After(10, function() if token == my then ag:Stop(); g:SetAlpha(1) end end)
+    end)
+    g:SetScript("OnHide", function() token = token + 1; ag:Stop() end)
+    g:Hide()
+    return g
+end
+
+function ns.SetTalentTarget(st)
+    target = (st and st.tab) and { tab = st.tab, row = st.row, col = st.col, name = st.name, tree = st.tree } or nil
+    ns.HighlightTalentStep()
+end
+
+-- 现在要套框的那一点：规划行点过的优先，否则计划（自己导入的 / 默认升级加点）的下一点
+local function currentStep()
+    if target then
+        local cell = gameIndex(target.tab)[target.row .. ":" .. target.col]
+        return { tab = target.tab, index = cell and cell.i, name = target.name, tree = target.tree }
+    end
+    -- 10-16 用户截图「点完以后开始闪这里了」：点掉凶暴后没点数了，旧逻辑（NextTalentStep 不管行解锁、不管有没有点数）跳去闪第二行。
+    --   改成和升级规划「现在就能点」同一把尺：没剩点数就不亮；有点数取规划里第一条现在能点的
+    local unspent = UnitCharacterPoints and UnitCharacterPoints("player") or 0
+    if unspent <= 0 then return nil end
+    local lv = UnitLevel and UnitLevel("player") or 0
+    local steps = ns.PlanTalentSteps and ns.PlanTalentSteps(lv, lv)
+    for _, st in ipairs(steps or {}) do
+        if st.avail and st.tab then
+            local cell = gameIndex(st.tab)[st.row .. ":" .. st.col]
+            return { tab = st.tab, index = cell and cell.i, name = st.name, tree = st.tree }
+        end
+    end
+    return nil
+end
+
+-- 10-16 实测：《无限》天赋面板 = 正式服新版 PlayerSpellsFrame（格子是按钮池，没有 Talent1 这种名字，也没有三棵树的页签）
+--   → 遍历面板里正在显示的天赋按钮，读按钮上的法术编号 → 法术名，和计划里的天赋名对上。只读字段，不调用暴雪按钮的方法
+local function spellNameOf(sid)
+    if not sid then return nil end
+    if C_Spell and C_Spell.GetSpellName then return C_Spell.GetSpellName(sid) end
+    return GetSpellInfo and (GetSpellInfo(sid)) or nil
+end
+local function buttonSpellID(b)
+    local d = rawget(b, "definitionInfo")
+    if type(d) == "table" and d.spellID then return d.spellID end
+    local n = rawget(b, "nodeInfo")
+    local e = rawget(b, "entryInfo")
+    if type(e) == "table" and e.definitionID and C_Traits and C_Traits.GetDefinitionInfo then
+        local ok, di = pcall(C_Traits.GetDefinitionInfo, e.definitionID)
+        if ok and type(di) == "table" then return di.spellID end
+    end
+    return type(n) == "table" and n.spellID or nil
+end
+local function talentButtons(tf)
+    local list = {}
+    for _, c in ipairs({ rawget(tf, "TalentsFrame"), rawget(tf, "TalentsTab"), tf }) do
+        if type(c) == "table" and type(c.EnumerateAllTalentButtons) == "function" then
+            local ok = pcall(function() for b in c:EnumerateAllTalentButtons() do list[#list + 1] = b end end)
+            if ok and #list > 0 then return list, c end
+        end
+    end
+    return list
+end
+ns.TalentButtons = talentButtons
+local function findButtonByName(tf, name)
+    if not name then return nil end
+    for _, b in ipairs((talentButtons(tf))) do
+        local ok, vis = pcall(b.IsVisible, b)
+        if ok and vis and spellNameOf(buttonSpellID(b)) == name then return b end
+    end
+end
+
+function ns.HighlightTalentStep()
+    local tf = findTalentFrame(false) or _G.PlayerTalentFrame or _G.TalentFrame
+    if glow then glow:Hide() end
+    if tabGlow then tabGlow:Hide() end
+    if not tf or not tf:IsShown() then return end
+    local ok, step = pcall(currentStep)
+    if not ok or not step then return end
+    local fname = tf:GetName() or "PlayerTalentFrame"
+    if not _G[fname .. "Talent1"] then   -- 新版界面
+        local b = findButtonByName(tf, step.name)
+        if not b then return end
+        glow = glow or makeGlow()
+        -- 10-16 用户截图「关了天赋面板还在闪」：绿框挂在 UIParent 上靠面板 OnHide 收，钩子没收到就留在屏幕上 →
+        --   直接挂到格子下面（只是我们自己的框换父级，不改暴雪按钮），面板一关跟着消失
+        glow:SetParent(b); glow:SetFrameStrata("TOOLTIP")
+        glow:ClearAllPoints()
+        glow:SetPoint("TOPLEFT", b, "TOPLEFT", -6, 6); glow:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 6, -6)
+        glow:Show()
+        return
+    end
+    local selTab = PanelTemplates_GetSelectedTab and PanelTemplates_GetSelectedTab(tf)
+    if selTab and selTab ~= step.tab then
+        local tb = _G[fname .. "Tab" .. step.tab]
+        if tb and tb:IsShown() then
+            tabGlow = tabGlow or makeGlow()
+            tabGlow:SetParent(tb); tabGlow:SetFrameStrata("TOOLTIP")
+            tabGlow:ClearAllPoints()
+            tabGlow:SetPoint("TOPLEFT", tb, "TOPLEFT", -4, 4); tabGlow:SetPoint("BOTTOMRIGHT", tb, "BOTTOMRIGHT", 4, -4)
+            tabGlow:Show()
+        end
+        return
+    end
+    local btn = _G[fname .. "Talent" .. step.index]
+    if not btn or not btn:IsShown() then return end
+    glow = glow or makeGlow()
+    glow:SetParent(btn); glow:SetFrameStrata("TOOLTIP")
     glow:ClearAllPoints()
     glow:SetPoint("TOPLEFT", btn, "TOPLEFT", -6, 6); glow:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 6, -6)
     glow:Show()
 end
 
-local function hookTalentFrame()
-    local tf = _G.PlayerTalentFrame or _G.TalentFrame
-    if not tf or tf.__gifGlowHook then return end
+-- ---------- 「去点」：安全按钮代点菜单栏的天赋按钮（type=click）打开面板 ----------
+-- 插件代码不直接打开天赋面板（ToggleTalentFrame 由插件调，面板 OnShow 里写的状态会被污染 → 玩家自己点格子学天赋也可能被拦）。
+-- ⛔ 安全按钮不挂在 / 不锚到 GI 窗口的普通框体（会把 GI 主窗口带成受保护，战斗中关不掉）：
+--   顶层框体，鼠标移到规划行的「去点」上时，脱战按屏幕坐标盖过去；移开 / 窗口关了就藏；进战斗由安全状态驱动藏起来。
+-- 点击方式：正式服实测 AnyUp+AnyDown 会触发两次（开了又关），默认只认按下；点了没打开就自动换成只认松开（存档记住）。
+local opener
+local function microButton()
+    return _G.TalentMicroButton or _G.PlayerSpellsMicroButton
+end
+
+local function talentFrameShown()
+    return findTalentFrame(true) ~= nil
+end
+
+-- ⛔ 只认按下（10-16《无限》实测：AnyDown 能打开；以前「没检测到就自动换成 AnyUp」反而把按钮弄坏了 —— 检测认错了面板名，
+--   换成 AnyUp 后这台客户端根本不触发）。正式服仪表盘同样结论（DashSecure.lua）。
+local function setClickMode(b)
+    if ns.db.ui then ns.db.ui.talentOpenUp = nil end   -- 清掉 10-16 测试包自动换出来的旧设置
+    b:RegisterForClicks("AnyDown")
+end
+
+local function buildOpener()
+    if opener then return opener end
+    if InCombatLockdown() or not microButton() then return nil end
+    local b = CreateFrame("Button", "GearInsightForeverTalentOpen", UIParent, "SecureActionButtonTemplate,SecureHandlerStateTemplate")
+    b:SetFrameStrata("FULLSCREEN_DIALOG")
+    b:SetNormalTexture("Interface\\Buttons\\UI-Panel-Button-Up"); b:GetNormalTexture():SetTexCoord(0, 0.625, 0, 0.6875)
+    b:SetPushedTexture("Interface\\Buttons\\UI-Panel-Button-Down"); b:GetPushedTexture():SetTexCoord(0, 0.625, 0, 0.6875)
+    b:SetHighlightTexture("Interface\\Buttons\\UI-Panel-Button-Highlight", "ADD"); b:GetHighlightTexture():SetTexCoord(0, 0.625, 0, 0.6875)
+    b:SetNormalFontObject("GameFontNormal"); b:SetHighlightFontObject("GameFontHighlight")
+    b:SetText(ns.L("去点", "Go"))
+    b:SetAttribute("type", "click")
+    b:SetAttribute("clickbutton", microButton())
+    setClickMode(b)
+    RegisterStateDriver(b, "gicombat", "[combat] 1; 0")
+    b:SetAttribute("_onstate-gicombat", [[ if newstate == "1" then self:Hide() end ]])
+    b:SetScript("PreClick", function(self)
+        self.wasShown = talentFrameShown()
+        if self.step then target = { tab = self.step.tab, row = self.step.row, col = self.step.col, name = self.step.name, tree = self.step.tree } end
+    end)
+    b:SetScript("PostClick", function(self)
+        local st, was = self.step, self.wasShown
+        C_Timer.After(0.4, function()
+            local now = talentFrameShown()
+            local tf = findTalentFrame(true)
+            if tf then pcall(hookOne, tf) end
+            ns.probeTalentOpen = (ns.probeTalentOpen or "") .. "D" .. (was and 1 or 0) .. (now and 1 or 0) .. ":" .. tostring(tf and tf:GetName()) .. ","
+            if not was and not now then
+                ns.Print(ns.L("没认出天赋面板：如果面板其实开了，请输 /gi talentprobe 把结果发给开发者；没开就按 N",
+                    "Talent frame not detected: if it did open, run /gi talentprobe; otherwise press N"))
+            elseif now and st then
+                ns.HighlightTalentStep()
+                ns.Print(ns.EnSafe(ns.L("在「", "On the ") .. (st.tree or "") .. ns.L("」页点「", " tab, click ") .. (st.name or "")
+                    .. ns.L("」（已套绿框；不在这页就先点套绿框的页签）", " (highlighted; if not on this tab, click the highlighted tab first)")))
+            end
+        end)
+    end)
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(ns.L("打开天赋面板", "Open talents"), 1, 0.82, 0)
+        GameTooltip:AddLine(ns.EnSafe(ns.L("给「", "Highlights ") .. ((self.step and self.step.name) or "") .. ns.L("」套绿框，你自己点一下就学会了。暴雪不允许插件替你加点。",
+            " - click it yourself to learn; Blizzard does not allow addons to spend talent points.")), 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- 鼠标移开 / GI 窗口关掉 / 列表滚走：藏起来（只在脱战；战斗中状态驱动已经藏了）
+    b:SetScript("OnUpdate", function(self)
+        if InCombatLockdown() then return end
+        local a = self.anchor
+        if not a or not a:IsVisible() or not (self:IsMouseOver() or a:IsMouseOver()) then self:Hide() end
+    end)
+    b:Hide()
+    opener = b
+    return b
+end
+
+-- 规划行「去点」按钮 OnEnter 调：把安全按钮盖到它上面。返回 false = 盖不了（战斗中 / 找不到菜单栏天赋按钮），行按钮自己的 OnClick 兜底
+function ns.TalentOpenerHover(anchor, st)
+    if InCombatLockdown() then return false end
+    local b = buildOpener()
+    if not b then return false end
+    local l, btm = anchor:GetLeft(), anchor:GetBottom()
+    if not l then return false end
+    b:SetScale(anchor:GetEffectiveScale() / UIParent:GetEffectiveScale())
+    b:ClearAllPoints()
+    b:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", l, btm)
+    b:SetSize(anchor:GetWidth(), anchor:GetHeight())
+    b.anchor, b.step = anchor, st
+    b:Show()
+    return true
+end
+
+-- 兜底（战斗中 / 客户端没有菜单栏天赋按钮）：只设目标 + 提示按 N
+function ns.TalentGoFallback(st)
+    ns.SetTalentTarget(st)
+    ns.Print(ns.EnSafe(ns.L("按 N 打开天赋面板，在「", "Press N, then on the ") .. (st.tree or "") .. ns.L("」页点「", " tab click ")
+        .. (st.name or "") .. ns.L("」（会套绿框）", " (highlighted)")))
+end
+
+-- 10-16：《无限》天赋面板名字不在老两个里 → 候选名都挂；「去点」认出真实面板后也会挂上（ns.HookTalentFrame）
+local function hookOne(tf)
+    if not tf or tf.__gifGlowHook or type(tf.HookScript) ~= "function" then return end
     tf.__gifGlowHook = true
     tf:HookScript("OnShow", function() C_Timer.After(0.1, ns.HighlightTalentStep) end)
-    tf:HookScript("OnHide", function() if glow then glow:Hide() end end)
+    tf:HookScript("OnHide", function() if glow then glow:Hide() end; if tabGlow then tabGlow:Hide() end end)
+end
+ns.HookTalentFrame = hookOne
+
+local function hookTalentFrame()
+    for _, n in ipairs(TF_NAMES) do pcall(hookOne, _G[n]) end
+    local tf = _G.PlayerTalentFrame or _G.TalentFrame
+    if not tf or tf.__gifUpdHook then return end
+    tf.__gifUpdHook = true
     if type(_G.PlayerTalentFrame_Update) == "function" then
         hooksecurefunc("PlayerTalentFrame_Update", function() ns.HighlightTalentStep() end)
     elseif type(_G.TalentFrame_Update) == "function" then
@@ -335,8 +578,65 @@ end
 table.insert(ns.modules, function()
     local f = CreateFrame("Frame")
     f:RegisterEvent("ADDON_LOADED")
-    f:SetScript("OnEvent", function(_, _, name)
-        if name == "Blizzard_TalentUI" then pcall(hookTalentFrame) end
+    f:RegisterEvent("CHARACTER_POINTS_CHANGED")
+    f:SetScript("OnEvent", function(_, ev, name)
+        if ev == "CHARACTER_POINTS_CHANGED" then
+            target = nil   -- 点掉了一点：绿框回到计划的下一点
+            C_Timer.After(0.3, ns.HighlightTalentStep)
+        elseif type(name) == "string" and name:find("Talent", 1, true) then pcall(hookTalentFrame) end
     end)
     pcall(hookTalentFrame)
 end)
+
+-- 10-16 天赋面板探针：/gi talentprobe（打开天赋面板后输）—— 面板叫什么、页签和格子按钮叫什么
+function ns.TalentProbe()
+    local out = { "GITAL1" }
+    local tf = findTalentFrame(true)
+    out[#out + 1] = "frame=" .. tostring(tf and tf:GetName())
+    local shown = {}
+    for k, v in pairs(_G) do
+        if type(k) == "string" and (k:find("Talent", 1, true) or k:find("Spells", 1, true)) and not k:find("GearInsight", 1, true)
+            and type(v) == "table" and type(v.IsShown) == "function" then
+            local ok, sh = pcall(v.IsShown, v)
+            if ok and sh and #shown < 40 then shown[#shown + 1] = k end
+        end
+    end
+    table.sort(shown)
+    out[#out + 1] = "shown=" .. table.concat(shown, "/")
+    if tf then
+        local n = tf:GetName() or "?"
+        out[#out + 1] = "tab=" .. tostring(PanelTemplates_GetSelectedTab and PanelTemplates_GetSelectedTab(tf))
+        out[#out + 1] = "Tab1=" .. tostring(_G[n .. "Tab1"] ~= nil) .. " Talent1=" .. tostring(_G[n .. "Talent1"] ~= nil)
+    end
+    local ok, step = pcall(currentStep)
+    out[#out + 1] = "step=" .. (ok and step and (tostring(step.tab) .. ":" .. tostring(step.index) .. ":" .. tostring(step.name)) or tostring(step))
+    out[#out + 1] = "glow=" .. tostring(glow and glow:IsShown()) .. " tabGlow=" .. tostring(tabGlow and tabGlow:IsShown())
+    if tf then
+        local list, c = talentButtons(tf)
+        out[#out + 1] = "btns=" .. #list .. " in=" .. tostring(c and (c.GetName and c:GetName() or "anon"))
+        local b = list[1]
+        if b then
+            local keys = {}
+            for k, v in pairs(b) do if type(k) == "string" and type(v) ~= "function" and #keys < 30 then keys[#keys + 1] = k .. ":" .. type(v) end end
+            table.sort(keys)
+            out[#out + 1] = "b1=" .. table.concat(keys, ",")
+            out[#out + 1] = "b1spell=" .. tostring(buttonSpellID(b)) .. ":" .. tostring(spellNameOf(buttonSpellID(b)))
+        end
+        local names = {}
+        for i, x in ipairs(list) do
+            if i > 12 then break end
+            names[#names + 1] = tostring(spellNameOf(buttonSpellID(x)))
+        end
+        out[#out + 1] = "names=" .. table.concat(names, "/")
+    end
+    out[#out + 1] = "api=" .. "GetNumTalents:" .. tostring(GetNumTalents and select(2, pcall(GetNumTalents, 1)))
+        .. " GetTalentInfo11:" .. tostring(GetTalentInfo and select(2, pcall(GetTalentInfo, 1, 1)))
+        .. " C_ClassTalents:" .. tostring(C_ClassTalents ~= nil) .. " cfg:" .. tostring(C_ClassTalents and C_ClassTalents.GetActiveConfigID and select(2, pcall(C_ClassTalents.GetActiveConfigID)))
+        .. " pts:" .. tostring(UnitCharacterPoints and UnitCharacterPoints("player"))
+        .. " code:" .. tostring(ns.CurrentTalentCode and ns.CurrentTalentCode())
+    out[#out + 1] = "micro=" .. tostring(microButton() and microButton():GetName())
+    out[#out + 1] = "open=" .. tostring(ns.probeTalentOpen)
+    ns.ShowBox(ns.L("天赋面板探针", "Talent probe"), ns.L("Ctrl+C 复制发给开发者", "Ctrl+C to copy"), table.concat(out, ";"))
+end
+ns.ExtraSlash = ns.ExtraSlash or {}
+ns.ExtraSlash.talentprobe = function() ns.TalentProbe() end

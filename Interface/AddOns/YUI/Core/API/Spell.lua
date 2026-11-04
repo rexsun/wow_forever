@@ -208,6 +208,16 @@ local function GetTextureFromGlobal(spellID)
     return info and info.iconID or nil
 end
 
+-- Cold tooltip/configuration read. Restricted or missing levels stay unavailable.
+function Spell.GetLevelLearned(spellID)
+    if not (_G.C_Spell and type(_G.C_Spell.GetSpellLevelLearned) == "function") then return nil end
+    local ok, level = pcall(_G.C_Spell.GetSpellLevelLearned, spellID)
+    if not ok then return nil end
+    level = SafeNumberValue(level)
+    if level and level > 0 and level < math.huge then return math.floor(level) end
+    return nil
+end
+
 function Spell.GetName(spellID)
     local info = Spell.GetInfo(spellID)
     return info and info.name or nil
@@ -229,6 +239,19 @@ function Spell.GetTexture(spellID)
     end
 
     return GetTextureFromGlobal(spellID) or GetTextureFromCSpell(spellID)
+end
+
+-- Display-only flag: may be secret. Forward to a native boolean display sink;
+-- callers must not branch on, compare, or convert the returned value.
+-- Missing capability/identifier or a failed native call returns nil. No allocation.
+function Spell.GetImportantFlag(spellIdentifier)
+    if not (C_Spell and type(C_Spell.IsSpellImportant) == "function")
+        or (not IsSecretValue(spellIdentifier) and spellIdentifier == nil) then
+        return nil
+    end
+    local ok, value = pcall(C_Spell.IsSpellImportant, spellIdentifier)
+    if ok then return value end
+    return nil
 end
 
 function Spell.ReadMaxCumulativeAuraApplications(spellID)
@@ -1628,7 +1651,9 @@ local function ReadRetailCooldownInfo(spellID)
     return nil
 end
 
-function Spell.ReadCooldownRuleState(spellID)
+-- Optional evidence reuses the caller's state; no extra API read or allocation.
+-- It is written only for a confirmed public, non-GCD start. Return values stay unchanged.
+function Spell.ReadCooldownRuleState(spellID, evidence)
     spellID = SafeNumberValue(spellID)
     if not (spellID and (YUI.IsForever or YUI.IsRetail)) then return false, false end
 
@@ -1649,6 +1674,11 @@ function Spell.ReadCooldownRuleState(spellID)
         return false, false
     end
 
+    if isOnGCD == false and evidence then
+        evidence.readyStartTime = SafeNumberValue(info.startTime)
+        evidence.readyStartDuration = SafeNumberValue(info.duration)
+        evidence.readyStartEnabled = SafeBooleanValue(info.isEnabled, nil)
+    end
     return isActive and isOnGCD == false, true
 end
 
@@ -2851,9 +2881,16 @@ function Spell.GetCharges(spellID)
     return GetChargesFromGlobal(spellID) or GetChargesFromCSpell(spellID)
 end
 
-local function IsKnownFromCSpellBook(spellID)
+local function IsKnownFromCSpellBook(spellID, isPet)
     if C_SpellBook and C_SpellBook.IsSpellKnown then
-        local ok, result = pcall(C_SpellBook.IsSpellKnown, spellID)
+        local bank
+        if isPet then
+            bank = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Pet
+            if bank == nil then return nil end
+        end
+        local ok, result
+        if isPet then ok, result = pcall(C_SpellBook.IsSpellKnown, spellID, bank)
+        else ok, result = pcall(C_SpellBook.IsSpellKnown, spellID) end
         if ok then
             return SafeBooleanValue(result, nil)
         end
@@ -2861,9 +2898,11 @@ local function IsKnownFromCSpellBook(spellID)
     return nil
 end
 
-local function IsKnownFromGlobal(spellID)
+local function IsKnownFromGlobal(spellID, isPet)
     if IsSpellKnown then
-        local ok, result = pcall(IsSpellKnown, spellID)
+        local ok, result
+        if isPet then ok, result = pcall(IsSpellKnown, spellID, true)
+        else ok, result = pcall(IsSpellKnown, spellID) end
         if ok then
             return SafeBooleanValue(result, nil)
         end
@@ -3019,17 +3058,18 @@ Legacy.IsSpellKnownOrInSpellBook = Spell.IsKnownOrInSpellBook
 
 -- Preserve unknown for prediction predicates; IsKnown's historical false
 -- fallback remains unchanged for existing consumers.
-function Spell.GetKnownState(spellID)
-    if IsSecretValue(spellID) or type(spellID) ~= 'number' then return nil end
+-- Optional isPet queries the pet bank without changing the default player query.
+function Spell.GetKnownState(spellID, isPet)
+    if IsSecretValue(spellID) or IsSecretValue(isPet) or type(spellID) ~= 'number' then return nil end
     local value
     if (YUI.IsForever or YUI.IsRetail) then
-        value = IsKnownFromCSpellBook(spellID)
+        value = IsKnownFromCSpellBook(spellID, isPet)
         if value ~= nil then return value end
-        return IsKnownFromGlobal(spellID)
+        return IsKnownFromGlobal(spellID, isPet)
     end
-    value = IsKnownFromGlobal(spellID)
+    value = IsKnownFromGlobal(spellID, isPet)
     if value ~= nil then return value end
-    return IsKnownFromCSpellBook(spellID)
+    return IsKnownFromCSpellBook(spellID, isPet)
 end
 
 function Spell.GetPublicDescription(spellID)
@@ -3037,6 +3077,29 @@ function Spell.GetPublicDescription(spellID)
         or not (C_Spell and C_Spell.GetSpellDescription) then return nil end
     local ok, text = pcall(C_Spell.GetSpellDescription, spellID)
     if ok and not IsSecretValue(text) and type(text) == 'string' then return text end
+end
+
+-- Forever cast-family candidates, cold path only. A positive ID is a known,
+-- non-passive player spell in the spell book (including current overrides).
+-- false rejects a candidate; nil means the evidence is unavailable/restricted.
+-- This does not establish a shared cooldown or an aura identity.
+function Spell.GetPlayerCastSpellID(spellID)
+    if not YUI.IsForever or IsSecretValue(spellID) or type(spellID) ~= 'number'
+        or spellID <= 0 or spellID == math.huge or spellID % 1 ~= 0 then return nil end
+    local book, spells = C_SpellBook, C_Spell
+    local bank = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
+    if not (book and spells and bank and book.IsSpellKnown and book.IsSpellInSpellBook
+        and spells.IsSpellPassive) then return nil end
+    local id = Spell.GetEffectiveSpellID(spellID)
+    if not id then return nil end
+    local knownOK, known = pcall(book.IsSpellKnown, id, bank)
+    local listedOK, listed = pcall(book.IsSpellInSpellBook, id, bank, true)
+    local passiveOK, passive = pcall(spells.IsSpellPassive, id)
+    if knownOK then known = SafeBooleanValue(known, nil) else known = nil end
+    if listedOK then listed = SafeBooleanValue(listed, nil) else listed = nil end
+    if passiveOK then passive = SafeBooleanValue(passive, nil) else passive = nil end
+    if known == false or listed == false or passive == true then return false end
+    if known == true and listed == true and passive == false then return id end
 end
 
 -- Forever 1.60.1.70245: enumerate the unfiltered player bank, including low ranks.

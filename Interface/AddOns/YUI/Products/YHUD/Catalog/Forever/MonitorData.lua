@@ -14,7 +14,22 @@ YHUD.MonitorPresets = {
         { itemID = 13446, fallbackKey = "designer.quick.classic_health" },
         { itemID = 13444, fallbackKey = "designer.quick.classic_mana" },
     },
-    timedBuffs = {},
+    timedBuffs = {
+        -- The 1.60.1.70450 native seal bundle omits this rank 1 aura.
+        {
+            presetId = "forever-seals",
+            classToken = "PALADIN",
+            entryKey = "aura:player:helpful:20154",
+            sourceKey = "aura:player:helpful:20154",
+            sourceIdentity = "aura:player:helpful:20154",
+            sourceType = "yhud.player-aura",
+            displaySpellID = 20154,
+            spellIDs = { 20154 },
+            excludeNativeAura = true,
+            presetLabelKey = "designer.preset.label.forever_seals",
+            tooltipNoteKey = "designer.preset.forever_seals_tooltip",
+        },
+    },
     timedItems = {},
     defensives = {},
     interrupts = {
@@ -25,3 +40,5 @@ YHUD.MonitorPresets = {
         MAGE = { class = { 2139 } },
     },
 }
+
+YHUD.CLASS_EXTRA_PRESETS = nil

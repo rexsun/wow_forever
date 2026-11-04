@@ -200,6 +200,10 @@ local function NormalizeVersatilityDisplayMode(value)
     return value == VERSATILITY_DISPLAY_SPLIT and VERSATILITY_DISPLAY_SPLIT or VERSATILITY_DISPLAY_SINGLE
 end
 
+local function NormalizeCombatDisplayMode(value)
+    return value == "FIXED" and "FIXED" or "DYNAMIC"
+end
+
 local function SetWidthIfChanged(region, width)
     if not region or not region.SetWidth or region._yuiStatsWidth == width then return end
     region:SetWidth(width)
@@ -304,7 +308,7 @@ local function NormalizeColorStyle(style)
 end
 
 local function NormalizeFontEffect(effect)
-    if effect == FONT_EFFECT_NONE
+    if effect == "THICK_OUTLINE_SHADOW" or effect == FONT_EFFECT_NONE
         or effect == FONT_EFFECT_OUTLINE
         or effect == FONT_EFFECT_THICK
         or effect == FONT_EFFECT_SHADOW
@@ -317,7 +321,7 @@ end
 
 local function GetFontFlagForEffect(effect)
     effect = NormalizeFontEffect(effect)
-    if effect == FONT_EFFECT_THICK then
+    if effect == FONT_EFFECT_THICK or effect == "THICK_OUTLINE_SHADOW" then
         return "THICKOUTLINE"
     end
     if effect == FONT_EFFECT_OUTLINE or effect == FONT_EFFECT_OUTLINE_SHADOW then
@@ -329,7 +333,7 @@ end
 local function ApplyFontEffect(fontString, effect)
     if not fontString then return end
     effect = NormalizeFontEffect(effect)
-    if effect == FONT_EFFECT_SHADOW or effect == FONT_EFFECT_OUTLINE_SHADOW then
+    if effect == FONT_EFFECT_SHADOW or effect == FONT_EFFECT_OUTLINE_SHADOW or effect == "THICK_OUTLINE_SHADOW" then
         fontString:SetShadowColor(0, 0, 0, 1)
         fontString:SetShadowOffset(1, -1)
     else
@@ -473,7 +477,7 @@ local function GetStatValueFallbackWidth(statId, fontSize, precision, isPercent,
     return EstimateTextWidth(fontSize, 4, 32)
 end
 
-local function PlaceHorizontalLine(line, layout, lineHeight, valueFallbackWidth)
+local function PlaceHorizontalLine(line, layout, lineHeight, valueFallbackWidth, reserveValueWidth)
     lineHeight = math.max(lineHeight or 1, 1)
 
     -- Remove the previous pass' constraints before measuring natural text width.
@@ -486,6 +490,7 @@ local function PlaceHorizontalLine(line, layout, lineHeight, valueFallbackWidth)
     local labelWidth = SafeFontStringWidth(line.label, SECRET_TEXT_FALLBACK_WIDTH)
     local valueFallback = valueFallbackWidth or line._yuiStatsValueFallbackWidth or (line.value and line.value._yuiStatsValueFallbackWidth) or SECRET_TEXT_FALLBACK_WIDTH
     local valueWidth = SafeFontStringWidth(line.value, valueFallback)
+    if reserveValueWidth then valueWidth = math.max(valueWidth, valueFallback) end
     local labelSlotWidth = labelWidth + HORIZONTAL_TEXT_SAFETY_PADDING
     local valueSlotWidth = valueWidth + HORIZONTAL_TEXT_SAFETY_PADDING
     local lineWidth = labelSlotWidth + valueSlotWidth + HORIZONTAL_SIDE_PADDING * 2 + HORIZONTAL_TEXT_GAP
@@ -917,7 +922,9 @@ local function SetFontCached(fontString, fontPath, fontSize, fontFlag)
 end
 
 local function ApplyStatsFont(fontString, fontPath, fontSize, fontEffect)
-    SetFontCached(fontString, fontPath, fontSize, GetFontFlagForEffect(fontEffect))
+    local flags=GetFontFlagForEffect(fontEffect)
+    if Module.settings and Module.settings.textMonochrome then flags=flags~="" and flags..",MONOCHROME" or "MONOCHROME" end
+    SetFontCached(fontString, fontPath, fontSize, flags)
     ApplyFontEffect(fontString, fontEffect)
 end
 
@@ -1733,6 +1740,7 @@ local DEFAULT_CONFIG = {
     precision = DEFAULT_PRECISION,
     showSecondaryRating = false,
     versatilityDisplayMode = VERSATILITY_DISPLAY_SINGLE,
+    combatDisplayMode = "DYNAMIC",
     speedUpdateFreq = DEFAULT_SPEED_UPDATE_FREQ,
     outOfCombatAlpha = 1,
     primaryMode = "ALWAYS",
@@ -1756,6 +1764,7 @@ local PANEL_CONFIG_KEYS = {
     "horizontalAlignment",
     "appearanceStyle",
     "fontEffect",
+    "textMonochrome",
     "panelOrientation",
     "precision",
     "versatilityDisplayMode",
@@ -1856,10 +1865,44 @@ function Module:EnsureSettings()
     self.settings.horizontalAlignment = NormalizeHorizontalAlignment(self.settings.horizontalAlignment)
     self.settings.appearanceStyle = NormalizeColorStyle(self.settings.appearanceStyle)
     self.settings.fontEffect = NormalizeFontEffect(self.settings.fontEffect)
+    self.settings.combatDisplayMode = NormalizeCombatDisplayMode(self.settings.combatDisplayMode)
     if self.settings.panelOrientation ~= PANEL_ORIENTATION_HORIZONTAL then
         self.settings.panelOrientation = PANEL_ORIENTATION_VERTICAL
     end
     return self.settings
+end
+
+function Module:ResetCombatDisplaySnapshot()
+    self.combatDisplaySnapshot = nil
+end
+
+function Module:RefreshStatsSettings()
+    self:ResetCombatDisplaySnapshot()
+    self:UpdateStatsPanel()
+end
+
+function Module:CaptureStatsDisplaySnapshot(lineCount)
+    local frame = self.statsFrame
+    if not YUI.IsRetail or self.settings.combatDisplayMode ~= "FIXED"
+        or self.layoutPreviewing or not self.enabled or not frame or not frame:IsShown() then return end
+
+    -- Only public item identities are cached. Values always come from the live API.
+    local snapshot = self.combatDisplaySnapshot
+    if not snapshot then
+        snapshot = { ids = {}, visible = {} }
+        self.combatDisplaySnapshot = snapshot
+    end
+    for i = 1, snapshot.count or 0 do
+        snapshot.visible[snapshot.ids[i]] = nil
+        snapshot.ids[i] = nil
+    end
+    snapshot.count = lineCount
+    snapshot.settings = self.settings
+    for i = 1, lineCount do
+        local id = frame.lines[i].statId
+        snapshot.ids[i] = id
+        snapshot.visible[id] = true
+    end
 end
 
 local function LegacyStatsPositionToPlacement(pos)
@@ -1960,6 +2003,7 @@ function Module:RegisterStatsLayout()
             return self.enabled == true
         end,
         onEnterEditMode = function()
+            self:ResetCombatDisplaySnapshot()
             self.layoutPreviewing = true
             if self.enabled then
                 self:EnsureRuntime()
@@ -1968,6 +2012,7 @@ function Module:RegisterStatsLayout()
             end
         end,
         onExitEditMode = function()
+            self:ResetCombatDisplaySnapshot()
             self.layoutPreviewing = false
             self:UpdateVisibility()
         end,
@@ -2233,6 +2278,7 @@ function Module:SetEnabled(enabled)
         self:AttachLifecycleEvents()
         self:UpdateVisibility()
     else
+        self:ResetCombatDisplaySnapshot()
         self:DetachDataEvents()
         self:DetachLifecycleEvents()
         self:CancelPendingPanelRefresh()
@@ -2250,6 +2296,7 @@ function Module:SetEnabled(enabled)
 end
 
 function Module:OnProfileChanged()
+    self:ResetCombatDisplaySnapshot()
     self:DetachDataEvents()
     self:CancelPendingPanelRefresh()
     self:StopSpeedTicker()
@@ -2522,7 +2569,7 @@ function Module:GetOptions(feature)
                     get = function() return self.settings.wrathMainScale or 2.0 end,
                     set = function(value)
                         self.settings.wrathMainScale = value
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
                 {
@@ -2535,7 +2582,7 @@ function Module:GetOptions(feature)
                     get = function() return self.settings.wrathOtherScale or 1.2 end,
                     set = function(value)
                         self.settings.wrathOtherScale = value
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
             }
@@ -2574,7 +2621,7 @@ function Module:GetOptions(feature)
                     end,
                     set = function(value)
                         self.settings.ilvlMode = value
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
                 {
@@ -2586,7 +2633,7 @@ function Module:GetOptions(feature)
                     get = function() return self.settings.primaryMode or "ALWAYS" end,
                     set = function(value)
                         self.settings.primaryMode = value
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
             }
@@ -2604,7 +2651,7 @@ function Module:GetOptions(feature)
                     get = function() return self.settings.secondaryMode or "ALWAYS" end,
                     set = function(value)
                         self.settings.secondaryMode = value
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
                 {
@@ -2616,7 +2663,7 @@ function Module:GetOptions(feature)
                     get = function() return GetDefenseMode(self.settings) end,
                     set = function(value)
                         self.settings.defenseMode = value
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
             }
@@ -2634,7 +2681,7 @@ function Module:GetOptions(feature)
                     get = function() return self.settings.otherMode or "ALWAYS" end,
                     set = function(value)
                         self.settings.otherMode = value
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
                 {
@@ -2645,7 +2692,7 @@ function Module:GetOptions(feature)
                     get = function() return self.settings.speedMode or "ALWAYS" end,
                     set = function(value)
                         self.settings.speedMode = value
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
             }
@@ -2672,7 +2719,7 @@ function Module:GetOptions(feature)
                     set = function(value)
                         self.settings.showSecondaryRating = value ~= "PERCENT_ONLY"
                         self.settings.secondaryRatingFormat = NormalizeSecondaryRatingFormat(value)
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
                 {
@@ -2687,7 +2734,26 @@ function Module:GetOptions(feature)
                     end,
                     set = function(value)
                         self.settings.versatilityDisplayMode = NormalizeVersatilityDisplayMode(value)
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
+                    end,
+                },
+            },
+        })
+        table.insert(displayModeOptions, {
+            type = "row",
+            children = {
+                {
+                    type = "dropdown",
+                    label = YBarL["stats.settings.combat_display_mode"],
+                    width = 220,
+                    options = {
+                        { text = YBarL["stats.option.combat_dynamic"], value = "DYNAMIC" },
+                        { text = YBarL["stats.option.combat_fixed"], value = "FIXED" },
+                    },
+                    get = function() return NormalizeCombatDisplayMode(self.settings.combatDisplayMode) end,
+                    set = function(value)
+                        self.settings.combatDisplayMode = NormalizeCombatDisplayMode(value)
+                        self:RefreshStatsSettings()
                     end,
                 },
             },
@@ -2715,15 +2781,21 @@ function Module:GetOptions(feature)
 
     local function UpdatePanelWidth(value)
         self.settings.panelWidth = value
-        self:UpdateStatsPanel()
+        self:RefreshStatsSettings()
     end
 
     local function UpdateHorizontalMaxWidth(value)
         value = math.max(MIN_HORIZONTAL_MAX_WIDTH, math.min(MAX_HORIZONTAL_MAX_WIDTH, tonumber(value) or DEFAULT_HORIZONTAL_MAX_WIDTH))
         self.settings.horizontalMaxWidth = value
-        self:UpdateStatsPanel()
+        self:RefreshStatsSettings()
     end
 
+    local function MergeTextFields(fields)
+        if GUI2.FontStyle and GUI2.FontStyle.MergeOptions then
+            GUI2.FontStyle:MergeOptions(fields, {{key="character_stats:text",sources={"font","fontSize","fontEffect"}}})
+        end
+        return fields
+    end
     local function RenderStyleFields(parent, x, y, width)
         if not (YUI.Settings and YUI.Settings.RenderAlignedFields) then
             return 0, 0
@@ -2748,7 +2820,7 @@ function Module:GetOptions(feature)
             minBodyWidth = STYLE_BODY_WIDTH,
             rowHeight = 32,
             rowGap = 10,
-            fields = {
+            fields = MergeTextFields({
                 {
                     type = "dropdown",
                     label = YBarL["stats.settings.appearance_style"] or "Color Style",
@@ -2756,7 +2828,7 @@ function Module:GetOptions(feature)
                     get = function() return NormalizeColorStyle(self.settings.appearanceStyle) end,
                     set = function(value)
                         self.settings.appearanceStyle = NormalizeColorStyle(value)
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
                 {
@@ -2767,7 +2839,7 @@ function Module:GetOptions(feature)
                     set = function(value)
                         local orientation = value == PANEL_ORIENTATION_HORIZONTAL and PANEL_ORIENTATION_HORIZONTAL or PANEL_ORIENTATION_VERTICAL
                         self.settings.panelOrientation = orientation
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                         RefreshStatsSettingsPage()
                     end,
                 },
@@ -2775,32 +2847,32 @@ function Module:GetOptions(feature)
                     type = "dropdown",
                     label = CoreL["common.font"] or "Font",
                     options = fontOptions,
-                    get = function() return NormalizeFontValue(self.settings.font, LSM) end,
+                    fontStyleSource="font", get = function() return NormalizeFontValue(self.settings.font, LSM) end,
                     set = function(value)
                         local fontValue = NormalizeFontValue(value, LSM)
                         self.settings.font = fontValue
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
                 {
                     type = "slider",
                     label = CoreL["common.font_size"] or "Font Size",
                     min = 8, max = 20, step = 1,
-                    get = function() return self.settings.fontSize or DEFAULT_SIZE end,
+                    fontStyleSource="fontSize", get = function() return self.settings.fontSize or DEFAULT_SIZE end,
                     set = function(value)
                         self.settings.fontSize = value
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
                 {
                     type = "dropdown",
                     label = YBarL["stats.settings.font_effect"] or "Outline/Shadow",
                     options = fontEffectOptions,
-                    get = function() return NormalizeFontEffect(self.settings.fontEffect) end,
+                    fontStyleSource="fontEffect", get = function() return NormalizeFontEffect(self.settings.fontEffect) end,
                     set = function(value)
                         local effect = NormalizeFontEffect(value)
                         self.settings.fontEffect = effect
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
                 {
@@ -2819,7 +2891,7 @@ function Module:GetOptions(feature)
                     get = function() return self.settings.spacing or DEFAULT_SPACING end,
                     set = function(value)
                         self.settings.spacing = value
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
                 {
@@ -2839,7 +2911,7 @@ function Module:GetOptions(feature)
                     set = function(value)
                         local alignment = NormalizeHorizontalAlignment(value)
                         self.settings.horizontalAlignment = alignment
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
                 {
@@ -2850,7 +2922,7 @@ function Module:GetOptions(feature)
                     get = function() return GetColumnSpacing(self.settings) end,
                     set = function(value)
                         self.settings.columnSpacing = value
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
                 {
@@ -2864,7 +2936,7 @@ function Module:GetOptions(feature)
                     get = function() return self.settings.precision or DEFAULT_PRECISION end,
                     set = function(value)
                         self.settings.precision = value
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
                 {
@@ -2884,10 +2956,10 @@ function Module:GetOptions(feature)
                     get = function() return self.settings.outOfCombatAlpha or 1.0 end,
                     set = function(value)
                         self.settings.outOfCombatAlpha = value
-                        self:UpdateStatsPanel()
+                        self:RefreshStatsSettings()
                     end,
                 },
-            },
+            }),
         })
 
         return gridWidth, gridHeight
@@ -3119,10 +3191,20 @@ function Module:UpdateStatsPanel()
     RefreshStatDefLabels()
 
     local f = self.statsFrame
+    local fixedDisplay = YUI.IsRetail and self.settings.combatDisplayMode == "FIXED"
+    local snapshot = fixedDisplay and self.combatDisplaySnapshot or nil
+    if not fixedDisplay or (snapshot and snapshot.settings ~= self.settings) then
+        self:ResetCombatDisplaySnapshot()
+        snapshot = nil
+    end
+    -- Use the last real render before reading combat values or changing layout.
+    local frozenSnapshot = not self.layoutPreviewing and SecurityAPI.InCombatLockdown() and snapshot or nil
     local previousWidth = f:GetWidth() or 0
     local previousHeight = f:GetHeight() or 0
-    SetWidthIfChanged(f, GetStatsPanelWidth(self.settings))
-    if f.contentFrame then SetScaleIfChanged(f.contentFrame, 1) end
+    if not frozenSnapshot then
+        SetWidthIfChanged(f, GetStatsPanelWidth(self.settings))
+        if f.contentFrame then SetScaleIfChanged(f.contentFrame, 1) end
+    end
     f.speedLineValue = nil
     f.speedFmtStr = nil
 
@@ -3184,80 +3266,87 @@ function Module:UpdateStatsPanel()
         stats[statsCount].def = def
     end
 
-    -- 装等优先
-    if showIlvlStats then
-        addStatToCache("ilvl", STAT_DEFS.ilvl)
-    end
-
-    local roleCtx
-    local classToken
-    if showPrimaryStats or showDefenseStats then
-        roleCtx = GetRoleContext()
-        _, classToken = UnitAPI.UnitClass("player")
-    end
-
-    if showPrimaryStats then
-        -- 基于职业/专精确定主属性
-        local primary = "str"
-        if roleCtx.isCaster or roleCtx.isHealer then
-            primary = "int"
-        elseif roleCtx.isRanged then -- Hunter
-            primary = "agi"
-        elseif classToken == "ROGUE" or classToken == "DEMONHUNTER" or classToken == "MONK" or (classToken == "DRUID" and not roleCtx.isCaster) or (classToken == "SHAMAN" and not roleCtx.isCaster) then
-            primary = "agi"
+    if frozenSnapshot then
+        for i = 1, frozenSnapshot.count do
+            local id = frozenSnapshot.ids[i]
+            addStatToCache(id, STAT_DEFS[id])
+        end
+    else
+        -- 装等优先
+        if showIlvlStats then
+            addStatToCache("ilvl", STAT_DEFS.ilvl)
         end
 
-        -- 添加相关主属性
-        addStatToCache(primary, STAT_DEFS[primary])
-        if YUI.IsForever then
-            addStatToCache("sta", STAT_DEFS.sta)
-            addStatToCache("spirit", STAT_DEFS.spirit)
+        local roleCtx
+        local classToken
+        if showPrimaryStats or showDefenseStats then
+            roleCtx = GetRoleContext()
+            _, classToken = UnitAPI.UnitClass("player")
         end
-        -- 耐力默认隐藏（按要求）
-    end
 
-    -- 副属性
-    if showSecondaryStats then
-        addStatToCache("crit", STAT_DEFS.crit)
-        addStatToCache("haste", STAT_DEFS.haste)
-        if YUI.IsForever then
-            addStatToCache("hit", STAT_DEFS.hit)
-            addStatToCache("expertise", STAT_DEFS.expertise)
-        else
-            addStatToCache("mastery", STAT_DEFS.mastery)
-            addStatToCache("versatility", STAT_DEFS.versatility)
+        if showPrimaryStats then
+            -- 基于职业/专精确定主属性
+            local primary = "str"
+            if roleCtx.isCaster or roleCtx.isHealer then
+                primary = "int"
+            elseif roleCtx.isRanged then -- Hunter
+                primary = "agi"
+            elseif classToken == "ROGUE" or classToken == "DEMONHUNTER" or classToken == "MONK" or (classToken == "DRUID" and not roleCtx.isCaster) or (classToken == "SHAMAN" and not roleCtx.isCaster) then
+                primary = "agi"
+            end
+
+            -- 添加相关主属性
+            addStatToCache(primary, STAT_DEFS[primary])
+            if YUI.IsForever then
+                addStatToCache("sta", STAT_DEFS.sta)
+                addStatToCache("spirit", STAT_DEFS.spirit)
+            end
+            -- 耐力默认隐藏（按要求）
         end
-    end
 
-    -- 其他
-    if showOtherStats then
-        if YUI.IsForever then
-            addStatToCache("attack_power", STAT_DEFS.attack_power)
-            addStatToCache("spell_power", STAT_DEFS.spell_power)
-            addStatToCache("manaregen", STAT_DEFS.manaregen)
-        else
-            addStatToCache("leech", STAT_DEFS.leech)
-            addStatToCache("avoidance", STAT_DEFS.avoidance)
-            addStatToCache("speed", STAT_DEFS.speed)
+        -- 副属性
+        if showSecondaryStats then
+            addStatToCache("crit", STAT_DEFS.crit)
+            addStatToCache("haste", STAT_DEFS.haste)
+            if YUI.IsForever then
+                addStatToCache("hit", STAT_DEFS.hit)
+                addStatToCache("expertise", STAT_DEFS.expertise)
+            else
+                addStatToCache("mastery", STAT_DEFS.mastery)
+                addStatToCache("versatility", STAT_DEFS.versatility)
+            end
         end
-    end
 
-    -- 防御（仅坦克或有相关属性）
-    if showDefenseStats and (YUI.IsForever or (roleCtx and roleCtx.isTank)) then
-        if YUI.IsForever then addStatToCache("armor", STAT_DEFS.armor) end
-        addStatToCache("dodge", STAT_DEFS.dodge)
-        addStatToCache("parry", STAT_DEFS.parry)
-        addStatToCache("block", STAT_DEFS.block)
-        addStatToCache("stagger", STAT_DEFS.stagger)
-    end
+        -- 其他
+        if showOtherStats then
+            if YUI.IsForever then
+                addStatToCache("attack_power", STAT_DEFS.attack_power)
+                addStatToCache("spell_power", STAT_DEFS.spell_power)
+                addStatToCache("manaregen", STAT_DEFS.manaregen)
+            else
+                addStatToCache("leech", STAT_DEFS.leech)
+                addStatToCache("avoidance", STAT_DEFS.avoidance)
+                addStatToCache("speed", STAT_DEFS.speed)
+            end
+        end
 
-    -- 移动速度
-    if showSpeedStats then
-        addStatToCache("movespeed", STAT_DEFS.movespeed)
+        -- 防御（仅坦克或有相关属性）
+        if showDefenseStats and (YUI.IsForever or (roleCtx and roleCtx.isTank)) then
+            if YUI.IsForever then addStatToCache("armor", STAT_DEFS.armor) end
+            addStatToCache("dodge", STAT_DEFS.dodge)
+            addStatToCache("parry", STAT_DEFS.parry)
+            addStatToCache("block", STAT_DEFS.block)
+            addStatToCache("stagger", STAT_DEFS.stagger)
+        end
+
+        -- 移动速度
+        if showSpeedStats then
+            addStatToCache("movespeed", STAT_DEFS.movespeed)
+        end
     end
 
     local orientation = GetPanelOrientation(self.settings)
-    local horizontalLayout = orientation == PANEL_ORIENTATION_HORIZONTAL and BeginHorizontalLayout(f, columnSpacing) or nil
+    local horizontalLayout = not frozenSnapshot and orientation == PANEL_ORIENTATION_HORIZONTAL and BeginHorizontalLayout(f, columnSpacing) or nil
     local lineIndex = 0
     local yOffset = 0
 
@@ -3269,18 +3358,20 @@ function Module:UpdateStatsPanel()
                 -- 检查分类显示设置
                 local showStat = true
 
-                if stat.id == "ilvl" then
-                    showStat = ShouldShow(ilvlMode)
-                elseif stat.id == "str" or stat.id == "agi" or stat.id == "int" or stat.id == "sta" then
-                    showStat = ShouldShow(primaryMode)
-                elseif stat.id == "crit" or stat.id == "haste" or stat.id == "mastery" or stat.id == "versatility" then
-                    showStat = ShouldShow(secondaryMode)
-                elseif IsDefenseStat(stat.id) then
-                    showStat = ShouldShow(defenseMode)
-                elseif stat.id == "leech" or stat.id == "avoidance" or stat.id == "speed" or stat.id == "manaregen" then
-                    showStat = ShouldShow(otherMode)
-                elseif stat.id == "movespeed" then
-                    showStat = ShouldShow(speedMode)
+                if not frozenSnapshot then
+                    if stat.id == "ilvl" then
+                        showStat = ShouldShow(ilvlMode)
+                    elseif stat.id == "str" or stat.id == "agi" or stat.id == "int" or stat.id == "sta" then
+                        showStat = ShouldShow(primaryMode)
+                    elseif stat.id == "crit" or stat.id == "haste" or stat.id == "mastery" or stat.id == "versatility" then
+                        showStat = ShouldShow(secondaryMode)
+                    elseif IsDefenseStat(stat.id) then
+                        showStat = ShouldShow(defenseMode)
+                    elseif stat.id == "leech" or stat.id == "avoidance" or stat.id == "speed" or stat.id == "manaregen" then
+                        showStat = ShouldShow(otherMode)
+                    elseif stat.id == "movespeed" then
+                        showStat = ShouldShow(speedMode)
+                    end
                 end
 
                 if showStat then
@@ -3305,12 +3396,17 @@ function Module:UpdateStatsPanel()
                     end
 
                     local show = true
-                    if not isSecret then
-                        if def.percent and val < 0.1 then show = false end
+                    if not frozenSnapshot then
+                        if not isSecret then
+                            if def.percent and val < 0.1 then show = false end
+                        elseif fixedDisplay and snapshot and not self.layoutPreviewing then
+                            -- A combat restriction may outlive the regen event briefly.
+                            show = snapshot.visible[stat.id] == true
+                        end
+                        -- 强制显示某些关键属性，除非被上方分类逻辑隐藏
+                        if stat.id == "str" or stat.id == "agi" or stat.id == "int" or stat.id == "movespeed" or stat.id == "ilvl" then show = true end
+                        if YUI.IsForever and not isSecret and rawVal == nil then show = false end
                     end
-                    -- 强制显示某些关键属性，除非被上方分类逻辑隐藏
-                    if stat.id == "str" or stat.id == "agi" or stat.id == "int" or stat.id == "movespeed" or stat.id == "ilvl" then show = true end
-                    if YUI.IsForever and not isSecret and rawVal == nil then show = false end
 
                     if show then
                         lineIndex = lineIndex + 1
@@ -3318,23 +3414,25 @@ function Module:UpdateStatsPanel()
 
                         SetShownIfChanged(line, true)
 
-                        -- 更新字体以防改变
-                        ApplyStatsFont(line.label, fontPath, fontSize, fontEffect)
-                        ApplyStatsFont(line.value, fontPath, fontSize, fontEffect)
-                        local lineHeight = math.max(20, fontSize + 4)
+                        if not frozenSnapshot then
+                            -- 更新字体以防改变
+                            ApplyStatsFont(line.label, fontPath, fontSize, fontEffect)
+                            ApplyStatsFont(line.value, fontPath, fontSize, fontEffect)
+                            local lineHeight = math.max(20, fontSize + 4)
 
-                        if orientation == PANEL_ORIENTATION_VERTICAL then
-                            ResetVerticalLine(line, f:GetWidth())
-                            line:SetPoint("TOPLEFT", 0, yOffset)
-                            SetHeightIfChanged(line, lineHeight)
-                            line.label:SetPoint("LEFT", 5, 0)
-                            line.value:SetPoint("RIGHT", -5, 0)
+                            if orientation == PANEL_ORIENTATION_VERTICAL then
+                                ResetVerticalLine(line, f:GetWidth())
+                                line:SetPoint("TOPLEFT", 0, yOffset)
+                                SetHeightIfChanged(line, lineHeight)
+                                line.label:SetPoint("LEFT", 5, 0)
+                                line.value:SetPoint("RIGHT", -5, 0)
+                            end
+
+                            local r, g, b = GetStatColor(stat.id)
+                            ApplyStatColorStyle(line, appearanceStyle, r, g, b)
+
+                            SetTextIfChanged(line.label, def.label)
                         end
-
-                        local r, g, b = GetStatColor(stat.id)
-                        ApplyStatColorStyle(line, appearanceStyle, r, g, b)
-
-                        SetTextIfChanged(line.label, def.label)
                         line.statId = stat.id -- 存储 ID 用于更新
                         local secondaryRating
                         local secondaryRatingIsSecret = false
@@ -3412,6 +3510,10 @@ function Module:UpdateStatsPanel()
                         end
                         local isPrimaryValue = stat.id == "str" or stat.id == "agi" or stat.id == "int" or stat.id == "sta"
                         local valueFallbackWidth = orientation == PANEL_ORIENTATION_HORIZONTAL and GetStatValueFallbackWidth(stat.id, fontSize, valuePrecision, def.percent, false, isPrimaryValue) or nil
+                        if valueFallbackWidth and fixedDisplay and stat.id == "versatility"
+                            and NormalizeVersatilityDisplayMode(self.settings.versatilityDisplayMode) == VERSATILITY_DISPLAY_SPLIT then
+                            valueFallbackWidth = valueFallbackWidth * 2 + EstimateTextWidth(fontSize, 1, 8)
+                        end
                         if valueFallbackWidth and secondaryRatingAvailable then
                             valueFallbackWidth = valueFallbackWidth + EstimateTextWidth(fontSize, 8, 54)
                         end
@@ -3421,14 +3523,16 @@ function Module:UpdateStatsPanel()
                             line.value._yuiStatsValueFallbackWidth = NormalizeSafeWidth(valueFallbackWidth, SECRET_TEXT_FALLBACK_WIDTH)
                         end
 
-                        if orientation == PANEL_ORIENTATION_HORIZONTAL then
-                            local horizontalLineHeight = math.max(
-                                SafeFontStringHeight(line.label, fontSize),
-                                SafeFontStringHeight(line.value, fontSize)
-                            )
-                            PlaceHorizontalLine(line, horizontalLayout, horizontalLineHeight, valueFallbackWidth)
-                        else
-                            yOffset = yOffset - spacing
+                        if not frozenSnapshot then
+                            if orientation == PANEL_ORIENTATION_HORIZONTAL then
+                                local horizontalLineHeight = math.max(
+                                    SafeFontStringHeight(line.label, fontSize),
+                                    SafeFontStringHeight(line.value, fontSize)
+                                )
+                                PlaceHorizontalLine(line, horizontalLayout, horizontalLineHeight, valueFallbackWidth, fixedDisplay)
+                            else
+                                yOffset = yOffset - spacing
+                            end
                         end
                     end
                 end
@@ -3441,8 +3545,11 @@ function Module:UpdateStatsPanel()
         SetShownIfChanged(f.lines[i], false)
     end
 
-    ApplyStatsPanelGeometry(f, self.settings, orientation, horizontalLayout, math.abs(yOffset))
-    self:RefreshStatsLayoutBounds(previousWidth, previousHeight)
+    if not frozenSnapshot then
+        ApplyStatsPanelGeometry(f, self.settings, orientation, horizontalLayout, math.abs(yOffset))
+        self:RefreshStatsLayoutBounds(previousWidth, previousHeight)
+        self:CaptureStatsDisplaySnapshot(lineIndex)
+    end
     self:RefreshSpeedTickerState()
 end
 
@@ -3489,5 +3596,17 @@ if YUI.Layout and YUI.Layout.RegisterAnchorProvider then
             return Components.GetConfiguredEnableState
                 and Components:GetConfiguredEnableState(FEATURE_KEY) or "unknown"
         end,
+    })
+end
+
+if GUI2.FontStyle and GUI2.FontStyle.RegisterConfig then
+    local style=GUI2.FontStyle
+    style:RegisterConfig("character_stats", {
+        label=function() return Feature.name end,
+        get=function() return style.ComponentConfig(PRODUCT_ID,CONFIG_KEY) end,
+        refresh=function(db) if Module.settings==db then Module:RefreshStatsSettings() end end,
+        targets={{id="text",label=function() return Feature.name end,
+            fields={font="font",size="fontSize",monochrome="textMonochrome"}, effect="fontEffect",format="stats",
+            defaults=DEFAULT_CONFIG,minSize=8,maxSize=20}},
     })
 end

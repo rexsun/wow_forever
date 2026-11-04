@@ -5,7 +5,7 @@ if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("frFR") then return end
 YUI.Locale:Register("CombatCue", "frFR", {
     ["name"] = "Signal de combat",
     ["description"] = "Affiche une image, une animation et un son à l’entrée ou à la sortie du combat.",
-    ["product.title"] = "Combat Cue · YanForge",
+    ["product.title"] = "Combat Cue · Ayan",
     ["product.short_title"] = "Combat Cue",
     ["product.notes"] = " Affiche les signaux visuels, l'animation et le son configurables lors de l'entrée ou de la sortie du combat.",
     ["settings.visual"] = "Visuel",

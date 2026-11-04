@@ -5,7 +5,7 @@ if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("koKR") then return end
 YUI.Locale:Register("CombatCue", "koKR", {
     ["name"] = "전투 알림",
     ["description"] = "전투 시작과 종료 때 이미지, 애니메이션, 소리를 표시합니다.",
-    ["product.title"] = "전투 큐 · YanForge입니다",
+    ["product.title"] = "전투 큐 · Ayan입니다",
     ["product.short_title"] = "Combat Cue",
     ["product.notes"] = "configurable visual cues, 생기 및 소리를 표시하거나 전투를 떠나면 보여줍니다.",
     ["settings.visual"] = "팟캐스트",

@@ -11,6 +11,7 @@ local PROJECTION_LAYOUT_PREFIX = "yui.product.yhud.projection."
 LayoutBridge.registeredGroups = LayoutBridge.registeredGroups or {}
 LayoutBridge.designProjectionGroups = LayoutBridge.designProjectionGroups or {}
 LayoutBridge.editGroups = LayoutBridge.editGroups or {}
+LayoutBridge.anchorProviders = LayoutBridge.anchorProviders or {}
 LayoutBridge.appliedPlacements = nil
 
 local DEFAULT_TITLES = {
@@ -99,9 +100,83 @@ local function GetGroupTitle(groupId, group)
     return fallback
 end
 
-local function BuildAnchorTargets()
+local function GetGroupFrameName(groupId)
+    if YHUD.GROUP_IDS and groupId == YHUD.GROUP_IDS.TRINKETS then
+        return "YUI_YHUD_TrinketGroup"
+    end
+    return "YUI_YHUD_Group_" .. tostring(groupId):gsub("[^%w_]", "_")
+end
+
+local function GetLayoutProfileOwner(profile)
+    if profile and profile == YHUD._initialResourceProfile then
+        return YHUD._initialResourceProfileCanonical or profile
+    end
+    if profile and profile == YHUD._runtimeProfile then
+        return YHUD._runtimeProfileCanonical or profile
+    end
+    return (YHUD.GetCanonicalProfile and YHUD:GetCanonicalProfile(profile))
+        or profile
+end
+
+-- Declare absent runtime groups before placing their dependents. Core Layout
+-- owns guarded history and fallback; a design preview is never real geometry.
+function LayoutBridge:SyncAnchorProviders(profile)
+    local Layout = YUI.Layout
+    if not (Layout and Layout.RegisterAnchorProvider) then return end
+    local canonical = GetLayoutProfileOwner(profile)
+    local groups = canonical and canonical.groups and canonical.groups.items or {}
+    local runtimeGroups = profile and profile.groups and profile.groups.items or {}
+    local profileChanged = self.anchorProfile ~= profile
+    self.anchorProfile = profile
+    for groupId, group in pairs(groups) do
+        local state = self.anchorProviders[groupId]
+        local runtimeGroup = runtimeGroups[groupId]
+        local enabled = runtimeGroup ~= nil and runtimeGroup.enabled == true
+            and SUPPORTED_LAYOUTS[runtimeGroup.layout] == true
+        if not state then
+            state = { name = GetGroupFrameName(groupId), enabled = enabled }
+            self.anchorProviders[groupId] = state
+            Layout:RegisterAnchorProvider(GetLayoutId(groupId), {
+                name = state.name,
+                getState = function() return state.enabled and "enabled" or "disabled" end,
+            })
+        elseif state.enabled ~= enabled or profileChanged then
+            state.enabled = enabled
+            Layout:InvalidateAnchorProvider(GetLayoutId(groupId))
+        end
+        state.title = GetGroupTitle(groupId, group)
+    end
+    for groupId, state in pairs(self.anchorProviders) do
+        if not groups[groupId] then
+            if state.enabled ~= false then
+                state.enabled = false
+                Layout:InvalidateAnchorProvider(GetLayoutId(groupId))
+            end
+            if profile and Layout.UnregisterAnchorProvider
+                and Layout:UnregisterAnchorProvider(GetLayoutId(groupId)) then
+                self.anchorProviders[groupId] = nil
+            end
+        end
+    end
+end
+
+local function CreateProjectionStorage(placement)
+    local storage = { value = placement }
+    function storage:get() return self.value end
+    function storage:set(_, value) self.value = value; return true end
+    function storage:clear() self.value = nil; return true end
+    function storage:identity() return self end
+    return storage
+end
+
+local function BuildAnchorTargets(includeGroups)
     local Layout = YUI.Layout
     local targets = {}
+    if includeGroups ~= false then
+        for _, state in pairs(LayoutBridge.anchorProviders) do
+            targets[#targets + 1] = { name = state.name, label = state.title }
+        end
+    end
     for id, entry in pairs(Layout and Layout.frames or {}) do
         if not IsYHUDLayoutId(id) and type(entry) == "table" then
             local spec = entry.spec
@@ -162,10 +237,24 @@ local function BuildEffectiveProfilePlacements(profile)
     return effective, groups
 end
 
+local function TranslateProjectionPlacement(placement, names)
+    local copy = YHUD:CopyValue(placement)
+    local current = copy
+    while type(current) == "table" do
+        local anchor = current.anchor
+        if anchor and names and names[anchor.relative] then
+            anchor.relative = names[anchor.relative]
+        end
+        current = current.fallback
+    end
+    return copy
+end
+
 local function RefreshProjectionPlacement(self, groupId, placement)
     local projection = self.designProjectionGroups[groupId]
     local Layout = YUI.Layout
     if not (projection and Layout and Layout.SetPlacement) then return false end
+    placement = TranslateProjectionPlacement(placement, projection.anchorNames)
     if Layout.GetPlacement
         and ValuesEqual(Layout:GetPlacement(projection.layoutId), placement) then
         return false
@@ -212,15 +301,23 @@ function LayoutBridge:ApplyProfilePlacements(profile, force)
     local Layout = YUI.Layout
     if not Layout then return false end
     local effective, groups = BuildEffectiveProfilePlacements(profile)
-    if Layout.GetPlacementState and Layout.GetPlacement then
+    local owner = GetLayoutProfileOwner(GetDisplayedProfile() or profile)
+    local sameOwner = self.appliedPlacementOwner == owner
+    if sameOwner and Layout.GetPlacementState and Layout.GetPlacement then
         for groupId, current in pairs(self.registeredGroups) do
-            if Layout:GetPlacementState(current.layoutId) == "fallback" then
+            local requested = effective[groupId]
+            if requested and Layout:GetPlacementState(current.layoutId) == "fallback" then
                 local live = Layout:GetPlacement(current.layoutId)
-                if type(live) == "table" then effective[groupId] = live end
+                -- Keep updated screen history only for the same request and
+                -- runtime owner. A new scheme or draft placement must win.
+                if type(live) == "table" and ValuesEqual(live.anchor, requested.anchor)
+                    and ValuesEqual(live.offset, requested.offset) then
+                    effective[groupId] = live
+                end
             end
         end
     end
-    if force ~= true and self.appliedPlacements
+    if force ~= true and sameOwner and self.appliedPlacements
         and ValuesEqual(self.appliedPlacements, effective) then
         return false
     end
@@ -228,7 +325,7 @@ function LayoutBridge:ApplyProfilePlacements(profile, force)
     local private = Layout._private
     if private and private.SavePlacement then
         for groupId, current in pairs(self.registeredGroups) do
-            if groups[groupId] == nil then
+            if groups[groupId] == nil and not current.designProjection then
                 private.SavePlacement(current.layoutId, nil)
             end
         end
@@ -236,20 +333,25 @@ function LayoutBridge:ApplyProfilePlacements(profile, force)
     for groupId, placement in pairs(effective) do
         local current = self.registeredGroups[groupId]
         local layoutId = current and current.layoutId or GetLayoutId(groupId)
-        if private and private.SavePlacement then
+        if current and current.designProjection and Layout.SetPlacement then
+            Layout:SetPlacement(layoutId, placement, true)
+        elseif private and private.SavePlacement then
             private.SavePlacement(layoutId, placement)
         end
-        if current then
+        if current and not current.designProjection then
             local entry = Layout.frames and Layout.frames[layoutId]
             if private and private.ApplyPlacement and entry then
-                private.ApplyPlacement(entry, placement, true)
+                private.ApplyPlacement(entry, placement, true, { replaceRequest = not sameOwner })
             elseif Layout.SetPlacement then
                 Layout:SetPlacement(layoutId, placement, true)
             end
         end
-        RefreshProjectionPlacement(self, groupId, placement)
+        if not (YHUD.View and YHUD.View.designMode) then
+            RefreshProjectionPlacement(self, groupId, placement)
+        end
     end
     self.appliedPlacements = YHUD:CopyValue(effective)
+    self.appliedPlacementOwner = owner
     return true
 end
 
@@ -307,7 +409,7 @@ function LayoutBridge:OnGroupPlacementCommitted(groupId, placement, reason)
         return false, "invalid-placement-result"
     end
     RefreshProjectionPlacement(self, groupId, committed)
-    if self.appliedPlacements and type(committed) == "table" then
+    if not editingDraft and self.appliedPlacements and type(committed) == "table" then
         self.appliedPlacements[groupId] = YHUD:CopyValue(committed)
     end
     return true, changed
@@ -348,7 +450,8 @@ function LayoutBridge:RegisterGroup(groupId, group, frame, designProjection)
     local Layout = YUI.Layout
     if not (Layout and Layout.RegisterFrame and frame) then return false end
     designProjection = designProjection == true
-    local layoutId = GetLayoutId(groupId)
+    local layoutId = designProjection and (PROJECTION_LAYOUT_PREFIX .. tostring(groupId))
+        or GetLayoutId(groupId)
     local current = self.registeredGroups[groupId]
     local title = GetGroupTitle(groupId, group)
     if current and current.frame == frame and current.layoutId == layoutId
@@ -370,6 +473,7 @@ function LayoutBridge:RegisterGroup(groupId, group, frame, designProjection)
         self:UnregisterGroup(groupId)
     end
 
+    local storage = designProjection and CreateProjectionStorage(BuildDefaultPlacement(group)) or nil
     local entry = Layout:RegisterFrame(layoutId, {
         frame = frame,
         captureAnchorSnapshotGuard = function()
@@ -379,6 +483,7 @@ function LayoutBridge:RegisterGroup(groupId, group, frame, designProjection)
         category = "product",
         editModeFilterGroup = "monitor.cooldown",
         defaultPlacement = BuildDefaultPlacement(group),
+        placementStorage = storage,
         movable = true,
         snap = true,
         pixelAlignOrigin = true,
@@ -393,6 +498,7 @@ function LayoutBridge:RegisterGroup(groupId, group, frame, designProjection)
             end
             return nil
         end,
+        isEditModeEnabled = function() return LayoutBridge.designLayoutProjection == nil end,
         isEnabled = function()
             if not YHUD:IsEnabled() then return false end
             local Designer = YHUD.Designer
@@ -471,6 +577,7 @@ function LayoutBridge:RegisterGroup(groupId, group, frame, designProjection)
         exactMoverBounds = true,
         enabled = group.enabled == true,
         designProjection = designProjection,
+        storage = storage,
     }
     self.registered = true
     return true
@@ -480,74 +587,167 @@ function LayoutBridge:RegisterDesignProjectionGroup(
     groupId,
     group,
     frame,
-    placement
+    placement,
+    projection
 )
     local Layout = YUI.Layout
     if not (Layout and Layout.RegisterFrame and frame) then return false end
+    local previous = self.designProjectionGroups[groupId]
+    if previous and previous.frame ~= frame then
+        self:UnregisterDesignProjectionGroup(groupId, previous.frame)
+        previous = nil
+    end
     local current = self.registeredGroups[groupId]
-    if current and current.designProjection ~= true then
-        -- A live holder can exist without readable geometry. Apply the saved
-        -- placement to an independent preview without replacing its live owner
-        -- or storing a temporary registration in the shared Layout profile.
-        local previous = self.designProjectionGroups[groupId]
-        if previous and previous.frame ~= frame then
-            self:UnregisterDesignProjectionGroup(groupId, previous.frame)
-            previous = nil
+    placement = placement
+        or (current and Layout.GetPlacement and Layout:GetPlacement(current.layoutId))
+        or BuildDefaultPlacement(group)
+    local title = GetGroupTitle(groupId, group)
+    local state = previous or {
+        -- A pooled frame keeps its identity when it represents another group.
+        -- Layout's retained anchor definitions must follow that same identity.
+        layoutId = PROJECTION_LAYOUT_PREFIX .. tostring(frame.GetName and frame:GetName() or groupId),
+        frame = frame,
+        storage = CreateProjectionStorage(),
+    }
+    state.projection = projection
+    state.anchorNames = projection and projection.anchorNames
+    local value = TranslateProjectionPlacement(placement, state.anchorNames)
+    if previous and state.title == title and state.enabled == group.enabled then
+        return Layout:SetPlacement(state.layoutId, value, true)
+    end
+    state.storage.value = value
+    state.title, state.enabled = title, group.enabled
+    local entry = Layout:RegisterFrame(state.layoutId, {
+        frame = frame,
+        title = title,
+        category = "product",
+        editModeFilterGroup = "monitor.cooldown",
+        captureAnchorSnapshotGuard = function() return function() return false end end,
+        defaultPlacement = TranslateProjectionPlacement(BuildDefaultPlacement(group), state.anchorNames),
+        placementStorage = state.storage,
+        anchorTargets = function()
+            local targets = BuildAnchorTargets(false)
+            local names = state.anchorNames or {}
+            local groups = state.projection and state.projection.profile.groups.items or {}
+            for id, item in pairs(groups) do
+                targets[#targets + 1] = {
+                    name = names[GetGroupFrameName(id)],
+                    label = GetGroupTitle(id, item),
+                }
+            end
+            return targets
+        end,
+        pixelAlignOrigin = true,
+        combatProtected = false,
+        movable = function() return state.projection ~= nil
+            and YHUD.View and YHUD.View.designMode == true
+            and YHUD.View.designProjection == state.projection end,
+        isEditModeEnabled = function() return state.projection ~= nil
+            and LayoutBridge.designLayoutProjection == state.projection end,
+        exactMoverBounds = true,
+        getMoverBounds = function()
+            return YHUD.View:GetGroupMoverBounds(groupId, true)
+        end,
+        isEnabled = group.enabled == true,
+        onPlacementCommitted = function(_, value, _, _, reason)
+            return LayoutBridge:OnGroupPlacementCommitted(groupId,
+                TranslateProjectionPlacement(value, state.projection and state.projection.logicalAnchorNames), reason)
+        end,
+    })
+    if not entry then return false end
+    self.designProjectionGroups[groupId] = state
+    return true
+end
+
+function LayoutBridge:BeginGroupDrag(groupId, frame)
+    local state = self.designProjectionGroups[groupId]
+    local Layout = YUI.Layout
+    if not (state and state.frame == frame and state.projection
+        and YHUD.View and YHUD.View.designProjection == state.projection
+        and Layout and Layout.BeginDirectDrag and Layout.EndDirectDrag)
+        or self.dragGroupId then return false end
+    if not Layout:BeginDirectDrag(state.layoutId, { snap = false }) then return false end
+    self.dragGroupId, self.dragGroupFrame = groupId, frame
+    return true
+end
+
+function LayoutBridge:EndGroupDrag(groupId, frame, cancel)
+    if self.dragGroupId ~= groupId or self.dragGroupFrame ~= frame then return false end
+    self.dragGroupId, self.dragGroupFrame = nil, nil
+    local Layout = YUI.Layout
+    return Layout and Layout.EndDirectDrag and Layout:EndDirectDrag(cancel == true) or false
+end
+
+function LayoutBridge:SyncDesignProjection(projection)
+    local Layout = YUI.Layout
+    if not (projection and Layout and Layout.SetPlacement) then return false end
+    local groups = projection.profile.groups.items
+    local names, logicalNames = {}, {}
+    for groupId in pairs(groups) do
+        local runtime = projection.groups[groupId]
+        local name = runtime and runtime.frame:GetName()
+            or ("YUI_YHUD_DesignPending_" .. tostring(groupId):gsub("[^%w_]", "_"))
+        local logicalName = GetGroupFrameName(groupId)
+        names[logicalName], logicalNames[name] = name, logicalName
+    end
+    projection.anchorNames, projection.logicalAnchorNames = names, logicalNames
+    local placements = projection.profile.layout and projection.profile.layout.placements or {}
+    local byName, resolved, visiting = {}, {}, {}
+    for groupId in pairs(groups) do byName[GetGroupFrameName(groupId)] = groupId end
+    local function Apply(groupId)
+        if resolved[groupId] then return true end
+        if visiting[groupId] then return false end
+        local runtime = projection.groups[groupId]
+        if not runtime then return true end
+        visiting[groupId] = true
+        local placement = placements[groupId]
+        local target = placement and placement.anchor and byName[placement.anchor.relative]
+        if target and not Apply(target) then return false end
+        -- Resolve targets first: screen clamping must use their final geometry.
+        if not self:RegisterDesignProjectionGroup(groupId, runtime.group, runtime.frame, placement, projection) then
+            return false
         end
-        local storage = previous and previous.storage or {}
-        storage.value = placement
-            or (Layout.GetPlacement and Layout:GetPlacement(current.layoutId))
-            or BuildDefaultPlacement(group)
-        function storage:get() return self.value end
-        function storage:set(_, value) self.value = value; return true end
-        function storage:clear() self.value = nil; return true end
-        function storage:identity() return self end
-        local layoutId = PROJECTION_LAYOUT_PREFIX .. tostring(groupId)
-        local entry = Layout:RegisterFrame(layoutId, {
-            frame = frame,
-            captureAnchorSnapshotGuard = function()
-                return CaptureGroupAnchorGuard(groupId, true)
-            end,
-            title = GetGroupTitle(groupId, group),
-            category = "product",
-            defaultPlacement = storage.value,
-            placementStorage = storage,
-            anchorTargets = BuildAnchorTargets,
-            pixelAlignOrigin = true,
-            combatProtected = false,
-            movable = false,
-            exactMoverBounds = true,
-            isEnabled = group.enabled == true,
-        })
-        if not entry then return false end
-        self.designProjectionGroups[groupId] = {
-            layoutId = layoutId, frame = frame, storage = storage,
-        }
+        visiting[groupId], resolved[groupId] = nil, true
         return true
     end
-
-    if not (current and current.frame == frame) then
-        if frame.ClearAllPoints then frame:ClearAllPoints() end
-        if frame.SetPoint then
-            frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-        end
+    for groupId in pairs(projection.groups) do
+        if not Apply(groupId) then return false end
     end
-    if not self:RegisterGroup(groupId, group, frame, true) then return false end
+    return true
+end
 
-    current = self.registeredGroups[groupId]
-    if type(placement) == "table" and Layout.SetPlacement then
-        Layout:SetPlacement(current.layoutId, placement, true)
+function LayoutBridge:BeginDesignLayout(projection)
+    local Layout = YUI.Layout
+    if not (projection and Layout and not Layout:IsEditing()) then return false end
+    self.designLayoutProjection = projection
+    if not self:SyncDesignProjection(projection) then
+        self.designLayoutProjection = nil
+        return false
     end
+    YHUD.View:SetDesignLayoutMode(true)
+    return true
+end
+
+function LayoutBridge:EndDesignLayout(closeEditor)
+    if not self.designLayoutProjection then return false end
+    if closeEditor and YUI.Layout and YUI.Layout:IsEditing() then
+        YUI.Layout:CloseEditMode()
+    end
+    self.designLayoutProjection = nil
+    if YHUD.View then YHUD.View:SetDesignLayoutMode(false) end
     return true
 end
 
 function LayoutBridge:UnregisterDesignProjectionGroup(groupId, frame)
     local projection = self.designProjectionGroups[groupId]
     if projection and (not frame or projection.frame == frame) then
+        self:EndGroupDrag(groupId, projection.frame, true)
         local Layout = YUI.Layout
         if Layout and Layout.UnregisterFrame then
             Layout:UnregisterFrame(projection.layoutId)
         end
+        projection.projection = nil
+        projection.anchorNames = nil
         self.designProjectionGroups[groupId] = nil
         return true
     end
@@ -558,6 +758,7 @@ function LayoutBridge:UnregisterDesignProjectionGroup(groupId, frame)
 end
 
 function LayoutBridge:PrepareProfileTransition(profile)
+    self:SyncAnchorProviders(profile)
     local Layout = YUI.Layout
     if not (Layout and Layout.SetAnchorTargetAvailable) then return true end
     local groups = profile and profile.groups and profile.groups.items or {}
@@ -641,6 +842,9 @@ function LayoutBridge:Sync(profile)
     profile = profile or (YHUD.GetConfigProfile and YHUD:GetConfigProfile())
     if type(profile) ~= "table" then return false end
 
+    -- Sync can receive the Designer's viewed specialization when opening the
+    -- position editor. Only the actual View owns runtime target availability.
+    self:SyncAnchorProviders(type(View.profile) == "table" and View.profile or profile)
     self:ApplyProfilePlacements(profile)
 
     local frames = View:GetGroupFrames({}, true)
@@ -690,7 +894,9 @@ end
 
 function LayoutBridge:CommitGroupPosition(groupId, sourceFrame)
     local Layout = YUI.Layout
-    local current = self.registeredGroups[groupId]
+    local projection = self.designProjectionGroups[groupId]
+    local current = projection and projection.frame == sourceFrame and projection
+        or self.registeredGroups[groupId]
     if not (current and Layout and Layout.CommitFramePosition) then
         return false
     end
@@ -699,7 +905,6 @@ function LayoutBridge:CommitGroupPosition(groupId, sourceFrame)
         sourceFrame or current.frame,
         "frame-drag"
     )
-    local projection = self.designProjectionGroups[groupId]
     if committed and projection and projection.frame == sourceFrame
         and Layout.GetPlacement then
         local placement = Layout:GetPlacement(current.layoutId)
@@ -742,12 +947,14 @@ function LayoutBridge:CapturePlacements(profile)
     for groupId, group in pairs(groups) do
         local current = self.registeredGroups[groupId]
         local layoutId = current and current.layoutId or GetLayoutId(groupId)
-        local savedPlacement = Layout._private
+        local savedPlacement = current and current.storage and current.storage.value
+            or (Layout._private
             and Layout._private.GetSavedPlacement
-            and Layout._private.GetSavedPlacement(layoutId)
+            and Layout._private.GetSavedPlacement(layoutId))
         local placement = current
             and Layout:GetPlacement(layoutId)
             or savedPlacement
+            or (profile.layout and profile.layout.placements and profile.layout.placements[groupId])
             or BuildDefaultPlacement(group)
         snapshot[groupId] = {
             layoutId = layoutId,
@@ -774,7 +981,7 @@ function LayoutBridge:HasPlacementChanges(snapshot)
     return false
 end
 
-function LayoutBridge:RestorePlacements(snapshot)
+function LayoutBridge:RestorePlacements(snapshot, profile)
     local Layout = YUI.Layout
     if type(snapshot) ~= "table"
         or not (Layout and Layout.SetPlacement) then
@@ -785,19 +992,23 @@ function LayoutBridge:RestorePlacements(snapshot)
     for groupId, saved in pairs(snapshot) do
         local current = self.registeredGroups[groupId]
         local private = Layout._private
+        local temporary = type(saved.layoutId) == "string"
+            and saved.layoutId:sub(1, #PROJECTION_LAYOUT_PREFIX) == PROJECTION_LAYOUT_PREFIX
         if type(saved.placement) == "table" then
             restoredPlacements[groupId] = saved.placement
-            if private and private.SavePlacement then
+            if current and current.storage and current.layoutId == saved.layoutId then
+                restored = Layout:SetPlacement(current.layoutId, saved.placement, true) == true or restored
+            elseif not temporary and private and private.SavePlacement then
                 private.SavePlacement(
                     saved.layoutId,
                     saved.hasSavedPlacement and saved.placement or nil
                 )
                 restored = true
             end
-            if current and current.layoutId == saved.layoutId then
+            if current and not current.storage and current.layoutId == saved.layoutId then
                 local entry = Layout.frames and Layout.frames[current.layoutId]
                 if private and private.ApplyPlacement and entry then
-                    private.ApplyPlacement(entry, saved.placement, true)
+                    private.ApplyPlacement(entry, saved.placement, true, { replaceRequest = true })
                     restored = true
                 else
                     local applied = Layout:SetPlacement(
@@ -817,17 +1028,23 @@ function LayoutBridge:RestorePlacements(snapshot)
     local private = Layout._private
     if private and private.SavePlacement then
         for groupId, current in pairs(self.registeredGroups) do
-            if not snapshot[groupId] then
+            if not snapshot[groupId] and not current.storage then
                 private.SavePlacement(current.layoutId, nil)
                 restored = true
             end
         end
     end
     self.appliedPlacements = YHUD:CopyValue(restoredPlacements)
+    self.appliedPlacementOwner = GetLayoutProfileOwner(profile or GetDisplayedProfile())
     return restored
 end
 
 function LayoutBridge:Unregister()
+    self:EndDesignLayout(true)
+    local projectionIds = {}
+    for groupId in pairs(self.designProjectionGroups) do projectionIds[#projectionIds + 1] = groupId end
+    for _, groupId in ipairs(projectionIds) do self:UnregisterDesignProjectionGroup(groupId) end
+    self:SyncAnchorProviders(nil)
     local groupIds = {}
     for groupId in pairs(self.registeredGroups) do
         groupIds[#groupIds + 1] = groupId
@@ -837,4 +1054,5 @@ function LayoutBridge:Unregister()
     end
     self.registered = false
     self.appliedPlacements = nil
+    self.appliedPlacementOwner = nil
 end

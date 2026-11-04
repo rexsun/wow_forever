@@ -18,11 +18,12 @@ if YUI.IsRetail or YUI.IsForever then
     for _, item in ipairs({
         { "health", "resource.player_health", "unit-health", { 0.26, 0.72, 0.49, 1 } },
         { "cast", "resource.player_cast", "player-cast", { 0.87, 0.72, 0.33, 1 } },
+        { "gcd", "resource.global_cooldown", "global-cooldown", { 0.25, 0.75, 0.90, 1 } },
     }) do
         YHUD.ResourceDefinitions[item[1]] = {
             id = item[1], nameKey = item[2], valueKind = "continuous",
             defaultEnabled = false, defaultValueText = true,
-            defaultValueFormat = item[1] == "cast" and "duration" or "percentSign",
+            defaultValueFormat = item[1] ~= "health" and "duration" or "percentSign",
             previewMax = 100, color = item[4], provider = { kind = item[3] },
             defaultSettings = item[1] == "cast" and { heightOverride = 24 } or nil,
         }
@@ -201,11 +202,13 @@ function Catalog:BuildSourceKey(classFile, specID, resourceId)
     end
     if provider and provider.kind == "player-cast" then return "cast:player" end
     if provider and provider.kind == "unit-health" then return "health:player" end
+    if provider and provider.kind == "global-cooldown" then return "gcd:player" end
     return string.format("resource:%s:%d:%s", classFile, specID, resourceId)
 end
 
-function Catalog:GetDefinition(resourceId)
-    return DEFINITIONS[resourceId]
+function Catalog:GetDefinition(resourceId, profile, groupId)
+    return DEFINITIONS[resourceId] or YHUD.ResourceManager
+        and YHUD.ResourceManager:GetDefinition(resourceId, profile, groupId)
 end
 
 function Catalog:GetDefinitionIds(target)
@@ -298,6 +301,11 @@ function Catalog:GetDisplayPresets(profile, presets)
                 rows[#rows + 1] = pair
             end
             pair.enabled = pair.enabled or preset.enabled == true
+            -- The off hand is an internal half, not a generic row link. When
+            -- only one physical source exists, its external link still works.
+            if preset.id == "swingMainHand" then
+                pair.joinPrevious, pair.resourceRowKey = preset.joinPrevious, preset.resourceRowKey
+            end
         else
             rows[#rows + 1] = preset
         end
@@ -513,6 +521,12 @@ end
 function Catalog:GetPreviewPresets(profile, classFile, specID, formKey, target)
     classFile = NormalizeClassFile(classFile)
     specID = NormalizeSpecID(specID)
+    if YHUD.ResourceManager then
+        if CLASS_CONTEXTS[classFile] then
+            formKey = GetFormDefinition(classFile, specID, formKey) and formKey or self:GetDefaultFormKey(classFile, specID)
+        end
+        return YHUD.ResourceManager:GetPresets(profile, classFile, specID, formKey, true)
+    end
     if CLASS_CONTEXTS[classFile] then
         formKey = GetFormDefinition(classFile, specID, formKey)
             and formKey or self:GetDefaultFormKey(classFile, specID)
@@ -834,6 +848,170 @@ function Catalog:GetPresets(profile, classFile, specID, target)
     return target
 end
 
+-- Configuration-only summary. Count a specialization once even when several
+-- forms enable the same resource; do not materialize its monitor document.
+function Catalog:GetPresetUsage(profile)
+    local usage = {}
+    for classFile, specs in pairs(PRESETS) do
+        for specID, ids in pairs(specs) do
+            local selected = {}
+            local forms = self:GetFormOptions(classFile, specID)
+            if #forms > 0 then
+                for _, form in ipairs(forms) do
+                    local state = BuildFormState(profile, classFile, specID, form.key)
+                    for id, enabled in pairs(state.enabled) do
+                        if enabled then
+                            selected[id] = selected[id] or {}
+                            selected[id][#selected[id] + 1] = form
+                        end
+                    end
+                    if PairEnabled(profile) and (state.enabled.swingMainHand or state.enabled.swingOffHand) then
+                        selected.swingHands = selected.swingHands or {}
+                        selected.swingHands[#selected.swingHands + 1] = form
+                    end
+                end
+            else
+                for _, id in ipairs(ids) do
+                    if self:IsPresetEnabled(profile, classFile, specID, id) then selected[id] = {} end
+                end
+                if PairEnabled(profile) and (selected.swingMainHand or selected.swingOffHand) then
+                    selected.swingHands = {}
+                end
+            end
+            for id, enabledForms in pairs(selected) do
+                local entry = usage[id] or { count = 0, specializations = {} }
+                usage[id] = entry
+                entry.count = entry.count + 1
+                entry.specializations[#entry.specializations + 1] = {
+                    classFile = classFile, specID = specID, forms = enabledForms,
+                }
+            end
+        end
+    end
+    for _, entry in pairs(usage) do
+        table.sort(entry.specializations, function(a, b)
+            if a.classFile ~= b.classFile then return a.classFile < b.classFile end
+            return a.specID < b.specID
+        end)
+    end
+    return usage
+end
+
+function Catalog:SetPresetEnabledForAllSpecializations(profile, resourceId, enabled)
+    local pair = resourceId == "swingHands" and PairEnabled(profile)
+    if type(enabled) ~= "boolean" or not (DEFINITIONS[resourceId] or pair) then
+        return nil, "unknown-resource-preset"
+    end
+    local ids = pair and { "swingMainHand", "swingOffHand" } or { resourceId }
+    local changed = 0
+    local manager = YHUD.ResourceManager
+    if manager then
+        local function Apply(classFile, specID, formKey)
+            local candidates = formKey and self:GetFormPresets(profile, classFile, specID, formKey)
+                or self:GetPresets(profile, classFile, specID)
+            local allowed, dirty = {}, false
+            for _, preset in ipairs(candidates) do allowed[preset.id] = true end
+            local items = manager:GetItems(profile, classFile, specID, formKey)
+            for _, id in ipairs(ids) do
+                if allowed[id] then
+                    local existing
+                    for _, item in ipairs(items) do
+                        if item.id == id then existing = item break end
+                    end
+                    if existing then
+                        if existing.enabled ~= enabled then existing.enabled, dirty = enabled, true end
+                    elseif enabled then
+                        if #items >= manager.LIMIT then return nil, "resource-limit" end
+                        items[#items + 1] = { id = id, enabled = true }
+                        dirty = true
+                    end
+                end
+            end
+            if dirty then
+                manager:StoreItems(profile, classFile, specID, formKey, items)
+                changed = changed + 1
+            end
+            return true
+        end
+        for classFile, specs in pairs(PRESETS) do
+            for specID in pairs(specs) do
+                local forms = self:GetFormOptions(classFile, specID)
+                for index = 1, math.max(1, #forms) do
+                    local ok, code = Apply(classFile, specID, forms[index] and forms[index].key)
+                    if not ok then return nil, code end
+                end
+            end
+        end
+        return true, changed
+    end
+    for classFile, specs in pairs(PRESETS) do
+        for specID in pairs(specs) do
+            for _, id in ipairs(ids) do
+                if HasPresetResource(classFile, specID, id)
+                    and self:IsPresetEnabled(profile, classFile, specID, id) ~= enabled then
+                    local ok, code = self:SetPresetEnabled(profile, classFile, specID, id, enabled)
+                    if not ok then return nil, code end
+                    changed = changed + 1
+                end
+            end
+            for _, form in ipairs(self:GetFormOptions(classFile, specID)) do
+                local state = BuildFormState(profile, classFile, specID, form.key)
+                local dirty = false
+                for _, id in ipairs(ids) do
+                    if state.enabled[id] ~= nil and state.enabled[id] ~= enabled then
+                        state.enabled[id], dirty = enabled, true
+                    end
+                end
+                if dirty then
+                    StoreFormState(profile, classFile, specID, form.key, state)
+                    changed = changed + 1
+                end
+            end
+        end
+    end
+    return true, changed
+end
+
+function Catalog:RemoveResourceForAllSpecializations(profile, resourceId)
+    local manager = YHUD.ResourceManager
+    if not manager then return nil, "resource-manager-unavailable" end
+    local pair = resourceId == "swingHands" and PairEnabled(profile)
+    if not (DEFINITIONS[resourceId] or pair or manager:GetCustom(profile, nil, resourceId)) then
+        return nil, "unknown-resource"
+    end
+    local ids = pair and { swingMainHand = true, swingOffHand = true } or { [resourceId] = true }
+    local config = YHUD:GetResourceConfig(profile)
+    local savedKeys, visited, changed = {}, {}, 0
+    for key in pairs(config.itemsByContext or {}) do savedKeys[#savedKeys + 1] = key end
+    local function Remove(classFile, specID, formKey, savedKey)
+        local key = savedKey or manager.ContextKey(classFile, specID, formKey)
+        if visited[key] then return end
+        visited[key] = true
+        local items = savedKey and config.itemsByContext[savedKey]
+            or manager:GetItems(profile, classFile, specID, formKey)
+        local kept, removed = manager:RemoveItems(profile, items, ids)
+        if removed then
+            -- Empty lists suppress legacy/default fallback after save and reload.
+            if savedKey then config.itemsByContext[key] = kept
+            else manager:StoreItems(profile, classFile, specID, formKey, kept) end
+            changed = changed + 1
+        end
+    end
+    for classFile, specs in pairs(PRESETS) do
+        for specID in pairs(specs) do
+            local forms = self:GetFormOptions(classFile, specID)
+            for index = 1, math.max(1, #forms) do
+                Remove(classFile, specID, forms[index] and forms[index].key)
+            end
+        end
+    end
+    for _, key in ipairs(savedKeys) do
+        local classFile, specID, formKey = key:match("^([A-Z]+):(%d+):(.*)$")
+        if classFile then Remove(classFile, tonumber(specID), formKey ~= "" and formKey or nil, key) end
+    end
+    return true, changed
+end
+
 function Catalog:GetEnabledPresets(profile, classFile, specID, target)
     local presets = self:GetPresets(profile, classFile, specID, target)
     local writeIndex = 1
@@ -887,6 +1065,7 @@ function Catalog:GetCurrentPresets(profile, target)
 end
 
 local function InitialDefinitionAvailable(definition)
+    if definition and definition.initialEnabled == false then return false end
     local provider = definition and definition.provider or {}
     if definition and type(definition.powerType) == "number"
         and UnitAPI.ReadPowerDisplay then
@@ -962,6 +1141,30 @@ function Catalog:GetGroupPresets(profile, groupId, eligible, target)
         return target
     end
     local scoped = YHUD:GetResourceProfile(profile, groupId)
+    if YHUD.ResourceManager and scoped._yhudInitialResourceOnly ~= true then
+        local classFile, specID = self:GetCurrentContext()
+        local formKey = self:GetCurrentFormKey(classFile, specID)
+        if eligible and #self:GetFormOptions(classFile, specID) > 0 then
+            local result, seen = {}, {}
+            for _, form in ipairs(self:GetFormOptions(classFile, specID)) do
+                for _, preset in ipairs(YHUD.ResourceManager:GetPresets(scoped, classFile, specID, form.key, true)) do
+                    if preset.customEntry or self:IsDefinitionAvailable(preset) then
+                        local existing = seen[preset.sourceKey]
+                        if not existing then
+                            result[#result + 1] = preset
+                            seen[preset.sourceKey] = #result
+                        elseif result[existing].issue and not preset.issue then result[existing] = preset end
+                    end
+                end
+            end
+            return result
+        end
+        local result = YHUD.ResourceManager:GetPresets(scoped, classFile, specID, formKey, true)
+        for index = #result, 1, -1 do
+            if not result[index].customEntry and not self:IsDefinitionAvailable(result[index]) then table.remove(result, index) end
+        end
+        return result
+    end
     if eligible and scoped._yhudInitialResourceOnly ~= true then
         local classFile, specID = self:GetCurrentContext()
         return self:GetEligiblePresets(scoped, classFile, specID, target)
@@ -980,11 +1183,12 @@ function Catalog:GetResourceUnion(profile, target, eligible, projection)
             local presets = self:GetGroupPresets(profile, groupId, eligible)
             for index = 1, #presets do
                 local preset = presets[index]
-                if projection then projection[#projection + 1] = groupId .. ":" .. preset.sourceKey end
-                if not seen[preset.sourceKey] then
-                    seen[preset.sourceKey] = true
+                if projection then projection[#projection + 1] = groupId .. ":" .. (preset.customEntry and preset.id or preset.sourceKey) end
+                local existing = seen[preset.sourceKey]
+                if not existing then
                     target[#target + 1] = preset
-                end
+                    seen[preset.sourceKey] = #target
+                elseif target[existing].issue and not preset.issue then target[existing] = preset end
             end
         end
     end

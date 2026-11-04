@@ -1,4 +1,5 @@
 local _, ns = ...
+ns = _G.YUI or ns
 if not ns.IsRetail then return end
 
 local GUI2 = ns.GUI2
@@ -32,7 +33,7 @@ function Tracker:PaintQuantity(button)
     local owned, required
     for precision = 1, 0, -1 do
         local decimals = precision == 1
-        owned = CompactQuantity(button.owned, decimals)
+        owned = button.quantityUnknown and "?" or CompactQuantity(button.owned, decimals)
         required = button.required:gsub("%d+", function(value) return CompactQuantity(tonumber(value), decimals) end)
         text:SetText(owned .. "/" .. required)
         if text:GetStringWidth() <= available then return end
@@ -83,6 +84,8 @@ end
 
 -- 只在追踪列表变化或重新打开时读取结构；背包事件只更新数量。
 function Tracker:ReadRecipes()
+    self:ClearSearch()
+    wipe(self.materials)
     self.layoutDirty = true
     self.totalsDirty = true
     local recipes = {}
@@ -167,6 +170,7 @@ function Tracker:BuildTotals()
 end
 
 function Tracker:SetIncluded(key, included)
+    self:ClearSearch()
     self.excluded[key] = not included or nil
     self.totalsDirty, self.layoutDirty = true, true
     self:Schedule()
@@ -175,15 +179,94 @@ end
 function Tracker:SetMode(mode)
     if self.mode == mode then return end
     self.mode = mode
-    self.pendingSearch = nil
+    self:ClearSearch()
     self.layoutDirty = true
     self.scroll:SetVerticalScroll(0)
     ns.HideGameTooltip()
     self:Schedule()
 end
 
+function Tracker:ClearSearch()
+    self.pendingSearch, self.pendingSearchSlot, self.pendingPurchase = nil, nil, nil
+end
+
+function Tracker:SetHighestOnly(value)
+    value = value == true
+    if self.highestOnly == value then return end
+    self.highestOnly = value
+    if self.config.setHighestOnly then self.config.setHighestOnly(value) end
+    self:ClearSearch()
+    ns.HideGameTooltip()
+    self:Schedule()
+end
+
+-- 品质结构只在配方/物品数据变化时生成；库存刷新复用分组与单材料列表。
+function Tracker:GetMaterial(slot)
+    local data = self.materials[slot]
+    if data then return data end
+    data = { entries = {}, qualities = {}, byQuality = {}, itemIDs = {}, ready = true, maxQuality = 0 }
+    local seen = {}
+    for _, reagent in ipairs(slot.reagents) do
+        local identity = reagent.itemID and ("item:" .. reagent.itemID) or ("currency:" .. reagent.currencyID)
+        if not seen[identity] then
+            seen[identity] = true
+            local quality = 0
+            if reagent.itemID then
+                data.itemIDs[reagent.itemID] = true
+                if not C_Item.GetItemInfo(reagent.itemID) then
+                    data.ready = false
+                    self:RequestItem(reagent.itemID)
+                elseif C_TradeSkillUI.GetItemReagentQualityInfo then
+                    local ok, info = pcall(C_TradeSkillUI.GetItemReagentQualityInfo, reagent.itemID)
+                    if ok then quality = info and info.quality or 0 else data.ready = false end
+                end
+            end
+            local group = data.byQuality[quality]
+            if not group then
+                group = { quality = quality, itemIDs = {}, owned = 0, pending = 0 }
+                data.byQuality[quality] = group
+                data.qualities[#data.qualities + 1] = group
+            end
+            if reagent.itemID then group.itemIDs[reagent.itemID] = true end
+            data.entries[#data.entries + 1] = { reagent = reagent, singleton = { reagent }, group = group }
+            data.maxQuality = math.max(data.maxQuality, quality)
+        end
+    end
+    table.sort(data.qualities, function(a, b) return a.quality < b.quality end)
+    self.materials[slot] = data
+    return data
+end
+
+function Tracker:CountMaterial(data)
+    local total, pending = 0, 0
+    for _, group in ipairs(data.qualities) do group.owned, group.pending = 0, 0 end
+    for _, entry in ipairs(data.entries) do
+        local count = ProfessionsUtil.AccumulateReagentsInPossession(entry.singleton)
+        local purchased = entry.reagent.itemID and self.purchased[entry.reagent.itemID]
+        local outstanding = 0
+        if purchased then
+            -- 已购材料进入持有统计时扣除待领取量，避免库存和购买记录重复计数。
+            purchased.quantity = math.max(0, purchased.quantity - math.max(0, count - purchased.observed))
+            purchased.observed = count
+            outstanding = purchased.quantity
+        end
+        entry.group.owned = entry.group.owned + count
+        entry.group.pending = entry.group.pending + outstanding
+        total, pending = total + count, pending + outstanding
+    end
+    data.totalOwned, data.totalPending = total, pending
+    local group = self.highestOnly and data.ready and data.maxQuality > 0 and data.byQuality[data.maxQuality]
+    if self.highestOnly and not data.ready then
+        data.owned, data.pending = 0, 0
+    else
+        data.owned, data.pending = group and group.owned or total, group and group.pending or pending
+    end
+end
+
 function Tracker:GetSlotCount(slot)
-    local owned = ProfessionsUtil.AccumulateReagentsInPossession(slot.reagents)
+    local data = self:GetMaterial(slot)
+    self:CountMaterial(data)
+    local owned = data.owned
     local minimum, maximum, variable
     if slot.aggregateMin then
         minimum, maximum, variable = slot.aggregateMin, slot.aggregateMax, slot.aggregateVariable
@@ -194,7 +277,147 @@ function Tracker:GetSlotCount(slot)
         return owned, tostring(minimum) .. "–" .. tostring(maximum), false
     end
     local required = minimum
-    return owned, tostring(required), owned >= required
+    return owned, tostring(required), owned >= required and (not self.highestOnly or data.ready)
+end
+
+function Tracker:GetMissing(slot)
+    local owned = self:GetSlotCount(slot)
+    local minimum, _, variable
+    if slot.aggregateMin then
+        minimum, variable = slot.aggregateMin, slot.aggregateVariable
+    else
+        minimum, _, variable = RequiredRange(slot)
+    end
+    local data = self:GetMaterial(slot)
+    if variable or not data.ready then return nil end
+    return math.max(0, minimum - owned - data.pending)
+end
+
+function Tracker:AppendMaterialTooltip(slot)
+    local owned, required = self:GetSlotCount(slot)
+    local data = self:GetMaterial(slot)
+    if data.maxQuality > 0 then
+        GameTooltip:AddLine(L["tracker.owned_total"]:format(data.totalOwned), 1, 1, 1)
+        for _, group in ipairs(data.qualities) do
+            local text
+            if group.quality == 0 then
+                text = L["tracker.unranked_count"]:format(group.owned)
+            else
+                local key = data.ready and group.quality == data.maxQuality and "tracker.quality_max_count" or "tracker.quality_count"
+                text = L[key]:format(group.quality, group.owned)
+            end
+            GameTooltip:AddLine(text, 1, 1, 1)
+        end
+        GameTooltip:AddLine(L["tracker.required"]:format(required), 1, 1, 1)
+    else
+        GameTooltip:AddLine(L["tracker.quantity"]:format(tostring(owned) .. "/" .. required), 1, 1, 1)
+    end
+    if not data.ready then
+        GameTooltip:AddLine(L["tracker.quality_loading"], 1, 1, 1)
+        return
+    end
+    if data.pending > 0 then
+        GameTooltip:AddLine(L["tracker.purchased_pending"]:format(data.pending), 1, 1, 1)
+    end
+    local missing = self:GetMissing(slot)
+    if missing then
+        local key = self.highestOnly and data.maxQuality > 0 and "tracker.missing_highest" or "tracker.missing"
+        GameTooltip:AddLine(L[key]:format(missing), 1, 1, 1)
+    end
+end
+
+function Tracker:TryFillPurchase()
+    local pending = self.pendingPurchase
+    if not pending or not pending.fillPending or not self.active or not self.panel:IsShown() then return end
+    local house = self.config.auctionHouse
+    local display = house.CommoditiesBuyFrame and house.CommoditiesBuyFrame.BuyDisplay
+    if not display or not display:IsVisible() or not display.resultsLoaded then return end
+    local itemID = display:GetItemID()
+    if not pending.itemIDs[itemID] then self:ClearSearch(); return end
+    if not C_AuctionHouse or not C_AuctionHouse.MakeItemKey or not C_AuctionHouse.HasSearchResults
+        or not C_AuctionHouse.HasSearchResults(C_AuctionHouse.MakeItemKey(itemID)) then return end
+    local event = AuctionHouseFrameMixin and AuctionHouseFrameMixin.Event.CommoditiesQuantitySelectionChanged
+    if not event or not house.TriggerEvent then return end
+    local missing = self:GetMissing(pending.slot)
+    if missing == nil then return end
+    -- 只预填一次；同时通知原生数量框和价格列表，让原生逻辑处理库存与报价。
+    pending.fillPending = false
+    house:TriggerEvent(event, missing)
+end
+
+function Tracker:RecordPurchase()
+    local attempt = self.purchaseAttempt
+    self.purchaseAttempt = nil
+    if not attempt then return end
+    local observed = ProfessionsUtil.AccumulateReagentsInPossession(attempt.singleton)
+    local record = self.purchased[attempt.itemID]
+    if not record then
+        record = { quantity = 0, observed = attempt.observed }
+        self.purchased[attempt.itemID] = record
+    end
+    record.quantity = math.max(0, record.quantity + attempt.quantity - math.max(0, observed - record.observed))
+    record.observed = observed
+    self:Schedule()
+end
+
+function Tracker:InstallPurchaseHooks()
+    if self.purchaseHooksInstalled or not hooksecurefunc then return end
+    self.purchaseHooksInstalled = true
+    local house = self.config.auctionHouse
+    local frame = house.CommoditiesBuyFrame
+    if frame and frame.SetItemIDAndPrice then
+        hooksecurefunc(frame, "SetItemIDAndPrice", function(_, itemID)
+            local pending = self.pendingPurchase
+            if not self.active or not pending then return end
+            if not pending.itemIDs[itemID] or (pending.selectedItemID and pending.selectedItemID ~= itemID) then
+                self:ClearSearch()
+            else
+                pending.selectedItemID = itemID
+                self:Schedule()
+            end
+        end)
+        local list = frame.ItemList
+        if list and list.SetSelectedEntry then
+            -- 原生 selectionCallback 在 OnLoad 时捕获函数；Hook 实际行选择入口。
+            hooksecurefunc(list, "SetSelectedEntry", function(_, rowData)
+                if rowData and self.pendingPurchase and list:GetSelectedEntry() == rowData then
+                    self.pendingPurchase.fillPending = false
+                end
+            end)
+        end
+        local input = frame.BuyDisplay and frame.BuyDisplay.QuantityInput and frame.BuyDisplay.QuantityInput.InputBox
+        if input then
+            input:HookScript("OnTextChanged", function(_, userInput)
+                if userInput and self.pendingPurchase then self.pendingPurchase.fillPending = false end
+            end)
+        end
+    end
+    if house.ItemBuyFrame and house.ItemBuyFrame.SetItemKey then
+        hooksecurefunc(house.ItemBuyFrame, "SetItemKey", function() self:ClearSearch() end)
+    end
+    local dialog = house.BuyDialog
+    if dialog and dialog.BuyNow then
+        hooksecurefunc(dialog, "BuyNow", function()
+            self.purchaseAttempt = nil
+            local pending = self.pendingPurchase
+            if not self.active or not pending or not pending.itemIDs[dialog.itemID] then return end
+            local singleton = { { itemID = dialog.itemID } }
+            self.purchaseAttempt = {
+                itemID = dialog.itemID, quantity = dialog.quantity, singleton = singleton,
+                observed = ProfessionsUtil.AccumulateReagentsInPossession(singleton),
+            }
+        end)
+        if dialog.Cancel then hooksecurefunc(dialog, "Cancel", function() self.purchaseAttempt = nil end) end
+    end
+    local bar = house.SearchBar
+    if bar and bar.SearchButton then
+        bar.SearchButton:HookScript("OnClick", function() if not self.searching then self:ClearSearch() end end)
+    end
+    if bar and bar.SearchBox then
+        bar.SearchBox:HookScript("OnTextChanged", function(_, userInput)
+            if userInput and not self.searching then self:ClearSearch() end
+        end)
+    end
 end
 
 function Tracker:Create(config)
@@ -203,6 +426,8 @@ function Tracker:Create(config)
         config = config, recipes = {}, blocks = {}, awaiting = {},
         structureDirty = true, dirty = true, active = false, dismissed = false,
         mode = "individual", excluded = {}, totalsDirty = true, totalSlots = {},
+        materials = setmetatable({}, { __mode = "k" }), purchased = {},
+        highestOnly = config.getHighestOnly and config.getHighestOnly() == true or false,
     }, { __index = Tracker })
     local helper, settings = config.helper, config.settings
     local appearance = ns.AuctionHelperAppearance
@@ -270,7 +495,7 @@ function Tracker:Create(config)
     self.toggle:Hide()
 
     local scroll = GUI2:CreateScrollFrame(panel, { child = false })
-    scroll:SetPoint("TOPLEFT", 18, -65)
+    scroll:SetPoint("TOPLEFT", 18, -88)
     scroll:SetPoint("BOTTOMRIGHT", -32, 8)
     local content = GUI2:CreateFrame(scroll)
     content:SetSize(210, 1)
@@ -293,6 +518,19 @@ function Tracker:Create(config)
     self.tabs:SetPoint("TOP", panel, "TOP", 0, -30)
     for _, button in ipairs(self.tabs.buttons) do appearance:ApplyFont(button.text, tabContext) end
     self.tabs:Relayout()
+
+    self.highestToggle = GUI2.Form:CreateCheckbox(panel, {
+        autoWidth = true, height = 22, text = L["tracker.highest_only"], checked = self.highestOnly,
+        onChange = function(_, checked) self:SetHighestOnly(checked) end,
+    })
+    self.highestToggle:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -32, -61)
+    self.highestToggle:HookScript("OnEnter", function()
+        GameTooltip:SetOwner(self.highestToggle, "ANCHOR_TOP")
+        GameTooltip:SetText(L["tracker.highest_only"])
+        GameTooltip:AddLine(L["tracker.highest_only_hint"], 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    self.highestToggle:HookScript("OnLeave", ns.HideGameTooltip)
 
     function self:NewBlock()
         local block = GUI2:CreateFrame(content)
@@ -330,7 +568,7 @@ function Tracker:Create(config)
     function self:NewMaterial(block)
         local button = GUI2:CreateIconSlot(block, {
             size = config.itemSize, shape = "square", animate = false,
-            onClick = function(slot) if slot.itemID then self:Search(slot.itemID) end end,
+            onClick = function(slot) if slot.itemID then self:Search(slot.itemID, false, slot.materialSlot) end end,
         })
         -- IconSlot.count 属于 GUI2 状态着色；需求数量独立管理，避免 hover 覆盖。
         button.quantityText = config.createText(button, "", 11)
@@ -356,14 +594,14 @@ function Tracker:Create(config)
             else
                 GameTooltip:SetText(button.label or L["tracker.loading"])
             end
-            GameTooltip:AddLine(L["tracker.quantity"]:format(button.quantity), 1, 1, 1)
+            self:AppendMaterialTooltip(button.materialSlot)
             GameTooltip:Show()
         end)
         button:HookScript("OnLeave", function()
             ns.HideGameTooltip()
         end)
         button:SetScript("OnClick", function()
-            if button.itemID then self:Search(button.itemID) end
+            if button.itemID then self:Search(button.itemID, false, button.materialSlot) end
         end)
         return button
     end
@@ -376,23 +614,44 @@ function Tracker:Create(config)
             self.structureDirty = false
         end
         self:SyncVisibility()
+        self:TryFillPurchase()
     end
     self.onEvent = function(event, itemID, success)
         if event == "ITEM_DATA_LOAD_RESULT" then
             if not self.awaiting[itemID] then return end
             -- 完成或失败均保留标记，避免失败物品触发请求/刷新循环。
             self.awaiting[itemID] = false
-            if self.pendingSearch == itemID then
+            wipe(self.materials)
+            if self.pendingSearchSlot then
+                local pendingID, slot = self.pendingSearch, self.pendingSearchSlot
+                if not success then
+                    for _, reagent in ipairs(slot.reagents) do
+                        if reagent.itemID == itemID then self:ClearSearch(); break end
+                    end
+                elseif self.panel:IsShown() then
+                    self:Search(pendingID, true, slot)
+                end
+            elseif self.pendingSearch == itemID then
                 self.pendingSearch = nil
                 if success and self.panel:IsShown() then self:Search(itemID, true) end
             end
         elseif event == "TRACKED_RECIPE_UPDATE" or event == "TRADE_SKILL_LIST_UPDATE" then
             self.structureDirty = true
+            self:ClearSearch()
+        elseif event == "COMMODITY_SEARCH_RESULTS_RECEIVED" then
+            -- RECEIVED 不携带 itemID；下一帧由 TryFillPurchase 核对原生购买页和结果。
+            if not self.pendingPurchase then return end
+        elseif event == "COMMODITY_PURCHASE_SUCCEEDED" then
+            if not self.purchaseAttempt then return end
+            self:RecordPurchase()
+        elseif event == "COMMODITY_PURCHASE_FAILED" or event == "COMMODITY_PRICE_UNAVAILABLE" then
+            self.purchaseAttempt = nil
+            return
         end
         self:Schedule()
     end
     panel:HookScript("OnHide", function()
-        self.pendingSearch = nil
+        self:ClearSearch()
         ns.HideGameTooltip()
     end)
     settings:HookScript("OnShow", function() self:SyncVisibility() end)
@@ -409,6 +668,11 @@ function Tracker:Create(config)
         self:Start()
         self:SyncVisibility()
     end)
+    config.auctionHouse:HookScript("OnHide", function()
+        wipe(self.purchased)
+        self.purchaseAttempt = nil
+    end)
+    self:InstallPurchaseHooks()
     config.auctionHouse:HookScript("OnHide", function() self:Stop() end)
     self:Start()
     return self
@@ -425,12 +689,18 @@ end
 function Tracker:Start()
     if self.active or not self.config.isEnabled() or not self.config.helper:IsVisible() then return end
     self.active = true
+    if self.config.getHighestOnly then self.highestOnly = self.config.getHighestOnly() == true end
+    self.highestToggle:SetChecked(self.highestOnly, true)
     self.structureDirty, self.dirty = true, true
     ns.Event:On("TRACKED_RECIPE_UPDATE", self.onEvent, self)
     ns.Event:On("TRADE_SKILL_LIST_UPDATE", self.onEvent, self)
     ns.Event:On("BAG_UPDATE_DELAYED", self.onEvent, self)
     ns.Event:On("CURRENCY_DISPLAY_UPDATE", self.onEvent, self)
     ns.Event:On("ITEM_DATA_LOAD_RESULT", self.onEvent, self)
+    ns.Event:On("COMMODITY_SEARCH_RESULTS_RECEIVED", self.onEvent, self)
+    ns.Event:On("COMMODITY_PURCHASE_SUCCEEDED", self.onEvent, self)
+    ns.Event:On("COMMODITY_PURCHASE_FAILED", self.onEvent, self)
+    ns.Event:On("COMMODITY_PRICE_UNAVAILABLE", self.onEvent, self)
     self.flush()
 end
 
@@ -448,7 +718,9 @@ function Tracker:Stop()
     self.active = false
     ns.Event:OffOwner(self)
     if self.timer then self.timer:Cancel(); self.timer = nil end
-    self.pendingSearch = nil
+    self:ClearSearch()
+    self.purchaseAttempt = nil
+    wipe(self.materials)
     wipe(self.awaiting)
     self.panel:Hide()
     self.toggle:Hide()
@@ -467,7 +739,7 @@ function Tracker:SyncVisibility()
         if self.dirty then self:Render() end
     else
         if self.timer then self.timer:Cancel(); self.timer = nil end
-        self.pendingSearch = nil
+        self:ClearSearch()
     end
 end
 
@@ -478,27 +750,51 @@ function Tracker:RequestItem(itemID)
     end
 end
 
-function Tracker:Search(itemID, loaded)
+function Tracker:Search(itemID, loaded, slot)
     if not self.active or not self.panel:IsShown() then return end
     local house = self.config.auctionHouse
     local bar = house.SearchBar
     if not house:IsVisible() or not bar or not bar.SearchBox or not bar.SearchButton then return end
+    self:ClearSearch()
+    local data = slot and self:GetMaterial(slot)
+    if data and not data.ready then
+        self.pendingSearch, self.pendingSearchSlot = itemID, slot
+        return
+    end
+    if data and self.highestOnly and data.maxQuality > 0 then
+        for _, entry in ipairs(data.entries) do
+            if entry.group.quality == data.maxQuality then itemID = entry.reagent.itemID; break end
+        end
+    end
     local name = C_Item.GetItemInfo(itemID)
     if not name then
         if not loaded then
             self.pendingSearch = itemID
+            self.pendingSearchSlot = slot
             self:RequestItem(itemID)
         end
         return
     end
-    self.pendingSearch = nil
+    if slot and self:GetMissing(slot) ~= nil then
+        local group = self.highestOnly and data.maxQuality > 0 and data.byQuality[data.maxQuality]
+        self.pendingPurchase = { slot = slot, itemIDs = group and group.itemIDs or data.itemIDs, fillPending = true }
+    end
+    self.searching = true
     if house.SetDisplayMode then house:SetDisplayMode(AuctionHouseFrameDisplayMode.Buy) end
     bar.SearchBox:SetText(name)
     bar.SearchButton:Click()
+    self.searching = false
 end
 
 function Tracker:UpdateMaterial(button, slot, slotIndex, layout, startY)
+    button.materialSlot = slot
+    local data = self:GetMaterial(slot)
     local reagent = slot.reagents[1] or {}
+    if self.highestOnly and data.ready and data.maxQuality > 0 then
+        for _, entry in ipairs(data.entries) do
+            if entry.group.quality == data.maxQuality then reagent = entry.reagent; break end
+        end
+    end
     button.itemID, button.currencyID = reagent.itemID, reagent.currencyID
     button.label = slot.slotInfo and slot.slotInfo.slotText or nil
     local texture
@@ -515,7 +811,8 @@ function Tracker:UpdateMaterial(button, slot, slotIndex, layout, startY)
         button.icon:SetTexture(texture)
     end
     local owned, required, complete = self:GetSlotCount(slot)
-    local quantity = tostring(owned) .. "/" .. required
+    button.quantityUnknown = self.highestOnly and not data.ready
+    local quantity = (button.quantityUnknown and "?" or tostring(owned)) .. "/" .. required
     local fontChanged = self.config.applyQuantityFont(button.quantityText)
     if button.quantity ~= quantity or button.complete ~= complete or fontChanged then
         button.quantity, button.complete = quantity, complete

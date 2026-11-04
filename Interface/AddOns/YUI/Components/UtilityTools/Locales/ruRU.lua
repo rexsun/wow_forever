@@ -5,6 +5,8 @@ if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("ruRU") then return end
 YUI.Locale:Register("UtilityTools", "ruRU", {
     ["name"] = "Инструменты",
     ["description"] = "Компактный набор небольших функций интерфейса и игры.",
+    ["settings.encounter_journal_item_sets.label"] = "Восстановите наборы статей Encounter Journal",
+    ["settings.encounter_journal_item_sets.tooltip"] = "Восстановите скрытую вкладку набора элементов, чтобы оригинальные атрибуты набора рейдов можно было просматривать в Журнале встреч.",
     ["settings.bonus_roll"] = "Дополнительное подтверждение ролла",
     ["settings.bonus_roll_confirm_roll"] = "Подтвердить перед прокатом",
     ["settings.bonus_roll_confirm_pass"] = "Подтвердите перед прохождением",

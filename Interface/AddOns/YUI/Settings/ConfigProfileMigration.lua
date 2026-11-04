@@ -1,5 +1,5 @@
 local _, YUI = ...
-YUI = YUI or _G.YUI
+YUI = _G.YUI or YUI
 if not (YUI and YUI.Settings) then return end
 
 -- Pure staging: no database writes, provider calls or runtime activation.
@@ -43,7 +43,7 @@ local function Ordered(catalog)
     return result
 end
 
-local function Prepare(legacy, profileNames)
+local function Prepare(legacy, profileNames, owned)
     if type(legacy) ~= "table" or legacy.schemaVersion ~= 1
         or type(legacy.providers) ~= "table" then error("unsupported-storage") end
     if type(profileNames) ~= "table" then error("profiles-required") end
@@ -54,117 +54,124 @@ local function Prepare(legacy, profileNames)
             error("invalid-profile")
         end
         seenProfiles[name] = true
-        result.profiles[name] = { providers = {} }
+        result.profiles[name] = owned and owned[name] and Copy(owned[name])
+            or { schemaVersion = 2, providers = {} }
     end
     for providerId, catalog in pairs(legacy.providers) do
         if type(catalog) ~= "table" or type(catalog.items) ~= "table" then error("invalid-catalog") end
-        local order, claimed = Ordered(catalog), {}
+        local order, claimed, shadowed = Ordered(catalog), {}, false
         for _, name in ipairs(profileNames) do
-            local byMode = (catalog.activeByConfigurationMode or {})[name] or {}
-            local mode = (catalog.configurationModeByProfile or {})[name]
-            local state = (catalog.specializationByProfile or {})[name]
-            local active = Id((catalog.activeByProfile or {})[name])
-            local refs, assignments = {}, {}
-            local function Add(ref)
-                if ref == nil then return end
-                local id = Id(ref)
-                if not id or not catalog.items[id] then error("dangling-reference:" .. providerId) end
-                refs[id], claimed[id] = true, true
-                return id
-            end
-            Add(active)
-            for _, ref in pairs(byMode) do Add(ref) end
-            if state then
-                if type(state) ~= "table" then error("invalid-profile-state") end
-                Add((state.assignments or {}).default)
-                for _, ref in pairs((state.assignments or {}).bySpec or {}) do Add(ref) end
-                for id in pairs(state.enabledUserSets or {}) do Add(id) end
-                for id in pairs(state.disabledAssignments or {}) do Add(id) end
-            end
-            if mode ~= nil and mode ~= "unified" and mode ~= "specialization" then
-                error("unknown-mode")
-            end
-            if mode == nil and next(refs) and active == nil and next(byMode) == nil
-                and (providerId == "yhud" or providerId == "yactionbar") then
-                local stored = state and state.assignments
-                local default = stored and Id(stored.default)
-                local item = default and catalog.items[default]
-                -- v323.1 initializes these providers in specialization mode.
-                -- A complete persisted specialization state already supplies
-                -- its backing set; it cannot trigger YHUD's two-set bootstrap
-                -- switch to unified. Do not infer this for unknown providers or
-                -- incomplete states.
-                -- Routing may be disabled without changing the initialization
-                -- mode. Preserve that boolean below; never enable it here.
-                if stored and type(stored.enabled) == "boolean" and item
-                    and item.configurationMode == "specialization"
-                    and state.enabledUserSets and state.enabledUserSets[default] == true then
-                    mode = "specialization"
-                    result.resolutions[#result.resolutions + 1] = {
-                        providerId = providerId, profileName = name,
-                        code = "v323-specialization-bootstrap", defaultId = default,
-                    }
+            if result.profiles[name].providers[providerId] ~= nil then
+                -- An imported/edited owned library is authoritative. Do not
+                -- infer its routing from an older account-wide copy.
+                shadowed = true
+            else
+                local byMode = (catalog.activeByConfigurationMode or {})[name] or {}
+                local mode = (catalog.configurationModeByProfile or {})[name]
+                local state = (catalog.specializationByProfile or {})[name]
+                local active = Id((catalog.activeByProfile or {})[name])
+                local refs, assignments = {}, {}
+                local function Add(ref)
+                    if ref == nil then return end
+                    local id = Id(ref)
+                    if not id or not catalog.items[id] then error("dangling-reference:" .. providerId) end
+                    refs[id], claimed[id] = true, true
+                    return id
                 end
-            end
-            local defaultId, routingEnabled = nil, true
-            if mode == "unified" then
-                defaultId = Add(byMode.unified or active)
-                if not defaultId then error("missing-default") end
-            elseif mode == "specialization" then
-                if not state or not state.assignments or type(state.assignments.enabled) ~= "boolean" then
-                    error("unresolved-specialization-state")
+                Add(active)
+                for _, ref in pairs(byMode) do Add(ref) end
+                if state then
+                    if type(state) ~= "table" then error("invalid-profile-state") end
+                    Add((state.assignments or {}).default)
+                    for _, ref in pairs((state.assignments or {}).bySpec or {}) do Add(ref) end
+                    for id in pairs(state.enabledUserSets or {}) do Add(id) end
+                    for id in pairs(state.disabledAssignments or {}) do Add(id) end
                 end
-                local storedDefault = Id(state.assignments.default)
-                if storedDefault and catalog.items[storedDefault].configurationMode ~= "specialization" then
-                    error("invalid-specialization-default")
+                if mode ~= nil and mode ~= "unified" and mode ~= "specialization" then
+                    error("unknown-mode")
                 end
-                routingEnabled = state.assignments.enabled
-                if routingEnabled then
-                    for spec, ref in pairs(state.assignments.bySpec or {}) do
-                        assignments[spec] = { kind = "user", id = Add(ref) }
+                if mode == nil and next(refs) and active == nil and next(byMode) == nil
+                    and (providerId == "yhud" or providerId == "yactionbar") then
+                    local stored = state and state.assignments
+                    local default = stored and Id(stored.default)
+                    local item = default and catalog.items[default]
+                    -- v323.1 initializes these providers in specialization mode.
+                    -- A complete persisted specialization state already supplies
+                    -- its backing set; it cannot trigger YHUD's two-set bootstrap
+                    -- switch to unified. Do not infer this for unknown providers or
+                    -- incomplete states.
+                    -- Routing may be disabled without changing the initialization
+                    -- mode. Preserve that boolean below; never enable it here.
+                    if stored and type(stored.enabled) == "boolean" and item
+                        and item.configurationMode == "specialization"
+                        and state.enabledUserSets and state.enabledUserSets[default] == true then
+                        mode = "specialization"
+                        result.resolutions[#result.resolutions + 1] = {
+                            providerId = providerId, profileName = name,
+                            code = "v323-specialization-bootstrap", defaultId = default,
+                        }
                     end
                 end
-                if routingEnabled then defaultId = Add(state.assignments.default or active or byMode.specialization)
-                else defaultId = Add(active or byMode.specialization or state.assignments.default) end
-                if not defaultId then
-                    for _, id in ipairs(order) do
-                        for _, ref in pairs(assignments) do
-                            if ref.id == id then defaultId = id; break end
+                local defaultId, routingEnabled = nil, true
+                if mode == "unified" then
+                    defaultId = Add(byMode.unified or active)
+                    if not defaultId then error("missing-default") end
+                elseif mode == "specialization" then
+                    if not state or not state.assignments or type(state.assignments.enabled) ~= "boolean" then
+                        error("unresolved-specialization-state")
+                    end
+                    local storedDefault = Id(state.assignments.default)
+                    if storedDefault and catalog.items[storedDefault].configurationMode ~= "specialization" then
+                        error("invalid-specialization-default")
+                    end
+                    routingEnabled = state.assignments.enabled
+                    if routingEnabled then
+                        for spec, ref in pairs(state.assignments.bySpec or {}) do
+                            assignments[spec] = { kind = "user", id = Add(ref) }
                         end
-                        if defaultId then break end
                     end
-                end
-                if not defaultId then error("missing-default") end
-            elseif next(refs) then
-                -- An absent mode is not permission to activate an arbitrary library item.
-                error(string.format("unresolved-profile-mode [provider=%s, profile=%q]", providerId, name))
-            end
-            if next(refs) then
-                local target = {
-                    schemaVersion = 2, nextId = catalog.nextId, items = {}, order = {},
-                    userSetScopePolicyVersion = catalog.userSetScopePolicyVersion,
-                    activeByProfile = { [name] = active or Id(byMode[mode]) or defaultId },
-                    assignments = { enabled = routingEnabled, bySpec = assignments,
-                        default = { kind = "user", id = defaultId } },
-                }
-                local names = {}
-                for _, id in ipairs(order) do
-                    if refs[id] then
-                        local item = Copy(catalog.items[id])
-                        item.configurationMode = nil
-                        local base = type(item.name) == "string" and item.name or id
-                        local unique, suffix = base, 2
-                        while names[unique] do unique = base .. " (" .. suffix .. ")"; suffix = suffix + 1 end
-                        names[unique], item.name = true, unique
-                        target.items[id], target.order[#target.order + 1] = item, id
+                    if routingEnabled then defaultId = Add(state.assignments.default or active or byMode.specialization)
+                    else defaultId = Add(active or byMode.specialization or state.assignments.default) end
+                    if not defaultId then
+                        for _, id in ipairs(order) do
+                            for _, ref in pairs(assignments) do
+                                if ref.id == id then defaultId = id; break end
+                            end
+                            if defaultId then break end
+                        end
                     end
+                    if not defaultId then error("missing-default") end
+                elseif next(refs) then
+                    -- An absent mode is not permission to activate an arbitrary library item.
+                    error(string.format("unresolved-profile-mode [provider=%s, profile=%q]", providerId, name))
                 end
-                result.profiles[name].providers[providerId] = target
+                if next(refs) then
+                    local target = {
+                        schemaVersion = 2, nextId = catalog.nextId, items = {}, order = {},
+                        userSetScopePolicyVersion = catalog.userSetScopePolicyVersion,
+                        activeByProfile = { [name] = active or Id(byMode[mode]) or defaultId },
+                        assignments = { enabled = routingEnabled, bySpec = assignments,
+                            default = { kind = "user", id = defaultId } },
+                    }
+                    local names = {}
+                    for _, id in ipairs(order) do
+                        if refs[id] then
+                            local item = Copy(catalog.items[id])
+                            item.configurationMode = nil
+                            local base = type(item.name) == "string" and item.name or id
+                            local unique, suffix = base, 2
+                            while names[unique] do unique = base .. " (" .. suffix .. ")"; suffix = suffix + 1 end
+                            names[unique], item.name = true, unique
+                            target.items[id], target.order[#target.order + 1] = item, id
+                        end
+                    end
+                    result.profiles[name].providers[providerId] = target
+                end
             end
         end
         local recovery = { items = {}, order = {} }
         for _, id in ipairs(order) do
-            if not claimed[id] then
+            if shadowed or not claimed[id] then
                 recovery.items[id] = Copy(catalog.items[id])
                 recovery.order[#recovery.order + 1] = id
             end
@@ -174,8 +181,8 @@ local function Prepare(legacy, profileNames)
     return result
 end
 
-function M:Prepare(legacy, profileNames)
-    local ok, result = pcall(Prepare, legacy, profileNames)
+function M:Prepare(legacy, profileNames, owned)
+    local ok, result = pcall(Prepare, legacy, profileNames, owned)
     if not ok then return nil, "migration-rejected", result end
     return result
 end
@@ -197,26 +204,103 @@ local function Same(a, b)
     return true
 end
 
+local function ValidCatalog(catalog)
+    if type(catalog) ~= "table" or catalog.schemaVersion ~= 2
+        or type(catalog.items) ~= "table" or type(catalog.order) ~= "table" then return false end
+    local seen, count = {}, 0
+    for index, id in pairs(catalog.order) do
+        if type(index) ~= "number" or index % 1 ~= 0 or index < 1 or index > #catalog.order
+            or type(id) ~= "string" or seen[id] or type(catalog.items[id]) ~= "table" then return false end
+        seen[id], count = true, count + 1
+    end
+    if count ~= #catalog.order then return false end
+    for id in pairs(catalog.items) do if not seen[id] then return false end end
+    local function ValidReference(ref)
+        return type(ref) == "table" and type(ref.id) == "string"
+            and (ref.kind == "builtin" or (ref.kind == "user" and catalog.items[ref.id] ~= nil))
+    end
+    if catalog.assignments ~= nil then
+        local assignments = catalog.assignments
+        if type(assignments) ~= "table" or type(assignments.bySpec) ~= "table"
+            or (assignments.enabled ~= nil and type(assignments.enabled) ~= "boolean")
+            or not ValidReference(assignments.default) then return false end
+        for key, ref in pairs(assignments.bySpec) do
+            if type(key) ~= "string" or not ValidReference(ref) then return false end
+        end
+    end
+    if catalog.activeByProfile ~= nil then
+        if type(catalog.activeByProfile) ~= "table" then return false end
+        for name, id in pairs(catalog.activeByProfile) do
+            if type(name) ~= "string" or type(id) ~= "string" or not catalog.items[id] then return false end
+        end
+    end
+    return true
+end
+
+local function MergeRecovery(previous, incoming)
+    local merged = Copy(previous or {})
+    for providerId, catalog in pairs(merged) do
+        if type(providerId) ~= "string" or type(catalog) ~= "table"
+            or type(catalog.items) ~= "table" then error("invalid-recovery") end
+        Ordered(catalog)
+    end
+    for providerId, catalog in pairs(incoming) do
+        local target = merged[providerId]
+        if not target then
+            merged[providerId] = catalog
+        else
+            local order = Ordered(target)
+            for _, id in ipairs(catalog.order) do
+                if target.items[id] == nil then
+                    target.items[id] = catalog.items[id]
+                    order[#order + 1] = id
+                elseif not Same(target.items[id], catalog.items[id]) then
+                    error("recovery-conflict:" .. providerId .. ":" .. id)
+                end
+            end
+            target.order = order
+        end
+    end
+    return merged
+end
+
 -- The Settings storage owner supplies AceDB's global and named profile tables.
 -- Preparation never modifies those tables or the original v323 store.
 function M:PrepareDatabase(global, profiles)
     if type(global) ~= "table" or type(profiles) ~= "table" then return nil, "invalid-database" end
     if global[self.MARKER_KEY] ~= nil then return nil, "migration-already-marked" end
-    if global[self.RECOVERY_KEY] ~= nil then return nil, "recovery-already-exists" end
-    local names, identities = {}, {}
+    local previousRecovery = global[self.RECOVERY_KEY]
+    if previousRecovery ~= nil and type(previousRecovery) ~= "table" then return nil, "invalid-recovery" end
+    local names, identities, stores, owned = {}, {}, {}, {}
     for name, profile in pairs(profiles) do
         if type(name) ~= "string" or name == "" or type(profile) ~= "table" then return nil, "invalid-profile" end
-        if profile[self.STORAGE_KEY] ~= nil then return nil, "profile-storage-already-exists" end
+        local original = profile[self.STORAGE_KEY]
+        if original ~= nil then
+            local copied, code = self:CopyProfileStore(original)
+            if not copied then return nil, code, name end
+            for providerId, catalog in pairs(copied.providers) do
+                if type(providerId) ~= "string" or not ValidCatalog(catalog) then
+                    return nil, "invalid_storage", { profileName = name, providerId = providerId }
+                end
+            end
+            stores[name], owned[name] = { original = original, before = copied }, copied
+        end
         names[#names + 1], identities[name] = name, profile
     end
     table.sort(names)
     local legacy = global.SettingsConfigSets
-    local result, code, detail = self:Prepare(legacy, names)
+    -- Prepare clones owned stores again so provider validation cannot mutate
+    -- these stale-check snapshots or the original catalogs retained on commit.
+    local result, code, detail = self:Prepare(legacy, names, owned)
     if not result then return nil, code, detail end
+    local merged, recovery = pcall(MergeRecovery, previousRecovery, result.recovery)
+    if not merged then return nil, "migration-rejected", recovery end
+    result.recovery = recovery
     local token = {}
     preparedDatabases[token] = {
         global = global, profiles = profiles, identities = identities, names = names,
         original = legacy, before = Copy(legacy), result = result,
+        stores = stores, recovery = previousRecovery, recoveryBefore = Copy(previousRecovery),
     }
     return token, { profiles = #names, resolutions = Copy(result.resolutions), recovery = Copy(result.recovery) }
 end
@@ -230,6 +314,7 @@ function M:ValidateDatabase(token, validator)
     if not staged or type(validator) ~= "function" then return nil, "invalid-migration-token" end
     for _, name in ipairs(staged.names) do
         for providerId, catalog in pairs(staged.result.profiles[name].providers) do
+            if not ValidCatalog(catalog) then return nil, "invalid_storage" end
             local called, valid, code = pcall(validator, providerId, catalog)
             if not called or not valid then return nil, called and code or "migration-validation-failed" end
         end
@@ -245,11 +330,14 @@ function M:CommitDatabase(token, hooks)
     if type(combat) == "function" and combat() then return nil, "combat-lockdown" end
     local global, profiles = staged.global, staged.profiles
     if global.SettingsConfigSets ~= staged.original or not Same(staged.before, staged.original)
-        or global[self.MARKER_KEY] ~= nil or global[self.RECOVERY_KEY] ~= nil then return nil, "stale-migration" end
+        or global[self.MARKER_KEY] ~= nil or global[self.RECOVERY_KEY] ~= staged.recovery
+        or not Same(staged.recoveryBefore, staged.recovery) then return nil, "stale-migration" end
     local count = 0
     for name, profile in pairs(profiles) do
         count = count + 1
-        if staged.identities[name] ~= profile or profile[self.STORAGE_KEY] ~= nil then return nil, "stale-migration" end
+        local stored = staged.stores[name]
+        if staged.identities[name] ~= profile or profile[self.STORAGE_KEY] ~= (stored and stored.original)
+            or (stored and not Same(stored.before, stored.original)) then return nil, "stale-migration" end
     end
     if count ~= #staged.names then return nil, "stale-migration" end
     if hooks.apply and (type(hooks.apply) ~= "function" or type(hooks.restore) ~= "function") then
@@ -257,17 +345,30 @@ function M:CommitDatabase(token, hooks)
     end
     local marker = { version = self.VERSION, baseline = self.BASELINE }
     for _, name in ipairs(staged.names) do
-        staged.identities[name][self.STORAGE_KEY] = {
-            schemaVersion = 2, providers = staged.result.profiles[name].providers,
-        }
+        local stored = staged.stores[name]
+        if stored then
+            local installed, providers, changed = {}, {}, false
+            for key, value in pairs(stored.original) do installed[key] = value end
+            for id, catalog in pairs(stored.original.providers) do providers[id] = catalog end
+            for id, catalog in pairs(staged.result.profiles[name].providers) do
+                if providers[id] == nil then providers[id], changed = catalog, true end
+            end
+            installed.providers = providers
+            staged.identities[name][self.STORAGE_KEY] = changed and installed or stored.original
+        else
+            staged.identities[name][self.STORAGE_KEY] = staged.result.profiles[name]
+        end
     end
     global[self.RECOVERY_KEY] = staged.result.recovery
     global[self.MARKER_KEY] = marker
     local applied, value = true, true
     if hooks.apply then applied, value = pcall(hooks.apply) end
     if not applied or value ~= true then
-        for _, name in ipairs(staged.names) do staged.identities[name][self.STORAGE_KEY] = nil end
-        global[self.RECOVERY_KEY], global[self.MARKER_KEY] = nil, nil
+        for _, name in ipairs(staged.names) do
+            local stored = staged.stores[name]
+            staged.identities[name][self.STORAGE_KEY] = stored and stored.original or nil
+        end
+        global[self.RECOVERY_KEY], global[self.MARKER_KEY] = staged.recovery, nil
         local restored, restoredValue = pcall(hooks.restore)
         preparedDatabases[token] = nil
         return nil, "migration-apply-failed", { restored = restored and restoredValue == true }

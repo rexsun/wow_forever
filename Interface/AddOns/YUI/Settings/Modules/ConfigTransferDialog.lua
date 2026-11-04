@@ -1,4 +1,5 @@
 local ADDON_NAME, YUI = ...
+YUI = _G.YUI or YUI
 if not YUI or not YUI.Settings or not YUI.GUI2 then return end
 
 local S = YUI.Settings

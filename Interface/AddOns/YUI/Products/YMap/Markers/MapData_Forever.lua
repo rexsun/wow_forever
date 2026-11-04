@@ -44,6 +44,13 @@ Data:RegisterGroup(2521, "service.auction", nil, {
 Data:RegisterGroup(2521, "travel.dalaran", nil, {
     "map2521.point.004", 0.6544, 0.8376,
 })
+-- 双向飞艇为公共交通点；新采集编号与既有旅店重号，使用独立地点编号。
+Data:RegisterGroup(2521, "travel.zeppelin.thunder_bluff", nil, {
+    "map2521.travel.zeppelin.thunder_bluff", 0.5800, 0.8047,
+})
+Data:RegisterGroup(1412, "travel.zeppelin.map2521", nil, {
+    "map1412.point.002", 0.3425, 0.2549,
+})
 Data:RegisterGroup(2521, "profession.186", nil, {
     "map2521.point.006", 0.6532, 0.8006,
 })
@@ -148,13 +155,15 @@ Data.groups = {}
 
 -- 普通航点：独立客户端扫描；按所属地图选取该地图的原始归一化坐标。
 -- 不包含职业专用、占塔、战场、废弃及新区域条件未核实节点。
-local function LoadOrdinaryFlights(faction)
-    Data:RegisterGroup(1449, "travel.flight", "Neutral", {
-        "forever.taxi.79", 0.45298212766647, 0.05965682864189, 79,
-    })
-    Data:RegisterGroup(1413, "travel.flight", "Neutral", {
-        "forever.taxi.80", 0.63117700815201, 0.37107738852501, 80,
-    })
+local function LoadOrdinaryFlights(faction, includeNeutral)
+    if includeNeutral then
+        Data:RegisterGroup(1449, "travel.flight", "Neutral", {
+            "forever.taxi.79", 0.45298212766647, 0.05965682864189, 79,
+        })
+        Data:RegisterGroup(1413, "travel.flight", "Neutral", {
+            "forever.taxi.80", 0.63117700815201, 0.37107738852501, 80,
+        })
+    end
     if faction == "Alliance" then
         Data:RegisterGroup(1436, "travel.flight", "Alliance", {
             "forever.taxi.4", 0.56571060419083, 0.52666717767715, 4,
@@ -404,13 +413,15 @@ local function LoadFlightRoutes(faction)
     end
 end
 
+local LoadFactionServices
+
 function Data:LoadPlayerFactionPoints()
     if self.foreverFactionLoaded then return end
     local unitAPI = YUI.API and YUI.API.Unit
     local faction = unitAPI and unitAPI.UnitFactionGroup and unitAPI.UnitFactionGroup("player")
     if faction ~= "Alliance" and faction ~= "Horde" then return end
     self.foreverFactionLoaded = faction
-    LoadOrdinaryFlights(faction)
+    LoadOrdinaryFlights(faction, true)
     LoadFlightRoutes(faction)
     do
         local map = { mapID = 1453, nameKey = "map.forever.1453", order = 20 }
@@ -512,6 +523,10 @@ function Data:LoadPlayerFactionPoints()
     Data:RegisterGroup(1457, "travel.portal.ruttheran", nil, {
         "map1457.point.038", 0.3035, 0.4148,
     })
+    LoadFactionServices(self, faction)
+end
+
+LoadFactionServices = function(self, faction)
     if faction == "Horde" then
         do
             local map = { mapID = 1454, nameKey = "map.forever.1454", order = 140 }
@@ -1287,6 +1302,15 @@ function Data:LoadPlayerFactionPoints()
     Data:RegisterGroup(1453, "collection.reagents", "Alliance", {
         "map1453.point.061", 0.6413, 0.7436,
     })
+end
+
+function Data:LoadOpposingFactionPoints()
+    self:LoadPlayerFactionPoints()
+    if not self.foreverFactionLoaded or self.foreverOpposingFactionLoaded then return end
+    local faction = self.foreverFactionLoaded == "Alliance" and "Horde" or "Alliance"
+    self.foreverOpposingFactionLoaded = faction
+    LoadOrdinaryFlights(faction)
+    LoadFactionServices(self, faction)
 end
 
 Data:LoadPlayerFactionPoints()

@@ -1,4 +1,5 @@
 local _, YUI = ...
+YUI = _G.YUI or YUI
 if not YUI or not YUI.Locale then return end
 
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("deDE") then return end

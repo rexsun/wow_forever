@@ -1065,6 +1065,9 @@ function CDMCatalog:RunPendingReconcile()
             YHUD._runtimeProfileRevision = tonumber(YHUD.runtimeProfileRevision) or 0
         end
         YHUD:Refresh("native-cooldown-sync")
+    elseif YHUD.ResourceManager and YHUD.ResourceManager:HasCustom(profile)
+        and YHUD.Sources and YHUD.Sources.OnResourceContextChanged then
+        YHUD.Sources:OnResourceContextChanged()
     end
     local designer = YHUD.Designer
     if designer and designer.IsOpen and designer:IsOpen()
@@ -1077,7 +1080,8 @@ function CDMCatalog:RunPendingReconcile()
                     designerReport
                 )
             end
-        elseif changed and YHUD.DesignerUI and YHUD.DesignerUI.active
+        elseif (changed or YHUD.ResourceManager and YHUD.ResourceManager:HasCustom(designer:GetProfile()))
+            and YHUD.DesignerUI and YHUD.DesignerUI.active
             and YHUD.DesignerUI.RefreshAfterStructuralMutation then
             YHUD.DesignerUI:RefreshAfterStructuralMutation(false)
         end

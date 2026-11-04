@@ -3,6 +3,7 @@ local YUI = _G.YUI
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("enUS") then return end
 
 YUI.Locale:Register("MythicPlusTools", "enUS", {
+    ["settings.text"] = "Text",
     ["settings.teleport_announcement"] = "Teleport Announcement",
     ["settings.description.battleRes"] = "Show party combat resurrection charges and recharge progress.",
     ["settings.description.keystoneTools"] = "Assist with keystone insertion and announcements.",
@@ -11,7 +12,7 @@ YUI.Locale:Register("MythicPlusTools", "enUS", {
 
     ["name"] = "Mythic+ Tools",
     ["description"] = "Provides practical tools for Mythic+ and PvE encounters.",
-    ["product.title"] = "Mythic+ Tools · YanForge",
+    ["product.title"] = "Mythic+ Tools · Ayan",
     ["product.short_title"] = "Mythic+ Tools",
     ["product.notes"] = "Provides practical tools for Mythic+ and PvE encounters.",
     ["settings.battle_res"] = "Battle Res Monitor",
@@ -128,4 +129,10 @@ YUI.Locale:Register("MythicPlusTools", "enUS", {
     ["pve.keystone.no_keystone"] = "No Keystone",
     ["pve.keystone.loading"] = "Loading...",
     ["layout.battle_res"] = "Battle Res Monitor",
+    ["settings.pve_icon_name_text"] = "Dungeon name text",
+    ["settings.pve_icon_level_text"] = "Level text",
+    ["settings.pve_open_settings"] = "PVE enhancement settings",
+    ["settings.pve_level_color_rule"] = "Changes with keystone level",
+    ["settings.pve_score_color_rule"] = "Changes with rating",
+    ["settings.pve_icon_score_text"] = "Score text",
 })

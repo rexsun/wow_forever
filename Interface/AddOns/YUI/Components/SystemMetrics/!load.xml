@@ -1,5 +1,6 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/">
     <Include file="Locales\!load.xml"/>
+    <Script file="Usage.lua"/>
     <Script file="SystemMetrics.lua"/>
     <Script file="Display.lua"/>
 </Ui>

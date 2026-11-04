@@ -98,6 +98,22 @@ local function SafeFrame(frame)
     return not frame:IsForbidden() and not (frame.HasSecretValues and frame:HasSecretValues())
 end
 
+local function UpdateHandleLevel(state)
+    local frame, handle = state.frame, state.handle
+    local level = frame:GetFrameLevel()
+    if not Number(level) then return end
+    local title = state.title ~= frame and state.title or frame.TitleContainer
+    if title then
+        if not SafeFrame(title) then return end
+        local titleLevel = title:GetFrameLevel()
+        if not Number(titleLevel) then return end
+        level = math.max(level, titleLevel)
+    end
+    -- Native title chrome can sit hundreds of levels above the window root.
+    local currentLevel = handle:GetFrameLevel()
+    if Number(currentLevel) and currentLevel ~= level + 5 then handle:SetFrameLevel(level + 5) end
+end
+
 local function Capture(state)
     if state.original then return true end
     local frame = state.frame
@@ -194,6 +210,7 @@ local function ApplyUnsafe(state)
     local position = Desired(state, "position")
     if position then changed = SetPosition(state, position) or changed end
     if frame:IsUserPlaced() ~= state.original.userPlaced then frame:SetUserPlaced(state.original.userPlaced) end
+    UpdateHandleLevel(state)
     if not state.handle:IsShown() then state.handle:Show() end
     return changed
 end
@@ -250,17 +267,16 @@ local function Attach(definition)
     if definition.titleKey then title = frame[definition.titleKey] end
     if not title or not SafeFrame(title) then return end
     if Security.InCombatLockdown() then WaitForCombat(); return end
-    local level = frame:GetFrameLevel()
-    if not Number(level) then return end
-    local state = { id = definition.id, frame = frame }
+    if not Number(frame:GetFrameLevel()) then return end
+    local state = { id = definition.id, frame = frame, title = title }
     -- Native template boundary: a small drag strip, never an overlay across interactive content.
-    local handle = CreateFrame("Frame", nil, frame, "PanelDragBarTemplate")
+    -- Native buttons bypass mouse-script discovery; the native template excludes gamepad focus.
+    local handle = CreateFrame("Button", nil, frame, "PanelDragBarTemplate,SmartNavigationIgnoredTemplate")
     state.handle = handle
     handle:Hide()
     handle:SetPoint("TOPLEFT", title, "TOPLEFT", definition.titleLeft or 65, -3)
     handle:SetPoint("TOPRIGHT", title, "TOPRIGHT", -(definition.titleRight or 40), -3)
     handle:SetHeight(22)
-    handle:SetFrameLevel(level + 5)
     handle:EnableMouse(true)
     handle:EnableMouseWheel(true)
     handle:SetScript("OnDragStart", function()

@@ -5,6 +5,7 @@ local Service = {}
 YUI.AutoRepair = Service
 local MODULE_ID = "core.auto_repair"
 local DEFAULT_MODE = "guild"
+local providerOwner = {}
 local L = YUI.Locale:Get("Core")
 local UnitAPI = YUI.API and YUI.API.Unit
 local floor, format = math.floor, string.format
@@ -30,6 +31,32 @@ function Service:GetOwnerProduct()
     local products = YUI.Products or {}
     if products.ybar and not (YUI.BlockedProducts and YUI.BlockedProducts.ybar) then return "ybar" end
     if products.toolbox and not (YUI.BlockedProducts and YUI.BlockedProducts.toolbox) then return "toolbox" end
+end
+
+function Service:HasEnabledProvider()
+    local product = self:GetOwnerProduct()
+    -- Standalone Orbit owns repair independently of its visible bar instances.
+    if product == "ybar" then return true end
+    if product ~= "suite" and product ~= "toolbox" then return false end
+    if product == "suite" then
+        local state = YUI.Module:GetState("ybar")
+        if state and state.enabled and YUI.Module:IsEnabled("ybar") then return true end
+    end
+    local components = YUI.Components
+    return components and components.GetConfiguredEnableState
+        and components:GetConfiguredEnableState("TradeEnhancement") == "enabled" or false
+end
+
+function Service:RefreshEnabledState()
+    if YUI.Module:IsEnabled(MODULE_ID) then
+        YUI.Module:Enable(MODULE_ID)
+    else
+        YUI.Module:Disable(MODULE_ID)
+    end
+end
+
+local function OnProviderStateChanged(_, id)
+    if id == "ybar" then Service:RefreshEnabledState() end
 end
 
 local function GetLegacyConfig(profile)
@@ -87,11 +114,7 @@ function Service:SetMode(mode)
     mode = NormalizeMode(mode)
     if mode == "guild" and not self:IsGuildAvailable() then mode = "off" end
     db.mode = mode
-    if self:IsAvailable() and mode ~= "off" then
-        YUI.Module:Enable(MODULE_ID)
-    else
-        YUI.Module:Disable(MODULE_ID)
-    end
+    self:RefreshEnabledState()
     YUI.Event:Emit("YUI_AUTO_REPAIR_CHANGED")
 end
 
@@ -173,7 +196,7 @@ end
 
 
 function Service:TryRepair()
-    if not self:IsAvailable() then return end
+    if not self:IsAvailable() or not self:HasEnabledProvider() then return end
     local mode = self:GetMode()
     if mode == "off" or not CanMerchantRepair() then return end
     local cost, canRepair = GetRepairAllCost()
@@ -207,10 +230,17 @@ YUI.Module:Register({
     id = MODULE_ID,
     owner = Service,
     dependencies = { "core.db", "core.event", "core.locale" },
-    getEnabled = function() return Service:IsAvailable() and Service:GetMode() ~= "off" end,
+    getEnabled = function()
+        return Service:IsAvailable() and Service:HasEnabledProvider() and Service:GetMode() ~= "off"
+    end,
     OnInitialize = function()
         -- Profile callbacks follow the settings owner, never the first CoreEmbed carrier.
         YUI.Module:Get(MODULE_ID).product = Service:GetOwnerProduct() or YUI.ProductId
+        if Service:GetOwnerProduct() == "suite" then
+            -- Keep only cold provider notifications while merchant activity is paused.
+            YUI.Event:On("YUI_MODULE_ENABLED", OnProviderStateChanged, providerOwner)
+            YUI.Event:On("YUI_MODULE_DISABLED", OnProviderStateChanged, providerOwner)
+        end
     end,
     OnEnable = function()
         YUI.Event:OffOwner(Service)

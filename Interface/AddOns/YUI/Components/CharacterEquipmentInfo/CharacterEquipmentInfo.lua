@@ -40,6 +40,8 @@ local STAT_LABEL_PADDING = 2
 local STAT_CONTENT_GAP = 4
 local HEADER_TEXT_TOP = -4
 local HEADER_TEXT_HEIGHT = 20
+local HEADER_CLOSE_SIZE = 16
+local HEADER_CLOSE_RIGHT_INSET = 8
 local COLUMN_GAP = 2
 local HEADER_TEXT_SIZE = "font.size.lg"
 local BODY_TEXT_SIZE = "font.size.md"
@@ -129,6 +131,7 @@ local runtime = {
     refreshPending = false,
     generation = 0,
     hookedFrames = setmetatable({}, { __mode = "k" }),
+    dismissedHosts = setmetatable({}, { __mode = "k" }),
     playerCard = nil,
     inspectCard = nil,
 }
@@ -365,6 +368,14 @@ local function ShowTooltip(row, link)
     if ok and type(GameTooltip.Show) == "function" then
         GameTooltip:Show()
     end
+end
+
+local function ShowEnchantTooltip(icon)
+    if not icon.enchant or not GameTooltip then return end
+    GameTooltip:SetOwner(icon, "ANCHOR_RIGHT")
+    GameTooltip:SetText(T("item.enchant", "附魔"))
+    GameTooltip:AddLine(icon.enchant, 0.35, 1, 0.35, true)
+    GameTooltip:Show()
 end
 
 local function ShowEnhancementTooltip(alert)
@@ -703,10 +714,15 @@ local function CreateEquipmentRow(card, definition)
     row.nameText:SetWordWrap(false)
 
     if YUI.IsForever then
-        row.enchantText = CreateText(row, "", BODY_TEXT_SIZE, "color.state.success")
-        row.enchantText:SetWordWrap(true)
-        row.enchantText:Hide()
-        card.themeTexts[#card.themeTexts + 1] = row.enchantText
+        row.enchantIcon = GUI2:CreateIconSlot(row, {
+            icon = 136244, size = 14, variant = "bare", shape = "circle",
+            border = "none", zoom = 0.08, animate = false,
+        })
+        row.enchantIcon:EnableMouse(true)
+        row.enchantIcon:SetScript("OnEnter", ShowEnchantTooltip)
+        row.enchantIcon:SetScript("OnLeave", HideTooltip)
+        row.enchantIcon:SetScript("OnHide", HideTooltip)
+        row.enchantIcon:Hide()
         row.gems = {}
         for index = 1, 4 do
             local gem = GUI2:CreateTexture(row, { layer = "ARTWORK" })
@@ -851,6 +867,35 @@ local function BuildCard(kind)
 
     card.content = card
 
+    card.closeButton = GUI2:CreateButtonFrame(card, {
+        template = "BackdropTemplate", width = HEADER_CLOSE_SIZE, height = HEADER_CLOSE_SIZE,
+    })
+    card.closeButton:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
+    card.closeButton:SetBackdropColor(0, 0, 0, 0)
+    card.closeButton.icon = GUI2:CreateTexture(card.closeButton, { layer = "ARTWORK" })
+    card.closeButton.icon:SetSize(14, 14)
+    card.closeButton.icon:SetPoint("CENTER", card.closeButton, "CENTER", 0, 0)
+    card.closeButton.icon:SetAtlas("uitools-icon-close")
+    card.closeButton.icon:SetVertexColor(0.7, 0.7, 0.7)
+    card.closeButton:SetScript("OnClick", function()
+        local host = card:GetParent()
+        runtime.dismissedHosts[host] = true
+        HideTooltip()
+        if runtime.playerCard then runtime.playerCard:Hide() end
+        if runtime.inspectCard then runtime.inspectCard:Hide() end
+    end)
+    card.closeButton:SetPoint("TOPRIGHT", card, "TOPRIGHT", -HEADER_CLOSE_RIGHT_INSET, HEADER_TEXT_TOP)
+    card.closeButton:SetScript("OnEnter", function(button)
+        button.icon:SetVertexColor(1, 1, 1)
+        button:SetBackdropColor(1, 0.2, 0.2, 0.5)
+    end)
+    local function ResetCloseButton(button)
+        button.icon:SetVertexColor(0.7, 0.7, 0.7)
+        button:SetBackdropColor(0, 0, 0, 0)
+    end
+    card.closeButton:SetScript("OnLeave", ResetCloseButton)
+    card.closeButton:SetScript("OnHide", ResetCloseButton)
+
     card.title = CreateText(card, "", HEADER_TEXT_SIZE, "color.text.heading")
     card.title:SetPoint("TOPLEFT", card, "TOPLEFT", CARD_INSET, HEADER_TEXT_TOP)
     card.title:SetPoint("RIGHT", card, "RIGHT", -106, 0)
@@ -862,7 +907,7 @@ local function BuildCard(kind)
 
     card.meta = CreateText(card, "", HEADER_TEXT_SIZE, "color.text.secondary", "RIGHT", "number")
     card.meta._equipmentHeightLimit = HEADER_TEXT_HEIGHT - 2
-    card.meta:SetPoint("TOPRIGHT", card, "TOPRIGHT", -CARD_INSET, HEADER_TEXT_TOP)
+    card.meta:SetPoint("TOPRIGHT", card, "TOPRIGHT", -(HEADER_CLOSE_RIGHT_INSET + HEADER_CLOSE_SIZE + CARD_GAP), HEADER_TEXT_TOP)
     card.meta:SetWidth(86)
     card.meta:SetHeight(HEADER_TEXT_HEIGHT)
     card.meta:SetJustifyH("RIGHT")
@@ -932,6 +977,7 @@ local function BuildCard(kind)
             blizzardWindow = kind == "inspect" and "inspect" or "charsheet",
             headings = card.themeHeadings,
             noTopBar = true,
+            shellHeaderHeight = CARD_HEADER_HEIGHT,
             role = "character-summary",
             nativeBorderOverflow = YUI.IsForever == true,
             onRefresh = function(_, refreshedContext)
@@ -1095,9 +1141,11 @@ local function UpdateEquipmentTextLayout(card, row, itemStatStyle)
     local maximumNameWidth = math.max(1, rowWidth - leftWidth - rightWidth - suffixWidth)
     if YUI.IsForever then
         local size = math.max(8, math.min(16, card._textSize or DEFAULT_FONT_SIZE))
+        local enchantSize = GUI2:GetIconAppearanceSize(size, "circle")
         local count = row.gemCount or 0
-        local gemWidth = count > 0 and count * (size + 2) + COLUMN_GAP or 0
-        maximumNameWidth = math.max(1, maximumNameWidth - gemWidth)
+        local gemWidth = count * (size + COLUMN_GAP)
+        local enchantWidth = row.enchantIcon.enchant and enchantSize + COLUMN_GAP + 2 or 0
+        maximumNameWidth = math.max(1, maximumNameWidth - gemWidth - enchantWidth)
         local nameWidth = math.min(GetRenderedTextWidth(row.nameText, maximumNameWidth), maximumNameWidth)
         row.nameText:SetWidth(math.max(1, nameWidth))
         local anchor = row.nameText
@@ -1108,25 +1156,16 @@ local function UpdateEquipmentTextLayout(card, row, itemStatStyle)
             gem:SetShown(index <= count)
             if index <= count then anchor = gem end
         end
-        local enchantWidth = row.enchantVisible and GetRenderedTextWidth(row.enchantText, 0) or 0
-        local remaining = rowWidth - leftWidth - nameWidth - gemWidth - COLUMN_GAP
-        row.enchantText:ClearAllPoints()
-        row.extraHeight = 0
-        if enchantWidth > 0 then
-            if enchantWidth <= remaining then
-                row.enchantText:SetWidth(enchantWidth)
-                row.enchantText:SetPoint("LEFT", anchor, "RIGHT", COLUMN_GAP, 0)
-            else
-                local width = math.max(1, rowWidth - leftWidth)
-                row.enchantText:SetWidth(width)
-                row.enchantText:SetPoint("TOPLEFT", row.nameText, "BOTTOMLEFT", 0, -2)
-                row.extraHeight = math.ceil(enchantWidth / width) * ((card._textSize or DEFAULT_FONT_SIZE) + 3) + 2
-                if row.enchantText.GetStringHeight then
-                    row.extraHeight = math.max(row.extraHeight, row.enchantText:GetStringHeight() + 2)
-                end
-            end
+        row.enchantIcon:ClearAllPoints()
+        if row.enchantIconSize ~= enchantSize then
+            row.enchantIconSize = enchantSize
+            row.enchantIcon:SetIconAppearance({ size = enchantSize })
+            GUI2:SetIconCircleBackdrop(row.enchantIcon, enchantSize, true)
         end
-        row.enchantText:SetShown(row.enchantVisible == true)
+        if row.enchantIcon.enchant then
+            row.enchantIcon:SetPoint("LEFT", anchor, "RIGHT", COLUMN_GAP, 0)
+        end
+        row.enchantIcon:SetShown(row.enchantIcon.enchant ~= nil)
         row.upgradeText:Hide()
         row.enhancementAlert:Hide()
         return
@@ -1195,9 +1234,9 @@ local function UpdateEquipmentRows(card, unit)
 
         row.enhancementAlert.enhancement = slot.enhancement
         if YUI.IsForever then
-            local display = not slot.secret and slot.slotDisplay
-            row.enchantVisible = display and type(display.enchant) == "string" and display.enchant ~= "" or false
-            row.enchantText:SetText(row.enchantVisible and display.enchant or "")
+            local display = slot.available and not slot.secret and not slot.pending and slot.slotDisplay
+            row.enchantIcon.enchant = display and type(display.enchant) == "string" and display.enchant ~= ""
+                and display.enchant or nil
             row.gemCount = display and display.gems and math.min(4, #display.gems) or 0
             for index, gem in ipairs(row.gems) do
                 gem:SetTexture(index <= row.gemCount and display.gems[index] or nil)
@@ -1363,13 +1402,13 @@ local function LayoutEquipment(card, top, rowHeight)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", card, "TOPLEFT", CARD_INSET, top)
         row:SetPoint("RIGHT", card, "RIGHT", -CARD_INSET, 0)
-        row:SetHeight(rowHeight + (row.extraHeight or 0))
+        row:SetHeight(rowHeight)
         if YUI.IsForever then
             row.slotBadge:ClearAllPoints()
             row.slotBadge:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -(rowHeight - row.slotBadge:GetHeight()) / 2)
         end
         row:Show()
-        top = top - rowHeight - (row.extraHeight or 0)
+        top = top - rowHeight
     end
     return top
 end
@@ -1536,23 +1575,22 @@ LayoutCard = function(card, isInspect)
     local metaWidth = math.max(86, GetRenderedTextWidth(card.meta, 86))
     card.meta:SetWidth(metaWidth)
     card.title:SetPoint("TOPLEFT", card, "TOPLEFT", CARD_INSET, HEADER_TEXT_TOP)
-    card.meta:SetPoint("TOPRIGHT", card, "TOPRIGHT", -CARD_INSET, HEADER_TEXT_TOP)
-    card.title:SetPoint("RIGHT", card, "RIGHT", -(CARD_INSET + metaWidth + CARD_GAP), 0)
+    local headerRightInset = HEADER_CLOSE_RIGHT_INSET + HEADER_CLOSE_SIZE + CARD_GAP
+    card.meta:SetPoint("TOPRIGHT", card, "TOPRIGHT", -headerRightInset, HEADER_TEXT_TOP)
+    card.title:SetPoint("RIGHT", card, "RIGHT", -(headerRightInset + metaWidth + CARD_GAP), 0)
     RefreshEquipmentTextLayout(card, style)
 
     if YUI.IsForever then
-        local extraHeight = 0
-        for _, row in ipairs(card.equipmentRows) do extraHeight = extraHeight + (row.extraHeight or 0) end
         local minimumRowHeight = math.max(card._textSize or DEFAULT_FONT_SIZE, card._numberSize or DEFAULT_FONT_SIZE) + 5
         local minimumHeight = CARD_HEADER_HEIGHT + CARD_SECTION_GAP * 2 + lineHeight * 2
-            + #SLOT_DEFINITIONS * minimumRowHeight + extraHeight + CARD_BOTTOM_INSET + statsHeight
+            + #SLOT_DEFINITIONS * minimumRowHeight + CARD_BOTTOM_INSET + statsHeight
         height = math.max(height, minimumHeight)
         card.desiredHeight = height
         height = math.max(height, card.sharedHeight or 0)
         card:SetHeight(height)
         statsTop = -height + CARD_BOTTOM_INSET + statsHeight
         statsLineY = statsTop + CARD_SECTION_GAP + lineHeight
-        rowHeight = math.max(minimumRowHeight, math.min(24, math.floor((equipmentTop - statsLineY - extraHeight) / #SLOT_DEFINITIONS)))
+        rowHeight = math.max(minimumRowHeight, math.min(24, math.floor((equipmentTop - statsLineY) / #SLOT_DEFINITIONS)))
     end
 
     PlaceSectionLine(card.headerLine, card, -CARD_HEADER_HEIGHT)
@@ -1695,7 +1733,7 @@ local function RefreshRuntime()
         return
     end
     local host, inspecting = ResolveHost()
-    if not host then
+    if not host or runtime.dismissedHosts[host] then
         if runtime.playerCard then runtime.playerCard:Hide() end
         if runtime.inspectCard then runtime.inspectCard:Hide() end
         return
@@ -1781,7 +1819,12 @@ local function HookFrame(frame)
 
     runtime.hookedFrames[frame] = true
     frame:HookScript("OnShow", function() RequestRefresh(nil, "host.OnShow") end)
-    frame:HookScript("OnHide", function() RequestRefresh(nil, "host.OnHide") end)
+    frame:HookScript("OnHide", function()
+        if frame == _G.CharacterFrame or frame == _G.InspectFrame then
+            runtime.dismissedHosts[frame] = nil
+        end
+        RequestRefresh(nil, "host.OnHide")
+    end)
     frame:HookScript("OnSizeChanged", function() RequestRefresh(nil, "host.OnSizeChanged") end)
 end
 
@@ -2000,7 +2043,7 @@ function Feature:GetDetailOptions()
                 {
                     type = "dropdown", label = T("settings." .. role .. "_font"), width = 180,
                     options = fontOptions, default = DEFAULT_FONT,
-                    get = function() return NormalizeFont(db[role .. "Font"]) end,
+                    fontStyleSource=role.."Font", get = function() return NormalizeFont(db[role .. "Font"]) end,
                     set = function(value) db[role .. "Font"] = NormalizeFont(value) end,
                     onChange = Refresh,
                 },
@@ -2008,7 +2051,7 @@ function Feature:GetDetailOptions()
                     type = "dropdown", label = T("settings." .. role .. "_font_size"), width = 180,
                     tooltip = T("settings.font_size.help"),
                     options = sizeOptions, default = DEFAULT_FONT_SIZE,
-                    get = function() return NormalizeFontSize(db[role .. "FontSize"]) end,
+                    fontStyleSource=role.."FontSize", get = function() return NormalizeFontSize(db[role .. "FontSize"]) end,
                     set = function(value) db[role .. "FontSize"] = NormalizeFontSize(value) end,
                     onChange = Refresh,
                 },
@@ -2075,6 +2118,12 @@ function Feature:GetDetailOptions()
         FontOptions("number"),
     }
     if YUI.IsForever then table.remove(cardOptions[2].children, 1) end
+    if GUI2.FontStyle and GUI2.FontStyle.MergeOptions then
+        GUI2.FontStyle:MergeOptions(cardOptions, {
+            {key="equipment_summary:text",label=T("settings.text_font"),sources={"textFont","textFontSize"}},
+            {key="equipment_summary:number",label=T("settings.number_font"),sources={"numberFont","numberFontSize"}},
+        })
+    end
     for _, option in ipairs(cardOptions) do options[#options + 1] = option end
     if YUI.CharacterEquipmentOverlays then
         local overlayOptions = YUI.CharacterEquipmentOverlays:BuildOptions(db, fontOptions,
@@ -2233,3 +2282,34 @@ function Feature:OnSettingsLeave()
 end
 
 Components:RegisterFeature(FEATURE_KEY, Feature)
+
+if GUI2.FontStyle and GUI2.FontStyle.RegisterConfig then
+    local style=GUI2.FontStyle
+    style:RegisterConfig("equipment_summary", {
+        label=function() return T("section.summary") end,
+        get=function() return style.ComponentConfig(PRODUCT_ID,CONFIG_KEY) end,
+        refresh=function() if runtime.enabled then RefreshRuntime() end end,
+        targets={
+            {id="text",label=function() return T("settings.text_font") end,fields={font="textFont",size="textFontSize"},defaults=DEFAULTS,minSize=10,maxSize=16},
+            {id="number",label=function() return T("settings.number_font") end,fields={font="numberFont",size="numberFontSize"},defaults=DEFAULTS,minSize=10,maxSize=16},
+        },
+    })
+end
+
+if GUI2.FontStyle and GUI2.FontStyle.RegisterConfig and YUI.CharacterEquipmentOverlays then
+    local style=GUI2.FontStyle
+    local targets={}
+    for _,entry in ipairs({{"level","slotLevel",14},{"enchant","slotEnchant",12},{"durability","slotDurability",12}}) do
+        local id,prefix,size=entry[1],entry[2],entry[3]
+        local defaults={[prefix.."Font"]=DEFAULT_FONT,[prefix.."Size"]=size,[prefix.."Outline"]="outlineShadow"}
+        targets[#targets+1]={id=id,label=function() return T("section."..id) end,
+            fields={font=prefix.."Font",size=prefix.."Size",monochrome=prefix.."Monochrome"},effect=prefix.."Outline",format="camel",
+            defaults=defaults,minSize=8,maxSize=24}
+    end
+    style:RegisterConfig("equipment_slots", {
+        label=function() return Feature.name end,
+        get=function() return style.ComponentConfig(PRODUCT_ID,CONFIG_KEY) end,
+        refresh=function(db) if runtime.enabled then YUI.CharacterEquipmentOverlays:Refresh(db) end end,
+        targets=targets,
+    })
+end

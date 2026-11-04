@@ -192,15 +192,15 @@ function Ownership:RestoreProfileStateImport(token)
     return true
 end
 
-function Ownership:GetStore(provider, create)
-    local DB = YUI.DB
-    if not (DB and DB.IsReady and DB:IsReady() and DB.GetAceDB and DB.GetProfile) then return nil, 'db_not_ready' end
-    local db, profile = DB:GetAceDB(provider.productId), DB:GetProfile(provider.productId)
-    if not db or type(profile) ~= 'table' or type(db.global) ~= 'table' then return nil, 'db_not_ready' end
+local function EnsureMigration(db, productId)
     local global = db.global
     local marker = global[Migration.MARKER_KEY]
     if marker ~= nil and (type(marker) ~= 'table' or marker.version ~= Migration.VERSION) then return nil, 'invalid_storage' end
     if not marker and global.SettingsConfigSets ~= nil then
+        -- Import owns its target until success/rollback is final. Migrating all
+        -- profiles here would invalidate its snapshots and rollback identities.
+        local transfer = S.ConfigTransfer
+        if transfer and transfer.IsImporting and transfer:IsImporting(productId) then return nil, 'migration_required' end
         if not (db.sv and type(db.sv.profiles) == 'table') then return nil, 'profile_unavailable' end
         local token, code, detail = Migration:PrepareDatabase(global, db.sv.profiles)
         if not token then return nil, code, detail end
@@ -215,6 +215,20 @@ function Ownership:GetStore(provider, create)
         local committed
         committed, code, detail = Migration:CommitDatabase(token)
         if not committed then Migration:DiscardDatabase(token); return nil, code, detail end
+    end
+    return true
+end
+
+function Ownership:GetStore(provider, create)
+    local DB = YUI.DB
+    if not (DB and DB.IsReady and DB:IsReady() and DB.GetAceDB and DB.GetProfile) then return nil, 'db_not_ready' end
+    local db, profile = DB:GetAceDB(provider.productId), DB:GetProfile(provider.productId)
+    if not db or type(profile) ~= 'table' or type(db.global) ~= 'table' then return nil, 'db_not_ready' end
+    local migrated, code, detail = EnsureMigration(db, provider.productId)
+    if not migrated then
+        local existing = profile[Migration.STORAGE_KEY]
+        if code ~= 'migration_required' or type(existing) ~= 'table' or type(existing.providers) ~= 'table'
+            or existing.providers[provider.id] == nil then return nil, code, detail end
     end
     local store = profile[Migration.STORAGE_KEY]
     if store == nil and create then
@@ -284,6 +298,8 @@ function Ownership:CopyProfileState(productId, sourceName, targetName)
     local source = profiles and profiles[sourceName]
     if type(source) ~= 'table' then return nil, 'profile_unavailable' end
     if sourceName == targetName then return true end
+    local migrated, migrationCode, detail = EnsureMigration(db, productId)
+    if not migrated then return nil, migrationCode, detail end
     local store = source[Migration.STORAGE_KEY]
     if not store then
         -- An untouched profile has no owned library to copy. Its normal

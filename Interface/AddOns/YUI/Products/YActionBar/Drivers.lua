@@ -127,6 +127,9 @@ function Drivers:RegisterMainPaging(holder, buttons)
         ]])
         local driver = YAB.Adapter and YAB.Adapter:BuildMainPageDriver() or "1"
         RegisterStateDriver(holder, "page", driver)
+        self.mainPagingPolicies = self.mainPagingPolicies or setmetatable({}, { __mode = "k" })
+        self.mainPagingPolicies[holder] = YAB.Adapter and YAB.Adapter.IsFormPagingEnabled
+            and YAB.Adapter:IsFormPagingEnabled() or false
         self.registered[holder] = self.registered[holder] or {}
         self.registered[holder].page = true
         return true

@@ -1,4 +1,5 @@
 local YUI = _G.YUI
+local textStyles
 if not YUI then return end
 
 local Monitor = YUI.ClassExtraMonitor
@@ -6,6 +7,7 @@ if not (Monitor and Monitor.RegisterSubFeature) then return end
 
 local GUI2 = YUI.GUI2
 local CoreMonitor
+local sharedHandle, sharedState
 local UnitAPI = (YUI.API and YUI.API.Unit) or YUI.WOW_API or {}
 local SpellAPI = (YUI.API and YUI.API.Spell) or YUI.WOW_API or {}
 local TalentAPI = (YUI.API and YUI.API.Talent) or YUI.WOW_API or {}
@@ -335,22 +337,6 @@ local function IsPlayerInInstance()
     return SafeBooleanFromCall(IsInInstance) == true
 end
 
-local function IsKnownSpell(spellID)
-    if SpellAPI and SpellAPI.IsKnownOrInSpellBook then
-        local ok, known = pcall(SpellAPI.IsKnownOrInSpellBook, spellID)
-        if ok and known == true then return true end
-    end
-    if SpellAPI and SpellAPI.IsKnown then
-        local ok, known = pcall(SpellAPI.IsKnown, spellID)
-        if ok and known == true then return true end
-    end
-    return false
-end
-
-local function IsWiseElixirKnown()
-    return IsKnownSpell(WISE_ELIXIR_SPELL_ID) or IsKnownSpell(ELIXIR_COOLDOWN_SPELL_ID)
-end
-
 local function GetSpellTexture(spellID)
     if SpellAPI and SpellAPI.GetTexture then
         local ok, texture = pcall(SpellAPI.GetTexture, spellID)
@@ -557,8 +543,13 @@ local function ApplyAppearance(db)
     if Widget.text then
         Widget.text:ClearAllPoints()
         Widget.text:SetPoint("CENTER", Widget.textLayer or frame, "CENTER", 0, 0)
-        SetFontSize(Widget.text, db.brewmasterElixirFontSize, "OUTLINE")
-        SetTextColor(Widget.text, DEFAULT_TEXT_COLOR)
+        if textStyles then
+            YUI.GUI2.FontStyle.ApplyConfigFont(Widget.text,textStyles[1],db)
+            Widget.text:SetTextColor(YUI.GUI2.FontStyle.ConfigColor(textStyles[1],db,DEFAULT_TEXT_COLOR))
+        else
+            SetFontSize(Widget.text, db.brewmasterElixirFontSize, "OUTLINE")
+            SetTextColor(Widget.text, DEFAULT_TEXT_COLOR)
+        end
     end
     if Widget.glow and Widget.glow.SetGlowParams then
         Widget.glow:SetGlowParams(BuildGlowParams(db))
@@ -584,76 +575,11 @@ local function EnsureLayoutPreviewState(db)
     return true
 end
 
-local function ReadSpellCooldown(spellID)
-    if not spellID then return nil end
-    if SpellAPI and SpellAPI.GetCooldown then
-        local ok, cooldown = pcall(SpellAPI.GetCooldown, spellID)
-        if ok and type(cooldown) == "table" then
-            local startTime = SafeNumber(cooldown.startTime) or 0
-            local duration = SafeNumber(cooldown.duration) or 0
-            local modRate = SafeNumber(cooldown.modRate) or 1
-            if startTime > 0 and duration > 1.5 then
-                local now = GetNow()
-                local remaining = (startTime + duration) - now
-                if remaining > 0 then
-                    return {
-                        startTime = startTime,
-                        duration = duration,
-                        remaining = remaining,
-                        modRate = modRate,
-                    }
-                end
-            end
-        end
-    end
-    return nil
-end
-
-local function GetElixirCooldownWindowData()
-    local data
-    if RuntimeMonitor and RuntimeMonitor.GetTriggerData then
-        data = RuntimeMonitor:GetTriggerData("elixirCooldown")
-    end
-    if not data then
-        CoreMonitor = CoreMonitor or YUI.Monitor
-        if CoreMonitor and CoreMonitor.GetTriggerData then
-            data = CoreMonitor:GetTriggerData(MONITOR_ID, "elixirCooldown")
-        end
-    end
-    return data
-end
-
-local function ReadElixirCooldownWindow()
-    local data = GetElixirCooldownWindowData()
-    if type(data) ~= "table" then return nil end
-
-    local remaining = SafeNumber(data.remaining)
-    local duration = SafeNumber(data.duration)
-    local startTime = SafeNumber(data.startTime)
-    if not (remaining and remaining > 0 and duration and duration > 0 and startTime) then
-        return nil
-    end
-
-    return {
-        startTime = startTime,
-        duration = duration,
-        remaining = remaining,
-        modRate = 1,
-    }
-end
-
 local function ReadElixirCooldown()
-    local cooldown = ReadSpellCooldown(ELIXIR_COOLDOWN_SPELL_ID) or ReadSpellCooldown(WISE_ELIXIR_SPELL_ID)
-    if cooldown then
-        return cooldown
-    end
-
-    cooldown = ReadElixirCooldownWindow()
-    if cooldown then
-        return cooldown
-    end
-
-    return nil
+    local state = sharedState
+    if not (state and state.active and state.resolved and state.startTime + state.duration > GetNow()) then return nil end
+    return { startTime = state.startTime, duration = state.duration,
+        remaining = state.startTime + state.duration - GetNow(), modRate = 1 }
 end
 
 local function FormatRemaining(remaining)
@@ -864,7 +790,7 @@ local function ShouldShow(db, applicable)
     if settingsPreviewActive or layoutPreviewActive then return true end
     if not featureActive then return false end
     if not applicable then return false end
-    if not IsWiseElixirKnown() then return false end
+    if not (sharedState and sharedState.resolved and sharedState.isEnabled == true) then return false end
 
     if ReadElixirCooldown() then return true end
 
@@ -901,6 +827,24 @@ local function UpdatePresenter(ctx)
     end
 end
 
+function BrewmasterElixir:OnSharedSource(state)
+    sharedState = state
+    if RuntimeMonitor and RuntimeMonitor:IsRunning() then RuntimeMonitor:Refresh("shared-class-extra") end
+end
+
+local function AcquireSharedSource()
+    local common = CoreMonitor and CoreMonitor.CommonSources
+    local descriptor = common and common.DescribeClassExtra and common:DescribeClassExtra("brewmaster-elixir")
+    if not descriptor or sharedHandle then return end
+    sharedHandle = CoreMonitor:AcquireSource(BrewmasterElixir, descriptor.key, descriptor.type, descriptor.params, "OnSharedSource")
+    if sharedHandle then CoreMonitor:RefreshSourceNow(sharedHandle.source, "class-extra-enable", true) end
+end
+
+local function ReleaseSharedSource()
+    if sharedHandle then CoreMonitor:ReleaseSource(sharedHandle) end
+    sharedHandle, sharedState = nil, nil
+end
+
 local function EnsureRuntimeMonitor()
     if RuntimeMonitor then return RuntimeMonitor end
     CoreMonitor = CoreMonitor or YUI.Monitor
@@ -924,31 +868,17 @@ local function EnsureRuntimeMonitor()
                 { id = "refreshCombatStart", type = "event", event = "PLAYER_REGEN_DISABLED", activation = false },
                 { id = "refreshCombatEnd", type = "event", event = "PLAYER_REGEN_ENABLED", activation = false },
                 { id = "refreshZone", type = "event", event = "ZONE_CHANGED_NEW_AREA", activation = false },
-                {
-                    id = "elixirCooldown",
-                    type = "event",
-                    event = "SPELL_UPDATE_COOLDOWN",
-                    spellID = ELIXIR_COOLDOWN_SPELL_ID,
-                    duration = ELIXIR_TRIGGER_COOLDOWN,
-                    matchBaseSpellID = true,
-                    activation = false,
-                },
-                {
-                    id = "cast",
-                    type = "event",
-                    event = "UNIT_SPELLCAST_SUCCEEDED",
-                    unit = "player",
-                    spellID = WISE_ELIXIR_SPELL_ID,
-                    activation = false,
-                },
+
             },
         },
         conditions = {
             onEnable = function()
                 runtimeActive = true
+                AcquireSharedSource()
             end,
             onDisable = function()
                 runtimeActive = false
+                ReleaseSharedSource()
                 if not settingsPreviewActive and not layoutPreviewActive then
                     HideWidget()
                 end
@@ -1325,7 +1255,7 @@ function BrewmasterElixir:BuildOptions(db)
             min = 10,
             max = 36,
             step = 1,
-            get = function() return db.brewmasterElixirFontSize end,
+            fontStyleSource="brewmasterElixirFontSize", get = function() return db.brewmasterElixirFontSize end,
             set = function(value)
                 db.brewmasterElixirFontSize = ClampNumber(value, 10, 36, BrewmasterElixir.defaults.brewmasterElixirFontSize)
                 ApplyAppearance(db)
@@ -1430,8 +1360,24 @@ function BrewmasterElixir:BuildOptions(db)
         onRequestRefresh = RefreshSettingsModule,
     }
 
+    if YUI.GUI2 and YUI.GUI2.FontStyle and YUI.GUI2.FontStyle.MergeOptions then
+        YUI.GUI2.FontStyle:MergeOptions(options, {{key="class_elixir:text",label=T("settings.text_style"),sources={"brewmasterElixirFontSize"}}})
+    end
     return options
 end
 
 Monitor.BrewmasterElixir = BrewmasterElixir
 Monitor:RegisterSubFeature(BrewmasterElixir)
+
+if YUI.GUI2 and YUI.GUI2.FontStyle and YUI.GUI2.FontStyle.RegisterConfig then
+    local style=YUI.GUI2.FontStyle
+    textStyles={
+        style.FullConfig({id="text",label=function() return T("settings.text_style") end,fields={size="brewmasterElixirFontSize"},defaults=BrewmasterElixir.defaults,minSize=10,maxSize=36},"brewmasterElixir",{color=DEFAULT_TEXT_COLOR,shadow=true,shadowAlpha=0.6,font=function() return YUI.GUI2.Fonts and YUI.GUI2.Fonts.normal or YUI.GUI2:GetFont("font.family.body") end})
+    }
+    style:RegisterConfig("class_elixir", {
+        label=function() return T("settings.brewmaster_elixir", "明志灵药") end,
+        get=function() return style.ComponentConfig(Monitor.PRODUCT_ID,Monitor.CONFIG_KEY) end,
+        refresh=function(db) if featureActive or settingsPreviewActive or layoutPreviewActive then BrewmasterElixir:RefreshRuntime(db) end end,
+        targets=textStyles,
+    })
+end

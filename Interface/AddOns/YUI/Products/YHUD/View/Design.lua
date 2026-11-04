@@ -29,7 +29,7 @@ local SetSlotIcon = I.SetSlotIcon
 
 local DRAG_INDICATOR_SIZE = 3
 local DRAG_GROUP_PADDING = 18
-local DRAG_BUNDLE_SCALE = 0.5
+local DRAG_PREVIEW_ICON_SIZE = 24
 local DRAG_BUNDLE_STACK_X = 4
 local DRAG_BUNDLE_STACK_Y = -4
 local DRAG_MAKE_ROOM_PIXELS = 4
@@ -41,6 +41,7 @@ local DESIGN_COOLDOWN_SAMPLE = "15"
 local DESIGN_COUNT_SAMPLE = "2"
 local DESIGN_DURATION_SECONDS = 15
 local DESIGN_DURATION_PREVIEW_ELAPSED = 3
+local DESIGN_DURATION_PREVIEW_INTERVAL = 0.1
 local DESIGN_SELECTION_PIXELS = 4
 local DESIGN_HOVER_PIXELS = 1
 local DESIGN_RING_SELECTION_OFFSET_PIXELS = 2
@@ -243,6 +244,9 @@ end
 function View:RefreshDesignSelectionOutline(slot)
     local outline = slot and slot._yhudDesignSelectionOutline
     if not outline then return false end
+    local glowPreview = self.designGlowPreviewMonitorId ~= nil
+        and (slot._yhudLogicalMonitorId or slot._yhudMonitorId) == self.designGlowPreviewMonitorId
+    outline:SetAlpha(glowPreview and 0 or 1)
     AddPerformanceStat("designOutlineRefreshes")
     local isRing = slot._yhudView == "ring"
     local isResource = slot._yhudView == "resource"
@@ -366,6 +370,16 @@ local function SetDesignTextShown(region, state, shown)
 end
 
 local function ResolveDesignCountPreview(slot)
+    local progress = slot and slot._yhudBarProgress
+    local maximum = slot and slot._yhudBarMaximum
+    if progress and progress.source ~= "time" then
+        if not maximum then return false, "" end
+        local sample = slot._yhudDesignBarPreview
+        if sample and sample.progress == progress and sample.maximum == maximum then
+            return true, sample.value
+        end
+        return true, progress.source == "spell-charges" and math.max(0, maximum - 1) or math.min(2, maximum)
+    end
     local monitor = slot
         and View.desiredMonitors
         and View.desiredMonitors[slot._yhudMonitorId]
@@ -392,6 +406,63 @@ local function ResolveDesignCountPreview(slot)
     end
     if slot and slot._yhudDisplayCount ~= nil then hasCount = true end
     return hasCount, DESIGN_COUNT_SAMPLE
+end
+
+local function ClearDesignProgressSample(slot)
+    slot._yhudDesignBarPreview = nil
+    slot._yhudDesignDurationPreviewCycle = nil
+    slot._yhudDesignDurationPreviewProgress = nil
+end
+
+-- Public samples only. Compile the bounded stack sequence on configuration
+-- changes; the existing shared duration ticker advances every preview source.
+local function DesignBarPlaybackSample(slot, elapsed)
+    local progress, maximum = slot._yhudBarProgress, slot._yhudBarMaximum
+    local policy = slot._yhudBarStackPolicy
+    local low = policy and policy.enabled and policy.low.enabled and policy.low.value or nil
+    local high = policy and policy.enabled and policy.high.enabled and policy.high.value or nil
+    local sample = slot._yhudDesignBarPreview
+    if not sample or sample.progress ~= progress or sample.maximum ~= maximum
+        or sample.low ~= low or sample.high ~= high then
+        sample = { progress = progress, maximum = maximum, low = low, high = high, value = 0 }
+        slot._yhudDesignBarPreview = sample
+        if progress.source == "aura-stacks" then
+            local values, included = {}, {}
+            local function add(value)
+                value = math.max(0, math.min(maximum, math.floor(value)))
+                if not included[value] then
+                    included[value] = true
+                    values[#values + 1] = value
+                end
+            end
+            for index = 0, math.min(maximum, 10) do
+                add(maximum <= 10 and index or maximum * index / 10)
+            end
+            if low then add(low - 1); add(low); add(low + 1) end
+            if high then add(high - 1); add(high); add(high + 1) end
+            table.sort(values)
+            sample.values = values
+        end
+    end
+    local period = DESIGN_DURATION_SECONDS - DESIGN_DURATION_PREVIEW_ELAPSED
+    local phase = elapsed % period
+    if progress.source == "spell-charges" then
+        if phase < 6 then
+            local value = phase * maximum / 6
+            sample.value = math.min(maximum, math.floor(value))
+            sample.fraction = value - sample.value
+        elseif phase < 8 then
+            sample.value, sample.fraction = maximum, 0
+        else
+            sample.value = math.max(0, maximum - math.floor((phase - 8) * maximum / 2) - 1)
+            sample.fraction = 0
+        end
+    else
+        local position = phase < 5 and phase / 5
+            or phase < 7 and 1 or (period - phase) / 5
+        sample.value = sample.values[1 + math.floor(position * (#sample.values - 1))]
+    end
+    return sample
 end
 
 local function RefreshDesignHeaderWidth(runtime)
@@ -529,13 +600,14 @@ end
 -- 普通条形设计样本在布局变化后需要重新生成字形；不触碰运行时文字。
 local DESIGN_SAMPLE_ANCHOR_KEYS = {
     "target", "point", "relativePoint", "x", "y", "justify", "nameWidth",
-    "numericFont", "numericSize", "numericOutline",
+    "numericFont", "numericSize", "numericOutline", "numericMonochrome",
 }
 local function CommitDesignBarSample(slot, text, value, state, anchorState)
     local previous = state.sampleLayout
     local changed = not previous
         or previous.font ~= state.font or previous.size ~= state.fontSize
         or previous.outline ~= state.fontOutline
+        or previous.monochrome ~= state.fontMonochrome
         or previous.width ~= slot.gui2DurationWidth
         or previous.height ~= slot.gui2DurationHeight
         or previous.orientation ~= slot.orientation
@@ -548,6 +620,7 @@ local function CommitDesignBarSample(slot, text, value, state, anchorState)
         previous[key] = current
     end
     previous.font, previous.size, previous.outline = state.font, state.fontSize, state.fontOutline
+    previous.monochrome = state.fontMonochrome
     previous.width, previous.height = slot.gui2DurationWidth, slot.gui2DurationHeight
     previous.orientation, previous.showIcon = slot.orientation, slot.gui2DurationShowIcon
     state.sampleLayout = previous
@@ -558,7 +631,8 @@ end
 
 function View:ApplyDesignTextPreview(slot)
     if not (self.designMode and slot)
-        or slot._yhudView == "resource" then
+        or slot._yhudView == "resource"
+        or (self.designProjection and slot._yhudDesignProjection ~= true) then
         return false
     end
     local runtime = DesignRuntimeForSlot(slot)
@@ -570,10 +644,12 @@ function View:ApplyDesignTextPreview(slot)
     end
     EnsureDesignBarTextStates(slot)
 
-    local textPreviewActive = runtime.id == self.designCooldownPreviewGroupId
-        and self.designTextPreviewTarget ~= nil
+    local presetPreview = YHUD.ClassExtra and YHUD.ClassExtra.previews[slot]
+    local timeSample = presetPreview and presetPreview.timeText or DESIGN_COOLDOWN_SAMPLE
+    local textPreviewActive = presetPreview ~= nil
+        or (runtime.id == self.designCooldownPreviewGroupId and self.designTextPreviewTarget ~= nil)
     local previewTarget = self.designTextPreviewTarget
-    local previewAll = previewTarget == "all"
+    local previewAll = presetPreview ~= nil or previewTarget == "all"
     local durationPreviewActive = self.designDurationPreviewEnabled == true
         and (slot._yhudView == "ring" or slot._yhudView == "bar")
         and runtime.enabled == true
@@ -584,6 +660,7 @@ function View:ApplyDesignTextPreview(slot)
         font = runtime.cooldownTextFont,
         size = runtime.cooldownTextSize,
         outline = runtime.cooldownTextOutline,
+        monochrome = runtime.cooldownTextMonochrome,
         position = runtime.cooldownTextPosition,
         offsetX = runtime.cooldownTextOffsetX,
         offsetY = runtime.cooldownTextOffsetY,
@@ -593,6 +670,7 @@ function View:ApplyDesignTextPreview(slot)
         font = runtime.timeTextFont,
         size = runtime.timeTextSize,
         outline = runtime.timeTextOutline,
+        monochrome = runtime.timeTextMonochrome,
         position = runtime.timeTextPosition,
         anchor = runtime.timeTextAnchor,
         offsetX = runtime.timeTextOffsetX,
@@ -603,7 +681,7 @@ function View:ApplyDesignTextPreview(slot)
         and (previewAll or previewTarget == "cooldown")
         and durationText.enabled ~= false
     if cooldownText then
-        if slot._yhudView ~= "bar" then cooldownText:SetText(DESIGN_COOLDOWN_SAMPLE) end
+        if slot._yhudView ~= "bar" then cooldownText:SetText(timeSample) end
         if GUI2.ApplyTextStyle then
             slot._yhudDesignCooldownTextState.preserveVisibility = true
             slot._yhudDesignCooldownTextState.preserveAnchors = slot._yhudView == "bar"
@@ -623,7 +701,7 @@ function View:ApplyDesignTextPreview(slot)
             )
         end
         if slot._yhudView == "bar" then
-            CommitDesignBarSample(slot, cooldownText, DESIGN_COOLDOWN_SAMPLE,
+            CommitDesignBarSample(slot, cooldownText, timeSample,
                 slot._yhudDesignCooldownTextState, slot._yhudDesignCooldownTextAnchorState)
         end
         SetDesignTextShown(
@@ -634,13 +712,16 @@ function View:ApplyDesignTextPreview(slot)
     end
 
     local countText = slot._yhudDesignCountText
-    local _, countValue = ResolveDesignCountPreview(slot)
+    local hasCount, countValue = ResolveDesignCountPreview(slot)
+    if presetPreview then countValue = presetPreview.state.displayCount or 0 end
     if View.ApplyBarStackPreview and (textPreviewActive or durationPreviewActive) then
         View:ApplyBarStackPreview(slot, countValue)
     end
     local countShown = (textPreviewActive or durationPreviewActive)
         and (durationPreviewActive or previewAll or previewTarget == "count")
         and runtime.countText == true
+        and (not slot._yhudBarProgress or slot._yhudBarProgress.source == "time" or hasCount)
+        and (not presetPreview or presetPreview.state.displayCount ~= nil)
     if countText then
         if slot._yhudView ~= "bar" then countText:SetText(tostring(countValue)) end
         local countStyle = {
@@ -648,6 +729,7 @@ function View:ApplyDesignTextPreview(slot)
             font = runtime.countTextFont,
             size = runtime.countTextSize,
             outline = runtime.countTextOutline,
+            monochrome = runtime.countTextMonochrome,
             position = runtime.countTextPosition,
             anchor = runtime.countTextAnchor,
             offsetX = runtime.countTextOffsetX,
@@ -692,6 +774,7 @@ function View:ApplyDesignTextPreview(slot)
             font = runtime.nameTextFont,
             size = runtime.nameTextSize,
             outline = runtime.nameTextOutline,
+            monochrome = runtime.nameTextMonochrome,
             position = runtime.nameTextPosition,
             anchor = runtime.nameTextAnchor,
             offsetX = runtime.nameTextOffsetX,
@@ -841,6 +924,25 @@ end
 
 local CommitDesignGroupPosition
 
+local function FinishDesignGroupDrag(runtime, cancel)
+    if not (runtime and runtime.designGroupDragging) then return false end
+    runtime.designGroupDragging = false
+    View.activeDesignGroupDrag = nil
+    if runtime.designGroupLayoutDrag then
+        runtime.designGroupLayoutDrag = nil
+        local bridge = YHUD.LayoutBridge
+        if bridge and bridge.EndGroupDrag then
+            bridge:EndGroupDrag(runtime.id, runtime.frame, cancel)
+        end
+    else
+        local frame = runtime.designMoveFrame or runtime.frame
+        if frame and frame.StopMovingOrSizing then frame:StopMovingOrSizing() end
+        if not cancel then CommitDesignGroupPosition(runtime) end
+    end
+    if View.designGroupDragStop then View.designGroupDragStop(runtime.id) end
+    return true
+end
+
 function View:EnsureDesignChrome(runtime)
     if runtime.designHeader and runtime.designMover then
         return runtime.designHeader
@@ -885,26 +987,22 @@ function View:EnsureDesignChrome(runtime)
             end
             local frame = runtime.designMoveFrame or runtime.frame
             if not (frame and frame.GetCenter and frame.StartMoving) then return end
+            local bridge = YHUD.LayoutBridge
+            local layoutDrag = runtime._yhudDesignProjection and bridge and bridge.BeginGroupDrag
+            if layoutDrag and not bridge:BeginGroupDrag(runtime.id, runtime.frame) then return end
+            runtime.designGroupLayoutDrag = layoutDrag and true or nil
             runtime.designGroupDragging = true
             View.activeDesignGroupDrag = runtime
             if View.designGroupDragStart then
                 View.designGroupDragStart(runtime.id)
             end
-            if frame.SetMovable then frame:SetMovable(true) end
-            frame:StartMoving()
+            if not layoutDrag then
+                if frame.SetMovable then frame:SetMovable(true) end
+                frame:StartMoving()
+            end
         end)
         groupButton:SetScript("OnDragStop", function()
-            local frame = runtime.designMoveFrame or runtime.frame
-            if not frame then return end
-            if frame.StopMovingOrSizing then frame:StopMovingOrSizing() end
-            if runtime.designGroupDragging then
-                runtime.designGroupDragging = false
-                View.activeDesignGroupDrag = nil
-                CommitDesignGroupPosition(runtime)
-                if View.designGroupDragStop then
-                    View.designGroupDragStop(runtime.id)
-                end
-            end
+            FinishDesignGroupDrag(runtime)
         end)
 
         runtime.designHeader = header
@@ -953,6 +1051,12 @@ function View:RefreshDesignChromeGeometry(runtime)
         or 1
     local offsetX = runtime.nativeOffsetX or 0
     local offsetY = runtime.nativeOffsetY or 0
+    local room = runtime._yhudDragMakeRoom
+    local shiftX = room and room.currentShiftX or 0
+    local shiftY = room and room.currentShiftY or 0
+    local radialGrowth = room and room.radial and room.currentDistance or 0
+    width = width + math.abs(shiftX) + radialGrowth * 2
+    height = height + math.abs(shiftY) + radialGrowth * 2
 
     if runtime.designHeader then
         runtime.designHeader:ClearAllPoints()
@@ -960,19 +1064,19 @@ function View:RefreshDesignChromeGeometry(runtime)
             "BOTTOMLEFT",
             frame,
             "TOPLEFT",
-            offsetX,
-            offsetY + DESIGN_HEADER_GAP
+            offsetX + math.min(0, shiftX) - radialGrowth,
+            offsetY + math.max(0, shiftY) + radialGrowth + DESIGN_HEADER_GAP
         )
     end
     if runtime.designMover then
         runtime.designMover:ClearAllPoints()
-        runtime.designMover:SetPoint("CENTER", frame, "CENTER", offsetX, offsetY)
+        runtime.designMover:SetPoint("CENTER", frame, "CENTER", offsetX + shiftX * 0.5, offsetY + shiftY * 0.5)
         runtime.designMover:SetSize(width, height)
     end
     if runtime.designOutline then
         local pixel = GUI2:GetPixelSize(frame, 1, 1)
         runtime.designOutline:ClearAllPoints()
-        runtime.designOutline:SetPoint("CENTER", frame, "CENTER", offsetX, offsetY)
+        runtime.designOutline:SetPoint("CENTER", frame, "CENTER", offsetX + shiftX * 0.5, offsetY + shiftY * 0.5)
         runtime.designOutline:SetSize(
             width + (pixel * 2),
             height + (pixel * 2)
@@ -982,7 +1086,10 @@ function View:RefreshDesignChromeGeometry(runtime)
 end
 
 function View:EnsureDesignOutline(runtime)
-    if runtime.designOutline then return runtime.designOutline end
+    if runtime.designOutline then
+        runtime.designOutline:SetAlpha(runtime.id == self.designGlowPreviewGroupId and 0 or 1)
+        return runtime.designOutline
+    end
     local outline = GUI2:CreateFrame(runtime.frame, {
         mouse = false,
         hidden = true,
@@ -994,7 +1101,36 @@ function View:EnsureDesignOutline(runtime)
         GUI2:CreateBorder(outline, "color.border.accent")
     end
     runtime.designOutline = outline
+    outline:SetAlpha(runtime.id == self.designGlowPreviewGroupId and 0 or 1)
     return outline
+end
+
+function View:SetDesignGlowPreview(monitorId, groupId, appearance)
+    if not self.designMode then monitorId, groupId, appearance = nil, nil, nil end
+    local previous = self.designGlowPreviewMonitorId
+    local identityChanged = previous ~= monitorId or self.designGlowPreviewGroupId ~= groupId
+    self.designGlowPreviewMonitorId, self.designGlowPreviewGroupId = monitorId, groupId
+    self.designGlowPreviewAppearance = appearance
+    local projection = self.designProjection
+    local slots = projection and projection.byMonitor or self.byMonitor
+    local groups = projection and projection.groups or self.groups
+    if identityChanged then
+        for id, runtime in pairs(groups or {}) do
+            if runtime.designOutline then runtime.designOutline:SetAlpha(id == groupId and 0 or 1) end
+        end
+    end
+    for _, slot in pairs(slots or {}) do
+        if slot._yhudDesignProjection == true then
+            local id = slot._yhudLogicalMonitorId or slot._yhudMonitorId
+            if identityChanged and slot._yhudDesignSelectionOutline then
+                slot._yhudDesignSelectionOutline:SetAlpha(id == monitorId and 0 or 1)
+            end
+            if id == monitorId or id == previous then
+                local monitor = projection and projection.desiredMonitors[slot._yhudMonitorId]
+                self:ApplyMonitorGlow(slot, monitor, nil)
+            end
+        end
+    end
 end
 
 local function ReadAnchor(frame)
@@ -1119,6 +1255,9 @@ local function CaptureDragSnapshot(runtime, draggedSlot)
                 y = y,
                 width = width,
                 height = height,
+                ringRadius = candidate.gui2DurationRingOuterRadius or candidate.ringOuterRadius or width * 0.5,
+                ringThickness = candidate.gui2DurationRingResolvedThickness
+                    or candidate.resolvedRingThickness or runtime.ringThickness or 8,
                 point = point,
                 relativeTo = relativeTo,
                 relativePoint = relativePoint,
@@ -1135,6 +1274,32 @@ local function CaptureDragSnapshot(runtime, draggedSlot)
                 record.monitorId = current.monitorId
                 record.slots = current.slots
             end
+        end
+    end
+    if runtime.view == "resource" then
+        local rows = {}
+        for _, candidate in ipairs(snapshot) do
+            local key = candidate.slot._yhudResourceRowKey or candidate.monitorId
+            local row = rows[key]
+            if not row then
+                row = { slots = {} }
+                rows[key] = row
+            end
+            candidate.visualRow = row
+            for _, physical in ipairs(candidate.physical) do
+                row.slots[#row.slots + 1] = physical.slot
+                physical.visualRow = row
+                row.minX = math.min(row.minX or math.huge, physical.x - physical.width * 0.5)
+                row.maxX = math.max(row.maxX or -math.huge, physical.x + physical.width * 0.5)
+                row.minY = math.min(row.minY or math.huge, physical.y - physical.height * 0.5)
+                row.maxY = math.max(row.maxY or -math.huge, physical.y + physical.height * 0.5)
+            end
+        end
+        -- Feedback uses complete visual rows; logical candidates and insertion
+        -- indices still refer to the individual resource being reordered.
+        for _, row in pairs(rows) do
+            row.x, row.y = (row.minX + row.maxX) * 0.5, (row.minY + row.maxY) * 0.5
+            row.width, row.height = row.maxX - row.minX, row.maxY - row.minY
         end
     end
     local sourceLogicalId = LogicalMonitorId(draggedSlot)
@@ -1178,8 +1343,10 @@ local function CopyDragPreviewTexture(target, sourceSlot)
     if not target then return end
     local iconSlot = ResolveDesignIconSlot(sourceSlot)
     local source = iconSlot and iconSlot.icon
-    local atlas = source and source.GetAtlas and source:GetAtlas()
-    local texture = source and source.GetTexture and source:GetTexture()
+    -- 圆环的隐藏图标保留创建时的占位图，来源图标以槽位缓存为准。
+    local ringIcon = sourceSlot and sourceSlot._yhudView == "ring" and sourceSlot._yhudIcon
+    local atlas = not ringIcon and source and source.GetAtlas and source:GetAtlas()
+    local texture = ringIcon or source and source.GetTexture and source:GetTexture()
         or source and source.texture
         or iconSlot and iconSlot.iconTexture
         or sourceSlot and sourceSlot.iconTexture
@@ -1228,6 +1395,38 @@ local function EnsureMonitorDragPreviewIcon(runtime, index)
     return holder
 end
 
+local function CreateDragLabel(parent)
+    local label = GUI2:CreatePanel(parent, {
+        surface = "color.surface.raised", border = false,
+        radiusKey = "layout.radius.panel", mouse = false,
+    })
+    label:EnableMouse(false)
+    label.text = GUI2:CreateText(label, "", "font.size.md", "color.text.primary", "LEFT")
+    local font, size = label.text:GetFont()
+    label.text:SetFont(font, size, "OUTLINE")
+    label.text:SetShadowColor(0, 0, 0, 0.8)
+    label.text:SetShadowOffset(1, -1)
+    label.text:SetPoint("TOPLEFT", label, "TOPLEFT", 8, -5)
+    label.text:SetWordWrap(true)
+    function label:SetText(text)
+        self.text:SetText(text)
+        local textWidth = self.text.GetUnboundedStringWidth
+            and self.text:GetUnboundedStringWidth() or self.text:GetStringWidth()
+        local width = math.max(1, math.min(420, textWidth))
+        self.text:SetWidth(width)
+        self:SetSize(math.ceil(width) + 16, math.ceil(self.text:GetStringHeight()) + 10)
+    end
+    label:Hide()
+    RecordDesignCreate("chrome")
+    RecordDesignCreate("text")
+    return label
+end
+
+local function DragRectOverlaps(left, right, bottom, top, bounds)
+    return left < bounds.maxX + 4 and right > bounds.minX - 4
+        and bottom < bounds.maxY + 4 and top > bounds.minY - 4
+end
+
 local function EnsureMonitorDragPreview(runtime)
     if runtime.designDragPreview then return runtime.designDragPreview end
     local preview = GUI2:CreateFrame(UIParent, {
@@ -1235,6 +1434,8 @@ local function EnsureMonitorDragPreview(runtime)
         hidden = true,
     })
     preview.icons = {}
+    preview.hint = CreateDragLabel(preview)
+    preview.status = preview.hint.text
     if preview.SetFrameStrata then preview:SetFrameStrata("TOOLTIP") end
     if preview.SetFrameLevel then preview:SetFrameLevel(100) end
     preview:Hide()
@@ -1252,10 +1453,37 @@ local function UpdateMonitorDragPreview(frame, cursorX, cursorY)
     if cursorX == nil or cursorY == nil then return end
     preview:ClearAllPoints()
     preview:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cursorX, cursorY)
+    local hint = preview.hint
+    local screenWidth = UIParent:GetWidth()
+    local screenHeight = UIParent:GetHeight()
+    local previewWidth, previewHeight = FrameSize(preview)
+    local hintWidth, hintHeight = FrameSize(hint)
+    local x, top
+    for position = 1, 4 do
+        x = position % 2 == 1 and cursorX + previewWidth * 0.5 + 12
+            or cursorX - previewWidth * 0.5 - 12 - hintWidth
+        top = position <= 2 and cursorY + previewHeight * 0.5
+            or cursorY - previewHeight * 0.5 - 12
+        x = math.max(8, math.min(screenWidth - hintWidth - 8, x))
+        top = math.max(hintHeight + 8, math.min(screenHeight - 8, top))
+        local clear = true
+        for _, candidate in ipairs(frame._yhudDragTargets or {}) do
+            local bounds = candidate.labelBounds
+            if bounds and DragRectOverlaps(x, x + hintWidth, top - hintHeight, top, bounds) then
+                clear = false
+                break
+            end
+        end
+        if clear then break end
+    end
+    hint:ClearAllPoints()
+    hint:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x, top)
 end
 
 local function ShowMonitorDragPreview(runtime, frame)
     local preview = EnsureMonitorDragPreview(runtime)
+    preview.status:SetText("")
+    preview.hint:Hide()
     local sourceSlots = { frame }
     for index = 1, #(frame._yhudDragBundleSlots or {}) do
         sourceSlots[#sourceSlots + 1] = frame._yhudDragBundleSlots[index]
@@ -1266,9 +1494,7 @@ local function ShowMonitorDragPreview(runtime, frame)
         local sourceSlot = sourceSlots[index]
         local holder = EnsureMonitorDragPreviewIcon(runtime, index)
         local iconSlot = ResolveDesignIconSlot(sourceSlot)
-        local width, height = FrameSize(iconSlot)
-        width = width * DRAG_BUNDLE_SCALE
-        height = height * DRAG_BUNDLE_SCALE
+        local width, height = DRAG_PREVIEW_ICON_SIZE, DRAG_PREVIEW_ICON_SIZE
         holder:SetSize(width, height)
         holder:ClearAllPoints()
         holder:SetPoint(
@@ -1279,9 +1505,15 @@ local function ShowMonitorDragPreview(runtime, frame)
             DRAG_BUNDLE_STACK_Y * (index - 1)
         )
         if GUI2.ApplyIconAppearance then
+            local shape = iconSlot and iconSlot.gui2Shape or sourceSlot.gui2Shape
+            -- 浮层统一正方比例，保留来源的圆角或圆形轮廓。
+            if shape == "wideSquare" or shape == "flatSquare" then
+                shape = "square"
+            elseif shape == "wideRounded" or shape == "flatRounded" then
+                shape = "roundedSquare"
+            end
             GUI2:ApplyIconAppearance(holder, {
-                shape = iconSlot and iconSlot.gui2Shape
-                    or sourceSlot.gui2Shape,
+                shape = shape,
                 border = iconSlot and iconSlot.gui2IconBorder
                     or sourceSlot.gui2IconBorder,
                 size = height,
@@ -1317,7 +1549,10 @@ end
 
 local function HideMonitorDragPreview(frame)
     local preview = frame and frame._yhudDragPreview
-    if preview then preview:Hide() end
+    if preview then
+        preview.hint:Hide()
+        preview:Hide()
+    end
     for index = 1, #(frame and frame._yhudDragPreviewSourceSlots or {}) do
         local sourceSlot = frame._yhudDragPreviewSourceSlots[index]
         if sourceSlot and sourceSlot._yhudDragOriginalAlpha ~= nil then
@@ -1469,7 +1704,8 @@ local function ResolveDropSeam(
     sourceSlot,
     cursorX,
     cursorY,
-    spacing
+    spacing,
+    runtime
 )
     if not (drop and drop.targetLane and drop.targetIndex) then return drop end
     local vectorX = drop.vectorX
@@ -1502,6 +1738,11 @@ local function ResolveDropSeam(
         true
     ) or nil
     if not beforePhysical and not afterPhysical then return drop end
+    local beforeRow = beforePhysical and beforePhysical.visualRow
+    local afterRow = afterPhysical and afterPhysical.visualRow
+    local sameResourceRow = beforeRow ~= nil and beforeRow == afterRow
+    local beforeVisual = not sameResourceRow and beforeRow or beforePhysical
+    local afterVisual = not sameResourceRow and afterRow or afterPhysical
 
     local horizontal = vectorY == 0
     local function Along(candidate)
@@ -1510,11 +1751,19 @@ local function ResolveDropSeam(
     local function Cross(candidate)
         return horizontal and candidate.y or candidate.x
     end
+    local stagger = runtime and runtime.view == "icon" and tonumber(runtime.itemOffset) or 0
     local function AlongExtent(candidate)
         return (horizontal and candidate.width or candidate.height) * 0.5
     end
     local function CrossSize(candidate)
         return horizontal and candidate.height or candidate.width
+    end
+    local reference = beforePhysical or afterPhysical
+    local primaryStep = math.max(1, (horizontal and reference.width or reference.height) + (tonumber(spacing) or 0))
+    local function LineCross(candidate)
+        -- Remove the configured staircase slope only when identifying rows.
+        -- The visible caret still uses the actual, offset frame coordinates.
+        return Cross(candidate) - Along(candidate) * stagger / primaryStep
     end
     local function ToPoint(along, cross)
         if horizontal then return along * vectorX, cross end
@@ -1532,32 +1781,32 @@ local function ResolveDropSeam(
     local anchorVariant = "single"
     local sameVisualLine = false
     if beforePhysical and afterPhysical then
-        local crossDelta = math.abs(Cross(beforePhysical) - Cross(afterPhysical))
+        local crossDelta = math.abs(LineCross(beforeVisual) - LineCross(afterVisual))
         local tolerance = math.max(
-            CrossSize(beforePhysical),
-            CrossSize(afterPhysical)
+            CrossSize(beforeVisual),
+            CrossSize(afterVisual)
         ) * 0.55
         sameVisualLine = crossDelta <= tolerance
         if sameVisualLine then
-            local beforeEdge = Along(beforePhysical)
-                + AlongExtent(beforePhysical)
-            local afterEdge = Along(afterPhysical)
-                - AlongExtent(afterPhysical)
+            local beforeEdge = Along(beforeVisual)
+                + AlongExtent(beforeVisual)
+            local afterEdge = Along(afterVisual)
+                - AlongExtent(afterVisual)
             seamX, seamY = ToPoint(
                 (beforeEdge + afterEdge) * 0.5,
-                (Cross(beforePhysical) + Cross(afterPhysical)) * 0.5
+                (Cross(beforeVisual) + Cross(afterVisual)) * 0.5
             )
             anchorVariant = "middle"
         else
             local beforeX, beforeY = ToPoint(
-                Along(beforePhysical) + AlongExtent(beforePhysical)
+                Along(beforeVisual) + AlongExtent(beforeVisual)
                     + halfSpacing,
-                Cross(beforePhysical)
+                Cross(beforeVisual)
             )
             local afterX, afterY = ToPoint(
-                Along(afterPhysical) - AlongExtent(afterPhysical)
+                Along(afterVisual) - AlongExtent(afterVisual)
                     - halfSpacing,
-                Cross(afterPhysical)
+                Cross(afterVisual)
             )
             if DistanceSquared(beforeX, beforeY)
                 <= DistanceSquared(afterX, afterY) then
@@ -1570,30 +1819,78 @@ local function ResolveDropSeam(
         end
     elseif beforePhysical then
         seamX, seamY = ToPoint(
-            Along(beforePhysical) + AlongExtent(beforePhysical) + halfSpacing,
-            Cross(beforePhysical)
+            Along(beforeVisual) + AlongExtent(beforeVisual) + halfSpacing,
+            Cross(beforeVisual)
         )
         anchorVariant = "tail"
     else
         seamX, seamY = ToPoint(
-            Along(afterPhysical) - AlongExtent(afterPhysical) - halfSpacing,
-            Cross(afterPhysical)
+            Along(afterVisual) - AlongExtent(afterVisual) - halfSpacing,
+            Cross(afterVisual)
         )
         anchorVariant = "head"
+    end
+
+    local wrapSpan
+    if beforePhysical and afterPhysical and not sameVisualLine and not (beforeRow or afterRow) then
+        snapshot._yhudDragLineBounds = snapshot._yhudDragLineBounds or {}
+        local function VisualLine(reference)
+            local cached = snapshot._yhudDragLineBounds[reference.slot]
+            if cached then return cached end
+            local line = { minX = math.huge, maxX = -math.huge, minY = math.huge, maxY = -math.huge }
+            for _, candidate in ipairs(snapshot) do
+                for _, item in ipairs(CandidatePhysicals(candidate)) do
+                    local physical = PhysicalCandidate(candidate, item)
+                    if math.abs(LineCross(physical) - LineCross(reference))
+                        <= math.max(CrossSize(physical), CrossSize(reference)) * 0.55 then
+                        line.minX = math.min(line.minX, physical.x - physical.width * 0.5)
+                        line.maxX = math.max(line.maxX, physical.x + physical.width * 0.5)
+                        line.minY = math.min(line.minY, physical.y - physical.height * 0.5)
+                        line.maxY = math.max(line.maxY, physical.y + physical.height * 0.5)
+                    end
+                end
+            end
+            snapshot._yhudDragLineBounds[reference.slot] = line
+            return line
+        end
+        local beforeLine, afterLine = VisualLine(beforePhysical), VisualLine(afterPhysical)
+        if horizontal then
+            local sign = LineCross(afterPhysical) > LineCross(beforePhysical) and 1 or -1
+            local beforeEdge = sign > 0 and beforeLine.maxY or beforeLine.minY
+            local afterEdge = sign > 0 and afterLine.minY or afterLine.maxY
+            seamY = (beforeEdge + afterEdge) * 0.5
+            drop.wrapGap = (afterEdge - beforeEdge) * sign
+            local minX, maxX = math.min(beforeLine.minX, afterLine.minX), math.max(beforeLine.maxX, afterLine.maxX)
+            seamX, wrapSpan = (minX + maxX) * 0.5, maxX - minX
+            drop.vectorX, drop.vectorY = 0, sign
+        else
+            local sign = LineCross(afterPhysical) > LineCross(beforePhysical) and 1 or -1
+            local beforeEdge = sign > 0 and beforeLine.maxX or beforeLine.minX
+            local afterEdge = sign > 0 and afterLine.minX or afterLine.maxX
+            seamX = (beforeEdge + afterEdge) * 0.5
+            drop.wrapGap = (afterEdge - beforeEdge) * sign
+            local minY, maxY = math.min(beforeLine.minY, afterLine.minY), math.max(beforeLine.maxY, afterLine.maxY)
+            seamY, wrapSpan = (minY + maxY) * 0.5, maxY - minY
+            drop.vectorX, drop.vectorY = sign, 0
+        end
+        drop.wrapBoundary = true
+        anchorVariant = "wrap-line"
     end
 
     drop.targetIndex = targetIndex
     drop.beforeCandidate = beforeCandidate
     drop.afterCandidate = afterCandidate
+    drop.orderedCandidates = ordered
     drop.beforePhysical = beforePhysical
     drop.afterPhysical = afterPhysical
+    drop.sameResourceRow = sameResourceRow
     drop.sameVisualLine = sameVisualLine
     drop.seamX = seamX
     drop.seamY = seamY
-    drop.seamSpan = math.max(
-        beforePhysical and CrossSize(beforePhysical) or 0,
-        afterPhysical and CrossSize(afterPhysical) or 0
-    ) + 6
+    drop.seamSpan = (wrapSpan or math.max(
+        beforeVisual and CrossSize(beforeVisual) or 0,
+        afterVisual and CrossSize(afterVisual) or 0
+    )) + ((beforeRow or afterRow) and 0 or GUI2:GetPixelSize(drop.target.slot, 6, 1))
     drop.target = ((anchorVariant == "head"
             or anchorVariant == "wrap-head") and afterPhysical)
         or beforePhysical or afterPhysical
@@ -1649,17 +1946,25 @@ local function IsSpecialDragMonitor(self, monitorId)
     return false
 end
 
+local function IsSegmentedDropTarget(runtime)
+    if runtime._yhudDropSegmented ~= nil then
+        return runtime._yhudDropSegmented == true
+    end
+    return runtime.filteredAuraProjectionStrategy ==
+        YHUD.FILTERED_AURA_LAYOUT_MIXED_SEGMENTED_OVERFLOW
+end
+
 local function ApplySpecialOverflowDropRule(
     self,
     runtime,
     sourceMonitorId,
     drop
 )
-    if not (drop and runtime.filteredAuraProjectionStrategy ==
-        YHUD.FILTERED_AURA_LAYOUT_MIXED_SEGMENTED_OVERFLOW) then
+    if not (drop and IsSegmentedDropTarget(runtime)) then
         return drop
     end
-    local sourceSpecial = IsSpecialDragMonitor(self, sourceMonitorId)
+    local sourceSpecial = runtime._yhudDropSourceSpecial
+    if sourceSpecial == nil then sourceSpecial = IsSpecialDragMonitor(self, sourceMonitorId) end
     local before = drop.beforeCandidate
     local after = drop.afterCandidate
     local beforeSpecial = before
@@ -1668,8 +1973,7 @@ local function ApplySpecialOverflowDropRule(
         and IsSpecialDragMonitor(self, after.monitorId) or false
     local valid
     if sourceSpecial then
-        valid = afterSpecial
-            or (after == nil and beforeSpecial)
+        valid = afterSpecial or after == nil
     else
         valid = before == nil or beforeSpecial == false
     end
@@ -1685,6 +1989,10 @@ local function ResolveDragOrderDirection(runtime)
         return runtime.direction or "right"
     end
     local perLine = tonumber(runtime.maxPerLine) or DEFAULT_MAX_PER_LINE
+    if runtime.view == "icon" and runtime.fillMode == "columns" then
+        if perLine <= 1 then return runtime.rowDirection == "left" and "left" or "right" end
+        return runtime.wrapDirection == "up" and "up" or "down"
+    end
     if runtime.view == "bar"
         and runtime.orientation == "vertical"
         and perLine <= 1 then
@@ -1702,13 +2010,14 @@ local function ResolveDragOrderDirection(runtime)
     return "right"
 end
 
-function View:ResolveMonitorDrop(runtime, slot, cursorX, cursorY)
-    local snapshot = slot and slot._yhudDragSnapshot
+function View:ResolveMonitorDrop(runtime, slot, cursorX, cursorY, targetSnapshot)
+    local snapshot = targetSnapshot or slot and slot._yhudDragSnapshot
     if not (runtime and type(snapshot) == "table" and cursorX and cursorY) then
         return nil
     end
 
-    local sourceIndex
+    local crossGroup = targetSnapshot ~= nil
+    local sourceIndex = crossGroup and 0 or nil
     local nearest
     local nearestDistance
     local minX
@@ -1716,6 +2025,69 @@ function View:ResolveMonitorDrop(runtime, slot, cursorX, cursorY)
     local minY
     local maxY
     local sourceLogicalId = LogicalMonitorId(slot)
+    if crossGroup and #snapshot == 0 then
+        local x, y = runtime.frame:GetCenter()
+        local width, height = FrameSize(runtime.frame)
+        width, height = math.max(100, width), math.max(36, height)
+        return {
+            operation = "insert", empty = true,
+            targetLane = YHUD.CONTENT_LANE_SPEC, targetIndex = 1,
+            vectorX = 1, vectorY = 0, key = "empty:" .. runtime.id,
+            target = { slot = runtime.frame, width = width, height = height },
+            seamX = x - width * 0.5, seamY = y, seamSpan = math.max(24, height),
+            placement = { kind = "tail" },
+        }
+    end
+    if runtime.view == "ring" and (runtime.direction == "outward" or runtime.direction == "inward") then
+        local x, y = runtime.frame:GetCenter()
+        local width, height = FrameSize(runtime.frame)
+        if not x or not y or math.abs(cursorX - x) > width * 0.5 + DRAG_GROUP_PADDING
+            or math.abs(cursorY - y) > height * 0.5 + DRAG_GROUP_PADDING then return nil end
+        local ordered = snapshot._yhudOrderWithoutSource
+        if #ordered == 0 then return nil end
+        local nearestRing, radialDistance
+        for _, candidate in ipairs(ordered) do
+            local distance = math.sqrt((cursorX - candidate.x)^2 + (cursorY - candidate.y)^2)
+            local edgeDistance = math.abs(distance - candidate.width * 0.5)
+            if not radialDistance or edgeDistance < radialDistance then
+                nearestRing, radialDistance = candidate, edgeDistance
+            end
+        end
+        local distance = math.sqrt((cursorX - nearestRing.x)^2 + (cursorY - nearestRing.y)^2)
+        local inside = distance < nearestRing.width * 0.5
+        local before = runtime.direction == "outward" and inside
+            or runtime.direction == "inward" and not inside
+        local index = 1
+        for orderIndex, candidate in ipairs(ordered) do
+            if candidate == nearestRing then index = orderIndex; break end
+        end
+        local targetIndex = index + (before and 0 or 1)
+        local beforeCandidate, afterCandidate = ordered[targetIndex - 1], ordered[targetIndex]
+        local function RingRadius(candidate) return candidate.ringRadius or candidate.width * 0.5 end
+        local function RingThickness(candidate) return candidate.ringThickness or runtime.ringThickness or 8 end
+        local radius
+        if beforeCandidate and afterCandidate then
+            local inner, outer = beforeCandidate, afterCandidate
+            if RingRadius(inner) > RingRadius(outer) then inner, outer = outer, inner end
+            radius = (RingRadius(inner) + RingRadius(outer) - RingThickness(outer)) * 0.5
+        else
+            local innerBoundary = (runtime.direction == "outward" and afterCandidate ~= nil)
+                or (runtime.direction == "inward" and beforeCandidate ~= nil)
+            radius = RingRadius(nearestRing) + (innerBoundary
+                and -RingThickness(nearestRing) - (runtime.ringStep or 8) * 0.5
+                or (runtime.ringStep or 8) * 0.5)
+        end
+        radius = math.max(0, radius)
+        return ResolveMonitorPlacement({
+            operation = "insert", radial = true, targetLane = YHUD.CONTENT_LANE_SPEC,
+            targetIndex = targetIndex, sourceLane = YHUD.CONTENT_LANE_SPEC,
+            target = nearestRing, key = "ring:" .. targetIndex,
+            beforeCandidate = beforeCandidate, afterCandidate = afterCandidate,
+            orderedCandidates = ordered, vectorX = 0, vectorY = 1,
+            seamX = nearestRing.x, seamY = nearestRing.y + radius,
+            seamSpan = math.max(24, nearestRing.width * 0.5),
+        }, snapshot)
+    end
     for index = 1, #snapshot do
         local candidate = snapshot[index]
         local sourceCandidate = candidate and (
@@ -1780,7 +2152,7 @@ function View:ResolveMonitorDrop(runtime, slot, cursorX, cursorY)
             vectorX = 1,
             vectorY = 0,
             }, snapshot, sourceLogicalId, slot, cursorX, cursorY,
-                GetRuntimeAxisSpacing(runtime, true)), snapshot)
+                GetRuntimeAxisSpacing(runtime, true), runtime), snapshot)
         )
     end
 
@@ -1796,8 +2168,8 @@ function View:ResolveMonitorDrop(runtime, slot, cursorX, cursorY)
     local pointerAlong = cursorX * vectorX + cursorY * vectorY
     local before = pointerAlong < blockCenter
     local targetIndex = before and nearest.index or nearest.index + 1
-    if sourceIndex < targetIndex then targetIndex = targetIndex - 1 end
-    targetIndex = math.max(1, math.min(#snapshot, targetIndex))
+    if sourceIndex > 0 and sourceIndex < targetIndex then targetIndex = targetIndex - 1 end
+    targetIndex = math.max(1, math.min(#snapshot + (crossGroup and 1 or 0), targetIndex))
     local indicatorTarget = LogicalEdgeCandidate(
         nearest,
         vectorX,
@@ -1821,7 +2193,7 @@ function View:ResolveMonitorDrop(runtime, slot, cursorX, cursorY)
         vectorX = vectorX,
         vectorY = vectorY,
         key = "insert:" .. tostring(targetIndex),
-        }, snapshot, sourceLogicalId, slot, cursorX, cursorY, axisSpacing), snapshot)
+        }, snapshot, sourceLogicalId, slot, cursorX, cursorY, axisSpacing, runtime), snapshot)
     )
 end
 
@@ -1834,28 +2206,6 @@ function View:EnsureMonitorDropFeedback(runtime)
             hidden = true,
         })
         runtime.designDropIndicator:Hide()
-    end
-    if not runtime.designDropBadge
-        and runtime.designDropIndicator
-        and GUI2.Data and GUI2.Data.CreateBadge then
-        runtime.designDropBadge = GUI2.Data:CreateBadge(runtime.frame, {
-            text = YHUD:T("designer.drag.insert_here", "插入此处"),
-            height = 22,
-            minWidth = 58,
-            paddingX = 8,
-            autoWidth = true,
-            surface = "color.surface.raised",
-            border = "color.border.accent",
-            textColor = "color.text.accent",
-        })
-        runtime.designDropBadge:SetPoint(
-            "BOTTOM",
-            runtime.designDropIndicator,
-            "TOP",
-            0,
-            4
-        )
-        runtime.designDropBadge:Hide()
     end
     runtime.designForbiddenOverlays =
         runtime.designForbiddenOverlays or {}
@@ -2005,13 +2355,13 @@ end
 
 function View:UpdateForbiddenLaneOverlays(runtime, slot, drop)
     self:EnsureMonitorDropFeedback(runtime)
-    local snapshot = slot and slot._yhudDragSnapshot or {}
+    local snapshot = slot and (slot._yhudDropSnapshot or slot._yhudDragSnapshot) or {}
     local direction = ResolveDragOrderDirection(runtime)
     local horizontal = direction == "right" or direction == "left"
     local sourceLogical = LogicalMonitorId(slot)
-    local segmented = runtime.filteredAuraProjectionStrategy ==
-        YHUD.FILTERED_AURA_LAYOUT_MIXED_SEGMENTED_OVERFLOW
-    local sourceSpecial = IsSpecialDragMonitor(self, sourceLogical)
+    local segmented = IsSegmentedDropTarget(runtime)
+    local sourceSpecial = runtime._yhudDropSourceSpecial
+    if sourceSpecial == nil then sourceSpecial = IsSpecialDragMonitor(self, sourceLogical) end
     local segments = BuildBundleForbiddenSegments(
         self,
         snapshot,
@@ -2066,73 +2416,69 @@ local function ApplyMakeRoomPoint(slot, shiftX, shiftY)
     )
 end
 
-local function AnimateMakeRoomSlot(runtime, slot, shiftX, shiftY)
-    if not (slot and slot.ClearAllPoints and slot.SetPoint) then return end
-    if not slot._yhudDragMakeRoomBase then
-        local point, relativeTo, relativePoint, offsetX, offsetY =
-            ReadAnchor(slot)
-        slot._yhudDragMakeRoomBase = {
-            point or "TOPLEFT",
-            relativeTo or UIParent,
-            relativePoint or "TOPLEFT",
-            offsetX or 0,
-            offsetY or 0,
-        }
-    end
-    local fromX = slot._yhudDragMakeRoomShiftX or 0
-    local fromY = slot._yhudDragMakeRoomShiftY or 0
-    if fromX == shiftX and fromY == shiftY then
-        ApplyMakeRoomPoint(slot, shiftX, shiftY)
-        return
-    end
-    slot._yhudDragMakeRoomShiftX = shiftX
-    slot._yhudDragMakeRoomShiftY = shiftY
-    if Animation and Animation.Tween then
-        local owner = slot._yhudDragMakeRoomOwner
-        if not owner then
-            owner = {}
-            slot._yhudDragMakeRoomOwner = owner
+local function SetDropIndicatorPoint(indicator, x, y)
+    indicator:ClearAllPoints()
+    indicator:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
+    if GUI2.GetPixelOriginCorrection then
+        local dx, dy, available = GUI2:GetPixelOriginCorrection(indicator)
+        if available and (dx ~= 0 or dy ~= 0) then
+            indicator:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x + dx, y + dy)
         end
-        Animation:StopOwner(owner, false)
-        Animation:Tween({
-            owner = owner,
-            target = slot,
-            key = "yhud-drag-make-room",
-            from = 0,
-            to = 1,
-            duration = DRAG_MAKE_ROOM_SECONDS,
-            easing = "out",
-            onUpdate = function(progress)
-                local base = slot._yhudDragMakeRoomBase
-                if not base then return end
-                slot:ClearAllPoints()
-                slot:SetPoint(
-                    base[1],
-                    base[2],
-                    base[3],
-                    base[4] + fromX + (shiftX - fromX) * progress,
-                    base[5] + fromY + (shiftY - fromY) * progress
-                )
-            end,
-            onFinished = function(_, _, finished)
-                if finished then ApplyMakeRoomPoint(slot, shiftX, shiftY) end
-            end,
-        })
-    else
-        ApplyMakeRoomPoint(slot, shiftX, shiftY)
+    end
+end
+
+local function ApplyMakeRoom(runtime, session, progress)
+    local distance = session.distance * progress
+    if GUI2.SnapLayoutBoundary then
+        distance = GUI2:SnapLayoutBoundary(runtime.frame, distance, session.layoutScale)
+    end
+    if session.currentDistance == distance then return end
+    -- Use one snapped delta for the whole segment, preserving shared borders.
+    local shiftX = session.radial and 0 or session.vectorX * distance
+    local shiftY = session.radial and 0 or session.vectorY * distance
+    session.currentDistance = distance
+    session.currentShiftX, session.currentShiftY = shiftX, shiftY
+    for _, slot in ipairs(session.slots) do
+        local ring = session.rings[slot]
+        if ring then
+            local diameter = ring.diameter + distance * 2
+            if slot.SetDurationRingSize then
+                slot:SetDurationRingSize(diameter, ring.border, ring.thickness, ring.referenceDiameter, ring.material)
+            else
+                slot:SetSize(diameter, diameter)
+            end
+        else
+            ApplyMakeRoomPoint(slot, shiftX, shiftY)
+        end
+    end
+    View:RefreshDesignChromeGeometry(runtime)
+    local candidate = session.targetCandidate
+    local panel = candidate and runtime.designTargetFeedback and runtime.designTargetFeedback.panel
+    if panel then
+        local growth = session.radial and distance * 2 or 0
+        panel:SetSize(candidate.width + math.abs(shiftX) + growth, candidate.height + math.abs(shiftY) + growth)
+        panel:ClearAllPoints()
+        panel:SetPoint("CENTER", UIParent, "BOTTOMLEFT",
+            (candidate.minX + candidate.maxX + shiftX) * 0.5,
+            (candidate.minY + candidate.maxY + shiftY) * 0.5)
+    end
+    local indicator = runtime.designDropIndicator
+    session.indicatorShiftX = shiftX * 0.5
+    session.indicatorShiftY = session.radial and distance * 0.5 or shiftY * 0.5
+    if indicator and session.drop.seamX and session.drop.seamY then
+        SetDropIndicatorPoint(indicator,
+            session.drop.seamX + session.indicatorShiftX, session.drop.seamY + session.indicatorShiftY)
     end
 end
 
 local function RestoreMakeRoom(runtime)
     local session = runtime and runtime._yhudDragMakeRoom
     if not session then return end
+    if Animation and Animation.StopOwner then Animation:StopOwner(session, false) end
+    ApplyMakeRoom(runtime, session, 0)
     for index = 1, #(session.slots or {}) do
         local slot = session.slots[index]
         if slot then
-            if Animation and Animation.StopOwner
-                and slot._yhudDragMakeRoomOwner then
-                Animation:StopOwner(slot._yhudDragMakeRoomOwner, false)
-            end
             local base = slot._yhudDragMakeRoomBase
             if base and slot.SetPoint then
                 slot:ClearAllPoints()
@@ -2155,29 +2501,82 @@ function View:UpdateMakeRoomFeedback(runtime, slot, drop)
     RestoreMakeRoom(runtime)
     runtime._yhudDragMakeRoomKey = key
     if not (drop and drop.operation == "insert"
-        and drop.target and not drop.invalidLane
-        and drop.sameVisualLine == true
-        and drop.beforeCandidate and drop.afterCandidate) then
+        and drop.target and not drop.invalidLane and not drop.invalidReason
+        and not drop.invalidSpecialRegion and not drop.sameResourceRow) then
         return false
     end
-    local orderDirection = ResolveDragOrderDirection(runtime)
-    local vectorX, vectorY = DirectionVector(orderDirection)
-    local session = { slots = {} }
-    local function Shift(candidate, dirX, dirY)
-        if not (candidate and candidate.slot) then return end
-        for _, physicalSlot in ipairs(CandidateSlots(candidate)) do
-            session.slots[#session.slots + 1] = physicalSlot
-            AnimateMakeRoomSlot(
-                runtime,
-                physicalSlot,
-                dirX * DRAG_MAKE_ROOM_PIXELS,
-                dirY * DRAG_MAKE_ROOM_PIXELS
-            )
+    local ordered = drop.orderedCandidates
+    local vectorX, vectorY = drop.vectorX, drop.vectorY
+    if not ordered or vectorX == nil or vectorY == nil then return false end
+    if drop.beforeCandidate and drop.afterCandidate
+        and not (drop.sameVisualLine or drop.wrapBoundary or drop.radial) then return false end
+    local distance = GUI2:GetPixelSize(runtime.frame, DRAG_MAKE_ROOM_PIXELS * 2, 1)
+    if drop.wrapGap then
+        -- Staggered rows can have overlapping bounding boxes. Open enough
+        -- space for the caret and padding across the complete visual line.
+        distance = math.max(distance,
+            GUI2:GetPixelSize(runtime.frame, DRAG_INDICATOR_SIZE + 4, 1) - drop.wrapGap)
+    end
+    local session = {
+        slots = {}, rings = {}, drop = drop, radial = drop.radial,
+        vectorX = vectorX, vectorY = vectorY, distance = distance,
+        layoutScale = GUI2.GetPixelLayoutScale and GUI2:GetPixelLayoutScale(runtime.frame),
+        shiftX = vectorX * distance, shiftY = vectorY * distance,
+    }
+    local first, last = drop.targetIndex, #ordered
+    if drop.radial and runtime.direction == "inward" then
+        -- Always move the outer segment outwards, leaving inner rings intact.
+        first, last = 1, drop.targetIndex - 1
+    end
+    local seen = {}
+    local sourceLogicalId = LogicalMonitorId(slot)
+    for index = first, last do
+        local candidate = ordered[index]
+        local slots = candidate.visualRow and candidate.visualRow.slots or CandidateSlots(candidate)
+        for _, physicalSlot in ipairs(slots) do
+            if not seen[physicalSlot] and LogicalMonitorId(physicalSlot) ~= sourceLogicalId then
+                seen[physicalSlot] = true
+                local point, relativeTo, relativePoint, x, y = ReadAnchor(physicalSlot)
+                physicalSlot._yhudDragMakeRoomBase = {
+                    point or "TOPLEFT", relativeTo or UIParent,
+                    relativePoint or "TOPLEFT", x or 0, y or 0,
+                }
+                physicalSlot._yhudDragMakeRoomShiftX = drop.radial and 0 or session.shiftX
+                physicalSlot._yhudDragMakeRoomShiftY = drop.radial and 0 or session.shiftY
+                session.slots[#session.slots + 1] = physicalSlot
+                if drop.radial then
+                    local width = FrameSize(physicalSlot)
+                    session.rings[physicalSlot] = {
+                        diameter = physicalSlot._yhudRingDiameter or physicalSlot.gui2DurationRingSize or width,
+                        border = physicalSlot._yhudRingBorder or runtime.border,
+                        thickness = physicalSlot._yhudRingThickness or runtime.ringThickness,
+                        referenceDiameter = physicalSlot._yhudRingReferenceDiameter or physicalSlot.gui2DurationRingReferenceSize,
+                        material = physicalSlot._yhudRingMaterial,
+                    }
+                end
+            end
         end
     end
-    Shift(drop.beforeCandidate, -vectorX, -vectorY)
-    Shift(drop.afterCandidate, vectorX, vectorY)
+    for _, candidate in ipairs(slot._yhudDragTargets or {}) do
+        if candidate.runtime == runtime then session.targetCandidate = candidate; break end
+    end
     runtime._yhudDragMakeRoom = session
+    -- One tween keeps all physical members, the outline and the caret in step.
+    if Animation and Animation.Tween then
+        ApplyMakeRoom(runtime, session, 0)
+        Animation:Tween({
+            owner = session, target = runtime.frame, key = "yhud-drag-make-room",
+            from = 0, to = 1, duration = DRAG_MAKE_ROOM_SECONDS, easing = "out",
+            onUpdate = function(progress)
+                if runtime._yhudDragMakeRoom == session then ApplyMakeRoom(runtime, session, progress) end
+            end,
+            onFinished = function(_, _, finished)
+                if finished and runtime._yhudDragMakeRoom == session then ApplyMakeRoom(runtime, session, 1) end
+            end,
+        })
+    else
+        ApplyMakeRoom(runtime, session, 1)
+    end
     return true
 end
 
@@ -2186,7 +2585,6 @@ function View:ClearMonitorDropFeedback(runtime)
         runtime.designDropFeedbackKey = nil
         RestoreMakeRoom(runtime)
         if runtime.designDropIndicator then runtime.designDropIndicator:Hide() end
-        if runtime.designDropBadge then runtime.designDropBadge:Hide() end
         for index = 1, #(runtime.designForbiddenOverlays or {}) do
             runtime.designForbiddenOverlays[index]:Hide()
         end
@@ -2195,16 +2593,19 @@ end
 
 function View:UpdateMonitorDropFeedback(runtime, slot, drop)
     if not (runtime and slot) then return false end
-    local snapshot = slot._yhudDragSnapshot
     local key = drop and drop.key or "none"
     if runtime.designDropFeedbackKey == key then return false end
     runtime.designDropFeedbackKey = key
     local indicator = self:EnsureMonitorDropFeedback(runtime)
     self:UpdateForbiddenLaneOverlays(runtime, slot, drop)
 
+    if drop and (drop.invalidReason or drop.invalidSpecialRegion or drop.invalidLane) then
+        if indicator then indicator:Hide() end
+        return false
+    end
+
     if not (drop and indicator and drop.target) then
         if indicator then indicator:Hide() end
-        if runtime.designDropBadge then runtime.designDropBadge:Hide() end
         return false
     end
     local horizontal = drop.vectorY == 0
@@ -2222,24 +2623,24 @@ function View:UpdateMonitorDropFeedback(runtime, slot, drop)
     end
     indicator:ClearAllPoints()
     if drop.seamX and drop.seamY then
+        local room = runtime._yhudDragMakeRoom
+        local thickness = GUI2:GetPixelSize(indicator, DRAG_INDICATOR_SIZE, 1)
+        local span = drop.seamSpan or (horizontal and drop.target.height or drop.target.width) + 6
+        if GUI2.SnapLayoutBoundary then span = GUI2:SnapLayoutBoundary(indicator, span) end
         if horizontal then
             indicator:SetSize(
-                DRAG_INDICATOR_SIZE,
-                drop.seamSpan or (drop.target.height + 6)
+                thickness,
+                span
             )
         else
             indicator:SetSize(
-                drop.seamSpan or (drop.target.width + 6),
-                DRAG_INDICATOR_SIZE
+                span,
+                thickness
             )
         end
-        indicator:SetPoint(
-            "CENTER",
-            UIParent,
-            "BOTTOMLEFT",
-            drop.seamX,
-            drop.seamY
-        )
+        local x = drop.seamX + (room and room.indicatorShiftX or 0)
+        local y = drop.seamY + (room and room.indicatorShiftY or 0)
+        SetDropIndicatorPoint(indicator, x, y)
     elseif horizontal then
         indicator:SetSize(DRAG_INDICATOR_SIZE, drop.target.height + 6)
         indicator:SetPoint(
@@ -2262,60 +2663,272 @@ function View:UpdateMonitorDropFeedback(runtime, slot, drop)
     if indicator.SetFrameLevel and drop.target.slot.GetFrameLevel then
         indicator:SetFrameLevel(drop.target.slot:GetFrameLevel() + 14)
     end
-    local badge = runtime.designDropBadge
-    if badge then
-        local key = drop.invalidSpecialRegion == true
-                and "designer.drag.special_region_forbidden"
-            or drop.magnet == "before"
-                and "designer.drag.magnet_before"
-            or drop.magnet == "after"
-                and "designer.drag.magnet_after"
-            or "designer.drag.insert_here"
-        local fallback = drop.invalidSpecialRegion == true
-                and "特殊监控与其他监控只能在各自区域内调整顺序"
-            or drop.magnet == "before"
-                and "将放到原生区之前"
-            or drop.magnet == "after"
-                and "将放到原生区之后"
-            or "插入此处"
-        badge:SetText(YHUD:T(key, fallback))
-        if badge.SetFrameStrata and runtime.frame.GetFrameStrata then
-            badge:SetFrameStrata(runtime.frame:GetFrameStrata())
-        end
-        if badge.SetFrameLevel and indicator.GetFrameLevel then
-            local badgeLevel = indicator:GetFrameLevel() + 1
-            local overlays = runtime.designForbiddenOverlays or {}
-            for index = 1, #overlays do
-                local overlay = overlays[index]
-                if overlay and overlay.GetFrameLevel then
-                    badgeLevel = math.max(
-                        badgeLevel,
-                        (overlay:GetFrameLevel() or 0) + 1
-                    )
-                end
-            end
-            badge:SetFrameLevel(badgeLevel)
-        end
-        badge:Show()
-    end
     indicator:Show()
     return true
+end
+
+local function EnsureMonitorTargetFeedback(runtime)
+    if runtime.designTargetFeedback then return runtime.designTargetFeedback end
+    -- Feedback must not inherit the dimmed content group's alpha.
+    local panel = GUI2:CreateFrame(UIParent, { mouse = false, hidden = true })
+    GUI2:CreateBorder(panel, "color.border.accent")
+    local fill = GUI2:CreatePanel(panel, {
+        surface = "color.accent.soft", border = false,
+    })
+    fill:SetAllPoints(panel)
+    fill:SetAlpha(0.3)
+    fill:EnableMouse(false)
+    local forbidden = GUI2:CreatePanel(panel, {
+        surface = "color.state.error", border = false,
+    })
+    forbidden:SetAllPoints(panel)
+    forbidden:SetAlpha(0.14)
+    forbidden:EnableMouse(false)
+    local label = CreateDragLabel(UIParent)
+    label.text:SetWordWrap(false)
+    runtime.designTargetFeedback = { panel = panel, fill = fill, forbidden = forbidden, label = label }
+    RecordDesignCreate("chrome", 3)
+    return runtime.designTargetFeedback
+end
+
+local function SetMonitorTargetFeedback(candidate, hovered, drop)
+    local runtime = candidate.runtime
+    local reason = hovered and drop and (drop.invalidSpecialRegion
+        and "special-overflow-region" or drop.invalidReason) or nil
+    if candidate.feedbackInitialized and candidate.feedbackHovered == hovered
+        and candidate.feedbackReason == reason then return end
+    candidate.feedbackInitialized = true
+    candidate.feedbackHovered, candidate.feedbackReason = hovered, reason
+    local feedback = EnsureMonitorTargetFeedback(runtime)
+    feedback.panel:SetSize(candidate.width, candidate.height)
+    feedback.panel:ClearAllPoints()
+    feedback.panel:SetPoint("CENTER", UIParent, "BOTTOMLEFT",
+        (candidate.minX + candidate.maxX) * 0.5, (candidate.minY + candidate.maxY) * 0.5)
+    feedback.panel:SetFrameStrata("FULLSCREEN_DIALOG")
+    feedback.fill:SetFrameStrata("FULLSCREEN_DIALOG")
+    feedback.forbidden:SetFrameStrata("FULLSCREEN_DIALOG")
+    feedback.label:SetFrameStrata("FULLSCREEN_DIALOG")
+    feedback.panel:SetFrameLevel(310)
+    feedback.fill:SetFrameLevel(311)
+    feedback.forbidden:SetFrameLevel(311)
+    feedback.label:SetFrameLevel(312)
+    local forbidden = reason ~= nil
+    SetShown(feedback.panel, candidate.allowed or forbidden)
+    feedback.panel:SetAlpha(1)
+    SetShown(feedback.fill, hovered and candidate.allowed and not forbidden)
+    SetShown(feedback.forbidden, forbidden)
+    GUI2:SetBorderColor(feedback.panel, forbidden and "color.state.error"
+        or hovered and "color.border.accent" or "color.border.default")
+    feedback.label:SetText(GroupName(runtime.group))
+    SetShown(feedback.label, (hovered or candidate.allowed) and candidate.labelBounds ~= false)
+end
+
+local function PlaceMonitorTargetLabel(candidate, candidates)
+    local label = candidate.runtime.designTargetFeedback.label
+    local width, height = FrameSize(label)
+    local screenWidth, screenHeight = UIParent:GetWidth(), UIParent:GetHeight()
+    candidate.labelBounds = false
+    for position = 1, 4 do
+        local x = position == 3 and candidate.minX - width - 8
+            or position == 4 and candidate.maxX + 8 or candidate.minX
+        local top = position == 1 and candidate.maxY + height + 8
+            or position == 2 and candidate.minY - 8 or candidate.maxY
+        local clear = x >= 8 and x + width <= screenWidth - 8
+            and top <= screenHeight - 8 and top - height >= 8
+        if clear then
+            for _, other in ipairs(candidates) do
+                if DragRectOverlaps(x, x + width, top - height, top, other)
+                    or other.labelBounds and DragRectOverlaps(x, x + width, top - height, top, other.labelBounds) then
+                    clear = false
+                    break
+                end
+            end
+        end
+        if clear then
+            candidate.labelBounds = { minX = x, maxX = x + width, minY = top - height, maxY = top }
+            label:ClearAllPoints()
+            label:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x, top)
+            return
+        end
+    end
+    -- In a crowded layout the active cursor hint still names the destination.
+    label:Hide()
+end
+
+function View:BeginMonitorTargetDrag(slot, sourceRuntime)
+    if not self.designGetMonitorTargets or slot._yhudDesignResourceId then return end
+    local targets, revision = self.designGetMonitorTargets(LogicalMonitorId(slot))
+    if not targets then return end
+    slot._yhudDragSnapshot._yhudDraftRevision = revision
+    local groups = sourceRuntime._yhudDesignProjection
+        and self.designProjection.groups or self.groups
+    local profile = DesignProfileForRuntime(sourceRuntime)
+    local candidates = {}
+    for index, groupId in ipairs(profile.groups.order or {}) do
+        local runtime = groups[groupId]
+        local access = targets[groupId]
+        if runtime and access and runtime.group.enabled ~= false
+            and runtime.designerStateAllowed ~= false
+            and runtime.frame:IsShown() then
+            local x, y = runtime.frame:GetCenter()
+            local width, height = FrameSize(runtime.frame)
+            if x and y then
+                local snapshot = runtime == sourceRuntime and slot._yhudDragSnapshot
+                    or CaptureDragSnapshot(runtime, slot)
+                local minX, maxX = x - width * 0.5, x + width * 0.5
+                local minY, maxY = y - height * 0.5, y + height * 0.5
+                for _, item in ipairs(snapshot) do
+                    for _, physical in ipairs(item.physical) do
+                        minX = math.min(minX, physical.x - physical.width * 0.5)
+                        maxX = math.max(maxX, physical.x + physical.width * 0.5)
+                        minY = math.min(minY, physical.y - physical.height * 0.5)
+                        maxY = math.max(maxY, physical.y + physical.height * 0.5)
+                    end
+                end
+                minX, maxX = math.min(minX, x - 50), math.max(maxX, x + 50)
+                minY, maxY = math.min(minY, y - 18), math.max(maxY, y + 18)
+                width, height = maxX - minX, maxY - minY
+                local frameLevel = runtime.frame.GetFrameLevel and runtime.frame:GetFrameLevel()
+                local candidate = {
+                    runtime = runtime, snapshot = snapshot, allowed = access.allowed,
+                    reason = access.reason, width = width, height = height,
+                    appearanceReset = access.appearanceReset,
+                    minX = minX, maxX = maxX, minY = minY, maxY = maxY,
+                    offsetX = (minX + maxX) * 0.5 - x, offsetY = (minY + maxY) * 0.5 - y,
+                    layer = frameLevel and frameLevel > 0 and frameLevel
+                        or (runtime.group.displayLayer or 5) * 10000 + index,
+                }
+                candidate.chrome = {}
+                for _, field in ipairs({ "designHeader", "designMover", "designOutline" }) do
+                    local control = runtime[field]
+                    if control then
+                        candidate.chrome[#candidate.chrome + 1] = { control = control, shown = control:IsShown() }
+                        control:Hide()
+                    end
+                end
+                runtime._yhudDropSegmented = access.segmented
+                runtime._yhudDropSourceSpecial = access.sourceSpecial
+                candidates[#candidates + 1] = candidate
+                SetMonitorTargetFeedback(candidate, false)
+            end
+        end
+    end
+    for _, candidate in ipairs(candidates) do
+        PlaceMonitorTargetLabel(candidate, candidates)
+    end
+    slot._yhudDragTargets = candidates
+end
+
+function View:ResolveMonitorDragTarget(slot, sourceRuntime, cursorX, cursorY)
+    if not cursorX or not cursorY then return nil, nil end
+    local candidates = slot._yhudDragTargets
+    if not candidates then
+        return sourceRuntime, self:ResolveMonitorDrop(sourceRuntime, slot, cursorX, cursorY)
+    end
+    local selected, selectedRank
+    for _, candidate in ipairs(candidates) do
+        local inside = cursorX >= candidate.minX and cursorX <= candidate.maxX
+            and cursorY >= candidate.minY and cursorY <= candidate.maxY
+        local nearby = cursorX >= candidate.minX - DRAG_GROUP_PADDING
+            and cursorX <= candidate.maxX + DRAG_GROUP_PADDING
+            and cursorY >= candidate.minY - DRAG_GROUP_PADDING
+            and cursorY <= candidate.maxY + DRAG_GROUP_PADDING
+        if nearby then
+            local rank = candidate.layer + (inside and 10000000 or 0)
+            if not selectedRank or rank > selectedRank then selected, selectedRank = candidate, rank end
+        end
+    end
+    local runtime = selected and selected.runtime
+    slot._yhudDropSnapshot = selected and selected.snapshot or nil
+    local drop
+    if selected then
+        if not selected.allowed then
+            drop = { invalidReason = selected.reason or "unsupported", key = "forbidden:" .. runtime.id }
+        else
+            drop = self:ResolveMonitorDrop(runtime, slot, cursorX, cursorY,
+                runtime ~= sourceRuntime and selected.snapshot or nil)
+        end
+        if drop then
+            drop.targetGroupId = runtime.id
+            drop.crossGroup = runtime ~= sourceRuntime
+            drop.appearanceReset = selected.appearanceReset
+            drop.key = runtime.id .. ":" .. drop.key
+            if drop.placement then
+                local source = slot._yhudDragSnapshot
+                drop.placement.sourceGroupId = source._yhudSourceGroupId
+                drop.placement.sourceSpecKey = source._yhudSourceSpecKey
+                drop.placement.targetGroupId = runtime.id
+                drop.placement.draftRevision = source._yhudDraftRevision
+            end
+        end
+    end
+    for _, candidate in ipairs(candidates) do
+        SetMonitorTargetFeedback(candidate, candidate == selected, drop)
+    end
+    return runtime, drop
+end
+
+local function UpdateMonitorDragHint(slot, runtime, drop)
+    local preview = slot._yhudDragPreview
+    local key = drop and drop.key or "none"
+    if not preview or slot._yhudDragStatus == key then return end
+    slot._yhudDragStatus = key
+    local text
+    if not drop then
+        text = YHUD:T("designer.drag.cancel")
+    elseif drop.invalidReason or drop.invalidSpecialRegion or drop.invalidLane then
+        local reason = drop.invalidSpecialRegion and "special-overflow-region" or drop.invalidReason
+        local description = reason and YHUD:T("designer.drag.reason." .. reason,
+            YHUD:T("designer.drag.reason.unsupported"))
+            or YHUD:T("designer.drag.native_interior_forbidden")
+        text = string.format(YHUD:T("designer.drag.cannot_drop", "× 无法放入：%s"), description)
+    else
+        local position = drop.targetIndex or 1
+        if drop.placement then
+            position = 1
+            for _, item in ipairs(slot._yhudDropSnapshot or slot._yhudDragSnapshot or {}) do
+                if item.monitorId ~= LogicalMonitorId(slot) then
+                    if drop.placement.kind == "head" or item.monitorId == drop.placement.beforeMonitorId then break end
+                    position = position + 1
+                end
+            end
+        end
+        text = drop.crossGroup and string.format(
+            YHUD:T("designer.drag.move_position", "移入「%s」· 第 %d 位"), GroupName(runtime.group), position)
+            or string.format(YHUD:T("designer.drag.reorder_position", "调整至第 %d 位"), position)
+        if drop.appearanceReset then
+            text = text .. "\n" .. YHUD:T("designer.drag.appearance_reset")
+        end
+    end
+    preview.hint:SetText(text)
+    preview.hint:Show()
 end
 
 function View:UpdateMonitorDrag(slot)
     if not (slot and slot._yhudDragging) then return false end
     local runtime = DesignRuntimeForSlot(slot)
     if not runtime then return false end
+    for _, candidate in ipairs(slot._yhudDragTargets or {}) do
+        if not candidate.runtime.frame:IsShown() then
+            return self:FinishMonitorDrag(slot, true)
+        end
+    end
     local cursorX, cursorY = GetDragPointer(slot)
+    local targetRuntime, drop = self:ResolveMonitorDragTarget(slot, runtime, cursorX, cursorY)
+    UpdateMonitorDragHint(slot, targetRuntime, drop)
     UpdateMonitorDragPreview(slot, cursorX, cursorY)
-    local drop = self:ResolveMonitorDrop(runtime, slot, cursorX, cursorY)
+    local previousRuntime = slot._yhudDropRuntime
+    if previousRuntime and previousRuntime ~= targetRuntime then
+        self:ClearMonitorDropFeedback(previousRuntime)
+    end
+    slot._yhudDropRuntime = targetRuntime
     slot._yhudDrop = drop
-    self:UpdateMakeRoomFeedback(runtime, slot, drop)
-    self:UpdateMonitorDropFeedback(runtime, slot, drop)
+    self:UpdateMakeRoomFeedback(targetRuntime, slot, drop)
+    self:UpdateMonitorDropFeedback(targetRuntime, slot, drop)
     return drop ~= nil
 end
 
-function View:SetOtherGroupsDragDimmed(sourceRuntime, dimmed)
+function View:SetOtherGroupsDragDimmed(sourceRuntime, dimmed, slot)
     local groups = sourceRuntime and sourceRuntime._yhudDesignProjection
         and self.designProjection and self.designProjection.groups
         or self.groups
@@ -2326,7 +2939,11 @@ function View:SetOtherGroupsDragDimmed(sourceRuntime, dimmed)
                     runtime._yhudDragPreviousAlpha = runtime.frame.GetAlpha
                         and runtime.frame:GetAlpha() or 1
                 end
-                if runtime.frame.SetAlpha then runtime.frame:SetAlpha(0.36) end
+                local allowed = false
+                for _, candidate in ipairs(slot and slot._yhudDragTargets or {}) do
+                    if candidate.runtime == runtime then allowed = candidate.allowed; break end
+                end
+                if runtime.frame.SetAlpha then runtime.frame:SetAlpha(allowed and 1 or 0.36) end
             elseif runtime._yhudDragPreviousAlpha ~= nil then
                 if runtime.frame.SetAlpha then
                     runtime.frame:SetAlpha(runtime._yhudDragPreviousAlpha)
@@ -2346,7 +2963,26 @@ function View:FinishMonitorDrag(slot, cancelled)
 
     local runtime = DesignRuntimeForSlot(slot)
     local drop = slot._yhudDrop
+    self:ClearMonitorDropFeedback(slot._yhudDropRuntime)
     self:ClearMonitorDropFeedback(runtime)
+    for _, candidate in ipairs(slot._yhudDragTargets or {}) do
+        candidate.runtime._yhudDropSegmented = nil
+        candidate.runtime._yhudDropSourceSpecial = nil
+        local feedback = candidate.runtime.designTargetFeedback
+        if feedback then
+            feedback.panel:Hide()
+            feedback.fill:Hide()
+            feedback.forbidden:Hide()
+            feedback.label:Hide()
+        end
+        for _, state in ipairs(candidate.chrome) do
+            SetShown(state.control, state.shown)
+        end
+    end
+    slot._yhudDragTargets = nil
+    slot._yhudDropRuntime = nil
+    slot._yhudDropSnapshot = nil
+    slot._yhudDragStatus = nil
     self:SetOtherGroupsDragDimmed(runtime, false)
     slot._yhudDragging = nil
     slot._yhudDragElapsed = nil
@@ -2366,6 +3002,7 @@ function View:FinishMonitorDrag(slot, cancelled)
         and drop.targetIndex == drop.sourceLaneIndex
     local handled = cancelled ~= true
         and drop
+        and not drop.invalidReason
         and drop.invalidSpecialRegion ~= true
         and not noOrderChange
         and self.designReorderMonitor
@@ -2407,6 +3044,7 @@ local function DesignSlotOnHide(frame)
 end
 
 function View:ClearResourcePreviewSlot(slot)
+    if slot then slot._yhudDesignResourcePreviewColor, slot._yhudDesignResourceCountdown = nil, nil end
     local preview = slot and slot._yhudDesignResourcePreview
     if not preview then return false end
     preview:Hide()
@@ -2424,12 +3062,15 @@ function View:ClearResourcePreviewSlot(slot)
     preview._yhudPreviewMaxValue = nil
     preview._yhudPreviewRune = nil
     slot._yhudDesignResourcePreviewBound = nil
+    if self.RefreshResourcePreviewBarShadow then self:RefreshResourcePreviewBarShadow(slot) end
     slot._yhudDesignResourcePreviewAppearanceDirty = true
     return true
 end
 
 function View:ClearDesignSlot(slot)
     if not slot then return end
+    ClearDesignProgressSample(slot)
+    if YHUD.ClassExtra then YHUD.ClassExtra:ClearDesignPreview(slot) end
     if slot._yhudDesignProjection == true and self.ApplyMonitorGlow then
         slot._yhudGlowRuntime = nil
         self:ApplyMonitorGlow(slot, nil, nil)
@@ -2516,6 +3157,7 @@ function View:SetDesignSlotSelected(slot, selected)
     slot._yhudDesignSelected = selected
     local shown = (selected or slot._yhudDesignHovered == true)
         and slot._yhudDragBundleActive ~= true
+        and not self.designLayoutMode
     local outline = shown
         and self:EnsureDesignSelectionOutline(slot)
         or slot._yhudDesignSelectionOutline
@@ -2536,6 +3178,7 @@ function View:SetDesignSlotHovered(slot, hovered)
     slot._yhudDesignHovered = hovered
     local shown = (slot._yhudDesignSelected == true or hovered)
         and slot._yhudDragBundleActive ~= true
+        and not self.designLayoutMode
     local outline = shown
         and self:EnsureDesignSelectionOutline(slot)
         or slot._yhudDesignSelectionOutline
@@ -2564,17 +3207,23 @@ function View:ConfigureDesignSlotInteraction(slot)
     local cacheOnlyPreview = runtimeMonitor
         and runtimeMonitor._yhudCacheOnlyPreview == true
     if not self.designMode
+        or (self.designProjection and slot._yhudDesignProjection ~= true)
         or (slot._yhudSynthetic == true and not resource) then
         self:ClearDesignSlot(slot)
         return false
     end
     slot._yhudDesignResourceId = resource and resource.id or nil
+    if self.designLayoutMode then
+        I.SetSlotMouseInput(slot, false, false)
+        self:SetDesignSlotHovered(slot, false)
+        SetShown(slot._yhudDesignSelectionOutline, false)
+        return true
+    end
     local runtime = DesignRuntimeForSlot(slot)
     slot._yhudDragPairId = runtime and runtime.handPairMode == "split" and resource
         and (resource.id == "swingMainHand" or resource.id == "swingOffHand")
         and (slot._yhudGroupId .. ":swingHands") or nil
-    local dragEnabled = slot._yhudView ~= "ring"
-        and not readOnlyPreview
+    local dragEnabled = not readOnlyPreview
     if not dragEnabled and slot._yhudDragging then
         self:FinishMonitorDrag(slot, true)
     end
@@ -2639,10 +3288,11 @@ function View:ConfigureDesignSlotInteraction(slot)
             frame._yhudDragging = true
             frame._yhudDragElapsed = 0
             frame._yhudDragBundleSlots = CollectBundleDragSlots(runtime, frame)
+            View:BeginMonitorTargetDrag(frame, runtime)
             SetBundleDragActive(frame, true)
             HideBundleSelectionOutlines(frame)
             View.activeMonitorDrag = frame
-            View:SetOtherGroupsDragDimmed(runtime, true)
+            View:SetOtherGroupsDragDimmed(runtime, true, frame)
             ShowMonitorDragPreview(runtime, frame)
             frame:SetScript("OnUpdate", DesignSlotOnUpdate)
             View:UpdateMonitorDrag(frame)
@@ -2688,6 +3338,7 @@ end
 
 function View:SetPreview(enabled, suppressRefresh)
     enabled = enabled == true
+    if enabled and YHUD.PressFeedback and YHUD.PressFeedback.active then YHUD.PressFeedback:Clear() end
     if not enabled then
         for _, slot in pairs(self.byMonitor or {}) do
             self:ClearResourcePreviewSlot(slot)
@@ -2701,8 +3352,10 @@ end
 
 function View:SetLayoutEditMode(enabled, suppressRefresh)
     enabled = enabled == true
+    if enabled and YHUD.PressFeedback and YHUD.PressFeedback.active then YHUD.PressFeedback:Clear() end
     if self.layoutEditMode == enabled then return false end
     self.layoutEditMode = enabled
+    if self.RefreshBuffTimerStackModes then self:RefreshBuffTimerStackModes() end
     if suppressRefresh == true then return true end
     return self:Relayout()
 end
@@ -2751,6 +3404,13 @@ function View:SetResourceStylePreviewResource(resourceId, suppressRefresh, group
     return true
 end
 
+local function ApplyDesignResourcePreviewColor(slot, preview)
+    local pending = slot._yhudDesignResourcePreviewColor
+    if pending and preview.PreviewResourceColor then
+        preview:PreviewResourceColor(pending.field, pending.color)
+    end
+end
+
 local function SyncDesignResourcePreviewAppearance(slot, preview)
     if not (slot and preview) then return false end
     local startedAt = ProfileNowMS()
@@ -2790,6 +3450,8 @@ local function SyncDesignResourcePreviewAppearance(slot, preview)
         preview:SetResourceDisplayConfig({
             inverseFill = source.inverseFill == true,
             mode = source.mode,
+            pointShape = source.pointShape,
+            nativePointStyle = source.nativePointStyle,
             smoothProgress = false,
             valueKind = source.valueKind,
             segmentCount = source.segmentCount,
@@ -2815,6 +3477,9 @@ local function SyncDesignResourcePreviewAppearance(slot, preview)
     if preview.SetResourceTextAppearance then
         preview:SetResourceTextAppearance(slot.gui2ResourceTextAppearance)
     end
+    ApplyDesignResourcePreviewColor(slot, preview)
+    -- Reconfiguration can reset native fills without changing the sample.
+    preview._yhudPreviewResourceId = nil
     slot._yhudDesignResourcePreviewAppearanceDirty = nil
     I.FinishPerformanceStat("resourcePreviewAppearanceElapsedMS", startedAt)
     return true
@@ -2945,6 +3610,7 @@ function View:ApplyDesignResourcePreviewSlot(slot, preset, progress, absoluteVal
         preview:SetResourcePreviewTimerMarkers(previewStacks or 0, timerProgress,
             previewStacks and (1 / 3) or nil)
     end
+    ApplyDesignResourcePreviewColor(slot, preview)
     preview._yhudPreviewStacks = previewStacks
     preview._yhudPreviewResourceId = resourceId
     preview._yhudPreviewValue = value
@@ -2966,6 +3632,7 @@ function View:ApplyDesignResourcePreviewSlot(slot, preset, progress, absoluteVal
             track:SetAlpha(0)
         end
         preview:Show()
+        if self.RefreshResourcePreviewBarShadow then self:RefreshResourcePreviewBarShadow(slot) end
     end
     return applied
 end
@@ -2984,11 +3651,13 @@ function View:SetDesignResourceValuePreview(resourceId, progress, absoluteValue,
         for index = 1, #indexedSlots do
             local slot = indexedSlots[index]
             if groupId == nil or slot._yhudGroupId == groupId then
+                local monitor = projection.desiredMonitors and projection.desiredMonitors[slot._yhudMonitorId]
+                local preset = monitor and monitor._yhudResource
                 applied = self:ApplyDesignResourcePreviewSlot(
-                slot,
-                definition,
-                progress,
-                absoluteValue
+                    slot,
+                    preset and preset.customEntry and preset or definition,
+                    progress,
+                    absoluteValue
                 ) or applied
             end
         end
@@ -3003,7 +3672,7 @@ function View:SetDesignResourceValuePreview(resourceId, progress, absoluteValue,
                 and (groupId == nil or slot._yhudGroupId == groupId) then
                 applied = self:ApplyDesignResourcePreviewSlot(
                     slot,
-                    definition,
+                    preset.customEntry and preset or definition,
                     progress,
                     absoluteValue
                 ) or applied
@@ -3024,9 +3693,9 @@ function View:ClearDesignResourceValuePreview()
 end
 
 local function RefreshDesignGroupSelection(groupId, runtime, selectedGroupId)
-        local selected = groupId == selectedGroupId
+        local selected = not View.designLayoutMode and groupId == selectedGroupId
         local stateAllowed = runtime.designerStateAllowed ~= false
-        local empty = runtime.monitorCount == 0
+        local empty = not View.designLayoutMode and runtime.monitorCount == 0
             and runtime.designContent ~= true
         local frame = runtime.frame
         if frame.SetAlpha then frame:SetAlpha(1) end
@@ -3125,21 +3794,109 @@ function View:SetDesignCooldownPreviewGroup(groupId, target)
     return true
 end
 
-function View:ApplyDesignDurationPreview(slot, now)
+local function IsResourceCountdownPreset(preset)
+    local kind = preset and preset.provider and preset.provider.kind
+    return kind == "aura-duration" or kind == "global-cooldown"
+        or kind == "monitor-time" and preset.progress and preset.progress.source == "time"
+end
+
+function View:ApplyDesignResourceCountdownSlot(slot, elapsed, visible)
+    local projection = self.designProjection
+    local monitors = projection and projection.desiredMonitors or self.desiredMonitors
+    local monitor = monitors and monitors[slot._yhudMonitorId]
+    local preset = monitor and monitor._yhudResource
+    if not IsResourceCountdownPreset(preset) then
+        if slot._yhudDesignResourceCountdown then self:ClearResourcePreviewSlot(slot) end
+        return false, false
+    end
+    if not visible or not self.designDurationPreviewEnabled then return false, true end
+    local duration = math.max(0.1,tonumber(preset.previewMax) or 10)
+    -- One second at zero makes the end of each countdown visible. The existing
+    -- design ticker owns every timer; selecting one must not start a second loop.
+    local progress = math.max(0,1-(elapsed % (duration+1))/duration)
+    local applied = self:ApplyDesignResourcePreviewSlot(slot,preset,progress)
+    slot._yhudDesignResourceCountdown = applied == true or nil
+    return applied, true
+end
+
+function View:RefreshDesignResourceCountdown(resourceId, groupId)
+    if not self.designMode then return false, false end
+    local projection = self.designProjection
+    local slots = projection and projection.resourceSlotsById and projection.resourceSlotsById[resourceId]
+    if not slots then return false, false end
+    local now = _G.GetTime and _G.GetTime() or 0
+    local elapsed = math.max(0,now-(self.designDurationPreviewStartedAt or now))
+    local applied, eligible = false, false
+    for _, slot in ipairs(slots) do
+        if groupId == nil or slot._yhudGroupId == groupId then
+            local runtime = DesignRuntimeForSlot(slot)
+            local visible = runtime and runtime.enabled == true
+                and (not runtime.frame.IsShown or runtime.frame:IsShown())
+                and (not slot.IsShown or slot:IsShown())
+            local updated, countdown = self:ApplyDesignResourceCountdownSlot(slot,elapsed,visible)
+            applied, eligible = updated or applied, countdown or eligible
+        end
+    end
+    return applied, eligible
+end
+
+function View:ApplyDesignDurationPreview(slot, now, tickOnly)
     if not (self.designMode and self.designDurationPreviewEnabled and slot) then
         return false
     end
+    if self.designProjection and slot._yhudDesignProjection ~= true then
+        return false
+    end
+    if YHUD.ClassExtra and YHUD.ClassExtra.previews[slot] then return true end
     now = type(now) == "number" and now
         or (_G.GetTime and _G.GetTime() or 0)
-    local startTime = now - DESIGN_DURATION_PREVIEW_ELAPSED
+    local elapsed = math.max(0, now - (self.designDurationPreviewStartedAt or now))
     local runtime = DesignRuntimeForSlot(slot)
     local visible = runtime
         and runtime.enabled == true
         and (not runtime.frame.IsShown or runtime.frame:IsShown())
         and (not slot.IsShown or slot:IsShown())
+    if slot._yhudView == "resource" and self.ApplyDesignResourceCountdownSlot then
+        return self:ApplyDesignResourceCountdownSlot(slot,elapsed,visible)
+    end
     local durationView = slot._yhudView == "ring"
         or slot._yhudView == "bar"
+    if durationView and visible and slot._yhudBarProgress and slot._yhudBarProgress.source ~= "time"
+        and self.ApplyBarValue then
+        local charges = slot._yhudBarProgress.source == "spell-charges"
+        local maximum = slot._yhudBarMaximum
+        local previous = slot._yhudDesignBarPreview
+        local previousProgress = slot._yhudDesignDurationPreviewProgress
+        local previousValue = previous and previous.value
+        local previousFraction = previous and previous.fraction
+        local sample = maximum and DesignBarPlaybackSample(slot, elapsed) or nil
+        if not maximum then slot._yhudDesignBarPreview = nil end
+        slot._yhudDesignDurationPreviewCycle = nil
+        slot._yhudDesignDurationPreviewProgress = slot._yhudBarProgress
+        if not tickOnly then slot._yhudBarValueValid = nil end
+        self:ApplyBarValue(slot, runtime, sample and sample.value or 0, maximum, false)
+        if charges and maximum and (not tickOnly or sample ~= previous or previousValue ~= sample.value
+            or previousFraction ~= sample.fraction or not slot.gui2RechargeActive) then
+            GUI2:SetProjectedStatusBarRechargePreview(slot, sample.fraction)
+        elseif (not charges or not maximum) and GUI2.SetProjectedStatusBarRecharge then
+            GUI2:SetProjectedStatusBarRecharge(slot, nil)
+        end
+        if not tickOnly or sample ~= previous or previousProgress ~= slot._yhudBarProgress
+            or (sample and previousValue ~= sample.value) then
+            self:EnsureDesignTextPreview(slot)
+            self:ApplyDesignTextPreview(slot)
+        end
+        return true
+    end
     if durationView and visible and slot.SetDurationFromTimes then
+        local period = DESIGN_DURATION_SECONDS - DESIGN_DURATION_PREVIEW_ELAPSED
+        local cycle = math.floor(elapsed / period)
+        if tickOnly and slot._yhudDesignDurationPreviewCycle == cycle
+            and slot._yhudDesignDurationPreviewProgress == slot._yhudBarProgress then return true end
+        slot._yhudDesignBarPreview = nil
+        slot._yhudDesignDurationPreviewCycle = cycle
+        slot._yhudDesignDurationPreviewProgress = slot._yhudBarProgress
+        local startTime = now - elapsed + cycle * period - DESIGN_DURATION_PREVIEW_ELAPSED
         slot:SetDurationFromTimes(
             startTime,
             DESIGN_DURATION_SECONDS,
@@ -3150,18 +3907,24 @@ function View:ApplyDesignDurationPreview(slot, now)
         self:ApplyDesignTextPreview(slot)
         return true
     end
-    if durationView and slot.ClearDuration then slot:ClearDuration() end
+    if durationView and slot.ClearDuration
+        and (slot._yhudDesignDurationPreviewCycle ~= nil or slot._yhudDesignBarPreview) then
+        ClearDesignProgressSample(slot)
+        slot:ClearDuration()
+        slot._yhudBarValueValid, slot._yhudBarPublicValue = nil, nil
+        if GUI2.SetProjectedStatusBarRecharge then GUI2:SetProjectedStatusBarRecharge(slot, nil) end
+    end
     return false
 end
 
-function View:RefreshDesignDurationPreview()
+function View:RefreshDesignDurationPreview(tickOnly)
     if not (self.designMode and self.designDurationPreviewEnabled) then
         return false
     end
     local now = _G.GetTime and _G.GetTime() or 0
     local applied = false
     ForEachDesignSlot(function(slot)
-        applied = self:ApplyDesignDurationPreview(slot, now) or applied
+        applied = self:ApplyDesignDurationPreview(slot, now, tickOnly) or applied
     end)
     return applied
 end
@@ -3178,28 +3941,45 @@ function View:SetDesignDurationPreviewEnabled(enabled)
     end
     self.designDurationPreviewEnabled = enabled
     if not enabled then
+        self.designDurationPreviewStartedAt = nil
         ForEachDesignSlot(function(slot)
+            ClearDesignProgressSample(slot)
+            if slot._yhudDesignResourceCountdown then self:ClearResourcePreviewSlot(slot) end
             if (slot._yhudView == "ring" or slot._yhudView == "bar")
                 and slot.ClearDuration then
+                if slot._yhudDesignProjection ~= true then
+                    self.designRuntimeRestoreRequired = true
+                end
                 slot:ClearDuration()
+                slot._yhudDurationMode, slot._yhudOpaqueRevision = nil, nil
+                slot._yhudBarValueValid, slot._yhudBarPublicValue = nil, nil
+                slot._yhudBarCountdownMode, slot._yhudBarCountdownRevision = nil, nil
+                if slot._yhudBarProgress
+                    and slot._yhudBarProgress.source == "spell-charges" then
+                    GUI2:SetProjectedStatusBarRecharge(slot, nil)
+                end
             end
             self:ApplyDesignTextPreview(slot)
         end)
     end
     if not enabled then return true end
 
+    self.designDurationPreviewStartedAt = _G.GetTime and _G.GetTime() or 0
     self:RefreshDesignDurationPreview()
     local timer = _G.C_Timer
     if timer and timer.NewTicker then
-        self.designDurationPreviewTicker = timer.NewTicker(
-            DESIGN_DURATION_SECONDS - DESIGN_DURATION_PREVIEW_ELAPSED,
+        local ticker
+        ticker = timer.NewTicker(
+            DESIGN_DURATION_PREVIEW_INTERVAL,
             function()
                 if View.designMode
-                    and View.designDurationPreviewEnabled then
-                    View:RefreshDesignDurationPreview()
+                    and View.designDurationPreviewEnabled
+                    and View.designDurationPreviewTicker == ticker then
+                    View:RefreshDesignDurationPreview(true)
                 end
             end
         )
+        self.designDurationPreviewTicker = ticker
     end
     return true
 end
@@ -3238,7 +4018,8 @@ local function NewProjectionState(self, profile, projectionContext)
     local formKey = self.resourcePreviewFormKey
     if (not classFile or not specID)
         and ResourceCatalog and ResourceCatalog.GetCurrentContext then
-        classFile, specID, formKey = ResourceCatalog:GetCurrentContext()
+        classFile, specID = ResourceCatalog:GetCurrentContext()
+        formKey = ResourceCatalog:GetCurrentFormKey(classFile, specID)
     end
     local presentationPlan = I.BeginPresentationPlan(profile, {
         preview = true,
@@ -3374,6 +4155,10 @@ end
 function View:RefreshDesignProjectionAnchors()
     local projection = self.designProjection
     if not (self.designMode and projection) then return false end
+    local bridge = YHUD.LayoutBridge
+    if bridge and bridge.SyncDesignProjection then
+        return bridge:SyncDesignProjection(projection)
+    end
     local byFrame, resolved, visiting = {}, {}, {}
     for groupId, runtime in pairs(projection.groups) do
         local live = self.groups[groupId]
@@ -3431,6 +4216,35 @@ function View:RefreshDesignProjectionAnchors()
     return true
 end
 
+function View:SetDesignLayoutMode(enabled)
+    enabled = enabled == true
+    self.designLayoutMode = enabled
+    local projection = self.designProjection
+    if enabled and I.CancelDesignTooltip then I.CancelDesignTooltip() end
+    if projection and self.ApplyGroupDisplayLayers then
+        self:ApplyGroupDisplayLayers(projection.profile, projection)
+    end
+    for _, runtime in pairs(projection and projection.groups or {}) do
+        runtime.frame:EnableMouse(not enabled)
+        if enabled then
+            if runtime.designHeader then runtime.designHeader:Hide() end
+            if runtime.designMover then runtime.designMover:Hide() end
+            if runtime.designOutline then runtime.designOutline:Hide() end
+        else
+            self:RefreshDesignProjectionVisibility(runtime)
+        end
+    end
+    for _, slot in pairs(projection and projection.byMonitor or {}) do
+        if enabled then
+            I.SetSlotMouseInput(slot, false, false)
+            self:SetDesignSlotHovered(slot, false)
+            SetShown(slot._yhudDesignSelectionOutline, false)
+        else
+            self:ConfigureDesignSlot(slot)
+        end
+    end
+end
+
 local function AcquireProjectionGroup(self, projection, groupPlan)
     local group = groupPlan and groupPlan.group
     if not group then return nil end
@@ -3439,7 +4253,9 @@ local function AcquireProjectionGroup(self, projection, groupPlan)
     runtime = PopProjectionPool(ProjectionPools(self).groups) or {}
     local frame = runtime.frame
     if not frame then
+        self.designProjectionFrameSerial = (self.designProjectionFrameSerial or 0) + 1
         frame = GUI2:CreateFrame(UIParent, {
+            name = "YUI_YHUD_DesignGroup_" .. self.designProjectionFrameSerial,
             width = DEFAULT_ICON_SIZE,
             height = DEFAULT_ICON_SIZE,
             mouse = false,
@@ -3461,8 +4277,8 @@ local function AcquireProjectionGroup(self, projection, groupPlan)
     runtime.layoutMode = groupPlan.effectiveLayoutMode
     runtime.layoutModeForced = groupPlan.layoutModeOverrideReason ~= nil
     runtime.layoutModeOverrideReason = groupPlan.layoutModeOverrideReason
-    runtime.designMoveFrame = self.groups[group.id]
-        and self.groups[group.id].frame or nil
+    runtime.designMoveFrame = not (YHUD.LayoutBridge and YHUD.LayoutBridge.SyncDesignProjection)
+        and self.groups[group.id] and self.groups[group.id].frame or nil
     local layout = groupPlan.layout
     -- Projection group runtimes are pooled across layout types. A missing
     -- field in the new layout is authoritative here: for example rings use a
@@ -3552,9 +4368,10 @@ local function CreateProjectionSlot(runtime, view)
         })
     end
     if view == "resource" and App.CreateResourceBar then
+        local width, height = I.ResolveResourceSize(runtime, runtime.resourceWidth, runtime.resourceHeight)
         return App:CreateResourceBar(runtime.frame, {
-            width = runtime.resourceWidth,
-            height = runtime.resourceHeight,
+            width = width,
+            height = height,
             orientation = runtime.orientation,
             fillDirection = runtime.fillDirection,
             border = runtime.border,
@@ -3685,6 +4502,9 @@ local function AdvanceProjectionSlot(self, projection, runtime, member)
         runtime._yhudProjectionSlotPhase = 6
         return nil, false, "text-create"
     end
+    if YHUD.ClassExtra then
+        YHUD.ClassExtra:StartDesignPreview(self, slot, member.entry, member.monitor, runtime)
+    end
     self:ApplyDesignTextPreview(slot)
     slot:Show()
     if self.designDurationPreviewEnabled
@@ -3808,20 +4628,26 @@ local function ApplySharedProjectionGeometry(runtime, slots, specialFlags)
     local segmented = runtime.filteredAuraProjectionStrategy ==
         YHUD.FILTERED_AURA_LAYOUT_MIXED_SEGMENTED_OVERFLOW
     local resourceMetrics
+    local minimumStep = GUI2.GetPixelSize
+        and GUI2:GetPixelSize(runtime.frame, 1, 1) or (GUI2.mult or 1)
+    local resourceScale
+    local flowBlocks = I.GetColumnFlowPreviewBlocks(runtime, slots, #slots)
     if runtime.view == "resource" then
+        resourceScale = GUI2.GetPixelLayoutScale and GUI2:GetPixelLayoutScale(runtime.frame)
         runtime.effectiveResourceWidth = I.ResolveResourceWidth(View, runtime)
         resourceMetrics = {}
         for index = 1, #slots do
             local member = runtime.members and runtime.members[index]
             local spec = member and member.resourceSpec
+            local thickness = I.SnapResourceThickness(runtime.frame,
+                spec and spec.height or runtime.resourceHeight, minimumStep, resourceScale)
+            local width, height = I.ResolveResourceSize(runtime,
+                runtime.effectiveResourceWidth or spec and spec.width or runtime.resourceWidth,
+                thickness)
             resourceMetrics[index] = {
                 resourceId = slots[index] and slots[index]._yhudResourceId,
-                width = runtime.effectiveResourceWidth
-                    or spec and spec.width
-                    or runtime.resourceWidth,
-                height = spec and spec.height
-                    or slots[index] and slots[index].gui2ResourceHeight
-                    or runtime.resourceHeight,
+                width = width,
+                height = height,
             }
         end
     end
@@ -3833,13 +4659,12 @@ local function ApplySharedProjectionGeometry(runtime, slots, specialFlags)
             design = true,
             segmented = segmented,
             specialFlags = specialFlags,
+            flowBlocks = flowBlocks,
             fixedLayout = runtime.layoutMode == "fixed",
             pixelSize = GUI2.GetPixelSize and function(pixels)
                 return GUI2:GetPixelSize(runtime.frame, pixels, pixels)
             end or nil,
-            minimumPixelStep = GUI2.GetPixelSize
-                and GUI2:GetPixelSize(runtime.frame, 1, 1)
-                or (GUI2.mult or 1),
+            minimumPixelStep = minimumStep,
             resourceMetrics = resourceMetrics,
         }
     )
@@ -3856,6 +4681,10 @@ local function ApplySharedProjectionGeometry(runtime, slots, specialFlags)
         if not (slot and slot.SetSize) then return false end
         if self.runtime.view == "resource" and slot.SetResourceBarSize then
             slot:SetResourceBarSize(width, height, self.runtime.orientation)
+            local preview = slot._yhudDesignResourcePreview
+            if slot._yhudDesignResourcePreviewBound and preview and preview.SetResourceBarSize then
+                preview:SetResourceBarSize(width, height, self.runtime.orientation)
+            end
         else
             slot:SetSize(width, height)
         end
@@ -3886,13 +4715,19 @@ local function ApplySharedProjectionGeometry(runtime, slots, specialFlags)
     function adapter:SetItemPoint(index, placement)
         local slot = self.slots[index]
         if not slot then return false end
+        local x, y = placement.x, placement.y
+        if self.runtime.view == "resource" and GUI2.SnapLayoutBoundary then
+            -- Mixed thicknesses can also centre a row on a half pixel.
+            x = GUI2:SnapLayoutBoundary(self.runtime.frame, x, resourceScale)
+            y = GUI2:SnapLayoutBoundary(self.runtime.frame, y, resourceScale)
+        end
         slot:ClearAllPoints()
         slot:SetPoint(
             placement.point,
             self.runtime.frame,
             placement.relativePoint,
-            placement.x,
-            placement.y
+            x,
+            y
         )
         return true
     end
@@ -3909,6 +4744,7 @@ local function ApplySharedProjectionGeometry(runtime, slots, specialFlags)
     end
     I.ApplyGroupGeometry(geometry, adapter)
     runtime.presentationGeometry = geometry
+    if View.ApplyBarShadows then View:ApplyBarShadows(runtime, slots, #slots, #slots) end
 end
 
 function View:RefreshDesignProjectionResources(
@@ -4094,9 +4930,13 @@ end
 
 local function ReleaseProjectionGroup(self, projection, groupId)
     if not (projection and groupId) then return false end
+    if self.activeDesignGroupDrag and self.activeDesignGroupDrag.id == groupId then
+        FinishDesignGroupDrag(self.activeDesignGroupDrag, true)
+    end
     local pools = ProjectionPools(self)
     for monitorId, slot in pairs(projection.byMonitor or {}) do
         if slot and slot._yhudGroupId == groupId then
+            if GUI2.HideBarShadow then GUI2:HideBarShadow(slot) end
             UnindexProjectionResourceSlot(projection, slot)
             self:ClearDesignSlot(slot)
             slot._yhudDesignProjection = nil
@@ -4116,6 +4956,7 @@ local function ReleaseProjectionGroup(self, projection, groupId)
     end
     local runtime = projection.groups and projection.groups[groupId]
     if runtime then
+        if self.ClearBarShadows then self:ClearBarShadows(runtime) end
         local bridge = YHUD.LayoutBridge
         if bridge and bridge.UnregisterDesignProjectionGroup then
             bridge:UnregisterDesignProjectionGroup(groupId, runtime.frame)
@@ -4125,6 +4966,7 @@ local function ReleaseProjectionGroup(self, projection, groupId)
         if runtime.designOutline then runtime.designOutline:Hide() end
         runtime.frame:SetScript("OnMouseDown", nil)
         runtime.frame:EnableMouse(false)
+        runtime.frame:ClearAllPoints()
         runtime.frame:Hide()
         runtime._yhudProjectionBuilt = nil
         runtime._yhudProjectionBuilding = nil
@@ -4230,7 +5072,8 @@ function View:RefreshDesignProjectionGroup(
     local formKey = self.resourcePreviewFormKey
     if (not classFile or not specID)
         and ResourceCatalog and ResourceCatalog.GetCurrentContext then
-        classFile, specID, formKey = ResourceCatalog:GetCurrentContext()
+        classFile, specID = ResourceCatalog:GetCurrentContext()
+        formKey = ResourceCatalog:GetCurrentFormKey(classFile, specID)
     end
     local replacementPlan = I.BeginPresentationPlan(profile, {
         preview = true,
@@ -4271,6 +5114,16 @@ end
 function View:ReleaseDesignProjection(preserveLiveState)
     local projection = self.designProjection
     if not projection then return false end
+    FinishDesignGroupDrag(self.activeDesignGroupDrag, true)
+    projection.releasing = true
+    local bridge = YHUD.LayoutBridge
+    if bridge and bridge.designLayoutProjection == projection then
+        bridge:EndDesignLayout(true)
+    end
+    -- Stop while the projection still owns the preview slots. After release,
+    -- ForEachDesignSlot falls back to the live slot registry.
+    if preserveLiveState ~= true then self:SetDesignDurationPreviewEnabled(false) end
+    if preserveLiveState ~= true then self:SetDesignGlowPreview(nil, nil, nil) end
     self:CancelMonitorDrag()
     if preserveLiveState ~= true then
         for groupId, state in pairs(projection.liveStates or {}) do
@@ -4296,6 +5149,7 @@ function View:ReleaseDesignProjection(preserveLiveState)
         projection.byMonitor[monitorId] = nil
     end
     for groupId, runtime in pairs(projection.groups or {}) do
+        if self.ClearBarShadows then self:ClearBarShadows(runtime) end
         local bridge = YHUD.LayoutBridge
         if bridge and bridge.UnregisterDesignProjectionGroup then
             bridge:UnregisterDesignProjectionGroup(groupId, runtime.frame)
@@ -4305,6 +5159,7 @@ function View:ReleaseDesignProjection(preserveLiveState)
         if runtime.designOutline then runtime.designOutline:Hide() end
         runtime.frame:SetScript("OnMouseDown", nil)
         runtime.frame:EnableMouse(false)
+        runtime.frame:ClearAllPoints()
         runtime.frame:Hide()
         runtime._yhudProjectionBuilt = nil
         runtime._yhudProjectionBuilding = nil
@@ -4329,6 +5184,7 @@ function View:ReleaseDesignProjection(preserveLiveState)
         projection.groups[groupId] = nil
     end
     self.designProjection = nil
+    if preserveLiveState ~= true then self.classExtraPreviewTimes = nil end
     return true, preserveLiveState == true and projection.liveStates or nil
 end
 
@@ -4386,7 +5242,8 @@ function View:PrepareStagedDesignMode(
     onSelectMonitor,
     onReorderMonitor,
     onGroupDragStart,
-    onGroupDragStop
+    onGroupDragStop,
+    onGetMonitorTargets
 )
     if type(profile) ~= "table" then return false end
     local _, liveStates = self:ReleaseDesignProjection(true)
@@ -4399,7 +5256,8 @@ function View:PrepareStagedDesignMode(
         onSelectMonitor,
         onReorderMonitor,
         onGroupDragStart,
-        onGroupDragStop
+        onGroupDragStop,
+        onGetMonitorTargets
     )
     if not prepared then
         for groupId, state in pairs(liveStates or {}) do
@@ -4427,12 +5285,13 @@ function View:RefreshDesignProjectionVisibility(runtime)
     local visible = self.designMode and ready and runtime.enabled == true
         and runtime.visibilityAllowed ~= false and allowed
     SetShown(runtime.frame, visible == true)
-    local selected = runtime.id == self.selectedGroupId
-    local empty = runtime.monitorCount == 0 and runtime.designContent ~= true
+    local selected = not self.designLayoutMode and runtime.id == self.selectedGroupId
+    local empty = not self.designLayoutMode and runtime.monitorCount == 0 and runtime.designContent ~= true
     if runtime.designHeader then SetShown(runtime.designHeader, visible and selected) end
     if runtime.designOutline then SetShown(runtime.designOutline, visible and selected) end
     if runtime.designMover then SetShown(runtime.designMover, visible and empty) end
     if runtime.designMoverLabel then SetShown(runtime.designMoverLabel, visible and empty and not selected) end
+    if YHUD.ClassExtra then YHUD.ClassExtra:RefreshClockDriver() end
 end
 
 function View:EnterStagedDesignGroup(groupId, animationOwner)
@@ -4454,7 +5313,7 @@ function View:EnterStagedDesignGroup(groupId, animationOwner)
     if frame.SetAlpha then
         frame:SetAlpha(animationOwner and 0 or 1)
     end
-    frame:EnableMouse(true)
+    frame:EnableMouse(not self.designLayoutMode)
     if not runtime.designClick then
         local runtimeRef = runtime
         runtime.designClick = function(_, button)
@@ -4468,9 +5327,9 @@ function View:EnterStagedDesignGroup(groupId, animationOwner)
     local header = self:EnsureDesignChrome(runtime)
     local outline = self:EnsureDesignOutline(runtime)
     self:RefreshDesignChromeGeometry(runtime)
-    local selected = groupId == self.selectedGroupId
+    local selected = not self.designLayoutMode and groupId == self.selectedGroupId
     local stateAllowed = runtime.designerStateAllowed ~= false
-    local empty = runtime.monitorCount == 0
+    local empty = not self.designLayoutMode and runtime.monitorCount == 0
         and runtime.designContent ~= true
     if header then
         RefreshDesignHeaderWidth(runtime)
@@ -4511,6 +5370,7 @@ function View:EnterStagedDesignGroup(groupId, animationOwner)
         end
     end
     self.designReadyGroups[groupId] = true
+    if YHUD.ClassExtra then YHUD.ClassExtra:RefreshClockDriver() end
 
     local fadeDuration = 0.2
     if animationOwner and Animation and Animation.FadeIn then
@@ -4590,29 +5450,20 @@ function View:PrepareDesignMode(
     onSelectMonitor,
     onReorderMonitor,
     onGroupDragStart,
-    onGroupDragStop
+    onGroupDragStop,
+    onGetMonitorTargets
 )
     enabled = enabled == true
+    if enabled and YHUD.PressFeedback and YHUD.PressFeedback.active then YHUD.PressFeedback:Clear() end
     local wasEnabled = self.designMode == true
     if not enabled then
+        self:SetDesignGlowPreview(nil, nil, nil)
+        self:SetDesignDurationPreviewEnabled(false)
+        FinishDesignGroupDrag(self.activeDesignGroupDrag)
         if self.designProjection then self:ReleaseDesignProjection() end
         self.designCooldownPreviewGroupId = nil
         self.designTextPreviewTarget = nil
-        self:SetDesignDurationPreviewEnabled(false)
         self:CancelMonitorDrag()
-        local activeGroupDrag = self.activeDesignGroupDrag
-        if activeGroupDrag then
-            local frame = activeGroupDrag.frame
-            if frame and frame.StopMovingOrSizing then
-                frame:StopMovingOrSizing()
-            end
-            activeGroupDrag.designGroupDragging = false
-            self.activeDesignGroupDrag = nil
-            CommitDesignGroupPosition(activeGroupDrag)
-            if self.designGroupDragStop then
-                self.designGroupDragStop(activeGroupDrag.id)
-            end
-        end
         self.resourcePreviewClassFile = nil
         self.resourcePreviewSpecID = nil
         self.resourcePreviewFormKey = nil
@@ -4629,6 +5480,7 @@ function View:PrepareDesignMode(
     self.designReorderMonitor = enabled and onReorderMonitor or nil
     self.designGroupDragStart = enabled and onGroupDragStart or nil
     self.designGroupDragStop = enabled and onGroupDragStop or nil
+    self.designGetMonitorTargets = enabled and onGetMonitorTargets or nil
 
     return true, wasEnabled
 end
@@ -4760,7 +5612,8 @@ function View:SetDesignMode(
     onSelectMonitor,
     onReorderMonitor,
     onGroupDragStart,
-    onGroupDragStop
+    onGroupDragStop,
+    onGetMonitorTargets
 )
     enabled = enabled == true
     if enabled then
@@ -4781,7 +5634,8 @@ function View:SetDesignMode(
         onSelectMonitor,
         onReorderMonitor,
         onGroupDragStart,
-        onGroupDragStop
+        onGroupDragStop,
+        onGetMonitorTargets
     )
     if not prepared then return false end
     return self:RefreshDesignModePresentation(enabled, wasEnabled, false)

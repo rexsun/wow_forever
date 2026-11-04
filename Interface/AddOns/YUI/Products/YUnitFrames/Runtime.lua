@@ -281,7 +281,7 @@ end
 YUI:RegisterProduct({
     id = UF.PRODUCT_ID, title = "YUnitFrames", titleKey = "title", titleNamespace = "YUnitFrames",
     shortTitle = "YUnitFrames", shortTitleKey = "title", shortTitleNamespace = "YUnitFrames",
-    notes = "Unit frames", notesKey = "description", notesNamespace = "YUnitFrames", author = "阿言", addonName = ADDON_NAME,
+    notes = "Unit frames", notesKey = "description", notesNamespace = "YUnitFrames", author = "Ayan", addonName = ADDON_NAME,
     settingsScope = UF.PRODUCT_ID,
     settings = { enabled = true, entry = UF.SETTINGS_ENTRY, commonPages = { "core.profiles", "core.about" }, minimapIcon = false },
     db = { enabled = false, savedVariable = "YUI_DB", storageKey = UF.STORAGE_KEY }, commands = {},

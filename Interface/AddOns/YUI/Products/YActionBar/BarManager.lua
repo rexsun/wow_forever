@@ -213,6 +213,7 @@ local DEFAULT_CONFIG_SNAPSHOT = {
     shadow = true,
     shadowColor = { 0, 0, 0, 0.5 },
     cooldownFade = true,
+    chargeRecoveryDisplay = "hideSwipeOnly",
     cooldownTextSize = 12,
     rangeMode = "red",
     showHotkeys = true,
@@ -267,6 +268,10 @@ local HOT_EVENTS = {
     "SPELL_UPDATE_USES",
     "SPELL_UPDATE_ICON",
     "SPELLS_CHANGED",
+    "PLAYER_SPECIALIZATION_CHANGED",
+    "ACTIVE_TALENT_GROUP_CHANGED",
+    "PLAYER_TALENT_UPDATE",
+    "TRAIT_CONFIG_UPDATED",
     "UPDATE_BINDINGS",
     "UPDATE_BONUS_ACTIONBAR",
     "UPDATE_EXTRA_ACTIONBAR",
@@ -321,6 +326,9 @@ local ACTION_CONSUMER_EVENTS = {
     SPELL_UPDATE_ICON = true,
     PLAYER_TARGET_CHANGED = true,
 }
+
+local BASE_HOT_EVENTS = {}
+for _, event in ipairs(HOT_EVENTS) do BASE_HOT_EVENTS[event] = true end
 
 local BROADCASTER_BUTTON_MANIFEST = {
     { event = "PLAYER_ENTERING_WORLD" },
@@ -594,8 +602,8 @@ local function GetSpacing(config, db)
     return spacing
 end
 
-local function SetDegraded(kind, reason)
-    local db = GetDB()
+local function SetDegraded(kind, reason, db)
+    db = db or GetDB()
     if not (db and db.runtime) then return end
     db.runtime.degraded = db.runtime.degraded or {}
     db.runtime.degraded[kind] = reason
@@ -868,7 +876,14 @@ function BarManager:UpdateConfigSnapshot(barId, config, group)
     local db = GetDB()
     local pressedEffect = SnapshotString(db and db.appearance and db.appearance.pressedEffect, "darken")
     snapshot.pressedEffect = pressedEffect == "innerGlow" and "innerGlow" or "darken"
+    snapshot.showActionState = not db or not db.appearance or db.appearance.showActionState ~= false
     snapshot.cooldownFade = SnapshotBoolean(config.cooldownFade, true)
+    local chargeDisplay = config.chargeRecoveryDisplay
+    snapshot.chargeRecoveryDisplay = (chargeDisplay == "normal" or chargeDisplay == "hideSwipe"
+        or chargeDisplay == "hideCountdown" or chargeDisplay == "hideBoth"
+        or chargeDisplay == "hideEdge" or chargeDisplay == "hideEdgeAndCountdown"
+        or chargeDisplay == "hideSwipeOnly" or chargeDisplay == "hideSwipeAndCountdown")
+        and chargeDisplay or "hideSwipeOnly"
     snapshot.cooldownTextSize = SnapshotNumber(config.cooldownTextSize, 12, 0, 32)
     snapshot.rangeMode = SnapshotString(config.rangeMode, "red")
     if snapshot.group == "normal" and (snapshotCreated or previousRangeMode ~= snapshot.rangeMode) then
@@ -877,27 +892,33 @@ function BarManager:UpdateConfigSnapshot(barId, config, group)
     snapshot.showHotkeys = SnapshotBoolean(config.showHotkeys, true)
     snapshot.hotkeyColor = SnapshotOptionalColor(config.hotkeyColor, snapshot.hotkeyColor)
     snapshot.hotkeySize = SnapshotNumber(config.hotkeySize, 12, 1, 64)
-    snapshot.hotkeyOffsetX = SnapshotNumber(config.hotkeyOffsetX, 0, -16, 16)
-    snapshot.hotkeyOffsetY = SnapshotNumber(config.hotkeyOffsetY, 0, -16, 16)
+    snapshot.hotkeyOffsetX = SnapshotNumber(config.hotkeyOffsetX, 0, -64, 64)
+    snapshot.hotkeyOffsetY = SnapshotNumber(config.hotkeyOffsetY, 0, -64, 64)
     snapshot.showCounts = SnapshotBoolean(config.showCounts, true)
     snapshot.countColor = SnapshotOptionalColor(config.countColor, snapshot.countColor)
     snapshot.countSize = SnapshotNumber(config.countSize, 12, 1, 64)
-    snapshot.countOffsetX = SnapshotNumber(config.countOffsetX, 0, -16, 16)
-    snapshot.countOffsetY = SnapshotNumber(config.countOffsetY, 0, -16, 16)
+    snapshot.countOffsetX = SnapshotNumber(config.countOffsetX, 0, -64, 64)
+    snapshot.countOffsetY = SnapshotNumber(config.countOffsetY, 0, -64, 64)
     snapshot.showMacroNames = SnapshotBoolean(config.showMacroNames, true)
     snapshot.macroNameColor = SnapshotOptionalColor(config.macroNameColor, snapshot.macroNameColor)
     snapshot.macroNameSize = SnapshotNumber(config.macroNameSize, 10, 1, 64)
-    snapshot.macroNameOffsetX = SnapshotNumber(config.macroNameOffsetX, 0, -16, 16)
-    snapshot.macroNameOffsetY = SnapshotNumber(config.macroNameOffsetY, 0, -16, 16)
-    snapshot.cooldownTextOffsetX = SnapshotNumber(config.cooldownTextOffsetX, 0, -16, 16)
-    snapshot.cooldownTextOffsetY = SnapshotNumber(config.cooldownTextOffsetY, 0, -16, 16)
+    snapshot.macroNameOffsetX = SnapshotNumber(config.macroNameOffsetX, 0, -64, 64)
+    snapshot.macroNameOffsetY = SnapshotNumber(config.macroNameOffsetY, 0, -64, 64)
+    snapshot.cooldownTextOffsetX = SnapshotNumber(config.cooldownTextOffsetX, 0, -64, 64)
+    snapshot.cooldownTextOffsetY = SnapshotNumber(config.cooldownTextOffsetY, 0, -64, 64)
     snapshot.cooldownTextColor = SnapshotOptionalColor(config.cooldownTextColor, snapshot.cooldownTextColor)
+    if YAB.TextStyle then YAB.TextStyle:Snapshot(config, snapshot) end
     snapshot.showProfessionQuality = SnapshotBoolean(config.showProfessionQuality, true)
     snapshot.professionQualitySize = SnapshotNumber(config.professionQualitySize, 21, 8, 32)
     snapshot.professionQualityOffsetX = SnapshotNumber(config.professionQualityOffsetX, 0, -16, 16)
     snapshot.professionQualityOffsetY = SnapshotNumber(config.professionQualityOffsetY, 0, -16, 16)
     if snapshot.group == "special" and YAB.SpecialBars and YAB.SpecialBars.NormalizeConfigSnapshot then
         YAB.SpecialBars:NormalizeConfigSnapshot(barId, snapshot, config)
+    end
+    if YUI.GUI2 and YUI.GUI2.IconSkins then
+        if not config.skinOptions then YUI.GUI2.IconSkins:NormalizeSettings(config, "Flare") end
+        snapshot.skinId, snapshot.skinOptions = config.skinId, config.skinOptions
+        YUI.GUI2.IconSkins:ApplyRecipe(snapshot, "Flare")
     end
     snapshot.revision = (snapshot.revision or 0) + 1
 
@@ -1137,8 +1158,7 @@ local function BuildNameText(state, snapshot)
 end
 
 local nativeCoreCurvesReady = false
-local nativeCoreDesatCurveAny
-local nativeCoreDesatCurveReal
+local nativeCoreDesatCurves = {}
 
 local function GetNativeCoreState(manager, button)
     local states = manager.nativeCoreState
@@ -1355,20 +1375,28 @@ local function SetCooldownScalarCached(state, key, cooldown, safeBegin, safeSpan
 end
 
 local function EnsureNativeCoreCurves()
-    if nativeCoreCurvesReady then return nativeCoreDesatCurveAny, nativeCoreDesatCurveReal end
+    local curves = nativeCoreDesatCurves
+    if nativeCoreCurvesReady then return curves.any, curves.real, curves.recovery end
     nativeCoreCurvesReady = true
     if not (C_CurveUtil and C_CurveUtil.CreateCurve and Enum and Enum.LuaCurveType) then
         return nil, nil
     end
-    nativeCoreDesatCurveAny = C_CurveUtil.CreateCurve()
-    nativeCoreDesatCurveAny:SetType(Enum.LuaCurveType.Step)
-    nativeCoreDesatCurveAny:AddPoint(0, 0)
-    nativeCoreDesatCurveAny:AddPoint(REMAINING_DURATION_EPSILON_SECONDS, 1)
-    nativeCoreDesatCurveReal = C_CurveUtil.CreateCurve()
-    nativeCoreDesatCurveReal:SetType(Enum.LuaCurveType.Step)
-    nativeCoreDesatCurveReal:AddPoint(0, 0)
-    nativeCoreDesatCurveReal:AddPoint(REAL_COOLDOWN_THRESHOLD_SECONDS, 1)
-    return nativeCoreDesatCurveAny, nativeCoreDesatCurveReal
+    curves.any = C_CurveUtil.CreateCurve()
+    curves.any:SetType(Enum.LuaCurveType.Step)
+    curves.any:AddPoint(0, 0)
+    curves.any:AddPoint(REMAINING_DURATION_EPSILON_SECONDS, 1)
+    curves.real = C_CurveUtil.CreateCurve()
+    curves.real:SetType(Enum.LuaCurveType.Step)
+    curves.real:AddPoint(0, 0)
+    curves.real:AddPoint(REAL_COOLDOWN_THRESHOLD_SECONDS, 1)
+    local recoveryThreshold = YAB.Client.cooldownRecoveryThreshold
+    if recoveryThreshold then
+        curves.recovery = C_CurveUtil.CreateCurve()
+        curves.recovery:SetType(Enum.LuaCurveType.Step)
+        curves.recovery:AddPoint(0, 0)
+        curves.recovery:AddPoint(recoveryThreshold, 1)
+    end
+    return curves.any, curves.real, curves.recovery
 end
 
 local function SetIconDesaturationNative(icon, value, clearDesaturated, resetDesaturated)
@@ -1416,6 +1444,12 @@ local function OnNativeCoreCooldownDone(cooldown)
     if meta and meta.barId == "stance" then
         if state.stanceCooldownUpdating ~= true then
             BarManager:RefreshStanceButton(button, meta.index, GetDB())
+        end
+        return
+    end
+    if meta and meta.barId == "pet" then
+        if state.petCooldownUpdating ~= true then
+            BarManager:RefreshPetButton(button, meta.index, GetDB())
         end
         return
     end
@@ -1602,14 +1636,19 @@ local function IsItemAction(action)
     return actionType == "item"
 end
 
-local function ComputeNativeCoreDesaturation(button, action, active, onGCD, durationObject, maxCharges, snapshot, forceAnyCurve)
+local function ComputeNativeCoreDesaturation(button, action, active, onGCD, durationObject, maxCharges, snapshot, forceAnyCurve, filterRecovery)
     if active ~= true then return 0, true end
     if snapshot and snapshot.cooldownFade == false then return 0, true end
     if onGCD == true then return 0, true end
     local amount = GetCooldownDesaturation(button)
     if amount == 0 then return 0, true end
     local useRealCurve = forceAnyCurve ~= true and ((maxCharges ~= nil and maxCharges > 1) or IsItemAction(action))
-    local curveAny, curveReal = EnsureNativeCoreCurves()
+    local curveAny, curveReal, curveRecovery = EnsureNativeCoreCurves()
+    if filterRecovery and curveRecovery and durationObject and durationObject.EvaluateTotalDuration then
+        -- Total duration preserves a real cooldown's final seconds. Its native
+        -- result goes directly to the texture; Lua never classifies that result.
+        return durationObject:EvaluateTotalDuration(curveRecovery, 0), false
+    end
     if useRealCurve then
         if not (durationObject and durationObject.EvaluateRemainingDuration and curveReal) then return 0, true end
         return durationObject:EvaluateRemainingDuration(curveReal, 0), false
@@ -2158,6 +2197,104 @@ function BarManager:ClearAssistedCombatTracking()
     self.assistedCombatNextSpellGeneration = 0
 end
 
+local function AssistedHighlightChanged(owner)
+    if owner.runtimeActive ~= true then return end
+    owner.assistedHighlightCallbacks = (owner.assistedHighlightCallbacks or 0) + 1
+    owner:QueueAssistedHighlightRefresh()
+end
+
+local function AssistedHighlightRotationChanged(owner)
+    if owner.runtimeActive ~= true then return end
+    owner.assistedHighlightCallbacks = (owner.assistedHighlightCallbacks or 0) + 1
+    owner:QueueAssistedHighlightRefresh(true)
+end
+
+function BarManager:ClearAssistedHighlightTracking()
+    local registry = self.assistedHighlightRegistry
+    if registry then
+        registry:UnregisterCallback("AssistedCombatManager.OnAssistedHighlightSpellChange", self)
+        registry:UnregisterCallback("AssistedCombatManager.OnSetUseAssistedHighlight", self)
+        registry:UnregisterCallback("AssistedCombatManager.RotationSpellsUpdated", self)
+    end
+    self.assistedHighlightRegistry = nil
+    self.assistedHighlightDirty = false
+    self.assistedHighlightAliasesDirty = false
+    self.assistedHighlightSpellID = nil
+    if YAB.Visuals and YAB.Visuals.SetAssistedHighlight then
+        for button in pairs(self.buttonStates) do YAB.Visuals:SetAssistedHighlight(button, false) end
+    end
+end
+
+function BarManager:SyncAssistedHighlightRegistration(db)
+    db = db or GetDB()
+    local registry = _G.EventRegistry
+    local enabled = YAB.Client and YAB.Client.assistedHighlight == true
+        and self.runtimeActive == true and db and (not db.appearance or db.appearance.assistedHighlight ~= false)
+        and next(self.buttonSlots) ~= nil
+        and registry and registry.RegisterCallback and registry.UnregisterCallback
+    if not enabled then
+        if self.assistedHighlightRegistry then self:ClearAssistedHighlightTracking() end
+        self.assistedHighlightDirty = false
+        self.assistedHighlightAliasesDirty = false
+        return false
+    end
+    if self.assistedHighlightRegistry ~= registry then
+        self:ClearAssistedHighlightTracking()
+        registry:RegisterCallback("AssistedCombatManager.OnAssistedHighlightSpellChange", AssistedHighlightChanged, self)
+        registry:RegisterCallback("AssistedCombatManager.OnSetUseAssistedHighlight", AssistedHighlightChanged, self)
+        registry:RegisterCallback("AssistedCombatManager.RotationSpellsUpdated", AssistedHighlightRotationChanged, self)
+        self.assistedHighlightRegistry = registry
+    end
+    return true
+end
+
+function BarManager:QueueAssistedHighlightRefresh(refreshAliases)
+    if not (YAB.Client and YAB.Client.assistedHighlight == true and self.runtimeActive == true)
+        or next(self.buttonSlots) == nil then return end
+    local db = GetDB()
+    if not db or (db.appearance and db.appearance.assistedHighlight == false) then return end
+    self.assistedHighlightDirty = true
+    if refreshAliases then self.assistedHighlightAliasesDirty = true end
+    self:ScheduleRefresh()
+end
+
+function BarManager:SyncAssistedHighlight()
+    if self:SyncAssistedHighlightRegistration() then self:QueueAssistedHighlightRefresh(true) end
+end
+
+function BarManager:FlushAssistedHighlight(identityChanged, diagnostic, db)
+    if not (YAB.Client and YAB.Client.assistedHighlight == true) then return end
+    if not self:SyncAssistedHighlightRegistration(db) then return end
+    if not identityChanged and not self.assistedHighlightDirty then return end
+    local refreshAliases = self.assistedHighlightAliasesDirty == true
+    self.assistedHighlightDirty = false
+    self.assistedHighlightAliasesDirty = false
+    local adapter = YAB.Adapter
+    local spellID, available = adapter:GetAssistedHighlightNextSpell()
+    self.assistedHighlightReads = (self.assistedHighlightReads or 0) + 1
+    if available ~= true then self.assistedHighlightFailures = (self.assistedHighlightFailures or 0) + 1 end
+    local baseID, overrideID
+    spellID, baseID, overrideID = adapter:GetAssistedHighlightSpellIDs(spellID)
+    self.assistedHighlightSpellID = spellID
+    local writes = 0
+    for button, state in pairs(self.buttonStates) do
+        if refreshAliases then adapter:ReadAssistedHighlightIdentity(state) end
+        local id = state.assistedHighlightSpellID
+        local base = state.assistedHighlightBaseID
+        local override = state.assistedHighlightOverrideID
+        local meta = GetButtonMeta(button)
+        local shown = spellID ~= nil and id ~= nil and IsButtonVisible(button, meta and meta.holder)
+            and (id == spellID or id == baseID or id == overrideID
+                or base == spellID or base == baseID or base == overrideID
+                or override == spellID or override == baseID or override == overrideID)
+        if YAB.Visuals and YAB.Visuals.SetAssistedHighlight then
+            writes = writes + (YAB.Visuals:SetAssistedHighlight(button, shown == true) or 0)
+        end
+    end
+    self.assistedHighlightWrites = (self.assistedHighlightWrites or 0) + writes
+    if diagnostic then diagnostic.writes = diagnostic.writes + writes end
+end
+
 function BarManager:UnmapButtonSlot(button)
     if YAB.Visuals and YAB.Visuals.StopRankUpgrade then YAB.Visuals:StopRankUpgrade(button) end
     self:SetButtonAssistedCombatSlot(button, nil, false)
@@ -2349,7 +2486,8 @@ local function ReadHotRecordMaxCharges(backend, action)
     if backend.mode == "retail-duration" then
         local chargeInfo = backend.getChargeInfo(action)
         local maxCharges = type(chargeInfo) == "table" and chargeInfo.maxCharges or nil
-        return type(maxCharges) == "number" and maxCharges or nil
+        return type(maxCharges) == "number" and maxCharges or nil,
+            chargeInfo ~= nil and type(maxCharges) ~= "number"
     end
     local _, maxCharges = backend.getChargeInfo(action)
     return SafeCooldownNumber(maxCharges)
@@ -2374,8 +2512,10 @@ local function PopulateActionHotRecord(manager, record, button, holder, backend,
         record.hasAction = backend and backend.hasAction and backend.hasAction(record.action) == true or false
         record.actionType = state and state.actionType or nil
     end
-    local maxCharges = record.hasAction and ReadHotRecordMaxCharges(backend, record.action) or nil
+    local maxCharges, chargeUnknown
+    if record.hasAction then maxCharges, chargeUnknown = ReadHotRecordMaxCharges(backend, record.action) end
     record.maxCharges = maxCharges
+    record.chargeUnknown = chargeUnknown
     record.hasMultipleCharges = maxCharges ~= nil and maxCharges > 1
     record.isItem = record.actionType == "item"
     record.isMacro = record.actionType == "macro"
@@ -2590,6 +2730,10 @@ function BarManager:RefreshButtonProcIdentity(button, currentSlot)
     end
     self:UnmapButtonProc(button, state, true)
     YAB.Adapter:ReadActionProcIdentity(slot, state)
+    if YAB.Client and YAB.Client.assistedHighlight == true and YAB.Adapter.ReadAssistedHighlightIdentity then
+        YAB.Adapter:ReadAssistedHighlightIdentity(state)
+        self:QueueAssistedHighlightRefresh()
+    end
     self:MapButtonProc(button, state)
     return state
 end
@@ -3400,7 +3544,7 @@ local function ApplyNativeCoreCooldownButton(manager, button, action, snapshot, 
     local chargeCooldown = hotRecord and hotRecord.chargeCooldown or GetButtonChargeCooldown(button)
     local hideNumbers = ShouldHideNativeCoreCooldownNumbers(snapshot)
     writes = writes + SetCooldownNumbersHiddenCached(state, "mainNumbersHidden", cooldown, hideNumbers)
-    writes = writes + SetCooldownNumbersHiddenCached(state, "chargeNumbersHidden", chargeCooldown, hideNumbers)
+    writes = writes + YAB.Visuals:ApplyChargeCooldownPresentation(chargeCooldown, snapshot)
 
     local mainActiveNow = false
     local chargeActiveNow = false
@@ -3464,6 +3608,7 @@ local function ApplyNativeCoreCooldownButton(manager, button, action, snapshot, 
         end
 
         local maxCharges = hotRecord and hotRecord.maxCharges or nil
+        local chargeUnknown = hotRecord and hotRecord.chargeUnknown == true
         local chargeActive = false
         if skipChargeRead ~= true then
             if diagnostic then
@@ -3471,9 +3616,11 @@ local function ApplyNativeCoreCooldownButton(manager, button, action, snapshot, 
                 diagnostic.chargeInfoReads = diagnostic.chargeInfoReads + 1
             end
             local chargeInfo = backend.getChargeInfo(action)
+            chargeUnknown = chargeInfo ~= nil
             if type(chargeInfo) == "table" then
                 maxCharges = chargeInfo.maxCharges
                 if type(maxCharges) ~= "number" then maxCharges = nil end
+                chargeUnknown = maxCharges == nil
                 chargeActive = chargeInfo.isActive == true
             end
         end
@@ -3493,7 +3640,14 @@ local function ApplyNativeCoreCooldownButton(manager, button, action, snapshot, 
 
         local desaturationDurationObject = durationObject
         local forceAnyCurve = false
-        if active and trustOnGCD ~= true then
+        local actionState = hotRecord and hotRecord.state or manager.buttonStates[button]
+        local filterRecovery = YAB.Client.cooldownRecoveryThreshold ~= nil
+            and actionState and actionState.filterRecoveryCooldown == true
+            and not chargeUnknown
+            and (maxCharges == nil or maxCharges <= 1)
+            and (actionState.actionType == "spell" or actionState.actionType == "macro")
+            and durationObject and durationObject.EvaluateTotalDuration ~= nil
+        if active and trustOnGCD ~= true and not filterRecovery then
             if diagnostic then diagnostic.backendReads = diagnostic.backendReads + 1 end
             desaturationDurationObject = backend.getCooldownDuration(action, true)
             forceAnyCurve = true
@@ -3506,7 +3660,8 @@ local function ApplyNativeCoreCooldownButton(manager, button, action, snapshot, 
             desaturationDurationObject,
             maxCharges,
             snapshot,
-            forceAnyCurve
+            forceAnyCurve,
+            filterRecovery
         )
     else
         if diagnostic then
@@ -3643,12 +3798,7 @@ local function ApplyNativeCoreChargeButton(manager, button, action, snapshot, ba
 
     local writes = 0
     local chargeCooldown = GetButtonChargeCooldown(button)
-    writes = writes + SetCooldownNumbersHiddenCached(
-        state,
-        "chargeNumbersHidden",
-        chargeCooldown,
-        ShouldHideNativeCoreCooldownNumbers(snapshot)
-    )
+    writes = writes + YAB.Visuals:ApplyChargeCooldownPresentation(chargeCooldown, snapshot)
     if backend.mode == "retail-duration" then
         if diagnostic then diagnostic.backendReads = diagnostic.backendReads + 1 end
         local chargeInfo = backend.getChargeInfo(action)
@@ -4265,6 +4415,10 @@ end
 function BarManager:RefreshDynamicSpecialLayoutsForEditMode(reason)
     local db = GetDB()
     if not db then return false end
+    if YAB.ClassBars then
+        YAB.ClassBars:SyncPetUtilityInteraction(self.bars and self.bars.aspects)
+        YAB.ClassBars:SyncTotemInteraction()
+    end
     local refreshed = false
     for _, kind in ipairs(SPECIAL_NATIVE_SUPPRESSION_KINDS) do
         if MANAGED_SPECIAL_BUTTON_KINDS[kind] then
@@ -4350,6 +4504,8 @@ function BarManager:QueueSettingsRefresh(barId, scope)
 end
 
 function BarManager:ClearDirtyRefresh()
+    self.assistedHighlightDirty = false
+    self.assistedHighlightAliasesDirty = false
     ClearTable(self.dirtySlots)
     ClearTable(self.dirtySpecialBars)
     ClearTable(self.dirtySettingBars)
@@ -4464,6 +4620,7 @@ end
 
 function BarManager:ReleaseActionButton(barId, index, button)
     if not button then return end
+    if YAB.Visuals and YAB.Visuals.SetAssistedHighlight then YAB.Visuals:SetAssistedHighlight(button, false) end
     self:ClearButtonCheckedState(button)
     if YAB.SecureFactory and YAB.SecureFactory.UnregisterNativeActionCooldown then
         YAB.SecureFactory:UnregisterNativeActionCooldown(button)
@@ -4647,9 +4804,10 @@ function BarManager:ReconcileSpecialButtons(kind, record, config)
     for index = count + 1, #buttons do
         local button = buttons[index]
         if button then
-            if kind == "stance" then
+            if kind == "stance" or kind == "pet" then
                 UnmapNativeCoreCooldownDone(button)
                 self.nativeCoreState[button] = nil
+                if kind == "pet" then SetIconDesaturationNative(GetButtonIcon(button), 0, true) end
             end
             SetButtonConfigSnapshot(self, button, nil)
             self:UnmapSpecialButtonKey(kind, index)
@@ -4679,6 +4837,10 @@ function BarManager:MeasureLayoutGrid(count, rows, spacing, buttonWidth, buttonH
         math.max(1, rows * buttonHeight + (rows - 1) * spacing), rows, columns
 end
 
+function BarManager:GetLayoutButtonSize(config, snapshot, db)
+    return GetLayoutButtonSize(config, snapshot, db)
+end
+
 -- Pure geometry: no config snapshots, buttons, DB normalization or runtime startup.
 function BarManager:MeasureDormantActionBar(config)
     config = config or {}
@@ -4686,7 +4848,13 @@ function BarManager:MeasureDormantActionBar(config)
     local rows = SnapshotNumber(config.rows, 1, 1, count)
     local size = SnapshotNumber(config.size, 36, 1, 128)
     local height = size
-    local aspect = LAYOUT_SKIN_ASPECTS[config.skin]
+    local skin = config.skin
+    local catalog = YUI.GUI2 and YUI.GUI2.IconSkins
+    if catalog and config.skinId and config.skinId ~= "legacy" then
+        local recipe = catalog:Resolve(config, "Flare")
+        skin = recipe.shape
+    end
+    local aspect = LAYOUT_SKIN_ASPECTS[skin]
     if aspect then
         height = math.max(1, math.floor(size / aspect + 0.5))
     end
@@ -4695,6 +4863,9 @@ end
 
 function BarManager:ApplyLayout(record, config, db)
     if not record or not record.holder then return end
+    if record.kind == "totems" and YAB.ClassBars then
+        return YAB.ClassBars:ApplyTotemLayout(record, config, db)
+    end
     if InCombat() then
         record.layoutPending = true
         return
@@ -4703,6 +4874,9 @@ function BarManager:ApplyLayout(record, config, db)
     local managedCount = record.kind == "action" and GetConfiguredButtonCount(config, snapshot) or GetManagedSpecialButtonCount(record.kind, config, snapshot)
     local layoutButtons, layoutButtonCount, layoutSignature = BuildLayoutButtons(record, managedCount)
     local count = managedCount
+    if record.kind == "aspects" then
+        count = math.max(#record.buttons + (record.petUtilityToggle and 1 or 0), 1)
+    end
     if IsCompactSpecialLayoutRecord(record) then
         count = math.max(layoutButtonCount or 0, 1)
     end
@@ -4749,7 +4923,7 @@ function BarManager:ApplyLayout(record, config, db)
         if button then
             local row = math.floor((position - 1) / columns)
             local col = (position - 1) % columns
-            local rowCount = math.min(columns, positionCount - (row * columns))
+            local rowCount = math.min(columns, (record.kind == "aspects" and count or positionCount) - (row * columns))
             local rowWidth = (rowCount * buttonWidth) + (math.max(rowCount - 1, 0) * spacing)
             local offsetX = 0
             if alignment == "center" then
@@ -4763,6 +4937,9 @@ function BarManager:ApplyLayout(record, config, db)
             button:ClearAllPoints()
             button:SetPoint("TOPLEFT", record.holder, "TOPLEFT", x, y)
         end
+    end
+    if record.kind == "aspects" and YAB.ClassBars then
+        width, height = YAB.ClassBars:LayoutPetUtilities(record, width, height, buttonWidth, buttonHeight, spacing, columns, alignment)
     end
     if YAB.SecureFactory and YAB.SecureFactory.ConfigureBarController then
         YAB.SecureFactory:ConfigureBarController(record.controller, record, config, width, height)
@@ -4801,15 +4978,19 @@ function BarManager:DeactivateBar(barId, options)
     end
     for index, button in ipairs(buttons) do
         if button then
-            if record.kind == "stance" then
+            if record.kind == "stance" or record.kind == "pet" then
                 UnmapNativeCoreCooldownDone(button)
                 self.nativeCoreState[button] = nil
+                if record.kind == "pet" then SetIconDesaturationNative(GetButtonIcon(button), 0, true) end
             end
             if self.mouseoverRecords then
                 self.mouseoverRecords[button] = nil
             end
             if record.kind == "action" and factory and factory.UnregisterNativeActionCooldown then
                 factory:UnregisterNativeActionCooldown(button)
+            end
+            if record.kind == "action" and YAB.Visuals and YAB.Visuals.SetAssistedHighlight then
+                YAB.Visuals:SetAssistedHighlight(button, false)
             end
             self:UnmapButtonProc(button)
             self:UnmapButtonSlot(button)
@@ -4854,6 +5035,7 @@ function BarManager:DeactivateBar(barId, options)
     end
     if record.kind == "action" then
         self:MarkDirectActionListDirty()
+        self:SyncAssistedHighlightRegistration()
     end
     return true
 end
@@ -4995,13 +5177,13 @@ local function HasExternalSpecialAttachment(record)
     return buttons and buttons[1] ~= nil or false
 end
 
-function BarManager:RefreshNativeEditModeClaims()
+function BarManager:RefreshNativeEditModeClaims(db)
     local layout = YUI.Layout
     if not (layout and type(layout.SetNativeEditModeClaim) == "function") then return false end
 
     local preview = self.specialGroupDevPreview
     local active = self.runtimeActive == true and not (preview and preview.active == true)
-    local db = GetDB()
+    db = db or GetDB()
     local extraConfig = GetSpecialConfig(db, "extraAction")
     local zoneConfig = GetSpecialConfig(db, "zoneAbility")
     local vehicleConfig = GetSpecialConfig(db, "vehicleExit")
@@ -5301,7 +5483,7 @@ function BarManager:IsExternalSpecialRecordActive(record)
     return false
 end
 
-function BarManager:ApplySpecialActionGrouping(reason)
+function BarManager:ApplySpecialActionGrouping(reason, db)
     if self.runtimeActive ~= true then
         return false, "inactive"
     end
@@ -5314,7 +5496,8 @@ function BarManager:ApplySpecialActionGrouping(reason)
     if not groupMover then
         return false, "missing group mover"
     end
-    self:RefreshNativeEditModeClaims()
+    db = db or GetDB()
+    self:RefreshNativeEditModeClaims(db)
     if InCombat() then
         for _, kind in ipairs(self.specialGroupOrder) do
             if self:IsSpecialGroupedKind(kind) then
@@ -5334,7 +5517,6 @@ function BarManager:ApplySpecialActionGrouping(reason)
 
     groupMover:Show()
     self:PreventSpecialGroupAnchorCycle()
-    local db = GetDB()
     local editing = YUI.Layout and YUI.Layout.IsEditing and YUI.Layout:IsEditing() or false
     local groupConfig = self.specialGroupConfig or {}
     local spacing = tonumber(groupConfig.spacing) or 4
@@ -5586,6 +5768,10 @@ function BarManager:CreateBarById(barId, db)
     end
     local config = GetSpecialConfig(db, barId)
     if not config then return nil, "missing special bar config" end
+    if YAB.ClassBars and YAB.ClassBars:Owns(barId) then
+        YAB.ClassBars:SyncEnabled()
+        return self.bars[barId]
+    end
     if barId == "pet" then
         return self:CreatePetBar(config, db)
     elseif barId == "stance" then
@@ -5609,6 +5795,10 @@ function BarManager:ApplyBarStructureChange(
     deferSharedRefresh
 )
     if not barId then return false, "missing bar id" end
+    if YAB.ClassBars and YAB.ClassBars:Owns(barId) then
+        YAB.ClassBars:SyncEnabled()
+        return true
+    end
     if barId == "questItems" and YAB.QuestItems then
         YAB.QuestItems:SyncEnabled()
         return true
@@ -5908,6 +6098,22 @@ local function CallFrameMethod(frame, method, ...)
     local func = frame and frame[method]
     if type(func) ~= "function" then return true end
     return pcall(func, frame, ...)
+end
+
+function BarManager:SuppressNativeClassFrame(record, frame)
+    if InCombat() or YAB.Client.classBars ~= true or record.kind ~= "totems"
+        or frame ~= _G.MultiCastActionBarFrame then return false end
+    local parent = YAB.SecureFactory:CreateHiddenParent()
+    return parent and CallFrameMethod(frame, "SetParent", parent) or false
+end
+
+function BarManager:RestoreNativeClassFrame(frame, state)
+    if InCombat() or not (YAB.ClassBars and YAB.ClassBars.nativeFrames[frame] == state) then return false end
+    if not CallFrameMethod(frame, "SetParent", state.parent) then return false end
+    frame:SetSize(state.width, state.height)
+    frame:ClearAllPoints()
+    for _, point in ipairs(state.points) do frame:SetPoint(unpack(point)) end
+    return true
 end
 
 local function CaptureExternalFrame(manager, frame)
@@ -6303,7 +6509,7 @@ local function ApplyExternalSpecialLayoutBody(self, record, config, db)
     end
     local primary, frames, buttons, structureChanged = self:ResolveExternalSpecialFrames(record.kind, record)
     if not primary then
-        SetDegraded(record.kind, "native frame unavailable")
+        SetDegraded(record.kind, "native frame unavailable", db)
         return false
     end
     local snapshot = record.configSnapshot or self:GetConfigSnapshot(record.kind) or self:UpdateConfigSnapshot(record.kind, config, "special")
@@ -6353,7 +6559,7 @@ local function ApplyExternalSpecialLayoutBody(self, record, config, db)
     end
     self:ApplyExternalSpecialVisuals(record, config, db, size, width, height)
     self:ApplyMouseoverVisibility(record)
-    SetDegraded(record.kind, nil)
+    SetDegraded(record.kind, nil, db)
     if YAB.LayoutBridge and YAB.LayoutBridge.Refresh then
         YAB.LayoutBridge:Refresh(record.kind)
     end
@@ -6381,7 +6587,7 @@ function BarManager:ApplyExternalSpecialLayout(record, config, db)
     return applied, reason
 end
 
-function BarManager:RefreshExternalSpecialBar(kind, reason)
+function BarManager:RefreshExternalSpecialBar(kind, reason, db)
     if not (self.runtimeActive and kind and EXTERNAL_SPECIAL_BARS[kind]) then
         return false
     end
@@ -6393,14 +6599,14 @@ function BarManager:RefreshExternalSpecialBar(kind, reason)
         return false
     end
     local record = self.bars and self.bars[kind]
-    local db = GetDB()
+    db = db or GetDB()
     local config = GetSpecialConfig(db, kind)
     if not (record and config and config.enabled == true) then
         return false
     end
     self:AttachConfigSnapshot(record, kind, config, "special")
     local applied, applyReason = self:ApplyExternalSpecialLayout(record, config, db)
-    self:ApplySpecialActionGrouping(reason or "external special refreshed")
+    self:ApplySpecialActionGrouping(reason or "external special refreshed", db)
     return applied, applyReason
 end
 
@@ -7038,6 +7244,10 @@ end
 
 function BarManager:NativeActionBroadcasterRequired(reason)
     if reason == "UNIT_ENTERED_VEHICLE" then return true end
+    if YAB.Client.classBars == true and YAB.SpecialBars:GetPlayerClassToken() == "SHAMAN"
+        and not (YAB.ClassBars and YAB.ClassBars.active and YAB.ClassBars.active.totems) then
+        return true
+    end
     local adapter = YAB.Adapter
     if not adapter then return false end
     if adapter.HasVehicleActionBar and adapter:HasVehicleActionBar() then return true end
@@ -7176,6 +7386,7 @@ function BarManager:CreateRuntime()
 
     self:RestoreBindPresentationLayers()
     self.runtimeActive = false
+    self.mainPagingPending = nil
     self.emptySlotGridVisible = false
     ClearTable(self.pendingEmptyButtonShown)
     self.emptySlotPending = false
@@ -7189,6 +7400,7 @@ function BarManager:CreateRuntime()
     self.buttonsByKey = {}
     self:ClearDirtyRefresh()
     self:ClearAssistedCombatTracking()
+    self:ClearAssistedHighlightTracking()
     self:ClearSlotMap()
     self:ClearProcGlowTracking()
     self.pageStateCache = nil
@@ -7264,16 +7476,19 @@ function BarManager:CreateRuntime()
     self:RegisterEvents()
     self:RegisterLayoutEditHooks()
     self:ApplyVisibility()
+    self:SyncAssistedHighlight()
     self:QueueRefresh("create")
     if YAB.Keybinds then
         YAB.Keybinds:ApplyRuntimeBindings()
     end
     if YAB.RankUpgrade then YAB.RankUpgrade:SyncEnabled() end
     if YAB.QuestItems then YAB.QuestItems:SyncEnabled() end
+    if YAB.ClassBars then YAB.ClassBars:SyncEnabled() end
     return true
 end
 
 function BarManager:ShutdownRuntime()
+    if YAB.ClassBars then YAB.ClassBars:Stop() end
     if YAB.RankUpgrade then YAB.RankUpgrade:Stop() end
     if YAB.QuestItems then YAB.QuestItems:Stop() end
     if InCombat() then
@@ -7307,6 +7522,7 @@ function BarManager:ShutdownRuntime()
         HotDiagnostics:CancelProcCapture("shutdown")
     end
     self:ClearAssistedCombatTracking()
+    self:ClearAssistedHighlightTracking()
     local broadcastersRestored = self:RestoreActionBroadcasters("shutdown", true)
     self.eventCount = 0
     if YAB.CancelBindMode then
@@ -7362,6 +7578,7 @@ function BarManager:ShutdownRuntime()
     self.refreshPending = false
     self.runtimeActive = false
     self.nativeCoreCooldownButtons = setmetatable({}, { __mode = "k" })
+    self.mainPagingPending = nil
     self:UnregisterNativeActionCooldowns()
     self:RestoreExternal()
     local restored, restoreReason = self:RestoreNativeBars()
@@ -7405,6 +7622,24 @@ function BarManager:ShutdownRuntime()
     return true
 end
 
+function BarManager:RefreshMainPaging()
+    if self.runtimeActive ~= true then self.mainPagingPending = nil; return false end
+    if InCombat() then
+        self.mainPagingPending = true
+        return false
+    end
+    self.mainPagingPending = nil
+    local record = self.bars and self.bars.main
+    local drivers, adapter = YAB.Drivers, YAB.Adapter
+    if not (record and record.holder and drivers and adapter and adapter.IsFormPagingEnabled) then return false end
+    local enabled = adapter:IsFormPagingEnabled()
+    if drivers.mainPagingPolicies and drivers.mainPagingPolicies[record.holder] == enabled then return true end
+    if not drivers:RegisterMainPaging(record.holder, record.buttons) then return false end
+    if YAB.Keybinds then YAB.Keybinds:ApplyRuntimeBindings() end
+    self:QueueMainPageIdentity("specialization-paging")
+    return true
+end
+
 function BarManager:RegisterEvents()
     local db = GetDB()
     local auraEnabled = AuraTimersEnabled(db)
@@ -7424,10 +7659,51 @@ function BarManager:RegisterEvents()
             self.eventCount = self.eventCount + 1
         end
     end
+    self:SyncClassBarEvents()
     self:RefreshActionBroadcasterMode("register")
 end
 
+function BarManager:SyncClassBarEvents()
+    local frame, bars = self.hotEventFrame, YAB.ClassBars
+    if not (frame and bars) then return end
+    local ordinary, extra = self:HasOrdinaryActionButtons(), self.bars and self.bars.extraAction ~= nil
+    local auraEnabled = AuraTimersEnabled(GetDB())
+    for _, event in ipairs(bars.events) do
+        local wanted = bars:ConsumesEvent(event) or (BASE_HOT_EVENTS[event]
+            and ShouldRegisterHotEvent(event, auraEnabled, ordinary, extra))
+        local registered = frame:IsEventRegistered(event)
+        if wanted and not registered then
+            local ok
+            if event == "UNIT_AURA" or event == "UNIT_PET" then ok = pcall(frame.RegisterUnitEvent, frame, event, "player")
+            elseif event == "UNIT_HAPPINESS" or event == "UNIT_NAME_UPDATE" then
+                ok = pcall(frame.RegisterUnitEvent, frame, event, "pet")
+            else ok = pcall(frame.RegisterEvent, frame, event) end
+            if ok then self.eventCount = self.eventCount + 1 end
+        elseif not wanted and registered then
+            frame:UnregisterEvent(event)
+            self.eventCount = math.max(self.eventCount - 1, 0)
+        end
+    end
+end
+
 function BarManager:OnEvent(event, ...)
+    if YAB.ClassBars and YAB.ClassBars:ConsumesEvent(event) then
+        YAB.ClassBars:OnEvent(event)
+        if event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE"
+            or event == "UPDATE_MULTI_CAST_ACTIONBAR" or event == "UNIT_HAPPINESS"
+            or event == "UNIT_NAME_UPDATE" then return end
+    end
+    if event == "PLAYER_SPECIALIZATION_CHANGED" then
+        local unit = ...
+        if unit and unit ~= "player" then return end
+        self:RefreshMainPaging()
+        return
+    elseif event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" then
+        self:RefreshMainPaging()
+        return
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        self:RefreshMainPaging()
+    end
     if event == "UNIT_ENTERED_VEHICLE" or event == "UNIT_EXITED_VEHICLE" then
         local unit = ...
         if unit and unit ~= "player" then return end
@@ -7471,6 +7747,7 @@ function BarManager:OnEvent(event, ...)
         return
     end
     if event == "PLAYER_REGEN_ENABLED" then
+        if self.mainPagingPending then self:RefreshMainPaging() end
         if YAB.Keybinds and YAB.Keybinds.RefreshHeldBindings then
             YAB.Keybinds:RefreshHeldBindings()
         end
@@ -7514,6 +7791,9 @@ function BarManager:OnEvent(event, ...)
         self:ApplyPendingEmptySlots()
         if YAB.Visuals and YAB.Visuals.FlushPendingProfessionQuality then
             YAB.Visuals:FlushPendingProfessionQuality()
+        end
+        if YAB.Visuals and YAB.Visuals.FlushPendingAutoCastIndicators then
+            YAB.Visuals:FlushPendingAutoCastIndicators()
         end
         if YAB.Visuals and YAB.Visuals.FlushPendingSpellFlyoutShadow then
             YAB.Visuals:FlushPendingSpellFlyoutShadow()
@@ -7675,12 +7955,17 @@ function BarManager:OnEvent(event, ...)
         if timingDomain then HotDiagnostics:Finish(timingDomain, started) end
         return
     elseif event == "SPELLS_CHANGED" then
+        self:RefreshMainPaging()
+        self:QueueAssistedHighlightRefresh(true)
         self:QueueActionRefresh(event, "identity")
         return
     elseif event == "PET_BAR_UPDATE" or event == "PET_BAR_UPDATE_COOLDOWN" or event == "PET_BAR_UPDATE_USABLE" or event == "UNIT_PET" then
         self:QueueSpecialRefresh("pet", event)
         return
     elseif event == "UPDATE_SHAPESHIFT_FORMS" or event == "UPDATE_SHAPESHIFT_FORM" or event == "UPDATE_SHAPESHIFT_USABLE" or event == "UPDATE_SHAPESHIFT_COOLDOWN" then
+        if event == "UPDATE_SHAPESHIFT_FORMS" or event == "UPDATE_SHAPESHIFT_FORM" then
+            self:QueueAssistedHighlightRefresh(true)
+        end
         self:QueueSpecialRefresh("stance", event)
         return
     elseif event == "UPDATE_POSSESS_BAR" then
@@ -7688,7 +7973,9 @@ function BarManager:OnEvent(event, ...)
         return
     elseif event == "CVAR_UPDATE" then
         local name = ...
-        if name == "assistedCombatIconUpdateRate" then
+        if name == "assistedCombatHighlight" then
+            self:QueueAssistedHighlightRefresh()
+        elseif name == "assistedCombatIconUpdateRate" then
             self:RefreshAssistedCombatTicker(true)
         elseif name == "ActionButtonUseKeyHeldSpell" then
             if YAB.Keybinds then YAB.Keybinds:ApplyRuntimeBindings() end
@@ -8021,7 +8308,7 @@ function BarManager:IsRecordMouseOver(record)
             end
         end
     end
-    local externalButtons = record.externalButtons
+    local externalButtons = record.externalButtons or record.classButtons
     if externalButtons then
         for index = 1, #externalButtons do
             if IsMouseOverFrame(externalButtons[index]) then
@@ -8057,7 +8344,7 @@ function BarManager:EnsureMouseoverHooks(record)
             HookMouseoverFrame(self, record, externalFrames[index])
         end
     end
-    local externalButtons = record.externalButtons
+    local externalButtons = record.externalButtons or record.classButtons
     if externalButtons then
         for index = 1, #externalButtons do
             HookMouseoverFrame(self, record, externalButtons[index])
@@ -8154,7 +8441,8 @@ function BarManager:ApplyEmptySlotVisibilityForButton(button, state, snapshot, f
         end
         return false
     end
-    if self.emptyButtonShown[button] ~= shouldShow then
+    if self.emptyButtonShown[button] ~= shouldShow
+        or (button.IsShown and button:IsShown() ~= shouldShow) then
         SetManagedActionButtonShown(self, button, shouldShow)
     end
     self.pendingEmptyButtonShown[button] = nil
@@ -8284,7 +8572,8 @@ function BarManager:RefreshActionButton(button, page, index, db, mode, diagnosti
         if barId == "main" then
             syncPage = math.floor((slot - 1) / 12) + 1
         end
-        YAB.SecureFactory:SyncActionButtonState(button, button:GetParent(), record and record.controller, barId, (meta and meta.index) or index, syncPage)
+        local sync = YAB.SecureFactory.SyncActionButtonPage or YAB.SecureFactory.SyncActionButtonState
+        sync(YAB.SecureFactory, button, button:GetParent(), record and record.controller, barId, (meta and meta.index) or index, syncPage)
         meta = GetButtonMeta(button)
     end
     self:MapButtonSlot(button, slot)
@@ -8414,7 +8703,7 @@ function BarManager:RefreshActionButton(button, page, index, db, mode, diagnosti
         if mode == "full" or RefreshModeHas(mode, "hotkey") or not state.hotkeyReady then
             local key = nil
             if meta and meta.barId and meta.index then
-                key = YAB.Keybinds:GetBindingText(YAB.Keybinds:GetButtonKey(meta.barId, meta.index))
+                key = YAB.Keybinds:GetBindingText(YAB.Keybinds:GetButtonKey(meta.barId, meta.index), db)
             end
             state.hotkeyText = key or ""
             state.hotkeyReady = true
@@ -8496,8 +8785,12 @@ function BarManager:RefreshPetButton(button, index, db)
     state.cooldownStart = start
     state.cooldownDuration = duration
     state.cooldownEnable = enable
-    state.cooldownActive = enable == true and type(duration) == "number" and duration > 0
-    local key = YAB.Keybinds:GetBindingText(YAB.Keybinds:GetButtonKey("pet", index))
+    state.cooldownActive = enable == true and type(start) == "number" and type(duration) == "number"
+        and duration > 0 and (not GetTime or start + duration > GetTime())
+    if enable == true and state.cooldownActive ~= true then
+        state.cooldownEnable = false
+    end
+    local key = YAB.Keybinds:GetBindingText(YAB.Keybinds:GetButtonKey("pet", index), db)
     state.hotkeyText = snapshot.showHotkeys == true and key or ""
     if layoutEditing then
         state.hasAction = false
@@ -8506,11 +8799,17 @@ function BarManager:RefreshPetButton(button, index, db)
         state.petAutoCastAllowed = false
         state.petAutoCastEnabled = false
     end
+    local cooldownState = GetNativeCoreState(self, button)
+    InstallNativeCoreCooldownDone(button)
+    -- A native Clear/SetCooldown can finish the previous swipe synchronously.
+    cooldownState.petCooldownUpdating = true
     UpdateButtonVisual(button, state, "full")
+    cooldownState.petCooldownUpdating = false
     if layoutEditing then
         SetManagedActionButtonShown(self, button, false)
     else
-        self:ApplyEmptySlotVisibilityForButton(button, state, snapshot, true)
+        self:ApplyEmptySlotVisibilityForButton(button, state, snapshot,
+            YAB.Client.petEmptySlots ~= true or IsBindPresentationEditing("pet"))
     end
 end
 
@@ -8545,7 +8844,7 @@ function BarManager:RefreshStanceButton(button, index, db)
     if enable == true and state.cooldownActive ~= true then
         state.cooldownEnable = false
     end
-    local key = YAB.Keybinds:GetBindingText(YAB.Keybinds:GetButtonKey("stance", index))
+    local key = YAB.Keybinds:GetBindingText(YAB.Keybinds:GetButtonKey("stance", index), db)
     state.hotkeyText = snapshot.showHotkeys == true and key or ""
     local cooldownState = GetNativeCoreState(self, button)
     InstallNativeCoreCooldownDone(button)
@@ -8565,7 +8864,7 @@ function BarManager:RefreshPossessButton(button, index, db)
     state.hasAction = texture ~= nil
     state.texture = texture
     state.usable = enabled ~= false
-    local key = YAB.Keybinds:GetBindingText(YAB.Keybinds:GetButtonKey("possess", index))
+    local key = YAB.Keybinds:GetBindingText(YAB.Keybinds:GetButtonKey("possess", index), db)
     state.hotkeyText = snapshot.showHotkeys == true and key or ""
     UpdateButtonVisual(button, state, "full")
     if spellID and not InCombat() then
@@ -8683,6 +8982,9 @@ function BarManager:RefreshDirtySlots(db, pageState, dirtySlots, diagnostic)
 end
 
 function BarManager:RefreshSpecialRecord(kind, db, reconcileAttempted, reconciled, configuredCount)
+    if YAB.ClassBars and YAB.ClassBars:Owns(kind) then
+        return YAB.ClassBars:Refresh(kind)
+    end
     local record = self.bars and self.bars[kind]
     if not record then return end
     local config = GetSpecialConfig(db, kind)
@@ -8730,7 +9032,7 @@ end
 function BarManager:RefreshDirtySpecialBars(db, dirtySpecialBars)
     for kind in pairs(dirtySpecialBars or self.dirtySpecialBars) do
         if EXTERNAL_SPECIAL_BARS[kind] then
-            self:RefreshExternalSpecialBar(kind, "queued external special")
+            self:RefreshExternalSpecialBar(kind, "queued external special", db)
         else
             self:RefreshSpecialRecord(kind, db)
         end
@@ -8765,6 +9067,9 @@ end
 
 function BarManager:RefreshSettingsActionRecord(barId, record, config, db, pageState, mode, diagnostic)
     if not (record and config) then return end
+    if YAB.ClassBars and YAB.ClassBars:Owns(barId) then
+        return YAB.ClassBars:Refresh(barId)
+    end
     if record.kind == "action" then
         self:RefreshActionRecord(barId, record, config, db, pageState, mode or SETTINGS_ACTION_REFRESH_MODE, diagnostic)
     elseif record.kind == "pet" or record.kind == "stance" or record.kind == "possess" then
@@ -8777,6 +9082,7 @@ end
 function BarManager:RefreshDirtySettings(db, pageState, dirtySettingBars, diagnostic)
     local visibilityDirty = false
     for barId, scope in pairs(dirtySettingBars or self.dirtySettingBars) do
+        if YAB.ClassBars and YAB.ClassBars:Owns(barId) then YAB.ClassBars:SyncEnabled() end
         if barId == "questItems" and YAB.QuestItems then YAB.QuestItems:SyncEnabled() end
         local record = self.bars and self.bars[barId]
         if record then
@@ -8949,7 +9255,10 @@ function BarManager:RefreshVisuals(reason, diagnostic)
             local record = self.bars and self.bars.main
             local config = GetBarConfig(db, "main")
             if record and config then
-                self:RefreshActionRecord("main", record, config, db, pageState, "identity", diagnostic)
+                -- 全体身份刷新已使用同一份 pageState 覆盖主条，避免重复遍历。
+                if identityPassKind ~= "all" or record.kind ~= "action" then
+                    self:RefreshActionRecord("main", record, config, db, pageState, "identity", diagnostic)
+                end
                 if not InCombat() then
                     self.mainPageSyncPending = false
                 end
@@ -8972,11 +9281,13 @@ function BarManager:RefreshVisuals(reason, diagnostic)
     if self.actionHotRecordsDirty == true then
         self:RebuildActionHotRecords()
     end
+    self:FlushAssistedHighlight(identityPassKind ~= nil, diagnostic, db)
     ClearTable(dirtySlots)
     ClearTable(dirtySpecialBars)
     ClearTable(dirtySettingBars)
     if fullRefresh then
         if YAB.QuestItems then YAB.QuestItems:SyncEnabled() end
+        if YAB.ClassBars then YAB.ClassBars:SyncEnabled() end
         self.fullRefreshCount = (self.fullRefreshCount or 0) + 1
         self.lastFullRefreshReason = passReason
     end
@@ -9094,6 +9405,10 @@ function BarManager:ApplyVisibility()
 end
 
 function BarManager:ResetStats()
+    self.assistedHighlightCallbacks = 0
+    self.assistedHighlightReads = 0
+    self.assistedHighlightFailures = 0
+    self.assistedHighlightWrites = 0
     self.fullRefreshCount = 0
     self.lastFullRefreshReason = nil
     self.structuralBatchCount = 0
@@ -9144,6 +9459,13 @@ function BarManager:GetSlotIdentityDiagnosticLine()
     )
 end
 
+function BarManager:GetAssistedHighlightDiagnosticLine()
+    return string.format("YActionBar assisted highlight: callbacks=%s events=%d reads=%d unavailable=%d writes=%d spell=%s",
+        tostring(self.assistedHighlightRegistry ~= nil), self.assistedHighlightCallbacks or 0,
+        self.assistedHighlightReads or 0, self.assistedHighlightFailures or 0,
+        self.assistedHighlightWrites or 0, tostring(self.assistedHighlightSpellID or "none"))
+end
+
 function BarManager:GetStats()
     local activeBars, visibleBars, buttonCount = 0, 0, 0
     local nativeFrames, externalFrames = 0, 0
@@ -9160,6 +9482,7 @@ function BarManager:GetStats()
     self:AuditActionBroadcasterEvents("stats")
     return {
         questItems = YAB.QuestItems and YAB.QuestItems:GetStats() or nil,
+        classBars = YAB.ClassBars and YAB.ClassBars:GetStats() or nil,
         activeBars = activeBars,
         visibleBars = visibleBars,
         buttonCount = buttonCount,
@@ -9220,6 +9543,12 @@ function BarManager:GetStats()
         assistedCombatForceUpdates = self.assistedCombatForceUpdates or 0,
         assistedCombatRefreshQueues = self.assistedCombatRefreshQueues or 0,
         assistedCombatVisibleSlotChecks = self.assistedCombatVisibleSlotChecks or 0,
+        assistedHighlightCallbacksActive = self.assistedHighlightRegistry ~= nil,
+        assistedHighlightCallbacks = self.assistedHighlightCallbacks or 0,
+        assistedHighlightReads = self.assistedHighlightReads or 0,
+        assistedHighlightFailures = self.assistedHighlightFailures or 0,
+        assistedHighlightWrites = self.assistedHighlightWrites or 0,
+        assistedHighlightSpellID = self.assistedHighlightSpellID,
         rangeMapReconciles = self.rangeMapReconciles or 0,
         procIndexMode = self.procIndexMode or "shadow",
         actionIdentityGeneration = self.actionIdentityGeneration or 0,

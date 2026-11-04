@@ -1,7 +1,7 @@
 -- All ordinary controls are rendered through the existing Settings renderer.
 local Options={}
 Options.__index=Options
-local commonKeys={"font","size","outline","shadow","colorMode","color","display","iconSize","iconBackground","iconGap"}
+local commonKeys={"font","size","outline","shadow","monochrome","colorMode","color","colorAlpha","display","iconSize","iconBackground","iconGap"}
 function Options.New(designer)
     local bridge=designer.bridge
     return setmetatable({designer=designer,bridge=bridge,M=bridge.lib.Model,
@@ -25,6 +25,78 @@ end
 function Options:Section(key)
     return {type="divider",label=self:Label(key),width=460,alignLeft=true}
 end
+function Options:MeasureLabel(text)
+    if not self.labelMeasure then
+        self.labelMeasure=self.designer.gui:CreateText(self.designer.detail,"","font.size.md","color.text.primary")
+        self.labelMeasure:Hide()
+    end
+    self.labelMeasure:SetText(text or "")
+    return math.ceil(self.labelMeasure:GetStringWidth())
+end
+-- Orbit owns field grouping; the shared renderer owns controls and search bindings.
+function Options:InlineFields(fields,width,columns)
+    local row={type="custom",width=width,children=fields}
+    row.render=function(parent,x,y,availableWidth)
+        local gui=self.designer.gui
+        local gap=gui:GetMetric("layout.form.gap",10)
+        local columnGap=columns==2 and width==400 and 12 or gap*2
+        local fittedWidth=math.min(width,availableWidth or width)
+        local count=columns
+        local labelWidth=columns==1 and 120 or width==400 and 64 or 80
+        local bodyMinimum,visible=32,{}
+        for _,field in ipairs(fields)do
+            local hidden=type(field.hidden)=="function" and field.hidden() or field.hidden==true
+            if not hidden and (not field.requires or field.requires())then
+                local copy={};for k,v in pairs(field)do copy[k]=v end
+                local reserve=field.restore and 26 or 0
+                labelWidth=math.max(labelWidth,self:MeasureLabel(field.label)+8+reserve)
+                local minimum=field.type=="slider" and (60+(field.inputWidth or 56)+gap)
+                    or field.type=="dropdown" and 120 or field.type=="binarychoice" and 120
+                    or field.type=="switch" and 60 or 32
+                bodyMinimum=math.max(bodyMinimum,minimum)
+                copy.width=nil;copy.labelWidth=nil;copy.controlWidth=nil;copy.bodyWidth=nil
+                if copy.type=="color"then copy.field=false end
+                visible[#visible+1]=copy
+            end
+        end
+        if #visible==0 then return fittedWidth,0 end
+        while count>1 and count*(labelWidth+gap+bodyMinimum)+(count-1)*columnGap>fittedWidth do count=count-1 end
+        local columnWidth=math.floor((fittedWidth-(count-1)*columnGap)/count)
+        local top=labelWidth+gap+bodyMinimum>columnWidth
+        if top then
+            for _,field in ipairs(visible)do
+                field.labelPosition="top"
+                if field.restore then field.bodyWidth=math.max(1,columnWidth-26) end
+            end
+        end
+        local container,gridWidth,height=self.bridge.yui.Settings:RenderAlignedFields(parent,{
+            x=x,y=y,width=fittedWidth,columns=count,columnGap=columnGap,
+            labelPosition=top and "top" or "left",labelWidth=labelWidth,labelGap=gap,
+            bodyWidth=math.max(1,columnWidth-labelWidth-gap),rowHeight=32,rowGap=10,fields=visible,
+        })
+        for _,field in ipairs(visible)do
+            if field.restore and field.labelRegion then
+                local label=field.labelRegion
+                local reset=gui:CreateButtonFrame(container,{width=22,height=20})
+                local glyph=gui:CreateText(reset,"↶","font.size.md","color.text.heading")
+                glyph:SetPoint("CENTER")
+                if top then reset:SetPoint("LEFT",field.widget,"RIGHT",4,0)
+                else
+                    label:SetWidth(math.max(1,labelWidth-26))
+                    reset:SetPoint("LEFT",label,"RIGHT",4,0)
+                end
+                reset:SetScript("OnClick",field.restore)
+                reset:SetScript("OnEnter",function()
+                    GameTooltip:SetOwner(reset,"ANCHOR_RIGHT");GameTooltip:SetText(self:Label("inherit"));GameTooltip:Show()
+                end)
+                local function hide()if GameTooltip:GetOwner()==reset then self.bridge.yui.HideGameTooltip()end end
+                reset:SetScript("OnLeave",hide);reset:SetScript("OnHide",hide)
+            end
+        end
+        return gridWidth,height,container
+    end
+    return row
+end
 function Options:Appearance(scope,id)
     local bridge,M=self.bridge,self.M
     local function target(db)
@@ -40,7 +112,8 @@ function Options:Appearance(scope,id)
     end
     local inst=scope=="instance" and bridge:GetModel().instances[id]
     local cap=inst and bridge.adapters[inst.moduleType]
-    local registeredFonts=LibStub("LibSharedMedia-3.0"):HashTable("font")
+    local unified=self.designer.gui.Form.CreateFontStyle and (scope~="instance" or cap and cap.appearance.font)
+    local registeredFonts=not unified and LibStub("LibSharedMedia-3.0"):HashTable("font") or {}
     local fonts={}
     for name,path in pairs(registeredFonts) do
         fonts[#fonts+1]={text=name,value=path}
@@ -84,8 +157,21 @@ function Options:Appearance(scope,id)
     if scope~="global" then
         options[#options+1]={type="text",label=self:Label("inherit_hint"),width=400,colorKey="color.text.secondary"}
     end
+    if unified then
+        options[#options+1]=self:Section("text")
+        options[#options+1]={type="custom",width=400,render=function(parent,x,y)
+            local gui=self.designer.gui
+            local target=scope=="global" and "@global" or scope=="bar" and "@bar:"..id or id
+            local control=gui.Form:CreateFontStyle(parent,{key="ybar:"..target,width=194,
+                onClose=function()self.designer:Refresh()end})
+            control:SetPoint("TOPLEFT",x,y-20)
+            local label=gui:CreateText(parent,self:Label("text"),"font.size.md","color.text.primary")
+            label:SetPoint("TOPLEFT",x,y)
+            return 400,48
+        end}
+    end
     for _,key in ipairs(commonKeys) do
-        if key~="shadow" and (not cap or cap.appearance[key]) then
+        if key~="shadow" and key~="monochrome" and key~="colorAlpha" and (not unified or (key~="font" and key~="size" and key~="outline" and key~="color" and key~="colorMode")) and (not cap or cap.appearance[key]) then
             local section=key=="font" and "text" or key=="colorMode" and "colors" or key=="display" and "icon_text"
             if section then options[#options+1]=self:Section(section);row=nil end
             local definition=definitions[key]
@@ -109,35 +195,7 @@ function Options:Appearance(scope,id)
                 end,id)
             end
             if not row or #row.children==2 then
-                row={type="custom",width=400,children={}}
-                local fields=row.children
-                row.render=function(parent,x,y)
-                    local gui=self.designer.gui
-                    local factories={dropdown="CreateDropdown",slider="CreateSlider",checkbox="CreateCheckbox",color="CreateColorPicker"}
-                    for index,field in ipairs(fields)do
-                        local cell=gui:CreateFrame(parent,{width=194,height=48})
-                        cell:SetPoint("TOPLEFT",x+(index-1)*206,y)
-                        local label=gui:CreateText(cell,field.label,"font.size.md","color.text.primary")
-                        label:SetPoint("TOPLEFT");label:SetWidth(field.restore and 166 or 194);label:SetJustifyH("LEFT");label:SetWordWrap(false)
-                        local spec={};for k,v in pairs(field)do spec[k]=v end
-                        spec.label=nil;spec.restore=nil;spec.height=28
-                        local control=gui.Form[factories[field.type]](gui.Form,cell,spec)
-                        control:SetPoint("TOPLEFT",0,-20)
-                        if field.restore then
-                            local reset=gui:CreateButtonFrame(cell,{width=22,height=20})
-                            local glyph=gui:CreateText(reset,"↶","font.size.md","color.text.heading")
-                            glyph:SetPoint("CENTER")
-                            reset:SetScript("OnClick",field.restore)
-                            reset:SetScript("OnEnter",function()
-                                GameTooltip:SetOwner(reset,"ANCHOR_RIGHT");GameTooltip:SetText(self:Label("inherit"));GameTooltip:Show()
-                            end)
-                            local function hide()if GameTooltip:GetOwner()==reset then self.bridge.yui.HideGameTooltip()end end
-                            reset:SetScript("OnLeave",hide);reset:SetScript("OnHide",hide)
-                            reset:SetPoint("TOPRIGHT",0,0)
-                        end
-                    end
-                    return 400,48
-                end
+                row=self:InlineFields({},400,2)
                 options[#options+1]=row
             end
             row.children[#row.children+1]=item
@@ -153,26 +211,8 @@ function Options:RestoreAppearance(scope,id)
 end
 
 function Options:SliderRow(fields)
-    return {type="custom",width=400,children=fields,render=function(parent,x,y)
-        local gui=self.designer.gui
-        local width=#fields==1 and 400 or 194
-        if #fields==1 then
-            local spec={};for k,v in pairs(fields[1])do spec[k]=v end
-            spec.width=400;spec.inline=true;spec.inputWidth=48;spec.labelWidth=132
-            local slider=gui.Form:CreateSlider(parent,spec);slider:SetPoint("TOPLEFT",x,y)
-            return 400,28
-        end
-        for index,item in ipairs(fields)do
-            local cell=gui:CreateFrame(parent,{width=width,height=66})
-            cell:SetPoint("TOPLEFT",x+(index-1)*206,y)
-            local label=gui:CreateText(cell,item.label,"font.size.md","color.text.primary")
-            label:SetPoint("TOPLEFT");label:SetWidth(width);label:SetHeight(32);label:SetWordWrap(true);label:SetJustifyH("LEFT")
-            local spec={};for k,v in pairs(item)do spec[k]=v end
-            spec.label=nil;spec.width=width;spec.inline=true;spec.inputWidth=48
-            local slider=gui.Form:CreateSlider(cell,spec);slider:SetPoint("TOPLEFT",0,-36)
-        end
-        return 400,66
-    end}
+    for _,field in ipairs(fields)do field.inputWidth=48 end
+    return self:InlineFields(fields,400,#fields)
 end
 function Options:Bar(id,tab)
     local bridge=self.bridge
@@ -222,15 +262,22 @@ function Options:Bar(id,tab)
             end
             options[#options+1]={type="custom",width=400,children=fields,render=function(parent,x,y)
                 local gui=self.designer.gui
-                local label=gui:CreateText(parent,mode.label,"font.size.md","color.text.primary")
-                label:SetPoint("TOPLEFT",x,y)
-                local dropdown=gui.Form:CreateDropdown(parent,{width=320,options=mode.options,get=mode.get,set=mode.set})
-                dropdown:SetPoint("TOPLEFT",x,y-22)
-                if fields[2] then
-                    local picker=gui.Form:CreateColorPicker(parent,{width=48,hasAlpha=false,get=fields[2].get,set=fields[2].set,getDefault=fields[2].getDefault})
-                    picker:SetPoint("TOPLEFT",x+336,y-22)
+                local labelWidth=math.max(120,self:MeasureLabel(mode.label)+8)
+                local controlX=labelWidth+gui:GetMetric("layout.form.gap",10)
+                if controlX+120+(fields[2] and 64 or 0)>400 then
+                    return self:InlineFields(fields,400,1).render(parent,x,y)
                 end
-                return 400,58
+                local cell=gui:CreateFrame(parent,{width=400,height=32})
+                cell:SetPoint("TOPLEFT",x,y)
+                local label=gui:CreateText(cell,mode.label,"font.size.md","color.text.primary")
+                label:SetPoint("LEFT");label:SetWidth(labelWidth);label:SetWordWrap(false);label:SetJustifyH("LEFT")
+                local dropdown=gui.Form:CreateDropdown(cell,{width=400-controlX-(fields[2] and 64 or 0),options=mode.options,get=mode.get,set=mode.set})
+                dropdown:SetPoint("LEFT",cell,"LEFT",controlX,0)
+                if fields[2] then
+                    local picker=gui.Form:CreateColorPicker(cell,{width=48,hasAlpha=false,get=fields[2].get,set=fields[2].set,getDefault=fields[2].getDefault})
+                    picker:SetPoint("LEFT",cell,"LEFT",352,0)
+                end
+                return 400,32,cell
             end}
             options[#options+1]=self:Field("slider","background_opacity",
                 function()local _,color=resolved();return (color[4] or 1)*100 end,

@@ -14,7 +14,7 @@ end
 if YUI.RegisterProduct then
     YUI:RegisterProduct({
         id = "ybar",
-        title = "Orbit InfoBar · YanForge",
+        title = "Orbit InfoBar · Ayan",
         titleKey = "product.title",
         titleNamespace = "YBar",
         localizedTitles = {
@@ -31,14 +31,14 @@ if YUI.RegisterProduct then
         logo = "icons\\logo_32.png",
         smallLogo = "icons\\logo_32.png",
         logoCrop = false,
-        notes = "Orbit InfoBar · YanForge",
+        notes = "Orbit InfoBar · Ayan",
         notesKey = "product.notes",
         notesNamespace = "YBar",
         localizedNotes = {
             zhCN = "Orbit 信息条 · 言工坊",
             zhTW = "Orbit 資訊條 · 言工坊",
         },
-        author = "阿言",
+        author = "Ayan",
         addonName = ADDON_NAME or YUI.AddonName,
         profileExportPrefix = YUI.CoreMode == "suite" and "!YUI-YBar-v2:" or "!OrbitInfoBar-v2:",
         settingsScope = "ybar",
@@ -66,6 +66,15 @@ local PREMADE_GROUP_BOARD_ADDON = "PremadeGroupBoard"
 local PREMADE_GROUP_BOARD_SLASH_COMMANDS = { "/pgb", "/premadegroupboard" }
 local MEETING_HORN_ADDONS = { "MeetingStone", "MeetingHorn", "MeetingHornHeroic" }
 local MEETING_HORN_SLASH_COMMANDS = { "/ms", "/meetingstone", "/mhh", "/mh", "/meetinghornheroic" }
+
+local function GetLycheeGroupAddon()
+    if not YUI.IsRetail then return nil end
+
+    local addon = _G.LycheeGroup
+    if type(addon) == "table" and type(addon.ToggleWindow) == "function" then
+        return addon
+    end
+end
 
 local function GetMeetingHornAddon()
     if not LibStub then return nil end
@@ -422,7 +431,20 @@ function YBar:GetModule(name)
     return self.RegisteredModules[name]
 end
 
+function YBar:GetMeetingHornLabels()
+    if GetLycheeGroupAddon() then
+        return YBarLocale["meetingstone.provider.lychee_group"], YBarLocale["meetingstone.action.open_lychee_group"]
+    end
+    return YBarLocale["meetingstone.tooltip.title"], YBarLocale["meetingstone.action.open_meeting_stone"]
+end
+
 function YBar:OpenMeetingHorn()
+    local lychee = GetLycheeGroupAddon()
+    if lychee then
+        local ok, result = pcall(lychee.ToggleWindow, lychee)
+        if ok and result ~= false then return true end
+    end
+
     if OpenPremadeGroupBoard() then
         return true
     end
@@ -2252,6 +2274,8 @@ local ACTION_HOST_KEYS = {
     left = { suffix = "1", button = "LeftButton" },
     right = { suffix = "2", button = "RightButton" },
     middle = { suffix = "3", button = "MiddleButton" },
+    button4 = { suffix = "4", button = "Button4" },
+    button5 = { suffix = "5", button = "Button5" },
     altLeft = { prefix = "alt-", suffix = "1", button = "LeftButton", modifier = "alt" },
     altRight = { prefix = "alt-", suffix = "2", button = "RightButton", modifier = "alt" },
     shiftLeft = { prefix = "shift-", suffix = "1", button = "LeftButton", modifier = "shift" },
@@ -2261,7 +2285,7 @@ local ACTION_HOST_KEYS = {
 }
 
 local ACTION_HOST_KEY_ORDER = {
-    "left", "right", "middle",
+    "left", "right", "middle", "button4", "button5",
     "altLeft", "altRight",
     "shiftLeft", "shiftRight",
     "ctrlLeft", "ctrlRight",
@@ -2302,6 +2326,10 @@ local function ActionHostGetClickKey(actions, button)
         return "right"
     elseif button == "MiddleButton" then
         return "middle"
+    elseif button == "Button4" then
+        return "button4"
+    elseif button == "Button5" then
+        return "button5"
     end
     return nil
 end
@@ -3007,7 +3035,7 @@ if YUI.Components and YUI.Components.Register then
         id = "ybar",
         kind = "product",
         displayName = YBarLocale["product.short_title"] or "Orbit InfoBar",
-        description = YBarLocale["product.notes"] or "Orbit InfoBar · YanForge",
+        description = YBarLocale["product.notes"] or "Orbit InfoBar · Ayan",
         tags = { "实用功能" },
         settingsMode = "external",
         standalone = true,

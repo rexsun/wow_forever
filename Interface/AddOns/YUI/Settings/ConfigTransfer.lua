@@ -1,4 +1,5 @@
 local ADDON_NAME, YUI = ...
+YUI = _G.YUI or YUI
 if not YUI then return end
 
 local S = YUI.Settings or {}
@@ -106,13 +107,14 @@ local COMPONENT_LAYOUTS = {
     },
     MythicPlusTools = { "yui.component.mythicPlusTools.battleRes" },
     ClassExtraMonitor = {
+        "yui.component.class_extra_monitor.blood_boil",
         "yui.component.class_extra_monitor.brewmaster_elixir_icon",
         "yui.component.class_extra_monitor.devourer_transform",
     },
 }
 
 local PRODUCT_LAYOUTS = {
-    ychat = { "ychat.main" },
+    ychat = { "ychat.main", "ychat.bnetToast" },
     yactionbar = {
         "yactionbar.main",
         "yactionbar.bar2",
@@ -934,6 +936,18 @@ local function ValidateStandardPayload(definition, payload)
                 if not selection then return nil, "invalid_sound_selection" end
                 -- Validate portable intent, never the receiver's installed providers.
                 payload.data[path].soundSelection = selection
+            end
+        end
+    end
+    if definition.featureKey == "ClassExtraMonitor" then
+        local config = payload.data.ClassExtraMonitor_Config
+        if type(config) == "table" then
+            for _, field in ipairs({ "devourerAlertSelection", "bloodBoilManualSound", "bloodBoilEndingSound" }) do
+                if config[field] ~= nil then
+                    local selection = YUI.NotificationSound and YUI.NotificationSound:NormalizeSelection(config[field])
+                    if not selection then return nil, "invalid_sound_selection" end
+                    config[field] = selection
+                end
             end
         end
     end

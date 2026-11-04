@@ -85,7 +85,7 @@ local FEATURE_META = {
     CharacterEquipmentInfo = { tags = { "实用功能" }, settingsMode = "inline", order = 307, sourceRoot = "Components\\CharacterEquipmentInfo", assetFolders = { "Components\\CharacterEquipmentInfo\\Media" }, modSwitchImage = "modswitch\\characterequipmentinfo-bg.png", modSwitchImageCrop = false, versions = { "forever", "mainline", "wrath" } },
     CharacterStatsPanel = { tags = { "实用功能" }, settingsMode = "inline", default = true, order = 307.5, sourceRoot = "Components\\CharacterStatsPanel", assetFolders = { "Components\\CharacterStatsPanel\\Media" }, modSwitchImage = "modswitch\\characterstatspanel-bg.png", modSwitchImageCrop = false, versions = { "forever", "mainline", "wrath" } },
 
-    AuctionHelper = { tags = { "交易社交" }, settingsMode = "toggleOnly", standalone = true, order = 400, sourceRoot = "Components\\AuctionHelper", modSwitchImage = "modswitch\\auctionhelper-bg.png", modSwitchImageCrop = false },
+    AuctionHelper = { tags = { "实用功能" }, settingsMode = "toggleOnly", standalone = true, order = 400, sourceRoot = "Components\\AuctionHelper", modSwitchImage = "modswitch\\auctionhelper-bg.png", modSwitchImageCrop = false },
     ChatBar = { tags = { "交易社交" }, settingsMode = "inline", order = 401, sourceRoot = "Components\\ChatBar", modSwitchImage = "modswitch\\chatbar-bg.png", modSwitchImageCrop = false },
     WhisperManager = { tags = { "交易社交" }, settingsMode = "inline", default = true, order = 402, sourceRoot = "Components\\WhisperManager", versions = { "forever", "mainline", "mists", "wrath" }, modSwitchImage = "modswitch\\whispermanager-bg.png", modSwitchImageCrop = false },
     SocialEnhancement = { tags = { "交易社交" }, settingsMode = "inline", default = true, order = 403, sourceRoot = "Components\\SocialEnhancement", assetFolders = { "Components\\SocialEnhancement\\Media" }, versions = { "forever", "mainline", "wrath" }, modSwitchImage = "modswitch\\socialenhancement-bg.png", modSwitchImageCrop = false },
@@ -94,7 +94,7 @@ local FEATURE_META = {
     ElvUIAdapter = { tags = { "插件适配", "美化皮肤" }, settingsMode = "inline", order = 500, sourceRoot = "Components\\ElvUIAdapter", modSwitchImage = "modswitch\\elvuiadapter-bg.png", modSwitchImageCrop = false },
     NDuiAdapter = { tags = { "插件适配", "美化皮肤" }, settingsMode = "toggleOnly", order = 501, sourceRoot = "Components\\NDuiAdapter", modSwitchImage = "modswitch\\nduiadapter-bg.png", modSwitchImageCrop = false },
     EQoLAdapter = { tags = { "插件适配" }, settingsMode = "inline", order = 502, sourceRoot = "Components\\EQoLAdapter", modSwitchImage = "modswitch\\eqoladapter-bg.png", modSwitchImageCrop = false },
-    EllesmereUIEnhancement = { tags = { "插件适配", "美化皮肤" }, settingsMode = "inline", default = true, order = 503, sourceRoot = "Components\\EllesmereUIEnhancement", assetFolders = { "Components\\EllesmereUIEnhancement\\Media" }, versions = { "mainline" }, modSwitchImage = "modswitch\\ellesmereuienhancement-bg.png", modSwitchImageCrop = false },
+    EllesmereUIEnhancement = { tags = { "插件适配", "美化皮肤" }, settingsMode = "inline", default = true, order = 503, sourceRoot = "Components\\EllesmereUIEnhancement", assetFolders = { "Components\\EllesmereUIEnhancement\\Media" }, versions = { "mainline", "forever" }, modSwitchImage = "modswitch\\ellesmereuienhancement-bg.png", modSwitchImageCrop = false },
     MasqueSupport = { tags = { "美化皮肤", "插件适配" }, settingsMode = "inline", order = 504, sourceRoot = "Components\\MasqueSupport", modSwitchImage = "modswitch\\masquesupport-bg.png", modSwitchImageCrop = false },
     TalentFrameEnhancement = { tags = { "实用功能" }, settingsMode = "toggleOnly", default = true, order = 505, sourceRoot = "Components\\TalentFrameEnhancement", modSwitchImage = "modswitch\\talentframeenhancement-bg.png", modSwitchImageCrop = false },
 
@@ -511,6 +511,13 @@ local function GetFeatureEnabled(key, feature)
     return feature and feature.default == true
 end
 
+local function RefreshAutoRepairState(key)
+    -- Shared Core must also support product scripts that predate provider-aware repair.
+    if key == "TradeEnhancement" and YUI.AutoRepair and YUI.AutoRepair.RefreshEnabledState then
+        YUI.AutoRepair:RefreshEnabledState()
+    end
+end
+
 local function InitializeFeature(key, feature)
     if not key or not feature then
         return false
@@ -565,6 +572,7 @@ local function InitializeFeature(key, feature)
     Components.initializedFeatures[key] = true
     Components.initializedFeatureStates[key] = isEnabled
     Components.initializedFeatureErrors[key] = nil
+    RefreshAutoRepairState(key)
     return true
 end
 
@@ -748,6 +756,7 @@ function Components:SetFeatureEnabled(key, enable, options)
         self.initializedFeatureErrors[key] = nil
     end
 
+    RefreshAutoRepairState(key)
     if feature.requiresReload and not (type(options) == "table" and options.suppressReload == true)
         and YUI.Settings and YUI.Settings.ShowReload then
         YUI.Settings:ShowReload()

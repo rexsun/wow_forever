@@ -331,6 +331,8 @@ end
 
 local function MonitorPickerPresetLabel(option)
     if type(option) ~= "table" then return nil end
+    local extraLabel = YHUD.ClassExtra and YHUD.ClassExtra:SettingsLabel(option)
+    if extraLabel then return extraLabel end
     if option.presetId == "blood-boil-window" or option.presetKey == "blood-boil-window"
         or option.id == "preset:buff:blood-boil-window" then return nil end
     if type(option.presetLabelKey) == "string"
@@ -350,6 +352,9 @@ local function MonitorPickerPresetLabel(option)
     local bundleKind = option.bundleKind
     if not bundleKind and option.kind == "racial-bundle" then
         bundleKind = "racial"
+    end
+    if bundleKind == "externalBuff" then
+        return T("designer.bundle.short.external_buffs", "外部增益")
     end
     if bundleKind == "defensive" then
         return T("designer.bundle.short.defensive", "防御")
@@ -411,6 +416,12 @@ local function ResolveMonitorPickerBundleTooltip(option)
     local bundleKind = option and option.bundleKind
     if option and option.kind == "racial-bundle" then
         bundleKind = "racial"
+    end
+    if bundleKind == "externalBuff" then
+        return "designer.picker.bundle.external_buffs_summary",
+            "监控自己获得的外部增益，仅显示他人提供的效果。",
+            "designer.picker.bundle.external_buffs_help",
+            "添加后可逐项开关并调整顺序，支持图标、进度条和圆环。"
     end
     if bundleKind == "racial" then
         return "designer.picker.bundle.racial_summary",
@@ -499,6 +510,16 @@ local function ShowMonitorPickerTooltip(control, option)
         if option.tooltipNoteKey then
             GameTooltip:AddLine(T(option.tooltipNoteKey), 1, 1, 1, true)
         end
+        GameTooltip:Show()
+        return
+    end
+    local extraLogic = YHUD.ClassExtra and YHUD.ClassExtra:Description(option)
+    if extraLogic then
+        GameTooltip:SetText(T(option.nameKey, option.name), 1, 1, 1, 1, true)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(extraLogic, 1, 1, 1, true)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(T("designer.extra.settings_help"), 1, 1, 1, true)
         GameTooltip:Show()
         return
     end
@@ -1178,6 +1199,10 @@ function DesignerUI:EnsureMonitorPicker()
 end
 
 function DesignerUI:RefreshMonitorPicker(preserveScroll, reuseCatalog)
+    if self.monitorPickerResourceSelection and self.IsResourceSelectionCurrent and not self:IsResourceSelectionCurrent() then
+        self:HideMonitorPicker()
+        return false
+    end
     if not (self.monitorPicker and self.monitorPicker:IsShown()) then
         return false
     end
@@ -1185,7 +1210,7 @@ function DesignerUI:RefreshMonitorPicker(preserveScroll, reuseCatalog)
     local profile = Designer:GetProfile()
     local group = session and profile and profile.groups
         and profile.groups.items[session.selectedGroupId]
-    if not CanAddMonitor(group) then
+    if not CanAddMonitor(group) and not (self.monitorPickerResourceSelection and group and group.contentPolicy == "resource-only") then
         self:HideMonitorPicker()
         return false
     end
@@ -1199,7 +1224,7 @@ function DesignerUI:RefreshMonitorPicker(preserveScroll, reuseCatalog)
         catalog, code = Designer:ListMonitorOptions(
             session.selectedGroupId,
             self.monitorPickerSemanticFamily or "cooldown",
-            { includeRacials = true }
+            { includeRacials = true, resourceSelection = self.monitorPickerResourceSelection == true }
         )
     end
     if not catalog then
@@ -1308,6 +1333,7 @@ function DesignerUI:RefreshMonitorPicker(preserveScroll, reuseCatalog)
         local customKinds = CustomMonitorKinds(
             self.monitorPickerSemanticFamily == "buff"
         )
+        if self.monitorPickerResourceSelection and self.monitorPickerSemanticFamily ~= "buff" then customKinds = { "spell" } end
         for customIndex = 1, #customKinds do
             local customKind = customKinds[customIndex]
             local presentation = CustomMonitorPresentation(customKind)
@@ -1411,8 +1437,14 @@ function DesignerUI:RefreshMonitorPicker(preserveScroll, reuseCatalog)
     else
         SetPickerButtonTone(self.monitorPickerBatchButton, "default")
     end
+    SetShown(self.monitorPickerBatchButton, not self.monitorPickerResourceSelection)
+    if self.monitorPickerResourceSelection then
+        self.monitorPickerSearch:SetWidth(PICKER_CONTENT_WIDTH)
+        if GUI2.SetBorderColor then GUI2:SetBorderColor(self.monitorPicker, "color.border.accent") end
+        self.monitorPickerTitle:SetText(T("designer.resource.choose_source", "选择资源监控对象"))
+    end
     local customKind = self.monitorPickerCustomKind
-        or (isBuff and "self-aura" or "item")
+        or (isBuff and "self-aura" or self.monitorPickerResourceSelection and "spell" or "item")
     local presentation = CustomMonitorPresentation(customKind)
     self.monitorPickerCustomHeading:SetText(T(
         presentation.titleKey,
@@ -1692,7 +1724,7 @@ function DesignerUI:SynchronizeMonitorPickerFromBlizzard()
     return true
 end
 
-function DesignerUI:OpenMonitorPicker(groupId, semanticFamily)
+function DesignerUI:OpenMonitorPicker(groupId, semanticFamily, resourceSelection)
     if InCombat() then
         self:SetStatus(T("designer.error_combat", "战斗中不能修改内容设置。"))
         return false
@@ -1712,7 +1744,7 @@ function DesignerUI:OpenMonitorPicker(groupId, semanticFamily)
     local profile = Designer:GetProfile()
     local group = session and profile and profile.groups
         and profile.groups.items[session.selectedGroupId]
-    if not CanAddMonitor(group) then
+    if not CanAddMonitor(group) and not (resourceSelection and group and group.contentPolicy == "resource-only") then
         self:SetStatus(T(
             "designer.error_monitor_type",
             "当前显示类型暂不支持添加图标监控。"
@@ -1721,7 +1753,7 @@ function DesignerUI:OpenMonitorPicker(groupId, semanticFamily)
     end
     semanticFamily = semanticFamily == "buff" and "buff" or "cooldown"
     local capabilities = YHUD:GetGroupAddCapabilities(group)
-    if not capabilities[semanticFamily] then
+    if not capabilities[semanticFamily] and not resourceSelection then
         self:SetStatus(T(
             "designer.error_monitor_type",
             "当前分组不能接收这种监控。"
@@ -1734,9 +1766,10 @@ function DesignerUI:OpenMonitorPicker(groupId, semanticFamily)
         self:SetStatus(T("designer.error_monitor", "无法打开监控列表。"))
         return nil, code
     end
+    self.monitorPickerResourceSelection = resourceSelection == true
     self.monitorPickerSemanticFamily = semanticFamily
-    self.monitorPickerCustomKind =
-        semanticFamily == "buff" and "spell" or self.monitorPickerCustomKind
+    self.monitorPickerCustomKind = resourceSelection and (semanticFamily == "buff" and "self-aura" or "spell")
+        or semanticFamily == "buff" and "spell" or self.monitorPickerCustomKind
     self.monitorPickerExpandedFolders = {}
     self.monitorPickerBatchMode = false
     self.monitorPickerBatchSelection = {}
@@ -1749,6 +1782,7 @@ function DesignerUI:OpenMonitorPicker(groupId, semanticFamily)
         self.monitorPickerSearch:SetText("")
         self.monitorPickerRefreshing = nil
     end
+    if self.ConfigureResourcePicker then self:ConfigureResourcePicker(resourceSelection == true) end
     self.monitorPicker:Show()
     local refreshed, refreshCode = self:RefreshMonitorPicker(false)
     local cooldownSettings = _G.CooldownViewerSettings
@@ -1761,7 +1795,8 @@ function DesignerUI:OpenMonitorPicker(groupId, semanticFamily)
     return refreshed, refreshCode
 end
 
-function DesignerUI:HideMonitorPicker()
+function DesignerUI:HideMonitorPicker(keepResourceDialog)
+    local resourceSelection = self.monitorPickerResourceSelection
     if self.monitorPicker then self.monitorPicker:Hide() end
     if self.monitorPickerSearch and self.monitorPickerSearch.ClearFocus then
         self.monitorPickerSearch:ClearFocus()
@@ -1772,6 +1807,7 @@ function DesignerUI:HideMonitorPicker()
     if self.monitorPickerCustomArea then self.monitorPickerCustomArea:Hide() end
     if self.monitorPickerManageArea then self.monitorPickerManageArea:Hide() end
     if self.monitorPickerBlocker then self.monitorPickerBlocker:Hide() end
+    self.monitorPickerResourceSelection = nil
     self.monitorPickerSemanticFamily = nil
     self.monitorPickerExpandedFolders = {}
     self.monitorPickerBatchMode = false
@@ -1781,11 +1817,21 @@ function DesignerUI:HideMonitorPicker()
     self.monitorPickerBlocked = false
     self.monitorPickerCatalog = nil
     self.monitorPickerKeepOpenDelete = nil
+    if resourceSelection and not keepResourceDialog and self.CloseResourceDialog then self:CloseResourceDialog() end
 end
 
 function DesignerUI:HandleMonitorPickerOption(option)
+    if self.monitorPickerResourceSelection and self.IsResourceSelectionCurrent and not self:IsResourceSelectionCurrent() then
+        self:HideMonitorPicker()
+        return false
+    end
     if type(option) ~= "table" then return false end
     if self.monitorPickerBlocked == true then return false end
+    if self.monitorPickerResourceSelection and option.resourceEntry then
+        local entry = option.resourceEntry
+        self:HideMonitorPicker(true)
+        return self:OpenCustomResourceEditor(entry)
+    end
     local state = MonitorPickerState(option)
     if self.monitorPickerBatchMode == true then
         if state ~= "add" and state ~= "move" then return false end
@@ -1911,7 +1957,18 @@ function DesignerUI:AddCustomAura(spellID, scopeKey)
 end
 
 function DesignerUI:AddCustomMonitorID(value)
+    if self.monitorPickerResourceSelection and self.IsResourceSelectionCurrent and not self:IsResourceSelectionCurrent() then
+        self:HideMonitorPicker()
+        return false
+    end
     local kind = self.monitorPickerCustomKind
+    if self.monitorPickerResourceSelection then
+        local entry, code = YHUD.ResourceManager:CreateManualEntry(kind, value,
+            self.monitorPickerCustomDuration and self.monitorPickerCustomDuration:GetText())
+        if not entry then self:SetMutationError(code, "designer.error_monitor", "无法添加监控。") return nil, code end
+        self:HideMonitorPicker(true)
+        return self:OpenCustomResourceEditor(entry)
+    end
     if kind == "self-aura" then
         return self:AddCustomAura(
             value,

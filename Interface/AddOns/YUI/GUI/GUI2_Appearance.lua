@@ -129,6 +129,7 @@ end
 
 function Appearance:ApplyStoredPreset()
     local db = self:PeekDB()
+    GUI2:RefreshUIIconEffects()
     if type(db) == "table" and db.basePreset then
         GUI2:SetPreset(db.basePreset)
         return true
@@ -169,6 +170,15 @@ function Appearance:SetUserOption(key, value)
     self:RenderPreview()
 end
 
+function Appearance:GetUIIconEffectsEnabled()
+    return true
+end
+
+-- 兼容旧 CoreEmbed 调用；统一图标效果固定启用，不再写入设置。
+function Appearance:SetUIIconEffectsEnabled()
+    GUI2:RefreshUIIconEffects()
+end
+
 function Appearance:GetSettingsBackgroundMode()
     local db = self:GetDB()
     local mode = db and db.userOptions and db.userOptions.settingsBackground
@@ -195,6 +205,7 @@ function Appearance:ResetCurrentPreset()
     db.userOptions = CopyDefaults(DEFAULT_APPEARANCE.userOptions)
     db.tokenOverrides = {}
     db.basePreset = preset
+    GUI2:RefreshUIIconEffects()
     GUI2:SetPreset(preset)
     self:Render()
 end

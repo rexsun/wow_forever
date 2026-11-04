@@ -1,3 +1,4 @@
+local ADDON_NAME = ...
 local YUI = _G.YUI
 if not YUI then return end
 
@@ -14,6 +15,10 @@ YAB.VERSION = "0.1.0"
 YAB.BAR_ORDER = { "main", "bar2", "bar3", "bar4", "bar5", "bar6", "bar7", "bar8" }
 YAB.SPECIAL_BAR_ORDER = { "pet", "stance", "possess", "extraAction", "zoneAbility", "vehicleExit" }
 if Client.questItems == true then YAB.SPECIAL_BAR_ORDER[#YAB.SPECIAL_BAR_ORDER + 1] = "questItems" end
+if Client.classBars == true then
+    YAB.SPECIAL_BAR_ORDER[#YAB.SPECIAL_BAR_ORDER + 1] = "aspects"
+    YAB.SPECIAL_BAR_ORDER[#YAB.SPECIAL_BAR_ORDER + 1] = "totems"
+end
 YAB.SPECIAL_GROUP_ID = "specialActionsGroup"
 YAB.SPECIAL_GROUPING_MODE_INDEPENDENT = "independent"
 YAB.SPECIAL_GROUPING_MODE_ALL = "all"
@@ -85,7 +90,6 @@ local SPECIAL_BAR_RULES = {
         managedButtons = true,
         compactLayout = false,
         snapshotOverrides = {
-            hideEmptySlots = false,
             showCounts = false,
             countSize = 12,
             countOffsetX = 0,
@@ -205,6 +209,24 @@ local SPECIAL_BAR_RULES = {
 }
 
 local SpecialBars = YAB.SpecialBars or {}
+if Client.petEmptySlots ~= true then SPECIAL_BAR_RULES.pet.snapshotOverrides.hideEmptySlots = false end
+if Client.classBars == true then
+    for _, id in ipairs({ "aspects", "totems" }) do
+        SPECIAL_BAR_RULES[id] = {
+            buttonMode = "runtime", previewButtons = 6, keybindable = id == "aspects",
+            capabilities = { enabled = true, visibility = true, size = true, spacing = true,
+                rows = true, alignment = true, flyoutDirection = true, skin = true, iconZoom = true,
+                border = true, borderColor = true, background = true, backgroundColor = true,
+                shadow = true, shadowColor = true, cooldownFade = true,
+                cooldownTextSize = true, cooldownTextOffsetX = true, cooldownTextOffsetY = true,
+                showHotkeys = true, hotkeySize = true, hotkeyOffsetX = true, hotkeyOffsetY = true,
+                showUnlearned = id == "aspects", showPetUtilities = id == "aspects", aspectOrder = id == "aspects",
+                aspectActiveStyle = id == "aspects" },
+            snapshotOverrides = { hideEmptySlots = false, rangeMode = "none",
+                showCounts = false, showMacroNames = false },
+        }
+    end
+end
 if Client.questItems == true then
     SPECIAL_BAR_RULES.questItems = {
         buttonMode = "runtime", managedButtons = true, compactLayout = false,
@@ -277,6 +299,10 @@ end
 function SpecialBars:GetRuntimeButtonCount(barId, config, snapshot)
     local rule = SPECIAL_BAR_RULES[barId]
     if not rule then return nil end
+    if barId == "aspects" or barId == "totems" then
+        local record = YAB.BarManager and YAB.BarManager.bars[barId]
+        return math.max(record and #record.buttons or 6, 1)
+    end
     if barId == "stance" then
         return GetRuntimeStanceCount(rule, config, snapshot)
     end
@@ -346,7 +372,13 @@ function SpecialBars:NormalizeConfigSnapshot(barId, snapshot, config)
     else
         ApplySnapshotOverrides(snapshot, rule.nonRetailSnapshotOverrides)
     end
-    if barId ~= "questItems" and (barId == "pet" or Client.deterministicSpecialBars == true) and snapshot.buttons then
+    if barId == "aspects" or barId == "totems" then
+        snapshot.rows = ClampSpecialButtonCount(config and config.rows or snapshot.rows, 1, 12, 1)
+        local direction = config and config.flyoutDirection
+        snapshot.flyoutDirection = (direction == "down" or direction == "left" or direction == "right") and direction or "up"
+    end
+    if barId ~= "questItems" and barId ~= "aspects" and barId ~= "totems"
+        and (barId == "pet" or Client.deterministicSpecialBars == true) and snapshot.buttons then
         local rowValue = snapshot.rows
         if barId == "pet" or (barId == "stance" and Client.ownedStanceButtons == true) then
             rowValue = config and config.rows or rowValue
@@ -357,12 +389,19 @@ function SpecialBars:NormalizeConfigSnapshot(barId, snapshot, config)
 end
 
 function SpecialBars:GetPreviewButtonCount(barId, config, snapshot)
+    config = config or {}
     local rule = SPECIAL_BAR_RULES[barId]
     if not rule then return nil end
     if barId == "pet" then
         return self:GetRuntimeButtonCount(barId, config, snapshot)
     end
-    if barId == "questItems" then return self:GetRuntimeButtonCount(barId, config, snapshot) end
+    if barId == "questItems" or barId == "totems" then return self:GetRuntimeButtonCount(barId, config, snapshot) end
+    if barId == "aspects" and YAB.ClassBars then
+        local record = YAB.BarManager and YAB.BarManager.bars[barId]
+        if record then return math.max(#record.buttons + (record.petUtilityToggle and config.showPetUtilities ~= false and 1 or 0), 1) end
+        local _, _, count = YAB.ClassBars:GetAspectPreview(math.huge, config or {})
+        return math.max(count + (config.showPetUtilities ~= false and 1 or 0), 1)
+    end
     return rule.previewButtons
 end
 
@@ -437,7 +476,8 @@ local function FillTextDefaults(config)
 end
 
 YAB.Defaults = {
-    enabled = false,
+    enabled = YUI.GetAddonProductId
+        and YUI:GetAddonProductId(ADDON_NAME, "suite") == YAB.PRODUCT_ID or false,
     nativeMode = false,
     activeRecipe = "default",
     runtime = {
@@ -858,6 +898,7 @@ YAB.Defaults = {
         spacing = 4,
         iconZoom = 0.08,
         pressedEffect = "darken",
+        assistedHighlight = true,
         showHotkeys = true,
         showCounts = true,
         showMacroNames = true,
@@ -943,17 +984,27 @@ local BUTTON_APPEARANCE_DEFAULTS = {
 }
 for _, config in pairs(YAB.Defaults.bars or {}) do
     FillDefaults(config, BUTTON_APPEARANCE_DEFAULTS)
+    config.chargeRecoveryDisplay = "hideSwipeOnly"
 end
 for _, config in pairs(YAB.Defaults.specialBars or {}) do
     FillDefaults(config, BUTTON_APPEARANCE_DEFAULTS)
 end
 FillDefaults(YAB.Defaults.specialGrouping and YAB.Defaults.specialGrouping.config, BUTTON_APPEARANCE_DEFAULTS)
+for _, id in ipairs({ "extraAction", "zoneAbility" }) do
+    YAB.Defaults.specialBars[id].chargeRecoveryDisplay = "hideSwipeOnly"
+end
+YAB.Defaults.specialGrouping.config.chargeRecoveryDisplay = "hideSwipeOnly"
 
 for _, config in pairs(YAB.Defaults.bars or {}) do
     ApplyOverrides(config, PROFESSION_QUALITY_DEFAULTS)
 end
 
 ApplyOverrides(YAB.Defaults, {
+    interaction = { formPagingSpecs = {} },
+    appearance = {
+        assistedHighlight = false,
+        showActionState = true,
+    },
     bars = {
         main = {
             spacing = 0,
@@ -1127,4 +1178,25 @@ function YAB:MergeDefaults(db)
     db.specialGrouping.config.growthDirection = self:NormalizeSpecialGroupGrowthDirection(db.specialGrouping.config.growthDirection)
     db.specialGrouping.config.groupAlignment = self:NormalizeSpecialGroupAlignment(db.specialGrouping.config.groupAlignment)
     return db
+end
+
+-- Optional client bars are outside the frozen ConfigSets V1 baseline.
+if Client.classBars == true then
+    for _, id in ipairs({ "aspects", "totems" }) do
+        local config = CopyValue(YAB.Defaults.specialBars.pet)
+        config.enabled = true
+        config.label = id == "aspects" and "猎人守护条" or "萨满图腾条"
+        config.buttons, config.rangeMode = 6, "none"
+        config.flyoutDirection = "up"
+        config.hideEmptySlots, config.showUnlearned = false, false
+        if id == "aspects" then
+            config.aspectOrder = { 1, 2, 3, 4, 5, 6, 7, 8 }
+            config.aspectActiveStyle = "innerGlow"
+            config.showPetUtilities = true
+        end
+        config.showCounts, config.showMacroNames = false, false
+        if id == "totems" then config.spacing = 8 end
+        config.layout = { point = "BOTTOM", relativePoint = "BOTTOM", x = 0, y = 232 }
+        YAB.Defaults.specialBars[id] = config
+    end
 end

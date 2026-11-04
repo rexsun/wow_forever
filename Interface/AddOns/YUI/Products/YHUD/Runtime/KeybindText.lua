@@ -1,4 +1,4 @@
-local _, YUI = ...
+local YUI = _G.YUI
 local YHUD = YUI and YUI.YHUD
 if not YHUD then return end
 
@@ -9,8 +9,12 @@ local UPDATED_EVENT = "YUI_YHUD_KEYBINDS_UPDATED"
 local MAX_CHARACTERS = 16
 
 local function PositiveInteger(value)
-    value = tonumber(value)
-    if not value or value <= 0 then return nil end
+    local security = YUI.API and YUI.API.Security
+    if security and security.IsSecretValue and security.IsSecretValue(value) then return nil end
+    if not security and type(_G.issecretvalue) == "function" and _G.issecretvalue(value) then return nil end
+    local ok
+    ok, value = pcall(tonumber, value)
+    if not ok or not value or value <= 0 or value == math.huge then return nil end
     return math.floor(value)
 end
 
@@ -34,6 +38,16 @@ local function DisplayText(value)
     value = SanitizeText(value)
     if not value or value == "" then return nil end
     return (value:gsub("|", "||"))
+end
+
+local function AutomaticText(value)
+    if type(value) ~= "string" or value == "" then return nil end
+    -- Only automatic API labels may contain atlas markup; user text stays plain.
+    if #value <= 512 and not value:find("[%z\1-\31\127]") then
+        local plain = value:gsub("|A:[%w_%-]+:[%d:%.%-]+|a", "")
+        if plain ~= value and not plain:find("|", 1, true) then return value end
+    end
+    return DisplayText(value)
 end
 
 local function IsSpellEntry(entry)
@@ -108,47 +122,97 @@ function Service:GetIdentity(monitor, entry, binding)
     return Identity(monitor, entry, binding)
 end
 
-function Service:Resolve(style, monitor, entry, binding)
+function Service:GetTarget(monitor, entry, binding, state)
+    local data = binding or entry
+    if type(data) ~= "table" then return nil end
+    if not binding and YHUD:GetEntrySemantic(entry) ~= "cooldown" then return nil end
+    local slotID = PositiveInteger(data.slotId or data.equipSlot)
+    local itemID = PositiveInteger(data.itemId or data.itemID)
+    if slotID == 13 or slotID == 14 then
+        if not state and monitor and YHUD.Model and YHUD.Model.GetState then
+            state = YHUD.Model:GetState(monitor.sourceKey)
+        end
+        local current = state and PositiveInteger(state.itemID)
+        if not state then
+            local item = YUI.API and YUI.API.Item
+            if item and item.GetInventoryItemID then
+                local ok, value = pcall(item.GetInventoryItemID, "player", slotID)
+                if ok then current = PositiveInteger(value) end
+            end
+        end
+        return "slot:" .. slotID, current, "slot", slotID
+    end
+    if itemID then
+        if not state and monitor and YHUD.Model and YHUD.Model.GetState then
+            state = YHUD.Model:GetState(monitor.sourceKey)
+        end
+        return "item:" .. itemID, state and PositiveInteger(state.itemID) or itemID,
+            "item", data.itemIds
+    end
+    local stable, current = Identity(monitor, entry, binding)
+    return stable, current, stable and "spell" or nil
+end
+
+local function Automatic(monitor, entry, binding, state)
+    local stable, current, kind, extra = Service:GetTarget(monitor, entry, binding, state)
+    if not stable then return nil, nil end
+    local resolver = YHUD.KeybindResolver
+    if kind == "spell" then
+        local text, resolved = ReadAutomatic(current, stable,
+            entry and entry.overrideSpellId, entry and entry.spellId,
+            binding and binding.overrideSpellId)
+        return text, resolved, stable
+    end
+    if not resolver then return nil, nil, stable end
+    if kind == "slot" then
+        local candidate = current and resolver.GetInventorySlot
+            and resolver:GetInventorySlot(extra, current)
+        return candidate and candidate.text, current, stable
+    end
+    local candidate = resolver.GetItem and resolver:GetItem(current)
+    if candidate then return candidate.text, current, stable end
+    local text, resolved
+    for index = 1, #(type(extra) == "table" and extra or {}) do
+        local id = PositiveInteger(extra[index])
+        candidate = id and resolver.GetItem and resolver:GetItem(id)
+        if candidate then
+            if text and text ~= candidate.text then return nil, nil, stable end
+            text, resolved = candidate.text, id
+        end
+    end
+    return text, resolved, stable
+end
+
+function Service:Resolve(style, monitor, entry, binding, state)
     style = type(style) == "table" and style or {}
     local mode = style.keybindTextMode
     if mode == "off" then return nil, "off" end
-    local stable, runtime = Identity(monitor, entry, binding)
+    local stable, runtime, kind = self:GetTarget(monitor, entry, binding, state)
     if not stable then return nil, "unsupported" end
     local override, overrideID = ReadOverride(
         style.keybindTextOverrides,
-        stable,
-        runtime,
-        entry and entry.overrideSpellId,
-        entry and entry.spellId,
-        binding and binding.overrideSpellId
+        kind == "spell" and stable or nil,
+        kind == "spell" and runtime or nil,
+        kind == "spell" and entry and entry.overrideSpellId,
+        kind == "spell" and entry and entry.spellId,
+        kind == "spell" and binding and binding.overrideSpellId
     )
+    if kind ~= "spell" and type(style.keybindTextOverrides) == "table" then
+        override, overrideID = style.keybindTextOverrides[stable], stable
+    end
     if override ~= nil then
         return DisplayText(override), override == "" and "hidden" or "manual",
             stable, overrideID
     end
     if mode == "manual" then return nil, "manual-empty", stable end
-    local automatic, resolvedID = ReadAutomatic(
-        runtime,
-        stable,
-        entry and entry.overrideSpellId,
-        entry and entry.spellId,
-        binding and binding.overrideSpellId
-    )
-    return DisplayText(automatic), automatic and "auto" or "missing",
+    local automatic, resolvedID = Automatic(monitor, entry, binding, state)
+    return AutomaticText(automatic), automatic and "auto" or "missing",
         stable, resolvedID
 end
 
 function Service:GetAutomatic(monitor, entry, binding)
-    local stable, runtime = Identity(monitor, entry, binding)
-    if not stable then return nil, nil end
-    local text = ReadAutomatic(
-        runtime,
-        stable,
-        entry and entry.overrideSpellId,
-        entry and entry.spellId,
-        binding and binding.overrideSpellId
-    )
-    return SanitizeText(text), stable
+    local text, _, stable = Automatic(monitor, entry, binding)
+    return text, stable
 end
 
 local function SpellName(spellID, fallback)
@@ -163,6 +227,19 @@ local function SpellTexture(spellID)
     return spell and spell.GetTexture and spell.GetTexture(spellID) or nil
 end
 
+local function ItemPresentation(itemID, method, fallback)
+    local item = YUI.API and YUI.API.Item
+    local reader = item and item[method]
+    if itemID and type(reader) == "function" then
+        local ok, value = pcall(reader, itemID)
+        local security = YUI.API and YUI.API.Security
+        if ok and not (security and security.IsSecretValue and security.IsSecretValue(value)) then
+            return value or fallback
+        end
+    end
+    return fallback
+end
+
 function Service:BuildRows(profile, groupId)
     local rows, seen = {}, {}
     local group = profile and profile.groups and profile.groups.items
@@ -172,7 +249,7 @@ function Service:BuildRows(profile, groupId)
     local function Append(monitor)
         local entry = monitor and profile.entries
             and profile.entries[monitor.entryKey]
-        local stable = Identity(monitor, entry)
+        local stable, current, kind = self:GetTarget(monitor, entry)
         if not stable or seen[stable] then return end
         seen[stable] = true
         local automatic = self:GetAutomatic(monitor, entry)
@@ -189,9 +266,12 @@ function Service:BuildRows(profile, groupId)
             effective = automatic or ""
         end
         rows[#rows + 1] = {
-            spellID = stable,
-            name = SpellName(stable, entry and entry.name),
-            icon = SpellTexture(stable),
+            targetKey = stable,
+            spellID = kind == "spell" and stable or nil,
+            name = kind == "spell" and SpellName(stable, entry and entry.name)
+                or ItemPresentation(current, "GetName", entry and entry.name or tostring(stable)),
+            icon = kind == "spell" and SpellTexture(stable)
+                or ItemPresentation(current, "GetIcon", entry and entry.icon),
             entry = entry,
             automatic = automatic,
             override = override,

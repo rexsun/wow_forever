@@ -25,6 +25,239 @@ local table_sort = table.sort
 
 GUI2.Form = GUI2.Form or {}
 
+-- The persisted modes keep existing profiles compatible; the editor exposes three bits.
+do
+    local modes = {
+        normal = { true, true, true },
+        hideSwipe = { false, false, true },
+        hideCountdown = { true, true, false },
+        hideBoth = { false, false, false },
+        hideEdge = { true, false, true },
+        hideEdgeAndCountdown = { true, false, false },
+        hideSwipeOnly = { false, true, true },
+        hideSwipeAndCountdown = { false, true, false },
+    }
+    function GUI2.Form:GetChargeRecoveryParts(mode)
+        local parts = modes[mode or "hideSwipeOnly"] or modes.hideSwipeOnly
+        return parts[1], parts[2], parts[3]
+    end
+    function GUI2.Form:GetChargeRecoveryMode(swipe, edge, countdown)
+        if swipe then
+            if edge then return countdown and "normal" or "hideCountdown" end
+            return countdown and "hideEdge" or "hideEdgeAndCountdown"
+        end
+        if edge then return countdown and "hideSwipeOnly" or "hideSwipeAndCountdown" end
+        return countdown and "hideSwipe" or "hideBoth"
+    end
+
+    -- One lazy popup serves both products, without retaining retired settings rows.
+    local popup, activeOwner
+    local function ClosePopover(owner)
+        if not activeOwner or (owner and owner ~= activeOwner) then return end
+        activeOwner = nil
+        popup.sample.cooldown:Clear()
+        GUI2:HideShapeShadow(popup.sampleShadow)
+        popup:Hide()
+        popup:ClearAllPoints()
+    end
+
+    local function RefreshParts(owner)
+        if activeOwner ~= owner then return end
+        local swipe, edge, countdown = GUI2.Form:GetChargeRecoveryParts(owner.value)
+        popup.checks[1]:SetValue(swipe, true)
+        popup.checks[2]:SetValue(edge, true)
+        popup.checks[3]:SetValue(countdown, true)
+        popup.checks[1]:SetDisabled(owner.swipeEnabled == false)
+        popup.checks[3]:SetDisabled(owner.countdownEnabled == false)
+        local cooldown = popup.sample.cooldown
+        cooldown:SetDrawSwipe(swipe and owner.swipeEnabled ~= false)
+        cooldown:SetDrawEdge(edge)
+        cooldown:SetHideCountdownNumbers(not countdown or owner.countdownEnabled == false)
+    end
+
+    local function RefreshStyle(owner)
+        if activeOwner ~= owner then return end
+        local style = owner.previewStyle or {}
+        local snapshot = GUI2:CompileIconStyle(style)
+        local sample = popup.sample
+        sample:SetIconAppearance({ size = 48, shape = snapshot.shape,
+            border = snapshot.border, zoom = snapshot.zoom })
+        sample:SetIconBorderColor(snapshot.borderColor)
+        sample.previewBackground:SetTexture(snapshot.mask or "Interface\\Buttons\\WHITE8X8")
+        sample.previewBackground:SetVertexColor(unpack(snapshot.backgroundColor))
+        -- Fresh caches also restore font/visibility when switching between owners.
+        local cooldownText = style.cooldownTextStyle
+        local countText = style.countTextStyle
+        snapshot.cooldownText.monochrome = cooldownText and cooldownText.monochrome
+        snapshot.countText.monochrome = countText and countText.monochrome
+        -- FontStyle supports thick + shadow even where the shared snapshot normalizer does not.
+        if (cooldownText and cooldownText.outline or style.cooldownTextOutline) == "thickShadow" then
+            snapshot.cooldownText.outline = "thickShadow"
+        end
+        if (countText and countText.outline or style.countTextOutline) == "thickShadow" then
+            snapshot.countText.outline = "thickShadow"
+        end
+        GUI2:ApplyCooldownChrome(sample.cooldown, snapshot, {})
+        GUI2:ApplyTextStyle(sample.count, snapshot.countText, {})
+        sample.cooldown:SetDrawBling(false)
+        local width, height = GUI2:GetIconAppearanceSize(48, snapshot.shape)
+        GUI2:ApplyShapeShadow(popup.sampleShadow, {
+            enabled = style.iconShadow ~= false, shape = snapshot.shape, color = style.iconShadowColor,
+        }, { anchor = sample, width = width, height = height, allowLayout = true })
+        RefreshParts(owner)
+    end
+
+    local function EnsurePopover()
+        if popup then return popup end
+        local locale = YUI.Locale:Get("Core")
+        popup = GUI2:CreatePanel(UIParent, { width = 332, height = 154,
+            surface = "color.surface.popup", border = "color.popup.border",
+            shadow = true, shadowKey = "shadow.popup.size" })
+        popup:Hide()
+        popup:SetFrameStrata("FULLSCREEN_DIALOG")
+        popup:SetFrameLevel(720)
+        popup:SetClampedToScreen(true)
+        popup:EnableMouse(true)
+        popup:EnableKeyboard(true)
+        popup:SetPropagateKeyboardInput(true)
+        popup:SetScript("OnKeyDown", function(self, key)
+            self:SetPropagateKeyboardInput(key ~= "ESCAPE")
+            if key == "ESCAPE" then ClosePopover() end
+        end)
+        popup:SetScript("OnHide", function() ClosePopover() end)
+        local dismiss = GUI2:CreateButtonFrame(popup)
+        dismiss:SetFrameLevel(719)
+        dismiss:SetAllPoints(UIParent)
+        dismiss:SetScript("OnClick", function() ClosePopover() end)
+        popup.dismiss = dismiss
+        popup.title = GUI2:CreateText(popup, locale["charge_recovery.title"],
+            "font.size.md", "color.text.heading")
+        popup.title:SetPoint("TOPLEFT", 14, -14)
+        popup.close = GUI2.Form:CreateIconButton(popup, {
+            size = 24, icon = GUI2:GetSettingsIcon("x"),
+            onClick = function() ClosePopover() end,
+        })
+        popup.close:SetPoint("TOPRIGHT", -8, -8)
+        local sample = GUI2.Application:CreateCooldownIcon(popup, {
+            size = 48, icon = 135807, shape = "square", border = "thin", count = 1, variant = "bare",
+        })
+        sample:SetPoint("CENTER", popup, "TOPRIGHT", -64, -78)
+        popup.sample = sample
+        sample.previewBackground = GUI2:CreateTexture(sample, { layer = "BACKGROUND", subLevel = -7 })
+        sample.previewBackground:SetAllPoints(sample)
+        popup.sampleShadow = GUI2:CreateShapeShadow(sample)
+        local refreshSampleTheme = sample.RefreshTheme
+        sample.RefreshTheme = function(self)
+            refreshSampleTheme(self)
+            if activeOwner then RefreshStyle(activeOwner) end
+        end
+        sample.cooldown:SetReverse(false)
+        sample.cooldown:SetScript("OnCooldownDone", function(self)
+            if activeOwner and activeOwner:IsVisible() and popup:IsVisible() then
+                self:SetCooldown(GetTime(), 8)
+            end
+        end)
+        popup.caption = GUI2:CreateText(popup, locale["charge_recovery.preview_charge"],
+            "font.size.sm", "color.text.secondary", "CENTER")
+        popup.caption:SetPoint("TOP", popup, "TOPRIGHT", -64, -116)
+        popup.caption:SetWidth(112)
+        popup.caption:SetWordWrap(true)
+        popup.checks = {}
+        for index, key in ipairs({ "swipe", "edge", "countdown" }) do
+            local part = index
+            local check = GUI2.Form:CreateCheckbox(popup, {
+                width = 196, height = 30,
+                text = locale["charge_recovery.show_" .. key],
+                tooltip = locale["charge_recovery." .. key .. "_tooltip"],
+                set = function(value)
+                    local owner = activeOwner
+                    if not owner then return end
+                    local swipe, edge, countdown = GUI2.Form:GetChargeRecoveryParts(owner.value)
+                    if part == 1 then swipe = value elseif part == 2 then edge = value else countdown = value end
+                    owner:SetValue(GUI2.Form:GetChargeRecoveryMode(swipe, edge, countdown))
+                end,
+            })
+            check:SetPoint("TOPLEFT", 14, -42 - (index - 1) * 32)
+            check.text:SetWordWrap(true)
+            check.text:SetHeight(30)
+            popup.checks[index] = check
+        end
+        return popup
+    end
+
+    function GUI2.Form:CreateChargeRecoveryControl(parent, opts)
+        opts = opts or {}
+        local locale = YUI.Locale:Get("Core")
+        local width = opts.width or 368
+        local frame = GUI2:CreateFrame(parent, { width = width, height = 32 })
+        frame.binding = opts
+        frame.summary = GUI2.Form:CreateButton(frame, {
+            width = 144, height = 26, tone = "default",
+            fontSizeKey = "font.size.md", contentAlign = "left",
+            textLeftPadding = 8, textRightPadding = 32, justifyH = "LEFT",
+            onClick = function() frame:TogglePopover() end,
+        })
+        local textWidth = 0
+        for mode in pairs(modes) do
+            frame.summary.text:SetText(locale["charge_recovery.summary." .. mode])
+            textWidth = math_max(textWidth, frame.summary.text:GetStringWidth())
+        end
+        local maxWidth = opts.showLabel == false and width or width - 112
+        local summaryWidth = math_min(maxWidth, math_max(112, math_ceil(textWidth) + 40))
+        frame.summary:SetWidth(summaryWidth)
+        frame.summary.gearIcon = GUI2:CreateIcon(frame.summary, {
+            icon = GUI2:GetSettingsIcon("settings"), size = 16,
+        })
+        frame.summary.gearIcon:SetPoint("RIGHT", -8, 0)
+        if opts.showLabel == false then
+            frame.summary:SetPoint("LEFT", 0, 0)
+        else
+            frame.title = GUI2:CreateText(frame, locale["charge_recovery.title"],
+                "font.size.md", "color.text.primary", "LEFT")
+            frame.title:SetPoint("LEFT", 0, 0)
+            frame.title:SetWidth(width - summaryWidth - 22)
+            frame.title:SetWordWrap(true)
+            frame.title:SetHeight(32)
+            frame.summary:SetPoint("RIGHT", -10, 0)
+        end
+        function frame:SetValue(value, silent)
+            self.value = modes[value or "hideSwipeOnly"] and value or "hideSwipeOnly"
+            self.summary:SetText(locale["charge_recovery.summary." .. self.value])
+            RefreshParts(self)
+            if not silent and self.binding.set then self.binding.set(self.value) end
+        end
+        function frame:SetPresentationLimits(swipe, countdown)
+            self.swipeEnabled, self.countdownEnabled = swipe ~= false, countdown ~= false
+            RefreshParts(self)
+        end
+        function frame:SetPreviewStyle(style)
+            self.previewStyle = style
+            RefreshStyle(self)
+        end
+        function frame:ClosePopover() ClosePopover(self) end
+        function frame:IsPopoverOpen() return activeOwner == self end
+        function frame:TogglePopover()
+            if activeOwner == self then ClosePopover(self); return end
+            if not self:IsVisible() then return end
+            ClosePopover()
+            local panel = EnsurePopover()
+            if self.binding.get then self:SetValue(self.binding.get(), true) end
+            if self.binding.getPreviewStyle then self.previewStyle = self.binding.getPreviewStyle() end
+            activeOwner = self
+            panel:SetScale(self:GetEffectiveScale() / UIParent:GetEffectiveScale())
+            panel:ClearAllPoints()
+            panel:SetPoint("TOPRIGHT", self.summary, "BOTTOMRIGHT", 0, -4)
+            panel:Show()
+            RefreshStyle(self)
+            panel.sample.cooldown:SetCooldown(GetTime() - 2, 8)
+            return panel
+        end
+        frame:HookScript("OnHide", function() ClosePopover(frame) end)
+        frame:SetValue(opts.get and opts.get() or "hideSwipeOnly", true)
+        return frame
+    end
+end
+
 local SLIDER_DIAGNOSTIC_DEFAULT_SAMPLE_LIMIT = 12
 local SLIDER_DIAGNOSTIC_MAX_SAMPLE_LIMIT = 40
 local SLIDER_STEP_ROUND_EPSILON = 0.000000001
@@ -828,7 +1061,12 @@ local function LayoutButtonContent(button, offsetX, offsetY)
         local leftPadding = button.gui2IconLeftPadding or 8
         local gap = button.gui2IconGap or 5
         local iconYOffset = button.gui2IconYOffset or 0
-        if text and button.gui2ContentAlign == "center" then
+        local label = text and text:GetText()
+        local hasText = label ~= nil and label ~= ""
+        if not hasText then
+            icon:SetPoint("CENTER", button, "CENTER", offsetX, offsetY + iconYOffset)
+            if text then text:SetPoint("CENTER", button, "CENTER", offsetX, offsetY) end
+        elseif button.gui2ContentAlign == "center" then
             local contentOffset = ((icon:GetWidth() or 0) + gap) * 0.5
             text:SetPoint("CENTER", button, "CENTER", contentOffset + offsetX, offsetY)
             text:SetJustifyH("CENTER")
@@ -836,7 +1074,7 @@ local function LayoutButtonContent(button, offsetX, offsetY)
         else
             icon:SetPoint("LEFT", button, "LEFT", leftPadding + offsetX, offsetY + iconYOffset)
         end
-        if text and button.gui2ContentAlign ~= "center" then
+        if hasText and button.gui2ContentAlign ~= "center" then
             text:SetPoint("LEFT", icon, "RIGHT", gap, offsetY)
             text:SetPoint("RIGHT", button, "RIGHT", -(button.gui2TextRightPadding or 8) + offsetX, offsetY)
             text:SetJustifyH(button.gui2JustifyH or "LEFT")
@@ -1139,6 +1377,10 @@ function GUI2.Form:CreateCheckbox(parent, opts)
 
     frame.fill = box
     frame.mark = box
+    frame.disabledCheck = GUI2:CreateTexture(box, { layer = "OVERLAY" })
+    frame.disabledCheck:SetTexture(GUI2:GetSettingsIcon("check"))
+    frame.disabledCheck:SetSize(12, 12)
+    frame.disabledCheck:SetPoint("CENTER")
 
     local label = GUI2:CreateText(frame, opts.text or opts.label or "", "font.size.md", "color.text.primary")
     label:SetPoint("LEFT", box, "RIGHT", 8, 0)
@@ -1164,9 +1406,12 @@ function GUI2.Form:CreateCheckbox(parent, opts)
         end
         local previous = self.gui2Checked
         self.gui2Checked = checked
-        self.box.gui2Surface = self.gui2Disabled and "color.control.disabled" or (self.gui2Checked and "color.accent.fill" or "color.control.bg")
+        local showSelection = self.gui2Checked and (not self.gui2Disabled or opts.retainDisabledSelection == true)
+        self.box.gui2Surface = showSelection and "color.accent.fill" or (self.gui2Disabled and "color.control.disabled" or "color.control.bg")
         GUI2:RefreshPrimitive(self.box)
-        GUI2:SetBorderColor(self.box, self.gui2Disabled and "color.border.subtle" or (self.gui2Checked and "color.border.accent" or "color.border.default"))
+        GUI2:SetBorderColor(self.box, showSelection and "color.border.accent" or (self.gui2Disabled and "color.border.subtle" or "color.border.default"))
+        self.disabledCheck:SetShown(self.gui2Disabled and self.gui2Checked)
+        self.disabledCheck:SetVertexColor(GUI2:GetColor("color.text.primary"))
         if animate and previous ~= nil and previous ~= self.gui2Checked and not self.gui2Disabled then
             PlayMotionOverlay(self.boxMotion, self, "checkbox-check")
         end
@@ -2320,6 +2565,8 @@ function GUI2.Form:CreateSlider(parent, opts)
 
     container.slider = slider
     container.inputBox = input
+    local stopCompactInteraction
+    local compactEditing = false
     local dragging = false
     local interactionStartValue
     local interactionStartStepKey
@@ -2420,8 +2667,9 @@ function GUI2.Form:CreateSlider(parent, opts)
         local changed = startStepKey ~= stepKey
         container.gui2FinalizedSliderStepKey = stepKey
         container.gui2FinalizedSliderValue = value
-        if changed and type(opts.onCommit) == "function" then
-            opts.onCommit(container, value, source)
+        local onCommit = opts.onCommit or (container.gui2CompactSlider and container.gui2CompactCommit)
+        if changed and type(onCommit) == "function" then
+            onCommit(container, value, source)
         end
         return changed
     end
@@ -2430,10 +2678,20 @@ function GUI2.Form:CreateSlider(parent, opts)
         return self.value
     end
     function container:SetValue(value, silent)
+        if self.gui2CompactSlider and stopCompactInteraction then stopCompactInteraction(false, true) end
         Update(value, nil, silent)
+    end
+    function container:SetMixedValue()
+        if self.gui2CompactSlider and stopCompactInteraction then stopCompactInteraction(false, true) end
+        self.value = nil
+        self.gui2ValueInitialized = false
+        self.gui2SliderStepKey, self.gui2CommittedSliderStepKey, self.gui2FinalizedSliderStepKey = nil, nil, nil
+        self.gui2CommittedSliderValue, self.gui2FinalizedSliderValue = nil, nil
+        input:SetText("")
     end
     function container:SetDisabled(disabled)
         disabled = disabled and true or false
+        if disabled and self.gui2CompactSlider and stopCompactInteraction then stopCompactInteraction(false, true) end
         if self.gui2DisabledInitialized and self.gui2Disabled == disabled then
             return false
         end
@@ -2452,6 +2710,9 @@ function GUI2.Form:CreateSlider(parent, opts)
             GUI2:RefreshPrimitive(self.slider.gui2Bg)
         end
         self.gui2DisabledInitialized = true
+        if self.compactHint then
+            GUI2:SetTextColorKey(self.compactHint, disabled and "color.text.disabled" or "color.text.secondary")
+        end
         return true
     end
     function container:RefreshTheme()
@@ -2489,15 +2750,178 @@ function GUI2.Form:CreateSlider(parent, opts)
         FinishSliderDiagnostic(container)
     end)
     input:SetScript("OnEnterPressed", function(editbox)
+        compactEditing = false
         local startStepKey = container.gui2FinalizedSliderStepKey
         Update(editbox:GetText(), "input")
         Finalize(container.value, "input", startStepKey)
+        if container.gui2CompactSlider then editbox:SetText(string_format(fmt, container.value or minValue)) end
         editbox:ClearFocus()
     end)
     input:SetScript("OnEscapePressed", function(editbox)
+        compactEditing = false
+        if container.gui2CompactSlider and stopCompactInteraction then stopCompactInteraction(true) end
         editbox:SetText(string_format(fmt, container.value or minValue))
         editbox:ClearFocus()
     end)
+
+    function container:SetCompactMode(enabled, compactWidth, onCommit)
+        enabled = enabled == true
+        compactWidth = tonumber(compactWidth) or 96
+        self.gui2CompactCommit = enabled and onCommit or nil
+        if self.gui2CompactSlider == enabled then
+            if enabled and self.gui2CompactWidth ~= compactWidth then
+                self.gui2CompactWidth = compactWidth
+                self:SetWidth(compactWidth)
+                input:SetWidth(compactWidth)
+            end
+            return
+        end
+        if stopCompactInteraction then stopCompactInteraction(false, true) end
+        self.gui2CompactSlider = enabled
+        self.gui2CompactWidth = enabled and compactWidth or nil
+        if not enabled then
+            if self.compactHint then self.compactHint:Hide() end
+            slider:SetParent(self)
+            slider:EnableMouse(true)
+            slider:ClearAllPoints()
+            slider:SetWidth(sliderWidth)
+            slider:SetHeight(20)
+            if opts.inline then slider:SetPoint("LEFT", self, "LEFT", labelWidth, 0)
+            else slider:SetPoint("TOPLEFT", 0, opts.label and -22 or -2) end
+            slider:Show()
+            input:ClearAllPoints()
+            input:SetSize(inputWidth, 18)
+            if opts.inline then input:SetPoint("LEFT", slider, "RIGHT", gap, 0)
+            else input:SetPoint("TOP", slider, "BOTTOM", 0, 0) end
+            self:SetSize(width, height)
+            if self.label then self.label:Show() end
+            return
+        end
+        self:SetSize(compactWidth, 24)
+        input:ClearAllPoints()
+        input:SetPoint("CENTER", self, "CENTER", 0, 0)
+        input:SetSize(compactWidth, 24)
+        slider:Hide()
+        if self.label then self.label:Hide() end
+        if not self.compactHint then
+            self.compactHint = GUI2:CreateText(input, "↔", "font.size.sm", "color.text.secondary")
+            self.compactHint:SetPoint("RIGHT", input, "RIGHT", -4, 0)
+        end
+        self.compactHint:Show()
+        if stopCompactInteraction then return end
+
+        local popup, pendingX, pendingY, pendingValue, pendingStepKey
+        local closing = false
+        local getCursor = _G.GetCursorPosition
+        local mouseDown = _G.IsMouseButtonDown
+        local function Cursor()
+            local x, y = getCursor()
+            local scale = container:GetEffectiveScale()
+            return x / scale, y / scale
+        end
+        local function ShowRail()
+            if not popup then
+                popup = GUI2:CreatePanel(UIParent, { width = 144, height = 40,
+                    surface = "color.surface.popup", border = "color.border.default" })
+                popup:SetFrameStrata("TOOLTIP")
+                popup:SetClampedToScreen(true)
+                popup:EnableMouse(false)
+                local low = GUI2:CreateText(popup, string_format(fmt, minValue), "font.size.sm", "color.text.secondary")
+                local high = GUI2:CreateText(popup, string_format(fmt, maxValue), "font.size.sm", "color.text.secondary")
+                low:SetPoint("BOTTOMLEFT", 8, 3)
+                high:SetPoint("BOTTOMRIGHT", -8, 3)
+                container.compactPopup = popup
+            end
+            slider:SetParent(popup)
+            slider:EnableMouse(false)
+            slider:ClearAllPoints()
+            slider:SetPoint("TOPLEFT", popup, "TOPLEFT", 8, -3)
+            slider:SetSize(128, 20)
+            popup:SetScale(container:GetEffectiveScale() / UIParent:GetEffectiveScale())
+            popup:ClearAllPoints()
+            if (input:GetBottom() or 0) < 48 then
+                popup:SetPoint("BOTTOMRIGHT", input, "TOPRIGHT", 0, 4)
+            else popup:SetPoint("TOPRIGHT", input, "BOTTOMRIGHT", 0, -4) end
+            popup:Show()
+            slider:Show()
+        end
+        stopCompactInteraction = function(cancel, discard)
+            local hadPointer = pendingX ~= nil
+            local wasDragging = dragging
+            local startValue, startKey = pendingValue, pendingStepKey
+            pendingX, pendingY, pendingValue, pendingStepKey = nil, nil, nil, nil
+            container:SetScript("OnUpdate", nil)
+            dragging = false
+            compactEditing = false
+            if popup then popup:Hide() end
+            slider:Hide()
+            closing = true
+            input:ClearFocus()
+            closing = false
+            if discard then
+                input:SetText(container.gui2ValueInitialized and string_format(fmt, container.value or minValue) or "")
+            end
+            if hadPointer and wasDragging and not discard then
+                if cancel then Update(startValue, "scrub", false, true)
+                else Update(container.value, "scrub", false, true, "release") end
+                Finalize(container.value, "release", startKey)
+            end
+            if hadPointer then FinishSliderDiagnostic(container) end
+        end
+        local function TrackPointer()
+            if not mouseDown("LeftButton") then stopCompactInteraction(false); return end
+            local x, y = Cursor()
+            local dx, dy = x - pendingX, y - pendingY
+            if not dragging then
+                if math.abs(dx) < 4 or math.abs(dx) < math.abs(dy) then return end
+                dragging = true
+                ShowRail()
+                input:HighlightText(0, 0)
+                BeginSliderDiagnostic(container, opts, pendingValue, pendingStepKey)
+            end
+            local steps = step and ((maxValue - minValue) / step) or 100
+            local pixels = math_max(4, math_min(18, 128 / math_max(1, steps)))
+            local delta = math_floor((dx / pixels) + 0.5) * (step or ((maxValue - minValue) / 100))
+            Update(pendingValue + delta, "scrub", false, false, "value")
+        end
+        input:HookScript("OnMouseDown", function(_, button)
+            if not container.gui2CompactSlider or container.gui2Disabled
+                or button ~= "LeftButton" or compactEditing
+                or type(getCursor) ~= "function" or type(mouseDown) ~= "function" then return end
+            pendingX, pendingY = Cursor()
+            pendingValue, pendingStepKey = Normalize(container.value or minValue)
+            if not container.gui2ValueInitialized then pendingStepKey = nil end
+            input:SetFocus()
+            container:SetScript("OnUpdate", TrackPointer)
+        end)
+        input:HookScript("OnMouseUp", function(_, button)
+            if button ~= "LeftButton" or pendingX == nil then return end
+            local click = not dragging
+            stopCompactInteraction(false)
+            if click and not container.gui2Disabled then
+                compactEditing = true
+                input:SetFocus()
+                input:HighlightText()
+            end
+        end)
+        input:HookScript("OnEditFocusLost", function(editbox)
+            if closing or not container.gui2CompactSlider then return end
+            if pendingX ~= nil then stopCompactInteraction(false); return end
+            if compactEditing then
+                compactEditing = false
+                local startKey = container.gui2FinalizedSliderStepKey
+                Update(editbox:GetText(), "input")
+                Finalize(container.value, "input", startKey)
+                editbox:SetText(string_format(fmt, container.value or minValue))
+            end
+        end)
+        input:HookScript("OnTextChanged", function(_, userInput)
+            if container.gui2CompactSlider and userInput and pendingX == nil then compactEditing = true end
+        end)
+        container:HookScript("OnHide", function()
+            if container.gui2CompactSlider then stopCompactInteraction(false, true) end
+        end)
+    end
 
     AddTooltip(container, opts)
     Update(GetValue(opts) or minValue, nil, true)
@@ -2802,6 +3226,7 @@ function GUI2.Form:CreateDropdown(parent, opts)
     ConfigureMotion(frame, opts)
     GUI2:SkinDropdownButton(frame)
     if frame.arrow then InheritMotion(frame.arrow, frame) end
+    local textInsetLeft, textInsetRight = 8, 24
 
     local function ResolveOptions()
         local options = opts.options
@@ -2900,11 +3325,14 @@ function GUI2.Form:CreateDropdown(parent, opts)
             end
             dropdown.selectionIcon:SetSize(option.iconSize or 18, option.iconSize or 18)
             dropdown.selectionIcon:ClearAllPoints()
-            dropdown.selectionIcon:SetPoint("LEFT", 8, 0)
+            dropdown.selectionIcon:SetPoint("LEFT", textInsetLeft, 0)
             if ApplyOptionIcon(dropdown.selectionIcon, option) then
                 dropdown.gui2HasSelectionIcon = true
                 dropdown.text:SetPoint("LEFT", dropdown.selectionIcon, "RIGHT", 6, 0)
-                dropdown.text:SetPoint("RIGHT", -24, 0)
+                dropdown.text:SetPoint("RIGHT", -textInsetRight, 0)
+                if dropdown.gui2DropdownTextPadding then
+                    dropdown.gui2DropdownTextPadding = textInsetLeft + (option.iconSize or 18) + 6 + textInsetRight
+                end
                 return
             end
         end
@@ -2914,8 +3342,18 @@ function GUI2.Form:CreateDropdown(parent, opts)
             dropdown.selectionIcon:SetTexture(nil)
         end
         dropdown.gui2HasSelectionIcon = false
-        dropdown.text:SetPoint("LEFT", 8, 0)
-        dropdown.text:SetPoint("RIGHT", -24, 0)
+        dropdown.text:SetPoint("LEFT", textInsetLeft, 0)
+        dropdown.text:SetPoint("RIGHT", -textInsetRight, 0)
+        if dropdown.gui2DropdownTextPadding then dropdown.gui2DropdownTextPadding = textInsetLeft + textInsetRight end
+    end
+
+    function frame:SetTextInsets(left, right)
+        left, right = math_max(0, tonumber(left) or 8), math_max(0, tonumber(right) or 24)
+        if textInsetLeft == left and textInsetRight == right then return false end
+        textInsetLeft, textInsetRight = left, right
+        self.gui2DropdownTextPadding = (left ~= 8 or right ~= 24) and (left + right) or nil
+        ApplySelectionIcon(self, FindOption(self.value))
+        return true
     end
 
     function frame:GetValue()
@@ -2995,6 +3433,8 @@ function GUI2.Form:CreateDropdown(parent, opts)
                 value = opt.value,
                 checked = self.value == opt.value,
                 render = opt.render,
+                onEnter = opt.onEnter,
+                onLeave = opt.onLeave,
                 icon = opt.icon or opt.texture,
                 texture = opt.texture,
                 atlas = opt.atlas,
@@ -3078,7 +3518,7 @@ local function BuildLSMFontOptions(opts)
     local fontSize = GUI2.Fonts and GUI2.Fonts.size_normal
         or GUI2:GetMetric("font.size.md", 13)
 
-    local function AddOption(source)
+    local function AddOption(source, replace)
         local option = {}
         if type(source) == "table" then
             for key, value in pairs(source) do option[key] = value end
@@ -3087,13 +3527,22 @@ local function BuildLSMFontOptions(opts)
             option.value = source
         end
         option.value = option.value or option.text
-        if option.value == nil or seen[option.value] then return end
+        if option.value == nil then return end
         option.text = option.text or tostring(option.value)
         if option.text == option.value
             and YUI.Locale and YUI.Locale.GetFontDisplayName then
             option.text = YUI.Locale:GetFontDisplayName(option.value)
         end
-        if seenLabels[option.text] then return end
+        if replace then
+            for index = #options, 1, -1 do
+                local previous = options[index]
+                if previous.value == option.value or previous.text == option.text then
+                    seen[previous.value], seenLabels[previous.text] = nil, nil
+                    table.remove(options, index)
+                end
+            end
+        end
+        if seen[option.value] or seenLabels[option.text] then return end
         seen[option.value], seenLabels[option.text] = true, true
 
         local baseRender = option.render
@@ -3124,6 +3573,9 @@ local function BuildLSMFontOptions(opts)
         table_sort(names)
     end
     for _, name in ipairs(names) do AddOption(name) end
+    local append = opts.appendOptions
+    if type(append) == "function" then append = append() end
+    for _, option in ipairs(type(append) == "table" and append or {}) do AddOption(option, true) end
     return options
 end
 
@@ -4012,7 +4464,7 @@ local function NormalizeGlowOptionsValue(value, fallback)
     value = type(value) == "table" and value or {}
     fallback = type(fallback) == "table" and fallback or {}
     local style = value.style or fallback.style or "soft"
-    if style ~= "none" and style ~= "pixel" and style ~= "soft" and style ~= "button" and style ~= "autocast" and style ~= "proc" and style ~= "pulse" then
+    if style ~= "none" and style ~= "pixel" and style ~= "soft" and style ~= "button" and style ~= "autocast" and style ~= "proc" and style ~= "pulse" and style ~= "masque" then
         style = "soft"
     end
     local defaultLines = style == "pixel" and 6 or 4
@@ -4084,6 +4536,11 @@ function GUI2.Form:CreateGlowOptions(parent, opts)
     end
 
     local function GetExpandedFields(style)
+        if style == "masque" then
+            return WithColorField({
+                { key = "alpha", label = labels.alpha or "透明", min = 0.1, max = 1, step = 0.05, precision = 2 },
+            })
+        end
         if style == "none" then
             return {}
         end
@@ -4159,12 +4616,12 @@ function GUI2.Form:CreateGlowOptions(parent, opts)
             parts[#parts + 1] = (labels.summarySpeed or "速") .. " " .. FormatGlowSummaryNumber(current.speed, 2)
         elseif current.style == "soft" then
             parts[#parts + 1] = (labels.summarySize or "尺寸") .. " " .. FormatGlowSummaryNumber(current.size, 2)
-        else
+        elseif current.style ~= "masque" then
             parts[#parts + 1] = (labels.summarySize or "尺寸") .. " " .. FormatGlowSummaryNumber(current.size, 2)
             parts[#parts + 1] = (labels.summarySpeed or "速") .. " " .. FormatGlowSummaryNumber(current.speed, 2)
         end
         parts[#parts + 1] = (labels.summaryAlpha or "透明") .. " " .. FormatGlowSummaryNumber(current.alpha, 2)
-        if current.offsetX ~= 0 or current.offsetY ~= 0 then
+        if current.style ~= "masque" and (current.offsetX ~= 0 or current.offsetY ~= 0) then
             parts[#parts + 1] = (labels.summaryOffset or "扩展") .. " " .. FormatGlowSummaryNumber(current.offsetX, 2) .. "/" .. FormatGlowSummaryNumber(current.offsetY, 2)
         end
         parts[#parts + 1] = (labels.summaryColor or "色") .. " " .. FormatGlowColorSummary(current.color)

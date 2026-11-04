@@ -4,6 +4,7 @@ if not YUI or not YUI.Locale then return end
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("zhTW") then return end
 
 YUI.Locale:Register("YMap", "zhTW", {
+    ["settings.minimap.text_style"] = "文字",
     ["settings.minimap.group_text_short"] = "文字",
     ["settings.minimap.group_buttons_short"] = "按鈕",
     ["settings.minimap.text_zone_sample"] = "區域名稱",
@@ -95,6 +96,8 @@ YUI.Locale:Register("YMap", "zhTW", {
     ["settings.section.world_map_coordinates"] = "座標",
     ["settings.world_map.enabled"] = "啟用世界地圖增強",
     ["settings.world_map.scale"] = "視窗縮放",
+    ["settings.world_map.window_managed"] = "視窗位置與縮放由 EllesmereUI Shifter 管理。YMap 的設定已保留，關閉 Shifter 後自動恢復；其他地圖功能仍可使用。",
+    ["settings.world_map.window_managed_tooltip"] = "由 EllesmereUI Shifter 管理，關閉 Shifter 後可調整。",
     ["settings.world_map.fade_when_moving"] = "移動時半透明",
     ["settings.world_map.moving_opacity"] = "移動時不透明度（%）",
     ["settings.world_map.remember_position"] = "記住視窗位置",

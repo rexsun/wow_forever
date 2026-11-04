@@ -203,6 +203,49 @@ local function IsSecretValue(value)
         and Security.IsSecretValue(value) == true
 end
 
+function Item.GetCursorItemID()
+    local security = YUI.API.Security
+    if not (security and security.SafeCall and security.SafeString and security.SafeNumber) then return nil end
+    local ok, kind, itemID = security.SafeCall("Item.GetCursorItemID", _G.GetCursorInfo)
+    if not ok or security.SafeString(kind) ~= "item" then return nil end
+    -- Preserve public item-cursor presence even when its ID is unavailable.
+    if IsSecretValue(itemID) or type(itemID) ~= "number" then return nil, true end
+    itemID = security.SafeNumber(itemID)
+    if type(itemID) == "number" and itemID > 0 and itemID < math.huge and itemID % 1 == 0 then
+        return itemID, true
+    end
+    return nil, true
+end
+
+-- Read-only eligibility. The protected drop must remain in a native secure handler.
+function Item.CanFeedPetFromCursor()
+    if not YUI.IsForever then return false, "unsupported-client" end
+    local security, unit, spell = YUI.API.Security, YUI.API.Unit, YUI.API.Spell
+    if not (security and security.SafeCall and security.SafeBoolean and security.InCombatLockdown
+        and unit and unit.Exists and unit.IsDead and spell and spell.GetKnownState
+        and C_Spell and type(C_Spell.IsSpellUsable) == "function"
+        and C_PetInfo and type(C_PetInfo.CanPetEatItem) == "function"
+        and C_Item and type(C_Item.DropItemOnUnit) == "function") then
+        return false, "unavailable"
+    end
+    if security.InCombatLockdown() then return false, "in-combat" end
+    local itemID = Item.GetCursorItemID()
+    if not itemID then return false, "no-item" end
+    if not unit.Exists("pet") then return false, "no-pet" end
+    if unit.IsDead("pet") then return false, "pet-dead" end
+    if spell.GetKnownState(6991) ~= true then return false, "not-learned" end
+    if type(_G.SpellIsTargeting) == "function" then
+        local ok, targeting = security.SafeCall("Item.FeedPet targeting", _G.SpellIsTargeting)
+        if not ok or security.SafeBoolean(targeting) ~= false then return false, "targeting" end
+    end
+    local ok, usable = security.SafeCall("Item.FeedPet usability", C_Spell.IsSpellUsable, 6991)
+    if not ok or security.SafeBoolean(usable) ~= true then return false, "unusable" end
+    local canEat
+    ok, canEat = security.SafeCall("Item.FeedPet food", C_PetInfo.CanPetEatItem, itemID)
+    if not ok or security.SafeBoolean(canEat) ~= true then return false, "cannot-eat" end
+    return true, "ready"
+end
+
 local ITEM_CLASS = Enum and Enum.ItemClass or {}
 local KNOWABLE_ITEM_CLASSES = {
     [ITEM_CLASS.Consumable or 0] = true,

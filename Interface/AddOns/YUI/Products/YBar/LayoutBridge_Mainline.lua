@@ -218,8 +218,8 @@ function Bridge:Measure(view)
     local size=self.lib.Model.Resolve(self:GetModel(),view.id,"size") or config.size or 14
     local height=module.contentHeight
     if view.moduleType=="Clock" then
-        -- Internal text adjustment must not resize the module or its bar.
-        height=config.fontSize or size
+        -- Text ink reserves follow the final style, independently of vPadding.
+        height=module.contentHeight or config.fontSize or size
     elseif not height then height=size+6 end
     if view.preview and view.snapshot then
         -- Snapshot child anchors only after the parked source has its measured size.
@@ -746,6 +746,8 @@ function Bridge:Install()
         if bridge.runtime then bridge.runtime:SetEnabled(self:IsEnabled() or bridge.session~=nil) end
     end
     function ybar:OnLifecycleDisable()
+        local style=bridge.yui.GUI2 and bridge.yui.GUI2.FontStyle
+        if style and style.CloseForProvider then style:CloseForProvider("ybar") end
         if bridge.session then bridge.session:Discard() end
         bridge.original.OnLifecycleDisable(self)
         if bridge.active and bridge.runtime then bridge.runtime:SetEnabled(false) end

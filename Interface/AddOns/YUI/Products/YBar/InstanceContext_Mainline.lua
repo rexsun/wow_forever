@@ -1,6 +1,7 @@
 -- Stable runtime facades. Only plain configuration tables are persisted.
 local Context = {}
 Context.__index = Context
+local monochromeFlags = { NONE = "MONOCHROME", OUTLINE = "OUTLINE,MONOCHROME", THICKOUTLINE = "THICKOUTLINE,MONOCHROME" }
 
 function Context.New(model, getModel, id, configKey, getRoot, fields)
     local self = setmetatable({id=id, model=model, getModel=getModel,
@@ -37,7 +38,15 @@ function Context.New(model, getModel, id, configKey, getRoot, fields)
         __index=function(_, key)
             if key == configKey then return self.config end
             if key == "fontFlags" then
-                local value = model.Resolve(getModel(), self.id, "outline")
+                local db = getModel()
+                local value = model.Resolve(db, self.id, "outline")
+                if model.Resolve(db, self.id, "monochrome") == true then
+                    if value == nil then
+                        local root = getRoot()
+                        value = root and root.fontOutline and "OUTLINE" or "NONE"
+                    end
+                    return monochromeFlags[value == true and "OUTLINE" or value] or monochromeFlags.NONE
+                end
                 if value == "NONE" or value == false then return "" end
                 if value == true then return "OUTLINE" end
                 return value

@@ -81,11 +81,7 @@ local CPU_COUNT_RESET_GLOBAL_KEY = "_ybarCPUCountReset"
 local CPU_COUNT_RESET_PROCESS_TOLERANCE_SECONDS = 2
 
 local function FormatMemory(value)
-    if value > 1024 then
-        return format("%.1f mb", value / 1024)
-    else
-        return format("%.0f kb", value)
-    end
+    return YUI.SystemMetricsUsage.FormatMemory(value)
 end
 
 local function FormatCPU(value)
@@ -101,10 +97,7 @@ local function FormatCPU(value)
 end
 
 local function FormatCPUPercent(value)
-    if value >= 10 then return format("%.0f%%", value) end
-    if value >= 0.1 then return format("%.1f%%", value) end
-    if value >= 0.01 then return format("%.2f%%", value) end
-    return "<0.01%"
+    return YUI.SystemMetricsUsage.FormatPercent(value)
 end
 
 local function FormatCPUPeak(value)
@@ -1596,16 +1589,10 @@ local function RenderUsageTooltipContent(writer, opts)
             if data.cpu > 0 or (usageTooltipDiagnosticsAvailable
                 and ((data.peak or 0) > 0 or (data.spikeCount or 0) > 0))
             then
-                local denominator = applicationCPU
-                    and (applicationCPU - total + data.cpu)
-                    or nil
                 local valueText = usageTooltipCPUIsRecent
-                    and FormatCPUPercent(
-                        denominator and denominator > 0
-                            and (data.cpu / denominator) * 100
-                            or 0
-                    )
+                    and FormatCPUPercent(YUI.SystemMetricsUsage.Percent(data.cpu,applicationCPU,total))
                     or FormatCPU(data.cpu / divisor)
+
                 if usageTooltipCPUIsRecent and usageTooltipDiagnosticsAvailable then
                     writer:AddMetricRow(
                         data.title,
@@ -1944,11 +1931,11 @@ function Module:CreateFPSButton(parent)
                 return
             end
 
-            local before = gcinfo()
-            collectgarbage("collect")
-            local after = gcinfo()
+            local reclaimed = YUI.SystemMetricsUsage.ReclaimMemory()
             ClearUsageTooltipCache()
-            YUI:Print(format("|cff66C6FF%s|r", format(L["system.message.memory_reclaimed"], FormatMemory(before - after))))
+            if reclaimed then
+                YUI:Print(format("|cff66C6FF%s|r", format(L["system.message.memory_reclaimed"], FormatMemory(reclaimed))))
+            end
             module:UpdateButtons(true)
             module:RefreshPinnedTooltip(true)
             if IsTooltipOwner(self) and RefreshTooltip then

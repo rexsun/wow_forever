@@ -4,10 +4,10 @@ if not YUI or not YUI.Locale then return end
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("esMX") then return end
 
 YUI.Locale:Register("YActionBar", "esMX", {
-    ["product.title"] = "Flare Action Bar · YanForge",
+    ["product.title"] = "Flare Action Bar · Ayan",
     ["product.short_title"] = "Flare Action Bar",
     ["product.brand_suffix"] = "Action Bar",
-    ["product.notes"] = "Flare Action Bar · YanForge",
+    ["product.notes"] = "Flare Action Bar · Ayan",
 
     ["settings.title"] = "Flare Action Bar",
     ["settings.enable"] = "Activar barras de acción",

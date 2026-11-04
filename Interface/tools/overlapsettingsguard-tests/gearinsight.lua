@@ -21,7 +21,8 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     function gi.QM.PlatesOnClose()
       if gi.db.qm.platesWeOpened then SetCVar("nameplateShowFriendlyPlayers", "0"); gi.db.qm.platesWeOpened = nil end
     end
-    for _, name in ipairs({ "ApplyAll", "PlaceMissing", "Restore", "AssignSlotKey", "ApplyKeyTemplate", "RestoreStolen" }) do
+    for _, name in ipairs({ "PlaceMissing", "Restore", "AssignSlotKey", "ApplyKeyTemplate", "RestoreStolen",
+      "PlaceSpellAt", "ClearSlot", "ClearSpellEverywhere", "ResetMainBar", "UnbindKey" }) do
       gi.Keys[name] = function() w.edited = true; return 7 end
     end
     return gi
@@ -82,15 +83,15 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     w.Login()
     eq(gi.db.keysHud, true)
     eq(gi.db.leveling.shown, true)
-    gi.Keys.ApplyAll()
+    gi.Keys.PlaceMissing({})
     eq(w.edited, true)
     loaded.YUI = true
     w.Tick()
     w.edited = false
-    gi.Keys.ApplyAll()
+    gi.Keys.PlaceMissing({})
     eq(w.edited, false)
     loaded.YUI = nil
-    gi.Keys.ApplyAll()
+    gi.Keys.PlaceMissing({})
     eq(w.edited, true, "wrapper is conditional on loaded owner")
   end)
 
@@ -98,16 +99,20 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
     local gi = BuildGI(w)
     w.Login()
-    gi.Keys.ApplyAll(); gi.Keys.PlaceMissing({}); gi.Keys.Restore({})
+    gi.Keys.PlaceMissing({}); gi.Keys.Restore({})
+    gi.Keys.PlaceSpellAt({}, 1); gi.Keys.ClearSlot(1); gi.Keys.ClearSpellEverywhere("spell")
+    eq(gi.Keys.UnbindKey("Q"), false)
+    local resetCount, resetSkipped = gi.Keys.ResetMainBar()
+    eq(resetCount, 0, "caller reads nil as being in combat"); eq(type(resetSkipped), "table")
     local accepted = gi.Keys.AssignSlotKey(1, "Q")
     eq(accepted, false)
     local count, skipped, stolen = gi.Keys.ApplyKeyTemplate({1}, {})
     eq(count, 0); eq(type(skipped), "table"); eq(type(stolen), "table")
     eq(gi.Keys.RestoreStolen(), 0)
     eq(w.edited, nil, "none of the original editing functions ran")
-    gi.Keys.ApplyAll = function() w.edited = true end
+    gi.Keys.PlaceSpellAt = function() w.edited = true end
     w.Tick()
-    gi.Keys.ApplyAll()
+    gi.Keys.PlaceSpellAt({}, 1)
     eq(w.edited, nil, "replaced editing function is guarded again")
   end)
 
@@ -155,14 +160,119 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     _G.SaveBindings = function() writes = writes + 1 end
     _G.PlaceAction = function() writes = writes + 1 end
     w.Login()
-    gi.Keys.ApplyAll(false)
     gi.Keys.PlaceMissing({id=1, name="spell"})
     gi.Keys.Restore({cls="Rogue"})
+    gi.Keys.PlaceSpellAt({id=1, name="spell"}, 1, "slot")
+    gi.Keys.ClearSlot(1, "slot")
+    gi.Keys.ClearSpellEverywhere("spell")
+    gi.Keys.UnbindKey("Q")
+    gi.Keys.ResetMainBar()
     eq(gi.Keys.AssignSlotKey(1, "Q"), false)
     local count, skipped, stolen = gi.Keys.ApplyKeyTemplate({1}, {keys={"Q"}})
     eq(count, 0); eq(#skipped, 0); eq(#stolen, 0)
     eq(gi.Keys.RestoreStolen(), 0)
     eq(writes, 0, "game actions and saved bindings remain untouched")
     eq(gi.Keys.SlotCommand(1), "ACTIONBUTTON1", "read-only inspection remains available")
+  end)
+
+  test("every installed GearInsight Keys function is classified as locked or read-only", function()
+    local readOnly = {}
+    for name in ([[ActiveView AddonBarKeys Backup CurrentFormKey DebugMacros DiagView FirstFreeSideSlot FormByKey
+      FormChoices FormKnown Forms GroupOf Grouped InForm KeyAction KeyFree KeyMap LiveMap MacroSpellNames MainPosOfKey
+      MainPosSlot MainTree Plan RacialEntries Resolve SharedForms SlotCommand SlotKey SlotMacroSpells SpellOfKey Status
+      StolenTable ViewOf]]):gmatch("%S+") do readOnly[name] = true end
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+    local locked = {}
+    for _, name in ipairs(w.ns.adapters.GearInsight.EDITS) do locked[name] = true end
+    local file = assert(io.open(ADDON_ROOT .. "../GearInsight_Forever/Keys.lua", "rb"))
+    local source = file:read("*a")
+    file:close()
+    local found = {}
+    for name in source:gmatch("function K%.([%w_]+)") do
+      found[name] = true
+      ok(locked[name] or readOnly[name], "classify new GearInsight function K." .. name)
+    end
+    for name in pairs(locked) do ok(found[name], "locked function no longer exists: K." .. name) end
+  end)
+
+  test("one missing edit function does not cancel the other locks and warns once", function()
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+    local gi = BuildGI(w)
+    gi.Keys.Restore = nil
+    w.Login()
+    eq(StatusOf(w.ns.Check(), "gi.actionbaredits"), "off")
+    gi.Keys.PlaceSpellAt({}, 1)
+    eq(w.edited, nil, "remaining functions stay locked")
+    w.Tick()
+    local warnings = 0
+    for _, line in ipairs(w.printed) do
+      if line:find("Keys.Restore", 1, true) then warnings = warnings + 1 end
+    end
+    eq(warnings, 1)
+  end)
+
+  test("friendly nameplates are enforced before the load-on-demand Group module exists", function()
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+    local gi = BuildGI(w, { leveling = { shown = false }, qm = { autoPlates = true }, keysHud = false })
+    gi.QM = nil
+    w.Login()
+    eq(gi.db.qm.autoPlates, false)
+    eq(gi.db.qm.platesV3, 1, "upstream's one-time migration must not re-enable it")
+    eq(StatusOf(w.ns.Check(), "gi.friendlynameplates"), "off")
+    for _, line in ipairs(w.printed) do
+      ok(not line:find("cannot enforce GearInsight: Automatic friendly", 1, true), line)
+    end
+  end)
+
+  test("an existing setting without the migration marker is protected from the migration", function()
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+    local gi = BuildGI(w, { leveling = { shown = false }, qm = { autoPlates = false }, keysHud = false })
+    gi.QM = nil
+    w.Login()
+    eq(gi.db.qm.autoPlates, false)
+    eq(gi.db.qm.platesV3, 1)
+  end)
+
+  test("a leftover toggle waits for the Group module and then is released", function()
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded(), cvars = { nameplateShowFriendlyPlayers = "1" } })
+    local gi = BuildGI(w, { leveling = { shown = false }, keysHud = false,
+      qm = { autoPlates = false, platesV3 = 1, platesWeOpened = "nameplateShowFriendlyPlayers" } })
+    local qm = gi.QM
+    gi.QM = nil
+    w.Login()
+    eq(StatusOf(w.ns.Check(), "gi.friendlynameplates"), "off", "nothing can change the CVar yet")
+    eq(GetCVar("nameplateShowFriendlyPlayers"), "1")
+    gi.QM = qm
+    w.Tick()
+    eq(GetCVar("nameplateShowFriendlyPlayers"), "0")
+    eq(gi.db.qm.platesWeOpened, nil)
+  end)
+
+  test("a loaded Group module is reverted by the periodic check after a later migration", function()
+    local loaded = CurrentLoaded()
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded, cvars = { nameplateShowFriendlyPlayers = "0" } })
+    local gi = BuildGI(w, { leveling = { shown = false }, qm = { autoPlates = false, platesV3 = 1 }, keysHud = false })
+    local qm = gi.QM
+    gi.QM = nil
+    w.Login()
+    gi.QM, loaded.GearInsight_Forever_Group = qm, true
+    gi.db.qm.autoPlates, gi.db.qm.platesWeOpened = true, "nameplateShowFriendlyPlayers"
+    SetCVar("nameplateShowFriendlyPlayers", "1")
+    w.Tick()
+    eq(gi.db.qm.autoPlates, false)
+    eq(GetCVar("nameplateShowFriendlyPlayers"), "0")
+  end)
+
+  test("a loaded Group module without the expected API reports a blocked rule", function()
+    local loaded = CurrentLoaded()
+    loaded.GearInsight_Forever_Group = true
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded })
+    local gi = BuildGI(w, { leveling = { shown = false }, qm = {}, keysHud = false })
+    gi.QM = nil
+    w.Login()
+    eq(StatusOf(w.ns.Check(), "gi.friendlynameplates"), "blocked")
+    gi.QM = {}
+    w.Tick()
+    eq(StatusOf(w.ns.Check(), "gi.friendlynameplates"), "blocked")
   end)
 end

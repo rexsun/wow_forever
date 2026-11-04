@@ -64,6 +64,12 @@ local MOUNT_LIST = {
     { id = 2981, isGold = true }, -- 霜壳行者·碧蓝林海的巨壳伙伴
 }
 
+if YUI.IsRetail then
+    MOUNT_LIST[#MOUNT_LIST + 1] = { id = 3137, isGold = true } -- 孢囊真菌行者
+elseif YUI.IsWrath then
+    MOUNT_LIST[#MOUNT_LIST + 1] = { id = 3131, isGold = true } -- 霜壳行者·卡鲁亚克的巨钳伙伴
+end
+
 -- 默认值
 local DEFAULT_SIZE = 14
 local DEFAULT_ICON_SIZE = DEFAULT_SIZE + 2
@@ -80,6 +86,29 @@ if YUI.IsWrath then
     DEFAULT_MOUNT_LEFT = 284
     DEFAULT_MOUNT_RIGHT = 2647
 end
+
+local MOUNT_DISABLED = "none"
+local MOUNT_RANDOM_FAVORITE = 0
+local RANDOM_FAVORITE_DISPLAY_SPELL = 150544
+-- 时光服尚未开放原生随机偏好入口；仅在已核验的正式服开放。
+local SUPPORTS_RANDOM_FAVORITE = YUI.IsRetail == true
+local MOUNT_BINDINGS = {
+    { key = "left", dbKey = "mountLeft", default = DEFAULT_MOUNT_LEFT,
+        option = "durability.option.left_mount", input = "common.left_click", coreInput = true,
+        fallback = "durability.fallback.mount_left" },
+    { key = "middle", dbKey = "mountMiddle", default = DEFAULT_MOUNT_MIDDLE,
+        option = "durability.option.middle_mount", input = "durability.input.middle_click",
+        fallback = "durability.fallback.mount_middle" },
+    { key = "right", dbKey = "mountRight", default = DEFAULT_MOUNT_RIGHT,
+        option = "durability.option.right_mount", input = "common.right_click", coreInput = true,
+        fallback = "durability.fallback.mount_right" },
+    { key = "button4", dbKey = "mountButton4", default = MOUNT_DISABLED,
+        option = "durability.option.button4_mount", input = "durability.input.button4_click",
+        fallback = "durability.fallback.mount_button4" },
+    { key = "button5", dbKey = "mountButton5", default = MOUNT_DISABLED,
+        option = "durability.option.button5_mount", input = "durability.input.button5_click",
+        fallback = "durability.fallback.mount_button5" },
+}
 
 local DISPLAY_MODE_KEYS = {
     lowest = "durability.display.lowest",
@@ -110,9 +139,9 @@ local function EnsureModuleDB(self)
     if db.size == nil then db.size = DEFAULT_SIZE end
     if db.showIcon == nil then db.showIcon = true end
     if db.displayMode == nil then db.displayMode = DEFAULT_DISPLAY_MODE end
-    if db.mountLeft == nil then db.mountLeft = DEFAULT_MOUNT_LEFT end
-    if db.mountRight == nil then db.mountRight = DEFAULT_MOUNT_RIGHT end
-    if db.mountMiddle == nil then db.mountMiddle = DEFAULT_MOUNT_MIDDLE end
+    for _, binding in ipairs(MOUNT_BINDINGS) do
+        if db[binding.dbKey] == nil then db[binding.dbKey] = binding.default end
+    end
 
     self.db = db
     return db
@@ -206,20 +235,35 @@ end
 
 -- 辅助函数：获取坐骑信息
 local function GetMountInfo(mountID)
+    if mountID == MOUNT_RANDOM_FAVORITE then
+        return L["durability.mount.random_favorite"], SpellAPI.GetTexture(RANDOM_FAVORITE_DISPLAY_SPELL)
+    end
     local name, _, icon = C_MountJournal.GetMountInfoByID(mountID)
     return name, icon
 end
 
-local function GetMountMacroText(mountID)
+local function IsMountEnabled(mountID)
+    return mountID ~= MOUNT_DISABLED and (mountID ~= MOUNT_RANDOM_FAVORITE or SUPPORTS_RANDOM_FAVORITE)
+end
+
+local function GetMountAction(mountID)
+    if not IsMountEnabled(mountID) then
+        return { kind = "noop" }
+    end
+    if mountID == MOUNT_RANDOM_FAVORITE then
+        -- 150544 用于原生按钮显示；随机召唤走藏品的专用入口。
+        return { kind = "macro", macrotext = "/run C_MountJournal.SummonByID(0)" }
+    end
     local _, spellID = C_MountJournal.GetMountInfoByID(mountID)
     if spellID then
         local name = SpellAPI.GetName(spellID)
         if name then
-            return "/cast " .. name
+            return { kind = "macro", macrotext = "/cast " .. name }
         end
-        return "/cast " .. mountID
+        -- 法术名称可能尚未就绪；安全按钮接受法术编号，不能用坐骑编号代替。
+        return { kind = "spell", spell = spellID }
     end
-    return nil
+    return { kind = "noop" }
 end
 
 function Module:OnInitialize()
@@ -479,9 +523,6 @@ function Module:UpdateBarItem(frame, parent, totalCurrent, totalMax, lowest, res
     
     -- 更新安全按钮属性（仅非战斗状态）
     if not SecurityAPI.InCombatLockdown() then
-        local mountLeft = db.mountLeft or DEFAULT_MOUNT_LEFT
-        local mountMiddle = db.mountMiddle or DEFAULT_MOUNT_MIDDLE
-        local mountRight = db.mountRight or DEFAULT_MOUNT_RIGHT
         local actions = {
             altLeft = {
                 kind = "custom",
@@ -500,26 +541,8 @@ function Module:UpdateBarItem(frame, parent, totalCurrent, totalMax, lowest, res
             }
         end
         
-        -- 使用宏类型以支持灵活施法
-        local leftMacro = GetMountMacroText(mountLeft)
-        if leftMacro then
-            actions.left = { kind = "macro", macrotext = leftMacro }
-        else
-            actions.left = { kind = "noop" }
-        end
-        
-        local middleMacro = GetMountMacroText(mountMiddle)
-        if middleMacro then
-            actions.middle = { kind = "macro", macrotext = middleMacro }
-        else
-            actions.middle = { kind = "noop" }
-        end
-
-        local rightMacro = GetMountMacroText(mountRight)
-        if rightMacro then
-            actions.right = { kind = "macro", macrotext = rightMacro }
-        else
-            actions.right = { kind = "noop" }
+        for _, binding in ipairs(MOUNT_BINDINGS) do
+            actions[binding.key] = GetMountAction(db[binding.dbKey])
         end
 
         if self.secure and self.secure.SetActions then
@@ -652,33 +675,16 @@ function Module:OnEnter(frame)
     GameTooltip:AddLine(" ")
     
     -- 坐骑信息
-    local mountLeft = self.db.mountLeft or DEFAULT_MOUNT_LEFT
-    local nameLeft, iconLeft = GetMountInfo(mountLeft)
-    if not nameLeft then nameLeft = L["durability.fallback.mount_left"] end
-    local iconStrLeft = ""
-    if iconLeft then
-        iconStrLeft = format("|T%s:14:14:0:0:64:64:4:60:4:60|t ", iconLeft)
+    for _, binding in ipairs(MOUNT_BINDINGS) do
+        local mountID = self.db[binding.dbKey]
+        if IsMountEnabled(mountID) then
+            local name, icon = GetMountInfo(mountID)
+            local iconStr = icon and format("|T%s:14:14:0:0:64:64:4:60:4:60|t ", icon) or ""
+            local input = (binding.coreInput and LC or L)[binding.input]
+            GameTooltip:AddLine(format("|cffFFFFFF%s:|r %s %s%s", input,
+                L["durability.action.summon"], iconStr, name or L[binding.fallback]))
+        end
     end
-    
-    local mountMiddle = self.db.mountMiddle or DEFAULT_MOUNT_MIDDLE
-    local nameMiddle, iconMiddle = GetMountInfo(mountMiddle)
-    if not nameMiddle then nameMiddle = L["durability.fallback.mount_middle"] end
-    local iconStrMiddle = ""
-    if iconMiddle then
-        iconStrMiddle = format("|T%s:14:14:0:0:64:64:4:60:4:60|t ", iconMiddle)
-    end
-
-    local mountRight = self.db.mountRight or DEFAULT_MOUNT_RIGHT
-    local nameRight, iconRight = GetMountInfo(mountRight)
-    if not nameRight then nameRight = L["durability.fallback.mount_right"] end
-    local iconStrRight = ""
-    if iconRight then
-        iconStrRight = format("|T%s:14:14:0:0:64:64:4:60:4:60|t ", iconRight)
-    end
-
-    GameTooltip:AddLine(format("|cffFFFFFF%s:|r %s %s%s", LC["common.left_click"], L["durability.action.summon"], iconStrLeft, nameLeft))
-    GameTooltip:AddLine(format("|cffFFFFFF%s:|r %s %s%s", L["durability.input.middle_click"], L["durability.action.summon"], iconStrMiddle, nameMiddle))
-    GameTooltip:AddLine(format("|cffFFFFFF%s:|r %s %s%s", LC["common.right_click"], L["durability.action.summon"], iconStrRight, nameRight))
     if IsAutoRepairFeatureAvailable() then
         GameTooltip:AddLine(format("|cffFFFFFF%s:|r %s", LC["common.shift_left_click"], L["durability.action.toggle_auto_repair"]))
     end
@@ -702,7 +708,14 @@ function Module:GetOptions()
     table.sort(fontOptions, function(a, b) return a.text < b.text end)
 
     -- 构建坐骑选项列表
-    local mountOptions = {}
+    local mountOptions = {
+        { text = L["durability.mount.disabled"], value = MOUNT_DISABLED },
+    }
+    if SUPPORTS_RANDOM_FAVORITE then
+        mountOptions[#mountOptions + 1] = {
+            text = L["durability.mount.random_favorite"], value = MOUNT_RANDOM_FAVORITE,
+        }
+    end
     for _, mount in ipairs(MOUNT_LIST) do
         local mountID = mount.id
         local name, _, icon, _, isUsable = C_MountJournal.GetMountInfoByID(mountID)
@@ -782,43 +795,23 @@ function Module:GetOptions()
                 self:Update()
             end
         },
-        {
-            type = "dropdown",
-            label = L["durability.option.left_mount"],
-            width = 220,
-            default = DEFAULT_MOUNT_LEFT,
-            options = mountOptions,
-            get = function() return self.db.mountLeft end,
-            set = function(val)
-                self.db.mountLeft = val
-                self:Update()
-            end
-        },
-        {
-            type = "dropdown",
-            label = L["durability.option.middle_mount"],
-            width = 220,
-            default = DEFAULT_MOUNT_MIDDLE,
-            options = mountOptions,
-            get = function() return self.db.mountMiddle end,
-            set = function(val)
-                self.db.mountMiddle = val
-                self:Update()
-            end
-        },
-        {
-            type = "dropdown",
-            label = L["durability.option.right_mount"],
-            width = 220,
-            default = DEFAULT_MOUNT_RIGHT,
-            options = mountOptions,
-            get = function() return self.db.mountRight end,
-            set = function(val)
-                self.db.mountRight = val
-                self:Update()
-            end
-        },
     }
+    for _, binding in ipairs(MOUNT_BINDINGS) do
+        local dbKey = binding.dbKey
+        options[#options + 1] = {
+            type = "dropdown",
+            label = L[binding.option],
+            width = 220,
+            inlineLabel = false,
+            default = binding.default,
+            options = mountOptions,
+            get = function() return self.db[dbKey] end,
+            set = function(val)
+                self.db[dbKey] = val
+                self:Update()
+            end,
+        }
+    end
     local repairOptions = AutoRepair:GetOptions(600)
     for i = 1, #repairOptions do options[#options + 1] = repairOptions[i] end
     return options

@@ -33,6 +33,7 @@
     <Script file="Core\API\Quest.lua"/>
     <Script file="Core\API\ChatInput.lua"/>
     <Script file="Core\API\ActionBar.lua"/>
+    <Script file="Core\API\Totem.lua"/>
     <Script file="Core\API\CooldownViewer.lua"/>
     <Script file="Core\API\Frame.lua"/>
     <Script file="Core\API\BlizzardUI.lua"/>
@@ -74,5 +75,8 @@
     <Include file="Products\YHUD\Locales\!load.xml"/>
     <Include file="Products\YHUD\!load_Forever.xml"/>
     <Script file="Dev\Clean.lua"/>
+    <Script file="Dev\NoticePreview.lua"/>
+    <Script file="Dev\EffectPreview.lua"/>
+    <Script file="Dev\SkinPreview.lua"/>
     <Script file="Dev\Clean_Forever.lua"/>
 </Ui>

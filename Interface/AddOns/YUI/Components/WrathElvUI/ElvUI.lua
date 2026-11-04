@@ -263,4 +263,117 @@ function E:GetPlayerXOffset()
     return 0
 end
 
+-- 特殊字体的原始注册挂钩可能被共享库升级替换，在适配侧按需补齐刷新。
+do
+    local FONT_EVENT = "LibSharedMedia_Registered"
+    local FontRefresh = {}
+
+    local function GetSharedMedia()
+        local engine = _G.ElvUI
+        local core = type(engine) == "table" and engine[1]
+        if type(core) ~= "table" then return end
+        local libs = core.Libs
+        local media = type(libs) == "table" and libs.LSM
+        if type(media) == "table" then return core, media end
+    end
+
+    local function RefreshCombatFont(key, beforeWorld)
+        local core, media = GetSharedMedia()
+        -- 加载期已有 private 配置即可刷新；等待 Initialized 可能错过原生字体的启动阶段。
+        if not core or (not beforeWorld and core.Initialized ~= true) then return false end
+        local private = core.private
+        local general = type(private) == "table" and private.general
+        if type(general) ~= "table" or general.replaceCombatFont ~= true then return false end
+        local selected = general.dmgfont
+        if type(selected) ~= "string" or selected == "" or (key and key ~= selected) then return false end
+        if type(media.IsValid) ~= "function" or type(media.Fetch) ~= "function" then return false end
+        if media:IsValid("font", selected) ~= true then return false end
+        local path = media:Fetch("font", selected, true)
+        if type(path) ~= "string" or path == "" or path == _G.DAMAGE_TEXT_FONT then return false end
+        if type(core.UpdateBlizzardSpecialFonts) ~= "function" then return false end
+        core:UpdateBlizzardSpecialFonts()
+        return _G.DAMAGE_TEXT_FONT == path
+    end
+
+    local function RegisterFontCallback(owner)
+        local _, media = GetSharedMedia()
+        if not media or type(media.RegisterCallback) ~= "function" or type(media.UnregisterCallback) ~= "function" then return end
+        -- 提前记录来源，注册中途抛错时停用仍能尝试清理。
+        owner.sharedMedia = media
+        media.RegisterCallback(owner, FONT_EVENT, "OnFontRegistered")
+    end
+
+    local function UnregisterFontCallback(owner)
+        local media = owner.sharedMedia
+        owner.sharedMedia = nil
+        if type(media) == "table" and type(media.UnregisterCallback) == "function" then
+            media.UnregisterCallback(owner, FONT_EVENT)
+        end
+    end
+
+    function FontRefresh:Refresh(key, beforeWorld)
+        if self.refreshing or (not beforeWorld and (not self.enabled or not self.worldReady)) then return end
+        -- 整个外部边界受保护，包含字段访问、共享库查询和刷新方法内部。
+        self.refreshing = true
+        local ok, refreshed = pcall(RefreshCombatFont, key, beforeWorld)
+        self.refreshing = false
+        self.lastError = not ok and refreshed or nil
+        if beforeWorld then self.startupError = self.lastError end
+        if ok and refreshed then
+            self.refreshCount = (self.refreshCount or 0) + 1
+            self.lastPhase = beforeWorld and "startup" or "world"
+            if beforeWorld then self.startupRefreshCount = (self.startupRefreshCount or 0) + 1 end
+        end
+    end
+
+    function FontRefresh:OnRegister()
+        -- 本组件晚于本包字体注册、早于 PLAYER_LOGIN 加载，先纠正启动时的回退路径。
+        self:Refresh(nil, true)
+    end
+
+    function FontRefresh:OnFontRegistered(_, mediaType, key)
+        if mediaType == "font" and type(key) == "string" then
+            self:Refresh(key)
+        end
+    end
+
+    function FontRefresh:OnWorldReady()
+        if not self.enabled or self.worldReady then return end
+        self.worldReady = true
+        local ok, err = pcall(RegisterFontCallback, self)
+        self.registrationError = not ok and err or nil
+        self:Refresh()
+    end
+
+    function FontRefresh:OnEnable()
+        if self.enabled then return end
+        self.enabled = true
+        if YUI.Lifecycle and YUI.Lifecycle:IsReady("YUI_WORLD_READY") then
+            self:OnWorldReady()
+        else
+            -- 覆盖组件加载后、登录前才注册所选字体的情况。
+            self:Refresh(nil, true)
+            YUI.Event:Once("YUI_WORLD_READY", "OnWorldReady", self)
+        end
+    end
+
+    function FontRefresh:OnDisable()
+        self.enabled = false
+        self.worldReady = false
+        YUI.Event:OffOwner(self)
+        pcall(UnregisterFontCallback, self)
+    end
+
+    if YUI.IsWrath and YUI.Module and YUI.Event then
+        YUI.Module:Register({
+            id = "WrathElvUI.FontRefresh",
+            owner = FontRefresh,
+            dependencies = { "core.event" },
+            OnRegister = "OnRegister",
+            OnEnable = "OnEnable",
+            OnDisable = "OnDisable",
+        })
+    end
+end
+
 E:Init()

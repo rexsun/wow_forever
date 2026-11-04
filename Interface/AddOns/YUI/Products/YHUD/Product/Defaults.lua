@@ -13,7 +13,8 @@ YHUD.SETTINGS_ENTRY = "yhud.settings"
 YHUD.CONFIG_SET_PROVIDER_ID = "yhud"
 YHUD.LAYOUT_TRINKETS_ID = "yui.product.yhud.trinkets"
 YHUD.VERSION = "0.5.0"
-YHUD.SCHEMA_VERSION = 44
+YHUD.SCHEMA_VERSION = 50
+YHUD.MAX_MONITOR_GLOW_RULES = 8
 YHUD.PROFILE_VERSION = 44
 
 YHUD.EQUIPMENT_AURA_BUNDLE_ENTRY_KEY = "bundle:equipment-auras"
@@ -68,6 +69,8 @@ local DEFAULT_GROUP_ORDER = {
 }
 
 local DEFAULT_ICON_GROUP_LAYOUT = {
+    fillMode = "rows",
+    itemOffset = 0,
     iconSize = 42,
     columnSpacing = 1,
     rowSpacing = 1,
@@ -87,6 +90,7 @@ local DEFAULT_ICON_GROUP_STYLE = {
     iconShadowColor = { r = 0, g = 0, b = 0, a = 0.5 },
     cooldownSwipeColor = { r = 0, g = 0, b = 0, a = 0.82 },
     cooldownSwipe = true,
+    chargeRecoveryDisplay = "hideSwipeOnly",
     cooldownGCD = true,
     cooldownBling = false,
     cooldownText = true,
@@ -115,13 +119,15 @@ local DEFAULT_ICON_GROUP_STYLE = {
     countTextFont = "default",
     countTextSize = 12,
     countTextOutline = "outlineShadow",
-    countTextPosition = "bottom",
-    countTextOffsetX = -2,
-    countTextOffsetY = 2,
+    countTextPosition = "bottom-right",
+    countTextOffsetX = 2,
+    countTextOffsetY = -2,
     countTextColor = { r = 1, g = 1, b = 1, a = 1 },
 }
 
 local DEFAULT_BAR_GROUP_LAYOUT = {
+    widthMode = "fixed",
+    widthGroupId = "group:official:important",
     width = 244,
     height = 24,
     columnSpacing = 6,
@@ -158,6 +164,9 @@ local DEFAULT_RESOURCE_GROUP_LAYOUT = {
 }
 
 local DEFAULT_DURATION_GROUP_STYLE = {
+    barShadowMode = "none",
+    barShadowThickness = 4,
+    barShadowColor = { r = 0, g = 0, b = 0, a = 0.5 },
     smoothProgress = true,
     iconShape = "square",
     iconBorder = "thin",
@@ -215,6 +224,9 @@ local DEFAULT_DURATION_GROUP_STYLE = {
 }
 
 local DEFAULT_RESOURCE_GROUP_STYLE = {
+    barShadowMode = "none",
+    barShadowThickness = 4,
+    barShadowColor = { r = 0, g = 0, b = 0, a = 0.5 },
     smoothProgress = true,
     border = 1,
     borderColor = { r = 0, g = 0, b = 0, a = 1 },
@@ -365,6 +377,7 @@ local DEFAULT_SKYRIDING_STYLE_SETTINGS = {
     },
     halo = {
         width = 287,
+        cooldownStyle = "right",
         speedHeight = 16,
         vigorHeight = 9,
         secondWindHeight = 9,
@@ -736,24 +749,27 @@ local function NormalizeIconGroupLayout(layout, fallback)
     )
     layout.columnSpacing = ClampInteger(
         layout.columnSpacing,
-        0,
+        -32,
         32,
-        ClampInteger(fallback.columnSpacing, 0, 32, 1)
+        ClampInteger(fallback.columnSpacing, -32, 32, 1)
     )
     layout.rowSpacing = ClampInteger(
         layout.rowSpacing,
-        0,
+        -32,
         32,
-        ClampInteger(fallback.rowSpacing, 0, 32, 1)
+        ClampInteger(fallback.rowSpacing, -32, 32, 1)
     )
+    layout.itemOffset = ClampInteger(layout.itemOffset, -64, 64,
+        ClampInteger(fallback.itemOffset, -64, 64, 0))
     layout.spacing = nil
     layout.maxPerLine = ClampInteger(
         layout.maxPerLine,
         1,
-        20,
-        ClampInteger(fallback.maxPerLine, 1, 20, 6)
+        40,
+        ClampInteger(fallback.maxPerLine, 1, 40, 6)
     )
 
+    layout.fillMode = layout.fillMode == "columns" and "columns" or "rows"
     local wrapDirection = layout.wrapDirection
     if wrapDirection ~= "up" and wrapDirection ~= "down" then
         local legacyDirection = layout.direction
@@ -931,8 +947,8 @@ local function NormalizeDurationGroupLayout(layout, layoutType, fallback)
     layout.maxPerLine = ClampInteger(
         layout.maxPerLine,
         1,
-        20,
-        ClampInteger(fallback.maxPerLine, 1, 20, 6)
+        40,
+        ClampInteger(fallback.maxPerLine, 1, 40, 6)
     )
     layout.alignment = GROUP_ALIGNMENTS[layout.alignment]
         and layout.alignment
@@ -970,11 +986,15 @@ local function NormalizeDurationGroupLayout(layout, layoutType, fallback)
         832,
         ClampInteger(fallback.width, 48, 832, 244)
     )
+    layout.widthMode = layout.widthMode == "auto" and "auto" or "fixed"
+    layout.widthGroupId = type(layout.widthGroupId) == "string"
+        and #layout.widthGroupId <= 160 and layout.widthGroupId ~= ""
+        and layout.widthGroupId or YHUD.GROUP_IDS.IMPORTANT
     layout.height = ClampInteger(
         layout.height,
-        12,
+        2,
         352,
-        ClampInteger(fallback.height, 12, 352, 24)
+        ClampInteger(fallback.height, 2, 352, 24)
     )
     layout.orientation = BAR_ORIENTATIONS[layout.orientation]
         and layout.orientation
@@ -1027,9 +1047,9 @@ local function NormalizeResourceGroupLayout(layout, fallback)
     )
     layout.height = ClampInteger(
         layout.height,
-        8,
+        2,
         160,
-        ClampInteger(fallback.height, 8, 160, 16)
+        ClampInteger(fallback.height, 2, 160, 16)
     )
     layout.spacing = ClampInteger(
         layout.spacing,
@@ -1045,7 +1065,8 @@ local function NormalizeResourceGroupLayout(layout, fallback)
         and layout.direction
         or (RESOURCE_DIRECTIONS[fallback.direction]
             and fallback.direction or "down")
-    layout.orientation = "horizontal"
+    layout.orientation = BAR_ORIENTATIONS[layout.orientation]
+        and layout.orientation or "horizontal"
     layout.fillDirection =
         RESOURCE_FILL_DIRECTIONS[layout.fillDirection]
             and layout.fillDirection
@@ -1330,6 +1351,7 @@ local function NormalizeGroupPlacements(placements, groups)
 end
 
 local ICON_SHAPES = {
+    diamond = true,
     square = true,
     roundedSquare = true,
     flatSquare = true,
@@ -1345,6 +1367,8 @@ local ICON_BORDERS = {
     medium = true,
     thick = true,
     extraThick = true,
+    contour = true,
+    shade = true,
 }
 
 local RESOURCE_BORDER_THICKNESS = {
@@ -1367,7 +1391,10 @@ local COOLDOWN_TEXT_OUTLINES = {
     thick = true,
     shadow = true,
     outlineShadow = true,
+    thickShadow = true,
 }
+
+local SKYRIDING_COOLDOWN_STYLES = { left = true, right = true, bar = true }
 
 local RESOURCE_VALUE_FORMATS = {
     percent = true,
@@ -1386,7 +1413,29 @@ local RESOURCE_DISPLAY_MODES = {
     divided = true,
     cells = true,
     dots = true,
+    nativePoints = true,
 }
+local RESOURCE_POINT_SHAPES = { circle = true, square = true, diamond = true, star = true }
+local NATIVE_RESOURCE_POINT_STYLES = { auto = true, arcane = true, essence = true,
+    rogue = true, druid = true, chi = true, holy = true, shards = true,
+    runeBlood = true, runeFrost = true, runeUnholy = true }
+local RESOURCE_NATIVE_POINTS = { arcaneCharges = "arcane", essence = "essence", chi = "chi",
+    holyPower = "holy", soulShards = "shards" }
+local CLASS_NATIVE_POINTS = { MAGE = "arcane", EVOKER = "essence", ROGUE = "rogue", DRUID = "druid",
+    MONK = "chi", PALADIN = "holy", WARLOCK = "shards", DEATHKNIGHT = "runeBlood" }
+
+function YHUD:IsResourcePointShape(value) return RESOURCE_POINT_SHAPES[value] == true end
+function YHUD:IsNativeResourcePointStyle(value) return NATIVE_RESOURCE_POINT_STYLES[value] == true end
+function YHUD:ResolveNativeResourcePointStyle(setting, preset)
+    local selected = setting and setting.nativePointStyle
+    if selected ~= "auto" and NATIVE_RESOURCE_POINT_STYLES[selected] then return selected end
+    preset = preset or {}
+    local rune = preset.specID == 251 and "runeFrost" or preset.specID == 252 and "runeUnholy" or "runeBlood"
+    if preset.id == "runes" then return rune end
+    if preset.id == "comboPoints" then return preset.classFile == "DRUID" and "druid" or "rogue" end
+    return RESOURCE_NATIVE_POINTS[preset.id]
+        or (preset.classFile == "DEATHKNIGHT" and rune or CLASS_NATIVE_POINTS[preset.classFile]) or "arcane"
+end
 
 local RESOURCE_VISIBILITY_MODES = {
     always = true,
@@ -1419,6 +1468,9 @@ local RESOURCE_TEXT_POSITIONS = {
     center = true,
     ["end"] = true,
 }
+
+local CAST_ICON_SIDES = { left = true, right = true, ["outside-left"] = true, ["outside-right"] = true }
+local CAST_TIME_FORMATS = { remaining = true, elapsed = true, remainingTotal = true, elapsedTotal = true }
 
 local TEXT_POSITIONS = {
     center = true,
@@ -1462,9 +1514,15 @@ local function NormalizeKeybindOverrides(value)
     if type(value) ~= "table" then return result end
     for spellID, text in pairs(value) do
         local numericID = tonumber(spellID)
-        if numericID and numericID > 0 and numericID % 1 == 0 then
+        local key = numericID and numericID > 0 and numericID % 1 == 0 and numericID
+        if not key and type(spellID) == "string" then
+            local itemID = tonumber(spellID:match("^item:(%d+)$"))
+            if itemID and itemID > 0 then key = "item:" .. itemID
+            elseif spellID == "slot:13" or spellID == "slot:14" then key = spellID end
+        end
+        if key then
             text = NormalizeKeybindOverrideText(text)
-            if text ~= nil then result[numericID] = text end
+            if text ~= nil then result[key] = text end
         end
     end
     return result
@@ -1574,6 +1632,96 @@ local function NormalizeColor(value, fallback)
     }
 end
 
+function YHUD:IsBarTickModeAllowed(source, mode)
+    return mode == "off" or mode == "custom"
+        or (source ~= "time" and mode == source
+            and (source == "aura-stacks" or source == "spell-charges"))
+end
+
+local function NormalizeBarTicks(source, ticks)
+    ticks = type(ticks) == "table" and ticks or {}
+    local positions, seen = {}, {}
+    for index = 1, math.min(32, #(type(ticks.positions) == "table" and ticks.positions or {})) do
+        local position = tonumber(ticks.positions[index])
+        if position and position > 0 and position < 100 then
+            position = math.floor(position * 100 + 0.5) / 100
+            if position > 0 and position < 100 and not seen[position] then
+                positions[#positions + 1], seen[position] = position, true
+            end
+        end
+    end
+    table.sort(positions)
+    return {
+        mode = YHUD:IsBarTickModeAllowed(source, ticks.mode) and ticks.mode or "off",
+        step = ClampInteger(ticks.step, 1, 100, 1),
+        positions = positions,
+        thickness = ClampInteger(ticks.thickness, 1, 8, 1),
+        color = NormalizeColor(ticks.color, { r = 0, g = 0, b = 0, a = 0.8 }),
+    }
+end
+
+function YHUD:NormalizeBarProgress(value)
+    value = type(value) == "table" and value or {}
+    local source = (value.source == "aura-stacks" or value.source == "spell-charges")
+        and value.source or "time"
+    local saved = type(value.sources) == "table" and value.sources or nil
+    local sources = {}
+    for _, key in ipairs({ "time", "aura-stacks", "spell-charges" }) do
+        local setting = saved and type(saved[key]) == "table" and saved[key] or {}
+        sources[key] = { ticks = NormalizeBarTicks(key, setting.ticks) }
+    end
+    local aura = saved and type(saved["aura-stacks"]) == "table" and saved["aura-stacks"] or {}
+    if not saved or source == "aura-stacks" then aura = value end
+    sources["aura-stacks"].maximumMode = aura.maximumMode == "custom" and "custom" or "auto"
+    sources["aura-stacks"].maximum = ClampInteger(aura.maximum, 1, 100, 10)
+    sources[source].ticks = NormalizeBarTicks(source, value.ticks)
+    -- Old flat count ticks belong to their count source, never to a time scale.
+    local oldMode = type(value.ticks) == "table" and value.ticks.mode
+    if not saved and oldMode ~= source
+        and (oldMode == "aura-stacks" or oldMode == "spell-charges") then
+        sources[oldMode].ticks = NormalizeBarTicks(oldMode, value.ticks)
+    end
+    return {
+        source = source,
+        maximumMode = sources["aura-stacks"].maximumMode,
+        maximum = sources["aura-stacks"].maximum,
+        ticks = self:CopyValue(sources[source].ticks),
+        sources = sources,
+    }
+end
+
+function YHUD:SwitchBarProgressSource(value, source)
+    local result = self:NormalizeBarProgress(value)
+    source = (source == "aura-stacks" or source == "spell-charges") and source or "time"
+    result.source = source
+    result.ticks = self:CopyValue(result.sources[source].ticks)
+    return self:NormalizeBarProgress(result)
+end
+
+-- Only public layout dependencies are followed. Resource auto width has the
+-- existing implicit Important target; rejecting cycles also covers that edge.
+function YHUD:CanAlignBarWidth(profile, groupId, targetId)
+    local groups = profile and profile.groups and profile.groups.items or {}
+    local seen = { [groupId] = true }
+    while targetId do
+        if seen[targetId] then return false end
+        seen[targetId] = true
+        local group = groups[targetId]
+        if not group then return false end
+        local layout = profile.layout and profile.layout.groups
+            and profile.layout.groups[targetId] or {}
+        if group.layout == "resource" and layout.widthMode ~= "fixed" then
+            targetId = self.GROUP_IDS.IMPORTANT
+        elseif group.layout == "bars" and layout.orientation ~= "vertical"
+            and layout.widthMode == "auto" then
+            targetId = layout.widthGroupId or self.GROUP_IDS.IMPORTANT
+        else
+            return true
+        end
+    end
+    return false
+end
+
 function YHUD:NormalizeMonitorAppearanceOverride(value)
     if type(value) ~= "table" then return nil end
     local result = {}
@@ -1583,8 +1731,14 @@ function YHUD:NormalizeMonitorAppearanceOverride(value)
     if type(value.trackColor) == "table" then
         result.trackColor = NormalizeColor(value.trackColor)
     end
+    if type(value.rechargeColor) == "table" then
+        result.rechargeColor = NormalizeColor(value.rechargeColor)
+    end
     if type(value.stackThresholds) == "table" then
         result.stackThresholds = self:NormalizeBarStackThresholds(value.stackThresholds)
+    end
+    if type(value.barProgress) == "table" then
+        result.barProgress = self:NormalizeBarProgress(value.barProgress)
     end
     if value.cooldownSwipeMode == "disabled"
         or value.cooldownSwipeMode == "forward"
@@ -1608,6 +1762,7 @@ function YHUD:ResolveMonitorCooldownSwipe(
 end
 
 local MONITOR_GLOW_STYLES = {
+    masque = true,
     none = true,
     pixel = true,
     soft = true,
@@ -1622,6 +1777,7 @@ local MONITOR_GLOW_CONDITIONS = {
     ["self-cooldown"] = true,
     ["aura-present"] = true,
     ["aura-missing"] = true,
+    ["aura-stacks"] = true,
     ["condition-met"] = true,
 }
 
@@ -1658,6 +1814,8 @@ local function NormalizeSkyridingStyleSettings(styleId, settings)
         border = ClampInteger(settings.border, 0, 12, DEFAULT_SKYRIDING_VISUAL_SETTINGS.border),
         borderColor = type(settings.borderColor) == "table"
             and NormalizeColor(settings.borderColor) or "default",
+        speedTextOutline = NormalizeChoice(settings.speedTextOutline, COOLDOWN_TEXT_OUTLINES, "outline"),
+        speedTextMonochrome = NormalizeBoolean(settings.speedTextMonochrome, false),
         speedText = NormalizeBoolean(settings.speedText, DEFAULT_SKYRIDING_VISUAL_SETTINGS.speedText),
         speedTextColor = type(settings.speedTextColor) == "table"
             and NormalizeColor(settings.speedTextColor) or "default",
@@ -1686,6 +1844,25 @@ local function NormalizeSkyridingStyleSettings(styleId, settings)
         ),
     }
     if styleId == "halo" then
+        normalized.cooldownStyle = NormalizeChoice(
+            settings.cooldownStyle, SKYRIDING_COOLDOWN_STYLES, fallback.cooldownStyle
+        )
+        normalized.cooldownBarHeight = ClampInteger(settings.cooldownBarHeight, 4, 40, normalized.speedHeight)
+        normalized.cooldownBarTexture = NormalizeStatusBarTexture(settings.cooldownBarTexture, normalized.fillTexture)
+        normalized.cooldownBarColor = NormalizeColor(settings.cooldownBarColor, normalized.speedColor)
+        normalized.cooldownBarBackgroundColor = NormalizeColor(settings.cooldownBarBackgroundColor, normalized.backgroundColor)
+        normalized.cooldownBarBorder = ClampInteger(settings.cooldownBarBorder, 0, 12, normalized.border)
+        local cooldownBorderColor = settings.cooldownBarBorderColor
+        if cooldownBorderColor == nil then cooldownBorderColor = normalized.borderColor end
+        normalized.cooldownBarBorderColor = type(cooldownBorderColor) == "table"
+            and NormalizeColor(cooldownBorderColor) or "default"
+        normalized.cooldownBarText = NormalizeBoolean(settings.cooldownBarText, true)
+        normalized.cooldownBarTextFont = NormalizeFontChoice(settings.cooldownBarTextFont, "default")
+        normalized.cooldownBarTextSize = ClampInteger(settings.cooldownBarTextSize, 8, 32, 12)
+        normalized.cooldownBarTextOutline = NormalizeChoice(settings.cooldownBarTextOutline, COOLDOWN_TEXT_OUTLINES, "outline")
+        normalized.cooldownBarTextMonochrome = NormalizeBoolean(settings.cooldownBarTextMonochrome, false)
+        normalized.cooldownBarTextColor = type(settings.cooldownBarTextColor) == "table"
+            and NormalizeColor(settings.cooldownBarTextColor) or "default"
         normalized.vigorHeight = ClampInteger(
             settings.vigorHeight,
             4,
@@ -1799,6 +1976,67 @@ local function NormalizeMonitorGlowAppearance(appearance)
     }
 end
 
+local AURA_STACK_OPERATORS = { lt = true, lte = true, eq = true, gte = true, gt = true }
+
+function YHUD:NormalizeAuraStackCondition(condition)
+    if type(condition) ~= "table" or condition.type ~= "aura-stacks"
+        or not AURA_STACK_OPERATORS[condition.operator] then return nil end
+    local value = condition.value
+    if type(value) ~= "number" or value ~= value or value < 1 or value > 100
+        or value ~= math.floor(value) then return nil end
+    return { type = "aura-stacks", operator = condition.operator, value = value }
+end
+
+function YHUD:GetGlowConditionFamily(conditionType)
+    return (conditionType == "aura-stacks" or conditionType == "aura-present"
+        or conditionType == "condition-met")
+        and "aura-present" or conditionType
+end
+
+function YHUD:GetGlowConditionKey(condition)
+    if condition.type == "aura-stacks" then
+        return "aura-stacks:" .. tostring(condition.operator) .. ":" .. tostring(condition.value)
+    end
+    return condition.type
+end
+
+function YHUD:CanAddGlowCondition(rules, conditionType, ignoreIndex)
+    for index = 1, #(rules or {}) do
+        local rule = rules[index]
+        local other = index ~= ignoreIndex and type(rule) == "table" and rule.condition
+        local otherType = type(other) == "table" and other.type
+        if conditionType == "aura-stacks" then
+            if otherType == "aura-present" or otherType == "condition-met" then return false end
+        elseif otherType == conditionType
+            or ((conditionType == "aura-present" or conditionType == "condition-met")
+                and otherType == "aura-stacks") then
+            return false
+        end
+    end
+    return true
+end
+
+function YHUD:GetNextAuraStackCondition(rules, ignoreIndex)
+    local used = {}
+    for index = 1, #(rules or {}) do
+        local condition = index ~= ignoreIndex and rules[index].condition
+        if condition and condition.type == "aura-stacks" and condition.operator == "gte" then
+            used[condition.value] = true
+        end
+    end
+    local value = 2
+    while used[value] do value = value + 1 end
+    return { type = "aura-stacks", operator = "gte", value = value }
+end
+
+function YHUD:GetMonitorGlowRuleLimit(capabilities)
+    local conditions = capabilities and capabilities.conditions or {}
+    for index = 1, #conditions do
+        if conditions[index] == "aura-stacks" then return self.MAX_MONITOR_GLOW_RULES end
+    end
+    return math.min(2, #conditions)
+end
+
 local function NormalizeMonitorGlow(glow)
     if type(glow) ~= "table" then return nil end
     local sourceRules = type(glow.rules) == "table" and glow.rules or nil
@@ -1824,15 +2062,19 @@ local function NormalizeMonitorGlow(glow)
             and sourceRule.condition or nil
         local conditionType = type(condition) == "table"
             and condition.type or condition
+        local normalizedCondition = conditionType == "aura-stacks"
+            and YHUD:NormalizeAuraStackCondition(condition)
+            or conditionType ~= "aura-stacks" and { type = conditionType } or nil
+        local key = normalizedCondition and YHUD:GetGlowConditionKey(normalizedCondition)
         if MONITOR_GLOW_CONDITIONS[conditionType]
-            and not seen[conditionType] then
-            seen[conditionType] = true
+            and normalizedCondition and not seen[key]
+            and YHUD:CanAddGlowCondition(rules, conditionType)
+            and #rules < YHUD.MAX_MONITOR_GLOW_RULES then
+            seen[key] = true
             local appearance = type(sourceRule.appearance) == "table"
                 and sourceRule.appearance or DEFAULT_MONITOR_GLOW_APPEARANCE
             rules[#rules + 1] = {
-                condition = {
-                    type = conditionType,
-                },
+                condition = normalizedCondition,
                 appearance = NormalizeMonitorGlowAppearance(appearance),
                 combatOnly = sourceRule.combatOnly == true and true or nil,
             }
@@ -1883,7 +2125,8 @@ end
 local function NormalizeNativeProcGlow(value)
     value = type(value) == "table" and value or DEFAULT_NATIVE_PROC_GLOW
     local result = {
-        mode = value.mode == "custom" and "custom" or "default",
+        mode = value.mode == "disabled" and "disabled"
+            or value.mode == "custom" and "custom" or "default",
     }
     if result.mode == "custom" then
         result.appearance = NormalizeMonitorGlowAppearance(value.appearance)
@@ -1896,7 +2139,7 @@ local function NormalizeNativeProcGlow(value)
     return result
 end
 
-local function FilterMonitorGlowForEntry(glow, entry)
+local function FilterMonitorGlowForEntry(glow, entry, monitor)
     if not (glow and type(entry) == "table") then return nil end
     local capabilities = type(YHUD.GetEntryMonitorConditionCapabilities)
             == "function"
@@ -1910,7 +2153,9 @@ local function FilterMonitorGlowForEntry(glow, entry)
     for index = 1, #(glow.rules or {}) do
         local rule = glow.rules[index]
         local conditionType = rule.condition and rule.condition.type
-        if supportedConditions[conditionType] then
+        if supportedConditions[conditionType]
+            and (conditionType ~= "aura-stacks"
+                or YHUD:CanUseAuraStackGlow(entry, monitor, true)) then
             rules[#rules + 1] = rule
         end
     end
@@ -1957,6 +2202,11 @@ local function NormalizeIconGroupStyle(style, fallback)
     fallback = type(fallback) == "table"
         and fallback or DEFAULT_ICON_GROUP_STYLE
 
+    if style.skinId ~= nil and (type(style.skinId) ~= "string"
+        or #style.skinId > 80 or not style.skinId:match("^[%w_-]+$")) then
+        style.skinId = nil
+    end
+
     local shape = style.iconShape
     if shape == "rounded" then shape = "roundedSquare" end
     local fallbackShape = fallback.iconShape
@@ -1967,7 +2217,7 @@ local function NormalizeIconGroupStyle(style, fallback)
         fallbackShape or DEFAULT_ICON_GROUP_STYLE.iconShape
     )
     style.iconBorder = NormalizeChoice(
-        style.iconBorder,
+        style.iconBorder == "soft" and "thin" or style.iconBorder,
         ICON_BORDERS,
         fallback.iconBorder or DEFAULT_ICON_GROUP_STYLE.iconBorder
     )
@@ -2003,6 +2253,12 @@ local function NormalizeIconGroupStyle(style, fallback)
         style.cooldownSwipe,
         NormalizeBoolean(fallback.cooldownSwipe, true)
     )
+    local chargeDisplay = style.chargeRecoveryDisplay or fallback.chargeRecoveryDisplay
+    style.chargeRecoveryDisplay = (chargeDisplay == "normal" or chargeDisplay == "hideSwipe"
+        or chargeDisplay == "hideCountdown" or chargeDisplay == "hideBoth"
+        or chargeDisplay == "hideEdge" or chargeDisplay == "hideEdgeAndCountdown"
+        or chargeDisplay == "hideSwipeOnly" or chargeDisplay == "hideSwipeAndCountdown")
+        and chargeDisplay or "hideSwipeOnly"
     style.cooldownGCD = NormalizeBoolean(
         style.cooldownGCD,
         NormalizeBoolean(fallback.cooldownGCD, true)
@@ -2037,6 +2293,7 @@ local function NormalizeIconGroupStyle(style, fallback)
         fallback.cooldownTextOutline
             or DEFAULT_ICON_GROUP_STYLE.cooldownTextOutline
     )
+    style.cooldownTextMonochrome = NormalizeBoolean(style.cooldownTextMonochrome, fallback.cooldownTextMonochrome == true)
     style.cooldownTextPosition = NormalizeChoice(
         style.cooldownTextPosition,
         COOLDOWN_TEXT_POSITIONS,
@@ -2087,6 +2344,7 @@ local function NormalizeIconGroupStyle(style, fallback)
         COOLDOWN_TEXT_OUTLINES,
         fallback.keybindTextOutline or "outlineShadow"
     )
+    style.keybindTextMonochrome = NormalizeBoolean(style.keybindTextMonochrome, fallback.keybindTextMonochrome == true)
     style.keybindTextPosition = NormalizeChoice(
         style.keybindTextPosition,
         COOLDOWN_TEXT_POSITIONS,
@@ -2130,28 +2388,40 @@ local function NormalizeIconGroupStyle(style, fallback)
         COOLDOWN_TEXT_OUTLINES,
         fallback.countTextOutline or "outlineShadow"
     )
+    style.countTextMonochrome = NormalizeBoolean(style.countTextMonochrome, fallback.countTextMonochrome == true)
     style.countTextPosition = NormalizeChoice(
         style.countTextPosition,
         NAME_TEXT_POSITIONS,
-        fallback.countTextPosition or "bottom"
+        fallback.countTextPosition or DEFAULT_ICON_GROUP_STYLE.countTextPosition
     )
     style.countTextOffsetX = ClampNumber(
         style.countTextOffsetX,
         -64,
         64,
-        fallback.countTextOffsetX or -2
+        fallback.countTextOffsetX or DEFAULT_ICON_GROUP_STYLE.countTextOffsetX
     )
     style.countTextOffsetY = ClampNumber(
         style.countTextOffsetY,
         -64,
         64,
-        fallback.countTextOffsetY or 2
+        fallback.countTextOffsetY or DEFAULT_ICON_GROUP_STYLE.countTextOffsetY
     )
     style.countTextColor = NormalizeColor(
         style.countTextColor,
         fallback.countTextColor or DEFAULT_ICON_GROUP_STYLE.countTextColor
     )
+    local skins = YUI.GUI2 and YUI.GUI2.IconSkins
+    if skins then skins:NormalizeSettings(style, "Halo") end
     return style
+end
+
+local function NormalizeBarShadow(style, fallback)
+    style.barShadowThickness = ClampInteger(style.barShadowThickness, 1, 12,
+        ClampInteger(fallback.barShadowThickness, 1, 12, 4))
+    local mode = style.barShadowMode or fallback.barShadowMode
+    style.barShadowMode = (mode == "item" or mode == "group") and mode or "none"
+    style.barShadowColor = NormalizeColor(style.barShadowColor,
+        fallback.barShadowColor or DEFAULT_RESOURCE_GROUP_STYLE.barShadowColor)
 end
 
 local function NormalizeDurationGroupStyle(style, fallback)
@@ -2159,6 +2429,7 @@ local function NormalizeDurationGroupStyle(style, fallback)
     fallback = type(fallback) == "table"
         and fallback or DEFAULT_DURATION_GROUP_STYLE
     style = NormalizeIconGroupStyle(style, fallback)
+    NormalizeBarShadow(style, fallback)
     style.smoothProgress = NormalizeBoolean(
         style.smoothProgress,
         NormalizeBoolean(fallback.smoothProgress, true)
@@ -2190,6 +2461,7 @@ local function NormalizeDurationGroupStyle(style, fallback)
         COOLDOWN_TEXT_OUTLINES,
         fallback.nameTextOutline or "outlineShadow"
     )
+    style.nameTextMonochrome = NormalizeBoolean(style.nameTextMonochrome, fallback.nameTextMonochrome == true)
     style.nameTextPosition = NormalizeChoice(
         style.nameTextPosition,
         NAME_TEXT_POSITIONS,
@@ -2280,6 +2552,7 @@ local function NormalizeDurationGroupStyle(style, fallback)
         COOLDOWN_TEXT_OUTLINES,
         fallback.timeTextOutline or "outlineShadow"
     )
+    style.timeTextMonochrome = NormalizeBoolean(style.timeTextMonochrome, fallback.timeTextMonochrome == true)
     style.timeTextPosition = NormalizeChoice(
         style.timeTextPosition,
         NAME_TEXT_POSITIONS,
@@ -2359,6 +2632,7 @@ local function NormalizeResourceGroupStyle(style, fallback)
     style = type(style) == "table" and style or {}
     fallback = type(fallback) == "table"
         and fallback or DEFAULT_RESOURCE_GROUP_STYLE
+    NormalizeBarShadow(style, fallback)
     style.smoothProgress = NormalizeBoolean(
         style.smoothProgress,
         NormalizeBoolean(fallback.smoothProgress, true)
@@ -2395,6 +2669,7 @@ local function NormalizeResourceGroupStyle(style, fallback)
         COOLDOWN_TEXT_OUTLINES,
         fallback.textOutline or "outlineShadow"
     )
+    style.textMonochrome = NormalizeBoolean(style.textMonochrome, fallback.textMonochrome == true)
 
     local textColor = type(style.textColor) == "table"
         and style.textColor or {}
@@ -2465,6 +2740,7 @@ local function NormalizeResourceTextOverride(override, fallback)
             COOLDOWN_TEXT_OUTLINES,
             fallback.textOutline or "outlineShadow"
         ),
+        textMonochrome = NormalizeBoolean(override.textMonochrome, fallback.textMonochrome == true),
         textColor = NormalizeColor(
             override.textColor,
             fallback.textColor or DEFAULT_RESOURCE_GROUP_STYLE.textColor
@@ -2562,11 +2838,18 @@ function YHUD:NormalizeBarStackThresholds(value)
     return result
 end
 
+function YHUD:BarStackThresholdsOverlap(policy)
+    if type(policy) ~= "table" or type(policy.low) ~= "table" or type(policy.high) ~= "table" then return false end
+    local low, high = tonumber(policy.low.value), tonumber(policy.high.value)
+    return policy.enabled == true and policy.low.enabled ~= false and policy.high.enabled ~= false
+        and low ~= nil and high ~= nil and low >= high
+end
+
 function YHUD:IsResourceInverseFillSupported(definition, setting)
     definition = type(definition) == "table" and definition or {}
     setting = type(setting) == "table" and setting or {}
     local kind = definition.provider and definition.provider.kind or "unit-power"
-    return setting.displayMode ~= "cells" and setting.displayMode ~= "dots"
+    return setting.displayMode ~= "cells" and setting.displayMode ~= "dots" and setting.displayMode ~= "nativePoints"
         and definition.appearanceExtension ~= "severity"
         and setting.thresholdColorEnabled ~= true
         and (kind == "unit-power" or kind == "spell-count"
@@ -2587,12 +2870,14 @@ local function NormalizeResourceText(setting, definition, legacyValueText, secon
     if not RESOURCE_VALUE_FORMATS[valueFormat]
         or (valueFormat == "whole" and not discrete)
         or (valueFormat == "duration" and providerKind ~= "aura-duration" and providerKind ~= "absorb"
-            and providerKind ~= "swing-timer" and providerKind ~= "player-cast") then
+            and providerKind ~= "swing-timer" and providerKind ~= "player-cast"
+            and providerKind ~= "global-cooldown" and providerKind ~= "monitor-time") then
         valueFormat = definition.defaultValueFormat or (discrete and "value" or "percent")
     end
     if discrete and valueFormat ~= "valueMax" and valueFormat ~= "whole" then
         valueFormat = "value"
-    elseif providerKind == "aura-duration" or providerKind == "swing-timer" or providerKind == "player-cast" then
+    elseif providerKind == "aura-duration" or providerKind == "swing-timer" or providerKind == "player-cast"
+        or providerKind == "global-cooldown" or providerKind == "monitor-time" then
         valueFormat = "duration"
     elseif definition.id == "stagger" or definition.id == "ignorePain" then
         valueFormat = providerKind == "absorb" and valueFormat == "duration" and "duration"
@@ -2674,6 +2959,7 @@ local function NormalizeResourceSetting(
         textOffsetY = text.textOffsetY,
         text2 = NormalizeResourceText(setting.text2, definition, nil, true),
         heightOverride = heightOverride,
+        fillDirection = RESOURCE_FILL_DIRECTIONS[setting.fillDirection] and setting.fillDirection or nil,
         fillColor = NormalizeColor(
             fillColor,
             definition.color or DEFAULT_RESOURCE_GROUP_STYLE.fillColor
@@ -2701,8 +2987,12 @@ local function NormalizeResourceSetting(
             12
         ),
         displayMode = displayMode,
+        pointShape = NormalizeChoice(setting.pointShape, RESOURCE_POINT_SHAPES, "circle"),
+        nativePointStyle = NormalizeChoice(setting.nativePointStyle, NATIVE_RESOURCE_POINT_STYLES, "auto"),
         inverseFill = NormalizeBoolean(setting.inverseFill, definition.id == "remoteStrike"),
-        segmentSpacing = ClampInteger(setting.segmentSpacing, -5, 32, 2),
+        segmentSpacing = ClampInteger(setting.segmentSpacing,
+            (displayMode == "dots" or displayMode == "nativePoints") and 0 or -5,
+            (displayMode == "dots" or displayMode == "nativePoints") and 100 or 32, 2),
         dividerThickness = ClampInteger(
             setting.dividerThickness,
             1,
@@ -2748,7 +3038,7 @@ local function NormalizeResourceSetting(
     if definition.id == "cast" then
         result.cast = {
             icon = not (type(setting.cast) == "table" and setting.cast.icon == false),
-            iconSide = type(setting.cast) == "table" and setting.cast.iconSide == "right" and "right" or "left",
+            iconSide = NormalizeChoice(type(setting.cast) == "table" and setting.cast.iconSide, CAST_ICON_SIDES, "left"),
             iconGap = ClampInteger(type(setting.cast) == "table" and setting.cast.iconGap, 0, 12, 0),
             name = not (type(setting.cast) == "table" and setting.cast.name == false),
             nameSize = type(setting.cast) == "table" and tonumber(setting.cast.nameSize)
@@ -2757,6 +3047,7 @@ local function NormalizeResourceSetting(
             nameOffsetX = ClampInteger(type(setting.cast) == "table" and setting.cast.nameOffsetX, -64, 64, 0),
             nameOffsetY = ClampInteger(type(setting.cast) == "table" and setting.cast.nameOffsetY, -64, 64, 0),
             progress = not (type(setting.cast) == "table" and setting.cast.progress == false),
+            timeFormat = NormalizeChoice(type(setting.cast) == "table" and setting.cast.timeFormat, CAST_TIME_FORMATS, "remaining"),
             progressSize = type(setting.cast) == "table" and tonumber(setting.cast.progressSize)
                 and ClampInteger(setting.cast.progressSize, 8, 32, 12) or nil,
             idle = type(setting.cast) == "table" and setting.cast.idle == "collapse" and "collapse" or "reserve",
@@ -2829,6 +3120,9 @@ local function MaterializeResourceSettingDeltas(
 )
     settings = type(settings) == "table" and settings or {}
     local materialized = {}
+    for id, value in pairs(settings) do
+        if YHUD.ResourceManager and YHUD.ResourceManager:IsCustom(id) then materialized[id] = CopyValue(value) end
+    end
     local definitionIds = resourceCatalog:GetDefinitionIds()
     for index = 1, #definitionIds do
         local resourceId = definitionIds[index]
@@ -4034,7 +4328,8 @@ local function NormalizeContent(profile, content, scope, specKey)
         monitor.contentScope = scope
         monitor.glow = FilterMonitorGlowForEntry(
             NormalizeMonitorGlow(monitor.glow),
-            entry
+            entry,
+            monitor
         )
         monitor.sound = FilterMonitorSoundForEntry(
             NormalizeMonitorSound(monitor.sound),
@@ -4109,7 +4404,8 @@ local function NormalizeContent(profile, content, scope, specKey)
             monitor.contentScope = scope
             monitor.glow = FilterMonitorGlowForEntry(
                 NormalizeMonitorGlow(monitor.glow),
-                entry
+                entry,
+                monitor
             )
             monitor.sound = FilterMonitorSoundForEntry(
                 NormalizeMonitorSound(monitor.sound),
@@ -4146,10 +4442,23 @@ local function NormalizeContent(profile, content, scope, specKey)
             entry.entryKey = entryKey
             YHUD:RepairConsumablePresetReplication(entry, entryKey)
             YHUD:RepairAmmoPresetReplication(entry)
+            -- Repair presentation omitted from the original Forever seal default.
+            if YHUD.Client.id == "forever"
+                and entryKey == "aura:player:helpful:20154"
+                and entry.origin == "preset"
+                and entry.sourceType == "yhud.player-aura"
+                and entry.spellId == 20154 and entry.icon == nil then
+                entry.icon = DEFAULT_PROFILE.contentBySpec["PALADIN:11486"]
+                    .entries[entryKey].icon
+            end
             if entryKey == (YHUD.EQUIPMENT_AURA_BUNDLE_ENTRY_KEY
                 or "bundle:equipment-auras") then
                 entry.name = nil
                 entry.nameKey = "designer.quick_equipment_auras"
+            end
+            if entry.sourceType == "class-extra-monitor" and YHUD.ClassExtra then
+                local alert, delay, progress, ready = YHUD.ClassExtra:Settings(entry)
+                entry.classExtra = { alertSecond = alert, endedHideDelay = delay, showIconProgress = progress, readyVisibility = ready }
             end
             entry.contentScope = scope
             entry.applicability = shared
@@ -5083,6 +5392,7 @@ function YHUD:GetScopedProfile(profile, specKey, create)
     specKey = specKey
         or (type(profile) == "table" and rawget(profile, "_yhudSpecKey"))
         or self:GetCurrentSpecKey()
+    if not self:IsStableSpecKey(specKey) then return nil, "invalid-spec-key" end
     local content, code = self:GetContent(canonical, specKey, false)
     local virtualContent = false
     if not content and (create == true or create == "virtual") then
@@ -5273,7 +5583,9 @@ function YHUD:CreateInitialResourceProfile(profile)
         local group = sourceGroups.items[groupId]
         if group.layout == "resource" then
             projected.groups.order[#projected.groups.order + 1] = groupId
-            projected.groups.items[groupId] = CopyValue(group)
+            local projectedGroup = CopyValue(group)
+            projectedGroup.monitors = {}
+            projected.groups.items[groupId] = projectedGroup
         end
     end
 
@@ -5455,8 +5767,54 @@ function YHUD:NormalizeMonitorGlowAppearance(appearance)
     return NormalizeMonitorGlowAppearance(CopyValue(appearance))
 end
 
+-- Personal appearance templates are account-wide editor data, outside profiles
+-- and ConfigSets. Applying one still uses the normal Designer draft.
+function YHUD:GetGlowAppearancePresets()
+    local global = YUI.DB and YUI.DB.GetGlobal and YUI.DB:GetGlobal(self.PRODUCT_ID)
+    return global and type(global.glowAppearancePresets) == "table"
+        and CopyValue(global.glowAppearancePresets) or {}
+end
+
+function YHUD:SaveGlowAppearancePreset(name, appearance)
+    name = type(name) == "string" and name:match("^%s*(.-)%s*$") or ""
+    if name == "" or #name > 72 or name:find("[%c|]") then
+        return nil, "invalid-glow-preset-name"
+    end
+    if type(appearance) ~= "table" then return nil, "invalid-glow-appearance" end
+    local global = YUI.DB and YUI.DB.GetGlobal and YUI.DB:GetGlobal(self.PRODUCT_ID)
+    if type(global) ~= "table" then return nil, "account-storage-unavailable" end
+    local presets = type(global.glowAppearancePresets) == "table" and global.glowAppearancePresets or {}
+    if presets[name] then return nil, "glow-preset-exists" end
+    local count = 0
+    for _ in pairs(presets) do count = count + 1 end
+    if count >= 32 then return nil, "glow-preset-limit" end
+    presets[name] = self:NormalizeMonitorGlowAppearance(appearance)
+    global.glowAppearancePresets = presets
+    return name
+end
+
+function YHUD:DeleteGlowAppearancePreset(name)
+    local global = YUI.DB and YUI.DB.GetGlobal and YUI.DB:GetGlobal(self.PRODUCT_ID)
+    local presets = global and global.glowAppearancePresets
+    if type(presets) ~= "table" or not presets[name] then return false end
+    presets[name] = nil
+    return true
+end
+
 function YHUD:NormalizeNativeProcGlow(value)
     return NormalizeNativeProcGlow(CopyValue(value))
+end
+
+function YHUD:NormalizeAuraActivationStyle(value)
+    local config = NormalizeNativeProcGlow(CopyValue(value))
+    if config.mode == "disabled" then config.mode = "default" end
+    config.combatOnly = nil
+    return config
+end
+
+function YHUD:GetAuraActivationStyle(profile)
+    local style = type(profile) == "table" and profile.style
+    return style and style.auraActivation or DEFAULT_NATIVE_PROC_GLOW
 end
 
 function YHUD:GetEffectiveNativeProcGlow(profile, monitor)
@@ -5492,6 +5850,7 @@ end
 
 function YHUD:CreateDefaultProfile(specKey)
     local profile = CopyValue(DEFAULT_PROFILE)
+    if self.ResourceManager then profile.resources.legacyCandidates = false end
     local catalog = self.ResourceCatalog
     if catalog and catalog.GetDefinitionIds then
         for _, id in ipairs(catalog:GetDefinitionIds()) do
@@ -5554,12 +5913,14 @@ function YHUD:GetIconGroupStyle(profile, groupId)
         cooldownTextFont = styleRoot.cooldownTextFont,
         cooldownTextSize = styleRoot.cooldownTextSize,
         cooldownTextOutline = styleRoot.cooldownTextOutline,
+        cooldownTextMonochrome = styleRoot.cooldownTextMonochrome,
         cooldownTextPosition = styleRoot.cooldownTextPosition,
         cooldownTextColor = styleRoot.cooldownTextColor,
         keybindTextMode = styleRoot.keybindTextMode,
         keybindTextFont = styleRoot.keybindTextFont,
         keybindTextSize = styleRoot.keybindTextSize,
         keybindTextOutline = styleRoot.keybindTextOutline,
+        keybindTextMonochrome = styleRoot.keybindTextMonochrome,
         keybindTextPosition = styleRoot.keybindTextPosition,
         keybindTextOffsetX = styleRoot.keybindTextOffsetX,
         keybindTextOffsetY = styleRoot.keybindTextOffsetY,
@@ -5657,9 +6018,9 @@ function YHUD:GetResourceGroupStyle(profile, groupId)
     )
 end
 
-function YHUD:NormalizeResourceTextSetting(setting, resourceId)
+function YHUD:NormalizeResourceTextSetting(setting, resourceId, definition)
     local catalog = self.ResourceCatalog
-    return NormalizeResourceText(setting, catalog and catalog:GetDefinition(resourceId))
+    return NormalizeResourceText(setting, definition or catalog and catalog:GetDefinition(resourceId))
 end
 
 function YHUD:NormalizeResourceSetting(
@@ -5667,11 +6028,13 @@ function YHUD:NormalizeResourceSetting(
     resourceId,
     legacyValueText,
     legacyDisplayMode,
-    initialBorderColor
+    initialBorderColor,
+    customDefinition
 )
     local catalog = self.ResourceCatalog
     local definition = catalog and catalog.GetDefinition
         and catalog:GetDefinition(resourceId) or nil
+    definition = customDefinition or definition
     return NormalizeResourceSetting(
         setting,
         definition,
@@ -5729,13 +6092,14 @@ function YHUD:GetResourceSetting(profile, resourceId, groupId)
     local resources = self:GetResourceConfig(profile, groupId)
     local settings = type(resources.settingsByResource) == "table"
         and resources.settingsByResource or {}
-    return self:NormalizeResourceSetting(settings[resourceId], resourceId)
+    local definition = self.ResourceCatalog and self.ResourceCatalog:GetDefinition(resourceId, profile, groupId)
+    return self:NormalizeResourceSetting(settings[resourceId], resourceId, nil, nil, nil, definition)
 end
 
 function YHUD:GetEffectiveResourceStyle(profile, groupId, resourceId, specID)
     local global = self:GetResourceGroupStyle(profile, groupId)
     local setting = self:GetResourceSetting(profile, resourceId, groupId)
-    local definition = self.ResourceCatalog and self.ResourceCatalog:GetDefinition(resourceId)
+    local definition = self.ResourceCatalog and self.ResourceCatalog:GetDefinition(resourceId, profile, groupId)
     local text = setting.textOverride or global
     local appearance = setting.appearanceOverride or global
     local fillColor = setting.fillColor
@@ -5759,10 +6123,12 @@ function YHUD:GetEffectiveResourceStyle(profile, groupId, resourceId, specID)
         textOffsetX = setting.textOffsetX,
         textOffsetY = setting.textOffsetY,
         heightOverride = heightOverride,
+        fillDirection = setting.fillDirection,
         cast = setting.cast and CopyValue(setting.cast) or nil,
         textFont = text.textFont,
         textSize = text.textSize,
         textOutline = text.textOutline,
+        textMonochrome = text.textMonochrome,
         textColor = CopyValue(text.textColor),
         runeCooldownTextSize = setting.runeCooldownTextSize,
         runeCooldownTextMode = setting.runeCooldownTextMode,
@@ -5773,6 +6139,8 @@ function YHUD:GetEffectiveResourceStyle(profile, groupId, resourceId, specID)
         fillColor = CopyValue(fillColor),
         backgroundColor = CopyValue(appearance.backgroundColor),
         displayMode = setting.displayMode,
+        pointShape = setting.pointShape,
+        nativePointStyle = setting.nativePointStyle,
         inverseFill = setting.inverseFill == true,
         segmentSpacing = setting.segmentSpacing,
         dividerThickness = setting.dividerThickness,
@@ -5949,6 +6317,7 @@ function YHUD:NormalizeProfile(profile, specKey)
     cdm.importEnabled = NormalizeBoolean(cdm.importEnabled, true)
     cdm.writeBackEnabled = false
     cdm.skillAuraDisplay = NormalizeBoolean(cdm.skillAuraDisplay, true)
+    cdm.assistedHighlight = NormalizeBoolean(cdm.assistedHighlight, true)
     cdm.skillAuraHighlight =
         NormalizeBoolean(cdm.skillAuraHighlight, true)
     cdm.inactiveDesaturate =
@@ -6053,6 +6422,14 @@ function YHUD:NormalizeProfile(profile, specKey)
             )
         end
     end
+    if self.ResourceManager then
+        for resourceId, setting in pairs(settingsByResource) do
+            if self.ResourceManager:IsCustom(resourceId) then
+                normalizedSettings[resourceId] = self:NormalizeResourceSetting(setting, resourceId, nil, nil, nil,
+                    self.ResourceManager:GetDefinition(resourceId, { resources = resources }))
+            end
+        end
+    end
     resources.settingsByResource = normalizedSettings
 
     local trinkets = profile.items.trinkets
@@ -6118,7 +6495,7 @@ function YHUD:NormalizeProfile(profile, specKey)
             group.showUnavailablePreview,
             false
         )
-        group.showTooltip = NormalizeBoolean(group.showTooltip, true)
+        group.showTooltip = NormalizeBoolean(group.showTooltip, group.layout ~= "rings")
         group.visibility = NormalizeVisibilityRule(group.visibility, groupId)
         if self.NormalizeGroupContentPolicy then
             self:NormalizeGroupContentPolicy(group)
@@ -6233,6 +6610,10 @@ function YHUD:NormalizeProfile(profile, specKey)
 
     local style = profile.style
     style.nativeProcGlow = NormalizeNativeProcGlow(style.nativeProcGlow)
+    if style.auraActivation ~= nil then
+        local activation = self:NormalizeAuraActivationStyle(style.auraActivation)
+        style.auraActivation = activation.mode == "custom" and activation or nil
+    end
     if type(style.pandemicGlow) ~= "boolean" then
         style.pandemicGlow = true
     end
@@ -6244,6 +6625,7 @@ function YHUD:NormalizeProfile(profile, specKey)
         cooldownTextFont = style.cooldownTextFont,
         cooldownTextSize = style.cooldownTextSize,
         cooldownTextOutline = style.cooldownTextOutline,
+        cooldownTextMonochrome = style.cooldownTextMonochrome,
         cooldownTextPosition = style.cooldownTextPosition,
         cooldownTextColor = style.cooldownTextColor,
     }, DEFAULT_ICON_GROUP_STYLE)
@@ -6254,6 +6636,7 @@ function YHUD:NormalizeProfile(profile, specKey)
     style.cooldownTextFont = legacyStyle.cooldownTextFont
     style.cooldownTextSize = legacyStyle.cooldownTextSize
     style.cooldownTextOutline = legacyStyle.cooldownTextOutline
+    style.cooldownTextMonochrome = legacyStyle.cooldownTextMonochrome
     style.cooldownTextPosition = legacyStyle.cooldownTextPosition
     style.cooldownTextColor = legacyStyle.cooldownTextColor
     if type(style.groups) ~= "table" then style.groups = {} end
@@ -6423,7 +6806,8 @@ function YHUD:NormalizeProfile(profile, specKey)
             local normalized = {}
             for resourceId, setting in pairs(settings) do
                 if resourceCatalog and resourceCatalog:GetDefinition(resourceId) then
-                    normalized[resourceId] = self:NormalizeResourceSetting(setting, resourceId)
+                    normalized[resourceId] = self:NormalizeResourceSetting(setting, resourceId, nil, nil, nil,
+                        resourceCatalog:GetDefinition(resourceId, { resources = config }))
                 end
             end
             config.settingsByResource = normalized
@@ -6434,6 +6818,11 @@ function YHUD:NormalizeProfile(profile, specKey)
         end
     end
     profile.resources = { byGroup = normalizedResourceGroups }
+    if self.ResourceManager then
+        for _, config in pairs(normalizedResourceGroups) do
+            self.ResourceManager:NormalizeConfig(config, sourceVersion)
+        end
+    end
     return profile
 end
 
@@ -6459,22 +6848,29 @@ function YHUD:LoadConsolePreferences()
     end
     preferences.autoHidePersonalResource = preferences.autoHidePersonalResource ~= false
     preferences.soundEnabled = preferences.soundEnabled ~= false
+    preferences.assistedHighlight = preferences.assistedHighlight == true
+    preferences.pressFeedback = preferences.pressFeedback == true
     self.consolePreferences = preferences
     self.monitorSoundEnabled = self.Client.soundReminders ~= false and preferences.soundEnabled
     return preferences
 end
 
 function YHUD:GetConsolePreference(key)
+    if key == "assistedHighlight" and self.Client.assistedHighlight ~= true then return false end
     if key == "soundEnabled" and self.Client.soundReminders == false then return false end
     if key == "soundEnabled" and YUI.Sound and YUI.Sound.GetPreferences then
         local sound = YUI.Sound:GetPreferences()
         if sound then return sound.enabled end
     end
     local preferences = self.consolePreferences or self:LoadConsolePreferences()
+    if key == "assistedHighlight" or key == "pressFeedback" then
+        return preferences and preferences[key] == true or false
+    end
     return not preferences or preferences[key] ~= false
 end
 
 function YHUD:SetConsolePreference(key, value)
+    if key == "assistedHighlight" and self.Client.assistedHighlight ~= true then return false, "assisted-highlight-unavailable-client" end
     if key == "soundEnabled" and self.Client.soundReminders == false then return false, "sound-unavailable-client" end
     if key == "soundEnabled" and YUI.Sound and YUI.Sound.SetPreferences then
         local sound, code = YUI.Sound:GetPreferences()
@@ -6482,7 +6878,8 @@ function YHUD:SetConsolePreference(key, value)
         sound.enabled = value == true
         return YUI.Sound:SetPreferences(sound)
     end
-    if key ~= "autoHidePersonalResource" and key ~= "soundEnabled" then
+    if key ~= "autoHidePersonalResource" and key ~= "soundEnabled" and key ~= "assistedHighlight"
+        and key ~= "pressFeedback" then
         return false, "unknown-console-preference"
     end
     local preferences, code = self:LoadConsolePreferences()
@@ -6493,6 +6890,11 @@ function YHUD:SetConsolePreference(key, value)
     self.monitorSoundEnabled = self.Client.soundReminders ~= false and preferences.soundEnabled
     if key == "autoHidePersonalResource" and self.BlizzardSettings then
         self.BlizzardSettings:ApplyPersonalResource("console-preference")
+    elseif key == "assistedHighlight" and self.AssistedHighlight then
+        self.AssistedHighlight:SyncRegistration()
+        self.AssistedHighlight:Queue()
+    elseif key == "pressFeedback" and self.PressFeedback then
+        self.PressFeedback:Sync()
     end
     return true
 end

@@ -58,6 +58,10 @@ local function MemberLabel(entry)
     return entry.displayLabel or entry.resolvedLabel or T(entry.labelKey)
 end
 
+local function CanGroupFactions(left, right)
+    return not YUI.IsForever or left.opposingFactionLabel == right.opposingFactionLabel
+end
+
 -- 根据官方纹理 alpha 覆盖面积校准视觉重量，而非统一放大 atlas 外框。
 local ATLAS_VISUAL_SCALE = {
     Banker=1.19, Auctioneer=1.18, Innkeeper=1.30,
@@ -90,7 +94,7 @@ function MapEnhancement:GroupVisibleIcons(points,width,height,pairSpacing)
         local target,cx,cy
         if not point.taxiNodeID then
             for _,group in ipairs(groups) do
-                if not group.taxiNodeID then
+                if not group.taxiNodeID and CanGroupFactions(point, group.members[1]) then
                     local n = #group.members
                     local x,y = (group.x*n+point.x)/(n+1),(group.y*n+point.y)/(n+1)
                     local memberLimit=limit
@@ -385,25 +389,7 @@ function PinMixin:UpdateIcons()
         local texture = slot.icon
         local rounded = member.category == "profession" and not member.atlas
         slot:SetIconAppearance({size=size,shape=rounded and "circle" or "square",border="none",zoom=rounded and 0.08 or 0})
-        -- 实心圆底衬被图标覆盖，只露出连续外沿；避免放大空心圆环造成同心圆和透底间隙。
-        if rounded then
-            if not slot.mapOutline then
-                local silhouette = YUI.GUI:GetIconAppearancePreset("circle").mask
-                slot.mapOutline = YUI.GUI:CreateIcon(slot,{icon=silhouette,crop=false,layer="BACKGROUND",subLevel=1})
-                slot.mapShadow = YUI.GUI:CreateIcon(slot,{icon=silhouette,crop=false,layer="BACKGROUND",subLevel=0})
-                slot.mapOutline:SetVertexColor(0.04,0.03,0.02,0.95)
-                slot.mapShadow:SetVertexColor(0,0,0,0.30)
-                slot.mapOutline:SetPoint("CENTER",slot,"CENTER",0,0)
-                slot.mapShadow:SetPoint("CENTER",slot,"CENTER",0,-0.5)
-            end
-            slot.mapOutline:SetSize(size+2,size+2)
-            slot.mapShadow:SetSize(size+4,size+4)
-            slot.mapOutline:Show()
-            slot.mapShadow:Show()
-        elseif slot.mapOutline then
-            slot.mapOutline:Hide()
-            slot.mapShadow:Hide()
-        end
+        YUI.GUI:SetIconCircleBackdrop(slot, size, rounded)
         slot:SetSize(size,size)
         slot:ClearAllPoints()
         slot:SetPoint("CENTER",self,"CENTER",(index == 1 and -0.5 or 0.5)*dx,(index == 1 and -0.5 or 0.5)*dy)
@@ -684,6 +670,9 @@ function PinMixin:OnMouseEnter()
             local ranks = ReadProfessionRanks(members)
             for _, member in ipairs(members) do
                 if grouped then body:AddLine(TooltipMemberLabel(member)) end
+                if member.opposingFactionLabel then
+                    body:AddLine(string.format(T("tooltip.opposing_faction", "%s (Opposing faction)"), member.opposingFactionLabel), "warning")
+                end
                 AddProfessionRank(body, member, ranks)
                 if member.weaponTrainerSiteID and YUI.API.WeaponSkill then
                     local description = YUI.API.WeaponSkill.GetTrainerDescription(member.weaponTrainerSiteID)
@@ -757,7 +746,7 @@ function MapEnhancement:ClusterPoints(points, width, height, previous)
             if point.category == "profession" and not point.taxiNodeID then
                 local target
                 for _, group in ipairs(professionGroups) do
-                    local close = true
+                    local close = CanGroupFactions(point, group.members[1])
                     for _, member in ipairs(group.members) do
                         local slack = previous and previous[point.id] and previous[point.id] == previous[member.id] and 1.15 or 1
                         local dx,dy = math.abs(point.x-member.x)*width,math.abs(point.y-member.y)*height
@@ -787,7 +776,8 @@ function MapEnhancement:ClusterPoints(points, width, height, previous)
             if not a.taxiNodeID and not paired[a.id] then
                 for j = i + 1, #points do
                     local b = points[j]
-                    if not b.taxiNodeID and not paired[b.id] and (a.category ~= "profession" or b.category ~= "profession") then
+                    if not b.taxiNodeID and not paired[b.id] and CanGroupFactions(a,b)
+                        and (a.category ~= "profession" or b.category ~= "profession") then
                         local dx,dy = math.abs(a.x-b.x)*width,math.abs(a.y-b.y)*height
                         local slack = previous and previous[a.id] and previous[a.id] == previous[b.id] and 1.15 or 1
                         local limitX = math.min(120,((a.displayWidth or 24)+(b.displayWidth or 24))/2+6)
@@ -822,7 +812,7 @@ function MapEnhancement:ClusterPoints(points, width, height, previous)
                     local members = group.members
                     local professionals = group.professionGroup and point.category == "profession"
                     if not group.taxiNodeID and not group.noCluster and (professionals or #members < 2) then
-                        local close = true
+                        local close = CanGroupFactions(point, members[1])
                         for _, member in ipairs(members) do
                             local slack = previous and previous[point.id] and previous[point.id] == previous[member.id] and 1.15 or 1
                             local dx, dy = math.abs(point.x-member.x)*width, math.abs(point.y-member.y)*height

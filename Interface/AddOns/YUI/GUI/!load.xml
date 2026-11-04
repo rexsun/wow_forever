@@ -8,14 +8,19 @@
     </Texture>
     <Script file="GUI2_Theme.lua"/>
     <Script file="GUI2_Primitives.lua"/>
+    <Script file="GUI2_UIIcons.lua"/>
     <Script file="GUI2_ShapeShadow.lua"/>
+    <Script file="GUI2_Pressed.lua"/>
     <Script file="GUI2_Visual.lua"/>
+    <Script file="GUI2_IconSkins.lua"/>
+    <Script file="GUI2_IconSkinRuntime.lua"/>
     <Script file="GUI2_Form.lua"/>
     <Script file="GUI2_FeatureSettings.lua"/>
     <Script file="GUI2_Visibility.lua"/>
     <Script file="GUI2_Data.lua"/>
     <Script file="GUI2_Overlay.lua"/>
     <Script file="GUI2_Tooltip.lua"/>
+    <Script file="GUI2_ResourcePoints.lua"/>
     <Script file="GUI2_Application.lua"/>
     <Script file="GUI2_ColorPicker.lua"/>
     <Script file="GUI2_SoundPicker.lua"/>
@@ -25,5 +30,8 @@
     <Script file="GUI2_Animation.lua"/>
     <Script file="GUI2_Appearance.lua"/>
     <Script file="GUI2_WindowAppearance.lua"/>
+    <Script file="GUI2_FontStyleModel.lua"/>
+    <Script file="GUI2_FontStyle.lua"/>
+    <Script file="GUI2_IconSkinControls.lua"/>
     <Script file="GUI_Facade.lua"/>
 </Ui>

@@ -1248,6 +1248,10 @@ local function RebuildDiscoveryBoundaries()
     AddIgnoredObject(_G.MinimapZoomOut)
     AddIgnoredObject(_G.QueueStatusMinimapButton)
     AddIgnoredObject(_G.TimeManagerClockButton)
+    if YUI.IsForever then
+        local backdrop = _G.MinimapBackdrop
+        AddIgnoredObject(backdrop and backdrop.ExternalEventURLButton)
+    end
 end
 
 local function IsIgnoredName(name, button)

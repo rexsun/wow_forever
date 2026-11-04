@@ -4,7 +4,7 @@
 ## Notes: WoW: Forever helper - talent planner, leveling plan, loot table and wishlist, Tier 1 sets, macros, news, change tooltips, beta data
 ## Notes-zhCN: 《无限》助手：天赋模拟 · 升级规划 · 掉落表与心愿单 · T1 套装 · 宏库 · 资讯 · 改动提示 · 公测数据
 ## Author: GearInsight
-## Version: 0.4.31
+## Version: 0.5.9
 ## SavedVariables: GearInsightForeverDB
 ## IconTexture: Interface\Icons\inv_misc_map_01
 
@@ -20,32 +20,52 @@ Tooltip.lua
 Leveling.lua
 DefaultBuildsData.lua
 DefaultBuilds.lua
+SpecGearData.lua
+SpecGear.lua
+ItemMissingData.lua
 Talents.lua
 Loot.lua
 Stats.lua
+LevelShare.lua
+LevelMute.lua
+GuildChatLevel.lua
 Card.lua
 Pack.lua
 UI.lua
-GuildRecruit.lua
-GuildTab.lua
-QuestMates.lua
 DungeonQuestData.lua
 DungeonQuests.lua
 PageTalent.lua
 MacroData.lua
 PageMacro.lua
+SideChainsData.lua
+SideChains.lua
 PagePlan.lua
 RouteData.lua
 Route.lua
+ProfData.lua
+Prof.lua
+ProfPlan.lua
+ProfRecipes.lua
+PageProf.lua
+ProfSeen.lua
+Obs.lua
+TrainerData.lua
+Trainers.lua
 PageLoot.lua
 PageTier.lua
 PageAch.lua
 NewsData.lua
 PageNews.lua
+PetData.lua
+PagePet.lua
+PageAdvanced.lua
 Supporters.lua
 Offsite.lua
+Report.lua
 PageData.lua
+KeysFormData.lua
 Keys.lua
+KeysCdm.lua
 KeysRotData.lua
 KeysRot.lua
 KeysCast.lua
@@ -54,3 +74,6 @@ KeysKb.lua
 PageKeys.lua
 PageRot.lua
 KeysProbe.lua
+Perf.lua
+Board.lua
+PageBoard.lua

@@ -3,8 +3,8 @@ local YUI = _G.YUI
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("enUS") then return end
 
 YUI.Locale:Register("AuctionHelper", "enUS", {
-    ["product.title"] = "Auction Helper · YanForge",
-    ["product.notes"] = "Auction Helper · YanForge",
+    ["product.title"] = "Auction Helper · Ayan",
+    ["product.notes"] = "Auction Helper · Ayan",
     ["title.short"] = "Shopping Assistant",
     ["feature.name"] = "Shopping Assistant",
     ["feature.description"] = "Adds a sidebar of common item categories to the Auction House for one-click searches.",
@@ -13,6 +13,9 @@ YUI.Locale:Register("AuctionHelper", "enUS", {
     ["tooltip.settings"] = "Settings",
     ["tooltip.close_settings"] = "Close Settings",
     ["tooltip.collapse"] = "Collapse",
+    ["search.loading"] = "Loading item information, up to 5 seconds…",
+    ["search.timeout"] = "Item information timed out. Click again to retry.",
+    ["search.failed"] = "Unable to load item information. Click again to retry.",
     ["tracker.title"] = "Tracked Recipes",
     ["tracker.tab_individual"] = "Individual",
     ["tracker.tab_total"] = "Total",
@@ -24,6 +27,17 @@ YUI.Locale:Register("AuctionHelper", "enUS", {
     ["tracker.loading"] = "Loading…",
     ["tracker.recraft"] = "Recraft: %s",
     ["tracker.quantity"] = "Owned / Required: %s",
+    ["tracker.highest_only"] = "Highest quality only",
+    ["tracker.highest_only_hint"] = "Count only the highest reagent quality and prefill its missing quantity. Reagents without quality ranks are counted normally.",
+    ["tracker.owned_total"] = "Total owned: %d",
+    ["tracker.quality_count"] = "  Rank %d: %d",
+    ["tracker.quality_max_count"] = "  Rank %d (highest): %d",
+    ["tracker.unranked_count"] = "  Unranked: %d",
+    ["tracker.required"] = "Required: %s",
+    ["tracker.missing"] = "Missing: %d",
+    ["tracker.missing_highest"] = "Missing at highest quality: %d",
+    ["tracker.purchased_pending"] = "Purchased this visit, awaiting collection: %d",
+    ["tracker.quality_loading"] = "Loading reagent quality…",
 
     ["settings.tag_font"] = "Tag Font",
     ["settings.quantity_font"] = "Quantity Font",

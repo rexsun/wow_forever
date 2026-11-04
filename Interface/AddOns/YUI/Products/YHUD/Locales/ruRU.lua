@@ -8,7 +8,6 @@ YUI.Locale:Register("YHUD", "ruRU", {
     ["settings.auto_hide_personal_resource"] = "Автоматически скрывать персональный ресурс",
     ["settings.auto_hide_personal_resource.tooltip"] = "Автоматически спрячь дисплеи личного ресурса, пока включена Halo и ее панели ресурсов. Отключение этого восстанавливает предыдущую настройку.",
     ["settings.sound_enabled"] = "Консольный звуковой коммутатор",
-    ["settings.sound_enabled.tooltip"] = "Контролируйте все звуковые оповещения монитора без изменения отдельных звуковых правил.",
     ["product.title"] = "Halo Monitor (ЯнФорж)",
     ["product.short_title"] = "Halo Monitor",
     ["product.brand_suffix"] = "Monitor",

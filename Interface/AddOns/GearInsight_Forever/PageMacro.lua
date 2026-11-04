@@ -30,9 +30,55 @@ local SYS_MACROS = {
       n = "Puts the six settings above back to the game's defaults (not to what you had before).",
       nc = "把上面改过的 6 项设置恢复成游戏默认值（不是你改之前的值）",
       b = "/run local D=C_CVar and C_CVar.GetCVarDefault or GetCVarDefault for _,v in ipairs({\"volumeFog\",\"volumeFogLevel\",\"ffxDeath\",\"ffxGlow\",\"giQuality\",\"cameraDistanceMaxZoomFactor\"}) do SetCVar(v,D(v)) end" },
+    { key = "sys-fps", no = 4, g = "画面与视角", gEn = "Graphics and camera", icon = "Spell_Nature_Cyclone",
+      t = "Lighter graphics: no weather, shadows or ground clutter", tc = "低配提帧",
+      n = "Turns off weather, shadows, ambient occlusion and ground clutter for more frames in busy areas.",
+      nc = "关天气、关阴影、关环境光遮蔽、关地面植被，人多的地方更不卡；画面会变素",
+      b = "/console weatherDensity 0\n/console shadowMode 0\n/console SSAO 0\n/console groundEffectDensity 0" },
+    { key = "sys-no-shake", no = 5, g = "画面与视角", gEn = "Graphics and camera", icon = "Spell_Nature_EarthQuake",
+      t = "No screen shake", tc = "关屏幕震动",
+      n = "Stops the camera and screen from shaking.",
+      nc = "关掉镜头和画面震动，跑图打本更稳",
+      b = "/console ShakeStrengthCamera 0\n/console ShakeStrengthUI 0" },
+    -- 10-18 用户转抖音「喵先生·练级宏命令」+「法师闪现撞墙·控制台设置指南」：重复的跳过、能用的加进来。
+    -- 设置名逐个在《无限》客户端 Wow.exe 里核过；攻略里的 ShowClassColorInNameplate / targetNearestDistanceRadius
+    -- 客户端里根本没有（写错了），不收。WorldTextScale 和 _v2 两个名字客户端都有、攻略两家说法相反 → 两个一起写。
+    { key = "sys-loot", no = 6, g = "练级便利", gEn = "Leveling comfort", icon = "INV_Misc_Bag_10",
+      t = "Auto loot with no delay", tc = "自动拾取 + 零延迟",
+      n = "Turns on auto loot and removes the loot window delay. Hold Shift while looting to pick items one by one.",
+      nc = "打开自动拾取、去掉拾取等待；想逐件捡就按住 Shift 再右键",
+      b = "/console autoLootDefault 1\n/console autoLootRate 0" },
+    { key = "sys-enemy-plates", no = 7, g = "练级便利", gEn = "Leveling comfort", icon = "Ability_Hunter_SniperShot",
+      t = "Enemy nameplates, seen from further", tc = "敌人血条 + 看得更远",
+      n = "Shows health bars over every enemy and raises the nameplate distance to 41 yards.",
+      nc = "所有敌人头顶挂血条，血条显示距离拉到 41 码，混战一眼看清谁残血",
+      b = "/console nameplateShowEnemies 1\n/console nameplateMaxDistance 41" },
+    { key = "sys-compare", no = 8, g = "练级便利", gEn = "Leveling comfort", icon = "INV_Chest_Chain_05",
+      t = "Always compare items", tc = "装备自动对比",
+      n = "Hovering an item compares it with what you wear without holding Shift.",
+      nc = "鼠标悬停就和身上装备对比，不用按 Shift",
+      b = "/console alwaysCompareItems 1" },
+    { key = "sys-big-numbers", no = 9, g = "练级便利", gEn = "Leveling comfort", icon = "Spell_Fire_Fireball02",
+      t = "Bigger damage numbers", tc = "伤害数字调大",
+      n = "Doubles the size of floating damage numbers (1 is the default).",
+      nc = "伤害数字放大一倍（1 是默认，1-3 可调）",
+      b = "/console WorldTextScale 2\n/console WorldTextScale_v2 2" },
+    { key = "sys-red-errors", no = 10, g = "练级便利", gEn = "Leveling comfort", icon = "INV_Misc_Note_01",
+      t = "Hide or show the red error text", tc = "隐藏 / 恢复错误红字",
+      n = "Press to hide the red \"Not enough rage\" style messages, press again to bring them back. Resets on relog.",
+      nc = "按一下隐藏屏幕中间的红字报错（怒气不足之类），再按一下恢复；重新登录会恢复显示",
+      b = "/run if UIErrorsFrame:IsShown() then UIErrorsFrame:Hide() else UIErrorsFrame:Show() end" },
+    { key = "sys-key-down", no = 11, g = "练级便利", gEn = "Leveling comfort", icon = "Spell_Nature_Lightning",
+      t = "Cast on key press", tc = "按下即施法",
+      n = "Spells go off when you press the key instead of when you release it.",
+      nc = "技能在按下按键时就放出，不用等松手",
+      b = "/console ActionButtonUseKeyDown 1" },
 }
 for _, m in ipairs(SYS_MACROS) do m.lv = 0; m.spells = {}; m.acct = true end
 ns.SysMacros = SYS_MACROS
+-- GI 快捷宏（10-18）：宏库页「GI 快捷宏」按钮导入；正文在导入时取 ns.SlashHint（/gi 被占时是 /gif）
+ns.GIOpenMacro = setmetatable({ key = "gi-open", no = 99, icon = "INV_Misc_Map_01", t = "Open", tc = "打开面板", lv = 0, spells = {}, acct = true },
+    { __index = function(_, k) if k == "b" then return ns.SlashHint or "/gif" end end })
 
 -- 宏列表图标：技能宏用第一个技能的图标，系统宏用自带图标名
 local function macroIconTex(m, spellIconFn)
@@ -202,6 +248,7 @@ local function buildPop(parent)
     f.hint:SetPoint("RIGHT", f, "RIGHT", -34, 0); f.hint:SetJustifyH("LEFT")
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -2, -2)
+    close:SetScript("OnClick", function() f:Hide() end)   -- 10-18 战斗中关不掉：原生红叉走 HideUIPanel，战斗中被拦 → 直接 Hide
     local sf, c = ns.Scroll(f, 10, -40, 600, 330)
     f.child, f.rows = c, {}
     f:Hide()
@@ -350,14 +397,46 @@ local function build(p)
             or ns.L("没有已导入的 GI 宏", "No GI macros to clear"))
         ns.RefreshMacroPage()
     end)
-    -- ⛔ 职业格子是 3 列 3 行，占到 y=-48..-198；第 4 排第 1 格是通用系统宏（-204..-250），清空按钮放在它右边
-    p.clearAll:SetPoint("TOPLEFT", 12 + 206, -215)
+    -- ⛔ 职业格子是 3 列 3 行，占到 y=-48..-198；第 4 排：通用系统宏 · GI 快捷宏（10-18）· 清空按钮（第 3 格）
+    p.clearAll:SetPoint("TOPLEFT", 12 + 412 + 15, -215)
     p.clearAll:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine(ns.L("删掉这台角色所有已导入的 GI 宏（动作条格子要自己清）", "Deletes every GI macro you've imported on this character (you still need to clear the action bar slots yourself)"), 1, 1, 1, true)
         GameTooltip:Show()
     end)
     p.clearAll:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- 10-18 用户截图「这里加上GI快捷宏」「效果就是/gi」：一个宏 = 打开 / 关闭 GI 主面板，点了建好放到鼠标上，拖到动作条
+    --   /gi 被别的插件占了时 Core 只注册 /gif → 宏正文跟着 ns.SlashHint 走。建在通用宏（所有角色共用），一键清空也会删它
+    --   10-18 用户截图「加个图标，跟通用那个并列」：和「通用 · 系统宏」同款卡片，放第 4 排第 2 格
+    do
+        local b = CreateFrame("Button", nil, p)
+        b:SetSize(200, 46)
+        b:SetPoint("TOPLEFT", 12 + 206, -48 - 3 * 52)
+        local bg = b:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(0.2, 1, 0.6, 0.06)
+        local hl = b:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.1)
+        local ic = b:CreateTexture(nil, "ARTWORK"); ic:SetSize(36, 36); ic:SetPoint("LEFT", 5, 0)
+        ic:SetTexture("Interface\\AddOns\\GearInsight_Forever\\media\\logo")
+        local fs = b:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"); fs:SetPoint("LEFT", 50, 6)
+        fs:SetText("|cff33ff99" .. ns.L("GI 快捷宏", "GI macro") .. "|r")
+        local cnt = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); cnt:SetPoint("LEFT", 50, -11)
+        cnt:SetText(ns.L("点一下拿到鼠标上  · ", "Click to pick up  - ") .. (ns.SlashHint or "/gif"))
+        b:SetScript("OnClick", function()
+            local ok, result = ns.ImportMacro(ns.GIOpenMacro)
+            if not ok then ns.Print(result); return end
+            ns.Print(ns.L("宏「", "Macro \"") .. result .. ns.L("」已拿到鼠标上：放到动作条任意格子，点一下 = ", "\" is on your cursor: drop it on an action bar; clicking it = ")
+                .. (ns.SlashHint or "/gif"))
+            ns.RefreshMacroPage()
+        end)
+        b:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(ns.L("GI 快捷宏", "GI macro"), 1, 0.82, 0)
+            GameTooltip:AddLine(ns.L("建一个宏，效果 = 输入 ", "Creates a macro that does the same as typing ") .. (ns.SlashHint or "/gif")
+                .. ns.L("：打开 / 关闭 GI 主面板。点了宏会拿到鼠标上，放到动作条上就能一键打开。", ": opens / closes the GI window. It lands on your cursor - drop it on an action bar."), 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        p.giMacro = b
+    end
     local note = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     note:SetPoint("TOPLEFT", 14, -260); note:SetWidth(600); note:SetJustifyH("LEFT"); note:SetSpacing(3)
     note:SetText(ns.EnSafe(ns.L(

@@ -139,12 +139,162 @@ end
 
 function GUI2.Overlay:CreateConfirmDialog(parent, opts)
     opts = opts or {}
-    local frame = Panel(parent, opts.title or "确认操作", opts.body or "危险操作确认示例。", opts.width or 280, opts.height or 136, "danger")
-    local cancel = GUI2.Form:CreateButton(frame, { text = opts.cancelText or "取消", width = 78 })
-    cancel:SetPoint("BOTTOMRIGHT", -100, 10)
-    local confirm = GUI2.Form:CreateButton(frame, { text = opts.confirmText or "确认", width = 84, state = "selected" })
-    confirm:SetPoint("BOTTOMRIGHT", -10, 10)
-    PlayOverlayEnter(frame, "overlay-confirm")
+    local locale = YUI.Locale and YUI.Locale:Get("Core") or {}
+    local width = opts.width or 460
+    local frame = GUI2:CreatePanel(parent, {width=width, height=opts.height or 180,
+        surface="color.surface.popup", border="color.popup.border", shadow=true})
+    frame:EnableMouse(true)
+    frame.heading = GUI2:CreateText(frame, opts.title or locale["settings.confirm_title"] or "", "font.size.lg", "color.text.heading")
+    frame.heading:SetPoint("TOPLEFT",18,-17); frame.heading:SetWidth(width-36); frame.heading:SetWordWrap(false)
+    frame.title = frame.heading
+    frame.bodyScroll = GUI2:CreateScrollFrame(frame, {width=width-44,height=70,childWidth=width-44,childHeight=70})
+    frame.bodyScroll:SetPoint("TOPLEFT",18,-54)
+    frame.body = GUI2:CreateText(frame.bodyScroll.child,"","font.size.md","color.text.primary","LEFT")
+    frame.body:SetPoint("TOPLEFT"); frame.body:SetWidth(width-52); frame.body:SetWordWrap(true)
+    frame.cancel = GUI2.Form:CreateButton(frame,{text=opts.cancelText or locale["common.cancel"] or "",width=90,height=26,
+        onClick=function() if opts.onCancel then opts.onCancel(frame) end; frame:Hide() end})
+    frame.cancel:SetPoint("BOTTOMRIGHT",-126,16)
+    frame.ok = GUI2.Form:CreateButton(frame,{text=opts.confirmText or locale["common.confirm"] or "",width=100,height=26,
+        onClick=function() if not frame.accept or frame.accept(frame)~=false then frame:Hide() end end})
+    frame.ok:SetPoint("BOTTOMRIGHT",-18,16)
+    frame.accept = opts.onAccept
+    function frame:SetMessage(message, maxHeight)
+        self.body:SetText(message or ""); self.body:SetHeight(0)
+        local contentHeight=math_max(24,self.body:GetStringHeight()+8)
+        self:SetHeight(math.min(maxHeight or 420,math_max(154,contentHeight+110)))
+        self.body:SetHeight(contentHeight)
+        self.bodyScroll:SetHeight(self:GetHeight()-110)
+        self.bodyScroll.child:SetHeight(math_max(contentHeight,self.bodyScroll:GetHeight()))
+        self.bodyScroll:SetVerticalScroll(0); self.body:Show(); self.bodyScroll:Show()
+    end
+    function frame:Open()
+        GUI2.Overlay:ShowModalScrim(self); self:Show()
+    end
+    if GUI2.EnableEscapeClose then GUI2:EnableEscapeClose(frame,function() frame.cancel:Click() end) end
+    frame:SetMessage(opts.body or "")
+    if opts.height then
+        frame:SetHeight(math_max(154,opts.height))
+        frame.bodyScroll:SetHeight(frame:GetHeight()-110)
+    end
+    frame:Hide()
+    return frame
+end
+
+-- A reusable update-style notice. Timeout dismisses; it never invokes an action.
+function GUI2.Overlay:CreateTimedNotice(parent, opts)
+    opts = opts or {}
+    local width = opts.width or 380
+    local frame = GUI2:CreateButtonFrame(parent,{width=width,height=opts.height or 108,
+        template="BackdropTemplate",movable=true,drag="LeftButton"})
+    frame:SetFrameStrata("FULLSCREEN_DIALOG"); frame:SetToplevel(true)
+    GUI2:ApplyBackdrop(frame,"color.surface.popup"); GUI2:CreateBorder(frame,"color.popup.border"); GUI2:CreateShadow(frame)
+    frame.icon = GUI2:CreateTexture(frame,{layer="ARTWORK",texture=opts.icon})
+    frame.icon:SetSize(40,40); frame.icon:SetPoint("TOPLEFT",16,-18)
+    frame.title = GUI2:CreateText(frame,"","font.size.lg","color.text.heading","LEFT")
+    frame.title:SetPoint("TOPLEFT",70,-17); frame.title:SetWidth(width-140); frame.title:SetWordWrap(false)
+    frame.body = GUI2:CreateText(frame,"","font.size.md","color.text.primary","LEFT")
+    frame.body:SetPoint("TOPLEFT",70,-41); frame.body:SetWidth(width-88); frame.body:SetWordWrap(true)
+    frame.countdown = GUI2:CreateText(frame,"","font.size.md","color.text.primary","RIGHT")
+    frame.countdown:SetPoint("TOPRIGHT",-16,-18); frame.countdown:SetWidth(48)
+    frame.track = GUI2:CreateTexture(frame,{layer="BACKGROUND"})
+    frame.track:SetPoint("BOTTOMLEFT"); frame.track:SetSize(width,3)
+    GUI2:SetTexturePaintKey(frame.track,"color.control.hover")
+    frame.progress = GUI2:CreateTexture(frame,{layer="ARTWORK"})
+    frame.progress:SetPoint("BOTTOMLEFT"); frame.progress:SetHeight(3)
+    GUI2:SetTexturePaintKey(frame.progress,"color.accent.primary")
+    frame:RegisterForClicks("LeftButtonUp","RightButtonUp")
+    frame:SetScript("OnClick",function(self,button)
+        if not self:IsActive() then return end
+        local callback=button=="RightButton" and self.onDismiss or self.onClick
+        if callback then callback(self) end
+    end)
+    frame:SetScript("OnEnter",function(self)
+        GUI2:ApplyBackdrop(self,"color.control.hover")
+        if self.pauseOnHover then self:Pause("hover") end
+    end)
+    frame:SetScript("OnLeave",function(self)
+        GUI2:ApplyBackdrop(self,"color.surface.popup")
+        self:Resume("hover")
+    end)
+    function frame:GetRemaining()
+        if not self.deadline then return 0 end
+        return self.pausedRemaining or math_max(0,self.deadline-GetTime())
+    end
+    function frame:IsActive()
+        return self:IsShown() and self:GetRemaining()>0
+    end
+    function frame:StopClock()
+        if self.timer then self.timer:Cancel(); self.timer=nil end
+        if self.progressAnimation then self.progressAnimation:Stop(); self.progressAnimation=nil end
+    end
+    function frame:UpdateCountdown()
+        local remaining=self:GetRemaining()
+        self.remaining=math.ceil(remaining); self.countdown:SetText(self.remaining.."s")
+        self.progress:SetWidth(math_max(.01,width*remaining/self.duration))
+        if self.onTick then self.onTick(self,self.remaining) end
+    end
+    local function tick()
+        frame.timer=nil
+        if not frame.deadline or not frame:IsShown() or frame.pausedRemaining then return end
+        if frame:GetRemaining()<=0 then
+            local expire=frame.onExpire
+            frame:Hide()
+            if expire then expire(frame) end
+            return
+        end
+        frame:UpdateCountdown()
+        if frame:IsActive() and not frame.pausedRemaining then
+            frame.timer=C_Timer.NewTimer(math.min(1,frame:GetRemaining()),tick)
+        end
+    end
+    function frame:StartClock()
+        self:StopClock()
+        tick()
+        if not self:IsActive() or self.pausedRemaining then return end
+        if YUI.Animation then
+            self.progressAnimation=YUI.Animation:Tween({owner=self,target=self.progress,key="notice-progress",
+                from=0,to=1,duration=self:GetRemaining(),easing="linear",
+                onUpdate=function()
+                    self.progress:SetWidth(math_max(.01,width*self:GetRemaining()/self.duration))
+                end})
+        end
+    end
+    function frame:Pause(reason)
+        reason=reason or "manual"
+        if not self:IsActive() or self.pauseReasons[reason] then return end
+        self.pauseReasons[reason]=true
+        if self.pausedRemaining then return end
+        self.pausedRemaining=self:GetRemaining()
+        self:StopClock(); self:UpdateCountdown()
+    end
+    function frame:Resume(reason)
+        reason=reason or "manual"
+        if not self.pauseReasons or not self.pauseReasons[reason] then return end
+        self.pauseReasons[reason]=nil
+        if next(self.pauseReasons) or not self.deadline or not self:IsShown() then return end
+        self.deadline=GetTime()+self.pausedRemaining; self.pausedRemaining=nil
+        self:StartClock()
+    end
+    function frame:Stop()
+        self:StopClock()
+        self.deadline=nil; self.onExpire=nil; self.onClick=nil; self.onDismiss=nil; self.onTick=nil
+        self.pausedRemaining=nil; self.pauseReasons={}
+        if YUI.Animation and YUI.Animation.StopOwner then YUI.Animation:StopOwner(self) end
+    end
+    frame:HookScript("OnHide",function(self) self:Stop() end)
+    function frame:Start(spec)
+        self:Stop()
+        self.title:SetText(spec.title or ""); self.body:SetText(spec.body or "")
+        self.body:SetHeight(0)
+        self:SetHeight(math_max(opts.height or 108,self.body:GetStringHeight()+59))
+        self.duration=math_max(1,spec.duration or 10); self.deadline=GetTime()+self.duration
+        self.onExpire,self.onClick,self.onDismiss,self.onTick=spec.onExpire,spec.onClick,spec.onDismiss,spec.onTick
+        self.pauseOnHover=spec.pauseOnHover==true
+        self:SetAlpha(1); self:Show()
+        if self.pauseOnHover and self:IsMouseOver() then self:Pause("hover") else self:StartClock() end
+        if GUI2.FadeIn then GUI2:FadeIn(self,{owner=self,key="timed-notice",from=0,to=1,duration=.2}) end
+    end
+    frame:Hide()
     return frame
 end
 
@@ -296,7 +446,7 @@ function GUI2.Overlay:RenderLab(parent, lab)
     local context = self:CreateContextMenu(menus, { width = 184, height = 96 })
     context:SetPoint("LEFT", dropdown, "RIGHT", 14, 0)
     local confirm = self:CreateConfirmDialog(menus, { width = 254, height = 96, title = "删除配置", body = "此操作需要确认。" })
-    confirm:SetPoint("LEFT", context, "RIGHT", 14, 0)
+    confirm:SetPoint("TOPLEFT",context,"TOPRIGHT",14,0); confirm:Show()
     local toast = self:CreateToast(menus, { width = 218, title = "已保存", body = "配置已更新。" })
     toast:SetPoint("LEFT", confirm, "RIGHT", 14, 0)
 

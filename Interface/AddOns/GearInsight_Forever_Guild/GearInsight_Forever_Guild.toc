@@ -1,0 +1,17 @@
+## Interface: 16001, 11507
+## Title: GearInsight |cff33ff99Forever|r - Guild
+## Title-zhCN: GearInsight |cff33ff99无限版|r · 公会
+## Notes: GearInsight Forever guild module (loads when you open the Guild tab)
+## Notes-zhCN: GearInsight 无限版的公会模块：点右侧「公会」页签时才加载
+## Author: GearInsight
+## Version: 0.5.9
+## Dependencies: GearInsight_Forever
+## LoadOnDemand: 1
+## IconTexture: Interface\Icons\inv_misc_map_01
+
+# 10-18 用户「工会和组队都单拆子模块，默认不加载」：主插件只留右侧空页签，第一次点才 LoadAddOn（UI.lua ns.LoadModule）
+# 10-19 用户「拿到主插件，不要放子插件了」：LevelShare.lua / GuildChatLevel.lua 搬回主插件（不点公会页签也要显示等级 / 升级播报）
+
+GuildRecruit.lua
+GuildTab.lua
+GuildHome.lua

@@ -1,6 +1,288 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v351|forever|7c0c75ff7393ad33404657273c73a4490aaefba1062501fc064bbdbe6f1f9799
+    {
+        version = "v351",
+        date = "2026-11-04",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "监控台原生触发发光新增“不发光”选项。",
+                "条形监控的原生默认发光仅围绕图标显示。",
+                "优化监控台、动作条和声音提醒性能，减少重复刷新。",
+                "修复资源设置首次打开报错、资源列表显示不全。",
+                "离开资源分组编辑后，恢复当前角色的资源预览。",
+                "插件助手支持分别勾选插件，并提示依赖异常。",
+                "修复首次导入动作条配置失败及延迟容限刷新干扰。",
+            },
+            enUS = {
+                "Added a No Glow option for native proc effects in monitors.",
+                "Default native proc glow on bar monitors now surrounds only the icon.",
+                "Improved monitor, action bar, and sound alert performance by reducing redundant updates.",
+                "Fixed errors when first opening resource settings and incomplete resource lists.",
+                "Resource previews now return to the current character after leaving resource group editing.",
+                "Addon Assistant now toggles each addon separately and warns about dependency issues.",
+                "Fixed initial action bar import failures and interference from latency-tolerance updates.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v350|forever|a8d065694369b3b734535683c3414217b763bd04bd29e0c578ad9dde482224b0
+    {
+        version = "v350",
+        date = "2026-10-31",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增资源管理，支持自定义资源条、竖向排列、同行等分及几何／原生资源点。",
+                "监控台和动作条新增菱形、棱光与墨影外观，支持 Masque 皮肤。",
+                "新增插件助手独立窗口与游戏菜单入口，支持按场景和专精管理插件方案。",
+                "聊天条支持独立调整文字字号，并同步调整鼠标悬停区域。",
+                "声音提醒列表支持跨类型与专精搜索。",
+                "修复资源条刷新与设计拖动异常、宠物技能状态显示及自动修理启停问题。",
+            },
+            enUS = {
+                "Added resource management with custom resource bars, vertical layouts, equal-width rows, and geometric or native resource points.",
+                "Added Diamond, Contour, and Shade appearances for monitors and action bars, with Masque skin support.",
+                "Added a dedicated Addon Assistant window and game menu entry, with addon profiles by activity and specialization.",
+                "Chat bar text now has an independent font size, with matching mouseover areas.",
+                "Sound alert searches now span alert types and specializations.",
+                "Fixed resource updates and designer dragging, pet ability status displays, and automatic repair activation.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v349|forever|830bd34b1b34efe4516763ded7eacf38db2de60b39569480cc0f6609c253ee24
+    {
+        version = "v349",
+        date = "2026-10-26",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增勾选收件、只收金币和批量删除空信。",
+                "新增邮件收发记录。",
+                "发件联系人支持搜索和最近寄送快捷收藏。",
+                "优化侧栏布局及其他邮件插件的兼容处理。",
+                "新增猎人守护条，支持激活效果、顺序调整及未学技能提示。",
+                "新增宠物技能折叠菜单，支持拖入食物喂养。",
+                "新增宠物快乐状态与食物提示。",
+                "新增萨满图腾组合条，支持组合切换和图腾选择。",
+                "职业动作条支持布局、展开方向与键位设置。",
+                "法师传送菜单新增未学技能、学习等级和训练地点提示。",
+                "法师传送菜单新增传送材料数量显示。",
+                "好友通知框支持单独移动并保存位置。",
+                "宠物动作条新增隐藏空槽选项。",
+                "原生界面新增背包栏控制开关，可关闭接管并保留显示模式。",
+                "监控进度条和资源条高度支持调整至 2–128。",
+                "优化法术警报预览及布局占位提示。",
+                "新建圆环分组默认关闭鼠标提示，保留已有设置。",
+                "优化音频同步，限制异常频繁重启并保留开关状态。",
+                "战斗中的地图标记刷新延至脱战后执行。",
+                "修复邮件联系人完整姓名与服务器信息处理。",
+                "修复图腾类监控圆环与进度条的持续时间显示。",
+                "修复魔杖恢复期间动作条图标异常变灰的问题。",
+                "修复窗口拖动条被手柄导航扫描时引发的污染问题。",
+                "修复背包栏隐藏可能引发的战斗中 ESC 报错。",
+            },
+            enUS = {
+                "Added selected-mail collection, gold-only collection, and bulk empty-mail deletion.",
+                "Added mail history for sent and received messages.",
+                "Added contact search and quick favorites for recent recipients.",
+                "Improved sidebar layout and compatibility with other mail addons.",
+                "Added a hunter aspect bar with activation effects, reordering, and unlearned-spell hints.",
+                "Added a collapsible pet utility menu with drag-to-feed support.",
+                "Added pet happiness indicators and food tooltips.",
+                "Added a shaman totem bar with set switching and totem selection.",
+                "Added layout, flyout direction, and keybind settings for class action bars.",
+                "Mage teleport menus now show unlearned spells, learning levels, and trainer hints.",
+                "Mage teleport menus now show reagent counts.",
+                "Friend notifications can now be moved independently with their position saved.",
+                "Added an option to hide empty pet action bar slots.",
+                "Added a bag bar control toggle that releases control while retaining the selected display mode.",
+                "Monitor progress and resource bar heights can now be adjusted from 2 to 128.",
+                "Improved spell alert previews and layout placeholder hints.",
+                "New ring groups now default to disabled tooltips, preserving existing settings.",
+                "Improved audio synchronization to limit excessive restarts while preserving the toggle state.",
+                "Map marker refreshes requested during combat now wait until combat ends.",
+                "Fixed full-name and realm information handling for mail contacts.",
+                "Fixed duration displays for totem-based monitor rings and bars.",
+                "Fixed incorrect action icon dimming during wand recovery.",
+                "Fixed taint caused by gamepad navigation scanning window drag handles.",
+                "Fixed potential ESC errors in combat caused by bag bar hiding.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v348|forever|260c33c1fbeee03d95e546c77a5daead2b4ab3987054b1b0cc5294a090a92500
+    {
+        version = "v348",
+        date = "2026-10-23",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "任务追踪新增自动接交任务开关，可统一关闭已加载插件的自动接交。",
+                "Polestar 路线支持进入副本自动收起，离开后恢复。",
+                "监控图标按键支持药水与饰品，改善技能和宏的按键识别。",
+                "游戏菜单新增头像插件设置入口。",
+                "修复切图后的技能就绪声音误报与监控图标恢复异常。",
+                "修复增益监控倒计时和层数文字被遮挡的问题。",
+            },
+            enUS = {
+                "Added a quest tracker toggle that can disable quest automation across loaded addons.",
+                "Polestar guides now collapse automatically on entering an instance and restore on leaving.",
+                "Added potion and trinket keybind text to monitor icons and improved spell and macro binding detection.",
+                "Added a portrait addon settings shortcut to the game menu.",
+                "Fixed false ability-ready sound alerts and monitor icon recovery after zone transitions.",
+                "Fixed obscured countdown and stack text on buff monitors.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v347|forever|6d23151395b489f7eac8b0611ad3999553f63cae5fe27ab2e1d980595c0834ff
+    {
+        version = "v347",
+        date = "2026-10-22",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增 Bagnon 背包附魔助手入口，可独立关闭。",
+                "新增 Polestar 任务路线收起，支持调整折叠标签尺寸。",
+                "补充莫高雷与泽风岛双向飞艇标记及离岛阵营提示。",
+                "修复旧配置导入报错，以及导入失败后的延迟容限恢复异常。",
+            },
+            enUS = {
+                "Added an Enchanting Assistant entry to Bagnon bags with a separate toggle.",
+                "Added collapsible Polestar quest guides with adjustable collapsed-label size.",
+                "Added zeppelin markers between Mulgore and Zephras Isle, with faction departure hints.",
+                "Fixed errors when importing older configurations and incorrect lag tolerance restoration after failed imports.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v346|forever|502ca5e07063bef6ad4d533d40c25ce3c4ddd57f8fb4cad185b936da68bc7d6e
+    {
+        version = "v346",
+        date = "2026-10-22",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "修复监控台位置修改在保存时被覆盖，以及预览遮挡位置编辑界面的问题。",
+                "修复界面美化阴影在部分窗口触发报错的问题。",
+            },
+            enUS = {
+                "Fixed monitor position edits being overwritten on save and previews overlapping the position editor.",
+                "Fixed errors caused by window shadows in UI enhancements.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v345|forever|3f3c062763152fb3c9c84ecb725bd447786bd45c8fce60d1f303d0ac668fc638
+    {
+        version = "v345",
+        date = "2026-10-22",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增声音提醒（测试版），支持技能、光环与事件提醒。",
+                "提供197条可选标准语音，其中137条为职业语音。",
+                "新增15类事件声音提醒，并配套新增12条事件录音。",
+                "新增批量声音预设，快速添加提醒。",
+                "声音提醒支持增益分类与跨分类搜索。",
+                "新增外部增益监控集合，便于添加队友提供的常用增益。",
+                "监控台新增层数条和充能条，支持分段、阈值颜色及充能恢复显示设置。",
+                "监控台支持跨组拖动，新增按行和按列布局。",
+                "监控图标新增可选的按下反馈。",
+                "统一监控、动作条和工具组件的字体设置，支持样式复制粘贴。",
+                "动作条支持按专精设置隐身、姿态和形态翻页。",
+                "动作条的充能转圈、边缘和倒计时可分别控制。",
+                "动作条新增使用中状态显示选项。",
+                "标记条新增样式、尺寸和透明度设置，并支持布局编辑。",
+                "新增自动战斗日志，可按副本场景设置记录规则。",
+                "焦点施法条新增重要施法发光等条件。",
+                "装备摘要支持临时关闭，并补充附魔图标。",
+                "界面美化新增蓝灰与炭黑主题，支持阴影和透明度设置。",
+                "优化任务追踪滚动体验。",
+                "新增进入非团本副本时的伤害统计重置询问，可按需启用。",
+                "地图新增敌对阵营NPC标记。",
+                "改善与Shifter共同使用时的世界地图窗口兼容性。",
+                "优化邮件收件人筛选及完整角色名处理。",
+                "补充圣印默认监控。",
+                "修复监控台资源监控的连击点残留问题。",
+                "修复战斗增强中的目标与焦点距离显示异常。",
+                "修复监控台图标激活发光残留。",
+                "修复监控台冷却结束后未按设置隐藏的问题。",
+                "修复监控台引导施法被后续按键误判为中断的问题。",
+            },
+            enUS = {
+                "Added sound reminders (Beta) for abilities, auras, and events.",
+                "Provided 197 selectable standard voice entries, including 137 class voice entries.",
+                "Added 15 event sound reminders, including 12 new event recordings.",
+                "Added batch sound presets to quickly add reminders.",
+                "Added buff categories and cross-category search to sound reminders.",
+                "Added a monitor collection for buffs received from other players.",
+                "Added stack and charge bars with segment, threshold color, and recharge display settings.",
+                "Added cross-group dragging and row/column layouts for monitors.",
+                "Added optional press feedback for monitor icons.",
+                "Unified font settings across monitors, action bars, and utility components, with style copy and paste.",
+                "Added per-specialization action bar paging for stealth, stances, and forms.",
+                "Added separate controls for charge swipe, edge, and countdown displays.",
+                "Added an option for displaying active-use states on action buttons.",
+                "Added marker bar styles, size and opacity settings, and layout editing.",
+                "Added automatic combat logging with configurable instance rules.",
+                "Added glow conditions to the focus cast bar, including important casts.",
+                "Added temporary dismissal and enchantment icons to equipment summaries.",
+                "Added blue-gray and charcoal themes to UI enhancements, with shadow and opacity settings.",
+                "Improved quest tracker scrolling.",
+                "Added an optional damage-meter reset prompt on non-raid dungeon entry.",
+                "Added opposing-faction NPC markers to the map.",
+                "Improved world map window compatibility with Shifter.",
+                "Improved mail recipient filtering and full-character-name handling.",
+                "Expanded default seal monitoring.",
+                "Fixed lingering combo points in resource monitors.",
+                "Fixed target and focus distance displays in Combat Enhancement.",
+                "Fixed lingering activation glows on monitor icons.",
+                "Fixed monitors failing to hide as configured when cooldowns finish.",
+                "Fixed cast monitoring incorrectly treating channels as interrupted by subsequent key presses.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v344|forever|c787336ae24ef3ef88a7b7c6623e605dd36fcd9d5cffc261059720d3b1d83631
+    {
+        version = "v344",
+        date = "2026-10-16",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增无限服 EllesmereUI 美化支持，适配相关窗口与字体。",
+                "监控台新增发光外观保存、复用与复制粘贴，优化编辑预览。",
+                "施法条支持图标内外放置与四种计时格式。",
+                "优化监控台方案管理，新增独立的全局设置面板。",
+                "自动对话支持按住暂停或按住启用，并可选择控制按键。",
+                "耐久条支持五键坐骑绑定和随机偏好召唤。",
+                "修复监控台资源条初始化与锚点定位问题。",
+                "圆环监控暂时关闭自定义发光，保留原有配置。",
+            },
+            enUS = {
+                "Added EllesmereUI enhancement support for Forever, including window and font adaptations.",
+                "Added reusable glow appearance presets and copy/paste, with improved editing previews.",
+                "Added internal/external cast-bar icons and four time formats.",
+                "Improved monitor profile management and added a separate global settings panel.",
+                "Added hold-to-pause and hold-to-enable controls for automatic dialogue, with a selectable modifier key.",
+                "Added five-button mount bindings and random favorite mounts.",
+                "Fixed monitor resource initialization and anchoring.",
+                "Temporarily disabled custom glows for ring monitors while preserving saved settings.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v343|forever|3aa4fde2ccd1a242b15ca87c4aa4c460a4d3279fee6cc4e1c324517c8daa3e74
+    {
+        version = "v343",
+        date = "2026-10-15",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "修复旧配置升级、复制和导入时的个人方案保留与失败恢复问题。",
+            },
+            enUS = {
+                "Fixed personal configuration preservation and recovery during legacy upgrades, profile copying and imports.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v341|forever|2243aac63a6335b65b8332b39c02c33c3a2ea3a185f9eddc6e202b25fe0a8e9b
     {
         version = "v341",
@@ -22,196 +304,6 @@ CL:Register("suite", {
                 "Map settings can now be included in configuration imports and exports.",
                 "Improved configuration imports, specialization assignment feedback and recovery after failed imports.",
                 "Fixed chat font selection, durability updates after login and monitor layering.",
-            },
-        },
-    },
--- YUI-Notes-Record: v340|forever|95c49d46b93dae2d3fe70dade73b2bbebbac92a88c735e674f2b4033cfe1e9a0
-    {
-        version = "v340",
-        date = "2026-10-13",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增任务物体闪光与组队管理面板隐藏选项。",
-                "新增RXP插件点击缩放功能，界面更清爽；",
-                "地图标记按钮支持左键显隐、右键筛选，完善小地图插件按钮收纳。",
-                "经验条详情支持背景透明度设置，优化底部提示颜色。",
-                "法师、牧师、术士的默认监控启用魔杖远程计时器。",
-                "新增屏蔽一些测试服红字",
-                "修复专业制作成品的白色边框与高亮，支持开关控制。",
-            },
-            enUS = {
-                "Added options for quest object sparkles and hiding the group management panel.",
-                "Added click-to-collapse support for the RXP addon for a cleaner interface.",
-                "Map marker buttons now use left-click to toggle markers and right-click for filters; improved minimap addon button collection.",
-                "Added background opacity settings for experience details and improved the bottom hint color.",
-                "Default monitors for mages, priests and warlocks now enable wand swing timers.",
-                "Added filtering for some red beta messages.",
-                "Fixed white borders and highlights on profession crafting output icons, with an optional toggle.",
-            },
-        },
-    },
--- YUI-Notes-Record: v339|forever|6dc852632bcbe84f4e516c163ef6a33dd89db81dd5cf87b3db3a8045393eb454
-    {
-        version = "v339",
-        date = "2026-10-12",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: v338|forever|9520d614019a6c82661e678ab108f6f92ab07bf372ef294034f9e04cd69398ff
-    {
-        version = "v338",
-        date = "2026-10-11",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "地图新增朝向指示线；小地图支持 FPS／延迟显示及文字样式、位置设置。",
-                "原生窗口移动新增拍卖行、银行、飞行地图、设置及插件列表支持，改善银行窗口调整后的背包布局联动。",
-                "信息条支持位置与位面组合显示及自定义格式。",
-                "私聊提示音支持多种声音选择与试听。",
-                "监控台新增图标分组公共冷却显示开关。",
-                "优化焦点助手与战斗增强的设置布局。",
-                "修复信息条与小地图同时启用时的系统信息加载问题。",
-                "修复背包栏自动显隐可能干扰 ESC 关闭窗口的问题。",
-            },
-            enUS = {
-                "Added world map facing lines and minimap FPS/latency displays, with configurable text styles and positions.",
-                "Added window movement support for the auction house, bank, flight map, settings and addon list; improved bag layout updates after adjusting the bank window.",
-                "InfoBar: added combined location and shard displays with custom formats.",
-                "Whisper alerts now support multiple sound choices and previews.",
-                "Monitor: added a global cooldown display toggle for icon groups.",
-                "Improved settings layouts for Focus Helper and Combat Enhancement.",
-                "Fixed system metrics loading when the information bar and minimap are both enabled.",
-                "Fixed automatic bag bar visibility updates that could interfere with closing windows using ESC.",
-            },
-        },
-    },
--- YUI-Notes-Record: v337|forever|bce293f099d17911097fab448ec25311c94b206d2822121581f2d6e03f384775
-    {
-        version = "v337",
-        date = "2026-10-10",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增提示框跟随鼠标，支持九方位和位置偏移设置。",
-                "动作条新增直角微扁和圆角微扁外观。",
-                "背包栏新增自动、隐藏和显示三种模式。",
-                "修复背包整理按钮被遮挡、无法点击的问题。",
-                "修复主动作条悬停显示时技能提示失效的问题。",
-            },
-            enUS = {
-                "Added cursor-following tooltips with nine anchor positions and adjustable offsets.",
-                "Added slightly wide square and rounded action bar shapes.",
-                "Added automatic, hidden and visible modes for the bag bar.",
-                "Fixed an overlapping button that could prevent clicking the bag sort button.",
-                "Fixed missing ability tooltips when the main action bar uses mouseover visibility.",
-            },
-        },
-    },
--- YUI-Notes-Record: v336|forever|80a333d1cf0a01ed1705a56f56b2a1db84d19040ac0e72254f744156c32676cd
-    {
-        version = "v336",
-        date = "2026-10-09",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "优化监控台与动作条图标阴影的尺寸适配和宽圆角显示。",
-            },
-            enUS = {
-                "Improved monitor and action bar icon shadows when resizing and corrected wide rounded corners.",
-            },
-        },
-    },
--- YUI-Notes-Record: v335|forever|f30274d71371cd7107ad2dcea3f9436b182de667a9faf4c3cc0ff553cb1566ff
-    {
-        version = "v335",
-        date = "2026-10-09",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "常用工具：新增姓名板文字描边，默认开启。",
-                "监控台：低等级隐藏默认门槛改为10级，新分组默认间距更紧凑。",
-                "修复监控台资源组宽度预览和设计模式重叠问题。",
-            },
-            enUS = {
-                "Utility Tools: added nameplate text outlines, enabled by default.",
-                "Monitor: lowered the default low-level hiding threshold to level 10 and tightened default spacing for new groups.",
-                "Fixed resource group width previews and overlapping elements in design mode.",
-            },
-        },
-    },
--- YUI-Notes-Record: v334|forever|a391867ff731c442e8622b103e5a5f35c39d0e3895b4dafab72c3ac5b2d49b6a
-    {
-        version = "v334",
-        date = "2026-10-07",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "动作条：新增任务物品条，支持自动显示、固定与收起。",
-                "动作条：新增技能自动升级与升级提示。",
-                "信息条：新增武器熟练度、学习地点与技能训练提示。",
-                "安装向导：新增应用姓名板配置。",
-                "动作条：优化激活高亮与圆角显示。",
-                "修复头像配置保存、开场动画期间的安装向导及目标标记问题。",
-            },
-            enUS = {
-                "Action Bars: added a quest item bar with automatic display, pinning and collapsing.",
-                "Action Bars: added automatic spell rank upgrades and notifications.",
-                "InfoBar: added weapon skill, training location and spell training tooltips.",
-                "Setup Wizard: added an option to apply a nameplate profile.",
-                "Action Bars: improved active highlights and rounded-corner display.",
-                "Fixed portrait profile saving, setup wizard behavior during intro cinematics and target markers.",
-            },
-        },
-    },
--- YUI-Notes-Record: v333|forever|cc9b2624231c1e510069847392818ed66cf78bb65e49bae7da9cf6b75e1607eb
-    {
-        version = "v333",
-        date = "2026-10-06",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "监控台：新增弹药数量监控，完善种族技能与图标显示。",
-                "监控台：低等级隐藏新增所有分组、资源条以外分组、仅原生分组三种范围。",
-                "背包栏：关闭背包时自动隐藏，打开时显示，并修复反复开关后的恢复问题。",
-                "装备信息：新建或编辑装备方案时隐藏摘要，避免遮挡弹窗。",
-                "动作条：滚轮快捷键缩写统一为 MU、MD。",
-                "信息条：未分配天赋时显示职业名称。",
-                "修复设置页、聊天条与信息条的重载界面点击调用。",
-                "交易增强：批量购买面板跟随商人窗口皮肤设置。",
-            },
-            enUS = {
-                "Halo: added ammo count monitoring and improved racial ability and icon display.",
-                "Halo: added three low-level hiding options: all groups, non-resource groups, or native groups only.",
-                "Bags Bar: automatically hides while bags are closed and appears when a bag opens; fixed restoration after repeated toggling.",
-                "Character Equipment: hides the summary while creating or editing equipment sets to avoid overlap.",
-                "Action Bars: shortened mouse wheel binding labels to MU and MD.",
-                "InfoBar: shows the class name when no talent points are assigned.",
-                "Fixed direct reload clicks from settings, the chat bar and the InfoBar.",
-                "Trade Enhancement: bulk purchase panels now follow merchant window skin settings.",
-            },
-        },
-    },
--- YUI-Notes-Record: v332|forever|5752792f34fdaa6816978b888fbe50bd8744701872dc782d09ec3e2ce9618227
-    {
-        version = "v332",
-        date = "2026-10-06",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "安装向导：新增切换到已有 YUI 配置的选项，并保存当前角色绑定。",
-                "移除第一步的布局图标，修复说明文字被遮挡的问题。",
-            },
-            enUS = {
-                "Setup Wizard: added an option to switch to the existing YUI profile and save the current character's assignment.",
-                "Removed the layout icon from the first step to prevent it from overlapping the description.",
             },
         },
     },

@@ -3,6 +3,7 @@ if not YUI or YUI.IsRetail == false then return end
 YUI.YHUD = YUI.YHUD or {}
 YUI.YHUD.Client = {
     id = "retail",
+    assistedHighlight = true,
     soundReminders = true,
     skyriding = true,
     fallbackSpecKeys = {

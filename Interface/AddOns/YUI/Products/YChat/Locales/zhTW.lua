@@ -4,6 +4,13 @@ if not YUI or not YUI.Locale then return end
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("zhTW") then return end
 
 YUI.Locale:Register("YChat", "zhTW", {
+    ["settings.section.message_layout"] = "訊息排版",
+    ["settings.appearance.tab_text"] = "分頁文字",
+    ["settings.appearance.tab_palette"] = "分頁配色",
+    ["settings.color.fixed"] = "固定顏色",
+    ["settings.color.class"] = "職業顏色",
+    ["settings.typography.text_style"] = "文字",
+    ["settings.typography.per_window"] = "依視窗",
     ["item_links.slot.INVTYPE_HEAD"] = "頭",
     ["item_links.slot.INVTYPE_SHOULDER"] = "肩",
     ["item_links.slot.INVTYPE_CHEST"] = "胸",
@@ -27,6 +34,7 @@ YUI.Locale:Register("YChat", "zhTW", {
     ["product.short_title"] = "YChat",
     ["product.notes"] = "聊天視窗美化與功能增強",
     ["layout.chat_frame"] = "聊天視窗",
+    ["layout.bnet_toast"] = "戰網通知視窗",
     ["layout.position_repaired"] = "偵測到異常聊天框座標，已恢復預設位置。",
     ["conflict.yielded"] = "偵測到 %s 正在接管聊天框，YChat 已主動讓位且不會修改聊天框。",
 

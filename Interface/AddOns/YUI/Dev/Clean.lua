@@ -144,6 +144,17 @@ local function ClearMailAssistantPersonalData()
     return ok and cleared == true
 end
 
+local function ClearMailAssistantLog(global)
+    local assistant = YUI.MailAssistant
+    if type(assistant) == "table" and type(assistant.ClearMailLog) == "function" then
+        local ok, cleared = pcall(assistant.ClearMailLog, assistant)
+        return ok and cleared == true
+    end
+    -- The component may be disabled or absent from this client's current load.
+    global.MailAssistantLog = nil
+    return true
+end
+
 function Dev:CleanSavedCharacterData()
     local global = GetGlobalDB()
     if type(global) ~= "table" then
@@ -178,7 +189,7 @@ function Dev:CleanSavedCharacterData()
     end
     if self.HideButtons then self:HideButtons() end
 
-    Print("开发者角色数据已清理，Profile 绑定已保留；正在清理 YChat 全角色聊天记录和邮箱助手个人数据。")
+    Print("开发者角色数据已清理，Profile 绑定已保留；正在清理 YChat 全角色聊天记录、邮箱联系人和收发记录。")
     if legacyProfiles > 0 then
         Print("已从 Profile 清理旧 WhisperManager 历史：", legacyProfiles)
     end
@@ -194,5 +205,7 @@ function Dev:CleanSavedCharacterData()
     if mailAssistantCleared == false then
         Print("邮箱助手个人数据清理失败。")
     end
-    return ychatHistoryCleared ~= false and mailAssistantCleared ~= false
+    local mailLogCleared = ClearMailAssistantLog(global)
+    if not mailLogCleared then Print("邮箱收发记录清理失败。") end
+    return ychatHistoryCleared ~= false and mailAssistantCleared ~= false and mailLogCleared
 end

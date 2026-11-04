@@ -166,6 +166,7 @@ local function NewGroupPlan(plan, groupId)
         done = expectedView == nil or group.enabled ~= true,
         resourcePresets = nil,
         hasCombatResourceVisibility = false,
+        hasResourceRowLinks = false,
     }
     plan.groupPlans[groupId] = result
     return result
@@ -214,12 +215,16 @@ local function AddMember(
     previewOnly,
     sourceKey
 )
+    sourceKey = sourceKey or YHUD:GetMonitorRuntimeSourceKey(entry, monitor)
     local runtimeMonitor = monitor
-    if plan.copyMonitors then
+    if plan.copyMonitors or sourceKey ~= monitor.sourceKey then
         runtimeMonitor = CopyMonitor(monitor)
+    end
+    if plan.copyMonitors then
         runtimeMonitor._yhudProjectionProfile = plan.profile
         runtimeMonitor._yhudProjectionEntry = entry
     end
+    runtimeMonitor.sourceKey = sourceKey
     if plan.preview and plan.copyMonitors then
         local state = YHUD.Model and YHUD.Model.GetState
             and YHUD.Model:GetState(sourceKey) or nil
@@ -315,6 +320,28 @@ local function GetResourcePresets(plan, groupPlan)
             end
         end
         if not found then
+            if YHUD.ResourceManager then
+                local classFile, specID = plan.resourceClassFile, plan.resourceSpecID
+                if not classFile or not specID then classFile, specID = ResourceCatalog:GetCurrentContext() end
+                local formKey = plan.resourceFormKey or ResourceCatalog:GetDefaultFormKey(classFile, specID)
+                for _, preset in ipairs(YHUD.ResourceManager:GetPresets(
+                    YHUD:GetResourceProfile(plan.profile, groupPlan.id), classFile, specID, formKey, false)) do
+                    if preset.id == focusedResourceId then presets[#presets + 1] = preset; found = true; break end
+                end
+            end
+        end
+        if not found and plan.preview and YHUD.ResourceManager then
+            local preset = YHUD.ResourceManager:GetStylePreviewPreset(
+                YHUD:GetResourceProfile(plan.profile, groupPlan.id), focusedResourceId,
+                plan.resourceClassFile, plan.resourceSpecID, plan.resourceFormKey)
+            if preset then
+                -- A style preview from another context owns no row here.
+                preset = YHUD:CopyValue(preset)
+                preset.resourceRowKey, preset.joinPrevious = nil, nil
+                presets[#presets + 1], found = preset, true
+            end
+        end
+        if not found and not YHUD.ResourceManager then
             local definition = ResourceCatalog:GetDefinition(focusedResourceId)
             local classFile = plan.resourceClassFile
             local specID = plan.resourceSpecID
@@ -364,13 +391,13 @@ local function BuildResourcePresentationSpec(plan, groupPlan, preset)
     local providerKind = provider.kind
     local segmentCount = preset.segmentCountFallback or preset.previewMax
     local displayMode = style.displayMode
-    if providerKind == "rune-cooldowns" then
+    if providerKind == "rune-cooldowns" and displayMode ~= "dots" and displayMode ~= "nativePoints" then
         displayMode = "cells"
     elseif segmentCount and segmentCount > 25 and displayMode ~= "bar" then
         displayMode = "bar"
     end
     if (displayMode == "divided" or displayMode == "cells"
-        or displayMode == "dots") and not segmentCount then
+        or displayMode == "dots" or displayMode == "nativePoints") and not segmentCount then
         displayMode = "bar"
     end
 
@@ -380,7 +407,7 @@ local function BuildResourcePresentationSpec(plan, groupPlan, preset)
     if auraApplication then
         auraApplicationVariants = {
             {
-                spellIDs = { provider.spellID },
+                spellIDs = provider.spellIDs or { provider.spellID },
                 maxApplications = segmentCount,
             },
         }
@@ -406,6 +433,7 @@ local function BuildResourcePresentationSpec(plan, groupPlan, preset)
         font = style.textFont,
         size = style.textSize,
         outline = style.textOutline,
+        monochrome = style.textMonochrome,
         color = style.textColor,
     }
     return {
@@ -413,8 +441,12 @@ local function BuildResourcePresentationSpec(plan, groupPlan, preset)
         width = layout.effectiveResourceWidth
             or layout.resourceWidth or 290,
         height = style.heightOverride or layout.resourceHeight or 16,
+        resourceRowKey = preset.resourceRowKey,
         display = {
-            mode = displayMode,
+            mode = displayMode == "nativePoints" and "dots" or displayMode,
+            pointShape = style.pointShape,
+            nativePointStyle = displayMode == "nativePoints"
+                and YHUD:ResolveNativeResourcePointStyle(style, preset) or nil,
             inverseFill = style.inverseFill == true
                 and YHUD:IsResourceInverseFillSupported(preset, style),
             smoothProgress = layout.smoothProgress == true,
@@ -423,7 +455,7 @@ local function BuildResourcePresentationSpec(plan, groupPlan, preset)
             segmentSpacing = style.segmentSpacing,
             dividerThickness = style.dividerThickness,
             dividerColor = style.dividerColor,
-            thresholdColorEnabled = style.thresholdColorEnabled,
+            thresholdColorEnabled = displayMode ~= "nativePoints" and style.thresholdColorEnabled,
             thresholdMode = style.thresholdMode,
             thresholdDirection = style.thresholdDirection,
             fillCeilingPercent = style.fillCeilingPercent,
@@ -437,10 +469,13 @@ local function BuildResourcePresentationSpec(plan, groupPlan, preset)
         bindings = {
             rechargeProgress = providerKind == "spell-charges",
             durationProgress = providerKind == "aura-duration"
-                or providerKind == "ironfur-timers" or providerKind == "swing-timer" or providerKind == "player-cast",
+                or providerKind == "ironfur-timers" or providerKind == "swing-timer" or providerKind == "player-cast"
+                or providerKind == "global-cooldown" or providerKind == "monitor-time",
             durationProgressDirection = providerKind == "swing-timer" and "elapsed" or "remaining",
             auraDurationSpellID = providerKind == "aura-duration"
                 and provider.spellID,
+            auraDurationSpellIDs = providerKind == "aura-duration" and provider.spellIDs or nil,
+            auraDurationRequirePlayerSource = providerKind == "aura-duration" and provider.requirePlayerSource == true,
             auraTextSpellID = providerKind == "absorb" and provider.spellID or nil,
             auraDurationUnit = providerKind == "aura-duration"
                 and provider.unit,
@@ -490,6 +525,7 @@ local function BuildResourcePresentationSpec(plan, groupPlan, preset)
             runeCooldownTextSize = style.runeCooldownTextSize,
             runeCooldownTextMode = style.runeCooldownTextMode,
             outline = style.textOutline,
+            monochrome = style.textMonochrome,
             color = style.textColor,
         },
         preview = {
@@ -534,7 +570,7 @@ function I.RefreshPresentationResources(plan, groupId, resourceId)
 end
 
 local function AppendResourceMember(plan, groupPlan, preset, index)
-    local monitorId = "monitor:" .. groupPlan.id .. ":" .. preset.sourceKey
+    local monitorId = "monitor:" .. groupPlan.id .. ":" .. (preset.customEntry and preset.id or preset.sourceKey)
     local setting = YHUD:GetResourceSetting(plan.profile, preset.id, groupPlan.id)
     local monitor = {
         id = monitorId,
@@ -545,6 +581,7 @@ local function AppendResourceMember(plan, groupPlan, preset, index)
         enabled = true,
         resourceVisibilityMode = setting.visibilityMode,
         _yhudResource = preset,
+        _yhudProjectionEntry = preset.customEntry,
         _yhudSynthetic = true,
     }
     local resourceSpec = BuildResourcePresentationSpec(
@@ -557,14 +594,15 @@ local function AppendResourceMember(plan, groupPlan, preset, index)
         plan,
         groupPlan,
         monitor,
-        nil,
+        preset.customEntry,
         monitorId,
         monitorId,
-        "available",
+        preset.issue and "unavailable" or "available",
         false,
         preset.sourceKey
     )
     member.resourceSpec = resourceSpec
+    if preset.resourceRowKey ~= nil then groupPlan.hasResourceRowLinks = true end
 end
 
 local function ResolveBundleSources(plan, monitorId, monitor, entry, bundleKind)
@@ -647,6 +685,12 @@ local function AppendBundleMembers(
                 and source.aliases or nil
             child._yhudSpellSignature = type(source) == "table"
                 and source.signature or nil
+            child._yhudAuraMaxFrameCount = type(source) == "table"
+                and source.maxFrameCount or nil
+            if child._yhudAuraMaxFrameCount then groupPlan.hasExternalBuffBlock = true end
+            if plan.preview and bundleKind == "externalBuff" and (entry.bundleMaxDisplay or 0) > 0 then
+                child._yhudPreviewFlowBlock = monitorId
+            end
             child._yhudDisplayIcon = type(source) == "table"
                 and (source.displayIcon or source.icon) or nil
             child._yhudDisplayName = type(source) == "table"
@@ -737,8 +781,7 @@ local function AppendConfiguredMonitor(plan, groupPlan, monitorId)
             monitorId,
             monitorId,
             availability,
-            false,
-            monitor.sourceKey
+            false
         )
     end
 end
@@ -957,22 +1000,25 @@ local function ItemSize(layout)
             or layout.iconSize or DEFAULT_ICON_SIZE
 end
 
+-- Saved width/height remain length/thickness; GUI2 receives physical dimensions.
+function I.ResolveResourceSize(layout, length, thickness)
+    if layout.orientation == "vertical" then return thickness, length end
+    return length, thickness
+end
+
 local function ResourceItemSize(layout, item, index, options)
     local metric = options and options.resourceMetrics
         and options.resourceMetrics[index]
+    local spec = item and item._yhudResourcePresentation
+    local fallbackWidth, fallbackHeight = I.ResolveResourceSize(layout,
+        layout.effectiveResourceWidth or spec and spec.width or layout.resourceWidth or 290,
+        spec and spec.height or layout.resourceHeight or 16)
     local width = metric and metric.width
         or item and item.gui2ResourceWidth
-        or item and item._yhudResourcePresentation
-            and item._yhudResourcePresentation.width
-        or layout.effectiveResourceWidth
-        or layout.resourceWidth
-        or 290
+        or fallbackWidth
     local height = metric and metric.height
         or item and item.gui2ResourceHeight
-        or item and item._yhudResourcePresentation
-            and item._yhudResourcePresentation.height
-        or layout.resourceHeight
-        or 16
+        or fallbackHeight
     width = tonumber(width)
     height = tonumber(height)
     return width and width > 0 and width or 290,
@@ -982,11 +1028,9 @@ end
 local function BuildResourceStackGeometry(layout, items, count, options)
     local horizontal = layout.direction == "right"
         or layout.direction == "left"
-    local perLine = math.min(
-        math.max(1, math.floor(tonumber(layout.maxPerLine)
-            or DEFAULT_MAX_PER_LINE)),
-        math.max(1, count)
-    )
+    -- Resource groups grow continuously along their configured direction.
+    -- Icon/bar wrapping limits do not apply to resource rows.
+    local perLine = math.max(1, count)
     local spacing = tonumber(layout.spacing) or 0
     if spacing ~= 0 and options and options.pixelSize then
         local resolved = options.pixelSize(math.abs(spacing))
@@ -1163,7 +1207,136 @@ local function BuildResourceStackGeometry(layout, items, count, options)
     return geometry
 end
 
+local function ResourceRowKey(item, metric)
+    return metric and metric.resourceRowKey
+        or item and item._yhudResourceRowKey
+        or item and item._yhudResourcePresentation
+            and item._yhudResourcePresentation.resourceRowKey
+        or item and item._yhudResource and item._yhudResource.resourceRowKey
+end
+
+local function BuildLinkedResourceGeometry(layout, items, count, options)
+    local vertical = layout.orientation == "vertical"
+    local step = options and options.minimumPixelStep or 1
+    local function Snap(value) return math.floor(value / step + 0.5) * step end
+    local spacing = tonumber(layout.spacing) or 0
+    if spacing ~= 0 and options and options.pixelSize then
+        local resolved = options.pixelSize(math.abs(spacing))
+        if type(resolved) == "number" then spacing = spacing < 0 and -resolved or resolved end
+    end
+    local gap = math.max(step, Snap(spacing))
+    local mainIndex, offIndex
+    if YUI.IsForever == true and layout.handPairMode == "split" then
+        for index = 1, count do
+            local metric = options and options.resourceMetrics and options.resourceMetrics[index]
+            local id = metric and metric.resourceId or items[index] and items[index]._yhudResourceId
+            if id == "swingMainHand" then mainIndex = index end
+            if id == "swingOffHand" then offIndex = index end
+        end
+    end
+    local paired = mainIndex and offIndex
+    local rows, rowByKey, rowItems, rowMetrics = {}, {}, {}, {}
+    for index = 1, count do
+        if items[index] and (not paired or index ~= math.max(mainIndex, offIndex)) then
+            local indices = paired and index == math.min(mainIndex, offIndex)
+                and { mainIndex, offIndex } or { index }
+            local unit = { indices = indices, length = 0, thickness = 0 }
+            local key
+            for _, physicalIndex in ipairs(indices) do
+                local metric = options and options.resourceMetrics and options.resourceMetrics[physicalIndex]
+                key = key or ResourceRowKey(items[physicalIndex], metric)
+                local width, height = ResourceItemSize(layout, items[physicalIndex], physicalIndex, options)
+                unit.length = math.max(unit.length, vertical and height or width)
+                unit.thickness = math.max(unit.thickness, vertical and width or height)
+            end
+            local row = key and rowByKey[key]
+            if not row then
+                row = { units = {}, length = 0, thickness = 0 }
+                rows[#rows + 1] = row
+                rowItems[#rows] = items[index]
+                if key then rowByKey[key] = row end
+            end
+            row.units[#row.units + 1] = unit
+            row.length = math.max(row.length, unit.length)
+            row.thickness = math.max(row.thickness, unit.thickness)
+        end
+    end
+    for index, row in ipairs(rows) do
+        local minimumLength = math.ceil(1 / step) * step
+        row.minimumUnitLength = minimumLength
+        for _, unit in ipairs(row.units) do
+            if #unit.indices == 2 then row.minimumUnitLength = 2 * minimumLength + step end
+        end
+        -- The native resource widget clamps each dimension to one UI unit.
+        -- Honor that minimum before dividing, instead of repeatedly writing
+        -- zero-sized cells which the widget expands into overlapping bars.
+        local length = math.max(Snap(row.length), row.minimumUnitLength * #row.units)
+        local width, height = I.ResolveResourceSize(layout, length, row.thickness)
+        rowMetrics[index] = { width = width, height = height }
+    end
+    local rowOptions = {}
+    for key, value in pairs(options or {}) do rowOptions[key] = value end
+    rowOptions.resourceMetrics, rowOptions.visibleCount = rowMetrics, nil
+    local geometry = BuildResourceStackGeometry(layout, rowItems, #rows, rowOptions)
+    local placements, metrics = {}, {}
+    for rowIndex, row in ipairs(rows) do
+        local placement = geometry.placements[rowIndex]
+        local length = vertical and placement.height or placement.width
+        local thickness = vertical and placement.width or placement.height
+        local unitCount = #row.units
+        local rowGap = gap
+        if unitCount > 1 then
+            -- Large spacing must not consume the bar's entire length. Keep
+            -- pixel-aligned cells inside the assigned total before expanding.
+            local maximumGap = math.floor((length - row.minimumUnitLength * unitCount) / (unitCount - 1) / step) * step
+            rowGap = math.min(rowGap, math.max(0, maximumGap))
+        end
+        -- Quantize cumulative boundaries, so rounding never adds drift to the
+        -- total length. A paired hand remains one externally allocated unit.
+        local available = math.max(0, length - rowGap * (unitCount - 1))
+        local function Place(index, start, size, itemThickness)
+            local cross = Snap((thickness - itemThickness) * 0.5)
+            local item = { point = placement.point, relativePoint = placement.relativePoint,
+                x = placement.x, y = placement.y }
+            if vertical then
+                item.width, item.height = itemThickness, size
+                item.x = item.x + (item.point == "TOPRIGHT" and -cross or cross)
+                item.y = item.y + (item.point == "BOTTOMLEFT" and start or -(length - start - size))
+            else
+                item.width, item.height = size, itemThickness
+                item.x = item.x + (item.point == "TOPRIGHT" and -(length - start - size) or start)
+                item.y = item.y + (item.point == "BOTTOMLEFT" and cross or -cross)
+            end
+            placements[index] = item
+            metrics[index] = { width = item.width, height = item.height }
+        end
+        for unitIndex, unit in ipairs(row.units) do
+            local start = Snap(available * (unitIndex - 1) / unitCount) + rowGap * (unitIndex - 1)
+            local finish = Snap(available * unitIndex / unitCount) + rowGap * (unitIndex - 1)
+            local unitLength = finish - start
+            if #unit.indices == 2 then
+                local firstLength = math.max(0, math.floor((unitLength - step) * 0.5 / step) * step)
+                Place(unit.indices[1], start, firstLength, unit.thickness)
+                Place(unit.indices[2], start + firstLength + step,
+                    math.max(0, unitLength - step - firstLength), unit.thickness)
+            else
+                Place(unit.indices[1], start, unitLength, unit.thickness)
+            end
+        end
+    end
+    geometry.placements, geometry.metrics, geometry.count = placements, metrics, count
+    geometry.prefixWidths, geometry.prefixHeights = nil, nil
+    geometry.resourceRowsLinked = true
+    return geometry
+end
+
 local function BuildResourceGeometry(layout, items, count, options)
+    for index = 1, count do
+        local metric = options and options.resourceMetrics and options.resourceMetrics[index]
+        if ResourceRowKey(items[index], metric) ~= nil then
+            return BuildLinkedResourceGeometry(layout, items, count, options)
+        end
+    end
     if layout.handPairMode ~= "split" or YUI.IsForever ~= true then
         return BuildResourceStackGeometry(layout, items, count, options)
     end
@@ -1203,17 +1376,27 @@ local function BuildResourceGeometry(layout, items, count, options)
     for rowIndex, indices in ipairs(rowIndices) do
         local placement = geometry.placements[rowIndex]
         if rowIndex == pairRow then
-            local width = placement.width
-            local leftWidth = math.floor((width - gap) * 0.5 / gap) * gap
-            local rightWidth = width - gap - leftWidth
+            local vertical = layout.orientation == "vertical"
+            local length = vertical and placement.height or placement.width
+            local firstLength = math.floor((length - gap) * 0.5 / gap) * gap
+            local secondLength = length - gap - firstLength
             for half, index in ipairs(indices) do
                 local item = {}
                 for key, value in pairs(placement) do item[key] = value end
-                item.width = half == 1 and leftWidth or rightWidth
-                if item.point == "TOPRIGHT" then
-                    item.x = item.x - (half == 1 and rightWidth + gap or 0)
+                if vertical then
+                    item.height = half == 1 and firstLength or secondLength
+                    if item.point == "BOTTOMLEFT" then
+                        item.y = item.y + (half == 2 and firstLength + gap or 0)
+                    else
+                        item.y = item.y - (half == 1 and secondLength + gap or 0)
+                    end
                 else
-                    item.x = item.x + (half == 2 and leftWidth + gap or 0)
+                    item.width = half == 1 and firstLength or secondLength
+                    if item.point == "TOPRIGHT" then
+                        item.x = item.x - (half == 1 and secondLength + gap or 0)
+                    else
+                        item.x = item.x + (half == 2 and firstLength + gap or 0)
+                    end
                 end
                 placements[index], metrics[index] = item, { width = item.width, height = item.height }
             end
@@ -1237,10 +1420,52 @@ local function AppendRows(target, indices, maxPerLine, kind, startIndex)
     end
 end
 
+local function IconSpacing(layout, width, height, fallback)
+    local x = tonumber(layout.columnSpacing) or fallback or 0
+    local y = tonumber(layout.rowSpacing) or fallback or 0
+    if layout.view == "icon" then
+        x, y = math.max(1 - width, x), math.max(1 - height, y)
+    end
+    return x, y
+end
+
+-- Only public, already planned coordinates are used. Zero offset retains the
+-- original geometry and allocation path; no frame dimensions are read here.
+local function ApplyItemOffset(layout, geometry)
+    local offset = layout.view == "icon" and tonumber(layout.itemOffset) or 0
+    if not offset or offset == 0 then return geometry end
+    if layout.filteredAuraProjectionStrategy ~= nil
+        and layout.filteredAuraProjectionStrategy == YHUD.FILTERED_AURA_LAYOUT_ENGINE_FLOW
+        and not (layout.filteredAuraProjectionState and layout.filteredAuraProjectionState.hasScopeMismatch) then
+        return geometry
+    end
+    local columns = layout.fillMode == "columns"
+    local minimum, maximum
+    for _, p in pairs(geometry.placements) do
+        local ordinal = p.itemOffsetIndex or 0
+        local x = p.point == "TOPRIGHT" and geometry.width + p.x - p.width or p.x
+        local y = p.point == "BOTTOMLEFT" and p.y + p.height - geometry.height or p.y
+        if columns then x = x + ordinal * offset else y = y + ordinal * offset end
+        p.x, p.y = x, y
+        local low, high = columns and x or y - p.height, columns and x + p.width or y
+        minimum = minimum and math.min(minimum, low) or low
+        maximum = maximum and math.max(maximum, high) or high
+    end
+    if minimum then
+        if columns then geometry.width = maximum - minimum
+        else geometry.height = maximum - minimum end
+        for _, p in pairs(geometry.placements) do
+            if columns then p.x = p.x - minimum else p.y = p.y - maximum end
+            if p.point == "TOPRIGHT" then p.x = p.x + p.width - geometry.width end
+            if p.point == "BOTTOMLEFT" then p.y = p.y + geometry.height - p.height end
+        end
+    end
+    return geometry
+end
+
 local function BuildSegmentedGeometry(layout, items, count, specialFlags)
     local itemWidth, itemHeight = ItemSize(layout)
-    local columnSpacing = tonumber(layout.columnSpacing) or DEFAULT_SPACING
-    local rowSpacing = tonumber(layout.rowSpacing) or DEFAULT_SPACING
+    local columnSpacing, rowSpacing = IconSpacing(layout, itemWidth, itemHeight, DEFAULT_SPACING)
     local maxPerLine = math.max(
         1,
         math.floor(tonumber(layout.maxPerLine) or DEFAULT_MAX_PER_LINE)
@@ -1295,6 +1520,12 @@ local function BuildSegmentedGeometry(layout, items, count, specialFlags)
     local rowCount = #rows
     local height = math.max(1, rowCount) * itemHeight
         + math.max(0, rowCount - 1) * rowSpacing
+    local columnIcons = layout.view == "icon" and layout.fillMode == "columns"
+    if columnIcons then
+        width = math.max(1, rowCount) * itemWidth
+            + math.max(0, rowCount - 1) * columnSpacing
+        height = maxColumns * itemHeight + math.max(0, maxColumns - 1) * rowSpacing
+    end
     local geometry = {
         mode = "segmented",
         width = width,
@@ -1337,7 +1568,23 @@ local function BuildSegmentedGeometry(layout, items, count, specialFlags)
                     region = row.kind,
                     regionRow = rowIndex,
                     special = row.specialFlags[column] == true,
+                    itemOffsetIndex = layout.itemOffset and layout.itemOffset ~= 0 and (column - 1) or nil,
                 }
+                if columnIcons then
+                    local columnHeight = #row.indices * itemHeight
+                        + math.max(0, #row.indices - 1) * rowSpacing
+                    local unusedHeight = height - columnHeight
+                    local startY = layout.alignment == "end" and unusedHeight
+                        or (layout.alignment == "center" and unusedHeight * 0.5 or 0)
+                    local visualPosition = layout.wrapDirection == "up"
+                        and (#row.indices - column) or (column - 1)
+                    local placement = geometry.placements[itemIndex]
+                    placement.point = layout.rowDirection == "left" and "TOPRIGHT" or "TOPLEFT"
+                    placement.relativePoint = placement.point
+                    placement.x = (layout.rowDirection == "left" and -1 or 1)
+                        * visualRow * (itemWidth + columnSpacing)
+                    placement.y = -startY - visualPosition * (itemHeight + rowSpacing)
+                end
             end
         end
     end
@@ -1352,14 +1599,14 @@ local function BuildStaticGeometry(layout, items, count, options)
     local itemWidth, itemHeight = ItemSize(layout)
     local verticalBar = layout.view == "bar"
         and layout.orientation == "vertical"
-    local horizontal = not verticalBar
+    local columnIcons = layout.view == "icon" and layout.fillMode == "columns"
+    local horizontal = not (verticalBar or columnIcons)
     local perLine = math.min(
         math.max(1, tonumber(layout.maxPerLine) or DEFAULT_MAX_PER_LINE),
         math.max(1, count)
     )
     local lineCount = count > 0 and math.ceil(count / perLine) or 1
-    local columnSpacing = tonumber(layout.columnSpacing) or 0
-    local rowSpacing = tonumber(layout.rowSpacing) or 0
+    local columnSpacing, rowSpacing = IconSpacing(layout, itemWidth, itemHeight)
     local primaryItemSize = horizontal and itemWidth or itemHeight
     local secondaryItemSize = horizontal and itemHeight or itemWidth
     local primarySpacing
@@ -1402,18 +1649,25 @@ local function BuildStaticGeometry(layout, items, count, options)
             local alignmentOffset = layout.alignment == "end" and unused
                 or (layout.alignment == "center" and unused * 0.5 or 0)
             local rowPosition = position
-            if layout.view == "icon" and layout.rowDirection == "left" then
+            if layout.view == "icon" and (columnIcons and layout.wrapDirection == "up"
+                or not columnIcons and layout.rowDirection == "left") then
                 rowPosition = itemsInLine - position - 1
             end
             local primaryOffset = alignmentOffset + rowPosition * primaryStep
             local secondaryOffset = line * secondaryStep
             local placement = { width = itemWidth, height = itemHeight }
+            if layout.itemOffset and layout.itemOffset ~= 0 then placement.itemOffsetIndex = position end
             if layout.view == "ring" then
                 placement.diameter = layout.diameter or itemWidth
                 placement.thickness = layout.ringThickness
                 placement.referenceDiameter = nil
             end
-            if verticalBar and layout.wrapDirection == "up" then
+            if columnIcons then
+                placement.point = layout.rowDirection == "left" and "TOPRIGHT" or "TOPLEFT"
+                placement.relativePoint = placement.point
+                placement.x = layout.rowDirection == "left" and -secondaryOffset or secondaryOffset
+                placement.y = -primaryOffset
+            elseif verticalBar and layout.wrapDirection == "up" then
                 placement.point, placement.relativePoint = "TOPRIGHT", "TOPRIGHT"
                 placement.x, placement.y = -secondaryOffset, -primaryOffset
             elseif verticalBar then
@@ -1438,13 +1692,98 @@ end
 -- members. Content width remains a separate public metric for consumers such
 -- as resource bars; restricted Aura geometry is never measured here.
 function I.GetAutoIconRowWidth(layout)
-    if layout.view ~= "icon" or layout.layoutMode == "fixed" then return nil end
+    if layout.view ~= "icon" or layout.layoutMode == "fixed"
+        or layout.fillMode == "columns" then return nil end
     local itemWidth = ItemSize(layout)
     local columns = math.max(
         1, math.floor(tonumber(layout.maxPerLine) or DEFAULT_MAX_PER_LINE)
     )
     return columns * itemWidth
-        + (columns - 1) * (tonumber(layout.columnSpacing) or 0)
+        + (columns - 1) * math.max(1 - itemWidth, tonumber(layout.columnSpacing) or 0)
+end
+
+function I.GetAutoIconColumnHeight(layout)
+    if layout.view ~= "icon" or layout.layoutMode == "fixed"
+        or layout.fillMode ~= "columns" then return nil end
+    local _, itemHeight = ItemSize(layout)
+    local rows = math.max(1, math.floor(tonumber(layout.maxPerLine) or DEFAULT_MAX_PER_LINE))
+    return rows * itemHeight + (rows - 1) * math.max(1 - itemHeight, tonumber(layout.rowSpacing) or 0)
+end
+
+function I.GetColumnFlowPreviewBlocks(runtime, slots, count, monitors)
+    if runtime.view ~= "icon" or runtime.fillMode ~= "columns" then return nil end
+    local pure = runtime.filteredAuraProjectionStrategy ~= nil
+        and runtime.filteredAuraProjectionStrategy == YHUD.FILTERED_AURA_LAYOUT_ENGINE_FLOW
+        and not (runtime.filteredAuraProjectionState and runtime.filteredAuraProjectionState.hasScopeMismatch)
+    local members = runtime.presentationGroupPlan and runtime.presentationGroupPlan.memberById
+    local blocks
+    for index = 1, count do
+        local id = slots[index] and slots[index]._yhudMonitorId
+        local member = id and members and members[id]
+        local monitor = id and monitors and monitors[id] or (member and member.monitor)
+        local block = monitor and monitor._yhudPreviewFlowBlock or (pure and "native-group")
+        if block then
+            blocks = blocks or {}
+            blocks[index] = block
+        end
+    end
+    return blocks
+end
+
+-- Bounded native collections form separate blocks. Preview uses public sample
+-- slots to reproduce that flow, including an incomplete final column.
+local function BuildColumnFlowPreview(layout, items, count, options)
+    local ordinary, ordinaryIndices, blocks, blockOrder = {}, {}, {}, {}
+    local ordinaryCount = 0
+    for index = 1, count do
+        local blockId = options.flowBlocks[index]
+        if blockId then
+            if not blocks[blockId] then
+                blocks[blockId] = {}
+                blockOrder[#blockOrder + 1] = blockId
+            end
+            blocks[blockId][#blocks[blockId] + 1] = index
+        else
+            ordinaryCount = ordinaryCount + 1
+            ordinary[ordinaryCount] = items[index]
+            ordinaryIndices[ordinaryCount] = index
+        end
+    end
+    local base = I.BuildGroupGeometry(layout, ordinary, ordinaryCount, {
+        fixedLayout = options.fixedLayout, design = options.design,
+    })
+    local placements = {}
+    for index, placement in pairs(base.placements) do placements[ordinaryIndices[index]] = placement end
+    local width = ordinaryCount > 0 and base.width or 0
+    local height = ordinaryCount > 0 and base.height or 0
+    local itemWidth, itemHeight = ItemSize(layout)
+    local perLine = math.max(1, layout.maxPerLine or DEFAULT_MAX_PER_LINE)
+    local columnSpacing, rowSpacing = IconSpacing(layout, itemWidth, itemHeight)
+    for _, blockId in ipairs(blockOrder) do
+        local indices = blocks[blockId]
+        local rows = math.min(perLine, #indices)
+        local nativeHeight = rows * itemHeight + math.max(0, rows - 1) * rowSpacing
+        local blockHeight = not options.fixedLayout and I.GetAutoIconColumnHeight(layout) or nativeHeight
+        height = math.max(height, blockHeight)
+        local unused = height - nativeHeight
+        local y = layout.alignment == "end" and unused
+            or (layout.alignment == "center" and unused / 2 or 0)
+        local x = width + (width > 0 and columnSpacing or 0)
+        local sign = layout.rowDirection == "left" and -1 or 1
+        for position, index in ipairs(indices) do
+            local column, row = math.floor((position - 1) / perLine), (position - 1) % perLine
+            if layout.wrapDirection == "up" then row = rows - row - 1 end
+            local point = sign < 0 and "TOPRIGHT" or "TOPLEFT"
+            placements[index] = {
+                point = point, relativePoint = point,
+                x = sign * (x + column * (itemWidth + columnSpacing)),
+                y = -y - row * (itemHeight + rowSpacing), width = itemWidth, height = itemHeight,
+            }
+        end
+        local columns = math.ceil(#indices / perLine)
+        width = x + columns * itemWidth + math.max(0, columns - 1) * columnSpacing
+    end
+    return { mode = "static", width = width, height = height, count = count, placements = placements }
 end
 
 function I.BuildGroupGeometry(layout, items, count, options)
@@ -1452,6 +1791,9 @@ function I.BuildGroupGeometry(layout, items, count, options)
     items = type(items) == "table" and items or {}
     count = math.max(0, math.floor(tonumber(count) or #items))
     options = type(options) == "table" and options or {}
+    if layout.view == "icon" and layout.fillMode == "columns" and options.flowBlocks then
+        return BuildColumnFlowPreview(layout, items, count, options)
+    end
     if layout.view == "ring"
         and (layout.direction == "outward" or layout.direction == "inward") then
         return BuildConcentricRingGeometry(layout, items, count)
@@ -1481,6 +1823,15 @@ function I.BuildGroupGeometry(layout, items, count, options)
             placement.x = placement.x + offset
         end
     end
+    local columnHeight = not options.fixedLayout and I.GetAutoIconColumnHeight(layout)
+    if columnHeight then
+        local unused = columnHeight - geometry.height
+        local offset = layout.alignment == "end" and unused
+            or (layout.alignment == "center" and unused * 0.5 or 0)
+        geometry.height = columnHeight
+        for _, placement in pairs(geometry.placements) do placement.y = placement.y - offset end
+    end
+    ApplyItemOffset(layout, geometry)
     return geometry
 end
 

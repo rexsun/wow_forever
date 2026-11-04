@@ -4,6 +4,13 @@ if not YUI or not YUI.Locale then return end
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("zhCN") then return end
 
 YUI.Locale:Register("YChat", "zhCN", {
+    ["settings.section.message_layout"] = "消息排版",
+    ["settings.appearance.tab_text"] = "标签文字",
+    ["settings.appearance.tab_palette"] = "标签配色",
+    ["settings.color.fixed"] = "固定颜色",
+    ["settings.color.class"] = "职业颜色",
+    ["settings.typography.text_style"] = "文本",
+    ["settings.typography.per_window"] = "按窗口",
     ["item_links.slot.INVTYPE_HEAD"] = "头",
     ["item_links.slot.INVTYPE_SHOULDER"] = "肩",
     ["item_links.slot.INVTYPE_CHEST"] = "胸",
@@ -27,6 +34,7 @@ YUI.Locale:Register("YChat", "zhCN", {
     ["product.short_title"] = "YChat",
     ["product.notes"] = "聊天窗口美化与功能增强",
     ["layout.chat_frame"] = "聊天框",
+    ["layout.bnet_toast"] = "战网提示框",
     ["layout.position_repaired"] = "检测到异常聊天框坐标，已恢复默认位置。",
     ["conflict.yielded"] = "检测到 %s 正在接管聊天框，YChat 已主动让位且不会修改聊天框。",
 

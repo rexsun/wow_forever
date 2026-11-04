@@ -86,7 +86,7 @@ function Sound.Stop(handle)
 end
 
 function Sound.RegisterAura(event, unit, spellID, file, channel)
-    if YUI.IsRetail~=true or not (C_UnitAuras and type(C_UnitAuras.AddAuraSound)=='function'
+    if (YUI.IsRetail~=true and YUI.IsForever~=true) or not (C_UnitAuras and type(C_UnitAuras.AddAuraSound)=='function'
         and type(C_UnitAuras.RemoveAuraSound)=='function') then return nil,'aura-sound-unavailable' end
     if IsSecret(event) or IsSecret(unit) or IsSecret(spellID) or IsSecret(file) or IsSecret(channel) then return nil,'invalid-aura-sound' end
     local triggers=Enum and Enum.UnitAuraSoundTrigger

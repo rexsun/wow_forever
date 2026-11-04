@@ -31,10 +31,12 @@ local BONUS_ROLL_CUSTOM_ICON_DIMENSION = 512
 
 local MODE_BLOCK_ALLOWLIST = "block_allowlist"
 local MODE_THROTTLE_ONCE = "throttle_once"
+local EMPTY_DEFAULTS = {}
 local DEFAULTS = {
     syncFriendlyNameplates = false,
     nameplateOutline = true,
     routeGuide = { enabled = true, scale = 100 },
+    polestarGuide = { enabled = true },
     bonusRoll = {
         rollConfirm = true,
         passConfirm = true,
@@ -50,6 +52,9 @@ local DEFAULTS = {
         throttleWindow = 3,
     },
 }
+if IS_MAINLINE then
+    DEFAULTS.EncounterJournalItemSets = true
+end
 
 local MACRO_UI_ADDON = "Blizzard_MacroUI"
 local MACRO_NATIVE_FRAME_WIDTH = 338
@@ -83,6 +88,11 @@ local originalTryDisplayMessage
 local originalCheckAddMessage
 local originalPingSystemErrorRegistered
 local throttleRecords = {}
+local errorEventOwner = {}
+local errorEventFrame
+local errorEventHandler
+local errorEvents = { "SYSMSG", "UI_ERROR_MESSAGE", "UI_INFO_MESSAGE" }
+local originalErrorEvents = {}
 local macroFrameApplied = false
 local macroFrameOriginals
 local macroEventOwner = {}
@@ -91,6 +101,9 @@ local macroEventFrame
 local reloadCommandOwner = {}
 local profileOwner = {}
 local profileCallbacksRegistered = false
+local encounterJournalOwner = {}
+local encounterJournalItemSetsEnabled = false
+local encounterJournalItemSetsHooked = false
 local bonusRollEventOwner = {}
 local bonusRollEventsAttached = false
 local bonusRollPopupOwner = {}
@@ -212,6 +225,8 @@ local function NormalizeDB(config)
     end
     FillMissing(config.routeGuide, DEFAULTS.routeGuide)
     config.routeGuide.scale = NormalizeRouteGuideScale(config.routeGuide.scale)
+    if type(config.polestarGuide) ~= "table" then config.polestarGuide = CopyDefaultValue(DEFAULTS.polestarGuide) end
+    FillMissing(config.polestarGuide, DEFAULTS.polestarGuide)
     if type(config.bonusRoll) ~= "table" then
         config.bonusRoll = CopyDefaultValue(DEFAULTS.bonusRoll)
     end
@@ -240,10 +255,19 @@ local function NormalizeDB(config)
 end
 
 local function GetDB()
-    local config, store = Components:EnsureConfig(CONFIG_KEY, DEFAULTS, PRODUCT_ID)
+    -- 先迁移旧设置，再补默认值，避免覆盖旧用户关闭项或新位置的显式选择。
+    local config, store = Components:EnsureConfig(CONFIG_KEY, EMPTY_DEFAULTS, PRODUCT_ID)
     if type(config) ~= "table" then
         return DEFAULTS
     end
+    if IS_MAINLINE and type(store) == "table" and type(store.LoginCheck_Config) == "table" then
+        local legacy = store.LoginCheck_Config
+        if config.EncounterJournalItemSets == nil and type(legacy.EncounterJournalItemSets) == "boolean" then
+            config.EncounterJournalItemSets = legacy.EncounterJournalItemSets
+        end
+        legacy.EncounterJournalItemSets = nil
+    end
+    FillMissing(config, DEFAULTS)
     NormalizeDB(config)
     if HAS_NAMEPLATE_SYNC and type(store) == "table" then
         if type(config._migrations) ~= "table" then config._migrations = {} end
@@ -437,7 +461,68 @@ local function SetPingSystemErrorHidden(hidden)
     end
 end
 
+local function OnErrorMessageEvent(event, ...)
+    local messageType, message = ...
+    if event == "SYSMSG" then message, messageType = messageType, nil end
+    if not (issecretvalue and (issecretvalue(messageType) or issecretvalue(message))) then
+        if blockBetaDebugMessages and IsBetaDebugMessage(message) then return end
+        if hideRedErrors and event == "UI_ERROR_MESSAGE" and not IsImportantError(message) then
+            local hideDB = GetDB().hideErrors or DEFAULTS.hideErrors
+            if hideDB.mode == MODE_THROTTLE_ONCE
+                and not ShouldThrottleMessage(messageType, message, hideDB.throttleWindow) then
+                local r, g, b = RED_FONT_COLOR:GetRGB()
+                DisplayRedMessage(errorEventFrame, messageType, message, r, g, b)
+            end
+            return
+        end
+    end
+    return Security.SecureCallFunction(errorEventHandler, errorEventFrame, event, ...)
+end
+
+local function StopErrorMessageEvents()
+    if not errorEventFrame then return end
+    Event:OffOwner(errorEventOwner)
+    for _, event in ipairs(errorEvents) do
+        if originalErrorEvents[event] then errorEventFrame:RegisterEvent(event) end
+        originalErrorEvents[event] = nil
+    end
+    errorEventFrame, errorEventHandler = nil, nil
+end
+
+local function ToggleForeverErrorFiltering(enable, blockDebugMessages)
+    local frame = UIErrorsFrame
+    if errorEventFrame and (errorEventFrame ~= frame or not (enable or blockDebugMessages)) then
+        StopErrorMessageEvents()
+    end
+    if enable or blockDebugMessages then
+        if not (frame and type(frame.OnEvent) == "function" and frame.IsEventRegistered
+            and frame.RegisterEvent and frame.UnregisterEvent and Event and Event.On and Event.OffOwner
+            and Security and Security.SecureCallFunction and RED_FONT_COLOR and RED_FONT_COLOR.GetRGB) then
+            StopErrorMessageEvents()
+            enable, blockDebugMessages = false, false
+        elseif not errorEventFrame then
+            errorEventFrame, errorEventHandler = frame, frame.OnEvent
+            for _, event in ipairs(errorEvents) do
+                if frame:IsEventRegistered(event) then
+                    originalErrorEvents[event] = true
+                    Event:On(event, OnErrorMessageEvent, errorEventOwner)
+                    frame:UnregisterEvent(event)
+                end
+            end
+        end
+    end
+    if enable ~= hideRedErrors or blockDebugMessages ~= blockBetaDebugMessages then ClearThrottleRecords() end
+    if enable ~= hideRedErrors then SetPingSystemErrorHidden(enable) end
+    hideRedErrors, blockBetaDebugMessages = enable, blockDebugMessages
+    hideErrorsFiltering = errorEventFrame ~= nil
+end
+
 local function ToggleHideErrorsFiltering(enable, blockDebugMessages)
+    -- 无限服的原生保存提示也调用这些方法；覆盖后会污染调用者后续写入的冷却布局。
+    -- 仅接管消息事件，保留原生方法，外部布局保存提示继续由暴雪直接显示。
+    if YUI.IsForever == true then
+        return ToggleForeverErrorFiltering(enable == true, blockDebugMessages == true)
+    end
     if not UIErrorsFrame then
         return
     end
@@ -1410,6 +1495,56 @@ local function RefreshRouteGuideRuntime()
             routeGuide:Disable()
         end
     end
+    local polestarGuide = YUI.UtilityToolsPolestarGuide
+    if polestarGuide then
+        local db = GetDB()
+        if featureEnabled and db.polestarGuide.enabled == true then
+            polestarGuide:SetScale(db.routeGuide.scale)
+            polestarGuide:Enable()
+        else
+            polestarGuide:Disable()
+        end
+    end
+end
+
+local function ApplyEncounterJournalItemSets(frame)
+    -- 原生 HookScript 无法撤销；禁用时保留无操作回调，不再修改标签。
+    if not encounterJournalItemSetsEnabled then return end
+    local ok, err = pcall(function()
+        PanelTemplates_SetAllTabsShown(frame, true)
+        PanelTemplates_SetNumTabs(frame, #frame.Tabs)
+    end)
+    if not ok and YUI.Debug then
+        YUI:Debug("UtilityTools | EncounterJournal item sets apply failed: " .. tostring(err))
+    end
+end
+
+local function RefreshEncounterJournalItemSets()
+    if not IS_MAINLINE then return end
+    encounterJournalItemSetsEnabled = featureEnabled and GetDB().EncounterJournalItemSets == true
+    if Event and Event.OffOwner then Event:OffOwner(encounterJournalOwner) end
+    if not encounterJournalItemSetsEnabled then return end
+
+    if not encounterJournalItemSetsHooked and EncounterJournal then
+        local ok, err = pcall(function()
+            EncounterJournal:HookScript("OnShow", ApplyEncounterJournalItemSets)
+        end)
+        if not ok then
+            if YUI.Debug then
+                YUI:Debug("UtilityTools | EncounterJournal item sets hook failed: " .. tostring(err))
+            end
+            return
+        end
+        encounterJournalItemSetsHooked = true
+    end
+
+    if encounterJournalItemSetsHooked then
+        if EncounterJournal:IsShown() then ApplyEncounterJournalItemSets(EncounterJournal) end
+    elseif Event and Event.On then
+        Event:On("ADDON_LOADED", function(_, addonName)
+            if addonName == "Blizzard_EncounterJournal" then RefreshEncounterJournalItemSets() end
+        end, encounterJournalOwner)
+    end
 end
 
 local function RefreshRuntime()
@@ -1418,6 +1553,7 @@ local function RefreshRuntime()
     RefreshBonusRollRuntime()
     RefreshNameplateRuntime()
     RefreshRouteGuideRuntime()
+    RefreshEncounterJournalItemSets()
 end
 
 local function ReloadUIFromCommand()
@@ -1539,20 +1675,29 @@ local function CreateSectionHidden(sectionKey)
 end
 
 local function GetSubFeatureStates()
-    local db = Components:CopyConfigSnapshot(CONFIG_KEY, DEFAULTS, PRODUCT_ID)
+    local db = Components:CopyConfigSnapshot(CONFIG_KEY, EMPTY_DEFAULTS, PRODUCT_ID)
     if not db then return {} end
+    if IS_MAINLINE and db.EncounterJournalItemSets == nil then
+        local legacy = Components:CopyConfigSnapshot("LoginCheck_Config", EMPTY_DEFAULTS, PRODUCT_ID)
+        db.EncounterJournalItemSets = not (legacy and legacy.EncounterJournalItemSets == false)
+    end
+    FillMissing(db, DEFAULTS)
     local rows = {}
     if HAS_NAMEPLATE_SYNC then
         rows[#rows + 1] = { label = T("settings.sync_friendly_nameplates", "友方姓名板联动"), enabled = db.syncFriendlyNameplates == true }
         rows[#rows + 1] = { label = T("settings.nameplate_outline", "姓名板文字描边"), enabled = db.nameplateOutline == true }
     end
     if IS_MAINLINE then
+        rows[#rows + 1] = { label = T("settings.encounter_journal_item_sets.label"), enabled = db.EncounterJournalItemSets == true }
         rows[#rows + 1] = { label = T("settings.bonus_roll_confirm_roll", "ROLL 前确认"), enabled = db.bonusRoll.rollConfirm == true }
         rows[#rows + 1] = { label = T("settings.bonus_roll_confirm_pass", "放弃前确认"), enabled = db.bonusRoll.passConfirm == true }
     end
     rows[#rows + 1] = { label = T("settings.macro_frame", "宏命令界面扩展"), enabled = db.macroFrame.enabled == true }
     rows[#rows + 1] = { label = T("settings.hide_errors", "隐藏错误提示"), enabled = db.hideErrors.enabled == true or db.hideErrors.blockDebugMessages == true }
     rows[#rows + 1] = { label = T("settings.route_guide"), enabled = db.routeGuide and db.routeGuide.enabled == true }
+    if YUI.IsForever then
+        rows[#rows + 1] = { label = T("settings.polestar_guide"), enabled = db.polestarGuide.enabled == true }
+    end
     return rows
 end
 
@@ -1738,10 +1883,25 @@ local function GetOptions(feature)
                     db.routeGuide.scale = NormalizeRouteGuideScale(value)
                     local routeGuide = YUI.UtilityToolsRouteGuide
                     if routeGuide and type(routeGuide.SetScale) == "function" then routeGuide:SetScale(db.routeGuide.scale) end
+                    local polestarGuide = YUI.UtilityToolsPolestarGuide
+                    if polestarGuide then polestarGuide:SetScale(db.routeGuide.scale) end
                 end,
             },
         },
     }
+
+    if YUI.IsForever then
+        options[#options + 1] = {
+            type = "checkbox",
+            text = T("settings.polestar_guide"),
+            tooltip = T("settings.polestar_guide.tooltip"),
+            get = function() return db.polestarGuide.enabled == true end,
+            set = function(value)
+                db.polestarGuide.enabled = value == true
+                RefreshRouteGuideRuntime()
+            end,
+        }
+    end
 
     if HAS_NAMEPLATE_SYNC then
         options[#options + 1] = CreateSectionDivider(feature, "nameplates", T("settings.nameplates", "姓名板"))
@@ -1765,6 +1925,23 @@ local function GetOptions(feature)
             set = function(value)
                 db.nameplateOutline = value == true
                 RefreshNameplateRuntime()
+            end,
+        }
+    end
+
+    if IS_MAINLINE then
+        options[#options + 1] = CreateSectionDivider(
+            feature, "encounterJournalItemSets", T("settings.encounter_journal_item_sets.label")
+        )
+        options[#options + 1] = {
+            type = "checkbox",
+            text = CT("common.enable", "启用"),
+            tooltip = T("settings.encounter_journal_item_sets.tooltip"),
+            hidden = CreateSectionHidden("encounterJournalItemSets"),
+            get = function() return db.EncounterJournalItemSets == true end,
+            set = function(value)
+                db.EncounterJournalItemSets = value == true
+                RefreshEncounterJournalItemSets()
             end,
         }
     end

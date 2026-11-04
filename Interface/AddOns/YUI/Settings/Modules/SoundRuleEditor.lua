@@ -3,8 +3,56 @@ local Settings,GUI=YUI and YUI.Settings,YUI and YUI.GUI2
 local Center=Settings and Settings.SoundCenter
 if not (Center and GUI) then return end
 local Form,T=GUI.Form,Center.Text
+local objectCacheSlots={'browse','all','details'}
+function Center:CreateEventFields(dialog,parent)
+    local sound=YUI.Sound
+    local panel=GUI:CreateFrame(parent)
+    panel:SetPoint('TOPLEFT',0,-110);panel:SetPoint('TOPRIGHT',0,-110);panel:SetHeight(260)
+    local function L(key) return sound.EventDefinitions:Text(key) end
+    local function Params() return dialog.edit.rule.trigger.params end
+    local function Changed(key,value)
+        if dialog.refreshing or dialog.edit.rule.object.kind~='event' then return end
+        Params()[key]=value;dialog:RefreshStepDetails()
+    end
+    panel.description=GUI:CreateText(panel,L('testingHint'),'font.size.md','color.state.error','LEFT')
+    panel.description:SetPoint('TOPLEFT');panel.description:SetPoint('TOPRIGHT');panel.description:SetHeight(20);panel.description:SetWordWrap(false)
+    panel.thresholdLabel=GUI:CreateText(panel,L('repairThreshold'),'font.size.md','color.text.primary','LEFT')
+    panel.thresholdLabel:SetPoint('TOPLEFT',0,-110)
+    panel.threshold=Form:CreateEditBox(panel,{width=100,height=30,set=function(value) Changed('threshold',tonumber(value) or false) end})
+    panel.threshold:SetPoint('TOPLEFT',210,-105)
+    panel.scope=Form:CreateDropdown(panel,{width=300,height=32,options={
+        {text=L('scope.all'),value='all'},{text=L('scope.party'),value='party'},{text=L('scope.raid'),value='raid'}},
+        set=function(value) Changed('scope',value) end})
+    panel.scope:SetPoint('TOPLEFT',0,-110)
+    panel.character=Form:CreateCheckbox(panel,{width=230,text=L('characterWhisper'),set=function(value) Changed('character',value) end})
+    panel.character:SetPoint('TOPLEFT',0,-110)
+    panel.battleNet=Form:CreateCheckbox(panel,{width=230,text=L('battleNetWhisper'),set=function(value) Changed('battleNet',value) end})
+    panel.battleNet:SetPoint('TOPLEFT',250,-110)
+    panel.cooldown=Form:CreateDropdown(panel,{width=350,height=32,options={
+        {text=L('rareCooldown.600'),value=600},{text=L('rareCooldown.1800'),value=1800},{text=L('rareCooldown.0'),value=0}},
+        set=function(value) Changed('cooldown',value) end})
+    panel.cooldown:SetPoint('TOPLEFT',0,-110)
+    function panel:Refresh(rule)
+        local id,params=rule.object.id,rule.trigger.params
+        self.thresholdLabel:SetShown(id=='repair-needed');self.threshold:SetShown(id=='repair-needed')
+        self.threshold:SetValue(params.threshold or '',true)
+        self.scope:SetShown(params.scope~=nil);self.scope:SetValue(params.scope or 'all',true)
+        self.character:SetShown(id=='whisper-received');self.battleNet:SetShown(id=='whisper-received')
+        self.character:SetValue(params.character==true,true);self.battleNet:SetValue(params.battleNet==true,true)
+        self.cooldown:SetShown(id=='rare-found');self.cooldown:SetValue(params.cooldown or 600,true)
+        self:SetHeight(200)
+    end
+    panel:Hide()
+    return panel
+end
 local function DisplaySpec(dialog)
     local selected=dialog.pickerSpec
+    if YUI.IsForever and YUI.Sound.ForeverCatalog then return YUI.Sound.ForeverCatalog:BrowseSpec(selected) end
+    if dialog.objectSearchSelection==selected and dialog.edit.rule.specs then
+        local applies=false
+        for _,key in ipairs(dialog.edit.rule.specs) do if key==selected then applies=true;break end end
+        if not applies then return YUI.Sound.EditorModel:RuleSpec(dialog.edit.rule) end
+    end
     return selected and tonumber(selected:match(':(%d+)$')) or YUI.Sound.EditorModel:RuleSpec(dialog.edit.rule)
 end
 local function Label(parent,key,y)
@@ -62,6 +110,12 @@ local function BindObjectTooltip(target)
             local presentation=YUI.Sound.EditorModel.PresetPresentation[entry.extension]
             local tooltipSpellID=presentation and presentation.tooltipSpellID or entry.displayID or YUI.Sound.EditorModel:DisplayID(object,entry.spec)
             GameTooltip:SetOwner(owner,'ANCHOR_RIGHT')
+            if object.kind=='event' then
+                GameTooltip:SetText(entry.name)
+                local r,g,b=GUI:GetColor('color.state.error')
+                GameTooltip:AddLine(YUI.Sound.EventDefinitions:Text('testingHint'),r,g,b,false)
+                GameTooltip:Show();return
+            end
             if object.kind=='itemGroup' or object.kind=='spellGroup' then
                 GameTooltip:SetText(entry.name)
                 for _,member in ipairs(YUI.Sound.EditorModel:PotionMembers(object)) do
@@ -80,9 +134,14 @@ local function BindObjectTooltip(target)
                 details=details:gsub('^ID (.+)$','|cffff4040ID|r |cffffd100%1|r')
                 GameTooltip:AddLine(details,1,1,1,false)
             end
+            if entry.browseLabel then GameTooltip:AddLine(entry.browseLabel,1,1,1,true) end
             if object.kind=='aura' then
-                GameTooltip:AddLine(T('auraSpellDescription'),1,1,1,true)
-                GameTooltip:AddLine(T('auraBindingRequired'),1,0.82,0,true)
+                if YUI.Sound.EditorModel:ReceivedBuff(object) then
+                    GameTooltip:AddLine(T('receivedBuffDetails'),1,0.82,0,true)
+                else
+                    GameTooltip:AddLine(T('auraSpellDescription'),1,1,1,true)
+                    GameTooltip:AddLine(T('auraBindingRequired'),1,0.82,0,true)
+                end
             end
             GameTooltip:Show()
         end)
@@ -126,8 +185,13 @@ local function Summary(parent,styled)
     return card
 end
 local function VoiceButton(parent,click,width)
-    return Form:CreateButton(parent,{text=T('chooseVoice'),width=width or 300,height=54,tone='default',
+    local button=Form:CreateButton(parent,{text=T('chooseVoice'),width=width or 300,height=54,tone='default',
         icon=GUI:GetSettingsIcon('sound'),iconSize=28,crop=false,preserveIconColor=true,contentAlign='left',iconGap=12,onClick=click})
+    button.packIcon=GUI.VoicePicker:CreatePackIcon(button,22)
+    button.packIcon:SetFrameLevel(button:GetFrameLevel()+2)
+    button.packIcon:SetPoint('BOTTOMRIGHT',button.icon,'BOTTOMRIGHT',7,-6)
+    button.packIcon:Hide()
+    return button
 end
 local function VoicePicker(dialog,field)
     local rule=dialog.edit.rule
@@ -137,7 +201,11 @@ local function VoicePicker(dialog,field)
     local preset=presentation and presentation[rule.trigger.extension]
     local spell=YUI.API and YUI.API.Spell
     if preset and spell and spell.GetName then names[#names+1]=spell.GetName(preset.tooltipSpellID) end
-    GUI.VoicePicker:Open(Center:GetModalParent(),{current=rule.sound[field],matchNames=names,
+    local entryType=field=='value' and rule.sound.kind=='voice' and (dialog.voiceCategory or 'standard') or nil
+    local received=YUI.Sound.EditorModel:ReceivedBuff(rule.object)
+    local buffChoice=received and entryType~='special'
+    GUI.VoicePicker:Open(Center:GetModalParent(),{current=rule.sound[field],matchNames=names,entryType=entryType,
+        class=YUI.Sound.EditorModel:VoiceClass(rule,DisplaySpec(dialog)),preferredID=buffChoice and YUI.Sound:GetReceivedBuffVoiceID(rule.object.id) or nil,
         onSelect=function(id)
             if dialog.edit then
                 local selected=dialog.edit.rule.sound
@@ -157,8 +225,10 @@ function Center:OpenEditor(index,category,spec)
     local edit,code=sound.EditorModel:Begin(index,category,spec~='all' and spec or nil)
     if not edit then self:Message(code); return end
     local browseKey=Settings:GetCurrentSpecSelectionKey() or 'all'
+    if YUI.IsForever and not index and spec and spec~='all' then browseKey=spec end
     if index then
         if sound.EditorModel:IsRacial(edit.rule.object) then browseKey='racial'
+        elseif sound.EditorModel:ReceivedBuff(edit.rule.object) then browseKey='buffs'
         elseif sound.EditorModel:ObjectCategory(edit.rule.object)=='general' then browseKey='general'
         else
             browseKey=edit.rule.specs and edit.rule.specs[1]
@@ -175,6 +245,7 @@ function Center:OpenEditor(index,category,spec)
             browseKey=browseKey or 'all'
         end
     end
+    browseKey=self:SelectionKey(browseKey)
     local startStep=1
     if index then
         startStep=3
@@ -253,7 +324,8 @@ function Center:OpenEditor(index,category,spec)
             local category=rule.category or sound.EditorModel:ObjectCategory(rule.object)
             local current=Settings:GetCurrentSpecSelectionKey()
             local destination=current or 'all'
-            if category=='general' then destination='general'
+            if rule.object.kind=='event' then destination='events'
+            elseif category=='general' then destination='general'
             elseif rule.specs then
                 destination=rule.specs[1] or 'all'
                 for _,key in ipairs(rule.specs) do if key==current then destination=current;break end end
@@ -262,7 +334,7 @@ function Center:OpenEditor(index,category,spec)
             end
             dialog:Hide()
             if Center.view then
-                Center.view.category=category;Center.view.designSpec=destination;Center.view.query=''
+                Center.view.category=category;Center.view.designSpec=Center:SelectionKey(destination);Center.view.query=''
                 Center.view.searchInput:SetValue('',true);Center.view.status:SetText('');Center.view:Refresh()
             end
         else errorLabel:SetText(Center:ErrorText(why,detail)) end
@@ -279,11 +351,13 @@ function Center:OpenEditor(index,category,spec)
     local kind=GUI:CreateFrame(picker,{width=600,height=40})
     kind:SetPoint('TOP',picker,'TOP',0,0)
     kind.buttons={}
-    for i,entry in ipairs({{icon=135812,key='spell'},{icon=136170,key='aura'},{icon=134829,key='item'}}) do
+    for i,entry in ipairs({{icon=135812,key='spell'},{icon=136170,key='aura'},{icon=134829,key='item'},(YUI.IsRetail or YUI.IsForever) and {icon=133471,key='event'} or nil}) do
         local key=entry.key
         local tab=Form:CreateButton(kind,{width=200,height=40,tone='default',fontSizeKey='font.size.lg',
             text=KindTab(entry.icon,key),onClick=function()
                 dialog.kind=key; dialog.autoSelect=true; dialog.query=''; dialog.search:SetValue('',true); dialog.offset=0
+                if key=='event' then dialog.pickerSpec='events'
+                elseif dialog.pickerSpec and dialog.pickerSpec:match('^events') then dialog.pickerSpec='all' end
                 kind:SetValue(key); dialog:RefreshObjects()
             end})
         tab:SetPoint('TOPLEFT',(i-1)*108,0)
@@ -314,11 +388,52 @@ function Center:OpenEditor(index,category,spec)
         YUI.Event:OffOwner(self)
         YUI.Event:On('YUI_APPEARANCE_ICON_SET_CHANGED','RefreshSpecIcons',self,{moduleId='sound.settings'})
         YUI.Event:On('YUI_APPEARANCE_ICON_SCOPE_CHANGED','OnIconScopeChanged',self,{moduleId='sound.settings'})
+        YUI.Event:On('GET_ITEM_INFO_RECEIVED','OnObjectDataChanged',self,{moduleId='sound.settings'})
+        YUI.Event:On('SPELL_DATA_LOAD_RESULT','OnObjectDataChanged',self,{moduleId='sound.settings'})
         self:RefreshSpecIcons()
     end
     dialog:HookScript('OnShow',dialog.RegisterIconEvents)
+    function dialog:CancelObjectSearch()
+        if YUI.Monitor then YUI.Monitor:CancelTask(self,'sound-object-search') end
+        self.objectSearchPending=nil
+    end
+    function dialog:FlushObjectSearch()
+        self:CancelObjectSearch()
+        if not self.edit or not self:IsShown() then return end
+        if self.objectDataPending then self:Refresh()
+        elseif self.step==1 then self:RefreshObjects(true) end
+    end
+    function dialog:RequestObjectSearch(delay)
+        if not self.edit then return end
+        self.objectSearchPending=true
+        if YUI.Monitor and YUI.Monitor:ScheduleTask(self,'sound-object-search',GetTime()+delay,self.FlushObjectSearch) then return end
+        self:FlushObjectSearch()
+    end
+    function dialog:OnObjectDataChanged(event,id,success)
+        if not self.edit or self.objectDataPending then return end
+        if issecretvalue and (issecretvalue(id) or issecretvalue(success)) then return end
+        if type(id)~='number' or success==false then return end
+        local item=event=='GET_ITEM_INFO_RECEIVED'
+        local object=self.edit.rule.object
+        local relevant=item and object.kind=='item' and object.id==id
+            or not item and (object.kind=='spell' or object.kind=='aura' or object.kind=='totem') and object.id==id
+        if item and (object.kind=='slot' or object.kind=='equipmentAura') then
+            local getter=YUI.API.Item.GetInventoryItemID
+            local equipped=getter and getter('player',object.id)
+            relevant=not (issecretvalue and issecretvalue(equipped)) and equipped==id
+        end
+        for _,slot in ipairs(objectCacheSlots) do
+            local entry=self.objectCache and self.objectCache[slot]
+            if entry and (item and entry.itemIDs or entry.spellIDs)[id] then relevant=true;break end
+        end
+        if not relevant then return end
+        self.objectCache=nil; self.objectDataPending=true
+        self:RequestObjectSearch(0.05)
+    end
     local search=Form:CreateEditBox(picker,{width=320,height=34,placeholder=T('browseSearch'),searchPlaceholder=true,onChange=function(_,value)
-        dialog.query=value or ''; dialog.offset=0; if dialog.RefreshObjects then dialog:RefreshObjects() end
+        dialog.query=value or ''; dialog.offset=0
+        if dialog.query:match('^%s*$') then dialog:FlushObjectSearch()
+        else dialog:RequestObjectSearch(0.15) end
     end})
     search:SetPoint('LEFT',pickerSpec,'RIGHT',8,0)
     dialog.search=search
@@ -328,7 +443,9 @@ function Center:OpenEditor(index,category,spec)
     local cards={}
     local function Choose(entry)
         local rule=dialog.edit.rule
-        if rule.object.kind==entry.object.kind and rule.object.id==entry.object.id and rule.trigger.extension==entry.extension then return end
+        if rule.object.kind==entry.object.kind and rule.object.id==entry.object.id and rule.object.unit==entry.object.unit
+            and rule.trigger.extension==entry.extension then return end
+        dialog.objectSearchSelection=dialog.objectSearching and dialog.pickerSpec or nil
         rule.object=sound.EditorModel.Copy(entry.object)
         rule.category=sound.EditorModel:ObjectCategory(entry.object)
         if not entry.extension then
@@ -339,8 +456,10 @@ function Center:OpenEditor(index,category,spec)
                 for _,group in ipairs(Settings:GetSpecSelectionGroups({})) do
                     for _,info in ipairs(group.specs or {}) do if desired[info.specID] then specs[#specs+1]=info.classInfo.token..':'..info.specID end end
                 end
-                rule.specs=#specs>0 and specs or {Settings:GetCurrentSpecSelectionKey()}; rule.exceptSpecs=nil
-            else rule.specs={dialog.pickerSpec and dialog.pickerSpec:match(':%d+$') and dialog.pickerSpec or Settings:GetCurrentSpecSelectionKey()}; rule.exceptSpecs=nil
+                rule.specs=#specs>0 and specs or (YUI.IsForever and sound.ForeverCatalog:ClassSpecs(Settings:GetCurrentSpecSelectionKey()) or {Settings:GetCurrentSpecSelectionKey()}); rule.exceptSpecs=nil
+            else
+                local key=dialog.pickerSpec and dialog.pickerSpec:match(':%d+$') and dialog.pickerSpec or Settings:GetCurrentSpecSelectionKey()
+                rule.specs=YUI.IsForever and sound.ForeverCatalog:ClassSpecs(key) or {key};rule.exceptSpecs=nil
             end
         end
         rule.trigger={event=(entry.object.kind=='aura' or entry.object.kind=='equipmentAura') and 'auraAdded' or 'ready'}
@@ -349,6 +468,12 @@ function Center:OpenEditor(index,category,spec)
         if entry.extension=='bone-shield' then
             rule.trigger={event='castAfter',value=8,extension=entry.extension};rule.specs={'DEATHKNIGHT:250'};rule.exceptSpecs=nil
             rule.talents={};rule.sound={kind='boneShield',value='VC-a52996f7',ending='VC-a52996f7'}
+        elseif entry.extension=='devourer-transform' then
+            rule.talents={}; rule.sound={kind='voice',value=''}
+            rule.trigger={event='castAfter',value=38,extension=entry.extension};rule.specs={'DEMONHUNTER:1480'};rule.exceptSpecs=nil
+        elseif entry.extension=='brewmaster-elixir' then
+            rule.talents={}; rule.sound={kind='voice',value=''}
+            rule.trigger={event='ready',extension=entry.extension};rule.specs={'MONK:268'};rule.exceptSpecs=nil
         elseif entry.extension=='boiling-point' then
             rule.trigger={event='castAfter',value=0,extension=entry.extension}; rule.specs={'DEATHKNIGHT:250'}; rule.exceptSpecs=nil
             rule.talents={}; rule.sound={kind='eventWindow',value='VC-663694e8',ending='',endingKind='none'}
@@ -363,11 +488,38 @@ function Center:OpenEditor(index,category,spec)
             end
         end
         local potion=sound.EditorModel:PotionBuff(rule.object)
+        if rule.object.kind=='event' then
+            local entry=sound.EventDefinitions.byID[rule.object.id]
+            rule.trigger={event='occurred',params=assert(sound.EventDefinitions:Normalize(entry.id))}
+            rule.specs=nil;rule.exceptSpecs=nil;rule.talents={}
+            rule.sound=entry.voice and {kind='voice',value=entry.voice} or {kind='tts',value=sound.EventDefinitions:Text(entry.id)}
+        end
         if potion then rule.trigger={event='timerStarted',duration=potion.duration,policy='restart'} end
         dialog:RefreshObjects(); if dialog.RefreshTrigger then dialog:RefreshTrigger() end
     end
     local cardMeasure=GUI:CreateText(grid.child,'汉字宽度测试余','font.size.md','color.text.primary','LEFT');cardMeasure:Hide()
-    local cardPitch=46
+    local cardHeight,cardPitch=38,46
+    local browseSpecs,browseClasses,relatedSpecs={},{},{}
+    for _,group in ipairs(Settings:GetSpecSelectionGroups({})) do
+        for _,info in ipairs(group.specs or {}) do
+            local token=info.classInfo.token
+            browseSpecs[info.specID]=info.displayName
+            browseClasses[info.specID]={token=token,name=info.classInfo.name}
+            relatedSpecs[token]=relatedSpecs[token] or {};relatedSpecs[token][info.specID]=true
+        end
+    end
+    local function BrowseLabel(entry)
+        if sound.EditorModel:ReceivedBuff(entry.object) then return T('buffs') end
+        if sound.EditorModel:IsRacial(entry.object) then return T('racial') end
+        if entry.category=='general' then return T('general') end
+        local names,class={},nil
+        for _,id in ipairs(entry.specs or {}) do
+            if browseSpecs[id] then
+                names[#names+1]=browseSpecs[id];class=browseClasses[id].name
+            end
+        end
+        return class and (YUI.IsForever and class or class..' · '..table.concat(names,' / ')) or T('class')
+    end
     local function CardColumns()
         return math.max(1,math.floor((grid:GetWidth()+8)/(math.ceil(cardMeasure:GetStringWidth())+78)))
     end
@@ -384,6 +536,8 @@ function Center:OpenEditor(index,category,spec)
         card.label=GUI:CreateText(card,'','font.size.md','color.text.primary','CENTER')
         card.label:SetPoint('LEFT',card,'LEFT',44,0); card.label:SetHeight(34); card.label:SetJustifyH('CENTER'); card.label:SetJustifyV('MIDDLE'); card.label:SetWordWrap(true)
         card.label:SetNonSpaceWrap(true)
+        card.categoryLabel=GUI:CreateText(card,'','font.size.sm','color.text.secondary','CENTER')
+        card.categoryLabel:SetPoint('BOTTOMLEFT',44,4);card.categoryLabel:SetHeight(14);card.categoryLabel:SetWordWrap(false);card.categoryLabel:Hide()
     end
     local idPanel=GUI:CreatePanel(dialog,{width=520,height=340,surface='color.surface.popup',border='color.popup.border',shadow=true})
     SetSoundSurface(idPanel,false)
@@ -406,6 +560,7 @@ function Center:OpenEditor(index,category,spec)
         if not id or id<=0 or id>2147483647 or id%1~=0 then RefreshManualPreview(); return end
         local scope=dialog.pickerSpec
         local specID=scope and tonumber(scope:match(':(%d+)$'))
+        if YUI.IsForever then specID=sound.ForeverCatalog:BrowseSpec(scope) end
         local entry,why=sound.EditorModel:ManualObject(dialog.kind,id,specID)
         if not entry then RefreshManualPreview(); return end
         Choose(entry)
@@ -416,6 +571,7 @@ function Center:OpenEditor(index,category,spec)
         local id=tonumber(custom:GetText())
         local scope=dialog.pickerSpec
         local specID=scope and tonumber(scope:match(':(%d+)$'))
+        if YUI.IsForever then specID=sound.ForeverCatalog:BrowseSpec(scope) end
         local entry,why=sound.EditorModel:ManualObject(dialog.kind,id,specID)
         local name,icon
         if entry then name,icon=sound.EditorModel:ObjectInfo(entry.object,nil,specID or -1) end
@@ -433,7 +589,8 @@ function Center:OpenEditor(index,category,spec)
     local triggerBody=triggerScroll.child; triggerBody:SetHeight(340)
     local function Events()
         local rule=dialog.edit.rule; local events
-        if rule.trigger.extension then events={'castAfter'}
+        if rule.trigger.extension=='brewmaster-elixir' then events={'ready','cooldownStarted'}
+        elseif rule.trigger.extension then events={'castAfter'}
         elseif sound.EditorModel:PotionBuff(rule.object) then events={'timerStarted','timerEnded','timerRemaining'}
         elseif rule.object.kind=='equipmentAura' then events={'auraAdded','auraRemoved'}
         elseif rule.object.kind=='totem' then events={'totemAdded','totemRemoved'}
@@ -451,8 +608,8 @@ function Center:OpenEditor(index,category,spec)
             if event=='castAfter' then label=T('castChoice')
             elseif event=='auraRemaining' or event=='timerRemaining' then label=string.format(label,'N')
             elseif event=='auraStacks' then label=string.format(label,'≥ / ≤','N') end
-            if event~='charge' or YUI.IsRetail then
-                options[#options+1]={text=rule.trigger.extension and sound.EditorModel:TriggerLabel(rule) or label,value=event}
+            if event~='charge' or YUI.IsRetail or YUI.IsForever then
+                options[#options+1]={text=rule.trigger.extension=='brewmaster-elixir' and T(event=='ready' and 'extra.brewmaster-elixir.ready' or 'extra.brewmaster-elixir.cooldown') or rule.trigger.extension and sound.EditorModel:TriggerLabel(rule) or label,value=event}
             end
         end
         return options
@@ -463,7 +620,8 @@ function Center:OpenEditor(index,category,spec)
             local rule=dialog.edit.rule
             if rule.trigger.event==value then return end
             local timer=value=='timerStarted' or value=='timerEnded' or value=='timerRemaining'
-            rule.trigger={event=value,value=value=='castAfter' and 0 or (value=='auraRemaining' or value=='auraStacks' or value=='timerRemaining') and 3 or nil,
+            local extension=rule.trigger.extension
+            rule.trigger={extension=extension,event=value,value=value=='castAfter' and 0 or (value=='auraRemaining' or value=='auraStacks' or value=='timerRemaining') and 3 or nil,
                 operator=value=='auraStacks' and 'ge' or nil,duration=timer and (sound.EditorModel:PotionBuff(rule.object) or {}).duration or timer and 20 or nil,policy=timer and 'restart' or nil}
             if value=='auraRemoved' then rule.trigger.lossDelay=sound.EditorModel:DefaultLossDelay(rule.object) end
             dialog:RefreshTrigger()
@@ -491,7 +649,7 @@ function Center:OpenEditor(index,category,spec)
         get=function() return dialog.edit.rule.specs==nil and dialog.edit.rule.exceptSpecs==nil end,
         set=function(value)
             local rule=dialog.edit.rule; rule.exceptSpecs=nil
-            rule.specs=not value and {Settings:GetCurrentSpecSelectionKey()} or nil
+            rule.specs=not value and (YUI.IsForever and sound.ForeverCatalog:ClassSpecs(Settings:GetCurrentSpecSelectionKey()) or {Settings:GetCurrentSpecSelectionKey()}) or nil
             dialog:RefreshTrigger()
         end})
     unrestricted:SetParent(picker); unrestricted:SetPoint('BOTTOMLEFT',0,4)
@@ -499,12 +657,17 @@ function Center:OpenEditor(index,category,spec)
     local loadLabel=Label(picker,'applicableSpecs',0)
     loadLabel:ClearAllPoints(); loadLabel:SetPoint('BOTTOMLEFT',0,10)
     local loadPicker=Settings:CreateSpecMultiSelectDropdown(picker,{owner=dialog,label=T('loadSummary'),width=240,height=34,
+        groups=function() return Center:SelectionGroups() end,
         defaultSelected=false,value=loadSelection,panelWidth=480,panelHeight=280,
         selectAllText=YUI.Locale:Get('Core')['settings.config_transfer.select_all'],clearText=YUI.Locale:Get('Core')['settings.config_transfer.clear_all'],
         armorLabels={cloth=YUI.Locale:Get('Core')['settings.config_sets.armor.cloth'],leather=YUI.Locale:Get('Core')['settings.config_sets.armor.leather'],mail=YUI.Locale:Get('Core')['settings.config_sets.armor.mail'],plate=YUI.Locale:Get('Core')['settings.config_sets.armor.plate']},
         summaryFormatter=function()
+            if YUI.IsForever and dialog.edit then
+                local names=sound.ForeverCatalog:ScopePresentation(Settings,dialog.edit.rule)
+                return #names>0 and table.concat(names,' / ') or T('allSpecs')
+            end
             local names,total={},0
-            for _,group in ipairs(Settings:GetSpecSelectionGroups({})) do
+            for _,group in ipairs(Center:SelectionGroups()) do
                 for _,spec in ipairs(group.specs or {}) do
                     total=total+1
                     if loadSelection[spec.key or (spec.classInfo.token..':'..spec.specID)] then names[#names+1]=spec.displayName end
@@ -515,6 +678,10 @@ function Center:OpenEditor(index,category,spec)
         end,
         set=function(values)
             if not dialog.edit then return end
+            if YUI.IsForever and sound.ForeverCatalog then
+                sound.ForeverCatalog:UpdateScope(dialog.edit.rule,values)
+                dialog:RefreshTrigger();return
+            end
             local chosen={}; for key,enabled in pairs(values) do if enabled then chosen[#chosen+1]=key end end
             table.sort(chosen); dialog.edit.rule.specs=chosen; dialog.edit.rule.exceptSpecs=nil
             dialog:RefreshTrigger()
@@ -561,22 +728,75 @@ function Center:OpenEditor(index,category,spec)
     soundSummary:Hide()
     local playTitle=Label(soundBody,'soundSource',82)
     local mode=Choices(soundBody,{
-        {text=T('voiceEntry'),value='voice'},{text=T('system'),value='system'},
+        {text=T('standardVoice'),value='standard'},{text=T('specialVoice'),value='special'},{text=T('system'),value='system'},
         {text=T('tts'),value='tts'},{text=T('lsm'),value='lsm'},{text=T('custom'),value='custom'}},5,function(value)
+        if not dialog.edit or dialog.refreshing then return end
         local current=dialog.edit.rule.sound
-        if current.kind~=value then dialog.edit.rule.sound={kind=value,value=''} end
+        local voice=value=='standard' or value=='special'
+        local kind=voice and 'voice' or value
+        if current.kind~=kind or voice and dialog.voiceCategory~=value then
+            sound:StopPreview();dialog.edit.rule.sound={kind=kind,value=''}
+        end
+        dialog.voiceCategory=voice and value or nil
         dialog:RefreshSound()
     end,true)
     mode:SetPoint('TOPLEFT',88,0)
+    dialog.soundModes=mode
+    for i=1,2 do
+        local choice=mode.buttons[i]
+        if choice.text then choice.text:Hide() end
+        choice.heading=GUI:CreateText(choice,T(i==1 and 'standardVoice' or 'specialVoice'),'font.size.lg','color.text.heading','LEFT')
+        choice.heading:SetPoint('TOPLEFT',12,-16);choice.heading:SetHeight(22);choice.heading:SetWordWrap(false)
+        choice.badge=GUI:CreateText(choice,i==1 and T('voiceRecommended') or '','font.size.sm',i==1 and 'color.badge.green' or 'color.badge.pink','RIGHT')
+        choice.badge:SetPoint('TOPRIGHT',-12,-18);choice.badge:SetHeight(20)
+        choice.caption=GUI:CreateText(choice,T(i==1 and 'voicePackSource' or 'specialVoiceSource'),'font.size.md','color.tooltip.action','LEFT')
+        choice.caption:SetPoint('BOTTOMLEFT',12,14);choice.caption:SetHeight(20);choice.caption:SetWordWrap(false)
+        choice:HookScript('OnEnter',function(owner)
+            GUI.Tooltip:Show(owner,{title=T(i==1 and 'standardVoice' or 'specialVoice'),content=function(tip)
+                tip:AddLine(T(i==1 and 'standardVoiceTooltip' or 'specialVoiceTooltip'))
+                if i==2 and mode.specialCount==0 then tip:AddLine(T('specialVoiceEmpty'),'action') end
+            end})
+        end)
+        local function HideSourceTooltip(owner) GUI.Tooltip:Hide(owner) end
+        choice:HookScript('OnLeave',HideSourceTooltip);choice:HookScript('OnHide',HideSourceTooltip)
+    end
+    function mode:Layout(width)
+        self:SetWidth(width)
+        local wide=width>=800
+        local primaryWidth=wide and math.floor(width*.56) or width
+        local voiceColumns=primaryWidth>=440 and 2 or 1
+        local voiceWidth=(primaryWidth-(voiceColumns-1)*8)/voiceColumns
+        local voiceHeight=math.ceil(2/voiceColumns)*94-10
+        for i=1,2 do
+            local choice=self.buttons[i]
+            choice:SetSize(voiceWidth,84);choice:ClearAllPoints()
+            choice:SetPoint('TOPLEFT',(i-1)%voiceColumns*(voiceWidth+8),-math.floor((i-1)/voiceColumns)*94)
+            choice.heading:SetWidth(math.max(60,voiceWidth-choice.badge:GetStringWidth()-36))
+            choice.caption:SetWidth(voiceWidth-24)
+        end
+        local columns=width>=360 and 2 or 1
+        local restWidth=wide and width-primaryWidth-12 or width
+        local cell=(restWidth-(columns-1)*8)/columns
+        for i=3,#self.buttons do
+            local button=self.buttons[i]
+            button:SetSize(cell,38);button:ClearAllPoints()
+            button:SetPoint('TOPLEFT',(wide and primaryWidth+12 or 0)+(i-3)%columns*(cell+8),
+                -(wide and 0 or voiceHeight+12)-math.floor((i-3)/columns)*46)
+        end
+        self:SetHeight(wide and voiceHeight or voiceHeight+12+math.ceil(4/columns)*46-8)
+    end
     local chooseVoice=VoiceButton(soundBody,function() VoicePicker(dialog,'value') end,300)
     chooseVoice:SetPoint('TOPLEFT',0,-46)
+    chooseVoice.gui2TextRightPadding=34
+    local chooseArrow=GUI:CreateText(chooseVoice,'›','font.size.lg','color.text.primary','CENTER')
+    chooseArrow:SetPoint('RIGHT',-12,0);chooseArrow:SetSize(16,24)
     local soundText=Form:CreateEditBox(soundBody,{width=460,height=30,onChange=function(_,value)
         if dialog.edit and not dialog.refreshing then
             dialog.edit.rule.sound.value=value; dialog:RefreshStepDetails()
         end
     end}); soundText:SetPoint('TOPLEFT',0,-46)
     local inputLabel=Label(soundBody,'playContent',86)
-    local sourceHelp=GUI:CreateText(soundBody,'','font.size.md','color.text.secondary','LEFT')
+    local sourceHelp=GUI:CreateText(soundBody,'','font.size.md','color.tooltip.action','LEFT')
     sourceHelp:SetWordWrap(true)
     local function PreviewEffect(option)
         if not dialog.edit then return end
@@ -702,32 +922,42 @@ function Center:OpenEditor(index,category,spec)
     end,180)
     previewEnding:SetPoint('TOPLEFT',12,-126);previewEnding:SetHeight(34)
     local timeline=Label(soundBody,'forecastWhen',224); timeline:SetWordWrap(true)
-    local preview=Button(soundBody,'preview',function()
+    local preview=Form:CreateButton(soundBody,{text=T('preview'),width=120,height=40,tone='default',
+        icon=GUI:GetSettingsIcon('play'),iconSize=16,crop=false,contentAlign='center',iconGap=8,onClick=function()
         local normalized,why=sound.RuleModel:Normalize(dialog.edit.rule)
         local ok
         if normalized then ok,why=sound.EditorModel:Preview(normalized) end
         errorLabel:SetText(ok and '' or (why=='invalid-forecast-duration' and Center:ErrorText(why)
             or T((not dialog.edit.rule.sound.value or dialog.edit.rule.sound.value=='') and 'previewChoose' or 'previewFailed')))
-    end,100)
+    end})
     preview:SetPoint('TOPLEFT',0,-258)
-    local stop=Button(soundBody,'stop',function() sound:StopPreview() end,80); stop:SetPoint('LEFT',preview,'RIGHT',10,0)
+    local stop=Form:CreateButton(soundBody,{text=T('stop'),width=100,height=40,tone='default',
+        icon=GUI:GetSettingsIcon('square'),iconSize=14,crop=false,contentAlign='center',iconGap=8,onClick=function() sound:StopPreview() end})
+    stop:SetPoint('LEFT',preview,'RIGHT',10,0)
 
-    function dialog:RefreshObjects()
-        self:RefreshStepDetails()
+    function dialog:RefreshObjects(resultsOnly)
+        self:CancelObjectSearch()
         if not self.edit then return end
+        if not resultsOnly then self.objectDataPending=nil; self:RefreshStepDetails() end
         local selected=self.edit.rule
-        self.pickerSpec=self.pickerSpec or Settings:GetCurrentSpecSelectionKey() or 'all'
-        inputID:SetShown(self.kind~='item'); browseLabel:SetShown(self.kind~='item'); pickerSpec:SetShown(self.kind~='item')
+        self.pickerSpec=Center:SelectionKey(self.pickerSpec or Settings:GetCurrentSpecSelectionKey()) or 'all'
+        if self.pickerSpec=='buffs' and self.kind~='aura' then self.pickerSpec=Settings:GetCurrentSpecSelectionKey() or 'all' end
+        if self.kind=='event' and not self.pickerSpec:match('^events') then self.pickerSpec='events' end
+        inputID:SetShown(self.kind~='item' and self.kind~='event'); browseLabel:SetShown(self.kind~='item'); pickerSpec:SetShown(self.kind~='item')
         pickerSpec:SetValue(self.pickerSpec,true)
         search:ClearAllPoints(); if self.kind=='item' then search:SetPoint('TOPLEFT',0,-50) else search:SetPoint('LEFT',pickerSpec,'RIGHT',8,0) end
         search:SetPoint('TOPRIGHT',picker,'TOPRIGHT',-18,-50); search:SetHeight(30)
         local key=self.pickerSpec
-        local spec=tonumber(key:match(':(%d+)$'))
-        local category=self.kind=='item' and 'general' or (key=='all' or key=='general' or key=='racial') and key or 'class'
+        local spec=YUI.IsForever and sound.ForeverCatalog:BrowseSpec(key) or tonumber(key:match(':(%d+)$'))
+        local category=self.kind=='event' and key or self.kind=='item' and 'general' or (key=='all' or key=='general' or key=='racial' or key=='buffs') and key or 'class'
+        self.objectSearching=(self.query or ''):match('^%s*(.-)%s*$')~=''
+        cardHeight,cardPitch=self.objectSearching and 52 or 38,self.objectSearching and 60 or 46
         local filterKey=category..':'..tostring(spec)..':'..self.kind..':'..(self.query or '')
         local scrollOffset=self.objectFilterKey==filterKey and grid.GetVerticalScroll and grid:GetVerticalScroll() or 0
         self.objectFilterKey=filterKey
-        local choices=sound.EditorModel:Objects(category,self.kind~='item' and spec or nil,self.query,self.kind)
+        self.objectCache=self.objectCache or {}
+        local choices=sound.EditorModel:BrowseObjects(category,self.kind~='item' and spec or nil,self.query,self.kind,relatedSpecs[key:match('^([^:]+):')],self.objectCache)
+        for _,entry in ipairs(choices) do entry.browseLabel=self.objectSearching and BrowseLabel(entry) or nil end
         self.objectChoices=choices
         if self.autoSelect then
             self.autoSelect=nil
@@ -738,53 +968,56 @@ function Center:OpenEditor(index,category,spec)
         self.columns=CardColumns()
         grid.child:SetWidth(grid:GetWidth())
         empty:SetText(T(self.kind=='item' and 'noItems' or 'noObjects')); empty:SetShown(#choices==0)
-        local displaySpec=DisplaySpec(self)
-        local name,icon=sound.EditorModel:ObjectInfo(selected.object,selected.trigger.extension,displaySpec)
-        pickerSummary.tooltipTarget.entry={name=name,object=selected.object,extension=selected.trigger.extension,spec=displaySpec}
-        pickerSummary.iconSlot:SetIcon(icon); pickerSummary.label:SetText(Center:ObjectTitle(name,selected.object,selected.trigger.extension)); pickerSummary.label:SetWidth((picker:GetWidth()-18-24)/2-76)
-        pickerSummary.label:SetWordWrap(true); pickerSummary.label:SetHeight(math.max(18,pickerSummary.label:GetStringHeight()))
-        local details=sound.EditorModel:ObjectDetails(selected.object,selected.trigger.extension,displaySpec)
-        pickerSummary.detail:SetWidth((picker:GetWidth()-18-24)/2-76)
-        pickerSummary.detail:ClearAllPoints(); pickerSummary.detail:SetPoint('TOPLEFT',pickerSummary.label,'BOTTOMLEFT',0,-4)
-        pickerSummary.detail:SetWordWrap(not details:match('^ID '))
-        details=details:gsub('^ID (.+)$','|cffff4040ID|r |cffffd100%1|r')
-        pickerSummary.detail:SetText(details)
-        pickerSummary.talentTooltip.entry={name=sound.EditorModel:ObjectInfo({kind='spell',id=449619}),object={kind='spell',id=449619}}
-        pickerSummary.talentTooltip:SetWidth(math.min(pickerSummary.detail:GetWidth(),pickerSummary.detail:GetStringWidth()))
-        pickerSummary.talentTooltip:SetShown(selected.trigger.extension=='arcane-soul')
-        pickerSummary.talentIcon:SetShown(selected.trigger.extension=='arcane-soul')
-        pickerSummary.talentName:SetShown(selected.trigger.extension=='arcane-soul')
-        if selected.trigger.extension=='arcane-soul' then
-            local prefix,suffix=T('forecastLoad'):match('^(.-)%%s(.-)$')
-            local name=YUI.API.Spell.GetName(449619) or '#449619'
-            prefix=(prefix or ''):gsub('<$','|cffffd100<|r')
-            pickerSummary.detail:SetText(prefix)
-            local x=pickerSummary.detail:GetStringWidth()+3
-            local icon=pickerSummary.talentIcon
-            icon:SetTexture(YUI.API.Spell.GetTexture(449619) or 134400)
-            icon:ClearAllPoints();icon:SetPoint('LEFT',pickerSummary.detail,'LEFT',x,0)
-            pickerSummary.talentName:ClearAllPoints();pickerSummary.talentName:SetPoint('LEFT',icon,'RIGHT',4,0)
-            local ending=(suffix or ''):gsub('^>','>|r')
-            pickerSummary.talentName:SetText('|cffffd100'..name..ending)
-            pickerSummary.talentTooltip:ClearAllPoints();pickerSummary.talentTooltip:SetPoint('LEFT',icon,'LEFT')
-            pickerSummary.talentTooltip:SetWidth(20+pickerSummary.talentName:GetStringWidth())
-        else
-            pickerSummary.talentTooltip:ClearAllPoints();pickerSummary.talentTooltip:SetPoint('TOPLEFT',pickerSummary.detail,'TOPLEFT')
+        if not resultsOnly then
+            local displaySpec=DisplaySpec(self)
+            local name,icon=sound.EditorModel:ObjectInfo(selected.object,selected.trigger.extension,displaySpec)
+            pickerSummary.tooltipTarget.entry={name=name,object=selected.object,extension=selected.trigger.extension,spec=displaySpec}
+            pickerSummary.iconSlot:SetIcon(icon); pickerSummary.label:SetText(Center:ObjectTitle(name,selected.object,selected.trigger.extension)); pickerSummary.label:SetWidth((picker:GetWidth()-18-24)/2-76)
+            pickerSummary.label:SetWordWrap(true); pickerSummary.label:SetHeight(math.max(18,pickerSummary.label:GetStringHeight()))
+            local details=sound.EditorModel:ObjectDetails(selected.object,selected.trigger.extension,displaySpec,self.objectCache)
+            pickerSummary.detail:SetWidth((picker:GetWidth()-18-24)/2-76)
+            pickerSummary.detail:ClearAllPoints(); pickerSummary.detail:SetPoint('TOPLEFT',pickerSummary.label,'BOTTOMLEFT',0,-4)
+            GUI:SetTextColorKey(pickerSummary.detail,selected.object.kind=='event' and 'color.state.error' or 'color.text.secondary')
+            pickerSummary.detail:SetWordWrap(selected.object.kind~='event' and not details:match('^ID '))
+            details=details:gsub('^ID (.+)$','|cffff4040ID|r |cffffd100%1|r')
+            pickerSummary.detail:SetText(details)
+            pickerSummary.talentTooltip.entry={name=sound.EditorModel:ObjectInfo({kind='spell',id=449619}),object={kind='spell',id=449619}}
+            pickerSummary.talentTooltip:SetWidth(math.min(pickerSummary.detail:GetWidth(),pickerSummary.detail:GetStringWidth()))
+            pickerSummary.talentTooltip:SetShown(selected.trigger.extension=='arcane-soul')
+            pickerSummary.talentIcon:SetShown(selected.trigger.extension=='arcane-soul')
+            pickerSummary.talentName:SetShown(selected.trigger.extension=='arcane-soul')
+            if selected.trigger.extension=='arcane-soul' then
+                local prefix,suffix=T('forecastLoad'):match('^(.-)%%s(.-)$')
+                local name=YUI.API.Spell.GetName(449619) or '#449619'
+                prefix=(prefix or ''):gsub('<$','|cffffd100<|r')
+                pickerSummary.detail:SetText(prefix)
+                local x=pickerSummary.detail:GetStringWidth()+3
+                local icon=pickerSummary.talentIcon
+                icon:SetTexture(YUI.API.Spell.GetTexture(449619) or 134400)
+                icon:ClearAllPoints();icon:SetPoint('LEFT',pickerSummary.detail,'LEFT',x,0)
+                pickerSummary.talentName:ClearAllPoints();pickerSummary.talentName:SetPoint('LEFT',icon,'RIGHT',4,0)
+                local ending=(suffix or ''):gsub('^>','>|r')
+                pickerSummary.talentName:SetText('|cffffd100'..name..ending)
+                pickerSummary.talentTooltip:ClearAllPoints();pickerSummary.talentTooltip:SetPoint('LEFT',icon,'LEFT')
+                pickerSummary.talentTooltip:SetWidth(20+pickerSummary.talentName:GetStringWidth())
+            else
+                pickerSummary.talentTooltip:ClearAllPoints();pickerSummary.talentTooltip:SetPoint('TOPLEFT',pickerSummary.detail,'TOPLEFT')
+            end
+            local detailHeight=math.max(16,pickerSummary.detail:GetStringHeight())
+            pickerSummary.detail:SetHeight(detailHeight)
+            local half=(picker:GetWidth()-18-24)/2
+            local summaryHeight=math.max(64,10+pickerSummary.label:GetHeight()+4+detailHeight+6)
+            pickerSummary:SetSize(half,summaryHeight)
+            -- Equal columns: title/label on the first line, detail/selector below.
+            loadLabel:ClearAllPoints(); loadLabel:SetPoint('TOPLEFT',pickerSummary,'TOPRIGHT',34,-10)
+            loadPicker:ClearAllPoints(); loadPicker:SetPoint('BOTTOMLEFT',pickerSummary,'BOTTOMRIGHT',34,10)
+            loadPicker:SetSize(math.max(120,half-20-112-12),24)
+            unrestricted:ClearAllPoints(); unrestricted:SetPoint('LEFT',loadPicker,'RIGHT',12,0)
+            unrestricted:SetSize(112,24)
+            lockedHint:ClearAllPoints();lockedHint:SetPoint('TOPLEFT',loadPicker,'TOPLEFT');lockedHint:SetPoint('BOTTOMRIGHT',unrestricted,'BOTTOMRIGHT')
+            summaryLine:ClearAllPoints(); summaryLine:SetPoint('BOTTOMLEFT',pickerSummary,'TOPLEFT',0,8)
+            summaryLine:SetPoint('BOTTOMRIGHT',picker,'BOTTOMRIGHT',-18,summaryHeight+8)
         end
-        local detailHeight=math.max(16,pickerSummary.detail:GetStringHeight())
-        pickerSummary.detail:SetHeight(detailHeight)
-        local half=(picker:GetWidth()-18-24)/2
-        local summaryHeight=math.max(64,10+pickerSummary.label:GetHeight()+4+detailHeight+6)
-        pickerSummary:SetSize(half,summaryHeight)
-        -- Equal columns: title/label on the first line, detail/selector below.
-        loadLabel:ClearAllPoints(); loadLabel:SetPoint('TOPLEFT',pickerSummary,'TOPRIGHT',34,-10)
-        loadPicker:ClearAllPoints(); loadPicker:SetPoint('BOTTOMLEFT',pickerSummary,'BOTTOMRIGHT',34,10)
-        loadPicker:SetSize(math.max(120,half-20-112-12),24)
-        unrestricted:ClearAllPoints(); unrestricted:SetPoint('LEFT',loadPicker,'RIGHT',12,0)
-        unrestricted:SetSize(112,24)
-        lockedHint:ClearAllPoints();lockedHint:SetPoint('TOPLEFT',loadPicker,'TOPLEFT');lockedHint:SetPoint('BOTTOMRIGHT',unrestricted,'BOTTOMRIGHT')
-        summaryLine:ClearAllPoints(); summaryLine:SetPoint('BOTTOMLEFT',pickerSummary,'TOPLEFT',0,8)
-        summaryLine:SetPoint('BOTTOMRIGHT',picker,'BOTTOMRIGHT',-18,summaryHeight+8)
         grid:ClearAllPoints(); grid:SetPoint('TOPLEFT',0,-90)
         grid:SetSize(picker:GetWidth()-18,math.max(cardPitch,picker:GetHeight()-pickerSummary:GetHeight()-16-90))
         self.objectCells={}
@@ -807,7 +1040,7 @@ function Center:OpenEditor(index,category,spec)
         local cells=self.objectCells or {}
         self.offset=0
         for i,cell in ipairs(cells) do
-            if cell.y+38>scroll then self.offset=i-1;break end
+            if cell.y+cardHeight>scroll then self.offset=i-1;break end
             self.offset=i
         end
         if self.paintedChoices==choices and self.paintedOffset==self.offset and self.paintedWidth==width and self.paintedHeight==grid:GetHeight() then return end
@@ -818,12 +1051,18 @@ function Center:OpenEditor(index,category,spec)
             local entry=cell and cell.entry or nil; card.entry=entry
             if entry then
                 card:SetWidth(width); card:ClearAllPoints(); card:SetPoint('TOPLEFT',cell.column*(width+8),-cell.y)
+                card:SetHeight(cardHeight);card.label:ClearAllPoints()
+                if self.objectSearching then
+                    card.label:SetPoint('TOPLEFT',44,-3);card.label:SetHeight(26)
+                else card.label:SetPoint('LEFT',card,'LEFT',44,0);card.label:SetHeight(34) end
+                card.categoryLabel:SetText(entry.browseLabel or '');card.categoryLabel:SetWidth(width-52);card.categoryLabel:SetShown(self.objectSearching)
                 card.label:SetText(entry.extension and entry.name:gsub('%s*·%s*','\n') or entry.name); card.label:SetWidth(width-52); card.icon:SetTexture(entry.icon)
                 local preset = entry.extension or entry.object.kind=='itemGroup' or entry.object.kind=='spellGroup'
                 card.badge:SetText(preset and T('presetTag') or entry.pvp and 'PvP' or ''); card.badge:SetWidth(32); card.badge:SetShown(card.badge:GetText()~='')
                 card.icon:ClearAllPoints()
                 card.icon:SetPoint('LEFT',4,0)
                 card:SetSelected(entry.object.kind==selected.object.kind and entry.object.id==selected.object.id
+                    and entry.object.unit==selected.object.unit
                     and entry.extension==selected.trigger.extension); card:Show()
             else card:Hide() end
         end
@@ -832,7 +1071,7 @@ function Center:OpenEditor(index,category,spec)
         self:RefreshStepDetails()
         self.refreshing=true
         local rule=self.edit.rule; local trigger=rule.trigger
-        event:Layout(self:GetWidth()-70); event:RefreshOptions(); event:SetValue(trigger.event=='cast' and 'castAfter' or trigger.event,true); event:SetDisabled(trigger.extension~=nil)
+        event:Layout(self:GetWidth()-70); event:RefreshOptions(); event:SetValue(trigger.event=='cast' and 'castAfter' or trigger.event,true); event:SetDisabled(trigger.extension~=nil and trigger.extension~='brewmaster-elixir')
         local y=130+event:GetHeight()
         thresholdLabel:ClearAllPoints(); thresholdLabel:SetPoint('TOPLEFT',0,-y-8)
         threshold:ClearAllPoints(); threshold:SetPoint('TOPLEFT',180,-y)
@@ -842,19 +1081,20 @@ function Center:OpenEditor(index,category,spec)
         loadText:ClearAllPoints(); loadText:SetPoint('TOPLEFT',0,-unitLabelY-52)
         local castDelay=trigger.event=='cast' or trigger.event=='castAfter'
         local lossDelay=trigger.event=='auraRemoved'
-        local hasThreshold=(lossDelay or castDelay or trigger.event=='auraRemaining' or trigger.event=='timerRemaining' or trigger.event=='auraStacks') and not trigger.extension
-        thresholdLabel:SetText(T(lossDelay and 'lossDelayMs' or trigger.extension=='bone-shield' and 'boneShieldThreshold' or castDelay and 'delaySeconds' or trigger.event=='auraStacks' and 'stackCount' or 'remainingSeconds'))
+        local hasThreshold=(lossDelay or castDelay or trigger.event=='auraRemaining' or trigger.event=='timerRemaining' or trigger.event=='auraStacks') and (not trigger.extension or trigger.extension=='devourer-transform')
+        thresholdLabel:SetText(T(lossDelay and 'lossDelayMs' or trigger.extension=='devourer-transform' and 'extra.devourer-transform.threshold' or trigger.extension=='bone-shield' and 'boneShieldThreshold' or castDelay and 'delaySeconds' or trigger.event=='auraStacks' and 'stackCount' or 'remainingSeconds'))
         thresholdNote:ClearAllPoints(); thresholdNote:SetPoint('LEFT',threshold,'RIGHT',12,0); thresholdNote:SetShown(hasThreshold and (castDelay or lossDelay) and not trigger.extension)
         thresholdNote:SetText(T(lossDelay and 'lossDelayHint' or 'zeroImmediate'))
         thresholdLabel:SetShown(hasThreshold); threshold:SetShown(hasThreshold); threshold:SetValue(lossDelay and (trigger.lossDelay or 0) or trigger.value or trigger.event=='cast' and 0 or '',true)
         operator:SetShown(trigger.event=='auraStacks'); operator:SetValue(trigger.operator or 'ge',true)
-        -- CDM resolves the aura unit; casts and cooldowns belong to the player.
-        rule.object.unit=rule.object.kind=='aura' and 'cdm' or 'player'
+        -- Received presets keep their own identity; other auras follow CDM.
+        rule.object.unit=sound.EditorModel:ReceivedBuff(rule.object) and 'received'
+            or rule.object.kind=='aura' and 'cdm' or 'player'
         unit:Hide(); unitLabel:Hide()
         unitLabel:SetText(T((trigger.event=='cast' or trigger.event=='castAfter') and 'castUnit' or 'unit'))
-        unrestricted:SetValue(not rule.specs and not rule.exceptSpecs,true); unrestricted:SetDisabled(trigger.extension~=nil or sound.EditorModel:IsRacial(rule.object))
+        unrestricted:SetValue(not rule.specs and not rule.exceptSpecs,true); unrestricted:SetDisabled(rule.object.kind=='event' or trigger.extension~=nil or sound.EditorModel:IsRacial(rule.object))
         local nativeAura = rule.object.kind=='aura'
-            and (trigger.event=='auraAdded' or trigger.event=='auraRemoved') and YUI.IsRetail
+            and (trigger.event=='auraAdded' or trigger.event=='auraRemoved') and (YUI.IsRetail or YUI.IsForever)
         for key in pairs(loadSelection) do loadSelection[key]=nil end
         local chosen={}; for _,key in ipairs(rule.specs or {}) do chosen[key]=true end
         local excluded={}; for _,key in ipairs(rule.exceptSpecs or {}) do excluded[key]=true end
@@ -867,8 +1107,13 @@ function Center:OpenEditor(index,category,spec)
                 if checked then names[#names+1]=entry.displayName end
             end
         end
+        if YUI.IsForever and sound.ForeverCatalog then
+            local values=sound.ForeverCatalog:ScopeSelection(rule)
+            for key in pairs(loadSelection) do loadSelection[key]=nil end
+            for key,value in pairs(values) do loadSelection[key]=value end
+        end
         loadPicker:Refresh()
-        loadPicker:SetDisabled(trigger.extension~=nil or sound.EditorModel:IsRacial(rule.object) or rule.specs==nil and rule.exceptSpecs==nil)
+        loadPicker:SetDisabled(rule.object.kind=='event' or trigger.extension~=nil or sound.EditorModel:IsRacial(rule.object) or rule.specs==nil and rule.exceptSpecs==nil)
         lockedHint:SetShown(trigger.extension~=nil)
         loadText:SetText(T(trigger.event=='charge' and 'chargeDescription' or 'forecastLoad'))
         if trigger.event=='charge' then
@@ -888,15 +1133,30 @@ function Center:OpenEditor(index,category,spec)
         policyLabel:ClearAllPoints(); policyLabel:SetPoint('TOPLEFT',0,-unitLabelY-164)
         policy:ClearAllPoints(); policy:SetPoint('TOPLEFT',180,-unitLabelY-160)
         GUI:FitScrollContent(triggerScroll,unitLabelY+(timer and 212 or (nativeAura or trigger.extension or trigger.event=='charge') and 100 or 48))
+        if not self.eventFields and rule.object.kind=='event' then self.eventFields=Center:CreateEventFields(self,triggerBody) end
+        if self.eventFields then self.eventFields:SetShown(rule.object.kind=='event') end
+        if rule.object.kind=='event' then
+            for _,widget in ipairs({event,thresholdLabel,threshold,thresholdNote,operator,unit,unitLabel,loadText,durationLabel,duration,policyLabel,policy}) do widget:Hide() end
+            self.eventFields:Refresh(rule)
+            GUI:FitScrollContent(triggerScroll,330)
+        else event:Show() end
         self.refreshing=nil
     end
     function dialog:RefreshSound()
         self:RefreshStepDetails()
         self.refreshing=true
         local value=self.edit.rule.sound; local bone=value.kind=='boneShield'; local window=value.kind=='eventWindow' or bone; local forecast=value.kind=='forecast' or window
-        mode:Layout(soundBody:GetWidth()-88); playTitle:SetShown(not forecast)
-        mode:SetShown(not forecast); if not forecast then mode:SetValue(value.kind,true) end
-        chooseVoice:SetShown(value.kind=='voice'); chooseVoice:SetText(value.kind=='voice' and value.value~='' and sound:GetEntryLabel(value.value) or T('chooseVoice'))
+        if value.kind=='voice' then
+            if value.value and value.value~='' then self.voiceCategory=sound:ParseSpecialVoice(value.value) and 'special' or 'standard'
+            else self.voiceCategory=self.voiceCategory or 'standard' end
+        end
+        mode.specialCount=#sound:GetEnabledSpecialEntries(sound:GetPreferences())
+        mode.buttons[2].badge:SetText(string.format(T('specialVoiceCount'),mode.specialCount))
+        mode:Layout(soundBody:GetWidth()); playTitle:SetShown(not forecast)
+        mode:ClearAllPoints();mode:SetPoint('TOPLEFT',0,-30)
+        mode:SetShown(not forecast); if not forecast then mode:SetValue(value.kind=='voice' and self.voiceCategory or value.kind,true) end
+        local special=value.kind=='voice' and self.voiceCategory=='special'
+        chooseVoice:SetShown(value.kind=='voice'); chooseVoice:SetText(value.kind=='voice' and value.value~='' and sound:GetEntryLabel(value.value) or T(special and 'chooseSpecialVoice' or 'chooseStandardVoice'))
         local typed=value.kind=='tts' or value.kind=='custom'
         soundText:SetShown(typed); inputLabel:SetShown(not forecast)
         effect:SetShown(value.kind=='system' or value.kind=='lsm')
@@ -924,6 +1184,7 @@ function Center:OpenEditor(index,category,spec)
             introDuration:SetValue(durationValue and tostring(durationValue) or '',true)
             introDuration:SetDisabled(locked)
         end
+        local playbackOptions=sound:GetPlaybackOptions(sound:GetPreferences())
         for _,entry in ipairs({{chooseVoice,value.value},{intro,value.value},{ending,value.ending}}) do
             if entry[1].icon then
                 local icon=sound:GetEntryIcon(entry[2])
@@ -932,6 +1193,12 @@ function Center:OpenEditor(index,category,spec)
                 if type(icon)=='number' then entry[1].icon:SetTexCoord(.08,.92,.08,.92)
                 else entry[1].icon:SetTexCoord(0,1,0,1) end
             end
+            local resource=entry[1]:IsShown() and entry[2] and entry[2]~=''
+                and not sound:ParseSpecialVoice(entry[2]) and sound:ResolveEntry(entry[2],playbackOptions)
+            local source=resource and resource.packId or nil
+            entry[1].packIcon.packId=source
+            entry[1].packIcon:SetShown(source~=nil)
+            if source then entry[1].packIcon:SetIcon(sound:GetVoicePackIcon(source)) end
         end
         timeline:SetShown(forecast); timeline:SetWidth(self:GetWidth()-70)
         if forecast then
@@ -943,16 +1210,17 @@ function Center:OpenEditor(index,category,spec)
         end
         preview:SetText(T(forecast and 'previewAll' or 'preview'))
         playTitle:ClearAllPoints();playTitle:SetPoint('TOPLEFT',0,-8)
-        local controlsY=8+mode:GetHeight()
-        local helpKey=value.kind=='tts' and 'helpTTS' or value.kind=='lsm' and 'helpLSM' or value.kind=='custom' and 'helpCustom'
+        local controlsY=mode:GetHeight()+76
+        local helpKey=value.kind=='voice' and (special and (mode.specialCount==0 and 'specialVoiceEmpty' or 'helpSpecialVoice') or 'helpVoice') or value.kind=='tts' and 'helpTTS' or value.kind=='lsm' and 'helpLSM' or value.kind=='custom' and 'helpCustom'
         sourceHelp:SetShown(helpKey~=nil and helpKey~=false)
         sourceHelp:SetText(helpKey and T(helpKey) or '')
-        sourceHelp:SetWidth(soundBody:GetWidth()-88)
-        sourceHelp:ClearAllPoints(); sourceHelp:SetPoint('TOPLEFT',88,-controlsY-46)
-        chooseVoice:ClearAllPoints(); chooseVoice:SetPoint('TOPLEFT',88,-controlsY); chooseVoice:SetHeight(34)
-        soundText:ClearAllPoints(); soundText:SetPoint('TOPLEFT',88,-controlsY); soundText:SetHeight(34)
-        effect:ClearAllPoints(); effect:SetPoint('TOPLEFT',88,-controlsY); effect:SetHeight(34)
-        inputLabel:ClearAllPoints(); inputLabel:SetPoint('TOPLEFT',0,-controlsY-8)
+        local controlHeight=value.kind=='voice' and 54 or 40
+        sourceHelp:SetWidth(soundBody:GetWidth())
+        sourceHelp:ClearAllPoints(); sourceHelp:SetPoint('TOPLEFT',0,-controlsY-controlHeight-12)
+        chooseVoice:ClearAllPoints(); chooseVoice:SetPoint('TOPLEFT',0,-controlsY); chooseVoice:SetHeight(controlHeight)
+        soundText:ClearAllPoints(); soundText:SetPoint('TOPLEFT',0,-controlsY); soundText:SetHeight(controlHeight)
+        effect:ClearAllPoints(); effect:SetPoint('TOPLEFT',0,-controlsY); effect:SetHeight(controlHeight)
+        inputLabel:ClearAllPoints(); inputLabel:SetPoint('TOPLEFT',0,-controlsY+28)
         local wide=self:GetWidth()>=800
         local available=self:GetWidth()-72
         local sideWidth=wide and (available-176)/2 or available
@@ -976,14 +1244,19 @@ function Center:OpenEditor(index,category,spec)
         timeline:ClearAllPoints(); timeline:SetPoint('TOPLEFT',0,-flowY)
         local previewY=flowY+timeline:GetStringHeight()+12
         preview:ClearAllPoints(); preview:SetPoint('TOPLEFT',0,forecast and -previewY or -controlsY)
-        GUI:FitScrollContent(soundScroll,forecast and previewY+44 or controlsY+50+(helpKey and sourceHelp:GetStringHeight()+12 or 0))
         if not forecast then
-            local contentWidth=soundBody:GetWidth()-88-160
+            local inline=soundBody:GetWidth()>=600
+            local contentWidth=soundBody:GetWidth()-(inline and 224 or 0)
             chooseVoice:SetWidth(contentWidth); soundText:SetWidth(contentWidth); effect:SetWidth(contentWidth)
-            preview:ClearAllPoints(); stop:ClearAllPoints(); stop:SetPoint('TOPRIGHT',0,-controlsY); stop:SetSize(64,34)
-            preview:SetPoint('RIGHT',stop,'LEFT',-8,0); preview:SetSize(80,34)
+            preview:ClearAllPoints(); stop:ClearAllPoints();preview:SetSize(112,controlHeight);stop:SetSize(96,controlHeight)
+            preview:SetPoint('TOPLEFT',inline and contentWidth+8 or 0,inline and -controlsY or -controlsY-controlHeight-12)
+            stop:SetPoint('LEFT',preview,'RIGHT',8,0)
+            local helpY=controlsY+controlHeight+12+(inline and 0 or controlHeight+12)
+            sourceHelp:ClearAllPoints();sourceHelp:SetPoint('TOPLEFT',0,-helpY)
+            GUI:FitScrollContent(soundScroll,helpY+(helpKey and sourceHelp:GetStringHeight()+12 or 0))
         else
             preview:SetSize(120,40); stop:SetSize(80,40); stop:ClearAllPoints(); stop:SetPoint('LEFT',preview,'RIGHT',10,0)
+            GUI:FitScrollContent(soundScroll,previewY+44)
         end
         self.refreshing=nil
     end
@@ -1006,7 +1279,7 @@ function Center:OpenEditor(index,category,spec)
         local tabWidth=math.min((width-36)*2/3,math.max(240,width-250))
         kind:SetWidth(tabWidth)
         for i,tab in ipairs(kind.buttons) do
-            tab:SetWidth(tabWidth/3); tab:ClearAllPoints(); tab:SetPoint('TOPLEFT',(i-1)*tabWidth/3,0)
+            tab:SetWidth(tabWidth/#kind.buttons); tab:ClearAllPoints(); tab:SetPoint('TOPLEFT',(i-1)*tabWidth/#kind.buttons,0)
         end
         grid:SetSize(width-54,math.max(78,height-386))
         triggerScroll:SetSize(width-54,height-200); soundScroll:SetSize(width-54,height-200)
@@ -1027,12 +1300,15 @@ function Center:OpenEditor(index,category,spec)
         self:RefreshObjects(); self:RefreshTrigger(); self:RefreshSound()
     end
     dialog:SetScript('OnHide',function()
+        dialog:CancelObjectSearch()
         if YUI.Event then YUI.Event:OffOwner(dialog) end
         Center:CloseSpecDropdown(pickerSpec)
         search:ClearFocus(); custom:ClearFocus(); threshold:ClearFocus(); soundText:ClearFocus(); duration:ClearFocus()
         Settings:CloseSpecMultiSelectDropdown(dialog,'editor-close'); sound:StopPreview()
         if GUI.VoicePicker.dialog then GUI.VoicePicker.dialog:Hide() end
-        idPanel:Hide(); dialog.edit=nil
+        idPanel:Hide(); dialog.edit=nil;dialog.voiceCategory=nil;dialog.objectSearchSelection=nil;dialog.objectSearching=nil
+        dialog.objectCache=nil;dialog.objectDataPending=nil;dialog.objectChoices=nil;dialog.objectCells=nil;dialog.paintedChoices=nil
+        for _,card in ipairs(cards) do card.entry=nil;card:Hide() end
     end)
     if parent.HookScript then
         parent:HookScript('OnSizeChanged',function()

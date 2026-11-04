@@ -1,6 +1,6 @@
 local ADDON_NAME, addonTable = ...
 local YUI = _G.YUI or addonTable
-if not (YUI and YUI.IsRetail == true) then return end
+if not (YUI and (YUI.IsRetail == true or YUI.IsForever == true)) then return end
 
 local Components = YUI.Components
 if not Components then return end
@@ -19,10 +19,7 @@ local PRODUCT_ID = YUI.GetAddonProductId
     or YUI.ProductId
     or "suite"
 local MODULE_ID = "component:" .. FEATURE_KEY
-local MODERN_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png"
 local WINDOW_BORDER_ATLAS = "AdventureMap_TopBorder"
-local MODERN_ASPECT = 561 / 433
-local MODERN_COORDS = { 0.25, 1, 0, 0.75 }
 local MAX_SOCIAL_TABS = 8
 local FRIENDS_BACKGROUND_COLOR = { 0.03, 0.045, 0.05, 1 }
 local COLOR_TOLERANCE = 0.012
@@ -34,6 +31,8 @@ local ALPHA_EPSILON = 0.001
 local AUCTIONATOR_OWNER = "blizzard:auctionhouse:auctionator"
 
 local PRESET_MODERN = "ellesmereModern"
+local PRESET_CHARCOAL = "charcoalPilot"
+local PRESET_YUI = "yuiBlueGray"
 local PRESET_DEEP = "deepSeaGlass"
 local PRESET_CRIMSON = "crimsonGlass"
 local PRESET_SOLID = "solid"
@@ -43,6 +42,7 @@ local TAB_COLOR_CUSTOM = "custom"
 local DEFAULT_MODERN_COLOR = { 0.16, 0.14, 0.12, 1 }
 local DEFAULT_DEEP_COLOR = { 9 / 255, 24 / 255, 38 / 255, 1 }
 local DEFAULT_CRIMSON_COLOR = { 42 / 255, 13 / 255, 18 / 255, 1 }
+local DEFAULT_YUI_COLOR = { 0.098, 0.125, 0.150, 1 }
 local DEFAULT_SOLID_COLOR = { 15 / 255, 28 / 255, 41 / 255, 1 }
 local DEFAULT_TAB_COLOR = { 0.11, 0.09, 0.075, 0.94 }
 local SETTINGS_FIELD_WIDTH = 220
@@ -65,16 +65,21 @@ local TAB_ACTIVE_HIGHLIGHT = { 1, 1, 1, 0.02 }
 local AUCTIONATOR_TAB_HEIGHT_TRIM = 2
 local DEFAULTS = {
     beautifySkinBackground = true,
-    backgroundPreset = PRESET_MODERN,
+    backgroundPreset = PRESET_YUI,
+    pilotBasePreset = PRESET_MODERN,
     solidColor = DEFAULT_SOLID_COLOR,
     backgroundDarken = 0,
+    backgroundTransparency = 0,
     simplifyWindowBorder = true,
+    windowShadow = true,
     damageMeterMythicReset = true,
     damageMeterRaidPrompt = true,
+    damageMeterDungeonPrompt = false,
     tabFontSize = 13,
     characterDetailFontSize = DEFAULT_CHARACTER_DETAIL_FONT_SIZE,
     merchantItemNameFontSize = DEFAULT_MERCHANT_ITEM_NAME_FONT_SIZE,
     abbreviateHotkeys = false,
+    questTrackerScroll = false,
     hotkeyAliases = "",
     tabColorMode = TAB_COLOR_AUTO,
     tabColor = DEFAULT_TAB_COLOR,
@@ -82,7 +87,34 @@ local DEFAULTS = {
 }
 
 local runtime = {
+    pilotPreset = PRESET_CHARCOAL,
+    pilotTabStyle = {
+        depth = 9 / 255, selectedLift = 8 / 255, hoverLift = 4 / 255,
+        topAlpha = 0.07, selectedTopAlpha = 0.03, bottomAlpha = 0.32,
+    },
+    -- ESC 使用独立的近黑配色，不参与窗口配色和背景暗化。
+    menuStyle = {
+        panel = { top = { 16 / 255, 18 / 255, 22 / 255, 1 }, bottom = { 9 / 255, 10 / 255, 13 / 255, 1 } },
+        border = { 56 / 255, 62 / 255, 72 / 255, 0.95 },
+        button = {
+            background = { top = { 36 / 255, 40 / 255, 46 / 255, 1 }, bottom = { 21 / 255, 24 / 255, 29 / 255, 1 } },
+            border = { 61 / 255, 69 / 255, 79 / 255, 0.9 },
+            topBorder = { 82 / 255, 93 / 255, 106 / 255, 0.95 },
+            bottomBorder = { 43 / 255, 49 / 255, 58 / 255, 0.95 },
+            textColor = { 0.87, 0.87, 0.88, 1 },
+        },
+        hover = {
+            top = { 0.16, 0.48, 0.67, 0.16 }, bottom = { 0.08, 0.25, 0.36, 0.06 },
+            edge = { 0.30, 0.72, 0.92, 0.70 },
+        },
+    },
+    shellUnderlayLayers = { -8, -7, -6 },
+    menuUnderlayLayers = { 0 },
+    isForever = YUI.IsForever == true,
+    foreverStatsBoxes = setmetatable({}, { __mode = "k" }),
     hotkeys = YUI._EllesmereUIHotkeys,
+    questTrackerScroll = YUI._EllesmereUIQuestTrackerScroll,
+    questAutomation = YUI._EllesmereUIQuestAutomation,
     enabled = false,
     config = nil,
     refreshScheduled = false,
@@ -92,6 +124,7 @@ local runtime = {
     merchantUpdateHooked = false,
     friendsApplyHooked = false,
     stylesRefreshHooked = false,
+    auctionShadowMembers = {},
     profileCallbacksRegistered = false,
     restorePending = false,
     visualHostSequence = 0,
@@ -143,6 +176,7 @@ runtime.NormalizeDamageMeterConfig = function(db)
     if db.damageMeterRaidPrompt == nil then db.damageMeterRaidPrompt = legacyEnabled end
     db.damageMeterMythicReset = db.damageMeterMythicReset ~= false
     db.damageMeterRaidPrompt = db.damageMeterRaidPrompt ~= false
+    db.damageMeterDungeonPrompt = db.damageMeterDungeonPrompt == true
     db.damageMeterSmartReset = nil
 end
 
@@ -155,13 +189,20 @@ local function NormalizeConfig(db)
         and db.backgroundPreset ~= PRESET_DEEP
         and db.backgroundPreset ~= PRESET_CRIMSON
         and db.backgroundPreset ~= PRESET_SOLID
+        and db.backgroundPreset ~= PRESET_YUI
+        and db.backgroundPreset ~= runtime.pilotPreset
     then
-        db.backgroundPreset = PRESET_MODERN
+        db.backgroundPreset = DEFAULTS.backgroundPreset
     end
+    if db.pilotBasePreset ~= PRESET_DEEP and db.pilotBasePreset ~= PRESET_CRIMSON
+        and db.pilotBasePreset ~= PRESET_SOLID and db.pilotBasePreset ~= PRESET_YUI then db.pilotBasePreset = PRESET_MODERN end
     db.solidColor = CopyColor(db.solidColor, DEFAULT_SOLID_COLOR)
     db.backgroundDarken = ClampNumber(db.backgroundDarken, 0, 0.60, 0)
+    db.backgroundTransparency = ClampNumber(db.backgroundTransparency, 0, 1, 0)
     db.simplifyWindowBorder = db.simplifyWindowBorder == true
+    db.windowShadow = db.windowShadow ~= false
     db.abbreviateHotkeys = db.abbreviateHotkeys == true
+    db.questTrackerScroll = db.questTrackerScroll == true
     if type(db.hotkeyAliases) ~= "string" then db.hotkeyAliases = "" end
     runtime.NormalizeDamageMeterConfig(db)
     db.tabFontSize = math.floor(ClampNumber(db.tabFontSize, 9, 24, 13) + 0.5)
@@ -257,6 +298,10 @@ local function GetBrightness()
     return 1 - GetDarken()
 end
 
+function runtime.GetPanelOpacity()
+    return 1 - ClampNumber(runtime.config and runtime.config.backgroundTransparency, 0, 1, 0)
+end
+
 local function IsBackgroundBeautificationEnabled()
     return not runtime.config or runtime.config.beautifySkinBackground ~= false
 end
@@ -301,32 +346,6 @@ local function SetTextureCoords(texture, coords)
     if not texture or type(texture.SetTexCoord) ~= "function" then return end
     coords = type(coords) == "table" and coords or { 0, 1, 0, 1 }
     pcall(texture.SetTexCoord, texture, coords[1] or 0, coords[2] or 1, coords[3] or 0, coords[4] or 1)
-end
-
-local function UpdateCoverCoords(frame, texture, sourceAspect, coords)
-    if not (frame and texture and type(frame.GetSize) == "function") then return false end
-    sourceAspect = tonumber(sourceAspect) or MODERN_ASPECT
-    coords = type(coords) == "table" and coords or MODERN_COORDS
-    local ok, width, height = pcall(frame.GetSize, frame)
-    if not ok or IsSecretValue(width) or IsSecretValue(height) then return false end
-    if type(width) ~= "number" or type(height) ~= "number" or width <= 0 or height <= 0 then
-        SetTextureCoords(texture, coords)
-        return false
-    end
-
-    local left, right, top, bottom = coords[1], coords[2], coords[3], coords[4]
-    local frameAspect = width / height
-    if frameAspect > sourceAspect then
-        local visibleHeight = (bottom - top) * (sourceAspect / frameAspect)
-        local trim = ((bottom - top) - visibleHeight) / 2
-        top, bottom = top + trim, bottom - trim
-    else
-        local visibleWidth = (right - left) * (frameAspect / sourceAspect)
-        local trim = ((right - left) - visibleWidth) / 2
-        left, right = left + trim, right - trim
-    end
-    pcall(texture.SetTexCoord, texture, left, right, top, bottom)
-    return true
 end
 
 local function CreateTexture(frame, subLevel)
@@ -382,7 +401,7 @@ local function EnsureVisualHost(frame, state)
     return host
 end
 
-local function EnsureFrameState(frame, owner)
+local function EnsureFrameState(frame, owner, backgroundSubLevel)
     local state = frameStates[frame]
     if not state then
         state = { owner = owner, frame = frame }
@@ -390,12 +409,21 @@ local function EnsureFrameState(frame, owner)
     end
     state.owner, state.frame = owner, frame
     local host = EnsureVisualHost(frame, state)
-    if host and not state.background then state.background = CreateTexture(host, -6) end
+    if host and not state.background then state.background = CreateTexture(host, backgroundSubLevel or -6) end
     return state
 end
 
+function runtime.GetBasePreset()
+    local config = runtime.config or DEFAULTS
+    return config.backgroundPreset == runtime.pilotPreset and config.pilotBasePreset or config.backgroundPreset
+end
+
+function runtime.IsPilotOwner(owner)
+    return IsBackgroundBeautificationEnabled()
+end
+
 local function GetBackgroundColor()
-    local preset = runtime.config and runtime.config.backgroundPreset or PRESET_MODERN
+    local preset = runtime.GetBasePreset()
     if preset == PRESET_SOLID then
         local color = CopyColor(runtime.config and runtime.config.solidColor, DEFAULT_SOLID_COLOR)
         color[4] = 1
@@ -403,11 +431,20 @@ local function GetBackgroundColor()
     end
     if preset == PRESET_DEEP then return CopyColor(DEFAULT_DEEP_COLOR) end
     if preset == PRESET_CRIMSON then return CopyColor(DEFAULT_CRIMSON_COLOR) end
+    if preset == PRESET_YUI then return CopyColor(DEFAULT_YUI_COLOR) end
     return CopyColor(DEFAULT_MODERN_COLOR)
 end
 
-local function GetPresetTexture(preset)
-    if preset == PRESET_MODERN then return MODERN_TEXTURE, MODERN_ASPECT, MODERN_COORDS end
+function runtime.GetShellBaseColor()
+    local preset = runtime.config.backgroundPreset
+    if preset == runtime.pilotPreset then return { 32 / 255, 33 / 255, 37 / 255, 1 } end
+    return GetBackgroundColor()
+end
+
+function runtime.GetShellBorderColor()
+    local base = runtime.GetShellBaseColor()
+    return { math.min(1, base[1] + 95.5 / 255), math.min(1, base[2] + 97 / 255),
+        math.min(1, base[3] + 98.15 / 255), 0.8 }
 end
 
 local function RestoreExternalBackgrounds(state)
@@ -460,7 +497,7 @@ local function RestoreExternalAlphaOwner(owner)
         if record.owner == owner then
             if not IsUnsafeExternalObject(region) and type(region.GetAlpha) == "function" and type(region.SetAlpha) == "function" then
                 local ok, current = pcall(region.GetAlpha, region)
-                if ok and type(current) == "number"
+                if ok and not IsSecretValue(current) and type(current) == "number"
                     and type(record.lastAppliedAlpha) == "number"
                     and math.abs(current - record.lastAppliedAlpha) <= ALPHA_EPSILON
                 then
@@ -646,6 +683,61 @@ local function IsFullFrameRegion(region, frame)
     return points and #points == 2
         and HasAnchor(points, "TOPLEFT", frame, "TOPLEFT", 0, 0)
         and HasAnchor(points, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+end
+
+function runtime.RestorePanelUnderlays(state)
+    if state.opacityOwner then RestoreExternalAlphaOwner(state.opacityOwner) end
+    state.opacityRegions = nil
+end
+
+function runtime.PreparePanelOpacity(frame, state, adapterKind)
+    local alpha = runtime.GetPanelOpacity()
+    local function fallback()
+        runtime.RestorePanelUnderlays(state)
+        return 1
+    end
+    if alpha == 1 or type(frame.GetRegions) ~= "function" then return fallback() end
+    local ok, regions = pcall(function() return { frame:GetRegions() } end)
+    if not ok or #regions > 64 then return fallback() end
+    local candidates, layers = {}, {}
+    local expectedLayers = adapterKind == "gameMenu" and runtime.menuUnderlayLayers or runtime.shellUnderlayLayers
+    -- 只检查已接入窗口直属、全幅的背景层；内部面板、标题条和内容材质不参与。
+    for _, region in ipairs(regions) do
+        if region ~= state.background and region ~= state.directBackground
+            and not IsUnsafeExternalObject(region) and IsTextureRegion(region) then
+            local layer
+            for _, subLevel in ipairs(expectedLayers) do
+                if HasDrawLayer(region, subLevel) then layer = subLevel; break end
+            end
+            if layer then
+                local points = ReadRegionPoints(region)
+                if not points then return fallback() end
+                if #points == 2 and HasAnchor(points, "TOPLEFT", frame, "TOPLEFT", 0, 0)
+                    and HasAnchor(points, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0) then
+                    if layers[layer] then return fallback() end
+                    layers[layer] = region
+                    candidates[#candidates + 1] = region
+                end
+            end
+        end
+    end
+    local previous, changed = state.opacityRegions, false
+    if previous then
+        changed = #previous ~= #candidates
+        for index, region in ipairs(previous) do
+            if candidates[index] ~= region then changed = true; break end
+        end
+    end
+    if changed then runtime.RestorePanelUnderlays(state) end
+    state.opacityOwner = state.opacityOwner or {}
+    state.opacityRegions = candidates
+    for _, region in ipairs(candidates) do
+        if type(region.GetAlpha) ~= "function" then return fallback() end
+        local alphaOK, current = pcall(region.GetAlpha, region)
+        if not alphaOK or IsSecretValue(current) or type(current) ~= "number" then return fallback() end
+        if not ApplyExternalAlpha(region, state.opacityOwner, 0) then return fallback() end
+    end
+    return alpha
 end
 
 local function IsLegacyFriendsBackground(region, frame)
@@ -885,6 +977,14 @@ local function ApplyWindowBorder(frame, state, maxDepth)
         return false
     end
     local ok = pcall(match.region.SetAlpha, match.region, 0)
+    local pilot = runtime.IsPilotOwner(state.owner)
+    if pilot or state.pilotBorder then
+        local color = pilot and runtime.GetShellBorderColor() or CLEAN_BORDER_COLOR
+        for _, line in ipairs(state.cleanBorders or {}) do
+            pcall(line.SetColorTexture, line, color[1], color[2], color[3], color[4])
+        end
+        state.pilotBorder = pilot
+    end
     if ok then record.lastAppliedAlpha = 0 else RestoreWindowBorder(state) end
     return ok
 end
@@ -893,6 +993,119 @@ local function GetDarkenedBackgroundColor()
     local color = GetBackgroundColor()
     local brightness = GetBrightness()
     return { color[1] * brightness, color[2] * brightness, color[3] * brightness, color[4] }
+end
+
+function runtime.GetPilotFinish(titleHeight)
+    local brightness = GetBrightness()
+    local base = runtime.GetShellBaseColor()
+    local function color(r, g, b)
+        return { math.min(1, base[1] + r / 255) * brightness,
+            math.min(1, base[2] + g / 255) * brightness,
+            math.min(1, base[3] + b / 255) * brightness, 1 }
+    end
+    local background = { top = color(9, 8, 8), bottom = color(0, 0, 0) }
+    background.top[4], background.bottom[4] = runtime.GetPanelOpacity(), runtime.GetPanelOpacity()
+    return {
+        background = background,
+        title = { top = color(13, 13, 13), bottom = color(4, 5, 5) },
+        titleHeight = titleHeight,
+        shadowSize = runtime.config.windowShadow ~= false and 4 or nil,
+        shadowColor = { 0, 0, 0, 0.3 },
+        border = runtime.config.simplifyWindowBorder == true and runtime.GetShellBorderColor() or nil,
+    }
+end
+
+function runtime.GetGameMenuFinish()
+    local style = runtime.menuStyle
+    return {
+        background = { top = CopyColor(style.panel.top), bottom = CopyColor(style.panel.bottom) },
+        shadowSize = runtime.config.windowShadow ~= false and 4 or nil,
+        shadowColor = { 0, 0, 0, 0.3 },
+        border = runtime.config.simplifyWindowBorder == true and style.border or nil,
+    }
+end
+
+function runtime.PaintFinishGradient(texture, top, bottom)
+    if not texture then return end
+    pcall(texture.SetColorTexture, texture, 1, 1, 1, 1)
+    if type(texture.SetGradientAlpha) == "function" and pcall(texture.SetGradientAlpha, texture, "VERTICAL",
+        bottom[1], bottom[2], bottom[3], bottom[4], top[1], top[2], top[3], top[4]) then return end
+    if type(texture.SetGradient) == "function" and type(CreateColor) == "function" and pcall(function()
+        texture:SetGradient("VERTICAL", CreateColor(bottom[1], bottom[2], bottom[3], bottom[4]),
+            CreateColor(top[1], top[2], top[3], top[4]))
+    end) then return end
+    pcall(texture.SetColorTexture, texture, top[1], top[2], top[3], top[4])
+end
+
+-- 直接纹理沿用现有边缘贴图的八片坐标，不向受保护窗口添加子 frame。
+runtime.directShadowPieces = {
+    { "BOTTOMRIGHT", "TOPLEFT", nil, nil, { 0.5078125, 0.6171875, 0.0625, 0.9375 } },
+    { "BOTTOMLEFT", "TOPRIGHT", nil, nil, { 0.6328125, 0.7421875, 0.0625, 0.9375 } },
+    { "TOPRIGHT", "BOTTOMLEFT", nil, nil, { 0.7578125, 0.8671875, 0.0625, 0.9375 } },
+    { "TOPLEFT", "BOTTOMRIGHT", nil, nil, { 0.8828125, 0.9921875, 0.0625, 0.9375 } },
+    { "BOTTOMLEFT", "TOPLEFT", "BOTTOMRIGHT", "TOPRIGHT",
+        { 0.2578125, 0.9375, 0.3671875, 0.9375, 0.2578125, 0.0625, 0.3671875, 0.0625 } },
+    { "TOPLEFT", "BOTTOMLEFT", "TOPRIGHT", "BOTTOMRIGHT",
+        { 0.3828125, 0.9375, 0.4921875, 0.9375, 0.3828125, 0.0625, 0.4921875, 0.0625 } },
+    { "TOPRIGHT", "TOPLEFT", "BOTTOMRIGHT", "BOTTOMLEFT", { 0.0078125, 0.1171875, 0.0625, 0.9375 } },
+    { "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT", { 0.1328125, 0.2421875, 0.0625, 0.9375 } },
+}
+
+function runtime.HideDirectShellFinish(state)
+    local finish = state and state.directFinish
+    if not finish then return end
+    SetShown(finish.title, false)
+    for _, texture in pairs(finish.shadows) do SetShown(texture, false) end
+end
+
+function runtime.ApplyDirectShellFinish(frame, state, finish, background)
+    if not finish then runtime.HideDirectShellFinish(state); return end
+    local unpackValues = unpack or table.unpack
+    local visual = state.directFinish
+    if not visual then
+        visual = { shadows = {} }
+        state.directFinish = visual
+    end
+    runtime.PaintFinishGradient(background, finish.background.top, finish.background.bottom)
+    if not visual.title then
+        local ok, title = pcall(frame.CreateTexture, frame, nil, "BORDER", nil, -8)
+        if ok then visual.title = title; PrepareBorderTexture(title) end
+    end
+    if visual.title then
+        local pixel = GetBorderPixel(frame)
+        visual.title:ClearAllPoints()
+        visual.title:SetPoint("TOPLEFT", frame, "TOPLEFT", pixel, -pixel)
+        visual.title:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -pixel, -pixel)
+        visual.title:SetHeight(finish.titleHeight - pixel)
+        runtime.PaintFinishGradient(visual.title, finish.title.top, finish.title.bottom)
+        SetShown(visual.title, true)
+    end
+    if not finish.shadowSize then
+        for _, texture in ipairs(visual.shadows) do SetShown(texture, false) end
+        return
+    end
+    local assets = YUI.Assets
+    if not (assets and type(assets.Core) == "function") then return end
+    local path, size = assets:Core("images\\GlowTex.tga"), GetBorderPixel(frame) * finish.shadowSize
+    for index, piece in ipairs(runtime.directShadowPieces) do
+        local texture = visual.shadows[index]
+        if not texture then
+            texture = CreateTexture(frame, -8)
+            visual.shadows[index] = texture
+            PrepareBorderTexture(texture)
+        end
+        if texture then
+            texture:ClearAllPoints()
+            texture:SetPoint(piece[1], frame, piece[2], 0, 0)
+            if piece[3] then texture:SetPoint(piece[3], frame, piece[4], 0, 0) end
+            if index <= 4 or index >= 7 then texture:SetWidth(size) end
+            if index <= 6 then texture:SetHeight(size) end
+            texture:SetTexture(path)
+            texture:SetTexCoord(unpackValues(piece[5]))
+            texture:SetVertexColor(unpackValues(finish.shadowColor))
+            SetShown(texture, true)
+        end
+    end
 end
 
 local function ApplyFrameBackground(frame, owner, adapterKind, directVisual)
@@ -907,18 +1120,22 @@ local function ApplyFrameBackground(frame, owner, adapterKind, directVisual)
         state.owner, state.frame = owner, frame
         if not state.directBackground then state.directBackground = CreateTexture(frame, -6) end
     else
-        state = EnsureFrameState(frame, owner)
+        -- 菜单原底板位于 BACKGROUND/0；渐变只提高一个子层，仍在文字、Logo 和按钮之下。
+        state = EnsureFrameState(frame, owner, adapterKind == "gameMenu" and 1 or -6)
     end
     local background = directVisual and state and state.directBackground or state and state.background
     if not (state and background) then return nil end
     if not IsBackgroundBeautificationEnabled() then
+        runtime.HideDirectShellFinish(state)
+        runtime.RestorePanelUnderlays(state)
         RestoreExternalBackgrounds(state)
         SetShown(background, false)
         SetShown(state.visualHost, false)
+        if Appearance and type(Appearance.ApplyShellFinish) == "function" and state.visualHost then
+            Appearance:ApplyShellFinish(state.visualHost, nil)
+        end
         return state
     end
-    local preset = runtime.config and runtime.config.backgroundPreset or PRESET_MODERN
-    local texturePath, textureAspect, textureCoords = GetPresetTexture(preset)
     if adapterKind == "legacyFriends" then
         TrySuppressExternalBackgrounds(frame, state, adapterKind)
     else
@@ -928,28 +1145,27 @@ local function ApplyFrameBackground(frame, owner, adapterKind, directVisual)
     SetTextureTiling(background, false)
     SetTextureCoords(background)
 
-    if texturePath and type(background.SetTexture) == "function" then
-        local ok, accepted = pcall(background.SetTexture, background, texturePath)
-        if not ok or accepted == false then
-            SetShown(background, false)
-            return state
-        end
-        if type(background.SetVertexColor) == "function" then
-            local brightness = GetBrightness()
-            pcall(background.SetVertexColor, background, brightness, brightness, brightness, 1)
-        end
-        UpdateCoverCoords(frame, background, textureAspect, textureCoords)
-    else
-        local color = GetDarkenedBackgroundColor()
-        if type(background.SetColorTexture) ~= "function"
-            or not pcall(background.SetColorTexture, background, color[1], color[2], color[3], 1)
-        then
-            SetShown(background, false)
-            return state
-        end
-        if type(background.SetVertexColor) == "function" then pcall(background.SetVertexColor, background, 1, 1, 1, 1) end
+    local color = GetDarkenedBackgroundColor()
+    if type(background.SetColorTexture) ~= "function"
+        or not pcall(background.SetColorTexture, background, color[1], color[2], color[3], 1)
+    then
+        SetShown(background, false)
+        return state
     end
+    if type(background.SetVertexColor) == "function" then pcall(background.SetVertexColor, background, 1, 1, 1, 1) end
     if type(background.SetAlpha) == "function" then pcall(background.SetAlpha, background, 1) end
+    local finish = adapterKind == "gameMenu" and runtime.GetGameMenuFinish()
+        or runtime.IsPilotOwner(owner)
+        and runtime.GetPilotFinish(owner == "character" and not runtime.isForever and 50 or 25) or nil
+    if finish then
+        local alpha = runtime.PreparePanelOpacity(frame, state, adapterKind)
+        finish.background.top[4], finish.background.bottom[4] = alpha, alpha
+    end
+    if directVisual then
+        runtime.ApplyDirectShellFinish(frame, state, finish, background)
+    elseif Appearance and type(Appearance.ApplyShellFinish) == "function" and state.visualHost then
+        state.finish = Appearance:ApplyShellFinish(state.visualHost, finish, background)
+    end
     SetShown(background, true)
     SetShown(state.visualHost, true)
     return state
@@ -972,7 +1188,8 @@ local function RestoreFontString(fontString)
         return
     end
     local ok, path, size, flags = pcall(fontString.GetFont, fontString)
-    if ok and path == state.lastPath and size == state.lastSize and (flags or "") == (state.lastFlags or "") then
+    if ok and not IsSecretValue(path) and not IsSecretValue(size) and not IsSecretValue(flags)
+        and path == state.lastPath and size == state.lastSize and (flags or "") == (state.lastFlags or "") then
         pcall(fontString.SetFont, fontString, state.path, state.size, state.flags)
     end
     if state.color and state.lastColor and type(fontString.GetTextColor) == "function"
@@ -1055,7 +1272,60 @@ local function ApplyCharacterDetailFontString(fontString, owner)
     ApplyFontString(fontString, owner, originalSize + offset)
 end
 
+function runtime.ApplyForeverStatFont(fontString, requestedSize)
+    if IsUnsafeExternalObject(fontString) or type(fontString.GetFont) ~= "function" then return end
+    local ok, path, size, flags = pcall(fontString.GetFont, fontString)
+    if not ok or IsSecretValue(path) or IsSecretValue(size) or IsSecretValue(flags)
+        or type(path) ~= "string" or type(size) ~= "number" then return end
+    local state = fontStates[fontString]
+    if state and (path ~= state.lastPath or size ~= state.lastSize or (flags or "") ~= state.lastFlags) then
+        fontStates[fontString] = nil
+    end
+    if size ~= requestedSize then ApplyFontString(fontString, "character", requestedSize) end
+end
+
+function runtime.ApplyForeverStat(frame)
+    if not runtime.enabled or IsInCombat() or IsUnsafeExternalObject(frame)
+        or not IsAddOnLoadedSafe("EllesmereUIBlizzardSkin") or not GetWindowStyle("charsheet")
+    then return end
+    local size = GetCharacterDetailFontSize()
+    runtime.ApplyForeverStatFont(frame.Title, size + 1)
+    runtime.ApplyForeverStatFont(frame.Label, size)
+    runtime.ApplyForeverStatFont(frame.Value, size)
+end
+
+function runtime.OnForeverStatInitialized(_, frame)
+    runtime.ApplyForeverStat(frame)
+end
+
+function runtime.DetachForeverStats()
+    for box, event in pairs(runtime.foreverStatsBoxes) do
+        if pcall(box.UnregisterCallback, box, event, runtime) then
+            runtime.foreverStatsBoxes[box] = nil
+        end
+    end
+end
+
+function runtime.ApplyForeverStats()
+    local event = ScrollBoxListMixin and ScrollBoxListMixin.Event and ScrollBoxListMixin.Event.OnInitializedFrame
+    for _, name in ipairs({ "CharacterStatsPaneScrollBox", "CharacterStatsPanePetScrollBox" }) do
+        local pane = _G[name]
+        local box = pane and not IsUnsafeExternalObject(pane) and pane.ScrollBox
+        if box and not IsUnsafeExternalObject(box) then
+            if event and not runtime.foreverStatsBoxes[box] and type(box.RegisterCallback) == "function"
+                and type(box.UnregisterCallback) == "function"
+                and pcall(box.RegisterCallback, box, event, runtime.OnForeverStatInitialized, runtime)
+            then runtime.foreverStatsBoxes[box] = event end
+            if type(box.ForEachFrame) == "function" then pcall(box.ForEachFrame, box, runtime.ApplyForeverStat) end
+        end
+    end
+end
+
 local function ApplyCharacterDetailFonts(owner)
+    if runtime.isForever then
+        runtime.ApplyForeverStats()
+        return
+    end
     local roots = {
         _G.EUI_CharSheet_Stats,
         _G.EUI_CharSheet_Titles,
@@ -1335,15 +1605,180 @@ local function EnsureTabRefreshHooks(tab)
     HookRefreshScript(tab, "OnClick")
 end
 
-local function ApplyTab(tab, owner)
+function runtime.IsPilotTab(tab, owner)
+    return runtime.IsPilotOwner(owner) and tabStates[tab] and tabStates[tab].shellFrame ~= nil
+end
+
+function runtime.HidePilotTabFinish(state)
+    state.pilotActive, state.pilotHovered = false, nil
+    if state.pilotUnderlays then
+        for region, record in pairs(state.pilotUnderlays) do
+            if PointsEqual(ReadRegionPoints(region), record.lastAppliedPoints) then
+                SetRegionPoints(region, record.originalPoints)
+            end
+        end
+        state.pilotUnderlays = nil
+    end
+    local finish = state.pilotFinish
+    if not finish then return end
+    SetShown(finish.fill, false)
+    SetShown(finish.top, false)
+    SetShown(finish.bottom, false)
+end
+
+function runtime.PaintPilotTab(tab, state)
+    if not (runtime.enabled and state.pilotActive) or IsUnsafeExternalObject(tab) then return end
+    local finish, style = state.pilotFinish, runtime.pilotTabStyle
+    local selected = false
+    if type(tab.IsEnabled) == "function" then
+        local ok, enabled = pcall(tab.IsEnabled, tab)
+        if ok and not IsSecretValue(enabled) then selected = enabled == false end
+    end
+    local custom = runtime.config.tabColorMode == TAB_COLOR_CUSTOM
+    local base = custom and GetTabColor() or runtime.GetShellBaseColor()
+    if not custom then
+        for index = 1, 3 do base[index] = math.min(1, base[index] + 2 / 255) end
+    end
+    local brightness = custom and 1 or GetBrightness()
+    local lift = selected and style.selectedLift or state.pilotHovered and style.hoverLift or 0
+    local top, bottom = {}, {}
+    for index = 1, 3 do
+        top[index] = math.min(1, (base[index] + lift) * brightness)
+        bottom[index] = math.max(0, top[index] - style.depth * brightness)
+    end
+    top[4], bottom[4] = base[4], base[4]
+    local fill = finish.fill
+    if fill then
+        runtime.PaintFinishGradient(fill, top, bottom)
+        SetShown(state.background, false)
+        SetShown(fill, true)
+    end
+    local pixel = GetBorderPixel(tab)
+    for _, edge in ipairs({ finish.top, finish.bottom }) do
+        if type(edge.SetHeight) == "function" then pcall(edge.SetHeight, edge, pixel) end
+        SetShown(edge, true)
+    end
+    if finish.top then
+        pcall(finish.top.SetColorTexture, finish.top, 1, 1, 1,
+            selected and style.selectedTopAlpha or style.topAlpha)
+    end
+    if finish.bottom then pcall(finish.bottom.SetColorTexture, finish.bottom, 0, 0, 0, style.bottomAlpha) end
+end
+
+function runtime.ApplyPilotTabFinish(tab, state, active, visualOnly)
+    if not active then runtime.HidePilotTabFinish(state); return end
+    if not state.pilotFinish then
+        local finish = { fill = CreateTexture(tab, 7) }
+        PrepareBorderTexture(finish.fill)
+        for _, key in ipairs({ "top", "bottom" }) do
+            local ok, edge = pcall(tab.CreateTexture, tab, nil, "BORDER", nil, 7)
+            if ok and edge then
+                PrepareBorderTexture(edge)
+                local point = key == "top" and "TOP" or "BOTTOM"
+                edge:SetPoint(point .. "LEFT", tab, point .. "LEFT", 0, 0)
+                edge:SetPoint(point .. "RIGHT", tab, point .. "RIGHT", 0, 0)
+                finish[key] = edge
+            end
+        end
+        state.pilotFinish = finish
+    end
+    local finish = state.pilotFinish
+    local window = state.shellFrame
+    local topInset = 0
+    if not IsUnsafeExternalObject(window) and type(tab.GetTop) == "function"
+        and type(window.GetBottom) == "function" and type(tab.GetEffectiveScale) == "function"
+        and type(window.GetEffectiveScale) == "function"
+    then
+        local ok, tabTop, windowBottom, tabScale, windowScale, tabBottom = pcall(function()
+            local bottom
+            if type(tab.GetBottom) == "function" then bottom = tab:GetBottom() end
+            return tab:GetTop(), window:GetBottom(), tab:GetEffectiveScale(), window:GetEffectiveScale(), bottom
+        end)
+        if ok and not IsSecretValue(tabTop) and not IsSecretValue(windowBottom)
+            and not IsSecretValue(tabScale) and not IsSecretValue(windowScale)
+            and type(tabTop) == "number" and type(windowBottom) == "number"
+            and type(tabScale) == "number" and type(windowScale) == "number"
+            and tabScale > 0 and windowScale > 0
+        then
+            if not IsSecretValue(tabBottom) and type(tabBottom) == "number"
+                and tabBottom >= windowBottom * windowScale / tabScale
+            then
+                -- 布局或版本把主标签放在窗口内部时，保留其原有材质。
+                runtime.HidePilotTabFinish(state)
+                return
+            end
+            -- 原生 Tab 可与窗口底部重叠；只裁掉装饰越过接缝的部分。
+            topInset = math.max(0, tabTop - windowBottom * windowScale / tabScale)
+        end
+    end
+    local fillPoints = {
+        { point = "TOPLEFT", relativeTo = tab, relativePoint = "TOPLEFT", x = 0, y = -topInset },
+        { point = "BOTTOMRIGHT", relativeTo = tab, relativePoint = "BOTTOMRIGHT", x = 0, y = 0 },
+    }
+    if type(tab.GetRegions) == "function" then
+        local ok, regions = pcall(function() return { tab:GetRegions() } end)
+        if ok then
+            for index = 1, #regions do
+                local region = regions[index]
+                local record = state.pilotUnderlays and state.pilotUnderlays[region]
+                local matches = false
+                if not record and region ~= state.background and region ~= state.activeHighlight
+                    and region ~= finish.fill and region ~= finish.top and region ~= finish.bottom
+                    and IsTextureRegion(region)
+                    and IsFullFrameRegion(region, tab)
+                then
+                    -- 只处理整块底板和选中高光；客户端没有 GetColorTexture 接口。
+                    matches = HasDrawLayer(region, 0) or HasDrawLayer(region, -6, "ARTWORK")
+                end
+                if record or matches then
+                    local current = ReadRegionPoints(region)
+                    if current then
+                        state.pilotUnderlays = state.pilotUnderlays or {}
+                        record = record or { originalPoints = current }
+                        if record.lastAppliedPoints and not PointsEqual(current, record.lastAppliedPoints) then
+                            record.originalPoints = current
+                        end
+                        state.pilotUnderlays[region] = record
+                        -- 原底板和选中高光也裁到接缝，保留原颜色与显示状态。
+                        if SetRegionPoints(region, fillPoints) then record.lastAppliedPoints = fillPoints end
+                    end
+                end
+            end
+        end
+    end
+    if finish.fill then SetRegionPoints(finish.fill, fillPoints) end
+    if finish.top then
+        finish.top:ClearAllPoints()
+        finish.top:SetPoint("TOPLEFT", finish.fill or tab, "TOPLEFT", 0, finish.fill and 0 or -topInset)
+        finish.top:SetPoint("TOPRIGHT", finish.fill or tab, "TOPRIGHT", 0, finish.fill and 0 or -topInset)
+    end
+    state.pilotActive = true
+    if not visualOnly and not state.pilotHooked and type(tab.HookScript) == "function" then
+        for _, script in ipairs({ "OnEnter", "OnLeave", "OnEnable", "OnDisable", "OnHide" }) do
+            pcall(tab.HookScript, tab, script, function()
+                if not (runtime.enabled and state.pilotActive) then return end
+                if script == "OnEnter" then state.pilotHovered = true
+                elseif script == "OnLeave" or script == "OnHide" then state.pilotHovered = false end
+                if script == "OnHide" then return end
+                runtime.PaintPilotTab(tab, state)
+            end)
+        end
+        state.pilotHooked = true
+    end
+    runtime.PaintPilotTab(tab, state)
+end
+
+local function ApplyTab(tab, owner, shellFrame)
     if IsUnsafeExternalObject(tab) then return end
     EnsureTabRefreshHooks(tab)
     local background = EnsureTabBackground(tab, owner)
+    tabStates[tab].shellFrame = shellFrame
     local color = GetTabColor()
     if background and type(background.SetColorTexture) == "function" then
         pcall(background.SetColorTexture, background, color[1], color[2], color[3], color[4])
         SetShown(background, true)
     end
+    runtime.ApplyPilotTabFinish(tab, tabStates[tab], runtime.IsPilotTab(tab, owner))
 
     local seen = {}
     local function Apply(fontString)
@@ -1371,17 +1806,31 @@ local function ApplyTab(tab, owner)
 end
 
 local function RestoreOwner(owner)
+    if owner == "character" then runtime.DetachForeverStats() end
     for _, state in pairs(frameStates) do
         if state.owner == owner and not IsUnsafeExternalObject(state.frame) then
+            runtime.RestorePanelUnderlays(state)
+            runtime.HideDirectShellFinish(state)
             SetShown(state.visualHost, false)
             SetShown(state.background, false)
             SetShown(state.directBackground, false)
+            SetShown(state.finish and state.finish.title, false)
+            SetShown(state.finish and state.finish.shadow, false)
+            if Appearance and state.visualHost and type(Appearance.ApplyShellFinish) == "function" then
+                Appearance:ApplyShellFinish(state.visualHost, nil)
+            end
             RestoreExternalBackgrounds(state)
             RestoreWindowBorder(state)
+            if state.menuButton then
+                SetShown(state.menuButtonHover, false)
+                SetShown(state.menuButtonHoverEdge, false)
+                RestoreExternalAlphaOwner(state)
+            end
         end
     end
     for _, state in pairs(tabStates) do
         if state.owner == owner then
+            runtime.HidePilotTabFinish(state)
             SetShown(state.background, false)
             SetShown(state.underline, false)
             SetShown(state.activeHighlight, false)
@@ -1400,16 +1849,27 @@ local function RestoreOwner(owner)
 end
 
 local function RestoreAll()
+    runtime.DetachForeverStats()
+    if runtime.ClearAuctionShadow then runtime.ClearAuctionShadow() end
     for _, state in pairs(frameStates) do
         if not IsUnsafeExternalObject(state.frame) then
+            runtime.HideDirectShellFinish(state)
             SetShown(state.visualHost, false)
             SetShown(state.background, false)
             SetShown(state.directBackground, false)
+            SetShown(state.menuButtonHover, false)
+            SetShown(state.menuButtonHoverEdge, false)
+            SetShown(state.finish and state.finish.title, false)
+            SetShown(state.finish and state.finish.shadow, false)
+            if Appearance and state.visualHost and type(Appearance.ApplyShellFinish) == "function" then
+                Appearance:ApplyShellFinish(state.visualHost, nil)
+            end
             RestoreExternalBackgrounds(state)
             RestoreWindowBorder(state)
         end
     end
     for _, state in pairs(tabStates) do
+        runtime.HidePilotTabFinish(state)
         SetShown(state.background, false)
         SetShown(state.underline, false)
         SetShown(state.activeHighlight, false)
@@ -1425,23 +1885,23 @@ local function RestoreAll()
     if RestoreReadyCheckRepair then RestoreReadyCheckRepair() end
 end
 
-local function ApplyNamedTabs(prefix, count, owner)
-    for index = 1, count do ApplyTab(_G[prefix .. index], owner) end
+local function ApplyNamedTabs(prefix, count, owner, shellFrame)
+    for index = 1, count do ApplyTab(_G[prefix .. index], owner, shellFrame) end
 end
 
-local function ApplyTabSystem(tabSystem, owner)
+local function ApplyTabSystem(tabSystem, owner, shellFrame)
     if IsUnsafeExternalObject(tabSystem) then return end
     if type(tabSystem.GetTabButton) == "function" then
         for index = 1, MAX_SOCIAL_TABS do
             local ok, tab = pcall(tabSystem.GetTabButton, tabSystem, index)
-            if ok and tab then ApplyTab(tab, owner) end
+            if ok and tab then ApplyTab(tab, owner, shellFrame) end
         end
         return
     end
     if type(tabSystem.GetChildren) == "function" then
         local children = { tabSystem:GetChildren() }
         local limit = math.min(#children, MAX_SOCIAL_TABS)
-        for index = 1, limit do ApplyTab(children[index], owner) end
+        for index = 1, limit do ApplyTab(children[index], owner, shellFrame) end
     end
 end
 
@@ -1464,14 +1924,14 @@ local function ResolveObjectPath(root, path)
     return current
 end
 
-local function ApplyTabPaths(root, paths, owner)
+local function ApplyTabPaths(root, paths, owner, shellFrame)
     if type(paths) ~= "table" then return end
-    for index = 1, #paths do ApplyTab(ResolveObjectPath(root, paths[index]), owner) end
+    for index = 1, #paths do ApplyTab(ResolveObjectPath(root, paths[index]), owner, shellFrame) end
 end
 
-local function ApplyTabSystemPaths(root, paths, owner)
+local function ApplyTabSystemPaths(root, paths, owner, shellFrame)
     if type(paths) ~= "table" then return end
-    for index = 1, #paths do ApplyTabSystem(ResolveObjectPath(root, paths[index]), owner) end
+    for index = 1, #paths do ApplyTabSystem(ResolveObjectPath(root, paths[index]), owner, shellFrame) end
 end
 
 local function ApplyCollectionsFix(owner)
@@ -1596,14 +2056,16 @@ local function ApplyAuctionatorTab(tab, owner)
             for index = 1, #regions do
                 local region = regions[index]
                 if IsTextureRegion(region) and (not state or (region ~= state.background
-                    and region ~= state.underline and region ~= state.activeHighlight))
+                    and region ~= state.underline and region ~= state.activeHighlight
+                    and (not state.pilotFinish or (region ~= state.pilotFinish.fill
+                        and region ~= state.pilotFinish.top and region ~= state.pilotFinish.bottom))))
                 then
                     ApplyExternalAlpha(region, owner, 0)
                 end
             end
         end
     end
-    ApplyTab(tab, owner)
+    ApplyTab(tab, owner, _G.AuctionHouseFrame)
     state = tabStates[tab]
     if not state then return end
     state.tab = tab
@@ -1620,6 +2082,10 @@ local function ApplyAuctionatorTab(tab, owner)
             if type(highlight.SetBlendMode) == "function" then pcall(highlight.SetBlendMode, highlight, "ADD") end
             state.activeHighlight = highlight
         end
+    end
+    if state.activeHighlight and type(state.activeHighlight.SetAllPoints) == "function" then
+        local target = state.pilotActive and state.pilotFinish and state.pilotFinish.fill or tab
+        pcall(state.activeHighlight.SetAllPoints, state.activeHighlight, target)
     end
     if not state.underline and type(tab.CreateTexture) == "function" then
         local ok, underline = pcall(tab.CreateTexture, tab, nil, "OVERLAY", nil, 6)
@@ -1719,7 +2185,7 @@ local function ApplyCraftOrderTabs(owner, frame)
     if type(tabs) ~= "table" then return end
     local limit = math.min(#tabs, MAX_SOCIAL_TABS)
     for index = 1, limit do
-        if IsButtonObject(tabs[index]) then ApplyTab(tabs[index], owner) end
+        if IsButtonObject(tabs[index]) then ApplyTab(tabs[index], owner, frame) end
     end
 end
 
@@ -1773,7 +2239,7 @@ local WINDOW_ADAPTERS = {
         addon = "Blizzard_Collections",
         frameName = "CollectionsJournal",
         tabPaths = { "MountsTab", "PetsTab", "ToysTab", "HeirloomsTab", "WardrobeTab", "WarbandScenesTab" },
-        globalTabPaths = { "WardrobeCollectionFrame.ItemsTab", "WardrobeCollectionFrame.SetsTab" },
+        innerGlobalTabPaths = { "WardrobeCollectionFrame.ItemsTab", "WardrobeCollectionFrame.SetsTab" },
         postApply = ApplyCollectionsFix,
     },
     {
@@ -1781,7 +2247,8 @@ local WINDOW_ADAPTERS = {
         styleKey = "playerspells",
         addon = "Blizzard_PlayerSpells",
         frameName = "PlayerSpellsFrame",
-        tabSystemPaths = { "TabSystem", "SpellBookFrame.CategoryTabSystem" },
+        tabSystemPaths = { "TabSystem" },
+        innerTabSystemPaths = { "SpellBookFrame.CategoryTabSystem" },
     },
     {
         owner = "blizzard:adventureguide",
@@ -1847,6 +2314,8 @@ local WINDOW_ADAPTERS = {
         frameName = "AuctionHouseFrame",
         globalTabPaths = {
             "AuctionHouseFrameBuyTab", "AuctionHouseFrameSellTab", "AuctionHouseFrameAuctionsTab",
+        },
+        innerGlobalTabPaths = {
             "AuctionHouseFrameAuctionsFrameAuctionsTab", "AuctionHouseFrameAuctionsFrameBidsTab",
         },
         postApply = ApplyAuctionatorFix,
@@ -1921,7 +2390,7 @@ local WINDOW_ADAPTERS = {
         owner = "blizzard:settings",
         styleKey = "settings",
         frameName = "SettingsPanel",
-        tabPaths = { "GameTab", "AddOnsTab" },
+        innerTabPaths = { "GameTab", "AddOnsTab" },
     },
     {
         owner = "blizzard:addonlist",
@@ -2030,9 +2499,11 @@ local WINDOW_ADAPTERS = {
 
 runtime.ApplyProtectedLFGAdapter = function()
     local frame = _G.PVEFrame
+    if runtime.isForever then frame = _G.LFGParentFrame end
+    local addon = runtime.isForever and "Blizzard_GroupFinder_VanillaStyle" or "Blizzard_GroupFinder"
     if not frame or IsUnsafeExternalObject(frame)
         or not IsAddOnLoadedSafe("EllesmereUIBlizzardSkin")
-        or not IsAddOnLoadedSafe("Blizzard_GroupFinder")
+        or not IsAddOnLoadedSafe(addon)
         or not GetWindowStyle("lfg")
     then
         RestoreOwner("blizzard:lfg")
@@ -2041,8 +2512,9 @@ runtime.ApplyProtectedLFGAdapter = function()
 
     local state = ApplyFrameBackground(frame, "blizzard:lfg", "protected-visual", true)
     if state then ApplyWindowBorder(frame, state) end
-    for index = 1, 4 do
-        local tab = _G["PVEFrameTab" .. index]
+    local tabPrefix = runtime.isForever and "LFGParentFrameTab" or "PVEFrameTab"
+    for index = 1, (runtime.isForever and 3 or 4) do
+        local tab = _G[tabPrefix .. index]
         if not IsUnsafeExternalObject(tab) then
             local background = EnsureTabBackground(tab, "blizzard:lfg")
             local color = GetTabColor()
@@ -2050,6 +2522,10 @@ runtime.ApplyProtectedLFGAdapter = function()
                 pcall(background.SetColorTexture, background, color[1], color[2], color[3], color[4])
                 SetShown(background, true)
             end
+
+            local state = tabStates[tab]
+            state.shellFrame = frame
+            runtime.ApplyPilotTabFinish(tab, state, runtime.IsPilotTab(tab, "blizzard:lfg"), true)
 
             local nativeLabel
             if type(tab.GetFontString) == "function" then
@@ -2091,9 +2567,12 @@ local function ApplyWindowAdapter(adapter)
         local state = ApplyFrameBackground(frame, owner, "shell")
         if state then ApplyWindowBorder(frame, state) end
     end
-    ApplyTabPaths(frame, adapter.tabPaths, owner)
-    ApplyTabPaths(_G, adapter.globalTabPaths, owner)
-    ApplyTabSystemPaths(frame, adapter.tabSystemPaths, owner)
+    ApplyTabPaths(frame, adapter.tabPaths, owner, frame)
+    ApplyTabPaths(_G, adapter.globalTabPaths, owner, frame)
+    ApplyTabSystemPaths(frame, adapter.tabSystemPaths, owner, frame)
+    ApplyTabPaths(frame, adapter.innerTabPaths, owner)
+    ApplyTabPaths(_G, adapter.innerGlobalTabPaths, owner)
+    ApplyTabSystemPaths(frame, adapter.innerTabSystemPaths, owner)
     if type(adapter.postApply) == "function" then adapter.postApply(owner, frame) end
 end
 
@@ -2114,7 +2593,7 @@ local function ApplyCharacter()
     end
     local state = ApplyFrameBackground(frame, "character", "shell")
     if state then ApplyWindowBorder(frame, state) end
-    ApplyNamedTabs("CharacterFrameTab", 3, "character")
+    ApplyNamedTabs("CharacterFrameTab", 3, "character", frame)
     ApplyCharacterDetailFonts("character")
 end
 
@@ -2195,10 +2674,20 @@ local function ApplyFriends()
     local frame = _G.FriendsFrame
     HookFrameOnShow(frame)
     if frame and IsUnsafeExternalObject(frame) then return end
+    if runtime.isForever then
+        if not (not IsUnsafeExternalObject(frame) and IsAddOnLoadedSafe("EllesmereUIBlizzardSkin")
+            and GetWindowStyle("socialui")) then return end
+        local state = ApplyFrameBackground(frame, "friends", "shell")
+        if state then ApplyWindowBorder(frame, state) end
+        local header = frame.FriendsTabHeader or _G.FriendsTabHeader
+        ApplyTabSystem(header and header.TabSystem, "friends")
+        ApplyNamedTabs("FriendsFrameTab", 4, "friends", frame)
+        return
+    end
     if not (not IsUnsafeExternalObject(frame) and IsAddOnLoadedSafe("EllesmereUIFriends") and type(_G._EFR_ApplyFriends) == "function") then return end
     local state = ApplyFrameBackground(frame, "friends", "legacyFriends")
     if state then ApplyWindowBorder(frame, state, 2) end
-    ApplyNamedTabs("FriendsFrameTab", 4, "friends")
+    ApplyNamedTabs("FriendsFrameTab", 4, "friends", frame)
     runtime.ApplyFriendsSubTabs(frame)
 end
 
@@ -2208,7 +2697,7 @@ local function CopyContext(context)
     return copy
 end
 
-local function BuildEnhancedContext(context)
+local function BuildEnhancedContext(context, options)
     if not runtime.enabled or type(context) ~= "table" or context.source ~= "ellesmere" then return nil end
     local enhanced = CopyContext(context)
     if runtime.config and runtime.config.simplifyWindowBorder == true then
@@ -2217,7 +2706,6 @@ local function BuildEnhancedContext(context)
     end
     if not IsBackgroundBeautificationEnabled() then return enhanced end
 
-    local preset = runtime.config and runtime.config.backgroundPreset or PRESET_MODERN
     enhanced.customShell = true
     enhanced.providerKind = "yui-enhanced"
     enhanced.texture = nil
@@ -2235,15 +2723,9 @@ local function BuildEnhancedContext(context)
     enhanced.background[4] = 1
     enhanced.topBar = { 0, 0, 0, 0.20 }
     enhanced.contentShade = { 0, 0, 0, 0.08 }
-    local texturePath, textureAspect, textureCoords = GetPresetTexture(preset)
-    if texturePath then
-        local brightness = GetBrightness()
-        enhanced.texture = texturePath
-        enhanced.textureMode = "cover"
-        enhanced.textureCoords = textureCoords
-        enhanced.textureAspect = textureAspect
-        enhanced.textureColor = { brightness, brightness, brightness, 1 }
-    end
+    options = options or {}
+    enhanced.shellFinish = runtime.GetPilotFinish(options.shellHeaderHeight or 25)
+    if options.noTopBar == true then enhanced.shellFinish.title = nil end
     return enhanced
 end
 
@@ -2253,8 +2735,8 @@ local function RegisterAppearanceOverride()
     then
         return
     end
-    runtime.overrideRegistered = Appearance:RegisterContextOverride(appearanceOverrideOwner, 100, function(context)
-        return BuildEnhancedContext(context)
+    runtime.overrideRegistered = Appearance:RegisterContextOverride(appearanceOverrideOwner, 100, function(context, _, options)
+        return BuildEnhancedContext(context, options)
     end) == true
 end
 
@@ -2268,6 +2750,229 @@ end
 
 local function RefreshSharedAppearance()
     if Appearance and type(Appearance.RefreshAll) == "function" then Appearance:RefreshAll() end
+end
+
+function runtime.ClearAuctionShadow()
+    if Appearance and type(Appearance.SetShellShadowLayout) == "function" then
+        for _, frame in ipairs(runtime.auctionShadowMembers) do Appearance:SetShellShadowLayout(frame) end
+    end
+    runtime.auctionShadowMembers = {}
+end
+
+function runtime.UpdateAuctionShadow()
+    runtime.ClearAuctionShadow()
+    if not (Appearance and type(Appearance.SetShellShadowLayout) == "function"
+        and type(Appearance.GetContext) == "function") then return end
+    local auction, helper = _G.AuctionHouseFrame, YUI.AuctionHelperFrame
+    if IsUnsafeExternalObject(helper) then return end
+    local settings, tracker = helper.settingsFrame, helper.recipeTracker and helper.recipeTracker.panel
+    for _, panel in pairs({ helper = helper, settings = settings, tracker = tracker }) do
+        HookRefreshScript(panel, "OnShow")
+        HookRefreshScript(panel, "OnHide")
+        HookRefreshMethod(panel, "SetPoint")
+    end
+    local rootState = auction and frameStates[auction]
+    if not (runtime.IsPilotOwner() and rootState and rootState.finish and rootState.finish.shadowSize
+        and not IsUnsafeExternalObject(auction) and auction:IsShown()) then return end
+    local root, parent = rootState.visualHost, auction
+    local members = { root }
+    local function Include(panel)
+        if IsUnsafeExternalObject(panel) or not panel:IsShown() then return false end
+        local context, points = Appearance:GetContext(panel), ReadRegionPoints(panel)
+        if not (context and context.source == "ellesmere" and context.shellFinish
+            and points and #points == 2
+            and HasAnchor(points, "TOPLEFT", parent, "TOPRIGHT", 2, 0)
+            and HasAnchor(points, "BOTTOMLEFT", parent, "BOTTOMRIGHT", 2, 0)) then return false end
+        members[#members + 1], parent = panel, panel
+        return true
+    end
+    if Include(helper) then
+        if not Include(settings) then Include(tracker) end
+    end
+    if #members < 2 then return end
+    runtime.auctionShadowMembers = members
+    Appearance:SetShellShadowLayout(root, parent)
+    for index = 2, #members do Appearance:SetShellShadowLayout(members[index], nil, true) end
+end
+
+function runtime.CanStyleGameMenu()
+    local provider, db = _G.EllesmereUI, _G.EllesmereUIDB
+    if not (runtime.enabled and IsBackgroundBeautificationEnabled() and type(provider) == "table"
+        and IsAddOnLoadedSafe("EllesmereUIBlizzardSkin")) or (db and db.reskinGameMenu == false) then return false end
+    if type(provider.BlizzSkinPadStandDown) == "function" then
+        local ok, standDown = pcall(provider.BlizzSkinPadStandDown)
+        if not ok or IsSecretValue(standDown) or standDown then return false end
+    end
+    return true
+end
+
+function runtime.GetGameMenuButtonFinish()
+    local style = runtime.menuStyle.button
+    return {
+        background = { top = CopyColor(style.background.top), bottom = CopyColor(style.background.bottom) },
+        border = CopyColor(style.border), topBorder = CopyColor(style.topBorder),
+        bottomBorder = CopyColor(style.bottomBorder), textColor = CopyColor(style.textColor),
+    }
+end
+
+function runtime.ApplyGameMenuButtonHighlight(inset, state)
+    local button = inset:GetParent()
+    if type(button.CreateTexture) ~= "function" then return end
+    -- 原生 HIGHLIGHT 层负责悬停及禁用状态，不添加脚本钩子或逐帧刷新。
+    if not state.menuButtonHover then
+        local ok, texture = pcall(button.CreateTexture, button, nil, "HIGHLIGHT", nil, 1)
+        if not ok or not texture then return end
+        state.menuButtonHover = texture
+        texture:SetAllPoints(inset)
+        runtime.PaintFinishGradient(texture, runtime.menuStyle.hover.top, runtime.menuStyle.hover.bottom)
+    end
+    if not state.menuButtonHoverEdge then
+        local ok, texture = pcall(button.CreateTexture, button, nil, "HIGHLIGHT", nil, 2)
+        if not ok or not texture then return end
+        state.menuButtonHoverEdge = texture
+        texture:SetPoint("TOPLEFT", inset, "TOPLEFT", 0, 0)
+        texture:SetPoint("TOPRIGHT", inset, "TOPRIGHT", 0, 0)
+        texture:SetHeight(GetBorderPixel(button))
+        local color = runtime.menuStyle.hover.edge
+        texture:SetColorTexture(color[1], color[2], color[3], color[4])
+    end
+    SetShown(state.menuButtonHover, true)
+    SetShown(state.menuButtonHoverEdge, true)
+end
+
+-- 只识别菜单直属按钮的既有 2px 内层底板，不接触按钮池或 provider 私有表。
+function runtime.IsGameMenuButtonInset(inset)
+    if IsUnsafeExternalObject(inset) or type(inset.GetParent) ~= "function" then return false end
+    local ok, button = pcall(inset.GetParent, inset)
+    if not ok or IsUnsafeExternalObject(button) or type(button.GetParent) ~= "function"
+        or type(button.IsObjectType) ~= "function" then return false end
+    local parentOK, parent = pcall(button.GetParent, button)
+    local typeOK, isButton = pcall(button.IsObjectType, button, "Button")
+    if not parentOK or IsSecretValue(parent) or parent ~= _G.GameMenuFrame
+        or not typeOK or IsSecretValue(isButton) or not isButton then return false end
+    local points = ReadRegionPoints(inset)
+    if not points or #points ~= 2 or not HasAnchor(points, "TOPLEFT", button, "TOPLEFT", 2, -2)
+        or not HasAnchor(points, "BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
+        or type(inset.GetRegions) ~= "function" then return false end
+    local regionsOK, regions = pcall(function() return { inset:GetRegions() } end)
+    if not regionsOK or #regions > 16 then return false end
+    local count = 0
+    for _, region in ipairs(regions) do
+        if not IsUnsafeExternalObject(region) and IsTextureRegion(region) and HasDrawLayer(region, -6)
+            and IsFullFrameRegion(region, inset) then count = count + 1 end
+    end
+    return count == 1
+end
+
+function runtime.PaintGameMenuButton(inset, border)
+    if IsInCombat() or not runtime.CanStyleGameMenu() or not runtime.IsGameMenuButtonInset(inset) then return end
+    local state = frameStates[inset]
+    if not state then
+        state = { frame = inset, owner = "blizzard:gamemenu", menuButton = true }
+        frameStates[inset] = state
+    end
+    if border then state.menuButtonBorder = border end
+    if not state.menuButtonBorder then return end
+    if not state.directBackground then
+        state.directBackground = CreateTexture(inset, -5)
+        if not state.directBackground then return end
+        state.directBackground:SetAllPoints(inset)
+    end
+    if not EnsureCleanBorder(inset, state) then return end
+    local finish = runtime.menuButtonFinish
+    if not finish then return end
+    ApplyExternalAlpha(state.menuButtonBorder, state, 0)
+    if state.menuButtonFinish ~= finish or not IsObjectShown(state.directBackground) then
+        runtime.PaintFinishGradient(state.directBackground, finish.background.top, finish.background.bottom)
+        for index, line in ipairs(state.cleanBorders) do
+            local color = index == 1 and finish.topBorder or index == 2 and finish.bottomBorder or finish.border
+            line:SetColorTexture(color[1], color[2], color[3], color[4])
+        end
+        state.menuButtonFinish = finish
+    end
+    SetShown(state.directBackground, true)
+    runtime.ApplyGameMenuButtonHighlight(inset, state)
+end
+
+function runtime.RefreshGameMenuButtons(menu, provider)
+    -- 设置切换时覆盖已显示的按钮；新建/复用的按钮由既有边框绘制回调接入。
+    for inset, state in pairs(frameStates) do
+        if state.menuButton and not IsUnsafeExternalObject(inset) and not runtime.IsGameMenuButtonInset(inset) then
+            SetShown(state.directBackground, false)
+            SetShown(state.menuButtonHover, false)
+            SetShown(state.menuButtonHoverEdge, false)
+            SetCleanBorderShown(state, false)
+            RestoreExternalAlphaOwner(state)
+        end
+    end
+    if type(menu.GetChildren) ~= "function" then return end
+    local ok, children = pcall(function() return { menu:GetChildren() } end)
+    if not ok or #children > 64 then return end
+    for _, button in ipairs(children) do
+        if not IsUnsafeExternalObject(button) and type(button.GetChildren) == "function" then
+            local childOK, insets = pcall(function() return { button:GetChildren() } end)
+            if childOK and #insets <= 16 then
+                for _, inset in ipairs(insets) do
+                    if runtime.IsGameMenuButtonInset(inset) then
+                        local state = frameStates[inset]
+                        if not (state and state.menuButtonBorder) then
+                            pcall(provider._applyBlizzardConfiguredBorder, inset, "popupMenuButton", 1)
+                        end
+                        runtime.PaintGameMenuButton(inset)
+                    end
+                end
+            end
+        end
+    end
+end
+
+function runtime.ApplyGameMenu()
+    local frame, provider, owner = _G.GameMenuFrame, _G.EllesmereUI, "blizzard:gamemenu"
+    if not runtime.CanStyleGameMenu() or IsUnsafeExternalObject(frame)
+        or type(provider._applyBlizzardConfiguredBorder) ~= "function"
+        or type(provider.ApplyBorderStyle) ~= "function" then RestoreOwner(owner); return end
+    local state = ApplyFrameBackground(frame, owner, "gameMenu")
+    if not state then return end
+    runtime.menuButtonFinish = runtime.GetGameMenuButtonFinish()
+    -- 从已确认的绘制调用捕获外框及按钮边框，状态保存在外部弱键表。
+    if not runtime.menuCaptureHooked then
+        runtime.menuCaptureHooked = pcall(hooksecurefunc, provider, "ApplyBorderStyle", function(border)
+            if not runtime.enabled or IsUnsafeExternalObject(border) or type(border.GetParent) ~= "function" then return end
+            local ok, parent = pcall(border.GetParent, border)
+            if not ok or IsSecretValue(parent) then return end
+            if runtime.menuBorderProbe and parent == _G.GameMenuFrame and IsFullFrameRegion(border, parent) then
+                local current = frameStates[parent]
+                if current then current.menuBorder = border end
+            elseif runtime.CanStyleGameMenu() and runtime.IsGameMenuButtonInset(parent)
+                and IsFullFrameRegion(border, parent) then
+                runtime.PaintGameMenuButton(parent, border)
+            end
+        end)
+    end
+    if not runtime.menuStyleHooked then
+        runtime.menuStyleHooked = pcall(hooksecurefunc, provider, "_applyBlizzardConfiguredBorder", function(menu, prefix)
+            if runtime.menuBorderProbe or menu ~= _G.GameMenuFrame or prefix ~= "popupMenu" then return end
+            local current = frameStates[menu]
+            if runtime.CanStyleGameMenu() and current and runtime.config.simplifyWindowBorder then
+                ApplyExternalAlpha(current.menuBorder, owner, 0)
+            end
+            if runtime.enabled then ScheduleRefresh() end
+        end)
+    end
+    if not state.menuBorder and runtime.menuCaptureHooked then
+        runtime.menuBorderProbe = true
+        pcall(provider._applyBlizzardConfiguredBorder, frame, "popupMenu", 1)
+        runtime.menuBorderProbe = false
+    end
+    if runtime.config.simplifyWindowBorder and state.menuBorder and EnsureCleanBorder(state.visualHost, state) then
+        ApplyExternalAlpha(state.menuBorder, owner, 0)
+        local color = runtime.menuStyle.border
+        for _, line in ipairs(state.cleanBorders) do pcall(line.SetColorTexture, line, color[1], color[2], color[3], color[4]) end
+    else
+        RestoreExternalAlphaOwner(owner)
+        SetCleanBorderShown(state, false)
+    end
+    if runtime.menuCaptureHooked then runtime.RefreshGameMenuButtons(frame, provider) end
 end
 
 local function TryAttachHooks()
@@ -2303,6 +3008,8 @@ local function ApplyAll()
     if not ok then RestoreOwner("friends") end
     ok = pcall(runtime.ApplyProtectedLFGAdapter)
     if not ok then RestoreOwner("blizzard:lfg") end
+    ok = pcall(runtime.ApplyGameMenu)
+    if not ok then RestoreOwner("blizzard:gamemenu") end
     for index = 1, #WINDOW_ADAPTERS do
         local adapter = WINDOW_ADAPTERS[index]
         ok = pcall(ApplyWindowAdapter, adapter)
@@ -2311,6 +3018,7 @@ local function ApplyAll()
             if type(adapter.postRestore) == "function" then pcall(adapter.postRestore) end
         end
     end
+    runtime.UpdateAuctionShadow()
 end
 
 ScheduleRefresh = function()
@@ -2332,12 +3040,14 @@ local RELEVANT_ADDONS = {
     EllesmereUIBlizzardSkin = true,
     EllesmereUIFriends = true,
     Blizzard_CharacterUI = true,
+    Blizzard_GameMenu = true,
     Blizzard_FriendsFrame = true,
     Blizzard_SocialUI = true,
     Blizzard_Collections = true,
     Blizzard_PlayerSpells = true,
     Blizzard_EncounterJournal = true,
     Blizzard_GroupFinder = true,
+    Blizzard_GroupFinder_VanillaStyle = runtime.isForever,
     Blizzard_WorldMap = true,
     Blizzard_MailFrame = true,
     Blizzard_AuctionHouseUI = true,
@@ -2395,28 +3105,35 @@ eventOwner.OnDamageMeterWorldReady = function(_, isInitialLogin, isReloadingUi)
     local ok, inInstance, instanceType = pcall(_G.IsInInstance)
     if not ok or IsSecretValue(inInstance) or IsSecretValue(instanceType) then return end
     if inInstance ~= true then return end
-    if instanceType ~= "raid" then
-        runtime.lastRaidMapID, runtime.lastRaidDifficulty = nil, nil
-        return
+    local promptKey
+    if instanceType == "raid" then
+        promptKey = "damageMeterRaidPrompt"
+    elseif runtime.isForever and instanceType == "party" then
+        promptKey = "damageMeterDungeonPrompt"
     end
+    if runtime.lastDamageMeterInstanceType ~= instanceType then
+        runtime.lastDamageMeterMapID, runtime.lastDamageMeterDifficulty = nil, nil
+        runtime.lastDamageMeterInstanceType = instanceType
+    end
+    if not promptKey then return end
     if type(_G.GetInstanceInfo) ~= "function" then return end
     local infoOK, _, _, difficultyID, _, _, _, _, mapID = pcall(_G.GetInstanceInfo)
     if not infoOK or IsSecretValue(mapID) or IsSecretValue(difficultyID)
         or type(mapID) ~= "number" or type(difficultyID) ~= "number" then return end
-    if runtime.lastRaidMapID == mapID and runtime.lastRaidDifficulty == difficultyID then return end
+    if runtime.lastDamageMeterMapID == mapID and runtime.lastDamageMeterDifficulty == difficultyID then return end
     if isInitialLogin or isReloadingUi then
-        runtime.lastRaidMapID, runtime.lastRaidDifficulty = mapID, difficultyID
+        runtime.lastDamageMeterMapID, runtime.lastDamageMeterDifficulty = mapID, difficultyID
         return
     end
-    if runtime.config.damageMeterRaidPrompt == false then return end
+    if runtime.config[promptKey] == false then return end
 
     local Settings = YUI.Settings
     if not (Settings and type(Settings.ShowConfirmPopup) == "function") then return end
-    runtime.lastRaidMapID, runtime.lastRaidDifficulty = mapID, difficultyID
+    runtime.lastDamageMeterMapID, runtime.lastDamageMeterDifficulty = mapID, difficultyID
     Settings:ShowConfirmPopup(
         T("confirm.damage_meter_reset.message", "Reset all damage meter data?"),
         function()
-            if runtime.config.damageMeterRaidPrompt == false then return end
+            if runtime.config[promptKey] == false then return end
             runtime.ResetDamageMeter("message.damage_meter_reset.success", "Damage meter data reset.")
         end,
         {
@@ -2432,6 +3149,7 @@ eventOwner.OnDamageMeterWorldReady = function(_, isInitialLogin, isReloadingUi)
 end
 
 eventOwner.OnChallengeModeStart = function()
+    if runtime.isForever then return end
     runtime.HideDamageMeterPrompt()
     if not runtime.config or runtime.config.damageMeterMythicReset == false then return end
     runtime.ResetDamageMeter("message.damage_meter_reset.mythic_success", "Mythic Keystone started; damage meter data reset.")
@@ -2462,10 +3180,12 @@ local function AttachEvents()
         moduleId = MODULE_ID,
         traceName = "EllesmereUIEnhancement:damage-meter-world-ready",
     })
-    Event:On("CHALLENGE_MODE_START", eventOwner.OnChallengeModeStart, eventOwner, {
-        moduleId = MODULE_ID,
-        traceName = "EllesmereUIEnhancement:damage-meter-challenge-start",
-    })
+    if not runtime.isForever then
+        Event:On("CHALLENGE_MODE_START", eventOwner.OnChallengeModeStart, eventOwner, {
+            moduleId = MODULE_ID,
+            traceName = "EllesmereUIEnhancement:damage-meter-challenge-start",
+        })
+    end
 end
 
 DetachEvents = function()
@@ -2476,6 +3196,12 @@ end
 
 local Enhancement = {}
 YUI._EllesmereUIEnhancement = Enhancement
+
+-- ESC 按钮使用固定配色；自有快捷按钮独立沿用 GUI2。
+function Enhancement:GetGameMenuButtonFinish()
+    if not runtime.CanStyleGameMenu() then return nil end
+    return runtime.GetGameMenuButtonFinish()
+end
 
 function Enhancement:IsAvailable()
     if type(_G.EllesmereUI) == "table" then return true end
@@ -2509,6 +3235,8 @@ function Enhancement:SetEnabled(value, config)
     runtime.config = NormalizeConfig(type(config) == "table" and config or runtime.config or GetDB())
     local enabled = value == true
     if runtime.hotkeys then runtime.hotkeys:SetEnabled(enabled, runtime.config) end
+    if runtime.questTrackerScroll then runtime.questTrackerScroll:SetEnabled(enabled, runtime.config) end
+    if runtime.questAutomation then runtime.questAutomation:SetEnabled(enabled) end
     if runtime.enabled == enabled then
         if enabled then
             RegisterAppearanceOverride()
@@ -2522,12 +3250,19 @@ function Enhancement:SetEnabled(value, config)
     if enabled then
         runtime.restorePending = false
         RegisterAppearanceOverride()
+        if Appearance and type(Appearance.RegisterConsumer) == "function" then
+            Appearance:RegisterConsumer(appearanceOverrideOwner, function() if runtime.enabled then ScheduleRefresh() end end)
+        end
         AttachEvents()
         TryAttachHooks()
         ScheduleRefresh()
     else
         runtime.HideDamageMeterPrompt()
+        runtime.DetachForeverStats()
         runtime.refreshScheduled = false
+        if Appearance and type(Appearance.UnregisterConsumer) == "function" then
+            Appearance:UnregisterConsumer(appearanceOverrideOwner)
+        end
         if IsInCombat() then
             runtime.restorePending = true
         else
@@ -2541,6 +3276,8 @@ end
 function Enhancement:Refresh(config)
     runtime.config = NormalizeConfig(type(config) == "table" and config or GetDB())
     if runtime.hotkeys then runtime.hotkeys:SetEnabled(runtime.enabled, runtime.config) end
+    if runtime.questTrackerScroll then runtime.questTrackerScroll:SetEnabled(runtime.enabled, runtime.config) end
+    if runtime.questAutomation then runtime.questAutomation:SetEnabled(runtime.enabled) end
     if not runtime.enabled then return end
     RefreshSharedAppearance()
     ScheduleRefresh()
@@ -2567,7 +3304,7 @@ local Feature = {
     product = PRODUCT_ID,
     storageKey = FEATURE_KEY,
     settingsMode = "inline",
-    versions = { "mainline" },
+    versions = { "mainline", "forever" },
     callback = ToggleFeature,
 }
 
@@ -2577,7 +3314,7 @@ end
 
 function Feature:GetOptions()
     local db = GetDB()
-    return {
+    local options = {
         {
             type = "divider",
             label = T("settings.section.blizzard_plus", "暴雪界面美化+"),
@@ -2615,6 +3352,43 @@ function Feature:GetOptions()
         {
             type = "row",
             gap = SETTINGS_FIELD_GAP,
+            children = {
+                {
+                    type = "checkbox",
+                    label = T("settings.window_shadow", "窗口阴影"),
+                    tooltip = T("settings.window_shadow.tooltip", "显示 4px、强度 0.3 的窗口外阴影；关闭仅移除外阴影。拍卖行与展开的附属面板共用外圈阴影。"),
+                    width = SETTINGS_FIELD_WIDTH,
+                    disabled = db.beautifySkinBackground == false,
+                    get = function() return db.windowShadow ~= false end,
+                    set = function(value)
+                        db.windowShadow = value == true
+                        RefreshSettings(self)
+                    end,
+                },
+                {
+                    type = "slider",
+                    label = T("settings.background_transparency", "面板透明度"),
+                    tooltip = T("settings.background_transparency.tooltip", "0 为不透明，100 为完全透明；仅调整主体背景。"),
+                    inline = true,
+                    width = SETTINGS_FIELD_WIDTH,
+                    labelWidth = SETTINGS_LABEL_WIDTH,
+                    gap = SETTINGS_CONTROL_GAP,
+                    inputWidth = SETTINGS_VALUE_WIDTH,
+                    min = 0,
+                    max = 100,
+                    step = 5,
+                    disabled = db.beautifySkinBackground == false,
+                    get = function() return math.floor(db.backgroundTransparency * 100 + 0.5) end,
+                    set = function(value)
+                        db.backgroundTransparency = ClampNumber(value, 0, 100, 0) / 100
+                        RefreshSettings(self)
+                    end,
+                },
+            },
+        },
+        {
+            type = "row",
+            gap = SETTINGS_FIELD_GAP,
             hidden = function() return db.beautifySkinBackground == false end,
             children = {
                 {
@@ -2627,13 +3401,18 @@ function Feature:GetOptions()
                     controlWidth = SETTINGS_CONTROL_WIDTH,
                     options = {
                         { text = T("settings.background_preset.modern", "石墨"), value = PRESET_MODERN },
+                        { text = T("settings.background_preset.pilot", "炭灰"), value = PRESET_CHARCOAL },
+                        { text = T("settings.background_preset.yui", "蓝灰"), value = PRESET_YUI },
                         { text = T("settings.background_preset.deep_glass", "深海"), value = PRESET_DEEP },
                         { text = T("settings.background_preset.crimson_glass", "暗红"), value = PRESET_CRIMSON },
                         { text = T("settings.background_preset.solid", "自定义"), value = PRESET_SOLID },
                     },
-                    default = PRESET_MODERN,
+                    default = DEFAULTS.backgroundPreset,
                     get = function() return db.backgroundPreset end,
                     set = function(value)
+                        if value == runtime.pilotPreset and db.backgroundPreset ~= runtime.pilotPreset then
+                            db.pilotBasePreset = db.backgroundPreset
+                        end
                         db.backgroundPreset = value
                         NormalizeConfig(db)
                         RefreshSettings(self, true)
@@ -2700,7 +3479,7 @@ function Feature:GetOptions()
                     min = 9,
                     max = 24,
                     step = 1,
-                    get = function() return db.tabFontSize end,
+                    fontStyleSource="tabFontSize", get = function() return db.tabFontSize end,
                     set = function(value)
                         db.tabFontSize = math.floor(ClampNumber(value, 9, 24, 13) + 0.5)
                         RefreshSettings(self)
@@ -2765,7 +3544,7 @@ function Feature:GetOptions()
                     min = CHARACTER_DETAIL_FONT_MIN_SIZE,
                     max = CHARACTER_DETAIL_FONT_MAX_SIZE,
                     step = 1,
-                    get = function() return db.characterDetailFontSize end,
+                    fontStyleSource="characterDetailFontSize", get = function() return db.characterDetailFontSize end,
                     set = function(value)
                         db.characterDetailFontSize = math.floor(ClampNumber(value,
                             CHARACTER_DETAIL_FONT_MIN_SIZE, CHARACTER_DETAIL_FONT_MAX_SIZE,
@@ -2783,7 +3562,7 @@ function Feature:GetOptions()
                     min = MERCHANT_ITEM_NAME_FONT_MIN_SIZE,
                     max = MERCHANT_ITEM_NAME_FONT_MAX_SIZE,
                     step = 1,
-                    get = function() return db.merchantItemNameFontSize end,
+                    fontStyleSource="merchantItemNameFontSize", get = function() return db.merchantItemNameFontSize end,
                     set = function(value)
                         db.merchantItemNameFontSize = math.floor(ClampNumber(value,
                             MERCHANT_ITEM_NAME_FONT_MIN_SIZE, MERCHANT_ITEM_NAME_FONT_MAX_SIZE,
@@ -2869,6 +3648,7 @@ function Feature:GetOptions()
                 {
                     type = "checkbox",
                     label = T("settings.damage_meter.mythic_reset", "大秘境开始自动重置"),
+                    hidden = function() return runtime.isForever end,
                     tooltip = T("settings.damage_meter.mythic_reset.tooltip", "大秘境开始时自动清空全部伤害统计，不弹框。"),
                     width = SETTINGS_FIELD_WIDTH,
                     get = function() return db.damageMeterMythicReset ~= false end,
@@ -2880,7 +3660,6 @@ function Feature:GetOptions()
                 {
                     type = "checkbox",
                     label = T("settings.damage_meter.raid_prompt", "进入团本时询问重置"),
-                    tooltip = T("settings.damage_meter.raid_prompt.tooltip", "进入团本时询问是否清空全部伤害统计；临时出本再进不重复询问。登录和重载界面不询问。"),
                     width = SETTINGS_FIELD_WIDTH,
                     get = function() return db.damageMeterRaidPrompt ~= false end,
                     set = function(value)
@@ -2888,9 +3667,43 @@ function Feature:GetOptions()
                         RefreshSettings(self)
                     end,
                 },
+                {
+                    type = "checkbox",
+                    label = T("settings.damage_meter.dungeon_prompt", "进入副本时询问重置（非团本）"),
+                    hidden = function() return not runtime.isForever end,
+                    width = SETTINGS_FIELD_WIDTH,
+                    get = function() return db.damageMeterDungeonPrompt == true end,
+                    set = function(value)
+                        db.damageMeterDungeonPrompt = value == true
+                        RefreshSettings(self)
+                    end,
+                },
             },
         },
     }
+    if runtime.isForever then
+        options[#options + 1] = {
+            type = "divider",
+            label = T("settings.section.quest_tracker", "任务追踪器"),
+            alignLeft = true,
+            width = 456,
+        }
+        options[#options + 1] = {
+            type = "checkbox",
+            label = T("settings.quest_tracker.scroll", "任务追踪器滚轮滚动"),
+            tooltip = T("settings.quest_tracker.scroll.tooltip", "任务超出显示范围时用滚轮浏览，保留原生任务按钮和外观。启用时自动打开任务图标，关闭后保留。位置与高度在暴雪编辑模式中调整；战斗中暂停滚动，关闭后脱战恢复。"),
+            width = 456,
+            get = function() return db.questTrackerScroll == true end,
+            set = function(value)
+                db.questTrackerScroll = value == true
+                RefreshSettings(self)
+            end,
+        }
+    end
+    if GUI2 and GUI2.FontStyle and GUI2.FontStyle.MergeOptions then
+        GUI2.FontStyle:MergeOptions(options, {{key="native_text:tabs",label=T("settings.tab_font_size", "Tab 字号"),sources={"tabFontSize"}},{key="native_text:character",label=T("settings.character_detail_font_size", "角色面板字号"),sources={"characterDetailFontSize"}},{key="native_text:merchant",label=T("settings.merchant_item_name_font_size", "商人商品名字号"),sources={"merchantItemNameFontSize"}}})
+    end
+    return options
 end
 
 function profileOwner:OnProfileChanged()
@@ -2917,5 +3730,14 @@ if Event and type(Event.Once) == "function" then
     Event:Once("YUI_DB_READY", RegisterProfileCallbacks, profileOwner, {
         moduleId = MODULE_ID,
         traceName = "EllesmereUIEnhancement:profile-callbacks",
+    })
+end
+
+if GUI2 and GUI2.FontStyle and GUI2.FontStyle.RegisterConfig then
+    GUI2.FontStyle:RegisterConfig("native_text", {
+        label=function() return Feature.name end,
+        get=function() return GUI2.FontStyle.ComponentConfig(PRODUCT_ID,CONFIG_KEY) end,
+        refresh=function(db) if runtime.enabled then Enhancement:Refresh(db) end end,
+        targets={{id="tabs",label=function() return T("settings.tab_font_size", "Tab 字号") end,fields={size="tabFontSize"},defaults=DEFAULTS,minSize=9,maxSize=24},{id="character",label=function() return T("settings.character_detail_font_size", "角色面板字号") end,fields={size="characterDetailFontSize"},defaults=DEFAULTS,minSize=CHARACTER_DETAIL_FONT_MIN_SIZE,maxSize=CHARACTER_DETAIL_FONT_MAX_SIZE},{id="merchant",label=function() return T("settings.merchant_item_name_font_size", "商人商品名字号") end,fields={size="merchantItemNameFontSize"},defaults=DEFAULTS,minSize=MERCHANT_ITEM_NAME_FONT_MIN_SIZE,maxSize=MERCHANT_ITEM_NAME_FONT_MAX_SIZE}},
     })
 end

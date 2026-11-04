@@ -4,10 +4,10 @@ if not YUI or not YUI.Locale then return end
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("koKR") then return end
 
 YUI.Locale:Register("YActionBar", "koKR", {
-    ["product.title"] = "플라이어 액션 바 · YanForge",
+    ["product.title"] = "플라이어 액션 바 · Ayan",
     ["product.short_title"] = "Flare Action Bar",
     ["product.brand_suffix"] = "액션 바",
-    ["product.notes"] = "플라이어 액션 바 · YanForge",
+    ["product.notes"] = "플라이어 액션 바 · Ayan",
 
     ["settings.title"] = "Flare 활동 막대기",
     ["settings.enable"] = "Enable 활동 막대기",

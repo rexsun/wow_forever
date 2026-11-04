@@ -3,8 +3,8 @@ local YUI = _G.YUI
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("koKR") then return end
 
 YUI.Locale:Register("AuctionHelper", "koKR", {
-    ["product.title"] = "Auction Helper · YanForge",
-    ["product.notes"] = "Auction Helper · YanForge",
+    ["product.title"] = "Auction Helper · Ayan",
+    ["product.notes"] = "Auction Helper · Ayan",
     ["title.short"] = "쇼핑 Assistant",
     ["feature.name"] = "쇼핑 도우미",
     ["feature.description"] = "경매장에 자주 찾는 아이템 분류와 빠른 검색 기능을 추가합니다.",

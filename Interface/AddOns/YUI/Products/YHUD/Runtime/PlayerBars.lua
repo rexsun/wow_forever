@@ -3,21 +3,24 @@ local YHUD = YUI and YUI.YHUD
 local Monitor = YUI and YUI.Monitor
 if not (YHUD and Monitor and (YUI.IsRetail or YUI.IsForever)) then return end
 
-local Bars = { HEALTH_SOURCE = "yhud.player-health", CAST_SOURCE = "yhud.player-cast" }
+local Bars = { HEALTH_SOURCE = "yhud.player-health", CAST_SOURCE = "yhud.player-cast", GCD_SOURCE = "yhud.global-cooldown" }
 YHUD.PlayerBars = Bars
 local Unit = YUI.API and YUI.API.Unit
 local CHANNEL_COLOR = { r = 0.26, g = 0.72, b = 0.64, a = 1 }
 local FAILED_COLOR = { r = 0.79, g = 0.29, b = 0.29, a = 1 }
 local EMPOWER_COLOR = { r = 0.86, g = 0.55, b = 0.28, a = 1 }
-local TERMINAL = {
-    UNIT_SPELLCAST_STOP = true, UNIT_SPELLCAST_CHANNEL_STOP = true,
-    UNIT_SPELLCAST_EMPOWER_STOP = true, UNIT_SPELLCAST_FAILED = true,
-    UNIT_SPELLCAST_INTERRUPTED = true, PLAYER_DEAD = true,
+local STOP = {
+    UNIT_SPELLCAST_STOP = "cast", UNIT_SPELLCAST_CHANNEL_STOP = "channel",
+    UNIT_SPELLCAST_EMPOWER_STOP = "empower",
 }
 local FAILED = { UNIT_SPELLCAST_FAILED = true, UNIT_SPELLCAST_INTERRUPTED = true }
 local START = {
-    UNIT_SPELLCAST_START = true, UNIT_SPELLCAST_CHANNEL_START = true,
-    UNIT_SPELLCAST_EMPOWER_START = true,
+    UNIT_SPELLCAST_START = "cast", UNIT_SPELLCAST_CHANNEL_START = "channel",
+    UNIT_SPELLCAST_EMPOWER_START = "empower",
+}
+local UPDATE = {
+    UNIT_SPELLCAST_DELAYED = "cast", UNIT_SPELLCAST_CHANNEL_UPDATE = "channel",
+    UNIT_SPELLCAST_EMPOWER_UPDATE = "empower",
 }
 
 local function Public(value)
@@ -47,27 +50,85 @@ local function QueueStage(source)
     Monitor:QueueSource(source, "cast-stage", true)
 end
 
+local function CancelRecheck(source)
+    Monitor:CancelTask(source, "cast-recheck")
+    source.castRecheck = nil
+end
+
+local function ClearTerminal(source)
+    CancelRecheck(source)
+    source.castTerminal, source.castTerminalMatched, source.castInterrupted = nil, nil, nil
+end
+
+local function Recheck(source)
+    if source.castRecheck ~= "pending" or source.consumerCount <= 0 then return end
+    source.castRecheck = "ready"
+    Monitor:QueueSource(source, "cast-recheck", true)
+end
+
+local function AwaitRecheck(source)
+    if source.castRecheck == "ready" then return false end
+    if source.castRecheck == "pending" then return true end
+    -- A positive delay prevents the current Monitor flush from consuming it.
+    if Monitor:ScheduleTask(source, "cast-recheck", GetTime() + 0.001, Recheck) then
+        source.castRecheck = "pending"
+        return true
+    end
+    return false
+end
+
+-- nil means unknown, never a successful match of two absent identities.
+local function SameCast(source, castGUID, castBarID)
+    if castBarID ~= nil and source.castBarID ~= nil then return castBarID == source.castBarID end
+    if castGUID ~= nil and source.castGUID ~= nil then return castGUID == source.castGUID end
+end
+
 local function Expire(source)
+    CancelRecheck(source)
     source.castTerminal = "expired"
     Monitor:QueueSource(source, "cast-expired", true)
 end
 
-local function Receive(source, _, event, unit, castGUID)
+local function Receive(source, _state, event, unit, castGUID, _spellID, arg4, arg5, arg6)
     if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_DEAD" then
+        Monitor:CancelTasks(source)
+        ClearTerminal(source)
+        source.castKind, source.castBarID, source.castStart = nil, nil, nil
         source.castGUID, source.castFailureUntil = nil, nil
         source.castTerminal = event == "PLAYER_DEAD" and event or nil
         return true
     end
     if unit ~= "player" then return false end
     castGUID = Public(castGUID)
+    local castBarID, interruptedBy = arg4, nil
+    if event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
+        interruptedBy, castBarID = Public(arg4), arg5
+    elseif event == "UNIT_SPELLCAST_EMPOWER_STOP" then
+        interruptedBy, castBarID = Public(arg5), arg6
+    end
+    castBarID = Public(castBarID)
     if START[event] then
-        source.castGUID, source.castTerminal = castGUID, nil
-        source.castFailureUntil = nil
-    elseif TERMINAL[event] then
-        if FAILED[event] and not source.castGUID and not (source.state and source.state.castActive) then return false end
-        if castGUID and source.castGUID and castGUID ~= source.castGUID then return false end
+        Monitor:CancelTasks(source)
+        ClearTerminal(source)
+        source.castKind, source.castGUID, source.castBarID = START[event], castGUID, castBarID
+        source.castStart, source.castFailureUntil = nil, nil
+    elseif FAILED[event] then
+        -- Failed follow-up attempts do not terminate an ordinary channel.
+        if source.castKind ~= "cast" and source.castKind ~= "empower" then return false end
+        if SameCast(source, castGUID, castBarID) ~= true then return false end
+        ClearTerminal(source)
+        source.castTerminal = event
+    elseif STOP[event] then
+        if STOP[event] ~= source.castKind then return false end
+        local matched = SameCast(source, castGUID, castBarID)
+        if matched == false then return false end
         -- A normal STOP following INTERRUPTED must not erase the brief failure.
-        if not FAILED[source.castTerminal] then source.castTerminal = event end
+        if not FAILED[source.castTerminal] then
+            source.castTerminal, source.castTerminalMatched = event, matched == true
+            source.castInterrupted = interruptedBy ~= nil and interruptedBy ~= false and interruptedBy ~= ""
+        end
+    elseif UPDATE[event] and UPDATE[event] ~= source.castKind then
+        return false
     end
     return true
 end
@@ -75,16 +136,43 @@ end
 local function ReadCast(source, state)
     local info = Unit.GetCastInfo and Unit.GetCastInfo("player")
     local terminal = source.castTerminal
-    local newCast = info and info.startTimeMS and source.castStart
-        and info.startTimeMS ~= source.castStart
-    if terminal and not newCast then info = nil end
-    if newCast then source.castTerminal, terminal = nil, nil end
-    Monitor:CancelTasks(source)
+    local kind = info and (info.isEmpowered and "empower" or info.isChannel and "channel" or "cast")
+    local matched = info and SameCast(source, info.castID, info.castBarID)
+    local newCast = info and source.castKind and (kind ~= source.castKind or matched == false
+        or (matched == nil and info.startTimeMS and source.castStart and info.startTimeMS ~= source.castStart))
+    if newCast and terminal ~= "PLAYER_DEAD" then
+        ClearTerminal(source)
+        source.castGUID, source.castBarID = nil, nil
+        terminal = nil
+    end
+    local stopKind = STOP[terminal]
+    local confirmStop = stopKind and (stopKind == "channel" or not source.castTerminalMatched)
+    if confirmStop or (not info and source.castKind == "channel" and not terminal) then
+        if AwaitRecheck(source) and not info then return false end
+    end
+    if terminal == "PLAYER_DEAD" or terminal == "expired" or FAILED[terminal] then
+        info = nil
+    elseif stopKind then
+        if confirmStop and info then
+            if source.castRecheck == "ready" then ClearTerminal(source); terminal = nil end
+        else
+            info = nil
+            if stopKind == "channel" and source.castInterrupted then
+                terminal, source.castTerminal = "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_INTERRUPTED"
+            end
+        end
+    end
+    if not confirmStop or not info then CancelRecheck(source) end
+    Monitor:CancelTask(source, "cast-stage")
+    Monitor:CancelTask(source, "cast-expiry")
     state.castDisplayRaw, state.durationResourceRaw = nil, nil
     state.castActive, state.castStage, state.castTotal, state.castTickCount = false, 0, nil, 0
     state.castMode, state.color = "idle", source.params.color
     if info then
         source.castStart = info.startTimeMS
+        source.castKind = kind
+        source.castGUID = info.castID or source.castGUID
+        source.castBarID = info.castBarID or source.castBarID
         state.castActive = true
         state.castMode = info.isEmpowered and "empower" or info.isChannel and "channel" or "cast"
         state.color = info.isEmpowered and EMPOWER_COLOR or info.isChannel and CHANNEL_COLOR or source.params.color
@@ -123,6 +211,7 @@ local function ReadCast(source, state)
             and YHUD:T("player_cast.interrupted", "施法被打断") or YHUD:T("player_cast.failed", "施法失败") }
         Monitor:ScheduleTask(source, "cast-expiry", source.castFailureUntil, Expire)
     else
+        source.castKind, source.castBarID = nil, nil
         source.castStart, source.castGUID, source.castFailureUntil = nil, nil, nil
         for index = #state.castStages, 1, -1 do state.castStages[index] = nil end
     end
@@ -133,6 +222,27 @@ local function ReadCast(source, state)
 end
 
 function Bars:RegisterSourceTypes()
+    if not self.gcdRegistered then
+        self.gcdRegistered = Monitor:RegisterSourceType(self.GCD_SOURCE, {
+            createState = CreateState,
+            getIdentity = function() return "player" end,
+            read = function(_, state)
+                local spell = YUI.API and YUI.API.Spell
+                state.durationResourceRaw = spell and spell.GetGlobalCooldownDurationObject
+                    and spell.GetGlobalCooldownDurationObject()
+                state.available, state.resolved, state.secret = true, true, true
+                state.rawValuesAvailable = true
+                state.value, state.maxValue = nil, 1
+                state.opaqueRevision = state.opaqueRevision + 1
+                return true
+            end,
+            afterDispatch = ClearTransient,
+            events = {
+                { event = "SPELL_UPDATE_COOLDOWN", all = true },
+                { event = "PLAYER_ENTERING_WORLD", all = true },
+            },
+        }) == true
+    end
     if self.registered then return true end
     if not (Unit and Unit.ReadHealthDisplay and Unit.GetCastInfo) then return false end
     local healthOK, healthCode = Monitor:RegisterSourceType(self.HEALTH_SOURCE, {

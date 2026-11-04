@@ -5,6 +5,8 @@ if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("enUS") then return end
 YUI.Locale:Register("UtilityTools", "enUS", {
     ["name"] = "Utility Tools",
     ["description"] = "A compact collection of small interface and gameplay utilities.",
+    ["settings.encounter_journal_item_sets.label"] = "Restore Encounter Journal item sets",
+    ["settings.encounter_journal_item_sets.tooltip"] = "Restore the hidden item-set tab so the original raid-set attributes can be viewed in the Encounter Journal.",
     ["settings.sync_friendly_nameplates"] = "Sync Friendly Nameplates",
     ["settings.sync_friendly_nameplates.tooltip"] = "Toggle friendly NPC nameplates together with friendly player nameplates.",
     ["settings.nameplates"] = "Nameplates",
@@ -32,6 +34,8 @@ YUI.Locale:Register("UtilityTools", "enUS", {
     ["bonus_roll.command_usage"] = "Usage: /yroll test or /yroll test pass",
     ["settings.macro_frame"] = "Macro frame expansion",
     ["settings.route_guide"] = "RestedXP guide toggle",
+    ["settings.polestar_guide"] = "Polestar guide toggle",
+    ["settings.polestar_guide.tooltip"] = "Add a hide button to the right of the guide menu. Keep a Quest Route label to restore the window. Collapse on instance entry and restore on exit; manual toggles inside preserve your choice. Supports version 0.2.6; uses the collapsed size above.",
     ["settings.route_guide.tooltip"] = "Click the guide logo to use its minimap toggle. When hidden, keep an icon and Quest Route label in place; click to restore. Supports the v4.11.23 legacy window.",
     ["settings.route_guide.scale"] = "Collapsed size (%)",
     ["settings.route_guide.scale.tooltip"] = "Scale the collapsed icon and text together. 100% is the default size.",

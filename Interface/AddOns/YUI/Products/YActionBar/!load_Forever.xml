@@ -4,5 +4,6 @@
     <Script file="..\..\Core\API\QuestItems.lua"/>
     <Script file="QuestItems_Forever.lua"/>
     <Script file="RankUpgrade_Forever.lua"/>
+    <Script file="ClassBars_Forever.lua"/>
     <Include file="!load_Shared.xml"/>
 </Ui>

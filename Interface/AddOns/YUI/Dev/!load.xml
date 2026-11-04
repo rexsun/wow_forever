@@ -1,5 +1,8 @@
 <Ui xmlns='http://www.blizzard.com/wow/ui/'>
 	<Script file='Clean.lua'/>
+	<Script file='NoticePreview.lua'/>
+	<Script file='EffectPreview.lua'/>
+	<Script file='SkinPreview.lua'/>
 	<Script file='Dev.lua'/>
 	<Script file='CPUProfiler.lua'/>
 	<Script file='MonitorDev.lua'/>

@@ -34,6 +34,13 @@ local SETTINGS_TABS = {
     { id = "teleportAnnouncement", labelKey = "settings.teleport_announcement", fallback = "传送喊话" },
 }
 
+function Tools:OpenSettings(sectionId)
+    if not self.subFeatures[sectionId] or not (YUI.Settings and YUI.Settings.OpenComponentFeature) then return false end
+    activeSettingsTab = sectionId
+    YUI.Settings:OpenComponentFeature(FEATURE_KEY)
+    return true
+end
+
 local function T(key, fallback)
     return (L and L[key]) or fallback or key
 end

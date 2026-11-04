@@ -950,9 +950,9 @@ YUI.Locale:Register("Core", "frFR", {
     ["settings.about.description"] = "YUI est un addon de l'interface utilisateur tout-en-un.\nVersion: %s\nAuteur: Ayan",
     ["settings.about.default_notes"] = "YUI est un addon tout-en-un.",
     ["settings.about.details"] = "%s\nVersion: %s\nAuteur: %s",
-    ["settings.about.follow"] = " Suivez YUI · YanForge pour de futures mises à jour et nouvelles communautaires.",
+    ["settings.about.follow"] = " Suivez YUI · Ayan pour de futures mises à jour et nouvelles communautaires.",
     ["settings.about.suite_note"] = "La suite complète YUI est la maison principale pour l'interface complète et l'historique de sortie.",
-    ["settings.about.standalone_note"] = "Les versions autonomes ne tiennent pas de journal de changement séparé. Consultez la suite YUI pour l'historique complet des versions.",
+    ["settings.about.standalone_note"] = "Cliquez sur le journal des modifications en haut de la fenêtre pour consulter l'historique des versions de cet addon.",
     ["settings.about.section.yui"] = "YUI",
     ["settings.about.section.product"] = "A propos de cet Addon",
 

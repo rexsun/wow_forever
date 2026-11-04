@@ -92,6 +92,14 @@ local function AddWindowSettings(config)
 end
 
 local function Render(parent)
+    local bagControl = Checkbox("manageBagsBar", "bags.enabled", "bags.enabled.tooltip")
+    bagControl.set = function(value)
+        local native = GetNative()
+        if native then native:SetOption("manageBagsBar", value) end
+        if S.RefreshSelectedModule then S:RefreshSelectedModule() end
+    end
+    local native = GetNative()
+    local bagsEnabled = native and native:GetConfig().manageBagsBar == true or false
     local config = {
         { type = "header", label = T("name", "暴雪界面") },
         { type = "divider", label = T("section.visibility"), width = 620, alignLeft = true },
@@ -104,8 +112,9 @@ local function Render(parent)
         },
         {
             type = "row", gap = 16,
-            children = { {
+            children = { bagControl, {
                 type = "dropdown", label = T("bags.visibility"), width = 280,
+                disabled = not bagsEnabled,
                 inlineLabel = true, labelWidth = 100, tooltip = T("bags.visibility.tooltip"),
                 options = {
                     { text = T("bags.visibility.auto"), value = "auto" },

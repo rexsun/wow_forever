@@ -1,6 +1,6 @@
 local YUI = _G.YUI
 local YHUD = YUI and YUI.YHUD
-if not YHUD or YUI.IsRetail == false then return end
+if not YHUD or YUI.IsRetail == false and not YUI.IsForever then return end
 
 local Conditions = YHUD.Conditions
 local SoundService = YUI.Sound

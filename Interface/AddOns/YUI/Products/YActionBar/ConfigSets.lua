@@ -9,7 +9,7 @@ ConfigSets.dormantPlacements = {}
 ConfigSets.dormantConfigOverrides = {}
 
 ConfigSets.PROVIDER_ID = "yactionbar"
-ConfigSets.SCHEMA_VERSION = 4
+ConfigSets.SCHEMA_VERSION = 6
 ConfigSets.BASELINE_VERSION = 1
 ConfigSets.DEFAULT_BUILTIN_ID = "classic-three-row"
 
@@ -68,6 +68,8 @@ local CONFIG_FIELDS = {
         "enabled",
         "visibility",
         "hideEmptySlots",
+        "showUnlearned",
+        "showPetUtilities",
         "hideSkyriding",
     },
     layout = {
@@ -76,9 +78,14 @@ local CONFIG_FIELDS = {
         "size",
         "spacing",
         "alignment",
+        "aspectOrder",
+        "flyoutDirection",
     },
     appearance = {
+        "skinId",
+        "skinOptions",
         "skin",
+        "aspectActiveStyle",
         "iconZoom",
         "border",
         "borderColor",
@@ -87,6 +94,7 @@ local CONFIG_FIELDS = {
         "shadow",
         "shadowColor",
         "cooldownFade",
+        "chargeRecoveryDisplay",
         "rangeMode",
     },
     text = {
@@ -116,6 +124,10 @@ local CONFIG_FIELDS = {
     },
 }
 
+for _, field in ipairs(YAB.TextStyle and YAB.TextStyle.fieldOrder or {}) do
+    CONFIG_FIELDS.text[#CONFIG_FIELDS.text+1] = field
+end
+
 local SPECIAL_GROUP_FIELDS = {
     display = {
         "visibility",
@@ -141,6 +153,8 @@ FIELD_SCOPE.growthDirection = "layout"
 FIELD_SCOPE.groupAlignment = "layout"
 
 local OPTIONAL_FIELDS = {
+    skinId = true,
+    skinOptions = true,
     backgroundColor = true,
     shadow = true,
     shadowColor = true,
@@ -149,13 +163,17 @@ local OPTIONAL_FIELDS = {
     macroNameColor = true,
     cooldownTextColor = true,
 }
+for field in pairs(YAB.TextStyle and YAB.TextStyle.fields or {}) do OPTIONAL_FIELDS[field] = true end
 
 local TEXT_COLOR_CAPABILITY = {
+    skinId = "skin",
+    skinOptions = "skin",
     hotkeyColor = "hotkeySize",
     countColor = "countSize",
     macroNameColor = "macroNameSize",
     cooldownTextColor = "cooldownTextSize",
 }
+for field, spec in pairs(YAB.TextStyle and YAB.TextStyle.fields or {}) do TEXT_COLOR_CAPABILITY[field] = spec.capability end
 
 local function MakeSet(values)
     local result = {}
@@ -174,7 +192,7 @@ end
 
 local SPECIAL_CAPABILITIES = {
     pet = MakeSet({
-        "enabled", "visibility", "hideSkyriding",
+        "enabled", "visibility", "hideSkyriding", "hideEmptySlots",
         "buttons", "size", "spacing", "alignment", "rows",
         "skin", "iconZoom", "border", "borderColor", "background", "backgroundColor", "shadow", "shadowColor", "cooldownFade", "rangeMode",
         "showHotkeys", "hotkeySize", "hotkeyOffsetX", "hotkeyOffsetY",
@@ -228,6 +246,7 @@ local RETAIL_SPECIAL_CAPABILITIES = {
 }
 
 local SPECIAL_GROUP_CAPABILITIES = MakeSet({
+    "chargeRecoveryDisplay",
     "visibility", "hideSkyriding",
     "size", "spacing", "growthDirection", "groupAlignment",
     "skin", "iconZoom", "border", "borderColor", "background", "backgroundColor", "shadow", "shadowColor", "cooldownFade", "rangeMode",
@@ -237,13 +256,18 @@ local SPECIAL_GROUP_CAPABILITIES = MakeSet({
     "cooldownTextSize", "cooldownTextOffsetX", "cooldownTextOffsetY",
 })
 
+for _, id in ipairs({ "extraAction", "zoneAbility" }) do
+    SPECIAL_CAPABILITIES[id].chargeRecoveryDisplay = true
+    RETAIL_SPECIAL_CAPABILITIES[id].chargeRecoveryDisplay = true
+end
+
 local VALID_VISIBILITY = MakeSet({
     "hidden", "always", "mouseover", "combat", "outOfCombat", "mounted", "unmounted",
 })
 local VALID_ALIGNMENT = MakeSet({ "left", "center", "right" })
-local VALID_SKIN = MakeSet({ "square", "roundedSquare", "flatSquare", "flatRounded", "wideSquare", "wideRounded", "circle" })
-local VALID_EXTRA_SKIN = MakeSet({ "blizzard", "square", "roundedSquare", "flatSquare", "flatRounded", "wideSquare", "wideRounded", "circle" })
-local VALID_BORDER = MakeSet({ "none", "thin", "medium", "thick", "extraThick" })
+local VALID_SKIN = MakeSet({ "square", "roundedSquare", "flatSquare", "flatRounded", "wideSquare", "wideRounded", "circle", "diamond" })
+local VALID_EXTRA_SKIN = MakeSet({ "blizzard", "square", "roundedSquare", "flatSquare", "flatRounded", "wideSquare", "wideRounded", "circle", "diamond" })
+local VALID_BORDER = MakeSet({ "none", "thin", "medium", "thick", "extraThick", "contour", "shade" })
 local VALID_BACKGROUND = MakeSet({ "transparent", "black", "blizzard" })
 local VALID_RANGE = MakeSet({ "none", "red" })
 local VALID_PRESSED_EFFECT = MakeSet({ "darken", "innerGlow" })
@@ -259,7 +283,7 @@ local VALID_ANCHOR_POINT = MakeSet({
 })
 
 local BOOLEAN_FIELDS = MakeSet({
-    "enabled", "hideEmptySlots", "hideSkyriding", "cooldownFade", "shadow",
+    "enabled", "hideEmptySlots", "hideSkyriding", "cooldownFade", "shadow", "showUnlearned", "showPetUtilities",
     "showHotkeys", "showCounts", "showMacroNames", "showProfessionQuality",
 })
 
@@ -273,14 +297,14 @@ local NUMBER_LIMITS = {
     countSize = { 8, 24, true },
     macroNameSize = { 8, 24, true },
     cooldownTextSize = { 0, 32, true },
-    hotkeyOffsetX = { -16, 16, true },
-    hotkeyOffsetY = { -16, 16, true },
-    countOffsetX = { -16, 16, true },
-    countOffsetY = { -16, 16, true },
-    macroNameOffsetX = { -16, 16, true },
-    macroNameOffsetY = { -16, 16, true },
-    cooldownTextOffsetX = { -16, 16, true },
-    cooldownTextOffsetY = { -16, 16, true },
+    hotkeyOffsetX = { -64, 64, true },
+    hotkeyOffsetY = { -64, 64, true },
+    countOffsetX = { -64, 64, true },
+    countOffsetY = { -64, 64, true },
+    macroNameOffsetX = { -64, 64, true },
+    macroNameOffsetY = { -64, 64, true },
+    cooldownTextOffsetX = { -64, 64, true },
+    cooldownTextOffsetY = { -64, 64, true },
     professionQualitySize = { 8, 32, true },
     professionQualityOffsetX = { -16, 16, true },
     professionQualityOffsetY = { -16, 16, true },
@@ -388,7 +412,8 @@ local function IsInCombat()
 end
 
 local function GetSpecialCapabilities(barId)
-    if barId == "questItems" then
+    if barId == "pet" then SPECIAL_CAPABILITIES.pet.hideEmptySlots = Client.petEmptySlots == true end
+    if barId == "questItems" or barId == "aspects" or barId == "totems" then
         local rule = YAB.SpecialBars:GetRule(barId)
         return rule and rule.capabilities or {}
     end
@@ -399,6 +424,12 @@ local function GetSpecialCapabilities(barId)
 end
 
 local function IsFieldSupported(kind, id, field)
+    if field == "flyoutDirection" then
+        return Client.classBars == true and kind == "specialBars" and (id == "aspects" or id == "totems")
+    end
+    if field == "aspectOrder" or field == "aspectActiveStyle" or field == "showPetUtilities" then
+        return Client.classBars == true and kind == "specialBars" and id == "aspects"
+    end
     local capabilityField = TEXT_COLOR_CAPABILITY[field] or field
     if kind == "bars" then return ALL_CONFIG_CAPABILITIES[capabilityField] == true end
     if kind == "specialBars" then
@@ -412,6 +443,9 @@ local function IsFieldSupported(kind, id, field)
 end
 
 local function IsPortableFieldSupported(kind, id, field)
+    if field == "aspectOrder" or field == "aspectActiveStyle" or field == "showPetUtilities" or field == "flyoutDirection" then
+        return IsFieldSupported(kind, id, field)
+    end
     local capabilityField = TEXT_COLOR_CAPABILITY[field] or field
     if kind == "bars" then return ALL_CONFIG_CAPABILITIES[capabilityField] == true end
     if kind == "specialBars" then
@@ -425,6 +459,45 @@ local function IsPortableFieldSupported(kind, id, field)
 end
 
 local function NormalizeFieldValue(field, value, id)
+    if field == "skinOptions" then
+        local skins = YUI.GUI2 and YUI.GUI2.IconSkins
+        if skins then return skins:NormalizeOptions(value) end
+        return nil, "icon skins unavailable"
+    end
+    if field == "skinId" then
+        if type(value) == "string" and #value <= 80 and value:match("^[%w_-]+$") then return value end
+        return nil, "invalid icon skin id"
+    end
+    if field == "aspectActiveStyle" then
+        if value == "innerGlow" or value == "nativeIcon" or value == "dimOthers" then return value end
+        return nil, "invalid aspect active style"
+    end
+    if field == "aspectOrder" then
+        local config = YAB.Defaults.specialBars.aspects
+        local count = config and #config.aspectOrder or 0
+        if id ~= "aspects" or type(value) ~= "table" or #value ~= count or count == 0 then
+            return nil, "expected aspect family order"
+        end
+        local result, seen = {}, {}
+        for key, index in pairs(value) do
+            if type(key) ~= "number" or key % 1 ~= 0 or key < 1 or key > count
+                or type(index) ~= "number" or index % 1 ~= 0 or index < 1 or index > count or seen[index] then
+                return nil, "expected unique aspect families"
+            end
+            result[key], seen[index] = index, true
+        end
+        return result
+    end
+    if field == "chargeRecoveryDisplay" then
+        if value == "normal" or value == "hideSwipe"
+            or value == "hideCountdown" or value == "hideBoth"
+            or value == "hideEdge" or value == "hideEdgeAndCountdown"
+            or value == "hideSwipeOnly" or value == "hideSwipeAndCountdown" then
+            return value
+        end
+        return nil, "invalid charge recovery display"
+    end
+    if YAB.TextStyle and YAB.TextStyle.fields[field] then return YAB.TextStyle:Normalize(field,value) end
     if BOOLEAN_FIELDS[field] then
         if type(value) ~= "boolean" then return nil, "expected boolean" end
         return value
@@ -438,6 +511,11 @@ local function NormalizeFieldValue(field, value, id)
         return normalized
     end
     if OPTIONAL_FIELDS[field] or field == "borderColor" then
+        if TEXT_COLOR_CAPABILITY[field] and type(value)=="table" and value.mode=="class" then
+            local alpha=tonumber(value.alpha)
+            if not alpha or alpha~=alpha or alpha<0 or alpha>1 then return nil,"expected alpha" end
+            return {mode="class",alpha=alpha}
+        end
         local color = NormalizeColor(value)
         if not color then return nil, "expected color" end
         return color
@@ -461,6 +539,7 @@ local function NormalizeFieldValue(field, value, id)
         return nil, "invalid skin"
     end
     if field == "border" then
+        if value == "soft" then value = "thin" end
         if VALID_BORDER[value] then return value end
         return nil, "invalid border"
     end
@@ -471,6 +550,10 @@ local function NormalizeFieldValue(field, value, id)
     if field == "rangeMode" then
         if VALID_RANGE[value] then return value end
         return nil, "invalid range mode"
+    end
+    if field == "flyoutDirection" then
+        if VALID_GROWTH_DIRECTION[value] then return value end
+        return nil, "invalid flyout direction"
     end
     if field == "growthDirection" then
         if VALID_GROWTH_DIRECTION[value] then return value end
@@ -548,6 +631,15 @@ function ConfigSets:Capture(scopeIds, context)
     local db = YAB.GetDB and YAB:GetDB() or nil
     if type(db) ~= "table" then return nil, "missing-db" end
     local scopeSet = NormalizeScopeIds(scopeIds)
+    local skins = YUI.GUI2 and YUI.GUI2.IconSkins
+    if skins and scopeSet.appearance then
+        -- 采集只迁移副本，避免改写导入事务已经记录的当前配置快照。
+        db = CopyValue(db)
+        for _, container in ipairs({ db.bars or {}, db.specialBars or {} }) do
+            for _, config in pairs(container) do skins:NormalizeSettings(config, "Flare") end
+        end
+        if db.specialGrouping and db.specialGrouping.config then skins:NormalizeSettings(db.specialGrouping.config, "Flare") end
+    end
     local data = {}
 
     for _, scopeId in ipairs({ "display", "layout", "appearance", "text" }) do
@@ -571,9 +663,12 @@ function ConfigSets:Capture(scopeIds, context)
         data.global = {
             appearance = {
                 pressedEffect = db.appearance and db.appearance.pressedEffect == "innerGlow" and "innerGlow" or "darken",
+                assistedHighlight = not db.appearance or db.appearance.assistedHighlight ~= false,
+                showActionState = not db.appearance or db.appearance.showActionState ~= false,
             },
             interaction = {
                 tooltipMode = db.interaction and db.interaction.tooltipMode == "outOfCombat" and "outOfCombat" or "always",
+                formPagingSpecs = CopyValue(db.interaction and db.interaction.formPagingSpecs or {}),
             },
             specialGrouping = {
                 mode = YAB.NormalizeSpecialGroupingMode
@@ -730,6 +825,25 @@ local function NormalizeConfigScopeBucket(source, scopeId, supports)
     return result
 end
 
+local function NormalizeFormPagingSpecs(source)
+    if source == nil then return {} end
+    if type(source) ~= "table" then return nil, "formPagingSpecs: expected table" end
+    local result, count = {}, 0
+    for key, value in pairs(source) do
+        local class, id
+        if type(key) == "string" then class, id = key:match("^([A-Z]+):([1-9]%d*)$") end
+        if not class or not (" WARRIOR PALADIN HUNTER ROGUE PRIEST DEATHKNIGHT SHAMAN MAGE WARLOCK MONK DRUID DEMONHUNTER EVOKER "):find(" " .. class .. " ", 1, true)
+            or #key > 48 or not tonumber(id) or type(value) ~= "boolean" then
+            return nil, "formPagingSpecs: invalid specialization"
+        end
+        count = count + 1
+        if count > 128 then return nil, "formPagingSpecs: too many specializations" end
+        if value == false then result[key] = false end
+    end
+    return result
+end
+ConfigSets.NormalizeFormPagingSpecs = function(_, source) return NormalizeFormPagingSpecs(source) end
+
 local function NormalizeGlobalBucket(source)
     local ok, err = ValidateKeys(source, {
         appearance = true,
@@ -740,18 +854,29 @@ local function NormalizeGlobalBucket(source)
     if not ok then return nil, err end
     local result = {}
     if source.appearance ~= nil then
-        ok, err = ValidateKeys(source.appearance, { pressedEffect = true }, "global.appearance")
+        ok, err = ValidateKeys(source.appearance, { pressedEffect = true, assistedHighlight = true, showActionState = true }, "global.appearance")
         if not ok then return nil, err end
         local value = source.appearance.pressedEffect
         if not VALID_PRESSED_EFFECT[value] then return nil, "global.appearance.pressedEffect: invalid value" end
-        result.appearance = { pressedEffect = value }
+        local highlight = source.appearance.assistedHighlight
+        if highlight ~= nil and type(highlight) ~= "boolean" then
+            return nil, "global.appearance.assistedHighlight: invalid value"
+        end
+        local showActionState = source.appearance.showActionState
+        if showActionState ~= nil and type(showActionState) ~= "boolean" then
+            return nil, "global.appearance.showActionState: invalid value"
+        end
+        result.appearance = { pressedEffect = value, assistedHighlight = highlight ~= false, showActionState = showActionState ~= false }
     end
     if source.interaction ~= nil then
-        ok, err = ValidateKeys(source.interaction, { tooltipMode = true, autoRankUpgrade = true }, "global.interaction")
+        ok, err = ValidateKeys(source.interaction, { tooltipMode = true, autoRankUpgrade = true, formPagingSpecs = true }, "global.interaction")
         if not ok then return nil, err end
         local value = source.interaction.tooltipMode
         if not VALID_TOOLTIP_MODE[value] then return nil, "global.interaction.tooltipMode: invalid value" end
         result.interaction = { tooltipMode = value }
+        local mask, maskError = NormalizeFormPagingSpecs(source.interaction.formPagingSpecs)
+        if not mask then return nil, maskError end
+        result.interaction.formPagingSpecs = mask
         local upgrade = source.interaction.autoRankUpgrade
         if upgrade ~= nil and type(upgrade) ~= "boolean" then
             return nil, "global.interaction.autoRankUpgrade: invalid value"
@@ -956,11 +1081,14 @@ local function BuildBaseline(supports, defaults, defaultPlacements)
             pressedEffect = defaults.appearance
                 and defaults.appearance.pressedEffect
                 or "darken",
+            assistedHighlight = not defaults.appearance or defaults.appearance.assistedHighlight ~= false,
+            showActionState = not defaults.appearance or defaults.appearance.showActionState ~= false,
         },
         interaction = {
             tooltipMode = defaults.interaction
                 and defaults.interaction.tooltipMode
                 or "always",
+            formPagingSpecs = CopyValue(defaults.interaction and defaults.interaction.formPagingSpecs or {}),
         },
         specialGrouping = {
             mode = defaults.specialGrouping and defaults.specialGrouping.mode or "independent",
@@ -1021,6 +1149,9 @@ local schemaBaselineDefaults = YAB.ConfigSetBaselineDefaultsV1 or YAB.Defaults
 local FROZEN_BASELINE = BuildBaseline(function(kind, id, field)
     -- Optional appearance fields added after baseline V1 do not change its hash.
     return field ~= "backgroundColor" and field ~= "shadow" and field ~= "shadowColor"
+        and field ~= "skinId" and field ~= "skinOptions"
+        and field ~= "chargeRecoveryDisplay"
+        and not (YAB.TextStyle and YAB.TextStyle.fields[field])
         and IsPortableFieldSupported(kind, id, field)
 end, schemaBaselineDefaults)
 -- Adding an optional client-specific bar must not change existing sparse hashes.
@@ -1028,18 +1159,45 @@ for _, scopeId in ipairs({ "display", "layout", "appearance", "text" }) do
     if FROZEN_BASELINE[scopeId].specialBars then FROZEN_BASELINE[scopeId].specialBars.questItems = nil end
 end
 FROZEN_BASELINE.screenPosition.placements["yactionbar.questItems"] = nil
-local RUNTIME_BASELINE = BuildBaseline(IsFieldSupported, schemaBaselineDefaults)
+for _, id in ipairs({ "aspects", "totems" }) do
+    for _, scopeId in ipairs({ "display", "layout", "appearance", "text" }) do
+        if FROZEN_BASELINE[scopeId].specialBars then FROZEN_BASELINE[scopeId].specialBars[id] = nil end
+    end
+    FROZEN_BASELINE.screenPosition.placements["yactionbar." .. id] = nil
+end
+-- Keep the V1 signature stable; missing optional highlight settings mean enabled.
+FROZEN_BASELINE.global.appearance.assistedHighlight = nil
+FROZEN_BASELINE.global.appearance.showActionState = nil
+FROZEN_BASELINE.global.interaction.formPagingSpecs = nil
+local runtimeBaselineDefaults = schemaBaselineDefaults
+if Client.questItems == true or Client.classBars == true then
+    runtimeBaselineDefaults = CopyValue(schemaBaselineDefaults)
+    for _, id in ipairs({ "questItems", "aspects", "totems" }) do
+        local config = YAB.Defaults.specialBars[id]
+        if config then runtimeBaselineDefaults.specialBars[id] = CopyValue(config) end
+    end
+end
+local RUNTIME_BASELINE = BuildBaseline(IsFieldSupported, runtimeBaselineDefaults)
+for _, config in pairs(RUNTIME_BASELINE.appearance.bars or {}) do
+    config.chargeRecoveryDisplay = "hideSwipeOnly"
+end
+for _, id in ipairs({ "extraAction", "zoneAbility" }) do
+    local config = RUNTIME_BASELINE.appearance.specialBars and RUNTIME_BASELINE.appearance.specialBars[id]
+    if config then config.chargeRecoveryDisplay = "hideSwipeOnly" end
+end
+if RUNTIME_BASELINE.appearance.specialGrouping then
+    RUNTIME_BASELINE.appearance.specialGrouping.chargeRecoveryDisplay = "hideSwipeOnly"
+end
 local CURRENT_DEFAULT_SNAPSHOT = BuildBaseline(
-    IsPortableFieldSupported,
+    function(kind, id, field)
+        if kind == "specialBars" and (id == "aspects" or id == "totems" or id == "questItems") then
+            return IsFieldSupported(kind, id, field)
+        end
+        return IsPortableFieldSupported(kind, id, field)
+    end,
     YAB.Defaults,
     YAB.DefaultPlacements
 )
-if Client.questItems == true then
-    for _, scopeId in ipairs({ "display", "layout", "appearance", "text" }) do
-        RUNTIME_BASELINE[scopeId].specialBars = RUNTIME_BASELINE[scopeId].specialBars or {}
-        RUNTIME_BASELINE[scopeId].specialBars.questItems = CopyValue(CURRENT_DEFAULT_SNAPSHOT[scopeId].specialBars.questItems)
-    end
-end
 YAB.ConfigSetBaselineDefaultsV1 = nil
 ConfigSets.BASELINE_SIGNATURE = string.format("%08x", HashValue(5381, FROZEN_BASELINE))
 ConfigSets.EXPECTED_BASELINE_SIGNATURE = "7e1c8478"
@@ -1111,7 +1269,10 @@ end
 
 local GLOBAL_PATHS = {
     ["appearance.pressedEffect"] = true,
+    ["appearance.assistedHighlight"] = true,
+    ["appearance.showActionState"] = true,
     ["interaction.tooltipMode"] = true,
+    ["interaction.formPagingSpecs"] = true,
     ["specialGrouping.mode"] = true,
 }
 if Client.rankUpgrade == true then GLOBAL_PATHS["interaction.autoRankUpgrade"] = true end
@@ -1121,6 +1282,9 @@ local function GetGlobalPathValue(bucket, path)
     if section and bucket[section] then
         local value = bucket[section][field]
         if value == nil and Client.rankUpgrade == true and path == "interaction.autoRankUpgrade" then return true end
+        if value == nil and path == "appearance.assistedHighlight" then return true end
+        if value == nil and path == "appearance.showActionState" then return true end
+        if value == nil and path == "interaction.formPagingSpecs" then return {} end
         return value
     end
 end
@@ -1130,12 +1294,20 @@ local function NormalizeSparseGlobalBucket(source)
     local result = {}
     for path, value in pairs(source) do
         if not GLOBAL_PATHS[path] then return nil, "unsupported global path " .. tostring(path) end
+        if path == "interaction.formPagingSpecs" then
+            local err
+            value, err = NormalizeFormPagingSpecs(value)
+            if not value then return nil, err end
+        end
         local valid = path == "appearance.pressedEffect" and VALID_PRESSED_EFFECT[value]
+            or path == "interaction.formPagingSpecs" and type(value) == "table"
             or path == "interaction.tooltipMode" and VALID_TOOLTIP_MODE[value]
             or path == "specialGrouping.mode" and VALID_GROUPING_MODE[value]
             or path == "interaction.autoRankUpgrade" and type(value) == "boolean"
+            or path == "appearance.assistedHighlight" and type(value) == "boolean"
+            or path == "appearance.showActionState" and type(value) == "boolean"
         if not valid then return nil, "invalid global value " .. tostring(path) end
-        if value ~= GetGlobalPathValue(FROZEN_BASELINE.global, path) then result[path] = value end
+        if not ValuesEqual(value, GetGlobalPathValue(FROZEN_BASELINE.global, path)) then result[path] = value end
     end
     return result
 end
@@ -1231,7 +1403,7 @@ function ConfigSets:BuildSparseFromFull(data, scopeIds)
                 for path in pairs(GLOBAL_PATHS) do
                     local value = GetGlobalPathValue(source, path)
                     if value ~= nil
-                        and value ~= GetGlobalPathValue(FROZEN_BASELINE.global, path) then
+                        and not ValuesEqual(value, GetGlobalPathValue(FROZEN_BASELINE.global, path)) then
                         bucket[path] = CopyValue(value)
                     end
                 end
@@ -1300,6 +1472,9 @@ function ConfigSets:MaterializeSparse(data, scopeIds)
                     end
                 end
             elseif scopeId == "global" then
+                if target.appearance.assistedHighlight == nil then target.appearance.assistedHighlight = true end
+                if target.appearance.showActionState == nil then target.appearance.showActionState = true end
+                target.interaction.formPagingSpecs = {}
                 for path, value in pairs(normalized.global) do
                     local section, field = path:match("^([%w_]+)%.([%w_]+)$")
                     target[section][field] = CopyValue(value)
@@ -1409,7 +1584,8 @@ local function ApplyFields(target, fields, result, kind, id, scopeId)
             RecordBarChange(result, kind, id, scopeId, field)
         end
     end
-    if scopeId == "layout" and id ~= "questItems" and target.buttons ~= nil and target.rows ~= nil then
+    if scopeId == "layout" and id ~= "questItems" and id ~= "aspects" and id ~= "totems"
+        and target.buttons ~= nil and target.rows ~= nil then
         local maximum = math.max(1, math.floor(tonumber(target.buttons) or 1))
         local rows = math.max(1, math.min(math.floor(tonumber(target.rows) or 1), maximum))
         if target.rows ~= rows then
@@ -1471,9 +1647,39 @@ local function ApplyConfigScope(db, scopeId, bucket, result)
     for _, path in ipairs(bucket.unset or {}) do
         ApplyUnsetPath(db, scopeId, path, result)
     end
+    local skins = YUI.GUI2 and YUI.GUI2.IconSkins
+    if scopeId == "appearance" and skins then
+        for id in pairs(bucket.bars or {}) do skins:NormalizeSettings(db.bars[id], "Flare") end
+        for id in pairs(bucket.specialBars or {}) do skins:NormalizeSettings(db.specialBars[id], "Flare") end
+        if bucket.specialGrouping then skins:NormalizeSettings(db.specialGrouping.config, "Flare") end
+    end
 end
 
 local function ApplyGlobalScope(db, bucket, result)
+    if bucket.interaction then
+        local mask = bucket.interaction.formPagingSpecs or {}
+        if not ValuesEqual(db.interaction.formPagingSpecs or {}, mask) then
+            db.interaction.formPagingSpecs = CopyValue(mask)
+            result.changed = true
+            result.formPagingSpecsChanged = true
+        end
+    end
+    if bucket.appearance then
+        local showActionState = bucket.appearance.showActionState ~= false
+        if (db.appearance.showActionState ~= false) ~= showActionState then
+            db.appearance.showActionState = showActionState
+            result.changed = true
+            result.showActionStateChanged = true
+        end
+    end
+    if bucket.appearance and Client.assistedHighlight == true then
+        local highlight = bucket.appearance.assistedHighlight ~= false
+        if (db.appearance.assistedHighlight ~= false) ~= highlight then
+            db.appearance.assistedHighlight = highlight
+            result.changed = true
+            result.assistedHighlightChanged = true
+        end
+    end
     if bucket.appearance and db.appearance.pressedEffect ~= bucket.appearance.pressedEffect then
         db.appearance.pressedEffect = bucket.appearance.pressedEffect
         result.changed = true
@@ -1500,6 +1706,8 @@ end
 function ConfigSets:ApplyData(data, scopeIds, context)
     local db = YAB.GetDB and YAB:GetDB() or nil
     if type(db) ~= "table" then return false, "missing-db" end
+    -- 方案原地写入前失效，失败回滚和下一次读取均重新规范化。
+    if YAB.InvalidateDB then YAB:InvalidateDB() end
     db.bars = db.bars or {}
     db.specialBars = db.specialBars or {}
     db.specialGrouping = db.specialGrouping or { mode = "independent", config = {} }
@@ -1542,6 +1750,7 @@ function ConfigSets:ApplyData(data, scopeIds, context)
         end
     end
 
+    if YAB.InvalidateDB then YAB:InvalidateDB() end
     return result
 end
 
@@ -1733,7 +1942,9 @@ function ConfigSets:Refresh(reason, result, context)
             end
         end
         QueueTouchedBarRefreshes(manager, result)
-        if result.pressedEffectChanged then QueueGlobalVisualRefresh(manager) end
+        if result.pressedEffectChanged or result.showActionStateChanged then QueueGlobalVisualRefresh(manager) end
+        if result.assistedHighlightChanged and manager.SyncAssistedHighlight then manager:SyncAssistedHighlight() end
+        if result.formPagingSpecsChanged and manager.RefreshMainPaging then manager:RefreshMainPaging() end
     elseif result.changed and YAB.Refresh then
         YAB:Refresh(reason or "config-set")
     end
@@ -1801,7 +2012,7 @@ function ConfigSets:Migrate(data, fromVersion, toVersion, context)
     if fromVersion == toVersion and toVersion == self.SCHEMA_VERSION then
         return UpgradeSparseVisibility(self:NormalizeSparse(data, scopeIds))
     end
-    if toVersion ~= self.SCHEMA_VERSION or (fromVersion ~= 1 and fromVersion ~= 2 and fromVersion ~= 3) then
+    if toVersion ~= self.SCHEMA_VERSION or (fromVersion ~= 1 and fromVersion ~= 2 and fromVersion ~= 3 and fromVersion ~= 4 and fromVersion ~= 5) then
         return nil, "unsupported-schema-version"
     end
     if fromVersion == 1 then
@@ -1837,7 +2048,7 @@ end
 
 function ConfigSets:CanMigrate(fromVersion, toVersion)
     fromVersion = tonumber(fromVersion)
-    return (fromVersion == 1 or fromVersion == 2 or fromVersion == 3)
+    return (fromVersion == 1 or fromVersion == 2 or fromVersion == 3 or fromVersion == 4 or fromVersion == 5)
         and tonumber(toVersion) == self.SCHEMA_VERSION
 end
 

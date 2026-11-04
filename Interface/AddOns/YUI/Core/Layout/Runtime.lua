@@ -50,6 +50,7 @@ local function IsEditEntryEligible(entry)
     local frame = ResolveEntryFrame(entry)
     if not frame
         or ResolveSpecValue(entry, "isEnabled", true) == false
+        or ResolveSpecValue(entry, "isEditModeEnabled", true) == false
         or (IsAnchorTargetAvailable
             and IsAnchorTargetAvailable(entry) == false) then
         return false, frame

@@ -148,9 +148,9 @@ local function EventFrameOnEvent(_, event, arg1, arg2)
         end
     elseif RETAIL_PRODUCT
         and event == "ADDON_LOADED"
-        and arg1 == "Blizzard_CombatLog"
+        and (arg1 == "Blizzard_CombatLog" or arg1 == "Blizzard_BNet")
     then
-        InvokeAppearance("OnWindowsChanged", "combat-log-loaded")
+        InvokeAppearance("OnWindowsChanged", arg1)
     elseif RETAIL_PRODUCT and event == "PLAYER_REGEN_ENABLED" then
         if type(YChat.RetryPendingVisualDomains) == "function" then
             YChat:RetryPendingVisualDomains("player-regen-enabled")
@@ -560,6 +560,9 @@ function YChat:RefreshRuntimeGauges()
     stats:Set("copyBufferedLines", appearanceGaugeScratch.copyBufferedLines or 0)
     stats:Set("layoutPending", appearanceGaugeScratch.layoutPending or 0)
     stats:Set("layoutRegistered", appearanceGaugeScratch.layoutRegistered or 0)
+    stats:Set("bnetToastRegistered", appearanceGaugeScratch.bnetToastRegistered or 0)
+    stats:Set("bnetToastPending", appearanceGaugeScratch.bnetToastPending or 0)
+    stats:Set("bnetToastRestorePending", appearanceGaugeScratch.bnetToastRestorePending or 0)
     stats:Set(
         "layoutPlacementRepairs",
         appearanceGaugeScratch.layoutPlacementRepairs or 0
@@ -992,6 +995,13 @@ function YChat:RetryPendingVisualDomains(reason)
             or productionReason == combatLog.lastReason
         pcall(combatLog.Reconcile, combatLog)
     end
+    local toastLayout = self.BNetToastLayout
+    if toastLayout and (toastLayout.pending or toastLayout.restorePending)
+        and type(toastLayout.OnPlayerRegenEnabled) == "function"
+    then
+        retried = true
+        pcall(toastLayout.OnPlayerRegenEnabled, toastLayout)
+    end
     if retried then
         local stillPending = appearance
             and type(appearance.HasPendingVisualRetry) == "function"
@@ -1002,6 +1012,7 @@ function YChat:RetryPendingVisualDomains(reason)
             and typography:HasPendingVisualRetry()
         )
         stillPending = stillPending or (layout and layout.pending == true)
+        stillPending = stillPending or (toastLayout and (toastLayout.pending or toastLayout.restorePending))
         stillPending = stillPending or (
             combatLog
             and type(combatLog.HasPendingVisualRetry) == "function"
@@ -1591,7 +1602,7 @@ if YUI.RegisterProduct then
         notes = "Chat window enhancement and appearance",
         notesKey = "product.notes",
         notesNamespace = "YChat",
-        author = "阿言",
+        author = "Ayan",
         addonName = ADDON_NAME or YUI.AddonName,
         settingsScope = "ychat",
         settings = {

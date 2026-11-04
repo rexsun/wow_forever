@@ -126,3 +126,80 @@ function Tooltip:Refresh(owner)
         self:Show(owner,self.spec)
     end
 end
+
+-- Shared, inert artwork: neither product runtime nor live combat recommendations are used.
+local AssistedHighlightTooltip = {}
+GUI.AssistedHighlightTooltip = AssistedHighlightTooltip
+
+function AssistedHighlightTooltip:Hide(owner)
+    if owner and self.owner ~= owner then return end
+    self.owner = nil
+    for _, sample in ipairs(self.samples or {}) do
+        GUI:SetManagedAssistedHighlightShown(sample.glow, false)
+    end
+    if self.panel then self.panel:Hide() end
+end
+
+function AssistedHighlightTooltip:Show(owner, title)
+    if not owner or YUI.IsRetail ~= true then return end
+    self:Hide()
+    if YUI.HideGameTooltip then YUI.HideGameTooltip() end
+    if not self.panel then
+        local panel = GUI:CreatePanel(UIParent, { width = 220, height = 150,
+            surface = "color.surface.popup", border = "color.popup.border", shadow = true })
+        self.panel = panel
+        panel:SetFrameStrata("TOOLTIP")
+        panel:SetClampedToScreen(true)
+        panel:EnableMouse(false)
+        if YUI.Settings and YUI.Settings.RegisterScaleWindow then
+            YUI.Settings:RegisterScaleWindow(panel)
+        end
+        self.title = GUI:CreateText(panel, "", "font.size.md", "color.text.heading")
+        self.title:SetPoint("TOP", 0, -10)
+        self.footer = GUI:CreateText(panel, "", "font.size.sm", "color.text.secondary")
+        self.footer:SetWidth(196)
+        self.footer:SetJustifyH("CENTER")
+        self.footer:SetWordWrap(true)
+        self.footer:SetPoint("BOTTOM", 0, 10)
+        self.samples = {}
+        for index = 1, 2 do
+            local sample = GUI:CreateFrame(panel, { width = 42, height = 42, mouse = false })
+            sample:SetPoint("TOPLEFT", index == 1 and 44 or 134, -38)
+            sample.icon = sample:CreateTexture(nil, "ARTWORK")
+            sample.icon:SetAllPoints(sample)
+            sample.icon:SetTexture(132261)
+            sample.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            -- This private, unprotected art host can also be created on first hover in combat.
+            sample.glow = GUI:CreateFrame(sample, {
+                template = "ActionBarButtonAssistedCombatHighlightTemplate", mouse = false })
+            GUI:LayoutManagedAssistedHighlight(sample.glow, sample, 42, 42,
+                sample:GetFrameLevel() + 15, "TOOLTIP", "square")
+            GUI:SetManagedAssistedHighlightShown(sample.glow, false)
+            local label = GUI:CreateText(panel,
+                T(index == 1 and "assisted_highlight.preview_on" or "assisted_highlight.preview_off"),
+                "font.size.sm", "color.text.primary")
+            label:SetPoint("TOP", sample, "BOTTOM", 0, -8)
+            self.samples[index] = sample
+        end
+        panel:HookScript("OnHide", function() if self.owner then self:Hide() end end)
+    end
+    self.owner = owner
+    self.title:SetText(title or T("assisted_highlight.title"))
+    self.footer:SetText(T("assisted_highlight.requirement"))
+    self.panel:ClearAllPoints()
+    self.panel:SetPoint("BOTTOMLEFT", owner, "TOPLEFT", 0, 10)
+    GUI:SetManagedAssistedHighlightShown(self.samples[1].glow, true)
+    self.panel:Show()
+end
+
+function AssistedHighlightTooltip:Bind(owner, title)
+    if not owner or not owner.HookScript then return end
+    owner.gui2AssistedHighlightTitle = title
+    if owner.gui2AssistedHighlightTooltipBound then return end
+    owner.gui2AssistedHighlightTooltipBound = true
+    owner:HookScript("OnEnter", function(frame)
+        self:Show(frame, frame.gui2AssistedHighlightTitle)
+    end)
+    owner:HookScript("OnLeave", function(frame) self:Hide(frame) end)
+    owner:HookScript("OnHide", function(frame) self:Hide(frame) end)
+end

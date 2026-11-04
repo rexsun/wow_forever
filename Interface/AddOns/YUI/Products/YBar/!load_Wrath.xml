@@ -16,6 +16,7 @@
 	<Include file="..\..\Components\SystemMetrics\!load.xml"/>
 	<Script file="Modules\System.lua"/>
 	<Script file="Modules\MeetingStone.lua"/>
+	<Script file="RaidMarkerLogging.lua"/>
 	<Script file="Modules\RaidMarkers.lua"/>
 	<Script file="Modules\BugSack.lua"/>
 </Ui>

@@ -2,7 +2,7 @@ local YUI = _G.YUI
 local YHUD = YUI and YUI.YHUD
 if not YHUD then return end
 
-YHUD.CONTENT_POLICY_REVISION = 18
+YHUD.CONTENT_POLICY_REVISION = 20
 
 function YHUD:CanConfigureSkillAuraDisplay(entry)
     return type(entry) == "table"
@@ -249,6 +249,9 @@ function YHUD:IsFilteredAuraMonitor(entry, monitor)
         or entry.sourceIdentity == "bloodlust-heroism" then
         return false
     end
+    if entry.bundleKind == "externalBuff" and not monitor._yhudParentMonitorId then
+        return false
+    end
     if self:IsLogicalEquipmentAuraParent(entry, monitor) then
         return false
     end
@@ -269,13 +272,60 @@ function YHUD:IsFilteredAuraMonitor(entry, monitor)
     )
 end
 
-function YHUD:CanUseBarStackThresholds(entry, monitor)
+function YHUD:CanUseBarAuraProgress(entry, monitor)
     return type(entry) == "table" and type(monitor) == "table"
         and monitor.view == "bar"
         and entry.sourceType == self.PLAYER_AURA_SOURCE_TYPE
         and entry.sourceIdentity ~= "bloodlust-heroism"
         and not self:IsLogicalEquipmentAuraParent(entry, monitor)
         and FILTERED_AURA_EXCLUDED_RUNTIME_CHANNELS[monitor._yhudRuntimeChannel] ~= true
+end
+
+function YHUD:CanUseSkillDurationSource(entry, monitor)
+    return type(entry) == "table" and type(monitor) == "table"
+        and (monitor.view == "bar" or monitor.view == "ring")
+        and entry.itemId == nil and entry.itemID == nil
+        and entry.equipSlot == nil and entry.slotId == nil
+        and (entry.sourceType == "spell-cooldown" or entry.origin == "official-cdm"
+            and (entry.officialCategory == "essential" or entry.officialCategory == "utility"))
+end
+
+function YHUD:CanUseBarChargeProgress(entry, monitor)
+    return self:CanUseSkillDurationSource(entry, monitor) and monitor.view == "bar"
+end
+
+-- Official cooldown entries deliberately have no saved spell source. Their
+-- owned bars and rings share the spell reader without changing native identity.
+function YHUD:CanObserveOfficialTotemDuration(entry, monitor)
+    return (YUI.IsRetail == true or YUI.IsForever == true)
+        and type(entry) == "table" and type(monitor) == "table"
+        and entry.origin == "official-cdm"
+        and (monitor.view == "ring" or monitor.view == "bar")
+        and PositiveInteger(entry.cooldownId) ~= nil
+        and self:CanUseFilteredAuraDisplay()
+        and self:IsFilteredAuraMonitor(entry, monitor)
+end
+
+function YHUD:GetMonitorRuntimeSourceKey(entry, monitor)
+    if self:CanObserveOfficialTotemDuration(entry, monitor) then
+        return "totem:cdm:" .. tostring(PositiveInteger(entry.cooldownId))
+    end
+    if type(monitor) ~= "table" then return nil end
+    if monitor.sourceKey ~= nil then return monitor.sourceKey end
+    if entry and entry.origin == "official-cdm"
+        and self:CanUseSkillDurationSource(entry, monitor) then
+        local spellID = PositiveInteger(entry.spellId)
+            or PositiveInteger(entry.overrideSpellId)
+        return spellID and ("spell:" .. tostring(spellID)) or nil
+    end
+end
+
+function YHUD:CanUseBarStackThresholds(entry, monitor)
+    local progress = monitor and monitor.appearanceOverride
+        and monitor.appearanceOverride.barProgress
+    return self:CanUseBarAuraProgress(entry, monitor)
+        or (self:CanUseBarChargeProgress(entry, monitor)
+            and progress and progress.source == "spell-charges") or false
 end
 
 function YHUD:GetOfficialNativeCategoryTarget(entry, monitor)
@@ -360,6 +410,7 @@ YHUD.FILTERED_AURA_FIXED_REASON_SCOPE_MISMATCH =
     "scope-mismatch"
 YHUD.FILTERED_AURA_FIXED_REASON_CONFIGURED_LAYOUT =
     "configured-layout"
+YHUD.FILTERED_AURA_SCOPE_EXTERNAL_HELPFUL = "player-helpful-external"
 YHUD.FILTERED_AURA_SCOPE_PLAYER_HELPFUL = "player-helpful"
 YHUD.FILTERED_AURA_SCOPE_PLAYER_HELPFUL_CDM_EXTENDED =
     "player-helpful-cdm-extended"
@@ -410,6 +461,9 @@ end
 
 function YHUD:GetFilteredAuraScopeKey(entry)
     if type(entry) == "table" then
+        if entry.bundleKind == "externalBuff" then
+            return self.FILTERED_AURA_SCOPE_EXTERNAL_HELPFUL
+        end
         local explicitScope = entry.filteredAuraScope
         if explicitScope == self.FILTERED_AURA_SCOPE_TARGET_HARMFUL then
             return self.FILTERED_AURA_SCOPE_TARGET_HARMFUL
@@ -469,6 +523,9 @@ function YHUD:GetFilteredAuraGroupProjectionStrategy(
         )
     end
     local function Accumulate(candidate, candidateEntry, projectedCount, filtered)
+        -- Limited external collections own a native flow block. Other members
+        -- retain their existing projection and source-matching strategy.
+        if candidate and candidate._yhudAuraMaxFrameCount then return end
         if candidate and candidateEntry then
             projectedCount = math.max(
                 1,
@@ -672,6 +729,30 @@ local AURA_MONITOR_CONDITIONS = {
     "aura-missing",
 }
 
+local AURA_GLOW_CONDITIONS = { "aura-present", "aura-missing", "aura-stacks" }
+local POTION_GLOW_CONDITIONS = { "condition-met", "aura-stacks" }
+
+function YHUD:GetBuffTimerStackAuraSpellID(entry)
+    if YUI.IsRetail == true and type(entry) == "table"
+        and entry.sourceType == self.CAST_BUFF_TIMER_SOURCE_TYPE
+        and entry.sourceIdentity == "buff-timer:burst-potion" then
+        return 1295147
+    end
+end
+
+function YHUD:CanUseAuraStackGlow(entry, monitor, includeSuspended)
+    local icon = type(entry) == "table" and type(monitor) == "table"
+        and (monitor.view == "icon"
+            or (includeSuspended == true and monitor.view == "ring"))
+        and self:GetEntrySemantic(entry) == "buff"
+    if not icon then return false end
+    if self:GetBuffTimerStackAuraSpellID(entry) then return true end
+    return entry.sourceType == self.PLAYER_AURA_SOURCE_TYPE
+        and entry.sourceIdentity ~= "bloodlust-heroism"
+        and not self:IsLogicalEquipmentAuraParent(entry, monitor)
+        and FILTERED_AURA_EXCLUDED_RUNTIME_CHANNELS[monitor._yhudRuntimeChannel] ~= true
+end
+
 local EVENT_WINDOW_MONITOR_CONDITIONS = {
     "condition-met",
 }
@@ -695,6 +776,13 @@ function YHUD:GetEntryMonitorConditionCapabilities(entry, channel)
         and entry.itemId == nil
         and entry.itemID == nil
         and entry.slotId == nil
+    if entry.sourceType == "class-extra-monitor" then
+        if not (YHUD.ClassExtra and YHUD.ClassExtra:Preset(entry)) then return nil end
+        if entry.presetId == "devourer-transform" then
+            return { kind = "devourer-transform", conditions = { "condition-met" }, labelKind = "transform" }
+        end
+        return { kind = "brewmaster-elixir", conditions = COOLDOWN_MONITOR_CONDITIONS, labelKind = "spell" }
+    end
     if entry.sourceType == "spell-cooldown" or officialCooldown then
         return {
             kind = "cooldown",
@@ -718,7 +806,7 @@ function YHUD:GetEntryMonitorConditionCapabilities(entry, channel)
         end
         return {
             kind = "aura",
-            conditions = AURA_MONITOR_CONDITIONS,
+            conditions = channel == "glow" and AURA_GLOW_CONDITIONS or AURA_MONITOR_CONDITIONS,
             nativeProc = false,
             persistent = self:SupportsPersistentDisplay(entry),
             labelKind = "aura",
@@ -731,6 +819,7 @@ function YHUD:GetEntryMonitorConditionCapabilities(entry, channel)
             kind = "event-window",
             conditions = channel == "sound"
                 and EVENT_WINDOW_SOUND_CONDITIONS
+                or self:GetBuffTimerStackAuraSpellID(entry) and POTION_GLOW_CONDITIONS
                 or EVENT_WINDOW_MONITOR_CONDITIONS,
             nativeProc = false,
             persistent = self:SupportsPersistentDisplay(entry),
@@ -745,7 +834,13 @@ function YHUD:GetMonitorConditionCapabilities(profile, monitor, channel)
         return nil
     end
     local entry = profile.entries and profile.entries[monitor.entryKey]
-    return self:GetEntryMonitorConditionCapabilities(entry, channel)
+    local capabilities = self:GetEntryMonitorConditionCapabilities(entry, channel)
+    if capabilities and channel ~= "sound"
+        and not self:CanUseAuraStackGlow(entry, monitor, true) then
+        if capabilities.kind == "aura" then capabilities.conditions = AURA_MONITOR_CONDITIONS
+        elseif capabilities.kind == "event-window" then capabilities.conditions = EVENT_WINDOW_MONITOR_CONDITIONS end
+    end
+    return capabilities
 end
 
 function YHUD:IsMonitorConditionSupported(
@@ -766,6 +861,12 @@ function YHUD:IsMonitorConditionSupported(
 end
 
 function YHUD:GetMonitorGlowCapabilities(profile, monitor)
+    -- Layout only gates presentation; condition validation retains saved rules.
+    local groups = type(profile) == "table" and profile.groups
+    local group = groups and groups.items and type(monitor) == "table"
+        and groups.items[monitor.groupId]
+    if type(monitor) == "table" and monitor.view == "ring"
+        or group and group.layout == "rings" then return nil end
     return self:GetMonitorConditionCapabilities(profile, monitor, "glow")
 end
 
@@ -830,6 +931,7 @@ end
 local PERSISTENT_DISPLAY_SOURCE_TYPES = {
     [YHUD.CAST_BUFF_TIMER_SOURCE_TYPE] = true,
     [YHUD.SPELL_EVENT_WINDOW_SOURCE_TYPE] = true,
+    ["class-extra-monitor"] = true,
     [YHUD.PLAYER_AURA_SOURCE_TYPE] = true,
 }
 
@@ -849,7 +951,8 @@ function YHUD:CanConfigureMonitorStateEffects(entry)
 end
 
 function YHUD:NormalizeMonitorStateEffects(value, entry, legacyAuraTimer)
-    if not self:CanConfigureMonitorStateEffects(entry) then return nil end
+    if not self:CanConfigureMonitorStateEffects(entry)
+        and not self:CanConfigureAssistedHighlight(entry) then return nil end
     value = type(value) == "table" and value or {}
     local effects = {}
     if self:CanConfigureSkillAuraDisplay(entry) then
@@ -860,10 +963,33 @@ function YHUD:NormalizeMonitorStateEffects(value, entry, legacyAuraTimer)
             effects.auraHighlight = value.auraHighlight
         end
     end
-    if type(value.inactiveDesaturate) == "boolean" then
+    if self:CanConfigureMonitorStateEffects(entry) and type(value.inactiveDesaturate) == "boolean" then
         effects.inactiveDesaturate = value.inactiveDesaturate
     end
+    if self:CanConfigureAssistedHighlight(entry) and type(value.assistedHighlight) == "boolean" then
+        effects.assistedHighlight = value.assistedHighlight
+    end
     return next(effects) and effects or nil
+end
+
+function YHUD:CanConfigureAssistedHighlight(entry)
+    if not (self.Client and self.Client.assistedHighlight == true)
+        or type(entry) ~= "table" or self:GetEntrySemantic(entry) ~= "cooldown"
+        or entry.itemId ~= nil or entry.itemID ~= nil or entry.equipSlot ~= nil
+        or entry.slotId ~= nil or entry.slotID ~= nil then return false end
+    return entry.sourceType == "spell-cooldown"
+        or (entry.origin == "official-cdm"
+            and (entry.officialCategory == "essential" or entry.officialCategory == "utility"))
+end
+
+function YHUD:GetEffectiveAssistedHighlight(profile, monitor, entry)
+    if not self:CanConfigureAssistedHighlight(entry) then return false end
+    if not self:GetConsolePreference("assistedHighlight") then return false end
+    local effects = monitor and monitor.stateEffects
+    if type(effects) == "table" and type(effects.assistedHighlight) == "boolean" then
+        return effects.assistedHighlight
+    end
+    return true
 end
 
 function YHUD:GetEffectiveSkillAuraHighlight(profile, monitor, entry)
@@ -1095,6 +1221,8 @@ local POLICY = {
         },
         layouts = {
             icons = true,
+            bars = true,
+            rings = true,
         },
         addCooldown = true,
         addBuff = true,
@@ -1143,7 +1271,7 @@ local DEFAULT_GROUP_POLICY = {
     [YHUD.GROUP_IDS.IMPORTANT] = "cooldown-primary",
     [YHUD.GROUP_IDS.UTILITY] = "cooldown-primary",
     [YHUD.GROUP_IDS.BUFF] = "buff-only",
-    [YHUD.GROUP_IDS.BAR] = "buff-only",
+    [YHUD.GROUP_IDS.BAR] = "cooldown-primary",
     [YHUD.GROUP_IDS.RESOURCES] = "resource-only",
     [YHUD.GROUP_IDS.TRINKETS] = "cooldown-only",
 }
@@ -1158,9 +1286,13 @@ local DEFAULT_GROUP_SYNC = {
 local OFFICIAL_VIEWS = {
     essential = {
         icon = true,
+        bar = true,
+        ring = true,
     },
     utility = {
         icon = true,
+        bar = true,
+        ring = true,
     },
     trackedBuff = {
         icon = true,
@@ -1213,10 +1345,10 @@ function YHUD:GetGroupContentPolicy(group)
     if type(group) ~= "table" then return nil end
     local policyId = group.contentPolicy
         or DEFAULT_GROUP_POLICY[group.id]
-    -- User-created icon groups share one visible product type. Keep their
-    -- accepted monitor kinds consistent even when an older creation path
-    -- persisted the former buff-only policy.
-    if group.kind == "user" and group.layout == "icons" then
+    -- Duration groups and user-created icon groups accept skills and Auras,
+    -- including groups saved with the former buff-only policy.
+    if group.layout == "bars" or group.layout == "rings"
+        or group.kind == "user" and group.layout == "icons" then
         policyId = "cooldown-primary"
     end
     if not POLICY[policyId] then
@@ -1451,6 +1583,13 @@ end
 
 function YHUD:GetEntryCompatibleViews(entry)
     if type(entry) ~= "table" then return {} end
+    if entry.sourceType == "class-extra-monitor" then
+        return YHUD.ClassExtra and YHUD.ClassExtra:Preset(entry) and { icon = true, bar = true } or {}
+    end
+    if entry.sourceType == "spell-cooldown" or entry.origin == "official-cdm"
+        and (entry.officialCategory == "essential" or entry.officialCategory == "utility") then
+        return { icon = true, bar = true, ring = true }
+    end
     if type(entry.compatibleViews) == "table" then
         return entry.compatibleViews
     end
@@ -1489,7 +1628,8 @@ function YHUD:NormalizeGroupContentPolicy(group)
     if type(group) ~= "table" then return nil end
     local policyId = DEFAULT_GROUP_POLICY[group.id]
         or group.contentPolicy
-    if group.kind == "user" and group.layout == "icons" then
+    if group.layout == "bars" or group.layout == "rings"
+        or group.kind == "user" and group.layout == "icons" then
         policyId = "cooldown-primary"
     end
     if not POLICY[policyId] then

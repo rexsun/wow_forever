@@ -5,6 +5,8 @@ if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("koKR") then return end
 YUI.Locale:Register("UtilityTools", "koKR", {
     ["name"] = "편의 도구",
     ["description"] = "인터페이스와 게임을 위한 작은 편의 기능 모음입니다.",
+    ["settings.encounter_journal_item_sets.label"] = "Restore Encounter Journal 항목 세트",
+    ["settings.encounter_journal_item_sets.tooltip"] = "숨겨진 아이템 세트 탭을 복원하기 때문에 원래 레이드셋 속성은 Encounter Journal에서 볼 수 있습니다.",
     ["settings.bonus_roll"] = "여분의 목록 통화 확인",
     ["settings.bonus_roll_confirm_roll"] = "압연하기 전에 확인",
     ["settings.bonus_roll_confirm_pass"] = "전달하기 전에 확인",

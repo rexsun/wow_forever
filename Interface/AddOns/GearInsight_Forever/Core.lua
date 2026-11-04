@@ -12,6 +12,37 @@ function ns.L(cn, en)
     return cn
 end
 
+-- 10-18 物品信息兼容：新客户端全局 GetItemInfo 拿不到（用户截图：Shift 点已缓存的装备也一直「还在加载」）→
+--   先 C_Item.GetItemInfo，再旧的 GetItemInfo；返回值和 GetItemInfo 一样（名字, 链接, 品质, 装等, …），拿不到 = nil
+function ns.ItemInfo(item)
+    if item == nil then return nil end
+    local fs = { C_Item and C_Item.GetItemInfo or false, GetItemInfo or false }   -- ⛔ 别放 nil：ipairs 遇到 nil 就停，后面那个永远试不到
+    for _, f in ipairs(fs) do
+        if type(f) == "function" then
+            local r = { pcall(f, item) }
+            if r[1] and r[2] then return unpack(r, 2, table.maxn(r)) end
+        end
+    end
+    return nil
+end
+-- 物品链接：ItemInfo 第 2 个返回值；还没有就试鼠标提示数据（C_TooltipInfo，正式服引擎有）
+function ns.ItemLink(id)
+    local _, link = ns.ItemInfo(id)
+    if link then return link end
+    if C_TooltipInfo and C_TooltipInfo.GetItemByID then
+        local ok, d = pcall(C_TooltipInfo.GetItemByID, id)
+        if ok and type(d) == "table" and type(d.hyperlink) == "string" and d.hyperlink ~= "" then return d.hyperlink end
+    end
+    return nil
+end
+
+-- 10-18 《无限》服务器上不存在的物品（用户 /gi itemprobe all 实测，ITEM_DATA_LOAD_RESULT 回 false；
+--   数据 ItemMissingData.lua ← scripts/gi_forever_item_exist_import.py）：推荐装备排除，掉落页标「测试服暂无」
+function ns.ItemMissing(id)
+    local t = ns.ItemMissingIds
+    return t and id and t[tonumber(id)] and true or false
+end
+
 -- 插件版本号：唯一来源 = toc 的 ## Version（标题栏 / 资讯页都读这个，⛔别在 Lua 里写死版本号字符串）
 function ns.AddonVersion()
     local get = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
@@ -197,6 +228,7 @@ local function makeBox()
     f.cancel = cancel
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -2, -2)
+    close:SetScript("OnClick", function() f:Hide() end)   -- 10-18 战斗中关不掉：原生红叉走 HideUIPanel，战斗中被拦 → 直接 Hide
     return f
 end
 
@@ -259,11 +291,15 @@ local C = slashTaken("/gi") and "/gif" or "/gi"
 ns.SlashHint = C
 
 local function help()
+    -- 10-19 我的升级报告（Report.lua，HOLD）：没进包时不提这条命令
+    local rep = ns.Report and ns.L(" · " .. C .. " report 我的升级报告（网站出定制路线）", " · " .. C .. " report my leveling report (web)") or ""
+    -- 10-22 扫码绑定（BindQR.lua，HOLD）：同上，没进包时不提
+    if ns.ShowBindQR then rep = rep .. ns.L(" · " .. C .. " bind 扫码把角色挂到你的 GearInsight 账号", " · " .. C .. " bind link this character to your account (QR)") end
     ns.Print(ns.L("命令：" .. C .. " 打开主界面 · " .. C .. " lv 升级指引 · " .. C .. " card 战绩卡（微信扫码进小程序，计入报到）"
         .. " · " .. C .. " talent 导入配点码 · " .. C .. " talent qr 当前配点发到手机 · " .. C .. " talent pop 热门配点一键套用"
-        .. " · " .. C .. " macro 宏库 · " .. C .. " news 资讯 · " .. C .. " data 导出数据 · " .. C .. " data off|on 关 / 开记录",
+        .. " · " .. C .. " macro 宏库 · " .. C .. " news 资讯 · " .. C .. " data 导出数据 · " .. C .. " data off|on 关 / 开记录" .. rep,
         "Commands: " .. C .. " open window · " .. C .. " lv leveling · " .. C .. " card beta card QR · " .. C .. " talent import build · " .. C .. " talent qr build to phone"
-        .. " · " .. C .. " talent pop popular builds · " .. C .. " macro · " .. C .. " news · " .. C .. " data export · " .. C .. " data off|on"))
+        .. " · " .. C .. " talent pop popular builds · " .. C .. " macro · " .. C .. " news · " .. C .. " data export · " .. C .. " data off|on" .. rep))
 end
 
 SLASH_GEARINSIGHTFOREVER1 = "/gif"
@@ -272,6 +308,7 @@ SlashCmdList.GEARINSIGHTFOREVER = function(msg)
     -- 原样的参数（不转小写）：自定义文字要用（10-12 /gi qm text …：lower() 在某些环境会改坏中文字节 →「任务」变「任嚡」）
     local raw = (msg or ""):gsub("^[ 	]+", ""):gsub("[ 	]+$", "")
     local rawRest = raw:match("^[^ 	]*[ 	]*(.-)$") or ""
+    local rawCmd = raw:match("^([^ 	]*)") or ""   -- 10-19 /gi 报告：中文命令按原样查（lower() 会改坏中文，见上）
     msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
     local cmd, rest = msg:match("^(%S*)%s*(.-)$")
     if cmd == "" then ns.ToggleMain()
@@ -291,6 +328,8 @@ SlashCmdList.GEARINSIGHTFOREVER = function(msg)
         ns.db.hideHold = (rest == "off") or nil
         ns.Print(rest == "off" and ns.L("没发布的页签已隐藏，/reload 后生效（/gif keys on 恢复）", "Unreleased tabs hidden after /reload (/gif keys on to restore)")
             or ns.L("没发布的页签已恢复，/reload 后生效", "Unreleased tabs restored after /reload"))
+    elseif cmd == "keys" and rest == "diag" and ns.Keys and ns.Keys.DiagView then ns.Keys.DiagView()   -- 10-16 形态视图技能诊断
+    elseif cmd == "keys" and rest == "cdm" and ns.KeysCdm then ns.KeysCdm.Diag()   -- 10-17 冷却管理器快捷键诊断
     elseif cmd == "keys" and rest == "macros" and ns.Keys and ns.Keys.DebugMacros then ns.Keys.DebugMacros()   -- 10-12 宏格识别诊断
     elseif cmd == "keys" and rest == "restore" and ns.Keys and ns.Keys.RestoreStolen then   -- 10-12 改键顶替掉的原功能放回
         local n, why = ns.Keys.RestoreStolen()
@@ -298,6 +337,7 @@ SlashCmdList.GEARINSIGHTFOREVER = function(msg)
             or string.format(ns.L("放回了 %d 个被顶替的原功能键", "Restored %d replaced key(s)"), n or 0))
     elseif cmd == "keys" and ns.Keys then ns.ToggleMain("keys")   -- 键位页在 HOLD 里时不响应
     elseif ns.ExtraSlash and ns.ExtraSlash[cmd] then ns.ExtraSlash[cmd](rest, rawRest)   -- 10-12 support / route / site（Offsite.lua、Route.lua 自己挂）
+    elseif ns.ExtraSlash and rawCmd ~= "" and ns.ExtraSlash[rawCmd] then ns.ExtraSlash[rawCmd](rest, rawRest)   -- 中文命令（/gi 支持、/gi 报告）
     elseif cmd == "card" or cmd == "qr" then ns.ShowCardQR()
     elseif cmd == "loot" then
         if rest == "clear" then ns.ClearExportedLoot() else ns.ExportLoot() end

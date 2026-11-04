@@ -106,6 +106,28 @@ local function ResourceState()
   return { hud = hud, configs = configs, castGroups = castGroups, nativeCast = nativeCast }
 end
 
+-- A context edited in YUI's resource manager reads itemsByContext instead of bySpec.
+local function ContextResources(context, key)
+  if PLAYER_RESOURCES[key] then return PLAYER_RESOURCES[key] end
+  local class, form = tostring(context):match("^(%u+):%d+:(.*)$")
+  local pack = CLASSES[class]
+  if not pack then return {} end
+  return FORMS[form] or pack.resources
+end
+
+local function GuardedContextItems(config, key)
+  local found = {}
+  local contexts = type(config.itemsByContext) == "table" and config.itemsByContext or {}
+  for context, items in pairs(contexts) do
+    local guarded = {}
+    for _, resource in ipairs(ContextResources(context, key)) do guarded[resource] = true end
+    for _, item in ipairs(type(items) == "table" and items or {}) do
+      if type(item) == "table" and guarded[item.id] and item.enabled == true then found[#found + 1] = item end
+    end
+  end
+  return found
+end
+
 local function ResourceOn(config, key)
   local fallback = key == "Resources" and config.selectionDefault ~= "none"
   for class, pack in pairs(CLASSES) do
@@ -130,7 +152,7 @@ local function ResourceOn(config, key)
       end
     end
   end
-  return false
+  return #GuardedContextItems(config, key) > 0
 end
 
 local function Ensure(parent, key)
@@ -159,6 +181,7 @@ local function DisableResources(config, resourceKey)
       for _, resource in ipairs(PLAYER_RESOURCES[resourceKey] or resources) do enabled[resource] = false end
     end
   end
+  for _, item in ipairs(GuardedContextItems(config, resourceKey)) do item.enabled = false end
 end
 
 function adapter.Knows(key) return UTILITY[key] ~= nil or key == "Resources" or PLAYER_RESOURCES[key] ~= nil end

@@ -27,6 +27,47 @@ local function SafeString(value)
     return value
 end
 
+-- Cold Forever configuration reads. Slot identities belong to the game, not UI frames.
+function ActionBar:GetMultiCastActionSlot(page, slot)
+    if not YUI.IsForever or IsSecretValue(page) or IsSecretValue(slot)
+        or type(page) ~= "number" or type(slot) ~= "number"
+        or page < 1 or page > 3 or page % 1 ~= 0 or slot < 1 or slot > 4 or slot % 1 ~= 0 then return nil end
+    local api = _G.C_ActionBar
+    if not (api and type(api.GetMultiCastBarIndex) == "function") then return nil end
+    local ok, index = pcall(api.GetMultiCastBarIndex)
+    if not ok or IsSecretValue(index) or type(index) ~= "number"
+        or index < 1 or index % 1 ~= 0 then return nil end
+    -- Keep all twelve slots exact within Lua's safe integer range.
+    if index > 750599937895082 then return nil end
+    return (index - 1) * 12 + (page - 1) * 4 + slot
+end
+
+function ActionBar:GetMultiCastSpells(slot, result)
+    if IsSecretValue(result) or type(result) ~= "table" then result = {} end
+    for key in pairs(result) do result[key] = nil end
+    if not YUI.IsForever or IsSecretValue(slot) or type(slot) ~= "number"
+        or slot < 1 or slot > 4 or slot % 1 ~= 0 then return result end
+    local spell = YUI.API and YUI.API.Spell
+    if type(_G.GetMultiCastTotemSpells) ~= "function"
+        or not (spell and type(spell.GetKnownState) == "function") then return result end
+    local function ReadSpells(ok, ...)
+        if not ok then return end
+        -- Cold, bounded enumeration; preserve holes without a temporary values table.
+        for i = 1, math.min(select("#", ...), 64) do
+            local id = select(i, ...)
+            if not IsSecretValue(id) and type(id) == "number"
+                and id > 0 and id < math.huge and id % 1 == 0 then
+                local knownOK, known = pcall(spell.GetKnownState, id)
+                if knownOK and not IsSecretValue(known) and known == true then
+                    result[#result + 1] = id
+                end
+            end
+        end
+    end
+    ReadSpells(pcall(_G.GetMultiCastTotemSpells, slot))
+    return result
+end
+
 local BINDING_MODIFIERS = {
     CTRL = "C",
     ALT = "A",
@@ -146,10 +187,12 @@ local function ResolveMacroIndex(slot, actionID, actionSubType)
         return nil, reason
     end
 
-    -- Retail may expose the currently effective spell ID in actionID when
-    -- subtype is "spell". In that shape actionID must never be treated as a
+    -- Retail may expose the currently effective spell/item ID in actionID
+    -- for a typed macro. In that shape actionID must never be treated as a
     -- macro index. Older shapes expose the actual macro index instead.
-    if actionSubType == "spell" then return nil, "unavailable" end
+    if actionSubType == "spell" or actionSubType == "item" then
+        return nil, "unavailable"
+    end
     macroIndex = SafeNumber(actionID)
     if macroIndex and macroIndex > 0 then
         return math.floor(macroIndex), nil
@@ -205,6 +248,11 @@ function ActionBar:ReadSlotIdentity(slot, result)
             local currentSpellID = SafeNumber(actionID)
             if currentSpellID and currentSpellID > 0 then
                 result.currentSpellID = math.floor(currentSpellID)
+            end
+        elseif result.actionSubType == "item" then
+            local currentItemID = SafeNumber(actionID)
+            if currentItemID and currentItemID > 0 then
+                result.currentItemID = math.floor(currentItemID)
             end
         elseif macroIndex then
             local spellID, spellReason = ReadMacroSpellID(macroIndex)

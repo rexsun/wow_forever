@@ -63,6 +63,7 @@ BattleRes.defaults = {
 }
 
 local BattleResWidget = {}
+local textStyles
 local BattleResEventOwner = {}
 local BattleResSettingsPreviewButton = nil
 
@@ -178,11 +179,15 @@ local function NormalizeDB(db)
     db.battleResSize = ClampNumber(db.battleResSize, MIN_SIZE, MAX_SIZE, DEFAULT_SIZE)
     db.cooldownSwipeEnabled = db.cooldownSwipeEnabled ~= false
     db.timerTextSize = ClampNumber(db.timerTextSize, TEXT_SIZE_MIN, TEXT_SIZE_MAX, BattleRes.defaults.timerTextSize)
-    db.timerTextColor = NormalizeColor(db.timerTextColor, DEFAULT_TIMER_TEXT_COLOR)
+    if type(db.timerTextColor) ~= "table" or not (db.timerTextColor.mode == "class" or db.timerTextColor.mode == "state") then
+        db.timerTextColor = NormalizeColor(db.timerTextColor, DEFAULT_TIMER_TEXT_COLOR)
+    end
     db.timerTextOffsetX = ClampNumber(db.timerTextOffsetX, TEXT_OFFSET_MIN, TEXT_OFFSET_MAX, BattleRes.defaults.timerTextOffsetX)
     db.timerTextOffsetY = ClampNumber(db.timerTextOffsetY, TEXT_OFFSET_MIN, TEXT_OFFSET_MAX, BattleRes.defaults.timerTextOffsetY)
     db.countTextSize = ClampNumber(db.countTextSize, TEXT_SIZE_MIN, TEXT_SIZE_MAX, BattleRes.defaults.countTextSize)
-    db.countTextColor = NormalizeColor(db.countTextColor, DEFAULT_COUNT_TEXT_COLOR)
+    if type(db.countTextColor) ~= "table" or not (db.countTextColor.mode == "class" or db.countTextColor.mode == "state") then
+        db.countTextColor = NormalizeColor(db.countTextColor, DEFAULT_COUNT_TEXT_COLOR)
+    end
     db.countTextOffsetX = ClampNumber(db.countTextOffsetX, TEXT_OFFSET_MIN, TEXT_OFFSET_MAX, BattleRes.defaults.countTextOffsetX)
     db.countTextOffsetY = ClampNumber(db.countTextOffsetY, TEXT_OFFSET_MIN, TEXT_OFFSET_MAX, BattleRes.defaults.countTextOffsetY)
     return db
@@ -382,8 +387,14 @@ local function ApplyBattleResSize()
     if BattleResWidget.countText then
         BattleResWidget.countText:ClearAllPoints()
         BattleResWidget.countText:SetPoint("BOTTOMRIGHT", BattleResWidget.countTextLayer or frame, "BOTTOMRIGHT", db.countTextOffsetX, db.countTextOffsetY)
-        SetFontSize(BattleResWidget.countText, db.countTextSize, "OUTLINE")
-        SetTextColor(BattleResWidget.countText, db.countTextColor)
+        if textStyles then
+            GUI2.FontStyle.ApplyConfigFont(BattleResWidget.countText, textStyles[2], db)
+            BattleResWidget.countText.gui2ColorKey = nil
+            BattleResWidget.countText:SetTextColor(GUI2.FontStyle.ConfigColor(textStyles[2], db, DEFAULT_COUNT_TEXT_COLOR))
+        else
+            SetFontSize(BattleResWidget.countText, db.countTextSize, "OUTLINE")
+            SetTextColor(BattleResWidget.countText, db.countTextColor)
+        end
         if BattleResWidget.countText.SetDrawLayer then
             BattleResWidget.countText:SetDrawLayer("OVERLAY", 8)
         end
@@ -392,8 +403,14 @@ local function ApplyBattleResSize()
     if BattleResWidget.timerText then
         BattleResWidget.timerText:ClearAllPoints()
         BattleResWidget.timerText:SetPoint("CENTER", BattleResWidget.timerTextLayer or frame, "CENTER", db.timerTextOffsetX, db.timerTextOffsetY)
-        SetFontSize(BattleResWidget.timerText, db.timerTextSize, "OUTLINE")
-        SetTextColor(BattleResWidget.timerText, db.timerTextColor)
+        if textStyles then
+            GUI2.FontStyle.ApplyConfigFont(BattleResWidget.timerText, textStyles[1], db)
+            BattleResWidget.timerText.gui2ColorKey = nil
+            BattleResWidget.timerText:SetTextColor(GUI2.FontStyle.ConfigColor(textStyles[1], db, DEFAULT_TIMER_TEXT_COLOR))
+        else
+            SetFontSize(BattleResWidget.timerText, db.timerTextSize, "OUTLINE")
+            SetTextColor(BattleResWidget.timerText, db.timerTextColor)
+        end
         if BattleResWidget.timerText.SetDrawLayer then
             BattleResWidget.timerText:SetDrawLayer("OVERLAY", 7)
         end
@@ -1112,7 +1129,7 @@ function BattleRes:BuildOptions(db)
             min = TEXT_SIZE_MIN,
             max = TEXT_SIZE_MAX,
             step = 1,
-            get = function() return db.timerTextSize end,
+            fontStyleSource="timerTextSize", get = function() return db.timerTextSize end,
             set = function(value)
                 db.timerTextSize = ClampNumber(value, TEXT_SIZE_MIN, TEXT_SIZE_MAX, BattleRes.defaults.timerTextSize)
                 ApplyBattleResSize()
@@ -1123,13 +1140,16 @@ function BattleRes:BuildOptions(db)
             label = T("settings.timer_text_color", "倒计时颜色"),
             layoutPreset = "compactColor",
             hasAlpha = true,
-            get = function() return db.timerTextColor end,
+            fontStyleSource="timerTextColor", get = function() return db.timerTextColor end,
             default = DEFAULT_TIMER_TEXT_COLOR,
             set = function(value)
                 db.timerTextColor = NormalizeColor(value, DEFAULT_TIMER_TEXT_COLOR)
                 ApplyBattleResSize()
             end,
         },
+    })
+
+    AddAlignedFieldGroup(options, nil, {
         {
             type = "slider",
             label = T("settings.timer_text_offset_x", "倒计时X"),
@@ -1154,7 +1174,7 @@ function BattleRes:BuildOptions(db)
                 ApplyBattleResSize()
             end,
         },
-    })
+    }, { hideDivider = true })
 
     AddAlignedFieldGroup(options, T("settings.battle_res_count_text", "层数文本"), {
         {
@@ -1163,7 +1183,7 @@ function BattleRes:BuildOptions(db)
             min = TEXT_SIZE_MIN,
             max = TEXT_SIZE_MAX,
             step = 1,
-            get = function() return db.countTextSize end,
+            fontStyleSource="countTextSize", get = function() return db.countTextSize end,
             set = function(value)
                 db.countTextSize = ClampNumber(value, TEXT_SIZE_MIN, TEXT_SIZE_MAX, BattleRes.defaults.countTextSize)
                 ApplyBattleResSize()
@@ -1174,13 +1194,16 @@ function BattleRes:BuildOptions(db)
             label = T("settings.count_text_color", "层数颜色"),
             layoutPreset = "compactColor",
             hasAlpha = true,
-            get = function() return db.countTextColor end,
+            fontStyleSource="countTextColor", get = function() return db.countTextColor end,
             default = DEFAULT_COUNT_TEXT_COLOR,
             set = function(value)
                 db.countTextColor = NormalizeColor(value, DEFAULT_COUNT_TEXT_COLOR)
                 ApplyBattleResSize()
             end,
         },
+    })
+
+    AddAlignedFieldGroup(options, nil, {
         {
             type = "slider",
             label = T("settings.count_text_offset_x", "层数X"),
@@ -1205,10 +1228,38 @@ function BattleRes:BuildOptions(db)
                 ApplyBattleResSize()
             end,
         },
-    })
+    }, { hideDivider = true })
 
+    if GUI2 and GUI2.FontStyle and GUI2.FontStyle.MergeOptions then
+        GUI2.FontStyle:MergeOptions(options, {
+            {key="battle_res:timer",label=T("settings.text"),
+                sources={"timerTextSize","timerTextColor"}},
+            {key="battle_res:count",label=T("settings.text"),
+                sources={"countTextSize","countTextColor"}},
+        })
+    end
     return options
 end
 
 Tools.BattleRes = BattleRes
 Tools:RegisterSubFeature(BattleRes)
+
+if GUI2 and GUI2.FontStyle and GUI2.FontStyle.RegisterConfig then
+    local style=GUI2.FontStyle
+    textStyles={
+        style.FullConfig({id="timer",label=function() return T("settings.battle_res_timer_text", "倒计时文本") end,
+            fields={size="timerTextSize",color="timerTextColor"},defaults=BattleRes.defaults,minSize=TEXT_SIZE_MIN,maxSize=TEXT_SIZE_MAX},
+            "timerText",{shadow=true,color=DEFAULT_TIMER_TEXT_COLOR,
+                font=function() return GUI2.Fonts and GUI2.Fonts.normal or GUI2:GetFont("font.family.body") end}),
+        style.FullConfig({id="count",label=function() return T("settings.battle_res_count_text", "层数文本") end,
+            fields={size="countTextSize",color="countTextColor"},defaults=BattleRes.defaults,minSize=TEXT_SIZE_MIN,maxSize=TEXT_SIZE_MAX},
+            "countText",{shadow=true,color=DEFAULT_COUNT_TEXT_COLOR,
+                font=function() return GUI2.Fonts and GUI2.Fonts.normal or GUI2:GetFont("font.family.body") end}),
+    }
+    style:RegisterConfig("battle_res", {
+        label=function() return T("settings.battle_res", "战斗复活") end,
+        get=function() return style.ComponentConfig(Tools.PRODUCT_ID,Tools.CONFIG_KEY) end,
+        refresh=function() if BattleResWidget.frame then ApplyBattleResSize() end end,
+        targets=textStyles,
+    })
+end

@@ -6,6 +6,7 @@ local NativeBridge = YHUD.NativeBridge or {}
 YHUD.NativeBridge = NativeBridge
 
 local OFFICIAL_ADDON = "Blizzard_CooldownViewer"
+NativeBridge.viewerVisibilityRetryDelays = { 0, 0.1, 0.5, 1, 2 }
 NativeBridge.officialRuntimeRetryDelays =
     NativeBridge.officialRuntimeRetryDelays
     or { 0, 0.05, 0.1, 0.25, 0.5, 1, 2 }
@@ -66,8 +67,6 @@ for descriptorIndex = 1, #DESCRIPTORS do
     DESCRIPTOR_BY_CATEGORY[descriptor.category] = descriptor
 end
 local PANDEMIC_GLOW_COLOR = { 1, 0.08, 0.02, 0.9 }
-local PANDEMIC_ICON_GLOW_TEXTURES =
-    YUI.GUI2 and YUI.GUI2.IconStateInnerTextures or {}
 local PANDEMIC_MATERIAL_GLOW = {
     style = "material",
     color = PANDEMIC_GLOW_COLOR,
@@ -94,6 +93,9 @@ local STAT_FIELDS = {
     "exactAuraSignals",
     "exactAuraVisibilityChanges",
     "exactAuraStableSignals",
+    "iconTextLayerRepairs",
+    "iconTextLayerFailures",
+    "iconTextRecoveryFlushes",
     "geometryHookRepairs",
     "geometryAuditRepairs",
     "geometryRepairFailures",
@@ -125,6 +127,10 @@ local STAT_FIELDS = {
     "pandemicHideSignals",
     "procGlowSignals",
     "procGlowWrites",
+    "activationSettleRequests",
+    "activationSettleFlushes",
+    "activationSettleVisits",
+    "activationSettleRepairs",
     "staticLayoutSignals",
     "staticLayoutScannedFrames",
     "staticLayoutMaxFrames",
@@ -160,6 +166,9 @@ local STAT_FIELDS = {
     "visibilityAlphaWrites",
     "visibilityAlphaSkips",
     "visibilityAlphaFailures",
+    "viewerVisibilityChecks",
+    "viewerVisibilityRepairs",
+    "viewerVisibilityFailures",
 }
 NativeBridge.states = NativeBridge.states or {}
 NativeBridge.frameStates = NativeBridge.frameStates
@@ -191,6 +200,8 @@ NativeBridge.barDurationHookedFrames = NativeBridge.barDurationHookedFrames
 NativeBridge.staticCooldownHookedFrames =
     NativeBridge.staticCooldownHookedFrames
     or setmetatable({}, { __mode = "k" })
+NativeBridge.keybindOverrideHookedFrames = NativeBridge.keybindOverrideHookedFrames
+    or setmetatable({}, { __mode = "k" })
 NativeBridge.staticPositionHookedFrames =
     NativeBridge.staticPositionHookedFrames
     or setmetatable({}, { __mode = "k" })
@@ -204,6 +215,19 @@ NativeBridge.dynamicScaleHookedFrames =
     NativeBridge.dynamicScaleHookedFrames
     or setmetatable({}, { __mode = "k" })
 NativeBridge.tooltipHookedFrames = NativeBridge.tooltipHookedFrames
+    or setmetatable({}, { __mode = "k" })
+NativeBridge.activationTimerOwners = NativeBridge.activationTimerOwners
+    or setmetatable({}, { __mode = "k" })
+NativeBridge.activationHookedFrames = NativeBridge.activationHookedFrames
+    or setmetatable({}, { __mode = "k" })
+NativeBridge.activationHookedTimers = NativeBridge.activationHookedTimers
+    or setmetatable({}, { __mode = "k" })
+NativeBridge.activationSettleFrames = NativeBridge.activationSettleFrames or {}
+NativeBridge.iconTextRecoveryFrames = NativeBridge.iconTextRecoveryFrames
+    or setmetatable({}, { __mode = "k" })
+NativeBridge.iconTextPreviewFrames = NativeBridge.iconTextPreviewFrames
+    or setmetatable({}, { __mode = "k" })
+NativeBridge.iconTextShownHookedFrames = NativeBridge.iconTextShownHookedFrames
     or setmetatable({}, { __mode = "k" })
 NativeBridge.active = NativeBridge.active == true
 NativeBridge.editModeActive = NativeBridge.editModeActive == true
@@ -592,6 +616,10 @@ local function BuildMonitorMap(profile, category, layout)
                     monitor,
                     entry
                 ) == true
+            local activationStyle = YHUD.GetAuraActivationStyle
+                and YHUD:GetAuraActivationStyle(profile)
+            local activationAppearance = auraHighlight and activationStyle
+                and activationStyle.mode == "custom" and activationStyle.appearance or nil
             local inactiveDesaturate = YHUD.GetEffectiveInactiveDesaturate
                 and YHUD:GetEffectiveInactiveDesaturate(
                     profile,
@@ -634,6 +662,7 @@ local function BuildMonitorMap(profile, category, layout)
                 and YHUD:GetIconGroupStyle(profile, monitor.groupId))
             local cooldownGCD = not groupStyle or groupStyle.cooldownGCD ~= false
             result[entry.cooldownId] = {
+                cooldownId = entry.cooldownId,
                 monitorId = monitorId,
                 groupId = monitor.groupId,
                 sourceKey = monitor.sourceKey,
@@ -647,13 +676,14 @@ local function BuildMonitorMap(profile, category, layout)
                 persistentAuraOverlay = persistentAuraOverlay == true,
                 canUseAuraForCooldown = canUseAuraForCooldown,
                 skillAuraDisplay = skillAuraDisplay,
-                auraHighlight = auraHighlight,
+                auraHighlight = auraHighlight and activationAppearance == nil,
+                auraActivationAppearance = activationAppearance,
                 inactiveDesaturate = inactiveDesaturate,
                 gcdEligible = gcdEligible,
                 cooldownGCD = cooldownGCD,
                 needsSkillAuraRefresh = (canUseAuraForCooldown == true
                     and (skillAuraDisplay == false
-                        or auraHighlight == false
+                        or auraHighlight == false or activationAppearance ~= nil
                         or inactiveDesaturate == true))
                     or gcdEligible,
                 spellId = spellId,
@@ -664,6 +694,10 @@ local function BuildMonitorMap(profile, category, layout)
                 cooldownCompletionCooldownSpellId = spellId,
                 cooldownCompletionChargeSpellId = chargeSpellId,
                 keybindSpellEligible = spellEligible,
+                equipSlot = entry.equipSlot,
+                slotId = entry.slotId,
+                itemId = entry.itemId or entry.itemID,
+                itemIds = entry.itemIds,
             }
         end
     end
@@ -699,6 +733,7 @@ local function CopyCompiledTextStyle(target, source)
     target.font = source.font
     target.size = source.size
     target.outline = source.outline
+    target.monochrome = source.monochrome
     target.position = source.position
     target.anchor = source.anchor
     target.offsetX = source.offsetX
@@ -951,8 +986,9 @@ local function SetFrameLevelIfChanged(frame, level)
     if not (frame and type(level) == "number") then return false end
     local ok, current = SafeMethod(frame, "GetFrameLevel")
     current = ok and SafeNumber(current) or nil
-    if current == level then return false end
-    return SafeMethod(frame, "SetFrameLevel", level) == true
+    if current == level then return false, true, current end
+    local applied = SafeMethod(frame, "SetFrameLevel", level) == true
+    return applied, applied, current
 end
 
 local function GetSafeFrameLevel(frame)
@@ -964,8 +1000,8 @@ local function SetFrameStrataIfChanged(frame, strata)
     if not (frame and type(strata) == "string") then return false end
     local ok, current = SafeMethod(frame, "GetFrameStrata")
     current = ok and SafeString(current) or nil
-    if current == strata then return false end
-    return SafeMethod(frame, "SetFrameStrata", strata) == true
+    if current == strata then return false, current end
+    return SafeMethod(frame, "SetFrameStrata", strata) == true, current
 end
 
 local function CaptureFrameLayer(frame)
@@ -1017,9 +1053,14 @@ end
 local function ApplyFrameLayer(styleState, key, frame, strata, level)
     local record = EnsureFrameLayerRecord(styleState, key, frame)
     if not record then return false end
-    local changed = SetFrameStrataIfChanged(frame, strata)
-    changed = SetFrameLevelIfChanged(frame, level) or changed
-    return changed
+    local strataChanged, oldStrata = SetFrameStrataIfChanged(frame, strata)
+    local levelChanged, _, oldLevel = SetFrameLevelIfChanged(frame, level)
+    -- Only confirmed changes invalidate text. An unreadable root may receive
+    -- the same target again; that is not evidence of another layer change.
+    if (strataChanged and oldStrata ~= nil) or (levelChanged and oldLevel ~= nil) then
+        styleState.nativeIconTextDirty = true
+    end
+    return strataChanged or levelChanged
 end
 
 local function RestoreNativeFrameLayers(styleState)
@@ -1105,14 +1146,15 @@ local function SetIconTextDrawLayer(text)
     subLevel = ok and SafeNumber(subLevel) or nil
     if layer == ICON_TEXT_DRAW_LAYER
         and subLevel == ICON_TEXT_DRAW_SUBLEVEL then
-        return false
+        return false, true
     end
-    return SafeMethod(
+    local applied = SafeMethod(
         text,
         "SetDrawLayer",
         ICON_TEXT_DRAW_LAYER,
         ICON_TEXT_DRAW_SUBLEVEL
     ) == true
+    return applied, applied
 end
 
 local function GetNativeCountCarrier(frame, count)
@@ -1160,10 +1202,8 @@ local function ApplyNativeIconTextLayers(
     count
 )
     if not (frame and styleState) then return false end
-    if cooldownText
-        and styleState.cooldownTextRegion ~= cooldownText then
-        styleState.cooldownTextRegion = cooldownText
-        styleState.cooldownFont = CaptureFontString(cooldownText, true)
+    if NativeBridge:DeferIconTextForPreview(frame, styleState) then
+        return false
     end
     local view = YHUD.View
     local binding = styleState.nativeBinding
@@ -1172,6 +1212,29 @@ local function ApplyNativeIconTextLayers(
         or styleState.nativeLayerRuntime
         or binding and view and view.groups
             and view.groups[binding.groupId]
+    if styleState.nativeIconTextFailed == true
+        and styleState.nativeIconTextDirty ~= true then
+        local textLevel, textStrata = NativeBridge:_ResolveTextLayer(runtime,
+            styleState.nativeDisplayLevel or styleState.nativeIconTextRootLevel or 0)
+        if styleState.nativeIconTextDisplayLevel == styleState.nativeDisplayLevel
+            and styleState.nativeIconTextLevel == textLevel
+            and styleState.nativeIconTextStrata == textStrata
+            and styleState.nativeIconTextCooldown == frame.Cooldown
+            and styleState.nativeIconTextCountdown == cooldownText
+            and styleState.nativeIconTextCount == count then
+            return false
+        end
+    end
+    if cooldownText
+        and styleState.cooldownTextRegion ~= cooldownText then
+        styleState.cooldownTextRegion = cooldownText
+        styleState.cooldownFont = CaptureFontString(cooldownText, true)
+    end
+    -- Layout/show/identity changes start a new attempt; the shared retry must
+    -- not grant its owner another retry when that attempt also fails.
+    if styleState.nativeIconTextRetrying ~= true then
+        styleState.nativeIconTextFailed = nil
+    end
     local nativeAura = styleState.nativeCategory == "trackedBuff"
         or styleState.nativeCategory == "trackedBar"
     local level
@@ -1208,11 +1271,11 @@ local function ApplyNativeIconTextLayers(
         level = levelOK and SafeNumber(currentLevel) or 0
     end
     level = type(level) == "number" and level or 0
-    local textLevel = NativeBridge:_ResolveTextLayer(
+    local textLevel, textStrata = NativeBridge:_ResolveTextLayer(
         runtime,
         level
     )
-    local changed = false
+    local changed, failed = false, false
     local cooldown = frame.Cooldown
     if cooldown
         and styleState.cooldownFrameLevelCaptured ~= true then
@@ -1220,11 +1283,13 @@ local function ApplyNativeIconTextLayers(
         styleState.cooldownFrameLevel = ok and SafeNumber(original) or nil
         styleState.cooldownFrameLevelCaptured = ok == true
     end
-    changed = SetFrameLevelIfChanged(
+    local wrote, applied = SetFrameLevelIfChanged(
         cooldown,
         level + ICON_COOLDOWN_FRAME_LEVEL_OFFSET
-    ) or changed
-    changed = SetIconTextDrawLayer(cooldownText) or changed
+    )
+    changed, failed = wrote or changed, applied == false or failed
+    wrote, applied = SetIconTextDrawLayer(cooldownText)
+    changed, failed = wrote or changed, applied == false or failed
 
     local carrier = GetNativeCountCarrier(frame, count)
     if carrier ~= styleState.countCarrier then
@@ -1237,11 +1302,31 @@ local function ApplyNativeIconTextLayers(
             styleState.countCarrierFrameLevelCaptured = ok == true
         end
     end
-    changed = SetFrameLevelIfChanged(
+    wrote, applied = SetFrameLevelIfChanged(
         carrier,
         textLevel
-    ) or changed
-    changed = SetIconTextDrawLayer(count) or changed
+    )
+    changed, failed = wrote or changed, applied == false or failed
+    wrote, applied = SetIconTextDrawLayer(count)
+    changed, failed = wrote or changed, applied == false or failed
+    -- Cache the attempted public target too: a failed write belongs to the
+    -- recovery queue, not to every subsequent Aura refresh.
+    styleState.nativeIconTextRootLevel = level
+    styleState.nativeIconTextDisplayLevel = styleState.nativeDisplayLevel
+    styleState.nativeIconTextLevel = textLevel
+    styleState.nativeIconTextStrata = textStrata
+    styleState.nativeIconTextCooldown = cooldown
+    styleState.nativeIconTextCountdown = cooldownText
+    styleState.nativeIconTextCount = count
+    styleState.nativeIconTextDirty = nil
+    AddStat("iconTextLayerRepairs")
+    if failed then
+        AddStat("iconTextLayerFailures")
+        NativeBridge:QueueIconTextRecovery(frame, styleState)
+    else
+        styleState.nativeIconTextFailed = nil
+        NativeBridge:CancelIconTextRecovery(frame)
+    end
     return changed
 end
 
@@ -1848,6 +1933,7 @@ local function EnsureNativeStatusChrome(bar, styleState)
         subLevel = -7,
     })
     chrome.track:SetAllPoints(bar)
+    chrome.shadowOwner = bar
     chrome.overlay = CreateFrame("Frame", nil, bar)
     chrome.overlay:SetAllPoints(bar)
     if chrome.overlay.SetFrameLevel then
@@ -1894,7 +1980,8 @@ end
 local function SuppressDebuffBorderWhileStyled(frame, styleState)
     local border = frame and frame.DebuffBorder
     if not border then return false end
-    if styleState.debuffBorder and styleState.debuffBorder ~= border then
+    local borderChanged = styleState.debuffBorder ~= border
+    if styleState.debuffBorder and borderChanged then
         SafeMethod(
             styleState.debuffBorder,
             "SetAlpha",
@@ -1906,21 +1993,32 @@ local function SuppressDebuffBorderWhileStyled(frame, styleState)
             styleState.debuffBorderTextureAlpha or 1
         )
     end
-    if styleState.debuffBorder ~= border then
+    if borderChanged then
         styleState.debuffBorder = border
         local ok, alpha = SafeMethod(border, "GetAlpha")
         styleState.debuffBorderAlpha = ok and SafeNumber(alpha) or 1
-        styleState.debuffBorderTexture = border.Texture
+        styleState.debuffBorderTexture = nil
+    end
+    local texture = border.Texture
+    if styleState.debuffBorderTexture ~= texture then
+        if not borderChanged then
+            SafeMethod(
+                styleState.debuffBorderTexture,
+                "SetAlpha",
+                styleState.debuffBorderTextureAlpha or 1
+            )
+        end
+        styleState.debuffBorderTexture = texture
         local textureOK, textureAlpha = SafeMethod(
-            styleState.debuffBorderTexture,
+            texture,
             "GetAlpha"
         )
         styleState.debuffBorderTextureAlpha =
             textureOK and SafeNumber(textureAlpha) or 1
     end
-    SafeMethod(border, "SetAlpha", 0)
-    SafeMethod(styleState.debuffBorderTexture, "SetAlpha", 0)
-    return true
+    -- Static skin only: do not inspect aura data or hook its native refresh stack.
+    local changed = NativeBridge:_SetVisualRegionState(border, nil, 0)
+    return NativeBridge:_SetVisualRegionState(texture, nil, 0) or changed
 end
 
 local function SetNativeProcGlowShown(styleState, shown)
@@ -1952,10 +2050,11 @@ function NativeBridge:_NormalizeProcGlowShape(snapshot)
 end
 
 function NativeBridge:_ResolveCustomGlowShape(snapshot, appearance)
+    local shape = snapshot and (snapshot.effectShape or snapshot.shape) or "square"
     if appearance and appearance.style == "proc" then
-        return self:_NormalizeProcGlowShape(snapshot)
+        return shape == "circle" and "circle" or "square"
     end
-    return snapshot and snapshot.shape or "square"
+    return shape
 end
 
 local ArmNativeCooldownCompletion
@@ -2069,6 +2168,58 @@ local function RefreshNativeCooldownGlowState(frame, styleState)
     return state
 end
 
+function NativeBridge:_GetNativeAuraExpired(frame)
+    -- The native source selector survives natural expiry. Only inspect public
+    -- clock values; restricted clocks are terminated by the C widget callback.
+    local _, paused = SafeField(frame, "cooldownPaused")
+    if SafeBoolean(paused) == true then return nil end
+    local _, start = SafeField(frame, "cooldownStartTime")
+    local _, duration = SafeField(frame, "cooldownDuration")
+    start, duration = SafeNumber(start), SafeNumber(duration)
+    local now = GetRuntimeTime()
+    if start and duration and now then
+        return start == 0 or start + duration <= now
+    end
+end
+
+function NativeBridge:_GetNativeAuraTimerShown(frame)
+    local ok, shown = SafeMethod(frame and frame.Cooldown, "IsShown")
+    if ok then return SafeBoolean(shown) end
+end
+
+function NativeBridge:_GetNativeAuraActive(frame, styleState)
+    local _, raw = SafeField(frame, "cooldownUseAuraDisplayTime")
+    local source = SafeBoolean(raw)
+    if source ~= true then return source end
+    local timerShown = self:_GetNativeAuraTimerShown(frame)
+    if timerShown == false then return false end
+    if styleState.nativeAuraTimerEnded == true then
+        local binding = styleState.nativeBinding
+        -- Native/gold presentation has no custom activation correction tail.
+        -- An ambiguous callback must not override its publicly active C timer.
+        if not styleState.nativeAuraCompletionPending
+            or binding and binding.auraActivationAppearance or timerShown ~= true then
+            return false
+        end
+    end
+    local expired = self:_GetNativeAuraExpired(frame)
+    if expired ~= nil then return not expired end
+    local hooks = self.activationHookedTimers[frame.Cooldown]
+    return hooks and hooks.done and hooks.clear and hooks.armed and true or nil
+end
+
+function NativeBridge:_StopCustomGlow(styleState)
+    local glow = styleState and styleState.nativeCustomGlow
+    if not (glow and glow.SetGlowShown) then return false end
+    if styleState.nativeCustomGlowShown ~= true
+        and glow.gui2GlowRequested ~= true and glow.gui2GlowVisible ~= true then
+        return false
+    end
+    glow:SetGlowShown(false)
+    styleState.nativeCustomGlowShown = false
+    return true
+end
+
 local function SyncNativeProcGlow(
     frame,
     styleState,
@@ -2113,9 +2264,9 @@ local function SyncNativeProcGlow(
         and styleState.nativeIncluded == true
     local inCombat = SafeBoolean(inCombatOverride)
     if inCombat == nil then inCombat = IsInCombat() end
-    local kind, appearance
+    local kind, appearance, glowRule
     if YHUD.Glow and YHUD.Glow.Resolve then
-        kind, appearance = YHUD.Glow:Resolve(
+        kind, appearance, glowRule = YHUD.Glow:Resolve(
             compiled,
             state,
             inCombat,
@@ -2129,7 +2280,17 @@ local function SyncNativeProcGlow(
     if not compiled and nativeSignal == true then
         kind = "native-default"
     end
-    if styleState.visibilitySuppressed == true then
+    if kind == nil and binding and binding.auraActivationAppearance then
+        if binding.skillAuraDisplay ~= false
+            and NativeBridge:_GetNativeAuraActive(frame, styleState) == true then
+            kind, appearance = "aura-activation", binding.auraActivationAppearance
+        end
+    end
+    if not NativeBridge.active or styleState.restoring == true
+        or styleState.nativeIncluded ~= true
+        or styleState.visibilitySuppressed == true
+        or styleState.nativeFrameHidden == true
+        or binding and binding.cooldownId and GetCooldownID(frame) ~= binding.cooldownId then
         kind = nil
         appearance = nil
     end
@@ -2188,13 +2349,53 @@ local function SyncNativeProcGlow(
     end
 
     local changed = false
+    local stackSet = styleState.nativeAuraStackSet
+    if compiled and (compiled.stackRuleCount or 0) > 1 and category == "trackedBuff"
+        and YHUD.Glow and YHUD.Glow.ConfigureStackSet then
+        if not stackSet or stackSet.compiled ~= compiled
+            or stackSet.width ~= trustedWidth or stackSet.height ~= trustedHeight then
+            local configured = YHUD.Glow:ConfigureStackSet(frame, frame, compiled,
+                trustedWidth, trustedHeight, stackSet)
+            if not configured and stackSet then YHUD.Glow:ReleaseStackSet(stackSet) end
+            stackSet = configured
+            styleState.nativeAuraStackSet = stackSet
+        end
+        local adapter = YUI.API and YUI.API.CooldownViewer
+        local enabled = kind == "custom-rule" and glowRule and glowRule.stackCondition ~= nil
+            and auraPresent and adapter and adapter.FeedAuraApplicationGate
+            and stackSet and adapter:FeedAuraApplicationGate(frame, stackSet.gate) == true
+        changed = YHUD.Glow:ApplyStackSet(stackSet, inCombat, enabled == true,
+            snapshot and snapshot.shape or "square", glowFrameLevel, glowFrameStrata) or changed
+        if glowRule and glowRule.stackCondition then kind = nil end
+    elseif stackSet then
+        changed = YHUD.Glow:ApplyStackSet(stackSet, inCombat, false) or changed
+    end
+    local stackCondition = glowRule and glowRule.stackCondition
+    local stackGate = styleState.nativeAuraStackGate
+    if stackCondition and kind == "custom-rule" then
+        local adapter = YUI.API and YUI.API.CooldownViewer
+        if nativeAura and category == "trackedBuff" and trustedWidth and trustedHeight
+            and gui.CreateAuraApplicationGate and adapter and adapter.FeedAuraApplicationGate then
+            if not stackGate then
+                stackGate = gui:CreateAuraApplicationGate(frame, frame, stackCondition,
+                    trustedWidth, trustedHeight)
+                styleState.nativeAuraStackGate = stackGate
+            elseif not gui:ConfigureAuraApplicationGate(stackGate, frame, stackCondition,
+                trustedWidth, trustedHeight) then
+                stackGate = nil
+            end
+            if not stackGate or not adapter:FeedAuraApplicationGate(frame, stackGate) then kind = nil end
+        else
+            kind = nil
+        end
+    end
     if kind ~= "native-default" then
         changed = SetNativeProcGlowShown(styleState, false) or changed
     end
-    local customShown = kind == "native-custom" or kind == "custom-rule"
+    local customShown = kind == "native-custom" or kind == "custom-rule" or kind == "aura-activation"
     if customShown and gui.CreateGlow then
         local glow = styleState.nativeCustomGlow
-        if not glow then
+        if not glow and kind ~= "aura-activation" then
             glow = gui:CreateGlow(frame, {
                 hidden = true,
                 restrictedParent = nativeAura,
@@ -2220,11 +2421,12 @@ local function SyncNativeProcGlow(
                     glowFrameStrata
                 ) or changed
             end
+            if glow.SetGlowSkinOwner then glow:SetGlowSkinOwner(frame) end
             local shape = NativeBridge:_ResolveCustomGlowShape(
                 snapshot,
                 appearance
             )
-            local targetShape = snapshot and snapshot.shape or "square"
+            local targetShape = snapshot and (snapshot.effectShape or snapshot.shape) or "square"
             if glow.SetGlowShape
                 and (styleState.nativeCustomGlowShape ~= shape
                     or styleState.nativeCustomGlowTargetShape
@@ -2241,18 +2443,19 @@ local function SyncNativeProcGlow(
                 changed = true
             end
             if glow.SetGlowShown
-                and styleState.nativeCustomGlowShown ~= true then
+                and (styleState.nativeCustomGlowShown ~= true
+                    or glow.gui2GlowRequested == false
+                    or glow.gui2GlowVisible == false) then
                 glow:SetGlowShown(true)
                 styleState.nativeCustomGlowShown = true
                 changed = true
             end
+            if glow.SetGlowClipParent then
+                changed = glow:SetGlowClipParent(stackCondition and stackGate.clip or nil) or changed
+            end
         end
-    elseif styleState.nativeCustomGlowShown == true
-        and styleState.nativeCustomGlow
-        and styleState.nativeCustomGlow.SetGlowShown then
-        styleState.nativeCustomGlow:SetGlowShown(false)
-        styleState.nativeCustomGlowShown = false
-        changed = true
+    else
+        changed = NativeBridge:_StopCustomGlow(styleState) or changed
     end
     local keepDefaultGlow = kind == "native-default"
         or not compiled
@@ -2744,6 +2947,14 @@ ApplyManagedFrameVisibility = function(state, frame, styleState, verify)
     if not visible then
         SetNativeProcGlowShown(styleState, false)
         SetPandemicGlowShown(styleState, false)
+        NativeBridge:_StopCustomGlow(styleState)
+        NativeBridge:CancelActivationSettle(frame)
+        if styleState.nativeAuraStackSet then
+            YHUD.Glow:ApplyStackSet(styleState.nativeAuraStackSet, false, false)
+        end
+    elseif styleState.nativeCustomGlow then
+        SyncNativeProcGlow(frame, styleState, styleState.compiledIcon)
+        NativeBridge:QueueActivationSettle(frame, styleState)
     end
     local alpha = visible and GetAlphaBaseline(state, frame) or 0
     local ok, wrote = SetAlphaIfChanged(state, frame, alpha, verify)
@@ -2763,6 +2974,9 @@ end
 
 local function RestoreCooldownFlash(styleState)
     if not styleState then return end
+    if YUI.GUI2 and YUI.GUI2.RestoreIconCooldownFlash then
+        YUI.GUI2:RestoreIconCooldownFlash(styleState.cooldownFlashStyle)
+    end
     local flash = styleState.cooldownFlashFrame
     if flash then
         SafeMethod(
@@ -2792,13 +3006,26 @@ local function ApplyCooldownFlash(frame, styleState, snapshot)
     local enabled = snapshot and snapshot.drawBling == true
         and styleState.nativeGCDTimer ~= true
     local cooldown = frame and frame.Cooldown
+    local gui = YUI.GUI2
+    if gui and gui.ApplyIconCooldownFlash and cooldown then
+        if enabled then
+            styleState.cooldownFlashStyle = styleState.cooldownFlashStyle or {}
+            gui:ApplyIconCooldownFlash(flash, cooldown, snapshot, styleState.cooldownFlashStyle,
+                styleState.iconFlashWidth, styleState.iconFlashHeight)
+        else
+            gui:RestoreIconCooldownFlash(styleState.cooldownFlashStyle)
+        end
+    end
     if cooldown then
+        -- CDM already schedules the shared contour flash. Do not overlay a
+        -- second, unshaped native widget bling on the same completion.
+        local drawBling = enabled and not (gui and gui.HasIconCooldownFlash and gui:HasIconCooldownFlash(cooldown))
         local ok, current = SafeMethod(cooldown, "GetDrawBling")
-        if not ok or SafeBoolean(current) ~= enabled then
-            SafeMethod(cooldown, "SetDrawBling", enabled)
+        if not ok or SafeBoolean(current) ~= drawBling then
+            SafeMethod(cooldown, "SetDrawBling", drawBling)
         end
         if styleState.cooldownState then
-            styleState.cooldownState.drawBling = enabled
+            styleState.cooldownState.drawBling = drawBling
         end
     end
     if enabled then
@@ -2813,62 +3040,6 @@ local function ApplyCooldownFlash(frame, styleState, snapshot)
     end
     styleState.cooldownFlashSuppressed = not enabled
     return true
-end
-
-local PandemicMaterialGlow = {}
-PandemicMaterialGlow.__index = PandemicMaterialGlow
-
-function PandemicMaterialGlow:SetGlowParams(params)
-    self.params = params or PANDEMIC_MATERIAL_GLOW
-    local color = self.params.color or PANDEMIC_GLOW_COLOR
-    SafeMethod(
-        self.Texture,
-        "SetVertexColor",
-        color[1] or 1,
-        color[2] or 0,
-        color[3] or 0,
-        color[4] == nil and 1 or color[4]
-    )
-end
-
-function PandemicMaterialGlow:SetGlowShape(shape)
-    local texturePath = PANDEMIC_ICON_GLOW_TEXTURES[shape]
-        or PANDEMIC_ICON_GLOW_TEXTURES.square
-    if self.shape == shape and self.texturePath == texturePath then
-        return false
-    end
-    self.shape = shape
-    self.texturePath = texturePath
-    SafeMethod(self.Texture, "SetTexture", texturePath)
-    return true
-end
-
-function PandemicMaterialGlow:SetGlowShown(shown)
-    shown = shown == true
-    if self.shown == shown then return false end
-    self.shown = shown
-    SafeMethod(self.Texture, shown and "Show" or "Hide")
-    return true
-end
-
-local function CreatePandemicMaterialGlow(gui, target, shape)
-    if not (gui and gui.CreateTexture and target) then return nil end
-    local texture = gui:CreateTexture(target, {
-        layer = "OVERLAY",
-        subLevel = 7,
-    })
-    if not texture then return nil end
-    SafeMethod(texture, "SetAllPoints", target)
-    SafeMethod(texture, "SetTexCoord", 0, 1, 0, 1)
-    SafeMethod(texture, "SetBlendMode", "ADD")
-    local glow = setmetatable({
-        target = target,
-        Texture = texture,
-    }, PandemicMaterialGlow)
-    glow:SetGlowParams(PANDEMIC_MATERIAL_GLOW)
-    glow:SetGlowShape(shape)
-    glow:SetGlowShown(false)
-    return glow
 end
 
 local function EnsurePandemicGlow(frame, styleState, runtime, descriptor)
@@ -2895,7 +3066,7 @@ local function EnsurePandemicGlow(frame, styleState, runtime, descriptor)
         SafeMethod(target, "Show")
         styleState.pandemicGlowTarget = target
     end
-    local shape = runtime.shape or runtime.iconShape or "square"
+    local shape = runtime.iconStyle and runtime.iconStyle.effectShape or runtime.shape or runtime.iconShape or "square"
     local pixel = descriptor.kind == "bar"
     local params = pixel and PANDEMIC_PIXEL_GLOW
         or PANDEMIC_MATERIAL_GLOW
@@ -2916,7 +3087,7 @@ local function EnsurePandemicGlow(frame, styleState, runtime, descriptor)
                 trustedHeight = runtime.itemHeight or runtime.iconHeight or 24,
             })
         elseif not pixel then
-            glow = CreatePandemicMaterialGlow(gui, target, shape)
+            glow = gui:CreateStaticIconState(target, shape, PANDEMIC_MATERIAL_GLOW)
         end
     end
     if not glow then return nil end
@@ -3097,6 +3268,11 @@ local function SyncCurrentPandemicAppearance(frame, descriptor)
 end
 
 local function RestoreNativeChrome(styleState)
+    if styleState then
+        for frame, pending in pairs(NativeBridge.activationSettleFrames) do
+            if pending == styleState then NativeBridge:CancelActivationSettle(frame) end
+        end
+    end
     local chrome = styleState and styleState.nativeIconChrome
     if chrome then
         SafeMethod(chrome.icon, "RemoveMaskTexture", chrome.mask)
@@ -3130,6 +3306,9 @@ local function RestoreNativeChrome(styleState)
         local gui = YUI.GUI2
         if gui and gui.ReleaseProjectedStatusBarFill
             and statusChrome.projection then
+            if YHUD.View and YHUD.View.ClearBarProgress then
+                YHUD.View:ClearBarProgress(statusChrome.projection, true)
+            end
             statusChrome.projection._yhudBarStackInputs = nil
             statusChrome.projection._yhudBarStackPolicy = nil
             statusChrome.projection._yhudBarStackBaseColor = nil
@@ -3161,6 +3340,16 @@ local function RestoreNativeChrome(styleState)
         styleState.nativeCustomGlow:SetGlowShown(false)
         styleState.nativeCustomGlowShown = false
         styleState.nativeCustomGlowAppearance = nil
+        if styleState.nativeCustomGlow.SetGlowClipParent then
+            styleState.nativeCustomGlow:SetGlowClipParent(nil)
+        end
+    end
+    if styleState and styleState.nativeAuraStackGate then
+        styleState.nativeAuraStackGate.driver:SetValue(0)
+        styleState.nativeAuraStackGate.lastPublicValue = nil
+    end
+    if styleState and styleState.nativeAuraStackSet then
+        YHUD.Glow:ReleaseStackSet(styleState.nativeAuraStackSet)
     end
     if styleState and styleState.nativeProcAlert then
         SafeMethod(
@@ -3190,8 +3379,7 @@ local function ApplySkillAuraDisplay(frame, reason)
     local binding = styleState.nativeBinding
     local supported = binding and binding.canUseAuraForCooldown == true
     local enabled = not supported or binding.skillAuraDisplay ~= false
-    local _, cachedAuraValue = SafeField(frame, "cooldownUseAuraDisplayTime")
-    local auraDisplayState = SafeBoolean(cachedAuraValue)
+    local auraDisplayState = NativeBridge:_GetNativeAuraActive(frame, styleState)
     local auraActive = supported and auraDisplayState == true
     local _, cachedGCD = SafeField(frame, "isOnGCD")
     local _, cachedCharges = SafeField(frame, "wasSetFromCharges")
@@ -3268,6 +3456,7 @@ local function ApplySkillAuraDisplay(frame, reason)
             )
         end
         styleState.skillAuraForcedOff = true
+        styleState.auraActivationDesaturateApplied = nil
         styleState.skillAuraRestorePending = nil
         styleState.applyingSkillAuraDisplay = false
     end
@@ -3292,26 +3481,34 @@ local function ApplySkillAuraDisplay(frame, reason)
             styleState.auraHighlightSuppressed = nil
         end
 
-        if binding.inactiveDesaturate == true then
+        if enabled and auraActive and not styleState.skillAuraForcedOff
+            and binding.auraActivationAppearance then
+            local ok, desaturated = SafeMethod(icon, "IsDesaturated")
+            if not ok or SafeBoolean(desaturated) ~= false then SafeMethod(icon, "SetDesaturated", false) end
+            styleState.auraActivationDesaturateApplied = true
+        elseif binding.inactiveDesaturate == true then
             SafeMethod(icon, "SetDesaturated", not auraActive)
             styleState.inactiveDesaturateApplied = true
-        elseif styleState.inactiveDesaturateApplied then
-            local _, nativeDesaturated = SafeField(
-                frame,
-                "cooldownDesaturated"
-            )
-            SafeMethod(
-                icon,
-                "SetDesaturated",
-                SafeBoolean(nativeDesaturated) == true
-            )
+            styleState.auraActivationDesaturateApplied = nil
+        elseif styleState.inactiveDesaturateApplied or styleState.auraActivationDesaturateApplied then
+            -- Native tint also depends on expiry, not just its cached selector.
+            styleState.applyingSkillAuraDisplay = true
+            local security = GetSecurity()
+            if security and type(security.SecureCallMethod) == "function" then
+                pcall(security.SecureCallMethod, frame, "RefreshIconDesaturation")
+            else
+                SafeMethod(frame, "RefreshIconDesaturation")
+            end
+            styleState.applyingSkillAuraDisplay = nil
             styleState.inactiveDesaturateApplied = nil
+            styleState.auraActivationDesaturateApplied = nil
         end
     end
     if styleState.compiledIcon
         and previousGCDTimer ~= (styleState.nativeGCDTimer == true) then
         ApplyCooldownFlash(frame, styleState, styleState.compiledIcon)
     end
+    styleState.nativeAuraPresentationActive = auraDisplayState
     return true
 end
 
@@ -3342,6 +3539,7 @@ end
 
 local function OnSkillAuraDisplayRefresh(owner)
     local styleState = owner and NativeBridge.frameStates[owner]
+    if styleState and styleState.applyingSkillAuraDisplay then return end
     local binding = styleState and styleState.nativeBinding
     if NativeBridge.active and not IsNativeEditModeActive()
         and styleState and styleState.nativeIncluded == true then
@@ -3352,7 +3550,122 @@ local function OnSkillAuraDisplayRefresh(owner)
         if RehydrateNativeCooldownPresentation then
             RehydrateNativeCooldownPresentation(owner, styleState)
         end
+        NativeBridge:QueueActivationSettle(owner, styleState)
     end
+end
+
+function NativeBridge:_RefreshAuraActivation(frame, styleState)
+    local binding = styleState and styleState.nativeBinding
+    if not (self.active and not IsNativeEditModeActive()
+        and styleState and self.frameStates[frame] == styleState
+        and styleState.restoring ~= true and styleState.nativeIncluded == true
+        and binding and binding.auraActivationAppearance
+        and binding.cooldownId == GetCooldownID(frame)) then
+        return false
+    end
+    local wasShown = styleState.nativeCustomGlowShown
+    local glow = styleState.nativeCustomGlow
+    local requested = glow and glow.gui2GlowRequested
+    if styleState.nativeAuraPresentationActive ~= self:_GetNativeAuraActive(frame, styleState) then
+        ApplySkillAuraDisplay(frame, "native-refresh")
+        RehydrateNativeCooldownPresentation(frame, styleState)
+    else
+        SyncNativeProcGlow(frame, styleState, styleState.compiledIcon)
+    end
+    return wasShown ~= styleState.nativeCustomGlowShown
+        or requested ~= (glow and glow.gui2GlowRequested)
+end
+
+function NativeBridge._ActivationTimerArmed(cooldown)
+    local frame = NativeBridge.activationTimerOwners[cooldown]
+    local state = frame and NativeBridge.frameStates[frame]
+    if not state or frame.Cooldown ~= cooldown
+        or state.applyingSkillAuraDisplay or state.restoring then return end
+    state.nativeAuraTimerEnded = NativeBridge:_GetNativeAuraTimerShown(frame) == false or nil
+    state.nativeAuraCompletionPending = nil
+    state.nativeAuraTimerID = GetCooldownID(frame)
+    NativeBridge:_RefreshAuraActivation(frame, state)
+    NativeBridge:QueueActivationSettle(frame, state)
+end
+
+function NativeBridge._ActivationTimerCleared(cooldown)
+    local frame = NativeBridge.activationTimerOwners[cooldown]
+    local state = frame and NativeBridge.frameStates[frame]
+    if not state or frame.Cooldown ~= cooldown
+        or state.applyingSkillAuraDisplay or state.restoring then return end
+    state.nativeAuraTimerEnded = true
+    state.nativeAuraCompletionPending = nil
+    NativeBridge:_RefreshAuraActivation(frame, state)
+    NativeBridge:QueueActivationSettle(frame, state)
+end
+
+function NativeBridge._ActivationTimerDone(cooldown)
+    local frame = NativeBridge.activationTimerOwners[cooldown]
+    local state = frame and NativeBridge.frameStates[frame]
+    if not state or frame.Cooldown ~= cooldown
+        or state.applyingSkillAuraDisplay or state.restoring
+        or state.nativeAuraTimerID ~= GetCooldownID(frame) then
+        return
+    end
+    local expired = NativeBridge:_GetNativeAuraExpired(frame)
+    if expired == false then return end
+    NativeBridge._ActivationTimerCleared(cooldown)
+    -- The captured native callback can rearm this same widget before our post
+    -- hook. Resolve its public C visibility after the script stack has settled.
+    if expired == nil then
+        -- Keep only this ambiguity marker while hidden; no timer is retained.
+        state.nativeAuraCompletionPending = true
+    end
+end
+
+function NativeBridge._ActivationFrameHidden(frame)
+    local state = NativeBridge.frameStates[frame]
+    if not state then return end
+    state.nativeFrameHidden = true
+    NativeBridge:_StopCustomGlow(state)
+    NativeBridge:CancelActivationSettle(frame)
+end
+
+function NativeBridge._ActivationFrameShown(frame)
+    local state = NativeBridge.frameStates[frame]
+    if not state then return end
+    state.nativeFrameHidden = nil
+    OnSkillAuraDisplayRefresh(frame)
+    NativeBridge:QueueActivationSettle(frame, state)
+end
+
+function NativeBridge:InstallActivationTimerHooks(frame)
+    local state = self.frameStates[frame]
+    local binding = state and state.nativeBinding
+    if not (binding and binding.canUseAuraForCooldown == true) then return end
+    local cooldown = frame.Cooldown
+    local hook = _G.hooksecurefunc
+    if not (cooldown and type(hook) == "function") then return end
+    self.activationTimerOwners[cooldown] = frame
+    if state.nativeAuraTimerID == nil then state.nativeAuraTimerID = GetCooldownID(frame) end
+    local hooks = self.activationHookedTimers[cooldown]
+    if not hooks then
+        hooks = {}
+        self.activationHookedTimers[cooldown] = hooks
+    end
+    if not hooks.done and type(cooldown.HookScript) == "function" then
+        hooks.done = pcall(cooldown.HookScript, cooldown, "OnCooldownDone", self._ActivationTimerDone)
+    end
+    for _, method in ipairs({ "SetCooldown", "SetCooldownFromDurationObject" }) do
+        if not hooks[method] and type(cooldown[method]) == "function" then
+            hooks[method] = pcall(hook, cooldown, method, self._ActivationTimerArmed)
+        end
+    end
+    hooks.armed = hooks.SetCooldown or hooks.SetCooldownFromDurationObject
+    if not hooks.clear and type(cooldown.Clear) == "function" then
+        hooks.clear = pcall(hook, cooldown, "Clear", self._ActivationTimerCleared)
+    end
+    if not self.activationHookedFrames[frame] and type(frame.HookScript) == "function" then
+        local hidden = pcall(frame.HookScript, frame, "OnHide", self._ActivationFrameHidden)
+        local shown = pcall(frame.HookScript, frame, "OnShow", self._ActivationFrameShown)
+        if hidden and shown then self.activationHookedFrames[frame] = true end
+    end
+    state.nativeFrameHidden = not IsShown(frame)
 end
 
 local function OnNativeSpellUsesRefresh(owner)
@@ -3401,6 +3714,7 @@ end
 
 local function InstallSkillAuraDisplayHook(frame, descriptor)
     if descriptor and descriptor.kind == "bar" then return true end
+    NativeBridge:InstallActivationTimerHooks(frame)
     if not frame or NativeBridge.skillAuraHookedFrames[frame] then
         return true
     end
@@ -3452,6 +3766,9 @@ local function ApplyIconFrameGeometry(frame, runtime, styleState)
         or runtime.iconHeight
         or runtime.iconSize
         or 42
+    if styleState then
+        styleState.iconFlashWidth, styleState.iconFlashHeight = width, height
+    end
     local captureDynamicGeometry = styleState
         and styleState.nativeCategory == "trackedBuff"
         and styleState.cooldownID ~= nil
@@ -3700,13 +4017,25 @@ local function ApplyNativeTooltipMouse(frame, runtime, styleState)
 end
 
 local function ApplyIconStyle(frame, runtime, descriptor, binding)
+    if YUI.GUI2.BeginIconSkin and not YUI.GUI2:BeginIconSkin(frame) then
+        YUI.GUI2:DeferIconSkin(frame, function() ApplyIconStyle(frame, runtime, descriptor, binding) end)
+        return
+    end
     local view = YHUD.View
     if view and view.ApplyIconShadow then
         view:ApplyIconShadow(frame, runtime, not IsInCombat())
     end
     local styleState = GetFrameStyleState(frame)
+    styleState.nativeIconTextDirty = true
+    if styleState.iconState then styleState.iconState.borderShown = nil end
     RefreshNativeCooldownGlowState(frame, styleState)
     InstallNativeTimerShownHook(frame)
+    if not NativeBridge.iconTextShownHookedFrames[frame]
+        and type(frame.HookScript) == "function" then
+        NativeBridge.iconTextShownHookedFrames[frame] = pcall(
+            frame.HookScript, frame, "OnShow", NativeBridge._IconTextFrameShown
+        ) or nil
+    end
     local gui = YUI.GUI2
     local icon = frame.Icon
     local cooldown = frame.Cooldown
@@ -3719,6 +4048,7 @@ local function ApplyIconStyle(frame, runtime, descriptor, binding)
     styleState.cooldownTextRegion = cooldownText
     local countRegionChanged = styleState.countTextRegion ~= count
     styleState.countTextRegion = count
+    if countRegionChanged then styleState.countState = nil end
     if not styleState.iconTextCaptured then
         if not styleState.cooldownFont then
             local ok, fontString = SafeMethod(
@@ -3779,6 +4109,9 @@ local function ApplyIconStyle(frame, runtime, descriptor, binding)
                 original.swipeColor = { 1, 1, 1, 1 }
             end
             original.useCircularEdge = false
+            -- 原生监控模板的亮边纹理与白色乘色；API 没有对应 getter。
+            original.edgeTexture = "Interface\\Cooldown\\UI-HUD-ActionBar-SecondaryCooldown"
+            original.edgeColor = { 1, 1, 1, 1 }
         end
         styleState.capturedIcon = true
     end
@@ -3790,6 +4123,10 @@ local function ApplyIconStyle(frame, runtime, descriptor, binding)
         snapshot
     ) or styleState.iconTarget
     if gui and gui.ApplyIconChrome and snapshot then
+        if gui.ApplyIconCooldownLayout then
+            gui:ApplyIconCooldownLayout(cooldown, icon or frame, snapshot.shape, snapshot.border,
+                runtime.iconWidth or runtime.iconSize, runtime.iconHeight or runtime.iconSize)
+        end
         gui:ApplyIconChrome(
             styleState.iconTarget,
             snapshot,
@@ -3834,7 +4171,39 @@ local function ApplyIconStyle(frame, runtime, descriptor, binding)
         count
     )
     SuppressDebuffBorderWhileStyled(frame, styleState)
+    -- Prepare activation artwork during style application, before aura refresh hooks run.
+    if binding and binding.auraActivationAppearance and gui and gui.CreateGlow then
+        local glow = styleState.nativeCustomGlow
+        if not glow then
+            glow = gui:CreateGlow(frame, { hidden = true })
+            styleState.nativeCustomGlow = glow
+            AddStat("procGlowCreates")
+        end
+        if glow and glow.SetGlowParams then
+            glow:SetGlowParams(binding.auraActivationAppearance)
+            styleState.nativeCustomGlowAppearance = binding.auraActivationAppearance
+        end
+        if glow and glow.SetGlowShape then
+            local shape = NativeBridge:_ResolveCustomGlowShape(snapshot, binding.auraActivationAppearance)
+            local targetShape = snapshot and (snapshot.effectShape or snapshot.shape) or "square"
+            glow:SetGlowShape(shape, targetShape)
+            styleState.nativeCustomGlowShape = shape
+            styleState.nativeCustomGlowTargetShape = targetShape
+        end
+    end
     SyncNativeProcGlow(frame, styleState, snapshot)
+    if RehydrateNativeCooldownPresentation then
+        RehydrateNativeCooldownPresentation(frame, styleState)
+    end
+    if view and view.ApplyNativeIconSkin and (runtime.skinId == "masque" or styleState.iconSkinRegistered) then
+        view:ApplyNativeIconSkin(frame, runtime, styleState,
+            function() ApplyIconStyle(frame, runtime, descriptor, binding) end,
+            function()
+                if RehydrateNativeCooldownPresentation then RehydrateNativeCooldownPresentation(frame, styleState, true) end
+                EnsurePandemicGlow(frame, styleState, runtime, descriptor)
+                SyncCurrentPandemicAppearance(frame, descriptor)
+            end)
+    end
 end
 
 RehydrateNativeCooldownPresentation = function(frame, styleState, force)
@@ -3877,7 +4246,18 @@ RehydrateNativeCooldownPresentation = function(frame, styleState, force)
         cooldownText,
         count
     )
+    -- Consume completed native source flags, never the restricted charge count.
+    local _, chargeSource = SafeField(frame, "wasSetFromCharges")
+    local auraSource = NativeBridge:_GetNativeAuraActive(frame, styleState)
+    local recovering = SafeBoolean(chargeSource) == true
+        and (auraSource == false or styleState.skillAuraForcedOff == true)
+    local chargeDisplay = runtime.chargeRecoveryDisplay or "hideSwipeOnly"
+    local hideRecoverySwipe = recovering
+        and (chargeDisplay == "hideSwipe" or chargeDisplay == "hideBoth"
+            or chargeDisplay == "hideSwipeOnly" or chargeDisplay == "hideSwipeAndCountdown")
     local hideNumbers = runtime.cooldownText == false
+        or recovering and (chargeDisplay == "hideCountdown" or chargeDisplay == "hideBoth"
+            or chargeDisplay == "hideEdgeAndCountdown" or chargeDisplay == "hideSwipeAndCountdown")
     local hideOK, currentHide = SafeMethod(
         cooldown,
         "GetHideCountdownNumbers"
@@ -3887,8 +4267,16 @@ RehydrateNativeCooldownPresentation = function(frame, styleState, force)
         SafeMethod(cooldown, "SetHideCountdownNumbers", hideNumbers)
     end
     if gui.ApplyCooldownSwipe then
-        local drawSwipe = styleState.nativeCooldownDrawSwipe ~= false
+        local drawSwipe = styleState.nativeCooldownDrawSwipe ~= false and not hideRecoverySwipe
         local reverse = styleState.nativeCooldownReverse == true
+        local binding = styleState.nativeBinding or styleState.nativeStyleBinding
+        -- Dark Aura swipes grow as the effect expires; gold swipes retain their native direction.
+        if binding and binding.canUseAuraForCooldown == true
+            and binding.skillAuraDisplay ~= false and not styleState.skillAuraForcedOff
+            and auraSource == true and binding.auraHighlight == false
+            and binding.cooldownSwipeMode ~= "forward" and binding.cooldownSwipeMode ~= "reverse" then
+            reverse = true
+        end
         local drawOK, currentDraw = SafeMethod(cooldown, "GetDrawSwipe")
         local reverseOK, currentReverse = SafeMethod(cooldown, "GetReverse")
         if force == true or not drawOK
@@ -3906,8 +4294,113 @@ RehydrateNativeCooldownPresentation = function(frame, styleState, force)
             styleState.cooldownState
         )
     end
+    local drawRecoveryEdge = recovering and (chargeDisplay == "normal" or chargeDisplay == "hideCountdown"
+        or chargeDisplay == "hideSwipeOnly" or chargeDisplay == "hideSwipeAndCountdown")
+    if recovering or styleState.chargeRecoveryEdgeShown then
+        local edgeOK, currentEdge = SafeMethod(cooldown, "GetDrawEdge")
+        -- Outside charge recovery, restore the managed icon chrome's edge-free style.
+        if not edgeOK or SafeBoolean(currentEdge) ~= drawRecoveryEdge then
+            SafeMethod(cooldown, "SetDrawEdge", drawRecoveryEdge)
+        end
+        styleState.cooldownState.drawEdge = drawRecoveryEdge
+    end
+    styleState.chargeRecoveryEdgeShown = drawRecoveryEdge
     ApplyCooldownFlash(frame, styleState, snapshot)
     SyncNativeProcGlow(frame, styleState, snapshot)
+    return true
+end
+
+function NativeBridge:CancelActivationSettle(frame)
+    if frame then
+        local state = self.activationSettleFrames[frame]
+        if state then
+            state.activationSettleRemaining = nil
+            state.activationSettleBinding = nil
+            state.activationSettleDeadline = nil
+        end
+        self.activationSettleFrames[frame] = nil
+    else
+        for pending, state in pairs(self.activationSettleFrames) do
+            state.activationSettleRemaining = nil
+            state.activationSettleBinding = nil
+            state.activationSettleDeadline = nil
+            self.activationSettleFrames[pending] = nil
+        end
+    end
+    if not next(self.activationSettleFrames) and self.activationSettleTimer then
+        self.activationSettleTimer:Cancel()
+        self.activationSettleTimer = nil
+    end
+end
+
+function NativeBridge._ActivationSettleCallback()
+    NativeBridge:FlushActivationSettle()
+end
+
+function NativeBridge:QueueActivationSettle(frame, state)
+    local binding = state and state.nativeBinding
+    if not (self.active and not IsNativeEditModeActive() and not self.layoutPreviewActive
+        and state and state.nativeIncluded == true and state.restoring ~= true
+        and state.visibilitySuppressed ~= true and state.nativeFrameHidden ~= true
+        and binding and binding.auraActivationAppearance and binding.skillAuraDisplay ~= false
+        and binding.cooldownId == GetCooldownID(frame)
+        and C_Timer and C_Timer.NewTimer) then
+        self:CancelActivationSettle(frame)
+        return false
+    end
+    AddStat("activationSettleRequests")
+    self.activationSettleFrames[frame] = state
+    state.activationSettleBinding = binding
+    state.activationSettleRemaining = 10
+    local now = GetRuntimeTime()
+    state.activationSettleDeadline = now and now + 1 or nil
+    if not self.activationSettleTimer then
+        self.activationSettleTimer = C_Timer.NewTimer(0.1, self._ActivationSettleCallback)
+    end
+    return true
+end
+
+function NativeBridge:FlushActivationSettle()
+    self.activationSettleTimer = nil
+    if not self.active or IsNativeEditModeActive() or self.layoutPreviewActive then
+        self:CancelActivationSettle()
+        return false
+    end
+    AddStat("activationSettleFlushes")
+    for frame, state in pairs(self.activationSettleFrames) do
+        if self.frameStates[frame] ~= state or state.restoring == true
+            or state.nativeIncluded ~= true or state.visibilitySuppressed == true
+            or state.nativeFrameHidden == true
+            or state.nativeBinding ~= state.activationSettleBinding
+            or GetCooldownID(frame) ~= state.activationSettleBinding.cooldownId then
+            self:CancelActivationSettle(frame)
+        else
+            AddStat("activationSettleVisits")
+            if state.nativeAuraCompletionPending then
+                if state.nativeAuraTimerID ~= GetCooldownID(frame) then
+                    state.nativeAuraCompletionPending = nil
+                else
+                    local shown = self:_GetNativeAuraTimerShown(frame)
+                    if shown ~= nil then
+                        state.nativeAuraCompletionPending = nil
+                        if shown then state.nativeAuraTimerEnded = nil end
+                    end
+                end
+            end
+            if self:_RefreshAuraActivation(frame, state) then
+                AddStat("activationSettleRepairs")
+            end
+            state.activationSettleRemaining = state.activationSettleRemaining - 1
+            local now = GetRuntimeTime()
+            if state.activationSettleRemaining <= 0
+                or now and state.activationSettleDeadline and now >= state.activationSettleDeadline then
+                self:CancelActivationSettle(frame)
+            end
+        end
+    end
+    if next(self.activationSettleFrames) and C_Timer and C_Timer.NewTimer then
+        self.activationSettleTimer = C_Timer.NewTimer(0.1, self._ActivationSettleCallback)
+    end
     return true
 end
 
@@ -4044,7 +4537,9 @@ function NativeBridge:_ApplyNativeBarIconVisibility(
     local iconAlpha = showIcon
         and (original and original.alpha or 1) or 0
     local changed = self:_SetVisualRegionState(icon, showIcon, iconAlpha)
-    if chrome then
+    if styleState.masqueActive and YUI.GUI2.SetIconSkinVisible then
+        YUI.GUI2:SetIconSkinVisible(frame, showIcon)
+    elseif chrome then
         changed = self:_SetVisualRegionState(
             chrome.background,
             showIcon,
@@ -4079,37 +4574,7 @@ function NativeBridge:_ApplyNativeBarIconVisibility(
             end
         end
     end
-    if showIcon then
-        if styleState.debuffBorder then
-            changed = self:_SetVisualRegionState(
-                styleState.debuffBorder,
-                nil,
-                styleState.debuffBorderAlpha or 1
-            ) or changed
-            changed = self:_SetVisualRegionState(
-                styleState.debuffBorderTexture,
-                nil,
-                styleState.debuffBorderTextureAlpha or 1
-            ) or changed
-        end
-    else
-        local border = frame and frame.DebuffBorder
-        if border and styleState.debuffBorder ~= border then
-            changed = SuppressDebuffBorderWhileStyled(frame, styleState)
-                or changed
-        else
-            changed = self:_SetVisualRegionState(
-                styleState.debuffBorder,
-                nil,
-                0
-            ) or changed
-            changed = self:_SetVisualRegionState(
-                styleState.debuffBorderTexture,
-                nil,
-                0
-            ) or changed
-        end
-    end
+    changed = SuppressDebuffBorderWhileStyled(frame, styleState) or changed
     styleState.nativeBarIconShown = showIcon
     return changed
 end
@@ -4265,6 +4730,15 @@ end
 local function ApplyBarVisualStyle(frame, runtime, binding, styleState)
     local bar = frame and frame.Bar
     if not bar then return false end
+    local shadowGUI = YUI.GUI2
+    if shadowGUI and shadowGUI.SetBarShadow then
+        local enabled = runtime.view == "bar" and runtime.barShadowMode == "item"
+        shadowGUI:SetBarShadow(bar, enabled, runtime.barShadowColor, runtime, runtime.barShadowThickness)
+        if enabled then
+            runtime.barShadowFrames = runtime.barShadowFrames or {}
+            runtime.barShadowFrames[bar] = true
+        end
+    end
     styleState = styleState or GetFrameStyleState(frame)
     local count = frame.Icon and frame.Icon.Applications
     -- 原生控件复用时可能替换文字对象；缓存与恢复快照必须跟随对象身份。
@@ -4327,6 +4801,7 @@ local function ApplyBarVisualStyle(frame, runtime, binding, styleState)
                     bar,
                     {
                         parent = bar,
+                        layoutTemplate = "DisableUntrustedLayoutScriptsTemplate",
                         clipFrameLevelOffset = 1,
                         visibleFrameLevelOffset = 1,
                         fillLayer = "ARTWORK",
@@ -4447,13 +4922,20 @@ local function ApplyBarVisualStyle(frame, runtime, binding, styleState)
         local monitor = binding and view.desiredMonitors[binding.monitorId]
         local entry = monitor and view.profile and view.profile.entries[monitor.entryKey]
         local showIcon = runtime.showIcon ~= false
-        view:ConfigureBarStackThresholds(projection, runtime, monitor, entry,
-            showIcon and (runtime.barWidth or 220) or (runtime.itemWidth or 244))
+        if view.ConfigureNativeBarProgress then
+            view:ConfigureNativeBarProgress(projection, bar, runtime, monitor, entry,
+                showIcon and (runtime.barWidth or 220) or (runtime.itemWidth or 244),
+                styleState.nativeStatusChrome.textOverlay, styleState.nativeStatusChrome.overlay, frame)
+        else
+            view:ConfigureBarStackThresholds(projection, runtime, monitor, entry,
+                showIcon and (runtime.barWidth or 220) or (runtime.itemWidth or 244))
+        end
         local chrome = styleState.nativeStatusChrome
         if gui.RaiseAuraBarThresholdOverlay then
             gui:RaiseAuraBarThresholdOverlay(projection, chrome.overlay, 1)
             gui:RaiseAuraBarThresholdOverlay(projection, chrome.textOverlay, 2)
         end
+        if view.RaiseBarTickLayers then view:RaiseBarTickLayers(projection) end
     end
     return statusSnapshot ~= nil or iconChanged
 end
@@ -4527,6 +5009,15 @@ local function FinalizeNativeBar(frame, runtime, binding, styleState)
         "bar-pip"
     )
     return changed
+end
+
+function NativeBridge:RefreshBarGroupGeometry(runtime)
+    if not runtime or runtime.view ~= "bar" then return end
+    for frame, state in pairs(self.frameStates) do
+        if state.nativeIncluded == true and state.nativeStyleRuntime == runtime and frame.Bar then
+            FinalizeNativeBar(frame, runtime, state.nativeStyleBinding or state.nativeBinding, state)
+        end
+    end
 end
 
 local function OnNativeBarContentChanged(frame)
@@ -4615,7 +5106,13 @@ local function InstallNativeBarContentHooks(frame)
 end
 
 local function ApplyBarStyle(frame, runtime, binding)
+    if YUI.GUI2.BeginIconSkin and not YUI.GUI2:BeginIconSkin(frame) then
+        YUI.GUI2:DeferIconSkin(frame, function() ApplyBarStyle(frame, runtime, binding) end)
+        return
+    end
     local styleState = GetFrameStyleState(frame)
+    styleState.masqueActive = false
+    if styleState.iconState then styleState.iconState.borderShown = nil end
     if not styleState.barGeometryCaptured then
         local iconFrame = frame.Icon
         local bar = frame.Bar
@@ -4682,6 +5179,46 @@ local function ApplyBarStyle(frame, runtime, binding)
             "bar-pip"
         )
     end
+    if YHUD.View.ApplyNativeIconSkin and (runtime.skinId == "masque" or styleState.iconSkinRegistered) then
+        YHUD.View:ApplyNativeIconSkin(frame, runtime, styleState,
+            function() ApplyBarStyle(frame, runtime, binding) end)
+    end
+end
+
+function NativeBridge:ResolveKeybindBinding(frame, binding, styleState)
+    if not binding or binding.keybindSpellEligible == false
+        or binding.equipSlot or binding.slotId or binding.itemId then return binding end
+    local ok, base = SafeMethod(frame, "GetBaseSpellID")
+    base = ok and SafeNumber(base) or nil
+    if not base or base <= 0 then return binding end
+    local current = base
+    local infoOK, info = SafeMethod(frame, "GetCooldownInfo")
+    if infoOK and info then
+        local fieldOK, override = SafeField(info, "overrideSpellID")
+        override = fieldOK and SafeNumber(override) or nil
+        if override and override > 0 then current = override end
+    end
+    local projected = styleState.keybindBinding
+    if not projected then projected = {}; styleState.keybindBinding = projected end
+    projected.baseSpellId, projected.spellId = base, current
+    projected.overrideSpellId = current ~= base and current or nil
+    projected.keybindSpellEligible = true
+    local catalogBase = binding.baseSpellId or binding.spellId
+    if base ~= catalogBase then
+        local cooldownID = GetCooldownID(frame)
+        if styleState.keybindMismatchBase ~= base
+            or styleState.keybindMismatchCooldown ~= cooldownID then
+            styleState.keybindMismatchBase = base
+            styleState.keybindMismatchCooldown = cooldownID
+            local catalog = YHUD.CDMCatalog
+            if catalog and catalog.RequestReconcile then
+                catalog:RequestReconcile("native-keybind-identity")
+            end
+        end
+    else
+        styleState.keybindMismatchBase, styleState.keybindMismatchCooldown = nil, nil
+    end
+    return projected
 end
 
 local function ApplyNativeKeybindText(
@@ -4696,8 +5233,11 @@ local function ApplyNativeKeybindText(
         and descriptor.category ~= "trackedBuff"
         and runtime and runtime.layoutType == "icons"
         and binding and service and service.Resolve
-    local text = eligible and service:Resolve(runtime, nil, nil, binding) or nil
+    local target = eligible and runtime.keybindTextMode ~= "off"
+        and NativeBridge:ResolveKeybindBinding(frame, binding, styleState) or binding
+    local text = eligible and service:Resolve(runtime, nil, nil, target) or nil
     local retained = NativeBridge.keybindStates[frame]
+    local created = false
     if retained and not styleState.keybindText then
         styleState.keybindOverlay = retained.overlay
         styleState.keybindText = retained.text
@@ -4739,6 +5279,7 @@ local function ApplyNativeKeybindText(
             shown = false,
         }
         NativeBridge.keybindStates[frame] = retained
+        created = true
     end
     local writes = 0
     local value = text or ""
@@ -4756,6 +5297,7 @@ local function ApplyNativeKeybindText(
     snapshot.font = runtime and runtime.keybindTextFont
     snapshot.size = runtime and runtime.keybindTextSize
     snapshot.outline = runtime and runtime.keybindTextOutline
+    snapshot.monochrome = runtime and runtime.keybindTextMonochrome
     snapshot.position = runtime and runtime.keybindTextPosition
     snapshot.offsetX = runtime and runtime.keybindTextOffsetX
     snapshot.offsetY = runtime and runtime.keybindTextOffsetY
@@ -4791,6 +5333,9 @@ local function ApplyNativeKeybindText(
         retained.value = styleState.keybindTextValue
         retained.shown = styleState.keybindOverlayShown
     end
+    if created and gui.RefreshIconSkinRegion then
+        gui:RefreshIconSkinRegion(frame, "HotKey", styleState.keybindText)
+    end
     return writes
 end
 
@@ -4804,6 +5349,18 @@ local function ApplyNativeStyle(
 )
     local styleState = GetFrameStyleState(frame)
     ApplyNativeFrameLayers(frame, styleState, runtime, binding)
+    if YHUD.PressFeedback and YHUD.PressFeedback.active then
+        local profile = YHUD.View and YHUD.View.profile
+        local monitor = binding and profile and profile.monitors[binding.monitorId]
+        local entry = monitor and profile.entries[monitor.entryKey]
+        YHUD.PressFeedback:Bind(frame, runtime, monitor, entry, styleState, binding)
+    end
+    if YHUD.AssistedHighlight then
+        local profile = YHUD.View and YHUD.View.profile
+        local monitor = binding and profile and profile.monitors[binding.monitorId]
+        local entry = monitor and profile.entries[monitor.entryKey]
+        YHUD.AssistedHighlight:Bind(frame, runtime, monitor, entry, styleState)
+    end
     if descriptor.kind == "bar" then
         InstallNativeBarContentHooks(frame)
     end
@@ -4819,6 +5376,26 @@ local function ApplyNativeStyle(
         if descriptor.kind == "bar" then
             FinalizeNativeBar(frame, runtime, binding, styleState)
         else
+            local count = frame.ChargeCount and frame.ChargeCount.Current
+                or frame.Applications and frame.Applications.Applications
+            local countChanged = styleState.countTextRegion ~= count
+            local level = styleState.nativeDisplayLevel
+                or styleState.nativeIconTextRootLevel or 0
+            local textLevel, textStrata = NativeBridge:_ResolveTextLayer(runtime, level)
+            if countChanged or styleState.nativeIconTextDirty == true
+                or styleState.nativeIconTextRootLevel ~= level
+                or styleState.nativeIconTextLevel ~= textLevel
+                or styleState.nativeIconTextStrata ~= textStrata
+                or styleState.nativeIconTextCooldown ~= frame.Cooldown then
+                if not NativeBridge:DeferIconTextForPreview(frame, styleState) then
+                    if countChanged then
+                        ApplyIconStyle(frame, runtime, descriptor, binding)
+                    else
+                        local _, cooldownText = SafeMethod(frame.Cooldown, "GetCountdownFontString")
+                        ApplyNativeIconTextLayers(frame, styleState, runtime, cooldownText, count)
+                    end
+                end
+            end
             if forceGeometry == true then
                 ApplyIconFrameGeometry(frame, runtime, styleState)
             end
@@ -4861,6 +5438,153 @@ local function ApplyNativeStyle(
     return true
 end
 
+function NativeBridge._IconTextFrameShown(frame)
+    if not NativeBridge.active or IsNativeEditModeActive() then return end
+    local state = NativeBridge.frameStates[frame]
+    if not state or state.restoring then return end
+    state.nativeIconTextDirty = true
+    local runtime = state.nativeStyleRuntime
+    local category = state.nativeStyleCategory
+    local descriptor = category and DESCRIPTOR_BY_CATEGORY[category]
+    if state.nativeIncluded == true and runtime and descriptor and descriptor.kind == "icon" then
+        if not NativeBridge:DeferIconTextForPreview(frame, state) then
+            ApplyNativeStyle(frame, runtime, descriptor,
+                state.nativeStyleBinding, state.nativeStyleRevision, false)
+        end
+    end
+end
+
+function NativeBridge:DeferIconTextForPreview(frame, state)
+    if not (self.layoutPreviewActive or self.layoutPreviewExitPending) then return false end
+    if self.active and not state.restoring then
+        state.nativeIconTextDirty = true
+        -- No write has failed yet: keep preview deferral separate from retry eligibility.
+        self.iconTextPreviewFrames[frame] = state
+    end
+    return true
+end
+
+function NativeBridge:CancelIconTextRecovery(frame)
+    if frame then
+        self.iconTextPreviewFrames[frame] = nil
+        local state = self.iconTextRecoveryFrames[frame]
+        if state then
+            state.nativeIconTextRetryPending = nil
+            state.nativeIconTextFailed = nil
+        end
+        self.iconTextRecoveryFrames[frame] = nil
+    else
+        for pendingFrame, state in pairs(self.iconTextPreviewFrames) do
+            state.nativeIconTextDirty = true
+            self.iconTextPreviewFrames[pendingFrame] = nil
+        end
+        for pendingFrame, state in pairs(self.iconTextRecoveryFrames) do
+            state.nativeIconTextDirty = true
+            state.nativeIconTextFailed = nil
+            state.nativeIconTextRetryPending = nil
+            self.iconTextRecoveryFrames[pendingFrame] = nil
+        end
+    end
+    if next(self.iconTextRecoveryFrames) then return end
+    if self.iconTextRecoveryTimer then
+        self.iconTextRecoveryTimer:Cancel()
+        self.iconTextRecoveryTimer = nil
+    end
+    if self.pendingAction == "layers" then
+        self.pendingAction = nil
+        if self.combatListener and YUI.Event and YUI.Event.Off then
+            YUI.Event:Off(self.combatListener)
+            self.combatListener = nil
+        end
+    end
+end
+
+function NativeBridge._IconTextRecoveryCallback()
+    NativeBridge.iconTextRecoveryTimer = nil
+    NativeBridge:FlushIconTextRecovery()
+end
+
+function NativeBridge:QueueIconTextRecovery(frame, state)
+    if not self.active then return end
+    local firstFailure = state.nativeIconTextFailed ~= true
+    state.nativeIconTextFailed = true
+    self.iconTextRecoveryFrames[frame] = state
+    if not firstFailure then return end
+    state.nativeIconTextRetryPending = true
+    if self.layoutPreviewActive then return end
+    if IsInCombat() then
+        self:ScheduleDeferred("layers")
+    elseif not self.flushingIconTextRecovery
+        and not self.iconTextRecoveryTimer and C_Timer and C_Timer.NewTimer then
+        -- One shared next-frame retry. Persistent failures wait for a new
+        -- layout/show transition instead of scheduling another task.
+        self.iconTextRecoveryTimer = C_Timer.NewTimer(0, self._IconTextRecoveryCallback)
+    end
+end
+
+function NativeBridge:FlushIconTextRecovery(resume)
+    if not self.active or self.layoutPreviewActive or self.layoutPreviewExitPending
+        or IsNativeEditModeActive() then return false end
+    if not next(self.iconTextRecoveryFrames) then return false end
+    if IsInCombat() then
+        if next(self.iconTextRecoveryFrames) then self:ScheduleDeferred("layers") end
+        return false
+    end
+    if self.iconTextRecoveryTimer then
+        self.iconTextRecoveryTimer:Cancel()
+        self.iconTextRecoveryTimer = nil
+    end
+    AddStat("iconTextRecoveryFlushes")
+    self.flushingIconTextRecovery = true
+    local repaired = false
+    for frame, state in pairs(self.iconTextRecoveryFrames) do
+        if self.frameStates[frame] ~= state then
+            self.iconTextRecoveryFrames[frame] = nil
+        elseif resume == true or state.nativeIconTextRetryPending == true then
+            state.nativeIconTextDirty = true
+            local runtime = state.nativeStyleRuntime
+            local descriptor = state.nativeStyleCategory
+                and DESCRIPTOR_BY_CATEGORY[state.nativeStyleCategory]
+            if descriptor and descriptor.kind ~= "icon" then
+                state.nativeIconTextFailed = nil
+                state.nativeIconTextRetryPending = nil
+                self.iconTextRecoveryFrames[frame] = nil
+            elseif state.nativeIncluded == true and runtime and descriptor then
+                state.nativeIconTextRetryPending = nil
+                state.nativeIconTextRetrying = true
+                ApplyNativeStyle(frame, runtime, descriptor,
+                    state.nativeStyleBinding, state.nativeStyleRevision, false)
+                state.nativeIconTextRetrying = nil
+                repaired = state.nativeIconTextFailed ~= true or repaired
+            end
+        end
+    end
+    self.flushingIconTextRecovery = nil
+    return repaired
+end
+
+function NativeBridge:FlushPreviewIconTextRecovery()
+    if not self.active or self.layoutPreviewActive or self.layoutPreviewExitPending
+        or IsNativeEditModeActive() or IsInCombat() then return false end
+    local repaired = false
+    for frame, state in pairs(self.iconTextPreviewFrames) do
+        self.iconTextPreviewFrames[frame] = nil
+        -- Existing failures were already handled by the shared recovery flush.
+        if self.frameStates[frame] == state and state.nativeIconTextFailed ~= true
+            and state.nativeIncluded == true then
+            local runtime = state.nativeStyleRuntime
+            local descriptor = state.nativeStyleCategory
+                and DESCRIPTOR_BY_CATEGORY[state.nativeStyleCategory]
+            if runtime and descriptor and descriptor.kind == "icon" then
+                ApplyNativeStyle(frame, runtime, descriptor,
+                    state.nativeStyleBinding, state.nativeStyleRevision, false)
+                repaired = state.nativeIconTextFailed ~= true or repaired
+            end
+        end
+    end
+    return repaired
+end
+
 function NativeBridge:ApplyManagedFrameLayers()
     local changed = false
     for frame, styleState in pairs(self.frameStates) do
@@ -4888,17 +5612,20 @@ function NativeBridge:ApplyManagedFrameLayers()
                     if not count and frame.Applications then
                         count = frame.Applications.Applications
                     end
-                    local ok, cooldownText = SafeMethod(
-                        frame.Cooldown,
-                        "GetCountdownFontString"
-                    )
-                    ApplyNativeIconTextLayers(
-                        frame,
-                        styleState,
-                        runtime,
-                        ok and cooldownText or nil,
-                        count
-                    )
+                    styleState.nativeIconTextDirty = true
+                    if not self:DeferIconTextForPreview(frame, styleState) then
+                        local ok, cooldownText = SafeMethod(
+                            frame.Cooldown,
+                            "GetCountdownFontString"
+                        )
+                        ApplyNativeIconTextLayers(
+                            frame,
+                            styleState,
+                            runtime,
+                            ok and cooldownText or nil,
+                            count
+                        )
+                    end
                     if styleState.keybindOverlay then
                         local rootOK, rootLevel = SafeMethod(
                             frame,
@@ -5176,6 +5903,17 @@ local function OnStaticCooldownIDSet(frame)
     NativeBridge:OnStaticFrameCooldownIDSet(frame)
 end
 
+function NativeBridge.OnStaticKeybindOverride(frame)
+    if not NativeBridge.active or IsNativeEditModeActive() then return end
+    local state = NativeBridge.frameStates[frame]
+    local runtime = state and state.nativeStyleRuntime
+    local binding = state and (state.nativeStyleBinding or state.nativeBinding)
+    local descriptor = state and DESCRIPTOR_BY_CATEGORY[state.nativeStyleCategory]
+    if state and state.nativeManaged and runtime and descriptor then
+        ApplyNativeKeybindText(frame, runtime, descriptor, binding, state)
+    end
+end
+
 local function OnStaticSetPoint(
     frame,
     point,
@@ -5209,6 +5947,12 @@ local function InstallStaticFrameHooks(frame)
         and type(frame.SetPoint) == "function" then
         local ok = pcall(hook, frame, "SetPoint", OnStaticSetPoint)
         if ok then NativeBridge.staticPositionHookedFrames[frame] = true end
+        installed = installed or ok
+    end
+    if not NativeBridge.keybindOverrideHookedFrames[frame]
+        and type(frame.SetOverrideSpell) == "function" then
+        local ok = pcall(hook, frame, "SetOverrideSpell", NativeBridge.OnStaticKeybindOverride)
+        if ok then NativeBridge.keybindOverrideHookedFrames[frame] = true end
         installed = installed or ok
     end
     return installed
@@ -5294,6 +6038,9 @@ function NativeBridge:OnStaticViewerLayoutComplete(viewer, category)
                 and runtime.nativeStableSlots[binding.monitorId]
             local ok, _, relativeTo = SafeMethod(frame, "GetPoint", 1)
             needsRepair = not (slot and ok and relativeTo == slot)
+            if not needsRepair and runtime then
+                ApplyNativeKeybindText(frame, runtime, descriptor, binding, styleState)
+            end
         elseif not needsRepair then
             needsRepair = styleState.nativeManaged == true
                 or styleState.nativeIncluded == true
@@ -5451,11 +6198,27 @@ local function ClearNativeFrames(state)
     state.nativeByMonitor = nil
 end
 
+function NativeBridge:GetBarShadowContour(frame)
+    local state = self.frameStates[frame]
+    local chrome = state and state.nativeStatusChrome
+    return chrome and chrome.shadowOwner
+end
+
 local function RestoreFrameStyle(frame)
+    local shadowOwner = NativeBridge:GetBarShadowContour(frame)
+    if shadowOwner and YUI.GUI2.HideBarShadow then YUI.GUI2:HideBarShadow(shadowOwner) end
+    if YUI.GUI2.BeginIconSkin and not YUI.GUI2:BeginIconSkin(frame) then
+        YUI.GUI2:DeferIconSkin(frame, function() RestoreFrameStyle(frame) end)
+        return
+    end
+    if YHUD.View and YHUD.View.ReleaseIconSkin then YHUD.View:ReleaseIconSkin(frame) end
+    if YHUD.PressFeedback and YHUD.PressFeedback.active then YHUD.PressFeedback:Release(frame) end
+    if YHUD.AssistedHighlight then YHUD.AssistedHighlight:Release(frame) end
     local view = YHUD.View
     if view and view.HideIconShadow then view:HideIconShadow(frame) end
     local styleState = frame and NativeBridge.frameStates[frame]
     if not styleState then return end
+    NativeBridge:CancelIconTextRecovery(frame)
     styleState.restoring = true
     if styleState.keybindOverlay then
         styleState.keybindOverlay:Hide()
@@ -6116,6 +6879,8 @@ local function ApplyNativeDescriptor(
                 styleState.visibilitySuppressed = true
                 SetNativeProcGlowShown(styleState, false)
                 SetPandemicGlowShown(styleState, false)
+                NativeBridge:_StopCustomGlow(styleState)
+                NativeBridge:CancelActivationSettle(frame)
                 SetNativeTooltipMouseEnabled(frame, styleState, false)
             end
             RestoreAlpha(state, frame)
@@ -6196,6 +6961,9 @@ function NativeBridge:OnOfficialAuraFrameRefresh(
             ~= (binding and binding.monitorId or nil))
         or (previousMember and previousMember.cooldownID ~= cooldownID)
 
+    if shouldInclude and (memberChanged or styleState.nativeIncluded ~= true) then
+        styleState.nativeIconTextDirty = true
+    end
     styleState.nativeManaged = managed
     styleState.nativeIncluded = shouldInclude
     styleState.nativeBinding = binding
@@ -6707,6 +7475,7 @@ local function ApplyGroupCategoryVisibility(
 end
 
 function NativeBridge:ApplyGroupVisibility(groupId)
+    if YHUD.AssistedHighlight then YHUD.AssistedHighlight:Queue() end
     if not self.active or type(groupId) ~= "string" then return false end
     local view = YHUD.View
     local runtime = view and view.groups and view.groups[groupId]
@@ -6765,6 +7534,147 @@ function NativeBridge:RestorePresentationAlpha()
     return changed
 end
 
+function NativeBridge:CancelViewerVisibilityRecovery()
+    self.viewerVisibilityGeneration = (self.viewerVisibilityGeneration or 0) + 1
+    if self.viewerVisibilityTimer then self.viewerVisibilityTimer:Cancel() end
+    self.viewerVisibilityTimer = nil
+    self.viewerVisibilityPending = nil
+    self.viewerVisibilityRetryIndex = nil
+    self.viewerVisibilityReason = nil
+end
+
+function NativeBridge:RequestViewerVisibilityRecovery(reset)
+    if not self.active then return false end
+    self.viewerVisibilityPending = true
+    if self.viewerVisibilityRecovering then return true end
+    if reset or not self.viewerVisibilityRetryIndex then
+        self.viewerVisibilityRetryIndex = 1
+        self.viewerVisibilityReason = nil
+    end
+    if self.viewerVisibilityTimer
+        or self.viewerWorldLeaving or self.viewerLoadingScreenActive then
+        return true
+    end
+    local supported = false
+    for index = 1, #DESCRIPTORS do
+        local state = self.states[DESCRIPTORS[index].category]
+        if state and state.attached and state.viewer then
+            local ok, update = SafeField(state.viewer, "UpdateShownState")
+            if ok and type(update) == "function" then supported = true; break end
+        end
+    end
+    if not supported then
+        self.viewerVisibilityPending = nil
+        return false
+    end
+    local delay = self.viewerVisibilityRetryDelays[self.viewerVisibilityRetryIndex]
+    if delay == nil then
+        self.viewerVisibilityPending = nil
+        return false
+    end
+    self.viewerVisibilityRetryIndex = self.viewerVisibilityRetryIndex + 1
+    if not (C_Timer and C_Timer.NewTimer) then
+        if delay == 0 then return self:RunViewerVisibilityRecovery() end
+        self.viewerVisibilityPending = nil
+        return false
+    end
+    local generation = self.viewerVisibilityGeneration
+    self.viewerVisibilityTimer = C_Timer.NewTimer(delay, function()
+        if generation ~= self.viewerVisibilityGeneration then return end
+        self.viewerVisibilityTimer = nil
+        self:RunViewerVisibilityRecovery()
+    end)
+    return true
+end
+
+function NativeBridge:RunViewerVisibilityRecovery()
+    if not self.active or not self.viewerVisibilityPending
+        or self.viewerVisibilityRecovering then return false end
+    if self.viewerWorldLeaving or self.viewerLoadingScreenActive then return false end
+    local view = YHUD.View
+    if IsNativeEditModeActive() or self.layoutPreviewActive
+        or (view and (view.preview or view.designMode)) then
+        self.viewerVisibilityReason = "preview"
+        return false
+    end
+    if IsInCombat() then
+        self.viewerVisibilityReason = "combat"
+        self:ScheduleDeferred("sync")
+        return false
+    end
+    local adapter = YUI.API and YUI.API.CooldownViewer
+    if adapter and adapter.IsAvailable then
+        local ok, available = SafeMethod(adapter, "IsAvailable")
+        if not ok or SafeBoolean(available) ~= true then
+            self.viewerVisibilityReason = "unavailable"
+            return self:RequestViewerVisibilityRecovery(false)
+        end
+    end
+
+    local generation = self.viewerVisibilityGeneration
+    self.viewerVisibilityRecovering = true
+    local retry = false
+    for index = 1, #DESCRIPTORS do
+        if generation ~= self.viewerVisibilityGeneration
+            or self.viewerWorldLeaving or self.viewerLoadingScreenActive then break end
+        local descriptor = DESCRIPTORS[index]
+        local state = self.states[descriptor.category]
+        local viewer = state and state.viewer
+        -- Only reconcile the container currently borrowed by this bridge.
+        -- The native policy owns both visibility and the refresh on showing.
+        if self.active and state and state.attached
+            and viewer and viewer == _G[descriptor.globalName] then
+            AddStat("viewerVisibilityChecks")
+            local policyOK, wanted = SafeMethod(viewer, "ShouldBeShown")
+            local shownOK, shown = SafeMethod(viewer, "IsShown")
+            if policyOK then wanted = SafeBoolean(wanted) else wanted = nil end
+            if shownOK then shown = SafeBoolean(shown) else shown = nil end
+            if wanted == nil or shown == nil then
+                retry = true
+            elseif wanted ~= shown then
+                local updated = SafeMethod(viewer, "UpdateShownState")
+                local verified, current = SafeMethod(viewer, "IsShown")
+                local reread, desired = SafeMethod(viewer, "ShouldBeShown")
+                if updated and verified and reread
+                    and SafeBoolean(current) ~= nil
+                    and SafeBoolean(current) == SafeBoolean(desired) then
+                    AddStat("viewerVisibilityRepairs")
+                else
+                    AddStat("viewerVisibilityFailures")
+                    retry = true
+                end
+            end
+        end
+    end
+    self.viewerVisibilityRecovering = nil
+    if not self.active then return false end
+    if generation ~= self.viewerVisibilityGeneration then
+        if self.viewerVisibilityPending then return self:RequestViewerVisibilityRecovery(false) end
+        return false
+    end
+    if retry then
+        self.viewerVisibilityReason = "refresh-failed"
+        return self:RequestViewerVisibilityRecovery(false)
+    end
+    self.viewerVisibilityPending = nil
+    self.viewerVisibilityRetryIndex = nil
+    self.viewerVisibilityReason = nil
+    return true
+end
+
+function NativeBridge:OnViewerWorldChanged(event)
+    if event == "PLAYER_LEAVING_WORLD" or event == "LOADING_SCREEN_ENABLED" then
+        self:CancelViewerVisibilityRecovery()
+        self.viewerVisibilityPending = true
+        if event == "PLAYER_LEAVING_WORLD" then self.viewerWorldLeaving = true
+        else self.viewerLoadingScreenActive = true end
+        return
+    end
+    if event == "LOADING_SCREEN_DISABLED" then self.viewerLoadingScreenActive = nil
+    else self.viewerWorldLeaving = nil end
+    return self:RequestViewerVisibilityRecovery(true)
+end
+
 function NativeBridge:SyncCategory(category, reason, profile)
     local descriptor = DESCRIPTOR_BY_CATEGORY[category]
     if not descriptor or not self.active or IsNativeEditModeActive()
@@ -6810,6 +7720,7 @@ function NativeBridge:SyncCategory(category, reason, profile)
     end
     state.syncing = false
     state.lastReason = reason
+    if YHUD.NativeLootLayout then YHUD.NativeLootLayout:Sync(self) end
     local finishedAt = ProfileNowMS()
     if startedAt and finishedAt then
         AddStat("categorySyncElapsedMS", math.max(0, finishedAt - startedAt))
@@ -6818,6 +7729,7 @@ function NativeBridge:SyncCategory(category, reason, profile)
 end
 
 function NativeBridge:RestoreAll(status)
+    self:CancelIconTextRecovery()
     self:CancelPendingCategorySync(true)
     local restored = true
     for index = 1, #DESCRIPTORS do
@@ -6831,12 +7743,18 @@ function NativeBridge:RestoreAll(status)
         RestoreFrameStyle(frame)
         frame = next(self.frameStates)
     end
+    if YHUD.NativeLootLayout then YHUD.NativeLootLayout:Sync(self) end
     return restored
 end
 
 function NativeBridge:EnterLayoutPreview()
     if not self.active or self.layoutPreviewActive then return false end
     self.layoutPreviewActive = true
+    if self.iconTextRecoveryTimer then
+        self.iconTextRecoveryTimer:Cancel()
+        self.iconTextRecoveryTimer = nil
+    end
+    self:CancelActivationSettle()
     self:CancelActiveStateSettle()
     self:CancelPendingCategorySync(false)
 
@@ -6861,6 +7779,7 @@ function NativeBridge:EnterLayoutPreview()
                 styleState.visibilitySuppressed = true
                 SetNativeProcGlowShown(styleState, false)
                 SetPandemicGlowShown(styleState, false)
+                self:_StopCustomGlow(styleState)
                 SetNativeTooltipMouseEnabled(frame, styleState, false)
             end
             RestoreAlpha(state, frame)
@@ -6921,6 +7840,9 @@ function NativeBridge:CompleteLayoutPreviewExit()
             self:SyncCategory(category, reason, profile)
         end
     end
+    self:FlushIconTextRecovery(true)
+    self:FlushPreviewIconTextRecovery()
+    self:RequestViewerVisibilityRecovery(true)
     return true
 end
 
@@ -6932,6 +7854,7 @@ end
 
 function NativeBridge:ScheduleDeferred(action)
     local priorities = {
+        layers = 0,
         categories = 1,
         sync = 2,
         restore = 3,
@@ -6962,6 +7885,7 @@ function NativeBridge:CancelPendingCategorySync(clearDirty)
     end
     self.categorySyncTimer = nil
     if clearDirty ~= false then
+        self.assistedHighlightDirty = nil
         for category in pairs(self.dirtyCategories) do
             self.dirtyCategories[category] = nil
             self.dirtyCategoryReasons[category] = nil
@@ -6976,6 +7900,7 @@ function NativeBridge:FlushPendingCategorySync()
     if self.layoutPreviewActive then return false end
     if not self.active or IsNativeEditModeActive() then
         self:CancelPendingCategorySync(true)
+        if YHUD.AssistedHighlight then YHUD.AssistedHighlight:Disable() end
         return false
     end
     local contextPending = YHUD.pendingContextTimer
@@ -7043,15 +7968,30 @@ function NativeBridge:FlushPendingCategorySync()
         end
     end
     if combatDeferred then self:ScheduleDeferred("categories") end
+    if self.assistedHighlightDirty and YHUD.AssistedHighlight then
+        self.assistedHighlightDirty = nil
+        YHUD.AssistedHighlight:Flush()
+    end
     return applied or contextDeferred
 end
 
-local function PendingCategorySyncCallback()
+function NativeBridge.PendingCategorySyncCallback()
     local watchdog = YUI.CPUWatchdog
     if watchdog and watchdog.sceneCapture then
         return watchdog:MeasureSceneTask("yhud.category-sync-timer", NativeBridge.FlushPendingCategorySync, NativeBridge)
     end
     return NativeBridge:FlushPendingCategorySync()
+end
+
+function NativeBridge:RequestAssistedHighlightRefresh()
+    if not self.active or self.layoutPreviewActive or IsNativeEditModeActive() then return false end
+    self.assistedHighlightDirty = true
+    if self.categorySyncTimer then return true end
+    if C_Timer and C_Timer.NewTimer then
+        self.categorySyncTimer = C_Timer.NewTimer(0, self.PendingCategorySyncCallback)
+        return true
+    end
+    return self:FlushPendingCategorySync()
 end
 
 function NativeBridge:RequestCategorySync(category, reason, dirtyKind)
@@ -7118,7 +8058,7 @@ function NativeBridge:RequestCategorySync(category, reason, dirtyKind)
         if watchdog and watchdog.sceneCapture then watchdog:SceneTaskScheduled("yhud.category-sync-timer") end
         self.categorySyncTimer = C_Timer.NewTimer(
             0,
-            PendingCategorySyncCallback
+            self.PendingCategorySyncCallback
         )
         return true
     end
@@ -7136,18 +8076,22 @@ function NativeBridge:OnCombatEnded()
     if self.layoutPreviewExitPending then
         self.layoutPreviewExitPending = nil
         self:CompleteLayoutPreviewExit()
-        if action == "categories" then return true end
+        if action == "categories" then
+            return true
+        end
     end
     if action == "restore" or not self.active then
         return self:RestoreAll("combat-restored")
     end
     if action == "categories" then
-        return self:FlushPendingCategorySync()
+        local changed = self:FlushPendingCategorySync()
+        return self:FlushIconTextRecovery() or changed
     end
     if action == "sync" then
-        return self:Sync(nil, "combat-ended")
+        local changed = self:Sync(nil, "combat-ended")
+        return self:FlushIconTextRecovery() or changed
     end
-    return false
+    return self:FlushIconTextRecovery()
 end
 
 function NativeBridge:Sync(profile, reason)
@@ -7194,6 +8138,7 @@ function NativeBridge:Sync(profile, reason)
     end
     self.refreshBaseline = false
     self.lastReason = reason
+    self:RequestViewerVisibilityRecovery(true)
     return true
 end
 
@@ -7264,6 +8209,13 @@ end
 NativeBridge.officialRuntimeOwner = NativeBridge.officialRuntimeOwner or {}
 
 function NativeBridge.officialRuntimeOwner:OnSignal(eventName)
+    if NativeBridge.active then
+        if eventName == "YUI_WORLD_READY" then
+            NativeBridge:OnViewerWorldChanged(eventName)
+        else
+            NativeBridge:RequestViewerVisibilityRecovery(true)
+        end
+    end
     if not NativeBridge.active or NativeBridge.officialRuntimeReady then
         return false
     end
@@ -7319,6 +8271,12 @@ function NativeBridge:RegisterOfficialRuntimeSignals()
                 traceName = "YHUD.NativeBridge.Readiness",
             }
         )
+        for _, event in ipairs({ "PLAYER_LEAVING_WORLD", "LOADING_SCREEN_ENABLED", "LOADING_SCREEN_DISABLED" }) do
+            YUI.Event:On(event, "OnWorldChanged", owner, {
+                moduleId = "YHUD.NativeBridge",
+                traceName = "YHUD.NativeBridge.Visibility",
+            })
+        end
         owner.registered = true
     end
     if owner.dataCallbackRegistered ~= true
@@ -7332,6 +8290,10 @@ function NativeBridge:RegisterOfficialRuntimeSignals()
     end
     return owner.registered == true
         or owner.dataCallbackRegistered == true
+end
+
+function NativeBridge.officialRuntimeOwner:OnWorldChanged(event)
+    if NativeBridge.active then return NativeBridge:OnViewerWorldChanged(event) end
 end
 
 function NativeBridge:UnregisterOfficialRuntimeSignals()
@@ -7391,6 +8353,7 @@ function NativeBridge:RunOfficialRuntimeSync()
 end
 
 function NativeBridge:Enable(profile)
+    self:CancelViewerVisibilityRecovery()
     self.officialRuntimeGeneration = self.officialRuntimeGeneration + 1
     self:CancelOfficialRuntimeSync()
     self.officialRuntimeReady = false
@@ -7419,6 +8382,10 @@ function NativeBridge:Enable(profile)
             true
         )
     end
+    if YHUD.AssistedHighlight then
+        YHUD.AssistedHighlight:SyncRegistration()
+        YHUD.AssistedHighlight:Queue()
+    end
     return synced
 end
 
@@ -7432,6 +8399,11 @@ function NativeBridge:PrepareOfficialRuntime()
 end
 
 function NativeBridge:Disable()
+    self:CancelIconTextRecovery()
+    self:CancelViewerVisibilityRecovery()
+    self.viewerWorldLeaving, self.viewerLoadingScreenActive = nil, nil
+    if YHUD.AssistedHighlight then YHUD.AssistedHighlight:Reset() end
+    self.assistedHighlightDirty = nil
     self.officialRuntimeGeneration = self.officialRuntimeGeneration + 1
     self:CancelOfficialRuntimeSync()
     self:UnregisterOfficialRuntimeSignals()
@@ -7439,6 +8411,16 @@ function NativeBridge:Disable()
     self.officialRuntimeReason = nil
     self.officialRuntimeProfile = nil
     self.active = false
+    self:CancelActivationSettle()
+    for _, styleState in pairs(self.frameStates) do
+        self:_StopCustomGlow(styleState)
+        SetNativeProcGlowShown(styleState, false)
+        SetPandemicGlowShown(styleState, false)
+        if styleState.nativeAuraStackSet then
+            YHUD.Glow:ApplyStackSet(styleState.nativeAuraStackSet, false, false)
+        end
+    end
+    if YHUD.NativeLootLayout then YHUD.NativeLootLayout:Disable() end
     self.editModeActive = false
     self.editModeExitObserved = false
     self:CancelActiveStateSettle()
@@ -7488,6 +8470,20 @@ function NativeBridge:GetStats(target)
         local field = STAT_FIELDS[index]
         target[field] = self.stats[field] or 0
     end
+    local pending = 0
+    for _ in pairs(self.activationSettleFrames) do pending = pending + 1 end
+    target.activationSettlePendingFrames = pending
+    target.activationSettleTimerActive = self.activationSettleTimer ~= nil
+    pending = 0
+    for _ in pairs(self.iconTextRecoveryFrames) do pending = pending + 1 end
+    target.iconTextRecoveryPendingFrames = pending
+    target.iconTextRecoveryTimerActive = self.iconTextRecoveryTimer ~= nil
+    pending = 0
+    for _ in pairs(self.iconTextPreviewFrames) do pending = pending + 1 end
+    target.iconTextPreviewPendingFrames = pending
+    target.viewerVisibilityPending = self.viewerVisibilityPending == true
+    target.viewerVisibilityTimerActive = self.viewerVisibilityTimer ~= nil
+    target.viewerVisibilityReason = self.viewerVisibilityReason
     return target
 end
 

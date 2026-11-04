@@ -1,0 +1,14 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Include file="!load_Common.xml"/>
+    <Script file="Presets.lua"/>
+    <Script file="PresetData_Forever.lua"/>
+    <Script file="ObjectCatalog_Forever.lua"/>
+    <Script file="CatalogData_Forever.lua"/>
+    <Script file="SpellIdentities_Forever.lua"/>
+    <Script file="Forever.lua"/>
+    <Script file="Sounds_Common.lua"/>
+    <Script file="EventAPI.lua"/>
+    <Script file="EventRuntime.lua"/>
+    <Script file="Service.lua"/>
+    <Script file="Transfer.lua"/>
+</Ui>

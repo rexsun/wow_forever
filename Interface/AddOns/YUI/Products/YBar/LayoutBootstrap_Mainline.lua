@@ -6,3 +6,4 @@ if not libraries then return end
 libraries.Migration=libraries.MigrationFactory(libraries.Model)
 local bridge=libraries.Bridge.New(YUI,libraries)
 bridge:Install()
+if YBar.RegisterFontStyles then YBar:RegisterFontStyles(bridge) end

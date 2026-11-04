@@ -373,12 +373,17 @@ local function StyleText(region, size, color, detail)
     local fallback = GUI2.GetFont and GUI2:GetFont("font.family.body") or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
     local fontKey = detail and db.detailFont or db.font
     local font = fontKey ~= "default" and LSM and LSM:Fetch("font", fontKey, true) or fallback
+    if type(fontKey)=="string" and (fontKey:find("\\",1,true) or fontKey:find("/",1,true)) then font=fontKey end
     if fontKey == "chat" then font = ChatFontNormal and select(1, ChatFontNormal:GetFont()) or fallback end
     if fontKey == "damage" then font = DAMAGE_TEXT_FONT or fallback end
     local style = detail and db.detailTextStyle or db.textStyle
-    local flags = style == "thick" and "THICKOUTLINE" or (style == "outline" or style == "outlineShadow") and "OUTLINE" or ""
-    local shadow = style == "shadow" or style == "outlineShadow"
-    if region:SetFont(font, size, flags) == false then region:SetFont(fallback, size, flags) end
+    local flags = (style == "thick" or style == "thickShadow") and "THICKOUTLINE" or (style == "outline" or style == "outlineShadow") and "OUTLINE" or ""
+    local shadow = style == "shadow" or style == "outlineShadow" or style == "thickShadow"
+    if (detail and db.detailMonochrome or not detail and db.monochrome) then flags=flags~="" and flags..",MONOCHROME" or "MONOCHROME" end
+    local applied
+    if GUI2.FontStyle and GUI2.FontStyle.TryFont then applied=GUI2.FontStyle.TryFont(region,font,size,flags)
+    else applied=region:SetFont(font,size,flags)~=false end
+    if not applied then region:SetFont(fallback,size,flags) end
     -- This component owns configured colors; theme refresh must not overwrite them.
     region.gui2ColorKey = nil
     region:SetTextColor(color[1], color[2], color[3], color[4])
@@ -748,7 +753,7 @@ function Feature:GetOptions()
     db = Config()
     local function Field(kind, key, extra)
         local field = extra or {}
-        field.type, field.label = kind, L["setting." .. key]
+        field.type, field.label, field.fontStyleSource = kind, L["setting." .. key], key
         field.get = function() return Config()[key] end
         field.set = function(value) Config()[key] = value; Change() end
         if key == "layout" or key == "gradient" or key == "restedGradient" or key == "questGradient" then
@@ -837,6 +842,13 @@ function Feature:GetOptions()
         Change()
         if Feature.RefreshCurrentModule then Feature.RefreshCurrentModule() end
     end }
+    if GUI2.FontStyle and GUI2.FontStyle.MergeOptions then
+        GUI2.FontStyle:MergeOptions(options, {
+            {key="experience:level",label=L["setting.levelText"],sources={"levelSize","font","textStyle","levelColor"}},
+            {key="experience:bar",label=L["setting.barText"],sources={"barSize","barColor"}},
+            {key="experience:detail",label=L["setting.text"],sources={"detailSize","detailFont","detailTextStyle","detailColor"}},
+        })
+    end
     return options
 end
 
@@ -867,3 +879,28 @@ YUI.Module:Register({
     end,
 })
 Components:RegisterFeature(KEY, Feature)
+
+if GUI2.FontStyle and GUI2.FontStyle.RegisterConfig then
+    local style = GUI2.FontStyle
+    local function FontPath(value)
+        if value=="chat" then return ChatFontNormal and select(1,ChatFontNormal:GetFont()) or STANDARD_TEXT_FONT end
+        if value=="damage" then return DAMAGE_TEXT_FONT or STANDARD_TEXT_FONT end
+        return style.FontPath(value,GUI2:GetFont("font.family.body"))
+    end
+    local function FontOptions()
+        return {
+            {text=L["font.chat"],value="chat",fontPath=FontPath("chat")},
+            {text=L["font.damage"],value="damage",fontPath=FontPath("damage")},
+        }
+    end
+    style:RegisterConfig("experience", {
+        label=function() return L["name"] end,
+        get=function() return style.ComponentConfig(PRODUCT,KEY.."_Config") end,
+        refresh=function() if active or frame and frame:IsShown() then Change() end end,
+        targets={
+            {id="level",label=function() return L["setting.levelText"] end,fields={font="font",size="levelSize",color="levelColor",monochrome="monochrome"},effect="textStyle",format="camel",defaults=defaults,minSize=12,maxSize=36,fontPath=FontPath,fontOptions=FontOptions},
+            {id="bar",label=function() return L["setting.barText"] end,fields={font="font",size="barSize",color="barColor",monochrome="monochrome"},effect="textStyle",format="camel",defaults=defaults,minSize=9,maxSize=22,fontPath=FontPath,fontOptions=FontOptions},
+            {id="detail",label=function() return L["section.detailText"] end,fields={font="detailFont",size="detailSize",color="detailColor",monochrome="detailMonochrome"},effect="detailTextStyle",format="camel",defaults=defaults,minSize=9,maxSize=20,fontPath=FontPath,fontOptions=FontOptions},
+        },
+    })
+end

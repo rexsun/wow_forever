@@ -5,6 +5,8 @@ if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("frFR") then return end
 YUI.Locale:Register("UtilityTools", "frFR", {
     ["name"] = "Outils",
     ["description"] = "Une collection compacte de petites fonctions d’interface et de jeu.",
+    ["settings.encounter_journal_item_sets.label"] = "Restore Encounter Journal sets d'articles",
+    ["settings.encounter_journal_item_sets.tooltip"] = "Restaurer l'onglet caché de jeu d'éléments afin que les attributs de jeu de raid d'origine puissent être consultés dans le Journal Encounter.",
     ["settings.bonus_roll"] = "Confirmation de la monnaie du rouleau",
     ["settings.bonus_roll_confirm_roll"] = "Confirme avant de rouler",
     ["settings.bonus_roll_confirm_pass"] = "Confirme avant de passer",

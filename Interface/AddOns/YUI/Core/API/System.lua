@@ -8,6 +8,48 @@ YUI.API.System = System
 
 local Legacy = YUI.WOW_API
 
+-- Cold/event path only. nil means the client could not report a known state.
+function System.GetCombatLoggingState()
+    local chat = _G.C_ChatInfo
+    if chat and type(chat.IsLoggingCombat) == "function" then
+        local ok, enabled, advanced = pcall(chat.IsLoggingCombat)
+        if ok and type(enabled) == "boolean" and not
+            (type(_G.issecretvalue) == "function" and (_G.issecretvalue(enabled) or _G.issecretvalue(advanced))) then
+            return enabled, advanced == true
+        end
+        return nil
+    end
+    if type(_G.LoggingCombat) == "function" then
+        local ok, enabled = pcall(_G.LoggingCombat)
+        if ok and type(enabled) == "boolean" and not
+            (type(_G.issecretvalue) == "function" and _G.issecretvalue(enabled)) then
+            return enabled, type(_G.GetCVarBool) == "function" and _G.GetCVarBool("advancedCombatLogging") == true
+        end
+    end
+end
+
+function System.SetCombatLoggingState(enabled)
+    if type(enabled) ~= "boolean" or type(_G.LoggingCombat) ~= "function" then return false end
+    local current = System.GetCombatLoggingState()
+    if current == enabled then return true, current end
+    local ok = pcall(_G.LoggingCombat, enabled)
+    current = System.GetCombatLoggingState()
+    return ok and current == enabled, current
+end
+
+-- Instance metadata is public; never return restricted values to rule matching.
+function System.GetCombatLogContext()
+    if type(_G.GetInstanceInfo) ~= "function" then return nil end
+    local ok, name, kind, difficulty, _, _, _, _, mapID = pcall(_G.GetInstanceInfo)
+    if not ok then return nil end
+    if type(_G.issecretvalue) == "function" and
+        (_G.issecretvalue(name) or _G.issecretvalue(kind) or _G.issecretvalue(difficulty) or _G.issecretvalue(mapID)) then
+        return nil
+    end
+    if type(kind) ~= "string" or type(difficulty) ~= "number" then return nil end
+    return kind, difficulty, mapID, name
+end
+
 function System.GetServerTime()
     if type(GetServerTime) ~= "function" then return nil end
     local ok, value = pcall(GetServerTime)
@@ -696,7 +738,38 @@ function System.GetAudioOutputDeviceOptions()
 end
 
 function System.GetAudioOutputDeviceIndex()
-    return System.GetCVarNumber("Sound_OutputDriverIndex") or 0
+    local value = System.GetCVarSafe("Sound_OutputDriverIndex")
+    if issecretvalue and issecretvalue(value) then return 0 end
+    return tonumber(value) or 0
+end
+
+-- Event/cold path only. Return the readable game-output index, or nil.
+-- Voice-chat default IDs are placeholders, not the OS default endpoint identity.
+function System.GetAudioOutputDeviceState()
+    if type(Sound_GameSystem_GetNumOutputDrivers) ~= "function" or
+        type(Sound_GameSystem_GetOutputDriverNameByIndex) ~= "function" then
+        return nil
+    end
+
+    local ok, count = pcall(Sound_GameSystem_GetNumOutputDrivers)
+    local selected = System.GetCVarSafe("Sound_OutputDriverIndex")
+    local isSecret = _G.issecretvalue
+    if not ok or (isSecret and (isSecret(count) or isSecret(selected))) then
+        return nil
+    end
+    if type(count) ~= "number" or count <= 0 or count == math.huge or count % 1 ~= 0 then
+        return nil
+    end
+    if type(selected) ~= "number" and type(selected) ~= "string" then return nil end
+    local index = tonumber(selected)
+    if not index or index < 0 or index >= count or index % 1 ~= 0 then
+        return nil
+    end
+    local nameOK, name = pcall(Sound_GameSystem_GetOutputDriverNameByIndex, index)
+    if not nameOK or (isSecret and isSecret(name)) or type(name) ~= "string" or name == "" then
+        return nil
+    end
+    return index
 end
 
 function System.SetAudioOutputDeviceIndex(index)
@@ -753,6 +826,71 @@ function System.OpenAudioSettings()
 
     local ok, opened = pcall(Settings.OpenToCategory, Settings.AUDIO_CATEGORY_ID)
     return ok and opened ~= false
+end
+
+-- Cold-path addon administration. Never use the native all-character default.
+function System.SetCurrentCharacterAddOnEnabled(name, enabled)
+    local character = GetCurrentCharacter()
+    if type(_G.issecretvalue) == "function" and _G.issecretvalue(character) then return false end
+    if type(character) ~= "string" or character == "" or type(name) ~= "string" or type(enabled) ~= "boolean" then return false end
+    local api = _G.C_AddOns
+    local setter = api and (enabled and api.EnableAddOn or api.DisableAddOn)
+    if type(setter) ~= "function" then return false end
+    local ok = pcall(setter, name, character)
+    return ok and System.GetAddOnEnabledState(name) == enabled
+end
+
+function System.GetRequiredAddOnDependencies(name)
+    local api = _G.C_AddOns
+    if not (api and type(api.GetAddOnDependencies) == "function") then return nil end
+    local result = { pcall(api.GetAddOnDependencies, name) }
+    if not result[1] then return nil end
+    local dependencies = {}
+    for i = 2, #result do
+        if type(result[i]) == "string" and result[i] ~= "" then dependencies[#dependencies + 1] = result[i] end
+    end
+    return dependencies
+end
+
+-- One refresh per visible sampling pass; no reset of the shared CPU profiler.
+function System.RefreshAddOnMemoryUsage()
+    if type(_G.UpdateAddOnMemoryUsage) ~= "function" then return false end
+    return pcall(_G.UpdateAddOnMemoryUsage)
+end
+
+function System.GetAddOnMemoryKilobytes(name)
+    if type(_G.GetAddOnMemoryUsage) ~= "function" then return nil end
+    local ok, value = pcall(_G.GetAddOnMemoryUsage, name)
+    if not ok or (type(_G.issecretvalue) == "function" and _G.issecretvalue(value)) then return nil end
+    return type(value) == "number" and value >= 0 and value < math.huge and value or nil
+end
+
+function System.GetAddOnManagementCharacter()
+    local character = GetCurrentCharacter()
+    if type(_G.issecretvalue) == "function" and _G.issecretvalue(character) then return nil end
+    return type(character) == "string" and character ~= "" and character or nil
+end
+
+-- Fail closed for safety-critical native calls. No restricted values escape.
+function System.IsAddOnSwitchSafe()
+    local function call(fn, ...)
+        if type(fn) ~= "function" then return nil end
+        local ok, value = pcall(fn, ...)
+        if not ok or (type(_G.issecretvalue) == "function" and _G.issecretvalue(value)) then return nil end
+        return value
+    end
+    if call(_G.InCombatLockdown) ~= false or call(_G.UnitAffectingCombat, "player") ~= false then return false end
+    if call(_G.IsEncounterInProgress) ~= false then return false end
+    local challenge = _G.C_ChallengeMode
+    if challenge and type(challenge.IsChallengeModeActive) == "function" and call(challenge.IsChallengeModeActive) ~= false then return false end
+    local kind = System.GetCombatLogContext()
+    if not kind then return false end
+    if kind == "pvp" or kind == "arena" then
+        local pvp, states = _G.C_PvP, _G.Enum and _G.Enum.PvPMatchState
+        local match = pvp and call(pvp.GetActiveMatchState)
+        if not states or (match ~= states.Waiting and match ~= states.StartUp and match ~= states.Complete) then return false end
+    end
+    return true
 end
 
 Legacy.GetAddOnMetadata = System.GetAddOnMetadata

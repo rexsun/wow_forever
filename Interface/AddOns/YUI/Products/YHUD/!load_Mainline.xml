@@ -22,7 +22,9 @@
     <Script file="Catalog\Resources\Classes\Warlock.lua"/>
     <Script file="Catalog\Resources\Classes\Warrior.lua"/>
     <Include file="!load_Shared.xml"/>
+    <Script file="View\Bridges\Loot.lua"/>
     <Script file="Runtime\Sound.lua"/>
+    <Script file="Runtime\AssistedHighlight.lua"/>
     <Script file="View\Skyriding.lua"/>
     <Script file="Settings\LegacySoundMigration.lua"/>
     <Script file="Product\Lifecycle.lua"/>

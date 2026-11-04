@@ -28,10 +28,18 @@ end
 
 -- Bindings can be replaced without replacing their engine-owned sound handles.
 function A:Publish()
+    local families = {}
     for _,wanted in pairs(self.desired) do
         if (wanted.binding.rule.trigger.extension=='boiling-point' or wanted.binding.rule.trigger.extension=='bone-shield') then wanted.binding.issue=nil end
     end
     for key, wanted in pairs(self.desired) do
+        if wanted.family then
+            local state = families[wanted.binding] or { registered = true }
+            families[wanted.binding] = state
+            local active = self.registrations[key]
+            state.registered = state.registered and active ~= nil and Same(active, wanted)
+            state.issue = state.issue or wanted.resourceIssue or wanted.issue
+        else
         local binding, active = wanted.binding, self.registrations[key]
         local oldIssue,oldRegistered=binding.auraPlaybackIssue,binding.directAuraRegistered
         local blocked = not wanted.native or active ~= nil
@@ -59,6 +67,19 @@ function A:Publish()
             and self.event and self.event.Emit then
             -- Registration is output state, not a change to the monitored source.
             self.event:Emit('YUI_SOUND_BINDING_STATUS_CHANGED',binding.sourceKey)
+        end
+        end
+    end
+    for binding, state in pairs(families) do
+        local oldIssue, oldRegistered = binding.auraPlaybackIssue, binding.directAuraRegistered
+        local issue = state.issue or not state.registered and 'aura-sound-registration-pending' or nil
+        binding.fallbackRequired = true
+        binding.directAuraID = nil
+        binding.directAuraRegistered = state.registered or nil
+        binding.auraPlaybackIssue, binding.issue = issue, issue
+        if (oldIssue ~= issue or oldRegistered ~= binding.directAuraRegistered)
+            and self.event and self.event.Emit then
+            self.event:Emit('YUI_SOUND_BINDING_STATUS_CHANGED', binding.sourceKey)
         end
     end
 end
@@ -145,7 +166,7 @@ function A:Clear()
 end
 
 function A:Sync(bindings, preferences)
-    if YUI.IsRetail ~= true or not preferences.enabled then return self:Clear() end
+    if (YUI.IsRetail ~= true and YUI.IsForever ~= true) or not preferences.enabled then return self:Clear() end
     local desired, changed = {}, false
     for _, binding in ipairs(bindings) do
         local rule = binding.rule
@@ -173,10 +194,24 @@ function A:Sync(bindings, preferences)
                     else wanted.resourceIssue = 'aura-sound-file-required' end
                 end
             end
-            local previous = self.desired[key]
-            if not Same(previous, wanted) then changed = true
-            else wanted.issue = previous.issue end
-            desired[key] = wanted
+            local ids = binding.nativeAuraIDs
+            if ids and #ids > 1 then
+                for _, id in ipairs(ids) do
+                    local member = {}
+                    for field, value in pairs(wanted) do member[field] = value end
+                    member.spellID, member.family = id, true
+                    local memberKey = key .. ':' .. id
+                    local previous = self.desired[memberKey]
+                    if not Same(previous, member) then changed = true
+                    else member.issue = previous.issue end
+                    desired[memberKey] = member
+                end
+            else
+                local previous = self.desired[key]
+                if not Same(previous, wanted) then changed = true
+                else wanted.issue = previous.issue end
+                desired[key] = wanted
+            end
         end
     end
     for key, old in pairs(self.desired) do

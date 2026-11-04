@@ -24,6 +24,32 @@ local function Same(a,b)
     return true
 end
 
+-- Runtime snapshots precompute table sizes once. Compare every current key in
+-- one pass, including additions/removals, without a second snapshot-key walk.
+local function CopyRuntimeInput(value,sizes)
+    if type(value)~='table' then return value end
+    local copy,count={},0
+    for key,item in pairs(value) do
+        copy[key]=CopyRuntimeInput(item,sizes);count=count+1
+    end
+    sizes[copy]=count
+    return copy
+end
+
+local function SameRuntimeInput(snapshot,current,sizes)
+    if not sizes then return Same(snapshot,current) end
+    if type(current)~='table' then return snapshot==current end
+    if type(snapshot)~='table' then return false end
+    local count=0
+    for key,value in pairs(current) do
+        count=count+1
+        if type(value)=='table' then
+            if not SameRuntimeInput(snapshot[key],value,sizes) then return false end
+        elseif snapshot[key]~=value then return false end
+    end
+    return count==sizes[snapshot]
+end
+
 local function Context()
     local DB=YUI.DB
     if not (DB and DB.GetAceDB and DB.GetProfile) then return nil,"db-not-ready" end
@@ -112,7 +138,7 @@ end
 local function Read(context)
     local raw=context.profile[KEY]
     if raw==nil then return {},0 end
-    if type(raw)~="table" or raw.schemaVersion~=Model.SCHEMA_VERSION
+    if type(raw)~="table" or (raw.schemaVersion~=1 and raw.schemaVersion~=Model.SCHEMA_VERSION)
         or type(raw.revision)~="number" or raw.revision<0 or raw.revision%1~=0 then return nil,"invalid-rule-storage" end
     for key in pairs(raw) do
         if key~='schemaVersion' and key~='revision' and key~='rules' and key~='familyMigrationVersion' then return nil,'invalid-rule-storage' end
@@ -153,6 +179,30 @@ function Store:Read()
     return Read(context)
 end
 
+-- The runtime owns this snapshot; editors continue to receive independent rules.
+-- Compare contents as well as revisions: legacy callers can edit rules in place.
+function Store:ReadRuntime()
+    local context,code=Context(); if not context then return nil,code end
+    local raw=context.profile[KEY]
+    local cached=self.runtimeSnapshot
+    if cached and cached.database==context.database and cached.profile==context.profile
+        and cached.name==context.name and cached.raw==raw
+        and SameRuntimeInput(cached.input,raw,cached.inputSizes) then
+        return cached.rules,cached.revision
+    end
+    local rules,revision=Read(context)
+    if not rules then self.runtimeSnapshot=nil;return nil,revision end
+    local inputSizes={}
+    local input=CopyRuntimeInput(context.profile[KEY],inputSizes)
+    self.runtimeSnapshot={database=context.database,profile=context.profile,name=context.name,
+        raw=context.profile[KEY],input=input,inputSizes=inputSizes,rules=rules,revision=revision}
+    return rules,revision
+end
+
+function Store:ReleaseRuntime()
+    self.runtimeSnapshot=nil
+end
+
 function Store:BeginEdit()
     local context,code=Context(); if not context then return nil,code end
     local rules,revision=Read(context); if not rules then return nil,revision end
@@ -175,13 +225,13 @@ function Store:CommitEdit(token,rules,runtime)
     return ok,detail,failure
 end
 
-function Store:PrepareImport(incoming,mode)
+function Store:PrepareImport(incoming,mode,equivalent)
     local context,code=Context(); if not context then return nil,code end
     local rules,revision=Read(context); if not rules then return nil,revision end
-    local nextRules,counts=Model:PrepareImport(rules,incoming,mode)
+    local nextRules,counts,items=Model:PrepareImport(rules,incoming,mode,equivalent)
     if not nextRules then return nil,counts end
     local prepared={context=context,before=Copy(context.profile[KEY]),rules=nextRules,
-        revision=revision,counts=counts,consumed=false}
+        revision=revision,counts=counts,items=items,consumed=false}
     previews[prepared]={context={database=context.database,profile=context.profile,name=context.name},
         before=Copy(prepared.before),rules=Copy(nextRules),revision=revision}
     return prepared

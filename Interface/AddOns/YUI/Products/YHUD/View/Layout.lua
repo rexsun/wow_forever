@@ -36,6 +36,7 @@ local CreateFrame = _G.CreateFrame
 local Security = YUI.API and YUI.API.Security
 
 local layoutGeometryByFrame = setmetatable({}, { __mode = "k" })
+local LayoutExternalBuffBlocks
 
 local GROUP_DISPLAY_LAYER_HEADROOM = 32
 local GROUP_TEXT_LAYER_OFFSET = 16
@@ -47,6 +48,7 @@ local FILTERED_AURA_ANCHOR_SPECIAL_ORIGIN_BASE = 200
 local FILTERED_AURA_ANCHOR_SPECIAL_FIXED_HALF_BASE = 300
 local DESIGN_DISPLAY_LAYER_BASE = 180
 local DESIGN_DISPLAY_STRATA = "FULLSCREEN"
+local DESIGN_LAYOUT_DISPLAY_STRATA = "MEDIUM"
 
 function View:CreateGroupHolder(groupId, group)
     local runtime = self.groups[groupId]
@@ -359,6 +361,12 @@ local function SnapLayoutBoundary(frame, value, layoutScale)
     return value
 end
 
+-- Both live layout and design projection accumulate the rendered thickness,
+-- rather than rounding each bar only after its neighbours have been placed.
+function I.SnapResourceThickness(frame, thickness, minimumStep, layoutScale)
+    return math.max(minimumStep, SnapLayoutBoundary(frame, thickness, layoutScale))
+end
+
 local function LayoutPointMatches(
     frame,
     point,
@@ -569,7 +577,7 @@ local function ProjectRuntimeVisibility(self, runtime)
             or self.designerSurfaceVisible ~= false
         )
         and runtime.enabled == true
-        and runtime.layoutEligible == true
+        and (runtime.layoutEligible == true or runtime.hasExternalBuffBlock == true)
         and runtime.presentationReady ~= false
         and designerStateAllowed
         and self:IsGroupLevelDisplayAllowed(runtime)
@@ -635,6 +643,7 @@ function View:ProjectSingleResourceVisibility(groupId)
     runtime.layoutEligible = slot ~= nil
         and slot._yhudVisibilitySuppressed ~= true
         or self.layoutEditMode or self.designMode
+    if self.ShowBarGroupShadow then self:ShowBarGroupShadow(runtime, slot ~= nil and slot._yhudVisibilitySuppressed ~= true) end
     local wrote = ProjectRuntimeVisibility(self, runtime)
     AddViewWrite(wrote)
     return true
@@ -670,6 +679,7 @@ function View:ProjectFixedResourceVisibility(groupId)
 
     runtime.layoutEligible = visibleCount > 0
         or self.layoutEditMode or self.designMode
+    if self.ShowBarGroupShadow then self:ShowBarGroupShadow(runtime, visibleCount > 0) end
     local holderWrote = ProjectRuntimeVisibility(self, runtime)
     if holderWrote then AddViewWrite(false) end
     AddPerformanceStat("resourceFixedProjectionHits")
@@ -781,7 +791,9 @@ function View:ApplyGroupDisplayLayers(profile, projection)
     for index = 1, #ordered do
         local runtime = ordered[index].runtime
         local targetStrata = self.designMode
-            and DESIGN_DISPLAY_STRATA or runtime.baseFrameStrata
+            and (projection and self.designLayoutMode
+                and DESIGN_LAYOUT_DISPLAY_STRATA or DESIGN_DISPLAY_STRATA)
+            or runtime.baseFrameStrata
         local nextCursor = I.AssignRuntimeDisplayLayers(
             runtime,
             cursor,
@@ -798,7 +810,8 @@ function View:ApplyGroupDisplayLayers(profile, projection)
         local runtime = slot and groups[slot._yhudGroupId]
         local level, strata = self:GetMonitorDisplayLayer(runtime, monitorId)
         if level then
-            changed = SetLayoutFrameStrata(slot, strata) or changed
+            local strataChanged = SetLayoutFrameStrata(slot, strata)
+            changed = strataChanged or changed
             changed = SetLayoutFrameLevel(slot, level) or changed
             if slot._yhudView == "icon"
                 and self.RefreshFilteredAuraSlotLayers then
@@ -812,6 +825,18 @@ function View:ApplyGroupDisplayLayers(profile, projection)
             elseif slot._yhudView == "resource" then
                 changed = self:RefreshResourceTextLayers(slot, runtime)
                     or changed
+            end
+            if projection and strataChanged then
+                -- Sample text and glow frames can own an explicit strata.
+                -- Refresh only the draft when switching between its editors.
+                if self.ApplyDesignTextPreview then
+                    self:ApplyDesignTextPreview(slot)
+                end
+                if self.ApplyMonitorGlow then
+                    local monitor = projection.desiredMonitors
+                        and projection.desiredMonitors[monitorId]
+                    self:ApplyMonitorGlow(slot, monitor, nil)
+                end
             end
         end
     end
@@ -873,15 +898,17 @@ local function SetRingGeometry(
 end
 
 local function ApplyRuntimeGeometry(runtime, frames, geometry)
+    local blockWrote = LayoutExternalBuffBlocks(runtime, geometry)
     local layoutScale = GetPixelLayoutScale(runtime.frame)
     local adapter = {
         runtime = runtime,
         frames = frames,
         layoutScale = layoutScale,
-        wrote = false,
+        wrote = blockWrote,
         holderSizeChanged = false,
         snappedWidth = 0,
         geometryMode = geometry.mode,
+        resourceRowsLinked = geometry.resourceRowsLinked == true,
     }
     function adapter:SetHolderSize(width, height)
         local snappedWidth = self.geometryMode == "concentric" and width
@@ -945,10 +972,17 @@ local function ApplyRuntimeGeometry(runtime, frames, geometry)
         local x = SnapOffset(placement.x)
         local y = SnapOffset(placement.y)
         local changed = false
-        if self.runtime.view == "resource" and self.runtime.handPairMode == "split"
+        if self.runtime.view == "resource" and (self.runtime.handPairMode == "split" or self.resourceRowsLinked)
             and slot.SetResourceBarSize and placement.width and placement.height then
-            changed = slot:SetResourceBarSize(placement.width, placement.height, self.runtime.orientation) == true
-                or changed
+            if not SameLayoutNumber(slot.gui2ResourceWidth, placement.width)
+                or not SameLayoutNumber(slot.gui2ResourceHeight, placement.height)
+                or slot.gui2ResourceOrientation ~= self.runtime.orientation then
+                slot:SetResourceBarSize(placement.width, placement.height, self.runtime.orientation)
+                changed = true
+                if slot._yhudBarProgress and View.LayoutBarTicks then
+                    View:LayoutBarTicks(slot, self.runtime, slot._yhudBarMaximum)
+                end
+            end
         end
         if self.runtime.view ~= "bar"
             and self.runtime.view ~= "ring"
@@ -1049,6 +1083,10 @@ function View:InvalidateResourcePrefixLayout(groupId, releaseStorage)
     return prefixCleared or edgeCleared
 end
 
+local function HasResourceRowLinks(runtime)
+    return runtime.presentationGroupPlan and runtime.presentationGroupPlan.hasResourceRowLinks == true
+end
+
 local function BuildResourcePrefixLayout(
     self,
     runtime,
@@ -1060,7 +1098,8 @@ local function BuildResourcePrefixLayout(
     if existing then existing.valid = false end
 
     local count = tonumber(runtime.monitorCount) or 0
-    if runtime.handPairMode == "split" or count <= 1 or runtime.hasCombatResourceVisibility ~= true
+    if runtime.handPairMode == "split" or HasResourceRowLinks(runtime)
+        or count <= 1 or runtime.hasCombatResourceVisibility ~= true
         or hasNativeContent == true
         or self.preview or self.designMode or self.layoutEditMode
         or (runtime.nativeFrames and #runtime.nativeFrames > 0)
@@ -1071,14 +1110,6 @@ local function BuildResourcePrefixLayout(
             and runtime.filteredAuraWidth > 0)
         or (type(runtime.filteredAuraHeight) == "number"
             and runtime.filteredAuraHeight > 0) then
-        return nil, visibleCount
-    end
-
-    local perLine = math.min(
-        math.max(1, runtime.maxPerLine or DEFAULT_MAX_PER_LINE),
-        count
-    )
-    if count > perLine and runtime.alignment ~= "start" then
         return nil, visibleCount
     end
 
@@ -1167,22 +1198,25 @@ end
 local function ApplyEffectiveResourceWidth(runtime, frames, count, width)
     local wrote = false
     runtime.effectiveResourceWidth = width
+    local vertical = runtime.orientation == "vertical"
     for index = 1, count do
         local slot = frames[index]
-        local currentWidth = slot and slot.GetWidth
-            and tonumber(slot:GetWidth()) or nil
-        local resourceWidth = slot and tonumber(slot.gui2ResourceWidth)
+        local getLength = slot and (vertical and slot.GetHeight or slot.GetWidth)
+        local currentWidth = getLength and tonumber(getLength(slot)) or nil
+        local resourceWidth = slot and tonumber(vertical and slot.gui2ResourceHeight or slot.gui2ResourceWidth)
         local resourceWidthOutOfSync = resourceWidth ~= nil
             and not SameLayoutNumber(resourceWidth, width)
         if slot and (not SameLayoutNumber(currentWidth, width)
             or resourceWidthOutOfSync) then
-            local height = slot.GetHeight and tonumber(slot:GetHeight())
+            local getThickness = vertical and slot.GetWidth or slot.GetHeight
+            local thickness = getThickness and tonumber(getThickness(slot))
                 or runtime.resourceHeight or DEFAULT_RESOURCE_HEIGHT
+            local physicalWidth, physicalHeight = I.ResolveResourceSize(runtime, width, thickness)
             if slot.SetResourceBarSize then
-                slot:SetResourceBarSize(width, height, runtime.orientation)
+                slot:SetResourceBarSize(physicalWidth, physicalHeight, runtime.orientation)
                 wrote = true
             else
-                wrote = SetLayoutSize(slot, width, height) or wrote
+                wrote = SetLayoutSize(slot, physicalWidth, physicalHeight) or wrote
             end
         end
     end
@@ -1231,6 +1265,7 @@ local function PrepareResourceEdgeState(
     local geometry = BuildGroupGeometry(
         {
             view = "resource",
+            orientation = runtime.orientation,
             direction = runtime.direction,
             alignment = runtime.alignment,
             maxPerLine = runtime.maxPerLine,
@@ -1293,11 +1328,7 @@ local function BuildResourceEdgeLayout(
     local existing = runtime.resourceEdgeLayout
     if existing then existing.valid = false end
     local count = tonumber(runtime.monitorCount) or 0
-    local perLine = math.min(
-        math.max(1, runtime.maxPerLine or DEFAULT_MAX_PER_LINE),
-        math.max(1, count)
-    )
-    if runtime.handPairMode == "split" or count <= 1 or count > perLine
+    if runtime.handPairMode == "split" or HasResourceRowLinks(runtime) or count <= 1
         or runtime.hasCombatResourceVisibility ~= true
         or self.inCombat == true or IsInCombat()
         or hasNativeContent == true
@@ -1450,28 +1481,64 @@ local function PublishImportantGroupWidth(
     width,
     hasContent
 )
-    if groupId ~= YHUD.GROUP_IDS.IMPORTANT then return false end
     local nextWidth = hasContent and tonumber(width) or nil
     if nextWidth and nextWidth <= 0 then nextWidth = nil end
-    local previousWidth = self.importantGroupContentWidth
+    local runtime = self.groups[groupId]
+    if not runtime then return false end
+    local previousWidth = runtime.publicContentWidth
     if (previousWidth == nil and nextWidth == nil)
         or SameLayoutNumber(previousWidth, nextWidth) then
         return false
     end
-    self.importantGroupContentWidth = nextWidth
-
-    if self.autoResourceWidthRelayout then
-        return true
+    runtime.publicContentWidth = nextWidth
+    if groupId == YHUD.GROUP_IDS.IMPORTANT then
+        self.importantGroupContentWidth = nextWidth
     end
-    self.autoResourceWidthRelayout = true
+
+    self.widthRelayoutActive = self.widthRelayoutActive or {}
+    if self.widthRelayoutActive[groupId] then return true end
+    self.widthRelayoutActive[groupId] = true
     for resourceGroupId, resourceRuntime in pairs(self.groups) do
-        if resourceRuntime.view == "resource" and resourceRuntime.resourceWidthMode == "auto" then
+        local resource = groupId == YHUD.GROUP_IDS.IMPORTANT
+            and resourceRuntime.view == "resource" and resourceRuntime.resourceWidthMode == "auto"
+        local bar = resourceRuntime.view == "bar" and resourceRuntime.orientation ~= "vertical"
+            and resourceRuntime.barWidthMode == "auto" and resourceRuntime.barWidthGroupId == groupId
+        if (resource or bar) and not self.widthRelayoutActive[resourceGroupId] then
             self:RelayoutGroup(resourceGroupId)
         end
     end
-    self.autoResourceWidthRelayout = nil
+    self.widthRelayoutActive[groupId] = nil
     return true
 end
+
+local function ApplyAlignedBarWidth(self, runtime)
+    if runtime.view ~= "bar" or runtime.orientation == "vertical" then return end
+    local width = runtime.barFixedWidth or runtime.itemWidth
+    if runtime.barWidthMode == "auto" and YHUD:CanAlignBarWidth(
+        self.profile, runtime.id, runtime.barWidthGroupId) then
+        local target = self.groups[runtime.barWidthGroupId]
+        width = target and target.publicContentWidth or width
+    end
+    width = math.max(48, SnapLayoutBoundary(runtime.frame, width, GetPixelLayoutScale(runtime.frame)))
+    if SameLayoutNumber(runtime.itemWidth, width) then return end
+    runtime.itemWidth = width
+    runtime.barWidth = math.max(1, width - ((runtime.showIcon ~= false
+        and (runtime.iconPosition == "left" or runtime.iconPosition == "right"))
+        and (runtime.iconSize + runtime.iconGap) or 0))
+    for index = 1, runtime.monitorCount do
+        local monitorId = runtime.monitorIds[index]
+        local slot = self.byMonitor[monitorId]
+        if slot and slot.SetDurationBarSize then
+            slot:SetDurationBarSize(width, runtime.itemHeight, runtime.iconSize)
+            if self.RefreshBarProgressGeometry then self:RefreshBarProgressGeometry(slot, runtime) end
+        end
+    end
+    if self.UpdateFilteredAuraBarWidth then self:UpdateFilteredAuraBarWidth(runtime) end
+    if YHUD.NativeBridge and YHUD.NativeBridge.RefreshBarGroupGeometry then
+        YHUD.NativeBridge:RefreshBarGroupGeometry(runtime)
+    end
+end
+I.ApplyAlignedBarWidth = ApplyAlignedBarWidth
 
 local function RelayoutResourceFrames(
     self,
@@ -1487,7 +1554,9 @@ local function RelayoutResourceFrames(
     visibleCount = tonumber(visibleCount) or count
     local wrote = false
     local effectiveWidth = ResolveResourceWidth(self, runtime)
-    if runtime.handPairMode ~= "split" then
+    runtime.effectiveResourceWidth = effectiveWidth
+    local linkedRows = HasResourceRowLinks(runtime)
+    if runtime.handPairMode ~= "split" and not linkedRows then
         wrote = ApplyEffectiveResourceWidth(runtime, frames, count, effectiveWidth) or wrote
     end
     local minimumStep = GUI2.GetPixelSize
@@ -1505,21 +1574,28 @@ local function RelayoutResourceFrames(
         local member = monitorId and presentationMembers
             and presentationMembers[monitorId] or nil
         local spec = member and member.resourceSpec
-        local height = spec and spec.height
-            or slot and slot.gui2ResourceHeight
+        local vertical = runtime.orientation == "vertical"
+        local thickness = spec and spec.height
+            or slot and (vertical and slot.gui2ResourceWidth or slot.gui2ResourceHeight)
             or slot and slot.height
             or runtime.resourceHeight
             or DEFAULT_RESOURCE_HEIGHT
         -- Quantize the actual bars before accumulating their positions. Snapping
         -- only the cumulative offsets leaves fractional heights at shared edges.
-        height = math.max(minimumStep, SnapLayoutBoundary(runtime.frame, height, layoutScale))
-        if slot and slot.SetResourceBarSize and slot.gui2ResourceHeight ~= height then
-            slot:SetResourceBarSize(effectiveWidth, height, runtime.orientation)
+        thickness = I.SnapResourceThickness(runtime.frame, thickness, minimumStep, layoutScale)
+        local width, height = I.ResolveResourceSize(runtime, effectiveWidth, thickness)
+        if not linkedRows and slot and slot.SetResourceBarSize
+            and (slot.gui2ResourceWidth ~= width or slot.gui2ResourceHeight ~= height
+                or slot.gui2ResourceOrientation ~= runtime.orientation) then
+            slot:SetResourceBarSize(width, height, runtime.orientation)
+            if slot._yhudBarProgress and self.LayoutBarTicks then self:LayoutBarTicks(slot, runtime, slot._yhudBarMaximum) end
             wrote = true
         end
         resourceMetrics[index] = {
             resourceId = slot and slot._yhudResourceId,
-            width = effectiveWidth,
+            resourceRowKey = member and member.monitor and member.monitor._yhudResource
+                and member.monitor._yhudResource.resourceRowKey or slot and slot._yhudResourceRowKey,
+            width = width,
             height = height,
         }
     end
@@ -1581,6 +1657,7 @@ local function RelayoutResourceFrames(
     )
     wrote = geometryWrote or wrote
     runtime.presentationGeometry = geometry
+    if self.ApplyBarShadows then self:ApplyBarShadows(runtime, frames, count, visibleCount) end
     for position = 1, count do
         local metric = metrics[position]
         if prefixCache then
@@ -1610,6 +1687,7 @@ local function RelayoutResourceFrames(
         combatResourceEdge
     )
     AddViewWrite(wrote)
+    PublishImportantGroupWidth(self, groupId, width, visibleCount > 0 or hasNativeContent)
     return wrote
 end
 
@@ -1630,6 +1708,7 @@ function View:ProjectPreparedResourcePrefix(groupId)
         and runtime.view == "resource"
         and runtime.hasCombatResourceVisibility == true
         and cache and cache.valid == true)
+        or HasResourceRowLinks(runtime)
         or self.preview or self.designMode or self.layoutEditMode
         or (runtime.nativeFrames and #runtime.nativeFrames > 0)
         or (runtime.nativeByMonitor and next(runtime.nativeByMonitor))
@@ -1689,6 +1768,7 @@ function View:ProjectPreparedResourcePrefix(groupId)
 
     local holderSizeChanged = SetLayoutSize(runtime.frame, width, height)
     runtime.layoutEligible = visibleCount > 0
+    if self.ShowBarGroupShadow then self:ShowBarGroupShadow(runtime, runtime.layoutEligible) end
     local holderWrote = ProjectRuntimeVisibility(self, runtime)
     local wrote = holderSizeChanged or holderWrote
     RequestPixelAlignmentRefresh(
@@ -1699,6 +1779,7 @@ function View:ProjectPreparedResourcePrefix(groupId)
         true
     )
     AddViewWrite(wrote)
+    PublishImportantGroupWidth(self, groupId, width, visibleCount > 0)
     AddPerformanceStat("resourcePrefixProjectionHits")
     FinishPerformanceStat("resourcePrefixProjectionMS", startedAt)
     return true
@@ -1721,6 +1802,7 @@ function View:ProjectPreparedResourceEdgeLayout(groupId)
         and runtime.view == "resource"
         and runtime.hasCombatResourceVisibility == true
         and cache.valid == true)
+        or HasResourceRowLinks(runtime)
         or self.preview or self.designMode or self.layoutEditMode
         or (runtime.nativeFrames and #runtime.nativeFrames > 0)
         or (runtime.nativeByMonitor and next(runtime.nativeByMonitor))
@@ -1820,6 +1902,7 @@ function View:ProjectPreparedResourceEdgeLayout(groupId)
         state.height
     )
     runtime.layoutEligible = state.visibleCount > 0
+    if self.ShowBarGroupShadow then self:ShowBarGroupShadow(runtime, runtime.layoutEligible) end
     local holderWrote = ProjectRuntimeVisibility(self, runtime)
     wrote = holderSizeChanged or holderWrote or wrote
     RequestPixelAlignmentRefresh(
@@ -1830,6 +1913,7 @@ function View:ProjectPreparedResourceEdgeLayout(groupId)
         true
     )
     AddViewWrite(wrote)
+    PublishImportantGroupWidth(self, groupId, state.width, state.visibleCount > 0)
     AddPerformanceStat("resourceEdgeProjectionHits")
     FinishPerformanceStat("resourceEdgeProjectionMS", startedAt)
     return true
@@ -2033,8 +2117,13 @@ local function AnchorFilteredAuraFlowNode(
     node,
     cursor,
     cursorPoint,
-    growth
+    growth,
+    crossOffset
 )
+    if growth == "up" or growth == "down" then
+        return SetEngineManagedLayoutPoint(node, growth == "up" and "BOTTOM" or "TOP",
+            cursor, cursorPoint or (growth == "up" and "TOP" or "BOTTOM"), crossOffset or 0, 0)
+    end
     if growth == "left" then
         return SetEngineManagedLayoutPoint(
             node,
@@ -2042,7 +2131,7 @@ local function AnchorFilteredAuraFlowNode(
             cursor,
             cursorPoint or "LEFT",
             0,
-            0
+            crossOffset or 0
         )
     end
     return SetEngineManagedLayoutPoint(
@@ -2051,7 +2140,7 @@ local function AnchorFilteredAuraFlowNode(
         cursor,
         cursorPoint or "RIGHT",
         0,
-        0
+        crossOffset or 0
     )
 end
 
@@ -2072,6 +2161,12 @@ local function ResolveFilteredAuraDynamicDisplay(self, kind, value)
 end
 
 local function ResolveFilteredAuraChainGrowth(runtime)
+    if runtime.fillMode == "columns" then
+        if runtime.alignment == "center" then
+            return runtime.wrapDirection == "up" and "up" or "down"
+        end
+        return runtime.alignment == "end" and "up" or "down"
+    end
     if runtime.alignment == "center" then
         return runtime.rowDirection == "left" and "left" or "right"
     end
@@ -2092,9 +2187,14 @@ local function PrepareFilteredAuraFixedCell(
     local wrote = false
     local cell = frame._yhudFilteredAuraChainCarrier
     if not cell then return nil, false end
-    wrote = SetLayoutSize(cell, cellWidth, itemHeight) or wrote
+    local columnIcons = runtime.fillMode == "columns"
+    wrote = SetLayoutSize(cell, columnIcons and itemWidth or cellWidth,
+        columnIcons and cellWidth or itemHeight) or wrote
     wrote = SetLayoutSize(frame, itemWidth, itemHeight) or wrote
-    if growth == "left" then
+    if columnIcons then
+        local edge = growth == "up" and "BOTTOM" or "TOP"
+        wrote = SetEngineManagedLayoutPoint(frame, edge, cell, edge, 0, 0) or wrote
+    elseif growth == "left" then
         wrote = SetEngineManagedLayoutPoint(
             frame,
             "RIGHT",
@@ -2159,16 +2259,30 @@ local function PlaceFilteredAuraPlannedDynamicRow(
     local wrote = false
     local itemWidth = geometry.itemWidth
     local itemHeight = geometry.itemHeight
-    local columnSpacing = geometry.columnSpacing
-    local cellWidth = itemWidth + columnSpacing
+    local columnIcons = runtime.fillMode == "columns"
+    local columnSpacing = columnIcons and geometry.rowSpacing or geometry.columnSpacing
+    local cellWidth = (columnIcons and itemHeight or itemWidth) + columnSpacing
+    local itemOffset = tonumber(runtime.itemOffset) or 0
     local growth = ResolveFilteredAuraChainGrowth(runtime)
     local rowFrame = AcquireFilteredAuraLayoutAnchor(
         runtime,
         FILTERED_AURA_ANCHOR_SPECIAL_ROW_BASE + rowIndex
     )
-    wrote = SetLayoutSize(rowFrame, geometry.width, itemHeight) or wrote
+    wrote = SetLayoutSize(rowFrame, columnIcons and itemWidth or geometry.width,
+        columnIcons and geometry.height or itemHeight) or wrote
     local y = (rowIndex - 1) * (itemHeight + geometry.rowSpacing)
-    if runtime.wrapDirection == "up" then
+    if itemOffset ~= 0 and geometry.placements and geometry.placements[row.indices[1]] then
+        local first = geometry.placements[row.indices[1]]
+        local firstX = first.point == "TOPRIGHT" and geometry.width + first.x - itemWidth or first.x
+        local firstY = first.point == "BOTTOMLEFT" and first.y + itemHeight - geometry.height or first.y
+        wrote = SetLayoutPoint(rowFrame, "TOPLEFT", runtime.frame, "TOPLEFT",
+            columnIcons and firstX or 0, columnIcons and 0 or firstY) or wrote
+    elseif columnIcons then
+        local edge = runtime.rowDirection == "left" and "TOPRIGHT" or "TOPLEFT"
+        wrote = SetLayoutPoint(rowFrame, edge, runtime.frame, edge,
+            (runtime.rowDirection == "left" and -1 or 1)
+                * (rowIndex - 1) * (itemWidth + geometry.columnSpacing), 0) or wrote
+    elseif runtime.wrapDirection == "up" then
         wrote = SetLayoutPoint(
             rowFrame,
             "BOTTOMLEFT",
@@ -2192,19 +2306,20 @@ local function PlaceFilteredAuraPlannedDynamicRow(
         runtime,
         FILTERED_AURA_ANCHOR_SPECIAL_ORIGIN_BASE + rowIndex
     )
-    wrote = SetLayoutSize(origin, 0.001, itemHeight) or wrote
+    wrote = SetLayoutSize(origin, columnIcons and itemWidth or 0.001,
+        columnIcons and 0.001 or itemHeight) or wrote
     local cursor = origin
     local cursorPoint
     if runtime.alignment == "center" then
         local inset = columnSpacing / 2
-        if growth == "left" then inset = -inset end
+        if growth == "left" or growth == "up" then inset = -inset end
         wrote = SetLayoutPoint(
             origin,
             "CENTER",
             rowFrame,
             "CENTER",
-            inset,
-            0
+            columnIcons and 0 or inset,
+            columnIcons and -inset or 0
         ) or wrote
         cursorPoint = "CENTER"
 
@@ -2225,10 +2340,14 @@ local function PlaceFilteredAuraPlannedDynamicRow(
             )
             wrote = SetLayoutSize(
                 fixedHalf,
-                fixedCount * cellWidth / 2,
-                itemHeight
+                columnIcons and itemWidth or fixedCount * cellWidth / 2,
+                columnIcons and fixedCount * cellWidth / 2 or itemHeight
             ) or wrote
-            if growth == "left" then
+            if columnIcons then
+                local edge = growth == "up" and "TOP" or "BOTTOM"
+                wrote = SetLayoutPoint(fixedHalf, edge, cursor, cursorPoint, 0, 0) or wrote
+                cursorPoint = growth == "up" and "BOTTOM" or "TOP"
+            elseif growth == "left" then
                 wrote = SetLayoutPoint(
                     fixedHalf,
                     "LEFT",
@@ -2251,7 +2370,8 @@ local function PlaceFilteredAuraPlannedDynamicRow(
             end
             cursor = fixedHalf
         end
-        local balanceGrowth = growth == "left" and "right" or "left"
+        local balanceGrowth = columnIcons and (growth == "up" and "down" or "up")
+            or (growth == "left" and "right" or "left")
         for column = 1, #row.indices do
             local kind, value = ResolveFilteredAuraPlannedItem(
                 cache,
@@ -2275,7 +2395,8 @@ local function PlaceFilteredAuraPlannedDynamicRow(
             end
         end
     else
-        cursorPoint = runtime.alignment == "end" and "RIGHT" or "LEFT"
+        cursorPoint = columnIcons and (runtime.alignment == "end" and "BOTTOM" or "TOP")
+            or (runtime.alignment == "end" and "RIGHT" or "LEFT")
         wrote = SetLayoutPoint(
             origin,
             cursorPoint,
@@ -2286,9 +2407,10 @@ local function PlaceFilteredAuraPlannedDynamicRow(
         ) or wrote
     end
 
-    local configuredGrowth = runtime.rowDirection == "left"
-        and "left" or "right"
+    local configuredGrowth = columnIcons and (runtime.wrapDirection == "up" and "up" or "down")
+        or (runtime.rowDirection == "left" and "left" or "right")
     local reverseTraversal = growth ~= configuredGrowth
+    local previousColumn = 1
     for traversal = 1, #row.indices do
         local column = reverseTraversal
             and (#row.indices - traversal + 1) or traversal
@@ -2300,8 +2422,10 @@ local function PlaceFilteredAuraPlannedDynamicRow(
                 display.node,
                 cursor,
                 cursorPoint,
-                growth
+                growth,
+                (column - previousColumn) * itemOffset
             ) or wrote
+            previousColumn = column
             cursor = display.endNode
             cursorPoint = "CENTER"
         elseif kind ~= "special" and kind ~= "normal-dynamic" then
@@ -2319,10 +2443,13 @@ local function PlaceFilteredAuraPlannedDynamicRow(
                     cell,
                     cursor,
                     cursorPoint,
-                    growth
+                    growth,
+                    (column - previousColumn) * itemOffset
                 ) or wrote
+                previousColumn = column
                 cursor = cell
-                cursorPoint = growth == "left" and "LEFT" or "RIGHT"
+                cursorPoint = columnIcons and (growth == "up" and "TOP" or "BOTTOM")
+                    or (growth == "left" and "LEFT" or "RIGHT")
             end
         end
     end
@@ -2332,17 +2459,79 @@ end
 -- Dynamic Aura containers expose secret geometry.  The visible chain therefore
 -- advances through engine-managed endpoints instead of reading any size or
 -- visibility value back into Lua.
+local function RelayoutFilteredAuraPlannedLine(self, runtime, groupId, cache)
+    local itemWidth, itemHeight = runtime.itemWidth, runtime.itemHeight
+    local count = cache.sequenceCount
+    local height = I.GetAutoIconColumnHeight(runtime)
+        or (count * itemHeight + math.max(0, count - 1) * runtime.rowSpacing)
+    local geometry = {
+        width = itemWidth, height = height, count = count,
+        itemWidth = itemWidth, itemHeight = itemHeight,
+        columnSpacing = runtime.columnSpacing, rowSpacing = runtime.rowSpacing,
+    }
+    local row = { indices = {} }
+    local normalIndex, specialIndex = 0, 0
+    for index = 1, count do
+        local kind = cache.sequenceKinds[index]
+        if kind == "special" or kind == "special-frame" then
+            specialIndex = specialIndex + 1
+            row.indices[index] = cache.normalCount + specialIndex
+        else
+            normalIndex = normalIndex + 1
+            row.indices[index] = normalIndex
+        end
+    end
+    if (runtime.itemOffset or 0) ~= 0 then
+        geometry = BuildGroupGeometry(runtime, cache.sequenceValues, count)
+        local placements = {}
+        for index, plannedIndex in ipairs(row.indices) do
+            placements[plannedIndex] = geometry.placements[index]
+        end
+        geometry.placements = placements
+        geometry.itemWidth, geometry.itemHeight = itemWidth, itemHeight
+        geometry.columnSpacing, geometry.rowSpacing = runtime.columnSpacing, runtime.rowSpacing
+    end
+    local wrote = LayoutExternalBuffBlocks(runtime, geometry)
+    runtime.presentationGeometry = geometry
+    local holderSizeChanged = SetLayoutSize(runtime.frame, geometry.width, geometry.height)
+    wrote = PlaceFilteredAuraPlannedDynamicRow(self, runtime, geometry, row, 1, cache)
+        or holderSizeChanged or wrote
+    runtime.layoutEligible = count > 0
+    wrote = ProjectRuntimeVisibility(self, runtime) or wrote
+    RequestPixelAlignmentRefresh(self, groupId, holderSizeChanged, true)
+    AddViewWrite(wrote)
+    PublishImportantGroupWidth(self, groupId, geometry.width, count > 0)
+    return true, wrote
+end
+
 local function RelayoutFilteredAuraSingleLine(self, runtime, groupId, cache)
     if cache.specialCount == 0 then return false end
+    if runtime.fillMode == "columns" or (runtime.itemOffset or 0) ~= 0 then
+        return RelayoutFilteredAuraPlannedLine(self, runtime, groupId, cache)
+    end
     local itemWidth = runtime.itemWidth or DEFAULT_ICON_SIZE
     local itemHeight = runtime.itemHeight or DEFAULT_ICON_SIZE
-    local columnSpacing = math.max(0, tonumber(runtime.columnSpacing) or 0)
+    local columnSpacing = math.max(1 - itemWidth, tonumber(runtime.columnSpacing) or 0)
     local cellWidth = itemWidth + columnSpacing
     local count = cache.sequenceCount
     local contentWidth = math.max(itemWidth, count * cellWidth - columnSpacing)
     local width = I.GetAutoIconRowWidth(runtime) or contentWidth
-    local holderSizeChanged = SetLayoutSize(runtime.frame, width, itemHeight)
-    local wrote = holderSizeChanged
+    local geometry, blockWrote = nil, false
+    if runtime.hasExternalBuffBlock then
+        geometry = { width = width, height = itemHeight, contentWidth = contentWidth, count = count }
+        blockWrote = LayoutExternalBuffBlocks(runtime, geometry)
+        runtime.presentationGeometry = geometry
+    end
+    local holderSizeChanged = SetLayoutSize(runtime.frame,
+        geometry and geometry.width or width, geometry and geometry.height or itemHeight)
+    local wrote = holderSizeChanged or blockWrote
+    local rowParent = runtime.frame
+    if runtime.hasExternalBuffBlock then
+        rowParent = AcquireFilteredAuraLayoutAnchor(runtime, FILTERED_AURA_ANCHOR_SPECIAL_ROW_BASE - 1)
+        wrote = SetLayoutSize(rowParent, width, itemHeight) or wrote
+        local edge = runtime.wrapDirection == "up" and "BOTTOMLEFT" or "TOPLEFT"
+        wrote = SetLayoutPoint(rowParent, edge, runtime.frame, edge, 0, 0) or wrote
+    end
     local growth = ResolveFilteredAuraChainGrowth(runtime)
     local origin = AcquireFilteredAuraLayoutAnchor(
         runtime,
@@ -2357,7 +2546,7 @@ local function RelayoutFilteredAuraSingleLine(self, runtime, groupId, cache)
         wrote = SetLayoutPoint(
             origin,
             "CENTER",
-            runtime.frame,
+            rowParent,
             "CENTER",
             inset,
             0
@@ -2427,7 +2616,7 @@ local function RelayoutFilteredAuraSingleLine(self, runtime, groupId, cache)
     else
         cursorPoint = runtime.alignment == "end" and "RIGHT" or "LEFT"
         wrote = SetLayoutPoint(
-            origin, cursorPoint, runtime.frame, cursorPoint, 0, 0
+            origin, cursorPoint, rowParent, cursorPoint, 0, 0
         ) or wrote
     end
 
@@ -2474,7 +2663,7 @@ local function RelayoutFilteredAuraSingleLine(self, runtime, groupId, cache)
     wrote = ProjectRuntimeVisibility(self, runtime) or wrote
     RequestPixelAlignmentRefresh(self, groupId, holderSizeChanged, true)
     AddViewWrite(wrote)
-    PublishImportantGroupWidth(self, groupId, contentWidth, count > 0)
+    PublishImportantGroupWidth(self, groupId, geometry and geometry.contentWidth or contentWidth, count > 0)
     return true, wrote
 end
 
@@ -2499,13 +2688,14 @@ local function RelayoutFilteredAuraSegments(self, runtime, groupId, cache)
             specialFlags = specialFlags,
         }
     )
+    local blockWrote = LayoutExternalBuffBlocks(runtime, geometry)
     runtime.presentationGeometry = geometry
     local holderSizeChanged = SetLayoutSize(
         runtime.frame,
         geometry.width,
         geometry.height
     )
-    local wrote = holderSizeChanged
+    local wrote = holderSizeChanged or blockWrote
     local rowCount = #(geometry.rows or {})
     for rowIndex = 1, rowCount do
         local row = geometry.rows[rowIndex]
@@ -2577,6 +2767,7 @@ end
 function View:RelayoutGroupCore(groupId, combatResourceEdge)
     local runtime = self.groups[groupId]
     if not runtime then return false end
+    ApplyAlignedBarWidth(self, runtime)
 
     local filteredAuraHandled, filteredAuraWrote =
         RelayoutFilteredAuraDynamicGroup(self, runtime, groupId)
@@ -2672,7 +2863,7 @@ function View:RelayoutGroupCore(groupId, combatResourceEdge)
         end
     end
     local count = fixedLayout and layoutCount or frameCount
-    local hasNativeContent = hasNativeFrames
+    local hasNativeContent = hasNativeFrames or runtime.hasExternalBuffBlock == true
         or (type(runtime.filteredAuraWidth) == "number"
             and runtime.filteredAuraWidth > 0
             and type(runtime.filteredAuraHeight) == "number"
@@ -2795,15 +2986,15 @@ function View:RelayoutGroupCore(groupId, combatResourceEdge)
         return result
     end
 
-    local geometry = BuildGroupGeometry(
-        runtime,
-        frames,
-        count,
-        {
-            fixedLayout = fixedLayout,
-            design = self.designMode or self.layoutEditMode,
-        }
-    )
+    local flowBlocks
+    if self.preview then
+        flowBlocks = I.GetColumnFlowPreviewBlocks(runtime, frames, count, self.desiredMonitors)
+    end
+    local geometry = BuildGroupGeometry(runtime, frames, count, {
+        fixedLayout = fixedLayout,
+        design = self.designMode or self.layoutEditMode,
+        flowBlocks = flowBlocks,
+    })
     if count == 0 and runtime.nativeWidth and runtime.nativeHeight then
         geometry.width = runtime.nativeWidth
         geometry.height = runtime.nativeHeight
@@ -2818,11 +3009,19 @@ function View:RelayoutGroupCore(groupId, combatResourceEdge)
         end
         geometry.width = rowWidth
     end
+    local columnHeight = I.GetAutoIconColumnHeight(runtime)
+    if columnHeight then
+        if count == 0 then
+            geometry.width = runtime.filteredAuraWidth or runtime.nativeWidth or geometry.width
+        end
+        geometry.height = columnHeight
+    end
     local geometryWrote, geometrySizeChanged, snappedWidth =
         ApplyRuntimeGeometry(runtime, frames, geometry)
     wrote = geometryWrote or wrote
     holderSizeChanged = geometrySizeChanged or holderSizeChanged
     runtime.presentationGeometry = geometry
+    if self.ApplyBarShadows then self:ApplyBarShadows(runtime, frames, count, visibleCount) end
     runtime.layoutEligible = visibleCount > 0 or hasNativeContent
         or self.layoutEditMode or self.designMode
     local holderWrote = ProjectRuntimeVisibility(self, runtime)
@@ -2845,8 +3044,77 @@ function View:RelayoutGroupCore(groupId, combatResourceEdge)
     return wrote
 end
 
+LayoutExternalBuffBlocks = function(runtime, geometry)
+    if not runtime or #(runtime.externalBuffMonitorIds or {}) == 0 then return false end
+    local hasContent = (geometry.count or 0) > 0
+        or runtime.filteredAuraWidth ~= nil or (runtime.nativeWidth or 0) > 0
+    local width = hasContent and (geometry.width or 0) or 0
+    local height = hasContent and (geometry.height or 0) or 0
+    local wrote = false
+    for _, id in ipairs(runtime.externalBuffMonitorIds) do
+        local display = View.filteredAuraDisplays["monitor:" .. id]
+        if display and display.externalBuffBlock then
+            if runtime.view == "icon" and runtime.fillMode == "columns" then
+                height = math.max(height, display.height)
+                local offset = width + (hasContent and runtime.columnSpacing or 0)
+                local y = runtime.alignment == "end" and height - display.height
+                    or runtime.alignment == "center" and (height - display.height) / 2 or 0
+                local point = runtime.rowDirection == "left" and "TOPRIGHT" or "TOPLEFT"
+                wrote = SetLayoutPoint(display.proxy, point, runtime.frame, point,
+                    runtime.rowDirection == "left" and -offset or offset, -y) or wrote
+                width = offset + display.width
+            else
+                width = math.max(width, display.width)
+                local gap = hasContent and runtime.rowSpacing or 0
+                local offset = height + gap
+                local x = runtime.alignment == "end" and width - display.width
+                    or runtime.alignment == "center" and (width - display.width) / 2 or 0
+                local point = runtime.wrapDirection == "up" and "BOTTOMLEFT" or "TOPLEFT"
+                wrote = SetLayoutPoint(display.proxy, point, runtime.frame, point,
+                    x, runtime.wrapDirection == "up" and offset or -offset) or wrote
+                height = offset + display.height
+            end
+            hasContent = true
+        end
+    end
+    if hasContent then
+        geometry.width, geometry.height = width, height
+        geometry.contentWidth = math.max(geometry.contentWidth or 0, width)
+    end
+    return wrote
+end
+
+function View:BeginResourceProjectionUpdate()
+    self.resourceProjectionLayoutDepth =
+        (self.resourceProjectionLayoutDepth or 0) + 1
+    self.resourceProjectionLayouts = self.resourceProjectionLayouts or {}
+end
+
+function View:EndResourceProjectionUpdate()
+    local depth = self.resourceProjectionLayoutDepth
+    if not depth then return false end
+    if depth > 1 then
+        self.resourceProjectionLayoutDepth = depth - 1
+        return false
+    end
+    local pending = self.resourceProjectionLayouts
+    self.resourceProjectionLayoutDepth = nil
+    self.resourceProjectionLayouts = nil
+    local wrote = false
+    for groupId, combatResourceEdge in pairs(pending or {}) do
+        wrote = self:RelayoutGroup(groupId, combatResourceEdge) or wrote
+    end
+    return wrote
+end
+
 function View:RelayoutGroup(groupId, combatResourceEdge)
     local runtime = self.groups[groupId]
+    if self.resourceProjectionLayoutDepth
+        and runtime and runtime.view == "resource" then
+        self.resourceProjectionLayouts[groupId] = combatResourceEdge == true
+            or self.resourceProjectionLayouts[groupId] == true
+        return false
+    end
     if runtime and runtime.runtimeOwned == true then
         return self:ProjectGroupVisibility(groupId)
     end
@@ -2881,6 +3149,27 @@ function View:RelayoutGroup(groupId, combatResourceEdge)
     return wrote
 end
 
+local function SeparateExternalBuffBlocks(runtime, groupPlan)
+    if not groupPlan.hasExternalBuffBlock then
+        runtime.externalBuffMonitorIds = nil
+        return
+    end
+    local count, blocks = 0, nil
+    for _, member in ipairs(groupPlan.members) do
+        if member.monitor._yhudAuraMaxFrameCount then
+            blocks = blocks or {}
+            blocks[#blocks + 1] = member.physicalId
+        else
+            count = count + 1
+            runtime.monitorIds[count], runtime.monitorLanes[count] = member.physicalId, member.lane
+        end
+    end
+    for index = count + 1, #runtime.monitorIds do
+        runtime.monitorIds[index], runtime.monitorLanes[index] = nil, nil
+    end
+    runtime.monitorCount, runtime.externalBuffMonitorIds = count, blocks
+end
+
 function View:Relayout()
     local wasDeferred = self.deferPixelAlignmentRefresh == true
     self.deferPixelAlignmentRefresh = true
@@ -2897,6 +3186,7 @@ end
 
 function View:ApplyConfig(profile, options)
     if not profile then return false end
+    if YHUD.PressFeedback and YHUD.PressFeedback.active then YHUD.PressFeedback:Clear() end
     options = type(options) == "table" and options or nil
     local layoutBridge = YHUD.LayoutBridge
     if layoutBridge and layoutBridge.PrepareProfileTransition then
@@ -2908,6 +3198,7 @@ function View:ApplyConfig(profile, options)
     if restartDurationPreview and self.SetDesignDurationPreviewEnabled then
         self:SetDesignDurationPreviewEnabled(false)
     end
+    self.resourceConfigRevision = (self.resourceConfigRevision or 0) + 1
     self.profile = profile
     self.inCombat = IsInCombat()
     if RuntimeSound and RuntimeSound.Reset then RuntimeSound:Reset() end
@@ -2961,6 +3252,7 @@ function View:ApplyConfig(profile, options)
                 runtime.monitorIds[monitorIndex] = nil
                 runtime.monitorLanes[monitorIndex] = nil
             end
+            SeparateExternalBuffBlocks(runtime, groupPlan)
         end
     end
     local desiredMonitors = presentationPlan.desiredMonitors
@@ -3084,6 +3376,8 @@ function View:ApplyConfig(profile, options)
     if self.ReassertDesignProjectionLiveSuppression then
         self:ReassertDesignProjectionLiveSuppression()
     end
+    if YHUD.PressFeedback then YHUD.PressFeedback:Sync() end
+    if YHUD.KeybindResolver then YHUD.KeybindResolver:SyncDemand(profile) end
     return true
 end
 

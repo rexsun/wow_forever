@@ -33,6 +33,7 @@ Monitor.featureActive = Monitor.featureActive == true
 local activeSettingsSpecID
 local activeSettingsFeatureID
 local Feature
+local RegisterProfileCallbacks
 
 local function T(key, fallback)
     return (L and L[key]) or fallback or key
@@ -391,6 +392,34 @@ function Monitor:IsEnabled()
     return self.featureActive == true
 end
 
+function Monitor:NotifySoundSettingsChanged()
+    if YUI.Event then YUI.Event:Emit("YUI_CLASS_EXTRA_MONITOR_SETTINGS_CHANGED") end
+end
+
+-- Inspect a copy: opening the sound list must not migrate or enable toolbox settings.
+function Monitor:GetSoundNotice(rule)
+    if not self:IsEnabled() or not Components.CopyConfigSnapshot then return end
+    local extension = rule and rule.trigger and rule.trigger.extension
+    if extension ~= "devourer-transform" and extension ~= "boiling-point" then return end
+    local db = Components:CopyConfigSnapshot(CONFIG_KEY, self.defaults, PRODUCT_ID)
+    if not db then return end
+    local feature = self.subFeatures[extension == "devourer-transform" and "devourerTransform" or "bloodBoil"]
+    if not feature then return end
+    feature:NormalizeDB(db)
+    local function Playing(selection) return type(selection) == "table" and selection.kind ~= "none" end
+    if extension == "devourer-transform" then
+        if db.devourerTransformEnabled == false or not Playing(db.devourerAlertSelection) then return end
+        return { kind = extension, seconds = db.devourerAlertSecond,
+            overlaps = rule.trigger.value == db.devourerAlertSecond }
+    end
+    if db.bloodBoilEnabled == false then return end
+    local manual, ending = Playing(db.bloodBoilManualSound), Playing(db.bloodBoilEndingSound)
+    if not manual and not ending then return end
+    local sound = rule.sound or {}
+    return { kind = extension, manual = manual, ending = ending,
+        overlaps = (manual and sound.introKind ~= "none") or (ending and sound.endingKind ~= "none") }
+end
+
 function Monitor:GetDB()
     local db
     if Components and Components.EnsureConfig then
@@ -440,7 +469,9 @@ function Monitor:RefreshSubFeatures(db)
 end
 
 local function ToggleClassExtraMonitor(enable)
+    if RegisterProfileCallbacks then RegisterProfileCallbacks() end
     Monitor.featureActive = enable == true
+    Monitor:NotifySoundSettingsChanged()
     local db = Monitor:GetDB()
     for _, id in ipairs(Monitor.subFeatureOrder) do
         local subFeature = Monitor.subFeatures[id]
@@ -480,7 +511,7 @@ local function GetSubFeatureStates()
     local db = Components:CopyConfigSnapshot(CONFIG_KEY, Monitor.defaults, PRODUCT_ID)
     if not db then return {} end
     local rows = {}
-    local keys = { devourerTransform = "devourerTransformEnabled", brewmasterElixir = "brewmasterElixirEnabled" }
+    local keys = { devourerTransform = "devourerTransformEnabled", brewmasterElixir = "brewmasterElixirEnabled", bloodBoil = "bloodBoilEnabled" }
     for _, id in ipairs(Monitor.subFeatureOrder) do
         local subFeature = Monitor.subFeatures[id]
         if subFeature and keys[id] then
@@ -557,3 +588,24 @@ Feature = {
 }
 
 Components:RegisterFeature(FEATURE_KEY, Feature)
+
+local profileCallbacksRegistered
+function Monitor:OnProfileChanged()
+    -- Tear down old owners before reusing a profile table (copy/reset may keep
+    -- its identity), then evaluate the new component enable state.
+    ToggleClassExtraMonitor(false)
+    ToggleClassExtraMonitor(Components.IsEnabled and Components:IsEnabled(FEATURE_KEY) == true)
+end
+RegisterProfileCallbacks = function()
+    if profileCallbacksRegistered or not (YUI.DB and YUI.DB.GetAceDB) then return end
+    local db = YUI.DB:GetAceDB(PRODUCT_ID)
+    if not (db and db.RegisterCallback) then return end
+    for _, event in ipairs({ "OnProfileChanged", "OnProfileCopied", "OnProfileReset" }) do
+        db.RegisterCallback(Monitor, event, "OnProfileChanged")
+    end
+    profileCallbacksRegistered = true
+end
+RegisterProfileCallbacks()
+if not profileCallbacksRegistered and YUI.Event and YUI.Event.Once then
+    YUI.Event:Once("YUI_DB_READY", RegisterProfileCallbacks, Monitor, { moduleId = "component:" .. FEATURE_KEY })
+end

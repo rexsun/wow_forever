@@ -4,8 +4,18 @@ local adapter = {}
 OSG.adapters.GearInsight = adapter
 
 local KEYS = { FriendlyNameplates = true, CombatHUD = true, LevelingStats = true, ActionBarEditing = true }
-local EDITS = { "ApplyAll", "PlaceMissing", "Restore", "AssignSlotKey", "ApplyKeyTemplate", "RestoreStolen" }
+local EDITS = { "PlaceMissing", "Restore", "AssignSlotKey", "ApplyKeyTemplate", "RestoreStolen",
+  "PlaceSpellAt", "ClearSlot", "ClearSpellEverywhere", "ResetMainBar", "UnbindKey" }
+adapter.EDITS = EDITS
+-- GearInsight's UI reads numeric counts and lists from these actions; ResetMainBar's caller
+-- treats nil as "in combat".
+local LOCKED_RESULTS = {
+  ApplyKeyTemplate = function() return 0, {}, {} end,
+  RestoreStolen = function() return 0 end,
+  ResetMainBar = function() return 0, {} end,
+}
 local locks = {}
+local warnedMissing = {}
 
 local function Live()
   local gi = _G.GearInsightForever
@@ -20,17 +30,23 @@ local function OwnerLoaded(name)
   return C_AddOns.IsAddOnLoaded(name) and true or false
 end
 
+local function WarnMissingEdit(name)
+  if warnedMissing[name] then return end
+  warnedMissing[name] = true
+  print("|cffff9933OverlapSettingsGuard|r GearInsight Keys." .. name .. " no longer exists; review the action-bar lock list.")
+end
+
 local function MissingAPI(gi, key)
   if key == "CombatHUD" and (type(gi.KeysHud) ~= "table" or type(gi.KeysHud.Toggle) ~= "function") then
     return "GearInsight KeysHud.Toggle is unavailable"
-  elseif key == "FriendlyNameplates" and (type(gi.QM) ~= "table" or type(gi.QM.PlatesOnClose) ~= "function") then
-    return "GearInsight QM.PlatesOnClose is unavailable"
-  elseif key == "ActionBarEditing" then
-    for _, name in ipairs(EDITS) do
-      if type(gi.Keys) ~= "table" or type(gi.Keys[name]) ~= "function" then
-        return "GearInsight Keys." .. name .. " is unavailable"
-      end
+  elseif key == "FriendlyNameplates" then
+    -- QM lives in a load-on-demand module, so its absence is normal until that module loads.
+    local groupLoaded = C_AddOns.IsAddOnLoaded("GearInsight_Forever_Group")
+    if (gi.QM ~= nil or groupLoaded) and (type(gi.QM) ~= "table" or type(gi.QM.PlatesOnClose) ~= "function") then
+      return "GearInsight QM.PlatesOnClose is unavailable"
     end
+  elseif key == "ActionBarEditing" and type(gi.Keys) ~= "table" then
+    return "GearInsight Keys is unavailable"
   end
 end
 
@@ -45,14 +61,21 @@ function adapter.Read(key)
   if problem then return nil, problem end
   if key == "FriendlyNameplates" then
     local q = gi.db.qm or {}
-    return q.autoPlates ~= false or q.platesWeOpened ~= nil
+    -- Without platesV3, the Group module's one-time migration would set autoPlates back to true.
+    -- A pending toggle can only be released once QM exists.
+    return q.autoPlates ~= false or q.platesV3 == nil or (gi.QM ~= nil and q.platesWeOpened ~= nil)
   elseif key == "CombatHUD" then
     return gi.db.keysHud == true or Shown(gi.KeysHud.frame)
   elseif key == "LevelingStats" then
     return not gi.db.leveling or gi.db.leveling.shown ~= false or Shown(_G.GearInsightForeverLeveling)
   elseif key == "ActionBarEditing" then
     for _, name in ipairs(EDITS) do
-      if not locks[name] or gi.Keys[name] ~= locks[name] then return true end
+      local edit = gi.Keys[name]
+      if type(edit) ~= "function" then
+        WarnMissingEdit(name)
+      elseif edit ~= locks[name] then
+        return true
+      end
     end
     return false
   end
@@ -64,9 +87,7 @@ local function LockEdit(gi, name)
   local wrapper = function(...)
     if not OwnerLoaded("YUI") then return original(...) end
     print("|cffff9933OverlapSettingsGuard|r YUI owns action bars and keybindings; use YUI to edit them.")
-    -- GearInsight's UI expects numeric counts and lists from these two actions.
-    if name == "ApplyKeyTemplate" then return 0, {}, {} end
-    if name == "RestoreStolen" then return 0 end
+    if LOCKED_RESULTS[name] then return LOCKED_RESULTS[name]() end
     return false, "YUI owns action bars and keybindings"
   end
   locks[name] = wrapper
@@ -80,8 +101,9 @@ function adapter.Revert(key)
   if problem then return false, problem end
   if key == "FriendlyNameplates" then
     gi.db.qm = gi.db.qm or {}
-    gi.QM.PlatesOnClose()
+    if gi.QM then gi.QM.PlatesOnClose() end
     gi.db.qm.autoPlates = false
+    gi.db.qm.platesV3 = 1
   elseif key == "CombatHUD" then
     gi.KeysHud.Toggle(false)
   elseif key == "LevelingStats" then
@@ -90,7 +112,8 @@ function adapter.Revert(key)
     gi.db.leveling.shown = false
   elseif key == "ActionBarEditing" then
     for _, name in ipairs(EDITS) do
-      if gi.Keys[name] ~= locks[name] then LockEdit(gi, name) end
+      local edit = gi.Keys[name]
+      if type(edit) == "function" and edit ~= locks[name] then LockEdit(gi, name) end
     end
   else
     return false, "unknown GearInsight setting"

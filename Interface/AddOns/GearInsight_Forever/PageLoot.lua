@@ -250,6 +250,10 @@ local function itemTooltip(row)
     if not ok or not name or name == "" or name == RETRIEVING_ITEM_INFO then
         ns.ItemFallbackTip(it)
     end
+    if ns.ItemMissing and ns.ItemMissing(it.id) then
+        GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("《无限》测试服服务器上目前查不到这件：可能这个副本测试服还没开放，也可能《无限》换了掉落，正式服上线后再核对",
+            "The Forever beta server doesn't have this item right now: the dungeon may not be open in the beta yet, or Forever changed its loot. We'll recheck at launch."), 1, 0.5, 0.3, true)
+    end
     GameTooltip:Show()
 end
 -- 物品没缓存时的简版提示（三处共用）：名字 / 部位 / 我们数据里的属性（经典原版的注明）/ 装等需要等级 / 读取状态
@@ -257,7 +261,7 @@ function ns.ItemFallbackTip(it0)
     local it = (it0 and idx[it0.id] and idx[it0.id].it) or it0     -- 升级规划那边的条目没属性 → 用掉落数据里同一件
     do
         if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, it.id)
-        elseif GetItemInfo then pcall(GetItemInfo, it.id) end
+        else ns.ItemInfo(it.id) end
         GameTooltip:ClearLines()
         GameTooltip:AddLine("|cff" .. (QCOLOR[it.q] or "ffffff") .. nm(it) .. "|r")
         -- 10-07 用户截图：中文界面不再附英文原名（「Horned Viking Helmet」）
@@ -276,6 +280,8 @@ function ns.ItemFallbackTip(it0)
         end
         if not exists then
             GameTooltip:AddLine(ns.L("《无限》客户端里没有这件（可能已移除或换了编号）", "Not in the Forever client (removed or renumbered?)"), 1, 0.5, 0.3, true)
+        elseif ns.ItemMissing and ns.ItemMissing(it.id) then
+            -- 服务器已确认没有：不再写「正在读取」（永远读不到），说明由调用方统一加一行
         elseif now - reqAt[it.id] > 3 then
             if #st == 0 then GameTooltip:AddLine(ns.L("服务器暂时没给这件的属性", "The server hasn't sent stats for this item"), 0.6, 0.6, 0.6, true) end
         else
@@ -433,6 +439,10 @@ local function refresh()
         local ent = dq and dq.ent
         bn.ent.e = (ent and (ent.ui or 0) > 0 and (ent.x or 0) > 0) and ent or nil
         bn.ent:SetShown(bn.ent.e ~= nil)
+        -- 10-26 地下城攻略（DungeonGuide.lua，HOLD 时 ns.DungeonGuideFor 不存在 → 按钮不出）
+        local gd = ns.DungeonGuideFor and ns.DungeonGuideFor(d)
+        bn.gd.g = gd
+        bn.gd:SetShown(gd ~= nil)
         bn:Show()
     else
         page.banner:Hide()
@@ -474,7 +484,10 @@ local function refresh()
             r.tag:SetPoint("TOPRIGHT", -6, -4)
             local hl = r:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.06)
             r:SetScript("OnEnter", itemTooltip)
-            r:SetScript("OnClick", function(self) if self.headE and self.headE.rareB and type(self.it) ~= "table" then ns.MarkRare(self.headE.rareB) end end)
+            r:SetScript("OnClick", function(self)
+                if type(self.it) == "table" and self.it.id and ns.ItemModClick and ns.ItemModClick(self.it.id, nm(self.it)) then return end   -- 10-18 Shift 发聊天 / Ctrl 试穿
+                if self.headE and self.headE.rareB and type(self.it) ~= "table" then ns.MarkRare(self.headE.rareB) end
+            end)
             r:SetScript("OnLeave", tipLeave)
             page.right.rows[k] = r
         end
@@ -499,14 +512,18 @@ local function refresh()
             if not icon and C_Item and C_Item.GetItemIconByID then local okI, v = pcall(C_Item.GetItemIconByID, it.id); if okI and v then icon = v end end
             r.ic:SetTexture(icon or it.ic or "Interface\\Icons\\inv_misc_questionmark"); r.ic:Show()
             r.t:SetPoint("TOPLEFT", 58, -3); r.t:SetPoint("RIGHT", -60, 0)
-            r.t:SetText("|cff" .. (QCOLOR[it.q] or "ffffff") .. nm(it) .. "|r")
+            -- 10-18 测试服服务器上查不到的（副本没开放 / 掉落换了，/gi itemprobe all 实测）：灰掉 + 角上标「测试服暂无」
+            local gone = ns.ItemMissing and ns.ItemMissing(it.id)
+            if r.ic.SetDesaturated then r.ic:SetDesaturated(gone and true or false) end
+            r.t:SetText(gone and ("|cff777777" .. nm(it) .. "|r") or ("|cff" .. (QCOLOR[it.q] or "ffffff") .. nm(it) .. "|r"))
             local slot = it.slot or ""
             if it.type and it.type ~= "" and it.type ~= slot then slot = slot .. " · " .. it.type end
             local pt = pctText(it.p)
             r.s:SetText(ns.EnSafe(slot .. "　" .. ns.L("装等 ", "ilvl ") .. (it.ilvl or 0) .. ns.L(" · 需要 ", " · req ") .. (it.req or 0)
                 .. (pt and (ns.L(" · 掉率约 ", " · drop ~") .. pt) or "")))
             -- 10-11 玩家实测过的《无限》新掉落（seen）标「无限新增」；客户端挖到但没人确认的照旧「客户端挖掘」
-            if isForeverNew(it) then r.tag:SetText(it.seen and ("|cffe8b04a" .. ns.L("无限新增", "Forever") .. "|r") or ns.L("客户端挖掘", "datamined")) end
+            if gone then r.tag:SetText("|cff888888" .. ns.L("测试服暂无", "Not in beta yet") .. "|r")
+            elseif isForeverNew(it) then r.tag:SetText(it.seen and ("|cffe8b04a" .. ns.L("无限新增", "Forever") .. "|r") or ns.L("客户端挖掘", "datamined")) end
             r.star:Show()
             local on = isWished(it.id)
             r.bg:SetShown(on)
@@ -576,6 +593,17 @@ local function build(p)
         GameTooltip:Show()
     end)
     bn.ent:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- 10-26「攻略」：钥匙 / 隐藏首领 / 首领逐个打 / 套装 / 营地蓝图（有攻略数据的副本才显示）
+    bn.gd = ns.Button(bn, ns.L("攻略", "Guide"), 56, 22, function(self) if self.g and ns.ShowDungeonGuide then ns.ShowDungeonGuide(self.g, page) end end)
+    bn.gd:SetPoint("RIGHT", -8, 0)
+    bn.gd:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine(ns.L("副本攻略", "Dungeon guide"), 1, 0.82, 0)
+        GameTooltip:AddLine(ns.L("钥匙怎么拿、隐藏首领怎么召唤、每个首领的技能和打法、套装和蓝图", "Key, hidden boss, every boss's abilities and tactics, set and blueprints"), 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    bn.gd:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    bn.gd:Hide()
     bn:EnableMouse(true)
     bn:SetScript("OnEnter", function(self)   -- 显示不全 → 悬停看全（用户硬规定）
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM"); GameTooltip:AddLine(self.name:GetText() or "", 1, 0.82, 0)

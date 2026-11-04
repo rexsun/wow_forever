@@ -950,9 +950,9 @@ YUI.Locale:Register("Core", "ruRU", {
     ["settings.about.description"] = "YUI - это аддон пользовательского интерфейса «все в одном».\nVersion: %s\nAuthor: Ayan",
     ["settings.about.default_notes"] = "YUI - это универсальный UI аддон.",
     ["settings.about.details"] = "%s\nVersion: %s\nAuthor: %s",
-    ["settings.about.follow"] = "Следуйте YUI · YanForge для будущих обновлений и новостей сообщества.",
+    ["settings.about.follow"] = "Следуйте YUI · Ayan для будущих обновлений и новостей сообщества.",
     ["settings.about.suite_note"] = "Полный набор YUI является основным домом для полного интерфейса и истории релиза.",
-    ["settings.about.standalone_note"] = "Автономные релизы не поддерживают отдельный журнал изменений. См. набор YUI для полной истории релиза.",
+    ["settings.about.standalone_note"] = "Нажмите на журнал изменений в верхней части окна, чтобы просмотреть историю версий этого аддона.",
     ["settings.about.section.yui"] = "YUI",
     ["settings.about.section.product"] = "Об этом Аддоне",
 

@@ -63,7 +63,29 @@ function ns.CurrentChar()
     local hc = ns.IsHardcore()
     if hc ~= -1 or c.hc == nil then c.hc = hc end
     c.lvl = UnitLevel("player") or c.lvl or 0
+    pcall(ns.RecordBind, guid, c)
     return c
+end
+
+-- 10-22 角色 ↔ 账号自动关联：本机角色的全名「名 姓」+ GUID 哈希记在 d.bind（⛔ 不进上面的 GIFS1 公测数据串，那份照旧不带名字）
+--   只有已扫码登录的 Windows 更新器读它，挂到玩家自己的账号上（POST /api/wow/me/fv-chars）；更新器没登录 = 不传
+--   无限角色名两段：UnitFullName 第二个返回值是姓（≠ 规范服务器名时）→ 拼「名 姓」；gh = 两个不同种子的 GUID 哈希拼成 16 位
+local function hash2(s)
+    local h = 7
+    for i = 1, #s do h = (h * 31 + s:byte(i)) % 4294967296 end
+    return string.format("%08x", h)
+end
+function ns.RecordBind(guid, c)
+    if not guid or ns.Secret(guid) or not UnitFullName then return end
+    local a, b = UnitFullName("player")
+    if not a or ns.Secret(a) or (b and ns.Secret(b)) then return end
+    local norm = GetNormalizedRealmName and GetNormalizedRealmName() or ""
+    local name = a
+    if b and b ~= "" and b ~= norm then name = a .. " " .. b end
+    local rg = ({ "us", "kr", "eu", "tw", "cn" })[GetCurrentRegion and GetCurrentRegion() or 5] or "cn"
+    local d = db()
+    d.bind = type(d.bind) == "table" and d.bind or {}
+    d.bind[hash(guid)] = { n = name, r = norm or "", rg = rg, gh = hash(guid) .. hash2(guid), cls = c.cls or "", lvl = c.lvl or 0, fac = c.fac or "", at = time() }
 end
 
 local function push(list, rec, max, sentKey)
@@ -171,6 +193,8 @@ function ns.StatsExportString(all)
         chars = chars, deaths = deaths, lvls = lvls }
     -- 10-10 键位手法 P5：可选的施法频率（KeysCast.lua，默认关；没装 / 没开就没有这个字段）
     if ns.CastExportDoc then local ok, cf = pcall(ns.CastExportDoc); if ok and cf then doc.cf = cf end end
+    -- 10-16 升级播报（LevelShare.lua，HOLD）：每级用时 / 地图 / 死亡 / 任务 / 杀怪 / 组队占比 / 休息经验；没装就没有这个字段
+    if ns.LevelShareExportDoc then local ok, lx = pcall(ns.LevelShareExportDoc); if ok and lx then doc.lx = lx end end
     if #deaths == 0 then doc.deaths = { __array = true } end
     if #lvls == 0 then doc.lvls = { __array = true } end
     return "GIFS1:" .. ns.B64url(ns.JSON(doc)), #deaths, #lvls

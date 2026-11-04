@@ -576,6 +576,7 @@ YUI.Locale:Register("YBar", "ruRU", {
     ["teleports.map.249699"] = "SGuard",
     ["teleports.map.266370"] = "Bounty",
     ["teleports.map.276371"] = "Lightveil",
+    ["teleports.map.286643"] = "Киндо",
     ["teleports.map.3561"] = "SW",
     ["teleports.map.3562"] = "IF",
     ["teleports.map.3565"] = "Darn",

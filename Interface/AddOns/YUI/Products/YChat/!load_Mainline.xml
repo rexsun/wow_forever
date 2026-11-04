@@ -21,6 +21,7 @@
     <Script file="CombatLog.lua"/>
     <Script file="CopyViewer.lua"/>
     <Script file="Layout.lua"/>
+    <Script file="BNetToastLayout.lua"/>
     <Script file="DevPanel.lua"/>
     <Script file="Settings.lua"/>
     <Script file="YChat.lua"/>

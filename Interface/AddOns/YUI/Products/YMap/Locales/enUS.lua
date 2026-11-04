@@ -4,6 +4,7 @@ if not YUI or not YUI.Locale then return end
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("enUS") then return end
 
 YUI.Locale:Register("YMap", "enUS", {
+    ["settings.minimap.text_style"] = "Text",
     ["settings.minimap.group_text_short"] = "Text",
     ["settings.minimap.group_buttons_short"] = "Buttons",
     ["settings.minimap.text_zone_sample"] = "Zone Name",
@@ -95,6 +96,8 @@ YUI.Locale:Register("YMap", "enUS", {
     ["settings.section.world_map_coordinates"] = "Coordinates",
     ["settings.world_map.enabled"] = "Enable world map enhancements",
     ["settings.world_map.scale"] = "Window scale",
+    ["settings.world_map.window_managed"] = "EllesmereUI Shifter controls the window position and scale. YMap keeps your settings and resumes control when Shifter is off. Other map features remain available.",
+    ["settings.world_map.window_managed_tooltip"] = "Managed by EllesmereUI Shifter. Turn off Shifter to adjust these settings.",
     ["settings.world_map.fade_when_moving"] = "Fade while moving",
     ["settings.world_map.moving_opacity"] = "Moving opacity (%)",
     ["settings.world_map.remember_position"] = "Remember window position",

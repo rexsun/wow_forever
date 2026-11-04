@@ -16,6 +16,7 @@ YHUD.Skyriding = Skyriding
 local CreateFrame = _G.CreateFrame
 local GetTime = _G.GetTime
 local math_abs = math.abs
+local math_ceil = math.ceil
 local math_exp = math.exp
 local math_floor = math.floor
 local math_max = math.max
@@ -136,8 +137,7 @@ end
 
 local function CreateSolidTexture(parent, layer, color)
     local texture = parent:CreateTexture(nil, layer or "BACKGROUND")
-    texture:SetTexture("Interface\\Buttons\\WHITE8x8")
-    texture:SetVertexColor(color[1], color[2], color[3], color[4] or 1)
+    texture:SetColorTexture(color[1], color[2], color[3], color[4] or 1)
     texture:SetAllPoints(parent)
     if texture.SetSnapToPixelGrid then texture:SetSnapToPixelGrid(false) end
     if texture.SetTexelSnappingBias then texture:SetTexelSnappingBias(0) end
@@ -266,23 +266,24 @@ local function LayoutPips(row, width, gap)
     end
 end
 
-local function ApplySpeedFont(surface, settings)
-    local text = surface and surface.speed and surface.speed.text
+local function ApplyTextFont(text, settings, prefix, fontField, sizeField)
     if not text then return end
+    local color = settings[prefix .. "Color"]
     if GUI2.ApplyFontAppearance then
         GUI2:ApplyFontAppearance(text, {
-            font = settings.speedFont or "default",
-            size = tonumber(settings.speedFontSize) or 12,
-            outline = "outline",
-            color = type(settings.speedTextColor) == "table" and settings.speedTextColor or nil,
+            font = settings[fontField or (prefix .. "Font")] or "default",
+            size = tonumber(settings[sizeField or (prefix .. "Size")]) or 12,
+            outline = settings[prefix .. "Outline"] or "outline",
+            monochrome = settings[prefix .. "Monochrome"] == true,
+            color = type(color) == "table" and color or nil,
         })
     end
-    if type(settings.speedTextColor) == "table" then
+    if type(color) == "table" then
         text.gui2ColorKey = nil
     elseif GUI2.SetTextColorKey then
         GUI2:SetTextColorKey(text, "color.text.primary")
     end
-    text:SetShown(settings.speedText ~= false)
+    text:SetShown(settings[prefix] ~= false)
 end
 
 local function BuildHaloSurface(root, style)
@@ -305,6 +306,12 @@ local function BuildHaloSurface(root, style)
         style.emptyColor
     )
     surface.cooldown = CreateCooldownIcon(surface, SPELL_WHIRLING_SURGE, 41)
+    surface.cooldownBar = CreateBar(surface.stack, 16, style.normalColor, style.backgroundColor)
+    surface.cooldownBar.text = GUI2:CreateText(
+        surface.cooldownBar.chrome, "", "font.size.sm", "color.text.primary", "CENTER"
+    )
+    surface.cooldownBar.text:SetPoint("CENTER", surface.cooldownBar, "CENTER", 0, 0)
+    surface.cooldownBar:Hide()
     surface:Hide()
     return surface
 end
@@ -480,12 +487,20 @@ function Skyriding:GetDefaultPlacement()
     }
 end
 
+function Skyriding:GetCooldownSpellName()
+    return SpellAPI.GetName and SpellAPI.GetName(SPELL_WHIRLING_SURGE)
+end
+
 function Skyriding:MeasureHaloLayout(settings)
+    local cooldownHeight = settings.cooldownStyle == "bar"
+        and ((tonumber(settings.cooldownBarHeight) or tonumber(settings.speedHeight) or 16)
+            + (tonumber(settings.rowGap) or 4)) or 0
     return tonumber(settings.width) or 340,
         (tonumber(settings.speedHeight) or 16)
         + (tonumber(settings.vigorHeight) or 10)
         + (tonumber(settings.secondWindHeight) or 7)
         + (tonumber(settings.rowGap) or 4) * 2
+        + cooldownHeight
 end
 
 function Skyriding:ApplyStyle(appearanceOnly)
@@ -528,22 +543,34 @@ function Skyriding:ApplyLayout(surface, style, settings)
     surface:ClearAllPoints()
     surface:SetPoint("TOPLEFT", root, "TOPLEFT", 0, 0)
     if self.styleId == "halo" then
+        local cooldownStyle = settings.cooldownStyle or "right"
+        local barMode = cooldownStyle == "bar"
+        self.cooldownStyle = cooldownStyle
         local vigorHeight = tonumber(settings.vigorHeight) or 10
         local secondWindHeight = tonumber(settings.secondWindHeight) or 7
         local _, stackHeight = self:MeasureHaloLayout(settings)
         local iconSize = stackHeight
-        speedWidth = math_max(1, totalWidth - iconSize - rowGap)
+        speedWidth = barMode and totalWidth or math_max(1, totalWidth - iconSize - rowGap)
         rootHeight = stackHeight
         surface:SetSize(totalWidth, rootHeight)
         surface.stack:SetSize(speedWidth, stackHeight)
         surface.stack:ClearAllPoints()
-        surface.stack:SetPoint("LEFT", surface, "LEFT", 0, 0)
+        local stackPoint = cooldownStyle == "left" and "RIGHT" or "LEFT"
+        surface.stack:SetPoint(stackPoint, surface, stackPoint, 0, 0)
         surface.speed:SetSize(speedWidth, speedHeight)
         surface.speed:ClearAllPoints()
         surface.speed:SetPoint("TOPLEFT", surface.stack, "TOPLEFT", 0, 0)
+        SetShown(surface.cooldown, not barMode)
+        SetShown(surface.cooldownBar, barMode)
+        if barMode then
+            surface.cooldownBar:SetSize(speedWidth, tonumber(settings.cooldownBarHeight) or speedHeight)
+            surface.cooldownBar:ClearAllPoints()
+            surface.cooldownBar:SetPoint("TOPLEFT", surface.speed, "BOTTOMLEFT", 0, -rowGap)
+        end
         surface.vigor:SetSize(speedWidth, vigorHeight)
         surface.vigor:ClearAllPoints()
-        surface.vigor:SetPoint("TOPLEFT", surface.speed, "BOTTOMLEFT", 0, -rowGap)
+        surface.vigor:SetPoint("TOPLEFT", barMode and surface.cooldownBar or surface.speed,
+            "BOTTOMLEFT", 0, -rowGap)
         surface.secondWind:SetSize(speedWidth, secondWindHeight)
         surface.secondWind:ClearAllPoints()
         surface.secondWind:SetPoint(
@@ -553,21 +580,28 @@ function Skyriding:ApplyLayout(surface, style, settings)
             0,
             -rowGap
         )
-        surface.cooldown:SetSize(iconSize, iconSize)
-        if surface.cooldown.SetIconAppearance then
-            surface.cooldown:SetIconAppearance({
-                size = iconSize,
-                shape = "square",
-                border = "thin",
-            })
+        if not barMode then
+            surface.cooldown:SetSize(iconSize, iconSize)
+            if surface.cooldown.SetIconAppearance then
+                surface.cooldown:SetIconAppearance({
+                    size = iconSize,
+                    shape = "square",
+                    border = "thin",
+                })
+            end
+            surface.cooldown:ClearAllPoints()
+            if cooldownStyle == "left" then
+                surface.cooldown:SetPoint("RIGHT", surface.stack, "LEFT", -rowGap, 0)
+            else
+                surface.cooldown:SetPoint("LEFT", surface.stack, "RIGHT", rowGap, 0)
+            end
         end
-        surface.cooldown:ClearAllPoints()
-        surface.cooldown:SetPoint("LEFT", surface.stack, "RIGHT", rowGap, 0)
         surface.speed.text:ClearAllPoints()
         surface.speed.text:SetPoint("CENTER", surface.speed, "CENTER", 0, 0)
         LayoutPips(surface.vigor, speedWidth, pipGap)
         LayoutPips(surface.secondWind, speedWidth, pipGap)
     else
+        self.cooldownStyle = "right"
         local resourceHeight = tonumber(settings.resourceHeight) or 8
         local iconSize = tonumber(settings.iconSize) or 48
         surface.cooldown:SetSize(iconSize, iconSize)
@@ -707,13 +741,13 @@ function Skyriding:ApplyAppearance()
     local settings = self:GetStyleSettings(self.styleId)
     local borderColor = type(settings.borderColor) == "table"
         and settings.borderColor or "color.border.subtle"
-    local function ApplyBar(bar, color, background)
+    local function ApplyBar(bar, color, background, texture, border, customBorderColor)
         local snapshot = GUI2:CompileStatusBarStyle({
-            fillTexture = settings.fillTexture or "solid",
+            fillTexture = texture or settings.fillTexture or "solid",
             fillColor = color,
             backgroundColor = background,
-            border = settings.border or 1,
-            borderColor = borderColor,
+            border = border or settings.border or 1,
+            borderColor = customBorderColor or borderColor,
         }, bar.visualStyle)
         bar.visualStyle = snapshot
         GUI2:ApplyStatusBarChrome(bar.visualTarget, snapshot)
@@ -724,6 +758,13 @@ function Skyriding:ApplyAppearance()
     self.speedNormalColor = settings.speedColor or style.normalColor
     self.speedThrillColor = settings.thrillColor or style.thrillColor
     ApplyBar(surface.speed, self.speedNormalColor, settings.backgroundColor or style.backgroundColor)
+    if surface.cooldownBar then
+        ApplyBar(surface.cooldownBar, settings.cooldownBarColor, settings.cooldownBarBackgroundColor,
+            settings.cooldownBarTexture, settings.cooldownBarBorder,
+            type(settings.cooldownBarBorderColor) == "table"
+                and settings.cooldownBarBorderColor or "color.border.subtle")
+        ApplyTextFont(surface.cooldownBar.text, settings, "cooldownBarText")
+    end
     for index = 1, #surface.vigor.pips do
         ApplyBar(surface.vigor.pips[index], settings.vigorColor or style.vigorColor,
             settings.emptyColor or style.emptyColor)
@@ -732,7 +773,7 @@ function Skyriding:ApplyAppearance()
         ApplyBar(surface.secondWind.pips[index], settings.secondWindColor or style.secondWindColor,
             settings.emptyColor or style.emptyColor)
     end
-    ApplySpeedFont(surface, settings)
+    ApplyTextFont(surface.speed.text, settings, "speedText", "speedFont", "speedFontSize")
     self:UpdateSpeed(0, self.smoothedSpeed)
     return true
 end
@@ -971,28 +1012,45 @@ function Skyriding:UpdateCharges()
 end
 
 function Skyriding:UpdateCooldown()
-    if not self.cooldownDirty and not self:IsPreviewing() then return end
-    local startTime, duration
-    if self:IsPreviewing() then
-        startTime = GetTime() - 4
-        duration = 12
-    else
-        local info = SpellAPI.GetCooldown
-            and SpellAPI.GetCooldown(SPELL_WHIRLING_SURGE)
-        startTime = info and tonumber(info.startTime) or 0
-        duration = info and tonumber(info.duration) or 0
-        if duration <= 1.5 then startTime, duration = 0, 0 end
-    end
-    if self.cooldownStart ~= startTime or self.cooldownDuration ~= duration then
-        if duration > 0 then
-            self.root.cooldown.cooldown:SetCooldown(startTime, duration)
-        elseif self.root.cooldown.cooldown.Clear then
-            self.root.cooldown.cooldown:Clear()
+    local preview = self:IsPreviewing()
+    local bar = self.cooldownStyle == "bar" and self.activeSurface
+        and self.activeSurface.cooldownBar
+    if not self.cooldownDirty and not preview and not bar then return end
+    if self.cooldownDirty or preview then
+        local startTime, duration
+        if preview then
+            startTime = GetTime() - 4
+            duration = 12
+        else
+            local info = SpellAPI.GetCooldown
+                and SpellAPI.GetCooldown(SPELL_WHIRLING_SURGE)
+            startTime = info and tonumber(info.startTime) or 0
+            duration = info and tonumber(info.duration) or 0
+            if duration <= 1.5 then startTime, duration = 0, 0 end
         end
-        self.cooldownStart = startTime
-        self.cooldownDuration = duration
+        if self.cooldownStart ~= startTime or self.cooldownDuration ~= duration then
+            if duration > 0 then
+                self.root.cooldown.cooldown:SetCooldown(startTime, duration)
+            elseif self.root.cooldown.cooldown.Clear then
+                self.root.cooldown.cooldown:Clear()
+            end
+            self.cooldownStart = startTime
+            self.cooldownDuration = duration
+        end
+        self.cooldownDirty = false
     end
-    self.cooldownDirty = false
+    if bar then
+        local duration = self.cooldownDuration or 0
+        local remaining = duration > 0
+            and math_max(0, (self.cooldownStart or 0) + duration - GetTime()) or 0
+        SetStatusBarValue(bar, duration > 0 and remaining / duration or 0,
+            remaining > 0 and SPEED_EPSILON or 0)
+        local seconds = math_ceil(remaining)
+        if bar._yhudSkyridingTextSeconds ~= seconds then
+            bar._yhudSkyridingTextSeconds = seconds
+            bar.text:SetText(seconds > 0 and tostring(seconds) or "")
+        end
+    end
 end
 
 function Skyriding:UpdateGCD()

@@ -15,12 +15,15 @@ local Client = {
     professionQuality = false,
     rankUpgrade = true,
     questItems = true,
+    classBars = true,
+    petEmptySlots = true,
     secretRisk = true,
     mainPossess = true,
     vehiclePageFirst = true,
     vehicleFallbackPage = 16,
     petBattle = false,
     skyridingVisibility = false,
+    cooldownRecoveryThreshold = 1.65,
 }
 YUI.YActionBar.Client = Client
 
@@ -33,6 +36,24 @@ local function SafeCall(label, func, ...)
     end
     if type(func) ~= "function" then return false end
     return pcall(func, ...)
+end
+
+-- Exclude known short base cooldowns; eligibility does not identify the current cooldown.
+-- Read when the action identity is refreshed, never from the cooldown event loop.
+function Client.CanFilterRecoveryCooldown(spellID)
+    local ok, duration = SafeCall("YActionBar base cooldown", _G.GetSpellBaseCooldown, spellID)
+    if not ok then return false end
+    local security = YUI.API and YUI.API.Security
+    if security and security.IsSecretValue then
+        if security.IsSecretValue(duration) then return false end
+    elseif _G.issecretvalue then
+        local secretOK, secret = pcall(_G.issecretvalue, duration)
+        if not secretOK or secret then return false end
+    else
+        return false
+    end
+    return type(duration) == "number" and duration < math.huge
+        and (duration == 0 or duration > Client.cooldownRecoveryThreshold * 1000)
 end
 
 function Client.CheckSecureRuntime()

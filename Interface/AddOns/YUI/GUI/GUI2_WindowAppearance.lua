@@ -24,6 +24,7 @@ local REGISTERED_FRAMES = setmetatable({}, { __mode = "k" })
 local EXTERNAL_CONSUMERS = setmetatable({}, { __mode = "k" })
 local EXTERNAL_SHELL_STATES = setmetatable({}, { __mode = "k" })
 local CONTEXT_OVERRIDES = setmetatable({}, { __mode = "k" })
+local SHELL_FINISH_STATES = setmetatable({}, { __mode = "k" })
 local contextOverrideSequence = 0
 local NATIVE_TEXTURE = "Interface\\FrameGeneral\\UI-Background-Rock"
 local STRIPE_TEXTURE = "Interface\\AddOns\\NDui\\Media\\bgTex.blp"
@@ -469,6 +470,109 @@ local function CreateTexture(frame, layer, subLevel)
     end
 end
 
+local function IsShellShadowSecret(value)
+    local security = YUI.API and YUI.API.Security
+    if security and type(security.IsSecretValue) == "function" then
+        return security.IsSecretValue(value)
+    end
+    return type(_G.issecretvalue) == "function" and _G.issecretvalue(value) or false
+end
+
+-- 阴影锚定外部窗口后自身尺寸也可能受限；每次原生回调都先检查。
+local function SetupShellShadowTextureCoordinates(shadow)
+    if type(shadow.CanBeAccessedInContext) == "function" then
+        local ok, accessible = pcall(shadow.CanBeAccessedInContext, shadow)
+        if not ok or IsShellShadowSecret(accessible) or accessible ~= true then return end
+    end
+    local ok, width, height = pcall(shadow.GetSize, shadow)
+    if not ok or IsShellShadowSecret(width) or IsShellShadowSecret(height) then return end
+    _G.BackdropTemplateMixin.SetupTextureCoordinates(shadow)
+end
+
+-- 只装饰自有普通外壳；不向外部窗口写字段，也不接管内容和交互。
+local function PlaceShellShadow(frame, state)
+    local shadow, size = state.shadow, state.shadowSize
+    if not shadow or not size then return end
+    shadow:ClearAllPoints()
+    shadow:SetPoint("TOPLEFT", frame, "TOPLEFT", -size, size)
+    shadow:SetPoint("BOTTOMRIGHT", state.shadowRight or frame, "BOTTOMRIGHT", size, -size)
+    if state.shadowSuppressed then SafeHide(shadow) else SafeShow(shadow) end
+end
+
+-- 调用方只传入已确认相连、等高的自有外壳；不扫描位置或接管锚点。
+function Appearance:SetShellShadowLayout(frame, rightmost, suppressed)
+    local state = frame and SHELL_FINISH_STATES[frame]
+    if not state then return end
+    state.shadowRight, state.shadowSuppressed = rightmost, suppressed == true
+    PlaceShellShadow(frame, state)
+end
+
+function Appearance:ApplyShellFinish(frame, finish, background)
+    if not frame then return end
+    local state = SHELL_FINISH_STATES[frame]
+    if type(finish) ~= "table" then
+        if state then
+            state.shadowSize, state.shadowRight, state.shadowSuppressed = nil, nil, nil
+            SafeHide(state.title); SafeHide(state.shadow)
+        end
+        return state
+    end
+    if not state then
+        state = {}
+        SHELL_FINISH_STATES[frame] = state
+    end
+    if background and finish.background then
+        SetColor(background, { 1, 1, 1, 1 })
+        SetVertexColor(background, { 1, 1, 1, 1 })
+        SetGradient(background, finish.background)
+    end
+    if finish.title and finish.titleHeight then
+        if not state.title then state.title = CreateTexture(frame, "BORDER", -8) end
+        if state.title then
+            local pixel = GUI2.GetPixelSize and GUI2:GetPixelSize(frame, 1, 1) or GUI2.mult or 1
+            PreparePixelTexture(state.title)
+            state.title:ClearAllPoints()
+            state.title:SetPoint("TOPLEFT", frame, "TOPLEFT", pixel, -pixel)
+            state.title:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -pixel, -pixel)
+            state.title:SetHeight(finish.titleHeight - pixel)
+            SetColor(state.title, { 1, 1, 1, 1 })
+            SetGradient(state.title, finish.title)
+            SetAlpha(state.title, 1)
+            SafeShow(state.title)
+        end
+    else
+        SafeHide(state.title)
+    end
+    local assets = YUI.Assets
+    if finish.shadowSize and finish.shadowSize > 0 and assets and type(assets.Core) == "function" then
+        if not state.shadow and type(CreateFrame) == "function" then
+            local ok, shadow = pcall(CreateFrame, "Frame", nil, frame, "BackdropTemplate")
+            if ok then
+                shadow.SetupTextureCoordinates = SetupShellShadowTextureCoordinates
+                state.shadow = shadow
+            end
+        end
+        local shadow = state.shadow
+        if shadow then
+            local size = GUI2.GetPixelSize and GUI2:GetPixelSize(frame, finish.shadowSize, 1)
+                or finish.shadowSize * (GUI2.mult or 1)
+            shadow:SetFrameLevel(frame:GetFrameLevel())
+            shadow:EnableMouse(false)
+            shadow:SetBackdrop({
+                edgeFile = assets:Core("images\\GlowTex.tga"), edgeSize = size,
+                insets = { left = size, right = size, top = size, bottom = size },
+            })
+            shadow:SetBackdropBorderColor(unpack(finish.shadowColor or { 0, 0, 0, 0.65 }))
+            state.shadowSize = size
+            PlaceShellShadow(frame, state)
+        end
+    else
+        state.shadowSize = nil
+        SafeHide(state.shadow)
+    end
+    return state
+end
+
 local function AnchorAll(region, frame, inset)
     if not region or type(region.SetPoint) ~= "function" then return end
     inset = inset or 0
@@ -618,6 +722,10 @@ local function HideShell(state)
     SafeHide(state.nativeClip)
     SafeHide(state.nativeFrame)
     SafeHide(state.nduiBg)
+    if state.finish then
+        state.finish.shadowSize = nil
+        SafeHide(state.finish.title); SafeHide(state.finish.shadow)
+    end
     for _, line in ipairs(state.border or {}) do SafeHide(line) end
 end
 
@@ -870,8 +978,14 @@ local function ApplyCustomShell(frame, state, context)
     else
         SafeHide(state.contentShade)
     end
+    state.finish = Appearance:ApplyShellFinish(frame, context.shellFinish, background)
+    if context.shellFinish then
+        SafeHide(state.overlay)
+        SafeHide(state.topBar)
+        SafeHide(state.contentShade)
+    end
     for _, line in ipairs(state.border or {}) do
-        SetColor(line, context.border or FALLBACK.border)
+        SetColor(line, context.shellFinish and context.shellFinish.border or context.border or FALLBACK.border)
         SetAlpha(line, 1)
         SafeShow(line)
     end
@@ -1079,6 +1193,7 @@ function Appearance:Register(frame, options)
         headings = options.headings or (options.heading and { options.heading }) or {},
         headingColorKey = options.headingColorKey,
         noTopBar = options.noTopBar == true,
+        shellHeaderHeight = options.shellHeaderHeight,
         nativeBorderOverflow = options.nativeBorderOverflow == true,
         nativeLayout = options.nativeLayout,
         role = options.role,

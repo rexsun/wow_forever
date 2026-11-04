@@ -1,5 +1,5 @@
 -- 键位手法 · 底座（10-10，docs/forever-keybind-rotation-design.md §1/§6，从正式服 GearInsight_Layout 移植精简）
--- 读键（游戏绑定 + Bartender / ElvUI / Dominos）、技能在不在条上、路 A 点格补位、路 B 一键全铺 + 智能分键、
+-- 读键（游戏绑定 + Bartender / ElvUI / Dominos）、技能在不在条上、路 A 左键拿起 / 右键选格放、
 -- 备份 / 还原、战斗中排队到脱战。⛔ 不碰宏（无限版宏库在宏库页）。⛔ HOLD（_hold.txt），测完才进包。
 local _, ns = ...
 
@@ -106,6 +106,49 @@ local function slotInfo(slot)
 end
 K.SlotInfo = slotInfo
 
+-- 10-16 /gi keys diag：形态视图「为啥还是没技能」诊断 —— 本职业数据里每个技能：编号 / 解析到的编号 / 学没学会 / 当前视图能不能用；
+--   再列法术书里实际学会、但数据里没有的技能（数据漏了就看这一段）
+function K.DiagView()
+    local view = K.ActiveView and K.ActiveView()
+    local out = { "GIKEYS1", "view=" .. tostring(view and view.key), "cls=" .. tostring(ns.MyClass()), "lv=" .. tostring(UnitLevel and UnitLevel("player")) }
+    local seen = {}
+    for _, e in ipairs((ns.Data.keys or {})[ns.MyClass()] or {}) do
+        local sid, name = K.Resolve(e)
+        local kp = e.id and IsPlayerSpell and select(2, pcall(IsPlayerSpell, e.id))
+        local ks = e.id and IsSpellKnown and select(2, pcall(IsSpellKnown, e.id))
+        local inf = K.InForm(e, view)
+        seen[e.n] = true
+        if sid or kp or ks then
+            out[#out + 1] = string.format("%s#%s>%s:%s%s%s", e.n, tostring(e.id), tostring(sid), kp and "P" or "-", ks and "K" or "-", inf and "F" or "x")
+        end
+    end
+    -- 法术书里学会了、数据里没有的
+    local extra = {}
+    local SB = C_SpellBook
+    if SB and SB.GetNumSpellBookSkillLines and SB.GetSpellBookSkillLineInfo and SB.GetSpellBookItemInfo then
+        local okn, n = pcall(SB.GetNumSpellBookSkillLines)
+        for li = 1, (okn and n or 0) do
+            local ok, info = pcall(SB.GetSpellBookSkillLineInfo, li)
+            if ok and info then
+                for i = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
+                    local ok2, it = pcall(SB.GetSpellBookItemInfo, i, Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player or 0)
+                    if ok2 and it and it.name and not seen[it.name] and not it.isPassive then extra[#extra + 1] = it.name .. "#" .. tostring(it.spellID or it.actionID) end
+                end
+            end
+        end
+    elseif GetNumSpellTabs and GetSpellTabInfo and GetSpellBookItemName then
+        for t = 1, GetNumSpellTabs() do
+            local _, _, off, num = GetSpellTabInfo(t)
+            for i = off + 1, off + num do
+                local nm = GetSpellBookItemName(i, BOOKTYPE_SPELL or "spell")
+                if nm and not seen[nm] then extra[#extra + 1] = nm end
+            end
+        end
+    end
+    out[#out + 1] = "extra=" .. table.concat(extra, "/")
+    ns.ShowBox(ns.L("键位诊断", "Keys diag"), ns.L("Ctrl+C 复制发给开发者", "Ctrl+C to copy"), table.concat(out, ";"))
+end
+
 -- /gi keys macros：列出条上每个宏格 —— 格号 / 宏名 / GetActionInfo 的 id / 认出的宏序号 / 认出的技能（「宏没识别」时贴这个）
 function K.DebugMacros()
     local n = 0
@@ -182,8 +225,77 @@ function K.SlotMacroSpells(slot, id)
     return out, idx, text
 end
 
+-- ---------- 形态视图（10-16 用户「尤其是形态的情况下，上方有切形态的按钮」；数据 KeysFormData.lua，没装 = 老样子）----------
+-- 视图 = 键位页选的那个形态（只是看，不改游戏里的形态）：{ key, page, zh, en, d }；page = 主条在该形态下换成的形态页号，nil = 主条本身
+-- 10-16 用户「没学的形态先不要放」「注意其他职业也要考虑」：没学会的形态 / 姿态不出按钮。
+--   形态技能：熊 5487 / 巨熊 9634、豹 768；防御姿态 71、狂暴姿态 2458（战斗姿态 2457 一级就有）；潜行 1784。
+--   先看姿态条（GetShapeshiftFormInfo 第 4 个返回值 = 技能编号），再看 IsPlayerSpell / IsSpellKnown；这几个接口都没有就当学会了
+K.FORM_SPELLS = { bear = { 5487, 9634 }, cat = { 768 }, battle = { 2457 }, defensive = { 71 }, berserker = { 2458 }, stealth = { 1784 } }
+function K.FormKnown(f)
+    local ids = f and K.FORM_SPELLS[f.key]
+    if not ids then return true end
+    local asked = false
+    if GetNumShapeshiftForms and GetShapeshiftFormInfo then
+        asked = true
+        local okn, n = pcall(GetNumShapeshiftForms)
+        for i = 1, (okn and tonumber(n) or 0) do
+            local ok, _, _, _, sid = pcall(GetShapeshiftFormInfo, i)
+            if ok then for _, id in ipairs(ids) do if sid == id then return true end end end
+        end
+    end
+    for _, fn in ipairs({ IsPlayerSpell or false, IsSpellKnown or false }) do
+        if fn then
+            asked = true
+            for _, id in ipairs(ids) do
+                local ok, v = pcall(fn, id)
+                if ok and v then return true end
+            end
+        end
+    end
+    return not asked
+end
+-- 只返回学会了的形态；学会的不到 2 个（比如 10 级前的德鲁伊）= 没得切，当没形态处理（页面照老样子）
+function K.Forms(cls)
+    local d = ns.KeysForms and ns.KeysForms[cls or ns.MyClass()]
+    if not d then return nil end
+    local out = {}
+    for _, f in ipairs(d.forms) do if K.FormKnown(f) then out[#out + 1] = f end end
+    if #out < 2 then return nil, d end
+    return out, d
+end
+function K.FormByKey(key, cls)
+    for _, f in ipairs((K.Forms(cls)) or {}) do if f.key == key then return f end end
+end
+-- 现在实际在哪个形态：按 GetBonusBarOffset 对形态页号（没变身 = 0 = 页为 nil 的那个）
+function K.CurrentFormKey(cls)
+    local fs = K.Forms(cls)
+    if not fs then return nil end
+    local off = 0
+    if GetBonusBarOffset then local ok, v = pcall(GetBonusBarOffset); if ok and type(v) == "number" then off = v end end
+    for _, f in ipairs(fs) do if (f.page or 0) == off then return f.key end end
+    return fs[1].key
+end
+K.viewKey = nil   -- 键位页手动选的形态；nil = 跟着实际形态
+function K.ActiveView(cls)
+    local fs, d = K.Forms(cls)
+    if not fs then return nil end
+    local f = K.FormByKey(K.viewKey or K.CurrentFormKey(cls), cls) or fs[1]
+    return { key = f.key, page = f.page, zh = f.zh, en = f.en, d = d }
+end
+-- 这个技能在这个形态下能不能用（数据里没列的按职业默认：德鲁伊人形态 / 战士三姿态 / 盗贼普通 + 潜行）
+function K.InForm(e, view)
+    if not view then return true end
+    if e and e.racial then return true end   -- 种族 / 通用技能：各形态都能放
+    local sp = view.d.spells or {}
+    local list = (e.id and sp[e.id]) or (e.nEn and sp[e.nEn]) or view.d.def or {}
+    for _, k in ipairs(list) do if k == view.key then return true end end
+    return false
+end
+K.FORM_PAGES = FORM_PAGES
+
 -- 条上每个技能（按名字，等级不同也算同一个）→ { 格号, 键 }；有键的那格优先；宏里放的技能也算（10-12）
-function K.LiveMap()
+--   view（形态视图）：主条 1–12 只在没变身那个形态算；变身形态只算它自己那一页；别的条（左下 / 右下…）都算 —— 和游戏里该形态下按得到的一致
+function K.LiveMap(view)
     local abk = K.AddonBarKeys()
     local m = {}
     local function scan(from, to)
@@ -202,6 +314,12 @@ function K.LiveMap()
                 end
             end
         end
+    end
+    if view then
+        for _, b in ipairs(K.BARS) do if b.from ~= 1 or not view.page then scan(b.from, b.to) end end
+        local pg = view.page and FORM_PAGES[view.page]
+        if pg then scan(pg[1], pg[2]) end
+        return m, abk
     end
     for _, b in ipairs(K.BARS) do scan(b.from, b.to) end
     for _, p in ipairs(FORM_PAGES) do scan(p[1], p[2]) end
@@ -226,32 +344,91 @@ function K.MainTree()
 end
 
 -- 本职业要上条的技能（按职能行排好；默认不铺：功能 util / 姿态 stance —— 姿态有暴雪姿态条）
-K.PLACE_ROLES = { main = true, burst = true, interrupt = true, taunt = true, cc = true, defense = true, heal = true, move = true, buff = true }
+K.PLACE_ROLES = { racial = true, main = true, burst = true, interrupt = true, taunt = true, cc = true, defense = true, heal = true, move = true, buff = true }
 K.ROLE_NAME = {
     main = { "主循环", "Rotation" }, burst = { "爆发", "Burst" }, interrupt = { "打断", "Interrupt" }, taunt = { "嘲讽", "Taunt" },
     cc = { "控制", "Control" }, defense = { "保命", "Defensive" }, heal = { "治疗", "Healing" }, move = { "位移", "Movement" },
-    stance = { "姿态", "Stance" }, buff = { "增益", "Buffs" }, util = { "其他", "Utility" },
+    stance = { "姿态", "Stance" }, racial = { "种族 / 通用", "Racial / General" }, buff = { "增益", "Buffs" }, util = { "其他", "Utility" },
 }
+-- 10-17 用户「种族天赋技能也放待设置技能里」：种族主动技能 + 法术书「通用」页的主动技能（攻击、《无限》新种族的踏空而行…）
+--   来源：①Data.notes 里 k="racial" 的种族天赋名（旧种族）②法术书第一页（通用）里学会的、非被动、不在职业数据里的技能
+local function spellIdByName(name)
+    if C_Spell and C_Spell.GetSpellInfo then
+        local ok, info = pcall(C_Spell.GetSpellInfo, name)
+        if ok and type(info) == "table" and info.spellID then return info.spellID, info.name end
+    end
+    if GetSpellInfo then
+        local ok, n, _, _, _, _, _, sid = pcall(GetSpellInfo, name)
+        if ok and sid then return sid, n end
+    end
+end
+local function isPassive(sid)
+    if C_Spell and C_Spell.IsSpellPassive then local ok, v = pcall(C_Spell.IsSpellPassive, sid); if ok then return v end end
+    if IsPassiveSpell then local ok, v = pcall(IsPassiveSpell, sid); if ok then return v end end
+    return false
+end
+local function known(sid) return (IsPlayerSpell and IsPlayerSpell(sid)) or (IsSpellKnown and IsSpellKnown(sid)) end
+function K.RacialEntries(classNames)
+    local out, seen = {}, {}
+    local function add(sid, name)
+        if not sid or seen[sid] or (classNames and classNames[name]) then return end
+        if not known(sid) or isPassive(sid) then return end
+        seen[sid] = true
+        out[#out + 1] = { e = { id = sid, n = name, r = "racial", racial = true }, id = sid, name = name, role = "racial" }
+    end
+    for key, nt in pairs((ns.Data and ns.Data.notes) or {}) do
+        if type(nt) == "table" and nt.k == "racial" then
+            local sid, name = spellIdByName(key)
+            add(sid, name)
+        end
+    end
+    local SB = C_SpellBook
+    if SB and SB.GetSpellBookSkillLineInfo and SB.GetSpellBookItemInfo then
+        local ok, info = pcall(SB.GetSpellBookSkillLineInfo, 1)
+        if ok and info and info.numSpellBookItems then
+            local bank = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player or 0
+            for i = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
+                local ok2, it = pcall(SB.GetSpellBookItemInfo, i, bank)
+                if ok2 and it and it.spellID and not it.isPassive then add(it.spellID, it.name) end
+            end
+        end
+    elseif GetSpellTabInfo and GetSpellBookItemName and GetSpellBookItemInfo then
+        local _, _, off, num = GetSpellTabInfo(1)
+        for i = (off or 0) + 1, (off or 0) + (num or 0) do
+            local nm = GetSpellBookItemName(i, BOOKTYPE_SPELL or "spell")
+            local _, sid = GetSpellBookItemInfo(i, BOOKTYPE_SPELL or "spell")
+            if nm and sid then add(sid, nm) end
+        end
+    end
+    return out
+end
+
 function K.Plan(cls)
     cls = cls or ns.MyClass()
-    local out = {}
+    local out, names = {}, {}
     for _, e in ipairs((ns.Data.keys or {})[cls] or {}) do
         local sid, name = K.Resolve(e)
-        if sid then out[#out + 1] = { e = e, id = sid, name = name, role = e.r } end
+        if sid then out[#out + 1] = { e = e, id = sid, name = name, role = e.r }; names[name] = true end
+    end
+    if cls == ns.MyClass() then
+        local ok, extra = pcall(K.RacialEntries, names)
+        for _, p in ipairs(ok and extra or {}) do out[#out + 1] = p end
     end
     return out
 end
 
 -- 计划里的技能：在不在条上、什么键
-function K.Status(cls)
-    local live = K.LiveMap()
+function K.Status(cls, view)
+    local live = K.LiveMap(view)
     local rows, missing = {}, 0
     for _, p in ipairs(K.Plan(cls)) do
+        if K.InForm(p.e, view) then
         local l = live[p.name]
         p.slot, p.key = l and l.slot, l and l.key
         p.placeable = K.PLACE_ROLES[p.role] or false
         if not p.slot and p.placeable then missing = missing + 1 end
         rows[#rows + 1] = p
+        end
     end
     return rows, missing
 end
@@ -270,12 +447,18 @@ do
 end
 K.KEY_POOL = KEY_POOL
 local function isOurCmd(cmd) return cmd and (cmd:match("^ACTIONBUTTON%d+$") or cmd:match("^MULTIACTIONBAR%dBUTTON%d+$")) end
+-- ⛔ 10-16 用户截图（主条键成了 1 3 4 ` 5…）：「第一动作条的数字都不准设置变动，是技能随动作条放，否则多姿态容易乱」
+--   主动作条 ACTIONBUTTON1–12 的键（1–9 0 - =）锁死：插件不改它们的键、也不把它们的键挪给别的格；技能往主条格子里放就行。
+--   姿态 / 形态页共用主条的键，主条键一乱，每个姿态都跟着乱。
+local function isMainCmd(cmd) return type(cmd) == "string" and cmd:match("^ACTIONBUTTON%d+$") ~= nil end
+K.IsMainCmd = isMainCmd
+K.MAIN_DEFAULT = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=" }
 -- 键能不能给动作条用：没绑 / 绑在动作条格上 = 可以；绑在移动 / 界面等别的功能上 = 不碰
 function K.KeyFree(k)
     if not GetBindingAction then return false end
     local ok, cmd = pcall(GetBindingAction, k)
     cmd = ok and cmd or nil
-    return not cmd or cmd == "" or isOurCmd(cmd)
+    return not cmd or cmd == "" or (isOurCmd(cmd) and not isMainCmd(cmd))
 end
 
 -- ---------- 战斗中排队 ----------
@@ -390,6 +573,7 @@ local function assignKey(slot, used)
     if not SetBinding then return nil end
     local cmd = K.SlotCommand(slot)
     if not cmd or slot > 72 and slot < 145 then return nil end   -- 姿态页跟主条共用键，不单独绑
+    if isMainCmd(cmd) then return nil end                         -- 主条键锁死，不分键
     for _, k in ipairs(KEY_POOL) do
         if not used[k] and K.KeyFree(k) then
             local holder = GetBindingAction and GetBindingAction(k)
@@ -402,62 +586,112 @@ local function assignKey(slot, used)
     end
 end
 
--- 路 A：把一个缺的技能放上去（点「—」时调用）
+-- 路 A：点「—」= 把这个技能拿到鼠标上，玩家自己点动作条格子放下（10-16 用户截图「点一下应该是拿到鼠标上」：
+--   原来自动找空格放 + 分键，熊形态下放到了人形态的格子上，点一次放一次，聊天框刷了一排「已放上 槌击」）。
+--   ⛔ 不自动放、不自动绑键（同 feedback：键位只许逐个设置）
 function K.PlaceMissing(p)
     return outOfCombat(function()
-        local abk = K.AddonBarKeys()
-        local slot = firstEmpty(true, abk) or firstEmpty(false, abk)
-        if not slot then ns.Print(ns.L("动作条没有空格了", "No empty action slot")); return end
-        K.Backup(ns.L("放上 ", "place ") .. (p.name or ""))
-        placeSpell(p.id, slot)
-        local k = K.SlotKey(slot)
-        if not k then k = assignKey(slot, {}); saveBindings() end
-        ns.Print(string.format(ns.L("已放上 %s：%s", "Placed %s: %s"), p.name or "?", k or ns.L("（没有空键，去游戏按键设置里绑）", "(no free key - bind it in Key Bindings)")))
+        if not (p and p.id) then return end
+        if ClearCursor then ClearCursor() end
+        local pick = (C_Spell and C_Spell.PickupSpell) or PickupSpell
+        local ok = pick and pcall(pick, p.id)
+        if not ok then
+            ns.Print(string.format(ns.L("拿不起「%s」：去技能书里拖到动作条上", "Can't pick up %s - drag it from your spellbook"), p.name or "?"))
+            return
+        end
+        -- 10-16 截图：点一下刷 4 行 → 同一技能 2 秒内只说一次；想放进某个形态的页：右键选格
+        local now = (GetTime and GetTime()) or 0
+        K._pickSay = K._pickSay or {}
+        if not K._pickSay[p.name or "?"] or now - K._pickSay[p.name or "?"] > 2 then
+            K._pickSay[p.name or "?"] = now
+            ns.Print(string.format(ns.L("「%s」已在鼠标上：点动作条上的格子放下（想放进某个形态的那一页：右键这个技能选格）", "%s is on your cursor: click an action slot (right-click the spell to choose a form slot)"), p.name or "?"))
+        end
+    end, ns.L("拿到鼠标上", "pick it up"))
+end
+
+-- ---------- 10-16 指定格放技能（键位页「放到哪一格」面板 / 形态问询 / 录键时按了主条键）----------
+-- 用户：「切换状态，所有这个状态能用的技能都要能设置才对」「设置 123456 的时候，多弹出一个对话框问是设置给哪个形态的」
+--   主条键（1–9 0 - =）锁死不改；「放到第 n 个位置」= 放进所选形态那一页的第 n 格（人形态 / 普通 / 没形态 = 主条本身）。
+function K.ViewOf(formKey, cls)
+    local fs, d = K.Forms(cls)
+    if not fs then return nil end
+    local f = K.FormByKey(formKey, cls)
+    if not f then return nil end
+    return { key = f.key, page = f.page, zh = f.zh, en = f.en, d = d }
+end
+-- 10-16 用户「各形态公用技能要列出来」：这个技能在哪些学会的形态能用（2 个以上 = 公用）
+function K.SharedForms(p, cls)
+    local fs = K.Forms(cls)
+    if not (fs and p and p.e) then return nil end
+    local out = {}
+    for _, f in ipairs(fs) do
+        if K.InForm(p.e, K.ViewOf(f.key, cls)) then out[#out + 1] = f end
+    end
+    return out
+end
+-- 主条第 n 个位置（键 = 主条第 n 格的键）在某形态下实际是哪一格
+function K.MainPosSlot(n, view)
+    local pg = view and view.page and FORM_PAGES[view.page]
+    return pg and (pg[1] + n - 1) or n
+end
+-- 主条第几个位置用的是这个键（不是主条的键返回 nil）
+function K.MainPosOfKey(key)
+    if not key then return nil end
+    for i = 1, 12 do
+        local k1, k2 = getBindingKeys("ACTIONBUTTON" .. i)
+        if k1 == key or k2 == key then return i end
+    end
+    return nil
+end
+-- 学会的形态，以及这个技能在各形态能不能用（形态问询框用）；没形态 / 只学会一个 → nil
+function K.FormChoices(p, cls)
+    local fs = K.Forms(cls)
+    if not fs or #fs < 2 then return nil end
+    local out = {}
+    for _, f in ipairs(fs) do
+        local v = K.ViewOf(f.key, cls)
+        out[#out + 1] = { view = v, usable = (not (p and p.e)) or K.InForm(p.e, v) }
+    end
+    return out
+end
+-- 技能放进第 slot 格（脱战才放；战斗中排到脱战）。同一技能 2 秒内只打印一次（10-16 截图：点一下刷 4 行）
+local lastSay = {}
+function K.PlaceSpellAt(p, slot, where)
+    return outOfCombat(function()
+        if not (p and p.id and slot and PlaceAction) then return end
+        local before = slotInfo(slot)
+        if ClearCursor then ClearCursor() end
+        local pick = (C_Spell and C_Spell.PickupSpell) or PickupSpell
+        local ok = pick and pcall(pick, p.id)
+        if not ok then
+            ns.Print(string.format(ns.L("拿不起「%s」：去技能书里拖到动作条上", "Can't pick up %s - drag it from your spellbook"), p.name or "?"))
+            return
+        end
+        pcall(PlaceAction, slot)
+        if ClearCursor then ClearCursor() end
+        -- 10-17「把这个技能移动过去」：p.moveFrom = 原来那格 → 放好新格后把原格清掉（原格还是这个技能才清）
+        local moved = ""
+        local from = p.moveFrom
+        if from and from ~= slot then
+            local old = slotInfo(from)
+            if old and old.name == p.name and PickupAction then
+                pcall(PickupAction, from)
+                if ClearCursor then ClearCursor() end
+                moved = string.format(ns.L("（从第 %d 格移过来）", " (moved from slot %d)"), from)
+            end
+        end
+        local now = (GetTime and GetTime()) or 0
+        local key = (p.name or "?") .. ":" .. slot
+        if not lastSay[key] or now - lastSay[key] > 2 then
+            lastSay[key] = now
+            local rep = (before and before.name and before.name ~= p.name) and string.format(ns.L("（替换了「%s」）", " (replaced %s)"), before.name) or ""
+            ns.Print(string.format(ns.L("「%s」已放到%s%s", "%s placed: %s%s"), p.name or "?", where or string.format(ns.L("第 %d 格", "slot %d"), slot), rep .. moved))
+        end
         if K.OnChanged then K.OnChanged() end
     end, ns.L("放上去", "place it"))
 end
 
--- 路 B：一键全铺 = 备份 → 按职能行从主条开始顺序铺 → 没键的格从键池分键
---   keepKeys = true：已有键的格不动键（默认）；false：主条按 1-5 R F T G… 重新分
-function K.ApplyAll(keepKeys)
-    return outOfCombat(function()
-        K.Backup(ns.L("一键全铺", "full layout"))
-        local plan = {}
-        for _, p in ipairs(K.Plan()) do if K.PLACE_ROLES[p.role] then plan[#plan + 1] = p end end
-        local slots = {}
-        for _, bi in ipairs(PLACE_ORDER) do local b = K.BARS[bi]; for s = b.from, b.to do slots[#slots + 1] = s end end
-        local used, placed = {}, 0
-        -- 已占用的键先登记，免得分出去撞上
-        if keepKeys ~= false then for _, s in ipairs(slots) do local k = K.SlotKey(s); if k then used[k] = true end end end
-        for i, p in ipairs(plan) do
-            local s = slots[i]
-            if not s then break end
-            local cur = slotInfo(s)
-            if not (cur and cur.t == "spell" and cur.name == p.name) then clearSlot(s); placeSpell(p.id, s) end
-            placed = placed + 1
-            if not K.SlotKey(s) or keepKeys == false then
-                if keepKeys == false then local old = K.SlotKey(s); if old and SetBinding then pcall(SetBinding, old) end end
-                assignKey(s, used)
-            end
-        end
-        -- 主条技能镜像到姿态 / 形态页（战士三姿态、盗贼潜行、德鲁伊猫熊）：换姿态后主条还是同一套
-        local nf = (GetNumShapeshiftForms and GetNumShapeshiftForms()) or 0
-        for f = 1, math.min(nf, #FORM_PAGES) do
-            local pg = FORM_PAGES[f]
-            for i = 1, 12 do
-                local p = plan[i]
-                if p and p.role == "main" then
-                    local s = pg[1] + i - 1
-                    local cur = slotInfo(s)
-                    if not (cur and cur.t == "spell" and cur.name == p.name) then clearSlot(s); placeSpell(p.id, s) end
-                end
-            end
-        end
-        saveBindings()
-        ns.Print(string.format(ns.L("一键全铺完成：%d 个技能（已自动备份，可以一键还原）", "Layout done: %d spells (backup saved)"), placed))
-        if K.OnChanged then K.OnChanged() end
-    end, ns.L("铺条", "lay out"))
-end
+-- 10-16 用户「删掉，不要这个按钮了」：路 B 一键全铺 / 全部重新分键 去掉（键位只许逐个设置）
 
 -- ---------- 键位页分组（10-12 照正式服 LayoutPage 10-10 重构：前 5 行 = 手法助手 5 轨，其余折叠成「其他」）----------
 --   正式服：主循环 / 短冷却(<60s) / 大招(≥60s) / 生存 / 控制(打断 → 控制 → 嘲讽)；位移 / 姿态 / 团队 / 功能 … 收进「其他」。
@@ -469,6 +703,7 @@ K.GROUPS = {
     { key = "def", n = { "生存", "Defensive" }, d = { "减伤、保命、自疗", "Damage reduction and self-heals" }, c = { 0.247, 0.780, 0.627 } },
     { key = "ctrl", n = { "控制", "Control" }, d = { "打断 > 控制 > 嘲讽", "Interrupt -> control -> taunt" }, c = { 1, 0.42, 0.36 } },
     { key = "heal", n = { "治疗", "Healing" }, d = { "治疗法术", "Heals" }, c = { 0.2, 0.9, 0.4 } },
+    { key = "racial", n = { "种族 / 通用", "Racial / General" }, d = { "种族天赋和攻击这类通用技能，各形态都能放", "Racial and general abilities, usable in every form" }, c = { 0.95, 0.75, 0.45 } },
     { key = "misc", n = { "其他", "Other" }, d = { "位移 / 增益 / 姿态 / 功能", "Movement / buffs / stances / utility" }, c = { 0.64, 0.66, 0.71 }, fold = true },
 }
 local CTRL_SUB = { interrupt = 1, cc = 2, taunt = 3 }
@@ -478,6 +713,7 @@ function K.GroupOf(p)
     if r == "burst" then return (((p.e and p.e.cd) or 0) >= 60) and "major" or "short" end
     if r == "defense" then return "def" end
     if r == "heal" then return "heal" end
+    if r == "racial" then return "racial" end
     if CTRL_SUB[r] then return "ctrl" end
     return "misc"
 end
@@ -532,10 +768,12 @@ function K.AssignSlotKey(slot, key)
     if not SetBinding then return nil, "api" end
     local cmd = slot and K.SlotCommand(slot)
     if not cmd then return nil, "nocmd" end
+    if isMainCmd(cmd) then return nil, "mainlocked" end
     local holder, stolen
     if key then
         local ok, act = pcall(GetBindingAction or function() end, key)
         act = ok and act or nil
+        if isMainCmd(act) then return nil, "mainkey", act end
         if act and act ~= "" and act ~= cmd then
             if not isOurCmd(act) then
                 if PROTECT[act] then return nil, "taken", act end
@@ -562,6 +800,136 @@ function K.AssignSlotKey(slot, key)
     return true, holder, stolen and "stolen" or nil
 end
 
+-- ---------- 10-16 虚拟键盘「左键设置，右键清除」用 ----------
+-- 这个键现在绑着什么、是不是移动 / 聊天这类保护功能
+function K.KeyAction(key)
+    if not (key and GetBindingAction) then return nil, false end
+    local ok, act = pcall(GetBindingAction, key)
+    act = ok and act or nil
+    if act == "" then act = nil end
+    return act, (act and PROTECT[act]) and true or false
+end
+-- 清掉第 slot 格的动作（先备份）；where = 聊天框里怎么称呼这一格
+function K.ClearSlot(slot, where)
+    return outOfCombat(function()
+        if not (slot and PickupAction) then return end
+        local before = slotInfo(slot)
+        if not before then
+            ns.Print(string.format(ns.L("%s本来就是空的", "%s is already empty"), where or string.format(ns.L("第 %d 格", "slot %d"), slot)))
+            return
+        end
+        K.Backup(ns.L("清除 ", "clear ") .. (before.name or ""))
+        if ClearCursor then ClearCursor() end
+        pcall(PickupAction, slot)
+        if ClearCursor then ClearCursor() end
+        ns.Print(string.format(ns.L("已清除%s：%s", "Cleared %s: %s"), where or string.format(ns.L("第 %d 格", "slot %d"), slot), before.name or "?"))
+        if K.OnChanged then K.OnChanged() end
+    end, ns.L("清除", "clear it"))
+end
+-- 解开一个键（⛔ 主条键 / 移动聊天键不解）
+function K.UnbindKey(key)
+    if InCombatLockdown and InCombatLockdown() then return nil, "combat" end
+    local act, prot = K.KeyAction(key)
+    if not act then return nil, "free" end
+    if isMainCmd(act) then return nil, "mainkey", act end
+    if prot then return nil, "taken", act end
+    pcall(SetBinding, key)
+    saveBindings()
+    if K.OnChanged then K.OnChanged() end
+    return true, act
+end
+-- 10-16 用户「右键清除技能的所有快捷键设置并放回法术书」：
+-- 这个键现在放的是哪个技能（1 至 = 按所看形态那一页的同位格，那格空就看主条本格；别的键看它绑的那格）
+function K.SpellOfKey(key, view)
+    if not key then return nil end
+    local n = K.MainPosOfKey(key)
+    local sl
+    if n then
+        sl = K.MainPosSlot(n, view)
+        if not slotInfo(sl) then sl = n end
+    else
+        local byKey = K.KeyMap(view)
+        sl = byKey and byKey[key]
+    end
+    local info = sl and slotInfo(sl)
+    if info and info.t == "spell" and info.name then return info, sl end
+    return nil, sl
+end
+-- 把这个技能从所有格子（1–120、145–180，含各形态页）清掉，解开指向这些格的非主条键（主条键 1 至 = 锁死不动）；先备份
+--   技能本身就只剩法术书里（= 放回法术书）
+function K.ClearSpellEverywhere(name)
+    return outOfCombat(function()
+        if not (name and PickupAction) then return end
+        local slots = {}
+        for _, rg in ipairs({ { 1, 120 }, { 145, 180 } }) do
+            for sl = rg[1], rg[2] do
+                local info = slotInfo(sl)
+                if info and info.t == "spell" and info.name == name then slots[#slots + 1] = sl end
+            end
+        end
+        if #slots == 0 then
+            ns.Print(string.format(ns.L("「%s」不在任何格子上", "%s isn't on any slot"), name))
+            return
+        end
+        K.Backup(ns.L("清除 ", "clear ") .. name)
+        local keys = {}
+        for _, sl in ipairs(slots) do
+            if ClearCursor then ClearCursor() end
+            pcall(PickupAction, sl)
+            if ClearCursor then ClearCursor() end
+            local cmd = K.SlotCommand(sl)
+            if cmd and not isMainCmd(cmd) then
+                local k1, k2 = getBindingKeys(cmd)
+                for _, k in ipairs({ k1, k2 }) do
+                    if k then pcall(SetBinding, k); keys[#keys + 1] = k end
+                end
+            end
+        end
+        saveBindings()
+        ns.Print(string.format(ns.L("已把「%s」从 %d 个格子清掉%s（主动作条的键 1 至 = 不动）；还原上次可以恢复",
+            "Cleared %s from %d slots%s (main bar keys 1 to = untouched); Undo restores it"), name, #slots,
+            #keys > 0 and string.format(ns.L("，解开了键 %s", ", unbound %s"), table.concat(keys, " ")) or ""))
+        if K.OnChanged then K.OnChanged() end
+    end, ns.L("清除", "clear it"))
+end
+-- 左右下条第一个空格（键盘「设置」给空闲键找地方用）
+function K.FirstFreeSideSlot()
+    for _, rg in ipairs({ { 61, 72 }, { 49, 60 } }) do
+        for s = rg[1], rg[2] do
+            if not (HasAction and HasAction(s)) and not K.SlotKey(s) then return s end
+        end
+    end
+end
+
+-- 主动作条恢复默认键 1–9 0 - =：只在玩家点按钮时调；那个键被别的动作条格占着就先解开（是动作条格才动），
+--   被移动 / 聊天等别的功能占着的跳过不抢。返回 改了几个, 跳过的键表
+function K.ResetMainBar()
+    if InCombatLockdown and InCombatLockdown() then return nil, "combat" end
+    if not (SetBinding and GetBindingAction) then return nil, "api" end
+    K.Backup(ns.L("主动作条恢复默认键", "reset main bar keys"))
+    local n, skipped = 0, {}
+    for i, k in ipairs(K.MAIN_DEFAULT) do
+        local cmd = "ACTIONBUTTON" .. i
+        local ok, act = pcall(GetBindingAction, k)
+        act = ok and act or ""
+        if act == cmd then
+            -- 已经对
+        elseif act == "" or isOurCmd(act) then
+            local k1, k2 = getBindingKeys(cmd)
+            if k1 and k1 ~= k then pcall(SetBinding, k1) end
+            if k2 and k2 ~= k then pcall(SetBinding, k2) end
+            if act ~= "" then pcall(SetBinding, k) end
+            pcall(SetBinding, k, cmd)
+            n = n + 1
+        else
+            skipped[#skipped + 1] = k
+        end
+    end
+    saveBindings()
+    if K.OnChanged then K.OnChanged() end
+    return n, skipped
+end
+
 -- 键位模板（正式服 GearInsight.KEY_TEMPLATES 同一套）：一组从左到右套一套键
 K.KEY_TEMPLATES = {
     { key = "num", label = "1 2 3 4 5 6", keys = { "1", "2", "3", "4", "5", "6" } },
@@ -584,14 +952,15 @@ function K.ApplyKeyTemplate(slots, tpl)
         if ok then
             n = n + 1
             if st == "stolen" then stolen[#stolen + 1] = k end
-        elseif why == "taken" then skipped[#skipped + 1] = k elseif why == "combat" then break end
+        elseif why == "taken" or why == "mainkey" or why == "mainlocked" then skipped[#skipped + 1] = k elseif why == "combat" then break end
     end
     return n, skipped, stolen
 end
 
 -- 键 → 格（虚拟键盘用）：条插件按钮的键优先，其次游戏绑定（每个命令两个键都算）
 --   主条 1–12 在变身 / 姿态时显示的是形态页那一格（GetBonusBarOffset）
-function K.KeyMap()
+--   view（形态视图）：按那个形态算（不看实际形态）；第二个返回值 = 主条 1–12 的键（随形态变的键）
+function K.KeyMap(view)
     local abk = K.AddonBarKeys()
     local m = {}
     for s, k in pairs(abk) do if not m[k] then m[k] = s end end
@@ -603,11 +972,14 @@ function K.KeyMap()
         end
     end
     local off = 0
-    if GetBonusBarOffset then local ok, v = pcall(GetBonusBarOffset); if ok and type(v) == "number" then off = v end end
+    if view then off = view.page or 0
+    elseif GetBonusBarOffset then local ok, v = pcall(GetBonusBarOffset); if ok and type(v) == "number" then off = v end end
+    local formKeys = {}
+    for k, s in pairs(m) do if s >= 1 and s <= 12 then formKeys[k] = true end end
     if off > 0 and off <= #FORM_PAGES then
         for k, s in pairs(m) do if s >= 1 and s <= 12 then m[k] = FORM_PAGES[off][1] + s - 1 end end
     end
-    return m
+    return m, formKeys
 end
 K.IsOurCmd = isOurCmd
 

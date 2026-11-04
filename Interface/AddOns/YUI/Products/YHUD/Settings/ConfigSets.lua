@@ -668,6 +668,13 @@ local function CompactResourceSettings(profile, groupId)
     local initialBorderColor = type(resourceStyle) == "table"
         and resourceStyle.borderColor or nil
     local compact = {}
+    -- Private resource settings have no frozen catalog baseline. Keep their
+    -- normalized values verbatim through export/import and scheme switches.
+    for resourceId, setting in pairs(settings) do
+        if YHUD.ResourceManager and YHUD.ResourceManager:IsCustom(resourceId) then
+            compact[resourceId] = YHUD:CopyValue(setting)
+        end
+    end
     local definitionIds = catalog:GetDefinitionIds()
     for index = 1, #definitionIds do
         local resourceId = definitionIds[index]
@@ -691,6 +698,18 @@ local function CompactResourceSettings(profile, groupId)
     resources.settingsDeltaVersion =
         YHUD._RESOURCE_SETTINGS_DELTA_VERSION or 1
     return profile
+end
+
+local function NeedsResourceSettingsCompaction(resources)
+    if type(resources) ~= "table" then return false end
+    if type(resources.byGroup) == "table" then
+        for _, config in pairs(resources.byGroup) do
+            if NeedsResourceSettingsCompaction(config) then return true end
+        end
+        return false
+    end
+    return type(resources.settingsByResource) == "table"
+        and resources.settingsDeltaVersion == nil
 end
 
 local DEFAULT_SLOT_PRESET_KEYS = { "slot:13", "slot:14" }
@@ -879,7 +898,7 @@ end
 local function NormalizeStateEffects(value)
     if type(value) ~= "table" then return nil end
     local result = {}
-    local keys = { "auraTimer", "auraHighlight", "inactiveDesaturate" }
+    local keys = { "auraTimer", "auraHighlight", "inactiveDesaturate", "assistedHighlight" }
     for index = 1, #keys do
         local key = keys[index]
         if type(value[key]) == "boolean" then result[key] = value[key] end
@@ -1988,6 +2007,7 @@ function ConfigSets:PrepareProfileForStorage(profile, owned, previousPack)
             YHUD:GetCurrentSpecKey()
         )
         if not profile then return nil, "invalid-profile" end
+        profile = CompactResourceSettings(profile)
         profile.contentBySpec = {}
         ClearSpecDocumentStateProjection(profile)
         return ValidateStorageProfile(profile)
@@ -2788,6 +2808,7 @@ local function RepairCurrentStoredData(data)
     profile = data.profile
     local needsRepair = YHUD:MigrateClientSpecializationKeys(profile)
         or YHUD:HasLegacyTrinketGroup(profile)
+        or NeedsResourceSettingsCompaction(profile.resources)
     for index = 1, #SPECIALIZATION_DATA_ROOTS do
         local root = profile[SPECIALIZATION_DATA_ROOTS[index]]
         for specKey in pairs(type(root) == "table" and root or {}) do
@@ -3300,15 +3321,23 @@ local function Apply(data, _, context)
     if not profile then
         error(code or "config-apply-failed")
     end
-    if targetRuntime then
-        local specKey = YHUD:GetCurrentSpecKey()
-        local scoped = YHUD:GetScopedProfile(targetRuntime, specKey, true)
+    if targetRuntime and YHUD:IsStableSpecKey(runtimeSpecKey) then
+        local scoped = YHUD:GetScopedProfile(targetRuntime, runtimeSpecKey, true)
         if scoped then
             YHUD._runtimeProfile = scoped
             YHUD._runtimeProfileCanonical = profile
-            YHUD._runtimeProfileSpecKey = specKey
+            YHUD._runtimeProfileSpecKey = runtimeSpecKey
             YHUD._runtimeProfileRevision =
                 tonumber(YHUD.runtimeProfileRevision) or 0
+        end
+    end
+    if rollback and prepared and IsDesignerOpen() then
+        local ui, bridge = YHUD.DesignerUI, YHUD.LayoutBridge
+        if ui and bridge and bridge.RestorePlacements
+            and type(ui.runtimeLayoutSnapshot) == "table" then
+            -- The draft may have moved a live frame. Restore its pre-edit
+            -- geometry with the replacement owner before runtime refresh.
+            bridge:RestorePlacements(ui.runtimeLayoutSnapshot, profile)
         end
     end
     if YHUD.Stats then YHUD.Stats:Add("configApplies") end

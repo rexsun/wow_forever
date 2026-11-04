@@ -1,6 +1,230 @@
 -- Generated from Docs/Products/YUI_OrbitInfoBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("ybar", {
+-- YUI-Notes-Record: orbit-126|mainline|21b85b633425c76b4852ae8fa148ecc8c289ebb4a729bdb148e9d11e5249b40b
+-- YUI-Notes-Record: orbit-126|forever|b4ae83c2858cc7bdc81c359c5fcbfa1f41e9efd8b9577c8add82be7a52ca3197
+    {
+        version = "orbit-126",
+        date = "2026-10-31",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-125|mainline|8bddcb1fee11b789c2ea7a5486cdcc90d29ed3a1bca0f34ab19ac6ed81dfe163
+    {
+        version = "orbit-125",
+        date = "2026-10-26",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "原生界面新增背包栏控制开关，可关闭接管并保留显示模式。",
+                "优化音频同步，异常频繁时暂停同步 30 秒并保留开关状态。",
+                "修复音频同步恢复与提示异常，减少重复重启。",
+                "修复背包栏隐藏可能引发的战斗中 ESC 报错。",
+            },
+            enUS = {
+                "Added a bag bar control toggle that releases control while retaining the selected display mode.",
+                "Audio synchronization now pauses for 30 seconds when triggered too frequently while preserving the toggle state.",
+                "Fixed audio synchronization recovery and notification issues to reduce repeated restarts.",
+                "Fixed potential ESC errors in combat caused by bag bar hiding.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-125|forever|2586b9cdffe330391e01ba5fcc4cb8b432f898eaf07c806893c05423e1b70a38
+    {
+        version = "orbit-125",
+        date = "2026-10-26",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "法师传送菜单新增未学技能、学习等级、训练地点提示及传送材料数量。",
+                "优化音频同步，异常频繁时暂停同步 30 秒并保留开关状态。",
+                "修复音频同步恢复与提示异常，减少重复重启。",
+            },
+            enUS = {
+                "Mage teleport menus now show unlearned spells, learning levels, trainer hints, and reagent counts.",
+                "Audio synchronization now pauses for 30 seconds when triggered too frequently while preserving the toggle state.",
+                "Fixed audio synchronization recovery and notification issues to reduce repeated restarts.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-124|mainline|d27b7032d37fa22ab0139f30ffbf75d4160f79aeb30be795b18dbb3aee30c574
+-- YUI-Notes-Record: orbit-124|forever|eb48d02d9ea2d019f3c8760ea79b6c6f32f1512122f5c115a09b68be30cde02f
+    {
+        version = "orbit-124",
+        date = "2026-10-23",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "调整标记条默认外观，采用彩色工具图标与无背景样式，保留已有设置。",
+                "修复多个单体共同加载时的配置导入异常。",
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated marker bar defaults to colored tool icons with no background, preserving existing settings.",
+                "Fixed configuration import issues when multiple standalone addons are loaded together.",
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-123|mainline|bc1bba26d7d51ca6254d42881a25471131f3cc188e111e8d1da9f463910ed2ac
+    {
+        version = "orbit-123",
+        date = "2026-10-22",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "修复导入旧配置时标记条可能报错的问题。",
+            },
+            enUS = {
+                "Fixed marker bar errors when importing older configurations.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-123|forever|a731b9c45cc6c67332e63b7f863bb29539e15cf60b24743fc1610fa83ecced37
+    {
+        version = "orbit-123",
+        date = "2026-10-22",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "修复导入旧配置时标记条可能报错的问题。",
+            },
+            enUS = {
+                "Fixed marker bar errors when importing older configurations.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-122|mainline|690e5d6c92e94eeaeb29c228412f3f92fbb37696d30bfa538722cc74915ca622
+    {
+        version = "orbit-122",
+        date = "2026-10-22",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "标记条新增样式，支持分别设置标记与工具尺寸及背景透明度。",
+                "标记条支持布局编辑。",
+                "新增自动战斗日志，可按副本场景设置记录规则。",
+                "统一文字样式设置，支持样式复制粘贴。",
+                "新增职责确认按钮。",
+                "优化组队入口与微型菜单联动。",
+            },
+            enUS = {
+                "Added marker bar styles, separate marker and tool sizes, and background opacity settings.",
+                "Added layout editing for the marker bar.",
+                "Added automatic combat logging with configurable instance rules.",
+                "Unified text styling with style copy and paste.",
+                "Added a role-check button.",
+                "Improved group entry and micro-menu integration.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-122|forever|c917e3c6ffae1bd7190d17a5c603f19144f1d389c249dfcf10fcbe188cc77fb4
+    {
+        version = "orbit-122",
+        date = "2026-10-22",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "标记条新增样式，支持分别设置标记与工具尺寸及背景透明度。",
+                "标记条支持布局编辑。",
+                "新增自动战斗日志，可按副本场景设置记录规则。",
+                "统一文字样式设置，支持样式复制粘贴。",
+            },
+            enUS = {
+                "Added marker bar styles, separate marker and tool sizes, and background opacity settings.",
+                "Added layout editing for the marker bar.",
+                "Added automatic combat logging with configurable instance rules.",
+                "Unified text styling with style copy and paste.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-121|mainline|52dee910620b6107f1450bc0aaccd78b4ec8d580923e214a736f9a0f02553ed4
+    {
+        version = "orbit-121",
+        date = "2026-10-16",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "耐久条支持五键坐骑绑定，可分别关闭或选择随机偏好坐骑。",
+                "传送菜单按文字宽度自适应布局，补充织影者的炉石。",
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Added five-button mount bindings, with individual disable and random favorite mount options.",
+                "Added text-aware teleport menu sizing and the Weavers' Hearthstone.",
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-121|forever|b7cbfd68af5a69a47192309d9a63d9739855db5b2bd71926b8a7406cbddcd7b0
+    {
+        version = "orbit-121",
+        date = "2026-10-16",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "耐久条支持五键坐骑绑定，可分别关闭或选择随机偏好坐骑。",
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Added five-button mount bindings, with individual disable and random favorite mount options.",
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-120|mainline|df464423eaec3c1ec1b6800b8adf00d5ce016122683a1c9c93f53106b237735a
+    {
+        version = "orbit-120",
+        date = "2026-10-15",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-120|forever|f88d5154fc8b0cb7503184aba804bfa45f357da72d0fc7df68e400d571c8559b
+    {
+        version = "orbit-120",
+        date = "2026-10-15",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-119|mainline|076dd78836cb4e3a4680b850a903712e10d965de6c48815c6f56b56cc82942f1
+    {
+        version = "orbit-119",
+        date = "2026-10-15",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "传送玩具新增金杜鲁的移形羽毛笔，简称“金多赞”。",
+                "耐久条补充新坐骑选项。",
+                "修复传送助手中目的地名称可能换行的问题。",
+            },
+            enUS = {
+                "Added Kinduru's Spiriting Quill to teleport toys, displayed as “Kindo'jan”.",
+                "Added a new mount option to the durability bar.",
+                "Fixed teleport destination labels wrapping onto multiple lines.",
+            },
+        },
+    },
 -- YUI-Notes-Record: orbit-118|mainline|319a446aaeef075707a020aeed2a14bba51b2942cac58a14a3cd5c898e31dc3e
 -- YUI-Notes-Record: orbit-118|forever|6fca818e200881ad4e6c58bf13c74d1450fd5b7ed9ec1dd44489ac87612af5e4
     {
@@ -35,20 +259,6 @@ CL:Register("ybar", {
             },
         },
     },
--- YUI-Notes-Record: orbit-116|mainline|56a43f2322ae16e4723dae0348eb9bc91835af893e722a1e4d7be039a76e7136
-    {
-        version = "orbit-116",
-        date = "2026-10-12",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
 -- YUI-Notes-Record: orbit-116|forever|f771ae1e6d14fc9bf79236bba46485ca5d2a45f48dc11bc899f855e0dbc0a9e8
     {
         version = "orbit-116",
@@ -60,106 +270,6 @@ CL:Register("ybar", {
             },
             enUS = {
                 "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-115|mainline|3dfd35eb2726facb40267fa7df18676bff6ef24a25aac44f52615ddd8179ea03
-    {
-        version = "orbit-115",
-        date = "2026-10-11",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "支持位置与位面组合显示，提供预设与自定义格式。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-                "修复背包栏自动显隐可能干扰 ESC 关闭窗口的问题。",
-            },
-            enUS = {
-                "Added combined location and shard displays with presets and custom formats.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-                "Fixed automatic bag bar visibility updates that could interfere with closing windows using ESC.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-115|forever|b2509bcd979e6a68f37f86c26081b950f5ecddf46ddc4b1fb029fd72a9ae22e5
-    {
-        version = "orbit-115",
-        date = "2026-10-11",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增无限服支持。",
-                "支持位置与位面组合显示，提供预设与自定义格式。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Added Forever client support.",
-                "Added combined location and shard displays with presets and custom formats.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-114|mainline|0bef62b286de863d791d52d87b3f0399b1a9c44760eaa0bd18c562317a926125
-    {
-        version = "orbit-114",
-        date = "2026-10-10",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "背包栏新增自动、隐藏和显示三种模式。",
-            },
-            enUS = {
-                "Added automatic, hidden and visible modes for the bag bar.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-113|mainline|6784af8cae0c99e6df90a1d2ef75da81c3b4d9cd325a9bcfa8ec441f19c953b3
-    {
-        version = "orbit-113",
-        date = "2026-10-09",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "同步核心版本，避免与新版 YUI 插件共同加载时的版本冲突。",
-            },
-            enUS = {
-                "Updated the shared core to avoid version conflicts when loaded alongside newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-112|mainline|3dce1596095dbee1b910e3b1386e293acb8447d6c0aa0c31e8dd98b31be5e1b3
-    {
-        version = "orbit-112",
-        date = "2026-10-09",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "重整传送菜单，当前赛季传送默认在主菜单直接显示。",
-                "传送物品按玩具、装备、道具分类，英雄之路按版本分组展示。",
-                "补全传送项目，改善子菜单切换与屏幕边缘显示。",
-            },
-            enUS = {
-                "Redesigned teleport menus; current-season teleports now appear directly in the main menu by default.",
-                "Grouped teleport items into toys, equipment and consumables, with dungeon teleports grouped by expansion.",
-                "Expanded teleport coverage and improved submenu switching and placement near screen edges.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-111|mainline|81df59354902452a16d717279a28bc44861ad77744b0730bb61f836f1fb2bda7
-    {
-        version = "orbit-111",
-        date = "2026-10-06",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "背包栏：关闭背包时自动隐藏，打开时显示，并修复反复开关后的恢复问题。",
-                "新增跟随客户端语言的游戏内日志入口。",
-                "更新插件图标，优化设置导航对齐。",
-            },
-            enUS = {
-                "Bags Bar: automatically hides while bags are closed and appears when a bag opens; fixed restoration after repeated toggling.",
-                "Added an in-game release notes entry that follows the client language.",
-                "Updated addon icons and improved settings navigation alignment.",
             },
         },
     },
@@ -179,12 +289,11 @@ CL:Register("ybar", {
             },
         },
     },
--- YUI-Notes-Record: orbit-110|mainline|fd8f4eb9d54d622fff1e3ad53607c247ac8ae20943268d841b6ab639c8733cd4
 -- YUI-Notes-Record: orbit-110|wrath|9909cc695e2f87a4c927b36c8a327158cddf5fb63088db140f7b7cd8cbfbecad
     {
         version = "orbit-110",
         date = "2026-09-28",
-        clients = { "Retail", "Wrath" },
+        clients = { "Wrath" },
         content = {
             zhCN = {
                 "新增颜色选择器，支持收藏、最近颜色与恢复默认。",
@@ -196,12 +305,11 @@ CL:Register("ybar", {
             },
         },
     },
--- YUI-Notes-Record: orbit-109|mainline|627c9ad89cc8ff02b6389d52d82693ea907a0f1643f9f2a712631b4526664805
 -- YUI-Notes-Record: orbit-109|wrath|19274813081f8ce3452671f68535f6756b2f7d553f4c20a86cb91c7e3a6b45ec
     {
         version = "orbit-109",
         date = "2026-09-23",
-        clients = { "Retail", "Wrath" },
+        clients = { "Wrath" },
         content = {
             zhCN = {
                 "新增设置搜索与主设置窗口缩放。",

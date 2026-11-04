@@ -16,7 +16,6 @@ local TOOLBOX_MANAGED = PRODUCT_ID == "suite" or PRODUCT_ID == "toolbox"
 -- 缓存全局函数
 local GetItemIcon = GetItemIcon or C_Item.GetItemIconByID
 local GetItemCount = YUI.API.Item.GetCount
-local GetItemInfo = GetItemInfo or C_Item.GetItemInfo
 local C_AuctionHouse = C_AuctionHouse
 
 -------------------------------------------------------------------------------
@@ -28,6 +27,7 @@ local DEFAULT_ITEM_FONT = LSM and LSM.GetDefault and LSM:GetDefault("font") or "
 local DEFAULT_DB = {
     defaultCollapsed = false,
     recipeTrackingEnabled = true,
+    recipeHighestOnly = false,
     showTagText = true,
     categoryStyle = "background",
     themeStyle = "auto",
@@ -86,6 +86,7 @@ function DB:Get()
     profile.AuctionHelper.browseResultsMoneyFontSizeEnabled = profile.AuctionHelper.browseResultsMoneyFontSizeEnabled == true
     profile.AuctionHelper.quantityFontSize = ClampQuantityFontSize(profile.AuctionHelper.quantityFontSize)
     profile.AuctionHelper.recipeTrackingEnabled = profile.AuctionHelper.recipeTrackingEnabled ~= false
+    profile.AuctionHelper.recipeHighestOnly = profile.AuctionHelper.recipeHighestOnly == true
     if type(profile.AuctionHelper.tagFont) ~= "string" or profile.AuctionHelper.tagFont == "" or profile.AuctionHelper.tagFont == "default" then profile.AuctionHelper.tagFont = DEFAULT_ITEM_FONT end
     if type(profile.AuctionHelper.quantityFont) ~= "string" or profile.AuctionHelper.quantityFont == "" or profile.AuctionHelper.quantityFont == "default" then profile.AuctionHelper.quantityFont = DEFAULT_ITEM_FONT end
     return profile.AuctionHelper
@@ -95,6 +96,7 @@ local function ResolveItemFont(value)
     if value == "default" then value = DEFAULT_ITEM_FONT end
     if value == "damage" and DAMAGE_TEXT_FONT then return DAMAGE_TEXT_FONT end
     if value == "standard" and STANDARD_TEXT_FONT then return STANDARD_TEXT_FONT end
+    if type(value)=="string" and (value:find("\\",1,true) or value:find("/",1,true)) then return value end
     return (LSM and (LSM:Fetch("font", value, true) or LSM:Fetch("font", DEFAULT_ITEM_FONT, true))) or GUI2.Fonts.normal
 end
 
@@ -910,6 +912,9 @@ local function CreateUI()
     appearance:Register(f, { blizzardWindow = "auctionhouse", themeProvider = function() return DB:Get().themeStyle end, role = "helper" })
     
     ns.AuctionHelperFrame = f
+    local search = ns.AuctionHelperSearch:Create(f, parent, function()
+        return auctionHelperFeatureActive and DB:IsEnabled()
+    end)
     
     -- Animation Group
     local iconSize = 14
@@ -1051,6 +1056,7 @@ local function CreateUI()
     
     -- Settings Frame
     local settingsFrame = GUI2:CreateFrame(f)
+    f.settingsFrame = settingsFrame
     settingsFrame:SetWidth(300)
     settingsFrame:SetPoint("TOPLEFT", f, "TOPRIGHT", 2, 0)
     settingsFrame:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT", 2, 0)
@@ -1163,6 +1169,7 @@ local function CreateUI()
         end
         if f.recipeTracker then f.recipeTracker:Schedule() end
     end
+    f.RefreshFontStyle = RefreshItemFonts
     local yPos = -10
 
     local function SetTagTextVisibility(show)
@@ -1266,7 +1273,11 @@ local function CreateUI()
         local label = CreateAuctionText(settingsContent, L[labelKey], 14)
         label:SetPoint("TOPLEFT", 14, yPos)
         RegisterSettingLabel(label)
-        local dropdown = GUI2.Form:CreateLSMFontDropdown(settingsContent, {
+        local dropdown
+        if TOOLBOX_MANAGED and GUI2.FontStyle and GUI2.Form.CreateFontStyle then
+            dropdown=GUI2.Form:CreateFontStyle(settingsContent,{key="auction_text:"..dbKey,width=132})
+        else
+        dropdown = GUI2.Form:CreateLSMFontDropdown(settingsContent, {
             width = 132,
             value = db[dbKey],
             onChange = function(_, value)
@@ -1274,11 +1285,13 @@ local function CreateUI()
                 RefreshItemFonts()
             end,
         })
+        end
         dropdown:SetPoint("TOPRIGHT", settingsContent, "TOPRIGHT", -14, yPos + 4)
         yPos = yPos - 35
     end
     AddFontSetting("settings.tag_font", "tagFont")
     AddFontSetting("settings.quantity_font", "quantityFont")
+    if not (TOOLBOX_MANAGED and GUI2.FontStyle and GUI2.Form.CreateFontStyle) then
     local quantitySlider = GUI2:CreateSlider(settingsContent, {
         label = L["settings.quantity_font_size"], value = db.quantityFontSize,
         min = 8, max = 18, step = 1, width = 272, inputWidth = 36,
@@ -1291,6 +1304,8 @@ local function CreateUI()
     quantitySlider:SetPoint("TOPLEFT", 14, yPos)
     StyleSettingsControl(quantitySlider)
     yPos = yPos - 35
+
+    end
 
     local browseFontSizeSlider
     local browseMoneyFontSizeSwitch
@@ -1342,6 +1357,13 @@ local function CreateUI()
     AlignSettingsSwitch(browseMoneyFontSizeSwitch)
     yPos = yPos - 30
 
+    if TOOLBOX_MANAGED and GUI2.FontStyle and GUI2.Form.CreateFontStyle then
+        local label=CreateAuctionText(settingsContent,L["settings.browse_results_font_size"],14)
+        label:SetPoint("TOPLEFT",14,yPos);RegisterSettingLabel(label)
+        browseFontSizeSlider=GUI2.Form:CreateFontStyle(settingsContent,{key="auction_text:browse",width=132})
+        browseFontSizeSlider:SetDisabled(not db.browseResultsFontSizeEnabled)
+        browseFontSizeSlider:SetPoint("TOPRIGHT",settingsContent,"TOPRIGHT",-14,yPos+4)
+    else
     browseFontSizeSlider = GUI2:CreateSlider(settingsContent, {
         label = L["settings.browse_results_font_size"],
         value = db.browseResultsFontSize,
@@ -1360,7 +1382,8 @@ local function CreateUI()
             end
         end
     })
-    browseFontSizeSlider:SetPoint("TOPLEFT", 14, yPos)
+    end
+    if not (TOOLBOX_MANAGED and GUI2.FontStyle and GUI2.Form.CreateFontStyle) then browseFontSizeSlider:SetPoint("TOPLEFT", 14, yPos) end
     StyleSettingsControl(browseFontSizeSlider)
     yPos = yPos - 35
     
@@ -1642,6 +1665,7 @@ local function CreateUI()
                         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                         GameTooltip:SetItemByID(self.primaryID)
                         GameTooltip:AddLine(L["tooltip.owned_count"]:format(self.ownedCount or 0), 1, 1, 1)
+                        search:AddTooltip(self, GameTooltip)
                         GameTooltip:Show()
                     end)
                     
@@ -1651,29 +1675,7 @@ local function CreateUI()
                     end)
                     
                     btn:SetScript("OnClick", function(self)
-                        if AuctionHouseFrame and AuctionHouseFrame.SearchBar and AuctionHouseFrame.SearchBar.SearchBox then
-                            if AuctionHouseFrame.SetDisplayMode then
-                                 AuctionHouseFrame:SetDisplayMode(AuctionHouseFrameDisplayMode.Buy)
-                            end
-                            
-                            local name = GetItemInfo(self.primaryID)
-                            if name then
-                                AuctionHouseFrame.SearchBar.SearchBox:SetText(name)
-                                AuctionHouseFrame.SearchBar.SearchButton:Click()
-                            else
-                                C_Item.RequestLoadItemDataByID(self.primaryID)
-                                AuctionHouseFrame.SearchBar.SearchBox:SetText(self.primaryID) 
-                                C_Timer.After(0.2, function()
-                                    local loadedName = GetItemInfo(self.primaryID)
-                                    if loadedName then
-                                        AuctionHouseFrame.SearchBar.SearchBox:SetText(loadedName)
-                                        AuctionHouseFrame.SearchBar.SearchButton:Click()
-                                    else
-                                        AuctionHouseFrame.SearchBar.SearchButton:Click()
-                                    end
-                                end)
-                            end
-                        end
+                        search:Start(self)
                     end)
                     
                     xOffset = xOffset + buttonSize + spacing
@@ -1689,6 +1691,7 @@ local function CreateUI()
 
     local function SelectTab(index)
         if #tabContentFrames == 0 then return end
+        search:Cancel()
         selectedTabIndex = math.max(1, math.min(index or 1, #tabContentFrames))
 
         for tabIndex, content in ipairs(tabContentFrames) do
@@ -1729,6 +1732,7 @@ local function CreateUI()
     end
 
     RebuildTabs = function(preferredIndex)
+        search:Cancel()
         for _, frame in ipairs(tabContentFrames) do
             frame:Hide()
             frame:SetParent(nil)
@@ -1899,6 +1903,8 @@ local function CreateUI()
             createText = CreateAuctionText,
             themeProvider = function() return DB:Get().themeStyle end,
             isEnabled = function() return DB:IsEnabled() and DB:Get().recipeTrackingEnabled end,
+            getHighestOnly = function() return DB:Get().recipeHighestOnly end,
+            setHighestOnly = function(value) DB:Get().recipeHighestOnly = value == true end,
             itemSize = ITEM_BUTTON_SIZE,
             itemSpacing = ITEM_SPACING,
             applyQuantityFont = function(text) return ApplyQuantityFont(text, db) end,
@@ -1966,3 +1972,21 @@ ns.Components:RegisterFeature("AuctionHelper", {
         end
     end
 })
+
+if TOOLBOX_MANAGED and GUI2.FontStyle and GUI2.FontStyle.RegisterConfig then
+    local style=GUI2.FontStyle
+    style:RegisterConfig("auction_text", {
+        label=function() return L["feature.name"] end,
+        get=function() local profile=GetProfile();return profile and profile.AuctionHelper,profile end,
+        refresh=function(db)
+            local frame=ns.AuctionHelperFrame
+            if frame and frame.RefreshFontStyle then frame:RefreshFontStyle() end
+            if db.browseResultsFontSizeEnabled then InstallBrowseResultsFontHooks();ScheduleBrowseResultsFontRefresh() end
+        end,
+        targets={
+            {id="tagFont",label=function() return L["settings.tag_font"] end,fields={font="tagFont"},defaults=DEFAULT_DB,fontPath=ResolveItemFont},
+            {id="quantityFont",label=function() return L["settings.quantity_font"] end,fields={font="quantityFont",size="quantityFontSize"},defaults=DEFAULT_DB,fontPath=ResolveItemFont,minSize=8,maxSize=18},
+            {id="browse",label=function() return L["settings.browse_results_font_size"] end,fields={size="browseResultsFontSize"},defaults=DEFAULT_DB,minSize=BROWSE_RESULTS_FONT_SIZE_MIN,maxSize=BROWSE_RESULTS_FONT_SIZE_MAX},
+        },
+    })
+end

@@ -127,10 +127,15 @@ local function ApplyFont(fontString, font, size, flag)
 
     local fontPath = ResolveFont(font)
     local fontFlag = flag ~= "" and flag or nil
-    local ok, applied = pcall(fontString.SetFont, fontString, fontPath, size, fontFlag)
-
-    if (not ok or not applied) and fontPath ~= DEFAULT_FONT then
-        fontString:SetFont(DEFAULT_FONT, size, fontFlag)
+    local ok
+    if GUI2.FontStyle and GUI2.FontStyle.TryFont then
+        ok = GUI2.FontStyle.TryFont(fontString, fontPath, size, fontFlag)
+    else
+        local called, applied = pcall(fontString.SetFont, fontString, fontPath, size, fontFlag)
+        ok = called and applied ~= false
+    end
+    if not ok and fontPath ~= DEFAULT_FONT then
+        pcall(fontString.SetFont, fontString, DEFAULT_FONT, size, fontFlag)
     end
 end
 
@@ -147,6 +152,46 @@ local function ApplyTextStyle(fontString, font, size, globalDB)
         fontString:SetShadowColor(0, 0, 0, 0)
         fontString:SetShadowOffset(0, 0)
     end
+end
+
+local function MeasureText(module, content, font, size, globalDB)
+    local measure = module.dummyText
+    if not measure then
+        measure = GUI2:CreateText(content, "", "font.size.sm", "color.ybar.text")
+        module.dummyText = measure
+    end
+    ApplyTextStyle(measure, font, size, globalDB)
+    local path, actualSize, flags = measure:GetFont()
+    local shadow = not not globalDB.fontShadow
+    local pixel = GUI2.mult or 1
+    local cached = module.textMeasure
+    if cached and cached.font == path and cached.size == actualSize and cached.flags == flags
+        and cached.shadow == shadow and cached.pixel == pixel then return cached end
+
+    -- Measure all digit pairs: the widest pair is not always 88. Keep this on
+    -- the style/layout path, never on the one-second clock update.
+    local pairWidth, textHeight = 0, size
+    for value = 0, 99 do
+        measure:SetText(string.format("%02d", value))
+        pairWidth = math.max(pairWidth, measure:GetStringWidth() or 0)
+        textHeight = math.max(textHeight, measure:GetStringHeight() or 0)
+    end
+    measure:SetText(":")
+    local separatorWidth = measure:GetStringWidth() or 0
+    textHeight = math.max(textHeight, measure:GetStringHeight() or 0)
+    -- Leave rasterization space on both edges, plus thick-outline and shadow
+    -- overhang. FontString metrics alone are not an ink bounding box.
+    local inset = (2 + (flags and flags:find("THICKOUTLINE", 1, true) and 4 or 0) + (shadow and 1 or 0)) * pixel
+    cached = cached or {}
+    cached.font, cached.size, cached.flags = path, actualSize, flags
+    cached.shadow, cached.pixel = shadow, pixel
+    cached.hours = math.ceil(pairWidth * 2 + separatorWidth + inset)
+    cached.minutes = math.ceil(pairWidth + inset)
+    cached.separator = math.ceil(separatorWidth + inset)
+    cached.height = math.ceil(textHeight + inset)
+    module.textMeasure = cached
+    measure:Hide()
+    return cached
 end
 
 function EnsureClockDB()
@@ -897,11 +942,13 @@ function Module:UpdateBarItem(frame, parent)
     
     ApplyTextStyle(content.textH, font, size, globalDB)
     ApplyTextStyle(content.textSep, font, size, globalDB)
+    ApplyTextStyle(content.textM, font, size, globalDB)
+    local measured = MeasureText(self, content, font, size, globalDB)
 
     -- 旧版时钟自行限制屏幕边缘；实例布局已负责定位，不能再次按条高补偿。
     if not context and YUI.YBar and parent then
         local barHeight = parent:GetHeight()
-        local textHeight = content.textSep:GetStringHeight() or size
+        local textHeight = measured.height
         
         if parent == YUI.YBar.topFrame then
             -- 顶部条：限制向上偏移 (Screen Top)
@@ -922,35 +969,21 @@ function Module:UpdateBarItem(frame, parent)
     content.textSep:ClearAllPoints()
     content.textSep:SetPoint("CENTER", 0, 0)
     
-    ApplyTextStyle(content.textM, font, size, globalDB)
-    
     self:ApplyTextColors(content, db)
     
     -- 立即更新时间
     -- 预计算固定宽度
-    if not self.dummyText then
-        self.dummyText = GUI2:CreateText(content, "", "font.size.sm", "color.ybar.text")
-    end
-    ApplyFont(self.dummyText, font, size, "OUTLINE")
-    self.dummyText:SetText("88:88")
-    local widthH = self.dummyText:GetStringWidth()
-
-    self.dummyText:SetText("88")
-    local widthM = self.dummyText:GetStringWidth()
-    
-    self.dummyText:SetText(":")
-    local widthSep = self.dummyText:GetStringWidth()
-    
-    widthH = math.ceil(widthH or 0) + 2
-    widthM = math.ceil(widthM or 0) + 2
-    widthSep = math.ceil(widthSep or 0) + 2
+    local widthH, widthM, widthSep = measured.hours, measured.minutes, measured.separator
     self.fixedWidth = widthH + widthSep + widthM + 2
 
     content.textH:SetWidth(widthH)
+    content.textH:SetHeight(measured.height)
     content.textH:SetJustifyH("RIGHT")
     content.textSep:SetWidth(widthSep)
+    content.textSep:SetHeight(measured.height)
     content.textSep:SetJustifyH("CENTER")
     content.textM:SetWidth(widthM)
+    content.textM:SetHeight(measured.height)
     content.textM:SetJustifyH("LEFT")
     
     self.dummyText:Hide()
@@ -964,7 +997,8 @@ function Module:UpdateBarItem(frame, parent)
     if self._runtimeAttached then
         self:RefreshRuntime(true)
     end
-    content:SetHeight(size)
+    self.contentHeight = measured.height
+    content:SetHeight(measured.height)
 end
 
 function Module:GetWidth()

@@ -950,9 +950,9 @@ YUI.Locale:Register("Core", "deDE", {
     ["settings.about.description"] = "YUI ist eine All-in-One-Benutzeroberfläche addon.\nVersion: %s\nAuthor: Ayan",
     ["settings.about.default_notes"] = "YUI ist ein All-in-One-UI-Addon",
     ["settings.about.details"] = "%s\nVersion: %s\nAuthor: %s",
-    ["settings.about.follow"] = "Folge YUI · YanForge für zukünftige Updates und Community-News.",
+    ["settings.about.follow"] = "Folge YUI · Ayan für zukünftige Updates und Community-News.",
     ["settings.about.suite_note"] = "Die komplette YUI-Suite ist die primäre Heimat für die vollständige Benutzeroberfläche und Release-Historie.",
-    ["settings.about.standalone_note"] = "Standalone-Releases führen kein separates Changelog. Siehe die YUI-Suite für den kompletten Release-Historie.",
+    ["settings.about.standalone_note"] = "Klicke oben im Fenster auf das Änderungsprotokoll, um den Versionsverlauf dieses Addons anzuzeigen.",
     ["settings.about.section.yui"] = "YUI",
     ["settings.about.section.product"] = "Über dieses Addon",
 

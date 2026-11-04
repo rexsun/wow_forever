@@ -133,6 +133,7 @@ local function GetIconLayout(profile, groupId)
         and YHUD:GetIconGroupLayout(profile, groupId) or {}
     local style = YHUD.GetIconGroupStyle
         and YHUD:GetIconGroupStyle(profile, groupId) or {}
+    if GUI2.IconSkins then GUI2.IconSkins:ApplyRecipe(style, "Halo") end
     local iconSize = type(layout.iconSize) == "number"
         and layout.iconSize or DEFAULT_ICON_SIZE
     local columnSpacing = type(layout.columnSpacing) == "number"
@@ -161,12 +162,17 @@ local function GetIconLayout(profile, groupId)
         iconHeight = iconSize
     end
     local result = {
+        skinId = style.skinId,
+        skinGroupId = groupId,
+        skinGroupLabel = group and GroupName(group) or groupId,
+        fillMode = layout.fillMode == "columns" and "columns" or "rows",
+        itemOffset = tonumber(layout.itemOffset) or 0,
         smoothProgress = false,
         iconSize = iconSize,
         iconWidth = iconWidth,
         iconHeight = iconHeight,
-        columnSpacing = columnSpacing,
-        rowSpacing = rowSpacing,
+        columnSpacing = math.max(1 - iconWidth, columnSpacing),
+        rowSpacing = math.max(1 - iconHeight, rowSpacing),
         maxPerLine = maxPerLine,
         wrapDirection = wrapDirection,
         alignment = alignment,
@@ -181,12 +187,14 @@ local function GetIconLayout(profile, groupId)
         iconShadowColor = style.iconShadowColor,
         cooldownSwipeColor = style.cooldownSwipeColor,
         cooldownSwipe = style.cooldownSwipe ~= false,
+        chargeRecoveryDisplay = style.chargeRecoveryDisplay or "hideSwipeOnly",
         cooldownGCD = style.cooldownGCD ~= false,
         cooldownBling = style.cooldownBling == true,
         cooldownText = style.cooldownText ~= false,
         cooldownTextFont = style.cooldownTextFont or "default",
         cooldownTextSize = style.cooldownTextSize or 14,
         cooldownTextOutline = style.cooldownTextOutline or "outlineShadow",
+        cooldownTextMonochrome = style.cooldownTextMonochrome == true,
         cooldownTextPosition = style.cooldownTextPosition or "center",
         cooldownTextOffsetX = style.cooldownTextOffsetX or 0,
         cooldownTextOffsetY = style.cooldownTextOffsetY or 0,
@@ -200,6 +208,7 @@ local function GetIconLayout(profile, groupId)
         keybindTextFont = style.keybindTextFont or "default",
         keybindTextSize = style.keybindTextSize or 12,
         keybindTextOutline = style.keybindTextOutline or "outlineShadow",
+        keybindTextMonochrome = style.keybindTextMonochrome == true,
         keybindTextPosition = style.keybindTextPosition or "top-right",
         keybindTextOffsetX = style.keybindTextOffsetX or 2,
         keybindTextOffsetY = style.keybindTextOffsetY or 1,
@@ -209,6 +218,7 @@ local function GetIconLayout(profile, groupId)
         countTextFont = style.countTextFont or "default",
         countTextSize = style.countTextSize or 12,
         countTextOutline = style.countTextOutline or "outlineShadow",
+        countTextMonochrome = style.countTextMonochrome == true,
         countTextPosition = style.countTextPosition or "bottom",
         countTextOffsetX = style.countTextOffsetX or -2,
         countTextOffsetY = style.countTextOffsetY or 2,
@@ -227,6 +237,8 @@ local function GetDurationLayout(profile, groupId, layoutType)
         and YHUD:GetDurationGroupLayout(profile, groupId, layoutType) or {}
     local style = YHUD.GetDurationGroupStyle
         and YHUD:GetDurationGroupStyle(profile, groupId) or {}
+    local barBorder = style.iconBorder or "thin"
+    if layoutType ~= "rings" and GUI2.IconSkins then GUI2.IconSkins:ApplyRecipe(style, "Halo") end
     local columnSpacing = type(layout.columnSpacing) == "number"
         and layout.columnSpacing or DEFAULT_SPACING
     local rowSpacing = type(layout.rowSpacing) == "number"
@@ -243,6 +255,10 @@ local function GetDurationLayout(profile, groupId, layoutType)
     local useExplicitTextAnchors = layoutType == "bars"
     local result = {
         layoutType = layoutType,
+        skinId = layoutType ~= "rings" and style.skinId or nil,
+        barBorder = barBorder,
+        skinGroupId = groupId,
+        skinGroupLabel = group and GroupName(group) or groupId,
         view = LAYOUT_VIEWS[layoutType],
         smoothProgress = layoutType == "bars"
             and style.smoothProgress == true,
@@ -255,6 +271,9 @@ local function GetDurationLayout(profile, groupId, layoutType)
         wrapDirection = wrapDirection,
         showTooltip = not group or group.showTooltip ~= false,
         shape = style.iconShape or "square",
+        barShadowMode = style.barShadowMode or "none",
+        barShadowThickness = style.barShadowThickness or 4,
+        barShadowColor = style.barShadowColor,
         border = style.iconBorder or "thin",
         iconZoom = style.iconZoom or 0.08,
         iconBorderColor = style.iconBorderColor,
@@ -264,6 +283,7 @@ local function GetDurationLayout(profile, groupId, layoutType)
         cooldownTextFont = style.timeTextFont or "default",
         cooldownTextSize = style.timeTextSize or 12,
         cooldownTextOutline = style.timeTextOutline or "outlineShadow",
+        cooldownTextMonochrome = style.timeTextMonochrome == true,
         cooldownTextPosition = style.timeTextPosition or "right",
         cooldownTextAnchor = useExplicitTextAnchors
             and (style.timeTextAnchor or "bar-right") or nil,
@@ -279,6 +299,7 @@ local function GetDurationLayout(profile, groupId, layoutType)
         countTextFont = style.countTextFont or "default",
         countTextSize = style.countTextSize or 12,
         countTextOutline = style.countTextOutline or "outlineShadow",
+        countTextMonochrome = style.countTextMonochrome == true,
         countTextPosition = style.countTextPosition or "bottom",
         countTextAnchor = useExplicitTextAnchors
             and (style.countTextAnchor or "icon-bottom-right") or nil,
@@ -290,6 +311,7 @@ local function GetDurationLayout(profile, groupId, layoutType)
         nameTextFont = style.nameTextFont or "default",
         nameTextSize = style.nameTextSize or 12,
         nameTextOutline = style.nameTextOutline or "outlineShadow",
+        nameTextMonochrome = style.nameTextMonochrome == true,
         nameTextPosition = style.nameTextPosition or "center",
         nameTextAnchor = useExplicitTextAnchors
             and (style.nameTextAnchor or "bar-center") or nil,
@@ -315,6 +337,7 @@ local function GetDurationLayout(profile, groupId, layoutType)
         timeTextFont = style.timeTextFont or "default",
         timeTextSize = style.timeTextSize or 12,
         timeTextOutline = style.timeTextOutline or "outlineShadow",
+        timeTextMonochrome = style.timeTextMonochrome == true,
         timeTextPosition = style.timeTextPosition or "right",
         timeTextAnchor = useExplicitTextAnchors
             and (style.timeTextAnchor or "bar-right") or nil,
@@ -344,13 +367,17 @@ local function GetDurationLayout(profile, groupId, layoutType)
                 )
                 or (preset and preset.mask or nil)
             result.iconStyle.borderFamily =
-                preset and preset.borderFamily or nil
-            result.iconStyle.swipeTexture = result.iconStyle.mask
+                GUI2.GetIconBorderFamily
+                    and GUI2:GetIconBorderFamily("circle", result.iconStyle.border)
+                    or (preset and preset.borderFamily or nil)
+            result.iconStyle.swipeTexture = (GUI2.GetIconCooldownTexture
+                and GUI2:GetIconCooldownTexture("circle", result.iconStyle.border)) or result.iconStyle.mask
                 or (preset and preset.swipe)
                 or result.iconStyle.swipeTexture
             result.iconStyle.circular = true
         end
         if layoutType == "rings"
+            and not (GUI2.IsIconBorderMaterial and GUI2:IsIconBorderMaterial(result.iconStyle.border))
             and type(style.ringBorderColor) == "table"
             and type(result.iconStyle.borderColor) == "table" then
             local source = style.ringBorderColor
@@ -366,7 +393,7 @@ local function GetDurationLayout(profile, groupId, layoutType)
             fillTexture = result.fillTexture,
             fillColor = result.fillColor,
             trackColor = result.trackColor,
-            border = result.border,
+            border = result.barBorder or result.border,
             borderColor = result.borderColor,
             showIcon = result.showIcon,
             nameText = {
@@ -374,6 +401,7 @@ local function GetDurationLayout(profile, groupId, layoutType)
                 font = result.nameTextFont,
                 size = result.nameTextSize,
                 outline = result.nameTextOutline,
+                monochrome = result.nameTextMonochrome,
                 position = result.nameTextPosition,
                 anchor = result.nameTextAnchor,
                 offsetX = result.nameTextOffsetX,
@@ -385,6 +413,7 @@ local function GetDurationLayout(profile, groupId, layoutType)
                 font = result.timeTextFont,
                 size = result.timeTextSize,
                 outline = result.timeTextOutline,
+                monochrome = result.timeTextMonochrome,
                 position = result.timeTextPosition,
                 anchor = result.timeTextAnchor,
                 offsetX = result.timeTextOffsetX,
@@ -396,6 +425,7 @@ local function GetDurationLayout(profile, groupId, layoutType)
                 font = result.countTextFont,
                 size = result.countTextSize,
                 outline = result.countTextOutline,
+                monochrome = result.countTextMonochrome,
                 position = result.countTextPosition,
                 anchor = result.countTextAnchor,
                 offsetX = result.countTextOffsetX,
@@ -414,6 +444,9 @@ local function GetDurationLayout(profile, groupId, layoutType)
     end
 
     result.orientation = orientation
+    result.barWidthMode = layout.widthMode == "auto" and "auto" or "fixed"
+    result.barWidthGroupId = layout.widthGroupId or YHUD.GROUP_IDS.IMPORTANT
+    result.barFixedWidth = layout.width or DEFAULT_BAR_WIDTH
     result.fillDirection = layout.fillDirection == "reverse"
         and "reverse" or "forward"
     local outerLength = type(layout.width) == "number"
@@ -492,6 +525,9 @@ local function GetResourceLayout(profile, groupId)
         layoutType = "resource",
         view = "resource",
         smoothProgress = style.smoothProgress == true,
+        barShadowMode = style.barShadowMode or "none",
+        barShadowThickness = style.barShadowThickness or 4,
+        barShadowColor = style.barShadowColor,
         resourceWidthMode = widthMode,
         resourceFixedWidth = width,
         resourceMinWidth = minWidth,
@@ -500,11 +536,10 @@ local function GetResourceLayout(profile, groupId)
         handPairMode = layout.handPairMode,
         mainHandFillDirection = layout.mainHandFillDirection,
         offHandFillDirection = layout.offHandFillDirection,
-        itemWidth = initialWidth,
-        itemHeight = height,
+        itemWidth = layout.orientation == "vertical" and height or initialWidth,
+        itemHeight = layout.orientation == "vertical" and initialWidth or height,
         spacing = type(layout.spacing) == "number"
             and layout.spacing or DEFAULT_SPACING,
-        maxPerLine = DEFAULT_MAX_PER_LINE,
         direction = direction,
         alignment = alignment,
         orientation = layout.orientation == "vertical"
@@ -519,6 +554,7 @@ local function GetResourceLayout(profile, groupId)
         textFont = style.textFont or "default",
         textSize = style.textSize or 12,
         textOutline = style.textOutline or "outlineShadow",
+        textMonochrome = style.textMonochrome == true,
         textColor = style.textColor or {
             r = 1,
             g = 1,
@@ -548,6 +584,7 @@ local function GetResourceLayout(profile, groupId)
                 font = result.textFont,
                 size = result.textSize,
                 outline = result.textOutline,
+                monochrome = result.textMonochrome,
                 position = "center",
                 color = result.textColor,
             },
@@ -595,6 +632,7 @@ local function SameTextStyle(left, right)
         and left.font == right.font
         and left.size == right.size
         and left.outline == right.outline
+        and left.monochrome == right.monochrome
         and left.position == right.position
         and left.offsetX == right.offsetX
         and left.offsetY == right.offsetY
@@ -614,6 +652,7 @@ local function SameIconStyle(left, right)
         and left.swipeTexture == right.swipeTexture
         and left.circular == right.circular
         and SameColor(left.borderColor, right.borderColor)
+        and left.backgroundMode == right.backgroundMode
         and SameColor(left.backgroundColor, right.backgroundColor)
         and SameColor(left.swipeColor, right.swipeColor)
         and left.drawSwipe == right.drawSwipe
@@ -678,6 +717,13 @@ local function CacheGlowAppearance(slot, appearance)
 end
 
 local RUNTIME_LAYOUT_FIELDS = {
+    "barShadowMode",
+    "barShadowThickness",
+    "skinId",
+    "skinGroupId",
+    "skinGroupLabel",
+    "fillMode",
+    "itemOffset",
     "layoutType",
     "view",
     "iconSize",
@@ -687,6 +733,9 @@ local RUNTIME_LAYOUT_FIELDS = {
     "itemHeight",
     "barWidth",
     "barHeight",
+    "barWidthMode",
+    "barWidthGroupId",
+    "barFixedWidth",
     "orientation",
     "iconPosition",
     "iconGap",
@@ -718,7 +767,7 @@ local RUNTIME_LAYOUT_FIELDS = {
     "timeText",
     "timeTextFont",
     "timeTextSize",
-    "timeTextOutline",
+    "timeTextOutline", "timeTextMonochrome",
     "timeTextPosition",
     "timeTextAnchor",
     "timeTextOffsetX",
@@ -728,10 +777,11 @@ local RUNTIME_LAYOUT_FIELDS = {
     "ringStart",
     "cooldownText",
     "cooldownSwipe",
+    "chargeRecoveryDisplay",
     "cooldownGCD",
     "cooldownTextFont",
     "cooldownTextSize",
-    "cooldownTextOutline",
+    "cooldownTextOutline", "cooldownTextMonochrome",
     "cooldownTextPosition",
     "cooldownTextAnchor",
     "cooldownTextOffsetX",
@@ -739,14 +789,14 @@ local RUNTIME_LAYOUT_FIELDS = {
     "keybindTextMode",
     "keybindTextFont",
     "keybindTextSize",
-    "keybindTextOutline",
+    "keybindTextOutline", "keybindTextMonochrome",
     "keybindTextPosition",
     "keybindTextOffsetX",
     "keybindTextOffsetY",
     "countText",
     "countTextFont",
     "countTextSize",
-    "countTextOutline",
+    "countTextOutline", "countTextMonochrome",
     "countTextPosition",
     "countTextAnchor",
     "countTextOffsetX",
@@ -755,7 +805,7 @@ local RUNTIME_LAYOUT_FIELDS = {
     "nameTextFormat",
     "nameTextFont",
     "nameTextSize",
-    "nameTextOutline",
+    "nameTextOutline", "nameTextMonochrome",
     "nameTextPosition",
     "nameTextAnchor",
     "nameTextOffsetX",
@@ -763,7 +813,7 @@ local RUNTIME_LAYOUT_FIELDS = {
     "valueText",
     "textFont",
     "textSize",
-    "textOutline",
+    "textOutline", "textMonochrome",
     "resourceProfile",
     "handPairMode",
     "mainHandFillDirection",
@@ -773,6 +823,7 @@ local RUNTIME_LAYOUT_FIELDS = {
 }
 
 local RUNTIME_COLOR_FIELDS = {
+    "barShadowColor",
     "cooldownTextColor",
     "keybindTextColor",
     "countTextColor",
@@ -797,7 +848,9 @@ local function ApplyRuntimeLayout(runtime, layout, replace)
     for index = 1, #RUNTIME_LAYOUT_FIELDS do
         local field = RUNTIME_LAYOUT_FIELDS[index]
         local value = layout[field]
-        if replace or value ~= nil then
+        -- 皮肤身份随完整组配置同步；旧方案没有 ID 时也必须清掉前一方案的接管状态。
+        if replace or value ~= nil or field == "skinId" or field == "skinGroupId"
+            or field == "skinGroupLabel" then
             if runtime[field] ~= value then changed = true end
             runtime[field] = value
         end
@@ -904,6 +957,7 @@ end
 -- Geometry follows the same physical frame as the icon border.
 function View:ApplyIconShadow(frame, runtime, allowLayout)
     if not (frame and GUI2.BindShapeShadow) then return 0 end
+    if GUI2.IsIconSkinManaged and GUI2:IsIconSkinManaged(frame.Icon or frame.icon) then return self:HideIconShadow(frame) end
     if not runtime or runtime.view ~= "icon" then
         return self:HideIconShadow(frame)
     end
@@ -973,6 +1027,7 @@ function View:Enable(profile)
     self.active = true
     self.inCombat = IsInCombat()
     self:ApplyConfig(profile)
+    if YHUD.PressFeedback then YHUD.PressFeedback:Sync() end
     return true
 end
 
@@ -1066,6 +1121,8 @@ function View:SetVisibilityBypass(enabled)
 end
 
 function View:Disable()
+    if YHUD.PressFeedback then YHUD.PressFeedback:Disable() end
+    if YHUD.AssistedHighlight then YHUD.AssistedHighlight:Reset() end
     self.active = false
     self.layoutNativeSnapshot = nil
     self.preview = false
@@ -1075,6 +1132,7 @@ function View:Disable()
         self:ClearDesignResourceValuePreview()
     end
     self:SetDesignMode(false)
+    self.designRuntimeRestoreRequired = nil
     if YHUD.Sound and YHUD.Sound.Reset then YHUD.Sound:Reset() end
     if self.ReleaseFilteredAuraDisplays then
         self:ReleaseFilteredAuraDisplays()
@@ -1091,6 +1149,7 @@ function View:Disable()
     if self.ReleasePooledResourceAuraDisplays then
         self:ReleasePooledResourceAuraDisplays()
     end
+    if self.ReleaseBuffTimerStackDisplays then self:ReleaseBuffTimerStackDisplays() end
     for groupId, runtime in pairs(self.groups) do
         if self.InvalidateResourcePrefixLayout then
             self:InvalidateResourcePrefixLayout(groupId, true)
@@ -1462,8 +1521,10 @@ function View:ClearNativeGroupSize(groupId)
     return changed
 end
 
-function View:GetGroupMoverBounds(groupId)
-    local runtime = self.groups[groupId]
+function View:GetGroupMoverBounds(groupId, designProjection)
+    local groups = designProjection and self.designProjection and self.designProjection.groups
+        or (not designProjection and self.groups)
+    local runtime = groups and groups[groupId]
     if not runtime then return nil end
     local frame = runtime.frame
     if self._internal.GetAutoIconRowWidth

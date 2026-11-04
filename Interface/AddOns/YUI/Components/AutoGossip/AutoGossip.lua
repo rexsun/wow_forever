@@ -9,6 +9,7 @@ local Quest = YUI.API and YUI.API.Quest
 local DIALOGUE_SUPPORTED = YUI.IsRetail or YUI.IsForever
 local CLIENT = YUI.IsForever and "forever" or YUI.IsMists and "mists" or YUI.IsWrath and "wrath" or "mainline"
 local KeyAPI = YUI.WOW_API
+local Security = YUI.API and YUI.API.Security
 local L = YUI.Locale and YUI.Locale:Get("AutoGossip") or {}
 
 local FEATURE_KEY = "AutoGossip"
@@ -49,10 +50,15 @@ local DEFAULTS = {
     autoAccept = false,
     autoTurnIn = false,
     pauseMulti = false,
+    modifierMode = "none",
+    modifierKey = "SHIFT",
     dialogueVersions = {},
 }
+local MODIFIER_CHECKERS = { SHIFT = "IsShiftKeyDown", CTRL = "IsControlKeyDown", ALT = "IsAltKeyDown" }
+local EMPTY_DEFAULTS = {}
 
 local runtimeOwner = {}
+local modifierOwner = {}
 local profileOwner = {}
 local profileCallbacksRegistered = false
 local featureEnabled = false
@@ -74,9 +80,12 @@ local runtime = {
     selectionPending = false,
     page = nil,
     npcGUID = nil,
+    interactionOpen = false,
+    interactionPaused = false,
     questAttempts = {},
     questActionCount = 0,
     questTransition = false,
+    modifierListening = false,
 }
 
 local function T(key, fallback)
@@ -135,7 +144,11 @@ end
 
 local function NormalizeDB(db)
     if type(db) ~= "table" then return DEFAULTS end
+    -- Existing settings used Shift to pause; a fresh, empty config uses no key control.
+    if db.modifierMode == nil and next(db) ~= nil then db.modifierMode = "pause" end
     FillMissing(db, DEFAULTS)
+    if db.modifierMode ~= "pause" and db.modifierMode ~= "hold" then db.modifierMode = "none" end
+    if not MODIFIER_CHECKERS[db.modifierKey] then db.modifierKey = "SHIFT" end
     if type(db.dialogueVersions) ~= "table" then db.dialogueVersions = {} end
     -- Old unscoped rules were authored exclusively for Mainline.
     if type(db.presetStates) == "table" or type(db.customOptions) == "table" then
@@ -180,7 +193,7 @@ local function NormalizeDB(db)
 end
 
 local function GetDB()
-    local db = Components:EnsureConfig(CONFIG_KEY, DEFAULTS, PRODUCT_ID)
+    local db = Components:EnsureConfig(CONFIG_KEY, EMPTY_DEFAULTS, PRODUCT_ID)
     return NormalizeDB(db)
 end
 
@@ -211,6 +224,8 @@ local function ClearInteractionState()
     runtime.questActionCount = 0
     runtime.questTransition = false
     runtime.npcGUID = nil
+    runtime.interactionOpen = false
+    runtime.interactionPaused = false
 end
 
 local function InvalidatePendingSelection()
@@ -218,11 +233,18 @@ local function InvalidatePendingSelection()
     runtime.selectionPending = false
 end
 
-local function IsShiftPaused()
-    local checker = KeyAPI and KeyAPI.IsShiftKeyDown or _G.IsShiftKeyDown
+local function IsAutomationAllowed(db)
+    if db.modifierMode == "none" then return true end
+    if db.modifierMode == "pause" and runtime.interactionPaused then return false end
+    local name = MODIFIER_CHECKERS[db.modifierKey]
+    local checker = name and ((KeyAPI and KeyAPI[name]) or _G[name])
     if type(checker) ~= "function" then return false end
     local ok, down = pcall(checker)
-    return ok and down == true
+    if not ok or (Security and Security.IsSecretValue and Security.IsSecretValue(down))
+        or type(down) ~= "boolean" then return false end
+    if db.modifierMode == "hold" then return down end
+    if down then runtime.interactionPaused = true end
+    return not down
 end
 
 local function ReadCurrentOptions()
@@ -322,7 +344,7 @@ local function TryQuestAction(db)
         if runtime.questAttempts[signature] then return true end
         runtime.questAttempts[signature] = true
         runtime.questActionCount = runtime.questActionCount + 1
-        runtime.questTransition = true
+        runtime.questTransition = page
         if not Quest.Select(greeting, isActive, candidate.id) then runtime.questTransition = false end
         return true
     end
@@ -337,14 +359,16 @@ local function TryQuestAction(db)
     if runtime.questAttempts[signature] then return true end
     runtime.questAttempts[signature] = true
     runtime.questActionCount = runtime.questActionCount + 1
-    runtime.questTransition = true
+    runtime.questTransition = page
     if not action() then runtime.questTransition = false end
     return true
 end
 
 local function TrySelect()
-    if not runtime.active or IsShiftPaused() or runtime.selectedPageCount >= MAX_SELECTED_PAGES then return end
+    if not runtime.active or not runtime.page or runtime.selectedPageCount >= MAX_SELECTED_PAGES then return end
     local db = runtime.db or GetDB()
+    if not IsAutomationAllowed(db) then return end
+    if Quest and Quest.GetNPCGUID() ~= runtime.npcGUID then return end
     if TryQuestAction(db) then return end
     if not DIALOGUE_SUPPORTED or runtime.page ~= "GOSSIP_SHOW" then return end
     if not db.uniqueEnabled and not db.approvedEnabled then return end
@@ -375,7 +399,13 @@ local function TrySelect()
 end
 
 local function QueueSelection()
-    if not runtime.active or runtime.selectionPending then return end
+    if not runtime.active then return end
+    -- Capture a held pause key at the page event, before the delayed action can run.
+    if runtime.db and runtime.db.modifierMode == "pause" and not IsAutomationAllowed(runtime.db) then
+        InvalidatePendingSelection()
+        return
+    end
+    if runtime.selectionPending then return end
     local timerAPI = _G.C_Timer
     if not (timerAPI and type(timerAPI.After) == "function") then return end
 
@@ -386,6 +416,39 @@ local function QueueSelection()
         runtime.selectionPending = false
         if runtime.active then TrySelect() end
     end)
+end
+
+local function OnModifierChanged(_, key)
+    local db = runtime.db
+    if not runtime.active or not db or db.modifierMode == "none" then return end
+    local modifier = db.modifierKey
+    if key ~= modifier and key ~= "L" .. modifier and key ~= "R" .. modifier then return end
+    if db.modifierMode == "pause" then
+        if runtime.interactionOpen and not IsAutomationAllowed(db) then InvalidatePendingSelection() end
+        return
+    end
+    if not runtime.page then return end
+    if IsAutomationAllowed(db) then QueueSelection() else InvalidatePendingSelection() end
+end
+
+local function SyncModifierListener()
+    local db = runtime.db
+    -- Only keep a gap listener when our quest action is awaiting another task page.
+    local awaitingQuestPage = runtime.questTransition == "GOSSIP_SHOW"
+        or runtime.questTransition == "QUEST_GREETING" or runtime.questTransition == "QUEST_PROGRESS"
+    local listen = runtime.active and db and (
+        (db.modifierMode == "pause" and runtime.interactionOpen and (runtime.page ~= nil or awaitingQuestPage))
+        or (db.modifierMode == "hold" and runtime.page ~= nil)
+    )
+    if listen and not runtime.modifierListening then
+        Event:On("MODIFIER_STATE_CHANGED", OnModifierChanged, modifierOwner, {
+            moduleId = "component:" .. FEATURE_KEY, traceName = "AutoGossip:modifier",
+        })
+        runtime.modifierListening = true
+    elseif not listen and runtime.modifierListening then
+        Event:OffOwner(modifierOwner)
+        runtime.modifierListening = false
+    end
 end
 
 local function HideOptionIDLabel()
@@ -442,14 +505,17 @@ local function OnGossipEvent(event, interactionIsContinuing)
         runtime.page = nil
         HideOptionIDLabel()
         if interactionIsContinuing ~= true then ClearInteractionState() end
+        SyncModifierListener()
         return
     end
     if runtime.page ~= "GOSSIP_SHOW" then InvalidatePendingSelection() end
     local npcGUID = Quest and Quest.GetNPCGUID()
     if npcGUID and runtime.npcGUID and npcGUID ~= runtime.npcGUID then ClearInteractionState() end
-    runtime.npcGUID = npcGUID
+    runtime.npcGUID = npcGUID or (runtime.db.modifierMode == "pause" and runtime.npcGUID) or nil
+    runtime.interactionOpen = true
     runtime.questTransition = false
     runtime.page = "GOSSIP_SHOW"
+    SyncModifierListener()
     UpdateOptionIDLabel()
     QueueSelection()
 end
@@ -458,15 +524,26 @@ local function OnQuestEvent(event)
     InvalidatePendingSelection()
     HideOptionIDLabel()
     if event == "QUEST_FINISHED" then
-        if not runtime.questTransition then ClearInteractionState() end
+        if not runtime.questTransition then
+            ClearInteractionState()
+        elseif runtime.questTransition == "QUEST_DETAIL" or runtime.questTransition == "QUEST_COMPLETE" then
+            -- Accept/reward finish the interaction; list/progress actions still await the next page.
+            runtime.interactionOpen = false
+            runtime.interactionPaused = false
+        end
         runtime.page = nil
+        SyncModifierListener()
         return
     end
     local npcGUID = Quest and Quest.GetNPCGUID()
-    if npcGUID ~= runtime.npcGUID then ClearInteractionState() end
-    runtime.npcGUID = npcGUID
+    local pauseMode = runtime.db.modifierMode == "pause"
+    -- Missing identity during a page transition must not start a new pause interaction.
+    if npcGUID ~= runtime.npcGUID and (not pauseMode or (npcGUID and runtime.npcGUID)) then ClearInteractionState() end
+    runtime.npcGUID = npcGUID or (pauseMode and runtime.npcGUID) or nil
+    runtime.interactionOpen = true
     runtime.questTransition = false
     runtime.page = event
+    SyncModifierListener()
     QueueSelection()
 end
 
@@ -500,6 +577,7 @@ local function DetachRuntime()
     InvalidatePendingSelection()
     runtime.db = nil
     runtime.page = nil
+    SyncModifierListener()
     InvalidateApprovedSet()
     ClearInteractionState()
     HideOptionIDLabel()
@@ -511,11 +589,22 @@ local function RefreshRuntime()
     runtime.page = nil
     InvalidateApprovedSet()
     ClearInteractionState()
+    SyncModifierListener()
     if featureEnabled then AttachRuntime() else DetachRuntime() end
+    if Event.Emit then Event:Emit("YUI_QUEST_AUTOMATION_CHANGED") end
 end
 
 local function RefreshFeatureSettings(feature)
     if feature and feature.RefreshCurrentModule then feature:RefreshCurrentModule() end
+end
+
+local function RefreshModifierSettings(feature)
+    runtime.db = GetDB()
+    runtime.interactionPaused = false
+    InvalidatePendingSelection()
+    SyncModifierListener()
+    if runtime.page then QueueSelection() end
+    RefreshFeatureSettings(feature)
 end
 
 local function CountCustomOptions(db)
@@ -566,59 +655,65 @@ local function GetSubFeatureStates()
     if not db then return {} end
     local rows = {}
     if DIALOGUE_SUPPORTED then
-        rows[#rows + 1] = { label = T("settings.unique", "自动对话（唯一对话选项）"), enabled = db.uniqueEnabled == true }
+        rows[#rows + 1] = { label = T("settings.unique", "自动选择唯一对话"), enabled = db.uniqueEnabled == true }
     end
-    rows[#rows + 1] = { label = T("settings.auto_accept", "自动接取任务"), enabled = db.autoAccept == true }
-    rows[#rows + 1] = { label = T("settings.auto_turn_in", "自动交付任务"), enabled = db.autoTurnIn == true }
+    rows[#rows + 1] = { label = T("settings.auto_accept", "自动接任务"), enabled = db.autoAccept == true }
+    rows[#rows + 1] = { label = T("settings.auto_turn_in", "自动交任务"), enabled = db.autoTurnIn == true }
     local version = db.dialogueVersions and db.dialogueVersions[CLIENT]
     if DIALOGUE_SUPPORTED and (#PRESETS > 0 or (version and type(version.customOptions) == "table" and next(version.customOptions))) then
-        rows[#rows + 1] = { label = T("settings.approved", "已批准对话"), enabled = db.approvedEnabled == true }
+        rows[#rows + 1] = { label = T("settings.approved", "自动选择指定对话"), enabled = db.approvedEnabled == true }
     end
     return rows
 end
 
 local function GetOptions(feature)
     local options = {
-        {
-            type = "checkbox",
-            hidden = function() return not DIALOGUE_SUPPORTED end,
-            text = T("settings.unique", "自动对话（唯一对话选项）"),
-            tooltip = T("settings.unique.tooltip", "当前页面只有一个可读、可用且安全的普通对话选项时自动选择；不包括任务、确认和输入。按住 Shift 可临时暂停。"),
-            width = 360,
-            get = function() return GetDB().uniqueEnabled end,
-            set = function(value) GetDB().uniqueEnabled = value == true end,
-        },
         { type = "divider", label = T("settings.quests", "任务"), width = 620, alignLeft = true },
         {
-            type = "checkbox", text = T("settings.auto_accept", "自动接取任务"), width = 360,
-            get = function() return GetDB().autoAccept end,
-            set = function(value)
-                GetDB().autoAccept = value == true
-                RefreshRuntime()
-                RefreshFeatureSettings(feature)
-            end,
+            type = "row", gap = 24,
+            children = {
+                {
+                    type = "checkbox", text = T("settings.auto_accept", "自动接任务"), width = 260,
+                    get = function() return GetDB().autoAccept end,
+                    set = function(value)
+                        GetDB().autoAccept = value == true
+                        RefreshRuntime()
+                        RefreshFeatureSettings(feature)
+                    end,
+                },
+                {
+                    type = "checkbox", text = T("settings.auto_turn_in", "自动交任务"), width = 260,
+                    get = function() return GetDB().autoTurnIn end,
+                    set = function(value) GetDB().autoTurnIn = value == true; RefreshRuntime() end,
+                },
+            },
         },
         {
-            type = "checkbox", text = T("settings.auto_turn_in", "自动交付任务"), width = 360,
-            get = function() return GetDB().autoTurnIn end,
-            set = function(value) GetDB().autoTurnIn = value == true; RefreshRuntime() end,
-        },
-        {
-            type = "checkbox", text = T("settings.pause_multi", "多任务暂停"), width = 360,
+            type = "checkbox", text = T("settings.pause_multi", "多个可接任务时手动选择"), width = 580,
+            tooltip = T("settings.pause_multi.tooltip", "NPC 有多个可接任务时，由你选择；选定后自动接取。"),
             hidden = function() return not GetDB().autoAccept end,
             get = function() return GetDB().pauseMulti end,
             set = function(value) GetDB().pauseMulti = value == true; RefreshRuntime() end,
         },
-        { type = "text", label = T("settings.quest_rules"), width = 620, justify = "LEFT" },
+        { type = "text", label = T("settings.quest_rules"), width = 620, justify = "LEFT", tone = "muted" },
         {
-            type = "divider", label = T("settings.dialogue_rules", "对话规则"), width = 620, alignLeft = true,
+            type = "divider", label = T("settings.dialogue_rules", "对话"), width = 620, alignLeft = true,
             hidden = function() return not DIALOGUE_SUPPORTED end,
         },
         {
             type = "checkbox",
+            hidden = function() return not DIALOGUE_SUPPORTED end,
+            text = T("settings.unique", "自动选择唯一对话"),
+            tooltip = T("settings.unique.tooltip", "只有一个安全可用的普通对话选项时自动选择；不处理任务、确认或输入。"),
+            width = 360,
+            get = function() return GetDB().uniqueEnabled end,
+            set = function(value) GetDB().uniqueEnabled = value == true end,
+        },
+        {
+            type = "checkbox",
             hidden = function() return not DIALOGUE_SUPPORTED or (#PRESETS == 0 and CountCustomOptions(GetDB()) == 0) end,
-            text = T("settings.approved", "已批准对话"),
-            tooltip = T("settings.approved.tooltip", "无论对话选项数量，只在唯一命中已启用 Gossip ID 时自动选择。按住 Shift 可临时暂停。"),
+            text = T("settings.approved", "自动选择指定对话"),
+            tooltip = T("settings.approved.tooltip", "按下方启用的规则自动选择对话；同时匹配多条时由你选择。"),
             width = 360,
             get = function() return GetDB().approvedEnabled end,
             set = function(value)
@@ -628,7 +723,10 @@ local function GetOptions(feature)
         },
         {
             type = "divider",
-            label = T("settings.presets", "内置预设"),
+            label = T("settings.presets", "内置规则"),
+            collapsible = true,
+            collapsed = true,
+            collapseKey = "AutoGossip:presets",
             width = 620,
             alignLeft = true,
             hidden = function() return not DIALOGUE_SUPPORTED or #PRESETS == 0 or not GetDB().approvedEnabled end,
@@ -640,7 +738,8 @@ local function GetOptions(feature)
         local ids = table.concat(presetRef.ids, ", ")
         options[#options + 1] = {
             type = "checkbox",
-            text = T(presetRef.nameKey, presetRef.key) .. "  |cff8f9ba0(" .. ids .. ")|r",
+            text = T(presetRef.nameKey, presetRef.key),
+            tooltip = T("gossip.id_prefix", "对话 ID：") .. ids,
             width = 420,
             hidden = function() return not DIALOGUE_SUPPORTED or not GetDB().approvedEnabled end,
             get = function() return GetDB().dialogueVersions[CLIENT].presetStates[presetRef.key] == true end,
@@ -669,7 +768,8 @@ local function GetOptions(feature)
                 children = {
                     {
                         type = "checkbox",
-                        text = item.entry.name .. "  |cff8f9ba0(" .. tostring(optionID) .. ")|r",
+                        text = item.entry.name,
+                        tooltip = T("gossip.id_prefix", "对话 ID：") .. tostring(optionID),
                         width = 420,
                         get = function()
                             local entry = GetDB().dialogueVersions[CLIENT].customOptions[optionID]
@@ -697,8 +797,48 @@ local function GetOptions(feature)
     end
 
     options[#options + 1] = {
+        type = "divider", label = T("settings.extra", "额外选项"), width = 620, alignLeft = true,
+    }
+    options[#options + 1] = {
+        type = "row", gap = 24,
+        children = {
+            {
+                type = "dropdown", label = T("settings.modifier_mode", "按键控制"), width = 260,
+                tooltip = T("settings.modifier_mode.tooltip", "仅控制已开启的自动对话和任务交接功能。"),
+                options = {
+                    { text = T("modifier.none", "不使用"), value = "none" },
+                    { text = T("modifier.pause", "按住暂停"), value = "pause" },
+                    { text = T("modifier.hold", "按住启用"), value = "hold" },
+                },
+                get = function() return GetDB().modifierMode end,
+                set = function(value) GetDB().modifierMode = value; RefreshModifierSettings(feature) end,
+            },
+            {
+                type = "dropdown", label = T("settings.modifier_key", "控制按键"), width = 260,
+                hidden = function() return GetDB().modifierMode == "none" end,
+                options = {
+                    { text = "Shift", value = "SHIFT" },
+                    { text = "Ctrl", value = "CTRL" },
+                    { text = "Alt", value = "ALT" },
+                },
+                get = function() return GetDB().modifierKey end,
+                set = function(value) GetDB().modifierKey = value; RefreshModifierSettings(feature) end,
+            },
+        },
+    }
+    local db = GetDB()
+    local hint = T("modifier.none_hint", "按已勾选的功能自动处理。")
+    local keyName = db.modifierKey == "CTRL" and "Ctrl" or db.modifierKey == "ALT" and "Alt" or "Shift"
+    if db.modifierMode == "pause" then
+        hint = string.format(T("modifier.pause_hint", "按住 %s 暂停自动对话与任务交接。"), keyName)
+    elseif db.modifierMode == "hold" then
+        hint = string.format(T("modifier.hold_hint", "按住 %s 才自动处理对话与任务交接。"), keyName)
+    end
+    options[#options + 1] = { type = "text", label = hint, width = 620, justify = "LEFT", tone = "muted" }
+
+    options[#options + 1] = {
         type = "divider",
-        label = T("settings.advanced", "高级：添加自定义对话"),
+        label = T("settings.advanced", "添加自定义对话"),
         width = 620,
         alignLeft = true,
         hidden = function() return not DIALOGUE_SUPPORTED end,
@@ -738,7 +878,7 @@ local function GetOptions(feature)
             {
                 type = "editbox",
                 label = T("settings.custom_id", "Gossip ID"),
-                tooltip = T("settings.custom_id.tooltip", "填写普通蓝字选项的 Gossip ID。"),
+                tooltip = T("settings.custom_id.tooltip", "填写普通对话选项的 Gossip ID。"),
                 width = 130,
                 get = function() return pendingCustomID end,
                 set = function(value) pendingCustomID = value or "" end,
@@ -807,6 +947,20 @@ Components:RegisterFeature(FEATURE_KEY, {
     callback = ToggleFeature,
     GetOptions = GetOptions,
     GetSubFeatureStates = GetSubFeatureStates,
+    GetQuestAutomationState = function()
+        local db = GetDB()
+        return featureEnabled and runtime.active, db.autoAccept, db.autoTurnIn
+    end,
+    SetQuestAutomationEnabled = function(_, enabled)
+        enabled = enabled == true
+        local db = GetDB()
+        db.autoAccept, db.autoTurnIn = enabled, enabled
+        if enabled and not featureEnabled then
+            Components:SetFeatureEnabled(FEATURE_KEY, true)
+        end
+        RefreshRuntime()
+        return not enabled or (featureEnabled and runtime.active)
+    end,
     GetStats = function()
         return {
             active = runtime.active,
@@ -825,6 +979,8 @@ Components:RegisterFeature(FEATURE_KEY, {
                 autoAccept = true,
                 autoTurnIn = true,
                 pauseMulti = true,
+                modifierMode = true,
+                modifierKey = true,
                 dialogueVersions = true,
                 presetStates = true, -- Legacy import migration.
                 customOptions = true,

@@ -1,5 +1,5 @@
 local _, YUI = ...
-YUI = YUI or _G.YUI
+YUI = _G.YUI or YUI
 local S = YUI and YUI.Sound
 local Model = S and S.RuleModel
 if not Model then return end

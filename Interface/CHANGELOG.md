@@ -1,3 +1,15 @@
+## [Addon update / OverlapSettingsGuard 0.8.1] - 2026-11-04
+### Features
+- Update YUI v351, GearInsight Forever 0.5.9, EllesmereUI 9.7.3, Skinner beta12.70688.1, Details 15339.172 and Waypoint UI 1.7.4. !BugGrabber stays at v12.1.0.
+- Extend the guard to GearInsight's new editing methods and load-on-demand Group module, and to YUI's resource manager contexts.
+- Add `tools/apply_addon_patches.py` for local patches that recur on every update.
+### Design Rationale
+- Lock editing methods individually so one upstream removal cannot cancel the rest, and fail a test on unclassified methods so new ones are reviewed at update time. GearInsight and YUI both ship several releases per week.
+- Exclude Skinner's EllesmereUI skin by patch because upstream offers no setting and it would disable the Blizzard skins the pack keeps Skinner for.
+- Keep YUI's portable-font paths to preserve current behavior; whether upstream's bundled paths now load cleanly is untested.
+### Notes & Caveats
+- Saved settings migrate on first login. Replaced folders and live WTF are in `addon-backups/addon-upgrade-20261104`. In-game loading, `/osg` and all three resolutions are not yet verified.
+
 ## [Release migration] - 2026-10-23
 ### Features
 - Migrate the beta working project, Git history, live settings, private mappings and complete fonts to the installed `_forever_` release build 1.60.1.70532 / Interface 16001.

@@ -10,12 +10,13 @@ local function T(key,...)
     return string.format(locale and locale['voice.pack.'..key] or key,...)
 end
 local function Client()
-    return YUI.IsRetail and 'mainline' or YUI.IsWrath and 'wrath' or YUI.IsMists and 'mists' or 'unknown'
+    return YUI.IsForever and 'forever' or YUI.IsRetail and 'mainline' or YUI.IsWrath and 'wrath' or YUI.IsMists and 'mists' or 'unknown'
 end
 local function InScope(scope,entry)
     if scope.mode=='all' then return true end
     if scope.mode=='sample' then return false end
-    return entry.class and scope.classes[entry.class] or not entry.class and scope.general
+    return scope.buffs and entry.categories and entry.categories.buffs
+        or entry.class and scope.classes[entry.class] or not entry.class and scope.general
 end
 local function Row(id,file)
     return {id=id,name=S:GetEntryLabel(id),file=file or (S.voiceRecordingNames or {})[id] or id}
@@ -23,7 +24,7 @@ end
 
 function S:GetVoicePackReport(packId,client)
     client=client or Client()
-    local pack=self.voicePacks[packId]
+    local pack=self:GetVoicePack(packId)
     local rejected=self.rejectedVoicePacks and self.rejectedVoicePacks[packId]
     local report={packId=packId,client=client,registered=pack~=nil,reason=rejected and rejected.code,
         info=self:GetVoicePackInfo(packId),missing={},outside={},newEntries={},unknown={},removed={},
@@ -107,7 +108,7 @@ local function FindEntry(value,packId)
     if S.entries[value] then return value end
     for id,file in pairs(S.voiceRecordingNames or {}) do if file==value then return id end end
     if S:ParseSpecialVoice(value) then return value end
-    local pack=S.voicePacks[packId]
+    local pack=S:GetVoicePack(packId)
     for id,entry in pairs(pack and pack.specialEntries or {}) do
         if id==value or entry.file:match('([^\\/]+)$')==value then return S:SpecialVoiceReference(packId,id) end
     end

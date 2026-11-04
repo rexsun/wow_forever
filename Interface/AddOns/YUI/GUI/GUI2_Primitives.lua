@@ -146,6 +146,11 @@ local SETTINGS_MICRO_ICON_ATLAS = {
     gutterBySize = {
         [24] = 3,
     },
+    -- Source texels: center the visible arrow strokes (alpha >= 128) within each sample.
+    sampleOffsetX = {
+        ["arrow-big-up"] = { [16] = -0.5, [20] = -1 },
+        ["arrow-big-down"] = { [16] = -0.5, [20] = -1, [24] = -0.5 },
+    },
     order = {
         "settings",
         "power",
@@ -1328,7 +1333,7 @@ function GUI2:CreateShadow(frame, shadowKey)
 end
 
 local function NormalizeGlowStyle(style)
-    if style == "none" or style == "pixel" or style == "soft" or style == "button" or style == "autocast" or style == "proc" or style == "pulse" then
+    if style == "none" or style == "pixel" or style == "soft" or style == "button" or style == "autocast" or style == "proc" or style == "pulse" or style == "masque" then
         return style
     end
     return "soft"
@@ -1342,7 +1347,7 @@ local function UsesPixelGlowSegments(style)
 end
 
 local function UsesNativeGlow(style)
-    if style == "button" or style == "autocast" or style == "proc" then
+    if style == "button" or style == "autocast" or style == "proc" or style == "masque" then
         return true
     end
     return false
@@ -1535,6 +1540,7 @@ local function SetGlowTargetPoints(
         return false
     end
     local expandX, expandY = GetGlowOffsetXY(glow, target, pixel)
+    if glow.gui2GlowStyle == "masque" then expandX, expandY = 0, 0 end
     local targetShape = glow.gui2GlowTargetShape
     if glow.gui2GlowStyle == "proc"
         and (targetShape == "square"
@@ -1553,6 +1559,11 @@ local function SetGlowTargetPoints(
         pixel
     )
     local vertical = SnapGlowValue(glow, outset + expandY, pixel)
+    if glow.gui2GlowStyle == "proc" and GUI2.GetIconGlowInset then
+        local insetX, insetY = GUI2:GetIconGlowInset(glow, targetShape, targetWidth, targetHeight)
+        horizontal = horizontal - SnapGlowValue(glow, insetX * 1.4, pixel)
+        vertical = vertical - SnapGlowValue(glow, insetY * 1.4, pixel)
+    end
     if targetWidth > pixel * 2 then
         horizontal = math_max(horizontal, -(targetWidth / 2 - pixel))
     elseif horizontal < 0 then
@@ -1731,12 +1742,227 @@ local function SetPixelGlowEdgesShown(glow, shown)
 end
 
 local function HidePixelGlowLines(glow)
+    if GUI2._ShapeGlow then GUI2._ShapeGlow:StopCircle(glow) end
     SetPixelGlowEdgesShown(glow, false)
 end
 
 local function StopAnimationGroup(group)
     if group and group.Stop then
         group:Stop()
+    end
+end
+
+-- Shape-only objects are lazy, bounded per glow and animated by the client.
+GUI2._ShapeGlow = GUI2._ShapeGlow or {}
+
+function GUI2._ShapeGlow:Shape(glow)
+    return glow.gui2GlowTargetShape or glow.gui2GlowShape
+end
+
+function GUI2._ShapeGlow:UsesSoftContour(glow)
+    local shape = self:Shape(glow)
+    return shape == "circle" or shape == "diamond" or shape == "roundedSquare"
+        or shape == "flatRounded" or shape == "wideRounded"
+end
+
+function GUI2._ShapeGlow:StopCircle(glow)
+    local ring = glow.gui2CirclePixel
+    if not ring then return end
+    if ring.playing then ring.animation:Stop(); ring.playing = false end
+    SetGlowTextureShown(ring, false)
+    ring.carrier:Hide()
+end
+
+function GUI2._ShapeGlow:LayoutCircle(glow)
+    local width, height = GUI2:_GetGlowLayoutSize(glow)
+    if width <= 0 or height <= 0 then self:StopCircle(glow); return false end
+    local ring = glow.gui2CirclePixel
+    if not ring then
+        local carrier = CreateFrame("Frame", nil, glow)
+        carrier:EnableMouse(false)
+        carrier:SetPoint("CENTER", glow, "CENTER")
+        ring = carrier:CreateTexture(nil, "OVERLAY", nil, 7)
+        ring.carrier = carrier
+        ring:SetTexture(Assets:Core("gui2\\glow\\pixel-angular-atlas.tga"))
+        ring:SetBlendMode("BLEND")
+        local outer = carrier:CreateMaskTexture()
+        outer:SetTexture(Assets:Core("gui2\\shapes\\circle-mask.tga"), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        local inner = carrier:CreateMaskTexture()
+        inner:SetTexture(Assets:Core("gui2\\shapes\\duration-ring-inner-mask.tga"), "CLAMP", "CLAMP")
+        ring:AddMaskTexture(outer)
+        ring:AddMaskTexture(inner)
+        ring.outer, ring.inner = outer, inner
+        -- Rotate artwork and both masks in one coordinate space. Rotating only
+        -- the atlas quad makes its independently anchored masks drift/clamp.
+        ring.animation = carrier:CreateAnimationGroup()
+        ring.animation:SetLooping("REPEAT")
+        ring.rotation = ring.animation:CreateAnimation("Rotation")
+        ring.rotation:SetOrder(1)
+        ring.rotation:SetDegrees(-360)
+        ring.rotation:SetSmoothing("NONE")
+        glow.gui2CirclePixel = ring
+    end
+    local lines = ClampGlowLines(glow.gui2GlowLines)
+    local thickness = GUI2:GetPixelSize(glow, ClampGlowThickness(glow.gui2GlowThickness), 1)
+    local diameter = math_min(width, height)
+    local speed = ClampGlowSpeed(glow.gui2GlowSpeed)
+    local phase = NormalizeGlowPhase(glow.gui2GlowPhase)
+    if ring.width ~= diameter or ring.thickness ~= thickness or ring.lines ~= lines
+        or ring.speed ~= speed or ring.phase ~= phase then
+        if ring.playing then ring.animation:Stop(); ring.playing = false end
+        local x, y = ((lines - 1) % 8) * 64, math_floor((lines - 1) / 8) * 64
+        ring:SetTexCoord((x + 2) / 512, (x + 62) / 512, (y + 2) / 256, (y + 62) / 256)
+        ring:ClearAllPoints()
+        ring.carrier:SetSize(diameter, diameter)
+        ring:SetPoint("CENTER", ring.carrier, "CENTER")
+        ring:SetSize(diameter, diameter)
+        ring.outer:ClearAllPoints()
+        ring.outer:SetPoint("CENTER", ring.carrier, "CENTER")
+        ring.outer:SetSize(diameter, diameter)
+        ring.inner:ClearAllPoints()
+        ring.inner:SetPoint("CENTER", ring.carrier, "CENTER")
+        -- Use geometry for the hole; mask UV remapping did not preserve the thin
+        -- ring in the client. CLAMP keeps the inverse mask's opaque outer edge.
+        local hole = math_max(0.01, diameter - thickness * 2)
+        ring.inner:SetSize(hole / 0.75, hole / 0.75)
+        ring.inner:SetTexCoord(0, 1, 0, 1)
+        if ring.SetRotation then ring:SetRotation(-phase * math_pi * 2) end
+        if speed > 0 then ring.rotation:SetDuration(1 / speed) end
+        ring.width, ring.thickness, ring.lines = diameter, thickness, lines
+        ring.speed, ring.phase = speed, phase
+    end
+    ring:SetVertexColor(glow.gui2GlowResolvedR or 1, glow.gui2GlowResolvedG or 1,
+        glow.gui2GlowResolvedB or 1, glow.gui2GlowResolvedAlpha or 1)
+    return true
+end
+
+function GUI2._ShapeGlow:ShowCircle(glow, shown)
+    local ring = glow.gui2CirclePixel
+    if not ring then return end
+    SetGlowTextureShown(ring, shown)
+    ring.carrier:SetShown(shown)
+    if shown and ring.speed > 0 then
+        if not ring.playing then ring.animation:Play(); ring.playing = true end
+    elseif ring.playing then
+        ring.animation:Stop(); ring.playing = false
+    end
+end
+
+function GUI2._ShapeGlow:LayoutPulse(glow, style)
+    local shape = self:Shape(glow)
+    if not self:UsesSoftContour(glow) then return nil end
+    style = style or "pulse"
+    local frame = glow.gui2ShapePulse
+    if not frame then
+        frame = CreateFrame("Frame", nil, glow)
+        frame:SetPoint("CENTER", glow, "CENTER")
+        frame.texture = frame:CreateTexture(nil, "OVERLAY")
+        frame.texture:SetAllPoints(frame)
+        frame.texture:SetBlendMode("ADD")
+        glow.gui2ShapePulse = frame
+    end
+    if style == "pulse" and not frame.animation then
+        frame.animation = frame:CreateAnimationGroup()
+        frame.animation:SetLooping("BOUNCE")
+        frame.fade = frame.animation:CreateAnimation("Alpha")
+        frame.fade:SetOrder(1)
+        frame.fade:SetFromAlpha(0.40)
+        frame.fade:SetToAlpha(0.95)
+        frame.fade:SetSmoothing("IN_OUT")
+    end
+    if glow.gui2PulseFrame and glow.gui2PulseFrame ~= frame then
+        glow.gui2PulseFrame:Hide()
+    end
+    glow.gui2PulseFrame = frame
+    local width, height = GetGlowTargetSize(glow)
+    local offsetX, offsetY = GetGlowOffsetXY(glow)
+    width, height = width + offsetX * 2, height + offsetY * 2
+    local sizeScale = 1 + GLOW_STYLE_OUTSET_SCALE[style] * 2 * (ClampGlowSize(glow.gui2GlowSize) - 1)
+    width, height = width * sizeScale, height * sizeScale
+    local speed = math_max(0.2, ClampGlowSpeed(glow.gui2GlowSpeed))
+    if frame.shape ~= shape then
+        frame.texture:SetTexture(Assets:Core("gui2\\shapes\\shadow-"
+            .. (shape == "diamond" and "square" or shape) .. ".tga"))
+        frame.texture:SetRotation(shape == "diamond" and math_pi / 4 or 0)
+        frame.shape = shape
+    end
+    if shape == "diamond" then width, height = width / 2^0.5, height / 2^0.5 end
+    -- Existing shadow art has a transparent 75% centre. Tint its soft outside
+    -- falloff, with the inner edge on the icon, rather than enlarging a hard rim.
+    local aspect = shape == "flatRounded" and 1.35 or shape == "wideRounded" and 10 / 9 or 1
+    width, height = width / 0.75, height / (0.75 / aspect)
+    if frame.width ~= width or frame.height ~= height then
+        frame:SetSize(width, height)
+        frame.width, frame.height = width, height
+    end
+    if style == "pulse" and frame.speed ~= speed then
+        frame.animation:Stop(); frame.playing = false
+        frame.fade:SetDuration(0.5 / speed)
+        frame.speed = speed
+    end
+    frame.texture:SetVertexColor(glow.gui2GlowResolvedR or 1, glow.gui2GlowResolvedG or 1,
+        glow.gui2GlowResolvedB or 1, glow.gui2GlowResolvedAlpha or 1)
+    GUI2:_ApplyGlowChildLayer(glow, frame)
+    return frame
+end
+
+function GUI2._ShapeGlow:ShowPulse(glow, shown)
+    local frame = glow.gui2ShapePulse
+    if not frame then return end
+    if shown then
+        frame:Show()
+        if glow.gui2GlowStyle == "pulse" then
+            if not frame.playing then frame.animation:Play(); frame.playing = true end
+        else
+            if frame.playing then frame.animation:Stop(); frame.playing = false end
+            frame:SetAlpha(1)
+        end
+    else
+        if frame.playing then frame.animation:Stop(); frame.playing = false end
+        frame:Hide()
+    end
+end
+
+function GUI2._ShapeGlow:LayoutDiamondEdges(glow, width, height, thickness, cycle)
+    local edges, masks = glow.gui2PixelEdges, glow.gui2RestrictedPixelMasks
+    local diagonal = self:Shape(glow) == "diamond"
+    local angle = diagonal and math_pi / 4 or 0
+    local c, s = math_cos(angle), math_sin(angle)
+    cycle = cycle or 0
+    for key, texture in pairs(edges) do
+        local horizontal = key == "top" or key == "bottom"
+        local x = key == "right" and (width - thickness) / 2
+            or (key == "left" and -(width - thickness) / 2 or 0)
+        local y = key == "top" and (height - thickness) / 2
+            or (key == "bottom" and -(height - thickness) / 2 or 0)
+        if glow.gui2RestrictedParent == true and masks then
+            local mask = masks[key]
+            mask:ClearAllPoints()
+            mask:SetPoint("CENTER", glow, "CENTER", x * c - y * s, x * s + y * c)
+            mask:SetSize(horizontal and width or thickness, horizontal and thickness or height)
+            mask:SetRotation(angle)
+        end
+        if key == "top" then x = x - cycle / 2
+        elseif key == "right" then y = y + cycle / 2
+        elseif key == "bottom" then x = x + cycle / 2
+        else y = y - cycle / 2 end
+        texture:ClearAllPoints()
+        texture:SetPoint("CENTER", glow, "CENTER", x * c - y * s, x * s + y * c)
+        texture:SetSize(horizontal and (width + cycle) or thickness,
+            horizontal and thickness or (height + cycle))
+        texture:SetRotation(angle)
+        if not diagonal and glow.gui2RestrictedParent ~= true then
+            texture:ClearAllPoints()
+            if key == "top" then
+                texture:SetPoint("TOPLEFT", glow, "TOPLEFT"); texture:SetPoint("TOPRIGHT", glow, "TOPRIGHT")
+            elseif key == "bottom" then
+                texture:SetPoint("BOTTOMLEFT", glow, "BOTTOMLEFT"); texture:SetPoint("BOTTOMRIGHT", glow, "BOTTOMRIGHT")
+            elseif key == "left" then
+                texture:SetPoint("TOPLEFT", glow, "TOPLEFT"); texture:SetPoint("BOTTOMLEFT", glow, "BOTTOMLEFT")
+            else
+                texture:SetPoint("TOPRIGHT", glow, "TOPRIGHT"); texture:SetPoint("BOTTOMRIGHT", glow, "BOTTOMRIGHT")
+            end
+        end
     end
 end
 
@@ -1950,6 +2176,8 @@ local function ButtonGlowAnimInOnPlay(group)
     local alpha = frame.gui2ButtonGlowAlpha or 1
     local sparkAlpha = frame.gui2ButtonGlowTinted and alpha * 0.3 or alpha
 
+    -- Prepare the final artwork and clip bounds before any entry layer appears.
+    ApplyButtonGlowStableState(frame)
     frame.spark:SetSize(width, height)
     frame.spark:SetAlpha(sparkAlpha)
     frame.innerGlow:SetSize(width / 2, height / 2)
@@ -1959,7 +2187,6 @@ local function ButtonGlowAnimInOnPlay(group)
     frame.outerGlow:SetAlpha(alpha)
     frame.outerGlowOver:SetAlpha(alpha)
     frame.stableGlow:SetAlpha(0)
-    frame.ants:SetSize(width * 0.85, height * 0.85)
     frame.ants:SetAlpha(0)
     frame:Show()
 end
@@ -1984,11 +2211,12 @@ local function EnsureButtonGlowAnimations(frame)
     frame.animIn.fade = {}
     CreateButtonScaleAnim(frame.animIn, "spark", 1, 0.2, 1.5, 1.5)
     CreateButtonAlphaAnim(frame.animIn, "spark", 1, 0.2, 0, 1, nil, true)
-    CreateButtonScaleAnim(frame.animIn, "innerGlow", 1, 0.3, 2, 2)
-    CreateButtonScaleAnim(frame.animIn, "innerGlowOver", 1, 0.3, 2, 2)
+    local innerScale, outerScale = BUTTON_GLOW_VISUAL.stableGlowScale * 2, BUTTON_GLOW_VISUAL.stableGlowScale / 2
+    CreateButtonScaleAnim(frame.animIn, "innerGlow", 1, 0.3, innerScale, innerScale)
+    CreateButtonScaleAnim(frame.animIn, "innerGlowOver", 1, 0.3, innerScale, innerScale)
     CreateButtonAlphaAnim(frame.animIn, "innerGlowOver", 1, 0.3, 1, 0, nil, false)
-    CreateButtonScaleAnim(frame.animIn, "outerGlow", 1, 0.3, 0.5, 0.5)
-    CreateButtonScaleAnim(frame.animIn, "outerGlowOver", 1, 0.3, 0.5, 0.5)
+    CreateButtonScaleAnim(frame.animIn, "outerGlow", 1, 0.3, outerScale, outerScale)
+    CreateButtonScaleAnim(frame.animIn, "outerGlowOver", 1, 0.3, outerScale, outerScale)
     CreateButtonAlphaAnim(frame.animIn, "outerGlowOver", 1, 0.3, 1, 0, nil, false)
     CreateButtonScaleAnim(frame.animIn, "spark", 1, 0.2, 2 / 3, 2 / 3, 0.2)
     CreateButtonAlphaAnim(frame.animIn, "spark", 1, 0.2, 1, 0, 0.2, false)
@@ -2127,6 +2355,10 @@ local function EnsureButtonGlowFrame(glow)
         BUTTON_GLOW_VISUAL:CreateClipMask(frame, frame.ants)
     for _, key in ipairs(BUTTON_GLOW_TEXTURE_ORDER) do
         frame.textures[#frame.textures + 1] = frame[key]
+        if key ~= "spark" and key ~= "ants" and key ~= "stableGlow"
+            and frame.gui2ButtonGlowStableGlowClipMask then
+            frame[key]:AddMaskTexture(frame.gui2ButtonGlowStableGlowClipMask)
+        end
     end
     frame.gui2ButtonGlowAlpha = 1
     if not restricted then
@@ -2222,6 +2454,10 @@ end
 
 function AutoCastGlow:StopRestrictedAnimations(glow)
     local frame = glow and glow.gui2AutoCastFrame
+    if frame and frame.circle then
+        frame.circle.animation:Stop()
+        frame.circle:Hide()
+    end
     for index = 1, #(frame and frame.textures or {}) do
         local texture = frame.textures[index]
         if texture.gui2RestrictedAutoCastAnimation then
@@ -2230,6 +2466,53 @@ function AutoCastGlow:StopRestrictedAnimations(glow)
         end
     end
     if glow then glow.gui2RestrictedAutoCastSignature = nil end
+end
+
+function AutoCastGlow:LayoutCircle(glow, frame, width, height)
+    local texture = frame.circle
+    if not texture then
+        texture = frame:CreateTexture(nil, "OVERLAY", nil, 7)
+        texture:SetTexture(Assets:Core("gui2\\glow\\autocast-circle.tga"))
+        texture:SetTexCoord(0, 1, 0, 1)
+        texture:SetBlendMode("BLEND")
+        texture:SetPoint("CENTER", frame, "CENTER", 0, 0)
+        texture:Hide()
+        -- All clients use this shared artwork and centered texture rotation.
+        -- Keep the full image, with no atlas crop or external rotation pivot.
+        texture.animation = texture:CreateAnimationGroup()
+        texture.animation:SetLooping("REPEAT")
+        texture.rotation = texture.animation:CreateAnimation("Rotation")
+        texture.rotation:SetOrigin("CENTER", 0, 0)
+        texture.rotation:SetOrder(1)
+        texture.rotation:SetDegrees(-360)
+        texture.rotation:SetSmoothing("NONE")
+        frame.circle = texture
+    end
+    -- The shared 128px artwork's star orbit is at radius 56, leaving padding.
+    -- Fit that orbit to the border, not to the icon interior or texture bounds.
+    local diameter = math_max(1, math_min(width, height) - GUI2:GetPixelSize(glow, 1, 1)) * (128 / 112)
+        * (1 + (ClampGlowSize(glow.gui2GlowSize) - 1) * 0.12)
+    local speed = glow.gui2AutoCastResolvedSpeed or 0
+    if texture.diameter ~= diameter then
+        texture:SetSize(diameter, diameter)
+        texture.diameter = diameter
+    end
+    if texture.speed ~= speed then
+        texture.animation:Stop()
+        if speed > 0 then texture.rotation:SetDuration(1 / speed) end
+        texture.speed = speed
+    end
+end
+
+function AutoCastGlow:ShowCircle(glow)
+    local frame = glow.gui2AutoCastFrame
+    local texture = frame and frame.circle
+    if not (texture and glow.gui2AutoCastGeometryReady) then return false end
+    for index = 1, #frame.textures do frame.textures[index]:Hide() end
+    frame:Show()
+    texture:Show()
+    if texture.speed > 0 then texture.animation:Play() else texture.animation:Stop() end
+    return true
 end
 
 function AutoCastGlow:EnsureRestrictedParticleAnimation(texture)
@@ -2267,13 +2550,15 @@ function AutoCastGlow:ConfigureRestrictedAnimations(glow)
     local height = glow.gui2AutoCastHeight
     local perimeter = glow.gui2AutoCastPerimeter
     local speed = glow.gui2AutoCastResolvedSpeed or 0
-    local signature = tostring(width)
+    local shape = GUI2._ShapeGlow:Shape(glow)
+    local signature = tostring(shape) .. ":" .. tostring(width)
         .. ":" .. tostring(height)
         .. ":" .. tostring(speed)
     if glow.gui2RestrictedAutoCastSignature == signature then
         return true
     end
 
+    self:StopRestrictedAnimations(glow)
     for layer = 1, #AUTOCAST_PARTICLE_SIZES do
         local period = speed > 0 and layer / speed or 0
         local first = (layer - 1) * self.particlesPerLayer + 1
@@ -2297,6 +2582,15 @@ function AutoCastGlow:ConfigureRestrictedAnimations(glow)
                     { 0, -height },
                     { -width, 0 },
                 }
+                if shape == "diamond" then
+                    texture:ClearAllPoints()
+                    texture:SetPoint("CENTER", frame, "LEFT", 0, 0)
+                    for order = 1, 4 do sideDurations[order] = period / 4 end
+                    offsets[1][1], offsets[1][2] = width / 2, height / 2
+                    offsets[2][1], offsets[2][2] = width / 2, -height / 2
+                    offsets[3][1], offsets[3][2] = -width / 2, -height / 2
+                    offsets[4][1], offsets[4][2] = -width / 2, height / 2
+                end
                 for order = 1, 4 do
                     translations[order]:SetDuration(sideDurations[order])
                     translations[order]:SetOffset(
@@ -2319,6 +2613,12 @@ function AutoCastGlow:ConfigureRestrictedAnimations(glow)
                     height
                 )
                 texture.gui2RestrictedAutoCastPlaying = false
+                if shape == "diamond" then
+                    texture:ClearAllPoints()
+                    local x = particle == 1 and -width / 2 or (particle == 3 and width / 2 or 0)
+                    local y = particle == 2 and height / 2 or (particle == 4 and -height / 2 or 0)
+                    texture:SetPoint("CENTER", frame, "CENTER", x, y)
+                end
             end
         end
     end
@@ -2353,44 +2653,7 @@ function AutoCastGlow:EnsureNative(glow)
     return frame
 end
 
-local function GetProcGlowShapeFamily(shape)
-    if shape == "circle" then return "circle" end
-    if shape == "rounded" or shape == "roundedSquare"
-        or shape == "flatRounded"
-        or shape == "wideRounded" then
-        return "rounded"
-    end
-    return nil
-end
-
-local function EnsureShapeProcGlow(glow, family)
-    glow.gui2ShapeProcFrames = glow.gui2ShapeProcFrames or {}
-    local frame = glow.gui2ShapeProcFrames[family]
-    if frame then
-        glow.gui2ActiveShapeProcFrame = frame
-        return frame
-    end
-
-    frame = CreateFrame("Frame", nil, glow)
-    frame:SetAllPoints(glow)
-    frame:Hide()
-    local paths = GUI2.IconAppearanceBorderTextures
-        and GUI2.IconAppearanceBorderTextures[family]
-    local outer = frame:CreateTexture(nil, "OVERLAY")
-    outer:SetAllPoints(frame)
-    outer:SetBlendMode("ADD")
-    outer:SetTexture(paths and (paths[4] or paths[3]))
-    local inner = frame:CreateTexture(nil, "OVERLAY")
-    inner:SetAllPoints(frame)
-    inner:SetBlendMode("ADD")
-    inner:SetTexture(paths and (paths[2] or paths[1]))
-    frame.Texture = outer
-    frame.InnerTexture = inner
-    frame.gui2ProcShapeFamily = family
-    glow.gui2ShapeProcFrames[family] = frame
-    glow.gui2ActiveShapeProcFrame = frame
-    return frame
-end
+local ApplyGlowColor
 
 function GUI2:_SyncManagedCircleProcAppearance(glow, frame)
     if not (glow and frame and GUI2.SetManagedProcGlowAppearance) then
@@ -2434,15 +2697,18 @@ function GUI2:_EnsureManagedCircleProcGlow(glow)
             "circle"
         )
         glow.gui2ManagedCircleProcGlow = frame
+        if frame then frame._Loop_Only = true end
     end
     if not frame then return nil end
     local appearanceChanged = self:_SyncManagedCircleProcAppearance(
         glow,
         frame
     )
+    local insetX, insetY = GUI2:GetIconGlowInset(glow, "circle", width, height)
     if not appearanceChanged
         and (glow.gui2ManagedCircleProcWidth ~= width
-            or glow.gui2ManagedCircleProcHeight ~= height) then
+            or glow.gui2ManagedCircleProcHeight ~= height
+            or frame.gui2ProcInsetX ~= insetX or frame.gui2ProcInsetY ~= insetY) then
         GUI2:LayoutManagedProcGlow(
             frame,
             glow,
@@ -2458,7 +2724,40 @@ function GUI2:_EnsureManagedCircleProcGlow(glow)
     return frame
 end
 
+function GUI2._ShapeGlow:ShowCircleButton(glow)
+    local frame = GUI2:_EnsureManagedCircleProcGlow(glow)
+    if not frame then return false end
+    frame.gui2ProcRestricted = glow.gui2RestrictedParent == true
+    GUI2:_ApplyGlowChildLayer(glow, frame)
+    GUI2:SetManagedProcGlowShown(frame, true)
+    if ClampGlowSpeed(glow.gui2GlowSpeed) <= 0 then
+        StopAnimationGroup(frame.ProcLoopAnim or frame.ProcLoop)
+    end
+    return true
+end
+
 local function EnsureProcGlow(glow)
+    if glow.gui2GlowStyle == "masque" and GUI2.ConfigureIconSkinGlow then
+        local width, height = GetGlowTargetSize(glow)
+        return GUI2:ConfigureIconSkinGlow(glow, width, height)
+    end
+    if GUI2._ShapeGlow:Shape(glow) == "diamond" and GUI2.CreateManagedProcGlow then
+        local width, height = GetGlowTargetSize(glow)
+        local managed = glow.gui2ManagedDiamondProcGlow
+        local level = glow.gui2RestrictedParent and (glow.gui2GlowFrameLevel or 0) or nil
+        if not managed then
+            managed = GUI2:CreateManagedProcGlow(glow, "square", width, height, level, glow.gui2GlowFrameStrata, "diamond")
+            glow.gui2ManagedDiamondProcGlow = managed
+            if managed then managed._Loop_Only = true end
+        end
+        if managed then
+            managed.gui2ProcRestricted = glow.gui2RestrictedParent == true
+            GUI2:_SyncManagedCircleProcAppearance(glow, managed)
+            GUI2:LayoutManagedProcGlow(managed, glow, width, height, level, glow.gui2GlowFrameStrata, "diamond")
+            glow.gui2ActiveShapeProcFrame = nil
+            return managed
+        end
+    end
     if glow.gui2GlowShape == "circle" then
         local managed = GUI2:_EnsureManagedCircleProcGlow(glow)
         if managed then
@@ -2466,10 +2765,7 @@ local function EnsureProcGlow(glow)
             return managed
         end
     end
-    local family = GetProcGlowShapeFamily(glow.gui2GlowShape)
-    if family then
-        return EnsureShapeProcGlow(glow, family)
-    end
+    -- All rectangular shapes share the native soft loop, not hard border pairs.
     glow.gui2ActiveShapeProcFrame = nil
     if glow.gui2ProcFrame or glow.gui2ProcFallback then
         return glow.gui2ProcFrame or glow.gui2ProcFallback
@@ -2480,6 +2776,7 @@ local function EnsureProcGlow(glow)
         frame:SetAllPoints(glow)
         frame:Hide()
         glow.gui2ProcFrame = frame
+        ApplyGlowColor(glow)
         return frame
     end
 
@@ -2861,6 +3158,7 @@ function GUI2._RestrictedGlowRuntime:StopProc(glow)
             frame.InnerTexture,
             "gui2RestrictedProcPulse"
         )
+        frame:Hide()
     end
     StopFrame(glow and glow.gui2ProcFallback)
     if glow and glow.gui2ProcFrame then
@@ -2939,6 +3237,7 @@ function GUI2._RestrictedGlowRuntime:ConfigurePulse(glow, frame)
 end
 
 function GUI2._RestrictedGlowRuntime:StopPulse(glow)
+    GUI2._ShapeGlow:ShowPulse(glow, false)
     local frame = glow and glow.gui2PulseFrame
     if frame and frame.gui2RestrictedPulseAnimation then
         StopAnimationGroup(frame.gui2RestrictedPulseAnimation)
@@ -2950,6 +3249,7 @@ function GUI2._RestrictedGlowRuntime:StopPulse(glow)
 end
 
 local function HidePulseGlow(glow)
+    GUI2._ShapeGlow:ShowPulse(glow, false)
     if glow and glow.gui2PulseFrame then
         glow.gui2PulseFrame:Hide()
     end
@@ -3016,6 +3316,8 @@ end
 
 local function HideNativeGlow(glow)
     if not glow then return end
+    if glow.gui2ManagedDiamondProcGlow then GUI2:SetManagedProcGlowShown(glow.gui2ManagedDiamondProcGlow, false) end
+    if glow.gui2MasqueProcGlow then GUI2:SetManagedProcGlowShown(glow.gui2MasqueProcGlow, false) end
     if glow.gui2ButtonGlow then
         ResetButtonGlowFrame(glow.gui2ButtonGlow)
     end
@@ -3061,6 +3363,16 @@ local function ApplyButtonGlowLayout(glow)
         frameWidth = math_max(1, width + outset * 2)
         frameHeight = math_max(1, height + outset * 2)
     end
+    local rotation = GUI2._ShapeGlow:Shape(glow) == "diamond" and math_pi / 4 or 0
+    if rotation ~= 0 then
+        frameWidth, frameHeight = frameWidth / 2^0.5, frameHeight / 2^0.5
+    end
+    if frame.gui2ButtonGlowRotation ~= rotation then
+        for _, texture in ipairs(frame.textures) do texture:SetRotation(rotation) end
+        if frame.gui2ButtonGlowStableGlowClipMask then frame.gui2ButtonGlowStableGlowClipMask:SetRotation(rotation) end
+        if frame.gui2ButtonGlowAntsClipMask then frame.gui2ButtonGlowAntsClipMask:SetRotation(rotation) end
+        frame.gui2ButtonGlowRotation = rotation
+    end
     frame.gui2ButtonGlowPixel = GUI2:GetPixelSize(glow, 1, 1)
     if glow.gui2RestrictedParent == true then
         frame.gui2TrustedLayoutWidth = frameWidth
@@ -3079,6 +3391,9 @@ local function ApplyButtonGlowLayout(glow)
 end
 
 local function ApplyPulseGlowLayout(glow)
+    local shaped = GUI2._ShapeGlow:LayoutPulse(glow)
+    if shaped then return shaped end
+    GUI2._ShapeGlow:ShowPulse(glow, false)
     local frame = EnsurePulseGlowFrame(glow)
     if glow.gui2RestrictedParent == true then
         frame = GUI2._RestrictedEdgeGlow:Layout(glow, "pulse")
@@ -3130,7 +3445,9 @@ local function ActivateNativeGlow(glow, style)
     if not GUI2:_ShouldRenderGlow(glow) then return end
     HideNativeGlow(glow)
 
-    if style == "button" then
+    if style == "button" and GUI2._ShapeGlow:Shape(glow) == "circle" then
+        GUI2._ShapeGlow:ShowCircleButton(glow)
+    elseif style == "button" then
         local frame = ApplyButtonGlowLayout(glow)
         ApplyButtonGlowColor(
             frame,
@@ -3144,8 +3461,9 @@ local function ActivateNativeGlow(glow, style)
         frame:Show()
     elseif style == "autocast" then
         AutoCastGlow:Activate(glow)
-    elseif style == "proc" then
+    elseif style == "proc" or style == "masque" then
         local frame = EnsureProcGlow(glow)
+        if not frame then return end
         GUI2:_ApplyGlowChildLayer(glow, frame)
         if frame.gui2ManagedProcGlow
             and GUI2.SetManagedProcGlowShown then
@@ -3340,6 +3658,7 @@ function AutoCastGlow:ApplyColor(glow, r, g2, b2, alpha)
     end
 
     local frame = glow and glow.gui2AutoCastFrame
+    if frame and frame.circle then frame.circle:SetVertexColor(r, g2, b2, alpha) end
     if not (frame and frame.textures) then return end
     for layer = 1, #AUTOCAST_PARTICLE_SIZES do
         local layerAlpha = alpha * (1 - (layer - 1) * 0.12)
@@ -3383,11 +3702,16 @@ function AutoCastGlow:Activate(glow)
 
     local frame = glow.gui2AutoCastFrame
     if not (frame and glow.gui2AutoCastGeometryReady == true) then return end
+    if glow.gui2AutoCastShape == "circle" then
+        self:ShowCircle(glow)
+        return
+    end
     frame:Show()
     for index = 1, self.particleCount do
         frame.textures[index]:Show()
     end
-    if glow.gui2RestrictedParent == true then
+    if glow.gui2RestrictedParent == true or glow.gui2AutoCastShape == "diamond" then
+        self.Driver:Unregister(glow)
         self:ConfigureRestrictedAnimations(glow)
         return
     end
@@ -3404,13 +3728,16 @@ function AutoCastGlow:UpdateGeometry(glow)
     local width, height = GUI2:_GetGlowLayoutSize(glow)
     local pixel = GUI2:GetPixelSize(glow, 1, 1)
     local native = nil
-    if width > 0 and height > 0 and math_abs(width - height) <= pixel then
+    local shape = GUI2._ShapeGlow:Shape(glow)
+    if shape ~= "circle" and shape ~= "diamond" and width > 0 and height > 0 and math_abs(width - height) <= pixel then
         native = self:EnsureNative(glow)
     end
     local useNative = native ~= nil
     local modeChanged = glow.gui2AutoCastUseNative ~= useNative
+        or glow.gui2AutoCastShape ~= GUI2._ShapeGlow:Shape(glow)
     if modeChanged then self:Stop(glow) end
     glow.gui2AutoCastUseNative = useNative
+    glow.gui2AutoCastShape = shape
     glow.gui2AutoCastResolvedSpeed = ClampGlowSpeed(glow.gui2GlowSpeed)
 
     if useNative then
@@ -3418,15 +3745,19 @@ function AutoCastGlow:UpdateGeometry(glow)
         GUI2:_ApplyGlowChildLayer(glow, native)
     else
         local frame = self:EnsureFrame(glow)
-        self:EnsureParticles(frame)
+        if shape ~= "circle" then self:EnsureParticles(frame) end
         GUI2:_ApplyGlowChildLayer(glow, frame)
         local perimeter = (width + height) * 2
         glow.gui2AutoCastWidth = width
         glow.gui2AutoCastHeight = height
         glow.gui2AutoCastPerimeter = perimeter
         glow.gui2AutoCastGeometryReady = perimeter > 0
-        local scale = math_max(0.5, (tonumber(glow.gui2GlowSize) or 8) / 8)
-        if frame.gui2AutoCastScale ~= scale then
+        -- Match the proportional scaling of the native square and circle art.
+        -- The particle sizes are authored at a 48px button width; flat variants
+        -- keep that width as their reference rather than their shorter height.
+        local targetWidth, targetHeight = GetGlowTargetSize(glow)
+        local scale = ClampGlowSize(glow.gui2GlowSize) * math_max(targetWidth, targetHeight) / 48
+        if shape ~= "circle" and frame.gui2AutoCastScale ~= scale then
             for layer = 1, #AUTOCAST_PARTICLE_SIZES do
                 local particleSize = AUTOCAST_PARTICLE_SIZES[layer] * scale
                 local first = (layer - 1) * self.particlesPerLayer + 1
@@ -3436,7 +3767,9 @@ function AutoCastGlow:UpdateGeometry(glow)
             end
             frame.gui2AutoCastScale = scale
         end
-        if glow.gui2RestrictedParent == true then
+        if shape == "circle" then
+            self:LayoutCircle(glow, frame, width, height)
+        elseif glow.gui2RestrictedParent == true or shape == "diamond" then
             self:ConfigureRestrictedAnimations(glow)
         else
             self.Driver:Draw(glow)
@@ -3506,6 +3839,7 @@ function PixelGlowDriver:Draw(glow)
 end
 
 function GUI2._RestrictedGlowRuntime:StopPixel(glow)
+    GUI2._ShapeGlow:StopCircle(glow)
     for _, texture in pairs(glow and glow.gui2PixelEdges or {}) do
         local group = texture.gui2RestrictedPixelAnimation
         if group then StopAnimationGroup(group) end
@@ -3516,12 +3850,19 @@ function GUI2._RestrictedGlowRuntime:StopPixel(glow)
 end
 
 function GUI2._RestrictedGlowRuntime:ConfigurePixel(glow)
+    if GUI2._ShapeGlow:Shape(glow) == "circle" then
+        local ready = GUI2._ShapeGlow:LayoutCircle(glow)
+        GUI2._ShapeGlow:ShowCircle(glow, ready)
+        return ready
+    end
     local edges = glow and glow.gui2PixelEdges
     local masks = glow and glow.gui2RestrictedPixelMasks
     local lines = glow and glow.gui2PixelGlowResolvedLines
     local speed = glow and glow.gui2PixelGlowResolvedSpeed or 0
     local width, height = GUI2:_GetGlowLayoutSize(glow)
     local thickness = glow and glow.gui2PixelGlowResolvedThickness
+    local diamond = GUI2._ShapeGlow:Shape(glow) == "diamond"
+    if diamond then width, height = width / 2^0.5, height / 2^0.5 end
     local perimeter = (width + height) * 2
     if not (edges and masks and lines and thickness
         and perimeter > 0
@@ -3530,7 +3871,7 @@ function GUI2._RestrictedGlowRuntime:ConfigurePixel(glow)
     end
     local cycle = perimeter / lines
     if cycle <= 0 then return false end
-    local signature = tostring(lines)
+    local signature = tostring(diamond) .. ":" .. tostring(lines)
         .. ":" .. tostring(speed)
         .. ":" .. tostring(glow.gui2GlowPhase or 0)
         .. ":" .. tostring(width)
@@ -3605,6 +3946,10 @@ function GUI2._RestrictedGlowRuntime:ConfigurePixel(glow)
         true
     )
 
+    if diamond or glow.gui2PixelWasDiamond then
+        GUI2._ShapeGlow:LayoutDiamondEdges(glow, width, height, thickness, cycle)
+    end
+    glow.gui2PixelWasDiamond = diamond
     local offsets = {
         top = { cycle, 0 },
         right = { 0, -cycle },
@@ -3619,10 +3964,9 @@ function GUI2._RestrictedGlowRuntime:ConfigurePixel(glow)
         if not (group and animation and animation.SetOffset) then return false end
         if duration > 0 then
             animation:SetDuration(duration)
-            animation:SetOffset(
-                translationOffset[1],
-                translationOffset[2]
-            )
+            local x, y = translationOffset[1], translationOffset[2]
+            if diamond then x, y = (x - y) / 2^0.5, (x + y) / 2^0.5 end
+            animation:SetOffset(x, y)
             group:Play()
             texture.gui2RestrictedPixelPlaying = true
         else
@@ -3699,6 +4043,8 @@ end
 
 function GUI2._RestrictedGlowRuntime:Stop(glow)
     if not glow then return end
+    if glow.gui2ManagedDiamondProcGlow then GUI2:SetManagedProcGlowShown(glow.gui2ManagedDiamondProcGlow, false) end
+    if glow.gui2MasqueProcGlow then GUI2:SetManagedProcGlowShown(glow.gui2MasqueProcGlow, false) end
     self:StopPixel(glow)
     self:StopButton(glow)
     AutoCastGlow:Stop(glow)
@@ -3727,7 +4073,9 @@ function GUI2._RestrictedGlowRuntime:Prepare(glow, style)
     local prepared = true
     if UsesPixelGlowSegments(style) then
         prepared = self:ConfigurePixel(glow)
-        SetPixelGlowEdgesShown(glow, prepared)
+        SetPixelGlowEdgesShown(glow, prepared and GUI2._ShapeGlow:Shape(glow) ~= "circle")
+    elseif style == "button" and GUI2._ShapeGlow:Shape(glow) == "circle" then
+        prepared = GUI2._ShapeGlow:ShowCircleButton(glow)
     elseif style == "button" then
         local frame = ApplyButtonGlowLayout(glow)
         ApplyButtonGlowColor(
@@ -3741,7 +4089,9 @@ function GUI2._RestrictedGlowRuntime:Prepare(glow, style)
         prepared = self:ConfigureButton(glow, frame)
         frame:Show()
     elseif style == "autocast" then
-        if glow.gui2AutoCastUseNative == true then
+        if glow.gui2AutoCastShape == "circle" then
+            prepared = AutoCastGlow:ShowCircle(glow)
+        elseif glow.gui2AutoCastUseNative == true then
             local frame = glow.gui2NativeAutoCastGlow
             if frame then AutoCastGlow:ConfigureNative(glow, frame) end
             prepared = frame ~= nil
@@ -3755,6 +4105,13 @@ function GUI2._RestrictedGlowRuntime:Prepare(glow, style)
             end
             prepared = AutoCastGlow:ConfigureRestrictedAnimations(glow)
         end
+    elseif style == "masque" then
+        local frame = EnsureProcGlow(glow)
+        if frame then
+            GUI2:_ApplyGlowChildLayer(glow, frame)
+            GUI2:SetManagedProcGlowShown(frame, true)
+        end
+        prepared = frame ~= nil
     elseif style == "proc" then
         local frame = EnsureProcGlow(glow)
         frame:Show()
@@ -3765,10 +4122,19 @@ function GUI2._RestrictedGlowRuntime:Prepare(glow, style)
         prepared = self:ConfigureProc(glow, frame)
     elseif style == "pulse" then
         local frame = ApplyPulseGlowLayout(glow)
-        prepared = self:ConfigurePulse(glow, frame)
+        if frame == glow.gui2ShapePulse then
+            GUI2._ShapeGlow:ShowPulse(glow, true)
+        else
+            prepared = self:ConfigurePulse(glow, frame)
+        end
     elseif style == "soft" then
-        local frame = GUI2._RestrictedEdgeGlow:Layout(glow, "soft")
+        local frame = GUI2._ShapeGlow:LayoutPulse(glow, "soft")
         if frame then
+            GUI2._ShapeGlow:ShowPulse(glow, true)
+        else
+            frame = GUI2._RestrictedEdgeGlow:Layout(glow, "soft")
+        end
+        if frame and frame ~= glow.gui2ShapePulse then
             frame:SetScale(1)
             frame:SetAlpha(1)
             GUI2._RestrictedEdgeGlow:SetColor(
@@ -3842,6 +4208,26 @@ RefreshGlowAnimation = function(glow)
         return
     end
     local shown = GUI2:_ShouldRenderGlow(glow)
+    if UsesPixelGlowSegments(style) and GUI2._ShapeGlow:Shape(glow) == "circle" then
+        PixelGlowDriver:Unregister(glow)
+        glow:SetAlpha(1)
+        glow:SetScript("OnUpdate", nil)
+        HideNativeGlow(glow)
+        HidePulseGlow(glow)
+        SetPixelGlowEdgesShown(glow, false)
+        GUI2._ShapeGlow:ShowCircle(glow, shown)
+        return
+    end
+    GUI2._ShapeGlow:StopCircle(glow)
+    if (style == "pulse" or style == "soft") and GUI2._ShapeGlow:UsesSoftContour(glow) then
+        PixelGlowDriver:Unregister(glow)
+        glow:SetAlpha(1)
+        HidePixelGlowLines(glow)
+        HideNativeGlow(glow)
+        glow:SetScript("OnUpdate", nil)
+        GUI2._ShapeGlow:ShowPulse(glow, shown)
+        return
+    end
     if UsesPixelGlowSegments(style) then
         glow:SetScript("OnUpdate", nil)
         HideNativeGlow(glow)
@@ -3880,9 +4266,10 @@ RefreshGlowAnimation = function(glow)
     end
     if shown and GlowNeedsAnimation(style)
         and not (style == "button"
-            and ClampGlowSpeed(glow.gui2GlowSpeed) <= 0)
-        and not (style == "proc"
-            and glow.gui2ManagedCircleProcGlow) then
+            and (GUI2._ShapeGlow:Shape(glow) == "circle" or ClampGlowSpeed(glow.gui2GlowSpeed) <= 0))
+        and not (style == "proc" and (glow.gui2ProcFrame and glow.gui2ProcFrame.ProcLoop
+            or glow.gui2GlowShape == "circle" and glow.gui2ManagedCircleProcGlow
+            or GUI2._ShapeGlow:Shape(glow) == "diamond" and glow.gui2ManagedDiamondProcGlow)) then
         if style ~= "pulse" then
             glow:SetAlpha(1)
         end
@@ -3895,6 +4282,12 @@ end
 
 UpdatePixelGlowLayout = function(glow)
     if not glow or not UsesPixelGlowSegments(glow.gui2GlowStyle) then return end
+    if GUI2._ShapeGlow:Shape(glow) == "circle" then
+        SetPixelGlowEdgesShown(glow, false)
+        glow.gui2PixelGlowGeometryReady = GUI2._ShapeGlow:LayoutCircle(glow)
+        return
+    end
+    GUI2._ShapeGlow:StopCircle(glow)
 
     local lineCount = ClampGlowLines(glow.gui2GlowLines)
     local pixel = GUI2:GetPixelSize(glow, 1, 1)
@@ -3902,6 +4295,8 @@ UpdatePixelGlowLayout = function(glow)
     local layoutWidth, layoutHeight = GUI2:_GetGlowLayoutSize(glow)
     local width = SnapGlowValue(glow, layoutWidth, pixel)
     local height = SnapGlowValue(glow, layoutHeight, pixel)
+    local diamond = GUI2._ShapeGlow:Shape(glow) == "diamond"
+    if diamond then width, height = width / 2^0.5, height / 2^0.5 end
     local perimeter = (width + height) * 2
     if perimeter <= 0 then
         glow.gui2PixelGlowGeometryReady = false
@@ -3926,6 +4321,10 @@ UpdatePixelGlowLayout = function(glow)
             edges.right:SetWidth(thickness)
             edges.right.gui2PixelThickness = thickness
         end
+    end
+    if glow.gui2RestrictedParent ~= true and (diamond or glow.gui2PixelWasDiamond) then
+        GUI2._ShapeGlow:LayoutDiamondEdges(glow, width, height, thickness)
+        glow.gui2PixelWasDiamond = diamond
     end
     glow.gui2PixelGlowResolvedThickness = thickness
     local scale = lineCount / perimeter
@@ -3969,7 +4368,16 @@ end
 
 local function GlowOnHide(glow)
     glow.gui2GlowVisible = false
-    if glow.gui2RestrictedParent == true then return end
+    if glow.gui2MasqueProcGlow then
+        GUI2:SetManagedProcGlowShown(glow.gui2MasqueProcGlow, false)
+        if glow.gui2GlowStyle == "masque" then glow.gui2RestrictedAnimationPrepared = nil end
+    end
+    if glow.gui2RestrictedParent == true then
+        if GUI2._ShapeGlow:UsesSoftContour(glow) then
+            GUI2._RestrictedGlowRuntime:Stop(glow)
+        end
+        return
+    end
     PixelGlowDriver:Unregister(glow)
     AutoCastGlow.Driver:Unregister(glow)
     glow:SetScript("OnUpdate", nil)
@@ -3978,7 +4386,7 @@ local function GlowOnHide(glow)
     HidePulseGlow(glow)
 end
 
-local function ApplyGlowColor(glow)
+ApplyGlowColor = function(glow)
     if not glow then return end
     local r, g2, b2, a2
     if glow.gui2ColorKey then
@@ -3995,7 +4403,18 @@ local function ApplyGlowColor(glow)
     glow.gui2GlowResolvedG = g2
     glow.gui2GlowResolvedB = b2
     glow.gui2GlowResolvedAlpha = alpha
+    if glow.gui2GlowStyle == "masque" and glow.gui2MasqueProcGlow then
+        local frame = glow.gui2MasqueProcGlow
+        for _, texture in pairs({ frame.ProcStartFlipbook, frame.ProcLoopFlipbook, frame.gui2ProcBorder, frame.gui2ProcSoft }) do
+            texture:SetVertexColor(r, g2, b2, alpha)
+        end
+    end
 
+    if (glow.gui2GlowStyle == "pulse" or glow.gui2GlowStyle == "soft") and glow.gui2ShapePulse
+        and GUI2._ShapeGlow:UsesSoftContour(glow) then
+        glow.gui2ShapePulse.texture:SetVertexColor(r, g2, b2, alpha)
+        return
+    end
     if glow.gui2RestrictedParent == true
         and (glow.gui2GlowStyle == "soft"
             or glow.gui2GlowStyle == "pulse") then
@@ -4009,13 +4428,21 @@ local function ApplyGlowColor(glow)
             )
         end
     elseif UsesPixelGlowSegments(glow.gui2GlowStyle) then
+        if GUI2._ShapeGlow:Shape(glow) == "circle" then
+            local ring = glow.gui2CirclePixel
+            if ring then ring:SetVertexColor(r, g2, b2, alpha) end
+            return
+        end
         local edges = EnsurePixelGlowEdges(glow)
         edges.top:SetVertexColor(r, g2, b2, alpha)
         edges.right:SetVertexColor(r, g2, b2, alpha)
         edges.bottom:SetVertexColor(r, g2, b2, alpha)
         edges.left:SetVertexColor(r, g2, b2, alpha)
     elseif UsesNativeGlow(glow.gui2GlowStyle) then
-        if glow.gui2GlowStyle == "button" and glow.gui2ButtonGlow then
+        if glow.gui2GlowStyle == "button" and GUI2._ShapeGlow:Shape(glow) == "circle"
+            and glow.gui2ManagedCircleProcGlow then
+            GUI2:_SyncManagedCircleProcAppearance(glow, glow.gui2ManagedCircleProcGlow)
+        elseif glow.gui2GlowStyle == "button" and glow.gui2ButtonGlow then
             ApplyButtonGlowColor(glow.gui2ButtonGlow, r, g2, b2, alpha)
         end
         if glow.gui2GlowStyle == "autocast" then
@@ -4114,7 +4541,7 @@ local function ApplyGlowStyle(glow)
         SetGlowTargetPoints(
             glow,
             target,
-            ResolveGlowOutset(glow, style),
+            style == "masque" and 0 or ResolveGlowOutset(glow, style),
             style == "proc" and 1 or 0
         )
         if style == "autocast" then
@@ -4147,6 +4574,15 @@ local function ApplyGlowStyle(glow)
     end
 
     HidePulseGlow(glow)
+    if GUI2._ShapeGlow:UsesSoftContour(glow) then
+        SetGlowTargetPoints(glow, target, ResolveGlowOutset(glow, style))
+        if glow.SetBackdrop then glow:SetBackdrop(nil) end
+        GUI2._RestrictedEdgeGlow:Hide(glow)
+        GUI2._ShapeGlow:LayoutPulse(glow, "soft")
+        ApplyGlowColor(glow)
+        RefreshGlowAnimation(glow)
+        return
+    end
     local size = ResolveGlowEdgeSize(glow, style)
     if glow.gui2RestrictedParent == true then
         if glow.SetBackdrop then
@@ -4197,12 +4633,14 @@ function GUI2:CreateGlow(frame, opts)
             )
         end
         frame.gui2Glow:SetGlowParams(opts)
+        if opts.skinOwner then frame.gui2Glow:SetGlowSkinOwner(opts.skinOwner) end
         return frame.gui2Glow
     end
 
     local glow = CreateFrame("Frame", opts.name, frame, "BackdropTemplate")
     glow:Hide()
     glow.gui2GlowTarget = frame
+    glow.gui2GlowClipParent = frame
     glow.gui2GlowVisible = false
     glow.gui2RestrictedParent = false
     glow.gui2GlowFrameLevel = type(opts.trustedFrameLevel) == "number"
@@ -4335,6 +4773,20 @@ function GUI2:CreateGlow(frame, opts)
         end
     end
 
+    glow.SetGlowClipParent = function(object, parent)
+        parent = parent or object.gui2GlowTarget
+        if object.gui2GlowClipParent == parent then return false end
+        object:SetParent(parent)
+        object.gui2GlowClipParent = parent
+        object.gui2AppliedGlowFrameLevel = nil
+        object.gui2AppliedGlowFrameStrata = nil
+        object.gui2AppliedGlowChild = nil
+        object.gui2AppliedGlowChildLevel = nil
+        object.gui2AppliedGlowChildStrata = nil
+        ApplyGlowStyle(object)
+        return true
+    end
+
     glow.SetGlowParams = function(object, params)
         params = type(params) == "table" and params or {}
         local previousStyle = object.gui2GlowStyle
@@ -4410,6 +4862,14 @@ function GUI2:CreateGlow(frame, opts)
         ApplyGlowStyle(object)
     end
 
+    glow.SetGlowSkinOwner = function(object, owner)
+        local recipe = GUI2.GetIconSkinProcRecipe and GUI2:GetIconSkinProcRecipe(owner)
+        if object.gui2GlowSkinOwner == owner and object.gui2GlowSkinRecipe == recipe then return false end
+        object.gui2GlowSkinOwner, object.gui2GlowSkinRecipe = owner, recipe
+        if object.gui2GlowStyle == "masque" then ApplyGlowStyle(object) end
+        return true
+    end
+
     glow.SetGlowShape = function(object, shape, targetShape)
         targetShape = targetShape or shape
         if object.gui2GlowShape == shape
@@ -4456,6 +4916,7 @@ function GUI2:CreateGlow(frame, opts)
         opts.trustedHeight
     )
     glow:SetGlowColor(opts.colorKey or opts.color or "color.border.accent")
+    glow:SetGlowSkinOwner(opts.skinOwner or frame)
     glow:SetGlowParams(opts)
     if opts.hidden ~= false then
         glow:SetGlowShown(false)
@@ -4734,10 +5195,12 @@ function GUI2:CreateTexture(parent, paintKey, widthOrLayer, height, layer, isAtl
     local atlas = opts and opts.atlas
 
     local hasPaint = paintKey ~= nil
+    -- Registered theme paints can contain dots without naming image files.
+    local knownPaint = hasPaint and self.GetToken and self:GetToken(paintKey) ~= nil
 
     if atlas and texture.SetAtlas then
         texture:SetAtlas(atlas)
-    elseif source or LooksLikeTexturePath(paintKey) or isAtlas then
+    elseif source or (not knownPaint and LooksLikeTexturePath(paintKey)) or isAtlas then
         local texturePath = source or paintKey
         if isAtlas and texture.SetAtlas then
             texture:SetAtlas(texturePath)
@@ -4778,6 +5241,7 @@ function GUI2:SetIconTexture(texture, source, fallback)
     end
     texture.gui2AtlasSource = nil
     texture:SetTexture(iconSource)
+    if self.ApplyUIIconEffect and not texture.gui2UIIcon then self:ApplyUIIconEffect(texture, iconSource) end
     return texture
 end
 
@@ -4798,6 +5262,24 @@ function GUI2:GetSettingsIcon(name)
     end
 
     return ResolveCoreAssetPath(SETTINGS_ICON_ROOT .. name .. ".png")
+end
+
+-- Shared business-neutral UI artwork. Product code owns actions and state.
+do
+local UI_ICON_NAMES = {
+    settings=true, sound=true, library=true, anchors=true, timer=true,
+    background=true, grid=true, credits=true, tutorial=true, ["spell-alert"]=true,
+    check=true, ["rotate-ccw"]=true, ["circle-slash"]=true, users=true, ["file-text"]=true, record=true,
+    ["file-slash"]=true, ["grip-vertical"]=true, ["refresh-cw"]=true,
+    ["raid-star"]=true, ["raid-circle"]=true, ["raid-diamond"]=true,
+    ["raid-triangle"]=true, ["raid-moon"]=true, ["raid-square"]=true,
+    ["raid-cross"]=true, ["raid-skull"]=true,
+}
+
+function GUI2:GetUIIcon(name, size)
+    if not UI_ICON_NAMES[name] then return nil end
+    return ResolveCoreAssetPath("gui2\\icons\\ui\\" .. name .. "-64.png")
+end
 end
 
 local function NormalizeSettingsMicroIconSize(size)
@@ -4845,7 +5327,8 @@ function GUI2:GetSettingsMicroIcon(name, size)
     local zeroIndex = index - 1
     local column = zeroIndex % columns
     local row = math_floor(zeroIndex / columns)
-    local x = column * cellSize + gutter
+    local sampleOffsetX = SETTINGS_MICRO_ICON_ATLAS.sampleOffsetX[name]
+    local x = column * cellSize + gutter + (sampleOffsetX and sampleOffsetX[microSize] or 0)
     local y = row * cellSize + gutter
 
     local data = {
@@ -5797,6 +6280,23 @@ local ICON_APPEARANCE_SOLID_SWIPE =
     Assets:Core("gui2\\shapes\\solid-swipe.tga")
 
 GUI2.IconAppearancePresets = {
+    diamond = {
+        id = "diamond",
+        aspect = 1,
+        mask = Assets:Core("gui2\\shapes\\diamond-mask.tga"),
+        -- 内容退到黑色边框内部，避免两层半透明斜边叠加漏出亮色图标。
+        materialContentMask = Assets:Core("gui2\\shapes\\diamond-content-mask-1.tga"),
+        cooldownInsets = { contour = 2.8 / 48 },
+        contentMasks = {
+            Assets:Core("gui2\\shapes\\diamond-content-mask-1.tga"),
+            Assets:Core("gui2\\shapes\\diamond-content-mask-2.tga"),
+            Assets:Core("gui2\\shapes\\diamond-content-mask-3.tga"),
+            Assets:Core("gui2\\shapes\\diamond-content-mask-4.tga"),
+        },
+        borderFamily = "diamond",
+        circular = false,
+        swipe = Assets:Core("gui2\\shapes\\diamond-mask.tga"),
+    },
     square = {
         id = "square",
         aspect = 1,
@@ -5809,6 +6309,7 @@ GUI2.IconAppearancePresets = {
         id = "roundedSquare",
         aspect = 1,
         mask = ICON_APPEARANCE_ROUNDED_MASK,
+        materialContentMask = Assets:Core("gui2\\shapes\\material-content-mask-roundedSquare.tga"),
         contentMasks = ICON_APPEARANCE_ROUNDED_CONTENT_MASKS,
         borderFamily = "rounded",
         circular = false,
@@ -5826,6 +6327,7 @@ GUI2.IconAppearancePresets = {
         id = "flatRounded",
         aspect = ICON_APPEARANCE_FLAT_ASPECT,
         mask = ICON_APPEARANCE_ROUNDED_MASK,
+        materialContentMask = Assets:Core("gui2\\shapes\\material-content-mask-flatRounded.tga"),
         contentMasks = ICON_APPEARANCE_ROUNDED_CONTENT_MASKS,
         borderFamily = "rounded",
         circular = false,
@@ -5843,6 +6345,7 @@ GUI2.IconAppearancePresets = {
         id = "wideRounded",
         aspect = ICON_APPEARANCE_WIDE_ASPECT,
         mask = ICON_APPEARANCE_WIDE_ROUNDED_MASK,
+        materialContentMask = Assets:Core("gui2\\shapes\\material-content-mask-wideRounded.tga"),
         contentMasks = ICON_APPEARANCE_WIDE_ROUNDED_CONTENT_MASKS,
         borderFamily = "wideRounded",
         circular = false,
@@ -5852,6 +6355,7 @@ GUI2.IconAppearancePresets = {
         id = "circle",
         aspect = 1,
         mask = ICON_APPEARANCE_CIRCLE_MASK,
+        materialContentMask = Assets:Core("gui2\\shapes\\material-content-mask-circle.tga"),
         contentMasks = ICON_APPEARANCE_CIRCLE_CONTENT_MASKS,
         borderFamily = "circle",
         circular = true,
@@ -5865,9 +6369,17 @@ GUI2.IconBorderThickness = {
     medium = 2,
     thick = 3,
     extraThick = 4,
+    contour = 1,
+    shade = 1,
 }
 
 GUI2.IconAppearanceBorderTextures = {
+    diamond = {
+        Assets:Core("gui2\\shapes\\diamond-border-1.tga"),
+        Assets:Core("gui2\\shapes\\diamond-border-2.tga"),
+        Assets:Core("gui2\\shapes\\diamond-border-3.tga"),
+        Assets:Core("gui2\\shapes\\diamond-border-4.tga"),
+    },
     rounded = {
         Assets:Core("gui2\\shapes\\rounded-square-border-1.tga"),
         Assets:Core("gui2\\shapes\\rounded-square-border-2.tga"),
@@ -5888,7 +6400,36 @@ GUI2.IconAppearanceBorderTextures = {
     },
 }
 
+-- 材质边框自带配色和向内渐变，沿用形状边框纹理层，不参与状态提示绘制。
+GUI2.IconBorderMaterials = { contour = {}, shade = {} }
+GUI2.IconCooldownInsets = { contour = 4.25 / 48, shade = 1 / 48 }
+GUI2.IconCooldownTextures = {}
+;(function()
+    for material, families in pairs(GUI2.IconBorderMaterials) do
+        for shape in pairs(GUI2.IconAppearancePresets) do
+            local family = material .. "-" .. shape
+            families[shape] = family
+            GUI2.IconAppearanceBorderTextures[family] = {
+                Assets:Core("gui2\\shapes\\border-" .. family .. ".tga"),
+            }
+            GUI2.IconCooldownTextures[family] =
+                Assets:Core("gui2\\shapes\\cooldown-" .. family .. ".tga")
+        end
+    end
+end)()
+
+function GUI2:IsIconBorderMaterial(border)
+    return self.IconBorderMaterials[border] ~= nil
+end
+
+function GUI2:GetIconBorderFamily(shape, border)
+    local preset, normalized = self:GetIconAppearancePreset(shape)
+    local families = self.IconBorderMaterials[border]
+    return families and families[normalized] or preset.borderFamily
+end
+
 GUI2.IconStateInnerTextures = {
+    diamond = Assets:Core("gui2\\shapes\\button-state-inner-diamond.tga"),
     square = Assets:Core("gui2\\shapes\\button-state-inner-square.tga"),
     roundedSquare = Assets:Core(
         "gui2\\shapes\\button-state-inner-rounded.tga"
@@ -5948,6 +6489,34 @@ function GUI2:GetIconAppearancePreset(shape)
     return self.IconAppearancePresets[shape], shape
 end
 
+-- 实心圆底衬只露出连续外沿，图标和底衬共用圆形遮罩轮廓。
+function GUI2:SetIconCircleBackdrop(slot, size, visible)
+    if visible ~= true then
+        if slot.gui2CircleOutline then
+            slot.gui2CircleOutline:Hide()
+            slot.gui2CircleShadow:Hide()
+        end
+        return
+    end
+    if not slot.gui2CircleOutline then
+        local silhouette = self:GetIconAppearancePreset("circle").mask
+        slot.gui2CircleOutline = self:CreateIcon(slot, {
+            icon = silhouette, crop = false, layer = "BACKGROUND", subLevel = 1,
+        })
+        slot.gui2CircleShadow = self:CreateIcon(slot, {
+            icon = silhouette, crop = false, layer = "BACKGROUND", subLevel = 0,
+        })
+        slot.gui2CircleOutline:SetVertexColor(0.04, 0.03, 0.02, 0.95)
+        slot.gui2CircleShadow:SetVertexColor(0, 0, 0, 0.30)
+        slot.gui2CircleOutline:SetPoint("CENTER", slot, "CENTER", 0, 0)
+        slot.gui2CircleShadow:SetPoint("CENTER", slot, "CENTER", 0, -0.5)
+    end
+    slot.gui2CircleOutline:SetSize(size + 2, size + 2)
+    slot.gui2CircleShadow:SetSize(size + 4, size + 4)
+    slot.gui2CircleOutline:Show()
+    slot.gui2CircleShadow:Show()
+end
+
 function GUI2:GetIconBorderThickness(border)
     return self.IconBorderThickness[border] or self.IconBorderThickness.thin
 end
@@ -5961,12 +6530,22 @@ end
 function GUI2:GetIconAppearanceMask(shape, border)
     local preset = self:GetIconAppearancePreset(shape)
     if not preset then return nil end
+    if self:IsIconBorderMaterial(border) then return preset.materialContentMask or preset.mask end
     local thickness = self:GetIconBorderThickness(border)
     local contentMasks = preset.contentMasks
     if thickness > 0 and contentMasks and contentMasks[thickness] then
         return contentMasks[thickness]
     end
     return preset.mask
+end
+
+-- 冷却内轮廓与图标内容裁剪独立；纹理映射到已内收的原生 Cooldown 矩形。
+function GUI2:GetIconCooldownTexture(shape, border)
+    local preset, normalized = self:GetIconAppearancePreset(shape)
+    local family = self.IconBorderMaterials[border]
+    return (family and self.IconCooldownTextures[family[normalized]])
+        or self:GetIconAppearanceMask(normalized, border)
+        or preset.swipe or ICON_APPEARANCE_SOLID_SWIPE
 end
 
 function GUI2:GetIconAppearanceSize(size, shape)
@@ -6063,7 +6642,11 @@ local function ApplyIconAppearanceBorderState(slot, colorKey)
         )
     end
     if slot.gui2IconAppearanceBorder then
-        slot.gui2IconAppearanceBorder:SetVertexColor(r, g, b, a)
+        if GUI2:IsIconBorderMaterial(slot.gui2IconBorder) then
+            slot.gui2IconAppearanceBorder:SetVertexColor(1, 1, 1, 1)
+        else
+            slot.gui2IconAppearanceBorder:SetVertexColor(r, g, b, a)
+        end
         if borderVisible and slot.gui2IconBorderFamily then
             slot.gui2IconAppearanceBorder:Show()
         else
@@ -6097,7 +6680,7 @@ function GUI2:ApplyIconAppearance(slot, opts)
     slot.gui2IconBaseSize = size
     slot.gui2IconBorder = border
     slot.gui2IconBorderThickness = thickness
-    slot.gui2IconBorderFamily = preset.borderFamily
+    slot.gui2IconBorderFamily = self:GetIconBorderFamily(shape, border)
     if zoom ~= nil then
         slot.gui2IconZoom = zoom
         slot.gui2IconTexCoordState = slot.gui2IconTexCoordState or {}
@@ -6136,13 +6719,15 @@ function GUI2:ApplyIconAppearance(slot, opts)
     end
 
     if slot.cooldown then
+        if self.ApplyIconCooldownLayout then
+            self:ApplyIconCooldownLayout(slot.cooldown, slot.icon or slot,
+                shape, border, width, height)
+        end
         if slot.cooldown.SetSwipeTexture then
             pcall(
                 slot.cooldown.SetSwipeTexture,
                 slot.cooldown,
-                appearanceMask
-                    or preset.swipe
-                    or ICON_APPEARANCE_SOLID_SWIPE
+                self:GetIconCooldownTexture(shape, border)
             )
         end
         if slot.cooldown.SetUseCircularEdge then
@@ -6167,8 +6752,8 @@ function GUI2:ApplyIconAppearance(slot, opts)
         end
     end
 
-    local familyTextures = preset.borderFamily
-        and self.IconAppearanceBorderTextures[preset.borderFamily]
+    local familyTextures = slot.gui2IconBorderFamily
+        and self.IconAppearanceBorderTextures[slot.gui2IconBorderFamily]
     local shapeBorder = slot.gui2IconAppearanceBorder
     if familyTextures and thickness > 0 and not shapeBorder then
         shapeBorder = EnsureIconAppearanceBorder(slot)
@@ -6185,6 +6770,7 @@ function GUI2:ApplyIconAppearance(slot, opts)
 end
 
 local function ResolveCooldownTextFont(font)
+    if type(font)=="string" and (font:find("\\",1,true) or font:find("/",1,true)) then return font end
     if font == "chat" and _G.ChatFontNormal and _G.ChatFontNormal.GetFont then
         local path = _G.ChatFontNormal:GetFont()
         if path then return path end
@@ -6203,7 +6789,7 @@ local function ResolveCooldownTextFont(font)
 end
 
 local function ResolveCooldownTextOutline(outline)
-    if outline == "thick" then return "THICKOUTLINE" end
+    if outline == "thick" or outline == "thickShadow" then return "THICKOUTLINE" end
     if outline == "outline" or outline == "outlineShadow" then
         return "OUTLINE"
     end
@@ -6213,18 +6799,18 @@ end
 function GUI2:ApplyFontAppearance(fontString, opts)
     if not (fontString and fontString.SetFont) then return false end
     opts = type(opts) == "table" and opts or {}
-    local size = math_max(8, math_min(32, tonumber(opts.size) or 14))
+    local size = math_max(8, math_min(tonumber(opts.maxSize) or 32, tonumber(opts.size) or 14))
     local scale = tonumber(opts.fontScale) or 1
     if scale <= 0 or scale ~= scale or scale == math.huge then scale = 1 end
-    pcall(
-        fontString.SetFont,
-        fontString,
-        ResolveCooldownTextFont(opts.font),
-        size / scale,
-        ResolveCooldownTextOutline(opts.outline)
-    )
+    local flags=ResolveCooldownTextOutline(opts.outline)
+    if opts.monochrome then flags=flags~="" and flags..",MONOCHROME" or "MONOCHROME" end
+    if GUI2.FontStyle then
+        if not GUI2.FontStyle.TryFont(fontString,ResolveCooldownTextFont(opts.font),size/scale,flags) then
+            GUI2.FontStyle.TryFont(fontString,GUI2:GetFont("font.family.body"),size/scale,flags)
+        end
+    else pcall(fontString.SetFont,fontString,ResolveCooldownTextFont(opts.font),size/scale,flags) end
     local hasShadow = opts.outline == "shadow"
-        or opts.outline == "outlineShadow"
+        or opts.outline == "outlineShadow" or opts.outline == "thickShadow"
     if fontString.SetShadowColor then
         if hasShadow then
             fontString:SetShadowColor(0, 0, 0, 1)
@@ -6271,15 +6857,17 @@ function GUI2:ApplyCooldownTextAppearance(slot, opts, preserveAnchors)
     if fontString then
         self:ApplyFontAppearance(fontString, opts)
         if preserveAnchors ~= true and fontString.ClearAllPoints and fontString.SetPoint then
+            local layout = cooldown.gui2CooldownLayout
+            local anchor = layout and layout.active and layout.reference or cooldown
             local x = tonumber(opts.offsetX) or 0
             local y = tonumber(opts.offsetY) or 0
             fontString:ClearAllPoints()
             if opts.position == "top" then
-                fontString:SetPoint("TOP", cooldown, "TOP", x, y - 2)
+                fontString:SetPoint("TOP", anchor, "TOP", x, y - 2)
             elseif opts.position == "bottom" then
-                fontString:SetPoint("BOTTOM", cooldown, "BOTTOM", x, y + 2)
+                fontString:SetPoint("BOTTOM", anchor, "BOTTOM", x, y + 2)
             else
-                fontString:SetPoint("CENTER", cooldown, "CENTER", x, y)
+                fontString:SetPoint("CENTER", anchor, "CENTER", x, y)
             end
         end
         local color = type(opts.color) == "table"
@@ -6296,6 +6884,7 @@ function GUI2:ApplyCooldownTextAppearance(slot, opts, preserveAnchors)
     slot.gui2CooldownTextAppearance = {
         enabled = enabled,
         font = opts.font or "default",
+        monochrome = opts.monochrome == true, maxSize = opts.maxSize, fontScale = opts.fontScale,
         size = tonumber(opts.size) or 14,
         outline = opts.outline or "outline",
         position = opts.position or "center",
@@ -7009,6 +7598,11 @@ function GUI2:CloseDropdown(animated)
     local frame = self.DropdownFrame
     if not frame then return false end
     local anchor = frame.anchor
+    if frame.hoveredOption then
+        local option, row = frame.hoveredOption, frame.hoveredRow
+        frame.hoveredOption, frame.hoveredRow = nil, nil
+        if option.onLeave then option.onLeave(row) end
+    end
 
     if frame.blocker then
         frame.blocker:Hide()
@@ -7307,6 +7901,11 @@ function GUI2:OpenDropdown(parent, options, onSelect, selectedValue, width, conf
         frame.scrollChild = scroll.child
         frame.buttons = {}
         frame:SetScript("OnHide", function()
+            if frame.hoveredOption then
+                local option, row = frame.hoveredOption, frame.hoveredRow
+                frame.hoveredOption, frame.hoveredRow = nil, nil
+                if option.onLeave then option.onLeave(row) end
+            end
             if frame.blocker then frame.blocker:Hide() end
             if frame.searchBox then frame.searchBox:ClearFocus() end
             frame.FilterOptions=nil
@@ -7325,6 +7924,12 @@ function GUI2:OpenDropdown(parent, options, onSelect, selectedValue, width, conf
 
     if frame:IsShown() and frame.anchor and frame.anchor ~= parent then
         PlayDropdownArrowMotion(frame.anchor, false)
+    end
+
+    if frame.hoveredOption then
+        local option, row = frame.hoveredOption, frame.hoveredRow
+        frame.hoveredOption, frame.hoveredRow = nil, nil
+        if option.onLeave then option.onLeave(row) end
     end
 
     frame.gui2DropdownClosing = nil
@@ -7541,6 +8146,9 @@ function GUI2:OpenDropdown(parent, options, onSelect, selectedValue, width, conf
             if onSelect then onSelect(opt.value, opt) end
         end)
         button:SetScript("OnEnter", function(self)
+            if frame.hoveredOption and frame.hoveredOption.onLeave then frame.hoveredOption.onLeave(frame.hoveredRow) end
+            frame.hoveredOption, frame.hoveredRow = opt, self
+            if opt.onEnter then opt.onEnter(self) end
             local previewRow = SetDropdownPreviewState(self, "hover")
             if self.rowBg and not previewRow then GUI2:SetTexturePaintKey(self.rowBg, "color.control.hover") end
             if self.selectedEdge then
@@ -7557,6 +8165,10 @@ function GUI2:OpenDropdown(parent, options, onSelect, selectedValue, width, conf
             if self.text then GUI2:SetTextColorKey(self.text, "color.text.accent") end
         end)
         button:SetScript("OnLeave", function(self)
+            if frame.hoveredRow == self then
+                frame.hoveredOption, frame.hoveredRow = nil, nil
+                if opt.onLeave then opt.onLeave(self) end
+            end
             local previewRow = SetDropdownPreviewState(self, self.gui2Selected and "selected" or "normal")
             if self.rowBg then
                 GUI2:SetTexturePaintKey(self.rowBg, previewRow and "color.surface.popup" or (self.gui2Selected and "color.control.active" or "color.surface.popup"))
@@ -7574,6 +8186,12 @@ function GUI2:OpenDropdown(parent, options, onSelect, selectedValue, width, conf
             UpdateDropdownSeparator(frame.buttons[rowIndex - 1], rowIndex - 1)
             UpdateDropdownSeparator(self, rowIndex)
             if self.text then GUI2:SetTextColorKey(self.text, self.gui2Selected and "color.text.accent" or "color.text.primary") end
+        end)
+        button:SetScript("OnHide", function(self)
+            if frame.hoveredRow == self then
+                frame.hoveredOption, frame.hoveredRow = nil, nil
+                if opt.onLeave then opt.onLeave(self) end
+            end
         end)
         height = height + rowHeight
     end
@@ -7670,6 +8288,11 @@ function GUI2:OpenDropdown(parent, options, onSelect, selectedValue, width, conf
             frame.buttons[i].searchText=tostring(option.text or option.value or ''):gsub('|c%x%x%x%x%x%x%x%x',''):gsub('|r',''):gsub('|T.-|t',''):gsub('|A.-|a',''):lower()
         end
         function frame:FilterOptions(query)
+            if self.hoveredOption then
+                local option, row = self.hoveredOption, self.hoveredRow
+                self.hoveredOption, self.hoveredRow = nil, nil
+                if option.onLeave then option.onLeave(row) end
+            end
             query=(query or ''):lower()
             local count=0
             for i=1,#options do
@@ -8743,6 +9366,132 @@ function GUI2:CreateSwatch(parent, label, paintKey, width, height)
     frame.gui2SwatchKey = paintKey
     frame.gui2Label = text
     return frame
+end
+
+-- A separate host keeps the semantic autocast state independent of custom glows.
+-- Call Configure only with public geometry during the owner's styling phase.
+function GUI2:CreateAutoCastIndicator(parent, availableOverlay, availableTexture)
+    local host = CreateFrame("Frame", nil, parent)
+    host:Hide()
+    host:EnableMouse(false)
+    host:SetPoint("CENTER", parent, "CENTER", 0, 0)
+    local indicator = { host = host, overlay = availableOverlay, availableTexture = availableTexture, suspended = true }
+    -- This adapter owns an ordinary action-button host, not a secret CDM frame.
+    -- Hide/Show establish visibility without reading protected geometry/state.
+    host:SetScript("OnHide", function()
+        indicator.suspended = true
+        if indicator.glow then indicator.glow:SetGlowShown(false) end
+    end)
+    host:SetScript("OnShow", function()
+        indicator.suspended = false
+        if indicator.glow then indicator.glow:SetGlowShown(indicator.enabled == true) end
+    end)
+
+    function indicator:HideAvailable()
+        local overlay = self.overlay
+        if overlay then
+            if overlay.ShowAutoCastEnabled then overlay:ShowAutoCastEnabled(false) end
+            if overlay.Shine and overlay.Shine.Anim then overlay.Shine.Anim:Stop() end
+            overlay:Hide()
+            if overlay.Shine then overlay.Shine:Hide() end
+            if overlay.Corners then overlay.Corners:Hide() end
+            if overlay.Mask then overlay.Mask:Hide() end
+        end
+        if self.marker then self.marker:Hide() end
+    end
+
+    -- Native pet refreshes can reopen the old overlay without changing the
+    -- semantic enabled state. Correct that write without restarting our glow.
+    function indicator:SuppressNativeShine()
+        local overlay = self.overlay
+        if not (self.nativeOwned and overlay) then return 0 end
+        local writes = 0
+        local shine = overlay.Shine
+        if shine then
+            if shine.Anim and shine.Anim:IsPlaying() then
+                shine.Anim:Stop()
+                writes = writes + 1
+            end
+            if shine:IsShown() then shine:Hide(); writes = writes + 1 end
+        end
+        local corners = self.allowed and not self.enabled
+            and self.shape ~= "circle" and self.shape ~= "diamond"
+        if not corners and overlay:IsShown() then
+            overlay:Hide()
+            writes = writes + 1
+        end
+        return writes
+    end
+
+    -- One post-hook per reusable native overlay, inert after release/Masque
+    -- handoff. Do not replace the native method or add an update driver.
+    if availableOverlay and availableOverlay.ShowAutoCastEnabled and hooksecurefunc then
+        hooksecurefunc(availableOverlay, "ShowAutoCastEnabled", function()
+            indicator:SuppressNativeShine()
+        end)
+    end
+
+    function indicator:SetState(allowed, enabled)
+        allowed = allowed == true
+        enabled = allowed and enabled == true
+        if self.allowed == allowed and self.enabled == enabled then return self:SuppressNativeShine() end
+        self.allowed, self.enabled = allowed, enabled
+        self:HideAvailable()
+        if self.glow then self.glow:SetGlowShown(enabled and not self.suspended) end
+        if allowed and not enabled then
+            if self.shape == "circle" or self.shape == "diamond" then
+                if self.marker then self.marker:Show() end
+            elseif self.overlay then
+                local overlay = self.overlay
+                overlay:SetAlpha(1)
+                overlay:Show()
+                if overlay.Corners then overlay.Corners:SetAlpha(1); overlay.Corners:Show() end
+                if overlay.Mask then overlay.Mask:SetAlpha(1); overlay.Mask:Show() end
+            end
+        end
+        return 1
+    end
+
+    function indicator:Configure(shape, width, height, level)
+        if self.shape == shape and self.width == width and self.height == height and self.level == level then return end
+        local allowed, enabled = self.allowed, self.enabled
+        self.shape, self.width, self.height, self.level = shape, width, height, level
+        self.host:SetSize(width, height)
+        self.host:SetFrameLevel(level)
+        local params = self.params or { style = "autocast", color = {1, .9, .18, 1}, alpha = 1,
+            speed = .25, size = 1, hidden = true, restrictedParent = true }
+        self.params = params
+        params.shape, params.targetShape = shape, shape
+        params.trustedWidth, params.trustedHeight, params.trustedFrameLevel = width, height, level
+        self.glow = GUI2:CreateGlow(self.host, params)
+        if (shape == "circle" or shape == "diamond") and not self.marker and self.availableTexture then
+            self.marker = self.host:CreateTexture(nil, "OVERLAY", nil, 6)
+            self.marker:SetTexture(self.availableTexture)
+            self.marker:SetAllPoints(self.host)
+            self.marker:SetBlendMode("ADD")
+            self.marker:SetVertexColor(1, .82, .12, .96)
+        end
+        if self.overlay then
+            local overlay = self.overlay
+            overlay:ClearAllPoints()
+            -- Available and enabled corners use the same atlas and bounds.
+            -- An extra outset here enlarges only the disabled triangles.
+            overlay:SetPoint("TOPLEFT", self.glow, "TOPLEFT", 0, 0)
+            overlay:SetPoint("BOTTOMRIGHT", self.glow, "BOTTOMRIGHT", 0, 0)
+            overlay:SetFrameLevel(level)
+            if overlay.Mask then
+                overlay.Mask:ClearAllPoints()
+                overlay.Mask:SetPoint("TOPLEFT", overlay, "TOPLEFT", 4, -4)
+                overlay.Mask:SetPoint("BOTTOMRIGHT", overlay, "BOTTOMRIGHT", -4, 4)
+            end
+            if overlay.Corners then overlay.Corners:ClearAllPoints(); overlay.Corners:SetAllPoints(overlay) end
+        end
+        self.allowed, self.enabled = nil, nil
+        self:SetState(allowed, enabled)
+    end
+
+    host:Show()
+    return indicator
 end
 
 function GUI2:RefreshPrimitive(frame)

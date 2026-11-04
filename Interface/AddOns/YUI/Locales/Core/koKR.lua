@@ -950,9 +950,9 @@ YUI.Locale:Register("Core", "koKR", {
     ["settings.about.description"] = "YUI는 올인원 UI addon.\nVersion입니다: %s\nAuthor: Ayan",
     ["settings.about.default_notes"] = "YUI는 모두 하나 UI addon입니다.",
     ["settings.about.details"] = "%s\nVersion : %s\nAuthor : %s",
-    ["settings.about.follow"] = "YUI · YanForge의 미래 업데이트 및 커뮤니티 뉴스를 팔로우하십시오.",
+    ["settings.about.follow"] = "YUI · Ayan의 미래 업데이트 및 커뮤니티 뉴스를 팔로우하십시오.",
     ["settings.about.suite_note"] = "완전한 YUI 스위트는 전체 인터페이스 및 릴리스 역사를 위한 기본 주택입니다.",
-    ["settings.about.standalone_note"] = "독립 해제는 별도의 변경 로그를 유지하지 않습니다. 완전한 릴리스 역사를 위해 YUI 스위트를 참조하십시오.",
+    ["settings.about.standalone_note"] = "창 상단의 변경 기록을 클릭하면 이 애드온의 버전 기록을 확인할 수 있습니다.",
     ["settings.about.section.yui"] = "YUI",
     ["settings.about.section.product"] = "이 Addon에 관하여",
 

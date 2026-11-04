@@ -1,5 +1,7 @@
 local ADDON_NAME, addonTable = ...
 local YUI = _G.YUI or addonTable
+local textStyles
+local overlayTextKeys={"name","level","score"}
 if not YUI or not YUI.IsRetail then return end
 
 local Tools = YUI.MythicPlusTools
@@ -28,8 +30,8 @@ local ICON_LEVEL_SIZE_MIN = 14
 local ICON_LEVEL_SIZE_MAX = 32
 local ICON_SCORE_SIZE_MIN = 8
 local ICON_SCORE_SIZE_MAX = 20
-local ICON_LEVEL_Y_OFFSET_MIN = -10
-local ICON_LEVEL_Y_OFFSET_MAX = 10
+local ICON_TEXT_OFFSET_MIN = -64
+local ICON_TEXT_OFFSET_MAX = 64
 local ICON_TEXT_HORIZONTAL_PADDING = 6
 local SETTING_LABEL_WIDTH = 130
 local SETTING_INPUT_WIDTH = 52
@@ -266,7 +268,12 @@ PVEEnhancement.defaults = {
     pveIconNameFontSize = ICON_NAME_FONT_SIZE,
     pveIconLevelFontSize = ICON_LEVEL_FONT_SIZE,
     pveIconScoreFontSize = ICON_SCORE_FONT_SIZE,
+    pveIconNameXOffset = 0,
+    pveIconNameYOffset = -1,
+    pveIconLevelXOffset = 0,
     pveIconLevelYOffset = ICON_LEVEL_Y_OFFSET,
+    pveIconScoreXOffset = 0,
+    pveIconScoreYOffset = 1,
     pveIconTextDefaultsVersion = ICON_TEXT_DEFAULTS_VERSION,
     pveTooltipEnabled = true,
     pveClickTeleportEnabled = true,
@@ -475,7 +482,7 @@ local function NormalizeDB(db)
     db.pveIconNameFontSize = ClampNumber(db.pveIconNameFontSize, ICON_NAME_SIZE_MIN, ICON_NAME_SIZE_MAX, PVEEnhancement.defaults.pveIconNameFontSize)
     db.pveIconLevelFontSize = ClampNumber(db.pveIconLevelFontSize, ICON_LEVEL_SIZE_MIN, ICON_LEVEL_SIZE_MAX, PVEEnhancement.defaults.pveIconLevelFontSize)
     db.pveIconScoreFontSize = ClampNumber(db.pveIconScoreFontSize, ICON_SCORE_SIZE_MIN, ICON_SCORE_SIZE_MAX, PVEEnhancement.defaults.pveIconScoreFontSize)
-    db.pveIconLevelYOffset = ClampNumber(db.pveIconLevelYOffset, ICON_LEVEL_Y_OFFSET_MIN, ICON_LEVEL_Y_OFFSET_MAX, PVEEnhancement.defaults.pveIconLevelYOffset)
+    db.pveIconLevelYOffset = ClampNumber(db.pveIconLevelYOffset, ICON_TEXT_OFFSET_MIN, ICON_TEXT_OFFSET_MAX, PVEEnhancement.defaults.pveIconLevelYOffset)
     if db.pveTooltipEnabled == nil then db.pveTooltipEnabled = true else db.pveTooltipEnabled = db.pveTooltipEnabled == true end
     if db.pveClickTeleportEnabled == nil then db.pveClickTeleportEnabled = true else db.pveClickTeleportEnabled = db.pveClickTeleportEnabled == true end
     return db
@@ -4782,6 +4789,9 @@ end
 
 local function CreateOverlayText(parent, size, justify)
     local text = parent:CreateFontString(nil, "OVERLAY")
+    -- Horizontal anchors leave the height free to follow the font's metrics,
+    -- including the first non-empty text and later font/size changes.
+    text:SetHeight(0)
     text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", size, "OUTLINE")
     text:SetJustifyH(justify or "CENTER")
     if text.SetJustifyV then text:SetJustifyV("MIDDLE") end
@@ -4792,31 +4802,18 @@ local function CreateOverlayText(parent, size, justify)
     return text
 end
 
-local function SetOverlayFontSize(text, size)
-    if not (text and text.SetFont) then return end
-    local font, _, flags = text:GetFont()
-    text:SetFont(font or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", size, flags or "OUTLINE")
-end
-
 local function ApplyOverlayFontSizes(overlay, db)
     if not overlay then return end
     db = GetDB(db)
-
-    local nameSize = db.pveIconNameFontSize
-    local levelSize = db.pveIconLevelFontSize
-    local scoreSize = db.pveIconScoreFontSize
-
-    if overlay.name then
-        SetOverlayFontSize(overlay.name, nameSize)
-        overlay.name:SetHeight(nameSize + 2)
-    end
-    if overlay.level then
-        SetOverlayFontSize(overlay.level, levelSize)
-        overlay.level:SetHeight(levelSize + 3)
-    end
-    if overlay.score then
-        SetOverlayFontSize(overlay.score, scoreSize)
-        overlay.score:SetHeight(scoreSize + 2)
+    for index, key in ipairs(overlayTextKeys) do
+        local text = overlay[key]
+        if text then
+            if textStyles then
+                YUI.GUI2.FontStyle.ApplyConfigFont(text,textStyles[index],db)
+            else
+                text:SetFont(STANDARD_TEXT_FONT,db["pveIcon"..key:sub(1,1):upper()..key:sub(2).."FontSize"],"OUTLINE")
+            end
+        end
     end
 end
 
@@ -4828,19 +4825,24 @@ local function ApplyOverlayLayout(overlay, db)
     local rightOffset = ICON_TEXT_HORIZONTAL_PADDING
 
     if overlay.name then
+        local x = ClampNumber(db.pveIconNameXOffset, ICON_TEXT_OFFSET_MIN, ICON_TEXT_OFFSET_MAX, 0)
+        local y = ClampNumber(db.pveIconNameYOffset, ICON_TEXT_OFFSET_MIN, ICON_TEXT_OFFSET_MAX, -1)
         overlay.name:ClearAllPoints()
-        overlay.name:SetPoint("TOPLEFT", overlay.host, "TOPLEFT", leftOffset, -1)
-        overlay.name:SetPoint("TOPRIGHT", overlay.host, "TOPRIGHT", rightOffset, -1)
+        overlay.name:SetPoint("TOPLEFT", overlay.host, "TOPLEFT", leftOffset + x, y)
+        overlay.name:SetPoint("TOPRIGHT", overlay.host, "TOPRIGHT", rightOffset + x, y)
     end
     if overlay.level then
+        local x = ClampNumber(db.pveIconLevelXOffset, ICON_TEXT_OFFSET_MIN, ICON_TEXT_OFFSET_MAX, 0)
         overlay.level:ClearAllPoints()
-        overlay.level:SetPoint("LEFT", overlay.host, "LEFT", leftOffset, db.pveIconLevelYOffset)
-        overlay.level:SetPoint("RIGHT", overlay.host, "RIGHT", rightOffset, db.pveIconLevelYOffset)
+        overlay.level:SetPoint("LEFT", overlay.host, "LEFT", leftOffset + x, db.pveIconLevelYOffset)
+        overlay.level:SetPoint("RIGHT", overlay.host, "RIGHT", rightOffset + x, db.pveIconLevelYOffset)
     end
     if overlay.score then
+        local x = ClampNumber(db.pveIconScoreXOffset, ICON_TEXT_OFFSET_MIN, ICON_TEXT_OFFSET_MAX, 0)
+        local y = ClampNumber(db.pveIconScoreYOffset, ICON_TEXT_OFFSET_MIN, ICON_TEXT_OFFSET_MAX, 1)
         overlay.score:ClearAllPoints()
-        overlay.score:SetPoint("BOTTOMLEFT", overlay.host, "BOTTOMLEFT", leftOffset, 1)
-        overlay.score:SetPoint("BOTTOMRIGHT", overlay.host, "BOTTOMRIGHT", rightOffset, 1)
+        overlay.score:SetPoint("BOTTOMLEFT", overlay.host, "BOTTOMLEFT", leftOffset + x, y)
+        overlay.score:SetPoint("BOTTOMRIGHT", overlay.host, "BOTTOMRIGHT", rightOffset + x, y)
     end
 end
 
@@ -4906,13 +4908,10 @@ local function EnsureIconOverlay(frame)
     local overlay = {}
     overlay.host = host
     overlay.name = CreateOverlayText(host, ICON_NAME_FONT_SIZE, "CENTER")
-    overlay.name:SetHeight(ICON_NAME_FONT_SIZE + 2)
 
     overlay.level = CreateOverlayText(host, ICON_LEVEL_FONT_SIZE, "CENTER")
-    overlay.level:SetHeight(ICON_LEVEL_FONT_SIZE + 3)
 
     overlay.score = CreateOverlayText(host, ICON_SCORE_FONT_SIZE, "CENTER")
-    overlay.score:SetHeight(ICON_SCORE_FONT_SIZE + 2)
 
     frame.yuiPVEOverlay = overlay
     ApplyOverlayFontSizes(overlay)
@@ -5199,7 +5198,8 @@ function RefreshIconOverlay(frame, mapInfo)
 
     if db.pveIconNameEnabled then
         overlay.name:SetText(state.shortName or state.name or "")
-        SetTextColor(overlay.name, DUNGEON_NAME_COLOR, HIGHLIGHT_FONT_COLOR)
+        if textStyles then overlay.name:SetTextColor(YUI.GUI2.FontStyle.ConfigColor(textStyles[1],db,DUNGEON_NAME_COLOR))
+        else SetTextColor(overlay.name, DUNGEON_NAME_COLOR, HIGHLIGHT_FONT_COLOR) end
         if overlay.name.SetAlpha then overlay.name:SetAlpha(1) end
         overlay.name:Show()
     else
@@ -5208,7 +5208,8 @@ function RefreshIconOverlay(frame, mapInfo)
 
     if db.pveIconLevelEnabled and state.level and state.level > 0 then
         overlay.level:SetText(tostring(state.level))
-        SetTextColor(overlay.level, GetLevelColor(state.level), HIGHLIGHT_FONT_COLOR)
+        if textStyles then overlay.level:SetTextColor(YUI.GUI2.FontStyle.ConfigColor(textStyles[2],db,GetLevelColor(state.level)))
+        else SetTextColor(overlay.level, GetLevelColor(state.level), HIGHLIGHT_FONT_COLOR) end
         if overlay.level.SetAlpha then overlay.level:SetAlpha(1) end
         overlay.level:Show()
     else
@@ -5217,7 +5218,8 @@ function RefreshIconOverlay(frame, mapInfo)
 
     if db.pveIconScoreEnabled then
         overlay.score:SetText(tostring(state.score or 0))
-        SetTextColor(overlay.score, state.scoreColor, HIGHLIGHT_FONT_COLOR)
+        if textStyles then overlay.score:SetTextColor(YUI.GUI2.FontStyle.ConfigColor(textStyles[3],db,state.scoreColor))
+        else SetTextColor(overlay.score, state.scoreColor, HIGHLIGHT_FONT_COLOR) end
         if overlay.score.SetAlpha then overlay.score:SetAlpha(1) end
         overlay.score:Show()
     else
@@ -5359,8 +5361,41 @@ function QueueSettledVisibleIconRefresh(challengesFrame)
     end
 end
 
+function PVEEnhancement:UpdateSettingsButton()
+    local host, page, gui = _G.PVEFrame, _G.ChallengesFrame, YUI.GUI2
+    if not (featureActive and host and page and gui and gui.CreateBlizzardIconButton) then
+        if PVEEnhancement.settingsButton then PVEEnhancement.settingsButton:Hide() end
+        return
+    end
+    local button = PVEEnhancement.settingsButton
+    if not button then
+        if InCombatLockdown and InCombatLockdown() then MarkSecureRefreshPending(); return end
+        local atlas = "Warfronts-BaseMapIcons-Empty-Workshop-Minimap"
+        local ok, info
+        if C_Texture and C_Texture.GetAtlasInfo then ok, info = pcall(C_Texture.GetAtlasInfo, atlas) end
+        button = gui:CreateBlizzardIconButton(page, {
+            atlas = ok and info and atlas or nil,
+            size = 22, texture = gui:GetSettingsIcon("settings"), crop = false,
+            tooltip = T("settings.pve_open_settings", "PVE界面扩展设置"),
+            onClick = function() if Tools.OpenSettings then Tools:OpenSettings("pveEnhancement") end end,
+        })
+        button.icon:ClearAllPoints()
+        button.icon:SetSize(16, 16)
+        button.icon:SetPoint("CENTER", button, "CENTER", 0, 0)
+        PVEEnhancement.settingsButton = button
+    end
+    local close = host.CloseButton or _G.PVEFrameCloseButton
+    button:ClearAllPoints()
+    if close then button:SetPoint("RIGHT", close, "LEFT", -5, 0)
+    else button:SetPoint("TOPRIGHT", host, "TOPRIGHT", -40, -6) end
+    button:SetFrameLevel(math.max(host:GetFrameLevel() + 10, page:GetFrameLevel() + 10,
+        close and close:GetFrameLevel() + 1 or 0))
+    button:Show()
+end
+
 local function EnsureChallengesFrameHooks()
     local challengesFrame = _G.ChallengesFrame
+    PVEEnhancement:UpdateSettingsButton()
     if not challengesFrame or challengesFrame.yuiPVEFrameHooksInstalled then return end
 
     challengesFrame.yuiPVEFrameHooksInstalled = true
@@ -5374,6 +5409,7 @@ local function EnsureChallengesFrameHooks()
 
     if challengesFrame.HookScript then
         challengesFrame:HookScript("OnShow", function(frame)
+            PVEEnhancement:UpdateSettingsButton()
             RefreshVisibleIconsNow(frame, true)
             QueueSettledVisibleIconRefresh(frame)
             PVEEnhancement.PartyKeystonePanel.QueueRefresh()
@@ -5880,7 +5916,7 @@ function PVEEnhancement:BuildOptions(db)
             min = ICON_NAME_SIZE_MIN,
             max = ICON_NAME_SIZE_MAX,
             step = 1,
-            get = function() return db.pveIconNameFontSize end,
+            fontStyleSource="pveIconNameFontSize", get = function() return db.pveIconNameFontSize end,
             set = function(value)
                 db.pveIconNameFontSize = ClampNumber(value, ICON_NAME_SIZE_MIN, ICON_NAME_SIZE_MAX, PVEEnhancement.defaults.pveIconNameFontSize)
                 RefreshVisibleIcons()
@@ -5892,7 +5928,7 @@ function PVEEnhancement:BuildOptions(db)
             min = ICON_LEVEL_SIZE_MIN,
             max = ICON_LEVEL_SIZE_MAX,
             step = 1,
-            get = function() return db.pveIconLevelFontSize end,
+            fontStyleSource="pveIconLevelFontSize", get = function() return db.pveIconLevelFontSize end,
             set = function(value)
                 db.pveIconLevelFontSize = ClampNumber(value, ICON_LEVEL_SIZE_MIN, ICON_LEVEL_SIZE_MAX, PVEEnhancement.defaults.pveIconLevelFontSize)
                 RefreshVisibleIcons()
@@ -5904,21 +5940,9 @@ function PVEEnhancement:BuildOptions(db)
             min = ICON_SCORE_SIZE_MIN,
             max = ICON_SCORE_SIZE_MAX,
             step = 1,
-            get = function() return db.pveIconScoreFontSize end,
+            fontStyleSource="pveIconScoreFontSize", get = function() return db.pveIconScoreFontSize end,
             set = function(value)
                 db.pveIconScoreFontSize = ClampNumber(value, ICON_SCORE_SIZE_MIN, ICON_SCORE_SIZE_MAX, PVEEnhancement.defaults.pveIconScoreFontSize)
-                RefreshVisibleIcons()
-            end,
-        },
-        {
-            type = "slider",
-            label = T("settings.pve_icon_level_offset_y", "层数Y偏移"),
-            min = ICON_LEVEL_Y_OFFSET_MIN,
-            max = ICON_LEVEL_Y_OFFSET_MAX,
-            step = 1,
-            get = function() return db.pveIconLevelYOffset end,
-            set = function(value)
-                db.pveIconLevelYOffset = ClampNumber(value, ICON_LEVEL_Y_OFFSET_MIN, ICON_LEVEL_Y_OFFSET_MAX, PVEEnhancement.defaults.pveIconLevelYOffset)
                 RefreshVisibleIcons()
             end,
         },
@@ -5936,8 +5960,59 @@ function PVEEnhancement:BuildOptions(db)
         },
     }, { columns = 1 })
 
+    if YUI.GUI2 and YUI.GUI2.FontStyle and YUI.GUI2.FontStyle.MergeOptions then
+        YUI.GUI2.FontStyle:MergeOptions(options, {{key="pve_text:name",label=T("settings.pve_icon_name_text"),sources={"pveIconNameFontSize"}},
+{key="pve_text:level",label=T("settings.pve_icon_level_text"),sources={"pveIconLevelFontSize"}},
+{key="pve_text:score",label=T("settings.pve_icon_score_text"),sources={"pveIconScoreFontSize"}}})
+    end
     return options
 end
 
 Tools.PVEEnhancement = PVEEnhancement
 Tools:RegisterSubFeature(PVEEnhancement)
+
+if YUI.GUI2 and YUI.GUI2.FontStyle and YUI.GUI2.FontStyle.RegisterConfig then
+    (function()
+        local style=YUI.GUI2.FontStyle
+        textStyles={
+            style.FullConfig({id="name",label=function() return T("settings.pve_icon_name_text") end,fields={size="pveIconNameFontSize"},defaults=PVEEnhancement.defaults,minSize=ICON_NAME_SIZE_MIN,maxSize=ICON_NAME_SIZE_MAX},"pveIconName",{color=DUNGEON_NAME_COLOR,font=function() return STANDARD_TEXT_FONT end,shadow=true}),
+            style.FullConfig({id="level",label=function() return T("settings.pve_icon_level_text") end,fields={size="pveIconLevelFontSize"},defaults=PVEEnhancement.defaults,minSize=ICON_LEVEL_SIZE_MIN,maxSize=ICON_LEVEL_SIZE_MAX},"pveIconLevel",{dynamicColor=true,colorHint=function() return T("settings.pve_level_color_rule", "随层数变化") end,font=function() return STANDARD_TEXT_FONT end,shadow=true}),
+            style.FullConfig({id="score",label=function() return T("settings.pve_icon_score_text") end,fields={size="pveIconScoreFontSize"},defaults=PVEEnhancement.defaults,minSize=ICON_SCORE_SIZE_MIN,maxSize=ICON_SCORE_SIZE_MAX},"pveIconScore",{dynamicColor=true,colorHint=function() return T("settings.pve_score_color_rule", "随分数变化") end,font=function() return STANDARD_TEXT_FONT end,shadow=true})
+        }
+        for _, def in ipairs(textStyles) do
+            local prefix = "pveIcon" .. def.id:sub(1, 1):upper() .. def.id:sub(2)
+            local xField, yField = prefix .. "XOffset", prefix .. "YOffset"
+            def.position = function(db, current)
+                local function Apply(values)
+                    if not current() then return false end
+                    for axis, value in pairs(values) do
+                        if (axis ~= "x" and axis ~= "y") or type(value) ~= "number" or value ~= value
+                            or value < ICON_TEXT_OFFSET_MIN or value > ICON_TEXT_OFFSET_MAX then return false end
+                    end
+                    if values.x ~= nil then db[xField] = values.x end
+                    if values.y ~= nil then db[yField] = values.y end
+                    if _G.ChallengesFrame and _G.ChallengesFrame:IsShown() then RefreshVisibleIcons() end
+                    return true
+                end
+                return {
+                    x = { min = ICON_TEXT_OFFSET_MIN, max = ICON_TEXT_OFFSET_MAX },
+                    y = { min = ICON_TEXT_OFFSET_MIN, max = ICON_TEXT_OFFSET_MAX },
+                    read = function()
+                        return {
+                            x = ClampNumber(db[xField], ICON_TEXT_OFFSET_MIN, ICON_TEXT_OFFSET_MAX, PVEEnhancement.defaults[xField]),
+                            y = ClampNumber(db[yField], ICON_TEXT_OFFSET_MIN, ICON_TEXT_OFFSET_MAX, PVEEnhancement.defaults[yField]),
+                        }
+                    end,
+                    apply = Apply,
+                    reset = function() return Apply({ x = PVEEnhancement.defaults[xField], y = PVEEnhancement.defaults[yField] }) end,
+                }
+            end
+        end
+        style:RegisterConfig("pve_text", {
+            label=function() return T("name") end,
+            get=function() return style.ComponentConfig(Tools.PRODUCT_ID,Tools.CONFIG_KEY) end,
+            refresh=function(db) if _G.ChallengesFrame and _G.ChallengesFrame:IsShown() then RefreshVisibleIcons() end end,
+            targets=textStyles,
+        })
+    end)()
+end

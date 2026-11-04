@@ -6,6 +6,7 @@ if not YMap then return end
 local Text = {}
 YMap.TextComponents = Text
 local GUI2 = YUI.GUI2
+local Style = GUI2 and GUI2.FontStyle
 local states = setmetatable({}, { __mode = "k" })
 local unpackValues = unpack or table.unpack
 local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
@@ -47,32 +48,66 @@ local function Write(object, state, method, a, b, c, d)
     end
 end
 
+local function FontFlags(original, config)
+    local flags = (not config.outline or config.outline == "inherit") and original or FLAGS[config.outline]
+    if config.monochrome == nil then return flags or "" end
+    local monochrome = config.monochrome == true
+        or config.monochrome == "inherit" and (original or ""):upper():find("MONOCHROME", 1, true) ~= nil
+    local values = {}
+    for token in (flags or ""):gmatch("[^,%s]+") do
+        if token:upper() ~= "MONOCHROME" then values[#values+1] = token end
+    end
+    if monochrome then values[#values+1] = "MONOCHROME" end
+    return table.concat(values, ",")
+end
+
+local function ShadowEnabled(original, config)
+    if type(config.fontShadow) == "boolean" then return config.fontShadow end
+    if config.fontShadow ~= "inherit" then
+        if config.outline == "shadow" or config.outline == "outlineShadow" then return true end
+        if config.shadow == "on" then return true end
+        if config.shadow == "off" then return false end
+    end
+    local color, offset = original.SetShadowColor or {}, original.SetShadowOffset or {}
+    return (color[4] or 0) > 0 and ((offset[1] or 0) ~= 0 or (offset[2] or 0) ~= 0)
+end
+
 function Text:Apply(object, config, size, color)
     if not object or not config then return false end
     local state = Capture(object)
     local original = state.original.SetFont
     local font = object.gui2ColorKey and GUI2.GetFont and GUI2:GetFont("font.family.body") or original[1]
-    if config.font and config.font ~= "inherit" and LSM then
-        font = LSM:Fetch("font", config.font, true) or font
+    if config.font and config.font ~= "inherit" then
+        if config.font:find("\\", 1, true) or config.font:find("/", 1, true) then font = config.font
+        elseif LSM then font = LSM:Fetch("font", config.font, true) or font end
     end
     size = size or config.fontSize
     if not size or size == 0 then size = original[2] end
-    local flags = (not config.outline or config.outline == "inherit") and original[3] or FLAGS[config.outline]
+    if state.flags == nil or state.outline ~= config.outline or state.monochrome ~= config.monochrome then
+        state.flags = FontFlags(original[3], config)
+        state.outline, state.monochrome = config.outline, config.monochrome
+    end
+    local flags = state.flags
     if font and size then Write(object, state, "SetFont", font, size, flags or "") end
     local base = state.original.SetTextColor
     local r,g,b,a = base[1],base[2],base[3],base[4]
     if object.gui2ColorKey and GUI2.GetColor then r,g,b,a = GUI2:GetColor(object.gui2ColorKey) end
     -- A false override leaves the base color neutral for text with inline value colors.
-    if config.customColor and color ~= false then
+    if config.fontColor and Style and color ~= false then
+        r,g,b,a = Style.ColorRGBA(config.fontColor)
+    elseif config.customColor and color ~= false then
         color = color or config.color
         if color then r,g,b,a = color[1],color[2],color[3],color[4] end
     end
     if r then Write(object, state, "SetTextColor", r,g,b,a or 1) end
     local combinedShadow = config.outline == "shadow" or config.outline == "outlineShadow"
-    if combinedShadow then
+    if type(config.fontShadow) == "boolean" then
+        Write(object, state, "SetShadowColor", 0,0,0,config.fontShadow and 1 or 0)
+        Write(object, state, "SetShadowOffset", config.fontShadow and 1 or 0,config.fontShadow and -1 or 0)
+    elseif combinedShadow and config.fontShadow ~= "inherit" then
         Write(object, state, "SetShadowColor", 0,0,0,1)
         Write(object, state, "SetShadowOffset", 1,-1)
-    elseif config.shadow == "inherit" or config.shadow == nil then
+    elseif config.fontShadow == "inherit" or config.shadow == "inherit" or config.shadow == nil then
         local shadow, offset = state.original.SetShadowColor, state.original.SetShadowOffset
         if shadow[1] then Write(object, state, "SetShadowColor", unpackValues(shadow)) end
         if offset[1] then Write(object, state, "SetShadowOffset", unpackValues(offset)) end
@@ -161,4 +196,157 @@ function Text:RefreshTheme()
     self:Apply(owner.coordinateText, appearance.coordinates)
     self:Apply(_G.TimeManagerClockTicker, appearance.clock)
     if YMap.MetricsWidget then YMap.MetricsWidget:Refresh() end
+end
+
+-- Read the existing view or its original style without creating a view or normalizing DB.
+local function NativeStyle(key)
+    local owner, metrics = YMap.Minimap or {}, YMap.MetricsWidget
+    local object = key == "clock" and _G.TimeManagerClockTicker
+        or key == "zoneName" and owner.zoneLabel or key == "coordinates" and owner.coordinateText
+        or key == "metrics" and metrics and metrics.buttons and metrics.buttons[1] and metrics.buttons[1].text
+    local original = object and states[object] and states[object].original or {
+        SetFont = {Read(object, "GetFont")}, SetTextColor = {Read(object, "GetTextColor")},
+        SetShadowColor = {Read(object, "GetShadowColor")}, SetShadowOffset = {Read(object, "GetShadowOffset")},
+    }
+    local font, color = original.SetFont, original.SetTextColor
+    local themed = key ~= "clock"
+    return original, themed and GUI2.GetFont and GUI2:GetFont("font.family.body") or font[1] or STANDARD_TEXT_FONT,
+        font[2] or (key == "clock" and 12 or 11),
+        themed and GUI2.GetColor and {GUI2:GetColor(object and object.gui2ColorKey
+            or key == "zoneName" and "color.text.heading" or "color.text.primary")}
+            or color[1] and Style.Copy(color) or {1,1,1,1}
+end
+
+if Style then
+    local fields = {font={"font"}, size={"fontSize"}, outline={"outline"},
+        shadow={"shadow","fontShadow"}, monochrome={"monochrome"}, color={"customColor","color","fontColor"}}
+    Style:Register("ymap", function()
+        local profile = YMap.GetProfile and YMap:GetProfile()
+        local db = profile and profile[YMap.STORAGE_KEY] or not profile and YMap.db
+        local appearance = db and db.minimap and db.minimap.squareAppearance
+        if not appearance then return end
+        local originals, targets = {}, {}
+        local group = {label=YMap:T("product.title", "Map"), targets={}}
+        group.current = function()
+            local current = YMap.GetProfile and YMap:GetProfile()
+            local root = current and current[YMap.STORAGE_KEY] or not current and YMap.db
+            if current ~= profile or root ~= db or not root.minimap or root.minimap.squareAppearance ~= appearance then return false end
+            for key, config in pairs(originals) do if appearance[key] ~= config then return false end end
+            return true
+        end
+        local function Values(key, config, size)
+            local original, font, nativeSize = NativeStyle(key)
+            local value = Style.Decode(FontFlags(original.SetFont[3], config), ShadowEnabled(original, config))
+            value.font = config.font and config.font ~= "inherit" and Style.FontPath(config.font, font) or font
+            value.size = size and size > 0 and size or nativeSize
+            if key ~= "metrics" then
+                value.color = config.fontColor and Style.Copy(config.fontColor)
+                    or config.customColor and Style.Copy(config.color) or nil
+            end
+            return value
+        end
+        local function Refresh()
+            -- An inactive map returns false from Refresh; its saved settings are still editable.
+            if YMap.RefreshTextStyle then YMap:RefreshTextStyle() else YMap:Refresh("font-style") end
+            return true
+        end
+        group.snapshot = function(key)
+            local config, snapshot = appearance[key], {}
+            for attribute, names in pairs(fields) do
+                if key~="metrics" or attribute~="color" then
+                    for _, name in ipairs(names) do snapshot[name] = Style.Copy(config[name]) end
+                end
+            end
+            if key == "zoneName" then snapshot.fontSize = appearance.zoneNameFontSize end
+            return snapshot
+        end
+        local function RestoreAttribute(key, source, attribute)
+            for _, name in ipairs(fields[attribute]) do
+                if key == "zoneName" and name == "fontSize" then appearance.zoneNameFontSize = source[name]
+                else appearance[key][name] = Style.Copy(source[name]) end
+            end
+        end
+        group.restore = function(snapshots, attributes)
+            if not group.current() then return false, "stale" end
+            for key in pairs(snapshots) do if not targets[key] then return false, "stale" end end
+            for key, snapshot in pairs(snapshots) do
+                for attribute in pairs(fields) do
+                    if targets[key].capabilities[attribute] and (not attributes or attributes[attribute]) then RestoreAttribute(key, snapshot, attribute) end
+                end
+            end
+            return Refresh()
+        end
+        group.apply = function(changes)
+            if not group.current() then return false, "stale" end
+            for key, patch in pairs(changes) do
+                if not targets[key] then return false, "stale" end
+                if next(patch.values or {}) then
+                    local attributes={}
+                    for attribute in pairs(patch.values) do attributes[attribute]=true end
+                    local ok, code = Style.Validate(targets[key], patch.values, attributes)
+                    if not ok then return false, code end
+                end
+            end
+            for key, patch in pairs(changes) do
+                local config, values, reset = appearance[key], patch.values or {}, patch.reset or {}
+                if (values.outline or reset.outline) and config.monochrome == nil then
+                    local original = NativeStyle(key)
+                    config.monochrome = Style.Decode(FontFlags(original.SetFont[3], config)).monochrome
+                end
+                -- Changing the outline must not switch off an old combined shadow preset.
+                if (values.outline or reset.outline) and config.fontShadow == nil
+                    and (config.outline == "shadow" or config.outline == "outlineShadow") then config.fontShadow = true end
+                for attribute, value in pairs(values) do
+                    if attribute == "font" then config.font = value
+                    elseif attribute == "size" then
+                        if key == "zoneName" then appearance.zoneNameFontSize=value else config.fontSize=value end
+                    elseif attribute == "outline" then config.outline = value == "NONE" and "none" or value == "OUTLINE" and "outline" or "thick"
+                    elseif attribute == "shadow" then config.fontShadow = value
+                    elseif attribute == "monochrome" then config.monochrome = value
+                    elseif attribute == "color" then
+                        config.customColor = not value.mode or value.mode == "custom"
+                        config.fontColor = value.mode == "class" and Style.Copy(value) or nil
+                        if config.customColor then config.color=Style.Copy(value) end
+                    end
+                end
+                local defaults = YMap.Defaults.minimap.squareAppearance
+                for attribute in pairs(reset) do
+                    if attribute == "shadow" then config.fontShadow="inherit"; config.shadow="inherit"
+                    elseif attribute == "monochrome" then config.monochrome="inherit"
+                    elseif attribute == "size" and key == "zoneName" then appearance.zoneNameFontSize=defaults.zoneNameFontSize
+                    elseif fields[attribute] then RestoreAttribute(key, defaults[key], attribute) end
+                end
+            end
+            return Refresh()
+        end
+        for _, key in ipairs(ORDER) do
+            if type(appearance[key]) == "table" then
+                originals[key] = appearance[key]
+                local target = {id=key, label=YMap:T("settings.minimap.square_element."..key, key),
+                    capabilities={font=true,size=true,outline=true,shadow=true,monochrome=true,color=key~="metrics"},
+                    colorModes={state=true,class=true}, minSize=8,maxSize=24,
+                    fontOptionsPosition="last",
+                    fontOptions=function()
+                        local _, font = NativeStyle(key)
+                        return {{text=YMap:T("settings.minimap.text_inherit", "Inherit"),value="inherit",fontPath=font}}
+                    end,
+                    read=function() return Values(key, appearance[key], key=="zoneName" and appearance.zoneNameFontSize or appearance[key].fontSize) end,
+                    parent=function(attribute)
+                        if attribute=="color" then return {mode="state"} end
+                        local defaults=YMap.Defaults.minimap.squareAppearance
+                        return Values(key, defaults[key], key=="zoneName" and defaults.zoneNameFontSize or defaults[key].fontSize)[attribute]
+                    end,
+                }
+                if key ~= "metrics" then target.colorInfo=function(mode)
+                    local config=appearance[key]
+                    mode=mode or (config.fontColor and "class" or config.customColor and "custom" or "state")
+                    local _,_,_,nativeColor=NativeStyle(key)
+                    return {mode=mode,color=mode=="state" and nativeColor or mode=="class"
+                        and {Style.ColorRGBA(config.fontColor or {mode="class",alpha=1})} or Style.Copy(config.color)}
+                end end
+                targets[key]=target; group.targets[#group.targets+1]=target
+            end
+        end
+        return group
+    end)
 end

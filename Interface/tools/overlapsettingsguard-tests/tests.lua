@@ -258,6 +258,36 @@ test("missing YUI player-bar refresh API leaves selections and groups unchanged"
   eq(live.YHUD.profile.groups.items.cast.enabled, true)
 end)
 
+test("YUI resource manager contexts cannot bypass the player bar policies", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  local live, saved = BuildYUI(w)
+  local function Contexts(profile)
+    local config = profile.resources.byGroup["group:system:resources"]
+    config.bySpec, config.formOverrides, config.selectionDefault = {}, {}, "none"
+    config.itemsByContext = {
+      ["ROGUE:11572:"] = { { id = "energy", enabled = true }, { id = "swingMainHand", enabled = true } },
+      ["DRUID:11347:cat"] = { { id = "comboPoints", enabled = true }, { id = "health", enabled = true } },
+      ["MAGE:11582:"] = { { id = "cast", enabled = true }, { id = "custom-resource:1", enabled = true } },
+    }
+    return config.itemsByContext
+  end
+  local activeItems, savedItems = Contexts(live.YHUD.profile), Contexts(saved)
+  local a = w.ns.adapters.YUI
+  for _, key in ipairs({ "Resources", "PlayerHealth", "PlayerCast" }) do
+    eq(a.Read(key), true, key)
+    eq(a.Revert(key), true, key)
+    eq(a.Read(key), false, key)
+  end
+  for _, items in ipairs({ activeItems, savedItems }) do
+    eq(items["ROGUE:11572:"][1].enabled, false)
+    eq(items["ROGUE:11572:"][2].enabled, true, "swing timers stay available")
+    eq(items["DRUID:11347:cat"][1].enabled, false)
+    eq(items["DRUID:11347:cat"][2].enabled, false)
+    eq(items["MAGE:11582:"][1].enabled, false)
+    eq(items["MAGE:11582:"][2].enabled, true, "custom resources stay available")
+  end
+end)
+
 test("installed YUI catalog keeps guarded selections off after normalization", function()
   local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
   local live = BuildYUI(w)

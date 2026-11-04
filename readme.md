@@ -6,7 +6,7 @@ Version control for the user interface of a **World of Warcraft: Forever** clien
 
 | | |
 | --- | --- |
-| Client | 1.60.1.70532 (`wowf`, region `us`) |
+| Client | 1.60.1.70790 (`wowf`, region `us`) |
 | Add-on interface | 16001 |
 
 Every add-on here must declare Interface 16001 in its TOC and work on this client.

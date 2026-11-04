@@ -79,6 +79,7 @@ local SM_PADDING_X = 2
 local SM_PADDING_Y = 2
 local SM_ICON_SIZE = 32
 local SM_FONT_SIZE = 11
+local SM_TEXT_INSET = 2
 local SM_TAB_ICON_SIZE = 12
 local MENU_GAP = 2
 local MENU_TOLERANCE = 8
@@ -402,6 +403,7 @@ local NAME_MAPPING = {
     [253629] = {"teleports.menu.arcane_society", "Arcane Society"},
     [266370] = {"teleports.map.266370", "Bountiful"},        -- Bountiful Hearthstone
     [276371] = {"teleports.map.276371", "Lightveil"},        -- Lightveil Recall Beacon
+    [286643] = {"teleports.map.286643", "Kindo'jan"},        -- Kinduru's Spiriting Quill
 
     -- Mage Teleports/Portals
     [3561] = {"teleports.map.3561", "Stormwind"},
@@ -1494,8 +1496,9 @@ function Module:PositionMenuTooltip()
     if TryMenuTooltipPosition(tooltip, pane, cx - width / 2, top + gap + height, width, height) then return true end
     if TryMenuTooltipPosition(tooltip, pane, cx - width / 2, bottom - gap, width, height) then return true end
     -- A short tooltip can fit above or below the main menu beside a tall submenu.
-    if TryMenuTooltipPosition(tooltip, pane, MenuFrame:GetLeft(), MenuFrame:GetTop() + gap + height, width, height) then return true end
-    return TryMenuTooltipPosition(tooltip, pane, MenuFrame:GetLeft(), MenuFrame:GetBottom() - gap, width, height)
+    local mainCenter = MenuFrame:GetCenter()
+    if TryMenuTooltipPosition(tooltip, pane, mainCenter - width / 2, MenuFrame:GetTop() + gap + height, width, height) then return true end
+    return TryMenuTooltipPosition(tooltip, pane, mainCenter - width / 2, MenuFrame:GetBottom() - gap, width, height)
 end
 
 local function MenuTooltipHidden(tooltip)
@@ -1678,9 +1681,11 @@ function Module:CreateMenuButton(parent, text, icon, itemData, hasSubMenu, subMe
     elseif style == "grid_text_bottom" then
         btn.textFrame:SetHeight(fontSize + 2)
         btn.textFrame:SetPoint("TOP", iconFrame, "BOTTOM", 0, -1)
-        btn.textFrame:SetPoint("LEFT", 2, 0)
-        btn.textFrame:SetPoint("RIGHT", -2, 0)
+        btn.textFrame:SetPoint("LEFT", SM_TEXT_INSET, 0)
+        btn.textFrame:SetPoint("RIGHT", -SM_TEXT_INSET, 0)
         btn.text:SetJustifyH("CENTER")
+        btn.text:SetWordWrap(false)
+        btn.text:SetNonSpaceWrap(false)
         -- Use Mapping or shorten text?
         -- Text is passed in, caller should handle mapping?
         -- Let's handle mapping here if passed, or caller does it.
@@ -2408,21 +2413,30 @@ function Module:GetItemGroupIcon(group)
     return icon or 134414
 end
 
-function Module:GetItemGroupCount(group)
-    local count = 0
+local function MeasureSubMenuItemWidth(measureText, text)
+    measureText:SetText(text)
+    return math.ceil(measureText:GetStringWidth()) + SM_TEXT_INSET * 2 + 2
+end
+
+function Module:GetItemGroupCount(group, measureText)
+    local count, itemWidth = 0, SM_ITEM_WIDTH
     for _, id in ipairs(DATA.ItemGroups[group]) do
-        if YUI.IsDev then
-            count = count + 1
-        elseif self:IsTravelItemAvailable(id) then
+        if YUI.IsDev or self:IsTravelItemAvailable(id) then
             local name = ItemAPI.GetNameByID(id)
             if GetItemUsage(id) == ITEM_USAGE_TOY then
                 local _, toyName = C_ToyBox.GetToyInfo(id)
                 name = toyName or name
             end
-            if name then count = count + 1 end
+            if name or YUI.IsDev then
+                count = count + 1
+                if measureText then
+                    local text = GetNameMapping(id) or GetNameMapping(name) or name or tostring(id)
+                    itemWidth = math.max(itemWidth, MeasureSubMenuItemWidth(measureText, text))
+                end
+            end
         end
     end
-    return count
+    return count, itemWidth
 end
 
 function Module:BuildSubMenuItems(category, group)
@@ -2517,6 +2531,11 @@ function Module:EnsureSubMenu()
     })
     pane.emptyText:SetPoint("CENTER", pane.scroll, "CENTER")
     pane.emptyText:Hide()
+    pane.measureText = GUI2:CreateText(pane, { text = "", size = SM_FONT_SIZE })
+    pane.measureText:SetFont(STANDARD_TEXT_FONT, SM_FONT_SIZE, "")
+    pane.measureText:SetWordWrap(false)
+    pane.measureText:SetNonSpaceWrap(false)
+    pane.measureText:Hide()
     pane.content = GUI2:CreateFrame(pane.scroll)
     pane.scroll:SetScrollChild(pane.content)
     pane.scrollBar = GUI2:CreateVirtualScrollBar(pane, {
@@ -2582,12 +2601,21 @@ function Module:ShowSubMenu(anchor, category, itemGroup)
     self.itemMenuGroup = itemGroup or self.itemMenuGroup
     self.menuAimX, self.menuAimY = GetMenuCursor()
 
+    local screenWidth, screenHeight = UIParent:GetWidth(), UIParent:GetHeight()
+    local anchorX, anchorY = anchor:GetCenter()
+    local keepItemLayout = category == "Items" and sameCategory and pane:IsShown() and
+        pane.itemLayoutAnchor == anchor and pane.itemLayoutAnchorX == anchorX and pane.itemLayoutAnchorY == anchorY and
+        pane.itemLayoutScreenWidth == screenWidth and pane.itemLayoutScreenHeight == screenHeight
+    local measureText = not keepItemLayout and pane.measureText or nil
+    local itemWidth = keepItemLayout and pane.itemLayoutItemWidth or SM_ITEM_WIDTH
     local items, maxGroupItems = nil, 0
     local headerHeight = category == "Items" and 32 or 8
     if category == "Items" then
         items = self:BuildSubMenuItems(category, itemGroup)
         for i, group in ipairs(ITEM_GROUPS) do
-            local count = group == itemGroup and #items or self:GetItemGroupCount(group)
+            local count, groupWidth = #items, SM_ITEM_WIDTH
+            if group ~= itemGroup then count, groupWidth = self:GetItemGroupCount(group, measureText) end
+            itemWidth = math.max(itemWidth, groupWidth)
             maxGroupItems = math.max(maxGroupItems, count)
             local tab = pane.tabs[i]
             tab.iconSlot.icon:SetTexture(self:GetItemGroupIcon(group))
@@ -2600,17 +2628,19 @@ function Module:ShowSubMenu(anchor, category, itemGroup)
         items = self:BuildSubMenuItems(category)
     end
     pane.emptyText:SetShown(category == "Items" and #items == 0)
+    for _, item in ipairs(items) do
+        if not item.isHeader then
+            item.text = GetNameMapping(item.mapKey or item.id) or GetNameMapping(item.text) or item.text or "?"
+            if measureText then itemWidth = math.max(itemWidth, MeasureSubMenuItemWidth(measureText, item.text)) end
+        end
+    end
 
-    local screenWidth, screenHeight = UIParent:GetWidth(), UIParent:GetHeight()
-    local anchorX, anchorY = anchor:GetCenter()
-    local keepItemLayout = category == "Items" and sameCategory and pane:IsShown() and
-        pane.itemLayoutAnchor == anchor and pane.itemLayoutAnchorX == anchorX and pane.itemLayoutAnchorY == anchorY and
-        pane.itemLayoutScreenWidth == screenWidth and pane.itemLayoutScreenHeight == screenHeight
     local leftSpace = MenuFrame:GetLeft() - MENU_SCREEN_PADDING - MENU_GAP
     local rightSpace = screenWidth - MenuFrame:GetRight() - MENU_SCREEN_PADDING - MENU_GAP
     self.subMenuOpensLeft = leftSpace > rightSpace
     local availableWidth = math.max(leftSpace, rightSpace)
-    local columns = math.max(1, math.min(SM_COLUMNS, math.floor((availableWidth - 24) / (SM_ITEM_WIDTH + SM_PADDING_X))))
+    itemWidth = math.min(itemWidth, math.max(1, availableWidth - 24 - SM_PADDING_X))
+    local columns = math.max(1, math.min(SM_COLUMNS, math.floor((availableWidth - 24) / (itemWidth + SM_PADDING_X))))
     local longestRow, rowSize = 0, 0
     for _, item in ipairs(items) do
         if item.isHeader then rowSize = 0
@@ -2619,7 +2649,7 @@ function Module:ShowSubMenu(anchor, category, itemGroup)
     if category == "Items" then longestRow = maxGroupItems end
     columns = math.max(1, math.min(columns, math.max(1, longestRow)))
     if keepItemLayout then columns = pane.itemLayoutColumns end
-    local contentWidth = columns * (SM_ITEM_WIDTH + SM_PADDING_X)
+    local contentWidth = columns * (itemWidth + SM_PADDING_X)
     local totalWidth = math.min(availableWidth, math.max(category == "Items" and 268 or 0, contentWidth + 24))
     if keepItemLayout then totalWidth = pane:GetWidth() end
     if category == "Items" and not keepItemLayout then
@@ -2663,11 +2693,11 @@ function Module:ShowSubMenu(anchor, category, itemGroup)
             y = y + 24
         else
             itemIndex = itemIndex + 1
-            item.text = GetNameMapping(item.mapKey or item.id) or GetNameMapping(item.text) or item.text or "?"
             local button = self:AcquireMenuButton(content, "itemButtons", itemIndex,
                 item.text, item.icon or 134414, item, false, nil, "grid_text_bottom")
+            button:SetWidth(itemWidth)
             button:ClearAllPoints()
-            button:SetPoint("TOPLEFT", column * (SM_ITEM_WIDTH + SM_PADDING_X), -y)
+            button:SetPoint("TOPLEFT", column * (itemWidth + SM_PADDING_X), -y)
             local owned = item.type == "spell" and SpellAPI.IsKnown(item.id) or
                 (item.type == "toy" and PlayerHasToy(item.id)) or
                 (item.type == "item" and ItemAPI.GetCount(item.id) > 0)
@@ -2724,6 +2754,7 @@ function Module:ShowSubMenu(anchor, category, itemGroup)
     if category == "Items" then
         pane.itemLayoutAnchor, pane.itemLayoutAnchorX, pane.itemLayoutAnchorY = anchor, anchorX, anchorY
         pane.itemLayoutScreenWidth, pane.itemLayoutScreenHeight, pane.itemLayoutColumns = screenWidth, screenHeight, columns
+        pane.itemLayoutItemWidth = itemWidth
     end
     pane:Show()
 end
@@ -2815,22 +2846,15 @@ function Module:GetOptions()
                 self.db.hearthstoneMode = v
                 self:UpdateBarItem(self.frame)
             end,
-            onChange = function(widget, value)
-                local parent = widget:GetParent()
-                if parent and parent:GetParent() then
-                    parent = parent:GetParent()
-                end
-                local S = YUI.Settings
-                if parent and S and S.ClearConfig and S.RenderConfig then
-                    S:ClearConfig(parent)
-                    S:RenderConfig(parent, self:GetOptions())
-                end
+            onChange = function()
+                if YBar.RefreshFeatureSettings then YBar:RefreshFeatureSettings() end
             end,
         },
         {
             type = "dropdown",
             label = YBarL["teleports.settings.select_hearthstone"] or "Select Hearthstone",
             width = 220,
+            inlineLabel = false,
             requires = function() return self.db.hearthstoneMode == "fixed" end,
             options = function()
                 return self:BuildHearthstoneOptions()

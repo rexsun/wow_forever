@@ -2240,6 +2240,14 @@ local function OnCalendarShow(frame)
     MinimapModule.applying = false
 end
 
+local function OnExternalEventShow(frame)
+    if not YUI.IsForever or MinimapModule.active ~= true
+        or MinimapModule.applying == true or MinimapModule.editModeActive == true then return end
+    MinimapModule.applying = true
+    EnsureShown(frame, false)
+    MinimapModule.applying = false
+end
+
 local function ApplyHousingOverlay(style)
     local backdrop = _G.MinimapBackdrop
     local overlay = backdrop and backdrop.StaticOverlayTexture
@@ -2315,6 +2323,10 @@ local function InstallHooks()
     HookFrameMethod(gameTime, "SetScale", OnStructureMutation)
     HookFrameMethod(gameTime, "EnableMouse", OnStructureMutation)
     HookFrameMethod(gameTime, "Show", OnCalendarShow)
+    if YUI.IsForever then
+        local backdrop = _G.MinimapBackdrop
+        HookFrameScript(backdrop and backdrop.ExternalEventURLButton, "OnShow", OnExternalEventShow)
+    end
     HookFrameMethod(mail, "SetPoint", OnStructureMutation)
     HookFrameMethod(mail, "SetScale", OnStructureMutation)
     HookFrameMethod(mail, "EnableMouse", OnStructureMutation)
@@ -2549,9 +2561,8 @@ local function ApplyTrackingMenuHost(tracking, hidden)
     local button = tracking.Button
 
     if hidden == true then
-        -- Retail dropdowns close when their owner becomes invisible, so park the host offscreen instead.
+        -- Keep the menu owner shown and at its normal anchor: native resize layout includes alpha-zero children.
         EnsureSetShown(tracking, true)
-        EnsurePoint(tracking, "TOP", _G.UIParent, "BOTTOM", 0, 0)
         if button then
             local buttonState = CaptureFrame(button)
             if buttonState then
@@ -2767,6 +2778,9 @@ local function ApplySquareSlots(config)
         ApplySquareElement(cluster.DielFrame, config, "diel")
         -- Hide the native updater as well as its text; leave coordinate CVars intact.
         EnsureShown(cluster.MinimapContainer and cluster.MinimapContainer.PlayerCoords, false)
+        -- 1.60.1.70450 enlarged the native mail template; retain our existing slot size.
+        EnsureSize(mail, 20, 15)
+        EnsureSize(mail and mail.MailIcon, 20, 15)
     end
     ApplySquareElement(mail, config, "mail")
     ApplySquareElement(crafting, config, "crafting")
@@ -3097,12 +3111,17 @@ end
 
 local function ApplyCurrent(config, style)
     local settingsPreviewKey = MinimapModule.settingsPreviewKey
+    local enteringNative = style == "native" and MinimapModule.appliedStyle ~= style
     MinimapModule:ClearSettingsPreview()
     if MinimapModule.appliedStyle and MinimapModule.appliedStyle ~= style then
         RestoreAllFrames()
     end
     MinimapModule.appliedStyle = style
     InstallHooks()
+    if YUI.IsForever then
+        local backdrop = _G.MinimapBackdrop
+        EnsureShown(backdrop and backdrop.ExternalEventURLButton, false)
+    end
     local size = Clamp(config.size, 120, 400, 175)
     if YMap.ProgressBars and type(YMap.ProgressBars.Apply) == "function" then
         YMap.ProgressBars:Apply(
@@ -3133,6 +3152,16 @@ local function ApplyCurrent(config, style)
     ApplyZoomButtons(config, style)
     ApplyQueue(config)
     ApplyBelowWidget(config)
+    local cluster = _G.MinimapCluster
+    if enteringNative and cluster and type(cluster.Layout) == "function" then
+        -- Normalize after resetting the container scale and native visibility, before the first OnShow.
+        local state = Touch(cluster, "size")
+        if not state or not WriteMethod(cluster, "Layout") then error("ymap-native-layout") end
+        local sizeOK, width, height = ReadMethod(cluster, "GetSize")
+        if not sizeOK then error("ymap-native-layout-size") end
+        MarkApplied(state, "size", { width = width, height = height })
+        if not ApplyBaseGeometry(config, style) then error("ymap-native-layout-geometry") end
+    end
     RefreshRightClickHandler(config, style)
     MinimapModule:RefreshCoordinateConsumer(config, style)
     VerifyAppliedStyle(style)

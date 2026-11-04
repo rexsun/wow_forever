@@ -766,12 +766,38 @@ function Designer:GetResourcePreviewContext()
     end
     if not formFound then
         formKey = ResourceCatalog:GetDefaultFormKey(classFile, specID)
+        if session.staticPreview ~= true then
+            local currentClass, currentSpec = ResourceCatalog:GetCurrentContext()
+            if classFile == currentClass and specID == currentSpec then
+                formKey = ResourceCatalog:GetCurrentFormKey(classFile, specID) or formKey
+            end
+        end
     end
 
     session.resourceClassFile = classFile
     session.resourceSpecID = specID
     session.resourceFormKey = formKey
     return classFile, specID, formKey
+end
+
+-- Resource browsing belongs to the current inspector selection, not the draft.
+function Designer:ResetResourcePreviewContext()
+    local session, code = EnsureSession(self)
+    if not session then return false, code end
+    if not (ResourceCatalog and ResourceCatalog.GetCurrentContext) then return false end
+    local classFile, specID = ResourceCatalog:GetCurrentContext()
+    if not FindResourceClass(classFile) or not FindResourceSpec(classFile, specID) then
+        return false
+    end
+    local formKey = ResourceCatalog.GetCurrentFormKey
+        and ResourceCatalog:GetCurrentFormKey(classFile, specID)
+        or ResourceCatalog:GetDefaultFormKey(classFile, specID)
+    local changed = session.resourceClassFile ~= classFile
+        or session.resourceSpecID ~= specID or session.resourceFormKey ~= formKey
+    session.resourceClassFile = classFile
+    session.resourceSpecID = specID
+    session.resourceFormKey = formKey
+    return changed
 end
 
 function Designer:SetResourcePreviewClass(classFile)
@@ -1164,6 +1190,7 @@ function Designer:SelectGroup(groupId)
     if not groups or not groups.items[groupId] then
         return nil, "group-not-found"
     end
+    if session.selectedGroupId ~= groupId then self:ResetResourcePreviewContext() end
     session.selectedGroupId = groupId
     session.selectedMonitorId = nil
     session.selectedPreviewMonitorId = nil
@@ -1237,6 +1264,7 @@ end
 function Designer:ClearSelection()
     local session, code = EnsureSession(self)
     if not session then return nil, code end
+    self:ResetResourcePreviewContext()
     session.selectedGroupId = nil
     session.selectedMonitorId = nil
     session.selectedPreviewMonitorId = nil
@@ -1257,6 +1285,11 @@ function Designer:ListMonitorOptions(groupId, semanticFamily, options)
     end
     catalogOptions.includeOfficial =
         session.viewSpecKey == session.runtimeSpecKey
+    if catalogOptions.resourceSelection then
+        local classFile, specID = self:GetResourcePreviewContext()
+        catalogOptions.resourceSpecKey = classFile and specID and (classFile .. ":" .. specID)
+        catalogOptions.includeOfficial = catalogOptions.resourceSpecKey == session.runtimeSpecKey
+    end
     return MonitorCatalog:Build(
         session.draft.profile,
         session.specKey,
@@ -1341,6 +1374,7 @@ end
 function Designer:GetSpellBundleContexts(bundleKind)
     local session, code = EnsureSession(self)
     if not session then return nil, nil, code end
+    if bundleKind == "externalBuff" then return {}, "external" end
     if bundleKind ~= "racial"
         and bundleKind ~= "defensive"
         and bundleKind ~= "interruptControl" then
@@ -1491,6 +1525,12 @@ function Designer:SetSpellBundleEnabled(bundleKind, spellID, enabled)
     end)
 end
 
+function Designer:SetExternalBuffLimit(value)
+    local session, code = EnsureSession(self)
+    if not session then return nil, code end
+    return MonitorCatalog:SetExternalBuffLimit(session.draft, value)
+end
+
 function Designer:MoveSpellBundleSpell(bundleKind, spellID, targetIndex)
     local session, code = EnsureSession(self)
     if not session then return nil, code end
@@ -1589,6 +1629,9 @@ function Designer:SelectMonitor(monitorId)
             and profile.entries[previewMonitor.entryKey]
         if previewMonitor and previewEntry
             and previewMonitor._yhudCacheOnlyPreview == true then
+            if session.selectedGroupId ~= previewMonitor.groupId then
+                self:ResetResourcePreviewContext()
+            end
             session.selectedGroupId = previewMonitor.groupId
             session.selectedMonitorId = nil
             session.selectedPreviewMonitorId = monitorId
@@ -1597,6 +1640,7 @@ function Designer:SelectMonitor(monitorId)
         end
     end
     if not monitor then return nil, "monitor-not-found" end
+    if session.selectedGroupId ~= monitor.groupId then self:ResetResourcePreviewContext() end
     session.selectedGroupId = monitor.groupId
     session.selectedMonitorId = monitorId
     session.selectedPreviewMonitorId = nil
@@ -1697,6 +1741,12 @@ function Designer:SetMonitorSound(monitorId, definition)
     )
 end
 
+function Designer:SetAuraActivationStyle(definition)
+    local session, code = EnsureSession(self)
+    if not session then return nil, code end
+    return ProfileModel:SetAuraActivationStyle(session.draft, definition)
+end
+
 function Designer:SetNativeProcGlow(definition)
     local session, code = EnsureSession(self)
     if not session then return nil, code end
@@ -1713,6 +1763,12 @@ function Designer:SetMonitorNativeProcGlowOverride(monitorId, definition)
         monitorId,
         definition
     )
+end
+
+function Designer:SetClassExtraSettings(monitorId, patch)
+    local session, code = EnsureSession(self)
+    if not session then return nil, code end
+    return ProfileModel:SetClassExtraSettings(session.draft, monitorId or session.selectedMonitorId, patch)
 end
 
 function Designer:SetMonitorVisibilityMode(monitorId, value)
@@ -1835,6 +1891,61 @@ function Designer:ClearMonitorStateEffectOverrides(key)
     )
 end
 
+function Designer:GetMonitorTargetAccess(monitorId, groupId)
+    local session, code = EnsureSession(self)
+    if not session then return nil, code end
+    local allowed, reason, monitor = self:GetMonitorAccess(monitorId)
+    if not allowed then return nil, reason end
+    local profile = session.draft.profile
+    local group = profile.groups.items[groupId]
+    if not group then return nil, "group-not-found" end
+    return ProfileModel:CanPlace(profile, monitor.entryKey, groupId,
+        ProfileModel:GetDefaultView(group.layout))
+end
+
+function Designer:ListMonitorDropTargets(monitorId)
+    local session, code = EnsureSession(self)
+    if not session then return nil, code end
+    local targets = {}
+    local profile = session.draft.profile
+    local source = profile.monitors[monitorId]
+    for groupId in pairs(session.draft.profile.groups.items) do
+        local allowed, reason = self:GetMonitorTargetAccess(monitorId, groupId)
+        targets[groupId] = { allowed = allowed == true, reason = reason }
+        if allowed and source and source.appearanceOverride then
+            local appearance = ProfileModel:NormalizeMonitorAppearanceForLayout(
+                source.appearanceOverride, profile.groups.items[groupId].layout
+            )
+            for key in pairs(source.appearanceOverride) do
+                if not appearance or appearance[key] == nil then
+                    targets[groupId].appearanceReset = true
+                    break
+                end
+            end
+        end
+        if allowed and source and source.groupId ~= groupId
+            and YHUD.GetSpecialMonitorGroupState then
+            local forecast, monitors, moved = {}, {}, {}
+            for key, value in pairs(profile) do forecast[key] = value end
+            setmetatable(forecast, { __index = profile })
+            for id, monitor in pairs(profile.monitors) do monitors[id] = monitor end
+            for key, value in pairs(source) do moved[key] = value end
+            local originalGroup = profile.groups.items[groupId]
+            local group = setmetatable({ id = groupId }, { __index = originalGroup })
+            group.monitors = YHUD:CopyValue(originalGroup.monitors or {})
+            group.monitors[#group.monitors + 1] = monitorId
+            moved.groupId, moved.view = groupId, ProfileModel:GetDefaultView(group.layout)
+            monitors[monitorId], forecast.monitors = moved, monitors
+            local state = YHUD:GetSpecialMonitorGroupState(forecast, group, true)
+            targets[groupId].segmented = state and state.segmented == true
+            targets[groupId].sourceSpecial = YHUD:IsFilteredAuraLayoutMonitor(
+                profile.entries[source.entryKey], moved, true
+            ) == true
+        end
+    end
+    return targets, session.draft.revision
+end
+
 function Designer:ListMonitorTargets(monitorId)
     local session, code = EnsureSession(self)
     if not session then return nil, code end
@@ -1850,12 +1961,7 @@ function Designer:ListMonitorTargets(monitorId)
     for index = 1, #order do
         local groupId = order[index]
         local group = items[groupId]
-        local placed = group and ProfileModel:CanPlace(
-            profile,
-            monitor.entryKey,
-            groupId,
-            ProfileModel:GetDefaultView(group.layout)
-        )
+        local placed = group and self:GetMonitorTargetAccess(monitorId, groupId)
         if placed then
             result[#result + 1] = group
         end
@@ -1863,12 +1969,15 @@ function Designer:ListMonitorTargets(monitorId)
     return result
 end
 
-function Designer:MoveMonitor(monitorId, groupId, targetIndex)
+local ResolveRelativeOrderRefs
+
+function Designer:MoveMonitor(monitorId, groupId, targetIndex, placement)
     local session, code = EnsureSession(self)
     if not session then return nil, code end
     local current = session.draft.profile.monitors[monitorId]
     if current and current.groupId == (groupId or session.selectedGroupId)
         and targetIndex == nil then
+        if placement then return self:ReorderMonitorRelative(monitorId, placement) end
         session.selectedGroupId = current.groupId
         session.selectedMonitorId = current.id
         return current
@@ -1877,17 +1986,55 @@ function Designer:MoveMonitor(monitorId, groupId, targetIndex)
     local targetGroup =
         session.draft.profile.groups.items[targetGroupId]
     if not targetGroup then return nil, "group-not-found" end
+    local allowed
+    allowed, code = self:GetMonitorTargetAccess(monitorId, targetGroupId)
+    if not allowed then return nil, code end
+    local refs
+    if placement then
+        if not current or targetGroup.enabled == false
+            or placement.sourceGroupId ~= current.groupId
+            or placement.targetGroupId ~= targetGroupId
+            or placement.sourceSpecKey ~= session.viewSpecKey
+            or (placement.draftRevision ~= nil
+                and placement.draftRevision ~= session.draft.revision) then
+            return nil, "drop-context-changed"
+        end
+        local presentation
+        presentation, code = self:GetPresentationProfile()
+        if not presentation then return nil, code end
+        refs, code = ResolveRelativeOrderRefs(
+            session, presentation, targetGroupId, monitorId, placement, true
+        )
+        if not refs then return nil, code end
+    end
     local monitor
     monitor, code = ApplyClaimMutation(session, function(staged)
         local stagedGroup = staged.profile.groups.items[targetGroupId]
         if not stagedGroup then return nil, "group-not-found" end
-        return ProfileModel:MoveMonitor(
+        local moved, moveCode = ProfileModel:MoveMonitor(
             staged,
             monitorId,
             targetGroupId,
             targetIndex,
             ProfileModel:GetDefaultView(stagedGroup.layout)
         )
+        if not moved then return nil, moveCode end
+        if refs then
+            local overrides = staged.root.officialOverridesBySpec
+            local storedGroups = overrides and overrides[session.viewSpecKey]
+                and overrides[session.viewSpecKey].groups
+            local sourceRefs = storedGroups and storedGroups[current.groupId]
+            if type(sourceRefs) == "table" then
+                local sourceRef = GetMonitorOrderRef(staged.profile, monitorId)
+                for index = #sourceRefs, 1, -1 do
+                    if sourceRefs[index] == sourceRef then table.remove(sourceRefs, index) end
+                end
+            end
+            return ProfileModel:ReorderMonitorByOrderRefs(
+                staged, monitorId, targetGroupId, refs
+            )
+        end
+        return moved
     end)
     if not monitor then return nil, code end
     session.selectedGroupId = monitor.groupId
@@ -1912,36 +2059,11 @@ function Designer:ReorderMonitor(monitorId, targetLane, targetIndex)
     return monitor
 end
 
-function Designer:ReorderMonitorRelative(monitorId, placement)
-    local session, code = EnsureSession(self)
-    if not session then return nil, code end
-    if type(placement) ~= "table" then
-        return nil, "invalid-drop-placement"
-    end
+ResolveRelativeOrderRefs = function(
+    session, presentation, groupId, monitorId, placement, crossGroup
+)
     local viewSpecKey = session.viewSpecKey or session.draft.viewSpecKey
         or session.draft.specKey
-    if placement.sourceSpecKey ~= nil
-        and placement.sourceSpecKey ~= viewSpecKey then
-        return nil, "drop-context-changed"
-    end
-
-    local source = session.draft.profile.monitors
-        and session.draft.profile.monitors[monitorId]
-    if not source then return nil, "monitor-not-found" end
-    local groupId = source.groupId
-    if placement.sourceGroupId ~= nil
-        and placement.sourceGroupId ~= groupId then
-        return nil, "drop-context-changed"
-    end
-    local presentation
-    presentation, code = self:GetPresentationProfile()
-    if not presentation then return nil, code end
-    local presentationSource = presentation.monitors
-        and presentation.monitors[monitorId]
-    if not presentationSource or presentationSource.groupId ~= groupId then
-        return nil, "drop-context-changed"
-    end
-
     local presentationRefs = BuildGroupOrderRefs(presentation, groupId)
     local presentationRefSet = {}
     for index = 1, #presentationRefs do
@@ -1973,6 +2095,7 @@ function Designer:ReorderMonitorRelative(monitorId, placement)
     end
 
     local sourceRef = GetMonitorOrderRef(presentation, monitorId)
+    if not sourceRef then return nil, "drop-source-changed" end
     local sourceIndex
     for index = 1, #refs do
         if refs[index] == sourceRef then
@@ -1980,8 +2103,11 @@ function Designer:ReorderMonitorRelative(monitorId, placement)
             break
         end
     end
-    if not sourceIndex then return nil, "drop-source-changed" end
-    table.remove(refs, sourceIndex)
+    if sourceIndex then
+        table.remove(refs, sourceIndex)
+    elseif not crossGroup then
+        return nil, "drop-source-changed"
+    end
 
     local insertIndex
     if placement.kind == "head" then
@@ -2010,7 +2136,32 @@ function Designer:ReorderMonitorRelative(monitorId, placement)
         return nil, "invalid-drop-placement"
     end
     table.insert(refs, insertIndex, sourceRef)
+    return refs
+end
 
+function Designer:ReorderMonitorRelative(monitorId, placement)
+    local session, code = EnsureSession(self)
+    if not session then return nil, code end
+    if type(placement) ~= "table" then return nil, "invalid-drop-placement" end
+    local viewSpecKey = session.viewSpecKey or session.draft.viewSpecKey
+        or session.draft.specKey
+    local source = session.draft.profile.monitors[monitorId]
+    if not source then return nil, "monitor-not-found" end
+    local groupId = source.groupId
+    if (placement.sourceSpecKey ~= nil and placement.sourceSpecKey ~= viewSpecKey)
+        or (placement.sourceGroupId ~= nil and placement.sourceGroupId ~= groupId)
+        or (placement.draftRevision ~= nil
+            and placement.draftRevision ~= session.draft.revision) then
+        return nil, "drop-context-changed"
+    end
+    local presentation
+    presentation, code = self:GetPresentationProfile()
+    if not presentation then return nil, code end
+    local refs
+    refs, code = ResolveRelativeOrderRefs(
+        session, presentation, groupId, monitorId, placement
+    )
+    if not refs then return nil, code end
     local monitor
     monitor, code = ProfileModel:ReorderMonitorByOrderRefs(
         session.draft,
@@ -2085,6 +2236,7 @@ function Designer:CreateGroup(name, contentPolicy, layout)
         contentPolicy = contentPolicy,
     })
     if not group then return nil, code end
+    self:ResetResourcePreviewContext()
     session.selectedGroupId = group.id
     session.selectedMonitorId = nil
     session.pendingRestore = nil
@@ -2273,6 +2425,42 @@ function Designer:SetResourceSetting(resourceId, patch)
     return ProfileModel:SetResourceSetting(session.draft, resourceId, patch, session.selectedGroupId)
 end
 
+function Designer:MutateResource(action, resourceId, value)
+    local session, code = EnsureSession(self)
+    if not session then return nil, code end
+    local classFile, specID, formKey = self:GetResourcePreviewContext()
+    local layout = YHUD:GetResourceGroupLayout(session.draft.profile,session.selectedGroupId)
+    return YHUD.ResourceManager:Mutate(session.draft, session.selectedGroupId,
+        classFile, specID, formKey, action, resourceId, value,layout.direction)
+end
+
+function Designer:GetManagedResources(display)
+    local session = self:GetSession()
+    if not session then return {} end
+    local classFile, specID, formKey = self:GetResourcePreviewContext()
+    local scoped = YHUD:GetResourceProfile(self:GetProfile(), session.selectedGroupId)
+    local presets = YHUD.ResourceManager:GetPresets(scoped, classFile, specID, formKey, false)
+    if not display then return presets end
+    local layout = YHUD:GetResourceGroupLayout(self:GetProfile(),session.selectedGroupId)
+    return YHUD.ResourceManager:GetEditorPresets(scoped,presets,layout.direction)
+end
+
+function Designer:GetManagedResourceStyles()
+    local session = self:GetSession()
+    if not session then return {} end
+    local classFile, specID, formKey = self:GetResourcePreviewContext()
+    local draft, groupId = session.draft, session.selectedGroupId
+    local context = YHUD.ResourceManager.ContextKey(classFile, specID, formKey)
+    local cache = session.resourceStyleItems
+    if not cache or cache.root ~= draft.root or cache.revision ~= draft.revision
+        or cache.groupId ~= groupId or cache.context ~= context then
+        cache = { root = draft.root, revision = draft.revision, groupId = groupId, context = context,
+            items = YHUD.ResourceManager:GetStylePresets(YHUD:GetResourceProfile(draft.profile, groupId), classFile, specID, formKey) }
+        session.resourceStyleItems = cache
+    end
+    return cache.items
+end
+
 function Designer:SetResourceTextOverride(resourceId, enabled, patch)
     local session, code = EnsureSession(self)
     if not session then return nil, code end
@@ -2324,12 +2512,58 @@ function Designer:SetResourcePresetEnabled(resourceId, enabled)
     )
 end
 
+function Designer:CopyResourcePresetEnabled(resourceId)
+    local session, code = EnsureSession(self)
+    if not session then return nil, code end
+    local classFile, specID, formKey = self:GetResourcePreviewContext()
+    if not classFile or not specID then return nil, "resource-context-unavailable" end
+    return ProfileModel:CopyResourcePresetEnabled(
+        session.draft, classFile, specID, formKey, resourceId, session.selectedGroupId
+    )
+end
+
+function Designer:GetResourcePresetUsage()
+    local session = self:GetSession()
+    if not session or not ResourceCatalog then return {} end
+    local draft, groupId = session.draft, session.selectedGroupId
+    local cache = session.resourceUsage
+    if not cache or cache.root ~= draft.root or cache.revision ~= draft.revision or cache.groupId ~= groupId then
+        cache = {
+            root = draft.root, revision = draft.revision, groupId = groupId,
+            usage = ResourceCatalog:GetPresetUsage(YHUD:GetResourceProfile(draft.profile, groupId)),
+        }
+        session.resourceUsage = cache
+    end
+    return cache.usage
+end
+
 function Designer:MoveResourcePreset(resourceId, targetIndex, enabledOnly)
     local session, code = EnsureSession(self)
     if not session then return nil, code end
     local classFile, specID, formKey
     classFile, specID, formKey = self:GetResourcePreviewContext()
     if not classFile or not specID then return nil, code end
+    if YHUD.ResourceManager then
+        local scoped = YHUD:GetResourceProfile(session.draft.profile, session.selectedGroupId)
+        local items = ResourceCatalog:GetDisplayPresets(scoped,
+            YHUD.ResourceManager:GetItems(scoped, classFile, specID, formKey))
+        local selected = resourceId
+        if scoped._yhudHandPairMode == "split" and (selected == "swingMainHand" or selected == "swingOffHand") then selected = "swingHands" end
+        local index, positions = nil, {}
+        for i, item in ipairs(items) do
+            if item.id == selected then index = i end
+            if not enabledOnly or item.enabled then positions[#positions + 1] = i end
+        end
+        if not index or #positions == 0 or type(targetIndex) ~= "number" then return nil, "resource-not-found" end
+        local target = positions[math.max(1, math.min(#positions, math.floor(targetIndex)))]
+        -- Drag targets use the saved growth order supplied by the design view.
+        local result, moved = YHUD.ResourceManager:Mutate(session.draft,session.selectedGroupId,
+            classFile,specID,formKey,"move",selected,target-index)
+        if not result then return nil, moved end
+        local order = {}
+        for _, item in ipairs(moved) do order[#order + 1] = item.id end
+        return order
+    end
     if formKey then
         return ProfileModel:MoveResourceFormPreset(
             session.draft,

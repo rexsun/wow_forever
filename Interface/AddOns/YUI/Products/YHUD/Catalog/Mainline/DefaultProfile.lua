@@ -156,7 +156,7 @@ YHUD.Client.defaultProfile = {
                 ["nameKey"] = "group.default_burst_ring",
                 ["officialCategories"] = {},
                 ["order"] = 7,
-                ["showTooltip"] = true,
+                ["showTooltip"] = false,
                 ["showUnavailablePreview"] = false,
                 ["singleton"] = false,
             },

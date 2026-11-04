@@ -183,6 +183,17 @@ local isFeatureEnabled = false
 local autoTicker
 local lastAppliedValue
 local lastApplyErrorAt = 0
+local pendingRuntimeRefresh = false
+
+local function DeferRuntimeRefresh(allowImport)
+    if allowImport == true then return false end
+    local transfer = S and S.ConfigTransfer
+    if transfer and transfer.IsImporting and transfer:IsImporting(PRODUCT_ID) then
+        pendingRuntimeRefresh = true
+        return true
+    end
+    return false
+end
 
 local function IsValidMode(mode)
     if YUI.IsForever then return mode == MODE_FIXED_ALL or mode == MODE_AUTO_ALL end
@@ -360,7 +371,7 @@ local function ComputeTargetValue()
     return ClampValue(value) or (IsAutoMode(db.mode) and AUTO_DEFAULT or FIXED_DEFAULT)
 end
 
-local function GetCurrentCVarValue()
+local function GetCurrentCVarValue(raw)
     if YUI.IsForever then
         local getter = C_CVar and C_CVar.GetCVar or GetCVar
         if not getter then return nil end
@@ -368,7 +379,9 @@ local function GetCurrentCVarValue()
         return ok and tonumber(value) or nil
     end
     if not GetCVar then return nil end
-    return ClampValue(GetCVar(CVAR_NAME))
+    local value = GetCVar(CVAR_NAME)
+    if raw then return tonumber(value) end
+    return ClampValue(value)
 end
 
 local function PrintMessage(message)
@@ -391,7 +404,17 @@ local function IsRuntimeEnabled()
     return false
 end
 
-local function ApplyNow()
+local function WriteCVarValue(target)
+    if SetCVar then
+        return pcall(SetCVar, CVAR_NAME, tostring(target))
+    elseif C_CVar and C_CVar.SetCVar then
+        return pcall(C_CVar.SetCVar, CVAR_NAME, tostring(target))
+    end
+    return false, "SetCVar unavailable"
+end
+
+local function ApplyNow(allowImport)
+    if DeferRuntimeRefresh(allowImport) then return false end
     if not IsRuntimeEnabled() then return false end
 
     local target = ComputeTargetValue()
@@ -412,14 +435,7 @@ local function ApplyNow()
         return true
     end
 
-    local ok, result
-    if SetCVar then
-        ok, result = pcall(SetCVar, CVAR_NAME, tostring(target))
-    elseif C_CVar and C_CVar.SetCVar then
-        ok, result = pcall(C_CVar.SetCVar, CVAR_NAME, tostring(target))
-    else
-        ok, result = false, "SetCVar unavailable"
-    end
+    local ok, result = WriteCVarValue(target)
 
     if ok and result ~= false then
         local applied = GetCurrentCVarValue()
@@ -456,9 +472,10 @@ local function UpdateAutoTicker()
     end
 end
 
-local function ApplyAndRefreshTicker()
+local function ApplyAndRefreshTicker(allowImport)
+    if DeferRuntimeRefresh(allowImport) then return end
     UpdateAutoTicker()
-    ApplyNow()
+    ApplyNow(allowImport)
 end
 
 local function GetClassIconTexCoord(classToken)
@@ -1065,6 +1082,7 @@ local function RenderAutoInfo(parent, x, y, width)
             StopTicker()
             return
         end
+        if DeferRuntimeRefresh() then return end
 
         line2:SetText(BuildAutoInfoLine())
     end
@@ -1201,6 +1219,50 @@ local Feature = {
     tags = { T("feature.tag.combat", "Combat") },
     settingsMode = "inline",
     sourceRoot = "Components\\LagTolerance",
+}
+
+local function CopyTransferValue(value)
+    if type(value) ~= "table" then return value end
+    local result = {}
+    for key, item in pairs(value) do result[key] = CopyTransferValue(item) end
+    return result
+end
+
+-- A disabled feature has no lifecycle action that can restore the native CVar.
+-- Keep this runtime checkpoint on the consumed import entry, never in exports.
+Feature.transfer = {
+    apply = function(payload, entry)
+        local store = GetStore()
+        if not store then return nil, "missing_store" end
+        entry.previousToolboxEnabled = store.__toolboxEnabled
+        entry.previousSpellQueueWindow = GetCurrentCVarValue(true)
+        if payload.enabled and entry.previousSpellQueueWindow == nil then
+            return nil, "spell_queue_unavailable"
+        end
+        store[CONFIG_KEY] = payload.present[CONFIG_KEY] and CopyTransferValue(payload.data[CONFIG_KEY]) or nil
+        return true
+    end,
+    restore = function(snapshot, entry)
+        local store = snapshot.database.profile.Components
+        if type(store) ~= "table" then return nil, "missing_store" end
+        store[CONFIG_KEY] = CopyTransferValue(snapshot.data[CONFIG_KEY])
+        store.__toolboxEnabled = entry.previousToolboxEnabled
+        return true
+    end,
+    refresh = function(entry, _, phase)
+        if phase == "rollback" then
+            local previous = entry.previousSpellQueueWindow
+            if previous ~= nil and GetCurrentCVarValue(true) ~= previous then
+                local ok, result = WriteCVarValue(previous)
+                if not ok or result == false or GetCurrentCVarValue(true) ~= previous then
+                    return false, "spell_queue_restore_failed"
+                end
+            end
+        elseif isFeatureEnabled and GetCurrentCVarValue(true) ~= ComputeTargetValue() then
+            return false, "spell_queue_apply_failed"
+        end
+        return true
+    end,
 }
 
 function Feature:GetTooltipSummary()
@@ -1390,7 +1452,8 @@ end
 Feature.callback = function(enable)
     isFeatureEnabled = enable == true
     if isFeatureEnabled then
-        ApplyAndRefreshTicker()
+        -- 导入自身的应用和回滚仍须立即恢复 CVar；只有后台刷新等待事务结束。
+        ApplyAndRefreshTicker(true)
     else
         StopAutoTicker()
         lastAppliedValue = nil
@@ -1405,6 +1468,13 @@ if YUI.Event then
     end
 
     YUI.Event:On("YUI_WORLD_READY", OnRuntimeEvent, Feature)
+    YUI.Event:On("YUI_CONFIG_TRANSFER_RELEASED", function()
+        if not pendingRuntimeRefresh then return end
+        pendingRuntimeRefresh = false
+        -- 回滚可能刚从临时目标切回原配置，按当前存储恢复运行状态。
+        local store = GetStore()
+        Feature.callback(store and store[FEATURE_KEY] == true)
+    end, Feature)
     if not YUI.IsForever then
         YUI.Event:On("PLAYER_SPECIALIZATION_CHANGED", OnRuntimeEvent, Feature)
         YUI.Event:On("PLAYER_TALENT_UPDATE", OnRuntimeEvent, Feature)

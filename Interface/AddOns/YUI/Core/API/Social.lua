@@ -27,6 +27,19 @@ function Social.ResetInstances()
     return pcall(_G.ResetInstances)
 end
 
+-- 用户点击时检查原生职责投票条件；无轮询、无临时表。返回原生成功状态。
+function Social.InitiateRolePoll()
+    if type(_G.InitiateRolePoll) ~= "function" or type(_G.IsInGroup) ~= "function"
+        or not _G.IsInGroup() then return false end
+    local isLeader = type(_G.UnitIsGroupLeader) == "function" and _G.UnitIsGroupLeader("player")
+    local isRaidAssistant = type(_G.IsInRaid) == "function" and _G.IsInRaid()
+        and type(_G.UnitIsGroupAssistant) == "function" and _G.UnitIsGroupAssistant("player")
+    if not isLeader and not isRaidAssistant then return false end
+    if type(_G.HasLFGRestrictions) == "function" and _G.HasLFGRestrictions() then return false end
+    if type(_G.UnitInBattleground) == "function" and _G.UnitInBattleground("player") then return false end
+    return _G.InitiateRolePoll()
+end
+
 -- 返回的聊天字段必须是普通值；未知限制状态按受限处理。
 do
     local function Safe(value)
@@ -667,7 +680,7 @@ function Social.ShowPlayerDropdown(name, options)
 
     options = type(options) == "table" and options or {}
     local ok, err
-    if YUI.IsRetail then
+    if YUI.IsRetail or YUI.IsForever then
         ok, err = pcall(
             _G.FriendsFrame_ShowDropdown,
             name,
@@ -786,9 +799,21 @@ function Social.SendWho(filter, options)
 end
 
 function Social.SendWhoExact(name, options)
+    if type(_G.issecretvalue) == "function" and _G.issecretvalue(name) then
+        return false, "invalid_name"
+    end
     name = NonEmptyString(name)
     if not name then
         return false, "invalid_name"
+    end
+
+    if YUI.IsForever and _G.C_NameUtil and _G.C_NameUtil.ReplaceSurnameSeparatorWithLinkSeparator then
+        local ok, queryName = pcall(_G.C_NameUtil.ReplaceSurnameSeparatorWithLinkSeparator, name)
+        if not ok or (type(_G.issecretvalue) == "function" and _G.issecretvalue(queryName))
+            or not NonEmptyString(queryName) then
+            return false, "invalid_name"
+        end
+        name = queryName
     end
 
     return Social.SendWho((_G.WHO_TAG_EXACT or "") .. name, options)

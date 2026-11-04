@@ -38,9 +38,7 @@ local GUI = YUI.GUI2
 local Rules = YUI.SpellAlert.BuffTimerRules
 local pool, settings = {}, {}
 local byOverlay = setmetatable({}, { __mode = "k" })
-local version, build
-if GetBuildInfo then version, build = GetBuildInfo() end
-local clientSupported = YUI.IsRetail == true and version == "12.1.0" and tostring(build) == "69933"
+local clientSupported = YUI.IsRetail == true
 local running, owner, relayout, specID, listening = false, nil, nil, nil, false
 local formatter, durationOptions, measure, revision = nil, nil, nil, 0
 local textWidth = 0
@@ -86,7 +84,7 @@ function Timer.Normalize(db)
     c.topY = Clamp(c.topY, -100, 100, Clamp(c.y, -100, 100, 0))
     c.outward, c.y = nil, nil
     if c.outline ~= "" and c.outline ~= "OUTLINE" and c.outline ~= "THICKOUTLINE"
-        and c.outline ~= "SHADOW" and c.outline ~= "OUTLINE_SHADOW" then c.outline = "OUTLINE_SHADOW" end
+        and c.outline ~= "SHADOW" and c.outline ~= "OUTLINE_SHADOW" and c.outline ~= "THICKOUTLINE_SHADOW" then c.outline = "OUTLINE_SHADOW" end
     if type(c.color) ~= "table" then c.color = {} end
     for i = 1, 3 do c.color[i] = Clamp(c.color[i], 0, 1, 1) end
     c.color[4] = 1
@@ -99,12 +97,18 @@ function Timer.IsSupported()
 end
 local function FontPath(name)
     local media = LibStub and LibStub("LibSharedMedia-3.0", true)
+    if type(name)=="string" and (name:find("\\",1,true) or name:find("/",1,true)) then return name end
     return (media and media:Fetch("font", name, true)) or GUI:GetFont("font.family.body") or STANDARD_TEXT_FONT
 end
 local function Style(text, c)
     local flags = c.outline == "OUTLINE_SHADOW" and "OUTLINE" or c.outline == "SHADOW" and "" or c.outline
-    local shadow = c.outline == "SHADOW" or c.outline == "OUTLINE_SHADOW"
-    assert(text:SetFont(FontPath(c.font), c.size, flags) ~= false, "font-unavailable")
+    local shadow = c.outline == "SHADOW" or c.outline == "OUTLINE_SHADOW" or c.outline == "THICKOUTLINE_SHADOW"
+    if c.outline=="THICKOUTLINE_SHADOW" then flags="THICKOUTLINE" end
+    if c.monochrome then flags=flags~="" and flags..",MONOCHROME" or "MONOCHROME" end
+    local style = GUI.FontStyle
+    local ok = style and style.TryFont(text,FontPath(c.font),c.size,flags)
+    if not style then ok=text:SetFont(FontPath(c.font),c.size,flags)~=false end
+    if not ok then assert(text:SetFont(GUI:GetFont("font.family.body") or STANDARD_TEXT_FONT,c.size,flags)~=false,"font-unavailable") end
     text:SetShadowColor(0, 0, 0, 1)
     text:SetShadowOffset(shadow and 1 or 0, shadow and -1 or 0)
 end
@@ -307,7 +311,7 @@ function Timer.Configure(frame, c, componentEnabled, layoutCallback)
     local changed = false
     local scale = frame and (UIParent and UIParent:GetEffectiveScale() or 1) / frame:GetEffectiveScale() or 1
     if settings.textScale ~= scale then settings.textScale = scale; changed = true end
-    for _, key in ipairs({ "font", "size", "outline", "sideX", "sideY", "topX", "topY", "enabled", "priestAvoidance" }) do
+    for _, key in ipairs({ "font", "size", "outline", "monochrome", "sideX", "sideY", "topX", "topY", "enabled", "priestAvoidance" }) do
         if settings[key] ~= c[key] then settings[key] = c[key]; changed = true end
     end
     for i, key in ipairs({ "r", "g", "b" }) do

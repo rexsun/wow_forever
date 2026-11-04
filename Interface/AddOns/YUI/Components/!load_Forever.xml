@@ -1,4 +1,6 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Include file="AddonAssistant\!load.xml"/>
+    <Include file="Voice\!load_Forever.xml"/>
     <Include file="CharacterEquipmentInfo\Locales\!load.xml"/>
     <Script file="CharacterEquipmentInfo\SlotOverlays.lua"/>
     <Script file="CharacterEquipmentInfo\CharacterEquipmentInfo.lua"/>
@@ -26,6 +28,7 @@
     <Script file="UtilityTools\FriendlyNameplates.lua"/>
     <Script file="UtilityTools\NameplateOutline.lua"/>
     <Script file="UtilityTools\RouteGuide.lua"/>
+    <Script file="UtilityTools\PolestarGuide.lua"/>
     <Script file="UtilityTools\UtilityTools.lua"/>
     <Include file="MouseEnhancement\Locales\!load.xml"/>
     <Script file="MouseEnhancement\PlayerTooltip.lua"/>
@@ -48,6 +51,7 @@
     <Include file="SpellAlert\Locales\!load.xml"/>
     <Script file="SpellAlert\BuffTimerRules.lua"/>
     <Script file="SpellAlert\BuffTimer.lua"/>
+    <Script file="SpellAlert\PreviewDefaults.lua"/>
     <Script file="SpellAlert\SpellAlert.lua"/>
     <Script file="Friend\Friend.lua"/>
     <Include file="WhisperManager\Locales\!load.xml"/>
@@ -56,6 +60,12 @@
     <Script file="TradeEnhancement\TradeEnhancement.lua"/>
     <Include file="MailAssistant\Locales\!load.xml"/>
     <Script file="MailAssistant\MailAssistant.lua"/>
+    <Script file="MailAssistant\Compatibility.lua"/>
+    <Script file="MailAssistant\InboxModel.lua"/>
+    <Script file="MailAssistant\Inbox.lua"/>
+    <Script file="MailAssistant\MailLogModel.lua"/>
+    <Script file="MailAssistant\MailLog.lua"/>
+    <Script file="MailAssistant\MailLogView.lua"/>
     <Include file="LagTolerance\Locales\!load.xml"/>
     <Script file="LagTolerance\LagTolerance.lua"/>
     <Include file="CombatCue\Locales\!load.xml"/>
@@ -66,5 +76,10 @@
     <Script file="GameMenuButtons\GameMenuButtons.lua"/>
     <Include file="AutoGossip\Locales\!load.xml"/>
     <Script file="AutoGossip\AutoGossip.lua"/>
+    <Include file="EllesmereUIEnhancement\Locales\!load.xml"/>
+    <Script file="EllesmereUIEnhancement\Hotkeys.lua"/>
+    <Script file="EllesmereUIEnhancement\QuestTrackerScroll.lua"/>
+    <Script file="EllesmereUIEnhancement\QuestTrackerAutomation.lua"/>
+    <Script file="EllesmereUIEnhancement\EllesmereUIEnhancement.lua"/>
     <Include file="ProfessionAssistant\!load.xml"/>
 </Ui>

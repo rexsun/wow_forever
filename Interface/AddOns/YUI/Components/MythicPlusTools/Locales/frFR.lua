@@ -5,7 +5,7 @@ if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("frFR") then return end
 YUI.Locale:Register("MythicPlusTools", "frFR", {
     ["name"] = "Outils Mythique+",
     ["description"] = "Propose des outils pratiques pour Mythique+ et les rencontres JcE.",
-    ["product.title"] = " Outils Mythic+ · YanForge",
+    ["product.title"] = " Outils Mythic+ · Ayan",
     ["product.short_title"] = "Mythic+ Tools",
     ["product.notes"] = "Fournit des outils pratiques pour les rencontres Mythic+ et PvE.",
     ["settings.battle_res"] = "Moniteur de combat",

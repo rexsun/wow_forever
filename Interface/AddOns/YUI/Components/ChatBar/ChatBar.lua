@@ -1572,8 +1572,9 @@ end
 
 local function GetFontPath()
     local db = GetDB()
-    local fontPath = db.font == "默认" and STANDARD_TEXT_FONT
-        or (db.font and LSM:Fetch("font", db.font))
+    local fontPath
+    if type(db.font)=="string" and (db.font:find("\\",1,true) or db.font:find("/",1,true)) then fontPath=db.font
+    else fontPath = db.font == "默认" and STANDARD_TEXT_FONT or (db.font and LSM:Fetch("font", db.font, true)) end
     if not fontPath or fontPath == "" then
         fontPath = STANDARD_TEXT_FONT
     end
@@ -1608,10 +1609,25 @@ local function GetActiveChannelCount(db)
     return count
 end
 
-GetChatBarGeometry = function()
-    local db = GetDB()
+-- 文字按钮及高亮区域只随字号缩放；旧配置沿用原字号，宽高仅用于色块模式。
+local function GetButtonMetrics(db)
     local width = tonumber(db.width) or defaults.width
     local height = tonumber(db.height) or defaults.height
+    local fontSize = math.max(8, math.floor(height * 0.6))
+    if db.style == "BLOCK" then
+        return width, height, fontSize
+    end
+    local textSize = tonumber(db.textSize)
+    if textSize and textSize == textSize then
+        fontSize = math.max(8, math.min(30, textSize))
+    end
+    local size = fontSize / 0.6
+    return size, size, fontSize
+end
+
+GetChatBarGeometry = function()
+    local db = GetDB()
+    local width, height = GetButtonMetrics(db)
     local spacing = tonumber(db.spacing) or defaults.spacing
     local dir = db.direction or defaults.direction
     local barThickness = height
@@ -1768,8 +1784,7 @@ local function UpdateLayout(skipAnim)
     EnsureChannelSettings(db)
     local orderedChannels = GetOrderedChannels(db)
     
-    local width = db.width
-    local height = db.height
+    local width, height, fontSize = GetButtonMetrics(db)
     local spacing = db.spacing
     local dir = db.direction
     local style = db.style
@@ -1813,8 +1828,6 @@ local function UpdateLayout(skipAnim)
             btn.text = GUI2:CreateText(btn, "", "font.size.md", "color.text.primary")
             btn.text.gui2ColorKey = nil
             btn.text.gui2ColorFallback = nil
-                -- 字体大小自动适配高度 (高度的 60%)
-                local fontSize = math.max(8, math.floor(height * 0.6))
                 btn.text:SetFont(fontPath, fontSize, "OUTLINE")
                 btn.text:SetPoint("CENTER")
                 -- 添加文字阴影
@@ -1870,7 +1883,6 @@ local function UpdateLayout(skipAnim)
             btn:SetSize(width, height)
             
             -- 更新字体大小
-            local fontSize = math.max(8, math.floor(height * 0.6))
             btn.text:SetFont(fontPath, fontSize, "OUTLINE")
             
             if style == "TEXT" then
@@ -2499,9 +2511,11 @@ local function RefreshCustomButtonEditor(editor)
     if editor.preview and editor.previewText then
         local color = draft.color or { 1, 0.82, 0 }
         local db = GetDB()
-        local previewWidth = math.max(40, math.min(100, tonumber(db.width) or defaults.width))
-        local previewHeight = math.max(20, math.min(50, tonumber(db.height) or defaults.height))
+        local width, height, fontSize = GetButtonMetrics(db)
+        local previewWidth = math.max(40, math.min(100, width))
+        local previewHeight = math.max(20, math.min(50, height))
         editor.preview:SetSize(previewWidth, previewHeight)
+        editor.previewText:SetFont(GetFontPath(), fontSize, "OUTLINE")
         if db.style == "BLOCK" then
             editor.preview:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
             editor.preview:SetBackdropColor(color[1] or 1, color[2] or 0.82, color[3] or 0, 1)
@@ -2911,6 +2925,12 @@ local function GetOptions(feature)
                         Refresh()
                     end,
                 })
+                if GUI2.FontStyle and GUI2.Form.CreateFontStyle then
+                    local xOffset=ColX(2)
+                    AddLabel(basicRow,YUI.Locale:Get("Core")["font_style.text"],xOffset,labelWidth)
+                    local text=GUI2.Form:CreateFontStyle(basicRow,{key="chatbar_text:channels",width=controlWidth})
+                    text:SetPoint("LEFT",basicRow,"LEFT",xOffset+labelWidth,0)
+                else
                 AddDropdown(basicRow, 2, ChatBarText("common.font", "Font"), {
                     options = BuildFontOptions,
                     get = function() return db.font end,
@@ -2920,6 +2940,7 @@ local function GetOptions(feature)
                         UpdateCollapseFont()
                     end,
                 })
+                end
                 AddCheckbox(basicRow, 3, ChatBarText("chatbar.settings.lock", "Lock"), {
                     get = function() return db.locked end,
                     set = function(v)
@@ -2943,17 +2964,25 @@ local function GetOptions(feature)
 
                 AddSection(ChatBarText("chatbar.settings.layout_section", "Button Layout"))
                 local sizeRow = AddRow(rowHeight)
-                AddSlider(sizeRow, 1, ChatBarText("chatbar.settings.button_width", "Button Width"), {
-                    min = 10, max = 100, step = 1,
-                    get = function() return db.width end,
-                    set = function(v) db.width = v; UpdateLayout(true) end,
-                })
-                AddSlider(sizeRow, 2, ChatBarText("chatbar.settings.button_height", "Button Height"), {
-                    min = 10, max = 50, step = 1,
-                    get = function() return db.height end,
-                    set = function(v) db.height = v; UpdateLayout(true) end,
-                })
-                AddSlider(sizeRow, 3, ChatBarText("chatbar.settings.button_spacing", "Button Spacing"), {
+                if db.style ~= "BLOCK" then
+                    AddSlider(sizeRow, 1, ChatBarText("common.text_size", "Text Size"), {
+                        min = 8, max = 30, step = 1,
+                        get = function() local _, _, size = GetButtonMetrics(db); return size end,
+                        set = function(v) db.textSize = v; UpdateLayout(true) end,
+                    })
+                else
+                    AddSlider(sizeRow, 1, ChatBarText("chatbar.settings.button_width", "Button Width"), {
+                        min = 10, max = 100, step = 1,
+                        get = function() return db.width end,
+                        set = function(v) db.width = v; UpdateLayout(true) end,
+                    })
+                    AddSlider(sizeRow, 2, ChatBarText("chatbar.settings.button_height", "Button Height"), {
+                        min = 10, max = 50, step = 1,
+                        get = function() return db.height end,
+                        set = function(v) db.height = v; UpdateLayout(true) end,
+                    })
+                end
+                AddSlider(sizeRow, db.style == "BLOCK" and 3 or 2, ChatBarText("chatbar.settings.button_spacing", "Button Spacing"), {
                     min = -20, max = 20, step = 1,
                     get = function() return db.spacing end,
                     set = function(v) db.spacing = v; UpdateLayout(true) end,
@@ -3273,6 +3302,7 @@ local CHATBAR_TRANSFER_FIELDS = {
     reverse = true,
     width = true,
     height = true,
+    textSize = true,
     spacing = true,
     autoHide = true,
     blockTexture = true,
@@ -3340,6 +3370,8 @@ local function NormalizeChatBarTransferPayload(payload)
         for key in pairs(config) do
             if not CHATBAR_TRANSFER_FIELDS[key] then return nil, "unexpected_data_field" end
         end
+        if config.textSize ~= nil and (type(config.textSize) ~= "number" or config.textSize ~= config.textSize
+            or config.textSize < 8 or config.textSize > 30) then return nil, "invalid_text_size" end
         if config.customButtonSerial ~= nil then
             local serial = tonumber(config.customButtonSerial)
             if not serial or serial < 0 or serial ~= math.floor(serial) then
@@ -3408,3 +3440,14 @@ YUI.Components:RegisterFeature("ChatBar", {
         normalize = NormalizeChatBarTransferPayload,
     },
 })
+
+if GUI2.FontStyle and GUI2.FontStyle.RegisterConfig then
+    local style=GUI2.FontStyle
+    style:RegisterConfig("chatbar_text", {
+        label=function() return ChatBarText("component.ChatBar.name","Chat Bar") end,
+        get=function() return style.ComponentConfig(PRODUCT_ID,"ChatBar_Config") end,
+        refresh=function() if frame then UpdateLayout(true);UpdateCollapseFont() end end,
+        targets={{id="channels",label=function() return ChatBarText("common.font","Font") end,fields={font="font"},defaults=defaults,
+            fontPath=function(value) return value=="默认" and STANDARD_TEXT_FONT or style.FontPath(value) end}},
+    })
+end

@@ -191,8 +191,13 @@ function Module:CreateBarItem(parent)
         
         local white = "|cffffffff"
         local gold = "|cffFFD100"
+        local openAction
+        if YBar and YBar.GetMeetingHornLabels then
+            local _, action = YBar:GetMeetingHornLabels()
+            openAction = action
+        end
         
-        GameTooltip:AddLine(format("%s%s: |r%s%s|r", white, LC["common.left_click"], gold, T("meetingstone.action.open_meeting_stone", "打开集合石")))
+        GameTooltip:AddLine(format("%s%s: |r%s%s|r", white, LC["common.left_click"], gold, openAction or T("meetingstone.action.open_meeting_stone", "打开集合石")))
         GameTooltip:AddLine(format("%s%s: |r%s%s|r", white, LC["common.right_click"], gold, T("meetingstone.action.open_group_finder", "打开队伍查找器")))
         if YUI.IsRetail and Module.db and Module.db.showKeystone and IsInGroup() then
             GameTooltip:AddLine(format("%sShift + %s: |r%s%s|r", white, LC["common.left_click"], gold, T("meetingstone.action.report_party_keystones", "通报队伍钥石")))

@@ -1893,7 +1893,8 @@ SetManagedTabAlpha = function(state, alpha, cancelNativeFade)
     return ok
 end
 
-local function ApplyTabTextEffect(tabText, effect, fontSize)
+local function ApplyTabTextEffect(state, effect, fontSize, font, shadowOverride, monochrome)
+    local tabText = state.targets.tabText
     if Adapter:CanCallProtected(tabText) ~= true then return false end
     local fontOK, fontFile = pcall(tabText.GetFont, tabText)
     if not fontOK
@@ -1905,10 +1906,14 @@ local function ApplyTabTextEffect(tabText, effect, fontSize)
     then
         return false
     end
+    -- A missing override follows the captured native family, including after reset.
+    fontFile = Appearance:ResolveTabFont(font) or state.snapshot.tabFont[1] or fontFile
     local outline = effect == "outline" or effect == "outlineShadow"
     local thick = effect == "thick"
     local shadow = effect == "shadow" or effect == "outlineShadow"
+    if shadowOverride ~= nil then shadow = shadowOverride end
     local flags = thick and "THICKOUTLINE" or (outline and "OUTLINE" or "")
+    if monochrome then flags = flags ~= "" and (flags .. ",MONOCHROME") or "MONOCHROME" end
     return CallMethod(tabText, "SetFont", fontFile, fontSize, flags)
         and CallMethod(tabText, "SetShadowColor", 0, 0, 0, shadow and 1 or 0)
         and CallMethod(tabText, "SetShadowOffset", shadow and 1 or 0, shadow and -1 or 0)
@@ -1957,7 +1962,7 @@ local function NormalizeTabTextAnchor(tab, tabText, nativePoints)
     return false
 end
 
-local function TryApplyTabTypography(state, effect, fontSize, tabWidth)
+local function TryApplyTabTypography(state, effect, fontSize, tabWidth, font, shadow, monochrome)
     if state
         and state.tabTypographyPending == true
         and state.tabTypographyAttemptGeneration == tabScanGeneration
@@ -1993,7 +1998,7 @@ local function TryApplyTabTypography(state, effect, fontSize, tabWidth)
         return false
     end
 
-    local applied = ApplyTabTextEffect(tabText, effect, fontSize)
+    local applied = ApplyTabTextEffect(state, effect, fontSize, font, shadow, monochrome)
         and Adapter:ReconcileAppearanceTabWidth(state.frame, tabWidth) == true
         and NormalizeTabTextAnchor(
             state.targets.tab,
@@ -2008,6 +2013,7 @@ local function TryApplyTabTypography(state, effect, fontSize, tabWidth)
         return false
     end
     state.tabTypographyPending = false
+    state.tabResolvedFont = Appearance:ResolveTabFont(font)
     return true
 end
 
@@ -2763,6 +2769,7 @@ local function UpdateCache(
     cache.tabStyle = appearance.tabStyle
     cache.tabTextEffect = appearance.tabTextEffect
     cache.tabFontSize = appearance.tabFontSize
+    cache.tabFont, cache.tabShadow, cache.tabMonochrome = appearance.tabFont, appearance.tabShadow, appearance.tabMonochrome
     cache.tabWidth = appearance.tabWidth
     cache.tabWidthMode = appearance.tabWidthMode
     cache.tabSlotWidth = tabSlotWidth
@@ -3006,7 +3013,7 @@ SyncManagedTabVisuals = function(state, selected)
         state,
         cache.tabTextEffect,
         cache.tabFontSize,
-        cache.tabTypographyWidth
+        cache.tabTypographyWidth, cache.tabFont, cache.tabShadow, cache.tabMonochrome
     )
     if selected and state.activeAnimation then StopAnimation(state) end
     if not ApplyTabArt(
@@ -3210,12 +3217,17 @@ local function ApplyState(state, appearance, forceLayout)
         end
         local tabTypographyChanged = state.cache.tabTextEffect ~= appearance.tabTextEffect
             or state.cache.tabFontSize ~= appearance.tabFontSize
+            or state.cache.tabFont ~= appearance.tabFont
+            or state.tabResolvedFont ~= Appearance:ResolveTabFont(appearance.tabFont)
+            or state.cache.tabShadow ~= appearance.tabShadow
+            or state.cache.tabMonochrome ~= appearance.tabMonochrome
             or state.cache.tabWidth ~= appearance.tabWidth
             or state.cache.tabWidthMode ~= appearance.tabWidthMode
             or state.tabTypographyPending == true
         if tabTypographyChanged then
             state.cache.tabTextEffect = appearance.tabTextEffect
             state.cache.tabFontSize = appearance.tabFontSize
+            state.cache.tabFont, state.cache.tabShadow, state.cache.tabMonochrome = appearance.tabFont, appearance.tabShadow, appearance.tabMonochrome
             state.cache.tabWidth = appearance.tabWidth
             state.cache.tabWidthMode = appearance.tabWidthMode
             state.cache.tabTypographyWidth = GetTypographyTabWidth(appearance)
@@ -3223,7 +3235,7 @@ local function ApplyState(state, appearance, forceLayout)
                 state,
                 appearance.tabTextEffect,
                 appearance.tabFontSize,
-                state.cache.tabTypographyWidth
+                state.cache.tabTypographyWidth, appearance.tabFont, appearance.tabShadow, appearance.tabMonochrome
             )
         end
         local suppressed, suppressReason, suppressDomain =
@@ -3397,7 +3409,7 @@ local function ApplyState(state, appearance, forceLayout)
         state,
         appearance.tabTextEffect,
         appearance.tabFontSize,
-        GetTypographyTabWidth(appearance)
+        GetTypographyTabWidth(appearance), appearance.tabFont, appearance.tabShadow, appearance.tabMonochrome
     )
     ok = ok and ApplyTabArt(
         state,
@@ -3456,6 +3468,10 @@ local function ApplyTabState(state, appearance)
         and cache.tabStyle == appearance.tabStyle
         and cache.tabTextEffect == appearance.tabTextEffect
         and cache.tabFontSize == appearance.tabFontSize
+        and cache.tabFont == appearance.tabFont
+        and state.tabResolvedFont == Appearance:ResolveTabFont(appearance.tabFont)
+        and cache.tabShadow == appearance.tabShadow
+        and cache.tabMonochrome == appearance.tabMonochrome
         and cache.tabWidth == appearance.tabWidth
         and cache.tabWidthMode == appearance.tabWidthMode
         and cache.tabSlotWidth == tabSlotWidth
@@ -3486,7 +3502,7 @@ local function ApplyTabState(state, appearance)
         state,
         appearance.tabTextEffect,
         appearance.tabFontSize,
-        GetTypographyTabWidth(appearance)
+        GetTypographyTabWidth(appearance), appearance.tabFont, appearance.tabShadow, appearance.tabMonochrome
     )
     local ok = SetTabRegionsSuppressed(state.snapshot.tabRegions, true)
         and CallMethod(state.targets.tab, "SetPushedTextOffset", 0, 0)
@@ -3512,6 +3528,7 @@ local function ApplyTabState(state, appearance)
     cache.tabStyle = appearance.tabStyle
     cache.tabTextEffect = appearance.tabTextEffect
     cache.tabFontSize = appearance.tabFontSize
+    cache.tabFont, cache.tabShadow, cache.tabMonochrome = appearance.tabFont, appearance.tabShadow, appearance.tabMonochrome
     cache.tabWidth = appearance.tabWidth
     cache.tabWidthMode = appearance.tabWidthMode
     cache.tabSlotWidth = tabSlotWidth
@@ -3837,6 +3854,7 @@ local function RefreshGauges()
             and 1
             or 0)
         + (YChat.MainLayout and YChat.MainLayout.pending and 1 or 0)
+        + (YChat.BNetToastLayout and YChat.BNetToastLayout.restorePending and 1 or 0)
     return managed, Appearance.restorePending
 end
 
@@ -3893,6 +3911,7 @@ local function NotifyExtensionsWindowsChanged(reason)
         YChat.CopyViewer,
         YChat.InputSkin,
         YChat.MainLayout,
+        YChat.BNetToastLayout,
         YChat.ElementFade,
     }
     for index = 1, #extensions do
@@ -4067,6 +4086,8 @@ end
 
 function Appearance:RestoreAll(reason)
     if not IsVisualMutationAllowed() then
+        -- Stop the independent mover immediately; native restoration can wait for a safe event.
+        if YChat.BNetToastLayout then YChat.BNetToastLayout:RestoreAll() end
         for _, state in pairs(frameStates) do
             state.restorePending = state.applied == true
                 or state.restorePending == true
@@ -4089,6 +4110,7 @@ function Appearance:RestoreAll(reason)
         YChat.CopyViewer,
         YChat.InputSkin,
         YChat.MainLayout,
+        YChat.BNetToastLayout,
         YChat.ElementFade,
     }
     for index = 1, #extensions do
@@ -4283,6 +4305,7 @@ function Appearance:GetInputVisualInset(frame)
 end
 
 function Appearance:SetEnabled(enabled, reason)
+    self.tabFontName, self.tabFontPath = nil, nil -- Retry late media on the existing cold refresh.
     enabled = enabled == true
     if not enabled then
         self.enabled = false
@@ -4340,6 +4363,7 @@ function Appearance:SetEnabled(enabled, reason)
         YChat.CopyViewer,
         YChat.InputSkin,
         YChat.MainLayout,
+        YChat.BNetToastLayout,
         YChat.ElementFade,
     }
     local coordinateOnly = alreadyEnabled
@@ -4688,6 +4712,9 @@ function Appearance:GetRuntimeGauges(target)
     if YChat.MainLayout and type(YChat.MainLayout.GetRuntimeGauges) == "function" then
         YChat.MainLayout:GetRuntimeGauges(target)
     end
+    if YChat.BNetToastLayout and type(YChat.BNetToastLayout.GetRuntimeGauges) == "function" then
+        YChat.BNetToastLayout:GetRuntimeGauges(target)
+    end
     return target
 end
 
@@ -4784,4 +4811,42 @@ function Appearance:GetAcceptanceSnapshot(target)
     target.activeAnimations = activeAnimations
     target.tooltipReady = self.tooltipAvailable == true
     return target
+end
+
+-- These helpers do not capture frames or build settings while enumerating font targets.
+function Appearance:ResolveTabFont(font)
+    if not font then return nil end
+    if self.tabFontName ~= font then
+        self.tabFontName = font
+        self.tabFontPath = YChat.Typography and YChat.Typography:ResolveFont(font) or nil
+    end
+    return self.tabFontPath
+end
+
+function Appearance:ReadTabFontStyle(config)
+    local state = _G.ChatFrame1 and frameStates[_G.ChatFrame1]
+    local native = state and state.snapshot and state.snapshot.tabFont
+    local nativeFont = native and native[1]
+    if not nativeFont and Adapter.GetAppearanceTargets and _G.ChatFrame1 then
+        local targets = Adapter:GetAppearanceTargets(_G.ChatFrame1)
+        local text = targets and targets.tabText
+        if text and Adapter:CanCallProtected(text) then
+            local ok, font = pcall(text.GetFont, text)
+            if ok and IsSafeValue(font) and type(font) == "string" then nativeFont = font end
+        end
+    end
+    local effect = config.tabTextEffect
+    local shadow = config.tabShadow
+    if shadow == nil then shadow = effect == "shadow" or effect == "outlineShadow" end
+    return {
+        font = self:ResolveTabFont(config.tabFont) or nativeFont or STANDARD_TEXT_FONT,
+        size = config.tabFontSize,
+        outline = effect == "thick" and "THICKOUTLINE"
+            or (effect == "outline" or effect == "outlineShadow") and "OUTLINE" or "NONE",
+        shadow = shadow, monochrome = config.tabMonochrome == true,
+    }
+end
+
+function Appearance:GetTabColor(config)
+    return GetTabColor(config)
 end

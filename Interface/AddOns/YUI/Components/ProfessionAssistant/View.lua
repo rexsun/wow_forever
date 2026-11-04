@@ -490,12 +490,14 @@ function View.Render(view, state, list, busy)
     view.castHost:EnableMouse(M.Next(state) ~= nil and not busy and not state.preview)
 end
 
-function View.PlaceEntry(entry, parent)
+function View.PlaceEntry(entry, parent, toolbar)
     if InCombatLockdown() then return end
     local close = parent.CloseButton or (parent.GetName and _G[(parent:GetName() or "") .. "CloseButton"])
-    entry:ClearAllPoints()
-    if close then entry:SetPoint("RIGHT", close, "LEFT", -3, 0)
-    else entry:SetPoint("TOPRIGHT", -32, -8) end
+    if not toolbar then
+        entry:ClearAllPoints()
+        if close then entry:SetPoint("RIGHT", close, "LEFT", -3, 0)
+        else entry:SetPoint("TOPRIGHT", -32, -8) end
+    end
     -- PortraitFrame chrome sits hundreds of levels above the bag content.
     -- Stay above that chrome and the title's drag handle, within the bag strata.
     local level = parent:GetFrameLevel()
@@ -508,27 +510,35 @@ function View.PlaceEntry(entry, parent)
 end
 
 function View.Entry(parent, callbacks)
-    local entry = GUI:CreateButtonFrame(parent, { width = 24, height = 24 })
-    -- Match the map enhancement button, scaled from its 32px shell to 24px.
-    local background = GUI:CreateTexture(entry, { layer = "BACKGROUND" })
-    background:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
-    background:SetSize(18.75, 18.75)
-    background:SetPoint("TOPLEFT", 1.5, -3)
-    -- Keep icon and ring on the same frame: child frames draw above parent textures.
-    entry.icon = GUI:CreateIcon(entry, { size = 18, allowTiny = true, crop = true,
-        icon = YUI.API.Spell.GetTexture(13262) or 132853 })
-    entry.icon:SetPoint("CENTER", -.75, -.75)
-    entry.iconMask = entry:CreateMaskTexture(nil, "ARTWORK")
-    entry.iconMask:SetTexture(GUI:GetIconAppearanceMask("circle", "none"),
-        "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-    entry.iconMask:SetAllPoints(entry.icon)
-    entry.icon:AddMaskTexture(entry.iconMask)
-    entry.ring = GUI:CreateTexture(entry, { layer = "OVERLAY", subLevel = 1 })
-    entry.ring:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
-    entry.ring:SetSize(40.5, 40.5)
-    entry.ring:SetPoint("TOPLEFT")
-    entry:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", "ADD")
-    View.PlaceEntry(entry, parent)
+    local size = callbacks.template and 20 or 24
+    local entry = GUI:CreateButtonFrame(parent, { width = size, height = size, template = callbacks.template })
+    local icon = YUI.API.Spell.GetTexture(13262) or 132853
+    if callbacks.template then
+        -- Keep the host template's square border and native hover/press textures.
+        entry.icon = entry.Icon
+        entry.icon:SetTexture(icon)
+        entry.icon:SetAllPoints(entry)
+    else
+        -- Match the map enhancement button, scaled from its 32px shell to 24px.
+        local background = GUI:CreateTexture(entry, { layer = "BACKGROUND" })
+        background:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+        background:SetSize(18.75, 18.75)
+        background:SetPoint("TOPLEFT", 1.5, -3)
+        -- Keep icon and ring on the same frame: child frames draw above parent textures.
+        entry.icon = GUI:CreateIcon(entry, { size = 18, allowTiny = true, crop = true, icon = icon })
+        entry.icon:SetPoint("CENTER", -.75, -.75)
+        entry.iconMask = entry:CreateMaskTexture(nil, "ARTWORK")
+        entry.iconMask:SetTexture(GUI:GetIconAppearanceMask("circle", "none"),
+            "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        entry.iconMask:SetAllPoints(entry.icon)
+        entry.icon:AddMaskTexture(entry.iconMask)
+        entry.ring = GUI:CreateTexture(entry, { layer = "OVERLAY", subLevel = 1 })
+        entry.ring:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+        entry.ring:SetSize(40.5, 40.5)
+        entry.ring:SetPoint("TOPLEFT")
+        entry:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", "ADD")
+    end
+    View.PlaceEntry(entry, parent, callbacks.toolbar)
     entry:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     entry:SetScript("OnClick", callbacks.click)
     entry:SetScript("OnEnter", function(self)

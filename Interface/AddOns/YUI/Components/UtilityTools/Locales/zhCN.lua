@@ -5,6 +5,8 @@ if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("zhCN") then return end
 YUI.Locale:Register("UtilityTools", "zhCN", {
     ["name"] = "常用小工具",
     ["description"] = "整合常用的小型界面与游戏辅助功能。",
+    ["settings.encounter_journal_item_sets.label"] = "修复冒险指南套装",
+    ["settings.encounter_journal_item_sets.tooltip"] = "恢复冒险指南中被隐藏的套装标签，以便查看副本套装的原始属性。",
     ["settings.sync_friendly_nameplates"] = "友方姓名板联动",
     ["settings.sync_friendly_nameplates.tooltip"] = "让友方 NPC 姓名板跟随友方玩家姓名板一起开关。",
     ["settings.nameplates"] = "姓名板",
@@ -32,6 +34,8 @@ YUI.Locale:Register("UtilityTools", "zhCN", {
     ["bonus_roll.command_usage"] = "用法：/yroll test 或 /yroll test pass",
     ["settings.macro_frame"] = "宏命令界面扩展",
     ["settings.route_guide"] = "RestedXP 任务路线收起",
+    ["settings.polestar_guide"] = "Polestar 任务路线收起",
+    ["settings.polestar_guide.tooltip"] = "在路线面板菜单右侧添加收起按钮，收起后保留“任务路线”标签，点击恢复。进副本自动收起，出副本恢复；副本内手动切换后保留手动选择。支持 0.2.6，标签尺寸沿用上方设置。",
     ["settings.route_guide.tooltip"] = "点击路线图标，使用原插件的小地图开关；隐藏后原位保留图标和“任务路线”标签，点击可恢复。支持 v4.11.23 旧版面板。",
     ["settings.route_guide.scale"] = "折叠标签尺寸（%）",
     ["settings.route_guide.scale.tooltip"] = "同时缩放折叠状态的图标和文字；100% 为默认大小。",

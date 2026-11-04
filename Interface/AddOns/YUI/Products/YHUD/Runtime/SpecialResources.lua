@@ -850,7 +850,62 @@ local function ReadFilteredAuraPublicValue(params, spellID, target, options)
         and type(target.value) == "number" then
         return target.value, true
     end
-    if FILTERED_AURA_ABSENT[code] then return 0, true end
+    if FILTERED_AURA_ABSENT[code] then return 0, true, code end
+    return nil, false
+end
+
+local function ReadOwnedCustomTargetPresence(params)
+    if not Unit.ReadAuraIdentityByIndex then return nil, false end
+    local ids = params.spellIDs
+    local count = ids and #ids or 0
+    -- The unfiltered spell lookup returns only the first matching instance.
+    -- Resolve a foreign-first ambiguity only while aura access is public.
+    for index = 1, 255 do
+        local identity, code = Unit.ReadAuraIdentityByIndex(
+            params.unit, index, "HARMFUL|PLAYER"
+        )
+        if code == "aura-absent" then return 0, true end
+        if code or not identity or not identity.spellID then return nil, false end
+        for candidate = 1, math.max(1, count) do
+            local spellID = count > 0 and ids[candidate] or params.spellID
+            if identity.spellID == spellID then
+                if identity.sourceUnit == "player" then return 1, true end
+                if not identity.sourceUnit then return nil, false end
+            end
+        end
+    end
+    return nil, false
+end
+
+local function ReadCustomAuraPublicValue(params, target, options, presenceOnly)
+    local ids = params.spellIDs
+    local count = ids and #ids or 0
+    local known = true
+    local foreign = false
+    for index = 1, math.max(1, count) do
+        local value, public, code = ReadFilteredAuraPublicValue(
+            params,
+            count > 0 and ids[index] or params.spellID,
+            target,
+            options
+        )
+        if code == "direct-foreign-source" and params.unit == "target"
+            and options.requirePlayerSource then
+            foreign, public = true, false
+        end
+        -- Nonstacking auras may report zero applications while still present.
+        if public and presenceOnly and target.available == true then return 1, true end
+        if public and value > 0 then return value, true end
+        if not public then known = false end
+    end
+    if foreign then
+        local presence, public = ReadOwnedCustomTargetPresence(params)
+        if public and (presenceOnly or presence == 0) then return presence, true end
+        -- Presence alone cannot expose the owned count. Native filtering
+        -- selects its instance instead of displaying the foreign count.
+        return nil, false
+    end
+    if known then return 0, true end
     return nil, false
 end
 
@@ -860,6 +915,17 @@ local function CommitFilteredAuraApplicationPublic(
     structuralMax
 )
     local params = source.params
+    if params.resourceSourceIdentity and params.spellIDs and #params.spellIDs > 0 then
+        local value, known = ReadCustomAuraPublicValue(
+            params, state.filteredAuraState, state.auraOptions, false
+        )
+        if known then
+            return true, CommitValue(
+                state, value, false, "filtered-aura-application", structuralMax
+            )
+        end
+        return false, false
+    end
     local value, known = ReadFilteredAuraPublicValue(
         params,
         params.spellID,
@@ -1247,15 +1313,45 @@ local function ReadAbsorb(source, state)
         direct.value, 100, direct.secret, "absorb-total-fallback")
 end
 
+local function ReadResourceAuraDuration(params, direct)
+    local ids = params.spellIDs
+    if not ids or #ids == 0 then
+        return Unit.ReadAuraDurationResourceDisplay(params.unit, params.spellID, direct)
+    end
+    local changed, unresolved = false, nil
+    for index = 1, #ids do
+        local _, updated, code = Unit.ReadAuraDurationResourceDisplay(params.unit, ids[index], direct)
+        changed = changed or updated
+        if direct.available == true or direct.secret == true then return direct, changed, code end
+        if code ~= "aura-absent" then unresolved = code or "aura-duration-unavailable" end
+    end
+    return direct, changed, unresolved or "aura-absent"
+end
+
+local function ReadTargetAuraDuration(source, state)
+    if not SupportsFilteredAuraDisplay() then
+        return CommitUnresolved(state, "filtered-aura-unavailable")
+    end
+    -- Native filters own the duration and restricted values; Lua only decides
+    -- public presence using the same player-source constraint.
+    if Unit.IsAuraRestricted and Unit.IsAuraRestricted() == false then
+        local value, known = ReadCustomAuraPublicValue(
+            source.params, state.filteredAuraState, state.auraOptions, true
+        )
+        if known then
+            return CommitValue(
+                state, value, false, "filtered-aura-duration", state.structuralMax
+            )
+        end
+    end
+    return CommitFilteredAuraDisplay(state, "filtered-aura-duration")
+end
+
 local function ReadAuraDuration(source, state)
     local params = source.params
     if SupportsFilteredAuraDisplay() then
         local direct = state.durationState
-        local _, _, code = Unit.ReadAuraDurationResourceDisplay(
-            params.unit,
-            params.spellID,
-            direct
-        )
+        local _, _, code = ReadResourceAuraDuration(params, direct)
         state.durationResourceRaw = nil
         if direct.secret ~= true and direct.available == true then
             return CommitValue(
@@ -1278,11 +1374,7 @@ local function ReadAuraDuration(source, state)
         return CommitFilteredAuraDisplay(state, "filtered-aura-duration")
     end
     local direct = state.durationState
-    local _, directChanged, code = Unit.ReadAuraDurationResourceDisplay(
-        params.unit,
-        params.spellID,
-        direct
-    )
+    local _, directChanged, code = ReadResourceAuraDuration(params, direct)
     if direct.available == true then
         state.durationResourceRaw = direct.durationResourceRaw
         if directChanged then
@@ -1345,12 +1437,13 @@ local function ReadSimulated(_, state)
     )
 end
 
+-- Different custom aura descriptors or maxima may share the same base spell.
 local function GetSpellIdentity(params)
-    return params.spellID
+    return params.resourceSourceIdentity or params.spellID
 end
 
 local function GetAuraDurationIdentity(params)
-    return params.bridgeIdentity or params.spellID
+    return params.resourceSourceIdentity or params.bridgeIdentity or params.spellID
 end
 
 local function GetSimulatorIdentity(params)
@@ -1416,6 +1509,7 @@ SpecialResources.ReadAdaptiveAura = ReadAdaptiveAura
 SpecialResources.ReadStagger = ReadStagger
 SpecialResources.ReadAbsorb = ReadAbsorb
 SpecialResources.ReadAuraDuration = ReadAuraDuration
+SpecialResources.ReadTargetAuraDuration = ReadTargetAuraDuration
 SpecialResources.ReadSimulated = ReadSimulated
 SpecialResources.GetSpellIdentity = GetSpellIdentity
 SpecialResources.GetAuraDurationIdentity = GetAuraDurationIdentity

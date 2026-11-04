@@ -98,6 +98,9 @@ function aObj.adjWidth(_, ...)
 end
 
 function aObj:addFrameBorder(opts)
+	--[==[@debug@
+	_G.assert(false, "addFrameBorder now replaced by skinframe's chkfb=true option" .. _G.debugstack(2, 3, 2))
+	--@end-debug@]==]
 
 	self:skinObject("frame", {obj=opts.obj, kfs=opts.kfs, aso=opts.aso or nil, chkfb=true, ofs=opts.ofs or 0, x1=opts.x1 or nil, y1=opts.y1 or nil, x2=opts.x2 or nil, y2=opts.y2 or nil})
 
@@ -210,6 +213,9 @@ function aObj:applyGradient(obj, fh, invert, rotate)
 end
 
 function aObj:applyTooltipGradient(obj)
+	--[==[@debug@
+	_G.assert(obj, "Missing object aTG\n" .. _G.debugstack(2, 3, 2))
+	--@end-debug@]==]
 
 	if obj:IsForbidden() then
 		--[==[@debug@
@@ -427,9 +433,8 @@ function aObj:checkAndRun(funcName, funcType, LoD, quiet)
 	--[==[@debug@
 	_G.assert(funcName, "Unknown functionName checkAndRun\n" .. _G.debugstack(2, 3, 2))
 	_G.assert(funcType, "Unknown functionType checkAndRun\n" .. _G.debugstack(2, 3, 2))
-	--@end-debug@]==]
-
 	self:Debug2("checkAndRun: [%s, %s, %s, %s]", funcName, funcType, LoD, quiet)
+	--@end-debug@]==]
 
 	-- handle in combat
 	if _G.InCombatLockdown() then
@@ -478,9 +483,8 @@ end
 function aObj:checkAndRunAddOn(addonName, addonFunc, LoD)
 	--[==[@debug@
 	_G.assert(addonName, "Unknown object checkAndRunAddOn\n" .. _G.debugstack(2, 3, 2))
-	--@end-debug@]==]
-
 	self:Debug2("checkAndRunAddOn #1: [%s, %s, %s, %s]", addonName, addonFunc, LoD, _G.type(addonFunc))
+	--@end-debug@]==]
 
 	-- handle in combat
 	if _G.InCombatLockdown() then
@@ -561,6 +565,9 @@ function aObj.checkShown(_, frame)
 end
 
 function aObj:checkDisabledDD(obj, disabled)
+	--[==[@debug@
+	_G.assert(obj, "Missing object cDDD\n" .. _G.debugstack(2, 3, 2))
+	--@end-debug@]==]
 
 	disabled = disabled or obj.isDisabled
 	if obj.sf then
@@ -965,27 +972,35 @@ end
 local inset_regions = {
 	"BorderTopRight", "BorderBottomRight", "BorderRightMiddle", "BorderTopLeft", "BorderBottomLeft", "BorderLeftMiddle", "BorderTopMiddle", "BorderBottomMiddle", "TopLeftCorner", "TopRightCorner", "BotLeftCorner", "BotRightCorner", "TopBorder", "BottomBorder", "LeftBorder", "RightBorder",
 }
-
 function aObj:removeInset(frame)
 	--[==[@debug@
 	_G.assert(frame, "Unknown object removeInset\n" .. _G.debugstack(2, 3, 2))
 	--@end-debug@]==]
 
+	-- N.B. DON'T use SetAlpha(0) on frame, it causes issues when child frames are added later, they don't appear
+
 	if frame.Bg	then
 		frame.Bg:SetAlpha(0)
+		frame.Bg.SetAlpha = _G.nop
 	end
 	if frame.Background	then
 		frame.Background:SetAlpha(0)
+		frame.Background.SetAlpha = _G.nop
+	end
+	if frame.CustomBG then
+		frame.CustomBG:SetAlpha(0)
+		frame.CustomBG.SetAlpha = _G.nop
 	end
 	if frame.InsetBg then
 		frame.InsetBg:SetAlpha(0)
+		frame.InsetBg.SetAlpha = _G.nop
 	end
 	for _, reg in _G.pairs(inset_regions) do
 		if frame[reg] then
 			frame[reg]:SetAlpha(0)
+			frame[reg].SetAlpha = _G.nop
 		end
 	end
-
 	-- InsetFrameTemplate can have a NineSlice child
 	if frame.NineSlice then
 		self:removeNineSlice(frame.NineSlice)
@@ -1013,11 +1028,19 @@ local ns_regions = {
 function aObj.removeNineSlice(_, frame)
 	--[==[@debug@
 	_G.assert(frame, "Unknown object removeNineSlice\n" .. _G.debugstack(2, 3, 2))
+	-- aObj:Debug("removeNineSlice: [%s, %s]", frame:GetNumChildren())
 	--@end-debug@]==]
 
-	for _, reg in _G.pairs(ns_regions) do
-		if frame[reg] then
-			frame[reg]:SetAlpha(0)
+
+	if frame:GetNumChildren() == 0 then
+		frame:SetAlpha(0)
+		frame.SetAlpha = _G.nop
+	else
+		for _, reg in _G.pairs(ns_regions) do
+			if frame[reg] then
+				frame[reg]:SetAlpha(0)
+				frame[reg].SetAlpha = _G.nop
+			end
 		end
 	end
 

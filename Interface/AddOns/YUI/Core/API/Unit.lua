@@ -583,6 +583,31 @@ function Unit.Name(unit)
     return SafeValue(UnitName, unit)
 end
 
+-- Public pet attitude only: 1 unhappy, 2 content, 3 happy; unavailable or
+-- restricted values stay unknown. No allocation, suitable for pet events.
+function Unit.GetPetHappiness()
+    local info = _G.C_PetInfo
+    local value = SafeValue(info and info.GetPetHappiness)
+    if value == 1 or value == 2 or value == 3 then return value end
+    return nil
+end
+
+-- Cold tooltip read: localized food names, or nil when unavailable/restricted.
+function Unit.GetPetFoodTypes()
+    local info = _G.C_PetInfo
+    local values = SafeValue(info and info.GetPetFoodTypes)
+    if type(values) ~= "table" then return nil end
+    local foods
+    for index = 1, #values do
+        local value = values[index]
+        if not IsSecretValue(value) and type(value) == "string" and value ~= "" then
+            foods = foods or {}
+            foods[#foods + 1] = value
+        end
+    end
+    return foods
+end
+
 function Unit.CreatureType(unit)
     return SafeValue(UnitCreatureType, unit)
 end
@@ -1141,6 +1166,41 @@ local function GetInteractRangeEstimate(unit)
     return nil, nil, nil
 end
 
+-- Restricted hostile identities cannot be used as the library's GUID cache key.
+-- Read its current checker catalog and preserve the library's binary search order.
+local function GetRestrictedHostileRangeEstimate(lib, unit, noItems)
+    local checkers
+    if noItems then checkers = lib.harmNoItemsRC else checkers = lib.harmRC end
+    if type(checkers) ~= "table" or #checkers == 0 then return nil, nil end
+
+    local count = #checkers
+    local lo, hi = 1, count
+    while lo <= hi do
+        local mid = math.floor((lo + hi) / 2)
+        local rc = checkers[mid]
+        if type(rc) ~= "table" or type(rc.checker) ~= "function" then return nil, nil end
+        local inRange = rc.checker(unit, true)
+        if IsSecretValue(inRange) then return nil, nil end
+        if inRange then
+            lo = mid + 1
+        else
+            hi = mid - 1
+        end
+    end
+
+    local minRange, maxRange
+    if lo > count then
+        minRange, maxRange = 0, SafeNumberValue(checkers[count].range)
+    elseif lo <= 1 then
+        minRange = SafeNumberValue(checkers[1].range)
+    else
+        minRange, maxRange = SafeNumberValue(checkers[lo].range), SafeNumberValue(checkers[lo - 1].range)
+    end
+    if not minRange or not (minRange >= 0 and minRange < math.huge) then return nil, nil end
+    if lo > 1 and (not maxRange or not (maxRange >= minRange and maxRange < math.huge)) then return nil, nil end
+    return minRange, maxRange
+end
+
 function Unit.GetRangeEstimate(unit, checkVisible, noItems, maxCacheAge)
     if type(unit) ~= "string" or unit == "" then
         return nil, nil, nil
@@ -1154,6 +1214,16 @@ function Unit.GetRangeEstimate(unit, checkVisible, noItems, maxCacheAge)
 
     local lib = GetRangeCheckLibrary()
     if lib then
+        if YUI.IsForever and IsSecretValue(SafeCall(UnitGUID, unit))
+            and SafeBool(UnitCanAttack, "player", unit) == true
+            and SafeBool(UnitIsDeadOrGhost, unit) == false then
+            local ok, minRange, maxRange = pcall(GetRestrictedHostileRangeEstimate, lib, unit, noItems)
+            if ok and (minRange or maxRange) then
+                return minRange, maxRange, "LibRangeCheck"
+            end
+            return nil, nil, nil
+        end
+
         local ok, minRange, maxRange = pcall(lib.GetRange, lib, unit, checkVisible, noItems, maxCacheAge)
         if ok then
             minRange = SafeNumberValue(minRange)
@@ -1338,6 +1408,7 @@ local function NormalizeCastInfoTable(unit, info, isChannel)
         spellIDRaw = FirstRawDisplayValue(info.spellID, info.spellId, info.castingSpellID),
         castID = FirstSafeRawValue(info.castID, info.castId, info.castGUID),
         castIDRaw = FirstRawDisplayValue(info.castID, info.castId, info.castGUID),
+        castBarID = SafeRawValue(info.castBarID),
         isChannel = isChannel == true,
         isEmpowered = isEmpowered,
         numEmpowerStages = isEmpowered and SafeNumberValue(info.numEmpowerStages) or nil,
@@ -1373,7 +1444,7 @@ local function ReadCastInfo(unit, isChannel)
         }, durationObject)
     end
 
-    local ok, name, text, texture, startTimeMS, endTimeMS, isTradeSkill, arg7, arg8, arg9, arg10 = pcall(func, unit)
+    local ok, name, text, texture, startTimeMS, endTimeMS, isTradeSkill, arg7, arg8, arg9, arg10, arg11 = pcall(func, unit)
     if not ok then
         if durationObject == nil then
             return nil
@@ -1421,7 +1492,7 @@ local function ReadCastInfo(unit, isChannel)
             or (startCandidate < 10000000 and nextCandidate >= endCandidate)
         )
 
-    local castID, notInterruptibleRaw, spellID
+    local castID, castBarID, notInterruptibleRaw, spellID
     if shiftedLegacyShape then
         texture, startTimeMS, endTimeMS, isTradeSkill = startTimeMS, endTimeMS, isTradeSkill, arg7
         notInterruptibleRaw = arg8
@@ -1429,10 +1500,12 @@ local function ReadCastInfo(unit, isChannel)
     elseif isChannel then
         notInterruptibleRaw = arg7
         spellID = arg8
+        castBarID = arg11
     else
         castID = arg7
         notInterruptibleRaw = arg8
         spellID = arg9
+        castBarID = arg10
     end
 
     local safeName = SafeRawValue(name)
@@ -1464,6 +1537,8 @@ local function ReadCastInfo(unit, isChannel)
         spellIDRaw = RawDisplayValue(spellID),
         castID = safeCastID,
         castIDRaw = RawDisplayValue(castID),
+        -- Separate public identity; castID keeps its existing GUID semantics.
+        castBarID = SafeRawValue(castBarID),
         isChannel = isChannel == true,
         startTimeMS = safeStartTimeMS,
         endTimeMS = safeEndTimeMS,
@@ -2213,6 +2288,9 @@ local function NormalizeFilteredAuraFilter(display, spec)
         return requirePlayerSource and FILTERED_AURA_FILTER_PLAYER_HARMFUL
             or FILTERED_AURA_FILTER_HARMFUL, true
     end
+    if value == "HELPFUL|!PLAYER" and not requirePlayerSource then
+        return value, false
+    end
     if value == FILTERED_AURA_FILTER_PLAYER_HELPFUL then
         return value, false
     end
@@ -2366,6 +2444,25 @@ local function ApplyFilteredAuraContainerLayout(container, layout)
     return true
 end
 
+-- Cold/public layout updates only. Native Aura containers own descendant
+-- geometry; callers never measure or resize restricted Aura buttons.
+function Unit.SetFilteredAuraDisplayLayout(handle, layout, groups)
+    if type(handle) ~= "table" or handle.released == true or not handle.container then
+        return false, "filtered-aura-handle-unavailable"
+    end
+    local container = handle.container
+    if not ApplyFilteredAuraContainerLayout(container, layout) then
+        return false, "filtered-aura-layout-failed"
+    end
+    for key, options in pairs(groups or {}) do
+        if type(container.SetAuraGroupLayout) ~= "function"
+            or not pcall(container.SetAuraGroupLayout, container, key, options) then
+            return false, "filtered-aura-group-layout-failed"
+        end
+    end
+    return true
+end
+
 function Unit.RefreshFilteredAuraDisplay(handle)
     if type(handle) ~= "table" or handle.released == true then
         return false, "filtered-aura-handle-unavailable"
@@ -2419,7 +2516,10 @@ function Unit.ReleaseFilteredAuraDisplay(handle)
     if type(handle) ~= "table" or handle.released == true then return false end
     handle.released = true
     local proxy = handle.proxy
-    if proxy then
+    -- A nested player display lives in an engine-owned Aura subtree. Its
+    -- public outer display retires the whole branch; never access descendants
+    -- after initialization. It has no addon scripts or context events.
+    if proxy and not handle.parentManaged then
         if proxy.UnregisterAllEvents then
             pcall(proxy.UnregisterAllEvents, proxy)
         elseif proxy.UnregisterEvent then
@@ -2435,7 +2535,9 @@ function Unit.ReleaseFilteredAuraDisplay(handle)
             pcall(proxy.SetScript, proxy, "OnShow", nil)
         end
     end
-    if proxy and proxy.Hide then
+    if handle.parentManaged then
+        -- Parent visibility owns native observer activation as well.
+    elseif proxy and proxy.Hide then
         pcall(proxy.Hide, proxy)
     elseif handle.container and handle.container.Hide then
         pcall(handle.container.Hide, handle.container)
@@ -2454,6 +2556,9 @@ function Unit.CreateFilteredAuraDisplay(parent, spec)
     spec = type(spec) == "table" and spec or {}
     local unit = type(spec.unit) == "string" and spec.unit ~= ""
         and spec.unit or "player"
+    if spec.parentManaged and unit ~= "player" then
+        return nil, "invalid-parent-managed-unit"
+    end
     local groups = type(spec.groups) == "table" and spec.groups or {}
     local slots
     if type(spec.slots) == "table" then
@@ -2507,6 +2612,7 @@ function Unit.CreateFilteredAuraDisplay(parent, spec)
         hasHarmfulFilter = false,
         active = false,
         released = false,
+        parentManaged = spec.parentManaged == true,
     }
 
     local function BuildInitializer(initializeFrame, bindings, index)
@@ -2659,7 +2765,7 @@ function Unit.CreateFilteredAuraDisplay(parent, spec)
         Unit.ReleaseFilteredAuraDisplay(handle)
         return nil, "filtered-aura-initial-refresh-failed"
     end
-    if proxy.SetScript then
+    if not handle.parentManaged and proxy.SetScript then
         proxy:SetScript("OnShow", function()
             Unit.RefreshFilteredAuraDisplay(handle)
         end)

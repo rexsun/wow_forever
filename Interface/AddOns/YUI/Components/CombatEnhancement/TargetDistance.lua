@@ -38,6 +38,9 @@ local VALID_TEXT_STYLES = {
     [TEXT_STYLE_NONE] = true,
     [TEXT_STYLE_SHADOW] = true,
     [TEXT_STYLE_OUTLINE_SHADOW] = true,
+    outline = true,
+    thick = true,
+    thick_shadow = true,
 }
 
 local SECTION_WIDTH = 620
@@ -343,6 +346,7 @@ local function GetDefaultFontPath()
 end
 
 local function ResolveFontPath(fontName)
+    if type(fontName) == "string" and (fontName:find("\\", 1, true) or fontName:find("/", 1, true)) then return fontName end
     if fontName ~= DEFAULT_FONT and LSM and LSM.Fetch then
         local path = LSM:Fetch("font", fontName, true)
         if type(path) == "string" and path ~= "" then
@@ -354,8 +358,10 @@ end
 
 local function GetTextStyleFontFlags(style)
     style = NormalizeTextStyle(style)
-    if style == TEXT_STYLE_OUTLINE_SHADOW then
+    if style == TEXT_STYLE_OUTLINE_SHADOW or style == "outline" then
         return "OUTLINE"
+    elseif style == "thick" or style == "thick_shadow" then
+        return "THICKOUTLINE"
     end
     return nil
 end
@@ -363,7 +369,7 @@ end
 local function ApplyTextShadow(fontString, style)
     if not fontString then return end
     style = NormalizeTextStyle(style)
-    if style == TEXT_STYLE_SHADOW or style == TEXT_STYLE_OUTLINE_SHADOW then
+    if style == TEXT_STYLE_SHADOW or style == TEXT_STYLE_OUTLINE_SHADOW or style == "thick_shadow" then
         if fontString.SetShadowColor then fontString:SetShadowColor(0, 0, 0, 1) end
         if fontString.SetShadowOffset then fontString:SetShadowOffset(1, -1) end
     else
@@ -468,12 +474,20 @@ local function ApplyIndicatorAppearance(indicator, db)
     local textStyle = db.targetDistanceTextStyle
     if indicator.appliedFont ~= fontName
         or indicator.appliedFontSize ~= fontSize
-        or indicator.appliedTextStyle ~= textStyle then
+        or indicator.appliedTextStyle ~= textStyle
+        or indicator.appliedMonochrome ~= (db.targetDistanceMonochrome == true) then
         if indicator.text.SetFont then
             local fontPath = ResolveFontPath(fontName)
             local flags = GetTextStyleFontFlags(textStyle)
-            local ok, applied = pcall(indicator.text.SetFont, indicator.text, fontPath, fontSize, flags)
-            if (not ok or applied == false) and fontPath ~= GetDefaultFontPath() then
+            if db.targetDistanceMonochrome then flags = flags and flags .. ",MONOCHROME" or "MONOCHROME" end
+            local ok
+            if GUI2 and GUI2.FontStyle and GUI2.FontStyle.TryFont then
+                ok = GUI2.FontStyle.TryFont(indicator.text, fontPath, fontSize, flags)
+            else
+                local called, applied = pcall(indicator.text.SetFont, indicator.text, fontPath, fontSize, flags)
+                ok = called and applied ~= false
+            end
+            if not ok and fontPath ~= GetDefaultFontPath() then
                 pcall(indicator.text.SetFont, indicator.text, GetDefaultFontPath(), fontSize, flags)
             end
         end
@@ -481,6 +495,7 @@ local function ApplyIndicatorAppearance(indicator, db)
         indicator.appliedFont = fontName
         indicator.appliedFontSize = fontSize
         indicator.appliedTextStyle = textStyle
+        indicator.appliedMonochrome = db.targetDistanceMonochrome == true
         frame:SetSize(TargetDistance:MeasureLayoutSize(fontSize))
     end
     ApplyRuntimeLayer(frame)
@@ -491,6 +506,72 @@ local function ApplyAppearance(db)
     for index = 1, #INDICATORS do
         ApplyIndicatorAppearance(INDICATORS[index], db)
     end
+end
+
+-- One logical target for the target/focus shared style; never enumerate frames.
+if GUI2 and GUI2.FontStyle then
+    local Style = GUI2.FontStyle
+    local keys = { "targetDistanceFont", "targetDistanceFontSize", "targetDistanceTextStyle", "targetDistanceMonochrome" }
+    local function RawFontDB()
+        local profile = YUI.DB and YUI.DB:GetProfile(CombatEnhancement.PRODUCT_ID)
+        local store = profile and (profile.Components or profile.YBox)
+        return store and store[CombatEnhancement.CONFIG_KEY], profile
+    end
+    Style:Register("combat_distance", function()
+        local db, profile = RawFontDB()
+        if not db then return nil end
+        local group = { targets = {}, label = T("name", "战斗增强") }
+        group.current = function()
+            local current, currentProfile = RawFontDB()
+            return current == db and currentProfile == profile
+        end
+        local function Read()
+            local effect = Style.Decode(NormalizeTextStyle(db.targetDistanceTextStyle), nil, db.targetDistanceMonochrome)
+            effect.font = ResolveFontPath(db.targetDistanceFont or DEFAULT_FONT)
+            effect.size = db.targetDistanceFontSize or DEFAULT_FONT_SIZE
+            return effect
+        end
+        group.snapshot = function()
+            local copy = {}
+            for _, key in ipairs(keys) do copy[key] = db[key] end
+            return copy
+        end
+        local function Refresh()
+            -- Cold disabled targets update configuration without creating indicators.
+            if featureActive then ApplyAppearance(db); RefreshLayoutFrames(); TargetDistance:RefreshRuntime(db) end
+        end
+        group.apply = function(changes)
+            if not group.current() then return false, "stale" end
+            local patch = changes.shared
+            if not patch then return false, "missing" end
+            local current = Read()
+            local defaults = { font = DEFAULT_FONT, size = DEFAULT_FONT_SIZE, outline = "OUTLINE", shadow = true, monochrome = false }
+            for key, value in pairs(patch.values or {}) do current[key] = value end
+            for key in pairs(patch.reset or {}) do current[key] = defaults[key] end
+            if patch.values.font ~= nil or patch.reset and patch.reset.font then db.targetDistanceFont = current.font end
+            if patch.values.size ~= nil or patch.reset and patch.reset.size then db.targetDistanceFontSize = current.size end
+            if patch.values.outline ~= nil or patch.values.shadow ~= nil or patch.reset and (patch.reset.outline or patch.reset.shadow) then
+                local base = current.outline == "THICKOUTLINE" and "thick" or current.outline == "OUTLINE" and "outline" or "none"
+                db.targetDistanceTextStyle = current.shadow and (base == "none" and "shadow" or base .. "_shadow") or base
+            end
+            if patch.values.monochrome ~= nil then db.targetDistanceMonochrome = current.monochrome end
+            if patch.reset and patch.reset.monochrome then db.targetDistanceMonochrome = nil end
+            Refresh(); return true
+        end
+        group.restore = function(snapshots)
+            if not group.current() then return false, "stale" end
+            for _, key in ipairs(keys) do db[key] = snapshots.shared[key] end
+            Refresh(); return true
+        end
+        group.targets[1] = { id = "shared", label = T("settings.target_distance_font_target", "目标/焦点距离"),
+            capabilities = { font = true, size = true, outline = true, shadow = true, monochrome = true },
+            minSize = MIN_FONT_SIZE, maxSize = MAX_FONT_SIZE, read = Read,
+            parent = function(key)
+                local defaults = { font = GetDefaultFontPath(), size = DEFAULT_FONT_SIZE, outline = "OUTLINE", shadow = true, monochrome = false }
+                return defaults[key]
+            end }
+        return group
+    end)
 end
 
 local function StopRuntimeUpdates()
@@ -906,10 +987,11 @@ function TargetDistance:BuildOptions(db)
         },
     }, { columns = 2 })
 
-    AddAlignedFieldGroup(options, T("settings.target_distance_appearance", "共享显示样式"), {
+    local textFields = {
         {
-            type = "font",
-            label = T("settings.target_distance_font", "字体"),
+            type = GUI2 and GUI2.Form and GUI2.Form.CreateFontStyle and "custom" or "font",
+            label = GUI2 and GUI2.Form and GUI2.Form.CreateFontStyle and YUI.Locale:Get("Core")["font_style.text"] or T("settings.target_distance_font", "字体"),
+            minControlWidth = 96,
             default = DEFAULT_FONT,
             prependOptions = function()
                 return {
@@ -921,6 +1003,9 @@ function TargetDistance:BuildOptions(db)
                 }
             end,
             get = function() return db.targetDistanceFont end,
+            render = function(parent, _, width)
+                return GUI2.Form:CreateFontStyle(parent, { key = "combat_distance:shared", width = width })
+            end,
             set = function(value)
                 db.targetDistanceFont = type(value) == "string" and value ~= "" and value or DEFAULT_FONT
                 for index = 1, #INDICATORS do
@@ -932,34 +1017,37 @@ function TargetDistance:BuildOptions(db)
             end,
         },
         {
-            type = "slider",
+            type = GUI2 and GUI2.Form and GUI2.Form.CreateFontStyle and "custom" or "slider",
             label = T("settings.target_distance_font_size", "文本尺寸"),
             min = MIN_FONT_SIZE,
             max = MAX_FONT_SIZE,
             step = 1,
             get = function() return db.targetDistanceFontSize end,
+            render = function(parent, spec, width)
+                local slider = GUI2.Form:CreateSlider(parent, {
+                    width = width, min = MIN_FONT_SIZE, max = MAX_FONT_SIZE, step = 1,
+                    inline = true, inputWidth = INPUT_WIDTH, get = spec.get, set = spec.set,
+                })
+                GUI2.FontStyle:BindValue(slider, "combat_distance:shared", "size")
+                return slider
+            end,
             set = function(value)
                 db.targetDistanceFontSize = ClampNumber(value, MIN_FONT_SIZE, MAX_FONT_SIZE, DEFAULT_FONT_SIZE)
                 ApplyAppearance(db)
                 RefreshLayoutFrames()
                 TargetDistance:RefreshRuntime(db)
+                if GUI2 and GUI2.FontStyle then GUI2.FontStyle:RefreshControls() end
             end,
         },
-        {
-            type = "dropdown",
-            label = T("settings.target_distance_text_style", "描边阴影"),
-            options = BuildTextStyleOptions,
-            default = DEFAULT_TEXT_STYLE,
-            get = function() return db.targetDistanceTextStyle end,
-            set = function(value)
-                db.targetDistanceTextStyle = NormalizeTextStyle(value)
-                ApplyAppearance(db)
-                RefreshLayoutFrames()
-                TargetDistance:RefreshRuntime(db)
-            end,
-        },
-    })
+    }
+    if GUI2 and GUI2.Form and GUI2.Form.CreateFontStyle then table.remove(textFields, 2) end
+    AddAlignedFieldGroup(options, T("settings.target_distance_appearance", "共享显示样式"), textFields)
 
+    if not (GUI2 and GUI2.Form and GUI2.Form.CreateFontStyle) then
+        AddAlignedFieldRow(options, {{ type = "dropdown", label = T("settings.target_distance_text_style", "描边阴影"),
+            options = BuildTextStyleOptions, get = function() return db.targetDistanceTextStyle end,
+            set = function(value) db.targetDistanceTextStyle = NormalizeTextStyle(value); ApplyAppearance(db); RefreshLayoutFrames(); TargetDistance:RefreshRuntime(db) end }})
+    end
     AddAlignedFieldGroup(options, T("settings.target_distance_range_colors", "共享范围颜色"), BuildRangeColorFields(db), {
         columns = 2,
         columnGap = 18,
@@ -977,6 +1065,7 @@ function TargetDistance:OnFeatureToggle(enabled, db)
         AttachEvents()
         self:RefreshRuntime(db)
     else
+        if GUI2 and GUI2.FontStyle and GUI2.FontStyle.CloseForProvider then GUI2.FontStyle:CloseForProvider("combat_distance") end
         DetachEvents()
         StopRuntimeUpdates()
         for index = 1, #INDICATORS do
@@ -989,6 +1078,7 @@ function TargetDistance:OnFeatureToggle(enabled, db)
 end
 
 function TargetDistance:OnSettingsLeave(db)
+    if GUI2 and GUI2.FontStyle and GUI2.FontStyle.CloseForProvider then GUI2.FontStyle:CloseForProvider("combat_distance") end
     self:RefreshRuntime(db)
 end
 

@@ -80,16 +80,37 @@ local function AddAnchorTargetOption(options, seen, value)
     if type(value) == "table" then
         label = value.label or value.title or value.text
         value = value.name or value.frameName or value.globalName or value.relative or value.frame or value
-        if type(value) == "table" then value = FrameName(value) end
+        if type(value) == "table" then
+            -- Candidate identities must not use the anonymous-frame screen fallback.
+            value = value == UIParent and "UIParent" or (value.GetName and value:GetName())
+        end
     end
+    if type(value) ~= "string" then return end
     value = NormalizeAnchorTargetName(value)
-    if type(value) ~= "string" or value == "" or seen[value] then return end
-    seen[value] = true
+    if value == "" then return end
+    if value == "UIParent" or value == "ChatFrame1"
+        or (IsBuiltinAnchorTarget and IsBuiltinAnchorTarget(value)) then
+        label = nil
+    end
     if type(label) == "string" and label ~= "" then
         Layout.anchorTargetLabels = Layout.anchorTargetLabels or {}
         Layout.anchorTargetLabels[value] = label
+        if seen[value] then
+            -- The saved target is added before descriptors, including when its
+            -- frame does not exist yet. Enrich that option with its owner label.
+            for _, option in ipairs(options) do
+                if option.value == value then
+                    option.text, option.selectionText = label, label
+                    break
+                end
+            end
+            return
+        end
+        seen[value] = true
         options[#options + 1] = { text = label, selectionText = label, value = value }
     else
+        if seen[value] then return end
+        seen[value] = true
         options[#options + 1] = FormatAnchorTargetOption and FormatAnchorTargetOption(value) or { text = value, value = value }
     end
 end
@@ -1365,6 +1386,10 @@ local function ApplyPlacement(entry, placement, skipCallback, options)
     if perf then perf.applyAttempts = perf.applyAttempts + 1 end
     if not entry then return false end
     options = type(options) == "table" and options or nil
+    if options and options.replaceRequest == true then
+        -- Business schemes can change inside the same shared Layout store.
+        entry.pendingPlacement = nil
+    end
 
     placement = NormalizePlacement(placement) or ResolveDefaultPlacement(entry)
     local anchor = placement.anchor or {}

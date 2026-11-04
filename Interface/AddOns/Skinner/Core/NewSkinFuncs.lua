@@ -56,9 +56,9 @@ local function setScrollTrackOffsets(tbl, type)
 			tbl.x2 = _G.rawget(tbl, "x2") or -3
 			tbl.y1 = _G.rawget(tbl, "y1") or -1
 			tbl.y2 = _G.rawget(tbl, "y2") or 1
-		elseif w == 25 then -- EditModeImportLayout ScrollFrame
-			tbl.x1 = _G.rawget(tbl, "x1") or --[[not aObj.isMnln and 2 or]] 0
-			tbl.x2 = _G.rawget(tbl, "x2") or --[[not aObj.isMnln and 4 or]] 0
+		elseif w == 25 then -- EditModeImportLayout ScrollFrame or Classic CommunitiesGuildLogFrame
+			tbl.x1 = _G.rawget(tbl, "x1") or not aObj.isMnln and 2 or 0
+			tbl.x2 = _G.rawget(tbl, "x2") or not aObj.isMnln and 4 or 0
 		end
 		tbl.y1 = _G.rawget(tbl, "y1") or 0
 		tbl.y2 = _G.rawget(tbl, "y2") or 0
@@ -70,8 +70,6 @@ end
 
 -- skin Templates
 aObj.skinTPLs = {
-	-- ftype = "a", -- default value
-	-- ncc = false, -- check InCombatLockdown() value
 	button = {
 		name		= false, -- use a name if required (VuhDo Options)
 		-- bg          = true, -- put into specified FrameStrata
@@ -104,7 +102,7 @@ aObj.skinTPLs = {
 		-- x1 			= -2,
 		-- y1 			= -2,
 		-- x2 			= -2,
-		-- y3 			= -2,
+		-- y2 			= -2,
 		-- sechk 		= false,
 	},
 	ddlist = {
@@ -190,6 +188,11 @@ aObj.skinTPLs = {
 	},
 	moneyframe = {
 	},
+	progressbar = {
+		-- fb          = true, -- frame border [bd=10, ng=true, ofs=0]
+		-- kfs         = true, -- remove all textures except font strings
+		ofs         = 0, -- skin frame offset to object
+	},
 	skin = {
 		-- ba          = 1, -- backdrop alpha
 		-- bbclr       = "default", -- backdrop border colour
@@ -199,6 +202,7 @@ aObj.skinTPLs = {
 		-- fh          =,
 		-- invert      =,
 		-- rotate      =,
+		ncb         = false, -- DON'T colour the frame border [bugfix #380]
 	},
 	scrollbar = {
 		-- bd          = 4, -- narrow
@@ -248,7 +252,7 @@ aObj.skinTPLs = {
 		offsets     = aObj.isMorF and {x1=0, y1=2, x2=-2, y2=0} or {x1=8, y1=2, x2=-8, y2=2},
 		ignoreHLTex = true,
 		track       = true,
-		noCheck     = false,
+		nc          = false,
 		func        = nil,
 		pool		= false, -- uses TabSystem .tabPool (DF)
 	},
@@ -256,10 +260,12 @@ aObj.skinTPLs = {
 		-- ofs         = 2, -- skin frame offset to object
 	},
 }
--- add type value for each table entry
+-- add default values for each table entry
 do
 	for name, optsTable in _G.pairs(aObj.skinTPLs) do
-		optsTable.type = name
+		optsTable.type  = name
+		optsTable.ncc   = false -- check InCombatLockdown() value
+		optsTable.fType = "a"   -- default value for AddOns overridden by NPC/PF/UI functions
 	end
 end
 -- use a metatable to return default values and handle the initialisation of the passed options table
@@ -268,8 +274,6 @@ _G.setmetatable(aObj.skinTPLs, {
 		_G.setmetatable(objTable, {__index = function(_, key) return aObj.skinTPLs[objType][key] end})
 		return objTable
 	end,
-	ftype = "a",
-	ncc   = false,
 })
 -- add skinning functions to this table
 local skinFuncs = {}
@@ -340,8 +344,13 @@ local function applySkin(tbl)
 	tbl.obj:SetBackdropColor(r, g, b, tbl.ba or a)
 	if _G.type(tbl.bbclr) == "table" then
 		tbl.obj:SetBackdropBorderColor(_G.unpack(tbl.bbclr))
-	else
-		aObj:clrBBC(tbl.obj, tbl.bbclr, tbl.bba)
+	elseif not tbl.ncb then -- bugfix #380
+		-- ensure disabled state is displayed properly
+		if tbl.obj:IsObjectType("Button") then
+			aObj:clrBtnBdr(tbl.obj:GetParent(), tbl.bbclr, tbl.bba)
+		else
+			aObj:clrFrameBdr(tbl.obj:GetParent(), tbl.bbclr, tbl.bba)
+		end
 	end
 	if tbl.bbclr then
 		tbl.obj.clr = tbl.bbclr
@@ -363,11 +372,13 @@ local function skinButton(tbl)
 	aObj:Debug2("skinButton [%s]", tbl)
 	--@end-debug@]==]
 
+	-- DON'T skin it twice
 	if tbl.obj.sb
 	or tbl.noSkin
 	then
 		return
 	end
+
 	if tbl.name then
 		tbl.name = tbl.obj:GetName() .. "~sb~"
 	end
@@ -448,7 +459,7 @@ local function skinDDButton(tbl)
 	aObj:Debug2("skinDDButton: [%s]", tbl)
 	--@end-debug@]==]
 
-	-- don't skin it twice
+	-- DON'T skin it twice
 	if tbl.obj.sf
 	or tbl.obj.sb
 	then
@@ -457,9 +468,9 @@ local function skinDDButton(tbl)
 
 	if tbl.filter then
 		-- skin the WowStyle1FilterDropdownTemplate/WowStyle2DropdownTemplate
-		aObj:skinStdButton{obj=tbl.obj, fType=tbl.ftype, bd=5, sechk=true, y2=-2, clr=tbl.clr}
+		aObj:skinStdButton{obj=tbl.obj, fType=tbl.fType, bd=5, sechk=true, ofs=tbl.ofs, x1=tbl.x1, y1=tbl.y1, x2=tbl.x2, y2=tbl.y2, clr=tbl.clr}
 		if tbl.obj.ResetButton then -- WowStyle1FilterDropdownTemplate ONLY
-			aObj.modUIBtns:skinCloseButton{obj=tbl.obj[tbl.filtercb or "ResetButton"], fType=tbl.ftype, noSkin=true}
+			aObj.modUIBtns:skinCloseButton{obj=tbl.obj[tbl.filtercb or "ResetButton"], fType=tbl.fType, noSkin=true}
 			tbl.obj.arrow = tbl.obj:CreateTexture(nil, "ARTWORK", nil, 5)
 			tbl.obj.arrow:SetTexture(aObj.tFDIDs.cfEA)
 			tbl.obj.arrow:SetSize(16, 16)
@@ -471,7 +482,7 @@ local function skinDDButton(tbl)
 			tbl.obj.Background:SetTexture("")
 		end
 		if not tbl.noSF then
-			aObj:skinObject("frame", {obj=tbl.obj, fType=tbl.ftype, sechk=tbl.sechk, ofs=tbl.ofs, x1=tbl.x1, y1=tbl.y1, x2=tbl.x2, y2=tbl.y2})
+			aObj:skinObject("frame", {obj=tbl.obj, fType=tbl.fType, sechk=tbl.sechk, ofs=tbl.ofs, x1=tbl.x1, y1=tbl.y1, x2=tbl.x2, y2=tbl.y2})
 			if aObj.prdb.TabDDTextures.textureddd then
 				tbl.obj.Background:SetTexture(aObj.itTex)
 				-- offset the background within the frame
@@ -485,7 +496,7 @@ local function skinDDButton(tbl)
 			tbl.by1 = tbl.by1 or tbl.bofs
 			tbl.bx2 = tbl.bx2 or tbl.bofs
 			tbl.by2 = tbl.by2 or tbl.bofs * -1
-			aObj:addButtonBorder{obj=tbl.obj, fType=tbl.ftype, relTo=tbl.obj.Arrow, clr=tbl.clr, sechk=tbl.sechk--[[, ofs=tbl.bofs]], x1=tbl.bx1, y1=tbl.by1, x2=tbl.bx2, y2=tbl.by2}
+			aObj:addButtonBorder{obj=tbl.obj, fType=tbl.fType, relTo=tbl.obj.Arrow, clr=tbl.clr, sechk=tbl.sechk, x1=tbl.bx1, y1=tbl.by1, x2=tbl.bx2, y2=tbl.by2}
 		end
 	end
 end
@@ -513,7 +524,7 @@ local function skinDDList(tbl)
 			end
 		end
 	end
-	aObj:skinObject("frame", {obj=tbl.obj, fType=tbl.ftype, kfs=tbl.kfs, ofs=tbl.ofs})
+	aObj:skinObject("frame", {obj=tbl.obj, fType=tbl.fType, kfs=tbl.kfs, ofs=tbl.ofs})
 end
 skinFuncs.ddlist = function(table) skinDDList(table) end
 local function skinDropDown(tbl)
@@ -522,8 +533,9 @@ local function skinDropDown(tbl)
 	aObj:Debug2("skinDropDown: [%s]", tbl)
 	--@end-debug@]==]
 
-	-- don't skin it twice
+	-- DON'T skin it twice
 	if tbl.obj.sf then return end
+
 	-- hide textures
 	aObj:removeRegions(tbl.obj, tbl.regions)
 	-- return if not to be skinned
@@ -575,10 +587,8 @@ local function skinEditBox(tbl)
 	aObj:Debug2("skinEditBox: [%s]", tbl)
 	--@end-debug@]==]
 
-	-- don't skin it twice
-	if tbl.obj.sf then
-		return
-	end
+	-- DON'T skin it twice
+	if tbl.obj.sf then return end
 
 	aObj:removeRegions(tbl.obj, tbl.regions)
 	aObj:skinObject("frame", {obj=tbl.obj, fType=tbl.fType, bd=tbl.bd, ng=true, ncc=tbl.ncc, ofs=tbl.ofs, x1=tbl.x1, y1=tbl.y1, x2=tbl.x2, y2=tbl.y2, clr="slider"})
@@ -611,7 +621,7 @@ local function skinEditBox(tbl)
 	if tbl.cb
 	and aObj.modBtns
 	then
-		aObj:skinCloseButton{obj=tbl.obj.ClearButton or tbl.obj.clearButton, fType=tbl.ftype, noSkin=true}
+		aObj:skinCloseButton{obj=tbl.obj.ClearButton or tbl.obj.clearButton, fType=tbl.fType, noSkin=true}
 	end
 end
 skinFuncs.editbox = function(table) skinEditBox(table) end
@@ -627,9 +637,9 @@ local function skinFrame(tbl)
 	aObj:Debug2("skinFrame [%s]", tbl)
 	--@end-debug@]==]
 
-	if tbl.obj.sf then
-		return
-	end
+	-- DON'T skin it twice
+	if tbl.obj.sf then return end
+
 	-- DON'T add a frame border if not required
 	if tbl.chkfb
 	and not aObj.prdb.FrameBorders
@@ -672,7 +682,7 @@ local function skinFrame(tbl)
 			then
 				aObj:moveObject{obj=tbl.obj.header.text, y=tbl.hOfs}
 			else
-				aObj:moveObject{obj=aObj:getRegion(tbl.obj.header, tbl.obj.header:GetNumRegions()), y=tbl.hOfs}
+				aObj:moveObject{obj=aObj:getLastRegion(tbl.obj.header), y=tbl.hOfs}
 			end
 			-- return
 		elseif tbl.obj.Header then
@@ -789,8 +799,9 @@ local function skinGlowBox(tbl)
 	aObj:Debug2("skinGlowBox: [%s]", tbl)
 	--@end-debug@]==]
 
-	-- don't skin it twice
+	-- DON'T skin it twice
 	if tbl.obj.sf then return end
+
 	-- remove Arrow Glow texture
 	if tbl.obj.Glow then
 		tbl.obj.Glow:SetTexture(nil)
@@ -816,7 +827,7 @@ local function skinMoneyFrame(tbl)
 	aObj:Debug2("skinMoneyFrame: [%s]", tbl)
 	--@end-debug@]==]
 
-	-- don't skin it twice unless required
+	-- DON'T skin it twice unless required
 	if skinnedMFs[tbl.obj]
 	and not tbl.ncc
 	then
@@ -825,11 +836,24 @@ local function skinMoneyFrame(tbl)
 		skinnedMFs[tbl.obj] = true
 	end
 
-	aObj:skinObject("editbox", {obj=tbl.obj.gold, fType=tbl.ftype})
-	aObj:skinObject("editbox", {obj=tbl.obj.silver, fType=tbl.ftype, chginset=false, x1=-4, x2=-8})
-	aObj:skinObject("editbox", {obj=tbl.obj.copper, fType=tbl.ftype, chginset=false, x1=-4, x2=-8})
+	aObj:skinObject("editbox", {obj=tbl.obj.gold, fType=tbl.fType})
+	aObj:skinObject("editbox", {obj=tbl.obj.silver, fType=tbl.fType, chginset=false, x1=-4, x2=-8})
+	aObj:skinObject("editbox", {obj=tbl.obj.copper, fType=tbl.fType, chginset=false, x1=-4, x2=-8})
 end
 skinFuncs.moneyframe = function(table) skinMoneyFrame(table) end
+local function skinProgressBar(tbl)
+	--[==[@debug@
+	_G.assert(tbl.obj, "Missing object (skinProgressBar)\n" .. _G.debugstack(2, 3, 2))
+	aObj:Debug2("skinProgressBar: [%s, %s]", tbl)
+	--@end-debug@]==]
+
+	-- DON'T skin it twice
+	if tbl.obj.sf then return end
+
+	aObj:skinObject("frame", {obj=tbl.obj, fType=tbl.ftype, kfs=true, fb=true, ofs=tbl.ofs})
+	tbl.obj.Fill:SetAlpha(1)
+end
+skinFuncs.progressbar = function(table) skinProgressBar(table) end
 local function skinScrollBar(tbl)
 	--[==[@debug@
 	_G.assert(tbl.obj, "Missing object (skinScrollBar)\n" .. _G.debugstack(2, 3, 2))
@@ -837,8 +861,9 @@ local function skinScrollBar(tbl)
 	aObj:Debug2("skinScrollBar: [%s, %s]", tbl)
 	--@end-debug@]==]
 
-	-- don't skin it twice
+	-- DON'T skin it twice
 	if tbl.obj.sf then return end
+
 	-- remove textures
 	tbl.obj:DisableDrawLayer("BACKGROUND")
 	-- handle .Background frame being hijacked by a .Background texture
@@ -885,8 +910,9 @@ local function skinSlider(tbl)
 	aObj:Debug2("skinSlider: [%s, %s]", tbl)
 	--@end-debug@]==]
 
-	-- don't skin it twice
+	-- DON'T skin it twice
 	if tbl.obj.sf then return end
+
 	-- remove textures
 	aObj:keepFontStrings(tbl.obj)
 	-- remove parent's textures
@@ -916,12 +942,14 @@ local function skinStatusBar(tbl)
 
 	-- apply StatusBar texture
 	tbl.obj:SetStatusBarTexture(aObj.sbTexture)
-	-- don't skin it twice
+
+	-- DON'T skin it twice
 	if not aObj.sbGlazed[tbl.obj] then
 		aObj.sbGlazed[tbl.obj] = {}
 	else
 		return
 	end
+
 	-- create local object
 	sbG = aObj.sbGlazed[tbl.obj]
 	-- remove texture regions
@@ -947,6 +975,7 @@ local function skinStatusBar(tbl)
 			aObj:add2Table(sbG, tex)
 		end
 	end
+	-- TODO: replace with empty Raw hooks
 	-- nop Atlas functions
 	if tbl.nilFuncs then
 		tbl.obj.SetStatusBarTexture = _G.nop
@@ -970,9 +999,9 @@ local function skinTabs(tbl)
 	aObj:Debug2("skinTabs: [%s]", tbl)
 	--@end-debug@]==]
 
-	-- don't skin it twice unless required (Ace3)
+	-- DON'T skin it twice unless required (Ace3)
 	if _G.tContains(aObj.tabFrames, tbl.obj)
-	and not tbl.noCheck
+	and not tbl.nc
 	then
 		return
 	end
@@ -1091,13 +1120,14 @@ local function skinTooltip(tbl)
 	--@end-debug@]==]
 
 	if not tbl.obj then return end
+
 	if not tbl.obj.sf then
 		-- Bugfix for ElvUI
 		if aObj.isElvUI then
 			ttSB = tbl.obj.SetBackdrop
 			tbl.obj.SetBackdrop = _G.nop
 		end
-		aObj:skinObject("frame", {obj=tbl.obj, fType=tbl.ftype, kfs=true, rb=true, ofs=tbl.ofs or 0})
+		aObj:skinObject("frame", {obj=tbl.obj, fType=tbl.fType, kfs=true, rb=true, ofs=tbl.ofs or 0})
 		if aObj.isElvUI then
 			tbl.obj.SetBackdrop = ttSB
 		end
@@ -1132,7 +1162,6 @@ end
 
 function aObj:skinIconSelector(frame, ftype)
 
-	ftype = ftype or "a"
 	self:keepFontStrings(frame.BorderBox)
 	frame.BorderBox.SelectedIconArea.SelectedIconButton:DisableDrawLayer("BACKGROUND")
 	self:skinObject("editbox", {obj=frame.BorderBox.IconSelectorEditBox, fType=ftype})
@@ -1235,7 +1264,7 @@ function aObj:skinNavBar(navBar)
 	navBar.overflowButton:GetPushedTexture():SetAlpha(0)
 	navBar.overflowButton:GetHighlightTexture():SetAlpha(0)
 	navBar.overflowButton:SetText("<<")
-	navBar.overflowButton:SetNormalFontObject(self.fontP) -- use module name instead of shortcut
+	navBar.overflowButton:SetNormalFontObject(self.modUIBtns.fontP) -- use module name instead of shortcut
 
 end
 -- hook this to skin new buttons (Encounter Journal uses this)

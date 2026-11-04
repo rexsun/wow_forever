@@ -95,6 +95,13 @@ function Sources:RegisterCastTimerSourceType()
 end
 -- Built-in event window shared by visual and sound consumers. This is not an aura.
 local WINDOW_TYPE = 'yhud.spell-event-window'
+-- Retained for older consumers. Each entry now owns its own sound request.
+function Sources:PlayBoilingPointSound(state, segment, play)
+    local field = segment == 'manual' and 'manualSequence' or 'endSequence'
+    local sequence = state and Public(state[field])
+    if type(sequence) ~= 'number' or sequence <= 0 then return false, 'invalid-signal' end
+    return play()
+end
 local function EndWindow(source)
     M:RefreshSourceNow(source,'spell-event-window-expired',true)
 end

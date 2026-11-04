@@ -1,6 +1,7 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/">
     <Script file="Core.lua"/>
     <Script file="BuiltinEffects.lua"/>
+    <Script file="EventDefinitions.lua"/>
     <Script file="RuleModel.lua"/>
     <Script file="RuleStore.lua"/>
     <Script file="LegacyMigration.lua"/>
@@ -14,6 +15,7 @@
     <Script file="AuraPlayback.lua"/>
     <Script file="TTS.lua"/>
     <Script file="Forecast.lua"/>
+    <Script file="SpellEligibility.lua"/>
     <Script file="RuleRuntime.lua"/>
     <Script file="ObjectCatalog.lua"/>
     <Script file="EditorModel.lua"/>

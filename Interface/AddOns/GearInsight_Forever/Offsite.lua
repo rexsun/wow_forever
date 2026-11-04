@@ -72,6 +72,13 @@ local function trunc(s, n)
     return s
 end
 local function money(amt, cur)
+    -- 10-16 用户「金额整改掉，直接用百分比」：无限版支持榜只带「占全部支持的百分比」（Supporters.lua 币种 PCT）
+    if cur == "PCT" then
+        local p = tonumber(amt) or 0
+        if p <= 0 then return "—" end
+        if p < 0.1 then return "<0.1%" end
+        return string.format(p >= 10 and "%.0f%%" or "%.1f%%", p)
+    end
     local v = math.floor((amt or 0) * 100 + 0.5) / 100
     -- 自报登记没填金额的条目：别印成 ¥0（正式服 09-15 用户以为数据错了）
     if v <= 0 then return "—" end
@@ -168,15 +175,17 @@ function ns.NewsSupport(c, y, W)
             lastA, lastC = amt, cur or "CNY"
             local lead = byRank and ((RANKC[rank] or DIM) .. rank .. "|r") or (DIM .. ((ts or ""):sub(6, 10):gsub("-", "/")) .. "|r")
             local who = classIcon(cls ~= "" and cls or nil) .. "|cff" .. classHex(cls ~= "" and cls or nil) .. (name or "?") .. "|r"
-                .. ((realm and realm ~= "") and (" " .. DIM .. trunc(realm, 5) .. "|r") or "")
-            local tip = ((msg and msg ~= "") and ("“" .. msg .. "”\n") or "") .. (name or "")
+                .. ((realm and realm ~= "") and (" " .. DIM .. trunc(realm, realm:byte(1) < 128 and 10 or 5) .. "|r") or "")   -- 英文区服名（Pandaren）给 10 个字母
+            -- 10-19 名字随界面语言转写（Supporters.lua 末尾），原名在 rw[10]：悬停里带上，方便对上游戏里的角色
+            local orig = (rw[10] and rw[10] ~= name) and (" (" .. rw[10] .. ")") or ""
+            local tip = ((msg and msg ~= "") and ("“" .. msg .. "”\n") or "") .. (name or "") .. orig
                 .. ((realm and realm ~= "") and (" · " .. realm) or "") .. ((ts and ts ~= "") and ("\n" .. ts) or "")
             yy = line(c, yy, W, lead .. "  " .. who, { x = x0, w = colW, oneline = true, tip = tip,
                 right = GOLD .. money(amt, cur) .. "|r" .. (((n or 1) > 1) and (DIM .. " " .. n .. ns.L("笔", "x") .. "|r") or "") })
         end
         return yy
     end
-    local yl = col(0, ns.L("金额最高 10 人", "Top 10"), S.top, true)
+    local yl = col(0, ns.L("支持最多 10 人", "Top 10"), S.top, true)
     local yr = col(colW + 8, ns.L("最近支持者", "Recent supporters"), S.recent or S.top, false)
     y = math.min(yl, yr) - 4
     local url = ns.LandingURL("support")

@@ -434,6 +434,15 @@ function Adapter:GetActionBarPageForBar(barId, fallbackPage)
     return SafeNumber(def and def.page) or SafeNumber(fallbackPage) or 1
 end
 
+function Adapter:IsFormPagingEnabled()
+    local service = YUI.Settings and YUI.Settings.ConfigSets
+    local key = service and service.GetCurrentSpecializationKey and service:GetCurrentSpecializationKey()
+    if not key then return true end
+    local db = YAB.GetDB and YAB:GetDB()
+    local mask = db and db.interaction and db.interaction.formPagingSpecs
+    return type(mask) ~= "table" or mask[key] ~= false
+end
+
 function Adapter:BuildMainPageDriver()
     local overridePage = SafeNumber(self:GetOverrideBarIndex()) or 14
     local vehiclePage = SafeNumber(self:GetVehicleBarIndex()) or 16
@@ -449,8 +458,12 @@ function Adapter:BuildMainPageDriver()
     parts[#parts + 1] = "[bar:4] 4"
     parts[#parts + 1] = "[bar:3] 3"
     parts[#parts + 1] = "[bar:2] 2"
+    local formPaging = self:IsFormPagingEnabled()
     for index = 10, 1, -1 do
-        parts[#parts + 1] = "[bonusbar:" .. index .. "] bonus" .. index
+        -- Only the four class state pages are optional; retain special gameplay pages.
+        if formPaging or index > 4 then
+            parts[#parts + 1] = "[bonusbar:" .. index .. "] bonus" .. index
+        end
     end
     parts[#parts + 1] = "1"
     return table.concat(parts, "; ")
@@ -521,6 +534,8 @@ function Adapter:BuildVisibilityDriver(mode, hideSkyriding, context)
     elseif kind == "pet" then
         driver = PrefixDriver(BuildConditionalVisibilityDriver(mode, "pet,novehicleui,nooverridebar,nopossessbar"), petBattlePrefix)
     elseif kind == "stance" then
+        driver = PrefixDriver(BuildBaseVisibilityDriver(mode), specialStatePrefix)
+    elseif Client.classBars == true and (kind == "aspects" or kind == "totems") then
         driver = PrefixDriver(BuildBaseVisibilityDriver(mode), specialStatePrefix)
     elseif kind == "possess" and self:UseMainActionBarForPossess() then
         driver = "hide"
@@ -841,6 +856,45 @@ function Adapter:GetAssistedCombatNextSpell()
     return spellID, true
 end
 
+-- Assisted-highlight identities are independent of native proc spell matching.
+function Adapter:GetAssistedHighlightSpellIDs(spellID)
+    if Client.assistedHighlight ~= true then return nil end
+    spellID = SafeNumber(spellID)
+    if not spellID or spellID <= 0 then return nil end
+    local spells = _G.C_Spell
+    local base = spells and SafeNumber(SafeCall(spells.GetBaseSpell, spellID)) or nil
+    local override = spells and SafeNumber(SafeCall(spells.GetOverrideSpell, spellID)) or nil
+    return spellID, base and base > 0 and base or spellID, override and override > 0 and override or spellID
+end
+
+function Adapter:ReadAssistedHighlightIdentity(out)
+    if Client.assistedHighlight ~= true then return end
+    local spellID
+    if out.hasAction == true and out.actionSubType ~= "assistedcombat" and out.assistedCombat ~= true
+        and (out.actionType == "spell" or out.actionType == "macro") then
+        spellID = out.actionSpellID
+    end
+    out.assistedHighlightSpellID, out.assistedHighlightBaseID, out.assistedHighlightOverrideID =
+        self:GetAssistedHighlightSpellIDs(spellID)
+end
+
+function Adapter:GetAssistedHighlightNextSpell()
+    if Client.assistedHighlight ~= true then return nil, false end
+    local assisted = _G.C_AssistedCombat
+    local cvars = _G.C_CVar
+    local getCVarBool = cvars and cvars.GetCVarBool or _G.GetCVarBool
+    if SafeBoolean(SafeCall(getCVarBool, "assistedCombatHighlight")) ~= true
+        or not assisted or SafeBoolean(SafeCall(assisted.IsAvailable)) ~= true
+        or type(assisted.GetNextCastSpell) ~= "function" then return nil, false end
+    CountRead("assistedHighlightNextSpell")
+    local ok, spellID = pcall(assisted.GetNextCastSpell, false)
+    if not ok or IsSecretValue(spellID) then return nil, false end
+    if spellID == nil then return nil, true end
+    spellID = SafeNumber(spellID)
+    if not spellID or spellID <= 0 then return nil, false end
+    return spellID, true
+end
+
 function Adapter:ForceUpdateAssistedCombatAction(slot)
     if Client.assistedCombat ~= true then return false end
     local numberSlot = SafeNumber(slot)
@@ -878,6 +932,11 @@ function Adapter:ReadActionIdentity(slot, out, maxDisplayCount, backend)
     out.procSpellID = spellID
     out.flyoutID = flyoutID
     out.assistedCombat = self:IsAssistedCombatAction(slot)
+    out.filterRecoveryCooldown = Client.CanFilterRecoveryCooldown ~= nil
+        and out.hasAction == true and out.assistedCombat ~= true
+        and (safeType == "spell" or safeType == "macro")
+        and spellID ~= nil and Client.CanFilterRecoveryCooldown(spellID) == true
+    self:ReadAssistedHighlightIdentity(out)
     return out
 end
 
@@ -908,6 +967,10 @@ function Adapter:ReadActionProcIdentity(slot, out)
     out.hasAction = self:HasAction(slot)
     local actionType, id, subType = self:GetActionInfo(slot)
     local spellID, flyoutID, safeType, safeID, safeSubType = self:GetActionProcInfoFromInfo(actionType, id, subType)
+    if out.actionSpellID ~= spellID or out.actionType ~= safeType or out.actionID ~= safeID then
+        -- A partial identity refresh must not carry another action's eligibility.
+        out.filterRecoveryCooldown = false
+    end
     out.actionType = safeType
     out.actionID = safeID
     out.actionSubType = safeSubType
@@ -1126,7 +1189,7 @@ function Adapter:GetPetActionCooldown(index)
     CountRead("petCooldown")
     if not _G.GetPetActionCooldown then return nil end
     local start, duration, enable = _G.GetPetActionCooldown(index)
-    return start, duration, enable
+    return SafeNumber(start), SafeNumber(duration), SafeBoolean(enable)
 end
 
 function Adapter:IsPetActionUsable(index)

@@ -3,8 +3,8 @@ local YUI = _G.YUI
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("ptBR") then return end
 
 YUI.Locale:Register("AuctionHelper", "ptBR", {
-    ["product.title"] = "Auction Helper · YanForge",
-    ["product.notes"] = "Auction Helper · YanForge",
+    ["product.title"] = "Auction Helper · Ayan",
+    ["product.notes"] = "Auction Helper · Ayan",
     ["title.short"] = " Assistente de compras",
     ["feature.name"] = "Assistente de compras",
     ["feature.description"] = "Adiciona à Casa de Leilões categorias para buscar itens comuns com um clique.",

@@ -3,8 +3,8 @@ local YUI = _G.YUI
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("esES") then return end
 
 YUI.Locale:Register("AuctionHelper", "esES", {
-    ["product.title"] = "Auction Helper · YanForge",
-    ["product.notes"] = "Auction Helper · YanForge",
+    ["product.title"] = "Auction Helper · Ayan",
+    ["product.notes"] = "Auction Helper · Ayan",
     ["title.short"] = "Asistente de compra",
     ["feature.name"] = "Ayudante de compras",
     ["feature.description"] = "Añade al subastador categorías para buscar objetos habituales con un clic.",

@@ -4,6 +4,8 @@ Source: bundled lucide package v1.8.0 (https://lucide.dev)
 License: ISC
 Notes: alert-triangle.png is generated from the Lucide triangle-alert icon.
 keyboard.png is generated from the Lucide keyboard icon (https://lucide.dev/icons/keyboard).
+bell.png is generated from the bundled Lucide 1.8.0 Bell nodes: 24x24 viewBox, white 1.75-unit rounded stroke, transparent 64x64 PNG rasterized with sharp.
+link-2.png is generated from the bundled Lucide 1.8.0 Link2 nodes: 24x24 viewBox, white 1.75-unit rounded stroke, transparent 64x64 PNG rasterized with sharp.
 Micro atlases: micro-16.png, micro-20.png, micro-24.png contain settings, power, arrow-big-up, arrow-big-down, play, square, eye, panels-top-left, eye-off, mouse, swords, shield, bike, footprints, paintbrush, text-initial, chart-bar-big, info, image, circle, and rectangle-ellipsis variants rasterized as 2x source variants for small GUI2 controls. They also include custom solid move-up and move-down GUI2 micro glyphs for compact sorting controls; these custom move glyphs are supersampled before being written into the atlas to keep diagonal edges antialiased. micro-16 uses 32x32 source blocks, micro-20 uses 40x40 source blocks, and micro-24 uses 48x48 source blocks; each is displayed at its nominal 16/20/24px size in GUI2. Atlas width remains fixed at 1024px and additional capacity grows in power-of-two-height rows. Atlas images keep a 2px inner safe area plus a 3-4px source-level transparent gutter for stable WoW texture coordinate sampling.
 
 ISC License

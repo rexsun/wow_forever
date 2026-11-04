@@ -28,7 +28,13 @@ function SettingsBridge:Open(barId, group)
 end
 
 function SettingsBridge:Refresh()
+    self:HideEffectPreview()
     if YUI.Settings and YUI.Settings.Refresh then
         pcall(YUI.Settings.Refresh, YUI.Settings)
     end
+end
+
+function SettingsBridge:HideEffectPreview()
+    local bridge = YUI.Settings and YUI.Settings.YActionBarModule
+    if bridge and bridge.HideEffectPreview then bridge:HideEffectPreview() end
 end

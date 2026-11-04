@@ -250,6 +250,20 @@ local function BuildEntry(
     return entry
 end
 
+-- Read-only descriptor construction shared by monitor and resource pickers.
+function CDMImport:CreateEntry(row, existing)
+    if type(row) ~= "table" or not IsPositiveInteger(row.cooldownID) then return nil end
+    local source = row.sourceCategory or row.category
+    local display = row.displayCategory or (row.sourceCategory == nil and row.category or nil)
+    if not SOURCE_CATEGORIES[source] or display and not DISPLAY_CATEGORIES[display] then return nil end
+    local entry = BuildEntry(existing, row, source, display, row.cooldownID)
+    if entry then
+        entry.nativeVisible = row.nativeVisible ~= false and row.metadataOnly ~= true
+        entry.officialCategory = entry.officialCategory or source
+    end
+    return entry
+end
+
 local function ResolveScopedProfile(profile, specKey, copy)
     specKey = specKey
         or (type(profile) == "table" and rawget(profile, "_yhudSpecKey"))

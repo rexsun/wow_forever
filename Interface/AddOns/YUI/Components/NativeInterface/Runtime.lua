@@ -167,6 +167,7 @@ if transfer and transfer.RegisterModule then
         hideStatusTrackingBars = true,
         hideMicroMenu = true,
         bagsBarVisibility = true,
+        manageBagsBar = true,
     }
     local layouts = {}
     if YUI.IsForever == true then

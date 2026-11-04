@@ -22,6 +22,8 @@ local SPECIAL_LABEL_GRADIENT_END = { 0.64, 0.21, 0.93 }
 local activeTab = "minimap"
 local pageContext
 local settingsActive = false
+local settingsParent
+local windowControlListener
 local selectedSquareElement = "drawer"
 local Render
 local ApplyLiveButtonPreview
@@ -30,6 +32,12 @@ local UpdateTextPreview
 local componentGroupSelections = {text="clock",buttons="drawer"}
 
 local TEXT_COMPONENT_KEYS = { clock=true, coordinates=true, metrics=true, zoneName=true }
+local TEXT_STYLE_SEARCH_KEYS = {
+    ["settings.minimap.text_style"]="clock", ["settings.minimap.text_font"]="clock",
+    ["settings.minimap.text_font_size"]="clock", ["settings.minimap.text_outline"]="clock",
+    ["settings.minimap.coordinates_font_size"]="coordinates",
+    ["settings.minimap.metrics_font_size"]="metrics", ["settings.minimap.zone_name_font_size"]="zoneName",
+}
 local BUTTON_SETTINGS_ORDER = {
     "clock", "coordinates", "metrics", "zoneName",
     "drawer",
@@ -69,15 +77,39 @@ local function DB()
 end
 
 local function Refresh(reason)
-    YMap:Refresh(reason or "settings")
+    local ok, code = YMap:Refresh(reason or "settings")
     if ApplyLiveButtonPreview then ApplyLiveButtonPreview() end
     if UpdateTextPreview then UpdateTextPreview() end
+    return ok, code
+end
+
+function YMap:RefreshTextStyle()
+    return Refresh("font-style")
 end
 
 local function Rerender(parent)
     if not (parent and S.ClearConfig and Render) then return end
     S:ClearConfig(parent)
     Render(parent)
+end
+
+local function IsWorldMapWindowYielded()
+    return YMap.WorldMap and YMap.WorldMap.IsWindowControlYielded
+        and YMap.WorldMap:IsWindowControlYielded() == true
+end
+
+local function OnWindowControlChanged()
+    if settingsActive and activeTab == "worldMap" and settingsParent and settingsParent:IsShown() then
+        Rerender(settingsParent)
+    end
+end
+
+local function ActivateSettings(parent)
+    settingsActive = true
+    settingsParent = parent
+    if not windowControlListener and YUI.Event and YUI.Event.On then
+        windowControlListener = YUI.Event:On("YUI_YMAP_WINDOW_CONTROL_CHANGED", OnWindowControlChanged, YMap)
+    end
 end
 
 local function Check(parent, labelKey, get, set, reason, structural, label)
@@ -313,7 +345,10 @@ local function RenderNotice(parent, x, y, width, text, warning)
     message:SetPoint("RIGHT", panel, "RIGHT", -14, 0)
     message:SetJustifyH("LEFT")
     message:SetWordWrap(true)
-    return y - 62 - NOTICE_GAP
+    message:SetWidth(math.max(1, width - 58))
+    local height = math.max(62, (message:GetStringHeight() or 20) + 24)
+    panel:SetHeight(height)
+    return y - height - NOTICE_GAP
 end
 
 local function ButtonSettingLabel(key)
@@ -771,31 +806,47 @@ local function BuildTextComponentFields(parent, appearance, key)
         end, {allowColorMode=true,hasAlpha=true})
         for _,field in ipairs(presentationFields) do fields[#fields+1]=field end
     end
-    fields[#fields+1] = {
-        type="font", searchKey=prefix .. "text_font", label=T(prefix .. "text_font"),
-        prependOptions={{text=T(prefix .. "text_inherit"), value="inherit"}},
-        get=function() return config.font or "inherit" end,
-        set=function(v) config.font=v; Refresh(reason) end,
-    }
-    local sizeKey = key == "zoneName" and "zone_name_font_size"
-        or key == "clock" and "text_font_size" or key .. "_font_size"
-    local sizeField = Slider(prefix .. sizeKey, key == "clock" and 0 or 8, 24, 1,
-        function() return key == "zoneName" and appearance.zoneNameFontSize or config.fontSize end,
-        function(v) if key == "zoneName" then appearance.zoneNameFontSize=v else config.fontSize=v end end, reason)
-    if key == "clock" then sizeField.tooltip=T(prefix .. "text_clock_size_hint") end
-    fields[#fields+1] = sizeField
-    fields[#fields+1] = Dropdown(parent, prefix .. "text_outline", GUI2.Form:BuildFontOutlineOptions({
-        prependOptions={{text=T(prefix .. "text_inherit"),value="inherit"}},
-    }), function() return YMap.TextComponents:GetOutlineSelection(config) end, function(v)
-        config.outline=v
-        config.shadow=v=="inherit" and "inherit" or "off"
-    end, reason)
-    if key ~= "metrics" then
-        fields[#fields+1] = Check(parent, prefix .. "text_custom_color", function() return config.customColor end,
-            function(v) config.customColor=v end, reason, true)
-        if config.customColor then
-            fields[#fields+1] = Color(prefix .. "text_color", {1,1,1,1},
-                function() return config.color end, function(v) config.color=v end, reason)
+    if GUI2.FontStyle and GUI2.Form.CreateFontStyle then
+        local pending = S.Search and S.Search.pending
+        local entry = pending and pending.entry
+        fields[#fields+1] = {
+            type="custom", fontStyleKey="ymap:"..key, span="full",
+            searchKey=prefix.."text_style", label=T(prefix.."text_style"),
+            searchId=entry and entry.namespace=="YMap" and TEXT_STYLE_SEARCH_KEYS[entry.key]==key and entry.id or nil,
+            minControlWidth=GUI2.FontStyle.MIN_CONTROL_WIDTH,
+            render=function(owner, _, width)
+                -- Start a new row without widening the original two-column control.
+                local controlWidth=width>=452 and math.floor((width-16)/2) or width
+                return GUI2.Form:CreateFontStyle(owner, {key="ymap:"..key,width=controlWidth})
+            end,
+        }
+    else
+        fields[#fields+1] = {
+            type="font", searchKey=prefix .. "text_font", label=T(prefix .. "text_font"),
+            prependOptions={{text=T(prefix .. "text_inherit"), value="inherit"}},
+            get=function() return config.font or "inherit" end,
+            set=function(v) config.font=v; Refresh(reason) end,
+        }
+        local sizeKey = key == "zoneName" and "zone_name_font_size"
+            or key == "clock" and "text_font_size" or key .. "_font_size"
+        local sizeField = Slider(prefix .. sizeKey, key == "clock" and 0 or 8, 24, 1,
+            function() return key == "zoneName" and appearance.zoneNameFontSize or config.fontSize end,
+            function(v) if key == "zoneName" then appearance.zoneNameFontSize=v else config.fontSize=v end end, reason)
+        if key == "clock" then sizeField.tooltip=T(prefix .. "text_clock_size_hint") end
+        fields[#fields+1] = sizeField
+        fields[#fields+1] = Dropdown(parent, prefix .. "text_outline", GUI2.Form:BuildFontOutlineOptions({
+            prependOptions={{text=T(prefix .. "text_inherit"),value="inherit"}},
+        }), function() return YMap.TextComponents:GetOutlineSelection(config) end, function(v)
+            config.outline=v
+            config.shadow=v=="inherit" and "inherit" or "off"
+        end, reason)
+        if key ~= "metrics" then
+            fields[#fields+1] = Check(parent, prefix .. "text_custom_color", function() return config.customColor end,
+                function(v) config.customColor=v end, reason, true)
+            if config.customColor then
+                fields[#fields+1] = Color(prefix .. "text_color", {1,1,1,1},
+                    function() return config.color end, function(v) config.color=v end, reason)
+            end
         end
     end
     fields[#fields+1] = Dropdown(parent, prefix .. "text_layout", {
@@ -823,6 +874,7 @@ local function BuildTextComponentFields(parent, appearance, key)
             "position","offsetX","offsetY","autoOffsetX","autoOffsetY","spacing","fpsColor","latencyColor"}) do
             if source[name] ~= nil then config[name]=YMap:CopyValue(source[name]) end
         end
+        config.fontShadow, config.monochrome, config.fontColor = nil, nil, nil
         if key=="clock" then appearance.clockPosition=defaults.clockPosition end
         if key=="zoneName" then appearance.zoneNameFontSize=defaults.zoneNameFontSize end
         if key=="metrics" then
@@ -1393,26 +1445,38 @@ local function RenderWorldMapTab(parent, x, y, width)
         return y
     end
 
+    local windowYielded = IsWorldMapWindowYielded()
+    if windowYielded then
+        y = RenderNotice(parent, x, y, width, T("settings.world_map.window_managed"), false)
+    end
+
     local windowFields = {
         Slider("settings.world_map.scale", 0.5, 2, 0.05, function()
             return worldMap.scale
         end, function(value)
-            worldMap.scale = value
+            if not IsWorldMapWindowYielded() then worldMap.scale = value end
         end, "world-map-scale"),
         Check(parent, "settings.world_map.remember_position", function()
             return worldMap.rememberPosition == true
         end, function(value)
-            worldMap.rememberPosition = value
+            if not IsWorldMapWindowYielded() then worldMap.rememberPosition = value end
         end, "world-map-position"),
         Action("settings.actions", "settings.world_map.reset_position", function()
-            worldMap.position = nil
+            if IsWorldMapWindowYielded() then return end
             if YMap.WorldMap and YMap.WorldMap.ResetPosition then
                 YMap.WorldMap:ResetPosition()
             else
+                worldMap.position = nil
                 Refresh("world-map-reset-position")
             end
         end, "settings"),
     }
+    if windowYielded then
+        for index = 1, #windowFields do
+            windowFields[index].disabled = true
+            windowFields[index].tooltip = T("settings.world_map.window_managed_tooltip")
+        end
+    end
     windowFields[#windowFields + 1] = Check(parent, "settings.world_map.fade_when_moving", function()
         return worldMap.fadeWhenMoving == true
     end, function(value)
@@ -1609,6 +1673,11 @@ end
 
 function YMap:OnSettingsLeave()
     settingsActive = false
+    settingsParent = nil
+    if windowControlListener and YUI.Event and YUI.Event.Off then
+        YUI.Event:Off(windowControlListener)
+    end
+    windowControlListener = nil
     if self.Markers then self.Markers.RefreshCurrentModule = nil end
     if self.WorldEvents then self.WorldEvents.RefreshCurrentModule = nil end
     ClearLiveButtonPreview()
@@ -1620,7 +1689,7 @@ function YMap:RenderSettings(parent, context)
 end
 
 Render = function(parent)
-    settingsActive = true
+    ActivateSettings(parent)
     if YMap.WorldEvents then YMap.WorldEvents.RefreshCurrentModule = nil end
     if not (
         GUI2
@@ -1648,7 +1717,10 @@ Render = function(parent)
         parent.ymapLivePreviewHooked = true
         parent:HookScript("OnHide", function() YMap:OnSettingsLeave() end)
         parent:HookScript("OnShow", function()
-            if not YMap.Host or YMap.Host.settingsMode == "navigation" then settingsActive = true end
+            if not YMap.Host or YMap.Host.settingsMode == "navigation" then
+                ActivateSettings(parent)
+                OnWindowControlChanged()
+            end
             if ApplyLiveButtonPreview then ApplyLiveButtonPreview() end
         end)
     end
@@ -1734,5 +1806,13 @@ S:RegisterModule("YMap", SETTINGS_ICON, function(parent) YMap:RenderSettings(par
 end
 
 if S.Search then
-    S.Search:RegisterRoute(YMap.SETTINGS_ENTRY or "ymap.settings", function(tab) YMap:SetSettingsTab(tab) end)
+    S.Search:RegisterCatalog(YMap.SETTINGS_ENTRY or "ymap.settings", "YMap", "minimap",
+        "settings.minimap.text_style settings.minimap.text_font settings.minimap.text_font_size settings.minimap.text_outline settings.minimap.metrics_font_size")
+    S.Search:RegisterRoute(YMap.SETTINGS_ENTRY or "ymap.settings", function(tab, searchKey)
+        YMap:SetSettingsTab(tab)
+        local component=TEXT_STYLE_SEARCH_KEYS[searchKey]
+        if component and GUI2.FontStyle and DB().minimap.style=="square" then
+            selectedSquareElement, componentGroupSelections.text=component,component
+        end
+    end)
 end

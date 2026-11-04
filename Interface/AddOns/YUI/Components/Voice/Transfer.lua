@@ -36,17 +36,26 @@ local function Scope(raw)
 end
 local function Normalize(payload)
     if type(payload)~='table' then return nil,'invalid-sound-payload' end
-    for key in pairs(payload) do if key~='rules' and key~='scope' then return nil,'invalid-sound-payload' end end
+    for key in pairs(payload) do if key~='rules' and key~='scope' and key~='voicePackSources' then return nil,'invalid-sound-payload' end end
+    local sources
+    if payload.voicePackSources~=nil then
+        sources=S.CopyVoicePackSources and S:CopyVoicePackSources(payload.voicePackSources)
+        if not sources then return nil,'invalid-sound-payload' end
+    end
     local scope,code=Scope(payload.scope); if not scope then return nil,code end
     local rules; rules,code=Model:NormalizeLibrary(payload.rules); if not rules then return nil,code end
     if scope.kind=='specs' then
         local clipped; clipped,code=Model:Export(rules,scope.specs,scope.includeGeneral)
         if not clipped or not Equal(clipped,rules) then return nil,code or 'sound-outside-scope' end
     end
-    return {rules=rules,scope=scope}
+    return {rules=rules,scope=scope,voicePackSources=sources}
+end
+local function Capture(rules,scope)
+    local sources=S.CaptureVoicePackSources and S:CaptureVoicePackSources(rules)
+    return {rules=rules,scope=scope,voicePackSources=sources and next(sources) and sources or nil}
 end
 S.SoundTransfer={Normalize=Normalize}
-Transfer:RegisterModule({id='core.sound',kind='core',schemaVersion=1,labelKey='sound.center.title',
+Transfer:RegisterModule({id='core.sound',kind='core',schemaVersion=2,labelKey='sound.center.title',
     dataPaths={'SoundRules'},maxPayloadNodes=65536,selectedByDefault=false,
     productId=function() return S.storageProductId end,
     capture=function(_,context)
@@ -64,11 +73,15 @@ Transfer:RegisterModule({id='core.sound',kind='core',schemaVersion=1,labelKey='s
             if not scope then return nil,code end
             rules,code=Model:Export(rules,scope.specs,scope.includeGeneral)
             if not rules then return nil,code end
-            return {rules=rules,scope=scope}
+            return Capture(rules,scope)
         end
-        return {rules=rules,scope={kind='profile'}}
+        return Capture(rules,{kind='profile'})
     end,
     normalize=Normalize,
+    migrate=function(payload,fromVersion,toVersion)
+        if fromVersion==1 and toVersion==2 then return Normalize(payload) end
+        return nil,'invalid-sound-payload'
+    end,
     snapshot=function(_,context,payload)
         local mode=context and context.soundImportMode or (payload.scope.kind=='profile' and 'replace' or 'incremental')
         if mode~='replace' and mode~='incremental' then return nil,'invalid-sound-import-mode' end
@@ -79,16 +92,30 @@ Transfer:RegisterModule({id='core.sound',kind='core',schemaVersion=1,labelKey='s
         end
         local plan,code=Store:PrepareImport(payload.rules,mode); if not plan then return nil,code end
         return {database=plan.context.database,profileName=plan.context.name,plan=plan,
-            counts=Copy(plan.counts),mode=mode,scope=Copy(payload.scope)}
+            counts=Copy(plan.counts),mode=mode,scope=Copy(payload.scope),
+            sources=Copy(payload.voicePackSources),previousSources=Copy(S.voicePackSources or {}),identityRevision=S.voicePackIdentityRevision}
     end,
-    validateSnapshot=function(snapshot) return Store:CheckPrepared(snapshot.plan) end,
+    validateSnapshot=function(snapshot)
+        if snapshot.identityRevision~=S.voicePackIdentityRevision then return nil,'stale-preview' end
+        return Store:CheckPrepared(snapshot.plan)
+    end,
     apply=function(_,entry)
+        local snapshot=entry.snapshot
+        if snapshot.sources then
+            local sources=Copy(S.voicePackSources or {})
+            for id,owner in pairs(snapshot.sources) do sources[id]=owner end
+            sources=S:CopyVoicePackSources(sources)
+            if not sources then return nil,'invalid-sound-payload' end
+            S:SetVoicePackSources(sources)
+        end
         local ok,code=Store:Commit(entry.snapshot.plan,S.Runtime)
+        if not ok and snapshot.sources then S:SetVoicePackSources(snapshot.previousSources) end
         entry.snapshot.applied=ok==true
         return ok,code
     end,
     restore=function(snapshot)
         if not snapshot.applied then return true end
+        if snapshot.sources then S:SetVoicePackSources(snapshot.previousSources) end
         return Store:Restore(snapshot.plan,S.Runtime)
     end,
 })

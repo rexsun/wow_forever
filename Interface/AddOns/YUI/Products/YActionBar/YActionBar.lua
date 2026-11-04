@@ -162,6 +162,7 @@ function YAB:GetProfile()
 end
 
 function YAB:EnsureDB()
+    self:InvalidateDB()
     local profile = self:GetProfile()
     if type(profile) ~= "table" then
         self.db = self.db or self:CopyValue(self.Defaults)
@@ -174,7 +175,14 @@ function YAB:EnsureDB()
     self.db = profile[self.STORAGE_KEY]
     self:MergeDefaults(self.db)
     CleanPersistedRecipeSnapshot(self, self.db)
+    self.preparedDB = self.db
+    self.preparedDBDefaults = self.Defaults
     return self.db
+end
+
+function YAB:InvalidateDB()
+    self.preparedDB = nil
+    self.preparedDBDefaults = nil
 end
 
 function YAB:RecordStartupEnabled()
@@ -189,6 +197,18 @@ function YAB:RecordStartupEnabled()
 end
 
 function YAB:GetDB()
+    -- 每次仍解析当前配置；只复用同一份已规范化的数据，不缓存配置选择。
+    local profile = self:GetProfile()
+    local db
+    if type(profile) == "table" then
+        db = profile[self.STORAGE_KEY]
+    else
+        db = self.db
+    end
+    if type(db) == "table" and self.preparedDB == db and self.preparedDBDefaults == self.Defaults then
+        self.db = db
+        return db
+    end
     return self:EnsureDB()
 end
 
@@ -384,6 +404,7 @@ function YAB:OnLifecycleEnable()
 end
 
 function YAB:ApplyRuntimeDisable(reason)
+    if self.SettingsBridge and self.SettingsBridge.HideEffectPreview then self.SettingsBridge:HideEffectPreview() end
     if self.CancelBindMode then
         self:CancelBindMode("disable")
     end
@@ -425,6 +446,7 @@ function YAB:ApplyRuntimeDisable(reason)
 end
 
 function YAB:ApplyRuntimeRebuild(reason, operation)
+    if self.SettingsBridge and self.SettingsBridge.HideEffectPreview then self.SettingsBridge:HideEffectPreview() end
     if self.CancelBindMode then
         self:CancelBindMode(operation == "profile" and "profile" or "rebuild")
     end
@@ -518,6 +540,7 @@ function YAB:Disable()
 end
 
 function YAB:Refresh(reason)
+    self:EnsureDB()
     if YUI.Layout and YUI.Layout.InvalidateAnchorProvider then
         for _, id in ipairs(self.BAR_ORDER or {}) do
             YUI.Layout:InvalidateAnchorProvider("yactionbar." .. id)
@@ -728,6 +751,9 @@ function YAB:PrintHotDiagnostics()
         Print(lines[index])
     end
     if self.BarManager and self.BarManager.GetSlotIdentityDiagnosticLine then
+        if self.BarManager.GetAssistedHighlightDiagnosticLine then
+            Print(self.BarManager:GetAssistedHighlightDiagnosticLine())
+        end
         Print(self.BarManager:GetSlotIdentityDiagnosticLine())
     end
     return true
@@ -844,7 +870,7 @@ RegisterSlashCommands()
 if YUI.RegisterProduct then
     YUI:RegisterProduct({
         id = YAB.PRODUCT_ID,
-        title = "Flare Action Bar · YanForge",
+        title = "Flare Action Bar · Ayan",
         titleKey = "product.title",
         titleNamespace = "YActionBar",
         shortTitle = "Flare Action Bar",
@@ -853,10 +879,10 @@ if YUI.RegisterProduct then
         logo = "icons\\logo_32.png",
         smallLogo = "icons\\logo_32.png",
         logoCrop = false,
-        notes = "Flare Action Bar · YanForge",
+        notes = "Flare Action Bar · Ayan",
         notesKey = "product.notes",
         notesNamespace = "YActionBar",
-        author = "阿言",
+        author = "Ayan",
         addonName = ADDON_NAME or YUI.AddonName,
         profileExportPrefix = "!YUI-YActionBar-v1:",
         settingsScope = "yactionbar",
@@ -896,7 +922,7 @@ if YUI.Module and YUI.Module.Register then
         name = "YActionBar",
         product = YAB.PRODUCT_ID,
         scope = "yactionbar",
-        defaultEnabled = false,
+        defaultEnabled = YAB.Defaults.enabled,
         owner = YAB,
         dependencies = { "core.db", "core.event", "core.api", "settings" },
         getEnabled = function(owner)

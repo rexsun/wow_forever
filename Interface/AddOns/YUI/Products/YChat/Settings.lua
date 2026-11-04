@@ -234,7 +234,7 @@ local function BuildCardItem(section)
 
             for index = 1, #section.items do
                 local item = section.items[index]
-                if ALIGNED_FIELD_TYPES[item.type] then
+                if ALIGNED_FIELD_TYPES[item.type] or item.fontStyleKey or item.ychatAligned then
                     local columns = tonumber(item.ychatColumns)
                     if columns then
                         FlushFields()
@@ -340,6 +340,95 @@ local function BuildPageNavigation(parent)
             return width, 36
         end,
     }
+end
+
+local function BuildMessageTextOptions(parent, options)
+    AddSection(options, "settings.section.message_text", "Message text")
+    if GUI2.FontStyle and GUI2.Form.CreateFontStyle then
+        local pending = S.Search and S.Search.pending
+        local entry = pending and pending.entry
+        local aliases = { ["settings.typography.font"]=true, ["settings.typography.font_size"]=true,
+            ["settings.typography.outline"]=true, ["settings.typography.custom_size"]=true }
+        options[#options+1] = {
+            type="custom", fontStyleKey="ychat:body",
+            searchKey="settings.typography.text_style", label=T("settings.typography.text_style", "Text"),
+            searchId=entry and entry.namespace=="YChat" and aliases[entry.key] and entry.id or nil,
+            minControlWidth=GUI2.FontStyle.MIN_CONTROL_WIDTH,
+            render=function(owner, _, width)
+                return GUI2.Form:CreateFontStyle(owner, {key="ychat:body",width=math.min(CONTROL_WIDTH,width)})
+            end,
+        }
+    else
+        options[#options + 1] = ManualField(parent, {
+            type = "font",
+            searchKey = "settings.typography.font",
+            label = T("settings.typography.font", "Font"),
+            width = CONTROL_WIDTH,
+            prependOptions = BuildNativeFontOptions,
+            previewSelectedFont = false,
+            get = function()
+                return Typography().font or "__native"
+            end,
+            set = function(value)
+                if value == "__native" then
+                    YChat:ResetTypographyValue("font")
+                else
+                    YChat:SetTypographyValue("font", value)
+                end
+            end,
+        })
+        options[#options + 1] = ManualField(parent, {
+            type = "checkbox",
+            labelPosition = "left",
+            searchKey = "settings.typography.custom_size",
+            label = T("settings.typography.custom_size", "Override message size"),
+            get = function()
+                return Typography().fontSize ~= nil
+            end,
+            set = function(value)
+                if value == true then
+                    YChat:SetTypographyValue("fontSize", 14)
+                else
+                    YChat:ResetTypographyValue("fontSize")
+                end
+            end,
+        })
+        if Typography().fontSize ~= nil then
+            options[#options + 1] = {
+                type = "slider",
+                searchKey = "settings.typography.font_size",
+                label = T("settings.typography.font_size", "Message size"),
+                min = YChat.BODY_FONT_MIN_SIZE,
+                max = YChat.BODY_FONT_MAX_SIZE,
+                step = 1,
+                precision = 0,
+                instantUpdate = false,
+                get = function()
+                    return Typography().fontSize
+                end,
+                set = function(value)
+                    YChat:SetTypographyValue("fontSize", value)
+                end,
+            }
+        end
+        options[#options + 1] = ManualField(parent, {
+            type = "dropdown",
+            searchKey = "settings.typography.outline",
+            label = T("settings.typography.outline", "Outline"),
+            width = CONTROL_WIDTH,
+            options = BuildOutlineOptions(true),
+            get = function()
+                return Typography().outline or "__native"
+            end,
+            set = function(value)
+                if value == "__native" then
+                    YChat:ResetTypographyValue("outline")
+                else
+                    YChat:SetTypographyValue("outline", value)
+                end
+            end,
+        })
+    end
 end
 
 local function BuildAppearanceOptions(parent, options)
@@ -465,6 +554,7 @@ local function BuildAppearanceOptions(parent, options)
             })
         end
     end
+    BuildMessageTextOptions(parent, options)
     AddSection(options, "settings.section.tabs", "Tabs")
     options[#options + 1] = ManualField(parent, {
         type = "dropdown",
@@ -494,35 +584,6 @@ local function BuildAppearanceOptions(parent, options)
     })
     options[#options + 1] = ManualField(parent, {
         type = "dropdown",
-        searchKey = "settings.appearance.tab_text_effect",
-        label = T("settings.appearance.tab_text_effect", "Title text effect"),
-        width = CONTROL_WIDTH,
-        options = BuildOutlineOptions(false),
-        get = function()
-            return Appearance().tabTextEffect
-        end,
-        set = function(value)
-            YChat:SetAppearanceValue("tabTextEffect", value)
-        end,
-    })
-    options[#options + 1] = ManualField(parent, {
-        type = "slider",
-        searchKey = "settings.appearance.tab_font_size",
-        label = T("settings.appearance.tab_font_size", "Tab text size"),
-        min = 10,
-        max = 16,
-        step = 1,
-        precision = 0,
-        instantUpdate = false,
-        get = function()
-            return Appearance().tabFontSize
-        end,
-        set = function(value)
-            YChat:SetAppearanceValue("tabFontSize", value)
-        end,
-    })
-    options[#options + 1] = ManualField(parent, {
-        type = "dropdown",
         searchKey = "settings.appearance.tab_width_mode",
         label = T("settings.appearance.tab_width_mode", "Tab width mode"),
         width = CONTROL_WIDTH,
@@ -544,6 +605,7 @@ local function BuildAppearanceOptions(parent, options)
         options[#options + 1] = ManualField(parent, {
             type = "slider",
             searchKey = "settings.appearance.tab_width",
+            ychatColumns = 1,
             label = T("settings.appearance.tab_width", "Tab width"),
             min = YChat.TAB_MIN_WIDTH or 48,
             max = YChat.TAB_MAX_WIDTH or 160,
@@ -558,6 +620,115 @@ local function BuildAppearanceOptions(parent, options)
             end,
         })
     end
+    if GUI2.FontStyle and GUI2.Form.CreateFontStyle then
+        local entry = S.Search and S.Search.pending and S.Search.pending.entry
+        local aliases = {["settings.appearance.tab_text_effect"]=true,["settings.appearance.tab_font_size"]=true}
+        options[#options+1] = {
+            type="custom",fontStyleKey="ychat:tabs",label=T("settings.typography.text_style","Text"),
+            searchKey="settings.appearance.tab_text",
+            searchId=entry and entry.namespace=="YChat" and aliases[entry.key] and entry.id or nil,
+            minControlWidth=GUI2.FontStyle.MIN_CONTROL_WIDTH,
+            render=function(owner, _, width)
+                return GUI2.Form:CreateFontStyle(owner,{key="ychat:tabs",width=math.min(CONTROL_WIDTH,width)})
+            end,
+        }
+    else
+        options[#options + 1] = ManualField(parent, {
+            type = "dropdown",
+            searchKey = "settings.appearance.tab_text_effect",
+            label = T("settings.appearance.tab_text_effect", "Title text effect"),
+            width = CONTROL_WIDTH,
+            options = BuildOutlineOptions(false),
+            get = function()
+                return Appearance().tabTextEffect
+            end,
+            set = function(value)
+                YChat:SetAppearanceValue("tabTextEffect", value)
+            end,
+        })
+        options[#options + 1] = ManualField(parent, {
+            type = "slider",
+            searchKey = "settings.appearance.tab_font_size",
+            label = T("settings.appearance.tab_font_size", "Tab text size"),
+            min = YChat.TAB_FONT_MIN_SIZE,
+            max = YChat.TAB_FONT_MAX_SIZE,
+            step = 1,
+            precision = 0,
+            instantUpdate = false,
+            get = function()
+                return Appearance().tabFontSize
+            end,
+            set = function(value)
+                YChat:SetAppearanceValue("tabFontSize", value)
+            end,
+        })
+    end
+    local paletteEntry = S.Search and S.Search.pending and S.Search.pending.entry
+    options[#options+1] = {
+        type="custom",ychatAligned=true,label=T("settings.appearance.tab_palette","Tab palette"),
+        searchKey="settings.appearance.tab_palette",
+        searchId=paletteEntry and paletteEntry.namespace=="YChat"
+            and (paletteEntry.key=="settings.appearance.class_color_tabs" or paletteEntry.key=="settings.appearance.tab_color")
+            and paletteEntry.id or nil,
+        render=function(owner, _, width)
+            local control = GUI2.Form:CreateColorPicker(owner, {width=math.min(CONTROL_WIDTH,width),
+                label="",hasAlpha=false})
+            local profile=YChat:GetProfile()
+            local db=profile and profile[YChat.STORAGE_KEY] or YChat.db
+            local function Current()
+                local current=YChat:GetProfile()
+                local root=current and current[YChat.STORAGE_KEY] or YChat.db
+                return current==profile and root==db and root and root.appearance==appearance
+            end
+            local function Refresh()
+                if not Current() then return end
+                local r,g,b=YChat.Appearance:GetTabColor(appearance)
+                if GUI2.ColorPicker and GUI2.ColorPicker.owner==control then
+                    control:PreviewColorValue(r,g,b,1)
+                else
+                    control:SetValue({r,g,b,1},true)
+                end
+                control.text:SetText(appearance.classColorTabs and T("settings.color.class","Class color")
+                    or string.format("#%02X%02X%02XFF",floor(r*255+0.5),floor(g*255+0.5),floor(b*255+0.5)))
+            end
+            control:SetScript("OnClick",function()
+                local picker=GUI2.ColorPicker
+                if not picker then return end
+                picker:Close("cancel")
+                if not Current() then return end
+                control.gui2ColorPendingValue=nil
+                local color=appearance.tabColor
+                local originalColor={color[1],color[2],color[3],color[4]}
+                local originalClass,originalPreset=appearance.classColorTabs,appearance.preset
+                local r,g,b=YChat.Appearance:GetTabColor(appearance)
+                picker:Open(control,{r=r,g=g,b=b,a=1,hasAlpha=false,
+                    mode=appearance.classColorTabs and "class" or "custom",
+                    modes={{value="custom",text=T("settings.color.fixed","Fixed color")},
+                        {value="class",text=T("settings.color.class","Class color")}},
+                    resolveColor=function(mode)
+                        if mode=="class" then
+                            return {YChat.Appearance:GetTabColor({classColorTabs=true,tabColor=appearance.tabColor})}
+                        end
+                    end,
+                    preview=function(cr,cg,cb,_,mode)
+                        if not Current() then return end
+                        YChat:SetTabPalette(mode,{cr,cg,cb,1})
+                        Refresh()
+                    end,
+                    commit=Refresh,
+                    cancel=function()
+                        if not Current() then return end
+                        appearance.tabColor=originalColor
+                        YChat:SetTabPalette(originalClass and "class" or "custom",originalColor)
+                        appearance.preset=originalPreset
+                        Refresh()
+                    end,
+                })
+            end)
+            Refresh()
+            return control
+        end,
+    }
     options[#options + 1] = ManualField(parent, {
         type = "slider",
         searchKey = "settings.appearance.tab_spacing",
@@ -590,37 +761,6 @@ local function BuildAppearanceOptions(parent, options)
             YChat:SetAppearanceValue("tabLeftInset", value)
         end,
     })
-    options[#options + 1] = ManualField(parent, {
-        type = "checkbox",
-        labelPosition = "left",
-        searchKey = "settings.appearance.class_color_tabs",
-        label = T("settings.appearance.class_color_tabs", "Use class color for tabs"),
-        get = function()
-            return Appearance().classColorTabs == true
-        end,
-        set = function(value)
-            YChat:SetAppearanceValue("classColorTabs", value == true)
-        end,
-        onChange = function()
-            Rerender(parent)
-        end,
-    })
-    if appearance.classColorTabs ~= true then
-        options[#options + 1] = ManualField(parent, {
-            type = "color",
-            field = true,
-            hasAlpha = false,
-            searchKey = "settings.appearance.tab_color",
-            label = T("settings.appearance.tab_color", "Tab color"),
-            default = YChat.Defaults.appearance.tabColor,
-            get = function()
-                return Appearance().tabColor
-            end,
-            set = function(value)
-                YChat:SetAppearanceValue("tabColor", value)
-            end,
-        })
-    end
     AddSection(options, "settings.section.interface_behavior", "Interface behavior")
     options[#options + 1] = ManualField(parent, {
         type = "checkbox",
@@ -811,76 +951,7 @@ local function BuildAppearanceOptions(parent, options)
 end
 
 local function BuildLayoutOptions(parent, options)
-    AddSection(options, "settings.section.message_text", "Message text")
-    options[#options + 1] = ManualField(parent, {
-        type = "font",
-        searchKey = "settings.typography.font",
-        label = T("settings.typography.font", "Font"),
-        width = CONTROL_WIDTH,
-        prependOptions = BuildNativeFontOptions,
-        previewSelectedFont = false,
-        get = function()
-            return Typography().font or "__native"
-        end,
-        set = function(value)
-            if value == "__native" then
-                YChat:ResetTypographyValue("font")
-            else
-                YChat:SetTypographyValue("font", value)
-            end
-        end,
-    })
-    options[#options + 1] = ManualField(parent, {
-        type = "checkbox",
-        labelPosition = "left",
-        searchKey = "settings.typography.custom_size",
-        label = T("settings.typography.custom_size", "Override message size"),
-        get = function()
-            return Typography().fontSize ~= nil
-        end,
-        set = function(value)
-            if value == true then
-                YChat:SetTypographyValue("fontSize", 14)
-            else
-                YChat:ResetTypographyValue("fontSize")
-            end
-        end,
-    })
-    if Typography().fontSize ~= nil then
-        options[#options + 1] = {
-            type = "slider",
-            searchKey = "settings.typography.font_size",
-            label = T("settings.typography.font_size", "Message size"),
-            min = YChat.BODY_FONT_MIN_SIZE,
-            max = YChat.BODY_FONT_MAX_SIZE,
-            step = 1,
-            precision = 0,
-            instantUpdate = false,
-            get = function()
-                return Typography().fontSize
-            end,
-            set = function(value)
-                YChat:SetTypographyValue("fontSize", value)
-            end,
-        }
-    end
-    options[#options + 1] = ManualField(parent, {
-        type = "dropdown",
-        searchKey = "settings.typography.outline",
-        label = T("settings.typography.outline", "Outline"),
-        width = CONTROL_WIDTH,
-        options = BuildOutlineOptions(true),
-        get = function()
-            return Typography().outline or "__native"
-        end,
-        set = function(value)
-            if value == "__native" then
-                YChat:ResetTypographyValue("outline")
-            else
-                YChat:SetTypographyValue("outline", value)
-            end
-        end,
-    })
+    AddSection(options, "settings.section.message_layout", "Message layout")
     options[#options + 1] = ManualField(parent, {
         type = "checkbox",
         labelPosition = "left",
@@ -1613,6 +1684,7 @@ S:RegisterModule("YChat", 2056011, Render, {
 })
 
 if S.Search then
+    S.Search:RegisterCatalog(YChat.SETTINGS_ENTRY, "YChat", "appearance", "settings.typography.text_style")
     S.Search:RegisterRoute(YChat.SETTINGS_ENTRY, function(page)
         if page == "appearance" or page == "layout" or page == "channelInput" or page == "rules" or page == "records" then
             activePage = page

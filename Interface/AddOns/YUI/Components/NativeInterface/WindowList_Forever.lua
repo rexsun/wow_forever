@@ -12,6 +12,7 @@ Native.MovableWindows = {
     { id = "BankFrame", addon = "Blizzard_UIPanels_Game", bank = true },
     { id = "TaxiFrame", addon = "Blizzard_UIPanels_Game", titleLeft = 20 },
     { id = "SettingsPanel", addon = "Blizzard_Settings_Shared", titleLeft = 20 },
+    { id = "CooldownViewerSettings", addon = "Blizzard_CooldownViewer" },
     { id = "AddonList", addon = "Blizzard_AddOnList" },
     { id = "MailFrame", addon = "Blizzard_MailFrame" },
     { id = "TradeFrame", addon = "Blizzard_UIPanels_Game" },

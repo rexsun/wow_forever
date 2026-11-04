@@ -2,6 +2,7 @@ local YUI = _G.YUI
 YUI.GUI2 = YUI.GUI2 or {}
 
 local GUI2 = YUI.GUI2
+local ResourcePoints = GUI2.ResourcePoints
 local Assets = YUI.Assets
 local CreateFrame = CreateFrame
 local GetTime = GetTime
@@ -550,6 +551,82 @@ function GUI2:BindCastTimer(statusBar, duration, isChannel, interpolation)
         interpolation or GetStatusBarImmediateInterpolation(), GetCastTimerDirection(isChannel == true)) == true
 end
 
+local function ResetCastTimeText(frame)
+    GUI2:ClearCastTimeText(frame)
+end
+
+function GUI2:ClearCastTimeText(frame)
+    local binding = frame.gui2CastTimeTextBinding
+    if binding and frame.gui2CastTimeTextReady then
+        binding:Disable()
+        binding:SetToDefaults()
+        frame.gui2CastTimeTextReady = nil
+    end
+end
+
+-- Configure public format components once; the engine owns all duration sampling.
+function GUI2:ConfigureCastTimeText(frame, format)
+    self:ClearCastTimeText(frame)
+    frame.gui2CastTimeTextFormat = format ~= "remaining" and format or nil
+    frame.gui2CastTimeTextOptions = nil
+    if not frame.gui2CastTimeTextFormat then return true end
+    local property = Enum and Enum.DurationTextBindingProperty
+    if not (property and C_DurationUtil and C_DurationUtil.CreateDurationTextBinding
+        and C_StringUtil and C_StringUtil.CreateNumericRuleFormatter) then return false end
+    if not self.castTimeTextFormatter then
+        local formatter = C_StringUtil.CreateNumericRuleFormatter()
+        formatter:SetBreakpoints({ { threshold = 0, min = 0, step = 0.1,
+            rounding = Enum.NumericRuleFormatRounding and Enum.NumericRuleFormatRounding.Down or 2, format = "%.1f" } })
+        self.castTimeTextFormatter = formatter
+    end
+    if not self.castTimeTextFormats then
+        local formatter = self.castTimeTextFormatter
+        local elapsed = { property = property.ElapsedDuration, formatter = formatter }
+        local remaining = { property = property.RemainingDuration, formatter = formatter }
+        local total = { property = property.TotalDuration, formatter = formatter }
+        self.castTimeTextFormats = {
+            elapsed = { text = "{}", components = { elapsed } },
+            remainingTotal = { text = "{} / {}", components = { remaining, total } },
+            elapsedTotal = { text = "{} / {}", components = { elapsed, total } },
+        }
+    end
+    frame.gui2CastTimeTextOptions = self.castTimeTextFormats[format]
+    if not frame.gui2CastTimeTextOptions then return false end
+    if not frame.gui2CastTimeTextBinding then
+        frame.gui2CastTimeTextBinding = C_DurationUtil.CreateDurationTextBinding()
+        if not frame.gui2CastTimeTextBinding then return false end
+    end
+    if not frame.gui2CastTimeTextHideHook and frame.HookScript then
+        frame:HookScript("OnHide", ResetCastTimeText)
+        frame.gui2CastTimeTextHideHook = true
+    end
+    return true
+end
+
+local function ApplyCastTimeText(frame, duration)
+    local binding = frame.gui2CastTimeTextBinding
+    if not frame.gui2CastTimeTextReady then
+        local options = frame.gui2CastTimeTextOptions
+        -- Mark before the first native call so a partial setup is also released.
+        frame.gui2CastTimeTextReady = true
+        binding:SetFontString(frame.resourceValueText)
+        binding:SetTextFormat(options.text, options.components)
+        binding:SetExpiredText("")
+        binding:SetZeroDurationText("")
+        binding:SetUpdateInterval(0.05)
+    end
+    binding:SetDuration(duration)
+    binding:Enable()
+    binding:UpdateFontString()
+end
+
+function GUI2:BindCastTimeText(frame, duration)
+    if not (duration and frame.gui2CastTimeTextBinding and frame.gui2CastTimeTextOptions) then return false end
+    local ok = pcall(ApplyCastTimeText, frame, duration)
+    if not ok then self:ClearCastTimeText(frame) end
+    return ok
+end
+
 -- Allocate at the configuration boundary; updates only reuse bounded textures.
 function GUI2:CreateCastMarkers(parent, capacity, markers)
     markers = markers or {}
@@ -970,6 +1047,7 @@ local function NormalizeCastBarTextOutlineMode(mode)
     if mode == "none" then return "none" end
     if mode == "outline" then return "outline" end
     if mode == "thick" then return "thick" end
+    if mode == "thickShadow" then return "thickShadow" end
     if mode == "shadow" then return "shadow" end
     if mode == "outline_shadow" or mode == "outlineShadow" then
         return "outlineShadow"
@@ -980,7 +1058,7 @@ end
 local function ApplyCastBarTextShadow(fontString, mode)
     if not (fontString and fontString.SetShadowColor) then return end
     mode = NormalizeCastBarTextOutlineMode(mode)
-    if mode == "shadow" or mode == "outlineShadow" then
+    if mode == "shadow" or mode == "outlineShadow" or mode == "thickShadow" then
         fontString:SetShadowColor(0, 0, 0, 0.9)
         fontString:SetShadowOffset(1, -1)
     else
@@ -996,24 +1074,38 @@ local function NormalizeCastBarFontPath(fontPath)
     return nil
 end
 
-local function ApplyCastBarFontSize(fontString, size, outlineMode, fontPath)
+local function ApplyCastBarFontSize(fontString, size, outlineMode, fontPath, monochrome, appearance)
     if not (fontString and fontString.SetFont) then return end
+    if appearance then
+        size,fontPath,monochrome = appearance.size,appearance.font,appearance.monochrome
+        outlineMode = GUI2.FontStyle.EncodeEffect(appearance,"camel")
+    end
     size = tonumber(size) or GUI2:GetMetric("font.size.sm", 11)
     if size < 6 then size = 6 end
     outlineMode = NormalizeCastBarTextOutlineMode(outlineMode)
     local flags = ""
     if outlineMode == "outline" or outlineMode == "outlineShadow" then
         flags = "OUTLINE"
-    elseif outlineMode == "thick" then
+    elseif outlineMode == "thick" or outlineMode == "thickShadow" then
         flags = "THICKOUTLINE"
     end
+    if monochrome then flags=flags~="" and flags..",MONOCHROME" or "MONOCHROME" end
     local defaultFontPath = GUI2:GetFont("font.family.body")
     local resolvedFontPath = NormalizeCastBarFontPath(fontPath) or defaultFontPath
-    local ok, applied = pcall(fontString.SetFont, fontString, resolvedFontPath, size, flags)
-    if (not ok or applied == false) and resolvedFontPath ~= defaultFontPath then
+    local ok
+    if GUI2.FontStyle and GUI2.FontStyle.TryFont then ok=GUI2.FontStyle.TryFont(fontString,resolvedFontPath,size,flags)
+    else
+        local called,applied=pcall(fontString.SetFont,fontString,resolvedFontPath,size,flags)
+        ok=called and applied~=false
+    end
+    if not ok and resolvedFontPath ~= defaultFontPath then
         pcall(fontString.SetFont, fontString, defaultFontPath, size, flags)
     end
     ApplyCastBarTextShadow(fontString, outlineMode)
+    if appearance then
+        fontString.gui2ColorKey = nil
+        fontString:SetTextColor(GUI2.FontStyle.ColorRGBA(appearance.color,"color.text.primary"))
+    end
 end
 
 local function ConfigureCastBarLabel(fontString)
@@ -1048,7 +1140,7 @@ local function ConfigureCastBarCountdownText(frame)
             region:SetJustifyH("RIGHT")
             region:SetJustifyV("MIDDLE")
             ConfigureCastBarLabel(region)
-            ApplyCastBarFontSize(region, frame.gui2TimeFontSize, frame.gui2TextOutlineMode, frame.gui2TextFontPath)
+            ApplyCastBarFontSize(region, frame.gui2TimeFontSize, frame.gui2TextOutlineMode, frame.gui2TextFontPath, frame.gui2TextMonochrome, frame.gui2RoleTextStyles and frame.gui2RoleTextStyles.time)
         end
     end
 end
@@ -1354,32 +1446,43 @@ function App:CreateCastBar(parent, opts)
             self.timeText:Show()
         end
     end
+    frame.SetRoleTextStyle = function(self, role, appearance)
+        self.gui2RoleTextStyles = self.gui2RoleTextStyles or {}
+        self.gui2RoleTextStyles[role] = appearance
+        if role=="time" then self:SetTimeTextSize(appearance.size)
+        elseif role=="spell" then self:SetSpellNameTextSize(appearance.size)
+        elseif role=="target" then self:SetTargetNameTextSize(appearance.size) end
+    end
     frame.SetTimeTextSize = function(self, size)
         self.gui2TimeFontSize = tonumber(size)
-        ApplyCastBarFontSize(self.timeText, self.gui2TimeFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath)
+        ApplyCastBarFontSize(self.timeText, self.gui2TimeFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath, self.gui2TextMonochrome, self.gui2RoleTextStyles and self.gui2RoleTextStyles.time)
         ConfigureCastBarCountdownText(self)
     end
     frame.SetSpellNameTextSize = function(self, size)
         self.gui2SpellNameFontSize = tonumber(size)
-        ApplyCastBarFontSize(self.spellNameText, self.gui2SpellNameFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath)
+        ApplyCastBarFontSize(self.spellNameText, self.gui2SpellNameFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath, self.gui2TextMonochrome, self.gui2RoleTextStyles and self.gui2RoleTextStyles.spell)
     end
     frame.SetTargetNameTextSize = function(self, size)
         self.gui2TargetNameFontSize = tonumber(size)
-        ApplyCastBarFontSize(self.targetNameText, self.gui2TargetNameFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath)
+        ApplyCastBarFontSize(self.targetNameText, self.gui2TargetNameFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath, self.gui2TextMonochrome, self.gui2RoleTextStyles and self.gui2RoleTextStyles.target)
     end
     frame.SetTextFontPath = function(self, fontPath)
         self.gui2TextFontPath = NormalizeCastBarFontPath(fontPath)
-        ApplyCastBarFontSize(self.timeText, self.gui2TimeFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath)
-        ApplyCastBarFontSize(self.spellNameText, self.gui2SpellNameFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath)
-        ApplyCastBarFontSize(self.targetNameText, self.gui2TargetNameFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath)
+        ApplyCastBarFontSize(self.timeText, self.gui2TimeFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath, self.gui2TextMonochrome, self.gui2RoleTextStyles and self.gui2RoleTextStyles.time)
+        ApplyCastBarFontSize(self.spellNameText, self.gui2SpellNameFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath, self.gui2TextMonochrome, self.gui2RoleTextStyles and self.gui2RoleTextStyles.spell)
+        ApplyCastBarFontSize(self.targetNameText, self.gui2TargetNameFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath, self.gui2TextMonochrome, self.gui2RoleTextStyles and self.gui2RoleTextStyles.target)
         ConfigureCastBarCountdownText(self)
     end
     frame.SetTextOutlineMode = function(self, mode)
         self.gui2TextOutlineMode = NormalizeCastBarTextOutlineMode(mode)
-        ApplyCastBarFontSize(self.timeText, self.gui2TimeFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath)
-        ApplyCastBarFontSize(self.spellNameText, self.gui2SpellNameFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath)
-        ApplyCastBarFontSize(self.targetNameText, self.gui2TargetNameFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath)
+        ApplyCastBarFontSize(self.timeText, self.gui2TimeFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath, self.gui2TextMonochrome, self.gui2RoleTextStyles and self.gui2RoleTextStyles.time)
+        ApplyCastBarFontSize(self.spellNameText, self.gui2SpellNameFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath, self.gui2TextMonochrome, self.gui2RoleTextStyles and self.gui2RoleTextStyles.spell)
+        ApplyCastBarFontSize(self.targetNameText, self.gui2TargetNameFontSize, self.gui2TextOutlineMode, self.gui2TextFontPath, self.gui2TextMonochrome, self.gui2RoleTextStyles and self.gui2RoleTextStyles.target)
         ConfigureCastBarCountdownText(self)
+    end
+    frame.SetTextMonochrome = function(self, enabled)
+        self.gui2TextMonochrome = enabled == true
+        self:SetTextOutlineMode(self.gui2TextOutlineMode)
     end
     frame.SetSpellNameText = function(self, text)
         if self.spellNameText then
@@ -2546,6 +2649,7 @@ do
         return { valueText = source.valueText, valueFormat = source.valueFormat,
             position = source.textPosition, offsetX = source.textOffsetX, offsetY = source.textOffsetY,
             font = appearance.font, size = appearance.size, outline = appearance.outline,
+            monochrome = appearance.monochrome,
             color = appearance.color, abbreviateValues = appearance.abbreviateValues,
             previewDuration = appearance.previewDuration, fractionalValues = appearance.fractionalValues }
     end
@@ -2803,6 +2907,7 @@ do
                 local duration = appearance.valueFormat == "duration"
                 if countdown then
                     local bound = enabled and duration and not publicPreview and not filtered
+                        and not (index == 1 and frame.gui2CastTimeTextFormat)
                         and not frame.gui2ResourceFilteredTimeText and durationObject
                         and countdown.SetCooldownFromDurationObject
                         and pcall(countdown.SetCooldownFromDurationObject, countdown, durationObject, true)
@@ -2876,7 +2981,7 @@ do
         return style
     end
 
-    local function EnsureResourceStatusBarFillStyle(frame, statusBar, force)
+    local function EnsureResourceStatusBarFillStyle(frame, statusBar, force, style)
         if not (frame and statusBar and GUI2.ApplyNativeStatusBarStyle) then
             return false
         end
@@ -2884,18 +2989,43 @@ do
             and statusBar.gui2ProjectedOwner.RefreshProjectedDriverStyle then
             statusBar.gui2ProjectedOwner:RefreshProjectedDriverStyle()
         end
+        local directLayer = statusBar.gui2ProjectedOwner == nil
         statusBar = GetVisibleNativeStatusBar(statusBar)
-        return GUI2:ApplyNativeStatusBarStyle(
+        local writes = GUI2:ApplyNativeStatusBarStyle(
             statusBar,
-            GetResourceNativeStatusBarStyle(frame),
+            statusBar.gui2ResourcePointStyle or style or GetResourceNativeStatusBarStyle(frame),
             frame.gui2ResourceOrientation,
             frame.gui2ResourceFillDirection,
             force == true
-        ) > 0
+        )
+        if statusBar.gui2ResourceNativePoint and statusBar.SetRotatesTexture
+            and (force == true or writes > 0 or not statusBar.gui2ResourcePointUpright) then
+            statusBar:SetRotatesTexture(false)
+            statusBar.gui2ResourcePointUpright = true
+            writes = writes + 1
+        elseif not statusBar.gui2ResourceNativePoint then
+            statusBar.gui2ResourcePointUpright = nil
+        end
+        -- Cell fills and their recovery/gate layers have no separate geometry
+        -- driver. Pin the vertical native origin independently of material UVs,
+        -- just like the numeric/timer driver used by the continuous resource.
+        if directLayer and frame.gui2ResourceOrientation == "vertical" and statusBar.SetReverseFill then
+            local reverse = frame.gui2ResourceFillDirection == "reverse"
+            if force == true or writes > 0 or statusBar.gui2ResourceVerticalReverse ~= reverse then
+                statusBar:SetReverseFill(reverse)
+                statusBar.gui2ResourceVerticalReverse = reverse
+                if GUI2.RestoreNativeStatusBarColor then GUI2:RestoreNativeStatusBarColor(statusBar) end
+                writes = writes + 1
+            end
+        else
+            statusBar.gui2ResourceVerticalReverse = nil
+        end
+        return writes > 0
     end
 
     local function SetResourceStatusBarColor(statusBar, r, g, b, a)
         statusBar = GetVisibleNativeStatusBar(statusBar)
+        if statusBar.gui2ResourceNativePoint then r, g, b = 1, 1, 1 end
         if GUI2.ApplyNativeStatusBarColor then
             return GUI2:ApplyNativeStatusBarColor(
                 statusBar,
@@ -2916,6 +3046,7 @@ do
         a
     )
         statusBar = GetVisibleNativeStatusBar(statusBar)
+        if statusBar.gui2ResourceNativePoint then r, g, b = 1, 1, 1 end
         if GUI2.ApplyNativeStatusBarTransientColor then
             return GUI2:ApplyNativeStatusBarTransientColor(
                 statusBar,
@@ -3489,6 +3620,7 @@ do
                 font = appearance.font,
                 size = appearance.runeCooldownTextSize or appearance.size or 12,
                 outline = appearance.outline,
+                monochrome = appearance.monochrome,
                 color = appearance.color,
             })
         end
@@ -3497,6 +3629,13 @@ do
 
     local function ApplyResourceTextCarrierLayer(carrier, level, strata)
         if not carrier then return end
+        -- Native Aura descendants can become inaccessible after initialization.
+        -- Keep their native hierarchy intact without aborting resource refreshes.
+        local canAccess = carrier.CanBeAccessedInContext
+        if type(canAccess) == "function" then
+            local ok, allowed = pcall(canAccess, carrier)
+            if not ok or IsSecretValue(allowed) or allowed ~= true then return end
+        end
         if carrier.SetFrameLevel then carrier:SetFrameLevel(level) end
         if strata and carrier.SetFrameStrata then carrier:SetFrameStrata(strata) end
     end
@@ -3528,6 +3667,7 @@ do
 
     -- 资源条创建函数只捕获一个文字助手表，留出客户端 upvalue 预算。
     local ResourceTextHelpers = {
+        Points = ResourcePoints,
         SetLayer = SetResourceTextLayer,
         ApplyCarrierLayer = ApplyResourceTextCarrierLayer,
         ClearValue = ClearResourceValueText,
@@ -3610,7 +3750,10 @@ do
             if ok then
                 mask = created
                 mask:SetAllPoints(host)
-                mask:SetTexture(RESOURCE_CIRCLE_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+                mask:SetTexture(RESOURCE_CIRCLE_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE", "LINEAR")
+                if GUI2.ApplyTexturePixelPolicy then
+                    GUI2:ApplyTexturePixelPolicy(mask)
+                end
             end
         end
         host:Hide()
@@ -3659,7 +3802,7 @@ do
 
     local function ApplyResourceCellMask(cell, enabled)
         DetachResourceCellMask(cell)
-        if not enabled or not cell.mask then return end
+        if not enabled or not cell.mask or cell.gui2ResourcePointNative then return end
         local statusBars = {
             cell.rechargeBar,
             cell.statusBar,
@@ -3694,6 +3837,10 @@ do
         )
         if dots then
             for index = 1, 4 do cell.edges[index]:Hide() end
+            if ResourcePoints then
+                ResourcePoints:LayoutBorder(cell, thickness, r, g, b, a)
+                return
+            end
             local materialThickness = math_max(
                 1,
                 math_min(4, math_floor(thickness + 0.5))
@@ -4104,13 +4251,15 @@ do
         local atStart = offset - (size * 0.5) <= 0
         local atEnd = axisSize > 0 and offset + (size * 0.5) >= axisSize
         if not atStart and not atEnd then
-            -- Snap the leading edge, not the center. Quantize half-pixel ties
-            -- like the group origin so float noise cannot move a static line.
+            -- Snap the leading edge, not the center. Mirror half-pixel ties
+            -- with the fill direction so odd-width lines cover the empty-side
+            -- clip fringe instead of exposing a filled pixel past the divider.
             local edgePixels = (boundaryPixels or (offset / pixelSize))
                 - thicknessPixels * 0.5
             edgePixels = math_floor(edgePixels * 1024 + 0.5) / 1024
-            offset = (math_floor(edgePixels + 0.5) + thicknessPixels * 0.5)
-                * pixelSize
+            local snappedEdge = frame.gui2ResourceFillDirection == "reverse"
+                and math_ceil(edgePixels - 0.5) or math_floor(edgePixels + 0.5)
+            offset = (snappedEdge + thicknessPixels * 0.5) * pixelSize
         end
         line:ClearAllPoints()
         if vertical then
@@ -4165,6 +4314,8 @@ do
     local function LayoutResourceDecorations(frame)
         HideResourceLines(frame)
         local config = frame.gui2ResourceDisplayConfig or {}
+        local cellsMode = config.mode == "cells" or config.mode == "dots"
+        frame.resourceDecorationOverlay:SetShown(not cellsMode)
         local count = math_max(1, tonumber(config.segmentCount) or 1)
         local writeIndex = 0
         if config.mode == "divided" and count > 1 then
@@ -4236,16 +4387,7 @@ do
     local RESOURCE_RECHARGE_ALPHA = 0.5
 
     local function ConfigureResourceSolidOverlay(frame, statusBar, force)
-        if not (statusBar and GUI2.ApplyNativeStatusBarStyle) then
-            return false
-        end
-        return GUI2:ApplyNativeStatusBarStyle(
-            statusBar,
-            RESOURCE_SOLID_OVERLAY_STYLE,
-            frame.gui2ResourceOrientation,
-            frame.gui2ResourceFillDirection,
-            force == true
-        ) > 0
+        return EnsureResourceStatusBarFillStyle(frame, statusBar, force, RESOURCE_SOLID_OVERLAY_STYLE)
     end
 
     local function ConfigureResourceCellLayers(frame, cell, vertical)
@@ -4451,6 +4593,11 @@ do
     end
 
     local function LayoutResourceCells(frame)
+        if frame.gui2ResourceLayoutBatchDepth then
+            frame.gui2ResourceLayoutPending = true
+            return
+        end
+        frame.gui2ResourceLayoutPending = nil
         local config = frame.gui2ResourceDisplayConfig or {}
         local mode = config.mode
         local cellsMode = mode == "cells" or mode == "dots"
@@ -4470,8 +4617,10 @@ do
             1,
             math_min(MAX_RESOURCE_CELLS, tonumber(config.segmentCount) or 1)
         )
-        local trackWidth = frame.track.GetWidth and frame.track:GetWidth()
-        local trackHeight = frame.track.GetHeight and frame.track:GetHeight()
+        -- Owned layout dimensions are already resolved by SetBarSize. Native
+        -- anchor geometry can still describe the previous pooled/preview size.
+        local trackWidth = frame.barWidth or frame.gui2ResourceWidth
+        local trackHeight = frame.barHeight or frame.gui2ResourceHeight
         if type(trackWidth) ~= "number" or trackWidth <= 0 then
             trackWidth = frame.gui2ResourceWidth
         end
@@ -4541,6 +4690,8 @@ do
             or availableMainPixels
         local dots = mode == "dots"
         local dotPixels = dots and math_min(baseCellPixels, crossPixels) or 0
+        local dotStartPixels = dots and math_floor((totalMainPixels
+            - dotPixels * count - actualSpacingPixels * math_max(0, count - 1)) * 0.5) or 0
         for index = 1, #(frame.resourceCells or {}) do
             local cell = frame.resourceCells[index]
             if index <= count then
@@ -4550,13 +4701,8 @@ do
                 local mainOffsetPixels
                 if dots then
                     mainSizePixels = dotPixels
-                    mainOffsetPixels = count > 1
-                        and math_floor(
-                            (((positionIndex - 1)
-                                * (totalMainPixels - dotPixels))
-                                / (count - 1)) + 0.5
-                        )
-                        or math_floor((totalMainPixels - dotPixels) * 0.5)
+                    mainOffsetPixels = dotStartPixels
+                        + (positionIndex - 1) * (dotPixels + actualSpacingPixels)
                 else
                     local startPixels = math_floor(
                         ((availableMainPixels * (positionIndex - 1)) / count)
@@ -4575,6 +4721,8 @@ do
                 )
                 local mainSize = mainSizePixels * pixelSize
                 local crossSize = crossSizePixels * pixelSize
+                cell.gui2ResourceShadowWidth = vertical and crossSize or mainSize
+                cell.gui2ResourceShadowHeight = vertical and mainSize or crossSize
                 local mainOffset = mainOffsetPixels * pixelSize
                 local crossOffset = crossOffsetPixels * pixelSize
                 cell.gui2ResourceMainOffsetPixels = mainOffsetPixels
@@ -4629,10 +4777,12 @@ do
                     { 0, 0, 0, 0.92 }
                 )
                 cell.background:SetVertexColor(br, bg, bb, ba)
+                if ResourcePoints then ResourcePoints:ConfigureCell(frame, cell, index) end
                 ConfigureResourceCellLayers(frame, cell, vertical)
                 if config.independentCells ~= true then
                     LayoutResourceRechargeGate(frame, cell, index, vertical)
                 end
+                if ResourcePoints then ResourcePoints:LayoutCellArt(cell) end
                 ApplyResourceCellMask(cell, dots)
                 LayoutResourceCellBorder(frame, cell, dots)
                 cell.statusBar:Show()
@@ -4675,6 +4825,7 @@ do
         if FilteredAuraApplicationOwnsFill(frame, config) then
             HideNativeApplicationFills(frame, cellsMode)
         end
+        if GUI2.RefreshBarShadow then GUI2:RefreshBarShadow(frame) end
     end
 
     local function HideResourceRecharge(frame)
@@ -4789,8 +4940,10 @@ do
                 if durationObject then
                     cell.rechargeClip:ClearAllPoints()
                     cell.rechargeClip:SetAllPoints(cell.host)
-                    cell.rechargeBar:ClearAllPoints()
-                    cell.rechargeBar:SetAllPoints(cell.host)
+                    if not cell.gui2ResourcePointNative then
+                        cell.rechargeBar:ClearAllPoints()
+                        cell.rechargeBar:SetAllPoints(cell.host)
+                    end
                     rechargeBound = SetResourceRechargeTimer(
                         frame,
                         cell.rechargeBar,
@@ -5201,6 +5354,31 @@ do
         end
         local EnsureFilteredAuraApplicationDisplay
 
+        -- Synchronous cold configuration only. Native Aura registration calls
+        -- Flush before it consumes cell geometry; no update is delayed a frame.
+        frame.BeginResourceLayoutUpdate = function(self)
+            self.gui2ResourceLayoutBatchDepth = (self.gui2ResourceLayoutBatchDepth or 0) + 1
+        end
+        frame.FlushResourceLayoutUpdate = function(self)
+            if not self.gui2ResourceLayoutPending then return false end
+            local depth = self.gui2ResourceLayoutBatchDepth
+            self.gui2ResourceLayoutBatchDepth = nil
+            local ok, message = pcall(LayoutResourceCells, self)
+            self.gui2ResourceLayoutBatchDepth = depth
+            if not ok then error(message, 0) end
+            return true
+        end
+        frame.EndResourceLayoutUpdate = function(self)
+            local depth = self.gui2ResourceLayoutBatchDepth
+            if not depth then return false end
+            if depth > 1 then
+                self.gui2ResourceLayoutBatchDepth = depth - 1
+                return false
+            end
+            self.gui2ResourceLayoutBatchDepth = nil
+            return self:FlushResourceLayoutUpdate()
+        end
+
         frame.SetResourceBarSize = function(
             self,
             nextWidth,
@@ -5225,6 +5403,9 @@ do
             self.gui2ResourceHeight = resolvedHeight
             self.gui2ResourceOrientation = resolvedOrientation
             self.orientation = self.gui2ResourceOrientation
+            local reverse = self.gui2ResourceFillDirection == "reverse"
+            self.fillDirection = resolvedOrientation == "vertical"
+                and (reverse and "down" or "up") or (reverse and "right" or "left")
             EnsureResourceStatusBarFillStyle(
                 self,
                 self.resourceStatusBar,
@@ -5245,6 +5426,7 @@ do
                 and self.gui2FilteredAuraApplicationDisplay
                 and EnsureFilteredAuraApplicationDisplay
                 and self.gui2ResourceDisplayConfig then
+                self:FlushResourceLayoutUpdate()
                 EnsureFilteredAuraApplicationDisplay(
                     self,
                     self.gui2ResourceDisplayConfig
@@ -5267,11 +5449,13 @@ do
                 self.resourceStatusBar,
                 false
             )
+            EnsureResourceStatusBarFillStyle(self, self.resourcePartialBar, false)
             LayoutResourceCells(self)
             if directionChanged
                 and self.gui2FilteredAuraApplicationDisplay
                 and EnsureFilteredAuraApplicationDisplay
                 and self.gui2ResourceDisplayConfig then
+                self:FlushResourceLayoutUpdate()
                 EnsureFilteredAuraApplicationDisplay(
                     self,
                     self.gui2ResourceDisplayConfig
@@ -5337,6 +5521,7 @@ do
             text:SetTextColor(r, g, b, a)
             local shadow = appearance.outline == "shadow"
                 or appearance.outline == "outlineShadow"
+                or appearance.outline == "thickShadow"
             if text.SetShadowColor then
                 text:SetShadowColor(0, 0, 0, shadow and 1 or 0)
             end
@@ -5396,27 +5581,47 @@ do
             )
         end
 
+        local function FilteredAuraSpellIDs(value)
+            if type(value) == "number" then value = { value } end
+            if type(value) ~= "table" then return nil end
+            local seen = {}
+            local result = {}
+            for _, candidate in pairs(value) do
+                local spellID = tonumber(candidate)
+                if spellID and spellID > 0 and not seen[spellID] then
+                    seen[spellID] = true
+                    result[#result + 1] = spellID
+                end
+            end
+            table.sort(result)
+            return #result > 0 and result or nil
+        end
+
+        local function ReleaseFilteredAuraDurationDisplay(self)
+            local handle = self.gui2FilteredAuraDurationDisplay
+            self.gui2FilteredAuraDurationDisplay = nil
+            self.gui2FilteredAuraDurationSpellID = nil
+            self.gui2FilteredAuraDurationSignature = nil
+            -- The public proxy owns the restricted projection's lifetime.
+            -- Never touch its native clip after the Aura initializer returns.
+            self.gui2InverseAuraProjection = nil
+            local unitAPI = YUI.API and YUI.API.Unit
+            if handle and unitAPI and unitAPI.ReleaseFilteredAuraDisplay then
+                unitAPI.ReleaseFilteredAuraDisplay(handle)
+            elseif handle and handle.proxy then
+                handle.proxy:Hide()
+            end
+        end
+
         local function EnsureFilteredAuraDurationDisplay(self, config)
-            local spellID = tonumber(config.auraDurationSpellID)
+            local spellIDs = FilteredAuraSpellIDs(config.auraDurationSpellIDs or config.auraDurationSpellID)
+            local spellID = spellIDs and spellIDs[1]
             local filter = config.auraDurationFilter or "HELPFUL"
             local direction = config.auraDurationDirection == "elapsed"
                 and "elapsed" or "remaining"
             local existing = self.gui2FilteredAuraDurationDisplay
             if not spellID then
-                if self.gui2InverseAuraProjection then
-                    self.gui2InverseAuraProjection.nativeFillClip:Hide()
-                    self.gui2InverseAuraProjection = nil
-                end
-                local unitAPI = YUI.API and YUI.API.Unit
-                if existing and unitAPI
-                    and unitAPI.ReleaseFilteredAuraDisplay then
-                    unitAPI.ReleaseFilteredAuraDisplay(existing)
-                elseif existing and existing.proxy then
-                    existing.proxy:Hide()
-                end
-                self.gui2FilteredAuraDurationDisplay = nil
-                self.gui2FilteredAuraDurationSpellID = nil
-                self.gui2FilteredAuraDurationSignature = nil
+                ReleaseFilteredAuraDurationDisplay(self)
                 return false
             end
             local textAppearance = type(config.auraDurationTextAppearance) == "table"
@@ -5462,7 +5667,9 @@ do
                     or (textPoint == "RIGHT" and -5 or 0))
             end
             local signature = table.concat({
-                tostring(spellID),
+                table.concat(spellIDs, ","),
+                tostring(config.auraDurationUnit or "player"),
+                tostring(config.auraDurationRequirePlayerSource == true),
                 tostring(filter),
                 direction,
                 tostring(config.inverseFill == true),
@@ -5496,21 +5703,14 @@ do
                 ShowFilteredAuraHandle(self, existing)
             else
                 local unitAPI = YUI.API and YUI.API.Unit
-                if self.gui2InverseAuraProjection then
-                    self.gui2InverseAuraProjection.nativeFillClip:Hide()
-                    self.gui2InverseAuraProjection = nil
-                end
-                if existing and unitAPI
-                    and unitAPI.ReleaseFilteredAuraDisplay then
-                    unitAPI.ReleaseFilteredAuraDisplay(existing)
-                elseif existing and existing.proxy then
-                    existing.proxy:Hide()
-                end
+                ReleaseFilteredAuraDurationDisplay(self)
                 local handle = unitAPI
                     and unitAPI.CreateFilteredAuraDisplay
                     and unitAPI.CreateFilteredAuraDisplay(self.track, {
                         unit = config.auraDurationUnit or "player",
                         spellID = spellID,
+                        spellIDs = spellIDs,
+                        requirePlayerSource = config.auraDurationRequirePlayerSource == true,
                         filter = filter,
                         key = "yhud-resource-duration",
                         initializeFrame = function(auraFrame, _, displayHandle)
@@ -5544,6 +5744,7 @@ do
                             if config.inverseFill == true then
                                 local projection = {}
                                 GUI2:EnsureProjectedStatusBarFill(projection, self.track, statusBar, {
+                                    parent = displayHandle.proxy,
                                     inverseFill = true,
                                     orientation = self.gui2ResourceOrientation,
                                     fillDirection = vertical
@@ -5596,7 +5797,7 @@ do
                         end,
                     })
                 if not handle then
-                    if self.gui2InverseAuraProjection then self.gui2InverseAuraProjection.nativeFillClip:Hide() end
+                    self.gui2InverseAuraProjection = nil
                     return false
                 end
                 self.gui2FilteredAuraDurationDisplay = handle
@@ -5606,32 +5807,11 @@ do
                 ApplyFilteredAuraIdentitySuppression(self, existing)
             end
             if self.SetNativeFillShown then self:SetNativeFillShown(false) end
-            if self.gui2InverseAuraProjection then
-                self.gui2InverseAuraProjection.nativeFillClip:SetShown(
-                    self.gui2FilteredAuraIdentitySuppressed ~= true
-                )
-            end
             if self.resourceValueText then self.resourceValueText:Hide() end
             if self.resourceDurationCountdown then
                 self.resourceDurationCountdown:Hide()
             end
             return true
-        end
-
-        local function FilteredAuraSpellIDs(value)
-            if type(value) == "number" then value = { value } end
-            if type(value) ~= "table" then return nil end
-            local seen = {}
-            local result = {}
-            for _, candidate in pairs(value) do
-                local spellID = tonumber(candidate)
-                if spellID and spellID > 0 and not seen[spellID] then
-                    seen[spellID] = true
-                    result[#result + 1] = spellID
-                end
-            end
-            table.sort(result)
-            return #result > 0 and result or nil
         end
 
         local function FilteredAuraApplicationVariants(config, fallbackMax)
@@ -5703,10 +5883,13 @@ do
                 and statusBar.GetStatusBarTexture) then
                 return
             end
+            local points = ResourceTextHelpers.Points
+            local display = frame.gui2ResourceDisplayConfig or {}
+            if points and points:GetNativeStyle(display.nativePointStyle) then return end
             local mask = auraFrame:CreateMaskTexture(nil, "ARTWORK")
             mask:SetAllPoints(auraFrame)
             mask:SetTexture(
-                RESOURCE_CIRCLE_MASK,
+                points and points:GetShape(display.nativePointStyle and "circle" or display.pointShape).mask or RESOURCE_CIRCLE_MASK,
                 "CLAMPTOBLACKADDITIVE",
                 "CLAMPTOBLACKADDITIVE"
             )
@@ -5779,6 +5962,9 @@ do
                 )
             elseif statusBar.SetReverseFill then
                 statusBar:SetReverseFill(reverseFill)
+            end
+            if self.gui2ResourceOrientation == "vertical" and statusBar.SetReverseFill then
+                statusBar:SetReverseFill(self.gui2ResourceFillDirection == "reverse")
             end
             local r, g, b, a = ResourceColorComponents(
                 color,
@@ -6010,6 +6196,9 @@ do
                 solid ~= false
             )
             ApplyFilteredAuraApplicationMask(clipFrame, statusBar, dots)
+            if ResourceTextHelpers.Points then
+                ResourceTextHelpers.Points:CreateFilteredMaterial(self, statusBar, clipFrame, cell)
+            end
             statusBar:Show()
             return statusBar
         end
@@ -6199,6 +6388,8 @@ do
                     { 0, 0, 0, 1 }
                 ),
                 tostring(config.segmentCount),
+                tostring(config.pointShape),
+                tostring(config.nativePointStyle),
                 tostring(config.dividerThickness),
                 FilteredAuraColorSignature(
                     config.dividerColor,
@@ -6654,36 +6845,41 @@ do
             for index = 1, self.gui2ResourceActiveCellCount or 0 do
                 local cell = self.resourceCells and self.resourceCells[index]
                 if cell then
-                    changed = EnsureResourceStatusBarFillStyle(
+                    local cellChanged = EnsureResourceStatusBarFillStyle(
                         self,
                         cell.statusBar,
                         force
-                    ) or changed
-                    changed = EnsureResourceStatusBarFillStyle(
+                    )
+                    cellChanged = EnsureResourceStatusBarFillStyle(
                         self,
                         cell.rechargeBar,
                         force
-                    ) or changed
-                    changed = EnsureResourceStatusBarFillStyle(
+                    ) or cellChanged
+                    cellChanged = EnsureResourceStatusBarFillStyle(
                         self,
                         cell.rechargeGate,
                         force
-                    ) or changed
-                    changed = EnsureResourceStatusBarFillStyle(
+                    ) or cellChanged
+                    cellChanged = EnsureResourceStatusBarFillStyle(
                         self,
                         cell.thresholdLow,
                         force
-                    ) or changed
-                    changed = EnsureResourceStatusBarFillStyle(
+                    ) or cellChanged
+                    cellChanged = EnsureResourceStatusBarFillStyle(
                         self,
                         cell.thresholdReset,
                         force
-                    ) or changed
-                    changed = EnsureResourceStatusBarFillStyle(
+                    ) or cellChanged
+                    cellChanged = EnsureResourceStatusBarFillStyle(
                         self,
                         cell.thresholdHigh,
                         force
-                    ) or changed
+                    ) or cellChanged
+                    if cellChanged then
+                        local config = self.gui2ResourceDisplayConfig
+                        ApplyResourceCellMask(cell, config and config.mode == "dots")
+                        changed = true
+                    end
                 end
             end
             return changed
@@ -6779,6 +6975,10 @@ do
             local slots = {}
             local signature = { tostring(self.gui2ResourceOrientation), tostring(appearance.font),
                 tostring(appearance.size), tostring(appearance.outline),
+                tostring(appearance.monochrome == true),
+                tostring(config.auraApplicationUnit or config.auraDurationUnit or "player"),
+                tostring(config.auraApplicationFilter or config.auraDurationFilter or "HELPFUL"),
+                tostring(config.auraApplicationRequirePlayerSource == true or config.auraDurationRequirePlayerSource == true),
                 FilteredAuraColorSignature(appearance.color, { 1, 1, 1, 1 }) }
             for index = 1, 2 do
                 local text = index == 1 and appearance or second
@@ -6801,7 +7001,7 @@ do
                                 return { applicationCount = ConfigureFilteredAuraApplicationText(self, auraFrame, text, maximum) }
                             end }
                     end
-                    if useDuration then Append({ spell }, 0)
+                    if useDuration then Append(config.auraTextSpellID and { spell } or config.auraDurationSpellIDs or { spell }, 0)
                     else
                         for _, variant in ipairs(variants) do Append(variant.spellIDs, variant.maxApplications) end
                     end
@@ -6820,7 +7020,7 @@ do
             local handle = unitAPI.CreateFilteredAuraDisplay(self.track, {
                 unit = config.auraApplicationUnit or config.auraDurationUnit or "player",
                 filter = config.auraApplicationFilter or config.auraDurationFilter or "HELPFUL",
-                requirePlayerSource = config.auraApplicationRequirePlayerSource == true,
+                requirePlayerSource = config.auraApplicationRequirePlayerSource == true or config.auraDurationRequirePlayerSource == true,
                 slots = slots,
             })
             if handle then
@@ -6838,6 +7038,7 @@ do
             local valueKind = config.valueKind == "discrete"
                 and "discrete" or "continuous"
             local mode = config.mode
+            if mode == "nativePoints" then mode = "dots" end
             if mode ~= "divided" and mode ~= "cells" and mode ~= "dots" then
                 mode = "bar"
             end
@@ -6867,13 +7068,15 @@ do
             GUI2:SetProjectedStatusBarInverse(self, inverseFill)
             self.gui2ResourceDisplayConfig = {
                 mode = mode,
+                pointShape = config.pointShape,
+                nativePointStyle = mode == "dots" and config.nativePointStyle or nil,
                 inverseFill = inverseFill,
                 smoothProgress = self.gui2ResourceSmoothProgress,
                 valueKind = valueKind,
                 segmentCount = segmentCount,
                 segmentSpacing = math_max(
-                    -5,
-                    math_min(32, tonumber(config.segmentSpacing) or 2)
+                    mode == "dots" and 0 or -5,
+                    math_min(mode == "dots" and 100 or 32, tonumber(config.segmentSpacing) or 2)
                 ),
                 dividerThickness = math_max(
                     1,
@@ -6907,6 +7110,8 @@ do
                 partialProgressReader = config.partialProgressReader,
                 chargedPointColor = config.chargedPointColor,
                 auraDurationSpellID = config.auraDurationSpellID,
+                auraDurationSpellIDs = config.auraDurationSpellIDs,
+                auraDurationRequirePlayerSource = config.auraDurationRequirePlayerSource,
                 auraTextSpellID = config.auraTextSpellID,
                 auraDurationUnit = config.auraDurationUnit,
                 auraDurationFilter = config.auraDurationFilter,
@@ -6925,6 +7130,7 @@ do
                     config.auraApplicationTextAppearance,
             }
             LayoutResourceCells(self)
+            self:FlushResourceLayoutUpdate()
             EnsureFilteredAuraDurationDisplay(
                 self,
                 self.gui2ResourceDisplayConfig
@@ -6939,6 +7145,7 @@ do
                 if previousConfig and self.gui2FilteredAuraApplicationDisplay then
                     self.gui2ResourceDisplayConfig = previousConfig
                     LayoutResourceCells(self)
+                    self:FlushResourceLayoutUpdate()
                 end
             else
                 self.gui2ResourceStructuralMaxPending = nil
@@ -6952,14 +7159,10 @@ do
             StartResourcePartialRecharge(self)
         end
         frame.ReleaseFilteredAuraDisplays = function(self)
-            if self.gui2InverseAuraProjection then
-                self.gui2InverseAuraProjection.nativeFillClip:Hide()
-                self.gui2InverseAuraProjection = nil
-            end
+            ReleaseFilteredAuraDurationDisplay(self)
             GUI2:SetProjectedStatusBarInverse(self, false)
             local unitAPI = YUI.API and YUI.API.Unit
             for _, field in ipairs({
-                "gui2FilteredAuraDurationDisplay",
                 "gui2FilteredAuraApplicationDisplay",
                 "gui2ResourceExtraTextDisplay",
             }) do
@@ -6975,8 +7178,6 @@ do
             self.gui2ResourceStructuralMaxPending = nil
             self.gui2ResourceExtraTextSignature = nil
             self.gui2ResourceFilteredTimeText = nil
-            self.gui2FilteredAuraDurationSpellID = nil
-            self.gui2FilteredAuraDurationSignature = nil
             self.gui2FilteredAuraApplicationSignature = nil
             self.gui2FilteredAuraApplicationPublicPreview = nil
             self.gui2FilteredAuraIdentitySuppressed = nil
@@ -7012,10 +7213,6 @@ do
             if eligible == 0 then
                 return false, 0, 0
             end
-            if self.gui2InverseAuraProjection then
-                self.gui2InverseAuraProjection.nativeFillClip:SetShown(not suppressed)
-            end
-
             local handleChanged, handleRestored
             if IsPlayerHelpfulFilteredAuraHandle(durationHandle) then
                 handleChanged, handleRestored = setter(
@@ -7071,12 +7268,14 @@ do
                 config.auraApplicationVariants[1].maxApplications = structuralMax
             end
             LayoutResourceCells(self)
+            self:FlushResourceLayoutUpdate()
             local registered = EnsureFilteredAuraApplicationDisplay(self, config)
             if config.auraApplicationSpellIDs and not registered then
                 config.segmentCount = previousCount
                 config.auraApplicationMax = previousMax
                 if variant then variant.maxApplications = previousVariantMax end
                 LayoutResourceCells(self)
+                self:FlushResourceLayoutUpdate()
                 self.gui2ResourceStructuralMaxPending = structuralMax
                 return false
             end
@@ -7097,6 +7296,7 @@ do
                 GUI2:ApplyCooldownTextAppearance({ cooldown = self.resourceDurationCountdown2 }, {
                     enabled = second.valueText ~= false and second.valueFormat == "duration",
                     font = second.font, size = second.size, outline = second.outline, color = second.color,
+                    monochrome = second.monochrome,
                     position = second.position, offsetX = second.offsetX, offsetY = second.offsetY })
             end
             if self.resourceNameText then
@@ -7109,6 +7309,7 @@ do
                         appearance.nameSize and {
                             font = appearance.font, size = appearance.nameSize,
                             outline = appearance.outline, color = appearance.color, fontScale = appearance.fontScale,
+                            monochrome = appearance.monochrome,
                         } or appearance
                     )
                 end
@@ -7132,6 +7333,7 @@ do
                     enabled = appearance.valueText ~= false and appearance.valueFormat == "duration",
                     font = appearance.font, size = appearance.size,
                     outline = appearance.outline, color = appearance.color,
+                    monochrome = appearance.monochrome,
                     position = appearance.position, offsetX = appearance.offsetX, offsetY = appearance.offsetY,
                 })
             end

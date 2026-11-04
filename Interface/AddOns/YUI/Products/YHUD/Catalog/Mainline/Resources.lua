@@ -111,6 +111,28 @@ local DEFINITIONS = {
         defaultValueText = true,
         color = { 0.30, 0.55, 0.95, 1 },
     },
+    solarEclipse = {
+        id = "solarEclipse", nameKey = "resource.solar_eclipse",
+        initialEnabled = false,
+        descriptionKey = "resource.info.aura_duration", valueKind = "continuous",
+        previewMax = 10, defaultValueText = true,
+        color = { 0.90, 0.72618997567366, 0.35, 1 },
+        defaultLinkNext = "lunarEclipse",
+        defaultSettings = { visibilityMode = "nonzeroOrCombat", fillDirection = "reverse" },
+        provider = { kind = "aura-duration", unit = "player", spellID = 48517,
+            fallbackMax = 10, auraBackend = "filtered-only", durationDirection = "remaining" },
+    },
+    lunarEclipse = {
+        id = "lunarEclipse", nameKey = "resource.lunar_eclipse",
+        initialEnabled = false,
+        descriptionKey = "resource.info.aura_duration", valueKind = "continuous",
+        previewMax = 10, defaultValueText = true,
+        color = { 0.65, 0.35, 0.90, 1 },
+        defaultLinkPrevious = "solarEclipse",
+        defaultSettings = { visibilityMode = "nonzeroOrCombat", fillDirection = "forward" },
+        provider = { kind = "aura-duration", unit = "player", spellID = 48518,
+            fallbackMax = 10, auraBackend = "filtered-only", durationDirection = "remaining" },
+    },
     holyPower = {
         id = "holyPower",
         powerType = Power("HolyPower", 9),
@@ -397,7 +419,7 @@ local DEFINITION_IDS = {
     "maelstromWeapon", "icicles", "arcaneSalvo", "demonicCore",
     "vengeanceSoulFragments",
     "devourerSoulFragments", "stagger", "ironfur", "ignorePain",
-    "sweepingStrikes", "ebonMight", "remoteStrike",
+    "sweepingStrikes", "ebonMight", "remoteStrike", "solarEclipse", "lunarEclipse",
 }
 
 YHUD.ResourceDefinitions = DEFINITIONS

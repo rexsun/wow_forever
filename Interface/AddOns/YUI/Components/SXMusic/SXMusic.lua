@@ -38,12 +38,15 @@ local MAX_CUSTOM_MUSIC = 24
 local PLAY_BUTTON_SIZE = 26
 local PLAY_ICON_ATLAS = "common-dropdown-icon-next"
 local STOP_ICON_ATLAS = "common-dropdown-icon-stop"
+-- 动画暂不开放；统一规划后再恢复入口与配置开关。
+local ANIMATION_AVAILABLE = false
 local GetDB
 local defaults = {
     builtin = {},
     custom = { "" },
     channel = "Master",
     customRows = 1,
+    animation = false,
 }
 
 local SOUND_CHANNELS = {
@@ -228,6 +231,7 @@ function GetDB()
     end
 
     if not IsValidSoundChannel(db.channel) then db.channel = "Master" end
+    db.animation = ANIMATION_AVAILABLE and db.animation == true
 
     local customRows = tonumber(db.customRows)
     if not customRows then customRows = math.max(1, lastCustomRow) end
@@ -243,8 +247,69 @@ end
 local currentSoundHandle
 local currentSoundSource
 local Engine = { sxActive = false, lastSXTriggerToken = nil, activeTimer = nil }
+local animationFrame, animationTexture, animationGroup, animationSource
+local animationUnavailable = false
 local playbackIconButtons = setmetatable({}, { __mode = "k" })
 local playbackTextButtons = setmetatable({}, { __mode = "k" })
+
+local function StopAnimation()
+    animationSource = nil
+    if animationGroup then animationGroup:Stop() end
+    if animationFrame then animationFrame:Hide() end
+    if animationTexture then animationTexture:SetTexture(nil) end
+end
+
+local function EnsureAnimation()
+    if animationGroup then return true end
+    if animationUnavailable then return false end
+    local GUI2 = YUI.GUI2
+    if not GUI2 or not GUI2.CreateFrame or not GUI2.CreateTexture or not UIParent then
+        return false
+    end
+
+    animationFrame = GUI2:CreateFrame(UIParent, { width = 160, height = 160 })
+    animationFrame:Hide()
+    animationFrame:SetPoint("CENTER", UIParent, "CENTER", 300, -100)
+    animationFrame:SetFrameStrata("HIGH")
+    animationFrame:EnableMouse(false)
+    animationTexture = GUI2:CreateTexture(animationFrame, { layer = "ARTWORK" })
+    animationTexture:SetAllPoints(animationFrame)
+
+    -- FlipBook is a native texture animation, not a Lua tween supported by YUI.Animation.
+    local group = animationFrame:CreateAnimationGroup()
+    local ok, flipbook = pcall(group.CreateAnimation, group, "FlipBook")
+    if not ok or not flipbook or not flipbook.SetFlipBookFrames then
+        animationUnavailable = true
+        return false
+    end
+    flipbook:SetTarget(animationTexture)
+    flipbook:SetDuration(0.9)
+    flipbook:SetOrder(1)
+    flipbook:SetFlipBookRows(4)
+    flipbook:SetFlipBookColumns(4)
+    flipbook:SetFlipBookFrames(15)
+    if flipbook.SetFlipBookFrameWidth then flipbook:SetFlipBookFrameWidth(0) end
+    if flipbook.SetFlipBookFrameHeight then flipbook:SetFlipBookFrameHeight(0) end
+    group:SetScript("OnFinished", StopAnimation)
+    animationGroup = group
+    animationFrame:SetScript("OnHide", StopAnimation)
+    return true
+end
+
+local function PlayAnimation(source)
+    if not GetDB().animation or not EnsureAnimation() then return end
+    source = source or "auto"
+    if animationSource == source and animationGroup:IsPlaying() then return end
+    animationGroup:Stop()
+    animationTexture:SetTexture(Assets:Component("SXMusic", "animation\\bloodlust-flipbook.blp"))
+    animationTexture:SetTexCoord(0, 1, 0, 1)
+    animationGroup:SetLooping("REPEAT")
+    -- Settings use DIALOG strata; keep their preview visible above the window.
+    animationFrame:SetFrameStrata(source == "preview" and "FULLSCREEN_DIALOG" or "HIGH")
+    animationSource = source
+    animationFrame:Show()
+    animationGroup:Play()
+end
 
 local function IsMusicPlaying()
     return currentSoundHandle ~= nil
@@ -269,9 +334,11 @@ local function SetCurrentSoundHandle(handle, source)
     currentSoundHandle = handle
     currentSoundSource = source
     RefreshPlaybackControls()
+    PlayAnimation(source)
 end
 
 local function StopCurrentSound()
+    StopAnimation()
     if currentSoundHandle then
         StopSound(currentSoundHandle)
         currentSoundHandle = nil
@@ -429,6 +496,8 @@ local function RefreshSXMusicState(reason)
 end
 
 local EventOwner = {}
+local ProfileOwner = { OnProfileChanged = StopAnimation }
+local profileDB
 local isHooked = false
 
 local function OnBloodlustWindow(_, state)
@@ -500,6 +569,14 @@ local function ToggleSXMusic(enable)
             end
             
             isHooked = true
+            if YUI.DB and YUI.DB.GetAceDB then
+                profileDB = YUI.DB:GetAceDB(PRODUCT_ID)
+                if profileDB and profileDB.RegisterCallback then
+                    profileDB.RegisterCallback(ProfileOwner, "OnProfileChanged", "OnProfileChanged")
+                    profileDB.RegisterCallback(ProfileOwner, "OnProfileCopied", "OnProfileChanged")
+                    profileDB.RegisterCallback(ProfileOwner, "OnProfileReset", "OnProfileChanged")
+                end
+            end
             
             -- 如果已经在游戏内（例如登录后手动开启），直接初始化
             if IsLoggedIn() then
@@ -515,6 +592,7 @@ local function ToggleSXMusic(enable)
             end
         end
     else
+        StopAnimation()
         if isHooked then
             if bloodlustHandle and Bloodlust and Bloodlust.Release then
                 Bloodlust:Release(bloodlustHandle)
@@ -523,6 +601,10 @@ local function ToggleSXMusic(enable)
                 Bloodlust:ReleaseOwner(EventOwner)
             end
             YUI.Event:OffOwner(EventOwner)
+            if profileDB and profileDB.UnregisterAllCallbacks then
+                profileDB.UnregisterAllCallbacks(ProfileOwner)
+            end
+            profileDB = nil
             isReady = false
             Engine.sxActive = false
             StopMusic()
@@ -787,6 +869,22 @@ local function GetOptions(feature)
     
     -- 声道选择与试听按钮
     table.insert(options, CreateTopControlsRow(db))
+    if ANIMATION_AVAILABLE then
+        table.insert(options, {
+            type = "checkbox",
+            label = T("sxmusic.animation", "Bloodlust Animation"),
+            tooltip = T("sxmusic.animation_desc", "Show a looping character beside the center of the screen during Bloodlust music. Preview also loops until stopped or you leave this page."),
+            get = function() return db.animation end,
+            set = function(value)
+                db.animation = value == true
+                if not db.animation then
+                    StopAnimation()
+                elseif currentSoundHandle then
+                    PlayAnimation(currentSoundSource)
+                end
+            end,
+        })
+    end
     
     -- 内置音乐区
     table.insert(options, { type = "divider", label = T("sxmusic.builtin", "Built-in Music"), alignLeft = true, width = 620 })
@@ -839,5 +937,14 @@ YUI.Components:RegisterFeature("SXMusic", {
     callback = ToggleSXMusic,
     OnSettingsEnter = OnSettingsEnter,
     OnSettingsLeave = OnSettingsLeave,
+    GetStats = function()
+        return {
+            animationFrames = animationFrame and 1 or 0,
+            animationActive = animationSource ~= nil,
+            animationUnavailable = animationUnavailable,
+            animationTimers = 0,
+            animationOnUpdates = 0,
+        }
+    end,
     GetOptions = GetOptions
 })

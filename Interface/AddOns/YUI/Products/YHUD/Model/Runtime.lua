@@ -131,6 +131,7 @@ function Model:OnSourceState(source, sourceKey, forced)
         or state.color ~= source.color
         or state.valueKind ~= source.valueKind
         or state.itemID ~= source.itemID
+        or state.stackAuraSpellID ~= source.stackAuraSpellID
         or state.icon ~= source.icon then
         state.sourceKind = sourceKind
         state.slotID = source.slotID
@@ -143,6 +144,7 @@ function Model:OnSourceState(source, sourceKey, forced)
         state.color = source.color
         state.valueKind = source.valueKind
         state.itemID = source.itemID
+        state.stackAuraSpellID = source.stackAuraSpellID
         state.icon = source.icon
         diff = diff + self.DIFF_IDENTITY
         if YHUD.Stats then YHUD.Stats:Add("identityChanges") end
@@ -200,6 +202,9 @@ function Model:OnSourceState(source, sourceKey, forced)
             or state.opaqueRevision
         local cooldownActive = source.cooldownActive == true
         local chargeActive = source.chargeActive == true
+        local hasCharges = source.hasCharges == true
+        local chargeReadResolved = source.chargeReadResolved
+        local chargeCountSecret = source.chargeCountSecret == true
         local currentCharges = type(source.currentCharges) == "number"
             and source.currentCharges
             or nil
@@ -215,6 +220,9 @@ function Model:OnSourceState(source, sourceKey, forced)
             or state.opaqueRevision ~= opaqueRevision
             or state.cooldownActive ~= cooldownActive
             or state.chargeActive ~= chargeActive
+            or state.hasCharges ~= hasCharges
+            or state.chargeReadResolved ~= chargeReadResolved
+            or state.chargeCountSecret ~= chargeCountSecret
             or state.currentCharges ~= currentCharges
             or state.maxCharges ~= maxCharges
             or state.displayCount ~= displayCount
@@ -225,6 +233,9 @@ function Model:OnSourceState(source, sourceKey, forced)
             state.opaqueRevision = opaqueRevision
             state.cooldownActive = cooldownActive
             state.chargeActive = chargeActive
+            state.hasCharges = hasCharges
+            state.chargeReadResolved = chargeReadResolved
+            state.chargeCountSecret = chargeCountSecret
             state.currentCharges = currentCharges
             state.maxCharges = maxCharges
             state.displayCount = displayCount
@@ -258,6 +269,7 @@ function Model:OnSourceState(source, sourceKey, forced)
             state.opaqueRevision = nil
             state.cooldownActive = nil
             state.chargeActive = nil
+            state.hasCharges, state.chargeReadResolved, state.chargeCountSecret = nil, nil, nil
             state.currentCharges = nil
             state.maxCharges = nil
             state.countSecret = false
@@ -277,6 +289,22 @@ function Model:OnSourceState(source, sourceKey, forced)
         if YHUD.Stats then YHUD.Stats:Add("availabilityChanges") end
     end
 
+    if source.classExtra then
+        if state.extraRevision ~= source.extraRevision
+            and math.floor(diff / self.DIFF_COOLDOWN) % 2 == 0 then
+            diff = diff + self.DIFF_COOLDOWN
+        end
+        state.extraRevision, state.classExtra = source.extraRevision, true
+        state.extraActive, state.elapsedValue, state.session = source.extraActive, source.elapsedValue, source.session
+        state.showIconProgress = source.showIconProgress
+        state.classExtraVisible = source.classExtraVisible
+        state.thresholdReached = source.thresholdReached
+    elseif state.classExtra then
+        state.showIconProgress = nil
+        state.classExtraVisible = nil
+        state.classExtra, state.extraRevision, state.extraActive, state.elapsedValue, state.session, state.thresholdReached = nil, nil, nil, nil, nil, nil
+        if math.floor(diff / self.DIFF_COOLDOWN) % 2 == 0 then diff = diff + self.DIFF_COOLDOWN end
+    end
     local forcedReplay = forced == true
     if diff == 0 and not forcedReplay then return false end
     state.durationObject = source.durationObject

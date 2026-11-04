@@ -2,7 +2,7 @@
 --   详细展示任务链或者来源，点了弹出…装备最好是类似用户 C 键的用户栏那种展示」）：
 -- 「要做的事」页签（原名「时间轴」，10-07 用户看不懂改名）：按等级顺序列出这期间要做的事——天赋怎么加点、去训练师学什么新技能、该导入哪些宏、
 --   哪些技能是打任务解锁的（点开看完整任务链：谁给、在哪、目标是什么）。
--- 「装备」页签：仿 C 键纸娃娃布局，每个部位按目标等级推荐一件装等最高的候选（地下城掉落 + 职业任务链套装）。
+-- 「装备」页签（10-18 起独立，在左栏「装备」大类下）：仿 C 键纸娃娃布局，每个部位按目标等级推荐一件装等最高的候选（地下城掉落 + 职业任务链套装）。
 --   ⛔ 装备来源 = 地下城掉落（经典 25 本 + 无限新本）+ 职业任务链套装，野外任务奖励还没收——
 --   查不到候选的部位显示「待补」，不装样子说全；天赋「对练级最优」复用热门配点数据，不是专门算的练级权重。
 local _, ns = ...
@@ -11,7 +11,8 @@ local page
 local ICON = { quest = "Interface\\Icons\\INV_Misc_Book_09", spell = "Interface\\Icons\\INV_Misc_Note_01",
     talent = "Interface\\Icons\\Spell_Nature_InnerSerenity", macro = "Interface\\Icons\\INV_Scroll_05" }
 local QCOLOR = { q1 = "ffffff", q2 = "1eff00", q3 = "0070dd", q4 = "a335ee", q5 = "ff8000" }
-local viewMode = "timeline"   -- "timeline" | "gear"（10-07 用户「装备最好是类似 C 键用户栏那种展示」）
+local viewMode = "timeline"   -- "timeline" | "farm" | "dq" | "route"（「装备」10-18 起是独立页签）
+local gp = {}   -- 「装备」页签（纸娃娃）自己的控件表；和升级规划的 page 分开
 -- 纸娃娃：照游戏 C 键角色栏（10-07 用户截图 + 「学习这个格式」，插件-工会会话转达）
 --   左列 头 / 颈 / 肩 / 背 / 胸 / 衬衣 / 战袍 / 手腕，右列 手 / 腰 / 腿 / 脚 / 戒指×2 / 饰品×2，底部 主手 / 副手 / 远程；
 --   中间放角色模型试穿推荐装备。10-08 起格子旁写装备名 + 装等/等级/来源（照英雄榜纸娃娃），悬停看详情。{ 槽位键, 数据里的部位, 游戏槽位名（拿空槽剪影 / 身上装备） }
@@ -64,7 +65,7 @@ end
 
 -- 合并：任务解锁技能 / 训练技能 / 天赋加点 / 宏，按等级分组，同级内 任务>天赋>技能>宏
 -- 状态 st：future = 还没到；now = 这一级 / 已到但还没学；done = 已经学会 / 已过的任务；missed = 等级已过却没学（漏学）
-local ORDER = { zone = 0, quest = 1, talent = 2, spell = 3, macro = 4, dquest = 5 }
+local ORDER = { zone = 0, quest = 1, chain = 1.5, talent = 2, spell = 3, macro = 4, dquest = 5, prof = 6 }
 local function spellKnown(id)
     if not id or id == 0 or not IsSpellKnown then return nil end
     local ok, v = pcall(IsSpellKnown, id)
@@ -150,6 +151,16 @@ local function buildItems(lo, hi, desc)
             end
         end
     end
+    -- 10-18 特殊任务线（SideChains.lua，HOLD 里没装就没有）：舒适的睡袋等跨地图任务线，推荐等级那一级出一行
+    if ns.SideChainItems then
+        local ok, list = pcall(ns.SideChainItems, lo, hi, cur)
+        for _, it in ipairs(ok and list or {}) do items[#items + 1] = it end
+    end
+    -- 10-16 专业接进地图待办（Prof.lua，HOLD 里没装就没有）：顺路采集 / 经验食物 / 训练 / 营地 / 图纸 / 传承
+    if ns.ProfPlanItems then
+        local ok, list = pcall(ns.ProfPlanItems, lo, hi, cur)
+        for _, it in ipairs(ok and list or {}) do items[#items + 1] = it end
+    end
     -- 10-07 用户「加个筛选，完成的可以过滤掉」：隐藏已学会的技能 / 已过的任务（分组跟着没了）
     local hidden = 0
     if ns.db.ui.planHideDone then
@@ -191,26 +202,44 @@ local function buildItems(lo, hi, desc)
     return items, err, cur
 end
 
--- 每个格子按目标等级能拿到的装等最高的候选（地下城掉落 + 职业任务链套装）；
+-- 每个格子按目标等级能拿到的最好候选（地下城掉落 + 职业任务链套装）；
 -- ⛔ 来源不全（地下城 + 任务链套装，野外任务奖励没收），查不到的格子返回 nil，悬停说明「待补」
-local function bestGearBySlot(targetLv, cls)
+-- 10-18 按天赋：有属性数据（SpecGearData.lua）就按当前天赋的属性权重打分挑（SpecGear.lua），分数相同 / 没属性的再按装等；
+--   SpecGear 不在（HOLD 剔掉）→ 和原来一样只按装等
+-- 10-18 需求看板 #69（正式服会话转达）：萨满 / 猎人 40 级才会锁甲，战士 / 圣骑 40 级才会板甲 → 目标等级不到 40 不推这一档
+--   ⛔ 网站导出 gi_forever_web_export.py best_gear 同一条，改一边必须改另一边
+local ARMOR_AT40 = { Shaman = "锁甲", Hunter = "锁甲", Warrior = "板甲", Paladin = "板甲" }
+local function bestGearBySlot(targetLv, cls, spec)
     cls = cls or myClass()
+    local SG = ns.SpecGear
+    if SG and SG.Available() then spec = spec or SG.Current(cls) else spec = nil end
     local pool = {}
+    local score = {}
     for _, it in ipairs((ns.Data.gear or {})[cls] or {}) do
         local req = (it.req and it.req > 0) and it.req or (it.min or 0)
-        if req <= targetLv then
+        -- 10-18 用户「推荐只用确认掉过的和服务器有的」：有 ItemRecommendIds（ItemMissingData.lua，HOLD）就只从里面挑
+        local allowT = ns.ItemRecommendIds
+        if req <= targetLv and not (targetLv < 40 and it.type == ARMOR_AT40[cls]) and not (SG and SG.Missing(it.id))
+            and (not (SG and allowT) or allowT[it.id]) then
             pool[it.slot] = pool[it.slot] or {}
             table.insert(pool[it.slot], it)
+            if spec and score[it] == nil then score[it] = SG.Score(it.id, it.slot, cls, spec, targetLv) or false end
         end
     end
     -- ⛔ 10-08：装等相同时按物品 ID 定死先后（Lua 排序不稳定，平手会随机挑；网站 / 小程序读的导出结果要和这里逐件一致）
+    --   有分数的排在没分数的前面（没属性数据的只能按装等猜，不该压过算得出分的）
     for _, lst in pairs(pool) do table.sort(lst, function(a, b)
+        if spec then
+            local sa, sb = score[a], score[b]
+            if (sa and true or false) ~= (sb and true or false) then return sa and true or false end
+            if sa and sb and math.abs(sa - sb) > 1e-6 then return sa > sb end
+        end
         if (a.ilvl or 0) ~= (b.ilvl or 0) then return (a.ilvl or 0) > (b.ilvl or 0) end
         if (a.id or 0) ~= (b.id or 0) then return (a.id or 0) < (b.id or 0) end
         return (a.srcName or "") < (b.srcName or "")   -- 同一件多个首领都掉：按来源名定死
     end) end
-    local function pick(slotCn, skipId)
-        for _, it in ipairs(pool[slotCn] or {}) do if it.id ~= skipId then return it end end
+    local function pick(slotCn, skipId, filter)
+        for _, it in ipairs(pool[slotCn] or {}) do if it.id ~= skipId and (not filter or filter(it)) then return it end end
     end
     local out = {}
     for _, grp in ipairs({ GEAR_LEFT, GEAR_RIGHT }) do
@@ -222,15 +251,40 @@ local function bestGearBySlot(targetLv, cls)
             end
         end
     end
-    out.main = pick("武器")
-    out.off = not (out.main and out.main.two) and pick("副手") or nil
+    if spec then
+        -- 双手 vs 单手 + 副手：两种组合比总分（双持职业副手 = 第二把单手武器）
+        local function sc(it) return it and score[it] or 0 end
+        local two = pick("武器", nil, function(it) return it.two end)
+        local one = pick("武器", nil, function(it) return not it.two end)
+        local off, offS = nil, 0
+        if one then
+            if SG.DualWield(cls, spec) then
+                -- 双持：副手挑第二把单手武器，秒伤按一半算（按「副手」打分）；没分数的不挑
+                for _, it in ipairs(pool["武器"] or {}) do
+                    if not it.two and it.id ~= one.id then
+                        local s = SG.Score(it.id, "副手", cls, spec, targetLv)
+                        if s and (not off or s > offS + 1e-6) then off, offS = it, s end
+                    end
+                end
+            end
+            local oh = pick("副手")
+            if oh and (not off or sc(oh) > offS + 1e-6) then off, offS = oh, sc(oh) end
+        end
+        -- 平手（差 ≤ 1e-6，两边求和顺序不同会差在最后一位）算双手：和网站导出同一条
+        if two and (SG.TwoHand(cls, spec) or not one or sc(two) >= sc(one) + offS - 1e-6) then out.main, out.off = two, nil
+        else out.main, out.off = one, off end
+        if not out.main then out.off = pick("副手") end   -- 一把武器都没有：副手照样推荐
+    else
+        out.main = pick("武器")
+        out.off = not (out.main and out.main.two) and pick("副手") or nil
+    end
     out.ranged = pick("远程")
-    return out
+    return out, spec
 end
 -- 测试 / 导出对拍用：某职业某一级每格选哪件（槽位键 → 物品 ID）。网站 / 小程序读 gear.json 里同一份结果（gi_forever_web_export.py）
-ns.PlanBestGear = function(lv, cls)
+ns.PlanBestGear = function(lv, cls, spec)
     local r = {}
-    for k, it in pairs(bestGearBySlot(lv, cls)) do if type(it) == "table" then r[k] = it.id end end
+    for k, it in pairs((bestGearBySlot(lv, cls, spec))) do if type(it) == "table" then r[k] = it.id end end
     return r
 end
 
@@ -251,6 +305,7 @@ local function buildQuestPop(parent)
     f.title:SetPoint("TOPLEFT", 14, -12); f.title:SetPoint("RIGHT", -34, 0); f.title:SetJustifyH("LEFT")
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -2, -2)
+    close:SetScript("OnClick", function() f:Hide() end)   -- 10-18 战斗中关不掉：原生红叉走 HideUIPanel，战斗中被拦 → 直接 Hide
     local sf, c = ns.Scroll(f, 10, -40, 600, 330)
     f.child = c
     f:Hide()
@@ -317,6 +372,8 @@ local function getRow(p, i)
     r.s:SetPoint("TOPLEFT", 84, -20); r.s:SetPoint("RIGHT", -92, 0); r.s:SetJustifyH("LEFT"); r.s:SetWordWrap(false)
     r.s:SetTextColor(0.65, 0.65, 0.65)
     r.btn = ns.Button(r, "", 80, 22); r.btn:SetPoint("RIGHT", -2, 0)
+    -- 10-16 用户「弄个加号标志，让可点击展开效果更明显」：折叠行图标左边的 + / -
+    r.pm = r:CreateTexture(nil, "OVERLAY"); r.pm:SetSize(18, 18); r.pm:SetPoint("RIGHT", r.ic, "LEFT", -6, 0); r.pm:Hide()
     -- 10-12 用户截图「每一级在 UI 不突出」：等级分组标题改成整行色带 —— 底色条 + 左侧粗色边 + 大号等级数字 + 本级几项
     r.band = r:CreateTexture(nil, "BACKGROUND"); r.band:SetPoint("TOPLEFT", 0, -2); r.band:SetPoint("BOTTOMRIGHT", 0, 2)
     r.bandAcc = r:CreateTexture(nil, "BORDER"); r.bandAcc:SetWidth(4)
@@ -354,6 +411,7 @@ local STATE_TXT = {
     now = { "|cff33ff99", ns.L("现在就能做", "do it now") },
 }
 
+local trainOpen = {}   -- 10-16 训练师折叠组：哪几级展开着（只在本次登录内记）
 local refresh   -- 前向声明：时间轴里「导入宏」点完要刷新，refresh 定义在下面（10-07 静态检查查出：原来调的是全局 nil）
 local function refreshTimeline(lo, hi)
     for _, r in ipairs(page.rows) do r:Hide() end   -- 先隐藏旧行，buildItems 万一中途出错也不留一屏上次的内容
@@ -367,7 +425,7 @@ local function refreshTimeline(lo, hi)
     local function place(r, h)
         r:ClearAllPoints(); r:SetPoint("TOPLEFT", 0, y); r:SetPoint("RIGHT", page.child, "RIGHT", 0, 0); r:SetHeight(h)
         r:SetScript("OnClick", nil); r:SetScript("OnEnter", nil)   -- 这一行可能是别的行复用来的，清掉上一次的脚本
-        r.btn:Hide(); r.lvTag:SetText("")
+        r.btn:Hide(); r.btn:SetScript("OnEnter", nil); r.btn:SetEnabled(true); r.lvTag:SetText(""); r.pm:Hide()
         for _, x in ipairs({ r.band, r.bandAcc, r.bandLine, r.big, r.bandR }) do x:Hide() end   -- 等级色带只给标题行
     end
     local function warn(text)
@@ -412,7 +470,37 @@ local function refreshTimeline(lo, hi)
     local lastLv
     local perLv = {}
     for _, it in ipairs(items) do
-        if it.kind ~= "zone" then perLv[it.lv] = (perLv[it.lv] or 0) + 1 end
+        if it.kind ~= "zone" and it.kind ~= "prof" then perLv[it.lv] = (perLv[it.lv] or 0) + 1 end   -- 地图 / 专业是提醒，不算待办数
+    end
+    -- 10-16 用户截图「这种搞一个按钮就行了，多了乱，一级之内的训练师合并一下做个折叠，折叠标题有按钮就行」：
+    --   同一级里要去职业训练师那学的技能 ≥2 个 → 合成一行折叠标题（带「找训练师」），点标题展开 / 收起；展开的子行不再带按钮
+    local function isTrainer(it) return it.kind == "spell" and not it.tal and not it.auto and not it.inGroup end
+    local trN, trMiss = {}, {}
+    for _, it in ipairs(items) do
+        if isTrainer(it) then
+            trN[it.lv] = (trN[it.lv] or 0) + 1
+            if it.st == "missed" then trMiss[it.lv] = true end
+        end
+    end
+    -- 有「漏学」的组默认展开（漏学要一眼看到）；手动点过就听手动的
+    local function isOpen(lv) if trainOpen[lv] == nil then return trMiss[lv] == true end return trainOpen[lv] end
+    do
+        local merged, grp = {}, {}
+        for _, it in ipairs(items) do
+            if isTrainer(it) and trN[it.lv] >= 2 then
+                local g = grp[it.lv]
+                if not g then
+                    g = { lv = it.lv, kind = "trainergrp", list = {} }
+                    grp[it.lv] = g
+                    merged[#merged + 1] = g
+                end
+                g.list[#g.list + 1] = it
+                if isOpen(it.lv) then it.inGroup = true; merged[#merged + 1] = it end
+            else
+                merged[#merged + 1] = it
+            end
+        end
+        items = merged
     end
     for _, it in ipairs(items) do
         if it.lv ~= lastLv then
@@ -459,6 +547,30 @@ local function refreshTimeline(lo, hi)
                     e.stage.src == "fv" and "Published route suggestion, not an entry restriction." or "Classic baseline; beta may change. Not an entry restriction."), 0.7, 0.7, 0.7, true)
                 GameTooltip:Show()
             end)
+        elseif it.kind == "trainergrp" then
+            local open = isOpen(it.lv)
+            local todo, miss, names = 0, 0, {}
+            for _, x in ipairs(it.list) do
+                if x.st == "now" or x.st == "missed" then todo = todo + 1 end
+                if x.st == "missed" then miss = miss + 1 end
+                if #names < 4 then names[#names + 1] = x.n end
+            end
+            r.ic:SetTexture("Interface\\Icons\\INV_Misc_Book_11")
+            r.pm:SetTexture(open and "Interface\\Buttons\\UI-MinusButton-Up" or "Interface\\Buttons\\UI-PlusButton-Up"); r.pm:Show()
+            r.t:SetText("|cffffd100" .. ns.L("职业训练师：", "Class trainer: ") .. "|r" .. #it.list .. ns.L(" 个技能", " spells")
+                .. (miss > 0 and ("  |cffff4040" .. ns.L("漏学 ", "missed ") .. miss .. "|r")
+                    or todo > 0 and ("  |cff33ff99" .. ns.L("现在就能学 ", "learnable now ") .. todo .. "|r") or ""))
+            r.s:SetText((open and ns.L("点击收起", "Click to collapse") or ns.L("点击展开：", "Click to expand: "))
+                .. (open and "" or table.concat(names, ns.L("、", ", ")) .. (#it.list > #names and ns.L(" 等", " ...") or "")))
+            if todo > 0 and ns.Trainers then
+                r.btn:SetText(ns.L("找训练师", "Trainer")); r.btn:Show()
+                r.btn:SetScript("OnClick", function() ns.Trainers.Go() end)
+            end
+            r:SetScript("OnClick", function() trainOpen[it.lv] = not open; refresh() end)
+        elseif it.kind == "prof" then
+            if ns.ProfRenderRow then ns.ProfRenderRow(r, it, suffix) end
+        elseif it.kind == "chain" then
+            if ns.SideChainRenderRow then ns.SideChainRenderRow(r, it, suffix) end
         elseif it.kind == "quest" then
             r.ic:SetTexture(ICON.quest)
             r.t:SetText("|cff33ff99" .. ns.L("任务解锁：", "Quest-unlocked: ") .. "|r" .. it.n)
@@ -476,6 +588,12 @@ local function refreshTimeline(lo, hi)
             r.s:SetText((it.tal and ns.L("天赋技能：要先点对应天赋", "Talent ability: needs the talent first")
                 or it.auto and ns.L("自动学会", "Learned automatically") or ns.L("去职业训练师那里学", "Learn from your class trainer")) .. suffix)
             r.ic:SetDesaturated(state == "done")
+            -- 10-16 用户「点击找到最近的训练师，并打开小地图」：要去训练师那里学、现在就能学 / 漏学的行给「找训练师」
+            if not it.tal and not it.auto and not it.inGroup and (state == "now" or state == "missed") and ns.Trainers then
+                r.btn:SetText(ns.L("找训练师", "Trainer")); r.btn:Show()
+                r.btn:SetScript("OnClick", function() ns.Trainers.Go() end)
+                r:SetScript("OnClick", function() ns.Trainers.Go() end)
+            end
             r:SetScript("OnEnter", function(self)
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(it.n, 1, 0.82, 0)
                 if it.rank then
@@ -517,8 +635,18 @@ local function refreshTimeline(lo, hi)
         elseif it.kind == "talent" then
             local st = it.st
             r.ic:SetTexture((st.icon and st.icon ~= "") and ("Interface\\Icons\\" .. st.icon) or ICON.talent)
-            r.t:SetText("|cff66ccff" .. ns.L("天赋：", "Talent: ") .. "|r" .. st.name)
+            -- 10-16 用户截图「x/x点标注下」：这一点是第几点 / 共几点
+            r.t:SetText("|cff66ccff" .. ns.L("天赋：", "Talent: ") .. "|r" .. st.name
+                .. ((st.rank and st.rankMax) and ("  |cffffd100" .. st.rank .. "/" .. st.rankMax .. "|r") or ""))
             r.s:SetText(st.tree .. (st.avail and ("　|cff33ff99" .. ns.L("现在就能点", "available now") .. "|r") or ""))
+            -- 10-16 用户「点击直接加点？打开天赋页然后高亮」：现在能点的行给「去点」—— 打开天赋面板 + 绿框（加点仍要玩家自己点，暴雪不许插件学天赋）
+            -- 鼠标移上去时 Talents.lua 把安全按钮盖过来代点菜单栏天赋按钮；盖不了（战斗中 / 没有菜单栏按钮）就走这个按钮自己的兜底
+            if st.avail and st.tab and ns.TalentOpenerHover then
+                r.btn:SetText(ns.L("去点", "Go")); r.btn:Show()
+                r.btn:SetScript("OnEnter", function(self) ns.TalentOpenerHover(self, st) end)
+                r.btn:SetScript("OnClick", function() ns.TalentGoFallback(st) end)
+                r:SetScript("OnClick", function() ns.TalentGoFallback(st) end)
+            end
             if st.d ~= "" then
                 r:SetScript("OnEnter", function(self)
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(st.name, 1, 0.82, 0)
@@ -617,14 +745,14 @@ local function equipped(invName)
     local link = GetInventoryItemLink("player", slotId)
     if not link then return nil end
     local id = tonumber(link:match("item:(%d+)"))
-    local ilvl = GetItemInfo and select(4, GetItemInfo(link))
+    local ilvl = select(4, ns.ItemInfo(link))
     return { id = id, ilvl = ilvl }
 end
 
 local function getSlotBtn(key)
-    local b = page.gearBtns[key]
+    local b = gp.gearBtns[key]
     if b then return b end
-    b = CreateFrame("Button", nil, page.gearFrame, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    b = CreateFrame("Button", nil, gp.gearFrame, BackdropTemplateMixin and "BackdropTemplate" or nil)
     b:SetSize(SLOT_PX, SLOT_PX)
     if b.SetBackdrop then
         b:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -637,8 +765,8 @@ local function getSlotBtn(key)
     local hl = b:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.08)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- 10-08 用户截图（英雄榜纸娃娃）「这里也改成这样的展示形式」：格子旁写装备名 + 一行小字，名字朝模型那边写
-    b.name = page.gearFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    b.sub = page.gearFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    b.name = gp.gearFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    b.sub = gp.gearFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     for _, fs in ipairs({ b.name, b.sub }) do
         fs:SetWordWrap(false)
         if fs.SetShadowOffset then fs:SetShadowOffset(1, -1); fs:SetShadowColor(0, 0, 0, 1) end   -- 压在副本背景图上也看得清
@@ -646,11 +774,11 @@ local function getSlotBtn(key)
     -- 第二行小一号：10-08 截图里「装等 37 · 需要 32 级 · …」来源被截掉了
     if b.sub.SetFont then pcall(b.sub.SetFont, b.sub, SUB_FONT, 10, "") end
     -- 文字区也能悬停 / 点击（字可能被截断 → 悬停看全文，用户硬规定）
-    b.hit = CreateFrame("Button", nil, page.gearFrame)
+    b.hit = CreateFrame("Button", nil, gp.gearFrame)
     b.hit:SetScript("OnEnter", function() local f = b:GetScript("OnEnter"); if f then f(b) end end)
     b.hit:SetScript("OnLeave", function() GameTooltip:Hide() end)
     b.hit:SetScript("OnClick", function() local f = b:GetScript("OnClick"); if f then f(b) end end)
-    page.gearBtns[key] = b
+    gp.gearBtns[key] = b
     return b
 end
 
@@ -683,10 +811,18 @@ local function setSlotItem(b, g, it, mainTwo)
             b:SetBackdropBorderColor(tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255, tonumber(hex:sub(5, 6), 16) / 255, 1)
         end
         -- 和身上比：已穿 = 勾；更好 = 升级图标；更差 = 变灰
+        --   10-18 两件都有属性数据 → 按当前天赋的分数比（cmpBy = "spec"）；否则照旧比装等
         local eq = equipped(invName)
-        b.cmp = nil
+        b.cmp, b.cmpBy = nil, nil
+        local SG, spec = ns.SpecGear, gp.curSpec
+        local sNew = spec and eq and eq.id ~= it.id and SG.Score(it.id, it.slot, myClass(), spec, gp.curLv) or nil
+        local sOld = sNew and SG.Score(eq.id, it.slot, myClass(), spec, gp.curLv) or nil
         if eq and eq.id == it.id then
             b.cmp = "worn"; b.badge:SetTexture(CHECK_ICON); b.badge:Show()
+        elseif sNew and sOld then
+            b.cmpBy = "spec"
+            if sNew > sOld + 1e-6 then b.cmp = "up"; b.badge:SetTexture(UPGRADE_ICON); b.badge:Show()
+            else b.cmp = "down"; b.icon:SetDesaturated(true) end
         elseif eq and eq.ilvl and (it.ilvl or 0) > eq.ilvl then
             b.cmp = "up"; b.badge:SetTexture(UPGRADE_ICON); b.badge:Show()
         elseif eq and eq.ilvl and (it.ilvl or 0) <= eq.ilvl then
@@ -739,10 +875,21 @@ local function setSlotItem(b, g, it, mainTwo)
             elseif rawget(GameTooltip, "__gifItem") ~= it.id then   -- 全局那行没加上（物品没缓存、走了简版）才补
                 GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("需要 ", "Req ") .. req .. ns.L(" 级 · 掉落：", " · Drops: ") .. (it.srcName or ""), 1, 0.82, 0.4, true)
             end
+            -- 10-18 按天赋：写明按哪套挑的、这件最值钱的几项属性
+            local SG, spec = ns.SpecGear, gp.curSpec
+            local si = spec and SG.SpecInfo(myClass(), spec)
+            if si then
+                local top = SG.TopStats(it.id, it.slot, myClass(), spec, gp.curLv, 3)
+                GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("按天赋「", "Picked for ") .. ns.L(si.zh, si.en) .. ns.L("」挑的", "")
+                    .. (#top > 0 and ("：" .. table.concat(top, " · ")) or ns.L("（这件没有属性数据，按装等排）", " (no stat data, ranked by ilvl)")), 0.8, 0.8, 0.8, true)
+            end
+            local why = self.cmpBy == "spec" and ns.L("按这个天赋的属性算", "by this spec's stat weights") or ns.L("装等更高", "higher ilvl")
             if self.cmp == "worn" then GameTooltip:AddLine(ns.L("你已经穿着这件", "You're wearing this"), 0.4, 1, 0.4)
-            elseif self.cmp == "up" then GameTooltip:AddLine(ns.L("比你身上这格好（装等更高）", "Upgrade over what you wear (higher ilvl)"), 0.4, 1, 0.4)
-            elseif self.cmp == "down" then GameTooltip:AddLine(ns.L("不如你身上这格", "Worse than what you wear"), 0.6, 0.6, 0.6) end
+            elseif self.cmp == "up" then GameTooltip:AddLine(ns.L("比你身上这格好（", "Upgrade over what you wear (") .. why .. ns.L("）", ")"), 0.4, 1, 0.4)
+            elseif self.cmp == "down" then GameTooltip:AddLine(ns.L("不如你身上这格", "Worse than what you wear")
+                .. (self.cmpBy == "spec" and ns.L("（按这个天赋的属性算）", " (by this spec's stat weights)") or ""), 0.6, 0.6, 0.6) end
             if it.src ~= "quest" then GameTooltip:AddLine(ns.L("点击：去掉落页看这个副本", "Click: open this dungeon on the Loot page"), 0.6, 0.6, 0.6) end
+            GameTooltip:AddLine(ns.L("Shift + 点击：发到聊天框 · Ctrl + 点击：试穿", "Shift-click: link in chat - Ctrl-click: try on"), 0.6, 0.6, 0.6)
         elseif g[1] == "off" and mainTwo then
             GameTooltip:AddLine(ns.L("副手", "Off hand"), 1, 0.82, 0)
             GameTooltip:AddLine(ns.L("推荐的主手是双手武器，副手用不上", "The main-hand pick is two-handed, so no off hand"), 0.8, 0.8, 0.8, true)
@@ -756,6 +903,7 @@ local function setSlotItem(b, g, it, mainTwo)
         GameTooltip:Show()
     end)
     b:SetScript("OnClick", function()
+        if it and ns.ItemModClick and ns.ItemModClick(it.id, it.n) then return end   -- Shift 发聊天 / Ctrl 试穿
         if it and it.src ~= "quest" and it.dn and ns.LootShowDungeon then ns.LootShowDungeon(it.dn) end
     end)
 end
@@ -786,7 +934,7 @@ local function buildModel(parent)
 end
 
 local function dressModel(bySlot)
-    local m = page.model
+    local m = gp.model
     if not m then return end
     pcall(m.SetUnit, m, "player")
     if m.TryOn then
@@ -796,8 +944,9 @@ local function dressModel(bySlot)
 end
 
 local function refreshGear(tgt)
-    local bySlot = bestGearBySlot(tgt)
-    local W = page.gearFrame:GetWidth() or 646
+    local bySlot, spec = bestGearBySlot(tgt)
+    gp.curSpec, gp.curLv = spec, tgt
+    local W = gp.gearFrame:GetWidth() or 646
     if not tonumber(W) or W < 300 then W = 646 end
     -- 10-08 照英雄榜纸娃娃：图标贴两边，名字朝中间写，模型夹在中间；底部 主手（字在左）· 副手（字在右）· 远程（右下角，字在左）
     local cx = math.floor(W / 2)
@@ -830,10 +979,10 @@ local function refreshGear(tgt)
         placeLabel(b, p[2], p[3])
         setSlotItem(b, g, bySlot[g[1]], mainTwo); b:Show()
     end
-    if page.model then
-        page.model:ClearAllPoints()
-        page.model:SetPoint("TOPLEFT", cx - MODEL_HALF, 0)
-        page.model:SetPoint("BOTTOMRIGHT", page.gearFrame, "TOPLEFT", cx + MODEL_HALF, by + 6)
+    if gp.model then
+        gp.model:ClearAllPoints()
+        gp.model:SetPoint("TOPLEFT", cx - MODEL_HALF, 0)
+        gp.model:SetPoint("BOTTOMRIGHT", gp.gearFrame, "TOPLEFT", cx + MODEL_HALF, by + 6)
         dressModel(bySlot)
     end
     -- 底部汇总：几个格子有推荐 · 副本几件（按副本数）· 任务几件；悬停看明细
@@ -852,20 +1001,20 @@ local function refreshGear(tgt)
     local topD, topN = nil, 0
     for dn, c in pairs(byD) do if c > topN or (c == topN and topD and dn < topD) then topD, topN = dn, c end end
     local art = topD and ns.DungeonArt and lootDungeonByName(topD) and ns.DungeonArt(lootDungeonByName(topD))
-    local H = page.gearFrame:GetHeight() or 366
+    local H = gp.gearFrame:GetHeight() or 366
     if not tonumber(H) or H < 200 then H = 366 end
-    page.gearArtDn = (art and art.big) and topD or nil
+    gp.gearArtDn = (art and art.big) and topD or nil
     if art and art.big then
-        page.gearBg:SetTexture(art.big); page.gearBg:SetTexCoord(ns.ArtCoord({ region = art.bigRegion }, W, H)); page.gearBg:Show(); page.gearShade:Show()
-        page.gearBgCap:SetText(topD .. " · " .. topN .. ns.L(" 件", ""))
-        page.gearBgFull = ns.L("背景是「", "Backdrop: ") .. topD .. ns.L("」：这套推荐里有 ", " — ") .. topN .. ns.L(" 件出自这个副本，是最多的", " pieces of this set drop here (the most)")
-        page.gearBgCap:Show()
+        gp.gearBg:SetTexture(art.big); gp.gearBg:SetTexCoord(ns.ArtCoord({ region = art.bigRegion }, W, H)); gp.gearBg:Show(); gp.gearShade:Show()
+        gp.gearBgCap:SetText(topD .. " · " .. topN .. ns.L(" 件", ""))
+        gp.gearBgFull = ns.L("背景是「", "Backdrop: ") .. topD .. ns.L("」：这套推荐里有 ", " — ") .. topN .. ns.L(" 件出自这个副本，是最多的", " pieces of this set drop here (the most)")
+        gp.gearBgCap:Show()
     else
-        page.gearBg:Hide(); page.gearShade:Hide(); page.gearBgCap:Hide()
+        gp.gearBg:Hide(); gp.gearShade:Hide(); gp.gearBgCap:Hide()
     end
-    page.gearNote:SetText(ns.L("推荐 ", "") .. n .. "/" .. total .. ns.L(" 格 · 副本 ", " slots · dungeons ") .. nd
+    gp.gearNote:SetText(ns.L("推荐 ", "") .. n .. "/" .. total .. ns.L(" 格 · 副本 ", " slots · dungeons ") .. nd
         .. ns.L(" 件 · 任务 ", " · quests ") .. nq .. ns.L(" 件（悬停看明细）", " (hover for details)"))
-    page.gearNoteHit:SetScript("OnEnter", function(self)
+    gp.gearNoteHit:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP"); GameTooltip:AddLine(ns.L("装备来源", "Gear sources"), 1, 0.82, 0)
         local names = {}
         for dn in pairs(byD) do names[#names + 1] = dn end
@@ -877,6 +1026,52 @@ local function refreshGear(tgt)
     end)
 end
 
+
+
+-- 纸娃娃那块内容区（10-18 用户「往外提一个标签页出来」：原是升级规划里的「装备」视图，独立成「装备」大类下的页签）
+local function buildGearFrame(p, x, y, w, h)
+    gp.gearFrame = CreateFrame("Frame", nil, p)
+    gp.gearFrame:SetPoint("TOPLEFT", x, y); gp.gearFrame:SetSize(w, h)
+    gp.gearBtns = {}
+    -- 副本背景图（refreshGear 里按推荐件数最多的副本换）+ 两层暗色：整体压暗，左右两列再压一点给文字
+    gp.gearBg = gp.gearFrame:CreateTexture(nil, "BACKGROUND", nil, -8); gp.gearBg:SetAllPoints(); gp.gearBg:SetAlpha(0.85); gp.gearBg:Hide()
+    gp.gearShade = gp.gearFrame:CreateTexture(nil, "BACKGROUND", nil, -7); gp.gearShade:SetAllPoints()
+    gp.gearShade:SetColorTexture(0, 0, 0, 0.45); gp.gearShade:Hide()
+    for _, side in ipairs({ "LEFT", "RIGHT" }) do
+        local s = gp.gearFrame:CreateTexture(nil, "BACKGROUND", nil, -6)
+        s:SetPoint("TOP" .. side); s:SetPoint("BOTTOM" .. side); s:SetWidth(230)
+        s:SetColorTexture(1, 1, 1, 1)
+        local dark, clear = CreateColor and CreateColor(0, 0, 0, 0.55), CreateColor and CreateColor(0, 0, 0, 0)
+        if s.SetGradient and dark then
+            pcall(s.SetGradient, s, "HORIZONTAL", side == "LEFT" and dark or clear, side == "LEFT" and clear or dark)
+        else s:SetColorTexture(0, 0, 0, 0.3) end
+    end
+    -- 细金边框住整块（和掉落页副本横幅同一个金色）
+    for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", nil, 1 }, { "BOTTOMLEFT", "BOTTOMRIGHT", nil, 1 }, { "TOPLEFT", "BOTTOMLEFT", 1, nil }, { "TOPRIGHT", "BOTTOMRIGHT", 1, nil } }) do
+        local l = gp.gearFrame:CreateTexture(nil, "BORDER"); l:SetPoint(e[1]); l:SetPoint(e[2]); l:SetColorTexture(1, 0.82, 0, 0.35)
+        if e[3] then l:SetWidth(e[3]) else l:SetHeight(e[4]) end
+    end
+    gp.gearBgCap = gp.gearFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    gp.gearBgCap:SetPoint("TOP", 0, -2); gp.gearBgCap:SetWordWrap(false); gp.gearBgCap:Hide()
+    if gp.gearBgCap.SetFont then pcall(gp.gearBgCap.SetFont, gp.gearBgCap, SUB_FONT, 10, "") end
+    gp.gearBgHit = CreateFrame("Button", nil, gp.gearFrame)
+    gp.gearBgHit:SetAllPoints(gp.gearBgCap)
+    gp.gearBgHit:SetScript("OnEnter", function(self)
+        if not gp.gearArtDn then return end
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM"); GameTooltip:AddLine(gp.gearBgFull or "", 1, 0.82, 0, true)
+        GameTooltip:AddLine(ns.L("点击：去掉落页看这个副本", "Click: open this dungeon on the Loot page"), 0.6, 0.6, 0.6); GameTooltip:Show()
+    end)
+    gp.gearBgHit:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    gp.gearBgHit:SetScript("OnClick", function() if gp.gearArtDn and ns.LootShowDungeon then ns.LootShowDungeon(gp.gearArtDn) end end)
+    gp.model = buildModel(gp.gearFrame)
+    gp.gearNote = gp.gearFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    gp.gearNote:SetPoint("BOTTOMLEFT", 10, 4); gp.gearNote:SetPoint("RIGHT", -10, 0); gp.gearNote:SetJustifyH("CENTER")
+    gp.gearNote:SetWordWrap(false)   -- 文字太长就裁掉，⛔不许自动换行把自己顶到图标格子上去
+    gp.gearNoteHit = CreateFrame("Frame", nil, gp.gearFrame)
+    gp.gearNoteHit:SetPoint("TOPLEFT", gp.gearNote, "TOPLEFT"); gp.gearNoteHit:SetPoint("BOTTOMRIGHT", gp.gearNote, "BOTTOMRIGHT")
+    gp.gearNoteHit:EnableMouse(true)
+    gp.gearNoteHit:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
 
 -- ---------- 刷本清单（10-07 用户截图「整个装备刷本规划，列出刷什么本，哪个 BOSS，或者什么任务线」）----------
 -- 和「装备」同一套推荐（bestGearBySlot，到范围上限那一级能拿到的最好），换个角度排：
@@ -1144,6 +1339,105 @@ local function refreshFarm(lo, tgt)
     c:SetHeight(-y + 8)
 end
 
+-- ---------- 副本任务路线（11-04 官方副本任务指南）：当前等级范围内的副本，按等级从低到高 ----------
+-- 数据函数（测试 / 三端对拍用）：只列对当前阵营开放的副本；官方清单里能接的任务按副本外 / 副本内分开数
+ns.PlanDQRoute = function(lo, hi, all)
+    local out = {}
+    if not (ns.DQ and ns.DQList) then return out end
+    local fac = UnitFactionGroup and UnitFactionGroup("player")
+    local mine = (fac == "Alliance" and "A") or (fac == "Horde" and "H") or nil
+    for _, d in ipairs(ns.DQ.dungeons) do
+        local fits = all or not mine or d.side == "" or d.side == mine
+        local nOff, nIn, nOut = 0, 0, 0
+        for _, o in ipairs(d.off or {}) do
+            if all or not mine or o.s == "" or o.s == mine then
+                nOff = nOff + 1
+                if o.w == "in" then nIn = nIn + 1 else nOut = nOut + 1 end
+            end
+        end
+        local mineList = ns.DQList(d, all)
+        if fits and (#mineList > 0 or nOff > 0) and d.max >= lo and d.min <= hi then
+            local nDone = 0
+            for _, e in ipairs(mineList) do if e.s == "done" then nDone = nDone + 1 end end
+            out[#out + 1] = { d = d, min = d.min, max = d.max, nLocal = #mineList, nDone = nDone, nOff = nOff, nIn = nIn, nOut = nOut }
+        end
+    end
+    table.sort(out, function(a, b)
+        if a.min ~= b.min then return a.min < b.min end
+        if a.max ~= b.max then return a.max < b.max end
+        return a.d.k < b.d.k
+    end)
+    return out
+end
+
+local function dqRouteRow(i)
+    if type(rawget(page, "dq")) ~= "table" then page.dq = { rows = {} } end
+    local r = page.dq.rows[i]
+    if r then return r end
+    r = CreateFrame("Button", nil, page.child)
+    r.bg = r:CreateTexture(nil, "BACKGROUND"); r.bg:SetAllPoints(); r.bg:SetColorTexture(0.13, 0.11, 0.08, 0.95)
+    r.edge = r:CreateTexture(nil, "OVERLAY"); r.edge:SetPoint("BOTTOMLEFT"); r.edge:SetPoint("BOTTOMRIGHT"); r.edge:SetHeight(1); r.edge:SetColorTexture(1, 0.82, 0, 0.35)
+    r.lv = r:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"); r.lv:SetPoint("LEFT", 10, 0); r.lv:SetWidth(64); r.lv:SetJustifyH("LEFT")
+    r.t = r:CreateFontString(nil, "OVERLAY", "GameFontNormal"); r.t:SetPoint("TOPLEFT", 78, -7); r.t:SetPoint("RIGHT", -120, 0); r.t:SetJustifyH("LEFT"); r.t:SetWordWrap(false)
+    r.s = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); r.s:SetPoint("TOPLEFT", 78, -26); r.s:SetPoint("RIGHT", -10, 0); r.s:SetJustifyH("LEFT"); r.s:SetWordWrap(false)
+    r.tag = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); r.tag:SetPoint("TOPRIGHT", -10, -9); r.tag:SetJustifyH("RIGHT")
+    local hl = r:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 0.82, 0, 0.08)
+    r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    page.dq.rows[i] = r
+    return r
+end
+
+local function refreshDQRoute(lo, hi)
+    for _, r in ipairs(page.rows) do r:Hide() end
+    if type(rawget(page, "dq")) ~= "table" then page.dq = { rows = {} } end
+    for _, r in ipairs(page.dq.rows) do r:Hide() end
+    local list = ns.PlanDQRoute(lo, hi, false)
+    local y = -2
+    if #list == 0 then
+        local r = dqRouteRow(1)
+        r.lv:SetText(""); r.tag:SetText(""); r.s:SetText("")
+        r.t:SetText("|cff999999" .. ns.L("这个等级范围里没有适合你阵营的副本任务（往右拖等级条）", "No dungeon quests for your faction in this range") .. "|r")
+        r:SetScript("OnClick", nil); r:SetScript("OnEnter", nil)
+        r:ClearAllPoints(); r:SetPoint("TOPLEFT", 0, y); r:SetPoint("RIGHT", page.child, "RIGHT", 0, 0); r:SetHeight(34); r:Show()
+        y = y - 36
+    end
+    for i, e in ipairs(list) do
+        local d, r = e.d, dqRouteRow(i)
+        local dn = d.n
+        for _, ld in ipairs((ns.Data.loot or {}).dungeons or {}) do
+            if ld.nEn == (d.loot or {})[1] then dn = ns.L((ld.n or ""):gsub("：.*$", ""), d.n); break end
+        end
+        r.lv:SetText("|cffffd100" .. e.min .. "-" .. e.max .. "|r")
+        r.t:SetText(dn .. (d.new and ("  |cff33ff99" .. ns.L("新", "New") .. "|r") or ""))
+        local ent = ns.DQEntrance and ns.DQEntrance(d)
+        local bits = {}
+        if e.nOut > 0 then bits[#bits + 1] = ns.L("副本外先接 ", "Pick up outside: ") .. e.nOut end
+        if e.nIn > 0 then bits[#bits + 1] = ns.L("副本内 ", "Inside: ") .. e.nIn end
+        if e.nLocal > 0 then bits[#bits + 1] = ns.L("已完成 ", "Done ") .. e.nDone .. "/" .. e.nLocal end
+        if ent then bits[#bits + 1] = ns.L("入口 ", "Entrance: ") .. (ent.zc or "") end
+        if #bits == 0 then bits[1] = ns.L("暂无任务数据", "No quest data") end
+        r.s:SetText("|cffbbbbbb" .. table.concat(bits, ns.L("　", "  ")) .. "|r")
+        local _, _, warn = ns.DQEntrance(d)
+        r.tag:SetText(warn and ("|cffff9966" .. ns.L("有风险", "Risky") .. "|r") or (e.nLocal > 0 and e.nDone == e.nLocal and ("|cff7f7f7f" .. ns.L("全部完成", "All done") .. "|r")) or "")
+        r:SetScript("OnClick", function() if ns.ShowDungeonQuests then ns.ShowDungeonQuests(d, page) end end)
+        r:SetScript("OnEnter", function(self)
+            local en, route, w = ns.DQEntrance(d)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(dn, 1, 0.82, 0)
+            GameTooltip:AddLine(string.format(ns.L("等级 %d-%d · 官方指南任务 %d 个（副本外 %d / 副本内 %d）", "Level %d-%d - %d guide quests (%d outside / %d inside)"), e.min, e.max, e.nOff, e.nOut, e.nIn), 1, 1, 1, true)
+            if en then
+                GameTooltip:AddLine(ns.L("入口：", "Entrance: ") .. (en.zc or "") .. ((en.x and en.x > 0) and string.format(" (%.0f, %.0f)", en.x, en.y) or "") .. ((en.sp and en.sp ~= "") and ("　" .. en.sp) or ""), 0.8, 0.9, 1, true)
+            end
+            if route then GameTooltip:AddLine(route, 0.85, 0.85, 0.85, true) end
+            if w then GameTooltip:AddLine(w, 1, 0.6, 0.4, true) end
+            GameTooltip:AddLine(ns.L("点击：看谁给、在哪、前置和奖励", "Click: giver, location, prerequisites and rewards"), 0.5, 0.5, 0.5)
+            GameTooltip:Show()
+        end)
+        r:ClearAllPoints(); r:SetPoint("TOPLEFT", 0, y); r:SetPoint("RIGHT", page.child, "RIGHT", 0, 0); r:SetHeight(46); r:Show()
+        y = y - 48
+    end
+    page.child:SetHeight(-y + 8)
+end
+
 function refresh()   -- 赋给上面前向声明的 local
     if not page then return end
     local lo, hi = refreshHeader()
@@ -1162,19 +1456,26 @@ function refresh()   -- 赋给上面前向声明的 local
     end
     -- 10-12 第四个视图「路线」（Route.lua，HOLD 期间不进包 → 没有 ns.RefreshRouteView 时这个按钮根本不建）
     if viewMode == "route" and ns.RefreshRouteView then
-        page.sf:Hide(); page.gearFrame:Hide()
+        page.sf:Hide()
         ns.RefreshRouteView(page, lo, hi)
         return
     end
     if ns.HideRouteView then ns.HideRouteView(page) end
-    if viewMode == "gear" then
-        page.sf:Hide(); page.gearFrame:Show()
-        refreshGear(hi)   -- 装备按范围上限（「到那一级能拿到的最好」）
+    if viewMode ~= "dq" and type(rawget(page, "dq")) == "table" then
+        for _, r in ipairs(page.dq.rows) do r:Hide() end
+    end
+    if viewMode == "dq" then
+        page.sf:Show()
+        if type(rawget(page, "farm")) == "table" then
+            for _, r in ipairs(page.farm.rows) do r:Hide() end
+            for _, r in ipairs(page.farm.cards) do r:Hide() end
+        end
+        refreshDQRoute(lo, hi)
     elseif viewMode == "farm" then
-        page.gearFrame:Hide(); page.sf:Show()
+        page.sf:Show()
         refreshFarm(lo, hi)
     else
-        page.gearFrame:Hide(); page.sf:Show()
+        page.sf:Show()
         if type(rawget(page, "farm")) == "table" then
             for _, r in ipairs(page.farm.rows) do r:Hide() end
             for _, r in ipairs(page.farm.cards) do r:Hide() end
@@ -1186,6 +1487,14 @@ end
 ns.RefreshPlanPage = refresh
 -- 切视图（/gif route 直达路线用）
 function ns.PlanSetView(m) viewMode = m; if page then refresh() end end
+-- 别的页跳过来看某一级（专业页「我的时刻表」点节点）：范围设成这一级起 6 级，再打开升级规划
+function ns.PlanShowLevel(lv)
+    lv = tonumber(lv)
+    if not lv then return end
+    setRangeRaw(lv, lv + 5)
+    if ns.ToggleMain then ns.ToggleMain("plan") end
+    if page then refresh() end
+end
 
 local function setRange(lo, hi)
     setRangeRaw(lo, hi)
@@ -1262,12 +1571,13 @@ local function build(p)
     local VIEW_TIP = {
         timeline = ns.L("按等级列出从现在到目标等级要做的事：点哪个天赋、找训练师学什么技能、导哪些宏、接哪些解锁技能的任务。",
             "Everything to do from now to the target level, by level: talents to pick, trainer spells, macros to import, quests that unlock abilities."),
-        gear = ns.L("像 C 键角色栏那样，按部位摆出到目标等级能拿到的最好装备（地下城掉落 + 职业任务链）。",
-            "A character-sheet view of the best gear per slot you can get by the target level (dungeon drops + class quest chains)."),
         farm = ns.L("等级范围内一路升级的刷本路线：每一级能拿到的最好装备都列出来（从几级用到几级），按副本从低到高排：先刷哪个本、打哪个首领、拿哪件；任务线单独列。",
             "The recommended gear as a farming route: which dungeon, which boss, which item; quest chains listed separately."),
     }
-    local views = { { "timeline", ns.L("地图待办", "Plan") }, { "gear", ns.L("装备", "Gear") }, { "farm", ns.L("刷本清单", "Farm list") } }
+    -- 10-18「装备」视图搬去「装备」大类自己的页签（PagePlan 末尾 key = "gear"），这里只剩地图待办 / 刷本清单 / 路线
+    local views = { { "timeline", ns.L("地图待办", "Plan") }, { "farm", ns.L("刷本清单", "Farm list") }, { "dq", ns.L("副本任务", "Dungeon quests") } }
+    VIEW_TIP.dq = ns.L("按等级从低到高列出这个等级范围内你阵营能去的副本：哪些任务要在副本外先接、入口在哪怎么走、有没有风险；点一行看任务详情（官方副本任务指南）。",
+        "Dungeons for your faction in the level range, low to high: which quests to pick up outside, where the entrance is and how to get there; click for quest details (official guide).")
     VIEW_TIP.timeline = ns.L("地图与待办合在一条等级时间线：先看去哪练级，再看天赋、技能、宏和副本任务。地图按当前角色阵营种族推荐，切换等级范围一起更新。",
         "Zones and to-dos share a level timeline. Recommendations use your character's faction and race; changing the range updates both.")
     if ns.RefreshRouteView then
@@ -1276,11 +1586,11 @@ local function build(p)
             "Find zones for your level and the next stage. Look up levels 1-60, switch faction/race, or view the full route. Click a zone to open its map.")
     end
     for _, v in ipairs(views) do
-        local b = ns.Button(p, v[2], 72, 22, function()
+        local b = ns.Button(p, v[2], 68, 22, function()
             viewMode = v[1]; page.needScroll = true
             if viewMode == "route" and ns.RouteSetMode then ns.RouteSetMode("all") else refresh() end
         end)
-        b:SetPoint("TOPLEFT", vx, -40); vx = vx + 76
+        b:SetPoint("TOPLEFT", vx, -40); vx = vx + 70
         b:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(v[2], 1, 0.82, 0)
             GameTooltip:AddLine(VIEW_TIP[v[1]], 1, 1, 1, true); GameTooltip:Show()
@@ -1338,49 +1648,6 @@ local function build(p)
     local sf, c = ns.Scroll(p, 4, -100, 646, 474 - 100 - 8)
     page.sfX, page.sfY, page.sfW, page.sfH = 4, -100, 646, 474 - 100 - 8   -- 刷本清单的固定筛选栏要让位（placeScroll）
     page.child, page.rows, page.sf = c, {}, sf
-    -- 装备页：纸娃娃，和时间轴共用同一块内容区，切页签时互相 Show/Hide
-    page.gearFrame = CreateFrame("Frame", nil, p)
-    page.gearFrame:SetPoint("TOPLEFT", sf, "TOPLEFT"); page.gearFrame:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT")
-    page.gearFrame:Hide()
-    page.gearBtns = {}
-    -- 副本背景图（refreshGear 里按推荐件数最多的副本换）+ 两层暗色：整体压暗，左右两列再压一点给文字
-    page.gearBg = page.gearFrame:CreateTexture(nil, "BACKGROUND", nil, -8); page.gearBg:SetAllPoints(); page.gearBg:SetAlpha(0.85); page.gearBg:Hide()
-    page.gearShade = page.gearFrame:CreateTexture(nil, "BACKGROUND", nil, -7); page.gearShade:SetAllPoints()
-    page.gearShade:SetColorTexture(0, 0, 0, 0.45); page.gearShade:Hide()
-    for _, side in ipairs({ "LEFT", "RIGHT" }) do
-        local s = page.gearFrame:CreateTexture(nil, "BACKGROUND", nil, -6)
-        s:SetPoint("TOP" .. side); s:SetPoint("BOTTOM" .. side); s:SetWidth(230)
-        s:SetColorTexture(1, 1, 1, 1)
-        local dark, clear = CreateColor and CreateColor(0, 0, 0, 0.55), CreateColor and CreateColor(0, 0, 0, 0)
-        if s.SetGradient and dark then
-            pcall(s.SetGradient, s, "HORIZONTAL", side == "LEFT" and dark or clear, side == "LEFT" and clear or dark)
-        else s:SetColorTexture(0, 0, 0, 0.3) end
-    end
-    -- 细金边框住整块（和掉落页副本横幅同一个金色）
-    for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", nil, 1 }, { "BOTTOMLEFT", "BOTTOMRIGHT", nil, 1 }, { "TOPLEFT", "BOTTOMLEFT", 1, nil }, { "TOPRIGHT", "BOTTOMRIGHT", 1, nil } }) do
-        local l = page.gearFrame:CreateTexture(nil, "BORDER"); l:SetPoint(e[1]); l:SetPoint(e[2]); l:SetColorTexture(1, 0.82, 0, 0.35)
-        if e[3] then l:SetWidth(e[3]) else l:SetHeight(e[4]) end
-    end
-    page.gearBgCap = page.gearFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    page.gearBgCap:SetPoint("TOP", 0, -2); page.gearBgCap:SetWordWrap(false); page.gearBgCap:Hide()
-    if page.gearBgCap.SetFont then pcall(page.gearBgCap.SetFont, page.gearBgCap, SUB_FONT, 10, "") end
-    page.gearBgHit = CreateFrame("Button", nil, page.gearFrame)
-    page.gearBgHit:SetAllPoints(page.gearBgCap)
-    page.gearBgHit:SetScript("OnEnter", function(self)
-        if not page.gearArtDn then return end
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM"); GameTooltip:AddLine(page.gearBgFull or "", 1, 0.82, 0, true)
-        GameTooltip:AddLine(ns.L("点击：去掉落页看这个副本", "Click: open this dungeon on the Loot page"), 0.6, 0.6, 0.6); GameTooltip:Show()
-    end)
-    page.gearBgHit:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    page.gearBgHit:SetScript("OnClick", function() if page.gearArtDn and ns.LootShowDungeon then ns.LootShowDungeon(page.gearArtDn) end end)
-    page.model = buildModel(page.gearFrame)
-    page.gearNote = page.gearFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    page.gearNote:SetPoint("BOTTOMLEFT", 10, 4); page.gearNote:SetPoint("RIGHT", -10, 0); page.gearNote:SetJustifyH("CENTER")
-    page.gearNote:SetWordWrap(false)   -- 文字太长就裁掉，⛔不许自动换行把自己顶到图标格子上去
-    page.gearNoteHit = CreateFrame("Frame", nil, page.gearFrame)
-    page.gearNoteHit:SetPoint("TOPLEFT", page.gearNote, "TOPLEFT"); page.gearNoteHit:SetPoint("BOTTOMRIGHT", page.gearNote, "BOTTOMRIGHT")
-    page.gearNoteHit:EnableMouse(true)
-    page.gearNoteHit:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
 ns.RegisterPage({ key = "plan", order = 1.8, title = ns.L("升级规划", "Leveling plan"), icon = "Interface\\Icons\\Ability_Hunter_Pathfinding",
@@ -1398,5 +1665,127 @@ do
         if pending or not page or not page:IsShown() then return end
         pending = true
         C_Timer.After(0.3, function() pending = false; if page and page:IsShown() then refresh() end end)
+    end)
+end
+
+-- ---------- 「装备」页签（10-18 用户截图「这个往外提一个标签页出来」：原升级规划里的「装备」视图）----------
+-- 放在左栏「装备」大类第一个（UI.lua GROUPS grp_gear）。没有升级规划的等级范围条了 → 自己一行「目标等级」：
+--   默认跟着你当前等级走（db 里不存），点 -/+ 或快捷按钮才记一个固定等级；点「当前等级」恢复跟随。
+local function gearTarget()
+    local v = ns.db and ns.db.ui and ns.db.ui.gearTgt
+    return v and clampLv(v) or clampLv(curLv())
+end
+
+local function refreshGearPage()
+    if not gp.page then return end
+    local t, cur = gearTarget(), clampLv(curLv())
+    gp.tgtTxt:SetText(t)
+    local hint
+    if t == cur then hint = ns.L("= 你现在的等级（升级后自动跟着变）", "= your level (follows as you level)")
+    elseif t > cur then hint = string.format(ns.L("比你现在高 %d 级", "%d levels above you"), t - cur)
+    else hint = string.format(ns.L("比你现在低 %d 级", "%d levels below you"), cur - t) end
+    gp.hint:SetText(ns.EnSafe(hint))
+    gp.minus:SetEnabled(t > 1); gp.plus:SetEnabled(t < 60)
+    if gp.specBtn then
+        local SG, cls = ns.SpecGear, myClass()
+        if SG and SG.Available() and #SG.Specs(cls) > 0 then
+            local cur = SG.Current(cls)
+            local si = SG.SpecInfo(cls, cur)
+            -- 10-18 用户截图：全名「野德（猫，输出）（自动）」撑出按钮 → 短名 + 按字宽定按钮宽（全名在悬停里）
+            gp.specBtn:SetText(ns.L("天赋：", "Spec: ") .. (si and ns.L(si.s or si.zh, si.sEn or si.en) or "?")
+                .. (SG.Picked(cls) and "" or ns.L(" · 自动", " · auto")))
+            local fs = gp.specBtn.GetFontString and gp.specBtn:GetFontString()
+            local tw = fs and fs.GetStringWidth and fs:GetStringWidth()
+            if tw and tw > 0 then gp.specBtn:SetWidth(math.max(96, math.min(170, math.floor(tw + 30)))) end
+            gp.specBtn:Show()
+        else
+            gp.specBtn:Hide()
+        end
+    end
+    refreshGear(t)   -- 到这一级能拿到的最好
+end
+ns.RefreshGearPage = refreshGearPage
+
+local function setGearTarget(v)
+    ns.db.ui.gearTgt = v and clampLv(v) or nil
+    if ns.db.ui.gearTgt == clampLv(curLv()) then ns.db.ui.gearTgt = nil end   -- 和当前等级一样 = 跟随
+    refreshGearPage()
+end
+ns.SetGearTarget = setGearTarget
+
+local function buildGearPage(p)
+    gp.page = p
+    ns.GearPage = gp   -- 测试 / 调试用
+    ns.PageHeader(p, ns.L("推荐装备", "Gear picks"),
+        ns.L("像 C 键角色栏那样，按部位摆出到目标等级能拿到的最好装备：按你的天赋看属性（地下城掉落 + 职业任务链）", "Best gear per slot you can get by the target level, weighted for your spec (dungeon drops + class quest chains)"))
+    local lbl = p:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    lbl:SetPoint("TOPLEFT", 12, -48); lbl:SetText(ns.L("目标等级", "Target level"))
+    gp.minus = ns.Button(p, "-", 24, 22, function() setGearTarget(gearTarget() - 1) end)
+    gp.minus:SetPoint("LEFT", lbl, "RIGHT", 8, 0)
+    gp.tgtTxt = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+    gp.tgtTxt:SetPoint("LEFT", gp.minus, "RIGHT", 4, 0); gp.tgtTxt:SetWidth(30); gp.tgtTxt:SetJustifyH("CENTER")
+    gp.plus = ns.Button(p, "+", 24, 22, function() setGearTarget(gearTarget() + 1) end)
+    gp.plus:SetPoint("LEFT", gp.tgtTxt, "RIGHT", 4, 0)
+    gp.quick = {}
+    local prev, first = gp.plus, true
+    for _, q in ipairs({
+        { "now", ns.L("当前等级", "My level"), 70, function() return nil end, ns.L("看你现在这一级能穿的最好装备；之后升级会自动跟着变", "Best gear for your current level; follows you as you level") },
+        { "p5", ns.L("+5 级", "+5"), 52, function() return curLv() + 5 end, ns.L("看 5 级后能拿到的最好装备", "Best gear 5 levels from now") },
+        { "p10", ns.L("+10 级", "+10"), 56, function() return curLv() + 10 end, ns.L("看 10 级后能拿到的最好装备", "Best gear 10 levels from now") },
+        { "max", ns.L("60 级", "60"), 52, function() return 60 end, ns.L("看满级能拿到的最好装备", "Best gear at level 60") },
+    }) do
+        local b = ns.Button(p, q[2], q[3], 22, function() setGearTarget(q[4]()) end)
+        b:SetPoint("LEFT", prev, "RIGHT", first and 14 or 4, 0); prev, first = b, false
+        b:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(q[2], 1, 0.82, 0)
+            GameTooltip:AddLine(q[5], 1, 1, 1, true); GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        gp.quick[q[1]] = b
+    end
+    -- 10-18 按天赋挑：点一下换下一套（自动 → 各天赋 → 自动），按角色存
+    gp.specBtn = ns.Button(p, ns.L("天赋：自动", "Spec: auto"), 170, 22, function()
+        local SG, cls = ns.SpecGear, myClass()
+        local keys = { "auto" }
+        for _, sp in ipairs(SG.Specs(cls)) do keys[#keys + 1] = sp.k end
+        local cur = SG.Picked(cls) or "auto"
+        local nxt = keys[1]
+        for i, k in ipairs(keys) do if k == cur then nxt = keys[i % #keys + 1] end end
+        SG.Set(cls, nxt)
+        refreshGearPage()
+    end)
+    gp.specBtn:SetPoint("TOPRIGHT", p, "TOPRIGHT", -12, -46)
+    gp.specBtn:SetScript("OnEnter", function(self)
+        local SG, cls = ns.SpecGear, myClass()
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
+        GameTooltip:AddLine(ns.L("按天赋挑装备", "Gear by spec"), 1, 0.82, 0)
+        GameTooltip:AddLine(ns.L("每个天赋看重的属性不同（野德要敏捷力量，奶德要治疗智力）。默认按你点数最多的那一系自动选，点这里可以手动换。",
+            "Each spec values different stats. By default the spec follows your most-invested talent tree; click to switch."), 1, 1, 1, true)
+        local auto = SG.AutoSpec(cls)
+        for _, sp in ipairs(SG.Specs(cls)) do
+            local mark = (sp.k == SG.Current(cls)) and "|cff33ff99> |r" or "   "
+            GameTooltip:AddLine(mark .. ns.L(sp.zh, sp.en) .. (sp.k == auto and ns.L("  |cff888888自动识别|r", "  |cff888888auto|r") or ""), 0.9, 0.9, 0.9)
+        end
+        GameTooltip:Show()
+    end)
+    gp.specBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    gp.hint = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    gp.hint:SetPoint("LEFT", prev, "RIGHT", 10, 0)
+    gp.hint:SetPoint("RIGHT", gp.specBtn, "LEFT", -8, 0); gp.hint:SetJustifyH("LEFT"); gp.hint:SetWordWrap(false)
+    buildGearFrame(p, 4, -76, 646, 474 - 76 - 8)
+end
+
+ns.RegisterPage({ key = "gear", order = 1.95, title = ns.L("推荐装备", "Gear picks"), tabTitle = ns.L("推荐装备", "Gear picks"),
+    icon = "Interface\\Icons\\INV_Chest_Plate03", build = buildGearPage, refresh = refreshGearPage })
+
+-- 换装备 / 升级：纸娃娃上「已穿 / 可升级」角标和跟随等级要跟着变
+do
+    local ev = CreateFrame("Frame")
+    for _, e in ipairs({ "PLAYER_EQUIPMENT_CHANGED", "PLAYER_LEVEL_UP" }) do
+        local valid = not (C_EventUtils and C_EventUtils.IsEventValid) or C_EventUtils.IsEventValid(e)
+        if valid then pcall(ev.RegisterEvent, ev, e) end
+    end
+    ev:SetScript("OnEvent", function()
+        if gp.page and gp.page:IsShown() then C_Timer.After(0.3, function() if gp.page:IsShown() then refreshGearPage() end end) end
     end)
 end

@@ -155,7 +155,19 @@ local function BuildAlignmentOptions()
     }
 end
 
+local function GetCurrentIconLayout()
+    local session, profile = Designer:GetSession(), Designer:GetProfile()
+    return session and profile and session.selectedGroupId
+        and YHUD:GetIconGroupLayout(profile, session.selectedGroupId) or {}
+end
+
 local function BuildRowDirectionOptions()
+    if GetCurrentIconLayout().fillMode == "columns" then
+        return {
+            { text = T("designer.row_direction.down", "从上到下"), value = "down" },
+            { text = T("designer.row_direction.up", "从下到上"), value = "up" },
+        }
+    end
     return {
         {
             text = T("designer.row_direction.right", "从左到右"),
@@ -169,6 +181,13 @@ local function BuildRowDirectionOptions()
 end
 
 local function BuildIconAlignmentOptions()
+    if GetCurrentIconLayout().fillMode == "columns" then
+        return {
+            { text = T("designer.icon_alignment.top", "顶部对齐"), value = "start" },
+            { text = T("designer.alignment.center", "居中"), value = "center" },
+            { text = T("designer.icon_alignment.bottom", "底部对齐"), value = "end" },
+        }
+    end
     return {
         { text = T("designer.icon_alignment.left", "左对齐"), value = "start" },
         { text = T("designer.alignment.center", "居中"), value = "center" },
@@ -178,6 +197,9 @@ end
 
 function DesignerUI:RefreshIconAlignment(layout)
     if not self.iconAlignmentDropdown then return end
+    if self.iconAlignmentDropdown.RefreshOptions then
+        self.iconAlignmentDropdown:RefreshOptions()
+    end
     self.iconAlignmentDropdown:SetValue(layout.alignment, true)
 end
 
@@ -303,6 +325,10 @@ local function BuildShapeOptions()
         {
             text = TC("common.shape.circle", "圆形"),
             value = "circle",
+        },
+        {
+            text = TC("common.shape.diamond", "菱形"),
+            value = "diamond",
         },
     }
 end
@@ -484,6 +510,10 @@ end
 local function BuildGlowStyleOptions()
     return {
         {
+            text = T("designer.glow.style.masque", "Masque 皮肤发光"),
+            value = "masque",
+        },
+        {
             text = T("designer.glow.style.pixel", "像素线段"),
             value = "pixel",
         },
@@ -506,15 +536,21 @@ local function BuildGlowStyleOptions()
     }
 end
 
-local function BuildNativeGlowStyleOptions()
+local function BuildNativeGlowStyleOptions(includeDisabled)
     local options = {
         {
-            text = T("designer.glow.style.default", "无"),
+            text = T("designer.glow.style.native_default", "原生默认"),
             value = "default",
         },
     }
     local custom = BuildGlowStyleOptions()
     for index = 1, #custom do options[#options + 1] = custom[index] end
+    if includeDisabled ~= false then
+        options[#options + 1] = {
+            text = T("designer.glow.native_disabled", "不发光"),
+            value = "disabled",
+        }
+    end
     return options
 end
 
@@ -729,6 +765,12 @@ end
 
 function DesignerUI:BuildCurrentDirectionOptions()
     if self.settingsLayoutType == "icons" then
+        if GetCurrentIconLayout().fillMode == "columns" then
+            return {
+                { text = T("designer.direction.right", "向右"), value = "right" },
+                { text = T("designer.direction.left", "向左"), value = "left" },
+            }
+        end
         return {
             { text = T("designer.direction.up", "向上"), value = "up" },
             { text = T("designer.direction.down", "向下"), value = "down" },

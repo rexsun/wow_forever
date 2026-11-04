@@ -166,16 +166,41 @@ function Picker:DeferRefresh(container, refresh)
     return false
 end
 
-function Picker:SetSample(r, g, b, a, keepHSV)
+function Picker:SetSample(r, g, b, a, keepHSV, forcePreview)
     if not self.owner then return end
     r, g, b = Clamp(r), Clamp(g), Clamp(b)
     a = self.hasAlpha and Clamp(a == nil and self.value[4] or a) or 1
     local c = self.value
-    local changed = c[1] ~= r or c[2] ~= g or c[3] ~= b or c[4] ~= a
+    if self.mode and self.mode ~= "custom" then
+        r, g, b = c[1], c[2], c[3]
+        if self.mode == "state" then a = c[4] end
+    end
+    local changed = forcePreview or c[1] ~= r or c[2] ~= g or c[3] ~= b or c[4] ~= a or self.emittedMode ~= self.mode
     c[1], c[2], c[3], c[4] = r, g, b, a
     if not keepHSV then self.h, self.s, self.v = RGBToHSV(r, g, b, self.h) end
     if self.frame then self:Refresh() end
-    if changed and self.preview then self.preview(r, g, b, a) end
+    self.emittedMode = self.mode
+    if changed and self.preview then self.preview(r, g, b, a, self.mode) end
+end
+
+function Picker:SetMode(mode)
+    if not self.owner or not self.modes or self.mode == mode then return false end
+    local allowed = false
+    for _, option in ipairs(self.modes) do if option.value == mode then allowed = true end end
+    if not allowed or not self:FlushInputs() then return false end
+    self.mode, self.drag = mode, nil
+    self.frame:SetScript("OnUpdate", nil)
+    if mode ~= "custom" then
+        local color = self.resolveColor and self.resolveColor(mode)
+        if not color and mode == "class" then color = { GUI2:GetColor("color.class.primary") } end
+        if mode == "state" then self.stateColorKnown = color ~= nil end
+        if color then
+            self.value[1], self.value[2], self.value[3] = color[1], color[2], color[3]
+            if mode == "state" then self.value[4] = self.hasAlpha and (color[4] or 1) or 1 end
+        end
+    end
+    self:SetSample(unpack(self.value))
+    return true
 end
 
 function Picker:Close(action)
@@ -184,17 +209,22 @@ function Picker:Close(action)
     local callback = action == "confirm" and self.commit
         or action ~= "abandon" and self.cancel or nil
     local owner, c = self.owner, self.value
+    local onClose = self.onClose
     self.closingOwner = owner
     self.owner, self.preview, self.commit, self.cancel = nil, nil, nil, nil
+    self.onClose = nil
     self.drag = nil
     if self.frame then
         self.frame:SetScript("OnUpdate", nil)
         self.frame:StopMovingOrSizing()
         self.frame:Hide()
     end
-    if action == "confirm" then self:RecordRecent(c) end
+    if action == "confirm" and (not self.mode or self.mode == "custom") then self:RecordRecent(c) end
     if action == "abandon" then owner.gui2ColorPreviewActive = false end
     if callback then callback() end
+    if onClose then onClose(action) end
+    self.modes, self.mode, self.emittedMode, self.resolveColor, self.originalMode = nil, nil, nil, nil, nil
+    self.stateLabel, self.stateDynamic = nil, nil
     local deferred = self.deferredRefresh
     self.deferredRefresh, self.closingOwner = nil, nil
     if action ~= "abandon" and deferred then
@@ -212,6 +242,28 @@ end
 local function Gradient(texture, direction, r1, g1, b1, a1, r2, g2, b2, a2)
     texture:SetColorTexture(1, 1, 1, 1)
     texture:SetGradient(direction, CreateColor(r1, g1, b1, a1), CreateColor(r2, g2, b2, a2))
+end
+
+-- A language-independent symbol for a known dynamic color rule, not a sample
+-- RGBA. Allocate only when needed; all quadrants follow the existing chip bounds.
+function GUI2:SetDynamicColorSwatch(parent, region, shown)
+    local mark = parent.gui2DynamicColorSwatch
+    if shown and not mark then
+        mark = self:CreateFrame(parent)
+        mark:SetAllPoints(region)
+        mark:EnableMouse(false)
+        parent.gui2DynamicColorSwatch = mark
+        for _, quadrant in ipairs({
+            {"TOPLEFT", "CENTER", 0}, {"TOP", "RIGHT", 1/6},
+            {"LEFT", "BOTTOM", 1/2}, {"CENTER", "BOTTOMRIGHT", 2/3},
+        }) do
+            local texture = Texture(mark)
+            texture:SetPoint("TOPLEFT", mark, quadrant[1], 0, 0)
+            texture:SetPoint("BOTTOMRIGHT", mark, quadrant[2], 0, 0)
+            texture:SetColorTexture(HSVToRGB(quadrant[3], 0.8, 1))
+        end
+    end
+    if mark then mark:SetShown(shown) end
 end
 
 local function Label(parent, text, x, y)
@@ -252,6 +304,7 @@ end
 
 function Picker:ApplyInput(input)
     if not self.owner or self.refreshing or not input.dirty then return true end
+    if self.mode == "state" or self.mode == "class" and input.channel ~= 4 then input.dirty = nil; return true end
     local c
     if input.channel == "hex" then
         c = ParseHex(input:GetText(), self.value[4])
@@ -329,6 +382,7 @@ function Picker:GetFrame()
         pad.channel = channel
         pad:SetPoint("TOPLEFT", x, -y)
         pad:SetScript("OnMouseDown", function(_, button)
+            if self.mode == "state" or self.mode == "class" and channel ~= "alpha" then return end
             if button ~= "LeftButton" or not self:FlushInputs() then return end
             for _, input in ipairs(frame.inputs) do input:ClearFocus() end
             self.drag = pad
@@ -389,9 +443,11 @@ function Picker:GetFrame()
         Checker(sample, 56, 34)
         sample.texture = Texture(sample)
         sample.texture:SetAllPoints()
+        sample.unknown = GUI2:CreateText(sample, "?", "font.size.md", "color.text.secondary")
+        sample.unknown:SetPoint("CENTER")
         if index == 1 then
             frame.original = sample
-            sample:SetScript("OnClick", function() self:ChooseColor(self.original) end)
+            sample:SetScript("OnClick", function() self:ChooseColor(self.original, self.originalMode) end)
             Hint(sample, "color.picker.restore_original")
         else frame.current = sample end
     end
@@ -414,7 +470,7 @@ function Picker:GetFrame()
         frame.inputs[#frame.inputs + 1] = edit
         return edit, labelFrame
     end
-    frame.hex = Input("hex", "HEX", 228, 110, 118)
+    frame.hex, frame.hexLabel = Input("hex", "HEX", 228, 110, 118)
     for i, text in ipairs({ "R", "G", "B", "A (%)" }) do
         frame.channels[i], frame.channelLabels[i] = Input(i, text, 14 + (i - 1) * 85, 182, 77)
     end
@@ -443,14 +499,15 @@ function Picker:GetFrame()
             b.selection = GUI2:CreateText(b, "+", "font.size.lg", "color.text.primary")
             b.selection:SetPoint("CENTER")
             b:SetScript("OnClick", function(_, mouseButton)
-                if b.add then self:AddFavorite(self.value)
+                if b.add then
+                    if not self.mode or self.mode == "custom" then self:AddFavorite(self.value) end
                 elseif name == "favorites" and mouseButton == "RightButton" then self:RemoveFavorite(b.index)
                 elseif b.color then self:ChooseColor(b.color) end
                 self:RefreshLibrary()
             end)
             b:SetScript("OnEnter", function()
                 GameTooltip:SetOwner(b, "ANCHOR_RIGHT")
-                if b.add then GameTooltip:SetText(T("color.picker.add"))
+                if b.add then GameTooltip:SetText(T(self.mode and self.mode ~= "custom" and "color.picker.fixed_only" or "color.picker.add"))
                 elseif b.color then
                     GameTooltip:SetText("#" .. Hex(b.color))
                     if self.hasAlpha then GameTooltip:AddLine("A: " .. floor(b.color[4] * 100 + 0.5) .. "%") end
@@ -487,7 +544,7 @@ function Picker:LayoutFooter()
     local db = self:GetLibrary()
     local hasRecent = db and #db.recent > 0
     frame.recentLabel:SetShown(hasRecent)
-    local y = 348 - (self.hasAlpha and -12 or 24) - (hasRecent and 0 or 50)
+    local y = 348 - (self.hasAlpha and -12 or 24) - (hasRecent and 0 or 50) + (self.modes and 36 or 0)
     frame.message:ClearAllPoints()
     frame.message:SetPoint("TOPLEFT", 14, -y)
     local hasMessage = frame.message:GetText() ~= ""
@@ -559,8 +616,9 @@ function Picker:RefreshSelection()
             if button:IsShown() then
                 if button.add then
                     GUI2:SetBorderColor(button, "color.border.default")
-                    if already then button:Disable() else button:Enable() end
-                    button:SetAlpha(already and 0.35 or 1)
+                    local disabled = already or self.mode and self.mode ~= "custom"
+                    if disabled then button:Disable() else button:Enable() end
+                    button:SetAlpha(disabled and 0.35 or 1)
                 else
                     button.selection:SetText("")
                     GUI2:SetBorderColor(button, button.color and Same(button.color, self.value, self.hasAlpha)
@@ -571,10 +629,28 @@ function Picker:RefreshSelection()
     end
 end
 
-function Picker:ChooseColor(c)
+function Picker:ChooseColor(c, mode)
     for _, input in ipairs(self.frame.inputs) do input.dirty = nil end
+    local changed = self.value[1] ~= c[1] or self.value[2] ~= c[2] or self.value[3] ~= c[3]
+        or self.value[4] ~= c[4] or self.mode ~= (self.modes and (mode or "custom") or nil)
+    if self.modes then self.mode = mode or "custom" end
+    if self.mode == "state" then self.stateColorKnown = self.originalColorKnown end
     self:SetMessage("")
-    self:SetSample(unpack(c))
+    -- Explicit samples may restore a dynamic mode as well as its opening RGBA.
+    if self.mode and self.mode ~= "custom" then self.value[1], self.value[2], self.value[3], self.value[4] = unpack(c) end
+    self:SetSample(c[1], c[2], c[3], c[4], false, changed)
+end
+
+local function Enable(control, enabled)
+    if control.SetDisabled then control:SetDisabled(not enabled)
+    elseif enabled then control:Enable() else control:Disable() end
+    control:SetAlpha(enabled and 1 or 0.35)
+end
+local function PaintSample(sample, color, unknown, dynamic)
+    sample.texture:SetColorTexture(unpack(color))
+    sample.texture:SetShown(not unknown)
+    sample.unknown:SetShown(unknown and not dynamic)
+    GUI2:SetDynamicColorSwatch(sample, sample.texture, unknown and dynamic)
 end
 
 function Picker:Refresh()
@@ -589,12 +665,24 @@ function Picker:Refresh()
     frame.alpha.marker:ClearAllPoints()
     frame.alpha.marker:SetPoint("CENTER", frame.alpha, "LEFT", c[4] * frame.alpha:GetWidth(), 0)
     Gradient(frame.alpha.texture, "HORIZONTAL", c[1], c[2], c[3], 0, c[1], c[2], c[3], 1)
-    frame.original.texture:SetColorTexture(unpack(self.original))
-    frame.current.texture:SetColorTexture(unpack(c))
-    if not frame.hex.dirty then frame.hex:SetText("#" .. Hex(c)) end
+    PaintSample(frame.original, self.original, self.originalMode == "state" and not self.originalColorKnown, self.stateDynamic)
+    frame.original.unknown:SetText(self.stateLabel or "?")
+    local unknown = self.mode == "state" and not self.stateColorKnown
+    PaintSample(frame.current, c, unknown, self.stateDynamic)
+    frame.current.unknown:SetText(self.stateLabel or "?")
+    if not frame.hex.dirty then frame.hex:SetText(unknown and "—" or "#" .. Hex(c)) end
     for i, edit in ipairs(frame.channels) do
-        if not edit.dirty then edit:SetText(i == 4 and floor(c[4] * 100 + 0.5) or Byte(c[i])) end
+        if not edit.dirty then edit:SetText(unknown and "—" or i == 4 and floor(c[4] * 100 + 0.5) or Byte(c[i])) end
     end
+    if frame.modeButtons then
+        for _, button in ipairs(frame.modeButtons) do
+            local selected = button.mode == self.mode
+            GUI2:SetBorderColor(button, selected and "color.border.accent" or "color.border.default")
+        end
+    end
+    local fixed = not self.mode or self.mode == "custom"
+    for _, control in ipairs({frame.sv, frame.hue, frame.hex, frame.channels[1], frame.channels[2], frame.channels[3]}) do Enable(control, fixed) end
+    Enable(frame.alpha, self.mode ~= "state"); Enable(frame.channels[4], self.mode ~= "state")
     self:RefreshSelection()
     self.refreshing = false
 end
@@ -603,11 +691,44 @@ function Picker:Open(owner, options)
     self:Close("cancel")
     local frame = self:GetFrame()
     self.owner, self.hasAlpha = owner, options.hasAlpha ~= false
+    self.modes, self.mode, self.resolveColor = options.modes, options.modes and (options.mode or "custom"), options.resolveColor
+    self.stateLabel = options.stateLabel
+    self.stateDynamic = options.stateDynamic == true
+    self.originalMode, self.emittedMode = self.mode, self.mode
     self.value = Color(options.r, options.g, options.b, self.hasAlpha and options.a or 1)
+    local resolved = self.modes and self.resolveColor and self.resolveColor(self.mode)
+    if self.mode == "class" and not resolved then resolved = { GUI2:GetColor("color.class.primary") } end
+    if resolved then
+        self.value[1],self.value[2],self.value[3] = resolved[1],resolved[2],resolved[3]
+        if self.mode == "state" then self.value[4] = self.hasAlpha and (resolved[4] or 1) or 1 end
+    end
+    self.stateColorKnown = resolved ~= nil
+    self.originalColorKnown = self.stateColorKnown
     self.original = Copy(self.value)
     self.default = options.default
     self.preview, self.commit, self.cancel = options.preview, options.commit, options.cancel
+    self.onClose = options.onClose
     self.h, self.s, self.v = RGBToHSV(self.value[1], self.value[2], self.value[3])
+    local modeOffset = self.modes and 36 or 0
+    if self.modes then
+        frame.modeButtons = frame.modeButtons or {}
+        local width = (332 - (#self.modes - 1) * 4) / #self.modes
+        for i, option in ipairs(self.modes) do
+            local button = frame.modeButtons[i]
+            if not button then
+                button = Button(frame, "", 14, 38, width, function() self:SetMode(frame.modeButtons[i].mode) end)
+                frame.modeButtons[i] = button
+            end
+            button.mode = option.value; button:SetText(option.text); button:SetWidth(width)
+            button:ClearAllPoints(); button:SetPoint("TOPLEFT", 14 + (i - 1) * (width + 4), -38); button:Show()
+        end
+    end
+    for i, button in ipairs(frame.modeButtons or {}) do button:SetShown(self.modes ~= nil and i <= #self.modes) end
+    for _, position in ipairs({{frame.sv,14,38},{frame.hue,202,38},{frame.alpha,14,232},
+        {frame.originalLabel,228,38},{frame.newLabel,290,38},{frame.original,228,58},{frame.current,290,58},
+        {frame.hexLabel,228,110},{frame.hex,228,128}}) do
+        position[1]:ClearAllPoints(); position[1]:SetPoint("TOPLEFT",position[2],-position[3]-modeOffset)
+    end
     frame.alpha:SetShown(self.hasAlpha)
     frame.channels[4]:SetShown(self.hasAlpha)
     frame.channelLabels[4]:SetShown(self.hasAlpha)
@@ -617,10 +738,10 @@ function Picker:Open(owner, options)
         local edit, label = frame.channels[i], frame.channelLabels[i]
         edit:ClearAllPoints(); label:ClearAllPoints()
         edit:SetWidth(width)
-        label:SetPoint("TOPLEFT", 14 + (i - 1) * (width + 8), -182)
+        label:SetPoint("TOPLEFT", 14 + (i - 1) * (width + 8), -182 - modeOffset)
         edit:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -5)
     end
-    local offset = self.hasAlpha and -12 or 24
+    local offset = (self.hasAlpha and -12 or 24) - modeOffset
     frame.favoriteLabel:ClearAllPoints(); frame.favoriteLabel:SetPoint("TOPLEFT", 14, -250 + offset)
     frame.recentLabel:ClearAllPoints(); frame.recentLabel:SetPoint("TOPLEFT", 14, -300 + offset)
     frame.undo:ClearAllPoints(); frame.undo:SetPoint("TOPRIGHT", -14, -246 + offset)

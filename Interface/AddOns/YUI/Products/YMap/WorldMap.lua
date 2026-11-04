@@ -51,6 +51,8 @@ local state = {
     enabled = false,
     attached = false,
     waitingForAddon = false,
+    waitingForController = false,
+    windowYielded = false,
     hooksInstalled = false,
     globalHookInstalled = false,
     frame = nil,
@@ -64,6 +66,7 @@ local state = {
     positionOwned = false,
     applying = false,
     dragging = false,
+    pendingDragStop = false,
     pendingRefresh = false,
     pendingRestore = false,
     driverActive = false,
@@ -99,6 +102,22 @@ local AttachWorldMap
 local RefreshEffectiveState
 local RestoreNativeNow
 local RefreshCoordinateDriverActivity
+local RefreshWindowControl
+local OnWindowControllerChanged
+local controllerHooks = setmetatable({}, { __mode = "k" })
+local controllerMethods = { "_InitShifter", "_ShutdownShifter", "ApplyProfileData", "RefreshAllAddons" }
+
+local function IsWindowControlYielded()
+    if not (YUI.IsRetail or YUI.IsForever) then return false end
+    local provider, db = _G.EllesmereUI, _G.EllesmereUIDB
+    if type(provider) ~= "table" or type(db) ~= "table" or db.shifterEnabled ~= true
+        or type(provider._InitShifter) ~= "function" or type(provider._ShutdownShifter) ~= "function"
+    then return false end
+    local addons = _G.C_AddOns
+    if addons and addons.IsAddOnLoaded and not addons.IsAddOnLoaded("EllesmereUIQoL") then return false end
+    if type(provider.PadGamepadUI) == "function" and provider.PadGamepadUI() then return false end
+    return true
+end
 
 local function Clamp(value, minimum, maximum)
     if value < minimum then return minimum end
@@ -194,11 +213,40 @@ local function RefreshMovementFade()
 end
 
 local function UpdateRegenRegistration()
-    if state.pendingRefresh or state.pendingRestore then
+    if state.pendingRefresh or state.pendingRestore or state.pendingDragStop then
         eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     else
         eventFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
     end
+end
+
+local function UpdateAddonRegistration()
+    if state.waitingForAddon or state.waitingForController then
+        eventFrame:RegisterEvent("ADDON_LOADED")
+    else
+        eventFrame:UnregisterEvent("ADDON_LOADED")
+    end
+end
+
+local function InstallControllerHooks()
+    local provider = _G.EllesmereUI
+    local ready = type(provider) == "table" and type(provider._InitShifter) == "function"
+        and type(provider._ShutdownShifter) == "function"
+    if ready then
+        local installed = controllerHooks[provider]
+        if not installed then
+            installed = {}
+            controllerHooks[provider] = installed
+        end
+        for _, method in ipairs(controllerMethods) do
+            if not installed[method] and type(provider[method]) == "function" then
+                hooksecurefunc(provider, method, OnWindowControllerChanged)
+                installed[method] = true
+            end
+        end
+    end
+    state.waitingForController = state.enabled and not ready
+    UpdateAddonRegistration()
 end
 
 local function QueueRefresh()
@@ -214,13 +262,13 @@ end
 local function StopWaitingForAddon()
     if not state.waitingForAddon then return end
     state.waitingForAddon = false
-    eventFrame:UnregisterEvent("ADDON_LOADED")
+    UpdateAddonRegistration()
 end
 
 local function WaitForAddon()
     if state.waitingForAddon then return end
     state.waitingForAddon = true
-    eventFrame:RegisterEvent("ADDON_LOADED")
+    UpdateAddonRegistration()
 end
 
 local function HidePlayerText()
@@ -576,13 +624,18 @@ end
 local function RestoreNativeUnsafe()
     local frame = state.frame
     local native = state.nativeState
-    if not frame or not native then return end
+    if not frame then return end
 
     state.applying = true
-    if state.dragging and frame.StopMovingOrSizing then
+    if (state.dragging or state.pendingDragStop) and frame.StopMovingOrSizing then
         frame:StopMovingOrSizing()
     end
     state.dragging = false
+    state.pendingDragStop = false
+    if not native then
+        state.applying = false
+        return
+    end
 
     if frame:GetScale() ~= native.scale then
         frame:SetScale(native.scale)
@@ -599,7 +652,8 @@ local function RestoreNativeUnsafe()
 end
 
 RestoreNativeNow = function()
-    if not state.nativeCaptured then
+    if IsWindowControlYielded() then RefreshWindowControl() end
+    if not state.nativeCaptured and not state.pendingDragStop then
         state.pendingRestore = false
         UpdateRegenRegistration()
         return true
@@ -662,7 +716,7 @@ local function StoreCenterPosition(x, y)
 end
 
 local function CaptureAndStorePosition()
-    if not config.rememberPosition or IsMaximized(state.frame) then return false end
+    if IsWindowControlYielded() or not config.rememberPosition or IsMaximized(state.frame) then return false end
     local x, y = ComputeCenterOffsets(state.frame)
     return StoreCenterPosition(x, y)
 end
@@ -740,13 +794,48 @@ local function UpdateDragHandle()
         and state.frame
         and state.frame:IsShown()
         and config.rememberPosition
+        and not IsWindowControlYielded()
         and not IsMaximized(state.frame)
     handle:SetShown(shown == true)
 end
 
+RefreshWindowControl = function()
+    local yielded = IsWindowControlYielded()
+    if state.windowYielded == yielded then return yielded end
+    state.windowYielded = yielded
+    if yielded then
+        -- 交接时不恢复旧窗口几何，避免覆盖新所有者刚应用的位置和比例。
+        if state.dragging then state.pendingDragStop = true end
+        state.dragging = false
+        state.nativeState = nil
+        state.nativeCaptured = false
+        state.positionOwned = false
+        state.pendingRestore = false
+        UpdateRegenRegistration()
+    end
+    UpdateDragHandle()
+    if YUI.Event and YUI.Event.Emit then
+        YUI.Event:Emit("YUI_YMAP_WINDOW_CONTROL_CHANGED", yielded)
+    end
+    return yielded
+end
+
 local function ApplyFrameStateUnsafe()
     local frame = state.frame
-    if not frame or not frame:IsShown() then return end
+    if not frame then return end
+    if state.pendingDragStop then
+        state.applying = true
+        if frame.StopMovingOrSizing then frame:StopMovingOrSizing() end
+        state.pendingDragStop = false
+        state.applying = false
+        UpdateRegenRegistration()
+    end
+    if not frame:IsShown() then return end
+    if RefreshWindowControl() then
+        UpdateDragHandle()
+        StartCoordinateDriver()
+        return
+    end
     if not CaptureNativeState() then return end
 
     state.applying = true
@@ -806,8 +895,19 @@ local function RequestApply()
     end
 end
 
+OnWindowControllerChanged = function()
+    if not state.enabled and not state.pendingRestore and not state.pendingDragStop then return end
+    RefreshWindowControl()
+    if state.enabled then
+        RequestApply()
+    elseif state.pendingRestore or state.pendingDragStop then
+        RestoreNativeNow()
+    end
+end
+
 local function OnDragStartCallback()
     if not state.enabled
+        or IsWindowControlYielded()
         or not config.rememberPosition
         or IsMaximized(state.frame)
         or InCombatLockdownSafe()
@@ -908,6 +1008,7 @@ end
 
 local function OnScaleChanged(frame, scale)
     if not state.enabled
+        or IsWindowControlYielded()
         or frame ~= state.frame
         or state.applying
         or state.dragging
@@ -925,6 +1026,7 @@ end
 local function OnUIPanelPositionsUpdated()
     local frame = state.frame
     if not state.enabled
+        or IsWindowControlYielded()
         or not state.nativeCaptured
         or state.applying
         or state.dragging
@@ -966,7 +1068,7 @@ local function PrepareAttachedFrame()
     if not InstallHooks(frame) then return false end
     RefreshMovementFade()
     if not CreateVisuals(frame) then return false end
-    if frame:IsShown() then
+    if frame:IsShown() or state.pendingDragStop then
         return ApplyNow()
     end
     HideCoordinateVisuals()
@@ -987,6 +1089,8 @@ local function Activate()
     state.enabled = true
     state.pendingRestore = false
     UpdateRegenRegistration()
+    InstallControllerHooks()
+    RefreshWindowControl()
 
     local frame = _G.WorldMapFrame
     if frame then
@@ -998,20 +1102,22 @@ local function Activate()
 end
 
 local function Deactivate()
-    if not state.enabled and not state.pendingRestore then
+    if not state.enabled and not state.pendingRestore and not state.pendingDragStop then
         StopWaitingForAddon()
         return true
     end
 
     state.enabled = false
+    state.waitingForController = false
     ReleaseMovementFade(true)
     state.pendingRefresh = false
     StopWaitingForAddon()
+    UpdateAddonRegistration()
     StopCoordinateDriver()
     HideCoordinateVisuals()
     if state.dragHandle then state.dragHandle:Hide() end
 
-    if state.nativeCaptured then
+    if state.nativeCaptured or state.pendingDragStop then
         if InCombatLockdownSafe() then
             QueueRestore()
         else
@@ -1029,6 +1135,8 @@ RefreshEffectiveState = function()
     local shouldEnable = state.requestedEnabled and config.enabled and (YUI.IsForever or YUI.IsRetail) == true
     if shouldEnable then
         Activate()
+        InstallControllerHooks()
+        RefreshWindowControl()
         if state.attached then PrepareAttachedFrame() end
         RefreshMovementFade()
     else
@@ -1039,9 +1147,12 @@ end
 
 local function OnEvent(_, event, arg1)
     if event == "ADDON_LOADED" then
-        if arg1 ~= "Blizzard_WorldMap" then return end
-        StopWaitingForAddon()
-        if state.enabled then
+        if arg1 == "EllesmereUI" or arg1 == "EllesmereUIQoL" then
+            InstallControllerHooks()
+            OnWindowControllerChanged()
+        end
+        if arg1 == "Blizzard_WorldMap" and state.enabled then
+            StopWaitingForAddon()
             AttachWorldMap(_G.WorldMapFrame)
         end
         return
@@ -1093,7 +1204,12 @@ function WorldMap:Refresh()
     return enabled
 end
 
+function WorldMap:IsWindowControlYielded()
+    return IsWindowControlYielded()
+end
+
 function WorldMap:ResetPosition()
+    if IsWindowControlYielded() then return false end
     local worldMap = GetWorldMapDB()
     if not worldMap then return false end
     worldMap.position = nil
@@ -1124,6 +1240,7 @@ function WorldMap:GetStats(target)
     target.worldMapWaitingForAddon = state.waitingForAddon
     target.worldMapPendingRefresh = state.pendingRefresh
     target.worldMapPendingRestore = state.pendingRestore
+    target.worldMapWindowYielded = state.enabled and IsWindowControlYielded()
     target.worldMapRestoreFailures = state.restoreFailures
     return target
 end

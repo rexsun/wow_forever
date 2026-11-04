@@ -33,7 +33,7 @@ local function ResolveForm(formID, powerType)
 end
 
 Catalog:RegisterClassPack("DRUID", {
-    [102] = { "mana", "rage", "lunarPower", "energy", "comboPoints" },
+    [102] = { "mana", "rage", "lunarPower", "energy", "comboPoints", "solarEclipse", "lunarEclipse" },
     [103] = { "mana", "rage", "energy", "comboPoints" },
     [104] = { "mana", "rage", "ironfur", "energy", "comboPoints" },
     [105] = { "mana", "rage", "energy", "comboPoints" },
@@ -55,11 +55,16 @@ Catalog:RegisterClassPack("DRUID", {
     resolveForm = ResolveForm,
     specs = {
         [102] = {
-            caster = Form({ "mana", "lunarPower" }, { "mana", "lunarPower" }),
-            moonkin = Form({ "mana", "lunarPower" }, { "mana", "lunarPower" }),
-            cat = Form({ "energy", "comboPoints", "mana" }, { "energy", "comboPoints" }),
-            bear = Form({ "rage", "lunarPower", "mana" }, { "rage", "lunarPower" }),
-            travel = Form({ "mana", "lunarPower" }, { "mana", "lunarPower" }),
+            caster = Form({ "mana", "lunarPower", "solarEclipse", "lunarEclipse" },
+                { "mana", "lunarPower", "solarEclipse", "lunarEclipse" }),
+            moonkin = Form({ "mana", "lunarPower", "solarEclipse", "lunarEclipse" },
+                { "mana", "lunarPower", "solarEclipse", "lunarEclipse" }),
+            cat = Form({ "energy", "comboPoints", "mana", "solarEclipse", "lunarEclipse" },
+                { "energy", "comboPoints", "solarEclipse", "lunarEclipse" }),
+            bear = Form({ "rage", "lunarPower", "mana", "solarEclipse", "lunarEclipse" },
+                { "rage", "lunarPower", "solarEclipse", "lunarEclipse" }),
+            travel = Form({ "mana", "lunarPower", "solarEclipse", "lunarEclipse" },
+                { "mana", "lunarPower", "solarEclipse", "lunarEclipse" }),
         },
         [103] = {
             caster = Form({ "mana" }, { "mana" }),

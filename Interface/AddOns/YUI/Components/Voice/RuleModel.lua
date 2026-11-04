@@ -4,7 +4,7 @@ if not YUI then return end
 YUI.Sound = YUI.Sound or {}
 local M = {}
 YUI.Sound.RuleModel = M
-M.SCHEMA_VERSION = 1
+M.SCHEMA_VERSION = 2
 M.MAX_RULES = 512
 
 local function Copy(t)
@@ -34,12 +34,13 @@ local function Set(values)
 end
 
 local EVENTS = {
+    occurred=true,
     ready=true, cooldownStarted=true, charge=true, cast=true, castAfter=true,
     auraAdded=true, auraRemoved=true, auraRemaining=true, auraStacks=true, auraStackUp=true, auraStackDown=true,
     timerStarted=true, timerEnded=true, timerRemaining=true,
     totemAdded=true, totemRemoved=true,
 }
-local KINDS = { spell=true, spellGroup=true, aura=true, item=true, slot=true, itemGroup=true, equipmentAura=true, totem=true }
+local KINDS = { event=true, spell=true, spellGroup=true, aura=true, item=true, slot=true, itemGroup=true, equipmentAura=true, totem=true }
 local ALLOWED = { object=true, trigger=true, specs=true, exceptSpecs=true, enabled=true, sound=true, talents=true, category=true }
 
 function M:DefaultLossDelay(object)
@@ -54,7 +55,14 @@ function M:Normalize(raw)
         return nil, "invalid-trigger"
     end
     for k in pairs(o) do if k~="kind" and k~="id" and k~="unit" then return nil,"invalid-object-field" end end
-    for k in pairs(t) do if k~="event" and k~="value" and k~="operator" and k~="extension" and k~='duration' and k~='policy' and k~='lossDelay' then return nil,"invalid-trigger-field" end end
+    for k in pairs(t) do if k~="event" and k~="value" and k~="operator" and k~="extension" and k~='duration' and k~='policy' and k~='lossDelay' and k~='params' then return nil,"invalid-trigger-field" end end
+    local notification=o.kind=='event'
+    if notification then
+        if t.event~='occurred' or o.unit~=nil and o.unit~='player' or raw.specs~=nil or raw.exceptSpecs~=nil
+            or raw.category~=nil and raw.category~='general'
+            or raw.talents~=nil and (type(raw.talents)~='table' or next(raw.talents)~=nil) then return nil,'invalid-event-scope' end
+        for key in pairs(t) do if key~='event' and key~='params' then return nil,'invalid-event-parameter' end end
+    elseif t.event=='occurred' or t.params~=nil then return nil,'invalid-trigger-object' end
     if t.lossDelay~=nil and (t.event~='auraRemoved' or not Number(t.lossDelay)
         or t.lossDelay<0 or t.lossDelay>60000 or t.lossDelay%1~=0) then return nil,'invalid-threshold' end
     local timer=t.event=='timerStarted' or t.event=='timerEnded' or t.event=='timerRemaining'
@@ -64,12 +72,19 @@ function M:Normalize(raw)
     elseif t.duration~=nil or t.policy~=nil then return nil,'unexpected-timer' end
     local bone=t.extension=='bone-shield'
     if bone and (o.kind~='spell' or o.id~=195181 or t.event~='castAfter' or not Number(t.value) or t.value<1 or t.value>15 or t.value%1~=0) then return nil,'invalid-threshold' end
+    local extra=t.extension=='devourer-transform' or t.extension=='brewmaster-elixir'
+    if t.extension=='devourer-transform' and (o.kind~='spell' or o.id~=1217607 or t.event~='castAfter'
+        or not Number(t.value) or t.value<1 or t.value>90 or (o.unit and o.unit~='player')) then return nil,'invalid-threshold' end
+    if t.extension=='brewmaster-elixir' and (o.kind~='spell' or o.id~=455139
+        or (t.event~='ready' and t.event~='cooldownStarted') or (o.unit and o.unit~='player')) then return nil,'invalid-trigger-object' end
     local window=t.extension=='boiling-point'
     if window and (o.kind~='spell' or (o.id~=1265968 and o.id~=1265982) or t.event~='castAfter' or t.value~=0 or (o.unit and o.unit~='player')) then return nil,'invalid-window-trigger' end
     if window then o={kind=o.kind,id=1265968,unit=o.unit} end -- Normalize the former event-window preset without touching YHUD.
-    if t.extension~=nil and not window and not bone and (t.extension~='arcane-soul' or o.kind~='spell' or o.id~=365350
+    if t.extension~=nil and not extra and not window and not bone and (t.extension~='arcane-soul' or o.kind~='spell' or o.id~=365350
         or (o.unit and o.unit~='player') or t.event~='castAfter' or t.value~=0) then return nil,'invalid-cast-extension' end
-    if o.kind=='spellGroup' then
+    if notification then
+        if not YUI.Sound.EventDefinitions or not YUI.Sound.EventDefinitions.byID[o.id] then return nil,'invalid-event' end
+    elseif o.kind=='spellGroup' then
         if o.id~='burst-potion' or not timer or t.duration~=30 or t.policy~='restart' then return nil,'invalid-group' end
     elseif o.kind == "itemGroup" then
         if o.id ~= "health-potion" and o.id ~= "burst-potion" then return nil,"invalid-group" end
@@ -84,7 +99,11 @@ function M:Normalize(raw)
         and (unit=='target' or unit=='focus') then unit='player' end
     if o.kind=='totem' and (unit~='player' or (t.event~='totemAdded' and t.event~='totemRemoved')) then return nil,'invalid-trigger-object' end
     if o.kind=='aura' then
-        if unit~='cdm' then return nil,'invalid-unit' end
+        if unit=='received' then
+            local buffs=YUI.HelpfulBuffs
+            if not buffs or not buffs.byID[o.id]
+                or (t.event~='auraAdded' and t.event~='auraRemoved') then return nil,'invalid-trigger-object' end
+        elseif unit~='cdm' then return nil,'invalid-unit' end
     elseif unit~='player' then return nil,'invalid-unit' end
     if o.kind=='itemGroup' and t.event~='ready' then return nil,'invalid-trigger-object' end
     if (o.kind=="item" or o.kind=="itemGroup" or o.kind=="slot")
@@ -99,6 +118,11 @@ function M:Normalize(raw)
     end
     if o.kind=="aura" and not t.event:match("^aura") then return nil,"invalid-trigger-object" end
     local trigger={event=t.event,extension=t.extension,duration=t.duration,policy=t.policy}
+    if notification then
+        local params,why=YUI.Sound.EventDefinitions:Normalize(o.id,t.params)
+        if not params then return nil,why end
+        trigger.params=params
+    end
     -- Delay changes an existing loss rule, not its identity during imports.
     if t.event=='auraRemoved' then
         -- Missing fields in old libraries inherit the creation default. Keep
@@ -125,9 +149,10 @@ function M:Normalize(raw)
     end
     if raw.enabled~=nil and type(raw.enabled)~="boolean" then return nil,"invalid-enabled" end
     if raw.category~=nil and raw.category~='class' and raw.category~='general' then return nil,'invalid-category' end
-    local category=raw.category or ((o.kind=='item' or o.kind=='itemGroup' or o.kind=='spellGroup' or o.kind=='slot') and 'general' or 'class')
+    local received=o.kind=='aura' and unit=='received'
+    local category=(notification or received) and 'general' or raw.category or ((o.kind=='item' or o.kind=='itemGroup' or o.kind=='spellGroup' or o.kind=='slot') and 'general' or 'class')
     local racial=YUI.API and YUI.API.Racial
-    local member=racial and racial.GetEntry(o.id,o.kind)
+    local member=not notification and racial and racial.GetEntry(o.id,o.kind)
     if member then category='general'; specs=nil; exceptSpecs=nil end
     local sound=raw.sound
     if type(sound)~="table" then return nil,"invalid-sound" end
@@ -276,17 +301,22 @@ end
 function M:NormalizeLibrary(rules)
     if type(rules)~="table" or #rules>self.MAX_RULES then return nil,"invalid-library" end
     for k in pairs(rules) do if type(k)~="number" or k%1~=0 or k<1 or k>#rules then return nil,"invalid-library" end end
-    local out={}
+    local out,byKey={},{}
     for i,raw in ipairs(rules) do
         local rule,code=self:Normalize(raw)
         if not rule then return nil,code,i end
         local key=self:Key(rule)
-        for j,other in ipairs(out) do
-            if key==self:Key(other) and Intersect(rule,other) then
-                return nil,"conflicting-entry",{first=j,second=i}
+        local indices=byKey[key]
+        if indices then
+            for _,j in ipairs(indices) do
+                if Intersect(rule,out[j]) then
+                    return nil,"conflicting-entry",{first=j,second=i}
+                end
             end
         end
         out[#out+1]=rule
+        if not indices then indices={};byKey[key]=indices end
+        indices[#indices+1]=i
     end
     return out
 end
@@ -316,13 +346,41 @@ function M:Export(rules, selectedSpecs, includeGeneral)
     return out
 end
 
-function M:PrepareImport(current, incoming, mode)
-    if mode~="incremental" and mode~="replace" then return nil,"invalid-import-mode" end
+function M:PrepareImport(current, incoming, mode, equivalent)
+    if mode~="incremental" and mode~="replace" and mode~='missing' then return nil,"invalid-import-mode" end
     local existing,code=self:NormalizeLibrary(current)
     if not existing then return nil,code end
     local imported,detail=self:NormalizeLibrary(incoming)
     if not imported then return nil,detail end
     if mode=="replace" then return imported,{replaceAll=true,removed=#existing,added=#imported} end
+    if mode=='missing' then
+        local result,counts,items=Copy(existing),{added=0,preserved=#existing,skipped=0,partial=0},{}
+        for _,new in ipairs(imported) do
+            local remaining,kept={new},{}
+            for _,old in ipairs(result) do
+                local pieces,overlap={},false
+                for _,part in ipairs(remaining) do
+                    local same=self:Key(part)==self:Key(old) or equivalent and equivalent(part,old)
+                    if same then
+                        local rest=Subtract(part,old)
+                        if not (#rest==1 and Same(rest[1],part)) then overlap=true end
+                        for _,piece in ipairs(rest) do pieces[#pieces+1]=piece end
+                    else pieces[#pieces+1]=part end
+                end
+                if overlap then kept[#kept+1]=old end
+                remaining=pieces
+            end
+            local partial=#remaining>0 and not (#remaining==1 and Same(remaining[1],new))
+            items[#items+1]={added=#remaining,partial=partial,rules=remaining,kept=kept}
+            if #remaining==0 then counts.skipped=counts.skipped+1
+            else
+                if partial then counts.partial=counts.partial+1 end
+                for _,part in ipairs(remaining) do result[#result+1]=part;counts.added=counts.added+1 end
+            end
+        end
+        if #result>self.MAX_RULES then return nil,'rule-budget-exceeded' end
+        return result,counts,items
+    end
     local result,counts={}, {added=0,updated=0,preserved=0,unchanged=0}
     for _,old in ipairs(existing) do
         local remaining={Copy(old)}

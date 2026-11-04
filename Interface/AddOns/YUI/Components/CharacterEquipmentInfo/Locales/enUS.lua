@@ -27,6 +27,7 @@ YUI.Locale:Register("CharacterEquipmentInfo", "enUS", {
     ["title.player"] = "Player",
     ["title.inspect"] = "Inspect",
     ["summary.item_level"] = "Item Level",
+    ["item.enchant"] = "Enchant",
     ["section.equipment"] = "Equipment",
     ["section.primary"] = "Primary Stats",
     ["section.secondary"] = "Secondary Stats",

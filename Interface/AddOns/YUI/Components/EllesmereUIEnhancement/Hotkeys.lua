@@ -1,6 +1,6 @@
 local _, addonTable = ...
 local YUI = _G.YUI or addonTable
-if not (YUI and YUI.IsRetail == true and YUI.Components) then return end
+if not (YUI and (YUI.IsRetail == true or YUI.IsForever == true) and YUI.Components) then return end
 if YUI._EllesmereUIHotkeys then return end
 
 local Security = YUI.API and YUI.API.Security

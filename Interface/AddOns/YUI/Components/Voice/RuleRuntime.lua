@@ -6,6 +6,7 @@ local Runtime={}
 Runtime.__index=Runtime
 YUI.Sound.RuleRuntime=Runtime
 local function IsReady(binding)
+    if binding.sourceType=='class-extra-monitor' then return false end
     return binding.rule.trigger.event=='ready' or binding.rule.trigger.event=='charge'
         and binding.sourceType=='spell-cooldown'
 end
@@ -72,15 +73,24 @@ function Timing:SampleCooldowns()
     end
 end
 function Timing:StartCooldownDiagnostics()
-    if not YUI.IsRetail then return end
+    if not self.enabled or not YUI.IsRetail then return end
     self.cooldownProbes={}
     local count=0
     local engine=YUI.Sound.Runtime and YUI.Sound.Runtime.engine
+    local candidates={}
     for _,binding in ipairs(engine and engine.bindings or {}) do
         local rule=binding.rule
         local id=TimingPublic(binding.spellID or rule.object.id)
-        if rule.object.kind=='spell' and IsReady(binding) and type(id)=='number'
-            and not self.cooldownProbes[id] and count<32 and CreateFrame and UIParent then
+        if rule.object.kind=='spell' and IsReady(binding) and type(id)=='number' then candidates[id]=true end
+    end
+    local context=YUI.Sound.Runtime and YUI.Sound.Runtime.context
+    local registry=context and context.eligibility
+    for _,record in pairs(registry and registry.records or {}) do
+        local id=TimingPublic(record.id)
+        if type(id)=='number' then candidates[id]=true end
+    end
+    for id in pairs(candidates) do
+        if self.enabled and count<32 and CreateFrame and UIParent then
             count=count+1
             local probe=timingProbes[count]
             if not probe then
@@ -92,9 +102,11 @@ function Timing:StartCooldownDiagnostics()
             end
             probe.timingSpellID=id
             self.cooldownProbes[id]=probe
+            self:Record('probe-watch',id)
         end
     end
     self:Record('probe-coverage',count,32)
+    if not self.enabled then return end
     -- Snapshot coverage at Start. Re-run Start after changing the native viewer layout.
     for _,name in ipairs({'EssentialCooldownViewer','UtilityCooldownViewer'}) do
         local viewer=_G[name]
@@ -102,6 +114,7 @@ function Timing:StartCooldownDiagnostics()
         local scanned,matched=0,0
         if pool and type(pool.EnumerateActive)=='function' then
             for frame in pool:EnumerateActive() do
+                if not self.enabled then break end
                 scanned=scanned+1
                 if scanned>512 then break end
                 local id=TimingFrameSpell(frame)
@@ -118,7 +131,7 @@ function Timing:StartCooldownDiagnostics()
         end
         self:Record('native-coverage',name,scanned,matched)
     end
-    if count>0 and YUI.Event and YUI.Event.On then
+    if self.enabled and count>0 and YUI.Event and YUI.Event.On then
         YUI.Event:On('SPELL_UPDATE_COOLDOWN','SampleCooldowns',self)
         self:SampleCooldowns()
     end
@@ -135,15 +148,27 @@ function Timing:Start()
     self.rows={};self.identities=setmetatable({},{__mode='k'});self.serial=0
     self.samples={};self.spells={}
     self.started=GetTime();self.enabled=true;self.stopReason=nil
-    self:Record('start','sound-timing-v3')
+    self:Record('start','sound-timing-v4')
+    local context=YUI.Sound.Runtime and YUI.Sound.Runtime.context
+    local registry=context and context.eligibility
+    if registry then
+        self:Record('eligibility-context',self:Identity(registry),context.spec,YUI.ProductId)
+        for key,record in pairs(registry.records) do
+            if not self.enabled then break end
+            self:WatchSpell(key);self:WatchSpell(record.base);self:WatchSpell(record.id)
+            self:Record('eligibility-snapshot',key,self:Identity(registry),record.base,record.id,record.state,record.origin)
+        end
+    end
     local engine=YUI.Sound.Runtime and YUI.Sound.Runtime.engine
     for _,binding in ipairs(engine and engine.bindings or {}) do
+        if not self.enabled then break end
         local rule=binding.rule
         local source=binding.handle and binding.handle.source
         if rule.object.kind=='spell' then
             self.spells[rule.object.id]=true
             if binding.spellID then self.spells[binding.spellID]=true end
             if source and source.params and source.params.chargeSpellID then self.spells[source.params.chargeSpellID]=true end
+            for _,id in ipairs(binding.sourceParams and binding.sourceParams.spellIDs or {}) do self:WatchSpell(id) end
         end
         self:Record('binding',self:Identity(binding),rule.id,rule.object.id,rule.trigger.event,
             source and source.key,binding.fallbackRequired,binding.directAuraID,binding.issue)
@@ -158,6 +183,11 @@ function Timing:Start()
         local ok=YUI.Monitor:ScheduleTask(self,'debug-timing-stop',GetTime()+600,Timing.Timeout)
         if not ok then self:Finish('capture-schedule-failed') end
     end
+end
+function Timing:WatchSpell(id)
+    if not self.enabled or not self.spells then return end
+    id=TimingPublic(id)
+    if type(id)=='number' then self.spells[id]=true end
 end
 function Timing:Finish(reason)
     self.enabled=false
@@ -192,7 +222,8 @@ function Timing:Record(stage,...)
     end
     local fields={string.format('%.3f',GetTime()-self.started),stage}
     for index=1,select('#',...) do fields[#fields+1]=TimingValue(select(index,...)) end
-    if stage=='ready-observe' or stage=='ready-mode' or stage:sub(1,4)=='api-' then
+    if stage=='ready-observe' or stage=='ready-mode' or stage:sub(1,4)=='api-'
+        or stage=='eligibility-read' or stage=='eligibility-refresh' then
         local key=stage..':'..fields[3]
         local sample=table.concat(fields,'\t',3)
         if self.samples[key]==sample then return end
@@ -203,7 +234,7 @@ end
 function Timing:Stop() self:Record('stop');self:Finish() end
 function Timing:Export()
     self:Stop()
-    local value='YUI sound-timing-v3 (seconds; capture limited to 600s / 1200 rows; '..(self.stopReason or 'manual-stop')..')\n'..table.concat(self.rows or {},'\n')
+    local value='YUI sound-timing-v4 (seconds; capture limited to 600s / 1200 rows; '..(self.stopReason or 'manual-stop')..')\n'..table.concat(self.rows or {},'\n')
     if YUI.Settings and YUI.Settings.ShowCopyPopup then
         YUI.Settings:ShowCopyPopup('YUI Sound Timing',value,{multiline=true})
     end
@@ -225,6 +256,19 @@ local function Number(value)
     if type(value)=='number' and value==value and value~=math.huge and value~=-math.huge then return value end
 end
 
+local function Boolean(value)
+    value=Public(value)
+    if type(value)=='boolean' then return value end
+end
+
+local Eligibility=YUI.Sound.SpellEligibility
+
+local function EligibleForPlayback(binding,id)
+    local allowed,reason=Eligibility.Allows(binding.runtime.context(),binding.rule,id,true)
+    TraceBinding('eligibility-playback',binding,allowed,allowed and 'allow' or reason,id)
+    return allowed
+end
+
 local function Selected(rule,context)
     if rule.enabled==false then return false,'disabled' end
     if rule.specs then
@@ -244,7 +288,17 @@ Runtime.IsSelected=Selected
 
 function Runtime.New(monitor,resolver,play,context)
     return setmetatable({monitor=monitor,resolver=resolver,play=play,context=context,
-        bindings={},enabled=true,stats={observations=0,triggered=0,unknown=0},issues={}},Runtime)
+        bindings={},enabled=true,readyGeneration=0,stats={observations=0,triggered=0,unknown=0},issues={}},Runtime)
+end
+
+function Runtime:IsReadyBinding(binding)
+    return (YUI.IsRetail or YUI.IsForever) and type(binding)=='table' and binding.runtime==self
+        and binding.rule.object.kind=='spell' and IsReady(binding)
+end
+
+function Runtime:IsReadySuppressed()
+    if self.readySuppressed and self.resumeReady then self.resumeReady() end
+    return self.readySuppressed==true
 end
 
 local function DelayedCast(binding)
@@ -302,6 +356,16 @@ end
 local function NativeMemberPresence(binding,state)
     if Public(state.issue)~=nil then return end
     local members=state.nativeMemberStates
+    if members and binding.nativeAuraIDs then
+        local known=false
+        for _,id in ipairs(binding.nativeAuraIDs) do
+            local present=members[id] and Public(members[id].present)
+            if present==true then return true end
+            known=known or present==false
+        end
+        if known then return false end
+        return
+    end
     local member=members and members[binding.nativeAuraID]
     local present=member and Public(member.present)
     if type(present)=='boolean' then return present end
@@ -347,7 +411,10 @@ local function ObserveNativeMember(binding,state)
     if present~=false then CancelAuraLoss(binding)
     elseif binding.lossSequence then binding.lossSequence=sequence end
     if not sequence or previousSequence==nil or sequence==previousSequence or present==nil or not self.enabled then return end
-    if Number(state.nativeEventAuraID)~=binding.nativeAuraID then return end
+    local eventID=Number(state.nativeEventAuraID)
+    local matched=eventID==binding.nativeAuraID
+    for _,id in ipairs(binding.nativeAuraIDs or {}) do if eventID==id then matched=true end end
+    if not matched then return end
     local event=Public(state.nativeEvent)
     if event~=rule.trigger.event then return end
     if event=='auraRemoved' and (rule.trigger.lossDelay or 0)>0 then
@@ -427,6 +494,7 @@ local function ObserveAura(binding, state)
 end
 
 local function CompletionState(binding)
+    binding.readyCompletionActive=nil
     local api=YUI.API and YUI.API.Spell
     local handle=binding.completionHandle
     if not (api and handle) then return nil end
@@ -434,7 +502,34 @@ local function CompletionState(binding)
     local duration=getter and getter(binding.spellID or binding.rule.object.id,true)
     if not duration then return nil end
     local active,resolved=api.ArmCooldownCompletion(handle,duration)
-    if resolved==true then return active end
+    if resolved==true then
+        local value=Public(active)
+        if type(value)=='boolean' then binding.readyCompletionActive=value end
+        return active
+    end
+end
+
+-- Flat public evidence on the existing binding; allocate a receipt only when
+-- readiness actually passes confirmation. These fields never drive decisions.
+local function RememberReadyArm(binding,state,captured,charges,completionActive,baseline)
+    captured=captured and not charges
+    local reason
+    if captured and not charges then reason='cooldown-event'
+    elseif baseline==true then reason='recovery-baseline'
+    elseif charges then reason='charge-state'
+    elseif Public(state.cooldownGCDResolved)==true then reason='public-state'
+    elseif Public(state.cooldownGCDResolved)==false then reason='native-fallback'
+    else reason='source-state' end
+    binding.readyArmReason=reason
+    binding.readyArmedAt=GetTime()
+    binding.readyArmCompletion=Boolean(completionActive)
+    binding.readyArmGCDResolved=Boolean(state.cooldownGCDResolved)
+    binding.readyEvidenceSequence=captured and Number(state.readyStartSequence) or nil
+    binding.readyEvidenceAt=captured and Number(state.readyStartObservedAt) or nil
+    binding.readyEvidenceStart=captured and Number(state.readyStartTime) or nil
+    binding.readyEvidenceDuration=captured and Number(state.readyStartDuration) or nil
+    binding.readyEvidenceEnabled=nil
+    if captured then binding.readyEvidenceEnabled=Boolean(state.readyStartEnabled) end
 end
 
 local function CancelReady(binding)
@@ -442,14 +537,33 @@ local function CancelReady(binding)
     binding.readyPending=nil
 end
 
+local function ResetReady(binding)
+    CancelReady(binding)
+    binding.previous=nil
+    binding.readyFallbackAt=nil
+    binding.readyArmReason=nil
+    local source=binding.readyCaptureSource
+    binding.readyStartSequence=Number(source and source.state.readyStartSequence) or 0
+end
+
 local function ConfirmReady(binding)
     binding.readyPending=nil
     local runtime=binding.runtime
+    if runtime:IsReadySuppressed() then ResetReady(binding);return end
     if not binding.active or not runtime.enabled or binding.previous~=true then return end
     local api=YUI.API and YUI.API.Spell
     local id=binding.spellID or binding.rule.object.id
-    if EffectiveSpellID(binding.rule.object)~=id then
+    local currentID=EffectiveSpellID(binding.rule.object)
+    local forever=YUI.IsForever and YUI.Sound.ForeverCatalog
+    if forever then
+        local resolved,_,handled=forever:CooldownID(binding.rule.object.id)
+        if handled then currentID=resolved and (api and api.GetEffectiveSpellID and api.GetEffectiveSpellID(resolved) or resolved) end
+    end
+    if currentID~=id then
         binding.previous=nil; return
+    end
+    if not EligibleForPlayback(binding,id) then
+        binding.previous=nil;binding.readyFallbackAt=nil;return
     end
     local reader=api and (binding.readyHasCharges and api.ReadChargeRuleState or api.ReadCooldownRuleState)
     local active,resolved
@@ -479,10 +593,18 @@ local function ConfirmReady(binding)
     end
     TraceBinding('ready-trigger',binding)
     runtime.stats.triggered=runtime.stats.triggered+1
-    runtime.play(binding.rule,binding)
+    local receipt={reason=binding.readyArmReason,armedAt=binding.readyArmedAt,
+        armCompletion=binding.readyArmCompletion,armGCDResolved=binding.readyArmGCDResolved,
+        startSequence=binding.readyEvidenceSequence,startObservedAt=binding.readyEvidenceAt,
+        startTime=binding.readyEvidenceStart,duration=binding.readyEvidenceDuration,
+        startEnabled=binding.readyEvidenceEnabled,completionActive=binding.readyCompletionActive,
+        fallbackAt=fallbackAt,confirmedActive=active,confirmedResolved=resolved,
+        effectiveSpellID=id,hasCharges=binding.readyHasCharges==true}
+    runtime.play(binding.rule,binding,nil,receipt)
 end
 
 local function QueueReady(binding)
+    if binding.runtime:IsReadySuppressed() then ResetReady(binding);return end
     if not binding.active or not binding.runtime.enabled or binding.previous~=true or binding.readyPending then return end
     -- GetTime is frame-stable. An epsilon keeps a scheduler flush in this
     -- frame from consuming the candidate; the next frame performs one read.
@@ -492,8 +614,9 @@ local function QueueReady(binding)
 end
 
 local function CooldownCompleted(binding)
+    if binding.runtime:IsReadyBinding(binding) and binding.runtime:IsReadySuppressed() then ResetReady(binding);return end
     if not binding.active or CompletionState(binding)~=false then return end
-    if YUI.IsRetail and binding.rule.object.kind=='spell' then QueueReady(binding);return end
+    if (YUI.IsRetail or YUI.IsForever) and binding.rule.object.kind=='spell' then QueueReady(binding);return end
     local wasActive=binding.previous==true
     binding.previous=false
     if wasActive and binding.runtime.enabled then
@@ -502,11 +625,56 @@ local function CooldownCompleted(binding)
     end
 end
 
-local function Observe(binding,state)
+local function ClassExtraAlert(binding)
+    local self, rule = binding.runtime, binding.rule
+    local state = binding.handle and binding.handle.source.state
+    if not (binding.active and self.enabled and state and state.resolved and state.active
+        and state.session == binding.extraSession and not binding.extraFired) then return end
+    if GetTime() < state.startTime + rule.trigger.value then return end
+    binding.extraFired = true
+    self.stats.triggered = self.stats.triggered + 1
+    self.play(rule, binding)
+end
+local function ObserveClassExtra(binding, state)
+    local self, rule = binding.runtime, binding.rule
+    if state.resolved ~= true then return end
+    if rule.trigger.extension == 'brewmaster-elixir' then
+        if state.isEnabled == false then binding.extraPrevious = nil; return end
+        local active, previous = state.active == true, binding.extraPrevious
+        binding.extraPrevious = active
+        if binding.extraResetSequence ~= state.resetSequence then
+            binding.extraResetSequence = state.resetSequence
+            return
+        end
+        if previous ~= nil and previous ~= active and self.enabled
+            and ((rule.trigger.event == 'ready' and not active) or (rule.trigger.event == 'cooldownStarted' and active)) then
+            self.stats.triggered = self.stats.triggered + 1
+            self.play(rule, binding)
+        end
+        return
+    end
+    self.monitor:CancelTask(binding, 'class-extra-alert')
+    if not state.active then binding.extraSession, binding.extraFired = nil, nil; return end
+    local due = state.startTime + rule.trigger.value
+    if binding.extraSession ~= state.session then
+        binding.extraSession = state.session
+        binding.extraFired = GetTime() >= due
+    end
+    if self.enabled and not binding.extraFired then
+        if GetTime() >= due then ClassExtraAlert(binding)
+        else self.monitor:ScheduleTask(binding, 'class-extra-alert', due, ClassExtraAlert) end
+    end
+end
+
+local function Observe(binding,state,sourceKey,reason,forced,baseline)
     local self=binding.runtime
     if not binding.active then return end
+    if self:IsReadyBinding(binding) and self:IsReadySuppressed() then ResetReady(binding);return end
     self.stats.observations=self.stats.observations+1
     local rule=binding.rule
+    if rule.trigger.extension=='devourer-transform' or rule.trigger.extension=='brewmaster-elixir' then
+        ObserveClassExtra(binding,state); return
+    end
     local completionActive
     if rule.object.kind=='spell' and IsReady(binding) then
         local api=YUI.API and YUI.API.Spell
@@ -526,7 +694,8 @@ local function Observe(binding,state)
         local sequence=Number(state.sequence)
         TraceBinding('charge-observe',binding,sequence,binding.nativeSequence)
         local previous=binding.nativeSequence; binding.nativeSequence=sequence
-        if sequence and previous~=nil and sequence~=previous and self.enabled then
+        if sequence and previous~=nil and sequence~=previous and self.enabled
+            and EligibleForPlayback(binding,binding.spellID) then
             TraceBinding('charge-trigger',binding,sequence,previous)
             self.stats.triggered=self.stats.triggered+1; self.play(rule,binding)
         end
@@ -632,7 +801,7 @@ local function Observe(binding,state)
             else binding.slotCooldownEnd=nil end
         end
         if type(value)~='boolean' then binding.previous=nil; return end
-        if YUI.IsRetail and rule.object.kind=='spell' and IsReady(binding) then
+        if (YUI.IsRetail or YUI.IsForever) and rule.object.kind=='spell' and IsReady(binding) then
             TraceBinding('ready-mode',binding,state.hasCharges,state.maxCharges,state.castCount,state.chargeActive,state.cooldownGCDResolved)
             TraceBinding('ready-observe',binding,value,completionActive,binding.previous,state.spellID)
             local identity=Number(state.spellID)
@@ -643,6 +812,10 @@ local function Observe(binding,state)
             binding.readyStartSequence=sequence
             local unverifiedStart=not charges and value==true and Public(state.cooldownGCDResolved)==false
             local newCycle=binding.identity~=identity or binding.readyHasCharges~=charges or binding.previous~=true
+            if (captured and not charges or value==true and (not unverifiedStart or completionActive==true))
+                and (newCycle or captured or binding.readyArmReason=='native-fallback' and Public(state.cooldownGCDResolved)==true) then
+                RememberReadyArm(binding,state,captured,charges,completionActive,baseline)
+            end
             if newCycle then
                 binding.readyFallbackAt=nil
             end
@@ -652,7 +825,9 @@ local function Observe(binding,state)
             elseif unverifiedStart and completionActive==true then
                 -- The ignore-GCD native timer supplies a fallback start. Only newly
                 -- armed cycles need the 1.6s filter; preserve an already verified cycle.
-                if newCycle then binding.readyFallbackAt=GetTime() end
+                -- A recovery baseline is an existing running cooldown, not a
+                -- newly observed start. Ordinary new cycles keep the short filter.
+                if newCycle and baseline~=true then binding.readyFallbackAt=GetTime() end
             end
             if unverifiedStart and completionActive==true then unverifiedStart=false end
             if binding.identity~=identity or binding.readyHasCharges~=charges then
@@ -700,6 +875,37 @@ local function Observe(binding,state)
     end
 end
 
+function Runtime:SetReadySuppressed(suppressed)
+    if suppressed then
+        self.readySuppressed=true
+        self.readyGeneration=self.readyGeneration+1
+        for _,binding in ipairs(self.bindings) do
+            if self:IsReadyBinding(binding) then ResetReady(binding) end
+        end
+        return true
+    end
+    -- Refresh while still suppressed, then discard every old edge before
+    -- observing the fresh state. Shared sources are read only once per resume.
+    local generation,seen=self.readyGeneration,{}
+    for _,binding in ipairs(self.bindings) do
+        local source=binding.handle and binding.handle.source
+        if self:IsReadyBinding(binding) and source and not seen[source] then
+            seen[source]=true
+            self.monitor:RefreshSourceNow(source,'sound-world-ready',true)
+        end
+    end
+    if generation~=self.readyGeneration then return false end
+    self.readySuppressed=false
+    for _,binding in ipairs(self.bindings) do
+        if self:IsReadyBinding(binding) then
+            ResetReady(binding)
+            local source=binding.handle and binding.handle.source
+            if source and source.initialized then Observe(binding,source.state,nil,nil,nil,true) end
+        end
+    end
+    return generation==self.readyGeneration
+end
+
 -- Cold, normalized rule/source comparison; never compare live source state.
 local function SameValue(a,b)
     if type(a)~=type(b) then return false end
@@ -710,6 +916,7 @@ local function SameValue(a,b)
 end
 
 local function ReleaseBinding(self,binding)
+    TraceBinding('binding-release',binding,binding.previous,binding.readyPending,binding.completionHandle~=nil,binding.sourceKey)
     binding.active=false
     if binding.readyCaptureSource then
         local source=binding.readyCaptureSource
@@ -726,10 +933,28 @@ local function ReleaseBinding(self,binding)
     self.monitor:CancelTasks(binding)
 end
 
-function Runtime:Apply(rules,preserveBindings)
+local preparedLibraries=setmetatable({},{__mode='k'})
+
+function Runtime:Prepare(rules)
     local normalized,code=Model:NormalizeLibrary(rules)
     if not normalized then return nil,code end
+    local token,keys={},{}
+    for i,rule in ipairs(normalized) do keys[i]=Model:Key(rule) end
+    preparedLibraries[token]={rules=normalized,keys=keys}
+    return token
+end
+
+local function ApplyRules(self,normalized,preserveBindings,preserveUnchanged,prepared,changed,readNativeAuraEntries)
     local staged,issues,acquiredBindings,retained,candidates={},{},{},{},{}
+    local library=prepared and preparedLibraries[prepared]
+    local partial=prepared and preserveBindings and self.prepared==prepared
+        and self.preparedSelections and changed~=nil
+    local selections=prepared and {}
+    local previous,previousIssues={},{}
+    if partial then
+        for _,binding in ipairs(self.bindings) do previous[binding.rule]=binding end
+        for _,issue in ipairs(self.issues) do previousIssues[issue.key]=issue end
+    end
     if preserveBindings then
         for _,binding in ipairs(self.bindings) do
             local rule=binding.rule
@@ -737,43 +962,67 @@ function Runtime:Apply(rules,preserveBindings)
             local spell=rule.object.kind=='spell'
                 and (event=='cast' or event=='castAfter' or event=='ready'
                     or event=='charge' or event=='cooldownStarted')
-            local nativeAura=rule.object.kind=='aura' and binding.sourceType=='native-aura-signal'
+            local nativeAura=rule.object.kind=='aura' and (binding.sourceType=='native-aura-signal' or binding.sourceType=='received-aura-sound')
                 and binding.nativeAuraUnit=='player' and (event=='auraAdded' or event=='auraRemoved')
                 and binding.handle and binding.handle.active
                 and self.monitor.Data.sources[binding.sourceKey]==binding.handle.source
-            if binding.active and (spell or nativeAura) then
+            local unchanged=preserveUnchanged and binding.handle and binding.handle.active
+                and self.monitor.Data.sources[binding.sourceKey]==binding.handle.source
+            if binding.active and (spell or nativeAura or unchanged) then
                 candidates[Model:Key(rule)]=binding
             end
         end
     end
-    for _,rule in ipairs(normalized) do
-        if Selected(rule,self.context()) then
-            local old=candidates[Model:Key(rule)]
-            if old and not SameValue(old.rule,rule) then old=nil end
-            local resolved,source,reason=pcall(self.resolver,rule,old)
-            if not resolved then
-                for _,old in ipairs(acquiredBindings) do self.monitor:ReleaseSource(old.handle) end
-                return nil,'source-resolution-failed'
-            end
-            if not source then issues[#issues+1]={key=Model:Key(rule),reason=reason or 'unsupported-condition'}
-            else
-                if old and not retained[old] and SameValue(old.rule,rule)
-                    and old.sourceKey==source.key and old.sourceType==source.type
-                    and SameValue(old.sourceParams,source.params)
-                    and old.nativeAuraID==source.nativeAuraID and old.nativeAuraUnit==source.nativeAuraUnit then
-                    retained[old]=true;staged[#staged+1]=old
-                else
-                    local binding={runtime=self,rule=rule,active=false,spellID=source.params and source.params.spellID,
-                        sourceKey=source.key,sourceType=source.type,sourceParams=source.params,
-                        nativeAuraID=source.nativeAuraID,nativeAuraUnit=source.nativeAuraUnit}
-                    local acquired,handle,why=pcall(self.monitor.AcquireSource,self.monitor,binding,source.key,source.type,source.params,Observe)
-                    if not acquired or not handle then
-                        for _,old in ipairs(acquiredBindings) do self.monitor:ReleaseSource(old.handle) end
-                        return nil,acquired and why or 'source-acquisition-failed'
-                    end
-                    binding.handle=handle; staged[#staged+1]=binding
-                    acquiredBindings[#acquiredBindings+1]=binding
+    for index,rule in ipairs(normalized) do
+        local key=library and library.keys[index] or Model:Key(rule)
+        local selected,selectionReason=Selected(rule,self.context())
+        if selections then selections[index]=selected end
+        -- Composite/native rules retain their resolver's dependency checks.
+        -- A reminder key can span exclusive spec/talent rows. Reuse the exact
+        -- prepared row only while its selection result is unchanged.
+        local scoped=partial and self.preparedSelections[index]==selected
+            and rule.object.kind=='spell' and not rule.trigger.extension
+        local kept=scoped and not changed[rule.object.id] and previous[rule]
+        local unchanged=kept and kept.active and kept.handle and kept.handle.active
+            and self.monitor.Data.sources[kept.sourceKey]==kept.handle.source
+        local untouched=scoped and not changed[rule.object.id] and (not kept or unchanged)
+        if untouched then
+            if unchanged then retained[kept]=true;staged[#staged+1]=kept end
+            if selected and previousIssues[key] then issues[#issues+1]=previousIssues[key] end
+        else
+            if selected then
+                local old=candidates[Model:Key(rule)]
+                if old and not SameValue(old.rule,rule) then old=nil end
+                local resolved,source,reason=pcall(self.resolver,rule,old,self.context(),readNativeAuraEntries)
+                if not resolved then
+                    for _,old in ipairs(acquiredBindings) do self.monitor:ReleaseSource(old.handle) end
+                    return nil,'source-resolution-failed'
                 end
+                if not source then
+                    issues[#issues+1]={key=Model:Key(rule),reason=reason or 'unsupported-condition'}
+                    if Timing.enabled then Timing:Record('binding-skip',rule.id,rule.object.id,rule.trigger.event,reason) end
+                else
+                    if old and not retained[old] and SameValue(old.rule,rule)
+                        and old.sourceKey==source.key and old.sourceType==source.type
+                        and SameValue(old.sourceParams,source.params)
+                        and old.nativeAuraID==source.nativeAuraID and old.nativeAuraUnit==source.nativeAuraUnit then
+                        retained[old]=true;staged[#staged+1]=old
+                    else
+                        local binding={runtime=self,rule=rule,active=false,spellID=source.params and source.params.spellID,
+                            sourceKey=source.key,sourceType=source.type,sourceParams=source.params,
+                            nativeAuraID=source.nativeAuraID,nativeAuraUnit=source.nativeAuraUnit,
+                            nativeAuraIDs=source.nativeAuraIDs}
+                        local acquired,handle,why=pcall(self.monitor.AcquireSource,self.monitor,binding,source.key,source.type,source.params,Observe)
+                        if not acquired or not handle then
+                            for _,old in ipairs(acquiredBindings) do self.monitor:ReleaseSource(old.handle) end
+                            return nil,acquired and why or 'source-acquisition-failed'
+                        end
+                        binding.handle=handle; staged[#staged+1]=binding
+                        acquiredBindings[#acquiredBindings+1]=binding
+                    end
+                end
+            elseif Timing.enabled then
+                Timing:Record('binding-skip',rule.id,rule.object.id,rule.trigger.event,selectionReason)
             end
         end
     end
@@ -781,12 +1030,26 @@ function Runtime:Apply(rules,preserveBindings)
         if not retained[binding] then ReleaseBinding(self,binding) end
     end
     self.rules,self.bindings,self.issues=normalized,staged,issues
+    self.prepared=prepared
+    self.preparedSelections=selections
+    if prepared then self.stats.preparedApplies=(self.stats.preparedApplies or 0)+1 end
+    if partial then self.stats.partialApplies=(self.stats.partialApplies or 0)+1 end
+    if Timing.enabled then
+        for binding in pairs(retained) do TraceBinding('binding-retain',binding,binding.previous,binding.readyPending) end
+    end
     for _,binding in ipairs(acquiredBindings) do
         binding.active=true
+        if Timing.enabled then
+            if binding.rule.object.kind=='spell' then
+                Timing:WatchSpell(binding.rule.object.id);Timing:WatchSpell(binding.spellID)
+                for _,id in ipairs(binding.sourceParams and binding.sourceParams.spellIDs or {}) do Timing:WatchSpell(id) end
+            end
+            TraceBinding('binding-create',binding,binding.sourceKey,binding.sourceType)
+        end
         -- Acquiring an initialized shared source may produce no change on its
         -- next read. Capture its current public state as a silent baseline.
         local source=binding.handle.source
-        if YUI.IsRetail and source and binding.rule.object.kind=='spell' and IsReady(binding) then
+        if (YUI.IsRetail or YUI.IsForever) and source and binding.rule.object.kind=='spell' and IsReady(binding) then
             binding.readyCaptureEnabled=self.enabled
             if self.enabled then source.readyConsumers=(source.readyConsumers or 0)+1 end
             binding.readyCaptureSource=source
@@ -814,7 +1077,20 @@ function Runtime:Apply(rules,preserveBindings)
     return true,nil,retained
 end
 
+function Runtime:Apply(rules,preserveBindings,preserveUnchanged,readNativeAuraEntries)
+    local normalized,code=Model:NormalizeLibrary(rules)
+    if not normalized then return nil,code end
+    return ApplyRules(self,normalized,preserveBindings,preserveUnchanged,nil,nil,readNativeAuraEntries)
+end
+
+function Runtime:ApplyPrepared(token,preserveBindings,preserveUnchanged,changed,readNativeAuraEntries)
+    local prepared=preparedLibraries[token]
+    if not prepared then return nil,'invalid-prepared-library' end
+    return ApplyRules(self,prepared.rules,preserveBindings,preserveUnchanged,token,changed,readNativeAuraEntries)
+end
+
 function Runtime:Stop(affected)
+    if not affected then self.prepared=nil;self.preparedSelections=nil end
     local retained={}
     for _,binding in ipairs(self.bindings) do
         if not affected or affected[binding] then ReleaseBinding(self,binding)
@@ -844,14 +1120,21 @@ function Runtime:SetEnabled(enabled)
                 binding.readyStartSequence=Number(binding.readyCaptureSource.state.readyStartSequence) or 0
             end
             binding.lossSequence=nil
-            if YUI.IsRetail and binding.rule.object.kind=='spell' and IsReady(binding) then binding.previous=nil end
+            if (YUI.IsRetail or YUI.IsForever) and binding.rule.object.kind=='spell' and IsReady(binding) then binding.previous=nil end
             binding.auraWakeAt=nil
             binding.pendingCast=nil
             binding.windowArmed=nil
         end
     else
         for _,binding in ipairs(self.bindings) do
-            if (binding.rule.object.kind=='aura' or binding.rule.object.kind=='equipmentAura' or binding.rule.object.kind=='totem') and binding.handle.source.initialized then
+            if binding.rule.trigger.extension=='devourer-transform' or binding.rule.trigger.extension=='brewmaster-elixir' then
+                local state=binding.handle.source.state
+                if binding.rule.trigger.extension=='devourer-transform' and state.active
+                    and GetTime() >= state.startTime + binding.rule.trigger.value then
+                    binding.extraSession,binding.extraFired=state.session,true
+                end
+                ObserveClassExtra(binding,state)
+            elseif (binding.rule.object.kind=='aura' or binding.rule.object.kind=='equipmentAura' or binding.rule.object.kind=='totem') and binding.handle.source.initialized then
                 ObserveAura(binding,binding.handle.source.state)
             end
         end
@@ -869,8 +1152,13 @@ local function ChargeCapability(id,previous)
     end
 end
 
-function Runtime.ResolveCommon(rule,previous)
+function Runtime.ResolveCommon(rule,previous,context,readNativeAuraEntries)
     local o,event=rule.object,rule.trigger.event
+    if rule.trigger.extension=='devourer-transform' or rule.trigger.extension=='brewmaster-elixir' then
+        local common=YUI.Monitor and YUI.Monitor.CommonSources
+        if not (common and common.DescribeClassExtra) then return nil,'source-unavailable' end
+        return common:DescribeClassExtra(rule.trigger.extension)
+    end
     if rule.trigger.extension=='bone-shield' then
         local common=YUI.Monitor and YUI.Monitor.CommonSources
         if not (common and common.DescribeBoneShield) then return nil,'source-unavailable' end
@@ -888,7 +1176,15 @@ function Runtime.ResolveCommon(rule,previous)
             id=racial.ResolveKnownSpellID(id)
             if not id then return nil,'spell-not-known' end
         end
+        if YUI.IsForever and YUI.Sound.ForeverCatalog and not rule.trigger.extension
+            and (event=='ready' or event=='charge' or event=='cooldownStarted') then
+            local resolved,reason,handled=YUI.Sound.ForeverCatalog:CooldownID(id)
+            if handled and not resolved then return nil,reason end
+            id=resolved or id
+        end
         id=EffectiveSpellID({kind=o.kind,id=id,unit=o.unit})
+        local allowed,why=Eligibility.Allows(context,rule,id)
+        if not allowed then return nil,why end
         o={kind=o.kind,id=id,unit=o.unit}
     end
     local common=YUI.Monitor and YUI.Monitor.CommonSources
@@ -903,7 +1199,7 @@ function Runtime.ResolveCommon(rule,previous)
     end
     if event=='charge' then
         local useNative=true
-        if YUI.IsRetail then
+        if YUI.IsRetail or YUI.IsForever then
             local charges=ChargeCapability(o.id,previous)
             if charges==nil then return nil,'charge-capability-unknown' end
             useNative=charges==true
@@ -930,8 +1226,11 @@ function Runtime.ResolveCommon(rule,previous)
         return common:DescribeEquipmentAura(o.id,event)
     end
     if o.kind=='aura' then
+        if o.unit=='received' then
+            return YUI.HelpfulBuffs:DescribeSound(o.id,event)
+        end
         if common.DescribeNativeAuraSignal then
-            local signal = common:DescribeNativeAuraSignal(o.id, 'cdm', event)
+            local signal = common:DescribeNativeAuraSignal(o.id, 'cdm', event,readNativeAuraEntries)
             if signal then return signal end
         end
         return nil,'native-aura-binding-unavailable'
@@ -943,6 +1242,17 @@ function Runtime.ResolveCommon(rule,previous)
             if not typeID then return nil,code end
             return {key=typeID..':'..o.unit..':'..o.id,type=typeID,
                 params={spellID=o.id,unit=o.unit,extension=rule.trigger.extension}}
+        end
+        local forever=YUI.IsForever and YUI.Sound.ForeverCatalog
+        if forever and forever.DescribeCast then
+            local source,code,handled=forever:DescribeCast(rule.object.id,o.unit)
+            if handled then return source,code end
+            if o.unit=='player' then
+                local api=YUI.API and YUI.API.Spell
+                local actual=api and api.GetPlayerCastSpellID and api.GetPlayerCastSpellID(o.id)
+                if not actual then return nil,actual==false and 'spell-cast-unavailable' or 'spell-known-unknown' end
+                o.id=actual
+            end
         end
         local ok,code=common:RegisterCastSourceType(); if not ok then return nil,code end
         return {key='cast:'..o.unit..':'..o.id,type='spell-cast',params={spellID=o.id,unit=o.unit}}
@@ -959,12 +1269,12 @@ function Runtime.ResolveCommon(rule,previous)
     if o.kind=='spell' then
         local ok,code=common:RegisterSpellSourceType(); if not ok then return nil,code end
         local hasCharges
-        local client=YUI.IsRetail and 'mainline' or YUI.IsWrath and 'wrath' or 'mists'
+        local client=YUI.IsForever and 'forever' or YUI.IsRetail and 'mainline' or YUI.IsWrath and 'wrath' or 'mists'
         for _, object in ipairs(YUI.Sound.ObjectDefinitions or {}) do
             if object.kind=='spell' and object.id==o.id and object.client==client then hasCharges=object.charges; break end
         end
         local current=ChargeCapability(o.id,previous)
-        if YUI.IsRetail and current==nil then return nil,'charge-capability-unknown' end
+        if (YUI.IsRetail or YUI.IsForever) and current==nil then return nil,'charge-capability-unknown' end
         local editor=YUI.Sound.EditorModel
         if current==nil and editor and editor:DisplayID(rule.object)==o.id then current=editor:HasCharges(rule.object) end
         if current~=nil then hasCharges=current end

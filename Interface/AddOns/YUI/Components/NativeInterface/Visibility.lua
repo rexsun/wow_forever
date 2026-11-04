@@ -128,7 +128,8 @@ function Native:RefreshVisibility(reason)
     end
     local config = self:GetConfig()
     local enabled = self.runtimeEnabled == true
-    SetBagWatching(enabled and config.bagsBarVisibility == "auto")
+    local bagsEnabled = enabled and config.manageBagsBar == true
+    SetBagWatching(bagsEnabled and config.bagsBarVisibility == "auto")
     if IsInCombat() then
         QueueRefresh(reason or "config-refresh")
         return false, lastReason
@@ -137,7 +138,7 @@ function Native:RefreshVisibility(reason)
     bagsOpen = watchingBags and type(api.IsPlayerBagOpen) == "function" and api:IsPlayerBagOpen() or false
     local statusTrackingBars = enabled and config.hideStatusTrackingBars == true
     local microMenu = enabled and config.hideMicroMenu == true
-    local bagsBar = enabled and (config.bagsBarVisibility == "hide" or (watchingBags and not bagsOpen))
+    local bagsBar = bagsEnabled and (config.bagsBarVisibility == "hide" or (watchingBags and not bagsOpen))
     if reason == "bag-visibility" and applied and suppression.statusTrackingBars == statusTrackingBars
         and suppression.microMenu == microMenu and suppression.bagsBar == bagsBar then
         return true
@@ -167,6 +168,7 @@ end
 
 function Native:GetVisibilityDiagnostics()
     return { owner = owner, lastReason = lastReason, watchingBags = watchingBags, bagsOpen = bagsOpen,
-        mode = self:GetConfig().bagsBarVisibility, pendingRefresh = pendingReason ~= nil,
+        mode = self:GetConfig().bagsBarVisibility, controlEnabled = self:GetConfig().manageBagsBar == true,
+        pendingRefresh = pendingReason ~= nil,
         timerPending = refreshTimer ~= nil, combatRecovery = recovering }
 end

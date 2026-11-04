@@ -5,19 +5,23 @@ if not S then return end
 local E = {}
 local recoveryEdits = setmetatable({}, { __mode = 'k' })
 S.EditorModel = E
-E.PresetPresentation={['bone-shield']={tooltipSpellID=195181},['arcane-soul']={tooltipSpellID=451038},['boiling-point']={tooltipSpellID=1265968}}
+E.PresetPresentation={['devourer-transform']={tooltipSpellID=1217607},['brewmaster-elixir']={tooltipSpellID=455139},['bone-shield']={tooltipSpellID=195181},['arcane-soul']={tooltipSpellID=451038},['boiling-point']={tooltipSpellID=1265968}}
 -- Only confirmed specialization relationships; never merge spells by name.
 E.SpellFamilies={
     [65]={[432459]=375576,[200025]=53563},
     [264]={[443454]=378081},
 }
 E.SpellFamilyScopes={[65]='PALADIN:65',[264]='SHAMAN:264'}
+-- Reviewed spell-object compatibility, not a conversion of every CDM base ID.
+-- Lifebloom's activation marker is not its cast identity; preserve saved rules.
+E.CDMSpellAliases={[105]={[1227806]=33763},[256]={[356085]=355897}}
 function E:CanonicalSpellID(id,spec)
     local families=YUI.IsRetail and self.SpellFamilies[spec]
-    return families and families[id] or id
+    local aliases=YUI.IsRetail and self.CDMSpellAliases[spec]
+    return aliases and aliases[id] or families and families[id] or id
 end
 local function Text(key) return YUI.Locale:Get('Core')['sound.center.' .. key] end
-local function Client() return YUI.IsRetail and 'mainline' or YUI.IsWrath and 'wrath' or 'mists' end
+local function Client() return YUI.IsForever and 'forever' or YUI.IsRetail and 'mainline' or YUI.IsWrath and 'wrath' or 'mists' end
 local function Copy(raw)
     if type(raw)~='table' then return raw end
     local value={}; for key,item in pairs(raw) do value[key]=Copy(item) end; return value
@@ -48,9 +52,38 @@ function E:CastOnly(object)
     local row=self:Definition(object)
     return row and row.castOnly==true or false
 end
+function E:ReceivedBuff(object)
+    return object.kind=='aura' and object.unit=='received' and YUI.HelpfulBuffs
+        and YUI.HelpfulBuffs.byID[object.id]
+end
 function E:ObjectCategory(object)
+    if object.kind=='event' then return 'general' end
+    if self:ReceivedBuff(object) then return 'general' end
     return (self:IsRacial(object) or self:PotionBuff(object) or object.kind=='equipmentAura' or object.kind=='slot'
         or object.kind=='item' or object.kind=='itemGroup') and 'general' or 'class'
+end
+-- Cold editor context only; loading scope is not the selected spell's owner.
+function E:VoiceClass(rule,displaySpec)
+    local object=rule.object
+    if object.kind=='event' then return 'events' end
+    if self:ReceivedBuff(object) then return 'buffs' end
+    if self:ObjectCategory(object)=='general' then return 'general' end
+    local definition=self:Definition(object)
+    local specs=definition and definition.specs
+    local class
+    local settings=YUI.Settings
+    for _,group in ipairs(settings and settings.GetSpecSelectionGroups and settings:GetSpecSelectionGroups({}) or {}) do
+        for _,info in ipairs(group.specs or {}) do
+            local matches=not specs and info.specID==displaySpec
+            for _,id in ipairs(specs or {}) do if id==info.specID then matches=true;break end end
+            if matches then
+                local token=info.classInfo.token
+                if class and class~=token then return 'all' end
+                class=token
+            end
+        end
+    end
+    return class
 end
 function E:IsRacial(object)
     local racial=YUI.API and YUI.API.Racial
@@ -71,23 +104,36 @@ function E:RuleSpec(rule)
     return current
 end
 function E:DisplayID(object,spec)
-    if object.kind~='spell' then return object.id end
+    if YUI.IsForever and object.kind=='spell' and S.ForeverCatalog then
+        local id=S.ForeverCatalog:DisplayID(object.id,spec)
+        if id~=object.id then return id end
+    end
+    local aura=YUI.IsRetail and object.kind=='aura' and object.unit~='received' and self:Definition(object)
+    local auraBase=aura and aura.auraDisplayBase
+    if object.kind~='spell' and not auraBase then return object.id end
     local api=YUI.API.Spell
     local racial=YUI.API.Racial
     if self:IsRacial(object) then return racial.ResolveKnownSpellID(object.id) or object.id end
     if spec==nil then
-        local definition=self:Definition(object)
-        local specs=object.specs or definition and definition.specs
+        local specs=object.specs
+        if not specs then local definition=self:Definition(object); specs=definition and definition.specs end
         if specs then
             local current=self:CurrentSpec();spec=-1
             for _,id in ipairs(specs) do if id==current then spec=current; break end end
         end
     end
-    local id=self:CanonicalSpellID(object.id,spec or self:CurrentSpec())
-    return api.GetEffectiveSpellID and api.GetEffectiveSpellID(id,spec) or id
+    local id=auraBase or self:CanonicalSpellID(object.id,spec or self:CurrentSpec())
+    local display=api.GetEffectiveSpellID and api.GetEffectiveSpellID(id,spec) or id
+    if auraBase then
+        -- Only reviewed aura family members may follow the skill's talent display.
+        for _,member in ipairs(aura.memberIDs or {}) do if display==member then return display end end
+        return auraBase
+    end
+    return display
 end
-function E:RefreshCatalog()
+function E:RefreshCatalog(readNativeAuraEntries)
     self.displayIDs=nil
+    if S.ForeverCatalog then return S.ForeverCatalog:Refresh(self) end
     if self.currentCatalog and self.currentCatalog.spec~=self:CurrentSpec() then self.currentCatalog=nil end
     if not YUI.IsRetail or InCombatLockdown and InCombatLockdown() then return end
     local manager=YUI.Settings and YUI.Settings.ConfigSets
@@ -95,7 +141,9 @@ function E:RefreshCatalog()
     local spec=type(key)=='string' and tonumber(key:match(':(%d+)$'))
     local api=YUI.API and YUI.API.CooldownViewer
     if not spec or not api or not api.ReadEntries then return end
-    local entries=api:ReadEntries({includeHidden=true,allowUnlearned=true})
+    local entries
+    if readNativeAuraEntries then entries=readNativeAuraEntries()
+    else entries=api:ReadEntries({includeHidden=true,allowUnlearned=true}) end
     if type(entries)~='table' or #entries==0 then return end
     local rows,seen,nativeAliases,nativeEntries={},{},{},{}
     local common=YUI.Monitor and YUI.Monitor.CommonSources
@@ -133,6 +181,7 @@ function E:RefreshCatalog()
         end
     end
     self.currentCatalog={spec=spec,rows=rows,nativeAliases=nativeAliases,nativeEntries=nativeEntries}
+    self.catalogDirty=nil
 end
 function E:HasCharges(object,spec)
     if object.kind~='spell' then return false end
@@ -153,7 +202,7 @@ function E:HasCharges(object,spec)
     end
     -- Native/catalog charge flags describe recharge storage, not the number
     -- of uses granted by the selected talents. Never promote them to capacity.
-    if YUI.IsRetail then return nil end
+    if YUI.IsRetail or YUI.IsForever then return nil end
     for _,definition in ipairs(self.currentCatalog and self.currentCatalog.rows or {}) do
         if (not spec or spec==current) and self.currentCatalog.spec==current and definition.kind=='spell' and definition.id==object.id and type(definition.charges)=='boolean' then return definition.charges end
     end
@@ -162,18 +211,32 @@ function E:HasCharges(object,spec)
     end
 end
 function E:ObjectInfo(object, extension, spec)
+    if object.kind=='event' then
+        local entry=S.EventDefinitions and S.EventDefinitions.byID[object.id]
+        return entry and S.EventDefinitions:Text(object.id) or tostring(object.id),entry and entry.icon or 134400
+    end
     local kind,id=object.kind,self:DisplayID(object,spec)
     local name,icon
-    if kind=='spellGroup' then name,icon=Text('burstPotionBuff'),7548911
+    local received=self:ReceivedBuff(object)
+    if received and received.displaySpellID then id=received.displaySpellID end
+    if received and received.nameKey then
+        name,icon=YUI.Locale:Get('Core')[received.nameKey],YUI.API.Spell.GetTexture(id)
+    elseif kind=='spellGroup' then name,icon=Text('burstPotionBuff'),7548911
     elseif extension=='bone-shield' then name,icon=Text('boneShield'),YUI.API.Spell.GetTexture(195181)
     elseif extension=='boiling-point' then name,icon=Text('boilingPoint'),YUI.API.Spell.GetTexture(1265968)
+    elseif extension=='devourer-transform' or extension=='brewmaster-elixir' then name,icon=Text('extra.'..extension),YUI.API.Spell.GetTexture(object.id)
     elseif extension then name,icon=Text('arcaneForecast'),YUI.API.Spell.GetTexture(451038)
     elseif kind=='equipmentAura' then name,icon=Text(id==13 and 'trinketAura1' or 'trinketAura2'),YUI.API.Item.GetInventoryItemTexture and YUI.API.Item.GetInventoryItemTexture('player',id) or 134400
     elseif kind=='slot' then name,icon=Text(id==13 and 'upperTrinket' or 'lowerTrinket'),YUI.API.Item.GetInventoryItemTexture and YUI.API.Item.GetInventoryItemTexture('player',id) or 134400
     elseif kind=='itemGroup' then name,icon=Text(id=='health-potion' and 'healthPotion' or 'burstPotion'),id=='health-potion' and 134829 or 7548911
     elseif kind=='item' then
         name=YUI.API.Item.GetName(id); icon=YUI.API.Item.GetIcon(id)
-    else name=YUI.API.Spell.GetName(id); icon=YUI.API.Spell.GetTexture(id) end
+    else
+        name=YUI.API.Spell.GetName(id); icon=YUI.API.Spell.GetTexture(id)
+        local aura=YUI.IsRetail and kind=='aura' and object.unit~='received' and self:Definition(object)
+        if aura and aura.auraIconSpellID then icon=YUI.API.Spell.GetTexture(aura.auraIconSpellID) or icon end
+        if S.ForeverCatalog then name=S.ForeverCatalog:DisplayName(id,name) end
+    end
     return name or ('#'..tostring(id)),icon or object.icon or 134400
 end
 function E:PotionMembers(object)
@@ -195,18 +258,21 @@ function E:PotionMembers(object)
     end
     return rows
 end
-function E:ObjectDetails(object,extension,spec)
+function E:ObjectDetails(object,extension,spec,cache)
+    if object.kind=='event' then return S.EventDefinitions:Text('testingHint') end
+    if self:ReceivedBuff(object) then return Text('receivedBuffDetails') end
     local potion=self:PotionBuff(object)
     if potion then return string.format(Text('potionSummary'),potion.duration) end
     if extension=='bone-shield' then return Text('boneShieldDetails') end
     if extension=='boiling-point' then return Text('boilingPointDetails') end
+    if extension=='devourer-transform' or extension=='brewmaster-elixir' then return Text('extra.'..extension..'.details') end
     if extension then return string.format(Text('forecastLoad'),'|cffffd100'..(YUI.API.Spell.GetName(449619) or '#449619')..'|r') end
     if object.kind=='aura' then
-        for _,row in ipairs(self:Objects('class',nil,'','aura')) do
+        for _,row in ipairs(self:Objects('class',spec,'','aura',cache,'details')) do
             for _,id in ipairs(row.memberIDs or {}) do
                 if id==object.id and #row.memberIDs>1 then
-                    table.sort(row.memberIDs)
-                    return 'ID '..table.concat(row.memberIDs,' / '),true
+                    local ids=Copy(row.memberIDs); table.sort(ids)
+                    return 'ID '..table.concat(ids,' / '),true
                 end
             end
         end
@@ -228,22 +294,39 @@ function E:ObjectDetails(object,extension,spec)
     local display=self:DisplayID(object,spec)
     return object.kind=='itemGroup' and Text(object.id=='health-potion' and 'healthPotion' or 'burstPotion') or ('ID '..tostring(object.id)..(display~=object.id and (' → '..display) or ''))
 end
-function E:Objects(category,spec,query,kind)
+function E:BuildObjectRows(category,spec,kind)
+    if self.catalogDirty then self:RefreshCatalog() end
+    if kind=='event' then
+        local rows={}
+        if not YUI.IsRetail and not YUI.IsForever then return rows end
+        local group=category:match('^events:(.+)$')
+        for _,entry in ipairs(S.EventDefinitions.rows) do
+            if not group or entry.group==group then
+                rows[#rows+1]={object={kind='event',id=entry.id,unit='player'},
+                    name=S.EventDefinitions:Text(entry.id),icon=entry.icon,category='general',order=entry.order,memberIDs={entry.id}}
+            end
+        end
+        return rows
+    end
     local rows,seen={},{}
     local catalog=self.currentCatalog
-    local native=not spec or catalog and spec==catalog.spec
+    local native=not spec or catalog and (spec==catalog.spec or S.ForeverCatalog and S.ForeverCatalog:Matches(catalog,spec))
     local currentSpec=category=='all' and self:CurrentSpec() or nil
     local function Add(object,extension)
+        if YUI.IsForever and object.id==52127 then return end
         -- Unresolved Build 69814 native links must not return via the live catalog.
         if object.kind=='aura' and (object.id==434112 or object.id==439841) then return end
-        local alias=native and catalog and catalog.nativeAliases and catalog.nativeAliases[object.id]
-        if object.kind=='aura' and alias and alias~=object.id then return end
-        local entry=object.kind=='aura' and native and catalog and catalog.nativeEntries and catalog.nativeEntries[object.id]
         local displayKind=self:PickerKind(object,extension)
         if kind and displayKind~=kind and not (kind=='item' and (object.kind=='slot' or object.kind=='itemGroup')) then return end
+        local received=self:ReceivedBuff(object)
+        local aura=YUI.IsRetail and object.kind=='aura' and not received and self:Definition(object)
+        if aura and aura.auraPickerID then return end
+        local alias=not received and native and catalog and catalog.nativeAliases and catalog.nativeAliases[object.id]
+        if object.kind=='aura' and alias and alias~=object.id then return end
+        local entry=not received and object.kind=='aura' and native and catalog and catalog.nativeEntries and catalog.nativeEntries[object.id]
         if self:IsRacial(object) then
             if category~='racial' and category~='all' then return end
-            local member=YUI.API.Racial.GetEntry(object.id)
+            local member=YUI.API.Racial.GetEntry(object.id,object.kind)
             object={kind=object.kind,id=object.kind=='spell' and member.spellID or object.id}
         elseif category=='racial' then return end
         local objectCategory=self:ObjectCategory(object)
@@ -255,13 +338,15 @@ function E:Objects(category,spec,query,kind)
             end
         end
         local name,icon=self:ObjectInfo(object,extension,spec)
-        local identity=object.kind..':'..object.id..':'..tostring(extension)
+        local identity=object.kind..':'..object.id..':'..tostring(extension)..(received and ':received' or '')
         if seen[identity] then return end
         seen[identity]=true
         local sorting=spec and object.sortBySpec and object.sortBySpec[spec] or object.sortBase or {}
-        rows[#rows+1]={object={kind=object.kind,id=object.id,unit=object.kind=='aura' and 'cdm' or 'player'},name=name,icon=icon,
+        rows[#rows+1]={object={kind=object.kind,id=object.id,unit=received and 'received' or object.kind=='aura' and 'cdm' or 'player'},name=name,icon=icon,
             displayID=self:DisplayID(object,spec),extension=extension,category=self:ObjectCategory(object),specs=object.specs,order=object.order or 1000,pvp=sorting.pvp==true,cooldown=sorting.cooldown,
-            nativeCooldownID=entry and entry.cooldownID,nativeMemberIDs=entry and entry.memberIDs}
+            nativeCooldownID=entry and entry.cooldownID or (YUI.IsForever and object.nativeCooldownID or nil),
+            nativeMemberIDs=entry and entry.memberIDs or object.memberIDs,
+            auraFamilyIDs=aura and aura.auraDisplayBase and aura.memberIDs}
         if currentSpec and objectCategory=='class' then
             for _,id in ipairs(object.specs or {}) do
                 if id==currentSpec then rows[#rows].currentSpec=true; break end
@@ -275,10 +360,15 @@ function E:Objects(category,spec,query,kind)
             if racial.GetEntry(member.spellID,'aura') then Add({kind='aura',id=member.spellID}) end
         end
     end
-    if YUI.IsRetail and kind=='aura' and category~='class' then
-        Add({kind='equipmentAura',id=13,order=-9});Add({kind='equipmentAura',id=14,order=-8})
-        for i,preset in ipairs(self.PotionBuffs) do
-            if preset.kind=='spellGroup' or preset.id==1236551 then Add({kind=preset.kind or 'spell',id=preset.id,order=-8+i}) end
+    if (YUI.IsRetail or YUI.IsForever) and kind=='aura' and category~='class' then
+        for index,preset in ipairs(YUI.HelpfulBuffs and YUI.HelpfulBuffs.soundEntries or {}) do
+            Add({kind='aura',id=preset.id,unit='received',order=index})
+        end
+        if YUI.IsRetail then
+            Add({kind='equipmentAura',id=13,order=-9});Add({kind='equipmentAura',id=14,order=-8})
+            for i,preset in ipairs(self.PotionBuffs) do
+                if preset.kind=='spellGroup' or preset.id==1236551 then Add({kind=preset.kind or 'spell',id=preset.id,order=-8+i}) end
+            end
         end
     end
     if category~='class' then
@@ -294,14 +384,19 @@ function E:Objects(category,spec,query,kind)
         Add({kind='spell',id=195181,specs={250},order=-11},'bone-shield')
         Add({kind='spell',id=1265968,specs={250},order=-10},'boiling-point')
     end
+    if category~='general' and category~='racial' and YUI.IsRetail then
+        if not spec or spec==1480 then Add({kind='spell',id=1217607,specs={1480},order=-10},'devourer-transform') end
+        if not spec or spec==268 then Add({kind='spell',id=455139,specs={268},order=-10},'brewmaster-elixir') end
+    end
     for _,object in ipairs(S.ObjectDefinitions or {}) do
-        if object.client==Client() and not self:PotionBuff(object) then
+        local replaced=S.ForeverCatalog and catalog and object.specs and S.ForeverCatalog:Matches(catalog,object.specs[1])
+        if object.client==Client() and not object.retiredCDM and not replaced and not self:PotionBuff(object) then
             local matches=not spec or not object.specs
             for _,id in ipairs(object.specs or {}) do if id==spec then matches=true end end
             if matches then Add(object) end
         end
     end
-    if category~='general' and catalog and (not spec or spec==catalog.spec) then
+    if category~='general' and catalog and native then
         for _,object in ipairs(catalog.rows) do if not self:PotionBuff(object) then Add(object) end end
     end
     table.sort(rows,function(a,b)
@@ -321,9 +416,11 @@ function E:Objects(category,spec,query,kind)
     for _,row in ipairs(rows) do
         local id=row.object.id
         local name=row.name
-        local canGroup=row.object.kind=='aura' and not row.extension and name~='#'..tostring(id)
+        local canGroup=row.object.kind=='aura' and row.object.unit~='received' and not row.extension and name~='#'..tostring(id)
             and not (self.auraMergeExceptions and self.auraMergeExceptions[id])
+        -- A reviewed display family cannot absorb another spec's same-name aura.
         local groupKey=name..':'..row.object.unit..':'..tostring(row.pvp)..':'..tostring(row.nativeCooldownID or '')
+            ..':'..tostring(row.auraFamilyIDs and row.object.id or '')
         local previous=canGroup and byName[groupKey]
         if previous then
             previous.memberIDs[#previous.memberIDs+1]=id
@@ -341,18 +438,74 @@ function E:Objects(category,spec,query,kind)
             if canGroup then byName[groupKey]=row end
         end
     end
-    local filtered={}
+    return result
+end
+-- The editor owns at most three materialized directories, never one per query/spec.
+function E:ObjectRows(category,spec,kind,cache,slot)
+    if self.catalogDirty then self:RefreshCatalog() end
+    if not cache then return self:BuildObjectRows(category,spec,kind) end
+    local client,current,locale=Client(),self:CurrentSpec(),YUI.Locale:Current()
+    if cache.definitions~=S.ObjectDefinitions or cache.catalog~=self.currentCatalog
+        or cache.client~=client or cache.currentSpec~=current or cache.locale~=locale
+        or cache.exceptions~=self.auraMergeExceptions then
+        cache.browse,cache.all,cache.details=nil,nil,nil
+        cache.definitions,cache.catalog,cache.client=S.ObjectDefinitions,self.currentCatalog,client
+        cache.currentSpec,cache.locale,cache.exceptions=current,locale,self.auraMergeExceptions
+    end
+    slot=slot or 'browse'
+    local key=category..':'..tostring(spec)..':'..tostring(kind)
+    local entry=cache[slot]
+    if not entry or entry.key~=key then
+        entry={key=key,rows=self:BuildObjectRows(category,spec,kind),spellIDs={},itemIDs={}}
+        for _,row in ipairs(entry.rows) do
+            local object=row.object
+            local ids=object.kind=='item' and entry.itemIDs
+                or (object.kind=='spell' or object.kind=='aura' or object.kind=='totem') and entry.spellIDs
+            if ids then
+                ids[object.id]=true
+                if row.displayID then ids[row.displayID]=true end
+                for _,id in ipairs(row.memberIDs or {}) do ids[id]=true end
+            end
+        end
+        cache[slot]=entry
+    end
+    return entry.rows,entry
+end
+function E:Objects(category,spec,query,kind,cache,slot)
+    local result,cached=self:ObjectRows(category,spec,kind,cache,slot)
+    local filtered,lower={},query and query:lower()
+    local searchNames=cached and cached.searchNames
+    if cached and not searchNames then searchNames={}; cached.searchNames=searchNames end
     for _,row in ipairs(result) do
-        local matches=not query or query=='' or row.name:lower():find(query:lower(),1,true)
-        if query and row.object.kind=='spell' and spec then
-            local families=YUI.IsRetail and self.SpellFamilies[spec] or {}
-            local baseName=YUI.API.Spell.GetName(row.object.id)
-            if baseName and baseName:lower():find(query:lower(),1,true) then matches=true end
-            for alias,base in pairs(families) do
-                if base==row.object.id then
-                    local name=YUI.API.Spell.GetName(alias)
-                    if tostring(alias):find(query,1,true) or name and name:lower():find(query:lower(),1,true) then matches=true end
+        local matches=not query or query=='' or row.name:lower():find(lower,1,true)
+        if query and query~='' and (row.object.kind=='spell' and spec or row.auraFamilyIDs) then
+            local names=searchNames and searchNames[row]
+            if not names then
+                names={}
+                local baseName=YUI.API.Spell.GetName(row.object.id)
+                if baseName then names[#names+1]={name=baseName:lower()} end
+                for _,id in ipairs(row.auraFamilyIDs or {}) do
+                    local name=YUI.API.Spell.GetName(id)
+                    if name then names[#names+1]={name=name:lower()} end
                 end
+                for alias,base in pairs(YUI.IsRetail and self.SpellFamilies[spec] or {}) do
+                    if base==row.object.id then
+                        local name=YUI.API.Spell.GetName(alias)
+                        names[#names+1]={id=tostring(alias),name=name and name:lower()}
+                        if cached then cached.spellIDs[alias]=true end
+                    end
+                end
+                for alias,base in pairs(YUI.IsRetail and self.CDMSpellAliases[spec] or {}) do
+                    if base==row.object.id then
+                        local name=YUI.API.Spell.GetName(alias)
+                        names[#names+1]={id=tostring(alias),name=name and name:lower()}
+                        if cached then cached.spellIDs[alias]=true end
+                    end
+                end
+                if searchNames then searchNames[row]=names end
+            end
+            for _,entry in ipairs(names) do
+                if entry.id and entry.id:find(query,1,true) or entry.name and entry.name:find(lower,1,true) then matches=true end
             end
         end
         if query and tostring(row.displayID):find(query,1,true) then matches=true end
@@ -363,7 +516,45 @@ function E:Objects(category,spec,query,kind)
     end
     return filtered
 end
+-- Browse-only expansion: leave the catalog, native identities and saved rules intact.
+function E:BrowseObjects(category,spec,query,kind,relatedSpecs,cache)
+    if kind=='event' then return self:Objects(category,spec,query,kind,cache) end
+    query=(query or ''):match('^%s*(.-)%s*$')
+    local rows=self:Objects(category=='buffs' and 'general' or category,spec,query,kind,cache)
+    if category=='buffs' or category=='general' then
+        local filtered={}
+        for _,row in ipairs(rows) do
+            local received=self:ReceivedBuff(row.object)
+            if category=='buffs' and received or category=='general' and not received then filtered[#filtered+1]=row end
+        end
+        rows=filtered
+    end
+    if query=='' or category=='all' then return rows end
+    local result,seen,related,other={},{},{},{}
+    local function Key(row,id)
+        return row.object.kind..':'..tostring(id)..':'..tostring(row.object.unit)..':'..tostring(row.extension)
+    end
+    local function Add(row,target)
+        if seen[Key(row,row.object.id)] then return end
+        for _,id in ipairs(row.memberIDs or {}) do if seen[Key(row,id)] then return end end
+        seen[Key(row,row.object.id)]=true
+        for _,id in ipairs(row.memberIDs or {}) do seen[Key(row,id)]=true end
+        target[#target+1]=row
+    end
+    for _,row in ipairs(rows) do Add(row,result) end
+    for _,row in ipairs(self:Objects('all',nil,query,kind,cache,'all')) do
+        local sameClass=false
+        if category=='class' then
+            for _,id in ipairs(row.specs or {}) do if relatedSpecs and relatedSpecs[id] then sameClass=true;break end end
+        end
+        Add(row,sameClass and related or other)
+    end
+    for _,row in ipairs(related) do result[#result+1]=row end
+    for _,row in ipairs(other) do result[#result+1]=row end
+    return result
+end
 function E:ManualObject(kind,id,spec)
+    if self.catalogDirty then self:RefreshCatalog() end
     if (kind~='spell' and kind~='aura') or type(id)~='number' or id%1~=0 or id<1 or id>2147483647 then return nil,'invalid-object' end
     if kind=='spell' then
         local racial=YUI.API.Racial
@@ -386,6 +577,10 @@ function E:ManualObject(kind,id,spec)
     return {object={kind=kind,id=id,unit=kind=='aura' and 'cdm' or 'player'},unverified=not exact or not name}
 end
 function E:TriggerLabel(rule,spec)
+    if rule.object.kind=='event' then
+        local label=S.EventDefinitions:Text(rule.object.id,'when')
+        return rule.object.id=='repair-needed' and string.format(label,(rule.trigger.params or {}).threshold or 20) or label
+    end
     local lossDelay=tonumber(rule.trigger.lossDelay) or 0
     if rule.trigger.event=='auraRemoved' and lossDelay>0 then
         return string.format(Text('auraLossDelayed'),tostring(lossDelay))
@@ -393,6 +588,8 @@ function E:TriggerLabel(rule,spec)
     if rule.object.kind=='equipmentAura' then return Text(rule.trigger.event=='auraAdded' and 'equipmentAuraAdded' or 'equipmentAuraRemoved') end
     if rule.trigger.extension=='bone-shield' then return string.format(Text('boneShieldWhen'),rule.trigger.value or '?') end
     if rule.trigger.extension=='boiling-point' then return Text('boilingPointWhen') end
+    if rule.trigger.extension=='devourer-transform' then return string.format(Text('extra.devourer-transform.when'),rule.trigger.value or 38) end
+    if rule.trigger.extension=='brewmaster-elixir' then return Text(rule.trigger.event=='ready' and 'extra.brewmaster-elixir.ready' or 'extra.brewmaster-elixir.cooldown') end
     if rule.trigger.extension then return Text('forecastWhen') end
     local trigger=rule.trigger
     if trigger.event=='cast' or trigger.event=='castAfter' and trigger.value==0 then return Text('castImmediate') end
@@ -423,8 +620,8 @@ function E:ForecastPartLabel(sound,ending,voiceLabel)
 end
 function E:ForecastIntroDuration(sound)
     local prefs=S:GetPreferences()
-    return S:GetForecastIntroDuration(sound,prefs and {packId=prefs.voicePackId,
-        fallbackDefault=prefs.fallbackDefault,fallbackTTS=false})
+    local options=S:GetPlaybackOptions(prefs);options.fallbackTTS=false
+    return S:GetForecastIntroDuration(sound,options)
 end
 function E:SoundLabel(sound,voiceLabel)
     if sound.kind=='boneShield' or sound.kind=='eventWindow' then
@@ -437,6 +634,42 @@ function E:SoundLabel(sound,voiceLabel)
         return self:ForecastPartLabel(sound,nil,voiceLabel)..' → '..table.concat(digits,Text('countdownSeparator'))..' → '..self:ForecastPartLabel(sound,true,voiceLabel)
     end
     return sound.value
+end
+
+local sourceDigits={'VC-6b86b273','VC-d4735e3a','VC-4e074085','VC-4b227777','VC-ef2d127d',
+    'VC-e7f6c011','VC-7902699b','VC-2c624232','VC-19581e27','VC-4a44dc15'}
+-- Settings-only snapshot; no source discovery or allocations on combat events.
+function E:SoundSources(sound,prefs)
+    local result={parts={},packIds={}}
+    local options=S:GetPlaybackOptions(prefs)
+    if sound.kind=='forecast' then options.fallbackTTS=false end
+    local seen,labels={},{}
+    local function Part(kind,value,roleKey,digit)
+        if kind=='none' then return end
+        local resource,code
+        if kind=='voice' then resource,code=S:ResolveEntry(value,options) end
+        local origin=kind=='voice' and S:ParseSpecialVoice(value)
+        local packId=resource and resource.packId or origin
+        local sourceKind=resource and resource.kind or kind=='voice' and 'missing' or kind
+        local label=packId and S:GetVoicePackLabel(packId) or Text(sourceKind=='missing' and 'packNoRecording' or sourceKind)
+        local identity=packId or sourceKind
+        if not seen[identity] then
+            seen[identity]=true;labels[#labels+1]=label
+            if packId then result.packIds[#result.packIds+1]=packId end
+        end
+        result.parts[#result.parts+1]={role=roleKey and Text(roleKey),roleKey=roleKey,digit=digit,
+            value=value,packId=packId,kind=sourceKind,label=label,
+            entryLabel=kind=='voice' and S:GetEntryLabel(value) or self:ForecastPartLabel({introKind=kind,value=value}),issue=code}
+    end
+    if sound.kind=='forecast' or sound.kind=='eventWindow' or sound.kind=='boneShield' then
+        Part(sound.introKind or 'voice',sound.value,'sourceIntro')
+        if sound.kind=='forecast' then
+            for i=sound.countdown,1,-1 do Part('voice',sourceDigits[i],'sourceCountdown',i) end
+        end
+        Part(sound.endingKind or 'voice',sound.ending,'sourceEnding')
+    else Part(sound.kind,sound.value) end
+    result.label=#labels>1 and Text('sourceMixed') or labels[1] or Text('none')
+    return result
 end
 function E:Preview(rule)
     S:StopPreview()
@@ -454,11 +687,18 @@ end
 function E:Begin(index,category,spec)
     local token,code=S.RuleStore:BeginEdit(); if not token then return nil,code end
     if index and not token.rules[index] then return nil,'stale-editor' end
+    if category=='events' and not index then
+        local entry=S.EventDefinitions.rows[1]
+        return {token=token,rule={object={kind='event',id=entry.id,unit='player'},
+            trigger={event='occurred',params=assert(S.EventDefinitions:Normalize(entry.id))},
+            category='general',enabled=true,talents={},sound={kind='voice',value=entry.voice}}}
+    end
     local object={kind=category=='general' and 'slot' or 'spell',id=category=='general' and 13 or 0,unit='player'}
     if not index then
         if category=='general' then spec=nil
         elseif not spec and YUI.Settings and YUI.Settings.GetCurrentSpecSelectionKey then spec=YUI.Settings:GetCurrentSpecSelectionKey() end
-        local specId=type(spec)=='string' and tonumber(spec:match(':(%d+)$')) or nil
+        local specId=YUI.IsForever and S.ForeverCatalog and S.ForeverCatalog:BrowseSpec(spec)
+            or type(spec)=='string' and tonumber(spec:match(':(%d+)$')) or nil
         for _,candidate in ipairs(self:Objects(category or 'class',specId,nil,category=='general' and 'item' or 'spell')) do
             if not candidate.extension then object=Copy(candidate.object); break end
         end
@@ -467,7 +707,7 @@ function E:Begin(index,category,spec)
     return {token=token,index=index,rule=index and Copy(token.rules[index]) or {
         object=object,trigger={event=event},
         category=category or 'class',enabled=true,talents={},
-        specs=category~='general' and spec and {spec} or nil,sound={kind='voice',value=''} }}
+        specs=category~='general' and spec and (YUI.IsForever and S.ForeverCatalog and S.ForeverCatalog:ClassSpecs(spec) or {spec}) or nil,sound={kind='voice',value=''} }}
 end
 function E:Save(edit)
     local rule,code=S.RuleModel:Normalize(edit.rule); if not rule then return nil,code end
@@ -477,6 +717,15 @@ function E:Save(edit)
         if locked then rule.sound.introDuration=nil end
     end
     local rules=Copy(edit.token.rules)
+    if rule.object.kind=='event' then
+        for index,other in ipairs(rules) do
+            if other.object.kind=='event' and other.object.id==rule.object.id and index~=edit.index then
+                if edit.index then return nil,'conflicting-entry' end
+                rules[index]=rule
+                return S.RuleStore:CommitEdit(edit.token,rules,S.Runtime)
+            end
+        end
+    end
     rules[edit.index or (#rules+1)]=rule
     local recovery = recoveryEdits[edit]
     if recovery then

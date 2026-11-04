@@ -775,7 +775,7 @@ if type(W) ~= "table" or (tonumber(W.MINOR) or 0) < MINOR then
         end
         if note ~= "" then tip[#tip + 1] = note end
         if full then tip[#tip + 1] = L("已招满，暂停申请", "Not accepting applications", "已招滿，暫停申請") end
-        tip[#tip + 1] = "|cff999999" .. L("点击扫码看详情、申请（联系方式走申请制）", "Click for a QR code to the detail page", "點擊掃碼看詳情、申請（聯繫方式走申請制）")
+        tip[#tip + 1] = "|cff999999" .. L("点击查看详情、申请（联系方式走申请制）", "Click to view details and apply", "點擊查看詳情、申請（聯繫方式走申請制）")
             .. (day ~= "" and ("  - " .. day) or "") .. "|r"
         r.tip = tip
         local function open()

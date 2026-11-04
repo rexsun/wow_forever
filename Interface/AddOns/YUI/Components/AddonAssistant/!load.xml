@@ -1,0 +1,11 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Script file="Bootstrap.lua"/>
+    <Include file="Locales\!load.xml"/>
+    <Script file="Model.lua"/>
+    <Script file="Catalog.lua"/>
+    <Script file="Client.lua"/>
+    <Script file="GameMenu.lua"/>
+    <Script file="Runtime.lua"/>
+    <Script file="View.lua"/>
+    <Script file="AddonAssistant.lua"/>
+</Ui>

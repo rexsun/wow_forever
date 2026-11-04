@@ -1,5 +1,6 @@
 local ADDON_NAME, addonTable = ...
 local YUI = _G.YUI
+local textStyles
 if not (YUI and YUI.Components) then
     YUI = addonTable
 end
@@ -103,8 +104,28 @@ FocusHelper.subFeatures = FocusHelper.subFeatures or {}
 FocusHelper.subFeatureOrder = FocusHelper.subFeatureOrder or {}
 FocusHelper.featureActive = FocusHelper.featureActive == true
 
+local Glow = {
+    styles = { "pixel", "button", "autocast", "proc", "pulse" },
+    validStyles = { pixel = true, button = true, autocast = true, proc = true, pulse = true },
+    fields = {
+        { "size", 0.25, 5 }, { "lines", 1, 20, true },
+        { "thickness", 1, 20, true }, { "length", 4, 80 },
+        { "speed", 0, 3 }, { "alpha", 0, 1 }, { "falloff", 0, 1 },
+        { "offsetX", -1, 1 }, { "offsetY", -1, 1 },
+    },
+    defaults = {
+        style = "pixel", color = { 1, 0.961, 0.071, 1 },
+        size = 1, lines = 6, thickness = 2, length = 18, speed = 0.3,
+        alpha = 1, falloff = 0.18, offsetX = 0, offsetY = 0,
+    },
+    entries = {},
+}
+
 local defaults = {
     interruptEnabled = true,
+    glowCondition = "none",
+    glowPosition = "icon",
+    glow = Glow.defaults,
     width = DEFAULT_WIDTH,
     height = DEFAULT_HEIGHT,
     barTexture = " |cFFFF00FFY|r|cFFFF6666U|r|cFFFF9900I|r |CFFBA55D3G1|r",
@@ -161,7 +182,7 @@ local VALID_TEXT_OUTLINE_MODES = {
     outline = true,
     thick = true,
     shadow = true,
-    outlineShadow = true,
+    outlineShadow = true, thickShadow = true,
 }
 
 local INTERRUPT_SPELLS = {
@@ -602,6 +623,7 @@ local function ResetWidgetCachedDisplay()
     Widget.lastTextFont = nil
     Widget.lastTextFontPath = nil
     Widget.lastTextOutlineMode = nil
+    Widget.lastTextMonochrome = nil
     Widget.lastTargetColor = nil
     Widget.lastAlpha = nil
 end
@@ -682,6 +704,17 @@ local function NormalizeDB(db)
     if type(db) ~= "table" then db = defaults end
     MigrateLegacyEQoLQuickFocus(db)
     db.interruptEnabled = db.interruptEnabled ~= false
+    if db.glowCondition ~= "important" and db.glowCondition ~= "always" then db.glowCondition = "none" end
+    if db.glowPosition ~= "bar" then db.glowPosition = "icon" end
+    local glow = type(db.glow) == "table" and db.glow or CopyDefaultValue(Glow.defaults)
+    if not Glow.validStyles[glow.style] then glow.style = Glow.defaults.style end
+    for _, field in ipairs(Glow.fields) do
+        local value = ClampNumber(glow[field[1]], field[2], field[3], Glow.defaults[field[1]])
+        if value ~= value then value = Glow.defaults[field[1]] end
+        glow[field[1]] = field[4] and math.floor(value + 0.5) or value
+    end
+    glow.color = NormalizeColor(glow.color, Glow.defaults.color)
+    db.glow = glow
     db.preview = nil
     db.width = ClampNumber(db.width, MIN_WIDTH, MAX_WIDTH, DEFAULT_WIDTH)
     db.height = ClampNumber(db.height, MIN_HEIGHT, MAX_HEIGHT, DEFAULT_HEIGHT)
@@ -739,6 +772,72 @@ end
 
 function FocusHelper:GetDB()
     return GetDB()
+end
+
+function Glow:Stop()
+    local entry = self.current
+    if not entry then return end
+    if entry.shown then entry.glow:SetGlowShown(false); entry.shown = false end
+    entry.gate:Hide()
+    entry.gate:SetAlpha(1)
+    self.current = nil
+end
+
+function Glow:ReadImportance(cast)
+    CastState.importantRaw = nil
+    if (activeDB or GetDB()).glowCondition ~= "important" then return end
+    local spellID = cast.spellIDRaw
+    if not IsSecretValue(spellID) and spellID == nil then spellID = cast.spellID end
+    if SpellAPI.GetImportantFlag then CastState.importantRaw = SpellAPI.GetImportantFlag(spellID) end
+end
+
+function Glow:Refresh()
+    local db = activeDB or GetDB()
+    if not CastState.active or db.glowCondition == "none" then self:Stop(); return end
+    local value = true
+    if db.glowCondition == "important" and not CastState.preview then
+        value = CastState.importantRaw
+        if not IsSecretValue(value) and value ~= true then self:Stop(); return end
+    end
+    local frame = Widget.frame
+    local target = frame and (db.glowPosition == "bar" and frame.track or frame.iconSlot)
+    if not (target and GUI2 and GUI2.CreateFrame and GUI2.CreateGlow) then self:Stop(); return end
+    local entry = self.entries[db.glowPosition]
+    if self.current ~= entry then self:Stop() end
+    if not entry then
+        -- This frame only gates visibility. Rendering/animation stays in standard GUI2 Glow.
+        local gate = GUI2:CreateFrame(target, { allPoints = true, mouse = false, hidden = true })
+        local glow = GUI2:CreateGlow(gate, db.glow)
+        if not glow then return end
+        entry = { gate = gate, glow = glow }
+        self.entries[db.glowPosition] = entry
+    end
+    self.current = entry
+    local appearance = db.glow
+    local changed = entry.style ~= appearance.style
+    for _, field in ipairs(self.fields) do
+        if entry[field[1]] ~= appearance[field[1]] then changed = true end
+    end
+    for i = 1, 4 do
+        if not entry.color or entry.color[i] ~= appearance.color[i] then changed = true end
+    end
+    if changed then
+        entry.glow:SetGlowParams(appearance)
+        entry.style = appearance.style
+        for _, field in ipairs(self.fields) do entry[field[1]] = appearance[field[1]] end
+        entry.color = entry.color or {}
+        for i = 1, 4 do entry.color[i] = appearance.color[i] end
+    end
+    -- Never feed a secret flag into SetGlowShown (which branches in Lua).
+    if IsSecretValue(value) then
+        local ok = entry.gate.SetAlphaFromBoolean
+            and pcall(entry.gate.SetAlphaFromBoolean, entry.gate, value, 1, 0)
+        if not ok then self:Stop(); return end
+    else
+        entry.gate:SetAlpha(1)
+    end
+    entry.gate:Show()
+    if not entry.shown then entry.glow:SetGlowShown(true); entry.shown = true end
 end
 
 local function ToLayoutPlacement(point, relative, relativePoint, x, y)
@@ -801,6 +900,7 @@ local function GetDefaultTextFontPath()
 end
 
 local function ResolveTextFontPath(fontName)
+    if type(fontName)=="string" and (fontName:find("\\",1,true) or fontName:find("/",1,true)) then return fontName end
     if fontName ~= DEFAULT_TEXT_FONT and LSM and LSM.Fetch then
         local path = LSM:Fetch("font", fontName, true)
         if type(path) == "string" and path ~= "" then
@@ -883,6 +983,10 @@ local function ApplyCastBarTextAppearance(applySizes)
     if not frame then return end
     local db = activeDB or GetDB()
     if applySizes then
+        if frame.SetTextMonochrome and Widget.lastTextMonochrome ~= (db.textMonochrome==true) then
+            Widget.lastTextMonochrome=db.textMonochrome==true
+            frame:SetTextMonochrome(db.textMonochrome)
+        end
         if frame.SetTextFontPath and Widget.lastTextFont ~= db.textFont then
             local fontPath = ResolveTextFontPath(db.textFont)
             Widget.lastTextFont = db.textFont
@@ -904,6 +1008,19 @@ local function ApplyCastBarTextAppearance(applySizes)
         if frame.SetTextOutlineMode and Widget.lastTextOutlineMode ~= db.textOutlineMode then
             Widget.lastTextOutlineMode = db.textOutlineMode
             frame:SetTextOutlineMode(db.textOutlineMode)
+        end
+        if textStyles and frame.SetRoleTextStyle then
+            local style=GUI2.FontStyle
+            for index=2,4 do
+                local def=textStyles[index]
+                local value=Widget[def.id.."TextStyle"] or {}
+                Widget[def.id.."TextStyle"]=value
+                for _,key in ipairs(style.attributes) do value[key]=style.ConfigValue(def,db,key) end
+                frame:SetRoleTextStyle(def.id,value)
+            end
+            local color=style.ConfigValue(textStyles[4],db,"color")
+            Widget.targetTextColor=color and color.mode~="state" and {style.ColorRGBA(color)} or nil
+            Widget.lastTargetColor=nil
         end
     end
     local spellText
@@ -940,6 +1057,7 @@ local function ApplyCastBarTextAppearance(applySizes)
             frame:SetTargetNameText(targetText)
         end
     end
+    targetColor = Widget.targetTextColor or targetColor
     if frame.SetTargetNameColor then
         if type(targetColor) == "table" and not IsSecretValue(targetColor) then
             if Widget.lastTargetColor ~= targetColor then
@@ -1124,6 +1242,7 @@ end
 
 local function HideWidget()
     StopOnUpdate()
+    Glow:Stop()
     if CD_RUNTIME.ClearAlertCooldownProbe then
         CD_RUNTIME:ClearAlertCooldownProbe("hide")
     end
@@ -1150,6 +1269,8 @@ local function HideWidget()
 end
 
 local function ResetCastState()
+    Glow:Stop()
+    CastState.importantRaw = nil
     if CD_RUNTIME.ClearAlertCooldownProbe then
         CD_RUNTIME:ClearAlertCooldownProbe("reset")
     end
@@ -2202,6 +2323,7 @@ local function BuildCastKey(cast)
 end
 
 local function ApplyCastToState(cast)
+    Glow:ReadImportance(cast)
     local castKey = BuildCastKey(cast)
     local isNewCast = castKey ~= CastState.castKey
     if isNewCast then
@@ -2285,6 +2407,7 @@ function FocusHelper_ApplyAppearance()
         frame:SetMarkerColor(db.markerColor)
     end
     ApplyCastBarTextAppearance(true)
+    Glow:Refresh()
     if YUI.Layout and YUI.Layout.RefreshFrame then
         YUI.Layout:RefreshFrame(LAYOUT_ID)
     end
@@ -3081,6 +3204,85 @@ local function AddInterruptTopRow(options, enableField, buttons)
     }
 end
 
+function Glow:StyleOptions()
+    local options = {}
+    for _, style in ipairs(self.styles) do
+        options[#options + 1] = { text = T("settings.glow_style_" .. style), value = style }
+    end
+    return options
+end
+
+function Glow:DefaultsByStyle()
+    local values = {}
+    for _, style in ipairs(self.styles) do
+        local value = CopyDefaultValue(self.defaults)
+        value.style = style
+        if style ~= "pixel" then value.lines = style == "autocast" and 4 or 1 end
+        values[style] = value
+    end
+    return values
+end
+
+function Glow:ControlLabels()
+    local labels = {}
+    for name, key in pairs({
+        type = "type", expand = "params", collapse = "params", params = "params",
+        paramsDetail = "params_detail", noParams = "no_params", reset = "reset",
+        color = "color", size = "size", lines = "lines", thickness = "thickness",
+        length = "length", speed = "speed", alpha = "alpha", falloff = "falloff",
+        offsetX = "offset_x", offsetY = "offset_y", summaryLines = "summary_lines",
+        summaryThickness = "summary_thickness", summaryLength = "summary_length",
+        summarySpeed = "summary_speed", summarySize = "summary_size", summaryAlpha = "summary_alpha",
+        summaryOffset = "summary_offset", summaryColor = "summary_color",
+    }) do labels[name] = T("settings.glow_" .. key) end
+    return labels
+end
+
+function Glow:AddOptions(options, db, feature, refresh)
+    local function Enabled() return db.glowCondition ~= "none" end
+    AddAlignedFieldGroup(options, T("settings.glow"), {
+        {
+            type = "dropdown", label = T("settings.glow_condition"),
+            options = {
+                { text = T("settings.glow_condition_none"), value = "none" },
+                { text = T("settings.glow_condition_important"), value = "important" },
+                { text = T("settings.glow_condition_always"), value = "always" },
+            },
+            default = defaults.glowCondition,
+            get = function() return db.glowCondition end,
+            set = function(value)
+                db.glowCondition = value
+                refresh()
+                RequestSettingsRefresh(feature)
+            end,
+        },
+        {
+            type = "dropdown", label = T("settings.glow_position"), requires = Enabled,
+            options = {
+                { text = T("settings.glow_position_icon"), value = "icon" },
+                { text = T("settings.glow_position_bar"), value = "bar" },
+            },
+            default = defaults.glowPosition,
+            get = function() return db.glowPosition end,
+            set = function(value) db.glowPosition = value; refresh() end,
+        },
+    })
+    AddAlignedFields(options, {{
+        type = "glow", label = T("settings.glow_style"), requires = Enabled,
+        labelPosition = "top", inlineLabel = false,
+        inputWidth = INPUT_WIDTH,
+        styleOptions = function() return self:StyleOptions() end,
+        labels = self:ControlLabels(), default = CopyDefaultValue(self.defaults),
+        defaultsByStyle = function() return self:DefaultsByStyle() end,
+        applyStyleDefaultsOnChange = true,
+        get = function() return CopyDefaultValue(db.glow) end,
+        set = function(value) db.glow = CopyDefaultValue(value); refresh() end,
+        getExpanded = function() return self.expanded == true end,
+        setExpanded = function(value) self.expanded = value == true end,
+        onRequestRefresh = function() RequestSettingsRefresh(feature) end,
+    }})
+end
+
 local function BuildInterruptOptions(feature)
     local db = GetDB()
     local function Refresh()
@@ -3212,6 +3414,8 @@ local function BuildInterruptOptions(feature)
         },
     })
 
+    Glow:AddOptions(options, db, feature, Refresh)
+
     AddAlignedFieldGroup(options, T("settings.interrupt_text", "文字与状态"), {
         {
             type = "font",
@@ -3226,7 +3430,7 @@ local function BuildInterruptOptions(feature)
                     },
                 }
             end,
-            get = function() return db.textFont end,
+            fontStyleSource="textFont", get = function() return db.textFont end,
             set = function(value)
                 db.textFont = type(value) == "string" and value ~= "" and value or DEFAULT_TEXT_FONT
                 Widget.lastTextFont = nil
@@ -3240,7 +3444,7 @@ local function BuildInterruptOptions(feature)
             min = 8,
             max = 24,
             step = 1,
-            get = function() return db.timeFontSize end,
+            fontStyleSource="timeFontSize", get = function() return db.timeFontSize end,
             set = function(value)
                 db.timeFontSize = ClampNumber(value, 8, 24, DEFAULT_TIME_FONT_SIZE)
                 Refresh()
@@ -3252,7 +3456,7 @@ local function BuildInterruptOptions(feature)
             min = 8,
             max = 24,
             step = 1,
-            get = function() return db.spellNameFontSize end,
+            fontStyleSource="spellNameFontSize", get = function() return db.spellNameFontSize end,
             set = function(value)
                 db.spellNameFontSize = ClampNumber(value, 8, 24, DEFAULT_NAME_FONT_SIZE)
                 Refresh()
@@ -3264,7 +3468,7 @@ local function BuildInterruptOptions(feature)
             min = 8,
             max = 24,
             step = 1,
-            get = function() return db.targetNameFontSize end,
+            fontStyleSource="targetNameFontSize", get = function() return db.targetNameFontSize end,
             set = function(value)
                 db.targetNameFontSize = ClampNumber(value, 8, 24, DEFAULT_NAME_FONT_SIZE)
                 Refresh()
@@ -3275,7 +3479,7 @@ local function BuildInterruptOptions(feature)
             label = T("settings.text_outline", "Text outline"),
             options = BuildTextOutlineOptions,
             default = defaults.textOutlineMode,
-            get = function() return db.textOutlineMode end,
+            fontStyleSource="textOutlineMode", get = function() return db.textOutlineMode end,
             set = function(value)
                 db.textOutlineMode = VALID_TEXT_OUTLINE_MODES[value] and value or defaults.textOutlineMode
                 Refresh()
@@ -3371,6 +3575,14 @@ local function BuildInterruptOptions(feature)
         colorKey = "color.text.secondary",
     }
 
+    if GUI2 and GUI2.FontStyle and GUI2.FontStyle.MergeOptions then
+        GUI2.FontStyle:MergeOptions(options, {
+            {key="focus_text:shared",label=T("settings.shared_text"),sources={"textFont","textOutlineMode"}},
+            {key="focus_text:time",label=T("settings.countdown_text_size", "Time text"),sources={"timeFontSize"}},
+            {key="focus_text:spell",label=T("settings.spell_name_text_size", "Spell text"),sources={"spellNameFontSize"}},
+            {key="focus_text:target",label=T("settings.target_name_text_size", "Target text"),sources={"targetNameFontSize"}},
+        })
+    end
     return options
 end
 
@@ -3474,4 +3686,57 @@ if YUI.Event and YUI.Event.Once then
         moduleId = MODULE_ID,
         phase = "YUI_DB_READY",
     })
+end
+
+if GUI2 and GUI2.FontStyle and GUI2.FontStyle.RegisterConfig then
+    (function()
+        local style=GUI2.FontStyle
+        local function Inherit(key, db)
+            if key=="font" then return db.textFont or defaults.textFont end
+            if key=="outline" or key=="shadow" then return style.Decode(db.textOutlineMode or defaults.textOutlineMode)[key] end
+            if key=="monochrome" then return db.textMonochrome==true end
+            if key=="color" then return db.textColor end
+        end
+        local function FontPath(value) return ResolveTextFontPath(value) or GetDefaultTextFontPath() end
+        textStyles={
+            style.FullConfig({id="shared",label=function()return T("settings.shared_text")end,
+                fields={font="textFont",size="timeFontSize",monochrome="textMonochrome",color="textColor"},
+                aliases={size={"spellNameFontSize","targetNameFontSize"}},effect="textOutlineMode",format="camel",defaults=defaults,
+                minSize=8,maxSize=24,fontPath=FontPath,
+                fontOptions=function()return {{text=T("settings.text_font_default"),value=DEFAULT_TEXT_FONT,fontPath=GetDefaultTextFontPath()}}end},
+                "text",{color="color.text.primary"}),
+        }
+        for _, role in ipairs({
+            {"time","timeFontSize","settings.countdown_text_size"},
+            {"spell","spellNameFontSize","settings.spell_name_text_size"},
+            {"target","targetNameFontSize","settings.target_name_text_size"},
+        }) do
+            textStyles[#textStyles+1]=style.FullConfig({id=role[1],label=function()return T(role[3])end,
+                fields={size=role[2]},defaults=defaults,minSize=8,maxSize=24,inherit=Inherit,fontPath=FontPath},
+                role[1].."Text",{color="color.text.primary"})
+        end
+        -- Display the target rule and its current resolved color without storing a fixed color.
+        textStyles[4].colorInfo = function(db, mode)
+            local value = style.ConfigValue(textStyles[4], db, "color")
+            if mode == "state" then value = {mode="state"}
+            elseif mode == "class" then value = {mode="class",alpha=value.alpha or value[4] or 1} end
+            local colorMode = value.mode or "custom"
+            local fallback = SafeRawValue(CastState.targetColor) or "color.text.primary"
+            return {mode=colorMode, color={style.ColorRGBA(value, fallback)},
+                classDriven=colorMode == "state",
+                label=colorMode == "state" and T("settings.target_class_color")
+                    or colorMode == "class" and T("settings.player_class_color") or nil}
+        end
+        style:RegisterConfig("focus_text", {
+            label=function() return T("name", "焦点助手") end,
+            get=function() return style.ComponentConfig(PRODUCT_ID,CONFIG_KEY) end,
+            refresh=function()
+                if Widget.frame then
+                    Widget.lastTextFont,Widget.lastTextFontPath,Widget.lastTextOutlineMode=nil,nil,nil
+                    ApplyCastBarTextAppearance(true)
+                end
+            end,
+            targets=textStyles,
+        })
+    end)()
 end

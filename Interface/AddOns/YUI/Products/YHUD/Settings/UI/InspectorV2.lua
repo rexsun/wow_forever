@@ -75,7 +75,7 @@ local SWITCH_WIDTH = 42
 local SWITCH_X = CONTENT_WIDTH - SWITCH_WIDTH - 10
 local COLUMN_SWITCH_X = COLUMN_WIDTH - SWITCH_WIDTH - 10
 local RESOURCE_COMMON_SWITCH_WIDTH = 84
-local NEW_GROUP_WIDTH = 34
+local NEW_GROUP_WIDTH = 96
 local GROUP_SELECTOR_GAP = 8
 local GROUP_SELECTOR_WIDTH =
     CONTENT_WIDTH - NEW_GROUP_WIDTH - GROUP_SELECTOR_GAP
@@ -187,6 +187,9 @@ local function FindOptionText(options, value, fallback)
 end
 
 local function NativeGlowStyleValue(config)
+    if type(config) == "table" and config.mode == "disabled" then
+        return "disabled"
+    end
     if type(config) ~= "table" or config.mode ~= "custom" then
         return "default"
     end
@@ -204,6 +207,12 @@ local function NativeGlowStyleText(config)
     )
 end
 
+function I.BuildAuraActivationStyleOptions()
+    local options = BuildNativeGlowStyleOptions(false)
+    options[1].text = T("designer.monitor.activation_gold", "金色遮罩")
+    return options
+end
+
 local GLOW_CONDITION_TEXT = {
     ["self-ready"] = { "designer.glow.self_ready", "Skill Ready" },
     ["self-cooldown"] = {
@@ -212,10 +221,12 @@ local GLOW_CONDITION_TEXT = {
     },
     ["aura-present"] = { "designer.glow.aura_present", "Aura Present" },
     ["aura-missing"] = { "designer.glow.aura_missing", "Aura Missing" },
+    ["aura-stacks"] = { "designer.glow.aura_stacks", "Aura Stacks" },
     ["condition-met"] = { "designer.glow.timer_active", "Timer Active" },
 }
 
 local function GlowConditionText(conditionType, capabilities)
+    if capabilities and capabilities.labelKind == "transform" then return T("designer.extra.threshold_met", "Transform reached reminder time") end
     if capabilities and capabilities.labelKind == "item" then
         if conditionType == "self-ready" then
             return T("designer.glow.item_ready", "Item Ready")
@@ -389,6 +400,7 @@ local function HideAppearancePageVariants(self)
         self.cooldownBlingSwitch,
         self.cooldownSwipeLabel,
         self.cooldownSwipeSwitch,
+        self.chargeRecoveryControl,
         self.cooldownGCDLabel,
         self.cooldownGCDSwitch,
         self.iconShadowLabel,
@@ -433,6 +445,8 @@ local function HideMonitorEffectsPage(self)
         self.monitorAppearanceSwipe,
         self.monitorResetEffects,
         self.monitorGlowDivider,
+        self.monitorAssistedLabel,
+        self.monitorAssistedDropdown,
         self.monitorNativeLabel,
         self.monitorNativeDropdown,
         self.monitorNativeGear,
@@ -440,6 +454,7 @@ local function HideMonitorEffectsPage(self)
         self.monitorNativeCombat,
         self.monitorGlowRulesDivider,
         self.monitorGlowRuleCount,
+        self.monitorGlowPriorityText,
         self.monitorGlowAuraWarning,
         self.monitorGlowAddRule,
     }) do
@@ -470,7 +485,9 @@ function I.HideMonitorSoundPage(self)
 end
 
 local function HideMonitorDetailVariants(self)
+    if YHUD.ClassExtra then YHUD.ClassExtra:HideSettings(self) end
     HideControls(self.monitorStackThresholdControls)
+    HideControls(self.monitorBarProgressControls)
     HideMonitorEffectsPage(self)
     I.HideMonitorSoundPage(self)
     if self.bundleEditor then self.bundleEditor:Hide() end
@@ -572,6 +589,9 @@ local function AssignV2PageParents(self)
                 self.v2Sliders.ringStep,
                 self.v2Sliders.columnSpacing,
                 self.v2Sliders.rowSpacing,
+                self.v2Sliders.iconColumnSpacing,
+                self.v2Sliders.iconRowSpacing,
+                self.v2Sliders.itemOffset,
                 self.v2Sliders.maxPerLine,
                 self.v2Sliders.barHeight,
                 self.v2Sliders.iconGap,
@@ -592,6 +612,7 @@ local function AssignV2PageParents(self)
             self.cooldownBlingSwitch,
             self.cooldownSwipeLabel,
             self.cooldownSwipeSwitch,
+            self.chargeRecoveryControl,
             self.cooldownGCDLabel,
             self.cooldownGCDSwitch,
             self.iconShadowLabel,
@@ -706,12 +727,15 @@ local function SetTextStyleControlsDisabled(self, disabled)
     end
 end
 
-local function AddSectionHeading(parent, text, icon)
+local function AddSectionHeading(parent, text, icon, onToggle)
     local divider = GUI2:CreateDivider(parent, {
         width = CONTENT_WIDTH,
         height = 22,
         label = text,
         alignLeft = true,
+        collapsible = onToggle ~= nil,
+        collapsed = onToggle ~= nil,
+        onToggle = onToggle,
     })
     if icon then
         local leading = GUI2:CreateIcon(divider, {
@@ -1120,6 +1144,8 @@ local function ApplySolidMonitorButton(button, surfaceToken, borderToken)
     Paint(button, false, false)
 end
 
+I.ApplySolidMonitorButton = ApplySolidMonitorButton
+
 local function SetMonitorTypeText(label, entry)
     if not label then return end
     local semantic = type(entry) == "table" and YHUD:GetEntrySemantic(entry)
@@ -1142,7 +1168,8 @@ local function CreateSlider(
     labelWidth,
     inputWidth,
     labelFontSizeKey,
-    labelColorKey
+    labelColorKey,
+    tooltip
 )
     return GUI2.Form:CreateSlider(parent, {
         width = width or CONTENT_WIDTH,
@@ -1156,6 +1183,7 @@ local function CreateSlider(
         precision = precision,
         labelFontSizeKey = labelFontSizeKey,
         labelColorKey = labelColorKey,
+        tooltip = tooltip,
         set = set,
         onCommit = function()
             DesignerUI:CommitV2SliderPreview()
@@ -1172,6 +1200,25 @@ local function TextStylePrefix(group, target)
     return group.layout == "icons" and "cooldownText" or "timeText"
 end
 
+function DesignerUI:SetChargeRecoveryDisplay(value)
+    if self.v2Refreshing then return end
+    local session = Designer:GetSession()
+    if not session then return false end
+    local style, code = Designer:SetGroupIconStyle(session.selectedGroupId, {
+        chargeRecoveryDisplay = value or "hideSwipeOnly",
+    })
+    if not style then
+        self:SetStatus(T("designer.error_style_update", "无法修改图标组外观。")
+            .. (code and (" " .. tostring(code)) or ""))
+        self:Refresh(false)
+        return false
+    end
+    -- Keep the owner visible while editing the popup; the draft remains authoritative.
+    if not self:PreviewSelectedGroup() then self:ApplyPreview() end
+    self:SetStatus(T("designer.status_style_updated", "图标组外观已更新。"))
+    return style
+end
+
 function DesignerUI:PreviewSelectedGroup()
     local session, profile, group = SelectedContext()
     local View = YHUD.View
@@ -1182,6 +1229,7 @@ function DesignerUI:PreviewSelectedGroup()
         return false
     end
 
+    self:SyncResourcePreviewContext()
     local projectionContext = YHUD.BuildMonitorLayoutProjectionContext
         and YHUD:BuildMonitorLayoutProjectionContext(profile, true) or nil
     if not View:RefreshDesignProjectionGroup(
@@ -1285,18 +1333,6 @@ end
 
 function DesignerUI:PositionInspector(animate)
     if self.v2Built then self:RefreshDesignerGeometry() end
-    if self.v2Built then
-        local session = Designer:GetSession()
-        local groupId = session and session.selectedGroupId
-        if not self.inspectorDockRequested
-            and groupId == self.lastDockedGroupId then
-            return false
-        end
-        self.inspectorDockRequested = nil
-        local result = BasePositionInspector(self, animate)
-        if not self.manualPanel then self.lastDockedGroupId = groupId end
-        return result
-    end
     return BasePositionInspector(self, animate)
 end
 
@@ -1442,6 +1478,7 @@ local function BuildPageShell(self)
             DesignerUI:RefreshLevelDisplayNotice()
         end)
         panel:HookScript("OnHide", function()
+            DesignerUI:ResetInspectorBinding()
             DesignerUI:RefreshLevelDisplayNotice()
         end)
     end
@@ -1515,7 +1552,9 @@ local function BuildPageShell(self)
     self.groupDropdown:SetPoint("TOPLEFT", panel, "TOPLEFT", PANEL_PADDING, -52)
     self.groupDropdown:SetWidth(GROUP_SELECTOR_WIDTH)
     self.newGroupButton:ClearAllPoints()
-    self.newGroupButton:SetPoint("LEFT", self.groupDropdown, "RIGHT", 8, 0)
+    self.newGroupButton:SetPoint("LEFT", self.groupDropdown, "RIGHT", GROUP_SELECTOR_GAP, 0)
+    self.newGroupButton:SetWidth(NEW_GROUP_WIDTH)
+    self.newGroupButton:SetText(T("designer.add_group", "添加分组"))
     ApplySolidMonitorButton(
         self.newGroupButton,
         "color.badge.orange",
@@ -1668,6 +1707,15 @@ local function BuildPageShell(self)
     cooldownSwipeSwitch:Hide()
     self.cooldownSwipeLabel = cooldownSwipeLabel
     self.cooldownSwipeSwitch = cooldownSwipeSwitch
+    self.MonitorHelp:Bind(cooldownSwipeLabel, "cooldownSwipe", "group")
+
+    self.chargeRecoveryControl = GUI2.Form:CreateChargeRecoveryControl(body, {
+        width = CONTENT_WIDTH,
+        set = function(value)
+            DesignerUI:SetChargeRecoveryDisplay(value)
+        end,
+    })
+    self.chargeRecoveryControl:Hide()
 
     self.cooldownGCDLabel = GUI2:CreateText(
         body,
@@ -1816,6 +1864,7 @@ end
 local function SetV2InspectorScrollContentHeight(self, height)
     if self.v2InspectorScrollActive ~= true then return end
     height = math.max(1, tonumber(height) or 1)
+    self.v2InspectorContentHeight = height
     local body = self.v2InspectorScrollBody or self.groupInspectorBody
     body:SetHeight(height)
     self.inspectorScrollChild:SetHeight(height)
@@ -1845,6 +1894,7 @@ local function BuildNumericSliders(self)
     if self.v2Sliders then return end
     local body = self.groupInspectorBody
     local sliders = {}
+    if I.BuildBarWidthUI then I.BuildBarWidthUI(self, COLUMN_WIDTH) end
     sliders.iconSize = CreateSlider(
         body, T("designer.layout.icon_size", "图标尺寸"), 24, 96, 1, 0,
         function(value) DesignerUI:ApplyV2SliderPatch("iconLayout", "iconSize", value) end
@@ -1874,11 +1924,24 @@ local function BuildNumericSliders(self)
         end
     )
     sliders.maxPerLine = CreateSlider(
-        body, T("designer.layout.max_per_line", "每行 / 列数量"), 1, 20, 1, 0,
+        body, T("designer.layout.max_per_line", "每行 / 列数量"), 1, 40, 1, 0,
         function(value) DesignerUI:ApplyV2SliderPatch("layout", "maxPerLine", value) end
     )
+    sliders.iconColumnSpacing = CreateSlider(
+        body, T("designer.layout.column_spacing", "列间距"), -32, 32, 1, 0,
+        function(value) DesignerUI:ApplyV2SliderPatch("iconLayout", "columnSpacing", value) end
+    )
+    sliders.iconRowSpacing = CreateSlider(
+        body, T("designer.layout.row_spacing", "行间距"), -32, 32, 1, 0,
+        function(value) DesignerUI:ApplyV2SliderPatch("iconLayout", "rowSpacing", value) end
+    )
+    sliders.itemOffset = CreateSlider(
+        body, T("designer.layout.item_offset", "逐项偏移"), -64, 64, 1, 0,
+        function(value) DesignerUI:ApplyV2SliderPatch("iconLayout", "itemOffset", value) end,
+        nil, nil, nil, nil, nil, T("designer.layout.item_offset_tip")
+    )
     sliders.barHeight = CreateSlider(
-        body, T("designer.layout.height", "总厚度"), 12, 352, 1, 0,
+        body, T("designer.layout.height", "总厚度"), 2, 128, 1, 0,
         function(value) DesignerUI:ApplyV2SliderPatch("durationLayout", "height", value) end
     )
     sliders.iconGap = CreateSlider(
@@ -1919,7 +1982,7 @@ local function BuildNumericSliders(self)
         end
     )
     sliders.resourceHeight = CreateSlider(
-        body, T("designer.resource.height", "资源条高度"), 8, 160, 1, 0,
+        body, T("designer.resource.height", "资源条高度"), 2, 128, 1, 0,
         function(value) DesignerUI:ApplyV2SliderPatch("resourceLayout", "height", value) end
     )
     sliders.resourceSpacing = CreateSlider(
@@ -1996,7 +2059,11 @@ local function BuildMonitorBrowser(self)
     local globalDivider = AddSectionHeading(
         body,
         T("designer.monitor.skill_aura_global", "全局"),
-        136243
+        136243,
+        function(collapsed)
+            DesignerUI.monitorGlobalCollapsed = collapsed
+            DesignerUI:Refresh(false, false)
+        end
     )
     local globalPanel = GUI2:CreatePanel(body, {
         width = CONTENT_WIDTH,
@@ -2013,7 +2080,7 @@ local function BuildMonitorBrowser(self)
         {
             key = "auraHighlight",
             field = "skillAuraHighlight",
-            text = T("designer.monitor.aura_highlight", "激活金色遮罩"),
+            text = T("designer.monitor.aura_highlight", "激活提示"),
         },
         {
             key = "inactiveDesaturate",
@@ -2052,8 +2119,10 @@ local function BuildMonitorBrowser(self)
             "LEFT"
         )
         row.count:SetPoint("LEFT", row.label, "RIGHT", 6, 0)
+        self.MonitorHelp:Bind(row.label, effectKey, "global")
         row.switch = GUI2.Form:CreateSwitch(globalPanel, {
             width = 48,
+            tooltip = effectKey == "assistedHighlight" and T("designer.monitor.assisted_highlight_tip") or nil,
             height = MONITOR_SIDE_CONTROL_HEIGHT,
             set = function(value)
                 if DesignerUI.v2Refreshing then return end
@@ -2079,6 +2148,30 @@ local function BuildMonitorBrowser(self)
             -40,
             -6 - ((index - 1) * MONITOR_GLOBAL_ROW_HEIGHT)
         )
+        if effectKey == "auraHighlight" then
+            row.style = GUI2.Form:CreateDropdown(globalPanel, {
+                width = 100, height = MONITOR_SIDE_CONTROL_HEIGHT,
+                options = I.BuildAuraActivationStyleOptions,
+                set = function(value)
+                    if DesignerUI.v2Refreshing then return end
+                    local current = YHUD:CopyValue(YHUD:GetAuraActivationStyle(Designer:GetProfile()))
+                    current.mode = value == "default" and "default" or "custom"
+                    current.appearance = value ~= "default"
+                        and (current.appearance or YHUD:GetDefaultMonitorGlowAppearance()) or nil
+                    if current.appearance then current.appearance.style = value end
+                    FinishGlowMutation(Designer:SetAuraActivationStyle(current))
+                end,
+            })
+            row.style:SetPoint("TOPRIGHT", globalPanel, "TOPRIGHT", -126,
+                -6 - ((index - 1) * MONITOR_GLOBAL_ROW_HEIGHT))
+            row.gear = GUI2.Form:CreateIconButton(globalPanel, {
+                size = 26, icon = SettingsIcon("settings"),
+                tooltip = T("designer.glow.edit_appearance", "Edit glow appearance"),
+                onClick = function() DesignerUI:OpenGlowAppearanceEditor("global-activation") end,
+            })
+            row.gear:SetPoint("TOPRIGHT", globalPanel, "TOPRIGHT", -94,
+                -7 - ((index - 1) * MONITOR_GLOBAL_ROW_HEIGHT))
+        end
         row.clear = GUI2.Form:CreateIconButton(globalPanel, {
             size = 26,
             icon = SettingsIcon("rotate-ccw"),
@@ -2151,7 +2244,7 @@ local function BuildMonitorBrowser(self)
         "color.text.primary",
         "LEFT"
     )
-    globalNativeLabel:SetPoint("TOPLEFT", globalPanel, "TOPLEFT", 12, -130)
+    globalNativeLabel:SetPoint("TOPLEFT", globalPanel, "TOPLEFT", 12, -130 - (MONITOR_GLOBAL_PANEL_HEIGHT - 200))
     local globalNativeDropdown = GUI2.Form:CreateDropdown(globalPanel, {
         width = MONITOR_GLOW_DROPDOWN_WIDTH,
         height = MONITOR_SIDE_CONTROL_HEIGHT,
@@ -2163,8 +2256,8 @@ local function BuildMonitorBrowser(self)
                 profile and profile.style
                     and profile.style.nativeProcGlow or {}
             )
-            if value == "default" then
-                current.mode = "default"
+            if value == "default" or value == "disabled" then
+                current.mode = value
                 current.appearance = nil
             else
                 current.mode = "custom"
@@ -2181,7 +2274,7 @@ local function BuildMonitorBrowser(self)
         globalPanel,
         "TOPRIGHT",
         -(MONITOR_GLOW_GEAR_SIZE + 14),
-        -120
+        -120 - (MONITOR_GLOBAL_PANEL_HEIGHT - 200)
     )
     local globalNativeGear = GUI2.Form:CreateIconButton(globalPanel, {
         size = MONITOR_GLOW_GEAR_SIZE,
@@ -2191,7 +2284,7 @@ local function BuildMonitorBrowser(self)
             DesignerUI:OpenGlowAppearanceEditor("global-native")
         end,
     })
-    globalNativeGear:SetPoint("TOPRIGHT", globalPanel, "TOPRIGHT", -8, -120)
+    globalNativeGear:SetPoint("TOPRIGHT", globalPanel, "TOPRIGHT", -8, -120 - (MONITOR_GLOBAL_PANEL_HEIGHT - 200))
     local globalNativeCombatLabel = GUI2:CreateText(
         globalPanel,
         T("designer.glow.native_combat_only", "Native Glow Combat Only"),
@@ -2204,7 +2297,7 @@ local function BuildMonitorBrowser(self)
         globalPanel,
         "TOPLEFT",
         12,
-        -168
+        -168 - (MONITOR_GLOBAL_PANEL_HEIGHT - 200)
     )
     local globalNativeCombat = GUI2.Form:CreateSwitch(globalPanel, {
         width = 48,
@@ -2225,7 +2318,7 @@ local function BuildMonitorBrowser(self)
         globalPanel,
         "TOPRIGHT",
         -8,
-        -158
+        -158 - (MONITOR_GLOBAL_PANEL_HEIGHT - 200)
     )
     local summary = GUI2:CreateText(
         body,
@@ -2873,7 +2966,7 @@ local function BuildMonitorBrowser(self)
     bundleEditor.raceContext = bundleRaceContext
     bundleEditor.context = bundleSpecContext
     bundleEditor.rows = {}
-    for index = 1, 12 do
+    for index = 1, 32 do
         local row = GUI2:CreatePanel(bundleEditor, {
             width = bundleInnerWidth,
             height = 34,
@@ -3366,7 +3459,7 @@ local function BuildMonitorBrowser(self)
     )
     local auraHighlightLabel = GUI2:CreateText(
         body,
-        T("designer.monitor.aura_highlight", "激活高亮"),
+        T("designer.monitor.aura_highlight", "激活提示"),
         "font.size.md",
         "color.text.primary",
         "LEFT"
@@ -3381,10 +3474,11 @@ local function BuildMonitorBrowser(self)
     local function EffectOptions(key)
         local _, selectedProfile = SelectedContext()
         local globalField = key == "auraHighlight"
-            and "skillAuraHighlight" or "inactiveDesaturate"
+            and "skillAuraHighlight" or key == "assistedHighlight"
+                and "assistedHighlight" or "inactiveDesaturate"
         local cdm = selectedProfile and selectedProfile.cdm
-        local effective = not (type(cdm) == "table"
-            and cdm[globalField] == false)
+        local effective = key == "assistedHighlight" and YHUD:GetConsolePreference("assistedHighlight")
+            or key ~= "assistedHighlight" and not (type(cdm) == "table" and cdm[globalField] == false)
         return {
             {
                 value = "inherit",
@@ -3405,6 +3499,7 @@ local function BuildMonitorBrowser(self)
     local function CreateEffectDropdown(key)
         return GUI2.Form:CreateDropdown(body, {
             width = CONTENT_WIDTH,
+            tooltip = key == "assistedHighlight" and T("designer.monitor.assisted_highlight_tip") or nil,
             height = 30,
             options = function()
                 return EffectOptions(key)
@@ -3451,6 +3546,11 @@ local function BuildMonitorBrowser(self)
         body,
         T("designer.glow.section", "Glow")
     )
+    local monitorAssistedLabel = GUI2:CreateText(
+        body, T("designer.monitor.assisted_highlight", "辅助提示"),
+        "font.size.md", "color.text.primary", "LEFT"
+    )
+    local monitorAssistedDropdown = CreateEffectDropdown("assistedHighlight")
     local monitorNativeLabel = GUI2:CreateText(
         body,
         T("designer.glow.native_proc", "Native Proc Glow"),
@@ -3500,8 +3600,8 @@ local function BuildMonitorBrowser(self)
                 monitor.nativeProcGlowOverride
                     or YHUD:GetEffectiveNativeProcGlow(profile, monitor)
             )
-            if value == "default" then
-                current.mode = "default"
+            if value == "default" or value == "disabled" then
+                current.mode = value
                 current.appearance = nil
             else
                 current.mode = "custom"
@@ -3565,7 +3665,13 @@ local function BuildMonitorBrowser(self)
         "RIGHT"
     )
     local monitorGlowRules = {}
-    for index = 1, 2 do
+    self.monitorGlowPriorityText = GUI2:CreateText(body,
+        T("designer.glow.priority", "Top to bottom: only the first matching rule glows."),
+        "font.size.sm", "color.text.secondary", "LEFT")
+    self.monitorGlowPriorityText:SetWidth(CONTENT_WIDTH)
+    self.monitorGlowPriorityText:SetHeight(30)
+    self.monitorGlowPriorityText:Hide()
+    for index = 1, YHUD.MAX_MONITOR_GLOW_RULES do
         local row = GUI2:CreatePanel(body, {
             width = CONTENT_WIDTH,
             height = MONITOR_GLOW_RULE_HEIGHT,
@@ -3585,6 +3691,7 @@ local function BuildMonitorBrowser(self)
             "LEFT"
         )
         row.title:SetPoint("TOPLEFT", row, "TOPLEFT", 10, -10)
+        row.title:SetWidth(CONTENT_WIDTH - 146)
         row.delete = GUI2.Form:CreateIconButton(row, {
             size = 24,
             icon = SettingsIcon("trash-2"),
@@ -3592,6 +3699,8 @@ local function BuildMonitorBrowser(self)
             onClick = function()
                 local _, monitor = SelectedGlowContext()
                 if not monitor then return end
+                FinishOpenColorPicker("cancel")
+                DesignerUI:HideGlowEditor()
                 local config = CopySelectedGlowRules(monitor)
                 table.remove(config.rules, row.index)
                 FinishGlowMutation(
@@ -3602,7 +3711,42 @@ local function BuildMonitorBrowser(self)
                 )
             end,
         })
-        row.delete:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, -6)
+        row.delete:SetPoint("TOPRIGHT", row, "TOPRIGHT", -10, -6)
+        row.down = GUI2.Form:CreateButton(row, {
+            width = 24, height = 24, text = "↓", tone = "default",
+            tooltip = T("designer.glow.move_down", "Move down (lower priority)"),
+            onClick = function()
+                FinishOpenColorPicker("cancel")
+                DesignerUI:MoveGlowRule(row.index, 1)
+            end,
+        })
+        row.down:SetPoint("RIGHT", row.delete, "LEFT", -4, 0)
+        row.up = GUI2.Form:CreateButton(row, {
+            width = 24, height = 24, text = "↑", tone = "default",
+            tooltip = T("designer.glow.move_up", "Move up (higher priority)"),
+            onClick = function()
+                FinishOpenColorPicker("cancel")
+                DesignerUI:MoveGlowRule(row.index, -1)
+            end,
+        })
+        row.up:SetPoint("RIGHT", row.down, "LEFT", -4, 0)
+        row.color = GUI2.Form:CreateColorPicker(row, {
+            width = 28, height = 24, hasAlpha = true,
+            getDefault = function() return YHUD:GetDefaultMonitorGlowAppearance().color end,
+            set = function(value)
+                if DesignerUI.v2Refreshing then return end
+                local _, monitor = SelectedGlowContext()
+                if not monitor or monitor.id ~= row.stackMonitorId then return end
+                local config = CopySelectedGlowRules(monitor)
+                local rule = config.rules[row.index]
+                if not rule then return end
+                rule.appearance.color = YHUD:CopyValue(value)
+                if FinishGlowMutation(Designer:SetMonitorGlow(monitor.id, config)) then
+                    DesignerUI:RefreshGlowEditor(true)
+                end
+            end,
+        })
+        row.color:SetPoint("RIGHT", row.up, "LEFT", -8, 0)
         row.condition = GUI2.Form:CreateDropdown(row, {
             width = 158,
             height = 28,
@@ -3610,19 +3754,12 @@ local function BuildMonitorBrowser(self)
                 local _, monitor, capabilities = SelectedGlowContext()
                 local rules = monitor and monitor.glow
                     and monitor.glow.rules or {}
-                local used = {}
-                for ruleIndex = 1, #rules do
-                    if ruleIndex ~= row.index then
-                        local condition = rules[ruleIndex].condition
-                        if condition then used[condition.type] = true end
-                    end
-                end
                 local options = {}
                 for conditionIndex = 1,
                     #(capabilities and capabilities.conditions or {}) do
                     local conditionType =
                         capabilities.conditions[conditionIndex]
-                    if not used[conditionType] then
+                    if YHUD:CanAddGlowCondition(rules, conditionType, row.index) then
                         options[#options + 1] = {
                             value = conditionType,
                             text = GlowConditionText(conditionType, capabilities),
@@ -3638,7 +3775,9 @@ local function BuildMonitorBrowser(self)
                 local config = CopySelectedGlowRules(monitor)
                 local rule = config.rules[row.index]
                 if not rule then return end
-                rule.condition = { type = value }
+                if rule.condition and rule.condition.type == value then return end
+                rule.condition = value == "aura-stacks"
+                    and YHUD:GetNextAuraStackCondition(config.rules, row.index) or { type = value }
                 FinishGlowMutation(
                     Designer:SetMonitorGlow(monitor.id, config)
                 )
@@ -3646,6 +3785,14 @@ local function BuildMonitorBrowser(self)
         })
         row.condition:SetPoint("TOPLEFT", row, "TOPLEFT", 10, -38)
         row.condition:HookScript("OnEnter", function(control)
+            if control:GetValue() == "aura-stacks" and GameTooltip then
+                GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
+                GameTooltip:SetText(T("designer.glow.stack_priority_tooltip",
+                    "Rules are checked from top to bottom. Only the first matching rule glows; use the arrows to change priority."),
+                    1, 1, 1, 1, true)
+                GameTooltip:Show()
+                return
+            end
             if control:GetValue() ~= "self-ready" or not GameTooltip then
                 return
             end
@@ -3684,9 +3831,9 @@ local function BuildMonitorBrowser(self)
                     and rule.appearance
                     or YHUD:GetDefaultMonitorGlowAppearance()
                 rule.appearance.style = value
-                FinishGlowMutation(
-                    Designer:SetMonitorGlow(monitor.id, config)
-                )
+                if FinishGlowMutation(Designer:SetMonitorGlow(monitor.id, config)) then
+                    DesignerUI:RefreshGlowEditor(true)
+                end
             end,
         })
         row.style:SetPoint("LEFT", row.condition, "RIGHT", 8, 0)
@@ -3699,6 +3846,56 @@ local function BuildMonitorBrowser(self)
             end,
         })
         row.gear:SetPoint("LEFT", row.style, "RIGHT", 6, 0)
+        row.stackLabel = GUI2:CreateText(row,
+            T("designer.glow.stack_threshold", "Stacks (1–100)"),
+            "font.size.md", "color.text.primary", "LEFT")
+        row.stackLabel:SetPoint("TOPLEFT", row, "TOPLEFT", 10, -80)
+        row.stackOperator = GUI2.Form:CreateDropdown(row, {
+            width = 64, height = 26,
+            options = {
+                { value = "lt", text = "<" }, { value = "lte", text = "≤" },
+                { value = "eq", text = "=" }, { value = "gte", text = "≥" },
+                { value = "gt", text = ">" },
+            },
+            set = function(value)
+                if DesignerUI.v2Refreshing then return end
+                local _, monitor = SelectedGlowContext()
+                if not monitor then return end
+                local config = CopySelectedGlowRules(monitor)
+                local rule = config.rules[row.index]
+                if not (rule and rule.condition.type == "aura-stacks") then return end
+                rule.condition.operator = value
+                FinishGlowMutation(Designer:SetMonitorGlow(monitor.id, config))
+            end,
+        })
+        row.stackOperator:SetPoint("TOPLEFT", row, "TOPLEFT", 176, -72)
+        row.stackValue = GUI2.Form:CreateEditBox(row, {
+            width = 110, height = 26, autoFocus = false,
+        })
+        row.stackValue:SetPoint("LEFT", row.stackOperator, "RIGHT", 8, 0)
+        row.stackValue:SetNumeric(true)
+        row.stackValue:SetMaxLetters(3)
+        local function CommitStackValue(input)
+            if DesignerUI.v2Refreshing then return end
+            local _, monitor = SelectedGlowContext()
+            if not monitor or monitor.id ~= row.stackMonitorId then return end
+            local config = CopySelectedGlowRules(monitor)
+            local rule = config.rules[row.index]
+            if not (rule and rule.condition.type == "aura-stacks") then return end
+            local value = tonumber(input:GetText())
+            if not value or value < 1 or value > 100 or value ~= math.floor(value) then
+                input:SetText(tostring(rule.condition.value))
+                return
+            end
+            if value == rule.condition.value then return end
+            rule.condition.value = value
+            FinishGlowMutation(Designer:SetMonitorGlow(monitor.id, config))
+        end
+        row.stackValue:SetScript("OnEnterPressed", function(input)
+            CommitStackValue(input)
+            input:ClearFocus()
+        end)
+        row.stackValue:HookScript("OnEditFocusLost", CommitStackValue)
         row.combatLabel = GUI2:CreateText(
             row,
             T("designer.glow.combat_only", "Combat Only"),
@@ -3723,7 +3920,7 @@ local function BuildMonitorBrowser(self)
                 )
             end,
         })
-        row.combat:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -8, 4)
+        row.combat:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -10, 4)
         monitorGlowRules[index] = row
     end
     local monitorGlowAuraWarning = GUI2:CreatePanel(body, {
@@ -3784,23 +3981,27 @@ local function BuildMonitorBrowser(self)
             local _, monitor, capabilities = SelectedGlowContext()
             if not (monitor and capabilities) then return end
             local config = CopySelectedGlowRules(monitor)
-            if #config.rules >= 2 then return end
-            local used = {}
-            for ruleIndex = 1, #config.rules do
-                local condition = config.rules[ruleIndex].condition
-                if condition then used[condition.type] = true end
-            end
+            if #config.rules >= YHUD:GetMonitorGlowRuleLimit(capabilities) then return end
             local conditionType
+            for index = 1, #config.rules do
+                if config.rules[index].condition.type == "aura-stacks" then
+                    conditionType = "aura-stacks"
+                    break
+                end
+            end
             for conditionIndex = 1, #(capabilities.conditions or {}) do
+                if conditionType then break end
                 local candidate = capabilities.conditions[conditionIndex]
-                if not used[candidate] then
+                if YHUD:CanAddGlowCondition(config.rules, candidate) then
                     conditionType = candidate
                     break
                 end
             end
             if not conditionType then return end
             config.rules[#config.rules + 1] = {
-                condition = { type = conditionType },
+                condition = conditionType == "aura-stacks"
+                    and YHUD:GetNextAuraStackCondition(config.rules)
+                    or { type = conditionType },
                 appearance = YHUD:GetDefaultMonitorGlowAppearance(),
             }
             config.rules[#config.rules].appearance.style = "pixel"
@@ -3965,6 +4166,14 @@ local function BuildMonitorBrowser(self)
         end,
     })
     BindMonitorAppearanceTarget(appearanceTrack)
+    if I.BuildBarProgressUI then
+        I.BuildBarProgressUI(self, CONTENT_WIDTH, {
+            resolveTarget = ResolveMonitorAppearanceTarget,
+            bindTarget = BindMonitorAppearanceTarget,
+            reapply = ReapplyMonitorAppearance,
+            finish = FinishMonitorAppearanceSession,
+        })
+    end
     local thresholdControls, thresholdUI = {}, { rows = {} }
     local function KeepThreshold(control)
         thresholdControls[#thresholdControls + 1] = control
@@ -3984,7 +4193,10 @@ local function BuildMonitorBrowser(self)
         local policy = YHUD:NormalizeBarStackThresholds(
             monitor.appearanceOverride and monitor.appearanceOverride.stackThresholds)
         if field then policy[field][name] = value else policy[name] = value end
-        local appearance = Designer:SetMonitorAppearanceOverride(monitorId, { stackThresholds = policy })
+        local appearance, code = Designer:SetMonitorAppearanceOverride(monitorId, { stackThresholds = policy })
+        if code == "overlapping-bar-thresholds" then
+            thresholdUI.info:SetText(T("designer.bar.threshold_overlap", "低阈值必须小于高阈值。"))
+        end
         if appearance then
             if deferRefresh then
                 ReapplyMonitorAppearance(monitorId, appearance)
@@ -3994,7 +4206,9 @@ local function BuildMonitorBrowser(self)
         end
         if control then control._yhudMonitorAppearanceTarget = nil end
     end
-    thresholdUI.label = ThresholdLabel("designer.monitor.stack_thresholds", "层数阈值变色")
+    thresholdUI.label = ThresholdLabel("designer.bar.thresholds", "阈值变色")
+    thresholdUI.info = KeepThreshold(GUI2:CreateText(body, "", "font.size.sm", "color.text.secondary", "LEFT"))
+    thresholdUI.info:SetWordWrap(true)
     thresholdUI.enabled = KeepThreshold(GUI2.Form:CreateSwitch(body, {
         width = COLUMN_WIDTH - FIELD_LABEL_WIDTH - 8,
         height = 26,
@@ -4052,6 +4266,14 @@ local function BuildMonitorBrowser(self)
     self.monitorGlobalNativeGear = globalNativeGear
     self.monitorGlobalNativeCombatLabel = globalNativeCombatLabel
     self.monitorGlobalNativeCombat = globalNativeCombat
+    self.MonitorHelp:Bind(globalNativeLabel, "nativeProc", "global")
+    self.MonitorHelp:Bind(globalNativeCombatLabel, "nativeCombat", "global")
+    self.MonitorHelp:Bind(auraOverrideLabel, "auraTimer", "single")
+    self.MonitorHelp:Bind(auraHighlightLabel, "auraHighlight", "single")
+    self.MonitorHelp:Bind(inactiveDesaturateLabel, "inactiveDesaturate", "single")
+    self.MonitorHelp:Bind(monitorNativeLabel, "nativeProc", "single")
+    self.MonitorHelp:Bind(monitorNativeCombatLabel, "nativeCombat", "single")
+    self.MonitorHelp:Bind(appearanceSwipeLabel, "cooldownSwipe", "single")
     self.skillAuraItemDivider = nil
     self.skillAuraOverrideLabel = auraOverrideLabel
     self.skillAuraOverrideStatus = auraOverrideStatus
@@ -4077,6 +4299,8 @@ local function BuildMonitorBrowser(self)
     self.monitorInactiveDesaturateDropdown = inactiveDesaturateDropdown
     self.monitorResetEffects = resetEffects
     self.monitorGlowDivider = monitorGlowDivider
+    self.monitorAssistedLabel = monitorAssistedLabel
+    self.monitorAssistedDropdown = monitorAssistedDropdown
     self.monitorNativeLabel = monitorNativeLabel
     self.monitorNativeDropdown = monitorNativeDropdown
     self.monitorNativeGear = monitorNativeGear
@@ -4124,11 +4348,15 @@ local function BuildTextEditor(self)
         row.label = GUI2:CreateText(
             row, definition.text, "font.size.md", "color.text.primary", "LEFT"
         )
-        row.label:SetPoint("LEFT", row, "LEFT", 14, 0)
+        row:SetHeight(definition.target == "keybind" and 116 or 82)
+        row.label:SetPoint("TOPLEFT", row, "TOPLEFT", 12, -18)
+        row.label:SetWidth(CONTENT_WIDTH - 236)
+        row.label:SetWordWrap(true)
+        local rightWidth, halfWidth = 204, 96
+        local rightX = CONTENT_WIDTH - rightWidth - 8
         if definition.target == "keybind" then
             row.mode = GUI2.Form:CreateDropdown(row, {
-                width = 112,
-                height = 28,
+                width = rightWidth, height = 28, menuWidth = rightWidth,
                 options = function()
                     return {
                         { text = T("designer.keybind.mode.off", "关闭"), value = "off" },
@@ -4139,39 +4367,51 @@ local function BuildTextEditor(self)
                 set = function(value)
                     local session = Designer:GetSession()
                     if not session then return end
-                    if Designer:SetGroupIconStyle(
-                        session.selectedGroupId,
-                        { keybindTextMode = value }
-                    ) then
+                    if Designer:SetGroupIconStyle(session.selectedGroupId, {keybindTextMode=value}) then
                         DesignerUI:ApplyPreview()
                         DesignerUI:Refresh(false, false)
                     end
                 end,
             })
-            row.mode:SetPoint("RIGHT", row, "RIGHT", -82, 0)
+            row.mode:SetPoint("TOPLEFT", row, "TOPLEFT", rightX, -8)
+            row.settings = GUI2.Form:CreateButton(row, {
+                text = TC("common.settings", "设置"), width = 56, height = 28,
+                onClick = function()
+                    DesignerUI.durationTextTarget = "keybind"
+                    DesignerUI.textEditorTarget = "keybind"
+                    DesignerUI:SyncDesignCooldownTextPreview("keybind")
+                    DesignerUI:Refresh(false, false)
+                end,
+            })
+            row.settings:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, -8)
         else
             row.switch = GUI2.Form:CreateSwitch(row, {
-                width = 42,
-                height = 22,
+                width = halfWidth, height = 28,
                 set = function(value)
                     DesignerUI.durationTextTarget = definition.target
                     DesignerUI:SetSelectedGroupTextStyle("", value == true)
                 end,
             })
-            row.switch:SetPoint("RIGHT", row, "RIGHT", -82, 0)
+            row.switch:SetPoint("TOPLEFT", row, "TOPLEFT", rightX, -8)
         end
-        row.settings = GUI2.Form:CreateButton(row, {
-            text = TC("common.settings", "设置"),
-            width = 64,
-            height = 28,
-            onClick = function()
+        row.position = GUI2.Form:CreateDropdown(row, {
+            width = definition.target == "keybind" and rightWidth or halfWidth,
+            height = 28, menuWidth = 220,
+            options = function()
+                local previous = DesignerUI.durationTextTarget
                 DesignerUI.durationTextTarget = definition.target
-                DesignerUI.textEditorTarget = definition.target
-                DesignerUI:SyncDesignCooldownTextPreview(definition.target)
-                DesignerUI:Refresh(false, false)
+                local options = DesignerUI:BuildCurrentTextPositionOptions()
+                DesignerUI.durationTextTarget = previous
+                return options
+            end,
+            set = function(value)
+                DesignerUI.durationTextTarget = definition.target
+                DesignerUI:SetSelectedGroupTextStyle("Position", value)
             end,
         })
-        row.settings:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+        row.position:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, definition.target == "keybind" and -42 or -8)
+        row.font = GUI2.Form:CreateFontStyle(row, {key="yhud:unbound", width=rightWidth})
+        row.font:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, definition.target == "keybind" and -76 or -42)
         row:Hide()
         rows[index] = row
     end
@@ -4336,6 +4576,9 @@ local function BuildTextEditor(self)
     }
     HideControls(keybindControls)
 
+    self.keybindFont = GUI2.Form:CreateFontStyle(body, {key="yhud:unbound", width=CONTENT_WIDTH - 82})
+    self.keybindFont:Hide()
+    keybindControls[#keybindControls+1] = self.keybindFont
     self.textRows = rows
     self.resourceTextRows = { resourceNameRow, resourceValueRow }
     self.resourceTextSettingsButton = resourceSettings
@@ -4355,6 +4598,7 @@ local function BuildTextEditor(self)
 end
 
 local function BuildResourceStyleContextKey(classFile, specID, formKey, groupId)
+    if YHUD.ResourceManager then return tostring(groupId or "") end
     return (groupId and (tostring(groupId) .. ":") or "") .. tostring(classFile or "") .. ":" .. tostring(specID or "")
         .. ":" .. tostring(formKey or "")
 end
@@ -4368,6 +4612,19 @@ local function BuildResourceOptions()
         return { { text = T("resource.player_cast", "玩家施法条"), value = "cast" } }
     end
     local options = {}
+    if YHUD.ResourceManager then
+        local labels = I.BuildResourceDisplayLabels()
+        for _, preset in ipairs(Designer:GetManagedResourceStyles()) do
+            local id = preset.styleResourceId or preset.id
+            local setting = YHUD:GetResourceSetting(profile, id, session.selectedGroupId)
+            local label = labels[id]
+            options[#options + 1] = { value = id, text = label.text,
+                onEnter = function(owner) I.ShowResourceLabelTooltip(owner, label) end,
+                onLeave = I.HideResourceLabelTooltip,
+                texture = "Interface\\Buttons\\WHITE8X8", iconSize = 12, iconColor = setting.fillColor or preset.color }
+        end
+        return options
+    end
     local seen = {}
     local function Append(resourceId)
         if seen[resourceId] then return end
@@ -4424,7 +4681,7 @@ end
 
 local function CurrentResourceDefinition()
     return ResourceCatalog and ResourceCatalog.GetDefinition
-        and ResourceCatalog:GetDefinition(DesignerUI.resourceStyleResourceId)
+        and ResourceCatalog:GetDefinition(DesignerUI.resourceStyleResourceId, Designer:GetProfile(), Designer:GetSession().selectedGroupId)
         or nil
 end
 
@@ -4454,7 +4711,7 @@ local function ResourceFormatOptions()
     local function Add(key, fallback, value)
         options[#options + 1] = { text = T(key, fallback), value = value }
     end
-    if kind == "aura-duration" or kind == "swing-timer" then
+    if kind == "aura-duration" or kind == "swing-timer" or kind == "monitor-time" or kind == "global-cooldown" then
         Add("designer.resource.format.duration", "剩余时间", "duration")
     elseif id == "stagger" or id == "ignorePain" then
         Add("designer.resource.format.percent", "百分比", "percent")
@@ -4488,8 +4745,29 @@ local function ResourceDisplayModeOptions()
         { text = T("designer.resource.display_mode.bar", "连续条"), value = "bar" },
         { text = T("designer.resource.display_mode.divided", "分隔条"), value = "divided" },
         { text = T("designer.resource.display_mode.cells", "矩形格"), value = "cells" },
-        { text = T("designer.resource.display_mode.dots", "圆形格"), value = "dots" },
+        { text = T("designer.resource.display_mode.dots", "几何资源点"), value = "dots" },
+        { text = T("designer.resource.display_mode.native", "原生资源点"), value = "nativePoints" },
     }
+end
+
+function I.ResourcePointShapeOptions()
+    return {
+        { text = T("designer.resource.point_shape.circle", "圆形"), value = "circle" },
+        { text = T("designer.resource.point_shape.square", "方形"), value = "square" },
+        { text = T("designer.resource.point_shape.diamond", "菱形"), value = "diamond" },
+        { text = T("designer.resource.point_shape.star", "五角星"), value = "star" },
+    }
+end
+
+function I.ResourceNativePointOptions()
+    local result = {}
+    for _, entry in ipairs({ { "auto", "自动匹配" }, { "arcane", "奥术充能" }, { "essence", "精华" },
+        { "rogue", "潜行者连击点" }, { "druid", "德鲁伊连击点" }, { "chi", "真气" },
+        { "holy", "神圣能量" }, { "shards", "灵魂碎片" }, { "runeBlood", "符文 · 鲜血" },
+        { "runeFrost", "符文 · 冰霜" }, { "runeUnholy", "符文 · 邪恶" } }) do
+        result[#result + 1] = { value = entry[1], text = T("designer.resource.native_point." .. entry[1], entry[2]) }
+    end
+    return result
 end
 
 local function ResourceVisibilityModeOptions()
@@ -4604,7 +4882,7 @@ local function RefreshResourceSliderMutation(result, resourceId, relayout)
     return result
 end
 
-local function PreviewSelectedResourceColor(field, value)
+local function PreviewSelectedResourceColor(field, value, finish)
     local session = Designer:GetSession()
     local groupId = session and session.selectedGroupId
     local View = YHUD.View
@@ -4613,7 +4891,8 @@ local function PreviewSelectedResourceColor(field, value)
             groupId,
             DesignerUI.resourceStyleResourceId,
             field,
-            value
+            value,
+            finish
         )
     end
     return false
@@ -4625,9 +4904,14 @@ local function BindResourceColorPicker(control, field, commit)
         function(value)
             PreviewSelectedResourceColor(field, value)
         end,
-        commit,
+        function(value)
+            commit(value)
+            -- The projection owns a resolved style snapshot. Replace it once
+            -- after commit; pointer movement only paints the selected slot.
+            DesignerUI:PreviewSelectedGroup()
+        end,
         function(originalValue)
-            PreviewSelectedResourceColor(field, originalValue)
+            PreviewSelectedResourceColor(field, originalValue, true)
         end
     )
     return control
@@ -4822,23 +5106,158 @@ local function PlaceResourceFieldWithHelp(label, help, control, parent, x, y)
     help:Show()
 end
 
-local function ResourceUsesSpec(resourceId, classFile, specID)
-    local ids = ResourceCatalog and ResourceCatalog.GetPresetIds
-        and ResourceCatalog:GetPresetIds(classFile, specID) or nil
-    for index = 1, #(ids or {}) do
-        if ids[index] == resourceId then return true end
-    end
-    return false
+do
+local RESOURCE_APPEARANCE_CONTROL_WIDTH = 72
+local RESOURCE_APPEARANCE_CONTROL_HEIGHT = 24
+local RESOURCE_APPEARANCE_ROW_GAP = 10
+
+local function CommitResourceAppearanceSlider()
+    DesignerUI:CommitV2SliderPreview()
 end
 
-local function ShowResourceSpecializationTooltip(owner)
-    if not (GameTooltip and owner) then return end
-    local resourceId = DesignerUI.resourceStyleResourceId
-    local profile = Designer:GetProfile()
-    local definition = resourceId and ResourceCatalog
-        and ResourceCatalog.GetDefinition
-        and ResourceCatalog:GetDefinition(resourceId) or nil
-    if not definition then return end
+local function ResourceAppearanceTextWidth(text)
+    if type(text) ~= "table" and type(text) ~= "userdata" then return 0 end
+    local measure = text.GetUnboundedStringWidth or text.GetStringWidth
+    return measure and measure(text) or 0
+end
+
+local function ResourceAppearanceSelectWidth(field)
+    local control, text = field[2], field[2] and field[2].text
+    if field[3] == "compactSelect" and control.SetTextInsets then control:SetTextInsets(4, 18) end
+    local width = ResourceAppearanceTextWidth(text)
+    if field[5] and text and type(text) ~= "string" and text.GetText and text.SetText then
+        local original = text:GetText()
+        for _, option in ipairs(field[5]) do
+            text:SetText(" " .. (option.selectionText or option.text or tostring(option.value or "")))
+            width = math.max(width, ResourceAppearanceTextWidth(text))
+        end
+        text:SetText(original)
+    end
+    return width + (control.gui2DropdownTextPadding or (control.gui2HasSelectionIcon and 56 or 36))
+end
+
+local function MeasureResourceAppearanceField(field, availableWidth)
+    local label, control, kind, help = field[1], field[2], field[3], field[4]
+    SetStandardTextSize(label)
+    local labelWidth = ResourceAppearanceTextWidth(label)
+    if help then labelWidth = labelWidth + 20 end
+    local width = RESOURCE_APPEARANCE_CONTROL_WIDTH
+    if kind == "fullSelect" then
+        width = availableWidth - (COLUMN_WIDTH - RESOURCE_APPEARANCE_CONTROL_WIDTH)
+    elseif kind == "compactSelect" then
+        ResourceAppearanceSelectWidth(field)
+        if availableWidth > COLUMN_WIDTH then width = availableWidth - (COLUMN_WIDTH - RESOURCE_APPEARANCE_CONTROL_WIDTH) end
+    elseif kind == "select" or kind == "wide" then
+        width = kind == "wide" and availableWidth or math.max(96, math.min(availableWidth, ResourceAppearanceSelectWidth(field)))
+    elseif kind == "button" then return availableWidth, RESOURCE_APPEARANCE_CONTROL_HEIGHT, false end
+    local above = kind == "wide" or labelWidth + 8 + width > availableWidth
+    return width, above and (RESOURCE_LABEL_HEIGHT + 4 + RESOURCE_APPEARANCE_CONTROL_HEIGHT)
+        or RESOURCE_APPEARANCE_CONTROL_HEIGHT, above
+end
+
+local function PlaceResourceAppearanceField(parent, field, x, y, availableWidth)
+    local label, control, kind, help = field[1], field[2], field[3], field[4]
+    local width, height, above = MeasureResourceAppearanceField(field, availableWidth)
+    if kind == "button" then
+        Place(control, parent, x, y, width)
+        control:Show()
+        return height
+    end
+    if kind == "number" and control.SetCompactMode then
+        control:SetCompactMode(true, width, CommitResourceAppearanceSlider)
+    end
+    if kind == "switch" then
+        control.width = width
+        control.height = RESOURCE_APPEARANCE_CONTROL_HEIGHT
+        if control.thumb then control.thumb:SetHeight(RESOURCE_APPEARANCE_CONTROL_HEIGHT - 6) end
+    end
+    control:SetHeight(RESOURCE_APPEARANCE_CONTROL_HEIGHT)
+    local controlY = above and (y - RESOURCE_LABEL_HEIGHT - 4) or y
+    if label then
+        label:SetHeight(RESOURCE_LABEL_HEIGHT)
+        label:SetWordWrap(false)
+        Place(label, parent, x, above and y or (y - 3), above and availableWidth or availableWidth - width - 8)
+        label:Show()
+    end
+    Place(control, parent, x + availableWidth - width, controlY, width)
+    if control.chipBg then
+        control.chipBg:SetHeight(RESOURCE_APPEARANCE_CONTROL_HEIGHT)
+        if control.chipBg.UpdateGUI2PixelLayout then control.chipBg:UpdateGUI2PixelLayout() end
+    end
+    if kind == "switch" and control.GetValue then
+        control:SetValue(control:GetValue(), { silent = true, force = true })
+    end
+    control:Show()
+    if help then
+        local textWidth = ResourceAppearanceTextWidth(label)
+        Place(help, parent, x + textWidth + 3, y - 2)
+        help:Show()
+    end
+    return height
+end
+
+function I.PlaceResourceAppearanceRow(parent, y, left, right)
+    if not left then left, right = right, nil end
+    if not left then return y end
+    local function NeedsFullWidth(field)
+        if not field then return false end
+        if field[3] == "fullSelect" then return true end
+        if field[3] == "compactSelect" then
+            local _, _, above = MeasureResourceAppearanceField(field, COLUMN_WIDTH)
+            return above or ResourceAppearanceSelectWidth(field) > RESOURCE_APPEARANCE_CONTROL_WIDTH
+        end
+        if field[3] == "select" then
+            local _, _, above = MeasureResourceAppearanceField(field, COLUMN_WIDTH)
+            return above
+        end
+        local text = field and field[2] and field[2].text
+        return field[3] == "wide"
+            and ResourceAppearanceTextWidth(text) + 36 > COLUMN_WIDTH
+    end
+    if NeedsFullWidth(left) or NeedsFullWidth(right) then
+        if left then
+            y = y - PlaceResourceAppearanceField(parent, left, 0, y,
+                NeedsFullWidth(left) and CONTENT_WIDTH or COLUMN_WIDTH) - RESOURCE_APPEARANCE_ROW_GAP
+        end
+        if right then
+            y = y - PlaceResourceAppearanceField(parent, right, 0, y,
+                NeedsFullWidth(right) and CONTENT_WIDTH or COLUMN_WIDTH) - RESOURCE_APPEARANCE_ROW_GAP
+        end
+        return y
+    end
+    local leftHeight = left and PlaceResourceAppearanceField(parent, left, 0, y, COLUMN_WIDTH) or 0
+    local rightHeight = right and PlaceResourceAppearanceField(parent, right, SECOND_COLUMN_X, y, COLUMN_WIDTH) or 0
+    return y - math.max(leftHeight, rightHeight) - RESOURCE_APPEARANCE_ROW_GAP
+end
+
+end
+
+local function ResourceUsesSpec(profile, resourceId, classFile, specID)
+    local available, enabled = false, false
+    local manager = YHUD.ResourceManager
+    if not manager then
+        enabled = ResourceCatalog:IsPresetEnabled(profile, classFile, specID, resourceId)
+        return enabled, enabled
+    end
+    -- Read the same group memberships as the monitor page, without resolving live sources.
+    local forms = ResourceCatalog:GetFormOptions(classFile, specID)
+    for formIndex = 1, math.max(1, #forms) do
+        local formKey = forms[formIndex] and forms[formIndex].key
+        local items = ResourceCatalog:GetDisplayPresets(profile, manager:GetItems(profile, classFile, specID, formKey))
+        for _, item in ipairs(items) do
+            if (item.styleResourceId or item.id) == resourceId then
+                available = true
+                enabled = enabled or item.enabled == true
+                break
+            end
+        end
+    end
+    return available, enabled
+end
+
+function I.AppendResourceSpecializations(resourceId, profile, groupId)
+    if not (GameTooltip and resourceId and profile and groupId) then return end
+    local scoped = YHUD:GetResourceProfile(profile, groupId)
     local rows = {}
     local classes = ResourceCatalog:GetClasses()
     for classIndex = 1, #classes do
@@ -4847,7 +5266,8 @@ local function ShowResourceSpecializationTooltip(owner)
         local specs = ResourceCatalog:GetSpecializations(classFile)
         for specIndex = 1, #specs do
             local spec = specs[specIndex]
-            if ResourceUsesSpec(resourceId, classFile, spec.specID) then
+            local available, enabled = ResourceUsesSpec(scoped, resourceId, classFile, spec.specID)
+            if available then
                 rows[#rows + 1] = {
                     classFile = classFile,
                     classID = classInfo.classID or 999,
@@ -4856,12 +5276,7 @@ local function ShowResourceSpecializationTooltip(owner)
                     name = YUI.Locale and YUI.Locale.GetSpecializationName
                         and YUI.Locale:GetSpecializationName(spec.specID, spec.name or tostring(spec.specID))
                         or spec.name or tostring(spec.specID),
-                    enabled = ResourceCatalog:IsPresetEnabled(
-                        profile,
-                        classFile,
-                        spec.specID,
-                        resourceId
-                    ),
+                    enabled = enabled,
                 }
             end
         end
@@ -4876,17 +5291,6 @@ local function ShowResourceSpecializationTooltip(owner)
         return left.specIndex < right.specIndex
     end)
 
-    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-    GameTooltip:SetText(T(definition.nameKey, definition.id), 1, 0.82, 0)
-    if definition.descriptionKey then
-        GameTooltip:AddLine(
-            T(definition.descriptionKey, ""),
-            0.78,
-            0.82,
-            0.88,
-            true
-        )
-    end
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine(
         T("designer.resource.specializations", "对应专精"),
@@ -4917,6 +5321,23 @@ local function ShowResourceSpecializationTooltip(owner)
             0.45
         )
     end
+end
+
+local function ShowResourceSpecializationTooltip(owner)
+    if not (GameTooltip and owner) then return end
+    local resourceId = DesignerUI.resourceStyleResourceId
+    local profile, session = Designer:GetProfile(), Designer:GetSession()
+    if not (profile and session) then return end
+    local definition = resourceId and ResourceCatalog
+        and ResourceCatalog.GetDefinition
+        and ResourceCatalog:GetDefinition(resourceId, profile, session.selectedGroupId) or nil
+    if not definition then return end
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    GameTooltip:SetText(definition.name or T(definition.nameKey, definition.id), 1, 0.82, 0)
+    if definition.descriptionKey then
+        GameTooltip:AddLine(T(definition.descriptionKey, ""), 0.78, 0.82, 0.88, true)
+    end
+    I.AppendResourceSpecializations(resourceId, profile, session.selectedGroupId)
     GameTooltip:Show()
 end
 
@@ -5005,7 +5426,7 @@ function I.RefreshPlayerCastOptions(self, profile, group, page, y)
         local function Switch(field, key, fallback)
             ui[field .. "Label"] = Keep(NewResourceLabel(root, key, fallback))
             ui[field] = Keep(GUI2.Form:CreateSwitch(root, { width = SWITCH_WIDTH,
-                tooltip = field == "progress" and YUI.IsRetail and T("player_cast.progress_tip", "普通施法和引导显示剩余时间，蓄力显示阶段。") or nil,
+                tooltip = field == "progress" and YUI.IsRetail and T("player_cast.progress_tip", "普通施法和引导使用所选计时格式，蓄力显示阶段。") or nil,
                 set = function(value) Patch(field, value == true) end }))
         end
         if page == "monitor" then
@@ -5016,10 +5437,26 @@ function I.RefreshPlayerCastOptions(self, profile, group, page, y)
                 { text = T("player_cast.reserve", "占位"), value = "reserve" },
                 { text = T("player_cast.collapse", "不占位"), value = "collapse" },
             }, set = function(value) Patch("idle", value) end }))
+            ui.nativeLabel = Keep(NewResourceLabel(root, "player_cast.hide_native", "隐藏原生施法条"))
+            ui.native = Keep(GUI2.Form:CreateSwitch(root, { width = SWITCH_WIDTH,
+                tooltip = T("player_cast.native_tip", "当前方案共用；停用全部 Halo 玩家施法条后，恢复原生显示。"),
+                set = function(value)
+                    if self.v2Refreshing or self.busyKind or not ui.native:IsShown() then return end
+                    local session = Designer:GetSession()
+                    if not session or session ~= ui.nativeSession or session.setId ~= ui.nativeSetId then return end
+                    if Designer:SetPlayerCastSettings({ hideNative = value == true }) then
+                        self:Refresh(false, false)
+                    end
+                end,
+            }))
+            ui.native:HookScript("OnHide", function() ui.nativeSession, ui.nativeSetId = nil, nil end)
             Switch("icon", "player_cast.icon", "显示图标")
             ui.iconSideLabel = Keep(NewResourceLabel(root, "player_cast.icon_side", "图标位置"))
             ui.iconSide = Keep(GUI2.Form:CreateDropdown(root, { width = COLUMN_WIDTH, options = {
-                { text = T("player_cast.left", "左侧"), value = "left" }, { text = T("player_cast.right", "右侧"), value = "right" },
+                { text = T("player_cast.inside_left", "内部左侧"), value = "left" },
+                { text = T("player_cast.inside_right", "内部右侧"), value = "right" },
+                { text = T("player_cast.outside_left", "外部左侧"), value = "outside-left" },
+                { text = T("player_cast.outside_right", "外部右侧"), value = "outside-right" },
             }, set = function(value) Patch("iconSide", value) end }))
             ui.iconGapLabel = Keep(NewResourceLabel(root, "player_cast.icon_gap", "图标间距"))
             ui.iconGap = Keep(CreateSlider(root, nil, 0, 12, 1, 0, function(value) Patch("iconGap", value) end, COLUMN_WIDTH))
@@ -5045,6 +5482,13 @@ function I.RefreshPlayerCastOptions(self, profile, group, page, y)
                 set = function(value) Patch(ui.target, value == true) end,
             }
             ui.enabled = Keep(GUI2.Form:CreateSwitch(root, ui.enabledOptions))
+            ui.timeFormatLabel = Keep(NewResourceLabel(root, "player_cast.time_format", "计时格式"))
+            ui.timeFormat = Keep(GUI2.Form:CreateDropdown(root, { width = COLUMN_WIDTH, options = {
+                { text = T("player_cast.time_remaining", "剩余时间"), value = "remaining" },
+                { text = T("player_cast.time_elapsed", "已过时间"), value = "elapsed" },
+                { text = T("player_cast.time_remaining_total", "剩余 / 总计"), value = "remainingTotal" },
+                { text = T("player_cast.time_elapsed_total", "已过 / 总计"), value = "elapsedTotal" },
+            }, set = function(value) Patch("timeFormat", value) end }))
             ui.positionLabel = Keep(NewResourceLabel(root, "designer.resource.position", "位置"))
             ui.position = Keep(GUI2.Form:CreateDropdown(root, {
                 width = COLUMN_WIDTH, options = ResourcePositionOptions,
@@ -5088,6 +5532,9 @@ function I.RefreshPlayerCastOptions(self, profile, group, page, y)
         ui.icon:SetValue(cast.icon, true)
         ui.iconSide:SetValue(cast.iconSide, true)
         ui.iconGap:SetValue(cast.iconGap, true)
+        ui.nativeSession = Designer:GetSession()
+        ui.nativeSetId = ui.nativeSession and ui.nativeSession.setId
+        ui.native:SetValue(profile.playerCast and profile.playerCast.hideNative == true, true)
         SetDisabled(ui.iconSide, not cast.icon)
         SetDisabled(ui.iconGap, not cast.icon)
         return y - 128
@@ -5099,9 +5546,17 @@ function I.RefreshPlayerCastOptions(self, profile, group, page, y)
         ui.targetPicker:SetValue(ui.target, true)
         ui.enabled:SetValue(cast[ui.target], true)
         ui.enabledOptions.tooltip = name and T("player_cast.name", "法术名称")
-            or (YUI.IsRetail and T("player_cast.progress_tip", "普通施法和引导显示剩余时间，蓄力显示阶段。")
+            or (YUI.IsRetail and T("player_cast.progress_tip", "普通施法和引导使用所选计时格式，蓄力显示阶段。")
                 or T("player_cast.progress", "施法进度"))
         y = y - 40
+        ui.timeFormatLabel:SetShown(not name)
+        ui.timeFormat:SetShown(not name)
+        if not name then
+            PlaceResourceField(ui.timeFormatLabel, ui.timeFormat, body, 0, y)
+            ui.timeFormat:SetValue(cast.timeFormat or "remaining", true)
+            SetDisabled(ui.timeFormat, not cast.progress)
+            y = y - 64
+        end
         PlaceResourceField(ui.positionLabel, ui.position, body, 0, y)
         PlaceResourceField(ui.sizeLabel, ui.size, body, SECOND_COLUMN_X, y)
         ui.sizeLabel:SetWidth(COLUMN_WIDTH - 112)
@@ -5163,13 +5618,6 @@ local function BuildResourceEditors(self)
     ))
     local textResourceHelp = Keep(CreateResourceHelpButton(body))
     local textResource = Keep(ResourceSelector())
-    local textResourceInfo = Keep(NewResourceTextLabel(body, ""))
-    textResourceInfo:SetWidth(CONTENT_WIDTH)
-    textResourceInfo:SetHeight(36)
-    textResourceInfo:SetWordWrap(true)
-    if GUI2.SetTextColorKey then
-        GUI2:SetTextColorKey(textResourceInfo, "color.text.secondary")
-    end
     local textOverrideLabel = Keep(NewResourceLabel(
         body, "designer.resource.override_global", "覆盖全局"
     ))
@@ -5344,13 +5792,20 @@ local function BuildResourceEditors(self)
     ))
     local appearanceResourceHelp = Keep(CreateResourceHelpButton(body))
     local appearanceResource = Keep(ResourceSelector())
-    local appearanceResourceInfo = Keep(NewResourceTextLabel(body, ""))
-    appearanceResourceInfo:SetWidth(CONTENT_WIDTH)
-    appearanceResourceInfo:SetHeight(36)
-    appearanceResourceInfo:SetWordWrap(true)
-    if GUI2.SetTextColorKey then
-        GUI2:SetTextColorKey(appearanceResourceInfo, "color.text.secondary")
-    end
+    local itemFillDirectionLabel = Keep(NewResourceLabel(body, "designer.resource.fill_direction", "填充方向"))
+    local itemFillDirection = Keep(GUI2.Form:CreateDropdown(body, {
+        width = COLUMN_WIDTH, menuWidth = RESOURCE_MENU_WIDTH,
+        options = function()
+            local options = I.BuildResourceFillDirectionOptions()
+            table.insert(options, 1, {text=T("designer.resource.fill_inherit", "跟随分组"),value="inherit"})
+            return options
+        end,
+        set = function(value)
+            if DesignerUI.v2Refreshing then return end
+            RefreshResourceMutation(Designer:SetResourceSetting(DesignerUI.resourceStyleResourceId,
+                {fillDirection=value ~= "inherit" and value or false}))
+        end,
+    }))
     local appearanceOverrideLabel = Keep(NewResourceLabel(
         body, "designer.resource.override_global", "覆盖全局"
     ))
@@ -5548,7 +6003,7 @@ local function BuildResourceEditors(self)
     ))
     local visibilityMode = Keep(GUI2.Form:CreateDropdown(body, {
         width = COLUMN_WIDTH,
-        menuWidth = COLUMN_WIDTH,
+        menuWidth = CONTENT_WIDTH,
         options = ResourceVisibilityModeOptions,
         set = function(value)
             RefreshResourceMutation(Designer:SetResourceSetting(
@@ -5594,6 +6049,40 @@ local function BuildResourceEditors(self)
             ), resourceId, true)
         end,
     }))
+    local dotSpacingLabel = Keep(NewResourceLabel(
+        body, "designer.resource.dot_spacing", "点间距"
+    ))
+    local dotSpacing = Keep(GUI2.Form:CreateSlider(body, {
+        width = COLUMN_WIDTH, inline = true, inputWidth = 42,
+        min = 0, max = 100, step = 1,
+        set = function(value)
+            local resourceId = DesignerUI.resourceStyleResourceId
+            RefreshResourceSliderMutation(Designer:SetResourceSetting(
+                resourceId, { segmentSpacing = value }
+            ), resourceId, true)
+        end,
+    }))
+    local pointControls = {}
+    pointControls.shapeLabel = Keep(NewResourceLabel(body, "designer.resource.point_shape", "形状"))
+    pointControls.shape = Keep(GUI2.Form:CreateDropdown(body, {
+        width = COLUMN_WIDTH, menuWidth = RESOURCE_MENU_WIDTH, options = I.ResourcePointShapeOptions,
+        set = function(value)
+            RefreshResourceMutation(Designer:SetResourceSetting(
+                DesignerUI.resourceStyleResourceId, { pointShape = value }))
+        end,
+    }))
+    pointControls.nativeLabel = Keep(NewResourceLabel(body, "designer.resource.native_point", "原生样式"))
+    pointControls.native = Keep(GUI2.Form:CreateDropdown(body, {
+        width = COLUMN_WIDTH, menuWidth = RESOURCE_MENU_WIDTH, options = I.ResourceNativePointOptions,
+        tooltip = T("designer.resource.native_point_help", "只改变外观；点数、上限和恢复进度来自当前资源。"),
+        set = function(value)
+            RefreshResourceMutation(Designer:SetResourceSetting(
+                DesignerUI.resourceStyleResourceId, { nativePointStyle = value }))
+        end,
+    }))
+    pointControls.unavailable = Keep(NewResourceLabel(body, "designer.resource.native_point_unavailable",
+        "当前客户端缺少此原生外观，暂用圆形。"))
+    pointControls.unavailable:SetWordWrap(true)
     local dividerThicknessLabel = Keep(NewResourceLabel(
         body, "designer.resource.divider_thickness", "分隔线粗细"
     ))
@@ -5890,12 +6379,13 @@ local function BuildResourceEditors(self)
 
     self.resourceV2Controls = controls
     self.resourceV2Text = {
+        globalFont = Keep(GUI2.Form:CreateFontStyle(body, {key="yhud:unbound", width=CONTENT_WIDTH})),
+        itemFont = Keep(GUI2.Form:CreateFontStyle(body, {key="yhud:unbound", width=CONTENT_WIDTH})),
         text1Heading = text1Heading, second = second, overlap = overlap,
         globalDivider = textGlobalDivider,
         itemDivider = textItemDivider,
         resourceLabel = textResourceLabel, resourceHelp = textResourceHelp,
         resource = textResource,
-        resourceInfo = textResourceInfo,
         overrideLabel = textOverrideLabel, override = textOverride,
         fontLabel = itemFontLabel, font = itemFont,
         outlineLabel = itemOutlineLabel, outline = itemOutline,
@@ -5914,13 +6404,13 @@ local function BuildResourceEditors(self)
         resourceLabel = appearanceResourceLabel,
         resourceHelp = appearanceResourceHelp,
         resource = appearanceResource,
-        resourceInfo = appearanceResourceInfo,
         overrideLabel = appearanceOverrideLabel, override = appearanceOverride,
         borderLabel = itemBorderLabel, border = itemBorder,
         backgroundLabel = itemBackgroundLabel, background = itemBackground,
         textureLabel = itemTextureLabel, texture = itemTexture,
         fillModeLabel = itemFillModeLabel, fillMode = itemFillMode,
         fillColorLabel = itemFillColorLabel, fillColor = itemFillColor,
+        fillDirectionLabel = itemFillDirectionLabel, fillDirection = itemFillDirection,
         heightOverrideLabel = heightOverrideLabel,
         heightOverride = heightOverride,
         heightLabel = itemHeightLabel,
@@ -5941,6 +6431,10 @@ local function BuildResourceEditors(self)
         displayModeLabel = displayModeLabel, displayMode = displayMode,
         inverseFillLabel = inverseFillLabel, inverseFill = inverseFill,
         segmentSpacingLabel = segmentSpacingLabel, segmentSpacing = segmentSpacing,
+        dotSpacingLabel = dotSpacingLabel, dotSpacing = dotSpacing,
+        pointShapeLabel = pointControls.shapeLabel, pointShape = pointControls.shape,
+        nativePointLabel = pointControls.nativeLabel, nativePoint = pointControls.native,
+        nativePointUnavailable = pointControls.unavailable,
         dividerThicknessLabel = dividerThicknessLabel,
         dividerThickness = dividerThickness,
         dividerColorLabel = dividerColorLabel, dividerColor = dividerColor,
@@ -6090,6 +6584,10 @@ function DesignerUI:ReapplyResourceValuePreview()
         return false
     end
     local special = self.resourceSpecialPreview
+    if View.RefreshDesignResourceCountdown then
+        local applied, countdown = View:RefreshDesignResourceCountdown(resourceId,View.resourceStylePreviewGroupId)
+        if countdown then return applied, true end
+    end
     return View:SetDesignResourceValuePreview(resourceId, progress,
         special and special.resourceId == resourceId and special.mode == "manual" and special.value or nil,
         View.resourceStylePreviewGroupId)
@@ -6099,7 +6597,7 @@ function DesignerUI:StartResourceValuePreview(resourceId)
     local _, _, group = SelectedContext()
     local page = self.propertyPage
     if not (self.active and group and group.layout == "resource"
-        and (page == "text" or page == "appearance")
+        and (page == "text" or page == "appearance" or page == "layout")
         and resourceId) then
         return false
     end
@@ -6127,7 +6625,8 @@ function DesignerUI:StartResourceValuePreview(resourceId)
     end
     self.resourceValuePreviewResourceId = resourceId
     self.resourceValuePreviewProgress = 0
-    self:ReapplyResourceValuePreview()
+    local _, countdown = self:ReapplyResourceValuePreview()
+    if countdown then return true end
     if self.resourceSpecialPreview and self.resourceSpecialPreview.resourceId == resourceId
         and self.resourceSpecialPreview.mode == "manual" then return true end
     if not (Animation and Animation.Tween and Animation.StopOwner) then
@@ -6214,9 +6713,14 @@ function DesignerUI:StartResourceValuePreview(resourceId)
 end
 
 function DesignerUI:SelectResourceStyleResource(resourceId)
+    if YHUD.ResourceManager then
+        local found = false
+        for _, option in ipairs(BuildResourceOptions()) do if option.value == resourceId then found = true break end end
+        if not found then return false end
+    end
     local definition = resourceId and ResourceCatalog
         and ResourceCatalog.GetDefinition
-        and ResourceCatalog:GetDefinition(resourceId) or nil
+        and ResourceCatalog:GetDefinition(resourceId, Designer:GetProfile(), Designer:GetSession().selectedGroupId) or nil
     if not definition then return false end
     self.resourceStyleResourceId = definition.id
     if self.active then self:Refresh(false, false) end
@@ -6226,7 +6730,7 @@ end
 function DesignerUI:SelectResourceBar(groupId, resourceId)
     local definition = resourceId and ResourceCatalog
         and ResourceCatalog.GetDefinition
-        and ResourceCatalog:GetDefinition(resourceId) or nil
+        and ResourceCatalog:GetDefinition(resourceId, Designer:GetProfile(), Designer:GetSession().selectedGroupId) or nil
     local profile = Designer:GetProfile()
     local configuredGroup = profile and profile.groups and profile.groups.items
         and profile.groups.items[groupId]
@@ -6279,11 +6783,8 @@ function DesignerUI:SetPropertyPage(page)
     local resourceStylePage = group and group.layout == "resource"
         and (page == "text" or page == "appearance")
     local previousResourceStylePage = group and group.layout == "resource"
-        and (previousPage == "text" or previousPage == "appearance")
-    if resourceStylePage and not previousResourceStylePage then
-        local options = BuildResourceOptions()
-        self.resourceStyleResourceId = options[1] and options[1].value or nil
-    elseif not resourceStylePage then
+        and (previousPage == "text" or previousPage == "appearance" or previousPage == "layout")
+    if not resourceStylePage then
         self:StopResourceValuePreview(true, self.active == true)
     end
 
@@ -6563,10 +7064,13 @@ function DesignerUI:RefreshMonitorBrowser()
                 and entry.sourceType == "racial-bundle" then
                 bundleKind = "racial"
             end
-            local shortLabel = YHUD.GetEntryPresetLabel
+            local shortLabel = YHUD.ClassExtra and YHUD.ClassExtra:SettingsLabel(entry)
+                or YHUD.GetEntryPresetLabel
                     and YHUD:GetEntryPresetLabel(entry)
                 or bundleKind == "defensive"
                     and T("designer.bundle.short.defensive", "防御")
+                or bundleKind == "externalBuff"
+                    and T("designer.bundle.short.external_buffs", "外部增益")
                 or bundleKind == "interruptControl"
                     and T("designer.bundle.short.interrupt_control", "断控")
                 or bundleKind == "racial"
@@ -6747,6 +7251,8 @@ end
 local function HideAllPageControls(self)
     for _, page in pairs(self.playerCastPages or {}) do HideControls(page.controls) end
     HideControls(self.monitorStackThresholdControls)
+    HideControls(self.monitorBarProgressControls)
+    HideControls(self.barWidthControls)
     if self.visibilityRuleEditor and self.visibilityRuleEditor.ClosePanel then
         self.visibilityRuleEditor:ClosePanel()
     end
@@ -6771,6 +7277,7 @@ local function HideAllPageControls(self)
     if self.cooldownBlingSwitch then self.cooldownBlingSwitch:Hide() end
     if self.cooldownSwipeLabel then self.cooldownSwipeLabel:Hide() end
     if self.cooldownSwipeSwitch then self.cooldownSwipeSwitch:Hide() end
+    if self.chargeRecoveryControl then self.chargeRecoveryControl:Hide() end
     if self.cooldownGCDLabel then self.cooldownGCDLabel:Hide() end
     if self.cooldownGCDSwitch then self.cooldownGCDSwitch:Hide() end
     if self.pandemicGlowDivider then self.pandemicGlowDivider:Hide() end
@@ -6904,6 +7411,8 @@ local function RefreshResourceCommonData(self, profile, group)
         ))
     end
     local enabledCount = 0
+    local resourceUsage = Designer:GetResourcePresetUsage()
+    self:EnsureResourcePresetRows(#presets)
     for index = 1, #self.resourcePresetRows do
         local row = self.resourcePresetRows[index]
         local preset = presets and presets[index]
@@ -6925,6 +7434,7 @@ local function RefreshResourceCommonData(self, profile, group)
                     or color.a
             )
             row.toggle:SetValue(preset.enabled == true, true)
+            I.RefreshResourceSharingRow(row, preset, resourceUsage, CONTENT_WIDTH)
             row.moveUp:SetDisabled(index == 1)
             row.moveDown:SetDisabled(index == #presets)
             if preset.enabled then enabledCount = enabledCount + 1 end
@@ -7130,14 +7640,25 @@ function I.EnsureHandLayoutControls(self)
         self.resourceLayoutControls[#self.resourceLayoutControls + 1] = dropdown
         return dropdown
     end
-    self.resourceHandPairDropdown = Field("handPairMode", "designer.resource.hand_layout", "主副手排列", {
-        { value = "stacked", text = T("designer.resource.hand_stacked", "上下两条") },
-        { value = "split", text = T("designer.resource.hand_split", "单行左右各半") },
-    })
-    local directions = {
-        { value = "forward", text = T("designer.resource.fill_right", "向右增长 →") },
-        { value = "reverse", text = T("designer.resource.fill_left", "向左增长 ←") },
-    }
+    local function IsVertical()
+        local profile, session = Designer:GetProfile(), Designer:GetSession()
+        return profile and session
+            and YHUD:GetResourceGroupLayout(profile, session.selectedGroupId).orientation == "vertical"
+    end
+    self.resourceHandPairDropdown = Field("handPairMode", "designer.resource.hand_layout", "主副手排列", function()
+        local vertical = IsVertical()
+        return {
+            { value = "stacked", text = vertical and T("designer.resource.hand_separate", "两条独立") or T("designer.resource.hand_stacked", "上下两条") },
+            { value = "split", text = vertical and T("designer.resource.hand_split_vertical", "单列上下各半") or T("designer.resource.hand_split", "单行左右各半") },
+        }
+    end)
+    local function directions()
+        local vertical = IsVertical()
+        return {
+            { value = "forward", text = vertical and T("designer.resource.fill_up", "向上增长 ↑") or T("designer.resource.fill_right", "向右增长 →") },
+            { value = "reverse", text = vertical and T("designer.resource.fill_down", "向下增长 ↓") or T("designer.resource.fill_left", "向左增长 ←") },
+        }
+    end
     self.resourceMainHandDirection = Field("mainHandFillDirection", "designer.resource.main_hand_direction", "主手进度方向", directions)
     self.resourceOffHandDirection = Field("offHandFillDirection", "designer.resource.off_hand_direction", "副手进度方向", directions)
     self.resourceHandControls = controls
@@ -7194,6 +7715,11 @@ local function RefreshLayoutPage(self, profile, group)
     )
     if group.layout == "resource" then
         local layout = YHUD:GetResourceGroupLayout(profile, group.id)
+        local vertical = layout.orientation == "vertical"
+        sliders.resourceWidth.label:SetText(vertical and T("designer.resource.length", "长度") or T("designer.resource.width", "宽度"))
+        sliders.resourceMinWidth.label:SetText(vertical and T("designer.resource.min_length", "最小长度") or T("designer.resource.min_width", "最小宽度"))
+        sliders.resourceHeight.label:SetText(vertical and T("designer.resource.thickness", "粗细") or T("designer.resource.height", "高度"))
+        self.resourceWidthModeLabel:SetText(vertical and T("designer.resource.length_mode", "长度模式") or T("designer.resource.width_mode", "宽度模式"))
         self.resourceWidthModeDropdown:SetValue(layout.widthMode, true)
         sliders.resourceWidth:SetValue(layout.width, true)
         sliders.resourceMinWidth:SetValue(layout.minWidth, true)
@@ -7252,14 +7778,12 @@ local function RefreshLayoutPage(self, profile, group)
         sliders.resourceSpacing:Show()
         ShowControls(self.resourceLayoutControls)
         for index = 1, 6 do self.resourceLayoutControls[index]:Hide() end
-        self.resourceLayoutControls[11]:Hide()
-        self.resourceLayoutControls[13]:Hide()
         Place(self.resourceLayoutControls[7], body, 0, -256)
         Place(self.resourceLayoutControls[8], body, SECOND_COLUMN_X, -256)
         Place(self.resourceLayoutControls[9], body, 0, -276, COLUMN_WIDTH)
         Place(self.resourceLayoutControls[10], body, SECOND_COLUMN_X, -276, COLUMN_WIDTH)
-        Place(self.resourceLayoutControls[12], body, 0, -328)
-        Place(self.resourceLayoutControls[14], body, 0, -348, COLUMN_WIDTH)
+        PlaceResourceField(self.resourceLayoutControls[11], self.resourceLayoutControls[13], body, 0, -328)
+        PlaceResourceField(self.resourceLayoutControls[12], self.resourceLayoutControls[14], body, SECOND_COLUMN_X, -328)
         if self.resourceHandControls then
             self.resourceHandPairDropdown:SetValue(layout.handPairMode, true)
             self.resourceMainHandDirection:SetValue(layout.mainHandFillDirection, true)
@@ -7283,11 +7807,12 @@ local function RefreshLayoutPage(self, profile, group)
         or YHUD:GetDurationGroupLayout(profile, group.id, group.layout)
     local verticalBar = group.layout == "bars"
         and layout.orientation == "vertical"
+    local columnIcons = group.layout == "icons" and layout.fillMode == "columns"
     if self.directionDropdown and self.directionDropdown.RefreshOptions then
         self.directionDropdown:RefreshOptions()
     end
     self.directionDropdown:SetValue(
-        group.layout == "icons" and layout.wrapDirection
+        group.layout == "icons" and (columnIcons and layout.rowDirection or layout.wrapDirection)
             or group.layout == "rings"
             and (layout.direction == "outward" or layout.direction == "inward")
             and layout.direction
@@ -7297,19 +7822,24 @@ local function RefreshLayoutPage(self, profile, group)
     )
     local iconLayout = group.layout == "icons"
     self.directionLabel:SetText(iconLayout
-        and T("designer.layout.wrap_direction", "换行方向")
+        and (columnIcons and T("designer.layout.wrap_column_direction", "换列方向")
+            or T("designer.layout.wrap_direction", "换行方向"))
         or T("designer.layout.wrap_mode", "对齐与换行"))
     if iconLayout then
+        self.fillModeDropdown:SetValue(layout.fillMode or "rows", true)
+        Place(self.fillModeLabel, body, 0, -88)
+        Place(self.fillModeDropdown, body, FIELD_LABEL_WIDTH, -80, FIELD_CONTROL_WIDTH)
         self:RefreshIconAlignment(layout)
-        Place(self.iconAlignmentLabel, body, 0, -88)
-        Place(self.iconAlignmentDropdown, body, FIELD_LABEL_WIDTH, -80, FIELD_CONTROL_WIDTH)
-        self.rowDirectionDropdown:SetValue(layout.rowDirection, true)
-        Place(self.rowDirectionLabel, body, 0, -128)
+        Place(self.iconAlignmentLabel, body, 0, -128)
+        Place(self.iconAlignmentDropdown, body, FIELD_LABEL_WIDTH, -120, FIELD_CONTROL_WIDTH)
+        if self.rowDirectionDropdown.RefreshOptions then self.rowDirectionDropdown:RefreshOptions() end
+        self.rowDirectionDropdown:SetValue(columnIcons and layout.wrapDirection or layout.rowDirection, true)
+        Place(self.rowDirectionLabel, body, 0, -168)
         Place(
             self.rowDirectionDropdown,
             body,
             FIELD_LABEL_WIDTH,
-            -120,
+            -160,
             FIELD_CONTROL_WIDTH
         )
     end
@@ -7324,27 +7854,29 @@ local function RefreshLayoutPage(self, profile, group)
     self.secondarySizeLabel:Hide()
     self.secondarySizeDropdown:Hide()
 
-    Place(self.directionLabel, body, 0, iconLayout and -168 or -88)
+    Place(self.directionLabel, body, 0, iconLayout and -208 or -88)
     Place(
         self.directionDropdown,
         body,
         FIELD_LABEL_WIDTH,
-        iconLayout and -160 or -80,
+        iconLayout and -200 or -80,
         FIELD_CONTROL_WIDTH
     )
     local primary = group.layout == "icons" and sliders.iconSize
         or (group.layout == "rings" and sliders.ringDiameter or sliders.barWidth)
     primary:SetValue(group.layout == "icons" and layout.iconSize
         or (group.layout == "rings" and layout.diameter or layout.width), true)
-    sliders.columnSpacing:SetValue(layout.columnSpacing, true)
-    sliders.rowSpacing:SetValue(layout.rowSpacing, true)
+    local columnSpacingSlider = iconLayout and sliders.iconColumnSpacing or sliders.columnSpacing
+    local rowSpacingSlider = iconLayout and sliders.iconRowSpacing or sliders.rowSpacing
+    columnSpacingSlider:SetValue(layout.columnSpacing, true)
+    rowSpacingSlider:SetValue(layout.rowSpacing, true)
     sliders.maxPerLine:SetValue(layout.maxPerLine, true)
     if sliders.maxPerLine.label then
-        sliders.maxPerLine.label:SetText(verticalBar
+        sliders.maxPerLine.label:SetText((verticalBar or columnIcons)
             and T("designer.layout.max_per_column", "每列数量")
             or T("designer.layout.max_per_row", "每行数量"))
     end
-    Place(primary, body, 0, iconLayout and -202 or -122)
+    Place(primary, body, 0, iconLayout and -242 or -122)
     primary:Show()
     local concentric = group.layout == "rings"
         and (layout.direction == "outward" or layout.direction == "inward")
@@ -7353,15 +7885,24 @@ local function RefreshLayoutPage(self, profile, group)
         Place(sliders.ringStep, body, 0, -162)
         sliders.ringStep:Show()
     else
-        local gridStartY = iconLayout and -242 or -162
-        Place(sliders.columnSpacing, body, 0, gridStartY)
-        Place(sliders.rowSpacing, body, 0, gridStartY - 40)
+        local gridStartY = iconLayout and -282 or -162
+        Place(columnSpacingSlider, body, 0, gridStartY)
+        Place(rowSpacingSlider, body, 0, gridStartY - 40)
         Place(sliders.maxPerLine, body, 0, gridStartY - 80)
-        sliders.columnSpacing:Show()
-        sliders.rowSpacing:Show()
+        columnSpacingSlider:Show()
+        rowSpacingSlider:Show()
         sliders.maxPerLine:Show()
     end
 
+    if iconLayout then
+        sliders.itemOffset:SetValue(layout.itemOffset or 0, true)
+        sliders.itemOffset.label:SetText(columnIcons
+            and T("designer.layout.item_offset_x", "逐项偏移（X）")
+            or T("designer.layout.item_offset_y", "逐项偏移（Y）"))
+        Place(sliders.itemOffset, body, 0, -402)
+        sliders.itemOffset:Show()
+        SetV2InspectorScrollContentHeight(self, 460)
+    end
     if group.layout == "bars" then
         sliders.barHeight:SetValue(layout.height, true)
         sliders.iconGap:SetValue(layout.iconGap, true)
@@ -7380,6 +7921,12 @@ local function RefreshLayoutPage(self, profile, group)
         Place(self.iconPositionLabel, body, SECOND_COLUMN_X, -374)
         Place(self.orientationDropdown, body, 0, -394, COLUMN_WIDTH)
         Place(self.iconPositionDropdown, body, SECOND_COLUMN_X, -394, COLUMN_WIDTH)
+        if I.PlaceBarWidthUI then I.PlaceBarWidthUI(self, group, layout, COLUMN_WIDTH, SECOND_COLUMN_X) end
+        if sliders.barWidth.label then
+            sliders.barWidth.label:SetText(layout.widthMode == "auto" and layout.orientation ~= "vertical"
+                and T("designer.bar.width_fallback", "回退宽度") or T("designer.layout.width", "总长度"))
+        end
+        SetV2InspectorScrollContentHeight(self, layout.orientation == "vertical" and 440 or 510)
     end
 end
 
@@ -7401,20 +7948,20 @@ local function EnsureResourceStyleSelection(self, profile)
     end
     if not found then
         selected = options[1] and options[1].value or nil
-        -- Menu pinning must not change the initial item chosen for a spec.
-        -- Ordinary resources already follow current form/spec priority below
-        -- the two common player bars.
-        for index = 1, #options do
-            local id = options[index].value
-            if id ~= "health" and id ~= "cast" then selected = id break end
-        end
+
     end
     self.resourceStyleResourceId = selected
     return selected, selected and YHUD:GetResourceSetting(profile, selected, Designer:GetSession().selectedGroupId) or nil
 end
 
+I.EnsureResourceStyleSelection = EnsureResourceStyleSelection
+I.BuildResourceOptions = BuildResourceOptions
+I.SetResourceContentHeight = SetV2InspectorScrollContentHeight
+
 local function SetControlValue(control, value)
-    if control and control.SetValue then control:SetValue(value, true) end
+    if control and control.SetValue then
+        control:SetValue(value, control.RefreshOptions and { silent = true, force = true } or true)
+    end
 end
 
 local function PlaceSection(divider, body, y)
@@ -7491,63 +8038,67 @@ DesignerUI.resourceAppearanceExtensions.severity = {
             ui.thresholdMarkerColorLabel, ui.thresholdMarkerColor, ui.thresholdMarkerThicknessLabel, ui.thresholdMarkerThickness })
         ShowControls({ extra.ceilingLabel, extra.ceiling, extra.previewLabel, extra.previewMode,
             extra.valueLabel, extra.value, extra.reset })
-        PlaceResourceField(extra.ceilingLabel, extra.ceiling, body, SECOND_COLUMN_X, -232)
         extra.ceiling:SetValue(setting.fillCeilingPercent, true)
         ui.thresholdColorEnabledLabel:SetText(T("designer.resource.severity_colors", "醉拳变色"))
-        y = y - 88 -- heading and the shared switches
+        y = I.PlaceResourceAppearanceRow(body, y - 88,
+            { extra.ceilingLabel, extra.ceiling, "number" })
         if setting.thresholdColorEnabled or setting.thresholdMarkerEnabled then
             ui.lowValueLabel:SetText(T("designer.resource.severity_medium_start", "中度起点（%）"))
             ui.highValueLabel:SetText(T("designer.resource.severity_heavy_start", "重度起点（%）"))
-            ShowControls({ ui.lowValueLabel, ui.lowPercent, ui.highValueLabel, ui.highPercent })
-            PlaceResourceField(ui.lowValueLabel, ui.lowPercent, body, 0, y)
-            PlaceResourceField(ui.highValueLabel, ui.highPercent, body, SECOND_COLUMN_X, y)
-            y = y - 60
+            y = I.PlaceResourceAppearanceRow(body, y,
+                { ui.lowValueLabel, ui.lowPercent, "number" },
+                { ui.highValueLabel, ui.highPercent, "number" })
         end
         ui.fillColorLabel:SetText(setting.thresholdColorEnabled
             and T("designer.resource.severity_light_color", "轻度颜色")
             or T("designer.resource.fixed_color", "固定颜色"))
-        ShowControls({ ui.fillColorLabel, ui.fillColor })
-        PlaceResourceField(ui.fillColorLabel, ui.fillColor, body, 0, y)
         if setting.thresholdColorEnabled then
             ui.lowColorLabel:SetText(T("designer.resource.severity_medium_color", "中度颜色"))
             ui.highColorLabel:SetText(T("designer.resource.severity_heavy_color", "重度颜色"))
-            ShowControls({ ui.lowColorLabel, ui.lowColor, ui.highColorLabel, ui.highColor })
-            PlaceResourceField(ui.lowColorLabel, ui.lowColor, body, SECOND_COLUMN_X, y)
-            y = y - 60
-            PlaceResourceField(ui.highColorLabel, ui.highColor, body, 0, y)
         end
-        y = y - 60
+        y = I.PlaceResourceAppearanceRow(body, y,
+            { ui.fillColorLabel, ui.fillColor, "color" },
+            setting.thresholdColorEnabled and { ui.lowColorLabel, ui.lowColor, "color" } or nil)
+        if setting.thresholdColorEnabled then
+            y = I.PlaceResourceAppearanceRow(body, y,
+                { ui.highColorLabel, ui.highColor, "color" })
+        end
         if setting.thresholdMarkerEnabled then
-            ShowControls({ ui.thresholdMarkerColorLabel, ui.thresholdMarkerColor,
-                ui.thresholdMarkerThicknessLabel, ui.thresholdMarkerThickness })
-            PlaceResourceField(ui.thresholdMarkerThicknessLabel, ui.thresholdMarkerThickness, body, 0, y)
-            PlaceResourceField(ui.thresholdMarkerColorLabel, ui.thresholdMarkerColor, body, SECOND_COLUMN_X, y)
-            y = y - 60
+            y = I.PlaceResourceAppearanceRow(body, y,
+                { ui.thresholdMarkerThicknessLabel, ui.thresholdMarkerThickness, "number" },
+                { ui.thresholdMarkerColorLabel, ui.thresholdMarkerColor, "color" })
         end
-        PlaceResourceField(extra.previewLabel, extra.previewMode, body, 0, y)
-        PlaceResourceField(extra.valueLabel, extra.value, body, SECOND_COLUMN_X, y)
         local state = self.resourceSpecialPreview
         local manual = state and state.resourceId == self.resourceStyleResourceId and state.mode == "manual"
         SetControlValue(extra.previewMode, manual and "manual" or "auto")
         extra.value:SetValue(state and state.value or 150, true)
         SetDisabled(extra.value, not manual)
         if not manual then HideControls({ extra.valueLabel, extra.value }) end
-        y = y - 60
-        Place(extra.reset, body, 0, y, COLUMN_WIDTH)
-        return y - 40
+        y = I.PlaceResourceAppearanceRow(body, y,
+            { extra.previewLabel, extra.previewMode, "wide" },
+            manual and { extra.valueLabel, extra.value, "number" } or nil)
+        y = I.PlaceResourceAppearanceRow(body, y, { nil, extra.reset, "button" })
+        return y
     end,
 }
 
 local function RefreshResourceAppearancePage(self, profile, group)
     local body = self.groupInspectorBody
     local ui = self.resourceV2Appearance
+    local vertical = YHUD:GetResourceGroupLayout(profile, group.id).orientation == "vertical"
+    ui.heightOverrideLabel:SetText(vertical and T("designer.resource.thickness_override", "覆盖粗细") or T("designer.resource.height_override", "覆盖高度"))
+    ui.heightLabel:SetText(vertical and T("designer.resource.item_thickness", "单项粗细") or T("designer.resource.item_height", "单项高度"))
     ui.fillColorLabel:SetText(T("designer.resource.fill_color", "填充颜色"))
     ui.lowColorLabel:SetText(T("designer.resource.threshold_low_color", "低区间颜色"))
     ui.highColorLabel:SetText(T("designer.resource.threshold_high_color", "高区间颜色"))
     ui.thresholdColorEnabledLabel:SetText(T("designer.resource.threshold_color_enabled", "阈值变色"))
     local style = YHUD:GetResourceGroupStyle(profile, group.id)
     local resourceId, setting = EnsureResourceStyleSelection(self, profile)
+    if not resourceId and self.ShowEmptyResourceSelection then return self:ShowEmptyResourceSelection("appearance") end
     if resourceId == "cast" then
+        for _, control in ipairs({ self.resourceBorderDropdown, ui.height }) do
+            if control.gui2CompactSlider then control:SetCompactMode(false) end
+        end
         ui.fillColorLabel:SetText(T("player_cast.color", "普通施法颜色"))
         local mixed = group.contentPolicy ~= "cast-only"
         local y = mixed and -32 or -4
@@ -7571,9 +8122,9 @@ local function RefreshResourceAppearancePage(self, profile, group)
             PlaceSection(ui.itemDivider, body, y)
             y = y - 28
             ShowControls({ ui.resourceLabel, ui.resource })
-            PlaceResourceField(ui.resourceLabel, ui.resource, body, 0, y)
             ui.resource:SetValue("cast", true)
-            y = y - 64
+            y = I.PlaceResourceAppearanceRow(body, y,
+                { ui.resourceLabel, ui.resource, "fullSelect" })
         end
         y = I.RefreshPlayerCastOptions(self, profile, group, "appearance", y)
         ShowControls({ ui.fillColorLabel, ui.fillColor })
@@ -7591,6 +8142,7 @@ local function RefreshResourceAppearancePage(self, profile, group)
         end
         local castUI = self.playerCastPages.appearance
         PlaceResourceField(castUI.idleLabel, castUI.idle, body, 0, y)
+        PlaceResourceSwitch(castUI.nativeLabel, castUI.native, body, SECOND_COLUMN_X, y)
         castUI.idle:SetValue(setting.cast.idle, true)
         y = y - 64
         SetV2InspectorScrollContentHeight(self, -y + 24)
@@ -7607,13 +8159,15 @@ local function RefreshResourceAppearancePage(self, profile, group)
         true
     )
     local appearanceOptions = {
+        ui.fillDirectionLabel, ui.fillDirection,
         ui.visibilityModeLabel, ui.visibilityMode,
         ui.displayModeLabel, ui.displayMode,
         ui.inverseFillLabel, ui.inverseFill,
         ui.heightOverrideLabel, ui.heightOverride,
         ui.heightLabel, ui.height,
-        ui.resourceInfo,
         ui.segmentSpacingLabel, ui.segmentSpacing,
+        ui.dotSpacingLabel, ui.dotSpacing,
+        ui.pointShapeLabel, ui.pointShape, ui.nativePointLabel, ui.nativePoint, ui.nativePointUnavailable,
         ui.dividerThicknessLabel, ui.dividerThickness,
         ui.dividerColorLabel, ui.dividerColor,
         ui.thresholdDivider,
@@ -7642,322 +8196,148 @@ local function RefreshResourceAppearancePage(self, profile, group)
     global[9]:Hide()
     global[10]:Hide()
     PlaceSection(ui.globalDivider, body, -4)
-    local rows = {
-        {global[1], global[3], global[2], global[4]},
-        {global[5], global[6], global[11], global[12]},
-    }
-    for rowIndex = 1, #rows do
-        local row = rows[rowIndex]
-        local y = -32 - ((rowIndex - 1) * 60)
-        PlaceResourceField(row[1], row[2], body, 0, y)
-        if row[3] then
-            PlaceResourceField(row[3], row[4], body, SECOND_COLUMN_X, y)
-        end
-    end
-    PlaceResourceSwitch(
-        self.resourceSmoothProgressLabel,
-        self.resourceSmoothProgressSwitch,
-        body,
-        0,
-        -148
-    )
-    Place(ui.restoreDefaults, body, SECOND_COLUMN_X, -148, COLUMN_WIDTH)
-    ui.restoreDefaults:Show()
-
-    PlaceSection(ui.itemDivider, body, -204)
-    ShowControls({
-        ui.resourceLabel, ui.resourceHelp, ui.resource,
-        ui.overrideLabel, ui.override,
-        ui.fillColorLabel, ui.fillColor,
-        ui.heightOverrideLabel, ui.heightOverride,
-        ui.heightLabel, ui.height,
-    })
-    PlaceResourceFieldWithHelp(
-        ui.resourceLabel, ui.resourceHelp, ui.resource, body, 0, -232
-    )
-    local itemRows = {
-        {ui.borderLabel, ui.border, ui.backgroundLabel, ui.background},
-        {ui.textureLabel, ui.texture, ui.borderColorLabel, ui.borderColor},
-    }
-    ui.fillModeLabel:Hide()
-    ui.fillMode:Hide()
-    if override then
-        for rowIndex = 1, #itemRows do
-            local row = itemRows[rowIndex]
-            ShowControls(row)
-        end
-    else
-        for rowIndex = 1, #itemRows do HideControls(itemRows[rowIndex]) end
-    end
+    local y = -32
+    y = I.PlaceResourceAppearanceRow(body, y,
+        { global[5], global[6], "select" },
+        { self.resourceSmoothProgressLabel, self.resourceSmoothProgressSwitch, "switch" })
+    y = I.PlaceResourceAppearanceRow(body, y,
+        { global[2], global[4], "color" }, { global[11], global[12], "color" })
+    y = I.PlaceResourceAppearanceRow(body, y,
+        { global[1], global[3], "number" }, { nil, ui.restoreDefaults, "button" })
+    PlaceSection(ui.itemDivider, body, y - 4)
+    y = y - 32
 
     local definition = resourceId and ResourceCatalog
         and ResourceCatalog.GetDefinition
-        and ResourceCatalog:GetDefinition(resourceId) or nil
+        and ResourceCatalog:GetDefinition(resourceId, profile, group.id) or nil
     local discrete = definition and definition.valueKind == "discrete"
-    local hasResourceInfo = definition and definition.descriptionKey ~= nil
-    local resourceInfoOffset = hasResourceInfo and 44 or 0
-    if hasResourceInfo then
-        ui.resourceInfo:SetText(T(definition.descriptionKey, ""))
-        Place(ui.resourceInfo, body, 0, -292, CONTENT_WIDTH)
-        ui.resourceInfo:Show()
-    end
     local heightOverridden = setting and setting.heightOverride ~= nil
     local groupLayout = YHUD:GetResourceGroupLayout(profile, group.id)
-    PlaceResourceSwitch(
-        ui.heightOverrideLabel,
-        ui.heightOverride,
-        body,
-        0,
-        -292 - resourceInfoOffset
-    )
-    PlaceResourceField(
-        ui.heightLabel,
-        ui.height,
-        body,
-        SECOND_COLUMN_X,
-        -292 - resourceInfoOffset
-    )
-    SetDisabled(ui.height, not heightOverridden)
     local displayMode = setting and setting.displayMode or "bar"
-    local thresholdMarkerSupported = displayMode ~= "cells"
-        and displayMode ~= "dots"
-    if resourceId ~= "runes" then
-        ShowControls({ ui.visibilityModeLabel, ui.visibilityMode })
-        PlaceResourceField(
-            ui.fillColorLabel,
-            ui.fillColor,
-            body,
-            SECOND_COLUMN_X,
-            -232
-        )
-    else
+    local nativePoints = displayMode == "nativePoints"
+    local thresholdMarkerSupported = displayMode ~= "cells" and displayMode ~= "dots" and not nativePoints
+    local thresholdColorEnabled = setting and setting.thresholdColorEnabled == true
+    local thresholdMarkerEnabled = thresholdMarkerSupported and setting and setting.thresholdMarkerEnabled == true
+    local thresholds = setting and setting.thresholds or {}
+    local low, high = thresholds.low or {}, thresholds.high or {}
+    local runes = resourceId == "runes"
+    local inverse = not nativePoints and YHUD:IsResourceInverseFillSupported(definition, setting)
+    SetControlValue(ui.resource, resourceId)
+    SetControlValue(ui.visibilityMode, setting and setting.visibilityMode or "always")
+    SetControlValue(ui.fillDirection, setting and setting.fillDirection or "inherit")
+    SetControlValue(ui.displayMode, displayMode)
+    SetControlValue(ui.texture, effective.fillTexture)
+    ui.fillModeLabel:Hide()
+    ui.fillMode:Hide()
+    y = I.PlaceResourceAppearanceRow(body, y,
+        { ui.resourceLabel, ui.resource, "fullSelect", ui.resourceHelp })
+    local fillField = not nativePoints and (runes and { ui.runeBloodColorLabel, ui.runeBloodColor, "color" }
+        or { ui.fillColorLabel, ui.fillColor, "color" }) or nil
+    y = I.PlaceResourceAppearanceRow(body, y,
+        discrete and { ui.displayModeLabel, ui.displayMode, "compactSelect", nil, ResourceDisplayModeOptions() } or fillField,
+        discrete and fillField or nil)
+    if discrete and displayMode == "divided" then
+        y = I.PlaceResourceAppearanceRow(body, y,
+            { ui.dividerThicknessLabel, ui.dividerThickness, "number" },
+            { ui.dividerColorLabel, ui.dividerColor, "color" })
+    elseif discrete and displayMode == "dots" then
+        y = I.PlaceResourceAppearanceRow(body, y,
+            { ui.pointShapeLabel, ui.pointShape, "compactSelect", nil, I.ResourcePointShapeOptions() },
+            { ui.dotSpacingLabel, ui.dotSpacing, "number" })
+    elseif discrete and nativePoints then
+        y = I.PlaceResourceAppearanceRow(body, y,
+            { ui.nativePointLabel, ui.nativePoint, "fullSelect" })
+        y = I.PlaceResourceAppearanceRow(body, y,
+            { ui.dotSpacingLabel, ui.dotSpacing, "number" })
+        local classFile, specID = Designer:GetResourcePreviewContext()
+        local selected = YHUD:ResolveNativeResourcePointStyle(setting, { id = resourceId, classFile = classFile, specID = specID })
+        if not (GUI2.ResourcePoints and GUI2.ResourcePoints:GetNativeStyle(selected)) then
+            Place(ui.nativePointUnavailable, body, 0, y, CONTENT_WIDTH)
+            ui.nativePointUnavailable:SetHeight(36)
+            ui.nativePointUnavailable:Show()
+            y = y - 40
+        end
+    elseif discrete and displayMode == "cells" then
+        y = I.PlaceResourceAppearanceRow(body, y,
+            { ui.segmentSpacingLabel, ui.segmentSpacing, "number" })
+    end
+    y = I.PlaceResourceAppearanceRow(body, y,
+        { ui.visibilityModeLabel, ui.visibilityMode, "fullSelect" })
+    y = I.PlaceResourceAppearanceRow(body, y,
+        { ui.fillDirectionLabel, ui.fillDirection, "fullSelect" })
+    y = I.PlaceResourceAppearanceRow(body, y,
+        { ui.heightOverrideLabel, ui.heightOverride, "switch" },
+        { ui.heightLabel, ui.height, "number" })
+    SetDisabled(ui.height, not heightOverridden)
+    if not nativePoints then
+        y = I.PlaceResourceAppearanceRow(body, y,
+            { ui.overrideLabel, ui.override, "switch" },
+            inverse and { ui.inverseFillLabel, ui.inverseFill, "switch" } or nil)
+    else ui.overrideLabel:Hide(); ui.override:Hide() end
+    local itemOptions = {
+        ui.borderLabel, ui.border, ui.backgroundLabel, ui.background,
+        ui.textureLabel, ui.texture, ui.borderColorLabel, ui.borderColor,
+    }
+    if override and not nativePoints then
+        y = I.PlaceResourceAppearanceRow(body, y,
+            { ui.textureLabel, ui.texture, "select" }, { ui.backgroundLabel, ui.background, "color" })
+        y = I.PlaceResourceAppearanceRow(body, y,
+            { ui.borderLabel, ui.border, "number" }, { ui.borderColorLabel, ui.borderColor, "color" })
+    else HideControls(itemOptions) end
+    if runes then
         HideControls({ ui.fillColorLabel, ui.fillColor })
+        if not nativePoints then
+            y = I.PlaceResourceAppearanceRow(body, y,
+                { ui.runeFrostColorLabel, ui.runeFrostColor, "color" },
+                { ui.runeUnholyColorLabel, ui.runeUnholyColor, "color" })
+        end
+        y = I.PlaceResourceAppearanceRow(body, y,
+            { ui.runeCooldownTextModeLabel, ui.runeCooldownTextMode, "select" },
+            { ui.runeCooldownTextSizeLabel, ui.runeCooldownTextSize, "number" })
     end
-    PlaceResourceSwitch(
-        ui.overrideLabel,
-        ui.override,
-        body,
-        0,
-        -352 - resourceInfoOffset
-    )
-    ShowControls({ ui.visibilityModeLabel, ui.visibilityMode })
-    PlaceResourceField(
-        ui.visibilityModeLabel,
-        ui.visibilityMode,
-        body,
-        SECOND_COLUMN_X,
-        -352 - resourceInfoOffset
-    )
-    local runeColorOffset = 0
-    if resourceId == "runes" then
-        ShowControls({
-            ui.runeBloodColorLabel, ui.runeBloodColor,
-            ui.runeFrostColorLabel, ui.runeFrostColor,
-            ui.runeUnholyColorLabel, ui.runeUnholyColor,
-            ui.runeCooldownTextSizeLabel, ui.runeCooldownTextSize,
-            ui.runeCooldownTextModeLabel, ui.runeCooldownTextMode,
-        })
-        PlaceResourceField(
-            ui.runeBloodColorLabel, ui.runeBloodColor,
-            body, 0, -412 - resourceInfoOffset
-        )
-        PlaceResourceField(
-            ui.runeFrostColorLabel, ui.runeFrostColor,
-            body, SECOND_COLUMN_X, -412 - resourceInfoOffset
-        )
-        PlaceResourceField(
-            ui.runeUnholyColorLabel, ui.runeUnholyColor,
-            body, 0, -472 - resourceInfoOffset
-        )
-        PlaceResourceField(
-            ui.runeCooldownTextSizeLabel, ui.runeCooldownTextSize,
-            body, SECOND_COLUMN_X, -472 - resourceInfoOffset
-        )
-        PlaceResourceField(ui.runeCooldownTextModeLabel, ui.runeCooldownTextMode,
-            body, 0, -532 - resourceInfoOffset)
-        runeColorOffset = 180
-    end
-    for rowIndex = 1, #itemRows do
-        local row = itemRows[rowIndex]
-        if override then
-            local y = -412 - resourceInfoOffset - runeColorOffset
-                - ((rowIndex - 1) * 60)
-            PlaceResourceField(row[1], row[2], body, 0, y)
-            if row[3] then
-                PlaceResourceField(row[3], row[4], body, SECOND_COLUMN_X, y)
+    local extensionY = y
+    local nextY = y
+    if not nativePoints then
+        PlaceSection(ui.thresholdDivider, body, y)
+        nextY = y - 28
+        nextY = I.PlaceResourceAppearanceRow(body, nextY,
+            { ui.thresholdColorEnabledLabel, ui.thresholdColorEnabled, "switch" },
+            thresholdMarkerSupported and { ui.thresholdMarkerEnabledLabel, ui.thresholdMarkerEnabled, "switch" } or nil)
+        if thresholdColorEnabled or thresholdMarkerEnabled then
+            local selectable = YHUD:IsResourceThresholdModeSelectable(definition)
+            local absolute = selectable and setting.thresholdMode == "value"
+            if selectable then
+                SetControlValue(ui.thresholdMode, setting.thresholdMode)
+                nextY = I.PlaceResourceAppearanceRow(body, nextY,
+                    { ui.thresholdModeLabel, ui.thresholdMode, "select" })
+            end
+            ui.lowValueLabel:SetText(discrete
+                and T("designer.resource.threshold_low_count", "低阈值（层）")
+                or absolute and T("designer.resource.threshold_low_value", "低阈值（数值）")
+                or T("designer.resource.threshold_low_percent", "低阈值（%）"))
+            ui.highValueLabel:SetText(discrete
+                and T("designer.resource.threshold_high_count", "高阈值（层）")
+                or absolute and T("designer.resource.threshold_high_value", "高阈值（数值）")
+                or T("designer.resource.threshold_high_percent", "高阈值（%）"))
+            local lowValue = discrete and ui.lowCount or absolute and ui.lowAbsolute or ui.lowPercent
+            local highValue = discrete and ui.highCount or absolute and ui.highAbsolute or ui.highPercent
+            nextY = I.PlaceResourceAppearanceRow(body, nextY,
+                { ui.lowEnabledLabel, ui.lowEnabled, "switch" },
+                { ui.highEnabledLabel, ui.highEnabled, "switch" })
+            nextY = I.PlaceResourceAppearanceRow(body, nextY,
+                { ui.lowValueLabel, lowValue, "number" }, { ui.highValueLabel, highValue, "number" })
+            if thresholdColorEnabled then
+                nextY = I.PlaceResourceAppearanceRow(body, nextY,
+                    { ui.lowColorLabel, ui.lowColor, "color" }, { ui.highColorLabel, ui.highColor, "color" })
+            end
+            if thresholdMarkerEnabled then
+                nextY = I.PlaceResourceAppearanceRow(body, nextY,
+                    { ui.thresholdMarkerThicknessLabel, ui.thresholdMarkerThickness, "number" },
+                    { ui.thresholdMarkerColorLabel, ui.thresholdMarkerColor, "color" })
             end
         end
     end
-    local nextY = (override and -532 or -412)
-        - resourceInfoOffset - runeColorOffset
-    if discrete then
-        ShowControls({ ui.displayModeLabel, ui.displayMode })
-        PlaceResourceField(
-            ui.displayModeLabel, ui.displayMode, body, 0, nextY
-        )
-        if displayMode == "divided" then
-            ShowControls({
-                ui.dividerThicknessLabel, ui.dividerThickness,
-                ui.dividerColor,
-            })
-            PlaceResourceField(
-                ui.dividerThicknessLabel,
-                nil,
-                body,
-                SECOND_COLUMN_X,
-                nextY
-            )
-            Place(
-                ui.dividerThickness,
-                body,
-                SECOND_COLUMN_X,
-                nextY - RESOURCE_CONTROL_OFFSET,
-                COLUMN_WIDTH - 48
-            )
-            Place(
-                ui.dividerColor,
-                body,
-                SECOND_COLUMN_X + COLUMN_WIDTH - 40,
-                nextY - RESOURCE_CONTROL_OFFSET,
-                40
-            )
-        elseif displayMode == "cells" or displayMode == "dots" then
-            ShowControls({ ui.segmentSpacingLabel, ui.segmentSpacing })
-            PlaceResourceField(
-                ui.segmentSpacingLabel,
-                ui.segmentSpacing,
-                body,
-                SECOND_COLUMN_X,
-                nextY
-            )
-        end
-        nextY = nextY - 60
-    end
-
-    if YHUD:IsResourceInverseFillSupported(definition, setting) then
-        ShowControls({ ui.inverseFillLabel, ui.inverseFill })
-        PlaceResourceSwitch(ui.inverseFillLabel, ui.inverseFill, body, 0, nextY)
-        nextY = nextY - 64
-    end
-    PlaceSection(ui.thresholdDivider, body, nextY)
-    local extensionY = nextY
-    nextY = nextY - 28
-    ShowControls({
-        ui.thresholdColorEnabledLabel, ui.thresholdColorEnabled,
-    })
-    PlaceResourceSwitch(
-        ui.thresholdColorEnabledLabel,
-        ui.thresholdColorEnabled,
-        body,
-        0,
-        nextY
-    )
-    if thresholdMarkerSupported then
-        ShowControls({
-            ui.thresholdMarkerEnabledLabel,
-            ui.thresholdMarkerEnabled,
-        })
-        PlaceResourceSwitch(
-            ui.thresholdMarkerEnabledLabel,
-            ui.thresholdMarkerEnabled,
-            body,
-            SECOND_COLUMN_X,
-            nextY
-        )
-    end
-    nextY = nextY - 60
-
-    local thresholdColorEnabled = setting
-        and setting.thresholdColorEnabled == true
-    local thresholdMarkerEnabled = thresholdMarkerSupported and setting
-        and setting.thresholdMarkerEnabled == true
-    local thresholds = setting and setting.thresholds or {}
-    local low = thresholds.low or {}
-    local high = thresholds.high or {}
-    if thresholdColorEnabled or thresholdMarkerEnabled then
-        local selectable = YHUD:IsResourceThresholdModeSelectable(definition)
-        local absolute = selectable and setting.thresholdMode == "value"
-        if selectable then
-            ShowControls({ ui.thresholdModeLabel, ui.thresholdMode })
-            PlaceResourceField(ui.thresholdModeLabel, ui.thresholdMode, body, 0, nextY)
-            SetControlValue(ui.thresholdMode, setting.thresholdMode)
-            nextY = nextY - 60
-        end
-        ui.lowValueLabel:SetText(discrete
-            and T("designer.resource.threshold_low_count", "低阈值（层）")
-            or absolute and T("designer.resource.threshold_low_value", "低阈值（数值）")
-            or T("designer.resource.threshold_low_percent", "低阈值（%）"))
-        ui.highValueLabel:SetText(discrete
-            and T("designer.resource.threshold_high_count", "高阈值（层）")
-            or absolute and T("designer.resource.threshold_high_value", "高阈值（数值）")
-            or T("designer.resource.threshold_high_percent", "高阈值（%）"))
-        local lowValueControl = discrete and ui.lowCount or absolute and ui.lowAbsolute or ui.lowPercent
-        local highValueControl = discrete and ui.highCount or absolute and ui.highAbsolute or ui.highPercent
-        ShowControls({
-            ui.lowEnabledLabel, ui.lowEnabled,
-            ui.highEnabledLabel, ui.highEnabled,
-        })
-        PlaceResourceSwitch(
-            ui.lowEnabledLabel, ui.lowEnabled, body, 0, nextY
-        )
-        PlaceResourceSwitch(
-            ui.highEnabledLabel, ui.highEnabled,
-            body, SECOND_COLUMN_X, nextY
-        )
-        nextY = nextY - 60
-
-        ShowControls({
-            ui.lowValueLabel, lowValueControl,
-            ui.highValueLabel, highValueControl,
-        })
-        PlaceResourceField(
-            ui.lowValueLabel, lowValueControl, body, 0, nextY
-        )
-        PlaceResourceField(
-            ui.highValueLabel, highValueControl,
-            body, SECOND_COLUMN_X, nextY
-        )
-        nextY = nextY - 60
-
-        if thresholdColorEnabled then
-            ShowControls({
-                ui.lowColorLabel, ui.lowColor,
-                ui.highColorLabel, ui.highColor,
-            })
-            PlaceResourceField(
-                ui.lowColorLabel, ui.lowColor, body, 0, nextY
-            )
-            PlaceResourceField(
-                ui.highColorLabel, ui.highColor,
-                body, SECOND_COLUMN_X, nextY
-            )
-            nextY = nextY - 60
-        end
-
-        if thresholdMarkerEnabled then
-            ShowControls({
-                ui.thresholdMarkerThicknessLabel,
-                ui.thresholdMarkerThickness,
-                ui.thresholdMarkerColorLabel,
-                ui.thresholdMarkerColor,
-            })
-            PlaceResourceField(
-                ui.thresholdMarkerThicknessLabel,
-                ui.thresholdMarkerThickness,
-                body,
-                0,
-                nextY
-            )
-            PlaceResourceField(
-                ui.thresholdMarkerColorLabel,
-                ui.thresholdMarkerColor,
-                body,
-                SECOND_COLUMN_X,
-                nextY
-            )
-        end
-    end
-    local extension = definition and self.resourceAppearanceExtensions[definition.appearanceExtension]
+    local extension = not nativePoints and definition and self.resourceAppearanceExtensions[definition.appearanceExtension]
     if extension then nextY = extension:Refresh(self, body, ui, setting, extensionY) end
     SetControlValue(ui.resource, resourceId)
     ui.override:SetValue(setting and setting.appearanceOverride ~= nil, true)
@@ -7991,6 +8371,9 @@ local function RefreshResourceAppearancePage(self, profile, group)
     SetControlValue(ui.displayMode, displayMode)
     ui.inverseFill:SetValue(setting and setting.inverseFill == true, true)
     ui.segmentSpacing:SetValue(setting and setting.segmentSpacing or 2, true)
+    ui.dotSpacing:SetValue(math.max(0, setting and setting.segmentSpacing or 2), true)
+    SetControlValue(ui.pointShape, setting and setting.pointShape or "circle")
+    SetControlValue(ui.nativePoint, setting and setting.nativePointStyle or "auto")
     ui.dividerThickness:SetValue(
         setting and setting.dividerThickness or 1,
         true
@@ -8016,7 +8399,7 @@ local function RefreshResourceAppearancePage(self, profile, group)
         ui.thresholdMarkerColor,
         setting and setting.thresholdMarkerColor
     )
-    local contentBottom = thresholdMarkerEnabled and (nextY - 60) or nextY
+    local contentBottom = nextY
     SetV2InspectorScrollContentHeight(self, -contentBottom + 24)
 end
 
@@ -8067,69 +8450,47 @@ local function RefreshAppearancePage(self, profile, group)
         return
     end
     ShowControls(self.iconAppearanceControls)
-    self.shapeDropdown:SetValue(style.iconShape, true)
-    self.borderDropdown:SetValue(style.iconBorder, true)
-    self.iconBackgroundPicker:SetValue(style.iconBackgroundColor, true)
-    self.iconBorderColorPicker:SetValue(style.iconBorderColor, true)
-    self.zoomLabel:Hide()
-    self.zoomDropdown:Hide()
+    for _, control in ipairs({ self.borderDropdown, self.zoomLabel, self.zoomDropdown,
+        self.iconBackgroundLabel, self.iconBackgroundPicker, self.iconBorderColorLabel, self.iconBorderColorPicker,
+        self.iconShadowLabel, self.iconShadowSwitch, self.iconShadowColorLabel, self.iconShadowColorPicker }) do control:Hide() end
+    self.v2Sliders.iconZoom:Hide()
+    self.shapeDropdown:SetValue(style.skinId, true)
+    self.borderLabel:Hide()
     Place(self.shapeLabel, body, 0, -8)
-    Place(self.borderLabel, body, SECOND_COLUMN_X, -8)
-    Place(self.shapeDropdown, body, 0, -28, COLUMN_WIDTH)
-    Place(self.borderDropdown, body, SECOND_COLUMN_X, -28, COLUMN_WIDTH)
-    self.v2Sliders.iconZoom:SetValue(style.iconZoom, true)
-    Place(self.v2Sliders.iconZoom, body, 0, -70)
-    self.v2Sliders.iconZoom:Show()
+    Place(self.shapeDropdown, body, 146, 0, CONTENT_WIDTH - 146 - 10)
     if group.layout == "icons" then
-        for _, label in ipairs({ self.iconBackgroundLabel, self.iconBorderColorLabel,
-            self.iconShadowLabel, self.iconShadowColorLabel }) do
-            label:SetWordWrap(false)
-        end
-        Place(self.iconBackgroundLabel, body, 0, -112, COLUMN_SWITCH_X - 8)
-        Place(self.iconBorderColorLabel, body, SECOND_COLUMN_X, -112, COLUMN_SWITCH_X - 8)
-        Place(self.iconBackgroundPicker, body, COLUMN_SWITCH_X, -104, SWITCH_WIDTH)
-        Place(self.iconBorderColorPicker, body, SECOND_COLUMN_X + COLUMN_SWITCH_X, -104, SWITCH_WIDTH)
-        self.iconShadowSwitch:SetValue(style.iconShadow ~= false, true)
-        self.iconShadowColorPicker:SetValue(style.iconShadowColor, true)
-        Place(self.iconShadowLabel, body, 0, -156, COLUMN_SWITCH_X - 8)
-        Place(self.iconShadowSwitch, body, COLUMN_SWITCH_X, -152)
-        Place(self.iconShadowColorLabel, body, SECOND_COLUMN_X, -156, COLUMN_SWITCH_X - 8)
-        Place(self.iconShadowColorPicker, body, SECOND_COLUMN_X + COLUMN_SWITCH_X, -148, SWITCH_WIDTH)
-        self.iconShadowLabel:Show()
-        self.iconShadowSwitch:Show()
-        self.iconShadowColorLabel:Show()
-        self.iconShadowColorPicker:Show()
         self.cooldownSwipeSwitch:SetValue(style.cooldownSwipe ~= false, true)
-        Place(self.cooldownSwipeLabel, body, 0, -200)
-        Place(self.cooldownSwipeSwitch, body, SWITCH_X, -196)
+        Place(self.cooldownSwipeLabel, body, 0, -48)
+        Place(self.cooldownSwipeSwitch, body, SWITCH_X, -44)
         self.cooldownSwipeLabel:Show()
         self.cooldownSwipeSwitch:Show()
+        self.chargeRecoveryControl:SetValue(style.chargeRecoveryDisplay or "hideSwipeOnly", true)
+        self.chargeRecoveryControl:SetPresentationLimits(style.cooldownSwipe ~= false, style.cooldownText ~= false)
+        self.chargeRecoveryControl:SetPreviewStyle(GUI2.IconSkins:ApplyRecipe(YHUD:CopyValue(style), "Halo"))
+        Place(self.chargeRecoveryControl, body, 0, -77, CONTENT_WIDTH)
+        self.chargeRecoveryControl:Show()
         self.cooldownGCDSwitch:SetValue(style.cooldownGCD ~= false, true)
-        Place(self.cooldownGCDLabel, body, 0, -238)
-        Place(self.cooldownGCDSwitch, body, SWITCH_X, -234)
+        Place(self.cooldownGCDLabel, body, 0, -124)
+        Place(self.cooldownGCDSwitch, body, SWITCH_X, -120)
         self.cooldownGCDLabel:Show()
         self.cooldownGCDSwitch:Show()
         self.cooldownBlingSwitch:SetValue(style.cooldownBling == true, true)
-        Place(self.cooldownBlingLabel, body, 0, -276)
-        Place(self.cooldownBlingSwitch, body, SWITCH_X, -272)
+        Place(self.cooldownBlingLabel, body, 0, -162)
+        Place(self.cooldownBlingSwitch, body, SWITCH_X, -158)
         self.cooldownBlingLabel:Show()
         self.cooldownBlingSwitch:Show()
         self.pandemicGlowSwitch:SetValue(
             not (profile.style and profile.style.pandemicGlow == false),
             true
         )
-        Place(self.pandemicGlowDivider, body, 0, -322, CONTENT_WIDTH)
-        Place(self.pandemicGlowLabel, body, 0, -360)
-        Place(self.pandemicGlowSwitch, body, SWITCH_X, -356)
+        Place(self.pandemicGlowDivider, body, 0, -208, CONTENT_WIDTH)
+        Place(self.pandemicGlowLabel, body, 0, -246)
+        Place(self.pandemicGlowSwitch, body, SWITCH_X, -242)
         self.pandemicGlowDivider:Show()
         self.pandemicGlowLabel:Show()
         self.pandemicGlowSwitch:Show()
-        SetV2InspectorScrollContentHeight(self, 402)
+        SetV2InspectorScrollContentHeight(self, 288)
     else
-        Place(self.iconBackgroundLabel, body, 0, -112, COLUMN_WIDTH)
-        Place(self.iconBorderColorLabel, body, SECOND_COLUMN_X, -112, COLUMN_WIDTH)
-        Place(self.iconBackgroundPicker, body, 0, -132, COLUMN_WIDTH)
-        Place(self.iconBorderColorPicker, body, SECOND_COLUMN_X, -132, COLUMN_WIDTH)
         ShowControls(self.durationAppearanceControls)
         self.showDurationIconSwitch:SetValue(style.showIcon ~= false, true)
         self.durationSmoothProgressSwitch:SetValue(
@@ -8139,33 +8500,33 @@ local function RefreshAppearancePage(self, profile, group)
         self.fillColorPicker:SetValue(style.fillColor, true)
         self.trackColorPicker:SetValue(style.trackColor, true)
         self.fillTextureDropdown:SetValue(style.fillTexture, true)
-        Place(self.showDurationIconLabel, body, 0, -176)
-        Place(self.showDurationIconSwitch, body, COLUMN_SWITCH_X, -172)
+        Place(self.showDurationIconLabel, body, 0, -80)
+        Place(self.showDurationIconSwitch, body, COLUMN_SWITCH_X, -76)
         Place(
             self.durationSmoothProgressLabel,
             body,
             SECOND_COLUMN_X,
-            -176
+            -80
         )
         Place(
             self.durationSmoothProgressSwitch,
             body,
             SECOND_COLUMN_X + COLUMN_SWITCH_X,
-            -172
+            -76
         )
-        Place(self.fillColorLabel, body, 0, -216)
-        Place(self.trackColorLabel, body, SECOND_COLUMN_X, -216)
-        Place(self.fillColorPicker, body, 0, -236, COLUMN_WIDTH)
-        Place(self.trackColorPicker, body, SECOND_COLUMN_X, -236, COLUMN_WIDTH)
-        Place(self.fillTextureLabel, body, 0, -278)
-        Place(self.fillTextureDropdown, body, 0, -298, CONTENT_WIDTH)
+        Place(self.fillColorLabel, body, 0, -120)
+        Place(self.trackColorLabel, body, SECOND_COLUMN_X, -120)
+        Place(self.fillColorPicker, body, 0, -140, COLUMN_WIDTH)
+        Place(self.trackColorPicker, body, SECOND_COLUMN_X, -140, COLUMN_WIDTH)
+        Place(self.fillTextureLabel, body, 0, -182)
+        Place(self.fillTextureDropdown, body, 0, -202, CONTENT_WIDTH)
         self.pandemicGlowSwitch:SetValue(
             not (profile.style and profile.style.pandemicGlow == false),
             true
         )
-        Place(self.pandemicGlowDivider, body, 0, -350, CONTENT_WIDTH)
-        Place(self.pandemicGlowLabel, body, 0, -388)
-        Place(self.pandemicGlowSwitch, body, SWITCH_X, -384)
+        Place(self.pandemicGlowDivider, body, 0, -254, CONTENT_WIDTH)
+        Place(self.pandemicGlowLabel, body, 0, -292)
+        Place(self.pandemicGlowSwitch, body, SWITCH_X, -288)
         self.pandemicGlowDivider:Show()
         self.pandemicGlowLabel:Show()
         self.pandemicGlowSwitch:Show()
@@ -8179,15 +8540,15 @@ local function CommitKeybindOverride(self, row, value)
     local style = profile and groupId
         and YHUD:GetIconGroupStyle(profile, groupId)
     local service = YHUD.KeybindText
-    if not (style and row and row.spellID and service) then return false end
-    value = service:Sanitize(value) or ""
+    if not (style and row and row.targetKey and service) then return false end
     if row.override == nil and value == row.displayValue
         and row.inputEdited ~= true then
         return false
     end
+    value = service:Sanitize(value) or ""
     if row.override ~= nil and value == row.override then return false end
     local overrides = YHUD:CopyValue(style.keybindTextOverrides or {})
-    overrides[row.spellID] = value
+    overrides[row.targetKey] = value
     if not Designer:SetGroupIconStyle(groupId, {
         keybindTextOverrides = overrides,
     }) then
@@ -8206,12 +8567,12 @@ local function RestoreKeybindOverride(self, row)
     local groupId = session and session.selectedGroupId
     local style = profile and groupId
         and YHUD:GetIconGroupStyle(profile, groupId)
-    if not (style and row and row.spellID
-        and style.keybindTextOverrides[row.spellID] ~= nil) then
+    if not (style and row and row.targetKey
+        and style.keybindTextOverrides[row.targetKey] ~= nil) then
         return false
     end
     local overrides = YHUD:CopyValue(style.keybindTextOverrides)
-    overrides[row.spellID] = nil
+    overrides[row.targetKey] = nil
     if not Designer:SetGroupIconStyle(groupId, {
         keybindTextOverrides = overrides,
     }) then
@@ -8325,40 +8686,17 @@ local function RefreshKeybindEditor(self, profile, group, style)
     Place(self.keybindSummary, body, 82, -108, CONTENT_WIDTH - 82)
     Place(self.keybindStyleDivider, body, 0, -138, CONTENT_WIDTH)
 
-    ShowControls(self.iconTextControls)
-    self.cooldownTextLabel:Hide()
-    self.cooldownTextSwitch:Hide()
-    self.textOffsetXSlider:Hide()
-    self.textOffsetYSlider:Hide()
-    self.textSizeDropdown:Hide()
-    self.iconTextControls[4]:Hide()
-    self.fontDropdown:SetValue(style.keybindTextFont, true)
-    self.outlineDropdown:SetValue(style.keybindTextOutline, true)
+    self.keybindFont:SetTarget(YHUD.FontStyle:Key(group.id, "keybindText"))
+    Place(self.keybindFont, body, 82, -174, CONTENT_WIDTH - 82)
+    self.keybindFont:Show()
     self.textPositionDropdown:SetValue(style.keybindTextPosition, true)
-    self.textColorPicker:SetValue(style.keybindTextColor, true)
-    self.v2Sliders.textSize:SetValue(style.keybindTextSize, true)
-    self.v2Sliders.textOffsetX:SetValue(style.keybindTextOffsetX, true)
-    self.v2Sliders.textOffsetY:SetValue(style.keybindTextOffsetY, true)
-    local styleDisabled = style.keybindTextMode == "off"
-    SetTextStyleControlsDisabled(self, styleDisabled)
-    Place(self.iconTextControls[3], body, 0, -182)
-    Place(self.iconTextControls[7], body, SECOND_COLUMN_X, -182)
-    Place(self.fontDropdown, body, COMPACT_LABEL_WIDTH, -174, COMPACT_CONTROL_WIDTH)
-    Place(self.outlineDropdown, body, SECOND_COLUMN_X + COMPACT_LABEL_WIDTH, -174, COMPACT_CONTROL_WIDTH)
-    Place(self.v2Sliders.textSize, body, 0, -216, COLUMN_WIDTH)
-    Place(self.v2Sliders.textOffsetX, body, SECOND_COLUMN_X, -216, COLUMN_WIDTH)
-    Place(self.v2Sliders.textOffsetY, body, 0, -256, COLUMN_WIDTH)
-    self.v2Sliders.textSize:Show()
-    self.v2Sliders.textOffsetX:Show()
-    self.v2Sliders.textOffsetY:Show()
-    Place(self.iconTextControls[8], body, SECOND_COLUMN_X, -264)
-    Place(self.textPositionDropdown, body, SECOND_COLUMN_X + COMPACT_LABEL_WIDTH, -256, COMPACT_CONTROL_WIDTH)
-    Place(self.iconTextControls[9], body, 0, -304)
-    Place(self.textColorPicker, body, COMPACT_LABEL_WIDTH, -296, COMPACT_CONTROL_WIDTH)
-
-    Place(self.keybindOverridesDivider, body, 0, -346, CONTENT_WIDTH)
-    Place(self.keybindOverrideCount, body, CONTENT_WIDTH - 170, -378, 56)
-    Place(self.keybindFilterDropdown, body, CONTENT_WIDTH - 104, -370, 104)
+    Place(self.iconTextControls[8], body, 0, -220)
+    Place(self.textPositionDropdown, body, 82, -212, CONTENT_WIDTH - 82)
+    self.iconTextControls[8]:Show()
+    self.textPositionDropdown:Show()
+    Place(self.keybindOverridesDivider, body, 0, -258, CONTENT_WIDTH)
+    Place(self.keybindOverrideCount, body, CONTENT_WIDTH - 170, -290, 56)
+    Place(self.keybindFilterDropdown, body, CONTENT_WIDTH - 104, -282, 104)
     local visibleIndex = 0
     for index = 1, #rows do
         local data = rows[index]
@@ -8368,7 +8706,7 @@ local function RefreshKeybindEditor(self, profile, group, style)
         if visible then
             visibleIndex = visibleIndex + 1
             local row = EnsureKeybindOverrideRow(self, visibleIndex)
-            row.spellID = data.spellID
+            row.targetKey = data.targetKey
             row.override = data.override
             row.displayValue = data.effective or ""
             local icon = data.icon or EntryIcon(data.entry) or QUESTION_ICON
@@ -8408,14 +8746,14 @@ local function RefreshKeybindEditor(self, profile, group, style)
             if row.restore.EnableMouse then
                 row.restore:EnableMouse(data.override ~= nil)
             end
-            Place(row, body, 0, -406 - ((visibleIndex - 1) * 64), CONTENT_WIDTH)
+            Place(row, body, 0, -318 - ((visibleIndex - 1) * 64), CONTENT_WIDTH)
             row:Show()
         end
     end
     for index = visibleIndex + 1, #self.keybindOverrideRows do
         self.keybindOverrideRows[index]:Hide()
     end
-    local footerY = -406 - (visibleIndex * 64)
+    local footerY = -318 - (visibleIndex * 64)
     Place(self.keybindClearOverrides, body, CONTENT_WIDTH - 132, footerY, 132)
     SetV2InspectorScrollContentHeight(self, -footerY + 48)
 end
@@ -8423,27 +8761,21 @@ end
 local function RefreshTextPage(self, profile, group)
     local body = self.groupInspectorBody
     body:Show()
-    local editing = self.textEditorTarget ~= nil
+    local editing = self.textEditorTarget == "keybind" and group.layout == "icons"
+    if not editing then self.textEditorTarget = nil end
     if group.layout == "resource" then
         local id = EnsureResourceStyleSelection(self, profile)
+        if not id and self.ShowEmptyResourceSelection then return self:ShowEmptyResourceSelection("text") end
         if id == "cast" then
             local ui = self.resourceV2Text
             local mixed = group.contentPolicy ~= "cast-only"
             local y = mixed and -32 or -4
             if mixed then PlaceSection(ui.globalDivider, body, -4) end
             local style = YHUD:GetResourceGroupStyle(profile, group.id)
-            local controls = self.resourceTextControls
-            ShowControls({ controls[5], controls[7], controls[6], self.v2Sliders.resourceTextSize,
-                controls[9], controls[11], controls[10], controls[12] })
-            PlaceResourceField(controls[5], controls[7], body, 0, y)
-            PlaceResourceField(controls[9], controls[11], body, SECOND_COLUMN_X, y)
-            PlaceResourceField(controls[6], self.v2Sliders.resourceTextSize, body, 0, y - 64)
-            PlaceResourceField(controls[10], controls[12], body, SECOND_COLUMN_X, y - 64)
-            self.resourceFontDropdown:SetValue(style.textFont, true)
-            self.v2Sliders.resourceTextSize:SetValue(style.textSize, true)
-            self.resourceOutlineDropdown:SetValue(style.textOutline, true)
-            self.resourceTextColorPicker:SetValue(style.textColor, true)
-            y = y - 128
+            ui.globalFont:SetTarget(YHUD.FontStyle:Key(group.id, "text"))
+            Place(ui.globalFont, body, 0, y, CONTENT_WIDTH)
+            ui.globalFont:Show()
+            y = y - 48
             if mixed then
                 PlaceSection(ui.itemDivider, body, y)
                 y = y - 28
@@ -8460,34 +8792,15 @@ local function RefreshTextPage(self, profile, group)
     if group.layout == "resource" then
         local style = YHUD:GetResourceGroupStyle(profile, group.id)
         self.textEditorTarget = nil
-        ShowControls(self.resourceTextControls)
-        local controls = self.resourceTextControls
-        for index = 1, 4 do controls[index]:Hide() end
-        controls[8]:Hide()
         local ui = self.resourceV2Text
         local resourceId, setting = EnsureResourceStyleSelection(self, profile)
         local override = setting and setting.textOverride
         local effective = override or style
-        self.resourceFontDropdown:SetValue(style.textFont, true)
-        self.resourceOutlineDropdown:SetValue(style.textOutline, true)
-        self.resourceTextColorPicker:SetValue(style.textColor, true)
         PlaceSection(ui.globalDivider, body, -4)
-        PlaceResourceField(controls[5], controls[7], body, 0, -32)
-        PlaceResourceField(
-            controls[9], controls[11], body, SECOND_COLUMN_X, -32
-        )
-        self.v2Sliders.resourceTextSize:SetValue(style.textSize, true)
-        PlaceResourceField(
-            controls[6], self.v2Sliders.resourceTextSize, body, 0, -92
-        )
-        self.v2Sliders.resourceTextSize:Show()
-        PlaceResourceField(
-            controls[10], controls[12], body, SECOND_COLUMN_X, -92
-        )
-        Place(ui.restoreDefaults, body, SECOND_COLUMN_X, -148, COLUMN_WIDTH)
-        ui.restoreDefaults:Show()
-
-        PlaceSection(ui.itemDivider, body, -204)
+        ui.globalFont:SetTarget(YHUD.FontStyle:Key(group.id, "text"))
+        Place(ui.globalFont, body, 0, -32, CONTENT_WIDTH)
+        ui.globalFont:Show()
+        PlaceSection(ui.itemDivider, body, -88)
         ShowControls({
             ui.resourceLabel, ui.resourceHelp, ui.resource,
             ui.overrideLabel, ui.override,
@@ -8497,46 +8810,23 @@ local function RefreshTextPage(self, profile, group)
             ui.abbreviateLabel, ui.abbreviate,
         })
         PlaceResourceFieldWithHelp(
-            ui.resourceLabel, ui.resourceHelp, ui.resource, body, 0, -232
+            ui.resourceLabel, ui.resourceHelp, ui.resource, body, 0, -116
         )
         PlaceResourceSwitch(
-            ui.overrideLabel, ui.override, body, SECOND_COLUMN_X, -232
+            ui.overrideLabel, ui.override, body, SECOND_COLUMN_X, -116
         )
 
         local definition = resourceId and ResourceCatalog
             and ResourceCatalog.GetDefinition
-            and ResourceCatalog:GetDefinition(resourceId) or nil
-        local hasResourceInfo = definition
-            and definition.descriptionKey ~= nil
-        local nextY = -292
-        if hasResourceInfo then
-            ui.resourceInfo:SetText(T(definition.descriptionKey, ""))
-            Place(ui.resourceInfo, body, 0, nextY, CONTENT_WIDTH)
-            ui.resourceInfo:Show()
+            and ResourceCatalog:GetDefinition(resourceId, profile, group.id) or nil
+        local nextY = -176
+        if override then
+            ui.itemFont:SetTarget(YHUD.FontStyle:Key(group.id, "text", resourceId))
+            Place(ui.itemFont, body, 0, nextY, CONTENT_WIDTH)
+            ui.itemFont:Show()
             nextY = nextY - 44
         else
-            ui.resourceInfo:Hide()
-        end
-        if override then
-            ShowControls({
-                ui.fontLabel, ui.font, ui.outlineLabel, ui.outline,
-                ui.sizeLabel, ui.size, ui.colorLabel, ui.color,
-            })
-            PlaceResourceField(ui.fontLabel, ui.font, body, 0, nextY)
-            PlaceResourceField(
-                ui.outlineLabel, ui.outline, body, SECOND_COLUMN_X, nextY
-            )
-            nextY = nextY - 60
-            PlaceResourceField(ui.sizeLabel, ui.size, body, 0, nextY)
-            PlaceResourceField(
-                ui.colorLabel, ui.color, body, SECOND_COLUMN_X, nextY
-            )
-            nextY = nextY - 60
-        else
-            HideControls({
-                ui.fontLabel, ui.font, ui.outlineLabel, ui.outline,
-                ui.sizeLabel, ui.size, ui.colorLabel, ui.color,
-            })
+            ui.itemFont:Hide()
         end
 
         local numericText = definition and definition.valueKind == "continuous"
@@ -8619,6 +8909,7 @@ local function RefreshTextPage(self, profile, group)
             or { "cooldown", "name", "count" }
         local rowByTarget = {}
         for _, row in ipairs(self.textRows) do rowByTarget[row.target] = row end
+        local nextY = -8
         for index = 1, #targets do
             local target = targets[index]
             local row = rowByTarget[target]
@@ -8631,7 +8922,15 @@ local function RefreshTextPage(self, profile, group)
             local unavailable = target == "name"
                 and verticalNameUnavailable == true
             SetDisabled(row.switch or row.mode, unavailable)
-            SetDisabled(row.settings, unavailable)
+            SetDisabled(row.position, unavailable)
+            SetDisabled(row.font, unavailable)
+            row.position:SetValue(style[prefix .. (group.layout == "bars" and "Anchor" or "Position")], true)
+            row.font:SetTarget(YHUD.FontStyle:Key(group.id, prefix))
+            if row.settings then
+                local manual = style.keybindTextMode == "manual"
+                row.settings:SetShown(manual)
+                row.mode:SetWidth(manual and 136 or 204)
+            end
             local label = target == "cooldown"
                 and group.layout ~= "icons"
                 and T("designer.text_target.duration", "持续时间")
@@ -8644,9 +8943,18 @@ local function RefreshTextPage(self, profile, group)
                     )
                     or label
             )
-            Place(row, body, 0, -8 - ((index - 1) * 54), CONTENT_WIDTH)
+            Place(row, body, 0, nextY, CONTENT_WIDTH)
+            nextY = nextY - row:GetHeight() - 12
             row:Show()
         end
+        if group.layout ~= "icons" and not verticalNameUnavailable then
+            ShowControls(self.durationNameControls)
+            self.nameFormatInput:SetValue(style.nameTextFormat, true)
+            PlaceResourceField(self.durationNameControls[1], self.nameFormatInput, body, 0, nextY)
+            self.nameFormatInput:SetWidth(CONTENT_WIDTH)
+            nextY = nextY - 64
+        end
+        SetV2InspectorScrollContentHeight(self, -nextY + 12)
         return
     end
 
@@ -8656,100 +8964,26 @@ local function RefreshTextPage(self, profile, group)
         return
     end
 
-    SetTextStyleControlsDisabled(self, false)
-    ShowControls(self.iconTextControls)
-    self.cooldownTextLabel:Hide()
-    self.cooldownTextSwitch:Hide()
-    self.textOffsetXSlider:Hide()
-    self.textOffsetYSlider:Hide()
-    self.textSizeDropdown:Hide()
-    self.iconTextControls[4]:Hide()
-    local prefix = TextStylePrefix(group, self.durationTextTarget)
-    self.fontDropdown:SetValue(style[prefix .. "Font"], true)
-    self.outlineDropdown:SetValue(style[prefix .. "Outline"], true)
-    self.textPositionDropdown:SetValue(
-        style[prefix .. (group.layout == "bars" and "Anchor" or "Position")],
-        true
-    )
-    self.textColorPicker:SetValue(style[prefix .. "Color"], true)
-    local titleByTarget = {
-        cooldown = group.layout == "icons"
-            and T("designer.text_target.cooldown", "冷却时间")
-            or T("designer.text_target.duration", "持续时间"),
-        name = T("designer.text_target.name", "名称"),
-        count = T("designer.text_target.count", "层数/充能"),
-        keybind = T("designer.keybind.title", "按键文本"),
-    }
-    self.textEditorTitle:SetText(titleByTarget[self.durationTextTarget] or "")
-    Place(self.textEditorTitle, body, 0, -8)
-    Place(self.textEditorBack, body, CONTENT_WIDTH - 68, -4, 68)
-    self.textEditorTitle:Show()
-    self.textEditorBack:Show()
-    Place(self.iconTextControls[3], body, 0, -62)
-    Place(self.iconTextControls[7], body, SECOND_COLUMN_X, -62)
-    Place(
-        self.fontDropdown,
-        body,
-        COMPACT_LABEL_WIDTH,
-        -54,
-        COMPACT_CONTROL_WIDTH
-    )
-    Place(
-        self.outlineDropdown,
-        body,
-        SECOND_COLUMN_X + COMPACT_LABEL_WIDTH,
-        -54,
-        COMPACT_CONTROL_WIDTH
-    )
-    self.v2Sliders.textSize:SetValue(style[prefix .. "Size"], true)
-    Place(self.v2Sliders.textSize, body, 0, -96, COLUMN_WIDTH)
-    self.v2Sliders.textSize:Show()
-    self.v2Sliders.textOffsetX:SetValue(style[prefix .. "OffsetX"] or 0, true)
-    self.v2Sliders.textOffsetY:SetValue(style[prefix .. "OffsetY"] or 0, true)
-    Place(
-        self.v2Sliders.textOffsetX,
-        body,
-        SECOND_COLUMN_X,
-        -96,
-        COLUMN_WIDTH
-    )
-    Place(self.v2Sliders.textOffsetY, body, 0, -136, COLUMN_WIDTH)
-    self.v2Sliders.textOffsetX:Show()
-    self.v2Sliders.textOffsetY:Show()
-    Place(self.iconTextControls[8], body, SECOND_COLUMN_X, -144)
-    Place(
-        self.textPositionDropdown,
-        body,
-        SECOND_COLUMN_X + COMPACT_LABEL_WIDTH,
-        -136,
-        COMPACT_CONTROL_WIDTH
-    )
-    Place(self.iconTextControls[9], body, 0, -184)
-    Place(
-        self.textColorPicker,
-        body,
-        COMPACT_LABEL_WIDTH,
-        -176,
-        COMPACT_CONTROL_WIDTH
-    )
-    if group.layout ~= "icons" and self.durationTextTarget == "name" then
-        ShowControls(self.durationNameControls)
-        self.nameFormatInput:SetValue(style.nameTextFormat, true)
-        Place(self.durationNameControls[1], body, SECOND_COLUMN_X, -184)
-        Place(
-            self.durationNameControls[2],
-            body,
-            SECOND_COLUMN_X + COMPACT_LABEL_WIDTH,
-            -176,
-            COMPACT_CONTROL_WIDTH
-        )
-    end
+
 end
 
-local function ShowMonitorGlobalSettings(self, profile, glowCapabilities)
+local function ShowMonitorGlobalSettings(self, profile, glowCapabilities, group)
+    local collapsed = self.monitorGlobalCollapsed ~= false
     self.skillAuraGlobalDivider:Show()
-    self.skillAuraGlobalPanel:Show()
     Place(self.skillAuraGlobalDivider, self.monitorInspectorBody, 0, -48)
+    if self.skillAuraGlobalDivider.SetCollapsed then
+        self.skillAuraGlobalDivider:SetCollapsed(collapsed, true)
+    end
+    SetShown(self.skillAuraGlobalPanel, not collapsed)
+    if collapsed then return -86 end
+    local showNativeGlow = not (group and group.layout == "rings")
+    local panelHeight = MONITOR_GLOBAL_PANEL_HEIGHT - (showNativeGlow and 0 or 80)
+    self.skillAuraGlobalPanel:SetHeight(panelHeight)
+    SetShown(self.monitorGlobalNativeLabel, showNativeGlow)
+    SetShown(self.monitorGlobalNativeDropdown, showNativeGlow)
+    SetShown(self.monitorGlobalNativeGear, showNativeGlow)
+    SetShown(self.monitorGlobalNativeCombatLabel, showNativeGlow)
+    SetShown(self.monitorGlobalNativeCombat, showNativeGlow)
     Place(self.skillAuraGlobalPanel, self.monitorInspectorBody, 0, -76, CONTENT_WIDTH)
     for _, row in ipairs(self.monitorGlobalEffectRows or {}) do
         row.label:Show()
@@ -8759,6 +8993,13 @@ local function ShowMonitorGlobalSettings(self, profile, glowCapabilities)
         local enabled = not (profile and profile.cdm
             and profile.cdm[row.field] == false)
         row.switch:SetValue(enabled, true)
+        if row.style then
+            local styleValue = NativeGlowStyleValue(YHUD:GetAuraActivationStyle(profile))
+            row.style:SetValue(styleValue, true)
+            row.style:Show()
+            row.gear:Show()
+            SetDisabled(row.gear, styleValue == "default")
+        end
         local count = Designer:CountMonitorStateEffectOverrides(row.key) or 0
         row.count:SetText(count > 0 and string.format(
             T("designer.monitor.override_count", "(%d)"), count
@@ -8782,10 +9023,13 @@ local function ShowMonitorGlobalSettings(self, profile, glowCapabilities)
         native and native.combatOnly == true,
         true
     )
+    SetDisabled(self.monitorGlobalNativeCombat, NativeGlowStyleValue(native) == "disabled")
     SetDisabled(
         self.monitorGlobalNativeGear,
         NativeGlowStyleValue(native) == "default"
+            or NativeGlowStyleValue(native) == "disabled"
     )
+    return -(76 + panelHeight + 14)
 end
 
 function I.PlaceMonitorSoundSettings(
@@ -8869,7 +9113,7 @@ function I.PlaceMonitorSoundSettings(
     SetV2InspectorScrollContentHeight(self, math.max(430, -y + 32))
 end
 
-local function PlaceMonitorGlowSettings(
+function I.PlaceMonitorGlowSettings(
     self,
     body,
     profile,
@@ -8881,6 +9125,19 @@ local function PlaceMonitorGlowSettings(
     Place(self.monitorGlowDivider, body, 0, y - 4, CONTENT_WIDTH)
     self.monitorGlowDivider:Show()
     y = y - 40
+
+    local entry = profile.entries and profile.entries[monitor.entryKey]
+    if monitor.view == "icon" and YHUD:CanConfigureAssistedHighlight(entry) then
+        self.monitorAssistedLabel:Show()
+        self.monitorAssistedDropdown:Show()
+        Place(self.monitorAssistedLabel, body, 0, y - 5, FIELD_LABEL_WIDTH)
+        Place(self.monitorAssistedDropdown, body, FIELD_LABEL_WIDTH, y, FIELD_CONTROL_WIDTH)
+        self.monitorAssistedDropdown:RefreshOptions()
+        local override = monitor.stateEffects and monitor.stateEffects.assistedHighlight
+        self.monitorAssistedDropdown:SetValue(override == true and "enabled"
+            or override == false and "disabled" or "inherit", true)
+        y = y - 42
+    end
 
     if capabilities.nativeProc == true then
         local override = type(monitor.nativeProcGlowOverride) == "table"
@@ -8914,6 +9171,7 @@ local function PlaceMonitorGlowSettings(
         SetDisabled(
             self.monitorNativeGear,
             not override or NativeGlowStyleValue(override) == "default"
+                or NativeGlowStyleValue(override) == "disabled"
         )
         y = y - 42
         self.monitorNativeCombatLabel:Show()
@@ -8930,7 +9188,8 @@ local function PlaceMonitorGlowSettings(
             (override or effective).combatOnly == true,
             true
         )
-        SetDisabled(self.monitorNativeCombat, override == nil)
+        SetDisabled(self.monitorNativeCombat,
+            override == nil or NativeGlowStyleValue(override) == "disabled")
         y = y - 46
     end
 
@@ -8947,9 +9206,12 @@ local function PlaceMonitorGlowSettings(
     local rules = type(monitor.glow) == "table"
         and type(monitor.glow.rules) == "table"
         and monitor.glow.rules or {}
-    local ruleLimit = math.min(2, #(capabilities.conditions or {}))
+    local ruleLimit = YHUD:GetMonitorGlowRuleLimit(capabilities)
     self.monitorGlowRuleCount:SetText(string.format("%d/%d", #rules, ruleLimit))
     y = y - 40
+    Place(self.monitorGlowPriorityText, body, 0, y, CONTENT_WIDTH)
+    self.monitorGlowPriorityText:Show()
+    y = y - 36
     local hasMissingRule = false
     for index = 1, #self.monitorGlowRules do
         local row = self.monitorGlowRules[index]
@@ -8963,6 +9225,21 @@ local function PlaceMonitorGlowSettings(
             if row.condition.RefreshOptions then row.condition:RefreshOptions() end
             local conditionType = rule.condition and rule.condition.type
             row.condition:SetValue(conditionType, true)
+            local stacks = conditionType == "aura-stacks"
+            row.stackMonitorId = monitor.id
+            SetDisabled(row.up, index == 1)
+            SetDisabled(row.down, index == #rules)
+            row.color:SetValue(rule.appearance.color, true)
+            SetDisabled(row.color, rule.appearance.style == "none")
+            row.stackLabel:SetShown(stacks)
+            row.stackOperator:SetShown(stacks)
+            row.stackValue:SetShown(stacks)
+            local rowHeight = MONITOR_GLOW_RULE_HEIGHT + (stacks and 36 or 0)
+            row:SetHeight(rowHeight)
+            if stacks then
+                row.stackOperator:SetValue(rule.condition.operator, true)
+                row.stackValue:SetText(tostring(rule.condition.value))
+            end
             if row.style.RefreshOptions then row.style:RefreshOptions() end
             row.style:SetValue(
                 rule.appearance and rule.appearance.style or "pixel",
@@ -8971,7 +9248,7 @@ local function PlaceMonitorGlowSettings(
             row.combat:SetValue(rule.combatOnly == true, true)
             Place(row, body, 0, y, CONTENT_WIDTH)
             row:Show()
-            y = y - MONITOR_GLOW_RULE_HEIGHT - MONITOR_GLOW_RULE_GAP
+            y = y - rowHeight - MONITOR_GLOW_RULE_GAP
             if conditionType == "aura-missing" then
                 hasMissingRule = true
             end
@@ -8985,13 +9262,142 @@ local function PlaceMonitorGlowSettings(
         self.monitorGlowAuraWarning:Show()
         y = y - 46 - MONITOR_GLOW_RULE_GAP
     end
+    self.monitorGlowAddRule:Hide()
+    local canAddRule = false
     if #rules < ruleLimit then
+        for index = 1, #(capabilities.conditions or {}) do
+            if YHUD:CanAddGlowCondition(rules, capabilities.conditions[index]) then
+                canAddRule = true
+                break
+            end
+        end
+    end
+    if canAddRule then
         Place(self.monitorGlowAddRule, body, 0, y, CONTENT_WIDTH)
         self.monitorGlowAddRule:Show()
         y = y - 40
     end
     return y
 end
+
+local function PlacePresetDetails(self, panel, entry, monitor, editable)
+    local extra = YHUD.ClassExtra
+    local description = extra and extra:Description(entry)
+    if not description then return 112 end
+    if not self.classExtraDescription then
+        self.classExtraDescription = GUI2:CreateText(panel, "", "font.size.md", "color.text.secondary", "LEFT")
+        self.classExtraDescription:SetWordWrap(true)
+        self.classExtraParameters = GUI2:CreateText(panel, T("designer.extra.parameters"),
+            "font.size.md", "color.text.heading", "LEFT")
+    end
+    local text = self.classExtraDescription
+    local top = self.monitorBrowser.identityWarning:IsShown() and 112 or 88
+    text:SetText(description)
+    Place(text, panel, 12, -top, CONTENT_WIDTH - 24)
+    text:SetHeight(0)
+    local height = math.max(20, math.ceil(text:GetStringHeight()))
+    text:SetHeight(height)
+    text:Show()
+    local y = top + height + 14
+    if entry.presetId == "devourer-transform" then
+        Place(self.classExtraParameters, panel, 12, -y, CONTENT_WIDTH - 24)
+        self.classExtraParameters:Show()
+        y = y + 30
+        local labelWidth = math.min(168, math.floor((CONTENT_WIDTH - 24) * 0.48))
+        local controlWidth = CONTENT_WIDTH - 24 - labelWidth
+        if not self.classExtraSettings then
+            self.classExtraSettings = {}
+            for _, definition in ipairs({ { "alertSecond", 1, 90 }, { "endedHideDelay", 0, 30 } }) do
+                local field = definition[1]
+                local row = { label = GUI2:CreateText(panel, T("designer.extra." .. field),
+                    "font.size.md", "color.text.primary", "LEFT") }
+                row.control = GUI2.Form:CreateSlider(panel, {
+                    width = controlWidth, inline = true, inputWidth = 56,
+                    min = definition[2], max = definition[3], step = 1, precision = 0,
+                    set = function(value)
+                        local id = self.classExtraMonitorId
+                        if not id or self.v2Refreshing then return end
+                        if Designer:SetClassExtraSettings(id, { [field] = value }) then
+                            if DesignerUI:PreviewSelectedGroup() then
+                                DesignerUI.v2SliderPreviewDirty = true
+                            else
+                                DesignerUI:ApplyPreview()
+                            end
+                            local profile = Designer:GetProfile()
+                            local selected = profile and profile.monitors[id]
+                            local current = selected and profile.entries[selected.entryKey]
+                            self.classExtraDescription:SetText(extra:Description(current) or "")
+                        end
+                    end,
+                    onCommit = function() DesignerUI:CommitV2SliderPreview() end,
+                })
+                self.classExtraSettings[#self.classExtraSettings + 1] = row
+            end
+        end
+        self.classExtraMonitorId = monitor.id
+        local alert, delay, progress = extra:Settings(entry)
+        for index, row in ipairs(self.classExtraSettings) do
+            Place(row.label, panel, 12, -y - 6, labelWidth - 8)
+            Place(row.control, panel, 12 + labelWidth, -y, controlWidth)
+            row.control:SetValue(index == 1 and alert or delay, true)
+            SetDisabled(row.control, not editable)
+            row.label:Show()
+            row.control:Show()
+            y = y + 36
+        end
+        if monitor.view == "icon" then
+            if not self.classExtraProgressSwitch then
+                self.classExtraProgressLabel = GUI2:CreateText(panel, T("designer.extra.showIconProgress"),
+                    "font.size.md", "color.text.primary", "LEFT")
+                self.classExtraProgressSwitch = GUI2.Form:CreateSwitch(panel, {
+                    width = 72, set = function(value)
+                        local id = self.classExtraMonitorId
+                        if not id or self.v2Refreshing then return end
+                        if Designer:SetClassExtraSettings(id, { showIconProgress = value }) then DesignerUI:ApplyPreview() end
+                    end,
+                })
+            end
+            Place(self.classExtraProgressLabel, panel, 12, -y - 6, CONTENT_WIDTH - 108)
+            Place(self.classExtraProgressSwitch, panel, CONTENT_WIDTH - 84, -y, 72)
+            self.classExtraProgressSwitch:SetValue(progress, true)
+            SetDisabled(self.classExtraProgressSwitch, not editable)
+            self.classExtraProgressLabel:Show()
+            self.classExtraProgressSwitch:Show()
+            y = y + 36
+        end
+    elseif entry.presetId == "brewmaster-elixir" then
+        if not self.classExtraReadyDropdown then
+            self.classExtraReadyLabel = GUI2:CreateText(panel, T("designer.extra.readyVisibility"),
+                "font.size.md", "color.text.primary", "LEFT")
+            self.classExtraReadyDropdown = GUI2.Form:CreateDropdown(panel, {
+                width = CONTENT_WIDTH - 24, height = 30,
+                options = function()
+                    return {
+                        { value = "group", text = T("designer.extra.readyVisibility.group") },
+                        { value = "combat", text = T("designer.extra.readyVisibility.combat") },
+                        { value = "instance", text = T("designer.extra.readyVisibility.instance") },
+                    }
+                end,
+                set = function(value)
+                    local id = self.classExtraMonitorId
+                    if not id or self.v2Refreshing then return end
+                    if Designer:SetClassExtraSettings(id, { readyVisibility = value }) then DesignerUI:ApplyPreview() end
+                end,
+            })
+        end
+        self.classExtraMonitorId = monitor.id
+        local _, _, _, ready = extra:Settings(entry)
+        Place(self.classExtraReadyLabel, panel, 12, -y, CONTENT_WIDTH - 24)
+        Place(self.classExtraReadyDropdown, panel, 12, -y - 26, CONTENT_WIDTH - 24)
+        self.classExtraReadyDropdown:SetValue(ready, true)
+        SetDisabled(self.classExtraReadyDropdown, not editable)
+        self.classExtraReadyLabel:Show()
+        self.classExtraReadyDropdown:Show()
+        y = y + 68
+    end
+    return y + 8
+end
+I.PlacePresetDetails = PlacePresetDetails
 
 local function PlaceMonitorAppearanceOverride(
     self,
@@ -9037,13 +9443,17 @@ local function PlaceMonitorAppearanceOverride(
     self.monitorAppearanceTrackLabel:Show()
     self.monitorAppearanceTrack:Show()
     self.monitorResetAppearance:Show()
-    self.monitorAppearanceFill:SetValue(effective.fillColor, true)
+    self.monitorAppearanceFill:SetValue(effective.fillColor or style.fillColor, true)
     self.monitorAppearanceTrack:SetValue(
-        effective.trackColor or effective.ringTrackColor,
+        effective.trackColor or effective.ringTrackColor or style.trackColor or style.ringTrackColor,
         true
     )
-    self.monitorResetAppearance:SetDisabled(override == nil)
+    self.monitorResetAppearance:SetDisabled(override == nil
+        or not (override.fillColor or override.trackColor or override.stackThresholds or override.rechargeColor))
     local actionTop = top + 66
+    if group.layout == "bars" and I.PlaceBarRechargeAppearanceUI then
+        actionTop = I.PlaceBarRechargeAppearanceUI(self, monitor, style, actionTop, CONTENT_WIDTH)
+    end
     Place(self.monitorResetAppearance, body, SECOND_COLUMN_X + FIELD_LABEL_WIDTH + 8,
         -actionTop, COLUMN_WIDTH - FIELD_LABEL_WIDTH - 8)
     local nextTop = actionTop + 34
@@ -9056,9 +9466,17 @@ local function PlaceMonitorAppearanceOverride(
         Place(ui.label, body, 0, -actionTop - 5, FIELD_LABEL_WIDTH)
         Place(ui.enabled, body, FIELD_LABEL_WIDTH + 8, -actionTop, COLUMN_WIDTH - FIELD_LABEL_WIDTH - 8)
         ui.enabled:SetValue(policy.enabled, true)
+        local basis, unit, warning = I.GetBarThresholdInfo(entry, monitor, policy)
+        ui.info:SetText(basis .. (warning and ("\n" .. warning) or ""))
+        ui.info:Show()
+        Place(ui.info, body, 0, -nextTop, CONTENT_WIDTH)
+        local infoHeight = math.max(22, math.ceil(ui.info:GetStringHeight()))
+        ui.info:SetHeight(infoHeight)
+        nextTop = nextTop + infoHeight + 4
         if policy.enabled then
             for _, key in ipairs({ "low", "high" }) do
                 local row = ui.rows[key]
+                row.label:SetText(unit .. (key == "low" and " ≤" or " ≥"))
                 row.label:Show()
                 row.enabled:Show()
                 row.value:Show()
@@ -9223,10 +9641,9 @@ local function RefreshMonitorPage(self, group, monitor)
         self.monitorEffectsBack:Show()
         Place(self.monitorEffectsTitle, body, 0, -4, CONTENT_WIDTH - 80)
         Place(self.monitorEffectsBack, body, CONTENT_WIDTH - 68, -4, 68)
-        ShowMonitorGlobalSettings(self, profile, glowCapabilities)
+        local selectedTop = ShowMonitorGlobalSettings(self, profile, glowCapabilities, group)
 
         self.monitorSelectedEffectsDivider:Show()
-        local selectedTop = -(76 + MONITOR_GLOBAL_PANEL_HEIGHT + 14)
         Place(
             self.monitorSelectedEffectsDivider,
             body,
@@ -9351,7 +9768,7 @@ local function RefreshMonitorPage(self, group, monitor)
             self.monitorResetEffects:Show()
             y = y - 52
         end
-        y = PlaceMonitorGlowSettings(
+        y = I.PlaceMonitorGlowSettings(
             self,
             body,
             profile,
@@ -9364,6 +9781,8 @@ local function RefreshMonitorPage(self, group, monitor)
     end
     if self.monitorEffectsEditing then self.monitorEffectsEditing = false end
 
+    self.monitorBrowser.detailPanel:SetHeight(MONITOR_DETAIL_PANEL_HEIGHT)
+    self.monitorBrowser:SetHeight(MONITOR_LIST_PANEL_HEIGHT + MONITOR_PANEL_GAP + MONITOR_DETAIL_PANEL_HEIGHT)
     self.monitorBrowser:Show()
     self.monitorBrowser.summary:ClearAllPoints()
     self.monitorBrowser.summary:SetPoint(
@@ -9409,7 +9828,12 @@ local function RefreshMonitorPage(self, group, monitor)
         end
     end
 
-    local actionY = -112
+    local actionTop = PlacePresetDetails(self, detailPanel, entry, monitor, monitorEditable)
+    local detailHeight = math.max(MONITOR_DETAIL_PANEL_HEIGHT, actionTop + 40)
+    detailPanel:SetHeight(detailHeight)
+    self.monitorBrowser:SetHeight(MONITOR_LIST_PANEL_HEIGHT + MONITOR_PANEL_GAP + detailHeight)
+    self.monitorContentBottom = self.monitorContentBottom + detailHeight - MONITOR_DETAIL_PANEL_HEIGHT
+    local actionY = -actionTop
     self.monitorHeading:Hide()
     self.removeMonitorButton:Show()
     Place(
@@ -9466,6 +9890,7 @@ local function RefreshMonitorPage(self, group, monitor)
         ) == nil)
 
     self.monitorGroupLabel:SetText(T("designer.monitor.move_to", "分组："))
+    self.monitorGroupDropdown:SetValue(monitor.groupId, { silent = true, force = true })
     self.monitorGroupDropdown:Show()
     SetDisabled(self.monitorGroupDropdown, not monitorEditable)
     self.monitorGroupLabel:Show()
@@ -9537,6 +9962,9 @@ local function RefreshMonitorPage(self, group, monitor)
     end
 
     local contentBottom = self.monitorContentBottom
+    if I.PlaceBarProgressUI then
+        contentBottom = I.PlaceBarProgressUI(self, group, monitor, contentBottom + 12, CONTENT_WIDTH)
+    end
     if supportsAppearance then
         contentBottom = PlaceMonitorAppearanceOverride(
             self,
@@ -9637,7 +10065,68 @@ local function RefreshMonitorPage(self, group, monitor)
         editor:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -bundleTop)
         editor.bundleKind = bundleKind
         local _, selectedContext = Designer:GetSpellBundleContexts(bundleKind)
-        if bundleKind == "racial" then
+        local rowTop = bundleKind == "externalBuff" and 164 or 48
+        local externalLimit = bundleKind == "externalBuff"
+            and YHUD.MonitorCatalog:GetExternalBuffLimit(entry) or 0
+        if bundleKind == "externalBuff" then
+            if not editor.externalHelp then
+                editor.externalHelp = GUI2:CreateText(editor, "", "font.size.sm", "color.text.secondary", "LEFT")
+                editor.externalHelp:SetPoint("TOPLEFT", 10, -10)
+                editor.externalHelp:SetWidth(CONTENT_WIDTH - 20)
+                editor.externalHelp:SetHeight(32)
+                editor.externalHelp:SetWordWrap(true)
+                editor.externalMembers = GUI2:CreateText(editor, "", "font.size.md", "color.text.primary", "LEFT")
+                editor.externalMembers:SetPoint("TOPLEFT", 10, -138)
+                editor.externalMembers:SetWidth(CONTENT_WIDTH - 20)
+                editor.externalLimit = GUI2.Form:CreateDropdown(editor, {
+                    width = CONTENT_WIDTH - 20, inline = true,
+                    label = T("designer.external_buffs.max_display", "最大显示数量"),
+                    labelWidth = FIELD_LABEL_WIDTH,
+                    options = function()
+                        local values = {{ value = 0, text = T("designer.external_buffs.unlimited", "不限") }}
+                        for count = 1, #(YUI.HelpfulBuffs and YUI.HelpfulBuffs.entries or {}) do
+                            values[#values + 1] = { value = count, text = tostring(count) }
+                        end
+                        return values
+                    end,
+                    set = function(value)
+                        if DesignerUI.v2Refreshing then return end
+                        local ok, code = Designer:SetExternalBuffLimit(value)
+                        if ok then
+                            DesignerUI:ApplyPreview()
+                            DesignerUI:Refresh(false, false)
+                        else
+                            DesignerUI:SetMutationError(code, "designer.error_update", "无法修改监控。")
+                        end
+                    end,
+                })
+                editor.externalLimit:SetPoint("TOPLEFT", 10, -46)
+                editor.externalLimitHint = GUI2:CreateText(editor, "", "font.size.sm", "color.text.secondary", "LEFT")
+                editor.externalLimitHint:SetPoint("TOPLEFT", 10, -84)
+                editor.externalLimitHint:SetWidth(CONTENT_WIDTH - 20)
+                editor.externalLimitHint:SetHeight(44)
+                editor.externalLimitHint:SetWordWrap(true)
+            end
+            local enabledCount = 0
+            for _, option in ipairs(options or {}) do
+                if option.enabled ~= false then enabledCount = enabledCount + 1 end
+            end
+            editor.externalHelp:SetText(T("designer.picker.bundle.external_buffs_summary", "监控自己获得的外部增益，仅显示他人提供的效果。"))
+            editor.externalLimit:SetValue(externalLimit, true)
+            editor.externalLimitHint:SetText(externalLimit > 0
+                and T("designer.external_buffs.limit_hint", "按暴雪默认排序独立成段显示；成员顺序暂不生效。预览仅为示例。")
+                or T("designer.external_buffs.unlimited_hint", "不限数量，按下方成员顺序排列。"))
+            editor.externalMembers:SetText(string.format(T("designer.external_buffs.members", "合集成员（已开启 %d / %d 项）"), enabledCount, #(options or {})))
+        end
+        SetShown(editor.externalHelp, bundleKind == "externalBuff")
+        SetShown(editor.externalMembers, bundleKind == "externalBuff")
+        SetShown(editor.externalLimit, bundleKind == "externalBuff")
+        SetShown(editor.externalLimitHint, bundleKind == "externalBuff")
+        if bundleKind == "externalBuff" then
+            editor.classContext:Hide()
+            editor.specContext:Hide()
+            editor.raceContext:Hide()
+        elseif bundleKind == "racial" then
             editor.classContext:Hide()
             editor.specContext:Hide()
             editor.raceContext:Show()
@@ -9670,6 +10159,8 @@ local function RefreshMonitorPage(self, group, monitor)
         for index = 1, #(editor.rows or {}) do
             local row = editor.rows[index]
             local option = options and options[index]
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", 10, -rowTop - ((index - 1) * 38))
             if option then
                 row.spellID = option.spellID
                 row.tooltipSpellID = option.runtimeSpellID or option.spellID
@@ -9682,8 +10173,8 @@ local function RefreshMonitorPage(self, group, monitor)
                     row.tooltipSpellID
                 ))
                 row.switch:SetValue(option.enabled ~= false, true)
-                row.moveUp:SetDisabled(index == 1)
-                row.moveDown:SetDisabled(index == optionCount)
+                row.moveUp:SetDisabled(externalLimit > 0 or index == 1)
+                row.moveDown:SetDisabled(externalLimit > 0 or index == optionCount)
                 row:Show()
             else
                 row.spellID = nil
@@ -9693,7 +10184,7 @@ local function RefreshMonitorPage(self, group, monitor)
                 row:Hide()
             end
         end
-        local editorHeight = 54 + (math.max(optionCount, 1) * 38)
+        local editorHeight = rowTop + 6 + (math.max(optionCount, 1) * 38)
         editor:SetHeight(editorHeight)
         contentBottom = bundleTop + editorHeight
     end
@@ -9713,8 +10204,8 @@ function DesignerUI:ApplyV2PageLayout()
     HideAllPageControls(self)
     local monitorScroll = page == "monitor" and group.layout ~= "resource"
     local groupScroll = (page == "monitor" and group.layout == "resource") or page == "common"
-        or (page == "layout" and group.layout == "resource")
-        or (page == "appearance" and (group.layout == "resource" or group.layout == "icons"))
+        or (page == "layout" and (group.layout == "resource" or group.layout == "bars" or group.layout == "icons"))
+        or (page == "appearance" and (group.layout == "resource" or group.layout == "icons" or group.layout == "bars"))
         or (page == "text" and (group.layout == "resource" or self.textEditorTarget == "keybind"))
     SetV2InspectorScrollActive(
         self,
@@ -9735,6 +10226,9 @@ function DesignerUI:ApplyV2PageLayout()
     )
     self.statusText:Hide()
 
+    if group.layout == "resource" and (page == "layout" or page == "appearance" or page == "text") then
+        EnsureResourceStyleSelection(self, profile)
+    end
     if page == "common" then
         RefreshCommonPage(self, group)
     elseif page == "layout" then
@@ -9750,14 +10244,43 @@ function DesignerUI:ApplyV2PageLayout()
         HideControls(self.resourceBaseControls)
         HideControls(self.resourcePresetRows)
     end
+    if self.RefreshResourcePageSelection then self:RefreshResourcePageSelection(profile, group, page) end
+    if self.RefreshBarShadowControls then self:RefreshBarShadowControls(profile, group, page) end
     ActivateV2Page(self, page)
 end
 
+function DesignerUI:ResetInspectorBinding()
+    if YHUD.KeybindResolver then YHUD.KeybindResolver:SetPreviewDemand(self, false) end
+    if self.MonitorHelp then self.MonitorHelp:Hide() end
+    if GUI2.FontStyle then GUI2.FontStyle:CloseForProvider("yhud") end
+    local anchor = GUI2.DropdownFrame and GUI2.DropdownFrame.anchor
+    while anchor do
+        if anchor == self.panel then
+            GUI2:CloseDropdown(false)
+            break
+        end
+        anchor = anchor.GetParent and anchor:GetParent()
+    end
+    self.inspectorBindingContext = nil
+end
+
 function DesignerUI:BeginV2CorePageRefresh()
+    if self.MonitorHelp then self.MonitorHelp:Hide() end
     self.v2SpecialOverflowState = nil
     self.v2SpecialOverflowGroupId = nil
     local session, profile, group = SelectedContext()
-    if not (session and profile and group) then return false end
+    if not (session and profile and group) then
+        self:ResetInspectorBinding()
+        return false
+    end
+    local binding = self.inspectorBindingContext
+    if not binding or binding.session ~= session or binding.profile ~= profile
+        or binding.groupId ~= group.id or binding.monitorId ~= session.selectedMonitorId then
+        self:ResetInspectorBinding()
+        self.inspectorBindingContext = {
+            session = session, profile = profile, groupId = group.id, monitorId = session.selectedMonitorId,
+        }
+    end
     self:RefreshDesignerGeometry()
     self.iconSettingsPage = self.propertyPage == "text" and "text" or "layout"
     self.v2Refreshing = true
@@ -9766,6 +10289,11 @@ function DesignerUI:BeginV2CorePageRefresh()
         profile = profile,
         group = group,
     }
+    if YHUD.KeybindResolver then
+        YHUD.KeybindResolver:SetPreviewDemand(self,
+            self.propertyPage == "text" and self.textEditorTarget == "keybind"
+                and group.layout == "icons")
+    end
     return true
 end
 
@@ -9778,7 +10306,7 @@ function DesignerUI:SyncV2CorePageHeader()
         self.profileDropdown:SetValue(session.setId, true)
     end
     if self.groupDropdown and self.groupDropdown.SetValue then
-        self.groupDropdown:SetValue(session.selectedGroupId, true)
+        self.groupDropdown:SetValue(session.selectedGroupId, { silent = true, force = true })
     end
     self.groupNameInput:SetValue(GroupName(group), true)
     if self.groupNameInput.SetDisabled then
@@ -10216,6 +10744,7 @@ function DesignerUI:RemoveSelectedMonitor(allSpecializations)
 end
 
 function DesignerUI:HideWorkspace()
+    self:ResetInspectorBinding()
     self:HideMonitorDeleteConfirm()
     self:CancelMonitorIdentityEdit(true)
     self:StopResourceValuePreview(true, false)

@@ -26,6 +26,7 @@
     <Include file="LagTolerance\Locales\!load.xml"/>
     <Script file="LagTolerance\LagTolerance.lua"/>
     <Include file="SpellAlert\Locales\!load.xml"/>
+    <Script file="SpellAlert\PreviewDefaults.lua"/>
     <Script file="SpellAlert\SpellAlert.lua"/>
     <Include file="CombatCue\Locales\!load.xml"/>
     <Script file="CombatCue\CombatCue.lua"/>

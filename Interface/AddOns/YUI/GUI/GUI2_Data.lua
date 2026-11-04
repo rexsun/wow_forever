@@ -10,6 +10,107 @@ local math_min = math.min
 
 GUI2.Data = GUI2.Data or {}
 
+-- Integer application gates are native geometry only. The whole glow is a
+-- descendant of the clip, including textures created by later style changes.
+-- Never observe the bound value, fill bounds, or engine-owned visibility.
+function GUI2:CreateAuraApplicationGate(parent, target, condition, width, height)
+    if not (parent and target) then return nil end
+    local driver = CreateFrame("StatusBar", nil, parent)
+    driver:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+    driver:SetOrientation("HORIZONTAL")
+    driver:SetReverseFill(false)
+    driver:GetStatusBarTexture():SetAlpha(0)
+    local lowerClip = self:CreateFrame(parent, { mouse = false })
+    lowerClip:SetClipsChildren(true)
+    local upperClip = self:CreateFrame(lowerClip, { mouse = false })
+    upperClip:SetClipsChildren(true)
+    local gate = { driver = driver, lowerClip = lowerClip, clip = upperClip }
+    if self:ConfigureAuraApplicationGate(gate, target, condition, width, height) then return gate end
+    lowerClip:Hide()
+end
+
+function GUI2:ConfigureAuraApplicationGate(gate, target, condition, width, height)
+    if not (gate and target and type(condition) == "table")
+        or type(width) ~= "number" or type(height) ~= "number"
+        or not (width > 0 and width < math.huge and height > 0 and height < math.huge) then return nil end
+    local operator, value = condition.operator, condition.value
+    if type(value) ~= "number" or value < 1 or value > 100
+        or value ~= math_floor(value) then return nil end
+    local lower = operator == "gte" or operator == "gt"
+    local upper = operator == "lt" or operator == "lte" or operator == "eq"
+    if not lower and not upper then return nil end
+    local boundary = value + ((operator == "gt" or operator == "lte"
+        or operator == "eq") and 1 or 0)
+    -- Covers the maximum authored glow size, expansion and animated particles.
+    local margin = math_max(width, height) * 2 + 24
+    local span = width + margin * 2
+    if gate.operator == operator and gate.value == value
+        and gate.width == width and gate.height == height and gate.target == target then return true end
+    local driver = gate.driver
+    driver:ClearAllPoints()
+    driver:SetSize(span * boundary, height + margin * 2)
+    driver:SetPoint("BOTTOMRIGHT", target, "BOTTOMRIGHT", margin, -margin)
+    local sameBinding = gate.operator == operator and gate.value == value
+    driver:SetMinMaxValues(0, boundary)
+    -- A pure geometry refresh must preserve the native sample, including an
+    -- opaque charge count for which Lua cannot retain a replacement value.
+    if not sameBinding then driver:SetValue(0) end
+    local fill = driver:GetStatusBarTexture()
+    fill:SetAlpha(0)
+    local clip = gate.lowerClip
+    clip:ClearAllPoints()
+    if lower then
+        clip:SetAllPoints(fill)
+    elseif operator == "eq" then
+        -- Both integer boundaries share one native binding and one Aura.
+        clip:SetPoint("TOPLEFT", fill, "TOPLEFT", span, 0)
+        clip:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT", span, 0)
+    else
+        clip:SetAllPoints(driver)
+    end
+    local upperClip = gate.clip
+    upperClip:ClearAllPoints()
+    if upper then
+        upperClip:SetPoint("TOPLEFT", fill, "TOPRIGHT")
+        upperClip:SetPoint("BOTTOMRIGHT", driver, "BOTTOMRIGHT")
+    else
+        upperClip:SetAllPoints(clip)
+    end
+    gate.operator, gate.value, gate.width, gate.height, gate.target = operator, value, width, height, target
+    gate.lastPublicValue = nil
+    gate.binding = { target = driver,
+        options = { minApplications = 0, maxApplications = boundary, interpolation = 0 } }
+    return true
+end
+
+-- Public integer ranges share a 0..101 driver. Both clipping planes follow
+-- its fill edge; no Lua code observes the edge or the bound applications.
+function GUI2:ConfigureAuraApplicationRangeClip(range, gate, parent, minimum, maximum)
+    if not (parent and gate and gate.driver and gate.width and gate.height)
+        or gate.operator ~= "gt" or gate.value ~= 100
+        or type(minimum) ~= "number" or type(maximum) ~= "number"
+        or minimum < 0 or maximum > 101 or minimum > maximum
+        or minimum ~= math_floor(minimum) or maximum ~= math_floor(maximum) then return nil end
+    range = range or { lowerClip = self:CreateFrame(parent, { mouse = false }) }
+    if not range.clip then range.clip = self:CreateFrame(range.lowerClip, { mouse = false }) end
+    if range.width == gate.width and range.height == gate.height
+        and range.minimum == minimum and range.maximum == maximum then return range end
+    local margin = math_max(gate.width, gate.height) * 2 + 24
+    local span = gate.width + margin * 2
+    local fill = gate.driver:GetStatusBarTexture()
+    range.lowerClip:SetClipsChildren(true)
+    range.lowerClip:ClearAllPoints()
+    range.lowerClip:SetSize(span * 102, gate.height + margin * 2)
+    range.lowerClip:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT", (101 - minimum) * span, 0)
+    range.clip:SetClipsChildren(true)
+    range.clip:ClearAllPoints()
+    range.clip:SetSize(span * 102, gate.height + margin * 2)
+    range.clip:SetPoint("BOTTOMLEFT", fill, "BOTTOMRIGHT", (100 - maximum) * span, 0)
+    range.width, range.height = gate.width, gate.height
+    range.minimum, range.maximum = minimum, maximum
+    return range
+end
+
 local DEFAULT_PROGRESS_TEXTURE = "Interface\\Buttons\\WHITE8x8"
 local PROJECTED_DRIVER_STYLE = {
     texture = DEFAULT_PROGRESS_TEXTURE,
@@ -92,9 +193,9 @@ local function IsProgressReverse(frame)
         or frame.fillDirection == "reverse"
 end
 
-local function GetProjectedDriverDirection(frame)
+local function GetProjectedDriverDirection(frame, timerMode)
     local reverse = IsProgressReverse(frame)
-    if frame.orientation == "vertical" then
+    if frame.orientation == "vertical" and (timerMode or not frame.gui2ProjectedValueMode) then
         -- Retail SetTimerDuration moves the vertical fill Texture opposite to
         -- the documented SetValue projection. Game A/B fixes the driver by
         -- swapping only the native vertical fill style; the visible material
@@ -111,6 +212,33 @@ local function LayoutProjectedProgressFill(frame)
     local driverTexture = driver and driver.GetStatusBarTexture
         and driver:GetStatusBarTexture() or nil
     if not (clip and track and driverTexture) then return false end
+    local rechargeClip = frame.gui2RechargeClip
+    if frame.gui2RechargeSeparate and rechargeClip and frame.gui2RechargeDriver then
+        local edge = frame.gui2RechargeDriver:GetStatusBarTexture()
+        local reverse = IsProgressReverse(frame)
+        rechargeClip:ClearAllPoints()
+        if frame.orientation == "vertical" then
+            rechargeClip:SetPoint(reverse and "TOPLEFT" or "BOTTOMLEFT", driverTexture,
+                reverse and "BOTTOMLEFT" or "TOPLEFT")
+            rechargeClip:SetPoint(reverse and "TOPRIGHT" or "BOTTOMRIGHT", driverTexture,
+                reverse and "BOTTOMRIGHT" or "TOPRIGHT")
+            rechargeClip:SetPoint(reverse and "BOTTOM" or "TOP", edge,
+                reverse and "BOTTOM" or "TOP")
+        else
+            rechargeClip:SetPoint(reverse and "TOPRIGHT" or "TOPLEFT", driverTexture,
+                reverse and "TOPLEFT" or "TOPRIGHT")
+            rechargeClip:SetPoint(reverse and "BOTTOMRIGHT" or "BOTTOMLEFT", driverTexture,
+                reverse and "BOTTOMLEFT" or "BOTTOMRIGHT")
+            rechargeClip:SetPoint(reverse and "LEFT" or "RIGHT", edge,
+                reverse and "LEFT" or "RIGHT")
+        end
+        rechargeClip:SetShown(frame.gui2RechargeActive == true and frame.gui2ProjectedFillShown ~= false)
+    elseif rechargeClip then
+        rechargeClip:Hide()
+    end
+    if frame and frame.gui2RechargeActive and frame.gui2RechargeDriver and not frame.gui2RechargeSeparate then
+        driverTexture = frame.gui2RechargeDriver:GetStatusBarTexture()
+    end
 
     clip:ClearAllPoints()
     if frame.gui2InverseFill == true then
@@ -172,6 +300,18 @@ local function ApplyProjectedDriverStyle(frame, force)
         GetProjectedDriverDirection(frame),
         force == true
     )
+    if frame.gui2ProjectedValueMode == true and frame.gui2InverseFill ~= true then
+        -- SetValue uses the legacy geometric origin (vertical: bottom).
+        -- Modern material fill styles also transform texture coordinates;
+        -- pin the count driver to its logical origin independently of them.
+        local reverse = IsProgressReverse(frame)
+        if frame.gui2ProjectedValueReverse ~= reverse or force == true or (styleWrites or 0) > 0 then
+            driver:SetReverseFill(reverse)
+            frame.gui2ProjectedValueReverse = reverse
+        end
+    else
+        frame.gui2ProjectedValueReverse = nil
+    end
     if frame.gui2InverseFill == true then
         local reverse = not IsProgressReverse(frame)
         if frame.gui2InverseDriverReverse ~= reverse or force == true or (styleWrites or 0) > 0 then
@@ -280,6 +420,108 @@ function GUI2:LayoutProjectedStatusBarFill(frame)
     return LayoutProjectedProgressFill(frame)
 end
 
+function GUI2:SetProjectedStatusBarValueMode(frame, enabled)
+    if not frame then return false end
+    frame.gui2ProjectedValueMode = enabled == true
+    return ApplyProjectedDriverStyle(frame, true)
+end
+
+-- Opt-in separate material for the fractional cell. Both clipping edges stay
+-- native; count/timer values and their geometry are never read back by Lua.
+function GUI2:ConfigureProjectedStatusBarRechargeAppearance(frame, color, style)
+    if not (frame and frame.track and frame.nativeFillClip) then return false end
+    frame.gui2RechargeSeparate = type(color) == "table"
+    if frame.gui2RechargeSeparate then
+        local clip = frame.gui2RechargeClip
+        if not clip then
+            clip = self:CreateFrame(frame.track, { background = false, border = false })
+            clip:SetClipsChildren(true)
+            frame.gui2RechargeClip = clip
+            frame.gui2RechargeMaterial = CreateFrame("StatusBar", nil, clip)
+        end
+        clip:SetFrameLevel(frame.nativeFillClip:GetFrameLevel())
+        local material = frame.gui2RechargeMaterial
+        material:SetFrameLevel(frame.nativeVisibleStatusBar:GetFrameLevel())
+        material:SetAllPoints(frame.track)
+        material:SetMinMaxValues(0, 1)
+        material:SetValue(1)
+        style = style or {}
+        material:SetStatusBarTexture(style.texture or DEFAULT_PROGRESS_TEXTURE)
+        material:GetStatusBarTexture():SetTexCoord(style.textureU0 or 0, style.textureU1 or 1,
+            style.textureV0 or 0, style.textureV1 or 1)
+        self:ApplyNativeStatusBarStyle(material, style, frame.orientation, frame.fillDirection, true)
+        material:SetStatusBarColor(color.r or color[1], color.g or color[2], color.b or color[3],
+            color.a or color[4] or 1)
+        material:Show()
+    end
+    LayoutProjectedProgressFill(frame)
+    return true
+end
+
+-- Extend the native count texture by one charge's native timer geometry.
+-- Both values stay in native sinks, including restricted counts and timers.
+function GUI2:PrepareProjectedStatusBarRecharge(frame, maximum, width, height)
+    if not (frame and frame.track and frame.nativeStatusBar and maximum) then return end
+    local driver = frame.gui2RechargeDriver
+    if not driver then
+        driver = CreateFrame("StatusBar", nil, frame.track)
+        frame.gui2RechargeDriver = driver
+        driver:SetMinMaxValues(0, 1)
+        driver:SetValue(0)
+    end
+    self:ApplyNativeStatusBarStyle(driver, PROJECTED_DRIVER_STYLE, frame.orientation,
+        GetProjectedDriverDirection(frame, true), true)
+    driver:GetStatusBarTexture():SetAlpha(0)
+    local origin = frame.nativeStatusBar:GetStatusBarTexture()
+    local vertical, reverse = frame.orientation == "vertical", IsProgressReverse(frame)
+    driver:ClearAllPoints()
+    if vertical then
+        driver:SetSize(width, height / maximum)
+        driver:SetPoint(reverse and "TOPLEFT" or "BOTTOMLEFT", origin,
+            reverse and "BOTTOMLEFT" or "TOPLEFT")
+    else
+        driver:SetSize(width / maximum, height)
+        driver:SetPoint(reverse and "TOPRIGHT" or "TOPLEFT", origin,
+            reverse and "TOPLEFT" or "TOPRIGHT")
+    end
+    driver:Show()
+    LayoutProjectedProgressFill(frame)
+end
+
+function GUI2:SetProjectedStatusBarRecharge(frame, durationObject, revision)
+    local driver = frame and frame.gui2RechargeDriver
+    if not driver then return end
+    if durationObject then
+        if not frame.gui2RechargeActive or frame.gui2RechargeRevision ~= revision then
+            self:ApplyNativeStatusBarStyle(driver, PROJECTED_DRIVER_STYLE, frame.orientation,
+                GetProjectedDriverDirection(frame, true), true)
+            local ok = pcall(driver.SetTimerDuration, driver, durationObject, 0, 0)
+            if not ok then self:SetProjectedStatusBarRecharge(frame, nil); return false end
+            driver:GetStatusBarTexture():SetAlpha(0)
+            frame.gui2RechargeRevision = revision
+        end
+        frame.gui2RechargeActive = true
+    elseif frame.gui2RechargeActive then
+        driver:SetMinMaxValues(0, 1)
+        driver:SetValue(0)
+        frame.gui2RechargeActive, frame.gui2RechargeRevision = nil, nil
+    end
+    LayoutProjectedProgressFill(frame)
+    return true
+end
+
+function GUI2:SetProjectedStatusBarRechargePreview(frame, fraction)
+    local driver = frame and frame.gui2RechargeDriver
+    if not driver then return end
+    self:ApplyNativeStatusBarStyle(driver, PROJECTED_DRIVER_STYLE, frame.orientation,
+        GetProjectedDriverDirection(frame), true)
+    driver:SetReverseFill(IsProgressReverse(frame))
+    driver:SetMinMaxValues(0, 1)
+    driver:SetValue(fraction)
+    frame.gui2RechargeActive, frame.gui2RechargeRevision = true, nil
+    LayoutProjectedProgressFill(frame)
+end
+
 function GUI2:SetProjectedStatusBarInverse(frame, enabled)
     enabled = enabled == true
     if not frame or frame.gui2InverseFill == enabled then return false end
@@ -315,10 +557,19 @@ end
 
 function GUI2:ReleaseAuraBarThresholds(frame)
     if not frame then return end
-    local trackLevel = frame.track and frame.track:GetFrameLevel() or 0
-    for overlay, offset in pairs(frame.gui2AuraBarThresholdOverlayLevels or {}) do
-        overlay:SetFrameLevel(trackLevel + offset)
+    local handle = frame.gui2AuraBarThresholdHandle
+    local parentManaged = handle and handle.parentManaged
+    local levels = frame.gui2AuraBarThresholdOverlayLevels
+    if not parentManaged and levels and next(levels) then
+        local trackLevel = frame.track and frame.track:GetFrameLevel() or 0
+        for overlay, offset in pairs(levels) do
+            overlay:SetFrameLevel(trackLevel + offset)
+        end
     end
+    if not parentManaged and frame.gui2AuraBarThresholdRoot then frame.gui2AuraBarThresholdRoot:Hide() end
+    frame.gui2AuraBarThresholdRoot = nil
+    frame.gui2AuraBarThresholdDrivers = nil
+    frame.gui2AuraBarThresholdGates = nil
     frame.gui2AuraBarThresholdOverlayLevels = nil
     frame.gui2AuraBarThresholdTopLevel = nil
     frame.gui2AuraBarThresholdLayerCount = nil
@@ -343,111 +594,133 @@ function GUI2:RaiseAuraBarThresholdOverlay(frame, overlay, offset)
         levels[overlay] = overlay:GetFrameLevel() - frame.track:GetFrameLevel()
     end
     local level = frame.gui2AuraBarThresholdTopLevel + offset
-    if overlay:GetFrameLevel() ~= level then overlay:SetFrameLevel(level) end
+    if overlay:GetFrameLevel() < level then overlay:SetFrameLevel(level) end
 end
 
--- Each gate is one integer application binding, independent of the aura cap.
--- The timer clip remains the outer owner; a gate only selects its material.
+-- Direct feeds reuse the official frame's sample. Filtered feeds use the
+-- same immutable candidate source as the authored Aura bar.
 function GUI2:SetAuraBarThresholds(frame, options)
     if not frame then return false end
     local policy = options and options.policy
     local unit = YUI.API and YUI.API.Unit
-    if not (policy and policy.enabled and frame.nativeFillClip
-        and frame.track and unit and unit.CreateFilteredAuraDisplay) then
+    if not (policy and policy.enabled and frame.nativeFillClip and frame.track
+        and (options.direct or unit and unit.CreateFilteredAuraDisplay)) then
         self:ReleaseAuraBarThresholds(frame)
         return false
     end
     if frame.gui2AuraBarThresholdSignature == options.signature then
-        return frame.gui2AuraBarThresholdHandle ~= nil or frame.gui2AuraBarThresholdLayerCount == 0
+        return frame.gui2AuraBarThresholdHandle ~= nil
+            or frame.gui2AuraBarThresholdRoot ~= nil
+            or frame.gui2AuraBarThresholdLayerCount == 0
     end
-    local layers = {}
-    local low, high = policy.low, policy.high
-    if low.enabled then
-        layers[#layers + 1] = { trigger = 0, color = low.color }
-        layers[#layers + 1] = { trigger = low.value + 1, color = options.fillColor }
-    end
-    if high.enabled then
-        layers[#layers + 1] = { trigger = high.value, color = high.color }
-    end
-    if #layers == 0 then
-        self:ReleaseAuraBarThresholds(frame)
-        frame.gui2AuraBarThresholdSignature = options.signature
-        frame.gui2AuraBarThresholdLayerCount = 0
-        return true
-    end
-    local slots = {}
-    local topLevel
-    for index = 1, #layers do
-        local layer = layers[index]
-        slots[index] = {
-            key = "bar-stack-color-" .. index,
-            spellIDs = options.spellIDs,
-            initializeFrame = function(auraFrame, _, handle)
-                auraFrame:ClearAllPoints()
-                auraFrame:SetAllPoints(frame.track)
-                local level = handle.container:GetFrameLevel() + index * 3
-                topLevel = math.max(topLevel or 0, level + 2)
-                auraFrame:SetFrameLevel(level)
-                local materialParent = auraFrame
-                local driver
-                if layer.trigger > 0 then
-                    -- A full-track interval is exposed only at the integer
-                    -- boundary. Never read the bound value or its geometry.
-                    driver = CreateFrame("StatusBar", nil, auraFrame)
-                    driver:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
-                    driver:SetOrientation("HORIZONTAL")
-                    driver:SetReverseFill(false)
-                    driver:SetWidth(options.width * layer.trigger)
-                    driver:SetPoint("TOPRIGHT", frame.track, "TOPRIGHT")
-                    driver:SetPoint("BOTTOMRIGHT", frame.track, "BOTTOMRIGHT")
-                    driver:GetStatusBarTexture():SetAlpha(0)
-                    materialParent = CreateFrame("Frame", nil, auraFrame)
-                    materialParent:SetAllPoints(driver:GetStatusBarTexture())
-                    materialParent:SetClipsChildren(true)
-                    materialParent:SetFrameLevel(level + 1)
-                end
-                local material = CreateFrame("StatusBar", nil, materialParent)
-                material:SetAllPoints(frame.track)
-                material:SetFrameLevel(level + 2)
-                material:SetMinMaxValues(0, 1)
-                material:SetValue(1)
-                material:SetStatusBarTexture(options.texture)
-                if self.ResolveNativeStatusBarDirection then
-                    local orientation, rotates, reverse = self:ResolveNativeStatusBarDirection(
-                        options.orientation, options.fillDirection)
-                    material:SetOrientation(orientation)
-                    material:SetRotatesTexture(rotates)
-                    material:SetReverseFill(reverse)
-                end
-                local texture = material:GetStatusBarTexture()
-                texture:SetTexCoord(options.u0, options.u1, options.v0, options.v1)
-                local color = layer.color
-                material:SetStatusBarColor(color.r or color[1], color.g or color[2],
-                    color.b or color[3], color.a or color[4] or 1)
-                if driver then
-                    return { applicationBar = { target = driver,
-                        options = { maxApplications = layer.trigger,
-                            interpolation = 0 } } }
-                end
-            end,
-        }
-    end
-    local handle = unit.CreateFilteredAuraDisplay(frame.nativeFillClip, {
-        unit = options.unit, filter = options.filter,
-        requirePlayerSource = options.requirePlayerSource,
-        slots = slots,
-    })
-    -- A changed source must not keep the previous source's tint on failure.
     self:ReleaseAuraBarThresholds(frame)
+    local layers = {}
+    if policy.low.enabled then
+        layers[#layers + 1] = { trigger = 0, color = policy.low.color }
+        layers[#layers + 1] = { trigger = policy.low.value + 1, color = options.fillColor }
+    end
+    if policy.high.enabled then
+        layers[#layers + 1] = { trigger = policy.high.value, color = policy.high.color }
+    end
     frame.gui2AuraBarThresholdSignature = options.signature
+    frame.gui2AuraBarThresholdLayerCount = #layers
+    if #layers == 0 then return true end
+    local root = self:CreateFrame(frame.nativeFillClip, { mouse = false, background = false, border = false })
+    root:SetAllPoints(frame.track)
+    local baseLevel = frame.nativeVisibleStatusBar:GetFrameLevel()
+    root:SetFrameLevel(baseLevel + 1)
+    local drivers, gates = {}, {}
+    local function Initialize(layer, parent, index)
+        local level = baseLevel + index * 3
+        parent:SetFrameLevel(level)
+        local materialParent, gate, binding = parent
+        if layer.trigger > 0 then
+            if options.direct then
+                -- Public sinks reuse the established integer geometry gate.
+                gate = self:CreateAuraApplicationGate(parent, frame.track,
+                    { operator = 'gte', value = layer.trigger },
+                    options.width or 1, options.height or 1)
+                materialParent = gate.clip
+                gate.lowerClip:SetFrameLevel(level)
+                gate.clip:SetFrameLevel(level + 1)
+                drivers[#drivers + 1] = gate.driver
+                gates[#gates + 1] = gate
+            else
+                local driver = CreateFrame('StatusBar', nil, parent)
+                driver:SetStatusBarTexture(DEFAULT_PROGRESS_TEXTURE)
+                driver:SetAllPoints(frame.track)
+                driver:GetStatusBarTexture():SetAlpha(0)
+                -- Native ApplyApplicationBar owns SetShown(applications >=
+                -- minApplications). The material is its descendant, so zero
+                -- fill geometry and resizes cannot leave a stale color visible.
+                materialParent = driver
+                binding = { target = driver, options = {
+                    minApplications = layer.trigger,
+                    maxApplications = layer.trigger + 1, interpolation = 0 } }
+            end
+        end
+        local material = CreateFrame('StatusBar', nil, materialParent)
+        material:SetAllPoints(frame.track)
+        material:SetFrameLevel(level + 2)
+        material:SetMinMaxValues(0, 1)
+        material:SetValue(1)
+        self:ApplyNativeStatusBarStyle(material, {
+            texture = options.texture, textureU0 = options.u0, textureU1 = options.u1,
+            textureV0 = options.v0, textureV1 = options.v1, fillColor = layer.color,
+        }, options.orientation, options.fillDirection, true)
+        if binding then return { applicationBar = binding } end
+    end
+    local handle
+    if options.direct then
+        for index, layer in ipairs(layers) do
+            Initialize(layer, self:CreateFrame(root, { background = false, border = false }), index)
+        end
+    else
+        local slots = {}
+        for index, layer in ipairs(layers) do
+            slots[index] = {
+                key = 'bar-stack-color-' .. index, spellIDs = options.spellIDs,
+                initializeFrame = function(auraFrame)
+                    auraFrame:SetAllPoints(frame.track)
+                    return Initialize(layer, auraFrame, index)
+                end,
+            }
+        end
+        handle = unit.CreateFilteredAuraDisplay(root, {
+            unit = options.unit, filter = options.filter,
+            parentManaged = options.parentManaged,
+            requirePlayerSource = options.requirePlayerSource, slots = slots,
+        })
+        if not handle then root:Hide(); return false end
+    end
+    frame.gui2AuraBarThresholdRoot = root
     frame.gui2AuraBarThresholdHandle = handle
-    frame.gui2AuraBarThresholdTopLevel = handle and topLevel or nil
-    frame.gui2AuraBarThresholdLayerCount = handle and #layers or nil
-    return handle ~= nil
+    frame.gui2AuraBarThresholdDrivers = options.direct and drivers or nil
+    frame.gui2AuraBarThresholdGates = options.direct and gates or nil
+    frame.gui2AuraBarThresholdTopLevel = baseLevel + #layers * 3 + 2
+    return true
+end
+
+-- Public direct gates can follow width changes. Live native-bound descendants
+-- remain entirely engine-owned after initialization.
+function GUI2:LayoutAuraBarThresholds(frame, width, height)
+    local gates = frame and frame.gui2AuraBarThresholdGates
+    local changed = false
+    for index = 1, gates and #gates or 0 do
+        local gate = gates[index]
+        if gate.width ~= width or gate.height ~= height then
+            self:ConfigureAuraApplicationGate(gate, frame.track,
+                { operator = gate.operator, value = gate.value }, width, height)
+            changed = true
+        end
+    end
+    return changed
 end
 
 function GUI2:ReleaseProjectedStatusBarFill(frame)
     if not frame then return end
+    self:SetProjectedStatusBarRecharge(frame, nil)
+    if frame.gui2RechargeSeparate then self:ConfigureProjectedStatusBarRechargeAppearance(frame, nil) end
     self:ReleaseAuraBarThresholds(frame)
     if frame.nativeFillClip then frame.nativeFillClip:Hide() end
     if frame.nativeVisibleStatusBar then
@@ -467,6 +740,10 @@ end
 
 SetNativeProgressFillShown = function(frame, shown)
     shown = shown == true
+    if frame then frame.gui2ProjectedFillShown = shown end
+    if frame and frame.gui2RechargeClip then
+        frame.gui2RechargeClip:SetShown(shown and frame.gui2RechargeSeparate == true and frame.gui2RechargeActive == true)
+    end
     if frame and frame.nativeStatusBar then
         frame.nativeStatusBar:SetShown(
             frame.nativeVisibleStatusBar and true or shown
@@ -1106,9 +1383,9 @@ local function LayoutProgressBar(frame)
         ) then
             frame.icon:SetSize(iconSize, iconSize)
         end
-        if iconPosition == "left" then
+        if iconPosition == "left" or iconPosition == "outside-left" then
             frame.icon:SetPoint("RIGHT", frame.track, "LEFT", -iconGap, 0)
-        elseif iconPosition == "right" then
+        elseif iconPosition == "right" or iconPosition == "outside-right" then
             frame.icon:SetPoint("LEFT", frame.track, "RIGHT", iconGap, 0)
         elseif iconPosition == "top" then
             frame.icon:SetPoint("BOTTOM", frame.track, "TOP", 0, iconGap)

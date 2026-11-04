@@ -1,20 +1,14 @@
--- 数据页：公测数据（死亡 / 升级 / 报到）、掉落记录、战绩卡二维码、开关
+-- 设置页（10-17 用户「公测数据这个里面都改造成设置吧，用齿轮标志」+ 截图「都没有用了，删了」）
+--   原来的记录条数 / 导出数据 / 战绩卡二维码 / 「记录公测数据」勾全部拿掉；这页只放开关。
+--   导出还在命令里：/gi data（ns.ExportAll）、/gi card；记录照旧默认开，/gi data off 关。
+--   页 key 仍叫 "data"（老存档记住的页、/gi 跳页都不用改）。
 -- 插件不联网：导出串 / 二维码是唯一出口；不记角色名、服务器名
--- 10-07 用户「没用的按钮太多了」：8 个按钮 → 2 个按钮 + 2 个勾选框
---   · 「导出」一个按钮管两种串：先公测数据（GIFS1）再掉落（GIFD1），框里的确认键 =「已贴好，清掉已导出」，不再单独放清空按钮
---     （⛔两种串别拼进一个框：网站粘贴框一次只认一种前缀，同时带两种时只收掉落那段）
---   · 记录开关 / 小地图按钮 = 勾选框；升级指引走 /gif lv
 local _, ns = ...
 
 local page
 
-local function count(list, sentKey)
-    local d = ns.db
-    local all = #(d[list] or {})
-    return all, math.max(0, all - (d[sentKey] or 0))
-end
-
 -- 依次弹导出框：公测数据 → 掉落；最后一步的确认键清掉这次导出过的
+--   ⛔两种串别拼进一个框：网站粘贴框一次只认一种前缀，同时带两种时只收掉落那段
 local function exportAll()
     local steps = {}
     local s1, nd, nl = ns.StatsExportString()
@@ -37,7 +31,6 @@ local function exportAll()
         ns.ShowBox(st.title, hint, ns.UploadURL(st.s), function()
             if last then
                 for _, x in ipairs(steps) do x.clear() end
-                C_Timer.After(0.1, function() if page and page:IsShown() then ns.ShowPage("data") end end)
             else
                 C_Timer.After(0.05, function() show(i + 1) end)
             end
@@ -47,58 +40,202 @@ local function exportAll()
 end
 ns.ExportAll = exportAll
 
-local function check(p, text, y, get, set)
+local function check(p, text, x, y, get, set)
     local c = CreateFrame("CheckButton", nil, p, "UICheckButtonTemplate")
-    c:SetSize(24, 24); c:SetPoint("TOPLEFT", 10, y)
+    c:SetSize(24, 24); c:SetPoint("TOPLEFT", x, y)
     local fs = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     fs:SetPoint("LEFT", c, "RIGHT", 4, 0); fs:SetText(text)
-    c:SetScript("OnClick", function(self) set(self:GetChecked() and true or false) end)
+    c.text = fs
+    c:SetScript("OnClick", function(self)
+        set(self:GetChecked() and true or false)
+        if page then page.refresh() end   -- 单选组：点一个，同组其他的跟着刷
+    end)
     c.get = get
     return c
 end
 
+local function section(p, text, y)
+    local fs = p:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    fs:SetPoint("TOPLEFT", 12, y); fs:SetText(text)
+    local ln = p:CreateTexture(nil, "ARTWORK")
+    ln:SetColorTexture(1, 0.82, 0, 0.18)
+    ln:SetPoint("LEFT", fs, "RIGHT", 8, 0); ln:SetPoint("RIGHT", p, "RIGHT", -12, 0); ln:SetHeight(1)
+    return fs
+end
+
+-- 10-18 公会 / 组队拆成按需加载的子插件：它们的开关画在一块单独的区域里，模块加载状态一变（点了右侧页签）就重画这块
+local function modSig() return tostring(ns.GuildChatLevel ~= nil) .. tostring(ns.LevelShare ~= nil) .. tostring(ns.LevelMute ~= nil) .. tostring(ns.QM ~= nil) end
+
+local function drawMods(p)
+    if rawget(p, "modBox") then p.modBox:Hide() end
+    local box = CreateFrame("Frame", nil, p)
+    box:SetPoint("TOPLEFT", 0, rawget(p, "modY") or -110); box:SetPoint("RIGHT", p, "RIGHT", 0, 0); box:SetHeight(300)
+    p.modBox, p.modChecks, p.modSigNow = box, {}, modSig()
+    local function add(c) p.modChecks[#p.modChecks + 1] = c; return c end
+    local y = 0
+    local function notLoaded(key, zh, en)
+        if not (ns.ModuleAvailable and ns.ModuleAvailable(key)) then return end
+        local fs = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        fs:SetPoint("TOPLEFT", 16, y); fs:SetPoint("RIGHT", box, "RIGHT", -12, 0); fs:SetJustifyH("LEFT")
+        fs:SetText(string.format(ns.L("%s模块还没加载（默认不加载）：点右侧「%s」页签后，这里出现它的设置", "The %s module isn't loaded yet: open the %s tab on the right and its settings appear here"),
+            ns.L(zh, en), ns.L(zh, en)))
+        y = y - 22
+    end
+
+    -- 公会（GuildChatLevel / LevelShare）：10-19 用户「拿到主插件，不要放子插件了」搬回主插件 → 登录就有，这两项一直出
+    local GCL, LS, LM = ns.GuildChatLevel, ns.LevelShare, ns.LevelMute
+    if GCL and GCL.Paused then GCL = nil end   -- 10-25 0.5.5：公会频道等级暂停（换聊天框 AddMessage 污染暴雪聊天，见 GuildChatLevel.lua），开关不出
+    if GCL or LS or LM then
+        section(box, ns.L("公会", "Guild"), y); y = y - 24
+        if GCL then
+            add(check(box, ns.L("公会频道消息前显示说话人的当前等级", "Show the speaker's level in guild chat"), 14, y,
+                function() return GCL.Enabled() end, function(v) GCL.SetEnabled(v) end))
+            y = y - 30
+        end
+        if LS then
+            local fs = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); fs:SetPoint("TOPLEFT", 16, y)
+            fs:SetText(ns.L("升级播报（发到公会频道，6 级起）", "Level-up shout (guild chat, from level 6)")); y = y - 20
+            local modes = {
+                { "off", ns.L("关", "Off") }, { "every", ns.L("每升一级", "Every level") },
+                { "five", ns.L("每 5 级", "Every 5 levels") }, { "milestone", ns.L("只在 10·20·30·40·50·60 级", "Milestones only") },
+            }
+            local x = 14
+            for _, m in ipairs(modes) do
+                local key = m[1]
+                local c = add(check(box, m[2], x, y,
+                    function() return (ns.db.lvlShare or "milestone") == key end,
+                    function() LS.SetMode(key) end))
+                x = x + 30 + math.max(60, (c.text:GetStringWidth() or 60)) + 18
+            end
+            y = y - 30
+        end
+        if LM then   -- 10-26 玩家「公会里全是各家插件升级提醒」
+            add(check(box, ns.L("屏蔽别人的升级播报（各家插件在公会 / 队伍里刷的「升到 N 级」）", "Hide other players' level-up shouts (addon spam in guild / group chat)"), 14, y,
+                function() return LM.Enabled() end, function(v) LM.SetEnabled(v) end))
+            y = y - 30
+        end
+    end   -- 两个都没有（只可能是被 HOLD 剔掉）= 整栏不出；⛔别再提示「点公会页签后出现」，它们已不在公会子插件里
+
+    local QM = ns.QM
+    section(box, ns.L("组队", "Group up"), y); y = y - 24
+    if ns.GroupAutoLoad and ns.ModuleAvailable and ns.ModuleAvailable("group") then   -- 10-18 组队默认登录就加载
+        add(check(box, ns.L("登录时加载组队模块（不加载 = 附近的人看不到你的任务进度）", "Load the group module at login (otherwise nearby players can't see your quests)"), 14, y,
+            function() return ns.GroupAutoLoad() end, function(v) ns.db.ui = ns.db.ui or {}; ns.db.ui.groupLazy = (not v) or nil; if v and ns.PerfGuard then ns.PerfGuard.UserOpened() end end))
+        y = y - 28
+    end
+    if QM then
+        add(check(box, ns.L("和附近玩家共享任务进度（组队页「附近任务」靠它）", "Share quest progress with nearby players"), 14, y,
+            function() return not (ns.db.qm and ns.db.qm.share == false) end, function(v) QM.SetSharing(v) end))
+        y = y - 28
+        -- 10-18 觉得卡的玩家能在这里关，不用去翻命令 / 删插件（组队抽屉「身边玩家」标题右边也有同一个勾）
+        if QM.AutoPlatesOn then
+            add(check(box, ns.L("打开组队窗口时自动开友方姓名板（认出身边没装插件的人；觉得卡可以先关掉）", "Auto friendly nameplates while the group window is open (try off if it feels laggy)"), 14, y,
+                function() return QM.AutoPlatesOn() end, function(v) QM.SetAutoPlates(v) end))
+            y = y - 28
+        end
+        if QM.Thanks then
+            add(check(box, ns.L("队伍解散后提示向队友道谢", "Offer to thank teammates when a group ends"), 14, y,
+                function() return QM.Thanks.On() end, function(v) QM.Thanks.Set(v) end))
+            y = y - 28
+        end
+    else
+        y = y + 2
+        notLoaded("group", "组队", "Group up")
+    end
+end
+
 local function refresh()
     if not page then return end
-    local dAll, dNew = count("deaths", "deathsSent")
-    local lAll, lNew = count("lvls", "lvlsSent")
-    local rAll, rNew = count("loot", "lootSent")
-    local function line(name, all, new)
-        return name .. "  |cffffffff" .. all .. "|r" .. (new > 0 and ("  |cff33ff99" .. ns.L("（", "(") .. new .. ns.L(" 条没导出）", " new)") .. "|r") or "")
-    end
-    page.body:SetText(ns.EnSafe(table.concat({
-        line(ns.L("死亡记录", "Deaths"), dAll, dNew),
-        line(ns.L("升级记录", "Level-ups"), lAll, lNew),
-        line(ns.L("掉落记录", "Loot records"), rAll, rNew),
-    }, "\n")))
-    local n = dNew + lNew + rNew
-    page.export:SetText(n > 0 and (ns.L("导出数据（", "Export (") .. n .. ns.L("）", ")")) or ns.L("导出数据", "Export"))
-    for _, c in ipairs(page.checks) do c:SetChecked(c.get()) end
+    if rawget(page, "modY") and rawget(page, "modSigNow") ~= modSig() then drawMods(page) end
+    for _, c in ipairs(page.checks) do c:SetChecked(c.get() and true or false) end
+    for _, c in ipairs(rawget(page, "modChecks") or {}) do c:SetChecked(c.get() and true or false) end
 end
 
 local function build(p)
     page = p
-    ns.PageHeader(p, ns.L("公测数据", "Beta data"), ns.L("死亡 / 升级 / 掉落，导出后一起补全数据", "Deaths / levels / loot, pooled to help everyone"))
-    p.body = p:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    p.body:SetPoint("TOPLEFT", 14, -54); p.body:SetWidth(600)
-    p.body:SetJustifyH("LEFT"); p.body:SetSpacing(6)
+    p.refresh = refresh
+    -- 10-30 四端统一用户规模事实陈述（插件内只写事实，不带任何引流/渠道字样）
+    -- 10-31 改成本服自己的下载数（CurseForge + 新手盒子 + 网易 DD + 自己站点合计，见网站 brand_stats.json games.*）；原先写的 24 万是正式服 CF 单一项目，日活是小程序全端，都不是本服的
+    ns.PageHeader(p, ns.L("设置", "Settings"),
+        ns.L("无限版插件累计下载 6.7 万+ 次", "67K+ downloads of the Forever addon"))
+    p.checks = {}
+    local function add(c) p.checks[#p.checks + 1] = c; return c end
+    local y = -50
 
-    p.export = ns.Button(p, "", 140, 26, function() exportAll() end)
-    p.export:SetPoint("TOPLEFT", 12, -130)
-    local qr = ns.Button(p, ns.L("战绩卡二维码", "Beta card QR"), 120, 26, function() ns.ShowCardQR() end)
-    qr:SetPoint("LEFT", p.export, "RIGHT", 8, 0)
+    section(p, ns.L("界面", "Interface"), y); y = y - 24
+    add(check(p, ns.L("显示小地图按钮", "Show minimap button"), 14, y,
+        function() return not (ns.db.minimap and ns.db.minimap.hide) end, function(v) ns.SetMinimapShown(v) end))
+    y = y - 30
 
-    p.checks = {
-        check(p, ns.L("记录公测数据（死亡 / 升级 / 掉落）", "Record beta data (deaths / levels / drops)"), -172,
-            function() return ns.db.collect ~= false end, function(v) ns.SetCollect(v) end),
-        check(p, ns.L("显示小地图按钮", "Show minimap button"), -200,
-            function() return not (ns.db.minimap and ns.db.minimap.hide) end, function(v) ns.SetMinimapShown(v) end),
-    }
+    -- 10-18 卡顿自查（Perf.lua，HOLD）：玩家觉得卡 → 一键测，用大白话告诉他是谁卡的，别直接把插件删了
+    if ns.Perf and ns.Perf.Plates then
+        local b = ns.Button(p, ns.L("卡顿自查（约 2 分钟）", "Lag check (~2 min)"), 150, 22, function() ns.Perf.Plates() end)
+        b:SetPoint("TOPLEFT", 18, y)
+        -- 10-23 用户截图「悬停没TOOLTIPS」：右边那行「上次：…（悬停看全部）」是纯文字，悬停没反应 → 按钮和这行共用一份提示
+        local function perfTip(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(ns.L("卡顿自查", "Lag check"), 1, 0.82, 0)
+            GameTooltip:AddLine(ns.L("站着别动约 2 分钟：自动切换几种姓名板设置各测一遍，测完全部还原，然后告诉你卡在哪（GearInsight 自己占多少、友方姓名板有没有影响、哪个插件最占时间）。进战斗会自动停。",
+                "Stand still for ~2 minutes: tries a few nameplate settings, restores them all, then tells you what is slow (GearInsight itself, friendly nameplates, the heaviest addons). Stops if you enter combat."), 1, 1, 1, true)
+            local last = ns.db.perfPlates and ns.db.perfPlates[#ns.db.perfPlates]
+            if last and last.verdict then
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine(ns.L("上次自查（", "Last check (") .. (last.at or "") .. ns.L("）：", "):"), 1, 0.82, 0)
+                for _, v in ipairs(last.verdict) do GameTooltip:AddLine(ns.L(v[1], v[2]), 0.85, 0.85, 0.85, true) end
+            end
+            GameTooltip:Show()
+        end
+        b:SetScript("OnEnter", perfTip)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        local fs = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("LEFT", b, "RIGHT", 10, 0); fs:SetPoint("RIGHT", p, "RIGHT", -12, 0); fs:SetJustifyH("LEFT"); fs:SetWordWrap(false)
+        p.perfLast = fs
+        local hit = CreateFrame("Frame", nil, p)
+        hit:SetPoint("TOPLEFT", fs, "TOPLEFT", 0, 4); hit:SetPoint("BOTTOMRIGHT", fs, "BOTTOMRIGHT", 0, -4)
+        hit:EnableMouse(true)
+        hit:SetScript("OnEnter", perfTip)
+        hit:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        p.perfLastHit = hit
+        ns.RefreshPerfVerdict = function()
+            local last = ns.db.perfPlates and ns.db.perfPlates[#ns.db.perfPlates]
+            local first = last and last.verdict and last.verdict[2] or (last and last.verdict and last.verdict[1])
+            fs:SetText(first and ("|cff999999" .. ns.L("上次：", "Last: ") .. "|r" .. ns.L(first[1], first[2]) .. "|cff777777" .. ns.L("（悬停看全部）", " (hover for all)") .. "|r")
+                or ("|cff777777" .. ns.L("觉得卡？点这里测一下是不是 GearInsight 的问题", "Feels laggy? Check whether GearInsight is the cause") .. "|r"))
+        end
+        ns.RefreshPerfVerdict()
+        y = y - 30
+    end
 
-    local note = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    note:SetPoint("TOPLEFT", 14, -244); note:SetWidth(600); note:SetJustifyH("LEFT"); note:SetSpacing(4)
-    note:SetText(ns.EnSafe(ns.L(
-        "只带随机编号，不带角色名、服务器名；插件自己不联网。\n大家的数据汇总后会出现在鼠标提示里：怪物杀过多少公测玩家、每一级平均用时。\n战绩卡：微信扫码进小程序，看这个角色的升级用时 / 死亡 / 配点。",
-        "Only a random id, no character or realm name; the addon never goes online by itself.\nPooled data shows up in tooltips.\nBeta card: scan with WeChat to see this character in the mini program.")))
+    -- 10-22 自动卡顿检测（PerfGuard.lua，HOLD）
+    local PG = ns.PerfGuard
+    if PG then
+        local c = add(check(p, ns.L("自动检测卡顿（如果是组队引起的，自动关掉组队）", "Auto lag detection (turns Group off if Group is the cause)"), 14, y,
+            function() return PG.On() end, function(v) PG.Set(v) end))
+        c:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(ns.L("自动检测卡顿", "Auto lag detection"), 1, 0.82, 0)
+            GameTooltip:AddLine(ns.L("一直量帧率：连续卡 30 秒，先把组队暂停 30 秒对照，明显变顺才关掉组队，没变顺就原样恢复。每次卡顿都记日志（/gi perf log 查看）。",
+                "Watches frame times: after 30s of lag, pauses Group for 30s; turns it off only if that clearly helps, otherwise resumes. Every lag event is logged (/gi perf log)."), 1, 1, 1, true)
+            local line = PG.LastLine()
+            if line then GameTooltip:AddLine(" "); GameTooltip:AddLine(ns.L("最近一次：", "Last: ") .. line, 0.85, 0.85, 0.85, true) end
+            GameTooltip:Show()
+        end)
+        c:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        y = y - 30
+    end
+
+    -- 10-17 官方冷却管理器印快捷键（KeysCdm.lua，HOLD）
+    local KC = ns.KeysCdm
+    if KC then
+        section(p, ns.L("键位", "Keys"), y); y = y - 24
+        add(check(p, ns.L("官方冷却管理器图标上显示快捷键", "Show keybinds on the Cooldown Manager"), 14, y,
+            function() return KC.Enabled() end, function(v) KC.SetEnabled(v) end))
+        y = y - 30
+    end
+
+    p.modY = y
+    drawMods(p)
 end
 
-ns.RegisterPage({ key = "data", order = 4, title = ns.L("公测数据", "Beta data"), build = build, refresh = refresh })
+ns.RegisterPage({ key = "data", order = 4, title = ns.L("设置", "Settings"), icon = "Interface\\Icons\\INV_Misc_Gear_01",
+    build = build, refresh = refresh })

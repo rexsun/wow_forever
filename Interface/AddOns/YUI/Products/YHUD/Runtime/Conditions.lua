@@ -31,6 +31,16 @@ function Conditions:Evaluate(
     auraPresent,
     persistentSlot
 )
+    if kind == "devourer-transform" then
+        if not (state and state.classExtra and state.resolved) then return false, false end
+        return conditionType == self.CONDITION_MET and state.extraActive == true and state.thresholdReached == true, true
+    end
+    if kind == "brewmaster-elixir" then
+        if not (state and state.classExtra and state.resolved and state.available and state.isEnabled ~= false) then return false, false end
+        if conditionType == self.SELF_READY then return state.extraActive ~= true, true end
+        if conditionType == self.SELF_COOLDOWN then return state.extraActive == true, true end
+        return false, false
+    end
     if conditionType == self.SELF_READY
         or conditionType == self.SELF_COOLDOWN then
         if kind ~= "cooldown" or type(state) ~= "table" then

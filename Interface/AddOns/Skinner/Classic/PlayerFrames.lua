@@ -733,7 +733,7 @@ aObj.SetupClassic_PlayerFrames = function()
 			if not self.prdb.TalentUI or self.initialized.GlyphUI then return end
 			self.initialized.GlyphUI = true
 
-			local clrBB, fName
+			local clrBB = _G.nop
 			if self.modBtnBs then
 				function clrBB(btn)
 					if btn.sbb then
@@ -749,22 +749,21 @@ aObj.SetupClassic_PlayerFrames = function()
 						clrBB(btn)
 					end
 				end)
-			else
-				clrBB = _G.nop
 			end
 			self:SecureHookScript(_G.GlyphFrame, "OnShow", function(this)
-				fName = this:GetName()
 				self:keepFontStrings(this)
 				this.levelOverlayText1:SetTextColor(self.HT:GetRGB())
 				this.levelOverlayText2:SetTextColor(self.HT:GetRGB())
 				self:removeInset(this.sideInset)
-				this.sideInset:DisableDrawLayer("BACKGROUND")
-				self:skinObject("editbox", {obj=_G[fName .. "SearchBox"], fType=ftype, si=true})
-				self:skinObject("ddbutton", {obj=this.FilterDropdown, fType=ftype})
-				self:skinObject("slider", {obj=_G[fName .. "ScrollFrameScrollBar"], fType=ftype, rpTex="background", x1=2, x2=-3})
-				for i = 1, #_G.GLYPH_TYPE_INFO do
-					self:removeRegions(_G[fName .. "Header" .. i], {1, 2, 3})
+				_G.GlyphFrameSideInsetBackground:SetTexture(nil)
+				if self.modBtnBs then
+					self:addButtonBorder{obj=this.clearInfo, fType=ftype}
 				end
+				self:skinObject("editbox", {obj=_G.GlyphFrameSearchBox, fType=ftype, si=true})
+				self:skinObject("ddbutton", {obj=this.FilterDropdown, fType=ftype})
+				self:skinObject("slider", {obj=_G.GlyphFrameScrollFrameScrollBar, fType=ftype, rpTex="background", x1=2, x2=-3})
+				self:removeRegions(_G.GlyphFrameHeader1, {1, 2, 3})
+				self:removeRegions(_G.GlyphFrameHeader2, {1, 2, 3})
 				for _, btn in _G.pairs(this.scrollFrame.buttons) do
 					btn:GetNormalTexture():SetTexture(nil)
 					btn.disabledBG:SetTexture(nil)
@@ -772,9 +771,6 @@ aObj.SetupClassic_PlayerFrames = function()
 						self:addButtonBorder{obj=btn, fType=ftype, relTo=btn.icon}
 						clrBB(btn)
 					end
-				end
-				if self.modBtnBs then
-					self:addButtonBorder{obj=this.clearInfo, fType=ftype}
 				end
 
 				self:Unhook(this, "OnShow")
@@ -869,7 +865,8 @@ aObj.SetupClassic_PlayerFrames = function()
 					self:Unhook(fObj, "OnShow")
 				end)
 				self:SecureHookScript(_G.InspectTalentFrame, "OnShow", function(fObj)
-					self:keepFontStrings(fObj)
+					-- keep ARTWORK regions
+					fObj:DisableDrawLayer("BACKGROUND")
 					self:skinObject("tabs", {obj=fObj, prefix=fObj:GetName(), fType=ftype, ignoreSize=true, lod=self.isTT and true, upwards=true, regions={7}, offsets={x1=2, y1=-2, x2=-2, y2=0}})
 					self:skinObject("slider", {obj=_G.InspectTalentFrameScrollFrame.ScrollBar, fType=ftype, rpTex="artwork"})
 					self:keepFontStrings(_G.InspectTalentFramePointsBar)
@@ -1332,7 +1329,7 @@ aObj.SetupClassic_PlayerFrames = function()
 		self.initialized.TalentUI = true
 
 		if self.isClsc then
-			local specBtnRegs = self.isClsc and {1, 2, 3} or {1, 2, 3, 8}
+			local specBtnRegs = {1, 2, 3, 9} -- .bg, .ring, .selectedTex, .learnedTex
 			local btn
 			self:SecureHook("PlayerTalentFrame_UpdateSpecFrame", function(frame, _)
 				for i = 1, 10 do
@@ -1352,7 +1349,6 @@ aObj.SetupClassic_PlayerFrames = function()
 						self:clrBBC(frame.spellsScroll.child.sbb, frame.disabled and "disabled" or "gold")
 					end
 				end
-
 			end)
 			self:SecureHookScript(_G.PlayerTalentFrame, "OnShow", function(this)
 				self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT and true})
@@ -1361,7 +1357,6 @@ aObj.SetupClassic_PlayerFrames = function()
 					if self.modBtnBs then
 						self:addButtonBorder{obj=_G["PlayerSpecTab" .. i], ofs=3}
 					end
-
 				end
 				self:skinObject("frame", {obj=this, fType=ftype, kfs=true, cb=true, y2=-4})
 				self:removeMagicBtnTex(_G.PlayerTalentFrameActivateButton)
@@ -1392,14 +1387,14 @@ aObj.SetupClassic_PlayerFrames = function()
 				self:SecureHookScript(_G.PlayerTalentFrameSpecialization, "OnShow", function(fObj)
 					skinSpecFrame(fObj)
 
-					self:Unhook(fObj, "OnShow")
+					self:Unhook(_G.PlayerTalentFrameSpecialization, "OnShow")
 				end)
 				self:checkShown(_G.PlayerTalentFrameSpecialization)
 
 				self:SecureHookScript(_G.PlayerTalentFramePetSpecialization, "OnShow", function(fObj)
 					skinSpecFrame(fObj)
 
-					self:Unhook(fObj, "OnShow")
+					self:Unhook(_G.PlayerTalentFramePetSpecialization, "OnShow")
 				end)
 
 				self:SecureHookScript(_G.PlayerTalentFrameTalents, "OnShow", function(fObj)
@@ -1410,10 +1405,10 @@ aObj.SetupClassic_PlayerFrames = function()
 						self:skinStdButton{obj=fObj.learnButton, fType=ftype, schk=true}
 					end
 
-					self:Unhook(fObj, "OnShow")
+					self:Unhook(_G.PlayerTalentFrameTalents, "OnShow")
 				end)
 
-				self:Unhook(this, "OnShow")
+				self:Unhook(_G.PlayerTalentFrame, "OnShow")
 			end)
 			self:checkShown(_G.PlayerTalentFrame)
 		else
@@ -1460,7 +1455,7 @@ aObj.SetupClassic_PlayerFrames = function()
 					skinTalentBtns()
 				end)
 
-				self:Unhook(this, "OnShow")
+				self:Unhook(_G.PlayerTalentFrame, "OnShow")
 			end)
 			self:checkShown(_G.PlayerTalentFrame)
 		end

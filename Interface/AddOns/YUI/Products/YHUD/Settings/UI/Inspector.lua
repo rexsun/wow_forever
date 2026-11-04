@@ -139,6 +139,130 @@ local function ProjectResourceDisplayOrder(profile, groupId, presets)
 end
 I.ProjectResourceDisplayOrder = ProjectResourceDisplayOrder
 
+function I.ShowResourceUsageTooltip(row)
+    local usage, session = row.resourceUsage, Designer:GetSession()
+    if not GameTooltip or not session or not usage or usage.count <= 1
+        or session ~= row.resourceSharingSession
+        or session.selectedGroupId ~= row.resourceSharingGroup then return end
+    GameTooltip:SetOwner(row.usageCount, "ANCHOR_RIGHT")
+    GameTooltip:SetText(string.format(T("designer.resource.usage_count", "%d 个专精已启用"), usage.count))
+    GameTooltip:AddLine(T("designer.resource.copy_scope", "当前方案 · 当前资源组"), 1, 1, 1, true)
+    local classes, names, lines, grouped = {}, {}, {}, {}
+    for _, info in ipairs(ResourceCatalog:GetClasses()) do classes[info.classFile] = info.className end
+    for _, spec in ipairs(usage.specializations) do
+        if not names[spec.classFile] then
+            names[spec.classFile] = {}
+            for _, info in ipairs(ResourceCatalog:GetSpecializations(spec.classFile)) do
+                names[spec.classFile][info.specID] = info.name
+            end
+        end
+        local className = YUI.Locale and YUI.Locale.GetClassName
+            and YUI.Locale:GetClassName(spec.classFile, classes[spec.classFile])
+            or classes[spec.classFile] or spec.classFile
+        local formKeys, formNames = {}, {}
+        for _, form in ipairs(spec.forms) do
+            formKeys[#formKeys + 1] = form.key
+            formNames[#formNames + 1] = T(form.nameKey, form.key)
+        end
+        local formText, formKey = nil, table.concat(formKeys, ",")
+        if #spec.forms > 0 then
+            if #spec.forms == #ResourceCatalog:GetFormOptions(spec.classFile, spec.specID) then
+                formText, formKey = T("designer.resource.all_forms", "全部形态"), "*"
+            else
+                formText = table.concat(formNames, ", ")
+            end
+        end
+        local key = spec.classFile .. ":" .. formKey
+        local line = grouped[key]
+        if not line then
+            line = { classFile = spec.classFile, className = className, specs = {}, forms = formText }
+            grouped[key], lines[#lines + 1] = line, line
+        end
+        line.specs[#line.specs + 1] = names[spec.classFile][spec.specID] or tostring(spec.specID)
+    end
+    local UnitAPI = YUI.API and YUI.API.Unit
+    for _, line in ipairs(lines) do
+        local text = line.className .. ": " .. table.concat(line.specs, ", ")
+        local color = UnitAPI and UnitAPI.GetClassColor and UnitAPI.GetClassColor(line.classFile)
+        if color and color.WrapTextInColorCode then text = color:WrapTextInColorCode(text) end
+        if line.forms then text = text .. " (" .. line.forms .. ")" end
+        GameTooltip:AddLine(text, 1, 1, 1, true)
+    end
+    row.resourceUsageHovered = true
+    GameTooltip:Show()
+end
+
+function I.CreateResourceSharingControls(row)
+    local function HideTooltip()
+        if row.resourceUsageHovered or row.resourceCopyHovered then
+            YUI.HideGameTooltip()
+            row.resourceUsageHovered, row.resourceCopyHovered = nil, nil
+        end
+    end
+    row.copy = GUI2.Form:CreateButton(row, {
+        text = "", icon = CoreAsset("gui2\\icons\\settings\\copy.png"), iconSize = 16,
+        iconGap = 0, contentAlign = "center", width = 24, height = 22, tone = "default",
+        onClick = function()
+            local session = Designer:GetSession()
+            if row.resourceId and session and session == row.resourceSharingSession
+                and session.selectedGroupId == row.resourceSharingGroup
+                and not DesignerUI.busyKind and row.copy:IsShown() then
+                DesignerUI:CopyResourcePresetEnabled(row.resourceId)
+            end
+        end,
+    })
+    row.copy:SetPoint("RIGHT", -2, 0)
+    row.toggle:ClearAllPoints()
+    row.toggle:SetPoint("RIGHT", row.copy, "LEFT", -4, 0)
+    row.copy:HookScript("OnEnter", function(control)
+        local session = Designer:GetSession()
+        if not GameTooltip or not session or session ~= row.resourceSharingSession
+            or session.selectedGroupId ~= row.resourceSharingGroup then return end
+        GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
+        GameTooltip:SetText(row.resourceSharingEnabled
+            and T("designer.resource.copy_enabled", "全专精开启")
+            or T("designer.resource.copy_disabled", "全专精关闭"))
+        GameTooltip:AddLine(T("designer.resource.copy_scope", "当前方案 · 当前资源组"), 1, 1, 1, true)
+        GameTooltip:AddLine(T("designer.resource.copy_switch_only", "含所有职业及适用形态，仅复制开关。"), 1, 1, 1, true)
+        row.resourceCopyHovered = true
+        GameTooltip:Show()
+    end)
+    row.copy:HookScript("OnLeave", HideTooltip)
+    row.usageCount = GUI2:CreateFrame(row, { width = 28, height = 22, hidden = true })
+    row.usageCount:EnableMouse(true)
+    row.usageCount.text = GUI2:CreateText(row.usageCount, "", "font.size.sm", "color.text.accent", "LEFT")
+    row.usageCount.text:SetAllPoints()
+    row.usageCount:SetScript("OnEnter", function() I.ShowResourceUsageTooltip(row) end)
+    row.usageCount:SetScript("OnLeave", HideTooltip)
+    row.usageCount:SetScript("OnHide", HideTooltip)
+    row:HookScript("OnHide", function()
+        HideTooltip()
+        row.resourceUsage, row.resourceSharingSession, row.resourceSharingGroup = nil, nil, nil
+    end)
+end
+
+function I.RefreshResourceSharingRow(row, preset, usage, width)
+    local session = Designer:GetSession()
+    row.resourceSharingSession = session
+    row.resourceSharingGroup = session and session.selectedGroupId
+    row.resourceSharingEnabled = preset.enabled == true
+    row.resourceUsage = usage[preset.id]
+    local count = row.resourceUsage and row.resourceUsage.count or 0
+    local countWidth = 0
+    if count > 1 then
+        row.usageCount.text:SetText("(" .. count .. ")")
+        countWidth = math.ceil(row.usageCount.text:GetStringWidth()) + 2
+        row.usageCount:SetWidth(countWidth)
+    end
+    local labelWidth = math.max(24, (width or row:GetWidth()) - 196 - (countWidth > 0 and countWidth + 4 or 0))
+    row.label:ClearAllPoints()
+    row.label:SetPoint("LEFT", row.swatch, "RIGHT", 6, 0)
+    row.label:SetWidth(labelWidth)
+    row.usageCount:ClearAllPoints()
+    row.usageCount:SetPoint("LEFT", row.label, "LEFT", math.min(labelWidth, row.label:GetStringWidth()) + 4, 0)
+    row.usageCount:SetShown(count > 1)
+end
+
 function DesignerUI:EnsureUI()
     if self._legacyDetailsBuilt then return true end
     if not (GUI2.CreateFrame and GUI2.CreatePanel and GUI2.CreateText
@@ -171,6 +295,7 @@ function DesignerUI:EnsureUI()
     local shade = GUI2:CreateTexture(dimmer, nil, "BACKGROUND")
     GUI2:SetTexturePaintKey(shade, "color.overlay.shadow")
     shade:SetAllPoints(dimmer)
+    dimmer.shade = shade
     if dimmer.EnableKeyboard then dimmer:EnableKeyboard(true) end
     if dimmer.SetPropagateKeyboardInput then
         dimmer:SetPropagateKeyboardInput(true)
@@ -708,11 +833,31 @@ function DesignerUI:EnsureUI()
         height = 30,
         options = BuildRowDirectionOptions,
         set = function(value)
-            DesignerUI:SetSelectedGroupIconLayout("rowDirection", value)
+            if DesignerUI.v2Refreshing then return end
+            local field = (value == "up" or value == "down")
+                and "wrapDirection" or "rowDirection"
+            DesignerUI:SetSelectedGroupIconLayout(field, value)
         end,
     })
     rowDirectionDropdown:SetPoint("TOPLEFT", 232, -326)
     rowDirectionDropdown:Hide()
+
+    local fillModeLabel = GUI2:CreateText(panel,
+        T("designer.layout.fill_mode", "填充方式"),
+        "font.size.sm", "color.text.secondary", "LEFT")
+    local fillModeDropdown = GUI2.Form:CreateDropdown(panel, {
+        width = 206, height = 30,
+        options = {
+            { text = T("designer.fill_mode.rows", "按行填充"), value = "rows" },
+            { text = T("designer.fill_mode.columns", "按列填充"), value = "columns" },
+        },
+        set = function(value)
+            if DesignerUI.v2Refreshing then return end
+            DesignerUI:SetSelectedGroupIconLayout("fillMode", value)
+        end,
+    })
+    fillModeLabel:Hide()
+    fillModeDropdown:Hide()
 
     local iconAlignment = {}
     iconAlignment.label = GUI2:CreateText(
@@ -788,7 +933,7 @@ function DesignerUI:EnsureUI()
         width = 98,
         height = 30,
         options = BuildNumberOptions({
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 20,
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 20, 24, 32, 40,
         }),
         set = function(value)
             DesignerUI:SetSelectedGroupLayout("maxPerLine", value)
@@ -806,8 +951,8 @@ function DesignerUI:EnsureUI()
                 })
             end
             return BuildNumberOptions({
-                12, 16, 20, 24, 28, 32, 40, 48, 64, 80, 120,
-                160, 200, 256, 320, 352,
+                2, 4, 6, 8, 12, 16, 20, 24, 28, 32, 40, 48, 64, 80, 120,
+                128,
             })
         end,
         set = function(value)
@@ -882,7 +1027,7 @@ function DesignerUI:EnsureUI()
 
     local shapeLabel = GUI2:CreateText(
         panel,
-        T("designer.appearance.shape", "图标形状"),
+        GUI2.IconSkins:Label("title", "皮肤"),
         "font.size.sm",
         "color.text.secondary",
         "LEFT"
@@ -898,12 +1043,36 @@ function DesignerUI:EnsureUI()
     )
     borderLabel:SetPoint("TOPLEFT", 236, -246)
 
-    local shapeDropdown = GUI2.Form:CreateDropdown(panel, {
-        width = 210,
-        height = 30,
-        options = BuildShapeOptions,
-        set = function(value)
-            DesignerUI:SetSelectedGroupStyle("iconShape", value)
+    local shapeDropdown = GUI2.Form:CreateIconSkinControl(panel, {
+        width = 210, product = "Halo",
+        getPopupAnchor = function() return DesignerUI.panel end,
+        getStyle = function()
+            local session, profile = Designer:GetSession(), Designer:GetProfile()
+            local group = session and profile and profile.groups.items[session.selectedGroupId]
+            if not group then return {} end
+            return group.layout == "icons" and YHUD:GetIconGroupStyle(profile, session.selectedGroupId)
+                or YHUD:GetDurationGroupStyle(profile, session.selectedGroupId)
+        end,
+        getContext = function()
+            local session, profile = Designer:GetSession(), Designer:GetProfile()
+            local group = session and profile and profile.groups.items[session.selectedGroupId]
+            return { groupId = session and session.selectedGroupId, groupLabel = group and GroupName(group) }
+        end,
+        set = function(patch)
+            local session, profile = Designer:GetSession(), Designer:GetProfile()
+            local group = session and profile and profile.groups.items[session.selectedGroupId]
+            if not group then return end
+            local previous = profile.style.groups[session.selectedGroupId]
+            local changedSkin = previous and previous.skinId ~= patch.skinId
+            local result
+            if group.layout == "icons" then result = Designer:SetGroupIconStyle(session.selectedGroupId, patch)
+            else result = Designer:SetGroupDurationStyle(session.selectedGroupId, patch) end
+            if not result then return end
+            if DesignerUI.chargeRecoveryControl then
+                DesignerUI.chargeRecoveryControl:SetPreviewStyle(GUI2.IconSkins:ApplyRecipe(YHUD:CopyValue(result), "Halo"))
+            end
+            if changedSkin then DesignerUI:Refresh(false)
+            elseif DesignerUI.ApplyPreview then DesignerUI:ApplyPreview() end
         end,
     })
     shapeDropdown:SetPoint("TOPLEFT", 16, -264)
@@ -1487,80 +1656,89 @@ function DesignerUI:EnsureUI()
     resourcePresetLabel:SetPoint("TOPLEFT", 16, -310)
 
     local resourcePresetRows = {}
-    for index = 1, RESOURCE_PRESET_ROW_COUNT do
-        local row = GUI2:CreateFrame(panel, {
-            width = 328,
-            height = 28,
-            hidden = true,
-        })
-        row:SetPoint("TOPLEFT", 16, -326 - ((index - 1) * 28))
-        local label = GUI2:CreateText(
-            row,
-            "",
-            "font.size.md",
-            "color.text.primary",
-            "LEFT"
-        )
-        local swatch = GUI2:CreateTexture(row, nil, "ARTWORK")
-        swatch:SetSize(12, 12)
-        swatch:SetPoint("LEFT", 2, 0)
-        label:SetPoint("LEFT", swatch, "RIGHT", 6, 0)
-        label:SetPoint("RIGHT", -166, 0)
-        label:SetWordWrap(false)
-        local toggle = GUI2.Form:CreateSwitch(row, {
-            width = 84,
-            height = 22,
-            set = function(value)
-                if row.resourceId then
-                    DesignerUI:SetResourcePresetEnabled(
-                        row.resourceId,
-                        value == true
-                    )
-                end
-            end,
-        })
-        toggle:SetPoint("RIGHT", -2, 0)
-        local moveDown = GUI2.Form:CreateButton(row, {
-            text = "",
-            microIcon = "arrow-big-down",
-            iconSize = 16,
-            iconGap = 0,
-            contentAlign = "center",
-            tooltip = T("designer.monitor.move_down", "下移"),
-            width = 24,
-            height = 22,
-            tone = "default",
-            onClick = function()
-                if row.resourceId then
-                    DesignerUI:ReorderResourcePreset(row.resourceId, 1)
-                end
-            end,
-        })
-        moveDown:SetPoint("RIGHT", toggle, "LEFT", -4, 0)
-        local moveUp = GUI2.Form:CreateButton(row, {
-            text = "",
-            microIcon = "arrow-big-up",
-            iconSize = 16,
-            iconGap = 0,
-            contentAlign = "center",
-            tooltip = T("designer.monitor.move_up", "上移"),
-            width = 24,
-            height = 22,
-            tone = "default",
-            onClick = function()
-                if row.resourceId then
-                    DesignerUI:ReorderResourcePreset(row.resourceId, -1)
-                end
-            end,
-        })
-        moveUp:SetPoint("RIGHT", moveDown, "LEFT", -4, 0)
-        row.label = label
-        row.swatch = swatch
-        row.toggle = toggle
-        row.moveUp = moveUp
-        row.moveDown = moveDown
-        resourcePresetRows[index] = row
+    function self:EnsureResourcePresetRows(count)
+        for index = #resourcePresetRows + 1, count do
+            local row = GUI2:CreateFrame(panel, {
+                width = 328,
+                height = 28,
+                hidden = true,
+            })
+            row:SetPoint("TOPLEFT", 16, -326 - ((index - 1) * 28))
+            local label = GUI2:CreateText(
+                row,
+                "",
+                "font.size.md",
+                "color.text.primary",
+                "LEFT"
+            )
+            local swatch = GUI2:CreateTexture(row, nil, "ARTWORK")
+            swatch:SetSize(12, 12)
+            swatch:SetPoint("LEFT", 2, 0)
+            label:SetPoint("LEFT", swatch, "RIGHT", 6, 0)
+            label:SetPoint("RIGHT", -166, 0)
+            label:SetWordWrap(false)
+            local toggle = GUI2.Form:CreateSwitch(row, {
+                width = 84,
+                height = 22,
+                set = function(value)
+                    if row.resourceId then
+                        DesignerUI:SetResourcePresetEnabled(
+                            row.resourceId,
+                            value == true
+                        )
+                    end
+                end,
+            })
+            toggle:SetPoint("RIGHT", -2, 0)
+            local moveDown = GUI2.Form:CreateButton(row, {
+                text = "",
+                microIcon = "arrow-big-down",
+                iconSize = 16,
+                iconGap = 0,
+                contentAlign = "center",
+                tooltip = T("designer.monitor.move_down", "下移"),
+                width = 24,
+                height = 22,
+                tone = "default",
+                onClick = function()
+                    if row.resourceId then
+                        DesignerUI:ReorderResourcePreset(row.resourceId, 1)
+                    end
+                end,
+            })
+            moveDown:SetPoint("RIGHT", toggle, "LEFT", -4, 0)
+            local moveUp = GUI2.Form:CreateButton(row, {
+                text = "",
+                microIcon = "arrow-big-up",
+                iconSize = 16,
+                iconGap = 0,
+                contentAlign = "center",
+                tooltip = T("designer.monitor.move_up", "上移"),
+                width = 24,
+                height = 22,
+                tone = "default",
+                onClick = function()
+                    if row.resourceId then
+                        DesignerUI:ReorderResourcePreset(row.resourceId, -1)
+                    end
+                end,
+            })
+            moveUp:SetPoint("RIGHT", moveDown, "LEFT", -4, 0)
+            row.label = label
+            row.swatch = swatch
+            row.toggle = toggle
+            row.moveUp = moveUp
+            row.moveDown = moveDown
+            I.CreateResourceSharingControls(row)
+            resourcePresetRows[index] = row
+            if self.groupSectionControls then
+                self.groupSectionControls[#self.groupSectionControls + 1] = row
+            end
+            local page = self.v2PageRoots and self.v2PageRoots.resourceMonitor
+            if page then row:SetParent(page) end
+        end
     end
+    self:EnsureResourcePresetRows(RESOURCE_PRESET_ROW_COUNT)
 
     local resourceWidthLabel = GUI2:CreateText(
         panel,
@@ -1602,7 +1780,7 @@ function DesignerUI:EnsureUI()
         width = 104,
         height = 30,
         options = BuildNumberOptions({
-            8, 12, 16, 20, 24, 28, 32, 40, 48, 64, 80,
+            2, 4, 6, 8, 12, 16, 20, 24, 28, 32, 40, 48, 64, 80, 120, 128,
         }),
         set = function(value)
             DesignerUI:SetSelectedGroupResourceLayout("height", value)
@@ -2250,6 +2428,8 @@ function DesignerUI:EnsureUI()
         displayLayerDropdown,
     }
     self.iconLayoutControls = {
+        fillModeLabel,
+        fillModeDropdown,
         iconAlignment.label,
         iconAlignment.dropdown,
         directionLabel,
@@ -2436,6 +2616,8 @@ function DesignerUI:EnsureUI()
     self.iconAlignmentLabel = iconAlignment.label
     self.iconAlignmentDropdown = iconAlignment.dropdown
     self.rowDirectionDropdown = rowDirectionDropdown
+    self.fillModeLabel = fillModeLabel
+    self.fillModeDropdown = fillModeDropdown
     self.rowDirectionLabel = rowDirectionLabel
     self.iconSizeDropdown = iconSizeDropdown
     self.iconSizeLabel = iconSizeLabel
@@ -2717,7 +2899,7 @@ function DesignerUI:SelectMonitor(monitorId)
     return monitor
 end
 
-function DesignerUI:MoveSelectedMonitor(groupId)
+function DesignerUI:MoveSelectedMonitor(groupId, placement)
     local monitor, code = Designer:GetSelectedMonitor()
     if not monitor then
         self:SetStatus(T("designer.error_select_monitor", "请先选择一个监控。"))
@@ -2725,7 +2907,7 @@ function DesignerUI:MoveSelectedMonitor(groupId)
     end
     if monitor.groupId == groupId then return monitor end
 
-    monitor, code = Designer:MoveMonitor(monitor.id, groupId)
+    monitor, code = Designer:MoveMonitor(monitor.id, groupId, nil, placement)
     if not monitor then
         self:SetMutationError(
             code,
@@ -2881,7 +3063,7 @@ function DesignerUI:Refresh(animate, rebuildPreview)
         end
     end
     if self.groupDropdown and self.groupDropdown.SetValue then
-        self.groupDropdown:SetValue(session.selectedGroupId, true)
+        self.groupDropdown:SetValue(session.selectedGroupId, { silent = true, force = true })
     end
     if self.inspectorAccordion then
         local monitorVisible = monitor ~= nil and group.layout ~= "resource"
@@ -3018,6 +3200,7 @@ function DesignerUI:Refresh(animate, rebuildPreview)
                     "显示资源"
                 ))
             end
+            local resourceUsage = Designer:GetResourcePresetUsage()
             for index = 1, #self.resourcePresetRows do
                 local row = self.resourcePresetRows[index]
                 local preset = resourcePresets and resourcePresets[index]
@@ -3040,6 +3223,7 @@ function DesignerUI:Refresh(animate, rebuildPreview)
                             or color.a
                     )
                     row.toggle:SetValue(preset.enabled == true, true)
+                    I.RefreshResourceSharingRow(row, preset, resourceUsage)
                     if row.moveUp.SetDisabled then
                         row.moveUp:SetDisabled(index == 1)
                         row.moveDown:SetDisabled(index == #resourcePresets)
@@ -3245,7 +3429,7 @@ function DesignerUI:Refresh(animate, rebuildPreview)
                     true
                 )
             end
-            self.shapeDropdown:SetValue(groupStyle.iconShape, true)
+            self.shapeDropdown:SetValue(groupStyle.skinId or "legacy", true)
             self.borderDropdown:SetValue(groupStyle.iconBorder, true)
             self.zoomDropdown:SetValue(groupStyle.iconZoom, true)
             self.iconBackgroundPicker:SetValue(
@@ -3597,7 +3781,7 @@ function DesignerUI:Refresh(animate, rebuildPreview)
         self.monitorHeading:Show()
         self.monitorGroupLabel:Show()
         self.monitorGroupDropdown:Show()
-        self.monitorGroupDropdown:SetValue(monitor.groupId, true)
+        self.monitorGroupDropdown:SetValue(monitor.groupId, { silent = true, force = true })
         self.moveUpButton:Show()
         self.moveDownButton:Show()
         self.removeMonitorButton:Show()
@@ -3828,6 +4012,7 @@ function DesignerUI:SetResourcePreviewClass(classFile)
     end
     self.resourceStyleResourceId = nil
     self.manualPanel = false
+    self:ApplyPreview()
     self:Refresh(true)
     return resolved, specID
 end
@@ -3842,6 +4027,7 @@ function DesignerUI:SetResourcePreviewSpec(specID)
         return false
     end
     self.resourceStyleResourceId = nil
+    self:ApplyPreview()
     self:Refresh(false)
     return spec
 end
@@ -3856,6 +4042,7 @@ function DesignerUI:SetResourcePreviewForm(formKey)
         return false
     end
     self.resourceStyleResourceId = nil
+    self:ApplyPreview()
     self:Refresh(false)
     return resolved
 end
@@ -3889,6 +4076,18 @@ function DesignerUI:SetResourcePresetEnabled(resourceId, enabled)
         return false
     end
     self:Refresh(false)
+    return true
+end
+
+function DesignerUI:CopyResourcePresetEnabled(resourceId)
+    local changed, code = Designer:CopyResourcePresetEnabled(resourceId)
+    self:Refresh(false)
+    if not changed then
+        self:SetStatus(T("designer.error_resource_preset", "无法修改专精资源。")
+            .. (code and (" " .. tostring(code)) or ""))
+        return false
+    end
+    self:SetStatus(T("designer.resource.copy_done", "已复制到全部专精"))
     return true
 end
 
@@ -3954,11 +4153,16 @@ end
 function DesignerUI:SetSelectedGroupResourceLayout(field, value)
     local session = Designer:GetSession()
     if not session then return false end
+    local patch = { [field] = value }
+    if field == "orientation" and (value == "vertical" or value == "horizontal") then
+        local current = YHUD:GetResourceGroupLayout(Designer:GetProfile(), session.selectedGroupId)
+        if current.orientation ~= value then
+            patch.direction = value == "vertical" and "right" or "up"
+        end
+    end
     local layout, code = Designer:SetGroupResourceLayout(
         session.selectedGroupId,
-        {
-            [field] = value,
-        }
+        patch
     )
     if not layout then
         self:SetStatus(T(
@@ -4061,8 +4265,13 @@ function DesignerUI:SetSelectedGroupWrapMode(value)
     local group = session and profile and profile.groups
         and profile.groups.items[session.selectedGroupId]
     if not group then return false end
-    if group.layout == "icons" and (value == "up" or value == "down") then
-        return self:SetSelectedGroupIconLayout("wrapDirection", value)
+    if group.layout == "icons" then
+        local columns = YHUD:GetIconGroupLayout(profile, group.id).fillMode == "columns"
+        if columns and (value == "left" or value == "right") then
+            return self:SetSelectedGroupIconLayout("rowDirection", value)
+        elseif not columns and (value == "up" or value == "down") then
+            return self:SetSelectedGroupIconLayout("wrapDirection", value)
+        end
     end
     if group.layout == "rings"
         and (value == "outward" or value == "inward") then

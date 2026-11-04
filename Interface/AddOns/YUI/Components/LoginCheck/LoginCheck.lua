@@ -42,7 +42,6 @@ local defaults = YUI.IsWrath and {
     AutoMatchProfile = true,
     Installer = true,
     EditModeSwitch = true,
-    EncounterJournalItemSets = true,
 }
 
 local Flow = YUI.LoginFlow or {}
@@ -199,13 +198,6 @@ function Feature.GetOptions(feature)
                     tooltip = T("settings.data_version.tooltip"),
                     get = function() return db.DataVersion end,
                     set = function(v) db.DataVersion = v end
-                },
-                {
-                    type = "checkbox",
-                    label = T("settings.encounter_journal_item_sets.label"),
-                    tooltip = T("settings.encounter_journal_item_sets.tooltip"),
-                    get = function() return db.EncounterJournalItemSets end,
-                    set = function(v) db.EncounterJournalItemSets = v end
                 },
             }
         },
@@ -480,54 +472,6 @@ local function CheckEditModeSwitch()
     end
 end
 
-local encounterJournalItemSetsQueued = false
-local encounterJournalItemSetsHooked = false
-
-local function ApplyEncounterJournalItemSets(frame)
-    local ok, err = pcall(function()
-        PanelTemplates_SetAllTabsShown(frame, true)
-        PanelTemplates_SetNumTabs(frame, #frame.Tabs)
-    end)
-    if not ok then
-        DebugFormat("EncounterJournal item sets apply failed: %s", tostring(err))
-    end
-    return ok
-end
-
-local function InstallEncounterJournalItemSetsHook()
-    if encounterJournalItemSetsHooked then return true end
-
-    local ok, err = pcall(function()
-        EncounterJournal:HookScript("OnShow", ApplyEncounterJournalItemSets)
-    end)
-    if not ok then
-        DebugFormat("EncounterJournal item sets hook failed: %s", tostring(err))
-        return false
-    end
-
-    encounterJournalItemSetsHooked = true
-    return true
-end
-
-local function QueueEncounterJournalItemSetsHook()
-    if encounterJournalItemSetsHooked or encounterJournalItemSetsQueued then return true end
-
-    encounterJournalItemSetsQueued = true
-    local ok, err = pcall(function()
-        EventUtil.ContinueOnAddOnLoaded("Blizzard_EncounterJournal", function()
-            encounterJournalItemSetsQueued = false
-            InstallEncounterJournalItemSetsHook()
-        end)
-    end)
-    if not ok then
-        encounterJournalItemSetsQueued = false
-        DebugFormat("EncounterJournal item sets queue failed: %s", tostring(err))
-        return false
-    end
-
-    return true
-end
-
 local function BuildTasks()
     if YUI.IsForever then
         return {
@@ -584,17 +528,6 @@ local function BuildTasks()
             delay = 0,
             run = function(ctx)
                 DoAutoSetCVar()
-                ctx:Done()
-            end,
-        },
-        {
-            id = "EncounterJournalItemSets",
-            label = T("task.encounter_journal_item_sets"),
-            enabledKey = "EncounterJournalItemSets",
-            event = "YUI_LOGIN_READY",
-            delay = 0,
-            run = function(ctx)
-                QueueEncounterJournalItemSetsHook()
                 ctx:Done()
             end,
         },

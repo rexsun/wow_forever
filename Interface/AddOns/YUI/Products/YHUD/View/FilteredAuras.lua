@@ -21,8 +21,253 @@ local tonumber = tonumber
 local type = type
 local FILTERED_AURA_RESTING_WIDTH = 1
 
+-- Potion time remains public and event-driven. Only this separate descendant
+-- binds the real applications; Lua never reads its text, value or visibility.
+View.buffTimerStackDisplays = View.buffTimerStackDisplays or {}
+local potionCountFormatter
+
+local function GetPotionStackConfiguration(runtime, monitor)
+    local style = runtime.iconStyle and runtime.iconStyle.countText or {}
+    local color = style.color or runtime.countTextColor or {}
+    local level, strata = View:GetMonitorDisplayLayer(runtime, monitor.id)
+    return {
+        -- Compile returns a new table at every cold configuration boundary.
+        -- Snapshot authored values so unchanged rules reuse sealed descendants,
+        -- while in-place edits cannot mutate the previous configuration.
+        rules = YHUD:CopyValue(monitor._yhudGlowRuntime and monitor._yhudGlowRuntime.rules or {}),
+        monitorId = monitor.id, groupId = monitor.groupId,
+        width = runtime.itemWidth or runtime.iconSize, height = runtime.itemHeight or runtime.iconSize,
+        shape = runtime.shape or "square", level = level, strata = strata,
+        countText = runtime.countText == true,
+        font = style.font or runtime.countTextFont, size = style.size or runtime.countTextSize,
+        outline = style.outline or runtime.countTextOutline,
+        monochrome = style.monochrome or runtime.countTextMonochrome,
+        position = style.position or runtime.countTextPosition,
+        offsetX = style.offsetX or runtime.countTextOffsetX, offsetY = style.offsetY or runtime.countTextOffsetY,
+        red = color.r or color[1] or 1, green = color.g or color[2] or 1,
+        blue = color.b or color[3] or 1, alpha = color.a or color[4] or 1,
+    }
+end
+
+local function SamePotionStackConfiguration(first, second)
+    if first == second then return true end
+    if type(first) ~= "table" or type(second) ~= "table" then return false end
+    for key, value in pairs(first) do
+        if not SamePotionStackConfiguration(value, second[key]) then return false end
+    end
+    for key in pairs(second) do if first[key] == nil then return false end end
+    return true
+end
+
+local function ConfigurePotionStackOverlay(record, variant)
+    local gui, config, host = YUI.GUI2, record.config, variant.host
+    local compiled = record.compiled
+    local stackCount = compiled and compiled.stackRuleCount or 0
+    local width, height = config.width, config.height
+    host:SetSize(width, height)
+    variant.countHost:SetShown(config.countText)
+    gui:ApplyTextStyle(variant.count, {
+        font = config.font, size = config.size, outline = config.outline, monochrome = config.monochrome,
+        position = config.position, offsetX = config.offsetX, offsetY = config.offsetY,
+        color = { config.red, config.green, config.blue, config.alpha },
+    }, { preserveVisibility = true })
+    local level, strata = config.level, config.strata
+    local glowLevel = level and level + 9 or nil
+    if strata then host:SetFrameStrata(strata) end
+    if level then
+        -- Clipping flattens descendant rendering. Raise the owner before gate
+        -- creation so the whole branch stays above the public cooldown (+8).
+        host:SetFrameLevel(glowLevel)
+        variant.countHost:SetFrameLevel(level + 16)
+    end
+    local binding
+    if stackCount > 1 then
+        local set = YHUD.Glow:ConfigureStackSet(host, host, compiled, width, height, nil, record.slot)
+        variant.stackSet = set
+        host._yhudAuraStackSet = set
+        binding = set and set.gate.binding
+        YHUD.Glow:ApplyStackSet(set, variant.inCombat, true, config.shape, glowLevel, strata)
+    elseif stackCount == 1 then
+        local rule = compiled.rules[1]
+        if rule.combatOnly ~= true or variant.inCombat then
+            local gate = gui:CreateAuraApplicationGate(host, host, rule.stackCondition, width, height)
+            host._yhudAuraStackGate = gate
+            binding = gate and gate.binding
+            if gate then
+                local glow = gui:CreateGlow(host, { hidden = true, restrictedParent = true,
+                    trustedWidth = width, trustedHeight = height,
+                    skinOwner = record.slot,
+                    trustedFrameLevel = glowLevel, trustedFrameStrata = strata })
+                if glow then
+                    local shape = rule.appearance.style == "proc"
+                        and (config.shape == "circle" and "circle" or "square") or config.shape
+                    glow:SetGlowParams(rule.appearance)
+                    glow:SetGlowShape(shape, config.shape)
+                    glow:SetGlowClipParent(gate.clip)
+                    glow:SetGlowShown(true)
+                    host._yhudGlowShown = true
+                end
+            end
+        end
+    end
+    return { applicationCount = { target = variant.count, options = record.countOptions },
+        applicationBar = binding }
+end
+
+local function ReleasePotionStackOverlay(record)
+    record.active, record.configuredMonitor, record.shown = false, nil, false
+    record.root:Hide()
+    -- Native descendants may deny all tainted access, including Hide, SetParent
+    -- and StatusBar writes. Release only their unrestricted outer owners.
+    for _, variant in ipairs(record.variants or {}) do
+        variant.root:Hide()
+        if variant.handle then Unit.ReleaseFilteredAuraDisplay(variant.handle) end
+    end
+    record.variants = nil
+end
+
+function View:RefreshBuffTimerStackGlow(record)
+    if not record then return end
+    local active = record.active == true and record.identitySuppressed ~= true
+    if record.shown ~= active then
+        record.root:SetShown(active)
+        record.shown = active
+    end
+    local inCombat = self.inCombat == true
+    local variants = record.variants
+    if not variants then return end
+    for _, variant in ipairs(variants) do
+        local shown = #variants == 1 or variant.inCombat == inCombat
+        if variant.shown ~= shown then
+            variant.root:SetShown(shown)
+            variant.shown = shown
+        end
+    end
+end
+
+function View:SuspendBuffTimerStacks(slot)
+    local record = slot and self.buffTimerStackDisplays[slot]
+    if not record then return end
+    record.active = false
+    record.configuredMonitor = nil
+    self:RefreshBuffTimerStackGlow(record)
+end
+
+function View:ConfigureBuffTimerStacks(slot, runtime, monitor, entry)
+    local record = self.buffTimerStackDisplays[slot]
+    local spellID = YHUD:GetBuffTimerStackAuraSpellID(entry)
+    if not (spellID and runtime.view == "icon" and monitor
+        and not (self.preview or self.designMode or self.layoutEditMode
+            or slot._yhudDesignProjection)) then
+        self:SuspendBuffTimerStacks(slot)
+        return
+    end
+    if not (Unit and Unit.CreateFilteredAuraDisplay and Unit.EnsureFilteredAuraDisplay
+        and Unit.EnsureFilteredAuraDisplay() == true) then
+        self:SuspendBuffTimerStacks(slot)
+        return
+    end
+    local config = GetPotionStackConfiguration(runtime, monitor)
+    -- 只比较公开材质快照；受限后代需要在初始化时重建，不能事后换材质。
+    if YUI.GUI2.GetIconSkinProcRecipe then
+        config.skinGlow = YUI.GUI2:GetIconSkinProcRecipe(slot)
+    end
+    if record and record.variants and not SamePotionStackConfiguration(record.config, config) then
+        ReleasePotionStackOverlay(record)
+    end
+    if not record then
+        record = { slot = slot, active = false, shown = false }
+        record.root = YUI.GUI2:CreateFrame(slot, { mouse = false })
+        record.root:SetAllPoints(slot)
+        record.root:Hide()
+        if not potionCountFormatter and _G.C_StringUtil and _G.C_StringUtil.CreateNumericRuleFormatter then
+            potionCountFormatter = _G.C_StringUtil.CreateNumericRuleFormatter()
+            potionCountFormatter:SetBreakpoints({ { threshold = 0, format = "%d" } })
+        end
+        record.countOptions = potionCountFormatter and { formatter = potionCountFormatter } or nil
+        self.buffTimerStackDisplays[slot] = record
+    end
+    if not record.variants then
+        record.config, record.compiled, record.variants = config, monitor._yhudGlowRuntime, {}
+        local compiled = record.compiled
+        local variantCount = compiled and (compiled.stackRuleCount or 0) > 0
+            and compiled.hasCombatOnly == true and 2 or 1
+        -- A fixed combat plan is armed entirely inside initializeFrame. After
+        -- binding, timer/identity/combat changes touch only public ancestors.
+        for index = 1, variantCount do
+            local variant = { inCombat = index == 2, shown = false }
+            record.variants[index] = variant
+            variant.root = YUI.GUI2:CreateFrame(record.root, { mouse = false })
+            variant.root:SetAllPoints(record.root)
+            variant.root:Hide()
+            variant.handle = Unit.CreateFilteredAuraDisplay(variant.root, {
+                unit = "player", filter = "HELPFUL", spellID = spellID,
+                initializeFrame = function(auraFrame)
+                    auraFrame:SetAllPoints(variant.root)
+                    variant.auraFrame = auraFrame
+                    local host = YUI.GUI2:CreateFrame(auraFrame, { mouse = false })
+                    host:SetAllPoints(auraFrame)
+                    variant.host = host
+                    variant.countHost = YUI.GUI2:CreateFrame(host, { mouse = false })
+                    variant.countHost:SetAllPoints(host)
+                    variant.count = YUI.GUI2:CreateText(variant.countHost, "", "font.size.md", "color.text.primary")
+                    return ConfigurePotionStackOverlay(record, variant)
+                end,
+            })
+            if not variant.handle then
+                ReleasePotionStackOverlay(record)
+                return
+            end
+        end
+    end
+    record.configuredMonitor = monitor
+    record.identitySuppressed = not (Unit.IsPlayerHelpfulAuraIdentityTrusted
+        and Unit.IsPlayerHelpfulAuraIdentityTrusted() == true)
+    for _, variant in ipairs(record.variants) do
+        Unit.SetFilteredAuraDisplayIdentitySuppressed(variant.handle, record.identitySuppressed)
+    end
+    self:RefreshBuffTimerStackGlow(record)
+end
+
+function View:UpdateBuffTimerStacks(slot, state)
+    local record = self.buffTimerStackDisplays[slot]
+    local monitor = self.desiredMonitors[slot._yhudMonitorId]
+    local live = not (self.preview or self.designMode or self.layoutEditMode or slot._yhudDesignProjection)
+    local liquid = state and state.available == true and state.stackAuraSpellID == 1295147
+    -- Preview can have acquired the public timer slot without a native overlay.
+    -- Restore that binding on the existing runtime update when leaving preview.
+    if live and liquid and monitor and (not record or record.configuredMonitor ~= monitor) then
+        local runtime = self.groups[monitor.groupId]
+        local entry = self.profile and self.profile.entries and self.profile.entries[monitor.entryKey]
+        if runtime and runtime.view == "icon" then
+            self:ConfigureBuffTimerStacks(slot, runtime, monitor, entry)
+            record = self.buffTimerStackDisplays[slot]
+        end
+    end
+    if not record then return end
+    local active = monitor ~= nil and record.configuredMonitor == monitor and live and liquid or false
+    record.active = active
+    self:RefreshBuffTimerStackGlow(record)
+end
+
+function View:RefreshBuffTimerStackModes()
+    for monitorId, slot in pairs(self.byMonitor) do
+        local monitor = self.desiredMonitors[monitorId]
+        local state = monitor and YHUD.Model and YHUD.Model:GetState(monitor.sourceKey)
+        self:UpdateBuffTimerStacks(slot, state)
+    end
+end
+
+function View:ReleaseBuffTimerStackDisplays()
+    for slot, record in pairs(self.buffTimerStackDisplays) do
+        ReleasePotionStackOverlay(record)
+        self.buffTimerStackDisplays[slot] = nil
+    end
+end
+
 local function DynamicNodeGrowsLeft(runtime)
     if runtime.alignment == "center" then
+        if runtime.fillMode == "columns" then return runtime.wrapDirection == "up" end
         return runtime.rowDirection == "left"
     end
     -- Edge-aligned rows always grow inward from their physical edge.  Saved
@@ -57,6 +302,12 @@ local PLAYER_AURA_CDM_EXTENDED_SCOPE = {
     requirePlayerSource = false,
     playerHelpful = true,
 }
+local EXTERNAL_AURA_SCOPE = {
+    unit = "player",
+    filter = "HELPFUL|!PLAYER",
+    requirePlayerSource = false,
+    playerHelpful = true,
+}
 local TARGET_DEBUFF_SCOPE = {
     unit = "target",
     filter = "HARMFUL",
@@ -73,6 +324,9 @@ end
 
 local function ResolveFilteredAuraScope(entry)
     local scopeKey = YHUD:GetFilteredAuraScopeKey(entry)
+    if scopeKey == YHUD.FILTERED_AURA_SCOPE_EXTERNAL_HELPFUL then
+        return EXTERNAL_AURA_SCOPE
+    end
     if scopeKey == YHUD.FILTERED_AURA_SCOPE_TARGET_HARMFUL then
         return TARGET_DEBUFF_SCOPE
     end
@@ -156,7 +410,7 @@ function View:ConfigureBarStackThresholds(owner, runtime, monitor, entry, width)
     if not (owner and gui and gui.SetAuraBarThresholds) then return end
     local appearance = monitor and monitor.appearanceOverride
     local policy = appearance and appearance.stackThresholds
-    local supported = YHUD:CanUseBarStackThresholds(entry, monitor)
+    local supported = YHUD:CanUseBarAuraProgress(entry, monitor)
     owner._yhudBarStackPolicy = supported and policy or nil
     owner._yhudBarStackBaseColor = appearance and appearance.fillColor or runtime.fillColor
     if not (supported and policy and policy.enabled) then
@@ -186,18 +440,28 @@ function View:ConfigureBarStackThresholds(owner, runtime, monitor, entry, width)
     if owner.gui2AuraBarThresholdSignature and cache
         and cache.monitor == monitor and cache.entry == entry and cache.policy == policy
         and cache.identities == monitor._yhudSpellIdentities
-        and cache.width == width and cache.orientation == runtime.orientation
+        and cache.direct == (owner._yhudNativeBarProgress == true)
+        and cache.parentManaged == (owner._yhudBarStackLive == true)
+        and cache.orientation == runtime.orientation
         and cache.direction == runtime.fillDirection and cache.texture == style.texture
         and cache.u0 == style.textureU0 and cache.u1 == style.textureU1
         and cache.v0 == style.textureV0 and cache.v1 == style.textureV1
         and cache.r == (fill.r or fill[1]) and cache.g == (fill.g or fill[2])
         and cache.b == (fill.b or fill[3]) and cache.a == (fill.a or fill[4] or 1) then
+        if owner._yhudBarStackLive == true then return end
+        if gui.LayoutAuraBarThresholds and gui:LayoutAuraBarThresholds(owner,
+            math_max(1, width), runtime.barHeight or runtime.itemHeight or 1) then
+            local gate = owner._yhudNativeCountGate or owner._yhudNativeColorGate
+            if gate then gate.lastPublicValue = nil end
+        end
         gui:RaiseAuraBarThresholdOverlay(owner, owner.nativeBorderOverlay, 1)
         gui:RaiseAuraBarThresholdOverlay(owner, owner.durationOverlay, 2)
         return
     end
     owner._yhudBarStackInputs = {
         monitor = monitor, entry = entry, policy = policy, identities = monitor._yhudSpellIdentities,
+        direct = owner._yhudNativeBarProgress == true,
+        parentManaged = owner._yhudBarStackLive == true,
         width = width, orientation = runtime.orientation, direction = runtime.fillDirection,
         texture = style.texture, u0 = style.textureU0, u1 = style.textureU1,
         v0 = style.textureV0, v1 = style.textureV1,
@@ -215,7 +479,8 @@ function View:ConfigureBarStackThresholds(owner, runtime, monitor, entry, width)
             color.b or color[3], color.a or color[4] or 1 }, ",")
     end
     local signature = table.concat({ table.concat(spellIDs, ","), scope.unit,
-        scope.filter, tostring(scope.requirePlayerSource), width,
+        scope.filter, tostring(scope.requirePlayerSource),
+        tostring(owner._yhudNativeBarProgress == true),
         runtime.orientation or "horizontal", runtime.fillDirection or "forward",
         style.texture or "Interface\\Buttons\\WHITE8x8",
         style.textureU0 or 0, style.textureU1 or 1,
@@ -225,9 +490,11 @@ function View:ConfigureBarStackThresholds(owner, runtime, monitor, entry, width)
         ColorKey(fill) }, ":")
     gui:SetAuraBarThresholds(owner, {
         signature = signature, policy = policy, spellIDs = spellIDs,
+        direct = owner._yhudNativeBarProgress == true,
+        parentManaged = owner._yhudBarStackLive == true,
         unit = scope.unit, filter = scope.filter,
         requirePlayerSource = scope.requirePlayerSource,
-        width = math_max(1, width), fillColor = fill,
+        width = math_max(1, width), height = runtime.barHeight or runtime.itemHeight or 1, fillColor = fill,
         orientation = runtime.orientation, fillDirection = runtime.fillDirection,
         texture = style.texture or "Interface\\Buttons\\WHITE8x8",
         u0 = style.textureU0 or 0, u1 = style.textureU1 or 1,
@@ -235,9 +502,11 @@ function View:ConfigureBarStackThresholds(owner, runtime, monitor, entry, width)
     })
     gui:RaiseAuraBarThresholdOverlay(owner, owner.nativeBorderOverlay, 1)
     gui:RaiseAuraBarThresholdOverlay(owner, owner.durationOverlay, 2)
-    self.barStackThresholdOwners[owner] = scope
+    -- Live colors inherit identity suppression and retirement from their
+    -- primary Aura display. Never revisit a nested restricted owner.
+    self.barStackThresholdOwners[owner] = owner._yhudBarStackLive ~= true and scope or nil
     local handle = owner.gui2AuraBarThresholdHandle
-    if handle and Unit.SetFilteredAuraDisplayIdentitySuppressed then
+    if handle and not handle.parentManaged and Unit.SetFilteredAuraDisplayIdentitySuppressed then
         Unit.SetFilteredAuraDisplayIdentitySuppressed(handle, IsAuraIdentitySuppressed(scope))
     end
 end
@@ -312,6 +581,7 @@ end
 
 local function SyncDisplayLayoutParticipation(display, relayout)
     if not display then return false end
+    if display.externalBuffBlock then return false end
     local participates = DisplayParticipatesInLayout(display)
     if display.layoutParticipates == participates
         or (display.layoutParticipates == nil and participates == false) then
@@ -369,6 +639,27 @@ local function CreateLiveSlot(auraFrame, runtime, monitor, handle, display)
     if not slot then return nil end
     local bindings = View:GetFilteredAuraSlotBindings(slot, runtime)
     if not bindings then return nil end
+    local compiled = monitor._yhudGlowRuntime
+    if compiled and (compiled.stackRuleCount or 0) > 1 and runtime.view == "icon"
+        and YHUD.Glow and YHUD.Glow.ConfigureStackSet then
+        local set = YHUD.Glow:ConfigureStackSet(auraFrame, slot, compiled,
+            runtime.itemWidth, runtime.itemHeight)
+        slot._yhudAuraStackSet = set
+        if set then bindings.applicationBar = set.gate.binding end
+    else
+        for index = 1, #(compiled and compiled.rules or {}) do
+            local condition = compiled.rules[index].stackCondition
+            if condition and runtime.view == "icon" and YUI.GUI2.CreateAuraApplicationGate then
+                local gate = YUI.GUI2:CreateAuraApplicationGate(auraFrame, slot, condition,
+                    runtime.itemWidth, runtime.itemHeight)
+                if gate then
+                    slot._yhudAuraStackGate = gate
+                    bindings.applicationBar = gate.binding
+                end
+                break
+            end
+        end
+    end
     if bindings.durationBar then
         bindings.durationBar = {
             target = bindings.durationBar,
@@ -403,6 +694,7 @@ local function ResolveFlowLayout(runtime)
     local flow = anchorUtil and anchorUtil.FlowDirection
     local verticalBar = runtime.view == "bar"
         and runtime.orientation == "vertical"
+    local columnIcons = runtime.view == "icon" and runtime.fillMode == "columns"
     local rowLeft = runtime.rowDirection == "left"
     local wrapUp = runtime.wrapDirection == "up"
     local horizontal = flow and (verticalBar
@@ -411,6 +703,19 @@ local function ResolveFlowLayout(runtime)
     local vertical = flow and (verticalBar
         and flow.Down
         or (wrapUp and flow.Up or flow.Down))
+    if columnIcons then
+        local layoutPoint = (wrapUp and "BOTTOM" or "TOP") .. (rowLeft and "RIGHT" or "LEFT")
+        local alignment = runtime.alignment == "start" and "TOP"
+            or (runtime.alignment == "end" and "BOTTOM" or "")
+        return {
+            axis = axis and axis.Vertical,
+            anchorPoint = layoutPoint,
+            horizontalGrowth = horizontal, verticalGrowth = vertical,
+            paddingLeft = 0, paddingRight = 0, paddingTop = 0, paddingBottom = 0,
+            maximumLineSize = runtime.itemHeight * runtime.maxPerLine
+                + math_max(0, runtime.maxPerLine - 1) * runtime.rowSpacing,
+        }, alignment .. (rowLeft and "RIGHT" or "LEFT")
+    end
     if verticalBar then
         local point = wrapUp and "TOPRIGHT" or "TOPLEFT"
         return {
@@ -450,11 +755,15 @@ end
 local function SetPureGroupBounds(runtime, count)
     local perLine = math_max(1, math_min(runtime.maxPerLine, count))
     local lines = math_max(1, math_ceil(count / runtime.maxPerLine))
-    if runtime.view == "bar" and runtime.orientation == "vertical" then
+    if (runtime.view == "bar" and runtime.orientation == "vertical")
+        or (runtime.view == "icon" and runtime.fillMode == "columns") then
         runtime.filteredAuraWidth = (lines * runtime.itemWidth)
             + (math_max(0, lines - 1) * runtime.columnSpacing)
         runtime.filteredAuraHeight = (perLine * runtime.itemHeight)
             + (math_max(0, perLine - 1) * runtime.rowSpacing)
+        if runtime.view == "icon" and runtime.layoutMode ~= "fixed" then
+            runtime.filteredAuraHeight = I.GetAutoIconColumnHeight(runtime) or runtime.filteredAuraHeight
+        end
     else
         runtime.filteredAuraWidth = (perLine * runtime.itemWidth)
             + (math_max(0, perLine - 1) * runtime.columnSpacing)
@@ -463,13 +772,79 @@ local function SetPureGroupBounds(runtime, count)
     end
 end
 
+local UpdateIndependentBarWidth
+function View:UpdateFilteredAuraBarWidth(runtime)
+    if not (Unit and Unit.SetFilteredAuraDisplayLayout) then return false end
+    local blockChanged = false
+    for _, display in pairs(self.filteredAuraDisplays) do
+        if display.externalBuffBlock and display.groupId == runtime.id then
+            local block = display.blockRuntime
+            block.itemWidth, block.itemHeight = runtime.itemWidth, runtime.itemHeight
+            block.barWidth, block.barHeight = runtime.barWidth, runtime.barHeight
+            local groups = {}
+            local vertical = (block.view == "bar" and block.orientation == "vertical")
+                or (block.view == "icon" and block.fillMode == "columns")
+            local elementSpacing = vertical and block.rowSpacing or block.columnSpacing
+            local lineSpacing = vertical and block.columnSpacing or block.rowSpacing
+            for index, key in ipairs(display.widthGroupKeys) do
+                groups[key] = { layoutIndex = index, elementWidth = block.itemWidth,
+                    elementHeight = block.itemHeight, elementSpacing = elementSpacing,
+                    lineSpacing = lineSpacing, groupSpacing = elementSpacing,
+                    groupLineSpacing = lineSpacing }
+            end
+            local layout = ResolveFlowLayout(block)
+            blockChanged = Unit.SetFilteredAuraDisplayLayout(display.handle, layout, groups) or blockChanged
+            SetPureGroupBounds(block, display.capacity)
+            display.width, display.height = block.filteredAuraWidth, block.filteredAuraHeight
+            display.proxy:SetSize(display.width, display.height)
+        end
+    end
+    if self.RefreshBarProgressGeometry then
+        for _, display in pairs(self.filteredAuraDisplays) do
+            if display.groupId == runtime.id then
+                for _, record in ipairs(display.glowRecords or {}) do
+                    local slot = record.slot
+                    if record.kind ~= "live" and slot and slot._yhudBarProgress then
+                        slot.barWidth = runtime.showIcon == false and runtime.itemWidth or runtime.barWidth
+                        slot.barHeight = runtime.showIcon == false and runtime.itemHeight or runtime.barHeight
+                        self:RefreshBarProgressGeometry(slot, runtime)
+                    end
+                end
+            end
+        end
+    end
+    local display = self.filteredAuraDisplays["group:" .. runtime.id]
+    if not (display and display.pure and display.handle) then
+        return (UpdateIndependentBarWidth and UpdateIndependentBarWidth(self, runtime)) or blockChanged
+    end
+    local groups = {}
+    local vertical = (runtime.view == "bar" and runtime.orientation == "vertical")
+        or (runtime.view == "icon" and runtime.fillMode == "columns")
+    for index, key in ipairs(display.widthGroupKeys or {}) do
+        groups[key] = {
+            layoutIndex = index, elementWidth = runtime.itemWidth,
+            elementHeight = runtime.itemHeight,
+            elementSpacing = vertical and runtime.rowSpacing or runtime.columnSpacing,
+            lineSpacing = vertical and runtime.columnSpacing or runtime.rowSpacing,
+            groupSpacing = vertical and runtime.rowSpacing or runtime.columnSpacing,
+            groupLineSpacing = vertical and runtime.columnSpacing or runtime.rowSpacing,
+        }
+    end
+    local layout = ResolveFlowLayout(runtime)
+    local ok = Unit.SetFilteredAuraDisplayLayout(display.handle, layout, groups)
+    if ok then SetPureGroupBounds(runtime, display.capacity or #(display.widthGroupKeys or {})) end
+    return ok or blockChanged
+end
+
 local function BuildPureGroup(runtime, monitors, scope)
     local groups = {}
     local display = {
         groupId = runtime.id,
         pure = true,
+        widthGroupKeys = {},
         glowRecords = {},
         identitySuppressed = IsAuraIdentitySuppressed(scope),
+        capacity = 0,
     }
     for index = 1, #monitors do
         local monitor = monitors[index]
@@ -479,6 +854,7 @@ local function BuildPureGroup(runtime, monitors, scope)
             local currentMonitor = monitor
             local verticalBar = runtime.view == "bar"
                 and runtime.orientation == "vertical"
+                or runtime.view == "icon" and runtime.fillMode == "columns"
             local elementSpacing = verticalBar
                 and runtime.rowSpacing or runtime.columnSpacing
             local lineSpacing = verticalBar
@@ -486,7 +862,9 @@ local function BuildPureGroup(runtime, monitors, scope)
             groups[#groups + 1] = {
                 key = "yhud-group-aura-" .. tostring(monitor.id),
                 spellIDs = spellIDs,
-                maxFrameCount = 1,
+                maxFrameCount = monitor._yhudAuraMaxFrameCount or 1,
+                sortMethod = monitor._yhudAuraMaxFrameCount and 0 or nil,
+                sortDirection = monitor._yhudAuraMaxFrameCount and 0 or nil,
                 layout = {
                     layoutIndex = index,
                     elementWidth = runtime.itemWidth,
@@ -506,6 +884,8 @@ local function BuildPureGroup(runtime, monitors, scope)
                     )
                 end,
             }
+            display.widthGroupKeys[#display.widthGroupKeys + 1] = groups[#groups].key
+            display.capacity = display.capacity + groups[#groups].maxFrameCount
         end
     end
     if #groups == 0 then return nil end
@@ -520,9 +900,25 @@ local function BuildPureGroup(runtime, monitors, scope)
         point = point,
     })
     if not handle then return nil, code end
-    SetPureGroupBounds(runtime, #groups)
+    SetPureGroupBounds(runtime, display.capacity)
     display.handle = handle
     display.handles = { handle }
+    return display
+end
+
+local function BuildExternalBuffBlock(runtime, monitor, entry)
+    local blockRuntime = {}
+    for key, value in pairs(runtime) do blockRuntime[key] = value end
+    blockRuntime.frame = YUI.GUI2:CreateFrame(runtime.frame, { mouse = false })
+    local display, code = BuildPureGroup(blockRuntime, { monitor }, ResolveFilteredAuraScope(entry))
+    if not display then blockRuntime.frame:Hide(); return nil, code end
+    display.externalBuffBlock = true
+    display.monitorId = monitor.id
+    display.proxy = blockRuntime.frame
+    display.blockRuntime = blockRuntime
+    display.width, display.height = blockRuntime.filteredAuraWidth, blockRuntime.filteredAuraHeight
+    display.proxy:SetSize(display.width, display.height)
+    display.proxy:Show()
     return display
 end
 
@@ -597,6 +993,16 @@ local function ResolveDynamicNodeLayout(runtime, elementWidth, balance)
     local rowGrowsLeft = DynamicNodeGrowsLeft(runtime)
     local growsLeft = rowGrowsLeft
     if balance == true then growsLeft = not rowGrowsLeft end
+    if runtime.fillMode == "columns" then
+        return {
+            axis = axis and axis.Vertical or 1,
+            anchorPoint = growsLeft and "BOTTOM" or "TOP",
+            horizontalGrowth = flow and flow.Right or 0,
+            verticalGrowth = flow and (growsLeft and flow.Up or flow.Down) or 1,
+            paddingLeft = 0, paddingRight = 0, paddingTop = 0, paddingBottom = 0,
+            maximumLineSize = elementWidth,
+        }
+    end
     return {
         axis = axis and axis.Horizontal or 0,
         anchorPoint = growsLeft and "RIGHT" or "LEFT",
@@ -619,8 +1025,9 @@ local function BuildDynamicNodeHandle(
     display,
     balance
 )
-    local cellWidth = runtime.itemWidth
-        + math_max(0, tonumber(runtime.columnSpacing) or 0)
+    local columnIcons = runtime.fillMode == "columns"
+    local cellWidth = math_max(1, columnIcons and (runtime.itemHeight + (runtime.rowSpacing or 0))
+        or (runtime.itemWidth + (tonumber(runtime.columnSpacing) or 0)))
     local effectiveWidth = balance and cellWidth / 2 or cellWidth
     local elementWidth = effectiveWidth + FILTERED_AURA_RESTING_WIDTH
     local keyPrefix = balance and "yhud-special-balance-"
@@ -630,7 +1037,7 @@ local function BuildDynamicNodeHandle(
         unit = scope.unit,
         filter = scope.filter,
         requirePlayerSource = scope.requirePlayerSource,
-        point = "LEFT",
+        point = columnIcons and "TOP" or "LEFT",
         layout = ResolveDynamicNodeLayout(runtime, elementWidth, balance),
         groups = {
             {
@@ -639,15 +1046,16 @@ local function BuildDynamicNodeHandle(
                 maxFrameCount = 1,
                 layout = {
                     layoutIndex = 1,
-                    elementWidth = elementWidth,
-                    elementHeight = runtime.itemHeight,
+                    elementWidth = columnIcons and runtime.itemWidth or elementWidth,
+                    elementHeight = columnIcons and elementWidth or runtime.itemHeight,
                     elementSpacing = 0,
                     lineSpacing = 0,
                     groupSpacing = 0,
                     groupLineSpacing = 0,
                 },
                 initializeFrame = balance and function(auraFrame)
-                    auraFrame:SetSize(effectiveWidth, runtime.itemHeight)
+                    auraFrame:SetSize(columnIcons and runtime.itemWidth or effectiveWidth,
+                        columnIcons and effectiveWidth or runtime.itemHeight)
                     if auraFrame.SetAlpha then auraFrame:SetAlpha(0) end
                 end or function(auraFrame, _, displayHandle)
                     return CreateLiveSlot(
@@ -671,11 +1079,14 @@ local function BuildDynamicNodeHandle(
         handle.proxy,
         "DisableUntrustedLayoutScriptsTemplate"
     )
-    endpoint:SetSize(1, runtime.itemHeight)
+    endpoint:SetSize(columnIcons and runtime.itemWidth or 1, columnIcons and 1 or runtime.itemHeight)
     local rowGrowsLeft = DynamicNodeGrowsLeft(runtime)
     local growsLeft = rowGrowsLeft
     if balance == true then growsLeft = not rowGrowsLeft end
-    if growsLeft then
+    if columnIcons then
+        endpoint:SetPoint("CENTER", handle.container, growsLeft and "TOP" or "BOTTOM",
+            0, growsLeft and -FILTERED_AURA_RESTING_WIDTH or FILTERED_AURA_RESTING_WIDTH)
+    elseif growsLeft then
         endpoint:SetPoint(
             "CENTER",
             handle.container,
@@ -743,6 +1154,52 @@ local function BuildDynamicMonitor(runtime, monitor, entry, spellIDs, scope)
     return display
 end
 
+UpdateIndependentBarWidth = function(self, runtime)
+    local changed = false
+    for index = 1, runtime.monitorCount do
+        local id = runtime.monitorIds[index]
+        local display = self.filteredAuraDisplays["monitor:" .. tostring(id)]
+        if display and not display.dynamic and display.proxy then
+            display.proxy:SetSize(runtime.itemWidth, runtime.itemHeight)
+            changed = true
+        elseif display and display.dynamic then
+            for _, balance in ipairs({ false, true }) do
+                local handle = balance and display.balanceHandle or display.handle
+                if handle then
+                    local columnIcons = runtime.fillMode == "columns"
+                    local width = math_max(1, columnIcons and (runtime.itemHeight + (runtime.rowSpacing or 0))
+                        or (runtime.itemWidth + (runtime.columnSpacing or 0)))
+                    if balance then width = width / 2 end
+                    width = width + FILTERED_AURA_RESTING_WIDTH
+                    local key = (balance and "yhud-special-balance-" or "yhud-special-aura-") .. tostring(id)
+                    changed = Unit.SetFilteredAuraDisplayLayout(handle,
+                        ResolveDynamicNodeLayout(runtime, width, balance), {
+                            [key] = { layoutIndex = 1,
+                                elementWidth = columnIcons and runtime.itemWidth or width,
+                                elementHeight = columnIcons and width or runtime.itemHeight, elementSpacing = 0,
+                                lineSpacing = 0, groupSpacing = 0, groupLineSpacing = 0 },
+                        }) or changed
+                end
+            end
+        end
+    end
+    return changed
+end
+
+-- Projected duration views have one public display owner per monitor. Suppress it
+-- while a verified native totem clock is drawn by the ordinary owned slot;
+-- the Aura container and its restricted descendants keep all native bindings.
+function View:SetFilteredAuraTotemTakeover(monitorId, active)
+    local display = self.filteredAuraDisplays["monitor:" .. monitorId]
+    if not display or (display.totemActive == true) == active then return false end
+    local proxy = display.proxy
+    if not (proxy and proxy.SetAlpha) then return false end
+    proxy:SetAlpha(active and 0 or 1)
+    display.totemActive = active or nil
+    if I.AddViewWrite then I.AddViewWrite(false) end
+    return true
+end
+
 function View:ReleaseFilteredAuraDisplays()
     local released = false
     for key, display in pairs(self.filteredAuraDisplays or {}) do
@@ -754,9 +1211,27 @@ function View:ReleaseFilteredAuraDisplays()
                 record.slot._yhudGlowShown = false
             end
             if record.slot then
+                if record.slot._yhudAuraStackSet then
+                    YHUD.Glow:ReleaseStackSet(record.slot._yhudAuraStackSet)
+                    record.slot._yhudAuraStackSet = nil
+                end
+                local gate = record.slot._yhudAuraStackGate
+                if gate then
+                    gate.driver:SetValue(0)
+                    gate.lastPublicValue = nil
+                    if record.slot.gui2Glow and record.slot.gui2Glow.SetGlowClipParent then
+                        record.slot.gui2Glow:SetGlowClipParent(nil)
+                    end
+                end
+                record.slot._yhudAuraStackGate = nil
                 record.slot._yhudBarStackInputs = nil
                 record.slot._yhudBarStackPolicy = nil
                 record.slot._yhudBarStackBaseColor = nil
+                -- Live descendants retire with the public display owner;
+                -- resetting their native drivers after initialization is unsafe.
+                if record.kind ~= "live" and self.ClearBarProgress then
+                    self:ClearBarProgress(record.slot)
+                end
                 if YUI.GUI2.ReleaseAuraBarThresholds then
                     YUI.GUI2:ReleaseAuraBarThresholds(record.slot)
                     self.barStackThresholdOwners[record.slot] = nil
@@ -816,6 +1291,7 @@ function View:ReleaseFilteredAuraDisplays()
     for _, runtime in pairs(self.groups or {}) do
         runtime.filteredAuraWidth = nil
         runtime.filteredAuraHeight = nil
+        runtime.hasExternalBuffBlock = nil
     end
     return released
 end
@@ -879,6 +1355,13 @@ function View:ReconcilePlayerHelpfulFilteredAuraDisplays(trusted)
             self.barStackThresholdOwners[owner] = nil
         end
     end
+    for _, record in pairs(self.buffTimerStackDisplays or {}) do
+        for _, variant in ipairs(record.variants or {}) do
+            Unit.SetFilteredAuraDisplayIdentitySuppressed(variant.handle, suppressed)
+        end
+        record.identitySuppressed = suppressed
+        self:RefreshBuffTimerStackGlow(record)
+    end
     local resourceChanged = false
     local resourceGroupId
     if self.SetResourceAuraIdentitySuppressed then
@@ -939,8 +1422,24 @@ function View:SyncFilteredAuraDisplays(profile)
         return false
     end
 
+    local built = false
     local byGroup = {}
     for groupId, runtime in pairs(self.groups or {}) do
+        for _, monitorId in ipairs(runtime.externalBuffMonitorIds or {}) do
+            local monitor = self.desiredMonitors[monitorId]
+            local entry = monitor and profile.entries[monitor.entryKey]
+            if monitor and entry then
+                local display, code = BuildExternalBuffBlock(runtime, monitor, entry)
+                if display then
+                    self.filteredAuraDisplays["monitor:" .. monitorId] = display
+                    monitor._yhudFilteredAuraManaged = true
+                    runtime.hasExternalBuffBlock = true
+                    built = true
+                else
+                    MarkFilteredAuraFailed({ monitor }, code)
+                end
+            end
+        end
         local list
         for index = 1, runtime.monitorCount or 0 do
             local monitor = self.desiredMonitors[runtime.monitorIds[index]]
@@ -963,7 +1462,6 @@ function View:SyncFilteredAuraDisplays(profile)
         end
     end
 
-    local built = false
     for groupId, monitors in pairs(byGroup) do
         local runtime = self.groups[groupId]
         local firstEntry = profile.entries[monitors[1].entryKey]

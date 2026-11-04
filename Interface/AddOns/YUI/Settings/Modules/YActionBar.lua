@@ -47,6 +47,7 @@ local PAGE_HEADER_TOP = 46
 local previewProfessionQualityAtlas
 local PREVIEW_PROFESSION_QUALITY_ATLAS = "Professions-Icon-Quality-12-Tier2-Inv"
 local SpecialSettings = {}
+local EffectPreview = {}
 SpecialSettings.shadowColor = GUI2.ShapeShadowDefaults and GUI2.ShapeShadowDefaults.color or { 0, 0, 0, 0.5 }
 SpecialSettings.specialGroupId = "specialActionsGroup"
 SpecialSettings.specialGroupOrder = { "zoneAbility", "extraAction", "vehicleExit" }
@@ -156,7 +157,12 @@ local SETTING_FIELDS = {
     "spacing",
     "alignment",
     "rows",
+    "skinId",
+    "skinOptions",
     "skin",
+    "aspectActiveStyle",
+    "showPetUtilities",
+    "flyoutDirection",
     "iconZoom",
     "border",
     "borderColor",
@@ -165,6 +171,7 @@ local SETTING_FIELDS = {
     "shadow",
     "shadowColor",
     "cooldownFade",
+    "chargeRecoveryDisplay",
     "cooldownTextSize",
     "cooldownTextOffsetX",
     "cooldownTextOffsetY",
@@ -202,9 +209,13 @@ local DEFAULT_SETTING_CAPABILITIES = {}
 for _, key in ipairs(SETTING_FIELDS) do
     DEFAULT_SETTING_CAPABILITIES[key] = true
 end
+DEFAULT_SETTING_CAPABILITIES.aspectActiveStyle = false
+DEFAULT_SETTING_CAPABILITIES.showPetUtilities = false
+DEFAULT_SETTING_CAPABILITIES.flyoutDirection = false
 
 local BAR_SETTING_CAPABILITIES = {
     specialActionsGroup = {
+        chargeRecoveryDisplay = true,
         visibility = true,
         hideSkyriding = true,
         size = true,
@@ -237,6 +248,7 @@ local BAR_SETTING_CAPABILITIES = {
     },
     pet = {
         enabled = true,
+        hideEmptySlots = true,
         visibility = true,
         hideSkyriding = true,
         buttons = true,
@@ -412,8 +424,16 @@ SpecialSettings.retailCapabilities = {
     },
 }
 
+for _, id in ipairs({ "extraAction", "zoneAbility" }) do
+    BAR_SETTING_CAPABILITIES[id].chargeRecoveryDisplay = true
+    SpecialSettings.retailCapabilities[id].chargeRecoveryDisplay = true
+end
+
 local function GetSettingCapabilities(barId)
-    if barId == "questItems" then
+    if barId == "pet" then
+        BAR_SETTING_CAPABILITIES.pet.hideEmptySlots = HasClientCapability("petEmptySlots")
+    end
+    if barId == "questItems" or barId == "aspects" or barId == "totems" then
         local yab = YUI.YActionBar
         local rule = yab and yab.SpecialBars and yab.SpecialBars:GetRule(barId)
         return rule and rule.capabilities or {}
@@ -425,6 +445,7 @@ local function GetSettingCapabilities(barId)
 end
 
 local function IsSettingSupported(barId, key)
+    if key == "skinId" or key == "skinOptions" then key = "skin" end
     local capabilities = GetSettingCapabilities(barId)
     return capabilities and capabilities[key] == true
 end
@@ -539,6 +560,8 @@ end
 
 local function GetDB()
     local yab = GetYAB()
+    -- 设置可原地重置/复制字段，沿用完整规范化；游戏热路径使用 GetDB。
+    if yab and yab.EnsureDB then return yab:EnsureDB() end
     return yab and yab.GetDB and yab:GetDB() or nil
 end
 
@@ -598,6 +621,9 @@ function SpecialSettings:GetLayoutButtonCount(barId, cfg, snapshot)
         return math.max(3, math.min(yab and yab.QuestItems and #yab.QuestItems.order or 0, 12))
     end
     local specialBars = yab and yab.SpecialBars
+    if barId == "aspects" and specialBars and specialBars.GetPreviewButtonCount then
+        return ClampNumber(specialBars:GetPreviewButtonCount(barId, cfg, snapshot), 1, 12, 1)
+    end
     if specialBars and specialBars.GetRuntimeButtonCount then
         local count = specialBars:GetRuntimeButtonCount(barId, cfg, snapshot)
         if count then return ClampNumber(count, 1, 12, 1) end
@@ -653,11 +679,21 @@ local function IsSpecialBar(db, barId)
 end
 
 local function IsSettingsSpecialBarVisible(yab, barId)
+    if barId == "aspects" or barId == "totems" then
+        return yab and yab.Client and yab.Client.classBars == true
+    end
     if barId == "questItems" then return yab and yab.Client and yab.Client.questItems == true end
     if barId == "possess" and yab and yab.Adapter and yab.Adapter.UseMainActionBarForPossess then
         return not yab.Adapter:UseMainActionBarForPossess()
     end
     return true
+end
+
+local function IsClassBarSamplePreview(barId)
+    local yab = GetYAB()
+    if not (yab and yab.Client and yab.Client.classBars == true) then return false end
+    if barId ~= "aspects" and barId ~= "totems" then return false end
+    return yab.SpecialBars:GetPlayerClassToken() ~= (barId == "aspects" and "HUNTER" or "SHAMAN")
 end
 
 local function GetSettingsSpecialBarOrder(yab, db)
@@ -889,19 +925,23 @@ local function ApplyStructuralRefresh(db, barId, reason)
     return result
 end
 
-local function SyncSelectedConfigSnapshot(scope)
+local function SyncSelectedConfigSnapshot(scope, previewReason)
     if selectedBarId == SpecialSettings.specialGroupId then
         local db = GetDB()
         local yab = GetYAB()
         local manager = yab and yab.BarManager
         local configPhase = BeginSliderDiagnosticPhase("config")
-        if manager and manager.RefreshSpecialGroupingRuntime then
+        if previewReason == "text-position" then
+            for _, memberId in ipairs(manager and manager.specialGroupOrder or {}) do
+                SyncConfigSnapshot(db, memberId, "visual")
+            end
+        elseif manager and manager.RefreshSpecialGroupingRuntime then
             manager:RefreshSpecialGroupingRuntime(db, "settings:special-group-" .. tostring(scope or "full"))
         end
         EndSliderDiagnosticPhase(configPhase)
         local previewPhase = BeginSliderDiagnosticPhase("preview")
         if RefreshPreviewOnly then
-            RefreshPreviewOnly(scope or "full")
+            RefreshPreviewOnly(previewReason or scope or "full")
         end
         EndSliderDiagnosticPhase(previewPhase)
         return
@@ -911,7 +951,7 @@ local function SyncSelectedConfigSnapshot(scope)
     EndSliderDiagnosticPhase(configPhase)
     local previewPhase = BeginSliderDiagnosticPhase("preview")
     if RefreshPreviewOnly then
-        RefreshPreviewOnly(scope or "full")
+        RefreshPreviewOnly(previewReason or scope or "full")
     end
     EndSliderDiagnosticPhase(previewPhase)
 end
@@ -1232,6 +1272,7 @@ local function StopModePromptPulse()
 end
 
 local function ClearPreviewTransientState(preserveModePrompt)
+    if EffectPreview.Hide then EffectPreview:Hide() end
     if not preserveModePrompt then
         StopModePromptPulse()
     end
@@ -1302,7 +1343,7 @@ end
 
 local function GetPreviewSnapshot(db, barId, cfg)
     if barId == SpecialSettings.specialGroupId then
-        return CopyValue(cfg or {})
+        return GUI2.IconSkins:ApplyRecipe(CopyValue(cfg or {}), "Flare")
     end
     local yab = GetYAB()
     local manager = yab and yab.BarManager
@@ -1512,7 +1553,7 @@ local function NormalizePreviewAlignment(value, fallback)
     return fallback or "left"
 end
 
-local function TryBuildRealPreviewLayout(db, barId, cfg, snapshot, record, count)
+local function TryBuildRealPreviewLayout(db, barId, cfg, snapshot, record, count, expectedLayout)
     if not record or count < 1 then return nil end
     local holder = record.holder or record.mover
     local firstButton = GetPreviewRecordButton(record, 1)
@@ -1538,7 +1579,11 @@ local function TryBuildRealPreviewLayout(db, barId, cfg, snapshot, record, count
     end
 
     -- Settings rebuild the preview before the queued runtime layout is applied.
-    -- Reject old button dimensions so the entire strip uses the current config.
+    -- Reuse live geometry only after bounds, positions and sizes match the config.
+    if math.abs(width - expectedLayout.width) > 0.5
+        or math.abs(height - expectedLayout.height) > 0.5 then
+        return nil
+    end
     local expectedWidth, expectedHeight = GetPreviewButtonDimensions(snapshot, cfg, nil)
     local positions = {}
     for index = 1, count do
@@ -1549,6 +1594,11 @@ local function TryBuildRealPreviewLayout(db, barId, cfg, snapshot, record, count
         local left = PreviewSafety:GetNumber(button, button.GetLeft)
         local top = PreviewSafety:GetNumber(button, button.GetTop)
         if not (left and top) then
+            return nil
+        end
+        local expectedPosition = expectedLayout.positions[index]
+        if math.abs((left - holderLeft) - expectedPosition.x) > 0.5
+            or math.abs((top - holderTop) - expectedPosition.y) > 0.5 then
             return nil
         end
         local buttonWidth, buttonHeight, visualSize, liveGeometrySafe = GetPreviewButtonDimensions(snapshot, cfg, button)
@@ -1626,13 +1676,21 @@ local function BuildPreviewLayout(db, barId, cfg, snapshot)
         return SpecialSettings:BuildSpecialGroupPreviewLayout(db, cfg, snapshot)
     end
     local record = GetPreviewRecord(barId)
-    local count = GetPreviewButtonCount(db, barId, cfg, snapshot, record)
+    local sample = IsClassBarSamplePreview(barId)
+    local count = sample and (barId == "aspects" and cfg.showPetUtilities ~= false and 7 or 6)
+        or GetPreviewButtonCount(db, barId, cfg, snapshot, record)
+    local configuredLayout = BuildFallbackPreviewLayout(db, barId, cfg, snapshot, count, record)
+    if sample then return configuredLayout end
+    if barId == "aspects" and record and record.petUtilityToggle and cfg.showPetUtilities ~= false then
+        configuredLayout.positions[#configuredLayout.positions].realButton = record.petUtilityToggle
+        return configuredLayout
+    end
     local deterministic = SpecialSettings:IsDeterministicSpecialPreview(barId)
     if not deterministic then
-        local realLayout = TryBuildRealPreviewLayout(db, barId, cfg, snapshot, record, count)
+        local realLayout = TryBuildRealPreviewLayout(db, barId, cfg, snapshot, record, count, configuredLayout)
         if realLayout then return realLayout end
     end
-    return BuildFallbackPreviewLayout(db, barId, cfg, snapshot, count, record)
+    return configuredLayout
 end
 
 local function GetPreviewActionSlot(adapter, snapshot, cfg, index, barId)
@@ -1739,6 +1797,53 @@ local function BuildPreviewButtonState(db, barId, cfg, snapshot, index, realButt
         end
         if adapter.ReadActionState then adapter:ReadActionState(slot, state) end
         if adapter.ReadActionGlow then adapter:ReadActionGlow(slot, state) end
+    elseif IsClassBarSamplePreview(barId) and yab.ClassBars then
+        local spellID = yab.ClassBars:GetSampleSpellID(barId, index, cfg)
+        local info = spellID and YUI.API.Spell.GetInfo(spellID)
+        state.texture = info and (PreviewSafety:Value(info.originalIconID) or PreviewSafety:Value(info.iconID))
+        if barId == "aspects" and index == 7 then state.texture = yab.ClassBars.petUtilityAbsentTexture end
+        state.hasAction = state.texture ~= nil
+        if barId == "aspects" and index <= 6 then
+            state.aspectActiveStyle = cfg.aspectActiveStyle or "innerGlow"
+            state.checked = index == 2
+            state.aspectDimmed = state.aspectActiveStyle == "dimOthers" and not state.checked
+            if state.checked and state.aspectActiveStyle == "nativeIcon" then
+                state.texture = yab.ClassBars.aspectActiveTexture
+            end
+        end
+    elseif barId == "aspects" and yab and yab.ClassBars and yab.ClassBars.petUtilities
+        and realButton == yab.ClassBars.petUtilities.toggle and realButton ~= nil then
+        local live = yab.ClassBars.petUtilities.toggleState
+        state.texture = PreviewSafety:Value(live.texture)
+        state.hasAction, state.usable = state.texture ~= nil, true
+        state.checked = live.checked == true
+        state.aspectActiveStyle = "innerGlow"
+    elseif barId == "aspects" and yab and yab.ClassBars then
+        local meta = realButton and yab.SecureFactory:GetButtonMeta(realButton)
+        local spellID, known
+        if meta then
+            spellID, known = yab.ClassBars:ResolveAspect(yab.ClassBars.aspectFamilies[meta.index])
+        else
+            spellID, known = yab.ClassBars:GetAspectPreview(index, cfg)
+        end
+        if spellID then
+            local info = YUI.API.Spell.GetInfo(spellID)
+            state.texture = info and (PreviewSafety:Value(info.originalIconID) or PreviewSafety:Value(info.iconID))
+            state.hasAction, state.usable = state.texture ~= nil, known
+            state.unlearned = not known
+            state.aspectActiveStyle = cfg.aspectActiveStyle or "innerGlow"
+            local live = realButton and yab.ClassBars.states[realButton]
+            if live then
+                state.checked = live.visual.checked == true
+                state.aspectDimmed = live.visual.aspectDimmed == true
+                state.texture = live.visual.texture or state.texture
+            end
+        end
+    elseif barId == "totems" then
+        local button = realButton and (realButton.actionButton or realButton)
+        local icon = button and (button.icon or button.Icon or _G[button:GetName() .. "Icon"])
+        state.texture = icon and PreviewSafety:Value(icon:GetTexture())
+        state.hasAction = state.texture ~= nil
     elseif barId == "questItems" then
         local items = yab and yab.QuestItems
         local entry = items and items.bound and items.bound[realButton]
@@ -1933,8 +2038,15 @@ local function SyncPreviewTextOverlayLevel(button)
     return true
 end
 
-local function CreatePreviewVisualButton(parent, db, barId, snapshot, width, height)
-    local button = GUI2:CreateButtonFrame(parent, { width = width, height = height })
+local function CreatePreviewVisualButton(parent, db, barId, snapshot, width, height, effectPreview)
+    local button
+    if effectPreview then
+        button = GUI2:CreateFrame(parent, { type = "CheckButton", width = width, height = height, mouse = false })
+        button.yabEffectPreview = true
+        button:SetCheckedTexture(button:CreateTexture(nil, "OVERLAY"))
+    else
+        button = GUI2:CreateButtonFrame(parent, { width = width, height = height })
+    end
     button.yabPreviewButton = true
     button.yabConfigSnapshot = snapshot
     local icon = button:CreateTexture(nil, "ARTWORK")
@@ -1946,7 +2058,7 @@ local function CreatePreviewVisualButton(parent, db, barId, snapshot, width, hei
     button.cooldown = CreatePreviewCooldown(button)
     button.Cooldown = button.cooldown
     button.chargeCooldown = CreatePreviewCooldown(button)
-    TrackPreviewButton(button)
+    if not effectPreview then TrackPreviewButton(button) end
     return button
 end
 
@@ -1993,6 +2105,88 @@ local function ApplyPreviewVisual(button, db, barId, snapshot, width, height, vi
         visuals:UpdateButton(button, state, "full")
     end
     return true
+end
+
+function EffectPreview:Hide(owner)
+    if GUI2.AssistedHighlightTooltip then GUI2.AssistedHighlightTooltip:Hide(owner) end
+    if owner and self.owner ~= owner then return end
+    self.owner = nil
+    local yab = GetYAB()
+    for _, button in ipairs(self.buttons or {}) do
+        if yab and yab.Visuals then yab.Visuals:ReleaseButton(button) end
+        button:Hide()
+    end
+    if self.panel then self.panel:Hide() end
+end
+
+function EffectPreview:Show(anchor, kind, db)
+    self:Hide()
+    if kind == "assisted" then
+        GUI2.AssistedHighlightTooltip:Show(anchor, T("settings.assisted_highlight"))
+        return
+    end
+    local yab = GetYAB()
+    if not (yab and yab.Visuals) then return end
+    if not self.panel then
+        self.panel = GUI2:CreatePanel(UIParent, { width = 220, height = 132,
+            surface = "color.surface.popup", border = "color.popup.border", shadow = true })
+        self.panel:SetFrameStrata("TOOLTIP")
+        if S.RegisterScaleWindow then S:RegisterScaleWindow(self.panel) end
+        self.panel:SetClampedToScreen(true)
+        self.panel:EnableMouse(false)
+        self.title = GUI2:CreateText(self.panel, "", "font.size.md", "color.text.heading")
+        self.title:SetPoint("TOP", 0, -10)
+        self.footer = GUI2:CreateText(self.panel, "", "font.size.sm", "color.text.secondary")
+        self.footer:SetWidth(196)
+        self.footer:SetJustifyH("CENTER")
+        self.footer:SetWordWrap(true)
+        self.footer:SetPoint("BOTTOM", 0, 10)
+        self.buttons = {}
+        for index = 1, 2 do
+            local button = CreatePreviewVisualButton(self.panel, db, "main", nil, 42, 42, true)
+            button:SetPoint("TOPLEFT", index == 1 and 44 or 134, -38)
+            self.buttons[index] = button
+            local label = GUI2:CreateText(self.panel, T(index == 1 and "settings.effect_on" or "settings.effect_off"),
+                "font.size.sm", "color.text.primary")
+            label:SetPoint("TOP", button, "BOTTOM", 0, -8)
+        end
+        self.panel:HookScript("OnHide", function() if self.owner then self:Hide() end end)
+    end
+    self.owner = anchor
+    self.panel:ClearAllPoints()
+    self.panel:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 10)
+    self.title:SetText(T("settings.show_action_state"))
+    self.footer:SetText("")
+    self.panel:SetHeight(128)
+    local barId = IsOrdinaryBar(db, selectedBarId) and selectedBarId or "main"
+    local base = GetPreviewSnapshot(db, barId, db.bars[barId])
+    for index, button in ipairs(self.buttons) do
+        local snapshot = CopyValue(base)
+        snapshot.showActionState = index == 1
+        snapshot.showHotkeys, snapshot.showMacroNames, snapshot.showCounts = false, false, false
+        snapshot.showProfessionQuality = false
+        button.yabConfigSnapshot = snapshot
+        button:Show()
+        ApplyPreviewVisual(button, db, "main", snapshot, 42, 42, 42, {
+            hasAction = true, texture = 132261, usable = true, checked = true,
+            hotkey = "", countText = "", name = "",
+        })
+        yab.Visuals:SetAssistedHighlight(button, false)
+    end
+    self.panel:Show()
+end
+
+function EffectPreview:Bind(field, kind, db, labelInset)
+    if field.widget and field.widget.SetHitRectInsets and labelInset then
+        field.widget:SetHitRectInsets(-labelInset, 0, 0, 0)
+    end
+    for _, region in pairs({ field.widget, field.labelRegion }) do
+        if region and region.HookScript then
+            region:HookScript("OnEnter", function(self) EffectPreview:Show(self, kind, db) end)
+            region:HookScript("OnLeave", function(self) EffectPreview:Hide(self) end)
+            region:HookScript("OnHide", function(self) EffectPreview:Hide(self) end)
+        end
+    end
 end
 
 local function MapPreviewTextRelativeFrame(relativeTo, realButton, previewButton)
@@ -2510,6 +2704,25 @@ RefreshPreviewOnly = function(reason)
     local cfg = db and GetBarConfig(db, barId)
     if not (db and cfg) then return false end
 
+    if reason == "text-position" then
+        local yab = GetYAB()
+        local visuals = yab and yab.Visuals
+        if not (visuals and visuals.TextAnchors) then return false end
+        -- Keep the existing preview frames, contents and pan position while dragging.
+        for _, button in ipairs(editorState.previewButtons or {}) do
+            local snapshot = button.yabConfigSnapshot
+            local visual = visuals.buttons and visuals.buttons[button]
+            if snapshot and visual then
+                for _, prefix in ipairs(yab.TextStyle.prefixes) do
+                    snapshot[prefix.."OffsetX"] = cfg[prefix.."OffsetX"] or 0
+                    snapshot[prefix.."OffsetY"] = cfg[prefix.."OffsetY"] or 0
+                end
+                visuals.TextAnchors:Apply(button, visual, snapshot)
+            end
+        end
+        return true
+    end
+
     editorState.refreshingPreview = true
     ReleasePreviewButtons()
     ClearPreviewTransientState(editorState.mode ~= PREVIEW_MODE_PREVIEW)
@@ -2722,6 +2935,11 @@ local COMPACT_TWO_COLUMN_LAYOUT = {
     minBodyWidth = 120,
 }
 
+local APPEARANCE_LAYOUT = {
+    labelWidth = 112, labelGap = 8, columnGap = 20, minBodyWidth = 120,
+    rowGap = 4,
+}
+
 local function GetAlignedBodyWidth(width, layout)
     layout = type(layout) == "table" and layout or ALIGNED_LAYOUT
     local availableWidth = math.max(tonumber(width) or 640, 320)
@@ -2746,8 +2964,8 @@ local function RenderAligned(parent, fields, x, y, width, columns, layout)
         bodyWidth = layout and layout.bodyWidth or GetAlignedBodyWidth(width, layout),
         valueWidth = ALIGNED_LAYOUT.valueWidth,
         valueGap = ALIGNED_LAYOUT.valueGap,
-        rowHeight = ALIGNED_LAYOUT.rowHeight,
-        rowGap = ALIGNED_LAYOUT.rowGap,
+        rowHeight = layout and layout.rowHeight or ALIGNED_LAYOUT.rowHeight,
+        rowGap = layout and layout.rowGap or ALIGNED_LAYOUT.rowGap,
         columnGap = layout and layout.columnGap or ALIGNED_LAYOUT.columnGap,
         minBodyWidth = layout and layout.minBodyWidth or ALIGNED_LAYOUT.minBodyWidth,
     })
@@ -2889,7 +3107,10 @@ end
 
 CloseTextSettingsPopover = function(suppressPreviewRefresh)
     local professionQualityPreviewWasActive = editorState.textSettingsType == "professionQuality"
-    if editorState.textSettingsPopover then editorState.textSettingsPopover:Hide() end
+    if GUI2.FontStyle then GUI2.FontStyle:CloseForProvider("yactionbar") end
+    -- A shared editor may already have been reused by another provider.
+    local popup = editorState.textSettingsPopover
+    if popup and popup ~= (GUI2.FontStyle and GUI2.FontStyle.editor) then popup:Hide() end
     if editorState.textSettingsDismiss then editorState.textSettingsDismiss:Hide() end
     editorState.textSettingsPopover = nil
     editorState.textSettingsDismiss = nil
@@ -2903,11 +3124,22 @@ CloseTextSettingsPopover = function(suppressPreviewRefresh)
 end
 
 local function CreateTextSettingsPopover(anchor, parent, cfg, spec, barId)
-    if editorState.textSettingsType == spec.id and editorState.textSettingsPopover then
+    local currentPopup = editorState.textSettingsPopover
+    local sharedEditor = GUI2.FontStyle and GUI2.FontStyle.editor
+    if editorState.textSettingsType == spec.id and currentPopup and currentPopup:IsShown()
+        and (currentPopup ~= sharedEditor or currentPopup.anchor == anchor) then
         CloseTextSettingsPopover()
         return nil
     end
     local professionQualityPreviewWasActive = CloseTextSettingsPopover(true)
+
+    if spec.id ~= "professionQuality" and GUI2.FontStyle and GUI2.FontStyle.OpenEditor then
+        local prefix = spec.sizeKey:sub(1, -5)
+        editorState.textSettingsPopover = GUI2.FontStyle:OpenEditor("yactionbar:" .. barId .. "/" .. prefix, anchor, {placement="right"})
+        editorState.textSettingsType = spec.id
+        if professionQualityPreviewWasActive and RefreshPreviewOnly then RefreshPreviewOnly("profession-quality-popover-closed") end
+        return editorState.textSettingsPopover
+    end
 
     local host = editorState.owner or parent
     local hostLevel = host and host.GetFrameLevel and (host:GetFrameLevel() or 1) or 1
@@ -3050,6 +3282,46 @@ local function CreateTextSettingsPopover(anchor, parent, cfg, spec, barId)
     return popup
 end
 
+local function RegisterTextStyle()
+    local textStyle = YUI.YActionBar and YUI.YActionBar.TextStyle
+    if not (textStyle and GUI2.FontStyle) then return false end
+    if editorState.textStyleProvider == textStyle and editorState.fontStyleRegistry == GUI2.FontStyle then return true end
+    -- Suite settings load before the product; standalone may load them after it.
+    for _, field in ipairs(textStyle.fieldOrder) do
+        if not TEXT_COLOR_CAPABILITIES[field] then SETTING_FIELDS[#SETTING_FIELDS+1] = field end
+        TEXT_COLOR_CAPABILITIES[field] = textStyle.fields[field].capability
+        DEFAULT_SETTING_CAPABILITIES[field] = true
+    end
+    textStyle:RegisterEditor({
+        getDB=function()
+            local yab=GetYAB()
+            local profile=yab and yab.GetProfile and yab:GetProfile()
+            return profile and profile[yab.STORAGE_KEY] or yab and yab.db
+        end,
+        getConfig=GetBarConfig, defaults=GetDefaultBar,
+        label=GetBarLabel,
+        supported=function(barId,role)
+            return IsSettingsSpecialBarVisible(GetYAB(),barId) and SpecialSettings:IsTextTypeSupported(barId,role)
+        end,
+        save=function(barId,values)
+            local result,code=PatchConfigSetSettings(barId,values,"settings:text-style")
+            -- No active personal set is a normal direct-profile edit.
+            if result==nil and code~="set_not_found" and code~="provider_not_found"
+                and code~="config-sets-unavailable" and code~="config-sets-service-unavailable" then return false end
+            return result~=false
+        end,
+        refresh=function(barId,positionOnly)
+            if barId==selectedBarId then SyncSelectedConfigSnapshot("visual", positionOnly and "text-position")
+            elseif barId==SpecialSettings.specialGroupId then
+                local manager=GetYAB().BarManager
+                if manager and manager.RefreshSpecialGroupingRuntime then manager:RefreshSpecialGroupingRuntime(GetDB(),"text-style") end
+            else SyncConfigSnapshot(GetDB(),barId,"visual") end
+        end,
+    })
+    editorState.textStyleProvider, editorState.fontStyleRegistry = textStyle, GUI2.FontStyle
+    return true
+end
+
 local function RenderTextSettingsRows(parent, cfg, barId, x, y, width)
     local rowHeight = 34
     local rowGap = 8
@@ -3079,6 +3351,10 @@ local function RenderTextSettingsRows(parent, cfg, barId, x, y, width)
                 end,
             })
             gear:SetPoint("LEFT", checkbox, "RIGHT", TEXT_ROW_GEAR_GAP, 0)
+            gear:HookScript("OnHide", function(button)
+                local editor = GUI2.FontStyle and GUI2.FontStyle.editor
+                if editor and editor.anchor == button then GUI2.FontStyle:CloseEditor() end
+            end)
             if gear.SetFrameLevel then gear:SetFrameLevel((parent:GetFrameLevel() or 1) + 41) end
             rendered = rendered + 1
         end
@@ -3088,6 +3364,53 @@ end
 
 local function RenderDisplaySection(parent, cfg, barId, x, y, width)
     local cursorY = y
+    local columnWidth, pagingBottomY, fieldLayout = width, nil, nil
+    if barId == "main" then
+        local db = GetDB()
+        db.interaction = db.interaction or {}
+        local field = {
+            type = "specMultiSelect", label = T("settings.form_paging"), defaultSelected = true,
+            panelTitle = T("settings.form_paging"),
+            tooltip = T("settings.form_paging_tooltip"),
+            get = function() return CopyValue(db.interaction.formPagingSpecs or {}) end,
+            summaryFormatter = function(selected, total)
+                return T(selected == total and "settings.paging_all" or selected == 0 and "settings.paging_none" or "settings.paging_selected")
+            end,
+            set = function(value)
+                local yab = GetYAB()
+                local mask = yab.ConfigSets:NormalizeFormPagingSpecs(value)
+                if not mask then return end
+                db.interaction.formPagingSpecs = mask
+                if yab.BarManager and yab.BarManager.RefreshMainPaging then yab.BarManager:RefreshMainPaging() end
+                PatchGlobalConfigSetSetting("interaction", "formPagingSpecs", mask, "settings:form-paging")
+            end,
+        }
+        local columnGap = COMPACT_TWO_COLUMN_LAYOUT.columnGap
+        local twoColumns = width >= 2 * (ALIGNED_LAYOUT.labelWidth + ALIGNED_LAYOUT.labelGap + COMPACT_TWO_COLUMN_LAYOUT.minBodyWidth)
+            + columnGap
+        if twoColumns then
+            columnWidth = math.floor((width - columnGap) / 2)
+            fieldLayout = {
+                bodyWidth = columnWidth - ALIGNED_LAYOUT.labelWidth - ALIGNED_LAYOUT.labelGap,
+                minBodyWidth = COMPACT_TWO_COLUMN_LAYOUT.minBodyWidth,
+            }
+        end
+        local height = RenderAligned(parent, { field }, twoColumns and x + columnWidth + columnGap or x,
+            y, columnWidth, 1, fieldLayout)
+        if twoColumns then pagingBottomY = y - height
+        else cursorY = cursorY - height - 10 end
+        if field.widget and GUI2.Tooltip then
+            field.widget:HookScript("OnEnter", function(owner)
+                GUI2.Tooltip:Show(owner, { title = field.label, content = function(tip)
+                    tip:AddLine(field.tooltip)
+                    if HasClientCapability("heldBindings") then
+                        tip:AddLine(T("settings.form_paging_warning"), "warning")
+                    end
+                end })
+            end)
+            field.widget:HookScript("OnLeave", function(owner) GUI2.Tooltip:Hide(owner) end)
+        end
+    end
     local enabledFields = {}
     AddSettingField(enabledFields, barId, "enabled", {
             type = "checkbox",
@@ -3102,7 +3425,7 @@ local function RenderDisplaySection(parent, cfg, barId, x, y, width)
             end,
     })
     if #enabledFields > 0 then
-        cursorY = cursorY - RenderAligned(parent, enabledFields, x, cursorY, width, 1) - 10
+        cursorY = cursorY - RenderAligned(parent, enabledFields, x, cursorY, columnWidth, 1, fieldLayout) - 10
     end
 
     local toggleFields = {}
@@ -3113,8 +3436,16 @@ local function RenderDisplaySection(parent, cfg, barId, x, y, width)
             get = function() return cfg.hideEmptySlots == true end,
             set = function(value) SetSetting(cfg, "hideEmptySlots", value == true, "action") end,
     })
+    AddSettingField(toggleFields, barId, "showUnlearned", {
+            type = "checkbox",
+            label = T("settings.show_unlearned", "显示未学习技能"),
+            tooltip = T("settings.show_unlearned_tooltip", ""),
+            default = false,
+            get = function() return cfg.showUnlearned == true end,
+            set = function(value) SetSetting(cfg, "showUnlearned", value == true, "action") end,
+    })
     if #toggleFields > 0 then
-        cursorY = cursorY - RenderAligned(parent, toggleFields, x, cursorY, width, 2) - 18
+        cursorY = cursorY - RenderAligned(parent, toggleFields, x, cursorY, columnWidth, 2, fieldLayout) - 18
     else
         cursorY = cursorY - 8
     end
@@ -3122,12 +3453,23 @@ local function RenderDisplaySection(parent, cfg, barId, x, y, width)
     if GetSettingCapabilities(barId).visibility then
         local title = GUI2:CreateText(parent, CT("visibility.title", "显示规则"), "font.size.md", "color.text.heading", "LEFT")
         title:SetPoint("TOPLEFT", x, cursorY)
-        local editor = CreateVisibilityEditor(parent, cfg, width, false)
+        local editor = CreateVisibilityEditor(parent, cfg, columnWidth, false)
         editor:SetPoint("TOPLEFT", x, cursorY - 28)
         cursorY = cursorY - 28 - editor:GetHeight() - 16
     end
 
-    return cursorY
+    local petUtilityFields = {}
+    AddSettingField(petUtilityFields, barId, "showPetUtilities", {
+        type = "checkbox",
+        label = T("settings.show_pet_utilities"),
+        default = true,
+        get = function() return cfg.showPetUtilities ~= false end,
+        set = function(value) SetSetting(cfg, "showPetUtilities", value == true, "structure") end,
+    })
+    if #petUtilityFields > 0 then
+        cursorY = cursorY - RenderAligned(parent, petUtilityFields, x, cursorY, columnWidth, 1, fieldLayout) - 16
+    end
+    return math.min(cursorY, pagingBottomY or cursorY)
 end
 
 local function RenderGameCVarSetting(parent, x, y, width, cvar, label, tooltip, layout)
@@ -3240,6 +3582,33 @@ local function RenderRankUpgradeSetting(parent, db, x, y, width)
     return height + ALIGNED_LAYOUT.rowGap
 end
 
+local function BuildChargeRecoveryPreviewStyle(cfg)
+    cfg = GUI2.IconSkins:ApplyRecipe(CopyValue(cfg), "Flare")
+    local fontStyle = GUI2.FontStyle
+    local function TextStyle(prefix, size, enabled, position, offsetY)
+        local effect = fontStyle.Decode(cfg[prefix .. "Outline"] or "OUTLINE",
+            cfg[prefix .. "Shadow"] ~= false, cfg[prefix .. "Monochrome"])
+        return {
+            enabled = enabled, size = size, font = cfg[prefix .. "Font"],
+            outline = fontStyle.EncodeEffect(effect, "camel"), monochrome = effect.monochrome,
+            color = { fontStyle.ColorRGBA(cfg[prefix .. "Color"]) },
+            position = position, offsetX = cfg[prefix .. "OffsetX"] or 0,
+            offsetY = (cfg[prefix .. "OffsetY"] or 0) + (offsetY or 0),
+        }
+    end
+    return {
+        iconShape = cfg.skin == "blizzard" and "square" or cfg.skin,
+        iconBorder = cfg.border, iconZoom = cfg.iconZoom, iconBorderColor = cfg.borderColor,
+        iconBackgroundColor = cfg.background == "transparent" and { 0, 0, 0, 0 } or cfg.backgroundColor,
+        iconShadow = cfg.shadow, iconShadowColor = cfg.shadowColor,
+        cooldownSwipeColor = { 0, 0, 0, 0.42 },
+        cooldownTextStyle = TextStyle("cooldownText", cfg.cooldownTextSize or 12,
+            (cfg.cooldownTextSize or 12) > 0, "center"),
+        countTextStyle = TextStyle("count", cfg.countSize or 12,
+            cfg.showCounts ~= false, "bottom-right", -1),
+    }
+end
+
 local function RenderCurrentOptions(parent, cfg, formWidth, onRerender, db)
     local width = math.max(tonumber(formWidth) or 640, 320)
     local x = 20
@@ -3256,6 +3625,7 @@ local function RenderCurrentOptions(parent, cfg, formWidth, onRerender, db)
         local twoColumns = rankUpgrade and sectionWidth >= 2 * (ALIGNED_LAYOUT.labelWidth + ALIGNED_LAYOUT.labelGap + 24) + ALIGNED_LAYOUT.columnGap
         local columnWidth = math.floor((sectionWidth - ALIGNED_LAYOUT.columnGap) / 2)
         if rankUpgrade then y = -10 end
+        local stateFieldsY = y
         local firstRowHeight = RenderKeyDownSetting(parent, x, y, twoColumns and columnWidth or sectionWidth,
             twoColumns and { bodyWidth = 24, minBodyWidth = 24 } or nil)
         if twoColumns then
@@ -3263,6 +3633,7 @@ local function RenderCurrentOptions(parent, cfg, formWidth, onRerender, db)
                 RenderRankUpgradeSetting(parent, db, x + columnWidth + ALIGNED_LAYOUT.columnGap, y, columnWidth))
         end
         y = y - firstRowHeight
+        if twoColumns then stateFieldsY = y end
         if rankUpgrade and not twoColumns then y = y - RenderRankUpgradeSetting(parent, db, x, y, sectionWidth) end
         if HasClientCapability("heldBindings") then
             y = y - RenderKeyHeldSetting(parent, x, y, sectionWidth)
@@ -3353,6 +3724,62 @@ local function RenderCurrentOptions(parent, cfg, formWidth, onRerender, db)
             },
         }
         y = RenderFieldBlock(parent, globalFields, x, y, sectionWidth, 1, rankUpgrade and 4 or nil)
+        local stateFields = {
+            {
+                type = "checkbox",
+                label = T("settings.show_action_state"),
+                default = true,
+                get = function() return db.appearance.showActionState ~= false end,
+                set = function(value)
+                    local enabled = value == true
+                    if (db.appearance.showActionState ~= false) == enabled then return end
+                    db.appearance.showActionState = enabled
+                    SyncAllConfigSnapshots(db)
+                    if RefreshPreviewOnly then RefreshPreviewOnly("visual") end
+                    PatchGlobalConfigSetSetting("appearance", "showActionState", enabled, "settings:action-state")
+                end,
+            },
+        }
+        if HasClientCapability("assistedHighlight") then
+            table.insert(stateFields, 1,
+                {
+                    type = "checkbox",
+                    label = T("settings.assisted_highlight"),
+                    default = false,
+                    get = function() return db.appearance.assistedHighlight == true end,
+                    set = function(value)
+                        local enabled = value == true
+                        if (db.appearance.assistedHighlight == true) == enabled then return end
+                        db.appearance.assistedHighlight = enabled
+                        local yab = GetYAB()
+                        if yab and yab.BarManager and yab.BarManager.SyncAssistedHighlight then
+                            yab.BarManager:SyncAssistedHighlight()
+                        end
+                        PatchGlobalConfigSetSetting("appearance", "assistedHighlight", enabled, "settings:assisted-highlight")
+                    end,
+                }
+            )
+        end
+        local leftColumnWidth = ALIGNED_LAYOUT.labelWidth + ALIGNED_LAYOUT.labelGap + GetAlignedBodyWidth(sectionWidth)
+        local rightColumnWidth = sectionWidth - leftColumnWidth - ALIGNED_LAYOUT.columnGap
+        local secondColumn = rightColumnWidth >= ALIGNED_LAYOUT.labelWidth + ALIGNED_LAYOUT.labelGap + 24
+        local stateY = RenderFieldBlock(parent, stateFields,
+            secondColumn and x + leftColumnWidth + ALIGNED_LAYOUT.columnGap or x,
+            secondColumn and stateFieldsY or y, secondColumn and rightColumnWidth or sectionWidth, 1, nil,
+            { bodyWidth = 24, minBodyWidth = 24 })
+        y = math.min(y, stateY)
+        for _, field in ipairs(stateFields) do
+            local labelInset = ALIGNED_LAYOUT.labelWidth + ALIGNED_LAYOUT.labelGap
+            if field.label == T("settings.assisted_highlight") then
+                if field.widget and field.widget.SetHitRectInsets then
+                    field.widget:SetHitRectInsets(-labelInset, 0, 0, 0)
+                end
+                GUI2.AssistedHighlightTooltip:Bind(field.widget, field.label)
+                GUI2.AssistedHighlightTooltip:Bind(field.labelRegion, field.label)
+            else
+                EffectPreview:Bind(field, "state", db, labelInset)
+            end
+        end
         return math.abs(y) + 4
     end
     if selectedGroup == "display" then
@@ -3541,6 +3968,15 @@ local function RenderCurrentOptions(parent, cfg, formWidth, onRerender, db)
                 )
             end,
     })
+    AddSettingField(layoutFields, barId, "flyoutDirection", {
+        type = "dropdown",
+        label = barId == "aspects" and T("settings.pet_utility_direction", "宠物技能展开方向")
+            or T("settings.flyout_direction", "展开方向"),
+        options = BuildMappedOptions(SpecialSettings.growthDirectionOptionKeys),
+        default = "up",
+        get = function() return cfg.flyoutDirection or "up" end,
+        set = function(value) SetSetting(cfg, "flyoutDirection", value or "up", "layout") end,
+    })
     if selectedGroup == "layout" then
         y = RenderFieldBlock(parent, layoutFields, x, y, sectionWidth, 2)
         return math.abs(y) + 4
@@ -3548,83 +3984,25 @@ local function RenderCurrentOptions(parent, cfg, formWidth, onRerender, db)
 
     local appearanceFields = {}
     AddSettingField(appearanceFields, barId, "skin", {
-            type = "dropdown",
-            label = T("settings.icon_style", "图标样式"),
-            options = BuildMappedOptions(GetSkinOptionKeys(barId)),
-            default = GetDefaultSkin(barId),
-            get = function() return cfg.skin or GetDefaultSkin(barId) end,
-            set = function(value) SetSetting(cfg, "skin", value or GetDefaultSkin(barId), "layout") end,
-    })
-    AddSettingField(appearanceFields, barId, "iconZoom", {
-            type = "slider",
-            label = T("settings.icon_zoom", "图标缩放"),
-            min = 0,
-            max = 0.2,
-            step = 0.01,
-            precision = 2,
-            default = cfg.iconZoom or 0.08,
-            get = function() return cfg.iconZoom or 0.08 end,
-            set = function(value)
-                cfg.iconZoom = ClampNumber(value, 0, 0.2, 0.08)
-                SyncSelectedConfigSnapshot("visual")
-            end,
-            onCommit = function()
-                PatchConfigSetSetting(
-                    barId,
-                    "iconZoom",
-                    cfg.iconZoom,
-                    "settings:icon-zoom"
-                )
-            end,
-    })
-    AddSettingField(appearanceFields, barId, "border", {
-            type = "dropdown",
-            label = T("settings.border", "边框"),
-            options = BuildMappedOptions(BORDER_OPTION_KEYS),
-            default = "thin",
-            get = function() return cfg.border or "thin" end,
-            set = function(value) SetSetting(cfg, "border", value or "thin", "visual") end,
-    })
-    AddSettingField(appearanceFields, barId, "borderColor", {
-            type = "color",
-            label = T("settings.border_color", "边框颜色"),
-            hasAlpha = true,
-            default = DEFAULT_BORDER_COLOR,
-            get = function() return cfg.borderColor or DEFAULT_BORDER_COLOR end,
-            set = function(value) SetSetting(cfg, "borderColor", CopyValue(value or DEFAULT_BORDER_COLOR), "visual") end,
-    })
-    AddSettingField(appearanceFields, barId, "background", {
-            type = "dropdown",
-            label = T("settings.background", "背景"),
-            options = BuildMappedOptions(BACKGROUND_OPTION_KEYS),
-            default = "black",
-            get = function() return cfg.background or "black" end,
-            set = function(value) SetSetting(cfg, "background", value or "black", "visual") end,
-    })
-    AddSettingField(appearanceFields, barId, "backgroundColor", {
-            type = "color",
-            label = T("settings.background_color", "槽背景颜色"),
-            tooltip = T("settings.background_color_tooltip", "设置纯色槽背景的颜色和透明度，仅在背景选择“纯色”时生效。"),
-            hasAlpha = true,
-            default = DEFAULT_BACKGROUND_COLOR,
-            get = function() return cfg.backgroundColor or DEFAULT_BACKGROUND_COLOR end,
-            set = function(value) SetSetting(cfg, "backgroundColor", CopyValue(value or DEFAULT_BACKGROUND_COLOR), "visual") end,
-    })
-    AddSettingField(appearanceFields, barId, "shadow", {
-            type = "checkbox",
-            label = T("settings.button_shadow", "按钮阴影"),
-            tooltip = T("settings.button_shadow_tooltip", "在可见按钮周围显示跟随图标形状的柔和阴影。"),
-            default = true,
-            get = function() return cfg.shadow ~= false end,
-            set = function(value) SetSetting(cfg, "shadow", value == true, "visual") end,
-    })
-    AddSettingField(appearanceFields, barId, "shadowColor", {
-            type = "color",
-            label = T("settings.shadow_color", "阴影颜色"),
-            hasAlpha = true,
-            default = SpecialSettings.shadowColor,
-            get = function() return cfg.shadowColor or SpecialSettings.shadowColor end,
-            set = function(value) SetSetting(cfg, "shadowColor", CopyValue(value or SpecialSettings.shadowColor), "visual") end,
+        type = "custom",
+        label = GUI2.IconSkins:Label("title", "皮肤"),
+        tooltip = GUI2.IconSkins:Label("help"),
+        render = function(host, _, bodyWidth)
+            return GUI2.Form:CreateIconSkinControl(host, {
+                width = bodyWidth, product = "Flare", native = barId == "extraAction",
+                getPopupAnchor = function() return parent end,
+                getStyle = function() return cfg end,
+                getContext = function() return { groupId = barId } end,
+                set = function(patch)
+                    cfg.skinId, cfg.skinOptions = patch.skinId, patch.skinOptions
+                    SyncSelectedConfigSnapshot("layout")
+                    PatchConfigSetSettings(barId, {
+                        { field = "skinId", value = cfg.skinId },
+                        { field = "skinOptions", value = cfg.skinOptions },
+                    }, "settings:skin")
+                end,
+            })
+        end,
     })
     AddSettingField(appearanceFields, barId, "cooldownFade", {
             type = "checkbox",
@@ -3641,9 +4019,36 @@ local function RenderCurrentOptions(parent, cfg, formWidth, onRerender, db)
             get = function() return cfg.rangeMode or "red" end,
             set = function(value) SetSetting(cfg, "rangeMode", value or "red", "action") end,
     })
+    AddSettingField(appearanceFields, barId, "chargeRecoveryDisplay", {
+        type = "custom",
+        searchKey = "settings.charge_recovery_display",
+        label = T("settings.charge_recovery_display", "充能未耗尽时"),
+        render = function(host, _, bodyWidth)
+            local control = GUI2.Form:CreateChargeRecoveryControl(host, {
+                width = bodyWidth, showLabel = false,
+                get = function() return cfg.chargeRecoveryDisplay or "hideSwipeOnly" end,
+                set = function(value) SetSetting(cfg, "chargeRecoveryDisplay", value, "visual") end,
+                getPreviewStyle = function() return BuildChargeRecoveryPreviewStyle(cfg) end,
+            })
+            control:SetPresentationLimits(true, (cfg.cooldownTextSize or 12) > 0)
+            return control
+        end,
+    })
+    AddSettingField(appearanceFields, barId, "aspectActiveStyle", {
+            type = "dropdown",
+            label = T("settings.aspect_active_style"),
+            options = {
+                { value = "innerGlow", text = T("aspect_active.inner_glow") },
+                { value = "nativeIcon", text = T("aspect_active.native_icon") },
+                { value = "dimOthers", text = T("aspect_active.dim_others") },
+            },
+            default = "innerGlow",
+            get = function() return cfg.aspectActiveStyle or "innerGlow" end,
+            set = function(value) SetSetting(cfg, "aspectActiveStyle", value or "innerGlow", "visual") end,
+    })
     if selectedGroup == "appearance" then
-        y = RenderFieldBlock(parent, appearanceFields, x, y, sectionWidth, 2, nil, COMPACT_TWO_COLUMN_LAYOUT)
-        return math.abs(y) + 4
+        -- 完整皮肤合并外观项，按实际字段数计算高度。
+        return RenderAligned(parent, appearanceFields, x, -4, sectionWidth, 2, APPEARANCE_LAYOUT) + 8
     end
 
     if selectedGroup == "text" then
@@ -3938,6 +4343,15 @@ local function RerenderSettingsModule()
 end
 
 S.YActionBarModule = S.YActionBarModule or {}
+
+function S.YActionBarModule:RegisterTextStyle()
+    return RegisterTextStyle()
+end
+S.YActionBarModule:RegisterTextStyle()
+
+function S.YActionBarModule:HideEffectPreview()
+    EffectPreview:Hide()
+end
 
 function S.YActionBarModule:RefreshFromConfigSet(_, providerId)
     if providerId ~= "yactionbar" then return false end

@@ -28,7 +28,7 @@ local function GetConfig()
     local addonName = product.addonName or YUI.AddonName or "YUI"
     local version = product.version or SystemAPI.GetAddOnMetadata(addonName, "Version") or "Unknown"
     local title = YUI.GetProductTitle and YUI:GetProductTitle(product) or product.title or "YUI"
-    local author = product.author or "阿言"
+    local author = product.author or "Ayan"
     local notes = YUI.GetProductNotes and YUI:GetProductNotes(product) or product.notes or LC["settings.about.default_notes"]
     local relationship = product.id == "suite"
         and LC["settings.about.suite_note"]

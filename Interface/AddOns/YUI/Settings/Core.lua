@@ -3705,7 +3705,7 @@ local function RenderSpecToggle(parent, spec, x, y, width, height, selected, onC
 
     local Icons = YUI.API and YUI.API.Icons
     if button.icon and Icons and Icons.GetScopedSpecIcon and Icons.ApplyIcon then
-        local iconData = Icons.GetScopedSpecIcon(spec.specID, nativeIcon, "settings")
+        local iconData = spec.iconData or Icons.GetScopedSpecIcon(spec.specID, nativeIcon, "settings")
         if iconData then
             Icons.ApplyIcon(button.icon, iconData)
         end
@@ -3731,7 +3731,7 @@ local function RenderSpecToggle(parent, spec, x, y, width, height, selected, onC
         button:HookScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             local className = spec.classInfo and spec.classInfo.name or ""
-            GameTooltip:SetText((className ~= "" and (className .. " - ") or "") .. (spec.name or tostring(spec.specID or "")), 1, 1, 1)
+            GameTooltip:SetText(spec.tooltipText or ((className ~= "" and (className .. " - ") or "") .. (spec.name or tostring(spec.specID or ""))), 1, 1, 1)
             GameTooltip:Show()
         end)
         button:HookScript("OnLeave", function()
@@ -4063,12 +4063,15 @@ function S:RenderConfig(parent, config)
             item.type == "font" or
             item.type == "sound" or
             item.type == "notificationSound" or
-            item.type == "texture"
+            item.type == "texture" or
+            item.fontStyleKey ~= nil
         )
     end
 
     local function alignsToRowControlLane(item)
         if not item then return false end
+        -- FontStyle returns a container that already includes its own label lane.
+        if item.fontStyleKey then return false end
         if item.type == "slider" then
             return item.inline == true and item.layout ~= "legacy"
         end
@@ -4270,9 +4273,10 @@ function S:RenderConfig(parent, config)
             
         elseif item.type == "custom" then
             if item.render then
-                local w, h = item.render(container, x, y, width or (container:GetWidth() - 40))
+                local w, h, customWidget = item.render(container, x, y, width or (container:GetWidth() - 40))
                 if w then width = w end
                 if h then height = h end
+                widget = customWidget
             end
 
         elseif item.type == "button" then
@@ -5281,6 +5285,15 @@ function S:RefreshCurrentModuleScroll(resetScroll)
     QueueGUI2PixelRefresh()
 end
 
+local function RenderModuleFrame(module, frame)
+    local ok, err = pcall(module.render, frame)
+    module.renderError = not ok and tostring(err) or nil
+    if not ok then
+        print("|cffff0000YUI Module Error:|r " .. (module.name or "Unknown") .. " - " .. module.renderError)
+    end
+    return ok
+end
+
 function S:RefreshSelectedModule()
     local module = selectedModule
     local frame = module and module.frame
@@ -5291,11 +5304,7 @@ function S:RefreshSelectedModule()
     end) then return true end
     if S.ClearRightPreview then S:ClearRightPreview() end
     if S.ClearConfig then S:ClearConfig(frame) end
-    local ok, err = pcall(module.render, frame)
-    if not ok then
-        print("|cffff0000YUI Module Error:|r " .. (module.name or "Unknown") .. " - " .. tostring(err))
-        return false
-    end
+    if not RenderModuleFrame(module, frame) then return false end
     frame:Show()
     S:RefreshCurrentModuleScroll(false)
     return true
@@ -5331,13 +5340,15 @@ function S:SelectModule(module)
         container:SetPoint("TOPLEFT", 0, 0)
         
         if module.render then
-            local success, err = pcall(module.render, container)
-            if not success then
-                print("|cffff0000YUI Module Error:|r " .. (module.name or "Unknown") .. " - " .. err)
-            end
+            RenderModuleFrame(module, container)
         end
         
         module.frame = container
+    elseif module.renderError and module.render then
+        -- A cached container may have been cleared before a failed refresh.
+        -- Retry on navigation without allocating another module frame.
+        S:ClearConfig(module.frame)
+        RenderModuleFrame(module, module.frame)
     end
     
     module.frame:Show()

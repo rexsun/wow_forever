@@ -46,6 +46,28 @@ local feature = {
 local groups = {}
 local skinnedButtons = {}
 local pendingActionButtons = {}
+local suspendedButtons = setmetatable({}, { __mode = "k" })
+local iconSkins = YUI.GUI2 and YUI.GUI2.IconSkins
+if iconSkins then
+    iconSkins.onClaim = function(button)
+        if pendingActionButtons[button] then
+            suspendedButtons[button], pendingActionButtons[button] = pendingActionButtons[button], nil
+        end
+        local registration = skinnedButtons[button]
+        if type(registration) == "table" then
+            registration.group:RemoveButton(button)
+            suspendedButtons[button], skinnedButtons[button] = registration, nil
+        end
+    end
+    iconSkins.onRelease = function(button)
+        local registration = suspendedButtons[button]
+        if registration then
+            suspendedButtons[button] = nil
+            registration.group:AddButton(button, nil, registration.buttonType)
+            skinnedButtons[button] = registration
+        end
+    end
+end
 local actionBarEventOwner = {}
 local actionBarRegenOwner = {}
 local actionBarRefreshEventsRegistered = false
@@ -103,10 +125,10 @@ local function ProcessPendingActionButtons()
     for btn, data in pairs(pendingActionButtons) do
         pendingActionButtons[btn] = nil
         if btn and data and data.group then
-            if not skinnedButtons[btn] then
+            if not skinnedButtons[btn] and not (iconSkins and iconSkins.claims[btn]) then
                 local ok = pcall(data.group.AddButton, data.group, btn, nil, data.buttonType or "Action")
                 if ok then
-                    skinnedButtons[btn] = true
+                    skinnedButtons[btn] = { group = data.group, buttonType = data.buttonType or "Action" }
                 end
             end
         end
@@ -127,6 +149,10 @@ end
 -- 动作条按钮直接交给 Masque；动态数值继续由 Blizzard ActionButton 自己维护。
 local function SkinBlizzardButton(group, btn, buttonType)
     if not group or not btn then return end
+    if iconSkins and iconSkins.claims[btn] then
+        suspendedButtons[btn] = { group = group, buttonType = buttonType or "Action" }
+        return
+    end
     if skinnedButtons[btn] then return end
     if pendingActionButtons[btn] then return end
 
@@ -137,7 +163,7 @@ local function SkinBlizzardButton(group, btn, buttonType)
 
     local ok = pcall(group.AddButton, group, btn, nil, buttonType or "Action")
     if ok then
-        skinnedButtons[btn] = true
+        skinnedButtons[btn] = { group = group, buttonType = buttonType or "Action" }
     end
 end
 

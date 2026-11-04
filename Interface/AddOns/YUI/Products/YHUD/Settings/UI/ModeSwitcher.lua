@@ -18,10 +18,17 @@ local SUPPORTS_SKYRIDING = not (YHUD.Client and YHUD.Client.skyriding == false)
 local SKYRIDING_GEOMETRY_FIELDS = {
     width = true, speedHeight = true, vigorHeight = true, secondWindHeight = true,
     rowGap = true, pipGap = true, resourceHeight = true, iconSize = true, ringThickness = true,
+    cooldownStyle = true, cooldownBarHeight = true,
 }
 
 local function ThemeColor(key)
     return { GUI2:GetColor(key) }
+end
+
+local function CooldownTabName()
+    local skyriding = YHUD.Skyriding
+    return skyriding and skyriding.GetCooldownSpellName and skyriding:GetCooldownSpellName()
+        or T("skyriding.settings.cooldown_ability", "技能冷却")
 end
 
 function DesignerUI:ApplySkyridingPreview(appearanceOnly)
@@ -56,6 +63,7 @@ function DesignerUI:RefreshSkyridingSettingsPanel()
     panel.styleSelector:SetValue(styleId, true)
     panel.styleSelector:Hide()
     panel.width:SetValue(tonumber(styleSettings.width) or 287, true)
+    panel.cooldownStyle:SetValue(styleSettings.cooldownStyle or "right", true)
     panel.speedHeight:SetValue(tonumber(styleSettings.speedHeight) or 16, true)
     panel.rowGap:SetValue(tonumber(styleSettings.rowGap) or 1, true)
     panel.pipGap:SetValue(tonumber(styleSettings.pipGap) or 2, true)
@@ -81,11 +89,14 @@ function DesignerUI:RefreshSkyridingSettingsPanel()
         styleSettings.secondWindColor or { 1.00, 0.76, 0.18, 1 },
         true
     )
-    panel.speedFont:SetValue(styleSettings.speedFont or "default", true)
-    panel.speedFontSize:SetValue(
-        tonumber(styleSettings.speedFontSize) or 12,
-        true
-    )
+    panel.speedFont:SetTarget("yhud:skyriding/speedText")
+    panel.cooldownBarTextFont:SetTarget("yhud:skyriding/cooldownBarText")
+    for _, field in ipairs({ "cooldownBarHeight", "cooldownBarTexture", "cooldownBarColor",
+        "cooldownBarBackgroundColor", "cooldownBarBorder", "cooldownBarText" }) do
+        panel[field]:SetValue(styleSettings[field], true)
+    end
+    panel.cooldownBarBorderColor:SetValue(type(styleSettings.cooldownBarBorderColor) == "table"
+        and styleSettings.cooldownBarBorderColor or ThemeColor("color.border.subtle"), true)
     panel.fillTexture:SetValue(styleSettings.fillTexture or "solid", true)
     panel.border:SetValue(styleSettings.border or 1, true)
     panel.speedText:SetValue(styleSettings.speedText ~= false, true)
@@ -94,8 +105,6 @@ function DesignerUI:RefreshSkyridingSettingsPanel()
     end
     panel.borderColor:SetValue(type(styleSettings.borderColor) == "table"
         and styleSettings.borderColor or ThemeColor("color.border.subtle"), true)
-    panel.speedTextColor:SetValue(type(styleSettings.speedTextColor) == "table"
-        and styleSettings.speedTextColor or ThemeColor("color.text.primary"), true)
     local horizon = styleId == "horizon"
     panel.resourceHeight:SetShown(horizon)
     panel.iconSize:SetShown(horizon)
@@ -105,41 +114,19 @@ function DesignerUI:RefreshSkyridingSettingsPanel()
     panel.secondWindHeight:SetShown(not horizon)
     local extraHeight = horizon and 38 or 0
     panel:SetHeight(540 + extraHeight)
-    local function Position(control, y)
-        control:ClearAllPoints()
-        control:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -y)
-    end
-    Position(panel.width, 140)
-    Position(panel.speedHeight, 178)
-    Position(panel.vigorHeight, 216)
-    Position(panel.secondWindHeight, 254)
-    Position(panel.rowGap, 292)
-    Position(panel.pipGap, 330)
-    Position(panel.vigorColor, 298)
-    Position(panel.secondWindColor, 332)
-    Position(panel.speedFontLabel, 190)
-    Position(panel.speedFontSizeLabel, 190)
-    panel.speedFontSizeLabel:ClearAllPoints()
-    panel.speedFontSizeLabel:SetPoint(
-        "TOPLEFT",
-        panel,
-        "TOPLEFT",
-        234,
-        -190
-    )
-    Position(panel.speedFont, 208)
-    panel.speedFontSize:ClearAllPoints()
-    panel.speedFontSize:SetPoint(
-        "TOPLEFT",
-        panel,
-        "TOPLEFT",
-        234,
-        -208
-    )
+    local barMode = styleSettings.cooldownStyle == "bar"
     local page = panel.page or "layout"
+    local abilityName = CooldownTabName()
+    if panel.tabItems[4].text ~= abilityName then
+        panel.tabItems[4].text = abilityName
+        panel.tabs:SetItems(panel.tabItems, page)
+    end
     panel.tabs:SetValue(page, true)
     for id, controls in pairs(panel.pages) do
         for index = 1, #controls do controls[index]:SetShown(id == page) end
+    end
+    for _, control in ipairs(panel.cooldownBarControls) do
+        control:SetShown(page == "cooldown" and barMode)
     end
     self.skyridingSettingsRefreshing = false
     return true
@@ -264,12 +251,29 @@ function DesignerUI:EnsureSkyridingSettingsPanel()
         DesignerUI:RefreshSkyridingSettingsPanel()
     end
 
+    local fieldWidth, labelWidth, columnGap = 324, 118, 10
+    local controlOffset = labelWidth + columnGap
+    local controlWidth = fieldWidth - controlOffset
+    local rowHeight, rowStep, firstRowTop = 30, 38, 140
+    local function PlaceRow(control, row, label)
+        local centerY = -firstRowTop - (row - 1) * rowStep - rowHeight / 2
+        control:ClearAllPoints()
+        control:SetPoint("LEFT", panel, "TOPLEFT", 18 + (label and controlOffset or 0), centerY)
+        if label then
+            label:SetWidth(labelWidth)
+            label:SetWordWrap(false)
+            label:ClearAllPoints()
+            label:SetPoint("LEFT", panel, "TOPLEFT", 18, centerY)
+        end
+        return control
+    end
+
     local function CreateSettingSlider(field, label, minimum, maximum, step)
         local control = GUI2.Form:CreateSlider(panel, {
-            width = 324,
+            width = fieldWidth,
             inline = true,
             label = label,
-            labelWidth = 118,
+            labelWidth = controlOffset,
             inputWidth = 56,
             min = minimum,
             max = maximum,
@@ -285,20 +289,20 @@ function DesignerUI:EnsureSkyridingSettingsPanel()
         return control
     end
 
-    CreateSettingSlider(
+    PlaceRow(CreateSettingSlider(
         "width",
         T("skyriding.settings.width", "宽度"),
         180,
         720,
         5
-    ):SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -94)
-    CreateSettingSlider(
+    ), 1)
+    PlaceRow(CreateSettingSlider(
         "speedHeight",
         T("skyriding.settings.speed_height", "速度条高度"),
         8,
         40,
         1
-    ):SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -132)
+    ), 2)
     CreateSettingSlider(
         "resourceHeight",
         T("skyriding.settings.resource_height", "资源高度"),
@@ -313,20 +317,20 @@ function DesignerUI:EnsureSkyridingSettingsPanel()
         96,
         1
     ):SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -208)
-    CreateSettingSlider(
+    PlaceRow(CreateSettingSlider(
         "vigorHeight",
         T("skyriding.settings.vigor_height", "精力高度"),
         4,
         28,
         1
-    ):SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -170)
-    CreateSettingSlider(
+    ), 3)
+    PlaceRow(CreateSettingSlider(
         "secondWindHeight",
         T("skyriding.settings.second_wind_height", "复苏之风高度"),
         4,
         28,
         1
-    ):SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -208)
+    ), 4)
 
     panel.ringThicknessLabel = GUI2:CreateText(
         panel,
@@ -358,108 +362,50 @@ function DesignerUI:EnsureSkyridingSettingsPanel()
     })
     panel.ringThickness:SetPoint("TOPLEFT", panel, "TOPLEFT", 146, -246)
 
-    CreateSettingSlider(
+    PlaceRow(CreateSettingSlider(
         "rowGap",
         T("skyriding.settings.row_gap", "行间距"),
         0,
         16,
         1
-    ):SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -284)
-    CreateSettingSlider(
+    ), 5)
+    PlaceRow(CreateSettingSlider(
         "pipGap",
         T("skyriding.settings.pip_gap", "格子间距"),
         0,
         12,
         1
-    ):SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -322)
-
-    panel.vigorColor = GUI2.Form:CreateColorPicker(panel, {
-        width = 324,
-        height = 30,
-        label = T("skyriding.settings.vigor_color", "精力颜色"),
-        labelWidth = 118,
-        field = true,
-        hasAlpha = true,
-        set = function(value) SetDraftSetting({ vigorColor = value }) end,
-        getDefault = function() return YHUD:GetDefaultSkyridingStyleSettings("halo").vigorColor end,
-    })
-    panel.vigorColor:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -364)
-
-    panel.secondWindColor = GUI2.Form:CreateColorPicker(panel, {
-        getDefault = function() return YHUD:GetDefaultSkyridingStyleSettings("halo").secondWindColor end,
-        width = 324,
-        height = 30,
-        label = T("skyriding.settings.second_wind_color", "复苏之风颜色"),
-        labelWidth = 118,
-        field = true,
-        hasAlpha = true,
-        set = function(value)
-            SetDraftSetting({ secondWindColor = value })
-        end,
-    })
-    panel.secondWindColor:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -404)
+    ), 6)
 
     panel.speedFontLabel = GUI2:CreateText(
         panel,
         T("skyriding.settings.speed_font", "速度文字字体"),
-        "font.size.sm",
-        "color.text.secondary",
+        "font.size.md",
+        "color.text.primary",
         "LEFT"
     )
-    panel.speedFontLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -448)
-    panel.speedFontSizeLabel = GUI2:CreateText(
-        panel,
-        T("skyriding.settings.speed_font_size", "字号"),
-        "font.size.sm",
-        "color.text.secondary",
-        "LEFT"
-    )
-    panel.speedFontSizeLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 234, -448)
-
-    panel.speedFont = GUI2.Form:CreateLSMFontDropdown(panel, {
-        width = 206,
-        height = 30,
-        prependOptions = function()
-            return {
-                {
-                    text = T("designer.font.default", "默认"),
-                    value = "default",
-                },
-            }
-        end,
-        set = function(value) SetDraftSetting({ speedFont = value }) end,
-    })
-    panel.speedFont:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -466)
-
-    local fontSizeOptions = {}
-    local fontSizes = { 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32 }
-    for index = 1, #fontSizes do
-        local value = fontSizes[index]
-        fontSizeOptions[index] = { text = tostring(value), value = value }
-    end
-    panel.speedFontSize = GUI2.Form:CreateDropdown(panel, {
-        width = 108,
-        height = 30,
-        options = fontSizeOptions,
-        set = function(value) SetDraftSetting({ speedFontSize = value }) end,
-    })
-    panel.speedFontSize:SetPoint("TOPLEFT", panel, "TOPLEFT", 234, -466)
+    panel.speedFont = GUI2.Form:CreateFontStyle(panel, {key="yhud:skyriding/speedText", width=controlWidth})
+    PlaceRow(panel.speedFont, 2, panel.speedFontLabel)
 
     panel.pages = {
         layout = { panel.width, panel.speedHeight, panel.vigorHeight, panel.secondWindHeight,
             panel.rowGap, panel.pipGap },
-        appearance = { panel.vigorColor, panel.secondWindColor },
-        text = { panel.speedFontLabel, panel.speedFont, panel.speedFontSizeLabel, panel.speedFontSize },
+        appearance = {},
+        text = { panel.speedFontLabel, panel.speedFont },
+        cooldown = {},
     }
     panel.page = "layout"
+    panel.tabItems = {
+        { text = T("designer.page.layout", "布局"), value = "layout" },
+        { text = T("designer.page.appearance", "外观"), value = "appearance" },
+        { text = T("designer.page.text", "文字"), value = "text" },
+        { text = CooldownTabName(), value = "cooldown" },
+    }
     panel.tabs = GUI2.Form:CreateUnderlineTabs(panel, {
         width = 324, height = 30, equalWidth = true, gap = 8, showBaseline = true,
+        overflow = "scroll", contentAlignment = "CENTER",
         value = panel.page,
-        items = {
-            { text = T("designer.page.layout", "布局"), value = "layout" },
-            { text = T("designer.page.appearance", "外观"), value = "appearance" },
-            { text = T("designer.page.text", "文字"), value = "text" },
-        },
+        items = panel.tabItems,
         set = function(value)
             panel.page = value
             DesignerUI:RefreshSkyridingSettingsPanel()
@@ -472,11 +418,23 @@ function DesignerUI:EnsureSkyridingSettingsPanel()
         controls[#controls + 1] = control
         return control
     end
+    panel.cooldownStyleLabel = Keep("cooldown", GUI2:CreateText(panel,
+        T("skyriding.settings.ability_style", "显示样式"),
+        "font.size.md", "color.text.primary", "LEFT"))
+    panel.cooldownStyle = Keep("cooldown", GUI2.Form:CreateDropdown(panel, {
+        width = controlWidth, height = rowHeight, value = "right",
+        options = {
+            { text = T("skyriding.cooldown.left", "图标在左侧"), value = "left" },
+            { text = T("skyriding.cooldown.right", "图标在右侧"), value = "right" },
+            { text = T("skyriding.cooldown.bar", "进度条"), value = "bar" },
+        },
+        set = function(value) SetDraftSetting({ cooldownStyle = value }) end,
+    }))
+    PlaceRow(panel.cooldownStyle, 1, panel.cooldownStyleLabel)
     local textureLabel = Keep("appearance", GUI2:CreateText(panel,
-        T("designer.appearance.texture", "条材质"), "font.size.sm", "color.text.secondary", "LEFT"))
-    textureLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -136)
+        T("designer.appearance.texture", "条材质"), "font.size.md", "color.text.primary", "LEFT"))
     panel.fillTexture = Keep("appearance", YUI.Settings:CreateTextureSelector(panel, {
-        width = 324, height = 30,
+        width = controlWidth, height = rowHeight,
         get = function()
             local profile = Designer.GetPresentationProfile
                 and Designer:GetPresentationProfile() or Designer:GetProfile()
@@ -484,14 +442,14 @@ function DesignerUI:EnsureSkyridingSettingsPanel()
         end,
         set = function(value) SetDraftSetting({ fillTexture = value }) end,
     }))
-    panel.fillTexture:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -154)
-    Keep("appearance", CreateSettingSlider("border",
-        T("designer.appearance.border", "边框"), 0, 12, 1))
-        :SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -192)
+    PlaceRow(panel.fillTexture, 1, textureLabel)
+    PlaceRow(Keep("appearance", CreateSettingSlider("border",
+        T("designer.appearance.border", "边框"), 0, 12, 1)), 2)
 
-    local function CreateColor(field, label, page, y, defaultToken)
+    local function CreateColor(field, label, page, row, defaultToken)
         local control = GUI2.Form:CreateColorPicker(panel, {
-            width = 324, height = 30, label = label, labelWidth = 178,
+            width = fieldWidth, height = rowHeight, label = label,
+            labelWidth = labelWidth, gap = columnGap,
             field = false, hasAlpha = true,
             set = function(value)
                 local patch = {}; patch[field] = value; SetDraftSetting(patch)
@@ -502,24 +460,63 @@ function DesignerUI:EnsureSkyridingSettingsPanel()
             end,
         })
         panel[field] = Keep(page, control)
-        control:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -y)
+        PlaceRow(control, row)
     end
-    CreateColor("speedColor", T("skyriding.settings.speed_color", "速度颜色"), "appearance", 230)
-    CreateColor("thrillColor", T("skyriding.settings.thrill_color", "高速颜色"), "appearance", 264)
-    CreateColor("backgroundColor", T("skyriding.settings.speed_background", "速度背景"), "appearance", 366)
-    CreateColor("emptyColor", T("skyriding.settings.resource_background", "资源背景"), "appearance", 400)
+    CreateColor("speedColor", T("skyriding.settings.speed_color", "速度颜色"), "appearance", 3)
+    CreateColor("thrillColor", T("skyriding.settings.thrill_color", "高速颜色"), "appearance", 4)
+    CreateColor("vigorColor", T("skyriding.settings.vigor_color", "精力颜色"), "appearance", 5)
+    CreateColor("secondWindColor", T("skyriding.settings.second_wind_color", "复苏之风颜色"), "appearance", 6)
+    CreateColor("backgroundColor", T("skyriding.settings.speed_background", "速度背景"), "appearance", 7)
+    CreateColor("emptyColor", T("skyriding.settings.resource_background", "资源背景"), "appearance", 8)
     CreateColor("borderColor", T("designer.appearance.border_color", "边框颜色"),
-        "appearance", 434, "color.border.subtle")
+        "appearance", 9, "color.border.subtle")
     local speedTextLabel = Keep("text", GUI2:CreateText(panel,
         T("skyriding.settings.speed_text", "显示速度文字"), "font.size.md", "color.text.primary", "LEFT"))
-    speedTextLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -146)
     panel.speedText = Keep("text", GUI2.Form:CreateSwitch(panel, {
         width = 64, height = 24,
         set = function(value) SetDraftSetting({ speedText = value == true }) end,
     }))
-    panel.speedText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -18, -140)
-    CreateColor("speedTextColor", T("designer.text.color", "文字颜色"),
-        "text", 258, "color.text.primary")
+    PlaceRow(panel.speedText, 1, speedTextLabel)
+
+    PlaceRow(Keep("cooldown", CreateSettingSlider("cooldownBarHeight",
+        T("skyriding.settings.cooldown_bar_height", "高度"), 4, 40, 1)), 2)
+    local cooldownTextureLabel = Keep("cooldown", GUI2:CreateText(panel,
+        T("designer.appearance.texture", "条材质"), "font.size.md", "color.text.primary", "LEFT"))
+    panel.cooldownBarTexture = Keep("cooldown", YUI.Settings:CreateTextureSelector(panel, {
+        width = controlWidth, height = rowHeight,
+        get = function()
+            local profile = Designer.GetPresentationProfile
+                and Designer:GetPresentationProfile() or Designer:GetProfile()
+            return YHUD:GetSkyridingSettings(profile).styles.halo.cooldownBarTexture
+        end,
+        set = function(value) SetDraftSetting({ cooldownBarTexture = value }) end,
+    }))
+    PlaceRow(panel.cooldownBarTexture, 3, cooldownTextureLabel)
+    CreateColor("cooldownBarColor", T("skyriding.settings.cooldown_bar_color", "填充颜色"), "cooldown", 4)
+    CreateColor("cooldownBarBackgroundColor", T("skyriding.settings.cooldown_bar_background", "背景颜色"), "cooldown", 5)
+    PlaceRow(Keep("cooldown", CreateSettingSlider("cooldownBarBorder",
+        T("designer.appearance.border", "边框"), 0, 12, 1)), 6)
+    CreateColor("cooldownBarBorderColor", T("designer.appearance.border_color", "边框颜色"),
+        "cooldown", 7, "color.border.subtle")
+    local cooldownTextLabel = Keep("cooldown", GUI2:CreateText(panel,
+        T("skyriding.settings.cooldown_bar_text", "显示倒计时"), "font.size.md", "color.text.primary", "LEFT"))
+    panel.cooldownBarText = Keep("cooldown", GUI2.Form:CreateSwitch(panel, {
+        width = 64, height = 24,
+        set = function(value) SetDraftSetting({ cooldownBarText = value == true }) end,
+    }))
+    PlaceRow(panel.cooldownBarText, 8, cooldownTextLabel)
+    local cooldownFontLabel = Keep("cooldown", GUI2:CreateText(panel,
+        T("skyriding.settings.cooldown_font", "倒计时字体"), "font.size.md", "color.text.primary", "LEFT"))
+    panel.cooldownBarTextFont = Keep("cooldown", GUI2.Form:CreateFontStyle(panel, {
+        key = "yhud:skyriding/cooldownBarText", width = controlWidth,
+    }))
+    PlaceRow(panel.cooldownBarTextFont, 9, cooldownFontLabel)
+    panel.cooldownBarControls = {
+        panel.cooldownBarHeight, cooldownTextureLabel, panel.cooldownBarTexture,
+        panel.cooldownBarColor, panel.cooldownBarBackgroundColor, panel.cooldownBarBorder,
+        panel.cooldownBarBorderColor, cooldownTextLabel, panel.cooldownBarText,
+        cooldownFontLabel, panel.cooldownBarTextFont,
+    }
 
     panel.resetSettings = GUI2.Form:CreateButton(panel, {
         text = T("skyriding.settings.reset", "恢复默认设置"),

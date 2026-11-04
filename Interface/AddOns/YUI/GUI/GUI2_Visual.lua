@@ -21,6 +21,14 @@ local DEFAULT_COLOR = { 1, 1, 1, 1 }
 local DEFAULT_BORDER = { 0, 0, 0, 1 }
 local DEFAULT_BACKGROUND = { 0, 0, 0, 0.72 }
 local DEFAULT_SWIPE = { 0, 0, 0, 0.82 }
+-- 原生 Cooldown 按自身尺寸缩放；所有图标形状先共用同一基础样式。
+-- 圆形模式和内容遮罩仍由形状预设决定，不在 Lua 中计算旋转角度。
+local DEFAULT_COOLDOWN_EDGE = {
+    texture = (YUI.IsRetail == true or YUI.IsForever == true)
+        and "Interface\\Cooldown\\UI-HUD-ActionBar-SecondaryCooldown" or nil,
+    scale = 2.1,
+    color = { 0.973, 0.839, 0.604, 1 },
+}
 
 local PROC_FLIPBOOK_ROWS = 6
 local PROC_FLIPBOOK_COLUMNS = 5
@@ -34,10 +42,31 @@ local PROC_LOOP_FADE_DURATION = 0.10
 local PROC_TEMPLATE_SCALE = 1.4
 local PROC_SQUARE_TARGET_FIT_SCALE = 0.05
 local PROC_TEMPLATE_START_SCALE = 3.28
-local PROC_CIRCLE_START_SCALE = 3.75
+local PROC_CIRCLE_START_SCALE = 2.25
 local PROC_CIRCLE_LOOP_SCALE = 1.58
 local PROC_APPEARANCE_OUTSET_SCALE = 0.20
 local PROC_APPEARANCE_AXIS_SCALE = 0.25
+
+local effectBorders = setmetatable({}, { __mode = "k" })
+local contourFlashes = setmetatable({}, { __mode = "k" })
+
+function GUI2:HasIconCooldownFlash(cooldown)
+    return contourFlashes[cooldown] == true
+end
+
+-- Public skin configuration only; no measurements of restricted descendants.
+function GUI2:GetIconGlowInset(target, shape, width, height)
+    local owner = target and (target.gui2GlowSkinOwner or target.gui2GlowTarget or target)
+    if not owner or (self.IsIconSkinManaged and self:IsIconSkinManaged(owner)) then return 0, 0 end
+    local border = effectBorders[owner] or owner.gui2IconBorder
+    if not border then return 0, 0 end
+    local pixel = self:GetPixelSize(owner, 1, 1)
+    local preset = self:GetIconAppearancePreset(shape)
+    local ratio = preset.cooldownInsets and preset.cooldownInsets[border] or self.IconCooldownInsets[border]
+    if ratio then return math.max(pixel, width * ratio * 0.5), math.max(pixel, height * ratio * 0.5) end
+    local inset = math.max(pixel, self:GetIconBorderThickness(border) * pixel * 0.5)
+    return inset, inset
+end
 
 local function IsSquareProcTarget(shape)
     return shape == "square"
@@ -112,6 +141,8 @@ end
 
 local PROC_CIRCLE_START =
     CoreMedia("gui2\\proc\\circle-proc-start-flipbook.blp")
+local COOLDOWN_CIRCLE_RIPPLE =
+    CoreMedia("gui2\\glow\\cooldown-circle-ripple.blp")
 local PROC_CIRCLE_LOOP =
     CoreMedia("gui2\\proc\\circle-proc-loop-flipbook.blp")
 local PROC_CIRCLE_BORDER =
@@ -119,6 +150,77 @@ local PROC_CIRCLE_BORDER =
 local PROC_CIRCLE_SOFT =
     CoreMedia("gui2\\shapes\\circle-border-3.tga")
 local PROC_SQUARE_FALLBACK = "Interface\\Buttons\\UI-ActionButton-Border"
+
+-- Independent state/objects; reuse only the proc loop artwork, without its burst.
+function GUI2:LayoutManagedAssistedHighlight(glow, target, width, height, level, strata, shape)
+    if not (glow and target and width and height) then return false end
+    if glow.gui2IconSkinHost then return false end
+    local material = shape == "circle" and "circle" or "square"
+    local changed = false
+    if glow.gui2AssistedMaterial ~= material then
+        if material == "circle" then
+            glow.Flipbook:SetTexture(PROC_CIRCLE_LOOP)
+        else
+            glow.Flipbook:SetAtlas("UI-HUD-ActionBar-Proc-Loop-Flipbook")
+        end
+        glow.Flipbook:SetDesaturated(true)
+        glow.Flipbook:SetVertexColor(0.24, 0.78, 1, 1)
+        glow.gui2AssistedMaterial = material
+        changed = true
+    end
+    local pixel = self.GetPixelSize and self:GetPixelSize(target, 1, 1) or self.mult or 1
+    local insetX, insetY = self:GetIconGlowInset(target, shape, width, height)
+    width, height = width - insetX * 2, height - insetY * 2
+    width, height = math.max(pixel, width - pixel * 2), math.max(pixel, height - pixel * 2)
+    if glow.gui2AssistedTarget ~= target or glow.gui2AssistedWidth ~= width
+        or glow.gui2AssistedHeight ~= height or glow.gui2AssistedLevel ~= level
+        or glow.gui2AssistedStrata ~= strata or glow.gui2AssistedShape ~= shape then
+        glow:ClearAllPoints()
+        glow:SetPoint("CENTER", target, "CENTER", 0, 0)
+        glow:SetSize(width, height)
+        if level then glow:SetFrameLevel(level) end
+        if strata then glow:SetFrameStrata(strata) end
+        glow.Flipbook:ClearAllPoints()
+        glow.Flipbook:SetPoint("CENTER", glow, "CENTER", 0, 0)
+        -- Fit the visible loop inside the gold loop, including the artwork's overscan.
+        local scale = material == "circle" and (PROC_CIRCLE_LOOP_SCALE * 0.94)
+            or (IsSquareProcTarget(shape) and 66 / 45 or PROC_TEMPLATE_SCALE)
+        if shape == "diamond" then scale = scale / math.sqrt(2) end
+        glow.Flipbook:SetSize(width * scale, height * scale)
+        glow.Flipbook:SetRotation(shape == "diamond" and math.pi / 4 or 0)
+        glow.gui2AssistedShape = shape
+        glow.gui2AssistedTarget = target
+        glow.gui2AssistedWidth, glow.gui2AssistedHeight = width, height
+        glow.gui2AssistedLevel, glow.gui2AssistedStrata = level, strata
+        changed = true
+    end
+    return changed
+end
+
+function GUI2:CreateManagedAssistedHighlight(target, width, height, level, strata, shape)
+    if YUI.IsRetail ~= true or not target
+        or (InCombatLockdown and InCombatLockdown()) then return nil end
+    local glow = CreateFrame("Frame", nil, target, "ActionBarButtonAssistedCombatHighlightTemplate")
+    glow:EnableMouse(false)
+    self:LayoutManagedAssistedHighlight(glow, target, width, height, level, strata, shape)
+    glow:Hide()
+    return glow
+end
+
+function GUI2:SetManagedAssistedHighlightShown(glow, shown)
+    if not glow then return false end
+    shown = shown == true
+    if (glow.gui2AssistedPlaying == true) == shown and glow:IsShown() == shown then return false end
+    if shown then
+        glow:Show()
+        glow.Flipbook.Anim:Play()
+    else
+        glow.Flipbook.Anim:Stop()
+        glow:Hide()
+    end
+    glow.gui2AssistedPlaying = shown
+    return true
+end
 
 local STATUS_BAR_TEXTURES = {
     solid = WHITE,
@@ -308,6 +410,7 @@ local function NormalizeOutline(outline)
         or outline == "shadow"
         or outline == "outline"
         or outline == "outlineShadow"
+        or outline == "thickShadow"
         or outline == "thick" then
         return outline
     end
@@ -352,6 +455,7 @@ function GUI2:CompileTextStyle(input, output, defaults)
         tonumber(defaults.size) or 12
     ) + 0.5)
     output.outline = NormalizeOutline(input.outline or defaults.outline)
+    output.monochrome = input.monochrome == true or (input.monochrome == nil and defaults.monochrome == true)
     output.position = NormalizeTextPosition(
         input.position or defaults.position
     )
@@ -396,16 +500,24 @@ function GUI2:CompileIconStyle(input, output)
     output.mask = GUI2.GetIconAppearanceMask
         and GUI2:GetIconAppearanceMask(output.shape, output.border)
         or (preset and preset.mask or nil)
-    output.borderFamily = preset and preset.borderFamily or nil
-    output.swipeTexture = output.mask
+    output.borderFamily = GUI2.GetIconBorderFamily
+        and GUI2:GetIconBorderFamily(output.shape, output.border)
+        or (preset and preset.borderFamily or nil)
+    output.swipeTexture = (GUI2.GetIconCooldownTexture
+        and GUI2:GetIconCooldownTexture(output.shape, output.border)) or output.mask
         or (preset and preset.swipe)
         or WHITE
     output.circular = preset and preset.circular == true or false
+    output.cooldownEdge = DEFAULT_COOLDOWN_EDGE
     output.borderColor = CompileColor(
         input.borderColor or input.iconBorderColor,
         output.borderColor,
         DEFAULT_BORDER
     )
+    if GUI2.IsIconBorderMaterial and GUI2:IsIconBorderMaterial(output.border) then
+        for i = 1, 4 do output.borderColor[i] = 1 end
+    end
+    output.backgroundMode = input.iconBackground or input.background
     output.backgroundColor = CompileColor(
         input.backgroundColor or input.iconBackgroundColor,
         output.backgroundColor,
@@ -433,6 +545,7 @@ function GUI2:CompileIconStyle(input, output)
             font = input.cooldownTextFont,
             size = input.cooldownTextSize,
             outline = input.cooldownTextOutline,
+            monochrome = input.cooldownTextMonochrome,
             position = input.cooldownTextPosition,
             offsetX = input.cooldownTextOffsetX,
             offsetY = input.cooldownTextOffsetY,
@@ -453,6 +566,7 @@ function GUI2:CompileIconStyle(input, output)
             font = input.countTextFont,
             size = input.countTextSize,
             outline = input.countTextOutline,
+            monochrome = input.countTextMonochrome,
             position = input.countTextPosition,
             offsetX = input.countTextOffsetX,
             offsetY = input.countTextOffsetY,
@@ -540,6 +654,7 @@ end
 local function InvalidateNativeStatusBarMaterial(state, texture)
     state.textureObject = texture
     state.texture = nil
+    state.textureAtlas = nil
     state.textureU0 = nil
     state.textureU1 = nil
     state.textureV0 = nil
@@ -627,12 +742,19 @@ local function ApplyNativeStatusBarTexturePolicy(
     return 1
 end
 
-local function NativeStatusBarMaterialWasReplaced(texture, expected)
-    if type(expected) ~= "string" or not (texture and texture.GetTexture) then
+local function NativeStatusBarMaterialWasReplaced(texture, expected, atlas)
+    if (type(expected) ~= "string" and type(expected) ~= "number") or not (texture and texture.GetTexture) then
         return false
     end
     local ok, current = pcall(texture.GetTexture, texture)
-    return ok and type(current) == "string" and current ~= expected
+    if not ok or (_G.issecretvalue and _G.issecretvalue(current)) then return false end
+    if type(current) == type(expected) and current ~= expected then return true end
+    if atlas and texture.GetAtlas then
+        local atlasOK, currentAtlas = pcall(texture.GetAtlas, texture)
+        return atlasOK and not (_G.issecretvalue and _G.issecretvalue(currentAtlas))
+            and currentAtlas ~= atlas
+    end
+    return false
 end
 
 function GUI2:RefreshNativeStatusBarTexturePolicy(statusBar)
@@ -767,11 +889,13 @@ function GUI2:ApplyNativeStatusBarStyle(
     end
 
     local nextTexture = snapshot.texture
-    if type(nextTexture) ~= "string" or nextTexture == "" then
+    if (type(nextTexture) ~= "string" and type(nextTexture) ~= "number") or nextTexture == "" then
         nextTexture = self:GetStatusBarTexture(
             snapshot.textureId or snapshot.fillTexture or "solid"
         )
     end
+    local nextAtlas = type(snapshot.textureAtlas) == "string" and snapshot.textureAtlas ~= ""
+        and snapshot.textureAtlas or nil
     local u0 = tonumber(snapshot.textureU0) or 0
     local u1 = tonumber(snapshot.textureU1) or 1
     local v0 = tonumber(snapshot.textureV0) or 0
@@ -784,7 +908,8 @@ function GUI2:ApplyNativeStatusBarStyle(
     end
     local writes = 0
     local materialChanged = force == true or state.texture ~= nextTexture
-        or NativeStatusBarMaterialWasReplaced(texture, nextTexture)
+        or state.textureAtlas ~= nextAtlas
+        or NativeStatusBarMaterialWasReplaced(texture, nextTexture, nextAtlas)
 
     -- Order is intentional. Retail can reset vertex color while changing the
     -- material or rotation, so color is always the final operation below.
@@ -797,15 +922,24 @@ function GUI2:ApplyNativeStatusBarStyle(
             InvalidateNativeStatusBarMaterial(state, texture)
         end
         state.texture = nextTexture
+        state.textureAtlas = nextAtlas
+        if nextAtlas and texture and texture.SetAtlas then
+            -- StatusBar rebuilds the fill's UVs on value/timer/layout changes.
+            -- Preserve native atlas identity so it clips within this sub-image.
+            texture:SetAtlas(nextAtlas, false, "LINEAR")
+            writes = writes + 1
+        end
     end
     local coordinatesChanged = force == true or materialChanged
         or state.textureU0 ~= u0 or state.textureU1 ~= u1
         or state.textureV0 ~= v0 or state.textureV1 ~= v1
-    if coordinatesChanged and texture and texture.SetTexCoord then
-        texture:SetTexCoord(u0, u1, v0, v1)
+    if coordinatesChanged and texture then
+        if not (nextAtlas and texture.SetAtlas) and texture.SetTexCoord then
+            texture:SetTexCoord(u0, u1, v0, v1)
+            writes = writes + 1
+        end
         state.textureU0, state.textureU1 = u0, u1
         state.textureV0, state.textureV1 = v0, v1
-        writes = writes + 1
     end
     writes = writes + ApplyNativeStatusBarTexturePolicy(
         statusBar,
@@ -888,6 +1022,7 @@ local function StopProcAnimations(frame)
     StopAnimationGroup(frame.ProcStartFadeOut)
     StopAnimationGroup(frame.ProcLoopFadeIn)
     StopAnimationGroup(frame.ProcLoop)
+    if frame.ProcLoopAnim ~= frame.ProcLoop then StopAnimationGroup(frame.ProcLoopAnim) end
     StopAnimationGroup(frame.gui2ProcPulse)
     if frame.ProcStartFlipbook then
         frame.ProcStartFlipbook:SetAlpha(0)
@@ -1124,6 +1259,7 @@ function GUI2:CreateManagedProcGlow(
             frameStrata,
             targetShape or shape
         )
+        if self.AdoptIconSkinEffects then self:AdoptIconSkinEffects(parent, frame) end
     end
     return frame
 end
@@ -1138,6 +1274,7 @@ function GUI2:LayoutManagedProcGlow(
     targetShape
 )
     if not (frame and parent) then return false end
+    if frame.gui2IconSkinHost then return false end
     width = tonumber(width)
         or (parent.GetWidth and parent:GetWidth()) or 36
     height = tonumber(height)
@@ -1150,11 +1287,24 @@ function GUI2:LayoutManagedProcGlow(
     targetShape = targetShape or frame.gui2ProcTargetShape
         or frame.gui2ProcShape
     frame.gui2ProcTargetShape = targetShape
+    local insetX, insetY = self:GetIconGlowInset(parent, targetShape, width, height)
+    frame.gui2ProcInsetX, frame.gui2ProcInsetY = insetX, insetY
     local visualWidth, visualHeight = GetManagedProcAppearanceSize(
         frame,
-        width,
-        height
+        width - insetX * 2,
+        height - insetY * 2
     )
+    local rotation = targetShape == "diamond" and math.pi / 4 or 0
+    if rotation ~= 0 then
+        visualWidth, visualHeight = visualWidth / math.sqrt(2), visualHeight / math.sqrt(2)
+    end
+    if frame.gui2ProcRotation ~= rotation then
+        if frame.ProcStartFlipbook and frame.ProcStartFlipbook.SetRotation then frame.ProcStartFlipbook:SetRotation(rotation) end
+        if frame.ProcLoopFlipbook and frame.ProcLoopFlipbook.SetRotation then frame.ProcLoopFlipbook:SetRotation(rotation) end
+        if frame.gui2ProcBorder and frame.gui2ProcBorder.SetRotation then frame.gui2ProcBorder:SetRotation(rotation) end
+        if frame.gui2ProcSoft and frame.gui2ProcSoft.SetRotation then frame.gui2ProcSoft:SetRotation(rotation) end
+        frame.gui2ProcRotation = rotation
+    end
     frame:ClearAllPoints()
     frame:SetPoint("CENTER", parent, "CENTER", 0, 0)
     if type(frameStrata) == "string" and frame.SetFrameStrata then
@@ -1248,6 +1398,7 @@ local function SetManagedProcTextureAppearance(
 end
 
 function GUI2:SetManagedProcGlowAppearance(frame, appearance)
+    if frame and frame.gui2IconSkinHost then return false end
     if not frame then return false end
     local custom = type(appearance) == "table"
     appearance = custom and appearance or {}
@@ -1392,7 +1543,9 @@ end
 function GUI2:SetManagedProcGlowShown(frame, shown)
     if not frame then return false end
     shown = shown == true
-    local isShown = frame.IsShown and frame:IsShown() or false
+    -- 受限后代只使用自己维护的播放请求，不读取可能为 secret 的原生显隐。
+    local isShown = frame.gui2ProcPlaying == true
+    if not frame.gui2ProcRestricted then isShown = frame.IsShown and frame:IsShown() or false end
     if shown then
         if frame.gui2ProcPlaying == true and isShown then
             return false
@@ -1404,18 +1557,20 @@ function GUI2:SetManagedProcGlowShown(frame, shown)
         StopProcAnimations(frame)
         return true
     end
-    frame:Show()
-    if frame.ProcStartFlipbook then frame.ProcStartFlipbook:Show() end
-    if frame.ProcLoopFlipbook then frame.ProcLoopFlipbook:Show() end
-    if frame.gui2ProcFlipbook then
-        frame.ProcStartFlipbook:SetAlpha(1)
-        frame.ProcLoopFlipbook:SetAlpha(0)
+    if frame.gui2IconSkinHost and self.RefreshIconSkinProc then self:RefreshIconSkinProc(frame) end
+    -- Trigger glows enter their accepted steady loop immediately on every shape.
+    -- Entry and crossfade tracks stay inactive; there is no size handoff.
+    if frame.ProcStartFlipbook then
+        frame.ProcStartFlipbook:SetAlpha(0)
+        frame.ProcStartFlipbook:Hide()
+    end
+    if frame.ProcLoopFlipbook then
+        frame.ProcLoopFlipbook:SetAlpha(1)
+        frame.ProcLoopFlipbook:Show()
     end
     frame.gui2ProcPlaying = true
-    PlayAnimationGroup(frame.ProcStartAnim)
-    PlayAnimationGroup(frame.ProcLoop)
-    PlayAnimationGroup(frame.ProcStartFadeOut)
-    PlayAnimationGroup(frame.ProcLoopFadeIn)
+    frame:Show()
+    PlayAnimationGroup(frame.ProcLoopAnim or frame.ProcLoop)
     PlayAnimationGroup(frame.gui2ProcPulse)
     return true
 end
@@ -1611,7 +1766,9 @@ end
 
 function GUI2:ApplyIconChrome(target, snapshot, state)
     if not target then return 0 end
+    if self.IsIconSkinManaged and self:IsIconSkinManaged(target.icon or target) then return 0 end
     snapshot = snapshot or {}
+    effectBorders[target.owner or target] = snapshot.border
     state = GetState(target, state)
     local border = target.border
     if target.shapeBorder or target.pixelBorder then
@@ -1636,13 +1793,34 @@ function GUI2:ApplyIconChrome(target, snapshot, state)
         tonumber(snapshot.aspect) or 1,
         state
     )
-    writes = writes + ApplyTextureColor(
-        target.background,
-        snapshot.backgroundColor or DEFAULT_BACKGROUND,
-        state,
-        "backgroundColor",
-        true
-    )
+    local background = target.background
+    local atlas = snapshot.backgroundMode == "blizzard" and "ui-hud-actionbar-iconframe-slot" or nil
+    if background and background.SetAtlas and atlas then
+        if state.backgroundAtlas ~= atlas then
+            background:SetAtlas(atlas)
+            background:SetVertexColor(1, 1, 1, 0.92)
+            state.backgroundAtlas, state.backgroundColor = atlas, nil
+            writes = writes + 2
+        end
+        if target.mask and state.backgroundMask ~= target.mask and background.AddMaskTexture then
+            if state.backgroundMask then background:RemoveMaskTexture(state.backgroundMask) end
+            local attached = false
+            if background.GetNumMaskTextures and background.GetMaskTexture then
+                for index = 1, background:GetNumMaskTextures() do
+                    if background:GetMaskTexture(index) == target.mask then attached = true; break end
+                end
+            end
+            if not attached then background:AddMaskTexture(target.mask); writes = writes + 1 end
+            state.backgroundMask = target.mask
+        end
+    else
+        if background and state.backgroundAtlas then
+            background:SetVertexColor(1, 1, 1, 1)
+            state.backgroundAtlas, state.backgroundColor = nil, nil
+        end
+        writes = writes + ApplyTextureColor(background, snapshot.backgroundColor or DEFAULT_BACKGROUND,
+            state, "backgroundColor", true)
+    end
     writes = writes + ApplyTextureColor(
         border,
         snapshot.borderColor or DEFAULT_BORDER,
@@ -1759,6 +1937,293 @@ function GUI2:ApplyCooldownSwipe(target, drawSwipe, reverse, state)
     return writes
 end
 
+function GUI2:GetCooldownEdgeStyle(snapshot)
+    return snapshot and snapshot.cooldownEdge or DEFAULT_COOLDOWN_EDGE
+end
+
+function GUI2:ApplyCooldownEdgeStyle(target, snapshot, state)
+    local cooldown = target and (target.cooldown or target)
+    if not cooldown then return 0 end
+    if self.IsIconSkinManaged and self:IsIconSkinManaged(cooldown) then return 0 end
+    local edge = self:GetCooldownEdgeStyle(snapshot)
+    local color = edge.color
+    state = GetState(cooldown, state)
+    local writes = 0
+    if edge.texture and cooldown.SetEdgeTexture and state.edgeTexture ~= edge.texture then
+        cooldown:SetEdgeTexture(edge.texture, color[1], color[2], color[3], color[4])
+        state.edgeTexture = edge.texture
+        state.edgeColor = CopyColor(color, state.edgeColor)
+        -- 纹理 setter 可能重新打开亮边，业务显示策略须在样式之后重申。
+        state.drawEdge = nil
+        writes = writes + 1
+    elseif cooldown.SetEdgeColor and not SameColor(state.edgeColor, color) then
+        cooldown:SetEdgeColor(color[1], color[2], color[3], color[4])
+        state.edgeColor = CopyColor(color, state.edgeColor)
+        writes = writes + 1
+    end
+    if cooldown.SetEdgeScale and state.edgeScale ~= edge.scale
+        and (not state.original or state.original.edgeScale ~= nil) then
+        cooldown:SetEdgeScale(edge.scale)
+        state.edgeScale = edge.scale
+        writes = writes + 1
+    end
+    if writes > 0 then state.chargeRecoveryRuntime = nil end
+    return writes
+end
+
+-- 仅在外观/布局变更时调用。尺寸来自配置，绝不读取受限冷却的运行态尺寸。
+function GUI2:RestoreIconCooldownLayout(cooldown)
+    local layout = cooldown and cooldown.gui2CooldownLayout
+    if not (layout and layout.active) then return 0 end
+    cooldown:ClearAllPoints()
+    for _, point in ipairs(layout.points) do
+        cooldown:SetPoint((unpack or table.unpack)(point))
+    end
+    layout.active = false
+    return #layout.points + 1
+end
+
+-- Paint only: callers retain region ownership, geometry and semantic visibility.
+-- Cache on the existing region; no host, animation or per-refresh table is needed.
+function GUI2:PaintIconStateTexture(texture, shape, color, path, force)
+    if not texture then return 0 end
+    local textures = self.IconStateInnerTextures
+    path = path or textures and (textures[shape] or textures.square)
+    if not path then return 0 end
+    color = color or DEFAULT_COLOR
+    local writes = 0
+    if force or texture.gui2StatePath ~= path then
+        if not (pcall(texture.SetTexture, texture, path)
+            and pcall(texture.SetTexCoord, texture, 0, 1, 0, 1)
+            and pcall(texture.SetBlendMode, texture, "ADD")) then return writes end
+        texture.gui2StatePath = path
+        writes = writes + 3
+    end
+    local r, g, b, a = color[1] or 1, color[2] or 1, color[3] or 1, color[4]
+    if a == nil then a = 1 end
+    if force or texture.gui2StateR ~= r or texture.gui2StateG ~= g
+        or texture.gui2StateB ~= b or texture.gui2StateA ~= a then
+        if not pcall(texture.SetVertexColor, texture, r, g, b, a) then return writes end
+        texture.gui2StateR, texture.gui2StateG, texture.gui2StateB, texture.gui2StateA = r, g, b, a
+        writes = writes + 1
+    end
+    return writes
+end
+
+local StaticIconState = {}
+StaticIconState.__index = StaticIconState
+function StaticIconState:SetGlowParams(params)
+    self.params = params or self.params
+    return GUI2:PaintIconStateTexture(self.Texture, self.shape, self.params and self.params.color)
+end
+function StaticIconState:SetGlowShape(shape)
+    self.shape = shape
+    return GUI2:PaintIconStateTexture(self.Texture, shape, self.params and self.params.color)
+end
+function StaticIconState:SetGlowShown(shown)
+    shown = shown == true
+    if self.shown == shown then return false end
+    self.shown = shown
+    if shown then self.Texture:Show() else self.Texture:Hide() end
+    return true
+end
+
+-- A lightweight handle for owners that already have a suitable overlay host.
+function GUI2:CreateStaticIconState(target, shape, params)
+    local texture = self:CreateTexture(target, { layer = "OVERLAY", subLevel = 7 })
+    texture:SetAllPoints(target)
+    local state = setmetatable({ target = target, Texture = texture, shape = shape }, StaticIconState)
+    state:SetGlowParams(params)
+    state:SetGlowShown(false)
+    return state
+end
+
+-- CDM owns FlashAnim and its (possibly secret) start delays. Reuse its existing
+-- Alpha/FlipBook tracks; never replace the group or read/copy the delay.
+function GUI2:RestoreIconCooldownFlash(state)
+    local flash = state and state.flash
+    if not flash or not state.active then return false end
+    if state.anchor and not flash.gui2OwnedFlash then contourFlashes[state.anchor] = nil end
+    local group, texture = state.group, state.texture
+    if flash.gui2OwnedFlash then group:Stop() end
+    group.PlayAnim:SetFlipBookRows(11)
+    group.PlayAnim:SetFlipBookColumns(2)
+    group.PlayAnim:SetFlipBookFrames(22)
+    texture:SetAtlas(state.atlas or "UI-HUD-ActionBar-GCD-Flipbook")
+    texture:SetRotation(state.rotation or 0)
+    texture:ClearAllPoints()
+    for _, point in ipairs(state.points) do texture:SetPoint((unpack or table.unpack)(point)) end
+    state.active, state.shape, state.anchor = false, nil, nil
+    return true
+end
+
+function GUI2:ApplyIconCooldownFlash(flash, cooldown, snapshot, state, width, height)
+    if not (flash and cooldown and snapshot and state) then return false end
+    local shape = snapshot.shape
+    if (shape ~= "circle" and shape ~= "diamond")
+        or (self.IsIconSkinManaged and self:IsIconSkinManaged(cooldown))
+        or IsSecretValue(width) or IsSecretValue(height)
+        or type(width) ~= "number" or type(height) ~= "number"
+        or width <= 0 or height <= 0 then
+        return self:RestoreIconCooldownFlash(state)
+    end
+    local group, texture = flash.FlashAnim, flash.Flipbook
+    if not (texture and group and group.ShowAnim and group.PlayAnim) then return false end
+    local layout = cooldown.gui2CooldownLayout
+    local layoutX = layout and layout.active and layout.x or 0
+    local layoutY = layout and layout.active and layout.y or 0
+    local border = layout and layout.active and 0
+        or (snapshot.borderThickness or 0) * self:GetPixelSize(cooldown, 1, 1)
+    local contentWidth, contentHeight = width - 2 * layoutX, height - 2 * layoutY
+    local diameter = math.max(1, math.min(contentWidth, contentHeight) - border * 2)
+    -- The circle uses a subtle outward ripple; diamond rotates the native GCD artwork.
+    -- Two anchors preserve the original explicit size for restoration. All
+    -- arithmetic uses public configuration dimensions, never cooldown:GetSize().
+    local quad = diameter * (shape == "circle" and 1.25 or 1.1 / math.sqrt(2))
+    local x, y = (contentWidth - quad) / 2, (contentHeight - quad) / 2
+    if state.active and state.flash == flash and state.texture == texture and state.group == group
+        and state.shape == shape and state.anchor == cooldown
+        and state.x == x and state.y == y then return false end
+    if state.flash ~= flash or state.texture ~= texture or state.group ~= group then
+        self:RestoreIconCooldownFlash(state)
+        state.flash, state.points = flash, {}
+        state.texture, state.group = texture, group
+        state.atlas = texture.GetAtlas and texture:GetAtlas()
+        local rotation
+        if texture.GetRotation then rotation = texture:GetRotation() end
+        state.rotation = not IsSecretValue(rotation) and rotation or 0
+        if texture.GetNumPoints then
+            for index = 1, texture:GetNumPoints() do
+                state.points[index] = { texture:GetPoint(index) }
+            end
+        end
+    end
+    if not state.active or state.shape ~= shape then
+        -- Native CDM may already be waiting on its secret start delay. Styling
+        -- must neither cancel that schedule nor restart it from this moment.
+        if flash.gui2OwnedFlash then group:Stop() end
+        if shape == "circle" then
+            group.PlayAnim:SetFlipBookRows(4)
+            group.PlayAnim:SetFlipBookColumns(4)
+            group.PlayAnim:SetFlipBookFrames(16)
+            texture:SetTexture(COOLDOWN_CIRCLE_RIPPLE)
+            texture:SetTexCoord(0, 1, 0, 1)
+            texture:SetRotation(0)
+        else
+            group.PlayAnim:SetFlipBookRows(11)
+            group.PlayAnim:SetFlipBookColumns(2)
+            group.PlayAnim:SetFlipBookFrames(22)
+            texture:SetAtlas(state.atlas or "UI-HUD-ActionBar-GCD-Flipbook")
+            texture:SetRotation(math.pi / 4)
+        end
+    end
+    texture:ClearAllPoints()
+    texture:SetPoint("TOPLEFT", cooldown, "TOPLEFT", x, -y)
+    texture:SetPoint("BOTTOMRIGHT", cooldown, "BOTTOMRIGHT", -x, y)
+    if not flash.gui2OwnedFlash then
+        if state.anchor and state.anchor ~= cooldown then contourFlashes[state.anchor] = nil end
+        contourFlashes[cooldown] = true
+    end
+    state.active, state.shape, state.anchor, state.x, state.y = true, shape, cooldown, x, y
+    return true
+end
+
+local function StopOwnedCooldownFlash(flash)
+    flash.FlashAnim:Stop()
+    flash:Hide()
+end
+
+local function OwnedCooldownFlashHidden(flash)
+    flash.FlashAnim:Stop()
+    flash:Hide()
+    if flash.onStopped then flash.onStopped(flash) end
+end
+
+local function OwnedCooldownFlashFinished(group)
+    group:GetParent():Hide()
+end
+
+-- Only for independently owned visuals. Never adopt a live CDM/action-button
+-- flash: its native animation may carry secret delays or another active state.
+function GUI2:CreateIconCooldownFlash(owner)
+    if not (YUI.IsRetail or YUI.IsForever) then return nil end
+    local ok, flash = pcall(CreateFrame, "Frame", nil, owner, "ActionButtonCooldownFlashTemplate")
+    if not ok then return nil end
+    if not (flash.Flipbook and flash.FlashAnim) then flash:Hide(); return nil end
+    flash:EnableMouse(false)
+    local group = flash.FlashAnim
+    group.PlayAnim = group:GetAnimations()
+    group.ShowAnim = group:CreateAnimation("Alpha")
+    group.ShowAnim:SetChildKey("Flipbook")
+    group.ShowAnim:SetOrder(1)
+    group.ShowAnim:SetFromAlpha(1)
+    group.ShowAnim:SetToAlpha(1)
+    group.ShowAnim:SetDuration(0)
+    group:SetLooping("NONE")
+    group:SetScript("OnFinished", OwnedCooldownFlashFinished)
+    flash:SetScript("OnHide", OwnedCooldownFlashHidden)
+    flash.gui2FlashState = {}
+    flash.gui2OwnedFlash = true
+    flash.Stop = StopOwnedCooldownFlash
+    flash:Hide()
+    return flash
+end
+
+function GUI2:LayoutIconCooldownFlash(flash, cooldown, snapshot, width, height, level)
+    if not flash then return end
+    local state = flash.gui2FlashState
+    if state.layoutAnchor ~= cooldown or state.layoutWidth ~= width
+        or state.layoutHeight ~= height or state.layoutLevel ~= level then
+        flash:Stop()
+        flash:ClearAllPoints()
+        flash:SetPoint("TOPLEFT", cooldown, "TOPLEFT", 0, 1)
+        flash:SetPoint("BOTTOMRIGHT", cooldown, "BOTTOMRIGHT", 0, 1)
+        if level then flash:SetFrameLevel(level) end
+        state.layoutAnchor, state.layoutWidth, state.layoutHeight, state.layoutLevel = cooldown, width, height, level
+    end
+    self:ApplyIconCooldownFlash(flash, cooldown, snapshot, state, width, height)
+end
+
+function GUI2:PlayIconCooldownFlash(flash)
+    if not flash then return false end
+    local owner = flash:GetParent()
+    if not owner:IsVisible() then return false end
+    flash:Stop()
+    flash:Show()
+    flash.FlashAnim:Play()
+    return true
+end
+
+function GUI2:ApplyIconCooldownLayout(cooldown, reference, shape, border, width, height)
+    if not (cooldown and reference and cooldown.ClearAllPoints and cooldown.SetPoint)
+        or (self.IsIconSkinManaged and self:IsIconSkinManaged(cooldown)) then return 0 end
+    local inset = self.IconCooldownInsets and self.IconCooldownInsets[border]
+    if not inset then return self:RestoreIconCooldownLayout(cooldown) end
+    if IsSecretValue(width) or IsSecretValue(height)
+        or not (type(width) == "number" and type(height) == "number") then return 0 end
+    local preset = self:GetIconAppearancePreset(shape)
+    inset = preset.cooldownInsets and preset.cooldownInsets[border] or inset
+    local x, y = width * inset, height * (preset.aspect or 1) * inset
+    local layout = cooldown.gui2CooldownLayout
+    if not layout then layout = {}; cooldown.gui2CooldownLayout = layout end
+    if layout.active and layout.reference == reference and layout.x == x and layout.y == y then return 0 end
+    if not layout.active then
+        layout.points = {}
+        if cooldown.GetNumPoints and cooldown.GetPoint then
+            local count = cooldown:GetNumPoints()
+            if IsSecretValue(count) then return 0 end
+            for i = 1, count do
+                layout.points[i] = { cooldown:GetPoint(i) }
+            end
+        end
+    end
+    cooldown:ClearAllPoints()
+    cooldown:SetPoint("TOPLEFT", reference, "TOPLEFT", x, -y)
+    cooldown:SetPoint("BOTTOMRIGHT", reference, "BOTTOMRIGHT", -x, y)
+    layout.active, layout.reference, layout.x, layout.y = true, reference, x, y
+    return 3
+end
+
 function GUI2:ApplyCooldownChrome(target, snapshot, state)
     local cooldown = target and (target.cooldown or target)
     if not cooldown then return 0 end
@@ -1770,9 +2235,11 @@ function GUI2:ApplyCooldownChrome(target, snapshot, state)
         nil,
         state
     )
+    local managed = self.IsIconSkinManaged and self:IsIconSkinManaged(cooldown)
+    if not managed then writes = writes + self:ApplyCooldownEdgeStyle(cooldown, snapshot, state) end
     local texture = snapshot.swipeTexture or WHITE
     local color = snapshot.swipeColor or DEFAULT_SWIPE
-    if cooldown.SetSwipeTexture
+    if not managed and cooldown.SetSwipeTexture
         and (state.swipeTexture ~= texture
             or not SameColor(state.swipeColor, color)) then
         if pcall(
@@ -1790,17 +2257,17 @@ function GUI2:ApplyCooldownChrome(target, snapshot, state)
         end
     end
     local circular = snapshot.circular == true
-    if cooldown.SetUseCircularEdge and state.circular ~= circular then
+    if not managed and cooldown.SetUseCircularEdge and state.circular ~= circular then
         cooldown:SetUseCircularEdge(circular)
         state.circular = circular
         writes = writes + 1
     end
-    if cooldown.SetDrawEdge and state.drawEdge ~= false then
+    if not managed and cooldown.SetDrawEdge and state.drawEdge ~= false then
         cooldown:SetDrawEdge(false)
         state.drawEdge = false
         writes = writes + 1
     end
-    local drawBling = snapshot.drawBling == true
+    local drawBling = snapshot.drawBling == true and not self:HasIconCooldownFlash(cooldown)
     if cooldown.SetDrawBling and state.drawBling ~= drawBling then
         cooldown:SetDrawBling(drawBling)
         state.drawBling = drawBling
@@ -1843,7 +2310,8 @@ function GUI2:SizeStatusBarCountText(fontString, appearance, state)
     if state and state.numericRegion == fontString
         and state.numericFont == appearance.font
         and state.numericSize == appearance.size
-        and state.numericOutline == appearance.outline then return false end
+        and state.numericOutline == appearance.outline
+        and state.numericMonochrome == (appearance.monochrome == true) then return false end
     if not countMeasureText then
         -- 测量对象不进入 AuraFrame 子树，永远只接收公开数字样本。
         countMeasureFrame = GUI2:CreateFrame(_G.UIParent, {
@@ -1876,6 +2344,7 @@ function GUI2:SizeStatusBarCountText(fontString, appearance, state)
     if state then
         state.numericRegion, state.numericFont = fontString, appearance.font
         state.numericSize, state.numericOutline = appearance.size, appearance.outline
+        state.numericMonochrome = appearance.monochrome == true
     end
     return true
 end
@@ -1888,13 +2357,16 @@ function GUI2:ApplyTextStyle(target, snapshot, state)
     local font = snapshot.font or "default"
     local size = snapshot.size or 12
     local outline = snapshot.outline or "none"
+    local monochrome = snapshot.monochrome == true
     if state.font ~= font
         or state.fontSize ~= size
-        or state.fontOutline ~= outline then
+        or state.fontOutline ~= outline
+        or state.fontMonochrome ~= monochrome then
         self:ApplyFontAppearance(target, snapshot)
         state.font = font
         state.fontSize = size
         state.fontOutline = outline
+        state.fontMonochrome = monochrome
         writes = writes + 1
     end
     local color = snapshot.color or DEFAULT_COLOR
@@ -1921,7 +2393,8 @@ function GUI2:ApplyTextStyle(target, snapshot, state)
             "shown"
         )
     end
-    if state.preserveAnchors ~= true and target.ClearAllPoints and target.SetPoint then
+    if state.preserveAnchors ~= true and target.ClearAllPoints and target.SetPoint
+        and not (self.IsIconSkinManaged and self:IsIconSkinManaged(target)) then
         local position = snapshot.position or "center"
         local point = "CENTER"
         local justify = "CENTER"
@@ -1958,12 +2431,15 @@ function GUI2:ApplyTextStyle(target, snapshot, state)
             y = y + 2
             justify = "RIGHT"
         end
+        local parent = target.GetParent and target:GetParent() or nil
+        local layout = parent and parent.gui2CooldownLayout
+        if layout and layout.active then parent = layout.reference end
         if state.anchorPoint ~= point
+            or state.anchorParent ~= parent
             or state.anchorX ~= x
             or state.anchorY ~= y
             or state.anchorJustify ~= justify then
             target:ClearAllPoints()
-            local parent = target.GetParent and target:GetParent() or nil
             if parent then
                 target:SetPoint(point, parent, point, x, y)
             else
@@ -1971,6 +2447,7 @@ function GUI2:ApplyTextStyle(target, snapshot, state)
             end
             if target.SetJustifyH then target:SetJustifyH(justify) end
             state.anchorPoint = point
+            state.anchorParent = parent
             state.anchorX = x
             state.anchorY = y
             state.anchorJustify = justify
@@ -2177,6 +2654,7 @@ end
 
 function GUI2:RestoreVisual(target, state)
     if not target then return false end
+    self:RestoreIconCooldownLayout(target.cooldown)
     state = state or Visual.states[target]
     if not state then return false end
     local original = state.original
@@ -2191,6 +2669,15 @@ function GUI2:RestoreVisual(target, state)
             )
         end
         local cooldown = target.cooldown
+        if cooldown and state.edgeTexture and original.edgeTexture
+            and cooldown.SetEdgeTexture then
+            local color = original.edgeColor or DEFAULT_COLOR
+            cooldown:SetEdgeTexture(original.edgeTexture, color[1], color[2], color[3], color[4])
+        end
+        if cooldown and state.edgeScale and original.edgeScale ~= nil
+            and cooldown.SetEdgeScale then
+            cooldown:SetEdgeScale(original.edgeScale)
+        end
         if cooldown and original.hideNumbers ~= nil
             and cooldown.SetHideCountdownNumbers then
             cooldown:SetHideCountdownNumbers(original.hideNumbers)
@@ -2276,6 +2763,12 @@ function GUI2:CaptureVisual(target, state)
         original.texCoord = { icon:GetTexCoord() }
     end
     local cooldown = target.cooldown
+    if cooldown and cooldown.GetEdgeScale then
+        local ok, value = pcall(cooldown.GetEdgeScale, cooldown)
+        if ok and not IsSecretValue(value) and type(value) == "number" then
+            original.edgeScale = value
+        end
+    end
     if cooldown and cooldown.GetHideCountdownNumbers then
         original.hideNumbers = cooldown:GetHideCountdownNumbers()
     end

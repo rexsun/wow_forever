@@ -30,7 +30,11 @@ local DEFAULT_SIZE = 14
 local ICON_SIZE_PLUS = 8
 local DEFAULT_SPACING = -2
 local AUDIO_SYNC_NOTIFICATION_SETTLE_DELAY = 3
-local AUDIO_SYNC_EVENT_COALESCE_DELAY = 0.2
+local AUDIO_SYNC_EVENT_COALESCE_DELAY = 1
+local AUDIO_SYNC_MIN_INTERVAL = 3
+local AUDIO_SYNC_RESTART_WINDOW = 30
+local AUDIO_SYNC_RESTART_LIMIT = 3
+local AUDIO_SYNC_PROTECTION_DURATION = 30
 local DEFAULT_FONT = STANDARD_TEXT_FONT
 local ICON_PATH = Assets:Product("ybar", "micromenu\\")
 local VOLUME_ICON = ICON_PATH .. "Volume.png"
@@ -149,7 +153,11 @@ function Module:OnInitialize()
     self.buttons = {}
     self.audioSyncGeneration = 0
     self.audioSyncPending = false
+    self.audioSyncPendingSource = nil
     self.audioSyncInProgress = false
+    self.audioSyncNextAllowedAt = 0
+    self.audioSyncRestartTimes = {}
+    self.audioSyncProtectedUntil = 0
     self.audioSyncRuntimeActive = false
     self.audioSyncAttemptCount = 0
     self.audioSyncFailureCount = 0
@@ -157,6 +165,8 @@ function Module:OnInitialize()
     self.audioSyncMergedCount = 0
     self.audioSyncSuppressedCount = 0
     self.audioSyncStartupSkipCount = 0
+    self.audioSyncNoopCount = 0
+    self.audioSyncLoopBlockedCount = 0
     self.audioSyncNotificationsArmed = false
     self.audioSyncNotificationArmPending = false
     self.audioSyncNotificationGeneration = 0
@@ -455,6 +465,22 @@ local function IsAudioSyncEffective()
         db and db.autoSyncAudioOutput == true and IsVolumeButtonEnabled(db)
 end
 
+local function CheckAutomaticAudioSyncProtection(module, now)
+    if now < (module.audioSyncProtectedUntil or 0) then
+        return true
+    end
+    local times = module.audioSyncRestartTimes
+    if #times >= AUDIO_SYNC_RESTART_LIMIT and
+        now - times[1] < AUDIO_SYNC_RESTART_WINDOW then
+        -- A fourth request after three actual attempts trips a fixed cooldown.
+        -- Store the deadline before printing; further events cannot extend it.
+        module.audioSyncProtectedUntil = now + AUDIO_SYNC_PROTECTION_DURATION
+        YUI:Print(L["micromenu.volume.sync_protected_chat"])
+        return true
+    end
+    return false
+end
+
 function Module:PrintAudioSyncResult(success)
     YUI:Print(L[success and "micromenu.volume.sync_success_chat" or "micromenu.volume.sync_failed_chat"])
     return true
@@ -464,9 +490,10 @@ function Module:StopAudioSyncRuntime()
     self.audioSyncGeneration = (self.audioSyncGeneration or 0) + 1
     self.audioSyncNotificationGeneration = (self.audioSyncNotificationGeneration or 0) + 1
     self.audioSyncPending = false
+    self.audioSyncPendingSource = nil
     if self.audioSyncTimer then self.audioSyncTimer:Cancel(); self.audioSyncTimer = nil end
     self.audioSyncShouldNotify = false
-    self.audioSyncInProgress = false
+    -- Keep completion history, protection and in-flight state across toggles.
     self.audioSyncRuntimeActive = false
     self.audioSyncNotificationsArmed = false
     self.audioSyncNotificationArmPending = false
@@ -475,16 +502,39 @@ function Module:StopAudioSyncRuntime()
     end
 end
 
-function Module:PerformAudioOutputSync(notify)
+function Module:PerformAudioOutputSync(notify, syncSource)
     if not IsAudioSyncEffective() or self.audioSyncInProgress then
         return false
     end
 
-    self.audioSyncInProgress = true
+    local generation = self.audioSyncGeneration
+    local index = SystemAPI.GetAudioOutputDeviceState and SystemAPI.GetAudioOutputDeviceState()
+    if self.audioSyncGeneration ~= generation or not IsAudioSyncEffective() then
+        return false
+    end
+    if index == nil then
+        self.audioSyncSuppressedCount = (self.audioSyncSuppressedCount or 0) + 1
+        return false
+    end
+    if not syncSource and index ~= 0 then
+        -- A readable explicit output selection takes precedence over following.
+        self:SetAutoSyncAudioOutput(false)
+        return false
+    end
     local now = SystemAPI.GetTimePreciseSec and SystemAPI.GetTimePreciseSec() or
-        SystemAPI.GetTime and SystemAPI.GetTime() or
-        (GetTime and GetTime()) or 0
-    self.audioSyncSuppressUntil = now + 0.5
+        SystemAPI.GetTime and SystemAPI.GetTime() or (GetTime and GetTime()) or 0
+    if self.audioSyncGeneration ~= generation or not IsAudioSyncEffective() then
+        return false
+    end
+    -- Only repeated actual attempts trip protection. An explicit enable waits
+    -- for the shared three-second interval without being locked by auto sync.
+    if (syncSource ~= "manual" and CheckAutomaticAudioSyncProtection(self, now)) or
+        now < (self.audioSyncNextAllowedAt or 0) then
+        self.audioSyncLoopBlockedCount = (self.audioSyncLoopBlockedCount or 0) + 1
+        self.audioSyncSuppressedCount = (self.audioSyncSuppressedCount or 0) + 1
+        return false
+    end
+    self.audioSyncInProgress = true
 
     self.audioSyncAttemptCount = (self.audioSyncAttemptCount or 0) + 1
     local success = SystemAPI.SyncAudioOutputToSystemDefault and
@@ -492,12 +542,29 @@ function Module:PerformAudioOutputSync(notify)
     if not success then
         self.audioSyncFailureCount = (self.audioSyncFailureCount or 0) + 1
     end
-    -- The native restart may itself block longer than the suppression window.
-    -- Start the asynchronous echo guard after it returns, not before it starts.
+    -- Native restart can block. Measure intervals from completion, not entry.
     local finished = SystemAPI.GetTimePreciseSec and SystemAPI.GetTimePreciseSec() or
-        SystemAPI.GetTime and SystemAPI.GetTime() or (GetTime and GetTime()) or now
-    self.audioSyncSuppressUntil = finished + 0.5
+        SystemAPI.GetTime and SystemAPI.GetTime() or (GetTime and GetTime()) or 0
+    self.audioSyncNextAllowedAt = finished + AUDIO_SYNC_MIN_INTERVAL
+    local times = self.audioSyncRestartTimes
+    if #times >= AUDIO_SYNC_RESTART_LIMIT then table.remove(times, 1) end
+    times[#times + 1] = finished
     self.audioSyncInProgress = false
+    if self.audioSyncGeneration ~= generation or not IsAudioSyncEffective() then
+        return success
+    end
+    if success then
+        -- Device-list notifications raised inside our restart belong to that
+        -- operation. Validate its final state instead of scheduling another one.
+        local finalIndex = SystemAPI.GetAudioOutputDeviceState and SystemAPI.GetAudioOutputDeviceState()
+        if self.audioSyncGeneration ~= generation or not IsAudioSyncEffective() then
+            return success
+        end
+        if finalIndex ~= 0 then
+            success = false
+            self.audioSyncFailureCount = (self.audioSyncFailureCount or 0) + 1
+        end
+    end
     RefreshVolumePanel()
 
     if notify then
@@ -530,20 +597,47 @@ function Module:ScheduleAudioSyncNotificationArm()
     end)
 end
 
-function Module:QueueAudioOutputSync(notify, delay)
-    if not IsAudioSyncEffective() or self.audioSyncInProgress then
+function Module:QueueAudioOutputSync(notify, delay, syncSource)
+    if not IsAudioSyncEffective() then
+        return false
+    end
+
+    if self.audioSyncInProgress then
+        self.audioSyncSuppressedCount = (self.audioSyncSuppressedCount or 0) + 1
+        return false
+    end
+    local generation = self.audioSyncGeneration or 0
+    local now = SystemAPI.GetTimePreciseSec and SystemAPI.GetTimePreciseSec() or
+        SystemAPI.GetTime and SystemAPI.GetTime() or (GetTime and GetTime()) or 0
+    if self.audioSyncGeneration ~= generation or not IsAudioSyncEffective() then
+        return false
+    end
+    -- Check at arrival too: a circuit-broken event must not wait until expiry.
+    -- Do not disturb a separate pending manual enable when dropping it.
+    if syncSource ~= "manual" and CheckAutomaticAudioSyncProtection(self, now) then
+        self.audioSyncLoopBlockedCount = (self.audioSyncLoopBlockedCount or 0) + 1
+        self.audioSyncSuppressedCount = (self.audioSyncSuppressedCount or 0) + 1
         return false
     end
 
     self.audioSyncRequestCount = (self.audioSyncRequestCount or 0) + 1
     self.audioSyncShouldNotify = self.audioSyncShouldNotify or notify == true
+    -- Both restoration and manual enabling may align a non-default index.
+    -- Only manual enabling bypasses protection and takes priority when merged.
+    if syncSource == "manual" or not self.audioSyncPendingSource then
+        self.audioSyncPendingSource = syncSource
+    end
     if self.audioSyncPending then
         self.audioSyncMergedCount = (self.audioSyncMergedCount or 0) + 1
         return true
     end
 
+    delay = delay or 0
+    -- One pending request combines the merge window and the minimum interval.
+    -- This never waits for circuit-breaker expiry; those requests are dropped.
+    delay = math.max(delay, (self.audioSyncNextAllowedAt or 0) - now)
+
     self.audioSyncPending = true
-    local generation = self.audioSyncGeneration or 0
     local function RunSync()
         if Module.audioSyncGeneration ~= generation then
             return
@@ -551,8 +645,22 @@ function Module:QueueAudioOutputSync(notify, delay)
         Module.audioSyncTimer = nil
         Module.audioSyncPending = false
         local shouldNotify = Module.audioSyncShouldNotify == true
+        local syncSource = Module.audioSyncPendingSource
         Module.audioSyncShouldNotify = false
-        Module:PerformAudioOutputSync(shouldNotify)
+        Module.audioSyncPendingSource = nil
+        local now = SystemAPI.GetTimePreciseSec and SystemAPI.GetTimePreciseSec() or
+            SystemAPI.GetTime and SystemAPI.GetTime() or (GetTime and GetTime()) or 0
+        if Module.audioSyncGeneration ~= generation or not IsAudioSyncEffective() then
+            return
+        end
+        local remaining = (Module.audioSyncNextAllowedAt or 0) - now
+        if remaining > 0 then
+            if C_Timer and (C_Timer.NewTimer or C_Timer.After) then
+                Module:QueueAudioOutputSync(shouldNotify, remaining, syncSource)
+            end
+            return
+        end
+        Module:PerformAudioOutputSync(shouldNotify, syncSource)
     end
 
     if C_Timer and C_Timer.NewTimer then
@@ -574,9 +682,12 @@ function Module:OnAudioSyncEvent(event, cvarName)
         if string.lower(tostring(cvarName or "")) ~= "sound_outputdriverindex" then
             return
         end
-        local index = SystemAPI.GetAudioOutputDeviceIndex and
-            SystemAPI.GetAudioOutputDeviceIndex() or 0
-        if tonumber(index) ~= 0 then
+        local generation = self.audioSyncGeneration
+        local index = SystemAPI.GetAudioOutputDeviceState and SystemAPI.GetAudioOutputDeviceState()
+        if self.audioSyncGeneration ~= generation or not IsAudioSyncEffective() then
+            return
+        end
+        if index ~= nil and index ~= 0 then
             self:SetAutoSyncAudioOutput(false)
         end
         return
@@ -584,10 +695,7 @@ function Module:OnAudioSyncEvent(event, cvarName)
 
     if event == "SOUND_DEVICE_UPDATE" or
         event == "VOICE_CHAT_OUTPUT_DEVICES_UPDATED" then
-        local now = SystemAPI.GetTimePreciseSec and SystemAPI.GetTimePreciseSec() or
-            SystemAPI.GetTime and SystemAPI.GetTime() or
-            (GetTime and GetTime()) or 0
-        if self.audioSyncInProgress or now < (self.audioSyncSuppressUntil or 0) then
+        if self.audioSyncInProgress then
             self.audioSyncSuppressedCount = (self.audioSyncSuppressedCount or 0) + 1
             return
         end
@@ -608,9 +716,16 @@ function Module:RefreshAudioSyncRuntime(syncNow)
     end
 
     local newlyActive = not self.audioSyncRuntimeActive
+    local index
+    if newlyActive and not syncNow then
+        local generation = self.audioSyncGeneration
+        index = SystemAPI.GetAudioOutputDeviceState and SystemAPI.GetAudioOutputDeviceState()
+        if self.audioSyncGeneration ~= generation or not IsAudioSyncEffective() then
+            return false
+        end
+    end
     if newlyActive then
         local owner = self.audioSyncOwner
-        self.audioSyncOwner = owner
         self.audioSyncRuntimeActive = true
         if YUI.Event and YUI.Event.On then
             YUI.Event:On("SOUND_DEVICE_UPDATE", "OnEvent", owner)
@@ -626,17 +741,17 @@ function Module:RefreshAudioSyncRuntime(syncNow)
     end
 
     if newlyActive and not syncNow then
-        local index = SystemAPI.GetAudioOutputDeviceIndex and SystemAPI.GetAudioOutputDeviceIndex()
-        if not (issecretvalue and issecretvalue(index)) and index == 0 then
-            -- Reloading the UI does not require reinitializing the sound engine.
-            -- Device invalidations and explicit manual sync still force a sync.
+        self:ScheduleAudioSyncNotificationArm()
+        if index == 0 then
+            -- Restoring a saved listener at startup is silent. An explicit manual
+            -- enable must synchronize even at index zero: the live output may lag.
             self.audioSyncStartupSkipCount = (self.audioSyncStartupSkipCount or 0) + 1
-            self:ScheduleAudioSyncNotificationArm()
+            self.audioSyncNoopCount = (self.audioSyncNoopCount or 0) + 1
             return true
         end
     end
     if newlyActive or syncNow then
-        self:QueueAudioOutputSync(syncNow == true)
+        return self:QueueAudioOutputSync(syncNow == true, nil, syncNow and "manual" or "restore")
     end
     return true
 end
@@ -1631,7 +1746,9 @@ local function CreateButton(parent, config)
         if config.textOnly then
              -- Update Font Size
              if self.text then
-                 self.text:SetFont(YBar:ResolveFontPath(db.font, DEFAULT_FONT), size, "")
+                 local root = GetYBarDB() or {}
+                 self.text:SetFont(YBar:ResolveFontPath(db.font, DEFAULT_FONT), size,
+                     root.fontFlags or (root.fontOutline and "OUTLINE" or ""))
                  width = self.text:GetStringWidth() + 8
              end
         else
@@ -1799,8 +1916,10 @@ local function CreateButton(parent, config)
                                                (config.leftName or "Open")))
                 end
                 if config.rightFunc then
+                    local rightName = config.rightName
+                    if type(rightName) == "function" then rightName = rightName() end
                     GameTooltip:AddLine(format("%s%s: |r%s%s|r", white, LC["common.right_click"], gold,
-                                               (config.rightName or LC["common.none"] or "None")))
+                                               (rightName or LC["common.none"] or "None")))
                 end
                 if config.shiftLeftFunc then
                     GameTooltip:AddLine(format("%sShift + %s: |r%s%s|r", white, LC["common.left_click"],
@@ -1906,7 +2025,6 @@ end
 
 -- 按钮定义
 local function GetButtons()
-    local MSTONE_NAME = YUI.F:GetGradientText(T("meetingstone.tooltip.title", "集合石"), {0.84, 0.41, 1}, {0.64, 0.21, 0.93})
     local buttons = {
         {
             name = "游戏菜单",
@@ -1962,7 +2080,10 @@ local function GetButtons()
             icon = ICON_PATH .. "LFD.png",
             leftName = T("micromenu.action.finder", "查找器"),
             leftFunc = function() FrameAPI.TogglePVEFrame() end,
-            rightName = MSTONE_NAME,
+            rightName = function()
+                local name = YBar and YBar.GetMeetingHornLabels and YBar:GetMeetingHornLabels()
+                return YUI.F:GetGradientText(name or T("meetingstone.tooltip.title", "集合石"), {0.84, 0.41, 1}, {0.64, 0.21, 0.93})
+            end,
             rightFunc = function()
                 if not (YBar and YBar.OpenMeetingHorn and YBar:OpenMeetingHorn()) then
                     YUI:Print(T("micromenu.message.meeting_stone_missing", "集合石插件可能未加载"))

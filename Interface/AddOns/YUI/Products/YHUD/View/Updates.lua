@@ -113,7 +113,7 @@ local function ApplyResourcePreview(slot, preset)
     ) == true
 end
 
-local function ApplyResourceStructuralMax(slot, state)
+local function ApplyResourceStructuralMax(slot, state, runtime)
     local structuralMax = state and state.structuralMax
     if type(structuralMax) ~= "number"
         or structuralMax < 1 or structuralMax > 100
@@ -128,11 +128,18 @@ local function ApplyResourceStructuralMax(slot, state)
     end
     if slot.gui2ResourceStructuralMaxPending then return false end
     slot._yhudResourceStructuralMax = structuralMax
+    if slot._yhudBarProgress and runtime and View.LayoutBarTicks then
+        slot._yhudBarMaximum = structuralMax
+        View:LayoutBarTicks(slot, runtime, structuralMax)
+    end
     return true
 end
 
 local function ShouldDesaturateIcon(state)
     if not (state and state.available == true) then return false end
+    if state.sourceKind == "brewmaster-elixir" then
+        return state.resolved == true and state.extraActive == true
+    end
     if state.sourceKind == "spell" then
         if type(state.maxCharges) == "number"
             and state.maxCharges > 1
@@ -174,6 +181,13 @@ function View:ApplyIconDesaturation(slot, state, forceDesaturated)
 end
 
 function View:ApplyCooldown(slot, state, runtime)
+    if self.ApplyBarProgress and self:ApplyBarProgress(slot, state, runtime) then return end
+    if YHUD.ClassExtra and YHUD.ClassExtra:ApplyClock(self, slot, state, runtime) then return end
+    if YHUD.ClassExtra then YHUD.ClassExtra:ClearClock(slot) end
+    -- Rebinding/clearing a native timer can synchronously emit OnCooldownDone.
+    -- Only a completion from the newly installed, armed clock may flash.
+    slot._yhudCooldownRefreshArmed = false
+    slot._yhudCooldownFlashEligible = false
     if state.durationMode ~= nil then
         local durationMode = state.durationMode or "none"
         local durationObject = state.durationObject
@@ -211,8 +225,9 @@ function View:ApplyCooldown(slot, state, runtime)
                     slot._yhudOpaqueRevision = nil
                 end
                 AddViewWrite(false)
-            elseif durationObject ~= nil
-                and slot._yhudDurationMode == durationMode then
+            elseif slot._yhudDurationMode == durationMode then
+                -- Cold replay has no transient DurationObject. The existing
+                -- native timer still owns its completion notification.
                 refreshArmed = durationMode ~= "gcd"
             end
         elseif slot._yhudDurationMode ~= "none" then
@@ -228,6 +243,7 @@ function View:ApplyCooldown(slot, state, runtime)
             AddViewWrite(false)
         end
         slot._yhudCooldownRefreshArmed = refreshArmed
+        slot._yhudCooldownFlashEligible = refreshArmed
         return
     end
 
@@ -253,7 +269,6 @@ function View:ApplyCooldown(slot, state, runtime)
         and state.duration > 0
     local startTime = cooldownActive and state.startTime or 0
     local duration = cooldownActive and state.duration or 0
-    slot._yhudCooldownRefreshArmed = cooldownActive
     if slot._yhudStart ~= startTime or slot._yhudDuration ~= duration then
         slot._yhudStart = startTime
         slot._yhudDuration = duration
@@ -275,6 +290,8 @@ function View:ApplyCooldown(slot, state, runtime)
         end
         AddViewWrite(false)
     end
+    slot._yhudCooldownRefreshArmed = cooldownActive
+    slot._yhudCooldownFlashEligible = cooldownActive and state.isOnGCD ~= true
 end
 
 function View:ApplyMonitorGlow(
@@ -286,10 +303,21 @@ function View:ApplyMonitorGlow(
     auraPresent,
     persistentSlot
 )
+    local sample = YHUD.ClassExtra and YHUD.ClassExtra.previews[slot]
+    if sample then state = sample.state end
+    local runtime = monitor and monitor.groupId
+        and slot._yhudDesignProjection == true
+        and self.designProjection
+        and self.designProjection.groups
+        and self.designProjection.groups[monitor.groupId]
+        or (monitor and monitor.groupId and self.groups[monitor.groupId])
+    local supportsGlow = slot._yhudView ~= "ring"
+        and (not monitor or monitor.view ~= "ring")
+        and (not runtime or runtime.view ~= "ring")
     local compiled = slot._yhudGlowRuntime
         or monitor and monitor._yhudGlowRuntime
-    local preview = self.preview == true
-        or slot._yhudDesignProjection == true
+    local preview = (self.preview == true or slot._yhudDesignProjection == true)
+        and not (state and state.classExtraPreview == true)
     if auraResolved == nil
         and monitor
         and monitor._yhudEquipmentTriggerKind == "active-timer"
@@ -303,16 +331,56 @@ function View:ApplyMonitorGlow(
     if persistentSlot == nil and compiled and compiled.kind == "aura" then
         persistentSlot = monitor and monitor.visibilityMode == "always"
     end
-    local kind, appearance = Glow:Resolve(
-        compiled,
-        state,
-        self.inCombat == true,
-        preview,
-        nativeSignal,
-        auraResolved,
-        auraPresent,
-        persistentSlot
-    )
+    local stackSet = slot._yhudAuraStackSet
+    if stackSet then
+        local level, strata = GetMonitorGlowLayer(runtime, monitor and monitor.id or slot._yhudMonitorId)
+        local enabled = supportsGlow and not preview and stackSet.compiled == compiled
+            and (compiled.stackRuleCount or 0) > 1 and auraResolved == true and auraPresent == true
+        local changed, armed = Glow:ApplyStackSet(stackSet, self.inCombat == true, enabled,
+            runtime and runtime.shape or "square", level, strata)
+        if changed then AddViewWrite(false) end
+        if not preview then
+            if slot._yhudNativeProcGlowShown == true and slot._yhudNativeProcGlow
+                and GUI2.SetManagedProcGlowShown then
+                GUI2:SetManagedProcGlowShown(slot._yhudNativeProcGlow, false)
+                slot._yhudNativeProcGlowShown = false
+                AddViewWrite(false)
+            end
+            if slot._yhudGlowShown == true and slot.gui2Glow then
+                slot.gui2Glow:SetGlowShown(false)
+                slot._yhudGlowShown = false
+                AddViewWrite(false)
+            end
+            return armed
+        end
+    end
+    local kind, appearance, rule
+    local procTarget = I.GetNativeProcGlowTarget(slot, runtime)
+    if not procTarget and compiled and compiled.nativeConfig
+        and compiled.nativeConfig.mode == "default" then
+        nativeSignal = false
+    end
+    if supportsGlow then
+        kind, appearance, rule = Glow:Resolve(
+            compiled,
+            state,
+            self.inCombat == true,
+            preview,
+            nativeSignal,
+            auraResolved,
+            auraPresent,
+            persistentSlot
+        )
+        if slot._yhudDesignProjection == true and self.designGlowPreviewAppearance
+            and (slot._yhudLogicalMonitorId or slot._yhudMonitorId) == self.designGlowPreviewMonitorId then
+            kind, appearance, rule = "custom-rule", self.designGlowPreviewAppearance, nil
+        end
+    end
+    local stackGate = slot._yhudAuraStackGate
+    local stackCondition = rule and rule.stackCondition
+    if stackCondition and not preview and not (stackGate
+        and stackGate.operator == stackCondition.operator
+        and stackGate.value == stackCondition.value) then kind = nil end
     if not kind then
         if slot._yhudNativeProcGlowShown == true
             and slot._yhudNativeProcGlow
@@ -334,17 +402,9 @@ function View:ApplyMonitorGlow(
         return false
     end
 
-    local runtime = monitor and monitor.groupId
-        and slot._yhudDesignProjection == true
-        and self.designProjection
-        and self.designProjection.groups
-        and self.designProjection.groups[monitor.groupId]
-        or (monitor and monitor.groupId and self.groups[monitor.groupId])
-    local glowShape = runtime and runtime.view == "ring"
-        and "circle"
-        or (runtime and runtime.shape)
+    local glowShape = runtime and runtime.iconStyle and runtime.iconStyle.effectShape or runtime and runtime.shape
     glowShape = glowShape or "square"
-    local procShape = glowShape == "circle" and "circle" or "square"
+    local procShape = (kind == "native-default" and runtime and runtime.shape or glowShape) == "circle" and "circle" or "square"
     local customGlowShape = appearance and appearance.style == "proc"
         and procShape or glowShape
     local monitorId = monitor and monitor.id or slot._yhudMonitorId
@@ -354,6 +414,8 @@ function View:ApplyMonitorGlow(
         GetMonitorGlowLayer(runtime, monitorId)
 
     if kind == "native-default" and GUI2.CreateManagedProcGlow then
+        local procWidth = procTarget ~= slot and runtime.iconSize or trustedDisplayWidth
+        local procHeight = procTarget ~= slot and runtime.iconSize or trustedDisplayHeight
         if slot._yhudGlowShown == true
             and slot.gui2Glow and slot.gui2Glow.SetGlowShown then
             slot.gui2Glow:SetGlowShown(false)
@@ -378,22 +440,27 @@ function View:ApplyMonitorGlow(
             if not slot._yhudNativeProcGlow then
                 slot._yhudNativeProcGlow =
                     GUI2:CreateManagedProcGlow(
-                        slot,
+                        procTarget,
                         procShape,
-                        trustedDisplayWidth,
-                        trustedDisplayHeight,
+                        procWidth,
+                        procHeight,
                         glowFrameLevel,
                         glowFrameStrata,
                         glowShape
                     )
                 slot[cacheField] = slot._yhudNativeProcGlow
+                if procTarget ~= slot and GUI2.AdoptIconSkinEffects then
+                    GUI2:AdoptIconSkinEffects(slot, slot._yhudNativeProcGlow)
+                end
             end
             slot._yhudNativeProcGlowShape = procShape
             slot._yhudNativeProcGlowTargetShape = glowShape
             slot._yhudNativeProcGlowLayoutDirty = true
         end
-        if slot._yhudNativeProcGlowTargetShape ~= glowShape then
+        if slot._yhudNativeProcGlowTargetShape ~= glowShape
+            or slot._yhudNativeProcGlowTarget ~= procTarget then
             slot._yhudNativeProcGlowTargetShape = glowShape
+            slot._yhudNativeProcGlowTarget = procTarget
             slot._yhudNativeProcGlowLayoutDirty = true
         end
         local procGlow = slot._yhudNativeProcGlow
@@ -406,9 +473,9 @@ function View:ApplyMonitorGlow(
             and GUI2.LayoutManagedProcGlow then
             GUI2:LayoutManagedProcGlow(
                 procGlow,
-                slot,
-                trustedDisplayWidth,
-                trustedDisplayHeight,
+                procTarget,
+                procWidth,
+                procHeight,
                 glowFrameLevel,
                 glowFrameStrata,
                 glowShape
@@ -470,6 +537,7 @@ function View:ApplyMonitorGlow(
         AddViewWrite(false)
     end
 
+    if glow.SetGlowSkinOwner then glow:SetGlowSkinOwner(slot) end
     if glow.SetGlowShape and (slot._yhudGlowShape ~= customGlowShape
             or slot._yhudGlowTargetShape ~= glowShape) then
         glow:SetGlowShape(customGlowShape, glowShape)
@@ -481,6 +549,11 @@ function View:ApplyMonitorGlow(
     if not SameGlowAppearance(slot, appearance) then
         glow:SetGlowParams(appearance)
         CacheGlowAppearance(slot, appearance)
+        AddViewWrite(false)
+    end
+
+    if glow.SetGlowClipParent
+        and glow:SetGlowClipParent(stackCondition and not preview and stackGate.clip or nil) then
         AddViewWrite(false)
     end
 
@@ -508,18 +581,29 @@ function View:UpdateMonitor(monitorId, state)
             runtime.layoutMode == "fixed"
         )
     if layoutParticipating ~= true then
+        if self.SetFilteredAuraTotemTakeover then
+            self:SetFilteredAuraTotemTakeover(monitorId, false)
+        end
         local slot = self.byMonitor[monitorId]
         if slot then slot._yhudLayoutParticipating = false end
         return self:ReleaseSlot(monitorId), monitor.groupId
     end
-    if monitor._yhudFilteredAuraManaged == true
-        or monitor._yhudFilteredAuraFailed == true then
-        return self:ReleaseSlot(monitorId), monitor.groupId
-    end
-
     local entry = self.profile
         and self.profile.entries
         and self.profile.entries[monitor.entryKey]
+    local totemActive = not self.preview
+        and (runtime.view == "ring" or runtime.view == "bar")
+        and YHUD:CanObserveOfficialTotemDuration(entry, monitor)
+        and state ~= nil and state.durationMode == "totem"
+        and state.available == true and state.cooldownActive == true
+    if self.SetFilteredAuraTotemTakeover then
+        self:SetFilteredAuraTotemTakeover(monitorId, totemActive == true)
+    end
+    if (monitor._yhudFilteredAuraManaged == true
+        or monitor._yhudFilteredAuraFailed == true) and not totemActive then
+        return self:ReleaseSlot(monitorId), monitor.groupId
+    end
+
     local officialCDM = entry and entry.origin == "official-cdm"
     local nativeOfficialView = officialCDM
         and YHUD.IsOfficialNativeView
@@ -574,6 +658,10 @@ function View:UpdateMonitor(monitorId, state)
                 and (inactivePersistent
                     or (state and state.available == true)))
     end
+    if state and state.classExtraVisible == false
+        and not (self.preview or self.designMode or self.layoutEditMode) then
+        visible = false
+    end
     local resourceVisibilitySuppressed = false
     local playerCast = monitor._yhudResource and monitor._yhudResource.id == "cast"
     if state and state.sourceKind == "ammo" and state.nameKey == "monitor.ammo.unsupported" then
@@ -588,11 +676,18 @@ function View:UpdateMonitor(monitorId, state)
         resourceVisibilitySuppressed = not visible
             and (mode == "nonzero" or mode == "nonzeroOrCombat")
     end
-    if visible and runtime.view == "ring"
+    local barProgress = monitor.appearanceOverride and monitor.appearanceOverride.barProgress
+    local timeSkillBar = runtime.view == "bar" and state and state.sourceKind == "spell"
+        and (not barProgress or barProgress.source == nil or barProgress.source == "time")
+    if visible and (runtime.view == "ring" or timeSkillBar)
         and not self.preview and not inactivePersistent then
         if state and state.durationMode ~= nil then
             visible = state.cooldownActive == true
                 or state.chargeActive == true
+                -- The public mode identifies a real timer even when raw
+                -- cooldown/charge activity is restricted; GCD has no such mode.
+                or (state.sourceKind == "spell"
+                    and (state.durationMode == "cooldown" or state.durationMode == "charge"))
         elseif state and state.secret ~= true then
             visible = type(state.startTime) == "number"
                 and state.startTime > 0
@@ -614,7 +709,7 @@ function View:UpdateMonitor(monitorId, state)
                 structuralChange = slot ~= nil and acquired == true
             end
             local slot = self.byMonitor[monitorId]
-            if slot and ApplyResourceStructuralMax(slot, state) then
+            if slot and ApplyResourceStructuralMax(slot, state, runtime) then
                 structuralChange = true
             end
             local suppressed = self:SetResourceSlotSuppressed(monitorId, true)
@@ -639,6 +734,11 @@ function View:UpdateMonitor(monitorId, state)
 
     if runtime.view == "resource" then
         local preset = monitor._yhudResource or {}
+        if preset.provider and preset.provider.kind == "monitor-time" and not self.preview then
+            if not (I.UpdateCustomResourceTime and I.UpdateCustomResourceTime(slot, state)) then ClearSlotDuration(slot) end
+            AddViewWrite(false)
+            return acquired, monitor.groupId
+        end
         local effectiveStyle = slot._yhudResourceStyle or runtime
         local fillColor = effectiveStyle.fillColorMode == "custom"
             and effectiveStyle.fillColor
@@ -650,7 +750,7 @@ function View:UpdateMonitor(monitorId, state)
             end
             AddViewWrite(false)
         end
-        ApplyResourceStructuralMax(slot, state)
+        ApplyResourceStructuralMax(slot, state, runtime)
         if playerCast and I.UpdatePlayerCast then
             I.UpdatePlayerCast(slot, state, self.preview or self.designMode or self.layoutEditMode)
             return acquired, monitor.groupId
@@ -666,7 +766,7 @@ function View:UpdateMonitor(monitorId, state)
             and slot._yhudResourceColorCurve and unitAPI and unitAPI.ReadPowerColor then
             if preset.provider and preset.provider.kind == "unit-health" then
                 colorRaw = unitAPI.ReadHealthColor and unitAPI.ReadHealthColor("player", slot._yhudResourceColorCurve)
-            else
+            elseif preset.powerType ~= nil then
                 colorRaw = unitAPI.ReadPowerColor("player", preset.powerType, slot._yhudResourceColorCurve)
             end
         end
@@ -749,6 +849,13 @@ function View:UpdateMonitor(monitorId, state)
         SetSlotIcon(slot, icon)
         AddViewWrite(false)
     end
+    if runtime.view == "icon" and (slot._yhudKeybindItemID ~= (state and state.itemID)
+        or slot._yhudKeybindSpellID ~= (state and state.spellID)) then
+        slot._yhudKeybindItemID = state and state.itemID
+        slot._yhudKeybindSpellID = state and state.spellID
+        local writes = self:ApplyKeybindText(slot, runtime, monitor, entry, state)
+        for _ = 1, writes do AddViewWrite(false) end
+    end
     if runtime.view == "bar" or runtime.view == "ring" then
         local name = slot._yhudDisplayName
         if slot._yhudName ~= name then
@@ -764,7 +871,7 @@ function View:UpdateMonitor(monitorId, state)
     else
         ClearSlotDuration(slot)
     end
-    self:ApplyIconCooldownPresentation(slot, runtime, entry)
+    self:ApplyIconCooldownPresentation(slot, runtime, entry, state)
     local inactiveDesaturate = inactivePersistent
         and YHUD.GetEffectiveInactiveDesaturate
         and YHUD:GetEffectiveInactiveDesaturate(
@@ -806,6 +913,7 @@ function View:UpdateMonitor(monitorId, state)
         end
     end
     self:ApplyMonitorGlow(slot, monitor, state)
+    if self.UpdateBuffTimerStacks then self:UpdateBuffTimerStacks(slot, state) end
     if self.designMode then
         if self.ApplyDesignDurationPreview then
             self:ApplyDesignDurationPreview(slot)
@@ -1042,6 +1150,7 @@ function View:RefreshGlows(inCombat)
             local state = YHUD.Model
                 and YHUD.Model:GetState(monitor.sourceKey)
             self:ApplyMonitorGlow(slot, monitor, state)
+            if self.UpdateBuffTimerStacks then self:UpdateBuffTimerStacks(slot, state) end
             refreshed = true
         elseif monitor and self.RefreshFilteredAuraMonitorGlow then
             refreshed = self:RefreshFilteredAuraMonitorGlow(monitorId, true)

@@ -5,6 +5,8 @@ if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("deDE") then return end
 YUI.Locale:Register("UtilityTools", "deDE", {
     ["name"] = "Werkzeuge",
     ["description"] = "Eine kompakte Sammlung kleiner Hilfen für Oberfläche und Spiel.",
+    ["settings.encounter_journal_item_sets.label"] = "Restore Encounter Journal Item Sets",
+    ["settings.encounter_journal_item_sets.tooltip"] = "Stellen Sie die Registerkarte verstecktes Item-Set wieder her, damit die ursprünglichen Raid-Set-Attribute im Encounter Journal angezeigt werden können.",
     ["settings.bonus_roll"] = "Extra Roll Currency Bestätigung",
     ["settings.bonus_roll_confirm_roll"] = "Bestätigen Sie vor dem Rollen",
     ["settings.bonus_roll_confirm_pass"] = "Bestätige vor dem Passieren",

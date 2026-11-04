@@ -99,7 +99,7 @@ end
 
 local function itemText(id)
     local name, _, quality = nil, nil, nil
-    if GetItemInfo then name, _, quality = GetItemInfo(id) end
+    name, _, quality = ns.ItemInfo(id)
     if not name then
         -- 10-10 截图奖励全是「#279897」：《无限》新物品客户端没缓存，GetItemInfo 第一次拿不到 → 主动向服务器要，
         --   GET_ITEM_INFO_RECEIVED / ITEM_DATA_LOAD_RESULT 回来后弹框自动刷新成官方中文名
@@ -148,6 +148,63 @@ function ns.DQWaypoint(q)
     ns.Print((ok and ns.L("已在地图上标出：", "Map pin set: ") or "") .. (whoText(w) or ""))
 end
 
+-- ---------- 官方指南（11-04）：入口路线 / 敌对领地提示 / 官方任务清单（d.ent.o、d.entNote、d.warn、d.off；scripts/gi_forever_dq_official.py 写入） ----------
+local CLS_ZH = { ["术士"] = "Warlock" }
+local function offFits(o)
+    local side = mySide()
+    if side and (o.s == "A" or o.s == "H") and o.s ~= side then return false end
+    if o.k and CLS_ZH[o.k] and ns.MyClass and ns.MyClass() ~= CLS_ZH[o.k] then return false end
+    return true
+end
+local function sideText(t)   -- 当前阵营的文字；没有就退到另一阵营并注明
+    if not t then return nil end
+    local side = mySide() or "A"
+    if t[side] and t[side] ~= "" then return t[side] end
+    local other = (side == "A") and "H" or "A"
+    if t[other] and t[other] ~= "" then
+        return "|cff8a8a8a" .. (other == "A" and ns.L("【联盟路线】", "[Alliance] ") or ns.L("【部落路线】", "[Horde] ")) .. "|r" .. t[other]
+    end
+end
+function ns.DQEntrance(d)
+    local e = d and d.ent
+    if not e or not e.o then return nil end   -- 只认官方覆盖过的入口（e.o）
+    return e, sideText(d.entNote), sideText(d.warn)
+end
+-- 标入口：有坐标就打地图标记；路线文字打到聊天框
+function ns.DQPinEntrance(d)
+    local e, route, warn = ns.DQEntrance(d)
+    if not e then return end
+    if e.ui and e.ui > 0 and e.x and e.x > 0 and ns.ShowOnMap then
+        ns.ShowOnMap(e.ui, { { e.x, e.y } }, d.n)
+    end
+    local at = (e.x and e.x > 0) and string.format(" (%.0f, %.0f)", e.x, e.y) or ""
+    ns.Print(ns.L("入口：", "Entrance: ") .. (e.zc or "") .. at .. ((e.sp and e.sp ~= "") and ("　" .. e.sp) or ""))
+    if route then ns.Print(route) end
+    if warn then ns.Print("|cffff9966" .. ns.L("注意：", "Note: ") .. warn .. "|r") end
+end
+local function offList(d, all)
+    local have = {}
+    for _, id in ipairs(d.q or {}) do have[id] = true end
+    local out = {}
+    for _, o in ipairs(d.off or {}) do
+        if not (o.qid and o.qid > 0 and have[o.qid]) and (all or offFits(o)) then out[#out + 1] = o end
+    end
+    return out
+end
+local function offByQid(d)
+    local m = {}
+    for _, o in ipairs(d.off or {}) do if o.qid and o.qid > 0 then m[o.qid] = o end end
+    return m
+end
+local function offWaypoint(o)
+    if not o.ui or o.ui == 0 or not o.x or o.x <= 0 then
+        ns.Print(ns.L("官方指南没给这个任务可标的坐标：", "No map position: ") .. (o.p or o.t or ""))
+        return
+    end
+    ns.ShowOnMap(o.ui, { { o.x, o.y } }, o.g or o.c)
+    ns.Print(ns.L("已在地图上标出：", "Map pin set: ") .. (o.g or "") .. " " .. (o.z or "") .. string.format(" (%.0f, %.0f)", o.x, o.y))
+end
+
 -- ---------- 弹框 ----------
 local pop
 local function build(parent)
@@ -170,6 +227,7 @@ local function build(parent)
     f.sub:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -4); f.sub:SetPoint("RIGHT", -34, 0); f.sub:SetJustifyH("LEFT"); f.sub:SetWordWrap(false)
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -2, -2)
+    close:SetScript("OnClick", function() f:Hide() end)   -- 10-18 战斗中关不掉：原生红叉走 HideUIPanel，战斗中被拦 → 直接 Hide
     f.all = ns.Button(f, "", 112, 22, function()
         ns.db.ui = ns.db.ui or {}
         ns.db.ui.dqAll = not ns.db.ui.dqAll
@@ -182,7 +240,23 @@ local function build(parent)
         GameTooltip:Show()
     end)
     f.all:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    local sf, c = ns.Scroll(f, 10, -54, 610, 360)
+    -- 11-04 官方指南：入口行（地区 坐标 位置 + 敌对领地提示），悬停看完整路线，点按钮标入口
+    f.ent = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.ent:SetPoint("TOPLEFT", 14, -52); f.ent:SetPoint("RIGHT", -128, 0); f.ent:SetJustifyH("LEFT"); f.ent:SetWordWrap(false)
+    f.entBtn = ns.Button(f, "", 100, 20, function() if f.cur then ns.DQPinEntrance(f.cur) end end)
+    f.entBtn:SetPoint("TOPRIGHT", -20, -50)
+    f.entBtn:SetScript("OnEnter", function(self)
+        local e, route, warn = ns.DQEntrance(f.cur)
+        if not e then return end
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+        GameTooltip:AddLine(ns.L("入口与路线（官方指南）", "Entrance and route (official guide)"), 1, 0.82, 0)
+        if e.sp and e.sp ~= "" then GameTooltip:AddLine(e.sp, 1, 1, 1, true) end
+        if route then GameTooltip:AddLine(route, 0.85, 0.85, 0.85, true) end
+        if warn then GameTooltip:AddLine(warn, 1, 0.6, 0.4, true) end
+        GameTooltip:Show()
+    end)
+    f.entBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local sf, c = ns.Scroll(f, 10, -76, 610, 338)
     f.sf, f.child, f.rows = sf, c, {}
     f.foot = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     f.foot:SetPoint("BOTTOMLEFT", 14, 8); f.foot:SetPoint("RIGHT", -14, 0); f.foot:SetJustifyH("LEFT"); f.foot:SetWordWrap(false)
@@ -193,6 +267,20 @@ end
 
 local function rowTooltip(r)
     local q, id = r.q, r.id
+    if r.offOnly then
+        local o = r.offOnly
+        GameTooltip:SetOwner(r, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(o.c, 1, 0.82, 0)
+        GameTooltip:AddLine(ns.L("来自官方副本任务指南；任务等级、经验、奖励以游戏内为准", "From the official dungeon quest guide; levels, XP and rewards: see in game"), 0.7, 0.7, 0.7, true)
+        if o.g then GameTooltip:AddLine(ns.L("接：", "Start: ") .. o.g .. ((o.z and o.z ~= "") and ("　" .. o.z .. ((o.x and o.x > 0) and string.format(" (%.0f, %.0f)", o.x, o.y) or "")) or "") .. ((o.p and o.p ~= "") and ("　" .. o.p) or ""), 1, 1, 1, true) end
+        if o.i then GameTooltip:AddLine(ns.L("任务线起点：", "Chain starts: ") .. o.i .. (o.n and ("（" .. o.n .. ns.L(" 个任务）", " quests)")) or ""), 0.7, 0.9, 1, true) end
+        if o.pre then GameTooltip:AddLine(ns.L("前置：", "Requires: ") .. o.pre, 1, 0.6, 0.4, true) end
+        if o.t then GameTooltip:AddLine(ns.L("触发：", "Trigger: ") .. o.t, 1, 0.9, 0.5, true) end
+        if o.nt then GameTooltip:AddLine(o.nt, 0.8, 0.8, 0.8, true) end
+        GameTooltip:AddLine(ns.L("点击：在地图上标出接任务的人", "Click: pin the quest giver on the map"), 0.5, 0.5, 0.5)
+        GameTooltip:Show()
+        return
+    end
     if not q then return end
     GameTooltip:SetOwner(r, "ANCHOR_RIGHT")
     GameTooltip:AddLine(ns.DQTitle(id), 1, 0.82, 0)
@@ -237,6 +325,13 @@ local function rowTooltip(r)
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine(ns.L("《无限》改动：", "Changed in Forever: ") .. ns.L(q.changedc ~= "" and q.changedc or q.changed, q.changed), 0.2, 1, 0.6, true)
     end
+    local ofc = r.off
+    if ofc then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(ns.L("官方指南：", "Official guide: ") .. (ofc.p or ""), 0.2, 1, 0.6, true)
+        if ofc.t then GameTooltip:AddLine(ns.L("触发：", "Trigger: ") .. ofc.t, 1, 0.9, 0.5, true) end
+        if ofc.nt then GameTooltip:AddLine(ofc.nt, 0.8, 0.8, 0.8, true) end
+    end
     if q.share then GameTooltip:AddLine(ns.L("可以共享给队友", "Shareable with your party"), 0.6, 0.6, 0.6) end
     if q.beta then
         GameTooltip:AddLine(ns.L("这条来自 Beta 实测整理（Dungeon Quests Forever）：任务等级是按副本等级估的，NPC 位置可能还要核对",
@@ -263,7 +358,8 @@ local function getRow(i)
     r.b:SetPoint("TOPLEFT", 30, -41); r.b:SetPoint("RIGHT", -8, 0); r.b:SetJustifyH("LEFT"); r.b:SetWordWrap(false)
     r:SetScript("OnEnter", rowTooltip)
     r:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    r:SetScript("OnClick", function(self) ns.DQWaypoint(self.q) end)
+    r:SetScript("OnClick", function(self) if self.offOnly then offWaypoint(self.offOnly) else ns.DQWaypoint(self.q) end end)
+    r.off, r.offOnly = false, false
     pop.rows[i] = r
     return r
 end
@@ -307,7 +403,17 @@ function ns.ShowDungeonQuests(d, parent)
     pop.title:SetText("|cffffd100" .. dn .. "|r " .. ns.L("副本任务", "dungeon quests") .. "  |cff888888" .. #list .. "|r")
     pop.sub:SetText(ns.EnSafe(string.format(ns.L("等级 %d-%d · 现在能接 %d 个 · 已完成 %d 个", "Level %d-%d - %d available - %d done"), d.min, d.max, nOk, nDone)))
     pop.all:SetText(all and ns.L("只看我能接的", "Mine only") or ns.L("显示全部", "Show all"))
-    for _, r in ipairs(pop.rows) do r:Hide() end
+    for _, r in ipairs(pop.rows) do r:Hide(); r.offOnly = false; r.off = false end
+    local ent, _, warn = ns.DQEntrance(d)
+    if ent then
+        local at = (ent.x and ent.x > 0) and string.format(" (%.0f, %.0f)", ent.x, ent.y) or ""
+        pop.ent:SetText("|cffaaaaaa" .. ns.L("入口：", "Entrance: ") .. "|r" .. TAG_OUT .. (ent.zc or "") .. "|r" .. at
+            .. ((ent.sp and ent.sp ~= "") and ("　" .. ent.sp) or "") .. (warn and ("　|cffff9966" .. warn .. "|r") or ""))
+        pop.entBtn:SetText(ns.L("入口路线", "Route")); pop.entBtn:Show()
+    else
+        pop.ent:SetText(""); pop.entBtn:Hide()
+    end
+    local offMap = offByQid(d)
     local y = -2
     if #list == 0 then
         local r = getRow(1)
@@ -331,6 +437,7 @@ function ns.ShowDungeonQuests(d, parent)
     for i, e in ipairs(list) do
         local q, r = e.q, getRow(i)
         r.q, r.id = q, e.id
+        r.off = offMap[e.id] or false
         r.ic:SetTexture(STATE_TEX[e.s]); r.ic:Show()
         r.ic:SetDesaturated(e.s == "low" or e.s == "pre")
         local tc = (e.s == "done") and "|cff7f7f7f" or (e.s == "low") and "|cff9a9a9a" or "|cffffd100"
@@ -340,7 +447,9 @@ function ns.ShowDungeonQuests(d, parent)
         tags[#tags + 1] = (e.s == "ok" and "|cff40ff40" or e.s == "log" and "|cffffd100" or "|cff9a9a9a") .. ns.L(st[1], st[2]) .. "|r"
         if q.new then tags[#tags + 1] = "|cff33ff99" .. ns.L("新", "New") .. "|r" end
         if (q.changed or "") ~= "" then tags[#tags + 1] = "|cff33ff99" .. ns.L("有改动", "Changed") .. "|r" end
-        if q.beta then tags[#tags + 1] = "|cffaaaaaaBeta|r" end
+        if q.beta and not r.off then tags[#tags + 1] = "|cffaaaaaaBeta|r" end
+        if r.off then tags[#tags + 1] = "|cff33ff99" .. ns.L("官方", "Official") .. "|r" end
+        if r.off and r.off.t then tags[#tags + 1] = "|cffffd100" .. ns.L("触发", "Trigger") .. "|r" end
         r.tag:SetText(table.concat(tags, " "))
         local stx = (q.stText ~= "") and ns.L(q.stTextC ~= "" and q.stTextC or q.stText, q.stText) or ""
         local where = q.st and whoText(q.st, stx) or (stx ~= "" and (TAG_OUT .. ns.L("副本外", "Outside") .. "|r " .. stx)) or "?"
@@ -359,6 +468,48 @@ function ns.ShowDungeonQuests(d, parent)
         r:ClearAllPoints(); r:SetPoint("TOPLEFT", 0, y); r:SetPoint("RIGHT", pop.child, "RIGHT", -4, 0); r:SetHeight(58)
         r:Show()
         y = y - 60
+    end
+    -- 官方指南里有、本地任务数据对不上的任务（多是《无限》新任务）：单独列，名字以官方文章为准
+    local extra = offList(d, all)
+    if #extra > 0 then
+        local hi = #list + 1 + ((#list == 0) and 1 or 0)
+        local h = getRow(hi)
+        h.q, h.id, h.offOnly, h.off = nil, nil, false, false
+        h.ic:Hide(); h.tag:SetText(""); h.a:SetText(""); h.b:SetText("")
+        h.t:SetText("|cff33ff99" .. ns.L("官方指南补充", "Official guide additions") .. "|r  |cff888888" .. #extra .. "|r  |cff777777"
+            .. ns.L("（本地任务数据里没有或对不上，等级 / 奖励以游戏内为准）", "(not in local quest data; see in game for level / rewards)") .. "|r")
+        h:ClearAllPoints(); h:SetPoint("TOPLEFT", 0, y); h:SetPoint("RIGHT", pop.child, "RIGHT", -4, 0); h:SetHeight(26); h:Show()
+        y = y - 28
+        for j, o in ipairs(extra) do
+            local r = getRow(hi + j)
+            r.q, r.id, r.off, r.offOnly = nil, nil, false, o
+            r.ic:SetTexture(STATE_TEX.ok); r.ic:SetDesaturated(false); r.ic:Show()
+            r.t:SetText("|cffffd100" .. o.c .. "|r")
+            local tags = {}
+            if o.s == "A" then tags[#tags + 1] = "|cff66aaff" .. ns.L("联盟", "Alliance") .. "|r" elseif o.s == "H" then tags[#tags + 1] = "|cffff6666" .. ns.L("部落", "Horde") .. "|r" end
+            if o.k then tags[#tags + 1] = "|cffc69bff" .. o.k .. ns.L("限定", " only") .. "|r" end
+            if o.t then tags[#tags + 1] = "|cffffd100" .. ns.L("触发", "Trigger") .. "|r" end
+            r.tag:SetText(table.concat(tags, " "))
+            local who = (o.g and o.g ~= "") and (o.g .. ns.L(" · ", " - ")) or ""
+            local where
+            if o.w == "in" then
+                where = who .. TAG_IN .. ns.L("副本内", "Inside") .. "|r" .. (o.t and (" " .. o.t) or "")
+            else
+                local at = (o.x and o.x > 0) and string.format(" (%.0f, %.0f)", o.x, o.y) or ""
+                where = who .. TAG_OUT .. ns.L("副本外", "Outside") .. "|r " .. (o.z or "") .. at .. ((o.p and o.p ~= "") and (" " .. o.p) or "")
+                if o.t and who == "" then where = where .. " " .. o.t end
+            end
+            r.a:SetText("|cffaaaaaa" .. ns.L("接：", "Start: ") .. "|r" .. where)
+            local bits = {}
+            if o.i then bits[#bits + 1] = ns.L("起点任务：", "Starts with: ") .. o.i end
+            if o.n then bits[#bits + 1] = ns.L("任务线共 ", "Chain of ") .. o.n .. ns.L(" 个", "") end
+            if o.pk then bits[#bits + 1] = (o.pk > 0) and (ns.L("奖励任选其一（", "Choose one of ") .. o.pk .. ns.L(" 件）", "")) or ns.L("固定奖励", "Fixed reward") end
+            if o.ex then bits[#bits + 1] = ns.L("额外：", "Extra: ") .. o.ex end
+            r.b:SetText("|cffbbbbbb" .. table.concat(bits, ns.L("　", "  ")) .. "|r")
+            r:ClearAllPoints(); r:SetPoint("TOPLEFT", 0, y); r:SetPoint("RIGHT", pop.child, "RIGHT", -4, 0); r:SetHeight(58)
+            r:Show()
+            y = y - 60
+        end
     end
     pop.child:SetHeight(-y + 4)
     pop:Show()

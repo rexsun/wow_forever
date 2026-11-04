@@ -2,6 +2,16 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-04 - Update six addon packages and adapt the guard
+
+- Update YUI v341 to v351, GearInsight Forever 0.4.31 to 0.5.9, EllesmereUI suite 9.5.5 to 9.7.3, Skinner beta12.70425.2 to beta12.70688.1, Details 15330.172 to 15339.172 and Waypoint UI 1.7.3 to 1.7.4. Auctionator 341 and Bagnon 12.1.7 were already current. !BugGrabber stays at v12.1.0 by choice; v12.1.1 only bumps its TOC.
+- Add `GearInsight_Forever_Group` and `GearInsight_Forever_Guild`, which 0.5.9 requires for those tabs, and enable them in existing character addon lists. Keep unused EUI modules, `Details_Streamer` and `Details_Vanguard` out.
+- OverlapSettingsGuard 0.8.1: GearInsight removed `Keys.ApplyAll` and added five editing methods, which would have blocked the entire action-bar lock; the lock now covers ten methods and survives a missing one. Friendly-nameplate enforcement handles `QM` moving to a load-on-demand module and sets `platesV3` so upstream's one-time migration cannot re-enable `autoPlates`. YUI rules now cover the resource manager's `itemsByContext`, which edited contexts read instead of `bySpec`.
+- Exclude Skinner's new EllesmereUI skin with a local patch. Upstream, it moves Skinner to a new profile with all Blizzard skins disabled and depends on callbacks from the absent EllesmereUIBlizzardSkin; Skinner has no setting to skip it. No Skinner "EllesmereUI" profile was created because the skin never ran.
+- Add `tools/apply_addon_patches.py` to reapply this patch and YUI's eight portable-font references after updates; it fails without writing if upstream text changed. YUI's seven bundled fonts are byte-identical to v341, so game-root copies are unchanged.
+- Overlap review: no new guard rule. YUI's `EllesmereUIEnhancement` window styling needs the absent EllesmereUIBlizzardSkin. Its damage-meter reset prompt is opt-in and supplements Details. GearInsight now hides other players' level-up announcements by default and announces your own at every tenth level; no installed addon overlaps this.
+- Backup: `addon-backups/addon-upgrade-20261104` holds the replaced folders and live WTF. Verification: every installed file matches its release archive except the two YUI files and one Skinner file patched above; 2,130 Lua files compile under Lua 5.1; 47 guard tests, 5 patch tests, 51 settings/baseline tests, font, fresh-profile, baseline runtime and adoption checks pass. Nothing was run in game: settings migrations, `/osg`, the Group tab, `AsyncFile.log` and appearance at 1080p/1440p/4K still require in-game checks.
+
 ## 2026-10-23 - Inspect release client language resources
 
 - Verify release `wowf` installed-language tags include enUS and zhTW only, with no zhCN; live WTF selects zhTW text and enUS audio. No separate zhCN client pack is registered for release, so no client-resource deletion is needed.

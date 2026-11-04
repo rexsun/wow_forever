@@ -4,7 +4,7 @@ if not (GUI2 and GUI2.Form) then return end
 
 local ROW_COUNT = 8
 local sharedSelector
-local SOURCE_ORDER = { "native", "lsm", "custom", "voice", "system", "tts" }
+local SOURCE_ORDER = { "none", "native", "lsm", "custom", "voice", "system", "tts" }
 local EVENTS = {
     "YUI_NOTIFICATION_SOUND_CAPABILITIES_CHANGED",
     "YUI_SOUND_PACKS_CHANGED",
@@ -42,7 +42,7 @@ end
 local function Capabilities()
     local service = YUI.NotificationSound
     return service and service:GetCapabilities() or {
-        ready = false, sources = { native = true, lsm = true, custom = true },
+        ready = false, sources = { none = true, native = true, lsm = true, custom = true },
     }
 end
 
@@ -67,6 +67,7 @@ local function Choices(source, query, current, options)
 end
 
 local function Label(selection, state, options)
+    if selection and selection.kind == "none" then return SourceLabel("none") end
     if not selection or selection.kind == "native" then return SourceLabel("native") end
     local label = state and state.label
     if not label then
@@ -78,6 +79,7 @@ local function Label(selection, state, options)
 end
 
 local function Status(state)
+    if state.selection and state.selection.kind == "none" then return "" end
     if state.reason == "module-disabled" then return T("notification.sound.module_disabled") end
     if state.muted then return T("notification.sound.muted") end
     if state.nativeAvailable == false then return T("notification.sound.unavailable") end
@@ -263,7 +265,7 @@ local function CreateSelector()
                     .. (choice.available == false and T("notification.sound.saved_unavailable") or ""))
                 row:SetSelected(Equal(choice, control.value))
                 row:SetDisabled(choice.available == false)
-                row.preview:SetDisabled(choice.available == false or control.selectionState.reason == "module-disabled")
+                row.preview:SetDisabled(choice.kind == "none" or choice.available == false or control.selectionState.reason == "module-disabled")
             end
         end
         self.empty:SetShown(total == 0)
@@ -462,7 +464,7 @@ function GUI2.Form:CreateNotificationSound(parent, opts)
         self.fullLabel = Label(self.value, self.selectionState, playbackOptions)
         self:FitLabel()
         self:SetStatus(Status(self.selectionState))
-        self.previewButton:SetDisabled(self.gui2Disabled or self.selectionState.reason == "module-disabled")
+        self.previewButton:SetDisabled(self.gui2Disabled or self.value.kind == "none" or self.selectionState.reason == "module-disabled")
         if self.dialog and self.dialog.control == self and self.dialog:IsShown() then self.dialog:Refresh() end
     end
     function frame:GetValue()
@@ -489,10 +491,11 @@ function GUI2.Form:CreateNotificationSound(parent, opts)
         self.gui2Disabled = disabled == true
         self.selector:SetDisabled(self.gui2Disabled)
         if self.gui2Disabled then self:Deactivate() else self:Activate() end
-        self.previewButton:SetDisabled(self.gui2Disabled or (self.selectionState and self.selectionState.reason == "module-disabled"))
+        self.previewButton:SetDisabled(self.gui2Disabled or (self.value and self.value.kind == "none") or (self.selectionState and self.selectionState.reason == "module-disabled"))
         GUI2:SetTextColorKey(self.status, self.gui2Disabled and "color.text.disabled" or "color.text.secondary")
     end
     function frame:Refresh()
+        playbackOptions.channel = opts.getChannel and opts.getChannel() or nil
         local value
         if opts.get then value = opts.get() else value = opts.value end
         if value == nil then value = opts.default or { kind = "native" } end

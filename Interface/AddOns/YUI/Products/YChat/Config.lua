@@ -14,8 +14,8 @@ local MAIN_WINDOW_MIN_WIDTH = 296
 local MAIN_WINDOW_MAX_WIDTH = 800
 local MAIN_WINDOW_MIN_HEIGHT = 120
 local MAIN_WINDOW_MAX_HEIGHT = 800
-local TAB_FONT_MIN_SIZE = 10
-local TAB_FONT_MAX_SIZE = 16
+local TAB_FONT_MIN_SIZE = 8
+local TAB_FONT_MAX_SIZE = 32
 local TAB_MIN_WIDTH = 48
 local TAB_MAX_WIDTH = 160
 local TAB_MIN_SPACING = 0
@@ -29,7 +29,7 @@ local BORDER_MAX_WIDTH = 4
 local FADE_DELAY_MIN = 10
 local FADE_DELAY_MAX = 600
 local BODY_FONT_MIN_SIZE = 8
-local BODY_FONT_MAX_SIZE = 32
+local BODY_FONT_MAX_SIZE = 48
 local BODY_LINE_SPACING_MIN = 0
 local BODY_LINE_SPACING_MAX = 8
 local TIMESTAMP_GAP_MIN = 0
@@ -342,6 +342,8 @@ local function NormalizeDB(db)
     if type(db.typography) ~= "table" then db.typography = {} end
     local typography = db.typography
     typography.font = NormalizeMediaName(typography.font)
+    if type(typography.shadow) ~= "boolean" and typography.shadow ~= "inherit" then typography.shadow = nil end
+    if type(typography.monochrome) ~= "boolean" then typography.monochrome = nil end
     if typography.fontSize ~= nil then
         local fontSize = ClampNumber(
             typography.fontSize,
@@ -501,6 +503,9 @@ local function NormalizeDB(db)
         VALID_TAB_STYLES,
         presetFallback.tabStyle or appearanceDefaults.tabStyle
     )
+    appearance.tabFont = NormalizeMediaName(appearance.tabFont)
+    if type(appearance.tabShadow) ~= "boolean" then appearance.tabShadow = nil end
+    if type(appearance.tabMonochrome) ~= "boolean" then appearance.tabMonochrome = nil end
     appearance.tabTextEffect = NormalizeEnum(
         appearance.tabTextEffect,
         VALID_TAB_TEXT_EFFECTS,
@@ -1170,6 +1175,7 @@ function YChat:ApplyAppearancePreset(preset)
     if not appearance then return false, "appearance-db-unavailable" end
 
     local changed = appearance.preset ~= preset
+        or appearance.tabFont ~= nil or appearance.tabShadow ~= nil or appearance.tabMonochrome ~= nil
     if not changed then
         for key, value in pairs(values) do
             if appearance[key] ~= value then
@@ -1182,6 +1188,7 @@ function YChat:ApplyAppearancePreset(preset)
     for key, value in pairs(values) do
         appearance[key] = value
     end
+    appearance.tabFont, appearance.tabShadow, appearance.tabMonochrome = nil, nil, nil
     appearance.preset = preset
     return RequestRefresh("appearance-preset-" .. preset), true
 end
@@ -1238,6 +1245,13 @@ function YChat:SetAppearanceValue(key, value)
         if type(value) ~= "string" or VALID_TAB_WIDTH_MODES[value] ~= true then
             return false, "invalid-appearance-value"
         end
+    elseif key == "tabFont" then
+        if value ~= nil then
+            value = NormalizeMediaName(value)
+            if not value then return false, "invalid-appearance-value" end
+        end
+    elseif key == "tabShadow" or key == "tabMonochrome" then
+        if value ~= nil and type(value) ~= "boolean" then return false, "invalid-appearance-value" end
     elseif key == "tabTextEffect" then
         if type(value) ~= "string" or VALID_TAB_TEXT_EFFECTS[value] ~= true then
             return false, "invalid-appearance-value"
@@ -1339,6 +1353,18 @@ function YChat:SetAppearanceValue(key, value)
     return RequestRefresh("appearance-" .. key), true
 end
 
+-- The label and its decoration share one palette; switching to class keeps the saved fixed color.
+function YChat:SetTabPalette(mode, color)
+    local appearance = self:GetAppearance()
+    if not appearance then return false, "appearance-db-unavailable" end
+    if mode ~= "class" and mode ~= "custom" then return false, "invalid-appearance-value" end
+    if mode == "custom" and type(color) ~= "table" then return false, "invalid-appearance-value" end
+    if mode == "custom" then appearance.tabColor = NormalizeColor(color, appearance.tabColor) end
+    appearance.classColorTabs = mode == "class"
+    appearance.preset = "custom"
+    return RequestRefresh("appearance-tab-palette"), true
+end
+
 function YChat:PreviewInputHeight(value)
     local appearance = self:GetAppearance()
     if not appearance then return false, "appearance-db-unavailable" end
@@ -1421,6 +1447,8 @@ YChat.MAIN_WINDOW_MIN_HEIGHT = MAIN_WINDOW_MIN_HEIGHT
 YChat.MAIN_WINDOW_MAX_HEIGHT = MAIN_WINDOW_MAX_HEIGHT
 YChat.BODY_FONT_MIN_SIZE = BODY_FONT_MIN_SIZE
 YChat.BODY_FONT_MAX_SIZE = BODY_FONT_MAX_SIZE
+YChat.TAB_FONT_MIN_SIZE = TAB_FONT_MIN_SIZE
+YChat.TAB_FONT_MAX_SIZE = TAB_FONT_MAX_SIZE
 YChat.BODY_LINE_SPACING_MIN = BODY_LINE_SPACING_MIN
 YChat.BODY_LINE_SPACING_MAX = BODY_LINE_SPACING_MAX
 YChat.TIMESTAMP_GAP_MIN = TIMESTAMP_GAP_MIN

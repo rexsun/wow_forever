@@ -30,6 +30,8 @@
     <Script file="Core\API\Quest.lua"/>
     <Script file="Core\API\ChatInput.lua"/>
     <Script file="Core\API\ActionBar.lua"/>
+    <Script file="Core\API\AssistedCombat.lua"/>
+    <Script file="Core\API\Totem.lua"/>
     <Script file="Core\API\CooldownViewer.lua"/>
     <Script file="Core\API\Frame.lua"/>
     <Script file="Core\API\BlizzardUI.lua"/>

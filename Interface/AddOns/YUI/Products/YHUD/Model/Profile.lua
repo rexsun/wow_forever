@@ -328,6 +328,13 @@ function ProfileModel:MarkDraftChanged(draft)
     return true
 end
 
+function ProfileModel:MarkResourceGroupChanged(draft, groupId)
+    local open, code = EnsureOpenDraft(draft)
+    if not open then return nil, code end
+    MarkDirty(draft, groupId)
+    return true
+end
+
 function ProfileModel:SetPlayerCastSettings(draft, patch)
     local open, code = EnsureOpenDraft(draft)
     if not open then return nil, code end
@@ -474,7 +481,9 @@ function ProfileModel:NormalizeMonitorAppearanceForLayout(value, layout)
         return YHUD:NormalizeMonitorAppearanceOverride({
             fillColor = appearance.fillColor,
             trackColor = appearance.trackColor,
+            rechargeColor = layout == "bars" and appearance.rechargeColor or nil,
             stackThresholds = layout == "bars" and appearance.stackThresholds or nil,
+            barProgress = layout == "bars" and appearance.barProgress or nil,
         })
     end
     return nil
@@ -786,7 +795,8 @@ function ProfileModel:CreateGroup(draft, definition)
         and contentPolicy ~= "cast-only" then
         return nil, "invalid-content-policy"
     end
-    if contentPolicy == "cooldown-primary" and layout ~= "icons" then
+    if contentPolicy == "cooldown-primary"
+        and layout ~= "icons" and layout ~= "bars" and layout ~= "rings" then
         return nil, "content-layout-mismatch"
     end
     if contentPolicy == "buff-only"
@@ -807,6 +817,9 @@ function ProfileModel:CreateGroup(draft, definition)
     if not IsStableId(groupId) then return nil, "invalid-group-id" end
     if profile.groups.items[groupId] then return nil, "group-exists" end
 
+    local showTooltip = definition.showTooltip
+    if showTooltip == nil then showTooltip = layout ~= "rings" end
+
     local group = {
         id = groupId,
         name = type(definition.name) == "string" and definition.name
@@ -820,7 +833,7 @@ function ProfileModel:CreateGroup(draft, definition)
         enabled = definition.enabled ~= false,
         showUnavailablePreview =
             definition.showUnavailablePreview == true,
-        showTooltip = definition.showTooltip ~= false,
+        showTooltip = showTooltip ~= false,
         fixedName = false,
         fixedDelete = false,
         singleton = false,
@@ -860,6 +873,7 @@ function ProfileModel:CreateGroup(draft, definition)
             and profile.style.groups or {}
         profile.style.groups[groupId] =
             YHUD:GetIconGroupStyle(profile, groupId)
+        profile.style.groups[groupId].skinId = "minimal-rounded"
     elseif layout == "resource" then
         profile.layout.groups[groupId] = YHUD:GetResourceGroupLayout(profile, groupId)
         profile.style.groups[groupId] = YHUD:GetResourceGroupStyle(profile, groupId)
@@ -884,6 +898,7 @@ function ProfileModel:CreateGroup(draft, definition)
             and profile.style.groups or {}
         profile.style.groups[groupId] =
             YHUD:GetDurationGroupStyle(profile, groupId)
+        if layout == "bars" then profile.style.groups[groupId].skinId = "minimal-square" end
     end
     NormalizeGroupOrders(profile)
     MarkDirty(draft, groupId)
@@ -1027,7 +1042,8 @@ function ProfileModel:SetGroupIconLayout(draft, groupId, patch)
         if key ~= "iconSize" and key ~= "columnSpacing"
             and key ~= "rowSpacing"
             and key ~= "maxPerLine" and key ~= "alignment"
-            and key ~= "wrapDirection" and key ~= "rowDirection" then
+            and key ~= "wrapDirection" and key ~= "rowDirection"
+            and key ~= "fillMode" and key ~= "itemOffset" then
             return nil, "invalid-layout-field"
         end
         nextLayout[key] = value
@@ -1047,6 +1063,23 @@ function ProfileModel:SetGroupIconLayout(draft, groupId, patch)
     return YHUD:CopyValue(nextLayout)
 end
 
+local LEGACY_ICON_SKIN_FIELDS = {
+    iconShape = true, iconBorder = true, iconZoom = true, iconBorderColor = true,
+    iconBackgroundColor = true, iconShadow = true, iconShadowColor = true,
+}
+local function PrepareLegacySkinPatch(style, patch)
+    local skins = YUI.GUI2 and YUI.GUI2.IconSkins
+    if not skins or patch.skinId ~= nil or patch.skinOptions ~= nil
+        or style.skinId == "masque" or style.skinId == "native" then return end
+    for key in pairs(patch) do
+        if LEGACY_ICON_SKIN_FIELDS[key] then
+            skins:ApplyRecipe(style, "Halo")
+            style.skinId = nil
+            return
+        end
+    end
+end
+
 function ProfileModel:SetGroupIconStyle(draft, groupId, patch)
     local open, code = EnsureOpenDraft(draft)
     if not open then return nil, code end
@@ -1057,8 +1090,9 @@ function ProfileModel:SetGroupIconStyle(draft, groupId, patch)
     if type(patch) ~= "table" then return nil, "invalid-style" end
 
     local nextStyle = YHUD:GetIconGroupStyle(profile, groupId)
+    PrepareLegacySkinPatch(nextStyle, patch)
     for key, value in pairs(patch) do
-        if key ~= "iconShape" and key ~= "iconBorder"
+        if key ~= "skinId" and key ~= "skinOptions" and key ~= "iconShape" and key ~= "iconBorder"
             and key ~= "iconZoom"
             and key ~= "iconBorderColor"
             and key ~= "iconBackgroundColor"
@@ -1066,12 +1100,14 @@ function ProfileModel:SetGroupIconStyle(draft, groupId, patch)
             and key ~= "iconShadowColor"
             and key ~= "cooldownSwipeColor"
             and key ~= "cooldownSwipe"
+            and key ~= "chargeRecoveryDisplay"
             and key ~= "cooldownGCD"
             and key ~= "cooldownBling"
             and key ~= "cooldownText"
             and key ~= "cooldownTextFont"
             and key ~= "cooldownTextSize"
             and key ~= "cooldownTextOutline"
+            and key ~= "cooldownTextMonochrome"
             and key ~= "cooldownTextPosition"
             and key ~= "cooldownTextOffsetX"
             and key ~= "cooldownTextOffsetY"
@@ -1080,6 +1116,7 @@ function ProfileModel:SetGroupIconStyle(draft, groupId, patch)
             and key ~= "keybindTextFont"
             and key ~= "keybindTextSize"
             and key ~= "keybindTextOutline"
+            and key ~= "keybindTextMonochrome"
             and key ~= "keybindTextPosition"
             and key ~= "keybindTextOffsetX"
             and key ~= "keybindTextOffsetY"
@@ -1089,6 +1126,7 @@ function ProfileModel:SetGroupIconStyle(draft, groupId, patch)
             and key ~= "countTextFont"
             and key ~= "countTextSize"
             and key ~= "countTextOutline"
+            and key ~= "countTextMonochrome"
             and key ~= "countTextPosition"
             and key ~= "countTextOffsetX"
             and key ~= "countTextOffsetY"
@@ -1129,6 +1167,8 @@ function ProfileModel:SetGroupDurationLayout(draft, groupId, patch)
         wrapDirection = true,
         direction = true,
     } or {
+        widthMode = true,
+        widthGroupId = true,
         width = true,
         height = true,
         columnSpacing = true,
@@ -1151,6 +1191,12 @@ function ProfileModel:SetGroupDurationLayout(draft, groupId, patch)
         nextLayout,
         group.layout
     )
+
+    if group.layout == "bars" and nextLayout.widthMode == "auto"
+        and nextLayout.orientation ~= "vertical"
+        and not YHUD:CanAlignBarWidth(profile, groupId, nextLayout.widthGroupId) then
+        return nil, "invalid-width-target"
+    end
 
     profile.layout.groups[groupId] = nextLayout
     MarkDirty(draft, groupId)
@@ -1219,6 +1265,11 @@ function ProfileModel:SetGroupDurationStyle(draft, groupId, patch)
 
     local allowed = {
         smoothProgress = true,
+        skinId = true,
+        barShadowMode = true,
+        barShadowThickness = true,
+        barShadowColor = true,
+        skinOptions = true,
         iconShape = true,
         iconBorder = true,
         iconZoom = true,
@@ -1229,6 +1280,7 @@ function ProfileModel:SetGroupDurationStyle(draft, groupId, patch)
         cooldownTextFont = true,
         cooldownTextSize = true,
         cooldownTextOutline = true,
+        cooldownTextMonochrome = true,
         cooldownTextPosition = true,
         cooldownTextOffsetX = true,
         cooldownTextOffsetY = true,
@@ -1237,6 +1289,7 @@ function ProfileModel:SetGroupDurationStyle(draft, groupId, patch)
         countTextFont = true,
         countTextSize = true,
         countTextOutline = true,
+        countTextMonochrome = true,
         countTextPosition = true,
         countTextAnchor = true,
         countTextOffsetX = true,
@@ -1247,6 +1300,7 @@ function ProfileModel:SetGroupDurationStyle(draft, groupId, patch)
         nameTextFont = true,
         nameTextSize = true,
         nameTextOutline = true,
+        nameTextMonochrome = true,
         nameTextPosition = true,
         nameTextAnchor = true,
         nameTextOffsetX = true,
@@ -1262,6 +1316,7 @@ function ProfileModel:SetGroupDurationStyle(draft, groupId, patch)
         timeTextFont = true,
         timeTextSize = true,
         timeTextOutline = true,
+        timeTextMonochrome = true,
         timeTextPosition = true,
         timeTextAnchor = true,
         timeTextOffsetX = true,
@@ -1274,6 +1329,7 @@ function ProfileModel:SetGroupDurationStyle(draft, groupId, patch)
         ringBorderColor = true,
     }
     local nextStyle = YHUD:GetDurationGroupStyle(profile, groupId)
+    PrepareLegacySkinPatch(nextStyle, patch)
     for key, value in pairs(patch) do
         if not allowed[key] then return nil, "invalid-style-field" end
         nextStyle[key] = YHUD:CopyValue(value)
@@ -1335,6 +1391,9 @@ function ProfileModel:SetGroupResourceStyle(draft, groupId, patch)
     local allowed = {
         smoothProgress = true,
         border = true,
+        barShadowMode = true,
+        barShadowThickness = true,
+        barShadowColor = true,
         borderColor = true,
         fillTexture = true,
         fillColorMode = true,
@@ -1342,6 +1401,7 @@ function ProfileModel:SetGroupResourceStyle(draft, groupId, patch)
         textFont = true,
         textSize = true,
         textOutline = true,
+        textMonochrome = true,
         textColor = true,
         backgroundColor = true,
     }
@@ -1359,12 +1419,14 @@ end
 local function GetKnownResourceSetting(profile, resourceId, groupId)
     local Catalog = YHUD.ResourceCatalog
     if not (Catalog and Catalog.GetDefinition
-        and Catalog:GetDefinition(resourceId)) then
+        and Catalog:GetDefinition(resourceId, profile, groupId)) then
         return nil, "unknown-resource"
     end
     groupId = groupId or YHUD.GROUP_IDS.RESOURCES
     local group = profile.groups.items[groupId]
     if not group or group.layout ~= "resource" then return nil, "resource-group-required" end
+    if YHUD.ResourceManager and YHUD.ResourceManager:IsCustom(resourceId)
+        and not YHUD.ResourceManager:GetCustom(profile, groupId, resourceId) then return nil, "unknown-resource" end
     return YHUD:GetResourceSetting(profile, resourceId, groupId)
 end
 
@@ -1386,11 +1448,14 @@ function ProfileModel:SetResourceSetting(draft, resourceId, patch, groupId)
         textOffsetX = true,
         textOffsetY = true,
         heightOverride = true,
+        fillDirection = true,
         fillColor = true,
         runeColors = true,
         runeCooldownTextSize = true,
         runeCooldownTextMode = true,
         displayMode = true,
+        pointShape = true,
+        nativePointStyle = true,
         inverseFill = true,
         segmentSpacing = true,
         dividerThickness = true,
@@ -1416,7 +1481,8 @@ function ProfileModel:SetResourceSetting(draft, resourceId, patch, groupId)
         if not allowed[key] then return nil, "invalid-resource-setting-field" end
         setting[key] = YHUD:CopyValue(value)
     end
-    setting = YHUD:NormalizeResourceSetting(setting, resourceId)
+    setting = YHUD:NormalizeResourceSetting(setting, resourceId, nil, nil, nil,
+        YHUD.ResourceCatalog:GetDefinition(resourceId, draft.profile, groupId))
     YHUD:GetResourceConfig(draft.profile, groupId).settingsByResource[resourceId] = setting
     MarkDirty(draft, groupId)
     return YHUD:CopyValue(setting)
@@ -1440,6 +1506,7 @@ function ProfileModel:SetResourceTextOverride(draft, resourceId, enabled, patch,
             textFont = global.textFont,
             textSize = global.textSize,
             textOutline = global.textOutline,
+            textMonochrome = global.textMonochrome,
             textColor = YHUD:CopyValue(global.textColor),
         }
         if type(patch) == "table" then
@@ -1447,6 +1514,7 @@ function ProfileModel:SetResourceTextOverride(draft, resourceId, enabled, patch,
                 textFont = true,
                 textSize = true,
                 textOutline = true,
+                textMonochrome = true,
                 textColor = true,
             }
             for key, value in pairs(patch) do
@@ -1456,7 +1524,8 @@ function ProfileModel:SetResourceTextOverride(draft, resourceId, enabled, patch,
         end
         setting.textOverride = override
     end
-    setting = YHUD:NormalizeResourceSetting(setting, resourceId)
+    setting = YHUD:NormalizeResourceSetting(setting, resourceId, nil, nil, nil,
+        YHUD.ResourceCatalog:GetDefinition(resourceId, draft.profile, groupId))
     YHUD:GetResourceConfig(draft.profile, groupId).settingsByResource[resourceId] = setting
     MarkDirty(draft, groupId)
     return YHUD:CopyValue(setting)
@@ -1504,7 +1573,8 @@ function ProfileModel:SetResourceAppearanceOverride(
         end
         setting.appearanceOverride = override
     end
-    setting = YHUD:NormalizeResourceSetting(setting, resourceId)
+    setting = YHUD:NormalizeResourceSetting(setting, resourceId, nil, nil, nil,
+        YHUD.ResourceCatalog:GetDefinition(resourceId, draft.profile, groupId))
     YHUD:GetResourceConfig(draft.profile, groupId).settingsByResource[resourceId] = setting
     MarkDirty(draft, groupId)
     return YHUD:CopyValue(setting)
@@ -1538,6 +1608,46 @@ function ProfileModel:SetResourcePresetEnabled(
     )
     if not changed then return nil, code end
     MarkDirty(draft, groupId)
+    return true
+end
+
+function ProfileModel:CopyResourcePresetEnabled(draft, classFile, specID, formKey, resourceId, groupId)
+    groupId = groupId or YHUD.GROUP_IDS.RESOURCES
+    local open, code = EnsureOpenDraft(draft)
+    if not open then return nil, code end
+    local group = draft.profile.groups.items[groupId]
+    if not group then return nil, "group-not-found" end
+    if group.contentPolicy ~= "resource-only" then return nil, "resource-preset-only" end
+    local Catalog = YHUD.ResourceCatalog
+    if not (Catalog and Catalog.SetPresetEnabledForAllSpecializations) then
+        return nil, "resource-catalog-unavailable"
+    end
+    local scoped = YHUD:GetResourceProfile(draft.profile, groupId)
+    local presets
+    if YHUD.ResourceManager then
+        presets = YHUD.ResourceManager:GetItems(scoped, classFile, specID, formKey)
+    else
+        presets = formKey and Catalog:GetFormPresets(scoped, classFile, specID, formKey)
+            or Catalog:GetPresets(scoped, classFile, specID)
+    end
+    local enabled
+    for _, preset in ipairs(Catalog:GetDisplayPresets(scoped, presets)) do
+        if preset.id == resourceId then enabled = preset.enabled == true break end
+    end
+    if enabled == nil then return nil, "unknown-resource-preset" end
+
+    -- Stage only this group's resources, so a failed bulk edit cannot leave a
+    -- partially copied draft or touch another group's order and appearance.
+    local working = {
+        resources = YHUD:CopyValue(scoped.resources),
+        _yhudHandPairMode = scoped._yhudHandPairMode,
+    }
+    local ok, changed = Catalog:SetPresetEnabledForAllSpecializations(working, resourceId, enabled)
+    if not ok then return nil, changed end
+    if changed > 0 then
+        draft.root.resources.byGroup[groupId] = working.resources
+        MarkDirty(draft, groupId)
+    end
     return true
 end
 
@@ -2350,6 +2460,45 @@ function ProfileModel:SyncMonitorToSpecializations(
     return report
 end
 
+function ProfileModel:SetClassExtraSettings(draft, monitorId, patch)
+    local open, code = EnsureOpenDraft(draft)
+    if not open then return nil, code end
+    local monitor, entry
+    monitor, entry, code = GetMutableMonitor(draft, monitorId)
+    if not monitor then return nil, code end
+    local extra = YHUD.ClassExtra
+    if not (extra and extra:Preset(entry)) then
+        return nil, "class-extra-settings-unsupported"
+    end
+    if type(patch) ~= "table" then return nil, "invalid-class-extra-settings" end
+    local alert, delay, progress, ready = extra:Settings(entry)
+    for key, value in pairs(patch) do
+        if type(issecretvalue) == "function" and issecretvalue(value) then
+            return nil, "invalid-class-extra-settings"
+        end
+        if key == "readyVisibility" and entry.presetId == "brewmaster-elixir" then
+            if value ~= "group" and value ~= "combat" and value ~= "instance" then
+                return nil, "invalid-class-extra-settings"
+            end
+            ready = value
+        elseif entry.presetId ~= "devourer-transform" then
+            return nil, "invalid-class-extra-settings"
+        elseif key == "showIconProgress" then
+            if type(value) ~= "boolean" then return nil, "invalid-class-extra-settings" end
+            progress = value
+        else
+            if type(value) ~= "number" or value ~= value or (key ~= "alertSecond" and key ~= "endedHideDelay")
+                or value < (key == "alertSecond" and 1 or 0) or value > (key == "alertSecond" and 90 or 30) then
+                return nil, "invalid-class-extra-settings"
+            end
+            if key == "alertSecond" then alert = value else delay = value end
+        end
+    end
+    entry.classExtra = { alertSecond = alert, endedHideDelay = delay, showIconProgress = progress, readyVisibility = ready }
+    MarkDirty(draft, monitor.groupId, true)
+    return entry.classExtra
+end
+
 function ProfileModel:SetMonitorVisibilityMode(draft, monitorId, value)
     local open, code = EnsureOpenDraft(draft)
     if not open then return nil, code end
@@ -2380,6 +2529,7 @@ function ProfileModel:SetMonitorStateEffect(draft, monitorId, key, value)
     if not monitor then return nil, code end
     local supported = key == "inactiveDesaturate"
         and YHUD:CanConfigureMonitorStateEffects(entry)
+        or key == "assistedHighlight" and YHUD:CanConfigureAssistedHighlight(entry)
         or (key == "auraTimer" or key == "auraHighlight")
             and YHUD:CanConfigureSkillAuraDisplay(entry)
     if not supported then return nil, "monitor-state-effect-unsupported" end
@@ -2436,8 +2586,16 @@ function ProfileModel:SetMonitorAppearanceOverride(
     else
         if patch.fillColor ~= nil then current.fillColor = patch.fillColor end
         if patch.trackColor ~= nil then current.trackColor = patch.trackColor end
+        if group.layout == "bars" and patch.rechargeColor ~= nil then current.rechargeColor = patch.rechargeColor end
         if group.layout == "bars" and patch.stackThresholds ~= nil then
+            -- Reject the edit before normalization can move the other threshold.
+            if YHUD:BarStackThresholdsOverlap(patch.stackThresholds) then
+                return nil, "overlapping-bar-thresholds"
+            end
             current.stackThresholds = patch.stackThresholds
+        end
+        if group.layout == "bars" and patch.barProgress ~= nil then
+            current.barProgress = patch.barProgress
         end
     end
     monitor.appearanceOverride =
@@ -2452,8 +2610,10 @@ function ProfileModel:ResetMonitorAppearanceOverride(draft, monitorId)
     local monitor
     monitor, _, code = GetMutableMonitor(draft, monitorId)
     if not monitor then return nil, code end
-    local changed = monitor.appearanceOverride ~= nil
-    monitor.appearanceOverride = nil
+    local appearance = monitor.appearanceOverride
+    local progress = appearance and appearance.barProgress
+    local changed = appearance ~= nil
+    monitor.appearanceOverride = progress and { barProgress = progress } or nil
     if changed then MarkDirty(draft, monitor.groupId, true) end
     return changed
 end
@@ -2512,6 +2672,17 @@ function ProfileModel:SetMonitorSound(draft, monitorId, definition)
     monitor._yhudSoundRuntime = nil
     MarkDirty(draft, monitor.groupId, true)
     return YHUD:CopyValue(monitor.sound)
+end
+
+function ProfileModel:SetAuraActivationStyle(draft, definition)
+    local open, code = EnsureOpenDraft(draft)
+    if not open then return nil, code end
+    if type(definition) ~= "table" then return nil, "invalid-aura-activation-style" end
+    local config = YHUD:NormalizeAuraActivationStyle(definition)
+    draft.root.style = type(draft.root.style) == "table" and draft.root.style or {}
+    draft.root.style.auraActivation = config.mode == "custom" and config or nil
+    for groupId in pairs(draft.profile.groups.items) do MarkDirty(draft, groupId) end
+    return YHUD:CopyValue(config)
 end
 
 function ProfileModel:SetNativeProcGlow(draft, definition)
@@ -2575,6 +2746,7 @@ function ProfileModel:SetSkillAuraDisplay(draft, enabled)
 end
 
 local GLOBAL_MONITOR_STATE_EFFECT_FIELDS = {
+    assistedHighlight = "assistedHighlight",
     auraHighlight = "skillAuraHighlight",
     inactiveDesaturate = "inactiveDesaturate",
 }
@@ -2629,6 +2801,7 @@ function ProfileModel:SetMonitorSkillAuraDisplayOverride(
 end
 
 local MONITOR_STATE_EFFECT_OVERRIDE_KEYS = {
+    assistedHighlight = true,
     auraTimer = true,
     auraHighlight = true,
     inactiveDesaturate = true,
@@ -3271,14 +3444,15 @@ function ProfileModel:BuildSourceIndex(profile, enabledOnly)
                         entry,
                         rawget(profile, "_yhudSpecKey")
                     ) == "eligible"
+                local sourceKey = YHUD:GetMonitorRuntimeSourceKey(entry, monitor)
                 if monitor
-                    and monitor.sourceKey
+                    and sourceKey
                     and eligible
                     and (not enabledOnly or monitor.enabled) then
-                    local consumers = sources[monitor.sourceKey]
+                    local consumers = sources[sourceKey]
                     if not consumers then
                         consumers = {}
-                        sources[monitor.sourceKey] = consumers
+                        sources[sourceKey] = consumers
                         sourceCount = sourceCount + 1
                     end
                     consumers[#consumers + 1] = monitorId
@@ -3296,6 +3470,11 @@ end
 
 local function ValidateIconGroupLayout(layout)
     if type(layout) ~= "table" then return false end
+    if layout.itemOffset ~= nil and (type(layout.itemOffset) ~= "number"
+        or layout.itemOffset % 1 ~= 0 or layout.itemOffset < -64
+        or layout.itemOffset > 64) then return false end
+    if layout.fillMode ~= nil and layout.fillMode ~= "rows"
+        and layout.fillMode ~= "columns" then return false end
     local iconSize = layout.iconSize
     local maxPerLine = layout.maxPerLine
     if type(iconSize) ~= "number" or iconSize % 1 ~= 0
@@ -3304,14 +3483,14 @@ local function ValidateIconGroupLayout(layout)
     end
     if type(layout.columnSpacing) ~= "number"
         or layout.columnSpacing % 1 ~= 0
-        or layout.columnSpacing < 0 or layout.columnSpacing > 32
+        or layout.columnSpacing < -32 or layout.columnSpacing > 32
         or type(layout.rowSpacing) ~= "number"
         or layout.rowSpacing % 1 ~= 0
-        or layout.rowSpacing < 0 or layout.rowSpacing > 32 then
+        or layout.rowSpacing < -32 or layout.rowSpacing > 32 then
         return false
     end
     if type(maxPerLine) ~= "number" or maxPerLine % 1 ~= 0
-        or maxPerLine < 1 or maxPerLine > 20 then
+        or maxPerLine < 1 or maxPerLine > 40 then
         return false
     end
     if layout.wrapDirection ~= "down"
@@ -3349,6 +3528,7 @@ local function ValidateGlowAppearance(appearance)
         and appearance.style ~= "button"
         and appearance.style ~= "autocast"
         and appearance.style ~= "proc"
+        and appearance.style ~= "masque"
         and appearance.style ~= "pulse" then
         return false
     end
@@ -3384,11 +3564,12 @@ end
 
 local function ValidateNativeProcGlow(value)
     if type(value) ~= "table"
-        or (value.mode ~= "default" and value.mode ~= "custom")
+        or (value.mode ~= "default" and value.mode ~= "custom"
+            and value.mode ~= "disabled")
         or (value.combatOnly ~= nil and value.combatOnly ~= true) then
         return false
     end
-    if value.mode == "default" then return value.appearance == nil end
+    if value.mode ~= "custom" then return value.appearance == nil end
     return ValidateGlowAppearance(value.appearance)
         and value.appearance.style ~= "none"
 end
@@ -3398,7 +3579,7 @@ local function ValidateMonitorGlow(profile, monitor, glow)
     if type(glow) ~= "table"
         or type(glow.rules) ~= "table"
         or #glow.rules < 1
-        or #glow.rules > 2 then
+        or #glow.rules > YHUD.MAX_MONITOR_GLOW_RULES then
         return false
     end
     local seen = {}
@@ -3407,10 +3588,15 @@ local function ValidateMonitorGlow(profile, monitor, glow)
         local condition = type(rule) == "table" and rule.condition or nil
         local conditionType = type(condition) == "table"
             and condition.type or nil
+        if type(rule) ~= "table" or type(condition) ~= "table" then return false end
         if rule.combatOnly ~= nil and rule.combatOnly ~= true then
             return false
         end
-        if seen[conditionType]
+        local key = condition and YHUD:GetGlowConditionKey(condition)
+        if seen[key]
+            or not YHUD:CanAddGlowCondition(glow.rules, conditionType, index)
+            or (conditionType == "aura-stacks"
+                and not YHUD:NormalizeAuraStackCondition(condition))
             or not YHUD:IsMonitorGlowConditionSupported(
                 profile,
                 monitor,
@@ -3419,7 +3605,7 @@ local function ValidateMonitorGlow(profile, monitor, glow)
             or not ValidateGlowAppearance(rule.appearance) then
             return false
         end
-        seen[conditionType] = true
+        seen[key] = true
     end
     return true
 end
@@ -3486,19 +3672,24 @@ local VALID_TEXT_POSITIONS = {
 
 local function ValidateIconGroupStyle(style)
     if type(style) ~= "table" then return false end
+    local skins = YUI.GUI2 and YUI.GUI2.IconSkins
+    if skins and style.skinOptions and not skins:NormalizeOptions(style.skinOptions) then return false end
     if style.iconShape ~= "square"
         and style.iconShape ~= "roundedSquare"
         and style.iconShape ~= "flatSquare"
         and style.iconShape ~= "flatRounded"
         and style.iconShape ~= "wideSquare"
         and style.iconShape ~= "wideRounded"
+        and style.iconShape ~= "diamond"
         and style.iconShape ~= "circle" then
         return false
     end
     if style.iconBorder ~= "none" and style.iconBorder ~= "thin"
         and style.iconBorder ~= "medium"
         and style.iconBorder ~= "thick"
-        and style.iconBorder ~= "extraThick" then
+        and style.iconBorder ~= "extraThick"
+        and style.iconBorder ~= "contour"
+        and style.iconBorder ~= "shade" then
         return false
     end
     if type(style.iconZoom) ~= "number"
@@ -3518,6 +3709,16 @@ local function ValidateIconGroupStyle(style)
         or type(style.cooldownText) ~= "boolean" then
         return false
     end
+    if style.chargeRecoveryDisplay ~= "normal"
+        and style.chargeRecoveryDisplay ~= "hideSwipe"
+        and style.chargeRecoveryDisplay ~= "hideCountdown"
+        and style.chargeRecoveryDisplay ~= "hideBoth"
+        and style.chargeRecoveryDisplay ~= "hideEdge"
+        and style.chargeRecoveryDisplay ~= "hideEdgeAndCountdown"
+        and style.chargeRecoveryDisplay ~= "hideSwipeOnly"
+        and style.chargeRecoveryDisplay ~= "hideSwipeAndCountdown" then
+        return false
+    end
     if not ValidateFontChoice(style.cooldownTextFont) then
         return false
     end
@@ -3531,7 +3732,8 @@ local function ValidateIconGroupStyle(style)
         and style.cooldownTextOutline ~= "outline"
         and style.cooldownTextOutline ~= "thick"
         and style.cooldownTextOutline ~= "shadow"
-        and style.cooldownTextOutline ~= "outlineShadow" then
+        and style.cooldownTextOutline ~= "outlineShadow"
+        and style.cooldownTextOutline ~= "thickShadow" then
         return false
     end
     if not VALID_TEXT_POSITIONS[style.cooldownTextPosition] then
@@ -3554,7 +3756,8 @@ local function ValidateIconGroupStyle(style)
             and style.countTextOutline ~= "outline"
             and style.countTextOutline ~= "thick"
             and style.countTextOutline ~= "shadow"
-            and style.countTextOutline ~= "outlineShadow")
+            and style.countTextOutline ~= "outlineShadow"
+            and style.countTextOutline ~= "thickShadow")
         or not VALID_TEXT_POSITIONS[style.countTextPosition]
         or type(style.countTextOffsetX) ~= "number"
         or style.countTextOffsetX < -64
@@ -3578,7 +3781,8 @@ local function ValidateIconGroupStyle(style)
             and style.keybindTextOutline ~= "outline"
             and style.keybindTextOutline ~= "thick"
             and style.keybindTextOutline ~= "shadow"
-            and style.keybindTextOutline ~= "outlineShadow")
+            and style.keybindTextOutline ~= "outlineShadow"
+            and style.keybindTextOutline ~= "thickShadow")
         or not VALID_TEXT_POSITIONS[style.keybindTextPosition]
         or type(style.keybindTextOffsetX) ~= "number"
         or style.keybindTextOffsetX < -64
@@ -3591,8 +3795,10 @@ local function ValidateIconGroupStyle(style)
         return false
     end
     for spellID, text in pairs(style.keybindTextOverrides) do
-        if type(spellID) ~= "number" or spellID <= 0
-            or spellID % 1 ~= 0 or type(text) ~= "string" then
+        local validKey = type(spellID) == "number" and spellID > 0 and spellID % 1 == 0
+            or type(spellID) == "string" and (spellID:match("^item:[1-9]%d*$") ~= nil
+                or spellID == "slot:13" or spellID == "slot:14")
+        if not validKey or type(text) ~= "string" then
             return false
         end
         local characterCount = 0
@@ -3622,7 +3828,7 @@ local function ValidateDurationGroupLayout(layout, layoutType)
     end
     if type(layout.maxPerLine) ~= "number"
         or layout.maxPerLine % 1 ~= 0
-        or layout.maxPerLine < 1 or layout.maxPerLine > 20 then
+        or layout.maxPerLine < 1 or layout.maxPerLine > 40 then
         return false
     end
     if layout.alignment ~= "start" and layout.alignment ~= "center"
@@ -3639,12 +3845,16 @@ local function ValidateDurationGroupLayout(layout, layoutType)
             or layout.wrapDirection == "up"
     end
 
+    if layout.widthMode ~= nil and layout.widthMode ~= "fixed" and layout.widthMode ~= "auto" then return false end
+    if layout.widthGroupId ~= nil and (type(layout.widthGroupId) ~= "string"
+        or layout.widthGroupId == "" or #layout.widthGroupId > 160) then return false end
+
     if type(layout.width) ~= "number" or layout.width % 1 ~= 0
         or layout.width < 48 or layout.width > 832 then
         return false
     end
     if type(layout.height) ~= "number" or layout.height % 1 ~= 0
-        or layout.height < 12 or layout.height > 352 then
+        or layout.height < 2 or layout.height > 352 then
         return false
     end
     if layout.orientation ~= "horizontal"
@@ -3675,8 +3885,16 @@ local function ValidateStatusBarTexture(value)
         and #value <= 160
 end
 
+local function ValidateBarShadow(style)
+    return (style.barShadowMode == "none" or style.barShadowMode == "item" or style.barShadowMode == "group")
+        and type(style.barShadowThickness) == "number" and style.barShadowThickness % 1 == 0
+        and style.barShadowThickness >= 1 and style.barShadowThickness <= 12
+        and ValidateUnitColor(style.barShadowColor)
+end
+
 local function ValidateDurationGroupStyle(style)
     if not ValidateIconGroupStyle(style) then return false end
+    if not ValidateBarShadow(style) then return false end
     if type(style.nameText) ~= "boolean" then return false end
     if type(style.nameTextFormat) ~= "string"
         or style.nameTextFormat == ""
@@ -3696,7 +3914,8 @@ local function ValidateDurationGroupStyle(style)
         and style.nameTextOutline ~= "outline"
         and style.nameTextOutline ~= "thick"
         and style.nameTextOutline ~= "shadow"
-        and style.nameTextOutline ~= "outlineShadow" then
+        and style.nameTextOutline ~= "outlineShadow"
+        and style.nameTextOutline ~= "thickShadow" then
         return false
     end
     if not VALID_TEXT_POSITIONS[style.nameTextPosition] then
@@ -3724,7 +3943,8 @@ local function ValidateDurationGroupStyle(style)
             and style.timeTextOutline ~= "outline"
             and style.timeTextOutline ~= "thick"
             and style.timeTextOutline ~= "shadow"
-            and style.timeTextOutline ~= "outlineShadow")
+            and style.timeTextOutline ~= "outlineShadow"
+            and style.timeTextOutline ~= "thickShadow")
         or not VALID_TEXT_POSITIONS[style.timeTextPosition]
         or type(style.timeTextOffsetX) ~= "number"
         or style.timeTextOffsetX < -64
@@ -3774,7 +3994,7 @@ local function ValidateResourceGroupLayout(layout)
         return false
     end
     if type(layout.height) ~= "number" or layout.height % 1 ~= 0
-        or layout.height < 8 or layout.height > 160 then
+        or layout.height < 2 or layout.height > 160 then
         return false
     end
     if type(layout.spacing) ~= "number" or layout.spacing % 1 ~= 0
@@ -3799,6 +4019,7 @@ end
 
 local function ValidateResourceGroupStyle(style)
     if type(style) ~= "table" then return false end
+    if not ValidateBarShadow(style) then return false end
     if type(style.border) ~= "number" or style.border % 1 ~= 0
         or style.border < 0 or style.border > 12 then
         return false
@@ -3821,7 +4042,8 @@ local function ValidateResourceGroupStyle(style)
         and style.textOutline ~= "outline"
         and style.textOutline ~= "thick"
         and style.textOutline ~= "shadow"
-        and style.textOutline ~= "outlineShadow" then
+        and style.textOutline ~= "outlineShadow"
+        and style.textOutline ~= "thickShadow" then
         return false
     end
     return ValidateUnitColor(style.textColor)
@@ -3841,7 +4063,8 @@ local function ValidateResourceTextOverride(override)
             or override.textOutline == "outline"
             or override.textOutline == "thick"
             or override.textOutline == "shadow"
-            or override.textOutline == "outlineShadow")
+            or override.textOutline == "outlineShadow"
+            or override.textOutline == "thickShadow")
         and ValidateUnitColor(override.textColor)
 end
 
@@ -3903,7 +4126,10 @@ local function ValidateResourceSettings(profile, groupId)
             local cast = type(setting) == "table" and setting.cast
             if type(cast) ~= "table" or type(cast.icon) ~= "boolean" or type(cast.name) ~= "boolean"
                 or type(cast.progress) ~= "boolean" or (cast.idle ~= "reserve" and cast.idle ~= "collapse")
-                or (cast.iconSide ~= "left" and cast.iconSide ~= "right")
+                or (cast.iconSide ~= "left" and cast.iconSide ~= "right"
+                    and cast.iconSide ~= "outside-left" and cast.iconSide ~= "outside-right")
+                or (cast.timeFormat ~= "remaining" and cast.timeFormat ~= "elapsed"
+                    and cast.timeFormat ~= "remainingTotal" and cast.timeFormat ~= "elapsedTotal")
                 or type(cast.iconGap) ~= "number" or cast.iconGap < 0 or cast.iconGap > 12 or cast.iconGap % 1 ~= 0 then return false end
             if cast.namePosition ~= "start" and cast.namePosition ~= "center" and cast.namePosition ~= "end" then return false end
             for _, key in ipairs({ "nameSize", "progressSize" }) do
@@ -3916,7 +4142,7 @@ local function ValidateResourceSettings(profile, groupId)
                 if type(value) ~= "number" or value < -64 or value > 64 or value % 1 ~= 0 then return false end
             end
         end
-        local definition = Catalog:GetDefinition(resourceId)
+        local definition = Catalog:GetDefinition(resourceId, profile, groupId)
         if not definition or type(setting) ~= "table"
             or (setting.visibilityMode ~= "always"
                 and setting.visibilityMode ~= "nonzero"
@@ -3938,11 +4164,14 @@ local function ValidateResourceSettings(profile, groupId)
                     or setting.heightOverride % 1 ~= 0
                     or setting.heightOverride < 1
                     or setting.heightOverride > 160))
+            or (setting.fillDirection ~= nil and setting.fillDirection ~= "forward" and setting.fillDirection ~= "reverse")
             or not ValidateUnitColor(setting.fillColor)
             or type(setting.segmentSpacing) ~= "number"
             or setting.segmentSpacing % 1 ~= 0
-            or setting.segmentSpacing < -5
-            or setting.segmentSpacing > 32
+            or setting.segmentSpacing < ((setting.displayMode == "dots" or setting.displayMode == "nativePoints") and 0 or -5)
+            or setting.segmentSpacing > ((setting.displayMode == "dots" or setting.displayMode == "nativePoints") and 100 or 32)
+            or (setting.pointShape ~= nil and not YHUD:IsResourcePointShape(setting.pointShape))
+            or (setting.nativePointStyle ~= nil and not YHUD:IsNativeResourcePointStyle(setting.nativePointStyle))
             or type(setting.dividerThickness) ~= "number"
             or setting.dividerThickness % 1 ~= 0
             or setting.dividerThickness < 1
@@ -3973,7 +4202,7 @@ local function ValidateResourceSettings(profile, groupId)
             local value = second[key]
             if type(value) ~= "number" or value % 1 ~= 0 or value < -64 or value > 64 then return false end
         end
-        local normalizedSecond = YHUD:NormalizeResourceTextSetting(second, resourceId)
+        local normalizedSecond = YHUD:NormalizeResourceTextSetting(second, resourceId, definition)
         if second.valueFormat ~= normalizedSecond.valueFormat then return false end
         if setting.abbreviateValues ~= nil and type(setting.abbreviateValues) ~= "boolean" then return false end
         if setting.thresholdMode ~= "value" and setting.thresholdMode ~= "percent" then return false end
@@ -4002,7 +4231,8 @@ local function ValidateResourceSettings(profile, groupId)
                 or (setting.displayMode ~= "bar"
                     and setting.displayMode ~= "divided"
                     and setting.displayMode ~= "cells"
-                    and setting.displayMode ~= "dots") then
+                    and setting.displayMode ~= "dots"
+                    and setting.displayMode ~= "nativePoints") then
                 return false
             end
         elseif setting.valueFormat ~= "percent"
@@ -4072,11 +4302,18 @@ function ProfileModel:Validate(profile)
     if type(profile.cdm) ~= "table"
         or type(profile.cdm.skillAuraDisplay) ~= "boolean"
         or type(profile.cdm.skillAuraHighlight) ~= "boolean"
+        or (profile.cdm.assistedHighlight ~= nil and type(profile.cdm.assistedHighlight) ~= "boolean")
         or type(profile.cdm.inactiveDesaturate) ~= "boolean" then
         return nil, "invalid-skill-aura-display"
     end
     if not ValidateNativeProcGlow(profile.style.nativeProcGlow) then
         return nil, "invalid-native-proc-glow"
+    end
+    local activation = profile.style.auraActivation
+    if activation ~= nil and (not ValidateNativeProcGlow(activation)
+        or activation.mode == "disabled"
+        or activation.combatOnly ~= nil) then
+        return nil, "invalid-aura-activation-style"
     end
 
     local seenGroups = {}
@@ -4285,9 +4522,14 @@ function ProfileModel:Validate(profile)
                         or (group.layout == "bars" or group.layout == "rings")
                             and (key == "fillColor" or key == "trackColor")
                             and ValidateUnitColor(value)
+                        or group.layout == "bars" and key == "rechargeColor"
+                            and ValidateUnitColor(value)
                         or group.layout == "bars" and key == "stackThresholds"
                             and type(value) == "table"
                             and ValuesEqual(value, normalized.stackThresholds)
+                        or group.layout == "bars" and key == "barProgress"
+                            and type(value) == "table"
+                            and ValuesEqual(value, normalized.barProgress)
                     if not valid or normalized[key] == nil then
                         return nil, "invalid-monitor-appearance"
                     end

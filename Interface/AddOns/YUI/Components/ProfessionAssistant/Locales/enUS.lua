@@ -21,6 +21,8 @@ YUI.Locale:Register("ProfessionAssistant", "enUS", {
     ["added"] = "Added. Click to remove.",
     ["queue.clear"] = "Clear",
     ["entryHint"] = "Click: open the disenchant assistant",
+    ["bagEntry.enabled"] = "Bagnon enchanting entry",
+    ["bagEntry.tooltip"] = "Show an Enchanting Assistant entry in Bagnon bags. When disabled, the assistant remains available from settings or the default bags.",
     ["addBatch"] = "Add %d items",
     ["changed"] = "The item moved or is unavailable. Please try again.",
     ["combat"] = "Unavailable in combat.",

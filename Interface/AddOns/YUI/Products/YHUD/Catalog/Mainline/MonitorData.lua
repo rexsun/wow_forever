@@ -117,7 +117,25 @@ local BLOOD_BOIL_WINDOW_PRESET = YHUD.BLOOD_BOIL_WINDOW_PRESET or {
     fallbackPresetLabel = nil,
 }
 
+local CLASS_EXTRA_PRESETS = {
+    { presetId = "devourer-transform", specKey = "DEMONHUNTER:1480",
+        entryKey = "class-extra:devourer-transform", sourceKey = "class-extra:devourer-transform",
+        sourceType = "class-extra-monitor", displaySpellID = 1217607,
+        nameKey = "designer.preset.devourer_transform", fallbackName = "噬灭变身",
+        settingsLabelKey = "designer.extra.label.transform",
+        logicKey = "designer.extra.logic.transform" },
+    { presetId = "brewmaster-elixir", specKey = "MONK:268",
+        entryKey = "class-extra:brewmaster-elixir", sourceKey = "class-extra:brewmaster-elixir",
+        sourceType = "class-extra-monitor", displaySpellID = 455139,
+        nameKey = "designer.preset.brewmaster_elixir", fallbackName = "明志灵药",
+        settingsLabelKey = "designer.extra.label.elixir",
+        logicKey = "designer.extra.logic.elixir" },
+}
+YHUD.CLASS_EXTRA_PRESETS = CLASS_EXTRA_PRESETS
+
 local TIMED_BUFF_SPELL_PRESETS = {
+    CLASS_EXTRA_PRESETS[1],
+    CLASS_EXTRA_PRESETS[2],
     BLOOD_BOIL_WINDOW_PRESET,
     {
         presetId = "bloodlust",

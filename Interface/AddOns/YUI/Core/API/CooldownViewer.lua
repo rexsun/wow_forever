@@ -110,6 +110,8 @@ CooldownViewer.auraRefreshPendingFrames =
     or setmetatable({}, { __mode = "k" })
 CooldownViewer.auraRefreshPendingIdentities =
     CooldownViewer.auraRefreshPendingIdentities or {}
+CooldownViewer.totemSelectionFrames = CooldownViewer.totemSelectionFrames
+    or setmetatable({}, { __mode = "k" })
 CooldownViewer.auraRemovedInstances =
     CooldownViewer.auraRemovedInstances or {}
 CooldownViewer.auraFullReconciles =
@@ -583,6 +585,14 @@ function CooldownViewer:OnAuraFrameActiveStateChanged(frame)
     local cooldownID = GetFrameCooldownID(frame)
     local identity = GetAuraIdentity(category, cooldownID)
     if not identity then return false end
+    local selection = self.totemSelectionFrames[frame]
+    local service = YUI.API and YUI.API.Totem
+    if selection and service then
+        local ok, active = SafeMethod(frame, "IsActive")
+        if ok and SafeBoolean(active) == false then
+            service.Reset(selection, "inactive")
+        end
+    end
     AddAuraRefreshStat("activeStateSignals")
     if YUI.Event and YUI.Event.Emit then
         YUI.Event:Emit(
@@ -600,6 +610,110 @@ end
 
 local function OnObservedAuraFrameActiveStateChanged(frame)
     CooldownViewer:OnAuraFrameActiveStateChanged(frame)
+end
+
+-- A native TotemData table can itself be secret, so even GetTotemSlot may
+-- throw. Observe the native selection transaction instead of reading that
+-- table. Opaque slots only feed the supported API; public slots may be retried
+-- at the settled boundary. RefreshTotemData atomically publishes selection.
+local function GetTotemService()
+    return YUI.API and YUI.API.Totem
+end
+
+function CooldownViewer:SupportsTotemDuration()
+    local service = GetTotemService()
+    return service and service.SupportsDuration() == true or false
+end
+
+local function GetTotemSelection(frame)
+    if not SupportsClient() or not GetTotemService()
+        or CooldownViewer.auraRefreshNotificationsEnabled ~= true then return nil end
+    local selection = CooldownViewer.totemSelectionFrames[frame]
+    return selection and selection.ready and selection or nil
+end
+
+local function OnNativeTotemCleared(frame)
+    local selection = GetTotemSelection(frame)
+    if not selection then return end
+    GetTotemService().MarkCleared(selection)
+    CooldownViewer:QueueAuraFrameRefresh(frame)
+end
+
+local function OnNativeTotemPreferred(frame)
+    local selection = GetTotemSelection(frame)
+    if not selection then return end
+    -- If the native preferred branch fails, NeedsTotemUpdate replaces this
+    -- candidate before SetTotemData. The hint alone never authorizes a clock.
+    local ok, slot = pcall(ReadMember, frame, "preferredTotemUpdateSlot")
+    GetTotemService().BeginSelection(selection, GetFrameCooldownID(frame), ok and slot or nil)
+end
+
+local function OnNativeTotemCandidate(frame, _, slot)
+    local selection = GetTotemSelection(frame)
+    if selection and selection.selectionID then
+        GetTotemService().StageCandidate(selection, slot, "native-candidate")
+    end
+end
+
+local function OnNativeTotemSelected(frame, data)
+    local selection = GetTotemSelection(frame)
+    if not selection then return end
+    if selection.selectionID then
+        -- Prefer the actual selected public table over a remembered hint. A
+        -- secret table is never indexed; its observed selection stays opaque.
+        local secretTable = IsSecretValue(data)
+            or (_G.issecrettable and _G.issecrettable(data))
+        if not secretTable and type(data) == "table" then
+            local ok, slot = pcall(ReadMember, data, "slot")
+            if ok and slot ~= nil then
+                GetTotemService().StageCandidate(selection, slot, "selected-data")
+            end
+        end
+        GetTotemService().CommitSelection(selection, GetFrameCooldownID(frame))
+    end
+end
+
+local function OnNativeTotemSelectionFinished(frame)
+    local selection = GetTotemSelection(frame)
+    if not selection then return end
+    GetTotemService().FinishSelection(selection)
+end
+
+local TOTEM_SELECTION_HOOKS = {
+    { "ClearTotemData", OnNativeTotemCleared },
+    { "GetPreferredTotemSlotInfo", OnNativeTotemPreferred },
+    { "NeedsTotemUpdate", OnNativeTotemCandidate },
+    { "SetTotemData", OnNativeTotemSelected },
+    { "RefreshTotemData", OnNativeTotemSelectionFinished },
+}
+
+local function ObserveTotemSelection(self, frame)
+    if not self:SupportsTotemDuration() or self.auraRefreshNotificationsEnabled ~= true
+        or type(_G.hooksecurefunc) ~= "function" then return nil end
+    local selection = self.totemSelectionFrames[frame]
+    if selection and selection.installed then
+        return selection.ready and selection or nil
+    end
+    if not selection then
+        selection = {}
+        self.totemSelectionFrames[frame] = selection
+    end
+    local ready = true
+    for _, definition in ipairs(TOTEM_SELECTION_HOOKS) do
+        local methodName = definition[1]
+        if not selection[methodName] then
+            local ok, method = pcall(ReadMember, frame, methodName)
+            if ok and type(method) == "function" then
+                selection[methodName] = pcall(
+                    _G.hooksecurefunc, frame, methodName, definition[2]
+                ) == true
+            end
+        end
+        ready = selection[methodName] == true and ready
+    end
+    selection.ready = ready
+    selection.installed = true
+    return ready and selection or nil
 end
 
 function CooldownViewer:ObserveAuraFrame(category, frame, viewer)
@@ -756,6 +870,10 @@ function CooldownViewer:SetAuraRefreshNotificationsEnabled(enabled)
         end
         for identity in pairs(self.auraFullReconciles) do
             self.auraFullReconciles[identity] = nil
+        end
+        for _, selection in pairs(self.totemSelectionFrames) do
+            local service = GetTotemService()
+            if service then service.Reset(selection, "disabled") end
         end
         for _, unitMap in pairs(self.auraIdentityByUnit) do
             for instanceID in pairs(unitMap) do unitMap[instanceID] = nil end
@@ -939,6 +1057,96 @@ function CooldownViewer:ReadAuraActivation(spellID, previousFrame, previousID)
         end
     end
     if inactiveFrame and not unknown then return false,inactiveFrame,inactiveID end
+end
+
+-- Keep the original Aura reader independent. Both the readable-slot path and
+-- the native selection transaction produce an opaque clock without secret
+-- table reads, secret slot retention, spell matching or guessed durations.
+function CooldownViewer:ReadTotemDisplay(category, cooldownID, state)
+    state = type(state) == "table" and state or {}
+    cooldownID = SafePositiveInteger(cooldownID)
+    local frame
+    if self:SupportsTotemDuration() and GetAuraIdentity(category, cooldownID) then
+        frame = self:GetRuntimeFrame(category, cooldownID)
+        -- Aura readers may preserve an ambiguous pooled frame during combat.
+        -- A new totem takeover requires its exact public CDM identity instead.
+        if frame and GetFrameCooldownID(frame) ~= cooldownID then frame = nil end
+    end
+    local code = frame and "slot-unavailable" or "frame-unavailable"
+    local active = false
+    local durationObject
+    local timerRevision
+    if frame then
+        ObserveTotemSelection(self, frame)
+        local selection = self.totemSelectionFrames[frame]
+        if not selection then
+            selection = {}
+            self.totemSelectionFrames[frame] = selection
+        end
+        local slotOK, slot = SafeMethod(frame, "GetTotemSlot")
+        local activeOK, value = SafeMethod(frame, "IsActive")
+        local publicActive
+        if activeOK then publicActive = SafeBoolean(value) end
+        if slotOK or selection.ready then
+            durationObject, code = GetTotemService().Read(
+                selection, cooldownID, publicActive, slotOK, slot,
+                self:GetAuraRefreshRevision(frame)
+            )
+            active = durationObject ~= nil
+            timerRevision = selection.revision
+            if active then code = "totem" end
+        else
+            code = "slot-unreadable"
+        end
+    end
+    local mode = active and "totem" or "none"
+    local frameRevision = active and timerRevision or nil
+    local revision = tonumber(state.opaqueRevision) or 0
+    if state.durationMode ~= mode or state.cooldownActive ~= active
+        or state.viewerTotemFrame ~= (active and frame or nil)
+        or state.viewerAuraRefreshRevision ~= frameRevision then
+        revision = revision + 1
+    end
+    local changed = state.sourceKind ~= "aura"
+        or state.durationMode ~= mode
+        or state.opaqueRevision ~= revision
+        or state.cooldownActive ~= active
+        or state.chargeActive ~= false
+        or state.available ~= active
+        or state.isEnabled ~= true
+        or state.secret ~= (durationObject ~= nil)
+        or state.viewerAuraInstanceID ~= nil
+        or state.viewerAuraUnit ~= nil
+        or state.startTime ~= 0 or state.duration ~= 0
+        or state.modRate ~= 1 or state.displayCount ~= nil
+    state.sourceKind = "aura"
+    state.durationMode = mode
+    state.durationObject = durationObject
+    state.opaqueRevision = revision
+    state.cooldownActive = active
+    state.chargeActive = false
+    state.available = active
+    state.isEnabled = true
+    state.secret = durationObject ~= nil
+    state.viewerAuraInstanceID = nil
+    state.viewerAuraUnit = nil
+    state.viewerAuraRefreshRevision = frameRevision
+    state.viewerTotemFrame = active and frame or nil
+    state.startTime = 0
+    state.duration = 0
+    state.modRate = 1
+    state.displayCount = nil
+    return state, changed, code
+end
+
+function CooldownViewer:GetTotemTimerDiagnostics(category, cooldownID, result)
+    cooldownID = SafePositiveInteger(cooldownID)
+    local frame = cooldownID and self.runtimeFrames[category]
+        and self.runtimeFrames[category][cooldownID]
+    local selection = frame and self.totemSelectionFrames[frame]
+    local service = GetTotemService()
+    if not service or not selection then return nil end
+    return service.ReadDiagnostics(selection, result)
 end
 
 function CooldownViewer:ReadAuraDisplay(category, cooldownID, state)
@@ -1173,6 +1381,35 @@ function CooldownViewer:GetLayoutSignature()
     serializedLayout = ok and SafeString(serializedLayout) or nil
     if not serializedLayout then return nil, "layout-read-failed" end
     return serializedLayout
+end
+
+-- Standard owner callbacks only: never join the native settings registrant/save chain.
+function CooldownViewer:WatchLayoutChanges(owner, callback)
+    if not SupportsClient() then return nil, "unsupported-client" end
+    local registry = _G.EventRegistry
+    if not owner or type(callback) ~= "function" or type(registry) ~= "table"
+        or type(registry.RegisterCallback) ~= "function"
+        or type(registry.UnregisterCallback) ~= "function" then
+        return nil, "callback-unavailable"
+    end
+    local handle = { registry = registry, owner = owner }
+    for _, event in ipairs({ "CooldownViewerSettings.OnDataChanged", "CooldownViewerSettings.OnHide" }) do
+        local ok = pcall(registry.RegisterCallback, registry, event, callback, owner)
+        if not ok then
+            self:StopWatchingLayoutChanges(handle)
+            return nil, "callback-registration-failed"
+        end
+    end
+    return handle
+end
+
+function CooldownViewer:StopWatchingLayoutChanges(handle)
+    if not handle or not handle.registry then return end
+    local registry, owner = handle.registry, handle.owner
+    for _, event in ipairs({ "CooldownViewerSettings.OnDataChanged", "CooldownViewerSettings.OnHide" }) do
+        pcall(registry.UnregisterCallback, registry, event, owner)
+    end
+    handle.registry, handle.owner = nil, nil
 end
 
 -- Opens the native editor without changing its layout or selected category.
@@ -1690,13 +1927,18 @@ function CooldownViewer:DecodeLayoutData(serializedData, specTag)
     return result
 end
 
-local function ReadCooldownInfo(api, cooldownID, defaultCategoryId)
+local function ReadCooldownInfo(api, cooldownID, defaultCategoryId, sourceCategories, sourceCategoryById)
     local ok, info = pcall(
         api.GetCooldownViewerCooldownInfo,
         cooldownID
     )
     info = ok and SafeTable(info) or nil
     if not info then return nil end
+    local sourceCategoryId = SafeInteger(info.category) or defaultCategoryId
+    if sourceCategories
+        and sourceCategories[sourceCategoryById[sourceCategoryId]] ~= true then
+        return false
+    end
     local spellCategoryID = SafePositiveInteger(info.spellCategoryID)
     local presentation = SPELL_CATEGORY_PRESENTATION[spellCategoryID]
 
@@ -1718,19 +1960,24 @@ local function ReadCooldownInfo(api, cooldownID, defaultCategoryId)
         isKnown = SafeBoolean(info.isKnown),
         isInvisible = SafeBoolean(info.isInvisible),
         flags = SafeInteger(info.flags),
-        sourceCategoryId =
-            SafeInteger(info.category) or defaultCategoryId,
+        sourceCategoryId = sourceCategoryId,
         presentationKind = presentation and presentation.kind or nil,
         presentationIcon = presentation and presentation.icon or nil,
     }
 end
 
+-- Optional sourceCategories is a public category-key set. It filters by the
+-- authoritative source, before copying unrelated metadata, and retains order
+-- within that scope. detail.filteredOut counts successful excluded entries;
+-- failed reads still count as skipped. rawCatalog always ignores the filter.
 function CooldownViewer:ReadEntries(options)
     options = type(options) == "table" and options or {}
     local available, reason = self:IsAvailable()
     if not available then return nil, reason end
 
     local rawCatalog = options.rawCatalog == true
+    local sourceCategories = not rawCatalog
+        and type(options.sourceCategories) == "table" and options.sourceCategories
     local categories, sourceCategoryById, displayCategoryById =
         ResolveCategories(rawCatalog)
     if not categories then return nil, "category-enum-unavailable" end
@@ -1742,6 +1989,7 @@ function CooldownViewer:ReadEntries(options)
     local defaultOrder = {}
     local skipped = 0
     local skippedSources = 0
+    local filteredOut = 0
 
     local hideFlag = _G.Enum
         and _G.Enum.CooldownSetSpellFlags
@@ -1767,11 +2015,13 @@ function CooldownViewer:ReadEntries(options)
             for index = 1, #cooldownIDs do
                 local cooldownID =
                     SafePositiveInteger(cooldownIDs[index])
-                if cooldownID and not infoById[cooldownID] then
+                if cooldownID and infoById[cooldownID] == nil then
                     local info = ReadCooldownInfo(
                         api,
                         cooldownID,
-                        category.id
+                        category.id,
+                        sourceCategories,
+                        sourceCategoryById
                     )
                     if info then
                         info.hiddenByDefault =
@@ -1783,6 +2033,11 @@ function CooldownViewer:ReadEntries(options)
                         end
                         infoById[cooldownID] = info
                         defaultOrder[#defaultOrder + 1] = cooldownID
+                    elseif info == false then
+                        -- Preserve first-category ownership even when this
+                        -- successfully read entry is outside the requested scope.
+                        infoById[cooldownID] = false
+                        filteredOut = filteredOut + 1
                     else
                         skipped = skipped + 1
                     end
@@ -1931,6 +2186,7 @@ function CooldownViewer:ReadEntries(options)
         hidden = hidden,
         skipped = skipped,
         skippedSources = skippedSources,
+        filteredOut = sourceCategories and filteredOut or nil,
         categoryCounts = categoryCounts,
         sourceCategoryCounts = sourceCategoryCounts,
         writeBackCalls = 0,
@@ -2026,11 +2282,16 @@ local function ReadFrameAuraUnit(frame)
     return methodOK and SafeString(methodValue) or nil
 end
 
-local function ReadAuraApplications(aura)
+local function ReadAuraApplications(aura, applicationsOnly)
     if not aura then return nil, false, false end
     local ok, applications = pcall(ReadMember, aura, "applications")
     if not ok then return nil, false, false end
     if IsSecretValue(applications) then return applications, true, true end
+    if applicationsOnly then
+        if type(applications) ~= "number" or applications ~= applications
+            or applications < 0 or applications == math.huge then return nil, false, false end
+        return applications, false, true
+    end
     if type(applications) ~= "number" then
         ok, applications = pcall(ReadMember, aura, "charges")
         if not ok then return nil, false, false end
@@ -2051,6 +2312,45 @@ local function ReadFrameCachedAura(frame)
     if methodOK and aura then return aura end
     local fieldOK, fieldAura = pcall(ReadMember, frame, "auraDataCached")
     return fieldOK and fieldAura or nil
+end
+
+-- Exact native-frame sample, consumed immediately by an opaque StatusBar sink.
+-- Never retain a secret value or infer a threshold result in Lua.
+function CooldownViewer:FeedAuraApplicationGate(frame, gate)
+    if not (frame and gate and gate.driver) then return false end
+    local instanceOK, instanceID = pcall(ReadFrameAuraInstanceID, frame)
+    local instanceSecret = instanceOK and IsSecretValue(instanceID)
+    local value, secret, present
+    if instanceOK and (instanceSecret or SafePositiveInteger(instanceID) ~= nil) then
+        value, secret, present = ReadAuraApplications(ReadFrameCachedAura(frame), true)
+        if not present and not instanceSecret then
+            local unit = ReadFrameAuraUnit(frame)
+            if unit then
+                local ok, aura = pcall(ReadAuraByInstance, unit, instanceID)
+                if ok then value, secret, present = ReadAuraApplications(aura, true) end
+            end
+        end
+    end
+    if not present then
+        gate.driver:SetValue(0)
+        local drivers = gate.additionalDrivers
+        for index = 1, drivers and #drivers or 0 do
+            local driver = drivers[index]
+            if driver ~= gate.driver then driver:SetValue(0) end
+        end
+        gate.lastPublicValue = nil
+        return false
+    end
+    if secret or gate.lastPublicValue ~= value then
+        gate.driver:SetValue(value)
+        local drivers = gate.additionalDrivers
+        for index = 1, drivers and #drivers or 0 do
+            local driver = drivers[index]
+            if driver ~= gate.driver then driver:SetValue(value) end
+        end
+        gate.lastPublicValue = not secret and value or nil
+    end
+    return true
 end
 
 local function SetAuraStackUnavailable(state, status)

@@ -108,6 +108,8 @@ function initialSpecializationRecoveryOwner:OnContextChanged(eventName, unit)
         return false
     end
     if not YHUD:IsEnabled() then return false end
+    if eventName == "PLAYER_REGEN_ENABLED"
+        and YHUD.pendingContextCombat ~= true then return false end
     if eventName == "YUI_WORLD_READY" then
         YHUD.startupWorldReady = true
     end
@@ -145,6 +147,8 @@ local function RegisterInitialSpecializationRecovery()
     )
     for _, eventName in ipairs({
         "YUI_WORLD_READY",
+        "PLAYER_LEVEL_UP",
+        "PLAYER_REGEN_ENABLED",
         "TRAIT_CONFIG_UPDATED",
         "ACTIVE_COMBAT_CONFIG_CHANGED",
     }) do
@@ -336,7 +340,7 @@ local function ApplyRuntimeMode(profile)
         end
     else
         if YHUD.KeybindResolver and YHUD.KeybindResolver.Enable then
-            YHUD.KeybindResolver:Enable()
+            YHUD.KeybindResolver:Enable(profile)
         end
         if YHUD.NativeBridge and YHUD.NativeBridge.PrepareOfficialRuntime then
             YHUD.NativeBridge:PrepareOfficialRuntime()
@@ -625,7 +629,7 @@ function YHUD:RunPendingContextRefresh()
             self.pendingContextImmediate = nil
             return nil, "invalid-spec-key"
         end
-        if self.runtimeMode == "full" then
+        if self.runtimeMode ~= nil then
             RecordLifecycleDiagnostic(
                 "context-specialization-transition",
                 self.pendingContextReason or "context-changed"
@@ -873,7 +877,7 @@ function YHUD:ActivateLifecycleRuntime(specKey, resourceOnly)
         return nil, profileCode or "runtime-profile-unavailable"
     end
     if not resourceOnly and self.KeybindResolver then
-        self.KeybindResolver:Enable()
+        self.KeybindResolver:Enable(profile)
     end
     if self.BlizzardSettings and self.BlizzardSettings.Enable then
         self.BlizzardSettings:Enable(profile, resourceOnly, "enable")
@@ -1240,7 +1244,7 @@ end
 if YUI.RegisterProduct then
     YUI:RegisterProduct({
         id = YHUD.PRODUCT_ID,
-        title = "Halo Monitor · YanForge",
+        title = "Halo Monitor · Ayan",
         titleKey = "product.title",
         titleNamespace = "YHUD",
         shortTitle = "Halo Monitor",
@@ -1249,10 +1253,10 @@ if YUI.RegisterProduct then
         logo = "icons\\logo_32.png",
         smallLogo = "icons\\logo_32.png",
         logoCrop = false,
-        notes = "Halo Monitor · YanForge",
+        notes = "Halo Monitor · Ayan",
         notesKey = "product.notes",
         notesNamespace = "YHUD",
-        author = "阿言",
+        author = "Ayan",
         addonName = ADDON_NAME or YUI.AddonName,
         settingsScope = YHUD.PRODUCT_ID,
         settings = {

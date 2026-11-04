@@ -5,7 +5,7 @@ if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("koKR") then return end
 YUI.Locale:Register("MythicPlusTools", "koKR", {
     ["name"] = "쐐기돌 도구",
     ["description"] = "쐐기돌 던전과 PvE에 유용한 기능을 제공합니다.",
-    ["product.title"] = "Mythic+ 도구 · YanForge",
+    ["product.title"] = "Mythic+ 도구 · Ayan",
     ["product.short_title"] = "Mythic+ Tools",
     ["product.notes"] = "Mythic+ 및 PvE에 대한 실용적인 도구를 제공합니다.",
     ["settings.battle_res"] = "Battle Res 모니터",

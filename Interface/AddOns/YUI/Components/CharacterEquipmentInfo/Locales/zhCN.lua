@@ -27,6 +27,7 @@ YUI.Locale:Register("CharacterEquipmentInfo", "zhCN", {
     ["title.player"] = "玩家",
     ["title.inspect"] = "观察",
     ["summary.item_level"] = "装等",
+    ["item.enchant"] = "附魔",
     ["section.equipment"] = "装备",
     ["section.primary"] = "主属性",
     ["section.secondary"] = "副属性",

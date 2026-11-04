@@ -141,6 +141,12 @@ if YUI.IsRetail then
 end
 function R.GetEntry(id,kind)
     if issecretvalue and issecretvalue(id) then return end
+    local forever=YUI.IsForever and YUI.API.ForeverAuraIdentities
+    if forever then
+        if kind=='aura' then return forever.racialAuras[id] end
+        if not kind or kind=='spell' then return byID[id] or forever.racialSpells[id] end
+        return
+    end
     if kind and kind~='spell' and (kind~='aura' or not auraIDs[id]) then return end
     return byID[id]
 end

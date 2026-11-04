@@ -4,6 +4,7 @@ if not YUI or not YUI.Locale then return end
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("zhCN") then return end
 
 YUI.Locale:Register("YMap", "zhCN", {
+    ["settings.minimap.text_style"] = "文本",
     ["settings.minimap.group_text_short"] = "文字",
     ["settings.minimap.group_buttons_short"] = "按钮",
     ["settings.minimap.text_zone_sample"] = "区域名称",
@@ -95,6 +96,8 @@ YUI.Locale:Register("YMap", "zhCN", {
     ["settings.section.world_map_coordinates"] = "坐标",
     ["settings.world_map.enabled"] = "启用世界地图增强",
     ["settings.world_map.scale"] = "窗口缩放",
+    ["settings.world_map.window_managed"] = "窗口位置与缩放由 EllesmereUI Shifter 管理。YMap 的设置已保留，关闭 Shifter 后自动恢复；其他地图功能仍可使用。",
+    ["settings.world_map.window_managed_tooltip"] = "由 EllesmereUI Shifter 管理，关闭 Shifter 后可调整。",
     ["settings.world_map.fade_when_moving"] = "移动时半透明",
     ["settings.world_map.moving_opacity"] = "移动时不透明度（%）",
     ["settings.world_map.remember_position"] = "记住窗口位置",

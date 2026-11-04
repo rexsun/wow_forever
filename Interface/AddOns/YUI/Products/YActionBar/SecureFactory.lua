@@ -696,6 +696,249 @@ local function ApplyActionButtonClickAttributes(button)
     return ok == true
 end
 
+function Factory:ApplyClickAttributes(button)
+    return ApplyActionButtonClickAttributes(button)
+end
+
+function Factory:CreateClassSpellButton(holder, index)
+    if self:InCombat() or not (Client.classBars == true and holder) then return nil end
+    local button = CreateFrame("CheckButton", self:FrameName("Aspect", "aspects", index),
+        holder, "SecureActionButtonTemplate")
+    button:RegisterForClicks("AnyUp", "AnyDown")
+    local key = YAB.Keybinds:GetButtonKey("aspects", index)
+    self:SetButtonMeta(button, { barId = "aspects", index = index, buttonKey = key })
+    self:ApplyClickAttributes(button)
+    return button
+end
+
+local TOTEM_SET_PAGE = [[
+    local page = ...
+    if not page or page < 1 or page > 3 then return end
+    if page ~= 1 and not self:GetAttribute("summon" .. page) then return end
+    local base = self:GetAttribute("action-base")
+    if not base then return end
+    for slot = 1, 4 do
+        local main = self:GetFrameRef("slot" .. slot)
+        if main then main:SetAttribute("action", base + (page - 1) * 4 + slot) end
+    end
+    for i = 1, self:GetAttribute("selector-count") or 0 do
+        local selector = self:GetFrameRef("selector" .. i)
+        if selector then
+            selector:SetAttribute("action", base + (page - 1) * 4 + selector:GetAttribute("totem-slot"))
+        end
+    end
+    local summon = self:GetFrameRef("summon")
+    if summon then summon:SetAttribute("spell", self:GetAttribute("summon" .. page)) end
+    self:SetAttribute("totem-page", page)
+    self:CallMethod("TotemPageChanged", page)
+]]
+
+local TOTEM_HOVER = [[
+    local controller = self:GetFrameRef("totem-controller")
+    local panel = self:GetFrameRef("totem-panel")
+    if not controller or not panel or not controller:GetAttribute("interactive") then return end
+    for i = 1, 5 do
+        local other = controller:GetFrameRef("panel" .. i)
+        if other and other ~= panel then other:Hide() end
+    end
+    panel:Show()
+    panel:RegisterAutoHide(0.1)
+    panel:AddToAutoHide(self)
+    controller:CallMethod("TotemPresentationShown")
+]]
+
+local TOTEM_CLOSE_PANELS = [[
+    for i = 1, 5 do
+        local panel = self:GetFrameRef("panel" .. i)
+        if panel then panel:Hide() end
+    end
+]]
+
+local TOTEM_SELECT_PAGE = [[
+    if not down and button == "LeftButton" then
+        local controller = self:GetFrameRef("totem-controller")
+        if controller and controller:GetAttribute("interactive") then
+            controller:RunAttribute("set-totem-page", self:GetAttribute("totem-page"))
+        end
+    end
+    return nil, true
+]]
+
+local TOTEM_CLOSE_AFTER_CLICK = [[
+    if not down then
+        local panel = self:GetFrameRef("totem-panel")
+        if panel then panel:Hide() end
+        local controller = self:GetFrameRef("totem-controller")
+        if controller and self:GetAttribute("totem-slot") then
+            controller:CallMethod("TotemSelectionChanged")
+        end
+    end
+]]
+
+function Factory:CreateTotemController(holder)
+    if self:InCombat() or Client.classBars ~= true then return nil end
+    local controller = CreateFrame("Frame", nil, holder,
+        "SecureHandlerBaseTemplate,SecureHandlerShowHideTemplate")
+    controller:SetAttribute("set-totem-page", TOTEM_SET_PAGE)
+    controller:SetAttribute("_onhide", TOTEM_CLOSE_PANELS)
+    controller:SetAttribute("_onshow", [[self:CallMethod("TotemPresentationShown")]])
+    return controller
+end
+
+function Factory:CreateTotemPanel(holder, controller, index)
+    if self:InCombat() or Client.classBars ~= true then return nil end
+    local panel = CreateFrame("Frame", nil, holder, "SecureHandlerBaseTemplate,SecureHandlerShowHideTemplate")
+    panel:SetFrameStrata("DIALOG")
+    panel:SetClampedToScreen(true)
+    panel:EnableMouse(true)
+    panel:SetAttribute("_onhide", [[self:UnregisterAutoHide()]])
+    panel:Hide()
+    controller:SetFrameRef("panel" .. index, panel)
+    return panel
+end
+
+function Factory:CreateTotemButton(holder, role, index)
+    if self:InCombat() or Client.classBars ~= true then return nil end
+    local name = self:FrameName("Totem_" .. role, "totems", index)
+    local button = CreateFrame("CheckButton", name, holder,
+        "SecureActionButtonTemplate,SecureHandlerEnterLeaveTemplate")
+    button:SetID(0)
+    button:RegisterForClicks("AnyUp", "AnyDown")
+    self:ApplyClickAttributes(button)
+    self:SetButtonMeta(button, { barId = "totems", kind = "totems", role = role, index = index })
+    return button
+end
+
+function Factory:PrepareTotemOpener(button, panel, controller)
+    if self:InCombat() then return end
+    button:SetFrameRef("totem-controller", controller)
+    button:SetFrameRef("totem-panel", panel)
+    button:SetAttribute("_onenter", TOTEM_HOVER)
+end
+
+function Factory:PrepareTotemChoice(button, panel, controller, page)
+    if self:InCombat() then return end
+    button:SetFrameRef("totem-controller", controller)
+    button:SetFrameRef("totem-panel", panel)
+    button:RegisterForClicks("LeftButtonUp")
+    button:SetAttribute("useOnKeyDown", false)
+    if page then
+        button:SetAttribute("totem-page", page)
+        panel:WrapScript(button, "OnClick", TOTEM_SELECT_PAGE, TOTEM_CLOSE_AFTER_CLICK)
+    else
+        panel:WrapScript(button, "OnClick", [[
+            local controller = self:GetFrameRef("totem-controller")
+            if not controller or not controller:GetAttribute("interactive") then return false end
+            return nil, true
+        ]], TOTEM_CLOSE_AFTER_CLICK)
+    end
+end
+
+function Factory:SetTotemPage(controller, page)
+    if self:InCombat() or type(page) ~= "number" or page % 1 ~= 0 or page < 1 or page > 3 then return false end
+    controller:Execute("self:RunAttribute('set-totem-page', " .. page .. ")")
+    return true
+end
+
+function Factory:ApplyTotemBindings(controller, bindings)
+    if self:InCombat() then return false end
+    ClearOverrideBindings(controller)
+    for _, binding in ipairs(bindings) do
+        if binding.primaryKey then SetOverrideBindingClick(controller, false, binding.primaryKey, binding.buttonName, "LeftButton") end
+        if binding.secondaryKey then SetOverrideBindingClick(controller, false, binding.secondaryKey, binding.buttonName, "LeftButton") end
+    end
+    return true
+end
+
+
+local PET_UTILITY_CLICK_PRE = [[
+    if self:GetAttribute("yab-pet-utility-drop") then
+        if self:GetAttribute("yab-pet-feed-click") then
+            self:SetAttribute("yab-pet-feed-click", nil)
+            return nil, "feed"
+        end
+        return false
+    end
+    return nil, "toggle"
+]]
+local PET_UTILITY_CLICK_POST = [[
+    self:SetAttribute("type", nil)
+    if message == "toggle" and self:GetAttribute("yab-pet-utilities-enabled") then
+        local panel = self:GetFrameRef("petUtilities")
+        if panel:IsShown() then panel:Hide() else panel:Show() end
+        self:SetAttribute("yab-pet-toggle-this-press", true)
+    end
+]]
+local PET_UTILITY_RESET_DROP = [[
+    self:SetAttribute("yab-pet-utility-drop", nil)
+    self:SetAttribute("yab-pet-feed-click", nil)
+    self:SetAttribute("yab-pet-toggle-this-press", nil)
+    self:SetAttribute("type", nil)
+]]
+local PET_UTILITY_MOUSE_DOWN = PET_UTILITY_RESET_DROP .. [[
+    self:SetAttribute("yab-pet-panel-before-press", self:GetFrameRef("petUtilities"):IsShown())
+]]
+local PET_UTILITY_RECEIVE_DRAG = [[
+    if not kind or self:GetAttribute("yab-pet-utility-drop") then return false end
+    self:SetAttribute("yab-pet-utility-drop", true)
+    self:SetAttribute("type", nil)
+    if self:GetAttribute("yab-pet-toggle-this-press") then
+        local panel = self:GetFrameRef("petUtilities")
+        if self:GetAttribute("yab-pet-panel-before-press") then panel:Show() else panel:Hide() end
+        self:SetAttribute("yab-pet-toggle-this-press", nil)
+    end
+    if kind == "item" and self:GetAttribute("yab-pet-utilities-enabled") then
+        self:CallMethod("PreparePetFeed")
+    end
+    if self:GetAttribute("type") ~= "target" then return false end
+    return "message", "feed"
+]]
+local PET_UTILITY_FEED_POST = [[
+    self:SetAttribute("type", nil)
+]]
+local PET_UTILITY_CLOSE = [[
+    if not down then self:GetParent():Hide() end
+]]
+
+function Factory:CreatePetUtilityPanel(holder)
+    if self:InCombat() or Client.classBars ~= true then return nil end
+    local panel = CreateFrame("Frame", nil, holder, "SecureHandlerShowHideTemplate")
+    panel:SetFrameStrata("HIGH")
+    panel:SetClampedToScreen(true)
+    -- A hidden parent must not reopen an old popup when it becomes visible again.
+    panel:SetAttribute("_onhide", "self:Hide()")
+    panel:Hide()
+    local toggle = CreateFrame("CheckButton", nil, holder,
+        "SecureActionButtonTemplate,SecureHandlerMouseUpDownTemplate,SecureHandlerEnterLeaveTemplate")
+    toggle:RegisterForClicks("LeftButtonUp")
+    toggle:SetFrameRef("petUtilities", panel)
+    toggle:SetAttribute("unit", "pet")
+    toggle:SetAttribute("useOnKeyDown", false)
+    -- Native drag scripts supply no button argument. The native friendly-unit
+    -- remapping provides it without wrapping the protected action in addon Lua.
+    toggle:SetAttribute("helpbutton", "LeftButton")
+    toggle:SetScript("OnReceiveDrag", _G.SecureActionButton_OnClick)
+    -- A fresh press or entry begins a new drop gesture. The latch survives release
+    -- so a trailing click cannot toggle the popup or submit the same food twice.
+    toggle:SetAttribute("_onmousedown", PET_UTILITY_MOUSE_DOWN)
+    toggle:SetAttribute("_onenter", PET_UTILITY_RESET_DROP)
+    toggle:WrapScript(toggle, "OnClick", PET_UTILITY_CLICK_PRE, PET_UTILITY_CLICK_POST)
+    toggle:WrapScript(toggle, "OnReceiveDrag", PET_UTILITY_RECEIVE_DRAG, PET_UTILITY_FEED_POST)
+    self:SetButtonMeta(toggle, { barId = "aspects", petUtility = true })
+    return panel, toggle
+end
+
+function Factory:CreatePetUtilityButton(panel, index)
+    if self:InCombat() or Client.classBars ~= true then return nil end
+    local button = CreateFrame("CheckButton", nil, panel, "SecureActionButtonTemplate")
+    button:RegisterForClicks("AnyUp", "AnyDown")
+    self:SetButtonMeta(button, { barId = "aspects", petUtility = true, utilityIndex = index })
+    self:ApplyClickAttributes(button)
+    -- Keep the native action handler, then close on release for either click mode.
+    panel:WrapScript(button, "OnClick", "return nil, true", PET_UTILITY_CLOSE)
+    return button
+end
+
 local ACTION_PICKUP_CLICK_GUARD_PRE = [[
     if down and button ~= "Keybind" and ((self:GetAttribute("unlockedpreventdrag") and not self:GetAttribute("buttonlock")) or IsModifiedClick("PICKUPACTION")) then
         local useOnKeyDown = self:GetAttribute("useOnKeyDown")
@@ -1003,6 +1246,18 @@ end
 function Factory:InitializeNativeActionButton(button)
     if not button or self:InCombat() then return false end
     self:DetachActionButtonDispatchers(button)
+    if YAB.Client and YAB.Client.assistedHighlight == true then
+        -- Only remove this owned button from a list captured before dispatcher detach.
+        local manager = _G.AssistedCombatManager
+        local candidates = manager and manager.assistedHighlightCandidateActionButtons
+        if candidates then candidates[button] = nil end
+        local highlight = button.AssistedCombatHighlightFrame
+        if highlight then
+            local animation = highlight.Flipbook and highlight.Flipbook.Anim
+            if animation and animation.Stop then animation:Stop() end
+            if highlight.Hide then highlight:Hide() end
+        end
+    end
     button.OnEvent = NOOP
     button.OnUpdate = NOOP
     button.Update = NOOP
@@ -1202,6 +1457,15 @@ function Factory:RefreshActionButtonClickAttributes(reason)
             ok = ApplyActionButtonClickAttributes(button) ~= false and ok
         end
     end
+    if YAB.ClassBars and YAB.ClassBars.active.aspects then
+        for _, button in pairs(YAB.ClassBars.pool) do
+            ok = ApplyActionButtonClickAttributes(button) ~= false and ok
+        end
+        local utilities = YAB.ClassBars.petUtilities
+        for _, button in pairs(utilities and utilities.pool or {}) do
+            ok = ApplyActionButtonClickAttributes(button) ~= false and ok
+        end
+    end
     self.actionClickAttributeRefreshReason = reason
     return ok
 end
@@ -1287,6 +1551,36 @@ function Factory:SyncActionButtonState(button, holder, controller, barId, index,
     ApplyActionButtonClickAttributes(button)
     self:InstallActionDragGuard(button)
     InstallActionPickupClickGuard(button, holder)
+    self:RegisterNativeActionCooldown(button, slot)
+    return true
+end
+
+-- The secure page driver has already applied the action attributes. Keep the
+-- owned button's fixed setup and interaction wrappers while reconciling its slot.
+function Factory:SyncActionButtonPage(button, holder, controller, barId, index, page)
+    if not button or self:InCombat() then return false end
+    local meta = self:GetButtonMeta(button)
+    page = tonumber(page) or 1
+    index = tonumber(index) or 1
+    local slot = YAB.Adapter and YAB.Adapter:GetActionSlot(page, index) or (((page - 1) * 12) + index)
+    if barId ~= "main" or not self.detachedButtons[button]
+        or not meta or meta.barId ~= barId or meta.index ~= index
+        or meta.holder ~= holder or meta.controller ~= controller
+        or not button.GetParent or button:GetParent() ~= holder
+        or not button.GetAttribute
+        or button:GetAttribute("action") ~= slot
+        or button:GetAttribute("action1") ~= slot
+        or button:GetAttribute("action2") ~= slot
+        or button:GetAttribute("actionpage") ~= page
+        or button:GetAttribute("flyoutDirection") ~= GetControllerDirection(controller) then
+        return self:SyncActionButtonState(button, holder, controller, barId, index, page)
+    end
+    button.action = slot
+    meta.page = page
+    meta.slot = slot
+    ApplyPressAndHoldAttributes(button, slot)
+    ApplyActionButtonClickAttributes(button)
+    EnsureActionFlyoutBridge(button)
     self:RegisterNativeActionCooldown(button, slot)
     return true
 end

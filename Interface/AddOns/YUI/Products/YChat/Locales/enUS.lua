@@ -4,6 +4,13 @@ if not YUI or not YUI.Locale then return end
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("enUS") then return end
 
 YUI.Locale:Register("YChat", "enUS", {
+    ["settings.section.message_layout"] = "Message layout",
+    ["settings.appearance.tab_text"] = "Tab text",
+    ["settings.appearance.tab_palette"] = "Tab palette",
+    ["settings.color.fixed"] = "Fixed color",
+    ["settings.color.class"] = "Class color",
+    ["settings.typography.text_style"] = "Text",
+    ["settings.typography.per_window"] = "Per window",
     ["item_links.slot.INVTYPE_HEAD"] = "Head",
     ["item_links.slot.INVTYPE_SHOULDER"] = "Shoulder",
     ["item_links.slot.INVTYPE_CHEST"] = "Chest",
@@ -27,6 +34,7 @@ YUI.Locale:Register("YChat", "enUS", {
     ["product.short_title"] = "YChat",
     ["product.notes"] = "Chat window enhancement and appearance",
     ["layout.chat_frame"] = "Chat Frame",
+    ["layout.bnet_toast"] = "Battle.net notifications",
     ["layout.position_repaired"] = "An invalid chat-frame position was reset to its default.",
     ["conflict.yielded"] = "%s is managing chat. YChat has yielded and will not modify chat frames.",
 

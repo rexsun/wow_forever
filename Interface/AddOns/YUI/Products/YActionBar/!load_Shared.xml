@@ -1,10 +1,13 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Script file="..\..\GUI\GUI2_Pressed.lua"/>
     <Script file="Defaults.lua"/>
     <Script file="Adapter.lua"/>
     <Script file="HotDiagnostics.lua"/>
     <Script file="ConflictGuard.lua"/>
     <Script file="Skins.lua"/>
+    <Script file="TextStyle.lua"/>
     <Script file="Visuals.lua"/>
+    <Script file="IconSkins.lua"/>
     <Script file="ConfigSets.lua"/>
     <Script file="Recipes.lua"/>
     <Script file="SecureFactory.lua"/>

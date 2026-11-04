@@ -8,7 +8,7 @@ YUI.NotificationSound = Service
 local API = YUI.API and YUI.API.Sound
 local owners = setmetatable({}, { __mode = "k" })
 local MAX_HANDLES = 8
-local kinds = { native = true, voice = true, system = true, tts = true, lsm = true, custom = true }
+local kinds = { none = true, native = true, voice = true, system = true, tts = true, lsm = true, custom = true }
 local channels = { Master = true, SFX = true, Music = true, Ambience = true, Dialog = true }
 
 local function Secret(value)
@@ -29,7 +29,7 @@ local function ReadSelection(selection)
         if Secret(key) or count > 2 or (key ~= "kind" and key ~= "value") then return nil, "invalid-selection" end
     end
     if Secret(value) then return nil, "invalid-selection" end
-    if kind == "native" then
+    if kind == "native" or kind == "none" then
         if value ~= nil then return nil, "invalid-selection" end
         return kind
     end
@@ -70,7 +70,7 @@ end
 function Service:GetCapabilities()
     local provider, ready, reason = Provider()
     return { provider = provider, ready = ready, reason = reason,
-        sources = { native = true, lsm = true, custom = true, voice = ready, system = ready, tts = ready } }
+        sources = { none = true, native = true, lsm = true, custom = true, voice = ready, system = ready, tts = ready } }
 end
 
 local function Media()
@@ -106,6 +106,9 @@ end
 
 function Service:GetSelectionState(selection, options)
     local normalized, reason = self:NormalizeSelection(selection)
+    if normalized and normalized.kind == "none" then
+        return { selection = normalized, effective = normalized, backend = "local", available = true }
+    end
     local provider, ready, capabilityReason = Provider()
     local resource
     if normalized then
@@ -127,6 +130,10 @@ function Service:GetChoices(source, query, current, options)
             result[#result + 1] = { kind = kind, value = value, label = label, available = available ~= false }
         end
     end
+    if source == "all" or source == "none" then
+        local locale = YUI.Locale and YUI.Locale:Get("Core")
+        Add("none", nil, locale and locale["notification.sound.none"] or "Do not play")
+    end
     if source == "all" or source == "native" then
         local locale = YUI.Locale and YUI.Locale:Get("Core")
         Add("native", nil, locale and locale["notification.sound.native"] or "Native sound", self:ResolveNative(options) ~= nil)
@@ -145,6 +152,7 @@ function Service:GetChoices(source, query, current, options)
         end
     end
     table.sort(result, function(a, b)
+        if (a.kind == "none") ~= (b.kind == "none") then return a.kind == "none" end
         if a.kind ~= b.kind then return a.kind < b.kind end
         return a.label < b.label
     end)
@@ -185,7 +193,7 @@ local function LocalPlay(owner, kind, value, options, preview)
     end
     local issue = API and API.GetOutputIssue and API.GetOutputIssue()
     if issue then return false, issue end
-    local channel = options and options.defaultChannel
+    local channel = options and (options.channel or options.defaultChannel)
     channel = channels[channel] and channel or "Master"
     local function Play(part)
         local play = API and (part.kind == "kit" and API.PlayKit or API.PlayFile)
@@ -212,6 +220,10 @@ local function Request(owner, key, selection, options, preview)
     end
     local kind, value = ReadSelection(selection)
     if not kind then kind, value = "native", nil end
+    if kind == "none" then
+        Service:CancelOwner(owner)
+        return false, "sound-none"
+    end
     local provider, ready, reason = Provider()
     if reason == "module-disabled" or (not preview and reason == "sound-disabled") then return false, reason end
     if ready then

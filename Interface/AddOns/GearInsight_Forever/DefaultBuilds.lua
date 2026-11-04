@@ -57,6 +57,8 @@ local function myMainTree()
     return best
 end
 
+ns.MyMainTree = myMainTree   -- 10-18 推荐装备按天赋（SpecGear.lua）自动识别也用这个
+
 -- 选哪套 → key
 function ns.DefaultBuildKey(cls)
     local L = ns.DefaultBuilds(cls)

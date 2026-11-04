@@ -8,7 +8,7 @@ local DB = YUI.DB
 local SCHEMA_VERSION = 2
 local MIGRATION_KEY = "legacyToV2"
 local NATIVE_INTERFACE_MIGRATION_KEY = "nativeInterfaceV2"
-local NATIVE_INTERFACE_MIGRATION_VERSION = 2
+local NATIVE_INTERFACE_MIGRATION_VERSION = 3
 
 local APPEARANCE_LEGACY_KEYS = {
     elvUI = "YUISkins",
@@ -518,6 +518,7 @@ end
 local COMMON_NATIVE_INTERFACE_KEYS = {
     "hideStatusTrackingBars",
     "hideMicroMenu",
+    "manageBagsBar",
 }
 
 local RETAIL_NATIVE_INTERFACE_KEYS = {
@@ -538,6 +539,7 @@ local COMMON_NATIVE_INTERFACE_ALLOWED = {
     hideStatusTrackingBars = true,
     hideMicroMenu = true,
     bagsBarVisibility = true,
+    manageBagsBar = true,
     _migrationVersion = true,
 }
 
@@ -546,6 +548,7 @@ local RETAIL_NATIVE_INTERFACE_ALLOWED = {
     hideStatusTrackingBars = true,
     hideMicroMenu = true,
     bagsBarVisibility = true,
+    manageBagsBar = true,
     hideBuffCollapseButton = true,
     manageTopCenterWidget = true,
     managePowerBarWidget = true,
@@ -555,7 +558,8 @@ local RETAIL_NATIVE_INTERFACE_ALLOWED = {
 
 local function IsNormalizedNativeInterfaceConfig(config)
     if type(config) ~= "table"
-        or config._migrationVersion ~= NATIVE_INTERFACE_MIGRATION_VERSION then
+        or config._migrationVersion ~= NATIVE_INTERFACE_MIGRATION_VERSION
+        or type(rawget(config, "manageBagsBar")) ~= "boolean" then
         return false
     end
     for _, key in ipairs(COMMON_NATIVE_INTERFACE_KEYS) do
@@ -620,7 +624,9 @@ local function BuildNativeInterfaceCandidate(profile)
         candidate.bagsBarVisibility = "auto"
     end
     for _, key in ipairs(COMMON_NATIVE_INTERFACE_KEYS) do
-        if type(current) == "table" and type(current[key]) == "boolean" then
+        if key == "manageBagsBar" then
+            candidate[key] = type(current) ~= "table" or rawget(current, key) ~= false
+        elseif type(current) == "table" and type(current[key]) == "boolean" then
             candidate[key] = current[key]
         else
             candidate[key] = ResolveLegacyYActionBarVisibility(profile, key == "hideStatusTrackingBars"

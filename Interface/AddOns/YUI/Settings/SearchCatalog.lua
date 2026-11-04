@@ -92,6 +92,8 @@ Search:RegisterCatalog("component:EditMode", "Core", "", [[
 
 ]])
 Search:RegisterCatalog("component:EllesmereUIEnhancement", "EllesmereUIEnhancement", "", [[
+settings.quest_tracker.scroll
+settings.section.quest_tracker
 settings.hotkeys.enabled
 settings.hotkeys.aliases
 settings.hotkeys.apply
@@ -440,6 +442,12 @@ sound.settings.channel
 sound.settings.current_pack
 ]])
 Search:RegisterCatalog("ychat.settings", "YChat", "appearance", [[
+settings.typography.custom_size
+settings.typography.font
+settings.typography.font_size
+settings.typography.outline
+settings.appearance.tab_text
+settings.appearance.tab_palette
 settings.appearance.background_alpha
 settings.appearance.background_color
 settings.appearance.border
@@ -485,12 +493,8 @@ settings.timestamp.format
 settings.timestamp.gap
 settings.timestamp.layout
 settings.timestamp.native_indent
-settings.typography.custom_size
 settings.typography.custom_spacing
-settings.typography.font
-settings.typography.font_size
 settings.typography.line_spacing
-settings.typography.outline
 ]])
 Search:RegisterCatalog("ychat.settings", "YChat", "records", [[
 settings.records.clear

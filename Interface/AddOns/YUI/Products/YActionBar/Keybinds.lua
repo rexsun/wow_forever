@@ -266,7 +266,7 @@ local HELD_BINDING_REFRESH = [[
             if button:GetAttribute("pressAndHoldAction") ~= empowered then
                 button:SetAttribute("pressAndHoldAction", empowered)
             end
-            local native = actionType == "spell" and not empowered
+            local native = entry.allowNative and actionType == "spell" and not empowered
             if entry.native ~= native then
                 entry.native = native
                 for _, key in ipairs(entry.keys) do
@@ -411,6 +411,10 @@ function Keybinds:RegisterHeldBinding(button, command, keys)
     owner:SetAttribute("held-command", command)
     owner:SetAttribute("held-key1", keys[1])
     owner:SetAttribute("held-key2", keys[2])
+    -- Native ACTIONBUTTON commands follow the game's class page independently.
+    local allowNative = not (meta and meta.barId == "main" and YAB.Adapter
+        and YAB.Adapter.IsFormPagingEnabled and not YAB.Adapter:IsFormPagingEnabled())
+    owner:SetAttribute("held-native-allowed", allowNative)
     owner:Execute([[
         local button = self:GetFrameRef("held-button")
         local entry = table.new()
@@ -419,6 +423,7 @@ function Keybinds:RegisterHeldBinding(button, command, keys)
         entry.keys[1] = self:GetAttribute("held-key1")
         entry.keys[2] = self:GetAttribute("held-key2")
         entry.native = false
+        entry.allowNative = self:GetAttribute("held-native-allowed") == true
         heldBindings[button] = entry
         self:RunAttribute("RefreshHeldBindings", button)
     ]])
@@ -451,7 +456,7 @@ function Keybinds:SuppressRuntimeBindings(reason)
     return true
 end
 
-function Keybinds:GetBindingText(buttonKey)
+function Keybinds:GetBindingText(buttonKey, db)
     local button = self:FindButton(buttonKey)
     local command = GetButtonCommand(button)
     if command and GetBindingKey then
@@ -460,7 +465,7 @@ function Keybinds:GetBindingText(buttonKey)
             return FormatBindingText(key)
         end
     end
-    local db = YAB.GetDB and YAB:GetDB() or nil
+    db = db or (YAB.GetDB and YAB:GetDB() or nil)
     local stored = db and db.keybinds and db.keybinds.bindings and db.keybinds.bindings[buttonKey] or nil
     return stored and FormatBindingText(stored) or nil
 end
@@ -810,6 +815,7 @@ function Keybinds:ApplyRuntimeBindings(skipCompatibilityRepair)
     local owner = self:EnsureOwner()
     local suppressReason = self:GetSystemBindingSuppressionReason()
     if suppressReason then
+        if YAB.ClassBars and YAB.ClassBars.RefreshTotemBindings then YAB.ClassBars:RefreshTotemBindings(true) end
         return self:SuppressRuntimeBindings(suppressReason)
     end
     self.bindingSuppressed = false
@@ -832,7 +838,10 @@ function Keybinds:ApplyRuntimeBindings(skipCompatibilityRepair)
             local name = button and button.GetName and button:GetName()
             local command = GetButtonCommand(button)
             local clickButton = GetRuntimeClickButton(button)
-            if name and command then
+            local meta = YAB.SecureFactory.GetButtonMeta and YAB.SecureFactory:GetButtonMeta(button)
+            if meta and meta.totemBindingManaged then
+                -- The totem controller preserves bindings for all three combination pages.
+            elseif name and command then
                 GetBindingKeys(command, scratch)
                 for _, key in ipairs(scratch) do
                     if key and key ~= "" then
@@ -859,10 +868,12 @@ function Keybinds:ApplyRuntimeBindings(skipCompatibilityRepair)
         end
     end
     self.activeBindings = active
+    if YAB.ClassBars and YAB.ClassBars.RefreshTotemBindings then YAB.ClassBars:RefreshTotemBindings() end
     return true
 end
 
 function Keybinds:ClearRuntimeBindings()
+    if YAB.ClassBars and YAB.ClassBars.RefreshTotemBindings then YAB.ClassBars:RefreshTotemBindings(true) end
     if self.ownerFrame and ClearOverrideBindings and not InCombat() then
         self:ResetHeldBindings()
         ClearOverrideBindings(self.ownerFrame)

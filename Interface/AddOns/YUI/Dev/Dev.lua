@@ -959,6 +959,8 @@ function Dev:SetEnabled(enabled, silent)
         self:CreateButtons()
     else
         self:StopYABProbe(true)
+        if self.EffectPreview then self.EffectPreview:Close() end
+        if self.SkinPreview then self.SkinPreview:Close() end
         self:SetYABSpecialGroupPreview(false, true)
         self:HideButtons()
         if self.MonitorDev and type(self.MonitorDev.Close) == "function" then
@@ -995,6 +997,11 @@ function Dev:PrintHelp()
     Print("/yui dev off")
     Print("/yui dev toggle")
     Print("/yui dev status")
+    Print("/yui dev changelog")
+    Print("/yui dev addons")
+    Print("/yui dev effects [on|off|play|stop]")
+    Print("/yui dev skins [on|off|capture|shadow on|shadow off]")
+    Print("/yui dev skins56 [play|replay|all|off]")
     Print("/yui dev tool")
     Print("/yui dev monitor")
     Print("/yui dev monitor log on|off|clear")
@@ -1013,6 +1020,9 @@ end
 
 function Dev:HandleSlash(args)
     args = Trim(args)
+    if self.HandleNoticePreview and self:HandleNoticePreview(args) then return true end
+    if self.HandleEffectPreview and self:HandleEffectPreview(args) then return true end
+    if self.HandleSkinPreview and self:HandleSkinPreview(args) then return true end
     if args == "" or args == "help" then
         self:PrintHelp()
         return true

@@ -1,14 +1,14 @@
-## Title: |TInterface/AddOns/YUI/Media/Core/images/YUI-LOGO-300.png:16:16:0:0|t YUI · YanForge
+## Title: |TInterface/AddOns/YUI/Media/Core/images/YUI-LOGO-300.png:16:16:0:0|t YUI · Ayan
 ## Title-zhCN: |TInterface/AddOns/YUI/Media/Core/images/YUI-LOGO-300.png:16:16:0:0|t YUI · 言工坊
 ## Title-zhTW: |TInterface/AddOns/YUI/Media/Core/images/YUI-LOGO-300.png:16:16:0:0|t YUI · 言工坊
 ## Notes: The YUI all-in-one interface suite.
 ## Notes-zhCN: YUI 整合界面插件。
 ## Notes-zhTW: YUI 整合介面插件。
-## Author: 阿言
-## Version: v341
+## Author: Ayan
+## Version: v351
 ## SavedVariables: YUI_DB, YUI_CPUDiagnostics
 ## Interface: 38001
-## OptionalDeps: NDUI, ElvUI, Details, !Pig, ExtendedVendorFrame_YUI, BugSack
+## OptionalDeps: Masque, NDUI, ElvUI, Details, !Pig, ExtendedVendorFrame_YUI, BugSack
 
 ## Group: YUI
 

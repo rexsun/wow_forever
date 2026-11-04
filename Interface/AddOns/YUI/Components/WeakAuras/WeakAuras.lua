@@ -370,6 +370,152 @@ function WA:HideUF(id)
     end
 end
 
+-- 时光服点击层只锚定 UIParent，避免安全按钮保护到 WA 的布局框架。
+local detachedButtons = {}
+local detachedDriver
+local detachedElapsed = 0
+
+local function ReadAuraRect(id)
+    local region = WeakAuras.GetRegion(id)
+    if not region or not region:IsVisible() or
+        region:GetEffectiveAlpha() <= 0 then return end
+
+    local left, bottom, width, height = region:GetRect()
+    if not left or not bottom or not width or not height or
+        width <= 0 or height <= 0 then return end
+
+    local scale = region:GetEffectiveScale() / UIParent:GetEffectiveScale()
+    return region, left * scale, bottom * scale, width * scale, height * scale
+end
+
+local function CaptureActionIcon(entry, icon)
+    -- 文字等区域没有图标，点击范围仍跟随区域；只清除旧的图标快照。
+    if not icon then
+        if entry.texture ~= nil then
+            entry.snapshot:SetTexture(nil)
+            entry.texture = nil
+        end
+        return
+    end
+
+    local texture = icon:GetTexture()
+    local a, b, c, d, e, f, g, h = icon:GetTexCoord()
+    if entry.texture ~= texture or entry.a ~= a or entry.b ~= b or
+        entry.c ~= c or entry.d ~= d or entry.e ~= e or entry.f ~= f or
+        entry.g ~= g or entry.h ~= h then
+        entry.snapshot:SetTexture(texture)
+        entry.snapshot:SetTexCoord(a, b, c, d, e, f, g, h)
+        entry.texture = texture
+        entry.a, entry.b, entry.c, entry.d = a, b, c, d
+        entry.e, entry.f, entry.g, entry.h = e, f, g, h
+    end
+end
+
+local function RefreshDetachedButtons()
+    local combat = SecurityAPI.InCombatLockdown()
+    local preview = WeakAuras.IsOptionsOpen()
+    local active = false
+
+    for id, entry in pairs(detachedButtons) do
+        if entry.active then
+            local button = entry.button
+            local region, x, y, width, height = ReadAuraRect(id)
+            local sameRect = x and x == entry.x and y == entry.y and
+                width == entry.width and height == entry.height
+            local snapshotAlpha = 0
+
+            if combat then
+                -- 战斗中只更新普通纹理，不改变安全按钮的结构和动作。
+                if button:IsShown() and not sameRect and entry.texture then
+                    snapshotAlpha = 1
+                end
+            elseif not WeakAuras.GetData(id) then
+                button:Hide()
+                entry.active = false
+                entry.snapshot:SetTexture(nil)
+                entry.texture = nil
+            else
+                local shown = not preview and x ~= nil
+                if shown then
+                    if not sameRect then
+                        button:ClearAllPoints()
+                        button:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", x, y)
+                        button:SetSize(width, height)
+                        entry.x, entry.y = x, y
+                        entry.width, entry.height = width, height
+                    end
+
+                    local strata = region:GetFrameStrata()
+                    local level = region:GetFrameLevel() + 1
+                    if entry.strata ~= strata then
+                        button:SetFrameStrata(strata)
+                        entry.strata = strata
+                    end
+                    if entry.level ~= level then
+                        button:SetFrameLevel(level)
+                        entry.level = level
+                    end
+                    CaptureActionIcon(entry, region.icon)
+                end
+                if button:IsShown() ~= shown then button:SetShown(shown) end
+            end
+
+            if entry.snapshotAlpha ~= snapshotAlpha then
+                entry.snapshot:SetAlpha(snapshotAlpha)
+                entry.snapshotAlpha = snapshotAlpha
+            end
+            if entry.active then active = true end
+        end
+    end
+
+    if not active then
+        detachedDriver:SetScript("OnUpdate", nil)
+        detachedDriver:UnregisterAllEvents()
+    end
+end
+
+local function UpdateDetachedButtons(_, elapsed)
+    detachedElapsed = detachedElapsed + elapsed
+    if detachedElapsed < 0.1 then return end
+    detachedElapsed = 0
+    RefreshDetachedButtons()
+end
+
+local function AcquireDetachedButton(id, buttonName)
+    local entry = detachedButtons[id]
+    if not entry then
+        local button = CreateFrame("Button", buttonName, UIParent,
+                                   "SecureActionButtonTemplate")
+        button:Hide()
+        button:SetScale(1)
+        local snapshot = button:CreateTexture(nil, "ARTWORK")
+        snapshot:SetAllPoints(button)
+        snapshot:SetAlpha(0)
+        entry = {button = button, snapshot = snapshot, snapshotAlpha = 0}
+        detachedButtons[id] = entry
+    else
+        -- 同名光环重建时复用按钮，清除旧的可选宏动作。
+        entry.button:SetAttribute("macrotext2", nil)
+        entry.button:SetAttribute("macrotext3", nil)
+        entry.button:SetScript("OnEnter", nil)
+        entry.button:SetScript("OnLeave", nil)
+    end
+    if not detachedDriver then detachedDriver = CreateFrame("Frame") end
+    return entry.button
+end
+
+local function ActivateDetachedButton(id, button)
+    local entry = detachedButtons[id]
+    if not entry or entry.button ~= button then return end
+    entry.active = true
+    detachedElapsed = 0
+    detachedDriver:RegisterEvent("PLAYER_REGEN_DISABLED")
+    detachedDriver:RegisterEvent("PLAYER_REGEN_ENABLED")
+    detachedDriver:SetScript("OnEvent", RefreshDetachedButtons)
+    detachedDriver:SetScript("OnUpdate", UpdateDetachedButtons)
+    RefreshDetachedButtons()
+end
+
 local pendingQueue = {}
 local pendingQueueHandle
 local function FlushPendingQueue()
@@ -481,12 +627,17 @@ function WA:SetButton(aura_env, buttonName, type, context, context2, context3,
         end
     else
         -- others
+        if YUI.IsWrath and aura_env.cloneId and aura_env.cloneId ~= "" then return end
         if not aura_env.button then
-            aura_env.button = CreateFrame("Button", buttonName,
+            if YUI.IsWrath then
+                aura_env.button = AcquireDetachedButton(aura_env.id, buttonName)
+            else
+                aura_env.button = CreateFrame("Button", buttonName,
                                           WeakAuras.GetRegion(aura_env.id),
                                           "SecureActionButtonTemplate")
+                aura_env.button:SetAllPoints()
+            end
             f = aura_env.button
-            f:SetAllPoints()
             Secure:RegisterActionClicks(f)
             f:SetAttribute("type", type)
 
@@ -517,6 +668,10 @@ function WA:SetButton(aura_env, buttonName, type, context, context2, context3,
                 end)
             end
 
+        end
+        if YUI.IsWrath then
+            f = aura_env.button
+            ActivateDetachedButton(aura_env.id, f)
         end
     end
 

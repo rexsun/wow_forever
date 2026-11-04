@@ -122,6 +122,7 @@ local function AddCommonTokens(tokens)
 
     tokens["color.state.success"] = Color(0.21, 0.75, 0.38, 1)
     tokens["color.state.warning"] = Color(0.95, 0.70, 0.22, 1)
+    tokens["color.tooltip.warning"] = CopyValue(tokens["color.state.warning"])
     tokens["color.state.error"] = Color(0.95, 0.25, 0.25, 1)
     tokens["color.tooltip.requirement"] = CopyValue(tokens["color.state.error"])
     tokens["color.state.info"] = Color(0.30, 0.62, 0.98, 1)

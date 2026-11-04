@@ -1,4 +1,5 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Include file="AddonAssistant\!load.xml"/>
     <Include file="ExperienceBar\!load.xml"/>
     <Include file="Voice\!load_Mainline.xml"/>
     <Script file="Friend\Friend.lua"/>
@@ -8,6 +9,12 @@
     <Script file="TradeEnhancement\TradeEnhancement.lua"/>
     <Include file="MailAssistant\Locales\!load.xml"/>
     <Script file="MailAssistant\MailAssistant.lua"/>
+    <Script file="MailAssistant\Compatibility.lua"/>
+    <Script file="MailAssistant\InboxModel.lua"/>
+    <Script file="MailAssistant\Inbox.lua"/>
+    <Script file="MailAssistant\MailLogModel.lua"/>
+    <Script file="MailAssistant\MailLog.lua"/>
+    <Script file="MailAssistant\MailLogView.lua"/>
     <Script file="EditMode\EditMode.lua"/>
     <Script file="CooldownMgr\CooldownMgr.lua"/>
     <Script file="SenseiClassResourceBar\SenseiClassResourceBar.lua"/>
@@ -30,6 +37,7 @@
     <Script file="NativeInterface\Runtime.lua"/>
     <Include file="EllesmereUIEnhancement\Locales\!load.xml"/>
     <Script file="EllesmereUIEnhancement\Hotkeys.lua"/>
+    <Script file="EllesmereUIEnhancement\QuestTrackerScroll.lua"/>
     <Script file="EllesmereUIEnhancement\EllesmereUIEnhancement.lua"/>
     <Include file="MouseEnhancement\Locales\!load.xml"/>
     <Script file="MouseEnhancement\PlayerTooltip.lua"/>
@@ -50,6 +58,7 @@
     <Script file="AuctionHelper\Appearance.lua"/>
     <Script file="AuctionHelper\Editor.lua"/>
     <Script file="AuctionHelper\RecipeTracker.lua"/>
+    <Script file="AuctionHelper\Search.lua"/>
     <Script file="AuctionHelper\AuctionHelper.lua"/>
     <Include file="CharacterEquipmentInfo\Locales\!load.xml"/>
     <Script file="CharacterEquipmentInfo\SlotOverlays.lua"/>
@@ -62,6 +71,7 @@
     <Include file="SpellAlert\Locales\!load.xml"/>
     <Script file="SpellAlert\BuffTimerRules.lua"/>
     <Script file="SpellAlert\BuffTimer.lua"/>
+    <Script file="SpellAlert\PreviewDefaults.lua"/>
     <Script file="SpellAlert\SpellAlert.lua"/>
     <Include file="CombatCue\Locales\!load.xml"/>
     <Script file="CombatCue\CombatCue.lua"/>
@@ -80,6 +90,7 @@
     <Script file="ClassExtraMonitor\ClassExtraMonitor.lua"/>
     <Script file="ClassExtraMonitor\DevourerTransform.lua"/>
     <Script file="ClassExtraMonitor\BrewmasterElixir.lua"/>
+    <Script file="ClassExtraMonitor\BloodBoil.lua"/>
     <Include file="MythicPlusTools\Locales\!load.xml"/>
     <Script file="MythicPlusTools\MythicPlusTools.lua"/>
     <Script file="MythicPlusTools\BattleRes.lua"/>

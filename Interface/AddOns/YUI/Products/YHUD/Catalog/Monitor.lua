@@ -999,6 +999,31 @@ local function IsOfficialRowNativeVisible(row)
     return type(row.category) == "string" and row.metadataOnly ~= true
 end
 
+local function IsAuraPresetCovered(rows, preset)
+    if preset.excludeNativeAura ~= true then return false end
+    local spellIDs = preset.spellIDs or {}
+    for index = 1, math.max(1, #spellIDs) do
+        local spellID = spellIDs[index] or preset.displaySpellID
+        local covered = false
+        for rowIndex = 1, #(rows or {}) do
+            local row = rows[rowIndex]
+            if IsOfficialRowForFamily(row, "buff") then
+                covered = IsPublicPositiveInteger(row.spellID) == spellID
+                    or IsPublicPositiveInteger(row.overrideSpellID) == spellID
+                for linkedIndex = 1, #(row.linkedSpellIDs or {}) do
+                    if IsPublicPositiveInteger(row.linkedSpellIDs[linkedIndex]) == spellID then
+                        covered = true
+                        break
+                    end
+                end
+                if covered then break end
+            end
+        end
+        if not covered then return false end
+    end
+    return true
+end
+
 local function DecoratePickerOption(option)
     if type(option) ~= "table" then return option end
     if option.kind == "official" then
@@ -1333,6 +1358,8 @@ local function BuildTimedBuffPresetOption(profile, groupId, preset)
     local kind = "timed-buff"
     if preset.sourceType == YHUD.PLAYER_AURA_SOURCE_TYPE then
         kind = "aura-preset"
+    elseif preset.sourceType == "class-extra-monitor" then
+        kind = "class-extra"
     elseif preset.sourceType == SPELL_EVENT_WINDOW_SOURCE_TYPE then
         kind = "spell-event-window"
     end
@@ -1417,13 +1444,17 @@ function MonitorCatalog:Build(
     if not group then return nil, "group-not-found" end
     semanticFamily = semanticFamily == "buff" and "buff" or "cooldown"
     local capabilities = YHUD:GetGroupAddCapabilities(group)
-    if not capabilities[semanticFamily] then
+    local resourceSelection = type(options) == "table" and options.resourceSelection == true
+        and group.contentPolicy == "resource-only" and YHUD.ResourceManager ~= nil
+    if not capabilities[semanticFamily] and not resourceSelection then
         return nil, "content-policy-mismatch"
     end
 
+    local catalogSpecKey = resourceSelection and options.resourceSpecKey or specKey
+    if not YHUD:IsStableSpecKey(catalogSpecKey) then return nil, "invalid-spec-key" end
     local result = {
         groupId = groupId,
-        specKey = specKey,
+        specKey = catalogSpecKey,
         semanticFamily = semanticFamily,
         options = {},
         warning = nil,
@@ -1437,6 +1468,7 @@ function MonitorCatalog:Build(
     readOptions.includeHidden = true
     local includeOfficial = type(options) ~= "table"
         or options.includeOfficial ~= false
+    if resourceSelection and catalogSpecKey ~= YHUD:GetCurrentSpecKey() then includeOfficial = false end
     local rows, snapshot
     if includeOfficial then rows, snapshot = CDMCatalog:Read(readOptions) end
     if rows then
@@ -1513,13 +1545,27 @@ function MonitorCatalog:Build(
                 )
         end
     else
+        local nativeAuraRows = rows
+        local nativeAuraRead = includeOfficial
         result.options[#result.options + 1] =
             BuildEquipmentAuraBundleOption(profile, groupId)
+        if YUI.HelpfulBuffs then
+            result.options[#result.options + 1] = self:BuildExternalBuffOption(profile, groupId)
+        end
         for index = 1, #TIMED_BUFF_SPELL_PRESETS do
             local preset = TIMED_BUFF_SPELL_PRESETS[index]
-            if not preset.specKey or preset.specKey == specKey then
-                result.options[#result.options + 1] =
-                    BuildTimedBuffPresetOption(profile, groupId, preset)
+            if preset.presetId ~= "power-infusion" and preset.presetId ~= "innervate"
+                and (not preset.specKey or preset.specKey == catalogSpecKey)
+                and (not preset.classToken or preset.classToken == catalogSpecKey:match("^([^:]+):")) then
+                if preset.excludeNativeAura == true and not nativeAuraRead
+                    and (not resourceSelection or includeOfficial) then
+                    nativeAuraRows = CDMCatalog:Read(readOptions)
+                    nativeAuraRead = true
+                end
+                if not IsAuraPresetCovered(nativeAuraRows, preset) then
+                    result.options[#result.options + 1] =
+                        BuildTimedBuffPresetOption(profile, groupId, preset)
+                end
             end
         end
         for index = 1, #QUICK_TIMED_BUFF_PRESETS do
@@ -1532,7 +1578,7 @@ function MonitorCatalog:Build(
         end
         for index = 1, #TIER_SET_AURA_PRESETS do
             local preset = TIER_SET_AURA_PRESETS[index]
-            if preset.specKey == specKey then
+            if preset.specKey == catalogSpecKey then
                 result.options[#result.options + 1] =
                     BuildTimedBuffPresetOption(profile, groupId, preset)
             end
@@ -1540,6 +1586,11 @@ function MonitorCatalog:Build(
     end
     for index = 1, #result.options do
         DecoratePickerOption(result.options[index])
+    end
+    if resourceSelection then
+        local selectionProfile = catalogSpecKey == specKey and profile
+            or YHUD:GetScopedProfile(canonical, catalogSpecKey, true)
+        result.options = YHUD.ResourceManager:BuildSelectionOptions(selectionProfile, result.options, semanticFamily)
     end
     return result
 end
@@ -1950,6 +2001,9 @@ function MonitorCatalog:Apply(draft, groupId, option)
     if option.kind == "spell-bundle" then
         return self:AddSpellBundle(draft, groupId, option.bundleKind)
     end
+    if option.kind == "external-buff-bundle" then
+        return self:AddExternalBuffBundle(draft, groupId)
+    end
     if option.kind == "equipment-aura-bundle" then
         return self:AddEquipmentAuraBundle(draft, groupId)
     end
@@ -2001,6 +2055,9 @@ function MonitorCatalog:Apply(draft, groupId, option)
                 origin = "preset",
             }
         )
+    end
+    if option.kind == "class-extra" then
+        return self:AddPresetClassExtra(draft, draft.specKey, groupId, option)
     end
     if option.kind == "spell-event-window" then
         return self:AddPresetSpellEventWindow(
@@ -2601,6 +2658,7 @@ function MonitorCatalog:GetSpellBundleOptions(
     bundleKind,
     requestedSpecKey
 )
+    if bundleKind == "externalBuff" then return "external", self:GetExternalBuffOptions(profile) end
     local definition = SPELL_BUNDLE_DEFINITIONS[bundleKind]
     if not definition then return nil, "invalid-spell-bundle" end
     local classToken, specID, specKey = GetSpecContext(
@@ -3037,6 +3095,8 @@ function MonitorCatalog:GetMonitorLayoutProjection(
                 previewOnly = true,
             }
         end
+    elseif bundleKind == "externalBuff" then
+        sources = self:GetExternalBuffProjection(profile, preview)
     elseif bundleKind == "racial" then
         sources = self:GetEnabledPlayerRacialSources(profile)
     else
@@ -3121,6 +3181,9 @@ function MonitorCatalog:SetSpellBundleEnabled(
     if not ProfileModel:IsDraft(draft) or draft.closed == true then
         return nil, "invalid-draft"
     end
+    if bundleKind == "externalBuff" then
+        return self:SetExternalBuffEnabled(draft, spellID, enabled)
+    end
     local definition = SPELL_BUNDLE_DEFINITIONS[bundleKind]
     spellID = IsPositiveInteger(spellID)
     if not definition or not spellID then
@@ -3166,6 +3229,9 @@ function MonitorCatalog:MoveSpellBundleSpell(
 )
     if not ProfileModel:IsDraft(draft) or draft.closed == true then
         return nil, "invalid-draft"
+    end
+    if bundleKind == "externalBuff" then
+        return self:MoveExternalBuff(draft, spellID, targetIndex)
     end
     spellID = IsPositiveInteger(spellID)
     targetIndex = IsPositiveInteger(targetIndex)
@@ -3252,7 +3318,8 @@ function MonitorCatalog:SetSpellBundleActive(draft, bundleKind, enabled)
     if not ProfileModel:IsDraft(draft) or draft.closed == true then
         return nil, "invalid-draft"
     end
-    local entryKey = bundleKind == "racial"
+    local entryKey = bundleKind == "externalBuff" and "bundle:external-buffs"
+        or bundleKind == "racial"
         and RACIAL_BUNDLE_ENTRY_KEY
         or (bundleKind == EQUIPMENT_AURA_BUNDLE_KIND
             and EQUIPMENT_AURA_BUNDLE_ENTRY_KEY)
@@ -3616,6 +3683,45 @@ local function NormalizeTriggerSpellIDs(values)
         end
     end
     return #result > 0 and result or nil
+end
+
+function MonitorCatalog:AddPresetClassExtra(draft, specKey, groupId, option)
+    if not ProfileModel:IsDraft(draft) or draft.closed then return nil, "invalid-draft" end
+    if specKey ~= draft.specKey then return nil, "spec-context-changed" end
+    local preset
+    for _, candidate in ipairs(YHUD.CLASS_EXTRA_PRESETS or {}) do
+        if option.presetId == candidate.presetId then preset = candidate; break end
+    end
+    if not preset or specKey ~= preset.specKey then return nil, "preset-context-mismatch" end
+    if option.entryKey ~= preset.entryKey or option.sourceKey ~= preset.sourceKey
+        or option.spellID ~= preset.displaySpellID then return nil, "preset-definition-mismatch" end
+    local staged = ProfileModel:BeginDraft(draft.profile, { combat = draft.combat == true, specKey = specKey })
+    local entry = staged.profile.entries[preset.entryKey]
+    if entry and (entry.sourceKey ~= preset.sourceKey or entry.sourceType ~= preset.sourceType) then return nil, "entry-conflict" end
+    if not entry then
+        local spell = ResolveSpell(preset.displaySpellID)
+        local added, code = ProfileModel:AddEntry(staged, preset.entryKey, {
+            sourceKey = preset.sourceKey, sourceType = preset.sourceType, semantic = "buff",
+            contentScope = YHUD.CONTENT_SCOPE_SPEC, origin = "preset", presetId = preset.presetId,
+            spellId = preset.displaySpellID, name = T(preset.nameKey, preset.fallbackName), nameKey = preset.nameKey,
+            icon = spell and spell.icon, compatibleViews = { icon = true, bar = true },
+            classExtra = { alertSecond = 38, endedHideDelay = 3, showIconProgress = false, readyVisibility = "group" },
+            contract = { capability = "timed-display", view = "self", group = "free", style = "full", fallback = "hide", status = "verified" },
+        })
+        if not added then return nil, code end
+    end
+    local result, code = PlaceEntry(staged, groupId, preset.entryKey, GetTargetView(staged.profile, groupId), "preset")
+    if not result then return nil, code end
+    if result.action == "add" and result.monitor then
+        local glow = { rules = { {
+            condition = { type = preset.presetId == "devourer-transform" and "condition-met" or "self-ready" },
+            appearance = { style = "pixel" },
+        } } }
+        local savedGlow, glowCode = ProfileModel:SetMonitorGlow(staged, result.monitor.id, glow)
+        if not savedGlow then return nil, glowCode end
+        result.monitor.glow = savedGlow
+    end
+    return AdoptResult(draft, staged, result)
 end
 
 function MonitorCatalog:AddPresetSpellEventWindow(
@@ -4132,4 +4238,164 @@ function MonitorCatalog:ReplaceMonitorIdentity(
         action = "replace",
         monitor = moved,
     })
+end
+
+
+function MonitorCatalog:BuildExternalBuffEntry()
+    return {
+        entryKey = "bundle:external-buffs", sourceKey = "bundle:external-buffs",
+        sourceType = YHUD.PLAYER_AURA_SOURCE_TYPE or "yhud.player-aura",
+        bundleKind = "externalBuff", bundleEnabled = true,
+        semantic = "buff", origin = "preset", contentScope = YHUD.CONTENT_SCOPE_SPEC,
+        presetKey = "bundle:external-buffs", crossSpecMaterialization = "deferred",
+        compatibleViews = { icon = true, bar = true, ring = true },
+        nameKey = "designer.quick_external_buffs", icon = 253400,
+        contract = { capability = "native-enhanced", view = "self", group = "free",
+            style = "full", fallback = "hide", status = "verified" },
+    }
+end
+
+function MonitorCatalog:BuildExternalBuffOption(profile, groupId)
+    local entryKey = "bundle:external-buffs"
+    local statusProfile = profile
+    if not profile.entries[entryKey] then
+        local staged = ProfileModel:BeginDraft(profile, { specKey = rawget(profile, "_yhudSpecKey") })
+        if staged then
+            ProfileModel:AddEntry(staged, entryKey, self:BuildExternalBuffEntry())
+            statusProfile = staged.profile
+        end
+    end
+    local view = GetTargetView(statusProfile, groupId)
+    local status, monitor = ResolveStatus(statusProfile, groupId, entryKey, view, true)
+    return { key = "quick:external-buffs", section = "quick", kind = "external-buff-bundle",
+        bundleKind = "externalBuff", entryKey = entryKey, sourceKey = entryKey,
+        name = T("designer.quick_external_buffs", "外部增益"), icon = 253400,
+        origin = "preset", view = view, status = status,
+        monitorId = monitor and monitor.id, fromGroupId = monitor and monitor.groupId }
+end
+
+function MonitorCatalog:AddExternalBuffBundle(draft, groupId)
+    if not ProfileModel:IsDraft(draft) or draft.closed == true then return nil, "invalid-draft" end
+    if not YUI.HelpfulBuffs then return nil, "spell-bundle-not-available" end
+    local staged = ProfileModel:BeginDraft(draft.profile, { combat = draft.combat == true, specKey = draft.specKey })
+    local entryKey = "bundle:external-buffs"
+    local existing = staged.profile.entries[entryKey]
+    if existing then
+        if existing.bundleKind ~= "externalBuff" then return nil, "entry-conflict" end
+        existing.bundleEnabled = true
+        ProfileModel:MarkDraftChanged(staged)
+    else
+        local added, code = ProfileModel:AddEntry(staged, entryKey, self:BuildExternalBuffEntry())
+        if not added then return nil, code end
+    end
+    local result, code = PlaceEntry(staged, groupId, entryKey, GetTargetView(staged.profile, groupId), "preset")
+    if not result then return nil, code end
+    return AdoptResult(draft, staged, result)
+end
+
+function MonitorCatalog:GetExternalBuffOptions(profile)
+    local entry = profile and profile.entries and profile.entries["bundle:external-buffs"]
+    local choices = entry and type(entry.bundleChoices) == "table" and entry.bundleChoices or {}
+    local order = entry and type(entry.bundleOrder) == "table" and entry.bundleOrder or {}
+    local result, byID = {}, {}
+    for _, preset in ipairs(YUI.HelpfulBuffs and YUI.HelpfulBuffs.entries or {}) do
+        local spell = ResolveSpell(preset.displaySpellID or preset.id)
+        byID[preset.id] = { spellID = preset.id, runtimeSpellID = preset.spellIDs[1],
+            aliases = preset.spellIDs, name = spell.name, icon = spell.icon,
+            enabled = choices[tostring(preset.id)] ~= false }
+    end
+    for _, id in ipairs(order) do
+        if byID[id] then result[#result + 1] = byID[id]; byID[id] = nil end
+    end
+    for _, preset in ipairs(YUI.HelpfulBuffs and YUI.HelpfulBuffs.entries or {}) do
+        if byID[preset.id] then result[#result + 1] = byID[preset.id] end
+    end
+    return result
+end
+
+function MonitorCatalog:GetExternalBuffSources(profile)
+    local entry = profile and profile.entries and profile.entries["bundle:external-buffs"]
+    if not entry or entry.bundleEnabled == false then return {} end
+    local result = {}
+    for _, option in ipairs(self:GetExternalBuffOptions(profile)) do
+        if option.enabled then
+            result[#result + 1] = { kind = "external-aura", spellID = option.spellID,
+                runtimeSpellID = option.runtimeSpellID, aliases = option.aliases,
+                sourceKey = "external-buff:" .. option.spellID,
+                displayName = option.name, icon = option.icon }
+        end
+    end
+    return result
+end
+
+function MonitorCatalog:GetExternalBuffLimit(entry)
+    local limit = type(entry) == "table" and tonumber(entry.bundleMaxDisplay) or 0
+    if not limit or limit ~= limit or limit <= 0 then return 0 end
+    return math.min(#(YUI.HelpfulBuffs and YUI.HelpfulBuffs.entries or {}), math.floor(limit))
+end
+
+function MonitorCatalog:GetExternalBuffProjection(profile, preview)
+    local sources = self:GetExternalBuffSources(profile)
+    local entry = profile and profile.entries and profile.entries["bundle:external-buffs"]
+    local limit = self:GetExternalBuffLimit(entry)
+    if limit == 0 or #sources == 0 then return sources end
+    if preview == true then
+        local samples = {}
+        for index = 1, math.min(limit, #sources) do samples[index] = sources[index] end
+        return samples
+    end
+    local aliases, seen = {}, {}
+    for _, source in ipairs(sources) do
+        for _, spellID in ipairs(source.aliases) do
+            if not seen[spellID] then
+                aliases[#aliases + 1], seen[spellID] = spellID, true
+            end
+        end
+    end
+    return {{ kind = "external-aura", childIdentity = "limited",
+        sourceKey = "external-buffs:limited", aliases = aliases,
+        maxFrameCount = limit, displayName = T("designer.quick_external_buffs", "外部增益"),
+        icon = entry.icon }}
+end
+
+function MonitorCatalog:SetExternalBuffLimit(draft, value)
+    local entry = draft.profile.entries["bundle:external-buffs"]
+    value = tonumber(value)
+    if not entry then return nil, "spell-bundle-not-added" end
+    if not value or value ~= value or value < 0 or value % 1 ~= 0
+        or value > #(YUI.HelpfulBuffs and YUI.HelpfulBuffs.entries or {}) then
+        return nil, "invalid-display-limit"
+    end
+    entry.bundleMaxDisplay = value > 0 and value or nil
+    ProfileModel:MarkDraftChanged(draft)
+    return true
+end
+
+function MonitorCatalog:SetExternalBuffEnabled(draft, spellID, enabled)
+    local entry = draft.profile.entries["bundle:external-buffs"]
+    local preset = YUI.HelpfulBuffs and YUI.HelpfulBuffs.byID[spellID]
+    if not entry or not preset or spellID == 32182 then return nil, "spell-bundle-spell-unavailable" end
+    entry.bundleChoices = type(entry.bundleChoices) == "table" and entry.bundleChoices or {}
+    entry.bundleChoices[tostring(spellID)] = enabled ~= false
+    entry.bundleEnabled = true
+    ProfileModel:MarkDraftChanged(draft)
+    return true
+end
+
+function MonitorCatalog:MoveExternalBuff(draft, spellID, targetIndex)
+    targetIndex = IsPositiveInteger(targetIndex)
+    if not targetIndex then return nil, "invalid-order" end
+    local entry = draft.profile.entries["bundle:external-buffs"]
+    if not entry then return nil, "spell-bundle-not-added" end
+    local order, currentIndex = {}, nil
+    for index, option in ipairs(self:GetExternalBuffOptions(draft.profile)) do
+        order[index] = option.spellID
+        if option.spellID == spellID then currentIndex = index end
+    end
+    if not currentIndex then return nil, "spell-bundle-spell-unavailable" end
+    table.remove(order, currentIndex)
+    table.insert(order, math.min(targetIndex, #order + 1), spellID)
+    entry.bundleOrder = order
+    ProfileModel:MarkDraftChanged(draft)
+    return order
 end

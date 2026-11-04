@@ -147,6 +147,7 @@ function ns.ShowPopBuilds()
         end
         f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal"); f.title:SetPoint("TOPLEFT", 10, -10)
         local close = CreateFrame("Button", nil, f, "UIPanelCloseButton"); close:SetPoint("TOPRIGHT", 0, 0); close:SetScale(0.8)
+        close:SetScript("OnClick", function() f:Hide() end)   -- 10-18 战斗中关不掉：原生红叉走 HideUIPanel，战斗中被拦 → 直接 Hide
         f.rows = {}
         if UISpecialFrames then table.insert(UISpecialFrames, "GearInsightForeverPop") end
         popFrame = f

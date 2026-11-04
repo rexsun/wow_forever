@@ -689,24 +689,25 @@ function Module:UpdateBarItem(frame, parent)
         self.dummyText = GUI2:CreateText(self.content, "", "font.size.sm", "color.ybar.text")
         self.dummyText:Hide()
     end
-    self.dummyText:SetFont(fontPath, size, "")
+    local fontFlag = self.displayFontFlag or ""
+    local fontShadow = self.displayFontShadow == true
+    self.dummyText:SetFont(fontPath, size, fontFlag)
+    local inset = 2 + (fontFlag:find("THICKOUTLINE",1,true) and 4 or 0) + (fontShadow and 1 or 0)
     
     -- 用三位数值预计算固定宽度，避免共享格式化将前导零压缩成一位。
     -- 使用 GetFormattedText 生成测试文本，状态参数传 nil
     local dummyVal = 888
     
     self.dummyText:SetText(GetFormattedText(style, dummyVal, "FPS", nil, nil, db))
-    local fpsWidth = self.dummyText:GetStringWidth() + 2
+    local fpsWidth = self.dummyText:GetStringWidth() + inset
     
     self.dummyText:SetText(GetFormattedText(style, dummyVal, "LATENCY", nil, nil, db))
-    local latencyWidth = self.dummyText:GetStringWidth() + 2
+    local latencyWidth = self.dummyText:GetStringWidth() + inset
     
     self.dummyText:SetText(GetFormattedText(style, dummyVal, "TOLERANCE", nil, nil, db))
-    local toleranceWidth = self.dummyText:GetStringWidth() + 2
+    local toleranceWidth = self.dummyText:GetStringWidth() + inset
 
     -- 更新按钮样式
-    local fontFlag = self.displayFontFlag or ""
-    local fontShadow = self.displayFontShadow == true
     -- Apply every metric font before invoking any metric update callback.
     for _, btn in ipairs(self.buttons) do
         if btn.text then

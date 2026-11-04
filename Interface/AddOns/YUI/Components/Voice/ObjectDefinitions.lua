@@ -2806,3 +2806,59 @@ if racial then
     end
 end
 -- END ALL-SPEC CAPTURE
+-- BEGIN REVIEWED CDM 70448
+-- Generated from the 69814 -> 70448 same-build review; storage is never migrated.
+local reviewed={{["cooldownID"]=280,["spellID"]=102401,["spec"]=102,["category"]="Utility",["links"]={45334,50259,102416}},{["cooldownID"]=2271,["spellID"]=102401,["spec"]=104,["category"]="Utility",["links"]={45334,50259,102416}},{["cooldownID"]=2700,["spellID"]=50334,["spec"]=104,["category"]="Essential",["links"]={}},{["cooldownID"]=2912,["spellID"]=50334,["spec"]=104,["category"]="TrackedBar",["links"]={102558}},{["cooldownID"]=9020,["spellID"]=1227806,["spec"]=105,["category"]="TrackedBar",["links"]={}},{["cooldownID"]=60132,["spellID"]=102401,["spec"]=103,["category"]="Utility",["links"]={45334,50259,102416}},{["cooldownID"]=65518,["spellID"]=102401,["spec"]=105,["category"]="Utility",["links"]={45334,50259,102416}},{["cooldownID"]=77102,["spellID"]=355897,["spec"]=256,["category"]="TrackedBuff",["links"]={355898}},{["cooldownID"]=77105,["spellID"]=355897,["spec"]=256,["category"]="Utility",["links"]={}},{["cooldownID"]=90067,["spellID"]=455139,["spec"]=268,["category"]="TrackedBuff",["links"]={455179}},{["cooldownID"]=90534,["spellID"]=5215,["spec"]=103,["category"]="Essential",["links"]={}},{["cooldownID"]=90568,["spellID"]=1227806,["spec"]=105,["category"]="Essential",["links"]={}},{["cooldownID"]=199655,["spellID"]=443783,["spec"]=64,["category"]="TrackedBar",["links"]={1247908}},{["cooldownID"]=199676,["spellID"]=1269314,["spec"]=71,["category"]="TrackedBuff",["links"]={1269391}},{["cooldownID"]=199860,["spellID"]=322101,["spec"]=268,["category"]="Essential",["links"]={}},{["cooldownID"]=199880,["spellID"]=1319011,["spec"]=254,["category"]="TrackedBuff",["links"]={1319016}},{["cooldownID"]=199881,["spellID"]=1319011,["spec"]=254,["category"]="TrackedBar",["links"]={1319016}},{["cooldownID"]=200146,["spellID"]=213691,["spec"]=254,["category"]="Utility",["links"]={}},{["cooldownID"]=200147,["spellID"]=213691,["spec"]=255,["category"]="Utility",["links"]={}},{["cooldownID"]=200148,["spellID"]=213691,["spec"]=253,["category"]="Utility",["links"]={}}}
+local aliases={[356085]=355897}
+-- Reviewed object identity is separate from the native display metadata.
+-- Retail 70448 player cast evidence: CDM 90568 base=1227806, cast=33763.
+local spellObjects={[90568]=33763}
+local objects,index=YUI.Sound.ObjectDefinitions,{}
+for _,row in ipairs(objects) do
+    if row.client=='mainline' then
+        if row.kind=='spell' and aliases[row.id] then row.id=aliases[row.id] end
+        if row.kind=='aura' and (row.id==41425 or row.id==1300670) then row.retiredCDM=true end
+        index[row.kind..':'..row.id]=row
+    end
+end
+for _,entry in ipairs(reviewed) do
+    local kind=(entry.category=='Essential' or entry.category=='Utility') and 'spell' or 'aura'
+    local id=kind=='spell' and spellObjects[entry.cooldownID]
+        or kind=='aura' and #entry.links==1 and entry.links[1] or entry.spellID
+    local key=kind..':'..id
+    local row=index[key]
+    if not row then
+        row={client='mainline',kind=kind,id=id,specs={},sortBase={},sortBySpec={}}
+        objects[#objects+1]=row;index[key]=row
+    end
+    local exists=false
+    for _,spec in ipairs(row.specs or {}) do if spec==entry.spec then exists=true end end
+    if not exists then row.specs[#row.specs+1]=entry.spec end
+    row.sortBySpec[entry.spec]=row.sortBySpec[entry.spec] or {}
+    row.cdmBySpec=row.cdmBySpec or {}
+    row.cdmBySpec[entry.spec]=row.cdmBySpec[entry.spec] or {}
+    row.cdmBySpec[entry.spec][entry.category]={id=entry.cooldownID,base=entry.spellID,links=entry.links}
+    row.memberIDs={id}
+    for _,member in ipairs(entry.links) do
+        if member~=id then row.memberIDs[#row.memberIDs+1]=member end
+    end
+    if id~=entry.spellID then row.memberIDs[#row.memberIDs+1]=entry.spellID end
+    if kind=='aura' and id~=entry.spellID and index['aura:'..entry.spellID] then
+        index['aura:'..entry.spellID].retiredCDM=true
+    end
+end
+-- Guardian CDM 2912 is shared by Berserk and Incarnation in player evidence.
+-- These are presentation aliases, not retired monitors or saved-rule migrations.
+-- Do not infer this relationship for other single-linked aura entries.
+local guardianBase,guardianAura=index['aura:50334'],index['aura:102558']
+guardianBase.retiredCDM=nil
+guardianBase.auraPickerID=102558
+guardianBase.auraDisplayBase=50334
+guardianBase.memberIDs={50334,102558}
+guardianAura.auraDisplayBase=50334
+-- The linked aura keeps its trigger identity; the native entry uses the potion icon.
+index['aura:455179'].auraIconSpellID=455139
+-- The old Prowl association is no longer a CDM aura candidate. Keep its
+-- definition for existing rules; live catalog additions can still return it.
+if index['aura:102547'] then index['aura:102547'].retiredCDM=true end
+-- END REVIEWED CDM 70448

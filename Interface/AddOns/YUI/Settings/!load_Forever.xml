@@ -23,4 +23,8 @@
     <Script file="Modules\Changelog.lua"/>
     <Script file="Modules\Credits.lua"/>
     <Script file="Modules\About.lua"/>
+    <Script file="Modules\SoundCenter.lua"/>
+    <Script file="Modules\SoundRuleEditor.lua"/>
+    <Script file="Modules\SoundPresets.lua"/>
+    <Script file="Modules\Sound.lua"/>
 </Ui>

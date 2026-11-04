@@ -109,19 +109,16 @@ S.legacyWrathEntries = aliases
 local BUILTIN = 'yui.voice.wrath.wyjj'
 local SoundAPI = YUI.API and YUI.API.Sound
 
-function S:ResolveLegacyEntry(key, legacyPackId, failedPackId)
+function S:ResolveLegacyEntry(key, legacyPackId, failedPackId, unavailablePacks)
     local id = aliases[key]
     if legacyPackId ~= BUILTIN or not id or self:GetActivePackId() ~= BUILTIN then return end
     local prefs = self.GetPreferences and self:GetPreferences()
-    local selected = prefs and prefs.voicePackId or 'yui.default'
+    local options=self:GetPlaybackOptions(prefs);options.fallbackTTS=false
+    options.unavailablePacks=unavailablePacks
     if failedPackId then
-        if failedPackId == 'yui.default' or prefs and prefs.fallbackDefault == false then return end
-        selected = 'yui.default'
+        options.unavailablePacks=options.unavailablePacks or {};options.unavailablePacks[failedPackId]=true
     end
-    local resource = self:ResolveEntry(id, {
-        packId = selected, fallbackDefault = not prefs or prefs.fallbackDefault ~= false,
-        fallbackTTS = false,
-    })
+    local resource = self:ResolveEntry(id,options)
     if resource and resource.kind == 'file' then return resource end
 end
 
@@ -130,10 +127,15 @@ function S:PlayLegacyFallback(reference, failedPackId, failedFile, channel)
     if not (key and aliases[key] and SoundAPI and SoundAPI.PlayFile) then return false end
     local pack = self:GetActivePack()
     if not pack or pack.id ~= BUILTIN then return false end
-    local resource = self:ResolveLegacyEntry(key, pack.id, failedPackId)
-    if resource and resource.value ~= failedFile then
-        local played, handle = SoundAPI.PlayFile(resource.value, channel)
-        if played then return true, handle end
+    local unavailable={}
+    local resource = self:ResolveLegacyEntry(key, pack.id, failedPackId,unavailable)
+    while resource do
+        if resource.value~=failedFile then
+            local played, handle = SoundAPI.PlayFile(resource.value, channel)
+            if played then return true, handle end
+        end
+        unavailable[resource.packId]=true
+        resource=self:ResolveLegacyEntry(key,pack.id,nil,unavailable)
     end
     local file = pack.sounds[key]
     if file and file ~= failedFile and (not resource or file ~= resource.value) then

@@ -233,7 +233,7 @@ YUI.ForeverFactoryProfile = {
             trailQuality = "balanced",
         },
         NativeInterface_Config = {
-            _migrationVersion = 2, bagsBarVisibility = "auto", hideMicroMenu = true, hideStatusTrackingBars = false,
+            _migrationVersion = 3, manageBagsBar = true, bagsBarVisibility = "auto", hideMicroMenu = true, hideStatusTrackingBars = false,
             fixBagSortButton = true,
             fixProfessionsIcon = true,
             questLootSparkles = true,

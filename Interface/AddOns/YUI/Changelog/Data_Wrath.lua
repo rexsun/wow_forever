@@ -37,6 +37,24 @@ CL:Register("suite", {
             },
         },
     },
+-- YUI-Notes-Record: v211|wrath|e1c29ec6bb166e458e7c9d586b9cea4743a7f3ace7ec99e095cd09be523c822b
+    {
+        version = "v211",
+        date = "2026-10-15",
+        clients = { "Wrath" },
+        content = {
+            zhCN = {
+                "耐久坐骑：新增「霜壳行者·卡鲁亚克的巨钳伙伴」。",
+                "修复 ElvUI 战斗字体在重启游戏后不生效的问题。",
+                "修复 YUI WA 点击按钮在战斗中触发的安全框架报错。",
+            },
+            enUS = {
+                "Added Frostshell mount support to Durability & Mount.",
+                "Fixed ElvUI combat fonts failing to apply after restarting the game.",
+                "Fixed protected-frame errors from YUI WA click buttons during combat.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v208|wrath|e5f73432008adad4f10919e33906296c63e4efff2c453902aa79c93ff35d6cd2
     {
         version = "v208",
@@ -175,20 +193,6 @@ CL:Register("suite", {
         content = {
             zhCN = {
                 "修复：全能信息条无法打开天赋面板的问题",
-            },
-            enUS = {
-            },
-        },
-    },
--- YUI-Notes-Record: v134|wrath|2c37ccd46d5582c98a173f6fff38c7c18aa90fe621d07d2adfcccf891c840ab0
-    {
-        version = "v134",
-        date = "2026-04-21",
-        clients = { "Wrath" },
-        content = {
-            zhCN = {
-                "耐久与坐骑：新增【显示模式】设置，支持最低值（默认）、平均值或者同时显示",
-                "专业技能：点击信息条上的【采矿】现在能正确打开【熔炼】",
             },
             enUS = {
             },

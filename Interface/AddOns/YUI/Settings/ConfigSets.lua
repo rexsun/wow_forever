@@ -5297,7 +5297,14 @@ function ConfigSets:ResetProfileState(productId, profileName)
     if currentProfile == profileName then
         for _, provider in ipairs(providers) do
             local ensured, ensureCode, ensureDetail = EnsureEditableCatalog(provider)
-            if not ensured then return nil, ensureCode, ensureDetail end
+            if not ensured then
+                -- Import installs its owned library after resetting the target;
+                -- default bootstrap must wait for the deferred legacy migration.
+                local transfer = S.ConfigTransfer
+                local deferred = self.ProfileOwnership and ensureCode == "migration_required"
+                    and transfer and transfer.IsImporting and transfer:IsImporting(productId)
+                if not deferred then return nil, ensureCode, ensureDetail end
+            end
         end
     end
     return true

@@ -3,6 +3,7 @@ if not YUI or not YUI.YActionBar then return end
 
 YUI.YActionBar.Client = {
     id = "mainline",
+    petEmptySlots = true,
     supported = true,
     ownedStanceButtons = true,
     nativeSpecialButtons = true,
@@ -10,6 +11,7 @@ YUI.YActionBar.Client = {
     nonStructuralNativeSuppression = true,
     directUsableRefresh = true,
     assistedCombat = true,
+    assistedHighlight = true,
     heldBindings = true,
     professionQuality = true,
     secretRisk = true,

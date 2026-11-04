@@ -38,6 +38,7 @@ local function Emit(event, ...)
 end
 
 local function GetClientVersion()
+    if YUI.IsForever == true then return "forever" end
     if YUI.IsRetail == true then return "mainline" end
     if YUI.IsWrath == true then return "wrath" end
     if YUI.IsMists == true then return "mists" end

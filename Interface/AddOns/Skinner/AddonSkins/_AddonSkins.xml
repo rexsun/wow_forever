@@ -85,6 +85,7 @@
 <Script file="DetailsFramework.lua"/>
 <Script file="Dominos_Config.lua"/>
 <Script file="EasyMail.lua"/>
+<!-- Script file="EllesmereUI.lua" excluded by this pack: see AddOns/readme.md -->
 <Script file="ElvUI.lua"/>
 <Script file="EnhanceQoL.lua"/>
 <Script file="ERC.lua"/>
@@ -241,6 +242,7 @@
 <Script file="TukUI.lua"/>
 <Script file="Vendomatic.lua"/>
 <Script file="VenturePlan.lua"/>
+<Script file="VoidcoreAdvisorReborn.lua"/>
 <Script file="VuhDo.lua"/>
 <Script file="WarCampaignsComplete.lua"/>
 <Script file="WeakAuras.lua"/>

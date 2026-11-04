@@ -1,5 +1,6 @@
 local ADDON_NAME, addonTable = ...
 local YUI = _G.YUI or addonTable
+local textStyles
 if not YUI or not YUI.IsRetail then return end
 
 local GUI2 = YUI.GUI2
@@ -7,12 +8,12 @@ local Monitor = YUI.ClassExtraMonitor
 if not Monitor or not Monitor.RegisterSubFeature then return end
 
 local CoreMonitor = YUI.Monitor
+local sharedHandle, sharedState, sharedSession, sharedResetSequence
 local UnitAPI = (YUI.API and YUI.API.Unit) or YUI.WOW_API or {}
 local SpellAPI = (YUI.API and YUI.API.Spell) or YUI.WOW_API or {}
 local TalentAPI = (YUI.API and YUI.API.Talent) or YUI.WOW_API or {}
 local SecurityAPI = (YUI.API and YUI.API.Security) or YUI.WOW_API or {}
 local L = Monitor.L or (YUI.Locale and YUI.Locale:Get("ClassExtraMonitor")) or nil
-local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 local C_Timer = C_Timer
 
 local FEATURE_KEY = Monitor.FEATURE_KEY or "ClassExtraMonitor"
@@ -130,6 +131,10 @@ local layoutPreviewActive = false
 local layoutPreviewSuppressed = false
 local settingsPreviewActive = false
 local activeDB
+local soundOwner, soundSerial = {}, 0
+local function CancelSound()
+    if YUI.NotificationSound then YUI.NotificationSound:CancelOwner(soundOwner) end
+end
 local glowOptionsExpanded = false
 local hideToken = 0
 local CancelEndedHide
@@ -300,8 +305,7 @@ local function NormalizeDB(db)
         db.devourerAlertSound = DevourerTransform.defaults.devourerAlertSound
     end
     if db.devourerAlertSoundModeMigrated ~= true then
-        db.devourerAlertSoundMode = db.devourerAlertSound == "none" and "none" or "lsm"
-        db.devourerAlertLSMSound = DevourerTransform.defaults.devourerAlertLSMSound
+        if db.devourerAlertSound == "none" then db.devourerAlertSoundMode = "none" end
         db.devourerAlertSoundModeMigrated = true
     end
     if not VALID_ALERT_SOUND_MODES[db.devourerAlertSoundMode] then
@@ -315,6 +319,18 @@ local function NormalizeDB(db)
     end
     if not VALID_SOUND_CHANNELS[db.devourerAlertChannel] then
         db.devourerAlertChannel = DevourerTransform.defaults.devourerAlertChannel
+    end
+    if db.devourerAlertSelection == nil then
+        local mode, selection = db.devourerAlertSoundMode, { kind = "none" }
+        if mode == "lsm" and db.devourerAlertLSMSound ~= "None" then
+            selection = { kind = "lsm", value = db.devourerAlertLSMSound }
+        elseif mode == "custom" and Trim(db.devourerAlertCustomPath) ~= "" then
+            selection = { kind = "custom", value = Trim(db.devourerAlertCustomPath) }
+        end
+        db.devourerAlertSelection = selection
+    end
+    if YUI.NotificationSound then
+        db.devourerAlertSelection = YUI.NotificationSound:NormalizeSelection(db.devourerAlertSelection) or { kind = "none" }
     end
     db.devourerIconSize = ClampNumber(db.devourerIconSize, 36, 96, DevourerTransform.defaults.devourerIconSize)
     db.devourerBarIconSize = ClampNumber(db.devourerBarIconSize, 24, 56, DevourerTransform.defaults.devourerBarIconSize)
@@ -340,7 +356,7 @@ local function NormalizeDB(db)
     return db
 end
 
-DevourerTransform.NormalizeDB = NormalizeDB
+function DevourerTransform:NormalizeDB(db) return NormalizeDB(db) end
 
 local function BuildGlowParams(db)
     db = NormalizeDB(db or GetDB())
@@ -760,8 +776,14 @@ function DevourerTransform:ApplyAppearance(db)
         Widget.iconFrame:SetPoint("BOTTOM", frame, "BOTTOM", 0, 0)
         Widget.iconTimer:ClearAllPoints()
         Widget.iconTimer:SetPoint("CENTER", Widget.iconFrame, "CENTER", 0, 0)
-        SetFontSize(Widget.iconTimer, db.devourerTimerFontSize, "OUTLINE")
-        SetFontSize(Widget.iconCount, db.devourerCountFontSize, "OUTLINE")
+        if textStyles then
+            YUI.GUI2.FontStyle.ApplyConfigFont(Widget.iconTimer,textStyles[1],db,db.devourerTimerFontSize)
+            Widget.iconTimer:SetTextColor(YUI.GUI2.FontStyle.ConfigColor(textStyles[1],db,DEFAULT_TIMER_COLOR))
+        else SetFontSize(Widget.iconTimer, db.devourerTimerFontSize, "OUTLINE") end
+        if textStyles then
+            YUI.GUI2.FontStyle.ApplyConfigFont(Widget.iconCount,textStyles[2],db,db.devourerCountFontSize)
+            Widget.iconCount:SetTextColor(YUI.GUI2.FontStyle.ConfigColor(textStyles[2],db,DEFAULT_COUNT_COLOR))
+        else SetFontSize(Widget.iconCount, db.devourerCountFontSize, "OUTLINE") end
         if Widget.iconProgress then
             Widget.iconProgress:ClearAllPoints()
             Widget.iconProgress:SetPoint("BOTTOMLEFT", Widget.iconFrame, "BOTTOMLEFT", 0, 0)
@@ -794,8 +816,14 @@ function DevourerTransform:ApplyAppearance(db)
         Widget.barCount:SetWidth(math.max(countSlotWidth, 1))
         Widget.barTimer:ClearAllPoints()
         Widget.barTimer:SetPoint("RIGHT", (Widget.barProgress and Widget.barProgress.track) or frame, "RIGHT", -8, 0)
-        SetFontSize(Widget.barTimer, math.min(db.devourerTimerFontSize, barHeight + 8), "OUTLINE")
-        SetFontSize(Widget.barCount, db.devourerCountFontSize, "OUTLINE")
+        if textStyles then
+            YUI.GUI2.FontStyle.ApplyConfigFont(Widget.barTimer,textStyles[1],db,math.min(db.devourerTimerFontSize, barHeight + 8))
+            Widget.barTimer:SetTextColor(YUI.GUI2.FontStyle.ConfigColor(textStyles[1],db,DEFAULT_TIMER_COLOR))
+        else SetFontSize(Widget.barTimer, math.min(db.devourerTimerFontSize, barHeight + 8), "OUTLINE") end
+        if textStyles then
+            YUI.GUI2.FontStyle.ApplyConfigFont(Widget.barCount,textStyles[2],db,db.devourerCountFontSize)
+            Widget.barCount:SetTextColor(YUI.GUI2.FontStyle.ConfigColor(textStyles[2],db,DEFAULT_COUNT_COLOR))
+        else SetFontSize(Widget.barCount, db.devourerCountFontSize, "OUTLINE") end
     else
         local width, height, countHeight, timerHeight, gap = GetTextVisualMetrics(db)
         local showCountSlot = db.devourerShowCountText == true
@@ -833,8 +861,14 @@ function DevourerTransform:ApplyAppearance(db)
         if Widget.textTimer.SetHeight then Widget.textTimer:SetHeight(timerHeight) end
         Widget.textTimer:SetJustifyH("CENTER")
         if Widget.textTimer.SetWordWrap then Widget.textTimer:SetWordWrap(false) end
-        SetFontSize(Widget.textCount, db.devourerCountFontSize, "OUTLINE")
-        SetFontSize(Widget.textTimer, db.devourerTimerFontSize, "OUTLINE")
+        if textStyles then
+            YUI.GUI2.FontStyle.ApplyConfigFont(Widget.textCount,textStyles[2],db,db.devourerCountFontSize)
+            Widget.textCount:SetTextColor(YUI.GUI2.FontStyle.ConfigColor(textStyles[2],db,DEFAULT_COUNT_COLOR))
+        else SetFontSize(Widget.textCount, db.devourerCountFontSize, "OUTLINE") end
+        if textStyles then
+            YUI.GUI2.FontStyle.ApplyConfigFont(Widget.textTimer,textStyles[1],db,db.devourerTimerFontSize)
+            Widget.textTimer:SetTextColor(YUI.GUI2.FontStyle.ConfigColor(textStyles[1],db,DEFAULT_TIMER_COLOR))
+        else SetFontSize(Widget.textTimer, db.devourerTimerFontSize, "OUTLINE") end
     end
 
     ApplyGlowParams(Widget.iconGlow, db)
@@ -901,15 +935,18 @@ function DevourerTransform:RefreshVisual(db)
 
     if Widget.iconTimer then
         Widget.iconTimer:SetText(timerText)
-        SetTextColor(Widget.iconTimer, DEFAULT_TIMER_COLOR)
+        if textStyles then Widget.iconTimer:SetTextColor(YUI.GUI2.FontStyle.ConfigColor(textStyles[1],db,DEFAULT_TIMER_COLOR))
+        else SetTextColor(Widget.iconTimer, DEFAULT_TIMER_COLOR) end
     end
     if Widget.barTimer then
         Widget.barTimer:SetText(timerText)
-        SetTextColor(Widget.barTimer, alerted and DEFAULT_ALERT_COLOR or DEFAULT_TIMER_COLOR)
+        if textStyles then Widget.barTimer:SetTextColor(YUI.GUI2.FontStyle.ConfigColor(textStyles[1],db,alerted and DEFAULT_ALERT_COLOR or DEFAULT_TIMER_COLOR))
+        else SetTextColor(Widget.barTimer, alerted and DEFAULT_ALERT_COLOR or DEFAULT_TIMER_COLOR) end
     end
     if Widget.textTimer then
         Widget.textTimer:SetText(timerText)
-        SetTextColor(Widget.textTimer, alerted and DEFAULT_ALERT_COLOR or DEFAULT_TIMER_COLOR)
+        if textStyles then Widget.textTimer:SetTextColor(YUI.GUI2.FontStyle.ConfigColor(textStyles[1],db,alerted and DEFAULT_ALERT_COLOR or DEFAULT_TIMER_COLOR))
+        else SetTextColor(Widget.textTimer, alerted and DEFAULT_ALERT_COLOR or DEFAULT_TIMER_COLOR) end
     end
 
     if Widget.iconGlow and Widget.iconGlow.SetGlowShown then
@@ -939,87 +976,20 @@ function DevourerTransform:RefreshVisual(db)
     end
 end
 
-local function ResolveAlertSoundPath(db)
+local function PlayConfiguredSound(db)
     db = NormalizeDB(db or activeDB or GetDB())
-    if db.devourerAlertSoundMode == "custom" then
-        local path = Trim(db.devourerAlertCustomPath)
-        if path ~= "" then
-            return path
-        end
-        return nil
+    soundSerial = soundSerial + 1
+    if YUI.NotificationSound then
+        return YUI.NotificationSound:Play(soundOwner, "devourer:" .. soundSerial, db.devourerAlertSelection,
+            { nativeSound = "RAID_WARNING", channel = db.devourerAlertChannel })
     end
-
-    if db.devourerAlertSoundMode == "lsm" and LSM and LSM.Fetch and db.devourerAlertLSMSound ~= "None" then
-        local path = LSM:Fetch("sound", db.devourerAlertLSMSound, true)
-        if path and path ~= 1 then
-            return path
-        end
-    end
-    return nil
+    return false, "service-unavailable"
 end
 
-local function PlaySoundPath(path, channel)
-    if type(PlaySoundFile) ~= "function" or type(path) ~= "string" or path == "" then
-        return false, "invalid-path"
-    end
-    channel = VALID_SOUND_CHANNELS[channel] and channel or DevourerTransform.defaults.devourerAlertChannel
-
-    local ok, willPlay = pcall(PlaySoundFile, path, channel)
-    local primaryWillPlay = ok and SafeBooleanValue(willPlay, nil) or nil
-    if ok and primaryWillPlay ~= false then
-        return true, "ok", channel
-    end
-
-    if channel ~= "Master" then
-        local fallbackOk, fallbackWillPlay = pcall(PlaySoundFile, path, "Master")
-        local fallbackCanPlay = fallbackOk and SafeBooleanValue(fallbackWillPlay, nil) or nil
-        if fallbackOk and fallbackCanPlay ~= false then
-            return true, "ok-master-fallback", "Master"
-        end
-    end
-    return false, "play-failed", channel
-end
-
-local function PlayConfiguredSound(db, isTest)
-    db = NormalizeDB(db or activeDB or GetDB())
-    if db.devourerAlertSoundMode == "none" then
-        if isTest and YUI.Print then
-            YUI:Print(T("message.no_sound", "No sound selected."))
-        end
-        return false, "no-sound"
-    end
-
-    local path = ResolveAlertSoundPath(db)
-    if not path then
-        if isTest and YUI.Print then
-            YUI:Print(T("message.no_sound", "No sound selected."))
-        end
-        return false, "no-sound-path"
-    end
-
-    local channel = VALID_SOUND_CHANNELS[db.devourerAlertChannel] and db.devourerAlertChannel or DevourerTransform.defaults.devourerAlertChannel
-    local played, reason = PlaySoundPath(path, channel)
-    if not played and isTest and YUI.Print then
-        YUI:Print(T("message.sound_play_failed", "Sound playback failed."))
-    end
-    return played, reason
-end
-
-local function GetAuraElapsed(ctx)
-    local trigger = ctx and ctx.t and ctx.t[1]
-    local data = trigger and trigger.data
-    if type(data) ~= "table" then return 0 end
-
-    local elapsed = SafeNumber(data.elapsed)
-    if elapsed then return elapsed end
-
-    local duration = SafeNumber(data.duration)
-    local remaining = SafeNumber(data.remaining)
-    if duration and remaining then
-        return math.max(0, duration - remaining)
-    end
-
-    return 0
+local function GetAuraElapsed()
+    if not sharedState then return 0 end
+    if sharedState.active then return math.max(0, GetNow() - sharedState.startTime) end
+    return sharedState.elapsed or 0
 end
 
 StopUpdate = function()
@@ -1099,6 +1069,7 @@ local function RefreshActiveState(ctx)
         return
     end
 
+    State.count = sharedState and sharedState.displayCount or State.count
     State.elapsed = math.max(0, GetNow() - (State.startTime or GetNow()))
     local auraElapsed = GetAuraElapsed(ctx)
     if auraElapsed and auraElapsed > State.elapsed then
@@ -1141,7 +1112,7 @@ StartTransform = function(ctx)
     State.hasLast = true
     State.startTime = GetNow() - elapsed
     State.elapsed = elapsed
-    State.count = 0
+    State.count = sharedState and sharedState.displayCount or 0
     State.alertTriggered = elapsed >= NormalizeDB(activeDB or GetDB()).devourerAlertSecond
     State.updateElapsed = 0
     DevourerTransform:RefreshVisual(activeDB or GetDB())
@@ -1166,6 +1137,7 @@ local function EndTransform()
 end
 
 ResetRuntimeState = function(hide)
+    CancelSound()
     CancelEndedHide()
     State.active = false
     State.hasLast = false
@@ -1202,17 +1174,30 @@ ScheduleEndedHide = function(db)
     end
 end
 
-local function OnMonitorTrigger(ctx, trigger)
-    if not trigger or trigger.id ~= "soulBombCast" then
-        return
+function DevourerTransform:OnSharedSource(state)
+    sharedState = state
+    if sharedResetSequence ~= state.resetSequence then CancelSound() end
+    sharedResetSequence = state.resetSequence
+    if State.active and state.active and sharedSession ~= state.session then
+        CancelSound()
+        StartTransform()
     end
+    sharedSession = state.session
+    if RuntimeMonitor and RuntimeMonitor:IsRunning() then RuntimeMonitor:Refresh("shared-class-extra") end
+end
 
-    if not (ctx and ctx.active and State.active) then
-        return
-    end
+local function AcquireSharedSource()
+    if sharedHandle then return end
+    local common = CoreMonitor and CoreMonitor.CommonSources
+    local descriptor = common and common.DescribeClassExtra and common:DescribeClassExtra("devourer-transform")
+    if not descriptor then return end
+    sharedHandle = CoreMonitor:AcquireSource(DevourerTransform, descriptor.key, descriptor.type, descriptor.params, "OnSharedSource")
+    if sharedHandle then CoreMonitor:RefreshSourceNow(sharedHandle.source, "class-extra-enable", true) end
+end
 
-    State.count = (State.count or 0) + 1
-    DevourerTransform:RefreshVisual(activeDB or GetDB())
+local function ReleaseSharedSource()
+    if sharedHandle then CoreMonitor:ReleaseSource(sharedHandle) end
+    sharedHandle, sharedState, sharedSession, sharedResetSequence = nil, nil, nil, nil
 end
 
 local function EnsureRuntimeMonitor()
@@ -1232,23 +1217,8 @@ local function EnsureRuntimeMonitor()
         state = State,
         load = IsApplicable,
         activation = {
-            expression = "t[1]",
-            triggers = {
-                {
-                    id = "transformAura",
-                    type = "playerAura",
-                    unit = "player",
-                    spellID = TRANSFORM_BUFF_ID,
-                    icon = GetSpellIcon(),
-                },
-                {
-                    id = "soulBombCast",
-                    type = "event",
-                    event = "UNIT_SPELLCAST_SUCCEEDED",
-                    unit = "player",
-                    spellID = SOUL_BOMB_SPELL_ID,
-                },
-            },
+            expression = function() return sharedState and sharedState.active == true end,
+            triggers = {},
         },
         conditionRules = {
             {
@@ -1268,9 +1238,11 @@ local function EnsureRuntimeMonitor()
         conditions = {
             onEnable = function()
                 runtimeActive = true
+                AcquireSharedSource()
             end,
             onDisable = function()
                 runtimeActive = false
+                ReleaseSharedSource()
                 if not settingsPreviewActive and not layoutPreviewActive then
                     ResetRuntimeState(true)
                 end
@@ -1281,7 +1253,6 @@ local function EnsureRuntimeMonitor()
             onDeactivate = function()
                 EndTransform()
             end,
-            onTrigger = OnMonitorTrigger,
             beforeEvaluate = function(ctx)
                 RefreshActiveState(ctx)
             end,
@@ -1321,7 +1292,9 @@ local function EnsureRuntimeMonitor()
 end
 
 function DevourerTransform:RefreshRuntime(db)
+    Monitor:NotifySoundSettingsChanged()
     db = NormalizeDB(db or GetDB())
+    if activeDB ~= db or not featureActive or not db.devourerTransformEnabled then CancelSound() end
     activeDB = db
     self:ApplyAppearance(db)
 
@@ -1553,14 +1526,6 @@ local function RefreshSettingsModule()
     end
 end
 
-local function BuildAlertSoundModeOptions()
-    return {
-        { text = T("settings.alert_sound_lsm", "音频库"), value = "lsm" },
-        { text = T("settings.alert_sound_custom", "自定义路径"), value = "custom" },
-        { text = T("settings.alert_sound_none", "不播放"), value = "none" },
-    }
-end
-
 local function BuildSoundChannelOptions()
     return {
         { text = T("settings.channel_master", "主声道"), value = "Master" },
@@ -1569,86 +1534,6 @@ local function BuildSoundChannelOptions()
         { text = T("settings.channel_music", "音乐"), value = "Music" },
         { text = T("settings.channel_ambience", "环境"), value = "Ambience" },
     }
-end
-
-local function ShowSoundPreviewFailure(_, reason)
-    if not YUI.Print then return end
-    if reason == "invalid-path" then
-        YUI:Print(T("message.no_sound", "No sound selected."))
-    elseif reason == "play-failed" then
-        YUI:Print(T("message.sound_play_failed", "Sound playback failed."))
-    end
-end
-
-local function CreateCustomSoundPathControl(parent, item)
-    if not (GUI2 and GUI2.CreateFrame and GUI2.Form and GUI2.Form.CreateEditBox and GUI2.Form.CreateSoundPreviewButton) then
-        return nil
-    end
-
-    local width = item.width or BODY_WIDTH
-    local height = item.height or 26
-    local buttonSize = item.previewButtonSize or height
-    local buttonGap = item.previewButtonGap or 8
-    local editWidth = math.max(width - buttonSize - buttonGap, 1)
-    local frame = GUI2:CreateFrame(parent, {
-        width = width,
-        height = height,
-    })
-
-    local editbox = GUI2.Form:CreateEditBox(frame, {
-        width = editWidth,
-        get = item.get,
-        set = item.set,
-    })
-    editbox:SetPoint("LEFT", frame, "LEFT", 0, 0)
-    frame.editbox = editbox
-
-    local previewButton = GUI2.Form:CreateSoundPreviewButton(frame, {
-        size = buttonSize,
-        tooltip = T("settings.preview_sound", "试听"),
-        getPath = function()
-            if editbox.ClearFocus then
-                editbox:ClearFocus()
-            end
-            local path = item.get and item.get() or editbox:GetText()
-            return Trim(path)
-        end,
-        getChannel = item.getChannel,
-        getToken = function(_, path)
-            return "devourer:custom-sound:" .. tostring(path or "")
-        end,
-        onPreviewFailed = ShowSoundPreviewFailure,
-    })
-    previewButton:SetPoint("LEFT", editbox, "RIGHT", buttonGap, 0)
-    frame.previewButton = previewButton
-
-    function frame:GetValue()
-        return self.editbox and self.editbox.GetValue and self.editbox:GetValue() or ""
-    end
-    function frame:SetValue(value, silent)
-        if self.editbox and self.editbox.SetValue then
-            self.editbox:SetValue(value, silent)
-        end
-    end
-    function frame:SetDisabled(disabled)
-        self.gui2Disabled = disabled and true or false
-        if self.editbox and self.editbox.SetDisabled then
-            self.editbox:SetDisabled(self.gui2Disabled)
-        end
-        if self.previewButton and self.previewButton.SetDisabled then
-            self.previewButton:SetDisabled(self.gui2Disabled)
-        end
-    end
-    function frame:RefreshTheme()
-        if self.editbox and self.editbox.RefreshTheme then
-            self.editbox:RefreshTheme()
-        end
-        if self.previewButton and self.previewButton.RefreshTheme then
-            self.previewButton:RefreshTheme()
-        end
-    end
-
-    return frame
 end
 
 local function AddAlignedFieldGroup(options, label, fields, layout)
@@ -1752,65 +1637,39 @@ function DevourerTransform:BuildOptions(db)
 
     AddAlignedFieldGroup(options, T("settings.alert", "声音提醒"), {
         {
-            type = "dropdown",
-            label = T("settings.alert_sound", "播放类型"),
-            options = BuildAlertSoundModeOptions,
-            default = DevourerTransform.defaults.devourerAlertSoundMode,
-            get = function() return db.devourerAlertSoundMode end,
+            type = "notificationSound", span = "full",
+            label = T("settings.alert_selection", "提醒声音"), nativeSound = "RAID_WARNING",
+            default = { kind = "none" },
+            getChannel = function() return db.devourerAlertChannel end,
+            get = function() return db.devourerAlertSelection end,
             set = function(value)
-                db.devourerAlertSoundMode = VALID_ALERT_SOUND_MODES[value] and value or DevourerTransform.defaults.devourerAlertSoundMode
+                CancelSound()
+                db.devourerAlertSelection = YUI.NotificationSound:NormalizeSelection(value) or { kind = "none" }
+                Monitor:NotifySoundSettingsChanged()
                 RefreshSettingsModule()
             end,
         },
         {
             type = "slider",
-            requires = function() return db.devourerAlertSoundMode ~= "none" end,
             label = T("settings.alert_second", "变身几秒播放"),
-            min = 1,
-            max = 90,
-            step = 1,
+            min = 1, max = 90, step = 1,
             get = function() return db.devourerAlertSecond end,
             set = function(value)
                 db.devourerAlertSecond = ClampNumber(value, 1, 90, DevourerTransform.defaults.devourerAlertSecond)
+                Monitor:NotifySoundSettingsChanged()
                 DevourerTransform:RefreshVisual(db)
             end,
         },
         {
-            type = "sound",
-            requires = function() return db.devourerAlertSoundMode == "lsm" end,
-            span = "full",
-            label = T("settings.alert_lsm_sound", "选择音频"),
-            default = DevourerTransform.defaults.devourerAlertLSMSound,
-            noneText = T("settings.alert_lsm_sound_none", "未选择"),
-            previewTooltip = T("settings.preview_sound", "试听"),
-            getChannel = function() return db.devourerAlertChannel end,
-            onPreviewFailed = ShowSoundPreviewFailure,
-            get = function() return db.devourerAlertLSMSound end,
-            set = function(value)
-                db.devourerAlertLSMSound = type(value) == "string" and value or DevourerTransform.defaults.devourerAlertLSMSound
-            end,
-        },
-        {
-            type = "custom",
-            requires = function() return db.devourerAlertSoundMode == "custom" end,
-            span = "full",
-            label = T("settings.alert_custom_path", "自定义音频路径"),
-            getChannel = function() return db.devourerAlertChannel end,
-            get = function() return db.devourerAlertCustomPath end,
-            set = function(value)
-                db.devourerAlertCustomPath = type(value) == "string" and value or ""
-            end,
-            render = CreateCustomSoundPathControl,
-        },
-        {
             type = "dropdown",
-            requires = function() return db.devourerAlertSoundMode ~= "none" end,
-            label = T("settings.alert_channel", "声道"),
-            options = BuildSoundChannelOptions,
+            requires = function() return db.devourerAlertSelection.kind ~= "none" end,
+            label = T("settings.alert_channel", "声道"), options = BuildSoundChannelOptions,
             default = DevourerTransform.defaults.devourerAlertChannel,
             get = function() return db.devourerAlertChannel end,
             set = function(value)
+                CancelSound()
                 db.devourerAlertChannel = VALID_SOUND_CHANNELS[value] and value or DevourerTransform.defaults.devourerAlertChannel
+                RefreshSettingsModule()
             end,
         },
     })
@@ -1858,7 +1717,7 @@ function DevourerTransform:BuildOptions(db)
             min = 12,
             max = 48,
             step = 1,
-            get = function() return db.devourerTimerFontSize end,
+            fontStyleSource="devourerTimerFontSize", get = function() return db.devourerTimerFontSize end,
             set = function(value)
                 db.devourerTimerFontSize = ClampNumber(value, 12, 48, DevourerTransform.defaults.devourerTimerFontSize)
                 DevourerTransform:ApplyAppearance(db)
@@ -1870,7 +1729,7 @@ function DevourerTransform:BuildOptions(db)
             min = 10,
             max = 36,
             step = 1,
-            get = function() return db.devourerCountFontSize end,
+            fontStyleSource="devourerCountFontSize", get = function() return db.devourerCountFontSize end,
             set = function(value)
                 db.devourerCountFontSize = ClampNumber(value, 10, 36, DevourerTransform.defaults.devourerCountFontSize)
                 DevourerTransform:ApplyAppearance(db)
@@ -1909,8 +1768,26 @@ function DevourerTransform:BuildOptions(db)
         onRequestRefresh = RefreshSettingsModule,
     }
 
+    if YUI.GUI2 and YUI.GUI2.FontStyle and YUI.GUI2.FontStyle.MergeOptions then
+        YUI.GUI2.FontStyle:MergeOptions(options, {{key="class_devourer:timer",label=T("settings.timer_text"),sources={"devourerTimerFontSize"}},
+{key="class_devourer:count",label=T("settings.count_text"),sources={"devourerCountFontSize"}}})
+    end
     return options
 end
 
 Monitor.DevourerTransform = DevourerTransform
 Monitor:RegisterSubFeature(DevourerTransform)
+
+if YUI.GUI2 and YUI.GUI2.FontStyle and YUI.GUI2.FontStyle.RegisterConfig then
+    local style=YUI.GUI2.FontStyle
+    textStyles={
+        style.FullConfig({id="timer",label=function() return T("settings.timer_text") end,fields={size="devourerTimerFontSize"},defaults=DevourerTransform.defaults,minSize=12,maxSize=48},"devourerTimer",{color=DEFAULT_TIMER_COLOR,shadow=true,shadowAlpha=0.6,font=function() return YUI.GUI2.Fonts and YUI.GUI2.Fonts.normal or YUI.GUI2:GetFont("font.family.body") end}),
+        style.FullConfig({id="count",label=function() return T("settings.count_text") end,fields={size="devourerCountFontSize"},defaults=DevourerTransform.defaults,minSize=10,maxSize=36},"devourerCount",{color=DEFAULT_COUNT_COLOR,shadow=true,shadowAlpha=0.6,font=function() return YUI.GUI2.Fonts and YUI.GUI2.Fonts.normal or YUI.GUI2:GetFont("font.family.body") end})
+    }
+    style:RegisterConfig("class_devourer", {
+        label=function() return T("settings.devourer_basic", "噬灭变身") end,
+        get=function() return style.ComponentConfig(Monitor.PRODUCT_ID,Monitor.CONFIG_KEY) end,
+        refresh=function(db) if featureActive or settingsPreviewActive or layoutPreviewActive then DevourerTransform:RefreshRuntime(db) end end,
+        targets=textStyles,
+    })
+end

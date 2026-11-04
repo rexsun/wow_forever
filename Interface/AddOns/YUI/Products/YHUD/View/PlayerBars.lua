@@ -2,6 +2,7 @@ local YHUD = YUI and YUI.YHUD
 local I = YHUD and YHUD.View and YHUD.View._internal
 if not I then return end
 local GUI2 = YUI.GUI2
+local TIME_PREVIEWS = { remaining = "1.2", elapsed = "1.7", remainingTotal = "1.2 / 2.9", elapsedTotal = "1.7 / 2.9" }
 
 function I.IsPlayerCastCollapsed(view, monitor, state)
     if view.preview or view.designMode or view.layoutEditMode
@@ -22,6 +23,7 @@ function I.ConfigurePlayerCast(slot, preset, style)
     local cast = preset.id == "cast" and style.cast or nil
     if not cast and not slot._yhudCastBaseSize then return end
     slot._yhudPlayerCast = cast
+    GUI2:ConfigureCastTimeText(slot, cast and cast.progress and cast.timeFormat or nil)
     slot:SetAlpha(1)
     slot._yhudCastAlpha, slot._yhudCastIdleCleared = 1, nil
     if cast and cast.icon and not slot.icon then
@@ -39,6 +41,13 @@ function I.ConfigurePlayerCast(slot, preset, style)
         slot.SetResourceBarSize = function(self, ...)
             self._yhudCastBaseSize(self, ...)
             LayoutStages(self)
+        end
+    end
+    if not slot._yhudCastBaseClearValues then
+        slot._yhudCastBaseClearValues = slot.ClearResourceValues
+        slot.ClearResourceValues = function(self, ...)
+            GUI2:ClearCastTimeText(self)
+            return self._yhudCastBaseClearValues(self, ...)
         end
     end
     slot:SetResourceBarSize(slot.gui2ResourceWidth, slot.gui2ResourceHeight, slot.gui2ResourceOrientation)
@@ -63,6 +72,7 @@ function I.UpdatePlayerCast(slot, state, preview)
         slot._yhudCastAlpha = alpha
     end
     if preview then
+        GUI2:ClearCastTimeText(slot)
         slot._yhudCastStages, slot._yhudCastTotal, slot._yhudCastTickCount = nil, nil, nil
         LayoutStages(slot)
         slot:SetResourceFillColor(slot._yhudResourceStyle.fillColor)
@@ -71,7 +81,7 @@ function I.UpdatePlayerCast(slot, state, preview)
         slot.resourceNameText:SetShown(cast.name)
         if slot.icon and slot.icon.icon then slot.icon.icon:SetTexture(136096) end
         slot.resourceDurationCountdown:Hide()
-        slot.resourceValueText:SetText("1.2")
+        slot.resourceValueText:SetText(TIME_PREVIEWS[cast.timeFormat] or TIME_PREVIEWS.remaining)
         slot.resourceValueText:SetShown(cast.progress)
         return
     end
@@ -89,11 +99,13 @@ function I.UpdatePlayerCast(slot, state, preview)
     local config = slot.gui2ResourceDisplayConfig
     if config then config.durationProgressDirection = raw.channel and "remaining" or "elapsed" end
     if state.castMode == "failed" then
+        GUI2:ClearCastTimeText(slot)
         slot:SetResourceValues(nil, nil, false, 1, 1, nil, nil, nil, nil, nil, nil, nil, true)
         slot.resourceDurationCountdown:Hide()
         slot.resourceValueText:Hide()
     else
         if slot:SetResourceValues(nil, nil, false, 1, 1, nil, nil, nil, nil, nil, raw.duration) ~= true then
+            GUI2:ClearCastTimeText(slot)
             slot:SetAlpha(0)
             slot._yhudCastAlpha = 0
             if YHUD.PlayerBars then
@@ -103,11 +115,15 @@ function I.UpdatePlayerCast(slot, state, preview)
             return false
         end
         if state.castMode == "empower" then
+            GUI2:ClearCastTimeText(slot)
             slot.resourceDurationCountdown:Hide()
             slot.resourceValueText:SetText(type(state.castStage) == "number" and state.castStage > 0
                 and string.format(YHUD:T("player_cast.stage", "%d 阶段"), state.castStage)
                 or YHUD:T("player_cast.empower", "蓄力"))
             slot.resourceValueText:SetShown(cast.progress)
+        elseif cast.timeFormat and cast.timeFormat ~= "remaining" and cast.progress then
+            slot.resourceDurationCountdown:Hide()
+            slot.resourceValueText:SetShown(GUI2:BindCastTimeText(slot, raw.duration))
         end
     end
     -- Raw name/icon may be secret. Pass them directly to native sinks without caching or comparisons.

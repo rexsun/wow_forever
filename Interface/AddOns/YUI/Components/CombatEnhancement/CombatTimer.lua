@@ -43,7 +43,7 @@ local VALID_FORMATS = {
 local VALID_TEXT_STYLES = {
     none = true,
     shadow = true,
-    outline_shadow = true,
+    outline_shadow = true, outline = true, thick = true, thick_shadow = true,
 }
 
 local VALID_OUT_OF_COMBAT_RULES = {
@@ -84,6 +84,7 @@ local appliedFrameAlpha
 local appliedFont
 local appliedFontSize
 local appliedTextStyle
+local appliedMonochrome
 local EventOwner = {}
 local DirectPreviewEventOwner = {}
 local directPreviewEventRegistered = false
@@ -246,6 +247,7 @@ end
 
 local function ResolveFontPath(fontName)
     fontName = NormalizeFont(fontName)
+    if fontName:find("\\",1,true) or fontName:find("/",1,true) then return fontName end
     if fontName ~= DEFAULT_FONT and LSM and LSM.Fetch then
         local path = LSM:Fetch("font", fontName, true)
         if type(path) == "string" and path ~= "" then return path end
@@ -262,17 +264,19 @@ function CombatTimer.ResolveFontPath(fontName)
 end
 
 local function GetFontFlags(textStyle)
-    return NormalizeTextStyle(textStyle) == "outline_shadow" and "OUTLINE" or ""
+    textStyle = NormalizeTextStyle(textStyle)
+    return textStyle:find("thick",1,true) and "THICKOUTLINE" or textStyle:find("outline",1,true) and "OUTLINE" or ""
 end
 
 local function ApplyTextShadow(fontString, textStyle)
     if not fontString then return end
     textStyle = NormalizeTextStyle(textStyle)
-    if textStyle == "shadow" or textStyle == "outline_shadow" then
+    if textStyle:find("shadow",1,true) then
         if fontString.SetShadowColor then fontString:SetShadowColor(0, 0, 0, 1) end
         if fontString.SetShadowOffset then fontString:SetShadowOffset(1, -1) end
-    elseif fontString.SetShadowOffset then
-        fontString:SetShadowOffset(0, 0)
+    else
+        if fontString.SetShadowColor then fontString:SetShadowColor(0, 0, 0, 0) end
+        if fontString.SetShadowOffset then fontString:SetShadowOffset(0, 0) end
     end
 end
 
@@ -376,17 +380,26 @@ local function ApplyAppearance(db)
     local fontName = db.combatTimerFont
     local fontSize = db.combatTimerFontSize
     local textStyle = db.combatTimerTextStyle
-    if appliedFont ~= fontName or appliedFontSize ~= fontSize or appliedTextStyle ~= textStyle then
+    if appliedFont ~= fontName or appliedFontSize ~= fontSize or appliedTextStyle ~= textStyle
+        or appliedMonochrome ~= (db.combatTimerMonochrome == true) then
         local fontPath = ResolveFontPath(fontName)
         local flags = GetFontFlags(textStyle)
-        local ok, applied = pcall(timerText.SetFont, timerText, fontPath, fontSize, flags)
-        if not ok or applied == false then
+        if db.combatTimerMonochrome then flags = flags ~= "" and flags .. ",MONOCHROME" or "MONOCHROME" end
+        local ok
+        if GUI2 and GUI2.FontStyle and GUI2.FontStyle.TryFont then
+            ok = GUI2.FontStyle.TryFont(timerText, fontPath, fontSize, flags)
+        else
+            local called, applied = pcall(timerText.SetFont, timerText, fontPath, fontSize, flags)
+            ok = called and applied ~= false
+        end
+        if not ok then
             pcall(timerText.SetFont, timerText, ResolveFontPath(DEFAULT_FONT), fontSize, flags)
         end
         ApplyTextShadow(timerText, textStyle)
         appliedFont = fontName
         appliedFontSize = fontSize
         appliedTextStyle = textStyle
+        appliedMonochrome = db.combatTimerMonochrome == true
         frame:SetSize(CombatTimer:MeasureLayoutSize(fontSize))
         RefreshLayoutFrame()
     end
@@ -991,7 +1004,7 @@ function CombatTimer:BuildOptions(db)
                     },
                 }
             end,
-            get = function() return db.combatTimerFont end,
+            fontStyleSource="combatTimerFont", get = function() return db.combatTimerFont end,
             set = function(value)
                 db.combatTimerFont = NormalizeFont(value)
                 appliedFont = nil
@@ -1004,7 +1017,7 @@ function CombatTimer:BuildOptions(db)
             min = MIN_FONT_SIZE,
             max = MAX_FONT_SIZE,
             step = 1,
-            get = function() return db.combatTimerFontSize end,
+            fontStyleSource="combatTimerFontSize", get = function() return db.combatTimerFontSize end,
             set = function(value)
                 db.combatTimerFontSize = math.floor(ClampNumber(value, MIN_FONT_SIZE, MAX_FONT_SIZE, DEFAULT_FONT_SIZE) + 0.5)
                 appliedFontSize = nil
@@ -1016,7 +1029,7 @@ function CombatTimer:BuildOptions(db)
             label = T("settings.combat_timer_text_style", "描边阴影"),
             options = BuildTextStyleOptions,
             default = DEFAULT_TEXT_STYLE,
-            get = function() return db.combatTimerTextStyle end,
+            fontStyleSource="combatTimerTextStyle", get = function() return db.combatTimerTextStyle end,
             set = function(value)
                 db.combatTimerTextStyle = NormalizeTextStyle(value)
                 appliedTextStyle = nil
@@ -1029,7 +1042,7 @@ function CombatTimer:BuildOptions(db)
             layoutPreset = "compactColor",
             default = DEFAULT_COLOR,
             hasAlpha = true,
-            get = function() return db.combatTimerColor end,
+            fontStyleSource="combatTimerColor", get = function() return db.combatTimerColor end,
             set = function(value)
                 db.combatTimerColor = NormalizeColor(value)
                 CombatTimer:RefreshRuntime(db)
@@ -1037,6 +1050,9 @@ function CombatTimer:BuildOptions(db)
         },
     })
 
+    if GUI2 and GUI2.FontStyle and GUI2.FontStyle.MergeOptions then
+        GUI2.FontStyle:MergeOptions(options, {{key="combat_timer:text", sources={"combatTimerFont","combatTimerFontSize","combatTimerTextStyle","combatTimerColor"}}})
+    end
     return options
 end
 
@@ -1108,4 +1124,20 @@ if YUI.Layout and YUI.Layout.RegisterAnchorProvider then
         return GetDefaultPlacement(), width, height, 1
     end
     YUI.Layout:RegisterAnchorProvider(LAYOUT_ID, {name=FRAME_NAME, resolve=ResolveColdAnchor})
+end
+
+if GUI2 and GUI2.FontStyle and GUI2.FontStyle.RegisterConfig then
+    local style = GUI2.FontStyle
+    style:RegisterConfig("combat_timer", {
+        label=function() return T("name", "战斗增强") end,
+        get=function() return style.ComponentConfig(CombatEnhancement.PRODUCT_ID, CombatEnhancement.CONFIG_KEY) end,
+        refresh=function(db)
+            appliedFont = nil
+            if featureActive or layoutPreviewActive or directPreviewActive then CombatTimer:RefreshRuntime(db) end
+        end,
+        targets={{id="text", label=function() return T("layout.combat_timer", "战斗计时") end,
+            fields={font="combatTimerFont",size="combatTimerFontSize",color="combatTimerColor",monochrome="combatTimerMonochrome"},
+            effect="combatTimerTextStyle", defaults=CombatTimer.defaults, minSize=MIN_FONT_SIZE,maxSize=MAX_FONT_SIZE,
+            fontPath=ResolveFontPath}},
+    })
 end

@@ -938,8 +938,14 @@ local function SyncFrameToOverlay(entry)
     if not frame or not overlay or not overlay:IsShown() then return end
     if entry.placementState == PLACEMENT_SIMULATED and not IsFrameShown(frame) then return end
     if not AnchorOverlayToScreen(overlay) then return end
+    local centerX, centerY = overlay:GetCenter()
+    if not centerX or not centerY then return end
+    local scale = overlay:GetEffectiveScale() / frame:GetEffectiveScale()
+    -- Keep the group out of the pooled mover's anchor family while dragging.
     frame:ClearAllPoints()
-    frame:SetPoint("CENTER", overlay, "CENTER", -(overlay.yuiLayoutMoverOffsetX or 0), -(overlay.yuiLayoutMoverOffsetY or 0))
+    frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT",
+        centerX * scale - (overlay.yuiLayoutMoverOffsetX or 0),
+        centerY * scale - (overlay.yuiLayoutMoverOffsetY or 0))
     -- Visual-only companions follow the live mover; persistence remains at commit.
     if type(entry.spec.onMoverSync) == "function" then
         SafeCall("Layout:onMoverSync:" .. tostring(entry.id), entry.spec.onMoverSync, frame, entry, Layout)
@@ -1288,8 +1294,13 @@ function Layout:ReleaseOverlay(entry)
     if not overlay then return false end
     overlay:Hide()
     overlay:SetScript("OnUpdate", nil)
+    overlay:StopMovingOrSizing()
+    overlay:ClearAllPoints()
     overlay.yuiLayoutEntry = nil
     overlay.yuiLayoutDragging = false
+    overlay.yuiLayoutScreenAnchored = nil
+    overlay.yuiLayoutDragStartLeft = nil
+    overlay.yuiLayoutDragStartBottom = nil
     overlay.yuiLayoutVisualState = nil
     overlay.yuiLayoutAnchorFrame = nil
     overlay.yuiLayoutAnchorPoint = nil
@@ -1389,6 +1400,8 @@ function Layout:UpdateOverlay(entry, anchorTargetEntry)
             or IsAnchorTargetAvailable(entry) ~= false)
     local moverVisible = self.directDragEntry==entry or not self.IsEditMoverVisible
         or self:IsEditMoverVisible(entry) ~= false
+    moverVisible = moverVisible and (self.directDragEntry == entry
+        or ResolveSpecValue(entry, "isEditModeEnabled", true) ~= false)
     local showOnlyInEditMode = ResolveSpecValue(entry, "showOnlyInEditMode", false) == true
     local frameShown = IsFrameShown(frame)
     if frame and showOnlyInEditMode then

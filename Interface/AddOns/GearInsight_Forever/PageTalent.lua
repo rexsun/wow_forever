@@ -125,7 +125,7 @@ local function refresh()
         page.buildBtn:SetShown(dp ~= nil)
         if dp then
             local on = S.plan and S.path and S.plan.key == dp.key
-            page.buildBtn:SetText((on and "|cffffd100" or "") .. ns.L("推荐：", "Build: ") .. ns.L(dp.specCn or dp.spec or "", dp.spec or "") .. (on and "|r" or ""))
+            page.buildBtn:SetText((on and "|cffffd100" or "") .. ns.L("升级天赋选择：", "Leveling build: ") .. ns.L(dp.specCn or dp.spec or "", dp.spec or "") .. (on and "|r" or ""))
         end
     end
     page.code:SetText(ns.TalentCodeFromSim() or "")
@@ -299,7 +299,7 @@ local function build(p)
     lg:SetText(dotTxt(ST_COLOR.new, ns.L("《无限》新增", "New")) .. "   " .. dotTxt(ST_COLOR.changed, ns.L("改动", "Changed"))
         .. "   " .. dotTxt(ST_COLOR.moved, ns.L("换位置", "Moved")))
     -- 10-11 玩家「我是熊 D，推荐的是野德（猫），怎么换？」：推荐方案切换（每职业多套，按角色记住）
-    p.buildBtn = ns.Button(p, "", 150, 20, function(self) ns.ShowBuildMenu(self) end)
+    p.buildBtn = ns.Button(p, "", 170, 20, function(self) ns.ShowBuildMenu(self) end)
     p.buildBtn:SetPoint("LEFT", p.info, "RIGHT", 10, 0)
     p.buildBtn:SetScript("OnEnter", function(self)   -- 名字可能被截 → 悬停看全
         local L = S.cls and ns.DefaultBuilds(S.cls) or {}

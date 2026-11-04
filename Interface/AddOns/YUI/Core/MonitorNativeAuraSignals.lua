@@ -11,16 +11,20 @@ local viewers = setmetatable({}, { __mode = 'k' })
 local owners = setmetatable({}, { __mode = 'k' })
 local Bind
 local CommitMemberLoss
+local ReconcileMembers
 local LOSS_TASK = 'native-aura-loss'
 local function CancelLoss(source)
     source.state.lossFrame = nil
+    source.state.fullUpdateLoss = nil
     source.state.nativeIdentityUnknown=nil
     source.state.nativeLastAddedID=nil
+    source.state.nativeSelfMemberID=nil
     M:CancelTask(source, LOSS_TASK)
     local members=source.state.nativeMemberStates
     if members then
         for _,member in pairs(members) do
             member.present,member.lossFrame,member.auraUnit=nil,nil,nil
+            member.requireAbsent=nil
             M:CancelTask(source,member.taskKey)
         end
     end
@@ -36,6 +40,15 @@ local function Call(method, ...)
     local ok, value = pcall(method, ...)
     if ok then return Public(value) end
 end
+-- Only a successful, public owner read can distinguish absence from unknown.
+-- Never inspect the native aura instance ID or an aura's restricted fields.
+local function SelfPresence(frame)
+    if type(frame.GetAuraDataUnit)~='function' then return end
+    local ok,unit=pcall(frame.GetAuraDataUnit,frame)
+    if not ok or type(issecretvalue)=='function' and issecretvalue(unit) then return end
+    if unit=='player' then return true end
+    if unit==nil then return false end
+end
 local function PositiveID(value)
     value=Public(value)
     if type(value)=='number' and value>0 and value<math.huge and value%1==0 then return value end
@@ -43,7 +56,7 @@ end
 -- A multi-aura item is one native identity. Its display spell and members have
 -- different roles; neither the base spell nor a linked spell is a second item.
 function Sources:DescribeNativeAuraCatalogEntry(entry)
-    if YUI.IsRetail~=true then return end
+    if YUI.IsRetail~=true and YUI.IsForever~=true then return end
     if entry.sourceCategory~='trackedBuff' and entry.sourceCategory~='trackedBar' or entry.equipSlot then return end
     local linked=Public(entry.linkedSpellIDs)
     if type(linked)~='table' or #linked<2 or #linked>32 then return end
@@ -71,8 +84,17 @@ function Sources:DescribeNativeAuraCatalogEntry(entry)
         else aggregate=false end
     end
     table.sort(aliases)
+    local catalog=YUI.IsForever and YUI.API and YUI.API.ForeverAuraIdentities
+    local family=catalog and catalog.totems[cooldownID]
+    local auraIDs,castIDs
+    if family then
+        auraIDs,castIDs={},{}
+        for _,id in ipairs(family.auras) do if members[id] then auraIDs[#auraIDs+1]=id end end
+        for _,id in ipairs(family.casts) do if members[id] then castIDs[id]=true end end
+    end
     return {id=display,cooldownID=cooldownID,base=base,members=members,links=links,
-        memberIDs=aliases,aggregate=aggregate,namesComplete=namesComplete,selfAura=Public(entry.selfAura)==true}
+        memberIDs=aliases,aggregate=aggregate,namesComplete=namesComplete,selfAura=Public(entry.selfAura)==true,
+        recipientAuraIDs=auraIDs,castIDs=castIDs}
 end
 local function ActiveAuraID(frame,source)
     local aura=PositiveID(Call(frame.GetAuraSpellID,frame))
@@ -91,7 +113,7 @@ local function TraceEdge(stage,source,frame)
     trace:Record(stage,source.params.spellID,trace:Identity(frame),
         binding and trace:Identity(binding.viewer),frame and Public(frame.cooldownID),
         state.sequence,state.present,state.lossFrame~=nil,state.generation,
-        state.auraUnit,frame and Call(frame.GetAuraDataUnit,frame))
+        state.auraUnit,frame and Call(frame.GetAuraDataUnit,frame),source.params.nativeSelfAura,state.nativeSelfPresent)
 end
 local function ID(frame)
     local id = Public(frame.cooldownID)
@@ -154,6 +176,7 @@ local function Invalidate(frame)
         source.state.auraUnit = nil
         source.state.nativeAuraID = nil
         source.state.targetBaselineReset = nil
+        source.state.nativeSelfPresent = nil
         source.state.issue = 'native-aura-binding-unavailable'
         M:RefreshSourceNow(source, 'native-aura-signal', true)
         M:QueueSource(source, 'native-aura-rebind')
@@ -172,8 +195,10 @@ end
 local function CommitLoss(source)
     local state = source.state
     local frame = state.lossFrame
+    local fullUpdateLoss=state.fullUpdateLoss
     TraceEdge('loss-wake',source,frame)
     state.lossFrame = nil
+    state.fullUpdateLoss = nil
     local binding = frame and bindings[frame]
     if Source(source.key) ~= source or not binding or binding.key ~= source.key
         or binding.generation ~= state.generation then return end
@@ -182,7 +207,12 @@ local function CommitLoss(source)
         state.present, state.nativeEvent, state.issue = nil, nil, 'native-aura-viewer-hidden'
         state.auraUnit = nil
         state.targetBaselineReset = nil
+        state.nativeSelfPresent = nil
         M:RefreshSourceNow(source, 'native-aura-signal', true)
+        return
+    end
+    if fullUpdateLoss and SelfPresence(frame)~=false then
+        state.nativeSelfPresent=nil
         return
     end
     if state.present ~= true then return end
@@ -190,6 +220,7 @@ local function CommitLoss(source)
     state.present, state.nativeEvent, state.issue = false, 'auraRemoved', nil
     TraceEdge('loss-commit',source,frame)
     state.auraUnit = nil
+    if source.params.nativeSelfAura then state.nativeSelfPresent=false end
     M:RefreshSourceNow(source, 'native-aura-signal', true)
 end
 local function PublishMember(source,member,event)
@@ -208,6 +239,12 @@ CommitMemberLoss=function(source,member)
     if Source(source.key)~=source or not binding or binding.key~=source.key
         or binding.generation~=source.state.generation then return end
     if ID(frame)~=binding.id then Invalidate(frame);return end
+    if member.requireAbsent and SelfPresence(frame)~=false then
+        member.requireAbsent=nil
+        source.state.nativeSelfPresent=nil
+        return
+    end
+    member.requireAbsent=nil
     if Call(binding.viewer.IsShown,binding.viewer)~=true then
         CancelLoss(source)
         source.state.present,source.state.nativeEvent,source.state.issue=nil,nil,'native-aura-viewer-hidden'
@@ -216,11 +253,12 @@ CommitMemberLoss=function(source,member)
     end
     if member.present~=true then return end
     member.present=false
+    if source.params.nativeSelfMembers then source.state.nativeSelfPresent=false end
     PublishMember(source,member,'auraRemoved')
 end
-local function MemberEdge(frame,source,present)
+local function MemberEdge(frame,source,present,identity,requireAbsent)
     local state=source.state
-    local id=ActiveAuraID(frame,source)
+    local id=identity or ActiveAuraID(frame,source)
     local member=id and state.nativeMemberStates[id]
     if not member then
         if state.nativeIdentityUnknown then return end
@@ -234,7 +272,11 @@ local function MemberEdge(frame,source,present)
     member.auraUnit=Call(frame.GetAuraDataUnit,frame)
     if present then
         member.lossFrame=nil
+        member.requireAbsent=nil
         M:CancelTask(source,member.taskKey)
+        if source.params.nativeSelfMembers then
+            state.nativeSelfPresent,state.nativeSelfMemberID=true,id
+        end
         if member.present==true and state.nativeLastAddedID==id then return end
         member.present=true
         state.nativeLastAddedID=id
@@ -244,6 +286,7 @@ local function MemberEdge(frame,source,present)
         PublishMember(source,member,nil)
     elseif member.present==true and not member.lossFrame then
         member.lossFrame=frame
+        member.requireAbsent=requireAbsent
         local ok,code=M:ScheduleTask(source,member.taskKey,GetTime()+0.001,member.commit)
         if not ok then
             CancelLoss(source)
@@ -268,6 +311,11 @@ end
 local function Edge(frame, present)
     local binding = bindings[frame]
     local source = binding and Source(binding.key)
+    local trace=YUI.Sound and YUI.Sound.DebugTiming
+    if trace and trace.enabled then
+        trace:Record('native-edge-dispatch',trace:Identity(frame),Public(frame.cooldownID),present,
+            binding and binding.key,binding and binding.generation,source and source.state.generation)
+    end
     if not source or not binding or binding.generation~=source.state.generation then return end
     if ID(frame) ~= binding.id then Invalidate(frame); return end
     local state = source.state
@@ -277,6 +325,7 @@ local function Edge(frame, present)
         state.present, state.nativeEvent, state.issue = nil, nil, 'native-aura-viewer-hidden'
         state.auraUnit = nil
         state.targetBaselineReset = nil
+        state.nativeSelfPresent = nil
         M:RefreshSourceNow(source, 'native-aura-signal', true)
         return
     end
@@ -288,6 +337,7 @@ local function Edge(frame, present)
         -- also display target auras, whose baseline must still be discarded.
         state.auraUnit = Call(frame.GetAuraDataUnit, frame)
         state.targetBaselineReset = nil
+        if source.params.nativeSelfAura then state.nativeSelfPresent=SelfPresence(frame) end
     else
         -- Native removal precedes replacement gains in the same UNIT_AURA update.
         -- Keep the committed presence until the shared one-shot task settles it.
@@ -323,6 +373,38 @@ local function Edge(frame, present)
 end
 local function Gain(frame) Edge(frame, true) end
 local function Loss(frame) Edge(frame, false) end
+-- Native item refreshes can fill the identity after UNIT_AURA without an alert.
+-- Only reviewed families and public ownership establish recipient presence.
+ReconcileMembers=function(frame)
+    local binding=bindings[frame]
+    local source=binding and Source(binding.key)
+    if not source or not source.params.nativeSelfMembers or binding.generation~=source.state.generation then return end
+    local state=source.state
+    if ID(frame)~=binding.id or not Unique(frame,source) then Invalidate(frame);return end
+    if Call(binding.viewer.IsShown,binding.viewer)~=true then
+        CancelLoss(source);state.nativeSelfPresent=nil;return
+    end
+    local present=SelfPresence(frame)
+    if present==nil then CancelLoss(source);state.nativeSelfPresent=nil;return end
+    local id
+    if present then id=ActiveAuraID(frame,source) else id=state.nativeSelfMemberID end
+    if present and id then
+        local recipient=false
+        for _,candidate in ipairs(source.params.nativeRecipientIDs) do if candidate==id then recipient=true end end
+        if not recipient then return end
+    end
+    if present and not id then return end -- retain a known absence until identity arrives
+    local previous=state.nativeSelfPresent
+    if previous~=nil and present~=previous and id then
+        MemberEdge(frame,source,present,id,not present)
+    elseif previous==nil and present and id then
+        local member=state.nativeMemberStates[id]
+        member.present,member.auraUnit=true,'player'
+        state.nativeLastAddedID=id
+    end
+    state.nativeSelfPresent=present
+    if present then state.nativeSelfMemberID=id end
+end
 Bind = function(viewer, frame, source)
     if not source then
         for _, candidate in pairs(M.Data.sources) do
@@ -349,6 +431,9 @@ Bind = function(viewer, frame, source)
         end
     end
     local id = ID(frame)
+    if source.params.nativeSelfMembers and type(frame.RefreshData)=='function' and not installed.RefreshData then
+        installed.RefreshData=pcall(hooksecurefunc,frame,'RefreshData',ReconcileMembers) or nil
+    end
     if not id or not Unique(frame, source) then
         local old=bindings[frame]
         if old and old.key==source.key then bindings[frame]=nil end
@@ -357,6 +442,12 @@ Bind = function(viewer, frame, source)
     local previous=bindings[frame]
     if previous and previous.id==id and previous.viewer==viewer and previous.key==source.key and previous.generation==source.state.generation then return source end
     bindings[frame] = { id = id, viewer = viewer, key = source.key, generation=source.state.generation }
+    -- Initial binding/rebinding is a baseline, never an applied alert. Keep a
+    -- continuous baseline across the pool rebuild caused by a full aura update.
+    if source.params.nativeSelfAura and source.state.nativeSelfPresent==nil then
+        source.state.nativeSelfPresent=SelfPresence(frame)
+    end
+    if source.params.nativeSelfMembers then ReconcileMembers(frame) end
     TraceEdge('aura-bind',source,frame)
     return source
 end
@@ -364,7 +455,12 @@ local function Acquired(viewer, frame)
     local source=Bind(viewer,frame)
     if source then M:QueueSource(source,'native-aura-rebind') end
 end
-local function NativeLayoutChanged()
+local function NativeLayoutChanged(viewer)
+    if YUI.IsForever then
+        for frame,binding in pairs(bindings) do
+            if binding.viewer==viewer then ReconcileMembers(frame) end
+        end
+    end
     for _,source in pairs(M.Data.sources) do
         if (source.sourceType.id==TYPE or source.sourceType.id=='native-equipment-aura') and source.consumerCount>0 then
             M:QueueSource(source,'native-aura-layout')
@@ -372,12 +468,63 @@ local function NativeLayoutChanged()
     end
 end
 local layoutObservers=setmetatable({},{__mode='k'})
+local function TraceAuraUpdate(viewer,unit,update)
+    local trace=YUI.Sound and YUI.Sound.DebugTiming
+    if not (trace and trace.enabled) then return end
+    update=Public(update)
+    local readable=type(update)=='table' and not (issecrettable and issecrettable(update))
+    trace:Record('native-aura-update',trace:Identity(viewer),Public(unit),readable,
+        readable and update.isFullUpdate,readable and Public(update.addedAuras)~=nil,
+        readable and Public(update.updatedAuraInstanceIDs)~=nil,
+        readable and Public(update.removedAuraInstanceIDs)~=nil)
+    for frame,binding in pairs(bindings) do
+        local source=binding.viewer==viewer and Source(binding.key)
+        if source then TraceEdge('aura-update-state',source,frame) end
+    end
+end
+local function OnAuraUpdate(viewer,unit,update)
+    TraceAuraUpdate(viewer,unit,update)
+    update=Public(update)
+    if Public(unit)~='player' or type(update)~='table'
+        or issecrettable and issecrettable(update) then return end
+    if YUI.IsForever then
+        for frame,binding in pairs(bindings) do
+            if binding.viewer==viewer then ReconcileMembers(frame) end
+        end
+    end
+    if Public(update.isFullUpdate)~=true then return end
+    -- Native OnUnitAura returns after RefreshLayout for a full update, omitting
+    -- both alert callbacks. Reconcile only an explicit self aura with one native
+    -- identity, after the native layout has finished; target/member auras stay on
+    -- their existing callback paths. Unchanged presence is not a refresh event.
+    for frame,binding in pairs(bindings) do
+        local source=binding.viewer==viewer and Source(binding.key)
+        if source and source.params.nativeSelfAura and binding.generation==source.state.generation then
+            local state=source.state
+            if ID(frame)~=binding.id or not Unique(frame,source) then
+                Invalidate(frame)
+            elseif Call(viewer.IsShown,viewer)~=true then
+                Edge(frame,false)
+            else
+                local previous=state.nativeSelfPresent
+                local present=SelfPresence(frame)
+                state.nativeSelfPresent=present
+                if present~=nil and previous~=nil and present~=previous then
+                    TraceEdge(present and 'full-update-gain' or 'full-update-loss',source,frame)
+                    Edge(frame,present)
+                    if not present and state.lossFrame==frame then state.fullUpdateLoss=true end
+                end
+            end
+        end
+    end
+end
 local function ObserveLayout(viewer)
     if layoutObservers[viewer] or type(hooksecurefunc)~='function' then return end
     layoutObservers[viewer]=true
     for _,method in ipairs({'RefreshLayout','RefreshData'}) do
         if type(viewer[method])=='function' then pcall(hooksecurefunc,viewer,method,NativeLayoutChanged) end
     end
+    if type(viewer.OnUnitAura)=='function' then pcall(hooksecurefunc,viewer,'OnUnitAura',OnAuraUpdate) end
 end
 function Sources:RefreshNativeAuraBindings()
     NativeLayoutChanged()
@@ -415,19 +562,22 @@ local function Read(source, state, reason)
     if not found then state.issue = 'native-aura-binding-unavailable' end
     if not found then
         CancelLoss(source)
+        state.nativeSelfPresent=nil
         state.present, state.nativeEvent, state.auraUnit, state.targetBaselineReset = nil, nil, nil, nil
         state.nativeAuraID=nil
     end
     if state.issue~=previousIssue and YUI.Event and YUI.Event.Emit then YUI.Event:Emit('YUI_MONITOR_SOURCE_STATUS_CHANGED',source.key) end
     return state.issue ~= previousIssue
 end
-function Sources:DescribeNativeAuraSignal(spellID, unit, event)
+function Sources:DescribeNativeAuraSignal(spellID, unit, event, readNativeAuraEntries)
     if unit ~= 'cdm' or (event ~= 'auraAdded' and event ~= 'auraRemoved') then return nil end
-    local auraID, base, direct, multi = 365362, 365350, false, nil
-    if spellID ~= auraID then
+    local auraID, base, direct, multi, selfAura = 365362, 365350, false, nil, false
+    if spellID ~= auraID or YUI.IsForever then
         local api = YUI.API and YUI.API.CooldownViewer
         if not api or not api.ReadEntries then return nil end
-        local entries = api:ReadEntries({includeHidden=true,allowUnlearned=true})
+        local entries
+        if YUI.IsRetail and readNativeAuraEntries then entries=readNativeAuraEntries()
+        else entries=api:ReadEntries({includeHidden=true,allowUnlearned=true,rawCatalog=YUI.IsForever==true}) end
         local selected
         for index, entry in ipairs(type(entries)=='table' and entries or {}) do
             if index>512 then break end
@@ -452,6 +602,7 @@ function Sources:DescribeNativeAuraSignal(spellID, unit, event)
         end
         if not selected then return nil end
         base=selected.spellID
+        selfAura=Public(selected.selfAura)==true
         if type(auraID)~='number' or type(base)~='number' then return nil end
     end
     if not self.nativeAuraSignalRegistered then
@@ -466,6 +617,7 @@ function Sources:DescribeNativeAuraSignal(spellID, unit, event)
                     state.auraUnit = nil
                     state.nativeAuraID = nil
                     state.targetBaselineReset = event == 'PLAYER_TARGET_CHANGED' or nil
+                    state.nativeSelfPresent = nil
                     state.sequence = state.sequence + 1
                     M:RefreshSourceNow(source, 'native-aura-signal', true)
                 end
@@ -480,13 +632,18 @@ function Sources:DescribeNativeAuraSignal(spellID, unit, event)
         self.nativeAuraSignalRegistered = true
     end
     if multi then
+        local auraIDs=multi.castIDs and multi.castIDs[spellID] and multi.recipientAuraIDs
+        if auraIDs and #auraIDs==0 then return nil,'native-aura-binding-unavailable' end
         return {key='native-aura-signal:cdm-entry:'..multi.cooldownID,type=TYPE,
-            nativeAuraID=not multi.aggregate and (spellID==multi.base and multi.id or spellID) or nil,
+            nativeAuraID=auraIDs and auraIDs[1] or not multi.aggregate and (spellID==multi.base and multi.id or spellID) or nil,
+            nativeAuraIDs=auraIDs,
             nativeAuraUnit=not multi.aggregate and multi.namesComplete and multi.selfAura and 'player' or nil,
             params={spellID=multi.id,unit='cdm',nativeBase=multi.base,nativeCooldownID=multi.cooldownID,
-                nativeMembers=multi.members,nativeLinks=multi.links,nativeAggregate=multi.aggregate}}
+                nativeMembers=multi.members,nativeLinks=multi.links,nativeAggregate=multi.aggregate,
+                nativeRecipientIDs=multi.recipientAuraIDs,
+                nativeSelfMembers=multi.selfAura and multi.recipientAuraIDs and #multi.recipientAuraIDs>0 or nil}}
     end
-    return { key = 'native-aura-signal:cdm:'..auraID, type = TYPE, params = { spellID = auraID, unit = 'cdm', nativeBase = base, nativeDirect=direct } }
+    return { key = 'native-aura-signal:cdm:'..auraID, type = TYPE, params = { spellID = auraID, unit = 'cdm', nativeBase = base, nativeDirect=direct, nativeSelfAura=selfAura } }
 end
 -- Equipment presets own a slot, not the item or aura captured during setup.
 local EQUIPMENT_TYPE='native-equipment-aura'

@@ -2,11 +2,16 @@ local ADDON_NAME, YUI = ...
 if not YUI.IsForever then return end
 local Components, Event = YUI.Components, YUI.Event
 local API, M, View = YUI.API.ProfessionAssistant, YUI.ProfessionAssistantModel, YUI.ProfessionAssistantView
+local BagEntry = YUI.ProfessionAssistantBagEntry
 local L = YUI.Locale:Get("ProfessionAssistant")
 local PRODUCT = YUI:GetAddonProductId(ADDON_NAME, "suite") or "suite"
 local KEY, MODULE = "ProfessionAssistant", "component.professionassistant"
+local DEFAULTS = { themeStyle = "auto", bagnonEntry = true }
+local function GetConfig()
+    return Components:EnsureConfig("ProfessionAssistant_Config", DEFAULTS, PRODUCT)
+end
 local function ThemeStyle()
-    local config = Components:EnsureConfig("ProfessionAssistant_Config", { themeStyle = "auto" }, PRODUCT)
+    local config = GetConfig()
     local style = config.themeStyle
     return (style == "native" or style == "dark") and style or "auto"
 end
@@ -144,6 +149,7 @@ AttachBags = function()
         local container = _G["ContainerFrame" .. i]
         Attach(container, container and container.GetBagID and container:GetBagID() == 0)
     end
+    if BagEntry then BagEntry:Refresh() end
 end
 
 Refresh = function(automatic)
@@ -261,6 +267,7 @@ end
 
 local function ReleaseSecure()
     if API.InCombat() then return end
+    if BagEntry then BagEntry:Refresh() end
     if view then
         view.root:Hide(); view.left:Hide(); view.right:Hide()
         if driver then UnregisterStateDriver(view.root, "combat"); driver = false end
@@ -268,11 +275,16 @@ local function ReleaseSecure()
     for _, entry in pairs(entries) do entry:SetShown(active and API.Known()) end
     Event:OffOwner(cleanupOwner)
 end
+local function UpdateBagEntry()
+    if not BagEntry then return end
+    if active and GetConfig().bagnonEntry ~= false then BagEntry:Enable(Open) else BagEntry:Disable() end
+end
 local function Toggle(enabled)
     Event:OffOwner(owner)
     listeners = 0
     Close()
     active = enabled == true
+    UpdateBagEntry()
     state = M.New()
     state.maxLevel = UnitLevel("player")
     items, byGUID, filtered = {}, {}, {}
@@ -309,9 +321,15 @@ function Feature:GetOptions()
             options = { { text = L["theme.auto"], value = "auto" }, { text = L["theme.native"], value = "native" },
                 { text = L["theme.dark"], value = "dark" } },
             set = function(value)
-                local config = Components:EnsureConfig("ProfessionAssistant_Config", { themeStyle = "auto" }, PRODUCT)
+                local config = GetConfig()
                 config.themeStyle = (value == "native" or value == "dark") and value or "auto"
                 if view and not API.InCombat() then View.RefreshAppearance(view) end
+            end },
+        { type = "checkbox", text = L["bagEntry.enabled"], tooltip = L["bagEntry.tooltip"],
+            get = function() return GetConfig().bagnonEntry ~= false end,
+            set = function(value)
+                GetConfig().bagnonEntry = value == true
+                UpdateBagEntry()
             end },
     }
     if YUI.IsDev == true then

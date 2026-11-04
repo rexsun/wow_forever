@@ -15,6 +15,7 @@
     <Script file="Modules\Appearance.lua"/>
     <Script file="Modules\SoundCenter.lua"/>
     <Script file="Modules\SoundRuleEditor.lua"/>
+    <Script file="Modules\SoundPresets.lua"/>
     <Script file="Modules\Sound.lua"/>
     <Script file="Modules\NativeInterface.lua"/>
     <Script file="Modules\ConfigTransferDialog.lua"/>

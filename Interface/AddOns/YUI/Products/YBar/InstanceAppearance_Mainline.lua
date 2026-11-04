@@ -3,7 +3,8 @@
 local Appearance={}
 Appearance.__index=Appearance
 local textKeys={"text","value","label","textH","textM","textSep"}
-local methods={"UpdateBarItem","UpdateTimeText","UpdateButtons","UpdateMicroMenu","UpdateTalents","UpdateProfessions","RefreshDisplay"}
+local methods={"UpdateBarItem","UpdateTimeText","UpdateButtons","UpdateMicroMenu","UpdateTalents","UpdateProfessions","RefreshDisplay",
+    "StartCooldownMonitor","UpdateCooldownText"}
 local empty={}
 local function Public(v)return not issecretvalue or not issecretvalue(v)end
 local function RememberTheme(state,text)
@@ -57,6 +58,42 @@ function Appearance:Paint(frame,color)
     if frame.gui2Component=="BarItem" then self:Wrap(frame,"SetState",true) end
     for _,key in ipairs(textKeys) do self:Text(frame[key],color) end
 end
+-- Cold display metadata only. Mixed/secret text cannot be represented by one
+-- swatch; inspect existing widgets without creating a view or changing colors.
+function Appearance:ModuleColor()
+    local red,green,blue,alpha,unknown
+    local function Read(frame)
+        for _,key in ipairs(textKeys) do
+            local text=frame and frame[key]
+            if text and text.GetText and text.GetTextColor then
+                local state=self.textState[text]
+                local raw=state and state.original or text:GetText()
+                if not Public(raw) then unknown=true;return end
+                if type(raw)=="string" and raw~="" then
+                    if raw:find("|c%x%x%x%x%x%x%x%x") then unknown=true;return end
+                    local r,g,b,a
+                    if state then r,g,b,a=state.r,state.g,state.b,state.a
+                    else r,g,b,a=text:GetTextColor() end
+                    if not Public(r) or not Public(g) or not Public(b) or not Public(a) then unknown=true;return end
+                    if red and (r~=red or g~=green or b~=blue or a~=alpha) then unknown=true;return end
+                    red,green,blue,alpha=r,g,b,a
+                end
+            end
+        end
+    end
+    local module=self.view.module
+    Read(module.frame);Read(module.content)
+    for _,cell in ipairs(module.cells or empty) do Read(cell.frame) end
+    for _,button in ipairs(module.buttons or empty) do
+        local parent=button.GetParent and button:GetParent()
+        for _=1,3 do
+            if not parent then break end
+            if parent==module.frame or parent==module.content then Read(button);break end
+            parent=parent.GetParent and parent:GetParent()
+        end
+    end
+    if not unknown and red then return {red,green,blue,alpha} end
+end
 function Appearance:Apply()
     local bridge,view=self.bridge,self.view
     if not bridge.active or not bridge:GetModel().instances[view.id] then return end
@@ -66,14 +103,17 @@ function Appearance:Apply()
     if mode=="class" then
         color=self.classColor
         color[1],color[2],color[3]=bridge.yui.GUI2:GetColor("color.class.primary")
+        color[4]=M.Resolve(db,view.id,"colorAlpha") or 1
     end
     self:Paint(view.module.frame,color);self:Paint(view.module.content,color)
+    -- Currency groups own reusable inline cells outside the main frame text.
+    for _,cell in ipairs(view.module.cells or empty) do self:Paint(cell.frame,color) end
     for _,button in ipairs(view.module.buttons or empty) do
         local parent=button.GetParent and button:GetParent()
         for _=1,3 do
             if not parent then break end
             if parent==view.module.frame or parent==view.module.content then
-                self:Paint(button,color);self:Wrap(button,"Update");break
+                self:Paint(button,color);self:Wrap(button,"Update");self:Wrap(button,"SetCountText");break
             end
             parent=parent.GetParent and parent:GetParent()
         end

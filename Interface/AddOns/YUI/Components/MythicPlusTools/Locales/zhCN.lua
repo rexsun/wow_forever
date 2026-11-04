@@ -3,6 +3,7 @@ local YUI = _G.YUI
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("zhCN") then return end
 
 YUI.Locale:Register("MythicPlusTools", "zhCN", {
+    ["settings.text"] = "文本",
     ["settings.teleport_announcement"] = "传送喊话",
     ["settings.description.battleRes"] = "显示队伍战复次数与充能情况。",
     ["settings.description.keystoneTools"] = "提供钥石自动放入、通报等辅助功能。",
@@ -128,4 +129,10 @@ YUI.Locale:Register("MythicPlusTools", "zhCN", {
     ["pve.keystone.no_keystone"] = "暂无钥石",
     ["pve.keystone.loading"] = "获取中...",
     ["layout.battle_res"] = "战复监控",
+    ["settings.pve_icon_name_text"] = "副本名文字",
+    ["settings.pve_icon_level_text"] = "层数文字",
+    ["settings.pve_open_settings"] = "PVE界面扩展设置",
+    ["settings.pve_level_color_rule"] = "随层数变化",
+    ["settings.pve_score_color_rule"] = "随分数变化",
+    ["settings.pve_icon_score_text"] = "分数文字",
 })

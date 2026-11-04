@@ -761,6 +761,11 @@ function Designer:Refresh()
     end
 end
 function Designer:DeferInspectorWhileDragging()
+    local style=self.gui.FontStyle
+    if style and style.IsEditing and style:IsEditing(self.content) then
+        if self.inspectorRefresh then self.inspectorRefresh:Cancel();self.inspectorRefresh=nil end
+        return true
+    end
     local picker=self.gui.ColorPicker
     if self.inspectorScope==self.scope and self.inspectorId==self.selected and self.inspectorTab==self.tab
         and picker and picker.DeferRefresh and picker:DeferRefresh(self.content,function()
@@ -829,22 +834,40 @@ function Designer:RenderInspector()
         if checks then
             for _,child in ipairs(item.children)do if child.type~="checkbox"then checks=false;break end end
         end
-        if checks then
+        if checks and item.hidden==nil then
             for _,child in ipairs(item.children)do compact[#compact+1]=child end
         else compact[#compact+1]=item end
     end
     options=CompactCheckboxes(compact,194)
     local controls={dropdown=true,slider=true,editbox=true,color=true,button=true}
+    local inlineTypes={dropdown=true,slider=true,color=true,switch=true,binarychoice=true}
     local normalized={}
-    for i,item in ipairs(options)do
-        if item.type=="editbox" and item.label then normalized[#normalized+1]={type="text",label=item.label,width=400,noWrap=true} end
-        if controls[item.type]then
+    for _,item in ipairs(options)do
+        local inlineRow=item.type=="row" and item.children and #item.children>0
+        local hasControl=false
+        if inlineRow then
+            for _,field in ipairs(item.children)do
+                if (not inlineTypes[field.type] and field.type~="checkbox") or field.inlineLabel==false then inlineRow=false;break end
+                hasControl=hasControl or inlineTypes[field.type]==true
+            end
+        end
+        if inlineRow and hasControl then
+            local width=0
+            for index,field in ipairs(item.children)do width=width+(field.width or 220)+(index>1 and (item.gap or item.columnGap or 20) or 0)end
+            local row=self.options:InlineFields(item.children,width,#item.children)
+            row.hidden=item.hidden;row.requires=item.requires;row.rowGap=item.rowGap
+            normalized[#normalized+1]=row
+        elseif inlineTypes[item.type] and item.inlineLabel~=false then
+            local row=self.options:InlineFields({item},400,1)
+            row.hidden=item.hidden;row.requires=item.requires;row.rowGap=10
+            normalized[#normalized+1]=row
+        elseif controls[item.type]then
+            if item.type=="editbox" and item.label then normalized[#normalized+1]={type="text",label=item.label,width=400,noWrap=true,hidden=item.hidden,requires=item.requires} end
             local copy={};for key,value in pairs(item)do copy[key]=value end
             copy.width=400;copy.inlineLabel=false
             if copy.type=="slider"then copy.inline=true;copy.inputWidth=56 end
-            options[i]={type="row",gap=12,rowGap=10,children={copy}}
-        end
-        normalized[#normalized+1]=options[i]
+            normalized[#normalized+1]={type="row",gap=12,rowGap=10,hidden=item.hidden,requires=item.requires,children={copy}}
+        else normalized[#normalized+1]=item end
     end
     options=normalized
     local required=440
@@ -1310,13 +1333,13 @@ function Designer:OpenSync(scope,id)
     local fields,targets={},{}
     local mode="copy"
     local db=bridge:GetModel()
-    local keys=scope=="bar" and {"surface","padding","appearance"} or {"font","size","outline","shadow","colorMode","color","display","iconSize","iconBackground","iconGap"}
+    local keys=scope=="bar" and {"surface","padding","appearance"} or {"font","size","outline","shadow","monochrome","colorMode","color","display","iconSize","iconBackground","iconGap"}
     local cap=scope=="instance" and bridge.adapters[db.instances[id].moduleType]
     local options={{type="text",label=self:T("sync_fields"),style="header"}}
     for _,key in ipairs(keys) do
         if not cap or cap.appearance[key] then
             fields[key]=true
-            options[#options+1]={type="checkbox",label=self:T(key),width=220,get=function()return fields[key]end,set=function(v)fields[key]=v end}
+            options[#options+1]={type="checkbox",label=key=="monochrome" and self.options.C["font_style.monochrome"] or self:T(key),width=220,get=function()return fields[key]end,set=function(v)fields[key]=v end}
         end
     end
     if scope=="instance" then

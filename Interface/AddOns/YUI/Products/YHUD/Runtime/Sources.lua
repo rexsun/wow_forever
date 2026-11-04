@@ -31,6 +31,7 @@ local ADAPTIVE_AURA_RESOURCE_SOURCE_TYPE = "yhud.adaptive-aura-resource"
 local STAGGER_RESOURCE_SOURCE_TYPE = "yhud.stagger-resource"
 local ABSORB_RESOURCE_SOURCE_TYPE = "yhud.absorb-resource"
 local AURA_DURATION_RESOURCE_SOURCE_TYPE = "yhud.aura-duration-resource"
+local TARGET_AURA_DURATION_RESOURCE_SOURCE_TYPE = "yhud.target-aura-duration-resource"
 local IRONFUR_RESOURCE_SOURCE_TYPE = "yhud.ironfur-timer-resource"
 local SWING_RESOURCE_SOURCE_TYPE = "yhud.player-swing"
 local BUFF_TIMER_SOURCE_TYPE = YHUD.CAST_BUFF_TIMER_SOURCE_TYPE
@@ -40,12 +41,14 @@ local SPELL_EVENT_WINDOW_SOURCE_TYPE = YHUD.SPELL_EVENT_WINDOW_SOURCE_TYPE
 local PLAYER_AURA_SOURCE_TYPE = YHUD.PLAYER_AURA_SOURCE_TYPE
     or "yhud.player-aura"
 local OFFICIAL_AURA_SOURCE_TYPE = "yhud.official-cdm-aura"
+local OFFICIAL_TOTEM_SOURCE_TYPE = "yhud.official-cdm-totem"
 local BLOODLUST_SOURCE_TYPE = "yhud.bloodlust-window"
 local FILTERED_AURA_RESOURCE_TYPES = {
     [PLAYER_AURA_RESOURCE_SOURCE_TYPE] = true,
     [TARGET_AURA_RESOURCE_SOURCE_TYPE] = true,
     [ADAPTIVE_AURA_RESOURCE_SOURCE_TYPE] = true,
     [AURA_DURATION_RESOURCE_SOURCE_TYPE] = true,
+    [TARGET_AURA_DURATION_RESOURCE_SOURCE_TYPE] = true,
 }
 local PLAYER_FILTERED_AURA_RESOURCE_TYPES = {
     [PLAYER_AURA_RESOURCE_SOURCE_TYPE] = true,
@@ -55,12 +58,15 @@ local PLAYER_FILTERED_AURA_RESOURCE_TYPES = {
 local TRANSIENT_REHYDRATE_TYPES = {
     ["yhud.player-health"] = true,
     ["yhud.player-cast"] = true,
+    ["yhud.global-cooldown"] = true,
     [SPELL_SOURCE_TYPE] = true,
     [OFFICIAL_AURA_SOURCE_TYPE] = true,
+    [OFFICIAL_TOTEM_SOURCE_TYPE] = true,
     [RESOURCE_SOURCE_TYPE] = true,
     [CHARGE_RESOURCE_SOURCE_TYPE] = true,
     [RUNE_RESOURCE_SOURCE_TYPE] = true,
     [AURA_DURATION_RESOURCE_SOURCE_TYPE] = true,
+    [TARGET_AURA_DURATION_RESOURCE_SOURCE_TYPE] = true,
     [IRONFUR_RESOURCE_SOURCE_TYPE] = true,
     [SWING_RESOURCE_SOURCE_TYPE] = true,
 }
@@ -78,6 +84,7 @@ local AURA_APPLICATION_MAX_SETTLE_DELAY = 0.2
 local RESOURCE_WORLD_SETTLE_DELAY = 0.5
 local AURA_CONTROL_RETRY_DELAY = 0.3
 local AURA_CONTROL_RETRY_LIMIT = 50
+local RESOURCE_BAR_CONTEXT = { view = "bar" }
 
 Sources.handles = Sources.handles or {}
 Sources.timedWindows = Sources.timedWindows or Sources.buffTimers or {}
@@ -185,6 +192,7 @@ local function ResetRacialSignature(signature)
 end
 
 local function ResetBundleSignature(signature)
+    signature.spellIDs, signature.profile, signature.catalog = nil, nil, nil
     for index = 1, tonumber(signature.count) or 0 do
         signature[index] = nil
     end
@@ -271,6 +279,26 @@ local function IsInCombat()
         or false
 end
 
+local function PositiveSpellID(value)
+    value = tonumber(value)
+    if value and value > 0 and value == math.floor(value) then
+        return value
+    end
+end
+
+-- Public catalog identities only; rebuilt at existing configuration/spellbook
+-- boundaries. This is a rejection index, never a replacement spell definition.
+local function IndexSpellFamily(ids, source)
+    local function Add(value)
+        value = PositiveSpellID(value)
+        if value then ids[value] = true end
+    end
+    Add(source.spellID)
+    Add(source.runtimeSpellID)
+    Add(source.chargeSpellID)
+    for index = 1, #(source.aliases or {}) do Add(source.aliases[index]) end
+end
+
 local function UpdateBundleSignature(signature, catalog, profile)
     if not (catalog and profile) then
         local changed = (tonumber(signature.count) or 0) > 0
@@ -278,6 +306,7 @@ local function UpdateBundleSignature(signature, catalog, profile)
         return changed
     end
     local previousCount = tonumber(signature.count) or 0
+    local spellIDs = {}
     local count = 0
     local changed = false
     for kindIndex = 1, #SPELL_BUNDLE_KINDS do
@@ -289,6 +318,7 @@ local function UpdateBundleSignature(signature, catalog, profile)
         for index = 1, #sources do
             count = count + 1
             local source = sources[index]
+            IndexSpellFamily(spellIDs, source)
             local value = tostring(source.sourceKey or "") .. "\002"
                 .. tostring(source.signature or "")
             if signature[count] ~= value then
@@ -301,6 +331,7 @@ local function UpdateBundleSignature(signature, catalog, profile)
     for index = 1, #racialSources do
         count = count + 1
         local source = racialSources[index]
+        IndexSpellFamily(spellIDs, source)
         local value = tostring(source.sourceKey or "") .. "\002"
             .. tostring(source.signature or "")
         if signature[count] ~= value then
@@ -314,14 +345,39 @@ local function UpdateBundleSignature(signature, catalog, profile)
     end
     if previousCount ~= count then changed = true end
     signature.count = count
+    signature.spellIDs = spellIDs
+    signature.profile = profile
+    signature.catalog = catalog
     return changed
 end
 
-local function PositiveSpellID(value)
-    value = tonumber(value)
-    if value and value > 0 and value == math.floor(value) then
-        return value
+local function GetCustomSpellbookRecord(records, spellID)
+    spellID = PositiveSpellID(spellID)
+    if not spellID then return nil end
+    local record = records[spellID]
+    if not record then
+        record = {}
+        records[spellID] = record
     end
+    return record
+end
+
+local function HasEnabledCatalogCustom(profile, classFile, specID)
+    local prefix = tostring(classFile) .. ":" .. tostring(specID) .. ":"
+    for groupId, config in pairs(profile.resources and profile.resources.byGroup or {}) do
+        local group = profile.groups and profile.groups.items[groupId]
+        if group and group.enabled == true and group.layout == "resource" then
+            for context, items in pairs(config.itemsByContext or {}) do
+                if context:sub(1, #prefix) == prefix then
+                    for _, item in ipairs(items) do
+                        local custom = config.customById and config.customById[item.id]
+                        if item.enabled and custom and custom.entry.origin == "official-cdm" then return true end
+                    end
+                end
+            end
+        end
+    end
+    return false
 end
 
 local function IsRetryableAuraApplicationMaxFailure(code)
@@ -780,16 +836,20 @@ local burstPotionIcons = {
 local function CaptureBuffTimerIcon(source, event, unit, guid, spellID)
     if source.params.sourceIdentity ~= "buff-timer:burst-potion" then return end
     source.pendingBuffIcon = nil
+    source.pendingBuffStackAuraSpellID = nil
     if type(issecretvalue) == "function" and issecretvalue(spellID) then return end
     if type(spellID) == "number" then
         source.pendingBuffIcon = burstPotionIcons[spellID]
+        source.pendingBuffStackAuraSpellID = spellID == 1295132 and 1295147 or nil
     end
 end
 
 local function ReadBuffTimer(source, state, reason)
     if reason == "buff-timer-cast" then
         state.icon = source.pendingBuffIcon or source.params.icon
+        state.stackAuraSpellID = source.pendingBuffStackAuraSpellID
         source.pendingBuffIcon = nil
+        source.pendingBuffStackAuraSpellID = nil
     end
     return ReadTimedWindow(
         source,
@@ -914,6 +974,42 @@ function Sources:RegisterOfficialAuraSourceType()
     return true
 end
 
+function Sources:RegisterOfficialTotemSourceType()
+    if self.officialTotemSourceTypeRegistered then return true end
+    if not (YUI.IsRetail == true or YUI.IsForever == true) then
+        return nil, "unsupported-client"
+    end
+    if not (CooldownViewer and CooldownViewer.ReadTotemDisplay) then
+        return nil, "official-totem-api-unavailable"
+    end
+    local sourceType, code = Monitor:RegisterSourceType(OFFICIAL_TOTEM_SOURCE_TYPE, {
+        createState = CreateOfficialAuraState,
+        getIdentity = GetOfficialAuraIdentity,
+        read = function(source, state)
+            local _, changed, status = CooldownViewer:ReadTotemDisplay(
+                source.params.category, source.params.cooldownID, state
+            )
+            local resolved = state.available == true
+            local statusChanged = state.backendStatus ~= status or state.resolved ~= resolved
+            state.backendStatus, state.resolved = status, resolved
+            return changed == true or statusChanged
+        end,
+        afterDispatch = ClearOfficialAuraTransient,
+        events = {
+            {
+                event = CooldownViewer.AURA_REFRESH_EVENT or "YUI_COOLDOWN_VIEWER_AURA_REFRESH",
+                identityArgs = { 1, 2 },
+                identityReason = "official-totem-refresh",
+                allWhenIdentityMissing = true,
+                missingAllReason = "official-totem-runtime-ready",
+            },
+        },
+    })
+    if not sourceType and code ~= "source-type-exists" then return nil, code end
+    self.officialTotemSourceTypeRegistered = true
+    return true
+end
+
 function Sources:RegisterBloodlustSourceType()
     if self.bloodlustSourceTypeRegistered then return true end
     if not Bloodlust then return nil, "bloodlust-service-unavailable" end
@@ -995,6 +1091,18 @@ function Sources:RegisterResourceSourceType()
                 event = "PLAYER_TARGET_CHANGED",
                 all = true,
                 reason = "resource-target",
+            } or nil,
+            -- 连击点所属目标变化时，总点数可能不变，不会触发资源变化事件。
+            YUI.IsForever and {
+                event = "COMBO_TARGET_CHANGED",
+                all = true,
+                reason = "resource-target",
+            } or nil,
+            YUI.IsForever and {
+                event = "UNIT_POWER_UPDATE",
+                unit = "player",
+                identityArg = 2,
+                identityReason = "resource-value",
             } or nil,
         },
     })
@@ -1159,10 +1267,24 @@ function Sources:RegisterSpecialResourceSourceTypes()
             afterDispatch = SpecialResources.ClearTransient,
         }
     )
+    local targetAuraDurationOK = RegisterSpecialSourceType(
+        TARGET_AURA_DURATION_RESOURCE_SOURCE_TYPE,
+        {
+            createState = SpecialResources.CreateState,
+            getIdentity = SpecialResources.GetAuraDurationIdentity,
+            read = SpecialResources.ReadTargetAuraDuration,
+            afterDispatch = SpecialResources.ClearTransient,
+            events = {
+                { event = "UNIT_AURA", unit = "target", all = true },
+                { event = "PLAYER_TARGET_CHANGED", all = true },
+                { event = "UNIT_FACTION", units = { "player", "target" }, all = true },
+            },
+        }
+    )
     self.specialResourceSourceTypesRegistered = chargeOK
         and playerAuraOK and targetAuraOK and simulatedOK
         and runeOK and spellCountOK and adaptiveAuraOK
-        and staggerOK and absorbOK and auraDurationOK and ironfurOK
+        and staggerOK and absorbOK and auraDurationOK and targetAuraDurationOK and ironfurOK
     return self.specialResourceSourceTypesRegistered
 end
 
@@ -1179,6 +1301,7 @@ function Sources:RegisterSourceTypes()
     local spellEventWindowOK = self:RegisterSpellEventWindowSourceType()
     local playerAuraOK = self:RegisterPlayerAuraSourceType()
     local officialAuraOK = self:RegisterOfficialAuraSourceType()
+    local officialTotemOK = self:RegisterOfficialTotemSourceType()
     local bloodlustOK = self:RegisterBloodlustSourceType()
     return slotOK == true
         or spellOK == true
@@ -1189,10 +1312,12 @@ function Sources:RegisterSourceTypes()
         or spellEventWindowOK == true
         or playerAuraOK == true
         or officialAuraOK == true
+        or officialTotemOK == true
         or bloodlustOK == true
 end
 
 function Sources:OnSourceState(state, sourceKey, _, forced)
+    if YHUD.ClassExtra then state = YHUD.ClassExtra:Project(state, sourceKey) end
     if YHUD.Model then
         local changed = YHUD.Model:OnSourceState(state, sourceKey, forced == true)
         return changed
@@ -1266,7 +1391,12 @@ local function ResolveSource(profile, sourceKey, monitorIds)
         end
     end
     if not entry then return nil end
+    return Sources:ResolveEntrySource(profile, entry, monitor, sourceKey)
+end
 
+function Sources:ResolveEntrySource(profile, entry, monitor, sourceKey)
+    local nativeSkillDuration = entry.origin == "official-cdm"
+        and YHUD:CanUseSkillDurationSource(entry, monitor)
     if YHUD.Ammo and entry.sourceType == YHUD.Ammo.SOURCE_TYPE then
         if YHUD.Ammo:IsApplicable(rawget(profile, "_yhudSpecKey")
             or YHUD:GetCurrentSpecKey()) then
@@ -1278,10 +1408,10 @@ local function ResolveSource(profile, sourceKey, monitorIds)
         if slotID then
             return SLOT_SOURCE_TYPE, slotID, { slotID = slotID }
         end
-    elseif entry.sourceType == SPELL_SOURCE_TYPE then
+    elseif entry.sourceType == SPELL_SOURCE_TYPE or nativeSkillDuration then
         local spellID = tonumber(
             entry.runtimeSpellId
-                or entry.overrideTooltipSpellId
+                or (not nativeSkillDuration and entry.overrideTooltipSpellId)
                 or entry.overrideSpellId
                 or entry.spellId
         )
@@ -1337,6 +1467,9 @@ local function ResolveSource(profile, sourceKey, monitorIds)
                 signature = triggerSignature,
             }
         end
+    elseif entry.sourceType == "class-extra-monitor" then
+        local descriptor = YHUD.ClassExtra and YHUD.ClassExtra:Resolve(entry)
+        if descriptor then return descriptor.type, descriptor.params.kind, descriptor.params end
     elseif entry.sourceType == SPELL_EVENT_WINDOW_SOURCE_TYPE then
         local spellID = tonumber(entry.spellId)
         local durationSeconds = tonumber(entry.durationSeconds)
@@ -1356,6 +1489,16 @@ local function ResolveSource(profile, sourceKey, monitorIds)
         if YHUD.CanUseFilteredAuraDisplay
             and YHUD:IsFilteredAuraMonitor(entry, monitor)
             and YHUD:CanUseFilteredAuraDisplay() then
+            if YHUD:CanObserveOfficialTotemDuration(entry, monitor) then
+                return OFFICIAL_TOTEM_SOURCE_TYPE, sourceKey, {
+                    category = entry.displayCategory or entry.officialCategory,
+                    cooldownID = tonumber(entry.cooldownId),
+                    spellID = tonumber(entry.spellId),
+                    icon = entry.icon,
+                    signature = (entry.displayCategory or entry.officialCategory)
+                        .. ":native-totem:" .. tostring(entry.cooldownId),
+                }
+            end
             return nil
         end
         if entry.origin ~= "official-cdm"
@@ -1455,6 +1598,10 @@ function Sources:ApplyConfig(profile, deferTrinketView)
     if not ok then return false end
 
     self.profile = profile
+    self.customResourceSpellIDs = {}
+    self.customResourceSpellbook = {}
+    self.customResourceCatalogRequired = false
+    if YHUD.ResourceManager then YHUD.ResourceManager:RefreshCatalog(profile) end
     local sourceIndex = YHUD.ProfileModel
         and YHUD.ProfileModel:BuildSourceIndex(profile, true)
         or { sources = {} }
@@ -1479,6 +1626,8 @@ function Sources:ApplyConfig(profile, deferTrinketView)
             }
         end
     end
+
+    if YHUD.ClassExtra then YHUD.ClassExtra:Configure(profile, desired) end
 
     local monitorCatalog = YHUD.MonitorCatalog
     local racialContextEnabled = type(profile.racials) == "table"
@@ -1575,6 +1724,9 @@ function Sources:ApplyConfig(profile, deferTrinketView)
 
     if ResourceCatalog then
         local classFile, specID = ResourceCatalog:GetCurrentContext()
+        -- Inspect membership before source deduplication: an unresolved native
+        -- resource may share a source with a valid manual resource.
+        self.customResourceCatalogRequired = HasEnabledCatalogCustom(profile, classFile, specID)
         local talentContext = tostring(classFile) .. ":" .. tostring(specID)
         if self.talentMaxContext ~= talentContext then
             self.talentMaxContext = talentContext
@@ -1605,8 +1757,44 @@ function Sources:ApplyConfig(profile, deferTrinketView)
         end
         for index = 1, #presets do
             local preset = presets[index]
+            local entry = preset.customEntry
+            if entry then
+                for _, id in ipairs({entry.spellId, entry.overrideSpellId}) do self.customResourceSpellIDs[id] = true end
+                for _, id in ipairs(entry.linkedSpellIds or {}) do self.customResourceSpellIDs[id] = true end
+            end
             local provider = preset.provider or { kind = "unit-power" }
             local providerKind = provider.kind or "unit-power"
+            if entry then
+                if YHUD:CanUseSkillDurationSource(entry, RESOURCE_BAR_CONTEXT) then
+                    local record = GetCustomSpellbookRecord(
+                        self.customResourceSpellbook, entry.overrideSpellId or entry.spellId
+                    )
+                    if record then record.checkKnown = true end
+                end
+                if providerKind == "spell-charges" then
+                    local record = GetCustomSpellbookRecord(self.customResourceSpellbook, provider.spellID)
+                    if record then record.chargeState = record.chargeState or {} end
+                    local capability = GetCustomSpellbookRecord(
+                        self.customResourceSpellbook, entry.overrideSpellId or entry.spellId
+                    )
+                    if capability then capability.chargeState = capability.chargeState or {} end
+                end
+                if provider.maxApplicationsSpellID then
+                    local record = GetCustomSpellbookRecord(self.customResourceSpellbook, provider.maxApplicationsSpellID)
+                    if record then record.checkMaximum = true end
+                    local capability = GetCustomSpellbookRecord(
+                        self.customResourceSpellbook, entry.overrideSpellId or entry.spellId
+                    )
+                    if capability then capability.checkMaximum = true end
+                end
+            end
+            if preset.customEntry and providerKind == "monitor-time" then
+                local typeId, identity, params = self:ResolveEntrySource(profile, preset.customEntry,
+                    { view = "bar", sourceKey = preset.customEntry.sourceKey }, preset.sourceKey)
+                if typeId and preset.sourceKey and not preset.issue then
+                    desired[preset.sourceKey] = { typeId = typeId, identity = identity, params = params }
+                end
+            elseif not preset.issue then
             if provider.auraBackend == "filtered-only" then
                 self.filteredAuraVisibilityRecovery = true
             end
@@ -1641,7 +1829,10 @@ function Sources:ApplyConfig(profile, deferTrinketView)
                 typeId = ABSORB_RESOURCE_SOURCE_TYPE
                 identity = preset.id
             elseif providerKind == "aura-duration" then
-                typeId = AURA_DURATION_RESOURCE_SOURCE_TYPE
+                typeId = preset.customEntry and provider.unit == "target"
+                    and provider.requirePlayerSource == true
+                    and TARGET_AURA_DURATION_RESOURCE_SOURCE_TYPE
+                    or AURA_DURATION_RESOURCE_SOURCE_TYPE
                 identity = provider.spellID
             elseif providerKind == "ironfur-timers" then
                 typeId = IRONFUR_RESOURCE_SOURCE_TYPE
@@ -1654,6 +1845,8 @@ function Sources:ApplyConfig(profile, deferTrinketView)
                 typeId, identity = YHUD.PlayerBars.CAST_SOURCE, "player"
             elseif providerKind == "unit-health" and YHUD.PlayerBars then
                 typeId, identity = YHUD.PlayerBars.HEALTH_SOURCE, "player"
+            elseif providerKind == "global-cooldown" and YHUD.PlayerBars then
+                typeId, identity = YHUD.PlayerBars.GCD_SOURCE, "player"
             end
             local bridgeCategory
             local bridgeCooldownID
@@ -1752,6 +1945,8 @@ function Sources:ApplyConfig(profile, deferTrinketView)
                 tostring(provider.spellID or provider.simulatorID or ""),
                 tostring(provider.unit or ""),
                 tostring(provider.auraBackend or ""),
+                table.concat(provider.spellIDs or {}, ","),
+                tostring(provider.requirePlayerSource == true),
                 tostring(effectiveFallbackMax or ""),
                 tostring(reducedMaxActive),
                 tostring(provider.reducedMax or ""),
@@ -1771,6 +1966,7 @@ function Sources:ApplyConfig(profile, deferTrinketView)
                 identity = identity,
                 params = {
                     resourceId = preset.id,
+                    resourceSourceIdentity = preset.customEntry and preset.sourceKey or nil,
                     classFile = preset.classFile,
                     specID = preset.specID,
                     powerType = preset.powerType,
@@ -1784,6 +1980,7 @@ function Sources:ApplyConfig(profile, deferTrinketView)
                     swingHand = provider.swingHand,
                     unit = provider.unit,
                     spellID = provider.spellID,
+                    spellIDs = provider.spellIDs,
                     simulatorID = provider.simulatorID,
                     fallbackMax = effectiveFallbackMax,
                     maxApplicationsSpellID = maxApplicationsSpellID,
@@ -1809,6 +2006,7 @@ function Sources:ApplyConfig(profile, deferTrinketView)
                     signature = runtimeSignature,
                 },
             }
+            end
         end
     end
 
@@ -1879,6 +2077,12 @@ function Sources:ApplyConfig(profile, deferTrinketView)
             end
         end
     end
+    if YHUD.ClassExtra then
+        for key in pairs(YHUD.ClassExtra.records) do
+            local handle = self.handles[key]
+            if handle then self:OnSourceState(handle.source.state, key, nil, true) end
+        end
+    end
     if YHUD.SwingTimers and YHUD.SwingTimers.SyncNativeSuppression then
         YHUD.SwingTimers:SyncNativeSuppression(self.handles)
     end
@@ -1898,6 +2102,7 @@ function Sources:ApplyConfig(profile, deferTrinketView)
         self.auraApplicationMaxSettleRequested = true
     end
     self.auraApplicationMaxSpellIDs = activeAuraApplicationMaxSpellIDs
+    self:RefreshCustomResourceSpellbook()
     self:ArmAuraApplicationMaxSettle()
     if self.SyncResourceProjectionSignature then
         self:SyncResourceProjectionSignature()
@@ -1948,6 +2153,26 @@ function Sources:SyncResourceProjectionSignature()
     return true
 end
 
+local function ApplyResourceFormMembers(self, view, presets, reason, synchronous)
+    if view and view.ApplyResourceProjection then
+        view:ApplyResourceProjection(self.profile, presets)
+    end
+    for index = 1, #presets do
+        local preset = presets[index]
+        local key = preset.sourceKey
+        local immediate = synchronous and preset.provider
+            and preset.provider.kind == "unit-power"
+        -- RefreshSourceNow also consumes an already queued refresh. Dispatch
+        -- raw power values through the existing consumer before its cleanup.
+        -- Cooldown/Aura/timer sources retain their original event-settle timing.
+        if not immediate
+            or Monitor:RefreshSourceNow(key, reason or "resource-form", true) ~= true then
+            Monitor:QueueSource(key, reason or "resource-form", true)
+        end
+        if YHUD.Stats then YHUD.Stats:Add("resourceFormForcedReads") end
+    end
+end
+
 function Sources:ApplyResourceFormProjection(reason)
     if not (self.active and self.profile and ResourceCatalog) then return false end
     if not ResourceProjectionEnabled(self.profile) then return false end
@@ -1979,16 +2204,22 @@ function Sources:ApplyResourceFormProjection(reason)
     StoreResourceProjection(self.activeResourceKeys, presets)
     for index = 1, #self.resourceProjectionScratch do self.activeResourceProjectionKeys[index] = self.resourceProjectionScratch[index] end
     for index = #self.activeResourceProjectionKeys, #self.resourceProjectionScratch + 1, -1 do self.activeResourceProjectionKeys[index] = nil end
-    if YHUD.View and YHUD.View.ApplyResourceProjection then
-        YHUD.View:ApplyResourceProjection(self.profile, presets)
-    end
-    for index = 1, #presets do
-        Monitor:QueueSource(
-            presets[index].sourceKey,
-            reason or "resource-form",
-            true
-        )
-        if YHUD.Stats then YHUD.Stats:Add("resourceFormForcedReads") end
+    local view = YHUD.View
+    if view and view.BeginResourceProjectionUpdate
+        and view.EndResourceProjectionUpdate and Monitor.RefreshSourceNow then
+        view:BeginResourceProjectionUpdate()
+        local ok, message = pcall(ApplyResourceFormMembers,
+            self, view, presets, reason, true)
+        local ended, endMessage = pcall(view.EndResourceProjectionUpdate, view)
+        if not ok or not ended then
+            -- A partial projection must be retryable on the next form signal.
+            for index = #self.activeResourceProjectionKeys, 1, -1 do
+                self.activeResourceProjectionKeys[index] = nil
+            end
+            error(not ok and message or endMessage, 0)
+        end
+    else
+        ApplyResourceFormMembers(self, view, presets, reason, false)
     end
     if YHUD.Stats then YHUD.Stats:Add("resourceFormChanges") end
     return true
@@ -2126,6 +2357,8 @@ end
 
 function Sources:OnResourceContextChanged()
     if self.active then
+        -- Talent/spec changes may precede their deferred full configuration.
+        self.bundleSignature.spellIDs = nil
         self:CancelResourceWorldSettle()
         self:RequestAuraApplicationMaxSettle()
         if YHUD.RequestContextRefresh then
@@ -2202,12 +2435,45 @@ function Sources:OnRacialContextChanged()
     return YHUD:Refresh("racial-context")
 end
 
+function Sources:RefreshCustomResourceSpellbook()
+    if not self.active then return false end
+    local changed = false
+    for spellID, record in pairs(self.customResourceSpellbook or {}) do
+        local unlearned, maxCharges, maxApplications
+        if record.checkKnown and Spell and Spell.IsKnownOrInSpellBook then
+            unlearned = Spell.IsKnownOrInSpellBook(spellID) == false
+        end
+        local charge = record.chargeState
+        if charge and Spell and Spell.ReadChargeResourceDisplay then
+            Spell.ReadChargeResourceDisplay(spellID, charge)
+            maxCharges = charge.available == true and SafeNumber(charge.maxValue) or nil
+            charge.valueRaw, charge.maxValueRaw, charge.rechargeDurationRaw = nil, nil, nil
+            charge.rawValuesAvailable = false
+        end
+        if record.checkMaximum and Spell and Spell.ReadMaxCumulativeAuraApplications then
+            maxApplications = SafeNumber(Spell.ReadMaxCumulativeAuraApplications(spellID))
+        end
+        if record.initialized and (record.unlearned ~= unlearned
+            or record.maxCharges ~= maxCharges or record.maxApplications ~= maxApplications) then
+            changed = true
+        end
+        record.unlearned, record.maxCharges, record.maxApplications = unlearned, maxCharges, maxApplications
+        record.initialized = true
+    end
+    return changed
+end
+
 function Sources:OnSpellbookContextChanged()
+    local customChanged = self:RefreshCustomResourceSpellbook()
+    if self.active and self.customResourceCatalogRequired then customChanged = true end
     local maxChanged = self:RefreshAuraApplicationMaxCache(
         "aura-max-spellbook"
     )
     local racialChanged = self:OnRacialContextChanged()
-    return maxChanged == true or racialChanged == true
+    if customChanged and not maxChanged and not racialChanged then
+        self:OnResourceContextChanged()
+    end
+    return customChanged or maxChanged == true or racialChanged == true
 end
 
 function Sources:OnWorldContextChanged(_, isInitialLogin, isReloadingUi)
@@ -2462,6 +2728,12 @@ function Sources:RebindSpellFamily(baseSpellID, overrideSpellID)
     if not baseSpellID and not overrideSpellID then return false end
 
     local catalog = YHUD.MonitorCatalog
+    local signature = self.bundleSignature
+    local spellIDs = signature.spellIDs
+    if spellIDs and signature.profile == self.profile and signature.catalog == catalog
+        and not spellIDs[baseSpellID] and not spellIDs[overrideSpellID] then
+        return false
+    end
     local source = FindEnabledSpellFamily(
         catalog,
         self.profile,
@@ -2491,6 +2763,7 @@ function Sources:RebindSpellFamily(baseSpellID, overrideSpellID)
             true
         )
         UpdateBundleSignature(self.bundleSignature, catalog, self.profile)
+        IndexSpellFamily(self.bundleSignature.spellIDs, { aliases = definition.params.identities })
         return true
     end
 
@@ -2522,10 +2795,15 @@ function Sources:RebindSpellFamily(baseSpellID, overrideSpellID)
         true
     )
     UpdateBundleSignature(self.bundleSignature, catalog, self.profile)
+    IndexSpellFamily(self.bundleSignature.spellIDs, { aliases = definition.params.identities })
     return true
 end
 
 function Sources:OnSpellBundleOverrideChanged(_, baseSpellID, overrideSpellID)
+    if self.active and self.customResourceSpellIDs and
+        (self.customResourceSpellIDs[baseSpellID] or self.customResourceSpellIDs[overrideSpellID]) then
+        return self:OnResourceContextChanged()
+    end
     return self:RebindSpellFamily(baseSpellID, overrideSpellID)
 end
 
@@ -2832,6 +3110,9 @@ function Sources:Disable()
     ResetRacialSignature(self.racialSignature)
     ResetBundleSignature(self.bundleSignature)
     self.profile = nil
+    self.customResourceSpellIDs = nil
+    self.customResourceSpellbook = nil
+    self.customResourceCatalogRequired = nil
     self.auraApplicationMaxSpellIDs = {}
     for index = #self.activeResourceProjectionKeys, 1, -1 do self.activeResourceProjectionKeys[index] = nil end
     for index = #self.resourceProjectionScratch, 1, -1 do self.resourceProjectionScratch[index] = nil end
@@ -2844,6 +3125,7 @@ function Sources:Disable()
     for sourceKey in pairs(self.timedWindows) do
         CancelTimedWindow(sourceKey)
     end
+    if YHUD.ClassExtra then YHUD.ClassExtra:Clear() end
     Monitor:ReleaseSourceOwner(self)
     self.bloodlustSourceKeys = {}
     self:SetBloodlustConsumer(false)

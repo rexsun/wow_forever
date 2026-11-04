@@ -1,6 +1,96 @@
 -- Generated from Docs/Products/YUI_AuctionHelper/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("auction_helper", {
+-- YUI-Notes-Record: yah-127|mainline|fc995aa61f0beff17c6038dee80acd70f0ae7af98ca6915dc40568a785d40de1
+    {
+        version = "yah-127",
+        date = "2026-10-31",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yah-126|mainline|0ab2a8e578d10b753308e1c01144300286e1b72d1fa1893234f277ffe9e86e54
+    {
+        version = "yah-126",
+        date = "2026-10-26",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yah-125|mainline|a76aebc07e2efcc71532fd1facecfe956d322bd53cd03533ac1e9cdd1f553166
+    {
+        version = "yah-125",
+        date = "2026-10-23",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "新增物品加载与超时提示，修复物品信息未就绪时点击搜索无响应的问题。",
+                "修复多个插件共同加载时的界面初始化异常。",
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Added item-loading and timeout feedback, fixing unresponsive searches when item information is unavailable.",
+                "Fixed UI initialization issues when loaded alongside other addons.",
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yah-124|mainline|e74ca66f733d6c36604433c8425c3e1e4a8d07fb9713945df3cf049f9edae7ca
+    {
+        version = "yah-124",
+        date = "2026-10-22",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "同步共享组件，改善与其他YUI插件共同加载时的兼容性。",
+            },
+            enUS = {
+                "Updated shared components to improve compatibility when loaded with other YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yah-123|mainline|ff08ebd273ddfd1f81076c79967a64f268bd3e466a3932e2dbf6c4fbabbfa348
+    {
+        version = "yah-123",
+        date = "2026-10-16",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "配方追踪支持按材料缺口预填购买数量，并可只统计满星材料。",
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Recipe tracking now prefills purchase quantities from material shortages and supports highest-quality-only tracking.",
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yah-122|mainline|5c8ea7e80b5ab33f9b30e6b51c6c444276228737d2a1661ea8cbe0629f6bc30c
+    {
+        version = "yah-122",
+        date = "2026-10-15",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: yah-121|mainline|7a4723d755be13fe2b3c0df99ff7eeae0f46e1ab73cdce56df88cce9fe626598
     {
         version = "yah-121",
@@ -56,98 +146,6 @@ CL:Register("auction_helper", {
             },
             enUS = {
                 "Updated the shared core to avoid version conflicts when loaded alongside newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: yah-117|mainline|c9aaadcfb132e370d28f7b04a0ba86b07519280a67a159e21c98c55dd5e37eb9
-    {
-        version = "yah-117",
-        date = "2026-10-09",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "优化物品数量刷新，减少过图及面板隐藏时的额外开销。",
-            },
-            enUS = {
-                "Optimized item count updates to reduce unnecessary work during zone transitions and while hidden.",
-            },
-        },
-    },
--- YUI-Notes-Record: yah-116|mainline|7a3daabad962cb939b169db24d1061009400208424630723ed19abc21948cfe8
-    {
-        version = "yah-116",
-        date = "2026-10-06",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "更新插件图标，统一系列外观。",
-                "随插件提供中英文更新日志。",
-            },
-            enUS = {
-                "Updated the addon icon to match the YUI series.",
-                "Included bilingual release notes with the addon package.",
-            },
-        },
-    },
--- YUI-Notes-Record: yah-115|mainline|25c1979a2e7e355a4ae56d06d6b9d63730c11a3d186e3531bca6286c2c4b2e1b
-    {
-        version = "yah-115",
-        date = "2026-09-28",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "拍卖助手、编辑器与配方追踪面板遵循拍卖行皮肤设置。",
-                "新增颜色选择器，支持收藏、最近颜色与恢复默认。",
-                "完善按钮与字体显示。",
-            },
-            enUS = {
-                "Helper, editor and recipe tracker panels now follow the auction house skin setting.",
-                "Added a color picker with favorites, recent colors and default color restore.",
-                "Improved buttons and font rendering.",
-            },
-        },
-    },
--- YUI-Notes-Record: yah-114|mainline|27806f02d2c0723f2fff1dde185dccf7b18b3c09a60d09fa224d47f8e88fdb1e
-    {
-        version = "yah-114",
-        date = "2026-09-23",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "更新共享核心，适配新版 Nova 与 Orbit。",
-                "请同步更新已安装的 YUI 系列插件。",
-            },
-            enUS = {
-                "Updated shared Core for compatibility with the latest Nova and Orbit.",
-                "Please update all installed YUI addons together.",
-            },
-        },
-    },
--- YUI-Notes-Record: yah-113|mainline|362f2e34e85a550303a721396eb24646112db40dfe94464cdbd1cc27073b23a0
-    {
-        version = "yah-113",
-        date = "2026-09-19",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "更新共享 Core，请同步更新已安装的 YUI 插件。",
-            },
-            enUS = {
-                "Updated shared Core. Please update all installed YUI addons together.",
-            },
-        },
-    },
--- YUI-Notes-Record: yah-112|mainline|2ebdcfd3288ebbf302553723725e33797c9405fdc31cc64a5e82dcf48dff5a52
-    {
-        version = "yah-112",
-        date = "2026-09-19",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "同步内嵌 Core 修复，保持与新版 Nova、Orbit 的共存兼容；请同步更新所有已安装的 YUI 插件。",
-            },
-            enUS = {
-                "Updated embedded Core fixes for compatibility with the latest Nova and Orbit releases. Please update all installed YUI addons together.",
             },
         },
     },
