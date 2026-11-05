@@ -25,7 +25,7 @@ Installed release client 1.60.1.70790 (`wowf`, `_forever_`) / Interface 16001. A
 | Bagnon | 12.1.7 | Single-window inventory/bank/guild-bank replacement with search, sorting, cross-character views and tooltip item counts; `/bagnon`, `/bgn`. [Release](https://www.curseforge.com/wow/addons/bagnon/files/9193505), 2026-10-15; latest checked 2026-10-17. Interface list includes 16001. Local patches to `BagBrother` turn off `combinedBags` so Blizzard's bag window stays closed; `tools/apply_addon_patches.py` reapplies them. |
 | BagBrother | Bundled with 12.1.7 | Required shared core and character inventory cache (`BrotherBags`). Same release; Interface 16001. |
 | Bagnon_Bank, Bagnon_GuildBank, Bagnon_Config | Bundled with 12.1.7 | Load-on-demand bank, guild-bank and options modules. Same release; Interface 16001. |
-| OverlapSettingsGuard | 0.8.1 | Local ownership enforcement, 23 conditional rules, chat reporting and ten startup CVars. `/osg`. [Policy table](OverlapSettingsGuard/readme.md). Interface 16001. |
+| OverlapSettingsGuard | 0.8.2 | Local ownership enforcement, 23 conditional rules, chat reporting and eleven startup CVars. `/osg`. [Policy table](OverlapSettingsGuard/readme.md). Interface 16001. |
 | CharacterUIBaseline | 0.3.0 | Local per-login UI sync (layout reported, not applied) from a configurable source account/character; source logout publication and automatic post-exit refresh. `/uib`, `/uib apply`, `/uib capture`. [Configuration and scope](CharacterUIBaseline/readme.md). Interface 16001. |
 
 ## Feature ownership and overlaps

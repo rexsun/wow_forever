@@ -61,6 +61,7 @@ Two seconds after the first `PLAYER_ENTERING_WORLD` event on each login or UI re
 /console targetNearestDistanceRadius 50
 /console ffxGlow 0
 /console volumeFog 0
+/console graphicsBloomUserMult 0
 /console ResampleAlwaysSharpen 1
 /console Contrast 85
 /console Brightness 55
@@ -84,6 +85,6 @@ Add overlapping settings to `Policy.lua` and this table. Extend the relevant ada
 uv run --no-project --with lupa python tools/overlapsettingsguard-tests/run_tests.py
 ```
 
-The 47 tests use Lua 5.1, game/addon stubs and installed source. They cover policy validation/dependencies, YUI profiles/HUD sets and druid forms, EUI spec overrides, combat deferral, reset detection, runtime refresh failures/retries, GearInsight upstream defaults, visible frames, owner conditions, safe return types and its actual bar-editor code. Skinner coverage includes startup before login, nested settings, stored/namespace profiles, default inheritance, missing owners/databases, reload reporting and real profile resets using its installed AceDB, Core Options and UnitFrames source. Tests verify preserved planning/wishlists/rotation advice and no action/binding writes through guarded editor methods. They also verify all ten startup CVars, ordering and once-per-session behavior.
+The 47 tests use Lua 5.1, game/addon stubs and installed source. They cover policy validation/dependencies, YUI profiles/HUD sets and druid forms, EUI spec overrides, combat deferral, reset detection, runtime refresh failures/retries, GearInsight upstream defaults, visible frames, owner conditions, safe return types and its actual bar-editor code. Skinner coverage includes startup before login, nested settings, stored/namespace profiles, default inheritance, missing owners/databases, reload reporting and real profile resets using its installed AceDB, Core Options and UnitFrames source. Tests verify preserved planning/wishlists/rotation advice and no action/binding writes through guarded editor methods. They also verify all eleven startup CVars, ordering and once-per-session behavior.
 
 GearInsight 0.5.9 is the verified adapter baseline. Its translated tooltips enrich content rather than replacing YUI/EUI styling. Map destinations and the unique rotation board remain user choices. User-invoked graphics/camera macros can change startup CVars later, just like existing owner options. Layouts are unchanged; actual loading, secret-value handling and rendering at 1080p/1440p/4K still require in-game verification.

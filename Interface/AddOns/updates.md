@@ -2,6 +2,12 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-05 - Turn off bloom at startup (OverlapSettingsGuard 0.8.2)
+
+- Added `SetCVar("graphicsBloomUserMult", "0")` to the startup console settings, after `volumeFog 0`. `volumeFog 0` was already applied at startup and is unchanged.
+- The client stores this setting (`Config.wtf` had `graphicsBloomUserMult "1"`), and no installed addon writes it, so no overlap rule is added. `raidGraphicsBloomUserMult`, used by the raid graphics preset, is left unchanged.
+- Verification: 47 tests pass, including the startup CVar order test, which now checks eleven values. The visible effect is unverified in-game. The value is the same at 1080p, 1440p and 4K.
+
 ## 2026-11-04 - Set the baseline chat font to 12
 
 - Problem: chat font size 12 returned to 18 at each login. YUI has no separate message size and uses Blizzard's chat setting. CharacterUIBaseline reapplies the source character's font to every target character at every login, and the source's value was 18.

@@ -56,6 +56,7 @@ test("startup CVars apply individually in order once per session and again after
     { "targetNearestDistanceRadius", "50" },
     { "ffxGlow", "0" },
     { "volumeFog", "0" },
+    { "graphicsBloomUserMult", "0" },
     { "ResampleAlwaysSharpen", "1" },
     { "Contrast", "85" },
     { "Brightness", "55" },
