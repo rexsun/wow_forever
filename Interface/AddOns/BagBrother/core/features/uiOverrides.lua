@@ -19,6 +19,9 @@ local Panels = {
 
 function Overrides:OnLoad()
 	self:RegisterEvent('CVAR_UPDATE', self.Delay, 'OnCVar')
+	if Addon.Frames:IsEnabled('inventory') then
+		C_CVar.SetCVar('combinedBags', '0')
+	end
 	self.Disabled = CreateFrame('Frame', nil, Parent)
 	self.Disabled:SetAllPoints()
 	self.Disabled:Hide()
@@ -33,7 +36,7 @@ function Overrides:OnLoad()
 		C_CVar.SetCVarBitfield('closedInfoFrames', LE_FRAME_TUTORIAL_UPGRADEABLE_ITEM_IN_SLOT, true)
 
 		if Addon.Frames:IsEnabled('inventory') then
-			C_CVar.SetCVar('combinedBags', nil)
+			C_CVar.SetCVar('combinedBags', '0')
 		end
 	end
 
@@ -109,7 +112,7 @@ end
 
 function Overrides:OnCVar(var)
 	if var == 'combinedBags' and not InCombatLockdown() and Addon.Frames:IsEnabled('inventory') then
-		C_CVar.SetCVar('combinedBags', nil)
+		C_CVar.SetCVar('combinedBags', '0')
 	end
 end
 

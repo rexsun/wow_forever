@@ -18,7 +18,8 @@ def write_upstream(root: Path, newline: str = "\n") -> None:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8", newline="") as stream:
-            stream.write(newline.join(["-- head", *lines, "-- tail"]) + newline)
+            body = newline.join(["-- head", *lines, "-- tail"]).replace("\r\n", "\n").replace("\n", newline)
+            stream.write(body + newline)
 
 
 class ApplyAddonPatchesTests(unittest.TestCase):
@@ -91,6 +92,18 @@ class ApplyAddonPatchesTests(unittest.TestCase):
             for line in (ADDONS / relative).read_text(encoding="utf-8").splitlines():
                 if ":GetSpecInfoFromSpecIcon(" in line or ":GetSpecIdFromSpecIcon(" in line or "guidCache[icon" in line:
                     self.assertIn("issecretvalue", line, f"{relative}: {line.strip()}")
+
+    def test_multiline_upstream_matches_crlf_files(self) -> None:
+        write_upstream(self.root, "\r\n")
+        self.assertEqual(apply_patches(self.root), [])
+        overrides = (self.root / "BagBrother/core/features/uiOverrides.lua").read_bytes()
+        self.assertNotIn(b"'combinedBags', nil", overrides)
+
+    def test_installed_bagnon_forces_individual_bags_outside_tutorial_guard(self) -> None:
+        text = (ADDONS / "BagBrother/core/features/uiOverrides.lua").read_text(encoding="utf-8")
+        self.assertNotIn("'combinedBags', nil", text)
+        self.assertEqual(text.count("C_CVar.SetCVar('combinedBags', '0')"), 3)
+        self.assertLess(text.index("C_CVar.SetCVar('combinedBags', '0')"), text.index("LE_FRAME_TUTORIAL_EQUIP_REAGENT_BAG"))
 
     def test_installed_pack_is_patched(self) -> None:
         self.assertEqual(apply_patches(ADDONS, check=True), [])

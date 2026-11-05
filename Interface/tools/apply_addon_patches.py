@@ -62,6 +62,27 @@ PATCHES = (
         "[Family]\\_Support.xml\n\n"
         "Forever\\_Support.xml [AllowLoadGameType camelot] [ExcludeLoadGameType standard, classic]",
     ),
+    # Bagnon hides only ContainerFrame1..N and relies on combined bags being off, but its nil
+    # write leaves combinedBags unsaved on this client, so ContainerFrameCombinedBags still
+    # opens beside it. Write an explicit 0, also outside the tutorial-constant guard.
+    Patch(
+        "BagBrother/core/features/uiOverrides.lua",
+        "\tself:RegisterEvent('CVAR_UPDATE', self.Delay, 'OnCVar')",
+        "\tself:RegisterEvent('CVAR_UPDATE', self.Delay, 'OnCVar')\n"
+        "\tif Addon.Frames:IsEnabled('inventory') then\n"
+        "\t\tC_CVar.SetCVar('combinedBags', '0')\n"
+        "\tend",
+    ),
+    Patch(
+        "BagBrother/core/features/uiOverrides.lua",
+        "IsEnabled('inventory') then\n\t\t\tC_CVar.SetCVar('combinedBags', nil)",
+        "IsEnabled('inventory') then\n\t\t\tC_CVar.SetCVar('combinedBags', '0')",
+    ),
+    Patch(
+        "BagBrother/core/features/uiOverrides.lua",
+        "InCombatLockdown() and Addon.Frames:IsEnabled('inventory') then\n\t\tC_CVar.SetCVar('combinedBags', nil)",
+        "InCombatLockdown() and Addon.Frames:IsEnabled('inventory') then\n\t\tC_CVar.SetCVar('combinedBags', '0')",
+    ),
     # The first three match upstream commit 803d6220, not yet released. The other three are
     # the same secret-key lookup, which that commit leaves unguarded. Guarding callers rather
     # than DF:GetSpec* keeps the fix effective if another addon's newer DetailsFramework loads.
@@ -118,16 +139,18 @@ def apply_patches(addons: Path, check: bool = False) -> list[str]:
             continue
         with path.open(encoding="utf-8", newline="") as stream:
             text = updated.get(path, stream.read())
-        patched = patch.patched.replace("\n", "\r\n" if "\r\n" in text else "\n")
+        newline = "\r\n" if "\r\n" in text else "\n"
+        upstream = patch.upstream.replace("\n", newline)
+        patched = patch.patched.replace("\n", newline)
         if patched in text:
             # An additive patch legitimately contains its upstream line, so only look outside it.
-            if patch.upstream in text.replace(patched, ""):
+            if upstream in text.replace(patched, ""):
                 problems.append(f"{patch.file}: both patched and upstream text present: {patch.upstream}")
             updated.setdefault(path, text)
-        elif text.count(patch.upstream) == 1:
+        elif text.count(upstream) == 1:
             if check:
                 problems.append(f"{patch.file}: not patched: {patch.upstream}")
-            updated[path] = text.replace(patch.upstream, patched)
+            updated[path] = text.replace(upstream, patched)
         else:
             problems.append(f"{patch.file}: expected text not found once: {patch.upstream}")
     for relative, marker in UNCOVERED_MARKERS.items():

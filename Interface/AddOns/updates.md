@@ -2,6 +2,14 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-04 - Stop Blizzard's bag window opening beside Bagnon
+
+- Problem: bag buttons opened Bagnon and a Blizzard bag window together. Bagnon hides only `ContainerFrame1..N` and relies on `combinedBags` being off, or `ContainerFrameCombinedBags` opens too. Its `C_CVar.SetCVar('combinedBags', nil)` left no saved value in any WTF config, so the likely cause is that the nil write does nothing on this client.
+- Local patches to `BagBrother/core/features/uiOverrides.lua` write an explicit `0` at load and whenever the CVar changes while Bagnon's inventory is enabled, including outside the tutorial-constant guard that upstream's write sits behind. `tools/apply_addon_patches.py` now also matches multi-line text in CRLF files and holds 19 patches.
+- Caveats: the value is saved, so if Bagnon's inventory is later disabled, Blizzard uses separate bags until `combinedBags` is set back to 1. Blizzard still uses its combined window in gamepad mode, which this does not change. The CVar's live value before the fix was not read in-game.
+- Overlap review: no new guard rule. YUI reads the combined window but never writes this CVar. Its combined-bag position, `fixBagSortButton` and Profession Assistant backpack entry stay inactive as already documented.
+- Verification: patch-tool and guard tests pass, and the patched file compiles under Lua 5.1. The fix needs an in-game check after `/reload`.
+
 ## 2026-11-04 - Fix Skinner startup, Details secret icons and right-bar scale warnings
 
 - Skinner: beta12.70688.1 removed `Forever\_Support.xml` from its TOC and relies on `[Family]`, which is `Mainline` on this client (Blizzard's own Edit Mode TOC only resolves that way). `SetupForever_*` stayed nil, `OnInitialize` aborted at `Skinner.lua:51`, and `prdb`, `Backdrop` and `lmAddons` were never set, so Skinner was non-functional. A local patch restores the line. Upstream's latest code still lacks it.
