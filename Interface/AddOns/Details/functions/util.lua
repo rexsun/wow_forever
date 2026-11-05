@@ -169,7 +169,7 @@
 		local classFilename = sourceData.classFilename
 		local damageMeterType = instance:GetAttributeType()
 		local blzSpecIcon = sourceData.specIconID
-		local specInfo = detailsFramework:GetSpecInfoFromSpecIcon(blzSpecIcon)
+		local specInfo = not issecretvalue(blzSpecIcon) and detailsFramework:GetSpecInfoFromSpecIcon(blzSpecIcon)
 		local adapterSettings = {
 			sessionId = sessionId,
 			sessionType = sessionType,
@@ -798,7 +798,7 @@
 			["dead"] = true,
 			["last_cooldown"] = nil,
 			["dead_at"] = timeOfDeath,
-			["spec"] = detailsFramework:GetSpecIdFromSpecIcon(specIcon),
+			["spec"] = not issecretvalue(specIcon) and detailsFramework:GetSpecIdFromSpecIcon(specIcon) or nil,
 		}
 
 		for i = 1, #deathRecap do

@@ -59,6 +59,39 @@ class ApplyAddonPatchesTests(unittest.TestCase):
             stream.write('LSM:Register("font", "New", Bundle("sharedmedia-fonts", "YUI New.ttf"), 255)\n')
         self.assertTrue(any("uncovered" in problem for problem in apply_patches(self.root)))
 
+    def test_additive_patch_keeps_upstream_line_once_with_file_line_endings(self) -> None:
+        write_upstream(self.root, "\r\n")
+        self.assertEqual(apply_patches(self.root), [])
+        self.assertEqual(apply_patches(self.root), [])
+        toc = (self.root / "Skinner/Skinner.toc").read_bytes()
+        self.assertEqual(toc.count(b"[Family]\\_Support.xml\r\n"), 1)
+        self.assertEqual(toc.count(b"Forever\\_Support.xml"), 1)
+
+    def test_stray_upstream_line_beside_additive_patch_fails(self) -> None:
+        write_upstream(self.root)
+        self.assertEqual(apply_patches(self.root), [])
+        toc = self.root / "Skinner/Skinner.toc"
+        with toc.open("a", encoding="utf-8", newline="") as stream:
+            stream.write("[Family]\\_Support.xml\n")
+        self.assertTrue(any("both patched" in problem for problem in apply_patches(self.root, check=True)))
+
+    def test_installed_skinner_loads_forever_support_only_on_forever(self) -> None:
+        toc = (ADDONS / "Skinner/Skinner.toc").read_text(encoding="utf-8")
+        self.assertIn(
+            "Forever\\_Support.xml [AllowLoadGameType camelot] [ExcludeLoadGameType standard, classic]", toc
+        )
+
+    def test_installed_details_guards_every_spec_icon_lookup(self) -> None:
+        for relative in (
+            "Details/classes/class_damage.lua",
+            "Details/functions/util.lua",
+            "Details/frames/window_breakdown_midnight/breakdown_dataprovider.lua",
+            "Details/core/parser_nocleu_tp.lua",
+        ):
+            for line in (ADDONS / relative).read_text(encoding="utf-8").splitlines():
+                if ":GetSpecInfoFromSpecIcon(" in line or ":GetSpecIdFromSpecIcon(" in line or "guidCache[icon" in line:
+                    self.assertIn("issecretvalue", line, f"{relative}: {line.strip()}")
+
     def test_installed_pack_is_patched(self) -> None:
         self.assertEqual(apply_patches(ADDONS, check=True), [])
 

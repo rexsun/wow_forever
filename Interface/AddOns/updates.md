@@ -2,6 +2,15 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-04 - Fix Skinner startup, Details secret icons and right-bar scale warnings
+
+- Skinner: beta12.70688.1 removed `Forever\_Support.xml` from its TOC and relies on `[Family]`, which is `Mainline` on this client (Blizzard's own Edit Mode TOC only resolves that way). `SetupForever_*` stayed nil, `OnInitialize` aborted at `Skinner.lua:51`, and `prdb`, `Backdrop` and `lmAddons` were never set, so Skinner was non-functional. A local patch restores the line. Upstream's latest code still lacks it.
+- Details: `specIconID` can be secret, and using it as a table key threw `fw.lua:6016` on window refreshes. Local patches apply upstream commit `803d6220` (not yet released) and guard three more lookups of the same kind that it leaves open: `util.lua` death logs, the Midnight breakdown data provider and `bParser.GetSerial`.
+- Right action bars: YUI places the minimap at the bottom of the screen while the `rex` Edit Mode layout still marked it default, so Blizzard computed the bars' space from its bottom edge: (2 - 10) - (86 + 24) = -118, and -118 / 562 = the logged scale of -0.209964. The cached layout now marks the Minimap non-default with the same anchor, so the limit becomes the top of the screen. This changes a flag rather than a position, so it does not vary by resolution, and YUI still places the minimap. It was edited offline because addon Edit Mode writes taint Blizzard's handler (see 2026-10-17). `addon-backups/error-fixes-20261104` holds the previous `edit-mode-cache-account.txt` and `cache.md5`.
+- `tools/apply_addon_patches.py` now supports additive patches and keeps each file's line endings; it holds 16 patches.
+- Overlap review: no new guard rule. These fixes change no overlapping setting, and the guard's Skinner policies apply again now that Skinner starts.
+- Verification: patch-tool tests and guard tests pass, and the patched Lua files compile under Lua 5.1. In-game loading is unverified. If the server copy replaces the layout edit at login, the scale warning returns.
+
 ## 2026-11-04 - Update six addon packages and adapt the guard
 
 - Update YUI v341 to v351, GearInsight Forever 0.4.31 to 0.5.9, EllesmereUI suite 9.5.5 to 9.7.3, Skinner beta12.70425.2 to beta12.70688.1, Details 15330.172 to 15339.172 and Waypoint UI 1.7.3 to 1.7.4. Auctionator 341 and Bagnon 12.1.7 were already current. !BugGrabber stays at v12.1.0 by choice; v12.1.1 only bumps its TOC.

@@ -29,7 +29,7 @@ local getPlayerInfo = function(actorObject)
     else
         ---@type damagemeter_combat_source
         local source = actorObject
-        return source.name, source.classFilename, detailsFramework:GetSpecIdFromSpecIcon(source.specIconID) or 62, source.sourceGUID
+        return source.name, source.classFilename, not issecretvalue(source.specIconID) and detailsFramework:GetSpecIdFromSpecIcon(source.specIconID) or 62, source.sourceGUID
     end
 end
 

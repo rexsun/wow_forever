@@ -54,6 +54,50 @@ PATCHES = (
         '<Script file="EllesmereUI.lua"/>',
         '<!-- Script file="EllesmereUI.lua" excluded by this pack: see AddOns/readme.md -->',
     ),
+    # beta12.70688.1 dropped this line, assuming [Family] resolves to Forever. On this
+    # client [Family] is Mainline, so SetupForever_* stay nil and OnInitialize aborts.
+    Patch(
+        "Skinner/Skinner.toc",
+        "[Family]\\_Support.xml",
+        "[Family]\\_Support.xml\n\n"
+        "Forever\\_Support.xml [AllowLoadGameType camelot] [ExcludeLoadGameType standard, classic]",
+    ),
+    # The first three match upstream commit 803d6220, not yet released. The other three are
+    # the same secret-key lookup, which that commit leaves unguarded. Guarding callers rather
+    # than DF:GetSpec* keeps the fix effective if another addon's newer DetailsFramework loads.
+    Patch(
+        "Details/classes/class_damage.lua",
+        "spec = detailsFramework:GetSpecInfoFromSpecIcon(specIcon), --0",
+        "spec = not issecretvalue(specIcon) and detailsFramework:GetSpecInfoFromSpecIcon(specIcon) or nil, --0",
+    ),
+    Patch(
+        "Details/classes/class_damage.lua",
+        "local specInfo = detailsFramework:GetSpecInfoFromSpecIcon(self.thisSpecIcon)",
+        "local specInfo = not issecretvalue(self.thisSpecIcon)"
+        " and detailsFramework:GetSpecInfoFromSpecIcon(self.thisSpecIcon)",
+    ),
+    Patch(
+        "Details/functions/util.lua",
+        "local specInfo = detailsFramework:GetSpecInfoFromSpecIcon(blzSpecIcon)",
+        "local specInfo = not issecretvalue(blzSpecIcon) and detailsFramework:GetSpecInfoFromSpecIcon(blzSpecIcon)",
+    ),
+    Patch(
+        "Details/functions/util.lua",
+        '["spec"] = detailsFramework:GetSpecIdFromSpecIcon(specIcon),',
+        '["spec"] = not issecretvalue(specIcon) and detailsFramework:GetSpecIdFromSpecIcon(specIcon) or nil,',
+    ),
+    Patch(
+        "Details/frames/window_breakdown_midnight/breakdown_dataprovider.lua",
+        "source.classFilename, detailsFramework:GetSpecIdFromSpecIcon(source.specIconID) or 62,",
+        "source.classFilename, not issecretvalue(source.specIconID)"
+        " and detailsFramework:GetSpecIdFromSpecIcon(source.specIconID) or 62,",
+    ),
+    Patch(
+        "Details/core/parser_nocleu_tp.lua",
+        "thisSerial = thisSerial or bParser.guidCache[icon or sourcePlayer.specIconID] or nil",
+        "thisSerial = thisSerial or (not issecretvalue(icon or sourcePlayer.specIconID)"
+        " and bParser.guidCache[icon or sourcePlayer.specIconID]) or nil",
+    ),
 )
 
 # Any other use of these markers means upstream added a reference the patches do not cover.
@@ -74,14 +118,16 @@ def apply_patches(addons: Path, check: bool = False) -> list[str]:
             continue
         with path.open(encoding="utf-8", newline="") as stream:
             text = updated.get(path, stream.read())
-        if patch.patched in text:
-            if patch.upstream in text:
+        patched = patch.patched.replace("\n", "\r\n" if "\r\n" in text else "\n")
+        if patched in text:
+            # An additive patch legitimately contains its upstream line, so only look outside it.
+            if patch.upstream in text.replace(patched, ""):
                 problems.append(f"{patch.file}: both patched and upstream text present: {patch.upstream}")
             updated.setdefault(path, text)
         elif text.count(patch.upstream) == 1:
             if check:
                 problems.append(f"{patch.file}: not patched: {patch.upstream}")
-            updated[path] = text.replace(patch.upstream, patch.patched)
+            updated[path] = text.replace(patch.upstream, patched)
         else:
             problems.append(f"{patch.file}: expected text not found once: {patch.upstream}")
     for relative, marker in UNCOVERED_MARKERS.items():
