@@ -2,6 +2,17 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-04 - Set the baseline chat font to 12
+
+- Problem: chat font size 12 returned to 18 at each login. YUI has no separate message size and uses Blizzard's chat setting. CharacterUIBaseline reapplies the source character's font to every target character at every login, and the source's value was 18.
+- Set 12 in all three places it is stored: the source character's `chat-cache.txt` (all ten windows), the source publication in `CharacterUIBaseline.lua` saved variables, and generated `Baseline.lua`, rebuilt with `tools/character_ui_baseline.py`. Only the font value changed in `Baseline.lua`. `addon-backups/chat-font-20261104` holds the previous files.
+- Caveats: logging in on the source character can restore the server's copy of its chat settings and publish 18 again at logout; set 12 on that character if that happens. Chat windows on target characters still follow the baseline at every login, so a different size set on one target will not last.
+- Verification: 7 baseline helper tests and the runtime baseline checks pass. The size after login is unverified in-game.
+
+## 2026-11-04 - Correction: right-bar minimap layout edit did not persist
+
+- The offline edit in the entry below was replaced by the server's copy at the 17:40 login, and the `MultiBarRight:SetScale` warning continued. The Minimap is marked default again. YUI's Edit Mode claims keep the Minimap and action bars from being selected there, so the flag has to be saved in-game with `C_EditMode.SaveLayouts`. That has not been done yet.
+
 ## 2026-11-04 - Stop Blizzard's bag window opening beside Bagnon
 
 - Problem: bag buttons opened Bagnon and a Blizzard bag window together. Bagnon hides only `ContainerFrame1..N` and relies on `combinedBags` being off, or `ContainerFrameCombinedBags` opens too. Its `C_CVar.SetCVar('combinedBags', nil)` left no saved value in any WTF config, so the likely cause is that the nil write does nothing on this client.

@@ -6,7 +6,7 @@ local defaults = {
 		["x"] = 0.005375,
 		["y"] = 0.028333,
 	},
-	["chatFontSize"] = 18.0,
+	["chatFontSize"] = 12.0,
 	["cvars"] = {
 		["cameraSavedDistance"] = "50.000000",
 		["cameraSavedPitch"] = "30.576227",
