@@ -8,6 +8,7 @@
 - When an addon is removed from the pack, remove its obsolete overlap policies, adapters, TOC dependencies, tests and current documentation; preserve historical change-log entries.
 - Maintain the source, version, and brief introductions of each installed addons in `AddOns/readme.md`
 - Maintain every single change logs in `AddOns/updates.md`, newest changes are first
+- Do NOT create any feature branches if the prompts do not explicitly ask to.
 
 ## Settings policies
 
