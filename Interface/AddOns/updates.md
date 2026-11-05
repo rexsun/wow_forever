@@ -9,9 +9,11 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Caveats: logging in on the source character can restore the server's copy of its chat settings and publish 18 again at logout; set 12 on that character if that happens. Chat windows on target characters still follow the baseline at every login, so a different size set on one target will not last.
 - Verification: 7 baseline helper tests and the runtime baseline checks pass. The size after login is unverified in-game.
 
-## 2026-11-04 - Correction: right-bar minimap layout edit did not persist
+## 2026-11-04 - Correction: save the right-bar minimap flag in-game
 
-- The offline edit in the entry below was replaced by the server's copy at the 17:40 login, and the `MultiBarRight:SetScale` warning continued. The Minimap is marked default again. YUI's Edit Mode claims keep the Minimap and action bars from being selected there, so the flag has to be saved in-game with `C_EditMode.SaveLayouts`. That has not been done yet.
+- The offline edit in the entry below was replaced by the server's copy at the 17:40 login, and the `MultiBarRight:SetScale` warning continued. YUI's Edit Mode claims keep the Minimap and action bars from being selected there, so the flag had to be saved in-game.
+- A first `C_EditMode.SaveLayouts` command passed only `GetLayouts()` output and had no effect, because `SaveLayouts` expects the presets first. Saving through `EllesmereUI.EditModeLayoutsForSave()`, which adds them, marked the Minimap non-default in `rex`.
+- Verification: `MinimapCluster:IsInDefaultPosition()` stayed `false` after `/reload` and after a full logout and login. The layout file on disk has the new flag. The warning stayed at 945 from the reload through the player's fights and logout. Addon code still must not write Edit Mode layouts at login: this was a one-time manual command. On a new account or a reset layout, the warning can return until the flag is saved again.
 
 ## 2026-11-04 - Stop Blizzard's bag window opening beside Bagnon
 
@@ -19,7 +21,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Local patches to `BagBrother/core/features/uiOverrides.lua` write an explicit `0` at load and whenever the CVar changes while Bagnon's inventory is enabled, including outside the tutorial-constant guard that upstream's write sits behind. `tools/apply_addon_patches.py` now also matches multi-line text in CRLF files and holds 19 patches.
 - Caveats: the value is saved, so if Bagnon's inventory is later disabled, Blizzard uses separate bags until `combinedBags` is set back to 1. Blizzard still uses its combined window in gamepad mode, which this does not change. The CVar's live value before the fix was not read in-game.
 - Overlap review: no new guard rule. YUI reads the combined window but never writes this CVar. Its combined-bag position, `fixBagSortButton` and Profession Assistant backpack entry stay inactive as already documented.
-- Verification: patch-tool and guard tests pass, and the patched file compiles under Lua 5.1. The fix needs an in-game check after `/reload`.
+- Verification: patch-tool and guard tests pass, and the patched file compiles under Lua 5.1. In-game, the bag button now opens only Bagnon.
 
 ## 2026-11-04 - Fix Skinner startup, Details secret icons and right-bar scale warnings
 
