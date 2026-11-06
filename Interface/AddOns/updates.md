@@ -2,6 +2,11 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-06 - Keep only the latest two adoption backups
+
+- `adopt_addons.ps1`: after a successful adoption, delete older backups the script made in the destination's `addon-backups`, keeping the newest two (including the one just made). Only folders named like the script's own backups (`yyyyMMdd-HHmmss-<guid>`) are counted; hand-made backups there are never touched. A backup that cannot be deleted produces a warning, not a failed adoption. Failed or rolled-back runs prune nothing.
+- Verification: `tools/adopt-addons-tests.ps1` passes, including a new check that a third run removes the oldest backup and keeps an unrelated folder.
+
 ## 2026-11-06 - Replace LootRollAnchor with LootRollMover 8.3
 
 - Install `LootRollMover` 8.3 by Xruptor from CurseForge ([file 9163856](https://www.curseforge.com/wow/addons/lootrollmover/files/9163856)); its TOC lists Interface 16001. Upstream files unchanged. It takes LootRollAnchor's place in all 14 character addon lists.

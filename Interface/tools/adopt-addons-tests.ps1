@@ -104,6 +104,18 @@ Assert (Test-Path -LiteralPath (Join-Path $backups[0].FullName 'Interface\AddOns
 Assert ((Get-Content -LiteralPath (Join-Path $backups[0].FullName 'WTF\Config.wtf') -Raw).Trim() -eq 'old settings') 'Backup settings missing'
 Invoke-Adoption $f $f.Target
 Assert (@(Get-ChildItem -LiteralPath (Join-Path $f.Target 'addon-backups') -Directory).Count -eq 2) 'Repeat run overwrote backup'
+$manualBackup = Join-Path $f.Target 'addon-backups\manual-20261106'
+New-Item -ItemType Directory -Path $manualBackup | Out-Null
+$keptBefore = @(Get-ChildItem -LiteralPath (Join-Path $f.Target 'addon-backups') -Directory |
+    Where-Object { $_.Name -match '^\d{8}-\d{6}-[0-9a-f]{32}$' } | Sort-Object Name | Select-Object -ExpandProperty Name)
+Start-Sleep -Seconds 1
+Invoke-Adoption $f $f.Target
+$adoptionBackups = @(Get-ChildItem -LiteralPath (Join-Path $f.Target 'addon-backups') -Directory |
+    Where-Object { $_.Name -match '^\d{8}-\d{6}-[0-9a-f]{32}$' } | Sort-Object Name)
+Assert ($adoptionBackups.Count -eq 2) 'Expected only the latest two adoption backups'
+Assert ($adoptionBackups[0].Name -eq $keptBefore[1]) 'Pruned the wrong backup'
+Assert ($adoptionBackups[1].Name -notin $keptBefore) 'Latest backup missing'
+Assert (Test-Path -LiteralPath $manualBackup) 'Non-adoption backup folder removed'
 foreach ($resolution in @('1920x1080', '2560x1440', '3840x2160')) {
     $f = New-Fixture $resolution
     $saved = Join-Path $f.Source 'WTF\Account\test\SavedVariables'
@@ -192,4 +204,4 @@ Invoke-Adoption $f $freshTarget
 Assert (Test-Path -LiteralPath (Join-Path $freshTarget 'Interface\AddOns\new.txt')) 'Empty destination did not receive addons'
 Assert (Test-Path -LiteralPath (Join-Path $freshTarget 'WTF\Config.wtf')) 'Empty destination did not receive settings'
 Assert (Test-Path -LiteralPath (Join-Path $freshTarget 'Fonts\YUILongZhu.ttf')) 'Empty destination did not receive fonts'
-Write-Host "PASS: source-to-destination/repeat use, three resolutions, source/Unicode preservation, font merge, optional Fonts, wrong cwd, overlapping/invalid roots, empty destination, running game, copy failure and rollback. Fixtures: $testRoot"
+Write-Host "PASS: source-to-destination/repeat use, backup pruning, three resolutions, source/Unicode preservation, font merge, optional Fonts, wrong cwd, overlapping/invalid roots, empty destination, running game, copy failure and rollback. Fixtures: $testRoot"

@@ -6,6 +6,8 @@ Close WoW on both machines first. Run from the local source game root containing
 this script in Interface, and supply the destination game root (local or writable
 UNC share). Destination Interface and WTF are replaced after backup. If present,
 source Fonts is merged over destination Fonts; destination-only files are preserved.
+After a successful copy, only the latest two backups this script made in the destination's
+addon-backups are kept; other folders there are left alone.
 Gameplay settings and UI scale are copied unchanged. Use -Resolution to set the
 destination window size and fit the EUI options panel. Requires Windows PowerShell 5.1.
 .EXAMPLE
@@ -38,6 +40,29 @@ function Assert-NoLinks([string]$Path) {
     foreach ($item in $items) {
         if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw "Linked files or directories are not supported: $($item.FullName)"
+        }
+    }
+}
+
+$KeptAdoptionBackups = 2
+# Only folders this script names (timestamp-guid) are pruned; hand-made backups beside them are kept.
+$AdoptionBackupPattern = '^\d{8}-\d{6}-[0-9a-f]{32}$'
+
+function Remove-OldAdoptionBackups([string]$BackupParent, [string]$CurrentBackup) {
+    $backups = @(Get-ChildItem -LiteralPath $BackupParent -Directory -Force |
+        Where-Object { $_.Name -match $AdoptionBackupPattern -and
+            ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 } |
+        Sort-Object Name -Descending)
+    $current = Split-Path $CurrentBackup -Leaf
+    $kept = @($current) + @($backups | Where-Object { $_.Name -ne $current } |
+        Select-Object -First ($KeptAdoptionBackups - 1) | ForEach-Object { $_.Name })
+    foreach ($old in @($backups | Where-Object { $_.Name -notin $kept })) {
+        try {
+            Remove-Item -LiteralPath $old.FullName -Recurse -Force -Confirm:$false -ErrorAction Stop
+            Write-Host "Removed old backup: $($old.FullName)"
+        } catch {
+            # The adoption already succeeded, so a locked old backup must not turn it into a failure.
+            Write-Warning "Could not remove old backup $($old.FullName): $($_.Exception.Message)"
         }
     }
 }
@@ -201,5 +226,6 @@ try {
     throw "$failure Original destination folders are unchanged or restored. Retained files: $backupRoot."
 }
 
+Remove-OldAdoptionBackups $backupParent $backupRoot
 Write-Host "Done. $($adoptFolders -join ', ') adopted. Backup and copy logs: $backupRoot"
 Write-Host 'To restore, close WoW, move the adopted folders aside, then move the backed-up folders into the game root.'
