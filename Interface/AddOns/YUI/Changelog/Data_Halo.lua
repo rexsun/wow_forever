@@ -1,6 +1,36 @@
 -- Generated from Docs/Products/YUI_YHUD/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yhud", {
+-- YUI-Notes-Record: halo-115|mainline|e35d071b93b9d1f81f9839b8cb87ec1f87929b61041a2c2d0562c02341efeb41
+    {
+        version = "halo-115",
+        date = "2026-11-05",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "修复连击点重新显示时残留旧填充。",
+            },
+            enUS = {
+                "Fixed stale combo-point fills when the display reappears.",
+            },
+        },
+    },
+-- YUI-Notes-Record: halo-115|forever|2e2c6ed14579e8526d4abbbcc6fb278980d427e3d962400252cdb64642e299c0
+    {
+        version = "halo-115",
+        date = "2026-11-05",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "远程计时器新增射击停步提示。",
+                "修复连击点重新显示时残留旧填充。",
+            },
+            enUS = {
+                "Added a stop-moving cue to ranged swing timers.",
+                "Fixed stale combo-point fills when the display reappears.",
+            },
+        },
+    },
 -- YUI-Notes-Record: halo-114|mainline|403fc150def430ce34c1279811da0ebcc42ffb77d1ec4b15ec640f019a9f1281
 -- YUI-Notes-Record: halo-114|forever|ed19fac47f875daa2a6ecc9265d43f6a046b4943eaa42afca6882a5175117bf6
     {
@@ -349,40 +379,6 @@ CL:Register("yhud", {
         version = "halo-106",
         date = "2026-10-13",
         clients = { "Retail" },
-        content = {
-            zhCN = {
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: halo-105|mainline|70f0de043c23f898e04e936d22310c9311a6bc3cda1d847910f6445c1972ed5d
-    {
-        version = "halo-105",
-        date = "2026-10-12",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "新增桃桃奶兮 TTNX 语音包推荐，完善语音包安装状态显示。",
-                "新增特别语音分类，支持语音包专属音效；切换语音包后保留配置，切回原包恢复播放。",
-                "优化语音选择器，优先展示与监控名称匹配的条目，并标识当前包的录音状态。",
-                "语音包卡片显示标准与特别语音数量，随机试听同步展示条目名称。",
-            },
-            enUS = {
-                "Added the recommended TTNX voice pack and clearer voice pack installation status.",
-                "Added a Special Voices category for pack-exclusive sounds; selections are preserved when switching packs and resume when switching back.",
-                "Voice selection now prioritizes entries matching the monitor name and indicates recording availability in the selected pack.",
-                "Voice pack cards show standard and special voice counts; random previews display the entry name.",
-            },
-        },
-    },
--- YUI-Notes-Record: halo-105|forever|2ca3fd825ed34378bd5dd288e6f02ce2bcacb00b6c1676de919f427ee8af8096
-    {
-        version = "halo-105",
-        date = "2026-10-12",
-        clients = { "Forever" },
         content = {
             zhCN = {
                 "同步共享核心，保持与新版 YUI 系列插件的兼容。",

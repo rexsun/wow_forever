@@ -1,4 +1,4 @@
--- HOLD：公会频道显示等级（10-18 用户截图「增加个能力，设置里可以开，默认打开，就是工会频道显示当前等级」）
+-- 公会频道显示等级（10-18 用户截图「增加个能力，设置里可以开，默认打开，就是工会频道显示当前等级」）
 --   公会 / 官员频道名字前加「[26]」：[公会] [26][玛尔 卖啤]: …。等级取游戏自带公会名单（含没装插件的人），自己的用 UnitLevel。
 --   ⛔ 不改 author 参数、不钩 GetColoredName（会弄坏名字链接 / 右键菜单），只在聊天框显示前往整行里插字。
 --   名单在 GUILD_ROSTER_UPDATE 时只记「脏了」，有人说话时才重建（最多 5 秒一次）；没人说话 = 零开销。
@@ -88,8 +88,24 @@ end
 --   现在：不碰任何聊天框，公会频道等级显示暂停（设置页不再出这个开关）。Decorate / Level 留着给以后的安全实现。
 --   ⛔ 别再 cf.AddMessage = … / hooksecurefunc 以外的方式改暴雪聊天框；ChatFrame_AddMessageEventFilter 在 12.x 是否安全
 --   没有真机证据，要恢复这个功能先进 HOLD 真机测。
-GL.Paused = true
 function GL.HookFrame() end   -- 兼容旧调用：什么也不做
+
+-- ✅ 11-05 恢复（用户截图公会频道：「增加功能，聊天框前面加等级数字」）：只走官方的 ChatFrame_AddMessageEventFilter
+--   （LevelMute.lua 同一个口子，0.5.6 起随包、真机没报污染），⛔ 仍然不碰任何聊天框方法。
+--   过滤器只能改「正文」，改说话人参数会弄坏名字链接 / 右键 / 密语 → 等级放在正文最前面：[公会] [枫叶 洞察]: [26] 不太对
+--   正文 / 说话人是保密值（12.x 副本里）原样放行；查不到等级原样放行；全部 pcall。
+--   ⛔ 要排在 LevelMute 后面注册（toc 里本文件在 LevelMute.lua 之后）：它按正文开头认播报，先加了等级它就认不出了
+GL.Paused = false
+local function filter(_, _, msg, author, ...)
+    if not GL.Enabled() or type(msg) ~= "string" or secret(msg) or secret(author) then return false end
+    local ok, lv = pcall(GL.Level, author)
+    if not ok or not lv then return false end
+    return false, GL.Tag(lv) .. " " .. msg, author, ...
+end
+GL._filter = filter   -- 离线测试用
+if ChatFrame_AddMessageEventFilter then
+    for _, e in ipairs({ "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER" }) do pcall(ChatFrame_AddMessageEventFilter, e, filter) end
+end
 
 local ev = CreateFrame("Frame")
 for _, e in ipairs({ "GUILD_ROSTER_UPDATE", "PLAYER_GUILD_UPDATE", "PLAYER_ENTERING_WORLD" }) do

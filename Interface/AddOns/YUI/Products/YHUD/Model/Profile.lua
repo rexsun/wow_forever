@@ -1469,6 +1469,7 @@ function ProfileModel:SetResourceSetting(draft, resourceId, patch, groupId)
         cast = true,
         thresholdMarkerColor = true,
         thresholdMarkerThickness = true,
+        rangedWindup = resourceId == "swingRanged",
     }
     if patch.thresholdMode and patch.thresholdMode ~= setting.thresholdMode and not patch.thresholds then
         local saved = setting.thresholdValues and setting.thresholdValues[patch.thresholdMode]
@@ -4122,6 +4123,15 @@ local function ValidateResourceSettings(profile, groupId)
         return next(settings) == nil
     end
     for resourceId, setting in pairs(settings) do
+        if resourceId == "swingRanged" then
+            local windup = type(setting) == "table" and setting.rangedWindup
+            if type(windup) ~= "table" or not ValidateUnitColor(windup.color)
+                or not ValidateUnitColor(windup.markerColor)
+                or type(windup.markerEnabled) ~= "boolean"
+                or type(windup.markerThickness) ~= "number"
+                or windup.markerThickness % 1 ~= 0
+                or windup.markerThickness < 1 or windup.markerThickness > 4 then return false end
+        end
         if resourceId == "cast" then
             local cast = type(setting) == "table" and setting.cast
             if type(cast) ~= "table" or type(cast.icon) ~= "boolean" or type(cast.name) ~= "boolean"

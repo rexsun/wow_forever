@@ -4,7 +4,7 @@
 ## Notes: WoW: Forever helper - talent planner, leveling plan, loot table and wishlist, Tier 1 sets, macros, news, change tooltips, beta data
 ## Notes-zhCN: 《无限》助手：天赋模拟 · 升级规划 · 掉落表与心愿单 · T1 套装 · 宏库 · 资讯 · 改动提示 · 公测数据
 ## Author: GearInsight
-## Version: 0.5.9
+## Version: 0.5.11
 ## SavedVariables: GearInsightForeverDB
 ## IconTexture: Interface\Icons\inv_misc_map_01
 

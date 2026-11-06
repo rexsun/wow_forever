@@ -1,6 +1,21 @@
 -- Generated from Docs/Products/YUI_YActionBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yactionbar", {
+-- YUI-Notes-Record: yactionbar-113|mainline|d6d44746206c8a2c2a1890906363148ca1dc4a5a258a978d0108ac8c9e6506e2
+-- YUI-Notes-Record: yactionbar-113|forever|11c4aadc0e4c6661ea69bbfecdc42f8c89ac4e08ac14ee79ea8adf1185346f58
+    {
+        version = "yactionbar-113",
+        date = "2026-11-05",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "同步共享核心，兼容新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: yactionbar-112|mainline|4f46172439532efc3d19b4bdc9dcdbd8a28c3ce2f120255a565a0566bb3fa00e
 -- YUI-Notes-Record: yactionbar-112|forever|07ce526f99485677549a3009f8fde7eabc814088c2e91ad1f7332b0d605f7d9f
     {
@@ -201,21 +216,6 @@ CL:Register("yactionbar", {
             enUS = {
                 "Added slightly wide square and rounded button shapes.",
                 "Fixed missing ability tooltips when the main action bar uses mouseover visibility.",
-            },
-        },
-    },
--- YUI-Notes-Record: yactionbar-103|mainline|f97925283aa34a0013af7e5237c288b74fcaa3951d027c2932ce6fc4bb7fb500
--- YUI-Notes-Record: yactionbar-103|forever|374ce0b5b3d2004a45a8df176f245de89993622ccfb1bcb82d8b1d86efb90a7c
-    {
-        version = "yactionbar-103",
-        date = "2026-10-09",
-        clients = { "Retail", "Forever" },
-        content = {
-            zhCN = {
-                "优化按钮阴影的尺寸适配和宽圆角显示。",
-            },
-            enUS = {
-                "Improved button shadows when resizing and corrected wide rounded corners.",
             },
         },
     },

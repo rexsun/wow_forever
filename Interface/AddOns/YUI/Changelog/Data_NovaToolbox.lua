@@ -1,6 +1,36 @@
 -- Generated from Docs/Products/YUI_NovaToolbox/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("toolbox", {
+-- YUI-Notes-Record: nova-134|mainline|e85e3fb9312ca93bf0b294f010ee341a91b86aafcd5451d2605c6a6974355ebf
+    {
+        version = "nova-134",
+        date = "2026-11-05",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "优化任务路线收起兼容性。",
+                "同步共享核心，兼容新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Improved compatibility for quest guide collapsing.",
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: nova-134|forever|6843b3599b60c167be6087d0b807728c721c43d08a44e1e4bc63551c28a1c938
+    {
+        version = "nova-134",
+        date = "2026-11-05",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "同步共享核心，兼容新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: nova-133|mainline|5128f2381bcbc1731da35f3c78f1e79bfba13e164cc86f121224b65ec73b94ed
     {
         version = "nova-133",
@@ -362,27 +392,6 @@ CL:Register("toolbox", {
                 "Map settings can now be included in configuration imports and exports.",
                 "Improved configuration imports and recovery after failed imports.",
                 "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: nova-124|mainline|2e5b174ce8e82a0b4c2dc714b7205483cdcf2a9b3b348ee758f5eecf164e2eab
--- YUI-Notes-Record: nova-124|forever|d9e2bd007346e8462758483354bba5b741e2d2fc89c7878bb00048b4730e9ad5
-    {
-        version = "nova-124",
-        date = "2026-10-13",
-        clients = { "Retail", "Forever" },
-        content = {
-            zhCN = {
-                "新增RXP插件点击缩放功能，界面更清爽；",
-                "地图标记按钮支持左键显隐、右键筛选，完善小地图插件按钮收纳。",
-                "经验条详情支持背景透明度设置，优化底部提示颜色。",
-                "新增屏蔽一些测试服红字",
-            },
-            enUS = {
-                "Added click-to-collapse support for the RXP addon for a cleaner interface.",
-                "Map marker buttons now use left-click to toggle markers and right-click for filters; improved minimap addon button collection.",
-                "Added background opacity settings for experience details and improved the bottom hint color.",
-                "Added filtering for some red beta messages.",
             },
         },
     },

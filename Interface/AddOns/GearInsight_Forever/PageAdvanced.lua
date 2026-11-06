@@ -74,15 +74,13 @@ local function offsiteItems()
     add(ns.LandingURL, ns.L("升级路线网页版", "Leveling route (web)"),
         ns.L("按你的阵营 / 种族 / 等级排好，手机上也能看", "Laid out for your faction, race and level - works on phones too"),
         function() copy(ns.L("升级路线网页版", "Leveling route (web)"), ns.LandingURL("route")) end)
-    add(ns.zh and ns.ShowCardQR, "战绩卡二维码", "微信扫码进小程序：升级用时、死亡次数、同职业排第几（" .. C .. " card）",
-        function() ns.ShowCardQR() end)
     add(ns.zh and ns.ShowTalentQR, "天赋发到手机", "当前配点出二维码，微信扫码在小程序天赋模拟器里打开（" .. C .. " talent qr）",
         function() ns.ShowTalentQR() end)
     add(ns.ExportAll or ns.ExportStats, ns.L("公测数据上传", "Upload beta data"),
         ns.L("升级用时 / 死亡 / 掉落导出成链接，到网站对比你排第几（" .. C .. " data）",
             "Export level times / deaths / loot and compare on the website (" .. C .. " data)"),
         function() if ns.ExportAll then ns.ExportAll() else ns.ExportStats() end end)
-    add(ns.zh, "微信小程序", "微信搜「GearInsight」：无限天赋模拟 · 掉落 · 公测数据 · 战绩卡，手机随时看",
+    add(ns.zh, "微信小程序", "微信搜「GearInsight」：无限天赋模拟 · 掉落 · 公测数据，手机随时看",
         function() copy("微信小程序", "GearInsight") end)
     add(ns.ShowSupportLink, ns.L("支持与上榜", "Support / get on the wall"),
         ns.L("GearInsight 永久免费；打开后支付面板自动弹出，角色名和服务器已填好（" .. C .. " support）",

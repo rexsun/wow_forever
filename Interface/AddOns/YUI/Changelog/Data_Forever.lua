@@ -1,6 +1,26 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v352|forever|4430f2fc89240cf888e5d5c5492da0b5e5e5a8dd616705919832cc575531bdcf
+    {
+        version = "v352",
+        date = "2026-11-05",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增聊天关键词过滤。",
+                "远程计时器新增射击停步提示。",
+                "优化任务路线收起兼容性。",
+                "修复连击点重新显示时残留旧填充。",
+            },
+            enUS = {
+                "Added chat keyword filtering.",
+                "Added a stop-moving cue to ranged swing timers.",
+                "Improved compatibility for quest guide collapsing.",
+                "Fixed stale combo-point fills when the display reappears.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v351|forever|7c0c75ff7393ad33404657273c73a4490aaefba1062501fc064bbdbe6f1f9799
     {
         version = "v351",
@@ -280,30 +300,6 @@ CL:Register("suite", {
             },
             enUS = {
                 "Fixed personal configuration preservation and recovery during legacy upgrades, profile copying and imports.",
-            },
-        },
-    },
--- YUI-Notes-Record: v341|forever|2243aac63a6335b65b8332b39c02c33c3a2ea3a185f9eddc6e202b25fe0a8e9b
-    {
-        version = "v341",
-        date = "2026-10-15",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "监控台新增玩家生命条和施法条，支持独立分组与混排。",
-                "信息条时钟新增可配置休息动效。",
-                "新增鼠标提示立即隐藏选项，默认启用。",
-                "地图设置支持随配置导入导出。",
-                "完善配置导入、专精分配提示与失败恢复。",
-                "修复聊天字体选择、耐久登录刷新与监控台层级显示问题。",
-            },
-            enUS = {
-                "Added player health and cast bars to the monitor, with separate groups and mixed resource layouts.",
-                "Added configurable resting animations to the information bar clock.",
-                "Added an instant tooltip hiding option, enabled by default.",
-                "Map settings can now be included in configuration imports and exports.",
-                "Improved configuration imports, specialization assignment feedback and recovery after failed imports.",
-                "Fixed chat font selection, durability updates after login and monitor layering.",
             },
         },
     },

@@ -165,8 +165,15 @@ function LS.GuildRank(lvl)
     local me = UnitName and UnitName("player")
     if me and ns.Secret and ns.Secret(me) then me = nil end
     local higher, tie, atMax, n, skippedMe = 0, 0, 0, 0, false
+    -- 本职业排名（11-04 用户「增加法师排名第 x，各职业」）：同职业的人里比我高的 + 1；名单没给职业就不报
+    local myName, myFile = nil, nil
+    if UnitClass then
+        local okc, cn, cf = pcall(UnitClass, "player")
+        if okc and type(cf) == "string" and not (ns.Secret and ns.Secret(cf)) then myName, myFile = cn, cf end
+    end
+    local cHigher, cTie, cN = 0, 0, 0
     for i = 1, total do
-        local ok2, name, _, _, level = pcall(GetGuildRosterInfo, i)
+        local ok2, name, _, _, level, _, _, _, _, _, _, classFile = pcall(GetGuildRosterInfo, i)
         level = ok2 and tonumber(level) or nil
         if level and not (ns.Secret and ns.Secret(level)) then
             local short = (type(name) == "string" and not (ns.Secret and ns.Secret(name))) and (name:match("^([^%-]+)") or name) or nil
@@ -175,20 +182,33 @@ function LS.GuildRank(lvl)
             else
                 n = n + 1
                 if level > lvl then higher = higher + 1 elseif level == lvl then tie = tie + 1 end
+                if myFile and classFile == myFile then
+                    cN = cN + 1
+                    if level > lvl then cHigher = cHigher + 1 elseif level == lvl then cTie = cTie + 1 end
+                end
                 if level >= LS.MAX_LEVEL then atMax = atMax + 1 end
             end
         end
     end
     if n < 1 then return nil end
-    return { rank = higher + 1, tie = tie, atMax = atMax, n = n }
+    local r = { rank = higher + 1, tie = tie, atMax = atMax, n = n }
+    if myFile and cN >= 1 then r.cls, r.crank, r.ctie, r.cn = myName or myFile, cHigher + 1, cTie, cN end
+    return r
 end
 LS.MAX_LEVEL = 60
 
 -- 「公会里排第 8」/「公会里并列第 8」
 local function rankTxt(g)
     if not g then return "" end
-    if g.tie > 0 then return string.format(ns.L("，公会里并列第 %d", ", tied #%d in the guild"), g.rank) end
-    return string.format(ns.L("，公会里排第 %d", ", #%d in the guild"), g.rank)
+    local t
+    if g.tie > 0 then t = string.format(ns.L("，公会里并列第 %d", ", tied #%d in the guild"), g.rank)
+    else t = string.format(ns.L("，公会里排第 %d", ", #%d in the guild"), g.rank) end
+    -- 职业排名：「，法师里并列第 1」/「，法师里排第 3」（公会里没有同职业的人就不带）
+    if g.cls and g.crank then
+        if g.ctie and g.ctie > 0 then t = t .. string.format(ns.L("，%s里并列第 %d", ", %s: tied #%d"), g.cls, g.crank)
+        else t = t .. string.format(ns.L("，%s里排第 %d", ", %s: #%d"), g.cls, g.crank) end
+    end
+    return t
 end
 
 -- rec = { lvl, sec(本级用时，可 nil), played(累计，可 nil), xpMax(上一级经验条，可 nil), quests, guild = LS.GuildRank 结果（可 nil）}

@@ -213,8 +213,8 @@ function ns.NewsOffsite(c, y, W)
         ns.L("按你的阵营 / 种族 / 等级排好，手机上也能看", "Laid out for your faction, race and level — works on phones too"),
         ns.zh and "gearinsight.cn/wow/forever/go" or "gearinsight.app/wow/en/forever/go")
     if ns.zh then
-        y = line(c, y, W, TXT .. "微信小程序|r  |cff66ccff微信搜「GearInsight」|r  " .. DIM .. "无限天赋模拟 · 掉落 · 公测数据 · 战绩卡，手机随时看|r", {
-            oneline = true, tip = "微信里搜「GearInsight」打开小程序；" .. (ns.SlashHint or "/gif") .. " card 出战绩卡二维码，扫码直接进小程序",
+        y = line(c, y, W, TXT .. "微信小程序|r  |cff66ccff微信搜「GearInsight」|r  " .. DIM .. "无限天赋模拟 · 掉落 · 公测数据，手机随时看|r", {
+            oneline = true, tip = "微信里搜「GearInsight」打开小程序",
             click = function() copy("微信小程序", "GearInsight") end })
     end
     return y - 4

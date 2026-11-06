@@ -184,9 +184,66 @@ local function DisableResources(config, resourceKey)
   for _, item in ipairs(GuardedContextItems(config, resourceKey)) do item.enabled = false end
 end
 
-function adapter.Knows(key) return UTILITY[key] ~= nil or key == "Resources" or PLAYER_RESOURCES[key] ~= nil end
+local function ChatState()
+  local live, problem = LiveProfile()
+  if not live then return nil, problem end
+  local chat = _G.YUI.YChat
+  if not (type(chat) == "table" and type(chat.GetMessageFilter) == "function"
+    and type(chat.SetMessageFilterEnabled) == "function") then
+    return nil, "YChat message filter API is unavailable"
+  end
+  local active = chat:GetMessageFilter()
+  if type(active) ~= "table" then return nil, "YChat has not finished loading" end
+  local stored = {}
+  for _, profile in ipairs(Profiles(live)) do
+    local db = profile.store.YChat
+    if type(db) == "table" and db.messageFilter ~= active then
+      stored[#stored + 1] = { name = profile.name, db = db }
+    end
+  end
+  return { chat = chat, active = active, stored = stored }
+end
+
+-- YChat normalizes a missing filter, or one without enabled == false, to on.
+local function StoredChatFilterOn(db)
+  return type(db.messageFilter) ~= "table" or db.messageFilter.enabled ~= false
+end
+
+local function ReadChatFilter()
+  local state, problem = ChatState()
+  if not state then return nil, problem end
+  if state.active.enabled ~= false then return true end
+  for _, profile in ipairs(state.stored) do
+    if StoredChatFilterOn(profile.db) then return true end
+  end
+  return false
+end
+
+local function RevertChatFilter()
+  local state, problem = ChatState()
+  if not state then return false, problem end
+  local names = {}
+  for _, profile in ipairs(state.stored) do
+    if StoredChatFilterOn(profile.db) then
+      if type(profile.db.messageFilter) ~= "table" then profile.db.messageFilter = {} end
+      profile.db.messageFilter.enabled = false
+      if profile.name ~= "active profile" then names[#names + 1] = profile.name end
+    end
+  end
+  if state.active.enabled ~= false then
+    local done, reason = state.chat:SetMessageFilterEnabled(false)
+    if not done then return false, "YChat refresh failed: " .. tostring(reason) end
+  end
+  table.sort(names)
+  return true, false, names
+end
+
+function adapter.Knows(key)
+  return UTILITY[key] ~= nil or key == "Resources" or PLAYER_RESOURCES[key] ~= nil or key == "ChatKeywordFilter"
+end
 
 function adapter.Read(key)
+  if key == "ChatKeywordFilter" then return ReadChatFilter() end
   if key == "Resources" or PLAYER_RESOURCES[key] then
     local state, problem = ResourceState()
     if not state then return nil, problem end
@@ -208,6 +265,7 @@ function adapter.Read(key)
 end
 
 function adapter.Revert(key)
+  if key == "ChatKeywordFilter" then return RevertChatFilter() end
   if key == "Resources" or PLAYER_RESOURCES[key] then
     local state, problem = ResourceState()
     if not state then return false, problem end
@@ -263,5 +321,9 @@ function adapter.Watch(onChange)
   local hud = _G.YUI and _G.YUI.YHUD
   if hud and type(hud.OnLifecycleConfigChanged) == "function" then
     hooksecurefunc(hud, "OnLifecycleConfigChanged", onChange)
+  end
+  local chat = _G.YUI and _G.YUI.YChat
+  if chat and type(chat.SetMessageFilterEnabled) == "function" then
+    hooksecurefunc(chat, "SetMessageFilterEnabled", onChange)
   end
 end

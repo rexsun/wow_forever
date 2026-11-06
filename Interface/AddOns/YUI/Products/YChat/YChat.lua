@@ -274,6 +274,7 @@ function YChat:RefreshRuntimeGauges()
     else
         safeMessageGaugeScratch.safeMessageEnabled = false
         safeMessageGaugeScratch.safeMessageFilters = 0
+        safeMessageGaugeScratch.safeMessagePrefixCount = 0
         safeMessageGaugeScratch.safeMessageQueueDepth = 0
         safeMessageGaugeScratch.safeMessageQueueDrops = 0
     end
@@ -492,6 +493,7 @@ function YChat:RefreshRuntimeGauges()
     )
     stats:Set("safeMessageEnabled", safeMessageGaugeScratch.safeMessageEnabled == true)
     stats:Set("safeMessageFilters", safeMessageGaugeScratch.safeMessageFilters or 0)
+    stats:Set("safeMessagePrefixCount", safeMessageGaugeScratch.safeMessagePrefixCount or 0)
     stats:Set(
         "safeMessageQueueDepth",
         safeMessageGaugeScratch.safeMessageQueueDepth or 0

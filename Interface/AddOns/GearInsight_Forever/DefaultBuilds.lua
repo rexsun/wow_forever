@@ -48,6 +48,7 @@ local function myMainTree()
     local ok, code = pcall(ns.CurrentTalentCode)
     local plan = ok and code and ns.ParseTalentCode(code)
     if not plan or (plan.total or 0) == 0 then return nil end
+    if plan.cls and plan.cls ~= myClass() then return nil end   -- 不是本职业的码（读错 / 测试）不算
     local best, bp = nil, 0
     for ti, row in ipairs(plan.pts) do
         local s = 0
@@ -65,9 +66,15 @@ function ns.DefaultBuildKey(cls)
     if #L == 0 then return nil end
     local function has(k) for _, b in ipairs(L) do if b.key == k then return true end end end
     if cls == myClass() then
-        local p = ns.db and ns.db.buildPick and ns.db.buildPick[charKey()]
-        if p and p[cls] and has(p[cls]) then return p[cls] end
+        -- 11-05 玩家「我选择了鸟德的天赋，但是天赋里还是野德的推荐」：以前手动选过的方案（比如猫）一直压着，点数改投平衡也不换
+        --   → 手动选的只在「和现在投点最多的系同一系」时才算（猫 / 熊同系照样记住）；投点换了系就按新的系自动挑
         local mt = myMainTree()
+        local p = ns.db and ns.db.buildPick and ns.db.buildPick[charKey()]
+        if p and p[cls] and has(p[cls]) then
+            local pt
+            for _, b in ipairs(L) do if b.key == p[cls] then pt = b.tree end end
+            if not mt or pt == mt then return p[cls] end
+        end
         if mt then for _, b in ipairs(L) do if b.tree == mt then return b.key end end end
     elseif session[cls] and has(session[cls]) then
         return session[cls]

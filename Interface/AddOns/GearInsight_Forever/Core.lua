@@ -295,7 +295,7 @@ local function help()
     local rep = ns.Report and ns.L(" · " .. C .. " report 我的升级报告（网站出定制路线）", " · " .. C .. " report my leveling report (web)") or ""
     -- 10-22 扫码绑定（BindQR.lua，HOLD）：同上，没进包时不提
     if ns.ShowBindQR then rep = rep .. ns.L(" · " .. C .. " bind 扫码把角色挂到你的 GearInsight 账号", " · " .. C .. " bind link this character to your account (QR)") end
-    ns.Print(ns.L("命令：" .. C .. " 打开主界面 · " .. C .. " lv 升级指引 · " .. C .. " card 战绩卡（微信扫码进小程序，计入报到）"
+    ns.Print(ns.L("命令：" .. C .. " 打开主界面 · " .. C .. " lv 升级指引"
         .. " · " .. C .. " talent 导入配点码 · " .. C .. " talent qr 当前配点发到手机 · " .. C .. " talent pop 热门配点一键套用"
         .. " · " .. C .. " macro 宏库 · " .. C .. " news 资讯 · " .. C .. " data 导出数据 · " .. C .. " data off|on 关 / 开记录" .. rep,
         "Commands: " .. C .. " open window · " .. C .. " lv leveling · " .. C .. " card beta card QR · " .. C .. " talent import build · " .. C .. " talent qr build to phone"
@@ -338,7 +338,7 @@ SlashCmdList.GEARINSIGHTFOREVER = function(msg)
     elseif cmd == "keys" and ns.Keys then ns.ToggleMain("keys")   -- 键位页在 HOLD 里时不响应
     elseif ns.ExtraSlash and ns.ExtraSlash[cmd] then ns.ExtraSlash[cmd](rest, rawRest)   -- 10-12 support / route / site（Offsite.lua、Route.lua 自己挂）
     elseif ns.ExtraSlash and rawCmd ~= "" and ns.ExtraSlash[rawCmd] then ns.ExtraSlash[rawCmd](rest, rawRest)   -- 中文命令（/gi 支持、/gi 报告）
-    elseif cmd == "card" or cmd == "qr" then ns.ShowCardQR()
+    elseif cmd == "card" or cmd == "qr" then ns.Print(ns.L("战绩卡二维码已下线", "The beta card QR has been removed"))   -- 11-05 用户「删了吧，关闭」
     elseif cmd == "loot" then
         if rest == "clear" then ns.ClearExportedLoot() else ns.ExportLoot() end
     elseif cmd == "data" then

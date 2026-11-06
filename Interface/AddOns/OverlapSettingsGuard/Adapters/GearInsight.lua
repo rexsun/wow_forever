@@ -3,7 +3,8 @@ local _, OSG = ...
 local adapter = {}
 OSG.adapters.GearInsight = adapter
 
-local KEYS = { FriendlyNameplates = true, CombatHUD = true, LevelingStats = true, ActionBarEditing = true }
+local KEYS = { FriendlyNameplates = true, CombatHUD = true, LevelingStats = true, ActionBarEditing = true,
+  GuildChatLevel = true }
 local EDITS = { "PlaceMissing", "Restore", "AssignSlotKey", "ApplyKeyTemplate", "RestoreStolen",
   "PlaceSpellAt", "ClearSlot", "ClearSpellEverywhere", "ResetMainBar", "UnbindKey" }
 adapter.EDITS = EDITS
@@ -47,6 +48,9 @@ local function MissingAPI(gi, key)
     end
   elseif key == "ActionBarEditing" and type(gi.Keys) ~= "table" then
     return "GearInsight Keys is unavailable"
+  elseif key == "GuildChatLevel" and (type(gi.GuildChatLevel) ~= "table"
+    or type(gi.GuildChatLevel.Enabled) ~= "function" or type(gi.GuildChatLevel.SetEnabled) ~= "function") then
+    return "GearInsight GuildChatLevel is unavailable"
   end
 end
 
@@ -78,6 +82,8 @@ function adapter.Read(key)
       end
     end
     return false
+  elseif key == "GuildChatLevel" then
+    return gi.GuildChatLevel.Enabled() and true or false
   end
   return nil, "unknown GearInsight setting"
 end
@@ -115,6 +121,9 @@ function adapter.Revert(key)
       local edit = gi.Keys[name]
       if type(edit) == "function" and edit ~= locks[name] then LockEdit(gi, name) end
     end
+  elseif key == "GuildChatLevel" then
+    -- The chat filter reads Enabled() per message, so no reload is needed.
+    gi.GuildChatLevel.SetEnabled(false)
   else
     return false, "unknown GearInsight setting"
   end
@@ -127,7 +136,7 @@ function adapter.Watch(onChange)
   local gi = Live()
   if not gi then return end
   for _, spec in ipairs({ { gi, "ToggleLeveling" }, { gi.KeysHud, "Toggle" },
-    { gi.QM, "PlatesOnOpen" }, { gi.QM, "PlatesOnClose" } }) do
+    { gi.QM, "PlatesOnOpen" }, { gi.QM, "PlatesOnClose" }, { gi.GuildChatLevel, "SetEnabled" } }) do
     local target, name = spec[1], spec[2]
     if type(target) == "table" and type(target[name]) == "function" then
       hooksecurefunc(target, name, onChange)

@@ -27,6 +27,11 @@ OSG.policy = {
     reason = "EllesmereUI owns the player castbar; YHUD cast selections, cast-only groups and native castbar suppression stay off.",
   },
   {
+    id = "yui.chatkeywordfilter", adapter = "YUI", key = "ChatKeywordFilter",
+    label = "YUI: Chat keyword filter", when = { "YUI", "GearInsight_Forever" },
+    reason = "GearInsight already filters level-up announcements; YChat must not also hide player messages by keyword.",
+  },
+  {
     id = "eui.nameplatepower", adapter = "EllesmereUI", key = "NameplatePower",
     label = "EllesmereUI: Nameplate class power", when = { "EllesmereUINameplates", "EllesmereUIUnitFrames" },
     reason = "EllesmereUI unit frames own class resources; do not duplicate them on the target nameplate.",
@@ -55,6 +60,11 @@ OSG.policy = {
     id = "gi.actionbaredits", adapter = "GearInsight", key = "ActionBarEditing",
     label = "GearInsight: Action-bar and keybinding edits", when = { "GearInsight_Forever", "YUI" },
     reason = "YUI owns action bars and bindings; GearInsight's key display is read-only and macro import remains available.",
+  },
+  {
+    id = "gi.guildchatlevel", adapter = "GearInsight", key = "GuildChatLevel",
+    label = "GearInsight: Guild chat level prefix", when = { "GearInsight_Forever", "YUI" },
+    reason = "YUI owns chat; GearInsight must not rewrite guild and officer messages.",
   },
 }
 

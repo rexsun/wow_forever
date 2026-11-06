@@ -25,8 +25,46 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
       "PlaceSpellAt", "ClearSlot", "ClearSpellEverywhere", "ResetMainBar", "UnbindKey" }) do
       gi.Keys[name] = function() w.edited = true; return 7 end
     end
+    -- Mirrors GuildChatLevel.lua 0.5.11: nil means on.
+    gi.GuildChatLevel = {
+      Enabled = function() return not (gi.db and gi.db.ui and gi.db.ui.guildChatLevel == false) end,
+      SetEnabled = function(on)
+        gi.db.ui = gi.db.ui or {}
+        gi.db.ui.guildChatLevel = on and true or false
+      end,
+    }
     return gi
   end
+
+  test("GearInsight guild chat level prefix is switched off under YUI and stays off", function()
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+    local gi = BuildGI(w)
+    eq(w.ns.adapters.GearInsight.Read("GuildChatLevel"), true, "nil default reads as on")
+    w.Login()
+    eq(gi.db.ui.guildChatLevel, false)
+    eq(StatusOf(w.ns.Check(), "gi.guildchatlevel"), "off")
+    gi.GuildChatLevel.SetEnabled(true)
+    w.RunTimers()
+    eq(gi.db.ui.guildChatLevel, false, "settings toggle is reverted on the next frame")
+    gi.db.ui.guildChatLevel = nil
+    w.Tick()
+    eq(gi.db.ui.guildChatLevel, false, "direct resets are caught by the ticker")
+  end)
+
+  test("GearInsight guild chat level prefix is left alone without YUI or its API", function()
+    local loaded = CurrentLoaded()
+    loaded.YUI = nil
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded })
+    local gi = BuildGI(w)
+    w.Login()
+    eq(gi.db.ui, nil, "inactive without the chat owner")
+    w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+    gi = BuildGI(w)
+    gi.GuildChatLevel = nil
+    local status = StatusOf(w.ns.Check(), "gi.guildchatlevel")
+    eq(status, "blocked", "missing API is reported")
+    eq(gi.db.ui, nil, "nothing written when the API is missing")
+  end)
 
   test("GearInsight defaults and visible duplicates are disabled without changing planning data", function()
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })

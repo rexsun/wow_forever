@@ -2,7 +2,7 @@
 --   然后可以一键邀请，优先筛选完成进度低于自己的」「做在右侧公会下方页签内」）
 --
 -- ⛔ 游戏不开放读取别人的任务进度（只有自己的任务日志）→ 唯一办法是插件之间互相广播：
---   装了本插件的玩家，每隔一会儿把「在哪个区域 + 任务日志里每个任务的进度」发到一个隐藏的插件频道（GIForeverQM），
+--   装了本插件的玩家，每隔一会儿把「在哪个区域 + 任务日志里每个任务的进度」发出去（11-05 起：公会频道 + 静默插件密语，见下），
 --   谁打开这个页签就能看到附近（同一区域）和自己有共同任务的人。没装插件的人看不到进度，也不会出现在列表里。
 --   共享默认开，页签里一键关（/gi qm off）；只发区域 + 坐标（百分之一精度）+ 等级职业 + 任务 ID 与进度，不发别的。
 --
@@ -11,18 +11,28 @@
 --   Q|gen|任务ID:百分比:已完成:需要,…        任务进度（任务多时分几条发，同一个 gen 合并）
 --   R                                          请求：收到的人 1–4 秒内回一次（每人 15 秒最多回一次）
 -- 收发都走 OnUpdate 队列（每 0.4 秒最多发 1 条），别撞客户端的插件消息限流。
+-- ⛔ 11-05 改道（用户「直接改成公会加密语吧」）：《无限》客户端插件消息走自建频道恒返回 7 InvalidChannel
+--   （玩家探针 CHANNEL 7 / GUILD 0 / WHISPER 0 / SAY 4 / YELL 4，GIForeverQM 根本进不去），不再进任何频道：
+--   ① 公会频道：每轮发一次，公会里装了插件的人都收得到
+--   ② 静默插件密语：身边看得到名字的玩家（页签开着时扫姓名板 / 说话的人）+ 已经互相认识的非公会玩家，每轮最多 WHISPER_FANOUT 人；
+--      对方装了插件 → 收到后用密语回一份自己的进度（每人 60 秒最多回一次）→ 两边互相出现在列表里；
+--      对方没装插件 → 插件密语不进聊天框，对方什么也看不到
+--   密语给已下线的人游戏会回「没有找到玩家」：只密 2 分钟内见过的人，并把我们刚密过的人的这条系统提示过滤掉
 -- ⛔ HOLD 中（_hold.txt），游戏里实测通过、用户点头后再移出。
 local _, ns = ...; ns = _G.GearInsightForever or ns  -- 10-18 拆成按需加载的子插件：用主插件的命名空间（_G.GearInsightForever），子插件自己的 ... 是张新表
 
 local QM = {}
 ns.QM = QM
 local PREFIX = "GIFQM1"
-local CHAN = "GIForeverQM"
+local CHAN = "GIForeverQM"   -- 11-05 起不再加入（保留名字给 /gi qm probe 显示）
+QM.WHISPER_FANOUT = 6       -- 每轮最多密几个非公会的人（插件消息限流：每个前缀大约每秒 1 条）
+QM.REPLY_GAP = 60           -- 秒：收到别人的密语进度，同一个人多久内只回一次
 local EXPIRE = 150         -- 秒：这么久没收到心跳就从列表里去掉
 local MAX_PEERS, MAX_QUESTS, MAX_ROWS = 200, 60, 20
 QM.MAX_PEERS, QM.MAX_QUESTS, QM.MAX_ROWS = MAX_PEERS, MAX_QUESTS, MAX_ROWS
 local receiveTokens, receiveAt = 200, 0
 QM.dropped = 0
+QM.SEND_GAP = 1.0       -- 秒：插件频道消息最短发送间隔（11-04 从 0.4 放慢到 1.0：频道限流比队伍 / 公会严）
 local SHOUT_GAP = 30       -- 秒：喊人（说话 / 大喊 / 本地频道）最短间隔；定时刷新也要用，放最前面
 local BEAT = 30            -- 秒：心跳间隔（10-12 加了距离筛选：位置要新一点，45 → 30）
 local peers = {}           -- [发送者] = { name, lvl, cls, map, x, y, seen, gen, quests = { [qid] = {p, f, r} } }
@@ -225,7 +235,7 @@ local function cacheRank(e)
     return score, distance or 1e9
 end
 
-function QM.Handle(sender, text)
+function QM.Handle(sender, text, via)
     if type(sender) ~= "string" or type(text) ~= "string" or ns.Secret(sender) or ns.Secret(text) then return end
     if #sender > 128 or #text > 250 then return end
     local at = now()
@@ -253,6 +263,7 @@ function QM.Handle(sender, text)
         return
     end
     if kind == "R" then
+        if via == "WHISPER" then QM.ReplyTo(sender); return end   -- 密语来的请求：只回他一个人
         if now() - lastReply >= 15 then lastReply = now(); dirtyAt = now() + 1 + math.random() * 3 end
         return
     end
@@ -295,6 +306,8 @@ function QM.Handle(sender, text)
         end
     end
     e._rkGen = nil   -- 这条消息改了他的任务 / 位置：打分缓存作废
+    e.via = via or e.via
+    if kind == "H" and via == "WHISPER" then QM.ReplyTo(sender) end   -- 陌生人密来进度：回他一份，两边互相看得到
     if not peers[sender] then
         local count, victim, worst, worstDistance = 0, nil, nil, nil
         local priority, distance = cacheRank(e)
@@ -332,25 +345,51 @@ local function chanIndex()
     return (id and id > 0) and id or nil
 end
 
-local function joinChannel()
-    if chanIndex() then return true end
-    if JoinTemporaryChannel then pcall(JoinTemporaryChannel, CHAN)
-    elseif JoinChannelByName then pcall(JoinChannelByName, CHAN) end
-    -- ⛔ 别去 ChatFrame_RemoveChannel / 碰 _G["ChatFrameN"]（gi_forever_forbidden_check 禁的，10-07 碰暴雪聊天框被判禁用过）。
-    --   插件消息本来就不进聊天框，加入频道只多一个频道编号。
-    return chanIndex() ~= nil
-end
-QM.JoinChannel = joinChannel
+-- 11-05 起不再加入 GIForeverQM（《无限》里插件消息走自建频道恒返回 7）；chanIndex 只给 /gi qm probe 看还在不在
 
-local function send(text)
-    local idx = chanIndex()
-    if not idx then return false end
-    local fn = (C_ChatInfo and C_ChatInfo.SendAddonMessage) or SendAddonMessage
-    if not fn then return false end
-    local ok, result = pcall(fn, PREFIX, text, "CHANNEL", idx)
-    local success = Enum and Enum.SendAddonMessageResult and Enum.SendAddonMessageResult.Success or 0
-    return ok and (result == nil or result == true or result == success)
+-- 发送结果码 → 名字（Enum.SendAddonMessageResult 反查；没有这个枚举就只有数字）
+local function codeName(code)
+    if type(code) ~= "number" then return nil end
+    local E = Enum and Enum.SendAddonMessageResult
+    if type(E) == "table" then
+        for k, v in pairs(E) do if v == code then return k end end
+    end
+    return nil
 end
+-- 失败原因分类：throttle 限流（放慢重试，不丢队列）/ lock 客户端暂时禁止插件通信 / chan 频道不可用（退出重进）/ other
+local function failKind(name)
+    if not name then return "other" end
+    if name:find("Throttle") then return "throttle" end
+    if name:find("Lockdown") then return "lock" end
+    if name == "InvalidChannel" then return "chan" end
+    return "other"
+end
+QM.CodeName, QM.FailKind = codeName, failKind
+
+-- 一条出队消息 = { t = 正文, c = "GUILD" | "WHISPER", to = 密语对象 }
+QM.whisperedAt = {}   -- [对方全名] = 上次密他的时间（过滤「没有找到玩家」用）
+local function send(m)
+    local fn = (C_ChatInfo and C_ChatInfo.SendAddonMessage) or SendAddonMessage
+    if not fn then QM.lastCode, QM.lastName = nil, "NoApi"; return false end
+    if m.c == "GUILD" and not (IsInGuild and IsInGuild()) then return true end   -- 退会了：这条直接丢掉
+    local ok, result = pcall(fn, PREFIX, m.t, m.c, m.to)
+    if m.c == "WHISPER" then QM.whisperedAt[m.to] = now() end
+    QM.lastVia = m.c
+    local idx = m.to
+    local success = Enum and Enum.SendAddonMessageResult and Enum.SendAddonMessageResult.Success or 0
+    local good = ok and (result == nil or result == true or result == success)
+    QM.lastIdx = idx
+    if not ok then
+        QM.lastCode, QM.lastName = nil, "Error"
+    elseif result == nil or result == true then
+        QM.lastCode, QM.lastName = success, "Success"
+    else
+        QM.lastCode, QM.lastName = tonumber(result), codeName(tonumber(result)) or tostring(result)
+    end
+    if good then QM.lastOkAt = now() end
+    return good
+end
+
 
 function QM.SetSharing(enabled)
     dbq().share = enabled and true or false
@@ -359,24 +398,79 @@ function QM.SetSharing(enabled)
     QM.dirty = true
 end
 
-function QM.Broadcast()
-    if not dbq().share then return end
-    -- Coalesce obsolete snapshots, especially while the channel is disconnected.
-    local pending = {}
-    for _, m in ipairs(queue) do if m:sub(1, 1) == "R" then pending[1] = m end end
-    queue = pending; retries = 0; retryAt = 0
-    gen = (gen % 9999) + 1
+local function short(n) return (type(n) == "string" and (n:match("^([^%-]+)") or n)) or "" end
+-- 这一轮密谁：身边看得到名字的（近的在前）+ 已经认识的非公会玩家（最近收到的在前），去重、不含自己 / 公会的人，最多 WHISPER_FANOUT 个
+function QM.WhisperTargets()
+    local out, seen = {}, {}
+    local me = UnitName and UnitName("player")
+    local function add(full)
+        if type(full) ~= "string" or full == "" or ns.Secret(full) or #out >= QM.WHISPER_FANOUT then return end
+        local k = short(full)
+        if seen[k] or k == me or selfSenders[full] or QM.IsGuildmate(full) then return end
+        seen[k] = true
+        out[#out + 1] = full
+    end
+    local near = {}
+    for _, w in pairs(QM.near or {}) do if now() - (w.seen or 0) <= 120 then near[#near + 1] = w end end
+    table.sort(near, function(a, b) if a.yd ~= b.yd then return a.yd < b.yd end return (a.name or "") < (b.name or "") end)
+    local known = {}
+    for k, e in pairs(peers) do if now() - (e.seen or 0) <= 120 then known[#known + 1] = { k, e.seen or 0 } end end
+    table.sort(known, function(a, b) return a[2] > b[2] end)
+    -- 已认识的先占一半名额（别让新面孔挤掉正在一起做任务的人），剩下的给身边的新面孔
+    local half = math.ceil(QM.WHISPER_FANOUT / 2)
+    for i = 1, math.min(half, #known) do add(known[i][1]) end
+    for _, w in ipairs(near) do add(w.name) end
+    for i = half + 1, #known do add(known[i][1]) end
+    return out
+end
+
+-- 一份快照（H + Q…）→ 出队消息：公会一份 + 每个密语对象一份
+local function fanout(msgs, only)
+    if only then
+        for _, t in ipairs(msgs) do queue[#queue + 1] = { t = t, c = "WHISPER", to = only } end
+        return
+    end
+    if IsInGuild and IsInGuild() then
+        for _, t in ipairs(msgs) do queue[#queue + 1] = { t = t, c = "GUILD" } end
+    end
+    for _, to in ipairs(QM.WhisperTargets()) do
+        for _, t in ipairs(msgs) do queue[#queue + 1] = { t = t, c = "WHISPER", to = to } end
+    end
+end
+QM._fanout = fanout
+
+local function snapshot()
     local map, x, y = myPos()
     local _, cls = nil, nil
     if UnitClass then cls = select(2, UnitClass("player")) end
     local lvl = UnitLevel and UnitLevel("player") or 0
-    for _, m in ipairs(QM.EncodeAll(QM.MyQuests(), gen, lvl, cls, map, x, y)) do queue[#queue + 1] = m end
+    return QM.EncodeAll(QM.MyQuests(), gen, lvl, cls, map, x, y)
+end
+
+function QM.Broadcast()
+    if not dbq().share then return end
+    -- 旧快照作废，只留还没发的「请求」
+    local keep = {}
+    for _, m in ipairs(queue) do if m.t:sub(1, 1) == "R" then keep[#keep + 1] = m end end
+    queue = keep; retries = 0; retryAt = 0
+    gen = (gen % 9999) + 1
+    fanout(snapshot())
     lastSend = now()
 end
 
+-- 收到别人密过来的进度：回他一份自己的（60 秒内同一个人只回一次）
+QM.repliedAt = {}
+function QM.ReplyTo(sender)
+    if not dbq().share or type(sender) ~= "string" then return end
+    if now() - (QM.repliedAt[sender] or -999) < QM.REPLY_GAP then return end
+    QM.repliedAt[sender] = now()
+    if gen == 0 then gen = 1 end
+    fanout(snapshot(), sender)
+end
+
 function QM.Request()
-    for _, m in ipairs(queue) do if m:sub(1, 1) == "R" then return end end
-    queue[#queue + 1] = "R|" .. QM.myId
+    for _, m in ipairs(queue) do if m.t:sub(1, 1) == "R" then return end end
+    fanout({ "R|" .. QM.myId })
     QM.Broadcast()
 end
 
@@ -388,16 +482,32 @@ local uiStage = 0
 local function onUpdate(_, el)
     el = el or 0
     pumpAcc, beatAcc, uiAcc = pumpAcc + el, beatAcc + el, uiAcc + el
-    if pumpAcc >= 0.4 and #queue > 0 and now() >= retryAt and now() >= (ns.GroupSendAt or 0) then
+    if #queue > 0 and not dbq().share then queue = {} end   -- 共享关了：没发完的也不发了
+    if pumpAcc >= QM.SEND_GAP and #queue > 0 and now() >= retryAt and now() >= (ns.GroupSendAt or 0) then
         pumpAcc = 0
-        if joinChannel() then
-            ns.GroupSendAt = now() + 0.4
+        do   -- 11-05 起不进频道：公会 / 密语直接发
+            ns.GroupSendAt = now() + QM.SEND_GAP
             if send(queue[1]) then
-                table.remove(queue, 1); retries = 0; retryAt = 0; QM.sendError = nil
+                table.remove(queue, 1); retries = 0; retryAt = 0; QM.sendError = nil; QM.chanRebuilds = 0
             else
-                retries = retries + 1; retryAt = now() + math.min(8, 2 ^ retries)
                 QM.sendError = true
-                if retries >= 3 then queue = {}; retries = 0 end
+                local kind = failKind(QM.lastName)
+                -- 11-04 探针：每种失败原因每次登录只在聊天框说一次（玩家不用敲命令，截图就能看到原因）
+                if QM.printedFail ~= QM.lastName then
+                    QM.printedFail = QM.lastName
+                    ns.Print(L("组队共享发送失败：", "Group share send failed: ") .. tostring(QM.lastName) .. (QM.lastCode and ("(" .. QM.lastCode .. ")") or "")
+                        .. "  " .. tostring(QM.lastVia) .. L("（/gi qm probe 看详情）", " (/gi qm probe for details)"))
+                end
+                if kind == "throttle" then
+                    retryAt = now() + 6                       -- 被限流：等一会儿再发，队列留着
+                elseif kind == "lock" then
+                    retryAt = now() + 20                      -- 客户端暂时禁止插件通信（战斗 / 副本等）：等一会儿，队列留着
+                elseif queue[1] and queue[1].c == "WHISPER" then
+                    table.remove(queue, 1)   -- 密语对象不对（下线 / 改名）：只丢这一条，别卡住后面的
+                else
+                    retries = retries + 1; retryAt = now() + math.min(8, 2 ^ retries)
+                    if retries >= 3 then queue = {}; retries = 0 end
+                end
             end
             QM.dirty = true
         end
@@ -426,6 +536,24 @@ local function onUpdate(_, el)
         end
     end
 end
+
+-- 「没有找到玩家」：我们 10 秒内密过的人下线了，游戏会在聊天框回一句 → 只过滤这一种、只过滤这些人（官方过滤器口子，不碰聊天框）
+local function notFoundPat()
+    local f = _G.ERR_CHAT_PLAYER_NOT_FOUND_S
+    if type(f) ~= "string" then return nil end
+    local pat = f:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0"):gsub("%%%%s", ".+")
+    return "^" .. pat .. "$"
+end
+function QM.SysFilter(_, _, msg)
+    if type(msg) ~= "string" or ns.Secret(msg) then return false end
+    local pat = notFoundPat()
+    if not (pat and msg:match(pat)) then return false end
+    for name, t in pairs(QM.whisperedAt) do   -- 引号样式各客户端不同：直接看这句里有没有我们刚密过的名字
+        if now() - t <= 10 and msg:find(short(name), 1, true) then return true end
+    end
+    return false
+end
+if ChatFrame_AddMessageEventFilter then pcall(ChatFrame_AddMessageEventFilter, "CHAT_MSG_SYSTEM", QM.SysFilter) end
 
 -- ---------- 列表数据：按当前选的任务 / 全部共同任务 ----------
 -- 返回 rows = { { key, e, shared = {{q, mine, his}}, behind, dist, sameZone }, … } 已排序
@@ -1811,13 +1939,19 @@ function QM.Render()
     d.invAll:SetText(nInv > 0 and string.format(L("组人 · %d 人", "Invite %d"), nInv)
         or (canAll and L("组人 · 暂无", "Invite - none") or L("组人", "Invite")))
     d.invAll:SetEnabled(nInv > 0)
-    local chan = chanIndex() and "" or ("  |cffff6060" .. L("插件频道未连上", "addon channel not joined") .. "|r")
-    if QM.sendError then chan = chan .. "  |cffff6060" .. L("任务共享发送失败", "Quest sharing send failed") .. "|r" end
+    local chan = ""   -- 11-05 起不进频道（公会 + 密语），没有「频道未连上」这回事
+    local why = ""
+    if QM.sendError then
+        local k = failKind(QM.lastName)
+        local txt = (k == "throttle") and L("被限流", "throttled")
+            or (k == "lock") and L("客户端暂禁插件通信", "addon comms locked") or tostring(QM.lastName or "?")
+        why = "|cffff6060" .. L("共享失败·", "Share failed - ") .. txt .. (QM.lastCode and ("(" .. QM.lastCode .. ")") or "") .. "|r  "
+    end
     d.empty:Hide()   -- 10-12 改成列表最上面一行提示（peerHint），身边段总在下面
-    d.status:SetText(DIM .. string.format(L("符合 %d 人 · 收到 %d 人数据 · 身边未装插件 %d 人 · %d 秒刷新", "%d match - heard from %d - %d around, no addon - %ds"),
+    d.status:SetText(why .. DIM .. string.format(L("符合 %d 人 · 收到 %d 人数据 · 身边未装插件 %d 人 · %d 秒刷新", "%d match - heard from %d - %d around, no addon - %ds"),
         #allRows, np, #wr, BEAT) .. "|r" .. chan)
     if #allRows > MAX_ROWS or np >= MAX_PEERS then
-        d.status:SetText(DIM .. string.format(L("匹配 %d 人 · 显示前 %d 人 · 缓存 %d/%d 人", "%d matches - showing %d - cached %d/%d"), #allRows, #rows, np, MAX_PEERS) .. "|r" .. chan)
+        d.status:SetText(why .. DIM .. string.format(L("匹配 %d 人 · 显示前 %d 人 · 缓存 %d/%d 人", "%d matches - showing %d - cached %d/%d"), #allRows, #rows, np, MAX_PEERS) .. "|r" .. chan)
     end
     -- FontStrings do not support scripts: expose bounds on the existing refresh button.
     d.refresh:SetScript("OnEnter", function(self)
@@ -2053,7 +2187,7 @@ for _, e in ipairs({ "CHAT_MSG_ADDON", "PLAYER_ENTERING_WORLD", "QUEST_LOG_UPDAT
 end
 ev:SetScript("OnEvent", function(_, e, a1, a2, _, a4, ...)
     if e == "CHAT_MSG_ADDON" then
-        if a1 == PREFIX then pcall(QM.Handle, a4, a2) end
+        if a1 == PREFIX then pcall(QM.Handle, a4, a2, a3) end
     elseif e == "CHAT_MSG_SYSTEM" then
         pcall(QM.OnSystemMsg, a1)
     elseif e == "GUILD_ROSTER_UPDATE" then
@@ -2067,7 +2201,7 @@ ev:SetScript("OnEvent", function(_, e, a1, a2, _, a4, ...)
     elseif e == "CHAT_MSG_SAY" or e == "CHAT_MSG_YELL" or e == "CHAT_MSG_EMOTE" or e == "CHAT_MSG_TEXT_EMOTE" then
         pcall(QM.Heard, a2, e, (select(8, ...)))   -- 聊天事件第 12 个参数 = 说话人 GUID
     elseif e == "PLAYER_ENTERING_WORLD" then
-        if C_Timer and C_Timer.After then C_Timer.After(6, function() joinChannel(); dirtyAt = now() end) end
+        if C_Timer and C_Timer.After then C_Timer.After(6, function() dirtyAt = now() end) end
         if not QM._restored then
             QM._restored = true
             pcall(QM.RestorePinned)
@@ -2168,6 +2302,10 @@ ns.ExtraSlash.qm = function(rest, rawRest)
             .. " · JoinTemporaryChannel " .. has(JoinTemporaryChannel) .. " · channel " .. tostring(chanIndex())
             .. " · map " .. tostring((myPos())) .. " · quests " .. #QM.MyQuests() .. " · peers " .. (function() local n = 0; for _ in pairs(peers) do n = n + 1 end; return n end)()
             .. " · InviteUnit " .. has((C_PartyInfo and C_PartyInfo.InviteUnit) or InviteUnit))
+        ns.Print("QM probe 发送: 最近结果 " .. tostring(QM.lastName or "（还没发过）") .. (QM.lastCode and ("(" .. QM.lastCode .. ")") or "")
+            .. " · 方式 " .. tostring(QM.lastVia or "-") .. " · 公会 " .. tostring(IsInGuild and IsInGuild() and "在" or "不在")
+            .. " · 本轮密语 " .. #QM.WhisperTargets() .. " 人 · 上次成功 " .. (QM.lastOkAt and string.format("%d 秒前", now() - QM.lastOkAt) or "从没成功")
+            .. " · 队列 " .. #queue .. " · 间隔 " .. QM.SEND_GAP .. "s")
         -- 10-12「必须点中其他玩家才能出现」：姓名板能看到几个、几个是玩家、几个名字是保密值；友方姓名板设置
         QM.ScanNear()
         local ps = QM.plateStat or {}

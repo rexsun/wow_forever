@@ -463,6 +463,8 @@ local function BuildResourcePresentationSpec(plan, groupPlan, preset)
             thresholds = style.thresholds,
             thresholdMarkerColor = style.thresholdMarkerColor,
             thresholdMarkerThickness = style.thresholdMarkerThickness,
+            rangedWindup = providerKind == "swing-timer" and provider.swingHand == "ranged"
+                and style.rangedWindup or nil,
             independentCells = providerKind == "rune-cooldowns",
             chargedPointColor = provider.chargedColor,
         },

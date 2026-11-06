@@ -754,12 +754,16 @@ local function BuildDisplayBars(parent, y, ctx)
     if not EllesmereUI._prebuilding then
         local leftRgn = targetGlowRow._leftRegion
         if leftRgn._control then leftRgn._control:Hide() end
+        -- The WoW Forever style offers Highlight alone: the other three are
+        -- locked there (their getters read off, so they draw nothing).
+        local function fvLocked() return EllesmereUI.BlizzStyle.Forever("nameplates") end
+        local function fvTip() return EllesmereUI.L("Not available in the WoW Forever style.") end
         local glowItems = {
-            { key = "ellesmereui", label = "EUI Glow" },
-            { key = "borderColor", label = "Border Color" },
+            { key = "ellesmereui", label = "EUI Glow", lockedFn = fvLocked, lockedTooltip = fvTip },
+            { key = "borderColor", label = "Border Color", lockedFn = fvLocked, lockedTooltip = fvTip },
             { key = "highlight",   label = "Highlight" },
             { key = "borderSize",  label = "Border Size",
-              tooltip = "Change Size in the Cogwheel" },
+              tooltip = "Change Size in the Cogwheel", lockedFn = fvLocked, lockedTooltip = fvTip },
         }
         local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
             leftRgn, 170, leftRgn:GetFrameLevel() + 2,
@@ -868,6 +872,7 @@ local function BuildDisplayBars(parent, y, ctx)
                         UpdatePreview()
                       end },
                     { type="slider", label="Glow Opacity", min=0, max=100, step=1,
+                      disabled=fvLocked, disabledTooltip=fvTip, rawTooltip=true,
                       get=function() return math.floor((ns.GetTargetGlowAlpha() * 100) + 0.5) end,
                       set=function(v)
                         DB().targetGlowAlpha = v / 100
@@ -891,7 +896,11 @@ local function BuildDisplayBars(parent, y, ctx)
                         UpdatePreview()
                       end,
                       disabled=function() return not ns.GetTargetGlowBorderSize() end,
-                      disabledTooltip="Border Size Target Effect" },
+                      disabledTooltip=function()
+                        if fvLocked() then return fvTip() end
+                        return "Border Size Target Effect"
+                      end,
+                      rawTooltip=fvLocked },
                 },
             })
             refreshTargetHighlightCog = highlightCogBtn and highlightCogBtn._euiCogState
@@ -2010,8 +2019,21 @@ local function BuildDisplayBars(parent, y, ctx)
                     sizeSet = function(v) DB().castNameSize = v; ns.RefreshAllSettings(); UpdatePreview() end,
                     sizeMin = 6, sizeMax = 20, sizeLabel = EllesmereUI.L("Size"),
                     sizeFirst = true,
-                    widthGet = function() return DBVal("castNameWidthPct") or defaults.castNameWidthPct end,
-                    widthSet = function(v) DB().castNameWidthPct = v; ns.RefreshAllSettings(); UpdatePreview() end,
+                    -- Combined text has its own width; the name's applies while separate.
+                    widthGet = function()
+                        if DBVal("castCombineNameTarget") == true then
+                            return DBVal("castCombinedWidthPct") or defaults.castCombinedWidthPct
+                        end
+                        return DBVal("castNameWidthPct") or defaults.castNameWidthPct
+                    end,
+                    widthSet = function(v)
+                        if DBVal("castCombineNameTarget") == true then
+                            DB().castCombinedWidthPct = v
+                        else
+                            DB().castNameWidthPct = v
+                        end
+                        ns.RefreshAllSettings(); UpdatePreview()
+                    end,
                     wrapGet = function() return DBVal("castNameWrap") == true end,
                     wrapSet = function(v) DB().castNameWrap = v; ns.RefreshAllSettings(); UpdatePreview() end,
                     toggleLabel = "Combine Spell Name and Target",

@@ -401,6 +401,8 @@ end
 --   用户第二轮：「上面模块太占地方，重新设计」「下面列表要筛选」「没有人置顶的情况下热度前 3 放这里」
 --   「GearInsight 公会暂时也算置顶的」→ 不单独做一块，它就是置顶位第 1 格，和别的置顶公会一样标「置顶中」。
 --   自上而下：① 一排三个小格：置顶（GearInsight 在前，再是 pins）→ 不够用热度前几补（标「热度 N」，不算置顶的 / 招满的）→ 还不够画「槽位空缺」
+--      ⛔ 11-05 用户「跟小程序对齐，不要缩略的小图标，都是大图标」：三个小格作废 → 置顶 / 热度这几家改成和列表一样的大卡，
+--         排在最上面、右上角标「置顶中」/「热度 N」（不受筛选影响，和以前小格一样）；下面列表去掉这几家不重复；空位不再画「槽位空缺」
 --             ② 一行引导：「会长：让更多人看到你的公会」+「置顶我的公会」
 --             ③ 筛选：阵营 / 规则 / 缺我的职业 / 隐藏已招满（存 ns.db.ui）④ 列表（标题写「N / 总数」）
 --             ⑤ 底部：「发布我的公会招募」+「复制招募板网址」并排（招募板二维码只留这一个入口）
@@ -505,7 +507,7 @@ end
 
 -- ---------- 小控件 ----------
 local PAD, INNER = 12, 356
-local SLOT_H, GUIDE_H, CHIP_H, GAP = 44, 24, 20, 6
+local GUIDE_H, CHIP_H, GAP = 24, 20, 6
 local function bd(f, r, g, b, a, er, eg, eb, ea)
     if not f.SetBackdrop then return end
     f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 10,
@@ -523,20 +525,6 @@ local function tipScripts(b)
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
-end
-local function slotCard(parent, w)
-    local b = CreateFrame("Button", nil, parent, BackdropTemplateMixin and "BackdropTemplate" or nil)
-    b:SetSize(w, SLOT_H)
-    bd(b, 0.075, 0.075, 0.09, 1, 0.42, 0.35, 0.16, 0.85)
-    local hl = b:CreateTexture(nil, "HIGHLIGHT"); hl:SetPoint("TOPLEFT", 3, -3); hl:SetPoint("BOTTOMRIGHT", -3, 3)
-    hl:SetColorTexture(1, 0.82, 0, 0.07)
-    b.badge = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); b.badge:SetPoint("TOPRIGHT", -6, -6); b.badge:SetJustifyH("RIGHT")
-    b.l = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); b.l:SetPoint("TOPLEFT", 7, -7); b.l:SetPoint("RIGHT", b.badge, "LEFT", -3, 0)
-    b.l:SetJustifyH("LEFT"); if b.l.SetWordWrap then b.l:SetWordWrap(false) end
-    b.s = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); b.s:SetPoint("TOPLEFT", 7, -25); b.s:SetPoint("RIGHT", -6, 0)
-    b.s:SetJustifyH("LEFT"); if b.s.SetWordWrap then b.s:SetWordWrap(false) end
-    tipScripts(b)
-    return b
 end
 -- 筛选小格：选中 = 金框 + 金色底光 + 白字（同 PageProf 的 markSel；⛔ 不用禁用变灰）
 local function chip(parent, text, w, onClick)
@@ -582,15 +570,8 @@ end
 local function build(d, opts, refill)
     local box = CreateFrame("Frame", nil, d)
     box:SetSize(INNER, 10)
-    local sw = math.floor((INNER - GAP * 2) / 3)
-    box.slots = {}
-    for i = 1, 3 do
-        local s = slotCard(box, sw)
-        s:SetPoint("TOPLEFT", (i - 1) * (sw + GAP), 0)
-        box.slots[i] = s
-    end
-    -- 引导：一行字 + 按钮
-    local gy = SLOT_H + GAP
+    -- 引导：一行字 + 按钮（11-05 起上面不再有三个小格，置顶 / 热度大卡在 box 之上，由 GuildTopLayout 摆）
+    local gy = 0
     box.guide = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     box.guide:SetPoint("TOPLEFT", 2, -(gy + 5)); box.guide:SetJustifyH("LEFT")
     box.guide:SetText(WL("会长：让更多人看到你的公会", "Guild masters: get your guild seen", "會長：讓更多人看到你的公會"))
@@ -633,40 +614,71 @@ local function build(d, opts, refill)
     return box
 end
 
-local function fillSlots(box, opts)
-    local data = slotData()
-    for i = 1, 3 do
-        local s, sl = box.slots[i], data[i]
-        if sl then
-            local it = sl.it
-            if sl.kind == "pin" then
-                s.badge:SetText("|cff33ff99" .. WL("置顶中", "Pinned", "置頂中") .. "|r")
-                if s.SetBackdropBorderColor then s:SetBackdropBorderColor(0.2, 0.9, 0.5, 0.9) end
-            else
-                s.badge:SetText("|cffffd100" .. string.format(WL("热度 %d", "Hot #%d", "熱度 %d"), sl.rank) .. "|r")
-                if s.SetBackdropBorderColor then s:SetBackdropBorderColor(1, 0.82, 0, 0.75) end
-            end
-            s.l:SetText(tostring(it[2] or ""))
-            local parts = {}
-            local ft = facTxt(it[3]); if ft ~= "" then parts[#parts + 1] = ft end
-            local r = ruleOf(it); if r ~= "" then parts[#parts + 1] = r end
-            s.s:SetText(table.concat(parts, " |cff666666·|r "))
-            s.tip = { "<" .. tostring(it[2] or "") .. ">", tostring(it[13] or ""), "|cff999999" .. WL("点击复制网址，浏览器查看、申请", "Click to copy the web link", "點擊複製網址，瀏覽器查看、申請") .. "|r" }
-            s:SetScript("OnClick", function() guildQR(opts, it) end)
-            s._empty = nil
-        else
-            s.badge:SetText("")
-            s.l:SetText("|cff9a9a9a" .. WL("槽位空缺", "Open slot", "槽位空缺") .. "|r")
-            s.s:SetText(WL("会长：点这里置顶", "Guild masters: click to pin", "會長：點這裡置頂"))
-            s.tip = { WL("置顶位空着", "This pin slot is open", "置頂位空著"),
-                WL("会长打开网站，把你的公会放进这一排。", "Guild masters: open the website to put your guild here.", "會長開啟網站，把你的公會放進這一排。") }
-            s:SetScript("OnClick", function() pinQR(opts) end)
-            if s.SetBackdropBorderColor then s:SetBackdropBorderColor(0.42, 0.35, 0.16, 0.6) end
-            s._empty = true
-        end
-        s:Show()
+-- 置顶 / 热度大卡：右上角标「置顶中」/「热度 N」+ 换边框色；别的卡（行会复用）还原
+local CARD_EDGE = { 0.42, 0.35, 0.16, 0.85 }
+local function markCard(r, sl)
+    local b = rawget(r, "_fvBadge")
+    if not b and sl then
+        b = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        b:SetPoint("TOPRIGHT", -10, -7); b:SetJustifyH("RIGHT")
+        r._fvBadge = b
     end
+    if not sl then
+        if b then b:SetText(""); b:Hide() end
+        if r.SetBackdropBorderColor then r:SetBackdropBorderColor(CARD_EDGE[1], CARD_EDGE[2], CARD_EDGE[3], CARD_EDGE[4]) end
+        return
+    end
+    if sl.kind == "pin" then
+        b:SetText("|cff33ff99" .. WL("置顶中", "Pinned", "置頂中") .. "|r")
+        if r.SetBackdropBorderColor then r:SetBackdropBorderColor(0.2, 0.9, 0.5, 0.9) end
+    else
+        b:SetText("|cffffd100" .. string.format(WL("热度 %d", "Hot #%d", "熱度 %d"), sl.rank) .. "|r")
+        if r.SetBackdropBorderColor then r:SetBackdropBorderColor(1, 0.82, 0, 0.75) end
+    end
+    b:Show()
 end
+ns.GuildMarkCard = markCard   -- 测试用
+
+-- 11-05 用户「职业也换成图标」：卡片第 3 行「缺 …」把职业名换成职业图标（游戏自带的圆形职业图标），名字留在悬停提示里
+--   不限 / 全职业（≥8）照旧写字；⛔ 共享的 GIWidgets.lua 不改，抽屉填完后在这里重写这一行
+local CLASS_TOKEN = {
+    ["战士"] = "WARRIOR", ["圣骑士"] = "PALADIN", ["聖騎士"] = "PALADIN", ["猎人"] = "HUNTER", ["獵人"] = "HUNTER",
+    ["盗贼"] = "ROGUE", ["潜行者"] = "ROGUE", ["盜賊"] = "ROGUE", ["牧师"] = "PRIEST", ["牧師"] = "PRIEST",
+    ["萨满祭司"] = "SHAMAN", ["萨满"] = "SHAMAN", ["薩滿"] = "SHAMAN", ["法师"] = "MAGE", ["法師"] = "MAGE",
+    ["术士"] = "WARLOCK", ["術士"] = "WARLOCK", ["德鲁伊"] = "DRUID", ["德魯伊"] = "DRUID",
+}
+-- UI-Classes-Circles 256×256 里的位置（客户端没给 CLASS_ICON_TCOORDS 时用）
+local TC = {
+    WARRIOR = { 0, 0.25, 0, 0.25 }, MAGE = { 0.25, 0.49609375, 0, 0.25 }, ROGUE = { 0.49609375, 0.7421875, 0, 0.25 },
+    DRUID = { 0.7421875, 0.98828125, 0, 0.25 }, HUNTER = { 0, 0.25, 0.25, 0.5 }, SHAMAN = { 0.25, 0.49609375, 0.25, 0.5 },
+    PRIEST = { 0.49609375, 0.7421875, 0.25, 0.5 }, WARLOCK = { 0.7421875, 0.98828125, 0.25, 0.5 }, PALADIN = { 0, 0.25, 0.5, 0.75 },
+}
+local ICON_SZ = 16
+local function classIcon(name)
+    local tok = CLASS_TOKEN[name]
+    local t = tok and ((type(CLASS_ICON_TCOORDS) == "table" and CLASS_ICON_TCOORDS[tok]) or TC[tok])
+    if not t then return nil end
+    return string.format("|TInterface\TargetingFrame\UI-Classes-Circles:%d:%d:0:0:256:256:%d:%d:%d:%d|t", ICON_SZ, ICON_SZ,
+        math.floor(t[1] * 256 + 0.5), math.floor(t[2] * 256 + 0.5), math.floor(t[3] * 256 + 0.5), math.floor(t[4] * 256 + 0.5))
+end
+ns.GuildClassIcon = classIcon   -- 测试用
+-- 第 3 行：「缺 [图标][图标]…   规模」；认不出的职业照旧写字
+local function needLine(it)
+    local W = ns.W or _G.GIWidgets
+    local need, size = it[7], tostring(it[8] or "")
+    local body
+    if type(need) ~= "table" or #need == 0 or #need >= 8 then
+        body = (W and W.ClassText) and W.ClassText(need, 6) or ""
+    else
+        local out = {}
+        for _, n in ipairs(need) do out[#out + 1] = classIcon(n) or ("|cffbbbbbb" .. tostring(n) .. "|r") end
+        body = table.concat(out, " ")
+    end
+    local t = WL("缺 ", "Need ", "缺 ") .. body
+    if size ~= "" then t = t .. "   |cff9a9a9a" .. size .. "|r" end
+    return t
+end
+ns.GuildNeedLine = needLine   -- 测试用
 
 local function fillFilters(box, refill)
     local f = gf()
@@ -751,7 +763,6 @@ function ns.GuildTopLayout(tab, opts)
         if tab._giRefresh then tab._giRefresh() end
     end
     local box = rawget(d, "_fvTop") or build(d, opts, refill)
-    fillSlots(box, opts)
     fillFilters(box, refill)
     -- 抽屉自带的大卡位 / 引导卡 / 列表滚动区 / 空态都不用了
     for _, f in ipairs({ d.feat, d.cta, d.scroll, d.track, d.thumb, d.emptyBox }) do if f and f.Hide then f:Hide() end end
@@ -765,24 +776,48 @@ function ns.GuildTopLayout(tab, opts)
     vp:SetSize(INNER, viewH); vp:Show()
     vp._viewH = viewH
     local c = vp.content
-    box:SetParent(c); box:ClearAllPoints(); box:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0); box:Show()
-    local y = (rawget(box, "_h") or 0) + 10
+    -- 抽屉填好的、显示着的卡片：前 topN 张 = 置顶 / 热度大卡（opts.list 排在最前面），放最上面
+    local top = ns._fvTopSlots or {}
+    local shownRows = {}
+    for _, r in ipairs(d.rows or {}) do if r.IsShown and r:IsShown() then shownRows[#shownRows + 1] = r end end
+    local y, nTop = 0, 0
+    local listed = ns._fvList or {}
+    for k, r in ipairs(shownRows) do
+        local sl = top[k]
+        markCard(r, sl)
+        local it = listed[k]
+        if it and r.need and r.l and r.l.GetText and r.l:GetText() == it[2] then r.need:SetText(needLine(it)) end   -- 名字对得上才改（行和数据对齐）
+        if sl then
+            r:SetParent(c); r:ClearAllPoints(); r:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -y)
+            y = y + CARD_H + CARD_GAP
+            nTop = nTop + 1
+        end
+    end
+    if nTop > 0 then y = y + 4 end
+    box:SetParent(c); box:ClearAllPoints(); box:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -y); box:Show()
+    y = y + (rawget(box, "_h") or 0) + 10
     -- 列表标题：「正在招人的公会  N / 总数」+ 更新时间
     local rd = _G.GearInsightForeverRecruit
     local shown, total = ns.GuildFilter(type(rd) == "table" and rd.items or {})
     vp.head:ClearAllPoints(); vp.head:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -y)
-    vp.head:SetText(string.format(WL("正在招人的公会  %d / %d", "Recruiting guilds  %d / %d", "正在招人的公會  %d / %d"), #shown, total))
+    local nShown = #shown
+    if nTop > 0 then   -- 置顶 / 热度那几家已在上面，列表里去掉了，不算进「N」
+        local topId = {}
+        for k = 1, nTop do topId[top[k].it[1]] = true end
+        nShown = 0
+        for _, it in ipairs(shown) do if not topId[it[1]] then nShown = nShown + 1 end end
+    end
+    vp.head:SetText(string.format(WL("正在招人的公会  %d / %d", "Recruiting guilds  %d / %d", "正在招人的公會  %d / %d"), nShown, total))
     local upd = type(rd) == "table" and tostring(rd.updatedAt or "") or ""
     vp.sub:ClearAllPoints(); vp.sub:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, -(y + 2))
     vp.sub:SetText(upd ~= "" and string.format(WL("%s 更新", "updated %s", "%s 更新"), upd:sub(6, 16)) or "")
     y = y + 22
     -- 卡片：抽屉填好的、显示着的那些，按顺序挂进来
     local n = 0
-    for _, r in ipairs(d.rows or {}) do
-        if r.IsShown and r:IsShown() then
-            r:SetParent(c); r:ClearAllPoints(); r:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -(y + n * (CARD_H + CARD_GAP)))
-            n = n + 1
-        end
+    for k = nTop + 1, #shownRows do
+        local r = shownRows[k]
+        r:SetParent(c); r:ClearAllPoints(); r:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -(y + n * (CARD_H + CARD_GAP)))
+        n = n + 1
     end
     if n == 0 then
         vp.empty:ClearAllPoints(); vp.empty:SetPoint("TOP", c, "TOP", 0, -(y + 20))
@@ -815,9 +850,20 @@ local function attach()
             if dr then dr._fvFillGen = (rawget(dr, "_fvFillGen") or 0) + 1 end   -- 抽屉重填了一次：顶部区块要重新摆
             local d = _G.GearInsightForeverRecruit
             if type(d) ~= "table" then return {}, "" end
+            ns._fvTopSlots = {}   -- 抽屉第一次填时 _drawer 可能还没挂上 → 记在 ns 上
+            ns._fvList = {}
             if linkGinsGlobal() then return d.items or {}, d.updatedAt or "", d.featured end
             local list = ns.GuildFilter(d.items or {})   -- 10-16 筛选：阵营 / 规则 / 缺我的职业 / 隐藏已招满
-            return list, d.updatedAt or ""
+            ns._fvList = list
+            -- 11-05 置顶 / 热度大卡：排在最前面（不受筛选影响），筛选后的列表去掉这几家
+            local top = slotData()
+            if #top == 0 then return list, d.updatedAt or "" end
+            local out, used = {}, {}
+            for _, sl in ipairs(top) do out[#out + 1] = sl.it; used[sl.it[1]] = true end
+            for _, it in ipairs(list) do if not used[it[1]] then out[#out + 1] = it end end
+            ns._fvTopSlots = top
+            ns._fvList = out
+            return out, d.updatedAt or ""
         end,
         logo = "Interface\\AddOns\\GearInsight_Forever\\media\\logo",   -- 页签 / 引导卡 / 空态插图都用插件自带 logo（不是原生白长袍图标）
         -- 空态内嵌二维码（只要矩阵，QR.Encode 的其余返回值丢掉）

@@ -506,6 +506,8 @@ settings.records.restore_on_login
 settings.records.retain
 ]])
 Search:RegisterCatalog("ychat.settings", "YChat", "rules", [[
+settings.rules.prefix_filter_enabled
+settings.rules.filter_prefixes
 settings.rules.auto_invite_enabled
 settings.rules.match_mode
 settings.rules.rate_limit

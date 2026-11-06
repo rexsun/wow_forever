@@ -83,8 +83,9 @@ PATCHES = (
         "InCombatLockdown() and Addon.Frames:IsEnabled('inventory') then\n\t\tC_CVar.SetCVar('combinedBags', nil)",
         "InCombatLockdown() and Addon.Frames:IsEnabled('inventory') then\n\t\tC_CVar.SetCVar('combinedBags', '0')",
     ),
-    # The first three match upstream commit 803d6220, not yet released. The other three are
-    # the same secret-key lookup, which that commit leaves unguarded. Guarding callers rather
+    # Details 15400 ships commit 803d6220 and the parser guard, so four of these six now match
+    # upstream and are reported as already applied. The util.lua death-log and Midnight breakdown
+    # lookups are still unguarded upstream. Guarding callers rather
     # than DF:GetSpec* keeps the fix effective if another addon's newer DetailsFramework loads.
     Patch(
         "Details/classes/class_damage.lua",
@@ -118,6 +119,13 @@ PATCHES = (
         "thisSerial = thisSerial or bParser.guidCache[icon or sourcePlayer.specIconID] or nil",
         "thisSerial = thisSerial or (not issecretvalue(icon or sourcePlayer.specIconID)"
         " and bParser.guidCache[icon or sourcePlayer.specIconID]) or nil",
+    ),
+    # Upstream skips the check only when the text has a secret aspect, but IsTruncated() can still
+    # return a secret boolean, which threw on row hover (BugGrabber, 2026-11-05).
+    Patch(
+        "Details/frames/window_main.lua",
+        "if (canCheckForTrancation and lefttext:IsTruncated()) then",
+        "if (canCheckForTrancation and not issecretvalue(lefttext:IsTruncated()) and lefttext:IsTruncated()) then",
     ),
 )
 

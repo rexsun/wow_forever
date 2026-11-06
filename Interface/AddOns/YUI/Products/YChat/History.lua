@@ -285,6 +285,11 @@ local function Bypass(reason)
     return false, reason
 end
 
+local function IsPrefixFiltered(event, text)
+    local safeMessage = YChat.SafeMessage
+    return safeMessage and safeMessage:ShouldFilter(event, text) or false
+end
+
 function History:ProcessMessage(
     event,
     text,
@@ -304,6 +309,7 @@ function History:ProcessMessage(
         return Bypass("history-disabled")
     end
     if not self:WantsEvent(event) then return Bypass("history-event-bypassed") end
+    if IsPrefixFiltered(event, text) then return Bypass("history-prefix-filtered") end
     if type(text) ~= "string" or text == "" then
         return Bypass("history-text-invalid")
     end
@@ -360,6 +366,7 @@ local function BuildSnapshot(store, viewer)
         local slot = store.slots[RingIndex(oldest, offset, store.limit)]
         if type(slot) == "table" and type(slot.text) == "string"
             and History:WantsEvent(slot.event)
+            and not IsPrefixFiltered(slot.event, slot.text)
         then
             local timeText = System and System.FormatDate
                 and System.FormatDate(pattern, slot.epoch)
@@ -514,6 +521,7 @@ function History:ReplayOnLogin(initialLogin, reloadingUI)
         if type(slot) == "table"
             and type(slot.text) == "string"
             and self:WantsReplayEvent(slot.event)
+            and not IsPrefixFiltered(slot.event, slot.text)
         then
             if not bnetLookupRead and (slot.event == "CHAT_MSG_BN_WHISPER"
                 or slot.event == "CHAT_MSG_BN_WHISPER_INFORM") then

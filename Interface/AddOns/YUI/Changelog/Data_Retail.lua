@@ -1,6 +1,24 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v352|mainline|ef71ca70ca3fdce3ae1d12524eb2d63e67754b5b925e3052dc57d877c65415c3
+    {
+        version = "v352",
+        date = "2026-11-05",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "新增聊天关键词过滤。",
+                "优化任务路线收起兼容性。",
+                "修复连击点重新显示时残留旧填充。",
+            },
+            enUS = {
+                "Added chat keyword filtering.",
+                "Improved compatibility for quest guide collapsing.",
+                "Fixed stale combo-point fills when the display reappears.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v351|mainline|efc63523a06f6db692adac8a61d8c9579eec5126e713e9e3b573835a4d74dbe2
     {
         version = "v351",
@@ -268,24 +286,6 @@ CL:Register("suite", {
                 "Improved spell alert countdown compatibility with Retail updates.",
                 "Fixed errors that could interrupt monitor resource bar updates.",
                 "Fixed personal configuration preservation and recovery during legacy upgrades, profile copying and imports.",
-            },
-        },
-    },
--- YUI-Notes-Record: v342|mainline|4e9f95401af3edf5df39ecdef1b0dd56933c2a87c1abf4d8221fd292f6f89c0e
-    {
-        version = "v342",
-        date = "2026-10-15",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "传送玩具新增金杜鲁的移形羽毛笔，简称“金多赞”。",
-                "耐久条补充新坐骑选项。",
-                "修复传送助手中目的地名称可能换行的问题。",
-            },
-            enUS = {
-                "Added Kinduru's Spiriting Quill to teleport toys, displayed as “Kindo'jan”.",
-                "Added a new mount option to the durability bar.",
-                "Fixed teleport destination labels wrapping onto multiple lines.",
             },
         },
     },

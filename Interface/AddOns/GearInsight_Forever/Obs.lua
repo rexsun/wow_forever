@@ -7,6 +7,9 @@
 --   pc 营地    放营火 / 设施成功或失败（失败记提示原文）；pr = 不在旅店时休息经验变多了多少（帐篷）
 --   lg 传承    系统消息里出现传承：记当时各专业技能（150 / 225 / 300 给点的说法核对）
 --   tl 天赋树  本职业每一格的名字 / 最高等级（不依赖第三方）；tp = 每升一级时的配点码（真实玩家怎么点）
+--   gn 点位    11-05 用户「矿点等各种点位上插件，要众包的」：采草 / 挖矿成功、或从地上的物体拿东西（宝箱、箱子、可拾取物）时，
+--              记精确到 0.1% 的坐标。键「种类:物体ID:地图」（物体 ID 从拾取来源 GUID 取，不分语言；拿不到 ID 时用名字「种类:n名字:地图」），
+--              值「x:y」（百分比一位小数）。种类 = herb 草药 / ore 矿 / go 其他地上物体。服务端把相距很近的报告聚成一个点，≥2 台设备才采信
 -- ⛔ 不记角色名 / 服务器名；系统消息里带自己名字的不记。⛔ 存档最多 MAX 条，按 (k, key, val) 去重。
 -- ⛔ 记录关了（/gif data off）照记本机，但不进导出串（Stats.lua WriteAutoExport 管）。
 local _, ns = ...
@@ -146,6 +149,62 @@ local function gatherKey(spellID)
 end
 
 local pending   -- 正在采的那一下：{ key, target, npc, mlv, map, t }
+local lastGather  -- 刚采成功的那一下（等拾取窗口拿物体 ID）：{ kind, name, map, x, y, t }
+
+-- ---------- gn 精确点位 ----------
+O.GN_TOTAL = 400   -- 点位最多留这么多条（Obs 存档 800 条各类共用），超了删最旧的点位
+local function wherePrecise()
+    local m = C_Map and C_Map.GetBestMapForUnit and clean(C_Map.GetBestMapForUnit("player"))
+    if not m then return nil end
+    local ok, pos = pcall(C_Map.GetPlayerMapPosition, m, "player")
+    if not ok or not pos then return nil end
+    local x, y = pos:GetXY()
+    x, y = clean(x), clean(y)
+    if not (x and y) or x <= 0 or y <= 0 or x >= 1 or y >= 1 then return nil end
+    return m, string.format("%.1f", x * 100), string.format("%.1f", y * 100)
+end
+O.WherePrecise = wherePrecise
+local function objectIdOf(guid)
+    guid = clean(guid)
+    if type(guid) ~= "string" then return nil end
+    local kind, _, _, _, _, id = strsplit("-", guid)
+    if kind ~= "GameObject" then return nil end
+    return tonumber(id)
+end
+O.ObjectIdOf = objectIdOf
+function O.AddPoint(kind, idOrName, m, x, y)
+    if not (kind and idOrName and m and x and y) then return false end
+    local D = db()
+    local list = {}
+    for kk, v in pairs(D) do if v.k == "gn" then list[#list + 1] = { kk, v.t or 0 } end end
+    if #list >= O.GN_TOTAL then
+        table.sort(list, function(a, b) return a[2] < b[2] end)
+        for i = 1, #list - O.GN_TOTAL + 1 do D[list[i][1]] = nil end   -- 删到留出一个空位
+    end
+    return O.Add("gn", kind .. ":" .. tostring(idOrName) .. ":" .. m, x .. ":" .. y)
+end
+local GN_KIND = { herbalism = "herb", mining = "ore" }
+-- 拾取窗口打开：来源是地上的物体 → 记点位。刚采过草 / 矿（8 秒内）就归到草药 / 矿，否则算其他物体（宝箱等）
+function O.LootOpened()
+    if not GetLootSourceInfo then return false end
+    local ok, guid = pcall(GetLootSourceInfo, 1)
+    local id = ok and objectIdOf(guid)
+    local g = lastGather
+    lastGather = nil
+    -- 拾取窗口比「施法成功」先到的客户端：还在采的那一下也算
+    if not g and pending and GN_KIND[pending.key] and GetTime() - pending.t < 10 then
+        local m, x, y = wherePrecise()
+        if m then g = { kind = GN_KIND[pending.key], name = pending.target, map = m, x = x, y = y, t = GetTime() } end
+        pending.gnDone = true   -- 这一下已经记过点位：随后到的「施法成功」别再留一份给下一次拾取
+    end
+    if g and GetTime() - g.t <= 8 then
+        return O.AddPoint(g.kind, id or ("n" .. g.name), g.map, g.x, g.y)
+    end
+    if not id then return false end
+    local m, x, y = wherePrecise()
+    if not m then return false end
+    return O.AddPoint("go", id, m, x, y)
+end
 local campPending
 
 local function campNames()
@@ -195,6 +254,11 @@ function O.CastDone(unit, _, spellID)
             if pending.key ~= "skinning" and (pending.px or 0) > 0 and (pending.py or 0) > 0 then
                 O.Add("pg", gatherId(pending), "at:" .. (math.floor(pending.px / 5) * 5) .. ":" .. (math.floor(pending.py / 5) * 5))
             end
+        end
+        -- 11-05 精确点位：等拾取窗口拿物体 ID（LootOpened）；不看技能读没读到；采完没开拾取窗口（背包满等）就不记
+        if GetTime() - pending.t < 10 and GN_KIND[pending.key] and not pending.gnDone then
+            local m, x, y = wherePrecise()
+            if m then lastGather = { kind = GN_KIND[pending.key], name = pending.target, map = m, x = x, y = y, t = GetTime() } end
         end
         pending = nil   -- 超时的也清掉
         return
@@ -290,7 +354,7 @@ table.insert(ns.modules, function()
     local f = CreateFrame("Frame")
     -- ⛔ 事件一律容错注册：《无限》客户端没有的事件名会报错
     for _, e in ipairs({ "TRAINER_SHOW", "TRAINER_UPDATE", "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UI_ERROR_MESSAGE",
-        "SKILL_LINES_CHANGED", "UPDATE_EXHAUSTION", "CHAT_MSG_SYSTEM", "PLAYER_ENTERING_WORLD", "CHARACTER_POINTS_CHANGED" }) do
+        "SKILL_LINES_CHANGED", "UPDATE_EXHAUSTION", "CHAT_MSG_SYSTEM", "PLAYER_ENTERING_WORLD", "CHARACTER_POINTS_CHANGED", "LOOT_OPENED" }) do
         pcall(f.RegisterEvent, f, e)
     end
     local treeDone
@@ -307,6 +371,7 @@ table.insert(ns.modules, function()
             if not treeDone then treeDone = true; pcall(O.TalentTree) end
         -- 只在分配天赋点时记：升级那一刻点还没分，记了会把上一级的配点算到新等级头上
         elseif e == "CHARACTER_POINTS_CHANGED" then pcall(O.TalentPicks)
+        elseif e == "LOOT_OPENED" then pcall(O.LootOpened)
         end
     end
     f:SetScript("OnEvent", ns._obsEvent)

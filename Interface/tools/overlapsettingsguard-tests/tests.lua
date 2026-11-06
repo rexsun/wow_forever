@@ -87,7 +87,7 @@ test("the shipped policy has no errors", function()
   local w = Stubs.Fresh(ADDON_ROOT, {})
   local problems = w.ns.ValidatePolicy(w.ns.policy, w.ns.adapters)
   eq(#problems, 0, "policy problems: " .. table.concat(problems, "; "))
-  eq(#w.ns.policy, 23, "rule count")
+  eq(#w.ns.policy, 25, "rule count")
 end)
 
 test("ValidatePolicy reports bad rules", function()
@@ -151,7 +151,8 @@ test("current YUI and EllesmereUI policy has enforceable rules", function()
   local ids = {}
   for _, rule in ipairs(w.ns.policy) do ids[rule.id] = rule end
   for _, id in ipairs({ "yui.nameplateoutline", "yui.friendlynameplates", "yui.resources", "yui.playerhealth", "yui.playercast", "eui.nameplatepower",
-    "gi.friendlynameplates", "gi.combathud", "gi.resources", "gi.levelingstats", "gi.actionbaredits" }) do
+    "gi.friendlynameplates", "gi.combathud", "gi.resources", "gi.levelingstats", "gi.actionbaredits",
+    "yui.chatkeywordfilter", "gi.guildchatlevel" }) do
     ok(ids[id], id)
   end
 end)
@@ -349,6 +350,56 @@ test("YUI nameplate settings and active runtimes are disabled across profiles", 
   eq(YUI_DB.profiles.Alt.Components.UtilityTools_Config.nameplateOutline, false)
   eq(YUI.UtilityToolsNameplates.enabled, false)
   eq(YUI.UtilityToolsNameplateOutline.enabled, false)
+end)
+
+-- Mirrors YChat Config.lua in v352: the active filter lives at profile.YChat.messageFilter.
+local function BuildYChat(w, live)
+  live.YChat = { enabled = true, messageFilter = { enabled = true, prefixes = { "[GearInsight 无限版]" } } }
+  YUI_DB.profiles.Alt.YChat = { enabled = true }
+  YUI.YChat = {
+    GetMessageFilter = function() return live.YChat.messageFilter end,
+    SetMessageFilterEnabled = function(self, value)
+      if type(value) ~= "boolean" then return false, "invalid-message-filter-value" end
+      if live.YChat.messageFilter.enabled == value then return true, false end
+      live.YChat.messageFilter.enabled = value
+      w.chatRefreshes = (w.chatRefreshes or 0) + 1
+      return true, true
+    end,
+  }
+  return live.YChat
+end
+
+test("YChat keyword filter is switched off in the active and stored profiles", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  local live = BuildYUI(w)
+  local chat = BuildYChat(w, live)
+  local a = w.ns.adapters.YUI
+  eq(a.Read("ChatKeywordFilter"), true)
+  w.Login()
+  eq(chat.messageFilter.enabled, false)
+  eq(#chat.messageFilter.prefixes, 1, "keyword list is kept")
+  eq(YUI_DB.profiles.Alt.YChat.messageFilter.enabled, false, "missing filter in a stored profile defaults on")
+  eq(w.chatRefreshes, 1, "active change goes through YChat's setter")
+  eq(StatusOf(w.ns.Check(), "yui.chatkeywordfilter"), "off")
+  YUI.YChat:SetMessageFilterEnabled(true)
+  w.RunTimers()
+  eq(chat.messageFilter.enabled, false, "settings toggle is reverted on the next frame")
+end)
+
+test("YChat keyword filter is left alone without GearInsight or the YChat API", function()
+  local loaded = CurrentLoaded()
+  loaded.GearInsight_Forever = nil
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded })
+  local chat = BuildYChat(w, BuildYUI(w))
+  w.Login()
+  eq(chat.messageFilter.enabled, true)
+  w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  local live = BuildYUI(w)
+  chat = BuildYChat(w, live)
+  YUI.YChat.SetMessageFilterEnabled = nil
+  eq(StatusOf(w.ns.Check(), "yui.chatkeywordfilter"), "blocked")
+  eq(chat.messageFilter.enabled, true)
+  eq(YUI_DB.profiles.Alt.YChat.messageFilter, nil, "stored profiles untouched when blocked")
 end)
 
 test("YUI resource enforcement covers defaults, druid forms and saved HUD sets without removing swings", function()

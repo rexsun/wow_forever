@@ -3466,6 +3466,7 @@ local function SyncDesignResourcePreviewAppearance(slot, preview)
             thresholds = source.thresholds,
             thresholdMarkerColor = source.thresholdMarkerColor,
             thresholdMarkerThickness = source.thresholdMarkerThickness,
+            rangedWindup = source.rangedWindup,
             rechargeProgress = false,
             independentCells = source.independentCells,
             durationProgress = false,

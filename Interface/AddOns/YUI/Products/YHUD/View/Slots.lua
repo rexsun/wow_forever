@@ -1513,6 +1513,7 @@ local function ConfigureResourceAppearance(
             thresholds = source.thresholds,
             thresholdMarkerColor = source.thresholdMarkerColor,
             thresholdMarkerThickness = source.thresholdMarkerThickness,
+            rangedWindup = source.rangedWindup,
             independentCells = source.independentCells == true,
             chargedPointColor = source.chargedPointColor,
             rechargeProgress = projectionOnly ~= true

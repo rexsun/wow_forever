@@ -1019,7 +1019,7 @@ local lineScript_Onenter = function(self)
 		end
 	end
 
-	if (canCheckForTrancation and lefttext:IsTruncated()) then
+	if (canCheckForTrancation and not issecretvalue(lefttext:IsTruncated()) and lefttext:IsTruncated()) then
 		if (not Details.left_anti_truncate) then
 
 		end

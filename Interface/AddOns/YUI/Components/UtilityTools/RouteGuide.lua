@@ -27,11 +27,9 @@ local function IsOrdinaryFrame(frame)
         and type(frame.IsProtected) == "function" and not frame:IsProtected()
 end
 
--- 整个外部读取边界由 Run 保护；未知版本或对象结构不尝试推断。
-local function ReadTarget()
+-- 每次接入只检查一次所需接口；接入后复用绑定，不在刷新和点击时重复探测。
+local function FindTarget()
     if System.IsAddOnLoaded(TARGET_ADDON) ~= true then return nil, "waiting" end
-    local version = Security.SafeString(System.GetAddOnMetadata(TARGET_ADDON, "Version"))
-    if version ~= "v4.11.23" and version ~= "4.11.23" then return nil, "unsupported-version" end
     local stub = _G.LibStub
     if not (stub and type(stub.GetLibrary) == "function") then return nil, "missing-library" end
     local ace = stub:GetLibrary("AceAddon-3.0", true)
@@ -51,17 +49,11 @@ local function ReadTarget()
     local frame = addon.RXPFrame
     local guide = frame and frame.GuideName
     local icon = guide and guide.icon
-    if frame ~= _G.RXPFrame or not IsOrdinaryFrame(frame) or not IsOrdinaryFrame(guide)
-        or guide:GetParent() ~= frame or not (icon and type(icon.GetObjectType) == "function")
-        or icon:GetObjectType() ~= "Texture" or icon:GetParent() ~= guide
+    if not (frame and guide) then return nil, "waiting" end
+    if not IsOrdinaryFrame(frame) or not IsOrdinaryFrame(guide)
+        or not (icon and type(icon.GetTexture) == "function")
         or type(guide:GetScript("OnMouseDown")) ~= "function"
         or type(guide:GetScript("OnMouseUp")) ~= "function" then return nil, "unsupported-frame" end
-    local binding = bindings[frame]
-    if Feature.attached and (Feature.frame ~= frame or not binding or binding.addon ~= addon
-        or binding.settings ~= settings or binding.toggle ~= settings.ToggleActive
-        or binding.guide ~= guide or binding.icon ~= icon
-        or binding.mouseDown ~= guide:GetScript("OnMouseDown")
-        or binding.mouseUp ~= guide:GetScript("OnMouseUp")) then return nil, "changed-interface" end
     return addon
 end
 
@@ -135,16 +127,17 @@ end
 
 local function Sync()
     if not Feature.attached then return end
-    local addon, reason = ReadTarget()
-    if not addon then Stop(reason); return end
-    local profile = addon.settings.profile
+    local binding = bindings[Feature.frame]
+    local profile = binding.settings.profile
+    local shown = Security.SafeBoolean(profile.showEnabled)
+    local hidden = Security.SafeBoolean(profile.hideGuideWindow)
     -- 原入口切换或配置文件变化会撤销自动恢复；Alt+Z 等父级隐藏不改变此状态。
-    if restoreProfile and (profile ~= restoreProfile or profile.showEnabled ~= false
-        or profile.hideGuideWindow == true) then restoreProfile = nil end
-    local visible = profile.showEnabled == false and profile.hideGuideWindow ~= true
-    local scale = Security.SafeNumber(addon.RXPFrame:GetEffectiveScale())
+    if restoreProfile and (profile ~= restoreProfile or shown ~= false
+        or hidden == true) then restoreProfile = nil end
+    local visible = shown == false and hidden ~= true
+    local scale = Security.SafeNumber(Feature.frame:GetEffectiveScale())
     local parentScale = Security.SafeNumber(_G.UIParent:GetEffectiveScale())
-    local texture = addon.RXPFrame.GuideName.icon:GetTexture()
+    local texture = binding.icon:GetTexture()
     if not scale or not parentScale or scale <= 0 or parentScale <= 0
         or Security.IsSecretValue(texture) or (type(texture) ~= "string" and type(texture) ~= "number") then
         Stop("unsupported-visual"); return
@@ -159,7 +152,7 @@ local function Sync()
         badgeIcon:SetTexture(texture)
         logoHighlight:SetTexture(texture)
     end
-    local classIcon = addon.RXPFrame.GuideName.classIcon
+    local classIcon = binding.guide.classIcon
     local classTexture = classIcon and classIcon:GetTexture()
     if Security.IsSecretValue(classTexture) then Stop("unsupported-visual"); return end
     if classTexture ~= nil and type(classTexture) ~= "string" and type(classTexture) ~= "number" then
@@ -178,12 +171,12 @@ local function OnVisibilityChanged()
 end
 
 local function Toggle()
-    local addon, reason = ReadTarget()
-    if not addon then Stop(reason); return end
+    if not Feature.attached then return end
+    local binding = bindings[Feature.frame]
     HideTooltip(overlay)
     HideTooltip(badge)
     -- 与官方小地图左键完全相同，包括箭头、计时器及路线运行状态。
-    addon.settings.ToggleActive()
+    binding.toggle()
     Feature.toggles = Feature.toggles + 1
     Sync()
 end
@@ -200,9 +193,8 @@ local function OnMouseDown()
 end
 
 local function StartDrag()
-    local addon, reason = ReadTarget()
-    if not addon then Stop(reason); return end
-    local binding = bindings[addon.RXPFrame]
+    if not Feature.attached then return end
+    local binding = bindings[Feature.frame]
     suppressClick, dragging = true, true
     HideTooltip(overlay)
     binding.mouseDown(binding.guide, "LeftButton")
@@ -217,8 +209,7 @@ local function OnDragStop()
 end
 
 local function ShowTooltip(control)
-    local addon, reason = ReadTarget()
-    if not addon then Stop(reason); return end
+    if not Feature.attached then return end
     if control == badge and not badgeHovered then
         badgeHovered = true
         GUI2:SetTextColorKey(badgeText, "color.badge.orange.hover")
@@ -263,7 +254,7 @@ local function EnsureControls(addon)
     end
     if type(overlay.SetPassThroughButtons) ~= "function" then Stop("missing-passthrough"); return end
     bindings[frame] = {
-        addon = addon, settings = addon.settings, toggle = addon.settings.ToggleActive,
+        settings = addon.settings, toggle = addon.settings.ToggleActive,
         guide = guide, icon = guide.icon,
         mouseDown = guide:GetScript("OnMouseDown"), mouseUp = guide:GetScript("OnMouseUp"),
     }
@@ -296,7 +287,7 @@ end
 local function TryAttach()
     if Feature.attached then Sync(); return end
     if Security.InCombatLockdown() then Feature.pending = true; return end
-    local addon, reason = ReadTarget()
+    local addon, reason = FindTarget()
     if not addon then
         if reason ~= "waiting" then Stop(reason) end
         return
@@ -314,19 +305,15 @@ local function Refresh()
         -- 先清理本次自动收起的归属，防止官方回调或重复事件再次恢复。
         restoreProfile = nil
         if not profile or not Feature.attached then return end
-        local addon, reason = ReadTarget()
-        if not addon then Stop(reason); return end
-        if addon.settings.profile == profile and profile.showEnabled == false
-            and profile.hideGuideWindow ~= true then Toggle() end
+        if bindings[Feature.frame].settings.profile == profile and Security.SafeBoolean(profile.showEnabled) == false
+            and Security.SafeBoolean(profile.hideGuideWindow) ~= true then Toggle() end
         return
     end
     if inInstance ~= true or instanceHandled or not Feature.attached then return end
-    local addon, reason = ReadTarget()
-    if not addon then Stop(reason); return end
     -- 接入成功后才消费本次进入；先标记，避免官方切换回调或重复事件再次触发。
     instanceHandled = true
-    local profile = addon.settings.profile
-    if profile.showEnabled == true and profile.hideGuideWindow ~= true then
+    local profile = bindings[Feature.frame].settings.profile
+    if Security.SafeBoolean(profile.showEnabled) == true and Security.SafeBoolean(profile.hideGuideWindow) ~= true then
         restoreProfile = profile
         Toggle()
     end
@@ -353,8 +340,8 @@ function Feature:Enable()
     if self.enabled or self.blockedReason then return end
     if not (Event and Event.On and Event.OffOwner and GUI2 and GUI2.CreateButtonFrame
         and GUI2.ApplyFontAppearance and GUI2.GetMetric
-        and System and System.IsAddOnLoaded and System.GetAddOnMetadata and Security
-        and Security.SafeString and Security.SafeBoolean and Security.SafeNumber
+        and System and System.IsAddOnLoaded and Security
+        and Security.SafeBoolean and Security.SafeNumber
         and Security.IsSecretValue and Security.InCombatLockdown) then return end
     self.enabled = true
     Event:On("ADDON_LOADED", "OnAddonLoaded", self)

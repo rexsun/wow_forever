@@ -12,10 +12,26 @@ local pcall = pcall
 local type = type
 local concat = table.concat
 local select = select
+local find = string.find
 
 local QUEUE_CAPACITY = 64
 local DRAIN_PER_FRAME = 16
 local DEDUPE_CAPACITY = 128
+
+local PREFIX_EVENTS = {
+    CHAT_MSG_SAY = true, CHAT_MSG_YELL = true,
+    CHAT_MSG_EMOTE = true, CHAT_MSG_TEXT_EMOTE = true,
+    CHAT_MSG_GUILD = true, CHAT_MSG_OFFICER = true,
+    CHAT_MSG_PARTY = true, CHAT_MSG_PARTY_LEADER = true,
+    CHAT_MSG_RAID = true, CHAT_MSG_RAID_LEADER = true, CHAT_MSG_RAID_WARNING = true,
+    CHAT_MSG_INSTANCE_CHAT = true, CHAT_MSG_INSTANCE_CHAT_LEADER = true,
+    CHAT_MSG_CHANNEL = true, CHAT_MSG_COMMUNITIES_CHANNEL = true,
+    CHAT_MSG_WHISPER = true, CHAT_MSG_WHISPER_INFORM = true,
+    CHAT_MSG_BN_WHISPER = true, CHAT_MSG_BN_WHISPER_INFORM = true,
+}
+local EMPTY_PREFIXES = {}
+local prefixes = EMPTY_PREFIXES
+local prefixInterest = false
 
 local HISTORY_EVENTS = {
     CHAT_MSG_SAY = true,
@@ -94,6 +110,27 @@ SafeMessage.filterCalls = 0
 SafeMessage.filterBypasses = 0
 SafeMessage.queueDrops = 0
 SafeMessage.drainedMessages = 0
+
+local function MatchMessageKeywords(event, text)
+    local restriction = Adapter:GetRestrictionState()
+    if restriction ~= "OPEN" and restriction ~= "PAUSED" then return false end
+    if not Security or type(Security.IsSecretValue) ~= "function"
+        or Security.IsSecretValue(event) ~= false
+        or Security.IsSecretValue(text) ~= false
+        or type(event) ~= "string" or not PREFIX_EVENTS[event]
+        or type(text) ~= "string" then return false end
+    for index = 1, #prefixes do
+        if find(text, prefixes[index], 1, true) then return true end
+    end
+    return false
+end
+
+function SafeMessage:ShouldFilter(event, text)
+    if not self.enabled or not prefixInterest then return false end
+    -- Filtering is optional: inaccessible payloads and matching failures pass through.
+    local ok, blocked = pcall(MatchMessageKeywords, event, text)
+    return ok and blocked == true
+end
 
 local function StatIncrement(field)
     local stats = YChat.Stats
@@ -218,7 +255,9 @@ local function SafeMessageFilter(
     local allowHistory = historyWanted
         and (restriction == "OPEN" or restriction == "PAUSED")
     local allowAutomation = automationWanted and restriction == "OPEN"
-    if not SafeMessage.enabled or (not allowHistory and not allowAutomation)
+    local allowFiltering = prefixInterest and PREFIX_EVENTS[event]
+        and (restriction == "OPEN" or restriction == "PAUSED")
+    if not SafeMessage.enabled or (not allowHistory and not allowAutomation and not allowFiltering)
         or IsSecret(arg1)
         or IsSecret(arg2)
         or IsSecret(arg6)
@@ -241,6 +280,12 @@ local function SafeMessageFilter(
         StatIncrement("safeMessageFilterBypasses")
         return false
     end
+    -- Every chat window needs the discard result, before capture and lineID dedupe.
+    if allowFiltering and SafeMessage:ShouldFilter(event, arg1) then
+        StatIncrement("safeMessagePrefixBlocked")
+        return true
+    end
+    if not allowHistory and not allowAutomation then return false end
     if not RememberLineID(arg11) then
         SafeMessage.filterBypasses = SafeMessage.filterBypasses + 1
         StatIncrement("safeMessageDuplicateBypasses")
@@ -387,7 +432,8 @@ end
 
 local function WantsEvent(event)
     local history = YChat.HistoryRuntime
-    return autoInterest
+    return prefixInterest and PREFIX_EVENTS[event] == true
+        or autoInterest
         and (event == "CHAT_MSG_WHISPER" or event == "CHAT_MSG_BN_WHISPER")
         or historyInterest and HISTORY_EVENTS[event] == true
             and history and type(history.WantsEvent) == "function"
@@ -541,6 +587,9 @@ local function ReconcileYUIPrintCapture()
 end
 
 function SafeMessage:RefreshInterests()
+    local filterConfig = YChat.GetMessageFilter and YChat:GetMessageFilter()
+    prefixes = filterConfig and filterConfig.prefixes or EMPTY_PREFIXES
+    prefixInterest = filterConfig and filterConfig.enabled == true and #prefixes > 0 or false
     autoInterest = YChat:GetAutoInviteValue("enabled") == true
     historyInterest = YChat:GetHistoryValue("enabled") == true
     if YChat.AutoInvite and type(YChat.AutoInvite.OnConfigChanged) == "function" then
@@ -575,6 +624,8 @@ function SafeMessage:SetEnabled(enabled, reason)
         self.enabled = false
         autoInterest = false
         historyInterest = false
+        prefixInterest = false
+        prefixes = EMPTY_PREFIXES
         local driverStopped, driverReason =
             Adapter:SetMessageDeferredDriverEnabled(false)
         if not driverStopped then return false, driverReason end
@@ -601,6 +652,7 @@ function SafeMessage:GetRuntimeGauges(target)
     end
     target.safeMessageEnabled = self.enabled == true
     target.safeMessageFilters = installed
+    target.safeMessagePrefixCount = prefixInterest and #prefixes or 0
     target.safeMessageQueueDepth = queueCount
     target.safeMessageQueueDrops = self.queueDrops
     target.safeMessageFilterCalls = self.filterCalls

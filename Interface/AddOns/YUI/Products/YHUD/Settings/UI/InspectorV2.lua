@@ -5579,6 +5579,52 @@ function I.RefreshPlayerCastOptions(self, profile, group, page, y)
     end
 end
 
+function I.BuildRangedWindupControls(body, keep)
+    local ui = { controls = {} }
+    local function Keep(control)
+        ui.controls[#ui.controls + 1] = control
+        return keep(control)
+    end
+    local function Set(field, value)
+        if DesignerUI.v2Refreshing or DesignerUI.resourceStyleResourceId ~= "swingRanged" then return end
+        local session = Designer:GetSession()
+        local setting = YHUD:GetResourceSetting(Designer:GetProfile(), "swingRanged", session.selectedGroupId)
+        local windup = YHUD:CopyValue(setting.rangedWindup)
+        windup[field] = value
+        return Designer:SetResourceSetting("swingRanged", { rangedWindup = windup })
+    end
+    ui.heading = Keep(AddSectionHeading(body, T("designer.resource.windup_title", "射击停步提示")))
+    ui.colorLabel = Keep(NewResourceLabel(body, "designer.resource.windup_color", "停步提示颜色"))
+    ui.color = Keep(GUI2.Form:CreateColorPicker(body, {
+        getDefault = I.ResourceColorDefault("rangedWindup", "color"),
+        width = COLUMN_WIDTH, field = true, hasAlpha = true,
+        set = function(value) RefreshResourceMutation(Set("color", value), false) end,
+    }))
+    BindResourceColorPicker(ui.color, "windup", function(value) Set("color", value) end)
+    ui.enabledLabel = Keep(NewResourceLabel(body, "designer.resource.windup_marker", "停步刻线"))
+    ui.enabled = Keep(GUI2.Form:CreateSwitch(body, {
+        width = SWITCH_WIDTH,
+        set = function(value) RefreshResourceMutation(Set("markerEnabled", value == true)) end,
+    }))
+    ui.markerColorLabel = Keep(NewResourceLabel(body, "designer.resource.windup_marker_color", "刻线颜色"))
+    ui.markerColor = Keep(GUI2.Form:CreateColorPicker(body, {
+        getDefault = I.ResourceColorDefault("rangedWindup", "markerColor"),
+        width = COLUMN_WIDTH, field = true, hasAlpha = true,
+        set = function(value) RefreshResourceMutation(Set("markerColor", value), false) end,
+    }))
+    BindResourceColorPicker(ui.markerColor, "thresholdMarker", function(value) Set("markerColor", value) end)
+    ui.thicknessLabel = Keep(NewResourceLabel(body, "designer.resource.windup_marker_thickness", "刻线粗细"))
+    ui.thickness = Keep(GUI2.Form:CreateSlider(body, {
+        width = COLUMN_WIDTH - 48, inline = true, inputWidth = 42,
+        min = 1, max = 4, step = 1,
+        set = function(value) RefreshResourceSliderMutation(Set("markerThickness", value), "swingRanged") end,
+    }))
+    ui.help = Keep(NewResourceLabel(body, "designer.resource.windup_help",
+        "剩余 0.5 秒时整条进度变色，刻线标记该区间起点。"))
+    ui.help:SetWordWrap(true)
+    return ui
+end
+
 local function BuildResourceEditors(self)
     if self.resourceV2Controls then return end
     local body = self.groupInspectorBody
@@ -6399,6 +6445,7 @@ local function BuildResourceEditors(self)
         restoreDefaults = textRestoreDefaults,
     }
     self.resourceV2Appearance = {
+        windup = I.BuildRangedWindupControls(body, Keep),
         globalDivider = appearanceGlobalDivider,
         itemDivider = appearanceItemDivider,
         resourceLabel = appearanceResourceLabel,
@@ -8083,6 +8130,9 @@ DesignerUI.resourceAppearanceExtensions.severity = {
 }
 
 local function RefreshResourceAppearancePage(self, profile, group)
+    if self.resourceV2Appearance and self.resourceV2Appearance.windup then
+        HideControls(self.resourceV2Appearance.windup.controls)
+    end
     local body = self.groupInspectorBody
     local ui = self.resourceV2Appearance
     local vertical = YHUD:GetResourceGroupLayout(profile, group.id).orientation == "vertical"
@@ -8297,7 +8347,26 @@ local function RefreshResourceAppearancePage(self, profile, group)
     end
     local extensionY = y
     local nextY = y
-    if not nativePoints then
+    if resourceId == "swingRanged" and setting.rangedWindup then
+        local windup, controls = setting.rangedWindup, ui.windup
+        PlaceSection(controls.heading, body, y)
+        nextY = I.PlaceResourceAppearanceRow(body, y - 28,
+            { controls.colorLabel, controls.color, "color" },
+            { controls.enabledLabel, controls.enabled, "switch" })
+        if windup.markerEnabled then
+            nextY = I.PlaceResourceAppearanceRow(body, nextY,
+                { controls.markerColorLabel, controls.markerColor, "color" },
+                { controls.thicknessLabel, controls.thickness, "number" })
+        end
+        Place(controls.help, body, 0, nextY, CONTENT_WIDTH)
+        controls.help:SetHeight(36)
+        controls.help:Show()
+        nextY = nextY - 40
+        SetControlValue(controls.color, windup.color)
+        SetControlValue(controls.markerColor, windup.markerColor)
+        controls.enabled:SetValue(windup.markerEnabled, true)
+        controls.thickness:SetValue(windup.markerThickness, true)
+    elseif not nativePoints then
         PlaceSection(ui.thresholdDivider, body, y)
         nextY = y - 28
         nextY = I.PlaceResourceAppearanceRow(body, nextY,

@@ -1222,14 +1222,15 @@ local function BuildChannelInputOptions(parent, options)
     })
 end
 
-local function BuildListEditor(parent, key, labelKey, labelFallback, placeholderKey, placeholderFallback)
+local function BuildListEditor(parent, key, labelKey, labelFallback, placeholderKey, placeholderFallback, access)
     return {
         type = "custom",
+        searchKey = labelKey,
         render = function(container, x, y, width)
             if not (GUI2 and GUI2.Form and GUI2.Form.CreateEditBox and GUI2.Form.CreateButton) then
                 return width, 0
             end
-            local values = AutoInvite()[key] or {}
+            local values = access and access.get() or AutoInvite()[key] or {}
             local label = GUI2:CreateText(
                 container,
                 T(labelKey, labelFallback),
@@ -1255,8 +1256,10 @@ local function BuildListEditor(parent, key, labelKey, labelFallback, placeholder
                 onClick = function()
                     local value = input:GetText()
                     if type(value) == "string" and value ~= "" then
-                        YChat:AddAutoInviteListValue(key, value)
-                        Rerender(parent)
+                        local ok
+                        if access then ok = access.add(value)
+                        else ok = YChat:AddAutoInviteListValue(key, value) end
+                        if ok then Rerender(parent) end
                     end
                 end,
             })
@@ -1274,9 +1277,11 @@ local function BuildListEditor(parent, key, labelKey, labelFallback, placeholder
                     height = 24,
                     tone = "default",
                     relief = "hairline",
-                    tooltip = T("settings.rules.list_remove", "Click to remove"),
+                    tooltip = (access and (value .. "\n") or "")
+                        .. T("settings.rules.list_remove", "Click to remove"),
                     onClick = function()
-                        YChat:RemoveAutoInviteListValue(key, value)
+                        if access then access.remove(value)
+                        else YChat:RemoveAutoInviteListValue(key, value) end
                         Rerender(parent)
                     end,
                 })
@@ -1310,6 +1315,26 @@ local function BuildListEditor(parent, key, labelKey, labelFallback, placeholder
 end
 
 local function BuildRulesOptions(parent, options)
+    AddSection(options, "settings.rules.filter", "Message filtering")
+    options[#options + 1] = {
+        type = "checkbox",
+        labelPosition = "left",
+        ychatColumns = 1,
+        searchKey = "settings.rules.prefix_filter_enabled",
+        label = T("settings.rules.prefix_filter_enabled", "Enable keyword filtering"),
+        tooltip = T("settings.rules.prefix_filter_help", "Hide player chat containing any listed keyword anywhere in the message. Matching is literal and case-sensitive, including quoted text. Unreadable messages are left unchanged."),
+        get = function() return YChat:GetMessageFilter().enabled end,
+        set = function(value) YChat:SetMessageFilterEnabled(value == true) end,
+    }
+    options[#options + 1] = BuildListEditor(
+        parent, "prefixes", "settings.rules.filter_prefixes", "Blocked keywords",
+        "settings.rules.filter_prefix_placeholder", "Enter a keyword (up to 32 entries, 128 bytes each)",
+        {
+            get = function() return YChat:GetMessageFilter().prefixes end,
+            add = function(value) return YChat:AddMessageFilterPrefix(value) end,
+            remove = function(value) return YChat:RemoveMessageFilterPrefix(value) end,
+        }
+    )
     AddSection(options, "settings.section.auto_invite", "Auto invite")
     options[#options + 1] = {
         type = "checkbox",

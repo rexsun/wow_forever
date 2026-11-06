@@ -1,6 +1,21 @@
 -- Generated from Docs/Products/YUI_OrbitInfoBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("ybar", {
+-- YUI-Notes-Record: orbit-127|mainline|d013ec6fabbdf5204e19bf7bb6e0ef78604472c960f0cfa8e631040c2566df2c
+-- YUI-Notes-Record: orbit-127|forever|a98508a923669d37523ae791f8ef01b686e11ba7fc5ebe9362a89d49564b63dc
+    {
+        version = "orbit-127",
+        date = "2026-11-05",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "同步共享核心，兼容新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: orbit-126|mainline|21b85b633425c76b4852ae8fa148ecc8c289ebb4a729bdb148e9d11e5249b40b
 -- YUI-Notes-Record: orbit-126|forever|b4ae83c2858cc7bdc81c359c5fcbfa1f41e9efd8b9577c8add82be7a52ca3197
     {
@@ -244,25 +259,10 @@ CL:Register("ybar", {
             },
         },
     },
--- YUI-Notes-Record: orbit-117|mainline|55f3479b84d10eff2247ecd09d205955a8465710bbf91a395403ac98f23b1f67
 -- YUI-Notes-Record: orbit-117|forever|868f650fb71761739774c853cd659b846247d20c1cacb53c2ed3888867762df3
     {
         version = "orbit-117",
         date = "2026-10-13",
-        clients = { "Retail", "Forever" },
-        content = {
-            zhCN = {
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-116|forever|f771ae1e6d14fc9bf79236bba46485ca5d2a45f48dc11bc899f855e0dbc0a9e8
-    {
-        version = "orbit-116",
-        date = "2026-10-12",
         clients = { "Forever" },
         content = {
             zhCN = {

@@ -78,6 +78,8 @@ local values = {
     inputSkinLastFailure = "none",
     safeMessageEnabled = false,
     safeMessageFilters = 0,
+    safeMessagePrefixCount = 0,
+    safeMessagePrefixBlocked = 0,
     safeMessageQueueDepth = 0,
     safeMessageQueueDrops = 0,
     safeMessageFilterCalls = 0,
@@ -151,6 +153,7 @@ local values = {
 }
 
 local counterDefaults = {
+    safeMessagePrefixBlocked = 0,
     events = 0,
     metadataAppends = 0,
     dirtyRequests = 0,

@@ -4332,7 +4332,15 @@ do
                 )
             end
         end
-        if config.thresholdMarkerEnabled == true
+        if config.rangedWindup then
+            local windup = config.rangedWindup
+            if windup.markerEnabled and frame.gui2ResourceWindupRatio then
+                writeIndex = writeIndex + 1
+                PlaceResourceLine(frame, EnsureResourceLine(frame, writeIndex),
+                    frame.gui2ResourceWindupRatio, windup.markerThickness,
+                    windup.markerColor, nil, "threshold")
+            end
+        elseif config.thresholdMarkerEnabled == true
             and config.mode ~= "cells" and config.mode ~= "dots" then
             local thresholds = config.thresholds or {}
             local function AddThreshold(threshold)
@@ -5001,6 +5009,32 @@ do
             false
         )
         return true
+    end
+
+    -- Public swing metadata only. Never inspect a DurationObject or restricted
+    -- native fill geometry to decide either the color or the marker position.
+    local function ApplyResourceWindup(frame, duration, active)
+        local config = frame.gui2ResourceDisplayConfig or {}
+        local windup = config.rangedWindup
+        if not windup then return end
+        if IsSecretValue(duration) or type(duration) ~= "number"
+            or duration ~= duration or duration <= 0 or duration >= math.huge then
+            duration = nil
+        end
+        local ratio = duration and math_max(0, 1 - 0.5 / duration) or nil
+        if frame.gui2ResourceWindupRatio ~= ratio then
+            frame.gui2ResourceWindupRatio = ratio
+            LayoutResourceDecorations(frame)
+        end
+        if duration and not IsSecretValue(active) and active == true then
+            frame.gui2ResourceWindupActive = true
+            local r, g, b, a = ResourceColorComponents(windup.color, frame.gui2ResourceFillColor)
+            ForEachResourceStatusBar(frame, SetResourceStatusBarColor, r, g, b, a)
+            RememberResourceFillColor(frame, r, g, b, a)
+        else
+            frame.gui2ResourceWindupActive = nil
+            ApplyResourceBaseColor(frame)
+        end
     end
 
     local function ApplyResourceDuration(frame, durationObject)
@@ -6711,6 +6745,12 @@ do
         end
         frame.PreviewResourceColor = function(self, field, color)
             local r, g, b, a = ResolvePreviewColor(color)
+            if field == "windup" then
+                if self.gui2ResourceWindupActive then
+                    ForEachResourceStatusBar(self, SetResourceStatusBarColor, r, g, b, a)
+                end
+                return true
+            end
             if field == "fill" then
                 ForEachResourceStatusBar(
                     self,
@@ -7034,6 +7074,9 @@ do
         frame.SetResourceDisplayConfig = function(self, config)
             local previousConfig = self.gui2ResourceDisplayConfig
             config = type(config) == "table" and config or {}
+            if not config.rangedWindup then
+                self.gui2ResourceWindupRatio, self.gui2ResourceWindupActive = nil, nil
+            end
             ResetResourcePartialVisual(self)
             local valueKind = config.valueKind == "discrete"
                 and "discrete" or "continuous"
@@ -7098,6 +7141,7 @@ do
                 rechargeProgress = config.rechargeProgress == true,
                 independentCells = config.independentCells == true,
                 durationProgress = config.durationProgress == true,
+                rangedWindup = config.rangedWindup,
                 durationProgressDirection = config.durationProgressDirection == "elapsed"
                     and "elapsed" or "remaining",
                 timerMarkers = config.timerMarkers == true,
@@ -7383,7 +7427,8 @@ do
             percentRaw,
             partialFraction,
             displayValue,
-            chargedPointMask
+            chargedPointMask,
+            rangedWindup
         )
             local config = self.gui2ResourceDisplayConfig or {}
             local cellsMode = config.mode == "cells" or config.mode == "dots"
@@ -7432,11 +7477,17 @@ do
             if config.durationProgress == true and forcePublicValues ~= true then
                 HideResourceRecharge(self)
                 HideResourceSecretThresholdLayers(self)
-                ApplyResourceBaseColor(self)
+                if not config.rangedWindup then ApplyResourceBaseColor(self) end
                 local applied = ApplyResourceDuration(
                     self,
                     durationResourceRaw
                 )
+                if config.rangedWindup then
+                    local sample = not IsSecretValue(rangedWindup) and type(rangedWindup) == "table"
+                        and rangedWindup or nil
+                    ApplyResourceWindup(self, applied and sample and sample.duration,
+                        sample and sample.active)
+                end
                 StartResourceTimerMarkers(self, timerEntriesRaw)
                 UpdateResourceValueTexts(self, value, maxValue, false, nil, nil, nil, durationResourceRaw, false)
                 return FinishResourceValueUpdate(self, applied)
@@ -7445,6 +7496,7 @@ do
                 StopResourceTimerMarkers(self)
             end
             if secret == true then
+                if config.rangedWindup then ApplyResourceWindup(self, nil, false) end
                 self.gui2ResourceHasPublicValues = false
                 self.gui2ResourcePublicValue = nil
                 self.gui2ResourcePublicMaxValue = nil
@@ -7582,6 +7634,9 @@ do
             )
             UpdateResourceValueTexts(self, displayValue, maxValue, false, nil, nil, nil, durationResourceRaw,
                 forcePublicValues == true)
+            if config.rangedWindup then
+                ApplyResourceWindup(self, maxValue, value > 0 and maxValue - value <= 0.5)
+            end
             return FinishResourceValueUpdate(
                 self,
                 true,
@@ -7589,6 +7644,7 @@ do
             )
         end
         frame.ClearResourceValues = function(self)
+            ApplyResourceWindup(self, nil, false)
             StopResourcePartialRecharge(self)
             StopResourceTimerMarkers(self)
             self.gui2ResourceRechargeActive = false

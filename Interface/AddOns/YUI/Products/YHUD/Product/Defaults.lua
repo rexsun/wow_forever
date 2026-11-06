@@ -3035,6 +3035,15 @@ local function NormalizeResourceSetting(
             DEFAULT_RESOURCE_GROUP_STYLE
         ),
     }
+    if definition.id == "swingRanged" then
+        local windup = type(setting.rangedWindup) == "table" and setting.rangedWindup or {}
+        result.rangedWindup = {
+            color = NormalizeColor(windup.color, { 0, 229 / 255, 1, 1 }),
+            markerEnabled = NormalizeBoolean(windup.markerEnabled, true),
+            markerColor = NormalizeColor(windup.markerColor, { 1, 1, 1, 1 }),
+            markerThickness = ClampInteger(windup.markerThickness, 1, 4, 2),
+        }
+    end
     if definition.id == "cast" then
         result.cast = {
             icon = not (type(setting.cast) == "table" and setting.cast.icon == false),
@@ -6153,6 +6162,7 @@ function YHUD:GetEffectiveResourceStyle(profile, groupId, resourceId, specID)
         thresholds = CopyValue(setting.thresholds),
         thresholdMarkerColor = CopyValue(setting.thresholdMarkerColor),
         thresholdMarkerThickness = setting.thresholdMarkerThickness,
+        rangedWindup = setting.rangedWindup and CopyValue(setting.rangedWindup) or nil,
     }
 end
 

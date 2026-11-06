@@ -87,6 +87,13 @@ end
 
 local page
 local function refresh()
+    -- 11-05 玩家「选了鸟德的天赋，天赋页还是野德的推荐」：天赋页第一次打开时就定了路线，之后点数投到别的系也不换
+    --   → 自己职业、显示的是没动过的默认路线时，推荐方案变了（DefaultBuildKey 按投点最多的系）就换成新的
+    if S.cls and S.cls == myClass() and S.plan and S.plan.default and S.path and not S.noAuto[S.cls]
+        and ns.DefaultBuildKey and ns.LoadDefaultSim then
+        local want = ns.DefaultBuildKey(S.cls)
+        if want and want ~= S.plan.key then ns.LoadDefaultSim(S.cls); return end
+    end
     if not page or not S.cls then return end
     local trees = ns.Data.talents[S.cls]
     for ti, tr in ipairs(trees) do
@@ -424,3 +431,10 @@ end
 ns._BuildMenu = function() return menu end   -- 测试用
 ns._sim, ns._simClick = S, click
 ns.RegisterPage({ key = "talent", order = 1, title = ns.L("天赋", "Talents"), build = build, refresh = refresh })
+
+-- 11-05 天赋页开着时点了天赋：推荐方案跟着投点最多的系换（refresh 里判断），不用关了再开
+do
+    local ev = CreateFrame("Frame")
+    for _, e in ipairs({ "CHARACTER_POINTS_CHANGED", "PLAYER_TALENT_UPDATE" }) do pcall(ev.RegisterEvent, ev, e) end
+    ev:SetScript("OnEvent", function() if page and page.IsShown and page:IsShown() then pcall(refresh) end end)
+end

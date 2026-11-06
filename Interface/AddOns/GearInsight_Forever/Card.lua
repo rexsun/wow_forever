@@ -1,5 +1,5 @@
 -- 游戏里出二维码 → 微信扫 → 小程序（协议：docs/forever-addon-link-protocol.md）
---   战绩卡 + 报到：https://gearinsight.cn/fv/c?d=C1~<uid>~<cid>~<cls>~<race>~<fac>~<hc>~<lvl>~<played>~<thisLvl>~<deaths>~<build>~<lvt>~<top>
+--   （11-05 战绩卡 + 报到 /fv/c 已下线）
 --   当前配点：     https://gearinsight.cn/fv/t?c=GIF1.<职业>.<a>-<b>-<c>
 -- 小程序后台「扫普通链接二维码打开小程序」把 https://gearinsight.cn/fv/ 开头的链接接到 pages/forever/card；
 -- 没配规则 / 用别的扫码软件时打开同一个网址 = 网站落地页（也能看战绩卡、再扫小程序码）。
@@ -46,51 +46,8 @@ function ns.LevelMinutes(cid, keepLast)
     return first .. "." .. table.concat(mins, "-")
 end
 
-local function topKiller(c)
-    local best, n = nil, 0
-    for id, k in pairs(c.kill or {}) do
-        if k > n or (k == n and best and id < best) then best, n = id, k end
-    end
-    return best and (best .. "." .. n) or ""
-end
-
--- 拼战绩卡网址；超长逐步降级（lvt 只留最近 30 级 → 不带 lvt → 不带 top），保证二维码版本 ≤ 13
-function ns.CardURL(opt)
-    opt = opt or {}
-    local c = ns.CurrentChar and ns.CurrentChar()
-    if not c then return nil end
-    local total, thisLvl = nil, nil
-    if ns.PlayedNow then total, thisLvl = ns.PlayedNow() end
-    local build = GetBuildInfo and ((select(1, GetBuildInfo()) or "") .. "." .. (select(2, GetBuildInfo()) or "")) or ""
-    local hc = (c.hc == 1 and "1") or (c.hc == 0 and "0") or "x"
-    local function make(lvt, top)
-        return BASE .. "c?d=" .. table.concat({ "C1", ns.db.uid, c.cid, c.cls or "", c.race or "", FAC[c.fac or ""] or "", hc,
-            tostring(UnitLevel("player") or c.lvl or 0), tostring(math.floor(total or 0)), tostring(math.floor(thisLvl or 0)),
-            tostring(c.nd or 0), build, lvt, top }, "~")
-    end
-    local cap = ns.QR.ByteCapacity(ns.QR.MAX_VERSION, "M")
-    local top = topKiller(c)
-    for _, step in ipairs({ { nil, top }, { 30, top }, { 10, top }, { false, top }, { false, "" } }) do
-        local lvt = (step[1] == false) and "" or ns.LevelMinutes(c.cid, step[1])
-        local url = make(lvt, step[2])
-        if #url <= (opt.cap or cap) then return url end
-    end
-    return nil
-end
-
-function ns.ShowCardQR(retry)
-    if not retry and not (ns.PlayedNow and ns.PlayedNow()) and RequestTimePlayed then
-        -- /played 还没回来：先静默要一次，1 秒后再出码（总时长才准）；还没回来就不带时长照样出
-        ns.RequestPlayedSilently()
-        C_Timer.After(1, function() ns.ShowCardQR(true) end)
-        return
-    end
-    local url = ns.CardURL()
-    if not url then ns.Print(ns.L("还没有角色数据，进游戏后再试", "No character data yet")); return end
-    ns.ShowQR(ns.L("战绩卡", "Beta card"),
-        ns.L("微信扫码：看你的升级用时、死亡次数、同职业排第几，并计入公测报到\n只带随机编号，不含角色名和服务器",
-            "Scan with WeChat: level times, deaths, class rank.\nAnonymous: no character or realm name"), url, "M")
-end
+-- ⛔ 11-05 用户「这个功能没用吧，删了吧，关闭」：战绩卡二维码（/gi card，微信扫码看升级用时 / 死亡次数 / 同职业排第几）下线，
+--   拼网址 CardURL / 出码 ShowCardQR 和所有入口都删了；网站 /fv/c 收码接口留着（老版本玩家扫了不报错）。下面只剩配点二维码。
 
 -- 当前天赋 → 配点码（顺序 = Data.lua = 小程序模拟器）
 function ns.CurrentTalentCode()

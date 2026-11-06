@@ -34,7 +34,7 @@ local BODY_LINE_SPACING_MIN = 0
 local BODY_LINE_SPACING_MAX = 8
 local TIMESTAMP_GAP_MIN = 0
 local TIMESTAMP_GAP_MAX = 18
-local AUTO_INVITE_LIST_MAX = 32
+local TEXT_LIST_MAX = 32
 local AUTO_INVITE_COOLDOWN_MIN = 1
 local AUTO_INVITE_COOLDOWN_MAX = 300
 local AUTO_INVITE_RATE_LIMIT_MIN = 1
@@ -246,20 +246,20 @@ local function NormalizeMediaName(value)
     return value
 end
 
-local function NormalizeTextToken(value)
+local function NormalizeTextToken(value, preserveCase)
     if type(value) ~= "string" then return nil end
     value = match(value, "^%s*(.-)%s*$")
     if value == "" or #value > 128 or find(value, "[%c]") then return nil end
-    return lower(value)
+    return preserveCase and value or lower(value)
 end
 
-local function NormalizeTextList(value, fallback)
+local function NormalizeTextList(value, fallback, preserveCase)
     if type(value) ~= "table" then value = fallback or {} end
     local normalized = {}
     local seen = {}
     for index = 1, #value do
-        local token = NormalizeTextToken(value[index])
-        if token and not seen[token] and #normalized < AUTO_INVITE_LIST_MAX then
+        local token = NormalizeTextToken(value[index], preserveCase)
+        if token and not seen[token] and #normalized < TEXT_LIST_MAX then
             normalized[#normalized + 1] = token
             seen[token] = true
         end
@@ -304,7 +304,9 @@ local function FillDefaults(target, defaults)
         local value = target[key]
         if value == nil then
             target[key] = CopyValue(defaultValue)
-        elseif type(value) == "table" and type(defaultValue) == "table" then
+        elseif type(value) == "table" and type(defaultValue) == "table"
+            -- A saved prefix list replaces the defaults, including an empty list.
+            and not (defaults == YChat.Defaults.messageFilter and key == "prefixes") then
             FillDefaults(value, defaultValue)
         end
     end
@@ -312,6 +314,11 @@ local function FillDefaults(target, defaults)
 end
 
 local function NormalizeDB(db)
+    if type(db.messageFilter) ~= "table" then db.messageFilter = {} end
+    db.messageFilter.enabled = db.messageFilter.enabled ~= false
+    db.messageFilter.prefixes = NormalizeTextList(
+        db.messageFilter.prefixes, YChat.Defaults.messageFilter.prefixes, true
+    )
     if type(db.itemLinks) ~= "table" then db.itemLinks = {} end
     db.itemLinks.enabled = db.itemLinks.enabled == true
     db.itemLinks.cropIcons = db.itemLinks.cropIcons ~= false
@@ -1044,6 +1051,48 @@ local function ListsEqual(left, right)
         if left[index] ~= right[index] then return false end
     end
     return true
+end
+
+function YChat:GetMessageFilter()
+    return self:GetDB().messageFilter
+end
+
+function YChat:SetMessageFilterEnabled(value)
+    if type(value) ~= "boolean" then return false, "invalid-message-filter-value" end
+    local config = self:GetMessageFilter()
+    if config.enabled == value then return true, false end
+    config.enabled = value
+    return RequestRefresh("message-filter-enabled"), true
+end
+
+function YChat:SetMessageFilterPrefixes(values)
+    if type(values) ~= "table" then return false, "invalid-message-filter-prefixes" end
+    local config = self:GetMessageFilter()
+    local normalized = NormalizeTextList(values, nil, true)
+    if ListsEqual(config.prefixes, normalized) then return true, false end
+    config.prefixes = normalized
+    return RequestRefresh("message-filter-prefixes"), true
+end
+
+function YChat:AddMessageFilterPrefix(value)
+    local token = NormalizeTextToken(value, true)
+    if not token then return false, "invalid-message-filter-prefix" end
+    local values = CopyValue(self:GetMessageFilter().prefixes)
+    for index = 1, #values do
+        if values[index] == token then return true, false end
+    end
+    if #values >= TEXT_LIST_MAX then return false, "message-filter-prefix-limit" end
+    values[#values + 1] = token
+    return self:SetMessageFilterPrefixes(values)
+end
+
+function YChat:RemoveMessageFilterPrefix(value)
+    local values = {}
+    local prefixes = self:GetMessageFilter().prefixes
+    for index = 1, #prefixes do
+        if prefixes[index] ~= value then values[#values + 1] = prefixes[index] end
+    end
+    return self:SetMessageFilterPrefixes(values)
 end
 
 function YChat:SetAutoInviteList(key, values)

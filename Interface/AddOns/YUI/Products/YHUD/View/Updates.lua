@@ -698,6 +698,7 @@ function View:UpdateMonitor(monitorId, state)
             visible = false
         end
     end
+    local slot, acquired
     if not visible then
         local fixedResource = runtime.view == "resource"
             and runtime.layoutMode == "fixed"
@@ -708,17 +709,24 @@ function View:UpdateMonitor(monitorId, state)
                 local slot, acquired = self:AcquireSlot(monitorId, runtime)
                 structuralChange = slot ~= nil and acquired == true
             end
-            local slot = self.byMonitor[monitorId]
+            slot = self.byMonitor[monitorId]
             if slot and ApplyResourceStructuralMax(slot, state, runtime) then
                 structuralChange = true
             end
             local suppressed = self:SetResourceSlotSuppressed(monitorId, true)
-            return structuralChange or suppressed, monitor.groupId
+            acquired = structuralChange or suppressed
+            if not resourceVisibilitySuppressed or filteredAuraBound then
+                return acquired, monitor.groupId
+            end
+            -- 归零隐藏仍需同步保留控件的数值；战斗显隐快路径只 Show/Hide，
+            -- 不会重绘。复用下方数值投影，避免再次显示上个目标的旧填充。
+        else
+            return self:ReleaseSlot(monitorId), monitor.groupId
         end
-        return self:ReleaseSlot(monitorId), monitor.groupId
+    else
+        slot, acquired = self:AcquireSlot(monitorId, runtime)
     end
 
-    local slot, acquired = self:AcquireSlot(monitorId, runtime)
     if not slot then
         if playerCast and YHUD.PlayerBars then
             YHUD.PlayerBars.renderFailed = true
@@ -808,7 +816,8 @@ function View:UpdateMonitor(monitorId, state)
                     state.percentRaw,
                     state.partialFraction,
                     state.displayValue,
-                    state.chargedPointMask
+                    state.chargedPointMask,
+                    state.rangedWindup
                 ) == true
                 if slot.ConsumeResourceRechargeRetry
                     and slot:ConsumeResourceRechargeRetry()

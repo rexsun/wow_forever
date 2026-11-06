@@ -1,3 +1,13 @@
+## [Addon update / OverlapSettingsGuard 0.8.3] - 2026-11-05
+### Features
+- Update YUI v352, GearInsight Forever 0.5.11, EllesmereUI 9.7.6, Details 15400.172, Waypoint UI 1.7.5 and Bagnon 12.1.8.
+- Add guard rules `yui.chatkeywordfilter` and `gi.guildchatlevel`, which keep the new default-on YChat keyword filter and GearInsight's guild-chat level prefix off while both addons load.
+### Design Rationale
+- Both are chat-message filters added by default in this round. YUI owns chat, and GearInsight's existing level-up filter already covers the announcements YChat's keywords target, so neither new filter is needed. The YChat rule turns the filter off but keeps its keyword list, so turning it back on later restores the list.
+- Use each addon's own setter (`SetMessageFilterEnabled`, `GuildChatLevel.SetEnabled`) for the live state, so YChat refreshes its filter interests and no reload is needed.
+### Notes & Caveats
+- Four local Details patches are now upstream; the patch tool treats them as already applied. Replaced folders and live WTF are in `addon-backups/addon-upgrade-20261105`. In-game loading, `/osg` and all three resolutions are not yet verified.
+
 ## [Addon update / OverlapSettingsGuard 0.8.1] - 2026-11-04
 ### Features
 - Update YUI v351, GearInsight Forever 0.5.9, EllesmereUI 9.7.3, Skinner beta12.70688.1, Details 15339.172 and Waypoint UI 1.7.4. !BugGrabber stays at v12.1.0.

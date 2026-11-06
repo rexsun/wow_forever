@@ -401,9 +401,12 @@ local function refresh()
     for _, grp in ipairs(K.Grouped(rows)) do if grp.g.fold then miscN = miscN + #grp.items end end
     for _, grp in ipairs(K.Grouped(rows)) do
         local g = grp.g
-        if g.fold and miscN > 0 then
+        -- 11-05 用户截图「这里展示优化下」：展开时「其他 6 个 · 点击收起」和下面组行头「其他 6 个 · 位移 / 增益…」重复两行
+        --   → 展开时不再单画一行，「点击收起」并进组行头（行头左边文字区就是收起按钮）；收起时照旧一行「…点击展开」
+        local foldHere = g.fold and miscN > 0
+        if foldHere and not miscOpen then
             local mb = page.miscBtn
-            mb:ClearAllPoints(); mb:SetPoint("TOPLEFT", 0, y); mb:SetPoint("RIGHT", page.child, "RIGHT", -4, 0); mb:Show()
+            mb:ClearAllPoints(); mb:SetPoint("TOPLEFT", 0, y); mb:SetPoint("RIGHT", page.child, "RIGHT", -4, 0); mb:SetHeight(18); mb:Show()
             mb.t:SetText(string.format("|cffa3a9b5%s|r  |cff777777%d%s · %s|r", ns.L(g.n[1], g.n[2]), miscN, ns.L(" 个", ""),
                 miscOpen and ns.L("点击收起", "click to collapse") or ns.L("位移 / 增益 / 姿态 / 功能 ... 点击展开", "movement / buffs / stances ... click to expand")))
             y = y - 22
@@ -416,9 +419,17 @@ local function refresh()
             h._slots, h._label = slots, ns.L(g.n[1], g.n[2])
             h:ClearAllPoints(); h:SetPoint("TOPLEFT", 0, y); h:SetPoint("RIGHT", page.child, "RIGHT", -4, 0)
             local hex = string.format("%02x%02x%02x", math.floor(g.c[1] * 255), math.floor(g.c[2] * 255), math.floor(g.c[3] * 255))
-            h.t:SetText(string.format("|cff%s%s|r  |cff777777%d%s · %s|r", hex, ns.L(g.n[1], g.n[2]), #grp.items, ns.L(" 个", ""), ns.L(g.d[1], g.d[2])))
+            h.t:SetText(string.format("|cff%s%s|r  |cff777777%d%s · %s|r", hex, ns.L(g.n[1], g.n[2]), #grp.items, ns.L(" 个", ""), ns.L(g.d[1], g.d[2]))
+                .. (foldHere and ("  |cffa3a9b5" .. ns.L("点击收起", "click to collapse") .. "|r") or ""))
             h.set:SetEnabled(#slots > 0); h.tpl:SetEnabled(#slots > 0)
             h:Show()
+            if foldHere then   -- 收起按钮盖在行头文字区上（不盖「设键」「模板」），自己不写字
+                local mb = page.miscBtn
+                mb.t:SetText("")
+                mb:ClearAllPoints(); mb:SetPoint("TOPLEFT", h, "TOPLEFT", 0, 0); mb:SetPoint("BOTTOMRIGHT", h.set, "BOTTOMLEFT", -6, 0)
+                if mb.SetFrameLevel and h.GetFrameLevel then mb:SetFrameLevel((h:GetFrameLevel() or 0) + 2) end
+                mb:Show()
+            end
             y = y - 22
             local col = 0
             -- 形态视图：这个形态专用的排前面，几个形态公用的排后面（同类里保持原顺序）

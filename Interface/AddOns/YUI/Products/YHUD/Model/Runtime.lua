@@ -79,6 +79,7 @@ local function ClearTransientState(state)
     state.cellDurationsRaw = nil
     state.durationResourceRaw = nil
     state.timerEntriesRaw = nil
+    state.rangedWindup = nil
 end
 
 local function RecordTransientDispatchError(sourceKey, err)
@@ -322,6 +323,7 @@ function Model:OnSourceState(source, sourceKey, forced)
         state.cellDurationsRaw = source.cellDurationsRaw
         state.durationResourceRaw = source.durationResourceRaw
         state.timerEntriesRaw = source.timerEntriesRaw
+        state.rangedWindup = source.rangedWindup
         state.castDisplayRaw = source.castDisplayRaw
     end
     if diff ~= 0 then

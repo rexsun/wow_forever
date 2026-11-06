@@ -2,6 +2,36 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-05 - Guard Details row hover against a secret truncation value
+
+- Problem: hovering a Details meter row threw `window_main.lua:1022: attempt to perform boolean test on a secret boolean value` (BugGrabber, 4 times in the first session on the upgraded pack). Upstream skips the truncation check only when the row text has a secret aspect, but `IsTruncated()` can still return a secret boolean. The line is unchanged between 15339 and 15400, so the upgrade did not cause it.
+- A local patch skips the check when the result is secret, so the pop-out for long names is not shown for that row. `tools/apply_addon_patches.py` now holds 20 patches.
+- The same session logged one `ADDON_ACTION_BLOCKED` for `Button:SetPassThroughButtons()` from Blizzard's world-map quest pins, blamed on GearInsight. An earlier session, before the upgrade, blamed Skinner for the same error, so it is left alone. The two new chat guard rules saved `messageFilter.enabled=false` and `guildChatLevel=false`. The `MultiBarRight:SetScale` warning and the Skinner startup errors did not return.
+- Verification: patch-tool tests pass, and all 2,625 Lua files compile under Lua 5.1. The fix is unverified in-game.
+
+## 2026-11-05 - Update six addon packages and guard two new chat filters (OverlapSettingsGuard 0.8.3)
+
+- Update YUI v351 to v352, GearInsight Forever 0.5.9 to 0.5.11, EllesmereUI suite 9.7.3 to 9.7.6, Details 15339.172 to 15400.172, Waypoint UI 1.7.4 to 1.7.5 and Bagnon 12.1.7 to 12.1.8. Skinner and Auctionator were already current. !BugGrabber stays at v12.1.0.
+- Keep `EllesmereUIForeverEssentials` and the other unused EUI modules, `Details_Streamer` and `Details_Vanguard` out. Forever Essentials competes with YUI's rank upgrade, map reveal and fade, junk selling and talent/spellbook handling, and with Details' threat display.
+- Two new guard rules, both active while YUI and GearInsight load:
+  - `yui.chatkeywordfilter`: YUI v352's YChat keyword filter is on by default and hides any player message containing `[GearInsight 无限版]` or `白云飞整合插件任务指南` in 19 channels, history and replay. GearInsight's own level-up filter already covers its announcements. The guard turns `messageFilter.enabled` off through YChat's setter in the active profile, and in stored profiles that have a YChat table. The keyword list is kept.
+  - `gi.guildchatlevel`: GearInsight 0.5.11 re-enables the guild/officer level prefix (`[26]` before the message) through a chat filter, and YUI owns chat. The guard sets `ui.guildChatLevel=false`. The filter checks the flag per message, so no reload is needed.
+- Details now ships upstream commit `803d6220` and our parser guard, so four of the six local Details patches are already upstream. The death-log (`util.lua`) and Midnight breakdown lookups still need the local patch. The patch tool still holds 19 patches and applies cleanly.
+- Overlap review, no further rule needed:
+  - GearInsight 0.5.11 quest-mate sharing now uses guild chat and hidden addon whispers to up to six nearby players. It runs only after the Group tab loads, and `/gi qm off` stops it. GearInsight now also records gathering-node coordinates. All ten locked editing methods are unchanged.
+  - Waypoint UI hooks the YUI minimap's `OnMouseUp` for custom pins, which are off by default.
+  - EUI 9.7.4-9.7.6 adds only opt-in features to installed modules. Under the WoW Forever nameplate style, only Highlight marks the target now (Glow and border choices are ignored).
+  - Bagnon 12.1.8 only stops counting warband bank slots on Forever.
+- Risk review: none of the six updates changes a key or method the guard uses, and the new versions write no Edit Mode layouts or CVars.
+  - Unverified API on 1.60.1: Waypoint UI's new `SuperTrackedFrame:CheckInitializeNavigationFrame()` call, and EUI's opt-in unit-frame Max Health Style (`GetUnitTotalModifiedMaxHealthPercent`). Leave Max Health Style off until it is confirmed in-game.
+  - YUI now requires a windup block in ranged swing-timer settings, which its validation fills in.
+- YUI's archive has Chinese media filenames, which `unzip` garbled. It was extracted with the archive's UTF-8 names instead, and all 178 voice/music files match v351 byte for byte.
+- Backup: `addon-backups/addon-upgrade-20261105` holds the replaced folders and live WTF.
+- Verification:
+  - 51 guard tests pass, 4 of them new. 11 patch-tool tests, 44 settings tests and 7 baseline tests pass, plus the baseline runtime, fresh-profile, font and adoption checks.
+  - All 2,625 Lua files under AddOns compile under Lua 5.1.
+  - Nothing was run in game: settings migrations, `/osg` (25 rules), the two chat rules, nameplate target marking and appearance at 1080p/1440p/4K still need in-game checks.
+
 ## 2026-11-05 - Turn off bloom at startup (OverlapSettingsGuard 0.8.2)
 
 - Added `SetCVar("graphicsBloomUserMult", "0")` to the startup console settings, after `volumeFog 0`. `volumeFog 0` was already applied at startup and is unchanged.

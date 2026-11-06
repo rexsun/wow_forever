@@ -4,7 +4,7 @@
 ## Notes: GearInsight Forever guild module (loads when you open the Guild tab)
 ## Notes-zhCN: GearInsight 无限版的公会模块：点右侧「公会」页签时才加载
 ## Author: GearInsight
-## Version: 0.5.9
+## Version: 0.5.11
 ## Dependencies: GearInsight_Forever
 ## LoadOnDemand: 1
 ## IconTexture: Interface\Icons\inv_misc_map_01

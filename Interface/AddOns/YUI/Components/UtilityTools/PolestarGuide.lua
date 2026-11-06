@@ -22,11 +22,9 @@ local function Ordinary(frame)
         and type(frame.IsProtected) == "function" and Security.SafeBoolean(frame:IsProtected()) == false
 end
 
-local function ReadTarget()
+-- 每次接入只检查一次所需接口；后续操作直接使用当前绑定。
+local function FindTarget()
     if System.IsAddOnLoaded("Polestar") ~= true then return nil, "waiting" end
-    if Security.SafeString(System.GetAddOnMetadata("Polestar", "Version")) ~= "0.2.6" then
-        return nil, "unsupported-version"
-    end
     local addon = _G.Polestar
     local guide = addon and addon.UI and addon.UI.GuideFrame
     local frame, parts = guide and guide.frame, guide and guide.parts
@@ -36,20 +34,14 @@ local function ReadTarget()
         and addon.Bindings and type(addon.Bindings.Toggle) == "function" and type(guide.Layout) == "function"
         and addon.Theme and type(addon.Theme.Wash) == "function" and type(addon.Theme.Color) == "function"
         and Security.SafeBoolean(addon.Get("ui.shown")) ~= nil
-        and Ordinary(frame) and frame == _G.PolestarGuideFrame and Ordinary(parts.nav)
-        and Ordinary(guide.menuButton) and guide.menuButton:GetParent() == parts.nav
+        and Ordinary(frame) and Ordinary(parts.nav) and Ordinary(guide.menuButton)
         and parts.nav.Title and type(parts.nav.Title.GetWidth) == "function") then return nil, "unsupported-interface" end
-    if binding and (bindings[frame] ~= binding or binding.addon ~= addon or binding.guide ~= guide or binding.frame ~= frame
-        or binding.nav ~= parts.nav or binding.menu ~= guide.menuButton or guide.Layout ~= binding.wrapper
-        or addon.Bindings.Toggle ~= binding.toggle or addon.Get ~= binding.get or addon.Set ~= binding.set
-        or addon.On ~= binding.on or addon.Off ~= binding.off) then return nil, "changed-interface" end
     return addon, guide
 end
 
 local function PaintButton()
     if not (button and binding) then return end
-    local theme = binding.addon.Theme
-    if not (theme and type(theme.Wash) == "function" and type(theme.Color) == "function") then return end
+    local theme = binding.theme
     button.hover:SetColorTexture(theme.Wash("hover"))
     button.icon:SetColorTexture(theme.Color(button.hover:IsShown() and "iconHover" or "icon"))
 end
@@ -141,8 +133,6 @@ end
 
 Sync = function()
     if not (Feature.enabled and Feature.attached and binding) then return end
-    local addon, guide = ReadTarget()
-    if not addon then Stop(guide); return end
     PaintButton()
     local frame = binding.frame
     if frame:IsShown() then manualHidden = false end
@@ -151,12 +141,12 @@ Sync = function()
     if not (scale and parentScale and parentScale > 0) then Stop("unsupported-scale"); return end
     local value = scale / parentScale * Feature.scalePercent / 100
     if badge:GetScale() ~= value then badge:SetScale(value) end
-    local corner = Security.SafeBoolean(addon.Get("ui.growUp")) == true and "BOTTOMLEFT" or "TOPLEFT"
+    local corner = Security.SafeBoolean(binding.get("ui.growUp")) == true and "BOTTOMLEFT" or "TOPLEFT"
     badge:ClearAllPoints()
     badge:SetPoint(corner, frame, corner, 0, 0)
     badge:SetFrameStrata(frame:GetFrameStrata())
     -- 原生临时隐藏不生成标签；显式收起（含本扩展进本收起）保留恢复入口。
-    badge:SetShown(not frame:IsShown() and (manualHidden or Security.SafeBoolean(addon.Get("ui.shown")) == false))
+    badge:SetShown(not frame:IsShown() and (manualHidden or Security.SafeBoolean(binding.get("ui.shown")) == false))
 end
 
 local function SetAutoShown(shown)
@@ -169,10 +159,8 @@ local function SetAutoShown(shown)
 end
 
 local function OnClick(_, mouseButton)
-    if mouseButton ~= "LeftButton" or not Feature.enabled then return end
+    if mouseButton ~= "LeftButton" or not Feature.enabled or not Feature.attached then return end
     Run(function()
-        local addon, reason = ReadTarget()
-        if not addon then Stop(reason); return end
         restoreBinding = nil
         binding.toggle()
         Feature.toggles = Feature.toggles + 1
@@ -225,9 +213,9 @@ local function Attach(addon, guide)
     if menu:GetNumPoints() ~= 1 then Stop("unsupported-anchor"); return end
     local point = { menu:GetPoint(1) }
     if point[1] ~= "RIGHT" or point[2] ~= nav or point[3] ~= "RIGHT" then Stop("unsupported-anchor"); return end
-    local current = { addon = addon, guide = guide, frame = frame, menu = menu, nav = nav,
+    local current = { theme = addon.Theme, guide = guide, frame = frame, menu = menu, nav = nav,
         menuPoint = point, originalLayout = guide.Layout, toggle = addon.Bindings.Toggle,
-        get = addon.Get, set = addon.Set, on = addon.On, off = addon.Off, handles = {} }
+        get = addon.Get, set = addon.Set, off = addon.Off, handles = {} }
     current.wrapper = function(...)
         current.originalLayout(...)
         if binding == current then Run(PlaceChrome) end
@@ -266,16 +254,12 @@ local function RefreshInstance()
         -- 恢复前释放归属，避免设置回调或重复通知再次展开。
         restoreBinding = nil
         if previous ~= binding then return end
-        local addon, reason = ReadTarget()
-        if not addon then Stop(reason); return end
-        if Security.SafeBoolean(addon.Get("ui.shown")) == false then SetAutoShown(true) end
+        if Security.SafeBoolean(binding.get("ui.shown")) == false then SetAutoShown(true) end
         return
     end
     if inInstance ~= true or instanceHandled then return end
-    local addon, reason = ReadTarget()
-    if not addon then Stop(reason); return end
     instanceHandled = true
-    if Security.SafeBoolean(addon.Get("ui.shown")) == true then
+    if Security.SafeBoolean(binding.get("ui.shown")) == true then
         restoreBinding = binding
         SetAutoShown(false)
     end
@@ -287,7 +271,7 @@ function Feature:Refresh()
         if self.attached then Sync(); RefreshInstance(); return end
         if Security.InCombatLockdown() then self.pending = true; return end
         if binding then Detach() end
-        local addon, guide = ReadTarget()
+        local addon, guide = FindTarget()
         if addon then Attach(addon, guide); RefreshInstance() elseif guide ~= "waiting" then Stop(guide) end
     end)
 end

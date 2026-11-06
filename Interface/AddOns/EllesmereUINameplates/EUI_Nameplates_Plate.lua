@@ -389,7 +389,8 @@ function NameplateFrame:UpdateCastText(spellName)
 
     local castW = self.cast:GetWidth()
     if castW and castW > 0 then
-        local nameWidth = combine and 80 or (db.castNameWidthPct or defaults.castNameWidthPct)
+        local nameWidth = combine and (db.castCombinedWidthPct or defaults.castCombinedWidthPct)
+            or (db.castNameWidthPct or defaults.castNameWidthPct)
         self.castName:SetWidth(castW * nameWidth / 100)
     end
     self.castName:SetShown((db.castNameSide or defaults.castNameSide) ~= "none")
@@ -474,6 +475,7 @@ function NameplateFrame:ApplyAppearance()
     local timerW = ctmSz * 2.2
     -- Per-element truncation: width as a % of the cast bar, plus a wrap toggle.
     local cnWPct = (p and p.castNameWidthPct) or defaults.castNameWidthPct
+    if combineNameTarget then cnWPct = (p and p.castCombinedWidthPct) or defaults.castCombinedWidthPct end
     local ctWPct = (p and p.castTargetWidthPct) or defaults.castTargetWidthPct
     local cnWrap = defaults.castNameWrap
     if p and p.castNameWrap ~= nil then cnWrap = p.castNameWrap end
@@ -487,7 +489,7 @@ function NameplateFrame:ApplyAppearance()
     if castW and castW > 0 then
         if nameSide ~= "none" then
             local pt, xb, jh = ns.GetCastTextAnchor(nameSide, showTimer and timerSide == nameSide, timerW, false)
-            self.castName:SetWidth(castW * (combineNameTarget and 80 or cnWPct) / 100)
+            self.castName:SetWidth(castW * cnWPct / 100)
             self.castName:SetJustifyH(jh)
             self.castName:ClearAllPoints()
             self.castName:SetPoint(pt, self.cast, pt, xb + cnOX, cnOY)
@@ -600,7 +602,7 @@ function NameplateFrame:UpdateToT()
     -- text anchor to it).
     if not UnitExists(tu) then fs:SetText(" "); return end
     -- WoW Forever joins the surname; then the slot's Name Format.
-    local name = ns.NP_FormatName(EllesmereUI.WithSurname(UnitName(tu)), slotKey)
+    local name = ns.NP_FormatName(EllesmereUI.WithSurname(UnitName(tu)), slotKey, tu)
     fs:SetText(name)
     if not ns._npToTClass then return end
     local tok

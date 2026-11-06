@@ -31,6 +31,7 @@ local function CreateState(params)
         resolved = true, isEnabled = true, secret = false,
         value = 0, maxValue = 1, opaqueRevision = 0,
         startedAt = nil, duration = nil, pending = true,
+        rangedWindup = params.swingHand == "ranged" and { active = false } or nil,
     }
 end
 
@@ -38,6 +39,9 @@ local function Clear(source, state)
     Monitor:CancelTasks(source)
     state.startedAt, state.duration, state.durationResourceRaw = nil, nil, nil
     state.value, state.maxValue = 0, 1
+    if state.rangedWindup then
+        state.rangedWindup.duration, state.rangedWindup.active = nil, false
+    end
     state.opaqueRevision = state.opaqueRevision + 1
     state.pending = true
 end
@@ -45,6 +49,16 @@ end
 local function Expire(source)
     Clear(source, source.state)
     Monitor:QueueSource(source, "swing-expired", true)
+end
+
+local function EnterWindup(source)
+    local state = source.state
+    if not state.startedAt or not state.rangedWindup then return end
+    if GetTime() >= state.startedAt + state.duration then return Expire(source) end
+    state.rangedWindup.active = true
+    state.opaqueRevision = state.opaqueRevision + 1
+    state.pending = true
+    Monitor:QueueSource(source, "swing-windup", true)
 end
 
 local function Start(source, state, duration)
@@ -57,6 +71,16 @@ local function Start(source, state, duration)
     state.opaqueRevision = state.opaqueRevision + 1
     state.pending = true
     Monitor:CancelTasks(source)
+    if state.rangedWindup then
+        state.rangedWindup.duration = duration
+        state.rangedWindup.active = duration <= 0.5
+        if duration > 0.5 then
+            if not Monitor:ScheduleTask(source, "swing-windup", state.startedAt + duration - 0.5, EnterWindup) then
+                Clear(source, state)
+                return true
+            end
+        end
+    end
     if not Monitor:ScheduleTask(source, "swing-expiry", state.startedAt + duration, Expire) then
         Clear(source, state)
     end
