@@ -87,7 +87,7 @@ test("the shipped policy has no errors", function()
   local w = Stubs.Fresh(ADDON_ROOT, {})
   local problems = w.ns.ValidatePolicy(w.ns.policy, w.ns.adapters)
   eq(#problems, 0, "policy problems: " .. table.concat(problems, "; "))
-  eq(#w.ns.policy, 25, "rule count")
+  eq(#w.ns.policy, 33, "rule count")
 end)
 
 test("ValidatePolicy reports bad rules", function()
@@ -563,6 +563,7 @@ end)
 
 assert(loadfile(TESTS_ROOT .. "gearinsight.lua"))()(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
 assert(loadfile(TESTS_ROOT .. "skinner.lua"))()(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
+assert(loadfile(TESTS_ROOT .. "forever_essentials.lua"))()(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
 
 for _, t in ipairs(tests) do
   local passed, err = pcall(t.fn)

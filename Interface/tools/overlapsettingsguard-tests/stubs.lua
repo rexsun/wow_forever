@@ -40,7 +40,7 @@ function Stubs.Fresh(root, options)
   _G.LibStub = nil
   _G.YUI, _G.YUI_DB = nil, nil
   _G.Skinner, _G.SkinnerDB = nil, nil
-  _G.EllesmereUIDB, _G._ENP_RefreshAllSettings = nil, nil
+  _G.EllesmereUIDB, _G._ENP_RefreshAllSettings, _G.EllesmereUI = nil, nil, nil
   _G.C_AddOns = {
     IsAddOnLoaded = function(name) return loaded[name] == true, loaded[name] == true end,
   }

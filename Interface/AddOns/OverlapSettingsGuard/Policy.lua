@@ -68,6 +68,25 @@ OSG.policy = {
   },
 }
 
+local foreverEssentials = {
+  { id = "spelluprank", key = "SpellUprank", owner = "YUI", label = "Spell uprank", reason = "YUI owns action bars and upgrades spell ranks on them." },
+  { id = "mapreveal", key = "MapReveal", owner = "YUI", label = "World map reveal", reason = "YUI owns the world map and reveals unexplored areas." },
+  { id = "mapfade", key = "MapFade", owner = "YUI", label = "World map fade", reason = "YUI owns world map fading while moving." },
+  { id = "junkitems", key = "JunkItems", owner = "YUI", label = "Junk items window", reason = "YUI owns junk selling at merchants." },
+  { id = "classicspellbook", key = "ClassicSpellbook", owner = "YUI", label = "Classic spellbook", reason = "YUI owns the spellbook and talent window handling." },
+  { id = "classictalents", key = "ClassicTalents", owner = "YUI", label = "Classic talents", reason = "YUI owns the spellbook and talent window handling; GearInsight plans talents." },
+  { id = "maptravel", key = "MapTravel", owner = "YUI", label = "World map travel markers", reason = "YUI's map markers already show portals, transports and points of interest." },
+  { id = "threatmeter", key = "ThreatMeter", owner = "Details_TinyThreat", label = "Threat meter", reason = "Details owns threat display through Details_TinyThreat." },
+}
+
+for _, setting in ipairs(foreverEssentials) do
+  OSG.policy[#OSG.policy + 1] = {
+    id = "euife." .. setting.id, adapter = "ForeverEssentials", key = setting.key,
+    label = "EllesmereUI Forever Essentials: " .. setting.label, reason = setting.reason,
+    when = { "EllesmereUIForeverEssentials", setting.owner },
+  }
+end
+
 local skinnerSettings = {
   { key = "unitframes", namespace = "UnitFrames", fields = { "player", "target", "focus", "pet", "petlvl", "arena" }, owner = "EllesmereUIUnitFrames", label = "Individual unit frames", reason = "EllesmereUI owns individual unit frames." },
   { key = "partyframes", namespace = "UnitFrames", fields = { "party" }, owner = "EllesmereUIRaidFrames", label = "Party unit frames", reason = "EllesmereUI owns party frames." },

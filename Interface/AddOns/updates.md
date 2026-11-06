@@ -2,6 +2,15 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-06 - Install EllesmereUI Forever Essentials for its fishing tools (OverlapSettingsGuard 0.9.0)
+
+- Install `EllesmereUIForeverEssentials` 9.7.6 from the same suite release as the other EUI modules ([file 9450137](https://www.curseforge.com/wow/addons/ellesmereui/files/9450137)); upstream files unchanged. This reverses the 2026-11-05 decision to keep it out. Its options pages were already installed with `EllesmereUIOptions`, so the Fishing settings showed in the panel but did nothing. It is enabled in all 14 character addon lists.
+- Wanted features: Fishing Key (one key equips your best pole, casts, reels in through soft interact, applies lures and shows a bobber indicator), Double-Click to Cast, Fishing Sounds, and the world map's Show Fishing Skill. Every fishing option is off until set in EllesmereUI → Forever Essentials → General → Fishing.
+- No module settings were saved before, so only upstream defaults apply: every feature is off except Flight Timer, which nothing else installed provides.
+- Eight new guard rules (adapter `ForeverEssentials`) lock off the features that duplicate an installed owner: spell uprank, map reveal, map fade, travel markers, junk items, classic spellbook and classic talents (YUI), and the threat meter (Details_TinyThreat). The guard sets `enabled=false` and calls the feature's `Apply`, so no reload is needed.
+- Overlap review, no rule needed: the fishing key temporarily raises the `SoftTargetInteract*` CVars and fishing sounds the volume CVars while fishing, then restores them; no installed addon or startup CVar touches them. No installed addon has a fishing key or zone-level labels. YUI only records known flight paths and has no flight timer. The other unguarded features (gathering skill, loot feed, quest rewards, pet summon, active form, simplified stats, macro manager) are off by default and were not reviewed; review them before switching one on.
+- Verification: 56 guard tests pass (five new), and every module and guard Lua file compiles under Lua 5.1. Unverified in game.
+
 ## 2026-11-05 - Fix loot roll window position (LootRollAnchor 0.1.0)
 
 - Problem: the group loot roll window appeared at wrong spots, and sometimes not visibly at all before its roll timed out.
