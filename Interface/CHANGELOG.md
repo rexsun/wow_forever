@@ -1,3 +1,12 @@
+## [LootRollAnchor 0.1.0] - 2026-11-05
+### Features
+- Add the local addon LootRollAnchor, which keeps Blizzard's group loot roll stack centred and above YUI's visible action bars and HUD groups.
+### Design Rationale
+- Blizzard derives the stack's height on this client from native bottom bars that YUI hides or keeps invisible, and YUI's own fix for this loads only on retail. A separate addon keeps the fix out of upstream files and survives YUI updates.
+- Position through EllesmereUI's frame placer rather than direct SetPoint calls: it reapplies after each Blizzard layout, before drawing, and hands Blizzard's anchor back when it is removed.
+### Notes & Caveats
+- Requires EllesmereUI. Shares the `cdm` placer owner with the absent EllesmereUICooldownManager. Unverified in-game at the three supported resolutions.
+
 ## [Addon update / OverlapSettingsGuard 0.8.3] - 2026-11-05
 ### Features
 - Update YUI v352, GearInsight Forever 0.5.11, EllesmereUI 9.7.6, Details 15400.172, Waypoint UI 1.7.5 and Bagnon 12.1.8.

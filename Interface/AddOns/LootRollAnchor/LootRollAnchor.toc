@@ -1,0 +1,11 @@
+## Interface: 16001
+## Title: LootRollAnchor
+## Notes: Keeps Blizzard's group loot roll windows centred above YUI's action bars and HUD. Type /lra.
+## Author: Rex Sun
+## Version: 0.1.0
+## Dependencies: EllesmereUI
+## OptionalDeps: YUI, Skinner
+## SavedVariables: LootRollAnchorDB
+
+Placement.lua
+LootRollAnchor.lua

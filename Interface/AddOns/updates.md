@@ -2,6 +2,21 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-05 - Fix loot roll window position (LootRollAnchor 0.1.0)
+
+- Problem: the group loot roll window appeared at wrong spots, and sometimes not visibly at all before its roll timed out.
+- Cause, from the Forever 1.60.1.70790 interface source:
+  - Blizzard places `GroupLootContainer` (the roll stack) in its bottom managed container. The container's height comes from the first visible, default-position frame in `OverrideActionBar`, `MultiBarBottomLeft` and `MicroMenuContainer` (`Blizzard_EditMode/Camelot/EditModeUtil.lua`).
+  - YUI hides the micro menu and keeps the native bars as invisible copies, so the height is read from frames that are not where the visible bars are, and it changes whenever Blizzard re-runs its bottom layout.
+  - YUI's bridge that lifts the roll stack above its bars and HUD (`YHUD/View/Bridges/Loot.lua`) loads only on retail.
+- Fix: new local addon `LootRollAnchor`. It registers an EllesmereUI frame placer for `GroupLootContainer`, which runs each time Blizzard lays the stack out, before the frame draws. The stack is centred on screen, starts 120 UI units above the bottom of the screen, and steps above every shown YUI action-bar holder and YHUD group in the roll column. It is enabled in all 14 existing character addon lists.
+- Overlap review: no other installed addon positions the roll stack. Skinner's loot-frame skin is styling only. EllesmereUI's `cdm` placer owner is otherwise used only by the absent EllesmereUICooldownManager. No guard policy is added.
+- Caveats:
+  - The "not shown until timeout" symptom is attributed to the same misplacement and is not confirmed in-game.
+  - A YUI frame that appears only after a roll opens is not avoided until the next layout.
+  - `/lra` reports the current anchor and the computed spot.
+- Verification: 8 new LootRollAnchor tests and the existing suites pass, and the addon's Lua compiles under Lua 5.1. Placement is unverified in-game at 1080p, 1440p and 4K.
+
 ## 2026-11-05 - Guard Details row hover against a secret truncation value
 
 - Problem: hovering a Details meter row threw `window_main.lua:1022: attempt to perform boolean test on a secret boolean value` (BugGrabber, 4 times in the first session on the upgraded pack). Upstream skips the truncation check only when the row text has a secret aspect, but `IsTruncated()` can still return a secret boolean. The line is unchanged between 15339 and 15400, so the upgrade did not cause it.
