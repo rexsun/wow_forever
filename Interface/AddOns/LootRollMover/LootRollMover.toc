@@ -1,0 +1,29 @@
+## Interface: 120105, 110207, 50504, 40402, 38002, 30405, 20506, 16001, 11509
+## Title: LootRollMover
+## Author: Xruptor
+## Version: 8.3
+## IconTexture: 237284
+## X-Curse-Project-ID: 17488
+## X-WoWI-ID: 12374
+## X-Wago-ID: BO67mgG3
+## Notes: A simple addon to move the default Blizzard Group Loot Roll Windows
+## Notes-zhCN: 移动暴雪自带战利品窗口的简单插件。
+## Notes-zhTW: 移動暴雪自帶戰利品窗口的簡單插件。
+## OptionalDeps: tekDebug
+## SavedVariables: LRMDB
+
+locale\locales.lua
+locale\enUS.lua
+locale\deDE.lua
+locale\esES.lua
+locale\esMX.lua
+locale\frFR.lua
+locale\itIT.lua
+locale\koKR.lua
+locale\ptBR.lua
+locale\ruRU.lua
+locale\zhCN.lua
+locale\zhTW.lua
+
+LootRollMover.lua
+config.lua

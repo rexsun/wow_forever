@@ -1,3 +1,11 @@
+## [LootRollMover 8.3] - 2026-11-06
+### Features
+- Replace the local LootRollAnchor addon with LootRollMover 8.3 from CurseForge. Its account-wide default centres the roll window 5 UI units above YUI's stance and totem bars on top of action bar 3.
+### Design Rationale
+- A maintained community addon with a fixed, user-adjustable anchor replaces local placement code that depended on EllesmereUI's frame placer and YUI internals.
+### Notes & Caveats
+- The anchor is a fixed offset computed from the shared YUI profile; it does not follow later bar-layout changes. The alert-toast mover is turned off. YUI's centred HUD groups may overlap a shown roll window; accepted as rolls are short-lived. Unverified in-game at the three supported resolutions.
+
 ## [LootRollAnchor 0.1.0] - 2026-11-05
 ### Features
 - Add the local addon LootRollAnchor, which keeps Blizzard's group loot roll stack centred and above YUI's visible action bars and HUD groups.

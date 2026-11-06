@@ -2,6 +2,16 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-06 - Replace LootRollAnchor with LootRollMover 8.3
+
+- Install `LootRollMover` 8.3 by Xruptor from CurseForge ([file 9163856](https://www.curseforge.com/wow/addons/lootrollmover/files/9163856)); its TOC lists Interface 16001. Upstream files unchanged. It takes LootRollAnchor's place in all 14 character addon lists.
+- Remove the local `LootRollAnchor` addon, its tests and its current documentation (revert of `f255b24`); its `LootRollAnchorDB` saved variables are deleted. The 2026-11-05 entry below is kept as history.
+- Account-wide default in `LRMDB` (LootRollMover has no profiles or per-character settings, so it applies to every character): anchor `BOTTOM` of UIParent, x=-4, y=154. In the shared `Default` YUI profile all characters use, action bar 3's top is 113 UI units above the screen bottom (main bar y=3, then main, bar 2 and bar 3 at 36 units with 1-unit gaps). The stance and totem bars sit 2 units above bar 3's top-left corner at 36 units tall, so their top is 151 and can reach the roll column for classes with three or more buttons. The first roll window's bottom is 5 units above that (156). No UI scale is set, so the screen is 768 units tall and the gap is the same at 1080p, 1440p and 4K. The -4/+2 offsets cancel the gap LootRollMover leaves between its anchor and the roll window, which keeps the window centred.
+- `alertEnabled=false`: LootRollMover otherwise moves Blizzard's alert toasts to a new anchor at screen centre. No other setting is changed.
+- Overlap review: no other installed addon positions the roll stack or alert toasts on this client; YUI's loot-roll bridge loads only on retail. No guard policy is added.
+- Caveats: YUI HUD groups centred near y=169 (important, utility, resources) and the buff group can still overlap the roll stack while it is shown; accepted because rolls are short-lived. The position is fixed, so it does not follow later changes to YUI bar size, rows or position; drag it with `/lrm anchor`. LootRollMover re-anchors the roll windows from Blizzard's `GroupLootContainer_Update`/`GroupLootFrame_OnShow` hooks; whether this client's bottom-managed layout moves them afterwards is unverified in-game, as is placement at 1080p, 1440p and 4K.
+- Backups of the edited character addon lists are in `addon-backups/lootrollanchor-removal-20261106`.
+
 ## 2026-11-06 - Install EllesmereUI Forever Essentials for its fishing tools (OverlapSettingsGuard 0.9.0)
 
 - Install `EllesmereUIForeverEssentials` 9.7.6 from the same suite release as the other EUI modules ([file 9450137](https://www.curseforge.com/wow/addons/ellesmereui/files/9450137)); upstream files unchanged. This reverses the 2026-11-05 decision to keep it out. Its options pages were already installed with `EllesmereUIOptions`, so the Fishing settings showed in the panel but did nothing. It is enabled in all 14 character addon lists.
