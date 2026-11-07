@@ -162,7 +162,7 @@ end
 --  border when the key reels in, red when the bobber is not targeted; the key
 --  sits on it and the full sentence is its tooltip. Placed in Unlock Mode.
 -------------------------------------------------------------------------------
-local INDICATOR_SIZE = 40
+local INDICATOR_SIZE = 100
 local ICON = "Interface\\Icons\\Trade_Fishing"  -- the Fishing profession
 
 local function IndicatorTip()

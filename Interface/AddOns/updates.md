@@ -2,6 +2,12 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-06 - Enlarge the Forever Essentials Bobber Indicator
+
+- `EllesmereUIForeverEssentials_Fishing.lua`: `INDICATOR_SIZE` 40 → 100 UI units, as a local patch in `tools/apply_addon_patches.py`. Upstream hard-codes the size and registers the indicator with Unlock Mode as fixed-size, so there was no setting for it. The key label and border scale with it; its saved position is unchanged.
+- Caveat: the indicator is a status icon only. Clicks pass through it to the world, but it takes mouse hover, so the cursor cannot hover a bobber behind it; keep it away from where the bobber lands (move it in Unlock Mode). The size is in UI units, so its share of the screen depends on the UI scale at 1080p, 1440p and 4K. Unverified in game.
+- Verification: `apply_addon_patches.py --check` reports 21 patches in place; `tools/test_apply_addon_patches.py` passes.
+
 ## 2026-11-06 - Keep only the latest two adoption backups
 
 - `adopt_addons.ps1`: after a successful adoption, delete older backups the script made in the destination's `addon-backups`, keeping the newest two (including the one just made). Only folders named like the script's own backups (`yyyyMMdd-HHmmss-<guid>`) are counted; hand-made backups there are never touched. A backup that cannot be deleted produces a warning, not a failed adoption. Failed or rolled-back runs prune nothing.

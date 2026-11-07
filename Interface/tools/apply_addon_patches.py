@@ -127,6 +127,12 @@ PATCHES = (
         "if (canCheckForTrancation and lefttext:IsTruncated()) then",
         "if (canCheckForTrancation and not issecretvalue(lefttext:IsTruncated()) and lefttext:IsTruncated()) then",
     ),
+    # Upstream fixes the size and Unlock Mode cannot resize it; 40 was too small to read at a glance.
+    Patch(
+        "EllesmereUIForeverEssentials/EllesmereUIForeverEssentials_Fishing.lua",
+        "local INDICATOR_SIZE = 40",
+        "local INDICATOR_SIZE = 100",
+    ),
 )
 
 # Any other use of these markers means upstream added a reference the patches do not cover.
