@@ -808,11 +808,58 @@ function QM.Invite(name, quiet)
     local ok = pcall(fn, name)
     if ok then
         QM.invited[shortName(name)] = now()
+        QM.toolInviteAt = now()   -- 11-06 自动自由拾取：只管组队工具邀请来的队
         pcall(QM.RecordInvite, name)
         if not quiet then ns.Print(L("已邀请 ", "Invited ") .. name) end
     end
     return ok
 end
+
+-- 11-06 用户「组队工具组队的时候自动自由拾取（副本不算）」：
+--   我是队长 + 10 分钟内用组队工具邀请过人 + 有人进队 + 不在副本里 → 拾取方式改成自由拾取（一支队伍只改一次，改过就不再动，玩家手动改回去也不覆盖）。
+--   副本里（IsInInstance）不改；开关 ns.db.qm.autoFFA（默认开），/gi 拾取 开 | 关
+QM.FFA_WINDOW = 600
+function QM.AutoFFAOn()
+    local q = dbq()
+    if q.autoFFA == nil then q.autoFFA = true end
+    return q.autoFFA
+end
+function QM.SetAutoFFA(on) dbq().autoFFA = on and true or false end   -- 11-06 设置页开关
+function QM.TryAutoFFA()
+    local n = GetNumGroupMembers and GetNumGroupMembers() or 0
+    if n <= 1 then QM.ffaDone = nil; return false end
+    if QM.ffaDone or not QM.AutoFFAOn() then return false end
+    if not (QM.toolInviteAt and now() - QM.toolInviteAt <= QM.FFA_WINDOW) then return false end
+    if not (UnitIsGroupLeader and UnitIsGroupLeader("player")) then return false end
+    if IsInInstance then
+        local inside, kind = IsInInstance()
+        if inside or kind == "party" or kind == "raid" then return false end   -- 副本不算
+    end
+    QM.ffaDone = true
+    local get = (C_PartyInfo and C_PartyInfo.GetLootMethod) or GetLootMethod
+    local cur = get and select(2, pcall(get))
+    if cur == "freeforall" or cur == 0 then return false end
+    local set = (C_PartyInfo and C_PartyInfo.SetLootMethod) or SetLootMethod
+    if not set or not pcall(set, "freeforall") then return false end
+    ns.Print(L("组队工具组的队：拾取方式已改成自由拾取（副本里不改；/gi 拾取 关 可以关掉）",
+        "Group from Group up: loot set to free-for-all (not in dungeons; /gi ffa off to disable)"))
+    return true
+end
+do
+    local f = CreateFrame("Frame")
+    pcall(f.RegisterEvent, f, "GROUP_ROSTER_UPDATE")
+    f:SetScript("OnEvent", function() pcall(QM.TryAutoFFA) end)
+end
+ns.ExtraSlash = ns.ExtraSlash or {}
+ns.ExtraSlash["拾取"] = function(rest)
+    rest = rest or ""
+    local q = dbq()
+    if rest:find("关") or rest:find("off") then q.autoFFA = false
+    elseif rest:find("开") or rest:find("on") then q.autoFFA = true end
+    ns.Print(QM.AutoFFAOn() and L("组队工具组队自动自由拾取：开（/gi 拾取 关）", "Auto free-for-all for Group up: on (/gi ffa off)")
+        or L("组队工具组队自动自由拾取：关（/gi 拾取 开）", "Auto free-for-all for Group up: off (/gi ffa on)"))
+end
+ns.ExtraSlash.ffa = ns.ExtraSlash["拾取"]
 
 -- 一键组人（10-12 用户「来个一键组人功能，直接能邀请附近的玩家」）：
 --   按列表顺序（装了插件、范围内、比我慢的在前 → 身边没装插件的）邀请，邀请人数 = 队伍空位；
@@ -1111,8 +1158,8 @@ function QM.FocusQuest(peerE)
     for _, q in ipairs(mine) do if not q.done then return q end end
     return nil
 end
--- 10-17 用户「加上[GearInsight插件]」：中文客户端前缀改成 [GearInsight插件]（私聊 / 喊人 / 解散道谢都走这里）
-local TAG = L("[GearInsight插件] ", "[GearInsight] ")
+-- 10-17 用户「加上[Gearinsight插件]」：中文客户端前缀改成 [Gearinsight插件]（私聊 / 喊人 / 解散道谢都走这里）
+local TAG = L("[Gearinsight插件] ", "[Gearinsight] ")
 QM.TAG = TAG
 function QM.Tagged(msg)
     if dbq().noTag or type(msg) ~= "string" or msg:sub(1, #TAG) == TAG then return msg end
@@ -2245,8 +2292,8 @@ ns.ExtraSlash = ns.ExtraSlash or {}
 ns.ExtraSlash.qm = function(rest, rawRest)
     if rest == "tag on" or rest == "tag off" then
         dbq().noTag = (rest == "tag off") or nil
-        ns.Print(rest == "tag on" and L("组队：私聊 / 喊人 / 道谢最前面加 [GearInsight插件]", "Group up: messages prefixed with [GearInsight]")
-            or L("组队：私聊 / 喊人 / 道谢不再加 [GearInsight插件]", "Group up: no [GearInsight] prefix"))
+        ns.Print(rest == "tag on" and L("组队：私聊 / 喊人 / 道谢最前面加 [Gearinsight插件]", "Group up: messages prefixed with [GearInsight]")
+            or L("组队：私聊 / 喊人 / 道谢不再加 [Gearinsight插件]", "Group up: no [GearInsight] prefix"))
     elseif rest == "say" or rest == "yell" or rest == "local" then
         dbq().shoutCh = rest
         ns.Print(L("喊人频道：", "Call channel: ") .. QM.ShoutChannelName(rest))
@@ -2379,17 +2426,32 @@ local function members()
     return present, n
 end
 
+-- 11-06 用户「目前主动退没弹」：/reload（装新文件）后 TH.mates 清零，同队时长从 reload 那一刻重算 → 不满 5 分钟就不问。
+--   队友进队时间存进存档（GetTime 是开机时长，reload / 小退都不归零），reload 后接着算；超过 6 小时或时间倒退（重启过电脑）的作废
+function TH.Restore()
+    local saved = dbq().thMates
+    if type(saved) ~= "table" or next(TH.mates) then return end
+    local t = now()
+    for fn, m in pairs(saved) do
+        if type(m) == "table" and (not m.since or (m.since <= t and t - m.since <= 6 * 3600)) then m.restored = true; TH.mates[fn] = m end
+    end
+end
+function TH.Save() dbq().thMates = TH.mates end
+
 function TH.Roster()
+    TH.Restore()
     local t = now()
     local present, n = members()
     for fn, cls in pairs(present) do
         local m = TH.mates[fn]
         if not m then m = { total = 0 }; TH.mates[fn] = m end
         if not m.since then m.since = t end
+        m.restored = nil
         if type(cls) == "string" then m.cls = cls end
     end
     for fn, m in pairs(TH.mates) do
-        if not present[fn] and m.since then m.total = m.total + (t - m.since); m.since = nil end
+        if not present[fn] and m.restored then TH.mates[fn] = nil   -- 存档里有、reload 后已不在队里的：不知道几时走的，不算
+        elseif not present[fn] and m.since then m.total = m.total + (t - m.since); m.since = nil end
     end
     if next(present) then
         if not TH.inGroup then TH.asked = false; TH.doneAt = nil; TH.doneQuest = nil end   -- 新的一支队伍
@@ -2400,6 +2462,7 @@ function TH.Roster()
         TH.inGroup = false
         TH.Ended()
     end
+    TH.Save()
 end
 
 function TH.Ended()
@@ -2414,8 +2477,7 @@ function TH.Ended()
     local quest = done and TH.doneQuest or TH.quest
     TH.quest = nil
     if #list == 0 or TH.asked or not TH.On() then return end
-    -- 自己点的退队：不问（10-17）；⛔ 例外（10-18 用户「刚刚完成任务的情况下，退出队伍也要弹出感谢提示框」）：刚一起交了任务
-    if not done and TH.SelfLeft and TH.SelfLeft() then return end
+    -- 自己点的退队：10-17 起不问，10-18 刚一起交了任务时例外；11-06 用户「主动退队，也要弹出感谢框」→ 不再区分，一律问
     TH.asked = true
     TH.lastDone = done
     if (InCombatLockdown and InCombatLockdown()) or (UnitAffectingCombat and UnitAffectingCombat("player")) then
@@ -2554,11 +2616,7 @@ end
 thEv:SetScript("OnEvent", function(_, e, msg)
     if e == "CHAT_MSG_SYSTEM" then
         if isSelfLeaveMsg(msg) then
-            TH.MarkSelfLeft()
-            if not TH.lastDone then   -- 刚一起交了任务：自己退队也照样问（10-18）
-                TH.pending = nil
-                if TH.frame and TH.frame:IsShown() and TH.shownAt and now() - TH.shownAt <= 3 then TH.frame:Hide() end
-            end
+            TH.MarkSelfLeft()   -- 11-06 主动退队也弹：收到「你离开了队伍」不再收起 / 取消待弹
         else
             local qt = questDoneTitle(msg)
             if qt then TH.QuestDone(qt) end

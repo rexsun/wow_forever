@@ -59,7 +59,7 @@ ns.KeysRotData = {
         [1] = { v = 1, src = "hand", name = { "刺杀", "Assassination" }, rules = {
             { cast = "切割", when = { "ready", "cp>=1", "buff<2" }, dur = 21, why = { "切割快断了先补", "Slice and Dice about to drop" } },
             { cast = "割裂", when = { "ready", "cp>=5", "dot<1.5" }, dur = 16, why = { "5 星：割裂没挂就挂", "5 points - apply Rupture" } },
-            { cast = "毒针", when = { "ready", "cp>=5" }, why = { "5 星：毒针", "5 points - Venom" } },
+            -- 11-05 70790：毒针改成被动天赋（不再是终结技），从手法里去掉
             { cast = "刺骨", when = { "ready", "cp>=5" }, why = { "5 星：刺骨", "5 points - Eviscerate" } },
             { cast = "毁伤", when = { "ready" }, why = { "攒连击点：毁伤", "Build points - Mutilate" } },
             { cast = "邪恶攻击", when = { "ready" }, why = { "攒连击点：邪恶攻击", "Build points - Sinister Strike" } },

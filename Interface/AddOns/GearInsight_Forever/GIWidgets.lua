@@ -834,9 +834,9 @@ if type(W) ~= "table" or (tonumber(W.MINOR) or 0) < MINOR then
                     "在角色選擇介面左下角「插件」裡勾上 GuildInsight，進遊戲後這裡直接打開招募頁：申請在遊戲裡一鍵邀請入會。"))
             else
                 c.head:SetText(L("装公会插件，申请在游戏里直接处理", "Get GuildInsight: handle applications in game", "裝公會插件，申請在遊戲裡直接處理"))
-                c.body:SetText(L("小程序里的入会申请经更新器同步进游戏，会长一键邀请入会；还有日程报名、叫人组队、出货账本。\n安装：GearInsight 更新器「我的插件」里勾上 GuildInsight。",
-                    "Applications from the mini program sync into the game; invite with one click. Install: tick GuildInsight in the GearInsight updater.",
-                    "小程序裡的入會申請經更新器同步進遊戲，會長一鍵邀請入會；還有日程報名、叫人組隊、出貨帳本。\n安裝：GearInsight 更新器「我的插件」裡勾上 GuildInsight。"))
+                c.body:SetText(L("小程序里的入会申请同步进游戏，会长一键邀请入会；还有日程报名、叫人组队、出货账本。\n获取：在 CurseForge 搜 GuildInsight。",
+                    "Applications from the mini program sync into the game; invite with one click. Get it: search GuildInsight on CurseForge.",
+                    "小程序裡的入會申請同步進遊戲，會長一鍵邀請入會；還有日程報名、叫人組隊、出貨帳本。\n取得：在 CurseForge 搜 GuildInsight。"))
             end
             c.qr:SetText(boardText())
             c.qr:SetScript("OnClick", function()
@@ -914,7 +914,7 @@ if type(W) ~= "table" or (tonumber(W.MINOR) or 0) < MINOR then
         else
             d.scroll:Hide(); d._listH = 0; setScroll(d, 0)
             layoutEmpty(d, opts, L("暂时没有招募数据，微信扫码去招募板看", "No data yet - scan to open the guild board", "暫時沒有招募資料，微信掃碼去招募板看"),
-                L("微信扫一扫 · 公会招募板（更新器开着会定期刷新这里）", "Scan with WeChat · the updater refreshes this list", "微信掃一掃 · 公會招募板（更新器開著會定期刷新這裡）"),
+                L("微信扫一扫 · 公会招募板（会定期刷新）", "Scan with WeChat · guild recruiting board (refreshed regularly)", "微信掃一掃 · 公會招募板（會定期刷新）"),
                 W.GuildBoardUrl(game))
         end
         d.more:SetText(L("发布我的公会招募", "List my guild", "發布我的公會招募"))

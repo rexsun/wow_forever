@@ -1270,7 +1270,11 @@ function BarManager:SetButtonCheckedState(button, checked, nativeState)
     checked = checked == true
     local state = self.buttonStates[button]
     if state then state.checked = checked end
-    return SetCheckedCached(nativeState or GetNativeCoreState(self, button), button, checked)
+    local writes = SetCheckedCached(nativeState or GetNativeCoreState(self, button), button, checked)
+    if YAB.Visuals and YAB.Visuals.SetCheckedVisualState then
+        writes = writes + YAB.Visuals:SetCheckedVisualState(button, checked)
+    end
+    return writes
 end
 
 function BarManager:ClearButtonCheckedState(button)
@@ -1278,11 +1282,15 @@ function BarManager:ClearButtonCheckedState(button)
     if not nativeState then
         local state = self.buttonStates[button]
         if state then state.checked = false end
+        local writes = 0
         if button.SetChecked and (not button.GetChecked or button:GetChecked() == true) then
             button:SetChecked(false)
-            return 1
+            writes = 1
         end
-        return 0
+        if YAB.Visuals and YAB.Visuals.SetCheckedVisualState then
+            writes = writes + YAB.Visuals:SetCheckedVisualState(button, false)
+        end
+        return writes
     end
     -- Click and drag scripts can change the widget before our cached event path.
     if button.GetChecked then nativeState.checked = button:GetChecked() == true end

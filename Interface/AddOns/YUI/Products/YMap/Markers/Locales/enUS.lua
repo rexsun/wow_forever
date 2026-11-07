@@ -391,6 +391,8 @@ YUI.Locale:Register("YMapMarkers", "enUS", {
     ["settings.button_offset_y"] = "Button Y Offset",
     ["settings.opposing_faction_npcs"] = "Show Opposing Faction NPCs",
     ["settings.opposing_faction_npcs_tooltip"] = "Show recorded NPC locations of the opposing faction. Location categories and other filters still apply.",
+    ["settings.rxp_tornado_filter"] = "RXP Tornado Filter",
+    ["settings.rxp_tornado_filter_tooltip"] = "Hide the fixed tornado spawn pins from the RestedXP Skyborne guide. Only shown while RXPGuides is loaded.",
     ["faction.Alliance"] = "Alliance",
     ["faction.Horde"] = "Horde",
     ["tooltip.opposing_faction"] = "%s (Opposing faction)",

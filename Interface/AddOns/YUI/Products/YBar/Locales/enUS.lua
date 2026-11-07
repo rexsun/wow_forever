@@ -7,6 +7,7 @@ YUI.Locale:Register("YBar", "enUS", {
     ["talents.training.available_many"] = "Available now · %d spells",
     ["talents.training.soon_one"] = "%s · Coming soon · %d spell",
     ["talents.training.soon_many"] = "%s · Coming soon · %d spells",
+    ["talents.training.hidden"] = "And %d more",
     ["talents.weapons.title"] = "Weapon Skills",
     ["talents.weapons.learned"] = "Learned",
     ["talents.weapons.unlearned"] = "Not Learned",

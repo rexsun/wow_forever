@@ -1,6 +1,36 @@
 -- Generated from Docs/Products/YUI_YHUD/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yhud", {
+-- YUI-Notes-Record: halo-116|mainline|ddfaef78487e08a1539efc7e90b747a2fc083b5b4e5313285aa13c91487237ab
+    {
+        version = "halo-116",
+        date = "2026-11-06",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "修复目标光环结束时监控可能报错的问题。",
+            },
+            enUS = {
+                "Fixed possible monitor errors when a target aura expires.",
+            },
+        },
+    },
+-- YUI-Notes-Record: halo-116|forever|d923388196b3fecfc780a8cc6cb957c44a1825ba5ef65f65e022398177ea6d1e
+    {
+        version = "halo-116",
+        date = "2026-11-06",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "补全无限服正义圣印 1–8 级监控，并保留已有的自定义图标和条目。",
+                "修复目标光环结束时监控可能报错的问题。",
+            },
+            enUS = {
+                "Added complete rank 1–8 Seal of Righteousness monitoring on Forever while preserving existing custom icons and entries.",
+                "Fixed possible monitor errors when a target aura expires.",
+            },
+        },
+    },
 -- YUI-Notes-Record: halo-115|mainline|e35d071b93b9d1f81f9839b8cb87ec1f87929b61041a2c2d0562c02341efeb41
     {
         version = "halo-115",
@@ -355,36 +385,6 @@ CL:Register("yhud", {
                 "Import previews now show specialization assignments and default configuration impact more clearly.",
                 "Fixed imports of graphics-only configurations and legacy configuration strings, with clearer failure messages and recovery.",
                 "Fixed monitor and editor panel layering.",
-            },
-        },
-    },
--- YUI-Notes-Record: halo-106|forever|758be38d0861766ac291ce0945837d1f9924dc1b260a380bae1aa2c3dbb7f489
-    {
-        version = "halo-106",
-        date = "2026-10-13",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "法师、牧师、术士的默认监控启用魔杖远程计时器。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Default monitors for mages, priests and warlocks now enable wand swing timers.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: halo-106|mainline|4ed8e1f24960314fb203dd190c6b04964e0dadd1ed17cd4c273a468a7564c408
-    {
-        version = "halo-106",
-        date = "2026-10-13",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Updated the shared core for compatibility with newer YUI addons.",
             },
         },
     },

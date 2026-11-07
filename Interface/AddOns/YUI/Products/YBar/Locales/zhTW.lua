@@ -7,6 +7,7 @@ YUI.Locale:Register("YBar", "zhTW", {
     ["talents.training.available_many"] = "可學 · %d個技能",
     ["talents.training.soon_one"] = "%s · 即將學習 · %d個技能",
     ["talents.training.soon_many"] = "%s · 即將學習 · %d個技能",
+    ["talents.training.hidden"] = "另有 %d 個技能",
     ["talents.weapons.title"] = "武器技能",
     ["talents.weapons.learned"] = "已學習",
     ["talents.weapons.unlearned"] = "未學習",

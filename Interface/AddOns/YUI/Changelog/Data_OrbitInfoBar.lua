@@ -1,6 +1,20 @@
 -- Generated from Docs/Products/YUI_OrbitInfoBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("ybar", {
+-- YUI-Notes-Record: orbit-128|forever|0e27d19020b16232bce9d1c2829118c9be1bf9d46d9a3432de27ff1eb4c693d3
+    {
+        version = "orbit-128",
+        date = "2026-11-06",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "优化无限服训练提示，识别任务奖励技能并显示超出十项的技能数量。",
+            },
+            enUS = {
+                "Improved Forever training tooltips to recognize quest-reward spells and indicate how many additional skills are hidden beyond ten.",
+            },
+        },
+    },
 -- YUI-Notes-Record: orbit-127|mainline|d013ec6fabbdf5204e19bf7bb6e0ef78604472c960f0cfa8e631040c2566df2c
 -- YUI-Notes-Record: orbit-127|forever|a98508a923669d37523ae791f8ef01b686e11ba7fc5ebe9362a89d49564b63dc
     {
@@ -255,20 +269,6 @@ CL:Register("ybar", {
             enUS = {
                 "Added configurable clock resting animations, with style, color, position and max-level hiding options.",
                 "Improved clock layout and visibility; fixed durability updates after login and layout spacing during combat.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-117|forever|868f650fb71761739774c853cd659b846247d20c1cacb53c2ed3888867762df3
-    {
-        version = "orbit-117",
-        date = "2026-10-13",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
                 "Updated the shared core for compatibility with newer YUI addons.",
             },
         },

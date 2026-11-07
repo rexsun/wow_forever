@@ -2,6 +2,21 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-07 - Update six addon packages (OverlapSettingsGuard 0.9.1)
+
+- Update YUI v352 to v354, GearInsight Forever 0.5.11 to 0.7.4 (beta channel, like earlier versions), EllesmereUI suite 9.7.6 to 9.8 (installed modules only), Details 15400.172 to 15402.172 (the six installed folders), Auctionator 341 to 342 and !BugGrabber v12.1.0 to v12.1.1. Every TOC still lists Interface 16001. Skinner, Waypoint UI, Bagnon and LootRollMover were already current. Details' newer `-1`/`-2` alpha builds and the uninstalled EUI modules, `Details_Streamer` and `Details_Vanguard` are not installed.
+- Local patches: all 21 reapply unchanged. Details 15402 now has its own secret check on row-hover truncation, but only when `IsAddonApocalypseWow()` is true, so the local patch is kept.
+- Guard: `yui.chatkeywordfilter` keeps YChat's keyword filter off. Its reason text now says GearInsight owns level-up filtering through `/gi lvlmute` rather than claiming the filter is on: GearInsight 0.7.x turned its level-up filter off by default, so other players' level-up announcements now show in chat until `/gi 屏蔽升级 开` is used. YUI v354 adds `[GearInsight插件]` to its default keywords (the filter stays off) and migrates uncustomized keyword lists without changing `enabled`.
+- Overlap review, no new rule needed:
+  - GearInsight 0.7.x: all guarded keys and the ten locked editing methods are unchanged. New default-on features stay within GearInsight or need a click: PvP kill/death pop-up (its map link briefly sets and restores the user waypoint; watch for Waypoint UI flicker), guild level-prefix zone tag (inactive under `gi.guildchatlevel`), character-panel corner icons, quest-chain tracker, guild-invite menu entry, LibDBIcon minimap button, and free-for-all loot when leading a group formed from its Group tab. Own level-ups now post to guild automatically every fifth level with a pop-up at other levels; the old milestone default is migrated. Hunter-pet sightings and tames, with NPC ID and coordinates, are always recorded for its updater. No new CVars, bindings, Edit Mode writes or protected calls.
+  - YUI v354: the quest-tracker scroll and auto-turn-in button now follow EllesmereUI's custom quest tracker through hooks and write no EUI settings. Paladin Seal of Righteousness tracking migrates to ranks 1-8.
+  - EllesmereUI 9.8: guarded keys unchanged. New default-on options (target sounds, elite/classification markers in instances) stay within EUI. The 97 new files are rounded-corner masks, two icons and a friends list that runs only with the uninstalled Blizzard Skins module. The saved damage font now applies only if the client locale can draw it; on zhTW this needs LSM to list `Fonts\YUILongZhu.ttf`, which YUI registers after EUI loads, so the font is first applied at `PLAYER_LOGIN` instead of at load. Unverified in game.
+  - Details 15402: `show_percent` now defaults on (cosmetic, one-time upgrade). The `cooltip.lua:2517` secret-value error is fixed upstream, `rounded_panel.lua:432` partly, and `fw.lua:6016` is unchanged.
+  - Auctionator 342: Forever search/duration fixes. It now drops Hidden Items and favourites whose item is unknown to the client.
+- `tools/font-asset-tests.py` now loads EUI's real damage-font locale gate instead of failing on the missing `EllesmereUI` table.
+- Backup: `addon-backups/addon-upgrade-20261107` holds the replaced folders and live WTF.
+- Verification: 56 guard tests, 11 patch-tool tests, settings, baseline, fresh-profile, font and adoption tests pass. 2,673 Lua files compile under Lua 5.1 except five unchanged-style files that start with a UTF-8 BOM, which the client accepts. Nothing was run in game.
+
 ## 2026-11-06 - Enlarge the Forever Essentials Bobber Indicator
 
 - `EllesmereUIForeverEssentials_Fishing.lua`: `INDICATOR_SIZE` 40 → 100 UI units, as a local patch in `tools/apply_addon_patches.py`. Upstream hard-codes the size and registers the indicator with Unlock Mode as fixed-size, so there was no setting for it. The key label and border scale with it; its saved position is unchanged.

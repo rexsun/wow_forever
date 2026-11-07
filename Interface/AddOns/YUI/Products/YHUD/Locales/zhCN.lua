@@ -971,7 +971,7 @@ YUI.Locale:Register("YHUD", "zhCN", {
     ["designer.preset.bloodlust_alliance"] = "英勇",
     ["designer.preset.label.self"] = "自身",
     ["designer.preset.label.forever_seals"] = "圣印补充",
-    ["designer.preset.forever_seals_tooltip"] = "补充原生增益监控缺失的1级正义圣印，仅在自身存在该增益时显示。",
+    ["designer.preset.forever_seals_tooltip"] = "补充正义圣印1至8级；其中1级未被原生增益监控收录。仅在自身存在该增益时显示。",
     ["designer.preset.label.tier_set"] = "套装",
     ["designer.preset.dawnlight_self_tooltip"] = "监控自身晨光增益，不监控目标效果。",
     ["designer.preset.lights_potential"] = "圣光潜力",

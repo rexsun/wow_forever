@@ -1612,7 +1612,35 @@ function Visuals:LayoutPetCheckedStateTexture(button, visual, style)
 end
 
 local function GetNativeCheckedAlpha(visual)
-    return (IsNativeVisualMode() or (visual.isAction and visual.showActionState == false)) and 0 or 1
+    return (visual.actionStateLight or IsNativeVisualMode()
+        or (visual.isAction and visual.showActionState == false)) and 0 or 1
+end
+
+local function ShouldShowPressedOverlay(visual)
+    if visual.pressed ~= true then return false end
+    -- Do not flash a dark fill before the current-action event arrives either.
+    -- The state light and native GCD provide ordinary action feedback here.
+    return not (visual.isAction and visual.nativeChecked and not visual.masqueActive
+        and not visual.nativeSpecial and not visual.externalSpecial
+        and visual.showActionState ~= false
+        and visual.pressedEffect ~= "innerGlow")
+end
+
+function Visuals:SyncActionStateLight(visual)
+    if not (visual and visual.actionStateFrame) then return 0 end
+    return RegionShown(visual.actionStateFrame, visual.checked == true
+        and visual.showActionState ~= false and not visual.masqueActive
+        and not visual.nativeSpecial and not visual.externalSpecial
+        and not IsNativeVisualMode())
+end
+
+function Visuals:SetCheckedVisualState(button, checked)
+    local visual = self.buttons[button]
+    if not (visual and visual.nativeChecked) then return 0 end
+    visual.checked = checked
+    local writes = self:SyncActionStateLight(visual)
+    if not visual.isAction or visual.masqueActive or IsNativeVisualMode() then return writes end
+    return writes + RegionShown(visual.pressedOverlay, ShouldShowPressedOverlay(visual))
 end
 
 LayoutCheckedRing = function(button, visual, style)
@@ -1624,7 +1652,7 @@ LayoutCheckedRing = function(button, visual, style)
             visual.pendingCheckedRingLayout = true
             return 0
         end
-        -- The CheckButton owns visibility; fit the inward light inside visible chrome.
+        -- Preserve the native checked region and its anchors as the semantic host.
         local snapshot = visual.sharedIconSnapshot or visual.runtimeSnapshot or {}
         local border = snapshot.border or "thin"
         local ratio = (style.cooldownInsets and style.cooldownInsets[border])
@@ -1635,11 +1663,14 @@ LayoutCheckedRing = function(button, visual, style)
         ApplyVisualRect(button, visual, ring, -inset)
         local color = visual.isAction and BUTTON_STATE_COLORS.actionChecked or BUTTON_STATE_COLORS.petChecked
         GUI2:PaintIconStateTexture(ring, visual.runtimeSkin, color, Visuals:GetButtonStateInnerTexture(style), true)
+        Visuals:LayoutActionStateLight(button, visual, style, inset)
         -- Repainting RGBA replaces alpha, including a previously hidden state.
         ring.yabNativeVisualAlpha = nil
         ring:SetDrawLayer("OVERLAY", 5)
         RegionAlpha(ring, GetNativeCheckedAlpha(visual))
-        RegionShown(ring, button:GetChecked() == true)
+        visual.checked = button:GetChecked() == true
+        RegionShown(ring, visual.checked)
+        Visuals:SyncActionStateLight(visual)
         visual.pendingCheckedRingLayout = nil
         return 1
     end
@@ -1892,6 +1923,46 @@ local function ApplyMaskToVisual(button, visual, maskPath)
     visual.pendingMaskPath = nil
     visual.maskPath = maskPath
     return writes
+end
+
+function Visuals:LayoutActionStateLight(button, visual, style, inset)
+    if not (visual.isAction and visual.nativeChecked) or visual.nativeSpecial or visual.externalSpecial
+        or (InCombat() and button.yabEffectPreview ~= true) then return end
+    local frame = visual.actionStateFrame
+    if not frame then
+        if not CreateFrame then return end
+        -- Native CheckButton/Cooldown draw-order bridge. Keep the widget's
+        -- checked texture in place; reparenting it loses native presentation.
+        frame = CreateFrame("Frame", nil, button)
+        frame:EnableMouse(false)
+        frame:SetAllPoints(button)
+        frame:Hide()
+        visual.actionStateFrame = frame
+        visual.actionStateLight = CreateSkinTexture(frame, "OVERLAY", nil, 5)
+        if frame.CreateMaskTexture then
+            visual.actionStateMask = frame:CreateMaskTexture(nil, "BACKGROUND")
+        end
+    end
+    local cooldown = visual.cooldown
+    local level = cooldown and cooldown.GetFrameLevel and cooldown:GetFrameLevel()
+        or (button:GetFrameLevel() + MAIN_COOLDOWN_LEVEL_OFFSET)
+    frame:SetFrameLevel(level + 1)
+    local light = visual.actionStateLight
+    ApplyVisualRect(button, visual, light, -inset)
+    GUI2:PaintIconStateTexture(light, visual.runtimeSkin, BUTTON_STATE_COLORS.actionChecked,
+        self:GetButtonStateInnerTexture(style), true)
+    light.yabNativeVisualAlpha = nil
+    RegionAlpha(light, 1)
+    local mask = visual.actionStateMask
+    local rounded = visual.runtimeSkin == "roundedSquare" or visual.runtimeSkin == "flatRounded"
+        or visual.runtimeSkin == "wideRounded" or visual.runtimeSkin == "diamond"
+    if mask and rounded and visual.maskPath then
+        ApplyVisualRect(button, visual, mask)
+        SetMaskTexture(mask, visual.maskPath)
+        AttachMaskTexture(light, mask)
+    else
+        DetachMaskTexture(light)
+    end
 end
 
 Visuals.extraActionNativeArtFields = Visuals.extraActionNativeArtFields or {
@@ -2811,6 +2882,7 @@ local function ApplyDiagnosticVisualMode(button, visual)
     local oldProcGlowFrame = visual.procGlowFrame
     local oldProcGlowShape = oldProcGlowFrame and oldProcGlowFrame.yabProcShape
     if IsNativeVisualMode() then
+        writes = writes + RegionShown(visual.actionStateFrame, false)
         writes = writes + HideExtraVisualRegion(visual.bg)
         writes = writes + HideExtraVisualRegion(visual.bgSlotArt)
         writes = writes + HideExtraVisualRegion(visual.hover)
@@ -3628,6 +3700,9 @@ local function ApplyRuntimeSnapshot(button, visual, snapshot, options)
         if snapshot.skinId == "masque" and canLayout then EnsureManagedProcGlow(button, visual) end
         YAB.IconSkinAdapter:Apply(button, visual, snapshot)
     end
+    -- Skin callbacks can restore pressed art even when the skin falls back.
+    -- Reconcile both regions only after final skin ownership is known.
+    writes = writes + Visuals:SetCheckedVisualState(button, visual.checked)
     if canLayout and visual.nativeSpecial and (visual.autoCastOverlay or visual.petAutoCastIndicator) then
         writes = writes + SetPetAutoCastVisual(button, visual, visual.petAutoCastAllowed == true, visual.petAutoCastEnabled == true)
     end
@@ -3657,6 +3732,7 @@ function RefreshSkinState(button, visual)
     end
 
     local writes = Visuals:ApplyActionTintFast(button, visual.usable, visual.noMana, visual.outOfRange, true)
+    writes = writes + Visuals:SyncActionStateLight(visual)
     if visual.enhanced and visual.masqueActive then
         writes = writes + RegionShown(visual.pressedOverlay, visual.pressed == true)
         writes = writes + RegionShown(visual.checkedOverlay, visual.checked == true)
@@ -3691,7 +3767,7 @@ function RefreshSkinState(button, visual)
                 writes = writes + SetColorTexture(visual.checkedOverlay, colors.checked, FALLBACK_CHECKED_COLOR)
             end
         end
-        writes = writes + RegionShown(visual.pressedOverlay, visual.pressed == true)
+        writes = writes + RegionShown(visual.pressedOverlay, ShouldShowPressedOverlay(visual))
         if visual.nativeChecked then
             writes = writes + RegionAlpha(visual.checkedRing, GetNativeCheckedAlpha(visual))
         end
@@ -4915,14 +4991,15 @@ function Visuals:UpdateButton(button, state, mode)
     visual.usable = state.usable ~= false
     visual.noMana = state.noMana == true
     visual.outOfRange = (state.rangeMode == "red" or visual.rangeMode == "red") and state.inRange == false
-    visual.checked = state.checked == true
+    -- Other channels can carry an older snapshot; native state owns this light.
+    if not visual.nativeChecked then visual.checked = state.checked == true end
     if visual.classSpell then
         local style = state.aspectActiveStyle
         visual.aspectActiveStyle = (style == "nativeIcon" or style == "dimOthers") and style or "innerGlow"
         visual.aspectDimmed = state.aspectDimmed == true
     end
     if visual.nativeChecked and (mode == "full" or RefreshModeHas(mode, "state")) then
-        writes = writes + YAB.BarManager:SetButtonCheckedState(button, state.hasAction == true and visual.checked)
+        writes = writes + YAB.BarManager:SetButtonCheckedState(button, state.hasAction == true and state.checked == true)
     end
     local snapshot = visual.runtimeSnapshot
         or (button and button.yabConfigSnapshot)
@@ -5218,6 +5295,7 @@ function Visuals:ReleaseButton(button)
     self:SetAssistedHighlight(button, false)
     ReleasePetAutoCastVisual(button, visual)
     visual.checked = false
+    RegionShown(visual.actionStateFrame, false)
     HideExtraVisualRegion(visual.bgSlotArt)
     RegionShown(visual.checkedOverlay, false)
     RegionShown(visual.checkedRing, false)

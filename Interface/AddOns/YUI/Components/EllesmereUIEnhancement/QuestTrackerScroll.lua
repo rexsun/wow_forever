@@ -13,6 +13,9 @@ local CONTENT_HEIGHT, SIDE_PADDING, WHEEL_STEP = 65536, 36, 42
 local states = setmetatable({}, { __mode = "k" })
 local pendingTimer, current
 local Discover, Refresh, Restore, LayoutBody
+local unlockHooked, unlockListener
+local unlockSessionActive = false
+local UNLOCK_OWNER = "YUI:quest-scroll"
 
 local function Secret(value)
     return Security and Security.IsSecretValue and Security.IsSecretValue(value)
@@ -105,7 +108,48 @@ local function Queue()
 end
 
 local function Editing()
-    return Read(_G.EditModeManagerFrame, "IsEditModeActive") == true
+    return unlockSessionActive or Read(_G.EditModeManagerFrame, "IsEditModeActive") == true
+        or Field(_G.EllesmereUI, "_unlockActive") == true
+        or Read(_G.EllesmereUI, "IsUnlockModeActive") == true
+end
+
+local function SuspendForUnlock()
+    if not Scroll.enabled then return end
+    CancelPending()
+    if current then Restore(current) end
+    Scroll.status = "edit-mode"
+end
+
+local function UnlockChanged(active)
+    if not Scroll.enabled then return end
+    -- 界面活动态在战斗暂停期间为 false；真实会话只能由打开/关闭通知推进。
+    unlockSessionActive = active == true
+    if active then SuspendForUnlock() else Queue() end
+end
+
+local function BindUnlock()
+    local provider = _G.EllesmereUI
+    if not provider or unlockListener == provider then return end
+    if type(Field(provider, "RunAnchorShiftEnters")) ~= "function"
+        or type(Field(provider, "RegisterUnlockModeListener")) ~= "function"
+        or type(Field(provider, "UnregisterUnlockModeListener")) ~= "function" then return end
+    -- 普通会话通知晚于位置快照；此入口在快照及战斗恢复的 mover 同步之前执行。
+    if unlockHooked ~= provider then
+        if not Security.SafeHook("EllesmereUIEnhancement:quest-scroll-unlock", provider, "RunAnchorShiftEnters", SuspendForUnlock) then return end
+        unlockHooked = provider
+    end
+    if Security.SafeMethod("EllesmereUIEnhancement:quest-scroll-unlock-listener", provider,
+        "RegisterUnlockModeListener", UNLOCK_OWNER, UnlockChanged) then unlockListener = provider end
+end
+
+local function UnbindUnlock()
+    if not unlockListener then return true end
+    if Security.SafeMethod("EllesmereUIEnhancement:quest-scroll-unlock-listener", unlockListener,
+        "UnregisterUnlockModeListener", UNLOCK_OWNER) then
+        unlockListener = nil
+        return true
+    end
+    return false
 end
 
 local function ProviderEnabled()
@@ -114,6 +158,16 @@ local function ProviderEnabled()
     if type(cfg) ~= "function" then return nil end
     local ok, enabled = pcall(cfg, "enabled")
     if ok and not Secret(enabled) and enabled ~= false then return provider end
+end
+
+local function ProviderCustomTracker()
+    -- 该全局框体只在 EUI Custom Tracker 会话中创建；优先于可能已切换但尚未重载的 DB 开关。
+    if _G.EUI_CustomQuestTracker ~= nil then return true end
+    local provider = _G.EllesmereUIQuestTracker
+    local cfg = Field(provider, "Cfg")
+    if type(cfg) ~= "function" then return false end
+    local ok, custom = pcall(cfg, "customTracker")
+    return ok and not Secret(custom) and custom == true
 end
 
 local function SetOffset(state, offset)
@@ -202,10 +256,26 @@ local function FitBackground(state, capture)
     end
 end
 
+local function SuspendIfCollapsed(state)
+    if Read(state.frame, "IsCollapsed") ~= true and Read(state.module, "IsCollapsed") ~= true then return false end
+    -- 脱战折叠即还原原生正文；之后即使战斗中展开，也不依赖隐藏滚动层的刷新。
+    Restore(state)
+    Scroll.status = "collapsed"
+    return true
+end
+
 Refresh = function(state)
     if not state.mounted or state.writing then return end
     if Combat() then Scroll.deferred = true; return end
+    if ProviderCustomTracker() then
+        Restore(state)
+        UnbindUnlock()
+        unlockSessionActive = false
+        Scroll.status = "eui-custom-tracker"
+        return
+    end
     if not ProviderEnabled() or Editing() then Restore(state); return end
+    if SuspendIfCollapsed(state) then return end
     if Read(state.module, "IsShown") ~= true then
         Restore(state)
         Scroll.status = "waiting-quests"
@@ -324,6 +394,7 @@ end
 
 local function Changed(state, kind, ...)
     if not state.mounted or state.writing then return end
+    if Editing() then Restore(state); return end
     if kind == "point" then
         local points = Points(state.frame, state.host)
         if points then state.points = points end
@@ -407,8 +478,20 @@ Discover = function()
     if not Scroll.enabled then return end
     if Combat() then Scroll.deferred = true; return end
     Scroll.deferred = false
-    if Editing() then Scroll.status = "edit-mode"; return end
     if not ProviderEnabled() then if current then Restore(current) end; Scroll.status = "waiting-provider"; return end
+    if ProviderCustomTracker() then
+        if current then Restore(current) end
+        UnbindUnlock()
+        unlockSessionActive = false
+        Scroll.status = "eui-custom-tracker"
+        return
+    end
+    BindUnlock()
+    if Editing() then
+        if current then Restore(current) end
+        Scroll.status = "edit-mode"
+        return
+    end
     local frame = _G.ObjectiveTrackerFrame
     if not frame then Scroll.status = "waiting-tracker"; return end
     local state = states[frame]
@@ -417,11 +500,12 @@ Discover = function()
     if state.blocked then return end
     if type(Field(frame, "SetPointBase")) ~= "function" or type(Field(frame, "ClearAllPointsBase")) ~= "function"
         or type(Field(frame, "SetScaleBase")) ~= "function" then Scroll.status = "unsupported"; return end
-    if state.mounted then Layout(state); Refresh(state); return end
     state.module = _G.QuestObjectiveTracker
     state.header, state.content = Field(state.module, "Header"), Field(state.module, "ContentsFrame")
     if not (state.header and state.content) then Scroll.status = "unsupported"; return end
     if not Install(state) then Scroll.status = "unsupported"; return end
+    if SuspendIfCollapsed(state) then return end
+    if state.mounted then Layout(state); Refresh(state); return end
     if Read(state.module, "IsShown") ~= true then Scroll.status = "waiting-quests"; return end
     state.parent, state.points = Read(frame, "GetParent"), Points(frame)
     state.width, state.height = Number(Read(frame, "GetWidth")), Number(Read(frame, "GetHeight"))
@@ -465,7 +549,8 @@ Discover = function()
 end
 
 function Scroll:OnEvent(_, addonName)
-    if addonName == nil or addonName == "Blizzard_ObjectiveTracker" or addonName == "EllesmereUIQuestTracker" then Queue() end
+    if addonName == nil or addonName == "Blizzard_ObjectiveTracker" or addonName == "EllesmereUIQuestTracker"
+        or addonName == "EllesmereUI" then Queue() end
 end
 
 function Scroll:OnRegenEnabled()
@@ -478,7 +563,9 @@ function Scroll:SetEnabled(enabled, config)
     enabled = enabled == true and type(config) == "table" and config.questTrackerScroll == true
     if not enabled then
         self.enabled, self.deferred, self.status = false, false, "disabled"
+        unlockSessionActive = false
         CancelPending()
+        UnbindUnlock()
         if Event and Event.OffOwner then Event:OffOwner(self) end
         self.listeners = 0
         if current then Restore(current) end
@@ -507,6 +594,7 @@ end
 function Scroll:GetStats()
     return {
         enabled = self.enabled, status = self.status, listeners = self.listeners or 0,
+        mode = ProviderCustomTracker() and "eui-custom" or "native",
         pendingTimers = pendingTimer and 1 or 0, restorePending = self.restorePending == true,
         deferred = self.deferred == true, mounted = current and current.mounted == true or false,
         offset = current and current.offset or 0, range = current and current.range or 0,
@@ -518,7 +606,9 @@ function Scroll:GetStats()
         headerTop = current and Number(Read(current.header, "GetTop")),
         contentLeft = current and Number(Read(current.content, "GetLeft")),
         actualOffset = current and Number(Read(current.viewport, "GetVerticalScroll")),
-        physicalHooks = current and current.physicalHooks or 0,
-        activeHooks = self.enabled and current and current.mounted and current.physicalHooks or 0, failures = self.failures,
+        unlockListener = unlockListener ~= nil,
+        physicalHooks = (current and current.physicalHooks or 0) + (unlockHooked and 1 or 0),
+        activeHooks = (self.enabled and current and current.mounted and current.physicalHooks or 0)
+            + (self.enabled and unlockHooked and 1 or 0), failures = self.failures,
     }
 end

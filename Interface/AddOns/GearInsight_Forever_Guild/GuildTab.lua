@@ -221,9 +221,9 @@ local function cardFor(tab, opts)
     end
     if s == "missing" then
         card.head = WL("GuildInsight 公会插件", "GuildInsight guild addon", "GuildInsight 公會插件")
-        card.body = WL("GearInsight 出的公会插件：小程序里的入会申请同步进游戏，会长一键邀请入会。\n获取：GearInsight 更新器「我的插件」里勾选，或在 CurseForge 搜 GuildInsight。",
-            "The GearInsight guild addon: applications from the mini program sync into the game, invite with one click.\nGet it: tick it under \"My addons\" in the GearInsight updater, or search GuildInsight on CurseForge.",
-            "GearInsight 出的公會插件：小程式裡的入會申請同步進遊戲，會長一鍵邀請入會。\n取得：GearInsight 更新器「我的插件」裡勾選，或在 CurseForge 搜 GuildInsight。")
+        card.body = WL("GearInsight 出的公会插件：小程序里的入会申请同步进游戏，会长一键邀请入会。\n获取：在 CurseForge 搜 GuildInsight。",
+            "The GearInsight guild addon: applications from the mini program sync into the game, invite with one click.\nGet it: search GuildInsight on CurseForge.",
+            "GearInsight 出的公會插件：小程式裡的入會申請同步進遊戲，會長一鍵邀請入會。\n取得：在 CurseForge 搜 GuildInsight。")
         card.act = WL("了解", "Learn more", "了解")
         card.fn = function() showAbout(tab, opts) end
         card.keep = "copy"
@@ -508,12 +508,22 @@ end
 -- ---------- 小控件 ----------
 local PAD, INNER = 12, 356
 local GUIDE_H, CHIP_H, GAP = 24, 20, 6
+-- 11-06 用户截图「极大程度美化」：细边改成 1px 实线（干净的金边），SetBackdrop 全部 pcall
+local BD_LINE = { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1,
+    insets = { left = 1, right = 1, top = 1, bottom = 1 } }
 local function bd(f, r, g, b, a, er, eg, eb, ea)
     if not f.SetBackdrop then return end
-    f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 10,
-        insets = { left = 2, right = 2, top = 2, bottom = 2 } })
+    if not pcall(f.SetBackdrop, f, BD_LINE) then return end
     f:SetBackdropColor(r, g, b, a)
     f:SetBackdropBorderColor(er, eg, eb, ea)
+end
+-- 竖向渐变（下 → 上）：12.x 用 CreateColor；老接口 SetGradientAlpha；都没有就纯色
+local function grad(tex, r1, g1, b1, a1, r2, g2, b2, a2, horiz)
+    tex:SetColorTexture(1, 1, 1, 1)
+    local o = horiz and "HORIZONTAL" or "VERTICAL"
+    if CreateColor and tex.SetGradient and pcall(tex.SetGradient, tex, o, CreateColor(r1, g1, b1, a1), CreateColor(r2, g2, b2, a2)) then return end
+    if tex.SetGradientAlpha and pcall(tex.SetGradientAlpha, tex, o, r1, g1, b1, a1, r2, g2, b2, a2) then return end
+    tex:SetColorTexture(r2, g2, b2, a2)
 end
 local function tipScripts(b)
     b:SetScript("OnEnter", function(self)
@@ -526,23 +536,53 @@ local function tipScripts(b)
     end)
     b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
 end
--- 筛选小格：选中 = 金框 + 金色底光 + 白字（同 PageProf 的 markSel；⛔ 不用禁用变灰）
+-- 筛选（11-06 第二版，用户看完第一版「不好看」）：纯文字页签——没边框、没底色；
+--   选中 = 金字 + 底部 2px 金线，没选 = 灰字；悬停 = 字变亮（⛔ 不用禁用变灰）
 local function chip(parent, text, w, onClick)
-    local b = CreateFrame("Button", nil, parent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    local b = CreateFrame("Button", nil, parent)
     b:SetSize(w, CHIP_H)
-    bd(b, 0.10, 0.09, 0.07, 1, 0.42, 0.35, 0.16, 0.8)
-    b.glow = b:CreateTexture(nil, "ARTWORK"); b.glow:SetPoint("TOPLEFT", 3, -3); b.glow:SetPoint("BOTTOMRIGHT", -3, 3)
-    b.glow:SetColorTexture(1, 0.82, 0, 0.22); b.glow:Hide()
-    b.t = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); b.t:SetPoint("CENTER", 0, 0); b.t:SetText(text)
+    b.line = b:CreateTexture(nil, "OVERLAY"); b.line:SetPoint("BOTTOMLEFT", 4, 0); b.line:SetPoint("BOTTOMRIGHT", -4, 0); b.line:SetHeight(2)
+    b.line:SetColorTexture(1, 0.82, 0, 1); b.line:Hide()
+    b.t = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); b.t:SetPoint("CENTER", 0, 1); b.t:SetText(text)
     b:SetScript("OnClick", onClick)
+    b:SetScript("OnEnter", function(self) if not self._sel then self.t:SetTextColor(0.95, 0.95, 0.95) end end)
+    b:SetScript("OnLeave", function(self) if not self._sel then self.t:SetTextColor(0.62, 0.62, 0.62) end end)
     b.SetSel = function(self, on)
         self._sel = on and true or false
-        self.glow:SetShown(self._sel)
-        if self.SetBackdropBorderColor then
-            if self._sel then self:SetBackdropBorderColor(1, 0.85, 0.1, 1) else self:SetBackdropBorderColor(0.42, 0.35, 0.16, 0.8) end
-        end
-        if self._sel then self.t:SetTextColor(1, 1, 1) else self.t:SetTextColor(1, 0.82, 0) end
+        self.line:SetShown(self._sel)
+        if self._sel then self.t:SetTextColor(1, 0.82, 0) else self.t:SetTextColor(0.62, 0.62, 0.62) end
     end
+    return b
+end
+-- 次级按钮：深底、细灰边、淡金字，悬停才变亮（每张卡的「扫码申请」、置顶我的公会都用它）
+local function quietButton(parent, w, h)
+    local b = CreateFrame("Button", nil, parent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    b:SetSize(w or 80, h or 20)
+    bd(b, 0.06, 0.06, 0.07, 0.9, 0.30, 0.30, 0.30, 0.8)
+    local fs = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); fs:SetPoint("CENTER", 0, 0)
+    if b.SetFontString then b:SetFontString(fs) end
+    fs:SetTextColor(0.92, 0.80, 0.45)
+    b._fs = fs
+    b:SetScript("OnEnter", function(self)
+        fs:SetTextColor(1, 0.9, 0.55)
+        if self.SetBackdropBorderColor then self:SetBackdropBorderColor(0.75, 0.62, 0.30, 1) end
+    end)
+    b:SetScript("OnLeave", function(self)
+        fs:SetTextColor(0.92, 0.80, 0.45)
+        if self.SetBackdropBorderColor then self:SetBackdropBorderColor(0.30, 0.30, 0.30, 0.8) end
+    end)
+    return b
+end
+-- 文字链接：没框没底，灰字，悬停变白
+local function linkButton(parent)
+    local b = CreateFrame("Button", nil, parent)
+    local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); fs:SetPoint("CENTER", 0, 0)
+    if b.SetFontString then b:SetFontString(fs) end
+    fs:SetTextColor(0.62, 0.62, 0.62)
+    local ul = b:CreateTexture(nil, "OVERLAY"); ul:SetHeight(1); ul:SetPoint("TOPLEFT", fs, "BOTTOMLEFT", 0, -1); ul:SetPoint("TOPRIGHT", fs, "BOTTOMRIGHT", 0, -1)
+    ul:SetColorTexture(0.62, 0.62, 0.62, 0.6)
+    b:SetScript("OnEnter", function() fs:SetTextColor(1, 1, 1); ul:SetColorTexture(1, 1, 1, 0.8) end)
+    b:SetScript("OnLeave", function() fs:SetTextColor(0.62, 0.62, 0.62); ul:SetColorTexture(0.62, 0.62, 0.62, 0.6) end)
     return b
 end
 local function facTxt(f)
@@ -572,11 +612,15 @@ local function build(d, opts, refill)
     box:SetSize(INNER, 10)
     -- 引导：一行字 + 按钮（11-05 起上面不再有三个小格，置顶 / 热度大卡在 box 之上，由 GuildTopLayout 摆）
     local gy = 0
-    box.guide = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    box.guide:SetPoint("TOPLEFT", 2, -(gy + 5)); box.guide:SetJustifyH("LEFT")
+    -- 11-06 第二版：一行低调的提示条（极淡的底，灰字），按钮用次级样式
+    box.guideBg = box:CreateTexture(nil, "BACKGROUND")
+    box.guideBg:SetPoint("TOPLEFT", 0, -(gy - 2)); box.guideBg:SetSize(INNER, GUIDE_H + 4)
+    box.guideBg:SetColorTexture(1, 1, 1, 0.035)
+    box.guide = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    box.guide:SetPoint("TOPLEFT", 8, -(gy + 6)); box.guide:SetJustifyH("LEFT")
     box.guide:SetText(WL("会长：让更多人看到你的公会", "Guild masters: get your guild seen", "會長：讓更多人看到你的公會"))
-    box.pinBtn = CreateFrame("Button", nil, box, "UIPanelButtonTemplate")
-    box.pinBtn:SetSize(110, GUIDE_H); box.pinBtn:SetPoint("TOPRIGHT", 0, -gy)
+    box.pinBtn = quietButton(box, 100, GUIDE_H - 4)
+    box.pinBtn:SetPoint("TOPRIGHT", -4, -(gy + 2))
     box.pinBtn:SetText(WL("置顶我的公会", "Pin my guild", "置頂我的公會"))
     box.pinBtn:SetScript("OnClick", function() pinQR(opts) end)
     -- 筛选第 1 行：阵营 + 两个开关
@@ -586,8 +630,8 @@ local function build(d, opts, refill)
     box.fac = {}
     local x = 30
     for _, v in ipairs({ { "all", WL("全部", "All", "全部") }, { "联盟", WL("联盟", "Alliance", "聯盟") }, { "部落", WL("部落", "Horde", "部落") } }) do
-        local b = chip(box, v[2], 44, function() gf().fac = v[1]; refill() end)
-        b:SetPoint("TOPLEFT", x, -fy); x = x + 47
+        local b = chip(box, v[2], 40, function() gf().fac = v[1]; refill() end)
+        b:SetPoint("TOPLEFT", x, -fy); x = x + 42
         box.fac[v[1]] = b
     end
     box.mine = chip(box, WL("缺我的职业", "Needs my class", "缺我的職業"), 82, function() local f = gf(); f.mine = not f.mine; refill() end)
@@ -602,7 +646,7 @@ local function build(d, opts, refill)
     box._h = box.ruleY + CHIP_H
     box:SetHeight(box._h)
     -- 底部：「发布我的公会招募」缩成半宽，旁边放「复制招募板网址」
-    box.board = CreateFrame("Button", nil, d, "UIPanelButtonTemplate")
+    box.board = linkButton(d)   -- 11-06 第二版：只留「发布我的公会招募」一个金色主按钮，这个做成文字链接
     box.board:SetText(WL("复制招募板网址", "Copy guild board URL", "複製招募板網址"))
     box.board:SetScript("OnClick", function()
         local W = ns.W or _G.GIWidgets
@@ -616,25 +660,97 @@ end
 
 -- 置顶 / 热度大卡：右上角标「置顶中」/「热度 N」+ 换边框色；别的卡（行会复用）还原
 local CARD_EDGE = { 0.42, 0.35, 0.16, 0.85 }
+-- 11-06 第二版（用户看完第一版「不好看」）：卡片平时只有一层很淡的深色底，没边框、没发光、没竖条；悬停才淡淡提亮；
+--   阵营只留一个小图标（去掉「联盟 / 部落」文字胶囊）；会名白色大字；置顶 / 热度 = 会名后面的小号文字标签；
+--   置顶公会整卡一层很淡的金色底；「扫码申请」换成次级按钮。行是 GIWidgets 抽屉建的（⛔ 共享文件不改），这里每次摆放都重新套一遍
+local FAC_KEY = { ["联盟"] = "A", ["聯盟"] = "A", Alliance = "A", ["部落"] = "H", Horde = "H" }
+local FAC_ICON = { A = "Interface\\TargetingFrame\\UI-PVP-Alliance", H = "Interface\\TargetingFrame\\UI-PVP-Horde" }
+local function skinCard(r)
+    if rawget(r, "_fvSkin") then return end
+    r._fvSkin = true
+    r._fvTint = r:CreateTexture(nil, "BORDER")   -- 置顶才用的淡金底
+    r._fvTint:SetPoint("TOPLEFT", 1, -1); r._fvTint:SetPoint("BOTTOMRIGHT", -1, 1)
+    r._fvTint:SetColorTexture(1, 0.80, 0.20, 0.06); r._fvTint:Hide()
+    local hl = r:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetPoint("TOPLEFT", 1, -1); hl:SetPoint("BOTTOMRIGHT", -1, 1)
+    hl:SetColorTexture(1, 1, 1, 0.05)
+    r._fvFac = r:CreateTexture(nil, "OVERLAY")
+    r._fvFac:SetSize(16, 16); r._fvFac:SetPoint("TOPLEFT", 10, -9)
+    if r.l and r.l.SetFontObject then pcall(r.l.SetFontObject, r.l, "GameFontHighlightLarge") end
+    r._fvLW = (r.l and r.l.GetWidth and tonumber(r.l:GetWidth())) or 200
+    -- 扫码申请：抽屉自带的金色实心按钮藏起来，换一个次级按钮（点了照样走它的 OnClick）
+    if r.apply then
+        local q = quietButton(r, 64, 20)
+        q:SetPoint("RIGHT", -10, 0)
+        q:SetScript("OnClick", function() local f = r.apply:GetScript("OnClick"); if f then f(r.apply) end end)
+        local enter, leave = q:GetScript("OnEnter"), q:GetScript("OnLeave")
+        q:SetScript("OnEnter", function(self) enter(self); local f = r:GetScript("OnEnter"); if f then f(r) end end)
+        q:SetScript("OnLeave", function(self) leave(self); if GameTooltip then GameTooltip:Hide() end end)
+        r._fvApply = q
+    end
+end
+local function dressCard(r, it)
+    skinCard(r)
+    -- 底：一层很淡的深色，没有边框
+    if r.SetBackdropColor then r:SetBackdropColor(1, 1, 1, 0.035) end
+    if r.SetBackdropBorderColor then r:SetBackdropBorderColor(0, 0, 0, 0) end
+    -- 阵营：只留小图标
+    local fac = it and it[3]
+    if (not fac or fac == "") and r.tag and r.tag.GetText then fac = r.tag:GetText() end
+    local k = FAC_KEY[fac or ""]
+    if r.tagBg then r.tagBg:Hide() end
+    if r.tag then r.tag:Hide() end
+    r.l:ClearAllPoints()
+    if k then
+        r._fvFac:SetTexture(FAC_ICON[k]); r._fvFac:SetTexCoord(0.08, 0.58, 0.045, 0.545); r._fvFac:Show()
+        r.l:SetPoint("LEFT", r._fvFac, "RIGHT", 5, 0)
+    else
+        r._fvFac:Hide()
+        r.l:SetPoint("TOPLEFT", 10, -8)
+    end
+    r.l:SetTextColor(1, 1, 1)
+    r.l:SetWidth(math.max(60, r._fvLW - (k and 21 or 0)))
+    -- 第 2、3 行：灰色小字
+    if r.meta then r.meta:SetTextColor(0.62, 0.62, 0.62) end
+    if r.need then r.need:SetTextColor(0.62, 0.62, 0.62) end
+    -- 扫码申请 / 已招满
+    if r.apply and rawget(r, "_fvApply") then
+        local q = r._fvApply
+        q:SetText(r.apply.GetText and r.apply:GetText() or "")
+        local on = not (r.apply.IsEnabled and not r.apply:IsEnabled()) and rawget(r.apply, "_giKind") ~= "off"
+        if q.SetEnabled then q:SetEnabled(on) end
+        q._fs:SetTextColor(on and 0.92 or 0.45, on and 0.80 or 0.45, on and 0.45 or 0.45)
+        r.apply:Hide(); q:Show()
+    end
+end
+ns.GuildDressCard = dressCard   -- 测试用
+-- 置顶 / 热度：会名后面的小号文字标签（「置顶中」金色小字、火焰 + 「热度 N」橙色小字），不用缎带，不压按钮
 local function markCard(r, sl)
     local b = rawget(r, "_fvBadge")
     if not b and sl then
         b = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        b:SetPoint("TOPRIGHT", -10, -7); b:SetJustifyH("RIGHT")
+        b:SetJustifyH("LEFT")
         r._fvBadge = b
     end
+    local tint = rawget(r, "_fvTint")
     if not sl then
         if b then b:SetText(""); b:Hide() end
-        if r.SetBackdropBorderColor then r:SetBackdropBorderColor(CARD_EDGE[1], CARD_EDGE[2], CARD_EDGE[3], CARD_EDGE[4]) end
+        if tint then tint:Hide() end
         return
     end
     if sl.kind == "pin" then
-        b:SetText("|cff33ff99" .. WL("置顶中", "Pinned", "置頂中") .. "|r")
-        if r.SetBackdropBorderColor then r:SetBackdropBorderColor(0.2, 0.9, 0.5, 0.9) end
+        b:SetText("|cffffd100" .. WL("置顶中", "Pinned", "置頂中") .. "|r")
+        if tint then tint:Show() end
     else
-        b:SetText("|cffffd100" .. string.format(WL("热度 %d", "Hot #%d", "熱度 %d"), sl.rank) .. "|r")
-        if r.SetBackdropBorderColor then r:SetBackdropBorderColor(1, 0.82, 0, 0.75) end
+        b:SetText("|TInterface\\Icons\\Spell_Fire_Fire:11:11:0:0:64:64:5:59:5:59|t|cffff9a3c" .. string.format(WL("热度 %d", "Hot #%d", "熱度 %d"), sl.rank) .. "|r")
+        if tint then tint:Hide() end
     end
+    -- 放在会名文字后面：会名框先让出标签的宽度，再按会名实际字宽贴上去
+    local bw = math.ceil((b.GetStringWidth and tonumber(b:GetStringWidth())) or 40)
+    local lw = math.max(60, (tonumber(r.l:GetWidth()) or 200) - bw - 8)
+    r.l:SetWidth(lw)
+    local tw = math.min(lw, math.ceil((r.l.GetStringWidth and tonumber(r.l:GetStringWidth())) or lw))
+    b:ClearAllPoints(); b:SetPoint("LEFT", r.l, "LEFT", tw + 6, 0)
     b:Show()
 end
 ns.GuildMarkCard = markCard   -- 测试用
@@ -658,7 +774,8 @@ local function classIcon(name)
     local tok = CLASS_TOKEN[name]
     local t = tok and ((type(CLASS_ICON_TCOORDS) == "table" and CLASS_ICON_TCOORDS[tok]) or TC[tok])
     if not t then return nil end
-    return string.format("|TInterface\TargetingFrame\UI-Classes-Circles:%d:%d:0:0:256:256:%d:%d:%d:%d|t", ICON_SZ, ICON_SZ,
+    -- 11-06 修：原来路径是单个反斜杠（Lua 5.1 把「\T」吃成「T」→ 路径坏掉、图标显示成绿块），改成转义的 \\
+    return string.format("|TInterface\\TargetingFrame\\UI-Classes-Circles:%d:%d:0:0:256:256:%d:%d:%d:%d|t", ICON_SZ, ICON_SZ,
         math.floor(t[1] * 256 + 0.5), math.floor(t[2] * 256 + 0.5), math.floor(t[3] * 256 + 0.5), math.floor(t[4] * 256 + 0.5))
 end
 ns.GuildClassIcon = classIcon   -- 测试用
@@ -784,9 +901,11 @@ function ns.GuildTopLayout(tab, opts)
     local listed = ns._fvList or {}
     for k, r in ipairs(shownRows) do
         local sl = top[k]
-        markCard(r, sl)
         local it = listed[k]
-        if it and r.need and r.l and r.l.GetText and r.l:GetText() == it[2] then r.need:SetText(needLine(it)) end   -- 名字对得上才改（行和数据对齐）
+        local aligned = it and r.l and r.l.GetText and r.l:GetText() == it[2]
+        dressCard(r, aligned and it or nil)   -- 11-06 卡片皮（先于角标：角标要贴在会名后面）
+        markCard(r, sl)
+        if aligned and r.need then r.need:SetText(needLine(it)) end   -- 名字对得上才改（行和数据对齐）
         if sl then
             r:SetParent(c); r:ClearAllPoints(); r:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -y)
             y = y + CARD_H + CARD_GAP
@@ -811,6 +930,12 @@ function ns.GuildTopLayout(tab, opts)
     local upd = type(rd) == "table" and tostring(rd.updatedAt or "") or ""
     vp.sub:ClearAllPoints(); vp.sub:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, -(y + 2))
     vp.sub:SetText(upd ~= "" and string.format(WL("%s 更新", "updated %s", "%s 更新"), upd:sub(6, 16)) or "")
+    -- 11-06：分区标题下一条淡灰分隔线
+    if not rawget(vp, "div") then
+        vp.div = c:CreateTexture(nil, "ARTWORK"); vp.div:SetHeight(1)
+        grad(vp.div, 1, 1, 1, 0.14, 1, 1, 1, 0.0, true)
+    end
+    vp.div:ClearAllPoints(); vp.div:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -(y + 17)); vp.div:SetWidth(INNER - 4); vp.div:Show()
     y = y + 22
     -- 卡片：抽屉填好的、显示着的那些，按顺序挂进来
     local n = 0
@@ -833,7 +958,11 @@ function ns.GuildTopLayout(tab, opts)
     setOff(vp, keepOff or 0)
     -- 底部两个按钮并排（不滚）
     local half = math.floor((INNER - 8) / 2)
-    if d.more then d.more:ClearAllPoints(); d.more:SetSize(half, 24); d.more:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", PAD, PAD) end
+    local W = ns.W or _G.GIWidgets
+    if d.more then
+        d.more:ClearAllPoints(); d.more:SetSize(half, 24); d.more:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", PAD, PAD)
+        if W and W.SetKind and rawget(d.more, "_giKind") then W.SetKind(d.more, "primary") end   -- 11-06 美化：主操作金色
+    end
     box.board:ClearAllPoints(); box.board:SetSize(half, 24); box.board:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -PAD, PAD); box.board:Show()
 end
 

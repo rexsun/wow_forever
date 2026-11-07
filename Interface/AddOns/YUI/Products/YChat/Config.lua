@@ -267,6 +267,33 @@ local function NormalizeTextList(value, fallback, preserveCase)
     return normalized
 end
 
+local function ListsEqual(left, right)
+    if #left ~= #right then return false end
+    for index = 1, #left do
+        if left[index] ~= right[index] then return false end
+    end
+    return true
+end
+
+-- Lists saved before customization tracking need an exact legacy-default match.
+local LEGACY_FILTER_PREFIXES = { "[GearInsight 无限版]", "白云飞整合插件任务指南" }
+
+local function NormalizeMessageFilter(config)
+    local defaults = YChat.Defaults.messageFilter.prefixes
+    local source = config.prefixesCustomized == false and defaults or config.prefixes
+    local prefixes = NormalizeTextList(source, defaults, true)
+    if type(config.prefixesCustomized) ~= "boolean" then
+        config.prefixesCustomized = not (
+            ListsEqual(prefixes, defaults) or ListsEqual(prefixes, LEGACY_FILTER_PREFIXES)
+        )
+    end
+    config.enabled = config.enabled ~= false
+    if not config.prefixesCustomized and not ListsEqual(prefixes, defaults) then
+        prefixes = NormalizeTextList(defaults, nil, true)
+    end
+    config.prefixes = prefixes
+end
+
 local function NormalizeChannelAlias(value)
     if type(value) ~= "string" then return nil end
     value = match(value, "^%s*(.-)%s*$")
@@ -315,10 +342,7 @@ end
 
 local function NormalizeDB(db)
     if type(db.messageFilter) ~= "table" then db.messageFilter = {} end
-    db.messageFilter.enabled = db.messageFilter.enabled ~= false
-    db.messageFilter.prefixes = NormalizeTextList(
-        db.messageFilter.prefixes, YChat.Defaults.messageFilter.prefixes, true
-    )
+    NormalizeMessageFilter(db.messageFilter)
     if type(db.itemLinks) ~= "table" then db.itemLinks = {} end
     db.itemLinks.enabled = db.itemLinks.enabled == true
     db.itemLinks.cropIcons = db.itemLinks.cropIcons ~= false
@@ -1045,14 +1069,6 @@ function YChat:SetAutoInviteValue(key, value)
     return RequestRefresh("auto-invite-" .. key), true
 end
 
-local function ListsEqual(left, right)
-    if #left ~= #right then return false end
-    for index = 1, #left do
-        if left[index] ~= right[index] then return false end
-    end
-    return true
-end
-
 function YChat:GetMessageFilter()
     return self:GetDB().messageFilter
 end
@@ -1071,6 +1087,7 @@ function YChat:SetMessageFilterPrefixes(values)
     local normalized = NormalizeTextList(values, nil, true)
     if ListsEqual(config.prefixes, normalized) then return true, false end
     config.prefixes = normalized
+    config.prefixesCustomized = true
     return RequestRefresh("message-filter-prefixes"), true
 end
 

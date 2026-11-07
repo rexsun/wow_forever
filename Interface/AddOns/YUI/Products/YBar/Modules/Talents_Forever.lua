@@ -14,14 +14,17 @@ local Module = YBar.Module:New("Talents")
 
 local TrainingTitles = {
     ["Coming Soon"] = true, ["即将学习"] = true, ["即將可以訓練"] = true,
-    ["Bientôt disponible"] = true, ["Скоро будет"] = true,
+    ["Bientôt disponible"] = true, ["Скоро будет"] = true, ["Скоро появится"] = true,
     ["Demnächst"] = true, ["곧 사용 가능"] = true,
 }
 local AvailableTrainingTitles = {
     ["Available Now"] = true, ["可学"] = true, ["現在可以訓練"] = true,
-    ["Disponible"] = true, ["Доступен сейчас"] = true,
+    ["Disponible"] = true, ["Доступен сейчас"] = true, ["Доступно сейчас"] = true,
     ["Jetzt verfügbar"] = true, ["지금 사용 가능"] = true,
 }
+
+-- What's Training 会在任务技能名前插入任务感叹号图标；只接受该已知图标标记。
+local QUEST_MARKER = "^|A:SmallQuestBang:%d+:%d+|a"
 
 local function TrainingText(value)
     return (not issecretvalue or not issecretvalue(value)) and type(value) == "string"
@@ -49,11 +52,24 @@ function TrainingSink:AddDoubleLine(left, right)
 end
 
 local function ReadTrainingSpell(text)
-    local icon, name = text:match("^  |T(%d+):0|t (.-) — ")
+    local icon, body = text:match("^  |T(%d+):0|t (.+)$")
     icon = tonumber(icon)
-    if not icon or icon < 1 or icon > 2147483647 or not name or not name:find("%S")
-        or name:find("|", 1, true) then return end
+    if not icon or icon < 1 or icon > 2147483647 or not body then return end
+    local marker = body:match(QUEST_MARKER)
+    if marker then body = body:sub(#marker + 1) end
+    -- 任务技能价格为 0，Broker 不会追加 " — 价格"；普通技能行仍按首个 " — " 截断。
+    local name = body:match("^(.-) — ") or body
+    if not name:find("%S") or name:find("|", 1, true) then return end
     return {icon=icon, name=name}
+end
+
+-- 分组超过 Broker 的 10 项上限时，末尾会出现 "And another N..." 之类的提示；
+-- 各语言都把数量放在金额之前，这里只取行首的首个整数。
+local function ReadTrainingHiddenCount(text)
+    if text:sub(1, 4) == "  |T" then return end
+    local value = text:match("^  %D*(%d+)")
+    value = tonumber(value)
+    if value and value > 0 and value <= 999 then return value end
 end
 
 local function ReadTraining()
@@ -74,7 +90,8 @@ local function ReadTraining()
     local groups, available, current, active, seen, count = {}, nil, nil, nil, {}, 0
     for _, row in ipairs(lines) do
         if not row.right then
-            local color, title = row.left:match("^(|c%x%x%x%x%x%x%x%x)(.-)|r — ")
+            -- 价格为 0 的分组（例如只剩任务技能）没有 " — 价格" 后缀。
+            local color, title = row.left:match("^(|c%x%x%x%x%x%x%x%x)(.-)|r")
             local kind = color == green and AvailableTrainingTitles[title] and "available"
                 or color == "|cff82c5ff" and TrainingTitles[title] and "soon"
             if kind then
@@ -85,13 +102,21 @@ local function ReadTraining()
                 if row.left == " " then
                     if count == 0 then return end
                     active = nil
-                elseif active == "available" then
-                    local spell = ReadTrainingSpell(row.left)
-                    if not spell or count >= 10 then return end -- 截断提示也不能当作技能行。
-                    available.spells[#available.spells+1] = spell
-                    count = count + 1
                 else
-                    return
+                    local hidden = ReadTrainingHiddenCount(row.left)
+                    if hidden then
+                        local group = active == "available" and available or current
+                        -- 截断提示必须位于至少一条技能之后，且每个分组只能出现一次。
+                        if not group or count == 0 or group.hidden then return end
+                        group.hidden = hidden
+                    elseif active == "available" then
+                        local spell = ReadTrainingSpell(row.left)
+                        if not spell or count >= 10 then return end -- 超出上限的技能行仍视为未知格式。
+                        available.spells[#available.spells+1] = spell
+                        count = count + 1
+                    else
+                        return
+                    end
                 end
             end
         elseif active then
@@ -238,14 +263,19 @@ function Module:AddTraining()
     if not self.trainingShown then return end
     for _, group in ipairs(groups) do
         GameTooltip:AddLine(" ")
-        local suffix = #group.spells == 1 and "_one" or "_many"
+        local total = #group.spells + (group.hidden or 0)
+        local suffix = total == 1 and "_one" or "_many"
         if group.available then
-            AddWeaponLine(string.format(L["talents.training.available" .. suffix], #group.spells), "success")
+            AddWeaponLine(string.format(L["talents.training.available" .. suffix], total), "success")
         else
-            AddWeaponLine(string.format(L["talents.training.soon" .. suffix], group.levelText, #group.spells), "subheading")
+            AddWeaponLine(string.format(L["talents.training.soon" .. suffix], group.levelText, total), "subheading")
         end
         for _, spell in ipairs(group.spells) do
             AddWeaponLine(string.format("|T%d:16:16|t %s", spell.icon, spell.name), "body")
+        end
+        if group.hidden then
+            local note = L["talents.training.hidden"]
+            if note then AddWeaponLine(string.format(note, group.hidden), "secondary") end
         end
     end
 end

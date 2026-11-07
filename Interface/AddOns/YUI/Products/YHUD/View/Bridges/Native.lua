@@ -3492,12 +3492,20 @@ local function ApplySkillAuraDisplay(frame, reason)
             styleState.auraActivationDesaturateApplied = nil
         elseif styleState.inactiveDesaturateApplied or styleState.auraActivationDesaturateApplied then
             -- Native tint also depends on expiry, not just its cached selector.
+            -- A secret desaturation flag cannot be examined from tainted code;
+            -- delegate to the native refresh only while it is public.
+            local fieldOK, nativeDesaturated = SafeField(frame, "cooldownDesaturated")
             styleState.applyingSkillAuraDisplay = true
-            local security = GetSecurity()
-            if security and type(security.SecureCallMethod) == "function" then
-                pcall(security.SecureCallMethod, frame, "RefreshIconDesaturation")
+            if fieldOK and not IsSecret(nativeDesaturated) then
+                local security = GetSecurity()
+                if security and type(security.SecureCallMethod) == "function" then
+                    pcall(security.SecureCallMethod, frame, "RefreshIconDesaturation")
+                else
+                    SafeMethod(frame, "RefreshIconDesaturation")
+                end
             else
-                SafeMethod(frame, "RefreshIconDesaturation")
+                -- Keep the icon readable when the native tint is unreadable.
+                SafeMethod(icon, "SetDesaturated", false)
             end
             styleState.applyingSkillAuraDisplay = nil
             styleState.inactiveDesaturateApplied = nil

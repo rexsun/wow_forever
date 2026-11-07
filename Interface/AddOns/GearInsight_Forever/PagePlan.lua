@@ -2,7 +2,7 @@
 --   详细展示任务链或者来源，点了弹出…装备最好是类似用户 C 键的用户栏那种展示」）：
 -- 「要做的事」页签（原名「时间轴」，10-07 用户看不懂改名）：按等级顺序列出这期间要做的事——天赋怎么加点、去训练师学什么新技能、该导入哪些宏、
 --   哪些技能是打任务解锁的（点开看完整任务链：谁给、在哪、目标是什么）。
--- 「装备」页签（10-18 起独立，在左栏「装备」大类下）：仿 C 键纸娃娃布局，每个部位按目标等级推荐一件装等最高的候选（地下城掉落 + 职业任务链套装）。
+-- 「装备」页签（10-18 起独立，在左栏「装备」大类下）：仿 C 键纸娃娃布局，每个部位按目标等级推荐一件装等最高的候选（地下城掉落 + 职业任务链套装 + 11-06 起专业制造 / 商人出售）。
 --   ⛔ 装备来源 = 地下城掉落（经典 25 本 + 无限新本）+ 职业任务链套装，野外任务奖励还没收——
 --   查不到候选的部位显示「待补」，不装样子说全；天赋「对练级最优」复用热门配点数据，不是专门算的练级权重。
 local _, ns = ...
@@ -202,15 +202,179 @@ local function buildItems(lo, hi, desc)
     return items, err, cur
 end
 
--- 每个格子按目标等级能拿到的最好候选（地下城掉落 + 职业任务链套装）；
+-- 每个格子按目标等级能拿到的最好候选（地下城掉落 + 职业任务链套装 + 11-06 起专业制造 / 商人出售）；
 -- ⛔ 来源不全（地下城 + 任务链套装，野外任务奖励没收），查不到的格子返回 nil，悬停说明「待补」
 -- 10-18 按天赋：有属性数据（SpecGearData.lua）就按当前天赋的属性权重打分挑（SpecGear.lua），分数相同 / 没属性的再按装等；
 --   SpecGear 不在（HOLD 剔掉）→ 和原来一样只按装等
 -- 10-18 需求看板 #69（正式服会话转达）：萨满 / 猎人 40 级才会锁甲，战士 / 圣骑 40 级才会板甲 → 目标等级不到 40 不推这一档
 --   ⛔ 网站导出 gi_forever_web_export.py best_gear 同一条，改一边必须改另一边
 local ARMOR_AT40 = { Shaman = "锁甲", Hunter = "锁甲", Warrior = "板甲", Paladin = "板甲" }
-local function bestGearBySlot(targetLv, cls, spec)
+
+-- ---------- 11-06 商人出售（src="vendor"，进主推荐）+ 专业制造（只当「备选」）----------
+-- 用户「把商人和制造装备也加进BiS推荐」→ 11-06 拍板「制造件只当备选」。数据 scripts/gi_forever_gear_extra.py → craft_vendor_gear.json →
+--   Data.lua：商人件进 gear[职业]；制造件在共享表 gearCraft（字段见 gi_forever_addon_data.py craft_table）。
+-- ⛔ 三端同一条规则（网站导出 gi_forever_web_export.py best_gear / craft_alts 同一条，改一边必须改另一边）：
+--   主推荐 = 副本掉落 + 任务奖励 + 商人件（商人件不走「确认掉过」推荐名单，生成时已按规则筛过）；制造件一律不参与主推荐
+--   备选（craftAlts）：每格挑一件最佳制造件（按天赋打分，同分装等高、再物品 ID 小），分数 > 主推荐才带出来，给高多少 %
+--     bop（拾取绑定 / 装备要求专业）只在「玩家有 it.pf 这个专业」时算；专业技能值不卡（网站 / 小程序拿不到）
+--     profs 参数：{ 专业键 = true }；不传 = 看自己职业时读角色专业（Prof.lua，HOLD 里没装 = 当没专业），看别的职业 = 当没专业
+local PROF_NAME = { blacksmithing = { "锻造", "Blacksmithing" }, leatherworking = { "制皮", "Leatherworking" }, tailoring = { "裁缝", "Tailoring" },
+    engineering = { "工程学", "Engineering" }, enchanting = { "附魔", "Enchanting" }, alchemy = { "炼金术", "Alchemy" } }
+local RECIPE_SRC = { trainer = { "训练师可学", "learned from trainer" }, drop = { "图纸靠掉落", "recipe drops" }, vendor = { "图纸商人有卖", "recipe sold by vendor" },
+    rep = { "图纸要声望", "recipe needs reputation" }, auto = { "学会专业自带", "auto-learned" } }
+local function profName(k)
+    local p = PROF_NAME[k]
+    return p and ns.L(p[1], p[2]) or (k or "?")
+end
+local function playerProfs()
+    local P = ns.Prof
+    local out = {}
+    if not (P and P.Skills) then return out end
+    local ok, sk = pcall(P.Skills)
+    if ok and type(sk) == "table" then for k in pairs(sk) do out[k] = true end end
+    return out
+end
+ns.PlanPlayerProfs = playerProfs
+local function money(c)
+    c = tonumber(c) or 0
+    local g, s, cu = math.floor(c / 10000), math.floor(c / 100) % 100, c % 100
+    local t = {}
+    if g > 0 then t[#t + 1] = g .. ns.L("金", "g") end
+    if s > 0 then t[#t + 1] = s .. ns.L("银", "s") end
+    if cu > 0 or #t == 0 then t[#t + 1] = cu .. ns.L("铜", "c") end
+    return table.concat(t, " ")
+end
+-- 商人件：按玩家阵营挑商人（数据里中立的优先；本阵营买不到、另一阵营有 → a* 那个）
+local function vendorPoint(it)
+    local fac = UnitFactionGroup and UnitFactionGroup("player")
+    local me = fac == "Alliance" and "A" or fac == "Horde" and "H" or nil
+    if me and it.sd and it.sd ~= "N" and it.sd ~= me and it.anpc and (it.asd == "N" or it.asd == me) then
+        return { npc = it.anpc, n = it.ann, z = it.az, ui = it.aum, x = it.ax, y = it.ay, sd = it.asd }
+    end
+    return { npc = it.npc, n = it.nn, z = it.z, ui = it.um, x = it.x, y = it.y, sd = it.sd }
+end
+ns.GearVendorPoint = vendorPoint
+-- 获取方式一行（装备页 / 角色面板角标 / 聊天框共用）；掉落 / 任务件返回 nil（各自原来的写法）
+-- 制造件：gear 行没有（制造只当备选），共享表 gearCraft 的行不带 src（省体积）→ 有专业键 pf 就是制造件
+local function isCraft(it) return it.src == "craft" or (it.src == nil and it.pf ~= nil) end
+function ns.GearSourceText(it)
+    if not it then return nil end
+    if isCraft(it) then
+        local t = ns.L("制造：", "Crafted: ") .. profName(it.pf) .. " " .. (it.sk or 0)
+        if it.eqs then
+            t = t .. ns.L("（装备要求", " (requires ") .. profName(it.pf) .. " " .. it.eqs .. ns.L("，只有会这个专业的能用）", " to equip)")
+        elseif it.bop then
+            t = t .. ns.L("（拾取绑定：只能自己做）", " (BoP: craft it yourself)")
+        else
+            t = t .. ns.L(" · 可找人做或拍卖行买", " - ask a crafter or buy on the AH")
+        end
+        local rs = RECIPE_SRC[it.rs or ""]
+        if rs then t = t .. ns.L(" · ", " - ") .. ns.L(rs[1], rs[2]) end
+        return t
+    elseif it.src == "vendor" then
+        local v = vendorPoint(it)
+        local t = ns.L("商人：", "Vendor: ") .. (v.n or "?") .. (v.z and v.z ~= "" and (" @ " .. v.z) or "")
+            .. (((v.x or 0) > 0) and string.format(" (%.0f, %.0f)", v.x, v.y) or "")
+        if (it.pr or 0) > 0 then t = t .. ns.L(" · 售价 ", " - ") .. money(it.pr) end
+        if it.lim then t = t .. ns.L(" · 限量（卖完要等刷新）", " - limited stock") end
+        if it.base then t = t .. ns.L(" · 经典资料，待游戏内确认", " - classic data, unconfirmed in Forever") end
+        return t
+    end
+end
+-- 点击指引：商人 → 地图标商人；制造 → 会这个专业就打开「专业」页配方，不会就提示找人做 / 拍卖行。返回做了什么（测试用），掉落 / 任务件返回 nil
+function ns.GearGuide(it)
+    if not it then return nil end
+    if it.src == "vendor" then
+        local v = vendorPoint(it)
+        ns.Print(ns.GearSourceText(it))
+        if v.ui and (v.x or 0) > 0 and ns.ShowOnMap then
+            ns.ShowOnMap(v.ui, { { v.x, v.y } }, v.n)
+            return "vendormap"
+        end
+        return "vendortext"
+    elseif isCraft(it) then
+        ns.Print((it.n or "?") .. " — " .. ns.GearSourceText(it))
+        if playerProfs()[it.pf] and ns.ProfOpenTab then
+            ns.ProfOpenTab("recipes")
+            return "profpage"
+        end
+        return "crafttext"
+    end
+end
+
+-- 备选：每格最佳制造件（分数比主推荐高才出）。out = 主推荐（bestGearBySlot 的结果）；返回 { 槽位键 = { it, s, pct } }
+--   格子：头…脚 / 颈 / 背 / 远程 = 同部位；副手 = 副手部位（盾 / 副手物品；主推荐是双手武器时不出）；
+--   主手 = 和主推荐同样单 / 双手的武器（没主推荐 = 单双手里分高的，平手取双手）；
+--   戒指 / 饰品两格只出一个，挂在主推荐分低的那格（平手 / 都空 = 第二格；只有第一格空 = 第一格）
+--   pct = floor((备选分 / 主推荐分 - 1) × 100 + 0.5 + 1e-6)（+1e-6 防两端浮点在 .5 边上取整不同）；主推荐没有或 0 分 → 没有 pct（只要备选分 > 0 就出）
+local CRAFT_SINGLE = { head = "头部", neck = "颈部", shoulder = "肩部", back = "背部", chest = "胸部", wrist = "手腕", hands = "手",
+    waist = "腰部", legs = "腿部", feet = "脚", ranged = "远程", off = "副手" }
+local craftIdx
+local function craftAlts(targetLv, cls, spec, profs, out)
+    local SG, C = ns.SpecGear, ns.Data.gearCraft
+    if not (spec and SG and SG.Available() and C) then return {} end
+    if not craftIdx then craftIdx = {}; for i, c in ipairs(C.cls or {}) do craftIdx[c] = tostring(i) end end
+    local ck = craftIdx[cls]
+    if not ck then return {} end
+    local best = {}
+    for _, it in ipairs(C.items or {}) do
+        local req = (it.req and it.req > 0) and it.req or (it.min or 0)
+        if req <= targetLv and string.find(it.cl or "", ck, 1, true) and not (targetLv < 40 and it.type == ARMOR_AT40[cls])
+            and not SG.Missing(it.id) and (not it.bop or profs[it.pf]) then
+            local s = SG.Score(it.id, it.slot, cls, spec, targetLv)
+            if s then
+                local key = (it.slot == "武器") and (it.two and "武器2" or "武器1") or it.slot
+                local b = best[key]
+                local better = not b or s > b.s + 1e-6
+                if not better and math.abs(s - b.s) <= 1e-6 then
+                    if (it.ilvl or 0) ~= (b.it.ilvl or 0) then better = (it.ilvl or 0) > (b.it.ilvl or 0) else better = it.id < b.it.id end
+                end
+                if better then best[key] = { it = it, s = s } end
+            end
+        end
+    end
+    local alts = {}
+    local function mainScore(key)
+        local m = out[key]
+        if not m then return nil end
+        return SG.Score(m.id, key == "off" and "副手" or m.slot, cls, spec, targetLv) or 0
+    end
+    local function put(key, b)
+        if not b then return end
+        local sm = mainScore(key)
+        if (sm == nil and b.s > 1e-6) or (sm ~= nil and b.s > sm + 1e-6) then
+            alts[key] = { it = b.it, s = b.s, pct = (sm and sm > 1e-6) and math.floor((b.s / sm - 1) * 100 + 0.5 + 1e-6) or nil }
+        end
+    end
+    for key, slot in pairs(CRAFT_SINGLE) do
+        if not (key == "off" and out.main and out.main.two) then put(key, best[slot]) end
+    end
+    local m = out.main
+    if m then put("main", best[m.two and "武器2" or "武器1"])
+    else
+        local b1, b2 = best["武器1"], best["武器2"]
+        put("main", (b1 and (not b2 or b1.s > b2.s + 1e-6)) and b1 or b2)
+    end
+    for _, pr in ipairs({ { "finger1", "finger2", "手指" }, { "trinket1", "trinket2", "饰品" } }) do
+        local s1, s2 = mainScore(pr[1]), mainScore(pr[2])
+        local key = pr[2]
+        if (s1 == nil and s2 ~= nil) or (s1 ~= nil and s2 ~= nil and s1 < s2 - 1e-6) then key = pr[1] end
+        put(key, best[pr[3]])
+    end
+    return alts
+end
+-- 备选那一行（角标提示 / 装备页 / 刷本清单共用）：「也可以：<名>（<专业> <技能> · 找人做 / 拍卖行，+N%）」
+function ns.GearAltText(a)
+    if not (a and a.it) then return nil end
+    local it = a.it
+    local how = it.bop and ns.L("自己做", "craft it yourself") or ns.L("找人做 / 拍卖行", "crafter / AH")
+    return ns.L("也可以：", "Also: ") .. (it.n or "?") .. ns.L("（", " (") .. profName(it.pf) .. " " .. (it.sk or 0) .. " · " .. how
+        .. (a.pct and (ns.L("，+", ", +") .. a.pct .. "%") or "") .. ns.L("）", ")")
+end
+
+local function bestGearBySlot(targetLv, cls, spec, profs)
     cls = cls or myClass()
+    if profs == nil then profs = (cls == myClass()) and playerProfs() or {} end
     local SG = ns.SpecGear
     if SG and SG.Available() then spec = spec or SG.Current(cls) else spec = nil end
     local pool = {}
@@ -218,9 +382,10 @@ local function bestGearBySlot(targetLv, cls, spec)
     for _, it in ipairs((ns.Data.gear or {})[cls] or {}) do
         local req = (it.req and it.req > 0) and it.req or (it.min or 0)
         -- 10-18 用户「推荐只用确认掉过的和服务器有的」：有 ItemRecommendIds（ItemMissingData.lua，HOLD）就只从里面挑
+        --   11-06 商人件不走这张名单（生成时已按规则筛过）；制造件不在 gear 里（备选另算，见 craftAlts）
         local allowT = ns.ItemRecommendIds
         if req <= targetLv and not (targetLv < 40 and it.type == ARMOR_AT40[cls]) and not (SG and SG.Missing(it.id))
-            and (not (SG and allowT) or allowT[it.id]) then
+            and (it.src == "vendor" or not (SG and allowT) or allowT[it.id]) then
             pool[it.slot] = pool[it.slot] or {}
             table.insert(pool[it.slot], it)
             if spec and score[it] == nil then score[it] = SG.Score(it.id, it.slot, cls, spec, targetLv) or false end
@@ -279,14 +444,24 @@ local function bestGearBySlot(targetLv, cls, spec)
         out.off = not (out.main and out.main.two) and pick("副手") or nil
     end
     out.ranged = pick("远程")
-    return out, spec
+    return out, spec, craftAlts(targetLv, cls, spec, profs, out)
 end
 -- 测试 / 导出对拍用：某职业某一级每格选哪件（槽位键 → 物品 ID）。网站 / 小程序读 gear.json 里同一份结果（gi_forever_web_export.py）
-ns.PlanBestGear = function(lv, cls, spec)
+--   主推荐不看专业；profs 只影响备选（不传 = 看自己职业读角色专业）
+ns.PlanBestGear = function(lv, cls, spec, profs)
     local r = {}
-    for k, it in pairs((bestGearBySlot(lv, cls, spec))) do if type(it) == "table" then r[k] = it.id end end
+    for k, it in pairs((bestGearBySlot(lv, cls, spec, profs))) do if type(it) == "table" then r[k] = it.id end end
     return r
 end
+-- 备选对拍用：{ 槽位键 = { id, pct } }（网站 altBySpec / altByProf 同一份）
+ns.PlanCraftAlts = function(lv, cls, spec, profs)
+    local _, _, alts = bestGearBySlot(lv, cls, spec, profs)
+    local r = {}
+    for k, a in pairs(alts or {}) do r[k] = { id = a.it.id, pct = a.pct } end
+    return r
+end
+-- 11-06 角色面板 BiS 角标（BisCorner.lua，HOLD）：同一套挑法，返回整条候选（名字 / 图标 / 来源）+ 用的天赋
+ns.PlanBestGearItems = function(lv, cls, spec, profs) return bestGearBySlot(lv, cls, spec, profs) end
 
 -- ---------- 任务链弹窗 ----------
 local qPop
@@ -837,10 +1012,13 @@ local function setSlotItem(b, g, it, mainTwo)
         if it then
             local req = (it.req and it.req > 0) and it.req or (it.min or 0)
             b.name:SetText("|cff" .. (QCOLOR[it.q] or "ffffff") .. (it.n or "?") .. "|r")
-            local src = (it.src == "quest") and ns.L("任务", "Quest") or (it.dn or "")
+            local src = (it.src == "quest") and ns.L("任务", "Quest") or (it.src == "craft") and ns.L("制造", "Crafted")
+                or (it.src == "vendor") and ns.L("商人", "Vendor") or (it.dn or "")
             local sub = "|cffd8c79a" .. ns.L("装等 ", "ilvl ") .. (it.ilvl or 0) .. "|r|cff999999" .. ns.L(" · ", " · req ") .. req .. ns.L(" 级", "")
             if src ~= "" then sub = sub .. " · " .. src end
             sub = sub .. "|r"
+            local alt = gp.curAlts and gp.curAlts[g[1]]
+            if alt then sub = sub .. "|cff66ccff" .. ns.L(" · 也可制造", " · craft alt") .. (alt.pct and (" +" .. alt.pct .. "%") or "") .. "|r" end
             if b.cmp == "worn" then sub = "|cff66ff66" .. ns.L("已穿 · ", "worn · ") .. "|r" .. sub
             elseif b.cmp == "up" then sub = "|cff66ff66" .. ns.L("可升级 · ", "upgrade · ") .. "|r" .. sub end
             b.sub:SetText(sub)
@@ -872,9 +1050,14 @@ local function setSlotItem(b, g, it, mainTwo)
             --   掉落来源交给全局物品提示那一行（PageLoot），这里只补任务来源
             if it.src == "quest" then
                 GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("需要 ", "Req ") .. req .. ns.L(" 级 · 任务：", " · Quest: ") .. (it.srcName or ""), 1, 0.82, 0.4, true)
+            elseif it.src == "craft" or it.src == "vendor" then
+                GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("需要 ", "Req ") .. req .. ns.L(" 级 · ", " · ") .. ns.GearSourceText(it), 1, 0.82, 0.4, true)
             elseif rawget(GameTooltip, "__gifItem") ~= it.id then   -- 全局那行没加上（物品没缓存、走了简版）才补
                 GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("需要 ", "Req ") .. req .. ns.L(" 级 · 掉落：", " · Drops: ") .. (it.srcName or ""), 1, 0.82, 0.4, true)
             end
+            -- 11-06 备选：最佳制造件比主推荐分高 → 「也可以：…」（点击行为照旧按主推荐走）
+            local alt = gp.curAlts and gp.curAlts[g[1]]
+            if alt then GameTooltip:AddLine("|cff33ff99GI|r " .. ns.GearAltText(alt), 0.4, 0.8, 1, true) end
             -- 10-18 按天赋：写明按哪套挑的、这件最值钱的几项属性
             local SG, spec = ns.SpecGear, gp.curSpec
             local si = spec and SG.SpecInfo(myClass(), spec)
@@ -888,7 +1071,11 @@ local function setSlotItem(b, g, it, mainTwo)
             elseif self.cmp == "up" then GameTooltip:AddLine(ns.L("比你身上这格好（", "Upgrade over what you wear (") .. why .. ns.L("）", ")"), 0.4, 1, 0.4)
             elseif self.cmp == "down" then GameTooltip:AddLine(ns.L("不如你身上这格", "Worse than what you wear")
                 .. (self.cmpBy == "spec" and ns.L("（按这个天赋的属性算）", " (by this spec's stat weights)") or ""), 0.6, 0.6, 0.6) end
-            if it.src ~= "quest" then GameTooltip:AddLine(ns.L("点击：去掉落页看这个副本", "Click: open this dungeon on the Loot page"), 0.6, 0.6, 0.6) end
+            if it.src == "vendor" then GameTooltip:AddLine(ns.L("点击：在地图上标出商人", "Click: pin the vendor on the map"), 0.6, 0.6, 0.6)
+            elseif it.src == "craft" then
+                GameTooltip:AddLine(playerProfs()[it.pf] and ns.L("点击：打开「专业」页找这个配方", "Click: open the Professions page")
+                    or ns.L("点击：聊天框给出制作信息（找人做 / 拍卖行）", "Click: print crafting info (crafter / AH)"), 0.6, 0.6, 0.6)
+            elseif it.src ~= "quest" then GameTooltip:AddLine(ns.L("点击：去掉落页看这个副本", "Click: open this dungeon on the Loot page"), 0.6, 0.6, 0.6) end
             GameTooltip:AddLine(ns.L("Shift + 点击：发到聊天框 · Ctrl + 点击：试穿", "Shift-click: link in chat - Ctrl-click: try on"), 0.6, 0.6, 0.6)
         elseif g[1] == "off" and mainTwo then
             GameTooltip:AddLine(ns.L("副手", "Off hand"), 1, 0.82, 0)
@@ -897,13 +1084,14 @@ local function setSlotItem(b, g, it, mainTwo)
             GameTooltip:AddLine(ns.L("衬衣 / 战袍只是外观，不推荐", "Shirt / tabard are cosmetic, no recommendation"), 0.8, 0.8, 0.8, true)
         else
             GameTooltip:AddLine(g[2], 1, 0.82, 0)
-            GameTooltip:AddLine(ns.L("这个部位目前查不到候选——装备来源是地下城掉落 + 职业任务链套装，野外任务奖励还没收",
-                "No candidate for this slot yet — sources are dungeon drops plus class quest-chain sets; open-world quest rewards are not included yet"), 0.6, 0.6, 0.6, true)
+            GameTooltip:AddLine(ns.L("这个部位目前查不到候选——装备来源是地下城掉落 + 职业任务链套装 + 专业制造 + 商人出售，野外任务奖励还没收",
+                "No candidate for this slot yet — sources are dungeon drops, class quest-chain sets, crafted and vendor gear; open-world quest rewards are not included yet"), 0.6, 0.6, 0.6, true)
         end
         GameTooltip:Show()
     end)
     b:SetScript("OnClick", function()
         if it and ns.ItemModClick and ns.ItemModClick(it.id, it.n) then return end   -- Shift 发聊天 / Ctrl 试穿
+        if it and (it.src == "craft" or it.src == "vendor") then ns.GearGuide(it); return end
         if it and it.src ~= "quest" and it.dn and ns.LootShowDungeon then ns.LootShowDungeon(it.dn) end
     end)
 end
@@ -944,8 +1132,8 @@ local function dressModel(bySlot)
 end
 
 local function refreshGear(tgt)
-    local bySlot, spec = bestGearBySlot(tgt)
-    gp.curSpec, gp.curLv = spec, tgt
+    local bySlot, spec, alts = bestGearBySlot(tgt)
+    gp.curSpec, gp.curLv, gp.curAlts = spec, tgt, alts or {}
     local W = gp.gearFrame:GetWidth() or 646
     if not tonumber(W) or W < 300 then W = 646 end
     -- 10-08 照英雄榜纸娃娃：图标贴两边，名字朝中间写，模型夹在中间；底部 主手（字在左）· 副手（字在右）· 远程（右下角，字在左）
@@ -987,13 +1175,17 @@ local function refreshGear(tgt)
     end
     -- 底部汇总：几个格子有推荐 · 副本几件（按副本数）· 任务几件；悬停看明细
     local n, nd, nq, byD, total = 0, 0, 0, {}, 0
+    local nc, nv = 0, 0
     for _, grp in ipairs({ GEAR_LEFT, GEAR_RIGHT, GEAR_BOTTOM }) do
         for _, g in ipairs(grp) do
             if g[2] then total = total + 1 end
             local it = bySlot[g[1]]
             if it then
                 n = n + 1
-                if it.src == "quest" then nq = nq + 1 else nd = nd + 1; local dn = it.dn or "?"; byD[dn] = (byD[dn] or 0) + 1 end
+                if it.src == "quest" then nq = nq + 1
+                elseif it.src == "craft" then nc = nc + 1
+                elseif it.src == "vendor" then nv = nv + 1
+                else nd = nd + 1; local dn = it.dn or "?"; byD[dn] = (byD[dn] or 0) + 1 end
             end
         end
     end
@@ -1013,7 +1205,8 @@ local function refreshGear(tgt)
         gp.gearBg:Hide(); gp.gearShade:Hide(); gp.gearBgCap:Hide()
     end
     gp.gearNote:SetText(ns.L("推荐 ", "") .. n .. "/" .. total .. ns.L(" 格 · 副本 ", " slots · dungeons ") .. nd
-        .. ns.L(" 件 · 任务 ", " · quests ") .. nq .. ns.L(" 件（悬停看明细）", " (hover for details)"))
+        .. ns.L(" 件 · 任务 ", " · quests ") .. nq .. ((nc + nv > 0) and (ns.L(" 件 · 制造 ", " · crafted ") .. nc .. ns.L(" 件 · 商人 ", " · vendor ") .. nv) or "")
+        .. ns.L(" 件（悬停看明细）", " (hover for details)"))
     gp.gearNoteHit:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP"); GameTooltip:AddLine(ns.L("装备来源", "Gear sources"), 1, 0.82, 0)
         local names = {}
@@ -1021,6 +1214,8 @@ local function refreshGear(tgt)
         table.sort(names, function(a, b) return byD[a] > byD[b] end)
         for _, dn in ipairs(names) do GameTooltip:AddDoubleLine(dn, byD[dn] .. ns.L(" 件", ""), 1, 1, 1, 1, 1, 1) end
         if nq > 0 then GameTooltip:AddDoubleLine(ns.L("职业任务链", "Class quest chains"), nq .. ns.L(" 件", ""), 1, 1, 1, 1, 1, 1) end
+        if nc > 0 then GameTooltip:AddDoubleLine(ns.L("专业制造", "Crafted"), nc .. ns.L(" 件", ""), 1, 1, 1, 1, 1, 1) end
+        if nv > 0 then GameTooltip:AddDoubleLine(ns.L("商人出售", "Vendors"), nv .. ns.L(" 件", ""), 1, 1, 1, 1, 1, 1) end
         GameTooltip:AddLine(ns.L("野外任务奖励还没收进来", "Open-world quest rewards aren't included yet"), 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
     end)
@@ -1083,9 +1278,10 @@ local function farmGroups(bySlot, sortBy)
     for _, it in pairs(bySlot) do
         if type(it) == "table" and it.id and not seen[it.id] then
             seen[it.id] = true
-            if it.src == "quest" then
-                local key = it.srcName or "?"
-                if not qmap[key] then qmap[key] = { name = key, items = {}, req = 999 }; qlist[#qlist + 1] = qmap[key] end
+            if it.src == "quest" or it.src == "craft" or it.src == "vendor" then
+                -- 11-06 制造按专业一组（「制造 · 锻造」）、商人按商人一组（srcName「商人 · 名字 · 地区」），和任务线排在一起（网站同一条）
+                local key = (it.src == "craft") and ("制造 · " .. (PROF_NAME[it.pf] and PROF_NAME[it.pf][1] or it.pf or "?")) or it.srcName or "?"
+                if not qmap[key] then qmap[key] = { name = key, items = {}, req = 999, kind = it.src }; qlist[#qlist + 1] = qmap[key] end
                 table.insert(qmap[key].items, it); qmap[key].req = math.min(qmap[key].req, it.req or 0)
             else
                 local dn = it.dn or "?"
@@ -1153,6 +1349,30 @@ local function farmItems(lo, hi, cls)
     end
     return order
 end
+-- 11-06 刷本清单的备选行：范围里每一级的「也可以」制造件并起来（useFrom / useTo 同上，pct = 最后一次当备选时高多少）
+local function farmAlts(lo, hi, cls)
+    local acc, order = {}, {}
+    for L = math.max(1, lo), math.max(lo, hi) do
+        local _, _, alts = bestGearBySlot(L, cls)
+        local keys = {}
+        for k in pairs(alts or {}) do keys[#keys + 1] = k end
+        table.sort(keys)
+        for _, k in ipairs(keys) do
+            local a = alts[k]
+            local e = acc[a.it.id]
+            if not e then
+                e = { src = "craft" }
+                for f, v in pairs(a.it) do e[f] = v end
+                e.useFrom = L
+                acc[a.it.id] = e; order[#order + 1] = e
+            end
+            e.useTo, e.pct = L, a.pct
+        end
+    end
+    table.sort(order, function(x, y) if x.useFrom ~= y.useFrom then return x.useFrom < y.useFrom end return x.id < y.id end)
+    return order
+end
+ns.PlanFarmAlts = function(lo, hi, cls) return farmAlts(lo, hi or lo, cls) end
 ns.PlanFarmGroups = function(lo, hi, sortBy, cls) return farmGroups(farmItems(lo, hi or lo, cls), sortBy) end   -- 测试 / 三端对拍用
 ns.PlanFarmItems = function(lo, hi, cls) return farmItems(lo, hi or lo, cls) end
 -- 刷本清单两组筛选（10-08 用户「这里要有能筛选项，筛选当前等级BIS装备清单，然后排序是越多的副本排序最上面」）
@@ -1307,7 +1527,9 @@ local function refreshFarm(lo, tgt)
             end
             GameTooltip:Show()
         end)
-        if dn then r:SetScript("OnClick", function() if ns.LootShowDungeon then ns.LootShowDungeon(dn) end end) end
+        if dn then r:SetScript("OnClick", function() if ns.LootShowDungeon then ns.LootShowDungeon(dn) end end)
+        elseif it.src == "craft" or it.src == "vendor" then r:SetScript("OnClick", function() ns.GearGuide(it) end) end
+        return r
     end
     local dlist, qlist
     if mode == "bis" then dlist, qlist = farmGroups(bestGearBySlot(tgt), sortBy)
@@ -1328,12 +1550,29 @@ local function refreshFarm(lo, tgt)
         end
     end
     if #qlist > 0 then
-        card(ns.L("职业任务链", "Class quest chains"), string.format(ns.L("%d 条任务线 · 奖励装备", "%d chains with gear rewards"), #qlist),
+        -- 11-06 制造 / 商人组也挂在这张卡下（一张卡：任务线 + 制造 + 商人）
+        local nq, nx = 0, 0
+        for _, q in ipairs(qlist) do if (q.kind or "quest") == "quest" then nq = nq + 1 else nx = nx + 1 end end
+        card(nx > 0 and ns.L("任务线 / 制造 / 商人", "Quests / crafted / vendors") or ns.L("职业任务链", "Class quest chains"),
+            nx > 0 and string.format(ns.L("%d 条任务线 · %d 组制造 / 商人", "%d quest chains · %d crafted / vendor groups"), nq, nx)
+                or string.format(ns.L("%d 条任务线 · 奖励装备", "%d chains with gear rewards"), #qlist),
             { icon = "Interface\\Icons\\INV_Misc_Book_09", iconCoord = { 0.07, 0.93, 0.07, 0.93 } }, nil)
         for _, q in ipairs(qlist) do
             local r = row(20); r.ic:Hide(); r.t:ClearAllPoints(); r.t:SetPoint("LEFT", 12, 0); r.t:SetPoint("RIGHT", -10, 0)
-            r.t:SetText("|cff33ff99" .. ns.L("任务：", "Quest: ") .. q.name .. "|r"); r.s:SetText("")
+            local head = (q.kind or "quest") == "quest" and (ns.L("任务：", "Quest: ") .. q.name) or q.name
+            r.t:SetText("|cff33ff99" .. head .. "|r"); r.s:SetText("")
             for _, it in ipairs(q.items) do itemRow(it, nil) end
+        end
+    end
+    -- 11-06 备选：比推荐分高的制造件（不算进副本 / 任务分组，单列在最后）
+    local alts = farmAlts(mode == "bis" and tgt or lo, tgt)
+    if #alts > 0 then
+        local r = row(20); r.ic:Hide(); r.t:ClearAllPoints(); r.t:SetPoint("LEFT", 12, 0); r.t:SetPoint("RIGHT", -10, 0)
+        r.t:SetText("|cff66ccff" .. ns.L("也可以：制造件（分数比推荐高，找人做 / 拍卖行；拾取绑定的要自己会这个专业）",
+            "Also: crafted gear that scores higher (crafter / AH; BoP needs the profession)") .. "|r"); r.s:SetText("")
+        for _, it in ipairs(alts) do
+            local ar = itemRow(it, nil)
+            ar.s:SetText((ar.s:GetText() or "") .. "|cff66ccff · " .. profName(it.pf) .. " " .. (it.sk or 0) .. (it.pct and (" +" .. it.pct .. "%") or "") .. "|r")
         end
     end
     c:SetHeight(-y + 8)
@@ -1717,7 +1956,7 @@ local function buildGearPage(p)
     gp.page = p
     ns.GearPage = gp   -- 测试 / 调试用
     ns.PageHeader(p, ns.L("推荐装备", "Gear picks"),
-        ns.L("像 C 键角色栏那样，按部位摆出到目标等级能拿到的最好装备：按你的天赋看属性（地下城掉落 + 职业任务链）", "Best gear per slot you can get by the target level, weighted for your spec (dungeon drops + class quest chains)"))
+        ns.L("像 C 键角色栏那样，按部位摆出到目标等级能拿到的最好装备：按你的天赋看属性（地下城掉落 + 职业任务链 + 制造 + 商人）", "Best gear per slot you can get by the target level, weighted for your spec (dungeon drops, class quest chains, crafted, vendors)"))
     local lbl = p:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     lbl:SetPoint("TOPLEFT", 12, -48); lbl:SetText(ns.L("目标等级", "Target level"))
     gp.minus = ns.Button(p, "-", 24, 22, function() setGearTarget(gearTarget() - 1) end)

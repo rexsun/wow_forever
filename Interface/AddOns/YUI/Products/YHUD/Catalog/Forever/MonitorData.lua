@@ -15,7 +15,8 @@ YHUD.MonitorPresets = {
         { itemID = 13444, fallbackKey = "designer.quick.classic_mana" },
     },
     timedBuffs = {
-        -- The 1.60.1.70450 native seal bundle omits this rank 1 aura.
+        -- The native seal bundle omits rank 1; each Righteousness rank has
+        -- a distinct buff ID.
         {
             presetId = "forever-seals",
             classToken = "PALADIN",
@@ -24,7 +25,9 @@ YHUD.MonitorPresets = {
             sourceIdentity = "aura:player:helpful:20154",
             sourceType = "yhud.player-aura",
             displaySpellID = 20154,
-            spellIDs = { 20154 },
+            spellIDs = {
+                20154, 20287, 20288, 20289, 20290, 20291, 20292, 20293,
+            },
             excludeNativeAura = true,
             presetLabelKey = "designer.preset.label.forever_seals",
             tooltipNoteKey = "designer.preset.forever_seals_tooltip",

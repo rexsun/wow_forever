@@ -13,6 +13,7 @@ local function HideBuiltin(button)
     if visual.shapeBorder then visual.shapeBorder:Hide() end
     if visual.bgSlotArt then visual.bgSlotArt:Hide() end
     if visual.checkedRing then visual.checkedRing:Hide() end
+    if visual.actionStateFrame then visual.actionStateFrame:Hide() end
     GUI:HideShapeShadow(visual.shadowHandle)
 end
 

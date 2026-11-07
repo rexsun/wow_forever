@@ -1,5 +1,6 @@
 """Run with uv run --with lupa --with fonttools python tools/font-asset-tests.py."""
 
+import re
 from hashlib import sha256
 from pathlib import Path
 
@@ -70,6 +71,16 @@ def main() -> None:
         return True
 
     lua.globals().CombatTextFont = lua.table_from({"SetFont": set_font})
+    # EUI 9.8 applies the saved damage font only if the client's CJK locale can draw it,
+    # which on zhTW means LSM must list the path; load the real gate, not a stub.
+    eui = ROOT / "AddOns/EllesmereUI"
+    glyph_font = re.search(r"local function GlyphFont\(locale\).*?\nend\n",
+                           (eui / "EllesmereUI_Locale.lua").read_text(encoding="utf-8-sig"), re.S)
+    covers_locale = re.search(r"function EllesmereUI\.CombatTextFontCoversLocale\(key\).*?\nend\n",
+                              (eui / "EllesmereUI_Fonts.lua").read_text(encoding="utf-8-sig"), re.S)
+    assert glyph_font and covers_locale, "EllesmereUI damage-font locale gate moved"
+    lua.execute("EllesmereUI={}\n" + glyph_font.group(0) + "EllesmereUI.LocaleGlyphFont=GlyphFont\n"
+                + covers_locale.group(0))
     lua.execute((ROOT / "AddOns/EllesmereUI/EllesmereUI_Startup.lua").read_text(encoding="utf-8-sig"), "EllesmereUI")
     accounts = list((ROOT.parent / "WTF/Account").glob("*/SavedVariables/EllesmereUI.lua"))
     assert accounts, "No EllesmereUI settings found"

@@ -4451,14 +4451,39 @@ local function NormalizeContent(profile, content, scope, specKey)
             entry.entryKey = entryKey
             YHUD:RepairConsumablePresetReplication(entry, entryKey)
             YHUD:RepairAmmoPresetReplication(entry)
-            -- Repair presentation omitted from the original Forever seal default.
+            -- Repair presentation and rank coverage omitted from the original
+            -- Forever seal default.
             if YHUD.Client.id == "forever"
                 and entryKey == "aura:player:helpful:20154"
                 and entry.origin == "preset"
                 and entry.sourceType == "yhud.player-aura"
-                and entry.spellId == 20154 and entry.icon == nil then
-                entry.icon = DEFAULT_PROFILE.contentBySpec["PALADIN:11486"]
-                    .entries[entryKey].icon
+                and entry.spellId == 20154 then
+                if entry.icon == nil then
+                    local factory = DEFAULT_PROFILE.contentBySpec["PALADIN:11486"]
+                    local factoryEntry = factory and factory.entries[entryKey]
+                    entry.icon = factoryEntry and factoryEntry.icon
+                end
+                local canonical = YHUD.FOREVER_RIGHTEOUSNESS_SEAL_SPELL_IDS
+                if type(canonical) == "table" then
+                    local ids, seen = {}, {}
+                    local function AddSpellID(spellID)
+                        if type(spellID) == "number" and spellID > 0
+                            and spellID == math.floor(spellID)
+                            and not seen[spellID] then
+                            ids[#ids + 1] = spellID
+                            seen[spellID] = true
+                        end
+                    end
+                    for index = 1, #canonical do
+                        AddSpellID(canonical[index])
+                    end
+                    local existing = type(entry.spellIds) == "table"
+                        and entry.spellIds or {}
+                    for index = 1, #existing do
+                        AddSpellID(existing[index])
+                    end
+                    entry.spellIds = ids
+                end
             end
             if entryKey == (YHUD.EQUIPMENT_AURA_BUNDLE_ENTRY_KEY
                 or "bundle:equipment-auras") then

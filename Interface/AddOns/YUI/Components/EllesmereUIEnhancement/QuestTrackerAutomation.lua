@@ -6,7 +6,7 @@ if YUI._EllesmereUIQuestAutomation then return end
 local Components, Event, GUI = YUI.Components, YUI.Event, YUI.GUI2
 local Security, System = YUI.API.Security, YUI.API.System
 local L = YUI.Locale and YUI.Locale:Get("EllesmereUIEnhancement") or {}
-local Control = { enabled = false, failures = 0, writes = 0, status = "disabled", listeners = 0 }
+local Control = { enabled = false, failures = 0, writes = 0, status = "disabled", listeners = 0, mode = "none" }
 YUI._EllesmereUIQuestAutomation = Control
 local button, pendingTimer, hovered, applying, tooltipMeasure
 local layout, painted = {}, {}
@@ -287,16 +287,57 @@ local function ObserveProviders()
     end)
 end
 
+local function CustomTrackerEnabled()
+    if _G.EUI_CustomQuestTracker ~= nil then return true end
+    local provider = _G.EllesmereUIQuestTracker
+    if type(provider) ~= "table" then return false end
+    local cfg = provider.Cfg
+    if type(cfg) ~= "function" then return false end
+    local ok, value = pcall(cfg, "customTracker")
+    return ok and not Security.IsSecretValue(value) and value == true
+end
+
+local function CustomHeader(frame)
+    if not frame then return nil end
+    -- Forever 的 GetChildren 返回多个 frame；标准客户端返回单个 table，两种都兼容。
+    local packed = { pcall(frame.GetChildren, frame) }
+    if not packed[1] then return nil end
+    for index = 2, #packed do
+        local child = packed[index]
+        if type(child) == "table" and child[1] ~= nil and not child.text then
+            for nested = 1, #child do
+                local candidate = child[nested]
+                if candidate and candidate.text and candidate.toggle and candidate.count then return candidate end
+            end
+        elseif child and child.text and child.toggle and child.count then
+            return child
+        end
+    end
+end
+
 local function Layout()
     local provider = Table(_G.EllesmereUIQuestTracker)
-    local tracker, module = _G.ObjectiveTrackerFrame, _G.QuestObjectiveTracker
-    local header = module and module.Header
-    if not (tracker and header) then
-        Control.status = "waiting-tracker"
-        if button then button:Hide(); HideTooltip() end
-        return
+    local custom = CustomTrackerEnabled()
+    Control.mode = custom and "eui-custom" or "native"
+    Hook(provider, "UpdateVisibility"); Hook(provider, "SkinHeader"); Hook(provider, "InitCustom")
+    local tracker, module, header
+    if custom then
+        tracker = _G.EUI_CustomQuestTracker
+        header = CustomHeader(tracker)
+        if not (tracker and header) then
+            Control.status, Control.mode = "waiting-custom-tracker", "eui-custom"
+            if button then button:Hide(); HideTooltip() end
+            return
+        end
+    else
+        tracker, module = _G.ObjectiveTrackerFrame, _G.QuestObjectiveTracker
+        header = module and module.Header
+        if not (tracker and header) then
+            Control.status, Control.mode = "waiting-tracker", "native"
+            if button then button:Hide(); HideTooltip() end
+            return
+        end
     end
-    Hook(provider, "UpdateVisibility"); Hook(provider, "SkinHeader")
     for _, method in ipairs({ "Show", "Hide", "SetAlpha", "OnEditModeEnter", "OnEditModeExit" }) do Hook(tracker, method) end
     for _, method in ipairs({ "Show", "Hide", "SetSize", "SetWidth" }) do Hook(header, method) end
     local visible = provider.Cfg("enabled") ~= false and tracker:IsVisible() and header:IsVisible()
@@ -327,18 +368,30 @@ local function Layout()
         button:Hide()
     end
     if button:GetParent() ~= header then button:SetParent(header); layout.anchor = nil end
-    local minimize = header.MinimizeButton
-    local anchor, side = minimize or header, minimize and "LEFT" or "RIGHT"
-    if layout.anchor ~= anchor or layout.side ~= side then
+    local anchor, side, offset, minimize
+    if custom then
+        if header.count then
+            anchor, side, offset = header.count, "LEFT", -16
+        elseif header.text then
+            anchor, side, offset = header.text, "RIGHT", 8
+        else
+            anchor, side, offset = header, "RIGHT", -8
+        end
+    else
+        minimize = header.MinimizeButton
+        anchor, side, offset = minimize or header, minimize and "LEFT" or "RIGHT", -8
+    end
+    if layout.anchor ~= anchor or layout.side ~= side or layout.offset ~= offset then
         button:ClearAllPoints()
-        button:SetPoint("RIGHT", anchor, side, -8, 0)
-        layout.anchor, layout.side = anchor, side
+        button:SetPoint("RIGHT", anchor, side, offset, 0)
+        layout.anchor, layout.side, layout.offset = anchor, side, offset
     end
     -- 独立子按钮位于原生整行折叠命中区上方；不改写或转发原生点击。
     local level = math.max(header:GetFrameLevel(), minimize and minimize:GetFrameLevel() or 0) + 3
     if button:GetFrameLevel() ~= level then button:SetFrameLevel(level) end
-    if header.Text then
-        local font, size, flags = header.Text:GetFont()
+    local fontSource = custom and header.text or header.Text
+    if fontSource then
+        local font, size, flags = fontSource:GetFont()
         if font and Security.SafeNumber(size) and (layout.font ~= font or layout.size ~= size or layout.flags ~= flags) then
             button.text:SetFont(font, size, flags)
             layout.font, layout.size, layout.flags = font, size, flags
@@ -387,7 +440,7 @@ function Control:SetEnabled(enabled)
 end
 
 function Control:GetStats()
-    return { enabled = self.enabled, status = self.status, listeners = self.listeners,
+    return { enabled = self.enabled, mode = self.mode or "none", status = self.status, listeners = self.listeners,
         pendingTimers = pendingTimer and 1 or 0, failures = self.failures, writes = self.writes,
         shown = button and button:IsShown() or false }
 end

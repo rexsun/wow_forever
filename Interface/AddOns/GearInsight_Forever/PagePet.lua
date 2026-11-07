@@ -1,5 +1,6 @@
 -- 猎人宠物页（10-18 用户转抖音「猎人宠物攻略」：「整合进插件」→「资讯分类下面有猎人宠物攻略」）
 --   三个视图：家族（18 个家族的伤害 / 护甲 / 生命加成 + 会的技能）· 技能（22 个技能：适用家族、集中值、冷却、学会等级、说明）· 怎么选
+--   11-05 第 4 个视图「在哪抓」+ 技能下面「会教的野兽」：代码在 PetTame.lua（HOLD），没加载时这里照旧三个视图
 -- 数据：PetData.lua（scripts/gi_forever_pets.py 从《无限》客户端 DB2 生成；⛔不搬攻略图）
 -- 所有职业都能看（资讯类攻略），猎人自己的当前宠物家族高亮
 local _, ns = ...
@@ -77,7 +78,10 @@ local function famNames(ids)
     return out
 end
 
-local VIEWS = { "fam", "skill", "pick" }
+local function views()
+    if ns.PetTame and ns.PetTameData then return { "fam", "skill", "pick", "tame" } end
+    return { "fam", "skill", "pick" }
+end
 
 local function build(p)
     local D = ns.PetData
@@ -85,7 +89,8 @@ local function build(p)
         ns.L(#D.families .. " 个家族 · " .. #D.skills .. " 个技能 · 数据取自《无限》客户端 " .. D.build,
             #D.families .. " families · " .. #D.skills .. " abilities · from client " .. D.build))
     p.seg = {}
-    local labels = { fam = ns.L("家族属性", "Families"), skill = ns.L("宠物技能", "Abilities"), pick = ns.L("怎么选", "Which pet") }
+    local labels = { fam = ns.L("家族属性", "Families"), skill = ns.L("宠物技能", "Abilities"), pick = ns.L("怎么选", "Which pet"), tame = ns.L("在哪抓", "Where to tame") }
+    local VIEWS = views()
     for i, v in ipairs(VIEWS) do
         local b = ns.SegButton(p, labels[v], 96, 22, function() p.view = v; ns.db.ui = ns.db.ui or {}; ns.db.ui.petView = v; p.refreshView() end)
         b:SetPoint("TOPLEFT", 12 + (i - 1) * 100, y0 - 2)
@@ -191,6 +196,11 @@ local function build(p)
             local d = text(b, "GameFontHighlightSmall", 46, -22 - fl:GetStringHeight() - 3, 556, desc)
             d:SetWordWrap(true)
             local h = math.max(44, 22 + fl:GetStringHeight() + 3 + d:GetStringHeight() + 8)
+            -- 11-05 会教的野兽（PetTame.lua，HOLD；没加载 = 不画）
+            if ns.PetTame and ns.PetTame.SkillTeachers then
+                local ok, extra = pcall(ns.PetTame.SkillTeachers, b, s, -(22 + fl:GetStringHeight() + 3 + d:GetStringHeight() + 6))
+                if ok and (extra or 0) > 0 then h = math.max(h, 22 + fl:GetStringHeight() + 3 + d:GetStringHeight() + 6 + extra + 4) end
+            end
             b:SetHeight(h)
             -- 10-18 用户「技能能索引到游戏内的可以点击的弹出技能说明」：悬停 = 游戏自带技能提示；点 = 弹出可固定的技能说明框；Shift+点 = 发链接到聊天
             b:EnableMouse(true)
@@ -270,10 +280,13 @@ local function build(p)
     p.refreshView = function()
         clear()
         for v, b in pairs(p.seg) do ns.SegSelect(b, v == p.view) end
-        if p.view == "skill" then viewSkill() elseif p.view == "pick" then viewPick() else viewFam() end
+        if p.view == "tame" and ns.PetTame and ns.PetTameData then
+            ns.PetTame.View({ p = p, c = c, box = box, text = text, mine = myPetFamily(), refresh = p.refreshView })
+        elseif p.view == "skill" then viewSkill() elseif p.view == "pick" then viewPick() else viewFam() end
         if sf.SetVerticalScroll then sf:SetVerticalScroll(0) end
     end
     p.view = (ns.db.ui and ns.db.ui.petView) or "fam"
+    if p.view == "tame" and not p.seg.tame then p.view = "fam" end   -- 上次看的「在哪抓」被 HOLD 剔掉了
     ns.PetPage = p
 end
 

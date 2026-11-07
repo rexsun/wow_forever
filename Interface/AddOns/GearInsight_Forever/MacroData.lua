@@ -1,5 +1,5 @@
 -- 自动生成：scripts/gi_forever_macros.py，⛔别手改
--- 宏来源：foreverdb.net（对过 Beta 1.60.1.70205）+ classicwowforever.com；技能名 → 法术 ID：Beta 1.60.1.70532
+-- 宏来源：foreverdb.net（对过 Beta 1.60.1.70205）+ classicwowforever.com；技能名 → 法术 ID：Beta 1.60.1.70790
 local _, ns = ...
 ns.Macros = {
   Warrior = {
@@ -50,7 +50,7 @@ ns.Macros = {
     { key="cwf-paladin-1", no=21, g="更多", gEn="More from classicwowforever", t="Mouseover Blessing of Protection", tc="保护祝福（鼠标指向）", n="Mouseover, friendly target or target's target; Alt = Divine Protection.", nc="给鼠标指向 / 友方目标 / 目标的目标上保护祝福；按住 Alt 给自己圣佑术", b="#showtooltip [mod:alt] {{498}}; {{1022}}\n/cast [mod:alt] {{498}}; [@mouseover,help,nodead][help,nodead][@targettarget,help,nodead] {{1022}}", fv=false, lv=10, spells={498,1022} },
     { key="cwf-paladin-4", no=22, g="更多", gEn="More from classicwowforever", t="Resistance auras on one button", tc="抗性光环一键", n="Fire; Shift Frost, Ctrl Shadow.", nc="默认火焰抗性光环，Shift 冰霜，Ctrl 暗影", b="#showtooltip [mod:shift] {{19888}}; [mod:ctrl] {{19876}}; {{19891}}\n/cast [mod:shift] {{19888}}; [mod:ctrl] {{19876}}; {{19891}}", fv=false, lv=36, spells={19888,19876,19891} },
     { key="cwf-paladin-6", no=23, g="更多", gEn="More from classicwowforever", t="Divine Shield, and drop it early", tc="圣盾术（再按取消）", n="Bubble, or cancel your protection buffs.", nc="开圣盾术；已有保护类效果时先取消", b="#showtooltip {{642}}\n/cancelaura {{642}}\n/cancelaura {{498}}\n/cancelaura {{1022}}\n/cast {{642}}", fv=false, lv=34, spells={642,498,1022} },
-    { key="dy-paladin-0", no=24, g="练级常用", gEn="Leveling picks", t="Righteous Fury on, Alt off", tc="正义之怒（Alt 取消）", n="Turns Righteous Fury on; hold Alt to cancel it.", nc="裸按开正义之怒，按住 Alt 取消", b="#showtooltip {{25780}}\n/cancelaura [mod:alt] {{25780}}\n/cast [nomod:alt] {{25780}}", fv=false, lv=16, spells={25780} },
+    { key="dy-paladin-0", no=24, g="练级常用", gEn="Leveling picks", t="Righteous Fury on, Alt off", tc="正义之怒（Alt 取消）", n="Turns Righteous Fury on; hold Alt to cancel it.", nc="裸按开正义之怒，按住 Alt 取消", b="#showtooltip {{25780}}\n/cancelaura [mod:alt] {{25780}}\n/cast [nomod:alt] {{25780}}", fv=false, lv=10, spells={25780} },
     { key="dy-paladin-1", no=25, g="练级常用", gEn="Leveling picks", t="Cleanse on mouseover", tc="清洁术（鼠标指向）", n="Cleanse whoever is under the mouse.", nc="解中毒、疾病、魔法，鼠标指谁解谁", b="#showtooltip {{4987}}\n/cast [@mouseover,help,nodead][] {{4987}}", fv=false, lv=42, spells={4987} },
     { key="dy-paladin-2", no=26, g="练级常用", gEn="Leveling picks", t="Blessing of Sacrifice, Shift Freedom on yourself", tc="牺牲祝福，Shift 自由祝福", n="Blessing of Sacrifice on your target; Shift for Blessing of Freedom on mouseover or yourself.", nc="裸按牺牲祝福；按住 Shift 自由祝福（鼠标指向，没有就给自己解定身）", b="#showtooltip\n/cast [mod:shift,@mouseover,help,nodead][mod:shift,@player] {{1044}}; {{6940}}", fv=false, lv=46, spells={6940,1044} },
   },
@@ -164,7 +164,7 @@ ns.Macros = {
     { key="cwf-shaman-2", no=21, g="更多", gEn="More from classicwowforever", t="All three totem sets and recall on one key", tc="三套图腾 + 收回 一键", n="Elements; Ctrl Ancestors, Alt Spirits, Shift recall.", nc="默认元素的召唤，Ctrl 先祖的召唤，Alt 灵魂的召唤，Shift 收回（40 级起，《无限》新技能）", b="#showtooltip [mod:ctrl] {{66843}}; [mod:alt] {{66844}}; [mod:shift] {{36936}}; {{66842}}\n/cast [mod:ctrl] {{66843}}; [mod:alt] {{66844}}; [mod:shift] {{36936}}; {{66842}}", fv=true, lv=40, spells={66843,66842,66844,36936} },
     { key="cwf-shaman-8", no=22, g="更多", gEn="More from classicwowforever", t="Heal yourself without losing your target", tc="给自己治疗（不换目标）", n="Healing Wave on yourself; Shift Lesser Healing Wave.", nc="给自己治疗波，Shift 次级治疗波", b="#showtooltip [mod:shift] {{8004}}; {{331}}\n/cast [mod:shift,@player] {{8004}}; [@player] {{331}}", fv=false, lv=20, spells={8004,331} },
     { key="dy-shaman-0", no=23, g="练级常用", gEn="Leveling picks", t="Lightning Bolt, Shift Chain Lightning", tc="闪电箭，Shift 闪电链", n="Lightning Bolt for one target; Shift for Chain Lightning on a pack.", nc="裸按闪电箭打单体，按住 Shift 闪电链清一片", b="#showtooltip\n/cast [mod:shift] {{421}}; {{403}}", fv=false, lv=32, spells={403,421} },
-    { key="dy-shaman-1", no=24, g="练级常用", gEn="Leveling picks", t="Flame Shock then Lava Burst", tc="烈焰震击 → 熔岩爆裂", n="Press twice: Flame Shock, then the new Lava Burst. Resets on a new target or after 12 s.", nc="连按两下：先上烈焰震击，再接熔岩爆裂（《无限》新技能）；换目标或 12 秒后重来", b="#showtooltip\n/castsequence reset=target/12 {{8050}}, {{408490}}", fv=false, lv=30, spells={8050,408490} },
+    { key="dy-shaman-1", no=24, g="练级常用", gEn="Leveling picks", t="Flame Shock then Lava Burst", tc="烈焰震击 → 熔岩爆裂", n="Press twice: Flame Shock, then Lava Burst. Resets on a new target or after 12 s. Since the launch client Lava Burst is no longer taught by trainers — you only get it from the talent tree.", nc="连按两下：先上烈焰震击，再接熔岩爆裂；换目标或 12 秒后重来。开服版起训练师不再教熔岩爆裂，只能靠天赋获得", b="#showtooltip\n/castsequence reset=target/12 {{8050}}, {{408490}}", fv=false, lv=30, spells={8050,408490} },
     { key="dy-shaman-2", no=25, g="练级常用", gEn="Leveling picks", t="Chain Heal on mouseover", tc="治疗链（鼠标指向）", n="Chain Heal starting on whoever is under the mouse.", nc="群奶，从鼠标指向的队友开始跳", b="#showtooltip {{1064}}\n/cast [@mouseover,help,nodead][] {{1064}}", fv=false, lv=40, spells={1064} },
     { key="dy-shaman-3", no=26, g="练级常用", gEn="Leveling picks", t="Riptide then Chain Heal", tc="激流 → 治疗链", n="Press twice: Riptide, then Chain Heal on the same mouseover target. Resets after 8 s.", nc="连按两下：先挂激流，再接治疗链（鼠标指向优先）；8 秒后重来", b="#showtooltip\n/castsequence [@mouseover,help,nodead][] reset=8 {{408521}}, {{1064}}", fv=false, lv=40, spells={1064,408521} },
   },
@@ -238,8 +238,8 @@ ns.Macros = {
     { key="dy-druid-0", no=24, g="平衡（鸟德）", gEn="Balance (Moonkin)", t="Moonfire on mouseover", tc="月火术（鼠标指向）", n="Moonfire the enemy under the mouse without changing target.", nc="鼠标指谁月火谁，不用换目标", b="#showtooltip {{8921}}\n/cast [@mouseover,harm,nodead][] {{8921}}", fv=false, lv=4, spells={8921} },
     { key="dy-druid-1", no=25, g="平衡（鸟德）", gEn="Balance (Moonkin)", t="Wrath, Shift Starfire", tc="愤怒，Shift 星火术", n="Wrath by default; Shift for Starfire.", nc="裸按愤怒，按住 Shift 星火术", b="#showtooltip\n/cast [mod:shift] {{2912}}; {{5176}}", fv=false, lv=20, spells={5176,2912} },
     { key="spec-druid-0", no=29, g="平衡（鸟德）", gEn="Balance (Moonkin)", t="Moonkin Form without dropping out", tc="枭兽形态（连按不会退出）", n="Shifts into Moonkin Form. Pressing it again while in Moonkin Form does nothing, so you never drop out by accident.", nc="变枭兽形态；已经是枭兽时再按不会切出来，不怕手滑", b="#showtooltip {{24858}}\n/cast !{{24858}}", fv=false, lv=40, spells={24858} },
-    { key="spec-druid-1", no=30, g="平衡（鸟德）", gEn="Balance (Moonkin)", t="Insect Swarm on mouseover", tc="虫群（鼠标指向）", n="Insect Swarm the enemy under the mouse without changing target; otherwise your target.", nc="鼠标指谁给谁上虫群，不用换目标；没指着就打目标", b="#showtooltip {{24974}}\n/cast [@mouseover,harm,nodead][] {{24974}}", fv=false, lv=25, spells={24974} },
-    { key="spec-druid-2", no=31, g="平衡（鸟德）", gEn="Balance (Moonkin)", t="Moonfire, then Insect Swarm", tc="月火 → 虫群（两下上齐 DOT）", n="Press twice: Moonfire, then Insect Swarm on the mouseover or target. Resets when you change target or after 12 s.", nc="连按两下：先月火再虫群，鼠标指向优先；换目标或 12 秒后从头来", b="#showtooltip\n/castsequence [@mouseover,harm,nodead][] reset=target/12 {{8921}}, {{24974}}", fv=false, lv=25, spells={24974,8921} },
+    { key="spec-druid-1", no=30, g="平衡（鸟德）", gEn="Balance (Moonkin)", t="Insect Swarm on mouseover", tc="虫群（鼠标指向）", n="Insect Swarm the enemy under the mouse without changing target; otherwise your target.", nc="鼠标指谁给谁上虫群，不用换目标；没指着就打目标", b="#showtooltip {{5570}}\n/cast [@mouseover,harm,nodead][] {{5570}}", fv=false, lv=25, spells={5570} },
+    { key="spec-druid-2", no=31, g="平衡（鸟德）", gEn="Balance (Moonkin)", t="Moonfire, then Insect Swarm", tc="月火 → 虫群（两下上齐 DOT）", n="Press twice: Moonfire, then Insect Swarm on the mouseover or target. Resets when you change target or after 12 s.", nc="连按两下：先月火再虫群，鼠标指向优先；换目标或 12 秒后从头来", b="#showtooltip\n/castsequence [@mouseover,harm,nodead][] reset=target/12 {{8921}}, {{5570}}", fv=false, lv=25, spells={5570,8921} },
     { key="spec-druid-3", no=32, g="平衡（鸟德）", gEn="Balance (Moonkin)", t="Faerie Fire on mouseover", tc="精灵之火（鼠标指向）", n="Faerie Fire the enemy under the mouse; otherwise your target. Shows rogues and lowers armor.", nc="鼠标指谁上谁，没指着就打目标；破潜行、降护甲", b="#showtooltip {{770}}\n/cast [@mouseover,harm,nodead][] {{770}}", fv=false, lv=18, spells={770} },
     { key="spec-druid-4", no=33, g="平衡（鸟德）", gEn="Balance (Moonkin)", t="Hurricane at the cursor", tc="飓风（直接放在鼠标位置）", n="Casts Hurricane where your mouse is pointing, without the targeting circle.", nc="不出绿圈，直接在鼠标位置放飓风", b="#showtooltip {{16914}}\n/cast [@cursor] {{16914}}", fv=false, lv=40, spells={16914} },
     { key="druid-healing-touch", no=9, g="恢复（奶德）", gEn="Restoration (healer)", t="Healing Touch on your mouseover, Shift for a cheap rank", tc="治疗之触鼠标指向，Shift 低等级", n="Casts your highest Healing Touch on the friend under your mouse, your friendly target or yourself (Alt: always yourself). With Shift, rank 2 instead.", nc="最高等级治疗之触给鼠标指向 / 友方目标 / 自己（Alt 给自己）；Shift 用 2 级", b="#showtooltip\n/cast [mod:shift,@mouseover,help,nodead][mod:shift,help,nodead][mod:shift,@player] {{5185}}(Rank 2); [mod:alt,@player][@mouseover,help,nodead][help,nodead][@player] {{5185}}", fv=false, lv=8, spells={5185} },
@@ -262,7 +262,7 @@ ns.Macros = {
     { key="cwf-druid-6", no=21, g="更多", gEn="More from classicwowforever", t="Cat Form or Bear Form on one key", tc="猎豹 / 熊形态一键", n="Cat; Shift Bear.", nc="默认猎豹形态，Shift 熊形态", b="#showtooltip [mod:shift] {{5487}}; {{768}}\n/dismount\n/cast [mod:shift] {{5487}}; {{768}}", fv=false, lv=20, spells={5487,768} },
     { key="cwf-druid-9", no=23, g="更多", gEn="More from classicwowforever", t="Drop your form and dismount", tc="退出形态 + 下马", n="Stop casting, leave form, dismount.", nc="停读条、退出形态、下马", b="/stopcasting\n/cancelform\n/dismount", fv=false, lv=0, spells={} },
     { key="dy-druid-2", no=26, g="练级常用", gEn="Leveling picks", t="Cat: Shred, Shift Claw", tc="猎豹：撕碎，Shift 爪击", n="Gets you into Cat Form (the ! stops it shifting back), then Shred; Shift for Claw.", nc="不在豹形态先变豹（带 ! 不会变回去），再撕碎；按住 Shift 爪击", b="#showtooltip\n/startattack\n/cast !{{768}}\n/cast [mod:shift] {{1082}}; {{5221}}", fv=false, lv=20, spells={768,5221,1082} },
-    { key="dy-druid-3", no=27, g="练级常用", gEn="Leveling picks", t="Cat finisher: Ferocious Bite, Shift Rip", tc="猎豹终结：凶猛撕咬，Shift 撕扯", n="Cat Form if needed, then Ferocious Bite; Shift for Rip.", nc="不在豹形态先变豹，再凶猛撕咬；按住 Shift 撕扯（流血）", b="#showtooltip\n/startattack\n/cast !{{768}}\n/cast [mod:shift] {{1079}}; {{22568}}", fv=false, lv=32, spells={768,22568,1079} },
+    { key="dy-druid-3", no=27, g="练级常用", gEn="Leveling picks", t="Cat finisher: Ferocious Bite, Shift Rip", tc="猎豹终结：凶猛撕咬，Shift 撕扯", n="Cat Form if needed, then Ferocious Bite; Shift for Rip.", nc="不在豹形态先变豹，再凶猛撕咬；按住 Shift 撕扯（流血）", b="#showtooltip\n/startattack\n/cast !{{768}}\n/cast [mod:shift] {{1079}}; {{1328618}}", fv=false, lv=24, spells={768,1328618,1079} },
     { key="dy-druid-4", no=28, g="练级常用", gEn="Leveling picks", t="Prowl, then Ravage or Shift Pounce", tc="潜行开怪：毁灭，Shift 突袭", n="Out of combat and not prowling it Prowls; then Ravage, or Pounce with Shift.", nc="站着不动先进潜行，再毁灭开怪；按住 Shift 突袭", b="#showtooltip\n/cast !{{768}}\n/cast [nostealth,nocombat] {{5215}}; [mod:shift] {{9005}}; {{6785}}", fv=false, lv=36, spells={768,9005,6785,5215} },
   },
 }
@@ -435,6 +435,7 @@ ns.MacroSpellNames = {
   [5394] = { "治疗之泉图腾", "Healing Stream Totem" },
   [5487] = { "熊形态", "Bear Form" },
   [5504] = { "造水术", "Conjure Water" },
+  [5570] = { "虫群", "Insect Swarm" },
   [5740] = { "火焰之雨", "Rain of Fire" },
   [5782] = { "恐惧术", "Fear" },
   [6117] = { "魔甲术", "Mage Armor" },
@@ -543,9 +544,7 @@ ns.MacroSpellNames = {
   [20736] = { "扰乱射击", "Distracting Shot" },
   [21082] = { "十字军圣印", "Seal of the Crusader" },
   [21987] = { "剧痛鞭笞", "Lash of Pain" },
-  [22568] = { "凶猛撕咬", "Ferocious Bite" },
   [24858] = { "枭兽形态", "Moonkin Form" },
-  [24974] = { "虫群", "Insect Swarm" },
   [25780] = { "正义之怒", "Righteous Fury" },
   [26573] = { "奉献", "Consecration" },
   [29166] = { "激活", "Innervate" },
@@ -573,4 +572,5 @@ ns.MacroSpellNames = {
   [1310994] = { "迅捷审判", "Swift Judgement" },
   [1311606] = { "神圣震击", "Holy Shock" },
   [1311649] = { "愤怒圣印", "Seal of Fury" },
+  [1328618] = { "凶猛撕咬", "Ferocious Bite" },
 }

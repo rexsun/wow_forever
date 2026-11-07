@@ -9,13 +9,26 @@ local L = ns.L
 local GL = {}
 ns.GuildChatLevel = GL
 
-local levels, dirty, builtAt, askedAt = {}, true, -999, -999
+-- 11-06 用户截图「这里可以加上地区吗」：名单里本来就有每人所在地区（GetGuildRosterInfo 第 6 个返回值）→ 「[24·贫瘠之地]」
+--   地区会变：显示地区时每条消息顺手要一次名单（ask 自己 60 秒限流），名单事件回来 5 秒内重建 → 最多落后一两分钟
+--   开关 ns.db.ui.guildChatZone（nil = 默认开），设置页「公会」栏，挂在等级开关下面（等级关了地区也不出）
+local levels, zones, dirty, builtAt, askedAt = {}, {}, true, -999, -999
 local function now() return GetTime and GetTime() or 0 end
 local function secret(v) return ns.Secret and ns.Secret(v) end
 local function short(n) return n:match("^([^%-]+)") or n end
 
 function GL.Enabled()
     return not (ns.db and ns.db.ui and ns.db.ui.guildChatLevel == false)
+end
+
+function GL.ZoneEnabled()
+    return not (ns.db and ns.db.ui and ns.db.ui.guildChatZone == false)
+end
+
+function GL.SetZoneEnabled(on)
+    if not ns.db then return end
+    ns.db.ui = ns.db.ui or {}
+    ns.db.ui.guildChatZone = on and true or false
 end
 
 function GL.SetEnabled(on)
@@ -35,17 +48,38 @@ GL.Ask = ask
 function GL.Rebuild(force)
     if not force and (not dirty or now() - builtAt < 5) then return end
     dirty, builtAt = false, now()
-    local t = {}
+    local t, z = {}, {}
     if IsInGuild and IsInGuild() and GetNumGuildMembers and GetGuildRosterInfo then
         local ok, total = pcall(GetNumGuildMembers)
         total = ok and tonumber(total) or 0
         for i = 1, total do
-            local ok2, name, _, _, level = pcall(GetGuildRosterInfo, i)
+            local ok2, name, _, _, level, _, zone = pcall(GetGuildRosterInfo, i)
             level = ok2 and tonumber(level) or nil
-            if type(name) == "string" and level and not secret(name) and not secret(level) then t[short(name)] = level end
+            if type(name) == "string" and level and not secret(name) and not secret(level) then
+                t[short(name)] = level
+                if type(zone) == "string" and zone ~= "" and not secret(zone) then z[short(name)] = zone end
+            end
         end
     end
-    levels = t
+    levels, zones = t, z
+end
+
+local function isMe(author)
+    local me = UnitName and UnitName("player")
+    return me and not secret(me) and short(author) == me
+end
+
+-- 发言人 → 所在地区；查不到 nil（自己用当前地区）
+function GL.Zone(author)
+    if type(author) ~= "string" or secret(author) or author == "" then return nil end
+    if isMe(author) then
+        local z = (GetRealZoneText and GetRealZoneText()) or (GetZoneText and GetZoneText())
+        if type(z) == "string" and z ~= "" and not secret(z) then return z end
+        return nil
+    end
+    GL.Rebuild()
+    ask()   -- 地区会变：60 秒内最多要一次
+    return zones[short(author)]
 end
 
 -- 发言人（可能带「-服务器」）→ 等级；查不到 nil
@@ -66,7 +100,10 @@ end
 -- 10-18 第二版（用户截图「[公会][26][玛尔 卖啤]: …」）：等级放在名字前面，不放正文里。
 --   拼好的整行在聊天框 AddMessage 时才看得到名字链接 → 换掉每个聊天框的 AddMessage，在 |Hplayer: 链接前插「[26]」。
 --   只认公会 / 官员频道那一行（|Hchannel:GUILD / OFFICER）；整行是保密值（12.x 副本里）就原样放过，名字链接本身不改
-function GL.Tag(lv) return "|cffc8b27a[" .. lv .. "]|r" end
+function GL.Tag(lv, zone)
+    if type(zone) == "string" and zone ~= "" then return "|cffc8b27a[" .. lv .. "·" .. zone .. "]|r" end
+    return "|cffc8b27a[" .. lv .. "]|r"
+end
 
 function GL.Decorate(text)
     if type(text) ~= "string" or secret(text) or not GL.Enabled() then return text end
@@ -100,7 +137,12 @@ local function filter(_, _, msg, author, ...)
     if not GL.Enabled() or type(msg) ~= "string" or secret(msg) or secret(author) then return false end
     local ok, lv = pcall(GL.Level, author)
     if not ok or not lv then return false end
-    return false, GL.Tag(lv) .. " " .. msg, author, ...
+    local zone
+    if GL.ZoneEnabled() then
+        local okz, z = pcall(GL.Zone, author)
+        if okz then zone = z end
+    end
+    return false, GL.Tag(lv, zone) .. " " .. msg, author, ...
 end
 GL._filter = filter   -- 离线测试用
 if ChatFrame_AddMessageEventFilter then
@@ -119,3 +161,71 @@ end)
 
 -- 已登录（晚加载）才补跑一次「进入游戏」那段初始化；主插件正常加载时这里不跑，等事件
 if IsLoggedIn and IsLoggedIn() then pcall(ev:GetScript("OnEvent"), ev, "PLAYER_ENTERING_WORLD") end
+
+-- 11-06 用户直播中「招人加上通报当前公会统计，在线人数，实时的感觉」→「用第 1 种，公会频道定时通报」：
+--   开了以后每 N 分钟（默认 10）往公会频道发一条「[Gearinsight插件] 公会 X 共 N 人 · 在线 M 人 · 全职业招募，密我进会」；
+--   同时打开游戏的聊天记录（LoggingChat，等于 /chatlog），直播侧栏（_live_overlay.py /guild）从 Logs/WoWChatLog.txt 读这条 + 上下线提示。
+--   ⛔ 默认关（每个会员都开 = 公会频道刷屏），只给会长 / 主播自己开：设置页「公会」栏或 /gi 通报
+GL.REPORT_MIN = 10
+function GL.ReportOn() return ns.db and ns.db.ui and ns.db.ui.guildReport == true end
+function GL.Counts()
+    if not (IsInGuild and IsInGuild()) then return nil end
+    local ok, total, _, online = pcall(GetNumGuildMembers)
+    if not ok or type(total) ~= "number" or total <= 0 or secret(total) then return nil end
+    if type(online) ~= "number" or secret(online) then online = nil end
+    local okn, gname = pcall(GetGuildInfo, "player")
+    if not okn or type(gname) ~= "string" or secret(gname) then gname = nil end
+    -- 11-06 用户截图 GuildInsight「共 271 人 · 在线 98 · 满级 0 · 平均 18 级」：通报带上平均等级（名册读得到几个算几个）
+    local sum, n = 0, 0
+    if GetGuildRosterInfo then
+        for i = 1, total do
+            local okr, _, _, _, lv = pcall(GetGuildRosterInfo, i)
+            if okr and type(lv) == "number" and not secret(lv) and lv > 0 then sum, n = sum + lv, n + 1 end
+        end
+    end
+    return total, online, gname, (n > 0) and math.floor(sum / n + 0.5) or nil
+end
+function GL.ReportText()
+    local total, online, gname, avg = GL.Counts()
+    if not total then return nil end
+    local s = ns.L("[Gearinsight插件] 公会", "[Gearinsight] Guild") .. (gname and (" " .. gname) or "") .. string.format(ns.L(" 共 %d 人", " %d members"), total)
+    if online then s = s .. string.format(ns.L(" · 在线 %d 人", " · %d online"), online) end
+    if avg then s = s .. string.format(ns.L(" · 平均 %d 级", " · avg level %d"), avg) end
+    return s .. ns.L(" · 全职业招募，密我进会", " · recruiting all classes, whisper me to join")
+end
+function GL.Report()
+    local msg = GL.ReportText()
+    if not (msg and SendChatMessage) then return false end
+    if LoggingChat then pcall(LoggingChat, true) end
+    return pcall(SendChatMessage, msg, "GUILD")
+end
+local ticker
+function GL.SetReport(on)
+    if not ns.db then return end
+    ns.db.ui = ns.db.ui or {}
+    ns.db.ui.guildReport = on and true or false
+    if ticker then ticker:Cancel(); ticker = nil end
+    if not on then return end
+    if LoggingChat then pcall(LoggingChat, true) end
+    -- 先刷新名册（在线人数才准），2 秒后发第一条
+    if C_GuildInfo and C_GuildInfo.GuildRoster then pcall(C_GuildInfo.GuildRoster) elseif GuildRoster then pcall(GuildRoster) end
+    if C_Timer and C_Timer.After then C_Timer.After(2, function() if GL.ReportOn() then GL.Report() end end) end
+    if C_Timer and C_Timer.NewTicker then
+        ticker = C_Timer.NewTicker(GL.REPORT_MIN * 60, function()
+            if not GL.ReportOn() then return end
+            if C_GuildInfo and C_GuildInfo.GuildRoster then pcall(C_GuildInfo.GuildRoster) end
+            C_Timer.After(2, function() if GL.ReportOn() then GL.Report() end end)
+        end)
+    end
+end
+ns.ExtraSlash = ns.ExtraSlash or {}
+ns.ExtraSlash["通报"] = function()
+    GL.SetReport(not GL.ReportOn())
+    if ns.Print then ns.Print(GL.ReportOn() and string.format(ns.L("公会统计通报：已开（每 %d 分钟发一次公会频道，聊天记录已打开）", "Guild stats report on (every %d min)"), GL.REPORT_MIN)
+        or ns.L("公会统计通报：已关", "Guild stats report off")) end
+end
+ns.ExtraSlash.report = ns.ExtraSlash["通报"]
+-- 上线后接着通报（开关存在存档里）
+local rev = CreateFrame("Frame")
+pcall(rev.RegisterEvent, rev, "PLAYER_ENTERING_WORLD")
+rev:SetScript("OnEvent", function(self) self:UnregisterAllEvents(); if GL.ReportOn() and not ticker then C_Timer.After(10, function() if GL.ReportOn() and not ticker then GL.SetReport(true) end end) end end)

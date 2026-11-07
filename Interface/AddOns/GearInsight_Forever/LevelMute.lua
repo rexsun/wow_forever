@@ -4,7 +4,7 @@
 --    判据要「插件味」：「从 4 级升到 5 级」直接算；「升到 20 级」这类得再带用时 / 方括号前缀 / 恭喜 / Ding 才算 ——
 --    玩家正常说「我刚升到 20 级，XX 怎么走」不会被吞
 -- ② 自己发的不屏蔽（看得到自己的播报发出去了）；悄悄话不管
--- ③ 默认开；/gi 屏蔽升级 开|关；设置页「公会」栏有开关；本次登录第一次屏蔽时提示一句怎么关
+-- ③ 默认关（11-07 起；原来默认开）；/gi 屏蔽升级 开|关；设置页「公会」栏有开关；本次登录第一次屏蔽时提示一句怎么关
 -- ⛔ 只用 ChatFrame_AddMessageEventFilter，绝不替换聊天框方法（0.5.5 GuildChatLevel 换 AddMessage 污染暴雪聊天的教训）；
 --    消息 / 说话人是保密值就原样放行；全部 pcall
 local _, ns = ...; ns = _G.GearInsightForever or ns
@@ -19,7 +19,7 @@ local EVENTS = {
 
 local hidden, lastLine, lastHit, told = 0, nil, false, false
 
-function LM.Enabled() return ns.db.lvlMute ~= false end   -- 默认开
+function LM.Enabled() return ns.db.lvlMute == true end   -- 11-07 用户「默认不打开这个屏蔽哈」：默认关，自己去设置页打开
 function LM.Hidden() return hidden end
 
 -- ⛔ Lua 模式按字节：「了?」只让「了」的最后一个字节可选，中文可选字一律拆成两条写
@@ -45,10 +45,20 @@ local function anyMatch(s, list)
     return false
 end
 
+-- 11-07 用户截图「[GuildInsight插件]热烈欢迎新会 XX 加入！第348位兄弟…」「这个也加上屏蔽功能覆盖的范围」：
+--   各家插件的入会欢迎播报也算：开头是插件前缀（[XX插件] / 【XX】）+ 欢迎 / 加入 / 入会 / 第 N 位 之类。
+--   ⛔ 必须带插件前缀：玩家自己打「欢迎新人」不吞
+local PREFIX = { "^%s*%[[^%]]-插件%]", "^%s*%[[^%]]-addon%]", "^%s*【.-】", "^%s*%[gearinsight%]", "^%s*%[guildinsight%]" }
+local WELCOME = { "欢迎", "加入", "入会", "第%s*%d+%s*位", "welcome", "joined the guild", "has joined" }
+function LM.IsWelcome(s)
+    return anyMatch(s, PREFIX) and anyMatch(s, WELCOME)
+end
+
 function LM.IsShout(msg)
     if type(msg) ~= "string" or msg == "" or #msg > 400 then return false end
     local s = msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h(.-)|h", "%1"):lower()
     if anyMatch(s, STRONG) then return true end
+    if LM.IsWelcome(s) or LM.IsWelcome((msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))) then return true end   -- 中文按原串再比一次（有的环境 lower() 会动多字节）
     return anyMatch(s, LEVEL) and anyMatch(s, SIGNAL)
 end
 
@@ -56,7 +66,8 @@ local function isMe(author)
     if type(author) ~= "string" or author == "" then return false end
     local me = UnitName and UnitName("player")
     if not me or ns.Secret(me) then return false end
-    return author == me or author:match("^([^%-]+)") == me
+    local base = author:match("^([^%-]+)") or author
+    return author == me or base == me or base:match("^(%S+)") == me   -- 11-07 无限「名 姓」：发送人带姓，UnitName 只给名
 end
 
 local function filter(_, _, msg, author, ...)

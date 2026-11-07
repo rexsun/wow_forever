@@ -1,6 +1,6 @@
 -- HOLD：升级播报（10-16 用户截图别家插件在公会频道发「我刚刚从 4 级升到了 5 级，在 18 分钟 52 秒内」：
 --   「这个做一下，默认打开，然后我们可以记录更多的一些信息……目的是传播作用」）
--- ① 升级后在公会频道发一句（插件发公会频道不需要点击）：前缀「[GearInsight插件]」+ 本级用时 + 一个让人想问的数据点
+-- ① 升级后在公会频道发一句（插件发公会频道不需要点击）：前缀「[Gearinsight插件]」+ 本级用时 + 一个让人想问的数据点
 --    10-17 定稿：「升到 N 级，用时 X（扣挂机），」+ 一句战绩（死亡+凶手 / 杀怪+最常杀的怪 / 零死亡）；⛔不和公测玩家比（用户：数据不准、不需要）
 --    10 / 20 / 30 / 40 / 50 级换里程碑句（1 到 N 级游戏时长），60 级「满级了」。1-5 级不发（新手村刷屏）；同一级只发一次
 --    频率：every 每级 / five 每 5 级 / milestone 只在 10·20·…·60（10-26 起默认）/ off；/gi 升级播报 开|关|每5级|里程碑
@@ -12,7 +12,7 @@ local _, ns = ...; ns = _G.GearInsightForever or ns  -- 10-19 用户「拿到主
 local LS = {}
 ns.LevelShare = LS
 
-local MODES = { every = true, five = true, milestone = true, off = true }
+local MODES = { ask = true, five = true, milestone = true, off = true }   -- 11-06 用户「没有每级自动发的选项」：去掉 every
 local MIN_LEVEL = 6          -- 1-5 级不发
 local WAIT_PLAYED = 6        -- 秒：等 TIME_PLAYED_MSG 回来，再晚就不带用时发
 local MAX_PER_CHAR = 70
@@ -21,11 +21,18 @@ local function db()
     local d = ns.db
     -- 10-26 玩家「公会里全是各家插件升级提醒」，用户「改成默认只在里程碑发」：默认 every → milestone。
     --   旧存档里的 "every" 是当初自动写进去的默认值，分不出是不是玩家自己选的 → 一次性迁到 milestone（lvlShareV=2 记已迁）
-    if d.lvlShare == nil then d.lvlShare = "milestone" end
+    if d.lvlShare == nil then d.lvlShare = "ask" end
     if d.lvlShareV == nil then
         if d.lvlShare == "every" then d.lvlShare = "milestone" end
         d.lvlShareV = 2
     end
+    -- 11-06 用户「升级也都每一级弹出来个对话框，问玩家是否通报吧」「设置都可以关闭，默认打开」：默认改成 ask（每级弹框，点了才发）
+    --   旧存档停在默认 milestone 的一次性迁到 ask；自己选过 every / five / off 的不动（lvlShareV=3 记已迁）
+    if d.lvlShareV < 3 then
+        if d.lvlShare == "milestone" then d.lvlShare = "ask" end
+        d.lvlShareV = 3
+    end
+    if d.lvlShare == "every" then d.lvlShare = "ask" end   -- 每级自动发这档没了：一律改成每级弹框（逢 5 级照样自动发）
     d.lvlx = d.lvlx or {}
     d.lvlCur = d.lvlCur or {}
     return d
@@ -213,7 +220,7 @@ end
 
 -- rec = { lvl, sec(本级用时，可 nil), played(累计，可 nil), xpMax(上一级经验条，可 nil), quests, guild = LS.GuildRank 结果（可 nil）}
 function LS.Message(rec)
-    local P = "[GearInsight插件] "   -- 10-22 用户「这里改成[GearInsight插件]」（原「[GearInsight 无限版]」）
+    local P = "[Gearinsight插件] "   -- 10-22 用户「这里改成[Gearinsight插件]」（原「[GearInsight 无限版]」）
     local lvl = rec.lvl
     local g = rec.guild
     if lvl >= LS.MAX_LEVEL then
@@ -298,8 +305,16 @@ local function finish(played)
         local okG, gr = pcall(LS.GuildRank, p.lvl)
         local msgRec = setmetatable({ mobs = c.mobs, killers = killersOf(p.id, p.lvl - 1), rot = d.lvlShareRot, guild = okG and gr or nil },
             { __index = rec })
-        local ok = send(LS.Message(msgRec))
-        if ok then d.lvlShared[key] = true end
+        local msg = LS.Message(msgRec)
+        local PS = ns.PvPShout
+        -- 11-06 用户「每5级是必发，其他等级弹窗问是否发」：ask 档逢 5 级直接发
+        if (d.lvlShare == "ask") and p.lvl % 5 ~= 0 and PS and PS.OfferMsg then
+            -- 弹框：预览这句 + 公会 / 小队 / 团队（默认公会），点「发送」才发；发了才记这一级已播
+            PS.OfferMsg("level", msg, function() d.lvlShared[key] = true end)
+        else
+            local ok = send(msg)
+            if ok then d.lvlShared[key] = true end
+        end
     end
 end
 
@@ -398,7 +413,7 @@ function ns.LevelShareExportDoc()
 end
 
 -- ---------- 开关 ----------
-local MODE_TXT = { every = { "每级", "every level" }, five = { "每 5 级", "every 5 levels" }, milestone = { "只在 10·20·30·40·50·60 级", "milestones only" }, off = { "关", "off" } }
+local MODE_TXT = { ask = { "每 5 级自动发，其他级弹框问", "every 5 levels auto, ask on others" }, every = { "每级", "every level" }, five = { "每 5 级", "every 5 levels" }, milestone = { "只在 10·20·30·40·50·60 级", "milestones only" }, off = { "关", "off" } }
 function LS.ModeText(m) local t = MODE_TXT[m or db().lvlShare]; return t and ns.L(t[1], t[2]) or tostring(m) end
 function LS.SetMode(m)
     if not MODES[m] then return false end
@@ -407,7 +422,7 @@ function LS.SetMode(m)
         .. ns.L("（发到公会频道，6 级起；改：/gi 升级播报 开 | 关 | 每5级 | 里程碑）", " (guild chat, from level 6; /gi lvlshare on|off|five|milestone)"))
     return true
 end
-local ARG = { ["开"] = "every", on = "every", ["每级"] = "every", ["关"] = "off", off = "off", ["每5级"] = "five", five = "five", ["5"] = "five",
+local ARG = { ["开"] = "ask", on = "ask", ["弹框"] = "ask", ask = "ask", ["每级"] = "ask", ["关"] = "off", off = "off", ["每5级"] = "five", five = "five", ["5"] = "five",
     ["里程碑"] = "milestone", milestone = "milestone" }
 ns.ExtraSlash = ns.ExtraSlash or {}
 ns.ExtraSlash["升级播报"] = function(rest)

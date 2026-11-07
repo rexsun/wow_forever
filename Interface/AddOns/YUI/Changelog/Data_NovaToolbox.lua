@@ -1,6 +1,34 @@
 -- Generated from Docs/Products/YUI_NovaToolbox/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("toolbox", {
+-- YUI-Notes-Record: nova-136|forever|eb54dd7e602aeb87b7b38fae9a3adf0f885643dc2f72e65008cc0a15a394706e
+    {
+        version = "nova-136",
+        date = "2026-11-06",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "优化新版 EllesmereUI 自定义任务追踪器和自动交接入口的兼容性。",
+            },
+            enUS = {
+                "Improved compatibility with the newer EllesmereUI custom quest tracker and auto-handoff controls.",
+            },
+        },
+    },
+-- YUI-Notes-Record: nova-135|forever|18fb75131d33c7c1a5359d002fc2262a2458361ab65639ef1c9c1a6fa895b0c9
+    {
+        version = "nova-135",
+        date = "2026-11-06",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "修复任务分组折叠及 EllesmereUI 解锁模式下的任务追踪滚动异常。",
+            },
+            enUS = {
+                "Fixed quest tracker scrolling when quest groups are collapsed or EllesmereUI unlock mode is active.",
+            },
+        },
+    },
 -- YUI-Notes-Record: nova-134|mainline|e85e3fb9312ca93bf0b294f010ee341a91b86aafcd5451d2605c6a6974355ebf
     {
         version = "nova-134",
@@ -341,20 +369,6 @@ CL:Register("toolbox", {
             },
         },
     },
--- YUI-Notes-Record: nova-126|forever|4459c1317dda688391bf6c393b455275571925ae9dd3a335761f858b8e48dea7
-    {
-        version = "nova-126",
-        date = "2026-10-15",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
 -- YUI-Notes-Record: nova-125|mainline|1dcb0c44fa018d1636b9243c19797405bd8091b74b49fd7754972d6043287fbb
     {
         version = "nova-125",
@@ -370,26 +384,6 @@ CL:Register("toolbox", {
             enUS = {
                 "Added an instant tooltip hiding option, enabled by default.",
                 "Fixed character inspection summary layering and improved 12.1.5 item count compatibility.",
-                "Improved configuration imports and recovery after failed imports.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: nova-125|forever|4a9e252f3030f5b5d05bb5c18646032c6baa13ea9da7eab291c765f91b90fe3b
-    {
-        version = "nova-125",
-        date = "2026-10-15",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增鼠标提示立即隐藏选项，默认启用。",
-                "地图设置支持随配置导入导出。",
-                "完善配置导入与失败恢复。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Added an instant tooltip hiding option, enabled by default.",
-                "Map settings can now be included in configuration imports and exports.",
                 "Improved configuration imports and recovery after failed imports.",
                 "Updated the shared core for compatibility with newer YUI addons.",
             },

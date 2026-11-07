@@ -341,8 +341,8 @@ local function build(p)
         section(ns.L("待排期", "Up next"), #list(E.next)); itemsOf(E.next, "next", true, true)
     elseif type(B) ~= "table" then
         y = y + 10
-        local _, h = text(c, "GameFontHighlight", ns.L("还没有同步到共建数据。打开 GearInsight 更新器，它会自动同步（每 10 分钟最多一次）。",
-            "No build board data yet. Open the GearInsight updater - it syncs automatically (at most once every 10 minutes)."), 2, CW)
+        local _, h = text(c, "GameFontHighlight", ns.L("还没有同步到共建数据，稍后自动同步（每 10 分钟最多一次）。",
+            "No build board data yet - it syncs automatically (at most once every 10 minutes)."), 2, CW)
         y = y + h + 12
     else
         local C = type(B.counts) == "table" and B.counts or {}
@@ -430,7 +430,7 @@ local function build(p)
         if not (type(B) == "table" and type(B.everyone) == "table") then
             ns.ShowBoardLink(ns.L("在网站看三个服的全部排期：复制链接，用浏览器打开", "See the full schedule for all three realms: copy this link and open it in your browser"),
                 SITE .. "/wow/en/board?" .. idParams():sub(2),
-                ns.L("更新器升级后，这里可以直接看全部服务器的排期。", "After the updater updates, you can see every realm's schedule right here."))
+                ns.L("同步后，这里可以直接看全部服务器的排期。", "Once synced, you can see every realm's schedule right here."))
             return
         end
         view = (view == "all") and "local" or "all"

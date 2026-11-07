@@ -1,3 +1,11 @@
+## [Addon update / OverlapSettingsGuard 0.9.1] - 2026-11-07
+### Features
+- Update YUI v354, GearInsight Forever 0.7.4, EllesmereUI 9.8, Details 15402.172, Auctionator 342 and !BugGrabber v12.1.1.
+### Design Rationale
+- Keep a single owner for level-up announcement filtering (GearInsight) even though it is now off by default, rather than re-enabling YUI's broader keyword filter.
+### Notes & Caveats
+- Other players' level-up announcements show again until `/gi 屏蔽升级 开`. GearInsight now auto-posts every fifth own level-up. EUI 9.8 applies the LongZhu damage font from PLAYER_LOGIN on zhTW. All unverified in game.
+
 ## [LootRollMover 8.3] - 2026-11-06
 ### Features
 - Replace the local LootRollAnchor addon with LootRollMover 8.3 from CurseForge. Its account-wide default centres the roll window 5 UI units above YUI's stance and totem bars on top of action bar 3.

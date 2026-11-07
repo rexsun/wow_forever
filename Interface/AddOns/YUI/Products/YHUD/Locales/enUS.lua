@@ -971,7 +971,7 @@ YUI.Locale:Register("YHUD", "enUS", {
     ["designer.preset.bloodlust_alliance"] = "Heroism",
     ["designer.preset.label.self"] = "Self",
     ["designer.preset.label.forever_seals"] = "Seal supplement",
-    ["designer.preset.forever_seals_tooltip"] = "Tracks rank 1 Seal of Righteousness, which is missing from the native buff catalog. Appears only while the buff is active on you.",
+    ["designer.preset.forever_seals_tooltip"] = "Tracks Seal of Righteousness ranks 1-8, including rank 1 which is missing from the native buff catalog. Appears only while the buff is active on you.",
     ["designer.preset.label.tier_set"] = "Set",
     ["designer.preset.dawnlight_self_tooltip"] = "Tracks your own Dawnlight buff, not the effect on your target.",
     ["designer.preset.lights_potential"] = "Light's Potential",

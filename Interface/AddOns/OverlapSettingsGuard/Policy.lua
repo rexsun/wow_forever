@@ -29,7 +29,7 @@ OSG.policy = {
   {
     id = "yui.chatkeywordfilter", adapter = "YUI", key = "ChatKeywordFilter",
     label = "YUI: Chat keyword filter", when = { "YUI", "GearInsight_Forever" },
-    reason = "GearInsight already filters level-up announcements; YChat must not also hide player messages by keyword.",
+    reason = "GearInsight owns level-up announcement filtering (/gi lvlmute); YChat must not also hide player messages by keyword.",
   },
   {
     id = "eui.nameplatepower", adapter = "EllesmereUI", key = "NameplatePower",

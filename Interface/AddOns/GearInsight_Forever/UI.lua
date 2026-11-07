@@ -595,7 +595,8 @@ local function build()
         if y then
             data = ns.L("数据 ", "data ") .. y .. "-" .. mo .. "-" .. d .. ((hh ~= "" and mi ~= "") and (" " .. hh .. ":" .. mi) or "")
         else
-            data = ns.L("数据包未下载（GearInsight 更新器自动下载）", "data pack not installed (GearInsight updater)")
+            -- 11-06 玩家（网易 DD 下载）「为什么显示数据包未下载」：大部分玩家不装更新器，插件内置数据照常能用 → 别写得像故障
+            data = "|cff9d9d9d" .. ns.L("内置数据", "built-in data") .. "|r"
         end
         return "v" .. (ver ~= "" and ver or "?") .. "  ·  " .. data
     end
@@ -709,10 +710,46 @@ end
 -- 10-16 用户「小地图的按钮设置下，方便用户点，你设计好」：
 --   左键 = 开 / 关主面板；右键 = 快捷菜单（升级规划 / 专业 / 组队 / 副本组队 / 找训练师 / 公会招募 / 天赋 / 键位 / 隐藏按钮）；
 --   按住拖 = 沿小地图边挪位置（拖完不算点击）；/gi 小地图 找回。菜单自绘（不用 EasyMenu / UIDropDownMenu，《无限》客户端没验过）
+-- 11-06 玩家反馈「小地图上的图标点不开」（装了收纳插件）→ 用户「无限的小地图按钮好好修复下」：
+--   ① 位置照时光服 MinimapButton.lua / LibDBIcon：半径跟小地图实际大小走、方形小地图钳到矩形边（原来写死半径 80，新版大地图上按钮缩在地图里面）；
+--   ② 被收纳插件（SexyMap / ElvUI / MBB 之类）接管后不再自己摆回去（钩自己的 SetPoint 判断），玩家亲手拖例外；
+--   ③ 别的插件带了 LibDataBroker / LibDBIcon 就同时注册：信息条 / 收纳插件按标准方式收我们，LibDBIcon 在就由它出按钮、我们自己的藏起来；
+--   ④ 小地图上的「插件」总按钮（AddonCompartment，toc 里登记）也能点开，收纳插件再怎么藏都有入口。
+local SHAPES = {
+    ["ROUND"] = { true, true, true, true }, ["SQUARE"] = { false, false, false, false },
+    ["CORNER-TOPLEFT"] = { false, false, false, true }, ["CORNER-TOPRIGHT"] = { false, false, true, false },
+    ["CORNER-BOTTOMLEFT"] = { false, true, false, false }, ["CORNER-BOTTOMRIGHT"] = { true, false, false, false },
+    ["SIDE-LEFT"] = { false, true, false, true }, ["SIDE-RIGHT"] = { true, false, true, false },
+    ["SIDE-TOP"] = { false, false, true, true }, ["SIDE-BOTTOM"] = { true, true, false, false },
+    ["TRICORNER-TOPLEFT"] = { false, true, true, true }, ["TRICORNER-TOPRIGHT"] = { true, false, true, true },
+    ["TRICORNER-BOTTOMLEFT"] = { true, true, false, true }, ["TRICORNER-BOTTOMRIGHT"] = { true, true, true, false },
+}
+
 local function placeButton(b)
-    local a = math.rad(ns.db.minimap.angle or 210)
+    if rawget(b, "takenOver") and not rawget(b, "dragging") then return end
+    local a = math.rad(tonumber(ns.db.minimap.angle) or 210)
+    local x, y = math.cos(a), math.sin(a)
+    local q = 1
+    if x < 0 then q = q + 1 end
+    if y > 0 then q = q + 2 end
+    local shape = "ROUND"
+    if GetMinimapShape then
+        local ok, s = pcall(GetMinimapShape)
+        if ok and type(s) == "string" then shape = s end
+    end
+    local w = (tonumber(Minimap:GetWidth()) or 140) / 2 + 5
+    local h = (tonumber(Minimap:GetHeight()) or 140) / 2 + 5
+    if (SHAPES[shape] or SHAPES.ROUND)[q] then
+        x, y = x * w, y * h
+    else
+        local dw, dh = math.sqrt(2 * w * w) - 10, math.sqrt(2 * h * h) - 10
+        x = math.max(-w, math.min(x * dw, w))
+        y = math.max(-h, math.min(y * dh, h))
+    end
+    b.selfPlacing = true
     b:ClearAllPoints()
-    b:SetPoint("CENTER", Minimap, "CENTER", math.cos(a) * 80, math.sin(a) * 80)
+    b:SetPoint("CENTER", Minimap, "CENTER", x, y)
+    b.selfPlacing = nil
 end
 
 local function hasPage(key)
@@ -831,6 +868,53 @@ local function showMenu(anchor)
     ns.MinimapMenu = mmMenu   -- 测试用
 end
 
+-- 左键 = 开关主面板；右键 = 快捷菜单（小地图按钮 / LibDBIcon 按钮 / 信息条 / 插件总按钮共用）
+local function clickButton(anchor, btn)
+    GameTooltip:Hide()
+    if btn == "RightButton" then
+        if mmMenu and mmMenu:IsShown() then mmMenu:Hide() else showMenu(anchor) end
+    else
+        if mmMenu then mmMenu:Hide() end
+        ns.ToggleMain()
+    end
+end
+
+local function fillTooltip(tt)
+    local ver = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("GearInsight_Forever", "Version"))
+        or (GetAddOnMetadata and GetAddOnMetadata("GearInsight_Forever", "Version")) or ""
+    tt:AddLine("|cff33ff99GearInsight|r " .. ns.L("无限版", "Forever") .. " " .. tostring(ver or ""))
+    tt:AddLine(ns.L("左键：打开 / 关闭主面板", "Left-click: open / close"), 1, 1, 1)
+    tt:AddLine(ns.L("右键：快捷菜单（升级规划、组队、训练师等）", "Right-click: quick menu"), 1, 1, 1)
+    tt:AddLine(ns.L("按住拖动：沿小地图边挪位置", "Drag: move around the minimap"), 0.7, 0.7, 0.7)
+    -- 状态：还有没点的天赋点
+    local pts = UnitCharacterPoints and UnitCharacterPoints("player") or 0
+    if type(pts) == "number" and pts > 0 then
+        tt:AddLine(string.format(ns.L("有 %d 个天赋点没点（升级规划里点「去点」）", "%d unspent talent point(s)"), pts), 0.2, 1, 0.6)
+    end
+end
+
+-- 别的插件带了 LibDataBroker（信息条 / 收纳插件都认它）→ 注册启动器；再有 LibDBIcon → 由它出小地图按钮，我们自己的藏起来
+--   我们不内嵌这些库：没有就只用自己的按钮。LibDBIcon 用 ns.db.minimap 存 hide / minimapPos（和我们的 hide 同一个键）
+local function registerBroker(b)
+    local LS = _G.LibStub
+    local LDB = LS and LS("LibDataBroker-1.1", true)
+    if not LDB then return end
+    local ok, obj = pcall(LDB.NewDataObject, LDB, "GearInsight_Forever", {
+        type = "launcher", label = "GearInsight " .. ns.L("无限版", "Forever"),
+        icon = "Interface\\AddOns\\GearInsight_Forever\\media\\logo",
+        OnClick = function(frame, btn) clickButton(frame or b, btn) end,
+        OnTooltipShow = function(tt) if tt and tt.AddLine then fillTooltip(tt) end end,
+    })
+    if not (ok and obj) then return end
+    ns.Broker = obj
+    local DBI = LS("LibDBIcon-1.0", true)
+    if DBI and DBI.Register then
+        local db = ns.db.minimap
+        if db.minimapPos == nil then db.minimapPos = tonumber(db.angle) or 210 end
+        if pcall(DBI.Register, DBI, "GearInsight_Forever", obj, db) then b.viaDBIcon = true end
+    end
+end
+
 local function buildMinimap()
     if not Minimap then return end
     ns.db.minimap = ns.db.minimap or { angle = 210 }
@@ -854,13 +938,7 @@ local function buildMinimap()
         local t = GetTime and GetTime() or 0
         local de = rawget(self, "dragEnd")
         if rawget(self, "dragging") or (de and t - de < 0.25) then return end
-        GameTooltip:Hide()
-        if btn == "RightButton" then
-            if mmMenu and mmMenu:IsShown() then mmMenu:Hide() else showMenu(self) end
-        else
-            if mmMenu then mmMenu:Hide() end
-            ns.ToggleMain()
-        end
+        clickButton(self, btn)
     end)
     b:SetScript("OnDragStart", function(self)
         self.dragging = true
@@ -881,31 +959,49 @@ local function buildMinimap()
     end)
     b:SetScript("OnEnter", function(self)
         if rawget(self, "dragging") then return end
-        local ver = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("GearInsight_Forever", "Version"))
-            or (GetAddOnMetadata and GetAddOnMetadata("GearInsight_Forever", "Version")) or ""
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine("|cff33ff99GearInsight|r " .. ns.L("无限版", "Forever") .. " " .. tostring(ver or ""))
-        GameTooltip:AddLine(ns.L("左键：打开 / 关闭主面板", "Left-click: open / close"), 1, 1, 1)
-        GameTooltip:AddLine(ns.L("右键：快捷菜单（升级规划、组队、训练师等）", "Right-click: quick menu"), 1, 1, 1)
-        GameTooltip:AddLine(ns.L("按住拖动：沿小地图边挪位置", "Drag: move around the minimap"), 0.7, 0.7, 0.7)
-        -- 状态：还有没点的天赋点
-        local pts = UnitCharacterPoints and UnitCharacterPoints("player") or 0
-        if type(pts) == "number" and pts > 0 then
-            GameTooltip:AddLine(string.format(ns.L("有 %d 个天赋点没点（升级规划里点「去点」）", "%d unspent talent point(s)"), pts), 0.2, 1, 0.6)
-        end
+        fillTooltip(GameTooltip)
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- 收纳插件挪了我们（不是自己摆的 SetPoint）→ 记成被接管，之后不再摆回小地图边；玩家亲手拖时照常摆
+    hooksecurefunc(b, "SetPoint", function(self)
+        if not rawget(self, "selfPlacing") and not rawget(self, "dragging") then self.takenOver = true end
+    end)
     placeButton(b)
-    if ns.db.minimap.hide then b:Hide() end
+    -- 小地图改大小（新版小地图可调尺寸 / 换形状插件）后重新摆
+    if Minimap.HookScript then Minimap:HookScript("OnSizeChanged", function() placeButton(b) end) end
     ns.MinimapButton = b
+    registerBroker(b)
+    if ns.db.minimap.hide or rawget(b, "viaDBIcon") then b:Hide() end
 end
 
 function ns.SetMinimapShown(on)
     ns.db.minimap = ns.db.minimap or {}
     ns.db.minimap.hide = not on
-    if ns.MinimapButton then ns.MinimapButton:SetShown(on) end
+    local DBI = LibStub and LibStub("LibDBIcon-1.0", true)
+    if ns.MinimapButton and rawget(ns.MinimapButton, "viaDBIcon") and DBI then
+        if on then DBI:Show("GearInsight_Forever") else DBI:Hide("GearInsight_Forever") end
+        return
+    end
+    if ns.MinimapButton then
+        if on then ns.MinimapButton.takenOver = nil; placeButton(ns.MinimapButton) end   -- 找回 = 复位到小地图边
+        ns.MinimapButton:SetShown(on)
+    end
 end
+
+-- 小地图「插件」总按钮（toc ## AddonCompartmentFunc）：左键开关面板，右键快捷菜单
+function GearInsightForever_OnAddonCompartmentClick(_, btn)
+    local anchor = (ns.MinimapButton and ns.MinimapButton:IsVisible() and ns.MinimapButton) or AddonCompartmentFrame or Minimap
+    clickButton(anchor, btn == "RightButton" and "RightButton" or "LeftButton")
+end
+function GearInsightForever_OnAddonCompartmentEnter(_, frame)
+    if not frame then return end
+    GameTooltip:SetOwner(frame, "ANCHOR_LEFT")
+    fillTooltip(GameTooltip)
+    GameTooltip:Show()
+end
+function GearInsightForever_OnAddonCompartmentLeave() GameTooltip:Hide() end
 
 -- /gi 小地图（/gi minimap）：显示 / 隐藏小地图按钮
 ns.ExtraSlash = ns.ExtraSlash or {}

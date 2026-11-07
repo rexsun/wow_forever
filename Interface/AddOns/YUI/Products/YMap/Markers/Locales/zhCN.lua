@@ -391,6 +391,8 @@ YUI.Locale:Register("YMapMarkers", "zhCN", {
     ["settings.button_offset_y"] = "按钮 Y 偏移",
     ["settings.opposing_faction_npcs"] = "显示对立阵营 NPC",
     ["settings.opposing_faction_npcs_tooltip"] = "显示已收录的对立阵营 NPC 位置，仍受地点分类及其他筛选影响。",
+    ["settings.rxp_tornado_filter"] = "RXP 龙卷风过滤",
+    ["settings.rxp_tornado_filter_tooltip"] = "隐藏 RestedXP Skyborne 指南中的固定龙卷风刷新点图钉。仅在加载 RXPGuides 后显示。",
     ["faction.Alliance"] = "联盟",
     ["faction.Horde"] = "部落",
     ["tooltip.opposing_faction"] = "%s（对立阵营）",

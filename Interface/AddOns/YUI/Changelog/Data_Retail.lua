@@ -1,6 +1,36 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v354|mainline|e5a5e59c2f43ef8e0f2627cf51bf710e0ea23ab374f117043f1fc25113ab9551
+    {
+        version = "v354",
+        date = "2026-11-06",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "修复目标光环结束时监控可能报错的问题。",
+            },
+            enUS = {
+                "Fixed possible monitor errors when a target aura expires.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v353|mainline|20384615d0a8c59fdc84a2f816806f6685c059893ad678e8e0969b5a7e7e12a6
+    {
+        version = "v353",
+        date = "2026-11-06",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "优化默认聊天屏蔽词，并保留自定义过滤配置。",
+                "修复动作条使用状态黑块与按压短闪。",
+            },
+            enUS = {
+                "Improved the default chat-blocking word list and preserved custom filter settings.",
+                "Fixed dark blocks on the active-action indicator and brief dark flashes on key presses.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v352|mainline|ef71ca70ca3fdce3ae1d12524eb2d63e67754b5b925e3052dc57d877c65415c3
     {
         version = "v352",
@@ -224,68 +254,6 @@ CL:Register("suite", {
                 "Fixed lingering activation glows on monitor icons.",
                 "Fixed monitors failing to hide as configured when cooldowns finish.",
                 "Fixed cast monitoring incorrectly treating channels as interrupted by subsequent key presses.",
-            },
-        },
-    },
--- YUI-Notes-Record: v344|mainline|e23f7df54eadb23ae5162de9d89d7a9b45276b63c6335a4c96636563152ffec9
-    {
-        version = "v344",
-        date = "2026-10-16",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "监控台和动作条新增蓝色辅助提示。",
-                "监控台新增增益层数发光规则。",
-                "发光外观支持保存、复用与复制粘贴。",
-                "液态光泽支持真实层数显示及层数发光。",
-                "职业额外提醒新增自动血沸。",
-                "监控台新增噬灭变身和明志灵药预设。",
-                "施法条支持图标内外放置与四种计时格式。",
-                "优化监控台方案管理，新增独立的全局设置面板。",
-                "声音提醒支持多语音包排序和标准语音补缺，优化特别语音选择与试听。",
-                "自动对话新增按键控制，支持按住暂停或按住启用。",
-                "购物助手支持材料缺口预填与满星材料统计。",
-                "耐久条支持五键坐骑绑定和随机偏好召唤。",
-                "传送菜单按文字宽度自适应布局，补充织影者的炉石。",
-                "修复监控台资源条初始化与锚点定位问题。",
-                "修复原生冷却窗口越界与显隐避让问题。",
-                "圆环监控暂时关闭自定义发光，保留原有配置。",
-            },
-            enUS = {
-                "Added blue assisted highlights to the monitor and action bars.",
-                "Added buff-stack glow rules to the monitor.",
-                "Added reusable glow appearance presets and copy/paste.",
-                "Added live Liquid Radiance stack counts and stack-based glows.",
-                "Added automatic Blood Boil monitoring.",
-                "Added Devourer transformation and Brewmaster elixir monitor presets.",
-                "Added internal/external cast-bar icons and four time formats.",
-                "Improved monitor profile management and added a separate global settings panel.",
-                "Added voice pack ordering and standard-voice fallback, with improved special-voice selection and previews.",
-                "Added hold-to-pause and hold-to-enable controls for automatic dialogue.",
-                "Added material-shortage purchase quantities and highest-quality material tracking.",
-                "Added five-button mount bindings and random favorite mounts.",
-                "Added text-aware teleport menu sizing and the Weavers' Hearthstone.",
-                "Fixed monitor resource initialization and anchoring.",
-                "Fixed native cooldown window overflow and visibility-related layout conflicts.",
-                "Temporarily disabled custom glows for ring monitors while preserving saved settings.",
-            },
-        },
-    },
--- YUI-Notes-Record: v343|mainline|89f13f0feca92d3c487f61ac2a66ab9f6c4915a1a39edaf1dd7e5e6b7a8b6d60
-    {
-        version = "v343",
-        date = "2026-10-15",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "改善法术警报倒计时对正式服更新的兼容性。",
-                "修复监控台资源条可能报错并中断刷新的问题。",
-                "修复旧配置升级、复制和导入时的个人方案保留与失败恢复问题。",
-            },
-            enUS = {
-                "Improved spell alert countdown compatibility with Retail updates.",
-                "Fixed errors that could interrupt monitor resource bar updates.",
-                "Fixed personal configuration preservation and recovery during legacy upgrades, profile copying and imports.",
             },
         },
     },

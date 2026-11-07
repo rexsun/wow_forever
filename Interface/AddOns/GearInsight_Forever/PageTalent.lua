@@ -1,4 +1,4 @@
--- 天赋页：三棵树模拟加点（与小程序 / 网站模拟器同一份数据、同一套 GIF1 配点码）
+-- 天赋页：三棵树模拟加点（与小程序 / 网站模拟器同一份数据、同一套 GIF2 配点码）
 -- 左键 +1，右键 -1；行解锁 = 每 5 点一行；前置天赋要点满；总数 ≤ 51
 -- 颜色：绿=《无限》新增  黄=改动  蓝=换位置  灰=没变
 local _, ns = ...
@@ -82,7 +82,7 @@ function ns.TalentCodeFromSim()
         for i = 1, #S.pts[ti] do s[i] = tostring(math.min(9, S.pts[ti][i])) end
         parts[ti] = table.concat(s)
     end
-    return "GIF1." .. S.cls .. "." .. table.concat(parts, "-")
+    return "GIF2." .. S.cls .. "." .. table.concat(parts, "-")
 end
 
 local page
@@ -342,7 +342,7 @@ local function build(p)
         ns.ShowBox(ns.L("配点码", "Build code"), ns.L("Ctrl+C 复制，粘到小程序 / 网站模拟器", "Ctrl+C, paste into the site / mini program"), ns.TalentCodeFromSim())
     end)
     btn(ns.L("导入", "Import"), 60, function()
-        ns.ShowBox(ns.L("导入配点码", "Import build"), ns.L("粘贴 GIF1 开头的码", "Paste a GIF1 code"), "", ns.LoadSimCode, ns.L("导入", "Import"))
+        ns.ShowBox(ns.L("导入配点码", "Import build"), ns.L("粘贴 GIF2 开头的码", "Paste a GIF2 code"), "", ns.LoadSimCode, ns.L("导入", "Import"))
     end)
     btn(ns.L("读我的天赋", "Read mine"), 88, function()
         local code = ns.CurrentTalentCode and ns.CurrentTalentCode()

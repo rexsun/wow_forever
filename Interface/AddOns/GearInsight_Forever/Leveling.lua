@@ -72,7 +72,8 @@ end
 
 local function build()
     local f = CreateFrame("Frame", "GearInsightForeverLeveling", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
-    f:SetSize(340, 160); f:SetPoint("TOPRIGHT", -220, -220)
+    -- 11-07 玩家截图（升级指引小窗压在右边的任务追踪上）：默认位置从右上 -220 挪到屏幕左侧中上，不挡任务追踪 / 小地图；拖过的照旧用存的位置
+    f:SetSize(340, 160); f:SetPoint("TOPLEFT", 30, -260)
     f:SetClampedToScreen(true); f:EnableMouse(true); f:SetMovable(true); f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart", f.StartMoving)
     f:SetScript("OnDragStop", function(self)

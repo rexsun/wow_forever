@@ -9,6 +9,9 @@ YUI.YMap.Markers = MapEnhancement
 local MAP_ADDON = "Blizzard_WorldMap"
 local PIN_TEMPLATE = "YUIMapMarkersPinTemplate"
 local QUICK_FILTER_TEMPLATE = "YUIMapMarkersQuickFilterButtonTemplate"
+local RXP_ADDON = "RXPGuides"
+local RXP_TORNADO_MAP_ID = 2521
+local RXP_TORNADO_TOOLTIP = "Tornado"
 local PROFESSION_SCOPE_LEARNED = "learned"
 local PROFESSION_SCOPE_ALL = "all"
 local PROFESSION_SCOPE_NONE = "none"
@@ -28,6 +31,7 @@ local DEFAULTS = {
     fontOutline = "OUTLINE",
     showTooltips = true,
     enableWaypoints = true,
+    hideRxpTornadoPins = true,
     maps = {},
 }
 
@@ -45,8 +49,13 @@ local runtime = {
     primaryProfessionIDs = {},
     primaryProfessionCount = 0,
     normalizedConfig = nil,
+    rxpGuide = nil,
+    rxpFilterEnabled = nil,
+    rxpFilteredCount = 0,
     stats = { refreshes = 0, activePins = 0, providerAttached = false, zoomModeChanges = 0 },
 }
+
+local rxpHooked = setmetatable({}, { __mode = "k" })
 
 local function T(key, fallback)
     local locale = YUI.Locale and YUI.Locale:Get("YMapMarkers") or nil
@@ -142,6 +151,7 @@ function MapEnhancement:GetConfig()
     local config = YUI.YMap:GetDB().markers
     CopyDefaults(config, DEFAULTS)
     if YUI.IsForever then config.showOpposingFactionNPCs = config.showOpposingFactionNPCs == true end
+    config.hideRxpTornadoPins = config.hideRxpTornadoPins ~= false
     -- 正式服只提供文字；Forever 保留原有模式及默认值。
     config.buttonOffsetX = NormalizeButtonOffset(config.buttonOffsetX)
     config.buttonOffsetY = NormalizeButtonOffset(config.buttonOffsetY)
@@ -158,6 +168,92 @@ function MapEnhancement:GetConfig()
 end
 
 MapEnhancement.GetConfig = MapEnhancement.GetConfig
+
+local function IsRXPLoaded()
+    if not YUI.IsForever then return false end
+    local System = YUI.API and YUI.API.System
+    if not (System and type(System.IsAddOnLoaded) == "function") then return false end
+    local ok, loaded = pcall(System.IsAddOnLoaded, RXP_ADDON)
+    return ok and loaded == true
+end
+
+local function GetRXPAddon()
+    if not IsRXPLoaded() then return nil end
+    local stub = _G.LibStub
+    if not (stub and type(stub.GetLibrary) == "function") then return nil end
+    local ace = stub:GetLibrary("AceAddon-3.0", true)
+    if not (ace and type(ace.GetAddon) == "function") then return nil end
+    local rxp = ace:GetAddon(RXP_ADDON, true)
+    if not (rxp and type(rxp.UpdateMap) == "function") then return nil end
+    return rxp
+end
+
+function MapEnhancement:IsRXPCompatibilityAvailable()
+    return GetRXPAddon() ~= nil
+end
+
+-- RXP 的 Skyborne 指南把龙卷风刷新点写成固定 .pin；只改运行时元素，不动指南文件。
+local function ApplyRXPTornadoFilter(rxp, enabled)
+    local guide = rxp and rxp.currentGuide
+    if not guide or type(guide.steps) ~= "table" then
+        runtime.rxpGuide, runtime.rxpFilterEnabled, runtime.rxpFilteredCount = nil, nil, 0
+        return 0
+    end
+    if runtime.rxpGuide == guide and runtime.rxpFilterEnabled == enabled then
+        return runtime.rxpFilteredCount or 0
+    end
+    runtime.rxpGuide, runtime.rxpFilterEnabled = guide, enabled
+    local count = 0
+    for _, step in ipairs(guide.steps) do
+        local elements = type(step) == "table" and step.elements or nil
+        if type(elements) == "table" then
+            for _, element in ipairs(elements) do
+                if element.tag == "pin" and element.mapTooltip == RXP_TORNADO_TOOLTIP
+                    and tonumber(element.zone) == RXP_TORNADO_MAP_ID then
+                    if enabled then
+                        if not element.__yuiRxpTornadoFiltered then
+                            element.__yuiRxpTornadoOriginalHidePin = element.hidePin
+                            element.__yuiRxpTornadoFiltered = true
+                        end
+                        element.hidePin = true
+                        count = count + 1
+                    elseif element.__yuiRxpTornadoFiltered then
+                        element.hidePin = element.__yuiRxpTornadoOriginalHidePin
+                        element.__yuiRxpTornadoOriginalHidePin = nil
+                        element.__yuiRxpTornadoFiltered = nil
+                    end
+                end
+            end
+        end
+    end
+    runtime.rxpFilteredCount = count
+    return count
+end
+
+local function EnsureRXPHook()
+    local rxp = GetRXPAddon()
+    if not rxp or rxpHooked[rxp] then return rxp end
+    local original = rxp.UpdateMap
+    if type(original) ~= "function" then return nil end
+    rxp.UpdateMap = function(self, ...)
+        local config = MapEnhancement:GetConfig()
+        local enabled = runtime.enabled and config.hideRxpTornadoPins ~= false
+        ApplyRXPTornadoFilter(rxp, enabled)
+        return original(self, ...)
+    end
+    rxpHooked[rxp] = true
+    return rxp
+end
+
+function MapEnhancement:RefreshRXPFilter(refreshPins)
+    if not runtime.enabled then return false end
+    local rxp = EnsureRXPHook()
+    if not rxp then return false end
+    local config = self:GetConfig()
+    ApplyRXPTornadoFilter(rxp, config.hideRxpTornadoPins ~= false)
+    if refreshPins and _G.WorldMapFrame then rxp:UpdateMap(true) end
+    return true
+end
 
 
 -- Forever 的世界地图枚举不提供可靠的角色解锁否定值；航线窗口与有向连接提供证据。
@@ -309,6 +405,7 @@ function MapEnhancement:ResetCategories(config)
     config = config or self:GetConfig()
     config.categories = nil
     config.categoryColors = nil
+    config.hideRxpTornadoPins = true
     return true
 end
 
@@ -662,6 +759,14 @@ function MapEnhancement:ShowMarkerMenu(anchor, choices)
                 function() return self:GetCategoryEnabled(category,config) end,
                 apply(function() self:SetCategoryEnabled(category,not self:GetCategoryEnabled(category,config),config) end))
         end
+        if self:IsRXPCompatibilityAvailable() then
+            categories:CreateCheckbox(MenuIcon("Object",T("settings.rxp_tornado_filter")),
+                function() return config.hideRxpTornadoPins ~= false end,
+                apply(function()
+                    config.hideRxpTornadoPins = not (config.hideRxpTornadoPins ~= false)
+                    self:RefreshRXPFilter(true)
+                end))
+        end
         categories:CreateDivider()
         categories:CreateTitle(T("menu.services"))
         for _, typeID in ipairs({"service.bank","service.auction","service.inn","travel.flight"}) do
@@ -702,6 +807,8 @@ function MapEnhancement:ShowMarkerMenu(anchor, choices)
             config.markersHidden=DEFAULTS.markersHidden
             config.fontSize=DEFAULTS.fontSize; config.iconSize=DEFAULTS.iconSize
             config.serviceFilters={}; config.categories=nil
+            config.hideRxpTornadoPins=DEFAULTS.hideRxpTornadoPins
+            self:RefreshRXPFilter(true)
         end))
         root:CreateButton(T("menu.settings"),function() self:HideMarkerMenu(); YUI.YMap:OpenSettings("markers") end)
     end)
@@ -821,6 +928,21 @@ local function RegisterRuntimeEvents()
         moduleId = "product:ymap:markers",
         traceName = "MapEnhancement:professions",
     })
+    Event:On("ADDON_LOADED", function(_, name)
+        if name ~= RXP_ADDON then return end
+        MapEnhancement:RefreshRXPFilter(false)
+        if MapEnhancement.RefreshCurrentModule then MapEnhancement:RefreshCurrentModule() end
+    end, runtime.eventOwner, {
+        moduleId = "product:ymap:markers",
+        traceName = "MapEnhancement:rxp-load",
+    })
+    Event:On("PLAYER_ENTERING_WORLD", function()
+        MapEnhancement:RefreshRXPFilter(true)
+        if MapEnhancement.RefreshCurrentModule then MapEnhancement:RefreshCurrentModule() end
+    end, runtime.eventOwner, {
+        moduleId = "product:ymap:markers",
+        traceName = "MapEnhancement:rxp-world",
+    })
     Event:On("PLAYER_REGEN_ENABLED", function()
         if not runtime.pendingCombatRefresh then return end
         runtime.pendingCombatRefresh = false
@@ -898,6 +1020,11 @@ local function SetEnabled(enabled)
         EnsureMap()
         UpdateQuickFilterButton()
     else
+        local rxp = GetRXPAddon()
+        if rxp then
+            ApplyRXPTornadoFilter(rxp, false)
+            if _G.WorldMapFrame then rxp:UpdateMap(true) end
+        end
         if Event and Event.OffOwner then
             Event:OffOwner(runtime.addonOwner)
             Event:OffOwner(runtime.eventOwner)
@@ -913,6 +1040,7 @@ function MapEnhancement:Enable()
     self:ForgetFlightNegatives() -- 启用前可能在插件未运行时学会了新航点。
     runtime.normalizedConfig = nil
     SetEnabled(true)
+    self:RefreshRXPFilter(true)
 end
 
 function MapEnhancement:Disable()
@@ -1064,6 +1192,26 @@ function MapEnhancement:GetOptions()
         }
         options[#options + 1] = row
     end
+    if MapEnhancement:IsRXPCompatibilityAvailable() then
+        options[#options + 1] = {
+            type = "row",
+            markerCategory = "rxp",
+            gap = 14,
+            children = {
+                {
+                    type = "checkbox",
+                    label = T("settings.rxp_tornado_filter", "RXP Tornado Filter"),
+                    width = 190,
+                    default = true,
+                    get = function() return config.hideRxpTornadoPins ~= false end,
+                    set = function(value) config.hideRxpTornadoPins = value == true end,
+                    onChange = function() MapEnhancement:RefreshRXPFilter(true) end,
+                    tooltip = T("settings.rxp_tornado_filter_tooltip",
+                        "Hide the fixed tornado spawn pins from the RestedXP Skyborne guide."),
+                },
+            },
+        }
+    end
     options[#options + 1] = {
         type = "row",
         children = {
@@ -1073,6 +1221,7 @@ function MapEnhancement:GetOptions()
                 width = 130,
                 onClick = function()
                     MapEnhancement:ResetCategories(config)
+                    MapEnhancement:RefreshRXPFilter(true)
                     Refresh()
                     if self.RefreshCurrentModule then self:RefreshCurrentModule() end
                 end,

@@ -4,9 +4,12 @@
 ## Notes: WoW: Forever helper - talent planner, leveling plan, loot table and wishlist, Tier 1 sets, macros, news, change tooltips, beta data
 ## Notes-zhCN: 《无限》助手：天赋模拟 · 升级规划 · 掉落表与心愿单 · T1 套装 · 宏库 · 资讯 · 改动提示 · 公测数据
 ## Author: GearInsight
-## Version: 0.5.11
+## Version: 0.7.4
 ## SavedVariables: GearInsightForeverDB
 ## IconTexture: Interface\Icons\inv_misc_map_01
+## AddonCompartmentFunc: GearInsightForever_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: GearInsightForever_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: GearInsightForever_OnAddonCompartmentLeave
 
 # Interface 16001 = 国服 Beta 实测（10-07 /dump select(4, GetBuildInfo())）；11507 留着兼容
 
@@ -29,6 +32,7 @@ Stats.lua
 LevelShare.lua
 LevelMute.lua
 GuildChatLevel.lua
+PvPShout.lua
 Card.lua
 Pack.lua
 UI.lua
@@ -49,6 +53,7 @@ ProfRecipes.lua
 PageProf.lua
 ProfSeen.lua
 Obs.lua
+ObsPet.lua
 TrainerData.lua
 Trainers.lua
 PageLoot.lua
@@ -58,6 +63,9 @@ NewsData.lua
 PageNews.lua
 PetData.lua
 PagePet.lua
+PetTameData.lua
+PetTameObsData.lua
+PetTame.lua
 PageAdvanced.lua
 Supporters.lua
 Offsite.lua
@@ -77,3 +85,6 @@ KeysProbe.lua
 Perf.lua
 Board.lua
 PageBoard.lua
+InviteMenu.lua
+BisCorner.lua
+# 10-28 位面（HOLD）：A 公会位面 + B 换到最优层 + 开服探针 /gi layerprobe（设计稿 docs/forever-layering-addon-design-1028.md）

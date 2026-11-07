@@ -36,3 +36,8 @@ YUI.YHUD.Client = {
         ["WARRIOR:1491"] = { "WARRIOR:11650", "WARRIOR:11657", "WARRIOR:11670" },
     },
 }
+
+-- Righteousness seals use a distinct buff ID for every rank.
+YUI.YHUD.FOREVER_RIGHTEOUSNESS_SEAL_SPELL_IDS = {
+    20154, 20287, 20288, 20289, 20290, 20291, 20292, 20293,
+}

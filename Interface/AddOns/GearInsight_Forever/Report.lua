@@ -84,7 +84,7 @@ local function readTalents()
     local c, total = nil, nil
     if ns.CurrentTalentCode then c, total = try(ns.CurrentTalentCode) end
     if type(c) == "string" then
-        local a, b, d = c:match("^GIF1%.[%a]+%.([%d]*)%-([%d]*)%-([%d]*)$")
+        local a, b, d = c:match("^GIF2%.[%a]+%.([%d]*)%-([%d]*)%-([%d]*)$")
         if a then
             for i, seg in ipairs({ a, b, d }) do
                 local s = 0

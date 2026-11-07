@@ -1596,7 +1596,7 @@ local function RenderMarkerCategories(parent, x, y, width, options)
             end
             local checkbox = GUI2.Form:CreateCheckbox(panel, {
                 width = 18, height = 26, get = visible.get, set = visible.set,
-                tooltip = visible.label,
+                tooltip = visible.tooltip or visible.label,
                 onChange = function()
                     if visible.onChange then visible.onChange() end
                     UpdateRow()

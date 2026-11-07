@@ -23,7 +23,7 @@ YChat.Defaults = {
     itemLinks = { enabled = false, cropIcons = true },
     messageFilter = {
         enabled = true,
-        prefixes = { "[GearInsight 无限版]", "白云飞整合插件任务指南" },
+        prefixes = { "[GearInsight 无限版]", "白云飞整合插件任务指南", "[GearInsight插件]" },
     },
     channelInput = {
         nameStyle = "native",

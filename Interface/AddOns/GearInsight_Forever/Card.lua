@@ -1,6 +1,6 @@
 -- 游戏里出二维码 → 微信扫 → 小程序（协议：docs/forever-addon-link-protocol.md）
 --   （11-05 战绩卡 + 报到 /fv/c 已下线）
---   当前配点：     https://gearinsight.cn/fv/t?c=GIF1.<职业>.<a>-<b>-<c>
+--   当前配点：     https://gearinsight.cn/fv/t?c=GIF2.<职业>.<a>-<b>-<c>
 -- 小程序后台「扫普通链接二维码打开小程序」把 https://gearinsight.cn/fv/ 开头的链接接到 pages/forever/card；
 -- 没配规则 / 用别的扫码软件时打开同一个网址 = 网站落地页（也能看战绩卡、再扫小程序码）。
 -- ⛔ 只带随机 uid / cid，不带角色名 / 服务器名；插件不联网，二维码就是唯一出口。
@@ -71,7 +71,7 @@ function ns.CurrentTalentCode()
         end
         parts[ti] = table.concat(s)
     end
-    return "GIF1." .. cls .. "." .. table.concat(parts, "-"), total
+    return "GIF2." .. cls .. "." .. table.concat(parts, "-"), total
 end
 
 function ns.ShowTalentQR()
@@ -89,7 +89,7 @@ function ns.ShowPopBuilds()
     local cls = classKey()
     local list = ns.Pack and ns.Pack.pop and ns.Pack.pop[cls]
     if not list or #list == 0 then
-        ns.Print(ns.L("还没有热门配点数据：装 GearInsight 更新器后每天自动更新", "No popular builds yet (the GearInsight updater refreshes them daily)"))
+        ns.Print(ns.L("还没有热门配点数据，稍后自动更新", "No popular builds yet - they update automatically"))
         return
     end
     if not popFrame then

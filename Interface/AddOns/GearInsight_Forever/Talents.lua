@@ -1,4 +1,6 @@
--- 配点码导入：GIF1.<职业>.<树1>-<树2>-<树3>，每位数字 = 该树第 i 个天赋的点数
+-- 配点码导入：GIF2.<职业>.<树1>-<树2>-<树3>，每位数字 = 该树第 i 个天赋的点数
+-- ⛔ 11-05 GI-187：开服时天赋树大改（数据按开服客户端 70790 的 Trait 表重做），三端约定新树用 GIF2；
+--   GIF1 = 开服前的树，同一串数字在新树上是另一套配点 → 一律提示「开服前的配点码」不套用；存档里旧树的计划（没有 v=2）自动作废
 -- 天赋顺序 = Data.lua 里的顺序 = 小程序 / 网站模拟器的顺序（⛔Data.lua 生成时别排序）
 -- 游戏里按「行 + 列」对上天赋（名字只用来核对），从最上面的行开始一点一点学
 local _, ns = ...
@@ -19,8 +21,12 @@ end
 -- 解析配点码 → { cls=, pts={ {..}, {..}, {..} } } 或 nil, 原因
 function ns.ParseTalentCode(code)
     code = tostring(code or ""):gsub("%s+", "")
-    local cls, body = code:match("^GIF1%.(%a+)%.(.+)$")
-    if not cls then return nil, ns.L("不是配点码（应以 GIF1. 开头）", "Not a build code (should start with GIF1.)") end
+    if code:match("^GIF1%.") then
+        return nil, ns.L("这是开服前的配点码，天赋树已经改了，请到小程序或网站重新生成（GIF2 开头）",
+            "This is a pre-launch build code and the talent trees have changed; make a new one (starts with GIF2)")
+    end
+    local cls, body = code:match("^GIF2%.(%a+)%.(.+)$")
+    if not cls then return nil, ns.L("不是配点码（应以 GIF2. 开头）", "Not a build code (should start with GIF2.)") end
     local trees = ns.Data.talents[cls]
     if not trees then return nil, ns.L("不认识的职业：", "Unknown class: ") .. cls end
     local parts = {}
@@ -37,7 +43,7 @@ function ns.ParseTalentCode(code)
         end
     end
     if total > 51 then return nil, ns.L("点数超过 51", "More than 51 points") end
-    return { cls = cls, pts = pts, total = total }
+    return { cls = cls, pts = pts, total = total, v = 2 }
 end
 
 -- 游戏里的天赋格：按 行:列 建索引
@@ -101,7 +107,14 @@ end
 -- baseLevel 可选：升级规划页「锁定当前等级」时传进来的冻结基准，不传就用玩家实时等级
 -- （和 avail 标『现在就能点』用同一把尺子，锁定后不会因为你中途升级而改口）
 -- 现在用哪套计划：自己导入的（且是本职业）优先，否则本职业的默认升级加点（DefaultBuilds.lua）
+-- 存档里开服前（旧树）导入的计划：作废（同一组点数在新树上是另一套配点）
+local function dropOldPlan()
+    local p = ns.db and ns.db.talentPlan
+    if p and p.v ~= 2 then ns.db.talentPlan = nil end
+end
+ns.DropOldTalentPlan = dropOldPlan
 function ns.ActivePlan()
+    dropOldPlan()
     local plan = ns.db.talentPlan
     if plan and plan.cls == classKey() then return plan end
     return ns.DefaultPlan and ns.DefaultPlan(classKey()) or nil
@@ -178,6 +191,7 @@ end
 
 local panel
 local function updatePanel()
+    dropOldPlan()
     if not panel or not panel:IsShown() or not ns.db.talentPlan then return end
     local plan = ns.db.talentPlan
     local unspent = (UnitCharacterPoints and UnitCharacterPoints("player")) or 0
@@ -281,8 +295,8 @@ end
 
 function ns.ImportTalentDialog()
     ns.ShowBox(ns.L("导入配点码", "Import talent build"),
-        ns.L("在网站或小程序「无限 · 天赋模拟」里复制 GIF1 开头的码，粘到这里",
-            "Copy a GIF1 build code from the GearInsight site or mini program and paste it here"),
+        ns.L("在网站或小程序「无限 · 天赋模拟」里复制 GIF2 开头的码，粘到这里",
+            "Copy a GIF2 build code from the GearInsight site or mini program and paste it here"),
         "", ns.ApplyTalentCode, ns.L("导入", "Import"))
 end
 

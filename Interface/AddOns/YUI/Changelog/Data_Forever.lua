@@ -1,6 +1,46 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v354|forever|fc2a704eab7aaa2f2c66e6ee93a65b2d3998f7fc73c2d2f83dc7f6d61cf7274d
+    {
+        version = "v354",
+        date = "2026-11-06",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增 RXP 龙卷风图钉过滤，加载 RXPGuides 时默认开启。",
+                "补全无限服正义圣印 1–8 级监控，并保留已有的自定义图标和条目。",
+                "优化新版 EllesmereUI 自定义任务追踪器和自动交接入口的兼容性。",
+                "优化无限服训练提示，识别任务奖励技能并显示超出十项的技能数量。",
+                "修复目标光环结束时监控可能报错的问题。",
+            },
+            enUS = {
+                "Added an RXP tornado pin filter, enabled by default when RXPGuides is loaded.",
+                "Added complete rank 1–8 Seal of Righteousness monitoring on Forever while preserving existing custom icons and entries.",
+                "Improved compatibility with the newer EllesmereUI custom quest tracker and auto-handoff controls.",
+                "Improved Forever training tooltips to recognize quest-reward spells and indicate how many additional skills are hidden beyond ten.",
+                "Fixed possible monitor errors when a target aura expires.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v353|forever|6e166a170320ff29361f3c9ca62903b5b93a1649e7795ee243a6398a5aacfdcf
+    {
+        version = "v353",
+        date = "2026-11-06",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "优化默认聊天屏蔽词，并保留自定义过滤配置。",
+                "修复任务分组折叠及 EllesmereUI 解锁模式下的任务追踪滚动异常。",
+                "修复动作条使用状态黑块与按压短闪。",
+            },
+            enUS = {
+                "Improved the default chat-blocking word list and preserved custom filter settings.",
+                "Fixed quest tracker scrolling when quest groups are collapsed or EllesmereUI unlock mode is active.",
+                "Fixed dark blocks on the active-action indicator and brief dark flashes on key presses.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v352|forever|4430f2fc89240cf888e5d5c5492da0b5e5e5a8dd616705919832cc575531bdcf
     {
         version = "v352",
@@ -258,48 +298,6 @@ CL:Register("suite", {
                 "Fixed lingering activation glows on monitor icons.",
                 "Fixed monitors failing to hide as configured when cooldowns finish.",
                 "Fixed cast monitoring incorrectly treating channels as interrupted by subsequent key presses.",
-            },
-        },
-    },
--- YUI-Notes-Record: v344|forever|c787336ae24ef3ef88a7b7c6623e605dd36fcd9d5cffc261059720d3b1d83631
-    {
-        version = "v344",
-        date = "2026-10-16",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增无限服 EllesmereUI 美化支持，适配相关窗口与字体。",
-                "监控台新增发光外观保存、复用与复制粘贴，优化编辑预览。",
-                "施法条支持图标内外放置与四种计时格式。",
-                "优化监控台方案管理，新增独立的全局设置面板。",
-                "自动对话支持按住暂停或按住启用，并可选择控制按键。",
-                "耐久条支持五键坐骑绑定和随机偏好召唤。",
-                "修复监控台资源条初始化与锚点定位问题。",
-                "圆环监控暂时关闭自定义发光，保留原有配置。",
-            },
-            enUS = {
-                "Added EllesmereUI enhancement support for Forever, including window and font adaptations.",
-                "Added reusable glow appearance presets and copy/paste, with improved editing previews.",
-                "Added internal/external cast-bar icons and four time formats.",
-                "Improved monitor profile management and added a separate global settings panel.",
-                "Added hold-to-pause and hold-to-enable controls for automatic dialogue, with a selectable modifier key.",
-                "Added five-button mount bindings and random favorite mounts.",
-                "Fixed monitor resource initialization and anchoring.",
-                "Temporarily disabled custom glows for ring monitors while preserving saved settings.",
-            },
-        },
-    },
--- YUI-Notes-Record: v343|forever|3aa4fde2ccd1a242b15ca87c4aa4c460a4d3279fee6cc4e1c324517c8daa3e74
-    {
-        version = "v343",
-        date = "2026-10-15",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "修复旧配置升级、复制和导入时的个人方案保留与失败恢复问题。",
-            },
-            enUS = {
-                "Fixed personal configuration preservation and recovery during legacy upgrades, profile copying and imports.",
             },
         },
     },
