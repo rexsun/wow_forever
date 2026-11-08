@@ -13,6 +13,7 @@ local FEATURES = {
   ClassicTalents = "_ClassicTalents",
   MapTravel = "_MapTravel",
   ThreatMeter = "_ThreatMeter",
+  ZoneLevels = "_ZoneLevels",
 }
 
 local function Feature(key)

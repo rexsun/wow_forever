@@ -66,6 +66,11 @@ OSG.policy = {
     label = "GearInsight: Guild chat level prefix", when = { "GearInsight_Forever", "YUI" },
     reason = "YUI owns chat; GearInsight must not rewrite guild and officer messages.",
   },
+  {
+    id = "yui.flightmarkers", adapter = "YUI", key = "FlightMarkers",
+    label = "YUI: World map flight-point markers", when = { "YUI", "MapUtils" },
+    reason = "MapUtils owns flight-point pins and greys out undiscovered ones; YUI's other map markers stay on.",
+  },
 }
 
 local foreverEssentials = {
@@ -77,6 +82,7 @@ local foreverEssentials = {
   { id = "classictalents", key = "ClassicTalents", owner = "YUI", label = "Classic talents", reason = "YUI owns the spellbook and talent window handling; GearInsight plans talents." },
   { id = "maptravel", key = "MapTravel", owner = "YUI", label = "World map travel markers", reason = "YUI's map markers already show portals, transports and points of interest." },
   { id = "threatmeter", key = "ThreatMeter", owner = "Details_TinyThreat", label = "Threat meter", reason = "Details owns threat display through Details_TinyThreat." },
+  { id = "zonelevels", key = "ZoneLevels", owner = "MapUtils", label = "World map zone levels and fishing skill", reason = "MapUtils owns zone level and fishing skill labels on the world map." },
 }
 
 for _, setting in ipairs(foreverEssentials) do
@@ -84,6 +90,23 @@ for _, setting in ipairs(foreverEssentials) do
     id = "euife." .. setting.id, adapter = "ForeverEssentials", key = setting.key,
     label = "EllesmereUI Forever Essentials: " .. setting.label, reason = setting.reason,
     when = { "EllesmereUIForeverEssentials", setting.owner },
+  }
+end
+
+local mapUtilsSettings = {
+  { id = "worldmapmove", key = "WorldMapMove", label = "World map moving", reason = "YUI owns the world map position." },
+  { id = "worldmapscale", key = "WorldMapScale", label = "World map scaling", reason = "YUI owns the world map scale." },
+  { id = "worldmapfade", key = "WorldMapFade", label = "World map fade while moving", reason = "YUI owns world map fading while moving." },
+  { id = "mapreveal", key = "MapReveal", label = "Unexplored area reveal", reason = "YUI owns the world map and reveals unexplored areas." },
+  { id = "pierpins", key = "PierPins", label = "World map pier, zeppelin and tram pins", reason = "YUI's map markers already show docks, zeppelin towers and the tram." },
+}
+
+-- Early, because MapUtils applies its map window and fade settings at PLAYER_LOGIN.
+for _, setting in ipairs(mapUtilsSettings) do
+  OSG.policy[#OSG.policy + 1] = {
+    id = "mu." .. setting.id, adapter = "MapUtils", key = setting.key,
+    label = "MapUtils: " .. setting.label, reason = setting.reason,
+    when = { "MapUtils", "YUI" }, early = true, needsReload = true,
   }
 end
 

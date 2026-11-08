@@ -24,6 +24,7 @@ local FORMS = {
   cat = { "energy", "comboPoints", "mana" }, bear = { "rage", "mana" },
 }
 local pendingRefresh = {}
+local FLIGHT_MARKER = "travel.flight"
 local PLAYER_RESOURCES = { PlayerHealth = { "health" }, PlayerCast = { "cast" } }
 
 local function LiveProfile()
@@ -238,12 +239,65 @@ local function RevertChatFilter()
   return true, false, names
 end
 
+local function MarkerState()
+  local live, problem = LiveProfile()
+  if not live then return nil, problem end
+  local markers = type(_G.YUI.YMap) == "table" and _G.YUI.YMap.Markers
+  if not (type(markers) == "table" and type(markers.GetConfig) == "function") then
+    return nil, "YUI map marker API is unavailable"
+  end
+  local active = markers:GetConfig()
+  if not (type(active) == "table" and type(active.serviceFilters) == "table") then
+    return nil, "YUI map marker schema is unavailable"
+  end
+  local stored = {}
+  for _, profile in ipairs(Profiles(live)) do
+    local config = type(profile.store.YMap) == "table" and profile.store.YMap.markers
+    if type(config) == "table" and config ~= active then
+      stored[#stored + 1] = { name = profile.name, config = config }
+    end
+  end
+  return { active = active, stored = stored }
+end
+
+local function FlightMarkerOn(config)
+  return type(config.serviceFilters) ~= "table" or config.serviceFilters[FLIGHT_MARKER] ~= false
+end
+
+local function ReadFlightMarkers()
+  local state, problem = MarkerState()
+  if not state then return nil, problem end
+  if FlightMarkerOn(state.active) then return true end
+  for _, profile in ipairs(state.stored) do
+    if FlightMarkerOn(profile.config) then return true end
+  end
+  return false
+end
+
+-- YUI's marker provider rereads the filters each time the map opens or changes.
+local function RevertFlightMarkers()
+  local state, problem = MarkerState()
+  if not state then return false, problem end
+  local names = {}
+  state.active.serviceFilters[FLIGHT_MARKER] = false
+  for _, profile in ipairs(state.stored) do
+    if FlightMarkerOn(profile.config) then
+      Ensure(profile.config, "serviceFilters")[FLIGHT_MARKER] = false
+      if profile.name ~= "active profile" then names[#names + 1] = profile.name end
+    end
+  end
+  table.sort(names)
+  return true, false, names
+end
+
 function adapter.Knows(key)
-  return UTILITY[key] ~= nil or key == "Resources" or PLAYER_RESOURCES[key] ~= nil or key == "ChatKeywordFilter"
+  return UTILITY[key] ~= nil or key == "Resources" or PLAYER_RESOURCES[key] ~= nil
+    or key == "ChatKeywordFilter" or key == "FlightMarkers"
 end
 
 function adapter.Read(key)
   if key == "ChatKeywordFilter" then return ReadChatFilter() end
+  if key == "FlightMarkers" then return ReadFlightMarkers() end
   if key == "Resources" or PLAYER_RESOURCES[key] then
     local state, problem = ResourceState()
     if not state then return nil, problem end
@@ -266,6 +320,7 @@ end
 
 function adapter.Revert(key)
   if key == "ChatKeywordFilter" then return RevertChatFilter() end
+  if key == "FlightMarkers" then return RevertFlightMarkers() end
   if key == "Resources" or PLAYER_RESOURCES[key] then
     local state, problem = ResourceState()
     if not state then return false, problem end

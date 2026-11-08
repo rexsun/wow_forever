@@ -1,3 +1,13 @@
+## [MapUtils 1.4.25 / OverlapSettingsGuard 0.10.0] - 2026-11-08
+### Features
+- Install MapUtils for undiscovered flight points, zone crossings, fishing-skill and zone-level labels, and dungeon maps with boss pins.
+- Add seven guard rules that split world map ownership between YUI and MapUtils and keep Forever Essentials Zone Levels off.
+### Design Rationale
+- YUI keeps the map window and static transport markers it already manages. MapUtils owns flight points because YUI shows an unconfirmed point as a normal pin.
+- MapUtils publishes no API, so the guard writes its saved table before login, when no reload is needed.
+### Notes & Caveats
+- MapUtils' One Map zoom, guild position sharing and hidden timetable channel are on by default and left on. Boss pins depend on the client lacking native art for those instances. Unverified in game and at the three supported resolutions.
+
 ## [Addon update / OverlapSettingsGuard 0.9.1] - 2026-11-07
 ### Features
 - Update YUI v354, GearInsight Forever 0.7.4, EllesmereUI 9.8, Details 15402.172, Auctionator 342 and !BugGrabber v12.1.1.

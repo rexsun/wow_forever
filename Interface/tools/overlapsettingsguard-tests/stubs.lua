@@ -40,6 +40,8 @@ function Stubs.Fresh(root, options)
   _G.LibStub = nil
   _G.YUI, _G.YUI_DB = nil, nil
   _G.Skinner, _G.SkinnerDB = nil, nil
+  _G.MAUTTAB = nil
+  _G.IsLoggedIn = function() return world.loggedIn == true end
   _G.EllesmereUIDB, _G._ENP_RefreshAllSettings, _G.EllesmereUI = nil, nil, nil
   _G.C_AddOns = {
     IsAddOnLoaded = function(name) return loaded[name] == true, loaded[name] == true end,
@@ -99,6 +101,7 @@ function Stubs.Fresh(root, options)
     world.RunTimers()
   end
   function world.Fire(event)
+    if event == "PLAYER_LOGIN" then world.loggedIn = true end
     for _, frame in ipairs(world.frames) do
       if frame.events[event] then frame:Fire("OnEvent", event) end
     end

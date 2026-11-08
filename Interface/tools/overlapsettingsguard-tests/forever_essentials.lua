@@ -8,11 +8,13 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     { id = "euife.classictalents", key = "ClassicTalents", api = "_ClassicTalents" },
     { id = "euife.maptravel", key = "MapTravel", api = "_MapTravel" },
     { id = "euife.threatmeter", key = "ThreatMeter", api = "_ThreatMeter" },
+    { id = "euife.zonelevels", key = "ZoneLevels", api = "_ZoneLevels" },
   }
 
   local function Loaded()
     local loaded = CurrentLoaded()
     loaded.EllesmereUIForeverEssentials, loaded.Details, loaded.Details_TinyThreat = true, true, true
+    loaded.MapUtils = true
     return loaded
   end
 
@@ -91,7 +93,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
 
   test("Forever Essentials rules are inactive without their owners and leave fishing alone", function()
     local loaded = Loaded()
-    loaded.YUI, loaded.Details_TinyThreat = nil, nil
+    loaded.YUI, loaded.Details_TinyThreat, loaded.MapUtils = nil, nil, nil
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded })
     BuildFE(w)
     for _, f in ipairs(FEATURES) do Enable(f) end

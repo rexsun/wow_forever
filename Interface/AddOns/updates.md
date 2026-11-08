@@ -2,6 +2,16 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-08 - Install MapUtils 1.4.25 (OverlapSettingsGuard 0.10.0)
+
+- Install `MapUtils` 1.4.25 by D4KiR from CurseForge ([file 9494803](https://www.curseforge.com/wow/addons/maputils/files/9494803)); `MapUtils_Camelot.toc` lists Interface 16001 and the installed files are byte-identical to the release. It is enabled in all 15 character addon lists. Chosen over BetterMaps 1.28.0 because it ships 224 boss pins (BetterMaps ships 32 positions, 31 of them rough, and learns the rest from kills) and adds pins to the existing map.
+- Guard: seven new rules, 40 in total. `mu.worldmapmove`, `mu.worldmapscale`, `mu.worldmapfade`, `mu.mapreveal` and `mu.pierpins` keep the competing MapUtils settings off while YUI loads. `yui.flightmarkers` keeps YUI's flight-point marker off, so MapUtils' discovered/undiscovered pins are the only ones. `euife.zonelevels` keeps Forever Essentials Zone Levels off. New `Adapters/MapUtils.lua` writes `MAUTTAB`, because MapUtils publishes no API; its rules run before `PLAYER_LOGIN`.
+- Overlap review, no rule needed: moving transports, minimap piers, dungeon entrances, meeting stones, zone crossings, quest-giver pins and gathering icons have no installed counterpart. One Map (stepless zoom, on by default) changes how the world map zooms, but YUI has no equivalent. MapUtils yields its window control to YUI by itself once YUI has made the map movable or scaled it (saved YUI scale 1.4).
+- Defaults left on and worth knowing: MapUtils shares your map position with your guild (at most every 5 seconds while moving, never in instances) and joins a hidden `MapUtils` chat channel, using guild and group messages too, to exchange transport timetables. Switch these off in `/maputils`.
+- Caveats: MapUtils uses its own dungeon maps and boss pins only if the client has no native art for those instances; confirm "Show boss pins" appears in `/maputils`. Undiscovered flight points need each character to open a flight master before they are confirmed. Neither fishing pool locations nor zone-crossing coverage were checked in game. Nothing was run in game, including appearance at 1080p, 1440p and 4K.
+- Backup: `addon-backups/maputils-install-20261108` holds the 15 edited character addon lists.
+- Verification: 65 guard tests pass, 9 of them new.
+
 ## 2026-11-07 - Update six addon packages (OverlapSettingsGuard 0.9.1)
 
 - Update YUI v352 to v354, GearInsight Forever 0.5.11 to 0.7.4 (beta channel, like earlier versions), EllesmereUI suite 9.7.6 to 9.8 (installed modules only), Details 15400.172 to 15402.172 (the six installed folders), Auctionator 341 to 342 and !BugGrabber v12.1.0 to v12.1.1. Every TOC still lists Interface 16001. Skinner, Waypoint UI, Bagnon and LootRollMover were already current. Details' newer `-1`/`-2` alpha builds and the uninstalled EUI modules, `Details_Streamer` and `Details_Vanguard` are not installed.
