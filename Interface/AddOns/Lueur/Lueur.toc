@@ -1,0 +1,27 @@
+## Interface: 11509, 16001
+## Title: Lueur
+## Notes: Makes ore veins, herbs, quest objects and chests glow as you approach them, with a choice of light effects, and shows herbs and veins on the minimap as their own icons (uses Blizzard's soft targeting).
+## Notes-frFR: Fait briller les filons, les plantes, les objets de quête et les coffres à ton approche, avec plusieurs effets de lumière au choix, et montre plantes et filons sur la minimap par leur icône (via le soft targeting de Blizzard).
+## Notes-deDE: Lässt Erzadern, Kräuter, Questobjekte und Truhen aufleuchten, wenn du dich ihnen näherst, mit mehreren Lichteffekten zur Auswahl, und zeigt Kräuter und Erze auf der Minikarte mit ihrem eigenen Symbol (nutzt Blizzards Soft-Targeting).
+## Notes-esES: Hace brillar los filones, las hierbas, los objetos de misión y los cofres cuando te acercas, con varios efectos de luz a elegir, y muestra hierbas y filones en el minimapa con su propio icono (usa el soft targeting de Blizzard).
+## Notes-esMX: Hace brillar los filones, las hierbas, los objetos de misión y los cofres cuando te acercas, con varios efectos de luz a elegir, y muestra hierbas y filones en el minimapa con su propio icono (usa el soft targeting de Blizzard).
+## Notes-ruRU: Подсвечивает рудные жилы, травы, квестовые объекты и сундуки при приближении к ним, с выбором световых эффектов, и показывает травы и жилы на миникарте их собственными иконками (использует soft targeting от Blizzard).
+## Version: 1.5.0
+## IconTexture: Interface\AddOns\Lueur\Media\icon.tga
+## AddonCompartmentFunc: Lueur_OnAddonCompartmentClick
+## SavedVariables: LueurDB
+## SavedVariablesPerCharacter: LueurCharDB
+
+Locales\Locales.lua
+Locales\enUS.lua
+Locales\frFR.lua
+Locales\deDE.lua
+Locales\esES.lua
+Locales\ruRU.lua
+Effects.lua
+Lueur.lua
+Nodes.lua
+NodeScan.lua
+Skin.lua
+Menu.lua
+Preview.lua

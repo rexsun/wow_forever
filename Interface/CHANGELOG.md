@@ -1,3 +1,13 @@
+## [GatherLite 8.4.3 / Lueur 1.5.0 / OverlapSettingsGuard 0.11.0] - 2026-11-09
+### Features
+- Install GatherLite for known gathering locations, fish areas and zone routes, and Lueur for an in-world glow on the object you would interact with.
+- Add two guard rules that keep Lueur's minimap herb and ore markers off while MapUtils loads.
+### Design Rationale
+- MapUtils stays the owner of markers for tracked nodes because Lueur draws the same nodes and each of its scans briefly hides the minimap. GatherLite's markers show possible spawn locations, a different kind of information, so they stay on.
+- Lueur publishes no API, so the guard writes its saved table before login, when no reload is needed.
+### Notes & Caveats
+- GatherLite broadcasts its version every 10 seconds and loads about 12 MB of route data at login. Lueur keeps soft-target interact on until logout and shares a CVar with EUI Fishing Key. Unverified in game and at the three supported resolutions.
+
 ## [MapUtils 1.4.25 / OverlapSettingsGuard 0.10.0] - 2026-11-08
 ### Features
 - Install MapUtils for undiscovered flight points, zone crossings, fishing-skill and zone-level labels, and dungeon maps with boss pins.

@@ -2,6 +2,16 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-09 - Install GatherLite 8.4.3 and Lueur 1.5.0 (OverlapSettingsGuard 0.11.0)
+
+- Install `GatherLite` 8.4.3 by Wuild ([file 9510987](https://www.curseforge.com/wow/addons/gatherlite/files/9510987)) and `Lueur` 1.5.0 by Armytille ([file 9523609](https://www.curseforge.com/wow/addons/lueur/files/9523609)) from CurseForge. Both TOCs list Interface 16001, the installed files are byte-identical to the releases, and both are enabled in all 15 character addon lists. DungeonsForever was reviewed and not adopted: it overlaps GearInsight, MapUtils and YUI's spellbook and talent handling, and loads all seven modules at login by default.
+- Guard: two new rules, 42 in total. `lueur.nodeherbs` and `lueur.nodeore` keep Lueur's minimap markers off while MapUtils loads, using a new `Lueur` adapter.
+- Overlap review, no rule needed: GatherLite's minimap markers show possible spawn locations rather than tracked nodes, so they stay on beside MapUtils'. Its map reveal and zoom apply only to its own window.
+- Defaults left on and worth knowing: GatherLite broadcasts its version number every 10 seconds to guild, group and yell addon channels and loads about 12 MB of route data at login. Lueur keeps soft-target interact on at 15 yards in all directions until logout.
+- Caveats: Lueur shares `SoftTargetInteractRange` with EUI Fishing Key, and its glow attaches to game-object nameplates that EUI Nameplates also handles; check fishing and that the glow appears. GatherLite's compressed route data was not decoded during review.
+- Backup: `addon-backups/gatherlite-lueur-install-20261109` holds the 15 edited character addon lists.
+- Verification: 71 guard tests pass, 6 of them new. Nothing was run in game or checked at the three supported resolutions.
+
 ## 2026-11-09 - Silence other channels in Forever Essentials Fishing Sounds
 
 - Local patch to EllesmereUI Forever Essentials 9.8: while Fishing Sounds is on and you fish, music, ambience and dialog go to 0 and effects and master volume go to 100%, instead of music and ambience × 0.3 and effects at least 80%. The existing CVar hold restores your exact values when you move, enter combat or change zone. `tools/apply_addon_patches.py` reapplies it, now 25 patches.

@@ -110,6 +110,21 @@ for _, setting in ipairs(mapUtilsSettings) do
   }
 end
 
+local lueurSettings = {
+  { id = "nodeherbs", key = "NodeHerbs", label = "Minimap herb markers" },
+  { id = "nodeore", key = "NodeOre", label = "Minimap ore markers" },
+}
+
+-- Early, because Lueur starts its minimap scan at PLAYER_LOGIN.
+for _, setting in ipairs(lueurSettings) do
+  OSG.policy[#OSG.policy + 1] = {
+    id = "lueur." .. setting.id, adapter = "Lueur", key = setting.key,
+    label = "Lueur: " .. setting.label,
+    reason = "MapUtils owns markers for tracked gathering nodes on the minimap; Lueur's in-world glow stays on.",
+    when = { "Lueur", "MapUtils" }, early = true, needsReload = true,
+  }
+end
+
 local skinnerSettings = {
   { key = "unitframes", namespace = "UnitFrames", fields = { "player", "target", "focus", "pet", "petlvl", "arena" }, owner = "EllesmereUIUnitFrames", label = "Individual unit frames", reason = "EllesmereUI owns individual unit frames." },
   { key = "partyframes", namespace = "UnitFrames", fields = { "party" }, owner = "EllesmereUIRaidFrames", label = "Party unit frames", reason = "EllesmereUI owns party frames." },
