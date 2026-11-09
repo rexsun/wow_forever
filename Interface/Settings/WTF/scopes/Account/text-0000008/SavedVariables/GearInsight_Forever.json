@@ -20,6 +20,14 @@
               "$table": [
                 {
                   "key": {
+                    "$text": "text-0000413"
+                  },
+                  "value": {
+                    "$number": "number-0000976"
+                  }
+                },
+                {
+                  "key": {
                     "$text": "text-0001104"
                   },
                   "value": {
