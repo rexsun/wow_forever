@@ -3,7 +3,6 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     { id = "mu.worldmapmove", field = "WORLDMAPMOVE" },
     { id = "mu.worldmapscale", field = "WORLDMAPSCALE" },
     { id = "mu.worldmapfade", field = "WORLDMAPFADE" },
-    { id = "mu.mapreveal", field = "REVEALMAP" },
     { id = "mu.pierpins", field = "WORLDMAPPINS" },
   }
   local FLIGHT = "travel.flight"
@@ -37,6 +36,20 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     return live, other, noMarkers
   end
 
+  local function BuildRevealYUI(activeEnabled)
+    local live = { YMap = { worldMap = { reveal = { enabled = activeEnabled, tint = true } } } }
+    local other = { YMap = { worldMap = { reveal = { enabled = true, tint = false } } } }
+    local noReveal = { YMap = { worldMap = {} } }
+    local empty = { YMap = {} }
+    local reveal = { disabled = 0 }
+    function reveal:Disable() self.disabled = self.disabled + 1 end
+    local map = { MapReveal = reveal, Markers = { GetConfig = function() return { serviceFilters = {} } end } }
+    function map:GetDB() return live.YMap end
+    YUI = { DB = { GetProfile = function() return live end }, YMap = map }
+    YUI_DB = { profiles = { Default = live, Other = other, NoReveal = noReveal, Empty = empty } }
+    return live, other, noReveal, empty, reveal
+  end
+
   test("MapUtils rules need both addons and are applied before login", function()
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded() })
     local ids = {}
@@ -49,7 +62,62 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
       eq(rule.early, true, setting.id .. " runs before login")
     end
     eq(ids["yui.flightmarkers"].when[2], "MapUtils")
+    eq(ids["yui.mapreveal"].when[2], "MapUtils")
     eq(ids["euife.zonelevels"].when[2], "MapUtils")
+    eq(ids["mu.mapreveal"], nil, "MapUtils keeps its reveal")
+  end)
+
+  test("MapUtils is the only reveal that can draw under One Map", function()
+    local addons = ADDON_ROOT .. "../"
+    local detail = ReadFile(addons .. "MapUtils/zonedetail.lua")
+    ok(detail:find('EnumeratePinsByTemplate("MapExplorationPinTemplate")', 1, true), "One Map hides the exploration pin")
+    ok(detail:find("pin:SetShown(not hide)", 1, true), "One Map toggles the exploration pin")
+    ok(detail:find("MapUtils:GetRevealTint(mapID)", 1, true), "One Map art asks for the reveal tint")
+    local reveal = ReadFile(addons .. "MapUtils/reveal.lua")
+    ok(reveal:find('MAUTTAB["REVEALMAP"] == false', 1, true), "MapUtils reads its reveal switch")
+    local yui = ReadFile(addons .. "YUI/Products/YMap/MapReveal.lua")
+    ok(yui:find('TEMPLATE = "MapExplorationPinTemplate"', 1, true), "YUI draws on the exploration pin")
+    ok(yui:find("config.enabled and db.worldMap.enabled", 1, true), "YUI reads its reveal switch")
+    ok(yui:find("function Reveal:Disable()", 1, true), "YUI publishes Disable")
+  end)
+
+  test("YUI reveal is off in every profile and other reveal settings are kept", function()
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded() })
+    local live, other, noReveal, empty, reveal = BuildRevealYUI(true)
+    w.Login()
+    eq(live.YMap.worldMap.reveal.enabled, false)
+    eq(live.YMap.worldMap.reveal.tint, true, "tint kept")
+    eq(other.YMap.worldMap.reveal.enabled, false)
+    eq(other.YMap.worldMap.reveal.tint, false, "stored tint kept")
+    eq(noReveal.YMap.worldMap.reveal.enabled, false, "a missing reveal table reads as on")
+    eq(empty.YMap.worldMap, nil, "profiles without a world map are not created")
+    ok(reveal.disabled > 0, "drawn textures are released at once")
+    ok(ChatContains(w, "Other"), "other profile named in chat")
+    ok(not ChatContains(w, "/reload"), "no reload")
+    eq(StatusOf(w.ns.Check(), "yui.mapreveal"), "off")
+    live.YMap.worldMap.reveal.enabled = true
+    w.Tick()
+    eq(live.YMap.worldMap.reveal.enabled, false, "turning it back on is caught")
+  end)
+
+  test("YUI reveal stays on without MapUtils", function()
+    local loaded = Loaded()
+    loaded.MapUtils = nil
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded })
+    local live, _, _, _, reveal = BuildRevealYUI(true)
+    w.Login()
+    eq(live.YMap.worldMap.reveal.enabled, true)
+    eq(reveal.disabled, 0)
+    eq(StatusOf(w.ns.Check(), "yui.mapreveal"), "inactive")
+  end)
+
+  test("YUI reveal reports a missing API instead of writing", function()
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded() })
+    local live = BuildRevealYUI(true)
+    YUI.YMap.MapReveal = nil
+    w.Login()
+    eq(StatusOf(w.ns.Check(), "yui.mapreveal"), "blocked")
+    eq(live.YMap.worldMap.reveal.enabled, true, "nothing written")
   end)
 
   test("guarded MapUtils keys and YUI's flight filter exist in the installed source", function()
@@ -87,6 +155,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
       "CROSSINGWORLDMAPPINS", "FISHINGLEVELS", "ZONELEVELS" }) do
       eq(saved[key], true, key .. " kept")
     end
+    eq(saved.REVEALMAP, true, "reveal kept")
     eq(saved.WORLDMAPSCALEVALUE, 1.2, "scale value kept")
     w.Login()
     ok(not ChatContains(w, "/reload"), "no reload")
@@ -97,9 +166,9 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded() })
     w.Login()
     w.printed = {}
-    MAUTTAB.REVEALMAP = true
+    MAUTTAB.WORLDMAPFADE = true
     w.Tick()
-    eq(MAUTTAB.REVEALMAP, false)
+    eq(MAUTTAB.WORLDMAPFADE, false)
     ok(ChatContains(w, "/reload"), "reload requested")
   end)
 

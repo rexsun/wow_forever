@@ -71,11 +71,16 @@ OSG.policy = {
     label = "YUI: World map flight-point markers", when = { "YUI", "MapUtils" },
     reason = "MapUtils owns flight-point pins and greys out undiscovered ones; YUI's other map markers stay on.",
   },
+  {
+    id = "yui.mapreveal", adapter = "YUI", key = "MapReveal",
+    label = "YUI: World map unexplored area reveal", when = { "YUI", "MapUtils" },
+    reason = "MapUtils owns unexplored areas: its One Map view hides the layer YUI's reveal draws on.",
+  },
 }
 
 local foreverEssentials = {
   { id = "spelluprank", key = "SpellUprank", owner = "YUI", label = "Spell uprank", reason = "YUI owns action bars and upgrades spell ranks on them." },
-  { id = "mapreveal", key = "MapReveal", owner = "YUI", label = "World map reveal", reason = "YUI owns the world map and reveals unexplored areas." },
+  { id = "mapreveal", key = "MapReveal", owner = "YUI", label = "World map reveal", reason = "YUI or MapUtils already reveals unexplored areas." },
   { id = "mapfade", key = "MapFade", owner = "YUI", label = "World map fade", reason = "YUI owns world map fading while moving." },
   { id = "junkitems", key = "JunkItems", owner = "YUI", label = "Junk items window", reason = "YUI owns junk selling at merchants." },
   { id = "classicspellbook", key = "ClassicSpellbook", owner = "YUI", label = "Classic spellbook", reason = "YUI owns the spellbook and talent window handling." },
@@ -97,7 +102,6 @@ local mapUtilsSettings = {
   { id = "worldmapmove", key = "WorldMapMove", label = "World map moving", reason = "YUI owns the world map position." },
   { id = "worldmapscale", key = "WorldMapScale", label = "World map scaling", reason = "YUI owns the world map scale." },
   { id = "worldmapfade", key = "WorldMapFade", label = "World map fade while moving", reason = "YUI owns world map fading while moving." },
-  { id = "mapreveal", key = "MapReveal", label = "Unexplored area reveal", reason = "YUI owns the world map and reveals unexplored areas." },
   { id = "pierpins", key = "PierPins", label = "World map pier, zeppelin and tram pins", reason = "YUI's map markers already show docks, zeppelin towers and the tram." },
 }
 

@@ -1,3 +1,11 @@
+## [OverlapSettingsGuard 0.11.1] - 2026-11-09
+### Features
+- Unexplored areas of the world map are visible again. MapUtils now owns the reveal and YUI's reveal is kept off while MapUtils loads.
+### Design Rationale
+- One Map hides the exploration layer YUI draws on and only draws unexplored areas when MapUtils' reveal is on, so MapUtils is the one owner that works with One Map on or off. Turning One Map off instead would have kept YUI's look but removed stepless zoom.
+### Notes & Caveats
+- The reveal now uses MapUtils' Blue tint rather than YUI's color. Removing MapUtils later leaves YUI's reveal saved as off, so turn it back on in YUI. Unverified in game and at the three supported resolutions.
+
 ## [GatherLite 8.4.3 / Lueur 1.5.0 / OverlapSettingsGuard 0.11.0] - 2026-11-09
 ### Features
 - Install GatherLite for known gathering locations, fish areas and zone routes, and Lueur for an in-world glow on the object you would interact with.

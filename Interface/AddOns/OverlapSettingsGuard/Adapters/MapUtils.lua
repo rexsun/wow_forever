@@ -8,7 +8,6 @@ local FIELDS = {
   WorldMapMove = "WORLDMAPMOVE",
   WorldMapScale = "WORLDMAPSCALE",
   WorldMapFade = "WORLDMAPFADE",
-  MapReveal = "REVEALMAP",
   PierPins = "WORLDMAPPINS",
 }
 

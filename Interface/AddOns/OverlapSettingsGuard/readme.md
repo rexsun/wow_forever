@@ -1,6 +1,6 @@
 # OverlapSettingsGuard
 
-Version 0.11.0, for Interface 16001. This local addon keeps duplicate features switched off while all addons named in a rule are loaded. `/osg` lists every rule and its current status. It does not enable disabled addons or lock optional appearance choices on.
+Version 0.11.1, for Interface 16001. This local addon keeps duplicate features switched off while all addons named in a rule are loaded. `/osg` lists every rule and its current status. It does not enable disabled addons or lock optional appearance choices on.
 
 ## Policy
 
@@ -13,6 +13,7 @@ Version 0.11.0, for Interface 16001. This local addon keeps duplicate features s
 | `yui.playercast` | YHUD `cast` selections and resource manager contexts, enabled `cast-only` resource groups and `playerCast.hideNative` | YUI, EllesmereUIUnitFrames | EllesmereUI owns the player castbar; stored HUD sets follow the same rule. |
 | `yui.chatkeywordfilter` | YChat `messageFilter.enabled` in the active and stored profiles; the keyword list is kept | YUI, GearInsight_Forever | GearInsight's level-up filter (`/gi lvlmute`, off by default since 0.7.x) is the only chat filter for its announcements; YChat must not also hide player messages by keyword. |
 | `yui.flightmarkers` | YMap `markers.serviceFilters["travel.flight"]=false` in the active and stored profiles; other marker filters are kept | YUI, MapUtils | MapUtils owns flight-point pins and greys out undiscovered ones. |
+| `yui.mapreveal` | YMap `worldMap.reveal.enabled` in the active and stored profiles; tint and color are kept | YUI, MapUtils | MapUtils owns unexplored areas. Its One Map view hides the exploration layer YUI's reveal draws on, so only MapUtils' reveal can appear there. |
 | `eui.nameplatepower` | EllesmereUI nameplate `showClassPower` | EllesmereUINameplates, EllesmereUIUnitFrames | Unit frames own class resources; no second display on the target nameplate. |
 | `gi.friendlynameplates` | GearInsight `qm.autoPlates` and its `qm.platesV3` migration marker, restoring any `qm.platesWeOpened` toggle | GearInsight_Forever, EllesmereUINameplates | EllesmereUI owns friendly-nameplate visibility. |
 | `gi.combathud` | GearInsight `keysHud` and its visible runtime frame | GearInsight_Forever, YUI | YUI owns cooldown, DoT and proc tracking. |
@@ -21,7 +22,7 @@ Version 0.11.0, for Interface 16001. This local addon keeps duplicate features s
 | `gi.actionbaredits` | Runtime lock on GearInsight bar placement, slot/spell clearing, binding assignment/unbinding/presets, main-bar reset and restores | GearInsight_Forever, YUI | YUI owns bars and bindings; GearInsight key inspection and macro import remain available. |
 | `gi.guildchatlevel` | GearInsight `ui.guildChatLevel` (guild/officer level prefix) | GearInsight_Forever, YUI | YUI owns chat; GearInsight must not rewrite guild and officer messages. |
 | `euife.spelluprank` | Forever Essentials `spellUprank.enabled` | EllesmereUIForeverEssentials, YUI | YUI owns action bars and spell-rank upgrades. |
-| `euife.mapreveal` | Forever Essentials `worldMapReveal.enabled` | EllesmereUIForeverEssentials, YUI | YUI owns the world map and its reveal. |
+| `euife.mapreveal` | Forever Essentials `worldMapReveal.enabled` | EllesmereUIForeverEssentials, YUI | YUI or MapUtils already reveals unexplored areas. |
 | `euife.mapfade` | Forever Essentials `worldMapFade.enabled` | EllesmereUIForeverEssentials, YUI | YUI owns world map fading. |
 | `euife.junkitems` | Forever Essentials `junkList.enabled` | EllesmereUIForeverEssentials, YUI | YUI owns junk selling. |
 | `euife.classicspellbook` | Forever Essentials `classicSpellbook.enabled` | EllesmereUIForeverEssentials, YUI | YUI owns spellbook and talent window handling. |
@@ -32,7 +33,6 @@ Version 0.11.0, for Interface 16001. This local addon keeps duplicate features s
 | `mu.worldmapmove` | MapUtils `WORLDMAPMOVE` | MapUtils, YUI | YUI owns the world map position. |
 | `mu.worldmapscale` | MapUtils `WORLDMAPSCALE` | MapUtils, YUI | YUI owns the world map scale. |
 | `mu.worldmapfade` | MapUtils `WORLDMAPFADE` | MapUtils, YUI | YUI owns world map fading while moving. |
-| `mu.mapreveal` | MapUtils `REVEALMAP` | MapUtils, YUI | YUI owns the world map and its reveal. |
 | `mu.pierpins` | MapUtils `WORLDMAPPINS` (world map piers, zeppelins and tram only) | MapUtils, YUI | YUI's map markers already show docks, zeppelin towers and the tram. Minimap piers and moving transports stay available. |
 | `lueur.nodeherbs` | Lueur `nodeHerbs` | Lueur, MapUtils | MapUtils owns markers for tracked gathering nodes on the minimap; Lueur's in-world glow stays on. |
 | `lueur.nodeore` | Lueur `nodeOre` | Lueur, MapUtils | MapUtils owns markers for tracked gathering nodes on the minimap; Lueur's in-world glow stays on. |

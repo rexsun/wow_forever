@@ -2,6 +2,17 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-09 - Restore unexplored areas on the world map (OverlapSettingsGuard 0.11.1)
+
+- Problem: unexplored parts of the world map showed as blank parchment after MapUtils was installed on 2026-11-08.
+- Cause: MapUtils' One Map view, on by default, draws its own zone art and hides the exploration layer YUI's reveal draws on. That art only includes unexplored areas when MapUtils' own reveal is on, and `mu.mapreveal` kept it off.
+- Fix: MapUtils now owns the reveal. `mu.mapreveal` is removed and the new `yui.mapreveal` keeps YUI's reveal off in every profile while MapUtils loads, so the two never draw twice when One Map is off or a city map is shown. Still 42 rules. The `euife.mapreveal` rule stays, with its reason reworded.
+- Saved setting: `REVEALMAP` in the account's `MapUtils.lua` changed from false to true, because the removed rule had written false. No other MapUtils or YUI setting changed.
+- Coverage: MapUtils has reveal data for 45 map art IDs. The 39 more in YUI's data appear to be superseded art (Durotar's old art ID shares files with its current one); EUI Forever Essentials has the identical 45, GatherLite's Leatrix data 44 of them, and neither lists the 39.
+- Appearance: MapUtils' saved tint is Blue (0.6, 0.6, 1, opaque), which is close to YUI's blue (0.65, 0.75, 1 at 65% opacity) but not identical. Change it under Unexplored areas in `/maputils`. Only zone maps are tinted, as upstream does.
+- Backup: `addon-backups/map-reveal-owner-20261109` holds the previous `MapUtils.lua` saved variables.
+- Verification: 75 guard tests pass, 4 of them new. Nothing was run in game or checked at the three supported resolutions.
+
 ## 2026-11-09 - Install GatherLite 8.4.3 and Lueur 1.5.0 (OverlapSettingsGuard 0.11.0)
 
 - Install `GatherLite` 8.4.3 by Wuild ([file 9510987](https://www.curseforge.com/wow/addons/gatherlite/files/9510987)) and `Lueur` 1.5.0 by Armytille ([file 9523609](https://www.curseforge.com/wow/addons/lueur/files/9523609)) from CurseForge. Both TOCs list Interface 16001, the installed files are byte-identical to the releases, and both are enabled in all 15 character addon lists. DungeonsForever was reviewed and not adopted: it overlaps GearInsight, MapUtils and YUI's spellbook and talent handling, and loads all seven modules at login by default.

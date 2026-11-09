@@ -290,14 +290,68 @@ local function RevertFlightMarkers()
   return true, false, names
 end
 
+local function RevealState()
+  local live, problem = LiveProfile()
+  if not live then return nil, problem end
+  local map = _G.YUI.YMap
+  local runtime = type(map) == "table" and map.MapReveal
+  if not (type(runtime) == "table" and type(runtime.Disable) == "function"
+    and type(map.GetDB) == "function") then
+    return nil, "YUI map reveal API is unavailable"
+  end
+  local db = map:GetDB()
+  local active = type(db) == "table" and type(db.worldMap) == "table" and db.worldMap.reveal
+  if type(active) ~= "table" then return nil, "YUI map reveal schema is unavailable" end
+  local stored = {}
+  for _, profile in ipairs(Profiles(live)) do
+    local worldMap = type(profile.store.YMap) == "table" and profile.store.YMap.worldMap
+    if type(worldMap) == "table" and worldMap.reveal ~= active then
+      stored[#stored + 1] = { name = profile.name, worldMap = worldMap }
+    end
+  end
+  return { runtime = runtime, active = active, stored = stored }
+end
+
+-- YMap normalizes a missing reveal table, or one without enabled == false, to on.
+local function StoredRevealOn(worldMap)
+  return type(worldMap.reveal) ~= "table" or worldMap.reveal.enabled ~= false
+end
+
+local function ReadMapReveal()
+  local state, problem = RevealState()
+  if not state then return nil, problem end
+  if state.active.enabled ~= false then return true end
+  for _, profile in ipairs(state.stored) do
+    if StoredRevealOn(profile.worldMap) then return true end
+  end
+  return false
+end
+
+local function RevertMapReveal()
+  local state, problem = RevealState()
+  if not state then return false, problem end
+  local names = {}
+  state.active.enabled = false
+  for _, profile in ipairs(state.stored) do
+    if StoredRevealOn(profile.worldMap) then
+      Ensure(profile.worldMap, "reveal").enabled = false
+      if profile.name ~= "active profile" then names[#names + 1] = profile.name end
+    end
+  end
+  state.runtime:Disable()
+  table.sort(names)
+  return true, false, names
+end
+
 function adapter.Knows(key)
   return UTILITY[key] ~= nil or key == "Resources" or PLAYER_RESOURCES[key] ~= nil
-    or key == "ChatKeywordFilter" or key == "FlightMarkers"
+    or key == "ChatKeywordFilter" or key == "FlightMarkers" or key == "MapReveal"
 end
 
 function adapter.Read(key)
   if key == "ChatKeywordFilter" then return ReadChatFilter() end
   if key == "FlightMarkers" then return ReadFlightMarkers() end
+  if key == "MapReveal" then return ReadMapReveal() end
   if key == "Resources" or PLAYER_RESOURCES[key] then
     local state, problem = ResourceState()
     if not state then return nil, problem end
@@ -321,6 +375,7 @@ end
 function adapter.Revert(key)
   if key == "ChatKeywordFilter" then return RevertChatFilter() end
   if key == "FlightMarkers" then return RevertFlightMarkers() end
+  if key == "MapReveal" then return RevertMapReveal() end
   if key == "Resources" or PLAYER_RESOURCES[key] then
     local state, problem = ResourceState()
     if not state then return false, problem end
