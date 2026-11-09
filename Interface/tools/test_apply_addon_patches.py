@@ -105,6 +105,15 @@ class ApplyAddonPatchesTests(unittest.TestCase):
         self.assertEqual(text.count("C_CVar.SetCVar('combinedBags', '0')"), 3)
         self.assertLess(text.index("C_CVar.SetCVar('combinedBags', '0')"), text.index("LE_FRAME_TUTORIAL_EQUIP_REAGENT_BAG"))
 
+    def test_installed_fishing_sounds_silence_other_channels_at_full_effects(self) -> None:
+        relative = "EllesmereUIForeverEssentials/EllesmereUIForeverEssentials_Fishing.lua"
+        text = (ADDONS / relative).read_text(encoding="utf-8")
+        block = text[text.index("local SOUND_CVARS = {") : text.index("local function KeyOn")]
+        for cvar in ("Sound_MusicVolume", "Sound_AmbienceVolume", "Sound_DialogVolume"):
+            self.assertIn(f"{cvar} = function() return 0 end", block)
+        for cvar in ("Sound_SFXVolume", "Sound_MasterVolume"):
+            self.assertIn(f"{cvar} = function() return 1 end", block)
+
     def test_installed_pack_is_patched(self) -> None:
         self.assertEqual(apply_patches(ADDONS, check=True), [])
 

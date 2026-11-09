@@ -133,6 +133,38 @@ PATCHES = (
         "local INDICATOR_SIZE = 40",
         "local INDICATOR_SIZE = 100",
     ),
+    # Upstream only ducks music and ambience. Every float plays the same file on the effects
+    # channel, so other players' floats cannot be filtered: silencing the other channels and
+    # maximising effects is the most an addon can do.
+    Patch(
+        "EllesmereUIForeverEssentials/EllesmereUIForeverEssentials_Fishing.lua",
+        "    Sound_MusicVolume = function(before) return before * 0.3 end,\n"
+        "    Sound_AmbienceVolume = function(before) return before * 0.3 end,\n"
+        "    Sound_SFXVolume = function(before) return math.max(before, 0.8) end,\n",
+        "    Sound_MusicVolume = function() return 0 end,\n"
+        "    Sound_AmbienceVolume = function() return 0 end,\n"
+        "    Sound_DialogVolume = function() return 0 end,\n"
+        "    Sound_SFXVolume = function() return 1 end,\n"
+        "    Sound_MasterVolume = function() return 1 end,\n",
+    ),
+    Patch(
+        "EllesmereUIForeverEssentials/EllesmereUIForeverEssentials_Fishing.lua",
+        "--  Fishing Sounds   music and ambience down, effects up, for the session.",
+        "--  Fishing Sounds   music, ambience and dialog off, effects and master full, for the session.",
+    ),
+    Patch(
+        "EllesmereUIOptions/EUI_ForeverEssentials_General_Options.lua",
+        'tooltip = "While you fish: music and ambience down, effects up, sound on in the background.",',
+        'tooltip = "While you fish: music, ambience and dialog off, effects and master volume full, sound on in the background.",',
+    ),
+    # The tooltip is the translation key, so the client's locale must move with it.
+    Patch(
+        "EllesmereUILocales/zhTW.lua",
+        'L["While you fish: music and ambience down, effects up, sound on in the background."] = '
+        '"釣魚時：降低音樂與環境音、提高音效，並在遊戲於背景執行時仍播放聲音。"',
+        'L["While you fish: music, ambience and dialog off, effects and master volume full, sound on in the background."] = '
+        '"釣魚時：關閉音樂、環境音與對話，音效與主音量調到最大，並在遊戲於背景執行時仍播放聲音。"',
+    ),
 )
 
 # Any other use of these markers means upstream added a reference the patches do not cover.

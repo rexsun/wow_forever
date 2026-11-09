@@ -2,6 +2,14 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-09 - Silence other channels in Forever Essentials Fishing Sounds
+
+- Local patch to EllesmereUI Forever Essentials 9.8: while Fishing Sounds is on and you fish, music, ambience and dialog go to 0 and effects and master volume go to 100%, instead of music and ambience × 0.3 and effects at least 80%. The existing CVar hold restores your exact values when you move, enter combat or change zone. `tools/apply_addon_patches.py` reapplies it, now 25 patches.
+- The tooltip and its zhTW translation describe the new behavior. Other locales show the English text until upstream translates it.
+- Not possible: hearing only your own float. Every float plays the same sound file on the effects channel, and addons get no bite or sound event, so other players' floats stay audible and are raised along with yours. Researched against addon listings, the Blizzard forums and addon-author notes; none shows a way around this.
+- Overlap review, no new rule needed: YUI only offers manual volume controls and writes no volume during fishing.
+- Verification: 12 patch-tool tests pass, one of them new. Nothing was run in game.
+
 ## 2026-11-08 - Install MapUtils 1.4.25 (OverlapSettingsGuard 0.10.0)
 
 - Install `MapUtils` 1.4.25 by D4KiR from CurseForge ([file 9494803](https://www.curseforge.com/wow/addons/maputils/files/9494803)); `MapUtils_Camelot.toc` lists Interface 16001 and the installed files are byte-identical to the release. It is enabled in all 15 character addon lists. Chosen over BetterMaps 1.28.0 because it ships 224 boss pins (BetterMaps ships 32 positions, 31 of them rough, and learns the rest from kills) and adds pins to the existing map.

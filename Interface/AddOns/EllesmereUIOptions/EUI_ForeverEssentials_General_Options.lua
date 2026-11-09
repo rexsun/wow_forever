@@ -862,7 +862,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Fishing Sounds",
-          tooltip = "While you fish: music and ambience down, effects up, sound on in the background.",
+          tooltip = "While you fish: music, ambience and dialog off, effects and master volume full, sound on in the background.",
           getValue = function() return FI.Get("sound") end,
           setValue = function(v) SetFish("sound", v) end },
         BLANK()

@@ -9,7 +9,7 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --                   Bobber Indicator (cog) shows whether it does.
 --  Double-Click     a pole in hand: a quick second right-click on the world
 --                   casts (its own Apply Lure in its cog).
---  Fishing Sounds   music and ambience down, effects up, for the session.
+--  Fishing Sounds   music, ambience and dialog off, effects and master full, for the session.
 --
 --  Every action is a real key press or click on a secure button, bound out
 --  of combat only. A session starts with a cast and ends on moving, combat
@@ -50,9 +50,11 @@ local REEL_CVARS = {
 }
 -- The splash of the bobber over the music.
 local SOUND_CVARS = {
-    Sound_MusicVolume = function(before) return before * 0.3 end,
-    Sound_AmbienceVolume = function(before) return before * 0.3 end,
-    Sound_SFXVolume = function(before) return math.max(before, 0.8) end,
+    Sound_MusicVolume = function() return 0 end,
+    Sound_AmbienceVolume = function() return 0 end,
+    Sound_DialogVolume = function() return 0 end,
+    Sound_SFXVolume = function() return 1 end,
+    Sound_MasterVolume = function() return 1 end,
     Sound_EnableSoundWhenGameIsInBG = function() return 1 end,
 }
 
