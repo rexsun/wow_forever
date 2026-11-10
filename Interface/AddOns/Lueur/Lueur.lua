@@ -14,7 +14,7 @@ local SOFT = "softinteract"
 local MEDIA = "Interface\\AddOns\\" .. ADDON_NAME .. "\\Media\\"
 local CURSORS = "Interface\\Cursor\\"
 local FALLBACK_TEXTURE = "Interface\\Cooldown\\star4"
-local SCHEMA = 8 -- version des réglages sauvegardés
+local SCHEMA = 10 -- version des réglages sauvegardés
 
 -- Réglages communs à tous les personnages du compte (LueurDB)
 local DEFAULTS = {
@@ -41,6 +41,7 @@ local DEFAULTS = {
 	textFont    = "game", -- sa police : celle du jeu, ou l'une des autres polices du jeu (Locales.lua)
 	silhouette  = true,   -- la lueur passe derrière le personnage au lieu de le recouvrir
 	exclusive   = true,   -- le jeu ne met en avant (nameplate, icône) que les cibles mises en lumière
+	glowOnly    = false,  -- la lumière seule : ni nom ni icône de Lueur, la nameplate laissée au jeu ou à un autre addon (toujours avec Plumber)
 	hideInCombat   = false,  -- pas de lueur en combat
 	hideInInstance = false,  -- ni en donjon, en raid ou en champ de bataille
 	hideLocked     = false,  -- ni sur un objet que le jeu refuse pour l'instant
@@ -51,8 +52,10 @@ local DEFAULTS = {
 	ignored     = {},     -- nom d'objet replié -> son nom : objets que le joueur ne veut jamais voir briller
 	containers  = {},     -- numéro d'objet -> true : objets du décor que le joueur a déjà fouillés, rangés depuis parmi les coffres
 	minimap     = { hide = false, angle = 205 }, -- bouton de la minimap : masqué ou non, position (degrés)
-	nodeHerbs   = true,   -- sur la minimap, l'icône de chaque plante que le pistage du jeu y montre (NodeScan.lua)
-	nodeOre     = true,   -- et celle de chaque filon
+	-- Éteintes d'office depuis la 1.6.1 : les lire demande de balayer la minimap, ce qui la cache et gêne
+	-- trop de joueurs (à-coups, clics perdus, autres interfaces) pour l'imposer à qui n'a rien demandé.
+	nodeHerbs   = false,  -- sur la minimap, l'icône de chaque plante que le pistage du jeu y montre (NodeScan.lua)
+	nodeOre     = false,  -- et celle de chaque filon
 	nodeSize    = 12,     -- côté de ces icônes (unités de la minimap)
 	nodeRing    = 100,    -- épaisseur de l'anneau coloré qui les entoure (% de celle de l'image) ; 0 : pas d'anneau
 	nodeCombat  = true,   -- la minimap se lit aussi en combat
@@ -95,7 +98,7 @@ local LIMITS = {
 local CATEGORY_ORDER = { "ore", "herb", "quest", "chest", "bobber", "other" }
 
 -- Styles du halo d'avant la version 0.5 -> effet qui les remplace
-local LEGACY_STYLES = { aura = "aura", reticule = "reticle", discret = "subtle" }
+local LEGACY_STYLES = { aura = "aura", reticule = "aura", discret = "subtle" }
 
 local POLL_INTERVAL = 0.12   -- réévaluation de la cible et de son état (secondes)
 local APPEAR_TIME   = 0.45   -- la lueur arrive
@@ -293,7 +296,7 @@ local function EnsureIconCVars()
 end
 
 local function SetGate(open)
-	open = open or not db.exclusive
+	open = open or not glow.Exclusive()
 	if open == gateOpen or InCombatLockdown() then
 		EnsureIconCVars()
 		return
@@ -1019,7 +1022,7 @@ end
 -- catégorie. Elle se pose sur le nom, ou à sa place quand il n'est pas écrit.
 local function ShowLabel(unit, name, category)
 	local showName, showIcon = Look(category, "showName"), Look(category, "showIcon")
-	if not glow.anchor or not (showName or showIcon) then
+	if not glow.anchor or not (showName or showIcon) or glow.Bare() then
 		if label then label:Hide() end
 		return
 	end
@@ -1055,12 +1058,47 @@ local function ShowLabel(unit, name, category)
 	frame:Show()
 end
 
+-- L'icône d'interaction du jeu (SoftTargetFrame) quand une interface l'a sortie du cadre de la
+-- nameplate pour la poser sur la nameplate même : masquer ce cadre ne la masque plus. EllesmereUI
+-- (9.8.3, EllesmereUINameplatesFriendly.lua) le fait pour les PNJ amicaux et les objets du décor quand
+-- ses nameplates de PNJ amicaux sont allumées. Rangée dans `glow` : ce fichier est à la limite de
+-- Lua 5.1 en variables locales.
+function glow.Detached(unitFrame)
+	local ok, icon = pcall(function() return unitFrame.SoftTargetFrame end)
+	if not ok or type(icon) ~= "table" or IsSecret(icon) then return nil end
+	-- (dans le jeu, elle est un enfant du cadre : Blizzard_NamePlates.xml, build 70245)
+	local frame = icon
+	for _ = 1, 6 do
+		local fine, parent = pcall(frame.GetParent, frame)
+		if not fine or IsSecret(parent) then return nil end
+		if parent == nil then return icon end
+		if parent == unitFrame then return nil end
+		frame = parent
+	end
+	return icon
+end
+
+-- Masque un cadre de la nameplate et le retient dans glow[field], avec son opacité ; rend celui qui y
+-- était s'il en change (rien, faute de cadre)
+function glow.Veil(field, frame)
+	local held = glow[field]
+	if held and held.frame ~= frame then
+		pcall(held.frame.SetAlpha, held.frame, held.alpha)
+		glow[field] = nil
+	end
+	if not frame or glow[field] then return end
+	local ok, alpha = pcall(frame.GetAlpha, frame)
+	if not ok or IsSecret(alpha) or type(alpha) ~= "number" or alpha == 0 then alpha = 1 end
+	if pcall(frame.SetAlpha, frame, 0) then glow[field] = { frame = frame, alpha = alpha } end
+end
+
 -- Rend au jeu l'affichage de la nameplate que la lueur vient de quitter
 local function RestoreNative()
 	if glow.native then
 		pcall(glow.native.SetAlpha, glow.native, 1)
 		glow.native = nil
 	end
+	glow.Veil("nativeIcon", nil)
 end
 
 -- Masque ce que le jeu dessine sur la nameplate qui porte la lueur. Le cadre masqué est gardé :
@@ -1070,6 +1108,32 @@ local function HideNative(plate)
 	if not ok or type(unitFrame) ~= "table" then unitFrame = nil end
 	if unitFrame ~= glow.native then RestoreNative() end
 	if unitFrame and pcall(unitFrame.SetAlpha, unitFrame, 0) then glow.native = unitFrame end
+	glow.Veil("nativeIcon", unitFrame and glow.Detached(unitFrame))
+end
+
+-- Plumber (1.9.7, Modules\SoftTargetName.lua) écrit lui-même le nom de la cible d'interaction, avec
+-- l'objectif de quête et une barre d'incantation, dans un cadre posé sur sa nameplate sous l'icône du
+-- jeu, quand son module « Nameplate: Soft Target » est allumé ; et rien quand le jeu ne donne pas de
+-- nameplate. Avec lui, Lueur ne met que sa lumière (glow.Bare) et laisse le jeu montrer toutes les
+-- cibles (glow.Exclusive). Signalé le 2026-11-09 (Threed : « Perhaps an option to only use the shiny
+-- part and nothing else? »). Son module se lit dans PlumberDB, que Plumber lit lui-même (GetDBBool).
+-- (Plumber se charge après Lueur : seul un oui se retient.)
+function glow.Plumber()
+	if not glow.plumber then
+		glow.plumber = C_AddOns ~= nil and C_AddOns.IsAddOnLoaded ~= nil and SafeCall(C_AddOns.IsAddOnLoaded, "Plumber") == true
+	end
+	return glow.plumber and type(PlumberDB) == "table" and PlumberDB.SoftTargetName == true
+end
+
+-- La lumière seule : ni le nom ni l'icône de Lueur, et ce que le jeu ou un autre addon met sur la
+-- nameplate reste
+function glow.Bare()
+	return db.glowOnly == true or glow.Plumber()
+end
+
+-- Le jeu ne montre-t-il que les cibles mises en lumière ?
+function glow.Exclusive()
+	return db.exclusive and not glow.Plumber()
 end
 
 -- En combat le jeu ne laisse plus toucher aux CVars, et l'affichage natif a été ouvert juste avant
@@ -1081,6 +1145,9 @@ end
 local muted
 
 local function Unmute()
+	-- (l'icône sortie du cadre que la lueur porte désormais : c'est HideNative qui la tient masquée)
+	if glow.mutedIcon and not (glow.nativeIcon and glow.nativeIcon.frame == glow.mutedIcon.frame) then glow.Veil("mutedIcon", nil) end
+	glow.mutedIcon = nil
 	if not muted then return end
 	-- (le même cadre porte la lueur désormais : c'est HideNative qui le tient masqué)
 	if muted ~= glow.native then pcall(muted.SetAlpha, muted, 1) end
@@ -1092,6 +1159,7 @@ local function Mute(plate)
 	if not ok or type(unitFrame) ~= "table" then unitFrame = nil end
 	if unitFrame ~= muted then Unmute() end
 	if unitFrame and pcall(unitFrame.SetAlpha, unitFrame, 0) then muted = unitFrame end
+	glow.Veil("mutedIcon", unitFrame and glow.Detached(unitFrame))
 end
 
 -- Les réglages du joueur montreraient-ils la nameplate de cette unité sans qu'elle soit la cible
@@ -1123,7 +1191,7 @@ end
 -- toute façon.
 local function Shut(unit, plate)
 	SetGate(false)
-	if plate and db.exclusive and gateOpen ~= false and not PlateOwed(unit) then return plate end
+	if plate and glow.Exclusive() and gateOpen ~= false and not PlateOwed(unit) then return plate end
 end
 
 local function CreateGhost()
@@ -1292,6 +1360,8 @@ end
 local function Release()
 	RestoreNative()
 	if not glow.anchor then return end
+	-- (l'aperçu de la fenêtre des réglages garde la lueur tant que le jeu ne désigne rien à éclairer : voir Evaluate)
+	if glow.held and glow.preview then return end
 	PlayGhost()
 	glow.frame:Hide()
 	glow.frame:ClearAllPoints()
@@ -1350,13 +1420,15 @@ local function Present(plate, unit, name, category, state)
 	-- une nameplate qui change de catégorie se traite comme une autre cible : effet, taille,
 	-- décalage et couleur peuvent tous changer avec elle
 	if glow.anchor ~= plate or glow.retarget or glow.category ~= category then
+		glow.held = nil -- une vraie cible : l'aperçu de la fenêtre des réglages lui cède la lueur
 		Release()
 		Attach(plate, category, state)
 	else
 		glow.targetR, glow.targetG, glow.targetB = Color(category)
 		ProposeState(state)
 	end
-	HideNative(plate)
+	-- (la lumière seule : ce que le jeu ou un autre addon met sur la nameplate y reste)
+	if glow.Bare() then RestoreNative() else HideNative(plate) end
 	ShowLabel(unit, name, category)
 end
 
@@ -1422,7 +1494,7 @@ end
 -- Renvoie la nameplate d'une cible sans lueur que le jeu montre quand même, faute de pouvoir
 -- refermer son affichage : Evaluate la masque.
 local function Decide()
-	if glow.preview or leaving then return end
+	if leaving or glow.preview and not glow.preview.soft then return end
 	if not db.enabled then Release() return end
 	if Paused() then
 		Report(L.DEBUG_PAUSED)
@@ -1494,8 +1566,13 @@ local function Decide()
 		function() return DescribeTarget(unit, name, via, cursor, inRange) end)
 end
 
+-- L'aperçu de la fenêtre des réglages (`soft`) ne retient pas la lueur : dès que le jeu désigne un objet
+-- à éclairer, elle va sur lui, et les réglages se jugent sur lui. D'ici là rien de ce que Decide relâche
+-- ne la lui prend (`glow.held`, que Release regarde).
 function Evaluate()
+	glow.held = glow.preview and glow.preview.soft or nil
 	local plate = Decide()
+	glow.held = nil
 	if plate then Mute(plate) else Unmute() end
 end
 
@@ -1521,17 +1598,20 @@ local function SampleName(category)
 	return L["SAMPLE_" .. category:upper()]
 end
 
--- Montre la lueur d'une catégorie sur `anchor`, le cadre que la fenêtre d'aperçu place là où le
--- jeu mettrait la nameplate de l'objet, et enchaîne ses états en boucle jusqu'à StopPreview
-local function StartPreview(anchor, category)
+-- Montre la lueur d'une catégorie sur `anchor`, le cadre que l'aperçu place là où le jeu mettrait
+-- la nameplate de l'objet, et enchaîne ses états en boucle jusqu'à StopPreview. `soft` : l'aperçu
+-- cède la lueur à la première vraie cible (voir Evaluate).
+local function StartPreview(anchor, category, soft)
+	glow.held = nil
 	Release()
-	Unmute()
+	if not soft then Unmute() end
 	Attach(anchor, category, "far")
-	glow.preview = { stage = 1, left = PREVIEW_STAGES[1][2] }
+	glow.preview = { stage = 1, left = PREVIEW_STAGES[1][2], soft = soft or nil }
 	ShowLabel(nil, SampleName(category), category)
 end
 
 local function StopPreview()
+	glow.held = nil
 	if glow.preview then Release() end
 end
 
@@ -1542,7 +1622,7 @@ local function UpdatePreview(elapsed)
 	preview.stage = preview.stage + 1
 	local stage = PREVIEW_STAGES[preview.stage]
 	if not stage then
-		StartPreview(glow.anchor, glow.category)
+		StartPreview(glow.anchor, glow.category, preview.soft)
 		return
 	end
 	SetState(stage[1])
@@ -1560,7 +1640,7 @@ events:SetScript("OnUpdate", function(_, elapsed)
 	if not db or leaving then return end
 	if glow.preview then
 		UpdatePreview(elapsed)
-		return
+		if not (glow.preview and glow.preview.soft) then return end
 	end
 	sincePoll = sincePoll + elapsed
 	if sincePoll >= POLL_INTERVAL then
@@ -1638,6 +1718,27 @@ function handlers.ADDON_LOADED(name)
 				for _, names in pairs(db.nodeNames) do Rekey(names) end
 			end
 		end
+		if from < 9 then
+			-- deux effets s'en vont (2026-11-09) : le Réticule, un dosage de l'Aura, et le Viseur, que
+			-- remplace le Tourbillon ; qui les portait reçoit ce qui leur ressemble le plus
+			local retired = { reticle = "aura", brackets = "sigil" }
+			local function Replace(store)
+				if type(store) ~= "table" then return end
+				store.effect = retired[store.effect] or store.effect
+			end
+			Replace(db)
+			if type(db.categorySettings) == "table" then
+				for _, own in pairs(db.categorySettings) do Replace(own) end
+			end
+		end
+		if from < 10 then
+			-- les icônes de la minimap s'éteignent d'office (1.6.1) : celles qu'une version d'avant avait
+			-- allumées sans qu'on le lui demande s'éteignent une fois, et le joueur en est prévenu à la
+			-- connexion ; qui les veut les rallume, et elles restent
+			if db.nodeHerbs or db.nodeOre then db.nodesOffNotice = true end
+			if db.nodeHerbs ~= nil then db.nodeHerbs = false end
+			if db.nodeOre ~= nil then db.nodeOre = false end
+		end
 		db.schema = SCHEMA
 	end
 	CopyDefaults(DEFAULTS, db)
@@ -1692,6 +1793,10 @@ end
 
 function handlers.PLAYER_LOGIN()
 	if db.enabled then ApplyCVars() end
+	if db.nodesOffNotice then
+		db.nodesOffNotice = nil
+		Print(L.MSG_NODES_OFF)
+	end
 end
 
 -- Les réglages synchronisés avec le compte peuvent arriver après PLAYER_LOGIN et
@@ -1830,6 +1935,9 @@ function APPLY.exclusive()
 	gateOpen = nil
 	Evaluate()
 end
+
+-- (le nom et l'icône de Lueur, sur la cible comme dans l'aperçu)
+APPLY.glowOnly = RefreshLabel
 
 function APPLY.debug()
 	lastReport = nil
@@ -2008,6 +2116,11 @@ function ns.IsPreviewing()
 	return glow.preview ~= nil
 end
 
+-- La lueur est-elle sur une vraie cible ? L'aperçu de la fenêtre des réglages attend alors son tour.
+function ns.GlowTaken()
+	return glow.anchor ~= nil and not glow.preview
+end
+
 -- État que montre l'aperçu en cours, ou nil
 function ns.PreviewState()
 	return glow.preview and glow.state
@@ -2022,6 +2135,8 @@ local function SilhouetteFailure()
 	return silhouette.failed and L[silhouette.failed]
 end
 ns.SilhouetteFailure = SilhouetteFailure
+-- Menu.lua : le nom et l'icône de Lueur ne s'écrivent pas quand la lumière est seule (Plumber, ou le réglage)
+ns.GlowBare = glow.Bare
 
 ---------------------------------------------------------------------------
 -- Touche d'interaction
@@ -2126,7 +2241,7 @@ end
 function COMMANDS.on() Toggle(true) end
 function COMMANDS.off() Toggle(false) end
 
--- Ouvre ou ferme la fenêtre d'aperçu (Preview.lua)
+-- Ouvre la fenêtre des réglages sur l'aperçu, ou la ferme (Menu.lua, Preview.lua)
 function COMMANDS.preview()
 	if ns.TogglePreview then ns.TogglePreview() end
 end
@@ -2254,6 +2369,7 @@ COMMANDS.combat = ToggleCommand("hideInCombat", "MSG_HIDE_COMBAT")
 COMMANDS.instance = ToggleCommand("hideInInstance", "MSG_HIDE_INSTANCE")
 COMMANDS.unavailable = ToggleCommand("hideLocked", "MSG_HIDE_LOCKED")
 COMMANDS.profession = ToggleCommand("hideUntrained", "MSG_HIDE_UNTRAINED")
+COMMANDS.glowonly = ToggleCommand("glowOnly", "MSG_GLOW_ONLY")
 
 -- Sans argument, écarte l'objet visé (ou cesse de l'écarter) ; "list" donne les objets écartés,
 -- "clear" les oublie tous ; tout autre argument est le nom d'un objet
@@ -2494,6 +2610,7 @@ function COMMANDS.status()
 	end
 	print("  " .. L.STATUS_EXPECTED:format(WantedRange(), db.arc))
 	print("  " .. L.STATUS_GATE:format(Flag(db.exclusive), gateOpen == nil and "?" or gateOpen and L.GATE_OPEN or L.GATE_CLOSED))
+	print("  " .. L.STATUS_GLOW_ONLY:format(Flag(db.glowOnly), Flag(glow.Plumber())))
 	print("  " .. L.STATUS_SILHOUETTE:format(silhouette.failed and L.STATUS_UNAVAILABLE:format(SilhouetteFailure())
 		or Flag(db.silhouette)))
 	print("  " .. L.STATUS_DIRECT:format(directWorks and L.YES or L.STATUS_NOT_YET))

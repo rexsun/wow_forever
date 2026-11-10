@@ -13,6 +13,7 @@ local type = type
 local concat = table.concat
 local select = select
 local find = string.find
+local lower = string.lower
 
 local QUEUE_CAPACITY = 64
 local DRAIN_PER_FRAME = 16
@@ -119,6 +120,7 @@ local function MatchMessageKeywords(event, text)
         or Security.IsSecretValue(text) ~= false
         or type(event) ~= "string" or not PREFIX_EVENTS[event]
         or type(text) ~= "string" then return false end
+    text = lower(text)
     for index = 1, #prefixes do
         if find(text, prefixes[index], 1, true) then return true end
     end
@@ -588,8 +590,15 @@ end
 
 function SafeMessage:RefreshInterests()
     local filterConfig = YChat.GetMessageFilter and YChat:GetMessageFilter()
-    prefixes = filterConfig and filterConfig.prefixes or EMPTY_PREFIXES
-    prefixInterest = filterConfig and filterConfig.enabled == true and #prefixes > 0 or false
+    local configuredPrefixes = filterConfig and filterConfig.prefixes or EMPTY_PREFIXES
+    prefixInterest = filterConfig and filterConfig.enabled == true and #configuredPrefixes > 0 or false
+    prefixes = EMPTY_PREFIXES
+    if prefixInterest then
+        prefixes = {}
+        for index = 1, #configuredPrefixes do
+            prefixes[index] = lower(configuredPrefixes[index])
+        end
+    end
     autoInterest = YChat:GetAutoInviteValue("enabled") == true
     historyInterest = YChat:GetHistoryValue("enabled") == true
     if YChat.AutoInvite and type(YChat.AutoInvite.OnConfigChanged) == "function" then

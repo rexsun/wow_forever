@@ -22,6 +22,7 @@ L.COMMANDS = {
 	erz = "ore", kraut = "herb", truhe = "chest", schwimmer = "bobber", sonstiges = "other", ignorieren = "ignore", liste = "list",
 	leeren = "clear", ziele = "objectives", hilfe = "help", taste = "key", keine = "none", sprache = "language",
 	sammelpunkte = "nodes", wechseln = "switch", abtasten = "scan", rand = "ring",
+	nurlicht = "glowonly",
 }
 
 ---------------------------------------------------------------------------
@@ -61,21 +62,29 @@ L.STATE_READY = "in Reichweite"
 L.STATE_LOCKED = "nicht verfügbar"
 
 L.EFFECT_AURA = "Aura"
-L.EFFECT_AURA_TIP = "Ein Lichthof mit feinem Ring, Kometen und Glühwürmchen."
-L.EFFECT_RETICLE = "Zielring"
-L.EFFECT_RETICLE_TIP = "Ein scharfer Ring mit seinen Kometen über einem schwächeren Schein."
+L.EFFECT_AURA_TIP = "Ein Lichthof mit Schwaden, Ring, Kometen und Glühwürmchen."
 L.EFFECT_SUBTLE = "Dezent"
 L.EFFECT_SUBTLE_TIP = "Ein sanfter Schein, ohne Ring und ohne Kometen."
 L.EFFECT_SIGIL = "Siegel"
 L.EFFECT_SIGIL_TIP = "Ein Runenkreis dreht sich langsam um das Objekt."
-L.EFFECT_BRACKETS = "Sucher"
-L.EFFECT_BRACKETS_TIP = "Vier Ecken rahmen das Objekt ein und rasten ein, sobald es in Reichweite ist."
+L.EFFECT_VORTEX = "Wirbel"
+L.EFFECT_VORTEX_TIP = "Lichtarme winden sich um das Objekt, wie ein Portal, das sich öffnet."
+L.EFFECT_FLAME = "Flamme"
+L.EFFECT_FLAME_TIP = "Feuerzungen steigen vom Objekt auf, in seiner Farbe."
+L.EFFECT_RIFT = "Riss"
+L.EFFECT_RIFT_TIP = "Ein von Licht umringtes schwarzes Loch saugt Funken in eine Spirale."
+L.EFFECT_STORM = "Gewitter"
+L.EFFECT_STORM_TIP = "Über dem Objekt ballt sich eine Gewitterwolke, aus der Blitze einschlagen."
+L.EFFECT_GEYSER = "Geysir"
+L.EFFECT_GEYSER_TIP = "Eine Lichtfontäne schießt aus dem Objekt und fällt um es herum zurück."
+L.EFFECT_SPIRIT = "Geist"
+L.EFFECT_SPIRIT_TIP = "Zwei Irrlichter tanzen um das Objekt und ziehen ein Lichtband hinter sich her."
 L.EFFECT_BEAM = "Lichtsäule"
 L.EFFECT_BEAM_TIP = "Eine Lichtsäule steigt vom Objekt auf, Funken ziehen an ihr empor."
 L.EFFECT_BEACON = "Leuchtfeuer"
 L.EFFECT_BEACON_TIP = "Ein Kristall schwebt über dem Objekt, durch einen Lichtfaden mit ihm verbunden."
 L.EFFECT_ORBIT = "Umlaufbahn"
-L.EFFECT_ORBIT_TIP = "Irrlichter kreisen um das Objekt und ziehen eine Lichtspur hinter sich her."
+L.EFFECT_ORBIT_TIP = "Drei Irrlichter kreisen um das Objekt, jedes auf seiner eigenen Bahn."
 L.EFFECT_RIPPLE = "Wellen"
 L.EFFECT_RIPPLE_TIP = "Wellen breiten sich auf dem Boden um das Objekt aus."
 L.EFFECT_SPARKLE = "Funkeln"
@@ -160,6 +169,8 @@ L.ARC_2 = "Überall"
 L.ARC_2_TIP = "In jeder Richtung, auch hinter deinem Rücken."
 L.EXCLUSIVE = "Nur hervorgehobene Ziele zeigen"
 L.EXCLUSIVE_TIP = "Das Spiel weist nicht mehr auf Interaktionsziele hin, die keinen Effekt erhalten: NSCs, Briefkästen… Ohne Haken zeigt es auf jedem davon einen Namen und ein Symbol."
+L.GLOW_ONLY = "Nur das Leuchten"
+L.GLOW_ONLY_TIP = "Lueur schreibt Namen und Symbol des Objekts nicht mehr und lässt, was das Spiel oder ein anderes Addon dort zeigt. Immer aktiv, solange Plumbers Soft-Target-Namensplakette eingeschaltet ist."
 
 L.KEY = "Interaktionstaste"
 L.KEY_TIP = "Die Taste, die das hervorgehobene Objekt aufhebt, sammelt oder benutzt, sobald es in Reichweite ist. Es ist die Interaktionstaste des Spiels: Sie funktioniert auch bei NSCs und lässt sich ebenso in der Tastaturbelegung des Spiels ändern."
@@ -203,9 +214,6 @@ L.NODE_SWITCH_TIP = "Das Spiel zeigt die Punkte der Kräutersuche oder die der M
 L.NODE_SWITCH_YARDS = "Strecke zwischen zwei Wechseln"
 L.NODE_SWITCH_YARDS_TIP = "Wie weit du läufst, bevor Lueur die andere Suche einschaltet."
 
-L.PREVIEW = "Vorschau"
-L.PREVIEW_STOP = "Vorschau schließen"
-L.PREVIEW_TIP = "Öffnet ein Fenster, das den Effekt auf einem 3D-Objekt zeigt, in jedem seiner Zustände. Hier geänderte Einstellungen wirken dort sofort."
 L.PREVIEW_NO_MODEL = "3D-Modell auf diesem Client nicht verfügbar"
 L.PREVIEW_HINT = "Ziehen: drehen  ·  Rechtsklick: verschieben  ·  Mausrad: zoomen"
 L.DEFAULTS = "Standard"
@@ -228,6 +236,7 @@ L.TIP_DRAG = "Ziehen: diesen Knopf verschieben"
 L.MSG_ENABLED = "aktiviert."
 L.MSG_DISABLED = "deaktiviert, deine ursprünglichen Einstellungen sind wiederhergestellt."
 L.MSG_RESTART = "starte das Spiel vollständig neu, um die Aktualisierung von Lueur abzuschließen."
+L.MSG_NODES_OFF = "die Minikartensymbole für Kräuter und Erze sind jetzt standardmäßig aus, und dieses Update hat sie ausgeschaltet. Schalte sie in den Einstellungen (/lueur) oder mit /lueur nodes wieder ein."
 L.MSG_EXCLUSIVE_ON = "das Spiel weist nicht mehr auf Ziele hin, die keinen Effekt erhalten."
 L.MSG_EXCLUSIVE_OFF = "das Spiel zeigt Namen und Symbol aller Interaktionsziele (NSCs, Objekte der Spielwelt…)."
 L.MSG_SILHOUETTE_ON = "der Effekt liegt hinter deinem Charakter."
@@ -246,6 +255,7 @@ L.MSG_HIDE_COMBAT = "Effekt im Kampf ausgeblendet: %s"
 L.MSG_HIDE_INSTANCE = "Effekt in Instanzen ausgeblendet: %s"
 L.MSG_HIDE_LOCKED = "Effekt auf nicht nutzbaren Objekten ausgeblendet: %s"
 L.MSG_HIDE_UNTRAINED = "Effekt auf Kräutern und Erz ohne den Beruf ausgeblendet: %s"
+L.MSG_GLOW_ONLY = "nur das Leuchten, die Namensplakette bleibt dem Spiel oder einem anderen Addon: %s"
 L.MSG_IGNORED = "%s erhält keinen Effekt mehr."
 L.MSG_UNIGNORED = "%s wird nicht mehr ignoriert."
 L.MSG_IGNORE_NO_TARGET = "kein Objekt vor dir, das ignoriert werden könnte."
@@ -270,6 +280,7 @@ L.STATUS_CVAR_UNKNOWN = "diesem Client unbekannt"
 L.STATUS_CVAR_DEFAULT = " (Standard %s)"
 L.STATUS_EXPECTED = "von Lueur erwartet: Reichweite %d, Bogen %d"
 L.STATUS_GATE = "nur auf hervorgehobene Ziele wird hingewiesen: %s | native Anzeige im Moment: %s"
+L.STATUS_GLOW_ONLY = "nur das Leuchten: %s | Plumbers Name des Soft-Ziels: %s"
 L.GATE_OPEN = "offen"
 L.GATE_CLOSED = "geschlossen"
 L.STATUS_SILHOUETTE = "Effekt hinter dem Charakter: %s"
@@ -315,6 +326,9 @@ L.SCAN_VIGNETTES = "Vignetten, die das Spiel auflistet: %s"
 L.SCAN_DATA = "Daten des Punkts unter dem Zeiger, außer seinem Text: %s"
 L.SCAN_POINTER = "unter dem Zeiger: %s"
 L.SCAN_READER = "Minikarte unter der Maus | letzter Scan: %d Bilder, %d Rasterpunkte%s, %d bekannte Vorkommen geprüft, %d Gruppen vermessen, %d Punkte neu gesetzt | %d-mal unterbrochen, zuletzt: %s | wartet auf: %s | Deckkraft nach Änderung durch anderen Code auf 0 zurückgesetzt: %d-mal"
+L.SCAN_HIDE = "verborgen durch ihre %s | Form: %s | %d ihrer Rahmen mit ihr verborgen, %d inzwischen wieder gezeigt und erneut verborgen"
+L.SCAN_BY_MASK = "Maske"
+L.SCAN_BY_ALPHA = "Deckkraft"
 L.SCAN_FULL = " (ganze Minikarte)"
 L.SCAN_SOON = "die Minikarte wird gescannt, sobald sie unter die Maus kann"
 L.SCAN_BUSY = "ein Scan der Minikarte läuft"
@@ -326,6 +340,8 @@ L.SCAN_WHY_WINDOW = "Maus über einem Fenster"
 L.SCAN_WHY_ZOOM = "Minikarte gezoomt"
 L.SCAN_WHY_TURN = "Minikarte gedreht"
 L.SCAN_WHY_MAP = "andere Karte"
+L.SCAN_WHY_TAXI = "ein Flug"
+L.SCAN_WHY_NPC = "ein offenes NSC-Fenster"
 L.SCAN_NOTHING = "nichts (setze den Zeiger auf einen Punkt der Minikarte und gib den Befehl erneut ein)"
 
 ---------------------------------------------------------------------------
@@ -370,7 +386,7 @@ L.HELP = {
 	"/lueur — öffnet oder schließt das Einstellungsfenster (wie ein Klick auf den Minikartenknopf)",
 	"/lueur minimap — zeigt oder verbirgt den Minikartenknopf",
 	"/lueur on | off — aktiviert oder deaktiviert Lueur (off stellt deine Einstellungen wieder her)",
-	"/lueur vorschau — öffnet oder schließt das Vorschaufenster, das den Effekt auf einem 3D-Objekt zeigt",
+	"/lueur vorschau — öffnet das Einstellungsfenster mit der Vorschau, die den Effekt auf einem 3D-Objekt zeigt",
 	"/lueur effekt [Kategorie] <Name> — gibt diesen Effekt allen Kategorien oder nur einer (erz, kraut, quest, truhe, schwimmer, sonstiges); ohne Namen werden die Effekte aufgelistet",
 	"/lueur farbe <Kategorie> <rrggbb> | standard — Farbe des Effekts einer Kategorie; ohne Farbe wird sie angezeigt",
 	"/lueur gemeinsam <Kategorie> — gibt einer Kategorie wieder Effekt und Aussehen aller Objekte",
@@ -385,6 +401,7 @@ L.HELP = {
 	"/lueur reichweite <{range}> — bis wohin das Spiel Objekte auswählt, in Metern (Standard {range=})",
 	"/lueur arc <{arc}> — 0 genau voraus, 1 vor mir, 2 alle Richtungen (Standard {arc=})",
 	"/lueur exklusiv — ob das Spiel nur auf Ziele hinweist, die einen Effekt erhalten",
+	"/lueur nurlicht — ob Lueur nur das Licht zeichnet und die Namensplakette des Ziels (Name, Symbol) dem Spiel oder einem anderen Addon überlässt",
 	"/lueur kampf | instanz | gesperrt | beruf — ob der Effekt im Kampf, in Instanzen, auf nicht nutzbaren Objekten, auf Kräutern und Erz ohne den Beruf ausgeblendet wird",
 	"/lueur taste <TASTE> | keine — belegt die Taste, die das hervorgehobene Objekt aufhebt (F, SHIFT-E, BUTTON4…); ohne Taste wird sie angezeigt",
 	"/lueur erz | kraut | quest | truhe | schwimmer | sonstiges — zeigt oder verbirgt eine Kategorie, für diesen Charakter",

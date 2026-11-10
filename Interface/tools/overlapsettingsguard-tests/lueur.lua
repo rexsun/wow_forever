@@ -40,7 +40,8 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     local main = ReadFile(addons .. "Lueur/Lueur.lua")
     local scan = ReadFile(addons .. "Lueur/NodeScan.lua")
     for _, setting in ipairs(GUARDED) do
-      ok(main:find(setting.field .. "%s*=%s*true"), setting.field .. " default in Lueur")
+      local default = main:find(setting.field .. "%s*=%s*true") or main:find(setting.field .. "%s*=%s*false")
+      ok(default, setting.field .. " default in Lueur")
     end
     ok(scan:find('herb = "nodeHerbs", ore = "nodeOre"', 1, true), "NodeScan reads both switches")
   end)

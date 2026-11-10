@@ -1,6 +1,23 @@
 -- Generated from Docs/Products/YUI_YActionBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yactionbar", {
+-- YUI-Notes-Record: yactionbar-114|mainline|214127418d67be0ffd7284716b66be56da6374b2d8eb38e20e7f05617d24f7be
+-- YUI-Notes-Record: yactionbar-114|forever|f2b13e3ace9722d0ba54fc7cdbe43b17c855bd575475f481e7d863f07919acd2
+    {
+        version = "yactionbar-114",
+        date = "2026-11-09",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "修复动作条使用状态黑块与按压短闪。",
+                "同步共享核心，兼容新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Fixed dark blocks on the active-action indicator and brief dark flashes on key presses.",
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: yactionbar-113|mainline|d6d44746206c8a2c2a1890906363148ca1dc4a5a258a978d0108ac8c9e6506e2
 -- YUI-Notes-Record: yactionbar-113|forever|11c4aadc0e4c6661ea69bbfecdc42f8c89ac4e08ac14ee79ea8adf1185346f58
     {
@@ -199,23 +216,6 @@ CL:Register("yactionbar", {
             },
             enUS = {
                 "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: yactionbar-104|mainline|91f17a8b7394a754d5a8bd912adb518066a027f77c0fb94f14de6dc7ddfde49b
--- YUI-Notes-Record: yactionbar-104|forever|d0e7b2bb5cf08c50d5be0a97e5cda82bc6d85891d5e3aa235bc23f4cbe6518e9
-    {
-        version = "yactionbar-104",
-        date = "2026-10-10",
-        clients = { "Retail", "Forever" },
-        content = {
-            zhCN = {
-                "新增直角微扁和圆角微扁外观。",
-                "修复主动作条悬停显示时技能提示失效的问题。",
-            },
-            enUS = {
-                "Added slightly wide square and rounded button shapes.",
-                "Fixed missing ability tooltips when the main action bar uses mouseover visibility.",
             },
         },
     },

@@ -1,6 +1,36 @@
 -- Generated from Docs/Products/YUI_YHUD/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yhud", {
+-- YUI-Notes-Record: halo-117|mainline|9c7562bbfc3ba4af518cb2d5b55dd724b51e5904b7660cd8262e5aa225341a07
+    {
+        version = "halo-117",
+        date = "2026-11-09",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "同步共享核心，兼容新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: halo-117|forever|ec41c9ec9dff972a5694df5f8ea1d3841f767d4e04caadf9f3ec1d6ff24f5fee
+    {
+        version = "halo-117",
+        date = "2026-11-09",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "圣印预设扩展至七类圣印的各等级，图标与剩余时间跟随当前圣印。",
+                "同步共享核心，兼容新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Expanded the Seals preset to all ranks of seven seal types, with icons and remaining time following the active seal.",
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: halo-116|mainline|ddfaef78487e08a1539efc7e90b747a2fc083b5b4e5313285aa13c91487237ab
     {
         version = "halo-116",
@@ -343,48 +373,6 @@ CL:Register("yhud", {
             },
             enUS = {
                 "Fixed personal configuration preservation and recovery during legacy upgrades, profile copying and imports.",
-            },
-        },
-    },
--- YUI-Notes-Record: halo-107|mainline|d6db2e9de496741c0040ad0857c4b2c3723e8c50d19e82e6d10eb0c05ae80e71
-    {
-        version = "halo-107",
-        date = "2026-10-15",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "新增玩家生命条和施法条，支持独立分组、资源混排及文字样式设置。",
-                "完善驭龙术的材质、边框、颜色与速度文字设置。",
-                "导入预览更清楚地展示专精分配与默认方案的影响。",
-                "修复配置导入与原生分类同步，完善失败提示与恢复。",
-                "修复监控台及编辑面板的层级显示问题。",
-            },
-            enUS = {
-                "Added player health and cast bars, with separate groups, mixed resource layouts and text styling.",
-                "Expanded skyriding texture, border, color and speed text settings.",
-                "Import previews now show specialization assignments and default configuration impact more clearly.",
-                "Fixed configuration imports and native category synchronization, with clearer failure messages and recovery.",
-                "Fixed monitor and editor panel layering.",
-            },
-        },
-    },
--- YUI-Notes-Record: halo-107|forever|15c6299a83b777a048f0fff0d8f45ce6d6fc0379bc240d4e6e8a21c3a9611f89
-    {
-        version = "halo-107",
-        date = "2026-10-15",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增玩家生命条和施法条，支持独立分组、资源混排及文字样式设置。",
-                "导入预览更清楚地展示专精分配与默认方案的影响。",
-                "修复纯图形配置与旧方案字符串的导入，完善失败提示与恢复。",
-                "修复监控台及编辑面板的层级显示问题。",
-            },
-            enUS = {
-                "Added player health and cast bars, with separate groups, mixed resource layouts and text styling.",
-                "Import previews now show specialization assignments and default configuration impact more clearly.",
-                "Fixed imports of graphics-only configurations and legacy configuration strings, with clearer failure messages and recovery.",
-                "Fixed monitor and editor panel layering.",
             },
         },
     },

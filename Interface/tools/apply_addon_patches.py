@@ -165,6 +165,15 @@ PATCHES = (
         'L["While you fish: music, ambience and dialog off, effects and master volume full, sound on in the background."] = '
         '"釣魚時：關閉音樂、環境音與對話，音效與主音量調到最大，並在遊戲於背景執行時仍播放聲音。"',
     ),
+    # 1.5.6 keeps its world map fader on whenever PlayerMovementFrameFader exists, even with
+    # WORLDMAPFADE off; it then holds the map at full opacity and its SetAlpha hook undoes YUI's
+    # fade while moving. Restoring the 1.4.25 check lets the mu.worldmapfade guard rule work again.
+    Patch(
+        "MapUtils/mapframe.lua",
+        '["isEnabled"] = function() return PlayerMovementFrameFader ~= nil or '
+        '(type(MAUTTAB) == "table" and MAUTTAB["WORLDMAPFADE"] ~= false) end,',
+        '["isEnabled"] = function() return type(MAUTTAB) == "table" and MAUTTAB["WORLDMAPFADE"] ~= false end,',
+    ),
 )
 
 # Any other use of these markers means upstream added a reference the patches do not cover.

@@ -21,6 +21,7 @@ local hidden = {}
 local sizes = {}
 local active = false
 local bar, back, questCount
+local originalScrollTop
 local function CanChange(frame)
 	return frame ~= nil and (not InCombatLockdown() or not frame:IsProtected())
 end
@@ -285,10 +286,37 @@ local function GetQuestWidth()
 	return map.questLogWidth or QuestMapFrame:GetWidth() or 0
 end
 
+function MapUtils:GetSimpleMapTopGap()
+	if not active or bar == nil then return 0 end
+	local mapTop, barTop = map:GetTop(), bar:GetTop()
+	if mapTop == nil or barTop == nil then return 0 end
+
+	return max(0, mapTop - barTop * bar:GetEffectiveScale() / map:GetEffectiveScale())
+end
+
+local function LayoutFullscreenScroll(scroll, fullscreen)
+	if not CanChange(scroll) then return end
+	if fullscreen then
+		if originalScrollTop ~= nil then return end
+		for i = 1, scroll:GetNumPoints() do
+			local point, relativeTo, relativePoint, x, y = scroll:GetPoint(i)
+			if point == "TOPLEFT" and relativeTo == map.TitleCanvasSpacerFrame then
+				originalScrollTop = {point, relativeTo, relativePoint, x, y}
+				scroll:SetPoint(point, relativeTo, "TOPLEFT", x, -BAR_HEIGHT)
+				return
+			end
+		end
+	elseif originalScrollTop ~= nil then
+		scroll:SetPoint(unpack(originalScrollTop))
+		originalScrollTop = nil
+	end
+end
+
 local function Layout()
 	if not active or bar == nil then return end
 	if InCombatLockdown() and map:IsProtected() then return end
 	local scroll = map.ScrollContainer
+	LayoutFullscreenScroll(scroll, MapUtils:IsWorldMapFullscreen())
 	local questWidth = GetQuestWidth()
 	local level = bar:GetFrameLevel() + 5
 	bar:ClearAllPoints()
@@ -311,10 +339,16 @@ local function Layout()
 	if Place(maxButton, level, {"RIGHT", rightMost, rightPoint, rightOffset, 0}) then
 		maxButton:SetSize(BUTTON_SIZE, BUTTON_SIZE)
 		for _, child in ipairs({maxButton:GetChildren()}) do
-			if CanChange(child) then child:SetFrameLevel(level + 1) end
+			if CanChange(child) then
+				if child == maxButton.MapUtilsFullscreenButton then
+					Save(child)
+					child:SetSize(BUTTON_SIZE, BUTTON_SIZE)
+				end
+				child:SetFrameLevel(level + 1)
+			end
 		end
 
-		rightMost, rightPoint, rightOffset = maxButton, "LEFT", -2
+		rightMost, rightPoint, rightOffset = maxButton.MapUtilsFullscreenButton or maxButton, "LEFT", -2
 	end
 
 	local settingsButton = QuestScrollFrame and QuestScrollFrame.SettingsDropdown
@@ -395,6 +429,7 @@ end
 
 local function Remove()
 	active = false
+	LayoutFullscreenScroll(map.ScrollContainer, false)
 	if bar ~= nil then
 		bar:Hide()
 		back:Hide()

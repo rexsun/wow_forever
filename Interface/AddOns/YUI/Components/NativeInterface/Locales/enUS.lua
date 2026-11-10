@@ -3,6 +3,11 @@ local YUI = _G.YUI
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("enUS") then return end
 
 YUI.Locale:Register("NativeInterface", "enUS", {
+    ["manage.error_messages"] = "Manage system error / info message position",
+    ["manage.error_messages.tooltip"] = "Off by default. Preview, move or reset system error / info messages in YUI Edit Mode. The initial position matches the native position. Red and yellow messages move together.\n\nDisabling restores the native position captured before taking control once, then stops managing it. Your saved position is kept for the next enable. Changes during combat apply after combat ends.",
+    ["layout.error_messages"] = "System Error / Info Messages",
+    ["preview.error_messages.error"] = "Spell is not ready yet.",
+    ["preview.error_messages.info"] = "System information preview",
     ["hide.raid_manager"] = "Hide Group Management Panel",
     ["hide.raid_manager.tooltip"] = "Hide the left-side group management panel and its collapse arrows. Party and raid health frames remain unchanged. Turning this off restores native visibility; changes during combat wait until combat ends.",
     ["quest.sparkles"] = "Show Quest Object Sparkles",

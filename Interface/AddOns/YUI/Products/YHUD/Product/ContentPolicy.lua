@@ -227,6 +227,16 @@ function YHUD:CanUseFilteredAuraDisplay()
         and Unit.SupportsFilteredAuraDisplay() == true
 end
 
+function YHUD:IsForeverSealPreset(entry)
+    local seals = self.FOREVER_SEAL_PRESET
+    return self.Client.id == "forever" and seals ~= nil
+        and type(entry) == "table"
+        and entry.entryKey == seals.entryKey
+        and entry.origin == "preset"
+        and entry.sourceType == self.PLAYER_AURA_SOURCE_TYPE
+        and entry.spellId == 20154
+end
+
 function YHUD:IsFilteredAuraEntry(entry)
     return type(entry) == "table"
         and entry.sourceType == self.PLAYER_AURA_SOURCE_TYPE

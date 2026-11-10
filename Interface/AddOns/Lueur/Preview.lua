@@ -1,12 +1,16 @@
--- Lueur : fenêtre d'aperçu
--- Comme la cabine d'essayage du jeu montre un équipement sur le personnage, cette fenêtre
--- montre l'effet sur un objet du décor : son modèle 3D, que la souris fait tourner, déplace
--- et rapproche, la nameplate que le jeu lui donnerait, et la lueur qui s'y accroche.
+-- Lueur : aperçu
+-- Comme la cabine d'essayage du jeu montre un équipement sur le personnage, l'aperçu montre
+-- l'effet sur un objet du décor : son modèle 3D, que la souris fait tourner, déplace et
+-- rapproche, la nameplate que le jeu lui donnerait, et la lueur qui s'y accroche. Il occupe un
+-- panneau de la page des objets, dans la fenêtre des réglages (Menu.lua le pose : ns.PreviewPane).
 -- Lueur.lua anime la lueur comme sur une vraie cible ; ce fichier lui dit seulement où se
 -- poser (ns.StartPreview) et choisit la catégorie montrée.
 --
+-- Il n'y a qu'une lueur. L'aperçu la prend quand son panneau se montre, et la cède dès que le
+-- jeu désigne un objet à éclairer : les réglages se jugent alors sur lui, et l'aperçu attend.
+--
 -- La lueur ne se pose pas sur l'objet mais sous sa nameplate, à un nombre fixe de pixels.
--- Pour la montrer au même endroit qu'en jeu, la fenêtre reproduit donc la géométrie du jeu :
+-- Pour la montrer au même endroit qu'en jeu, l'aperçu reproduit donc la géométrie du jeu :
 -- la nameplate flotte à hauteur fixe au-dessus du pied de l'objet, et sa place à l'écran est
 -- celle de ce point vu par la caméra. Rapprocher l'objet l'écarte de sa nameplate, donc de sa
 -- lueur, exactement comme lorsqu'on marche vers lui.
@@ -16,9 +20,6 @@ local L = ns.L
 local Skin = ns.Skin
 if not Skin then return end -- jeu pas relancé depuis la mise à jour qui a apporté Skin.lua : Menu.lua le dit
 
-local WIDTH, HEIGHT = 360, 470
-local DOCK_GAP = 6               -- espace laissé entre cette fenêtre et celle des réglages, onglets compris
-local INSET, VIEW_TOP, VIEW_BOTTOM = 8, 28, 64  -- place de la vue dans la fenêtre
 local FOV = math.rad(30)         -- champ de vision de la caméra
 local PITCH = math.asin(0.36)    -- la caméra plonge sous l'angle habituel du jeu : celui de GROUND, dans Effects.lua
 local START_YAW = math.pi - 0.5  -- elle regarde l'objet de trois quarts face
@@ -35,6 +36,12 @@ local PLATE_DEFAULT = 45         -- hauteur de la nameplate au-dessus du centre 
 -- occupe une quarantaine d'unités de l'interface.
 local PLATE_HEIGHT = 2.0
 local UNITS_PER_YARD = 40
+-- Le fichier d'un modèle n'a pas la taille de l'objet du jeu, que le serveur réduit à sa guise : le filon
+-- de cuivre, tel quel, emplissait la vue, sa nameplate au milieu de la roche et la lueur à son pied (vu en
+-- jeu le 2026-11-09), alors qu'en jeu il fait la taille de sa lueur et porte son nom juste au-dessus de lui.
+-- Un modèle plus grand que cela est donc réduit, et la nameplate ne descend jamais dans le modèle.
+local MAX_HEIGHT, MAX_WIDTH = 1.8, 2.4  -- taille que garde au plus un modèle, en mètres du jeu
+local PLATE_CLEAR = 0.2                 -- la nameplate flotte au moins à cela au-dessus du sommet du modèle
 
 -- Modèle montré pour chaque catégorie : identifiants de fichier du client, relevés dans la
 -- liste communautaire wow-listfile
@@ -47,15 +54,15 @@ local MODELS = {
 	other = 199999,  -- world/generic/passivedoodads/postboxes/postboxhuman.m2
 }
 
-local window                  -- la fenêtre, créée à sa première ouverture
-local view, plate             -- la vue où se dessine l'objet ; le cadre qui y tient lieu de nameplate
+local view, plate             -- la vue où se dessine l'objet, créée avec la page ; le cadre qui y tient lieu de nameplate
 local scene, actor            -- la scène 3D et son modèle ; nil sur un client qui n'en a pas
-local name, caption, notice, hint  -- textes : catégorie, état montré, absence de modèle, mode d'emploi
+local caption, notice, hint   -- textes : état montré, absence de modèle, mode d'emploi
 local category = ns.CATEGORY_ORDER[1]
 local fitted = true           -- le modèle chargé a été cadré
 
 -- La caméra tourne autour du point qu'elle vise, à une distance que règle la molette
 local foot = { 0, 0, 0 }      -- pied de l'objet : le centre de sa base
+local plateHeight = PLATE_HEIGHT  -- hauteur de sa nameplate au-dessus de ce pied
 local target = { 0, 0, 0 }    -- point visé ; il part du milieu entre le pied et la nameplate
 local yaw, distance, fitDistance = START_YAW, TRIAL_DISTANCE, TRIAL_DISTANCE
 local signX, signY = 1, 1     -- sens des axes « droite » et « haut » de la caméra à l'écran
@@ -88,7 +95,7 @@ end
 -- Met la vue en accord avec la caméra, et la nameplate là où cette caméra la verrait
 local function UpdateView()
 	PlaceCamera()
-	local x, y = Project(foot[1], foot[2], foot[3] + PLATE_HEIGHT)
+	local x, y = Project(foot[1], foot[2], foot[3] + plateHeight)
 	if x then plate:SetPoint("CENTER", view, "BOTTOMLEFT", x, y) end
 end
 
@@ -97,12 +104,20 @@ end
 local function Fit()
 	fitted = true
 	local x1, y1, z1, x2, y2, z2 = actor:GetActiveBoundingBox()
+	local scale = 1
+	plateHeight = PLATE_HEIGHT
 	if x1 and z2 then
-		foot[1], foot[2], foot[3] = (x1 + x2) / 2, (y1 + y2) / 2, z1
+		-- la boîte est celle du modèle à l'échelle 1 : Blizzard la multiplie lui-même par l'échelle de
+		-- l'acteur (Blizzard_CatalogShop_Model.lua, build 70245)
+		local height, width = z2 - z1, math.max(x2 - x1, y2 - y1)
+		if height > 0 and width > 0 then scale = math.min(1, MAX_HEIGHT / height, MAX_WIDTH / width) end
+		foot[1], foot[2], foot[3] = (x1 + x2) / 2 * scale, (y1 + y2) / 2 * scale, z1 * scale
+		plateHeight = math.max(PLATE_HEIGHT, height * scale + PLATE_CLEAR)
 	else
 		foot[1], foot[2], foot[3] = 0, 0, 0 -- modèle sans volume mesurable
 	end
-	target[1], target[2], target[3] = foot[1], foot[2], foot[3] + PLATE_HEIGHT / 2
+	if actor.SetScale then pcall(actor.SetScale, actor, scale) end
+	target[1], target[2], target[3] = foot[1], foot[2], foot[3] + plateHeight / 2
 	yaw, distance = START_YAW, TRIAL_DISTANCE
 	PlaceCamera()
 	-- La distance de départ se mesure plutôt qu'elle ne se calcule : on regarde ce qu'occupe à
@@ -141,7 +156,7 @@ local function Drag()
 	local right, up = -moveX / perYard * signX, -moveY / perYard * signY
 	local rightX, rightY, rightZ = scene:GetCameraRight()
 	local upX, upY, upZ = scene:GetCameraUp()
-	local home = { foot[1], foot[2], foot[3] + PLATE_HEIGHT / 2 }
+	local home = { foot[1], foot[2], foot[3] + plateHeight / 2 }
 	local away = 0
 	for index, axis in ipairs({ { rightX, upX }, { rightY, upY }, { rightZ, upZ } }) do
 		target[index] = target[index] + axis[1] * right + axis[2] * up
@@ -191,6 +206,7 @@ local function ShowCategory(shown)
 	local loaded = false
 	if actor then
 		actor:Hide() -- le temps qu'il se charge et soit cadré
+		if actor.SetScale then pcall(actor.SetScale, actor, 1) end
 		local ok, success = pcall(actor.SetModelByFileID, actor, MODELS[category])
 		loaded = ok and success == true
 		scene:SetShown(loaded)
@@ -198,28 +214,15 @@ local function ShowCategory(shown)
 	fitted = not loaded
 	notice:SetShown(not loaded)
 	hint:SetShown(loaded)
-	ns.StartPreview(plate, category)
-end
-
--- Passe à la catégorie suivante, ou à la précédente ; le menu, s'il en personnalisait une, suit
-local function Step(direction)
-	local order = ns.CATEGORY_ORDER
-	for index, key in ipairs(order) do
-		if key == category then
-			ShowCategory(order[(index - 1 + direction) % #order + 1])
-			if ns.FollowPreview then ns.FollowPreview(category) end
-			return
-		end
-	end
+	if not ns.GlowTaken() then ns.StartPreview(plate, category, true) end
 end
 
 local function Update()
-	SetText(window.title, L.PREVIEW)
-	SetText(name, L["CATEGORY_" .. category:upper()])
-	name:SetTextColor(ns.GetColor(category))
-	-- la lueur a pu être reprise entre-temps (Lueur désactivé, remise à zéro) : la fenêtre la redemande
-	if not ns.IsPreviewing() then ns.StartPreview(plate, category) end
-	SetText(caption, L["STATE_" .. ns.PreviewState():upper()])
+	-- la lueur a pu être reprise entre-temps (une vraie cible, Lueur désactivé, une remise à zéro) :
+	-- l'aperçu la redemande dès qu'elle est libre
+	if not ns.IsPreviewing() and not ns.GlowTaken() then ns.StartPreview(plate, category, true) end
+	local state = ns.PreviewState()
+	SetText(caption, state and L["STATE_" .. state:upper()] or "")
 	SetText(notice, L.PREVIEW_NO_MODEL)
 	SetText(hint, L.PREVIEW_HINT)
 	if not fitted then
@@ -230,14 +233,13 @@ local function Update()
 	end
 end
 
-local function CreateWindow()
-	-- le même cadre que la fenêtre des réglages
-	window = Skin.Window("LueurPreview", WIDTH, HEIGHT)
-
+-- Pose l'aperçu dans `parent` (un panneau de la page des objets), à la taille donnée : la vue, et
+-- sous elle son mode d'emploi. Renvoie la vue. Elle prend la lueur quand elle se montre, la rend
+-- quand elle se cache.
+function ns.PreviewPane(parent, width, height)
 	-- la vue : rien de ce qu'elle contient n'en déborde, pas même une lueur réglée très grande
-	view = CreateFrame("Frame", nil, window)
-	view:SetSize(WIDTH - 2 * INSET, HEIGHT - VIEW_TOP - VIEW_BOTTOM)
-	view:SetPoint("TOPLEFT", INSET, -VIEW_TOP)
+	view = CreateFrame("Frame", "LueurPreview", parent)
+	view:SetSize(width, height)
 	view:SetClipsChildren(true)
 	view:EnableMouse(true)
 	view:EnableMouseWheel(true)
@@ -263,73 +265,37 @@ local function CreateWindow()
 	plate:SetSize(1, 1)
 	plate:SetFrameLevel(view:GetFrameLevel() + 5)
 
-	notice = view:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	notice:SetPoint("BOTTOM", view, "BOTTOM", 0, 8)
-	name = window:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-	name:SetPoint("BOTTOM", window, "BOTTOM", 0, 42)
-	caption = window:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-	caption:SetPoint("BOTTOM", window, "BOTTOM", 0, 26)
-	hint = window:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-	hint:SetPoint("BOTTOM", window, "BOTTOM", 0, 10)
+	-- par-dessus la scène : l'état que joue l'aperçu, en bas de la vue
+	local texts = CreateFrame("Frame", nil, view)
+	texts:SetAllPoints()
+	texts:SetFrameLevel(view:GetFrameLevel() + 8)
+	caption = texts:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	caption:SetPoint("BOTTOM", view, "BOTTOM", 0, 8)
+	notice = texts:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	notice:SetPoint("TOP", view, "TOP", 0, -8)
+	-- (sur deux lignes au besoin : d'une traite, il débordait du panneau en jeu, le 2026-11-09)
+	hint = parent:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	hint:SetPoint("TOP", view, "BOTTOM", 0, -5)
+	hint:SetWidth(width - 8)
+	hint:SetJustifyH("CENTER")
 
-	for direction, text in pairs({ [-1] = "<", [1] = ">" }) do
-		local button = CreateFrame("Button", nil, window, "UIPanelButtonTemplate")
-		button:SetSize(28, 22)
-		button:SetPoint(direction < 0 and "BOTTOMLEFT" or "BOTTOMRIGHT", direction < 0 and 16 or -16, 30)
-		button:SetText(text)
-		button:SetScript("OnClick", function()
-			PlaySound(SOUNDKIT.IG_MAINMENU_OPTION)
-			Step(direction)
-		end)
-	end
-
-	window:SetScript("OnShow", function() ShowCategory(category) end)
-	window:SetScript("OnHide", function()
+	view:SetScript("OnShow", function() ShowCategory(category) end)
+	view:SetScript("OnHide", function()
 		drag = nil
 		ns.StopPreview()
+		-- (la langue peut changer pendant que la vue est cachée : ses textes se reposent quand elle revient)
+		caption:SetText("")
+		notice:SetText("")
+		hint:SetText("")
 	end)
-	window:SetScript("OnUpdate", Update)
+	view:SetScript("OnUpdate", Update)
+	if view:IsVisible() then ShowCategory(category) end
+	return view
 end
 
--- Place la fenêtre à côté de celle des réglages quand elle est ouverte : à sa droite, ou à sa
--- gauche si la place manque ; sinon à droite du centre de l'écran, où le personnage reste visible
-local function Dock()
-	local menu = LueurMenu
-	window:ClearAllPoints()
-	if menu and menu:IsShown() then
-		-- la fenêtre des réglages porte des onglets sur son bord droit : l'aperçu se range au-delà
-		local tab = menu.tabs and menu.tabs.look
-		local tabs = tab and tab:GetWidth() or 0
-		if menu:GetRight() + tabs + DOCK_GAP + WIDTH <= UIParent:GetWidth() then
-			window:SetPoint("TOPLEFT", menu, "TOPRIGHT", tabs + DOCK_GAP, 0)
-		elseif menu:GetLeft() >= DOCK_GAP + WIDTH then
-			window:SetPoint("TOPRIGHT", menu, "TOPLEFT", -DOCK_GAP, 0)
-		else
-			window:SetPoint("RIGHT", UIParent, "RIGHT", -20, 0)
-		end
-	else
-		window:SetPoint("CENTER", UIParent, "CENTER", 320, 0)
-	end
-end
-
--- Ouvre ou ferme la fenêtre d'aperçu ; renvoie true si elle est désormais ouverte
-function ns.TogglePreview()
-	if not window then CreateWindow() end
-	if window:IsShown() then
-		window:Hide()
-	else
-		Dock()
-		window:Show()
-	end
-	return window:IsShown()
-end
-
-function ns.ClosePreview()
-	if window then window:Hide() end
-end
-
--- Montre cette catégorie dans la fenêtre d'aperçu, si elle est ouverte : le menu l'appelle
--- quand on y choisit la catégorie à personnaliser
+-- Montre cette catégorie dans l'aperçu : le menu l'appelle quand on y choisit celle à personnaliser
 function ns.ShowPreviewCategory(shown)
-	if window and window:IsShown() and shown ~= category then ShowCategory(shown) end
+	if shown == category then return end
+	category = shown
+	if view and view:IsVisible() then ShowCategory(shown) end
 end

@@ -1,9 +1,6 @@
 # Auctionator
 
-## [342](https://github.com/TheMouseNest/Auctionator/tree/342) (2026-11-07)
-[Full Changelog](https://github.com/TheMouseNest/Auctionator/compare/341...342) 
+## [344](https://github.com/TheMouseNest/Auctionator/tree/344) (2026-11-09)
+[Full Changelog](https://github.com/TheMouseNest/Auctionator/compare/343...344) 
 
-- Fix issue with favourites/hidden items breaking when a dead item exists  
-- Update info panel  
-- Forever: Hide retail specific search options  
-- Forever: Fix durations in settings  
+- Forever: Selling: Disable copper field for gear (due to AH errors)  

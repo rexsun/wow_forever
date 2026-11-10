@@ -86,6 +86,10 @@ local function NormalizeTransferPayload(payload, path, fields, layouts)
     local layoutSet = {}
     for _, layoutId in ipairs(layouts) do
         layoutSet[layoutId] = true
+        if YUI.IsForever == true and layoutId == Native.ERROR_MESSAGES_LAYOUT_ID
+            and payload.layoutPresent[layoutId] == nil then
+            payload.layoutPresent[layoutId] = false
+        end
         if type(payload.layoutPresent[layoutId]) ~= "boolean" then return nil, "unexpected_layout" end
     end
     for layoutId, present in pairs(payload.layoutPresent) do
@@ -145,6 +149,7 @@ local definition = {
         if self.ReleaseBagSortFix then self:ReleaseBagSortFix() end
         if self.ReleaseProfessionsIconFix then self:ReleaseProfessionsIconFix() end
         if self.ReleaseRaidManager then self:ReleaseRaidManager() end
+        if self.ReleaseErrorMessages then self:ReleaseErrorMessages() end
         if self.ReleaseQuestLootSparkles then self:ReleaseQuestLootSparkles() end
         if self.RefreshWindowMovement then self:RefreshWindowMovement("disable") end
         if self.RefreshRetail then self:RefreshRetail("disable") end
@@ -176,6 +181,8 @@ if transfer and transfer.RegisterModule then
         fields.fixProfessionsIcon = true
         fields.questLootSparkles = true
         fields.hideRaidManager = true
+        fields.manageErrorMessages = true
+        layouts = { Native.ERROR_MESSAGES_LAYOUT_ID }
         if Native.NormalizeWindowMovement then fields.windowMovement = true end
     end
     if YUI.IsRetail == true then

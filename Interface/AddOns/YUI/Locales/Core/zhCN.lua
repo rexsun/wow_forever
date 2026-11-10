@@ -408,6 +408,8 @@ YUI.Locale:Register("Core", "zhCN", {
     ["auto_repair.mode.personal"] = "个人修理",
     ["auto_repair.header"] = "自动修理",
     ["auto_repair.notify"] = "聊天框输出自动修理信息",
+    ["auto_repair.skip_low_level"] = "低等级不自动修理",
+    ["auto_repair.min_level"] = "自动修理起始等级",
     ["auto_repair.message.guild_repair_done"] = "公会修理 %s",
     ["auto_repair.message.personal_repair_done"] = "个人修理 %s",
     ["sound.effect.gunshot-dry"] = "枪声 · 干脆",

@@ -13,12 +13,12 @@ local LC = YUI.Locale:Get("Core")
 local Module = YBar.Module:New("Talents")
 
 local TrainingTitles = {
-    ["Coming Soon"] = true, ["即将学习"] = true, ["即將可以訓練"] = true,
+    ["Coming Soon"] = true, ["即将学习"] = true, ["即将可学"] = true, ["即將可以訓練"] = true,
     ["Bientôt disponible"] = true, ["Скоро будет"] = true, ["Скоро появится"] = true,
     ["Demnächst"] = true, ["곧 사용 가능"] = true,
 }
 local AvailableTrainingTitles = {
-    ["Available Now"] = true, ["可学"] = true, ["現在可以訓練"] = true,
+    ["Available Now"] = true, ["可学"] = true, ["现在可学"] = true, ["現在可以訓練"] = true,
     ["Disponible"] = true, ["Доступен сейчас"] = true, ["Доступно сейчас"] = true,
     ["Jetzt verfügbar"] = true, ["지금 사용 가능"] = true,
 }

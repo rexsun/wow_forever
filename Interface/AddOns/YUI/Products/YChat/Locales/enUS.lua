@@ -213,7 +213,7 @@ YUI.Locale:Register("YChat", "enUS", {
     ["settings.rules.title"] = "Rules",
     ["settings.rules.filter"] = "Message filtering",
     ["settings.rules.prefix_filter_enabled"] = "Enable keyword filtering",
-    ["settings.rules.prefix_filter_help"] = "Hide player chat containing any listed keyword anywhere in the message. Matching is literal and case-sensitive, including quoted text. Unreadable messages are left unchanged.",
+    ["settings.rules.prefix_filter_help"] = "Hide player chat containing any listed keyword anywhere in the message. Matching is literal and ignores English letter case, including quoted text. Unreadable messages are left unchanged.",
     ["settings.rules.filter_prefixes"] = "Blocked keywords",
     ["settings.rules.filter_prefix_placeholder"] = "Enter a keyword (up to 32 entries, 128 bytes each)",
     ["settings.rules.auto_invite"] = "Auto invite",

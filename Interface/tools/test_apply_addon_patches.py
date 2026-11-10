@@ -114,6 +114,11 @@ class ApplyAddonPatchesTests(unittest.TestCase):
         for cvar in ("Sound_SFXVolume", "Sound_MasterVolume"):
             self.assertIn(f"{cvar} = function() return 1 end", block)
 
+    def test_installed_maputils_fader_follows_its_fade_setting_only(self) -> None:
+        text = (ADDONS / "MapUtils/mapframe.lua").read_text(encoding="utf-8")
+        line = next(line for line in text.splitlines() if '["isEnabled"]' in line and "WORLDMAPFADE" in line)
+        self.assertNotIn("PlayerMovementFrameFader", line)
+
     def test_installed_pack_is_patched(self) -> None:
         self.assertEqual(apply_patches(ADDONS, check=True), [])
 

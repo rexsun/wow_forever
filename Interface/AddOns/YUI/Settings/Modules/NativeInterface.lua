@@ -173,6 +173,8 @@ local function Render(parent)
     end
 
     if YUI.IsForever == true then
+        config[#config + 1] = { type = "divider", label = T("section.layout"), width = 620, alignLeft = true }
+        config[#config + 1] = Checkbox("manageErrorMessages", "manage.error_messages", "manage.error_messages.tooltip")
         config[#config + 1] = { type = "divider", label = T("section.enhancements"), width = 620, alignLeft = true }
         config[#config + 1] = Checkbox("questLootSparkles", "quest.sparkles", "quest.sparkles.tooltip")
         AddWindowSettings(config)

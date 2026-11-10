@@ -408,6 +408,8 @@ YUI.Locale:Register("Core", "enUS", {
     ["auto_repair.mode.personal"] = "Personal Repair",
     ["auto_repair.header"] = "Auto Repair",
     ["auto_repair.notify"] = "Print auto repair messages to chat",
+    ["auto_repair.skip_low_level"] = "Skip auto repair at low levels",
+    ["auto_repair.min_level"] = "Minimum level for auto repair",
     ["auto_repair.message.guild_repair_done"] = "Guild repair %s",
     ["auto_repair.message.personal_repair_done"] = "Personal repair %s",
     ["sound.effect.gunshot-dry"] = "Gunshot - Dry",

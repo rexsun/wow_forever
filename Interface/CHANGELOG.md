@@ -1,3 +1,13 @@
+## [Addon update 2026-11-10] - 2026-11-10
+### Features
+- Update YUI v355, Auctionator 344, Details 15410.172, EllesmereUI 9.8.4, GatherLite 8.4.5, Lueur 1.6.1 and MapUtils 1.5.6.
+- Add a local MapUtils patch so its world-map fader follows only its own fade setting.
+### Design Rationale
+- GearInsight 0.9.7 is held at 0.7.4: its new default-on layer network auto-invites, auto-accepts and auto-leaves groups and broadcasts on public channels, and its city nameplate and whisper/party prefix features bypass the guard. Guard rules should exist before it is adopted.
+- A one-line patch keeps YUI as the world-map fade owner, matching the existing `mu.worldmapfade` decision; handing fade to MapUtils instead would have changed the look and the guard ownership split.
+### Notes & Caveats
+- EUI 9.8.4 needs Lueur 1.6.x for its interact-icon handling. EUI re-keys per-character data by GUID at each character's first login. Unverified in game and at the three supported resolutions.
+
 ## [OverlapSettingsGuard 0.11.1] - 2026-11-09
 ### Features
 - Unexplored areas of the world map are visible again. MapUtils now owns the reveal and YUI's reveal is kept off while MapUtils loads.

@@ -9,25 +9,39 @@ local binding, open
 local entries = setmetatable({}, { __mode = "k" })
 
 local function IsOrdinary(frame)
-    return frame and type(frame.IsForbidden) == "function" and Security.SafeBoolean(frame:IsForbidden()) == false
+    return (type(frame) == "table" or type(frame) == "userdata")
+        and type(frame.IsForbidden) == "function" and Security.SafeBoolean(frame:IsForbidden()) == false
         and type(frame.IsProtected) == "function" and Security.SafeBoolean(frame:IsProtected()) == false
 end
 
+local function GetInventory(addon)
+    local frames = addon.Frames
+    if type(frames) == "table" and type(frames.Get) == "function" then return frames:Get("inventory") end
+end
+
+local function LayoutInventory(addon)
+    local frame = GetInventory(addon)
+    if IsOrdinary(frame) and type(frame.IsShown) == "function" and type(frame.Layout) == "function"
+        and type(frame.GetExtraButtons) == "function"
+        and frame:IsShown() then frame:Layout() end
+end
+
 local function CanShow(frame, addon)
-    return Feature.enabled and API.Known() and frame.id == "inventory"
+    return Feature.enabled and API.Known() and IsOrdinary(frame) and frame.id == "inventory"
+        and type(frame.GetOwner) == "function" and type(frame.IsCached) == "function"
         and frame:GetOwner() == addon.player and not frame:IsCached()
 end
 
 local function Click()
     if binding and Feature.enabled and not API.InCombat() then
-        local frame = binding.addon.Frames:Get("inventory")
-        if frame and CanShow(frame, binding.addon) then open() end
+        local frame = GetInventory(binding.addon)
+        if CanShow(frame, binding.addon) then open() end
     end
 end
 
 local function AddEntry(frame, buttons, current)
-    if API.InCombat() or not CanShow(frame, current.addon) or not IsOrdinary(frame) then return buttons end
-    if type(buttons) ~= "table" then return buttons end
+    if API.InCombat() or not CanShow(frame, current.addon) then return buttons end
+    assert(type(buttons) == "table", "extra buttons must be a table")
     local entry = entries[frame]
     if not entry then
         entry = View.Entry(frame, { click = Click, toolbar = true, template = "BagnonButtonTemplate" })
@@ -36,7 +50,7 @@ local function AddEntry(frame, buttons, current)
     View.PlaceEntry(entry, frame, true)
     -- 不修改原返回表：其他扩展可能复用自己的按钮列表。
     local result = {}
-    for i, button in ipairs(buttons) do result[i] = button end
+    for i, button in pairs(buttons) do result[i] = button end
     result[#result + 1] = entry
     return result
 end
@@ -53,25 +67,21 @@ local function Detach()
     if previous.class.GetExtraButtons == previous.wrapper then
         previous.class.GetExtraButtons = previous.original
     end
-    local frame = previous.addon.Frames:Get("inventory")
-    if IsOrdinary(frame) and frame:IsShown() then frame:Layout() end
+    LayoutInventory(previous.addon)
 end
 
 function Feature:Refresh()
     if API.InCombat() then return end
     if not self.enabled then Detach(); return end
     if self.blockedReason or not (System and Security) or not System.IsAddOnLoaded("Bagnon") then return end
-    if Security.SafeString(System.GetAddOnMetadata("Bagnon", "Version")) ~= "12.1.7" then
-        self.blockedReason = "unsupported-version"; return
-    end
     local addon = _G.Bagnon
-    local class = addon and addon.Inventory
-    if not (class and type(class.GetExtraButtons) == "function" and addon.player
-        and addon.Frames and type(addon.Frames.Get) == "function") then return end
+    local class = type(addon) == "table" and addon.Inventory
     if binding and (binding.addon ~= addon or binding.class ~= class
         or class.GetExtraButtons ~= binding.wrapper) then
         self.blockedReason = "changed-interface"; Detach(); return
     end
+    if not (type(class) == "table" and type(class.GetExtraButtons) == "function" and addon.player
+        and type(addon.Frames) == "table" and type(addon.Frames.Get) == "function") then return end
     if not binding then
         local current = { addon = addon, class = class, original = class.GetExtraButtons }
         current.wrapper = function(frame, ...)
@@ -89,11 +99,11 @@ function Feature:Refresh()
         binding = current
         class.GetExtraButtons = current.wrapper
     end
-    local frame = addon.Frames:Get("inventory")
-    if IsOrdinary(frame) and frame:IsShown() then frame:Layout() end
+    LayoutInventory(addon)
 end
 
 function Feature:Enable(callback)
+    if not self.enabled then self.blockedReason = nil end
     self.enabled, open = true, callback
     self:Refresh()
 end

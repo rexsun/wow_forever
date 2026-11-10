@@ -1,6 +1,36 @@
 -- Generated from Docs/Products/YUI_OrbitInfoBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("ybar", {
+-- YUI-Notes-Record: orbit-129|mainline|f4846098c2d1843945b887d1930cfe5f921329e3997a6ff0884025f89010b11a
+    {
+        version = "orbit-129",
+        date = "2026-11-09",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "自动修理新增等级限制，默认从 10 级开始，支持调整或关闭。",
+            },
+            enUS = {
+                "Added an automatic repair level limit, starting at level 10 by default, with options to adjust or disable it.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-129|forever|0b4944e4edd8de7c543ad860f84b7eede53c645541513fb490048ef4e3ff0c98
+    {
+        version = "orbit-129",
+        date = "2026-11-09",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "自动修理新增等级限制，默认从 10 级开始，支持调整或关闭。",
+                "修复新版中文技能学习提示的识别异常。",
+            },
+            enUS = {
+                "Added an automatic repair level limit, starting at level 10 by default, with options to adjust or disable it.",
+                "Fixed recognition of updated Chinese skill-training tooltip headings.",
+            },
+        },
+    },
 -- YUI-Notes-Record: orbit-128|forever|0e27d19020b16232bce9d1c2829118c9be1bf9d46d9a3432de27ff1eb4c693d3
     {
         version = "orbit-128",
@@ -251,25 +281,6 @@ CL:Register("ybar", {
                 "Added Kinduru's Spiriting Quill to teleport toys, displayed as “Kindo'jan”.",
                 "Added a new mount option to the durability bar.",
                 "Fixed teleport destination labels wrapping onto multiple lines.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-118|mainline|319a446aaeef075707a020aeed2a14bba51b2942cac58a14a3cd5c898e31dc3e
--- YUI-Notes-Record: orbit-118|forever|6fca818e200881ad4e6c58bf13c74d1450fd5b7ed9ec1dd44489ac87612af5e4
-    {
-        version = "orbit-118",
-        date = "2026-10-15",
-        clients = { "Retail", "Forever" },
-        content = {
-            zhCN = {
-                "时钟新增可配置休息动效，支持样式、颜色、位置与满级隐藏。",
-                "改善时钟布局与显隐，修复登录后的耐久刷新和战斗中布局占位。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Added configurable clock resting animations, with style, color, position and max-level hiding options.",
-                "Improved clock layout and visibility; fixed durability updates after login and layout spacing during combat.",
-                "Updated the shared core for compatibility with newer YUI addons.",
             },
         },
     },

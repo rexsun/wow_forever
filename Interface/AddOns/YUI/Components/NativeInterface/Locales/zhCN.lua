@@ -3,6 +3,11 @@ local YUI = _G.YUI
 if YUI.Locale.ShouldLoad and not YUI.Locale:ShouldLoad("zhCN") then return end
 
 YUI.Locale:Register("NativeInterface", "zhCN", {
+    ["manage.error_messages"] = "管理系统错误／信息提示位置",
+    ["manage.error_messages.tooltip"] = "默认关闭。开启后在 YUI 编辑模式中预览、移动或重置系统错误／信息提示；初始位置保持原生位置。红色和黄色提示会一起移动。\n\n关闭时仅恢复一次接管前的原生位置，之后不再干预；保留已保存的位置供再次开启使用。战斗中的更改待脱战后生效。",
+    ["layout.error_messages"] = "系统错误／信息提示",
+    ["preview.error_messages.error"] = "法术还没有准备好。",
+    ["preview.error_messages.info"] = "系统信息提示预览",
     ["hide.raid_manager"] = "隐藏组队管理面板",
     ["hide.raid_manager.tooltip"] = "隐藏屏幕左侧的组队管理面板及收缩箭头，不影响队伍和团队血条。关闭后恢复原生显隐；战斗中的更改待脱战后生效。",
     ["quest.sparkles"] = "显示任务物件闪光",

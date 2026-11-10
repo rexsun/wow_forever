@@ -1486,6 +1486,11 @@ function Sources:ResolveEntrySource(profile, entry, monitor, sourceKey)
             }
         end
     elseif entry.sourceType == PLAYER_AURA_SOURCE_TYPE then
+        -- This managed preset is native-only; never fan out 35 per-ID queries
+        -- when the native container is unavailable.
+        if YHUD.IsForeverSealPreset and YHUD:IsForeverSealPreset(entry) then
+            return nil
+        end
         if YHUD.CanUseFilteredAuraDisplay
             and YHUD:IsFilteredAuraMonitor(entry, monitor)
             and YHUD:CanUseFilteredAuraDisplay() then

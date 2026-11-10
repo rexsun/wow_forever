@@ -32,7 +32,7 @@ YUI.ForeverFactoryProfile = {
         tokenOverrides = {},
         userOptions = { density = "standard", iconShape = "rounded", motionStrength = "standard", settingsBackground = "artwork" },
     },
-    AutoRepair = { mode = "guild", notify = true },
+    AutoRepair = { mode = "guild", notify = true, skipLowLevel = true, minLevel = 10 },
     Components = {
         __toolboxEnabled = true,
         CombatCue = true,
@@ -237,6 +237,7 @@ YUI.ForeverFactoryProfile = {
             fixBagSortButton = true,
             fixProfessionsIcon = true,
             questLootSparkles = true,
+            manageErrorMessages = false,
             compactBetaReporter = true, importBetaProfile = true, importBetaEditMode = true,
         },
         GameMenuButtons = true,

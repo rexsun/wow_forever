@@ -5,10 +5,11 @@
 -- d'office "SIZE_TIP" pour son infobulle. La fenêtre change ainsi de langue sans se refaire.
 --
 -- La fenêtre a l'allure de celle des métiers (Skin.lua) et trois pages, que choisissent les
--- onglets de son bord droit. La première range à gauche les objets que Lueur met en lumière,
--- chacun avec son icône, sa couleur et sa case, et à droite l'apparence de ceux que l'on y
--- choisit. La deuxième règle les icônes des filons et des plantes sur la minimap (NodeScan.lua).
--- La troisième réunit le reste : détection, réglages généraux, masquage, silhouette.
+-- onglets de son bord droit. La première est une cabine d'essayage : en haut les objets que Lueur
+-- met en lumière, chacun avec son icône, sa case et sa couleur ; dessous, à gauche l'aperçu de
+-- ceux que l'on y choisit (Preview.lua), à droite leur apparence. La deuxième règle les icônes
+-- des filons et des plantes sur la minimap (NodeScan.lua). La troisième réunit le reste :
+-- détection, réglages généraux, masquage, silhouette.
 
 local ADDON_NAME, ns = ...
 local L = ns.L
@@ -25,13 +26,13 @@ local MEDIA = "Interface\\AddOns\\" .. ADDON_NAME .. "\\Media\\"
 local ICONS = "Interface\\Icons\\"
 local FALLBACK_ICON = "Interface\\Cooldown\\star4"
 
-local WIDTH, HEIGHT = 728, 496
+local WIDTH, HEIGHT = 800, 658
 local EDGE = 12               -- marge entre le cadre de la fenêtre et ses panneaux
 local TOP, FOOT = 62, 42      -- ce que la fenêtre garde au-dessus des panneaux (son portrait) et dessous (ses boutons)
 local GAP = 6                 -- espace entre deux panneaux
 local PAD = 16                -- marge intérieure d'un panneau
-local LIST = 236              -- largeur du panneau des objets
-local ENTRY = 48              -- hauteur d'une ligne de ce panneau
+local STRIP = 76              -- hauteur du bandeau des objets, en haut de leur page
+local VIEW = 300              -- largeur du panneau de l'aperçu, sous lui
 local SLOT = 40               -- côté d'un bouton d'icône : celui des boutons de sort du jeu, dont il porte le liseré
 local ROW = 30                -- hauteur d'une ligne de case à cocher (la case en fait 29)
 local RADIO_ROW = 22          -- hauteur d'une ligne de boutons radio
@@ -47,8 +48,16 @@ local CATEGORY_ICONS = {
 }
 local SETTINGS_ICON = "Trade_Engineering"
 local NODES_ICON = "INV_Misc_Map_01"
-local NODES_HEIGHT = 246      -- hauteur des deux panneaux du haut de la page de la minimap
-local SCAN_HEIGHT = 140       -- et de celui du bas, la lecture de la minimap
+local SWITCH_HEIGHT = 160     -- hauteur du panneau de l'alternance des pistages, sur la page de la minimap
+local SAMPLE = 190            -- diamètre du disque où cette page montre des icônes témoins
+
+-- Les icônes témoins : objet donné par le nœud, métier, difficulté, dans une grotte ou non, et leur
+-- place sur le disque (en fractions de son rayon)
+local SAMPLES = {
+	{ 2447, "herb", "trivial", false, -0.42, 0.44 }, { 765, "herb", "easy", false, 0.30, 0.52 },
+	{ 2770, "ore", "fair", false, 0.58, -0.08 }, { 2771, "ore", "difficult", false, -0.08, -0.02 },
+	{ 2772, "ore", "impossible", false, -0.56, -0.30 }, { 2450, "herb", "fair", true, 0.20, -0.56 },
+}
 
 -- Titre de chaque page sous la barre de titre ; celle des objets compose le sien (LookTitle)
 local PAGE_TITLES = { nodes = "NODES_PAGE", settings = "SETTINGS" }
@@ -63,7 +72,7 @@ local pages = {}              -- nom d'une page ("look", "nodes", "settings") ->
 local refreshers = {}         -- une fonction par contrôle, qui le remet en accord avec les réglages
 local captions = {}           -- une fonction par texte fixe de la fenêtre, qui le pose dans la langue courante
 local refreshing = false      -- pendant ce temps, un curseur qui bouge ne doit rien régler
-local previewStarted = false  -- la fenêtre d'aperçu a été ouverte depuis le menu
+
 local blockClick = 0          -- frames pendant lesquelles les clics sur le bouton de touche sont ignorés
 local keybindButton           -- référence au bouton de key binding
 local openPage = "look"       -- page montrée : "look" (les objets et leur apparence), "nodes" (la minimap) ou "settings"
@@ -72,6 +81,11 @@ local effectScope = "all"     -- catégorie dont la page règle l'effet et l'app
 -- La catégorie que le menu personnalise ; nil : tous les objets
 local function ScopeCategory()
 	return effectScope ~= "all" and effectScope or nil
+end
+
+-- La lumière seule (Plumber, ou le réglage) : Lueur n'écrit ni nom ni icône
+local function Bare()
+	return ns.GlowBare ~= nil and ns.GlowBare() == true
 end
 
 -- Couleur des dessins d'effet : celle de la catégorie que la page règle, l'or des titres du
@@ -286,7 +300,7 @@ local function AddFont(column, name, width)
 			if choice == key then stepper:SetValue(index) end
 		end
 		Show(key)
-		row:SetAvailable(#list > 1 and ns.GetOption("showName", ScopeCategory()))
+		row:SetAvailable(#list > 1 and ns.GetOption("showName", ScopeCategory()) and not Bare())
 	end
 	return row
 end
@@ -389,6 +403,16 @@ local function AddEffects(column)
 	end
 end
 
+-- Filet entre deux groupes de contrôles d'un panneau : celui des infobulles du jeu
+local function AddDivider(column)
+	local line = column.parent:CreateTexture(nil, "ARTWORK")
+	line:SetTexture("Interface\\Common\\UI-TooltipDivider-Transparent")
+	line:SetSize(column.width, 8)
+	line:SetPoint("TOPLEFT", column.x, column.y)
+	line:SetAlpha(0.7)
+	column.y = column.y - 8
+end
+
 local function AddButton(parent, name, onClick, width)
 	local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
 	button:SetSize(width or 130, 22)
@@ -426,15 +450,21 @@ end
 -- droit rend la couleur d'origine. `swatch.fill` est son aplat.
 local function AddSwatch(parent, key)
 	local swatch = CreateFrame("Button", nil, parent)
-	swatch:SetSize(16, 16)
+	swatch:SetSize(18, 18)
 	swatch:RegisterForClicks("AnyUp")
+	-- un liseré de bronze, un filet noir, puis l'aplat : comme sertie
 	local border = swatch:CreateTexture(nil, "BACKGROUND")
 	border:SetAllPoints()
-	border:SetColorTexture(0, 0, 0, 1)
+	border:SetColorTexture(0.62, 0.56, 0.46, 1)
+	local groove = swatch:CreateTexture(nil, "BORDER")
+	groove:SetPoint("TOPLEFT", 1, -1)
+	groove:SetSize(16, 16)
+	groove:SetColorTexture(0, 0, 0, 1)
 	local fill = swatch:CreateTexture(nil, "ARTWORK")
-	fill:SetPoint("TOPLEFT", 1, -1)
+	fill:SetPoint("TOPLEFT", 2, -2)
 	fill:SetSize(14, 14)
 	swatch.fill = fill
+	swatch:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
 	swatch:SetScript("OnClick", function(_, mouseButton)
 		PlaySound(SOUNDKIT.IG_MAINMENU_OPTION)
 		if mouseButton == "RightButton" then ns.SetColor(key) else PickColor(key) end
@@ -471,7 +501,7 @@ local function AddIgnore(column)
 		GameTooltip:Show()
 	end)
 	row:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	local button = AddButton(row, "IGNORE_TARGET", ns.IgnoreTarget)
+	local button = AddButton(row, "IGNORE_TARGET", ns.IgnoreTarget, 150)
 	button:SetPoint("RIGHT", 0, 0)
 	refreshers[#refreshers + 1] = function() label:SetText(L.IGNORED:format(#ns.IgnoredNames())) end
 end
@@ -615,8 +645,8 @@ local function RefreshMenu()
 	refreshing = false
 end
 
--- Montre une page : "settings", ou "look", avec les objets dont elle règle l'apparence s'ils
--- sont donnés ("all", ou une catégorie, que la fenêtre d'aperçu montre alors si elle est ouverte)
+-- Montre une page : "settings", "nodes", ou "look", avec les objets dont elle règle l'apparence
+-- s'ils sont donnés ("all", ou une catégorie, que l'aperçu montre alors)
 local function Open(name, scope)
 	openPage, effectScope = name, scope or effectScope
 	for key, page in pairs(pages) do page:SetShown(key == name) end
@@ -630,47 +660,57 @@ local function LookTitle()
 	return category and L.LOOK_OF:format(L["CATEGORY_" .. category:upper()]) or L.LOOK_OF_ALL
 end
 
--- Nom de l'effet que portent ces objets : tous (nil), ou une catégorie
-local function EffectName(category)
-	return L["EFFECT_" .. ns.GetOption("effect", category):upper()]
-end
-
--- Ligne de la liste des objets, à la manière d'un métier dans sa fenêtre : une icône, un nom
--- et, dessous, l'effet que portent ces objets. La cliquer règle la page sur eux. Pour une
--- catégorie (`key`), elle porte aussi sa couleur et la case qui la met ou non en lumière.
-local function AddEntry(column, name, icon, key)
+-- Case du bandeau des objets, à `x` et large de `width` : une icône et, dessous, un nom. La cliquer
+-- règle la page sur ces objets, et l'aperçu les montre. Pour une catégorie (`key`), elle porte aussi,
+-- à droite de l'icône, la case qui la met ou non en lumière et sa couleur. Son infobulle dit ce
+-- qu'il advient des autres objets quand on règle ceux-là.
+local function AddEntry(parent, x, width, name, icon, key)
 	local scope = key or "all"
-	local row = CreateFrame("CheckButton", nil, column.parent)
-	row:SetSize(column.width + 2 * (PAD - 6), ENTRY - 2)
-	row:SetPoint("TOPLEFT", 6, column.y)
-	column.y = column.y - ENTRY
+	local row = CreateFrame("CheckButton", nil, parent)
+	row:SetSize(width - 2, STRIP - 10)
+	row:SetPoint("TOPLEFT", x, -5)
 	row.scope = scope
 	row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
-	local chosen = row:CreateTexture(nil, "BACKGROUND")
-	chosen:SetAllPoints()
-	chosen:SetTexture("Interface\\QuestFrame\\UI-QuestLogTitleHighlight")
-	chosen:SetBlendMode("ADD")
-	chosen:SetVertexColor(1, 0.82, 0, 0.45)
-	local image, slot = Skin.Slot(row, SLOT, "LEFT", 4, 0)
+	-- l'icône, la case et la pastille tiennent ensemble au milieu de la case
+	local content = SLOT + (key and 52 or 0)
+	local image, slot = Skin.Slot(row, SLOT, "TOPLEFT", (width - 2 - content) / 2 + 3, -6)
 	Skin.SetIcon(image, icon)
+	-- la case choisie : une lueur dorée derrière son icône (vu en jeu le 2026-11-09, un aplat sur toute
+	-- la case faisait un pavé terne) ; sans l'image de Lueur, le surlignage des listes du jeu
+	local chosen = row:CreateTexture(nil, "BACKGROUND")
+	chosen:SetBlendMode("ADD")
+	if chosen:SetTexture(MEDIA .. "glow.tga") == false then
+		chosen:SetTexture("Interface\\QuestFrame\\UI-QuestLogTitleHighlight")
+		chosen:SetAllPoints()
+		chosen:SetVertexColor(1, 0.82, 0, 0.45)
+	else
+		chosen:SetSize(SLOT * 3.2, SLOT * 2.3)
+		chosen:SetPoint("CENTER", slot, "CENTER", 0, -4)
+		chosen:SetVertexColor(1, 0.74, 0.2, 0.85)
+	end
 	local ring = row:CreateTexture(nil, "OVERLAY", nil, 1)
 	ring:SetTexture("Interface\\Buttons\\CheckButtonHilight")
 	ring:SetBlendMode("ADD")
 	ring:SetSize(SLOT, SLOT)
 	ring:SetPoint("CENTER", slot, "CENTER", 0, 0)
-	local title = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-	title:SetPoint("LEFT", slot, "RIGHT", 9, 7)
+	local title = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+	title:SetPoint("BOTTOM", row, "BOTTOM", 0, 4)
 	Caption(title, name)
-	local sub = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
 	row:SetScript("OnClick", function()
 		PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
 		Open("look", scope)
 	end)
+	row:HookScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip_SetTitle(GameTooltip, L[name])
+		GameTooltip_AddNormalLine(GameTooltip, key and L.SCOPE_ONE_TIP or L.SCOPE_ALL_TIP)
+		GameTooltip:Show()
+	end)
+	row:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
 	if key then
 		local toggle = CreateFrame("CheckButton", nil, row, "MinimalCheckboxTemplate")
-		toggle:SetPoint("RIGHT", -4, 0)
+		toggle:SetPoint("LEFT", slot, "RIGHT", 5, 0)
 		toggle:SetScript("OnClick", function(self)
 			local checked = self:GetChecked()
 			PlaySound(checked and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF)
@@ -678,7 +718,7 @@ local function AddEntry(column, name, icon, key)
 		end)
 		SetTooltip(toggle, name)
 		local swatch = AddSwatch(row, key)
-		swatch:SetPoint("RIGHT", toggle, "LEFT", -4, 0)
+		swatch:SetPoint("LEFT", toggle, "RIGHT", 1, 0)
 		row.toggle, row.swatch = toggle, swatch
 	end
 	refreshers[#refreshers + 1] = function()
@@ -689,9 +729,29 @@ local function AddEntry(column, name, icon, key)
 		ring:SetShown(selected)
 		image:SetDesaturated(not shown)
 		Dim(title, shown, 1, 0.82, 0)
-		sub:SetText(shown and EffectName(key) or L.TIP_DISABLED)
-		sub:SetTextColor(0.6, 0.6, 0.6)
 		if key then row.toggle:SetChecked(shown) end
+	end
+	return row
+end
+
+-- Icônes témoins de la page de la minimap : sur un disque sombre, des icônes telles que la minimap
+-- les montre, à la taille et à l'épaisseur d'anneau réglées (NodeScan.lua les dessine)
+local function AddSamples(column)
+	local row = CreateFrame("Frame", nil, column.parent)
+	row:SetSize(column.width, SAMPLE + 8)
+	row:SetPoint("TOPLEFT", column.x, column.y - 6)
+	column.y = column.y - SAMPLE - 14
+	for index, tone in ipairs({ { 0.62, 0.56, 0.46, 0.9 }, { 0.09, 0.11, 0.08, 1 } }) do
+		local disc = row:CreateTexture(nil, "BACKGROUND", nil, index)
+		disc:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+		disc:SetVertexColor(tone[1], tone[2], tone[3], tone[4])
+		disc:SetSize(SAMPLE + 6 - 4 * index, SAMPLE + 6 - 4 * index)
+		disc:SetPoint("CENTER")
+	end
+	if not ns.NodeSamples then return row end
+	local draw = ns.NodeSamples(row, SAMPLES, SAMPLE / 2)
+	refreshers[#refreshers + 1] = function()
+		draw(ns.GetOption("nodeSize"), ns.GetOption("nodeRing") / 100, ns.GetOption("nodeHerbs"), ns.GetOption("nodeOre"))
 	end
 	return row
 end
@@ -745,73 +805,79 @@ local function CreateMenu()
 		pages[tab[1]] = page
 	end
 
-	-- Page des objets. À gauche leur liste : tous, puis chaque catégorie.
+	-- Page des objets. En haut leur bandeau : tous, puis chaque catégorie.
 	local page = pages.look
-	local column = NewCard(page, 0, 0, LIST, height, "HEADER_OBJECTS")
-	AddEntry(column, "SCOPE_ALL", Skin.PORTRAIT)
-	for _, key in ipairs(ns.CATEGORY_ORDER) do
-		AddEntry(column, "CATEGORY_" .. key:upper(), ICONS .. (CATEGORY_ICONS[key] or "INV_Misc_QuestionMark"), key)
+	local strip = Skin.Card(page, page:GetWidth(), STRIP)
+	strip:SetPoint("TOPLEFT", 0, 0)
+	local cell = (page:GetWidth() - 12) / (#ns.CATEGORY_ORDER + 1)
+	AddEntry(strip, 6, cell, "SCOPE_ALL", Skin.PORTRAIT)
+	for index, key in ipairs(ns.CATEGORY_ORDER) do
+		AddEntry(strip, 6 + index * cell, cell, "CATEGORY_" .. key:upper(), ICONS .. (CATEGORY_ICONS[key] or "INV_Misc_QuestionMark"), key)
 	end
 
-	-- À droite, leur apparence : ce qu'elle règle au juste, puis l'effet et ses réglages. Tout
-	-- s'applique aussitôt à la lueur en cours.
-	column = NewCard(page, LIST + GAP, 0, page:GetWidth() - LIST - GAP, height)
+	-- Dessous, à gauche : l'aperçu, sur le modèle d'un objet de la catégorie choisie (Preview.lua)
+	local lower = height - STRIP - GAP
+	local stage = Skin.Card(page, VIEW, lower)
+	stage:SetPoint("TOPLEFT", 0, -STRIP - GAP)
+	if ns.PreviewPane then ns.PreviewPane(stage, VIEW - 12, lower - 44):SetPoint("TOPLEFT", 6, -6) end
+
+	-- À droite, leur apparence : l'effet et ses réglages. Tout s'applique aussitôt à la lueur en
+	-- cours, celle de l'aperçu ou celle de l'objet que le jeu désigne.
+	local column = NewCard(page, VIEW + GAP, -STRIP - GAP, page:GetWidth() - VIEW - GAP, lower)
 	column.tight = true
-	local note = column.parent:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	note:SetPoint("TOPLEFT", column.x, column.y)
-	note:SetWidth(column.width)
-	note:SetJustifyH("LEFT")
-	note:SetTextColor(0.75, 0.75, 0.75)
-	column.y = column.y - 28
 	local shared = AddButton(frame, "SHARED", function() ns.ClearOwnSettings(ScopeCategory()) end, 190)
 	shared:SetPoint("TOPRIGHT", -EDGE - 2, -30)
 	refreshers[#refreshers + 1] = function()
 		local category = ScopeCategory()
-		note:SetText(category and L.SCOPE_ONE_TIP or L.SCOPE_ALL_TIP)
 		-- le bouton n'a de sens que pour une catégorie qui a des réglages à elle
 		local own = openPage == "look" and category ~= nil and ns.HasOwnSettings(category)
 		shared:SetEnabled(own)
 		shared:SetShown(own)
 	end
 	AddEffects(column)
+	AddDivider(column)
 	AddSlider(column, "SIZE", "size", nil, true, 200)
 	AddSlider(column, "INTENSITY", "intensity", "FORMAT_PERCENT", true, 200)
 	AddSlider(column, "OFFSET", "offsetY", nil, true, 200)
-	column.y = column.y - 4
-	-- les cases vont deux par ligne : la lueur, puis le nom et l'icône, dont la taille du texte suit
-	local left = column.x
-	local function Beside()
-		column.x, column.y = left + column.width / 2, column.y + ROW
-	end
+	AddDivider(column)
+	-- les deux cases de la lueur l'une sous l'autre : leurs noms sont longs, et côte à côte le premier
+	-- passait sous la seconde case (vu en jeu le 2026-11-09) ; celles du nom et de l'icône, courtes, côte à côte
 	AddCheckbox(column, "SILHOUETTE", ScopedGetter("silhouette"), function(checked)
 		ns.SetOption("silhouette", checked, ScopeCategory())
 		local failure = ns.SilhouetteFailure()
 		if checked and failure then ns.Print(L.MSG_CUTOUT_UNAVAILABLE:format(failure)) end
 	end)
-	Beside()
 	AddOption(column, "FADE", "followAlpha", true)
-	column.x = left
-	AddOption(column, "SHOW_NAME", "showName", true)
-	Beside()
-	AddOption(column, "SHOW_ICON", "showIcon", true)
+	local left = column.x
+	local showName = AddOption(column, "SHOW_NAME", "showName", true)
+	column.x, column.y = left + column.width / 2, column.y + ROW
+	local showIcon = AddOption(column, "SHOW_ICON", "showIcon", true)
 	column.x = left
 	local textSize = AddSlider(column, "TEXT_SIZE", "textSize", "FORMAT_PERCENT", true, 200)
-	refreshers[#refreshers + 1] = function() textSize:SetAvailable(ns.GetOption("showName", ScopeCategory())) end
+	-- (la lumière seule, avec Plumber ou par le réglage : Lueur n'écrit ni nom ni icône)
+	refreshers[#refreshers + 1] = function()
+		local bare = Bare()
+		showName:SetAvailable(not bare)
+		showIcon:SetAvailable(not bare)
+		textSize:SetAvailable(not bare and ns.GetOption("showName", ScopeCategory()))
+	end
 	AddFont(column, "FONT", 200)
 
-	-- Page de la minimap : à gauche les icônes des filons et des plantes ; à droite l'alternance des
-	-- deux pistages, pour qui a les deux métiers. Rien n'y explique les couleurs des anneaux : une
-	-- légende y était, que le joueur a fait retirer.
+	-- Page de la minimap : à gauche les icônes des filons et des plantes, et des icônes témoins qui
+	-- suivent leurs réglages ; à droite l'alternance des deux pistages, pour qui a les deux métiers,
+	-- puis la lecture de la minimap. Rien n'y explique les couleurs des anneaux : une légende y
+	-- était, que le joueur a fait retirer.
 	local half = (page:GetWidth() - GAP) / 2
 	page = pages.nodes
 	if page then
-		column = NewCard(page, 0, 0, half, NODES_HEIGHT, "HEADER_NODES")
+		column = NewCard(page, 0, 0, half, height, "HEADER_NODES")
 		local controls = {
 			AddOption(column, "NODE_HERBS", "nodeHerbs"),
 			AddOption(column, "NODE_ORE", "nodeOre"),
 			AddSlider(column, "NODE_SIZE", "nodeSize"),
 			AddSlider(column, "NODE_RING", "nodeRing", "FORMAT_PERCENT"),
 		}
+		AddSamples(column)
 		-- sur un client qui ne sait pas lire les points de la minimap : pourquoi tout est grisé
 		local reason = column.parent:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 		reason:SetPoint("TOPLEFT", column.x, column.y - 4)
@@ -819,13 +885,12 @@ local function CreateMenu()
 		reason:SetJustifyH("LEFT")
 		reason:SetTextColor(1, 0.5, 0.25)
 
-		column = NewCard(page, half + GAP, 0, half, NODES_HEIGHT, "HEADER_SWITCH")
+		column = NewCard(page, half + GAP, 0, half, SWITCH_HEIGHT, "HEADER_SWITCH")
 		controls[#controls + 1] = AddOption(column, "NODE_SWITCH", "nodeSwitch")
 		controls[#controls + 1] = AddSlider(column, "NODE_SWITCH_YARDS", "nodeSwitchYards", "FORMAT_RANGE")
 
-		-- en bas, sur toute la largeur : quand la minimap se lit (chaque balayage la cache un instant)
-		column = NewCard(page, 0, -(NODES_HEIGHT + GAP), 2 * half + GAP, SCAN_HEIGHT, "HEADER_SCANNING")
-		column.width = half - 2 * PAD
+		-- dessous : quand la minimap se lit (chaque balayage la cache un instant)
+		column = NewCard(page, half + GAP, -(SWITCH_HEIGHT + GAP), half, height - SWITCH_HEIGHT - GAP, "HEADER_SCANNING")
 		controls[#controls + 1] = AddSlider(column, "NODE_SCAN_YARDS", "nodeScanYards", "FORMAT_RANGE")
 		controls[#controls + 1] = AddOption(column, "NODE_COMBAT", "nodeCombat")
 		refreshers[#refreshers + 1] = function()
@@ -847,6 +912,10 @@ local function CreateMenu()
 
 	column = NewCard(page, half + GAP, 0, half, upper, "HEADER_GENERAL")
 	AddOption(column, "ENABLE", "enabled")
+	-- (à côté : la lumière seule, la nameplate laissée au jeu ou à Plumber ; les deux noms sont courts)
+	column.x, column.y = column.x + column.width / 2, column.y + ROW
+	AddOption(column, "GLOW_ONLY", "glowOnly")
+	column.x = column.x - column.width / 2
 	AddCheckbox(column, "MINIMAP", function() return not ns.db.minimap.hide end, ns.ShowMinimapButton)
 	AddOption(column, "DEBUG", "debug")
 	-- chaque langue se présente sous le nom qu'elle se donne, pour rester reconnaissable depuis
@@ -877,16 +946,7 @@ local function CreateMenu()
 
 	for name, shown in pairs(pages) do shown:SetShown(name == openPage) end
 
-	-- Au pied de la fenêtre : l'aperçu, la remise à zéro, et entre eux la version
-	local preview = AddButton(frame, "PREVIEW", function()
-		if not ns.TogglePreview then return end
-		previewStarted = ns.TogglePreview()
-		-- l'aperçu s'ouvre sur la catégorie dont la page est en train de régler l'apparence
-		local category = ScopeCategory()
-		if previewStarted and category and ns.ShowPreviewCategory then ns.ShowPreviewCategory(category) end
-	end)
-	preview:SetPoint("BOTTOMLEFT", EDGE, 12)
-
+	-- Au pied de la fenêtre : la version, et la remise à zéro
 	local confirmLeft -- secondes qui restent pour confirmer la remise à zéro, nil hors confirmation
 	local reset = AddButton(frame, "DEFAULTS", function()
 		if confirmLeft then
@@ -899,7 +959,7 @@ local function CreateMenu()
 	reset:SetPoint("BOTTOMRIGHT", -EDGE, 12)
 
 	local version = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-	version:SetPoint("BOTTOM", 0, 17)
+	version:SetPoint("BOTTOMLEFT", EDGE + 4, 17)
 	local function Sign()
 		version:SetText(L.FOOTER:format(C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version") or ""))
 	end
@@ -913,14 +973,11 @@ local function CreateMenu()
 	frame:SetScript("OnHide", function()
 		PlaySound(SOUNDKIT.IG_MAINMENU_CLOSE)
 		confirmLeft = nil
-		if previewStarted and ns.ClosePreview then ns.ClosePreview() end
-		previewStarted = false
 		if ns.IsZoneShown() then ns.ShowZone(false) end
 		stopListening()
 	end)
 	frame:SetScript("OnUpdate", function(_, elapsed)
 		if blockClick > 0 then blockClick = blockClick - 1 end
-		SetLabel(preview, ns.IsPreviewing() and L.PREVIEW_STOP or L.PREVIEW)
 		if confirmLeft then
 			confirmLeft = confirmLeft - elapsed
 			if confirmLeft <= 0 then confirmLeft = nil end
@@ -937,6 +994,18 @@ function ns.ToggleMenu()
 		if keybindButton then keybindButton:EnableKeyboard(false) end
 	end
 	frame:SetShown(not frame:IsShown())
+end
+
+-- /lueur preview : la fenêtre s'ouvre sur la page des objets, où se tient l'aperçu ; elle s'y
+-- trouvait déjà : elle se ferme. Renvoie true si l'aperçu est désormais montré.
+function ns.TogglePreview()
+	if menu and menu:IsShown() and openPage == "look" then
+		menu:Hide()
+		return false
+	end
+	if not (menu and menu:IsShown()) then ns.ToggleMenu() end
+	Open("look")
+	return true
 end
 
 ---------------------------------------------------------------------------
@@ -1066,14 +1135,6 @@ function ns.Retext()
 	for _, apply in ipairs(captions) do apply() end
 end
 
--- Appelée par Preview.lua quand ses flèches changent de catégorie : si le menu en
--- personnalisait une, c'est désormais celle que montre l'aperçu
-function ns.FollowPreview(category)
-	if effectScope ~= "all" and effectScope ~= category then
-		effectScope = category
-		if menu and menu:IsShown() then RefreshMenu() end
-	end
-end
 
 -- Affiche ou masque le bouton de la minimap (case du menu, /lueur minimap)
 function ns.ShowMinimapButton(shown)

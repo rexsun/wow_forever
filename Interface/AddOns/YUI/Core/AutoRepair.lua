@@ -5,6 +5,8 @@ local Service = {}
 YUI.AutoRepair = Service
 local MODULE_ID = "core.auto_repair"
 local DEFAULT_MODE = "guild"
+local DEFAULT_MIN_LEVEL = 10
+local MAX_MIN_LEVEL = 100
 local providerOwner = {}
 local L = YUI.Locale:Get("Core")
 local UnitAPI = YUI.API and YUI.API.Unit
@@ -15,6 +17,12 @@ local GetRepairAllCost, RepairAllItems = GetRepairAllCost, RepairAllItems
 
 local function NormalizeMode(mode)
     return (mode == "guild" or mode == "personal") and mode or "off"
+end
+
+local function NormalizeMinLevel(value)
+    value = tonumber(value)
+    if not value or value ~= value then return DEFAULT_MIN_LEVEL end
+    return math.max(1, math.min(MAX_MIN_LEVEL, floor(value)))
 end
 
 function Service:IsAvailable()
@@ -94,6 +102,8 @@ function Service:GetConfig()
     elseif profile.AutoRepair.mode == nil then
         profile.AutoRepair.mode = DEFAULT_MODE
     end
+    if profile.AutoRepair.skipLowLevel == nil then profile.AutoRepair.skipLowLevel = true end
+    if profile.AutoRepair.minLevel == nil then profile.AutoRepair.minLevel = DEFAULT_MIN_LEVEL end
     return profile.AutoRepair
 end
 
@@ -132,6 +142,28 @@ end
 function Service:SetNotify(value)
     local db = self:GetConfig()
     if db then db.notify = value == true end
+    YUI.Event:Emit("YUI_AUTO_REPAIR_CHANGED")
+end
+
+function Service:GetSkipLowLevel()
+    local db = self:GetConfig()
+    return not db or db.skipLowLevel ~= false
+end
+
+function Service:SetSkipLowLevel(value)
+    local db = self:GetConfig()
+    if db then db.skipLowLevel = value == true end
+    YUI.Event:Emit("YUI_AUTO_REPAIR_CHANGED")
+end
+
+function Service:GetMinLevel()
+    local db = self:GetConfig()
+    return NormalizeMinLevel(db and db.minLevel)
+end
+
+function Service:SetMinLevel(value)
+    local db = self:GetConfig()
+    if db then db.minLevel = NormalizeMinLevel(value) end
     YUI.Event:Emit("YUI_AUTO_REPAIR_CHANGED")
 end
 
@@ -199,6 +231,10 @@ function Service:TryRepair()
     if not self:IsAvailable() or not self:HasEnabledProvider() then return end
     local mode = self:GetMode()
     if mode == "off" or not CanMerchantRepair() then return end
+    if self:GetSkipLowLevel() then
+        local level = UnitAPI and UnitAPI.GetPlayerLevel and UnitAPI.GetPlayerLevel()
+        if not level or level < self:GetMinLevel() then return end
+    end
     local cost, canRepair = GetRepairAllCost()
     if not canRepair or not cost or cost <= 0 then return end
     local guild = mode == "guild" and CanGuildBankRepair and CanGuildBankRepair()
@@ -223,6 +259,13 @@ function Service:GetOptions(width)
         { type = "checkbox", label = L["auto_repair.notify"], default = true,
             get = function() return Service:GetNotify() end,
             set = function(value) Service:SetNotify(value) end, hidden = hidden },
+        { type = "checkbox", label = L["auto_repair.skip_low_level"], default = true,
+            get = function() return Service:GetSkipLowLevel() end,
+            set = function(value) Service:SetSkipLowLevel(value) end, hidden = hidden },
+        { type = "slider", label = L["auto_repair.min_level"],
+            min = 1, max = MAX_MIN_LEVEL, step = 1, default = DEFAULT_MIN_LEVEL,
+            get = function() return Service:GetMinLevel() end,
+            set = function(value) Service:SetMinLevel(value) end, hidden = hidden },
     }
 end
 

@@ -59,21 +59,29 @@ L.STATE_READY = "within reach"
 L.STATE_LOCKED = "unavailable"
 
 L.EFFECT_AURA = "Aura"
-L.EFFECT_AURA_TIP = "A halo of light with a fine ring, comets and fireflies."
-L.EFFECT_RETICLE = "Reticle"
-L.EFFECT_RETICLE_TIP = "A crisp ring and its comets over a fainter glow."
+L.EFFECT_AURA_TIP = "A halo of light and its wisps, with a ring, comets and fireflies."
 L.EFFECT_SUBTLE = "Subtle"
 L.EFFECT_SUBTLE_TIP = "A soft glow, with no ring or comets."
 L.EFFECT_SIGIL = "Sigil"
 L.EFFECT_SIGIL_TIP = "A circle of runes turns slowly around the object."
-L.EFFECT_BRACKETS = "Brackets"
-L.EFFECT_BRACKETS_TIP = "Four corners frame the object and lock onto it once it is within reach."
+L.EFFECT_VORTEX = "Vortex"
+L.EFFECT_VORTEX_TIP = "Arms of light coil around the object, like a portal opening."
+L.EFFECT_FLAME = "Flame"
+L.EFFECT_FLAME_TIP = "Tongues of fire rise from the object, in its color."
+L.EFFECT_RIFT = "Rift"
+L.EFFECT_RIFT_TIP = "A black hole ringed with light pulls sparks into a spiral."
+L.EFFECT_STORM = "Storm"
+L.EFFECT_STORM_TIP = "A storm cloud gathers above the object, and lightning falls from it."
+L.EFFECT_GEYSER = "Geyser"
+L.EFFECT_GEYSER_TIP = "A fountain of light bursts from the object and falls back around it."
+L.EFFECT_SPIRIT = "Spirit"
+L.EFFECT_SPIRIT_TIP = "Two wisps dance around the object, trailing a ribbon of light."
 L.EFFECT_BEAM = "Beam"
 L.EFFECT_BEAM_TIP = "A column of light rises from the object, sparks drifting up along it."
 L.EFFECT_BEACON = "Beacon"
 L.EFFECT_BEACON_TIP = "A crystal hovers above the object, tied to it by a thread of light."
 L.EFFECT_ORBIT = "Orbit"
-L.EFFECT_ORBIT_TIP = "Wisps circle the object, trailing light behind them."
+L.EFFECT_ORBIT_TIP = "Three wisps circle the object, each on its own orbit."
 L.EFFECT_RIPPLE = "Ripple"
 L.EFFECT_RIPPLE_TIP = "Ripples spread across the ground around the object."
 L.EFFECT_SPARKLE = "Sparkles"
@@ -158,6 +166,8 @@ L.ARC_2 = "Everywhere"
 L.ARC_2_TIP = "In every direction, even behind your back."
 L.EXCLUSIVE = "Only show highlighted targets"
 L.EXCLUSIVE_TIP = "The game no longer points out interaction targets that get no effect: NPCs, mailboxes… Unchecked, it shows a name and an icon on every one of them."
+L.GLOW_ONLY = "Glow only"
+L.GLOW_ONLY_TIP = "Lueur no longer writes the object's name and icon, and leaves what the game or another addon shows there. Always on while Plumber's Soft Target nameplate is enabled."
 
 L.KEY = "Interact key"
 L.KEY_TIP = "The key that picks up, gathers or uses the highlighted object once it is within reach. It is the game's own interact key: it works on NPCs too, and can also be changed in the game's key bindings."
@@ -202,9 +212,6 @@ L.NODE_SWITCH_TIP = "The game shows the dots of Find Herbs or those of Find Mine
 L.NODE_SWITCH_YARDS = "Distance between switches"
 L.NODE_SWITCH_YARDS_TIP = "How far you travel before Lueur turns the other tracking on."
 
-L.PREVIEW = "Preview"
-L.PREVIEW_STOP = "Close preview"
-L.PREVIEW_TIP = "Opens a window that shows the effect on a 3D object, in each of its states. Settings changed here apply to it at once."
 L.PREVIEW_NO_MODEL = "3D model unavailable on this client"
 L.PREVIEW_HINT = "Drag: turn  ·  right-drag: move  ·  wheel: zoom"
 L.DEFAULTS = "Defaults"
@@ -227,6 +234,7 @@ L.TIP_DRAG = "Drag: move this button"
 L.MSG_ENABLED = "enabled."
 L.MSG_DISABLED = "disabled, your original settings are restored."
 L.MSG_RESTART = "restart the game completely to finish updating Lueur."
+L.MSG_NODES_OFF = "the minimap icons for herbs and ore are now off by default, and this update turned them off. Turn them back on in the settings (/lueur) or with /lueur nodes."
 L.MSG_EXCLUSIVE_ON = "the game no longer points out targets that get no effect."
 L.MSG_EXCLUSIVE_OFF = "the game shows the name and icon of every interaction target (NPCs, world objects…)."
 L.MSG_SILHOUETTE_ON = "the effect passes behind your character."
@@ -245,6 +253,7 @@ L.MSG_HIDE_COMBAT = "effect hidden in combat: %s"
 L.MSG_HIDE_INSTANCE = "effect hidden in instances: %s"
 L.MSG_HIDE_LOCKED = "effect hidden on objects you cannot use: %s"
 L.MSG_HIDE_UNTRAINED = "effect hidden on herbs and ore without the profession: %s"
+L.MSG_GLOW_ONLY = "glow only, the nameplate left to the game or another addon: %s"
 L.MSG_IGNORED = "%s will no longer get an effect."
 L.MSG_UNIGNORED = "%s is no longer ignored."
 L.MSG_IGNORE_NO_TARGET = "no object in front of you to ignore."
@@ -269,6 +278,7 @@ L.STATUS_CVAR_UNKNOWN = "unknown to this client"
 L.STATUS_CVAR_DEFAULT = " (default %s)"
 L.STATUS_EXPECTED = "expected by Lueur: range %d, arc %d"
 L.STATUS_GATE = "only highlighted targets pointed out: %s | native display right now: %s"
+L.STATUS_GLOW_ONLY = "glow only: %s | Plumber's soft target name: %s"
 L.GATE_OPEN = "open"
 L.GATE_CLOSED = "closed"
 L.STATUS_SILHOUETTE = "effect behind the character: %s"
@@ -315,6 +325,9 @@ L.SCAN_VIGNETTES = "vignettes the game lists: %s"
 L.SCAN_DATA = "data of the dot under the pointer, besides its text: %s"
 L.SCAN_POINTER = "under the pointer: %s"
 L.SCAN_READER = "minimap under the mouse | last scan: %d frames, %d grid points%s, %d known nodes checked, %d groups measured, %d points placed again | interrupted %d times, last: %s | waiting for: %s | its opacity put back to 0 after another code changed it: %d times"
+L.SCAN_HIDE = "hidden by its %s | shape: %s | %d of its frames hidden with it, %d shown again meanwhile and hidden anew"
+L.SCAN_BY_MASK = "mask"
+L.SCAN_BY_ALPHA = "opacity"
 L.SCAN_FULL = " (whole minimap)"
 L.SCAN_SOON = "the minimap will be scanned as soon as it can go under the mouse"
 L.SCAN_BUSY = "a scan of the minimap is running"
@@ -326,6 +339,8 @@ L.SCAN_WHY_WINDOW = "the mouse over a window"
 L.SCAN_WHY_ZOOM = "the minimap zoomed"
 L.SCAN_WHY_TURN = "the minimap turned"
 L.SCAN_WHY_MAP = "another map"
+L.SCAN_WHY_TAXI = "a flight path"
+L.SCAN_WHY_NPC = "an NPC window open"
 L.SCAN_NOTHING = "nothing (put the pointer on a dot of the minimap and type the command again)"
 
 ---------------------------------------------------------------------------
@@ -370,7 +385,7 @@ L.HELP = {
 	"/lueur — opens or closes the settings window (like a click on the minimap button)",
 	"/lueur minimap — shows or hides the minimap button",
 	"/lueur on | off — enables or disables Lueur (off restores your settings)",
-	"/lueur preview — opens or closes the preview window, which shows the effect on a 3D object",
+	"/lueur preview — opens the settings window on the preview, which shows the effect on a 3D object",
 	"/lueur effect [category] <name> — gives this effect to every category, or to one of them (ore, herb, quest, chest, bobber, other); without a name, lists them",
 	"/lueur color <category> <rrggbb> | default — color of a category's effect; without a color, shows it",
 	"/lueur shared <category> — gives a category back the effect and appearance of all objects",
@@ -385,6 +400,7 @@ L.HELP = {
 	"/lueur range <{range}> — how far the game picks objects, in yards (default {range=})",
 	"/lueur arc <{arc}> — 0 dead ahead, 1 in front, 2 every direction (default {arc=})",
 	"/lueur exclusive — whether the game only points out the targets that get an effect",
+	"/lueur glowonly — whether Lueur only draws the light, leaving the target's nameplate (name, icon) to the game or another addon",
 	"/lueur combat | instance | unavailable | profession — whether the effect hides in combat, in instances, on objects you cannot use, on herbs and ore without the profession",
 	"/lueur key <KEY> | none — binds the key that picks up the highlighted object (F, SHIFT-E, BUTTON4…); without a key, shows it",
 	"/lueur ore | herb | quest | chest | bobber | other — shows or hides a category, for this character",

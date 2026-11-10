@@ -213,7 +213,7 @@ YUI.Locale:Register("YChat", "zhCN", {
     ["settings.rules.title"] = "规则",
     ["settings.rules.filter"] = "消息过滤",
     ["settings.rules.prefix_filter_enabled"] = "启用关键词过滤",
-    ["settings.rules.prefix_filter_help"] = "玩家聊天的整段消息中包含任一屏蔽词即隐藏。按原文匹配并区分大小写，引用中的命中也会屏蔽；无法安全读取的消息直接放行。",
+    ["settings.rules.prefix_filter_help"] = "玩家聊天的整段消息中包含任一屏蔽词即隐藏。按字面匹配，不区分英文字母大小写，引用中的命中也会屏蔽；无法安全读取的消息直接放行。",
     ["settings.rules.filter_prefixes"] = "屏蔽词",
     ["settings.rules.filter_prefix_placeholder"] = "输入屏蔽词（最多 32 条，每条最多 128 字节）",
     ["settings.rules.auto_invite"] = "自动邀请",

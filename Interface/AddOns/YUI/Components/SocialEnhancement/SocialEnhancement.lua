@@ -148,12 +148,30 @@ local function GetFullTargetName(name, server)
     return name
 end
 
-local function AddFriend(name)
-    if Social and type(Social.AddFriend) == "function" then Social.AddFriend(name) end
+local function ReportSocialError(reason)
+    local key = "error." .. (reason or "unavailable")
+    local message = L[key] or T("error.unavailable", "Unable to open the social window. Please use the game's Friends or Guild window.")
+    local errors = _G.UIErrorsFrame
+    if errors and type(errors.AddExternalErrorMessage) == "function" then
+        errors:AddExternalErrorMessage(message)
+    elseif type(YUI.Print) == "function" then
+        YUI:Print(message)
+    end
+end
+
+local function RunSocialAction(method, name, unit)
+    local callback = Social and Social[method]
+    local ok, reason = false, "unavailable"
+    if type(callback) == "function" then ok, reason = callback(name, unit) end
+    if YUI.IsForever and not ok then ReportSocialError(reason) end
+end
+
+local function AddFriend(name, unit)
+    RunSocialAction("AddFriend", name, unit)
 end
 
 local function InviteToGuild(name)
-    if Social and type(Social.InviteToGuild) == "function" then Social.InviteToGuild(name) end
+    RunSocialAction("InviteToGuild", name)
 end
 
 local function IsRightClickActive()
@@ -162,16 +180,25 @@ end
 
 local function AddMenuActions(rootDescription, contextData)
     if not IsRightClickActive() or not rootDescription or type(contextData) ~= "table" then return end
-    local name = GetFullTargetName(contextData.name, contextData.server)
+    local name
     if YUI.IsForever then
         -- The native resolver distinguishes surname from realm using menu context.
         name = Social and Social.GetForeverMenuPlayerName and Social.GetForeverMenuPlayerName(contextData)
+    else
+        name = GetFullTargetName(contextData.name, contextData.server)
     end
     if not name then return end
+    local friendUnit = contextData.unit
     if type(rootDescription.CreateDivider) == "function" then rootDescription:CreateDivider() end
     if type(rootDescription.CreateButton) == "function" then
-        rootDescription:CreateButton(T("menu.add_friend", "Add Friend"), function() AddFriend(name) end)
-        rootDescription:CreateButton(T("menu.invite_guild", "Invite to Guild"), function() InviteToGuild(name) end)
+        rootDescription:CreateButton(T("menu.add_friend", "Add Friend"), function()
+            if IsRightClickActive() then AddFriend(name, friendUnit) end
+        end)
+        if not YUI.IsForever then
+            rootDescription:CreateButton(T("menu.invite_guild", "Invite to Guild"), function()
+                if IsRightClickActive() then InviteToGuild(name) end
+            end)
+        end
     end
 end
 
@@ -349,7 +376,8 @@ local function GetOptions()
     options[#options + 1] = {
         type = "checkbox",
         text = T("settings.right_click", "Enhance player right-click menus"),
-        tooltip = T("settings.right_click.tooltip", "Adds friend and guild-invite actions to supported player menus."),
+        tooltip = YUI.IsForever and T("settings.right_click.forever_tooltip", "Uses the game's native WoW friend flow. Guild invitation enhancement is unavailable on this client; please invite manually through the game's UI.")
+            or T("settings.right_click.tooltip", "Adds friend and guild-invite actions to supported player menus."),
         width = 520,
         hidden = HasMainlineMenuConflict,
         get = function() return GetDB().rightClick == true end,

@@ -1,6 +1,22 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v355|mainline|5671b06e0550424e2cb08fbef277f87139f453a090bea4c7a248ae5e3dc3b160
+    {
+        version = "v355",
+        date = "2026-11-09",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "自动修理新增等级限制，默认从 10 级开始，支持调整或关闭。",
+                "聊天关键词过滤不再区分英文字母大小写。",
+            },
+            enUS = {
+                "Added an automatic repair level limit, starting at level 10 by default, with options to adjust or disable it.",
+                "Chat keyword filtering now ignores English letter case.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v354|mainline|e5a5e59c2f43ef8e0f2627cf51bf710e0ea23ab374f117043f1fc25113ab9551
     {
         version = "v354",
@@ -192,68 +208,6 @@ CL:Register("suite", {
             enUS = {
                 "Fixed monitor position edits being overwritten on save and previews overlapping the position editor.",
                 "Fixed errors caused by window shadows in UI enhancements.",
-            },
-        },
-    },
--- YUI-Notes-Record: v345|mainline|b8baced7622ada36cae988fe149e757696b9ad77049862073a7526f272a5e8fa
-    {
-        version = "v345",
-        date = "2026-10-22",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "新增外部增益监控集合，便于添加队友提供的常用增益。",
-                "监控台新增层数条和充能条，支持分段、阈值颜色及充能恢复显示设置。",
-                "监控台支持跨组拖动，新增按行和按列布局。",
-                "监控图标新增可选的按下反馈。",
-                "新增15类事件声音提醒，并配套新增12条事件录音。",
-                "新增251条可选标准语音，覆盖职业技能、种族技能、增益和事件提示。",
-                "新增批量声音预设，快速添加提醒。",
-                "声音提醒支持增益分类与跨分类搜索。",
-                "统一监控、动作条和工具组件的字体设置，支持样式复制粘贴。",
-                "动作条支持按专精设置隐身、姿态和形态翻页。",
-                "动作条的充能转圈、边缘和倒计时可分别控制。",
-                "动作条新增使用中状态显示选项。",
-                "标记条新增样式、尺寸和透明度设置，并支持布局编辑。",
-                "新增自动战斗日志，可按副本场景设置记录规则。",
-                "焦点施法条新增重要施法发光等条件。",
-                "角色属性面板支持战斗中固定显示项目与排列，数值仍实时更新。",
-                "装备摘要支持临时关闭，并补充附魔图标。",
-                "界面美化新增蓝灰与炭黑主题，支持阴影和透明度设置。",
-                "优化任务追踪滚动体验。",
-                "改善与Shifter共同使用时的世界地图窗口兼容性。",
-                "优化邮件收件人筛选，减少其他游戏版本角色混入。",
-                "监控台辅助高亮改为按角色统一设置，默认关闭。",
-                "修复监控台图标激活发光残留。",
-                "修复监控台冷却结束后未按设置隐藏的问题。",
-                "修复监控台引导施法被后续按键误判为中断的问题。",
-            },
-            enUS = {
-                "Added a monitor collection for buffs received from other players.",
-                "Added stack and charge bars with segment, threshold color, and recharge display settings.",
-                "Added cross-group dragging and row/column layouts for monitors.",
-                "Added optional press feedback for monitor icons.",
-                "Added 15 event sound reminders, including 12 new event recordings.",
-                "Added 251 selectable standard voice entries covering class abilities, racials, buffs, and events.",
-                "Added batch sound presets to quickly add reminders.",
-                "Added buff categories and cross-category search to sound reminders.",
-                "Unified font settings across monitors, action bars, and utility components, with style copy and paste.",
-                "Added per-specialization action bar paging for stealth, stances, and forms.",
-                "Added separate controls for charge swipe, edge, and countdown displays.",
-                "Added an option for displaying active-use states on action buttons.",
-                "Added marker bar styles, size and opacity settings, and layout editing.",
-                "Added automatic combat logging with configurable instance rules.",
-                "Added glow conditions to the focus cast bar, including important casts.",
-                "The character stats panel can now keep pre-combat items and their arrangement during combat while continuing to update values.",
-                "Added temporary dismissal and enchantment icons to equipment summaries.",
-                "Added blue-gray and charcoal themes to UI enhancements, with shadow and opacity settings.",
-                "Improved quest tracker scrolling.",
-                "Improved world map window compatibility with Shifter.",
-                "Improved mail recipient filtering to reduce entries from other game versions.",
-                "Monitor assisted highlighting now uses character-wide settings and is disabled by default.",
-                "Fixed lingering activation glows on monitor icons.",
-                "Fixed monitors failing to hide as configured when cooldowns finish.",
-                "Fixed cast monitoring incorrectly treating channels as interrupted by subsequent key presses.",
             },
         },
     },

@@ -1017,6 +1017,8 @@ end
 local function ShowMonitorBrowserTooltip(control)
     local entry = control and control.yhudEntry
     if not (entry and GameTooltip) then return end
+    if DesignerUI.ShowForeverSealTooltip
+        and DesignerUI:ShowForeverSealTooltip(control, entry) then return end
     GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
     if GameTooltip.ClearLines then GameTooltip:ClearLines() end
     GameTooltip:SetText(control.yhudMonitorName or "-", 1, 1, 1)
@@ -2510,6 +2512,8 @@ local function BuildMonitorBrowser(self)
     identityIcon:HookScript("OnEnter", function(control)
         local entry = control.yhudEntry
         if not (entry and GameTooltip) then return end
+        if DesignerUI.ShowForeverSealTooltip
+            and DesignerUI:ShowForeverSealTooltip(control, entry) then return end
         GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
         if GameTooltip.ClearLines then GameTooltip:ClearLines() end
         local shown

@@ -650,6 +650,23 @@ local function EntryIcon(entry)
     return entry.icon or QUESTION_ICON
 end
 
+function DesignerUI:ShowForeverSealTooltip(control, value)
+    local seals = YHUD.FOREVER_SEAL_PRESET
+    if not (YUI.IsForever == true and seals and control and GameTooltip
+        and type(value) == "table") then return false end
+    if value.presetId ~= "forever-seals"
+        and not (YHUD.IsForeverSealPreset
+            and YHUD:IsForeverSealPreset(value)) then return false end
+    GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
+    if GameTooltip.ClearLines then GameTooltip:ClearLines() end
+    local r, g, b = GUI2:GetColor("color.tooltip.id.value")
+    GameTooltip:SetText(T(seals.nameKey, "Seals"), r, g, b, 1, true)
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine(T("designer.preset.forever_seals_tooltip"), 1, 1, 1, true)
+    GameTooltip:Show()
+    return true
+end
+
 function DesignerUI:SetStatus(message)
     if self.statusText then
         self.statusText:SetText(message or "")

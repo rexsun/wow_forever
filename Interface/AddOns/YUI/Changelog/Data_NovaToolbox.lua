@@ -1,6 +1,36 @@
 -- Generated from Docs/Products/YUI_NovaToolbox/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("toolbox", {
+-- YUI-Notes-Record: nova-137|mainline|aa51f50b250fedbe2d793063d72b406e87f7257e320019bc7884309fd4d7983a
+    {
+        version = "nova-137",
+        date = "2026-11-09",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "自动修理新增等级限制，默认从 10 级开始，支持调整或关闭。",
+            },
+            enUS = {
+                "Added an automatic repair level limit, starting at level 10 by default, with options to adjust or disable it.",
+            },
+        },
+    },
+-- YUI-Notes-Record: nova-137|forever|931e2a651cd7224f9683bca1b2588af63ed8563e19dd5034cbb6aba2a2d099a0
+    {
+        version = "nova-137",
+        date = "2026-11-09",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "自动修理新增等级限制，默认从 10 级开始，支持调整或关闭。",
+                "优化好友添加流程，并停用公会邀请增强。",
+            },
+            enUS = {
+                "Added an automatic repair level limit, starting at level 10 by default, with options to adjust or disable it.",
+                "Improved the add-friend flow and disabled enhanced guild invitations.",
+            },
+        },
+    },
 -- YUI-Notes-Record: nova-136|forever|eb54dd7e602aeb87b7b38fae9a3adf0f885643dc2f72e65008cc0a15a394706e
     {
         version = "nova-136",
@@ -335,24 +365,6 @@ CL:Register("toolbox", {
             },
         },
     },
--- YUI-Notes-Record: nova-127|forever|68b7e6a4c5bf5aa3694a0441e595f0f053d918050106998d3de2dc82522c958a
-    {
-        version = "nova-127",
-        date = "2026-10-16",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增无限服 EllesmereUI 美化支持，适配相关窗口与字体。",
-                "自动对话支持按住暂停或按住启用，并可选择控制按键。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Added EllesmereUI enhancement support for Forever, including window and font adaptations.",
-                "Added hold-to-pause and hold-to-enable controls for automatic dialogue, with a selectable modifier key.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
 -- YUI-Notes-Record: nova-126|mainline|e631fe504e973a9670d05bf784393ae1c7bec99468c1a97d1ca32da8f30b02d3
     {
         version = "nova-126",
@@ -365,26 +377,6 @@ CL:Register("toolbox", {
             },
             enUS = {
                 "Improved spell alert countdown compatibility with Retail updates.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: nova-125|mainline|1dcb0c44fa018d1636b9243c19797405bd8091b74b49fd7754972d6043287fbb
-    {
-        version = "nova-125",
-        date = "2026-10-15",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "新增鼠标提示立即隐藏选项，默认启用。",
-                "修复角色观察摘要的层级显示，改善 12.1.5 物品计数兼容性。",
-                "完善配置导入与失败恢复。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Added an instant tooltip hiding option, enabled by default.",
-                "Fixed character inspection summary layering and improved 12.1.5 item count compatibility.",
-                "Improved configuration imports and recovery after failed imports.",
                 "Updated the shared core for compatibility with newer YUI addons.",
             },
         },

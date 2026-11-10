@@ -329,18 +329,159 @@ function Social.InviteUnit(name)
 end
 
 -- Cold menu path. Resolve while opening the menu, before its unit can change.
+local function IsPlainSocialValue(value)
+    if type(_G.issecretvalue) ~= "function" then return true end
+    local ok, secret = pcall(_G.issecretvalue, value)
+    return ok and secret == false
+end
+
+local function ReadSocialActionName(value)
+    if not IsPlainSocialValue(value) then return nil end
+    return NonEmptyString(value)
+end
+
 function Social.GetForeverMenuPlayerName(contextData)
     if YUI.IsForever ~= true or type(contextData) ~= "table" then return nil end
     local util = _G.UnitPopupSharedUtil
     if not util or type(util.GetFullPlayerName) ~= "function" then return nil end
     local ok, name = pcall(util.GetFullPlayerName, contextData)
-    if not ok or (type(_G.issecretvalue) == "function" and _G.issecretvalue(name)) then return nil end
-    return NonEmptyString(name)
+    if not ok then return nil end
+    return ReadSocialActionName(name)
 end
 
-function Social.AddFriend(name)
-    name = NonEmptyString(name)
+-- Only prepare Blizzard's UI here. Its unchanged accept scripts submit the
+-- request on the player's next click; a secure-call wrapper is not permission
+-- to invoke a protected social action from an addon callback.
+local function GetSocialDialogSecurity()
+    local security = YUI.API.Security
+    if not (security and type(security.InCombatLockdown) == "function"
+        and type(security.SecureCallFunction) == "function") then
+        return nil, "unavailable"
+    end
+    local ok, combat = pcall(security.InCombatLockdown)
+    if not ok or not IsPlainSocialValue(combat) or type(combat) ~= "boolean" then
+        return nil, "unavailable"
+    end
+    if combat then return nil, "combat" end
+    return security
+end
+
+local function CallSocialDialogMethod(security, object, method, ...)
+    -- Native frame methods can be inherited. securecallmethod uses raw lookup,
+    -- so resolve the function normally and pass its receiver explicitly.
+    local callback = object and object[method]
+    if type(callback) ~= "function" then return false end
+    return pcall(security.SecureCallFunction, callback, object, ...)
+end
+
+local function FillSocialDialogName(security, editBox, name)
+    if not (editBox and type(editBox.SetText) == "function"
+        and type(editBox.GetText) == "function"
+        and type(editBox.SetFocus) == "function") then return false, "unavailable" end
+    local ok = CallSocialDialogMethod(security, editBox, "SetText", name)
+    if not ok then return false, "unavailable" end
+    local readOK, text = CallSocialDialogMethod(security, editBox, "GetText")
+    if not readOK then return false, "unavailable" end
+    if ReadSocialActionName(text) ~= name then return false, "prefill_failed" end
+    local focused = CallSocialDialogMethod(security, editBox, "SetFocus")
+    if not focused then return false, "unavailable" end
+    return true
+end
+
+local function HideFailedSocialDialog(security, dialog)
+    CallSocialDialogMethod(security, dialog, "Hide")
+end
+
+local function ShowForeverFriendDialog(name)
+    local security, reason = GetSocialDialogSecurity()
+    if not security then return false, reason end
+    if not _G.AddFriendFrame then
+        local system = YUI.API.System
+        if system and type(system.LoadAddOn) == "function" then
+            pcall(system.LoadAddOn, "Blizzard_AddFriend")
+        end
+    end
+    local frame, editBox = _G.AddFriendFrame, _G.AddFriendNameEditBox
+    if not (frame and type(frame.ShowEntry) == "function" and editBox
+        and type(_G.StaticPopupSpecial_Show) == "function") then
+        return false, "unavailable"
+    end
+    -- Do not use AddFriendFrame_Show: it can immediately add the current target
+    -- through the legacy system, instead of the player captured by this menu.
+    local shown = pcall(security.SecureCallFunction, _G.StaticPopupSpecial_Show, frame)
+    if not shown then
+        HideFailedSocialDialog(security, frame)
+        return false, "unavailable"
+    end
+    local entryShown = CallSocialDialogMethod(security, frame, "ShowEntry")
+    if not entryShown then
+        HideFailedSocialDialog(security, frame)
+        return false, "unavailable"
+    end
+    local filled, fillReason = FillSocialDialogName(security, editBox, name)
+    if not filled then
+        HideFailedSocialDialog(security, frame)
+        return false, fillReason
+    end
+    -- AddFriendFrame_Accept selects Title friends or the legacy system natively.
+    return true, "confirmation_required"
+end
+
+local function ShowForeverUnitFriend(name, unit)
+    local security, reason = GetSocialDialogSecurity()
+    if not security then return false, reason end
+    if not ReadSocialActionName(unit) then return false, "target_changed" end
+    local battleNet = _G.C_BattleNet
+    local entry = _G.UnitPopupAddTitleFriendButtonMixin
+    if not (battleNet and type(battleNet.AreTitleFriendsEnabled) == "function"
+        and entry and type(entry.OnClick) == "function") then
+        return ShowForeverFriendDialog(name)
+    end
+    local titleOK, titleEnabled = pcall(battleNet.AreTitleFriendsEnabled)
+    if not titleOK or not IsPlainSocialValue(titleEnabled)
+        or type(titleEnabled) ~= "boolean" then return false, "unavailable" end
+    if not titleEnabled then return ShowForeverFriendDialog(name) end
+    if type(_G.BNFeaturesEnabledAndConnected) ~= "function"
+        or type(_G.UnitIsPlayer) ~= "function"
+        or type(_G.UnitNameUnmodified) ~= "function" then return false, "unavailable" end
+    local connectedOK, connected = pcall(_G.BNFeaturesEnabledAndConnected)
+    if not connectedOK or not IsPlainSocialValue(connected) or connected ~= true then
+        return false, "unavailable"
+    end
+    local playerOK, player = pcall(_G.UnitIsPlayer, unit)
+    if not playerOK or not IsPlainSocialValue(player) or player ~= true then
+        return false, "target_changed"
+    end
+    local nameOK, first, surname = pcall(_G.UnitNameUnmodified, unit)
+    if not nameOK or not IsPlainSocialValue(first) or not IsPlainSocialValue(surname) then
+        return false, "target_changed"
+    end
+    -- A unit token can point to another player after this menu was opened.
+    local currentName = Social.GetForeverMenuPlayerName({ unit = unit, name = first, surname = surname })
+    if currentName ~= name then return false, "target_changed" end
+    -- Keep the native BattleTag setup and Title-friend check/confirmation flow.
+    -- This does not directly send a request or replace a native callback.
+    local opened = CallSocialDialogMethod(security, entry, "OnClick", { unit = unit })
+    return opened, opened and "confirmation_required" or "unavailable"
+end
+
+-- Forever guild enhancement stays disabled after client acceptance rejected
+-- both addon submissions and submission after addon-prefilled native input.
+function Social.GetForeverGuildInviteAction(name)
+    if YUI.IsForever ~= true then return nil, "unsupported" end
+    name = ReadSocialActionName(name)
+    if not name or name:find("%c") then return nil, "invalid_name" end
+    return nil, "restricted"
+end
+
+function Social.AddFriend(name, unit)
+    name = ReadSocialActionName(name)
     if not name then return false, "invalid_name" end
+    if YUI.IsForever then
+        if not IsPlainSocialValue(unit) then return false, "target_changed" end
+        if unit ~= nil then return ShowForeverUnitFriend(name, unit) end
+        return ShowForeverFriendDialog(name)
+    end
     if C_FriendList and C_FriendList.AddFriend then
         local ok, err = pcall(C_FriendList.AddFriend, name)
         return ok == true, err
@@ -353,8 +494,12 @@ function Social.AddFriend(name)
 end
 
 function Social.InviteToGuild(name)
-    name = NonEmptyString(name)
+    name = ReadSocialActionName(name)
     if not name then return false, "invalid_name" end
+    if YUI.IsForever then
+        local _, reason = Social.GetForeverGuildInviteAction(name)
+        return false, reason or "restricted"
+    end
     if C_GuildInfo and C_GuildInfo.Invite then
         local ok, err = pcall(C_GuildInfo.Invite, name)
         return ok == true, err

@@ -2,6 +2,22 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-10 - Update seven addon packages and patch MapUtils fade
+
+- Update YUI v354 to v355, Auctionator 342 to 344, Details 15402.172 to 15410.172 (the six installed folders), the EllesmereUI suite 9.8 to 9.8.4 (installed modules only), GatherLite 8.4.3 to 8.4.5, Lueur 1.5.0 to 1.6.1 and MapUtils 1.4.25 to 1.5.6 (forever build). Every TOC still lists Interface 16001. !BugGrabber, Bagnon, Waypoint UI, LootRollMover and Skinner were already current. YUI was extracted with GBK file names so its Chinese media names match the previous install.
+- Held: GearInsight Forever stays at 0.7.4. Release 0.9.7 (beta) turns on, by default and outside the guard: a layer-hopping network that auto-accepts guild officers' invites, auto-invites guildmates who ask, leaves the party after a layer change, and every 60 seconds sends level, class, map, layer and quest IDs to guild and to a hidden public channel per map; city-only friendly-nameplate toggling through the nameplate CVars that EUI Nameplates owns; and level/zone prefixes on whisper and party chat that `gi.guildchatlevel` does not cover. Its Group module also loads by itself in any group. Upgrading needs new guard rules first.
+- Local patch: MapUtils 1.5.x keeps its world-map fader enabled whenever `PlayerMovementFrameFader` exists, even with `WORLDMAPFADE` off, then holds the map at full opacity and its `SetAlpha` hook undoes YUI's fade while moving (saved YUI fade: on, 0.4). The patch restores the 1.4.25 `isEnabled` check, so `mu.worldmapfade` works again. `tools/apply_addon_patches.py` now has 26 patches, all applied.
+- Guard: no rule changes, still 42 rules. Every key and function the YUI, EllesmereUI, Forever Essentials, MapUtils and Lueur adapters use is unchanged. Lueur 1.6.0 defaults `nodeHerbs`/`nodeOre` to off; the guard test now accepts either default, and the adapter comment and guard readme say so.
+- Overlap review, no new rule needed:
+  - YUI v355: error/info message mover (off by default), auto-repair skips characters below level 10 (default), guild invite removed from the Forever right-click menu, add-friend uses the game's dialog, case-insensitive chat keyword filter (still off under the guard). Its enchanting entry on Bagnon's backpack now appears, because the check that allowed only Bagnon 12.1.7 is gone.
+  - EllesmereUI 9.8.4: new features that overlap other owners are off by default; friendly NPC name-only plates show raid markers. Six one-time announcement popups were deleted upstream. Per-character data is re-keyed to the character GUID at each character's first login. Friendly plates now move the game's interact icon onto game-object nameplates, which Lueur 1.6.x handles, so the two were updated together.
+  - Details 15410: adds Damage/Healing Spells displays for the local player. The row-hover local patch is now redundant upstream but harmless; the death-log and Midnight breakdown patches are still needed.
+  - MapUtils 1.5.6: separate zone and city map styles, Ironforge underground art, de-duplicated version notices, a world-map fullscreen button that ignores YUI's window placement (acts only when clicked), and the map backdrop is always hidden. With One Map off, zone art now still draws unless the style is MAP. The other three `MAUTTAB` rules and their pre-login timing still hold.
+  - Lueur 1.6.1: new glow effects; Brackets and Reticle migrate to Sigil and Aura. GatherLite 8.4.5: 607 more nodes; automatic tracking switching replaced by a clickable minimap reminder.
+  - Auctionator 344: Forever selling fixes (copper hidden for gear, prices round up to silver). On RP-PvP realms with regional unique names, old price history is not reused.
+- Backup: `addon-backups/addon-upgrade-20261110` holds the replaced folders and live WTF.
+- Verification: 321 changed Lua files compile under Lua 5.1. 75 guard tests, 13 patch-tool tests, settings, baseline, cursor, fresh-profile, font and adoption tests pass. Nothing was run in game or checked at the three supported resolutions; check the world-map fade while moving, the Lueur glow on game objects, and Details' new spell displays with BugGrabber.
+
 ## 2026-11-09 - Restore unexplored areas on the world map (OverlapSettingsGuard 0.11.1)
 
 - Problem: unexplored parts of the world map showed as blank parchment after MapUtils was installed on 2026-11-08.

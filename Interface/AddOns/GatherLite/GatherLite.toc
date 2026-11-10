@@ -3,7 +3,7 @@
 ## Notes: Gathering history for World of Warcraft: Forever
 ## Author: Wuild
 ## X-License: GPL-3.0-or-later distribution; includes MIT-licensed original code
-## Version: 8.4.3
+## Version: 8.4.5
 ## X-Curse-Project-ID: 334918
 ## X-Wago-ID: O67jQPN3
 ## OptionalDeps: Ace3, LibStub, LibDataBroker-1.1, LibDBIcon-1.0, HereBeDragons, MBB, OpenMap, Leatrix_Maps

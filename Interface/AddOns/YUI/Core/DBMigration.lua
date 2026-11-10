@@ -572,6 +572,7 @@ local function IsNormalizedNativeInterfaceConfig(config)
     if YUI.IsForever == true and type(config.fixProfessionsIcon) ~= "boolean" then return false end
     if YUI.IsForever == true and type(config.questLootSparkles) ~= "boolean" then return false end
     if YUI.IsForever == true and type(config.hideRaidManager) ~= "boolean" then return false end
+    if YUI.IsForever == true and type(config.manageErrorMessages) ~= "boolean" then return false end
     if YUI.IsRetail == true then
         for _, key in ipairs(RETAIL_NATIVE_INTERFACE_KEYS) do
             if type(config[key]) ~= "boolean" then return false end
@@ -582,7 +583,7 @@ local function IsNormalizedNativeInterfaceConfig(config)
     for key in pairs(config) do
         local foreverField = YUI.IsForever == true and (key == "compactBetaReporter"
             or key == "windowMovement" or key == "fixBagSortButton" or key == "fixProfessionsIcon" or key == "questLootSparkles"
-            or key == "hideRaidManager")
+            or key == "hideRaidManager" or key == "manageErrorMessages")
         if expected[key] ~= true and not foreverField then return false end
     end
     return true
@@ -650,6 +651,7 @@ local function BuildNativeInterfaceCandidate(profile)
         candidate.fixProfessionsIcon = not (type(current) == "table" and current.fixProfessionsIcon == false)
         candidate.questLootSparkles = not (type(current) == "table" and current.questLootSparkles == false)
         candidate.hideRaidManager = type(current) == "table" and current.hideRaidManager == true or false
+        candidate.manageErrorMessages = type(current) == "table" and current.manageErrorMessages == true or false
     end
     if YUI.IsForever == true and type(current) == "table" then
         for _, key in ipairs({ "compactBetaReporter", "windowMovement" }) do

@@ -19,6 +19,7 @@ Native.MODULE_ID = IS_SUITE and "component.native_interface" or "ybar.native_int
 Native.SETTINGS_MODULE_ID = IS_SUITE and "suite.settings.native_interface" or "ybar.settings.native_interface"
 Native.TRANSFER_ID = IS_SUITE and "core.native_interface" or "ybar.native_interface"
 Native.CONFIG_KEY = "NativeInterface_Config"
+Native.ERROR_MESSAGES_LAYOUT_ID = "yui.component.nativeInterface.errorMessages"
 Native.MIGRATION_VERSION = 3
 Native.runtimeEnabled = false
 
@@ -75,6 +76,9 @@ local function ApplyDefaults(config)
     if YUI.IsForever == true and type(config.hideRaidManager) ~= "boolean" then
         config.hideRaidManager = false
     end
+    if YUI.IsForever == true and type(config.manageErrorMessages) ~= "boolean" then
+        config.manageErrorMessages = false
+    end
     for key, value in pairs(COMMON_DEFAULTS) do
         if config[key] == nil then config[key] = value end
     end
@@ -96,6 +100,7 @@ local function ApplyDefaults(config)
 end
 
 function Native:IsOptionSupported(key)
+    if key == "manageErrorMessages" then return YUI.IsForever == true end
     if key == "hideRaidManager" then return YUI.IsForever == true end
     if key == "compactBetaReporter" or key == "fixBagSortButton" or key == "fixProfessionsIcon" or key == "questLootSparkles" then return YUI.IsForever == true end
     if key == "bagsBarVisibility" or key == "hideBagsBar" then return true end
@@ -103,6 +108,7 @@ function Native:IsOptionSupported(key)
 end
 
 function Native:GetOptionDefault(key)
+    if key == "manageErrorMessages" and YUI.IsForever == true then return false end
     if key == "hideRaidManager" and YUI.IsForever == true then return false end
     if (key == "compactBetaReporter" or key == "fixBagSortButton" or key == "fixProfessionsIcon" or key == "questLootSparkles") and YUI.IsForever == true then return true end
     if COMMON_DEFAULTS[key] ~= nil then return COMMON_DEFAULTS[key] end
@@ -162,6 +168,7 @@ function Native:Refresh(reason)
     if self.RefreshBagSortFix then self:RefreshBagSortFix(reason) end
     if self.RefreshProfessionsIconFix then self:RefreshProfessionsIconFix(reason) end
     if self.RefreshRaidManager then self:RefreshRaidManager(reason) end
+    if self.RefreshErrorMessages then self:RefreshErrorMessages(reason) end
     if self.RefreshQuestLootSparkles then self:RefreshQuestLootSparkles(reason) end
     if self.RefreshWindowMovement then self:RefreshWindowMovement(reason) end
     if YUI.IsRetail == true then
@@ -181,6 +188,7 @@ function Native:GetDiagnostics()
     if self.GetBagSortFixDiagnostics then result.bagSortFix = self:GetBagSortFixDiagnostics() end
     if self.GetProfessionsIconFixDiagnostics then result.professionsIconFix = self:GetProfessionsIconFixDiagnostics() end
     if self.GetRaidManagerDiagnostics then result.raidManager = self:GetRaidManagerDiagnostics() end
+    if self.GetErrorMessagesDiagnostics then result.errorMessages = self:GetErrorMessagesDiagnostics() end
     if self.GetQuestLootSparklesDiagnostics then result.questLootSparkles = self:GetQuestLootSparklesDiagnostics() end
     if self.GetWindowMovementDiagnostics then result.windows = self:GetWindowMovementDiagnostics() end
     if self.GetRetailDiagnostics then result.retail = self:GetRetailDiagnostics() end

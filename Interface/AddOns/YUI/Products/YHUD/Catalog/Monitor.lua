@@ -1612,6 +1612,22 @@ function MonitorCatalog:GetClaimedCooldownSources(profile)
         end
     end
 
+    local seals = YHUD.FOREVER_SEAL_PRESET
+    local sealEntry = seals and profile.entries[seals.entryKey]
+    if sealEntry and YHUD:IsForeverSealPreset(sealEntry)
+        and YHUD:CanUseFilteredAuraDisplay() then
+        local monitor = FindActiveMonitor(profile, seals.entryKey)
+        if monitor and YHUD:IsFilteredAuraMonitor(sealEntry, monitor)
+            and YHUD:EvaluateEntryAvailability(
+                sealEntry, rawget(profile, "_yhudSpecKey")
+            ) == "available" then
+            StoreClaim(
+                "cdm:" .. tostring(seals.nativeCooldownID),
+                "forever-seals", monitor, "buff"
+            )
+        end
+    end
+
     local function Claim(entryKey, bundleKind, spellIDs)
         local monitor = FindActiveMonitor(profile, entryKey)
         if not monitor then return end
@@ -2030,6 +2046,7 @@ function MonitorCatalog:Apply(draft, groupId, option)
                 sourceIdentity = option.sourceIdentity,
                 name = option.name,
                 nameKey = option.nameKey,
+                icon = option.icon,
                 contentScope = option.contentScope,
             }
         )
@@ -3620,7 +3637,7 @@ function MonitorCatalog:AddPresetPlayerAura(
             staged,
             entryKey,
             options.name or spell.name,
-            spell.icon
+            options.icon or spell.icon
         )
         staged.changed = true
     else
@@ -3646,7 +3663,7 @@ function MonitorCatalog:AddPresetPlayerAura(
             spellIds = YHUD:CopyValue(aliases),
             name = options.name or spell.name,
             nameKey = options.nameKey,
-            icon = spell.icon,
+            icon = options.icon or spell.icon,
             contract = {
                 capability = "aura-display",
                 view = "self",

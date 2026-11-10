@@ -3,7 +3,8 @@ local adapter = {}
 OSG.adapters.Lueur = adapter
 
 -- Lueur keeps its namespace private and publishes no refresh API, so the saved table
--- is the only control. Its marker settings default to on: a missing value counts as on.
+-- is the only control. A missing value counts as on: before 1.6.0 the markers defaulted to on,
+-- and since then Lueur fills in false itself, so the cost is at most one redundant write.
 local FIELDS = {
   NodeHerbs = "nodeHerbs",
   NodeOre = "nodeOre",

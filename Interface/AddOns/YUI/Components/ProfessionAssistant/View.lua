@@ -511,7 +511,9 @@ end
 
 function View.Entry(parent, callbacks)
     local size = callbacks.template and 20 or 24
-    local entry = GUI:CreateButtonFrame(parent, { width = size, height = size, template = callbacks.template })
+    local entry = GUI:CreateButtonFrame(parent, {
+        width = size, height = size, template = callbacks.template, hidden = callbacks.toolbar,
+    })
     local icon = YUI.API.Spell.GetTexture(13262) or 132853
     if callbacks.template then
         -- Keep the host template's square border and native hover/press textures.

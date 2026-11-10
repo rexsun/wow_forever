@@ -22,6 +22,7 @@ L.COMMANDS = {
 	["quête"] = "quest", coffre = "chest", flotteur = "bobber", autre = "other", ignorer = "ignore", liste = "list", vider = "clear",
 	objectifs = "objectives", ["état"] = "status", aide = "help", touche = "key", aucune = "none", langue = "language",
 	ressources = "nodes", alterner = "switch", balayage = "scan", bordure = "ring",
+	seule = "glowonly",
 }
 
 ---------------------------------------------------------------------------
@@ -61,21 +62,29 @@ L.STATE_READY = "à portée"
 L.STATE_LOCKED = "indisponible"
 
 L.EFFECT_AURA = "Aura"
-L.EFFECT_AURA_TIP = "Un halo de lumière, son anneau fin, ses comètes et ses lucioles."
-L.EFFECT_RETICLE = "Réticule"
-L.EFFECT_RETICLE_TIP = "Un anneau net et ses comètes, sur une lueur atténuée."
+L.EFFECT_AURA_TIP = "Un halo de lumière et ses volutes, son anneau, ses comètes et ses lucioles."
 L.EFFECT_SUBTLE = "Discret"
 L.EFFECT_SUBTLE_TIP = "Une lueur douce, sans anneau ni comètes."
 L.EFFECT_SIGIL = "Sceau"
 L.EFFECT_SIGIL_TIP = "Un cercle de runes tourne lentement autour de l'objet."
-L.EFFECT_BRACKETS = "Viseur"
-L.EFFECT_BRACKETS_TIP = "Quatre coins encadrent l'objet et se verrouillent sur lui dès qu'il est à portée."
+L.EFFECT_VORTEX = "Tourbillon"
+L.EFFECT_VORTEX_TIP = "Des bras de lumière s'enroulent autour de l'objet, comme un portail qui s'ouvre."
+L.EFFECT_FLAME = "Flamme"
+L.EFFECT_FLAME_TIP = "Des langues de feu montent de l'objet, dans sa couleur."
+L.EFFECT_RIFT = "Faille"
+L.EFFECT_RIFT_TIP = "Un trou noir cerclé de lumière aspire des éclats en spirale."
+L.EFFECT_STORM = "Foudre"
+L.EFFECT_STORM_TIP = "Un nuage d'orage se forme au-dessus de l'objet, et la foudre en tombe sur lui."
+L.EFFECT_GEYSER = "Geyser"
+L.EFFECT_GEYSER_TIP = "Une fontaine de lumière jaillit de l'objet et retombe autour de lui."
+L.EFFECT_SPIRIT = "Esprit"
+L.EFFECT_SPIRIT_TIP = "Deux feux follets dansent autour de l'objet en traînant un ruban de lumière."
 L.EFFECT_BEAM = "Faisceau"
 L.EFFECT_BEAM_TIP = "Une colonne de lumière s'élève de l'objet, parcourue d'étincelles."
 L.EFFECT_BEACON = "Balise"
 L.EFFECT_BEACON_TIP = "Un cristal flotte au-dessus de l'objet, relié à lui par un fil de lumière."
 L.EFFECT_ORBIT = "Orbite"
-L.EFFECT_ORBIT_TIP = "Des feux follets tournent autour de l'objet en laissant une traînée de lumière."
+L.EFFECT_ORBIT_TIP = "Trois feux follets tournent autour de l'objet, chacun sur son orbite."
 L.EFFECT_RIPPLE = "Onde"
 L.EFFECT_RIPPLE_TIP = "Des ondes s'étalent sur le sol autour de l'objet."
 L.EFFECT_SPARKLE = "Étincelles"
@@ -160,6 +169,8 @@ L.ARC_2 = "Partout"
 L.ARC_2_TIP = "Dans toutes les directions, même dans ton dos."
 L.EXCLUSIVE = "Ne montrer que les cibles éclairées"
 L.EXCLUSIVE_TIP = "Le jeu ne signale plus les cibles d'interaction qui ne reçoivent pas d'effet : PNJ, boîtes aux lettres… Décoché, il affiche un nom et une icône sur chacune."
+L.GLOW_ONLY = "Lueur seule"
+L.GLOW_ONLY_TIP = "Lueur n'écrit plus le nom ni l'icône de l'objet, et laisse ce que le jeu ou un autre addon y montre. Toujours actif quand la nameplate Soft Target de Plumber l'est."
 
 L.KEY = "Touche d'interaction"
 L.KEY_TIP = "La touche qui ramasse, cueille ou active l'objet mis en lumière dès qu'il est à portée. C'est la touche d'interaction du jeu : elle sert aussi avec les PNJ, et se change également dans les raccourcis du jeu."
@@ -203,9 +214,6 @@ L.NODE_SWITCH_TIP = "Le jeu montre les points des plantes ou ceux des minerais, 
 L.NODE_SWITCH_YARDS = "Distance entre deux bascules"
 L.NODE_SWITCH_YARDS_TIP = "Distance que tu parcours avant que Lueur allume l'autre pistage."
 
-L.PREVIEW = "Aperçu"
-L.PREVIEW_STOP = "Fermer l'aperçu"
-L.PREVIEW_TIP = "Ouvre une fenêtre qui montre l'effet sur un objet en 3D, dans chacun de ses états. Les réglages changés ici s'y appliquent aussitôt."
 L.PREVIEW_NO_MODEL = "Modèle 3D indisponible sur ce client"
 L.PREVIEW_HINT = "Glisser : tourner  ·  clic droit : déplacer  ·  molette : zoomer"
 L.DEFAULTS = "Par défaut"
@@ -228,6 +236,7 @@ L.TIP_DRAG = "Glisser : déplacer ce bouton"
 L.MSG_ENABLED = "activé."
 L.MSG_DISABLED = "désactivé, tes réglages d'origine sont restaurés."
 L.MSG_RESTART = "relance complètement le jeu pour terminer la mise à jour de Lueur."
+L.MSG_NODES_OFF = "les icônes des plantes et des filons sur la minimap sont désormais désactivées par défaut, et cette mise à jour les a désactivées. Réactive-les dans les réglages (/lueur) ou avec /lueur nodes."
 L.MSG_EXCLUSIVE_ON = "le jeu ne signale plus les cibles qui ne reçoivent pas d'effet."
 L.MSG_EXCLUSIVE_OFF = "le jeu affiche le nom et l'icône de toutes les cibles d'interaction (PNJ, objets du décor…)."
 L.MSG_SILHOUETTE_ON = "l'effet passe derrière ton personnage."
@@ -246,6 +255,7 @@ L.MSG_HIDE_COMBAT = "effet masqué en combat : %s"
 L.MSG_HIDE_INSTANCE = "effet masqué en instance : %s"
 L.MSG_HIDE_LOCKED = "effet masqué sur les objets indisponibles : %s"
 L.MSG_HIDE_UNTRAINED = "effet masqué sur les plantes et filons sans le métier : %s"
+L.MSG_GLOW_ONLY = "lueur seule, la nameplate laissée au jeu ou à un autre addon : %s"
 L.MSG_IGNORED = "%s ne recevra plus d'effet."
 L.MSG_UNIGNORED = "%s n'est plus ignoré."
 L.MSG_IGNORE_NO_TARGET = "aucun objet devant toi à ignorer."
@@ -270,6 +280,7 @@ L.STATUS_CVAR_UNKNOWN = "inconnue de ce client"
 L.STATUS_CVAR_DEFAULT = " (défaut %s)"
 L.STATUS_EXPECTED = "attendu par Lueur : portée %d, arc %d"
 L.STATUS_GATE = "seules les cibles éclairées sont signalées : %s | affichage natif en ce moment : %s"
+L.STATUS_GLOW_ONLY = "lueur seule : %s | nom de la cible de Plumber : %s"
 L.GATE_OPEN = "ouvert"
 L.GATE_CLOSED = "fermé"
 L.STATUS_SILHOUETTE = "effet derrière le personnage : %s"
@@ -315,6 +326,9 @@ L.SCAN_VIGNETTES = "vignettes que le jeu liste : %s"
 L.SCAN_DATA = "données du point sous le pointeur, hors son texte : %s"
 L.SCAN_POINTER = "sous le pointeur : %s"
 L.SCAN_READER = "minimap sous la souris | dernier balayage : %d images, %d points de grille%s, %d nœuds connus vérifiés, %d groupes mesurés, %d points reposés | interrompu %d fois, la dernière : %s | en attente de : %s | opacité remise à 0 après qu'un autre code l'a changée : %d fois"
+L.SCAN_HIDE = "cachée par son %s | forme : %s | %d de ses cadres cachés avec elle, %d remontrés entre-temps et cachés de nouveau"
+L.SCAN_BY_MASK = "masque"
+L.SCAN_BY_ALPHA = "opacité"
 L.SCAN_FULL = " (toute la minimap)"
 L.SCAN_SOON = "la minimap sera balayée dès qu'elle pourra passer sous la souris"
 L.SCAN_BUSY = "un balayage de la minimap est en cours"
@@ -326,6 +340,8 @@ L.SCAN_WHY_WINDOW = "la souris sur une fenêtre"
 L.SCAN_WHY_ZOOM = "le zoom de la minimap"
 L.SCAN_WHY_TURN = "la minimap tournée"
 L.SCAN_WHY_MAP = "une autre carte"
+L.SCAN_WHY_TAXI = "un vol"
+L.SCAN_WHY_NPC = "une fenêtre de PNJ ouverte"
 L.SCAN_NOTHING = "rien (pose le pointeur sur un point de la minimap et retape la commande)"
 
 ---------------------------------------------------------------------------
@@ -370,7 +386,7 @@ L.HELP = {
 	"/lueur — ouvre ou ferme la fenêtre des réglages (comme un clic sur le bouton de la minimap)",
 	"/lueur minimap — affiche ou masque le bouton de la minimap",
 	"/lueur on | off — active ou désactive Lueur (off restaure tes réglages)",
-	"/lueur aperçu — ouvre ou ferme la fenêtre d'aperçu, qui montre l'effet sur un objet en 3D",
+	"/lueur aperçu — ouvre la fenêtre des réglages sur l'aperçu, qui montre l'effet sur un objet en 3D",
 	"/lueur effet [catégorie] <nom> — donne cet effet à toutes les catégories, ou à une seule (minerai, herbe, quête, coffre, flotteur, autre) ; sans nom, en donne la liste",
 	"/lueur couleur <catégorie> <rrvvbb> | défaut — couleur de l'effet d'une catégorie ; sans couleur, l'affiche",
 	"/lueur commun <catégorie> — rend à une catégorie l'effet et l'apparence de tous les objets",
@@ -385,6 +401,7 @@ L.HELP = {
 	"/lueur portée <{range}> — distance jusqu'à laquelle le jeu désigne un objet, en mètres (défaut {range=})",
 	"/lueur arc <{arc}> — 0 pile devant, 1 devant, 2 toutes directions (défaut {arc=})",
 	"/lueur exclusif — le jeu ne signale que les cibles qui reçoivent un effet, ou toutes",
+	"/lueur seule — Lueur ne dessine que la lumière et laisse la nameplate de la cible (nom, icône) au jeu ou à un autre addon, ou non",
 	"/lueur combat | instance | indisponible | métier — masque ou non l'effet en combat, en instance, sur les objets indisponibles, sur les plantes et filons sans le métier",
 	"/lueur touche <TOUCHE> | aucune — assigne la touche qui ramasse l'objet mis en lumière (F, SHIFT-E, BUTTON4…) ; sans touche, l'affiche",
 	"/lueur minerai | herbe | quête | coffre | flotteur | autre — affiche ou masque une catégorie, pour ce personnage",

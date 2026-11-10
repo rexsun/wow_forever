@@ -60,6 +60,12 @@ local reader = {
 	LEARN = 1.25,         -- un point seul plus grand que tant de fois le rayon de son métier ne le change pas : c'est peut-être une grappe
 	ASPECT = 1.3,         -- un groupe tant de fois plus long que large : plusieurs nœuds en ligne, ou un seul point allongé
 	TINY = 0.05,          -- taille des points du jeu pendant un balayage : la flèche du joueur disparaît avec eux
+	WINDOW_WAIT = 2,      -- secondes : la souris sur une fenêtre en plein balayage, la minimap reste cachée tout ce temps avant de revenir
+	CAMERA_WAIT = 1,      -- et la caméra tournée à la souris (un bouton tenu)
+	SHRINK = 0.001,       -- échelle d'un cadre de la minimap qui ne doit pas paraître sous la souris
+	SETTLE_MIN = 1.5,     -- secondes après un balayage pendant lesquelles il reste ainsi, au moins
+	SETTLE_MAX = 3,       -- et au plus
+	EMPTY = MEDIA .. "empty",  -- Media\empty.tga, transparent : le masque de la minimap pendant un balayage
 	on = false,           -- la minimap est-elle sous la souris ?
 	scans = 0, aborts = 0,
 }
@@ -219,6 +225,88 @@ local function View()
 	local facing = GetPlayerFacing and SafeCall(GetPlayerFacing)
 	if type(facing) ~= "number" then facing = nil end
 	return radius, turning or false, facing
+end
+
+-- La forme de la minimap : ronde, carrée, ou l'une et l'autre par quart (1 en bas à droite, 2 en bas
+-- à gauche, 3 en haut à droite, 4 en haut à gauche). La table et la numérotation sont celles de
+-- LibDBIcon-1.0, que suivent les addons de minimap par la globale GetMinimapShape (relevées dans
+-- NodeSight 1.9.0, MinimapShape.lua). Un quart rond s'arrête au cercle, un quart carré va jusqu'au
+-- coin. EllesmereUI (9.8.3) dit d'abord la sienne, puisque sa minimap remplace celle du jeu, et rogne
+-- en haut et en bas sa minimap 4:3 par les retraits de sa zone de clic (SetHitRectInsets).
+-- Ronde, rien ne change : les quarts carrés n'ont été essayés que dans le faux client.
+reader.SHAPES = {
+	ROUND = { true, true, true, true }, SQUARE = { false, false, false, false },
+	["CORNER-TOPLEFT"] = { false, false, false, true }, ["CORNER-TOPRIGHT"] = { false, false, true, false },
+	["CORNER-BOTTOMLEFT"] = { false, true, false, false }, ["CORNER-BOTTOMRIGHT"] = { true, false, false, false },
+	["SIDE-LEFT"] = { false, true, false, true }, ["SIDE-RIGHT"] = { true, false, true, false },
+	["SIDE-TOP"] = { false, false, true, true }, ["SIDE-BOTTOM"] = { true, true, false, false },
+	["TRICORNER-TOPLEFT"] = { false, true, true, true }, ["TRICORNER-TOPRIGHT"] = { true, false, true, true },
+	["TRICORNER-BOTTOMLEFT"] = { true, true, false, true }, ["TRICORNER-BOTTOMRIGHT"] = { true, true, true, false },
+}
+reader.ELLESMERE = { circle = "ROUND", textured_circle = "ROUND", square = "SQUARE", rectangular = "SQUARE" }
+
+-- Les quarts de la minimap, et la part de sa demi-largeur jusqu'où va un quart carré en hauteur
+-- (`height`, 1 sans rognure). Relus une fois par image au plus.
+function reader.Quarters()
+	local now = GetTime()
+	if reader.quarters and reader.shapeAt == now then return reader.quarters end
+	reader.shapeAt = now
+	local name
+	local module = type(EllesmereUI) == "table" and type(EllesmereUI._ModuleNS) == "table" and EllesmereUI._ModuleNS.EllesmereUIMinimap
+	if type(module) == "table" and type(module.MinimapShape) == "function" then
+		local ok, shape = pcall(module.MinimapShape)
+		if ok and not IsSecret(shape) then name = reader.ELLESMERE[shape] end
+	end
+	if not name and type(GetMinimapShape) == "function" then
+		local ok, shape = pcall(GetMinimapShape)
+		if ok and not IsSecret(shape) and reader.SHAPES[shape] then name = shape end
+	end
+	name = name or "ROUND"
+	local height = 1
+	if name == "SQUARE" and Minimap.GetHitRectInsets then
+		local ok, _, _, top, bottom = pcall(Minimap.GetHitRectInsets, Minimap)
+		local full = Minimap:GetWidth()
+		if ok and type(top) == "number" and type(bottom) == "number" and not IsSecret(top) and not IsSecret(bottom)
+			and top > 0 and bottom > 0 and full > 0 then
+			height = math.max(0, math.min(1, 1 - 2 * math.max(top, bottom) / full))
+		end
+	end
+	local key = name .. " " .. height
+	if not (reader.quarters and reader.quarters.key == key) then
+		local quarters = reader.SHAPES[name]
+		reader.quarters = { quarters[1], quarters[2], quarters[3], quarters[4], height = height, key = key, name = name, round = name == "ROUND" }
+	end
+	return reader.quarters
+end
+
+-- De combien le point (dx, dy), compté du milieu de la minimap, est en deçà de son bord (unités ;
+-- négatif au-delà)
+function reader.Depth(dx, dy, half)
+	local quarters = reader.Quarters()
+	if quarters.round or quarters[1 + (dx < 0 and 1 or 0) + (dy > 0 and 2 or 0)] then
+		return half - math.sqrt(dx * dx + dy * dy)
+	end
+	return math.min(half - math.abs(dx), half * quarters.height - math.abs(dy))
+end
+
+-- Jusqu'où l'on va du point (px, py) dans la direction (dx, dy), de longueur 1, avant d'arriver à
+-- `margin` unités du bord ; 0 s'il y est déjà. La minimap est convexe, quelle que soit sa forme :
+-- hors du cercle, la distance se trouve par dichotomie.
+function reader.Room(px, py, dx, dy, half, margin)
+	if reader.Quarters().round then
+		local rim = half - margin
+		local along = px * dx + py * dy
+		local room = along * along - (px * px + py * py - rim * rim)
+		if room <= 0 then return 0 end
+		return math.max(0, math.sqrt(room) - along)
+	end
+	if reader.Depth(px, py, half) <= margin then return 0 end
+	local inside, outside = 0, 3 * half
+	for _ = 1, 24 do
+		local middle = (inside + outside) / 2
+		if reader.Depth(px + dx * middle, py + dy * middle, half) > margin then inside = middle else outside = middle end
+	end
+	return inside
 end
 
 ---------------------------------------------------------------------------
@@ -382,6 +470,29 @@ local function DrawIcon(icon, node, level, cave, size, ring)
 	end
 end
 
+-- Icônes témoins, pour la page de la minimap de la fenêtre des réglages (Menu.lua) : les mêmes cadres
+-- et le même dessin que sur la minimap. `samples` : { objet donné, métier, difficulté, dans une grotte,
+-- x, y } ; les places sont en fractions de `radius`. Renvoie de quoi les redessiner à une taille et une
+-- épaisseur d'anneau, celles des plantes ou des filons éteintes si elles ne sont pas montrées.
+function ns.NodeSamples(parent, samples, radius)
+	local icons = {}
+	for index, sample in ipairs(samples) do
+		local icon = NewIcon(parent)
+		icon.frame:SetPoint("CENTER", parent, "CENTER", sample[5] * radius, sample[6] * radius)
+		icon.frame:SetFrameLevel(parent:GetFrameLevel() + 1)
+		icon.node = { kind = sample[2], item = sample[1] }
+		icons[index] = icon
+	end
+	return function(size, ring, herbs, ore)
+		for index, sample in ipairs(samples) do
+			local icon = icons[index]
+			DrawIcon(icon, icon.node, sample[3], sample[4], size, ring)
+			icon.frame:SetAlpha((sample[2] == "herb" and herbs or sample[2] == "ore" and ore) and 1 or 0.25)
+			icon.frame:Show()
+		end
+	end
+end
+
 local function ShowIcon(icon, shown)
 	if icon.shown == shown then return end
 	icon.shown = shown
@@ -413,7 +524,7 @@ end
 local function Edge(marker, half)
 	if marker.lost or not Wanted(marker.node.kind) then return 0 end
 	local x, y = (marker.sx or marker.x) - half, (marker.sy or marker.y) - half
-	return math.max(0, math.min(1, (half + EDGE_OUT - math.sqrt(x * x + y * y)) / (EDGE_IN + EDGE_OUT)))
+	return math.max(0, math.min(1, (reader.Depth(x, y, half) + EDGE_OUT) / (EDGE_IN + EDGE_OUT)))
 end
 
 -- Pose l'icône d'un nœud à sa place, avec cette opacité. Un nœud garde la sienne tant qu'il se
@@ -497,7 +608,7 @@ local function Track(marker, rest)
 	if marker.map == seen.map then
 		local distance
 		marker.x, marker.y, distance, marker.yards = Spot(marker.mx, marker.my)
-		marker.far, marker.lost = distance > seen.half, nil
+		marker.far, marker.lost = reader.Depth(marker.x - seen.half, marker.y - seen.half, seen.half) < 0, nil
 		if marker.dmx then
 			marker.dmx, marker.dmy = marker.dmx * rest, marker.dmy * rest
 			if (marker.dmx * seen.wide) ^ 2 + (marker.dmy * seen.tall) ^ 2 < GLIDE_END * GLIDE_END then
@@ -547,16 +658,18 @@ end
 -- chaque image, elle se pose de sorte que le point à lire y soit (Minimap:AdjustPointsOffset), et le
 -- jeu dit à l'image suivante ce qu'il y a trouvé. L'idée est celle de NodeSight 1.8.0 ; le code est
 -- celui de Lueur.
--- Le temps d'un balayage, la minimap est invisible, ses points du jeu rapetissés (la flèche du
--- joueur avec eux) et rien d'elle ne prend de clic ni de molette. Les icônes de Lueur restent où elle
--- était, sur un fond sombre, avec une copie de son cadre doré, de ses coordonnées et la flèche du
--- joueur ; ce qui est ancré à la minimap sans en être un enfant, et que son invisibilité ne cache
--- pas, est masqué et ne prend pas la souris (ce que des joueurs de NodeSight 1.8.1 ont vu : un cadre
--- d'un autre addon promené à l'écran, un autre posé sur la minimap qui empêchait tout balayage).
--- Aucun réglage du jeu ne change, sauf la taille des points, rendue après (et au chargement suivant
--- si le jeu s'est arrêté entre-temps). Le balayage s'interrompt dès que la souris tourne la caméra,
--- passe sur une fenêtre, ou que la minimap zoome ; il reprend un peu plus tard. Le joueur peut marcher
--- et tourner pendant ce temps : chaque point se lit là où il est passé.
+-- Le temps d'un balayage, la minimap est invisible (un masque vide, et ce qu'elle porte à l'opacité
+-- 0), ses points du jeu rapetissés (la flèche du joueur avec eux) et rien d'elle ne prend de clic ni
+-- de molette. Les icônes de Lueur restent où elle était, sur un fond sombre de sa forme, avec une copie
+-- de son cadre doré, de ses coordonnées et la flèche du joueur ; ce qui est ancré à la minimap sans en
+-- être un enfant est masqué et ne prend pas la souris (ce que des joueurs de NodeSight 1.8.1 ont vu :
+-- un cadre d'un autre addon promené à l'écran, un autre posé sur la minimap qui empêchait tout
+-- balayage). Aucun réglage du jeu ne change, sauf la taille des points, rendue après (et au chargement
+-- suivant si le jeu s'est arrêté entre-temps). La souris qui tourne la caméra ou passe sur une
+-- fenêtre met le balayage en attente, la minimap chez elle et cachée ; au-delà d'une ou deux
+-- secondes, il s'arrête, comme quand la minimap zoome, et reprend un peu plus tard. Il n'a pas lieu en
+-- vol avec un maître de vol, ni devant la fenêtre d'un PNJ. Le joueur peut marcher et tourner pendant
+-- ce temps : chaque point se lit là où il est passé.
 ;(function() -- une fonction, pas un bloc : le fichier est à la limite de 200 variables locales
 	local STRATA = { BACKGROUND = 1, LOW = 2, MEDIUM = 3, HIGH = 4, DIALOG = 5, FULLSCREEN = 6, FULLSCREEN_DIALOG = 7, TOOLTIP = 8 }
 	local DEPTH = 4          -- générations d'enfants de la minimap dont la souris est coupée
@@ -586,10 +699,46 @@ end
 		ours = false
 	end
 
-	-- L'opacité de la minimap, tenue à 0 tant qu'elle est sous la souris : à 1, son terrain se voit
-	-- glisser à l'écran. (Vu en jeu le 2026-11-09 : un essai l'a lue à 1 à chacune de ses 120 images,
-	-- et le joueur a vu la carte glisser ; un autre, à 0 partout, et elle n'a pas bougé. Ce qui la
-	-- remettait n'est pas connu.) Chaque fois qu'un autre code la change, elle revient à 0, et c'est compté.
+	-- Cacher la minimap. Par un masque vide (reader.EMPTY) plutôt que par son opacité : le jeu redessine
+	-- vide le terrain d'une minimap qu'il dessine en deçà d'une opacité de 1 (NodeSight 1.9.0 le dit ;
+	-- des joueurs de Lueur 1.5.0 ont vu la minimap scintiller, devenir transparente, perdre son fond, le
+	-- 2026-11-09). Le masque ne cache que ce qu'elle dessine elle-même, terrain et points : ce qu'elle
+	-- porte (ses boutons, ceux des addons, les textes qu'une interface pose dessus) se cache par sa
+	-- propre opacité (Cover). Le masque ne se lit pas : le dernier posé est retenu, sinon un carré pour
+	-- une minimap qui se dit carrée, sinon celui de Forever (Blizzard_Minimap\Camelot\Skin.lua, build
+	-- 70245). Le vide se pose par la méthode du cadre, sans passer par ce qu'un addon a accroché à la
+	-- minimap (Leatrix Plus remet aussitôt son masque carré, d'après NodeSight) ; l'autre se rend par le
+	-- chemin ordinaire. Sans l'image vide (une mise à jour faite pendant que le jeu tourne) ou sans
+	-- SetMaskTexture, c'est l'opacité de la minimap, comme jusqu'à la 1.5.0.
+	if Minimap and Minimap.SetMaskTexture and hooksecurefunc then
+		hooksecurefunc(Minimap, "SetMaskTexture", function(_, mask)
+			if not reader.maskOurs and not IsSecret(mask) then reader.mask = mask end
+		end)
+	end
+	local FOREVER_MASK = "ui-hud-minimap-frame-generic-mask"
+	local function MaskBack()
+		if reader.mask ~= nil then return reader.mask end
+		if not reader.Quarters().round then return "Interface\\Buttons\\WHITE8X8" end
+		if HasAtlas(FOREVER_MASK) then return FOREVER_MASK end
+		return "Textures\\MinimapMask"
+	end
+	local function SetMask(mask, direct)
+		local set = Minimap.SetMaskTexture
+		if direct then
+			local meta = getmetatable(Minimap)
+			local methods = type(meta) == "table" and meta.__index
+			if type(methods) == "table" and type(methods.SetMaskTexture) == "function" then set = methods.SetMaskTexture end
+		end
+		reader.maskOurs = true
+		pcall(set, Minimap, mask)
+		reader.maskOurs = false
+	end
+
+	-- L'opacité de la minimap, quand c'est par elle qu'elle se cache : tenue à 0 tant qu'elle est sous la
+	-- souris. (Vu en jeu le 2026-11-09 : un essai l'a lue à 1 à chacune de ses 120 images, et le joueur a vu
+	-- la carte glisser ; un autre, à 0 partout, et elle n'a pas bougé. Ce qui la remettait n'est pas connu.)
+	-- Chaque fois qu'un autre code la change, elle revient à 0, et c'est compté ; ce qu'il voulait lui est
+	-- rendu à la fin.
 	local function Hide(alpha)
 		reader.alphaOurs = true
 		pcall(Minimap.SetAlpha, Minimap, alpha)
@@ -598,18 +747,14 @@ end
 	if Minimap and hooksecurefunc then
 		hooksecurefunc(Minimap, "SetAlpha", function(_, alpha)
 			local s = reader.s
-			if s and not reader.alphaOurs and alpha ~= 0 then
-				s.resets = s.resets + 1
-				Hide(0)
+			if s and not s.masked and not reader.alphaOurs then
+				if not IsSecret(alpha) then s.wanted = alpha end
+				if alpha ~= 0 then
+					s.resets = s.resets + 1
+					Hide(0)
+				end
 			end
 		end)
-	end
-	function reader.Hold()
-		local s = reader.s
-		if s and Minimap:GetAlpha() ~= 0 then
-			s.resets = s.resets + 1
-			Hide(0)
-		end
 	end
 
 	-- Ce cadre est-il la minimap, ou dedans ?
@@ -624,28 +769,86 @@ end
 		return false
 	end
 
+	-- Ce cadre suit-il la minimap pendant le balayage en cours, ancré à elle sans être dedans, lui ou l'un
+	-- de ses parents ?
+	local function Rides(frame)
+		local s = reader.s
+		if not s then return false end
+		for _ = 1, 20 do
+			if frame == nil then return false end
+			if s.followers[frame] then return true end
+			local ok, parent = pcall(frame.GetParent, frame)
+			if not ok then return false end
+			frame = parent
+		end
+		return false
+	end
+
 	local function Focus()
 		if GetMouseFoci then
 			local foci = GetMouseFoci()
-			return type(foci) == "table" and foci[1] or nil
+			local focus = type(foci) == "table" and foci[1] or nil
+			if IsSecret(focus) then return nil end
+			return focus
 		end
 		return GetMouseFocus and GetMouseFocus() or nil
 	end
 
+	-- Un cadre protégé ne se touche plus en combat
+	local function Locked(frame)
+		return InCombatLockdown() and frame.IsProtected ~= nil and frame:IsProtected() == true
+	end
+
+	-- Un cadre, et ce que sa souris prend, pour le lui rendre. Un balayage qui en tient un protégé
+	-- s'arrête quand un combat commence, pendant qu'il peut encore le rendre (PLAYER_REGEN_DISABLED).
+	local function Mute(s, frame)
+		if s.muted[frame] or Locked(frame) then return end
+		local saved = {}
+		if frame.IsMouseClickEnabled and frame.IsMouseMotionEnabled then
+			saved.click, saved.motion = frame:IsMouseClickEnabled(), frame:IsMouseMotionEnabled()
+			if IsSecret(saved.click) or IsSecret(saved.motion) then return end
+			if saved.click then pcall(frame.SetMouseClickEnabled, frame, false) end
+			if saved.motion then pcall(frame.SetMouseMotionEnabled, frame, false) end
+		end
+		if frame.IsProtected and frame:IsProtected() then s.protected = true end
+		s.muted[frame] = saved
+		s.list[#s.list + 1] = frame
+	end
+
+	-- Ce que contient ce cadre et qui prend la souris (les boutons de la minimap, ceux des addons) : la
+	-- minimap passe sous le pointeur, un clic irait à l'un d'eux, et son infobulle à la place de celle de
+	-- la minimap
+	local function Children(s, frame, depth)
+		local ok, list = pcall(function() return { frame:GetChildren() } end)
+		if not ok then return end
+		for _, child in ipairs(list) do
+			if not IsSecret(child) and child ~= holder and child ~= stand and not (child.IsForbidden and child:IsForbidden()) then
+				Mute(s, child)
+				if depth < DEPTH then Children(s, child, depth + 1) end
+			end
+		end
+	end
+
 	-- La souris est-elle sur autre chose que le monde, que la minimap posée sous elle ne couvrirait
 	-- pas ? Un cadre d'une strate plus basse que la sienne ne compte pas : elle passe par-dessus.
-	-- (OPie en pose un sur tout l'écran : le balayage automatique de NodeSight ne partait plus.)
+	-- (OPie en pose un sur tout l'écran : le balayage automatique de NodeSight ne partait plus.) Un cadre
+	-- qui suit la minimap et prend encore la souris (un bouton posé dans un autre addon en plein
+	-- balayage) ne la prend plus.
 	local function Covered()
 		local focus = Focus()
 		if focus == nil or focus == WorldFrame or Inside(focus) then return false end
 		if stand and focus == stand then return false end
+		if Rides(focus) then
+			Mute(reader.s, focus)
+			return false
+		end
 		local ok, strata = pcall(focus.GetFrameStrata, focus)
 		local mine = STRATA[Minimap:GetFrameStrata()] or 2
 		if ok and STRATA[strata] then
 			if STRATA[strata] < mine then return false end
 			if STRATA[strata] == mine then
 				local fine, level = pcall(focus.GetFrameLevel, focus)
-				if fine and type(level) == "number" and level < Minimap:GetFrameLevel() then return false end
+				if fine and type(level) == "number" and not IsSecret(level) and level < Minimap:GetFrameLevel() then return false end
 			end
 		end
 		return true
@@ -664,9 +867,27 @@ end
 		return not ns.GetOption("nodeCombat") or (Minimap.IsProtected and Minimap:IsProtected()) == true
 	end
 
+	-- Le joueur vole avec un maître de vol : rien ne se lit (demandé le 2026-11-09). Ni pendant qu'une
+	-- fenêtre de PNJ est ouverte (marchand, quêtes, banque, courrier, hôtel des ventes, échange), comme
+	-- NodeSight 1.9.0, pour que les addons qui vendent ou rendent les quêtes d'eux-mêmes n'aient pas un
+	-- balayage dans les jambes. Les noms sont ceux de PlayerInteractionManagerConstantsDocumentation
+	-- (build 70245).
+	local NPC_WINDOWS = { "TradePartner", "Gossip", "QuestGiver", "Merchant", "Banker", "MailInfo", "Auctioneer" }
+	local function Busy()
+		if UnitOnTaxi and SafeCall(UnitOnTaxi, "player") == true then return "taxi" end
+		local types, manager = Enum and Enum.PlayerInteractionType, C_PlayerInteractionManager
+		if types and manager and manager.IsInteractingWithNpcOfType then
+			for _, name in ipairs(NPC_WINDOWS) do
+				if types[name] and SafeCall(manager.IsInteractingWithNpcOfType, types[name]) == true then return "npc" end
+			end
+		end
+	end
+
 	-- Pourquoi un balayage ne peut pas commencer maintenant : nil s'il le peut
 	function reader.Ready()
 		if reader.Fight() then return "combat" end
+		local occupied = Busy()
+		if occupied then return occupied end
 		if not Minimap:IsVisible() then return "hidden" end
 		if Minimap:IsMouseOver() or Inside(Focus()) then return "pointer" end
 		if Camera() then return "camera" end
@@ -704,6 +925,138 @@ end
 		seen.map = nil
 	end
 
+	-- Ce que la minimap porte, cadres et textures, et ce qui la suit, se cache par son opacité le temps
+	-- d'un balayage. Ce qui était déjà caché (des boutons qui ne paraissent qu'au survol de la minimap,
+	-- comme elle l'est pendant un balayage) est en plus rapetissé : s'il paraît, c'est hors de vue. Il le
+	-- reste un moment après (Settle), sans quoi il se montrerait à la place de la minimap le temps que
+	-- l'addon qui le porte voie la souris partir (LibDBIcon les efface une seconde après).
+	local function Unseen(frame, alpha)
+		if alpha == 0 then return true end
+		local ok, shown = pcall(frame.IsShown, frame)
+		return ok and not IsSecret(shown) and shown == false
+	end
+	local function Shrink(part)
+		local frame = part.frame
+		if part.scale or not frame.SetScale or (frame.IsProtected and frame:IsProtected()) then return end
+		local ok, value = pcall(frame.GetScale, frame)
+		if ok and type(value) == "number" and not IsSecret(value) and value > 0 then
+			part.scale = value
+			pcall(frame.SetScale, frame, reader.SHRINK)
+		end
+	end
+	reader.settling = {}      -- cadre rapetissé par un balayage fini -> son échelle
+	local function Cover(s, frame)
+		if IsSecret(frame) or s.covered[frame] or frame == holder or frame == stand or Locked(frame) then return end
+		if frame.IsObjectType and frame:IsObjectType("MaskTexture") then return end
+		local ok, alpha = pcall(frame.GetAlpha, frame)
+		if not ok or IsSecret(alpha) or type(alpha) ~= "number" then return end
+		local part = { frame = frame, alpha = alpha, hidden = Unseen(frame, alpha) }
+		-- (encore rapetissé après le balayage d'avant : il l'est déjà)
+		if reader.settling[frame] then
+			part.scale, part.hidden, reader.settling[frame] = reader.settling[frame], true, nil
+		end
+		s.covered[frame] = part
+		s.parts[#s.parts + 1] = part
+		if frame.IsProtected and frame:IsProtected() then s.protected = true end
+		pcall(frame.SetAlpha, frame, 0)
+		if part.hidden then Shrink(part) end
+	end
+
+	-- Les cadres ancrés à la minimap, ou à ce qu'elle contient, sans être dedans : ils la suivraient
+	-- sous la souris, à la vue de tous. Ancrés de proche en proche aussi (une bordure d'interface ancrée
+	-- à un cadre lui-même ancré à la minimap), et ce qu'ils contiennent ne prend plus la souris. Le nombre
+	-- de points d'ancrage d'un cadre peut être une valeur secrète, qui ne se compte pas : ce cadre est
+	-- laissé (signalé le 2026-11-09 par sept joueurs, avec EllesmereUI : « NodeScan.lua:784: 'for' limit
+	-- must be a number », à chaque balayage).
+	local function Anchored(s)
+		if not EnumerateFrames then return end
+		local answered = {}
+		local function Follows(frame, depth)
+			if answered[frame] ~= nil then return answered[frame] end
+			answered[frame] = false
+			if depth > 10 or not frame.GetNumPoints then return false end
+			local ok, count = pcall(frame.GetNumPoints, frame)
+			if not ok or IsSecret(count) or type(count) ~= "number" then return false end
+			for index = 1, count do
+				local fine, _, relative = pcall(frame.GetPoint, frame, index)
+				if fine and not IsSecret(relative) and type(relative) == "table" and relative ~= frame
+					and (Inside(relative) or Follows(relative, depth + 1)) then
+					answered[frame] = true
+					return true
+				end
+			end
+			return false
+		end
+		local frame, count = EnumerateFrames(), 0
+		while frame and count < 20000 do
+			count = count + 1
+			if not IsSecret(frame) then
+				local forbidden = frame.IsForbidden and frame:IsForbidden()
+				if not forbidden and frame ~= stand and frame ~= holder and not Inside(frame) and Follows(frame, 1) and not Locked(frame) then
+					s.followers[frame] = true
+					Cover(s, frame)
+					Mute(s, frame)
+					Children(s, frame, 1)
+				end
+			end
+			frame = EnumerateFrames(frame)
+		end
+	end
+
+	-- À chaque image du balayage : ce qui s'est remontré (un addon qui montre ses boutons quand la souris
+	-- est sur la minimap) se cache de nouveau, rapetissé pour le reste du balayage ; ce qu'un addon pose
+	-- sur la minimap pendant ce temps (une épingle) se cache et ne prend pas la souris. Et l'opacité de la
+	-- minimap elle-même, quand c'est par elle qu'elle se cache.
+	function reader.Hold()
+		local s = reader.s
+		if not s then return end
+		if not s.masked and Minimap:GetAlpha() ~= 0 then
+			s.resets = s.resets + 1
+			Hide(0)
+		end
+		for _, part in ipairs(s.parts) do
+			local frame = part.frame
+			local ok, alpha = pcall(frame.GetAlpha, frame)
+			if ok and not IsSecret(alpha) and type(alpha) == "number" and alpha > 0 and not Locked(frame) then
+				pcall(frame.SetAlpha, frame, 0)
+				Shrink(part)
+				s.shown = s.shown + 1
+			end
+		end
+		if s.masked and Minimap.GetNumChildren then
+			local count = Minimap:GetNumChildren()
+			if not IsSecret(count) and count ~= s.children then
+				s.children = count
+				for _, child in ipairs({ Minimap:GetChildren() }) do
+					if not IsSecret(child) and not s.covered[child] and child ~= holder then
+						Cover(s, child)
+						Mute(s, child)
+						Children(s, child, 2)
+					end
+				end
+			end
+		end
+	end
+
+	-- Après un balayage, les cadres rapetissés reprennent leur taille une fois cachés de nouveau, au bout
+	-- de SETTLE_MIN au moins et de SETTLE_MAX au plus, ou dès que la vraie souris est sur la minimap.
+	-- `now` : tout de suite (Lueur s'éteint, le joueur s'en va).
+	function reader.Settle(now)
+		if not next(reader.settling) then return end
+		local waited = GetTime() - (reader.settledAt or 0)
+		if not now and waited < reader.SETTLE_MIN then return end
+		local over = Minimap:IsMouseOver()
+		for frame, value in pairs(reader.settling) do
+			local ok, alpha = pcall(frame.GetAlpha, frame)
+			if now or over or waited > reader.SETTLE_MAX or not ok or IsSecret(alpha) or Unseen(frame, alpha) then
+				if not Locked(frame) then
+					pcall(frame.SetScale, frame, value)
+					reader.settling[frame] = nil
+				end
+			end
+		end
+	end
+
 	-- Pose la minimap pour que (x, y) soit sous la souris à l'image suivante, où le jeu regarde : là où
 	-- elle sera, si elle bouge comme à la dernière image
 	local function Place(s, x, y)
@@ -719,21 +1072,57 @@ end
 	end
 
 	-- Ce que le jeu dit du point (x, y), une image plus tard. Seul le balayage en cours le demande :
-	-- ailleurs (la lueur au loin), rien ne répond.
+	-- ailleurs (la lueur au loin), rien ne répond. Une attente au milieu (reader.Wait) a remis la minimap
+	-- chez elle : le point se repose, sans que cela compte pour un essai.
 	function reader.Look(x, y)
 		local s = reader.s
 		if not s or not coroutine.running() or coroutine.running() ~= s.co then return nil end
-		for try = 1, reader.TRIES do
+		local try = 0
+		while try < reader.TRIES do
+			try = try + 1
 			Place(s, x, y)
 			coroutine.yield()
-			local cx, cy = GetCursorPosition()
-			if math.abs(cx - s.px) <= reader.MISS * scale and math.abs(cy - s.py) <= reader.MISS * scale then break end
-			if try < reader.TRIES then s.again = s.again + 1 end
+			if s.parked then
+				s.parked, try = nil, try - 1
+			else
+				local cx, cy = GetCursorPosition()
+				if math.abs(cx - s.px) <= reader.MISS * scale and math.abs(cy - s.py) <= reader.MISS * scale then break end
+				if try < reader.TRIES then s.again = s.again + 1 end
+			end
 		end
 		return SafeCall(C_TooltipInfo.GetMinimapMouseover)
 	end
 
-	-- Le fond, le cadre doré et les coordonnées, à la place de la minimap
+	-- La souris passe sur une fenêtre, ou un bouton se tient enfoncé pour tourner la caméra, en plein
+	-- balayage : la minimap retourne chez elle et y reste cachée le temps de voir si cela passe
+	-- (WINDOW_WAIT, CAMERA_WAIT), au lieu de revenir et de repartir aussitôt, ce qui la ferait clignoter
+	-- (NodeSight 1.9.0 fait de même). Rien ne se lit pendant ce temps. Renvoie "wait", ou pourquoi le
+	-- balayage s'arrête.
+	function reader.Wait(why)
+		local s = reader.s
+		local now = GetTime()
+		s.waitFrom = s.waitFrom or now
+		if now - s.waitFrom > (why == "camera" and reader.CAMERA_WAIT or reader.WINDOW_WAIT) then return why end
+		if not s.parked then
+			pcall(Minimap.AdjustPointsOffset, Minimap, -s.ox, -s.oy)
+			s.ox, s.oy, s.cx, s.cy, s.parked, s.parkedFor = 0, 0, nil, nil, true, 0
+		end
+		s.parkedFor = s.parkedFor + 1
+		reader.Hold()
+		-- (chez elle et invisible : la souris qui y passe ne doit pas y trouver une minimap qu'elle ne voit pas.
+		-- Le jeu le dit à l'image qui suit celle où elle y est revenue)
+		if s.parkedFor > 2 and Minimap:IsMouseOver() then return "pointer" end
+		return "wait"
+	end
+
+	-- La lecture reprend après une attente
+	function reader.Resume()
+		local s = reader.s
+		if s then s.waitFrom = nil end
+	end
+
+	-- Le fond, le cadre doré et les coordonnées, à la place de la minimap. Le fond est rond, ou plein
+	-- pour une minimap qui ne l'est pas.
 	local function Stand()
 		if not stand then
 			stand = CreateFrame("Frame", nil, UIParent)
@@ -741,8 +1130,16 @@ end
 			stand.ground:SetAllPoints(stand)
 			stand.ground:SetColorTexture(0, 0, 0, 0.35)
 			Clip({ frame = stand }, stand.ground)
+			stand.plain = stand:CreateTexture(nil, "BACKGROUND")
+			stand.plain:SetPoint("CENTER", stand, "CENTER", 0, 0)
+			stand.plain:SetColorTexture(0, 0, 0, 0.35)
 			stand.ring = stand:CreateTexture(nil, "OVERLAY")
 			stand.coords = stand:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			-- (l'image vide se charge-t-elle ? Sinon la minimap se cache par son opacité)
+			local probe = stand:CreateTexture(nil, "BACKGROUND")
+			local ok, loaded = pcall(probe.SetTexture, probe, reader.EMPTY)
+			reader.canMask = ok and loaded ~= false
+			probe:Hide()
 		end
 		return stand
 	end
@@ -757,58 +1154,10 @@ end
 		end
 	end
 
-	-- Un cadre, son opacité et ce que sa souris prend, pour les rendre
-	local function Mute(s, frame, hide)
-		if s.muted[frame] then return end
-		local saved = { alpha = hide and frame:GetAlpha() or nil }
-		if frame.IsMouseClickEnabled and frame.IsMouseMotionEnabled then
-			saved.click, saved.motion = frame:IsMouseClickEnabled(), frame:IsMouseMotionEnabled()
-			if saved.click then pcall(frame.SetMouseClickEnabled, frame, false) end
-			if saved.motion then pcall(frame.SetMouseMotionEnabled, frame, false) end
-		end
-		if hide then pcall(frame.SetAlpha, frame, 0) end
-		s.muted[frame] = saved
-		s.list[#s.list + 1] = frame
-	end
-
-	-- Les cadres ancrés à la minimap, ou à ce qu'elle contient, sans être dedans : ils la suivraient
-	-- sous la souris, à la vue de tous
-	local function Anchored(s)
-		if not EnumerateFrames then return end
-		local frame, count = EnumerateFrames(), 0
-		while frame and count < 20000 do
-			count = count + 1
-			local forbidden = frame.IsForbidden and frame:IsForbidden()
-			if not forbidden and frame ~= stand and frame ~= holder and not Inside(frame) and frame.GetNumPoints then
-				local ok, points = pcall(frame.GetNumPoints, frame)
-				for index = 1, ok and type(points) == "number" and points or 0 do
-					local fine, _, relative = pcall(frame.GetPoint, frame, index)
-					if fine and relative ~= nil and type(relative) == "table" and Inside(relative) then
-						if not (frame.IsProtected and frame:IsProtected()) then Mute(s, frame, true) end
-						break
-					end
-				end
-			end
-			frame = EnumerateFrames(frame)
-		end
-	end
-
-	-- Ce que la minimap contient et qui prend la souris (ses boutons, ceux des addons) : la minimap
-	-- passe sous le pointeur, un clic irait à l'un d'eux, et son infobulle à la place de celle de la minimap
-	local function Children(s, frame, depth)
-		for _, child in ipairs({ frame:GetChildren() }) do
-			-- (en combat, un cadre protégé ne se touche pas)
-			if child ~= holder and not (child.IsForbidden and child:IsForbidden())
-				and not (InCombatLockdown() and child.IsProtected and child:IsProtected()) then
-				Mute(s, child, false)
-				if depth < DEPTH then Children(s, child, depth + 1) end
-			end
-		end
-	end
-
 	-- La minimap sous la souris, invisible, et ce qui tient sa place
 	function reader.Begin(co)
-		local s = { co = co, ox = 0, oy = 0, frames = 0, again = 0, resets = 0, muted = {}, list = {}, alpha = Minimap:GetAlpha() }
+		local s = { co = co, ox = 0, oy = 0, frames = 0, again = 0, resets = 0, shown = 0, muted = {}, list = {},
+			covered = {}, parts = {}, followers = {}, alpha = Minimap:GetAlpha() }
 		reader.s, reader.on = s, true
 		if Minimap.IsMouseWheelEnabled then
 			s.wheel = Minimap:IsMouseWheelEnabled()
@@ -817,15 +1166,6 @@ end
 		if Minimap.IsMouseClickEnabled then
 			s.clicks = Minimap:IsMouseClickEnabled()
 			Minimap:SetMouseClickEnabled(false)
-		end
-		if Minimap.GetChildren then Children(s, Minimap, 1) end
-		Anchored(s)
-		Hide(0)
-		s.scaled = Minimap.SetIconScale ~= nil
-		if s.scaled then
-			s.iconScale = IconScale()
-			if ns.db then ns.db.iconScaleBack = s.iconScale end
-			SetIconScale(reader.TINY)
 		end
 		-- les icônes de Lueur restent où était la minimap, à sa taille
 		local view = Stand()
@@ -839,6 +1179,31 @@ end
 			frame:SetSize(width, width)
 		end
 		view:SetFrameLevel(math.max(0, holder:GetFrameLevel() - 1))
+		if Minimap.GetChildren then Children(s, Minimap, 1) end
+		s.masked = Minimap.SetMaskTexture ~= nil and reader.canMask == true
+		if s.masked then
+			SetMask(reader.EMPTY, true)
+			if Minimap.GetChildren then
+				for _, child in ipairs({ Minimap:GetChildren() }) do Cover(s, child) end
+			end
+			if Minimap.GetRegions then
+				for _, region in ipairs({ Minimap:GetRegions() }) do Cover(s, region) end
+			end
+			s.children = Minimap.GetNumChildren and Minimap:GetNumChildren()
+		else
+			Hide(0)
+		end
+		Anchored(s)
+		s.scaled = Minimap.SetIconScale ~= nil
+		if s.scaled then
+			s.iconScale = IconScale()
+			if ns.db then ns.db.iconScaleBack = s.iconScale end
+			SetIconScale(reader.TINY)
+		end
+		local quarters = reader.Quarters()
+		view.ground:SetShown(quarters.round)
+		view.plain:SetShown(not quarters.round)
+		view.plain:SetSize(width, width * quarters.height)
 		local compass = MinimapCompassTexture
 		local atlas = compass and compass:IsVisible() and SafeCall(compass.GetAtlas, compass)
 		view.ring:SetShown(type(atlas) == "string")
@@ -856,14 +1221,25 @@ end
 		Pointer(true)
 	end
 
+	-- Ce que le combat empêche de rendre à un cadre protégé l'est à sa fin
+	reader.later = {}
+	function reader.Later()
+		if InCombatLockdown() then return end
+		for frame, saved in pairs(reader.later) do
+			if saved.click then pcall(frame.SetMouseClickEnabled, frame, true) end
+			if saved.motion then pcall(frame.SetMouseMotionEnabled, frame, true) end
+			reader.later[frame] = nil
+		end
+	end
+
 	-- La minimap rendue telle qu'elle était
 	function reader.End()
 		local s = reader.s
 		if not s then return end
 		reader.s, reader.on = nil, false
-		reader.resets = s.resets
+		reader.resets, reader.shown, reader.hidden, reader.masked = s.resets, s.shown, #s.parts, s.masked
 		pcall(Minimap.AdjustPointsOffset, Minimap, -s.ox, -s.oy)
-		Hide(s.alpha)
+		if s.masked then SetMask(MaskBack()) else Hide(s.wanted or s.alpha) end
 		if s.wheel ~= nil then pcall(Minimap.EnableMouseWheel, Minimap, s.wheel) end
 		if s.clicks ~= nil then pcall(Minimap.SetMouseClickEnabled, Minimap, s.clicks) end
 		if s.scaled then
@@ -872,10 +1248,23 @@ end
 		end
 		for _, frame in ipairs(s.list) do
 			local saved = s.muted[frame]
-			if saved.alpha then pcall(frame.SetAlpha, frame, saved.alpha) end
-			if saved.click then pcall(frame.SetMouseClickEnabled, frame, true) end
-			if saved.motion then pcall(frame.SetMouseMotionEnabled, frame, true) end
+			if Locked(frame) then
+				reader.later[frame] = saved
+			else
+				if saved.click then pcall(frame.SetMouseClickEnabled, frame, true) end
+				if saved.motion then pcall(frame.SetMouseMotionEnabled, frame, true) end
+			end
 		end
+		for _, part in ipairs(s.parts) do
+			local frame = part.frame
+			if not Locked(frame) then
+				pcall(frame.SetAlpha, frame, part.alpha)
+				if part.scale then
+					if part.hidden then reader.settling[frame] = part.scale else pcall(frame.SetScale, frame, part.scale) end
+				end
+			end
+		end
+		reader.settledAt = GetTime()
 		holder:SetParent(Minimap)
 		holder:SetScale(1)
 		holder:ClearAllPoints()
@@ -896,6 +1285,8 @@ end
 	-- Pourquoi le balayage en cours doit s'arrêter : nil s'il continue
 	function reader.Check()
 		if reader.Fight() then return "combat" end
+		local occupied = Busy()
+		if occupied then return occupied end
 		if not Minimap:IsVisible() then return "hidden" end
 		if Camera() then return "camera" end
 		if Covered() then return "window" end
@@ -908,16 +1299,16 @@ end
 	end
 
 	-- Pendant un balayage, et un instant après, aucune infobulle de la minimap ni de ce qu'elle
-	-- contient : elle passe sous la souris sans que le joueur l'y ait mise. Celle de la minimap a
-	-- UIParent pour propriétaire (Minimap_OnUpdate, Blizzard_Minimap\Mainline\Minimap.lua, build
-	-- 70245 : SetOwner(UIParent, "ANCHOR_CURSOR") puis SetMinimapMouseover à chaque image) : elle se
+	-- contient ou de ce qui la suit : elle passe sous la souris sans que le joueur l'y ait mise. Celle de
+	-- la minimap a UIParent pour propriétaire (Minimap_OnUpdate, Blizzard_Minimap\Mainline\Minimap.lua,
+	-- build 70245 : SetOwner(UIParent, "ANCHOR_CURSOR") puis SetMinimapMouseover à chaque image) : elle se
 	-- cache dès qu'elle se remplit, et toute infobulle de UIParent tant que la minimap est sous la
 	-- souris. (Vu en jeu le 2026-11-09 : « on voit malgré tout du texte s'afficher sous le pointeur ».)
 	local function Quieting() return reader.on or GetTime() < (reader.quiet or 0) end
 	local function Quiet(tip)
 		if not Quieting() then return end
 		local owner = tip.GetOwner and tip:GetOwner()
-		if owner ~= nil and (Inside(owner) or (owner == UIParent and Minimap:IsMouseOver())) then tip:Hide() end
+		if owner ~= nil and (Inside(owner) or Rides(owner) or (owner == UIParent and Minimap:IsMouseOver())) then tip:Hide() end
 	end
 	if GameTooltip and GameTooltip.HookScript then GameTooltip:HookScript("OnShow", Quiet) end
 	if GameTooltip and GameTooltip.SetMinimapMouseover and hooksecurefunc then
@@ -1141,9 +1532,8 @@ end
 -- Un groupe touche-t-il le bord de la minimap, où le disque d'un nœud est tronqué ?
 local function AtRim(keys)
 	local half = width / 2
-	local edge = (half - reader.RIM) ^ 2
 	for _, key in ipairs(keys) do
-		if (key % ROW * STEP - half) ^ 2 + (math.floor(key / ROW) * STEP - half) ^ 2 >= edge then return true end
+		if reader.Depth(key % ROW * STEP - half, math.floor(key / ROW) * STEP - half, half) <= reader.RIM then return true end
 	end
 	return false
 end
@@ -1211,11 +1601,7 @@ end
 -- même nom un peu plus loin (un essai d'emblée au bout de la recherche tombait dans ce voisin).
 local function Edge(name, x, y, dx, dy, limit)
 	local half = width / 2
-	local px, py, rim = x - half, y - half, half - 1
-	local along = px * dx + py * dy
-	local room = along * along - (px * px + py * py - rim * rim)
-	if room <= 0 then return nil, true end
-	local far, atRim = math.sqrt(room) - along, true
+	local far, atRim = reader.Room(x - half, y - half, dx, dy, half, 1), true
 	if far > limit then far, atRim = limit, false end
 	if far <= 0 then return nil, true end
 	local near, at = 0, math.min(reader.stride, far)
@@ -1459,7 +1845,7 @@ local function NewJob(place, x0, y0, x1, y1)
 	for column = math.max(0, math.ceil((x0 - STEP) / FINE)), math.floor((x1 + STEP) / FINE) do
 		for line = math.max(0, math.ceil((y0 - STEP) / FINE)), math.floor((y1 + STEP) / FINE) do
 			local x, y = column * FINE, line * FINE
-			if nearby[Round(x / STEP) + ROW * Round(y / STEP)] and (x - half) ^ 2 + (y - half) ^ 2 <= half * half then
+			if nearby[Round(x / STEP) + ROW * Round(y / STEP)] and reader.Depth(x - half, y - half, half) >= 0 then
 				points[#points + 1] = column + ROW * line
 			end
 		end
@@ -1978,7 +2364,7 @@ local function Sort()
 				local pin = map and Pinned(name, x, y, math.max(x1 - x0, y1 - y0), keys) or nil
 				-- placé quand le bord de la minimap le tronquait, et tout entier dedans désormais :
 				-- son centre peut se chercher par ses bords
-				if pin and pin.rim and math.sqrt((x - width / 2) ^ 2 + (y - width / 2) ^ 2) + Radius(pin) + STEP < width / 2 then
+				if pin and pin.rim and reader.Depth(x - width / 2, y - width / 2, width / 2) > Radius(pin) + STEP then
 					pin = nil
 				end
 				local split = map and not pin and Known(name, keys) or nil
@@ -2114,7 +2500,7 @@ local function Finish()
 		local reach = place.reach or reaches[place.node.kind].value
 		local limit = math.max(anchored and MERGE or 0, reach / perYard)
 		local rimLimit = limit + 2 * reach / perYard
-		place.depth = half - math.sqrt((place.x - half) ^ 2 + (place.y - half) ^ 2)
+		place.depth = reader.Depth(place.x - half, place.y - half, half)
 		if anchored then
 			local dx, dy = place.x - half, place.y - half
 			local yards = math.sqrt(dx * dx + dy * dy) / half * radius
@@ -2291,7 +2677,7 @@ local function Run()
 				local moved = false
 				for _, way in ipairs(crowded and {} or { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
 					local px, py = marker.x + way[1] * beyond, marker.y + way[2] * beyond
-					if not moved and (px - width / 2) ^ 2 + (py - width / 2) ^ 2 < (width / 2 - 1) ^ 2 and Under(marker.name, px, py) then moved = true end
+					if not moved and reader.Depth(px - width / 2, py - width / 2, width / 2) > 1 and Under(marker.name, px, py) then moved = true end
 				end
 				if moved then
 					place.pin, place.single = nil, nil
@@ -2560,13 +2946,13 @@ local function StartScan()
 		if Wanted(kind) then reach = math.min(reach, reaches[kind].value, reaches[kind].least or math.huge) end
 	end
 	STEP = math.max(reader.MIN_STEP, math.min(reader.MAX_STEP, math.floor(reader.GRID * reach)))
-	if gridWidth ~= width or reader.gridStep ~= STEP then
-		gridWidth, grid, reader.gridStep = width, {}, STEP
+	local shape = reader.Quarters().key
+	if gridWidth ~= width or reader.gridStep ~= STEP or reader.gridShape ~= shape then
+		gridWidth, grid, reader.gridStep, reader.gridShape = width, {}, STEP, shape
 		local half = width / 2
 		for column = 0, math.floor(width / STEP) do
 			for line = 0, math.floor(width / STEP) do
-				local dx, dy = column * STEP - half, line * STEP - half
-				if dx * dx + dy * dy <= half * half then grid[#grid + 1] = column + ROW * line end
+				if reader.Depth(column * STEP - half, line * STEP - half, half) >= 0 then grid[#grid + 1] = column + ROW * line end
 			end
 		end
 	end
@@ -2576,12 +2962,12 @@ local function StartScan()
 	reader.scans = reader.scans + 1
 	local cover = reader.cover
 	local full = reader.full or reader.scans % reader.FULL == 0 or not (cover and map and radius and cover.map == map
-		and cover.radius == radius and cover.turning == turning and not (turning and not facing))
+		and cover.radius == radius and cover.turning == turning and cover.shape == shape and not (turning and not facing))
 	local points, checks = grid, {}
 	if not full then
 		local half = width / 2
-		local inner = cover.radius * (1 - STEP / 2 / half)
-		-- (x, y) sur la minimap était-il dans ce que le balayage précédent a vu ?
+		-- (x, y) sur la minimap était-il dans ce que le balayage précédent a vu ? À un demi-pas de grille en
+		-- deçà du bord de la minimap d'alors, quelle que soit sa forme
 		local function Seen(x, y)
 			local dx, dy = x - half, y - half
 			local yards = math.sqrt(dx * dx + dy * dy) / half * radius
@@ -2589,7 +2975,11 @@ local function StartScan()
 			if turning then way = way - facing end
 			local east = yards * math.sin(way) + (px - cover.x) * wide
 			local north = yards * math.cos(way) + (cover.y - py) * tall
-			return east * east + north * north <= inner * inner
+			-- (là où il était sur la minimap d'alors)
+			local old = math.atan2(east, north)
+			if cover.turning then old = old + cover.facing end
+			local units = math.sqrt(east * east + north * north) / cover.radius * half
+			return reader.Depth(units * math.sin(old), units * math.cos(old), half) >= STEP / 2
 		end
 		-- (un nœud dont un voisin du même nom répond aussi en son milieu ne se vérifie pas d'un seul point :
 		-- il y répondrait encore, cueilli)
@@ -2617,7 +3007,7 @@ local function StartScan()
 		end
 	end
 	scan = { hits = {}, probes = probes, started = GetTime(), looked = 0, points = points, checks = checks, gone = {}, full = full,
-		view = { map = map, x = px, y = py, wide = wide, tall = tall, radius = radius, turning = turning, facing = facing } }
+		view = { map = map, x = px, y = py, wide = wide, tall = tall, radius = radius, turning = turning, facing = facing, shape = shape } }
 	scan.co = coroutine.create(Run)
 	reader.due, reader.full = nil, nil
 	reader.Begin(scan.co)
@@ -2634,9 +3024,13 @@ local function OnUpdate(_, elapsed)
 	if turn.muted and GetTime() >= turn.muted then turn.Unmute() end
 	if scan then
 		local why = reader.Check()
-		if why then
+		if why == "window" or why == "camera" then why = reader.Wait(why) end
+		if why == "wait" then
+			-- (la minimap attend chez elle, cachée : rien ne se lit)
+		elseif why then
 			reader.Stop(why)
 		else
+			reader.Resume()
 			reader.Copy()
 			local co = scan.co
 			local ok, problem = coroutine.resume(co)
@@ -2651,6 +3045,7 @@ local function OnUpdate(_, elapsed)
 			if coroutine.status(co) == "dead" then reader.End() end
 		end
 	else
+		reader.Settle()
 		wait = wait - elapsed
 		if wait <= 0 then StartScan() end
 	end
@@ -2723,6 +3118,7 @@ function ns.UpdateNodes()
 		end
 	else
 		Clear()
+		reader.Settle(true)
 	end
 	driver:SetScript("OnUpdate", on and OnUpdate or nil)
 	Draw()
@@ -2746,7 +3142,19 @@ end
 -- Le joueur s'en va pendant un balayage : la taille des points du jeu lui est rendue
 function handlers.PLAYER_LOGOUT()
 	if scan then reader.End() end
+	reader.Settle(true)
 	turn.Unmute() -- (un son coupé le reste jusqu'à ce qu'on le rende, même d'une session à l'autre)
+end
+
+-- Un combat commence : un balayage qui tient la souris d'un cadre protégé s'arrête pendant qu'il peut
+-- encore la lui rendre (le jeu prévient avant d'interdire d'y toucher)
+function handlers.PLAYER_REGEN_DISABLED()
+	if scan and reader.s and reader.s.protected then reader.Stop("combat") end
+end
+
+-- Et ce qui n'a pu être rendu l'est à la fin du combat
+function handlers.PLAYER_REGEN_ENABLED()
+	reader.Later()
 end
 
 -- Le joueur se met en route, zoome la minimap ou change de pistage : le prochain balayage ne tarde pas
@@ -2934,6 +3342,11 @@ function ns.ScanReport()
 	local function Why(code) return code and L["SCAN_WHY_" .. code:upper()] or L.NAME_NONE end
 	print("  " .. L.SCAN_READER:format(last.frames or 0, last.grid or 0, last.full and L.SCAN_FULL or "", last.checks or 0,
 		last.measured or 0, last.again or 0, reader.aborts, Why(reader.stopped), Why(not scan and reader.Ready() or nil), reader.resets or 0))
+	local quarters = reader.Quarters()
+	local shape = quarters.height < 1 and ("%s %d%%"):format(quarters.name, Round(quarters.height * 100)) or quarters.name
+	local masked = reader.masked
+	if masked == nil then masked = reader.canMask ~= false and Minimap.SetMaskTexture ~= nil end
+	print("  " .. L.SCAN_HIDE:format(masked and L.SCAN_BY_MASK or L.SCAN_BY_ALPHA, shape, reader.hidden or 0, reader.shown or 0))
 	-- puis les icônes une à une, les plus proches du joueur d'abord : deux icônes pour un seul nœud
 	-- se voient à leurs places, et le rayon lu pour chacune dit si les points du jeu ont tous le même
 	local half, near = Minimap:GetWidth() / 2, {}

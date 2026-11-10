@@ -23,6 +23,7 @@ L.COMMANDS = {
 	lista = "list", vaciar = "clear", objetivos = "objectives", estado = "status", ayuda = "help", tecla = "key",
 	ninguna = "none", idioma = "language",
 	recursos = "nodes", alternar = "switch", barrido = "scan", borde = "ring",
+	sololuz = "glowonly",
 }
 
 ---------------------------------------------------------------------------
@@ -62,21 +63,29 @@ L.STATE_READY = "al alcance"
 L.STATE_LOCKED = "no disponible"
 
 L.EFFECT_AURA = "Aura"
-L.EFFECT_AURA_TIP = "Un halo de luz con un anillo fino, cometas y luciérnagas."
-L.EFFECT_RETICLE = "Retícula"
-L.EFFECT_RETICLE_TIP = "Un anillo nítido con sus cometas sobre un resplandor más tenue."
+L.EFFECT_AURA_TIP = "Un halo de luz con sus volutas, un anillo, cometas y luciérnagas."
 L.EFFECT_SUBTLE = "Discreto"
 L.EFFECT_SUBTLE_TIP = "Un resplandor suave, sin anillo ni cometas."
 L.EFFECT_SIGIL = "Sello"
 L.EFFECT_SIGIL_TIP = "Un círculo de runas gira despacio alrededor del objeto."
-L.EFFECT_BRACKETS = "Visor"
-L.EFFECT_BRACKETS_TIP = "Cuatro esquinas enmarcan el objeto y se fijan en él en cuanto está al alcance."
+L.EFFECT_VORTEX = "Vórtice"
+L.EFFECT_VORTEX_TIP = "Brazos de luz se enroscan alrededor del objeto, como un portal que se abre."
+L.EFFECT_FLAME = "Llama"
+L.EFFECT_FLAME_TIP = "Lenguas de fuego se alzan del objeto, con su color."
+L.EFFECT_RIFT = "Falla"
+L.EFFECT_RIFT_TIP = "Un agujero negro rodeado de luz aspira destellos en espiral."
+L.EFFECT_STORM = "Tormenta"
+L.EFFECT_STORM_TIP = "Una nube de tormenta se forma sobre el objeto, y de ella caen los rayos."
+L.EFFECT_GEYSER = "Géiser"
+L.EFFECT_GEYSER_TIP = "Una fuente de luz brota del objeto y cae a su alrededor."
+L.EFFECT_SPIRIT = "Espíritu"
+L.EFFECT_SPIRIT_TIP = "Dos fuegos fatuos bailan alrededor del objeto arrastrando una cinta de luz."
 L.EFFECT_BEAM = "Haz"
 L.EFFECT_BEAM_TIP = "Una columna de luz se eleva del objeto, recorrida por chispas."
 L.EFFECT_BEACON = "Baliza"
 L.EFFECT_BEACON_TIP = "Un cristal flota sobre el objeto, unido a él por un hilo de luz."
 L.EFFECT_ORBIT = "Órbita"
-L.EFFECT_ORBIT_TIP = "Fuegos fatuos giran alrededor del objeto dejando una estela de luz."
+L.EFFECT_ORBIT_TIP = "Tres fuegos fatuos giran alrededor del objeto, cada uno en su órbita."
 L.EFFECT_RIPPLE = "Onda"
 L.EFFECT_RIPPLE_TIP = "Unas ondas se extienden por el suelo alrededor del objeto."
 L.EFFECT_SPARKLE = "Destellos"
@@ -161,6 +170,8 @@ L.ARC_2 = "Alrededor"
 L.ARC_2_TIP = "En todas las direcciones, incluso a tu espalda."
 L.EXCLUSIVE = "Mostrar solo los objetivos resaltados"
 L.EXCLUSIVE_TIP = "El juego deja de señalar los objetivos de interacción que no reciben efecto: PNJ, buzones… Sin marcar, muestra un nombre y un icono en cada uno de ellos."
+L.GLOW_ONLY = "Solo el brillo"
+L.GLOW_ONLY_TIP = "Lueur deja de escribir el nombre y el icono del objeto, y deja lo que el juego u otro addon muestra ahí. Siempre activo mientras la placa de nombre Soft Target de Plumber lo esté."
 
 L.KEY = "Tecla de interacción"
 L.KEY_TIP = "La tecla que recoge, recolecta o usa el objeto resaltado en cuanto está al alcance. Es la tecla de interacción del juego: también sirve con los PNJ y se puede cambiar igualmente en las teclas del juego."
@@ -204,9 +215,6 @@ L.NODE_SWITCH_TIP = "El juego muestra los puntos de las hierbas o los de los min
 L.NODE_SWITCH_YARDS = "Distancia entre dos cambios"
 L.NODE_SWITCH_YARDS_TIP = "Distancia que recorres antes de que Lueur active el otro rastreo."
 
-L.PREVIEW = "Vista previa"
-L.PREVIEW_STOP = "Cerrar la vista previa"
-L.PREVIEW_TIP = "Abre una ventana que muestra el efecto sobre un objeto en 3D, en cada uno de sus estados. Los ajustes que cambies aquí se aplican en ella al instante."
 L.PREVIEW_NO_MODEL = "Modelo 3D no disponible en este cliente"
 L.PREVIEW_HINT = "Arrastrar: girar  ·  clic derecho: mover  ·  rueda: zoom"
 L.DEFAULTS = "Por defecto"
@@ -229,6 +237,7 @@ L.TIP_DRAG = "Arrastrar: mover este botón"
 L.MSG_ENABLED = "activado."
 L.MSG_DISABLED = "desactivado, tus ajustes originales quedan restaurados."
 L.MSG_RESTART = "reinicia el juego por completo para terminar de actualizar Lueur."
+L.MSG_NODES_OFF = "los iconos de hierbas y filones en el minimapa ahora están desactivados por defecto, y esta actualización los ha desactivado. Vuelve a activarlos en los ajustes (/lueur) o con /lueur nodes."
 L.MSG_EXCLUSIVE_ON = "el juego deja de señalar los objetivos que no reciben efecto."
 L.MSG_EXCLUSIVE_OFF = "el juego muestra el nombre y el icono de todos los objetivos de interacción (PNJ, objetos del mundo…)."
 L.MSG_SILHOUETTE_ON = "el efecto pasa por detrás de tu personaje."
@@ -247,6 +256,7 @@ L.MSG_HIDE_COMBAT = "efecto oculto en combate: %s"
 L.MSG_HIDE_INSTANCE = "efecto oculto en estancias: %s"
 L.MSG_HIDE_LOCKED = "efecto oculto en los objetos que no puedes usar: %s"
 L.MSG_HIDE_UNTRAINED = "efecto oculto en hierbas y minerales sin la profesión: %s"
+L.MSG_GLOW_ONLY = "solo el brillo, la placa de nombre queda para el juego u otro addon: %s"
 L.MSG_IGNORED = "%s ya no recibirá efecto."
 L.MSG_UNIGNORED = "%s deja de estar ignorado."
 L.MSG_IGNORE_NO_TARGET = "no tienes delante ningún objeto que ignorar."
@@ -271,6 +281,7 @@ L.STATUS_CVAR_UNKNOWN = "desconocida para este cliente"
 L.STATUS_CVAR_DEFAULT = " (por defecto %s)"
 L.STATUS_EXPECTED = "esperado por Lueur: alcance %d, arco %d"
 L.STATUS_GATE = "solo se señalan los objetivos resaltados: %s | visualización nativa ahora mismo: %s"
+L.STATUS_GLOW_ONLY = "solo el brillo: %s | nombre del objetivo de Plumber: %s"
 L.GATE_OPEN = "abierta"
 L.GATE_CLOSED = "cerrada"
 L.STATUS_SILHOUETTE = "efecto por detrás del personaje: %s"
@@ -316,6 +327,9 @@ L.SCAN_VIGNETTES = "viñetas que lista el juego: %s"
 L.SCAN_DATA = "datos del punto bajo el puntero, aparte de su texto: %s"
 L.SCAN_POINTER = "bajo el puntero: %s"
 L.SCAN_READER = "minimapa bajo el ratón | último escaneo: %d fotogramas, %d puntos de cuadrícula%s, %d nodos conocidos comprobados, %d grupos medidos, %d puntos recolocados | interrumpido %d veces, la última: %s | esperando: %s | opacidad devuelta a 0 tras cambiarla otro código: %d veces"
+L.SCAN_HIDE = "oculto por su %s | forma: %s | %d de sus marcos ocultos con él, %d mostrados de nuevo entretanto y ocultados otra vez"
+L.SCAN_BY_MASK = "máscara"
+L.SCAN_BY_ALPHA = "opacidad"
 L.SCAN_FULL = " (todo el minimapa)"
 L.SCAN_SOON = "el minimapa se escaneará en cuanto pueda pasar bajo el ratón"
 L.SCAN_BUSY = "hay un escaneo del minimapa en curso"
@@ -327,6 +341,8 @@ L.SCAN_WHY_WINDOW = "ratón sobre una ventana"
 L.SCAN_WHY_ZOOM = "zoom del minimapa"
 L.SCAN_WHY_TURN = "minimapa girado"
 L.SCAN_WHY_MAP = "otro mapa"
+L.SCAN_WHY_TAXI = "un vuelo"
+L.SCAN_WHY_NPC = "una ventana de PNJ abierta"
 L.SCAN_NOTHING = "nada (pon el puntero sobre un punto del minimapa y vuelve a escribir el comando)"
 
 ---------------------------------------------------------------------------
@@ -371,7 +387,7 @@ L.HELP = {
 	"/lueur — abre o cierra la ventana de ajustes (como un clic en el botón del minimapa)",
 	"/lueur minimap — muestra u oculta el botón del minimapa",
 	"/lueur on | off — activa o desactiva Lueur (off restaura tus ajustes)",
-	"/lueur vista — abre o cierra la ventana de vista previa, que muestra el efecto sobre un objeto en 3D",
+	"/lueur vista — abre la ventana de ajustes en la vista previa, que muestra el efecto sobre un objeto en 3D",
 	"/lueur efecto [categoría] <nombre> — da este efecto a todas las categorías, o a una sola (mineral, hierba, misión, cofre, corcho, otro); sin nombre, los enumera",
 	"/lueur color <categoría> <rrggbb> | original — color del efecto de una categoría; sin color, lo muestra",
 	"/lueur común <categoría> — devuelve a una categoría el efecto y la apariencia de todos los objetos",
@@ -386,6 +402,7 @@ L.HELP = {
 	"/lueur alcance <{range}> — hasta dónde elige objetos el juego, en metros (por defecto {range=})",
 	"/lueur arc <{arc}> — 0 justo delante, 1 delante, 2 todas las direcciones (por defecto {arc=})",
 	"/lueur exclusivo — si el juego solo señala los objetivos que reciben efecto",
+	"/lueur sololuz — si Lueur solo dibuja la luz y deja la placa de nombre del objetivo (nombre, icono) al juego o a otro addon",
 	"/lueur combate | estancia | bloqueado | profesión — si el efecto se oculta en combate, en estancias, en objetos que no puedes usar, en hierbas y minerales sin la profesión",
 	"/lueur tecla <TECLA> | ninguna — asigna la tecla que recoge el objeto resaltado (F, SHIFT-E, BUTTON4…); sin tecla, la muestra",
 	"/lueur mineral | hierba | misión | cofre | corcho | otro — muestra u oculta una categoría, para este personaje",

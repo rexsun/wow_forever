@@ -6,7 +6,7 @@
 ## Notes-esES: Hace brillar los filones, las hierbas, los objetos de misión y los cofres cuando te acercas, con varios efectos de luz a elegir, y muestra hierbas y filones en el minimapa con su propio icono (usa el soft targeting de Blizzard).
 ## Notes-esMX: Hace brillar los filones, las hierbas, los objetos de misión y los cofres cuando te acercas, con varios efectos de luz a elegir, y muestra hierbas y filones en el minimapa con su propio icono (usa el soft targeting de Blizzard).
 ## Notes-ruRU: Подсвечивает рудные жилы, травы, квестовые объекты и сундуки при приближении к ним, с выбором световых эффектов, и показывает травы и жилы на миникарте их собственными иконками (использует soft targeting от Blizzard).
-## Version: 1.5.0
+## Version: 1.6.1
 ## IconTexture: Interface\AddOns\Lueur\Media\icon.tga
 ## AddonCompartmentFunc: Lueur_OnAddonCompartmentClick
 ## SavedVariables: LueurDB

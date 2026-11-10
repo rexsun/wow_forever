@@ -37,7 +37,20 @@ YUI.YHUD.Client = {
     },
 }
 
--- Righteousness seals use a distinct buff ID for every rank.
-YUI.YHUD.FOREVER_RIGHTEOUSNESS_SEAL_SPELL_IDS = {
-    20154, 20287, 20288, 20289, 20290, 20291, 20292, 20293,
+-- Keep the original entry identity so saved placements and overrides survive.
+YUI.YHUD.FOREVER_SEAL_PRESET = {
+    entryKey = "aura:player:helpful:20154",
+    nativeCooldownID = 200340,
+    nameKey = "designer.preset.label.forever_seals",
+    -- Native seal summary icon, verified in Forever 1.60.1.70862.
+    icon = 1030100,
+    spellIDs = {
+        20154, 21084, 20287, 20288, 20289, 20290, 20291, 20292, 20293,
+        21082, 20162, 20305, 20306, 20307, 20308,
+        20164,
+        20375, 20915, 20918, 20919, 20920,
+        20165, 20347, 20348, 20349,
+        20166, 20356, 20357,
+        1311649, 1311656, 20163, 20419, 20421, 20422, 20423,
+    },
 }

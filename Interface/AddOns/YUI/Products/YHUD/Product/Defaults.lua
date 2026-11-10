@@ -4451,19 +4451,23 @@ local function NormalizeContent(profile, content, scope, specKey)
             entry.entryKey = entryKey
             YHUD:RepairConsumablePresetReplication(entry, entryKey)
             YHUD:RepairAmmoPresetReplication(entry)
-            -- Repair presentation and rank coverage omitted from the original
-            -- Forever seal default.
+            -- Upgrade only the managed preset; preserve manual aura entries.
             if YHUD.Client.id == "forever"
                 and entryKey == "aura:player:helpful:20154"
                 and entry.origin == "preset"
                 and entry.sourceType == "yhud.player-aura"
                 and entry.spellId == 20154 then
-                if entry.icon == nil then
-                    local factory = DEFAULT_PROFILE.contentBySpec["PALADIN:11486"]
-                    local factoryEntry = factory and factory.entries[entryKey]
-                    entry.icon = factoryEntry and factoryEntry.icon
+                local seals = YHUD.FOREVER_SEAL_PRESET
+                if seals and (entry.icon == nil or entry.icon == 132325) then
+                    entry.icon = seals.icon
                 end
-                local canonical = YHUD.FOREVER_RIGHTEOUSNESS_SEAL_SPELL_IDS
+                if seals and (entry.name == nil or entry.name == "正义圣印"
+                    or entry.name == "正義聖印"
+                    or entry.name == "Seal of Righteousness") then
+                    entry.name = nil
+                    entry.nameKey = seals.nameKey
+                end
+                local canonical = seals and seals.spellIDs
                 if type(canonical) == "table" then
                     local ids, seen = {}, {}
                     local function AddSpellID(spellID)

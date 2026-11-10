@@ -1,6 +1,20 @@
 -- Generated from Docs/Products/YUI_AuctionHelper/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("auction_helper", {
+-- YUI-Notes-Record: yah-129|mainline|eee93c34699d5e02243ae1fa3d3e6ea838b2b3df8a580a199404d26093dfea78
+    {
+        version = "yah-129",
+        date = "2026-11-09",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "同步共享核心，兼容新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Updated the shared core for compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: yah-128|mainline|8c86238e1a3dbce7bdb3dbb9cc60c68cc254241bec5da514bf79aa7796b1cb6e
     {
         version = "yah-128",
@@ -125,20 +139,6 @@ CL:Register("auction_helper", {
     {
         version = "yah-120",
         date = "2026-10-12",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: yah-119|mainline|d4ab158813ed1798aa856f3b7baaf5231bc31a785f6659bb4ff1827dd6a6949a
-    {
-        version = "yah-119",
-        date = "2026-10-11",
         clients = { "Retail" },
         content = {
             zhCN = {
