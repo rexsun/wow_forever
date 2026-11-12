@@ -279,9 +279,9 @@ function YAB:SetEnabled(enabled)
     return true
 end
 
-function YAB:OpenSettings(barId)
+function YAB:OpenSettings(barId, group)
     if self.SettingsBridge then
-        return self.SettingsBridge:Open(barId)
+        return self.SettingsBridge:Open(barId, group)
     end
     return nil
 end

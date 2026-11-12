@@ -14,6 +14,8 @@ local FRAME_LEVEL_OFFSET = 5
 local NO_TINT = {1, 1, 1, 1}
 local MASK_PATH = "Interface\\AddOns\\MapUtils\\media\\zonemasks\\"
 local EDGE_PATH = MASK_PATH .. "edge"
+local TERRAIN_FADE_START = 660
+local TERRAIN_FADE_END = 800
 local ROUND_PATH = MASK_PATH .. "round"
 local TILE_SHIFTS = {
 	["tbc"] = {
@@ -52,6 +54,90 @@ local CITY_RING_STEPS = 16
 local container = nil
 local zones = {}
 local cities = {}
+local hiddenMaskGroups = {}
+local maskFiles = {}
+
+local function IsMapMaskGroupHidden(group)
+	return hiddenMaskGroups[group] == true
+end
+local mapMasks = setmetatable({}, {__mode = "k"})
+
+local function IsMapMaskHidden(mask)
+	return IsMapMaskGroupHidden(mask.mapMaskGroup) or maskFiles[mask.mapMaskFile] == true
+end
+
+local function SyncMapMask(texture, masks, mask)
+	local attached = not IsMapMaskHidden(mask)
+	if attached == masks[mask] then return end
+	if attached then
+		texture:AddMaskTexture(mask)
+	else
+		texture:RemoveMaskTexture(mask)
+	end
+
+	masks[mask] = attached
+end
+
+local function SetMapMaskTexture(mask, file, wrap)
+	local wasHidden = IsMapMaskHidden(mask)
+	mask.mapMaskFile = file
+	if maskFiles[file] == nil then
+		maskFiles[file] = false
+		MapUtils.debugMaskFileRevision = (MapUtils.debugMaskFileRevision or 0) + 1
+	end
+
+	mask:SetTexture(file, wrap, wrap)
+	if wasHidden == IsMapMaskHidden(mask) then return end
+	for texture, masks in pairs(mapMasks) do
+		if masks[mask] ~= nil then SyncMapMask(texture, masks, mask) end
+	end
+end
+
+local function AddMapMask(texture, mask)
+	local masks = mapMasks[texture]
+	if masks == nil then
+		masks = {}
+		mapMasks[texture] = masks
+	end
+
+	if masks[mask] == nil then masks[mask] = false end
+	SyncMapMask(texture, masks, mask)
+end
+
+local function RemoveMapMask(texture, mask)
+	local masks = mapMasks[texture]
+	if masks == nil then return end
+	if masks[mask] then texture:RemoveMaskTexture(mask) end
+	masks[mask] = nil
+end
+
+function MapUtils:IsDebugMapMaskGroupHidden(group)
+	return IsMapMaskGroupHidden(group)
+end
+
+function MapUtils:SetDebugMapMaskGroupsHidden(groups, hidden)
+	local changed = {}
+	for _, group in ipairs(groups) do
+		hiddenMaskGroups[group] = hidden and true or nil
+		changed[group] = true
+	end
+
+	for texture, masks in pairs(mapMasks) do
+		for mask in pairs(masks) do
+			if changed[mask.mapMaskGroup] then SyncMapMask(texture, masks, mask) end
+		end
+	end
+end
+
+function MapUtils:SetDebugMapMaskFileHidden(file, hidden)
+	maskFiles[file] = hidden
+	for texture, masks in pairs(mapMasks) do
+		for mask in pairs(masks) do
+			if mask.mapMaskFile == file then SyncMapMask(texture, masks, mask) end
+		end
+	end
+end
+
 local unders = {}
 local masks = {}
 local hooked = false
@@ -61,10 +147,11 @@ local base = {
 	["world"] = {}
 }
 
-local function NewArt()
+local function NewArt(mapID)
 	local frame = CreateFrame("FRAME", nil, container)
 	local edge = frame:CreateMaskTexture()
-	edge:SetTexture(EDGE_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	edge.mapMaskGroup = mapID
+	SetMapMaskTexture(edge, EDGE_PATH, "CLAMPTOBLACKADDITIVE")
 	edge:SetAllPoints(frame)
 
 	return {
@@ -78,7 +165,7 @@ end
 local function GetZone(mapID)
 	local zone = zones[mapID]
 	if zone == nil then
-		zone = NewArt()
+		zone = NewArt(mapID)
 		zones[mapID] = zone
 	end
 
@@ -88,7 +175,7 @@ end
 local function GetUnder(mapID)
 	local under = unders[mapID]
 	if under == nil then
-		under = NewArt()
+		under = NewArt(mapID)
 		unders[mapID] = under
 	end
 
@@ -98,9 +185,11 @@ end
 local function GetCity(mapID)
 	local city = cities[mapID]
 	if city == nil then
-		city = NewArt()
+		city = NewArt(mapID)
 		city.mask = city.frame:CreateMaskTexture()
-		city.mask:SetTexture(ROUND_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		city.mask.mapMaskGroup = mapID
+		city.maskPath = CITY_MAPS[mapID] and MASK_PATH .. "city_" .. mapID or ROUND_PATH
+		SetMapMaskTexture(city.mask, city.maskPath, "CLAMPTOBLACKADDITIVE")
 		city.mask:SetAllPoints(city.frame)
 		city.masked = true
 		cities[mapID] = city
@@ -140,9 +229,9 @@ local function AcquireTexture(zone)
 	if texture == nil then
 		texture = zone.frame:CreateTexture(nil, "ARTWORK")
 		zone.textures[zone.count] = texture
-		texture:AddMaskTexture(zone.edge)
-		if zone.masked then texture:AddMaskTexture(zone.mask) end
-		if zone.hmasked then texture:AddMaskTexture(zone.hmask) end
+		AddMapMask(texture, zone.edge)
+		if zone.masked then AddMapMask(texture, zone.mask) end
+		if zone.hmasked then AddMapMask(texture, zone.hmask) end
 	end
 
 	return texture
@@ -282,9 +371,9 @@ local function SetMasked(zone, masked)
 	zone.masked = masked
 	for i = 1, #zone.textures do
 		if masked then
-			zone.textures[i]:AddMaskTexture(zone.mask)
+			AddMapMask(zone.textures[i], zone.mask)
 		else
-			zone.textures[i]:RemoveMaskTexture(zone.mask)
+			RemoveMapMask(zone.textures[i], zone.mask)
 		end
 	end
 end
@@ -294,9 +383,9 @@ local function SetHighlightMasked(zone, masked)
 	zone.hmasked = masked
 	for i = 1, #zone.textures do
 		if masked then
-			zone.textures[i]:AddMaskTexture(zone.hmask)
+			AddMapMask(zone.textures[i], zone.hmask)
 		else
-			zone.textures[i]:RemoveMaskTexture(zone.hmask)
+			RemoveMapMask(zone.textures[i], zone.hmask)
 		end
 	end
 end
@@ -304,7 +393,9 @@ end
 local function ApplyMask(zone, highlight, left, top, width, height)
 	if zone.hmask == nil then zone.hmask = zone.frame:CreateMaskTexture() end
 	SetHighlightMasked(zone, true)
-	zone.hmask:SetTexture(MASK_PATH .. highlight.file, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	zone.hmask.mapMaskGroup = zone.edge.mapMaskGroup
+	zone.highlightPath = MASK_PATH .. highlight.file
+	SetMapMaskTexture(zone.hmask, zone.highlightPath, "CLAMPTOBLACKADDITIVE")
 	zone.hmask:SetSize(highlight.width * width, highlight.height * height)
 	zone.hmask:ClearAllPoints()
 	zone.hmask:SetPoint("TOPLEFT", zone.frame, "TOPLEFT", (highlight.x - left) * width, -(highlight.y - top) * height)
@@ -350,8 +441,10 @@ local function DrawZone(continentID, continentRect, mapID, mode, width, height)
 
 	if artMask then
 		if zone.mask == nil then zone.mask = zone.frame:CreateMaskTexture() end
+		zone.mask.mapMaskGroup = mapID
 		SetMasked(zone, true)
-		zone.mask:SetTexture(MASK_PATH .. artMask, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		zone.maskPath = MASK_PATH .. artMask
+		SetMapMaskTexture(zone.mask, zone.maskPath, "CLAMPTOBLACKADDITIVE")
 		zone.mask:ClearAllPoints()
 		zone.mask:SetAllPoints(zone.frame)
 	else
@@ -384,7 +477,9 @@ local function DrawZone(continentID, continentRect, mapID, mode, width, height)
 		if geometry ~= nil then
 			local under = GetUnder(mapID)
 			if under.mask == nil then under.mask = under.frame:CreateMaskTexture() end
-			under.mask:SetTexture(geometry[1], "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+			under.mask.mapMaskGroup = WORLD
+			under.maskPath = geometry[1]
+			SetMapMaskTexture(under.mask, under.maskPath, "CLAMPTOBLACKADDITIVE")
 			under.mask:SetSize(geometry[2], geometry[3])
 			under.mask:ClearAllPoints()
 			under.mask:SetPoint("TOPLEFT", container, "TOPLEFT", geometry[4], geometry[5])
@@ -428,6 +523,126 @@ local function GetContinent(mapID)
 	return nil
 end
 
+function MapUtils:GetDebugMapMaskFiles()
+	local files = {}
+	local function Add(file)
+		if file == nil or files[file] then return end
+		local name = type(file) == "number" and tostring(file) or file:match("[^\\]+$") .. ".blp"
+		files[file] = {file = file, name = name, hidden = maskFiles[file] == true}
+	end
+
+	Add(EDGE_PATH)
+	Add(ROUND_PATH)
+	for file in pairs(maskFiles) do Add(file) end
+	for mapID in pairs(CITY_MAPS) do Add(MASK_PATH .. "city_" .. mapID) end
+	local flavor = self.GetRevealFlavor and self:GetRevealFlavor()
+	for fileID in pairs(self.ZONEMASKS or {}) do
+		local name = GetMaskName(fileID)
+		if name then Add(MASK_PATH .. name) end
+	end
+
+	for _, name in pairs(self.ZONEMASKFILES and self.ZONEMASKFILES[flavor] or {}) do
+		if name then Add(MASK_PATH .. name) end
+	end
+
+	for _, name in pairs(self.ZONEARTMASKS and self.ZONEARTMASKS[flavor] or {}) do
+		Add(MASK_PATH .. name)
+	end
+
+	local list = {}
+	for _, entry in pairs(files) do tinsert(list, entry) end
+	table.sort(list, function(a, b) return a.name < b.name end)
+	return list
+end
+
+function MapUtils:GetDebugMapMaskZones()
+	local list, seen = {}, {}
+	local function Add(info)
+		if info == nil or seen[info.mapID] then return end
+		seen[info.mapID] = true
+		tinsert(list, info)
+	end
+
+	for _, continentID in ipairs(CONTINENTS) do
+		for _, info in ipairs(C_Map.GetMapChildrenInfo(continentID, Enum.UIMapType.Zone, true) or {}) do
+			Add(info)
+		end
+	end
+
+	for mapID in pairs(CITY_MAPS) do
+		Add(C_Map.GetMapInfo(mapID))
+	end
+
+	table.sort(list, function(a, b)
+		if a.name == b.name then return a.mapID < b.mapID end
+		return a.name < b.name
+	end)
+	return list
+end
+
+function MapUtils:GetMapMaskFilename(mapID)
+	if mapID == nil then return nil end
+	if CITY_MAPS[mapID] then return "city_" .. mapID .. ".blp" end
+
+	local artMask = GetArtMask(mapID)
+	if artMask then return artMask .. ".blp" end
+
+	local continentID = GetContinent(mapID)
+	if continentID == nil then return nil end
+	local left, right, top, bottom = C_Map.GetMapRectOnMap(mapID, continentID)
+	if left == nil or right <= left or bottom <= top then return nil end
+
+	local highlight = GetHighlight(continentID, mapID, left, right, top, bottom)
+	return highlight and (highlight.file .. ".blp") or nil
+end
+
+function MapUtils:GetMapMaskFilenamesAtCursor(mapID, cursorX, cursorY)
+	local files, seen = {}, {}
+	local function ContainsCursor(region, scale)
+		local left, bottom, width, height = region:GetRect()
+		local x, y = cursorX / scale, cursorY / scale
+		return left ~= nil and x >= left and x <= left + width and y >= bottom and y <= bottom + height
+	end
+
+	local function AddMask(path, region, scale)
+		if IsMapMaskHidden(region) then return end
+		local name = path:match("[^\\]+$") .. ".blp"
+		if not seen[name] and ContainsCursor(region, scale) then
+			seen[name] = true
+			tinsert(files, name)
+		end
+	end
+
+	if container and container:IsVisible() then
+		for _, group in ipairs({cities, zones, unders}) do
+			for _, art in pairs(group) do
+				local scale = art.frame:GetEffectiveScale()
+				if art.count > 0 and art.frame:IsVisible() and ContainsCursor(art.frame, scale) then
+					if art.masked then AddMask(art.maskPath, art.mask, scale) end
+					if art.hmasked then AddMask(art.highlightPath, art.hmask, scale) end
+					AddMask(EDGE_PATH, art.edge, scale)
+				end
+			end
+		end
+
+		local scale = container:GetEffectiveScale()
+		for _, entry in pairs(base.continents) do
+			if entry.drawn and entry.pool[1] and entry.pool[1]:IsVisible() and ContainsCursor(entry.edge, scale) then
+				if entry.maskGeometry then AddMask(entry.maskGeometry[1], entry.mask, scale) end
+				AddMask(EDGE_PATH, entry.edge, scale)
+			end
+		end
+	end
+
+	if #files == 0 and not IsMapMaskGroupHidden(mapID) then
+		local file = self:GetMapMaskFilename(mapID)
+		if file and not maskFiles[MASK_PATH .. file:sub(1, -5)] then tinsert(files, file) end
+	end
+
+	table.sort(files)
+	return files
+end
+
 local function GetSpace(mapID)
 	if mapID == WORLD then return WORLD end
 	local continentID = mapID and GetContinent(mapID)
@@ -443,13 +658,28 @@ local function GetStyle(mapID)
 	return CITY_MAPS[mapID] and cityStyle or zoneStyle
 end
 
+function MapUtils:GetTerrainFadeThresholds(city)
+	local settings = type(MAUTTAB) == "table" and MAUTTAB or {}
+	local prefix = city and "CITYTERRAINFADE" or "ZONETERRAINFADE"
+	local start = tonumber(settings[prefix .. "START"]) or TERRAIN_FADE_START
+	local finish = tonumber(settings[prefix .. "END"]) or TERRAIN_FADE_END
+
+	return start, math.max(start + 10, finish)
+end
+
 local function GetEmbeddedCityStyle(mapID)
 	if not mapID then return nil end
 	local style = type(MAUTTAB) == "table" and MAUTTAB["CITYMAPSTYLE"]
-	if not style or style == GetStyle() then return nil end
+	if not style then return nil end
+	if style == GetStyle() then
+		if style ~= "MIXED" then return nil end
+		local zoneStart, zoneEnd = MapUtils:GetTerrainFadeThresholds(false)
+		local cityStart, cityEnd = MapUtils:GetTerrainFadeThresholds(true)
+		if zoneStart == cityStart and zoneEnd == cityEnd then return nil end
+	end
 	if CITY_MAPS[mapID] then return MapUtils:IsOneMap() and style or nil end
 	local info = C_Map.GetMapInfo(mapID)
-	if info and info.mapType == Enum.UIMapType.Zone then return style end
+	if info and info.mapType == Enum.UIMapType.Zone or MapUtils:IsOneMap() and GetSpace(mapID) then return style end
 end
 
 local function GetMode(mapID)
@@ -657,8 +887,8 @@ local function DrawTileLayer(pool, mapID, offsetX, offsetY, scale, drawLayer, ma
 				local texture = pool[index]
 				if texture == nil then
 					texture = container:CreateTexture(nil, drawLayer)
-					if mask ~= nil then texture:AddMaskTexture(mask) end
-					if edge ~= nil then texture:AddMaskTexture(edge) end
+					if mask ~= nil then AddMapMask(texture, mask) end
+					if edge ~= nil then AddMapMask(texture, edge) end
 					pool[index] = texture
 				end
 
@@ -717,7 +947,8 @@ local function DrawContinent(continentID, refWidth, refHeight)
 	entry.maskGeometry = nil
 	if highlight then
 		if entry.mask == nil then entry.mask = container:CreateMaskTexture() end
-		entry.mask:SetTexture(MASK_PATH .. highlight.file, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		entry.mask.mapMaskGroup = WORLD
+		SetMapMaskTexture(entry.mask, MASK_PATH .. highlight.file, "CLAMPTOBLACKADDITIVE")
 		entry.mask:SetSize(highlight.width * refWidth, highlight.height * refHeight)
 		entry.mask:ClearAllPoints()
 		entry.mask:SetPoint("TOPLEFT", container, "TOPLEFT", highlight.x * refWidth, -highlight.y * refHeight)
@@ -726,9 +957,10 @@ local function DrawContinent(continentID, refWidth, refHeight)
 
 	if entry.edge == nil then
 		entry.edge = container:CreateMaskTexture()
-		entry.edge:SetTexture(EDGE_PATH, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		SetMapMaskTexture(entry.edge, EDGE_PATH, "CLAMPTOBLACKADDITIVE")
 	end
 
+	entry.edge.mapMaskGroup = continentID
 	entry.edge:SetSize((right - left) * refWidth, (bottom - top) * refHeight)
 	entry.edge:ClearAllPoints()
 	entry.edge:SetPoint("TOPLEFT", container, "TOPLEFT", left * refWidth, -top * refHeight)
@@ -963,8 +1195,6 @@ MinimapLayer = {
 	explored = {},
 	active = {},
 	pools = {},
-	fadeStart = 140,
-	fadeEnd = 320,
 	maxAlpha = 1,
 	maxTiles = 100,
 	desaturation = 0.35,
@@ -1110,7 +1340,8 @@ function MinimapLayer.GetMask(continentID)
 		MinimapLayer.masks[continentID] = mask
 	end
 
-	mask:SetTexture(geometry[1], "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	mask.mapMaskGroup = WORLD
+	SetMapMaskTexture(mask, geometry[1], "CLAMPTOBLACKADDITIVE")
 	mask:SetSize(geometry[2], geometry[3])
 	mask:ClearAllPoints()
 	mask:SetPoint("TOPLEFT", container, "TOPLEFT", geometry[4], geometry[5])
@@ -1122,7 +1353,7 @@ function MinimapLayer.Release(key)
 	local texture = MinimapLayer.active[key]
 	texture:Hide()
 	if texture.explorationMask then
-		texture:RemoveMaskTexture(texture.explorationMask)
+		RemoveMapMask(texture, texture.explorationMask)
 		texture.explorationMask = nil
 	end
 	MinimapLayer.active[key] = nil
@@ -1155,8 +1386,8 @@ function MinimapLayer.Acquire(continentID, mask, parent)
 
 	texture:SetParent(parent or MinimapLayer.frame)
 	if texture.mask ~= mask then
-		if texture.mask ~= nil then texture:RemoveMaskTexture(texture.mask) end
-		if mask ~= nil then texture:AddMaskTexture(mask) end
+		if texture.mask ~= nil then RemoveMapMask(texture, texture.mask) end
+		if mask ~= nil then AddMapMask(texture, mask) end
 		texture.mask = mask
 	end
 
@@ -1194,7 +1425,8 @@ function MinimapLayer.CollectExploration(continentID, mapID, usedMasks)
 						MinimapLayer.explorationMasks[index] = mask
 					end
 
-					mask:SetTexture(fileID, "CLAMP", "CLAMP")
+					mask.mapMaskGroup = mapID
+					SetMapMaskTexture(mask, fileID, "CLAMP")
 					mask:ClearAllPoints()
 					mask:SetPoint("TOPLEFT", container, "TOPLEFT", x * container.refWidth, -y * container.refHeight)
 					mask:SetSize(fileWidth * sx * container.refWidth, fileHeight * sy * container.refHeight)
@@ -1295,7 +1527,7 @@ function MinimapLayer.Place(wanted, key, continentID, mask, transform, northX, w
 			texture:ClearAllPoints()
 			texture:SetPoint("TOPLEFT", container, "TOPLEFT", l * container.refWidth, -t * container.refHeight)
 			texture:SetSize((r - l) * container.refWidth, (b - t) * container.refHeight)
-			texture:AddMaskTexture(explorationMask)
+			AddMapMask(texture, explorationMask)
 			texture.explorationMask = explorationMask
 			texture:Show()
 			MinimapLayer.active[pieceKey] = texture
@@ -1313,7 +1545,8 @@ function MinimapLayer.GetWaterMask(source, tileX, tileY, transform)
 	local mask = MinimapLayer.waterMasks[key]
 	if mask == nil then
 		mask = MinimapLayer.frame:CreateMaskTexture()
-		mask:SetTexture(MinimapLayer.lodPath .. name, "CLAMP", "CLAMP")
+		mask.mapMaskGroup = source.continentID
+		SetMapMaskTexture(mask, MinimapLayer.lodPath .. name, "CLAMP")
 		local size = lod.group * MinimapLayer.tile
 		local northX, westY = (32 - row * lod.group) * MinimapLayer.tile, (32 - col * lod.group) * MinimapLayer.tile
 		local u1, v1 = MinimapLayer.ToWorld(transform, northX, westY)
@@ -1402,20 +1635,19 @@ function MinimapLayer.ShowCityDetail(mapID, detail, host, width, height, level)
 	return true
 end
 
-function MinimapLayer.GetTerrainShare(tilePixels)
-	return (tilePixels - MinimapLayer.fadeStart) / (MinimapLayer.fadeEnd - MinimapLayer.fadeStart)
+function MinimapLayer.GetTerrainShare(tilePixels, start, finish)
+	return (tilePixels - start) / (finish - start)
 end
 
 function MinimapLayer.UpdateCityDetail()
 	local host = WorldMapFrame:GetMapID()
 	local scroll = WorldMapFrame.ScrollContainer
-	local style = GetStyle(host)
 	local flavor = MapUtils:GetFlavor()
 	local supported = flavor == "era" or flavor == "tbc" or flavor == "forever"
 	local width, height = scroll.Child:GetSize()
 	local world = container:IsShown() and container.built == MODE_FULL and not container.cityMode
+	local cityStart, cityEnd = MapUtils:GetTerrainFadeThresholds(true)
 	local terrainFrame = MinimapLayer.frame
-	local terrainAlpha = style ~= "MAP" and terrainFrame and terrainFrame:GetAlpha() or 0
 	local embeddedStyle = GetEmbeddedCityStyle(host)
 	for mapID, city in pairs(cities) do
 		local embedded = embeddedStyle ~= nil and CITY_MAPS[mapID] == true and container:IsShown()
@@ -1429,14 +1661,14 @@ function MinimapLayer.UpdateCityDetail()
 		local alpha = 0
 		local onCityMap = host == mapID
 		local embedded = embeddedStyle and city and city.frame:IsShown()
-		local detailStyle = embedded and embeddedStyle or style
+		local detailStyle = GetStyle(mapID)
 		local canShow = supported and detailStyle ~= "MAP" and width > 0 and height > 0 and (onCityMap or embedded or world and city and city.count > 0)
 		local level = embedded and city.frame:GetFrameLevel() + 2
 		if canShow and MinimapLayer.ShowCityDetail(mapID, detail, host, width, height, level) then
-			local mask = embedded and city.mask or nil
+			local mask = (embedded or world and not onCityMap) and city and city.masked and city.mask or nil
 			if detail.frame.cityMask ~= mask then
-				if detail.frame.cityMask then detail.frame.texture:RemoveMaskTexture(detail.frame.cityMask) end
-				if mask then detail.frame.texture:AddMaskTexture(mask) end
+				if detail.frame.cityMask then RemoveMapMask(detail.frame.texture, detail.frame.cityMask) end
+				if mask then AddMapMask(detail.frame.texture, mask) end
 				detail.frame.cityMask = mask
 			end
 
@@ -1444,9 +1676,9 @@ function MinimapLayer.UpdateCityDetail()
 				alpha = MinimapLayer.maxAlpha
 			elseif onCityMap or embedded then
 				local tilePixels = detail.frame:GetWidth() * MinimapLayer.tile / 1024 * scroll:GetCanvasScale()
-				alpha = MinimapLayer.maxAlpha * math.max(0, math.min(1, MinimapLayer.GetTerrainShare(tilePixels)))
-			else
-				alpha = terrainAlpha
+				alpha = MinimapLayer.maxAlpha * math.max(0, math.min(1, MinimapLayer.GetTerrainShare(tilePixels, cityStart, cityEnd)))
+			elseif terrainFrame then
+				alpha = terrainFrame:GetAlpha()
 			end
 		end
 
@@ -1472,6 +1704,8 @@ function MinimapLayer.Update()
 	end
 
 	local terrain = style == "TERRAIN"
+	local zoneStart, zoneEnd = MapUtils:GetTerrainFadeThresholds(not embeddedStyle and CITY_MAPS[host])
+	local cityStart, cityEnd = MapUtils:GetTerrainFadeThresholds(true)
 	local fogTint = MapUtils:GetSelectedRevealTint()
 	local scrollContainer = WorldMapFrame.ScrollContainer
 	local hostLeft, hostRight, hostTop, hostBottom = GetHostRect(host)
@@ -1514,9 +1748,8 @@ function MinimapLayer.Update()
 			if tiles then
 				local tileU = math.abs(transform[4]) * MinimapLayer.tile
 				local tilePixels = tileU * spaceWidth * width * scale
-				local zoomShare = MinimapLayer.GetTerrainShare(tilePixels)
-				local share = terrain and 1 or style ~= "MAP" and zoomShare or 0
-				local cityShare = embeddedStyle == "TERRAIN" and 1 or cityTerrain and zoomShare or 0
+				local share = terrain and 1 or style ~= "MAP" and MinimapLayer.GetTerrainShare(tilePixels, zoneStart, zoneEnd) or 0
+				local cityShare = embeddedStyle == "TERRAIN" and 1 or cityTerrain and MinimapLayer.GetTerrainShare(tilePixels, cityStart, cityEnd) or 0
 				info.tilePixels, info.share = tilePixels, share
 				if share > 0 or cityShare > 0 then
 					local minX, maxX, minY, maxY
@@ -1586,7 +1819,9 @@ end
 
 function MapUtils:GetZoneDetailTilePixelsPerScale(mapID)
 	local style = GetStyle(mapID)
-	if container == nil or container.refWidth == nil or style == "MAP" then return nil end
+	if container == nil or container.refWidth == nil or style == "MAP" and GetEmbeddedCityStyle(mapID) ~= "MIXED" then return nil end
+	local detail = UNDERGROUND[mapID]
+	if detail and detail.frame and detail.frame.host == mapID then return detail.frame:GetWidth() * MinimapLayer.tile / 1024 end
 	local left, right = GetSpaceRect(mapID)
 	local continentID = left and GetContinent(mapID)
 	local entry = continentID and base.continents[continentID]
@@ -1600,8 +1835,18 @@ function MapUtils:GetZoneDetailTilePixelsPerScale(mapID)
 	return math.abs(transform[4]) * MinimapLayer.tile * (right - left) * width
 end
 
-function MapUtils:GetZoneDetailTileFullPixels()
-	return MinimapLayer.fadeEnd
+function MapUtils:GetZoneDetailTileFullPixels(mapID)
+	local style = GetStyle(mapID)
+	local _, finish = MapUtils:GetTerrainFadeThresholds(CITY_MAPS[mapID])
+	if GetEmbeddedCityStyle(mapID) == "MIXED" then
+		local _, zoneEnd = MapUtils:GetTerrainFadeThresholds(false)
+		local _, cityEnd = MapUtils:GetTerrainFadeThresholds(true)
+		finish = math.max(GetStyle() == "MIXED" and zoneEnd or 0, cityEnd)
+	elseif style ~= "MIXED" then
+		finish = TERRAIN_FADE_END
+	end
+
+	return finish
 end
 
 function MapUtils:PrintMinimapTileDebug()

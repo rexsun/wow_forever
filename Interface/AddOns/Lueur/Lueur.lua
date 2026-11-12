@@ -1521,9 +1521,11 @@ local function Decide()
 		glow.Elsewhere()
 		return Shut(unit, plate)
 	end
-	-- ni les objets que le joueur a écartés par leur nom
-	if name and db.ignored[NameKey(name)] then
-		Report(L.DEBUG_SKIPPED:format(label))
+	-- ni les objets que le joueur a écartés par leur nom ; ceux que le jeu ne nomme pas (une chaise,
+	-- un banc) s'écartent tous ensemble, sous le nom vide
+	local known = glow.NameOf(unit)
+	if known and db.ignored[NameKey(known)] then
+		Report(L.DEBUG_SKIPPED:format(known == "" and L.NAME_UNNAMED or label))
 		glow.Elsewhere()
 		return Shut(unit, plate)
 	end
@@ -1719,9 +1721,9 @@ function handlers.ADDON_LOADED(name)
 			end
 		end
 		if from < 9 then
-			-- deux effets s'en vont (2026-11-09) : le Réticule, un dosage de l'Aura, et le Viseur, que
-			-- remplace le Tourbillon ; qui les portait reçoit ce qui leur ressemble le plus
-			local retired = { reticle = "aura", brackets = "sigil" }
+			-- le Réticule, un dosage de l'Aura, s'en va (2026-11-09) : qui le portait reçoit l'Aura. Le
+			-- Viseur, parti avec lui, est revenu le 2026-11-10 : qui vient d'avant le schéma 9 le garde
+			local retired = { reticle = "aura" }
 			local function Replace(store)
 				if type(store) ~= "table" then return end
 				store.effect = retired[store.effect] or store.effect
@@ -2028,17 +2030,29 @@ local function ShowZone(shown)
 	Notify()
 end
 
--- Nom de l'objet du décor visé en ce moment, mis en lumière ou non
+-- Nom d'une unité pour la liste des objets écartés : "" quand le jeu ne lui en donne pas (signalé
+-- le 2026-11-10 : une chaise sans nom ne pouvait pas être écartée), nil quand il ne se lit pas
+-- (valeur secrète), ce qui n'est pas la même chose. Dans `glow`, faute de place pour une locale.
+function glow.NameOf(unit)
+	local ok, name = pcall(UnitName, unit)
+	if not ok or IsSecret(name) then return nil end
+	if type(name) ~= "string" or NameKey(name) == "" then return "" end
+	return name
+end
+
+-- Nom de l'objet du décor visé en ce moment, mis en lumière ou non ; "" s'il n'en a pas
 local function TargetName()
 	local unit = ResolveTarget()
-	if unit and SafeCall(UnitIsGameObject, unit) == true then return SafeCall(UnitName, unit) end
+	if unit and SafeCall(UnitIsGameObject, unit) == true then return glow.NameOf(unit) end
 end
 
 -- Écarte un objet par son nom, ou cesse de l'écarter. Renvoie true s'il est désormais écarté,
--- false s'il ne l'est plus, nil si ce n'est pas un nom.
-local function ToggleIgnored(name)
+-- false s'il ne l'est plus, nil si ce n'est pas un nom. `unnamed` : les objets sans nom, rangés
+-- sous le nom vide.
+local function ToggleIgnored(name, unnamed)
 	local key = type(name) == "string" and NameKey(name) or ""
-	if key == "" then return nil end
+	if key == "" and not unnamed then return nil end
+	if unnamed then key, name = "", "" end
 	db.ignored[key] = not db.ignored[key] and name or nil
 	lastReport = nil
 	Evaluate()
@@ -2046,20 +2060,35 @@ local function ToggleIgnored(name)
 	return db.ignored[key] ~= nil
 end
 
--- Écarte l'objet visé, ou cesse de l'écarter, en l'annonçant
+-- Écarte l'objet visé, ou cesse de l'écarter, en l'annonçant. Un objet est écarté par son nom,
+-- donc avec tous ses pareils : devant un objet déjà écarté, la première demande le dit seulement,
+-- et il faut la refaire dans les UNIGNORE_DELAY secondes pour cesser de l'écarter. Sans cela,
+-- vouloir écarter le deuxième d'une rangée de chaises les faisait toutes briller de nouveau.
+-- (`glow.unignore` : Lueur.lua n'a plus de place pour une variable locale de plus.)
 local function IgnoreTarget()
 	local name = TargetName()
 	if not name then
 		Print(L.MSG_IGNORE_NO_TARGET)
-	else
-		Print((ToggleIgnored(name) and L.MSG_IGNORED or L.MSG_UNIGNORED):format(name))
+		return
 	end
+	local key, now = NameKey(name), GetTime()
+	local unnamed = key == ""
+	if unnamed then name = L.NAME_UNNAMED end
+	local asked = glow.unignore
+	glow.unignore = nil
+	if db.ignored[key] and not (asked and asked.key == key and now - asked.at <= glow.UNIGNORE_DELAY) then
+		glow.unignore = { key = key, at = now }
+		Print(L.MSG_IGNORED_ALREADY:format(name))
+		return
+	end
+	Print((ToggleIgnored(name, unnamed) and L.MSG_IGNORED or L.MSG_UNIGNORED):format(name))
 end
+glow.UNIGNORE_DELAY = 10
 
 -- Noms des objets écartés, par ordre alphabétique
 local function IgnoredNames()
 	local names = {}
-	for _, name in pairs(db.ignored) do names[#names + 1] = name end
+	for _, name in pairs(db.ignored) do names[#names + 1] = name == "" and L.NAME_UNNAMED or name end
 	table.sort(names)
 	return names
 end

@@ -39,6 +39,7 @@ local PANEL_TIMER_FRAME_LEVEL_OFFSET = 20
 
 -- 忽略列表
 local ignoreButtons = {
+    'YUIErrorRecorderMinimap',
     'MinimapBackdrop',
     'MinimapCompassTexture',
     'MinimapZoomIn',

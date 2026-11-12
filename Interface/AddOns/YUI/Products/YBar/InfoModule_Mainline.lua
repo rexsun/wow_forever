@@ -46,7 +46,7 @@ function Info.Create(self, parent)
     return frame
 end
 
-function Info.Display(self, text, icon)
+function Info.Display(self, text, icon, label, labelGap)
     if not self.frame then return end
     local db = self.GetDisplayDB and self:GetDisplayDB() or Info.DB(self)
     local f, root = self.frame, self.instanceContext and self.instanceContext:GetRoot()
@@ -56,8 +56,15 @@ function Info.Display(self, text, icon)
     local flags = root.fontFlags or (root.fontOutline and "OUTLINE" or "")
     local iconSize = tonumber(db.iconSize) or size + 2
     local iconGap = tonumber(db.iconGap) or 4
+    if label and not f.label then
+        f.label = YBar:CreateThemedText(f, {text="", colorKey="color.ybar.text", wordWrap=false})
+        YBar:RegisterBarItemHoverText(f, f.label)
+        self.font, self.shadow, self.colorR = nil, nil, nil
+    end
+    labelGap = label and (labelGap or 4) or 0
     if self.font ~= font or self.size ~= size or self.flags ~= flags then
         local applied=f.text:SetFont(font, size, flags)
+        if f.label then f.label:SetFont(font, size, flags) end
         if applied~=false then self.font, self.size, self.flags = font, size, flags end
     end
     if self.iconSize ~= iconSize then
@@ -69,15 +76,21 @@ function Info.Display(self, text, icon)
         if self.colorR~=color[1] or self.colorG~=color[2] or self.colorB~=color[3] or self.colorA~=(color[4] or 1) then
             self.colorR,self.colorG,self.colorB,self.colorA=color[1],color[2],color[3],color[4] or 1
             YBar:SetThemedTextRawColor(f.text,self.colorR,self.colorG,self.colorB,self.colorA)
+            if f.label then YBar:SetThemedTextRawColor(f.label,self.colorR,self.colorG,self.colorB,self.colorA) end
         end
     elseif self.colorR then
         self.colorR,self.colorG,self.colorB,self.colorA=nil,nil,nil,nil
         YBar:SetThemedTextColor(f.text,"color.ybar.text")
+        if f.label then YBar:SetThemedTextColor(f.label,"color.ybar.text") end
     end
     local shadow = root.fontShadow == true
     if self.shadow ~= shadow then
         if shadow then f.text:SetShadowColor(0, 0, 0, 1) end
         f.text:SetShadowOffset(shadow and 1 or 0, shadow and -1 or 0)
+        if f.label then
+            if shadow then f.label:SetShadowColor(0, 0, 0, 1) end
+            f.label:SetShadowOffset(shadow and 1 or 0, shadow and -1 or 0)
+        end
         self.shadow = shadow
     end
     if self.chrome ~= (db.iconBackground ~= false) then
@@ -94,21 +107,40 @@ function Info.Display(self, text, icon)
         and self.measuredSize == size and self.measuredFont == font and self.measuredFlags == flags
         and self.measuredIconSize == iconSize and self.measuredIconGap == iconGap
         and self.measuredReservedWidth == reservedWidth
+        and self.measuredLabel == label and self.measuredLabelGap == labelGap
         and not (self.reservedWidthPending and not deferWidth) then return end
     self.text, self.icon, self.display, self.maxWidth = text, icon, db.display, maxWidth
     self.measuredSize, self.measuredFont = size, font
     self.measuredFlags,self.measuredIconSize,self.measuredIconGap=flags,iconSize,iconGap
     self.measuredReservedWidth = reservedWidth
+    self.measuredLabel, self.measuredLabelGap = label, labelGap
     f.iconSlot:SetShown(showIcon)
     f.text:SetShown(showText)
+    if f.label then f.label:SetShown(showText and label ~= nil) end
     YBar:SetIconSlotTexture(f.iconSlot, icon or self.defaultIcon or 134400)
     YBar:SetIconSlotChromeVisible(f.iconSlot, self.chrome)
     f.text:ClearAllPoints()
-    f.text:SetPoint("LEFT", f, "LEFT", showIcon and iconSize + iconGap or 0, 0)
     f.text:SetWidth(0)
     f.text:SetText(text)
+    local prefixWidth = 0
+    local textOffset = showIcon and iconSize + iconGap or 0
+    if label and showText then
+        f.label:ClearAllPoints()
+        f.label:SetPoint("LEFT", f, "LEFT", textOffset, 0)
+        f.label:SetWidth(0)
+        f.label:SetText(label)
+        local naturalLabel = f.label.GetUnboundedStringWidth and f.label:GetUnboundedStringWidth() or f.label:GetStringWidth()
+        local naturalValue = f.text.GetUnboundedStringWidth and f.text:GetUnboundedStringWidth() or f.text:GetStringWidth()
+        -- Reserve the value first when a large label gap meets a narrow item.
+        local labelWidth = math.min(math.ceil(naturalLabel), math.max(0, maxWidth - labelGap - math.ceil(naturalValue) - 1))
+        if naturalLabel <= 0 then self.text=nil end
+        f.label:SetShown(labelWidth > 0)
+        f.label:SetWidth(math.max(1, labelWidth))
+        prefixWidth = labelWidth > 0 and labelWidth + labelGap or 0
+    end
+    f.text:SetPoint("LEFT", f, "LEFT", textOffset + prefixWidth, 0)
     if showText and self.FitBarText then
-        local fitted = self:FitBarText(text, f.text, maxWidth)
+        local fitted = self:FitBarText(text, f.text, maxWidth - prefixWidth)
         if fitted ~= text then f.text:SetText(fitted) end
     end
     local measured=0
@@ -119,7 +151,7 @@ function Info.Display(self, text, icon)
         -- the next normal refresh instead of caching a permanent one-pixel label.
         if measured<=0 and text~="" then self.text=nil end
     end
-    local width=showText and math.min(math.ceil(math.max(measured, reservedWidth))+1,maxWidth) or 0
+    local width=showText and math.min(math.ceil(math.max(measured + prefixWidth, reservedWidth))+1,maxWidth) or 0
     local iconWidth = showIcon and iconSize + iconGap or 0
     if deferWidth and self.width and width + iconWidth + 2 ~= self.width then
         -- 耐久下降、首屏测量恢复或外观变化恰逢战斗时，保留已应用的空间，脱战再收紧。
@@ -128,7 +160,7 @@ function Info.Display(self, text, icon)
     else
         self.reservedWidthPending = nil
     end
-    f.text:SetWidth(math.max(width, 1))
+    f.text:SetWidth(math.max(width - prefixWidth, 1))
     width = math.ceil(width + iconWidth + 2)
     self.contentHeight = math.max(showText and size or 0,showIcon and iconSize or 0)
     if self.width ~= width then

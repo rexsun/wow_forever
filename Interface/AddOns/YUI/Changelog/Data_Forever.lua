@@ -1,6 +1,72 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v357|forever|5c200ce85194b950d009a2af02f21746e05371715741ff63933062281868f97f
+    {
+        version = "v357",
+        date = "2026-11-12",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增购物助手模块，支持搜索消耗品、装备强化、专业材料与日常补给。",
+                "安装向导支持应用内置插件助手方案，登录时可自动匹配头像方案。",
+                "营火工具新增睡袋，可查看增益层数与剩余时间。",
+                "修复德鲁伊重复变形后，动作条翻页与按键可能不同步。",
+                "修复法师智力与护甲增益计时在战斗中消失或误报缺失。",
+                "修复营火工具首次显示时冷却未及时更新。",
+                "修复特殊动作条分组中，已隐藏按钮仍占用空间。",
+                "修复任务指引显隐及进出副本后的恢复异常。",
+            },
+            enUS = {
+                "Added the Auction Helper module for searching consumables, gear enhancements, profession materials, and everyday supplies.",
+                "The setup wizard can now apply built-in Addon Assistant profiles, with automatic portrait-profile matching at login.",
+                "Added a sleeping bag to camp tools, with buff stacks and remaining time.",
+                "Fixed action-bar pages and keybindings sometimes becoming unsynchronized after repeated Druid shapeshifts.",
+                "Fixed Mage Intellect and armor buff timers disappearing or incorrectly reporting missing buffs in combat.",
+                "Fixed camp-tool cooldowns not updating promptly when first shown.",
+                "Fixed hidden buttons still taking up space in special action-bar groups.",
+                "Fixed quest-guide visibility and restoration when entering or leaving instances.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v356|forever|7da79a23542117bdc2215fc7612e2d40af3d32705de95c3e076807dcdb4868d8
+    {
+        version = "v356",
+        date = "2026-11-11",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增内置报错记录，支持历史查看和完整复制。",
+                "新增法师卷轴、智力和护甲工具，缺少增益时可发光提醒。",
+                "法师、猎人、萨满职业条默认共用布局，也可按职业分别配置。",
+                "任务物品条新增营火工具，显示休息计时、营地设施和收益提示。",
+                "Orbit 位面编号可调整间距，并按编号显示不同颜色。",
+                "标记条支持按住 Shift 放置、清除光柱，以及清除全部光柱。",
+                "Halo 添加监控的入口改为“自身增益、目标减益、施法计时”。",
+                "修复 Halo 计时条图标大小和切换形态后的监控发光异常。",
+                "更新无限服编辑模式预设至 v4。",
+                "修复小队与宠物框架左右侧不同步。",
+                "修复邮件助手收件记录核对异常，并保存历史记录中的职业配色。",
+                "修复聊天窗口鼠标移出后不再渐隐。",
+                "修复 Orbit 时钟隐藏后，鼠标移入仍不显示。",
+            },
+            enUS = {
+                "Added built-in error logs with history and full-report copying.",
+                "Added Mage scroll, Intellect, and armor tools with missing-buff glow reminders.",
+                "Mage, Hunter, and Shaman toolbars share a layout, with per-class options.",
+                "Added camp tools showing rest timers, facilities, and benefits on the quest-item bar.",
+                "Orbit shard IDs now support label spacing and ID-based colors.",
+                "The marker bar supports Shift actions to place, clear, or clear all world markers.",
+                "Halo's monitor picker now shows Self Buff, Target Debuff, and Cast Timer.",
+                "Fixed Halo bar-icon sizes and monitor glow issues after changing forms.",
+                "Updated the Forever Edit Mode preset to v4.",
+                "Fixed party pet frames appearing on the wrong side.",
+                "Fixed Mail Assistant receipt checks and preserved class colors in history.",
+                "Fixed chat windows not fading after the mouse leaves.",
+                "Fixed hidden Orbit clocks not reappearing on hover.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v355|forever|e274d85989cea7aa257b176a3bc59407d1e8197ca09049666d158182c31f4119
     {
         version = "v355",
@@ -218,42 +284,6 @@ CL:Register("suite", {
                 "Added a portrait addon settings shortcut to the game menu.",
                 "Fixed false ability-ready sound alerts and monitor icon recovery after zone transitions.",
                 "Fixed obscured countdown and stack text on buff monitors.",
-            },
-        },
-    },
--- YUI-Notes-Record: v347|forever|6d23151395b489f7eac8b0611ad3999553f63cae5fe27ab2e1d980595c0834ff
-    {
-        version = "v347",
-        date = "2026-10-22",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增 Bagnon 背包附魔助手入口，可独立关闭。",
-                "新增 Polestar 任务路线收起，支持调整折叠标签尺寸。",
-                "补充莫高雷与泽风岛双向飞艇标记及离岛阵营提示。",
-                "修复旧配置导入报错，以及导入失败后的延迟容限恢复异常。",
-            },
-            enUS = {
-                "Added an Enchanting Assistant entry to Bagnon bags with a separate toggle.",
-                "Added collapsible Polestar quest guides with adjustable collapsed-label size.",
-                "Added zeppelin markers between Mulgore and Zephras Isle, with faction departure hints.",
-                "Fixed errors when importing older configurations and incorrect lag tolerance restoration after failed imports.",
-            },
-        },
-    },
--- YUI-Notes-Record: v346|forever|502ca5e07063bef6ad4d533d40c25ce3c4ddd57f8fb4cad185b936da68bc7d6e
-    {
-        version = "v346",
-        date = "2026-10-22",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "修复监控台位置修改在保存时被覆盖，以及预览遮挡位置编辑界面的问题。",
-                "修复界面美化阴影在部分窗口触发报错的问题。",
-            },
-            enUS = {
-                "Fixed monitor position edits being overwritten on save and previews overlapping the position editor.",
-                "Fixed errors caused by window shadows in UI enhancements.",
             },
         },
     },

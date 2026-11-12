@@ -1,17 +1,18 @@
 local YUI = _G.YUI
 local YBar = YUI.YBar
 local Info, L = YBar.InfoModule, YUI.Locale:Get("YBar")
+local LC = YUI.Locale:Get("Core")
 local Unit, Format = YUI.API.Unit, YBar.LocationFormat
 local Module = YBar.Module:New("Shard")
 Module.defaultIcon = 135759
 Module.CreateBarItem = Info.Create
-local formats = {"location", "full_location", "shard_label", "shard_id", "location_shard", "full_location_shard", "custom"}
+local formats = {"location", "full_location", "shard_label", "shard_spaced", "shard_id", "location_shard", "full_location_shard", "custom"}
 local events = {"PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "NAME_PLATE_UNIT_ADDED",
     "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "GROUP_ROSTER_UPDATE"}
 
 function Module:GetFormat()
     local db = Info.DB(self)
-    if db.format == "custom" or db.format == "shard_label" or db.format == "shard_id" or Format.templates[db.format] then
+    if db.format == "custom" or db.format == "shard_label" or db.format == "shard_spaced" or db.format == "shard_id" or Format.templates[db.format] then
         return db.format
     end
     -- Missing format belongs to an existing configuration, including old empty tables.
@@ -22,24 +23,43 @@ function Module:RefreshLocation()
     self.regionName, self.subzoneName, self.locationName = Unit.GetLocationNames()
 end
 
-function Module:GetValues()
+function Module:GetLabelGap()
+    return math.max(0, math.min(24, math.floor(tonumber(Info.DB(self).labelGap) or 4)))
+end
+
+function Module:GetShardText(colored)
+    if not self.zone or not colored or Info.DB(self).colorByID == false then return self.zone end
+    if self.coloredZone ~= self.zone then
+        -- Work on the decimal digits so large IDs retain a stable palette index.
+        local index = 0
+        for pos = 1, #self.zone do index = (index * 10 + self.zone:byte(pos) - 48) % 8 end
+        local r, g, b = YUI.GUI2:GetColor("color.ybar.shard."..(index + 1))
+        self.coloredShard = string.format("|cff%02x%02x%02x%s|r", math.floor(r*255+0.5),
+            math.floor(g*255+0.5), math.floor(b*255+0.5), self.zone)
+        self.coloredZone = self.zone
+    end
+    return self.coloredShard
+end
+
+function Module:GetValues(colored)
     if self.locationName == nil then self:RefreshLocation() end
     local values = self.locationValues
     if not values then values={}; self.locationValues=values end
     values.zone = self.regionName ~= "" and self.regionName or L["location.unavailable"]
     values.subzone = self.subzoneName
     values.location = self.locationName ~= "" and self.locationName or L["location.unavailable"]
-    values.shard = self.zone or (self.status ~= "shard.instance" and L["shard.value_"..(self.status == "shard.restricted" and "restricted" or "unknown")] or "")
+    values.shard = self:GetShardText(colored) or (self.status ~= "shard.instance" and L["shard.value_"..(self.status == "shard.restricted" and "restricted" or "unknown")] or "")
     return values
 end
 
-function Module:GetText()
+function Module:GetText(colored)
     local kind = self:GetFormat()
-    if kind == "shard_label" or kind == "shard_id" then
-        return self.zone and ((kind == "shard_id" and "" or L["shard.prefix"])..self.zone) or L[self.status or "shard.unknown"]
+    if kind == "shard_label" or kind == "shard_spaced" or kind == "shard_id" then
+        local prefix = kind == "shard_id" and "" or kind == "shard_spaced" and L["shard.label"].." " or L["shard.prefix"]
+        return self.zone and (prefix..self:GetShardText(colored)) or L[self.status or "shard.unknown"]
     end
     local template = (kind == "custom" and Info.DB(self).customFormat or Format.templates[kind]) or Format.templates.location_shard
-    local values = self:GetValues()
+    local values = self:GetValues(colored)
     if self.renderedTemplate == template and self.renderedZone == values.zone and self.renderedSubzone == values.subzone
         and self.renderedLocation == values.location and self.renderedShard == values.shard then return self.renderedText end
     if self.compiledTemplate ~= template then
@@ -61,7 +81,7 @@ end
 function Module:FitBarText(text, fontString, maxWidth)
     local kind = self:GetFormat()
     if kind ~= "location_shard" and kind ~= "full_location_shard" then return text end
-    local values = self:GetValues()
+    local values = self:GetValues(true)
     if values.shard == "" then return text end
     local location = kind == "location_shard" and values.location or values.zone..(values.subzone ~= "" and " / "..values.subzone or "")
     return Format.FitLocation(location, " ["..values.shard.."]", maxWidth, Measure, fontString)
@@ -93,8 +113,19 @@ function Module:RefreshFormatPreview()
             panel.template = template
             panel.nodes, panel.reason, panel.field = Format.Compile(template)
         end
-        text = panel.nodes and Format.Render(panel.nodes, self:GetValues()) or self:FormatError(panel.reason, panel.field)
-    else text=self:GetText() end
+        text = panel.nodes and Format.Render(panel.nodes, self:GetValues(true)) or self:FormatError(panel.reason, panel.field)
+    else text=self:GetText(true) end
+    if panel.value then
+        local value = self.zone and self:GetShardText(true) or ""
+        if panel.lastValue ~= value then panel.value:SetText(value); panel.lastValue=value end
+        local gap = self:GetLabelGap()
+        if panel.lastGap ~= gap then
+            panel.value:ClearAllPoints()
+            panel.value:SetPoint("LEFT", panel.preview, "RIGHT", gap, 0)
+            panel.lastGap=gap
+        end
+        if self.zone then text=L["shard.label"] end
+    end
     if text == "" then text=L[self.status or "shard.unknown"] end
     text=L["location.preview"]..text
     if panel.lastText ~= text then panel.preview:SetText(text);panel.lastText=text end
@@ -110,6 +141,11 @@ function Module:RenderFormatEditor(parent, x, y, width)
     panel.preview = GUI:CreateText(panel, "", "font.size.md", "color.text.primary")
     panel.preview:SetPoint("TOPLEFT", 0, custom and -80 or 0)
     panel.preview:SetWidth(width); panel.preview:SetJustifyH("LEFT"); panel.preview:SetWordWrap(true)
+    if self:GetFormat() == "shard_spaced" then
+        panel.preview:SetWidth(0)
+        panel.preview:SetWordWrap(false)
+        panel.value = GUI:CreateText(panel, "", "font.size.md", "color.text.primary")
+    end
     self.formatPanel = panel
     panel:SetScript("OnHide", function()
         if self.formatPanel == panel then self.formatPanel=nil end
@@ -169,6 +205,9 @@ function Module:OnEvent(event, unit)
     if event == "PLAYER_TARGET_CHANGED" then self:Sample("target")
     elseif event == "UPDATE_MOUSEOVER_UNIT" then self:Sample("mouseover")
     elseif event == "NAME_PLATE_UNIT_ADDED" then self:Sample(unit)
+    elseif event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS" then
+        -- Subzone and indoor transitions update location without invalidating the NPC sample.
+        self:RefreshLocation()
     else
         self:Reset()
         if event ~= "GROUP_ROSTER_UPDATE" then self:RefreshLocation() end
@@ -194,11 +233,16 @@ function Module:DetachRuntime()
     self.regionName, self.subzoneName, self.locationName, self.locationValues = nil, nil, nil, nil
     self.compiledTemplate, self.compiledFormat = nil, nil
     self.renderedTemplate, self.renderedText, self.text = nil, nil, nil
-    if self.frame and GameTooltip:GetOwner() == self.frame then YUI.HideGameTooltip() end
+    self.coloredZone, self.coloredShard = nil, nil
+    if self.frame then self:OnLeave() end
 end
 function Module:OnDBReload() self:DetachRuntime(); if YBar:IsSubModuleEnabled(self.name) then self:AttachRuntime() end end
 function Module:UpdateBarItem()
-    Info.Display(self, self:GetText(), self.defaultIcon)
+    if self:GetFormat() == "shard_spaced" and self.zone then
+        Info.Display(self, self:GetShardText(true), self.defaultIcon, L["shard.label"], self:GetLabelGap())
+    else
+        Info.Display(self, self:GetText(true), self.defaultIcon)
+    end
     self:RefreshFormatPreview()
 end
 function Module:GetOptions()
@@ -217,17 +261,51 @@ function Module:GetOptions()
             if v == "custom" and db.customFormat == nil then db.customFormat=Format.templates.location_shard end
             self:UpdateBarItem()
         end}
+    options[#options+1]={type="slider",label=L["shard.label_gap"],width=220,min=0,max=24,step=1,
+        hidden=function()return self:GetFormat() ~= "shard_spaced" end,
+        get=function()return self:GetLabelGap() end,
+        set=function(v)
+            if self:GetLabelGap() == v then return end
+            Info.DB(self).labelGap=v
+            self:UpdateBarItem()
+        end}
+    options[#options+1]={type="checkbox",label=L["shard.color_by_id"],
+        get=function()return Info.DB(self).colorByID ~= false end,
+        set=function(v)
+            if (Info.DB(self).colorByID ~= false) == v then return end
+            Info.DB(self).colorByID=v
+            self:UpdateBarItem()
+        end}
     options[#options+1]={type="custom",width=400,
         render=function(parent,x,y,width)return self:RenderFormatEditor(parent,x,y,width) end}
     return options
 end
 function Module:GetWidth() return self.width or 100 end
 function Module:OnEnter()
-    local values = self:GetValues()
-    local body = L["location.zone_label"]..values.zone
-    if values.subzone ~= "" then body=body.."\n"..L["location.subzone_label"]..values.subzone end
-    body=body.."\n"..(self.zone and L["shard.prefix"]..self.zone or L[self.status or "shard.unknown"]).."\n\n"..L["shard.help"]
-    if self.sampleTime then body = body .. "\n" .. string.format(L["shard.age"], math.floor(GetTime() - self.sampleTime)) end
-    Info.Tooltip(self, L["ybar.module.shard"], body)
+    YUI.GUI2.Tooltip:Show(self.frame, {
+        title=L["ybar.module.shard"],
+        anchor=self.parent == YBar.topFrame and "ANCHOR_BOTTOM" or "ANCHOR_TOP",
+        content=function(body)
+            local values = self:GetValues()
+            body:AddDoubleLine(L["location.zone_label"], values.zone, "body", "body")
+            if values.subzone ~= "" then
+                body:AddDoubleLine(L["location.subzone_label"], values.subzone, "body", "body")
+            end
+            local value = self:GetShardText(true) or (self.status == "shard.instance" and L["shard.value_instance"] or values.shard)
+            body:AddDoubleLine(L["shard.label"], value, "body", "body")
+            if self.sampleTime then
+                local age = math.max(0, math.floor(GetTime() - self.sampleTime))
+                body:AddDoubleLine(L["shard.sample_label"], string.format(L["shard.age"], age), "body", "body")
+            end
+            if self.status ~= "shard.instance" then
+                body:AddSpace()
+                body:AddLine(L["shard.sample_help"])
+            end
+        end,
+        footer=string.format("|cff808080%s: %s|r", LC["common.alt_left_click"], LC["common.open_settings"]),
+    })
+end
+function Module:OnLeave()
+    YUI.GUI2.Tooltip:Hide(self.frame)
 end
 Info.Register(Module)

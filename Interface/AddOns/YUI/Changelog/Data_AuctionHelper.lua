@@ -1,6 +1,52 @@
 -- Generated from Docs/Products/YUI_AuctionHelper/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("auction_helper", {
+-- YUI-Notes-Record: yah-131|mainline|aa3881a2d2fff7a75c1db92c8207da23fd7ab566c5386bc68c35d4baa67b3f3d
+    {
+        version = "yah-131",
+        date = "2026-11-12",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "优化原生样式的边框和标题按钮位置。",
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Improved native-style borders and header button placement.",
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yah-131|forever|f2ec717f98e56075873771483f75b093900d23fa490de8e9ef87bdfa2cbfaf82
+    {
+        version = "yah-131",
+        date = "2026-11-12",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增无限服支持。",
+                "推荐清单按角色阵营筛选物品，食物分类优先显示。",
+            },
+            enUS = {
+                "Added support for Forever.",
+                "The recommended list filters items by character faction and puts food first.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yah-130|mainline|0a090010c9abf5e8ad5eba15f7b4cdf4247537c49921ca9b1d145835ee6c787d
+    {
+        version = "yah-130",
+        date = "2026-11-11",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: yah-129|mainline|eee93c34699d5e02243ae1fa3d3e6ea838b2b3df8a580a199404d26093dfea78
     {
         version = "yah-129",
@@ -109,36 +155,6 @@ CL:Register("auction_helper", {
     {
         version = "yah-122",
         date = "2026-10-15",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: yah-121|mainline|7a4723d755be13fe2b3c0df99ff7eeae0f46e1ab73cdce56df88cce9fe626598
-    {
-        version = "yah-121",
-        date = "2026-10-15",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "修复 12.1.5 下的物品数量读取兼容问题。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Fixed item count compatibility with 12.1.5.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: yah-120|mainline|9860266b5c5e1eb5e655ca6c6f99565825f6b3c3e34cc6a6f98e219150856e6d
-    {
-        version = "yah-120",
-        date = "2026-10-12",
         clients = { "Retail" },
         content = {
             zhCN = {

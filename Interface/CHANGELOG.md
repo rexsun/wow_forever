@@ -1,3 +1,14 @@
+## [Addon update / OverlapSettingsGuard 0.12.0] - 2026-11-12
+### Features
+- Update YUI v357, Auctionator 346, Bagnon 12.1.9, MapUtils 1.6.3, GatherLite 8.4.7 and Lueur 1.7.0.
+- Add guard rule `yui.auctionhelper`, which keeps YUI's new Forever Auction Helper panel off while Auctionator loads.
+### Design Rationale
+- Auctionator already owns shopping lists and searches; a second docked shopping panel at the auction house would duplicate it. The rule uses YUI's own component switch so the panel hides without a reload and saved shopping lists are kept.
+- YUI's optional `!YUI_Error` is left out because !BugGrabber already collects errors and `!YUI_Error` would take over BugGrabber's chat notice.
+- GearInsight 1.0.1 stays held at 0.7.4: its layer network, city nameplate toggling, whisper/party prefixes and self-loading Group module are still on by default and outside the guard.
+### Notes & Caveats
+- MapUtils' new Piers button can switch its pier pins back on until the next load. YUI's installer now imports Edit Mode layout "YUI v4". Unverified in game and at the three supported resolutions.
+
 ## [Addon update 2026-11-10] - 2026-11-10
 ### Features
 - Update YUI v355, Auctionator 344, Details 15410.172, EllesmereUI 9.8.4, GatherLite 8.4.5, Lueur 1.6.1 and MapUtils 1.5.6.

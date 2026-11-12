@@ -49,6 +49,7 @@ L.NAME_CHEST = "Truhe"
 L.NAME_BOBBER = "Schwimmer"
 L.NAME_OTHER = "Sonstiges"
 L.NAME_NONE = "keine"
+L.NAME_UNNAMED = "Jedes namenlose Objekt"
 
 L.SAMPLE_ORE = "Kupferader"
 L.SAMPLE_HERB = "Friedensblume"
@@ -67,6 +68,8 @@ L.EFFECT_SUBTLE = "Dezent"
 L.EFFECT_SUBTLE_TIP = "Ein sanfter Schein, ohne Ring und ohne Kometen."
 L.EFFECT_SIGIL = "Siegel"
 L.EFFECT_SIGIL_TIP = "Ein Runenkreis dreht sich langsam um das Objekt."
+L.EFFECT_BRACKETS = "Sucher"
+L.EFFECT_BRACKETS_TIP = "Vier Ecken rahmen das Objekt ein und rasten ein, sobald es in Reichweite ist."
 L.EFFECT_VORTEX = "Wirbel"
 L.EFFECT_VORTEX_TIP = "Lichtarme winden sich um das Objekt, wie ein Portal, das sich öffnet."
 L.EFFECT_FLAME = "Flamme"
@@ -146,7 +149,7 @@ L.TIP_COLOR_RESET = "Rechtsklick: zurück zur ursprünglichen Farbe"
 L.IGNORED = "Ignorierte Objekte: %d"
 L.IGNORED_TIP = "Objekte, die nie einen Effekt erhalten, gleich welcher Kategorie. /lueur ignorieren liste nennt sie, /lueur ignorieren leeren vergisst sie alle."
 L.IGNORE_TARGET = "Ziel ignorieren"
-L.IGNORE_TARGET_TIP = "Ignoriert das Objekt, vor dem du gerade stehst, oder hebt das wieder auf."
+L.IGNORE_TARGET_TIP = "Ignoriert das Objekt, vor dem du gerade stehst, und alle gleichnamigen. Bei einem bereits ignorierten Objekt hebt ein zweiter Klick das wieder auf."
 
 L.HIDE_COMBAT = "Im Kampf"
 L.HIDE_COMBAT_TIP = "Kein Effekt, solange du im Kampf bist."
@@ -258,6 +261,7 @@ L.MSG_HIDE_UNTRAINED = "Effekt auf Kräutern und Erz ohne den Beruf ausgeblendet
 L.MSG_GLOW_ONLY = "nur das Leuchten, die Namensplakette bleibt dem Spiel oder einem anderen Addon: %s"
 L.MSG_IGNORED = "%s erhält keinen Effekt mehr."
 L.MSG_UNIGNORED = "%s wird nicht mehr ignoriert."
+L.MSG_IGNORED_ALREADY = "%s wird bereits ignoriert, wie alle Objekte dieses Namens. Wiederhole es, um das aufzuheben."
 L.MSG_IGNORE_NO_TARGET = "kein Objekt vor dir, das ignoriert werden könnte."
 L.MSG_IGNORE_LIST = "ignorierte Objekte: %s"
 L.MSG_IGNORE_EMPTY = "kein Objekt wird ignoriert."
@@ -408,7 +412,7 @@ L.HELP = {
 	"/lueur sammelpunkte [erz | kraut] — zeigt oder verbirgt die Symbole der Kräuter und Erzvorkommen auf der Minikarte; sammelpunkte größe <{nodeSize}> stellt ihre Größe ein (Standard {nodeSize=}); sammelpunkte rand <{nodeRing}> stellt die Stärke ihres farbigen Rings ein, 0 für keinen (Standard {nodeRing=}); sammelpunkte kampf: ob die Minikarte im Kampf gelesen wird",
 	"/lueur wechseln [<{nodeSwitchYards}>] — mit beiden Sammelberufen: wechselt beim Laufen zwischen Kräutersuche und Mineraliensuche; eine Zahl stellt die Strecke zwischen zwei Wechseln ein, in Metern (Standard {nodeSwitchYards=})",
 	"/lueur abtasten — zeigt, was das letzte Abtasten der Minikarte gelesen hat und was Lueur daraus gemacht hat; abtasten <{nodeScanYards}> stellt den Abstand zwischen zwei Scans in Metern ein (Standard {nodeScanYards=})",
-	"/lueur ignorieren — ignoriert das Objekt, vor dem du stehst, oder hebt das auf; ignorieren liste, ignorieren leeren, ignorieren <Name>",
+	"/lueur ignorieren — ignoriert das Objekt, vor dem du stehst, und alle gleichnamigen (zweimal bei einem ignorierten Objekt: hebt das auf); ignorieren liste, ignorieren leeren, ignorieren <Name>",
 	"/lueur sprache <auto | de | en | es | fr | ru> — Sprache der Texte und Befehle von Lueur",
 	"/lueur debug — beschreibt jedes anvisierte Objekt und was Lueur daraus schließt",
 	"/lueur ziele — listet die Questziele auf, mit denen Objektnamen verglichen werden",

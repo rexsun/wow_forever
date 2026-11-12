@@ -13,6 +13,7 @@ YChat.ElementFade = ElementFade
 local frameStates = setmetatable({}, { __mode = "k" })
 local hoverFrames = setmetatable({}, { __mode = "k" })
 local hoverHooks = setmetatable({}, { __mode = "k" })
+local hoverLeaveHooks = setmetatable({}, { __mode = "k" })
 local editFocusHooks = setmetatable({}, { __mode = "k" })
 local nativeHooks = {}
 local settingsEventOwner = {}
@@ -665,6 +666,22 @@ local function OnHoverEnter(object)
     BeginInteraction(hoverFrames[object], "element-fade-hover")
 end
 
+local function OnHoverLeave(object)
+    if ElementFade.enabled ~= true or fadeConfigured ~= true then return end
+    local owner, state = GetOwnerState(hoverFrames[object])
+    if not state or state.hoverActive ~= true then return end
+    if type(Adapter.IsObjectMouseOver) == "function" then
+        for candidate, frame in pairs(hoverFrames) do
+            if candidate ~= object and GetOwner(frame) == owner
+                and Adapter:IsObjectMouseOver(candidate) == true
+            then
+                return
+            end
+        end
+    end
+    EndHoverInteraction(owner, state)
+end
+
 local function OnOverlayHoverChanged(frame, hovered)
     if not ElementFade.enabled or not WantsElementFade() then return end
     if hovered == true then
@@ -742,9 +759,14 @@ end
 local function HookHoverObject(object, frame)
     if not object or type(object.HookScript) ~= "function" then return true end
     hoverFrames[object] = frame
-    if hoverHooks[object] == true then return true end
-    local ok = pcall(object.HookScript, object, "OnEnter", OnHoverEnter)
-    if ok then hoverHooks[object] = true end
+    if hoverHooks[object] ~= true then
+        local ok = pcall(object.HookScript, object, "OnEnter", OnHoverEnter)
+        if not ok then return false end
+        hoverHooks[object] = true
+    end
+    if hoverLeaveHooks[object] == true then return true end
+    local ok = pcall(object.HookScript, object, "OnLeave", OnHoverLeave)
+    if ok then hoverLeaveHooks[object] = true end
     return ok
 end
 

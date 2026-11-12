@@ -45,6 +45,7 @@ L.NAME_CHEST = "chest"
 L.NAME_BOBBER = "bobber"
 L.NAME_OTHER = "other"
 L.NAME_NONE = "none"
+L.NAME_UNNAMED = "Any unnamed object"
 
 -- l'objet que l'aperçu montre pour chaque catégorie
 L.SAMPLE_ORE = "Copper Vein"
@@ -64,6 +65,8 @@ L.EFFECT_SUBTLE = "Subtle"
 L.EFFECT_SUBTLE_TIP = "A soft glow, with no ring or comets."
 L.EFFECT_SIGIL = "Sigil"
 L.EFFECT_SIGIL_TIP = "A circle of runes turns slowly around the object."
+L.EFFECT_BRACKETS = "Brackets"
+L.EFFECT_BRACKETS_TIP = "Four corners frame the object and lock onto it once it is within reach."
 L.EFFECT_VORTEX = "Vortex"
 L.EFFECT_VORTEX_TIP = "Arms of light coil around the object, like a portal opening."
 L.EFFECT_FLAME = "Flame"
@@ -143,7 +146,7 @@ L.TIP_COLOR_RESET = "Right-click: back to the original color"
 L.IGNORED = "Ignored objects: %d"
 L.IGNORED_TIP = "Objects that never get an effect, whatever their category. /lueur ignore list names them, /lueur ignore clear forgets them all."
 L.IGNORE_TARGET = "Ignore target"
-L.IGNORE_TARGET_TIP = "Ignores the object you are facing right now, or stops ignoring it."
+L.IGNORE_TARGET_TIP = "Ignores the object you are facing right now, and every object of the same name. On an object already ignored, click twice to stop ignoring it."
 
 L.HIDE_COMBAT = "In combat"
 L.HIDE_COMBAT_TIP = "No effect while you are in combat."
@@ -256,6 +259,7 @@ L.MSG_HIDE_UNTRAINED = "effect hidden on herbs and ore without the profession: %
 L.MSG_GLOW_ONLY = "glow only, the nameplate left to the game or another addon: %s"
 L.MSG_IGNORED = "%s will no longer get an effect."
 L.MSG_UNIGNORED = "%s is no longer ignored."
+L.MSG_IGNORED_ALREADY = "%s is already ignored, like every object of that name. Ask again to stop ignoring it."
 L.MSG_IGNORE_NO_TARGET = "no object in front of you to ignore."
 L.MSG_IGNORE_LIST = "ignored objects: %s"
 L.MSG_IGNORE_EMPTY = "no object is ignored."
@@ -407,7 +411,7 @@ L.HELP = {
 	"/lueur nodes [ore | herb] — shows or hides the icons of herbs and veins on the minimap; nodes size <{nodeSize}> sets their size (default {nodeSize=}); nodes ring <{nodeRing}> sets the thickness of their coloured ring, 0 for none (default {nodeRing=}); nodes combat: whether the minimap is read in combat",
 	"/lueur switch [<{nodeSwitchYards}>] — with both gathering professions: alternates Find Herbs and Find Minerals as you move; a number sets how far apart, in yards (default {nodeSwitchYards=})",
 	"/lueur scan — shows what the last scan of the minimap read, and what Lueur made of it; scan <{nodeScanYards}> sets how far apart scans are, in yards (default {nodeScanYards=})",
-	"/lueur ignore — ignores the object you are facing, or stops ignoring it; ignore list, ignore clear, ignore <name>",
+	"/lueur ignore — ignores the object you are facing and those of the same name (twice on an ignored object: stops ignoring it); ignore list, ignore clear, ignore <name>",
 	"/lueur language <auto | de | en | es | fr | ru> — language of Lueur's texts and commands",
 	"/lueur debug — describes each object targeted and what Lueur makes of it",
 	"/lueur objectives — lists the quest objectives that object names are compared to",

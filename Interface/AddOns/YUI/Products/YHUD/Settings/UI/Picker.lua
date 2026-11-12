@@ -239,7 +239,7 @@ local CUSTOM_MONITOR_PRESENTATION = {
         descriptionKey = "designer.custom.description.self_aura",
         description = "检测玩家身上的真实增益、剩余时间和层数。",
         labelKey = "designer.custom.label.self",
-        label = "自身",
+        label = "自身增益",
     },
     ["target-debuff"] = {
         titleKey = "designer.custom.title.target_debuff",
@@ -249,7 +249,7 @@ local CUSTOM_MONITOR_PRESENTATION = {
         descriptionKey = "designer.custom.description.target_debuff",
         description = "检测当前目标身上由你或宠物施加的真实减益。",
         labelKey = "designer.custom.label.target",
-        label = "目标",
+        label = "目标减益",
     },
     ["cast-timer"] = {
         titleKey = "designer.custom.title.cast_timer",
@@ -259,7 +259,7 @@ local CUSTOM_MONITOR_PRESENTATION = {
         descriptionKey = "designer.custom.description.cast_timer",
         description = "施法成功后启动固定倒计时，不检测真实增益。",
         labelKey = "designer.custom.label.cast",
-        label = "施法",
+        label = "施法计时",
     },
 }
 
@@ -696,7 +696,7 @@ function DesignerUI:AcquireMonitorPickerTile(index)
         "CENTER"
     )
     presetLabel:SetPoint("CENTER", presetLabelBackdrop, "CENTER", 0, 0)
-    presetLabel:SetWidth(PICKER_ICON_SIZE - 4)
+    presetLabel:SetWidth(0)
     presetLabel:SetWordWrap(false)
     presetLabelBackdrop:Hide()
     presetLabel:Hide()
@@ -1261,6 +1261,35 @@ function DesignerUI:RefreshMonitorPicker(preserveScroll, reuseCatalog)
         self.monitorPickerTiles[index]:Hide()
     end
 
+    local customKinds = search == "" and CustomMonitorKinds(
+        self.monitorPickerSemanticFamily == "buff"
+    ) or {}
+    if search == "" and self.monitorPickerResourceSelection
+        and self.monitorPickerSemanticFamily ~= "buff" then
+        customKinds = { "spell" }
+    end
+    -- Labels use their natural width. Measure with the actual themed font so
+    -- both translated presets and custom entries have room without overlap.
+    local measure = self:AcquireMonitorPickerTile(1).presetLabel
+    local tileWidth = PICKER_TILE_WIDTH
+    local function IncludeLabel(text)
+        if text then
+            measure:SetText(text)
+            tileWidth = math.max(tileWidth, math.ceil(measure:GetStringWidth()) + 4)
+        end
+    end
+    for _, section in ipairs(PICKER_SECTION_ORDER) do
+        for _, option in ipairs(sections[section]) do
+            IncludeLabel(MonitorPickerPresetLabel(option))
+        end
+    end
+    for _, kind in ipairs(customKinds) do
+        local presentation = CustomMonitorPresentation(kind)
+        IncludeLabel(T(presentation.labelKey, presentation.label))
+    end
+    local columns = math.max(1, math.min(PICKER_COLUMNS,
+        math.floor((PICKER_GRID_WIDTH + PICKER_COLUMN_GAP)
+            / (tileWidth + PICKER_COLUMN_GAP))))
     local y = 0
     local headingIndex = 0
     local tileIndex = 0
@@ -1282,12 +1311,14 @@ function DesignerUI:RefreshMonitorPicker(preserveScroll, reuseCatalog)
                 local option = sectionOptions[optionIndex]
                 tileIndex = tileIndex + 1
                 local tile = self:AcquireMonitorPickerTile(tileIndex)
-                local column = (optionIndex - 1) % PICKER_COLUMNS
-                local row = math.floor((optionIndex - 1) / PICKER_COLUMNS)
+                local column = (optionIndex - 1) % columns
+                local row = math.floor((optionIndex - 1) / columns)
+                tile:SetWidth(tileWidth)
+                tile.presetLabelBackdrop:SetWidth(tileWidth - 2)
                 tile:ClearAllPoints()
                 tile:SetPoint(
                     "TOPLEFT",
-                    column * (PICKER_TILE_WIDTH + PICKER_COLUMN_GAP),
+                    column * (tileWidth + PICKER_COLUMN_GAP),
                     -(y + row * PICKER_TILE_HEIGHT)
                 )
                 tile.option = option
@@ -1312,7 +1343,7 @@ function DesignerUI:RefreshMonitorPicker(preserveScroll, reuseCatalog)
                 )
                 tile:Show()
             end
-            y = y + math.ceil(#sectionOptions / PICKER_COLUMNS)
+            y = y + math.ceil(#sectionOptions / columns)
                 * PICKER_TILE_HEIGHT + 8
         end
     end
@@ -1332,21 +1363,19 @@ function DesignerUI:RefreshMonitorPicker(preserveScroll, reuseCatalog)
         SetShown(customHeadingRow.nativeButton, false)
         customHeadingRow:Show()
         y = y + 30
-        local customKinds = CustomMonitorKinds(
-            self.monitorPickerSemanticFamily == "buff"
-        )
-        if self.monitorPickerResourceSelection and self.monitorPickerSemanticFamily ~= "buff" then customKinds = { "spell" } end
         for customIndex = 1, #customKinds do
             local customKind = customKinds[customIndex]
             local presentation = CustomMonitorPresentation(customKind)
             tileIndex = tileIndex + 1
             local customTile = self:AcquireMonitorPickerTile(tileIndex)
+            customTile:SetWidth(tileWidth)
+            customTile.presetLabelBackdrop:SetWidth(tileWidth - 2)
             customTile:ClearAllPoints()
             customTile:SetPoint(
                 "TOPLEFT",
-                (customIndex - 1)
-                    * (PICKER_TILE_WIDTH + PICKER_COLUMN_GAP),
-                -y
+                ((customIndex - 1) % columns)
+                    * (tileWidth + PICKER_COLUMN_GAP),
+                -(y + math.floor((customIndex - 1) / columns) * PICKER_TILE_HEIGHT)
             )
             customTile.option = {
                 key = "custom-entry:" .. customKind,
@@ -1376,7 +1405,7 @@ function DesignerUI:RefreshMonitorPicker(preserveScroll, reuseCatalog)
             customTile.iconSlot:SetSelected(false)
             customTile:Show()
         end
-        y = y + PICKER_TILE_HEIGHT + 8
+        y = y + math.ceil(#customKinds / columns) * PICKER_TILE_HEIGHT + 8
     end
     local overlayShown = (self.monitorPickerCustomArea:IsShown()
         or self.monitorPickerManageArea:IsShown())

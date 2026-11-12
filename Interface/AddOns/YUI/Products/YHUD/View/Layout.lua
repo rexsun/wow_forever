@@ -717,7 +717,8 @@ function View:GetMonitorTextLayer(runtime)
     local level = runtime.displayTextLevel
     if not level and runtime.displayLayerBase then
         level = runtime.displayLayerBase
-            + math.max(1, tonumber(runtime.monitorCount) or 0)
+            + math.max(1, tonumber(runtime.monitorCount) or 0,
+                tonumber(runtime.displayLayerCapacity) or 0)
             + GROUP_TEXT_LAYER_OFFSET
     end
     return level, runtime.displayLayerStrata
@@ -736,7 +737,8 @@ function I.AssignRuntimeDisplayLayers(runtime, base, strata)
         local monitorId = runtime.monitorIds[monitorIndex]
         if monitorId then levels[monitorId] = base + monitorIndex end
     end
-    local contentCount = math.max(1, monitorCount)
+    local contentCount = math.max(1, monitorCount,
+        tonumber(runtime.displayLayerCapacity) or 0)
     runtime.displayTextLevel = base + contentCount
         + GROUP_TEXT_LAYER_OFFSET
     return base + contentCount + GROUP_DISPLAY_LAYER_HEADROOM
@@ -3252,6 +3254,13 @@ function View:ApplyConfig(profile, options)
                 runtime.monitorIds[monitorIndex] = nil
                 runtime.monitorLanes[monitorIndex] = nil
             end
+            runtime.displayLayerCapacity = nil
+            if runtime.view == "resource" and runtime.enabled == true
+                and ResourceCatalog.GetGroupLayerCapacity then
+                runtime.displayLayerCapacity = math.max(runtime.monitorCount,
+                    ResourceCatalog:GetGroupLayerCapacity(profile, groupId,
+                        self.resourcePreviewClassFile, self.resourcePreviewSpecID))
+            end
             SeparateExternalBuffBlocks(runtime, groupPlan)
         end
     end
@@ -3496,7 +3505,20 @@ function View:ApplyResourceProjection(profile, presets, groupId)
         end
     end
     self.combatResourceMonitors = combatResourceMonitors
-    self:ApplyGroupDisplayLayers(profile)
+    if runtime.displayLayerBase
+        and runtime.monitorCount <= (runtime.displayLayerCapacity or 0) then
+        -- All forms fit this cold reserved band; unrelated Aura descendants
+        -- retain their initialized layers and never enter a style refresh.
+        I.AssignRuntimeDisplayLayers(runtime, runtime.displayLayerBase,
+            runtime.displayLayerStrata)
+    else
+        -- Direct configuration/preview callers may grow beyond the old band.
+        runtime.displayLayerCapacity = math.max(runtime.monitorCount,
+            ResourceCatalog.GetGroupLayerCapacity
+                and ResourceCatalog:GetGroupLayerCapacity(profile, groupId,
+                    self.resourcePreviewClassFile, self.resourcePreviewSpecID) or 0)
+        self:ApplyGroupDisplayLayers(profile)
+    end
     for index = 1, runtime.monitorCount do
         local monitorId = runtime.monitorIds[index]
         local slot = self.byMonitor[monitorId]
@@ -3505,8 +3527,15 @@ function View:ApplyResourceProjection(profile, presets, groupId)
         end
     end
     self:RelayoutGroup(groupId)
-    if self.ReconcilePlayerHelpfulFilteredAuraDisplays then
-        self:ReconcilePlayerHelpfulFilteredAuraDisplays()
+    local sources = YHUD.Sources
+    local unit = YUI.API and YUI.API.Unit
+    if sources and sources.active and unit
+        and unit.IsPlayerHelpfulAuraIdentityTrusted
+        and self.ReconcilePlayerHelpfulFilteredAuraDisplays then
+        local trusted = unit.IsPlayerHelpfulAuraIdentityTrusted() == true
+        if sources.auraIdentityTrusted ~= trusted then
+            self:ReconcilePlayerHelpfulFilteredAuraDisplays(trusted)
+        end
     end
     return true
 end

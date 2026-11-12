@@ -1562,6 +1562,7 @@ local function GetEntryIcon(entry)
 	if entry.kind == "meetingstone" then return MEETING_STONE_ICON end
 	if entry.kind == "spirithealer" then return "Interface\\AddOns\\MapUtils\\media\\" .. (MapUtils:GetConfig("SPIRITHEALERSTYLE", "NORMAL") == "CHIBI" and "spirithealer_chibi" or "spirithealer") end
 	if entry.kind == "crossing" then return GetCrossingIcon(entry.up) end
+	if entry.kind == nil and MapUtils:GetConfig("PIERICONSTYLE", "NEW") == "PORTALS" then return GetIcon(entry.faction) end
 	if entry.kind == nil and (MAUTTAB == nil or MAUTTAB["icon"] == nil or MAUTTAB["icon"] == "") then
 		local key = entry.transport or "ship"
 		local icon = entry.iconStyle ~= nil and TRANSPORT_ICONS[key .. "_" .. entry.iconStyle] or TRANSPORT_ICONS[key]
@@ -2046,26 +2047,17 @@ end
 local areaLabel = nil
 local function GetAreaLabel()
 	if areaLabel ~= nil then return areaLabel end
-	if WorldMapFrame.dataProviders == nil then return nil end
-	local parent = nil
-	for provider in pairs(WorldMapFrame.dataProviders) do
-		if provider.Label ~= nil then
-			parent = provider.Label
-			break
-		end
+	if WorldMapFrame == nil or MapUtils.SetMapInfoOverride == nil then return nil end
+	areaLabel = CreateFrame("FRAME", nil, WorldMapFrame)
+	areaLabel:SetSize(1, 1)
+	areaLabel.Push = function(self)
+		local lines = {}
+		if self.description ~= nil and self.description ~= "" then tinsert(lines, self.description) end
+		if self.hint ~= nil and self.hint ~= "" then tinsert(lines, self.hint) end
+		MapUtils:SetMapInfoOverride(self.name, table.concat(lines, "\n"))
 	end
 
-	if parent == nil then return nil end
-	areaLabel = CreateFrame("FRAME", nil, parent)
-	areaLabel:SetAllPoints(parent)
-	areaLabel.name = areaLabel:CreateFontString(nil, "OVERLAY", "WorldMapTextFont")
-	areaLabel.name:SetPoint("TOP", areaLabel, "TOP", 0, -20)
-	areaLabel.description = areaLabel:CreateFontString(nil, "OVERLAY", "SubZoneTextFont")
-	areaLabel.description:SetPoint("TOP", areaLabel.name, "BOTTOM", 0, -10)
-	areaLabel.hint = areaLabel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	areaLabel.hint:SetPoint("TOP", areaLabel.description, "BOTTOM", 0, -8)
-	if AREA_NAME_FONT_COLOR ~= nil then areaLabel.name:SetVertexColor(AREA_NAME_FONT_COLOR:GetRGB()) end
-	if AREA_DESCRIPTION_FONT_COLOR ~= nil then areaLabel.description:SetVertexColor(AREA_DESCRIPTION_FONT_COLOR:GetRGB()) end
+	areaLabel:SetScript("OnHide", function() MapUtils:SetMapInfoOverride(nil) end)
 	areaLabel:SetScript(
 		"OnUpdate",
 		function(self)
@@ -2148,7 +2140,6 @@ local function GetClickHints(pin)
 	local hints = {}
 	if not pin.clickable then return hints end
 	local entry = pin.entry
-	if entry.kind == "dungeon" then return hints end
 	tinsert(
 		hints,
 		{
@@ -2157,7 +2148,17 @@ local function GetClickHints(pin)
 		}
 	)
 
-	if entry.kind ~= "flight" and GetDestinationMapID(entry) ~= nil then
+	if entry.kind == "dungeon" then
+		if (entry.instanceMap or entry.instance) ~= nil and MapUtils.ShowInstanceMap ~= nil then
+			tinsert(
+				hints,
+				{
+					MapUtils:Trans("LID_RIGHTCLICK"),
+					MapUtils:Trans("LID_OPENDUNGEONMAP")
+				}
+			)
+		end
+	elseif entry.kind ~= "flight" and GetDestinationMapID(entry) ~= nil then
 		tinsert(
 			hints,
 			{
@@ -2200,20 +2201,22 @@ local function ShowAreaLabel(pin)
 		label.refreshed = GetTime()
 		label.refresh = function(self)
 			local _, text = GetPierLabel(pin.entry, pin.mapID)
-			self.description:SetText(text)
+			self.description = text
+			self:Push()
 		end
 	end
 
-	label.name:SetText(name)
-	label.description:SetText(description)
+	label.name = name
+	label.description = description
 	local hintLines = {}
 	for _, hint in ipairs(GetClickHints(pin)) do
 		tinsert(hintLines, format("|cffffd100%s|r  %s", hint[1], hint[2]))
 	end
 
-	label.hint:SetText(table.concat(hintLines, "\n"))
+	label.hint = table.concat(hintLines, "\n")
 	label.owner = pin
 	label:Show()
+	label:Push()
 
 	return true
 end
@@ -3612,6 +3615,33 @@ end
 
 MapUtils:AddSlash("mappins", HandleSlash)
 MapUtils:AddSlash("mapdocks", HandleSlash)
+function MapUtils:HookWaypointDistance()
+	local frame = SuperTrackedFrame or WorldSpacePin
+	local text = frame and (frame.DistanceText or frame.text)
+	local getDistance = C_Navigation and C_Navigation.GetDistance or WorldMapPin_GetDistance
+	if text == nil or getDistance == nil then return false end
+
+	local updating = false
+	local function UpdateDistance()
+		if updating or MapUtils:GetConfig("WAYPOINTDISTANCE", "METERS") == "YARDS" then return end
+		local original = text:GetText()
+		if issecretvalue and issecretvalue(original) then return end
+		if original == nil or original == "" then return end
+		local yards = getDistance()
+		if issecretvalue and issecretvalue(yards) then return end
+		if type(yards) ~= "number" or yards < 0 then return end
+
+		updating = true
+		text:SetText(format("%.0f m", yards * 0.9144))
+		updating = false
+	end
+
+	hooksecurefunc(text, "SetText", UpdateDistance)
+	hooksecurefunc(text, "SetFormattedText", UpdateDistance)
+	UpdateDistance()
+	return true
+end
+
 local superTrackedFixed = false
 local function FixSuperTrackedFrame()
 	local frame = SuperTrackedFrame
@@ -3647,6 +3677,7 @@ MapUtils:RegisterEvent(superTrackedLoader, "ADDON_LOADED")
 superTrackedLoader:SetScript(
 	"OnEvent",
 	function(self)
-		if FixSuperTrackedFrame() then self:UnregisterAllEvents() end
+		if not self.distanceHooked then self.distanceHooked = MapUtils:HookWaypointDistance() end
+		if FixSuperTrackedFrame() and self.distanceHooked then self:UnregisterAllEvents() end
 	end
 )

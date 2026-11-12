@@ -15,6 +15,10 @@ local function yieldsToManager()
     return System.GetAddOnEnabledState(competingAddon)~=false or System.GetAddOnLoadedState(competingAddon)==true
 end
 
+function Entry:HasPriorityManager()
+    return yieldsToManager()
+end
+
 local function onClick(button, ...)
     local original=Entry.buttons[button]
     if not Entry.active or not A.Runtime.active or InCombatLockdown() or yieldsToManager() then
@@ -71,6 +75,7 @@ function Entry:Enable()
     YUI.Event:OffOwner(self)
     YUI.Event:On("ADDON_LOADED",function(_,name)
         if name=="Blizzard_GameMenu" or name==competingAddon then self:Attach() end
+        if name==competingAddon then A.Runtime:Evaluate() end
     end,self)
     YUI.Event:On("PLAYER_REGEN_ENABLED",function() self:Attach() end,self)
     self:Attach()

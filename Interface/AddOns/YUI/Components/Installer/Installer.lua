@@ -361,29 +361,30 @@ local SAM_PROFILE_OPTIONS = {
 
 local function GetSAMProfileModule()
     if not SystemAPI or type(SystemAPI.IsAddOnLoaded) ~= "function" then
-        return nil, nil, LC["installer.text.006"]
+        return nil, nil, LC["installer.text.006"], true
     end
 
     local loadedOk, isLoaded = pcall(SystemAPI.IsAddOnLoaded, "SimpleAddonManager")
     if not loadedOk or isLoaded ~= true then
-        return nil, nil, LC["installer.text.006"]
+        local absent = type(SystemAPI.DoesAddOnExist) == "function" and SystemAPI.DoesAddOnExist("SimpleAddonManager") == false
+        return nil, nil, LC["installer.text.006"], not absent and (not loadedOk or isLoaded ~= false)
     end
 
     local SAM = _G.SimpleAddonManager
     if not SAM or type(SAM.GetModule) ~= "function" or type(SAM.GetDb) ~= "function" then
-        return nil, nil, LC["installer.text.007"]
+        return nil, nil, LC["installer.text.007"], true
     end
 
     local moduleOk, profileModule = pcall(SAM.GetModule, SAM, "Profile")
     if not moduleOk or type(profileModule) ~= "table"
         or type(profileModule.LoadAddonsFromProfile) ~= "function"
     then
-        return nil, nil, LC["installer.text.008"]
+        return nil, nil, LC["installer.text.008"], true
     end
 
     local dbOk, db = pcall(SAM.GetDb, SAM)
     if not dbOk or type(db) ~= "table" or type(db.sets) ~= "table" then
-        return nil, nil, LC["installer.text.009"]
+        return nil, nil, LC["installer.text.009"], true
     end
 
     return profileModule, db
@@ -420,6 +421,98 @@ local function ApplySAMProfile(profileName)
         return false, LC["installer.text.012"]
     end
     return true
+end
+
+local function GetAddonProfileManager()
+    local profileModule, db, err, blocked = GetSAMProfileModule()
+    if profileModule then return "sam", profileModule, db end
+    local component = YUI.AddonAssistant
+    local priority = component and component.GameMenu
+    if blocked or (priority and type(priority.HasPriorityManager) == "function" and priority:HasPriorityManager()) then
+        return nil, nil, nil, err
+    end
+    local assistant = component and component.Runtime
+    if assistant and assistant.active and type(assistant.FindProfileByName) == "function"
+        and type(assistant.ApplyProfile) == "function" and type(assistant.GetActiveProfileName) == "function" then
+        return "assistant", assistant
+    end
+    return nil
+end
+
+local function GetAddonProfileTarget()
+    local manager, service, db, managerError = GetAddonProfileManager()
+    if not manager then return nil, managerError or LC["installer.profiles.addons.unavailable"] end
+    local option
+    if manager == "sam" then
+        option = GetMatchedSAMProfile()
+        local options = YUI.IsForever and (YUI.Data and YUI.Data:GetData("AddonProfiles") or {}) or SAM_PROFILE_OPTIONS
+        if not option then
+            for _, candidate in ipairs(options) do
+                if SystemAPI.DoesAddOnExist(candidate.addonName) then option = candidate; break end
+            end
+        end
+    else
+        option = YUI.Data and YUI.Data:GetData("AssistantProfile")
+    end
+    if type(option) ~= "table" or type(option.profileName) ~= "string" then
+        return nil, LC["installer.profiles.addons.unconfigured"]
+    end
+    local target = { manager = manager, profileName = option.profileName, labelKey = option.labelKey,
+        managerName = manager == "sam" and "SimpleAddonManager" or LC["installer.profiles.addons.assistant"] }
+    local reason
+    if manager == "sam" then
+        if type(db.sets[target.profileName]) ~= "table" then reason = "profileMissing" end
+    else
+        target.profileId, reason = service:FindProfileByName(target.profileName)
+    end
+    if reason then
+        local key = reason == "profileDuplicate" and "installer.profiles.addons.duplicate"
+            or reason == "profileInvalid" and "installer.profiles.addons.invalid" or "installer.profiles.addons.missing"
+        return target, string.format(LC[key], target.managerName, target.profileName)
+    end
+    return target
+end
+
+local function SameAddonProfile(a, b)
+    return a and b and a.manager == b.manager and a.profileName == b.profileName and a.profileId == b.profileId
+end
+
+local function ApplyAddonProfile(expected)
+    local target, err = GetAddonProfileTarget()
+    if err then return false, err end
+    if not SameAddonProfile(target, expected) then return false, LC["installer.profiles.addons.changed"] end
+    if target.manager == "sam" then return ApplySAMProfile(target.profileName) end
+    local runtime = YUI.AddonAssistant.Runtime
+    local ok, applied, reason = pcall(runtime.ApplyProfile, runtime, target.profileId)
+    if ok and applied then return true end
+    local detail = ok and reason or applied
+    local locale = YUI.AddonAssistant.L
+    return false, string.format(LC["installer.profiles.addons.failed"], target.managerName, target.profileName,
+        tostring(locale and locale[detail] or detail))
+end
+
+function Installer:GetActivePortraitProfile()
+    local manager, service = GetAddonProfileManager()
+    if manager == "assistant" then
+        local option = YUI.Data and YUI.Data:GetData("AssistantProfile")
+        if type(option) ~= "table" or not service:FindProfileByName(option.profileName)
+            or service:GetActiveProfileName() ~= option.profileName then return nil end
+        return option.portraitProfileName
+    end
+    if manager ~= "sam" or type(service.IsProfileLoaded) ~= "function" then return nil end
+    local options = YUI.IsForever and (YUI.Data and YUI.Data:GetData("AddonProfiles") or {})
+        or { {profileName="YUI-ElvUI"}, {profileName="YUI-NDUI"}, {profileName="YUI-EQoL"} }
+    local portrait = YUI.IsForever and YUI.Data:GetData("PortraitProfile")
+    local matched
+    for _, option in ipairs(options) do
+        local ok, loaded = pcall(service.IsProfileLoaded, service, option.profileName)
+        if ok and loaded == true then
+            local name = portrait and portrait.profileName or option.profileName
+            if matched and matched ~= name then return nil end
+            matched = name
+        end
+    end
+    return matched
 end
 
 local function GetPortraitProfileOption()
@@ -533,6 +626,18 @@ local function ApplyPortraitProfile(profileName)
     return true
 end
 
+function Installer:MatchPortraitProfile()
+    local name = self:GetActivePortraitProfile()
+    if not name then return nil end
+    local db = _G.BLINKIISPORTRAITS and _G.BLINKIISPORTRAITS.db
+    if not db or type(db.GetCurrentProfile) ~= "function" then return nil end
+    local currentOK, current = pcall(db.GetCurrentProfile, db)
+    if not currentOK then return false, LC["installer.profiles.portrait.unavailable"] end
+    local ok, err = ApplyPortraitProfile(name)
+    if not ok then return false, err end
+    return true, name, current ~= name
+end
+
 local function GetInstallerLayoutCapabilities()
     local layout = YUI.InstallerLayoutAligner or YUI.EllesmereDamageMetersLayout
     if not layout or type(layout.GetCapabilities) ~= "function" then
@@ -615,8 +720,9 @@ table.insert(steps, {
         if layoutStepSelection.applyYUIProfile == nil or not yuiProfileDB then
             layoutStepSelection.applyYUIProfile = yuiProfileDB ~= nil
         end
-        local matchedSAMProfile = GetMatchedSAMProfile()
-        layoutStepSelection.addonProfileName = matchedSAMProfile and matchedSAMProfile.profileName or nil
+        local matchedAddonProfile, addonProfileError = GetAddonProfileTarget()
+        layoutStepSelection.addonProfileTarget = not addonProfileError and matchedAddonProfile or nil
+        layoutStepSelection.addonProfileName = layoutStepSelection.addonProfileTarget and matchedAddonProfile.profileName or nil
         local portraitProfile = GetPortraitProfileOption()
         layoutStepSelection.portraitProfileName = portraitProfile and portraitProfile.profileName or nil
         local hasNameplateProfile = HasNameplateProfile()
@@ -624,7 +730,7 @@ table.insert(steps, {
         local optionCount = 1 + (yuiProfileDB and 1 or 0)
             + (canAlignSupportedWindows and 1 or 0)
             + (hasPartyFrames and 1 or 0)
-            + (matchedSAMProfile and 1 or 0)
+            + 1
             + (portraitProfile and 1 or 0)
             + (hasNameplateProfile and 1 or 0)
         local optionsHeight = optionCount * 28 + math.max(0, optionCount - 1) * 2
@@ -651,7 +757,7 @@ table.insert(steps, {
         local function RefreshExecuteAvailability()
             local enabled = layoutStepSelection.applyYUIProfile or layoutStepSelection.importEditMode
                 or (canAlignSupportedWindows and layoutStepSelection.alignSupportedWindows)
-                or (matchedSAMProfile and layoutStepSelection.applyAddonProfile)
+                or (layoutStepSelection.addonProfileTarget and layoutStepSelection.applyAddonProfile)
                 or (portraitProfile and layoutStepSelection.applyPortraitProfile)
                 or (hasNameplateProfile and layoutStepSelection.applyNameplateProfile)
             content.disableExecute = not enabled
@@ -715,13 +821,15 @@ table.insert(steps, {
             layoutRows[#layoutRows + 1] = { frame = alignSupportedWindows, checkbox = true }
         end
 
-        if matchedSAMProfile then
+        do
             local applyAddonProfile = GUI2.Form:CreateCheckbox(options, {
-                text = LC[matchedSAMProfile.labelKey],
+                text = LC[matchedAddonProfile and matchedAddonProfile.labelKey or "installer.profiles.addons"],
                 autoWidth = true,
                 height = 28,
-                checked = layoutStepSelection.applyAddonProfile,
-                tooltip = LC["installer.text.035"] .. matchedSAMProfile.profileName .. LC["installer.text.036"],
+                checked = not addonProfileError and layoutStepSelection.applyAddonProfile,
+                disabled = addonProfileError ~= nil,
+                tooltip = addonProfileError or string.format(LC["installer.profiles.addons.tooltip"],
+                    matchedAddonProfile.managerName, matchedAddonProfile.profileName),
                 onClick = function(_, checked)
                     layoutStepSelection.applyAddonProfile = checked == true
                     RefreshExecuteAvailability()
@@ -895,9 +1003,14 @@ table.insert(steps, {
         local layoutAdapter, layoutCapabilities = GetInstallerLayoutCapabilities()
         local requestedAlignment = layoutStepSelection.alignSupportedWindows
             and layoutCapabilities.any == true
-        local matchedSAMProfile = GetMatchedSAMProfile()
-        local requestedAddonProfile = layoutStepSelection.applyAddonProfile and matchedSAMProfile ~= nil
-            and matchedSAMProfile.profileName == layoutStepSelection.addonProfileName
+        local requestedAddonProfile = layoutStepSelection.applyAddonProfile and layoutStepSelection.addonProfileTarget ~= nil
+        if requestedAddonProfile then
+            local target, err = GetAddonProfileTarget()
+            if err or not SameAddonProfile(target, layoutStepSelection.addonProfileTarget) then
+                SetStatus(err or LC["installer.profiles.addons.changed"], "error")
+                return false
+            end
+        end
         local requestedPortraitProfile = layoutStepSelection.applyPortraitProfile
             and layoutStepSelection.portraitProfileName ~= nil
         local requestedNameplateProfile = false
@@ -916,7 +1029,7 @@ table.insert(steps, {
         end
         if requestedAddonProfile then
             local profileError
-            addonProfileApplied, profileError = ApplySAMProfile(layoutStepSelection.addonProfileName)
+            addonProfileApplied, profileError = ApplyAddonProfile(layoutStepSelection.addonProfileTarget)
             if not addonProfileApplied then
                 SetStatus(profileError or LC["installer.text.045"], "error")
                 return false

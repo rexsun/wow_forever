@@ -12,13 +12,20 @@ local Spell = YUI.API.Spell
 local Item = YUI.API.Item
 local Unit = YUI.API.Unit
 local Security = YUI.API.Security
+Bars.mageCastEvents = { UNIT_SPELLCAST_SENT = true, UNIT_SPELLCAST_SUCCEEDED = true,
+    UNIT_SPELLCAST_FAILED = true, UNIT_SPELLCAST_INTERRUPTED = true }
 Bars.events = { "SPELLS_CHANGED", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "UPDATE_BINDINGS",
     "UNIT_AURA", "SPELL_UPDATE_COOLDOWN", "SPELL_UPDATE_USABLE", "UPDATE_MULTI_CAST_ACTIONBAR",
     "UNIT_PET", "UNIT_HAPPINESS", "UNIT_NAME_UPDATE",
     "PET_BAR_UPDATE", "PET_BAR_UPDATE_COOLDOWN", "PET_BAR_UPDATE_USABLE",
-    "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_UPDATE_STATE", "ACTIONBAR_UPDATE_COOLDOWN", "ACTIONBAR_UPDATE_USABLE" }
+    "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_UPDATE_STATE", "ACTIONBAR_UPDATE_COOLDOWN", "ACTIONBAR_UPDATE_USABLE",
+    "BAG_UPDATE_DELAYED", "BAG_UPDATE_COOLDOWN", "SKILL_LINES_CHANGED", "GET_ITEM_INFO_RECEIVED", "PLAYER_LEVEL_UP",
+    "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED" }
 local COMMON_EVENTS = { SPELLS_CHANGED = true, PLAYER_ENTERING_WORLD = true,
     PLAYER_REGEN_ENABLED = true, UPDATE_BINDINGS = true }
+local MAGE_EVENTS = { UNIT_AURA = true, SPELL_UPDATE_COOLDOWN = true, SPELL_UPDATE_USABLE = true,
+    BAG_UPDATE_DELAYED = true, BAG_UPDATE_COOLDOWN = true, SKILL_LINES_CHANGED = true,
+    GET_ITEM_INFO_RECEIVED = true, PLAYER_LEVEL_UP = true }
 local ASPECT_EVENTS = { UNIT_AURA = true, SPELL_UPDATE_COOLDOWN = true, SPELL_UPDATE_USABLE = true,
     UNIT_PET = true, UNIT_HAPPINESS = true, UNIT_NAME_UPDATE = true,
     PET_BAR_UPDATE = true, PET_BAR_UPDATE_COOLDOWN = true, PET_BAR_UPDATE_USABLE = true }
@@ -56,15 +63,19 @@ Bars.petUtilityFamilies = {
 }
 
 local function InCombat() return YAB.Adapter:InCombat() end
-local function Config(id) return YAB:GetDB().specialBars[id] end
+local function Config(id) return YAB.ClassTools:GetConfig(id) end
 local function Text(key) return YUI.Locale:Get("YActionBar")[key] end
 local function Number(value) return Security.SafeNumber(value) end
 local function Boolean(value) return Security.SafeBoolean(value) end
 
-function Bars:Owns(id) return id == "aspects" or id == "totems" end
+function Bars:Owns(id) return id == "aspects" or id == "totems" or id == "mageTools" or id == "classTools" end
 
 function Bars:ConsumesEvent(event)
-    return ((self.active.aspects or self.active.totems) and COMMON_EVENTS[event] == true)
+    if self.mageCastEvents[event] then
+        return self.active.mageTools == true and Config("mageTools").mageScroll ~= false
+    end
+    return (self.active.mageTools == true and (MAGE_EVENTS[event] == true or COMMON_EVENTS[event] == true))
+        or ((self.active.aspects or self.active.totems) and COMMON_EVENTS[event] == true)
         or (self.active.aspects == true and ASPECT_EVENTS[event] == true)
         or (self.active.totems == true and TOTEM_EVENTS[event] == true)
 end
@@ -109,6 +120,8 @@ end
 -- Inert settings samples, independent of the current character's spellbook.
 local TOTEM_PREVIEW_SPELLS = { 66842, 3599, 8071, 5394, 8512, 36936 }
 function Bars:GetSampleSpellID(id, position, config)
+    if YAB.ClassTools then id = YAB.ClassTools:GetPreviewBarId(id) end
+    if id == "mageTools" then return YAB.MageTools:GetSampleSpellID(position, config) end
     if id == "totems" then return TOTEM_PREVIEW_SPELLS[position] end
     if id ~= "aspects" then return nil end
     if position == 7 then return 883 end
@@ -194,7 +207,8 @@ function Bars:SwapAspects(first, second)
         if index == second then secondPosition = position end
     end
     order[firstPosition], order[secondPosition] = second, first
-    config.aspectOrder = order
+    YAB:GetDB().specialBars.aspects.aspectOrder = order
+    YAB.ClassTools:Invalidate()
     if YAB.ConfigSets then YAB.ConfigSets:SaveActiveSetting("aspects", "aspectOrder", order, "aspect-reorder", self) end
     self.structureDirty = true
     self:Refresh("aspects")
@@ -233,11 +247,13 @@ local function AspectHidden(button)
 end
 
 local function Edit(record, editing)
-    record.classBarEditing = editing == true
+    editing = editing == true
+    if record.classBarEditing == editing then return end
+    record.classBarEditing = editing
     if record.id == "totems" then Bars:CloseTotemFlyout() end
     Bars.structureDirty = true
-    if record.id == "totems" then Bars.configDirty.totems = true end
-    Bars:Refresh(record.id)
+    Bars.configDirty[record.id] = true
+    if not record.classBarLayoutTransition then Bars:Refresh(record.id) end
 end
 
 function Bars:EnsureRecord(id)
@@ -1052,10 +1068,16 @@ function Bars:Refresh(id)
     local structural = self.configDirty[id] or (id == "aspects" and self.structureDirty)
     if structural and InCombat() then self.pending = true end
     if structural and not InCombat() then
+        local layoutId = YAB.ClassTools:GetLayoutId(id)
+        if not YAB.LayoutBridge.classLayoutIds or YAB.LayoutBridge.classLayoutIds[id] ~= layoutId then
+            YAB.LayoutBridge:Register(id, record, Text("bar." .. id), config)
+        end
         YAB.BarManager:AttachConfigSnapshot(record, id, config, "special")
         if id == "aspects" then
             self:BuildAspects(record, config)
             self.structureDirty = false
+        elseif id == "mageTools" then
+            YAB.MageTools:Build(record, config)
         else
             self:BuildTotems(record, config)
             self:ApplyTotemLayout(record, config, YAB:GetDB())
@@ -1067,13 +1089,17 @@ function Bars:Refresh(id)
     if id == "aspects" then
         self:RefreshAspectVisuals(record)
         self:RefreshPetUtilityVisuals()
+    elseif id == "mageTools" then
+        YAB.MageTools:Refresh(record)
     elseif record.totemController then
         self:RefreshTotemVisuals(record, structural and not InCombat())
     end
     self.passes = self.passes + 1
 end
 
-function Bars:OnEvent(event)
+function Bars:OnEvent(event, ...)
+    if self.active.mageTools then YAB.MageTools:OnEvent(event, ...) end
+    if self.mageCastEvents[event] then return end
     if event == "UNIT_HAPPINESS" or event == "UNIT_NAME_UPDATE" or event == "UNIT_PET" then
         self:RefreshPetUtilityToggle(event == "UNIT_PET")
         if event ~= "UNIT_PET" then return end
@@ -1082,9 +1108,12 @@ function Bars:OnEvent(event)
         self.structureDirty, self.configDirty.totems = true, true
     end
     if event == "PLAYER_REGEN_ENABLED" then
-        if not self.pending then return end
-        self.pending = false
-        self:SyncEnabled()
+        if self.pending then
+            self.pending = false
+            self:SyncEnabled()
+        elseif self.active.mageTools then
+            YAB.BarManager:QueueSpecialRefresh("mageTools", event)
+        end
         return
     end
     if event == "UPDATE_BINDINGS" then
@@ -1106,9 +1135,9 @@ function Bars:SyncEnabled()
     if InCombat() then self.pending = true; return end
     local db, manager = YAB:GetDB(), YAB.BarManager
     local class = YAB.SpecialBars:GetPlayerClassToken()
-    for _, id in ipairs({ "aspects", "totems" }) do
+    for _, id in ipairs({ "aspects", "totems", "mageTools" }) do
         local wanted = db.enabled and manager.runtimeActive and Config(id).enabled
-            and class == (id == "aspects" and "HUNTER" or "SHAMAN")
+            and class == (id == "aspects" and "HUNTER" or id == "totems" and "SHAMAN" or "MAGE")
         if wanted then
             local record = self:EnsureRecord(id)
             self.active[id] = record and true or nil
@@ -1124,7 +1153,8 @@ function Bars:SyncEnabled()
             self:StopBar(id)
         end
     end
-    self.listening = (self.active.aspects or self.active.totems) == true
+    YAB.LayoutBridge:SyncClassToolsMover()
+    self.listening = (self.active.aspects or self.active.totems or self.active.mageTools) == true
     manager:SyncClassBarEvents()
     if manager.RefreshActionBroadcasterMode then manager:RefreshActionBroadcasterMode("class bars") end
 end
@@ -1167,6 +1197,8 @@ function Bars:StopBar(id)
             record.nativeTotemFrame = nil
         end
         YAB.Keybinds:ApplyRuntimeBindings()
+    elseif id == "mageTools" then
+        YAB.MageTools:Stop()
     else
         self:CancelAspectDrag()
         self:StopPetUtilities()
@@ -1190,6 +1222,7 @@ function Bars:Stop()
     if InCombat() then self.pending = true; return false end
     self:StopBar("aspects")
     self:StopBar("totems")
+    self:StopBar("mageTools")
     self.listening, self.pending, self.structureDirty = false, false, true
     YAB.BarManager:SyncClassBarEvents()
     return true

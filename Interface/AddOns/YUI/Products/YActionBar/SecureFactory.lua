@@ -700,6 +700,82 @@ function Factory:ApplyClickAttributes(button)
     return ApplyActionButtonClickAttributes(button)
 end
 
+function Factory:CreateMageScrollPanel(holder)
+    if self:InCombat() then return nil end
+    local panel = CreateFrame("Frame", nil, holder, "SecureHandlerShowHideTemplate")
+    panel:SetFrameStrata("HIGH")
+    panel:SetClampedToScreen(true)
+    panel:SetAttribute("_onhide", "self:Hide()")
+    panel:Hide()
+    return panel
+end
+
+function Factory:CreateMageToolButton(holder, key, panel)
+    if self:InCombat() then return nil end
+    local button = CreateFrame("CheckButton", nil, holder, "SecureActionButtonTemplate,SecureHandlerBaseTemplate")
+    button:RegisterForClicks("AnyUp", "AnyDown")
+    self:ApplyClickAttributes(button)
+    self:SetButtonMeta(button, { barId = "mageTools", tool = key })
+    self:SetSecureAttribute(button, "alt-type1", "none")
+    if key == "scroll" then
+        button:SetFrameRef("scrolls", panel)
+        button:WrapScript(button, "OnClick", [[
+            if button == "RightButton" and not down then
+                local panel = self:GetFrameRef("scrolls")
+                if panel:IsShown() then panel:Hide()
+                elseif (self:GetAttribute("scroll-count") or 0) > 0 then panel:Show() end
+            end
+        ]])
+    end
+    return button
+end
+
+function Factory:ClearMageTool(button)
+    for _, key in ipairs({ "type", "type1", "type2", "type3", "spell1", "spell2", "spell3", "macrotext1", "item" }) do
+        self:SetSecureAttribute(button, key, nil)
+    end
+end
+
+function Factory:ConfigureMageTool(button, key, config, inventory, editing)
+    self:ClearMageTool(button)
+    self:ApplyClickAttributes(button)
+    if editing then return end
+    local data, spell = YAB.MageData, YUI.API.Spell
+    local function Bind(mouse, id)
+        local info = spell.GetInfo(id)
+        local name = info and YUI.API.Security.SafeString(info.name)
+        self:SetSecureAttribute(button, "type" .. mouse, name and "spell" or nil)
+        self:SetSecureAttribute(button, "spell" .. mouse, name)
+    end
+    self:SetSecureAttribute(button, "unit", "player")
+    if key == "scroll" then
+        local target = inventory.target
+        local info = spell.GetInfo(data.comprehendSpellID)
+        local name = info and YUI.API.Security.SafeString(info.name)
+        if target and name and spell.GetKnownState(data.comprehendSpellID) == true then
+            self:SetSecureAttribute(button, "type1", "macro")
+            -- Bag coordinates cannot be rebound in combat; never target a stale combat slot.
+            self:SetSecureAttribute(button, "macrotext1", "/cast [nocombat] " .. name
+                .. "\n/use [nocombat] " .. target.bag .. " " .. target.slot)
+        end
+    elseif key == "intellect" then
+        Bind(1, data.intellectSpellID); Bind(2, data.brillianceSpellID)
+    else
+        Bind(1, YAB.MageTools:ResolveArmor(config.mageArmorLeft))
+        Bind(2, YAB.MageTools:ResolveArmor(config.mageArmorRight or "mage"))
+    end
+end
+
+function Factory:CreateMageScrollChoice(panel, index)
+    if self:InCombat() then return nil end
+    local button = CreateFrame("CheckButton", nil, panel, "SecureActionButtonTemplate")
+    button:RegisterForClicks("AnyUp", "AnyDown")
+    self:ApplyClickAttributes(button)
+    self:SetButtonMeta(button, { barId = "mageTools", scrollIndex = index })
+    panel:WrapScript(button, "OnClick", "return nil, true", [[if not down then self:GetParent():Hide() end]])
+    return button
+end
+
 function Factory:CreateClassSpellButton(holder, index)
     if self:InCombat() or not (Client.classBars == true and holder) then return nil end
     local button = CreateFrame("CheckButton", self:FrameName("Aspect", "aspects", index),

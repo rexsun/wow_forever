@@ -14,6 +14,10 @@ local ICON_TEXT_GAP = 4
 local HORIZONTAL_PADDING = 2
 
 local RegistrationOwner = {}
+local recorderProvider = {
+    OnClick = function(frame, button) YUI.ErrorRecorder:Click(frame, button) end,
+    OnTooltipShow = function(tip) YUI.ErrorRecorder:Tooltip(tip) end,
+}
 
 local function IsFontPath(value)
     return type(value) == "string" and (value:find("\\", 1, true) or value:find("/", 1, true)) ~= nil
@@ -67,11 +71,21 @@ local function EnsureModuleDB(self)
     if db.font == nil then db.font = DEFAULT_FONT end
     if db.size == nil then db.size = DEFAULT_SIZE end
     if db.iconBackground == nil then db.iconBackground = true end
+    if db.source ~= "yui" and db.source ~= "bugsack" then db.source = "auto" end
     self.db = db
     return db, ybarDB
 end
 
-local function ResolveProvider()
+local function ResolveProvider(self)
+    local db = self.db
+    local preference = db and db.source or "auto"
+    local recorder = YUI.ErrorRecorder
+    if preference ~= "bugsack" and recorder and recorder:IsEnabled() then
+        recorderProvider.text = tostring(recorder:GetCount())
+        recorderProvider.icon = recorder:GetIcon()
+        return nil, recorderProvider, "yui"
+    end
+    if preference == "yui" then return nil, nil end
     local addon = _G.BugSack
     local libStubType = type(LibStub)
     if type(addon) ~= "table" or addon.healthCheck ~= true or (libStubType ~= "table" and libStubType ~= "function") then
@@ -90,7 +104,7 @@ local function ResolveProvider()
         return nil, nil
     end
 
-    return ldb, provider
+    return ldb, provider, "bugsack"
 end
 
 local function IsFrameReady(frame)
@@ -98,12 +112,12 @@ local function IsFrameReady(frame)
 end
 
 function Module:RefreshProvider()
-    local ldb, provider = ResolveProvider()
-    if not provider then return false end
+    local ldb, provider, source = ResolveProvider(self)
 
     self.ldb = ldb
     self.provider = provider
-    return true
+    self.source = source
+    return provider ~= nil
 end
 
 function Module:OnInitialize()
@@ -168,7 +182,7 @@ function Module:RefreshProviderDisplay(requestLayout, deferWidth)
 
     if iconChanged then
         local db = EnsureModuleDB(self)
-        if frame.iconSlot and db and db.iconBackground == false then
+        if frame.iconSlot and (self.source == "yui" or db and db.iconBackground == false) then
             YBar:SetIconSlotChromeVisible(frame.iconSlot, false)
         end
     end
@@ -192,7 +206,7 @@ function Module:RefreshAppearance(requestLayout, forceFont, deferWidth)
     local font = YBar:ResolveFontPath(db.font, DEFAULT_FONT, LSM)
     local fontFlag = ybarDB.fontFlags or (ybarDB.fontOutline and "OUTLINE" or "")
     local fontShadow = ybarDB.fontShadow == true
-    local iconBackground = db.iconBackground ~= false
+    local iconBackground = self.source ~= "yui" and db.iconBackground ~= false
     local changed = false
 
     local currentFont, currentSize, currentFlag
@@ -277,6 +291,7 @@ function Module:RefreshDisplay(requestLayout, forceFont)
 end
 
 function Module:OnLDBAttributeChanged(_, name, attribute, _, provider)
+    if self.source ~= "bugsack" then return end
     if name ~= DATA_OBJECT_NAME or (attribute ~= "text" and attribute ~= "icon") then return end
     if type(provider) == "table" then
         self.provider = provider
@@ -285,24 +300,64 @@ function Module:OnLDBAttributeChanged(_, name, attribute, _, provider)
 end
 
 function Module:AttachRuntime()
-    if not IsFrameReady(self.frame) or not self:RefreshProvider() then return end
-
-    if not self.ldbCallbackRegistered and type(self.ldb.RegisterCallback) == "function" then
-        self.ldb.RegisterCallback(self, ATTRIBUTE_EVENT, "OnLDBAttributeChanged")
-        self.ldbCallbackRegistered = true
+    EnsureModuleDB(self)
+    self.runtimeAttached = true
+    if YUI.Event and not self.recorderListener then
+        YUI.Event:On("YUI_ERROR_RECORDER_CHANGED", "OnRecorderChanged", self)
+        YUI.Event:On("ADDON_LOADED", "OnProviderAddonLoaded", self)
+        self.recorderListener = true
     end
+    self:RefreshProvider()
+    self:SyncProviderCallbacks()
+    if not IsFrameReady(self.frame) or not self.provider then return end
     self:RefreshProviderDisplay(false)
 end
 
-function Module:DetachRuntime()
-    if self.ldbCallbackRegistered and self.ldb and type(self.ldb.UnregisterCallback) == "function" then
-        self.ldb.UnregisterCallback(self, ATTRIBUTE_EVENT)
+function Module:SyncProviderCallbacks()
+    if self.ldbCallbackRegistered and (not self.runtimeAttached or self.registeredLDB ~= self.ldb) then
+        self.registeredLDB.UnregisterCallback(self, ATTRIBUTE_EVENT)
+        self.registeredLDB = nil
+        self.ldbCallbackRegistered = false
     end
-    self.ldbCallbackRegistered = false
+    if self.runtimeAttached and self.ldb and not self.ldbCallbackRegistered and type(self.ldb.RegisterCallback) == "function" then
+        self.ldb.RegisterCallback(self, ATTRIBUTE_EVENT, "OnLDBAttributeChanged")
+        self.registeredLDB = self.ldb
+        self.ldbCallbackRegistered = true
+    end
+end
+
+function Module:DetachRuntime()
+    self.runtimeAttached = false
+    self:SyncProviderCallbacks()
+    if self.recorderListener and YUI.Event then YUI.Event:OffOwner(self) end
+    self.recorderListener = false
 
     if GameTooltip and GameTooltip.GetOwner and GameTooltip:GetOwner() == self.frame then
         YUI.HideGameTooltip()
     end
+end
+
+function Module:OnRecorderChanged()
+    local oldSource = self.source
+    self:RefreshProvider()
+    self:SyncProviderCallbacks()
+    self:RefreshAppearance(false, false)
+    if oldSource ~= self.source then
+        if YBar.UpdateLayout then YBar:UpdateLayout() end
+    end
+    if self.frame then
+        self.frame:SetShown(self.provider ~= nil)
+        self:RefreshProviderDisplay(true)
+    end
+end
+
+function Module:OnProviderAddonLoaded(_, name)
+    if name == DATA_OBJECT_NAME or name == "!YUI_Error" then self:OnRecorderChanged() end
+end
+
+function Module:IsBarItemRenderable()
+    local _, provider = ResolveProvider(self)
+    return provider ~= nil
 end
 
 function Module:OnEnter(frame)
@@ -457,12 +512,30 @@ function Module:GetOptions()
                 self:RefreshAppearance(false, false)
             end,
         },
+        {
+            type = "dropdown", label = L["errors.source"], width = 220,
+            options = {
+                { text = L["errors.auto"], value = "auto" },
+                { text = L["errors.yui"], value = "yui" },
+                { text = "BugSack", value = "bugsack" },
+            },
+            get = function() local db = EnsureModuleDB(self); return db and db.source or "auto" end,
+            set = function(value)
+                local db = EnsureModuleDB(self)
+                if not db then return end
+                db.source = value == "yui" and "yui" or value == "bugsack" and "bugsack" or "auto"
+                self:OnRecorderChanged()
+            end,
+        },
     }
 end
 
 function Module:UpdateBarItem(frame, parent)
     if frame then self.frame = frame end
     if parent then self.parent = parent end
+    self:RefreshProvider()
+    self:SyncProviderCallbacks()
+    if self.frame then self.frame:SetShown(self.provider ~= nil) end
     self:RefreshDisplay(false, false)
 end
 
@@ -471,7 +544,12 @@ function Module:Update()
 end
 
 function Module:GetWidth()
+    if not self.provider then return 0 end
     return self.width or 28
+end
+
+function Module:GetSettingsIcon()
+    return self.provider and self.provider.icon or YUI.ErrorRecorder and YUI.ErrorRecorder:GetIcon() or DEFAULT_ICON
 end
 
 local function TryRegisterModule()
@@ -502,8 +580,10 @@ function RegistrationOwner:OnAddonLoaded(_, addonName)
         TryRegisterModule()
     end
 end
+function RegistrationOwner:OnRecorderChanged() TryRegisterModule() end
 
 if not TryRegisterModule() and YUI.Event and YUI.Event.On then
+    YUI.Event:On("YUI_ERROR_RECORDER_CHANGED", "OnRecorderChanged", RegistrationOwner)
     YUI.Event:On("ADDON_LOADED", "OnAddonLoaded", RegistrationOwner, {
         moduleId = "ybar.bugsack.registration",
         traceName = "YBar:BugSack:ADDON_LOADED",

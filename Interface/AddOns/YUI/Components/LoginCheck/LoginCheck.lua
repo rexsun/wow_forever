@@ -33,6 +33,7 @@ local defaults = YUI.IsWrath and {
 } or YUI.IsForever and {
     Installer = true,
     EditModeSwitch = true,
+    AutoMatchProfile = true,
 } or {
     Welcome = true,
     CVar = true,
@@ -103,6 +104,11 @@ function Feature.GetOptions(feature)
                 type = "checkbox", label = T("settings.edit_mode.label"), tooltip = T("settings.edit_mode.tooltip"),
                 get = function() return db.EditModeSwitch end,
                 set = function(value) db.EditModeSwitch = value end,
+            },
+            {
+                type = "checkbox", label = T("settings.profile_match.label"), tooltip = T("settings.profile_match.tooltip"),
+                get = function() return db.AutoMatchProfile end,
+                set = function(value) db.AutoMatchProfile = value end,
             },
         }
     end
@@ -213,40 +219,16 @@ local function DoLoginWelcome()
 end
 
 local function DoAutoMatchProfile()
-    local SAM = _G.SimpleAddonManager
-    if not SAM then return end
-
-    local profileModule = SAM:GetModule("Profile")
-    if not profileModule then return end
-
-    local targetProfiles = { "YUI-ElvUI", "YUI-NDUI", "YUI-EQoL" }
-    local activeProfile = nil
-
-    for _, pName in ipairs(targetProfiles) do
-        if profileModule:IsProfileLoaded(pName) then
-            activeProfile = pName
-            break
-        end
-    end
-
-    if activeProfile and _G.BLINKIISPORTRAITS and _G.BLINKIISPORTRAITS.db then
-        local currentProfile = _G.BLINKIISPORTRAITS.db:GetCurrentProfile()
-        local profileExists = false
-
-        if _G.BLINKIISPORTRAITS.db.GetProfiles then
-            local profiles = _G.BLINKIISPORTRAITS.db:GetProfiles()
-            for _, p in ipairs(profiles) do
-                if p == activeProfile then
-                    profileExists = true
-                    break
-                end
-            end
-        end
-
-        if profileExists and currentProfile ~= activeProfile then
-            _G.BLINKIISPORTRAITS.db:SetProfile(activeProfile)
-            YUI:Print(string.format(T("message.profile_matched"), activeProfile))
-        end
+    if InCombatLockdown and InCombatLockdown() then return end
+    local installer = YUI.Installer
+    if not installer or type(installer.MatchPortraitProfile) ~= "function" then return end
+    local called, matched, detail, changed = pcall(installer.MatchPortraitProfile, installer)
+    if called and matched and changed then
+        YUI:Print(string.format(T("message.profile_matched"), detail))
+    elseif called and matched == false then
+        YUI:Print(detail)
+    elseif not called then
+        YUI:Print(T("message.profile_match_failed"))
     end
 end
 
@@ -488,6 +470,11 @@ local function BuildTasks()
                 id = "EditModeSwitch", label = T("task.edit_mode"), enabledKey = "EditModeSwitch",
                 event = "YUI_WORLD_READY", delay = 0,
                 run = function(ctx) CheckEditModeSwitch(); ctx:Done() end,
+            },
+            {
+                id = "AutoMatchProfile", label = T("task.profile_match"), enabledKey = "AutoMatchProfile",
+                event = "YUI_WORLD_READY", delay = 0,
+                run = function(ctx) DoAutoMatchProfile(); ctx:Done() end,
             },
         }
     end

@@ -50,6 +50,7 @@ L.NAME_CHEST = "cofre"
 L.NAME_BOBBER = "corcho"
 L.NAME_OTHER = "otro"
 L.NAME_NONE = "ninguna"
+L.NAME_UNNAMED = "Todo objeto sin nombre"
 
 L.SAMPLE_ORE = "Filón de cobre"
 L.SAMPLE_HERB = "Flor de paz"
@@ -68,6 +69,8 @@ L.EFFECT_SUBTLE = "Discreto"
 L.EFFECT_SUBTLE_TIP = "Un resplandor suave, sin anillo ni cometas."
 L.EFFECT_SIGIL = "Sello"
 L.EFFECT_SIGIL_TIP = "Un círculo de runas gira despacio alrededor del objeto."
+L.EFFECT_BRACKETS = "Visor"
+L.EFFECT_BRACKETS_TIP = "Cuatro esquinas enmarcan el objeto y se fijan en él en cuanto está al alcance."
 L.EFFECT_VORTEX = "Vórtice"
 L.EFFECT_VORTEX_TIP = "Brazos de luz se enroscan alrededor del objeto, como un portal que se abre."
 L.EFFECT_FLAME = "Llama"
@@ -147,7 +150,7 @@ L.TIP_COLOR_RESET = "Clic derecho: volver al color original"
 L.IGNORED = "Objetos ignorados: %d"
 L.IGNORED_TIP = "Objetos que nunca reciben efecto, sea cual sea su categoría. /lueur ignorar lista los nombra, /lueur ignorar vaciar los olvida todos."
 L.IGNORE_TARGET = "Ignorar objetivo"
-L.IGNORE_TARGET_TIP = "Ignora el objeto que tienes delante ahora mismo, o deja de ignorarlo."
+L.IGNORE_TARGET_TIP = "Ignora el objeto que tienes delante ahora mismo y todos los del mismo nombre. Sobre un objeto ya ignorado, haz clic dos veces para dejar de ignorarlo."
 
 L.HIDE_COMBAT = "En combate"
 L.HIDE_COMBAT_TIP = "Sin efecto mientras estés en combate."
@@ -259,6 +262,7 @@ L.MSG_HIDE_UNTRAINED = "efecto oculto en hierbas y minerales sin la profesión: 
 L.MSG_GLOW_ONLY = "solo el brillo, la placa de nombre queda para el juego u otro addon: %s"
 L.MSG_IGNORED = "%s ya no recibirá efecto."
 L.MSG_UNIGNORED = "%s deja de estar ignorado."
+L.MSG_IGNORED_ALREADY = "%s ya está ignorado, como todos los objetos de ese nombre. Repítelo para dejar de ignorarlo."
 L.MSG_IGNORE_NO_TARGET = "no tienes delante ningún objeto que ignorar."
 L.MSG_IGNORE_LIST = "objetos ignorados: %s"
 L.MSG_IGNORE_EMPTY = "no hay ningún objeto ignorado."
@@ -409,7 +413,7 @@ L.HELP = {
 	"/lueur recursos [mineral | hierba] — muestra u oculta en el minimapa los iconos de las hierbas y los filones; recursos tamaño <{nodeSize}> ajusta su tamaño (original {nodeSize=}); recursos borde <{nodeRing}> ajusta el grosor de su anillo de color, 0 para ninguno (original {nodeRing=}); recursos combate: si el minimapa se lee en combate",
 	"/lueur alternar [<{nodeSwitchYards}>] — con las dos profesiones de recolección: alterna el rastreo de hierbas y el de minerales mientras te desplazas; un número ajusta la distancia entre dos cambios, en metros (original {nodeSwitchYards=})",
 	"/lueur barrido — muestra lo que leyó el último barrido del minimapa, y lo que Lueur hizo con ello; barrido <{nodeScanYards}> ajusta la separación entre escaneos, en metros (original {nodeScanYards=})",
-	"/lueur ignorar — ignora el objeto que tienes delante, o deja de ignorarlo; ignorar lista, ignorar vaciar, ignorar <nombre>",
+	"/lueur ignorar — ignora el objeto que tienes delante y los del mismo nombre (dos veces sobre un objeto ignorado: deja de ignorarlo); ignorar lista, ignorar vaciar, ignorar <nombre>",
 	"/lueur idioma <auto | de | en | es | fr | ru> — idioma de los textos y comandos de Lueur",
 	"/lueur debug — describe cada objeto apuntado y lo que Lueur deduce de él",
 	"/lueur objetivos — enumera los objetivos de misión con los que se comparan los nombres de objeto",

@@ -4595,10 +4595,11 @@ function GUI2.Form:CreateGlowOptions(parent, opts)
     frame.controls = {}
     ConfigureMotion(frame, opts)
 
-    local function Commit(nextValue, refresh)
+    local function Commit(nextValue, refresh, source)
         value = NormalizeGlowOptionsValue(nextValue, opts.default)
         frame.value = value
         CommitValue(opts, frame, value)
+        if source and opts.onCommit then opts.onCommit(frame, value, source) end
         if refresh and opts.onRequestRefresh then
             opts.onRequestRefresh(frame, value)
         end
@@ -4707,7 +4708,7 @@ function GUI2.Form:CreateGlowOptions(parent, opts)
             if style == "none" and opts.setExpanded then
                 opts.setExpanded(false)
             end
-            Commit(nextValue, true)
+            Commit(nextValue, true, "selection")
         end,
     })
     dropdown:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -math_floor((topRowHeight - controlHeight) / 2))
@@ -4778,7 +4779,7 @@ function GUI2.Form:CreateGlowOptions(parent, opts)
                 set = function(nextFieldValue)
                     local nextValue = NormalizeGlowOptionsValue(value, opts.default)
                     nextValue[field.key] = NormalizeGlowColorOption(nextFieldValue, value[field.key])
-                    Commit(nextValue, false)
+                    Commit(nextValue, false, "color")
                     RefreshSettingsTooltip()
                 end,
             })
@@ -4800,6 +4801,9 @@ function GUI2.Form:CreateGlowOptions(parent, opts)
                     Commit(nextValue, false)
                     RefreshSettingsTooltip()
                 end,
+                onCommit = function(_, _, source)
+                    if opts.onCommit then opts.onCommit(frame, value, source) end
+                end,
             })
         end
         control:SetPoint("TOPLEFT", fieldParent, "TOPLEFT", panelInset + col * (sliderWidth + fieldGap), -(panelInset + row * (rowHeight + rowGap)))
@@ -4816,7 +4820,7 @@ function GUI2.Form:CreateGlowOptions(parent, opts)
             iconSize = 14,
             iconCrop = false,
             onClick = function()
-                Commit(BuildResetValue(), true)
+                Commit(BuildResetValue(), true, "reset")
                 RefreshSettingsTooltip()
             end,
         })

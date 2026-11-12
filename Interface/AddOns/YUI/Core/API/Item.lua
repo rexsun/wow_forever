@@ -180,6 +180,32 @@ local function GetSpellFromGlobal(itemInfo)
     return GetItemSpell(itemInfo)
 end
 
+-- Carried bags only, in stable bag/slot order. Restricted fields are omitted.
+function Item.ReadCarriedSlots()
+    local api, security = C_Container, YUI.API.Security
+    if not (api and api.GetContainerNumSlots and api.GetContainerItemInfo and security) then return nil end
+    local result = {}
+    for bag = 0, 4 do
+        local ok, slots = pcall(api.GetContainerNumSlots, bag)
+        slots = ok and security.SafeNumber(slots) or nil
+        if not slots or slots < 0 or slots > 200 then return nil end
+        for slot = 1, slots do
+            local read, info = pcall(api.GetContainerItemInfo, bag, slot)
+            if not read or security.IsSecretValue(info) then return nil end
+            if info ~= nil and not security.CanAccessTable(info) then return nil end
+            if info ~= nil then
+                local id, count = security.SafeNumber(info.itemID), security.SafeNumber(info.stackCount)
+                if not id or not count then return nil end
+                if count > 0 then
+                    result[#result + 1] = { bag = bag, slot = slot, itemID = id, count = count,
+                        locked = security.SafeBoolean(info.isLocked) ~= false }
+                end
+            end
+        end
+    end
+    return result
+end
+
 function Item.GetSpell(itemInfo)
     if not itemInfo then return nil end
 

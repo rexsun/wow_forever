@@ -443,6 +443,32 @@ function Adapter:IsFormPagingEnabled()
     return type(mask) ~= "table" or mask[key] ~= false
 end
 
+function Adapter:UsesFormAuraPaging()
+    local fallback = Client.formPagingFallbacks
+    if not (fallback and fallback.auraOutOfCombat == true) then return false end
+    local _, class = SafeCall(_G.UnitClass, "player")
+    return SafeString(class) == fallback.class
+end
+
+function Adapter:GetFormAuraFallbackPage()
+    if not self:UsesFormAuraPaging() or self:InCombat() or not self:IsFormPagingEnabled() then return nil end
+    -- Form indexes may lag behind a successful re-entry while its aura is already public.
+    if SafeNumber(SafeCall(_G.GetShapeshiftForm)) ~= 0 then return nil end
+    local api = _G.C_UnitAuras
+    if not (api and type(api.GetPlayerAuraBySpellID) == "function") then return nil end
+    local page, noStealth
+    for spellID, rule in pairs(Client.formPagingFallbacks.spells) do
+        local ok, aura = pcall(api.GetPlayerAuraBySpellID, spellID)
+        if not ok or IsSecretValue(aura) then return nil end
+        if aura ~= nil then
+            if type(aura) ~= "table" or SafeNumber(aura.spellId) ~= spellID then return nil end
+            if page and page ~= rule.page then return nil end
+            page, noStealth = rule.page, rule.noStealth
+        end
+    end
+    return page, noStealth
+end
+
 function Adapter:BuildMainPageDriver()
     local overridePage = SafeNumber(self:GetOverrideBarIndex()) or 14
     local vehiclePage = SafeNumber(self:GetVehicleBarIndex()) or 16
@@ -462,8 +488,31 @@ function Adapter:BuildMainPageDriver()
     for index = 10, 1, -1 do
         -- Only the four class state pages are optional; retain special gameplay pages.
         if formPaging or index > 4 then
-            parts[#parts + 1] = "[bonusbar:" .. index .. "] bonus" .. index
+            -- Resolve fixed client pages before a macro can cross transient form state.
+            local page = Client.classBonusPages and Client.classBonusPages[index] or "bonus" .. index
+            parts[#parts + 1] = "[bonusbar:" .. index .. "] " .. page
         end
+    end
+    local fallback = Client.formPagingFallbacks
+    if formPaging and fallback then
+        local _, class = SafeCall(_G.UnitClass, "player")
+        if class == fallback.class then
+            -- Form indexes depend on the learned list; only spell identities are stable.
+            local count = SafeNumber(self:GetNumShapeshiftForms()) or 0
+            for index = 1, count do
+                local _, _, _, spellID = self:GetShapeshiftFormInfo(index)
+                local rule = spellID and fallback.spells[spellID]
+                if rule then
+                    parts[#parts + 1] = "[form:" .. index .. (rule.noStealth and ",nostealth" or "")
+                        .. "] form" .. rule.page
+                end
+            end
+        end
+    end
+    local auraPage, noStealth = self:GetFormAuraFallbackPage()
+    if auraPage then
+        -- This literal is refreshed by aura events OOC and must never survive into combat.
+        parts[#parts + 1] = "[nocombat" .. (noStealth and ",nostealth" or "") .. "] aura" .. auraPage
     end
     parts[#parts + 1] = "1"
     return table.concat(parts, "; ")
@@ -1210,6 +1259,19 @@ function Adapter:GetShapeshiftFormCooldown(index)
     if not _G.GetShapeshiftFormCooldown then return nil end
     local start, duration, enable = _G.GetShapeshiftFormCooldown(index)
     return SafeNumber(start), SafeNumber(duration), SafeBoolean(enable)
+end
+
+function Adapter:IsShapeshiftFormCooldownOnGCD(spellID)
+    if Client.id ~= "mainline" or not spellID then return false end
+    local spell = YUI.API and YUI.API.Spell
+    if not (spell and spell.GetCooldownDurationObject) then return false end
+    CountRead("stanceRealCooldown")
+    local durationObject = spell.GetCooldownDurationObject(spellID, true)
+    if not durationObject or IsSecretValue(durationObject)
+        or type(durationObject.IsZero) ~= "function" then return false end
+    -- isOnGCD is event-scoped; this path also runs after a deferred form
+    -- refresh. Only a public zero span after excluding GCD proves GCD-only.
+    return SafeBoolean(SafeCall(durationObject.IsZero, durationObject)) == true
 end
 
 function Adapter:GetPossessInfo(index)

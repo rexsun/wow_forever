@@ -755,10 +755,12 @@ function Module:CreateBarItem(parent)
     -- 点击与鼠标事件由 ActionHost 覆盖，content 只承载文本和 OnUpdate。
     local actionHost = YBar:CreateActionHost(content, {
         onEnter = function(_, owner)
+            if YBar.OnModuleEnter then YBar:OnModuleEnter(frame) end
             local script = owner:GetScript("OnEnter")
             if script then script(owner) end
         end,
         onLeave = function(_, owner)
+            if YBar.OnModuleLeave then YBar:OnModuleLeave(frame) end
             local script = owner:GetScript("OnLeave")
             if script then script(owner) end
         end,

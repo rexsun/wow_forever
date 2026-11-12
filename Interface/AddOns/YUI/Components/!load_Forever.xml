@@ -1,5 +1,13 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Include file="ErrorRecorder\!load.xml"/>
     <Include file="AddonAssistant\!load.xml"/>
+    <Include file="AuctionHelper\Locales\!load.xml"/>
+    <Script file="AuctionHelper\DataProfiles.lua"/>
+    <Script file="AuctionHelper\Appearance.lua"/>
+    <Script file="AuctionHelper\Editor.lua"/>
+    <Script file="AuctionHelper\Data_Forever.lua"/>
+    <Script file="AuctionHelper\Search.lua"/>
+    <Script file="AuctionHelper\AuctionHelper.lua"/>
     <Include file="Voice\!load_Forever.xml"/>
     <Include file="CharacterEquipmentInfo\Locales\!load.xml"/>
     <Script file="CharacterEquipmentInfo\SlotOverlays.lua"/>

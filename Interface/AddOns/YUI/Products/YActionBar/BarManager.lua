@@ -421,7 +421,8 @@ local function ShouldRegisterHotEvent(event, auraEnabled, hasOrdinaryActions, ha
         return false
     end
     if event == "UNIT_AURA" then
-        return auraEnabled == true
+        return auraEnabled == true or (YAB.Adapter and YAB.Adapter.UsesFormAuraPaging
+            and YAB.Adapter:UsesFormAuraPaging() == true) or false
     end
     if event == "PET_BATTLE_OPENING_DONE" or event == "PET_BATTLE_CLOSE" then
         return YAB.Adapter and YAB.Adapter.SupportsPetBattleState and YAB.Adapter:SupportsPetBattleState() == true
@@ -564,6 +565,7 @@ local function GetBarConfig(db, barId)
 end
 
 local function GetSpecialConfig(db, barId)
+    if YAB.ClassTools then return YAB.ClassTools:GetConfig(barId, db) end
     return db and db.specialBars and db.specialBars[barId] or nil
 end
 
@@ -940,6 +942,7 @@ function BarManager:GetRuntimeSpecialPresentationConfig(barId, config)
 end
 
 function BarManager:RefreshConfigSnapshot(barId, db)
+    if YAB.ClassTools then YAB.ClassTools:Invalidate() end
     db = db or GetDB()
     if not (db and barId) then return nil end
     local config = GetBarConfig(db, barId)
@@ -955,6 +958,7 @@ function BarManager:RefreshConfigSnapshot(barId, db)
 end
 
 function BarManager:RefreshConfigSnapshots(db)
+    if YAB.ClassTools then YAB.ClassTools:Invalidate() end
     db = db or GetDB()
     if not db then return 0 end
     local count = 0
@@ -991,7 +995,9 @@ function BarManager:AttachConfigSnapshot(record, barId, config, group)
         return nil
     end
     local snapshot = self:GetConfigSnapshot(barId)
-    if not snapshot and config then
+    -- A class bar receives its resolved shared/standalone settings here. The
+    -- selector's shared snapshot may be newer than this cached runtime entry.
+    if not snapshot or (YAB.ClassTools and YAB.ClassTools:IsClassBar(barId)) then
         snapshot = self:UpdateConfigSnapshot(barId, config, group)
     end
     record.configSnapshot = snapshot
@@ -4495,6 +4501,20 @@ function BarManager:QueueFullRefresh(reason)
 end
 
 function BarManager:QueueSettingsRefresh(barId, scope)
+    if YAB.ClassTools and YAB.ClassBars:Owns(barId) then
+        YAB.ClassTools:Invalidate()
+        if barId == "classTools" then
+            if InCombat() then self.pendingStructuralBars.classTools = "class-tools-settings"
+            else YAB.LayoutBridge:SyncClassToolsMover() end
+        end
+        for id in pairs(YAB.ClassBars.active) do
+            if id == barId or barId == "classTools" and YAB.ClassTools:GetSettingsBarId(id) == barId then
+                YAB.ClassBars.configDirty[id] = true
+                self:QueueSpecialRefresh(id, "settings")
+            end
+        end
+        return
+    end
     scope = scope or "full"
     if not barId or scope == "full" or not SETTING_REFRESH_SCOPES[scope] then
         self:QueueFullRefresh("settings")
@@ -5480,8 +5500,9 @@ function BarManager:IsExternalSpecialRecordActive(record)
         return false
     end
     local primary = record.externalPrimary
-    if primary and primary.IsShown and primary:IsShown() then
-        return true
+    if primary and primary.IsShown then
+        -- Native children can remain shown while their owning container is hidden.
+        return primary:IsShown() == true
     end
     for _, button in ipairs(record.externalButtons or {}) do
         if button and button.IsShown and button:IsShown() then
@@ -5777,6 +5798,7 @@ function BarManager:CreateBarById(barId, db)
     local config = GetSpecialConfig(db, barId)
     if not config then return nil, "missing special bar config" end
     if YAB.ClassBars and YAB.ClassBars:Owns(barId) then
+        if YAB.ClassTools then YAB.ClassTools:Invalidate() end
         YAB.ClassBars:SyncEnabled()
         return self.bars[barId]
     end
@@ -5804,7 +5826,9 @@ function BarManager:ApplyBarStructureChange(
 )
     if not barId then return false, "missing bar id" end
     if YAB.ClassBars and YAB.ClassBars:Owns(barId) then
+        if YAB.ClassTools then YAB.ClassTools:Invalidate() end
         YAB.ClassBars:SyncEnabled()
+        if not InCombat() then self.pendingStructuralBars[barId] = nil end
         return true
     end
     if barId == "questItems" and YAB.QuestItems then
@@ -7640,12 +7664,23 @@ function BarManager:RefreshMainPaging()
     local record = self.bars and self.bars.main
     local drivers, adapter = YAB.Drivers, YAB.Adapter
     if not (record and record.holder and drivers and adapter and adapter.IsFormPagingEnabled) then return false end
-    local enabled = adapter:IsFormPagingEnabled()
-    if drivers.mainPagingPolicies and drivers.mainPagingPolicies[record.holder] == enabled then return true end
-    if not drivers:RegisterMainPaging(record.holder, record.buttons) then return false end
+    local driver = adapter:BuildMainPageDriver()
+    if drivers.mainPagingDrivers and drivers.mainPagingDrivers[record.holder] == driver then return true end
+    if not drivers:RegisterMainPaging(record.holder, record.buttons, driver) then return false end
     if YAB.Keybinds then YAB.Keybinds:ApplyRuntimeBindings() end
     self:QueueMainPageIdentity("specialization-paging")
     return true
+end
+
+function BarManager:RefreshMainPagingAura()
+    if self.runtimeActive ~= true or InCombat() then return false end
+    local adapter, drivers = YAB.Adapter, YAB.Drivers
+    local record = self.bars and self.bars.main
+    if not (adapter and adapter.GetFormAuraFallbackPage and drivers and drivers.mainPagingAuraPages
+        and record and record.holder) then return false end
+    local page = adapter:GetFormAuraFallbackPage()
+    if page == drivers.mainPagingAuraPages[record.holder] then return false end
+    return self:RefreshMainPaging()
 end
 
 function BarManager:RegisterEvents()
@@ -7682,7 +7717,8 @@ function BarManager:SyncClassBarEvents()
         local registered = frame:IsEventRegistered(event)
         if wanted and not registered then
             local ok
-            if event == "UNIT_AURA" or event == "UNIT_PET" then ok = pcall(frame.RegisterUnitEvent, frame, event, "player")
+            if event == "UNIT_AURA" or event == "UNIT_PET" or bars.mageCastEvents and bars.mageCastEvents[event] then
+                ok = pcall(frame.RegisterUnitEvent, frame, event, "player")
             elseif event == "UNIT_HAPPINESS" or event == "UNIT_NAME_UPDATE" then
                 ok = pcall(frame.RegisterUnitEvent, frame, event, "pet")
             else ok = pcall(frame.RegisterEvent, frame, event) end
@@ -7696,10 +7732,10 @@ end
 
 function BarManager:OnEvent(event, ...)
     if YAB.ClassBars and YAB.ClassBars:ConsumesEvent(event) then
-        YAB.ClassBars:OnEvent(event)
+        YAB.ClassBars:OnEvent(event, ...)
         if event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE"
             or event == "UPDATE_MULTI_CAST_ACTIONBAR" or event == "UNIT_HAPPINESS"
-            or event == "UNIT_NAME_UPDATE" then return end
+            or event == "UNIT_NAME_UPDATE" or YAB.ClassBars.mageCastEvents and YAB.ClassBars.mageCastEvents[event] then return end
     end
     if event == "PLAYER_SPECIALIZATION_CHANGED" then
         local unit = ...
@@ -7755,7 +7791,8 @@ function BarManager:OnEvent(event, ...)
         return
     end
     if event == "PLAYER_REGEN_ENABLED" then
-        if self.mainPagingPending then self:RefreshMainPaging() end
+        if self.mainPagingPending or (YAB.Adapter and YAB.Adapter.UsesFormAuraPaging
+            and YAB.Adapter:UsesFormAuraPaging() == true) then self:RefreshMainPaging() end
         if YAB.Keybinds and YAB.Keybinds.RefreshHeldBindings then
             YAB.Keybinds:RefreshHeldBindings()
         end
@@ -7864,6 +7901,7 @@ function BarManager:OnEvent(event, ...)
     elseif event == "UNIT_AURA" then
         local unit = ...
         if unit and unit ~= "player" then return end
+        self:RefreshMainPagingAura()
         local db = GetDB()
         if not AuraTimersEnabled(db) then return end
         self.auraDirty = true
@@ -7971,6 +8009,10 @@ function BarManager:OnEvent(event, ...)
         self:QueueSpecialRefresh("pet", event)
         return
     elseif event == "UPDATE_SHAPESHIFT_FORMS" or event == "UPDATE_SHAPESHIFT_FORM" or event == "UPDATE_SHAPESHIFT_USABLE" or event == "UPDATE_SHAPESHIFT_COOLDOWN" then
+        if (event == "UPDATE_SHAPESHIFT_FORMS" or event == "UPDATE_SHAPESHIFT_FORM")
+            and YAB.Client.formPagingFallbacks then
+            self:RefreshMainPaging()
+        end
         if event == "UPDATE_SHAPESHIFT_FORMS" or event == "UPDATE_SHAPESHIFT_FORM" then
             self:QueueAssistedHighlightRefresh(true)
         end
@@ -8852,6 +8894,9 @@ function BarManager:RefreshStanceButton(button, index, db)
     if enable == true and state.cooldownActive ~= true then
         state.cooldownEnable = false
     end
+    if state.cooldownActive == true and YAB.Client.id == "mainline" then
+        state.cooldownOnGCD = YAB.Adapter:IsShapeshiftFormCooldownOnGCD(spellID)
+    end
     local key = YAB.Keybinds:GetBindingText(YAB.Keybinds:GetButtonKey("stance", index), db)
     state.hotkeyText = snapshot.showHotkeys == true and key or ""
     local cooldownState = GetNativeCoreState(self, button)
@@ -8915,6 +8960,17 @@ end
 
 function BarManager:GetActionPageForRecord(barId, record, config, pageState)
     if barId == "main" then
+        local holder, drivers = record and record.holder, YAB.Drivers
+        if holder and holder.GetAttribute and drivers and drivers.mainPagingHooks
+            and drivers.mainPagingHooks[holder] == true then
+            -- Structural/settings refreshes must preserve the page already applied securely.
+            local state = holder:GetAttribute("state-page")
+            local applied = tonumber(state)
+            if not applied and type(state) == "string" then
+                applied = tonumber(state:match("^form(%d+)$") or state:match("^aura(%d+)$"))
+            end
+            if applied then return applied end
+        end
         pageState = pageState or self:GetPageState(false)
         return pageState.effectiveMainPage or pageState.actionPage or 1
     end

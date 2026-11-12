@@ -6,10 +6,11 @@ local Items = { active = false, pending = false, states = {}, order = {}, pool =
 YAB.QuestItems = Items
 local ID = "questItems"
 local API = YUI.API.QuestItems
+local Camp = YAB.Camp
 local EVENTS = { "QUEST_LOG_UPDATE", "QUEST_WATCH_LIST_CHANGED", "QUEST_POI_UPDATE",
     "QUEST_REMOVED", "QUEST_TURNED_IN", "PLAYER_INSIDE_QUEST_BLOB_STATE_CHANGED",
     "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_ENTERING_WORLD", "BAG_UPDATE_DELAYED",
-    "BAG_UPDATE_COOLDOWN", "SPELL_UPDATE_COOLDOWN" }
+    "BAG_UPDATE_COOLDOWN", "SPELL_UPDATE_COOLDOWN", "GET_ITEM_INFO_RECEIVED" }
 
 local function Config()
     local db = YAB:GetDB()
@@ -24,6 +25,12 @@ end
 
 local function InCombat() return YAB.Adapter:InCombat() end
 local function Text(key) return YUI.Locale:Get("YActionBar")[key] end
+local EMPTY = {}
+local function SyncCamp()
+    if not Camp then return end
+    if Config().showCampTools ~= false then Camp:Start()
+    elseif Camp.active then Camp:Stop() end
+end
 
 function Items:GetPins()
     if self.testData then return self.testData.pins end
@@ -356,13 +363,21 @@ function Items:EnsureRecord()
 end
 
 function Items:RefreshCooldowns()
-    if not self.active or not self.record or self.editing then return end
+    if not self.active or not self.record or self.editing or Config().showQuestItems == false then return end
     for _, button in ipairs(self.record.buttons) do
         local entry = self.bound[button]
         if entry and not entry.testItem then
             local state = entry.visualState
-            state.cooldownStart, state.cooldownDuration, state.cooldownEnable = API.GetCooldown(entry.questID)
+            state.cooldownStart, state.cooldownDuration, state.cooldownEnable = API.GetCooldown(entry.questID, entry.compatibility and entry.itemID or nil)
             state.cooldownActive = state.cooldownEnable and state.cooldownDuration > 0
+            if entry.compatibility then
+                local count = API.GetCompatibilityCount(entry.itemID)
+                if count then
+                    entry.charges, state.usable = count, count > 0
+                    state.countText = Config().showCounts ~= false and count > 0 and tostring(count) or ""
+                    if count == 0 then self:Request() end
+                end
+            end
             YAB.Visuals:UpdateButton(button, state, "cooldown")
         end
     end
@@ -426,7 +441,22 @@ end
 
 local function LeaveDeadline()
     Items.leaveTimer = nil
+    Items.deadlineAt = nil
+    if Camp then Camp:Update(GetTime()) end
     Items:Request()
+end
+
+function Items:ScheduleDeadline(now, deadline)
+    if Config().showQuestItems == false then deadline = nil end
+    if deadline and deadline <= now then deadline = nil end
+    if Camp then
+        local campDeadline = Camp:NextDeadline(now)
+        if campDeadline then deadline = math.min(deadline or campDeadline, campDeadline) end
+    end
+    if self.deadlineAt == deadline and (self.leaveTimer or not deadline) then return end
+    CancelTimer("leaveTimer")
+    self.deadlineAt = deadline
+    if deadline then self.leaveTimer = C_Timer.NewTimer(math.max(deadline - now, 0.01), LeaveDeadline) end
 end
 
 local function SameConfig(left, right)
@@ -475,8 +505,11 @@ function Items:PrepareRemoval(visible, recovery)
     for _, button in ipairs(self.record and self.record.buttons or {}) do
         local entry, fade = self.bound[button], self.fades[button]
         local wanted = button == self.recoveryButton and recovery or (entry and visible[entry.itemID])
+        if Camp and Camp:IsButton(button) then wanted = Camp:IsWanted(button) end
         if wanted then
             if fade and fade.to == 0 then self:FadeButton(button, 1, 0.15) end
+        elseif Camp and Camp:IsButton(button) and not Camp.active then
+            self.fades[button] = nil
         elseif not (fade and fade.to == 0 and fade.ready) then
             if not fade or fade.to ~= 0 then self:FadeButton(button, 0, 0.20) end
             if not self.fades[button].ready then waiting = true end
@@ -506,18 +539,20 @@ function Items:Apply(visible, ids)
     end
     local config, db = Config()
     local editing = self.editing == true
-    local count = editing and 3 or #order
-    local recovery = not editing and self:HasSnoozedItems()
+    local count = editing and (config.showQuestItems ~= false and 3 or 0) or #order
+    local recovery = config.showQuestItems ~= false and not editing and self:HasSnoozedItems()
     local pressedEffect = db.appearance and db.appearance.pressedEffect
     local changed = not self.record or #order ~= #self.order or not SameConfig(config, self.appliedConfig)
         or pressedEffect ~= self.appliedPressedEffect or recovery ~= self.recoveryVisible or editing ~= self.appliedEditing
+        or (Camp and Camp:GetSignature() ~= self.appliedCampSignature)
     if not changed then
         for index, itemID in ipairs(order) do
             if index > count then break end
             local entry, old = visible[itemID], self.bound[self.record.buttons[index]]
             if itemID ~= self.order[index] or not old or entry.questID ~= old.questID
                 or entry.link ~= old.link or entry.texture ~= old.texture
-                or entry.charges ~= old.charges or entry.title ~= old.title then changed = true; break end
+                or entry.charges ~= old.charges or entry.title ~= old.title
+                or entry.compatibility ~= old.compatibility then changed = true; break end
         end
     end
     if not changed then self:RefreshCooldowns(); return true end
@@ -527,6 +562,7 @@ function Items:Apply(visible, ids)
     self.appliedConfig = YAB:CopyValue(config)
     self.appliedPressedEffect = pressedEffect
     self.appliedEditing = editing
+    self.appliedCampSignature = Camp and Camp:GetSignature()
     self.order = order
     record.buttons = {}
     local firstEntry = visible[order[1]]
@@ -562,7 +598,7 @@ function Items:Apply(visible, ids)
         local state = { hasAction = true, usable = true,
             texture = entry and entry.texture or firstEntry and firstEntry.texture or "Interface\\Icons\\INV_Misc_QuestionMark",
             hotkeyText = "", nameText = "", countText = not editing and config.showCounts ~= false
-                and entry.charges and entry.charges > 1 and tostring(entry.charges) or "" }
+                and entry.charges and (entry.charges > 1 or entry.compatibility and entry.charges > 0) and tostring(entry.charges) or "" }
         if entry then entry.visualState = state end
         button.previewState = editing and state or nil
         if appearing then self:FadeButton(button, 1, 0.15) end
@@ -589,9 +625,11 @@ function Items:Apply(visible, ids)
         self.fades[self.recoveryButton] = nil
         record.buttons[count + 1] = nil
     end
+    if Camp then Camp:Apply(record, editing) end
     record.configSnapshot = YAB.BarManager:RefreshConfigSnapshot(ID, db)
     record.configSnapshot.buttons = math.max(#record.buttons, 1)
     YAB.BarManager:ApplyLayout(record, config, db)
+    if Camp then Camp:Layout(record); Camp:RefreshVisuals() end
     for _, button in ipairs(record.buttons) do
         local entry = self.bound[button]
         local state = button.previewState or entry and entry.visualState
@@ -605,19 +643,38 @@ end
 
 function Items:Refresh()
     if not self.active or not Enabled() then self:Stop(); return end
+    local now = GetTime()
+    SyncCamp()
+    if Camp then Camp:Update(now) end
     self.pending = true
     if InCombat() or self.hovered or self.menuTargets then return end
-    local now = GetTime()
-    local visible, ids, deadline = self:Collect(now)
+    local visible, ids, deadline
+    if Config().showQuestItems == false then
+        visible, ids, deadline = EMPTY, EMPTY, nil
+        self.questDirty = true
+    elseif self.questDirty ~= false or not self.visibleCache then
+        visible, ids, deadline = self:Collect(now)
+        if visible then
+            self.visibleCache, self.idsCache, self.deadlineCache = visible, ids, deadline
+        else
+            -- An unreadable log must not remove already confirmed quest items
+            -- when an independent camp event changes the shared bar.
+            visible, ids, deadline = self.visibleCache, self.idsCache, self.deadlineCache
+        end
+        self.questDirty = false
+    else
+        visible, ids, deadline = self.visibleCache, self.idsCache, self.deadlineCache
+    end
     if not visible then
         self:StopFades()
         -- The enabled editor mover does not depend on readable quest candidates.
-        if not self.record or self.editing ~= self.appliedEditing then self:Apply({}, {}) end
+        if not self.record or self.editing ~= self.appliedEditing or Camp then self:Apply({}, {}) end
+        if Camp then self:ScheduleDeadline(now) end
         return
     end
-    CancelTimer("leaveTimer")
-    if deadline then self.leaveTimer = C_Timer.NewTimer(math.max(deadline - now, 0.01), LeaveDeadline) end
-    self.pending = not (self:PrepareRemoval(visible, self:HasSnoozedItems()) and self:Apply(visible, ids))
+    self.pending = not (self:PrepareRemoval(visible, Config().showQuestItems ~= false and self:HasSnoozedItems()) and self:Apply(visible, ids))
+    -- Newly shown camp hosts acquire their item cooldown deadlines during Apply.
+    self:ScheduleDeadline(now, deadline)
     self.passes = self.passes + 1
 end
 
@@ -626,8 +683,10 @@ local function RunPending()
     Items:Refresh()
 end
 
-function Items:Request()
+function Items:Request(campOnly)
     if not self.active then return end
+    if not campOnly then self.questDirty = true end
+    if Camp then self:ScheduleDeadline(GetTime(), self.deadlineCache) end
     self.pending = true
     if not self.refreshTimer and not InCombat() and not self.hovered and not self.menuTargets then
         self.refreshTimer = C_Timer.NewTimer(0.1, RunPending)
@@ -637,6 +696,7 @@ end
 function Items:HideRecord()
     local record = self.record
     if not record then return end
+    if Camp then Camp:Release() end
     if record.visibilityHandle and YUI.Visibility then YUI.Visibility:Release(record.visibilityHandle); record.visibilityHandle = nil end
     if YAB.Drivers and YAB.Drivers.ClearFrame then YAB.Drivers:ClearFrame(record.holder) end
     if YAB.BarManager.ReleaseMouseoverFade then YAB.BarManager:ReleaseMouseoverFade(record) end
@@ -662,8 +722,12 @@ function Items:HideRecord()
 end
 
 function Items:Stop()
+    if Camp then Camp:Stop() end
     self:ClearTestItems()
     self.active, self.pending, self.editing = false, false, false
+    self.visibleCache, self.idsCache, self.deadlineCache, self.questDirty = nil, nil, nil, true
+    self.appliedCampSignature = nil
+    self.deadlineAt = nil
     self:StopFades()
     CancelTimer("refreshTimer")
     CancelTimer("leaveTimer")
@@ -682,9 +746,18 @@ function Items:Stop()
     end
 end
 
-local function OnEvent(_, event)
-    if event == "PLAYER_REGEN_DISABLED" then Items:StopFades(); return end
+local function OnEvent(_, event, itemID, success)
+    if event == "PLAYER_REGEN_DISABLED" then
+        Items:StopFades()
+        if YAB:GetDB().interaction.tooltipMode == "outOfCombat" and Items.hovered and GameTooltip:IsOwned(Items.hovered) then
+            GameTooltip:Hide()
+        end
+        return
+    end
     if event == "PLAYER_REGEN_ENABLED" and Items.pendingStop then Items:Stop(); return end
+    if Config().showQuestItems == false and event ~= "PLAYER_REGEN_ENABLED" and event ~= "PLAYER_ENTERING_WORLD" then return end
+    if event == "GET_ITEM_INFO_RECEIVED" and (not API.IsCompatibilityItem(itemID)
+        or YUI.API.Security.SafeBoolean(success) ~= true) then return end
     if event == "BAG_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_COOLDOWN" then Items:RefreshCooldowns() else Items:Request() end
 end
 
@@ -698,6 +771,7 @@ function Items:SyncEnabled()
         end
         self.active, self.pendingStop = true, nil
     end
+    SyncCamp()
     self:Request()
 end
 

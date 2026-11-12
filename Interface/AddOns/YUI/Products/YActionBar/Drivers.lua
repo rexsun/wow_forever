@@ -9,6 +9,8 @@ Drivers.secureQueue = Drivers.secureQueue or {}
 Drivers.registered = Drivers.registered or {}
 Drivers.visibilityDrivers = Drivers.visibilityDrivers or setmetatable({}, { __mode = "k" })
 Drivers.mainPagingHooks = Drivers.mainPagingHooks or setmetatable({}, { __mode = "k" })
+Drivers.mainPagingDrivers = Drivers.mainPagingDrivers or setmetatable({}, { __mode = "k" })
+Drivers.mainPagingAuraPages = Drivers.mainPagingAuraPages or setmetatable({}, { __mode = "k" })
 Drivers.flushExecuted = Drivers.flushExecuted or 0
 Drivers.flushErrors = Drivers.flushErrors or 0
 
@@ -57,7 +59,7 @@ function Drivers:Flush()
     return failed == 0, count, failed
 end
 
-function Drivers:RegisterMainPaging(holder, buttons)
+function Drivers:RegisterMainPaging(holder, buttons, driver)
     if not holder or not RegisterStateDriver then return false end
     return self:RunOrQueue("main paging", function()
         if InCombat() then return false end
@@ -75,9 +77,11 @@ function Drivers:RegisterMainPaging(holder, buttons)
             holder:SetFrameRef("actionGridRoot", actionGridRoot)
         end
         holder:SetAttribute("_onstate-page", [[
-            local currentPage = tonumber(GetActionBarPage and GetActionBarPage() or 1) or 1
-            local page = tonumber(newstate)
+            local formPage = type(newstate) == "string"
+                and tonumber(newstate:match("^form(%d+)$") or newstate:match("^aura(%d+)$")) or nil
+            local page = tonumber(newstate) or formPage
             if not page then
+                local currentPage = tonumber(GetActionBarPage and GetActionBarPage() or 1) or 1
                 page = currentPage
                 if HasVehicleActionBar and HasVehicleActionBar() then
                     page = GetVehicleBarIndex and GetVehicleBarIndex() or page
@@ -93,9 +97,13 @@ function Drivers:RegisterMainPaging(holder, buttons)
             local actionGridRoot = self:GetFrameRef("actionGridRoot")
             local gridActive = actionGridRoot
                 and actionGridRoot:GetAttribute("yab-action-grid-active") == true
+            local formFallback = formPage and true or nil
             for i = 1, 12 do
                 local button = self:GetFrameRef("button" .. i)
                 if button then
+                    if button:GetAttribute("yab-form-page-fallback") ~= formFallback then
+                        button:SetAttribute("yab-form-page-fallback", formFallback)
+                    end
                     local slot = ((page - 1) * 12) + i
                     button:SetAttribute("action", slot)
                     button:SetAttribute("action1", slot)
@@ -125,8 +133,17 @@ function Drivers:RegisterMainPaging(holder, buttons)
                 end
             end
         ]])
-        local driver = YAB.Adapter and YAB.Adapter:BuildMainPageDriver() or "1"
+        driver = driver or (YAB.Adapter and YAB.Adapter:BuildMainPageDriver() or "1")
+        if YAB.Client and YAB.Client.formPagingFallbacks and holder.GetAttribute
+            and holder:GetAttribute("state-page") ~= nil then
+            -- Native unregister retains the state. Reapply it to new/reused button refs OOC.
+            local clearState = holder.SetAttributeNoHandler or holder.SetAttribute
+            clearState(holder, "state-page", nil)
+        end
         RegisterStateDriver(holder, "page", driver)
+        self.mainPagingDrivers[holder] = driver
+        self.mainPagingAuraPages[holder] = YAB.Adapter and YAB.Adapter.GetFormAuraFallbackPage
+            and YAB.Adapter:GetFormAuraFallbackPage() or nil
         self.mainPagingPolicies = self.mainPagingPolicies or setmetatable({}, { __mode = "k" })
         self.mainPagingPolicies[holder] = YAB.Adapter and YAB.Adapter.IsFormPagingEnabled
             and YAB.Adapter:IsFormPagingEnabled() or false
@@ -158,6 +175,15 @@ function Drivers:ClearFrame(frame)
         local attrs = self.registered[frame]
         if attrs and attrs.page and self.mainPagingHooks[frame] ~= nil then
             self.mainPagingHooks[frame] = false
+            self.mainPagingDrivers[frame] = nil
+            self.mainPagingAuraPages[frame] = nil
+            if self.mainPagingPolicies then self.mainPagingPolicies[frame] = nil end
+            for index = 1, 12 do
+                local button = frame:GetFrameRef("button" .. index)
+                if button and button:GetAttribute("yab-form-page-fallback") then
+                    button:SetAttribute("yab-form-page-fallback", nil)
+                end
+            end
         end
         if attrs and UnregisterStateDriver then
             for attr in pairs(attrs) do

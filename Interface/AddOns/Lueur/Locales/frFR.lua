@@ -49,6 +49,7 @@ L.NAME_CHEST = "coffre"
 L.NAME_BOBBER = "flotteur"
 L.NAME_OTHER = "autre"
 L.NAME_NONE = "aucune"
+L.NAME_UNNAMED = "Tout objet sans nom"
 
 L.SAMPLE_ORE = "Filon de cuivre"
 L.SAMPLE_HERB = "Pacifique"
@@ -67,6 +68,8 @@ L.EFFECT_SUBTLE = "Discret"
 L.EFFECT_SUBTLE_TIP = "Une lueur douce, sans anneau ni comètes."
 L.EFFECT_SIGIL = "Sceau"
 L.EFFECT_SIGIL_TIP = "Un cercle de runes tourne lentement autour de l'objet."
+L.EFFECT_BRACKETS = "Viseur"
+L.EFFECT_BRACKETS_TIP = "Quatre coins encadrent l'objet et se verrouillent sur lui dès qu'il est à portée."
 L.EFFECT_VORTEX = "Tourbillon"
 L.EFFECT_VORTEX_TIP = "Des bras de lumière s'enroulent autour de l'objet, comme un portail qui s'ouvre."
 L.EFFECT_FLAME = "Flamme"
@@ -146,7 +149,7 @@ L.TIP_COLOR_RESET = "Clic droit : revenir à la couleur d'origine"
 L.IGNORED = "Objets ignorés : %d"
 L.IGNORED_TIP = "Objets qui ne reçoivent jamais d'effet, quelle que soit leur catégorie. /lueur ignorer liste les nomme, /lueur ignorer vider les oublie tous."
 L.IGNORE_TARGET = "Ignorer la cible"
-L.IGNORE_TARGET_TIP = "Ignore l'objet qui se trouve devant toi en ce moment, ou cesse de l'ignorer."
+L.IGNORE_TARGET_TIP = "Ignore l'objet qui se trouve devant toi en ce moment, et tous ceux du même nom. Sur un objet déjà ignoré, clique deux fois pour cesser de l'ignorer."
 
 L.HIDE_COMBAT = "En combat"
 L.HIDE_COMBAT_TIP = "Pas d'effet tant que tu es en combat."
@@ -258,6 +261,7 @@ L.MSG_HIDE_UNTRAINED = "effet masqué sur les plantes et filons sans le métier 
 L.MSG_GLOW_ONLY = "lueur seule, la nameplate laissée au jeu ou à un autre addon : %s"
 L.MSG_IGNORED = "%s ne recevra plus d'effet."
 L.MSG_UNIGNORED = "%s n'est plus ignoré."
+L.MSG_IGNORED_ALREADY = "%s est déjà ignoré, comme tous les objets de ce nom. Redemande-le pour cesser de l'ignorer."
 L.MSG_IGNORE_NO_TARGET = "aucun objet devant toi à ignorer."
 L.MSG_IGNORE_LIST = "objets ignorés : %s"
 L.MSG_IGNORE_EMPTY = "aucun objet n'est ignoré."
@@ -408,7 +412,7 @@ L.HELP = {
 	"/lueur ressources [minerai | herbe] — affiche ou masque sur la minimap les icônes des plantes et des filons ; ressources taille <{nodeSize}> règle leur taille (défaut {nodeSize=}) ; ressources bordure <{nodeRing}> règle l'épaisseur de leur anneau coloré, 0 pour aucun (défaut {nodeRing=}) ; ressources combat : si la minimap se lit en combat",
 	"/lueur alterner [<{nodeSwitchYards}>] — avec les deux métiers de récolte : alterne le pistage des plantes et celui des minerais au fil de tes déplacements ; un nombre règle la distance entre deux bascules, en mètres (défaut {nodeSwitchYards=})",
 	"/lueur balayage — affiche ce que le dernier balayage de la minimap a lu, et ce que Lueur en a fait ; balayage <{nodeScanYards}> règle l'espacement des balayages, en mètres (défaut {nodeScanYards=})",
-	"/lueur ignorer — ignore l'objet qui se trouve devant toi, ou cesse de l'ignorer ; ignorer liste, ignorer vider, ignorer <nom>",
+	"/lueur ignorer — ignore l'objet qui se trouve devant toi et ceux du même nom (deux fois sur un objet ignoré : cesse de l'ignorer) ; ignorer liste, ignorer vider, ignorer <nom>",
 	"/lueur langue <auto | de | en | es | fr | ru> — langue des textes et des commandes de Lueur",
 	"/lueur debug — décrit chaque objet ciblé et ce que Lueur en déduit",
 	"/lueur objectifs — liste les objectifs de quête auxquels le nom des objets est comparé",

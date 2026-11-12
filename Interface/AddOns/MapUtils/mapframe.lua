@@ -100,7 +100,7 @@ end
 
 local function UpdateTopClamp()
 	local gap = 0
-	if IsMaximized() and not MapUtils:IsWorldMapFullscreen() and MoveEnabled() and MapUtils.GetSimpleMapTopGap then
+	if not MapUtils:IsWorldMapFullscreen() and MoveEnabled() and MapUtils.GetSimpleMapTopGap then
 		gap = MapUtils:GetSimpleMapTopGap()
 	end
 	if gap > 0 then
@@ -205,17 +205,17 @@ local function Apply()
 			SetPos(ClampPos(pos.x, pos.y, topGap))
 		end
 	else
-		UpdateTopClamp()
 		local scale = 1
 		if ScaleEnabled() then scale = ClampScale(MAUTTAB["WORLDMAPSCALEVALUE"]) end
 		local foreignLeft, foreignTop
 		if foreignMove then foreignLeft, foreignTop = GetPos() end
 		SetScale(scale)
+		local topGap = UpdateTopClamp()
 		local pos = MAUTTAB["WORLDMAPPOS"]
 		if foreignMove then
 			if foreignLeft ~= nil then SetPos(foreignLeft, foreignTop) end
 		elseif MoveEnabled() and type(pos) == "table" and pos.x ~= nil and pos.y ~= nil then
-			SetPos(ClampPos(pos.x, pos.y))
+			SetPos(ClampPos(pos.x, pos.y, topGap))
 		elseif blizzardPoint ~= nil then
 			local point, relativeTo, relativePoint, x, y = unpack(blizzardPoint)
 			frame:ClearAllPoints()
@@ -277,6 +277,7 @@ local function OnSizing()
 	SetScale(ClampScale(scale, maxScale))
 	SetPos(sizing.left, sizing.top)
 	applying = false
+	MapUtils:ShowScaleGripTooltip(grip)
 end
 
 local function StopSizing()
@@ -314,11 +315,40 @@ local function StartSizing(_, button)
 	grip:SetScript("OnUpdate", OnSizing)
 end
 
+function MapUtils:ShowScaleGripTooltip(target)
+	if target.getScale == nil then return end
+	GameTooltip:SetOwner(target, "ANCHOR_RIGHT")
+	GameTooltip:SetText(MapUtils:Trans("LID_WIDGETSCALE", nil, math.floor(target.getScale() * 100 + 0.5)))
+	GameTooltip:AddLine(format("|cffffd100%s|r  %s", MapUtils:Trans("LID_LEFTCLICK"), MapUtils:Trans("LID_DRAGTOSCALE")), 1, 1, 1)
+	GameTooltip:AddLine(format("|cffffd100%s|r  %s", MapUtils:Trans("LID_RIGHTCLICK"), MapUtils:Trans("LID_RESETSCALE", nil, 100)), 1, 1, 1)
+	GameTooltip:Show()
+end
+
+function MapUtils:SetupScaleGrip(target, getScale, reset)
+	target.getScale = getScale
+	target:SetScript("OnEnter", function(owner) MapUtils:ShowScaleGripTooltip(owner) end)
+	target:SetScript("OnLeave", function(owner) if owner:GetScript("OnUpdate") == nil and GameTooltip:IsOwned(owner) then GameTooltip:Hide() end end)
+	target:HookScript("OnMouseUp", function(owner, button)
+		if button == "RightButton" then reset() end
+		if owner:IsMouseOver() then
+			MapUtils:ShowScaleGripTooltip(owner)
+		elseif GameTooltip:IsOwned(owner) then
+			GameTooltip:Hide()
+		end
+	end)
+end
+
 local function CreateGrip()
 	grip = MapUtils:CreateSizeGrip(frame, GRIP_SIZE)
 	grip:SetScript("OnMouseDown", StartSizing)
 	grip:SetScript("OnMouseUp", StopSizing)
 	grip:SetScript("OnHide", StopSizing)
+	MapUtils:SetupScaleGrip(grip, function() return frame:GetScale() end, function()
+		if IsLocked() or CheckForeign() then return end
+		MapUtils:SV(MAUTTAB, "WORLDMAPSCALEVALUE", 1)
+		Apply()
+	end)
+
 	grip:Hide()
 end
 
@@ -762,14 +792,16 @@ end
 
 function SmoothZoom.GetMaxScale(container)
 	local maxScale = container:GetScaleForMaxZoom()
-	if container.mapID == 1458 then return math.max(maxScale, container:GetScaleForMinZoom() * SmoothZoom.zoneZoom) end
-	if not SmoothZoom.IsSpace(container.mapID) then return maxScale end
-	local info = C_Map.GetMapInfo(container.mapID)
-	local zoom = (info and info.mapType == Enum.UIMapType.Zone) and SmoothZoom.zoneZoom or SmoothZoom.spaceZoom
-	maxScale = math.max(maxScale, container:GetScaleForMinZoom() * zoom)
-	if info and info.mapType == Enum.UIMapType.Zone and MapUtils.GetZoneDetailTilePixelsPerScale ~= nil then
-		local perScale = MapUtils:GetZoneDetailTilePixelsPerScale(container.mapID)
-		if perScale ~= nil and perScale > 0 then maxScale = math.max(maxScale, MapUtils:GetZoneDetailTileFullPixels() * SmoothZoom.tileFullMargin / perScale) end
+	local mapID = container.mapID
+	local info = mapID and C_Map.GetMapInfo(mapID)
+	local zone = info and info.mapType == Enum.UIMapType.Zone
+	if mapID == 1458 or SmoothZoom.IsSpace(mapID) then
+		local zoom = (zone or mapID == 1458) and SmoothZoom.zoneZoom or SmoothZoom.spaceZoom
+		maxScale = math.max(maxScale, container:GetScaleForMinZoom() * zoom)
+	end
+	if zone and MapUtils.GetZoneDetailTilePixelsPerScale ~= nil then
+		local perScale = MapUtils:GetZoneDetailTilePixelsPerScale(mapID)
+		if perScale ~= nil and perScale > 0 then maxScale = math.max(maxScale, MapUtils:GetZoneDetailTileFullPixels(mapID) * SmoothZoom.tileFullMargin / perScale) end
 	end
 
 	return maxScale
@@ -1357,6 +1389,54 @@ function SmoothZoom.InstallSpokenPlacesDragGuard()
 
 		return areaAt(self, ...)
 	end
+end
+
+function MapUtils:GetUnitMapPosition(unit)
+	if C_Map == nil or C_Map.GetBestMapForUnit == nil or C_Map.GetPlayerMapPosition == nil then return nil end
+	local mapID = C_Map.GetBestMapForUnit(unit)
+	if mapID == nil or MapUtils:IsSecret(mapID) then return nil end
+	local pos = C_Map.GetPlayerMapPosition(mapID, unit)
+	if pos == nil then return nil end
+	local x, y = pos:GetXY()
+	if x == nil or y == nil or MapUtils:IsSecret(x) or MapUtils:IsSecret(y) or (x == 0 and y == 0) then return nil end
+
+	return mapID, x, y
+end
+
+function MapUtils:CenterWorldMapOnUnit(unit)
+	local container = WheelZoom.container
+	if frame == nil or container == nil or IsLocked() then return false end
+	local mapID, x, y = MapUtils:GetUnitMapPosition(unit)
+	if mapID == nil then return false end
+	SmoothZoom.anim = nil
+	WheelZoom.pending = nil
+	if frame:GetMapID() ~= mapID then
+		MapLevelZoom.lastSwitch = GetTime()
+		WheelZoom.own = true
+		frame:SetMapID(mapID)
+		WheelZoom.own = false
+		if frame:GetMapID() ~= mapID then return false end
+	end
+
+	local scale = container:GetCanvasScale()
+	if MapUtils:IsOneMap() and container.zoomLevels ~= nil and SmoothZoom.IsSpace(mapID) then
+		SmoothZoom.pickMapID = mapID
+		SmoothZoom.SetView(container, scale, x, y, scale, x, y)
+		SmoothZoom.ShowLoadedArt()
+		if MapUtils.UpdateWorldPinsNow ~= nil then MapUtils.UpdateWorldPinsNow() end
+
+		return true
+	end
+
+	if container.InstantPanAndZoom == nil then return false end
+	local minScale = container.GetScaleForMinZoom and container:GetScaleForMinZoom()
+	local maxScale = container.GetScaleForMaxZoom and container:GetScaleForMaxZoom()
+	if minScale ~= nil and maxScale ~= nil and scale <= minScale + SCALE_EPSILON then scale = maxScale end
+	WheelZoom.own = true
+	container:InstantPanAndZoom(scale, x, y)
+	WheelZoom.own = false
+
+	return true
 end
 
 function MapLevelZoom.Install()

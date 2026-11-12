@@ -572,6 +572,16 @@ function Layout:ApplyEllesmereParty(side)
             return false, "combat-defer-failed"
         end
     end
+    local petSideOK, petSideError = pcall(function()
+        local pets = context.profile.petFrames
+        if type(pets) ~= "table" or pets.party ~= true or context.profile.partyHorizontal then return end
+        pets.ownerSide = side == "left" and "left" or "right"
+    end)
+    if petSideOK then
+        Layout.lastPartyPetSideSyncError = nil
+    else
+        Layout.lastPartyPetSideSyncError = petSideError
+    end
     if not pcall(namespace.ReloadPartyFrames) then
         return false, "layout-refresh-failed"
     end

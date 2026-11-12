@@ -12,6 +12,9 @@ local L = ns.Locale and ns.Locale:Get("AuctionHelper") or setmetatable({}, { __i
 local PRODUCT_ID = ns.GetAddonProductId and ns:GetAddonProductId(ADDON_NAME, "auction_helper")
     or ns.ProductId or "auction_helper"
 local TOOLBOX_MANAGED = PRODUCT_ID == "suite" or PRODUCT_ID == "toolbox"
+local FOREVER_CATALOG = ns.IsForever and ns.AuctionHelperForeverData
+-- 无限服数据未加载时不回退到正式服物品。
+if ns.IsForever and not FOREVER_CATALOG then return end
 
 -- 缓存全局函数
 local GetItemIcon = GetItemIcon or C_Item.GetItemIconByID
@@ -136,7 +139,7 @@ function DB:IsEnabled()
     return false
 end
 
-local DATA = {
+local DATA = FOREVER_CATALOG and FOREVER_CATALOG.data or {
     {
         key = "buffs",
         nameKey = "category.buffs",
@@ -531,7 +534,7 @@ local DATA = {
     },
 }
 
-local TABS = {
+local TABS = FOREVER_CATALOG and FOREVER_CATALOG.tabs or {
     { nameKey = "tab.consumables.name", icon = "consumable", categories = {"buffs", "food", "potions", "other"} },
     { nameKey = "tab.gems.name", icon = "gem", categories = {"diamonds", "bloodstones", "high_gems", "low_gems"} },
     { nameKey = "tab.enchants.name", icon = "enchant", categories = {"enchant_weapon", "enchant_helm", "enchant_shoulder", "enchant_chest", "enchant_legs", "enchant_boots", "enchant_gloves", "enchant_ring", "enchant_tool"} },
@@ -542,10 +545,10 @@ local Profiles = ns.AuctionHelperProfiles
 if Profiles and Profiles.SetOfficialProfiles then
     Profiles:SetOfficialProfiles({
         {
-            id = "recommended",
-            revision = 3,
-            nameKey = "profile.official_recommended",
-            fallbackName = "12.1 Recommended List",
+            id = FOREVER_CATALOG and FOREVER_CATALOG.id or "recommended",
+            revision = FOREVER_CATALOG and FOREVER_CATALOG.revision or 3,
+            nameKey = FOREVER_CATALOG and FOREVER_CATALOG.nameKey or "profile.official_recommended",
+            fallbackName = FOREVER_CATALOG and FOREVER_CATALOG.fallbackName or "12.1 Recommended List",
             data = DATA,
             tabs = TABS,
         },
@@ -554,6 +557,25 @@ end
 
 local function GetDefaultProfileName()
     return L["profile.default_name"]
+end
+
+local function GetShoppingFaction()
+    local unitAPI = FOREVER_CATALOG and ns.API.Unit
+    return unitAPI and unitAPI.UnitFactionGroup and unitAPI.UnitFactionGroup("player") or nil
+end
+
+local function GetVisibleShoppingRow(row, faction)
+    if not FOREVER_CATALOG then return row end
+    local visible = {}
+    for _, item in ipairs(row) do
+        local ids = item.ids or item.id
+        local primaryID = type(ids) == "table" and ids[1] or ids
+        local requiredFaction = FOREVER_CATALOG.itemFactions[primaryID]
+        if not requiredFaction or requiredFaction == faction then
+            visible[#visible + 1] = item
+        end
+    end
+    return visible
 end
 
 local function CreateEditorConfig(onChanged, ownerFrame)
@@ -601,10 +623,13 @@ local function ResolveEntryText(entry, field, keyField)
 end
 
 local DEFAULT_TAB_SHORT_KEYS = {
-    ["tab.consumables.name"] = "tab.consumables.short",
+    ["tab.consumables.name"] = FOREVER_CATALOG and "forever.tab.consumables.short" or "tab.consumables.short",
     ["tab.gems.name"] = "tab.gems.short",
     ["tab.enchants.name"] = "tab.enchants.short",
     ["tab.crafting.name"] = "tab.crafting.short",
+    ["forever.tab.enhancements.name"] = "forever.tab.enhancements.short",
+    ["forever.tab.materials.name"] = "forever.tab.materials.short",
+    ["forever.tab.supplies.name"] = "forever.tab.supplies.short",
 }
 
 local function BuildTabLabel(tab)
@@ -638,7 +663,7 @@ local auctionHelperFeatureActive = false
 local browseResultsFontTargets = setmetatable({}, { __mode = "k" })
 
 local function IsBrowseResultsFontFeatureEnabled()
-    if not YUI.IsRetail or not auctionHelperFeatureActive or not DB:IsEnabled() then
+    if not (YUI.IsRetail or YUI.IsForever) or not auctionHelperFeatureActive or not DB:IsEnabled() then
         return false
     end
 
@@ -824,7 +849,7 @@ local function ScheduleBrowseResultsFontRefresh()
 end
 
 local function InstallBrowseResultsFontHooks()
-    if browseResultsFontHooksInstalled or not YUI.IsRetail then
+    if browseResultsFontHooksInstalled or not (YUI.IsRetail or YUI.IsForever) then
         return
     end
 
@@ -890,6 +915,7 @@ local function CreateUI()
     local tabContentFrames = {}
     local tabWidget
     local selectedTabIndex = 1
+    local shoppingFaction
     
     local db = DB:Get()
     local appearance = ns.AuctionHelperAppearance
@@ -909,7 +935,8 @@ local function CreateUI()
     f:SetPoint("BOTTOMLEFT", parent, "BOTTOMRIGHT", 2, 0)
     f:SetWidth(helperWidth)
     f:SetFrameLevel(parent:GetFrameLevel() + 20)
-    appearance:Register(f, { blizzardWindow = "auctionhouse", themeProvider = function() return DB:Get().themeStyle end, role = "helper" })
+    appearance:Register(f, { blizzardWindow = "auctionhouse", themeProvider = function() return DB:Get().themeStyle end,
+        nativeBorderOverflow = true, role = "helper" })
     
     ns.AuctionHelperFrame = f
     local search = ns.AuctionHelperSearch:Create(f, parent, function()
@@ -1062,7 +1089,8 @@ local function CreateUI()
     settingsFrame:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT", 2, 0)
     settingsFrame:Hide()
     settingsFrame:SetFrameLevel(f:GetFrameLevel() + 5)
-    appearance:Register(settingsFrame, { blizzardWindow = "auctionhouse", themeProvider = function() return DB:Get().themeStyle end, role = "settings" })
+    appearance:Register(settingsFrame, { blizzardWindow = "auctionhouse", themeProvider = function() return DB:Get().themeStyle end,
+        nativeBorderOverflow = true, role = "settings" })
 
     -- Settings Close Button
     local sCloseBtn = GUI2:CreateButtonFrame(settingsFrame, { template = "BackdropTemplate" })
@@ -1113,6 +1141,7 @@ local function CreateUI()
         blizzardWindow = "auctionhouse",
         themeProvider = function() return DB:Get().themeStyle end,
         heading = sTitle,
+        nativeBorderOverflow = true,
         headingColorKey = "color.text.accent",
         role = "settings",
     })
@@ -1229,22 +1258,24 @@ local function CreateUI()
     AlignSettingsSwitch(collapseSwitch)
     yPos = yPos - 30
 
-    local trackingSwitch = GUI2:CreateSwitch(settingsContent, {
-        label = L["settings.recipe_tracking_enabled"],
-        default = db.recipeTrackingEnabled,
-        onText = L["settings.yes"],
-        offText = L["settings.no"],
-        onColor = {0.2, 0.6, 0.2},
-        offColor = {0.5, 0.5, 0.5},
-        width = 64,
-        onChange = function(_, value)
-            db.recipeTrackingEnabled = value == true
-            if f.recipeTracker then f.recipeTracker:RefreshEnabled() end
-        end,
-    })
-    trackingSwitch:SetPoint("TOPLEFT", 14, yPos)
-    AlignSettingsSwitch(trackingSwitch)
-    yPos = yPos - 30
+    if not ns.IsForever then
+        local trackingSwitch = GUI2:CreateSwitch(settingsContent, {
+            label = L["settings.recipe_tracking_enabled"],
+            default = db.recipeTrackingEnabled,
+            onText = L["settings.yes"],
+            offText = L["settings.no"],
+            onColor = {0.2, 0.6, 0.2},
+            offColor = {0.5, 0.5, 0.5},
+            width = 64,
+            onChange = function(_, value)
+                db.recipeTrackingEnabled = value == true
+                if f.recipeTracker then f.recipeTracker:RefreshEnabled() end
+            end,
+        })
+        trackingSwitch:SetPoint("TOPLEFT", 14, yPos)
+        AlignSettingsSwitch(trackingSwitch)
+        yPos = yPos - 30
+    end
 
     RebuildTabContents = function()
         if RebuildTabs then RebuildTabs(selectedTabIndex) end
@@ -1453,6 +1484,18 @@ local function CreateUI()
     collapseIcon:SetPoint("CENTER")
     collapseIcon:SetAtlas("uitools-icon-chevron-left")
     collapseIcon:SetVertexColor(0.7, 0.7, 0.7)
+
+    local function RefreshHeaderButtons()
+        local native = optionalSkin and optionalSkin.source == "native"
+        local insetX, insetY = native and 10 or 4, native and 3 or 4
+        collapseBtn:ClearAllPoints()
+        collapseBtn:SetPoint("TOPLEFT", insetX, -insetY)
+        closeBtn:ClearAllPoints()
+        closeBtn:SetPoint("TOPRIGHT", -insetX, -insetY)
+        sCloseBtn:ClearAllPoints()
+        sCloseBtn:SetPoint("TOPRIGHT", -insetX, -insetY)
+    end
+    RefreshHeaderButtons()
     
     collapseBtn:SetScript("OnEnter", function(self)
         collapseIcon:SetVertexColor(1, 0.82, 0)
@@ -1516,6 +1559,7 @@ local function CreateUI()
         blizzardWindow = "auctionhouse",
         themeProvider = function() return DB:Get().themeStyle end,
         heading = title,
+        nativeBorderOverflow = true,
         headingColorKey = "color.text.accent",
         role = "helper",
     })
@@ -1600,7 +1644,7 @@ local function CreateUI()
             
             for _, row in ipairs(cat.rows) do
                 local xOffset = xOffset_1st
-                for _, item in ipairs(row) do
+                for _, item in ipairs(GetVisibleShoppingRow(row, shoppingFaction)) do
                     local itemIDs = item.ids or item.id
                     if type(itemIDs) ~= "table" then itemIDs = {itemIDs} end
                     local primaryID = itemIDs[1]
@@ -1747,6 +1791,7 @@ local function CreateUI()
 
         local profile = GetActiveShoppingProfile()
         local sourceTabs = profile and profile.tabs or TABS
+        shoppingFaction = GetShoppingFaction()
         local tabItems = {}
         for tabIndex, tabData in ipairs(sourceTabs) do
             tabItems[tabIndex] = {
@@ -1845,6 +1890,7 @@ local function CreateUI()
         optionalSkin = appearance:Refresh(f) or optionalSkin
         appearance:Refresh(settingsFrame)
         isSkinEnabled = appearance:IsDark(optionalSkin)
+        RefreshHeaderButtons()
         for _, fontString in ipairs(appearanceTexts) do
             ApplyOptionalFont(fontString, optionalSkin)
             if fontString.yuiAuctionAfterFont then fontString:yuiAuctionAfterFont() end
@@ -1863,7 +1909,7 @@ local function CreateUI()
                     or previousAccent[3] ~= accent[3]
                     or previousAccent[4] ~= accent[4]
             end
-            if previousSource ~= optionalSkin.source or accentChanged then
+            if previousSource ~= optionalSkin.source or accentChanged or shoppingFaction ~= GetShoppingFaction() then
                 RebuildTabs(selectedTabIndex)
             else
                 tabWidget:RefreshTheme()
@@ -1894,7 +1940,7 @@ local function CreateUI()
     
     f:StartCountUpdates()
     InstallBrowseResultsFontHooks()
-    if ns.AuctionHelperRecipeTracker then
+    if not ns.IsForever and ns.AuctionHelperRecipeTracker then
         f.recipeTracker = ns.AuctionHelperRecipeTracker:Create({
             helper = f,
             settings = settingsFrame,

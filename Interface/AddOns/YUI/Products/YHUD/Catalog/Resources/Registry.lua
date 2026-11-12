@@ -1172,6 +1172,36 @@ function Catalog:GetGroupPresets(profile, groupId, eligible, target)
     return self:GetCurrentPresets(scoped, target)
 end
 
+-- Cold configuration only. Count physical presets, including distinct custom
+-- resources sharing a source and the two halves of a paired swing row.
+function Catalog:GetGroupLayerCapacity(profile, groupId, classFile, specID)
+    local group = profile.groups and profile.groups.items[groupId]
+    if group and group.contentPolicy == "cast-only" then return 1 end
+    local scoped = YHUD:GetResourceProfile(profile, groupId)
+    if scoped._yhudInitialResourceOnly == true then
+        return #self:GetInitialPresets(scoped)
+    end
+    if not classFile or not specID then
+        classFile, specID = self:GetCurrentContext()
+    end
+    local manager = YHUD.ResourceManager
+    local forms = self:GetFormOptions(classFile, specID)
+    if #forms == 0 then
+        local presets = manager
+            and manager:GetPresets(scoped, classFile, specID, nil, true)
+            or self:GetEnabledPresets(scoped, classFile, specID)
+        return #presets
+    end
+    local capacity = 0
+    for index = 1, #forms do
+        local presets = manager
+            and manager:GetPresets(scoped, classFile, specID, forms[index].key, true)
+            or self:GetEnabledFormPresets(scoped, classFile, specID, forms[index].key)
+        capacity = math.max(capacity, #presets)
+    end
+    return capacity
+end
+
 function Catalog:GetResourceUnion(profile, target, eligible, projection)
     target = type(target) == "table" and target or {}
     for index = #target, 1, -1 do target[index] = nil end

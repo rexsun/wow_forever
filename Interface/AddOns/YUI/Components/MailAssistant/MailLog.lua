@@ -25,7 +25,9 @@ function Log:GetStore()
 end
 
 function Log:Changed()
-    if Assistant.MailLogView then Assistant.MailLogView:Refresh() end
+    local view = Assistant.MailLogView
+    if view and view.window and view.window:IsShown() then view:Refresh()
+    else Assistant:RefreshMailLogClasses(self:GetStore()) end
 end
 
 function Log:CancelTimer()
@@ -42,9 +44,9 @@ function Log:Schedule()
     self.timer = _G.C_Timer.NewTimer(0.2, Tick)
 end
 
-function Log:Observe()
+function Log:Observe(snapshot)
     if not self.enabled or not self.open then return end
-    local snapshot = Assistant.Inbox:Capture()
+    snapshot = snapshot or Assistant.Inbox:Capture()
     if snapshot then
         local receipts, matched = self.tracker:Observe(snapshot)
         local store, character = self:GetStore(), Assistant:GetMailLogCharacter()
@@ -60,7 +62,7 @@ function Log:Observe()
             if self.deadline then self.unverified = self.unverified + 1; self:Changed() end
             self.deadline = nil
         end
-        if #receipts > 0 and not _G.C_Mail.IsCommandPending() then self.deadline = nil end
+        if not self.tracker:HasPendingIntents() then self.deadline = nil end
     end
     if self.deadline and _G.GetTime() >= self.deadline then
         self.deadline = nil; self.unverified = self.unverified + 1; self:Changed()
@@ -148,6 +150,19 @@ function Log:EnsureHooks()
         Security.SafeHook("MailAssistant.Log:" .. name, _G, name, function(index)
             if not Log.enabled or not Log.open or not Number(index) then return end
             local entry = Log.tracker.entries[index]
+            if entry and entry.intent then
+                local snapshot = Assistant.Inbox:Capture()
+                local after = snapshot and snapshot[index]
+                -- Closing a manually emptied letter can request its deletion
+                -- before the receipt event reaches us. Confirm only an empty
+                -- row that is still present; disappearance may be destruction.
+                if snapshot and #snapshot == #Log.tracker.entries and after
+                    and after.logIdentity == entry.data.logIdentity
+                    and after.money == 0 and #after.items == 0 then
+                    Log:Observe(snapshot)
+                    entry = Log.tracker.entries[index]
+                end
+            end
             if entry then entry.intent = nil end
         end)
     end
@@ -193,6 +208,7 @@ function Log:Open()
     Event:On("MAIL_SUCCESS", InboxChanged, sessionOwner)
     Event:On("MAIL_FAILED", MailFailed, sessionOwner)
     self:EnsureHooks()
+    Assistant:RefreshMailLogClasses(self:GetStore())
 end
 
 local function Open() Log:Open() end

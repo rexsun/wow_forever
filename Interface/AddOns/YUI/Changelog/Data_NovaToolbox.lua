@@ -1,6 +1,59 @@
 -- Generated from Docs/Products/YUI_NovaToolbox/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("toolbox", {
+-- YUI-Notes-Record: nova-139|mainline|ea92e38bfb69f5389bbd90ef28e6695d8991a02ebbd26fa8bb8b632dc2cb9f14
+    {
+        version = "nova-139",
+        date = "2026-11-12",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "优化购物助手原生边框和标题按钮位置。",
+                "优化插件助手与其他插件管理器的共存，避免重复自动切换方案。",
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Improved Auction Helper's native borders and header button placement.",
+                "Prevented competing addon managers from automatically switching profiles at the same time.",
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: nova-139|forever|202afea0dc7cecfe5945b8950d0d6248043a7ef3b659ed370f6dfb288144c798
+    {
+        version = "nova-139",
+        date = "2026-11-12",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增购物助手模块，支持搜索消耗品、装备强化、专业材料与日常补给。",
+                "优化插件助手与其他插件管理器的共存，避免重复自动切换方案。",
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Added the Auction Helper module for searching consumables, gear enhancements, profession materials, and everyday supplies.",
+                "Prevented competing addon managers from automatically switching profiles at the same time.",
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: nova-138|mainline|2f57382b4b5598efc0db528ec3b67d776e4029d91a5964603654525cff880353
+-- YUI-Notes-Record: nova-138|forever|f1b01ea7c708a7c65b6f563489b0da4a89e83e54ba6fb10fa6486ecb4d95e59f
+    {
+        version = "nova-138",
+        date = "2026-11-11",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "修复邮件助手收件记录核对异常，并保存历史记录中的职业配色。",
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Fixed Mail Assistant receipt checks and preserved class colors in history.",
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: nova-137|mainline|aa51f50b250fedbe2d793063d72b406e87f7257e320019bc7884309fd4d7983a
     {
         version = "nova-137",
@@ -267,24 +320,6 @@ CL:Register("toolbox", {
             },
         },
     },
--- YUI-Notes-Record: nova-129|forever|83339f2fa5037647d85c69f3d38f3342db7b746932e6685d687e9ea54f851a33
-    {
-        version = "nova-129",
-        date = "2026-10-22",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增 Polestar 任务路线收起，支持调整折叠标签尺寸。",
-                "补充莫高雷与泽风岛双向飞艇标记及离岛阵营提示。",
-                "修复配置导入失败后的延迟容限恢复异常。",
-            },
-            enUS = {
-                "Added collapsible Polestar quest guides with adjustable collapsed-label size.",
-                "Added zeppelin markers between Mulgore and Zephras Isle, with faction departure hints.",
-                "Fixed incorrect lag tolerance restoration after failed configuration imports.",
-            },
-        },
-    },
 -- YUI-Notes-Record: nova-128|mainline|9ba190554b64ec94594944b4806d0cb643675c2cbab00a0af4ff001ed1d3a7e5
     {
         version = "nova-128",
@@ -310,74 +345,6 @@ CL:Register("toolbox", {
                 "Improved quest tracker scrolling.",
                 "Improved world map window compatibility with Shifter.",
                 "Improved mail recipient filtering to reduce entries from other game versions.",
-            },
-        },
-    },
--- YUI-Notes-Record: nova-128|forever|b307c2fdc83069d66cd9168acf081451c68fdd6e2ee2ad3280d4d097eb98e627
-    {
-        version = "nova-128",
-        date = "2026-10-22",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "焦点施法条新增重要施法发光等条件。",
-                "装备摘要支持临时关闭，并补充附魔图标。",
-                "统一组件字体设置，支持样式复制粘贴。",
-                "界面美化新增蓝灰与炭黑主题，支持阴影和透明度设置。",
-                "优化任务追踪滚动体验。",
-                "地图新增敌对阵营NPC标记。",
-                "新增进入非团本副本时的伤害统计重置询问，可按需启用。",
-                "改善与Shifter共同使用时的世界地图窗口兼容性。",
-                "优化邮件收件人筛选及完整角色名处理。",
-                "修复战斗增强中的目标与焦点距离显示异常。",
-            },
-            enUS = {
-                "Added glow conditions to the focus cast bar, including important casts.",
-                "Added temporary dismissal and enchantment icons to equipment summaries.",
-                "Unified component font settings with style copy and paste.",
-                "Added blue-gray and charcoal themes to UI enhancements, with shadow and opacity settings.",
-                "Improved quest tracker scrolling.",
-                "Added opposing-faction NPC markers to the map.",
-                "Added an optional damage-meter reset prompt on non-raid dungeon entry.",
-                "Improved world map window compatibility with Shifter.",
-                "Improved mail recipient filtering and full-character-name handling.",
-                "Fixed target and focus distance displays in Combat Enhancement.",
-            },
-        },
-    },
--- YUI-Notes-Record: nova-127|mainline|a3004b3909c9c65e3d5d48fb4de5b10314a36e1b87d7b72ddbfa1a91ed7b26dd
-    {
-        version = "nova-127",
-        date = "2026-10-16",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "职业额外提醒新增自动血沸，统一声音选择并支持明确静音。",
-                "自动对话支持按住暂停或按住启用，并可选择控制按键。",
-                "购物助手支持按材料缺口预填购买数量，新增满星材料统计。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Added automatic Blood Boil monitoring and unified sound selection with an explicit silent option.",
-                "Added hold-to-pause and hold-to-enable controls for automatic dialogue, with a selectable modifier key.",
-                "Added purchase quantities based on material shortages and highest-quality material tracking.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: nova-126|mainline|e631fe504e973a9670d05bf784393ae1c7bec99468c1a97d1ca32da8f30b02d3
-    {
-        version = "nova-126",
-        date = "2026-10-15",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "改善法术警报倒计时对正式服更新的兼容性。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Improved spell alert countdown compatibility with Retail updates.",
-                "Updated the shared core for compatibility with newer YUI addons.",
             },
         },
     },

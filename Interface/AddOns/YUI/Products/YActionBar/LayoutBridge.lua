@@ -94,7 +94,7 @@ local function GetLiveConfig(id)
         return db.bars[id], db
     end
     if db.specialBars and db.specialBars[id] then
-        return db.specialBars[id], db
+        return YAB.ClassTools and YAB.ClassTools:GetConfig(id, db) or db.specialBars[id], db
     end
     return nil, db
 end
@@ -145,6 +145,7 @@ local function BuildYActionBarAnchorTargets()
     if not (factory and factory.FrameName) then return targets end
     local db = YAB.GetDB and YAB:GetDB() or nil
     local function AddTarget(id, config)
+        if YAB.ClassTools and YAB.ClassTools:IsClassBar(id) and YAB.ClassTools:GetSettingsBarId(id, db) ~= id then return end
         targets[#targets + 1] = {
             name = factory:FrameName("Mover", id),
             label = GetLocalizedBarTitle(id, config and config.label),
@@ -168,6 +169,7 @@ local function BuildSpecialGroupAnchorTargets()
     if not (factory and factory.FrameName) then return targets end
     local db = YAB.GetDB and YAB:GetDB() or nil
     local function AddTarget(id, config)
+        if YAB.ClassTools and YAB.ClassTools:IsClassBar(id) and YAB.ClassTools:GetSettingsBarId(id, db) ~= id then return end
         targets[#targets + 1] = {
             name = factory:FrameName("Mover", id),
             label = GetLocalizedBarTitle(id, config and config.label),
@@ -184,6 +186,11 @@ local function BuildSpecialGroupAnchorTargets()
     return targets
 end
 
+function LayoutBridge:GetLayoutId(id)
+    return self.classLayoutIds and self.classLayoutIds[id]
+        or YAB.ClassTools and YAB.ClassTools:GetLayoutId(id) or "yactionbar." .. tostring(id)
+end
+
 function LayoutBridge:Register(id, record, title, config)
     local frame = ResolveRecordFrame(record)
     if not frame then return false end
@@ -191,8 +198,27 @@ function LayoutBridge:Register(id, record, title, config)
         ApplyFallbackPlacement(frame, id, config)
         return false
     end
-    local layoutId = "yactionbar." .. tostring(id)
-    local localizedTitle = GetLocalizedBarTitle(id, title)
+    local layoutId = YAB.ClassTools and YAB.ClassTools:GetLayoutId(id) or "yactionbar." .. tostring(id)
+    local classTransition = YAB.ClassTools and YAB.ClassTools:IsClassBar(id)
+    if classTransition and InCombat() then return false end
+    if classTransition then record.classBarLayoutTransition = true end
+    if YAB.ClassTools and YAB.ClassTools:IsClassBar(id) then
+        self.classLayoutIds = self.classLayoutIds or {}
+        if self.classLayoutIds[id] and self.classLayoutIds[id] ~= layoutId then self:Unregister(id, true) end
+        self.classLayoutIds[id] = layoutId
+        if layoutId == "yactionbar.classTools" then
+            if self.classToolsPlaceholderActive then self:Unregister("classTools", true) end
+            frame = YAB.SecureFactory:CreateMover("classTools")
+            frame:SetSize(record.layoutWidth or 36, record.layoutHeight or 36)
+        end
+    end
+    -- Core Layout skips onApply on register/refresh. Connect the runtime mover
+    -- to the shared anchor here so its holder and buttons have a real position.
+    if record.mover and record.mover ~= frame and not InCombat() then
+        record.mover:ClearAllPoints()
+        record.mover:SetPoint("CENTER", frame, "CENTER", 0, 0)
+    end
+    local localizedTitle = GetLocalizedBarTitle(layoutId == "yactionbar.classTools" and "classTools" or id, title)
     YUI.Layout:RegisterFrame(layoutId, {
         frame = frame,
         title = localizedTitle or layoutId,
@@ -201,6 +227,7 @@ function LayoutBridge:Register(id, record, title, config)
             return DefaultPlacement(id, config)
         end,
         combatProtected = true,
+        showOnlyInEditMode = record.classToolsPlaceholder == true,
         movable = true,
         snap = true,
         anchorTargets = BuildYActionBarAnchorTargets,
@@ -214,7 +241,7 @@ function LayoutBridge:Register(id, record, title, config)
         onApply = function(appliedFrame)
             if record and record.holder and not (YAB.Adapter and YAB.Adapter:InCombat()) then
                 record.holder:ClearAllPoints()
-                record.holder:SetPoint("CENTER", appliedFrame, "CENTER", 0, 0)
+                record.holder:SetPoint("CENTER", record.mover or appliedFrame, "CENTER", 0, 0)
             end
         end,
         onEnterEditMode = record.onEnterEditMode,
@@ -225,7 +252,7 @@ function LayoutBridge:Register(id, record, title, config)
         end,
         openPluginSettings = function()
             if YAB.OpenSettings then
-                YAB:OpenSettings(id)
+                YAB:OpenSettings(YAB.ClassTools and YAB.ClassTools:GetSettingsBarId(id) or id)
                 return true
             end
             return false
@@ -244,7 +271,36 @@ function LayoutBridge:Register(id, record, title, config)
     if YAB.ConfigSets and YAB.ConfigSets.ApplyDormantPlacement then
         YAB.ConfigSets:ApplyDormantPlacement(layoutId)
     end
+    if classTransition then record.classBarLayoutTransition = nil end
     return true
+end
+
+-- Other classes have no runtime buttons on this character, but their shared
+-- placement must remain editable after the current class detaches.
+function LayoutBridge:SyncClassToolsMover()
+    local tools, manager = YAB.ClassTools, YAB.BarManager
+    if not tools or not manager or InCombat() or not (YUI.Layout and YUI.Layout.RegisterFrame) then return false end
+    local db, shared = YAB:GetDB(), false
+    if not (db.enabled and manager.runtimeActive) then return self:Unregister("classTools", true) end
+    for _, id in ipairs(tools.ids) do
+        if not tools:IsIndependent(id, db) then
+            shared = true
+            if YAB.ClassBars.active[id] and self:GetLayoutId(id) == "yactionbar.classTools" then return true end
+        end
+    end
+    if not shared then return self:Unregister("classTools", true) end
+    local config = db.specialBars.classTools
+    local record = self.classToolsPlaceholder
+    if not record then
+        record = { mover = YAB.SecureFactory:CreateMover("classTools"), classToolsPlaceholder = true }
+        self.classToolsPlaceholder = record
+    end
+    record.layoutWidth, record.layoutHeight = manager:MeasureDormantActionBar(config)
+    record.mover:SetSize(record.layoutWidth, record.layoutHeight)
+    record.mover:Show()
+    local registered = self:Register("classTools", record, nil, config)
+    self.classToolsPlaceholderActive = registered
+    return registered
 end
 
 function LayoutBridge:RegisterSpecialGroup(record, defaultPlacement)
@@ -368,10 +424,15 @@ function LayoutBridge:RefreshSpecialGrouping()
 end
 
 function LayoutBridge:Refresh(id)
-    if YUI.Layout and YUI.Layout.InvalidateAnchorProvider then
-        YUI.Layout:InvalidateAnchorProvider("yactionbar." .. tostring(id))
+    if YAB.ClassTools and YAB.ClassTools:IsClassBar(id) and self:GetLayoutId(id) == "yactionbar.classTools"
+        and not InCombat() then
+        local record = YAB.BarManager and YAB.BarManager.bars[id]
+        if record then YAB.SecureFactory:CreateMover("classTools"):SetSize(record.layoutWidth or 36, record.layoutHeight or 36) end
     end
-    local layoutId = "yactionbar." .. tostring(id)
+    if YUI.Layout and YUI.Layout.InvalidateAnchorProvider then
+        YUI.Layout:InvalidateAnchorProvider(self:GetLayoutId(id))
+    end
+    local layoutId = self:GetLayoutId(id)
     if not self.registered[layoutId] then return false end
     if YUI.Layout and YUI.Layout.RefreshFrame then
         return YUI.Layout:RefreshFrame(layoutId)
@@ -380,12 +441,12 @@ function LayoutBridge:Refresh(id)
 end
 
 function LayoutBridge:IsRegistered(id)
-    local layoutId = "yactionbar." .. tostring(id)
+    local layoutId = self:GetLayoutId(id)
     return self.registered[layoutId] == true
 end
 
 function LayoutBridge:Unregister(id, preservePlacement)
-    local layoutId = "yactionbar." .. tostring(id)
+    local layoutId = self:GetLayoutId(id)
     if not self.registered[layoutId] then return false end
     if preservePlacement == true
         and YUI.Layout
@@ -401,6 +462,8 @@ function LayoutBridge:Unregister(id, preservePlacement)
         YUI.Layout:UnregisterFrame(layoutId)
     end
     self.registered[layoutId] = nil
+    if layoutId == "yactionbar.classTools" then self.classToolsPlaceholderActive = nil end
+    if self.classLayoutIds then self.classLayoutIds[id] = nil end
     return true
 end
 
@@ -413,6 +476,8 @@ function LayoutBridge:UnregisterAll()
         YUI.Layout:UnregisterFrame(layoutId)
     end
     self.registered = {}
+    self.classLayoutIds = nil
+    self.classToolsPlaceholderActive = nil
 end
 
 

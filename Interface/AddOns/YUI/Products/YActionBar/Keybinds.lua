@@ -266,7 +266,9 @@ local HELD_BINDING_REFRESH = [[
             if button:GetAttribute("pressAndHoldAction") ~= empowered then
                 button:SetAttribute("pressAndHoldAction", empowered)
             end
-            local native = entry.allowNative and actionType == "spell" and not empowered
+            -- A recovered form can still have a native caster page; keys follow our slot.
+            local native = entry.allowNative and button:GetAttribute("yab-form-page-fallback") ~= true
+                and actionType == "spell" and not empowered
             if entry.native ~= native then
                 entry.native = native
                 for _, key in ipairs(entry.keys) do
@@ -284,7 +286,7 @@ local HELD_BINDING_REFRESH = [[
 ]]
 
 local HELD_BINDING_ATTRIBUTE = [[
-    if name == "action" or name == "yab-flyout-identity" then
+    if name == "action" or name == "yab-flyout-identity" or name == "yab-form-page-fallback" then
         control:RunAttribute("RefreshHeldBindings", self)
     end
 ]]

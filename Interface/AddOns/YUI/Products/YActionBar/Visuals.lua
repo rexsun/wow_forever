@@ -37,8 +37,12 @@ Visuals.stats = Visuals.stats or {
 local DEFAULT_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local EMPTY_ICON_COLOR = { 0.35, 0.35, 0.35, 0.35 }
 local ASPECT_DIMMED_ICON_COLOR = { 0.4, 0.4, 0.4, 1 }
+local CAMP_TOY_COOLDOWN_ICON_COLOR = { 0.8, 0.8, 0.8, 1 }
+local CAMP_TOY_COOLDOWN_DESATURATION = 0.4
+local CAMP_TOY_COOLDOWN_SWIPE_ALPHA = 0.3
 local DEFAULT_TEXT_COLOR = { 1, 1, 1, 1 }
 local MAIN_COOLDOWN_LEVEL_OFFSET = 8
+local STATUS_TIMER_STATE = { cooldownIsStatus = true }
 local MAIN_COOLDOWN_SWIPE_ALPHA = 0.82
 local CHARGE_COOLDOWN_LEVEL_OFFSET = MAIN_COOLDOWN_LEVEL_OFFSET - 1
 local CHARGE_COOLDOWN_SWIPE_ALPHA = 0.42
@@ -3416,7 +3420,7 @@ local function EnsureVisual(button, options)
     local meta = GetButtonMeta(button)
     local isQuestItem = meta and meta.kind == "questItems"
         and YAB.Client and YAB.Client.questItems == true
-    local isClassSpell = meta and (meta.barId == "aspects" or meta.kind == "totems")
+    local isClassSpell = meta and (meta.barId == "aspects" or meta.barId == "mageTools" or meta.kind == "totems")
         and YAB.Client and YAB.Client.classBars == true
     local isNativeSpecial = meta
         and (meta.nativeSpecial == true or meta.ownedStanceTemplate == true) or false
@@ -3509,6 +3513,7 @@ end
 
 local function ShouldDesaturate(state)
     if not (state and state.hasAction == true) then return false end
+    if state.cooldownIsStatus == true then return false end
     if state.chargeEnable == true and type(state.maxCharges) == "number" and state.maxCharges > 1 and type(state.charges) == "number" and state.charges <= 0 then
         return true
     end
@@ -3554,10 +3559,13 @@ function Visuals:PrepareExternalSpecialState(visual, preserveActionState)
 end
 
 function Visuals:GetIconCooldownDesaturation(visual, state)
+    if state and state.missingBuff == true then return 1 end
     if state and state.unlearned == true then return 1 end
     if visual.classSpell and state and state.aspectActiveStyle == "dimOthers" then return 0 end
     if ShouldDesaturate(state) then
-        return visual.cooldownDesaturation or ((visual.skin and visual.skin.cooldownDesaturation) or 1)
+        local value = visual.cooldownDesaturation or ((visual.skin and visual.skin.cooldownDesaturation) or 1)
+        if visual.campPresentation == "toyCooldown" then return math.min(value, CAMP_TOY_COOLDOWN_DESATURATION) end
+        return value
     end
     return 0
 end
@@ -3705,6 +3713,10 @@ local function ApplyRuntimeSnapshot(button, visual, snapshot, options)
     writes = writes + Visuals:SetCheckedVisualState(button, visual.checked)
     if canLayout and visual.nativeSpecial and (visual.autoCastOverlay or visual.petAutoCastIndicator) then
         writes = writes + SetPetAutoCastVisual(button, visual, visual.petAutoCastAllowed == true, visual.petAutoCastEnabled == true)
+    end
+    if visual.campTextHost then Visuals:PrepareCampText(button, visual.campTextHost) end
+    if visual.statusTimer or visual.campPresentation or visual.campSwipeStyled then
+        writes = writes + Visuals:ApplyStatusTimer(visual, visual.statusTimer and STATUS_TIMER_STATE or nil, true)
     end
     return writes
 end
@@ -4687,8 +4699,10 @@ function Visuals:ApplyActionTintFast(button, usable, noMana, outOfRange, deferSt
         color = skin.outOfRangeIconColor
     elseif visual.noMana == true then
         color = skin.noManaIconColor
+    elseif visual.campPresentation == "restriction" then
+        color = skin.normalIconColor
     elseif visual.usable == false then
-        color = skin.unusableIconColor
+        color = visual.campPresentation == "toyCooldown" and CAMP_TOY_COOLDOWN_ICON_COLOR or skin.unusableIconColor
     end
     if visual.classSpell and visual.aspectActiveStyle == "dimOthers" then
         color = visual.aspectDimmed and ASPECT_DIMMED_ICON_COLOR or skin.normalIconColor
@@ -4871,11 +4885,16 @@ function Visuals:UpdateCooldownFast(button, state)
     if not visual then return 0 end
     state = state or {}
     visual.hasAction = state.hasAction == true
+    local previousPresentation = visual.campPresentation
+    visual.campPresentation = visual.campTextHost and state.campPresentation or nil
     local snapshot = visual.runtimeSnapshot
         or (button and button.yabConfigSnapshot)
         or DEFAULT_RUNTIME_SNAPSHOT
 
     local writes = 0
+    if previousPresentation ~= visual.campPresentation then
+        writes = writes + self:ApplyActionTintFast(button, state.usable ~= false, state.noMana == true, visual.outOfRange, true)
+    end
     local cooldownWrites = 0
     if visual.icon then
         local desat = self:GetIconCooldownDesaturation(visual, state)
@@ -4886,6 +4905,7 @@ function Visuals:UpdateCooldownFast(button, state)
     cooldownWrites = cooldownWrites + SetText(visual.count, state.countText)
     cooldownWrites = cooldownWrites + SetMainCooldownNumbersHidden(visual.cooldown, snapshot)
     cooldownWrites = cooldownWrites + SetCooldown(visual.cooldown, state.cooldownDurationObject, state.cooldownStart, state.cooldownDuration, cooldownEnabled, state.cooldownModRate)
+    cooldownWrites = cooldownWrites + self:ApplyStatusTimer(visual, state)
     cooldownWrites = cooldownWrites + SetChargeCooldownNumbersHidden(visual.chargeCooldown, snapshot)
     cooldownWrites = cooldownWrites + SetCooldown(visual.chargeCooldown, state.chargeDurationObject, state.chargeStart, state.chargeDuration, chargeEnabled, state.chargeModRate)
     writes = writes + cooldownWrites
@@ -4976,10 +4996,60 @@ function Visuals:UpdateActionCooldownOnly(button, state)
     return writes, mainWrites, chargeWrites, countWrites, desatWrites, skipped
 end
 
+-- Aura timers omit shading; owned camp toys use a lighter real cooldown.
+function Visuals:ApplyStatusTimer(visual, state, force)
+    local active = state == nil and visual.statusTimer == true or state ~= nil and state.cooldownIsStatus == true
+    local toy = visual.campTextHost ~= nil and visual.campPresentation == "toyCooldown"
+    if not (active or visual.statusTimer or toy or visual.campSwipeStyled) then return 0 end
+    visual.statusTimer = active
+    local cooldown = visual.cooldown
+    if not cooldown then return 0 end
+    local cache = EnsureCooldownCache(cooldown)
+    local writes = 0
+    if cooldown.SetDrawSwipe and cache.drawSwipe ~= not active then
+        cooldown:SetDrawSwipe(not active)
+        cache.drawSwipe = not active
+        writes = writes + 1
+    end
+    if cooldown.SetSwipeColor and (toy or visual.campSwipeStyled) then
+        local alpha = toy and CAMP_TOY_COOLDOWN_SWIPE_ALPHA or cache.swipeA or MAIN_COOLDOWN_SWIPE_ALPHA
+        if force or cache.campSwipeAlpha ~= alpha then
+            cooldown:SetSwipeColor(cache.swipeR or 0, cache.swipeG or 0, cache.swipeB or 0, alpha)
+            cache.campSwipeAlpha = alpha
+            writes = writes + 1
+        end
+        visual.campSwipeStyled = toy
+    end
+    return writes
+end
+
+-- Cold preparation for owned camp hosts; native cooldown digits remain native.
+function Visuals:PrepareCampText(button, host)
+    local visual = self.buttons[button]
+    local meta = GetButtonMeta(button)
+    if not (visual and host and meta and meta.kind == "questItems") then return false end
+    visual.campTextHost = host
+    if not InCombat() then
+        host:SetFrameLevel((visual.cooldown and visual.cooldown:GetFrameLevel() or button:GetFrameLevel()) + 1)
+        if visual.count and visual.count.SetParent and visual.count:GetParent() ~= host then visual.count:SetParent(host) end
+        if visual.cooldown and visual.cooldown.GetCountdownFontString then visual.campCountdownText = visual.cooldown:GetCountdownFontString() end
+    end
+    local function Style(text)
+        if not (text and text.GetFont and GUI2.ApplyFontAppearance) then return end
+        local font, size = text:GetFont()
+        if font and size then GUI2:ApplyFontAppearance(text, { font = font, size = size, maxSize = size, outline = "outlineShadow" }) end
+    end
+    Style(visual.count)
+    Style(visual.campCountdownText)
+    return true
+end
+
 function Visuals:UpdateButton(button, state, mode)
     local visual = self.buttons[button]
     if not visual then return 0 end
     state = state or {}
+    local previousPresentation = visual.campPresentation
+    visual.campPresentation = visual.campTextHost and state.campPresentation or nil
     if visual.rankUpgradeSpellID
         and (Security and Security.SafeNumber(state.actionID)) ~= visual.rankUpgradeSpellID then
         self:StopRankUpgrade(button)
@@ -5015,7 +5085,8 @@ function Visuals:UpdateButton(button, state, mode)
     local updateCooldownMeta = mode == "cooldownMeta" or (type(mode) == "string" and mode:find(":cooldownMeta:", 1, true) ~= nil)
     local updateHotkey = RefreshModeHas(mode, "hotkey")
     local updateText = mode ~= "full" and RefreshModeHas(mode, "text")
-    local updateUsable = RefreshModeHas(mode, "usable") or RefreshModeHas(mode, "range") or RefreshModeHas(mode, "state")
+    local updateUsable = previousPresentation ~= visual.campPresentation
+        or RefreshModeHas(mode, "usable") or RefreshModeHas(mode, "range") or RefreshModeHas(mode, "state")
     local updateGlow = RefreshModeHas(mode, "glow")
 
     if visual.nativeSpecial and visual.autoCastOverlay and (mode == "full" or RefreshModeHas(mode, "state")) then
@@ -5145,6 +5216,7 @@ function Visuals:UpdateButton(button, state, mode)
         end
     end
 
+    if updateCooldown or updateCooldownMeta then writes = writes + self:ApplyStatusTimer(visual, state) end
     self.stats.writes = (self.stats.writes or 0) + writes
     return writes
 end

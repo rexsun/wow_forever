@@ -114,8 +114,8 @@ function View:HideTooltip()
 end
 
 function View:DetailLines(entry)
-    local party, classFile = Assistant:GetMailLogParty(entry.party)
-    local _, characterClass = Assistant:GetMailLogParty(entry.character)
+    local party, classFile = Assistant:GetMailLogParty(entry.party, entry.character, entry.partyClass)
+    local _, characterClass = Assistant:GetMailLogParty(entry.character, entry.character, entry.characterClass)
     local lines = {
         { entry.subject ~= "" and entry.subject or T("log.no_subject", "(No subject)"), "color.text.heading" },
         { T("log.party", "Other party") .. ": " .. ClassText(party, classFile) },
@@ -255,6 +255,7 @@ function View:Refresh()
     local store = Assistant.MailLog:GetStore()
     if not store then return end
     Model.Prune(store, _G.time())
+    Assistant:RefreshMailLogClasses(store)
     self.rows, self.goldIn, self.goldOut = Model.Filter(store, self.filter, _G.time())
     local characters = {}
     for _, entry in ipairs(store.records) do characters[entry.character] = true end
@@ -275,7 +276,7 @@ function View:Refresh()
             row.labels.time:SetText(Stamp(entry.at))
             row.labels.direction:SetText(T(entry.direction == "in" and "log.received" or "log.sent", entry.direction))
             ListColor(row.labels.direction, entry.direction == "in" and "color.state.success" or "color.text.accent", self.context and self.context.source == "native")
-            local party, classFile = Assistant:GetMailLogParty(entry.party)
+            local party, classFile = Assistant:GetMailLogParty(entry.party, entry.character, entry.partyClass)
             row.partyClass = classFile
             row.labels.party:SetText(party)
             PartyColor(row.labels.party, classFile, self.context)

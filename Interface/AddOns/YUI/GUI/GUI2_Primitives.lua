@@ -4614,6 +4614,48 @@ local function ApplyGlowStyle(glow)
     RefreshGlowAnimation(glow)
 end
 
+local function GetGlowLayerChild(glow)
+    local style = glow.gui2GlowStyle
+    local shape = GUI2._ShapeGlow:Shape(glow)
+    if style == "pixel" then
+        return shape == "circle" and glow.gui2CirclePixel
+            and glow.gui2CirclePixel.carrier or nil
+    elseif style == "button" then
+        if shape == "circle" then return glow.gui2ManagedCircleProcGlow end
+        return glow.gui2ButtonGlow
+    elseif style == "autocast" then
+        return glow.gui2AutoCastUseNative and glow.gui2NativeAutoCastGlow
+            or glow.gui2AutoCastFrame
+    elseif style == "proc" or style == "masque" then
+        if style == "masque" and glow.gui2MasqueProcGlow then
+            return glow.gui2MasqueProcGlow
+        end
+        if shape == "diamond" and glow.gui2ManagedDiamondProcGlow then
+            return glow.gui2ManagedDiamondProcGlow
+        end
+        if glow.gui2GlowShape == "circle" and glow.gui2ManagedCircleProcGlow then
+            return glow.gui2ManagedCircleProcGlow
+        end
+        return glow.gui2ProcFrame or glow.gui2ProcFallback
+    elseif style == "soft" or style == "pulse" then
+        if GUI2._ShapeGlow:UsesSoftContour(glow) then return glow.gui2ShapePulse end
+        if style == "pulse" then return glow.gui2PulseFrame end
+        if glow.gui2RestrictedParent == true then return glow.gui2RestrictedEdgeGlow end
+    end
+end
+
+local function ApplyGlowLayerContext(glow)
+    GUI2:_ApplyGlowFrameLayer(glow, glow.gui2GlowStyle)
+    local child = GetGlowLayerChild(glow)
+    if child then
+        GUI2:_ApplyGlowChildLayer(glow, child)
+        if child.gui2ManagedProcGlow then
+            child.gui2ProcLayoutFrameLevel = glow.gui2GlowFrameLevel
+            child.gui2ProcLayoutFrameStrata = glow.gui2GlowFrameStrata
+        end
+    end
+end
+
 function GUI2:CreateGlow(frame, opts)
     if not frame then return nil end
     opts = opts or {}
@@ -4734,6 +4776,8 @@ function GUI2:CreateGlow(frame, opts)
             and object.gui2GlowFrameStrata == strata then
             return false
         end
+        local previousLevel, previousStrata = object.gui2GlowFrameLevel,
+            object.gui2GlowFrameStrata
         object.gui2GlowFrameLevel = level
         object.gui2GlowFrameStrata = strata
         object.gui2AppliedGlowFrameLevel = nil
@@ -4742,7 +4786,19 @@ function GUI2:CreateGlow(frame, opts)
         object.gui2AppliedGlowChildLevel = nil
         object.gui2AppliedGlowChildStrata = nil
         if level ~= nil or strata ~= nil then
-            ApplyGlowStyle(object)
+            -- Layer changes never reconfigure geometry, animation or idle
+            -- backends. Do not commit a failed context as already applied.
+            local ok, err = pcall(ApplyGlowLayerContext, object)
+            if not ok then
+                object.gui2GlowFrameLevel = previousLevel
+                object.gui2GlowFrameStrata = previousStrata
+                object.gui2AppliedGlowFrameLevel = nil
+                object.gui2AppliedGlowFrameStrata = nil
+                object.gui2AppliedGlowChild = nil
+                object.gui2AppliedGlowChildLevel = nil
+                object.gui2AppliedGlowChildStrata = nil
+                error(err, 0)
+            end
         end
         return true
     end

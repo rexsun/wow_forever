@@ -1,6 +1,63 @@
 -- Generated from Docs/Products/YUI_YHUD/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yhud", {
+-- YUI-Notes-Record: halo-119|mainline|ba2763fa2e5cb215c0c433457fd5ab1ac39476f782660fb0b3087b8bc3004702
+-- YUI-Notes-Record: halo-119|forever|03e8ffe81800c063af0b1a9fbf6a232d2a6dfeb86e8ecae759eae2ddc29e929b
+    {
+        version = "halo-119",
+        date = "2026-11-12",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: halo-118|mainline|5fbcb22341877fc1e2a21ee9b2cdc222ec84217845edcb0a0a4fa44640c6c5b8
+    {
+        version = "halo-118",
+        date = "2026-11-11",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "添加监控的入口改为“自身增益、目标减益、施法计时”。",
+                "添加监控的选择面板会为长名称调整排列，避免文字重叠。",
+                "修复首次登录时，部分已学技能监控不显示。",
+                "修复计时条旁的图标套用皮肤后大小异常。",
+                "修复切换形态后的监控遮挡顺序和发光异常。",
+            },
+            enUS = {
+                "The monitor picker now shows Self Buff, Target Debuff, and Cast Timer.",
+                "The monitor picker gives long labels more room to prevent overlaps.",
+                "Fixed some learned-skill monitors not appearing after login.",
+                "Fixed incorrect sizes for skinned icons next to bars.",
+                "Fixed monitor stacking and glow issues after changing forms.",
+            },
+        },
+    },
+-- YUI-Notes-Record: halo-118|forever|ba732b7e54d46a007eb6dc7d2d50982e8a2905d10638b551a2804c69bfeb894a
+    {
+        version = "halo-118",
+        date = "2026-11-11",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "添加监控的入口改为“自身增益、目标减益、施法计时”。",
+                "添加监控的选择面板会为长名称调整排列，避免文字重叠。",
+                "修复计时条旁的图标套用皮肤后大小异常。",
+                "修复切换形态后的监控遮挡顺序和发光异常。",
+            },
+            enUS = {
+                "The monitor picker now shows Self Buff, Target Debuff, and Cast Timer.",
+                "The monitor picker gives long labels more room to prevent overlaps.",
+                "Fixed incorrect sizes for skinned icons next to bars.",
+                "Fixed monitor stacking and glow issues after changing forms.",
+            },
+        },
+    },
 -- YUI-Notes-Record: halo-117|mainline|9c7562bbfc3ba4af518cb2d5b55dd724b51e5904b7660cd8262e5aa225341a07
     {
         version = "halo-117",
@@ -285,94 +342,6 @@ CL:Register("yhud", {
                 "Fixed lingering activation glows on monitor icons.",
                 "Fixed monitors failing to hide as configured when cooldowns finish.",
                 "Fixed cast monitoring incorrectly treating channels as interrupted by subsequent key presses.",
-            },
-        },
-    },
--- YUI-Notes-Record: halo-109|mainline|70993537f9f6b28b43995279f73b2f85a793dc83a9d224f043add368877d9eab
-    {
-        version = "halo-109",
-        date = "2026-10-16",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "新增蓝色辅助提示。",
-                "新增增益层数发光规则。",
-                "发光外观支持保存、复用与复制粘贴。",
-                "液态光泽支持真实层数显示及层数发光。",
-                "新增噬灭变身和明志灵药预设，优化监控预览。",
-                "施法条支持图标内外放置与四种计时格式。",
-                "优化方案管理，新增独立的全局设置面板。",
-                "声音提醒支持多语音包排序和标准语音补缺，优化特别语音选择与试听。",
-                "修复资源条初始化与锚点定位问题。",
-                "修复原生冷却窗口越界与显隐避让问题。",
-                "圆环监控暂时关闭自定义发光，保留原有配置。",
-            },
-            enUS = {
-                "Added blue assisted highlights.",
-                "Added buff-stack glow rules.",
-                "Added reusable glow appearance presets and copy/paste.",
-                "Added live Liquid Radiance stack counts and stack-based glows.",
-                "Added Devourer transformation and Brewmaster elixir presets, with improved monitor previews.",
-                "Added internal/external cast-bar icons and four time formats.",
-                "Improved profile management and added a separate global settings panel.",
-                "Added voice pack ordering and standard-voice fallback, with improved special-voice selection and previews.",
-                "Fixed resource initialization and anchoring.",
-                "Fixed native cooldown window overflow and visibility-related layout conflicts.",
-                "Temporarily disabled custom glows for ring monitors while preserving saved settings.",
-            },
-        },
-    },
--- YUI-Notes-Record: halo-109|forever|0d2422ec8c12d7c36af22945945bc76eeef630076693a1ff562795bc268103f1
-    {
-        version = "halo-109",
-        date = "2026-10-16",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增发光外观保存、复用与复制粘贴，优化编辑预览。",
-                "施法条支持图标内外放置与四种计时格式。",
-                "优化方案管理，新增独立的全局设置面板。",
-                "修复资源条初始化与锚点定位问题。",
-                "圆环监控暂时关闭自定义发光，保留原有配置。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Added reusable glow appearance presets and copy/paste, with improved editing previews.",
-                "Added internal/external cast-bar icons and four time formats.",
-                "Improved profile management and added a separate global settings panel.",
-                "Fixed resource initialization and anchoring.",
-                "Temporarily disabled custom glows for ring monitors while preserving saved settings.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: halo-108|mainline|a48c6ddcaf4594b0cd0380a61ce590c5b761df63f56630c7c7ddec1ff99411fe
-    {
-        version = "halo-108",
-        date = "2026-10-15",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "修复资源条可能报错并中断刷新的问题。",
-                "修复旧配置升级、复制和导入时的个人方案保留与失败恢复问题。",
-            },
-            enUS = {
-                "Fixed errors that could interrupt resource bar updates.",
-                "Fixed personal configuration preservation and recovery during legacy upgrades, profile copying and imports.",
-            },
-        },
-    },
--- YUI-Notes-Record: halo-108|forever|a656abfeb1f5e76ee3695c47224201cc2691e2ba309fcbbf6a9263bd5849ee20
-    {
-        version = "halo-108",
-        date = "2026-10-15",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "修复旧配置升级、复制和导入时的个人方案保留与失败恢复问题。",
-            },
-            enUS = {
-                "Fixed personal configuration preservation and recovery during legacy upgrades, profile copying and imports.",
             },
         },
     },

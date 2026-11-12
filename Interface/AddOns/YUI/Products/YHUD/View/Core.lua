@@ -497,6 +497,8 @@ local function GetDurationLayout(profile, groupId, layoutType)
             result.itemHeight - result.iconSize - result.iconGap
         )
     end
+    -- 附属图标尺寸随条形布局同步，覆盖初始值或上一次图标布局的宽高。
+    result.iconWidth, result.iconHeight = result.iconSize, result.iconSize
     return result
 end
 

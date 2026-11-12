@@ -2679,8 +2679,12 @@ local function PlaceItem(frame, index, rows, columns, direction, config, panelPa
     CallMethod(frame, "SetFrameLevel", panel:GetFrameLevel() + 3)
     ButtonDrawer:_WriteMouseState(frame, ButtonDrawer:_IsPanelInputEnabled(), true)
     buttonWriteGuard = false
-    ButtonDrawer:_EnsureItemBacking(frame)
-    ButtonDrawer:_EnsureItemBorder(frame)
+    if frame.yuiDrawerBorderless == true then
+        ButtonDrawer:_HideItemSurface(frame)
+    else
+        ButtonDrawer:_EnsureItemBacking(frame)
+        ButtonDrawer:_EnsureItemBorder(frame)
+    end
     if snapshot then ApplySpecialVisual(frame, snapshot) end
     return true
 end

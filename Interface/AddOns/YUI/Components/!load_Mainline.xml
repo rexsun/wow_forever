@@ -1,4 +1,5 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Include file="ErrorRecorder\!load.xml"/>
     <Include file="AddonAssistant\!load.xml"/>
     <Include file="ExperienceBar\!load.xml"/>
     <Include file="Voice\!load_Mainline.xml"/>

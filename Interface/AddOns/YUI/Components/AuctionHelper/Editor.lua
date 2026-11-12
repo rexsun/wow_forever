@@ -784,6 +784,7 @@ function Editor:CreateSettingsSection(parent, config, yPos)
         Editor:Open(config)
     end, "warning")
     edit:SetPoint("LEFT", create, "RIGHT", 7, 0)
+    edit:SetMotionScriptsWhileDisabled(true)
     edit:HookScript("OnEnter", function(self)
         local latest = GetCatalog(config)
         if not latest or not Profiles:IsOfficial(latest.activeId) or not _G.GameTooltip then return end

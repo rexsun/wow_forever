@@ -16,6 +16,7 @@ CDMCatalog.stats = {
 local RESTORE_PREVIEW_MARKER = "yhud-cdm-restore-preview-v1"
 local DEFAULT_SEED_MARKER = "yhud-cdm-default-seed-v1"
 local CLAIM_PROJECTION_UNAVAILABLE = "claim-projection-unavailable"
+local NATIVE_AVAILABILITY_REASON = "native-availability"
 CDMCatalog.CLAIM_PROJECTION_UNAVAILABLE = CLAIM_PROJECTION_UNAVAILABLE
 local OFFICIAL_CATEGORIES = {
     "essential",
@@ -1003,6 +1004,28 @@ local function RejectNativeCommit(catalog, code)
     return nil, code
 end
 
+local function HasRuntimeAvailabilityChanged(catalog, profile, specKey)
+    local runtime = YHUD._runtimeProfile
+    if not runtime or YHUD._runtimeProfileCanonical ~= profile
+        or YHUD._runtimeProfileSpecKey ~= specKey
+        or YHUD._runtimeProfileRevision
+            ~= (tonumber(YHUD.runtimeProfileRevision) or 0) then
+        return true
+    end
+    local rows, code = catalog:Read({ allowUnlearned = true })
+    if not rows then return nil, code end
+    for index = 1, #rows do
+        local row = rows[index]
+        if row.isKnown ~= nil then
+            local entry = runtime.entries["cdm:" .. tostring(row.cooldownID)]
+            if not entry or (entry.isKnown ~= false) ~= row.isKnown then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 function CDMCatalog:RunPendingReconcile()
     if not self.active then return false end
     self.pendingTimer = nil
@@ -1025,6 +1048,19 @@ function CDMCatalog:RunPendingReconcile()
         return nil, "invalid-spec-key"
     end
     local profile = YHUD:GetConfigProfile()
+    if reason == NATIVE_AVAILABILITY_REASON
+        and self:IsLayoutSignatureCurrent(specKey) then
+        local changed, code = HasRuntimeAvailabilityChanged(self, profile, specKey)
+        if changed == nil then
+            if YHUD.Diagnostics then
+                YHUD.Diagnostics:Record("cdm-availability", code)
+            end
+            return nil, code
+        end
+        -- Availability belongs to the runtime projection, not saved settings.
+        if changed then return YHUD:RequestContextRefresh(reason) end
+        return true
+    end
     local result, report = self:ReconcileContext(profile, specKey, {
         reason = reason,
     })
@@ -1133,6 +1169,14 @@ function CDMCatalog:OnImportReleased()
     return self:RequestReconcile(self.pendingReason)
 end
 
+function CDMCatalog:OnNativeAvailabilityChanged()
+    if not self.active then return false end
+    if self.pendingTimer or self.pendingCombat or self.pendingImport then
+        return true
+    end
+    return self:RequestReconcile(NATIVE_AVAILABILITY_REASON)
+end
+
 function CDMCatalog:OnNativeSettingsChanged()
     self.stats.nativeSettingsSignals = self.stats.nativeSettingsSignals + 1
     local specKey = YHUD:GetCurrentSpecKey()
@@ -1145,6 +1189,7 @@ function CDMCatalog:OnNativeSettingsChanged()
     if layoutUnchanged then
         self.stats.layoutUnchangedSkips =
             self.stats.layoutUnchangedSkips + 1
+        if YUI.IsRetail then return self:OnNativeAvailabilityChanged() end
         return true
     end
     return self:RequestReconcile("native-settings")
@@ -1163,7 +1208,7 @@ function CDMCatalog:OnCombatEnded()
         return YHUD:RequestContextRefresh("combat-ended")
     end
     if self.pendingCombat or self.pendingReason then
-        return self:RequestReconcile("combat-ended")
+        return self:RequestReconcile(self.pendingReason or "combat-ended")
     end
 end
 
@@ -1178,6 +1223,14 @@ function CDMCatalog:RegisterCallbacks()
         )
     end
     if YUI.Event and YUI.Event.On then
+        if YUI.IsRetail then
+            for _, event in ipairs({ "COOLDOWN_VIEWER_DATA_LOADED", "SPELLS_CHANGED" }) do
+                YUI.Event:On(event, "OnNativeAvailabilityChanged", self, {
+                    moduleId = YHUD.PRODUCT_ID,
+                    traceName = "YHUD.CDMCatalog.Availability",
+                })
+            end
+        end
         YUI.Event:On("YUI_CONFIG_TRANSFER_RELEASED", "OnImportReleased", self, {
             moduleId = YHUD.PRODUCT_ID,
             traceName = "YHUD.CDMCatalog.ImportReleased",
@@ -1202,6 +1255,8 @@ function CDMCatalog:RegisterCallbacks()
             }
         )
     end
+    -- Native data may settle while its addon loads, before callbacks are bound.
+    if YUI.IsRetail then self:OnNativeAvailabilityChanged() end
     return true
 end
 

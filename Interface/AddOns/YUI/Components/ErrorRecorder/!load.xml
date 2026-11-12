@@ -1,0 +1,6 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Include file="Locales\!load.xml"/>
+    <Script file="Report.lua"/>
+    <Script file="ErrorRecorder.lua"/>
+    <Script file="View.lua"/>
+</Ui>

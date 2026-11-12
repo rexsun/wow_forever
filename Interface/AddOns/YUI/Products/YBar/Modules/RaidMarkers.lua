@@ -1069,7 +1069,7 @@ function Module:CreateButtons()
         btn.markerID = i
 
         local actions
-        if YUI.IsRetail then
+        if YUI.IsRetail or YUI.IsForever then
             local wmID = TargetToWorld[i]
             actions = {
                 left = { kind = "raidtarget", marker = i, action = "set" },
@@ -1079,13 +1079,6 @@ function Module:CreateButtons()
                 actions.shiftLeft = { kind = "worldmarker", marker = wmID, action = "set" }
                 actions.shiftRight = { kind = "worldmarker", marker = wmID, action = "clear" }
             end
-        elseif YUI.IsForever then
-            actions = {
-                left = { kind = "raidtarget", marker = i, action = "set" },
-                right = { kind = "raidtarget", marker = i, action = "clear" },
-                shiftLeft = { kind = "noop" },
-                shiftRight = { kind = "noop" },
-            }
         else
             actions = {
                 left = {
@@ -1108,7 +1101,7 @@ function Module:CreateButtons()
         AttachMarkerActionHost(btn, actions)
 
         local tooltip = format("%s: %s\n%s: %s", LC["common.left_click"], T("raidmarkers.action.mark_target", "标记目标"), LC["common.right_click"], T("raidmarkers.action.clear_marker", "清除标记"))
-        if YUI.IsRetail then
+        if YUI.IsRetail or YUI.IsForever then
             tooltip = tooltip .. format("\nShift + %s: %s\nShift + %s: %s", LC["common.left_click"], T("raidmarkers.action.place_world_marker", "放置光柱"), LC["common.right_click"], T("raidmarkers.action.clear_world_marker", "清除光柱"))
         end
         local iconStr = YUI.F:GetTextureString("Interface\\TargetingFrame\\UI-RaidTargetingIcon_"..i, 16)
@@ -1123,7 +1116,7 @@ function Module:CreateButtons()
     CreateButtonIcon(btnClear, toolIconSize, GUI2:GetUIIcon("circle-slash", toolIconSize))
 
     local clearActions
-    if YUI.IsRetail then
+    if YUI.IsRetail or YUI.IsForever then
         clearActions = {
             left = { kind = "raidtarget", action = "clear" },
             shiftLeft = {
@@ -1141,12 +1134,6 @@ function Module:CreateButtons()
                 },
             },
         }
-    elseif YUI.IsForever then
-        clearActions = {
-            left = { kind = "raidtarget", action = "clear" },
-            shiftLeft = { kind = "noop" },
-            shiftRight = { kind = "noop" },
-        }
     else
         clearActions = {
             left = {
@@ -1163,7 +1150,7 @@ function Module:CreateButtons()
     AttachMarkerActionHost(btnClear, clearActions)
 
     local clearTooltip = format("%s: %s", LC["common.left_click"], T("raidmarkers.tooltip.clear_target_marker", "清除目标标记"))
-    if YUI.IsRetail then
+    if YUI.IsRetail or YUI.IsForever then
         clearTooltip = clearTooltip .. format("\nShift + %s: %s", LC["common.left_click"], T("raidmarkers.action.clear_all_world_markers", "清除所有光柱"))
     end
     self:AddHoverEffect(btnClear, T("raidmarkers.tooltip.clear_target_marker", "清除目标标记"), clearTooltip)

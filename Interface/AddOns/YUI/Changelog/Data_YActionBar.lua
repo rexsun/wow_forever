@@ -1,6 +1,80 @@
 -- Generated from Docs/Products/YUI_YActionBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yactionbar", {
+-- YUI-Notes-Record: yactionbar-116|mainline|08ac3bcbcd4968791edded8a0c9e6a8f9f4dc6d819e30919ad971d125fa690a1
+    {
+        version = "yactionbar-116",
+        date = "2026-11-12",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "修复特殊动作条分组中，已隐藏按钮仍占用空间。",
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Fixed hidden buttons still taking up space in special action-bar groups.",
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yactionbar-116|forever|5044dd4de9ff1e3cffbc1e2603080e9de7eed17ffda5d93fd3fbed8be8b8106b
+    {
+        version = "yactionbar-116",
+        date = "2026-11-12",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "营火工具新增睡袋，可查看增益层数与剩余时间。",
+                "修复德鲁伊重复变形后，动作条翻页与按键可能不同步。",
+                "修复法师智力与护甲增益计时在战斗中消失或误报缺失。",
+                "修复营火工具首次显示时冷却未及时更新。",
+                "修复特殊动作条分组中，已隐藏按钮仍占用空间。",
+            },
+            enUS = {
+                "Added a sleeping bag to camp tools, with buff stacks and remaining time.",
+                "Fixed action-bar pages and keybindings sometimes becoming unsynchronized after repeated Druid shapeshifts.",
+                "Fixed Mage Intellect and armor buff timers disappearing or incorrectly reporting missing buffs in combat.",
+                "Fixed camp-tool cooldowns not updating promptly when first shown.",
+                "Fixed hidden buttons still taking up space in special action-bar groups.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yactionbar-115|mainline|d14833809ef49b55e3423b600d88c391e2f0392648716753304e026fe887b462
+    {
+        version = "yactionbar-115",
+        date = "2026-11-11",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "修复姿态按钮在公共冷却时错误变灰。",
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Fixed stance icons turning gray during the global cooldown.",
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yactionbar-115|forever|798bcad2d2b2614b873acb5a63f3c3ab87ce56cc261e6cf43f1ea98b8693ccf5
+    {
+        version = "yactionbar-115",
+        date = "2026-11-11",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增法师卷轴、智力和护甲工具，缺少增益时可发光提醒。",
+                "法师、猎人、萨满职业条默认共用布局，也可按职业分别配置。",
+                "任务物品条新增营火工具，显示休息计时、营地设施和收益提示。",
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Added Mage scroll, Intellect, and armor tools with missing-buff glow reminders.",
+                "Mage, Hunter, and Shaman toolbars share a layout, with per-class options.",
+                "Added camp tools showing rest timers, facilities, and benefits on the quest-item bar.",
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: yactionbar-114|mainline|214127418d67be0ffd7284716b66be56da6374b2d8eb38e20e7f05617d24f7be
 -- YUI-Notes-Record: yactionbar-114|forever|f2b13e3ace9722d0ba54fc7cdbe43b17c855bd575475f481e7d863f07919acd2
     {
@@ -178,38 +252,6 @@ CL:Register("yactionbar", {
         version = "yactionbar-107",
         date = "2026-10-16",
         clients = { "Forever" },
-        content = {
-            zhCN = {
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: yactionbar-106|mainline|8b4a3920ca43272e9b532f3d1a4836e6c2736a9554f6d93cc626c4df61094a3d
--- YUI-Notes-Record: yactionbar-106|forever|974b66ad02b236ba36eec05807a3f46dcd38fda4ce9c47f095dd9961b6f06b60
-    {
-        version = "yactionbar-106",
-        date = "2026-10-15",
-        clients = { "Retail", "Forever" },
-        content = {
-            zhCN = {
-                "修复旧配置升级、复制和导入时的个人方案保留与失败恢复问题。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Fixed personal configuration preservation and recovery during legacy upgrades, profile copying and imports.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: yactionbar-105|mainline|c5eab6bac9eb919991582aa0ce1de99383431521494af546413a87cbe0f7cf1f
--- YUI-Notes-Record: yactionbar-105|forever|52bc1f5f3fb557a5f6a655a7e1c87d6e19141682c00907b446d3a4cdfbde0937
-    {
-        version = "yactionbar-105",
-        date = "2026-10-13",
-        clients = { "Retail", "Forever" },
         content = {
             zhCN = {
                 "同步共享核心，保持与新版 YUI 系列插件的兼容。",

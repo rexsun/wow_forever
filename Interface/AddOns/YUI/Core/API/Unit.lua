@@ -848,6 +848,58 @@ function Unit.ReadAuraIdentityByIndex(unit, index, filter)
     )
 end
 
+local function ReadHelpfulTimer(aura)
+    return {
+        duration = YUI.API.Security.SafeNumber(ReadAuraField(aura, "duration")),
+        expirationTime = YUI.API.Security.SafeNumber(ReadAuraField(aura, "expirationTime")),
+        icon = YUI.API.Security.SafeNumber(ReadAuraField(aura, "icon")),
+        auraInstanceID = YUI.API.Security.SafeNumber(ReadAuraField(aura, "auraInstanceID")),
+    }
+end
+
+-- Exact names avoid unrelated restricted auras and the legacy forty-aura limit.
+-- The second result marks keys whose absence could not be established.
+function Unit.ReadHelpfulTimersByName(unit, names)
+    if C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName then
+        local result, unavailable = {}, {}
+        for name, key in pairs(names) do
+            local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, unit, name, "HELPFUL")
+            if not ok or IsSecretValue(aura) then
+                unavailable[key] = true
+            elseif aura then
+                local timer, previous = ReadHelpfulTimer(aura), result[key]
+                if not previous or (timer.expirationTime and (not previous.expirationTime
+                    or timer.expirationTime > previous.expirationTime)) then
+                    result[key] = timer
+                end
+            end
+        end
+        return result, unavailable
+    end
+    if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return nil end
+    local result = {}
+    for index = 1, 40 do
+        local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, unit, index, "HELPFUL")
+        if not ok or IsSecretValue(aura) then return nil end
+        if aura == nil then break end
+        local name = YUI.API.Security.SafeString(ReadAuraField(aura, "name"))
+        local key = name and names[name]
+        if key then
+            result[key] = ReadHelpfulTimer(aura)
+        end
+    end
+    return result
+end
+
+-- Return the opaque clock only for immediate use by a native duration sink.
+function Unit.GetAuraDurationObject(unit, auraInstanceID)
+    auraInstanceID = SafeNumberValue(auraInstanceID)
+    if not auraInstanceID or auraInstanceID <= 0 or auraInstanceID % 1 ~= 0
+        or not (C_UnitAuras and C_UnitAuras.GetAuraDuration) then return nil end
+    local ok, duration = pcall(C_UnitAuras.GetAuraDuration, unit, auraInstanceID)
+    if ok then return duration end
+end
+
 function Unit.ReadAuraIdentityByInstance(unit, auraInstanceID)
     local auraAPI = C_UnitAuras
     return QueryAuraIdentity(

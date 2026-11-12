@@ -1,6 +1,62 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v357|mainline|1ba3518e62846ead56c8d7945b5c641a6f39779634268de9f0814590b9b6ebc9
+    {
+        version = "v357",
+        date = "2026-11-12",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "安装向导完善插件方案检查和不可用提示。",
+                "优化购物助手原生边框和标题按钮位置。",
+                "优化插件助手与其他插件管理器的共存，避免重复自动切换方案。",
+                "修复头像方案自动匹配后，重载可能未保留的问题。",
+                "修复特殊动作条分组中，已隐藏按钮仍占用空间。",
+            },
+            enUS = {
+                "Improved addon-profile checks and unavailable-profile messages in the setup wizard.",
+                "Improved Auction Helper's native borders and header button placement.",
+                "Prevented competing addon managers from automatically switching profiles at the same time.",
+                "Fixed automatically matched portrait profiles sometimes not persisting after a reload.",
+                "Fixed hidden buttons still taking up space in special action-bar groups.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v356|mainline|a5face94b6d35af737046cc5357b1ddb989166d3f918d7e38b30b909295b91c4
+    {
+        version = "v356",
+        date = "2026-11-11",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "新增内置报错记录，支持历史查看和完整复制。",
+                "Orbit 位面编号可调整间距，并按编号显示不同颜色。",
+                "修复切换小区域时，位面编号反复变为“待识别”。",
+                "Halo 添加监控的入口改为“自身增益、目标减益、施法计时”。",
+                "修复 Halo 首次登录时，部分已学技能监控不显示。",
+                "修复 Halo 计时条图标大小和切换形态后的监控发光异常。",
+                "修复邮件助手收件记录核对异常，并保存历史记录中的职业配色。",
+                "修复小队与宠物框架左右侧不同步。",
+                "修复聊天窗口鼠标移出后不再渐隐。",
+                "修复 Orbit 时钟隐藏后，鼠标移入仍不显示。",
+                "修复动作条姿态按钮在公共冷却时错误变灰。",
+            },
+            enUS = {
+                "Added built-in error logs with history and full-report copying.",
+                "Orbit shard IDs now support label spacing and ID-based colors.",
+                "Fixed shard IDs repeatedly becoming unknown when moving between subzones.",
+                "Halo's monitor picker now shows Self Buff, Target Debuff, and Cast Timer.",
+                "Fixed some Halo learned-skill monitors not appearing after login.",
+                "Fixed Halo bar-icon sizes and monitor glow issues after changing forms.",
+                "Fixed Mail Assistant receipt checks and preserved class colors in history.",
+                "Fixed party pet frames appearing on the wrong side.",
+                "Fixed chat windows not fading after the mouse leaves.",
+                "Fixed hidden Orbit clocks not reappearing on hover.",
+                "Fixed action-bar stance icons turning gray during the global cooldown.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v355|mainline|5671b06e0550424e2cb08fbef277f87139f453a090bea4c7a248ae5e3dc3b160
     {
         version = "v355",
@@ -178,36 +234,6 @@ CL:Register("suite", {
                 "Added item-loading feedback to Auction Helper and fixed unresponsive searches when item information is unavailable.",
                 "Fixed false ability-ready sound alerts and monitor icon recovery after zone transitions.",
                 "Fixed obscured countdown and stack text on buff monitors.",
-            },
-        },
-    },
--- YUI-Notes-Record: v347|mainline|29acb709930a81b6ea03664bf5914ee7f1466ad74097aaeb3b527cbf2485d21a
-    {
-        version = "v347",
-        date = "2026-10-22",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "修复旧配置导入报错，以及导入失败后的延迟容限恢复异常。",
-            },
-            enUS = {
-                "Fixed errors when importing older configurations and incorrect lag tolerance restoration after failed imports.",
-            },
-        },
-    },
--- YUI-Notes-Record: v346|mainline|c61c45b0f98da0333c1bafbc8381eea114ae72c95f25d7fd0ec009cc44bdb2ef
-    {
-        version = "v346",
-        date = "2026-10-22",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "修复监控台位置修改在保存时被覆盖，以及预览遮挡位置编辑界面的问题。",
-                "修复界面美化阴影在部分窗口触发报错的问题。",
-            },
-            enUS = {
-                "Fixed monitor position edits being overwritten on save and previews overlapping the position editor.",
-                "Fixed errors caused by window shadows in UI enhancements.",
             },
         },
     },

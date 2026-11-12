@@ -21,6 +21,17 @@ local Client = {
     mainPossess = true,
     vehiclePageFirst = true,
     vehicleFallbackPage = 16,
+    -- 1.60.1.70888: class bonus offsets follow the six ordinary action pages.
+    classBonusPages = { 7, 8, 9, 10 },
+    formPagingFallbacks = {
+        class = "DRUID",
+        auraOutOfCombat = true,
+        spells = {
+            [768] = { page = 7, noStealth = true },
+            [5487] = { page = 9 },
+            [9634] = { page = 9 },
+        },
+    },
     petBattle = false,
     skyridingVisibility = false,
     cooldownRecoveryThreshold = 1.65,

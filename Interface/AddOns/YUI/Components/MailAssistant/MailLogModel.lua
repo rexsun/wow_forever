@@ -98,6 +98,19 @@ function Tracker:ClearIntents()
     for _, entry in ipairs(self.entries) do entry.intent = nil end
 end
 
+function Tracker:HasPendingIntents()
+    for _, entry in ipairs(self.entries) do
+        local intent, data = entry.intent, entry.data
+        if intent then
+            if intent.money and data.money > 0 then return true end
+            for _, item in ipairs(data.items) do
+                if intent.all or (intent.items[item.key] or 0) > 0 then return true end
+            end
+        end
+    end
+    return false
+end
+
 -- A bounded ordered match detects ambiguous duplicate letters. At most two
 -- interpretations are needed: if there is more than one, record neither.
 function Tracker:Observe(snapshot)

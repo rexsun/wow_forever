@@ -790,7 +790,7 @@ function V:Build()
         local profile=R.db.profiles[R.editing]
         local lines={string.format(L.profileSelectionHint,M.Total(profile.addons),M.Total(R.draft))}
         if R:Unsaved() then lines[#lines+1]=L.modifiedHint end
-        if not M.Same(R.baseline,R.draft) then lines[#lines+1]=L.switchHint end
+        if R.reloadRequired or not M.Same(R.baseline,R.draft) then lines[#lines+1]=L.switchHint end
         tooltip(owner,profile.name,lines)
     end)
     self.profile:HookScript("OnLeave",function(owner) G.Tooltip:Hide(owner) end)
@@ -1708,10 +1708,10 @@ function V:Refresh(stateOnly)
     if self.tab=="addons" then
         self.profile:SetValue(R.editing,{silent=true,force=true})
         local changes=#M.Diff(R.baseline,R.draft,R.records)
-        local stateLabel=R:Unsaved() and L.modified or changes>0 and L.pendingReload or L.applied
+        local stateLabel=R:Unsaved() and L.modified or (changes>0 or R.reloadRequired) and L.pendingReload or L.applied
         self.profileCount:SetText("("..M.Total(R.db.profiles[R.editing].addons)..")"); self.profileState:SetText(stateLabel)
         self.profileCount:SetWidth(math.max(32,self.profileCount:GetStringWidth()+2)); self.profileState:SetWidth(math.max(54,self.profileState:GetStringWidth()+2))
-        G:SetTextColorKey(self.profileState,(R:Unsaved() or changes>0) and "color.state.warning" or "color.text.primary")
+        G:SetTextColorKey(self.profileState,(R:Unsaved() or changes>0 or R.reloadRequired) and "color.state.warning" or "color.text.primary")
         self:LayoutProfileLabel()
         local positions=self:ColumnPositions()
         for key,b in pairs(self.columns) do
@@ -1724,7 +1724,8 @@ function V:Refresh(stateOnly)
         self.deleteProfile:SetDisabled(#R:ProfileOptions()<2)
         local editing=R.db.profiles[R.editing]
         local message=R:Unsaved() and L.unsaved or L.saved
-        if changes>0 then message=string.format(L.changes,changes)..(R:Unsaved() and (" · "..L.unsaved) or "") end
+        if changes>0 then message=string.format(L.changes,changes)..(R:Unsaved() and (" · "..L.unsaved) or "")
+        elseif R.reloadRequired then message=L.pendingReload..(R:Unsaved() and (" · "..L.unsaved) or "") end
         local modal=self.modal and self.modal:IsShown()
         local dependencyCount = M.Total(self.unavailableDependencies)
         local warning = dependencyCount>0 and string.format(L["dependency.disabledCount"],dependencyCount)

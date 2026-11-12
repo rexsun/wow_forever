@@ -15,9 +15,10 @@ local maset = nil
 local sharedCheckboxes = {}
 local cvarCheckboxes = {}
 local guildCheckboxes = {}
+local optionCheckboxes = {}
 
 MapUtils:RegisterSharedSettings({
-	keys = {"GUILDMEMBERPINS", "GUILDMEMBERLEVEL", "GUILDMEMBERNAME", "GUILDMEMBERSHARE"},
+	keys = {"GUILDMEMBERPINS", "GUILDMEMBERLEVEL", "GUILDMEMBERNAME", "GUILDMEMBERSHARE", "GUILDMEMBERZONES"},
 	getDB = function()
 		MAUTTAB = MAUTTAB or {}
 
@@ -26,7 +27,7 @@ MapUtils:RegisterSharedSettings({
 	get = function(key)
 		local value = MAUTTAB[key]
 		if value == nil and GHTABPC then value = GHTABPC[key] end
-		if value == nil then value = key == "GUILDMEMBERPINS" or key == "GUILDMEMBERSHARE" end
+		if value == nil then value = key == "GUILDMEMBERPINS" or key == "GUILDMEMBERSHARE" or key == "GUILDMEMBERZONES" end
 		MAUTTAB[key] = value
 
 		return value
@@ -64,6 +65,27 @@ function MapUtils:SetSharedOption(key, value)
 	MapUtils:SV(MAUTTAB, key, value)
 	MapUtils:SetSharedSetting(key, value)
 	MapUtils:OnSharedOptionChanged(key, value)
+end
+
+function MapUtils:SetMapOption(key, value, func)
+	MAUTTAB = MAUTTAB or {}
+	MapUtils:SV(MAUTTAB, key, value)
+	if optionCheckboxes[key] then
+		optionCheckboxes[key]:SetChecked(value)
+		if maset ~= nil then maset:UpdateDependencies() end
+	end
+	if func then func() end
+end
+
+function MapUtils:SetGuildOption(key, value)
+	MAUTTAB = MAUTTAB or {}
+	MapUtils:SV(MAUTTAB, key, value)
+	MapUtils:SetSharedSetting(key, value)
+	if guildCheckboxes[key] then
+		guildCheckboxes[key]:SetChecked(value)
+		if maset ~= nil then maset:UpdateDependencies() end
+	end
+	if MapUtils.RefreshGuildMembers then MapUtils:RefreshGuildMembers() end
 end
 
 MapUtils:RegisterSharedSettings(
@@ -110,7 +132,7 @@ local function Requires(control, key)
 end
 
 local function AddCheckbox(key, default, func, label, added)
-	return maset:AddCheckbox({
+	optionCheckboxes[key] = maset:AddCheckbox({
 		["label"] = label or ("LID_" .. key),
 		["search"] = key,
 		["added"] = added,
@@ -121,6 +143,8 @@ local function AddCheckbox(key, default, func, label, added)
 			maset:UpdateDependencies()
 		end
 	})
+
+	return optionCheckboxes[key]
 end
 
 local function AddSharedCheckbox(key, label, added)
@@ -199,12 +223,12 @@ local function AddDropdown(key, default, choices, func, label, added)
 		["choices"] = choices,
 		["func"] = function(value)
 			MapUtils:SV(MAUTTAB, key, value)
-			if func then func() end
+			if func then func(value) end
 		end
 	})
 end
 
-local function AddSlider(key, default, minValue, maxValue, step, func, label, added)
+local function AddSlider(key, default, minValue, maxValue, step, func, label, added, commitOnRelease)
 	return maset:AddSlider({
 		["label"] = label or ("LID_" .. key),
 		["search"] = key,
@@ -214,6 +238,7 @@ local function AddSlider(key, default, minValue, maxValue, step, func, label, ad
 		["max"] = maxValue,
 		["step"] = step,
 		["decimals"] = 0,
+		["commitOnRelease"] = commitOnRelease,
 		["func"] = function(value)
 			MapUtils:SV(MAUTTAB, key, value)
 			if func then func() end
@@ -221,10 +246,37 @@ local function AddSlider(key, default, minValue, maxValue, step, func, label, ad
 	})
 end
 
+local function AddTerrainFadeSliders(prefix, city)
+	local startValue, endValue = MapUtils:GetTerrainFadeThresholds(city)
+	local start, finish
+	start = AddSlider(prefix .. "START", startValue, 0, 1990, 10, function()
+		if start.value >= finish.value then
+			finish.slider:SetValue(start.value + 10)
+		else
+			MapUtils:RefreshZoneDetail()
+		end
+	end, nil, "2026-11-11", true)
+	finish = AddSlider(prefix .. "END", endValue, 10, 2000, 10, function()
+		if finish.value <= start.value then
+			start.slider:SetValue(finish.value - 10)
+		else
+			MapUtils:RefreshZoneDetail()
+		end
+	end, nil, "2026-11-11", true)
+
+	return function(style)
+		local shown = style == "MIXED"
+		maset:SetElementShown(start, shown)
+		maset:SetElementShown(finish, shown)
+	end
+end
+
 local function HandleSlash(args)
 	local sub = strlower(strtrim(args or ""))
 	if sub:match("^debug%s+help$") then
 		MapUtils:PrintDebugHelp()
+	elseif sub == "debug masks" then
+		MapUtils:ToggleDebugMaskWindow()
 	elseif sub == "debug" then
 		MapUtils:ToggleDebug()
 	elseif sub == "pos" then
@@ -279,14 +331,14 @@ function MapUtils:InitSetting()
 	if MapUtils.RefreshCommChannel then AddTooltip(AddCheckbox("COMMCHANNEL", true, function() MapUtils:RefreshCommChannel() end, nil, "2026-10-28"), "LID_COMMCHANNEL", "LID_COMMCHANNELDESC") end
 	AddCategory("WORLDMAP", nil, nil, ADDED_0927)
 	if MapUtils.RefreshGuildMembers then
-		for _, key in ipairs({"GUILDMEMBERPINS", "GUILDMEMBERLEVEL", "GUILDMEMBERNAME", "GUILDMEMBERSHARE"}) do
-			local default = key == "GUILDMEMBERPINS" or key == "GUILDMEMBERSHARE"
+		for _, key in ipairs({"GUILDMEMBERPINS", "GUILDMEMBERLEVEL", "GUILDMEMBERNAME", "GUILDMEMBERSHARE", "GUILDMEMBERZONES"}) do
+			local default = key == "GUILDMEMBERPINS" or key == "GUILDMEMBERSHARE" or key == "GUILDMEMBERZONES"
 			local control = AddCheckbox(key, default, function()
 				MapUtils:SetSharedSetting(key, MapUtils:GetConfig(key, default))
 				MapUtils:RefreshGuildMembers()
-			end, nil, default and "2026-10-29" or "2026-11-06")
+			end, nil, key == "GUILDMEMBERZONES" and "2026-11-11" or (default and "2026-10-29" or "2026-11-06"))
 			guildCheckboxes[key] = control
-			if not default then Requires(control, "GUILDMEMBERPINS") end
+			if key ~= "GUILDMEMBERPINS" and key ~= "GUILDMEMBERSHARE" then Requires(control, "GUILDMEMBERPINS") end
 			AddTooltip(control, "LID_" .. key, "LID_" .. key .. "DESC")
 		end
 	end
@@ -346,12 +398,30 @@ function MapUtils:InitSetting()
 		)
 	end
 
-	local zoneStyle = AddDropdown("MAPSTYLE", "MIXED", mapStyles, function() MapUtils:RefreshZoneDetail() end, "LID_ZONEMAPSTYLE", ADDED_1022)
+	local showZoneFade, showCityFade
+	local zoneStyle = AddDropdown("MAPSTYLE", "MIXED", mapStyles, function(style)
+		showZoneFade(style)
+		MapUtils:RefreshZoneDetail()
+	end, "LID_ZONEMAPSTYLE", ADDED_1022)
 	AddTooltip(zoneStyle, "LID_ZONEMAPSTYLE", "LID_MAPSTYLEDESC")
-	local cityStyle = AddDropdown("CITYMAPSTYLE", MapUtils:GetConfig("MAPSTYLE", "MIXED"), mapStyles, function() MapUtils:RefreshZoneDetail() end, nil, ADDED_1022)
+	showZoneFade = AddTerrainFadeSliders("ZONETERRAINFADE", false)
+	showZoneFade(MapUtils:GetConfig("MAPSTYLE", "MIXED"))
+	local cityStyle = AddDropdown("CITYMAPSTYLE", MapUtils:GetConfig("MAPSTYLE", "MIXED"), mapStyles, function(style)
+		showCityFade(style)
+		MapUtils:RefreshZoneDetail()
+	end, nil, ADDED_1022)
 	AddTooltip(cityStyle, "LID_CITYMAPSTYLE", "LID_MAPSTYLEDESC")
+	showCityFade = AddTerrainFadeSliders("CITYTERRAINFADE", true)
+	showCityFade(MapUtils:GetConfig("CITYMAPSTYLE", "MIXED"))
 	AddCategory("NAVIGATION", 2, nil, ADDED_0928)
 	AddTooltip(AddCheckbox("ALWAYSSHOWWAYPOINT", false, nil, nil, ADDED_0928), "LID_ALWAYSSHOWWAYPOINT", "LID_ALWAYSSHOWWAYPOINTDESC")
+	if (C_Navigation and C_Navigation.GetDistance) or WorldMapPin_GetDistance then
+		AddDropdown("WAYPOINTDISTANCE", "METERS", {
+			{["value"] = "METERS", ["label"] = MapUtils:Trans("LID_DISTANCEMETERS")},
+			{["value"] = "YARDS", ["label"] = MapUtils:Trans("LID_DISTANCEYARDS")}
+		})
+	end
+
 	AddCategory("MAPFADE", 2, nil, ADDED_0927)
 	AddCheckbox("WORLDMAPFADE", true, function() MapUtils:RefreshWorldMapFrame() end, nil, ADDED_0927)
 	Requires(AddSlider("WORLDMAPFADEOPACITY", 50, 0, 100, 5, nil, nil, ADDED_0927), "WORLDMAPFADE")
@@ -386,6 +456,10 @@ function MapUtils:InitSetting()
 	Requires(AddSlider("BATTLEFIELDMAPFADEOPACITY", 50, 0, 100, 5, function() MapUtils:RefreshBattlefieldMap() end, "LID_WORLDMAPFADEOPACITY", ADDED_0927), "BATTLEFIELDMAPFADE")
 	AddCategory("MAPICONS")
 	AddCategory("PIERS", 2)
+	AddDropdown("PIERICONSTYLE", "NEW", {
+		{value = "NEW", label = MapUtils:Trans("LID_PIERICONNEW")},
+		{value = "PORTALS", label = MapUtils:Trans("LID_PIERICONPORTALS")},
+	}, function() MapUtils:RefreshPins() end)
 	AddCheckbox("WORLDMAPPINS", true, function() MapUtils:RefreshPins() end)
 	AddCheckbox("MINIMAPPINS", true, function() MapUtils:RefreshPins() end)
 	if MapUtils.TRANSPORTROUTES ~= nil then

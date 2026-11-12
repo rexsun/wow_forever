@@ -25,6 +25,7 @@ local FORMS = {
 }
 local pendingRefresh = {}
 local FLIGHT_MARKER = "travel.flight"
+local AUCTION_HELPER = "AuctionHelper"
 local PLAYER_RESOURCES = { PlayerHealth = { "health" }, PlayerCast = { "cast" } }
 
 local function LiveProfile()
@@ -343,12 +344,70 @@ local function RevertMapReveal()
   return true, false, names
 end
 
+local function AuctionState()
+  local components = type(_G.YUI) == "table" and _G.YUI.Components
+  local features = type(components) == "table" and components.features
+  local feature = type(features) == "table" and features[AUCTION_HELPER]
+  if not (type(feature) == "table" and type(components.SetFeatureEnabled) == "function"
+    and type(components.GetStore) == "function") then
+    return nil, "YUI auction helper API is unavailable"
+  end
+  local active = components:GetStore(feature.product)
+  if type(active) ~= "table" then return nil, "YUI has not finished loading" end
+  local stored = {}
+  local profiles = type(_G.YUI_DB) == "table" and _G.YUI_DB.profiles
+  for name, profile in pairs(type(profiles) == "table" and profiles or {}) do
+    local store = type(profile) == "table" and profile.Components
+    if type(store) == "table" and store ~= active then
+      stored[#stored + 1] = { name = tostring(name), store = store }
+    end
+  end
+  return { components = components, feature = feature, active = active, stored = stored }
+end
+
+-- YUI's Components store leaves a feature unset until it initializes, then uses its default.
+local function AuctionOn(store, feature)
+  local value = store[AUCTION_HELPER]
+  if value == nil then return feature.default == true end
+  return value == true
+end
+
+local function ReadAuctionHelper()
+  local state, problem = AuctionState()
+  if not state then return nil, problem end
+  local running = type(state.components.initializedFeatureStates) == "table"
+    and state.components.initializedFeatureStates[AUCTION_HELPER] == true
+  if running or AuctionOn(state.active, state.feature) then return true end
+  for _, profile in ipairs(state.stored) do
+    if AuctionOn(profile.store, state.feature) then return true end
+  end
+  return false
+end
+
+-- SetFeatureEnabled runs the feature's own callback, which hides the docked panel at once.
+local function RevertAuctionHelper()
+  local state, problem = AuctionState()
+  if not state then return false, problem end
+  local names = {}
+  for _, profile in ipairs(state.stored) do
+    if AuctionOn(profile.store, state.feature) then
+      profile.store[AUCTION_HELPER] = false
+      names[#names + 1] = profile.name
+    end
+  end
+  state.components:SetFeatureEnabled(AUCTION_HELPER, false)
+  table.sort(names)
+  return true, false, names
+end
+
 function adapter.Knows(key)
   return UTILITY[key] ~= nil or key == "Resources" or PLAYER_RESOURCES[key] ~= nil
     or key == "ChatKeywordFilter" or key == "FlightMarkers" or key == "MapReveal"
+    or key == AUCTION_HELPER
 end
 
 function adapter.Read(key)
+  if key == AUCTION_HELPER then return ReadAuctionHelper() end
   if key == "ChatKeywordFilter" then return ReadChatFilter() end
   if key == "FlightMarkers" then return ReadFlightMarkers() end
   if key == "MapReveal" then return ReadMapReveal() end
@@ -373,6 +432,7 @@ function adapter.Read(key)
 end
 
 function adapter.Revert(key)
+  if key == AUCTION_HELPER then return RevertAuctionHelper() end
   if key == "ChatKeywordFilter" then return RevertChatFilter() end
   if key == "FlightMarkers" then return RevertFlightMarkers() end
   if key == "MapReveal" then return RevertMapReveal() end
@@ -435,5 +495,9 @@ function adapter.Watch(onChange)
   local chat = _G.YUI and _G.YUI.YChat
   if chat and type(chat.SetMessageFilterEnabled) == "function" then
     hooksecurefunc(chat, "SetMessageFilterEnabled", onChange)
+  end
+  local components = _G.YUI and _G.YUI.Components
+  if components and type(components.SetFeatureEnabled) == "function" then
+    hooksecurefunc(components, "SetFeatureEnabled", onChange)
   end
 end

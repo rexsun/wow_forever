@@ -1,6 +1,63 @@
 -- Generated from Docs/Products/YUI_OrbitInfoBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("ybar", {
+-- YUI-Notes-Record: orbit-131|mainline|2b8678ff85865a3a537796eaeea62a5de72690dfdd8a45e0788a4e370132b61f
+-- YUI-Notes-Record: orbit-131|forever|8705ede2cea83fac974a340b8fe9ddbc960205a6896cd461d033596c7e017a45
+    {
+        version = "orbit-131",
+        date = "2026-11-12",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-130|mainline|72f533679af30d4dee05c1eef50308963f87e6f73b917f4ad717415a547fc83d
+    {
+        version = "orbit-130",
+        date = "2026-11-11",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "位面编号可调整间距，并按编号显示不同颜色。",
+                "修复切换小区域时，位面编号反复变为“待识别”。",
+                "修复时钟隐藏后，鼠标移入仍不显示。",
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Shard IDs now support label spacing and ID-based colors.",
+                "Fixed shard IDs repeatedly becoming unknown when moving between subzones.",
+                "Fixed hidden clocks not reappearing on hover.",
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-130|forever|6ec95a7b751c6bc974c315b8ece40b6388fece4c2ad8e1045c0f40ca7ccb09a7
+    {
+        version = "orbit-130",
+        date = "2026-11-11",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "标记条支持按住 Shift 放置、清除光柱，以及清除全部光柱。",
+                "位面编号可调整间距，并按编号显示不同颜色。",
+                "修复切换小区域时，位面编号反复变为“待识别”。",
+                "修复时钟隐藏后，鼠标移入仍不显示。",
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "The marker bar supports Shift actions to place, clear, or clear all world markers.",
+                "Shard IDs now support label spacing and ID-based colors.",
+                "Fixed shard IDs repeatedly becoming unknown when moving between subzones.",
+                "Fixed hidden clocks not reappearing on hover.",
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: orbit-129|mainline|f4846098c2d1843945b887d1930cfe5f921329e3997a6ff0884025f89010b11a
     {
         version = "orbit-129",
@@ -219,68 +276,6 @@ CL:Register("ybar", {
                 "Added five-button mount bindings, with individual disable and random favorite mount options.",
                 "Added text-aware teleport menu sizing and the Weavers' Hearthstone.",
                 "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-121|forever|b7cbfd68af5a69a47192309d9a63d9739855db5b2bd71926b8a7406cbddcd7b0
-    {
-        version = "orbit-121",
-        date = "2026-10-16",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "耐久条支持五键坐骑绑定，可分别关闭或选择随机偏好坐骑。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Added five-button mount bindings, with individual disable and random favorite mount options.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-120|mainline|df464423eaec3c1ec1b6800b8adf00d5ce016122683a1c9c93f53106b237735a
-    {
-        version = "orbit-120",
-        date = "2026-10-15",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-120|forever|f88d5154fc8b0cb7503184aba804bfa45f357da72d0fc7df68e400d571c8559b
-    {
-        version = "orbit-120",
-        date = "2026-10-15",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-119|mainline|076dd78836cb4e3a4680b850a903712e10d965de6c48815c6f56b56cc82942f1
-    {
-        version = "orbit-119",
-        date = "2026-10-15",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "传送玩具新增金杜鲁的移形羽毛笔，简称“金多赞”。",
-                "耐久条补充新坐骑选项。",
-                "修复传送助手中目的地名称可能换行的问题。",
-            },
-            enUS = {
-                "Added Kinduru's Spiriting Quill to teleport toys, displayed as “Kindo'jan”.",
-                "Added a new mount option to the durability bar.",
-                "Fixed teleport destination labels wrapping onto multiple lines.",
             },
         },
     },

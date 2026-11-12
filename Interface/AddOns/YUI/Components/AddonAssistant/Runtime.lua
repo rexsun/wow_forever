@@ -117,8 +117,8 @@ function R:ProfileOptions(keep, status)
     for _, entry in ipairs(sorted) do
         entry.text = string.format("%s (%d)", entry.text, M.Total(self.db.profiles[entry.value].addons))
         if status then
-            if entry.value==self.editing then entry.description=self:Unsaved() and A.L.modified or not M.Same(self.draft,self.baseline) and A.L.pendingReload or A.L.applied
-            elseif entry.value==self.char.active then entry.description=A.L.applied end
+            if entry.value==self.editing then entry.description=self:Unsaved() and A.L.modified or (self.reloadRequired or not M.Same(self.draft,self.baseline)) and A.L.pendingReload or A.L.applied
+            elseif entry.value==self.char.active then entry.description=self.reloadRequired and A.L.pendingReload or A.L.applied end
         end
         options[#options + 1] = entry
     end
@@ -244,6 +244,57 @@ function R:Lock(names)
     self.draft = M.Selection(self.draft, self.char.locks, self.byName)
     self:Evaluate(false)
     self:Notify()
+end
+
+function R:FindProfileByName(name)
+    if not self.active or not self.db then return nil, "unavailable" end
+    if type(name) ~= "string" or name == "" then return nil, "profileMissing" end
+    local found
+    for id, profile in pairs(self.db.profiles) do
+        if type(profile) == "table" and profile.name == name then
+            if found then return nil, "profileDuplicate" end
+            if type(profile.addons) ~= "table" then return nil, "profileInvalid" end
+            for addon, enabled in pairs(profile.addons) do
+                if type(addon) ~= "string" or addon == "" or type(enabled) ~= "boolean" then
+                    return nil, "profileInvalid"
+                end
+            end
+            found = id
+        end
+    end
+    return found, not found and "profileMissing" or nil
+end
+
+function R:GetActiveProfileName()
+    if not self.active or not self.db or not self.char then return nil end
+    local profile = self.db.profiles[self.char.active]
+    return type(profile) == "table" and profile.name or nil
+end
+
+-- Apply a saved selection for an enclosing workflow; that workflow owns reload.
+function R:ApplyProfile(id)
+    if not self.active or not self.db then return false, "unavailable" end
+    local profile = self.db.profiles[id]
+    if type(profile) ~= "table" or type(profile.addons) ~= "table" then return false, "profileMissing" end
+    local found, reason = self:FindProfileByName(profile.name)
+    if found ~= id then return false, reason or "profileMissing" end
+    if not C.Safe() then return false, "unsafe" end
+    local target, missing = M.Selection(profile.addons, self.char.locks, self.byName)
+    if next(missing) then return false, "missing" end
+    local ok, previous = C.Apply(target, self.records)
+    if not ok then return false, previous end
+    self.char.active = id
+    if not M.Same(previous, target) then
+        self.char.previous = previous
+        self.reloadRequired = true
+    end
+    self.editing, self.selected = id, id
+    self.baseline, self.draft, self.editBaseline = M.Copy(target), M.Copy(target), M.Copy(target)
+    self:HoldManualSelection()
+    self.pending = nil
+    self:CancelCountdown()
+    self:Notify()
+    return true
 end
 
 function R:SelectProfile(id)
@@ -392,7 +443,7 @@ end
 function R:Evaluate(mode)
     self:CancelEvaluation()
     if not self.active or not self.db then return end
-    if not self.db.automatic then
+    if not self.db.automatic or A.GameMenu:HasPriorityManager() then
         self.pending = nil; self:CancelCountdown(); self:Notify(mode); return
     end
     local context = C.Context()
@@ -449,6 +500,7 @@ function R:Apply(automatic, expected)
     end
     local pending = self.pending
     if automatic then
+        if A.GameMenu:HasPriorityManager() then self:Evaluate(); return false end
         if expected and (expected~=pending or not self.remaining or self.remaining<=0) then return false end
         local context = C.Context()
         if not pending or not context or context.key ~= pending.context or not self.db.automatic or self.manualContext==pending.key then self:Evaluate(); return false end

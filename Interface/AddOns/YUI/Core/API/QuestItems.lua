@@ -5,6 +5,13 @@ if YUI.API.QuestItems then return end
 local QuestItems = {}
 YUI.API.QuestItems = QuestItems
 local Security = YUI.API.Security
+-- Quest 1920 and both use items verified on Forever 1.60.1.70862.
+-- Only explicit missing identities are supplemented; no bag discovery.
+local COMPATIBILITY = { [1920] = { 7308, 7247 } }
+local COMPATIBILITY_ITEMS = {}
+for _, ids in pairs(COMPATIBILITY) do
+    for _, itemID in ipairs(ids) do COMPATIBILITY_ITEMS[itemID] = true end
+end
 
 -- Forever 1.60.1.70245, 15666a6e67938a1ab5caf041406464251db111ca.
 -- Cold, event-coalesced reads. Missing/restricted data returns nil, never an
@@ -33,6 +40,29 @@ local function Field(record, key)
     if ok and not Security.IsSecretValue(value) then return value end
 end
 
+function QuestItems.IsCompatibilityItem(itemID)
+    return COMPATIBILITY_ITEMS[Integer(itemID) or 0] == true
+end
+
+function QuestItems.GetCompatibilityCount(itemID)
+    if not QuestItems.IsCompatibilityItem(itemID) then return nil end
+    local item = YUI.API.Item
+    return Integer(Read(item and item.GetCount, itemID, false, true, false, false))
+end
+
+local function CompatibilityItem(itemID)
+    local count = QuestItems.GetCompatibilityCount(itemID)
+    if count == nil then return nil, nil, nil, false end
+    if count == 0 then return end
+    local item = YUI.API.Item
+    local info = Read(item and item.GetInfo, itemID)
+    local link, texture = Field(info, "link"), Field(info, "texture")
+    if type(link) == "string" and Integer(tonumber(link:match("item:(%d+)"))) == itemID
+        and (type(texture) == "number" or type(texture) == "string") then
+        return link, texture, count
+    end
+end
+
 function QuestItems.IsInside(questID)
     local value = Read(_G.C_Minimap and _G.C_Minimap.IsInsideQuestBlob, questID)
     if type(value) == "boolean" then return value end
@@ -59,6 +89,7 @@ function QuestItems.ReadLog()
             local link, texture, charges, showWhenComplete, readable = Read(_G.GetQuestLogSpecialItemInfo, index)
             local complete = Read(api.IsComplete, questID)
             if not readable or type(complete) ~= "boolean" then return nil end
+            local nativeItemID
             if type(link) == "string" and (type(texture) == "number" or type(texture) == "string") then
                 local itemID = Integer(tonumber(link:match("item:(%d+)")))
                 if itemID and itemID > 0 and (complete == false or (complete == true and showWhenComplete == true)) then
@@ -67,6 +98,23 @@ function QuestItems.ReadLog()
                         link = link, texture = texture, charges = Integer(charges),
                         title = type(title) == "string" and title or "", tracked = tracked[questID] == true,
                         inside = QuestItems.IsInside(questID) }
+                    nativeItemID = itemID
+                end
+            end
+            local compatibility = COMPATIBILITY[questID]
+            if complete == false and compatibility then
+                for _, itemID in ipairs(compatibility) do
+                    if itemID ~= nativeItemID then
+                        local itemLink, icon, uses, itemReadable = CompatibilityItem(itemID)
+                        if itemReadable == false then return nil end
+                        if itemLink then
+                            local title = Field(info, "title")
+                            result[#result + 1] = { questID = questID, index = index, itemID = itemID,
+                                link = itemLink, texture = icon, charges = uses, compatibility = true,
+                                title = type(title) == "string" and title or "", tracked = tracked[questID] == true,
+                                inside = QuestItems.IsInside(questID) }
+                        end
+                    end
                 end
             end
         end
@@ -74,9 +122,17 @@ function QuestItems.ReadLog()
     return result
 end
 
--- No table allocation on the cooldown event path. Index is resolved from the
--- bound quest ID each time: unrelated log edits must never cool down another item.
-function QuestItems.GetCooldown(questID)
+-- Native cooldowns resolve the current quest index without allocating a table.
+-- Compatibility rows use their actual item ID through the shared item adapter.
+function QuestItems.GetCooldown(questID, itemID)
+    if itemID ~= nil then
+        if not QuestItems.IsCompatibilityItem(itemID) then return nil, nil, false end
+        local item = YUI.API.Item
+        local cooldown = Read(item and item.GetCooldown, itemID)
+        local startAt, duration = Number(Field(cooldown, "startTime")), Number(Field(cooldown, "duration"))
+        local enabled = Field(cooldown, "isEnabled")
+        return startAt, duration, (enabled == true or enabled == 1) and startAt ~= nil and duration ~= nil
+    end
     local index = Integer(Read(_G.C_QuestLog and _G.C_QuestLog.GetLogIndexForQuestID, questID))
     if not index or index == 0 then return nil, nil, false end
     local a, b, enabled = Read(_G.GetQuestLogSpecialItemCooldown, index)

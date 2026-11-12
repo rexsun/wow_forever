@@ -56,8 +56,8 @@ local EFFECTS = {}
 ns.EFFECTS = EFFECTS
 
 -- Ordre du menu : ceux qui entourent l'objet, puis ceux qui se posent au sol ou s'élèvent
-ns.EFFECT_ORDER = { "aura", "subtle", "sigil", "vortex", "rift", "flame", "storm", "beam", "geyser", "beacon", "orbit", "spirit", "ripple",
-	"sparkle" }
+ns.EFFECT_ORDER = { "aura", "subtle", "sigil", "brackets", "vortex", "rift", "flame", "storm", "beam", "geyser", "beacon", "orbit", "spirit",
+	"ripple", "sparkle" }
 
 ---------------------------------------------------------------------------
 -- Halos : une même construction, dont chaque variante pèse les couches à sa façon
@@ -211,6 +211,116 @@ EFFECTS.sigil = {
 		Sized(fx.flare, size * (0.26 + 0.08 * ready + 0.04 * c.twinkle + 0.30 * flash))
 		Tint(fx.flare, c.wr, c.wg, c.wb,
 			alpha * (Lerp(0.20, 0.80, ready) * (0.7 + 0.3 * c.twinkle) + 0.4 * flash) * (1 - locked))
+	end,
+}
+
+---------------------------------------------------------------------------
+-- Viseur : quatre coins en losange cherchent l'objet, puis se referment sur lui en cadre à portée
+---------------------------------------------------------------------------
+
+local BRACKET_CORNER = 0.37            -- place des angles dans brackets.tga, depuis le centre, en fraction de la largeur de l'image
+local RUNNER_COUNT, RUNNER_TAIL = 4, 3 -- les éclats qui courent sur le cadre, et la longueur de leur traîne
+
+-- Un point du pourtour d'un carré de demi-côté 1 : un côté par unité de p, dans le sens trigonométrique
+local function Perimeter(p)
+	local side, along = floor(p) % 4, 2 * (p % 1) - 1
+	if side == 0 then return 1, along end
+	if side == 1 then return -along, 1 end
+	if side == 2 then return -1, -along end
+	return along, -1
+end
+
+EFFECTS.brackets = {
+	wave = "brackets", waveGain = 0.7,
+	icon = { { "glow", 1, 1, 0, 0, 0.45 }, { "brackets", 0.94, 0.94, 0, 0, 1 }, { "ring", 0.62, 0.62, 0, 0, 0.55 },
+		{ "flare", 0.4, 0.4, 0, 0, 0.9, true } },
+
+	Build = function(fx, Layer)
+		fx.shade = Layer("glow", "BACKGROUND", -1, "BLEND")
+		fx.haze = Layer("glow", "BACKGROUND")
+		fx.echoes = { { texture = Layer("brackets", "BORDER", 1), rate = 9 }, { texture = Layer("brackets", "BORDER", 1), rate = 4.5 } }
+		fx.corners = Layer("brackets", "ARTWORK")
+		fx.ring = Layer("ring", "ARTWORK", 1)
+		fx.inner = Layer("brackets", "ARTWORK", 2)
+		fx.runners = {}
+		for i = 1, RUNNER_COUNT do
+			local runner = {}
+			for k = RUNNER_TAIL, 0, -1 do runner[k] = Layer("glow", "OVERLAY", k == 0 and 1 or 0) end
+			fx.runners[i] = runner
+		end
+		fx.darts = {}
+		for i = 1, 4 do fx.darts[i] = Layer("flare", "OVERLAY", 1) end
+		fx.flare = Layer("flare", "OVERLAY", 2)
+	end,
+
+	Update = function(fx, c)
+		local alpha, ready, locked, flash = c.alpha, c.ready, c.locked, c.flash
+		local time = -c.spin
+		-- l'accroche : les coins dépassent leur place d'un rien, puis y reviennent
+		local back = ready - 1
+		local lock = 1 + 2.70158 * back * back * back + 1.70158 * back * back
+		-- hors de portée le cadre, en losange, cherche : il oscille et respire ; à portée il se pose en carré
+		local seek = (0.10 * sin(time * 0.9) + 0.05 * sin(time * 2.3 + 1)) * (1 - ready) * (1 - locked)
+		local angle = (1 - lock) * pi / 4 + seek
+		local size = c.size * (Lerp(1.02, 0.94, lock) + 0.035 * c.breath * (1 - ready) + 0.40 * (1 - c.arrive))
+		fx.waveSize, fx.waveAngle = size, angle
+
+		Sized(fx.shade, size * 2.0)
+		Tint(fx.shade, 0, 0, 0, alpha * 0.30)
+		Sized(fx.haze, size * (1.5 + 0.1 * c.breath))
+		Tint(fx.haze, c.r, c.g, c.b, alpha * Lerp(0.30, 0.50, ready))
+
+		-- traînes : deux images du cadre le suivent avec retard, et ne se voient que pendant qu'il tourne
+		for _, echo in ipairs(fx.echoes) do
+			local follow = min(c.elapsed * echo.rate, 1)
+			echo.angle = Lerp(echo.angle or angle, angle, follow)
+			echo.size = Lerp(echo.size or size, size, follow)
+			Sized(echo.texture, echo.size)
+			echo.texture:SetRotation(echo.angle)
+			Tint(echo.texture, c.r, c.g, c.b, alpha * min(math.abs(angle - echo.angle) * 5, 1) * 0.35)
+		end
+
+		Sized(fx.corners, size)
+		fx.corners:SetRotation(angle)
+		Tint(fx.corners, c.hr, c.hg, c.hb, alpha * (Lerp(0.60, 0.95, ready) + 0.25 * flash))
+
+		-- la mise au point : un anneau fin se resserre dans le cadre, et un second cadre, plus petit et presque
+		-- blanc, tourne à contresens du premier : carré quand l'autre est losange, losange quand il est carré
+		Sized(fx.ring, size * Lerp(1.20, 0.74, lock))
+		Tint(fx.ring, c.hr, c.hg, c.hb, alpha * 0.55 * ready * (1 - locked))
+		Sized(fx.inner, size * (Lerp(0.56, 0.44, lock) + 0.05 * flash))
+		fx.inner:SetRotation(pi / 4 - angle)
+		Tint(fx.inner, c.wr, c.wg, c.wb, alpha * (0.80 * ready + 0.2 * flash) * (1 - locked))
+
+		-- des éclats courent sur le cadre, d'un coin à l'autre, chacun suivi de sa traîne ; pâles tant qu'il cherche
+		local half = size * BRACKET_CORNER
+		local across, up = cos(angle), sin(angle)
+		for i, runner in ipairs(fx.runners) do
+			for k = 0, RUNNER_TAIL do
+				local x, y = Perimeter(time * 0.55 + i - k * 0.07)
+				local texture = runner[k]
+				Place(texture, c.frame, (x * across - y * up) * half, (x * up + y * across) * half)
+				Sized(texture, size * (k == 0 and 0.13 or 0.11) * 0.85 ^ k)
+				if k == 0 then
+					Tint(texture, c.wr, c.wg, c.wb, alpha * Lerp(0.35, 1, ready) * (1 - locked))
+				else
+					Tint(texture, c.hr, c.hg, c.hb, alpha * Lerp(0.25, 0.80, ready) * 0.70 ^ k * (1 - locked))
+				end
+			end
+		end
+
+		-- au passage à portée, un éclat part de chaque coin vers le dehors
+		for i, dart in ipairs(fx.darts) do
+			local corner = angle + (i - 0.5) * pi / 2
+			local reach = half * sqrt(2) * (1 + 0.9 * (1 - flash))
+			Place(dart, c.frame, cos(corner) * reach, sin(corner) * reach)
+			Sized(dart, size * (0.14 + 0.24 * flash))
+			dart:SetRotation(corner)
+			Tint(dart, c.wr, c.wg, c.wb, alpha * flash * (1 - locked))
+		end
+
+		Sized(fx.flare, size * (0.22 + 0.10 * ready + 0.04 * c.twinkle + 0.30 * flash))
+		Tint(fx.flare, c.wr, c.wg, c.wb, alpha * (Lerp(0.12, 0.85, ready) * (0.7 + 0.3 * c.twinkle) + 0.4 * flash) * (1 - locked))
 	end,
 }
 

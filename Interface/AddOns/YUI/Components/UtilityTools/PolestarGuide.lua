@@ -29,6 +29,11 @@ local function FindTarget()
     local guide = addon and addon.UI and addon.UI.GuideFrame
     local frame, parts = guide and guide.frame, guide and guide.parts
     if not (frame and parts) then return nil, "waiting" end
+    if (addon.Hidden or addon.SetHidden or addon.ToggleHidden)
+        and not (type(addon.Hidden) == "function" and type(addon.SetHidden) == "function"
+            and type(addon.ToggleHidden) == "function" and Security.SafeBoolean(addon.Hidden()) ~= nil) then
+        return nil, "unsupported-interface"
+    end
     if not (type(addon.Get) == "function" and type(addon.Set) == "function"
         and type(addon.On) == "function" and type(addon.Off) == "function"
         and addon.Bindings and type(addon.Bindings.Toggle) == "function" and type(guide.Layout) == "function"
@@ -135,7 +140,8 @@ Sync = function()
     if not (Feature.enabled and Feature.attached and binding) then return end
     PaintButton()
     local frame = binding.frame
-    if frame:IsShown() then manualHidden = false end
+    local hidden = binding.hidden and Security.SafeBoolean(binding.hidden()) == true
+    if frame:IsShown() and not hidden then manualHidden = false end
     local scale = Security.SafeNumber(frame:GetEffectiveScale())
     local parentScale = Security.SafeNumber(_G.UIParent:GetEffectiveScale())
     if not (scale and parentScale and parentScale > 0) then Stop("unsupported-scale"); return end
@@ -146,13 +152,18 @@ Sync = function()
     badge:SetPoint(corner, frame, corner, 0, 0)
     badge:SetFrameStrata(frame:GetFrameStrata())
     -- 原生临时隐藏不生成标签；显式收起（含本扩展进本收起）保留恢复入口。
-    badge:SetShown(not frame:IsShown() and (manualHidden or Security.SafeBoolean(binding.get("ui.shown")) == false))
+    badge:SetShown(hidden or (not frame:IsShown() and (manualHidden or Security.SafeBoolean(binding.get("ui.shown")) == false)))
+end
+
+local function ContentShown()
+    if binding.hidden then return Security.SafeBoolean(binding.hidden()) == false end
+    return Security.SafeBoolean(binding.get("ui.shown")) == true
 end
 
 local function SetAutoShown(shown)
     -- 原生副本隐藏后调用开关可能反向展开；使用官方设置接口明确目标状态。
     autoChanging = true
-    binding.set("ui.shown", shown)
+    if binding.setHidden then binding.setHidden(not shown) else binding.set("ui.shown", shown) end
     autoChanging = false
     Feature.toggles = Feature.toggles + 1
     Sync()
@@ -162,7 +173,12 @@ local function OnClick(_, mouseButton)
     if mouseButton ~= "LeftButton" or not Feature.enabled or not Feature.attached then return end
     Run(function()
         restoreBinding = nil
-        binding.toggle()
+        if binding.hidden and Security.SafeBoolean(binding.hidden()) == false
+            and (manualHidden or Security.SafeBoolean(binding.get("ui.shown")) == false) then
+            binding.toggleFrame()
+        else
+            binding.toggle()
+        end
         Feature.toggles = Feature.toggles + 1
         Sync()
     end)
@@ -214,13 +230,16 @@ local function Attach(addon, guide)
     local point = { menu:GetPoint(1) }
     if point[1] ~= "RIGHT" or point[2] ~= nav or point[3] ~= "RIGHT" then Stop("unsupported-anchor"); return end
     local current = { theme = addon.Theme, guide = guide, frame = frame, menu = menu, nav = nav,
-        menuPoint = point, originalLayout = guide.Layout, toggle = addon.Bindings.Toggle,
+        menuPoint = point, originalLayout = guide.Layout, toggle = addon.ToggleHidden or addon.Bindings.Toggle,
+        toggleFrame = addon.Bindings.Toggle, hidden = addon.Hidden, setHidden = addon.SetHidden,
         get = addon.Get, set = addon.Set, off = addon.Off, handles = {} }
     current.wrapper = function(...)
         current.originalLayout(...)
         if binding == current then Run(PlaceChrome) end
     end
     binding, bindings[frame] = current, current
+    expandedTip.actions[1].text = L[current.hidden and "polestar_guide.hide" or "route_guide.hide"]
+    collapsedTip.actions[1].text = L[current.hidden and "polestar_guide.show" or "route_guide.show"]
     button:SetParent(nav)
     button:ClearAllPoints()
     button:SetPoint(Unpack(point))
@@ -239,6 +258,15 @@ local function Attach(addon, guide)
         manualHidden = not frame:IsShown()
         Run(Sync)
     end)
+    if current.hidden then
+        current.hiddenState = Security.SafeBoolean(current.hidden())
+        current.handles[3] = addon.On("POLESTAR_HIDDEN", function()
+            local hidden = Security.SafeBoolean(current.hidden())
+            if not autoChanging and hidden ~= current.hiddenState then restoreBinding = nil end
+            current.hiddenState = hidden
+            Run(Sync)
+        end)
+    end
     Feature.attached, Feature.pending = true, false
     button:Show()
     guide.Layout()
@@ -254,12 +282,12 @@ local function RefreshInstance()
         -- 恢复前释放归属，避免设置回调或重复通知再次展开。
         restoreBinding = nil
         if previous ~= binding then return end
-        if Security.SafeBoolean(binding.get("ui.shown")) == false then SetAutoShown(true) end
+        if not ContentShown() then SetAutoShown(true) end
         return
     end
     if inInstance ~= true or instanceHandled then return end
     instanceHandled = true
-    if Security.SafeBoolean(binding.get("ui.shown")) == true then
+    if ContentShown() then
         restoreBinding = binding
         SetAutoShown(false)
     end

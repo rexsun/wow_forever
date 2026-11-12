@@ -1232,25 +1232,93 @@ local function GetClassColor(classFile)
     return color.r or 1, color.g or 1, color.b or 1
 end
 
-function MailAssistant:GetMailLogParty(value)
-    local contact = NewContact(value)
+local function MailLogClass(value)
+    value = NonEmptyString(value)
+    if not value then return nil end
+    GetManualClassOptions()
+    if manualClassFiles[value] or (_G.RAID_CLASS_COLORS and _G.RAID_CLASS_COLORS[value]) then return value end
+end
+
+local function MailLogCharacter(value)
+    value = NonEmptyString(value)
+    local name, realm
+    if value then name, realm = string_match(value, "^(.+)%-(.+)$") end
+    -- Recorded character identities always include the real realm, unlike
+    -- a recipient's potentially hyphenated Forever given name and surname.
+    return name and NewContact(name, realm)
+end
+
+local function MailLogContacts(entry)
+    local character = MailLogCharacter(entry.character)
+    return character, character and NewContact(entry.party, character.realm)
+end
+
+local function SavedMailLogClass(contact, saved)
+    if contact and type(saved) == "table" and NonEmptyString(saved.key) == contact.key then
+        return MailLogClass(saved.classFile)
+    end
+end
+
+local function SaveMailLogClass(entry, field, contact, classFile)
+    local saved = entry[field]
+    if not classFile then entry[field] = nil
+    elseif not (type(saved) == "table" and NonEmptyString(saved.key) == contact.key
+        and NonEmptyString(saved.classFile) == classFile) then
+        entry[field] = { key = contact.key, classFile = classFile }
+    end
+end
+
+function MailAssistant:RefreshMailLogClasses(store)
+    if not store or not store.records or #store.records == 0 then return end
+    local classes = {}
+    -- Populate lazy contact lists even when the player only opens history.
+    for _, category in ipairs({ CATEGORY_FRIENDS, CATEGORY_GUILD, CATEGORY_FAVORITES, CATEGORY_ALTS }) do
+        for _, contact in ipairs(self:GetContacts(category)) do
+            local classFile = MailLogClass(contact.classFile)
+            if classFile and not contact.realmUnknown then classes[contact.key] = classFile end
+        end
+    end
+    local current = GetCurrentIdentity()
+    if current and MailLogClass(current.classFile) then classes[current.key] = current.classFile end
+    -- Persist only participants of retained records, never an entire roster.
+    -- An unqualified party name belongs to the recording character's realm.
+    for _, entry in ipairs(store.records) do
+        local character, party = MailLogContacts(entry)
+        if character then classes[character.key] = classes[character.key] or SavedMailLogClass(character, entry.characterClass) end
+        if party then classes[party.key] = classes[party.key] or SavedMailLogClass(party, entry.partyClass) end
+    end
+    for _, entry in ipairs(store.records) do
+        local character, party = MailLogContacts(entry)
+        SaveMailLogClass(entry, "characterClass", character, character and classes[character.key])
+        SaveMailLogClass(entry, "partyClass", party, party and classes[party.key])
+    end
+end
+
+function MailAssistant:GetMailLogParty(value, character, savedClass)
+    local actor = MailLogCharacter(character)
+    if character ~= nil and not actor then return value end
+    local contact = actor and NonEmptyString(value) == character and actor or NewContact(value, actor and actor.realm)
     if not contact then return value end
+    local resolveClass = actor and MailLogClass or NonEmptyString
     local store = GetPersonalStore(false)
     local saved = store and (store.characters[contact.key] or store.favorites[contact.key])
-    local classFile = type(saved) == "table" and NonEmptyString(saved.classFile)
+    local classFile
+    if type(saved) == "table" and (not actor or saved.realmUnknown ~= true) then classFile = resolveClass(saved.classFile) end
     if not classFile then
         for _, list in pairs(runtime.cache) do
             for _, cached in ipairs(list) do
-                if cached.key == contact.key then classFile = NonEmptyString(cached.classFile); break end
+                if cached.key == contact.key and (not actor or cached.realmUnknown ~= true) then
+                    classFile = resolveClass(cached.classFile); break
+                end
             end
             if classFile then break end
         end
     end
     if not classFile then
         local current = GetCurrentIdentity()
-        if current and current.key == contact.key then classFile = current.classFile end
+        if current and current.key == contact.key then classFile = resolveClass(current.classFile) end
     end
-    return YUI.IsForever and self:FormatRecipient(contact) or value, classFile
+    return YUI.IsForever and self:FormatRecipient(contact) or value, classFile or SavedMailLogClass(contact, savedClass)
 end
 
 function MailAssistant:GetMailClassColor(classFile)
@@ -2128,7 +2196,9 @@ function MailAssistant:SetContactControlsShown(shown)
 end
 
 function MailAssistant:RefreshNow(force)
-    if not runtime.enabled or not runtime.panel then return false end
+    if not runtime.enabled then return false end
+    if self.MailLogView then self.MailLogView:Refresh() end
+    if not runtime.panel then return false end
     if force ~= true and runtime.panel.IsVisible and not runtime.panel:IsVisible() then return false end
     if runtime.panelMode == "inbox" then
         if self.Inbox then self.Inbox:RefreshView() end
@@ -2141,7 +2211,8 @@ end
 
 function MailAssistant:ScheduleRefresh(category)
     if category then self:Invalidate(category) end
-    if not runtime.enabled or runtime.category ~= category then return false end
+    local history = self.MailLogView and self.MailLogView.window
+    if not runtime.enabled or (runtime.category ~= category and not (history and history:IsShown())) then return false end
     runtime.refreshToken = runtime.refreshToken + 1
     local token = runtime.refreshToken
     if runtime.refreshTimer then return true end

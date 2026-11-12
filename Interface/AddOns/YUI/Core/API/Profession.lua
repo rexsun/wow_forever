@@ -21,6 +21,21 @@ local EXTRA_SPELL_BY_SKILL_LINE = {
 
 local professionInfoTable = nil
 
+-- Forever 1.60.1.70862: SkillLineAttributes exposes public rank/modifier fields.
+-- No legacy name matching: an unknown or restricted skill remains unknown.
+function Profession.GetSkillLineRank(skillLineID)
+    if not (C_SkillInfo and C_SkillInfo.GetSkillLineInfoByID) then return nil end
+    local security = YUI.API.Security
+    if not (security and security.SafeNumber) then return nil end
+    local ok, info = pcall(C_SkillInfo.GetSkillLineInfoByID, skillLineID)
+    if not ok or security.IsSecretValue(info) or type(info) ~= "table" then return nil end
+    local rank = security.SafeNumber(info.rank)
+    if not rank then return nil end
+    local temporary = security.SafeNumber(info.tempPoints) or 0
+    local modifier = security.SafeNumber(info.modifier) or 0
+    return rank + temporary + modifier, security.SafeNumber(info.maxRank)
+end
+
 local function GetSpellNameAndIcon(spellID)
     if not spellID then return nil end
 

@@ -18,6 +18,8 @@ if Client.questItems == true then YAB.SPECIAL_BAR_ORDER[#YAB.SPECIAL_BAR_ORDER +
 if Client.classBars == true then
     YAB.SPECIAL_BAR_ORDER[#YAB.SPECIAL_BAR_ORDER + 1] = "aspects"
     YAB.SPECIAL_BAR_ORDER[#YAB.SPECIAL_BAR_ORDER + 1] = "totems"
+    YAB.SPECIAL_BAR_ORDER[#YAB.SPECIAL_BAR_ORDER + 1] = "mageTools"
+    YAB.SPECIAL_BAR_ORDER[#YAB.SPECIAL_BAR_ORDER + 1] = "classTools"
 end
 YAB.SPECIAL_GROUP_ID = "specialActionsGroup"
 YAB.SPECIAL_GROUPING_MODE_INDEPENDENT = "independent"
@@ -221,10 +223,24 @@ if Client.classBars == true then
                 cooldownTextSize = true, cooldownTextOffsetX = true, cooldownTextOffsetY = true,
                 showHotkeys = true, hotkeySize = true, hotkeyOffsetX = true, hotkeyOffsetY = true,
                 showUnlearned = id == "aspects", showPetUtilities = id == "aspects", aspectOrder = id == "aspects",
-                aspectActiveStyle = id == "aspects" },
+                aspectActiveStyle = id == "aspects", classToolsIndependent = true, classToolsInitialized = true,
+                classToolsDetached = true },
             snapshotOverrides = { hideEmptySlots = false, rangeMode = "none",
                 showCounts = false, showMacroNames = false },
         }
+    end
+    for _, id in ipairs({ "mageTools", "classTools" }) do
+        local capabilities = {}
+        for key, value in pairs(SPECIAL_BAR_RULES.totems.capabilities) do capabilities[key] = value end
+        capabilities.showCounts, capabilities.countSize = true, true
+        capabilities.countColor, capabilities.countOffsetX, capabilities.countOffsetY = true, true, true
+        if id == "mageTools" then
+            for _, key in ipairs({ "classToolsIndependent", "classToolsInitialized", "classToolsDetached", "mageScroll", "mageIntellect",
+                "mageArmor", "mageArmorLeft", "mageArmorMiddle", "mageArmorRight", "mageMissingBuffGlow" }) do capabilities[key] = true end
+        end
+        SPECIAL_BAR_RULES[id] = { buttonMode = "runtime", previewButtons = 3, keybindable = false,
+            capabilities = capabilities, snapshotOverrides = { hideEmptySlots = false,
+                rangeMode = "none", showMacroNames = false } }
     end
 end
 if Client.questItems == true then
@@ -236,7 +252,7 @@ if Client.questItems == true then
             background = true, backgroundColor = true, shadow = true, shadowColor = true,
             cooldownFade = true, cooldownTextSize = true, cooldownTextOffsetX = true,
             cooldownTextOffsetY = true, showCounts = true, countSize = true,
-            countOffsetX = true, countOffsetY = true },
+            countOffsetX = true, countOffsetY = true, flyoutDirection = true, showQuestItems = true, showCampTools = true },
         snapshotOverrides = { hideEmptySlots = false, showHotkeys = false,
             showMacroNames = false, rangeMode = "none" },
     }
@@ -372,12 +388,12 @@ function SpecialBars:NormalizeConfigSnapshot(barId, snapshot, config)
     else
         ApplySnapshotOverrides(snapshot, rule.nonRetailSnapshotOverrides)
     end
-    if barId == "aspects" or barId == "totems" then
+    if barId == "aspects" or barId == "totems" or barId == "mageTools" or barId == "classTools" or barId == "questItems" then
         snapshot.rows = ClampSpecialButtonCount(config and config.rows or snapshot.rows, 1, 12, 1)
         local direction = config and config.flyoutDirection
         snapshot.flyoutDirection = (direction == "down" or direction == "left" or direction == "right") and direction or "up"
     end
-    if barId ~= "questItems" and barId ~= "aspects" and barId ~= "totems"
+    if barId ~= "questItems" and barId ~= "aspects" and barId ~= "totems" and barId ~= "mageTools" and barId ~= "classTools"
         and (barId == "pet" or Client.deterministicSpecialBars == true) and snapshot.buttons then
         local rowValue = snapshot.rows
         if barId == "pet" or (barId == "stance" and Client.ownedStanceButtons == true) then
@@ -389,13 +405,20 @@ function SpecialBars:NormalizeConfigSnapshot(barId, snapshot, config)
 end
 
 function SpecialBars:GetPreviewButtonCount(barId, config, snapshot)
+    if barId == "classTools" then
+        return self:GetPreviewButtonCount(YAB.ClassTools:GetPreviewBarId(barId), YAB.ClassTools:GetPreviewConfig(barId), snapshot)
+    end
+    if barId == "mageTools" then return #YAB.MageTools:GetButtonKeys(config or {}) end
     config = config or {}
     local rule = SPECIAL_BAR_RULES[barId]
     if not rule then return nil end
     if barId == "pet" then
         return self:GetRuntimeButtonCount(barId, config, snapshot)
     end
-    if barId == "questItems" or barId == "totems" then return self:GetRuntimeButtonCount(barId, config, snapshot) end
+    if barId == "questItems" then
+        return (config.showQuestItems ~= false and 3 or 0) + (config.showCampTools ~= false and 5 or 0)
+    end
+    if barId == "totems" then return self:GetRuntimeButtonCount(barId, config, snapshot) end
     if barId == "aspects" and YAB.ClassBars then
         local record = YAB.BarManager and YAB.BarManager.bars[barId]
         if record then return math.max(#record.buttons + (record.petUtilityToggle and config.showPetUtilities ~= false and 1 or 0), 1) end
@@ -972,7 +995,7 @@ YAB.ConfigSetBaselineDefaultsV1 = CopyValue(YAB.Defaults)
 -- Optional Forever bar is outside the immutable ConfigSets V1 baseline.
 if Client.questItems == true then
     local config = CopyValue(YAB.Defaults.specialBars.zoneAbility)
-    ApplyOverrides(config, { label = "任务物品", size = 40, spacing = 4,
+    ApplyOverrides(config, { label = "任务与营火", size = 40, spacing = 4, flyoutDirection = "up", showQuestItems = true, showCampTools = true,
         skin = "roundedSquare", showHotkeys = false, showMacroNames = false,
         rangeMode = "none", layout = { point = "BOTTOM", relativePoint = "BOTTOM", x = 0, y = 200 } })
     YAB.Defaults.specialBars.questItems = config
@@ -1165,7 +1188,10 @@ function YAB:MergeDefaults(db)
     if type(db) ~= "table" then
         return db
     end
+    if self.ClassTools then self.ClassTools:InitializeDB(db) end
+    if self.MageTools then self.MageTools:InitializeDB(db) end
     FillDefaults(db, self.Defaults)
+    if self.ClassTools then self.ClassTools:Invalidate() end
     if YUI.Visibility then
         for _, config in pairs(db.bars or {}) do UpgradeVisibilityConfig(config) end
         for _, config in pairs(db.specialBars or {}) do UpgradeVisibilityConfig(config) end
@@ -1182,7 +1208,7 @@ end
 
 -- Optional client bars are outside the frozen ConfigSets V1 baseline.
 if Client.classBars == true then
-    for _, id in ipairs({ "aspects", "totems" }) do
+    for _, id in ipairs({ "aspects", "totems", "mageTools", "classTools" }) do
         local config = CopyValue(YAB.Defaults.specialBars.pet)
         config.enabled = true
         config.label = id == "aspects" and "猎人守护条" or "萨满图腾条"
@@ -1196,6 +1222,21 @@ if Client.classBars == true then
         end
         config.showCounts, config.showMacroNames = false, false
         if id == "totems" then config.spacing = 8 end
+        if id == "mageTools" or id == "classTools" then
+            config.label, config.buttons, config.showCounts = "职业工具条", 3, true
+            config.mageScroll, config.mageIntellect, config.mageArmor = true, true, true
+            config.mageArmorLeft, config.mageArmorRight = "auto", "mage"
+        end
+        if id == "mageTools" then
+            config.mageMissingBuffGlow = { style = "pixel", size = 1, lines = 6, thickness = 2,
+                length = 20, speed = 0.25, alpha = 0.9, falloff = 0.3, offsetX = 0, offsetY = 0,
+                color = { 1, 0.82, 0.12, 1 } }
+        end
+        if id ~= "classTools" then
+            config.classToolsIndependent = false
+            config.classToolsInitialized = false
+            config.classToolsDetached = false
+        end
         config.layout = { point = "BOTTOM", relativePoint = "BOTTOM", x = 0, y = 232 }
         YAB.Defaults.specialBars[id] = config
     end

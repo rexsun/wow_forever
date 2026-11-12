@@ -76,6 +76,11 @@ OSG.policy = {
     label = "YUI: World map unexplored area reveal", when = { "YUI", "MapUtils" },
     reason = "MapUtils owns unexplored areas: its One Map view hides the layer YUI's reveal draws on.",
   },
+  {
+    id = "yui.auctionhelper", adapter = "YUI", key = "AuctionHelper",
+    label = "YUI: Auction house shopping panel", when = { "YUI", "Auctionator" },
+    reason = "Auctionator owns auction shopping lists and searches; YUI must not dock a second shopping panel.",
+  },
 }
 
 local foreverEssentials = {

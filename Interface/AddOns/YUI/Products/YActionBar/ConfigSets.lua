@@ -9,7 +9,7 @@ ConfigSets.dormantPlacements = {}
 ConfigSets.dormantConfigOverrides = {}
 
 ConfigSets.PROVIDER_ID = "yactionbar"
-ConfigSets.SCHEMA_VERSION = 6
+ConfigSets.SCHEMA_VERSION = 7
 ConfigSets.BASELINE_VERSION = 1
 ConfigSets.DEFAULT_BUILTIN_ID = "classic-three-row"
 
@@ -70,6 +70,9 @@ local CONFIG_FIELDS = {
         "hideEmptySlots",
         "showUnlearned",
         "showPetUtilities",
+        "showQuestItems",
+        "showCampTools",
+        "classToolsIndependent", "classToolsInitialized", "classToolsDetached", "mageScroll", "mageIntellect", "mageArmor",
         "hideSkyriding",
     },
     layout = {
@@ -80,12 +83,14 @@ local CONFIG_FIELDS = {
         "alignment",
         "aspectOrder",
         "flyoutDirection",
+        "mageArmorLeft", "mageArmorMiddle", "mageArmorRight",
     },
     appearance = {
         "skinId",
         "skinOptions",
         "skin",
         "aspectActiveStyle",
+        "mageMissingBuffGlow",
         "iconZoom",
         "border",
         "borderColor",
@@ -283,8 +288,9 @@ local VALID_ANCHOR_POINT = MakeSet({
 })
 
 local BOOLEAN_FIELDS = MakeSet({
-    "enabled", "hideEmptySlots", "hideSkyriding", "cooldownFade", "shadow", "showUnlearned", "showPetUtilities",
+    "enabled", "hideEmptySlots", "hideSkyriding", "cooldownFade", "shadow", "showUnlearned", "showPetUtilities", "showQuestItems", "showCampTools",
     "showHotkeys", "showCounts", "showMacroNames", "showProfessionQuality",
+    "classToolsIndependent", "classToolsInitialized", "classToolsDetached", "mageScroll", "mageIntellect", "mageArmor",
 })
 
 local NUMBER_LIMITS = {
@@ -424,9 +430,14 @@ local function GetSpecialCapabilities(barId)
 end
 
 local function IsFieldSupported(kind, id, field)
-    if field == "flyoutDirection" then
-        return Client.classBars == true and kind == "specialBars" and (id == "aspects" or id == "totems")
+    if field == "mageMissingBuffGlow" then
+        return Client.classBars == true and kind == "specialBars" and id == "mageTools"
     end
+    if field == "flyoutDirection" then
+        return kind == "specialBars" and ((Client.classBars == true and (id == "aspects" or id == "totems"))
+            or (Client.questItems == true and id == "questItems"))
+    end
+    if field == "showQuestItems" or field == "showCampTools" then return Client.questItems == true and kind == "specialBars" and id == "questItems" end
     if field == "aspectOrder" or field == "aspectActiveStyle" or field == "showPetUtilities" then
         return Client.classBars == true and kind == "specialBars" and id == "aspects"
     end
@@ -443,7 +454,8 @@ local function IsFieldSupported(kind, id, field)
 end
 
 local function IsPortableFieldSupported(kind, id, field)
-    if field == "aspectOrder" or field == "aspectActiveStyle" or field == "showPetUtilities" or field == "flyoutDirection" then
+    if field == "mageMissingBuffGlow" then return IsFieldSupported(kind, id, field) end
+    if field == "aspectOrder" or field == "aspectActiveStyle" or field == "showPetUtilities" or field == "flyoutDirection" or field == "showQuestItems" or field == "showCampTools" then
         return IsFieldSupported(kind, id, field)
     end
     local capabilityField = TEXT_COLOR_CAPABILITY[field] or field
@@ -458,7 +470,50 @@ local function IsPortableFieldSupported(kind, id, field)
     return false
 end
 
+function ConfigSets:NormalizeMageGlow(value)
+    if type(value) ~= "table" then return nil, "expected glow options" end
+    local defaults = YAB.Defaults.specialBars.mageTools and YAB.Defaults.specialBars.mageTools.mageMissingBuffGlow
+    if not defaults then return nil, "mage glow unavailable" end
+    local styles = { none = true, pixel = true, soft = true, button = true, autocast = true,
+        proc = true, pulse = true, masque = true }
+    local style = value.style or defaults.style
+    if not styles[style] then return nil, "invalid glow style" end
+    local result = { style = style }
+    local limits = { size = { 0.25, 5 }, lines = { 1, 20 }, thickness = { 1, 20 }, length = { 4, 128 },
+        speed = { 0, 4 }, alpha = { 0, 1 }, falloff = { 0, 1 }, offsetX = { -1, 1 }, offsetY = { -1, 1 } }
+    for key, limit in pairs(limits) do
+        local number = value[key]
+        if number == nil then number = defaults[key] end
+        if type(number) ~= "number" or number ~= number or number == math.huge or number == -math.huge then
+            return nil, "invalid glow parameter " .. key
+        end
+        number = math.max(limit[1], math.min(limit[2], number))
+        result[key] = (key == "lines" or key == "thickness" or key == "length") and math.floor(number) or number
+    end
+    local color = value.color or defaults.color
+    if type(color) ~= "table" then return nil, "invalid glow color" end
+    result.color = {}
+    for index = 1, 4 do
+        local number = color[index]
+        if number == nil then number = defaults.color[index] end
+        if type(number) ~= "number" or number ~= number or number == math.huge or number == -math.huge then
+            return nil, "invalid glow color"
+        end
+        result.color[index] = math.max(0, math.min(1, number))
+    end
+    return result
+end
+
 local function NormalizeFieldValue(field, value, id)
+    if field == "mageMissingBuffGlow" then
+        if id ~= "mageTools" then return nil, "mage glow belongs to mage tools" end
+        return ConfigSets:NormalizeMageGlow(value)
+    end
+    if field == "mageArmorLeft" or field == "mageArmorMiddle" or field == "mageArmorRight" then
+        if field ~= "mageArmorMiddle" and value == "auto" then return value end
+        if value == "mage" or value == "ice" or value == "frost" then return value end
+        return nil, "invalid mage armor"
+    end
     if field == "skinOptions" then
         local skins = YUI.GUI2 and YUI.GUI2.IconSkins
         if skins then return skins:NormalizeOptions(value) end
@@ -711,6 +766,10 @@ local function ValidateKeys(source, allowed, path)
     return true
 end
 
+local function IsRetiredCampField(kind, id, field, scopeId)
+    return kind == "specialBars" and id == "questItems" and field == "campAlwaysShow" and scopeId == "display"
+end
+
 local function NormalizeConfigContainer(source, scopeId, kind, supports)
     if type(source) ~= "table" then return nil, "expected table" end
     supports = supports or IsFieldSupported
@@ -721,12 +780,16 @@ local function NormalizeConfigContainer(source, scopeId, kind, supports)
         if type(fields) ~= "table" then return nil, kind .. "." .. tostring(id) .. ": expected table" end
         local target = {}
         for field, value in pairs(fields) do
-            if FIELD_SCOPE[field] ~= scopeId or not supports(kind, id, field) then
-                return nil, kind .. "." .. tostring(id) .. ": unsupported field " .. tostring(field)
+            if IsRetiredCampField(kind, id, field, scopeId) then
+                if type(value) ~= "boolean" then return nil, "invalid retired camp setting" end
+            else
+                if FIELD_SCOPE[field] ~= scopeId or not supports(kind, id, field) then
+                    return nil, kind .. "." .. tostring(id) .. ": unsupported field " .. tostring(field)
+                end
+                local normalized, err = NormalizeFieldValue(field, value, id)
+                if err then return nil, kind .. "." .. tostring(id) .. "." .. tostring(field) .. ": " .. err end
+                target[field] = normalized
             end
-            local normalized, err = NormalizeFieldValue(field, value, id)
-            if err then return nil, kind .. "." .. tostring(id) .. "." .. tostring(field) .. ": " .. err end
-            target[field] = normalized
         end
         result[id] = target
     end
@@ -1159,7 +1222,7 @@ for _, scopeId in ipairs({ "display", "layout", "appearance", "text" }) do
     if FROZEN_BASELINE[scopeId].specialBars then FROZEN_BASELINE[scopeId].specialBars.questItems = nil end
 end
 FROZEN_BASELINE.screenPosition.placements["yactionbar.questItems"] = nil
-for _, id in ipairs({ "aspects", "totems" }) do
+for _, id in ipairs({ "aspects", "totems", "mageTools", "classTools" }) do
     for _, scopeId in ipairs({ "display", "layout", "appearance", "text" }) do
         if FROZEN_BASELINE[scopeId].specialBars then FROZEN_BASELINE[scopeId].specialBars[id] = nil end
     end
@@ -1172,7 +1235,7 @@ FROZEN_BASELINE.global.interaction.formPagingSpecs = nil
 local runtimeBaselineDefaults = schemaBaselineDefaults
 if Client.questItems == true or Client.classBars == true then
     runtimeBaselineDefaults = CopyValue(schemaBaselineDefaults)
-    for _, id in ipairs({ "questItems", "aspects", "totems" }) do
+    for _, id in ipairs({ "questItems", "aspects", "totems", "mageTools", "classTools" }) do
         local config = YAB.Defaults.specialBars[id]
         if config then runtimeBaselineDefaults.specialBars[id] = CopyValue(config) end
     end
@@ -1190,7 +1253,7 @@ if RUNTIME_BASELINE.appearance.specialGrouping then
 end
 local CURRENT_DEFAULT_SNAPSHOT = BuildBaseline(
     function(kind, id, field)
-        if kind == "specialBars" and (id == "aspects" or id == "totems" or id == "questItems") then
+        if kind == "specialBars" and (id == "aspects" or id == "totems" or id == "mageTools" or id == "classTools" or id == "questItems") then
             return IsFieldSupported(kind, id, field)
         end
         return IsPortableFieldSupported(kind, id, field)
@@ -1244,25 +1307,37 @@ local function NormalizeSparseConfigBucket(source, scopeId)
     for path, value in pairs(source) do
         if type(path) ~= "string" then return nil, "invalid sparse path" end
         local container, id, field = ParseConfigPath(path)
-        if not container
-            or FIELD_SCOPE[field] ~= scopeId
-            or not IsPortableFieldSupported(container, id, field) then
-            return nil, "unsupported sparse path " .. tostring(path)
-        end
-        local baseline = GetConfigPathValue(FROZEN_BASELINE[scopeId], path)
-        if type(value) == "table" and value[UNSET_MARKER_KEY] ~= nil and not IsUnsetMarker(value) then
-            return nil, "invalid unset marker " .. tostring(path)
-        end
-        if IsUnsetMarker(value) then
-            if not OPTIONAL_FIELDS[field] then
-                return nil, "unsupported unset path " .. tostring(path)
-            end
-            if baseline ~= nil then result[path] = NewUnsetMarker() end
+        if IsRetiredCampField(container, id, field, scopeId) then
+            if type(value) ~= "boolean" then return nil, "invalid retired camp setting" end
         else
-            local normalized, err = NormalizeFieldValue(field, value, id)
-            if err then return nil, tostring(path) .. ": " .. err end
-            if not ValuesEqual(normalized, baseline) then result[path] = normalized end
+            if not container
+                or FIELD_SCOPE[field] ~= scopeId
+                or not IsPortableFieldSupported(container, id, field) then
+                return nil, "unsupported sparse path " .. tostring(path)
+            end
+            local baseline = GetConfigPathValue(FROZEN_BASELINE[scopeId], path)
+            if type(value) == "table" and value[UNSET_MARKER_KEY] ~= nil and not IsUnsetMarker(value) then
+                return nil, "invalid unset marker " .. tostring(path)
+            end
+            if IsUnsetMarker(value) then
+                if not OPTIONAL_FIELDS[field] then
+                    return nil, "unsupported unset path " .. tostring(path)
+                end
+                if baseline ~= nil then result[path] = NewUnsetMarker() end
+            else
+                local normalized, err = NormalizeFieldValue(field, value, id)
+                if err then return nil, tostring(path) .. ": " .. err end
+                if not ValuesEqual(normalized, baseline) then result[path] = normalized end
+            end
         end
+    end
+    if scopeId == "layout" then
+        if source["specialBars.mageTools.mageArmorLeft"] == "mage"
+            and source["specialBars.mageTools.mageArmorMiddle"] == "ice"
+            and source["specialBars.mageTools.mageArmorRight"] == "frost" then
+            result["specialBars.mageTools.mageArmorLeft"], result["specialBars.mageTools.mageArmorRight"] = "auto", "mage"
+        end
+        result["specialBars.mageTools.mageArmorMiddle"] = nil
     end
     return result
 end
@@ -1569,7 +1644,10 @@ local function RecordBarChange(result, kind, id, scopeId, field)
     touched[scopeId] = true
     touched.fields = touched.fields or {}
     touched.fields[field] = true
-    if field == "enabled" then
+    local classDisplayStructure = Client.classBars == true and kind == "specialBars"
+        and (field == "classToolsDetached" or id == "aspects" and (field == "showUnlearned" or field == "showPetUtilities"))
+    if classDisplayStructure or field == "enabled" or field == "classToolsIndependent" or field == "mageScroll"
+        or field == "mageIntellect" or field == "mageArmor" or field:match("^mageArmor") then
         result.structuralBars[id] = true
         if kind == "specialBars" then
             result.reloadRequired = true
@@ -1584,7 +1662,7 @@ local function ApplyFields(target, fields, result, kind, id, scopeId)
             RecordBarChange(result, kind, id, scopeId, field)
         end
     end
-    if scopeId == "layout" and id ~= "questItems" and id ~= "aspects" and id ~= "totems"
+    if scopeId == "layout" and id ~= "questItems" and id ~= "aspects" and id ~= "totems" and id ~= "mageTools" and id ~= "classTools"
         and target.buttons ~= nil and target.rows ~= nil then
         local maximum = math.max(1, math.floor(tonumber(target.buttons) or 1))
         local rows = math.max(1, math.min(math.floor(tonumber(target.rows) or 1), maximum))
@@ -1812,6 +1890,14 @@ function ConfigSets:PreserveDormantPlacement(layoutId, placement)
     return true
 end
 
+function ConfigSets:CopyClassToolsPlacement(source, target)
+    local placement = YUI.Layout and YUI.Layout.GetPlacement and YUI.Layout:GetPlacement(source)
+        or self.dormantPlacements and self.dormantPlacements[source]
+        or CURRENT_DEFAULT_SNAPSHOT.screenPosition.placements[source]
+    if not placement then return false end
+    return self:PreserveDormantPlacement(target, placement)
+end
+
 function ConfigSets:ApplyDormantPlacement(layoutId)
     local placement = self.dormantPlacements and self.dormantPlacements[layoutId]
     if not placement then return false, "no-dormant-placement" end
@@ -1999,6 +2085,17 @@ local function UpgradeSparseVisibility(data, err)
     return data
 end
 
+function ConfigSets:PreserveLegacyClassModes(data)
+    if Client.classBars == true and data and data.display then
+        for _, id in ipairs({ "aspects", "totems" }) do
+            data.display["specialBars." .. id .. ".classToolsIndependent"] = false
+            data.display["specialBars." .. id .. ".classToolsDetached"] = false
+            data.display["specialBars." .. id .. ".classToolsInitialized"] = true
+        end
+    end
+    return data
+end
+
 function ConfigSets:Migrate(data, fromVersion, toVersion, context)
     fromVersion = tonumber(fromVersion) or self.SCHEMA_VERSION
     toVersion = tonumber(toVersion) or self.SCHEMA_VERSION
@@ -2012,16 +2109,17 @@ function ConfigSets:Migrate(data, fromVersion, toVersion, context)
     if fromVersion == toVersion and toVersion == self.SCHEMA_VERSION then
         return UpgradeSparseVisibility(self:NormalizeSparse(data, scopeIds))
     end
-    if toVersion ~= self.SCHEMA_VERSION or (fromVersion ~= 1 and fromVersion ~= 2 and fromVersion ~= 3 and fromVersion ~= 4 and fromVersion ~= 5) then
+    if toVersion ~= self.SCHEMA_VERSION or (fromVersion ~= 1 and fromVersion ~= 2 and fromVersion ~= 3 and fromVersion ~= 4 and fromVersion ~= 5 and fromVersion ~= 6) then
         return nil, "unsupported-schema-version"
     end
     if fromVersion == 1 then
         local legacy, err = NormalizeLegacyPortable(data, scopeIds)
         if not legacy then return nil, err end
-        return UpgradeSparseVisibility(self:BuildSparseFromFull(legacy, scopeIds))
+        return UpgradeSparseVisibility(self:PreserveLegacyClassModes(self:BuildSparseFromFull(legacy, scopeIds)))
     end
 
     local migrated = CopyValue(data)
+    self:PreserveLegacyClassModes(migrated)
     local global = migrated.global
     if global ~= nil then
         if type(global) ~= "table" then return nil, "global: expected table" end
@@ -2048,7 +2146,7 @@ end
 
 function ConfigSets:CanMigrate(fromVersion, toVersion)
     fromVersion = tonumber(fromVersion)
-    return (fromVersion == 1 or fromVersion == 2 or fromVersion == 3 or fromVersion == 4 or fromVersion == 5)
+    return (fromVersion == 1 or fromVersion == 2 or fromVersion == 3 or fromVersion == 4 or fromVersion == 5 or fromVersion == 6)
         and tonumber(toVersion) == self.SCHEMA_VERSION
 end
 

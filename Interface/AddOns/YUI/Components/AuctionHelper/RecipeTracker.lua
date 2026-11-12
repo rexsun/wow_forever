@@ -1,6 +1,6 @@
 local _, ns = ...
 ns = _G.YUI or ns
-if not ns.IsRetail then return end
+if ns.IsForever or not ns.IsRetail then return end
 
 local GUI2 = ns.GUI2
 local L = ns.Locale:Get("AuctionHelper")
