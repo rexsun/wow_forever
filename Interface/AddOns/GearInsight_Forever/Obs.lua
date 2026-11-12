@@ -354,10 +354,17 @@ table.insert(ns.modules, function()
     local f = CreateFrame("Frame")
     -- ⛔ 事件一律容错注册：《无限》客户端没有的事件名会报错
     for _, e in ipairs({ "TRAINER_SHOW", "TRAINER_UPDATE", "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED", "UI_ERROR_MESSAGE",
-        "SKILL_LINES_CHANGED", "UPDATE_EXHAUSTION", "CHAT_MSG_SYSTEM", "PLAYER_ENTERING_WORLD", "CHARACTER_POINTS_CHANGED", "LOOT_OPENED" }) do
+        "SKILL_LINES_CHANGED", "UPDATE_EXHAUSTION", "CHAT_MSG_SYSTEM", "PLAYER_ENTERING_WORLD", "CHARACTER_POINTS_CHANGED", "LOOT_OPENED",
+        "TRAIT_CONFIG_UPDATED", "PLAYER_TALENT_UPDATE" }) do
         pcall(f.RegisterEvent, f, e)
     end
-    local treeDone
+    local treeDone, tpQueued
+    -- 11-07 tp：《无限》加点发 TRAIT_CONFIG_UPDATED（一次加点会连发几个事件）→ 合并成 2 秒后记一次；进世界晚 5 秒也记一次
+    local function queuePicks(sec)
+        if tpQueued then return end
+        tpQueued = true
+        C_Timer.After(sec or 2, function() tpQueued = false; pcall(O.TalentPicks) end)
+    end
     ns._obsEvent = function(_, e, ...)
         if e == "TRAINER_SHOW" or e == "TRAINER_UPDATE" then pcall(O.Trainer)
         elseif e == "UNIT_SPELLCAST_SENT" then pcall(O.CastSent, ...)
@@ -369,8 +376,9 @@ table.insert(ns.modules, function()
         elseif e == "PLAYER_ENTERING_WORLD" then
             pcall(O.SkillsChanged); pcall(O.Exhaustion)
             if not treeDone then treeDone = true; pcall(O.TalentTree) end
+            queuePicks(5)
         -- 只在分配天赋点时记：升级那一刻点还没分，记了会把上一级的配点算到新等级头上
-        elseif e == "CHARACTER_POINTS_CHANGED" then pcall(O.TalentPicks)
+        elseif ns.IsTalentEvent(e) then queuePicks()
         elseif e == "LOOT_OPENED" then pcall(O.LootOpened)
         end
     end

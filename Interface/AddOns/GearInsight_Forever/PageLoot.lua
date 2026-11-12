@@ -73,7 +73,7 @@ function ns.RareLines(npcId)
     local names = {}
     for i, it in ipairs(r.items or {}) do
         if i > 4 then break end
-        names[#names + 1] = "|cff" .. (QCOLOR[it.q] or "ffffff") .. ns.L(it.n, it.nEn) .. "|r" .. (it.p and (" " .. ns.PctText(it.p)) or "")
+        names[#names + 1] = "|cff" .. (QCOLOR[it.q] or "ffffff") .. ns.ItemNm(it) .. "|r" .. (it.p and (" " .. ns.PctText(it.p)) or "")
     end
     if #names > 0 then lines[#lines + 1] = ns.L("掉落：", "Drops: ") .. table.concat(names, ns.L("、", ", ")) end
     return lines
@@ -263,10 +263,10 @@ function ns.ItemFallbackTip(it0)
         if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, it.id)
         else ns.ItemInfo(it.id) end
         GameTooltip:ClearLines()
-        GameTooltip:AddLine("|cff" .. (QCOLOR[it.q] or "ffffff") .. nm(it) .. "|r")
+        GameTooltip:AddLine("|cff" .. (QCOLOR[it.q] or "ffffff") .. ns.ItemNm(it) .. "|r")
         -- 10-07 用户截图：中文界面不再附英文原名（「Horned Viking Helmet」）
-        GameTooltip:AddLine((it.slot or "") .. " " .. (it.type or ""), 1, 1, 1)
-        for k, s in ipairs(ns.zh and it.st or it.stEn or {}) do GameTooltip:AddLine(s, 1, 1, 1) end
+        GameTooltip:AddLine(ns.TD(it.slot or "") .. " " .. ns.TD(it.type or ""), 1, 1, 1)
+        for k, s in ipairs(ns.zh and it.st or it.stEn or {}) do GameTooltip:AddLine(ns.TD(s), 1, 1, 1) end
         GameTooltip:AddLine(ns.L("物品等级 ", "Item level ") .. (it.ilvl or 0) .. ns.L("　需要等级 ", "  Requires level ") .. (it.req or 0), 1, 0.82, 0)
         local st = ns.zh and it.st or it.stEn or {}
         -- 10-07 用户截图「都拿不到数据？」：以前一直写「正在读取」，可《无限》服务器上有些经典编号根本没有 → 永远读不到。
@@ -515,7 +515,7 @@ local function refresh()
             -- 10-18 测试服服务器上查不到的（副本没开放 / 掉落换了，/gi itemprobe all 实测）：灰掉 + 角上标「测试服暂无」
             local gone = ns.ItemMissing and ns.ItemMissing(it.id)
             if r.ic.SetDesaturated then r.ic:SetDesaturated(gone and true or false) end
-            r.t:SetText(gone and ("|cff777777" .. nm(it) .. "|r") or ("|cff" .. (QCOLOR[it.q] or "ffffff") .. nm(it) .. "|r"))
+            r.t:SetText(gone and ("|cff777777" .. ns.ItemNm(it) .. "|r") or ("|cff" .. (QCOLOR[it.q] or "ffffff") .. ns.ItemNm(it) .. "|r"))
             local slot = it.slot or ""
             if it.type and it.type ~= "" and it.type ~= slot then slot = slot .. " · " .. it.type end
             local pt = pctText(it.p)

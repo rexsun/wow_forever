@@ -97,6 +97,15 @@ local function drawMods(p)
                     function() return GCL.ZoneEnabled() end, function(v) GCL.SetZoneEnabled(v) end))
                 y = y - 30
             end
+            -- 11-10 用户「密语和小队都带上…都可以在设置关闭」
+            if GCL.WhisperOn then
+                add(check(box, ns.L("密语消息前也显示对方等级（·地区）", "Also in whispers"), 14, y,
+                    function() return GCL.WhisperOn() end, function(v) GCL.SetWhisperOn(v) end))
+                y = y - 30
+                add(check(box, ns.L("小队频道消息前也显示等级（·地区）", "Also in party chat"), 14, y,
+                    function() return GCL.PartyOn() end, function(v) GCL.SetPartyOn(v) end))
+                y = y - 30
+            end
         end
         if LS then
             local fs = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); fs:SetPoint("TOPLEFT", 16, y)
@@ -123,12 +132,7 @@ local function drawMods(p)
                 function() return LM.Enabled() end, function(v) LM.SetEnabled(v) end))
             y = y - 30
         end
-        local GL = ns.GuildChatLevel
-        if GL and GL.SetReport then   -- 11-06 直播「公会频道定时通报」：默认关（全会都开会刷屏），会长 / 主播自己开
-            add(check(box, ns.L("每 10 分钟在公会频道通报人数 / 在线（招人用，默认关；会长自己开）", "Post guild size / online to guild chat every 10 min (recruiting; off by default)"), 14, y,
-                function() return GL.ReportOn() end, function(v) GL.SetReport(v) end))
-            y = y - 30
-        end
+        -- 11-09 用户截图「这个为啥发工会，没意义啊」：公会频道定时通报从设置页撤掉（会员自己勾上就在公会里刷），只留 /gi 通报给直播用
         if ns.InviteMenu and ns.InviteMenu.Enabled then   -- 11-06 用户「这些都是设置，有设置，默认打开」
             add(check(box, ns.L("右键玩家菜单里加「邀请入会」", "Add \"Invite to guild\" to the player right-click menu"), 14, y,
                 function() return ns.InviteMenu.Enabled() end, function(v) ns.InviteMenu.SetEnabled(v) end))
@@ -213,15 +217,211 @@ local function build(p)
     local function add(c) p.checks[#p.checks + 1] = c; return c end
     local y = -4
 
+    -- 11-09 GI-202「我们玩的欧服，但是我想切换到中文」：手动选语言。标题中英都写，英文客户端也认得出「中文」
+    section(body, "语言 / Language", y); y = y - 24
+    do
+        local x = 14
+        for _, lg in ipairs(ns.LANGS) do
+            local code = lg[1]
+            if code == "tw" and not ns.TW_CHAR then code = false end   -- 繁体对照表（ZhTW.lua）没加载：不给这个选项
+            if code ~= false then
+            local c = add(check(body, code and lg[2] or ns.L(lg[2], lg[3]), x, y,
+                function() return ns.Lang() == code end, function() ns.SetLang(code) end))
+            c.radio = true
+            x = x + (code == "en" and 96 or code and 112 or 150)
+            end
+        end
+        local rl = ns.Button(body, ns.L("重载界面生效", "Reload to apply"), 110, 22, function() ReloadUI() end)
+        rl:SetPoint("TOPLEFT", x + 4, y - 1)
+        p.langReload = rl
+        y = y - 32
+    end
+
+    -- 11-08 用户「角标也可以关闭的吧」→「设置页单独一栏更显眼」：装备角标单独一栏放最上面：开关 + 四个角单选
+    local BCo = ns.BisCorner
+    if BCo then
+        section(body, ns.L("装备角标（角色面板装备格上的推荐装备小图标）", "BiS corner icons (character panel)"), y); y = y - 24
+        add(check(body, ns.L("显示角标（悬停看来源，点击指引获取）", "Show icons (hover for source, click for directions)"), 14, y,
+            function() return BCo.Enabled() end, function(v) BCo.SetEnabled(v) end))
+        y = y - 28
+        if BCo.SetPos then
+            local lbl = body:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            lbl:SetPoint("TOPLEFT", 18, y - 5); lbl:SetText(ns.L("位置：", "Position:"))
+            local x = 64
+            for _, pos in ipairs(BCo.POS) do
+                local c = add(check(body, BCo.PosName(pos), x, y, function() return BCo.Pos() == pos end, function() BCo.SetPos(pos) end))
+                c.radio = true
+                x = x + 92
+            end
+            local tip = body:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            tip:SetPoint("TOPLEFT", x + 6, y - 7); tip:SetText(ns.L("角标上 Alt + 点击也能换", "or Alt-click an icon"))
+            y = y - 32
+        end
+    end
+
     section(body, ns.L("界面", "Interface"), y); y = y - 24
+    -- 11-09 GI-196「界面加个窗口放大吧，默认界面太小了」：主窗口大小单选（主窗口上 Ctrl + 滚轮可微调）
+    if ns.SetUIScale then
+        local lbl = body:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        lbl:SetPoint("TOPLEFT", 18, y - 5); lbl:SetText(ns.L("窗口大小：", "Window size:"))
+        local x = ns.zh and 86 or 100
+        for _, sc in ipairs(ns.SCALES) do
+            local c = add(check(body, math.floor(sc * 100 + 0.5) .. "%", x, y,
+                function() return math.abs(ns.UIScale() - sc) < 0.001 end, function() ns.SetUIScale(sc) end))
+            c.radio = true
+            x = x + 70
+        end
+        y = y - 26
+        local tip = body:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        tip:SetPoint("TOPLEFT", 42, y); tip:SetText(ns.L("也可以在主窗口上按住 Ctrl 滚滚轮微调，或输入 /gi scale 125", "Or hold Ctrl and scroll over the window, or type /gi scale 125"))
+        y = y - 22
+    end
     add(check(body, ns.L("显示小地图按钮", "Show minimap button"), 14, y,
         function() return not (ns.db.minimap and ns.db.minimap.hide) end, function(v) ns.SetMinimapShown(v) end))
     y = y - 30
-    -- 11-06 角色面板当前等级 BiS 角标（BisCorner.lua，HOLD）：默认开
-    local BCo = ns.BisCorner
-    if BCo then
-        add(check(body, ns.L("角色面板装备格角上显示当前等级推荐装备（悬停看来源，点击指引获取）", "Show the current-level pick on character panel slots (hover for source, click for directions)"), 14, y,
-            function() return BCo.Enabled() end, function(v) BCo.SetEnabled(v) end))
+    -- 11-10 共建看板 GI-213「需要装等插件」（ItemLevel.lua）
+    if ns.ItemLevel then
+        add(check(body, ns.L("显示装等（鼠标提示 / 角色面板每格 + 平均装等 / 背包）", "Show item levels (tooltips, character panel + average, bags)"), 14, y,
+            function() return ns.ItemLevel.Enabled() end, function(v) ns.ItemLevel.SetOn(v) end))
+        y = y - 30
+    end
+    -- 11-10 共建看板 GI-218「方便看制造材料获取来源」（ReagentSrc.lua）
+    if ns.ReagentSrcTip then
+        add(check(body, ns.L("材料鼠标提示写从哪来（采集点 / 剥皮地区 / 掉落的怪 / 商人）", "Show where crafting materials come from in tooltips"), 14, y,
+            function() return ns.ReagentSrcTip.Enabled() end, function(v) ns.ReagentSrcTip.SetOn(v) end))
+        y = y - 30
+    end
+    -- 11-10 玩家「进入主城自动关闭友方姓名板 出城再开 太卡了」（CityPlates.lua）
+    if ns.CityPlates then
+        add(check(body, ns.L("进主城自动关友方姓名板，出城再打开（城里人多会卡）", "Hide friendly nameplates in capitals, restore outside (saves FPS)"), 14, y,
+            function() return ns.CityPlates.Enabled() end, function(v) ns.CityPlates.SetOn(v) end))
+        y = y - 30
+    end
+    -- 11-11 GI-224 训练师可学技能：进有本职业训练师的城镇提醒（TrainNow.lua，HOLD）
+    if ns.TrainNow then
+        add(check(body, ns.L("进有职业训练师的城镇时，提醒这一级能学的技能", "Remind me of trainable spells when I enter a town with my class trainer"), 14, y,
+            function() return ns.TrainNow.RemindOn() end, function(v) ns.TrainNow.SetRemindOn(v) end))
+        y = y - 30
+    end
+    -- 11-11 猎人箭 / 子弹补充提醒（AmmoRemind.lua，HOLD）：只猎人显示
+    if ns.AmmoRemind and ns.MyClass and ns.MyClass() == "Hunter" then
+        local AR = ns.AmmoRemind
+        add(check(body, ns.L("箭 / 子弹快没了提醒（浮动图标 + 聊天框；商人那里一键补满）", "Ammo running-low reminder (icon + chat; one-click top-up at vendors)"), 14, y,
+            function() return AR.On() end, function(v) AR.SetOn(v) end))
+        add(check(body, ns.L("提醒音效", "Sound"), 520, y, function() return AR.DB().sound == true end, function(v) AR.DB().sound = v and true or nil end))
+        y = y - 24
+        local t = body:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        t:SetPoint("TOPLEFT", 40, y)
+        t:SetText(string.format(ns.L("少于 %d 发黄、少于 %d 发红，商人那里补到 %d 发；改：/gi ammo warn 400 · urgent 150 · full 1000", "Warn < %d, urgent < %d, top up to %d; change: /gi ammo warn 400 / urgent 150 / full 1000"),
+            AR.Get("warn"), AR.Get("urgent"), AR.Get("full")))
+        y = y - 22
+    end
+    -- 11-08 玩家「鼠标路过别人帐篷 组队的 哪里关啊」：帐篷蹭露营弹窗开关（Camp.lua，默认开）
+    local CPm = ns.Camp
+    -- 11-09 用户截图「这里单独一个子标题」：帐篷蹭露营 + 入队申请单列一栏
+    if CPm and CPm.Enabled then
+        y = y - 6
+        section(body, ns.L("帐篷蹭露营", "Tent sharing"), y); y = y - 24
+        add(check(body, ns.L("指到别人的帐篷时弹窗问要不要密他求组蹭露营", "Offer to whisper the owner when you mouse over someone's tent"), 14, y,
+            function() return CPm.Enabled() end, function(v) CPm.SetOn(v) end))
+        y = y - 28
+        -- 11-10 用户「主动发私聊就行，申请加入功能放到设置，默认关闭」
+        add(check(body, ns.L("求组时同时发系统入队申请（对方会弹「申请加入」框）", "Also send a system join request"), 32, y,
+            function() return CPm.DB().reqJoin == true end, function(v) CPm.DB().reqJoin = v or nil end))
+        y = y - 28
+        -- 11-09 用户「增加一个单人（没组队的情况下）自动接收的选项，默认关闭, 自动拒绝所有的，默认关闭」：我放帐篷时别人的入队申请
+        local rl = body:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        rl:SetPoint("TOPLEFT", 18, y - 5); rl:SetText(ns.L("别人申请加入我的队伍时：", "When others ask to join my group:"))
+        y = y - 26
+        add(check(body, ns.L("单人（没组队）时自动同意", "Auto-accept when solo"), 32, y,
+            function() return CPm.DB().reqAcceptSolo == true end, function(v) CPm.DB().reqAcceptSolo = v or nil end))
+        y = y - 28
+        add(check(body, ns.L("自动拒绝来蹭露营的（对方密语提到帐篷 / 露营，或用本插件申请的）", "Decline tent requests (they whispered about a tent, or asked via this addon)"), 32, y,
+            function() return CPm.DB().reqDecline == true end, function(v) CPm.DB().reqDecline = v or nil end))
+        y = y - 30
+    end
+
+    -- 11-09 GI-212「蹭帐篷自己设置密聊内容」+ GI-210「各种自动私信内容编辑」：插件会自动发的私信都能自己填，留空 = 插件默认话术
+    --   蹭帐篷两条存 camp.msg / camp.thankMsg（和 /gi camp msg、/gi camp thanks 同一份），其余存 ns.db.whispers[key]
+    do
+        local function wdb() ns.db.whispers = ns.db.whispers or {}; return ns.db.whispers end
+        local function msgBox(label, get, set, yy)
+            local fs = body:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            fs:SetPoint("TOPLEFT", 18, yy - 5); fs:SetText(label)
+            local e = CreateFrame("EditBox", nil, body, "InputBoxTemplate")
+            e:SetSize(380, 20); e:SetPoint("TOPLEFT", ns.zh and 140 or 170, yy - 2)
+            e:SetAutoFocus(false); e:SetMaxLetters(200)
+            local function save(self)
+                local v = (self:GetText() or ""):gsub("^%s+", ""):gsub("%s+$", "")
+                set(v ~= "" and v or nil)
+            end
+            e:SetScript("OnEnterPressed", function(self) save(self); self:ClearFocus() end)
+            e:SetScript("OnEscapePressed", function(self) self:SetText(get() or ""); self:ClearFocus() end)
+            e:SetScript("OnEditFocusLost", save)
+            e:SetScript("OnShow", function(self) self:SetText(get() or "") end)
+            e:SetText(get() or "")
+            return e
+        end
+        y = y - 6
+        section(body, ns.L("自动私信内容", "Auto whispers"), y); y = y - 24
+        local rows = {}
+        if CPm and CPm.DB then
+            rows[#rows + 1] = { ns.L("蹭帐篷求组：", "Tent ask:"), function() return CPm.DB().msg end, function(v) CPm.DB().msg = v end }
+            rows[#rows + 1] = { ns.L("蹭完帐篷感谢：", "Tent thanks:"), function() return CPm.DB().thankMsg end, function(v) CPm.DB().thankMsg = v end }
+        end
+        for _, r in ipairs({
+            { "qm", ns.L("邀请一起做任务：", "Quest invite:") },
+            { "thanks", ns.L("退队感谢队友：", "Thanks on leave:") },
+            { "lfg", ns.L("申请活动后私信：", "After applying:") },
+        }) do
+            local k = r[1]
+            rows[#rows + 1] = { r[2], function() return ns.db.whispers and ns.db.whispers[k] end, function(v) wdb()[k] = v end }
+        end
+        for _, r in ipairs(rows) do msgBox(r[1], r[2], r[3], y); y = y - 26 end
+        local tip = body:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        tip:SetPoint("TOPLEFT", 42, y + 2); tip:SetText(ns.L("留空 = 用插件默认话术（蹭帐篷每次随机一句）；可用 {任务} {职业} {活动} {等级} {人数}；改完按回车保存",
+            "Leave empty for the default; placeholders {任务} {职业} {活动} {等级} {人数}; press Enter to save"))
+        y = y - 22
+    end
+
+    -- 11-09 经验加成检查（XpCheck.lua，HOLD）：总开关 + 小窗（自动 / 一直显示）+ 到期提醒 + 音效 + 每项开关
+    local XCm = ns.XpCheck
+    if XCm then
+        section(body, ns.L("经验加成检查（帐篷 / 营火 / 睡袋 / 经验食物 / 休息经验）", "XP bonus check (tent / campfire / bag / food / rested)"), y); y = y - 24
+        add(check(body, ns.L("开启（有没有、还剩多久、缺了怎么补）", "On (what you have, time left, how to get the rest)"), 14, y,
+            function() return XCm.Enabled() end, function(v) XCm.Set("on", v) end))
+        y = y - 28
+        add(check(body, ns.L("显示提醒条（平时隐藏，快没了浮出来、再近一点高亮）", "Show the reminder bar (hidden until a bonus is ending)"), 14, y,
+            function() return XCm.DB().win ~= false end, function(v) XCm.Set("win", v) end))
+        add(check(body, ns.L("生效中也半透明显示", "Always show (faded)"), 380, y,
+            function() return XCm.DB().always == true end, function(v) XCm.Set("always", v) end))
+        y = y - 28
+        add(check(body, ns.L("聊天框提醒（浮出来 / 高亮 / 掉了各一次）", "Chat alerts (ending / urgent / ended)"), 14, y,
+            function() return XCm.DB().warn ~= false end, function(v) XCm.Set("warn", v) end))
+        add(check(body, ns.L("提醒音效", "Alert sound"), 380, y,
+            function() return XCm.DB().sound == true end, function(v) XCm.Set("sound", v) end))
+        y = y - 28
+        -- GI-225「提醒条可以移动」：平时没东西可拖 → 点「移动提醒条」五项全摆出来拖，再点锁定
+        local mv
+        mv = ns.Button(body, ns.L("移动提醒条", "Move reminder bar"), 120, 22, function()
+            XCm.SetMoving(not XCm.moving)
+            mv:SetText(XCm.moving and ns.L("锁定位置", "Lock position") or ns.L("移动提醒条", "Move reminder bar"))
+        end)
+        mv:SetPoint("TOPLEFT", 18, y)
+        local rs = ns.Button(body, ns.L("重置位置", "Reset position"), 90, 22, function() XCm.ResetPos() end)
+        rs:SetPoint("LEFT", mv, "RIGHT", 8, 0)
+        local mt = body:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        mt:SetPoint("LEFT", rs, "RIGHT", 10, 0)
+        mt:SetText(ns.L("提醒条出来时也能直接按住拖", "You can also just drag the bar when it shows"))
+        y = y - 30
+        local lbl = body:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        lbl:SetPoint("TOPLEFT", 18, y - 5); lbl:SetText(ns.L("查哪些：", "Check:"))
+        local x = ns.zh and 78 or 70
+        for _, k in ipairs(XCm.KEYS) do
+            local t = XCm.TITLE[k]
+            add(check(body, ns.L(t[1], t[2]), x, y, function() return XCm.ItemOn(k) end, function(v) XCm.SetItem(k, v) end))
+            x = x + (ns.zh and 104 or 112)
+        end
         y = y - 30
     end
 
@@ -229,7 +429,7 @@ local function build(p)
     local SCh = ns.SideChains
     if SCh and SCh.TrackerEnabled then
         add(check(body, ns.L("睡袋任务线追踪窗（14 级起钉在屏幕上显示当前第几步，做完自动消失）", "Sleeping bag quest line tracker (pinned from level 14 until done)"), 14, y,
-            function() return SCh.TrackerEnabled() end, function(v) SCh.SetTrackerEnabled(v) end))
+            function() return SCh.TrackerAllOn and SCh.TrackerAllOn() or SCh.TrackerEnabled() end, function(v) SCh.SetTrackerEnabled(v) end))
         y = y - 30
     end
 
@@ -301,6 +501,33 @@ local function build(p)
 
     p.modY = y
     drawMods(p)
+end
+
+-- 11-09 GI-196：/gi scale 120（70-160）
+ns.ExtraSlash = ns.ExtraSlash or {}
+ns.ExtraSlash.scale = function(rest)
+    local v = ns.SetUIScale(rest)
+    if v then
+        ns.Print(string.format(ns.L("窗口大小：%d%%", "Window size: %d%%"), math.floor(v * 100 + 0.5)))
+        if page then page.refresh() end
+    else
+        ns.Print(string.format(ns.L("窗口大小：%d%%（%s scale 70-160）", "Window size: %d%% (%s scale 70-160)"), math.floor(ns.UIScale() * 100 + 0.5), ns.SlashHint))
+    end
+end
+
+-- 11-09 GI-202：/gi lang zh|en|auto
+ns.ExtraSlash = ns.ExtraSlash or {}
+ns.ExtraSlash.lang = function(rest)
+    rest = (rest or ""):lower()
+    if rest == "zh" or rest == "cn" or rest == "中文" or rest == "简体" then ns.SetLang("zh")
+    elseif rest == "tw" or rest == "繁体" or rest == "繁體" then ns.SetLang("tw")   -- 11-10 GI-216
+    elseif rest == "en" or rest == "english" then ns.SetLang("en")
+    elseif rest == "auto" then ns.SetLang(nil)
+    else
+        ns.Print(ns.L("语言：", "Language: ") .. (ns.tw and "繁體中文" or ns.zh and "简体中文" or "English") .. "  (" .. ns.SlashHint .. " lang zh | tw | en | auto)")
+        return
+    end
+    if page then page.refresh() end
 end
 
 ns.RegisterPage({ key = "data", order = 4, title = ns.L("设置", "Settings"), icon = "Interface\\Icons\\INV_Misc_Gear_01",

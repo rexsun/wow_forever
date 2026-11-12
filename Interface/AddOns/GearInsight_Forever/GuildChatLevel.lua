@@ -133,6 +133,78 @@ function GL.HookFrame() end   -- 兼容旧调用：什么也不做
 --   正文 / 说话人是保密值（12.x 副本里）原样放行；查不到等级原样放行；全部 pcall。
 --   ⛔ 要排在 LevelMute 后面注册（toc 里本文件在 LevelMute.lua 之后）：它按正文开头认播报，先加了等级它就认不出了
 GL.Paused = false
+
+-- 11-10 用户「密语和小队都带上之前公会有的等级加地方，都可以在设置关闭」：密语 / 小队频道也在正文前加 [等级·地区]
+--   等级 / 地区来源：公会名单 → 同队（队伍单位 + 所在地图）→ 好友名单；都查不到就原样放行
+--   开关 ns.db.ui.whisperChatLevel / partyChatLevel（nil = 默认开）；地区跟公会那个「加上所在地区」开关走
+function GL.WhisperOn() return not (ns.db and ns.db.ui and ns.db.ui.whisperChatLevel == false) end
+function GL.PartyOn() return not (ns.db and ns.db.ui and ns.db.ui.partyChatLevel == false) end
+function GL.SetWhisperOn(on) if ns.db then ns.db.ui = ns.db.ui or {}; ns.db.ui.whisperChatLevel = on and true or false end end
+function GL.SetPartyOn(on) if ns.db then ns.db.ui = ns.db.ui or {}; ns.db.ui.partyChatLevel = on and true or false end end
+
+local function groupUnit(s)
+    if not (UnitName and UnitExists) then return nil end
+    local raid = IsInRaid and IsInRaid()
+    for i = 1, raid and 40 or 4 do
+        local u = (raid and "raid" or "party") .. i
+        if UnitExists(u) then
+            local n = UnitName(u)
+            if type(n) == "string" and not secret(n) and n == s then return u end
+        end
+    end
+end
+local function unitZone(u)
+    if not (C_Map and C_Map.GetBestMapForUnit and C_Map.GetMapInfo) then return nil end
+    local ok, mid = pcall(C_Map.GetBestMapForUnit, u)
+    if not ok or not mid or secret(mid) then return nil end
+    local ok2, mi = pcall(C_Map.GetMapInfo, mid)
+    local z = ok2 and type(mi) == "table" and mi.name or nil
+    if type(z) == "string" and z ~= "" and not secret(z) then return z end
+end
+
+-- 发言人 → 等级, 地区（公会名单 / 同队 / 好友）；查不到等级 = nil
+function GL.Info(author)
+    if type(author) ~= "string" or secret(author) or author == "" then return nil end
+    local lv = GL.Level(author)
+    if lv then return lv, GL.Zone(author) end
+    local s = short(author)
+    local u = groupUnit(s)
+    if u then
+        local l = UnitLevel and UnitLevel(u)
+        if type(l) == "number" and not secret(l) and l > 0 then return l, unitZone(u) end
+    end
+    if C_FriendList and C_FriendList.GetFriendInfo then
+        local ok, fi = pcall(C_FriendList.GetFriendInfo, s)
+        if ok and type(fi) == "table" and type(fi.level) == "number" and not secret(fi.level) and fi.level > 0 then
+            local z = fi.area
+            if type(z) ~= "string" or z == "" or secret(z) then z = nil end
+            return fi.level, z
+        end
+    end
+    return nil
+end
+
+-- 公会成员（不含自己）：副本组队列表特别标注用
+function GL.IsGuildmate(author)
+    if type(author) ~= "string" or secret(author) or author == "" or isMe(author) then return false end
+    if not (IsInGuild and IsInGuild()) then return false end
+    GL.Rebuild()
+    if levels[short(author)] then return true end
+    ask()
+    return false
+end
+
+local function infoFilter(on)
+    return function(_, _, msg, author, ...)
+        if not on() or type(msg) ~= "string" or secret(msg) or secret(author) then return false end
+        local ok, lv, zone = pcall(GL.Info, author)
+        if not ok or not lv then return false end
+        if not GL.ZoneEnabled() then zone = nil end
+        return false, GL.Tag(lv, zone) .. " " .. msg, author, ...
+    end
+end
+GL._whisperFilter, GL._partyFilter = infoFilter(GL.WhisperOn), infoFilter(GL.PartyOn)
+
 local function filter(_, _, msg, author, ...)
     if not GL.Enabled() or type(msg) ~= "string" or secret(msg) or secret(author) then return false end
     local ok, lv = pcall(GL.Level, author)
@@ -147,6 +219,8 @@ end
 GL._filter = filter   -- 离线测试用
 if ChatFrame_AddMessageEventFilter then
     for _, e in ipairs({ "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER" }) do pcall(ChatFrame_AddMessageEventFilter, e, filter) end
+    pcall(ChatFrame_AddMessageEventFilter, "CHAT_MSG_WHISPER", GL._whisperFilter)
+    for _, e in ipairs({ "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER" }) do pcall(ChatFrame_AddMessageEventFilter, e, GL._partyFilter) end
 end
 
 local ev = CreateFrame("Frame")
@@ -167,7 +241,9 @@ if IsLoggedIn and IsLoggedIn() then pcall(ev:GetScript("OnEvent"), ev, "PLAYER_E
 --   同时打开游戏的聊天记录（LoggingChat，等于 /chatlog），直播侧栏（_live_overlay.py /guild）从 Logs/WoWChatLog.txt 读这条 + 上下线提示。
 --   ⛔ 默认关（每个会员都开 = 公会频道刷屏），只给会长 / 主播自己开：设置页「公会」栏或 /gi 通报
 GL.REPORT_MIN = 10
-function GL.ReportOn() return ns.db and ns.db.ui and ns.db.ui.guildReport == true end
+-- 11-09 用户截图「这个为啥发工会，没意义啊」：会员在设置页勾上后每 10 分钟往公会刷「全职业招募，密我进会」→ 撤掉设置页勾、
+--   旧存档的 guildReport 一律作废（换键 guildReport2），去掉「招募，密我进会」；只剩 /gi 通报 给直播侧栏读聊天记录用
+function GL.ReportOn() return ns.db and ns.db.ui and ns.db.ui.guildReport2 == true end
 function GL.Counts()
     if not (IsInGuild and IsInGuild()) then return nil end
     local ok, total, _, online = pcall(GetNumGuildMembers)
@@ -191,7 +267,7 @@ function GL.ReportText()
     local s = ns.L("[Gearinsight插件] 公会", "[Gearinsight] Guild") .. (gname and (" " .. gname) or "") .. string.format(ns.L(" 共 %d 人", " %d members"), total)
     if online then s = s .. string.format(ns.L(" · 在线 %d 人", " · %d online"), online) end
     if avg then s = s .. string.format(ns.L(" · 平均 %d 级", " · avg level %d"), avg) end
-    return s .. ns.L(" · 全职业招募，密我进会", " · recruiting all classes, whisper me to join")
+    return s
 end
 function GL.Report()
     local msg = GL.ReportText()
@@ -203,7 +279,7 @@ local ticker
 function GL.SetReport(on)
     if not ns.db then return end
     ns.db.ui = ns.db.ui or {}
-    ns.db.ui.guildReport = on and true or false
+    ns.db.ui.guildReport2 = on and true or false; ns.db.ui.guildReport = nil
     if ticker then ticker:Cancel(); ticker = nil end
     if not on then return end
     if LoggingChat then pcall(LoggingChat, true) end

@@ -345,7 +345,7 @@ end
 
 -- 刷新：天赋 / 动作条 / 绑定变了（节流 0.3 秒）
 local ev = CreateFrame("Frame")
-for _, e in ipairs({ "ACTIONBAR_SLOT_CHANGED", "UPDATE_BINDINGS", "SPELLS_CHANGED", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED" }) do
+for _, e in ipairs({ "ACTIONBAR_SLOT_CHANGED", "UPDATE_BINDINGS", "SPELLS_CHANGED", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED" }) do
     pcall(ev.RegisterEvent, ev, e)
 end
 local queued

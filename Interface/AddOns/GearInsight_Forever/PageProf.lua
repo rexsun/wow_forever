@@ -276,15 +276,87 @@ local function markSel(b, on)
 end
 
 local ROUTE_KEYS = { "firstaid", "cooking", "alchemy", "blacksmithing", "enchanting", "engineering", "leatherworking", "tailoring" }
+-- 11-09 GI-204「比如剥皮，多少技能点可以剥什么地方的皮」：冲级路线第二排放三个采集专业，点了出「技能多少去哪张图」总表
+local GATHER_KEYS = { "skinning", "herbalism", "mining" }
+local IS_GATHER = { skinning = true, herbalism = true, mining = true }
 local function pickRouteKey(skills)
     if routeKey then return end
     for _, k in ipairs(ROUTE_KEYS) do if skills[k] and P().CRAFT[k] then routeKey = k break end end
     routeKey = routeKey or "firstaid"
 end
 
+-- 地图名：猎宠数据里有中英文名；没有的几张补上；再没有就问客户端
+local ZONE_EXTRA = { [1449] = { "安戈洛环形山", "Un'Goro Crater" }, [1450] = { "月光林地", "Moonglade" }, [1459] = { "奥特兰克山谷", "Alterac Valley" } }
+local function zoneName(m)
+    local t = (ns.PetTameData and ns.PetTameData.zones and ns.PetTameData.zones[m]) or ZONE_EXTRA[m]
+    if t and t[1] then return ns.L(t[1], t[2] or t[1]) end
+    if C_Map and C_Map.GetMapInfo then
+        local ok, info = pcall(C_Map.GetMapInfo, m)
+        if ok and type(info) == "table" and info.name then return info.name end
+    end
+    return tostring(m)
+end
+ns._ProfZoneName = zoneName   -- 测试用
+
+local function renderGather(key, rank)
+    local G = P().GatherColor
+    local function col(need) local c = rank and G(need, rank); return c and P().HEX[c] or "ffffff" end
+    local zones = D().zones or {}
+    local ms = {}
+    for m in pairs(zones) do ms[#ms + 1] = m end
+    head(P().Name(key) .. ns.L("：技能多少去哪张图", ": where to go at each skill")
+        .. (rank and ("   |cff33ff99" .. ns.L("你现在 ", "you: ") .. rank .. "|r") or ""))
+    if key == "skinning" then
+        item(icon("skinning"), ns.L("剥皮要求 = 野兽等级：10 级及以下 1 点；11-20 级 =（等级 - 10）× 10；20 级以上 = 等级 × 5",
+            "Skill needed by beast level: up to 10 = 1; 11-20 = (level - 10) x 10; above 20 = level x 5"),
+            ns.L("比要求高 100 点就不再涨点（变灰）。颜色按你现在的技能：红 = 剥不了，橙 / 黄 / 绿 = 会涨，灰 = 不涨",
+                "No more skill-ups 100 points above. Colors use your skill: red = can't, orange/yellow/green = skill-ups, grey = none"))
+        local list = {}
+        for _, m in ipairs(ms) do if zones[m].sk then list[#list + 1] = m end end
+        table.sort(list, function(a, b)
+            local x, z = zones[a].sk, zones[b].sk
+            if x[3] ~= z[3] then return x[3] < z[3] end
+            if x[4] ~= z[4] then return x[4] < z[4] end
+            return a < b
+        end)
+        for _, m in ipairs(list) do
+            local sk = zones[m].sk
+            local need = sk[3] == sk[4] and tostring(sk[3]) or (sk[3] .. "-" .. sk[4])
+            item(nil, "|cff" .. col(sk[3]) .. need .. "|r  " .. zoneName(m),
+                string.format(ns.L("%d-%d 级野兽 · 技能 %d 起能剥这里的全部 · 练到 %d 不再涨", "Lv %d-%d beasts - all skinnable from %d - grey at %d"),
+                    sk[1], sk[2], sk[4], sk[4] + 100))
+        end
+        return
+    end
+    -- 草药 / 矿：按种类列，每种写要求 + 最多的几张图
+    local field = key == "herbalism" and "h" or "o"
+    local by, order = {}, {}
+    for _, m in ipairs(ms) do
+        for _, nd in ipairs(zones[m][field] or {}) do
+            local nm = nd[4] or nd[1]
+            local e = by[nm]
+            if not e then e = { zh = nd[1], en = nd[4] or nd[1], need = nd[2], at = {} }; by[nm] = e; order[#order + 1] = e end
+            e.at[#e.at + 1] = { m = m, n = nd[3] or 0 }
+        end
+    end
+    table.sort(order, function(a, b) if a.need ~= b.need then return a.need < b.need end return a.en < b.en end)
+    item(icon(key), ns.L("每种按要求从低到高；后面是这种点最多的地图（数据库刷新点数）", "Sorted by skill needed; zones with the most spawns follow"),
+        ns.L("颜色按你现在的技能：红 = 采不了，橙 / 黄 / 绿 = 会涨，灰 = 不涨", "Colors use your skill: red = can't, orange/yellow/green = skill-ups, grey = none"))
+    for _, e in ipairs(order) do
+        table.sort(e.at, function(a, b) if a.n ~= b.n then return a.n > b.n end return a.m < b.m end)
+        local names = {}
+        for i = 1, math.min(5, #e.at) do names[#names + 1] = zoneName(e.at[i].m) end
+        item(nil, "|cff" .. col(e.need) .. e.need .. "|r  " .. ns.L(e.zh, e.en),
+            table.concat(names, ns.L("、", ", ")) .. (#e.at > 5 and ns.L(" 等 ", " +") .. #e.at .. ns.L(" 张图", " zones") or ""))
+    end
+end
+
 local function renderRoute()
     local skills = P().Skills()
     pickRouteKey(skills)
+    if IS_GATHER[routeKey] then
+        return renderGather(routeKey, skills[routeKey] and skills[routeKey].r)
+    end
     local p = D().profs[routeKey]
     local rank = skills[routeKey] and skills[routeKey].r
     head(P().Name(routeKey) .. ns.L(" 1 至 300（最省材料）", " 1 to 300 (cheapest mats)")
@@ -329,9 +401,9 @@ local function renderRoute()
 end
 
 -- ---------- 配方库 ----------
-local RANGES = { { 0, 300, ns.L("全部", "All") }, { 1, 75, "1-75" }, { 76, 150, "76-150" }, { 151, 225, "151-225" }, { 226, 300, "226-300" } }
+local RANGES = ns.LateL({ { 0, 300, ns.L("全部", "All") }, { 1, 75, "1-75" }, { 76, 150, "76-150" }, { 151, 225, "151-225" }, { 226, 300, "226-300" } })   -- 11-09 GI-202：ns.LateL = 手动切语言后跟着换
 -- 部位：InventoryType → 分组
-local SLOTS = {
+local SLOTS = ns.LateL({
     { ns.L("全部部位", "All slots") },
     { ns.L("头", "Head"), { [1] = true } }, { ns.L("肩", "Shoulder"), { [3] = true } },
     { ns.L("胸", "Chest"), { [5] = true, [20] = true } }, { ns.L("手腕", "Wrist"), { [9] = true } },
@@ -342,7 +414,7 @@ local SLOTS = {
     { ns.L("饰品戒指", "Trinket/ring"), { [2] = true, [11] = true, [12] = true } },
     { ns.L("背包", "Bags"), { [18] = true } },
     { ns.L("消耗品材料", "Non-gear"), { [0] = true } },
-}
+})
 -- 能穿什么材质（5 锁 6 板 7 布 8 皮）；非护甲谁都能用
 local ARMOR = { WARRIOR = { [5] = 1, [6] = 1, [7] = 1, [8] = 1 }, PALADIN = { [5] = 1, [6] = 1, [7] = 1, [8] = 1 },
     HUNTER = { [5] = 1, [7] = 1, [8] = 1 }, SHAMAN = { [5] = 1, [7] = 1, [8] = 1 }, ROGUE = { [7] = 1, [8] = 1 },
@@ -355,11 +427,11 @@ local SRC_TAG = { [1] = "c8c8c8", [2] = "33ff99", [3] = "ff8040", [4] = "c080ff"
 
 -- 10-20 共建 GI-22「补全图纸出处（哪个商人出售）」：每条配方挂 r[16] 出处位 + r[17] 出处（ProfRecipes.src 池下标）
 -- 筛选位：1 训练师 2 商人 4 掉落 8 声望 16 任务 32 商人青睐 64 箱子；-1 = 出处未记录
-local SRC_FILTERS = {
+local SRC_FILTERS = ns.LateL({
     { ns.L("全部出处", "Any source"), 0 }, { ns.L("商人", "Vendor"), 2 }, { ns.L("商人青睐", "Favor"), 32 },
     { ns.L("掉落", "Drop"), 4 + 64 }, { ns.L("任务", "Quest"), 16 }, { ns.L("声望", "Reputation"), 8 },
     { ns.L("训练师", "Trainer"), 1 }, { ns.L("出处未记录", "Unknown"), -1 },
-}
+})
 local function hasBit(m, b)   -- 不依赖 bit 库：b 可以是几个位的和
     m = m or 0
     local p = 1
@@ -537,6 +609,17 @@ local function renderRecipes()
         local tip = { name, learn .. (src and ("（" .. ns.L(src[1], src[2]) .. "）") or ""), colors, matTxt,
             r[13] and ns.L("《无限》新增：经典旧世没有这个配方", "New in Forever: not in Classic") or nil }
         ns.ProfSourceTip(tip, r)
+        -- 11-10 GI-218：每种材料写一句从哪来（ReagentSrc.lua，HOLD 期间没有就跳过）
+        if ns.ReagentSrcTip and ns.ReagentSrcTip.Enabled() then
+            local head
+            for _, mt in ipairs(r[15]) do
+                local s = ns.ReagentSrcTip.Short(mt[1])
+                if s then
+                    if not head then tip[#tip + 1] = ns.L("材料从哪来（经典旧世参考）：", "Where to get mats (Classic reference):"); head = true end
+                    tip[#tip + 1] = "  " .. matName(mt[1]) .. ns.L("：", ": ") .. s
+                end
+            end
+        end
         local ic
         if r[7] > 0 and C_Item and C_Item.GetItemIconByID then
             local ok, v = pcall(C_Item.GetItemIconByID, r[7])
@@ -614,7 +697,7 @@ local function renderCamp()
 end
 
 -- ---------- 页面 ----------
-local TOP = { pick = -98, time = -74, route = -98, recipes = -124, camp = -74 }
+local TOP = { pick = -98, time = -74, route = -124, recipes = -124, camp = -74 }   -- 11-09 GI-204 冲级路线多一排采集按钮
 local function refresh()
     if not page or not D() then return end
     -- ⛔ P().Skills() 返回两个值，直接塞进 next() 会把第二个当成 key 报错（10-18 整页空白、按钮全叠在一起）
@@ -626,7 +709,8 @@ local function refresh()
     page.pickBtn:SetShown(tab == "pick"); page.unpickBtn:SetShown(tab == "pick" and P().Planned() ~= nil)
     local rk = tab == "route" or tab == "recipes"
     if rk then pickRouteKey(P().Skills()) end
-    for k, b in pairs(page.routeBtns) do b:SetShown(rk); markSel(b, k == routeKey) end
+    for k, b in pairs(page.routeBtns) do b:SetShown(rk and not (IS_GATHER[k] and tab ~= "route")); markSel(b, k == routeKey) end
+    if tab == "recipes" and IS_GATHER[routeKey] then routeKey = nil; pickRouteKey(P().Skills()); for k, b in pairs(page.routeBtns) do markSel(b, k == routeKey) end end
     for i, b in ipairs(page.rangeBtns) do b:SetShown(tab == "recipes"); markSel(b, i - 1 == flt.range) end
     page.slotBtn:SetShown(tab == "recipes"); page.slotBtn:SetText(SLOTS[flt.slot][1])
     page.newBtn:SetShown(tab == "recipes"); markSel(page.newBtn, flt.new)
@@ -675,6 +759,12 @@ local function build(p)
     for _, k in ipairs(ROUTE_KEYS) do
         local b = ns.Button(p, P().Name(k), 74, 20, function() routeKey = k; refresh() end)
         b:SetPoint("TOPLEFT", x, -70); x = x + 76
+        p.routeBtns[k] = b
+    end
+    x = 12
+    for _, k in ipairs(GATHER_KEYS) do
+        local b = ns.Button(p, P().Name(k), 74, 20, function() routeKey = k; refresh() end)
+        b:SetPoint("TOPLEFT", x, -96); x = x + 76
         p.routeBtns[k] = b
     end
     -- 配方库筛选：技能段 / 部位 / 只看新增 / 我能穿 / 搜索

@@ -191,7 +191,7 @@ end
 H._build = function(anchor) H.frame = H.frame or build(anchor); return H.frame end   -- 测试用
 
 local ev = CreateFrame("Frame")
-for _, e in ipairs({ "SPELLS_CHANGED", "CHARACTER_POINTS_CHANGED", "PLAYER_ENTERING_WORLD" }) do pcall(ev.RegisterEvent, ev, e) end
+for _, e in ipairs({ "SPELLS_CHANGED", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED", "PLAYER_ENTERING_WORLD" }) do pcall(ev.RegisterEvent, ev, e) end
 ev:SetScript("OnEvent", function(_, e)
     H.ClearCache()
     if e == "PLAYER_ENTERING_WORLD" and ns.db and ns.db.keysHud then H.Toggle(true) end

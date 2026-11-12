@@ -347,11 +347,13 @@ local function build(p)
     ns.MacroPage = p
     local n = 0
     for _, l in pairs(ns.Macros or {}) do n = n + #l end
-    ns.PageHeader(p, ns.L("宏库", "Macros"), ns.L("《无限》各职业常用宏 " .. n .. " 条，点职业查看", "Forever class macros, " .. n .. " in total"))
-    for k, cls in ipairs(CLASSES) do
+    -- 11-10 用户「宏只给当前职业的」（随职业百宝箱合并）：九个职业格子只留自己这一格，和通用 / GI 快捷宏排一行
+    local mineN = #((ns.Macros and ns.Macros[myClass()]) or {})
+    ns.PageHeader(p, ns.L("宏库", "Macros"), ns.L("你的职业常用宏 " .. mineN .. " 条，点开导入", "Macros for your class: " .. mineN))
+    for _, cls in ipairs(CLASSES) do if cls == myClass() then
         local b = CreateFrame("Button", nil, p)
         b:SetSize(200, 46)
-        b:SetPoint("TOPLEFT", 12 + ((k - 1) % 3) * 206, -48 - math.floor((k - 1) / 3) * 52)
+        b:SetPoint("TOPLEFT", 12, -48)
         local bg = b:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(1, 1, 1, 0.04)
         local hl = b:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.1)
         local ic = b:CreateTexture(nil, "ARTWORK"); ic:SetSize(36, 36); ic:SetPoint("LEFT", 5, 0)
@@ -365,11 +367,11 @@ local function build(p)
             local glow = b:CreateTexture(nil, "BACKGROUND", nil, 1); glow:SetAllPoints(); glow:SetColorTexture(1, 0.82, 0, 0.1)
         end
         b:SetScript("OnClick", function() showClass(p, cls) end)
-    end
+    end end
     do
         local b = CreateFrame("Button", nil, p)
         b:SetSize(200, 46)
-        b:SetPoint("TOPLEFT", 12, -48 - 3 * 52)
+        b:SetPoint("TOPLEFT", 12 + 206, -48)
         local bg = b:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(1, 0.82, 0, 0.06)
         local hl = b:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.1)
         local ic = b:CreateTexture(nil, "ARTWORK"); ic:SetSize(36, 36); ic:SetPoint("LEFT", 5, 0)
@@ -397,8 +399,8 @@ local function build(p)
             or ns.L("没有已导入的 GI 宏", "No GI macros to clear"))
         ns.RefreshMacroPage()
     end)
-    -- ⛔ 职业格子是 3 列 3 行，占到 y=-48..-198；第 4 排：通用系统宏 · GI 快捷宏（10-18）· 清空按钮（第 3 格）
-    p.clearAll:SetPoint("TOPLEFT", 12 + 412 + 15, -215)
+    -- ⛔ 11-10 起第 1 排：你的职业 · 通用系统宏 · GI 快捷宏（y=-48..-94）；清空按钮在第 2 排 y=-104
+    p.clearAll:SetPoint("TOPLEFT", 12, -104)
     p.clearAll:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine(ns.L("删掉这台角色所有已导入的 GI 宏（动作条格子要自己清）", "Deletes every GI macro you've imported on this character (you still need to clear the action bar slots yourself)"), 1, 1, 1, true)
@@ -411,7 +413,7 @@ local function build(p)
     do
         local b = CreateFrame("Button", nil, p)
         b:SetSize(200, 46)
-        b:SetPoint("TOPLEFT", 12 + 206, -48 - 3 * 52)
+        b:SetPoint("TOPLEFT", 12 + 412, -48)
         local bg = b:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(0.2, 1, 0.6, 0.06)
         local hl = b:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.1)
         local ic = b:CreateTexture(nil, "ARTWORK"); ic:SetSize(36, 36); ic:SetPoint("LEFT", 5, 0)
@@ -438,7 +440,7 @@ local function build(p)
         p.giMacro = b
     end
     local note = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    note:SetPoint("TOPLEFT", 14, -260); note:SetWidth(600); note:SetJustifyH("LEFT"); note:SetSpacing(3)
+    note:SetPoint("TOPLEFT", 14, -140); note:SetWidth(600); note:SetJustifyH("LEFT"); note:SetSpacing(3)
     note:SetText(ns.EnSafe(ns.L(
         "· 技能名按你的客户端语言自动填（中文客户端就是中文技能名）\n· 导入的宏建在「角色专用宏」里，名字以 GI 开头；再导入同一条会覆盖更新，不会重复\n· 鼠标指向 = 对鼠标下的单位施放，不用切目标；Shift / Ctrl / Alt 切换的写在每条说明里\n· 宏来自《无限》宏站（classicwowforever.com），Beta 期间技能可能还会改",
         "- Spell names fill in for your client language\n- Imported macros go to character macros, named GI...; importing again updates instead of duplicating\n- Mouseover = cast on the unit under your cursor; modifiers are in each description\n- Source: classicwowforever.com; spells may still change during the Beta")))

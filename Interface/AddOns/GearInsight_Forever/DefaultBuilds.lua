@@ -73,7 +73,10 @@ function ns.DefaultBuildKey(cls)
         if p and p[cls] and has(p[cls]) then
             local pt
             for _, b in ipairs(L) do if b.key == p[cls] then pt = b.tree end end
-            if not mt or pt == mt then return p[cls] end
+            -- GI-197「圣骑士天赋推荐，切换不了其他的专精只能看惩戒的」：点着惩戒想看神圣 / 防护，手动选了也被拉回惩戒
+            --   → 选的时候记下当时投点最多的系（@mt）；投点没换系就照手动选的（哪套都行），换了系才按新系自动挑
+            local pmt = p[cls .. "@mt"]
+            if not mt or pt == mt or (pmt and pmt == mt) then return p[cls] end
         end
         if mt then for _, b in ipairs(L) do if b.tree == mt then return b.key end end end
     elseif session[cls] and has(session[cls]) then
@@ -89,6 +92,7 @@ function ns.SetDefaultBuild(cls, key)
         local ck = charKey()
         ns.db.buildPick[ck] = ns.db.buildPick[ck] or {}
         ns.db.buildPick[ck][cls] = key
+        ns.db.buildPick[ck][cls .. "@mt"] = myMainTree() or 0   -- GI-197：记下选的时候点在哪系
     else
         session[cls] = key
     end

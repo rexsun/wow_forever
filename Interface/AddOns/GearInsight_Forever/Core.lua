@@ -4,12 +4,124 @@ _G.GearInsightForever = ns
 
 local LOC = GetLocale and GetLocale() or "enUS"
 ns.zh = (LOC == "zhCN" or LOC == "zhTW")
+ns.clientZh = ns.zh
+-- 11-10 共建看板 GI-216「可以做繁體版的嗎？照顧一下亞服玩家」：繁体客户端（或设置里选「繁體中文」）→ 中文一律换成繁体
+--   对照表 ZhTW.lua（scripts/gi_forever_zhtw.py：界面文案整句 opencc s2twp + 领域例外，其余逐字兜底）；没加载这张表 = 照旧简体
+ns.tw = (LOC == "zhTW")
+ns.clientTw = ns.tw
+local twCache, twN = {}, 0
+function ns.ToTW(s)
+    if type(s) ~= "string" or not ns.TW_CHAR or not s:find("[\228-\233]") then return s end
+    local p = ns.TW_PHRASE and ns.TW_PHRASE[s]
+    if p then return p end
+    local c = twCache[s]
+    if c then return c end
+    c = s:gsub("[\228-\233][\128-\191][\128-\191]", ns.TW_CHAR)
+    if twN > 4000 then twCache, twN = {}, 0 end
+    twCache[s], twN = c, twN + 1
+    return c
+end
+-- 11-12 GI-228「繁体端装备推荐还是简体」：数据表里的中文（物品 / 任务 / 副本 / 首领名）不经过 ns.L，繁体端原样显示简体 →
+--   显示前过 ns.TD；物品名用 ns.ItemNm：繁体端优先客户端自己给的名字（台服官方译名），没缓存先逐字转繁体并向服务器要
+function ns.TD(s)
+    if ns.tw then return ns.ToTW(s) end
+    return s
+end
+local itemAsked = {}
+function ns.ItemNm(it)
+    if type(it) ~= "table" then return "?" end
+    if not ns.tw then return ns.L(it.n or "?", it.nEn) end
+    if it.id and ns.clientZh and ns.ItemInfo then
+        local name = ns.ItemInfo(it.id)
+        if type(name) == "string" and name ~= "" then return ns.ToTW(name) end
+        if not itemAsked[it.id] and C_Item and C_Item.RequestLoadItemDataByID then
+            itemAsked[it.id] = true
+            pcall(C_Item.RequestLoadItemDataByID, it.id)
+        end
+    end
+    return ns.ToTW(it.n or "?")
+end
 
 -- 中英二选一：中文客户端用 cn，其它用 en（en 空时退回 cn）
+-- 11-09 GI-202「我们玩的欧服，想切换到中文」：设置页可手动选语言（存档 db.lang = "zh" / "en"，nil = 跟随客户端）。
+--   存档要等 ADDON_LOADED 才读得到，各文件顶层（页签名、筛选表…）在那之前就调过 ns.L →
+--   加载期出的字记进 loadPairs，读到存档后 ns.ApplyLang 把页签表和 ns.LateL 登记过的表里这些字换成另一种语言
+local loadPairs, loadLog = {}, {}
 function ns.L(cn, en)
-    if ns.zh then return cn end
-    if en and en ~= "" then return en end
-    return cn
+    local r
+    if ns.zh or not en or en == "" then r = cn else r = en end
+    if ns.tw and r == cn then r = ns.ToTW(cn) end
+    if not ns.db and en and en ~= "" and cn ~= en then
+        loadPairs[r] = loadPairs[r] or { cn, en }
+        loadLog[#loadLog + 1] = { r, cn, en }
+    end
+    return r
+end
+-- 页签名：同一个英文可能对应两个中文（掉落页 title「掉落 · 心愿单」/ tabTitle「掉落」都是 Loot）→ RegisterPage 时按调用顺序倒着认：
+--   表构造里 title 先求值、tabTitle 后求值，所以从最近的记录往回找，先认 tabTitle 再认 title
+function ns.PageLangPairs(p)
+    local i = #loadLog
+    for _, f in ipairs({ "tabTitle", "title" }) do
+        local v = p[f]
+        if type(v) == "string" then
+            for j = i, math.max(1, i - 40), -1 do
+                if loadLog[j][1] == v then
+                    p["_l_" .. f] = { loadLog[j][2], loadLog[j][3] }
+                    i = j - 1
+                    break
+                end
+            end
+        end
+    end
+end
+
+local lateTables = {}
+-- 文件顶层用 ns.L 填的本地表：登记一下，切了语言后跟着换
+function ns.LateL(t)
+    lateTables[#lateTables + 1] = t
+    return t
+end
+
+local function retr(t, seen)
+    if seen[t] then return end
+    seen[t] = true
+    for k, v in pairs(t) do
+        if type(v) == "string" then
+            local p = loadPairs[v]
+            if p then t[k] = ns.zh and (ns.tw and ns.ToTW(p[1]) or p[1]) or p[2] end
+        elseif type(v) == "table" then
+            retr(v, seen)
+        end
+    end
+end
+
+ns.LANGS = { { nil, "跟随客户端", "Auto (client)" }, { "zh", "简体中文", "Simplified Chinese" }, { "tw", "繁體中文", "Traditional Chinese" },
+    { "en", "English", "English" } }
+function ns.Lang() return ns.db and ns.db.lang or nil end
+-- InitDB 里调：按存档定 ns.zh；和加载时不一样就把加载期出的字换掉（换语言要 /reload 才全换干净，SetLang 会提示）
+function ns.ApplyLang()
+    local want = ns.Lang()
+    local z, tw = ns.clientZh, ns.clientTw
+    if want == "zh" then z, tw = true, false elseif want == "tw" then z, tw = true, true elseif want == "en" then z, tw = false, false end
+    if z == ns.zh and tw == ns.tw then return end
+    ns.zh, ns.tw = z, tw
+    local W = _G.GIWidgets
+    if type(W) == "table" then W.zh = z; W.tw = tw end
+    local seen = {}
+    if ns._Pages then
+        for _, p in ipairs(ns._Pages) do
+            for _, f in ipairs({ "title", "tabTitle" }) do
+                local q = p["_l_" .. f]
+                if q then p[f] = z and (tw and ns.ToTW(q[1]) or q[1]) or q[2] end
+            end
+        end
+    end
+    for _, t in ipairs(lateTables) do retr(t, seen) end
+end
+function ns.SetLang(v)
+    if v ~= "zh" and v ~= "en" and v ~= "tw" then v = nil end
+    ns.db.lang = v
+    ns.Print(ns.L("语言已改，输入 /reload 重载界面后生效", "Language changed - type /reload to apply"))
 end
 
 -- 10-18 物品信息兼容：新客户端全局 GetItemInfo 拿不到（用户截图：Shift 点已缓存的装备也一直「还在加载」）→
@@ -70,6 +182,24 @@ function ns.Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99GearInsight 无限版|r " .. tostring(msg))
 end
 
+-- 11-09 GI-210「各种自动私信内容编辑」：玩家在设置页「自动私信内容」填了就用自己的（存 ns.db.whispers[key]），
+--   没填返回 nil → 各模块用默认话术。占位：{任务} {职业} {活动} {等级} {人数}（拿不到的换成空）
+ns.WHISPER_VARS = { "任务", "职业", "活动", "等级", "人数" }
+function ns.MyWhisper(key, vars)
+    local t = ns.db and ns.db.whispers and ns.db.whispers[key]
+    if type(t) ~= "string" or t == "" then return nil end
+    vars = vars or {}
+    return (t:gsub("{(.-)}", function(k)
+        local v = vars[k]
+        if v == nil then
+            for _, n in ipairs(ns.WHISPER_VARS) do if n == k then return "" end end
+            return nil   -- 不认识的 {xx} 原样留着
+        end
+        if ns.Secret(v) then return "" end
+        return tostring(v)
+    end))
+end
+
 -- ---------- 存档 ----------
 local DEFAULTS = { leveling = { shown = true }, loot = {}, lootSeen = {}, lootSent = 0, lootNames = {} }
 
@@ -95,6 +225,7 @@ function ns.InitDB()
     end
     if not db.uid then db.uid = newUid() end
     ns.db = db
+    ns.ApplyLang()
 end
 
 -- ---------- JSON（只编码，导出用）----------

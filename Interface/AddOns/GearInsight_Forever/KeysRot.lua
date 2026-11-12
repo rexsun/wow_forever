@@ -103,7 +103,9 @@ local function targets()
         if u then
             local ok2, atk = pcall(UnitCanAttack, "player", u)
             if ok2 and atk and not secret(atk) then
-                local ok3, near = pcall(CheckInteractDistance or function() return true end, u, 3)   -- 3 = 约 10 码
+                -- 11-12 CheckInteractDistance 战斗中受保护（pcall 挡不住「插件被禁止」）→ 战斗中不调，姓名板上的敌人都算
+                local ok3, near = true, nil
+                if CheckInteractDistance and not (InCombatLockdown and InCombatLockdown()) then ok3, near = pcall(CheckInteractDistance, u, 3) end   -- 3 = 约 10 码
                 if not ok3 or near == nil or secret(near) or near then n = n + 1 end
             end
         end
@@ -307,7 +309,7 @@ R._build = function() board = board or buildBoard(); return board end   -- 测�
 local ev = CreateFrame("Frame")
 pcall(ev.RegisterUnitEvent, ev, "UNIT_SPELLCAST_SUCCEEDED", "player")
 for _, e in ipairs({ "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "SPELLS_CHANGED", "ACTIONBAR_SLOT_CHANGED", "UPDATE_BINDINGS",
-    "PLAYER_TARGET_CHANGED", "PLAYER_ENTERING_WORLD", "CHARACTER_POINTS_CHANGED" }) do pcall(ev.RegisterEvent, ev, e) end
+    "PLAYER_TARGET_CHANGED", "PLAYER_ENTERING_WORLD", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED" }) do pcall(ev.RegisterEvent, ev, e) end
 ev:SetScript("OnEvent", function(_, e, a1, a2, a3)
     if e == "UNIT_SPELLCAST_SUCCEEDED" then pcall(onCast, a3)
     elseif e == "PLAYER_REGEN_DISABLED" then S.fight = { n = 0, hit = 0 }; S.streak = 0
@@ -316,7 +318,7 @@ ev:SetScript("OnEvent", function(_, e, a1, a2, a3)
             ns.Print(string.format(ns.L("上一场跟手法一致 %d%%（%d 下）", "Last fight: %d%% matched the rotation (%d casts)"), math.floor(S.fight.hit / S.fight.n * 100 + 0.5), S.fight.n))
         end
         S.cp = 0
-    elseif e == "SPELLS_CHANGED" or e == "CHARACTER_POINTS_CHANGED" then R.ClearCache(); R._live = nil
+    elseif e == "SPELLS_CHANGED" or e == "CHARACTER_POINTS_CHANGED" or e == "TRAIT_CONFIG_UPDATED" then R.ClearCache(); R._live = nil
     elseif e == "ACTIONBAR_SLOT_CHANGED" or e == "UPDATE_BINDINGS" then R._live = nil
     elseif e == "PLAYER_ENTERING_WORLD" then
         if ns.db and ns.db.keysBoard then R.Toggle(true) end

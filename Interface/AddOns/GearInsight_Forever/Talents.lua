@@ -49,6 +49,13 @@ end
 -- 游戏里的天赋格：按 行:列 建索引
 local function gameIndex(tab)
     local idx = {}
+    if not GetTalentInfo then   -- 《无限》：C_Traits 读法（没有格子序号 i，绿框按天赋面板按钮的法术名对）
+        local cells = ns.TraitCells and ns.TraitCells()
+        for key, c in pairs(cells and cells[tab] or {}) do
+            idx[key] = { name = c.name, rank = c.rank, max = c.max, node = c.node }
+        end
+        return idx
+    end
     local n = GetNumTalents and GetNumTalents(tab) or 0
     for i = 1, n do
         local name, _, tier, col, rank, maxRank = GetTalentInfo(tab, i)
@@ -189,12 +196,38 @@ function ns.PlanTalentSteps(targetLevel, baseLevel)
     return steps, nil, plan
 end
 
+-- 11-10 用户截图「为啥19级没展示天赋点点哪里」：当前等级那一点已经点了，上面只列没点的 → 本级空着像漏了
+-- 第 n 点（等级 9+n）已经点过时，按计划逐点顺序返回那一点（升级规划页标「已点」）；没逐点顺序 / 还没点到 → nil
+function ns.PlanSpentStep(n)
+    local plan = ns.ActivePlan()
+    if not plan or not plan.order or not n or n < 1 then return nil end
+    local trees = ns.Data.talents[plan.cls]
+    local curCode = trees and ns.CurrentTalentCode and classKey() == plan.cls and ns.CurrentTalentCode()
+    local cur = curCode and ns.ParseTalentCode(curCode)
+    if not cur then return nil end
+    local used, k = {}, 0
+    for _, o in ipairs(plan.order) do
+        local ti, i = o[1], o[2]
+        used[ti] = used[ti] or {}
+        used[ti][i] = (used[ti][i] or 0) + 1
+        if used[ti][i] <= ((cur.pts[ti] or {})[i] or 0) then
+            k = k + 1
+            if k == n then
+                local tr, t = trees[ti], trees[ti].t[i]
+                return { lv = 9 + n, done = true, tree = ns.L(tr.c, tr.n), name = ns.L(t.c, t.n),
+                    d = ns.L(t.d, t.dEn), icon = t.i, tab = ti, row = t.r, col = t.col, rank = used[ti][i], rankMax = t.m }
+            end
+        end
+    end
+    return nil
+end
+
 local panel
 local function updatePanel()
     dropOldPlan()
     if not panel or not panel:IsShown() or not ns.db.talentPlan then return end
     local plan = ns.db.talentPlan
-    local unspent = (UnitCharacterPoints and UnitCharacterPoints("player")) or 0
+    local unspent = ns.UnspentTalentPoints and ns.UnspentTalentPoints() or 0
     local step = ns.NextTalentStep(plan)
     local lines = {}
     for ti, tr in ipairs(ns.Data.talents[plan.cls]) do
@@ -258,8 +291,9 @@ local function buildPanel()
     clear:SetScript("OnClick", function() ns.db.talentPlan = nil; f:Hide() end)
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 0, 0); close:SetScale(0.8)
-    close:SetScript("OnClick", function() f:Hide() end)   -- 10-18 战斗中关不掉：原生红叉走 HideUIPanel，战斗中被拦 → 直接 Hide
-    f:RegisterEvent("CHARACTER_POINTS_CHANGED")
+    -- 11-09 用户截图「点了x，为啥重载后又出来了」：× 只藏了框，登录 / 重载又按「有计划就出」弹回来 → 记进存档，重新导入 / 点「按这套逐点学」才再出
+    close:SetScript("OnClick", function() if ns.db.talentPlan then ns.db.talentPlan.hidden = true end; f:Hide() end)   -- 10-18 战斗中关不掉：原生红叉走 HideUIPanel，战斗中被拦 → 直接 Hide
+    for _, e in ipairs(ns.TALENT_EVENTS) do pcall(f.RegisterEvent, f, e) end
     f:RegisterEvent("PLAYER_LEVEL_UP")
     f:RegisterEvent("PLAYER_REGEN_ENABLED")
     -- ⛔ 原来先 HookScript 再 SetScript：SetScript 会连 hook 一起换掉，点完一点后绿框不跟着走
@@ -286,7 +320,7 @@ function ns.ApplyTalentCode(code)
         ns.Print(ns.L("注意：这几个天赋和游戏里的位置对不上（Beta 可能改树了）：", "Warning, talents not matching the game: ")
             .. table.concat(bad, "、"))
     end
-    ns.db.talentPlan = plan
+    ns.db.talentPlan = plan   -- 新计划（hidden 不带过来）→ 小窗重新出
     panel = panel or buildPanel()
     panel:Show(); updatePanel()
     ns.Print(ns.L("已导入配点码，共 ", "Build imported, ") .. plan.total .. ns.L(" 点", " points"))
@@ -303,7 +337,7 @@ end
 table.insert(ns.modules, function()
     if ns.db.talentPlan then
         C_Timer.After(2, function()
-            if ns.db.talentPlan and ns.db.talentPlan.cls == classKey() then
+            if ns.db.talentPlan and ns.db.talentPlan.cls == classKey() and not ns.db.talentPlan.hidden then
                 panel = panel or buildPanel(); panel:Show()
             end
         end)
@@ -317,21 +351,41 @@ end)
 local glow, tabGlow
 -- 10-16 实测：「去点」第一下能打开面板，但插件按 PlayerTalentFrame / TalentFrame 认不出 → 《无限》的天赋面板叫别的名字。
 --   候选名挨个试；都不对就扫一遍全局里名字带 Talent 的、正显示着的框体，记下来（/gi talentprobe 能看到）
-local TF_NAMES = { "PlayerTalentFrame", "TalentFrame", "ClassTalentFrame", "PlayerSpellsFrame", "TalentUIFrame" }
+-- 11-10 用户（装了 EllesmereUI）「点了跳转过来还是没闪光」：talentprobe frame=EUI_TalentsRoute —— 那是 EllesmereUI 的隐形安全按钮
+--   （名字带 Talents、挂 UIParent、永远「显示着」），扫全局时被当成天赋面板还记住了，之后真面板开着也去它里面找格子 → btns=0 不闪。
+--   → 认面板必须「真有天赋格」（新版按钮池 / EllesmereUI 经典窗的 talents 列表 / 老版 <名>Talent1）；按钮类控件不算；记住的那个每次重新核对。
+--   EllesmereUI 开了「经典天赋窗」时天赋面板是 EUI_ClassicTalents（格子是它自己的按钮，带 nodeID / spellID 字段）
+local TF_NAMES = { "PlayerTalentFrame", "TalentFrame", "ClassTalentFrame", "PlayerSpellsFrame", "TalentUIFrame", "EUI_ClassicTalents" }
 local tfFound
+local talentButtons   -- 前向声明（定义在下面）
+local function hasCells(f)
+    if type(f) ~= "table" or type(f.IsShown) ~= "function" then return false end
+    local ok, shown = pcall(f.IsShown, f)
+    if not ok or not shown then return false end
+    if type(f.GetObjectType) == "function" then
+        local okT, ot = pcall(f.GetObjectType, f)
+        if okT and (ot == "Button" or ot == "CheckButton") then return false end
+    end
+    local okN, name = pcall(function() return f:GetName() end)
+    if okN and name and _G[name .. "Talent1"] then return true end
+    return talentButtons ~= nil and #(talentButtons(f)) > 0
+end
 local function findTalentFrame(scan)
-    if tfFound and tfFound:IsShown() then return tfFound end
+    if tfFound and hasCells(tfFound) then return tfFound end
     for _, n in ipairs(TF_NAMES) do
         local f = _G[n]
-        if type(f) == "table" and f.IsShown and f:IsShown() then tfFound = f; return f end
+        if hasCells(f) then
+            tfFound = f
+            if ns.HookTalentFrame then pcall(ns.HookTalentFrame, f) end   -- EllesmereUI 的窗是第一次打开才建的，载入时挂不上
+            return f
+        end
     end
     if scan then
         for k, v in pairs(_G) do
             if type(k) == "string" and k:find("Talent", 1, true) and not k:find("GearInsight", 1, true) and type(v) == "table"
                 and type(v.IsShown) == "function" and type(v.GetParent) == "function" then
-                local ok, shown = pcall(v.IsShown, v)
                 local okp, parent = pcall(v.GetParent, v)
-                if ok and shown and okp and parent == UIParent then tfFound = v; return v end
+                if okp and parent == UIParent and hasCells(v) then tfFound = v; return v end
             end
         end
     end
@@ -374,18 +428,18 @@ end
 local function currentStep()
     if target then
         local cell = gameIndex(target.tab)[target.row .. ":" .. target.col]
-        return { tab = target.tab, index = cell and cell.i, name = target.name, tree = target.tree }
+        return { tab = target.tab, index = cell and cell.i, node = cell and cell.node, name = target.name, tree = target.tree }
     end
     -- 10-16 用户截图「点完以后开始闪这里了」：点掉凶暴后没点数了，旧逻辑（NextTalentStep 不管行解锁、不管有没有点数）跳去闪第二行。
     --   改成和升级规划「现在就能点」同一把尺：没剩点数就不亮；有点数取规划里第一条现在能点的
-    local unspent = UnitCharacterPoints and UnitCharacterPoints("player") or 0
+    local unspent = ns.UnspentTalentPoints and ns.UnspentTalentPoints() or 0
     if unspent <= 0 then return nil end
     local lv = UnitLevel and UnitLevel("player") or 0
     local steps = ns.PlanTalentSteps and ns.PlanTalentSteps(lv, lv)
     for _, st in ipairs(steps or {}) do
         if st.avail and st.tab then
             local cell = gameIndex(st.tab)[st.row .. ":" .. st.col]
-            return { tab = st.tab, index = cell and cell.i, name = st.name, tree = st.tree }
+            return { tab = st.tab, index = cell and cell.i, node = cell and cell.node, name = st.name, tree = st.tree }
         end
     end
     return nil
@@ -399,6 +453,7 @@ local function spellNameOf(sid)
     return GetSpellInfo and (GetSpellInfo(sid)) or nil
 end
 local function buttonSpellID(b)
+    if rawget(b, "spellID") then return rawget(b, "spellID") end   -- EllesmereUI 经典天赋窗
     local d = rawget(b, "definitionInfo")
     if type(d) == "table" and d.spellID then return d.spellID end
     local n = rawget(b, "nodeInfo")
@@ -409,8 +464,16 @@ local function buttonSpellID(b)
     end
     return type(n) == "table" and n.spellID or nil
 end
-local function talentButtons(tf)
+talentButtons = function(tf)
     local list = {}
+    -- EllesmereUI 经典天赋窗：win.talents = 它自己的格子按钮（b.nodeID / b.spellID）
+    local eui = rawget(tf, "talents")
+    if type(eui) == "table" then
+        for _, b in ipairs(eui) do
+            if type(b) == "table" and rawget(b, "nodeID") then list[#list + 1] = b end
+        end
+        if #list > 0 then return list, tf end
+    end
     for _, c in ipairs({ rawget(tf, "TalentsFrame"), rawget(tf, "TalentsTab"), tf }) do
         if type(c) == "table" and type(c.EnumerateAllTalentButtons) == "function" then
             local ok = pcall(function() for b in c:EnumerateAllTalentButtons() do list[#list + 1] = b end end)
@@ -420,7 +483,21 @@ local function talentButtons(tf)
     return list
 end
 ns.TalentButtons = talentButtons
-local function findButtonByName(tf, name)
+-- 11-10 用户截图「猎人升级规划，点去点天赋，没有高亮」：按法术名对，计划里的中文名和客户端不一样（官方未汉化插件自译 / 改名）就对不上
+--   → 先按天赋节点编号对（TraitCells 读到的 node 和面板按钮的 nodeID 是同一个），对不上再按名字
+local function buttonNodeID(b)
+    local id = rawget(b, "nodeID")
+    if not id then local n = rawget(b, "nodeInfo"); id = type(n) == "table" and n.ID or nil end
+    return id
+end
+local function findButtonByName(tf, name, node)
+    if not name and not node then return nil end
+    if node then
+        for _, b in ipairs((talentButtons(tf))) do
+            local ok, vis = pcall(b.IsVisible, b)
+            if ok and vis and buttonNodeID(b) == node then return b end
+        end
+    end
     if not name then return nil end
     for _, b in ipairs((talentButtons(tf))) do
         local ok, vis = pcall(b.IsVisible, b)
@@ -437,7 +514,7 @@ function ns.HighlightTalentStep()
     if not ok or not step then return end
     local fname = tf:GetName() or "PlayerTalentFrame"
     if not _G[fname .. "Talent1"] then   -- 新版界面
-        local b = findButtonByName(tf, step.name)
+        local b = findButtonByName(tf, step.name, step.node)
         if not b then return end
         glow = glow or makeGlow()
         -- 10-16 用户截图「关了天赋面板还在闪」：绿框挂在 UIParent 上靠面板 OnHide 收，钩子没收到就留在屏幕上 →
@@ -592,9 +669,9 @@ end
 table.insert(ns.modules, function()
     local f = CreateFrame("Frame")
     f:RegisterEvent("ADDON_LOADED")
-    f:RegisterEvent("CHARACTER_POINTS_CHANGED")
+    for _, e in ipairs(ns.TALENT_EVENTS) do pcall(f.RegisterEvent, f, e) end
     f:SetScript("OnEvent", function(_, ev, name)
-        if ev == "CHARACTER_POINTS_CHANGED" then
+        if ns.IsTalentEvent(ev) then
             target = nil   -- 点掉了一点：绿框回到计划的下一点
             C_Timer.After(0.3, ns.HighlightTalentStep)
         elseif type(name) == "string" and name:find("Talent", 1, true) then pcall(hookTalentFrame) end
@@ -648,6 +725,16 @@ function ns.TalentProbe()
         .. " C_ClassTalents:" .. tostring(C_ClassTalents ~= nil) .. " cfg:" .. tostring(C_ClassTalents and C_ClassTalents.GetActiveConfigID and select(2, pcall(C_ClassTalents.GetActiveConfigID)))
         .. " pts:" .. tostring(UnitCharacterPoints and UnitCharacterPoints("player"))
         .. " code:" .. tostring(ns.CurrentTalentCode and ns.CurrentTalentCode())
+    -- 11-10 用户「19 级没展示天赋」「点了跳转过来还是没闪光」：把升级规划用的那几个数也带上（未分点数 / 计划 / 第一条待点）
+    do
+        local lv = UnitLevel and UnitLevel("player") or 0
+        local okS, steps, err, plan = pcall(ns.PlanTalentSteps, lv + 1, lv)
+        local s1 = okS and type(steps) == "table" and steps[1]
+        out[#out + 1] = "lv=" .. lv .. " unspent=" .. tostring(ns.UnspentTalentPoints and ns.UnspentTalentPoints())
+            .. " plan=" .. tostring(plan and (plan.key or (plan.default and "default") or "imported")) .. " err=" .. tostring(okS and (err or "nil") or steps)
+            .. " n=" .. tostring(okS and type(steps) == "table" and #steps)
+            .. " s1=" .. (s1 and (s1.lv .. ":" .. tostring(s1.tab) .. ":" .. s1.row .. ":" .. s1.col .. ":" .. tostring(s1.name) .. ":" .. tostring(s1.avail)) or "nil")
+    end
     out[#out + 1] = "micro=" .. tostring(microButton() and microButton():GetName())
     out[#out + 1] = "open=" .. tostring(ns.probeTalentOpen)
     ns.ShowBox(ns.L("天赋面板探针", "Talent probe"), ns.L("Ctrl+C 复制发给开发者", "Ctrl+C to copy"), table.concat(out, ";"))

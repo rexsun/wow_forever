@@ -9,6 +9,7 @@ local GOLD = { 1, 0.82, 0 }
 local pages, frame, current = {}, nil, nil
 
 function ns.RegisterPage(p)
+    if not ns.db and ns.PageLangPairs then ns.PageLangPairs(p) end   -- 11-09 GI-202：记下页名的中英文，读到存档后按手动选的语言换
     pages[#pages + 1] = p
     table.sort(pages, function(a, b) return (a.order or 99) < (b.order or 99) end)
 end
@@ -17,7 +18,9 @@ ns._Pages = pages   -- 测试用（左侧页签 / 顶部功能列表都按它画
 local function visiblePages()
     local t = {}
     for _, p in ipairs(pages) do
-        if not (p.hold and ns.db and ns.db.hideHold) then t[#t + 1] = p end
+        -- 11-10 职业百宝箱：带 class 的页只给这个职业看（猎人弹药商 / 猎人宠物）
+        local clsOk = not p.class or (ns.MyClass and ns.MyClass() == p.class)
+        if clsOk and not (p.hold and ns.db and ns.db.hideHold) then t[#t + 1] = p end
     end
     return t
 end
@@ -291,13 +294,15 @@ end
 -- 照正式服 MainTabs.lua 的 grp_*：成员页 key 不变（命令 / 别的页 ShowPage 照旧能跳），左栏只出大类；
 -- 点大类 = 打开这组上次看的那页（没有就第一页），这组的成员在大类页签正下方展开成缩进小按钮。
 -- 没有可用成员的大类不出（HOLD 隐藏 / hiddenTab 的成员不算）。
-local GROUPS = {
-    { key = "grp_rot", order = 1.5, title = ns.L("手法", "Rotation"), icon = "Interface\\Icons\\INV_Scroll_05", members = { "keys", "macro", "rot" } },
-    { key = "grp_up", order = 1.8, title = ns.L("升级", "Leveling"), icon = "Interface\\Icons\\Ability_Hunter_Pathfinding", members = { "plan", "prof", "ach" } },
+local GROUPS = ns.LateL({   -- 11-09 GI-202：手动切语言后跟着换
+    -- 11-10 用户「游戏里弄个职业百宝箱页签…根据当前职业推职业特有工具」「之前猎人宠物也挪过来」「可以考虑和手法，宏合并」：
+    --   原「手法」大类改名「职业百宝箱」，职业专属页（带 class 字段，别的职业看不到）排最前
+    { key = "grp_rot", order = 1.5, title = ns.L("职业百宝箱", "Class toolkit"), icon = "Interface\\Icons\\INV_Misc_Bag_10", members = { "ammo", "pet", "rot", "macro", "keys" } },
+    { key = "grp_up", order = 1.8, title = ns.L("升级", "Leveling"), icon = "Interface\\Icons\\Ability_Hunter_Pathfinding", members = { "plan", "prof", "xp", "ach" } },   -- 11-09 xp = 经验加成（XpCheck.lua，HOLD）
     { key = "grp_gear", order = 2, title = ns.L("装备", "Gear"), icon = "Interface\\Icons\\INV_Chest_Plate03", members = { "gear", "loot", "tier" } },
-    { key = "grp_info", order = 3.5, title = ns.L("资讯", "News"), icon = "Interface\\Icons\\INV_Letter_15", members = { "news", "pet" } },
+    { key = "grp_info", order = 3.5, title = ns.L("资讯攻略", "News & Guides"), icon = "Interface\\Icons\\INV_Letter_15", members = { "news" } },   -- 11-10 用户「改成资讯攻略」；猎人宠物 11-10 挪去职业百宝箱
     -- 10-19 用户「进阶就放最外面一级目录」：adv（进阶 · 网站与小程序，PageAdvanced.lua，HOLD）不进资讯组，单独一个左栏页签
-}
+})
 ns._TabGroups = GROUPS   -- 测试用
 -- ---------- 10-18 公会 / 组队拆成按需加载的子插件（用户「工会和组队都单拆子模块，默认不加载」→ 选「页签照常显示，点了才加载」）----------
 --   主插件只在右侧放占位页签；第一次点 = LoadAddOn → 子插件挂真页签 → 换到占位的位置 → 替玩家点开。
@@ -371,6 +376,23 @@ function ns.LoadModule(key)
         ns.L(m.zh, m.en), tostring(ok and reason or loaded), m.addon))
     return false
 end
+
+-- 11-10 用户「组队完退队没有弹出感谢框」：道谢在组队子插件（按需加载）里，没点过「组队」页签它根本没加载，进队 / 退队都没人记
+--   → 进了队伍（脱战时）就悄悄把组队子插件加载上，开始记同队时长；道谢关掉了（/gi 感谢 关）就不加载
+local thLoader = CreateFrame("Frame")
+thLoader:RegisterEvent("GROUP_ROSTER_UPDATE")
+thLoader:RegisterEvent("PLAYER_REGEN_ENABLED")
+thLoader:SetScript("OnEvent", function(self)
+    if MODS.group.ready() then self:UnregisterAllEvents(); return end
+    if not (IsInGroup and IsInGroup()) or (InCombatLockdown and InCombatLockdown()) then return end
+    if ns.db and ns.db.qm and ns.db.qm.thanks == false then return end
+    if ns.LoadModule("group") then
+        self:UnregisterAllEvents()
+        local QM = ns.QM
+        if QM and QM.Thanks and QM.Thanks.Roster then pcall(QM.Thanks.Roster) end
+    end
+end)
+ns._thLoader = thLoader
 
 function ns.OpenModule(key)
     if not ns.LoadModule(key) then return false end
@@ -519,6 +541,35 @@ local function showPage(key)
 end
 ns.ShowPage = showPage
 
+-- 11-09 GI-196「界面加个窗口放大吧，默认界面太小了眼都要瞎了」：主窗口整体缩放（存 ns.db.ui.scale，nil = 100%）
+--   设置页单选 / 主窗口上 Ctrl + 滚轮 / /gi scale 120；放大后超出屏幕高度就压到刚好放得下
+ns.SCALES = { 0.9, 1, 1.1, 1.2, 1.3, 1.4 }
+function ns.UIScale() return (ns.db and ns.db.ui and ns.db.ui.scale) or 1 end
+local function fitScale(s)
+    s = math.max(0.7, math.min(1.6, s or 1))
+    local sh = UIParent and UIParent.GetHeight and UIParent:GetHeight()
+    if sh and sh > 0 then s = math.min(s, (sh - 20) / H) end
+    return s
+end
+function ns.ApplyUIScale()
+    if frame and frame.SetScale then frame:SetScale(fitScale(ns.UIScale())) end
+end
+function ns.SetUIScale(s)
+    s = tonumber(s)
+    if not s then return end
+    if s > 3 then s = s / 100 end   -- /gi scale 120
+    s = math.floor(math.max(0.7, math.min(1.6, s)) * 100 + 0.5) / 100
+    ns.db.ui = ns.db.ui or {}
+    ns.db.ui.scale = (s ~= 1) and s or nil
+    ns.ApplyUIScale()
+    local real = fitScale(s)
+    if real < s - 0.001 then
+        ns.Print(string.format(ns.L("屏幕高度放不下 %d%%，先按 %d%% 显示（把游戏「界面缩放」调小就能再放大）",
+            "%d%% doesn't fit your screen height - showing %d%% (lower the game's UI Scale to go bigger)"), math.floor(s * 100 + 0.5), math.floor(real * 100)))
+    end
+    return s
+end
+
 local function build()
     local f = CreateFrame("Frame", "GearInsightForeverMain", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
     f:SetSize(W, H)
@@ -529,6 +580,15 @@ local function build()
     f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart", f.StartMoving)
     f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    -- GI-196：Ctrl + 滚轮缩放（滚动列表上的滚轮照旧给列表）
+    if f.EnableMouseWheel then f:EnableMouseWheel(true) end
+    f:SetScript("OnMouseWheel", function(_, d)
+        if not (IsControlKeyDown and IsControlKeyDown()) then return end
+        local s = ns.SetUIScale(ns.UIScale() + (d > 0 and 0.05 or -0.05))
+        if s and UIErrorsFrame and UIErrorsFrame.AddMessage then
+            UIErrorsFrame:AddMessage(string.format(ns.L("GearInsight 窗口大小 %d%%", "GearInsight window size %d%%"), math.floor(s * 100 + 0.5)), 1, 0.82, 0)
+        end
+    end)
     if f.SetBackdrop then
         f:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
             edgeSize = 16, insets = { left = 4, right = 4, top = 4, bottom = 4 } })
@@ -631,6 +691,15 @@ local function build()
         b.label = b:CreateFontString(nil, "OVERLAY", "GameFontNormal"); b.label:SetPoint("LEFT", ic, "RIGHT", 7, 0)
         b.label:SetPoint("RIGHT", -4, 0); b.label:SetJustifyH("LEFT"); b.label:SetWordWrap(false)
         b.label:SetText(label)
+        -- 11-11 用户截图「职业百...」被截：字放不下就逐号缩小字号（最小 10），不省略
+        local font, size, flags = b.label:GetFont()
+        if type(font) == "string" and type(size) == "number" and b.label.GetStringWidth then
+            local room = 100 - 9 - 24 - 7 - 4
+            while size > 10 and (tonumber(b.label:GetStringWidth()) or 0) > room do
+                size = size - 1
+                b.label:SetFont(font, size, flags)
+            end
+        end
         local hl = b:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 0.82, 0, 0.10)
         setTabSel(b, false)
         return b
@@ -699,7 +768,7 @@ local function build()
 end
 
 function ns.ToggleMain(key)
-    frame = frame or build()
+    if not frame then frame = build(); ns.ApplyUIScale() end
     if frame:IsShown() and (not key or key == current) then frame:Hide(); return end
     frame:Show()
     pcall(ensureStubs)   -- 10-18 公会 / 组队占位页签（模块没加载时）；先于子插件挂在 ToggleMain 后面的真页签，保证顺序
@@ -887,7 +956,7 @@ local function fillTooltip(tt)
     tt:AddLine(ns.L("右键：快捷菜单（升级规划、组队、训练师等）", "Right-click: quick menu"), 1, 1, 1)
     tt:AddLine(ns.L("按住拖动：沿小地图边挪位置", "Drag: move around the minimap"), 0.7, 0.7, 0.7)
     -- 状态：还有没点的天赋点
-    local pts = UnitCharacterPoints and UnitCharacterPoints("player") or 0
+    local pts = ns.UnspentTalentPoints and ns.UnspentTalentPoints() or 0
     if type(pts) == "number" and pts > 0 then
         tt:AddLine(string.format(ns.L("有 %d 个天赋点没点（升级规划里点「去点」）", "%d unspent talent point(s)"), pts), 0.2, 1, 0.6)
     end

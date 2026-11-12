@@ -99,6 +99,14 @@ function T.Nearest(cls, max)
     return out, #list
 end
 
+-- 11-10 GI-224 进城提醒用：这张图上有没有已知的本职业训练师（内置 + 本地补记）
+function T.OnMap(ui, cls)
+    for _, t in ipairs(candidates(cls or myClass())) do
+        if t.ui == ui then return true end
+    end
+    return false
+end
+
 -- 点一下：最近的那位插旗 + 打开世界地图；聊天框列出最近三位
 function T.Go(cls)
     local res, total = T.Nearest(cls, 3)
@@ -132,6 +140,9 @@ f:SetScript("OnEvent", function()
     if not name or not ui then return end
     seenDB()[name] = { cls = myClass(), ui = ui, x = math.floor(x * 10 + 0.5) / 10, y = math.floor(y * 10 + 0.5) / 10, t = time and time() or 0 }
 end)
+
+-- 11-10 职业百宝箱的弹药商（PageAmmo.lua）用同一套定位
+T.PlayerPos, T.World, T.ZoneName = playerPos, world, zoneName
 
 ns.ExtraSlash = ns.ExtraSlash or {}
 ns.ExtraSlash.trainer = function() T.Go() end

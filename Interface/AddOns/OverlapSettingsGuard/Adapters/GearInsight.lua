@@ -5,6 +5,25 @@ OSG.adapters.GearInsight = adapter
 
 local KEYS = { FriendlyNameplates = true, CombatHUD = true, LevelingStats = true, ActionBarEditing = true,
   GuildChatLevel = true }
+-- GearInsight 1.0.x reads these straight from its saved table and treats nil as on. They are
+-- written to GearInsightForeverDB so early rules work before GearInsight publishes ns.db;
+-- InitDB keeps an existing table, and Layer.DB() only fills nil fields.
+local SETTINGS = {
+  -- helperV=2 marks GearInsight's one-time migration as done; otherwise it forces helper back on.
+  LayerNetwork = { section = "layer", values = { on = false, pub = false, helper = false, helperV = 2 },
+    apply = function(gi) if type(gi.Layer) == "table" and type(gi.Layer.SyncPub) == "function" then gi.Layer.SyncPub() end end },
+  LayerAutoAccept = { section = "layer", values = { autoAccept = false } },
+  LayerAutoInvite = { section = "layer", values = { autoHelp = false } },
+  LayerAutoLeave = { section = "layer", values = { autoLeave = false } },
+  -- Restore reopens friendly nameplates only if GearInsight itself closed them.
+  CityPlates = { section = "cityPlates", values = { on = false },
+    apply = function(gi) if type(gi.CityPlates) == "table" and type(gi.CityPlates.Restore) == "function" then gi.CityPlates.Restore() end end },
+  -- qm.thanks is the only switch UI.lua checks before loading the Group module in a group.
+  GroupAutoLoad = { section = "qm", values = { thanks = false } },
+  ItemLevel = { section = "ui", values = { ilvl = false },
+    apply = function(gi) if type(gi.ItemLevel) == "table" and type(gi.ItemLevel.RefreshAll) == "function" then gi.ItemLevel.RefreshAll() end end },
+}
+local CHAT_SETTERS = { "SetEnabled", "SetWhisperOn", "SetPartyOn" }
 local EDITS = { "PlaceMissing", "Restore", "AssignSlotKey", "ApplyKeyTemplate", "RestoreStolen",
   "PlaceSpellAt", "ClearSlot", "ClearSpellEverywhere", "ResetMainBar", "UnbindKey" }
 adapter.EDITS = EDITS
@@ -48,17 +67,52 @@ local function MissingAPI(gi, key)
     end
   elseif key == "ActionBarEditing" and type(gi.Keys) ~= "table" then
     return "GearInsight Keys is unavailable"
-  elseif key == "GuildChatLevel" and (type(gi.GuildChatLevel) ~= "table"
-    or type(gi.GuildChatLevel.Enabled) ~= "function" or type(gi.GuildChatLevel.SetEnabled) ~= "function") then
-    return "GearInsight GuildChatLevel is unavailable"
+  elseif key == "GuildChatLevel" then
+    local chat = gi.GuildChatLevel
+    if type(chat) ~= "table" then return "GearInsight GuildChatLevel is unavailable" end
+    for _, name in ipairs({ "Enabled", "WhisperOn", "PartyOn", "SetEnabled", "SetWhisperOn", "SetPartyOn" }) do
+      if type(chat[name]) ~= "function" then return "GearInsight GuildChatLevel." .. name .. " is unavailable" end
+    end
   end
 end
 
+local function SavedDB()
+  local gi = Live()
+  if gi then return gi.db end
+  if type(_G.GearInsightForeverDB) == "table" then return _G.GearInsightForeverDB end
+end
+
+local function ReadSetting(spec)
+  local db = SavedDB()
+  local section = db and db[spec.section]
+  for field, value in pairs(spec.values) do
+    if type(section) ~= "table" or section[field] ~= value then return true end
+  end
+  return false
+end
+
+local function RevertSetting(spec)
+  local db = SavedDB()
+  if not db then
+    _G.GearInsightForeverDB = {}
+    db = _G.GearInsightForeverDB
+  end
+  if type(db[spec.section]) ~= "table" then db[spec.section] = {} end
+  for field, value in pairs(spec.values) do db[spec.section][field] = value end
+  local gi = Live()
+  if gi and spec.apply then
+    local ok, err = pcall(spec.apply, gi)
+    if not ok then return false, "GearInsight refresh failed: " .. tostring(err) end
+  end
+  return true, false
+end
+
 function adapter.Knows(key)
-  return KEYS[key] == true
+  return KEYS[key] == true or SETTINGS[key] ~= nil
 end
 
 function adapter.Read(key)
+  if SETTINGS[key] then return ReadSetting(SETTINGS[key]) end
   local gi = Live()
   if not gi then return nil, "GearInsight has not finished loading" end
   local problem = MissingAPI(gi, key)
@@ -83,7 +137,8 @@ function adapter.Read(key)
     end
     return false
   elseif key == "GuildChatLevel" then
-    return gi.GuildChatLevel.Enabled() and true or false
+    local chat = gi.GuildChatLevel
+    return (chat.Enabled() or chat.WhisperOn() or chat.PartyOn()) and true or false
   end
   return nil, "unknown GearInsight setting"
 end
@@ -101,6 +156,7 @@ local function LockEdit(gi, name)
 end
 
 function adapter.Revert(key)
+  if SETTINGS[key] then return RevertSetting(SETTINGS[key]) end
   local gi = Live()
   if not gi then return false, "GearInsight has not finished loading" end
   local problem = MissingAPI(gi, key)
@@ -122,8 +178,8 @@ function adapter.Revert(key)
       if type(edit) == "function" and edit ~= locks[name] then LockEdit(gi, name) end
     end
   elseif key == "GuildChatLevel" then
-    -- The chat filter reads Enabled() per message, so no reload is needed.
-    gi.GuildChatLevel.SetEnabled(false)
+    -- The chat filters read their switches per message, so no reload is needed.
+    for _, name in ipairs(CHAT_SETTERS) do gi.GuildChatLevel[name](false) end
   else
     return false, "unknown GearInsight setting"
   end
@@ -136,7 +192,9 @@ function adapter.Watch(onChange)
   local gi = Live()
   if not gi then return end
   for _, spec in ipairs({ { gi, "ToggleLeveling" }, { gi.KeysHud, "Toggle" },
-    { gi.QM, "PlatesOnOpen" }, { gi.QM, "PlatesOnClose" }, { gi.GuildChatLevel, "SetEnabled" } }) do
+    { gi.QM, "PlatesOnOpen" }, { gi.QM, "PlatesOnClose" }, { gi.GuildChatLevel, "SetEnabled" },
+    { gi.GuildChatLevel, "SetWhisperOn" }, { gi.GuildChatLevel, "SetPartyOn" }, { gi.Layer, "SetPub" },
+    { gi.CityPlates, "SetOn" }, { gi.ItemLevel, "SetOn" } }) do
     local target, name = spec[1], spec[2]
     if type(target) == "table" and type(target[name]) == "function" then
       hooksecurefunc(target, name, onChange)

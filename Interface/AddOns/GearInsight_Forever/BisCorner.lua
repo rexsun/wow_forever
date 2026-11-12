@@ -51,6 +51,36 @@ function BC.SetEnabled(v)
     BC.Update()
 end
 
+-- 11-08 用户「0.8.1加tooltip(装备栏的隐藏功能，可以设置位置）」→ 选「装备角标加说明+可换角」：
+--   角标可放格子四个角（默认右上）：Alt + 点击角标轮换 / 设置页「换位置」/ /gi bis pos 左上|右上|左下|右下；
+--   悬停提示末尾写明这些；第一次在角色面板看到角标时聊天框说一句这是什么
+BC.POS = { "TOPRIGHT", "TOPLEFT", "BOTTOMLEFT", "BOTTOMRIGHT" }
+BC.POS_NAME = { TOPRIGHT = { "右上", "top right" }, TOPLEFT = { "左上", "top left" }, BOTTOMLEFT = { "左下", "bottom left" }, BOTTOMRIGHT = { "右下", "bottom right" } }
+local POS_OFS = { TOPRIGHT = { -1, -1 }, TOPLEFT = { 1, -1 }, BOTTOMLEFT = { 1, 1 }, BOTTOMRIGHT = { -1, 1 } }
+function BC.Pos()
+    local v = ns.db and ns.db.ui and ns.db.ui.bisCornerPos
+    return POS_OFS[v] and v or "TOPRIGHT"
+end
+function BC.PosName(v) local n = BC.POS_NAME[v or BC.Pos()]; return ns.L(n[1], n[2]) end
+local function place(m)
+    local pos = BC.Pos()
+    local o = POS_OFS[pos]
+    m:ClearAllPoints()
+    m:SetPoint(pos, m.host, pos, o[1], o[2])
+end
+function BC.SetPos(v)
+    if not POS_OFS[v] then return false end
+    ns.db.ui = ns.db.ui or {}
+    ns.db.ui.bisCornerPos = (v ~= "TOPRIGHT") and v or nil
+    for _, m in pairs(marks) do place(m) end
+    return true
+end
+function BC.NextPos()
+    local cur = BC.Pos()
+    for i, v in ipairs(BC.POS) do if v == cur then BC.SetPos(BC.POS[i % #BC.POS + 1]); break end end
+    return BC.Pos()
+end
+
 local function slotId(inv)
     if not GetInventorySlotInfo then return nil end
     local ok, id = pcall(GetInventorySlotInfo, inv)
@@ -173,15 +203,15 @@ local function reqLv(it) return (it.req and it.req > 0) and it.req or (it.min or
 function BC.SourceText(it)
     if (it.src == "craft" or it.src == "vendor") and ns.GearSourceText then return ns.GearSourceText(it) end
     if it.src == "quest" then
-        local t = ns.L("任务「", "Quest \"") .. (it.srcName or "?") .. ns.L("」", "\"")
+        local t = ns.L("任务「", "Quest \"") .. ns.TD(it.srcName or "?") .. ns.L("」", "\"")
         local g = BC.QuestGiver(it.srcName)
         if g then
-            t = t .. ns.L(" · 找 ", " - from ") .. (g.n or "?") .. (g.z and g.z ~= "" and (" @ " .. g.z) or "")
+            t = t .. ns.L(" · 找 ", " - from ") .. ns.TD(g.n or "?") .. (g.z and g.z ~= "" and (" @ " .. ns.TD(g.z)) or "")
                 .. (((g.x or 0) > 0) and string.format(" (%.0f, %.0f)", g.x, g.y) or "")
         end
         return t
     end
-    return ns.L("地下城掉落：", "Dungeon drop: ") .. (it.srcName or it.dn or "?")
+    return ns.L("地下城掉落：", "Dungeon drop: ") .. ns.TD(it.srcName or it.dn or "?")
 end
 
 local function openLoot(dn)
@@ -239,7 +269,7 @@ function BC.OnEnter(m)
     local first = (GameTooltip:NumLines() or 0) > 0 and fs and fs:GetText()
     if not ok or not first or first == "" or first == RETRIEVING_ITEM_INFO then
         if ns.ItemFallbackTip then ns.ItemFallbackTip(it)
-        else GameTooltip:ClearLines(); GameTooltip:AddLine(it.n or "?") end
+        else GameTooltip:ClearLines(); GameTooltip:AddLine(ns.ItemNm(it)) end
     end
     GameTooltip:AddLine(" ")
     local cls = ns.MyClass and ns.MyClass()
@@ -277,10 +307,11 @@ function BC.OnEnter(m)
         GameTooltip:AddLine(mine and ns.L("点击：打开「专业」页找这个配方", "Click: open the Professions page")
             or ns.L("点击：聊天框给出制作信息（找人做 / 拍卖行）", "Click: print crafting info (crafter / AH)"), 0.55, 0.55, 0.55)
     else
-        GameTooltip:AddLine(ns.L("点击：打开掉落页「", "Click: open \"") .. (it.dn or "") .. ns.L("」（首领 / 入口 / 攻略）", "\" on the Loot page"), 0.55, 0.55, 0.55)
+        GameTooltip:AddLine(ns.L("点击：打开掉落页「", "Click: open \"") .. ns.TD(it.dn or "") .. ns.L("」（首领 / 入口 / 攻略）", "\" on the Loot page"), 0.55, 0.55, 0.55)
         GameTooltip:AddLine(ns.L("右键：在地图上标出副本入口", "Right-click: pin the dungeon entrance"), 0.55, 0.55, 0.55)
     end
     GameTooltip:AddLine(ns.L("Shift + 点击：发到聊天框 · Ctrl + 点击：试穿", "Shift-click: link in chat - Ctrl-click: try on"), 0.55, 0.55, 0.55)
+    GameTooltip:AddLine(string.format(ns.L("Alt + 点击：角标换到另一个角（现在在%s）· 设置页可关", "Alt-click: move icons to another corner (now %s) - can be turned off in Settings"), BC.PosName()), 0.55, 0.55, 0.55, true)
     GameTooltip:Show()
 end
 
@@ -294,7 +325,7 @@ local function mark(inv)
     m.host = host
     m:SetFrameLevel((host.GetFrameLevel and host:GetFrameLevel() or 1) + 5)
     m:SetSize(SIZE, SIZE)
-    m:SetPoint("TOPRIGHT", host, "TOPRIGHT", -1, -1)
+    place(m)
     m.border = m:CreateTexture(nil, "BACKGROUND")
     m.border:SetPoint("TOPLEFT", -1, 1); m.border:SetPoint("BOTTOMRIGHT", 1, -1)
     m.border:SetColorTexture(0, 0, 0, 0.9)
@@ -309,7 +340,15 @@ local function mark(inv)
     if m.RegisterForClicks then m:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
     m:SetScript("OnEnter", function(s) local ok, err = pcall(BC.OnEnter, s); if not ok then BC.lastErr = err end end)
     m:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    m:SetScript("OnClick", function(s, button) local e = s._e; if e then pcall(BC.Guide, e.it, button) end end)
+    m:SetScript("OnClick", function(s, button)
+        if IsAltKeyDown and IsAltKeyDown() then
+            BC.NextPos()
+            ns.Print(string.format(ns.L("推荐装备角标挪到格子%s（Alt + 点击继续换）", "BiS corner icons moved to %s (Alt-click to cycle)"), BC.PosName()))
+            if GameTooltip:IsOwned(s) then pcall(BC.OnEnter, s) end
+            return
+        end
+        local e = s._e; if e then pcall(BC.Guide, e.it, button) end
+    end)
     marks[inv] = m
     return m
 end
@@ -341,6 +380,12 @@ function BC.Update(lvOverride)
             m:Show()
         end
     end
+    -- 第一次看到角标：聊天框说一句这是什么（只说一次）
+    if next(seen) and ns.db and ns.db.ui and not ns.db.ui.bisCornerHint then
+        ns.db.ui.bisCornerHint = true
+        ns.Print(ns.L("角色面板装备格角上的小图标 = GearInsight 当前等级推荐装备：悬停看从哪来，点击指引获取，Alt + 点击换个角放",
+            "The small icons on your character panel slots are GearInsight picks for your level: hover for source, click for directions, Alt-click to move them"))
+    end
     for inv, m in pairs(marks) do if not seen[inv] then m:Hide(); m._e = nil end end
 end
 
@@ -361,7 +406,7 @@ end
 
 local ev = CreateFrame("Frame")
 BC.ev = ev
-for _, e in ipairs({ "PLAYER_EQUIPMENT_CHANGED", "PLAYER_LEVEL_UP", "CHARACTER_POINTS_CHANGED", "PLAYER_TALENT_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }) do
+for _, e in ipairs({ "PLAYER_EQUIPMENT_CHANGED", "PLAYER_LEVEL_UP", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED", "PLAYER_TALENT_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }) do
     pcall(ev.RegisterEvent, ev, e)
 end
 ev:SetScript("OnEvent", function(_, e, a1)
@@ -378,7 +423,16 @@ table.insert(ns.modules, function() BC.Hook() end)
 
 -- /gi bis：开 / 关
 ns.ExtraSlash = ns.ExtraSlash or {}
-ns.ExtraSlash.bis = function()
+ns.ExtraSlash.bis = function(rest)
+    local sub, arg = tostring(rest or ""):match("^(%S*)%s*(.-)$")
+    if sub == "pos" then
+        local map = { ["右上"] = "TOPRIGHT", ["左上"] = "TOPLEFT", ["左下"] = "BOTTOMLEFT", ["右下"] = "BOTTOMRIGHT",
+            tr = "TOPRIGHT", tl = "TOPLEFT", bl = "BOTTOMLEFT", br = "BOTTOMRIGHT" }
+        local v = map[arg] or map[arg:lower()]
+        if v then BC.SetPos(v) end
+        ns.Print(string.format(ns.L("推荐装备角标位置：%s（/gi bis pos 左上|右上|左下|右下）", "BiS corner icon position: %s (/gi bis pos tl|tr|bl|br)"), BC.PosName()))
+        return
+    end
     BC.SetEnabled(not BC.Enabled())
     ns.Print(BC.Enabled() and ns.L("角色面板推荐装备角标：已开", "Character panel BiS corner icons: on")
         or ns.L("角色面板推荐装备角标：已关", "Character panel BiS corner icons: off"))

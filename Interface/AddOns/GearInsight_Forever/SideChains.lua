@@ -79,10 +79,44 @@ end
 
 -- ---------- 11-07 追踪 / 视频 / 地图 公用（弹框和追踪小窗都用）----------
 local DOUYIN_ICON = "Interface\\AddOns\\GearInsight_Forever\\media\\ch_douyin"
+-- 11-09 用户截图「做的更像按钮一点，抖音也写全吧」：抖音入口统一成按钮（粉边深底 + 悬停变亮 + 按下下沉），文字「抖音 · xx」，宽度跟字走
+local function dyButton(parent, h)
+    local b = CreateFrame("Button", nil, parent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    b:SetHeight(h or 20)
+    if b.SetBackdrop then
+        pcall(b.SetBackdrop, b, { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+        b:SetBackdropColor(0.22, 0.05, 0.14, 0.95); b:SetBackdropBorderColor(1, 0.37, 0.66, 0.9)
+    end
+    local hl = b:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 0.37, 0.66, 0.22)
+    b.ic = b:CreateTexture(nil, "ARTWORK"); b.ic:SetSize(14, 14); b.ic:SetPoint("LEFT", 5, 0); b.ic:SetTexture(DOUYIN_ICON)
+    b.t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); b.t:SetPoint("LEFT", b.ic, "RIGHT", 4, 0)
+    b:SetScript("OnMouseDown", function(self) self.ic:SetPoint("LEFT", 6, -1); self.t:SetPoint("LEFT", self.ic, "RIGHT", 4, 0) end)
+    b:SetScript("OnMouseUp", function(self) self.ic:SetPoint("LEFT", 5, 0) end)
+    function b.SetLabel(self, s)
+        self.t:SetText(L("抖音", "Douyin") .. " · " .. s)
+        local w = tonumber(self.t:GetStringWidth()) or 0
+        self:SetWidth(math.max(60, math.floor(w + 30)))
+    end
+    return b
+end
+SC._dyButton = dyButton   -- 测试用
 
 local function ui() ns.db.ui = ns.db.ui or {}; return ns.db.ui end
 function SC.TrackerEnabled() return not (ns.db and ns.db.ui and ns.db.ui.scTracker == false) end
-function SC.SetTrackerEnabled(on) ui().scTracker = on and true or false; SC.UpdateTracker() end
+-- 11-09 玩家「我把睡袋任务的监控关了，要怎么重新打开？」：小窗 × 关的是单条线（scTrack），设置页总开关还勾着 → 看着没关、勾了也没用。
+--   设置页勾选 = 总开关开 + 把单条线的「关」一起清掉；设置页显示 = 总开关开且没有被 × 关掉的线
+function SC.SetTrackerEnabled(on)
+    local u = ui()
+    u.scTracker = on and true or false
+    if on then u.scTrack = nil end
+    SC.UpdateTracker()
+end
+function SC.TrackerAllOn()
+    if not SC.TrackerEnabled() then return false end
+    local t = ns.db and ns.db.ui and ns.db.ui.scTrack
+    if t then for _, v in pairs(t) do if v == false then return false end end end
+    return true
+end
 function SC.Tracking(c)
     if not (c and ns.db) then return false end
     local t = ns.db.ui and ns.db.ui.scTrack
@@ -157,10 +191,8 @@ local function stepRow(i)
     r.s:SetJustifyH("LEFT"); r.s:SetSpacing(2)
     r.map = ns.Button(r, L("地图", "Map"), 66, 22); r.map:SetPoint("TOPRIGHT", -6, -6)
     -- 11-07 这一步有视频（step.video）→ 地图按钮下面一个抖音小图标，点了弹复制框
-    r.vb = CreateFrame("Button", nil, r); r.vb:SetSize(66, 18); r.vb:SetPoint("TOPRIGHT", r.map, "BOTTOMRIGHT", 0, -3)
-    r.vb.ic = r.vb:CreateTexture(nil, "ARTWORK"); r.vb.ic:SetSize(16, 16); r.vb.ic:SetPoint("LEFT", 6, 0); r.vb.ic:SetTexture(DOUYIN_ICON)
-    r.vb.t = r.vb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); r.vb.t:SetPoint("LEFT", r.vb.ic, "RIGHT", 3, 0)
-    r.vb.t:SetText("|cffff5ea8" .. L("视频", "Video") .. "|r")
+    r.vb = dyButton(r, 20); r.vb:SetPoint("TOPRIGHT", r.map, "BOTTOMRIGHT", 0, -3)
+    r.vb:SetLabel(L("视频", "Video"))
     r.vb:Hide()
     pop.rows[i] = r
     return r
@@ -212,7 +244,7 @@ function SC.Show(c)
             if W and W.Copy then W.Copy(vd.url, L("抖音视频链接：复制后发到手机，用抖音打开", "Douyin link - open it on your phone"))
             elseif ns.Print then ns.Print(vd.url) end
         end
-        pop.vid.t:SetText("|cffff5ea8" .. L("视频攻略", "Video") .. "|r  " .. L(vd.t, vd.tEn))
+        pop.vid.t:SetText("|cffff5ea8" .. L("抖音视频攻略", "Douyin guide") .. "|r  " .. L(vd.t, vd.tEn))
         pop.vid:SetScript("OnClick", copy); pop.vid.b:SetScript("OnClick", copy)
         pop.vid:ClearAllPoints(); pop.vid:SetPoint("TOPLEFT", 6, y); pop.vid:Show()
         y = y - 38
@@ -321,17 +353,10 @@ local function buildTracker()
     f.cur = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); f.cur:SetWidth(TW - 16); f.cur:SetJustifyH("LEFT")
     f.obj = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); f.obj:SetWidth(TW - 16); f.obj:SetJustifyH("LEFT")
     f.nxt = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); f.nxt:SetWidth(TW - 16); f.nxt:SetJustifyH("LEFT")
-    f.map = ns.Button(f, L("地图", "Map"), 52, 18)
-    f.vid = CreateFrame("Button", nil, f); f.vid:SetSize(64, 18)
-    f.vid.ic = f.vid:CreateTexture(nil, "ARTWORK"); f.vid.ic:SetSize(16, 16); f.vid.ic:SetPoint("LEFT", 0, 0); f.vid.ic:SetTexture(DOUYIN_ICON)
-    f.vid.t = f.vid:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); f.vid.t:SetPoint("LEFT", f.vid.ic, "RIGHT", 3, 0)
-    f.vid.t:SetText("|cffff5ea8" .. L("视频", "Video") .. "|r")
+    f.map = ns.Button(f, L("地图", "Map"), 52, 20)
+    f.vid = dyButton(f, 20); f.vid:SetLabel(L("本步视频", "This step")); f.vid:Hide()
     -- 11-07 用户「加上，追踪小窗也显示」：整条任务线的抖音攻略（c.video）一直显示一个「全程攻略」，这一步自己有视频再多一个「本步视频」
-    f.gvid = CreateFrame("Button", nil, f); f.gvid:SetSize(84, 18)
-    f.gvid.ic = f.gvid:CreateTexture(nil, "ARTWORK"); f.gvid.ic:SetSize(16, 16); f.gvid.ic:SetPoint("LEFT", 0, 0); f.gvid.ic:SetTexture(DOUYIN_ICON)
-    f.gvid.t = f.gvid:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); f.gvid.t:SetPoint("LEFT", f.gvid.ic, "RIGHT", 3, 0)
-    f.gvid.t:SetText("|cffff5ea8" .. L("全程攻略", "Full guide") .. "|r")
-    f.gvid:Hide()
+    f.gvid = dyButton(f, 20); f.gvid:SetLabel(L("全程攻略", "Full guide")); f.gvid:Hide()
     local pos = ns.db and ns.db.ui and ns.db.ui.scTrackPos
     f:ClearAllPoints()
     if type(pos) == "table" and pos[1] then f:SetPoint(pos[1], UIParent, pos[2] or pos[1], tonumber(pos[3]) or 0, tonumber(pos[4]) or 0)
@@ -368,18 +393,26 @@ function SC.UpdateTracker()
         trk.map:SetScript("OnClick", function() showStepOnMap(s) end)
         local vd = s.video
         local anchor = trk.map
+        local used = 8 + (tonumber(trk.map:GetWidth()) or 52)
         if vd and vd.url then
-            trk.vid.t:SetText("|cffff5ea8" .. L("本步视频", "This step") .. "|r"); trk.vid:SetWidth(84)
-            trk.vid:ClearAllPoints(); trk.vid:SetPoint("LEFT", trk.map, "RIGHT", 10, 0); trk.vid:Show()
+            trk.vid:ClearAllPoints(); trk.vid:SetPoint("LEFT", trk.map, "RIGHT", 8, 0); trk.vid:Show()
             trk.vid:SetScript("OnClick", function() copyVideo(vd) end)
             anchor = trk.vid
+            used = used + 8 + (tonumber(trk.vid:GetWidth()) or 90)
         else trk.vid:Hide() end
         local cv = c.video
         if cv and cv.url then
-            trk.gvid:ClearAllPoints(); trk.gvid:SetPoint("LEFT", anchor, "RIGHT", 10, 0); trk.gvid:Show()
+            trk.gvid:ClearAllPoints()
+            if used + 8 + (tonumber(trk.gvid:GetWidth()) or 90) > TW - 8 then   -- 一行放不下（本步 + 全程都有）→ 换到下一行
+                h = h + 24
+                trk.gvid:SetPoint("TOPLEFT", 8, -h)
+            else
+                trk.gvid:SetPoint("LEFT", anchor, "RIGHT", 8, 0)
+            end
+            trk.gvid:Show()
             trk.gvid:SetScript("OnClick", function() copyVideo(cv) end)
         else trk.gvid:Hide() end
-        h = h + 22
+        h = h + 24
         if nx then
             trk.nxt:SetText(ns.EnSafe(string.format(L("下一步：%s · %s", "Next: %s - %s"), L(nx.z, nx.zEn), L(nx.obj, nx.objEn))))
             trk.nxt:ClearAllPoints(); trk.nxt:SetPoint("TOPLEFT", 8, -h); trk.nxt:Show()

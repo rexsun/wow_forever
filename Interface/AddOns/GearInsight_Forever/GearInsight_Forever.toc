@@ -4,7 +4,7 @@
 ## Notes: WoW: Forever helper - talent planner, leveling plan, loot table and wishlist, Tier 1 sets, macros, news, change tooltips, beta data
 ## Notes-zhCN: 《无限》助手：天赋模拟 · 升级规划 · 掉落表与心愿单 · T1 套装 · 宏库 · 资讯 · 改动提示 · 公测数据
 ## Author: GearInsight
-## Version: 0.7.4
+## Version: 1.0.1
 ## SavedVariables: GearInsightForeverDB
 ## IconTexture: Interface\Icons\inv_misc_map_01
 ## AddonCompartmentFunc: GearInsightForever_OnAddonCompartmentClick
@@ -14,7 +14,9 @@
 # Interface 16001 = 国服 Beta 实测（10-07 /dump select(4, GetBuildInfo())）；11507 留着兼容
 
 Data.lua
+TraitTalents.lua
 Core.lua
+ZhTW.lua
 DataPack.lua
 QR.lua
 GIWidgets.lua
@@ -50,6 +52,8 @@ ProfData.lua
 Prof.lua
 ProfPlan.lua
 ProfRecipes.lua
+ReagentSrcData.lua
+ReagentSrc.lua
 PageProf.lua
 ProfSeen.lua
 Obs.lua
@@ -61,6 +65,8 @@ PageTier.lua
 PageAch.lua
 NewsData.lua
 PageNews.lua
+WhatsNewData.lua
+WhatsNew.lua
 PetData.lua
 PagePet.lua
 PetTameData.lua
@@ -87,4 +93,12 @@ Board.lua
 PageBoard.lua
 InviteMenu.lua
 BisCorner.lua
+ItemLevel.lua
 # 10-28 位面（HOLD）：A 公会位面 + B 换到最优层 + 开服探针 /gi layerprobe（设计稿 docs/forever-layering-addon-design-1028.md）
+Layer.lua
+LayerGuild.lua
+LayerHop.lua
+PageLayer.lua
+Camp.lua
+XpCheck.lua
+CityPlates.lua

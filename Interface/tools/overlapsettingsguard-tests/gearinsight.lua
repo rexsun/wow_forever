@@ -25,14 +25,18 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
       "PlaceSpellAt", "ClearSlot", "ClearSpellEverywhere", "ResetMainBar", "UnbindKey" }) do
       gi.Keys[name] = function() w.edited = true; return 7 end
     end
-    -- Mirrors GuildChatLevel.lua 0.5.11: nil means on.
-    gi.GuildChatLevel = {
-      Enabled = function() return not (gi.db and gi.db.ui and gi.db.ui.guildChatLevel == false) end,
-      SetEnabled = function(on)
-        gi.db.ui = gi.db.ui or {}
-        gi.db.ui.guildChatLevel = on and true or false
-      end,
-    }
+    -- Mirrors GuildChatLevel.lua 1.0.1: nil means on for every channel.
+    local function Switch(field)
+      return function() return not (gi.db and gi.db.ui and gi.db.ui[field] == false) end,
+        function(on)
+          gi.db.ui = gi.db.ui or {}
+          gi.db.ui[field] = on and true or false
+        end
+    end
+    gi.GuildChatLevel = {}
+    gi.GuildChatLevel.Enabled, gi.GuildChatLevel.SetEnabled = Switch("guildChatLevel")
+    gi.GuildChatLevel.WhisperOn, gi.GuildChatLevel.SetWhisperOn = Switch("whisperChatLevel")
+    gi.GuildChatLevel.PartyOn, gi.GuildChatLevel.SetPartyOn = Switch("partyChatLevel")
     return gi
   end
 
@@ -42,10 +46,18 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     eq(w.ns.adapters.GearInsight.Read("GuildChatLevel"), true, "nil default reads as on")
     w.Login()
     eq(gi.db.ui.guildChatLevel, false)
+    eq(gi.db.ui.whisperChatLevel, false)
+    eq(gi.db.ui.partyChatLevel, false)
     eq(StatusOf(w.ns.Check(), "gi.guildchatlevel"), "off")
     gi.GuildChatLevel.SetEnabled(true)
     w.RunTimers()
     eq(gi.db.ui.guildChatLevel, false, "settings toggle is reverted on the next frame")
+    gi.GuildChatLevel.SetWhisperOn(true)
+    w.RunTimers()
+    eq(gi.db.ui.whisperChatLevel, false, "whisper toggle is reverted on the next frame")
+    gi.GuildChatLevel.SetPartyOn(true)
+    w.RunTimers()
+    eq(gi.db.ui.partyChatLevel, false, "party toggle is reverted on the next frame")
     gi.db.ui.guildChatLevel = nil
     w.Tick()
     eq(gi.db.ui.guildChatLevel, false, "direct resets are caught by the ticker")
@@ -57,13 +69,14 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded })
     local gi = BuildGI(w)
     w.Login()
-    eq(gi.db.ui, nil, "inactive without the chat owner")
+    eq(gi.db.ui, nil, "inactive without the chat and item-level owner")
     w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
     gi = BuildGI(w)
     gi.GuildChatLevel = nil
     local status = StatusOf(w.ns.Check(), "gi.guildchatlevel")
     eq(status, "blocked", "missing API is reported")
-    eq(gi.db.ui, nil, "nothing written when the API is missing")
+    eq(gi.db.ui.guildChatLevel, nil, "nothing written when the API is missing")
+    eq(gi.db.ui.whisperChatLevel, nil, "nothing written when the API is missing")
   end)
 
   test("GearInsight defaults and visible duplicates are disabled without changing planning data", function()

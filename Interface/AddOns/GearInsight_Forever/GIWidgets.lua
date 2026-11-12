@@ -24,6 +24,11 @@ if type(W) ~= "table" or (tonumber(W.MINOR) or 0) < MINOR then
     -- 三语：简体 / 英文 / 繁体（繁体不给就退回简体，繁简互通比英文好读）
     function W.L(cn, en, tw)
         if W.tw and tw and tw ~= "" then return tw end
+        -- 11-10 GI-216：没给繁体时用无限版插件的简繁对照表（GearInsightForever.ToTW，没装就照旧简体）
+        if W.tw then
+            local F = _G.GearInsightForever
+            if type(F) == "table" and type(F.ToTW) == "function" then return F.ToTW(cn) end
+        end
         if W.zh or not en or en == "" then return cn end
         return en
     end
@@ -215,6 +220,24 @@ if type(W) ~= "table" or (tonumber(W.MINOR) or 0) < MINOR then
         if not p then return end
         host:ClearAllPoints()
         host:SetPoint(p, rel, rp, (tonumber(x) or 0) - over, tonumber(y) or 0)
+    end
+
+    -- 11-10 用户录屏「这个BUG修复」：主面板靠屏幕右边时，抽屉翻到页签左边盖住主面板。
+    --   → 抽屉 w 宽在页签右边放不下：先把主面板整体左移腾地方；左边也没地方了才返回 false（调用方再翻到左边）
+    function W.RoomRight(host, tab, w)
+        local tr, sr = tab and tab.GetRight and tab:GetRight(), W.ScreenRight(tab)
+        if type(tr) ~= "number" or not sr then return true end
+        local over = tr + 4 + w - sr + 2
+        if over <= 0 then return true end
+        local ts, hs = tab.GetEffectiveScale and tab:GetEffectiveScale(), host.GetEffectiveScale and host:GetEffectiveScale()
+        if type(ts) == "number" and type(hs) == "number" and hs > 0 then over = over * ts / hs end
+        local hl = host.GetLeft and host:GetLeft()
+        if type(hl) ~= "number" or hl - over < 0 or not host.GetPoint then return false end
+        local p, rel, rp, x, y = host:GetPoint(1)
+        if not p then return false end
+        host:ClearAllPoints()
+        host:SetPoint(p, rel, rp, (tonumber(x) or 0) - over, tonumber(y) or 0)
+        return true
     end
 
     -- 面板 / 弹窗底（深色 + 金边）
@@ -742,9 +765,14 @@ if type(W) ~= "table" or (tonumber(W.MINOR) or 0) < MINOR then
         r.l:SetText(name)
         -- 第 2 行：无限 = 规则集 · 活动时间；正式服 = 服务器 · 活动时间（没有时间就写目标）
         local parts = {}
+        -- 11-10 用户截图「这里改一下多提示，是联盟还是部落，然后普通写 普通PVE」：第 2 行先写阵营（蓝 / 红字）
+        if fk then
+            local fcol = fk == "alliance" and "|cff4fa3ff" or (fk == "horde" and "|cffff5a4a" or "|cffcccccc")
+            parts[#parts + 1] = fcol .. L(FAC_TXT[fk][1], FAC_TXT[fk][2], FAC_TXT[fk][3]) .. "|r"
+        end
         if game == "forever" then
             if rules == "不限" or rules == "" then parts[#parts + 1] = L("规则集不限", "Any ruleset", "規則集不限")
-            elseif rules == "普通" then parts[#parts + 1] = L("普通", "Normal", "普通")
+            elseif rules == "普通" then parts[#parts + 1] = L("普通PVE", "Normal (PvE)", "普通PVE")
             else parts[#parts + 1] = rules end
         elseif server ~= "" then
             parts[#parts + 1] = server
@@ -934,9 +962,13 @@ if type(W) ~= "table" or (tonumber(W.MINOR) or 0) < MINOR then
         d:SetHeight(d._h)
         local ht, tt = host.GetTop and host:GetTop(), tab.GetTop and tab:GetTop()
         local dy = (type(ht) == "number" and type(tt) == "number") and (ht - tt) or 0
-        local tr, sr = tab.GetRight and tab:GetRight(), W.ScreenRight(tab)
+        local room = W.RoomRight(host, tab, DR_W)
+        if room then
+            ht, tt = host.GetTop and host:GetTop(), tab.GetTop and tab:GetTop()
+            dy = (type(ht) == "number" and type(tt) == "number") and (ht - tt) or 0
+        end
         d:ClearAllPoints()
-        if type(tr) == "number" and sr and tr + 4 + DR_W > sr then
+        if not room then
             d:SetPoint("TOPRIGHT", tab, "TOPLEFT", -4, dy)
         else
             d:SetPoint("TOPLEFT", tab, "TOPRIGHT", 4, dy)

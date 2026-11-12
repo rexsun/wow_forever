@@ -151,6 +151,13 @@ local function buildItems(lo, hi, desc)
             end
         end
     end
+    -- 11-10 用户「为啥19级没展示天赋点点哪里」：本级那一点已经点了 → 照列，标「已点」（不然本级像没天赋）
+    if cur >= 10 and cur >= lo and cur <= hi and ns.PlanSpentStep then
+        local has = false
+        for _, it in ipairs(items) do if it.kind == "talent" and it.lv == cur then has = true end end
+        local ok, stp = pcall(ns.PlanSpentStep, cur - 9)
+        if not has and ok and stp then items[#items + 1] = { lv = cur, kind = "talent", st = stp, state = "done" } end
+    end
     -- 10-18 特殊任务线（SideChains.lua，HOLD 里没装就没有）：舒适的睡袋等跨地图任务线，推荐等级那一级出一行
     if ns.SideChainItems then
         local ok, list = pcall(ns.SideChainItems, lo, hi, cur)
@@ -166,7 +173,7 @@ local function buildItems(lo, hi, desc)
     if ns.db.ui.planHideDone then
         local keep = {}
         for _, it in ipairs(items) do
-            if it.st == "done" then hidden = hidden + 1 else keep[#keep + 1] = it end
+            if it.st == "done" or (it.kind == "talent" and it.state == "done") then hidden = hidden + 1 else keep[#keep + 1] = it end
         end
         items = keep
     end
@@ -273,7 +280,7 @@ function ns.GearSourceText(it)
         return t
     elseif it.src == "vendor" then
         local v = vendorPoint(it)
-        local t = ns.L("商人：", "Vendor: ") .. (v.n or "?") .. (v.z and v.z ~= "" and (" @ " .. v.z) or "")
+        local t = ns.L("商人：", "Vendor: ") .. ns.TD(v.n or "?") .. (v.z and v.z ~= "" and (" @ " .. ns.TD(v.z)) or "")
             .. (((v.x or 0) > 0) and string.format(" (%.0f, %.0f)", v.x, v.y) or "")
         if (it.pr or 0) > 0 then t = t .. ns.L(" · 售价 ", " - ") .. money(it.pr) end
         if it.lim then t = t .. ns.L(" · 限量（卖完要等刷新）", " - limited stock") end
@@ -293,7 +300,7 @@ function ns.GearGuide(it)
         end
         return "vendortext"
     elseif isCraft(it) then
-        ns.Print((it.n or "?") .. " — " .. ns.GearSourceText(it))
+        ns.Print(ns.ItemNm(it) .. " — " .. ns.GearSourceText(it))
         if playerProfs()[it.pf] and ns.ProfOpenTab then
             ns.ProfOpenTab("recipes")
             return "profpage"
@@ -368,7 +375,7 @@ function ns.GearAltText(a)
     if not (a and a.it) then return nil end
     local it = a.it
     local how = it.bop and ns.L("自己做", "craft it yourself") or ns.L("找人做 / 拍卖行", "crafter / AH")
-    return ns.L("也可以：", "Also: ") .. (it.n or "?") .. ns.L("（", " (") .. profName(it.pf) .. " " .. (it.sk or 0) .. " · " .. how
+    return ns.L("也可以：", "Also: ") .. ns.ItemNm(it) .. ns.L("（", " (") .. profName(it.pf) .. " " .. (it.sk or 0) .. " · " .. how
         .. (a.pct and (ns.L("，+", ", +") .. a.pct .. "%") or "") .. ns.L("）", ")")
 end
 
@@ -580,11 +587,11 @@ local function refreshHeader()
     return lo, hi
 end
 
-local STATE_TXT = {
+local STATE_TXT = ns.LateL({   -- 11-09 GI-202：手动切语言后跟着换
     done = { "|cff808080", ns.L("已学 / 已过", "done") },
     missed = { "|cffff4040", ns.L("漏学", "missed") },
     now = { "|cff33ff99", ns.L("现在就能做", "do it now") },
-}
+})
 
 local trainOpen = {}   -- 10-16 训练师折叠组：哪几级展开着（只在本次登录内记）
 local refresh   -- 前向声明：时间轴里「导入宏」点完要刷新，refresh 定义在下面（10-07 静态检查查出：原来调的是全局 nil）
@@ -748,18 +755,18 @@ local function refreshTimeline(lo, hi)
             if ns.SideChainRenderRow then ns.SideChainRenderRow(r, it, suffix) end
         elseif it.kind == "quest" then
             r.ic:SetTexture(ICON.quest)
-            r.t:SetText("|cff33ff99" .. ns.L("任务解锁：", "Quest-unlocked: ") .. "|r" .. it.n)
+            r.t:SetText("|cff33ff99" .. ns.L("任务解锁：", "Quest-unlocked: ") .. "|r" .. ns.TD(it.n))
             r.s:SetText(ns.L("点击看完整任务链（谁给 / 在哪 / 目标）", "Click for the full chain (giver / location / objective)") .. suffix)
             r:SetScript("OnClick", function() showQuestPop(it.n) end)
             r:SetScript("OnEnter", function(self)
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(it.n, 1, 0.82, 0)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(ns.TD(it.n), 1, 0.82, 0)
                 GameTooltip:AddLine(ns.L("打任务解锁的技能，没有训练师条目", "Unlocked by a quest chain, no trainer entry"), 1, 1, 1, true)
                 GameTooltip:Show()
             end)
         elseif it.kind == "spell" then
             r.ic:SetTexture((it.i and it.i ~= "") and ("Interface\\Icons\\" .. it.i) or ICON.spell)
             local rankTxt = it.rank and ("  |cff9d9d9d" .. ns.L("等级 ", "Rank ") .. it.rank .. "|r") or ""
-            r.t:SetText((state == "done" and "|cff808080" or "") .. it.n .. (state == "done" and "|r" or "") .. rankTxt)
+            r.t:SetText((state == "done" and "|cff808080" or "") .. ns.TD(it.n) .. (state == "done" and "|r" or "") .. rankTxt)
             r.s:SetText((it.tal and ns.L("天赋技能：要先点对应天赋", "Talent ability: needs the talent first")
                 or it.auto and ns.L("自动学会", "Learned automatically") or ns.L("去职业训练师那里学", "Learn from your class trainer")) .. suffix)
             r.ic:SetDesaturated(state == "done")
@@ -770,7 +777,7 @@ local function refreshTimeline(lo, hi)
                 r:SetScript("OnClick", function() ns.Trainers.Go() end)
             end
             r:SetScript("OnEnter", function(self)
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(it.n, 1, 0.82, 0)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(ns.TD(it.n), 1, 0.82, 0)
                 if it.rank then
                     GameTooltip:AddLine(string.format(ns.L("等级 %d / 共 %d 级", "Rank %d of %d"), it.rank, it.rankMax)
                         .. (it.nextLv and string.format(ns.L("　下一级：%d 级可学", "  Next rank at level %d"), it.nextLv) or ns.L("　（最高级）", "  (max rank)")), 0.8, 0.8, 0.8)
@@ -813,7 +820,9 @@ local function refreshTimeline(lo, hi)
             -- 10-16 用户截图「x/x点标注下」：这一点是第几点 / 共几点
             r.t:SetText("|cff66ccff" .. ns.L("天赋：", "Talent: ") .. "|r" .. st.name
                 .. ((st.rank and st.rankMax) and ("  |cffffd100" .. st.rank .. "/" .. st.rankMax .. "|r") or ""))
-            r.s:SetText(st.tree .. (st.avail and ("　|cff33ff99" .. ns.L("现在就能点", "available now") .. "|r") or ""))
+            r.s:SetText(st.tree .. (st.done and ("　|cff808080" .. ns.L("本级这一点已点", "already spent") .. "|r")
+                or st.avail and ("　|cff33ff99" .. ns.L("现在就能点", "available now") .. "|r") or ""))
+            r.ic:SetDesaturated(st.done and true or false)
             -- 10-16 用户「点击直接加点？打开天赋页然后高亮」：现在能点的行给「去点」—— 打开天赋面板 + 绿框（加点仍要玩家自己点，暴雪不许插件学天赋）
             -- 鼠标移上去时 Talents.lua 把安全按钮盖过来代点菜单栏天赋按钮；盖不了（战斗中 / 没有菜单栏按钮）就走这个按钮自己的兜底
             if st.avail and st.tab and ns.TalentOpenerHover then
@@ -1011,9 +1020,9 @@ local function setSlotItem(b, g, it, mainTwo)
     if b.name then
         if it then
             local req = (it.req and it.req > 0) and it.req or (it.min or 0)
-            b.name:SetText("|cff" .. (QCOLOR[it.q] or "ffffff") .. (it.n or "?") .. "|r")
+            b.name:SetText("|cff" .. (QCOLOR[it.q] or "ffffff") .. ns.ItemNm(it) .. "|r")
             local src = (it.src == "quest") and ns.L("任务", "Quest") or (it.src == "craft") and ns.L("制造", "Crafted")
-                or (it.src == "vendor") and ns.L("商人", "Vendor") or (it.dn or "")
+                or (it.src == "vendor") and ns.L("商人", "Vendor") or ns.TD(it.dn or "")
             local sub = "|cffd8c79a" .. ns.L("装等 ", "ilvl ") .. (it.ilvl or 0) .. "|r|cff999999" .. ns.L(" · ", " · req ") .. req .. ns.L(" 级", "")
             if src ~= "" then sub = sub .. " · " .. src end
             sub = sub .. "|r"
@@ -1040,8 +1049,8 @@ local function setSlotItem(b, g, it, mainTwo)
                 if ns.ItemFallbackTip then ns.ItemFallbackTip(it)   -- 和掉落页同一个简版：带属性 / 经典原版注明 / 读取状态
                 else
                     GameTooltip:ClearLines()
-                    GameTooltip:AddLine("|cff" .. (QCOLOR[it.q] or "ffffff") .. it.n .. "|r")
-                    GameTooltip:AddLine((it.slot or "") .. ((it.type and it.type ~= "") and (" · " .. it.type) or "") .. ns.L("　装等 ", "  ilvl ") .. (it.ilvl or 0), 0.8, 0.8, 0.8)
+                    GameTooltip:AddLine("|cff" .. (QCOLOR[it.q] or "ffffff") .. ns.ItemNm(it) .. "|r")
+                    GameTooltip:AddLine(ns.TD(it.slot or "") .. ((it.type and it.type ~= "") and (" · " .. ns.TD(it.type)) or "") .. ns.L("　装等 ", "  ilvl ") .. (it.ilvl or 0), 0.8, 0.8, 0.8)
                 end
             end
             GameTooltip:AddLine(" ")
@@ -1049,11 +1058,11 @@ local function setSlotItem(b, g, it, mainTwo)
             -- 10-07 用户截图：「GI 掉落：哀嚎洞穴 · 斯卡姆」和「GearInsight 需要 17 级 · 掉落 · 哀嚎洞穴 · 斯卡姆」重复 →
             --   掉落来源交给全局物品提示那一行（PageLoot），这里只补任务来源
             if it.src == "quest" then
-                GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("需要 ", "Req ") .. req .. ns.L(" 级 · 任务：", " · Quest: ") .. (it.srcName or ""), 1, 0.82, 0.4, true)
+                GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("需要 ", "Req ") .. req .. ns.L(" 级 · 任务：", " · Quest: ") .. ns.TD(it.srcName or ""), 1, 0.82, 0.4, true)
             elseif it.src == "craft" or it.src == "vendor" then
                 GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("需要 ", "Req ") .. req .. ns.L(" 级 · ", " · ") .. ns.GearSourceText(it), 1, 0.82, 0.4, true)
             elseif rawget(GameTooltip, "__gifItem") ~= it.id then   -- 全局那行没加上（物品没缓存、走了简版）才补
-                GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("需要 ", "Req ") .. req .. ns.L(" 级 · 掉落：", " · Drops: ") .. (it.srcName or ""), 1, 0.82, 0.4, true)
+                GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("需要 ", "Req ") .. req .. ns.L(" 级 · 掉落：", " · Drops: ") .. ns.TD(it.srcName or ""), 1, 0.82, 0.4, true)
             end
             -- 11-06 备选：最佳制造件比主推荐分高 → 「也可以：…」（点击行为照旧按主推荐走）
             local alt = gp.curAlts and gp.curAlts[g[1]]
@@ -1515,15 +1524,15 @@ local function refreshFarm(lo, tgt)
         local r = row(26)
         r.ic:SetTexture("Interface\\Icons\\" .. (it.i or "inv_misc_questionmark")); r.ic:Show()
         r.t:ClearAllPoints(); r.t:SetPoint("LEFT", r.ic, "RIGHT", 8, 0); r.t:SetPoint("RIGHT", -170, 0)
-        r.t:SetText("|c" .. (QCOL[it.q] or "ffffffff") .. (it.n or "?") .. "|r")
+        r.t:SetText("|c" .. (QCOL[it.q] or "ffffffff") .. ns.ItemNm(it) .. "|r")
         local span = (it.useFrom and it.useTo and it.useTo < tgt) and string.format(ns.L("　用到 %d 级", "  until %d"), it.useTo) or ""
-        r.s:SetText("|cffaaaaaa" .. (it.slot or "") .. ((it.type or "") ~= "" and (" · " .. it.type) or "") .. ns.L("　需要 ", "  req ") .. (it.req or 0) .. ns.L(" 级", "") .. span .. "|r")
+        r.s:SetText("|cffaaaaaa" .. ns.TD(it.slot or "") .. ((it.type or "") ~= "" and (" · " .. ns.TD(it.type)) or "") .. ns.L("　需要 ", "  req ") .. (it.req or 0) .. ns.L(" 级", "") .. span .. "|r")
         r:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             local ok = pcall(GameTooltip.SetItemByID, GameTooltip, it.id)
             local first = (GameTooltip:NumLines() or 0) > 0 and _G.GameTooltipTextLeft1 and _G.GameTooltipTextLeft1:GetText()
             if not ok or not first or first == "" or first == RETRIEVING_ITEM_INFO then
-                if ns.ItemFallbackTip then ns.ItemFallbackTip(it) else GameTooltip:AddLine(it.n or "?") end
+                if ns.ItemFallbackTip then ns.ItemFallbackTip(it) else GameTooltip:AddLine(ns.ItemNm(it)) end
             end
             GameTooltip:Show()
         end)
@@ -1541,11 +1550,11 @@ local function refreshFarm(lo, tgt)
     for k, d in ipairs(dlist) do
         local ld = lootDungeonByName(d.name)
         local art = ld and ns.DungeonArt and ns.DungeonArt(ld)
-        card(k .. ". " .. d.name, string.format(ns.L("需要 %d 级起 · %d 个首领 · 推荐 %d 件", "From level %d · %d bosses · %d items"), d.req, #d.blist, d.n), art,
+        card(k .. ". " .. ns.TD(d.name), string.format(ns.L("需要 %d 级起 · %d 个首领 · 推荐 %d 件", "From level %d · %d bosses · %d items"), d.req, #d.blist, d.n), art,
             function() if ns.LootShowDungeon then ns.LootShowDungeon(d.name) end end, d.name)
         for _, b in ipairs(d.blist) do
             local r = row(20); r.ic:Hide(); r.t:ClearAllPoints(); r.t:SetPoint("LEFT", 12, 0); r.t:SetPoint("RIGHT", -10, 0)
-            r.t:SetText("|cffffd100" .. b.name .. "|r"); r.s:SetText("")
+            r.t:SetText("|cffffd100" .. ns.TD(b.name) .. "|r"); r.s:SetText("")
             for _, it in ipairs(b.items) do itemRow(it, d.name) end
         end
     end
@@ -1559,7 +1568,7 @@ local function refreshFarm(lo, tgt)
             { icon = "Interface\\Icons\\INV_Misc_Book_09", iconCoord = { 0.07, 0.93, 0.07, 0.93 } }, nil)
         for _, q in ipairs(qlist) do
             local r = row(20); r.ic:Hide(); r.t:ClearAllPoints(); r.t:SetPoint("LEFT", 12, 0); r.t:SetPoint("RIGHT", -10, 0)
-            local head = (q.kind or "quest") == "quest" and (ns.L("任务：", "Quest: ") .. q.name) or q.name
+            local head = (q.kind or "quest") == "quest" and (ns.L("任务：", "Quest: ") .. ns.TD(q.name)) or ns.TD(q.name)
             r.t:SetText("|cff33ff99" .. head .. "|r"); r.s:SetText("")
             for _, it in ipairs(q.items) do itemRow(it, nil) end
         end

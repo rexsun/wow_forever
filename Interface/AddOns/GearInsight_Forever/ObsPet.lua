@@ -7,6 +7,9 @@
 --   tm 驯服结果  猎人「驯服野兽」（1515）放出去时记下目标；新宠物出现（UNIT_PET）后：
 --                键 npcID → 值「家族名|驯服时目标等级|地图|x|y|宠物技能」，宠物技能 = 法术ID 逗号连（读不到 ID 用「名字:等级」）
 --                → 新抓的宠物会的技能等级 = 这只野兽会教的，校正「哪只野兽教哪一级」。
+--   rs 稀有目击  11-10 看板 GI-214「未标注泽风岛稀有怪」：网站稀有怪是经典旧世库，《无限》新地区（泽风岛等）一只没有 →
+--                鼠标指向 / 选中稀有 / 稀有精英（任何生物类型，不只野兽）：键 npcID → 值「等级|地图|x|y|稀有度|名字|生物类型」
+--                → scripts/gi_forever_rare_obs_build.py ≥2 台一致才进 rares_obs.json（网站野外稀有页「玩家实测」）。同一只本次登录只记一次。
 -- ⛔ 不记角色名 / 服务器名 / 宠物自起名；保密值（ns.Secret）不记；bf 最多 BF_TOTAL 条、tm 最多 TM_TOTAL 条，超了删最旧的。
 -- ⛔ 每个 API 都 pcall / 判空（经典旧世引擎 1.60 客户端，接口可能缺）。⛔ 在 HOLD 里，游戏内验收完才进发行包。
 -- 探针：/gi petobs（看记了多少条 + 最近一次驯服）
@@ -18,8 +21,10 @@ ns.ObsPet = P
 P.TAME = 1515          -- 驯服野兽
 P.BF_TOTAL = 300
 P.TM_TOTAL = 60
+P.RS_TOTAL = 200
 P.TAME_WINDOW = 45     -- 放出驯服后多少秒内出现的新宠物算这一下（引导 20 秒 + 余量）
 P.seen = {}            -- 本次登录已记过的 npc（bf）
+P.seenRare = {}        -- 本次登录已记过的稀有（rs）
 P.pending = nil        -- { npc, lv, fam, map, x, y, t }
 P.last = nil           -- 最近一次 tm：{ npc, fam, n }
 
@@ -79,10 +84,27 @@ function P.Trim(k, cap)
     return n
 end
 
+-- ---------- rs 稀有目击（任何生物类型）----------
+function P.Rare(unit)
+    local c = clsOf(unit)
+    if c ~= "r" and c ~= "R" then return false end
+    local npc = npcOfGuid(call(UnitGUID, unit))
+    if not npc or P.seenRare[npc] then return false end
+    P.seenRare[npc] = true
+    local m, x, y = pos()
+    local lv = tonumber(clean(call(UnitLevel, unit))) or 0
+    local name = clean(call(UnitName, unit)) or ""
+    local ct = clean(call(UnitCreatureType, unit)) or ""
+    local okAdd = add("rs", tostring(npc), table.concat({ lv, m, x, y, c, tostring(name):sub(1, 40), tostring(ct):sub(1, 16) }, "|"))
+    P.Trim("rs", P.RS_TOTAL)
+    return okAdd
+end
+
 -- ---------- bf 野兽目击 ----------
 function P.Sight(unit)
     if not unit or not call(UnitExists, unit) then return false end
     if call(UnitIsPlayer, unit) or call(UnitPlayerControlled, unit) then return false end
+    P.Rare(unit)
     local fam = clean(call(UnitCreatureFamily, unit))
     if not fam or fam == "" then return false end
     local npc = npcOfGuid(call(UnitGUID, unit))

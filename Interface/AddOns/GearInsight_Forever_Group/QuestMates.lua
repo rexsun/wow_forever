@@ -226,7 +226,7 @@ local function cacheRank(e)
     local shared, behind = false, false
     for id, h in pairs(e.quests or {}) do
         local q = c.quests[id]
-        if q then shared = true; if h[1] < q.p then behind = true end end
+        if q then shared = true; if h[1] < 100 then behind = true end end
     end
     local eligible = shared and inRange and (not cfg.onlyBehind or behind)
         and not (QM.IsDeclined and QM.IsDeclined(e.name)) and not (QM.IsBusy and QM.IsBusy(e.name))
@@ -611,12 +611,13 @@ function QM.Rows(selQid)
     local cfg = dbq()
     local rows = {}
     for key, e in pairs(peers) do
-        local shared, behind, ahead = {}, 0, 0
+        local shared, behind, ahead, open = {}, 0, 0, 0
         for qid, h in pairs(e.quests or {}) do
             local q = byId[qid]
             if q and (not selQid or selQid == qid) then
                 shared[#shared + 1] = { q = q, his = h }
                 if h[1] < q.p then behind = behind + 1 elseif h[1] > q.p then ahead = ahead + 1 end
+                if h[1] < 100 then open = open + 1 end
             end
         end
         local same = (map and e.map == map) and true or false
@@ -626,7 +627,9 @@ function QM.Rows(selQid)
         if QM.near[short] then dist, approx = math.min(dist or 40, QM.near[short].yd), false end   -- 姓名板看得到 = 就在身边
         local rg = cfg.range or 100
         local inRange = (rg < 0) or (rg == 0 and same) or (rg > 0 and dist ~= nil and dist <= rg)
-        local keep = #shared > 0 and inRange and (behind > 0 or not cfg.onlyBehind) and not QM.IsDeclined(key) and not QM.IsBusy(key)
+        -- 11-11 用户截图「任务组队怎么很多人扫描不进来了」：原来只留进度比我低的，我 3/20 时几乎人人都比我快 → 64 人全被筛掉。
+        --   杀怪任务只要他还没做完，组上就一起算 → 这个开关改成「只看没做完」（做完的才筛掉），进度比我低的照旧排前面
+        local keep = #shared > 0 and inRange and (open > 0 or not cfg.onlyBehind) and not QM.IsDeclined(key) and not QM.IsBusy(key)
         if keep then
             table.sort(shared, function(a, b) return a.q.id < b.q.id end)
             rows[#rows + 1] = { key = key, e = e, shared = shared, behind = behind, ahead = ahead, same = same, dist = dist, approx = approx,
@@ -663,7 +666,7 @@ function QM.FilteredPeers(shownKeys, selQid)
             local nShared, behind = 0, 0
             for qid, h in pairs(e.quests or {}) do
                 local q = byId[qid]
-                if q then nShared = nShared + 1; if h[1] < q.p then behind = behind + 1 end end
+                if q then nShared = nShared + 1; if h[1] < 100 then behind = behind + 1 end end
             end
             local same = (map and e.map == map) and true or false
             local dist, approx
@@ -680,7 +683,7 @@ function QM.FilteredPeers(shownKeys, selQid)
             elseif not same and rg >= 0 then why = L("在别的区域", "other zone")
             elseif rg > 0 and dist == nil then why = L("距离未知", "distance unknown")
             elseif rg > 0 and dist > rg then why = string.format(L("超出 %d 码", "beyond %d yd"), rg)
-            elseif behind == 0 and cfg.onlyBehind then why = L("进度未落后", "not behind you")
+            elseif behind == 0 and cfg.onlyBehind then why = L("他已经做完了", "already finished")
             else why = L("不符合筛选", "filtered") end
             out[#out + 1] = { key = key, e = e, why = why, dist = dist, approx = approx, same = same, nShared = nShared }
         end
@@ -920,17 +923,25 @@ function QM.OnSystemMsg(msg)
         local who = msg:match(sp[1])
         if who then
             local sn = shortName(who)
+            -- 11-07 玩家「这个怎么关？」：原来所有拒绝 / 已有队伍的系统消息都接，自己手动邀请被拒也刷屏、还被记进隐藏名单
+            --   → 只认组队工具 10 分钟内发出的邀请；提示可 /gi qm quiet 关（只关提示，照样记下、照样跳过）
+            local at = QM.invited[sn]
+            if not at or now() - at > 600 then return end
+            local quiet = dbq().quietResult
             QM.invited[sn] = nil
             QM.dirty = true
             pcall(QM.SetResult, sn, sp[2])
             if sp[2] == "declined" then
                 QM.Declined()[sn] = wallNow()
-                ns.Print(string.format(L("组队：%s 拒绝了邀请，已记下，以后不再列出、一键组人也跳过（%s qm clear 清空）",
-                    "Group up: %s declined - hidden from now on (%s qm clear to reset)"), sn, ns.SlashHint or "/gif"))
+                if not quiet then
+                    local h = ns.SlashHint or "/gif"
+                    ns.Print(string.format(L("组队：%s 拒绝了邀请，以后不再列出（%s qm clear 清空，%s qm quiet 关掉这条提示）",
+                        "Group up: %s declined - hidden from now on (%s qm clear to reset, %s qm quiet to mute this)"), sn, h, h))
+                end
             else
                 QM.Busy()[sn] = wallNow()
-                ns.Print(string.format(L("组队：%s 已经有队伍了，挪到列表下面「已有队伍」，可以私聊请他拉你",
-                    "Group up: %s is already in a group - moved to \"In a group\"; whisper to ask for an invite"), sn))
+                if not quiet then ns.Print(string.format(L("组队：%s 已经有队伍了，挪到列表下面「已有队伍」，可以私聊请他拉你",
+                    "Group up: %s is already in a group - moved to \"In a group\"; whisper to ask for an invite"), sn)) end
             end
             return
         end
@@ -968,7 +979,10 @@ function QM.ScanNear()
                 local cls, file
                 if UnitClass then cls, file = UnitClass(u); cls, file = safe(cls), safe(file) end
                 local yd = 40
-                if CheckInteractDistance then
+                -- 11-12 用户「包满了捡东西不停弹框然后掉线」：BugGrabber 记了 33 次 ADDON_ACTION_BLOCKED 指向这里 ——
+                --   CheckInteractDistance 在 12.x 引擎战斗中是受保护函数，pcall 挡不住「插件被禁止」，身边玩家列表每秒扫一次就弹一次
+                --   → 战斗中一律不调（距离先按 40 码算，脱战再细分）
+                if CheckInteractDistance and not (InCombatLockdown and InCombatLockdown()) then
                     local ok, c = pcall(CheckInteractDistance, u, 4)
                     if ok and c then yd = 28 end
                 end
@@ -995,17 +1009,26 @@ function QM.ScanNear()
 end
 
 -- 显示用：身边、等级差 ≤ 4、不在插件列表 / 队伍里；近的在前，等级近的在前
+-- 11-11 用户「身边有很多人我没发组」：等级差 4 级外的原来一声不吭就不列 → 数出来；点提示行可切「等级不限」（cfg.nearAnyLv）
+QM.nearSkipLv = 0
 function QM.NearRows()
+    local anyLv = dbq().nearAnyLv == true
+    local skipLv = 0
     local known = {}
     for k in pairs(peers) do known[k:match("^([^%-]+)") or k] = true end
     local myLv = UnitLevel and UnitLevel("player") or 0
     local out = {}
     for short, w in pairs(QM.near) do
         if not known[short] and not (QM.IsMe and QM.IsMe(w.name or short, short)) and not (UnitInParty and UnitInParty(short)) and not QM.IsDeclined(short) and not QM.IsBusy(short)
-            and (w.lvl == 0 or math.abs(w.lvl - myLv) <= 4) then
-            out[#out + 1] = { name = w.name, lvl = w.lvl, cls = w.cls, file = w.file, yd = w.yd, how = w.how, guild = QM.IsGuildmate(w.name or short) }
+            then
+            if anyLv or w.lvl == 0 or math.abs(w.lvl - myLv) <= 4 then
+                out[#out + 1] = { name = w.name, lvl = w.lvl, cls = w.cls, file = w.file, yd = w.yd, how = w.how, guild = QM.IsGuildmate(w.name or short) }
+            else
+                skipLv = skipLv + 1
+            end
         end
     end
+    QM.nearSkipLv = skipLv
     table.sort(out, function(a, b)
         if a.guild ~= b.guild then return a.guild end   -- 同公会置顶（10-18）
         if a.yd ~= b.yd then return a.yd < b.yd end
@@ -1143,7 +1166,7 @@ function QM.SelectedQuest(mine)
 end
 
 -- ---------- 一键私聊（10-12 用户「增加一个一键私聊，老哥，我在做 xxx 任务（必须范围内），要不要一起，你有队伍，xxx」「你来定」）----------
--- 话术：没队伍「老哥，我在做「XX」，要不要一起组个队？」；有队伍「老哥，看你有队伍了，我也在做「XX」，方便拉我一下吗？」
+-- 话术：没队伍「老哥，我在做「XX」，要不要一起组个队？」；有队伍「老哥，看你有队伍了，我也在做「XX」，组我一下吗？」（11-10 用户「说组我」）
 -- XX 取：装了插件的 → 和他的共同任务（没做完的）；否则 → 列表里选中的任务 → 游戏里追踪的任务 → 任务日志第一个没做完的
 -- 只私聊范围内 / 身边的人；一次最多 5 人；同一个人 10 分钟内不重复私聊（防骚扰 / 防被举报刷屏）
 QM.whispered = {}
@@ -1165,12 +1188,16 @@ function QM.Tagged(msg)
     if dbq().noTag or type(msg) ~= "string" or msg:sub(1, #TAG) == TAG then return msg end
     return TAG .. msg
 end
+-- 11-10 用户「求组私聊也去掉插件标识」：一对一私聊不加 [Gearinsight插件]（喊人照旧走 QM.Tagged）
 function QM.WhisperText(q, busy)
-    return QM.Tagged(QM.WhisperBody(q, busy))
+    return QM.WhisperBody(q, busy)
 end
 function QM.WhisperBody(q, busy)
     local t = q and q.title
     local members = tonumber(GetNumGroupMembers and GetNumGroupMembers()) or 0
+    -- 11-09 GI-210：设置页「自动私信内容」填了组任务邀请就用自己的
+    local mine = ns.MyWhisper and ns.MyWhisper("qm", { ["任务"] = t, ["人数"] = members > 1 and members or nil })
+    if mine then return mine end
     if members > 1 then
         local intro = t and string.format(L("你好，我们在做「%s」，目前队伍有 %d 人。", "Hi, we're working on \"%s\" and currently have %d people in our group. "), t, members)
             or string.format(L("你好，我们正在附近做任务，目前队伍有 %d 人。", "Hi, we're questing nearby and currently have %d people in our group. "), members)
@@ -1178,8 +1205,8 @@ function QM.WhisperBody(q, busy)
             or L("方便的话，要不要一起做任务？", "Would you like to join us and quest together?"))
     end
     if busy then
-        return t and string.format(L("老哥，看你有队伍了，我也在做「%s」，方便拉我一下吗？", "Hey, saw you're in a group - I'm on \"%s\" too, mind inviting me?"), t)
-            or L("老哥，看你有队伍了，方便拉我一下一起做任务吗？", "Hey, saw you're in a group - mind inviting me to quest together?")
+        return t and string.format(L("老哥，看你有队伍了，我也在做「%s」，组我一下吗？", "Hey, saw you're in a group - I'm on \"%s\" too, mind inviting me?"), t)
+            or L("老哥，看你有队伍了，组我一下一起做任务吗？", "Hey, saw you're in a group - mind inviting me to quest together?")
     end
     return t and string.format(L("老哥，我在做「%s」，要不要一起组个队？", "Hey, I'm on \"%s\" - want to group up?"), t)
         or L("老哥，附近一起做任务吗？组个队？", "Hey, want to group up and quest together?")
@@ -1352,36 +1379,50 @@ local function build(host)
         GameTooltip:Show()
     end)
     d.pin:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- 11-10 用户截图「加个UI缩放和透明度」：标题栏「外观」按钮 → 小面板 [缩放 - 100% +] [背景 - 100% +]，存档记住。
+    --   透明度只调背景（字和按钮照常清楚），钉在屏幕上练级时能透出后面的画面
+    d.look = (W and W.Button) and W.Button(d, nil) or ns.Button(d, "", 52, 22)
+    d.look:SetSize(52, 22); d.look:SetPoint("RIGHT", d.pin, "LEFT", -4, 0)
+    d.look:SetText(L("外观", "Look"))
+    local lp = CreateFrame("Frame", nil, d, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    lp:SetSize(200, 64); lp:SetPoint("TOPRIGHT", d.look, "BOTTOMRIGHT", 0, -4)
+    if lp.SetBackdrop then
+        lp:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+        lp:SetBackdropColor(0.03, 0.035, 0.05, 0.97); lp:SetBackdropBorderColor(0.85, 0.68, 0.25, 0.9)
+    end
+    lp:SetFrameLevel((d:GetFrameLevel() or 1) + 20)
+    lp:EnableMouse(true)
+    lp:Hide()
+    d.lookPanel = lp
+    local function row(y, label, key, lo, hi)
+        local fs = lp:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        fs:SetPoint("TOPLEFT", 10, y - 4); fs:SetText(label)
+        local val = lp:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        val:SetPoint("TOPLEFT", 118, y - 4); val:SetWidth(44); val:SetJustifyH("CENTER")
+        local function step(dv)
+            local cur = tonumber(dbq()[key]) or 1
+            cur = math.floor((cur + dv) * 20 + 0.5) / 20
+            dbq()[key] = math.max(lo, math.min(hi, cur))
+            QM.ApplyLook()
+        end
+        local minus = ns.Button(lp, "-", 24, 20, function() step(-0.05) end)
+        minus:SetPoint("TOPLEFT", 92, y)
+        local plus = ns.Button(lp, "+", 24, 20, function() step(0.05) end)
+        plus:SetPoint("TOPLEFT", 164, y)
+        return val
+    end
+    lp.scaleVal = row(-8, L("缩放", "Scale"), "scale", QM.SCALE_MIN, QM.SCALE_MAX)
+    lp.alphaVal = row(-34, L("背景不透明", "Background"), "bgAlpha", QM.ALPHA_MIN, 1)
+    d.look:SetScript("OnClick", function() lp:SetShown(not lp:IsShown()); QM.ApplyLook() end)
+    d.look:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(L("缩放 / 透明度", "Scale / opacity"), 1, 0.82, 0)
+        GameTooltip:AddLine(L("调这个窗口的大小和背景透明度，重新登录还记得", "Adjust this window's size and background opacity (saved)"), 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    d.look:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- 10-16 用户「左右两个组队太乱了」→ 拍板「只留右边，副本组队并进抽屉」：顶上 [附近任务] [副本组队] 切换。
     --   副本组队（PageGroup.lua，HOLD）没装就不出这两个按钮，抽屉和以前一模一样
-    if ns.BuildGroupPanel then
-        d.title:SetText(L("组队", "Group up"))
-        d.modeBtns = {}
-        local mx = PAD + 52
-        for _, m in ipairs({ { "quest", L("附近任务", "Nearby quests"), L("同任务的人 · 附近 · 实时", "players on your quests - nearby - live") },
-            { "dungeon", L("副本·测试", "Dungeons (test)"), L("测试版（10-19 用户「暂时标记为测试状态，不对外放出」）：只在开发安装里有，不随发行包发布。游戏自带的寻求组队（按 I 那个），全服都看得到", "Test build, not in public releases. The game's own group finder, server-wide") } }) do
-            local b = (ns.SegButton or ns.Button)(d, m[2], 92, 22, function() QM.SetMode(m[1]) end)   -- 10-17 分段按钮（扁平深底，选中金边金线）
-            b:SetPoint("TOPLEFT", mx, -9); mx = mx + 96
-            b:SetScript("OnEnter", function(self)
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(m[2], 1, 0.82, 0)
-                GameTooltip:AddLine(m[3], 1, 1, 1, true); GameTooltip:Show()
-            end)
-            b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-            d.modeBtns[m[1]] = b
-        end
-        -- 副本组队盖在任务内容上面（实底、挡鼠标），切回附近任务就藏起来
-        local o = CreateFrame("Frame", nil, d, BackdropTemplateMixin and "BackdropTemplate" or nil)
-        o:SetPoint("TOPLEFT", 4, -38); o:SetPoint("BOTTOMRIGHT", -4, 4)
-        if o.SetBackdrop then
-            o:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
-            o:SetBackdropColor(0.035, 0.04, 0.055, 1)
-        end
-        local lvl = d.GetFrameLevel and d:GetFrameLevel()
-        if lvl and o.SetFrameLevel then o:SetFrameLevel(lvl + 30) end
-        o:EnableMouse(true)
-        o:Hide()
-        d.lfg = o
-    end
+    QM.BuildModeBtns(d)
     if d.SetMovable then d:SetMovable(true) end
     if d.SetClampedToScreen then d:SetClampedToScreen(true) end
     if d.RegisterForDrag then d:RegisterForDrag("LeftButton") end
@@ -1415,7 +1456,7 @@ local function build(host)
     d.qarrow = d.qsel:CreateTexture(nil, "OVERLAY"); d.qarrow:SetSize(16, 16); d.qarrow:SetPoint("RIGHT", -6, 0)
     d.qarrow:SetTexture("Interface\\Buttons\\UI-ScrollBar-ScrollDownButton-Up")   -- 经典客户端就有的向下箭头
     d.qsel:SetScript("OnClick", function() QM.ToggleQuestMenu() end)
-    -- 第二行：四个等宽按钮  只看比我慢 · 只看本区域 · 共享 · 刷新
+    -- 第二行：四个等宽按钮  只看没做完（11-11 原「只看比我慢」）· 只看本区域 · 共享 · 刷新
     y = y - 34
     local GAP = 6
     local BW = math.floor((INNER - GAP * 3) / 4)
@@ -1654,7 +1695,7 @@ function QM.Render()
             .. (autoYd and (DIM .. L("  · 约 ", "  - ~") .. autoYd .. L(" 码", " yd") .. "|r") or ""))
         or (TXT .. L("全部共同任务", "All shared quests") .. "|r  " .. DIM .. "(" .. nq .. L(" 个任务)", " quests)") .. "|r")))
     if QM.menu and QM.menu:IsShown() then QM.FillQuestMenu() end
-    d.fBehind:SetText(cfg.onlyBehind and L("只看比我慢", "Behind me") or L("全部进度", "Any progress"))
+    d.fBehind:SetText(cfg.onlyBehind and L("只看没做完", "Not done yet") or L("全部进度", "Any progress"))
     local rg = cfg.range or 100
     d.fZone:SetText(rg > 0 and string.format(L("%d 码内", "Within %d yd"), rg) or L("本区域", "This zone"))
     d.share:SetText(cfg.share and L("共享 开", "Share on") or L("共享 关", "Share off"))
@@ -1842,7 +1883,8 @@ function QM.Render()
     local plates = friendPlatesOn()   -- true / false / nil（找不到设置）
     if rawget(wh, "auto") then wh.auto:SetChecked(QM.AutoPlatesOn()) end
     wh.t:SetText("|cff6ea6f7" .. L("身边玩家 · 未装插件", "Players around you - no addon") .. "|r  " .. DIM
-        .. string.format(L("%d 人 · 40 码内 · 等级差 4 级内", "%d - 40 yd - level +/-4"), #wr)
+        .. string.format(L("%d 人 · 40 码内 · ", "%d - 40 yd - "), #wr)
+        .. (cfg.nearAnyLv and L("等级不限", "any level") or L("等级差 4 级内", "level +/-4"))
         .. ((plates == true) and "" or ("  |cffff9966" .. L("友方姓名板关着", "friendly nameplates off") .. "|r")) .. "|r")
     wh:Show()
     y = y + 24
@@ -1876,7 +1918,8 @@ function QM.Render()
         y = y + ROW_H + 2
     end
     -- 10-18 姓名板关着时不管列表空不空都给这一行（说过话的人不靠姓名板，列表可能不空）
-    if #wr == 0 or plates ~= true then
+    local skipLv, secretN = QM.nearSkipLv or 0, (QM.plateStat and QM.plateStat.secret) or 0
+    if #wr == 0 or plates ~= true or skipLv > 0 or cfg.nearAnyLv or secretN > 0 then
         if not rawget(d, "nearHint") then
             local h = CreateFrame("Button", nil, d.child)
             h:SetHeight(22)
@@ -1887,8 +1930,13 @@ function QM.Render()
         end
         local h = d.nearHint
         h:ClearAllPoints(); h:SetPoint("TOPLEFT", 0, -y); h:SetPoint("RIGHT", d.child, "RIGHT", 0, 0)
-        if plates == true then
-            h.t:SetText(DIM .. L("身边 40 码内没有等级相近的玩家", "Nobody at your level within 40 yd") .. "|r")
+        local secretTxt = secretN > 0 and string.format(L("  · 另有 %d 人游戏不给读名字（选中他一下就能加进来）", "  - %d more hide their names (target them to add)"), secretN) or ""
+        if plates == true and (skipLv > 0 or cfg.nearAnyLv) then
+            h.t:SetText("|cffffd200" .. (cfg.nearAnyLv and L("已列出所有等级 · 点这里只看等级差 4 级内的", "Showing all levels - click for +/-4 only")
+                or string.format(L("身边还有 %d 人等级差超过 4 级没列 · 点这里也列出来", "%d more nearby are 5+ levels away - click to list them"), skipLv)) .. "|r" .. DIM .. secretTxt .. "|r")
+            h:SetScript("OnClick", function() local c = dbq(); c.nearAnyLv = not c.nearAnyLv or nil; QM.Render() end)
+        elseif plates == true then
+            h.t:SetText(DIM .. (#wr == 0 and L("身边 40 码内没有等级相近的玩家", "Nobody at your level within 40 yd") or "") .. secretTxt .. "|r")
             h:SetScript("OnClick", nil)
         elseif plates == nil then
             -- 找不到设置名：插件改不了，只能请玩家按游戏自带的快捷键
@@ -1981,10 +2029,11 @@ function QM.Render()
     local names = {}
     for _, c in ipairs(cand) do names[#names + 1] = c.name end
     d._invNames = names
-    local canAll = QM.CanInvite("")
+    local canAll, cantWhy = QM.CanInvite("")
     local nInv = canAll and #QM.InviteCandidates(names) or 0
+    -- 11-11 用户截图「我身边有很多人我没发组」：按钮灰着不说为啥（在别人队里不是队长 / 队伍满了）→ 原因写在按钮上
     d.invAll:SetText(nInv > 0 and string.format(L("组人 · %d 人", "Invite %d"), nInv)
-        or (canAll and L("组人 · 暂无", "Invite - none") or L("组人", "Invite")))
+        or (canAll and L("组人 · 暂无", "Invite - none") or (L("组人 · ", "Invite - ") .. (cantWhy or ""))))
     d.invAll:SetEnabled(nInv > 0)
     local chan = ""   -- 11-05 起不进频道（公会 + 密语），没有「频道未连上」这回事
     local why = ""
@@ -2024,9 +2073,10 @@ local function placeAtTab(d, host, tab)
     d:SetHeight(math.max(540, type(hh) == "number" and hh or 540))
     local ht, tt = host.GetTop and host:GetTop(), tab.GetTop and tab:GetTop()
     local dy = (type(ht) == "number" and type(tt) == "number") and (ht - tt) or 0
-    local tr, sr = tab.GetRight and tab:GetRight(), W and W.ScreenRight and W.ScreenRight(tab)
+    -- 11-10 用户录屏：放不下先把主面板左移（W.RoomRight），左边也没地方才翻到页签左边盖住主面板
+    local room = not (W and W.RoomRight) or W.RoomRight(host, tab, DW)
     d:ClearAllPoints()
-    if type(tr) == "number" and sr and tr + 4 + DW > sr then d:SetPoint("TOPRIGHT", tab, "TOPLEFT", -4, dy)
+    if not room then d:SetPoint("TOPRIGHT", tab, "TOPLEFT", -4, dy)
     else d:SetPoint("TOPLEFT", tab, "TOPRIGHT", 4, dy) end
 end
 
@@ -2047,6 +2097,23 @@ local function placePinned(d)
     d:ClearAllPoints()
     if type(pos) == "table" and pos[1] then d:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", pos[1], pos[2])
     else d:SetPoint("CENTER", UIParent, "CENTER", 300, 0) end
+end
+
+QM.SCALE_MIN, QM.SCALE_MAX, QM.ALPHA_MIN = 0.6, 1.5, 0.2
+function QM.ApplyLook()
+    local d = QM.drawer
+    if not d then return end
+    local cfg = dbq()
+    local sc = math.max(QM.SCALE_MIN, math.min(QM.SCALE_MAX, tonumber(cfg.scale) or 1))
+    local al = math.max(QM.ALPHA_MIN, math.min(1, tonumber(cfg.bgAlpha) or 1))
+    if d.SetScale then d:SetScale(sc) end
+    if d.SetBackdropColor then d:SetBackdropColor(0.035, 0.04, 0.055, al) end
+    if d.SetBackdropBorderColor then d:SetBackdropBorderColor(0.85, 0.68, 0.25, math.max(0.4, al)) end
+    local lp = d.lookPanel
+    if lp then
+        lp.scaleVal:SetText(math.floor(sc * 100 + 0.5) .. "%")
+        lp.alphaVal:SetText(math.floor(al * 100 + 0.5) .. "%")
+    end
 end
 
 function QM.SetPinned(on)
@@ -2076,33 +2143,89 @@ end
 function QM.RestorePinned()
     local cfg = dbq()
     if not (cfg.pinned and cfg.open) then return end
-    QM.drawer = QM.drawer or build(nil)
+    QM.drawer = QM.drawer or build(nil); pcall(QM.ApplyLook)
     placePinned(QM.drawer)
     QM.drawer:Show()
     QM.Request()
     QM.Render()
+    -- 11-10 用户「reload 后保持是副本组队，不要切任务组队」：恢复上次的模式。这时 DungeonChat.lua 可能还没载入 → 下一帧再切
+    if cfg.mode == "dungeon" then
+        local function go() pcall(QM.SetMode, "dungeon") end
+        if C_Timer and C_Timer.After then C_Timer.After(0, go) else go() end
+    end
+end
+
+-- 副本组队盖在任务内容上面（实底、挡鼠标），切回附近任务就藏起来
+-- 11-10 用户「点了没反应，也没红字」：/run 实测 d.lfg = nil —— 组队窗口上次开着，登录时 QuestMates.lua 一载入就建了抽屉，
+--   那时 DungeonChat.lua（toc 排在后面）还没载入 → 没建盖板，之后点副本组队直接 return。→ 盖板改成用到时再补建
+function QM.EnsureLfg(d)
+    if not d or rawget(d, "lfg") then return d and rawget(d, "lfg") end
+    if not (ns.BuildDungeonPanel or ns.BuildGroupPanel) then return nil end
+    local o = CreateFrame("Frame", nil, d, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    o:SetPoint("TOPLEFT", 4, -38); o:SetPoint("BOTTOMRIGHT", -4, 4)
+    if o.SetBackdrop then
+        o:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
+        o:SetBackdropColor(0.035, 0.04, 0.055, 1)
+    end
+    local lvl = d.GetFrameLevel and d:GetFrameLevel()
+    if lvl and o.SetFrameLevel then o:SetFrameLevel(lvl + 30) end
+    o:EnableMouse(true)
+    o:Hide()
+    d.lfg = o
+    return o
 end
 
 -- 10-16 抽屉模式：quest = 附近任务（原来的），dungeon = 副本组队
 function QM.SetMode(m)
     local d = QM.drawer
-    if not d or not d.lfg then return end
+    if d then QM.EnsureLfg(d) end
+    if not d or not d.lfg then
+        if m == "dungeon" then ns.Print(L("副本组队没建起来：组队窗口是在副本组队装上之前打开的，/reload 一下再点", "Dungeon group not ready: /reload and try again")) end
+        return
+    end
     dbq().mode = m
     if m == "dungeon" then
-        if not d.lfgBuilt then d.lfgBuilt = ns.BuildGroupPanel(d.lfg, DW - 8, 540 - 42) end
+        -- 11-10 用户「点了没反应」：建面板出错时整段停在这，玩家只看到没反应 → 报错打到聊天框，好截图
+        if not rawget(d, "lfgBuilt") then
+            local ok, res = pcall(ns.BuildDungeonPanel or ns.BuildGroupPanel, d.lfg, DW - 8, 540 - 42)
+            if not ok then ns.Print("|cffff6060" .. L("副本组队出错（截图发给开发者）：", "Dungeon group error: ") .. tostring(res) .. "|r") end
+            d.lfgBuilt = ok and res
+        end
         d.lfg:Show()
-        if ns.RefreshGroupPage then ns.RefreshGroupPage() end
+        local rf = ns.BuildDungeonPanel and ns.RefreshDungeonPanel or ns.RefreshGroupPage
+        if rf then rf() end
     else
         d.lfg:Hide()
     end
     local tab = QM.Tab()
-    for _, set in ipairs({ d.modeBtns or {}, tab and rawget(tab, "_giSubByMode") or {} }) do
+    for _, set in ipairs({ rawget(d, "modeBtns") or {}, tab and rawget(tab, "_giSubByMode") or {} }) do
         for k, b in pairs(set) do
             if rawget(b, "_seg") and ns.SegSelect then ns.SegSelect(b, k == m)
             elseif ns.MarkSelected then ns.MarkSelected(b, k == m) end
         end
     end
     QM.SyncSubTabs()
+end
+
+-- 11-11 用户截图「文字不对」：钉住的窗口登录时先建好，那会儿副本组队（DungeonChat.lua）还没载入 →
+--   没出 [任务组队][副本组队] 按钮、标题停在「同任务的人」。抽成函数，EnsureLfg 补建盖板时再补一次
+function QM.BuildModeBtns(d)
+    if not d or rawget(d, "modeBtns") or not (ns.BuildDungeonPanel or ns.BuildGroupPanel) then return end
+    d.title:SetText(L("组队", "Group up"))
+    d.modeBtns = {}
+    local mx = PAD + 52
+    for _, m in ipairs({ { "quest", L("任务组队", "Quest group"), L("同任务的人 · 附近 · 实时", "players on your quests - nearby - live") },
+        { "dungeon", L("副本组队", "Dungeon group"), L("读你加入的所有聊天频道里的组队消息，一键申请（自动私聊）；也能一键发招人消息到频道", "Reads group posts from your chat channels; one-click apply, one-click recruit") } }) do
+        local b = (ns.SegButton or ns.Button)(d, m[2], 92, 22, function() QM.SetMode(m[1]) end)   -- 10-17 分段按钮（扁平深底，选中金边金线）
+        b:SetPoint("TOPLEFT", mx, -9); mx = mx + 96
+        b:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(m[2], 1, 0.82, 0)
+            GameTooltip:AddLine(m[3], 1, 1, 1, true); GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        d.modeBtns[m[1]] = b
+    end
+    if QM.EnsureLfg then QM.EnsureLfg(d) end
 end
 
 -- 10-18 用户截图「任务组队，副本组队做两个折叠子TAB在组队下面」：照左栏大类（UI.lua GROUPS），
@@ -2115,10 +2238,16 @@ function QM.SyncSubTabs()
     local hostShown = host and host:IsShown() and true or false
     local subs = tab and rawget(tab, "_giSubs")
     local useSubs = subs and hostShown and true or false
-    if d and d.modeBtns then
+    if d and not rawget(d, "modeBtns") then QM.BuildModeBtns(d) end
+    if d and rawget(d, "modeBtns") then
         for _, b in pairs(d.modeBtns) do b:SetShown(not useSubs) end
-        local m = dbq().mode == "dungeon" and L("副本组队 · 测试", "Dungeons (test)") or L("附近任务", "Nearby quests")
-        d.title:SetText(useSubs and (L("组队", "Group up") .. "  " .. DIM .. m .. "|r") or L("组队", "Group up"))
+    end
+    -- 11-10 用户截图：副本组队页标题还写「同任务的人 · 附近 · 实时」（抽屉先于副本组队建好时没换标题）→ 有子页签就按当前模式写
+    if d and rawget(d, "title") then
+        local dungeon = dbq().mode == "dungeon"
+        local btns = rawget(d, "modeBtns") and not useSubs
+        local m = dungeon and L("副本组队", "Dungeon group") or (subs and L("任务组队", "Quest group") or L("同任务的人 · 附近 · 实时", "players on your quests - nearby - live"))
+        d.title:SetText(btns and L("组队", "Group up") or (L("组队", "Group up") .. "  " .. DIM .. m .. "|r"))
     end
     if not (host and tab and subs) then return end
     local open = d and d:IsShown() and hostShown and true or false
@@ -2145,10 +2274,10 @@ local function attach()
     end)
     tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- 折叠子页签（副本组队 HOLD 没装 = 只有附近任务一个，不出子页签，和以前一样）
-    if ns.BuildGroupPanel and (ns.SegButton or ns.Button) then
+    if (ns.BuildDungeonPanel or ns.BuildGroupPanel) and (ns.SegButton or ns.Button) then
         tab._giSubs, tab._giSubByMode = {}, {}
-        for _, m in ipairs({ { "quest", L("附近任务", "Nearby quests"), L("同任务的人 · 附近 · 实时", "players on your quests - nearby - live") },
-            { "dungeon", L("副本·测试", "Dungeons (test)"), L("测试版（10-19 用户「暂时标记为测试状态，不对外放出」）：只在开发安装里有，不随发行包发布。游戏自带的寻求组队（按 I 那个），全服都看得到", "Test build, not in public releases. The game's own group finder, server-wide") } }) do
+        for _, m in ipairs({ { "quest", L("任务组队", "Quest group"), L("同任务的人 · 附近 · 实时", "players on your quests - nearby - live") },
+            { "dungeon", L("副本组队", "Dungeon group"), L("读你加入的所有聊天频道里的组队消息，一键申请（自动私聊）；也能一键发招人消息到频道", "Reads group posts from your chat channels; one-click apply, one-click recruit") } }) do
             local b = (ns.SegButton or ns.Button)(host, m[2], SUB_W, SUB_H, function() QM.SetMode(m[1]) end)
             b:SetScript("OnEnter", function(self)
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(m[2], 1, 0.82, 0)
@@ -2162,7 +2291,7 @@ local function attach()
     end
     tab:SetScript("OnClick", function()
         if ns.PerfGuard and ns.PerfGuard.UserOpened then pcall(ns.PerfGuard.UserOpened) end   -- 10-22 自动卡顿检测暂停 / 关掉过组队：玩家自己点开 = 恢复，以后不再替他关
-        QM.drawer = QM.drawer or build(host)
+        QM.drawer = QM.drawer or build(host); pcall(QM.ApplyLook)
         local d = QM.drawer
         local cfg = dbq()
         if d:IsShown() then d:Hide(); cfg.open = false; W.SelectTab(tab, false); QM.SyncSubTabs(); return end
@@ -2178,7 +2307,7 @@ local function attach()
             placeAtTab(d, host, tab)
         end
         d:Show(); cfg.open = true; W.SelectTab(tab, true)
-        if d.lfg then QM.SetMode(cfg.mode or "quest") end
+        if QM.EnsureLfg(d) then QM.SetMode(cfg.mode or "quest") end
         QM.SyncSubTabs()
         pcall(QM.AskGuildRoster)
         QM.Request()
@@ -2315,6 +2444,11 @@ ns.ExtraSlash.qm = function(rest, rawRest)
             ns.Print(string.format("  %s  %s Lv%s  %s%s", ago(rec.t), rec.n or "?", tostring(rec.lvl or "?"), QM.ResultText(rec.r),
                 #qs > 0 and ("  · " .. table.concat(qs, "；")) or ""))
         end
+    elseif rest == "quiet" or rest == "quiet on" or rest == "quiet off" then
+        local on = rest ~= "quiet off" and not (rest == "quiet" and dbq().quietResult)
+        dbq().quietResult = on or nil
+        ns.Print(on and L("组队：不再提示「拒绝了邀请 / 已有队伍」（照样记下、一键组人照样跳过；qm quiet 再开）", "Group up: decline / busy notices muted")
+            or L("组队：恢复提示「拒绝了邀请 / 已有队伍」", "Group up: decline / busy notices on"))
     elseif rest == "clear" then
         local t = QM.Declined()
         local n = 0
@@ -2328,7 +2462,7 @@ ns.ExtraSlash.qm = function(rest, rawRest)
         ns.Print(rest == "plates on" and L("组队：列表开着时自动打开友方姓名板（关列表还原）", "Group up: auto friendly nameplates on")
             or L("组队：不再自动打开友方姓名板", "Group up: auto friendly nameplates off"))
     elseif rest == "pin" then
-        QM.drawer = QM.drawer or build(nil)
+        QM.drawer = QM.drawer or build(nil); pcall(QM.ApplyLook)
         QM.SetPinned(not dbq().pinned)
     elseif rest == "off" or rest == "on" then
         QM.SetSharing(rest == "on")
@@ -2381,15 +2515,16 @@ local TH = { mates = {}, inGroup = false, asked = false }
 QM.Thanks = TH
 TH.MIN = 300
 -- 10-17 用户「感谢的带一下感谢你，德鲁伊~祝你快乐游戏…搞 5 个随机选项」：%s = 队友职业名（拿不到职业时用「朋友」）
+-- 11-10 用户截图「改的更接地气」「去掉插件标识」：话术换成玩家之间的大白话，道谢不再带 [Gearinsight插件] 前缀
 TH.LINES = {
-    { "感谢你，%s~ 这一路多亏有你，祝你快乐游戏，天天出好装备！", "Thank you, %s~ Couldn't have done it without you. Have fun and may the loot be with you!" },
-    { "辛苦啦，%s！和你组队很开心，祝你练级顺利，有缘再一起冒险~", "Thanks for the hard work, %s! Great grouping with you - happy leveling, see you out there~" },
-    { "谢谢你的陪伴，%s~ 祝你欧气满满，打怪必掉好东西！", "Thanks for the company, %s~ Wishing you all the luck and great drops!" },
-    { "多谢%s一路照应！祝你一路顺风、早日满级，下次见还一起~", "Thanks for watching my back, %s! Safe travels, ding 60 soon, and let's team up again~" },
-    { "感谢同行，%s~ 合作愉快，祝你在艾泽拉斯玩得开心！", "Thanks for tagging along, %s~ Great teamwork - have fun in Azeroth!" },
+    { "谢啦%s，这趟多亏你了，下回有任务还喊你！", "Thanks %s, couldn't have done it without you - I'll ping you next time!" },
+    { "%s辛苦啦，跟你组队真舒服，下次接着组~", "Cheers %s, that was a smooth group - let's do it again~" },
+    { "谢了%s，带飞了！祝你次次出货~", "Thanks %s, you carried! May every kill drop loot~" },
+    { "多谢%s，配合太顺了，祝你早日60、天天出紫！", "Thanks %s, great teamwork - ding 60 soon and enjoy the purples!" },
+    { "谢啦%s，组得开心！练级不卡怪，出门就出货~", "Thanks %s, good times! Smooth leveling and good drops~" },
 }
 -- 记得一起做的任务时，第 5 条换成带任务名的（仍是 5 选 1）
-TH.QUEST_LINE = { "感谢同行，%s~ 一起做「%s」很愉快，祝你练级顺利、玩得开心！", "Thanks, %s~ Doing \"%s\" together was fun - happy leveling!" }
+TH.QUEST_LINE = { "谢啦%s，「%s」一起搞定了！下次再组~", "Thanks %s, we got \"%s\" done! Group up again sometime~" }
 
 function TH.On()
     local q = dbq()
@@ -2499,10 +2634,15 @@ end
 
 function TH.Message(quest, file)
     local who = TH.ClassName(file)
+    -- 11-09 GI-210：设置页「自动私信内容」填了退队感谢就用自己的
+    local mine = ns.MyWhisper and ns.MyWhisper("thanks", { ["职业"] = who, ["任务"] = quest })
+    if mine then return mine end
+    -- 11-10 用户「不要说德鲁伊，说老哥」：默认话术一律叫「老哥」（设置页自填的 {职业} 占位照旧给职业名）
+    who = L("老哥", "mate")
     local pool = {}
     for _, l in ipairs(TH.LINES) do pool[#pool + 1] = string.format(L(l[1], l[2]), who) end
     if quest and quest ~= "" then pool[#pool] = string.format(L(TH.QUEST_LINE[1], TH.QUEST_LINE[2]), who, quest) end
-    return QM.Tagged(pool[math.random(#pool)])
+    return pool[math.random(#pool)]
 end
 
 function TH.Send(list, quest)

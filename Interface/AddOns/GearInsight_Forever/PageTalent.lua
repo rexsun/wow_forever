@@ -435,6 +435,6 @@ ns.RegisterPage({ key = "talent", order = 1, title = ns.L("天赋", "Talents"), 
 -- 11-05 天赋页开着时点了天赋：推荐方案跟着投点最多的系换（refresh 里判断），不用关了再开
 do
     local ev = CreateFrame("Frame")
-    for _, e in ipairs({ "CHARACTER_POINTS_CHANGED", "PLAYER_TALENT_UPDATE" }) do pcall(ev.RegisterEvent, ev, e) end
+    for _, e in ipairs(ns.TALENT_EVENTS) do pcall(ev.RegisterEvent, ev, e) end
     ev:SetScript("OnEvent", function() if page and page.IsShown and page:IsShown() then pcall(refresh) end end)
 end

@@ -510,7 +510,7 @@ function PS.Remember(u)
     local okd, d = pcall(PS.Describe, g, u)
     local t = gt()
     local full = short(fullOf(u, g, n))
-    for i = #recent, 1, -1 do if first(recent[i].n) == first(full) or t - recent[i].t > 60 then table.remove(recent, i) end end
+    for i = #recent, 1, -1 do if first(recent[i].n) == first(full) or t - recent[i].t > 120 then table.remove(recent, i) end end
     recent[#recent + 1] = { n = full, d = okd and d or nil, t = t }
     if #recent > 20 then table.remove(recent, 1) end
 end
@@ -533,9 +533,24 @@ function PS.Victim(name)
     return nil
 end
 
+-- 11-09 用户截图「被 部落 亡灵 圣骑士 [糕糕 爱吃年糕] 杀了」+「加上等级」：死后凶手多半已经不在目标 / 姓名板上，读不到等级 →
+--   活着时姓名板出现、选中、鼠标指过的敌对玩家都记下（PS.Remember，含等级），死亡时按名字从这里取描述
+function PS.KillerDesc(name, guid, unit)
+    local okd, d = pcall(PS.Describe, guid, unit)
+    d = okd and d or nil
+    if name and not (d and (d:find("%d") or d:find("??", 1, true))) then
+        local t = gt()
+        for i = #recent, 1, -1 do
+            local r = recent[i]
+            if (r.n == short(name) or first(r.n) == first(name)) and t - r.t <= 120 and r.d then return r.d end
+        end
+    end
+    return d
+end
+
 local honorMsgSeen, honorAt = false, -999
 local f = CreateFrame("Frame")
-for _, e in ipairs({ "CHAT_MSG_COMBAT_HONOR_GAIN", "PLAYER_PVP_KILLS_CHANGED", "PLAYER_DEAD", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT" }) do
+for _, e in ipairs({ "CHAT_MSG_COMBAT_HONOR_GAIN", "PLAYER_PVP_KILLS_CHANGED", "PLAYER_DEAD", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "NAME_PLATE_UNIT_ADDED" }) do
     local valid = not (C_EventUtils and C_EventUtils.IsEventValid) or C_EventUtils.IsEventValid(e)
     if valid then pcall(f.RegisterEvent, f, e) end
 end
@@ -558,12 +573,14 @@ f:SetScript("OnEvent", function(_, e, msg)
         if C_Timer and C_Timer.After then C_Timer.After(1, later) else later() end
     elseif e == "PLAYER_TARGET_CHANGED" or e == "UPDATE_MOUSEOVER_UNIT" then
         PS.Remember(e == "PLAYER_TARGET_CHANGED" and "target" or "mouseover")
+    elseif e == "NAME_PLATE_UNIT_ADDED" then
+        if type(msg) == "string" and not secret(msg) then pcall(PS.Remember, msg) end
     elseif e == "PLAYER_DEAD" then
         -- 死亡回放是死后才整理好的：等 1 秒再读
         local function later()
             local ok, n, guid, unit = pcall(PS.Killer)
             if ok and n then
-                local okd, d = pcall(PS.Describe, guid, unit)
+                local okd, d = pcall(PS.KillerDesc, n, guid, unit)
                 pcall(PS.Offer, "death", n, okd and d or nil)   -- 11-06 改成弹求助框，不自动发
             end
         end

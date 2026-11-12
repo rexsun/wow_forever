@@ -425,6 +425,13 @@ function ns.GuildPinUrl()
         .. "&faction=" .. enc(fac) .. "&ref=addon"
 end
 
+-- 11-10 用户指定的置顶公会：{ id = 招募卡编号, untilDay = 北京日期（含当天）}
+-- 11-12 用户「打包最新支付置顶位」：按网站置顶位在位且有平台交易号的订单同步（站长指定 / 后台赠送的不算）；用户「新的顶到最上」→ 新付的排前
+ns.GUILD_PINS = {
+    { id = 423, untilDay = "2026-12-12" },   -- Warm Team（联盟）
+    { id = 452, untilDay = "2026-12-08" },   -- 恒守玄暮（部落）
+}
+
 -- 三格：{ it = 公会, kind = "pin" | "heat", rank = 热度名次 } 或 nil（空缺）
 local function slotData()
     local d = _G.GearInsightForeverRecruit
@@ -434,8 +441,16 @@ local function slotData()
     local function add(it, kind, rank)
         if it and not used[it[1]] and #out < 3 then used[it[1]] = true; out[#out + 1] = { it = it, kind = kind, rank = rank } end
     end
-    for _, it in ipairs(items) do if isOfficial(it) then add(it, "pin") end end
+    -- 11-08 用户截图「置顶的公会顶到最上面，超过 GEARINSIGHT」：别人的置顶（更新器看广告那种免费置顶 pins）排在 Gearinsight 前面；
+    --   ⛔ 付费精选照旧不进插件（10-12 规定 + 国服 09-24「插件不得包含广告」），这里只认 pins
     for _, id in ipairs((type(d) == "table" and type(d.pins) == "table") and d.pins or {}) do add(byId[id], "pin") end
+    -- 11-10 用户截图「这个公会弄到最上面啊」+「规矩是我定的，按我说的做」：更新器写的 GuildRecruit.lua 没有 pins（更新器不写），
+    --   插件里直接指定的置顶名单，到期自动不置顶（只排进最上面那排，不带任何广告 / 付费字样）
+    local today = date and date("%Y-%m-%d") or ""
+    for _, p in ipairs(ns.GUILD_PINS or {}) do
+        if not p.untilDay or today <= p.untilDay then add(byId[p.id], "pin") end
+    end
+    for _, it in ipairs(items) do if isOfficial(it) then add(it, "pin") end end
     local hot = {}
     for _, it in ipairs(items) do
         if type(it) == "table" and not used[it[1]] and not isOfficial(it) and not it[14] and (tonumber(it[19]) or 0) > 0 then hot[#hot + 1] = it end
@@ -819,7 +834,7 @@ local function fillFilters(box, refill)
             b = chip(box, "", 44, nil)
             box.rules[i] = b
         end
-        local label = r == "all" and WL("全部", "All", "全部") or r
+        local label = r == "all" and WL("全部", "All", "全部") or (r == "普通" and WL("普通PVE", "Normal (PvE)", "普通PVE")) or r   -- 11-10 用户「普通写 普通PVE」
         b.t:SetText(label)
         local w = math.max(40, math.floor((b.t.GetStringWidth and b.t:GetStringWidth() or 24) + 16))
         b:SetWidth(w)

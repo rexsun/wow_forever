@@ -231,12 +231,12 @@ ns.DefaultBuildsData = {
                 { "Combat", "Puncturing Wounds" }, { "Combat", "Puncturing Wounds" }, { "Combat", "Puncturing Wounds" }, { "Combat", "Composure" },
                 { "Combat", "Composure" }, { "Combat", "Endurance" }, { "Combat", "Endurance" },
         } },
-        { key = "sub", role = "dps", tree = 3, spec = "Subtlety", specCn = "敏锐", src = "Icy Veins", url = "https://www.icy-veins.com/wow-forever/subtlety-rogue-leveling", adjusted = 0, notes = {  }, order = {
+        { key = "sub", role = "dps", tree = 3, spec = "Subtlety", specCn = "敏锐", src = "Icy Veins", url = "https://www.icy-veins.com/wow-forever/subtlety-rogue-leveling", adjusted = 3, notes = { "Improved Ambush：要 18 级学会伏击才有用，原本 15 级，顺延到 18 级后", "Serrated Blades：《无限》挪到第 3 行，先点 Setup×1 解锁", "Setup：上限只有 3 点，多的去掉" }, order = {
                 { "Subtlety", "Opportunity" }, { "Subtlety", "Opportunity" }, { "Subtlety", "Opportunity" }, { "Subtlety", "Opportunity" },
-                { "Subtlety", "Opportunity" }, { "Subtlety", "Improved Ambush" }, { "Subtlety", "Improved Ambush" }, { "Subtlety", "Improved Ambush" },
-                { "Subtlety", "Setup" }, { "Subtlety", "Setup" }, { "Subtlety", "Serrated Blades" }, { "Subtlety", "Serrated Blades" },
-                { "Subtlety", "Serrated Blades" }, { "Subtlety", "Premeditation" }, { "Subtlety", "Dirty Deeds" }, { "Subtlety", "Ghostly Strike" },
-                { "Subtlety", "Setup" }, { "Subtlety", "Camouflage" }, { "Subtlety", "Camouflage" }, { "Subtlety", "Camouflage" },
+                { "Subtlety", "Opportunity" }, { "Subtlety", "Setup" }, { "Subtlety", "Setup" }, { "Subtlety", "Setup" },
+                { "Subtlety", "Improved Ambush" }, { "Subtlety", "Improved Ambush" }, { "Subtlety", "Improved Ambush" }, { "Subtlety", "Serrated Blades" },
+                { "Subtlety", "Serrated Blades" }, { "Subtlety", "Serrated Blades" }, { "Subtlety", "Premeditation" }, { "Subtlety", "Dirty Deeds" },
+                { "Subtlety", "Ghostly Strike" }, { "Subtlety", "Camouflage" }, { "Subtlety", "Camouflage" }, { "Subtlety", "Camouflage" },
                 { "Subtlety", "Hemorrhage" }, { "Combat", "Efficient Strikes" }, { "Combat", "Efficient Strikes" }, { "Subtlety", "Preparation" },
                 { "Subtlety", "Initiative" }, { "Subtlety", "Initiative" }, { "Subtlety", "Initiative" }, { "Subtlety", "Boot Knife" },
                 { "Subtlety", "Boot Knife" }, { "Subtlety", "Boot Knife" }, { "Subtlety", "Boot Knife" }, { "Subtlety", "Boot Knife" },
@@ -491,12 +491,12 @@ ns.DefaultBuildsData = {
                 { "Affliction", "Improved Life Tap" }, { "Destruction", "Ruin" }, { "Destruction", "Ruin" },
         } },
     } },
-    Druid = { key = "cat", role = "dps", tree = 2, spec = "Feral", specCn = "野性（猫）", src = "wowforeverbuilds.com", url = "https://wowforeverbuilds.com/guide/feral-cat-druid-leveling", adjusted = 18, notes = { "Mangle：《无限》Beta 树里没有，去掉", "Primal Fury：《无限》Beta 树里没有，去掉", "Primal Fury：《无限》Beta 树里没有，去掉", "King of the Jungle：《无限》Beta 树里没有，去掉", "King of the Jungle：《无限》Beta 树里没有，去掉", "King of the Jungle：《无限》Beta 树里没有，去掉", "Predatory Instincts：《无限》Beta 树里没有，去掉", "Predatory Instincts：《无限》Beta 树里没有，去掉", "Leader of the Pack：《无限》挪到第 5 行，先点 Furor×2 解锁", "Rend and Tear：《无限》挪到第 6 行，先点 Furor×3、Feral Instinct×1 解锁", "Berserk：《无限》Beta 树里没有，去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Naturalist：《无限》挪到第 2 行，先点 Nature's Focus×5 解锁", "补满到 51 点：Feral Instinct×2、Brutal Impact×1" }, order = {
+    Druid = { key = "cat", role = "dps", tree = 2, spec = "Feral", specCn = "野性（猫）", src = "wowforeverbuilds.com", url = "https://wowforeverbuilds.com/guide/feral-cat-druid-leveling", adjusted = 19, notes = { "Feral Swiftness：要 20 级学会猎豹形态才有用，原本 15 级，顺延到 20 级后", "Sharpened Claws：《无限》挪到第 3 行，先点 Furor×2 解锁", "Mangle：《无限》Beta 树里没有，去掉", "Primal Fury：《无限》Beta 树里没有，去掉", "Primal Fury：《无限》Beta 树里没有，去掉", "King of the Jungle：《无限》Beta 树里没有，去掉", "King of the Jungle：《无限》Beta 树里没有，去掉", "King of the Jungle：《无限》Beta 树里没有，去掉", "Predatory Instincts：《无限》Beta 树里没有，去掉", "Predatory Instincts：《无限》Beta 树里没有，去掉", "Rend and Tear：《无限》挪到第 6 行，先点 Furor×3、Feral Instinct×1 解锁", "Berserk：《无限》Beta 树里没有，去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Naturalist：《无限》挪到第 2 行，先点 Nature's Focus×5 解锁", "补满到 51 点：Feral Instinct×2、Brutal Impact×1" }, order = {
         { "Feral Combat", "Ferocity" }, { "Feral Combat", "Ferocity" }, { "Feral Combat", "Ferocity" }, { "Feral Combat", "Ferocity" },
-        { "Feral Combat", "Ferocity" }, { "Feral Combat", "Feral Swiftness" }, { "Feral Combat", "Feral Swiftness" }, { "Feral Combat", "Thick Hide" },
-        { "Feral Combat", "Thick Hide" }, { "Feral Combat", "Thick Hide" }, { "Feral Combat", "Sharpened Claws" }, { "Feral Combat", "Sharpened Claws" },
-        { "Feral Combat", "Savage Fury" }, { "Feral Combat", "Savage Fury" }, { "Feral Combat", "Feral Charge" }, { "Feral Combat", "Predatory Strikes" },
-        { "Feral Combat", "Predatory Strikes" }, { "Feral Combat", "Predatory Strikes" }, { "Feral Combat", "Furor" }, { "Feral Combat", "Furor" },
+        { "Feral Combat", "Ferocity" }, { "Feral Combat", "Thick Hide" }, { "Feral Combat", "Thick Hide" }, { "Feral Combat", "Thick Hide" },
+        { "Feral Combat", "Furor" }, { "Feral Combat", "Furor" }, { "Feral Combat", "Feral Swiftness" }, { "Feral Combat", "Feral Swiftness" },
+        { "Feral Combat", "Sharpened Claws" }, { "Feral Combat", "Sharpened Claws" }, { "Feral Combat", "Savage Fury" }, { "Feral Combat", "Savage Fury" },
+        { "Feral Combat", "Feral Charge" }, { "Feral Combat", "Predatory Strikes" }, { "Feral Combat", "Predatory Strikes" }, { "Feral Combat", "Predatory Strikes" },
         { "Feral Combat", "Leader of the Pack" }, { "Feral Combat", "Furor" }, { "Feral Combat", "Furor" }, { "Feral Combat", "Furor" },
         { "Feral Combat", "Feral Instinct" }, { "Feral Combat", "Rend and Tear" }, { "Feral Combat", "Rend and Tear" }, { "Feral Combat", "Rend and Tear" },
         { "Feral Combat", "Rend and Tear" }, { "Feral Combat", "Rend and Tear" }, { "Restoration", "Nature's Focus" }, { "Restoration", "Nature's Focus" },
@@ -506,12 +506,12 @@ ns.DefaultBuildsData = {
         { "Restoration", "Heart of the Wild" }, { "Restoration", "Heart of the Wild" }, { "Restoration", "Heart of the Wild" }, { "Restoration", "Heart of the Wild" },
         { "Feral Combat", "Feral Instinct" }, { "Feral Combat", "Feral Instinct" }, { "Feral Combat", "Brutal Impact" },
     }, builds = {
-        { key = "cat", role = "dps", tree = 2, spec = "Feral", specCn = "野性（猫）", src = "wowforeverbuilds.com", url = "https://wowforeverbuilds.com/guide/feral-cat-druid-leveling", adjusted = 18, notes = { "Mangle：《无限》Beta 树里没有，去掉", "Primal Fury：《无限》Beta 树里没有，去掉", "Primal Fury：《无限》Beta 树里没有，去掉", "King of the Jungle：《无限》Beta 树里没有，去掉", "King of the Jungle：《无限》Beta 树里没有，去掉", "King of the Jungle：《无限》Beta 树里没有，去掉", "Predatory Instincts：《无限》Beta 树里没有，去掉", "Predatory Instincts：《无限》Beta 树里没有，去掉", "Leader of the Pack：《无限》挪到第 5 行，先点 Furor×2 解锁", "Rend and Tear：《无限》挪到第 6 行，先点 Furor×3、Feral Instinct×1 解锁", "Berserk：《无限》Beta 树里没有，去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Naturalist：《无限》挪到第 2 行，先点 Nature's Focus×5 解锁", "补满到 51 点：Feral Instinct×2、Brutal Impact×1" }, order = {
+        { key = "cat", role = "dps", tree = 2, spec = "Feral", specCn = "野性（猫）", src = "wowforeverbuilds.com", url = "https://wowforeverbuilds.com/guide/feral-cat-druid-leveling", adjusted = 19, notes = { "Feral Swiftness：要 20 级学会猎豹形态才有用，原本 15 级，顺延到 20 级后", "Sharpened Claws：《无限》挪到第 3 行，先点 Furor×2 解锁", "Mangle：《无限》Beta 树里没有，去掉", "Primal Fury：《无限》Beta 树里没有，去掉", "Primal Fury：《无限》Beta 树里没有，去掉", "King of the Jungle：《无限》Beta 树里没有，去掉", "King of the Jungle：《无限》Beta 树里没有，去掉", "King of the Jungle：《无限》Beta 树里没有，去掉", "Predatory Instincts：《无限》Beta 树里没有，去掉", "Predatory Instincts：《无限》Beta 树里没有，去掉", "Rend and Tear：《无限》挪到第 6 行，先点 Furor×3、Feral Instinct×1 解锁", "Berserk：《无限》Beta 树里没有，去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Furor：上限只有 5 点，多的去掉", "Naturalist：《无限》挪到第 2 行，先点 Nature's Focus×5 解锁", "补满到 51 点：Feral Instinct×2、Brutal Impact×1" }, order = {
                 { "Feral Combat", "Ferocity" }, { "Feral Combat", "Ferocity" }, { "Feral Combat", "Ferocity" }, { "Feral Combat", "Ferocity" },
-                { "Feral Combat", "Ferocity" }, { "Feral Combat", "Feral Swiftness" }, { "Feral Combat", "Feral Swiftness" }, { "Feral Combat", "Thick Hide" },
-                { "Feral Combat", "Thick Hide" }, { "Feral Combat", "Thick Hide" }, { "Feral Combat", "Sharpened Claws" }, { "Feral Combat", "Sharpened Claws" },
-                { "Feral Combat", "Savage Fury" }, { "Feral Combat", "Savage Fury" }, { "Feral Combat", "Feral Charge" }, { "Feral Combat", "Predatory Strikes" },
-                { "Feral Combat", "Predatory Strikes" }, { "Feral Combat", "Predatory Strikes" }, { "Feral Combat", "Furor" }, { "Feral Combat", "Furor" },
+                { "Feral Combat", "Ferocity" }, { "Feral Combat", "Thick Hide" }, { "Feral Combat", "Thick Hide" }, { "Feral Combat", "Thick Hide" },
+                { "Feral Combat", "Furor" }, { "Feral Combat", "Furor" }, { "Feral Combat", "Feral Swiftness" }, { "Feral Combat", "Feral Swiftness" },
+                { "Feral Combat", "Sharpened Claws" }, { "Feral Combat", "Sharpened Claws" }, { "Feral Combat", "Savage Fury" }, { "Feral Combat", "Savage Fury" },
+                { "Feral Combat", "Feral Charge" }, { "Feral Combat", "Predatory Strikes" }, { "Feral Combat", "Predatory Strikes" }, { "Feral Combat", "Predatory Strikes" },
                 { "Feral Combat", "Leader of the Pack" }, { "Feral Combat", "Furor" }, { "Feral Combat", "Furor" }, { "Feral Combat", "Furor" },
                 { "Feral Combat", "Feral Instinct" }, { "Feral Combat", "Rend and Tear" }, { "Feral Combat", "Rend and Tear" }, { "Feral Combat", "Rend and Tear" },
                 { "Feral Combat", "Rend and Tear" }, { "Feral Combat", "Rend and Tear" }, { "Restoration", "Nature's Focus" }, { "Restoration", "Nature's Focus" },

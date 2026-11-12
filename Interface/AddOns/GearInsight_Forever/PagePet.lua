@@ -294,5 +294,6 @@ local function refresh(p)
     if p.refreshView then p.refreshView() end
 end
 
-ns.RegisterPage({ key = "pet", order = 3.6, title = ns.L("猎人宠物", "Hunter pets"), tabTitle = ns.L("猎人宠物", "Hunter pets"),
+ns.RegisterPage({ key = "pet", order = 3.6, class = "Hunter",   -- 11-10 挪进职业百宝箱，只给猎人看
+ title = ns.L("猎人宠物", "Hunter pets"), tabTitle = ns.L("猎人宠物", "Hunter pets"),
     icon = "Interface\\Icons\\Ability_Hunter_BeastTaming", hold = true, build = build, refresh = refresh })

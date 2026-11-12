@@ -278,6 +278,7 @@ local function row(d, i)
     if r then return r end
     r = CreateFrame("Button", nil, d.child)
     r:SetHeight(26)
+    if r.RegisterForClicks then r:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
     r.bg = r:CreateTexture(nil, "BACKGROUND"); r.bg:SetAllPoints()
     r.ic = r:CreateTexture(nil, "ARTWORK"); r.ic:SetSize(20, 20); r.ic:SetPoint("LEFT", 6, 0); r.ic:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     r.t = r:CreateFontString(nil, "OVERLAY", "GameFontNormal"); r.t:SetPoint("LEFT", 32, 0); r.t:SetWidth(150); r.t:SetJustifyH("LEFT"); r.t:SetWordWrap(false)
@@ -287,6 +288,36 @@ local function row(d, i)
     r:SetScript("OnLeave", function() GameTooltip:Hide() end)
     d.rows[i] = r
     return r
+end
+
+-- 11-07 用户截图「增加功能，可以右键发悄悄话，右键，菜单弹出，点击私聊」：会员行右键 → 小菜单 → 私聊
+-- ⛔ 《无限》名字带姓（「Joker Dc」）：拼「/w 名字」会被聊天框当成只密「Joker」→ 先走 ChatFrame_SendTell（直接设密语对象），
+--   再退到直接给输入框设 chatType / tellTarget；名字没空格时最后才拼 /w
+function GH.Whisper(name)
+    if type(name) ~= "string" or name == "" or secret(name) then return false end
+    for _, f in ipairs({ ChatFrame_SendTell or false, ChatFrameUtil and ChatFrameUtil.SendTell or false }) do
+        if type(f) == "function" and pcall(f, name) then return true end
+    end
+    local open = ChatFrame_OpenChat or (ChatFrameUtil and ChatFrameUtil.OpenChat)
+    if type(open) ~= "function" then return false end
+    if not name:find(" ") then return (pcall(open, "/w " .. name .. " ")) end
+    if not pcall(open, "") then return false end
+    local getAct = ChatEdit_GetActiveWindow or (ChatFrameUtil and ChatFrameUtil.GetActiveWindow)
+    local eb = (type(getAct) == "function" and getAct()) or _G.ChatFrame1EditBox
+    if not (eb and eb.SetAttribute) then return false end
+    eb:SetAttribute("chatType", "WHISPER"); eb:SetAttribute("tellTarget", name)
+    local upd = ChatEdit_UpdateHeader or (ChatFrameUtil and ChatFrameUtil.UpdateHeader)
+    if type(upd) == "function" then pcall(upd, eb) end
+    return true
+end
+
+function GH.MemberMenu(anchor, name)
+    local function tell()
+        if not GH.Whisper(name) then ns.Print(L("打不开私聊框：手动输入 /w ", "Couldn't open chat: type /w ") .. name) end
+    end
+    local KB = ns.KeysKb
+    if not (KB and KB.Menu) then return tell() end   -- 菜单不在就直接私聊
+    KB.Menu(anchor, "|cffffd100" .. name .. "|r", { { text = L("私聊", "Whisper"), fn = tell } })
 end
 
 function GH.Render()
@@ -362,7 +393,13 @@ function GH.Render()
                 local src = m.src == "game" and (m.online and ("|cff33ff99" .. L("在线", "online") .. "|r") or ("|cff888888" .. L("离线", "offline") .. "|r"))
                     or ("|cff888888" .. L("插件同步", "addon sync") .. "|r")
                 mr.s:SetText((m.r and (m.r .. (m.m and m.m > 0 and ("|cff888888/" .. m.m .. "|r") or "")) or ("|cff888888" .. L("已学（游戏只给是否学会）", "learned (the game gives no skill value)") .. "|r")) .. "   " .. src)
-                mr:SetScript("OnClick", nil); mr:SetScript("OnEnter", nil)
+                local who = m.name
+                mr:SetScript("OnClick", function(self, btn) if btn == "RightButton" then GH.MemberMenu(self, who) end end)
+                mr:SetScript("OnEnter", function(self)
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(who, 1, 1, 1)
+                    GameTooltip:AddLine(L("右键：私聊", "Right-click: whisper"), 0.6, 0.6, 0.6)
+                    GameTooltip:Show()
+                end)
                 mr:Show()
                 y = y + 24
             end
@@ -383,9 +420,10 @@ local function place(d, host, tab)
     d:SetHeight(math.max(540, type(hh) == "number" and hh or 540))
     local ht, tt = host.GetTop and host:GetTop(), tab.GetTop and tab:GetTop()
     local dy = (type(ht) == "number" and type(tt) == "number") and (ht - tt) or 0
-    local tr, sr = tab.GetRight and tab:GetRight(), ns.W and ns.W.ScreenRight and ns.W.ScreenRight(tab)
+    -- 11-10 用户录屏：放不下先把主面板左移（W.RoomRight），左边也没地方才翻到页签左边盖住主面板
+    local room = not (ns.W and ns.W.RoomRight) or ns.W.RoomRight(host, tab, DW)
     d:ClearAllPoints()
-    if type(tr) == "number" and sr and tr + 4 + DW > sr then d:SetPoint("TOPRIGHT", tab, "TOPLEFT", -4, dy)
+    if not room then d:SetPoint("TOPRIGHT", tab, "TOPLEFT", -4, dy)
     else d:SetPoint("TOPLEFT", tab, "TOPRIGHT", 4, dy) end
 end
 

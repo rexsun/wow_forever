@@ -2,6 +2,16 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-12 - Update GearInsight Forever to 1.0.1 (OverlapSettingsGuard 0.13.0)
+
+- Update GearInsight Forever 0.7.4 to 1.0.1 (beta channel, [file 9574276](https://www.curseforge.com/wow/addons/gearinsight-forever/files/9574276)), all three folders. Every TOC lists Interface 16001; Group and Guild stay load-on-demand. The installed files are byte-identical to the release.
+- Guard: seven new rules and one extended rule, 50 in total. While YUI loads, `gi.layernetwork` (`layer.on`, `pub`, `helper` off with `helperV=2`), `gi.layerautoaccept` (`autoAccept`), `gi.layerautoinvite` (`autoHelp`) and `gi.layerautoleave` (`autoLeave`) keep the layer network's broadcasts and automatic group changes off, and `gi.groupautoload` (`qm.thanks=false`) stops the Group module loading by itself in a group. `gi.cityplates` (`cityPlates.on`) keeps city-only friendly-nameplate hiding off under EUI Nameplates, and `gi.itemlevel` (`ui.ilvl`) keeps GearInsight's item level off under YUI's equipment info. `gi.guildchatlevel` now also covers the whisper and party prefixes. Every rule except `gi.itemlevel` and `gi.guildchatlevel` is written to `GearInsightForeverDB` when the guard loads, before the first layer heartbeat.
+- The layer rules have no competing owner; they pair with YUI as the chat and group owner, as agreed before the upgrade. Side effect of `gi.groupautoload`: the thank-you popup after a group ends is gone, because GearInsight has no separate switch for the auto-load.
+- Every existing GearInsight key and method the guard uses is unchanged (`keysHud`, `leveling.shown`, `qm.autoPlates`/`platesV3`/`platesWeOpened`, the ten `Keys` editing functions, `GuildChatLevel.Enabled`/`SetEnabled`).
+- Left on, worth knowing: tent-sharing pop-up and a thank-you whisper after leaving the tent owner's group, XP-check window and alerts, auto-whisper to dungeon recruit responders missing level or role (Group module), What's New pop-up, material-source tooltip line, Traditional Chinese conversion on zhTW. Opening the Group tab still starts quest-mate sharing until `/gi qm off`. Its Group/Guild loader still re-enables those modules if they are disabled in the addon list.
+- Backup: `addon-backups/gearinsight-upgrade-20261112` holds the 0.7.4 folders and live WTF.
+- Verification: 94 GearInsight Lua files compile under Lua 5.1. 87 guard tests (7 new), patch-tool, settings, baseline and fresh-profile tests pass. Nothing was run in game; check with `/osg` that all GearInsight rules show locked off, that no `GIFM` channel is joined, that party invites from officers still prompt, and that item level shows only from YUI.
+
 ## 2026-11-12 - Update six addon packages (OverlapSettingsGuard 0.12.0)
 
 - Update YUI v355 to v357, Auctionator 344 to 346, Bagnon 12.1.8 to 12.1.9 (all five folders), MapUtils 1.5.6 to 1.6.3 (forever build), GatherLite 8.4.5 to 8.4.7 and Lueur 1.6.1 to 1.7.0. Every TOC still lists Interface 16001. Details, EllesmereUI, !BugGrabber, Waypoint UI, LootRollMover and Skinner were already current. YUI was extracted with GBK file names; its 178 Chinese file names match the previous install.

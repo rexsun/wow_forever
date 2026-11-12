@@ -63,8 +63,19 @@ OSG.policy = {
   },
   {
     id = "gi.guildchatlevel", adapter = "GearInsight", key = "GuildChatLevel",
-    label = "GearInsight: Guild chat level prefix", when = { "GearInsight_Forever", "YUI" },
-    reason = "YUI owns chat; GearInsight must not rewrite guild and officer messages.",
+    label = "GearInsight: Guild, officer, whisper and party chat level prefixes", when = { "GearInsight_Forever", "YUI" },
+    reason = "YUI owns chat; GearInsight must not rewrite guild, officer, whisper or party messages.",
+  },
+  {
+    id = "gi.cityplates", adapter = "GearInsight", key = "CityPlates",
+    label = "GearInsight: Friendly nameplates hidden in capitals", when = { "GearInsight_Forever", "EllesmereUINameplates" },
+    reason = "EllesmereUI owns friendly nameplate visibility; GearInsight must not change its CVars.",
+    early = true,
+  },
+  {
+    id = "gi.itemlevel", adapter = "GearInsight", key = "ItemLevel",
+    label = "GearInsight: Item level on the character panel, bags and tooltips", when = { "GearInsight_Forever", "YUI" },
+    reason = "YUI's equipment info owns item level display.",
   },
   {
     id = "yui.flightmarkers", adapter = "YUI", key = "FlightMarkers",
@@ -82,6 +93,29 @@ OSG.policy = {
     reason = "Auctionator owns auction shopping lists and searches; YUI must not dock a second shopping panel.",
   },
 }
+
+-- No other addon offers these, so they follow the guard's chat and group owner, YUI. Early,
+-- because GearInsight sends its first layer heartbeat on the first frame after loading.
+local gearInsightGroup = {
+  { id = "layernetwork", key = "LayerNetwork", label = "Layer network heartbeats, public per-map channel and hop helper",
+    reason = "GearInsight must not broadcast your level, class, map, layer and quests to guild and hidden public channels." },
+  { id = "layerautoaccept", key = "LayerAutoAccept", label = "Auto-accept guild officers' party invites",
+    reason = "Party invites stay with the normal accept dialog." },
+  { id = "layerautoinvite", key = "LayerAutoInvite", label = "Auto-invite guildmates who ask for your layer",
+    reason = "Invites stay manual; YUI keeps its own optional keyword auto-invite." },
+  { id = "layerautoleave", key = "LayerAutoLeave", label = "Auto-leave the party after a layer change",
+    reason = "Leaving a party stays manual." },
+  { id = "groupautoload", key = "GroupAutoLoad", label = "Group module auto-load in any group, with the thank-you popup",
+    reason = "The Group module shares quest progress once loaded; it loads only when its tab is opened." },
+}
+
+for _, setting in ipairs(gearInsightGroup) do
+  OSG.policy[#OSG.policy + 1] = {
+    id = "gi." .. setting.id, adapter = "GearInsight", key = setting.key,
+    label = "GearInsight: " .. setting.label, reason = setting.reason,
+    when = { "GearInsight_Forever", "YUI" }, early = true,
+  }
+end
 
 local foreverEssentials = {
   { id = "spelluprank", key = "SpellUprank", owner = "YUI", label = "Spell uprank", reason = "YUI owns action bars and upgrades spell ranks on them." },

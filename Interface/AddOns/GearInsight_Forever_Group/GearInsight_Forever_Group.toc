@@ -4,7 +4,7 @@
 ## Notes: GearInsight Forever group module (loads when you open the Group tab)
 ## Notes-zhCN: GearInsight 无限版的组队模块：点右侧「组队」页签时才加载
 ## Author: GearInsight
-## Version: 0.7.4
+## Version: 1.0.1
 ## Dependencies: GearInsight_Forever
 ## LoadOnDemand: 1
 ## IconTexture: Interface\Icons\inv_misc_map_01
@@ -12,3 +12,5 @@
 # 10-18 用户「工会和组队都单拆子模块，默认不加载」：主插件只留右侧空页签，第一次点才 LoadAddOn（UI.lua ns.LoadModule）
 
 QuestMates.lua
+DungeonChat.lua
+MageWater.lua

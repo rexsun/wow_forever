@@ -1,3 +1,13 @@
+## [GearInsight 1.0.1 / OverlapSettingsGuard 0.13.0] - 2026-11-12
+### Features
+- Update GearInsight Forever to 1.0.1.
+- Add seven guard rules (layer network, officer auto-accept, guildmate auto-invite, auto-leave, Group module auto-load, city friendly nameplates, item level) and extend the chat-prefix rule to whisper and party chat.
+### Design Rationale
+- The layer network does not duplicate another addon, but it broadcasts character data and changes groups by default; guarding it keeps the pack's no-surprise network posture. The rules pair with YUI as the chat and group owner.
+- Settings are written straight into GearInsight's saved table when the guard loads, because GearInsight sends its first heartbeat on the first frame after loading and publishes no API for most switches.
+### Notes & Caveats
+- Stopping the Group module auto-load also removes its thank-you popup; GearInsight has no separate switch. Unverified in game and at the three supported resolutions.
+
 ## [Addon update / OverlapSettingsGuard 0.12.0] - 2026-11-12
 ### Features
 - Update YUI v357, Auctionator 346, Bagnon 12.1.9, MapUtils 1.6.3, GatherLite 8.4.7 and Lueur 1.7.0.

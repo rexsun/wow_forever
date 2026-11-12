@@ -53,7 +53,12 @@ end
 function ns.CurrentTalentCode()
     local cls = classKey()
     local trees = ns.Data.talents[cls]
-    if not trees or not GetTalentInfo then return nil end
+    if not trees then return nil end
+    -- 11-07：《无限》没有经典 GetTalentInfo（talentprobe 实测 nil）→ C_Traits 读法（TraitTalents.lua）
+    if not GetTalentInfo then
+        if not ns.TraitTalentCode then return nil end
+        return ns.TraitTalentCode()   -- ⛔ 别写成 x and f()：and 只留第一个返回值，总点数会丢
+    end
     local parts, total = {}, 0
     for ti, tr in ipairs(trees) do
         local idx = {}
