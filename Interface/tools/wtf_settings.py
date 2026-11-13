@@ -34,6 +34,9 @@ CHARACTER_SCOPES = frozenset({
 YUI_GLOBAL_SETTINGS = frozenset({
     '_yuiMigrations', '_yuiDBSchemaVersion', 'ignoreYUISwitchPrompt', 'settingsWindowScale',
 })
+# YUI re-captures these absolute fallbacks from live frame geometry on every relative
+# placement, so they follow whichever character last logged in, not user configuration.
+YUI_PLACEMENT_CONTAINERS = frozenset({'frames', 'screenPosition', 'placements'})
 GEARINSIGHT_SETTINGS = {
     'collect': None, 'keysHud': None, 'keysMode': None, 'keysBoard': None,
     'keysBoardPos': None, 'keysHudPos': None,
@@ -349,6 +352,8 @@ def settings_path_allowed(filename, path):
     if filename == 'YUI.lua':
         if len(path) == 3 and path[1] == 'global':
             return path[2] in YUI_GLOBAL_SETTINGS
+        if len(path) > 5 and path[-1] == 'fallback' and path[-3] in YUI_PLACEMENT_CONTAINERS:
+            return False
         if len(path) == 5 and path[1] == 'profiles':
             return path[3:] not in {('YHUD', 'nativePreviewCache'), ('YActionBar', 'runtime')}
     elif filename == 'GearInsight_Forever.lua':

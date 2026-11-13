@@ -368,6 +368,31 @@ class SettingsTests(unittest.TestCase):
         for wanted in ('size', 'limit', 'enabled'):
             self.assertIn(wanted, readable)
 
+    def test_yui_captured_position_fallbacks_are_excluded_and_restore_keeps_live(self):
+        placement = '{anchor={point="BOTTOM",relative="Mover",relativePoint="TOP"},offset={x=0,y=4},fallback={anchor={point="LEFT",relative="UIParent",relativePoint="LEFT"},offset={x=1,y=-135},version=2}}'
+        self.source.write_text('YUI_DB={profiles={Default={layout={frames={chatbar=' + placement + '}},'
+                               'SettingsConfigSetsV2={providers={bars={items={u1={data={screenPosition={main=' + placement + '}}}}}}},'
+                               'YHUD={profile={layout={placements={group=' + placement + '}},entries={slot={contract={fallback="hide"}}}}}}}}')
+        self.export()
+        snapshot = next(self.output.rglob('YUI.json'))
+        aliases = MODULE.load_aliases(self.game)
+        reverse = {k: {v: a for a, v in aliases[k].items()} for k in ('strings', 'numbers')}
+        profile = MODULE.restore_decode(json.loads(snapshot.read_bytes()), reverse)['YUI_DB']['profiles']['Default']
+        expected = {'anchor': {'point': 'BOTTOM', 'relative': 'Mover', 'relativePoint': 'TOP'}, 'offset': {'x': 0, 'y': 4}}
+        self.assertEqual(profile['layout']['frames']['chatbar'], expected)
+        self.assertEqual(profile['SettingsConfigSetsV2']['providers']['bars']['items']['u1']['data']['screenPosition']['main'], expected)
+        self.assertEqual(profile['YHUD']['profile']['layout']['placements']['group'], expected)
+        self.assertEqual(profile['YHUD']['profile']['entries']['slot']['contract']['fallback'], 'hide')
+
+        live = MODULE.parse_lua(self.source.read_text())
+        live['YUI_DB']['profiles']['Default']['layout']['frames']['chatbar']['fallback']['offset']['y'] = 345
+        self.source.write_text(MODULE.serialize_lua(live))
+        self.export()
+        self.assertEqual(snapshot.read_bytes(), next(self.output.rglob('YUI.json')).read_bytes())
+        MODULE.restore_settings(self.game, self.state)
+        restored = MODULE.parse_lua(self.source.read_text())['YUI_DB']['profiles']['Default']
+        self.assertEqual(restored['layout']['frames']['chatbar']['fallback']['offset']['y'], 345)
+
     def test_gearinsight_exports_preferences_without_character_or_navigation_state(self):
         gear = self.saved / 'GearInsight_Forever.lua'
         gear.write_text('GearInsightForeverDB={keysHud=false,collect=true,leveling={shown=false,pos={"CENTER",0,0}},minimap={angle=90},qm={autoPlates=false,share=true,declined={Hero=true},busy={Hero=true}},ui={page="tier",planRange={Hero={1,60}}},chars={Hero={level=26}},uid="private-id",buildPick={Hero="tank"},wish={123},loot={456},autoExport={stats="private"}}')
