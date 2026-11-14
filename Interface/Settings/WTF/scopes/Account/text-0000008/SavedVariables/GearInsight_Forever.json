@@ -48,14 +48,7 @@
               "$text": "text-0002784"
             },
             "value": {
-              "$table": [
-                {
-                  "key": {
-                    "$text": "text-0002785"
-                  },
-                  "value": false
-                }
-              ]
+              "$table": []
             }
           },
           {
@@ -74,7 +67,7 @@
                   "key": {
                     "$text": "text-0002810"
                   },
-                  "value": true
+                  "value": false
                 },
                 {
                   "key": {
