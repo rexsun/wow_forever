@@ -3734,10 +3734,30 @@ local function BuildMonitorBrowser(self)
             end,
         })
         row.up:SetPoint("RIGHT", row.down, "LEFT", -4, 0)
+        local function FinishColorPreview()
+            local view = YHUD.View
+            if view and view.SetDesignGlowPreview then
+                view:SetDesignGlowPreview(nil, nil, nil)
+            end
+            DesignerUI:SyncGlowAppearancePreview()
+        end
         row.color = GUI2.Form:CreateColorPicker(row, {
             width = 28, height = 24, hasAlpha = true,
             getDefault = function() return YHUD:GetDefaultMonitorGlowAppearance().color end,
-            set = function(value)
+            preview = function(value)
+                if DesignerUI.v2Refreshing then return end
+                local _, monitor = SelectedGlowContext()
+                if not monitor or monitor.id ~= row.stackMonitorId then return end
+                local rule = monitor.glow and monitor.glow.rules
+                    and monitor.glow.rules[row.index]
+                local view = YHUD.View
+                if not (rule and view and view.SetDesignGlowPreview) then return end
+                local appearance = YHUD:CopyValue(rule.appearance)
+                appearance.color = YHUD:CopyValue(value)
+                view:SetDesignGlowPreview(monitor.id, monitor.groupId, appearance)
+            end,
+            commit = function(value)
+                FinishColorPreview()
                 if DesignerUI.v2Refreshing then return end
                 local _, monitor = SelectedGlowContext()
                 if not monitor or monitor.id ~= row.stackMonitorId then return end
@@ -3749,6 +3769,7 @@ local function BuildMonitorBrowser(self)
                     DesignerUI:RefreshGlowEditor(true)
                 end
             end,
+            cancel = FinishColorPreview,
         })
         row.color:SetPoint("RIGHT", row.up, "LEFT", -8, 0)
         row.condition = GUI2.Form:CreateDropdown(row, {

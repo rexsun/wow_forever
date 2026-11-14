@@ -3,7 +3,7 @@
 -- 用法：/gif probe keys 开始（再输一次停止并弹出结果）；开始后去打木桩或小怪，脱战自动记一轮。
 --      结果同时存 GearInsightForeverDB.keysProbe，弹出的框里 Ctrl+C 复制整串发回来。
 -- ⛔ 只读：不改动作条、不绑键。⛔ 在 HOLD（_hold.txt）里，不进发行包。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local P = {}
 ns.KeysProbe = P

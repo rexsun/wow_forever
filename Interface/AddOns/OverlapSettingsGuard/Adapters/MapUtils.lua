@@ -8,7 +8,9 @@ local FIELDS = {
   WorldMapMove = "WORLDMAPMOVE",
   WorldMapScale = "WORLDMAPSCALE",
   WorldMapFade = "WORLDMAPFADE",
-  PierPins = "WORLDMAPPINS",
+  -- 1.7.x: WORLDMAPPINS covers only zone maps; the category switch hides piers on every map
+  -- and the Piers button on the map-icons bar.
+  PierPins = "WORLDMAPPINS_ENABLED",
 }
 
 function adapter.Knows(key) return FIELDS[key] ~= nil end

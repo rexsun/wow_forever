@@ -359,6 +359,12 @@ local function wireTab(tab, opts)
             d = rawget(tab, "_drawer")
         end
         if d and d:IsShown() then placeButtons(tab, d) end
+        -- 11-12 界面重构第 2 期：招募抽屉标题栏也给「公会设置」齿轮（和本公会抽屉同一个面板）
+        if d and not rawget(d, "_giGear") and ns.SettingsGearButton then
+            d._giGear = ns.SettingsGearButton(d, "guild")
+            d._giGear:SetPoint("TOPRIGHT", -40, -10)
+            if rawget(d, "title") then d.title:SetPoint("RIGHT", -122, 0) end
+        end
         if d and d:IsShown() and not linkGins() and ns.GuildTopLayout then pcall(ns.GuildTopLayout, tab, opts) end
     end
     tab:SetScript("OnClick", click)
@@ -428,18 +434,19 @@ end
 -- 11-10 用户指定的置顶公会：{ id = 招募卡编号, untilDay = 北京日期（含当天）}
 -- 11-12 用户「打包最新支付置顶位」：按网站置顶位在位且有平台交易号的订单同步（站长指定 / 后台赠送的不算）；用户「新的顶到最上」→ 新付的排前
 ns.GUILD_PINS = {
+    { id = 360, untilDay = "2026-12-19" },   -- 绝版青春（部落）11-13 付费（人工核对到账），站长指示排部落第一
     { id = 423, untilDay = "2026-12-12" },   -- Warm Team（联盟）
     { id = 452, untilDay = "2026-12-08" },   -- 恒守玄暮（部落）
 }
 
--- 三格：{ it = 公会, kind = "pin" | "heat", rank = 热度名次 } 或 nil（空缺）
+-- 11-13 用户「置顶位改成4个」：最多 4 格（原 3 格）。{ it = 公会, kind = "pin" | "heat", rank = 热度名次 } 或 nil（空缺）
 local function slotData()
     local d = _G.GearInsightForeverRecruit
     local items = (type(d) == "table" and type(d.items) == "table") and d.items or {}
     local byId, used, out = {}, {}, {}
     for _, it in ipairs(items) do if type(it) == "table" and it[1] then byId[it[1]] = it end end
     local function add(it, kind, rank)
-        if it and not used[it[1]] and #out < 3 then used[it[1]] = true; out[#out + 1] = { it = it, kind = kind, rank = rank } end
+        if it and not used[it[1]] and #out < 4 then used[it[1]] = true; out[#out + 1] = { it = it, kind = kind, rank = rank } end
     end
     -- 11-08 用户截图「置顶的公会顶到最上面，超过 GEARINSIGHT」：别人的置顶（更新器看广告那种免费置顶 pins）排在 Gearinsight 前面；
     --   ⛔ 付费精选照旧不进插件（10-12 规定 + 国服 09-24「插件不得包含广告」），这里只认 pins
@@ -1015,6 +1022,7 @@ local function attach()
         qr = function(title, foot, url) if W and W.Copy then W.Copy(url, title); return true end return false end,
     }
     wireTab(W.AttachGuildTab(host, opts), opts)
+    if ns.LayoutSideTabs then pcall(ns.LayoutSideTabs, host) end   -- 11-12 第 2 期：右侧页签固定 公会 → 组队 → 位面
 end
 
 ns.GuildTabAttach = attach   -- 10-18 按需加载：主插件 UI.lua ns.OpenModule 调

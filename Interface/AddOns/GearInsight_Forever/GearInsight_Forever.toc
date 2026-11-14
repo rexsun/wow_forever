@@ -4,7 +4,7 @@
 ## Notes: WoW: Forever helper - talent planner, leveling plan, loot table and wishlist, Tier 1 sets, macros, news, change tooltips, beta data
 ## Notes-zhCN: 《无限》助手：天赋模拟 · 升级规划 · 掉落表与心愿单 · T1 套装 · 宏库 · 资讯 · 改动提示 · 公测数据
 ## Author: GearInsight
-## Version: 1.0.1
+## Version: 1.1.4
 ## SavedVariables: GearInsightForeverDB
 ## IconTexture: Interface\Icons\inv_misc_map_01
 ## AddonCompartmentFunc: GearInsightForever_OnAddonCompartmentClick
@@ -13,22 +13,24 @@
 
 # Interface 16001 = 国服 Beta 实测（10-07 /dump select(4, GetBuildInfo())）；11507 留着兼容
 
+# 11-12 重构第 3 期：Data.lua（约 14 MB 常驻）拆开 —— 内核只留小字段 DataCore / 天赋与手法 DataClass / 掉落常驻索引 LootIndexData；
+#   升级 / 装备各页和大表搬进按需加载的子插件 GearInsight_Forever_Plan（PlanStub.lua 放占位页、第一次用到才加载）。
+#   Data.lua 仍留在仓库里当数据源（生成器 gi_forever_addon_data.py 写它，gi_forever_data_split.py 从它拆），不在这份 toc 里；合并打包时换回它
+# 11-13 重构第 4 期：专业 / 职业 / 资讯三块也拆成按需加载的子插件 GearInsight_Forever_Prof / _Class / _Info（*Stub.lua 放占位，第一次用到才加载），
+#   繁体对照表 ZhTW.lua 进 GearInsight_Forever_LocaleTW（繁体客户端 / 设置选了繁體才加载）。合并打包时这些文件按原样并回这份 toc（发版脚本默认）
 Data.lua
+TalentIndexData.lua
+LootIndexData.lua
 TraitTalents.lua
 Core.lua
 ZhTW.lua
+ModManifest.lua
 DataPack.lua
 QR.lua
 GIWidgets.lua
 TooltipZh.lua
 Tooltip.lua
 Leveling.lua
-DefaultBuildsData.lua
-DefaultBuilds.lua
-SpecGearData.lua
-SpecGear.lua
-ItemMissingData.lua
-Talents.lua
 Loot.lua
 Stats.lua
 LevelShare.lua
@@ -38,59 +40,33 @@ PvPShout.lua
 Card.lua
 Pack.lua
 UI.lua
-DungeonQuestData.lua
-DungeonQuests.lua
-PageTalent.lua
-MacroData.lua
-PageMacro.lua
+PlanStub.lua
+ModStub.lua
+ClassStub.lua
+InfoStub.lua
 SideChainsData.lua
 SideChains.lua
-PagePlan.lua
 RouteData.lua
 Route.lua
-ProfData.lua
+ProfCoreData.lua
 Prof.lua
-ProfPlan.lua
-ProfRecipes.lua
+ProfStub.lua
 ReagentSrcData.lua
 ReagentSrc.lua
-PageProf.lua
 ProfSeen.lua
 Obs.lua
 ObsPet.lua
 TrainerData.lua
 Trainers.lua
-PageLoot.lua
-PageTier.lua
-PageAch.lua
-NewsData.lua
-PageNews.lua
+TrainNowData.lua
+TrainNow.lua
+LootTip.lua
 WhatsNewData.lua
 WhatsNew.lua
-PetData.lua
-PagePet.lua
-PetTameData.lua
-PetTameObsData.lua
-PetTame.lua
-PageAdvanced.lua
-Supporters.lua
-Offsite.lua
-Report.lua
+Settings.lua
 PageData.lua
-KeysFormData.lua
-Keys.lua
-KeysCdm.lua
-KeysRotData.lua
-KeysRot.lua
-KeysCast.lua
-KeysHud.lua
-KeysKb.lua
-PageKeys.lua
-PageRot.lua
-KeysProbe.lua
 Perf.lua
 Board.lua
-PageBoard.lua
 InviteMenu.lua
 BisCorner.lua
 ItemLevel.lua
@@ -102,3 +78,54 @@ PageLayer.lua
 Camp.lua
 XpCheck.lua
 CityPlates.lua
+# 合并打包：以下来自 GearInsight_Forever_Plan，这个包里和主插件一起登录加载
+SpecGearData.lua
+SpecGear.lua
+ItemMissingData.lua
+DungeonQuestData.lua
+DungeonQuests.lua
+PagePlan.lua
+PageLoot.lua
+PageTier.lua
+PageAch.lua
+PlanInit.lua
+# 合并打包：以下来自 GearInsight_Forever_Prof，这个包里和主插件一起登录加载
+ProfData.lua
+ProfLib.lua
+ProfPlan.lua
+ProfRecipes.lua
+PageProf.lua
+ProfInit.lua
+# 合并打包：以下来自 GearInsight_Forever_Class，这个包里和主插件一起登录加载
+DefaultBuildsData.lua
+DefaultBuilds.lua
+Talents.lua
+PageTalent.lua
+MacroData.lua
+PageMacro.lua
+PetData.lua
+PagePet.lua
+PetTameData.lua
+PetTameObsData.lua
+PetTame.lua
+KeysFormData.lua
+Keys.lua
+KeysCdm.lua
+KeysRotData.lua
+KeysRot.lua
+KeysCast.lua
+KeysHud.lua
+KeysKb.lua
+PageKeys.lua
+PageRot.lua
+KeysProbe.lua
+ClassInit.lua
+# 合并打包：以下来自 GearInsight_Forever_Info，这个包里和主插件一起登录加载
+NewsData.lua
+PageNews.lua
+PageAdvanced.lua
+Supporters.lua
+Offsite.lua
+Report.lua
+PageBoard.lua
+InfoInit.lua

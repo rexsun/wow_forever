@@ -12,6 +12,7 @@ local Discovery = {
 		convergence = "CONVERGENCESHOWUNEXPLORED",
 		flight = "FLIGHTSHOWUNEXPLORED",
 		crossing = "CROSSINGSHOWUNEXPLORED",
+		librarybook = "LIBRARYBOOKSHOWUNEXPLORED",
 	},
 }
 
@@ -30,6 +31,7 @@ end
 function Discovery.GetKey(mapID, entry)
 	local kind = Discovery.GetKind(entry)
 	if kind == "flight" and entry.nodeID ~= nil then return "flight:" .. tostring(entry.nodeID) end
+	if entry.source ~= nil and entry.sourceMapID ~= nil then mapID, entry = entry.sourceMapID, entry.source end
 	local x, y = entry.origX or entry.x, entry.origY or entry.y
 	if type(x) ~= "number" or type(y) ~= "number" then return nil end
 
@@ -44,6 +46,7 @@ function Discovery.ShowsUnexplored(kind)
 end
 
 function MapUtils:IsPinDiscovered(mapID, entry)
+	if entry.seen == true then return true end
 	local key = Discovery.GetKey(mapID, entry)
 	if key == nil then return true end
 
@@ -88,7 +91,7 @@ end
 
 function Discovery.ScanMap(mapID, wx, wy, store, changed)
 	local forever = MapUtils:IsForever()
-	local list = MapUtils.BuildPinList(mapID, true, true, true, true, true, forever, forever, true)
+	local list = MapUtils.BuildPinList(mapID, true, true, true, true, true, forever, forever, true, forever)
 	local radiusSq = Discovery.radius * Discovery.radius
 	for _, entry in ipairs(list or {}) do
 		local key = Discovery.GetKey(mapID, entry)
@@ -146,7 +149,7 @@ Discovery.frame:SetScript(
 	function(_, event)
 		if event == "PLAYER_LOGIN" then
 			Discovery.ready = true
-			if C_Timer ~= nil and C_Timer.NewTicker ~= nil then Discovery.ticker = C_Timer.NewTicker(Discovery.interval, Discovery.Scan) end
+			if C_Timer ~= nil and C_Timer.NewTicker ~= nil then Discovery.ticker = C_Timer.NewTicker(Discovery.interval, MapUtils.Profile("discovery Scan", Discovery.Scan)) end
 		end
 
 		Discovery.last = nil

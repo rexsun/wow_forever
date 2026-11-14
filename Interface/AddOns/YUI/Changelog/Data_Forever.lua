@@ -1,6 +1,44 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v359|forever|ccc109a5fe60f6270ca0e52be0ed653d1ea5436c451b92fb475a81789345c15f
+    {
+        version = "v359",
+        date = "2026-11-13",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "修复动作条图标偶尔消失或残留旧图标的问题。",
+                "修复技能变化后宏名称和冷却显示未及时同步的问题。",
+            },
+            enUS = {
+                "Fixed action bar icons occasionally disappearing or displaying an outdated image.",
+                "Fixed macro names and cooldown displays failing to update when actions change.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v358|forever|8dffc782bca58e84b35d4fa386b09cb9d8b988fcbc0e656498ad141f5999807b
+    {
+        version = "v358",
+        date = "2026-11-13",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "Halo 光环监控支持按可读取的层数匹配发光规则。",
+                "修复 Halo 奥术冲击增益监控的层数和倒计时显示。",
+                "修复法师智力与护甲增益在战斗中的倒计时和缺失提示。",
+                "修复 Halo 发光规则取色时选择器意外关闭。",
+                "修复插件助手原生样式的标题装饰被裁剪。",
+            },
+            enUS = {
+                "Halo aura monitors now match glow rules against readable stack counts.",
+                "Fixed stack counts and countdowns for Halo's Arcane Blast buff monitoring.",
+                "Fixed combat countdowns and missing-buff alerts for Mage Intellect and armor buffs.",
+                "Fixed Halo's color picker closing unexpectedly while editing glow rules.",
+                "Fixed clipped title decorations in Addon Assistant's native style.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v357|forever|5c200ce85194b950d009a2af02f21746e05371715741ff63933062281868f97f
     {
         version = "v357",
@@ -200,90 +238,6 @@ CL:Register("suite", {
                 "Chat bar text now has an independent font size, with matching mouseover areas.",
                 "Sound alert searches now span alert types and specializations.",
                 "Fixed resource updates and designer dragging, pet ability status displays, and automatic repair activation.",
-            },
-        },
-    },
--- YUI-Notes-Record: v349|forever|830bd34b1b34efe4516763ded7eacf38db2de60b39569480cc0f6609c253ee24
-    {
-        version = "v349",
-        date = "2026-10-26",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增勾选收件、只收金币和批量删除空信。",
-                "新增邮件收发记录。",
-                "发件联系人支持搜索和最近寄送快捷收藏。",
-                "优化侧栏布局及其他邮件插件的兼容处理。",
-                "新增猎人守护条，支持激活效果、顺序调整及未学技能提示。",
-                "新增宠物技能折叠菜单，支持拖入食物喂养。",
-                "新增宠物快乐状态与食物提示。",
-                "新增萨满图腾组合条，支持组合切换和图腾选择。",
-                "职业动作条支持布局、展开方向与键位设置。",
-                "法师传送菜单新增未学技能、学习等级和训练地点提示。",
-                "法师传送菜单新增传送材料数量显示。",
-                "好友通知框支持单独移动并保存位置。",
-                "宠物动作条新增隐藏空槽选项。",
-                "原生界面新增背包栏控制开关，可关闭接管并保留显示模式。",
-                "监控进度条和资源条高度支持调整至 2–128。",
-                "优化法术警报预览及布局占位提示。",
-                "新建圆环分组默认关闭鼠标提示，保留已有设置。",
-                "优化音频同步，限制异常频繁重启并保留开关状态。",
-                "战斗中的地图标记刷新延至脱战后执行。",
-                "修复邮件联系人完整姓名与服务器信息处理。",
-                "修复图腾类监控圆环与进度条的持续时间显示。",
-                "修复魔杖恢复期间动作条图标异常变灰的问题。",
-                "修复窗口拖动条被手柄导航扫描时引发的污染问题。",
-                "修复背包栏隐藏可能引发的战斗中 ESC 报错。",
-            },
-            enUS = {
-                "Added selected-mail collection, gold-only collection, and bulk empty-mail deletion.",
-                "Added mail history for sent and received messages.",
-                "Added contact search and quick favorites for recent recipients.",
-                "Improved sidebar layout and compatibility with other mail addons.",
-                "Added a hunter aspect bar with activation effects, reordering, and unlearned-spell hints.",
-                "Added a collapsible pet utility menu with drag-to-feed support.",
-                "Added pet happiness indicators and food tooltips.",
-                "Added a shaman totem bar with set switching and totem selection.",
-                "Added layout, flyout direction, and keybind settings for class action bars.",
-                "Mage teleport menus now show unlearned spells, learning levels, and trainer hints.",
-                "Mage teleport menus now show reagent counts.",
-                "Friend notifications can now be moved independently with their position saved.",
-                "Added an option to hide empty pet action bar slots.",
-                "Added a bag bar control toggle that releases control while retaining the selected display mode.",
-                "Monitor progress and resource bar heights can now be adjusted from 2 to 128.",
-                "Improved spell alert previews and layout placeholder hints.",
-                "New ring groups now default to disabled tooltips, preserving existing settings.",
-                "Improved audio synchronization to limit excessive restarts while preserving the toggle state.",
-                "Map marker refreshes requested during combat now wait until combat ends.",
-                "Fixed full-name and realm information handling for mail contacts.",
-                "Fixed duration displays for totem-based monitor rings and bars.",
-                "Fixed incorrect action icon dimming during wand recovery.",
-                "Fixed taint caused by gamepad navigation scanning window drag handles.",
-                "Fixed potential ESC errors in combat caused by bag bar hiding.",
-            },
-        },
-    },
--- YUI-Notes-Record: v348|forever|260c33c1fbeee03d95e546c77a5daead2b4ab3987054b1b0cc5294a090a92500
-    {
-        version = "v348",
-        date = "2026-10-23",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "任务追踪新增自动接交任务开关，可统一关闭已加载插件的自动接交。",
-                "Polestar 路线支持进入副本自动收起，离开后恢复。",
-                "监控图标按键支持药水与饰品，改善技能和宏的按键识别。",
-                "游戏菜单新增头像插件设置入口。",
-                "修复切图后的技能就绪声音误报与监控图标恢复异常。",
-                "修复增益监控倒计时和层数文字被遮挡的问题。",
-            },
-            enUS = {
-                "Added a quest tracker toggle that can disable quest automation across loaded addons.",
-                "Polestar guides now collapse automatically on entering an instance and restore on leaving.",
-                "Added potion and trinket keybind text to monitor icons and improved spell and macro binding detection.",
-                "Added a portrait addon settings shortcut to the game menu.",
-                "Fixed false ability-ready sound alerts and monitor icon recovery after zone transitions.",
-                "Fixed obscured countdown and stack text on buff monitors.",
             },
         },
     },

@@ -5,7 +5,7 @@
 --   英文客户端不出微信 / 小程序那几项。
 -- 三期再做：「网站回执」粘贴框（网站算完把建议串回贴进插件）—— 这一期不做。
 -- 10-19 0.5.1 解除 HOLD 随包发布（用户「这次一起发」）。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local GOLD, DIM, TXT = "|cffffd200", "|cff8a93a6", "|cffe6e0c8"
 local W = 626

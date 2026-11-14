@@ -19,6 +19,7 @@ local map = WorldMapFrame
 local saved = {}
 local hidden = {}
 local sizes = {}
+local hitInsets = {}
 local active = false
 local bar, back, questCount
 local originalScrollTop
@@ -30,12 +31,16 @@ function MapUtils:IsSimpleMapFrameAvailable()
 	return map ~= nil and map.NavBar ~= nil and map.BorderFrame ~= nil and map.ScrollContainer ~= nil and QuestMapFrame ~= nil
 end
 
+function MapUtils:IsSimpleMapFrameByEllesmere()
+	return MapUtils:IsAddOnActive("EllesmereUI")
+end
+
 function MapUtils:IsSimpleMapFrameByLeatrix()
 	return MapUtils:IsAddOnActive("Leatrix_Maps") and type(LeaMapsDB) == "table" and LeaMapsDB["SimpleMapFrame"] == "On"
 end
 
 local function IsWanted()
-	return MapUtils:IsSimpleMapFrameAvailable() and not MapUtils:IsSimpleMapFrameByLeatrix() and type(MAUTTAB) == "table" and MAUTTAB["WORLDMAPSIMPLE"] == true
+	return MapUtils:IsSimpleMapFrameAvailable() and not MapUtils:IsSimpleMapFrameByLeatrix() and not MapUtils:IsSimpleMapFrameByEllesmere() and type(MAUTTAB) == "table" and MAUTTAB["WORLDMAPSIMPLE"] == true
 end
 
 local function Save(frame)
@@ -186,6 +191,32 @@ local function ShrinkNavBar()
 		Shrink(child, factor, true)
 		ShrinkChildren(child, factor, false, 1)
 	end
+
+	local function HideTextures(frame)
+		for _, region in ipairs({frame:GetRegions()}) do
+			if region:IsObjectType("Texture") then
+				HideObject(region)
+				region:SetAlpha(0)
+				if not region.mapUtilsNavHidden then
+					region.mapUtilsNavHidden = true
+					hooksecurefunc(
+						region,
+						"SetAlpha",
+						function(sel, alpha)
+							if not active or hidden[sel] == nil or alpha == 0 then return end
+							sel:SetAlpha(0)
+						end
+					)
+				end
+			end
+		end
+
+		for _, child in ipairs({frame:GetChildren()}) do
+			if frame.MenuArrowButton ~= child then HideTextures(child) end
+		end
+	end
+
+	HideTextures(nav)
 end
 
 local function RestoreSizes()
@@ -390,6 +421,16 @@ local function Layout()
 		ShrinkNavBar()
 	end
 
+	local topGap = MapUtils:GetSimpleMapTopGap()
+	if MapUtils:IsSecret(topGap) then topGap = 0 end
+	for _, frame in ipairs({map, map.BorderFrame}) do
+		if CanChange(frame) then
+			if hitInsets[frame] == nil then hitInsets[frame] = {frame:GetHitRectInsets()} end
+			local l, r, t, b = unpack(hitInsets[frame])
+			frame:SetHitRectInsets(l, r, max(t, topGap), b)
+		end
+	end
+
 	if questShown and CanChange(QuestScrollFrame) then
 		local parent = QuestScrollFrame:GetParent()
 		local top, bottom = -50, 0
@@ -446,6 +487,12 @@ local function Remove()
 
 	ShowObjects()
 	RestoreSizes()
+	for frame, insets in pairs(hitInsets) do
+		if CanChange(frame) then
+			frame:SetHitRectInsets(unpack(insets))
+			hitInsets[frame] = nil
+		end
+	end
 	for frame in pairs(saved) do
 		if CanChange(frame) then frame:ClearAllPoints() end
 	end
@@ -477,10 +524,14 @@ if MapUtils:IsSimpleMapFrameAvailable() then
 		end
 	)
 
-	if map.OnFrameSizeChanged ~= nil then hooksecurefunc(map, "OnFrameSizeChanged", Layout) end
-	if map.SynchronizeDisplayState ~= nil then hooksecurefunc(map, "SynchronizeDisplayState", Layout) end
+	if map.OnFrameSizeChanged ~= nil then hooksecurefunc(map, "OnFrameSizeChanged", MapUtils.Profile("simpleframe Layout", Layout)) end
+	if map.SynchronizeDisplayState ~= nil then hooksecurefunc(map, "SynchronizeDisplayState", MapUtils.Profile("simpleframe Layout", Layout)) end
 	if map.OnMapChanged ~= nil then hooksecurefunc(map, "OnMapChanged", function() C_Timer.After(0, ShrinkNavBar) end) end
-	if NavBar_AddButton ~= nil then hooksecurefunc("NavBar_AddButton", function(nav) if nav == map.NavBar then ShrinkNavBar() end end) end
+	if NavBar_AddButton ~= nil then hooksecurefunc("NavBar_AddButton", function(nav)
+		if nav ~= map.NavBar then return end
+		ShrinkNavBar()
+		C_Timer.After(0, ShrinkNavBar)
+	end) end
 	QuestMapFrame:HookScript("OnShow", Layout)
 	QuestMapFrame:HookScript("OnHide", Layout)
 	local events = CreateFrame("Frame")

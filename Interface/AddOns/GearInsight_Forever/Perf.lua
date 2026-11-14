@@ -14,10 +14,31 @@ local _, ns = ...
 local Perf = {}
 ns.Perf = Perf
 
-local GI_ADDONS = { "GearInsight_Forever", "GearInsight_Forever_Group", "GearInsight_Forever_Guild" }
+local GI_ADDONS = { "GearInsight_Forever", "GearInsight_Forever_Group", "GearInsight_Forever_Guild", "GearInsight_Forever_Plan" }
+-- 11-12 重构第 3 期：以后还会拆出更多按需加载的子插件 —— 不写死名单，从插件列表里把 GearInsight_Forever / GearInsight_Forever_* 全找出来
+--   （查不了插件列表的客户端用上面这份兜底）。每次量内存前刷新一遍
+local function refreshAddons()
+    local num = (C_AddOns and C_AddOns.GetNumAddOns) or GetNumAddOns
+    local info = (C_AddOns and C_AddOns.GetAddOnInfo) or GetAddOnInfo
+    if not (num and info) then return end
+    local ok, n = pcall(num)
+    if not ok or type(n) ~= "number" then return end
+    local have = {}
+    for _, a in ipairs(GI_ADDONS) do have[a] = true end
+    for i = 1, n do
+        local ok2, name = pcall(info, i)
+        if ok2 and type(name) == "string" and not have[name] and (name == "GearInsight_Forever" or name:find("^GearInsight_Forever_%w+$")) then
+            have[name] = true
+            GI_ADDONS[#GI_ADDONS + 1] = name
+        end
+    end
+end
+Perf.Addons = function() refreshAddons(); return GI_ADDONS end
 local TABLES = { { "QM", "QM" }, { "GuildHome", "GH" }, { "GroupLFG", "LFG" } }
 -- { ns 下的表, 表里存框体的字段, 显示名 }
-local FRAMES = { { "QM", "_ev", "QM.ev" }, { "QM", "_thEv", "QM.thanks" }, { "GuildHome", "_ev", "GH.ev" }, { "GroupLFG", "_ev", "LFG.ev" } }
+local FRAMES = { { "QM", "_ev", "QM.ev" }, { "QM", "_thEv", "QM.thanks" }, { "GuildHome", "_ev", "GH.ev" }, { "GroupLFG", "_ev", "LFG.ev" },
+    -- 11-13 第 5 期（§2.6）：副本组队（面板 / 登录小核）、法师吃喝的事件框也计时
+    { "DungeonChat", "ev", "DC.ev" }, { "DungeonChat", "coreEv", "DC.core" }, { "MageWater", "ev", "MW.ev" } }
 
 local running
 local clock = debugprofilestop or function() return (GetTime and GetTime() or 0) * 1000 end
@@ -41,10 +62,33 @@ local function mems()
     local out = {}
     if not GetAddOnMemoryUsage then return out end
     if UpdateAddOnMemoryUsage then pcall(UpdateAddOnMemoryUsage) end
+    refreshAddons()
     for _, a in ipairs(GI_ADDONS) do
         if loaded(a) then local ok, v = pcall(GetAddOnMemoryUsage, a); out[a] = ok and tonumber(v) or nil end
     end
     return out
+end
+
+-- 现场快照
+Perf.Mems = mems
+
+-- /gi perf mem：各子插件现在各占多少内存（11-12 重构第 3 期验收用：登录后 / 打开升级、装备页前后各量一次）
+--   没加载的子插件也列出来写「没加载」，一眼看出按需加载生效没
+function Perf.MemReport()
+    if not GetAddOnMemoryUsage then ns.Print(ns.L("这个客户端量不了插件内存", "This client can't measure addon memory")); return nil end
+    if collectgarbage then pcall(collectgarbage, "collect") end
+    local m, total, parts = mems(), 0, {}
+    for _, a in ipairs(GI_ADDONS) do
+        local short = a == "GearInsight_Forever" and ns.L("主插件", "core") or a:gsub("^GearInsight_Forever_", "")
+        if m[a] then
+            total = total + m[a]
+            parts[#parts + 1] = string.format("%s %.1f MB", short, m[a] / 1024)
+        else
+            parts[#parts + 1] = short .. " " .. ns.L("没加载", "not loaded")
+        end
+    end
+    ns.Print(string.format(ns.L("内存：合计 %.1f MB —— %s", "Memory: %.1f MB total - %s"), total / 1024, table.concat(parts, " · ")))
+    return total, m
 end
 
 -- 现场快照
@@ -536,6 +580,7 @@ end
 function Perf.ItemProbe(args)
     local ids = {}
     for x in tostring(args or ""):gmatch("%d+") do ids[#ids + 1] = tonumber(x) end
+    -- 没给编号 = 取「推荐装备」页上现有的几件（那一页在按需加载的子插件里，没打开过就没有，下面会提示用法）
     if #ids == 0 and ns.GearPage and ns.GearPage.gearBtns then
         local seen = {}
         for _, b in pairs(ns.GearPage.gearBtns) do
@@ -582,6 +627,8 @@ function Perf.ItemExistAll()
     if not (C_Item and C_Item.RequestLoadItemDataByID) then ns.Print(ns.L("这个客户端没有请求物品数据的接口", "No item request API")); return end
     local ids, seen = {}, {}
     local function add(id) id = tonumber(id); if id and not seen[id] then seen[id] = true; ids[#ids + 1] = id end end
+    -- 11-12 第 3 期：装备候选 / 掉落表在按需加载的 GearInsight_Forever_Plan，查之前先加载上（这是玩家手动敲的诊断命令）
+    if ns.PlanLoad and not ns.PlanLoad() then ns.Print(ns.L("升级 / 装备数据没加载上，查不了", "Leveling / gear data couldn't be loaded")); return end
     for _, lst in pairs((ns.Data and ns.Data.gear) or {}) do
         for _, it in ipairs(lst) do add(it.id) end
     end
@@ -656,10 +703,11 @@ ns.ExtraSlash.perf = function(rest, rawRest)
     rest = (rest or ""):gsub("^%s+", ""):gsub("%s+$", "")
     local raw = (rawRest or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if PLATE_ARGS[rest] or PLATE_ARGS[raw] then Perf.Plates()
+    elseif rest == "mem" or raw == "内存" then Perf.MemReport()
     elseif (rest == "log" or raw == "日志") and ns.PerfGuard then ns.PerfGuard.PrintLog()
     elseif rest == "" or tonumber(rest) then Perf.Start(rest)
     else
-        ns.Print(ns.L("用法：/gi perf 采样 15 秒（/gi perf 30 = 30 秒）· /gi perf plates 姓名板设置自动对比 · /gi perf log 自动卡顿记录",
-            "Usage: /gi perf (15s sample, /gi perf 30 = 30s) - /gi perf plates (nameplate comparison) - /gi perf log (auto lag log)"))
+        ns.Print(ns.L("用法：/gi perf 采样 15 秒（/gi perf 30 = 30 秒）· /gi perf plates 姓名板设置自动对比 · /gi perf log 自动卡顿记录 · /gi perf mem 各模块内存",
+            "Usage: /gi perf (15s sample, /gi perf 30 = 30s) - /gi perf plates (nameplate comparison) - /gi perf log (auto lag log) - /gi perf mem (memory per module)"))
     end
 end

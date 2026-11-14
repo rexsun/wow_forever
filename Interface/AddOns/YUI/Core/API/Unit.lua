@@ -705,6 +705,14 @@ function Unit.FindUnitAuraBySpellID(unit, spellID)
         or FindUnitAuraByFilter(unit, spellID, "HARMFUL")
 end
 
+-- Exact aura queries may return nil while access is restricted. Share this
+-- evidence boundary with metadata readers and Monitor's presence sources.
+function Unit.CanConfirmAuraAbsence()
+    if not (YUI.IsRetail or YUI.IsForever) then return true end
+    return SafeBool(_G.InCombatLockdown) == false
+        and Unit.IsAuraRestricted() ~= true
+end
+
 local function ReadExactAura(func, ...)
     if type(func) ~= "function" then return nil, "aura-api-unavailable" end
     local ok, aura = pcall(func, ...)
@@ -857,7 +865,7 @@ local function ReadHelpfulTimer(aura)
     }
 end
 
--- Exact names avoid unrelated restricted auras and the legacy forty-aura limit.
+-- Exact names keep the common path independent of unrelated restricted auras.
 -- The second result marks keys whose absence could not be established.
 function Unit.ReadHelpfulTimersByName(unit, names)
     if C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName then
@@ -872,6 +880,11 @@ function Unit.ReadHelpfulTimersByName(unit, names)
                     or timer.expirationTime > previous.expirationTime)) then
                     result[key] = timer
                 end
+            end
+        end
+        if not Unit.CanConfirmAuraAbsence() then
+            for _, key in pairs(names) do
+                if not result[key] then unavailable[key] = true end
             end
         end
         return result, unavailable
@@ -1091,6 +1104,7 @@ function Unit.ReadPlayerAuraDisplay(spellIDs, state)
     local duration = 0
     local expirationTime = 0
     local displayCount
+    local publicAuraStacks
     local modRate = 1
     if aura then
         local value
@@ -1109,6 +1123,7 @@ function Unit.ReadPlayerAuraDisplay(spellIDs, state)
         value, protected = ReadAuraField(aura, "applications")
         secret = secret or protected
         displayCount = SafeNumberValue(value)
+        publicAuraStacks = displayCount
         if displayCount and displayCount <= 1 then displayCount = nil end
         value, protected = ReadAuraField(aura, "timeMod")
         secret = secret or protected
@@ -1119,6 +1134,9 @@ function Unit.ReadPlayerAuraDisplay(spellIDs, state)
 
     local available = aura ~= nil and secret ~= true
     local resolved = available or (aura == nil and not queryFailed)
+    -- Preserve semantic applications separately from the formatted count text.
+    if secret or not resolved then publicAuraStacks = nil
+    elseif not available then publicAuraStacks = 0 end
     local startTime = duration > 0 and expirationTime > 0
         and (expirationTime - duration) or 0
     local changed = state.sourceKind ~= "aura"
@@ -1128,6 +1146,7 @@ function Unit.ReadPlayerAuraDisplay(spellIDs, state)
         or state.duration ~= duration
         or state.modRate ~= modRate
         or state.displayCount ~= displayCount
+        or state.publicAuraStacks ~= publicAuraStacks
         or state.available ~= available
         or state.resolved ~= resolved
         or state.isEnabled ~= true
@@ -1140,6 +1159,7 @@ function Unit.ReadPlayerAuraDisplay(spellIDs, state)
     state.duration = duration
     state.modRate = modRate
     state.displayCount = displayCount
+    state.publicAuraStacks = publicAuraStacks
     state.available = available
     state.resolved = resolved
     state.isEnabled = true

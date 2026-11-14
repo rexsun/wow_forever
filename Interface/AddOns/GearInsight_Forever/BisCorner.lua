@@ -126,6 +126,9 @@ end
 -- 戒指 / 饰品：推荐件戴在另一格也算已穿（两格互换不该提示）
 function BC.Compute(lvOverride)
     local cls = ns.MyClass and ns.MyClass()
+    -- 11-12 重构第 3 期：挑装备的逻辑和数据在按需加载的 GearInsight_Forever_Plan —— 角标开着、第一次打开角色面板时走到这里才加载
+    --   （BC.Update 先判了开关和面板，关着角标的人不会因为开角色面板而加载）。没装 / 加载不上 = 不出角标
+    if ns.PlanLoad then ns.PlanLoad() end
     if not (cls and ns.PlanBestGearItems) then return {}, nil, nil end
     local lv = playerLevel(lvOverride)
     local ok, best, spec, alts = pcall(ns.PlanBestGearItems, lv, cls)

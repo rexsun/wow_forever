@@ -17,6 +17,11 @@ function UI.WindowMixin:AddCategory(tab)
     header.Label:SetPoint("LEFT", header.Icon, "RIGHT", 4, 0)
     header.Label:SetJustifyH("LEFT")
     header.Label:SetText(text)
+    header.Line = header:CreateTexture(nil, "ARTWORK")
+    header.Line:SetHeight(1)
+    header.Line:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
+    header.Line:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
+    UI:SetSolidColor(header.Line, 1, 0.82, 0, 0.35)
     local highlight = header:CreateTexture(nil, "HIGHLIGHT")
     highlight:SetAllPoints(header)
     UI:SetSolidColor(highlight, 1, 1, 1, 0.1)
@@ -35,7 +40,7 @@ function UI.WindowMixin:AddCategory(tab)
     end
 
     if parentLevel >= 1 then win.category = win.categoryStack[parentLevel] end
-    local element = UI:Add(win, header, UI.ROW, text, true, tab.search, tab.added)
+    local element = UI:Add(win, header, UI.ROW, text, true, tab.search, tab.added, tab)
     element.isCategory = true
     element.level = level
     element.key = tab.key or tab.search or text
@@ -72,6 +77,7 @@ function UI.WindowMixin:AddCategory(tab)
     )
 
     UpdateIcon()
+    header.UpdateIcon = UpdateIcon
     header.element = element
 
     return header

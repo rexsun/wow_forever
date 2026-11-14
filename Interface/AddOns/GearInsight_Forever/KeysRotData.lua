@@ -15,7 +15,7 @@
 --   "targets>=N"    8 码内可攻击的敌人（姓名板）≥ N
 --   "known:名字"    学会了另一个技能才按（例：学会了致死打击才不打猛击当主力）
 -- dur = 持续时间（秒，记账用；Beta 改了以 P0 实测为准）
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 ns.KeysRotData = {
     Warrior = {

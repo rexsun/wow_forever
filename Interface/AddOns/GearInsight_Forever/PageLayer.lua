@@ -189,7 +189,7 @@ local function build(p)
     local D = LY.DB
     p.checks[1] = check(body, 10, 0, L("我愿意帮公会会员换层", "Help guildmates switch layers"),
         function() return D().helper end, function(v) D().helper = v; LY.Beat(true) end)
-    p.checks[2] = check(body, 310, 0, L("公会会员求助直接拉，不弹框", "Invite guildmates without asking"),
+    p.checks[2] = check(body, 310, 0, L("公会会员求助自动拉（不弹框）", "Auto-invite guildmates (no prompt)"),
         function() return D().autoHelp end, function(v) D().autoHelp = v end)
     p.checks[3] = check(body, 10, 0, L("换过去后自动退队（换过去的层会留下）", "Leave the group after the move"),
         function() return D().autoLeave end, function(v) D().autoLeave = v end)

@@ -28,6 +28,7 @@ function MapUtils:SetCanvasPinScale(pin, scale)
 	pin.canvasScale = scale
 	pin.canvasMapID = WorldMapFrame and WorldMapFrame:GetMapID()
 	if pin:GetScale() ~= 1 then pin:SetScale(1) end
+	pin.rescaleFactor = 1
 end
 
 function MapUtils:RescaleCanvasPins()
@@ -37,15 +38,18 @@ function MapUtils:RescaleCanvasPins()
 	local mapID = WorldMapFrame:GetMapID()
 	for _, list in ipairs(MapUtils.CanvasPinLists) do
 		for _, pin in ipairs(list) do
-			if pin.canvasScale ~= nil and pin:IsShown() and pin.canvasMapID ~= mapID then
-				pin:Hide()
-			elseif pin.canvasScale ~= nil and pin:IsShown() then
-				local old = pin:GetScale()
-				local factor = pin.canvasScale / scale
-				if math.abs(old - factor) > 0.0001 then
-					local point, relative, relativePoint, x, y = pin:GetPoint(1)
-					pin:SetScale(factor)
-					if point ~= nil and x ~= nil and y ~= nil then pin:SetPoint(point, relative, relativePoint, x * old / factor, y * old / factor) end
+			if pin.canvasScale ~= nil and pin:IsShown() then
+				if pin.canvasMapID ~= mapID then
+					pin:Hide()
+				else
+					local old = pin.rescaleFactor or pin:GetScale()
+					local factor = pin.canvasScale / scale
+					if math.abs(old - factor) > 0.0001 then
+						local point, relative, relativePoint, x, y = pin:GetPoint(1)
+						pin:SetScale(factor)
+						pin.rescaleFactor = factor
+						if point ~= nil and x ~= nil and y ~= nil then pin:SetPoint(point, relative, relativePoint, x * old / factor, y * old / factor) end
+					end
 				end
 			end
 		end
@@ -61,8 +65,18 @@ function MapUtils:UpdateCanvasPinsNow()
 	MapUtils:RescaleCanvasPins()
 end
 
-if WorldMapFrame ~= nil and WorldMapFrame.OnCanvasScaleChanged ~= nil then hooksecurefunc(WorldMapFrame, "OnCanvasScaleChanged", function() MapUtils:RescaleCanvasPins() end) end
-if WorldMapFrame ~= nil and WorldMapFrame.OnMapChanged ~= nil then hooksecurefunc(WorldMapFrame, "OnMapChanged", function() MapUtils:UpdateCanvasPinsNow() end) end
+if WorldMapFrame ~= nil and WorldMapFrame.OnCanvasScaleChanged ~= nil then hooksecurefunc(WorldMapFrame, "OnCanvasScaleChanged", MapUtils.Profile("questturnins canvas scale", function() MapUtils:RescaleCanvasPins() end)) end
+function MapUtils:QueueCanvasPinsUpdate()
+	MapUtils:RescaleCanvasPins()
+	if MapUtils.canvasPinsQueued then return end
+	MapUtils.canvasPinsQueued = true
+	C_Timer.After(0, function()
+		MapUtils.canvasPinsQueued = false
+		MapUtils:UpdateCanvasPinsNow()
+	end)
+end
+
+if WorldMapFrame ~= nil and WorldMapFrame.OnMapChanged ~= nil then hooksecurefunc(WorldMapFrame, "OnMapChanged", MapUtils.Profile("questturnins map changed", function() MapUtils:QueueCanvasPinsUpdate() end)) end
 function MapUtils:GetOneMapQuestSources(mapID)
 	if mapID == nil or MapUtils.IsOneMap == nil or not MapUtils:IsOneMap() or MapUtils.IsZoneDetailMap == nil or MapUtils.GetZoneDetailSources == nil or not MapUtils:IsZoneDetailMap(mapID) then return nil end
 	local cache = MapUtils.OneMapQuestSources
@@ -104,6 +118,7 @@ if C_Map.GetMapChildrenInfo == nil or C_Map.GetMapRectOnMap == nil or C_QuestLog
 local updater = CreateFrame("Frame", nil, WorldMapFrame)
 local pins = {}
 tinsert(MapUtils.CanvasPinLists, pins)
+if MapUtils.RegisterRenderLayer ~= nil then MapUtils:RegisterRenderLayer("Quest turn-ins", function() return pins end) end
 local entries = {}
 local seen = {}
 local nativeQuests = {current = {}, pending = {}}
@@ -272,7 +287,7 @@ local function UpdatePins()
 	local mapID = WorldMapFrame:GetMapID()
 	local mapType = GetMapType(mapID)
 	local getter = C_CVar and C_CVar.GetCVarBool or GetCVarBool
-	if mapType == nil or Enum == nil or Enum.UIMapType == nil or (mapType ~= Enum.UIMapType.World and mapType ~= Enum.UIMapType.Continent and MapUtils:GetOneMapQuestSources(mapID) == nil) or not MapUtils:GetConfig("QUESTTURNINWORLDMAPPINS", true) or (getter and not getter("questPOI")) then
+	if mapType == nil or Enum == nil or Enum.UIMapType == nil or (mapType ~= Enum.UIMapType.World and mapType ~= Enum.UIMapType.Continent and MapUtils:GetOneMapQuestSources(mapID) == nil) or not MapUtils:IsPinShownOnMap("QUESTTURNINWORLDMAPPINS", true, mapID) or (getter and not getter("questPOI")) then
 		HidePins()
 		lastMapID = nil
 		return
@@ -309,9 +324,10 @@ local function UpdatePins()
 			SetPinAtlas(pin.pushed, selected and "UI-QuestPoi-QuestNumber-Pressed-SuperTracked" or "UI-QuestPoi-QuestNumber-Pressed")
 		end
 
-		pin:SetSize(20 / scale, 20 / scale)
+		local pinScale = scale / MapUtils:GetPinSizeFactor("QUESTTURNINWORLDMAPPINS")
+		pin:SetSize(20 / pinScale, 20 / pinScale)
 		for _, texture in ipairs(pin.textures) do
-			if texture.pixelWidth then texture:SetSize(texture.pixelWidth / scale, texture.pixelHeight / scale) end
+			if texture.pixelWidth then texture:SetSize(texture.pixelWidth / pinScale, texture.pixelHeight / pinScale) end
 		end
 
 		pin:SetFrameLevel(canvas:GetFrameLevel() + 30)
@@ -336,12 +352,12 @@ updater:RegisterEvent("QUEST_LOG_UPDATE")
 updater:RegisterEvent("QUEST_POI_UPDATE")
 updater:RegisterEvent("CVAR_UPDATE")
 updater:SetScript("OnEvent", function() dirty = true end)
-updater:SetScript("OnUpdate", function(_, elapsed)
+updater:SetScript("OnUpdate", MapUtils.Profile("questturnins OnUpdate", function(_, elapsed)
 	elapsedTime = elapsedTime + elapsed
 	if elapsedTime < 0.1 then return end
 	elapsedTime = 0
 	UpdatePins()
-end)
+end))
 
 WorldMapFrame:HookScript("OnShow", function()
 	dirty = true

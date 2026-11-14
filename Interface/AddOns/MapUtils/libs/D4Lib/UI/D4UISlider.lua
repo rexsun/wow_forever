@@ -139,7 +139,12 @@ function UI.WindowMixin:AddSlider(tab)
     holder.Low = low
     holder.High = high
     holder.Box = box
-    UI:Add(win, holder, HEIGHT, text, true, tab.search, tab.added)
+    function holder:UpdateLabel()
+        text = UI:Text(tab.label)
+        label:SetText(FormatText(text, holder.value))
+    end
+
+    UI:Add(win, holder, HEIGHT, text, true, tab.search, tab.added, tab)
 
     return holder
 end

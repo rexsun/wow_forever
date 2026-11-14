@@ -562,12 +562,29 @@ local function helperOf(p)
     local who = p.leader or p.helper
     return who and tostring(who):gsub("%-.*$", "") or L("公会会员", "A guildmate")
 end
-local function leaveIfAuto()
-    if LY.DB().autoLeave and IsInGroup and IsInGroup() then
-        local f = (C_PartyInfo and C_PartyInfo.LeaveParty) or LeaveParty
-        if f then pcall(f) end
-        return true
-    end
+local function doLeave()
+    local f = (C_PartyInfo and C_PartyInfo.LeaveParty) or LeaveParty
+    if f then pcall(f) end
+end
+-- 11-13：autoLeave 三态 —— true 自动退；false 不退；nil（没问过）这次不退，换层成功（arrived）时弹「问一次」
+function LH.AskLeave()
+    local at = now()
+    return LY.AskOnce("autoLeave", {
+        text = L("已经换到新的一层。以后换过去后要自动退队吗？", "You're on the new layer. Leave the group automatically after future moves?"),
+        yes = L("以后都自动退", "Always leave"), no = L("不自动退", "Don't leave"),
+        onYes = function()
+            -- 这次也退：还在队里、没过 60 秒才退（层会留下）
+            if now() - at > LY.ASK_FRESH or not (IsInGroup and IsInGroup()) then return end
+            doLeave()
+            ns.Print(L("已退队（换过去的层会留下）", "Left the group (you stay on the new layer)") .. LY.OffHint())
+        end,
+    })
+end
+local function leaveIfAuto(arrived)
+    if not (IsInGroup and IsInGroup()) then return false end
+    local a = LY.DB().autoLeave
+    if a == true then doLeave(); return true end
+    if a == nil and arrived then LH.AskLeave() end
     return false
 end
 local function receipt(p, ok)
@@ -597,9 +614,9 @@ LY.OnChange(function(_, new, map)
     if not r and LH.MarkRecent then LH.MarkRecent(p); r = LH.RecentHelper(p.leader or p.helper) end   -- 进队事件先于读到新层
     if r then r.ok, r.z, r.m = true, new, map end
     LH.lastHop = { ok = true, who = who, m = map, z = new, from = p.from, t = now(), inferred = inferred and true or nil }
-    local left = leaveIfAuto()
+    local left = leaveIfAuto(true)
     ns.Print(string.format(L("%s 把你拉到了 %s%s", "%s pulled you to %s%s"), who, where,
-        left and L("，已自动退队（设置里可关）", "; left the group automatically") or "") .. note)
+        left and L("，已自动退队（右侧『位面』页签可关）", "; left the group automatically (turn off in the Layers tab)") or "") .. note)
     LH.SetResult(true, string.format(L("换层成功：%s 把你拉到了 %s", "Moved: %s pulled you to %s"), who, where) .. (left and L("，已自动退队", ", left group") or "")
         .. (inferred and L("（按他报的层算）", " (per his report)") or ""))
 end)
@@ -631,9 +648,9 @@ function LH.CheckJoined(p, final)
         local r = LH.RecentHelper(p.leader or p.helper)
         if r then r.ok = false end
         LH.lastHop = { ok = false, who = helperOf(p), m = p.m, z = z, from = p.from, t = now() }
-        local left = leaveIfAuto()
+        local left = leaveIfAuto(false)
         LH.SetResult(false, string.format(L("没换成：进了 %s 的队，但你还在原来那层（%s），他可能和你本来就同层%s", "No move: joined %s's group but still on %s%s"),
-            helperOf(p), LY.LayerName(m, z), left and L("；已自动退队，换个人再试", "; left the group") or L("；可以退队换个人再试", "")))
+            helperOf(p), LY.LayerName(m, z), left and L("；已自动退队，换个人再试（右侧『位面』页签可关）", "; left the group (turn off in the Layers tab)") or L("；可以退队换个人再试", "")))
         return
     end
     if final then
@@ -764,8 +781,9 @@ function LH.CanHelp(any)
 end
 
 -- 会员求助能不能直接拉（不弹框）：开关开着、求助的是公会会员、我不在队伍里（在自己队里就弹框，别打扰队友）
+--   11-13：autoHelp 三态 —— false 弹框；true 直接拉；nil（没问过）也走 AutoInvite，在那里先「问一次」
 function LH.AutoHelpOK(s, via)
-    if not LY.DB().autoHelp then return false end
+    if LY.DB().autoHelp == false then return false end
     if IsInGroup and IsInGroup() then return false end
     if via == "guild" then return true end
     local LG = ns.LayerGuild
@@ -775,9 +793,30 @@ function LH.AutoInvite(n)
     local p = LH.popups[n]
     if not p or not LH.CanHelp(p.any) then return false end
     if LY.InCombat() or LY.InInstance() then return LH.ShowPopup(n) end
+    if now() - (p.t or 0) > LY.ASK_FRESH then LH.popups[n] = nil; return false end   -- 问一次的框搁太久才点：求助早过期了
+    if LY.DB().autoHelp ~= true then return LH.AskHelp(n) end
     local ok = LH.HelpInvite(n)   -- 无限客户端允许插件消息回调里邀请（Guild Master Forever 真机做法）
-    if ok then ns.Print(string.format(L("公会会员 %s 想换到你这层，已自动邀请（设置里可改成弹框问）", "Guildmate %s asked to join your layer - invited"), p.from)) end
+    if ok then ns.Print(string.format(L("公会会员 %s 想换到你这层，已自动邀请（右侧『位面』页签可关）", "Guildmate %s asked to join your layer - invited (turn off in the Layers tab)"), p.from)) end
     return ok
+end
+-- 11-13 玩家「或者初次的时候确认一次」：autoHelp 还是 nil → 先问「以后会员求助要直接拉吗？」
+--   「以后都直接拉」= 存 true，这次也拉；「每次问我」= 存 false，这次照原样弹「邀请 / 忽略」框；× / 战斗中 / 框在问别的 = 这次照原样弹框
+function LH.AskHelp(n)
+    local p = LH.popups[n]
+    if not p then return false end
+    local function fallback()
+        local q = LH.popups[n]
+        if q and now() - (q.t or 0) <= LY.ASK_FRESH then LH.ShowPopup(n) end
+    end
+    if LH.muteUntil and now() < LH.muteUntil then return LH.ShowPopup(n) end   -- 「这次上线别弹」照旧管用
+    local r = LY.AskOnce("autoHelp", {
+        text = string.format(L("公会会员 %s 想换到你这层。以后会员求助要直接拉吗？", "Guildmate %s wants to switch to your layer. Invite guildmates automatically from now on?"), tostring(p.from)),
+        yes = L("以后都直接拉", "Always invite"), no = L("每次问我", "Ask me each time"),
+        onYes = function() LH.AutoInvite(n) end,
+        onNo = fallback, onClose = fallback,
+    })
+    if r ~= "shown" then fallback() end
+    return false
 end
 
 LY.handlers.R = function(t, s, via, sender)

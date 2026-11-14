@@ -1,7 +1,7 @@
 -- 自动生成：scripts/gi_forever_default_builds.py ← scripts/forever_default_builds.json（⛔ 别手改）
 -- 各职业默认升级加点：order = 攻略逐点顺序（第 1 条 = 10 级），按英文名运行时对到《无限》天赋树
 -- 10-11 多套方案：顶层字段 = 默认方案（向后兼容）；builds = 全部方案（第 1 套 = 默认），key / role / tree(主系下标)
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 ns.DefaultBuildsData = {
     Warrior = { key = "arms", role = "dps", tree = 1, spec = "Arms", specCn = "武器", src = "wowforeverbuilds.com", url = "https://wowforeverbuilds.com/guide/arms-warrior-leveling", adjusted = 7, notes = { "Improved Tactical Mastery：上限只有 3 点，多的去掉", "Improved Tactical Mastery：上限只有 3 点，多的去掉", "Sweeping Strikes：《无限》挪到第 5 行，先点 Deflection×2 解锁", "Bloodthrill：上限只有 2 点，多的去掉", "Bloodthrill：上限只有 2 点，多的去掉", "Bloodthrill：上限只有 2 点，多的去掉", "补满到 51 点：Deflection×3" }, order = {
         { "Arms", "Improved Rend" }, { "Arms", "Improved Rend" }, { "Arms", "Improved Rend" }, { "Arms", "Improved Heroic Strike" },

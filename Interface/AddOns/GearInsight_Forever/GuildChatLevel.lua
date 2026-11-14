@@ -57,7 +57,7 @@ function GL.Rebuild(force)
             level = ok2 and tonumber(level) or nil
             if type(name) == "string" and level and not secret(name) and not secret(level) then
                 t[short(name)] = level
-                if type(zone) == "string" and zone ~= "" and not secret(zone) then z[short(name)] = zone end
+                if type(zone) == "string" and not secret(zone) and zone ~= "" then z[short(name)] = zone end
             end
         end
     end
@@ -74,7 +74,7 @@ function GL.Zone(author)
     if type(author) ~= "string" or secret(author) or author == "" then return nil end
     if isMe(author) then
         local z = (GetRealZoneText and GetRealZoneText()) or (GetZoneText and GetZoneText())
-        if type(z) == "string" and z ~= "" and not secret(z) then return z end
+        if type(z) == "string" and not secret(z) and z ~= "" then return z end
         return nil
     end
     GL.Rebuild()
@@ -159,7 +159,7 @@ local function unitZone(u)
     if not ok or not mid or secret(mid) then return nil end
     local ok2, mi = pcall(C_Map.GetMapInfo, mid)
     local z = ok2 and type(mi) == "table" and mi.name or nil
-    if type(z) == "string" and z ~= "" and not secret(z) then return z end
+    if type(z) == "string" and not secret(z) and z ~= "" then return z end
 end
 
 -- 发言人 → 等级, 地区（公会名单 / 同队 / 好友）；查不到等级 = nil
@@ -177,7 +177,7 @@ function GL.Info(author)
         local ok, fi = pcall(C_FriendList.GetFriendInfo, s)
         if ok and type(fi) == "table" and type(fi.level) == "number" and not secret(fi.level) and fi.level > 0 then
             local z = fi.area
-            if type(z) ~= "string" or z == "" or secret(z) then z = nil end
+            if type(z) ~= "string" or secret(z) or z == "" then z = nil end
             return fi.level, z
         end
     end
@@ -301,6 +301,8 @@ ns.ExtraSlash["通报"] = function()
         or ns.L("公会统计通报：已关", "Guild stats report off")) end
 end
 ns.ExtraSlash.report = ns.ExtraSlash["通报"]
+-- 11-12 重构第 1 期：report 会被后加载的 Report.lua（成长报告）占掉，英文客户端打不出「通报」→ 补一个不撞名的 greport
+ns.ExtraSlash.greport = ns.ExtraSlash["通报"]
 -- 上线后接着通报（开关存在存档里）
 local rev = CreateFrame("Frame")
 pcall(rev.RegisterEvent, rev, "PLAYER_ENTERING_WORLD")

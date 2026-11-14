@@ -1,6 +1,21 @@
 -- Generated from Docs/Products/YUI_AuctionHelper/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("auction_helper", {
+-- YUI-Notes-Record: yah-132|mainline|b5461db827121e22be1d7587e6f47fb09dcc6f6159f007333ac36f888692526f
+-- YUI-Notes-Record: yah-132|forever|df176f150d3c2f253a9b7f2eb7dda596639a82417b24e292ef60576f03839e40
+    {
+        version = "yah-132",
+        date = "2026-11-13",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: yah-131|mainline|aa3881a2d2fff7a75c1db92c8207da23fd7ab566c5386bc68c35d4baa67b3f3d
     {
         version = "yah-131",
@@ -147,20 +162,6 @@ CL:Register("auction_helper", {
             },
             enUS = {
                 "Recipe tracking now prefills purchase quantities from material shortages and supports highest-quality-only tracking.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: yah-122|mainline|5c8ea7e80b5ab33f9b30e6b51c6c444276228737d2a1661ea8cbe0629f6bc30c
-    {
-        version = "yah-122",
-        date = "2026-10-15",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
                 "Updated the shared core for compatibility with newer YUI addons.",
             },
         },

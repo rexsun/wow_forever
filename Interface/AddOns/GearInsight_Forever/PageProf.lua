@@ -4,7 +4,7 @@
 --   我的时刻表：每个专业一条 1-60 级的轴，节点 = 路线上的训练和采集门槛（ProfPlan.lua P.Timeline），点节点跳到升级规划那一级。
 --   配方库：ProfRecipes.lua（全部配方），按技能段 / 部位 / 《无限》新增 / 我能穿 / 搜索筛。
 --   数据 ProfData.lua / ProfRecipes.lua；推导函数在 Prof.lua / ProfPlan.lua。⛔ 在 HOLD 里，没实测完不进发行包。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local page
 local tab                   -- pick / time / route / recipes / camp；第一次打开：有专业 = 时刻表，没有 = 选专业
@@ -279,6 +279,8 @@ local ROUTE_KEYS = { "firstaid", "cooking", "alchemy", "blacksmithing", "enchant
 -- 11-09 GI-204「比如剥皮，多少技能点可以剥什么地方的皮」：冲级路线第二排放三个采集专业，点了出「技能多少去哪张图」总表
 local GATHER_KEYS = { "skinning", "herbalism", "mining" }
 local IS_GATHER = { skinning = true, herbalism = true, mining = true }
+-- 11-12 专业助手（ProfAssist.lua，HOLD 时不在包里）：在的话第二排多一个钓鱼，冲级路线子页改叫「专业助手」
+if ns.ProfAssist then GATHER_KEYS[#GATHER_KEYS + 1] = "fishing"; IS_GATHER.fishing = true end
 local function pickRouteKey(skills)
     if routeKey then return end
     for _, k in ipairs(ROUTE_KEYS) do if skills[k] and P().CRAFT[k] then routeKey = k break end end
@@ -351,9 +353,15 @@ local function renderGather(key, rank)
     end
 end
 
+-- 专业助手用同一套行 / 标题（PageProfAssist.lua）
+ns._ProfUI = { head = head, item = item, icon = icon, zoneName = zoneName, renderGather = renderGather,
+    shortSource = function(r) return shortSource(r) end }
+
 local function renderRoute()
     local skills = P().Skills()
     pickRouteKey(skills)
+    -- 11-12 专业助手在包里就交给它画（分段 / 只列接下来的 / 合计材料 / 钓鱼 / 烹饪推荐）；不在就还是下面原来的路线
+    if ns.ProfAssistRender and ns.ProfAssistRender(routeKey, skills) then return end
     if IS_GATHER[routeKey] then
         return renderGather(routeKey, skills[routeKey] and skills[routeKey].r)
     end
@@ -717,16 +725,26 @@ local function refresh()
     page.mineBtn:SetShown(tab == "recipes"); markSel(page.mineBtn, flt.mine)
     page.srcBtn:SetShown(tab == "recipes"); page.srcBtn:SetText(SRC_FILTERS[flt.src or 1][1]); markSel(page.srcBtn, (flt.src or 1) ~= 1)
     page.search:SetShown(tab == "recipes")
+    if ns.ProfAssistRefresh then ns.ProfAssistRefresh(page, tab) end
     local top = TOP[tab] or -98
+    -- 11-12 GI-238「滚动到下面 每隔一秒就会自动重置回到顶部」：Prof.lua 的 SKILL_LINES_CHANGED / TRADE_SKILL_LIST_UPDATE
+    --   一来就整页重画，以前每次都把滚动条拉回 0。现在只有换了子页 / 专业 / 筛选才回顶部，同一视图重画保住位置（夹在新内容高度内）
+    local vk = table.concat({ tostring(tab), tostring(routeKey), tostring(flt.range), tostring(flt.slot), tostring(flt.new),
+        tostring(flt.mine), tostring(flt.q or ""), tostring(flt.src or 1) }, "\1")
+    local keep = 0
+    if vk == page.viewKey and page.sf.GetVerticalScroll then keep = tonumber(page.sf:GetVerticalScroll()) or 0 end
+    page.viewKey = vk
+    local sfH = 474 + top - 12
     page.sf:ClearAllPoints()
     page.sf:SetPoint("TOPLEFT", 6, top)
-    page.sf:SetSize(616, 474 + top - 12)
+    page.sf:SetSize(616, sfH)
     for _, r in ipairs(page.rows) do r:Hide() end
     y, n = -2, 0
     if tab == "pick" then renderPick() elseif tab == "time" then renderTime() elseif tab == "route" then renderRoute()
     elseif tab == "recipes" then renderRecipes() else renderCamp() end
     page.child:SetHeight(-y + 4)
-    if page.sf.SetVerticalScroll then page.sf:SetVerticalScroll(0) end
+    if page.sf.UpdateScrollChildRect then page.sf:UpdateScrollChildRect() end
+    if page.sf.SetVerticalScroll then page.sf:SetVerticalScroll(math.max(0, math.min(keep, (-y + 4) - sfH))) end
 end
 ns.RefreshProfPage = refresh
 
@@ -738,7 +756,7 @@ local function build(p)
         ns.L("边练级边练专业：选专业、路线上的训练和采集门槛、配方库", "Level your professions while you level: picks, route timeline, recipes"))
     p.tabBtns = {}
     local x = 12
-    for _, t in ipairs({ { "pick", ns.L("选专业", "Choose") }, { "time", ns.L("我的时刻表", "Timeline") }, { "route", ns.L("冲级路线", "Route") },
+    for _, t in ipairs({ { "pick", ns.L("选专业", "Choose") }, { "time", ns.L("我的时刻表", "Timeline") }, { "route", ns.ProfAssist and ns.L("专业助手", "Assistant") or ns.L("冲级路线", "Route") },
         { "recipes", ns.L("配方库", "Recipes") }, { "camp", ns.L("营地与传承", "Camp & Legacy") } }) do
         local b = ns.Button(p, t[2], 112, 22, function() tab = t[1]; refresh() end)
         b:SetPoint("TOPLEFT", x, -42); x = x + 116
@@ -816,6 +834,7 @@ local function build(p)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(ns.L("搜配方名、材料名、商人名或地区", "Search recipe, material, vendor or zone"), 1, 0.82, 0); GameTooltip:Show()
     end)
     p.search:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    if ns.ProfAssistBuild then ns.ProfAssistBuild(p, refresh) end
     local sf, c = ns.Scroll(p, 6, -98, 616, 474 - 98 - 12)
     p.sf, p.child = sf, c
 end

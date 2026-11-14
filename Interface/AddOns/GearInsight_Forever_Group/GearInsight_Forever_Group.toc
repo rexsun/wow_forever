@@ -1,16 +1,17 @@
 ## Interface: 16001, 11507
 ## Title: GearInsight |cff33ff99Forever|r - Group
 ## Title-zhCN: GearInsight |cff33ff99无限版|r · 组队
-## Notes: GearInsight Forever group module (loads when you open the Group tab)
-## Notes-zhCN: GearInsight 无限版的组队模块：点右侧「组队」页签时才加载
+## Notes: GearInsight Forever group beacon (shares your quest progress; loaded at login by the main addon)
+## Notes-zhCN: GearInsight 无限版的组队信标：共享任务进度 / 回别人的进度 / 解散道谢，主插件登录时加载（设置里可改成点了才加载）
 ## Author: GearInsight
-## Version: 1.0.1
+## Version: 1.1.4
 ## Dependencies: GearInsight_Forever
 ## LoadOnDemand: 1
 ## IconTexture: Interface\Icons\inv_misc_map_01
 
 # 10-18 用户「工会和组队都单拆子模块，默认不加载」：主插件只留右侧空页签，第一次点才 LoadAddOn（UI.lua ns.LoadModule）
+# 11-13 界面重构第 5 期：这里只留信标（登录加载）；抽屉界面 / 副本组队面板 → GearInsight_Forever_GroupUI（按需），法师吃喝 → GearInsight_Forever_GroupMage（按开关）
 
 QuestMates.lua
-DungeonChat.lua
-MageWater.lua
+DungeonChatCore.lua
+GroupParts.lua

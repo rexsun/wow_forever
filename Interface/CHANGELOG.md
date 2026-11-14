@@ -1,3 +1,14 @@
+## [Addon update / OverlapSettingsGuard 0.14.0] - 2026-11-13
+### Features
+- Update YUI v359, GatherLite 8.4.8, MapUtils 1.7.1 and GearInsight Forever 1.1.4 (adds `_GroupMage` and `_GroupUI`).
+- Add guard rules `gi.questshare` and `gi.magewater`; extend `gi.groupautoload` with `ui.groupLazy`; move `gi.levelingstats` to GearInsight's per-character API and `mu.pierpins` to `WORLDMAPPINS_ENABLED`.
+### Design Rationale
+- Quest sharing already ran from every login under 1.0.1 because the Group module auto-loads unless `ui.groupLazy` is set; turning sharing off directly and keeping the module lazy closes that broadcast without removing the Group tab.
+- The Mage water whisper is outbound chat, which YUI owns; switching off both Mage water triggers also stops the new module loading by itself.
+- `WORLDMAPPINS_ENABLED` is MapUtils' own category switch, so one key covers zone, continent and world maps and the Piers button instead of chasing per-scope keys.
+### Notes & Caveats
+- GearInsight's leveling window is per character now; a character that never closed it can flash it once before the guard hides it. MapUtils sets `showKeyring` to 1 at each login. Unverified in game and at the three supported resolutions.
+
 ## [GearInsight 1.0.1 / OverlapSettingsGuard 0.13.0] - 2026-11-12
 ### Features
 - Update GearInsight Forever to 1.0.1.

@@ -70,8 +70,11 @@ local Convergence = {
 		elemental = 1259686,
 		leyline = 1259705
 	},
-	atlas = "MagePortalAlliance",
-	atlasKnown = nil,
+	factionAtlas = {
+		Horde = "MagePortalHorde",
+		Alliance = "MagePortalAlliance"
+	},
+	atlasKnown = {},
 	fallbackIcons = {
 		elemental = "Interface\\Icons\\Spell_Nature_Cyclone",
 		leyline = "Interface\\Icons\\Spell_Arcane_Arcane04"
@@ -173,8 +176,9 @@ function Convergence.GetVariantName(variant)
 end
 
 function Convergence.GetVariantIcon(variant)
-	if Convergence.atlasKnown == nil then Convergence.atlasKnown = MapUtils.AtlasExists ~= nil and MapUtils:AtlasExists(Convergence.atlas) == true end
-	if Convergence.atlasKnown then return Convergence.atlas end
+	local atlas = Convergence.factionAtlas[UnitFactionGroup("player")] or Convergence.factionAtlas.Alliance
+	if Convergence.atlasKnown[atlas] == nil then Convergence.atlasKnown[atlas] = MapUtils.AtlasExists ~= nil and MapUtils:AtlasExists(atlas) == true end
+	if Convergence.atlasKnown[atlas] then return atlas end
 	local icon = nil
 	if C_Spell ~= nil and C_Spell.GetSpellTexture ~= nil then icon = C_Spell.GetSpellTexture(Convergence.icons[variant]) end
 
@@ -380,13 +384,6 @@ function Convergence.AddReceived(mapID, variant, x, y, rect, weight, sender)
 	return isNew
 end
 
-function Convergence.IsSelf(sender)
-	local name, realm = UnitFullName("player")
-	if name == nil or sender == name then return true end
-
-	return realm ~= nil and realm ~= "" and sender == name .. "-" .. realm
-end
-
 function Convergence.Send(message, chatType, target)
 	if C_ChatInfo == nil or C_ChatInfo.SendAddonMessage == nil then return false end
 	local ok, result = pcall(C_ChatInfo.SendAddonMessage, Convergence.prefix, message, chatType, target)
@@ -463,7 +460,7 @@ end
 
 function Convergence.OnAddonMessage(prefix, message, sender)
 	if prefix ~= Convergence.prefix or type(message) ~= "string" or type(sender) ~= "string" then return end
-	if Convergence.IsSecret(prefix, message, sender) or Convergence.IsSelf(sender) then return end
+	if Convergence.IsSecret(prefix, message, sender) or MapUtils.Comm.IsSelf(sender) then return end
 	if message == "Q" then
 		Convergence.Reply(sender)
 
@@ -853,7 +850,7 @@ end
 function MapUtils:ConvergencePinsEnabled(worldMap)
 	if not MapUtils:IsForever() then return false end
 	if not MapUtils:IsSkyborne() and MapUtils:GetConfig("CONVERGENCENONSKYBORNE", false) ~= true then return false end
-	if worldMap then return MapUtils:GetConfig("CONVERGENCEWORLDMAPPINS", true) == true end
+	if worldMap then return MapUtils:IsPinShownOnMap("CONVERGENCEWORLDMAPPINS", true) end
 
 	return MapUtils:GetConfig("CONVERGENCEMINIMAPPINS", false) == true
 end
@@ -922,12 +919,12 @@ end
 Convergence.loginFrame = CreateFrame("FRAME")
 Convergence.loginFrame:RegisterEvent("PLAYER_LOGIN")
 Convergence.loginFrame:SetScript("OnEvent", Convergence.MergeWowhead)
-if GameTooltip ~= nil and GameTooltip.SetMinimapMouseover ~= nil then hooksecurefunc(GameTooltip, "SetMinimapMouseover", Convergence.OnMinimapMouseover) end
+if GameTooltip ~= nil and GameTooltip.SetMinimapMouseover ~= nil then hooksecurefunc(GameTooltip, "SetMinimapMouseover", MapUtils.Profile("convergences minimap mouseover", Convergence.OnMinimapMouseover)) end
 if MapUtils:IsForever() and Minimap ~= nil and C_Timer ~= nil and C_Timer.NewTicker ~= nil then
 	Convergence.scanFrame = CreateFrame("FRAME")
 	Convergence.scanFrame:Hide()
-	Convergence.scanFrame:SetScript("OnUpdate", Convergence.OnScanUpdate)
-	C_Timer.NewTicker(Convergence.scanInterval, Convergence.MaybeScan)
+	Convergence.scanFrame:SetScript("OnUpdate", MapUtils.Profile("convergences OnScanUpdate", Convergence.OnScanUpdate))
+	C_Timer.NewTicker(Convergence.scanInterval, MapUtils.Profile("convergences MaybeScan", Convergence.MaybeScan))
 end
 
 if MapUtils:IsForever() and C_ChatInfo ~= nil and C_ChatInfo.RegisterAddonMessagePrefix ~= nil then
@@ -936,3 +933,4 @@ if MapUtils:IsForever() and C_ChatInfo ~= nil and C_ChatInfo.RegisterAddonMessag
 	Convergence.commFrame:RegisterEvent("CHAT_MSG_ADDON")
 	Convergence.commFrame:SetScript("OnEvent", function(_, _, prefix, message, _, sender) Convergence.OnAddonMessage(prefix, message, sender) end)
 end
+MapUtils.ProfileTable("Convergence", Convergence)

@@ -144,6 +144,8 @@ local ZoneInfo = {
 	lineSpacing = 2,
 	levelOffset = 1000,
 	justify = "LEFT",
+	levelCache = {},
+	state = {},
 }
 
 function ZoneInfo.CreateText(frame, font)
@@ -197,19 +199,69 @@ function ZoneInfo.GetZoneID(mapID)
 	return info.mapID
 end
 
+function ZoneInfo.GetBlizzardLevels(zoneID)
+	if C_Map.GetMapLevels == nil then return nil end
+	local cached = ZoneInfo.levelCache[zoneID]
+	if cached == nil then
+		local ok, minLevel, maxLevel = pcall(C_Map.GetMapLevels, zoneID)
+		cached = ok and type(minLevel) == "number" and type(maxLevel) == "number" and minLevel > 0 and maxLevel > 0 and {minLevel, maxLevel} or false
+		ZoneInfo.levelCache[zoneID] = cached
+	end
+
+	return cached or nil
+end
+
 function ZoneInfo.GetTitle(zoneID, levelsOn)
 	if zoneID == nil or C_Map.GetMapInfo == nil then return nil end
 	local info = C_Map.GetMapInfo(zoneID)
 	local name = info and info.name
 	if name == nil or name == "" then return nil end
-	local levels = zoneID and zoneLevels[zoneID]
+	local levels = zoneID and (zoneLevels[zoneID] or ZoneInfo.GetBlizzardLevels(zoneID))
 	if levelsOn and levels ~= nil then name = format("%s %s(%s)|r", name, MapUtils:GetLevelColorCode(levels[1], levels[2]), GetRangeText(levels)) end
 
 	return name
 end
 
-function ZoneInfo.GetLines(zoneID, recOn, fishingOn)
+function ZoneInfo.FindAreaName(mapID, zoneID)
+	if C_MapExplorationInfo == nil or C_MapExplorationInfo.GetExploredAreaIDsAtPosition == nil or C_Map.GetAreaInfo == nil or CreateVector2D == nil then return nil end
+	local container = WorldMapFrame.ScrollContainer
+	if container == nil or not container:IsMouseOver() or WorldMapFrame.GetNormalizedCursorPosition == nil then return nil end
+	local x, y = WorldMapFrame:GetNormalizedCursorPosition()
+	if x == nil or y == nil then return nil end
+	if zoneID ~= mapID then
+		if C_Map.GetMapRectOnMap == nil then return nil end
+		local left, right, top, bottom = C_Map.GetMapRectOnMap(zoneID, mapID)
+		if left == nil or right == nil or top == nil or bottom == nil or right <= left or bottom <= top then return nil end
+		x, y = (x - left) / (right - left), (y - top) / (bottom - top)
+	end
+
+	local ok, areaIDs = pcall(C_MapExplorationInfo.GetExploredAreaIDsAtPosition, zoneID, CreateVector2D(x, y))
+	if not ok or type(areaIDs) ~= "table" then return nil end
+	local info = C_Map.GetMapInfo(zoneID)
+	local zoneName = info and info.name
+	for _, areaID in ipairs(areaIDs) do
+		local name = C_Map.GetAreaInfo(areaID)
+		if name ~= nil and name ~= "" and name ~= zoneName then return name end
+	end
+
+	return nil
+end
+
+function ZoneInfo.GetAreaName(mapID, zoneID)
+	if mapID == nil or zoneID == nil then return nil end
+	local x, y = WorldMapFrame:GetNormalizedCursorPosition()
+	local key = format("%s|%s|%s|%s", mapID, zoneID, tostring(x), tostring(y))
+	if ZoneInfo.areaKey ~= key then
+		ZoneInfo.areaKey = key
+		ZoneInfo.areaName = ZoneInfo.FindAreaName(mapID, zoneID)
+	end
+
+	return ZoneInfo.areaName
+end
+
+function ZoneInfo.GetLines(zoneID, recOn, fishingOn, areaName)
 	local lines = {}
+	if areaName ~= nil then tinsert(lines, ZoneInfo.Colorize(areaName, AREA_NAME_FONT_COLOR)) end
 	local rec = zoneRecLevels[zoneID]
 	if recOn and rec ~= nil then tinsert(lines, MapUtils:Trans("LID_RECOMMENDEDSTARTLEVEL", nil, rec)) end
 	local fishing = zoneFishing[zoneID]
@@ -225,7 +277,8 @@ function ZoneInfo.GetZoneContent()
 	local fishingOn = MapUtils:GetConfig("FISHINGLEVELS", true) == true
 	local zoneID = mapID and ZoneInfo.GetZoneID(mapID)
 	local title = ZoneInfo.GetTitle(zoneID, levelsOn)
-	local lines = zoneID and ZoneInfo.GetLines(zoneID, recOn, fishingOn) or {}
+	local areaName = zoneID and ZoneInfo.GetAreaName(mapID, zoneID)
+	local lines = zoneID and ZoneInfo.GetLines(zoneID, recOn, fishingOn, areaName) or {}
 
 	return title, table.concat(lines, "\n")
 end
@@ -248,16 +301,6 @@ function ZoneInfo.GetLabelContent()
 	return ZoneInfo.Colorize(info.name, info.nameColor), ZoneInfo.Colorize(description, info.descriptionColor)
 end
 
-function MapUtils:SetMapInfoOverride(title, body)
-	if title == nil or title == "" then
-		ZoneInfo.override = nil
-	else
-		ZoneInfo.override = {title, body or ""}
-	end
-
-	ZoneInfo.Update()
-end
-
 function ZoneInfo.GetSample()
 	local levels = {10, 20}
 	local title = format("%s %s(%s)|r", MapUtils:Trans("LID_ZONENAMESAMPLE"), MapUtils:GetLevelColorCode(levels[1], levels[2]), GetRangeText(levels))
@@ -271,16 +314,30 @@ function ZoneInfo.Refresh()
 	ZoneInfo.Update()
 end
 
+function ZoneInfo.Changed(...)
+	local state = ZoneInfo.state
+	local changed = false
+	for i = 1, select("#", ...) do
+		local value = select(i, ...)
+		if state[i] ~= value then
+			state[i] = value
+			changed = true
+		end
+	end
+
+	return changed
+end
+
 function ZoneInfo.Update()
 	local frame = ZoneInfo.Create()
 	if frame == nil then return end
-	local title, body = nil, nil
-	if ZoneInfo.override ~= nil then
-		title, body = ZoneInfo.override[1], ZoneInfo.override[2]
-	else
-		title, body = ZoneInfo.GetLabelContent()
-	end
-
+	local label = ZoneInfo.label
+	local labelInfo = label and label.GetHighestPriorityLabelInfo and label:GetHighestPriorityLabelInfo()
+	local x, y = WorldMapFrame:GetNormalizedCursorPosition()
+	local container = WorldMapFrame.ScrollContainer
+	local changed = ZoneInfo.Changed(WorldMapFrame:GetMapID(), container ~= nil and container:IsMouseOver(), x, y, labelInfo or false, labelInfo and labelInfo.name or false, MapUtils.IsMapEditMode ~= nil and MapUtils:IsMapEditMode() or false, MapUtils:GetConfig("ZONELEVELS", true), MapUtils:GetConfig("ZONERECLEVELS", true), MapUtils:GetConfig("FISHINGLEVELS", true))
+	if not changed and ZoneInfo.key ~= nil then return end
+	local title, body = ZoneInfo.GetLabelContent()
 	if title == nil then title, body = ZoneInfo.GetZoneContent() end
 	body = body or ""
 	if MapUtils.IsMapEditElementVisible ~= nil and not MapUtils:IsMapEditElementVisible(ZoneInfo.element) then
@@ -302,8 +359,9 @@ function ZoneInfo.Update()
 	end
 
 	local side = align == "CENTER" and "" or align
-	frame.text:SetText(body)
 	frame.text:SetJustifyH(align)
+	frame.text:SetText("")
+	frame.text:SetText(body)
 	frame.text:ClearAllPoints()
 	frame.text:SetPoint("BOTTOM" .. side, frame, "BOTTOM" .. side, 0, 0)
 	frame.title:SetText(title or "")
@@ -335,7 +393,7 @@ function ZoneInfo.HookLabel()
 		if label ~= nil and label.EvaluateLabels ~= nil then
 			ZoneInfo.label = label
 			ZoneInfo.HideBlizzardText(label)
-			hooksecurefunc(label, "EvaluateLabels", ZoneInfo.Update)
+			hooksecurefunc(label, "EvaluateLabels", MapUtils.Profile("zonelevels Update", ZoneInfo.Update))
 			ZoneInfo.hooked = true
 
 			return true
@@ -346,7 +404,7 @@ function ZoneInfo.HookLabel()
 end
 
 if WorldMapFrame ~= nil then
-	if WorldMapFrame.OnMapChanged ~= nil then hooksecurefunc(WorldMapFrame, "OnMapChanged", ZoneInfo.Update) end
+	if WorldMapFrame.OnMapChanged ~= nil then hooksecurefunc(WorldMapFrame, "OnMapChanged", MapUtils.Profile("zonelevels Update", ZoneInfo.Update)) end
 	WorldMapFrame:HookScript("OnShow", function()
 		ZoneInfo.HookLabel()
 		ZoneInfo.Update()
@@ -355,3 +413,4 @@ if WorldMapFrame ~= nil then
 	if WorldMapFrame.ScrollContainer ~= nil then WorldMapFrame.ScrollContainer:HookScript("OnLeave", ZoneInfo.Update) end
 	ZoneInfo.HookLabel()
 end
+MapUtils.ProfileTable("ZoneInfo", ZoneInfo)

@@ -86,7 +86,7 @@ function PS.PinLink(m, x, y)
     local link
     if pcall(C_Map.SetUserWaypoint, UiMapPoint.CreateFromCoordinates(m, x, y)) then
         local ok, l = pcall(C_Map.GetUserWaypointHyperlink)
-        if ok and type(l) == "string" and l ~= "" and not secret(l) then link = l end
+        if ok and type(l) == "string" and not secret(l) and l ~= "" then link = l end
     end
     if type(old) == "table" then
         pcall(C_Map.SetUserWaypoint, old)

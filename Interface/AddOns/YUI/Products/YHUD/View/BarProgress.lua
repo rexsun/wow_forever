@@ -25,6 +25,7 @@ function View:ReadBarProgressMaximum(entry, monitor, progress)
     if progress.source == "aura-stacks" then
         if not YHUD:CanUseBarAuraProgress(entry, monitor) then return nil end
         if progress.maximumMode == "custom" then return progress.maximum end
+        if YHUD:UsesArcaneBlastSimulation(entry) then return YHUD.ArcaneBlast.MAX_STACKS end
         local spellID = EntrySpellID(entry, monitor)
         if Spell and Spell.ReadMaxCumulativeAuraApplications then
             return Spell.ReadMaxCumulativeAuraApplications(spellID)
@@ -559,7 +560,17 @@ function View:ApplyBarProgress(slot, state, runtime)
     local cooldown = slot.countdown
     if cooldown then
         local mode = state and state.durationMode or "none"
-        if mode ~= "none" and state.durationObject and cooldown.SetCooldownFromDurationObject
+        local simulated = YHUD.ArcaneBlast and state
+            and state.sourceKey == YHUD.ArcaneBlast.SOURCE_KEY and state.available == true
+        if simulated then
+            if slot._yhudBarCountdownMode ~= "arcane-simulation"
+                or slot._yhudBarCountdownRevision ~= state.startTime then
+                cooldown:SetCooldown(state.startTime, state.duration)
+                cooldown:Show()
+                slot._yhudBarCountdownMode = "arcane-simulation"
+                slot._yhudBarCountdownRevision = state.startTime
+            end
+        elseif mode ~= "none" and state.durationObject and cooldown.SetCooldownFromDurationObject
             and (slot._yhudBarCountdownMode ~= mode
                 or slot._yhudBarCountdownRevision ~= state.opaqueRevision) then
             cooldown:SetCooldownFromDurationObject(state.durationObject)
@@ -594,6 +605,8 @@ function View:ApplyBarProgress(slot, state, runtime)
         end
         self:ApplyBarValue(slot, runtime, value, maximum, secret)
         ApplyRecharge(slot, state)
+    elseif YHUD.ArcaneBlast and state and state.sourceKey == YHUD.ArcaneBlast.SOURCE_KEY then
+        self:ApplyBarValue(slot, runtime, state.displayCount or 0, slot._yhudBarMaximum, false)
     else
         -- Live filtered Auras bind SetApplicationBar directly. Public design
         -- samples and inactive placeholders never fabricate a live Aura value.

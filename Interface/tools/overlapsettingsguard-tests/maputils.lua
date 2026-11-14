@@ -3,7 +3,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     { id = "mu.worldmapmove", field = "WORLDMAPMOVE" },
     { id = "mu.worldmapscale", field = "WORLDMAPSCALE" },
     { id = "mu.worldmapfade", field = "WORLDMAPFADE" },
-    { id = "mu.pierpins", field = "WORLDMAPPINS" },
+    { id = "mu.pierpins", field = "WORLDMAPPINS_ENABLED" },
   }
   local FLIGHT = "travel.flight"
 
@@ -125,8 +125,20 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     local settings = ReadFile(addons .. "MapUtils/settings.lua")
     local mapframe = ReadFile(addons .. "MapUtils/mapframe.lua")
     for _, setting in ipairs(GUARDED) do
-      ok(settings:find('"' .. setting.field .. '"', 1, true), setting.field .. " in MapUtils settings")
+      if setting.id ~= "mu.pierpins" then
+        ok(settings:find('"' .. setting.field .. '"', 1, true), setting.field .. " in MapUtils settings")
+      end
     end
+    -- 1.7.x: WORLDMAPPINS only covers zone maps; the category switch covers every map.
+    local visibility = ReadFile(addons .. "MapUtils/pinvisibility.lua")
+    local pins = ReadFile(addons .. "MapUtils/pins.lua")
+    ok(settings:find('AddPinCategory("WORLDMAPPINS", RefreshPins)', 1, true), "pier category in MapUtils settings")
+    ok(settings:find('AddCheckbox(key .. "_ENABLED", true', 1, true), "category switch defaults on")
+    ok(visibility:find('return PinVisibility.GetDB()[key .. "_ENABLED"] ~= false', 1, true), "category switch reads MAUTTAB")
+    ok(visibility:find("if not MapUtils:IsPinCategoryEnabled(key) then return false end", 1, true),
+      "category switch hides pins on every map")
+    ok(pins:find('if worldMap then return MapUtils:IsPinShownOnMap("WORLDMAPPINS", true) end', 1, true),
+      "world map piers use the category switch")
     ok(mapframe:find('IsEnabled("WORLDMAPMOVE")', 1, true), "MapUtils reads the move switch")
     ok(mapframe:find('IsEnabled("WORLDMAPSCALE")', 1, true), "MapUtils reads the scale switch")
     ok(mapframe:find('MAUTTAB["WORLDMAPFADE"] ~= false', 1, true), "MapUtils reads the fade switch")
@@ -146,12 +158,13 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
   end)
 
   test("MapUtils saved overlaps are off before login and other settings are preserved", function()
-    local saved = { WORLDMAPMOVE = true, WORLDMAPSCALE = true, WORLDMAPFADE = true, REVEALMAP = true, WORLDMAPPINS = true,
+    local saved = { WORLDMAPMOVE = true, WORLDMAPSCALE = true, WORLDMAPFADE = true, REVEALMAP = true, WORLDMAPPINS_ENABLED = true,
+      WORLDMAPPINS = true, WORLDMAPPINS_AZEROTH = true,
       WORLDMAPSCALEVALUE = 1.2, ONEMAP = true, MINIMAPPINS = true, VESSELWORLDMAPPINS = true,
       FLIGHTWORLDMAPPINS = true, CROSSINGWORLDMAPPINS = true, FISHINGLEVELS = true, ZONELEVELS = true }
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded(), beforeGuard = Saved(saved) })
     for _, setting in ipairs(GUARDED) do eq(saved[setting.field], false, setting.field) end
-    for _, key in ipairs({ "ONEMAP", "MINIMAPPINS", "VESSELWORLDMAPPINS", "FLIGHTWORLDMAPPINS",
+    for _, key in ipairs({ "WORLDMAPPINS", "WORLDMAPPINS_AZEROTH", "ONEMAP", "MINIMAPPINS", "VESSELWORLDMAPPINS", "FLIGHTWORLDMAPPINS",
       "CROSSINGWORLDMAPPINS", "FISHINGLEVELS", "ZONELEVELS" }) do
       eq(saved[key], true, key .. " kept")
     end

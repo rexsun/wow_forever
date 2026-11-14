@@ -8,7 +8,7 @@
 --   《无限》客户端 DB2（wago.tools）：UiMap / UiMapAssignment 1.60.1.70334（地区名 + 坐标换算）· SpellName / Spell 1.60.1.70790（技能等级）
 -- 字段：id = NPC ID · d = 模型（显示）ID，画头像用 · lo / hi = 等级 · ui = 地图 ID · x / y = 地图百分比 · r = 0 普通 1 精英 2 稀有精英 4 稀有 · t = { {法术ID, 等级}, ... } 会教的技能
 -- 已知缺口：狐狸（无限新家族）经典数据没有；无限新地区没覆盖 → 等众包 bf / tm 补
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 ns.PetTameData = {
   src = "cmangos-classicdb(GPL-3.0)+pfQuest-zhCN(MIT)+era-CreatureSpellData", ui = "1.60.1.70334", spell = "1.60.1.70790",
   zones = {

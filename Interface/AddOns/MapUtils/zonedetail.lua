@@ -496,16 +496,33 @@ local function DrawZone(continentID, continentRect, mapID, mode, width, height)
 	zone.frame:Show()
 end
 
+local insideCache = {}
 local function IsInside(mapID, ancestorID)
+	if mapID == nil or ancestorID == nil then return false end
+	local cached = insideCache[mapID]
+	if cached ~= nil and cached[ancestorID] ~= nil then return cached[ancestorID] end
 	local info = C_Map.GetMapInfo(mapID)
+	if info == nil then return false end
+	local result = false
 	local guard = 0
 	while info ~= nil and info.parentMapID ~= nil and info.parentMapID > 0 and guard < 10 do
-		if info.parentMapID == ancestorID then return true end
+		if info.parentMapID == ancestorID then
+			result = true
+			break
+		end
+
 		info = C_Map.GetMapInfo(info.parentMapID)
 		guard = guard + 1
 	end
 
-	return false
+	if cached == nil then
+		cached = {}
+		insideCache[mapID] = cached
+	end
+
+	cached[ancestorID] = result
+
+	return result
 end
 
 MapUtils.IsMapInside = IsInside
@@ -688,8 +705,8 @@ local function GetMode(mapID)
 	return GetStyle(mapID) == "MAP" and not GetEmbeddedCityStyle(mapID) and MODE_OFF or MODE_AREAS
 end
 
-local function RawSpaceRect(mapID)
-	if mapID == nil then return nil end
+local rectCache = {}
+local function ComputeSpaceRect(mapID)
 	local space = GetSpace(mapID)
 	if space == nil then return nil end
 	if mapID == space then return 0, 1, 0, 1 end
@@ -702,6 +719,20 @@ local function RawSpaceRect(mapID)
 	local width, height = right - left, bottom - top
 
 	return -left / width, (1 - left) / width, -top / height, (1 - top) / height
+end
+
+local function RawSpaceRect(mapID)
+	if mapID == nil then return nil end
+	local cached = rectCache[mapID]
+	if cached == nil then
+		local left, right, top, bottom = ComputeSpaceRect(mapID)
+		cached = left ~= nil and {left, right, top, bottom} or false
+		rectCache[mapID] = cached
+	end
+
+	if cached == false then return nil end
+
+	return cached[1], cached[2], cached[3], cached[4]
 end
 
 local function GetSpaceRect(mapID)
@@ -724,7 +755,7 @@ function MapUtils:IsZoneDetailMap(mapID)
 end
 
 function MapUtils:GetZoneDetailSpaceRect(mapID)
-	if not MapUtils:IsZoneDetailMap(mapID) then return nil end
+	if GetMode() ~= MODE_FULL then return nil end
 
 	return GetSpaceRect(mapID)
 end
@@ -868,6 +899,26 @@ local function Preload()
 			end
 		end
 	end
+
+	local started, elapsed = GetTime(), 0
+	preload.frame:SetScript("OnUpdate", function(self, delta)
+		elapsed = elapsed + delta
+		if elapsed < 0.25 then return end
+		elapsed = 0
+		local loaded = true
+		for i = 1, select("#", self:GetRegions()) do
+			local region = select(i, self:GetRegions())
+			if region.IsObjectLoaded and not region:IsObjectLoaded() then
+				loaded = false
+				break
+			end
+		end
+
+		if not preload.keep and (loaded or GetTime() - started > 10) then
+			self:SetScript("OnUpdate", nil)
+			self:Hide()
+		end
+	end)
 end
 
 local function DrawTileLayer(pool, mapID, offsetX, offsetY, scale, drawLayer, mask, edge)
@@ -973,17 +1024,179 @@ end
 local function ShowBase(shown)
 	for _, entry in pairs(base.continents) do
 		for _, texture in pairs(entry.pool) do
-			texture:SetShown(shown and entry.drawn and texture.used == true)
+			base.cull.SetWanted(texture, shown and entry.drawn and texture.used == true)
 		end
 	end
 
 	for _, texture in pairs(base.world) do
-		texture:SetShown(shown and texture.used == true)
+		base.cull.SetWanted(texture, shown and texture.used == true)
 	end
 
 	for _, list in ipairs({unders, zones}) do
 		for _, art in pairs(list) do
-			art.frame:SetShown(shown and art.count > 0)
+			base.cull.SetWanted(art.frame, shown and art.count > 0)
+		end
+	end
+end
+
+base.cull = {
+	margin = 16,
+	view = {},
+	version = 0,
+	marginShare = 0.25,
+	interval = 0.1,
+	hideDelay = 0.3,
+	switchWindow = 0.6,
+	minZoneScale = 0.05
+}
+
+function base.cull.Track(region)
+	if region.cullHooked then return end
+	region.cullHooked = true
+	region.cullWanted = region:IsShown()
+	local function Want(self, shown)
+		if self.cullGuard then return end
+		self.cullWanted = shown and true or false
+		if shown and self.culled then
+			self.cullGuard = true
+			self:Hide()
+			self.cullGuard = false
+		end
+	end
+
+	hooksecurefunc(region, "Show", function(self) Want(self, true) end)
+	hooksecurefunc(region, "Hide", function(self) Want(self, false) end)
+	hooksecurefunc(region, "SetShown", Want)
+end
+
+function base.Changed(store, ...)
+	local changed = false
+	for i = 1, select("#", ...) do
+		local value = select(i, ...)
+		if store[i] ~= value then
+			store[i] = value
+			changed = true
+		end
+	end
+
+	return changed
+end
+
+function base.cull.SetWanted(region, shown)
+	shown = shown and true or false
+	if region.culled then
+		region.cullWanted = shown
+
+		return
+	end
+
+	if region:IsShown() ~= shown then region:SetShown(shown) end
+end
+
+function base.cull.Set(region, culled)
+	base.cull.Track(region)
+	if not culled then region.cullAt = nil end
+	if region.culled == culled then return end
+	if culled then
+		local now = GetTime()
+		region.cullAt = region.cullAt or now
+		if now < (base.cull.switchUntil or 0) and now - region.cullAt < base.cull.hideDelay then
+			base.cull.pending = true
+
+			return
+		end
+	end
+
+	region.culled = culled
+	region.cullGuard = true
+	if culled then
+		region:Hide()
+	elseif region.cullWanted then
+		region:Show()
+	end
+
+	region.cullGuard = false
+end
+
+function base.cull.InView(region, view)
+	local left, bottom, width, height = region:GetRect()
+	if left == nil or width == nil or width <= 0 then return true end
+
+	return left < view.right and left + width > view.left and bottom < view.top and bottom + height > view.bottom
+end
+
+function base.cull.Run()
+	local cull = base.cull
+	if container == nil then return end
+	local scroll = WorldMapFrame.ScrollContainer
+	local active = container:IsShown() and container.built ~= nil
+	local changed
+	if active then
+		changed = base.Changed(cull.view, true, scroll:GetCanvasScale() or 0, scroll:GetCurrentScrollX() or 0, scroll:GetCurrentScrollY() or 0, container.signature)
+	else
+		changed = base.Changed(cull.view, false, 0, 0, 0, nil)
+	end
+
+	if changed then cull.version = cull.version + 1 end
+	local now = GetTime()
+	local due = cull.lastRun == nil or now - cull.lastRun >= cull.interval
+	local detailed = cull.dirty or not active and changed or (cull.version ~= cull.textureVersion or cull.pending) and due
+	if not changed and not detailed then return end
+	cull.dirty = false
+	if detailed then cull.pending, cull.textureVersion, cull.lastRun = false, cull.version, now end
+	local view
+	if active then
+		local left, bottom, width, height = scroll:GetRect()
+		if left == nil then
+			active = false
+		else
+			local margin = math.max(cull.margin, math.max(width, height) * cull.marginShare)
+			local ratio = scroll:GetEffectiveScale() / container:GetEffectiveScale()
+			view = {
+				left = (left - margin) * ratio,
+				right = (left + width + margin) * ratio,
+				bottom = (bottom - margin) * ratio,
+				top = (bottom + height + margin) * ratio
+			}
+		end
+	end
+
+	local function Apply(region)
+		if active then
+			base.cull.Set(region, not base.cull.InView(region, view))
+		elseif region.culled then
+			base.cull.Set(region, false)
+		end
+	end
+
+	if detailed then
+		for _, entry in pairs(base.continents) do
+			for _, texture in pairs(entry.pool) do
+				if texture.culled then base.cull.Set(texture, false) end
+			end
+		end
+
+		for _, texture in pairs(base.world) do
+			if texture.culled then base.cull.Set(texture, false) end
+		end
+	end
+
+	local full = active and container.built == MODE_FULL
+	for index, list in ipairs({unders, zones, cities}) do
+		for mapID, art in pairs(list) do
+			local wasCulled = art.frame.culled
+			local continent = full and index < 3 and art.scaleX and base.continents[GetContinent(mapID)]
+			if continent and continent.drawn and art.scaleX * art.frame:GetEffectiveScale() < cull.minZoneScale then
+				base.cull.Set(art.frame, true)
+			else
+				Apply(art.frame)
+			end
+			if not art.frame.culled and (detailed or wasCulled) then
+				for i = 1, art.count do
+					local texture = art.textures[i]
+					if texture then Apply(texture) end
+				end
+			end
 		end
 	end
 end
@@ -1106,6 +1319,10 @@ local function SyncBlizzardArt()
 	end
 end
 
+Build = MapUtils.Profile("ZoneDetail.Build", Build)
+Layout = MapUtils.Profile("ZoneDetail.Layout", Layout)
+ShowBase = MapUtils.Profile("ZoneDetail.ShowBase", ShowBase)
+SyncBlizzardArt = MapUtils.Profile("ZoneDetail.SyncBlizzardArt", SyncBlizzardArt)
 local function Update(force)
 	if container == nil then return end
 	local mapID = WorldMapFrame:GetMapID()
@@ -1124,6 +1341,7 @@ local function Update(force)
 		container.signature = nil
 		if not Build(mode, space) then return end
 		MinimapLayer.explorationSignature = nil
+		MinimapLayer.HideAll()
 	end
 
 	container.cityMode = mode == MODE_FULL and GetSpaceRect(mapID) == nil
@@ -1167,12 +1385,29 @@ local function Update(force)
 
 	container:Show()
 	MinimapLayer.signature = nil
+	base.cull.dirty = true
+	base.cull.switchUntil = GetTime() + base.cull.switchWindow
+	if MapUtils.zoneSwitching then return end
 	MinimapLayer.Update()
+	base.cull.Run()
+end
+
+function MapUtils:TogglePreloadVisible()
+	preload.keep = not preload.keep
+	if preload.frame then preload.frame:SetShown(preload.keep) end
+	MapUtils:INFO("Texture preload " .. (preload.keep and "always visible" or "hidden after loading"))
+end
+
+function MapUtils:UpdateZoneDetailView()
+	if container == nil or MinimapLayer.frame == nil then return end
+	MinimapLayer.Update()
+	MinimapLayer.UpdateCityDetail(true)
+	base.cull.Run()
 end
 
 function MapUtils:RefreshZoneDetail()
 	Update(true)
-	if container ~= nil then MinimapLayer.UpdateCityDetail() end
+	if container ~= nil then MinimapLayer.UpdateCityDetail(true) end
 	SyncBlizzardArt()
 end
 
@@ -1202,8 +1437,20 @@ MinimapLayer = {
 	terrainMaxTiles = 400,
 	lodData = {},
 	lodParsed = {},
-	lodPath = "Interface\\AddOns\\MapUtils\\media\\minimaplod\\"
+	lodPath = "Interface\\AddOns\\MapUtils\\media\\minimaplod\\",
+	coarse = {},
+	placeCache = {},
+	cityState = {},
+	viewState = {},
+	coarseMaxPixels = 24,
+	swapTimeout = 0.5,
+	coarsePath = "Interface\\AddOns\\MapUtils\\media\\minimapcoarse\\"
 }
+
+function MapUtils:AddMinimapCoarse(dataFlavor, instance, name)
+	if MapUtils.GetRevealFlavor == nil or dataFlavor ~= MapUtils:GetRevealFlavor() then return end
+	MinimapLayer.coarse[instance] = name
+end
 
 function MapUtils:AddMinimapTiles(dataFlavor, instance, data)
 	if MapUtils.GetRevealFlavor == nil or dataFlavor ~= MapUtils:GetRevealFlavor() then return end
@@ -1365,6 +1612,7 @@ function MinimapLayer.HideAll()
 		MinimapLayer.Release(key)
 	end
 
+	wipe(MinimapLayer.placeCache)
 	MinimapLayer.signature = nil
 end
 
@@ -1441,7 +1689,14 @@ end
 function MinimapLayer.UpdateExploration(host)
 	local signature = container.built == MODE_AREAS and host or container.space
 	if MinimapLayer.explorationSignature == signature then return end
-	MinimapLayer.HideAll()
+	for _, pieces in pairs(MinimapLayer.intersections or {}) do
+		for _, piece in ipairs(pieces) do
+			if MinimapLayer.active[piece[6]] then MinimapLayer.Release(piece[6]) end
+		end
+	end
+
+	wipe(MinimapLayer.placeCache)
+	MinimapLayer.signature = nil
 	MinimapLayer.explorationSignature = signature
 	MinimapLayer.intersections = {}
 	local hostInfo = C_Map.GetMapInfo(host)
@@ -1471,7 +1726,8 @@ function MinimapLayer.Place(wanted, key, continentID, mask, transform, northX, w
 	wanted[key] = true
 	if not MinimapLayer.active[key] then
 		local texture = MinimapLayer.Acquire(continentID, mask, city and city.terrain)
-		texture:SetDrawLayer("ARTWORK", -1)
+		local keyText = tostring(key)
+		texture:SetDrawLayer("ARTWORK", keyText:find("^coarse") and -3 or keyText:find("^%-") and -2 or -1)
 		local desaturation = 1 - (1 - MinimapLayer.desaturation) * fogTint[4]
 		texture:SetDesaturation(fogTint[5] and 1 or desaturation)
 		texture:SetVertexColor(fogTint[1] * MinimapLayer.tint[1], fogTint[2] * MinimapLayer.tint[2], fogTint[3] * MinimapLayer.tint[3], 1)
@@ -1605,7 +1861,25 @@ function MinimapLayer.ShowCityDetail(mapID, detail, host, width, height, level)
 		detail.frame = frame
 	end
 
-	if frame.host ~= host or frame.width ~= width or frame.height ~= height then
+	local continentID = GetContinent(mapID)
+	local source = continentID and SPACE_OF[continentID] == container.space and MinimapLayer.GetSources(continentID)[1]
+	local transform = source and MinimapLayer.GetTransform(source)
+	local point, _, _, offsetX, offsetY = container:GetPoint(1)
+	if transform and point and container.refWidth then
+		local containerScale = container:GetScale()
+		local key = format("%s:%.6f:%.3f:%.3f:%s", tostring(container.space), containerScale, offsetX, offsetY, tostring(container.refWidth))
+		if frame.placement ~= key then
+			local u1, v1 = MinimapLayer.ToWorld(transform, detail[2], detail[3])
+			local u2, v2 = MinimapLayer.ToWorld(transform, detail[2] - 1024, detail[3] - 1024)
+			local left, top = math.min(u1, u2) * container.refWidth, math.min(v1, v2) * container.refHeight
+			frame:ClearAllPoints()
+			frame:SetPoint("TOPLEFT", child, "TOPLEFT", (offsetX + left) * containerScale, (offsetY - top) * containerScale)
+			frame:SetSize(math.abs(u2 - u1) * container.refWidth * containerScale, math.abs(v2 - v1) * container.refHeight * containerScale)
+			frame.placement = key
+			frame.host, frame.width, frame.height = host, width, height
+		end
+	elseif frame.placement ~= nil or frame.host ~= host or frame.width ~= width or frame.height ~= height then
+		frame.placement = nil
 		local firstInstance, first = C_Map.GetWorldPosFromMapPos(mapID, CreateVector2D(0, 0))
 		local lastInstance, last = C_Map.GetWorldPosFromMapPos(mapID, CreateVector2D(1, 1))
 		if first == nil or last == nil or firstInstance ~= 0 or lastInstance ~= 0 then return false end
@@ -1639,7 +1913,7 @@ function MinimapLayer.GetTerrainShare(tilePixels, start, finish)
 	return (tilePixels - start) / (finish - start)
 end
 
-function MinimapLayer.UpdateCityDetail()
+function MinimapLayer.UpdateCityDetail(force)
 	local host = WorldMapFrame:GetMapID()
 	local scroll = WorldMapFrame.ScrollContainer
 	local flavor = MapUtils:GetFlavor()
@@ -1648,6 +1922,8 @@ function MinimapLayer.UpdateCityDetail()
 	local world = container:IsShown() and container.built == MODE_FULL and not container.cityMode
 	local cityStart, cityEnd = MapUtils:GetTerrainFadeThresholds(true)
 	local terrainFrame = MinimapLayer.frame
+	local changed = base.Changed(MinimapLayer.cityState, host, scroll:GetCanvasScale() or 0, width or 0, height or 0, world, container:IsShown(), GetEmbeddedCityStyle(host) or false, cityStart or 0, cityEnd or 0, terrainFrame and terrainFrame:GetAlpha() or 0, container.signature or false)
+	if not force and not changed then return end
 	local embeddedStyle = GetEmbeddedCityStyle(host)
 	for mapID, city in pairs(cities) do
 		local embedded = embeddedStyle ~= nil and CITY_MAPS[mapID] == true and container:IsShown()
@@ -1714,9 +1990,9 @@ function MinimapLayer.Update()
 	local width, height = scrollContainer.Child:GetSize()
 	if hostLeft == nil or x == nil or y == nil or scale == nil or scale <= 0 or width == nil or width <= 0 or height == nil or height <= 0 then return end
 	MinimapLayer.UpdateExploration(host)
-	local signature = format("%s:%s:%.5f:%.5f:%.5f", tostring(host), style, scale, x, y)
-	if signature == MinimapLayer.signature then return end
-	MinimapLayer.signature = signature
+	local changed = base.Changed(MinimapLayer.viewState, host, style, scale, x, y)
+	if not changed and MinimapLayer.signature ~= nil then return end
+	MinimapLayer.signature = true
 	local spaceWidth, spaceHeight = hostRight - hostLeft, hostBottom - hostTop
 	local centerU, centerV = (x - hostLeft) / spaceWidth, (y - hostTop) / spaceHeight
 	local halfU = scrollContainer:GetWidth() / (2 * scale * width) / spaceWidth
@@ -1734,6 +2010,14 @@ function MinimapLayer.Update()
 		end
 	end
 
+	local overlayIDs = {}
+	for mapID in pairs(MinimapLayer.cityOverlays) do
+		tinsert(overlayIDs, mapID)
+	end
+
+	table.sort(overlayIDs)
+	local overlayKey = table.concat(overlayIDs, ",")
+	local tintKey = format("%.3f,%.3f,%.3f,%.3f,%s", fogTint[1], fogTint[2], fogTint[3], fogTint[4], tostring(fogTint[5]))
 	for _, continentID in ipairs(CONTINENTS) do
 		local entry = base.continents[continentID]
 		for _, source in ipairs(entry and entry.drawn and MinimapLayer.GetSources(continentID) or {}) do
@@ -1771,12 +2055,32 @@ function MinimapLayer.Update()
 					info.range = format("x %d-%d y %d-%d (%d)", x0, x1, y0, y1, count)
 					local useTerrain = terrain or embeddedStyle == "TERRAIN"
 					local lod = useTerrain and count > MinimapLayer.terrainMaxTiles and MinimapLayer.GetLOD(source.instance)
-					if minX <= maxX and minY <= maxY and x1 >= x0 and y1 >= y0 and (count <= (useTerrain and MinimapLayer.terrainMaxTiles or MinimapLayer.maxTiles) or lod) then
+					local coarse = useTerrain and tilePixels <= MinimapLayer.coarseMaxPixels and MinimapLayer.coarse[source.instance]
+					if coarse then lod = nil end
+					if minX <= maxX and minY <= maxY and x1 >= x0 and y1 >= y0 and (count <= (useTerrain and MinimapLayer.terrainMaxTiles or MinimapLayer.maxTiles) or lod or coarse) then
 						if terrain or count <= MinimapLayer.maxTiles then alpha = math.max(alpha, MinimapLayer.maxAlpha * math.min(1, share)) end
 						if embeddedStyle == "TERRAIN" or count <= MinimapLayer.maxTiles then cityAlpha = math.max(cityAlpha, MinimapLayer.maxAlpha * math.min(1, cityShare)) end
-						info.drawn = lod and "lod" or "tiles"
+						info.drawn = coarse and "coarse" or lod and "lod" or "tiles"
+						local cacheKey = format("%s:%d:%d:%d:%d:%s:%s", info.drawn, x0, x1, y0, y1, overlayKey, tintKey)
+						local cached = MinimapLayer.placeCache[source.id]
+						local reuse = cached ~= nil and cached.key == cacheKey
+						if reuse then
+							for key in pairs(cached.wanted) do
+								if not MinimapLayer.active[key] then
+									reuse = false
+									break
+								end
+							end
+						end
+
+						local sourceWanted = reuse and cached.wanted or {}
 						local mask = MinimapLayer.GetMask(continentID)
-						if lod then
+						if reuse then
+							MinimapLayer.cacheHits = (MinimapLayer.cacheHits or 0) + 1
+						elseif coarse then
+							local size = 64 * MinimapLayer.tile
+							MinimapLayer.Place(sourceWanted, "coarse:" .. source.id, continentID, mask, transform, 32 * MinimapLayer.tile, 32 * MinimapLayer.tile, size, MinimapLayer.coarsePath .. coarse, fogTint)
+						elseif lod then
 							local group = lod.group
 							for col = math.floor(x0 / group), math.floor(x1 / group) do
 								for row = math.floor(y0 / group), math.floor(y1 / group) do
@@ -1784,7 +2088,7 @@ function MinimapLayer.Update()
 									if name ~= nil then
 										local key = -(source.id * 4096 + col * 64 + row)
 										local northX, westY = (32 - row * group) * MinimapLayer.tile, (32 - col * group) * MinimapLayer.tile
-										MinimapLayer.Place(wanted, key, continentID, mask, transform, northX, westY, group * MinimapLayer.tile, MinimapLayer.lodPath .. name, fogTint)
+										MinimapLayer.Place(sourceWanted, key, continentID, mask, transform, northX, westY, group * MinimapLayer.tile, MinimapLayer.lodPath .. name, fogTint)
 									end
 								end
 							end
@@ -1796,10 +2100,21 @@ function MinimapLayer.Update()
 									if fileID ~= nil then
 										local key = source.id * 4096 + tileX * 64 + tileY
 										local tileMask = MinimapLayer.GetWaterMask(source, tileX, tileY, transform) or mask
-										MinimapLayer.Place(wanted, key, continentID, tileMask, transform, (32 - tileY) * MinimapLayer.tile, (32 - tileX) * MinimapLayer.tile, MinimapLayer.tile, fileID, fogTint, fadedLOD, tileX, tileY)
+										MinimapLayer.Place(sourceWanted, key, continentID, tileMask, transform, (32 - tileY) * MinimapLayer.tile, (32 - tileX) * MinimapLayer.tile, MinimapLayer.tile, fileID, fogTint, fadedLOD, tileX, tileY)
 									end
 								end
 							end
+						end
+
+						if not reuse then
+							MinimapLayer.placeCache[source.id] = {
+								["key"] = cacheKey,
+								["wanted"] = sourceWanted
+							}
+						end
+
+						for key in pairs(sourceWanted) do
+							wanted[key] = true
 						end
 					end
 				end
@@ -1807,8 +2122,24 @@ function MinimapLayer.Update()
 		end
 	end
 
-	for key in pairs(MinimapLayer.active) do
-		if not wanted[key] then MinimapLayer.Release(key) end
+	local ready = true
+	for key in pairs(wanted) do
+		local texture = MinimapLayer.active[key]
+		if texture and texture.IsObjectLoaded and not texture:IsObjectLoaded() then
+			ready = false
+			break
+		end
+	end
+
+	local now = GetTime()
+	if ready or MinimapLayer.waitSince and now - MinimapLayer.waitSince > MinimapLayer.swapTimeout then
+		MinimapLayer.waitSince = nil
+		for key in pairs(MinimapLayer.active) do
+			if not wanted[key] then MinimapLayer.Release(key) end
+		end
+	else
+		MinimapLayer.waitSince = MinimapLayer.waitSince or now
+		MinimapLayer.signature = nil
 	end
 
 	MinimapLayer.frame:SetAlpha(alpha)
@@ -1917,20 +2248,52 @@ local function Install()
 	container:Hide()
 	local function Refresh()
 		Update(false)
-		MinimapLayer.UpdateCityDetail()
+		if not MapUtils.zoneSwitching then MinimapLayer.UpdateCityDetail(true) end
 		SyncBlizzardArt()
 	end
 
-	hooksecurefunc(WorldMapFrame, "OnMapChanged", Refresh)
-	WorldMapFrame:HookScript("OnShow", Refresh)
-	child:HookScript("OnSizeChanged", Refresh)
+	local function OnChildSizeChanged(_, width, height)
+		local lastWidth, lastHeight = MinimapLayer.childWidth, MinimapLayer.childHeight
+		if width == nil or height == nil then return end
+		if lastWidth ~= nil and lastHeight ~= nil and math.abs(width - lastWidth) <= lastWidth * 0.01 and math.abs(height - lastHeight) <= lastHeight * 0.01 then return end
+		MinimapLayer.childWidth, MinimapLayer.childHeight = width, height
+		Refresh()
+	end
+
+	base.cull.RunProfiled = MapUtils.Profile("ZoneDetail.Cull", base.cull.Run)
+	MapUtils:RegisterRenderLayer("Zone art", function() return container end)
+	MapUtils:RegisterRenderLayer("Terrain tiles", function()
+		local frames = {MinimapLayer.frame}
+		for _, city in pairs(cities) do
+			if city.terrain then tinsert(frames, city.terrain) end
+		end
+
+		return frames
+	end)
+	MapUtils:RegisterRenderLayer("City art", function()
+		local frames = {}
+		for _, city in pairs(cities) do
+			tinsert(frames, city.frame)
+		end
+
+		for _, detail in pairs(UNDERGROUND) do
+			if detail.frame then tinsert(frames, detail.frame) end
+		end
+
+		return frames
+	end)
+	MapUtils:RegisterRenderLayer("Texture preload", function() return preload.frame end)
+	hooksecurefunc(WorldMapFrame, "OnMapChanged", MapUtils.Profile("zonedetail Refresh", Refresh))
+	WorldMapFrame:HookScript("OnShow", MapUtils.Profile("zonedetail Refresh", Refresh))
+	child:HookScript("OnSizeChanged", MapUtils.Profile("zonedetail size changed", OnChildSizeChanged))
 	WorldMapFrame.ScrollContainer:HookScript(
 		"OnUpdate",
-		function()
+		MapUtils.Profile("zonedetail OnUpdate", function()
 			MinimapLayer.Update()
 			MinimapLayer.UpdateCityDetail()
 			SyncBlizzardArt()
-		end
+			base.cull.RunProfiled()
+		end)
 	)
 
 	return true
@@ -1955,3 +2318,4 @@ loader:SetScript(
 		Install()
 	end
 )
+MapUtils.ProfileTable("MinimapLayer", MinimapLayer)

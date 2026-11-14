@@ -8,19 +8,14 @@
 local _, ns = ...
 
 local MAX_SEEN = 300
-local byItem   -- 图纸物品 - 配方行
 
+-- 是不是图纸（配方库第 18 格认得的物品）。11-13 重构第 4 期：配方库 ProfRecipes.lua 搬进按需加载的 GearInsight_Forever_Prof，
+--   这里改查主插件常驻的图纸物品 ID 集合（ProfCoreData.lua 的 recipeItems，同一份配方库抽出来的）→ 不用为了认图纸加载整个配方库。
+--   只回答「是不是」（true / nil）；调用方（这里两处、ObsVendor.lua）原来也只当真假用
 local function recipeOfItem(id)
-    if not id or not ns.ProfRecipes then return nil end
-    if not byItem then
-        byItem = {}
-        for _, lst in pairs(ns.ProfRecipes.profs) do
-            for _, r in ipairs(lst) do
-                for _, it in ipairs(r[18] or {}) do byItem[it] = r end
-            end
-        end
-    end
-    return byItem[id]
+    local C = ns.ProfCore
+    if not id or not (C and C.recipeItems) then return nil end
+    return C.recipeItems[id] or nil
 end
 ns.ProfRecipeOfItem = recipeOfItem
 
@@ -62,7 +57,7 @@ end
 
 -- 商人窗口：GetMerchantItemInfo 第 5 个返回值 = 剩余数量（-1 = 不限量）
 function ns.ProfSeenMerchant(now)
-    if not GetMerchantNumItems or not ns.ProfRecipes then return 0 end
+    if not GetMerchantNumItems or not ns.ProfCore then return 0 end
     local guid = UnitGUID and UnitGUID("npc")
     local id, kind = npcId(guid)
     if id == 0 or (kind ~= "Creature" and kind ~= "Vehicle") then return 0 end
@@ -84,7 +79,7 @@ end
 
 -- 拾取窗口：图纸来源 = 拾取格的来源 GUID（怪 / 箱子）
 function ns.ProfSeenLoot(now)
-    if not GetNumLootItems or not ns.ProfRecipes then return 0 end
+    if not GetNumLootItems or not ns.ProfCore then return 0 end
     local m, x, y = where()
     local added = 0
     for slot = 1, GetNumLootItems() do

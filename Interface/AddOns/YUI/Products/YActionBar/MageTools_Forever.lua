@@ -247,6 +247,55 @@ function Mage:ApplyMissingGlowSettings(config)
     end
 end
 
+function Mage:ReleaseBuffTimer(entry)
+    if entry.auraDisplay then Unit.ReleaseFilteredAuraDisplay(entry.auraDisplay) end
+    entry.auraDisplay, entry.timerStyle = nil, nil
+end
+
+-- The native subtree owns its clock. Only its public proxy is touched after
+-- initialization; secure action hosts and the ordinary visual remain separate.
+function Mage:RefreshBuffTimerStyle(button)
+    local entry = self.states[button]
+    if not entry or entry.key == "scroll" or not entry.timerWanted then return end
+    if YAB.Adapter:InCombat() then
+        YAB.ClassBars.pending, YAB.ClassBars.configDirty.mageTools = true, true
+        return
+    end
+    if not self.nativeTimersReady then return end
+    local style = YAB.Visuals:CaptureStatusTimerStyle(button)
+    if not style then return end
+    local same = entry.auraDisplay ~= nil and entry.timerStyle ~= nil
+    if same then
+        for key, value in pairs(style) do
+            if entry.timerStyle[key] ~= value then same = false; break end
+        end
+    end
+    if same then return end
+    self:ReleaseBuffTimer(entry)
+    local handle, code = Unit.CreateFilteredAuraDisplay(button, {
+        unit = "player", filter = "HELPFUL", key = "mage-" .. entry.key,
+        spellIDs = Data.auraFamilies[entry.key],
+        initializeFrame = function(auraFrame)
+            return YAB.Visuals:CreateStatusTimerBindings(auraFrame, style)
+        end,
+    })
+    entry.auraDisplay, entry.timerStyle, entry.timerIssue = handle, handle and style or nil, code
+end
+
+function Mage:PrepareBuffTimers(record)
+    self.nativeTimersReady = Unit.EnsureFilteredAuraDisplay
+        and Unit.EnsureFilteredAuraDisplay() == true
+        and type(YAB.Visuals.CaptureStatusTimerStyle) == "function"
+    for _, key in ipairs(TIMER_KEYS) do
+        local button = self.pool[key]
+        local entry = button and self.states[button]
+        if entry then
+            if not self.nativeTimersReady or not entry.timerWanted then self:ReleaseBuffTimer(entry)
+            else self:RefreshBuffTimerStyle(button) end
+        end
+    end
+end
+
 -- Pure selection: the displayed quantity never changes until the next bag snapshot.
 function Mage:SelectScrolls(slots, rank, level)
     local result = { eligible = 0, locked = 0, decoded = {}, decodedCounts = {}, rank = rank, total = 0, available = true }
@@ -371,6 +420,8 @@ function Mage:Build(record, config)
             or self.armorLeft
         entry.texture = Icon(id) or (key == "scroll" and Data.comprehendIcon)
         local enabled = config["mage" .. key:sub(1, 1):upper() .. key:sub(2)] ~= false
+        entry.timerWanted = key ~= "scroll" and enabled and not record.classBarEditing
+        if not entry.timerWanted then self:ReleaseBuffTimer(entry) end
         factory:ConfigureMageTool(button, key, config, self.inventory, record.classBarEditing)
         manager.buttonConfigSnapshots[button] = record.configSnapshot
         if enabled or record.classBarEditing then
@@ -385,6 +436,7 @@ function Mage:Build(record, config)
     self:BuildChoices(record)
     record.configSnapshot.buttons = math.max(#record.buttons, 1)
     manager:ApplyLayout(record, config, YAB:GetDB())
+    self:PrepareBuffTimers(record)
     self:PrepareMissingGlows(record, config)
     self:PrepareReceipts()
     local snapshot = record.configSnapshot
@@ -451,7 +503,10 @@ function Mage:Refresh(record)
         state.count = key == "scroll" and inventory.eligible or nil
         state.countText = key == "scroll" and tostring(inventory.eligible) or ""
         state.cooldownIsStatus = key ~= "scroll"
-        if refreshAuras and key ~= "scroll" then
+        if entry.auraDisplay then
+            state.cooldownEnable, state.cooldownDuration, state.cooldownStart = false, 0, 0
+            state.cooldownDurationObject = nil
+        elseif refreshAuras and key ~= "scroll" then
             local durationObject = aura and Unit.GetAuraDurationObject
                 and Unit.GetAuraDurationObject("player", aura.auraInstanceID)
             if durationObject then
@@ -511,6 +566,8 @@ function Mage:Stop()
         YAB.BarManager.mouseoverRecords[self.panel] = nil
     end
     for button in pairs(self.states) do
+        self:ReleaseBuffTimer(self.states[button])
+        self.states[button].timerWanted = nil
         YAB.SecureFactory:ClearMageTool(button)
         button:Hide(); YAB.Visuals:ReleaseButton(button)
         YAB.BarManager.buttonConfigSnapshots[button], YAB.BarManager.mouseoverRecords[button] = nil, nil
@@ -519,4 +576,5 @@ function Mage:Stop()
     self.inventory, self.auras, self.powder, self.auraNames = nil, nil, nil, nil
     self.aurasReady, self.auraUnavailable, self.armorLeft, self.armorRight = nil, nil, nil, nil
     self.inventoryDirty, self.auraDirty = true, true
+    self.nativeTimersReady = nil
 end

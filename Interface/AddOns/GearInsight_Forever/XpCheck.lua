@@ -201,14 +201,14 @@ local function itemName(id, zh, en)
 end
 
 -- 经验食物：配方成品（ProfRecipes[7]）；包里有的 + 能做的（烹饪够、材料齐）
+-- 11-13 重构第 4 期：专业大表 / 配方库按需加载 → 经验食物清单和成品物品读常驻的 ProfCoreData.lua（同一份数据抽出来的）
 function XC.Foods()
-    local D = ns.ProfData
+    local D = ns.ProfCore
     local have, make = {}, {}
     if not (D and D.foods) then return have, make end
     local lv, ck = level(), cookRank()
     for _, f in ipairs(D.foods) do
-        local r = ns.ProfRecipeBySpell and ns.ProfRecipeBySpell(f.sp)
-        local item = r and r[7]
+        local item = ns.ProfFoodItem and ns.ProfFoodItem(f.sp)
         if item and (f.use or 1) <= lv then
             local n = bag(item)
             if n > 0 then have[#have + 1] = { item = item, n = n, use = f.use or 1, f = f } end
@@ -798,7 +798,11 @@ local function buildPage(p)
     p.winBtn:SetPoint("LEFT", p.onBtn, "RIGHT", 8, 0)
     p.warnBtn = ns.Button(p, "", 110, 22, function() XC.Set("warn", not opt("warn", true)); XC.RefreshPage() end)
     p.warnBtn:SetPoint("LEFT", p.winBtn, "RIGHT", 8, 0)
-    local more = ns.Button(p, L("每项开关 / 音效", "More settings"), 120, 22, function() ns.ToggleMain("data") end)
+    -- 11-12 界面重构第 2 期：原来跳到设置页再找 → 改成就地展开本页设置（每项开关 / 音效 / 移动提醒条 / 帐篷蹭露营都在里面）
+    local more = ns.Button(p, L("每项开关 / 音效", "More settings"), 120, 22, function()
+        if ns.TogglePageSettings and ns.TogglePageSettings("xp", true) then return end
+        ns.ToggleMain("data")
+    end)
     more:SetPoint("LEFT", p.warnBtn, "RIGHT", 8, 0)
     p.note = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     p.note:SetPoint("TOPLEFT", 14, y - 30); p.note:SetPoint("RIGHT", -12, 0); p.note:SetJustifyH("LEFT")
@@ -847,3 +851,24 @@ ns.ExtraSlash.xp = function(rest)
     end
 end
 ns.ExtraSlash["经验"] = ns.ExtraSlash.xp
+
+-- 11-12 重构第 1 期：提醒条登记进设置页「窗口与提醒」
+ns.RegisterWindow({ key = "xpBar", order = 30, title = function() return L("经验提醒条", "XP reminder bar") end,
+    state = function()
+        if not XC.Enabled() then return L("经验加成检查已关", "XP check is off") end
+        local d = XC.DB()
+        if d.win == false then return L("不显示", "Off") end
+        if d.always == true then return L("一直显示（半透明）", "Always shown") end
+        return L("加成快没了才出", "Shown when a bonus is ending")
+    end,
+    actions = function()
+        local on = XC.Enabled() and XC.DB().win ~= false
+        return {
+            { text = on and L("关闭", "Hide") or L("打开", "Show"), fn = function()
+                if on then XC.Set("win", false)
+                else XC.DB().on = true; XC.hidden = false; XC.Set("win", true) end
+            end },
+            { text = XC.moving and L("锁定位置", "Lock position") or L("移动", "Move"), fn = function() XC.SetMoving(not XC.moving) end },
+            { text = L("重置位置", "Reset position"), fn = function() XC.ResetPos() end },
+        }
+    end })

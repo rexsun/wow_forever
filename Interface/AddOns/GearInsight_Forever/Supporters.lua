@@ -1,6 +1,6 @@
 -- 自动生成（services/wow-agent/build_supporters_lua.py），⛔ 别手改：下次打包会覆盖。
 -- 数据源 gearinsight.app/api/wow/supporters；费用只带百分比不带金额。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 ns.SUPPORTERS = {
     updatedAt = "2026-11-07 16:56",
     pct = 12.7, serverPct = 12.7, llmPct = 0.0,

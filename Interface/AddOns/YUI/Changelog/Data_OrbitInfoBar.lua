@@ -1,6 +1,21 @@
 -- Generated from Docs/Products/YUI_OrbitInfoBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("ybar", {
+-- YUI-Notes-Record: orbit-132|mainline|450c817310190f1ac30906f706bb6e03bb4d7545d2f4f03d287a478cb62833e1
+-- YUI-Notes-Record: orbit-132|forever|d1ca0a96aea6e87c819ea3d127e2da3a01f7e5158dd50e3044ae833d8c7722a1
+    {
+        version = "orbit-132",
+        date = "2026-11-13",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: orbit-131|mainline|2b8678ff85865a3a537796eaeea62a5de72690dfdd8a45e0788a4e370132b61f
 -- YUI-Notes-Record: orbit-131|forever|8705ede2cea83fac974a340b8fe9ddbc960205a6896cd461d033596c7e017a45
     {
@@ -238,44 +253,6 @@ CL:Register("ybar", {
                 "Unified text styling with style copy and paste.",
                 "Added a role-check button.",
                 "Improved group entry and micro-menu integration.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-122|forever|c917e3c6ffae1bd7190d17a5c603f19144f1d389c249dfcf10fcbe188cc77fb4
-    {
-        version = "orbit-122",
-        date = "2026-10-22",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "标记条新增样式，支持分别设置标记与工具尺寸及背景透明度。",
-                "标记条支持布局编辑。",
-                "新增自动战斗日志，可按副本场景设置记录规则。",
-                "统一文字样式设置，支持样式复制粘贴。",
-            },
-            enUS = {
-                "Added marker bar styles, separate marker and tool sizes, and background opacity settings.",
-                "Added layout editing for the marker bar.",
-                "Added automatic combat logging with configurable instance rules.",
-                "Unified text styling with style copy and paste.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-121|mainline|52dee910620b6107f1450bc0aaccd78b4ec8d580923e214a736f9a0f02553ed4
-    {
-        version = "orbit-121",
-        date = "2026-10-16",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "耐久条支持五键坐骑绑定，可分别关闭或选择随机偏好坐骑。",
-                "传送菜单按文字宽度自适应布局，补充织影者的炉石。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Added five-button mount bindings, with individual disable and random favorite mount options.",
-                "Added text-aware teleport menu sizing and the Weavers' Hearthstone.",
-                "Updated the shared core for compatibility with newer YUI addons.",
             },
         },
     },

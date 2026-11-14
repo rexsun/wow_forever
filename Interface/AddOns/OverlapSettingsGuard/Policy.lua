@@ -105,8 +105,12 @@ local gearInsightGroup = {
     reason = "Invites stay manual; YUI keeps its own optional keyword auto-invite." },
   { id = "layerautoleave", key = "LayerAutoLeave", label = "Auto-leave the party after a layer change",
     reason = "Leaving a party stays manual." },
-  { id = "groupautoload", key = "GroupAutoLoad", label = "Group module auto-load in any group, with the thank-you popup",
-    reason = "The Group module shares quest progress once loaded; it loads only when its tab is opened." },
+  { id = "groupautoload", key = "GroupAutoLoad", label = "Group module auto-load at login and in any group, with the thank-you popup",
+    reason = "The Group module loads only when its tab, slash command or minimap entry is used." },
+  { id = "questshare", key = "QuestShare", label = "Quest-progress sharing to guild and nearby players",
+    reason = "GearInsight must not send your level, class, map position and quest progress every 30 seconds." },
+  { id = "magewater", key = "MageWater", label = "Mage water helpers: thank-you whisper after trades and nearby-Mage popup",
+    reason = "YUI owns chat; GearInsight must not whisper on its own, and its Mage module loads only when used." },
 }
 
 for _, setting in ipairs(gearInsightGroup) do

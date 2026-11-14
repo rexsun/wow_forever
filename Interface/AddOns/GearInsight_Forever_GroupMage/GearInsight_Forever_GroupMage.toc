@@ -1,0 +1,14 @@
+## Interface: 16001, 11507
+## Title: GearInsight |cff33ff99Forever|r - Mage food
+## Title-zhCN: GearInsight |cff33ff99无限版|r · 法师吃喝
+## Notes: GearInsight Forever mage food helper (loaded at login only when its options are on)
+## Notes-zhCN: GearInsight 无限版的法师吃喝：野外弹框 / 交易道谢 / 总开关开着时登录加载，否则打开「法师吃喝」子页签时才加载
+## Author: GearInsight
+## Version: 1.1.4
+## Dependencies: GearInsight_Forever, GearInsight_Forever_Group
+## LoadOnDemand: 1
+## IconTexture: Interface\Icons\inv_misc_map_01
+
+# 11-13 界面重构第 5 期：从 GearInsight_Forever_Group 拆出来；要用的 DC.*（存档 / 前缀 / 名字）在 GearInsight_Forever_Group 的 DungeonChatCore（登录加载）
+
+MageWater.lua

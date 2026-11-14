@@ -4,7 +4,7 @@
 --   每件候选 分数 = Σ 属性 × 权重；命中 / 暴击等「等级」按目标等级换算成 % 再乘权重。
 --   天赋：默认按点数最多的那一系自动选（和「默认配点」同一个判断），也能手动切，按角色存 ns.db.ui.gearSpec[角色][职业]。
 -- ⛔ 算法和 scripts/forever_spec_weights.py 的 score() 一模一样，gi_forever_spec_gear_test.py 逐件对拍；改一边必须改另一边
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local SG = {}
 ns.SpecGear = SG

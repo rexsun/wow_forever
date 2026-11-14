@@ -3718,6 +3718,7 @@ local function ApplyRuntimeSnapshot(button, visual, snapshot, options)
     if visual.statusTimer or visual.campPresentation or visual.campSwipeStyled then
         writes = writes + Visuals:ApplyStatusTimer(visual, visual.statusTimer and STATUS_TIMER_STATE or nil, true)
     end
+    if YAB.MageTools then YAB.MageTools:RefreshBuffTimerStyle(button) end
     return writes
 end
 
@@ -3818,6 +3819,7 @@ function Visuals:RefreshTheme(reason)
             visual.checkedColor = nil
             visual.checkedColorMode = nil
             RefreshSkinState(button, visual)
+            if YAB.MageTools then YAB.MageTools:RefreshBuffTimerStyle(button) end
         end
     end
     for button, snapshot in pairs(self.externalTextSnapshots) do
@@ -5021,6 +5023,51 @@ function Visuals:ApplyStatusTimer(visual, state, force)
         visual.campSwipeStyled = toy
     end
     return writes
+end
+
+-- Capture only the public ordinary cooldown, before the separate native Aura
+-- subtree is bound. Theme/settings changes replace the public proxy, never
+-- restyle descendants whose access may have become restricted.
+function Visuals:CaptureStatusTimerStyle(button)
+    local visual = self.buttons[button]
+    local cooldown = visual and visual.cooldown
+    local text = cooldown and cooldown:GetCountdownFontString()
+    if not text then return nil end
+    local font, size, flags = text:GetFont()
+    local snapshot = visual.runtimeSnapshot or DEFAULT_RUNTIME_SNAPSHOT
+    local color = snapshot.cooldownTextColor or DEFAULT_TEXT_COLOR
+    local r, g, b, a = color[1] or color.r, color[2] or color.g, color[3] or color.b, color[4] or color.a
+    if text.GetTextColor then r, g, b, a = text:GetTextColor() end
+    local sr, sg, sb, sa = 0, 0, 0, 0
+    local sx, sy = 0, 0
+    if text.GetShadowColor then sr, sg, sb, sa = text:GetShadowColor() end
+    if text.GetShadowOffset then sx, sy = text:GetShadowOffset() end
+    return { font = font, size = size, flags = flags or "", width = button:GetWidth(), height = button:GetHeight(),
+        level = button:GetFrameLevel() + 5, strata = button:GetFrameStrata(), hidden = ShouldHideCooldownNumbers(snapshot),
+        x = self.TextAnchors:OffsetValue(snapshot, "cooldownTextOffsetX"),
+        y = self.TextAnchors:OffsetValue(snapshot, "cooldownTextOffsetY"),
+        r = r or 1, g = g or 1, b = b or 1, a = a or 1,
+        alpha = text.GetAlpha and text:GetAlpha() or 1,
+        sr = sr, sg = sg, sb = sb, sa = sa, sx = sx, sy = sy }
+end
+
+function Visuals:CreateStatusTimerBindings(auraFrame, style)
+    auraFrame:SetSize(style.width, style.height)
+    auraFrame:SetAllPoints(auraFrame:GetParent())
+    auraFrame:SetFrameLevel(style.level)
+    if style.strata then auraFrame:SetFrameStrata(style.strata) end
+    local cooldown = CreateFrame("Cooldown", nil, auraFrame, "CooldownFrameTemplate")
+    cooldown:SetAllPoints(auraFrame)
+    cooldown:SetDrawSwipe(false); cooldown:SetDrawEdge(false); cooldown:SetDrawBling(false)
+    cooldown:SetHideCountdownNumbers(style.hidden)
+    local text = cooldown:GetCountdownFontString()
+    text:SetFont(style.font, style.size, style.flags)
+    text:SetTextColor(style.r, style.g, style.b, style.a)
+    text:SetAlpha(style.alpha)
+    text:SetShadowColor(style.sr, style.sg, style.sb, style.sa)
+    text:SetShadowOffset(style.sx, style.sy)
+    text:ClearAllPoints(); text:SetPoint("CENTER", cooldown, "CENTER", style.x, style.y)
+    return { durationCooldown = cooldown }
 end
 
 -- Cold preparation for owned camp hosts; native cooldown digits remain native.

@@ -1,7 +1,7 @@
 -- 宏库页（10-07 用户：主界面一个标签页，里面是各职业；点职业弹框列出它的技能宏；点「导入」建宏并放到鼠标上，拖到动作条）
 -- 数据：MacroData.lua（scripts/gi_forever_macros.py 生成；《无限》宏，技能名用 {{法术ID}}，导入时按客户端语言填名字）
 -- ⛔ 只调 CreateMacro / EditMacro / PickupMacro（非受保护，战斗中不做）；不碰暴雪动作条 / 宏界面的任何东西
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local CLASSES = { "Warrior", "Paladin", "Hunter", "Rogue", "Priest", "Shaman", "Mage", "Warlock", "Druid" }
 local CLASS_COLOR = { Warrior = "c79c6e", Paladin = "f58cba", Hunter = "abd473", Rogue = "fff569", Priest = "ffffff",

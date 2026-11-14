@@ -5,7 +5,7 @@
 -- 「装备」页签（10-18 起独立，在左栏「装备」大类下）：仿 C 键纸娃娃布局，每个部位按目标等级推荐一件装等最高的候选（地下城掉落 + 职业任务链套装 + 11-06 起专业制造 / 商人出售）。
 --   ⛔ 装备来源 = 地下城掉落（经典 25 本 + 无限新本）+ 职业任务链套装，野外任务奖励还没收——
 --   查不到候选的部位显示「待补」，不装样子说全；天赋「对练级最优」复用热门配点数据，不是专门算的练级权重。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local page
 local ICON = { quest = "Interface\\Icons\\INV_Misc_Book_09", spell = "Interface\\Icons\\INV_Misc_Note_01",

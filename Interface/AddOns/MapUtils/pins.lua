@@ -223,9 +223,9 @@ local LFG_SCAN_MAX = 4000
 local MAP_SCAN_MAX = 5000
 local MAP_PRINT_LIMIT = 80
 local DEFAULT_DUNGEON_ICON = "Interface\\Icons\\INV_Misc_Bone_Skull_02"
-local DUNGEON_ICON_CANDIDATES = {"Dungeon", "DungeonSkull", "Dungeon-Normal"}
+local DUNGEON_ICON_CANDIDATES = {"questlog-questtypeicon-dungeon", "Dungeon", "DungeonSkull", "Dungeon-Normal"}
 local PATH_ICON_CANDIDATES = {"CaveUnderground-Down", "CaveUnderground-Up"}
-local RAID_ICON_CANDIDATES = {"Raid"}
+local RAID_ICON_CANDIDATES = {"questlog-questtypeicon-raid", "Raid"}
 local CROSSING_ICON_CANDIDATES = {}
 CROSSING_ICON_CANDIDATES["down"] = {"CaveUnderground-Down", "Garr_LevelUpgradeArrow"}
 CROSSING_ICON_CANDIDATES["up"] = {"CaveUnderground-Up", "Garr_LevelUpgradeArrow"}
@@ -252,7 +252,8 @@ local PinCache = {
 	["atlas"] = {},
 	["atlasWidth"] = {},
 	["halfCoords"] = {},
-	["mergePixels"] = 16
+	["mergePixels"] = 16,
+	["druidFlights"] = {[62] = true, [63] = true}
 }
 
 local MINIMAP_YARDS = {}
@@ -918,6 +919,7 @@ AddDungeon(
 	{
 		["name"] = "Alcaz Prison",
 		["foreverOnly"] = true,
+		["instanceMap"] = 900003,
 		["minLevel"] = 48,
 		["maxLevel"] = 53,
 	},
@@ -1629,21 +1631,154 @@ local function LayoutPinIcon(pin, size, x, y)
 	if not pin.splitIcon then
 		pin.texture:SetPoint("CENTER", pin, "CENTER", x, y)
 		pin.texture:SetSize(size, size)
+	else
+		pin.textureLeft:ClearAllPoints()
+		pin.textureLeft:SetPoint("RIGHT", pin, "CENTER", x, y)
+		pin.textureLeft:SetSize(size / 2, size)
+		pin.textureLeft:Show()
+		pin.textureRight:ClearAllPoints()
+		pin.textureRight:SetPoint("LEFT", pin, "CENTER", x, y)
+		pin.textureRight:SetSize(size / 2, size)
+		pin.textureRight:Show()
+	end
+
+	local entry = pin.entry
+	local outlined = entry ~= nil and (entry.transport ~= nil or entry.kind == "spirithealer" or entry.kind == "flight" or entry.kind == "dungeon")
+	if not outlined and pin.outline == nil then return end
+	local sources = pin.splitIcon and {pin.textureLeft, pin.textureRight} or {pin.texture}
+	pin.outline = pin.outline or {}
+	local used = 0
+	if outlined then
+		for _, source in ipairs(sources) do
+			local atlas = source.GetAtlas ~= nil and source:GetAtlas() or nil
+			for i = 1, 8 do
+				used = used + 1
+				local texture = pin.outline[used]
+				if texture == nil then
+					texture = pin:CreateTexture(nil, "OVERLAY", nil, -1)
+					if texture.SetSnapToPixelGrid ~= nil then texture:SetSnapToPixelGrid(false) end
+					if texture.SetTexelSnappingBias ~= nil then texture:SetTexelSnappingBias(0) end
+					pin.outline[used] = texture
+				end
+
+				if atlas ~= nil then
+					texture:SetAtlas(atlas)
+				else
+					texture:SetTexture(source:GetTexture())
+				end
+
+				texture:SetTexCoord(source:GetTexCoord())
+				texture:SetVertexColor(0, 0, 0, 1)
+				local angle = (i - 1) * math.pi / 4
+				texture.outlineSource = source
+				texture.outlineX, texture.outlineY = math.floor(math.cos(angle) + 0.5), math.floor(math.sin(angle) + 0.5)
+				texture:Show()
+			end
+		end
+	end
+
+	for i = used + 1, #pin.outline do
+		pin.outline[i]:Hide()
+	end
+
+	pin.outlineUsed = used
+	pin.outlineStep = nil
+	PinCache.PlaceOutline(pin)
+	if used > 0 then PinCache.WatchOutline(pin) end
+end
+
+function PinCache.PlaceOutline(pin)
+	local used = pin.outlineUsed or 0
+	if used == 0 then return end
+	local _, physicalHeight = GetPhysicalScreenSize()
+	local effective = pin:GetEffectiveScale()
+	local step = (physicalHeight ~= nil and physicalHeight > 0 and effective > 0) and 768 / physicalHeight / effective or (pin.pixel or 1)
+	if pin.outlineStep == step then return end
+	pin.outlineStep = step
+	for i = 1, used do
+		local texture = pin.outline[i]
+		local source = texture.outlineSource
+		local dx, dy = texture.outlineX * step, texture.outlineY * step
+		texture:ClearAllPoints()
+		texture:SetPoint("TOPLEFT", source, "TOPLEFT", dx, dy)
+		texture:SetPoint("BOTTOMRIGHT", source, "BOTTOMRIGHT", dx, dy)
+	end
+end
+
+function PinCache.WatchOutline(pin)
+	if PinCache.outlined == nil then
+		PinCache.outlined = setmetatable({}, {
+			__mode = "k"
+		})
+		PinCache.outlineWatcher = CreateFrame("Frame")
+		PinCache.outlineWatcher:SetScript(
+			"OnUpdate",
+			function()
+				for watched in pairs(PinCache.outlined) do
+					if (watched.outlineUsed or 0) == 0 then
+						PinCache.outlined[watched] = nil
+					elseif watched:IsVisible() then
+						PinCache.PlaceOutline(watched)
+					end
+				end
+			end
+		)
+	end
+
+	PinCache.outlined[pin] = true
+end
+
+PinCache.bookBorderColors = {
+	bag = {0.2, 1, 0.2},
+	bank = {0.2, 1, 0.2},
+	missing = {1, 0.15, 0.15}
+}
+
+function PinCache.ApplyBookBorder(pin, entry)
+	local color = entry.kind == "librarybook" and PinCache.bookBorderColors[entry.state] or nil
+	if color == nil then
+		if pin.bookBorder ~= nil then
+			for _, edge in ipairs(pin.bookBorder) do
+				edge:Hide()
+			end
+		end
 
 		return
 	end
 
-	pin.textureLeft:ClearAllPoints()
-	pin.textureLeft:SetPoint("RIGHT", pin, "CENTER", x, y)
-	pin.textureLeft:SetSize(size / 2, size)
-	pin.textureLeft:Show()
-	pin.textureRight:ClearAllPoints()
-	pin.textureRight:SetPoint("LEFT", pin, "CENTER", x, y)
-	pin.textureRight:SetSize(size / 2, size)
-	pin.textureRight:Show()
+	local icon = pin.texture
+	local t = pin.pixel or 1
+	if pin.bookBorder == nil then
+		pin.bookBorder = {}
+		for i = 1, 4 do
+			pin.bookBorder[i] = pin:CreateTexture(nil, "OVERLAY", nil, 1)
+		end
+	end
+
+	local top, bottom, left, right = unpack(pin.bookBorder)
+	for _, edge in ipairs(pin.bookBorder) do
+		edge:ClearAllPoints()
+		edge:SetColorTexture(color[1], color[2], color[3], 1)
+		edge:Show()
+	end
+
+	top:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, 0)
+	top:SetPoint("TOPRIGHT", icon, "TOPRIGHT", 0, 0)
+	top:SetHeight(t)
+	bottom:SetPoint("BOTTOMLEFT", icon, "BOTTOMLEFT", 0, 0)
+	bottom:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 0)
+	bottom:SetHeight(t)
+	left:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, 0)
+	left:SetPoint("BOTTOMLEFT", icon, "BOTTOMLEFT", 0, 0)
+	left:SetWidth(t)
+	right:SetPoint("TOPRIGHT", icon, "TOPRIGHT", 0, 0)
+	right:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 0)
+	right:SetWidth(t)
 end
 
 local function ApplyEntryTint(pin, entry)
+	pin.texture:SetAlpha(entry.kind == "librarybook" and (entry.state == "bag" or entry.state == "bank") and 0.5 or 1)
+	PinCache.ApplyBookBorder(pin, entry)
 	pin.texture:SetDesaturated(IsDesaturatedEntry(entry))
 	if entry.kind == "flight" and entry.undiscovered then
 		pin.texture:SetVertexColor(0.55, 0.55, 0.55)
@@ -1656,6 +1791,7 @@ local function ApplyEntryTint(pin, entry)
 	for _, half in ipairs({pin.textureLeft, pin.textureRight}) do
 		half:SetDesaturated(pin.texture:IsDesaturated())
 		half:SetVertexColor(pin.texture:GetVertexColor())
+		half:SetAlpha(pin.texture:GetAlpha())
 	end
 end
 
@@ -1764,12 +1900,14 @@ local function GetFlights(mapID)
 	local playerFaction = UnitFactionGroup("player")
 	if info == nil or playerFaction == nil then return nil end
 	local list = {}
+	local _, playerClass = UnitClass("player")
 	if info.mapType ~= nil and info.mapType >= ZONE_MAP_TYPE then
 		local ok, nodes = pcall(C_TaxiMap.GetTaxiNodesForMap, mapID)
 		if ok and type(nodes) == "table" then
 			for _, node in ipairs(nodes) do
 				local faction = TAXI_FACTIONS[node.faction] or "Neutral"
-				if node.position ~= nil and (type(node.name) ~= "string" or strfind(strlower(node.name), "^zzold") == nil) and (faction == "Neutral" or faction == playerFaction) then
+				local druidFlight = PinCache.druidFlights[node.nodeID] == true
+				if node.position ~= nil and (type(node.name) ~= "string" or strfind(strlower(node.name), "^zzold") == nil) and (faction == "Neutral" or faction == playerFaction) and (not druidFlight or playerClass == "DRUID") then
 					local entry = {}
 					entry.kind = "flight"
 					entry.nodeID = node.nodeID
@@ -1779,6 +1917,10 @@ local function GetFlights(mapID)
 					local known = MapUtils:GetFlightKnowledge()[node.nodeID]
 					entry.discoveryKnown = entry.undiscovered or known ~= nil or MapUtils:GetWoWBuild() == "RETAIL" and not MapUtils:IsForever() and type(node.isUndiscovered) == "boolean"
 					if not entry.undiscovered and known ~= nil then entry.undiscovered = not known end
+					if druidFlight then
+						entry.undiscovered = false
+						entry.discoveryKnown = true
+					end
 					entry.icon = GetFlightIcon(node, faction)
 					entry.x, entry.y = node.position:GetXY()
 					local transportNode = type(entry.icon) == "string" and strfind(strlower(entry.icon), "taxinode_continent", 1, true) ~= nil
@@ -1831,15 +1973,6 @@ local function GetCrossings(mapID)
 	crossings[mapID] = list
 
 	return list
-end
-
-local function GetCrossingLabel(entry)
-	local lines = {MapUtils:Trans("LID_ZONECROSSING")}
-	for _, tip in ipairs(entry.tips) do
-		tinsert(lines, format("|cffffd100%s|r", tip))
-	end
-
-	return entry.name, table.concat(lines, "\n")
 end
 
 local function GetFlightDescription()
@@ -2018,62 +2151,10 @@ function MapUtils:GetLevelColorCode(minLevel, maxLevel)
 	return MapUtils:GetColorCode(color.r, color.g, color.b)
 end
 
-local function GetDungeonLabel(entry)
-	local name, minLevel, maxLevel, recLevel = GetDungeonInfo(entry)
-	name = name or entry.name
-	if minLevel ~= nil and minLevel > 0 then
-		if maxLevel == nil or maxLevel < minLevel then maxLevel = minLevel end
-		local range = tostring(minLevel)
-		if maxLevel > minLevel then range = format("%d-%d", minLevel, maxLevel) end
-		name = format("%s%s (%s)|r", name, MapUtils:GetLevelColorCode(minLevel, maxLevel), range)
-	end
-
-	local lines = {GetEntranceText(entry)}
-	for _, instance in ipairs(entry.contains or {}) do
-		tinsert(lines, format("|cffffd100%s|r", instance))
-	end
-
-	if recLevel ~= nil then tinsert(lines, MapUtils:Trans("LID_RECOMMENDEDLEVEL", nil, recLevel)) end
-
-	return name, table.concat(lines, "\n")
-end
-
 local function IsPinMouseOver(pin)
 	local extend = pin.hitExtend or 0
 
 	return pin:IsMouseOver(extend, -extend, -extend, extend)
-end
-
-local areaLabel = nil
-local function GetAreaLabel()
-	if areaLabel ~= nil then return areaLabel end
-	if WorldMapFrame == nil or MapUtils.SetMapInfoOverride == nil then return nil end
-	areaLabel = CreateFrame("FRAME", nil, WorldMapFrame)
-	areaLabel:SetSize(1, 1)
-	areaLabel.Push = function(self)
-		local lines = {}
-		if self.description ~= nil and self.description ~= "" then tinsert(lines, self.description) end
-		if self.hint ~= nil and self.hint ~= "" then tinsert(lines, self.hint) end
-		MapUtils:SetMapInfoOverride(self.name, table.concat(lines, "\n"))
-	end
-
-	areaLabel:SetScript("OnHide", function() MapUtils:SetMapInfoOverride(nil) end)
-	areaLabel:SetScript(
-		"OnUpdate",
-		function(self)
-			local owner = self.owner
-			if owner == nil or not owner:IsVisible() or not IsPinMouseOver(owner) then
-				self:Hide()
-			elseif self.refresh ~= nil and GetTime() - (self.refreshed or 0) >= 1 then
-				self.refreshed = GetTime()
-				self.refresh(self)
-			end
-		end
-	)
-
-	areaLabel:Hide()
-
-	return areaLabel
 end
 
 local function GetRouteHeader(entry)
@@ -2171,56 +2252,6 @@ local function GetClickHints(pin)
 	return hints
 end
 
-local function ShowAreaLabel(pin)
-	local label = GetAreaLabel()
-	if label == nil then return false end
-	local name, description = nil, nil
-	if pin.entry.kind == "dungeon" then
-		name, description = GetDungeonLabel(pin.entry)
-	elseif pin.entry.kind == "meetingstone" then
-		name = GetDungeonInfo(pin.entry) or pin.entry.name
-		description = MapUtils:Trans("LID_MEETINGSTONE")
-	elseif pin.entry.kind == "spirithealer" then
-		name = pin.entry.name or MapUtils:Trans("LID_SPIRITHEALER")
-		description = ""
-	elseif pin.entry.kind == "convergence" then
-		name = pin.entry.name
-		description = pin.entry.captured and MapUtils:Trans("LID_CONVERGENCECAPTURED") or ""
-	elseif pin.entry.kind == "crossing" then
-		name, description = GetCrossingLabel(pin.entry)
-	elseif pin.entry.kind == "flight" then
-		local status, r, g, b = GetFlightStatus(pin.entry)
-		name = pin.entry.name
-		description = format("%s\n|cff%02x%02x%02x%s|r", GetFlightDescription(), math.floor(r * 255), math.floor(g * 255), math.floor(b * 255), status)
-	else
-		name, description = GetPierLabel(pin.entry, pin.mapID)
-	end
-
-	label.refresh = nil
-	if pin.entry.kind == nil then
-		label.refreshed = GetTime()
-		label.refresh = function(self)
-			local _, text = GetPierLabel(pin.entry, pin.mapID)
-			self.description = text
-			self:Push()
-		end
-	end
-
-	label.name = name
-	label.description = description
-	local hintLines = {}
-	for _, hint in ipairs(GetClickHints(pin)) do
-		tinsert(hintLines, format("|cffffd100%s|r  %s", hint[1], hint[2]))
-	end
-
-	label.hint = table.concat(hintLines, "\n")
-	label.owner = pin
-	label:Show()
-	label:Push()
-
-	return true
-end
-
 function MapUtils:ShowPinHighlight(pin)
 	local sources = pin.row ~= nil and {pin.portrait:IsShown() and pin.portrait or pin.icon} or (pin.splitIcon and {pin.textureLeft, pin.textureRight} or {pin.texture})
 	pin.hoverTextures = pin.hoverTextures or {}
@@ -2260,8 +2291,12 @@ local function OnPinEnter(pin)
 	MapUtils:ShowPinHighlight(pin)
 	local entry = pin.entry
 	if entry == nil then return end
-	if pin.worldMap and ShowAreaLabel(pin) then return end
 	GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
+	pin.tooltipToken = (pin.tooltipToken or 0) + 1
+	if entry.kind == nil then
+		local token = pin.tooltipToken
+		C_Timer.After(1, function() if pin.tooltipToken == token and pin.entry == entry and GameTooltip:IsOwned(pin) and pin:IsVisible() then OnPinEnter(pin) end end)
+	end
 	if entry.kind == "dungeon" then
 		local name, minLevel, maxLevel, recLevel = GetDungeonInfo(entry)
 		GameTooltip:AddLine(name or entry.name, 1, 1, 1)
@@ -2287,6 +2322,8 @@ local function OnPinEnter(pin)
 	elseif entry.kind == "convergence" then
 		GameTooltip:AddLine(entry.name, 1, 1, 1)
 		if entry.captured then GameTooltip:AddLine(MapUtils:Trans("LID_CONVERGENCECAPTURED"), 0.6, 0.6, 0.6) end
+	elseif entry.kind == "librarybook" then
+		MapUtils:AddLibraryBookTooltip(entry)
 	elseif entry.kind == "crossing" then
 		GameTooltip:AddLine(entry.name, 1, 1, 1)
 		GameTooltip:AddLine(MapUtils:Trans("LID_ZONECROSSING"), 0.6, 0.6, 0.6)
@@ -2495,7 +2532,6 @@ local function OnPinLeave(pin)
 		UpdatePinStyle(pin)
 	end
 
-	if areaLabel ~= nil and areaLabel.owner == pin then areaLabel:Hide() end
 	if GameTooltip:GetOwner() == pin then GameTooltip:Hide() end
 end
 
@@ -2517,11 +2553,19 @@ local function OnPinClick(pin, button)
 	elseif entry ~= nil and IsPinMouseOver(pin) then
 		if IsCovered() then
 			if button == "RightButton" then MapUtils:ToggleInstanceMap() end
+		elseif button == "LeftButton" and entry.source ~= nil then
+			ToggleWaypoint(entry.sourceMapID, entry.source)
 		elseif button == "LeftButton" then
 			ToggleWaypoint(pin.mapID, entry)
 		elseif button == "RightButton" and entry.kind ~= "dungeon" and entry.kind ~= "flight" and GetDestinationMapID(entry) ~= nil then
 			OnPinLeave(pin)
-			WorldMapFrame:SetMapID(GetDestinationMapID(entry))
+			local destMapID, destX, destY = GetDestinationMapID(entry), nil, nil
+			local route = type(entry.routes) == "table" and entry.routes[1] or nil
+			for _, other in ipairs(piers[destMapID] or {}) do
+				if route ~= nil and other.name == route.dest then destX, destY = other.x, other.y end
+			end
+
+			if MapUtils.GlideToMap == nil or not MapUtils:GlideToMap(destMapID, destX, destY) then WorldMapFrame:SetMapID(destMapID) end
 		elseif button == "RightButton" and entry.kind == "dungeon" and (entry.instanceMap or entry.instance) ~= nil and MapUtils.ShowInstanceMap ~= nil then
 			MapUtils:ShowInstanceMap(entry.instanceMap or entry.instance, entry.instanceMapLevel)
 		end
@@ -2578,34 +2622,34 @@ local function HideAll(pins)
 end
 
 local function PiersEnabled(worldMap)
-	if worldMap then return MapUtils:GetConfig("WORLDMAPPINS", true) == true end
+	if worldMap then return MapUtils:IsPinShownOnMap("WORLDMAPPINS", true) end
 
 	return MapUtils:GetConfig("MINIMAPPINS", true) == true
 end
 
 local function DungeonsEnabled(worldMap)
-	if worldMap then return MapUtils:GetConfig("DUNGEONWORLDMAPPINS", true) == true end
+	if worldMap then return MapUtils:IsPinShownOnMap("DUNGEONWORLDMAPPINS", true) end
 
 	return MapUtils:GetConfig("DUNGEONMINIMAPPINS", true) == true
 end
 
 local function FlightsEnabled(worldMap)
-	if worldMap then return MapUtils:GetConfig("FLIGHTWORLDMAPPINS", true) == true end
+	if worldMap then return MapUtils:IsPinShownOnMap("FLIGHTWORLDMAPPINS", true) end
 
 	return MapUtils:GetConfig("FLIGHTMINIMAPPINS", true) == true
 end
 
 local function MeetingStonesEnabled(worldMap)
-	if worldMap then return MapUtils:GetConfig("MEETINGSTONEWORLDMAPPINS", true) == true end
+	if worldMap then return MapUtils:IsPinShownOnMap("MEETINGSTONEWORLDMAPPINS", true) end
 
 	return MapUtils:GetConfig("MEETINGSTONEMINIMAPPINS", true) == true
 end
 
 local function CrossingsEnabled()
-	return MapUtils:GetConfig("CROSSINGWORLDMAPPINS", true) == true
+	return MapUtils:IsPinShownOnMap("CROSSINGWORLDMAPPINS", true)
 end
 
-local function BuildList(mapID, piersOn, dungeonsOn, flightsOn, meetingStonesOn, crossingsOn, spiritHealersOn, convergencesOn, unfiltered)
+local function BuildList(mapID, piersOn, dungeonsOn, flightsOn, meetingStonesOn, crossingsOn, spiritHealersOn, convergencesOn, unfiltered, libraryBooksOn)
 	if mapID == nil then return nil end
 	local list = nil
 	if spiritHealersOn and MapUtils.SPIRITHEALERS[mapID] ~= nil then
@@ -2663,6 +2707,14 @@ local function BuildList(mapID, piersOn, dungeonsOn, flightsOn, meetingStonesOn,
 		end
 	end
 
+	local bookList = libraryBooksOn and MapUtils.GetLibraryBookPins ~= nil and MapUtils:GetLibraryBookPins(mapID) or nil
+	if bookList ~= nil then
+		list = list or {}
+		for _, entry in ipairs(bookList) do
+			tinsert(list, entry)
+		end
+	end
+
 	if not unfiltered and MapUtils.FilterUnexploredPins ~= nil then list = MapUtils:FilterUnexploredPins(mapID, list) end
 
 	return list
@@ -2671,14 +2723,35 @@ end
 MapUtils.BuildPinList = BuildList
 MapUtils.GetEntryWorldPos = GetEntryWorldPos
 MapUtils.OneMapPinCache = {}
-function MapUtils:GetOneMapForeignPins(mapID, piersOn, dungeonsOn, convergencesOn)
-	if not (piersOn or dungeonsOn or convergencesOn) or MapUtils.IsOneMap == nil or not MapUtils:IsOneMap() or MapUtils.IsZoneDetailMap == nil or not MapUtils:IsZoneDetailMap(mapID) then return nil end
-	local space = MapUtils:GetZoneDetailSpace()
-	if mapID == space then dungeonsOn = false end
-	local hostInfo = C_Map.GetMapInfo(mapID)
-	if hostInfo == nil or hostInfo.mapType ~= Enum.UIMapType.Zone then convergencesOn = false end
-	if not piersOn and not dungeonsOn and not convergencesOn then return nil end
-	local key = format("%d:%s:%s:%s:%d", mapID, tostring(piersOn), tostring(dungeonsOn), tostring(convergencesOn), convergencesOn and math.floor(GetTime() / 5) or 0)
+function MapUtils:GetAzerothPinSources(mapID)
+	MapUtils.AzerothPinSources = MapUtils.AzerothPinSources or {}
+	local cached = MapUtils.AzerothPinSources[mapID]
+	if cached ~= nil then return cached end
+	local sources = {}
+	local children = C_Map.GetMapChildrenInfo ~= nil and C_Map.GetMapChildrenInfo(mapID, nil, true) or nil
+	for _, child in ipairs(children or {}) do
+		if child.mapType == Enum.UIMapType.Continent or child.mapType == Enum.UIMapType.Zone then tinsert(sources, child.mapID) end
+	end
+
+	MapUtils.AzerothPinSources[mapID] = sources
+
+	return sources
+end
+
+function MapUtils:GetOneMapForeignPins(mapID, piersOn, dungeonsOn, convergencesOn, libraryBooksOn, flightsOn, meetingStonesOn, crossingsOn, spiritHealersOn)
+	if mapID == nil or Enum == nil or Enum.UIMapType == nil then return nil end
+	local azeroth = MapUtils:IsAzerothMap(mapID)
+	local oneMap = MapUtils.IsOneMap ~= nil and MapUtils:IsOneMap() and MapUtils.IsZoneDetailMap ~= nil and MapUtils:IsZoneDetailMap(mapID)
+	if not oneMap and not azeroth then return nil end
+	if not azeroth then
+		flightsOn, meetingStonesOn, crossingsOn, spiritHealersOn = false, false, false, false
+		local hostInfo = C_Map.GetMapInfo(mapID)
+		if hostInfo == nil or hostInfo.mapType ~= Enum.UIMapType.Zone then convergencesOn = false end
+	end
+
+	if not (piersOn or dungeonsOn or convergencesOn or libraryBooksOn or flightsOn or meetingStonesOn or crossingsOn or spiritHealersOn) then return nil end
+	local space = oneMap and MapUtils:GetZoneDetailSpace() or mapID
+	local key = format("%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%d", mapID, tostring(oneMap), tostring(piersOn), tostring(dungeonsOn), tostring(convergencesOn), tostring(libraryBooksOn), tostring(flightsOn), tostring(meetingStonesOn), tostring(crossingsOn), tostring(spiritHealersOn), convergencesOn and math.floor(GetTime() / 5) or 0)
 	local cache = MapUtils.OneMapPinCache
 	if cache.key == key then return cache.items end
 	local hostLeft, hostRight, hostTop, hostBottom = 0, 1, 0, 1
@@ -2698,22 +2771,32 @@ function MapUtils:GetOneMapForeignPins(mapID, piersOn, dungeonsOn, convergencesO
 		return false
 	end
 
-	local own = BuildList(mapID, piersOn, dungeonsOn, false, false, false, false, false)
+	local own = BuildList(mapID, piersOn, dungeonsOn, flightsOn, meetingStonesOn, crossingsOn, spiritHealersOn, false, nil, libraryBooksOn)
 	if own ~= nil then
 		for _, entry in ipairs(own) do
 			Remember(entry, hostLeft + entry.x * (hostRight - hostLeft), hostTop + entry.y * (hostBottom - hostTop))
 		end
 	end
 
-	for _, sourceID in ipairs(MapUtils:GetZoneDetailSources()) do
+	local enabled = {
+		["dungeon"] = dungeonsOn,
+		["convergence"] = convergencesOn,
+		["librarybook"] = libraryBooksOn,
+		["flight"] = flightsOn,
+		["meetingstone"] = meetingStonesOn,
+		["crossing"] = crossingsOn,
+		["spirithealer"] = spiritHealersOn,
+	}
+
+	for _, sourceID in ipairs(oneMap and MapUtils:GetZoneDetailSources() or MapUtils:GetAzerothPinSources(mapID)) do
 		if sourceID ~= mapID then
 			local left, right, top, bottom = C_Map.GetMapRectOnMap(sourceID, space)
-			local list = left ~= nil and right > left and bottom > top and BuildList(sourceID, piersOn, dungeonsOn, false, false, false, false, convergencesOn)
+			local list = left ~= nil and right > left and bottom > top and BuildList(sourceID, piersOn, dungeonsOn, flightsOn, meetingStonesOn, crossingsOn, spiritHealersOn, convergencesOn, nil, libraryBooksOn)
 			if list then
 				for _, entry in ipairs(list) do
-					if entry.kind == nil or entry.kind == "dungeon" and dungeonsOn or entry.kind == "convergence" and convergencesOn then
+					if entry.kind == nil and piersOn or entry.kind ~= nil and enabled[entry.kind] then
 						local u, v = left + entry.x * (right - left), top + entry.y * (bottom - top)
-						if entry.kind ~= "dungeon" or not IsSeen(entry, u, v) then
+						if entry.kind == nil or entry.kind == "convergence" or not IsSeen(entry, u, v) then
 							Remember(entry, u, v)
 							tinsert(
 								items,
@@ -2859,6 +2942,7 @@ end
 local worldPins = {}
 MapUtils.CanvasPinLists = MapUtils.CanvasPinLists or {}
 tinsert(MapUtils.CanvasPinLists, worldPins)
+if MapUtils.RegisterRenderLayer ~= nil then MapUtils:RegisterRenderLayer("World pins", function() return worldPins end) end
 local worldPinPool = nil
 local worldMapID = nil
 local worldScale = nil
@@ -2879,15 +2963,19 @@ local function UpdateWorldPins()
 	local flightsOn = FlightsEnabled(true)
 	local meetingStonesOn = MeetingStonesEnabled(true)
 	local crossingsOn = CrossingsEnabled()
-	local spiritHealersOn = MapUtils:IsForever() and MapUtils:GetConfig("SPIRITHEALERWORLDMAPPINS", false) == true
+	local spiritHealersOn = MapUtils:IsForever() and MapUtils:IsPinShownOnMap("SPIRITHEALERWORLDMAPPINS", false)
 	local convergencesOn = MapUtils.ConvergencePinsEnabled ~= nil and MapUtils:ConvergencePinsEnabled(true)
+	local libraryBooksOn = MapUtils.LibraryBookPinsEnabled ~= nil and MapUtils:LibraryBookPinsEnabled()
 	if MapUtils:IsDebug() then
 		piersOn, dungeonsOn, flightsOn, meetingStonesOn, crossingsOn = true, true, true, true, true
 		spiritHealersOn = MapUtils:IsForever()
 		convergencesOn = MapUtils:IsForever()
 	end
 	local baseLevel = GetWorldPinLevel(child)
-	if mapID == worldMapID and scale == worldScale and piersOn == worldPiers and dungeonsOn == worldDungeons and flightsOn == worldFlights and meetingStonesOn == worldMeetingStones and crossingsOn == worldCrossings and spiritHealersOn == worldSpiritHealers and convergencesOn == worldConvergences then
+	local sameState = mapID == worldMapID and piersOn == worldPiers and dungeonsOn == worldDungeons and flightsOn == worldFlights and meetingStonesOn == worldMeetingStones and crossingsOn == worldCrossings and spiritHealersOn == worldSpiritHealers and convergencesOn == worldConvergences and libraryBooksOn == PinCache.worldLibraryBooks
+	local zooming = sameState and scale ~= worldScale and scale ~= PinCache.seenScale and #worldPins > 0
+	PinCache.seenScale = scale
+	if sameState and (scale == worldScale or zooming) then
 		for _, pin in ipairs(worldPins) do
 			pin.baseLevel = baseLevel
 			UpdatePinLevel(pin, pin.entry ~= nil and IsEntryWaypoint(pin.mapID, pin.entry))
@@ -2904,14 +2992,15 @@ local function UpdateWorldPins()
 	worldCrossings = crossingsOn
 	worldSpiritHealers = spiritHealersOn
 	worldConvergences = convergencesOn
+	PinCache.worldLibraryBooks = libraryBooksOn
 	worldPinPool:ReleaseAll()
 	wipe(worldPins)
 	local list = {}
-	for _, entry in ipairs(BuildList(mapID, piersOn, dungeonsOn, flightsOn, meetingStonesOn, crossingsOn, spiritHealersOn, convergencesOn) or {}) do
+	for _, entry in ipairs(BuildList(mapID, piersOn, dungeonsOn, flightsOn, meetingStonesOn, crossingsOn, spiritHealersOn, convergencesOn, nil, libraryBooksOn) or {}) do
 		tinsert(list, entry)
 	end
 
-	local foreign = MapUtils:GetOneMapForeignPins(mapID, piersOn, dungeonsOn, convergencesOn)
+	local foreign = MapUtils:GetOneMapForeignPins(mapID, piersOn, dungeonsOn, convergencesOn, libraryBooksOn, flightsOn, meetingStonesOn, crossingsOn, spiritHealersOn)
 	local ownCount = #list
 	if foreign ~= nil then
 		for _, item in ipairs(foreign) do
@@ -2943,16 +3032,18 @@ local function UpdateWorldPins()
 		local icon = GetEntryIcon(entry)
 		ApplyIcon(pin, icon)
 		ApplyEntryTint(pin, entry)
+		local factor = MapUtils:GetPinKindSizeFactor(entry.kind)
 		if entry.kind == "crossing" or entry.kind == "dungeon" and entry.entrance == "path" then
-			pin:SetSize(dungeonSize * 0.7, dungeonSize * 0.7)
+			pin:SetSize(dungeonSize * 0.7 * factor, dungeonSize * 0.7 * factor)
 		elseif entry.kind == "dungeon" then
-			local entranceSize = math.min(DUNGEON_ICON_SIZE, GetAtlasWidth(icon) or DUNGEON_ICON_SIZE) * poiScale / scale
+			local sizeIcon = icon == SPLIT_ICON and GetDungeonIcon() or icon
+			local entranceSize = math.min(DUNGEON_ICON_SIZE, GetAtlasWidth(sizeIcon) or DUNGEON_ICON_SIZE) * poiScale / scale * factor
 			pin:SetSize(entranceSize, entranceSize)
 		elseif entry.kind == "flight" then
-			local flightSize = (GetAtlasWidth(entry.icon) or ICON_SIZE) * poiScale / scale
+			local flightSize = (GetAtlasWidth(entry.icon) or ICON_SIZE) * poiScale / scale * factor
 			pin:SetSize(flightSize, flightSize)
 		else
-			pin:SetSize(size, size)
+			pin:SetSize(size * factor, size * factor)
 		end
 
 		UpdatePinStyle(pin)
@@ -2990,7 +3081,9 @@ local minimapConvergences = nil
 local function GetMinimapList(mapID, piersOn, dungeonsOn, flightsOn, meetingStonesOn)
 	local spiritHealersOn = MapUtils:IsForever() and MapUtils:GetConfig("SPIRITHEALERMINIMAPPINS", false) == true
 	local convergencesOn = MapUtils.ConvergencePinsEnabled ~= nil and MapUtils:ConvergencePinsEnabled(false)
-	if mapID == minimapMapID and piersOn == minimapPiers and dungeonsOn == minimapDungeons and flightsOn == minimapFlights and meetingStonesOn == minimapMeetingStones and spiritHealersOn == minimapSpiritHealers and convergencesOn == minimapConvergences then return minimapList end
+	local libraryBooksOn = MapUtils.LibraryBookPinsEnabled ~= nil and MapUtils:LibraryBookPinsEnabled(true)
+	if mapID == minimapMapID and piersOn == minimapPiers and dungeonsOn == minimapDungeons and flightsOn == minimapFlights and meetingStonesOn == minimapMeetingStones and spiritHealersOn == minimapSpiritHealers and convergencesOn == minimapConvergences and libraryBooksOn == PinCache.minimapLibraryBooks then return minimapList end
+	PinCache.minimapLibraryBooks = libraryBooksOn
 	minimapMapID = mapID
 	minimapPiers = piersOn
 	minimapDungeons = dungeonsOn
@@ -2998,7 +3091,7 @@ local function GetMinimapList(mapID, piersOn, dungeonsOn, flightsOn, meetingSton
 	minimapMeetingStones = meetingStonesOn
 	minimapSpiritHealers = spiritHealersOn
 	minimapConvergences = convergencesOn
-	minimapList = BuildList(mapID, piersOn, dungeonsOn, flightsOn, meetingStonesOn, false, spiritHealersOn, convergencesOn)
+	minimapList = BuildList(mapID, piersOn, dungeonsOn, flightsOn, meetingStonesOn, false, spiritHealersOn, convergencesOn, nil, libraryBooksOn)
 
 	return minimapList
 end
@@ -3115,7 +3208,7 @@ if worldCanvas ~= nil and CreateFramePool ~= nil then
 			pin.icon = nil
 		end
 	)
-	worldUpdater = CreateUpdater(WorldMapFrame, UpdateWorldPins)
+	worldUpdater = CreateUpdater(WorldMapFrame, MapUtils.Profile("pins UpdateWorldPins", UpdateWorldPins))
 	MapUtils.UpdateWorldPinsNow = UpdateWorldPins
 	MapUtils.CanvasPinUpdaters = MapUtils.CanvasPinUpdaters or {}
 	tinsert(MapUtils.CanvasPinUpdaters, UpdateWorldPins)
@@ -3130,14 +3223,14 @@ if worldCanvas ~= nil and CreateFramePool ~= nil then
 end
 
 if Minimap ~= nil then
-	minimapUpdater = CreateUpdater(Minimap, UpdateMinimapPins)
+	minimapUpdater = CreateUpdater(Minimap, MapUtils.Profile("pins UpdateMinimapPins", UpdateMinimapPins))
 	MapUtils.MinimapState.updater = minimapUpdater
 	MapUtils.MinimapState.zoneWatcher = CreateFrame("FRAME")
 	for _, event in ipairs({"PLAYER_ENTERING_WORLD", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA"}) do
 		pcall(MapUtils.MinimapState.zoneWatcher.RegisterEvent, MapUtils.MinimapState.zoneWatcher, event)
 	end
 
-	MapUtils.MinimapState.zoneWatcher:SetScript("OnEvent", function() MapUtils:WakeMinimapPins() end)
+	MapUtils.MinimapState.zoneWatcher:SetScript("OnEvent", MapUtils.Profile("pins zone events", function() MapUtils:WakeMinimapPins() end))
 end
 
 local function UpdatePinStyles()
@@ -3636,8 +3729,8 @@ function MapUtils:HookWaypointDistance()
 		updating = false
 	end
 
-	hooksecurefunc(text, "SetText", UpdateDistance)
-	hooksecurefunc(text, "SetFormattedText", UpdateDistance)
+	hooksecurefunc(text, "SetText", MapUtils.Profile("pins waypoint distance", UpdateDistance))
+	hooksecurefunc(text, "SetFormattedText", MapUtils.Profile("pins waypoint distance", UpdateDistance))
 	UpdateDistance()
 	return true
 end
@@ -3681,3 +3774,4 @@ superTrackedLoader:SetScript(
 		if FixSuperTrackedFrame() and self.distanceHooked then self:UnregisterAllEvents() end
 	end
 )
+MapUtils.ProfileTable("PinCache", PinCache)

@@ -19,9 +19,10 @@ local function myRealm() return GetNormalizedRealmName and GetNormalizedRealmNam
 
 -- 名 + 第二段 → 全名：第二段 = 本服规范服务器名 → 只是服务器；否则是姓 →「名 姓」；带空格 / 「-」的视为已经是全名
 local function joinName(a, b)
-    if type(a) ~= "string" or a == "" or secret(a) then return nil end
+    -- 11-13 用户 BugGrabber 79 次「attempt to compare local 'a' (a secret string value)」：受保护的名字连 == "" 都不能比 → 先判 secret
+    if type(a) ~= "string" or secret(a) or a == "" then return nil end
     if a:find("-", 1, true) or a:find(" ", 1, true) then return a end
-    if type(b) == "string" and b ~= "" and not secret(b) and b ~= myRealm() then return a .. " " .. b end
+    if type(b) == "string" and not secret(b) and b ~= "" and b ~= myRealm() then return a .. " " .. b end
     return a
 end
 IM.joinName = joinName
@@ -29,7 +30,7 @@ IM.joinName = joinName
 -- 聊天发送者缓存：首段名 → 全名（去掉「-服务器」）；同一个首段对应多个全名 = 不确定，不用
 IM.seen = {}
 local function noteSender(full)
-    if type(full) ~= "string" or full == "" or secret(full) then return end
+    if type(full) ~= "string" or secret(full) or full == "" then return end
     full = full:gsub("%-[^%-]*$", "")
     local first = full:match("^([^ ]+) ")
     if not first then return end
@@ -50,9 +51,9 @@ function IM.Target(ctx)
     if type(ctx) ~= "table" then return nil end
     local name, server = ctx.name, ctx.server
     if (not name or name == "") and ctx.unit and UnitName then name, server = UnitName(ctx.unit) end
-    if type(name) ~= "string" or name == "" or secret(name) then return nil end
+    if type(name) ~= "string" or secret(name) or name == "" then return nil end
     -- ① 聊天行的完整发送者
-    local full = type(ctx.chatTarget) == "string" and ctx.chatTarget ~= "" and not secret(ctx.chatTarget) and ctx.chatTarget or nil
+    local full = type(ctx.chatTarget) == "string" and not secret(ctx.chatTarget) and ctx.chatTarget ~= "" and ctx.chatTarget or nil
     if full and (full:find(" ", 1, true) or full:find("-", 1, true)) then return (full:gsub("%-" .. (myRealm() or "\0") .. "$", "")) end
     -- ② 单位
     if ctx.unit and UnitFullName then

@@ -5,22 +5,29 @@ OSG.adapters.GearInsight = adapter
 
 local KEYS = { FriendlyNameplates = true, CombatHUD = true, LevelingStats = true, ActionBarEditing = true,
   GuildChatLevel = true }
--- GearInsight 1.0.x reads these straight from its saved table and treats nil as on. They are
--- written to GearInsightForeverDB so early rules work before GearInsight publishes ns.db;
--- InitDB keeps an existing table, and Layer.DB() only fills nil fields.
+-- GearInsight reads these straight from its saved table and treats nil as on. They are written
+-- to GearInsightForeverDB so early rules work before GearInsight publishes ns.db; InitDB keeps an
+-- existing table, and its section accessors (Layer.DB, DC.DB, MW.Opts) only fill nil fields.
+-- `values` maps a dotted section path to the fields written there.
 local SETTINGS = {
   -- helperV=2 marks GearInsight's one-time migration as done; otherwise it forces helper back on.
-  LayerNetwork = { section = "layer", values = { on = false, pub = false, helper = false, helperV = 2 },
+  LayerNetwork = { values = { layer = { on = false, pub = false, helper = false, helperV = 2 } },
     apply = function(gi) if type(gi.Layer) == "table" and type(gi.Layer.SyncPub) == "function" then gi.Layer.SyncPub() end end },
-  LayerAutoAccept = { section = "layer", values = { autoAccept = false } },
-  LayerAutoInvite = { section = "layer", values = { autoHelp = false } },
-  LayerAutoLeave = { section = "layer", values = { autoLeave = false } },
+  LayerAutoAccept = { values = { layer = { autoAccept = false } } },
+  LayerAutoInvite = { values = { layer = { autoHelp = false } } },
+  LayerAutoLeave = { values = { layer = { autoLeave = false } } },
   -- Restore reopens friendly nameplates only if GearInsight itself closed them.
-  CityPlates = { section = "cityPlates", values = { on = false },
+  CityPlates = { values = { cityPlates = { on = false } },
     apply = function(gi) if type(gi.CityPlates) == "table" and type(gi.CityPlates.Restore) == "function" then gi.CityPlates.Restore() end end },
-  -- qm.thanks is the only switch UI.lua checks before loading the Group module in a group.
-  GroupAutoLoad = { section = "qm", values = { thanks = false } },
-  ItemLevel = { section = "ui", values = { ilvl = false },
+  -- qm.thanks gates loading the Group module when a group forms; ui.groupLazy (1.0.1+) gates
+  -- loading it at PLAYER_LOGIN.
+  GroupAutoLoad = { values = { qm = { thanks = false }, ui = { groupLazy = true } } },
+  -- SetSharing also drops messages already queued.
+  QuestShare = { values = { qm = { share = false } },
+    apply = function(gi) if type(gi.QM) == "table" and type(gi.QM.SetSharing) == "function" then gi.QM.SetSharing(false) end end },
+  -- With both off, GroupParts no longer auto-loads GearInsight_Forever_GroupMage for non-Mages.
+  MageWater = { values = { ["dchat.mw"] = { fieldAsk = false, thank = false } } },
+  ItemLevel = { values = { ui = { ilvl = false } },
     apply = function(gi) if type(gi.ItemLevel) == "table" and type(gi.ItemLevel.RefreshAll) == "function" then gi.ItemLevel.RefreshAll() end end },
 }
 local CHAT_SETTERS = { "SetEnabled", "SetWhisperOn", "SetPartyOn" }
@@ -82,11 +89,24 @@ local function SavedDB()
   if type(_G.GearInsightForeverDB) == "table" then return _G.GearInsightForeverDB end
 end
 
+local function Section(db, path, create)
+  for part in path:gmatch("[^.]+") do
+    if type(db[part]) ~= "table" then
+      if not create then return nil end
+      db[part] = {}
+    end
+    db = db[part]
+  end
+  return db
+end
+
 local function ReadSetting(spec)
   local db = SavedDB()
-  local section = db and db[spec.section]
-  for field, value in pairs(spec.values) do
-    if type(section) ~= "table" or section[field] ~= value then return true end
+  for path, values in pairs(spec.values) do
+    local section = db and Section(db, path, false)
+    for field, value in pairs(values) do
+      if not section or section[field] ~= value then return true end
+    end
   end
   return false
 end
@@ -97,8 +117,10 @@ local function RevertSetting(spec)
     _G.GearInsightForeverDB = {}
     db = _G.GearInsightForeverDB
   end
-  if type(db[spec.section]) ~= "table" then db[spec.section] = {} end
-  for field, value in pairs(spec.values) do db[spec.section][field] = value end
+  for path, values in pairs(spec.values) do
+    local section = Section(db, path, true)
+    for field, value in pairs(values) do section[field] = value end
+  end
   local gi = Live()
   if gi and spec.apply then
     local ok, err = pcall(spec.apply, gi)
@@ -125,6 +147,10 @@ function adapter.Read(key)
   elseif key == "CombatHUD" then
     return gi.db.keysHud == true or Shown(gi.KeysHud.frame)
   elseif key == "LevelingStats" then
+    -- 1.1.x replaced the account-wide leveling.shown with a per-character hide list.
+    if type(gi.LevelingShown) == "function" then
+      return gi.LevelingShown() and true or Shown(_G.GearInsightForeverLeveling)
+    end
     return not gi.db.leveling or gi.db.leveling.shown ~= false or Shown(_G.GearInsightForeverLeveling)
   elseif key == "ActionBarEditing" then
     for _, name in ipairs(EDITS) do
@@ -169,9 +195,13 @@ function adapter.Revert(key)
   elseif key == "CombatHUD" then
     gi.KeysHud.Toggle(false)
   elseif key == "LevelingStats" then
-    gi.db.leveling = gi.db.leveling or {}
     if _G.GearInsightForeverLeveling then _G.GearInsightForeverLeveling:Hide() end
-    gi.db.leveling.shown = false
+    if type(gi.SetLevelingShown) == "function" then
+      gi.SetLevelingShown(false)
+    else
+      gi.db.leveling = gi.db.leveling or {}
+      gi.db.leveling.shown = false
+    end
   elseif key == "ActionBarEditing" then
     for _, name in ipairs(EDITS) do
       local edit = gi.Keys[name]
@@ -191,7 +221,7 @@ end
 function adapter.Watch(onChange)
   local gi = Live()
   if not gi then return end
-  for _, spec in ipairs({ { gi, "ToggleLeveling" }, { gi.KeysHud, "Toggle" },
+  for _, spec in ipairs({ { gi, "ToggleLeveling" }, { gi, "SetLevelingShown" }, { gi.KeysHud, "Toggle" },
     { gi.QM, "PlatesOnOpen" }, { gi.QM, "PlatesOnClose" }, { gi.GuildChatLevel, "SetEnabled" },
     { gi.GuildChatLevel, "SetWhisperOn" }, { gi.GuildChatLevel, "SetPartyOn" }, { gi.Layer, "SetPub" },
     { gi.CityPlates, "SetOn" }, { gi.ItemLevel, "SetOn" } }) do

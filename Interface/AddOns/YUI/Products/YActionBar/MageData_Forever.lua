@@ -26,4 +26,11 @@ YAB.MageData = {
     },
     armorSpells = { mage = 6117, ice = 7302, frost = 168 },
     intellectSpellID = 1459, brillianceSpellID = 23028,
+    -- wowf zhCN 1.60.1.70888 SpellName + SpellClassOptions (class set 3).
+    -- Native candidate filters match exact IDs, including all same-name ranks.
+    auraFamilies = {
+        intellect = { 1459, 1460, 1461, 10156, 10157, 13326, 16876, 23028, 364161 },
+        armor = { 168, 6117, 7300, 7301, 7302, 7320, 10219, 10220,
+            12544, 12556, 15784, 18100, 22782, 22783 },
+    },
 }

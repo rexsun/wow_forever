@@ -3,7 +3,7 @@
 --   键按「当前实际形态」算：变熊后槌击显示熊形态页那格的键（形态页用主条同位键 1 至 =）。
 --   ⛔ 只在图标上挂我们自己的 FontString（自己的子对象），不改暴雪图标的属性、不调它的方法（读字段 / 读 C_CooldownViewer 而已），避免污染。
 --   《无限》客户端有没有冷却管理器不确定：全部判空 + pcall；没有就什么都不做。/gi keys cdm 诊断。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local KC = {}
 ns.KeysCdm = KC
@@ -189,6 +189,10 @@ end
 ev:SetScript("OnEvent", function()
     hookViewers()
     KC.Queue()
+end)
+-- 11-13 第 4 期：_Class 晚于进世界才加载（存档开着钉板 / HUD 等，登录后条件加载）→ 进世界那一下错过了，补跑一次
+ns.AddInit(function()
+    if IsLoggedIn and IsLoggedIn() then hookViewers(); KC.Queue() end
 end)
 
 -- /gi keys cdm 诊断

@@ -4,7 +4,7 @@
 -- 名字：任务名优先游戏现读（C_QuestLog.GetTitleForQuestID，国服客户端给官方中文，《无限》新任务也有），读不到用数据里的中文 / 英文；
 --   物品名用 GetItemInfo 现读（新装备也是官方中文）。
 -- ⛔ 状态符号一律用游戏贴图（√ ● → 这类字符在游戏字体里会变方框）
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local byLoot = {}       -- 掉落数据英文名 → 副本任务的副本
 local function index()
@@ -296,6 +296,17 @@ local function rowTooltip(r)
             GameTooltip:AddLine("  " .. ns.L((g.c ~= "" and g.c) or g.n, g.n) .. " x" .. (g.cnt or 1), 0.7, 0.9, 1)
         end
     end
+    -- GI-243：职业单人副本任务（盗贼 C 的投递箱任务线等）—— 必须单人 + 任务物品怎么拿（按顺序）
+    if q.solo then
+        GameTooltip:AddLine(ns.L("必须单人进本：组队进去不算任务进度", "Solo only: a group run does not progress this quest"), 1, 0.4, 0.4, true)
+    end
+    if q.how and #q.how > 0 then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(ns.L("任务物品怎么拿（按顺序）", "How to get the quest items (in order)"), 1, 0.82, 0)
+        for i, h in ipairs(q.how) do
+            GameTooltip:AddLine(i .. ". " .. ns.L(h.c, (h.e ~= "" and h.e) or h.c), 0.9, 0.9, 0.9, true)
+        end
+    end
     local chain = q.chain or {}
     if #chain > 1 then
         GameTooltip:AddLine(" ")
@@ -445,6 +456,7 @@ function ns.ShowDungeonQuests(d, parent)
         local tags = {}
         local st = STATE_TXT[e.s]
         tags[#tags + 1] = (e.s == "ok" and "|cff40ff40" or e.s == "log" and "|cffffd100" or "|cff9a9a9a") .. ns.L(st[1], st[2]) .. "|r"
+        if q.solo then tags[#tags + 1] = "|cffff6666" .. ns.L("单人", "Solo") .. "|r" end
         if q.new then tags[#tags + 1] = "|cff33ff99" .. ns.L("新", "New") .. "|r" end
         if (q.changed or "") ~= "" then tags[#tags + 1] = "|cff33ff99" .. ns.L("有改动", "Changed") .. "|r" end
         if q.beta and not r.off then tags[#tags + 1] = "|cffaaaaaaBeta|r" end
@@ -464,7 +476,9 @@ function ns.ShowDungeonQuests(d, parent)
             rw[#rw + 1] = ns.L("任选：", "choose: ") .. table.concat(ch, ns.L(" / ", " / "))
         end
         if (q.xp or 0) > 0 then rw[#rw + 1] = "|cffaaaaaa" .. ns.L("经验 ", "XP ") .. q.xp .. "|r" end
-        r.b:SetText(#rw > 0 and (ns.L("奖励：", "Rewards: ") .. table.concat(rw, ns.L("、", ", "))) or ("|cff777777" .. ns.L("没有物品奖励", "No item reward") .. "|r"))
+        -- GI-243：有「物品怎么拿」步骤的放最前（这行不换行，放后面会被奖励挤掉）
+        local howHint = (q.how and #q.how > 0) and ("|cffffd100" .. ns.L("悬停看任务物品怎么拿", "Hover: how to get the items") .. "|r　") or ""
+        r.b:SetText(howHint .. (#rw > 0 and (ns.L("奖励：", "Rewards: ") .. table.concat(rw, ns.L("、", ", "))) or ("|cff777777" .. ns.L("没有物品奖励", "No item reward") .. "|r")))
         r:ClearAllPoints(); r:SetPoint("TOPLEFT", 0, y); r:SetPoint("RIGHT", pop.child, "RIGHT", -4, 0); r:SetHeight(58)
         r:Show()
         y = y - 60

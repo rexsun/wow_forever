@@ -27,8 +27,11 @@ local Transport = {
 	lastAnnounce = {},
 	received = {},
 	queryGap = 600,
-	staleAge = 2 * 86400,
+	staleQueryGap = 1800,
 	maxAge = 30 * 86400,
+	selfPriority = 6 * 3600,
+	futureTolerance = 5,
+	driftAge = 8 * 3600,
 	announceGap = 600,
 	perMessage = 10,
 	maxPerSender = 60,
@@ -139,7 +142,7 @@ function Transport.Init()
 
 	if next(Transport.decoded) == nil then return end
 	Transport.CalibrateClock()
-	C_Timer.NewTicker(Transport.triggerInterval, Transport.CheckTriggers)
+	C_Timer.NewTicker(Transport.triggerInterval, MapUtils.Profile("transports CheckTriggers", Transport.CheckTriggers))
 	if MapUtils.Comm ~= nil then MapUtils.Comm.Register("T", Transport.OnMessage) end
 	C_Timer.After(25 + math.random() * 25, function() Transport.Query(true) end)
 	Transport.CreateUpdaters()
@@ -154,13 +157,32 @@ function Transport.GetStore()
 	return MAUTTAB.TRANSPORTSYNC[flavor]
 end
 
+function Transport.GetBuild()
+	local _, build = GetBuildInfo()
+
+	return tostring(build or "")
+end
+
 function Transport.GetKnown(id)
 	local store = Transport.GetStore()
 	local known = store ~= nil and store[id] or nil
 	if type(known) ~= "table" or type(known.p) ~= "number" or type(known.t) ~= "number" then return nil end
 	if Transport.Now() - known.t > Transport.maxAge then return nil end
+	if known.b == nil then known.b = Transport.GetBuild() end
 
 	return known
+end
+
+function Transport.IsOutdated(known)
+	return known ~= nil and known.b ~= Transport.GetBuild()
+end
+
+function Transport.GetWarning(known)
+	if known == nil then return nil end
+	if Transport.IsOutdated(known) then return MapUtils:Trans("LID_VESSELOUTDATED") end
+	if Transport.Now() - known.t > Transport.driftAge then return format(MapUtils:Trans("LID_VESSELDRIFT"), math.floor(Transport.driftAge / 3600)) end
+
+	return nil
 end
 
 function Transport.GetCycle(id)
@@ -305,6 +327,9 @@ function Transport.AddSourceLine(tooltip, id)
 	else
 		tooltip:AddLine(format(MapUtils:Trans("LID_VESSELSOURCE"), tostring(known.s), age), 0.6, 0.6, 0.6)
 	end
+
+	local warning = Transport.GetWarning(known)
+	if warning ~= nil then tooltip:AddLine(warning, 1, 0.6, 0.2, true) end
 end
 
 function Transport.FillTooltip(tooltip, id)
@@ -347,6 +372,15 @@ function Transport.AcquirePin(list, index, parent)
 		pin = CreateFrame("FRAME", nil, parent)
 		pin.texture = pin:CreateTexture(nil, "OVERLAY")
 		pin.texture:SetAllPoints(pin)
+		pin.outline = {}
+		for i = 1, 8 do
+			local texture = pin:CreateTexture(nil, "OVERLAY", nil, -1)
+			texture:SetVertexColor(0, 0, 0, 1)
+			if texture.SetSnapToPixelGrid ~= nil then texture:SetSnapToPixelGrid(false) end
+			if texture.SetTexelSnappingBias ~= nil then texture:SetTexelSnappingBias(0) end
+			pin.outline[i] = texture
+		end
+
 		pin:EnableMouse(true)
 		pin:SetScript("OnEnter", Transport.OnPinEnter)
 		pin:SetScript("OnLeave", Transport.OnPinLeave)
@@ -365,7 +399,20 @@ function Transport.ShowPin(pin, id, route, size, angle, zoning)
 		pin.icon = icon
 	end
 
-	pin.texture:SetRotation(route.kind == "tram" and 0 or angle)
+	local rotation = route.kind == "tram" and 0 or angle
+	pin.texture:SetRotation(rotation)
+	local _, physicalHeight = GetPhysicalScreenSize()
+	local effective = pin:GetEffectiveScale()
+	local step = (physicalHeight ~= nil and physicalHeight > 0 and effective > 0) and 768 / physicalHeight / effective or 1
+	for i, texture in ipairs(pin.outline) do
+		local outlineAngle = (i - 1) * math.pi / 4
+		texture:SetTexture(icon)
+		texture:SetRotation(rotation)
+		texture:ClearAllPoints()
+		texture:SetPoint("CENTER", pin, "CENTER", math.floor(math.cos(outlineAngle) + 0.5) * step, math.floor(math.sin(outlineAngle) + 0.5) * step)
+		texture:SetSize(size, size)
+	end
+
 	pin:SetAlpha(zoning and 0.45 or 1)
 	pin:ClearAllPoints()
 	pin:Show()
@@ -380,7 +427,9 @@ function Transport.HideFrom(list, first)
 end
 
 function Transport.Enabled(worldMap)
-	return MapUtils:GetConfig(worldMap and "VESSELWORLDMAPPINS" or "VESSELMINIMAPPINS", true) == true
+	if worldMap then return MapUtils:IsPinShownOnMap("VESSELWORLDMAPPINS", true) end
+
+	return MapUtils:GetConfig("VESSELMINIMAPPINS", true) == true
 end
 
 function Transport.GetCanvas()
@@ -533,7 +582,7 @@ function Transport.UpdateWorld()
 	local projections = canvas ~= nil and Transport.Enabled(true) and MapUtils.GetMapRect ~= nil and Transport.GetProjections(WorldMapFrame:GetMapID()) or nil
 	if projections ~= nil and canvas:GetScale() > 0 then
 		local w, h = canvas:GetWidth(), canvas:GetHeight()
-		local size = Transport.iconSize / canvas:GetScale()
+		local size = Transport.iconSize / canvas:GetScale() * MapUtils:GetPinSizeFactor("VESSELWORLDMAPPINS")
 		for id, route in pairs(Transport.GetRoutes()) do
 			local instance, wx, wy, angle, zoning = Transport.GetWorldMapPosition(id)
 			local mx, my = nil, nil
@@ -607,7 +656,7 @@ end
 
 function Transport.CreateUpdaters()
 	if WorldMapFrame ~= nil then
-		Transport.CreateUpdater(WorldMapFrame, Transport.UpdateWorld)
+		Transport.CreateUpdater(WorldMapFrame, MapUtils.Profile("transports UpdateWorld", Transport.UpdateWorld))
 		WorldMapFrame:HookScript(
 			"OnShow",
 			function()
@@ -616,7 +665,7 @@ function Transport.CreateUpdaters()
 		)
 	end
 
-	if Minimap ~= nil then Transport.CreateUpdater(Minimap, Transport.UpdateMinimap) end
+	if Minimap ~= nil then Transport.CreateUpdater(Minimap, MapUtils.Profile("transports UpdateMinimap", Transport.UpdateMinimap)) end
 end
 
 function MapUtils:RefreshTransports()
@@ -738,7 +787,8 @@ function Transport.Observe(id, cycle)
 	store[id] = {
 		p = (now - cycle) % route.rtt,
 		t = now,
-		s = "self"
+		s = "self",
+		b = Transport.GetBuild()
 	}
 
 	Transport.QueueAnnounce(id)
@@ -750,7 +800,7 @@ end
 
 function Transport.Encode(id)
 	local known = Transport.GetKnown(id)
-	if known == nil then return nil end
+	if known == nil or known.s ~= "self" or Transport.IsOutdated(known) then return nil end
 
 	return format("%d,%d,%d", id, math.floor(known.p * 1000 + 0.5), math.floor(known.t))
 end
@@ -770,25 +820,42 @@ function Transport.SendData(ids, dist, target)
 	if #parts > 0 then MapUtils.Comm.Send("T", "!" .. Transport.GetCode() .. table.concat(parts, ";"), dist, target) end
 end
 
+function Transport.IsStale(known)
+	return Transport.IsOutdated(known) or Transport.Now() - known.t > Transport.driftAge
+end
+
 function Transport.GetWanted()
-	local ids = {}
+	local missing, stale = {}, {}
 	for id in pairs(Transport.GetRoutes()) do
 		local known = Transport.GetKnown(id)
-		if known == nil or Transport.Now() - known.t > Transport.staleAge then tinsert(ids, id) end
+		if known == nil then
+			tinsert(missing, id)
+		elseif Transport.IsStale(known) then
+			tinsert(stale, id)
+		end
 	end
 
-	table.sort(ids)
+	table.sort(missing)
+	table.sort(stale)
 
-	return ids
+	return missing, stale
 end
 
 function Transport.Query(force)
 	if not Transport.SyncEnabled() then return end
-	if not force and Transport.lastQuery ~= nil and GetTime() - Transport.lastQuery < Transport.queryGap then return end
-	local ids = Transport.GetWanted()
-	if #ids == 0 then return end
-	Transport.lastQuery = GetTime()
-	MapUtils.Comm.Send("T", "?" .. Transport.GetCode() .. table.concat(ids, ","), "ALL")
+	local now = GetTime()
+	if not force and Transport.lastQuery ~= nil and now - Transport.lastQuery < Transport.queryGap then return end
+	local missing, stale = Transport.GetWanted()
+	if #stale > 0 and not force and Transport.lastStaleQuery ~= nil and now - Transport.lastStaleQuery < Transport.staleQueryGap then wipe(stale) end
+	if #missing == 0 and #stale == 0 then return end
+	Transport.lastQuery = now
+	local body = table.concat(missing, ",")
+	if #stale > 0 then
+		Transport.lastStaleQuery = now
+		body = body .. "|" .. table.concat(stale, ",")
+	end
+
+	MapUtils.Comm.Send("T", "?" .. Transport.GetCode() .. body, "ALL")
 end
 
 function Transport.QueueAnnounce(id)
@@ -835,14 +902,17 @@ function Transport.OnQuery(body, chatType)
 
 	local fresh = false
 	local count = 0
-	for idText in body:gmatch("%d+") do
-		local id = tonumber(idText)
-		local known = id ~= nil and Transport.GetKnown(id) or nil
-		count = count + 1
-		if count > 32 then break end
-		if known ~= nil then
-			pending.ids[id] = true
-			if known.s == "self" and Transport.Now() - known.t < 3600 then fresh = true end
+	local missingText, staleText = body:match("^([^|]*)|?(.*)$")
+	for _, part in ipairs({{missingText or "", false}, {staleText or "", true}}) do
+		for idText in part[1]:gmatch("%d+") do
+			local id = tonumber(idText)
+			local known = id ~= nil and Transport.GetKnown(id) or nil
+			count = count + 1
+			if count > 32 then break end
+			if known ~= nil and known.s == "self" and not Transport.IsOutdated(known) and (not part[2] or not Transport.IsStale(known)) then
+				pending.ids[id] = true
+				if Transport.Now() - known.t < 3600 then fresh = true end
+			end
 		end
 	end
 
@@ -889,14 +959,16 @@ function Transport.OnData(body, sender)
 		local route = id ~= nil and Transport.GetRoutes()[id] or nil
 		if route ~= nil and phase ~= nil and observed ~= nil then
 			phase = phase / 1000
-			if phase >= 0 and phase < route.rtt and observed <= now + 120 and now - observed < Transport.maxAge then
+			if phase >= 0 and phase < route.rtt and observed <= now + Transport.futureTolerance and now - observed < Transport.maxAge then
 				Transport.Suppress(id, observed)
 				local known = Transport.GetKnown(id)
-				if known == nil or observed > known.t + 1 then
+				local ownFresh = known ~= nil and known.s == "self" and not Transport.IsOutdated(known) and observed - known.t < Transport.selfPriority
+				if not ownFresh and (known == nil or observed > known.t + 1) then
 					store[id] = {
 						p = phase,
 						t = observed,
-						s = sender
+						s = sender,
+						b = Transport.GetBuild()
 					}
 				end
 			end
@@ -981,10 +1053,16 @@ end
 
 function Transport.GetCandidateLines(candidates)
 	local lines = {}
+	local warnings, warned = {}, {}
 	for _, candidate in ipairs(candidates) do
 		local route = Transport.GetRoutes()[candidate.id]
 		local vessel = MapUtils:TransName(route.vessel) or route.vessel
 		local times = Transport.GetPlatformTimes(candidate.id)
+		local warning = times ~= nil and Transport.GetWarning(Transport.GetKnown(candidate.id)) or nil
+		if warning ~= nil and not warned[warning] then
+			warned[warning] = true
+			tinsert(warnings, warning)
+		end
 		if times == nil then
 			tinsert(lines, format("|cff999999%s|r", format(MapUtils:Trans("LID_VESSELUNKNOWN"), vessel)))
 		else
@@ -992,6 +1070,10 @@ function Transport.GetCandidateLines(candidates)
 				if entry.number == candidate.number then tinsert(lines, Transport.GetStatusText(entry, vessel)) end
 			end
 		end
+	end
+
+	for _, warning in ipairs(warnings) do
+		tinsert(lines, format("|cffff9933%s|r", warning))
 	end
 
 	return lines

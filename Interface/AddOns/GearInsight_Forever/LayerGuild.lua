@@ -66,11 +66,12 @@ LY.AddFields(function(t, scope)
 end)
 
 -- 自动接受：会长 / 官员（看公会名单，不信心跳里自报的会阶）、集合频道发起人
+-- 11-13：第二个返回值 "officer" = 受 autoAccept 管；autoAccept 还是 nil（没问过）时照样认出来，由 LY.AcceptReason 改成「先问一次」
 LY.AddAcceptRule(function(s)
-    if not LY.DB().autoAccept then return nil end
-    if LG.IsOfficerRank(LG.ranks[s]) then return L("会长 / 官员", "guild officer") end
+    if LY.DB().autoAccept == false then return nil end
+    if LG.IsOfficerRank(LG.ranks[s]) then return L("会长 / 官员", "guild officer"), "officer" end
     local ld = LY.gather and not LY.gatherLead and LG.Leader()
-    if ld and ld.name == s then return L("集合发起人", "gather leader") end
+    if ld and ld.name == s then return L("集合发起人", "gather leader"), "officer" end
     return nil
 end)
 

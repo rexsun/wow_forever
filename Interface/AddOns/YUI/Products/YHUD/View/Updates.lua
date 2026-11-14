@@ -331,8 +331,10 @@ function View:ApplyMonitorGlow(
     if persistentSlot == nil and compiled and compiled.kind == "aura" then
         persistentSlot = monitor and monitor.visibilityMode == "always"
     end
+    local publicAuraStacks = Glow:GetPublicAuraStacks(state)
     local stackSet = slot._yhudAuraStackSet
-    if stackSet then
+    if stackSet and publicAuraStacks ~= nil then Glow:ReleaseStackSet(stackSet) end
+    if stackSet and publicAuraStacks == nil then
         local level, strata = GetMonitorGlowLayer(runtime, monitor and monitor.id or slot._yhudMonitorId)
         local enabled = supportsGlow and not preview and stackSet.compiled == compiled
             and (compiled.stackRuleCount or 0) > 1 and auraResolved == true and auraPresent == true
@@ -378,7 +380,7 @@ function View:ApplyMonitorGlow(
     end
     local stackGate = slot._yhudAuraStackGate
     local stackCondition = rule and rule.stackCondition
-    if stackCondition and not preview and not (stackGate
+    if stackCondition and not preview and publicAuraStacks == nil and not (stackGate
         and stackGate.operator == stackCondition.operator
         and stackGate.value == stackCondition.value) then kind = nil end
     if not kind then
@@ -553,7 +555,8 @@ function View:ApplyMonitorGlow(
     end
 
     if glow.SetGlowClipParent
-        and glow:SetGlowClipParent(stackCondition and not preview and stackGate.clip or nil) then
+        and glow:SetGlowClipParent(stackCondition and not preview
+            and publicAuraStacks == nil and stackGate.clip or nil) then
         AddViewWrite(false)
     end
 
@@ -609,7 +612,8 @@ function View:UpdateMonitor(monitorId, state)
         and YHUD.IsOfficialNativeView
         and YHUD:IsOfficialNativeView(
             entry.officialCategory,
-            monitor.view
+            monitor.view,
+            entry
         )
     local persistentDisplay = monitor.visibilityMode == "always"
         and YHUD.SupportsPersistentDisplay

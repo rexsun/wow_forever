@@ -1297,6 +1297,7 @@ function Sources:RegisterSourceTypes()
     if YHUD.SwingTimers then YHUD.SwingTimers:RegisterSourceType() end
     if YHUD.PlayerBars then YHUD.PlayerBars:RegisterSourceTypes() end
     if YHUD.Ammo then YHUD.Ammo:RegisterSourceType() end
+    if YHUD.ArcaneBlast then YHUD.ArcaneBlast:RegisterSourceType() end
     local buffTimerOK = self:RegisterBuffTimerSourceType()
     local spellEventWindowOK = self:RegisterSpellEventWindowSourceType()
     local playerAuraOK = self:RegisterPlayerAuraSourceType()
@@ -1381,7 +1382,8 @@ local function ResolveSource(profile, sourceKey, monitorIds)
             and YHUD.IsOfficialNativeView
             and YHUD:IsOfficialNativeView(
                 candidateEntry.officialCategory,
-                candidate.view
+                candidate.view,
+                candidateEntry
             )
             and candidate.visibilityMode ~= "always"
         if candidateEntry and not nativeOfficial then
@@ -1395,6 +1397,10 @@ local function ResolveSource(profile, sourceKey, monitorIds)
 end
 
 function Sources:ResolveEntrySource(profile, entry, monitor, sourceKey)
+    if YHUD:UsesArcaneBlastSimulation(entry) then
+        return YHUD.ArcaneBlast.SOURCE_TYPE, YHUD.ArcaneBlast.SOURCE_KEY,
+            { icon = entry.icon, signature = "forever-arcane-blast:199342" }
+    end
     local nativeSkillDuration = entry.origin == "official-cdm"
         and YHUD:CanUseSkillDurationSource(entry, monitor)
     if YHUD.Ammo and entry.sourceType == YHUD.Ammo.SOURCE_TYPE then

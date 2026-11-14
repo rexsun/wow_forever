@@ -97,6 +97,41 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     end
   end)
 
+  -- Mirrors Leveling.lua 1.1.x: the account-wide shown flag became a per-character hide list.
+  local function UsePerCharacterLeveling(gi)
+    gi.db.leveling = { shown = gi.db.leveling and gi.db.leveling.shown }
+    local function lvdb()
+      local d = gi.db.leveling
+      d.hide = d.hide or {}
+      if d.shown == false then d.hide["Me-Realm"] = true end
+      d.shown = nil
+      return d
+    end
+    function gi.LevelingShown() return not lvdb().hide["Me-Realm"] end
+    function gi.SetLevelingShown(on)
+      lvdb().hide["Me-Realm"] = (not on) and true or nil
+      if on then GearInsightForeverLeveling:Show() else GearInsightForeverLeveling:Hide() end
+    end
+  end
+
+  test("GearInsight 1.1 per-character leveling window is switched off and stays off", function()
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+    local gi = BuildGI(w)
+    UsePerCharacterLeveling(gi)
+    eq(w.ns.adapters.GearInsight.Read("LevelingStats"), true, "missing hide entry reads as on")
+    w.Login()
+    eq(gi.db.leveling.hide["Me-Realm"], true)
+    eq(gi.db.leveling.shown, nil, "the retired flag is not written back")
+    eq(GearInsightForeverLeveling:IsShown(), false)
+    eq(StatusOf(w.ns.Check(), "gi.levelingstats"), "off")
+    w.Tick()
+    eq(StatusOf(w.ns.Check(), "gi.levelingstats"), "off", "stays off after GearInsight's migration runs")
+    gi.SetLevelingShown(true)
+    w.RunTimers()
+    eq(gi.db.leveling.hide["Me-Realm"], true, "settings checkbox is reverted on the next frame")
+    eq(GearInsightForeverLeveling:IsShown(), false)
+  end)
+
   test("GearInsight option hooks revert HUD and nameplates on the next frame", function()
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
     local gi = BuildGI(w)

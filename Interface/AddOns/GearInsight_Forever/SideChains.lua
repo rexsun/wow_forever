@@ -105,27 +105,38 @@ local function ui() ns.db.ui = ns.db.ui or {}; return ns.db.ui end
 function SC.TrackerEnabled() return not (ns.db and ns.db.ui and ns.db.ui.scTracker == false) end
 -- 11-09 玩家「我把睡袋任务的监控关了，要怎么重新打开？」：小窗 × 关的是单条线（scTrack），设置页总开关还勾着 → 看着没关、勾了也没用。
 --   设置页勾选 = 总开关开 + 把单条线的「关」一起清掉；设置页显示 = 总开关开且没有被 × 关掉的线
+-- 11-12 又一位玩家问「关闭后怎么再开启」：小窗 × 改成按角色记（scTrackBy[角色][线]），关一次不再连坐小号 / 新角色；
+--   老存档账号级 scTrack 第一次读到时并到当前登录的角色头上。设置页总开关 scTracker 仍是账号级（那是有意设置）
+local function charKey() return (UnitName and UnitName("player") or "?") .. "-" .. (GetRealmName and GetRealmName() or "?") end
+local function trackMap()
+    local u = ui()
+    u.scTrackBy = u.scTrackBy or {}
+    local k = charKey()
+    if u.scTrack then
+        if not u.scTrackBy[k] then u.scTrackBy[k] = u.scTrack end
+        u.scTrack = nil
+    end
+    u.scTrackBy[k] = u.scTrackBy[k] or {}
+    return u.scTrackBy[k]
+end
 function SC.SetTrackerEnabled(on)
     local u = ui()
     u.scTracker = on and true or false
-    if on then u.scTrack = nil end
+    if on then u.scTrackBy = u.scTrackBy or {}; u.scTrackBy[charKey()] = {}; u.scTrack = nil end
     SC.UpdateTracker()
 end
 function SC.TrackerAllOn()
     if not SC.TrackerEnabled() then return false end
-    local t = ns.db and ns.db.ui and ns.db.ui.scTrack
-    if t then for _, v in pairs(t) do if v == false then return false end end end
+    for _, v in pairs(trackMap()) do if v == false then return false end end
     return true
 end
 function SC.Tracking(c)
     if not (c and ns.db) then return false end
-    local t = ns.db.ui and ns.db.ui.scTrack
-    return not (t and t[c.key] == false)
+    return trackMap()[c.key] ~= false
 end
 function SC.SetTracking(c, on)
     if not (c and ns.db) then return end
-    local u = ui(); u.scTrack = u.scTrack or {}
-    u.scTrack[c.key] = on and true or false
+    trackMap()[c.key] = on and true or false
     SC.UpdateTracker()
 end
 
@@ -346,7 +357,15 @@ local function buildTracker()
     f:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal"); f.title:SetPoint("TOPLEFT", 8, -6); f.title:SetPoint("RIGHT", -44, 0); f.title:SetJustifyH("LEFT")
     local xb = CreateFrame("Button", nil, f, "UIPanelCloseButton"); xb:SetSize(20, 20); xb:SetPoint("TOPRIGHT", 0, 0)
-    xb:SetScript("OnClick", function() local c = rawget(f, "chain"); if c then SC.SetTracking(c, false) end end)   -- × = 关这条线的追踪
+    xb:SetScript("OnClick", function()   -- × = 关这条线的追踪（只对这个角色）+ 聊天框告诉怎么找回
+        local c = rawget(f, "chain"); if not c then return end
+        SC.SetTracking(c, false)
+        if ns.Print then
+            local t = L(c.t, c.tEn)
+            ns.Print(L("已关掉「" .. t .. "」追踪小窗（只对这个角色）：右键小地图按钮 →「" .. t .. "追踪」，或设置页勾「睡袋任务线追踪窗」重新打开",
+                "Closed the " .. t .. " tracker for this character: right-click the minimap button or tick it in Settings to reopen"))
+        end
+    end)
     f.x = xb
     f.min = ns.Button(f, "-", 18, 16); f.min:SetPoint("RIGHT", f.x, "LEFT", 0, 0)
     f.min:SetScript("OnClick", function() local u = ui(); u.scTrackMin = not u.scTrackMin; SC.UpdateTracker() end)
@@ -363,6 +382,12 @@ local function buildTracker()
     else f:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -240, -260) end
     f:Hide()
     return f
+end
+
+-- 11-12 重构第 1 期：追踪窗放回默认位置（存的位置一起清）
+function SC.ResetTrackerPos()
+    if ns.db and ns.db.ui then ns.db.ui.scTrackPos = nil end
+    if trk then trk:ClearAllPoints(); trk:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -240, -260) end
 end
 
 function SC.UpdateTracker()
@@ -473,3 +498,35 @@ function ns.SideChainRenderRow(r, it, suffix)
         GameTooltip:Show()
     end)
 end
+
+-- 11-12 重构第 1 期「找得回」：追踪窗以前没有命令 → /gi 睡袋（/gi chain）开 / 关；登记进设置页「窗口与提醒」
+function SC.ToggleTracker()
+    local on = not SC.TrackerAllOn()
+    SC.SetTrackerEnabled(on)
+    if ns.Print then
+        local C = ns.SlashHint or "/gif"
+        ns.Print(on and L("任务线追踪窗已打开：等级到了、任务线没做完时会钉在屏幕上（再输一次 " .. C .. " 睡袋 关闭）",
+                "Quest line tracker on: it shows while a quest line is in progress (" .. C .. " chain again to turn off)")
+            or L("任务线追踪窗已关闭：输入 " .. C .. " 睡袋，或设置页「窗口与提醒」重新打开",
+                "Quest line tracker off: type " .. C .. " chain or use Settings > Windows & alerts to turn it back on"))
+    end
+    return on
+end
+ns.ExtraSlash = ns.ExtraSlash or {}
+ns.ExtraSlash["睡袋"] = function() SC.ToggleTracker() end
+ns.ExtraSlash.chain = ns.ExtraSlash["睡袋"]
+
+ns.RegisterWindow({ key = "chainTracker", order = 20, title = function() return L("任务线追踪窗（睡袋）", "Quest line tracker") end,
+    state = function()
+        if trk and trk:IsShown() then return L("显示中", "Shown") end
+        if not SC.TrackerEnabled() then return L("已关闭", "Closed") end
+        if not SC.TrackerAllOn() then return L("有任务线被 × 关掉了", "Some lines were closed") end
+        return L("已开（现在没有要追踪的任务线）", "On (nothing to track right now)")
+    end,
+    actions = function()
+        local on = SC.TrackerAllOn()
+        return {
+            { text = on and L("关闭", "Hide") or L("打开", "Show"), fn = function() SC.SetTrackerEnabled(not on) end },
+            { text = L("重置位置", "Reset position"), fn = function() SC.ResetTrackerPos() end },
+        }
+    end })

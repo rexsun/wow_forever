@@ -2,6 +2,27 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-13 - Update four addon packages (OverlapSettingsGuard 0.14.0)
+
+- Update YUI v357 to v359, GatherLite 8.4.7 to 8.4.8, MapUtils 1.6.3 to 1.7.1 (forever build, [file 9602570](https://www.curseforge.com/wow/addons/maputils/files/9602570)) and GearInsight Forever 1.0.1 to 1.1.4 (beta channel, [file 9593791](https://www.curseforge.com/wow/addons/gearinsight-forever/files/9593791)). Every TOC still lists Interface 16001. Auctionator, !BugGrabber, Details, EllesmereUI, Skinner, Waypoint UI, Bagnon, LootRollMover and Lueur were already current. YUI's optional `!YUI_Error` stays uninstalled; its other file names match the previous install.
+- GearInsight adds two load-on-demand folders, `GearInsight_Forever_GroupMage` and `GearInsight_Forever_GroupUI`, both depending on `_Group`. `_Group` was replaced whole, removing `DungeonChat.lua` and `MageWater.lua`.
+- Guard: two new rules and three changed rules, 52 in total.
+  - New `gi.questshare` (`qm.share=false`): once loaded, the Group module sends your level, class, map position and quest progress every 30 seconds to guild and as hidden addon whispers to nearby players. Written before login; `QM.SetSharing(false)` drops queued messages.
+  - New `gi.magewater` (`dchat.mw.thank=false`, `dchat.mw.fieldAsk=false`): 1.1.x auto-loads `_GroupMage` for non-Mages, whispers a thank-you after a trade with a Mage and pops up a request window near Mages outside instances. With both off the module loads only when used.
+  - `gi.groupautoload` also writes `ui.groupLazy=true`. GearInsight 1.0.1 already loaded the Group module at every login unless `ui.groupLazy` was set, so quest sharing ran despite the old rule's stated reason; this upgrade closes that gap.
+  - `gi.levelingstats`: 1.1.x moved `leveling.shown` to a per-character `leveling.hide` list and deletes `shown`. The adapter now uses `LevelingShown`/`SetLevelingShown` (hooked) when present and keeps the 1.0.x path.
+  - `mu.pierpins` now writes `WORLDMAPPINS_ENABLED`. In 1.7.x `WORLDMAPPINS` covers only zone maps and world and continent maps follow `WORLDMAPPINS_AZEROTH` (unset counts as on), so the old key let piers back onto those maps. The category switch covers every map and hides the Piers button.
+  - GearInsight's adapter now takes dotted section paths and several sections per rule.
+- Local patches: all 26 reapply. The MapUtils fade patch is still needed: 1.7.1 still enables its fader whenever `PlayerMovementFrameFader` exists (moved to `mapframe.lua:550`).
+- Overlap review, no further rule needed:
+  - YUI v358-v359: action-bar icons no longer vanish or keep stale textures, macro names and cooldowns update after spell changes, Halo glow rules match readable aura stacks, Mage Arcane Blast stacks are tracked on Forever. No new CVar writes, chat or group calls; no YUI function the guard uses changed.
+  - GatherLite 8.4.8: 402 more locations (34,016); data only.
+  - MapUtils 1.7.1: sets `showKeyring` to 1 at every login (nothing else in the pack sets it), shows a What's New window once, adds middle-click custom markers, library-book pins, settings import/export (replaces `MAUTTAB` and reloads; the early rules apply again) and One Map terrain art. Guild map, guild invite links and its hidden channel only changed how they recognise your own messages. New hooks on the world map are post-hooks.
+  - GearInsight 1.1.x: the officer auto-accept, guildmate auto-invite and auto-leave switches now ask once when unset; their one-time migration clears only `true`, so the guard's `false` values stay and nothing is asked. City nameplates also toggle `UnitNameFriendlyPlayerName`, still behind `gi.cityplates`. New, left on: a capital-city reminder to train spells in your own chat (`ui.trainRemind`). The loot tooltip line moved to `LootTip.lua` unchanged. The new `*Stub`/`*Init` files are placeholders for future split modules; every key and function the guard uses still lives in the main folder.
+- Caveat: the leveling window is now per character and the guard reverts it two seconds after entering the world, so a character that never closed it can show it briefly once.
+- Backup: `addon-backups/addon-upgrade-20261113` holds the replaced folders, the 0.13.0 guard and live WTF.
+- Verification: 1,299 Lua files in the updated folders and the guard compile under Lua 5.1. 88 guard tests (1 new, 6 updated for 1.1.x and 1.7.x), 69 pytest tests (patch tool, settings, baseline, cursor), fresh-profile, font, adoption, watcher and helper tests pass. Nothing was run in game or checked at the three supported resolutions; check with `/osg` that `gi.questshare`, `gi.magewater`, `gi.groupautoload`, `gi.levelingstats` and `mu.pierpins` show locked off, that no Group module loads at login (`/gi` Group tab still opens it), that piers stay hidden on the continent map, and the action bars and world-map fade while moving, with BugGrabber.
+
 ## 2026-11-12 - Update GearInsight Forever to 1.0.1 (OverlapSettingsGuard 0.13.0)
 
 - Update GearInsight Forever 0.7.4 to 1.0.1 (beta channel, [file 9574276](https://www.curseforge.com/wow/addons/gearinsight-forever/files/9574276)), all three folders. Every TOC lists Interface 16001; Group and Guild stay load-on-demand. The installed files are byte-identical to the release.

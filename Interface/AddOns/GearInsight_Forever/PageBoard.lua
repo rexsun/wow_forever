@@ -9,7 +9,7 @@
 --     条目显示助力点数和人次（纯数字，⛔不出现 ¥ / 元）+ 助力人；底部三组：支持最多 / 提需求最多 / 提 BUG 最多（各 3 人）。
 --   ⛔ 别给暴雪全局表重新赋值（UISpecialFrames 只 table.insert）。
 -- 同文件挂 /gi bug（/gif bug）：弹一个可复制的 BUG 报告小窗，复制后粘到「报 BUG」提交页的「详细说明」里。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local GOLD = { 1, 0.82, 0 }
 -- 类型：颜色 + 中英名（bug 红 · 需求金 · 手法迭代绿 · 数据纠错蓝 · 提案灰 · 专精紫）

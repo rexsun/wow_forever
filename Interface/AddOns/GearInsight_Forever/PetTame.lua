@@ -5,7 +5,7 @@
 --   众包校正：ns.PetTameObs（可选，以后由更新器从服务端 bf / tm 汇总写进来；没有就只用打底数据）
 --     格式 { beasts = { [npcID] = { fam=家族ID, cn=, en=, lo=, hi=, ui=, x=, y=, r=, t={ {法术ID, 等级}, ... } } } }
 -- ⛔ 这个文件在 HOLD 里：游戏内验收前不进发行包；PagePet.lua 没有 ns.PetTame 时照旧三个视图。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local M = {}
 ns.PetTame = M

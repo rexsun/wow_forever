@@ -21,6 +21,28 @@ function ns.ToTW(s)
     twCache[s], twN = c, twN + 1
     return c
 end
+-- 11-13 重构第 4 期：繁体对照表 ZhTW.lua（约 290 KB）搬进按需加载的子插件 GearInsight_Forever_LocaleTW —— 简体 / 英文客户端不加载。
+--   繁体客户端：就在这里（主插件第一个代码文件的开头）加载，后面各文件加载时出的字照旧当场换繁体，和拆分前一样；
+--   简体客户端在设置里选了「繁體中文」：读到存档时（InitDB → ApplyLang 之前）再加载，和拆分前一样靠 ApplyLang 换页名等。
+--   合并打包：ZhTW.lua 排回主插件 toc 原位（Core.lua 后面），没有这个子插件文件夹 → 这里 LoadAddOn 安静地失败，表在下一个文件里就有了。
+--   ⛔ 子插件 toc 不写 Dependencies（主插件这时还没加载完，写了依赖会被判「依赖没加载」）；它只读 _G.GearInsightForever
+ns.TW_ADDON = "GearInsight_Forever_LocaleTW"
+function ns.LoadTW()
+    if ns.TW_CHAR then return true end
+    local load = (C_AddOns and C_AddOns.LoadAddOn) or LoadAddOn
+    if not load then return false end
+    local ok = pcall(load, ns.TW_ADDON)
+    return (ok and ns.TW_CHAR ~= nil) and true or false
+end
+-- 繁体表能不能用上（已加载，或子插件文件夹在）：设置页「繁體中文」选项按这个出
+function ns.TWAvailable()
+    if ns.TW_CHAR then return true end
+    local f = (C_AddOns and C_AddOns.GetAddOnInfo) or GetAddOnInfo
+    if not f then return false end
+    local ok, n, _, _, _, reason = pcall(f, ns.TW_ADDON)
+    return (ok and n ~= nil and reason ~= "MISSING") and true or false
+end
+if ns.tw then ns.LoadTW() end
 -- 11-12 GI-228「繁体端装备推荐还是简体」：数据表里的中文（物品 / 任务 / 副本 / 首领名）不经过 ns.L，繁体端原样显示简体 →
 --   显示前过 ns.TD；物品名用 ns.ItemNm：繁体端优先客户端自己给的名字（台服官方译名），没缓存先逐字转繁体并向服务器要
 function ns.TD(s)
@@ -99,11 +121,12 @@ ns.LANGS = { { nil, "跟随客户端", "Auto (client)" }, { "zh", "简体中文"
     { "en", "English", "English" } }
 function ns.Lang() return ns.db and ns.db.lang or nil end
 -- InitDB 里调：按存档定 ns.zh；和加载时不一样就把加载期出的字换掉（换语言要 /reload 才全换干净，SetLang 会提示）
-function ns.ApplyLang()
+-- force：繁体表是这时才补加载上的（繁体客户端开头没加载成功）→ 语言没变也把加载期出的字重换一遍
+function ns.ApplyLang(force)
     local want = ns.Lang()
     local z, tw = ns.clientZh, ns.clientTw
     if want == "zh" then z, tw = true, false elseif want == "tw" then z, tw = true, true elseif want == "en" then z, tw = false, false end
-    if z == ns.zh and tw == ns.tw then return end
+    if z == ns.zh and tw == ns.tw and not force then return end
     ns.zh, ns.tw = z, tw
     local W = _G.GIWidgets
     if type(W) == "table" then W.zh = z; W.tw = tw end
@@ -225,7 +248,11 @@ function ns.InitDB()
     end
     if not db.uid then db.uid = newUid() end
     ns.db = db
-    ns.ApplyLang()
+    -- 11-13 重构第 4 期：要用繁体（存档选了繁體 / 跟随繁体客户端）而对照表还没加载 → 现在加载（见文件开头 ns.LoadTW）
+    local want = db.lang
+    local late = false
+    if (want == "tw" or (want == nil and ns.clientTw)) and not ns.TW_CHAR then late = ns.LoadTW() end
+    ns.ApplyLang(late and ns.clientTw and want ~= "zh" and want ~= "en")
 end
 
 -- ---------- JSON（只编码，导出用）----------
@@ -397,8 +424,70 @@ function ns.ShowBox(title, hint, text, onOk, okText)
     box:Show()
 end
 
+-- ---------- 窗口与提醒登记（11-12 界面重构第 1 期「找得回」）----------
+-- 各模块把自己的浮窗 / 提醒条登记进来，设置页「窗口与提醒」分区和 /gi win 都照这张表画（不用每加一个窗就改设置页）。
+--   w = { key, order, title = function() → 名字（⛔ 给函数：文件加载时存档还没读到，语言没定）,
+--         avail = function() → 这个角色现在有没有这扇窗（不给 = 总有）,
+--         state = function() → 当前状态文字（显示中 / 已关闭 …）,
+--         actions = function() → { { text = 按钮字, fn = 点了干什么 }, … }（最多 3 个） }
+ns.Windows = {}
+function ns.RegisterWindow(w)
+    if type(w) ~= "table" or not w.key then return end
+    for i, o in ipairs(ns.Windows) do
+        if o.key == w.key then ns.Windows[i] = w; return w end
+    end
+    ns.Windows[#ns.Windows + 1] = w
+    table.sort(ns.Windows, function(a, b)
+        local oa, ob = a.order or 99, b.order or 99
+        if oa ~= ob then return oa < ob end
+        return tostring(a.key) < tostring(b.key)
+    end)
+    return w
+end
+function ns.WindowTitle(w)
+    local t = w and w.title
+    if type(t) == "function" then local ok, s = pcall(t); t = ok and s or nil end
+    return tostring(t or (w and w.key) or "")
+end
+-- 这个角色现在用得上的窗（avail 报错 / 返回假的不出）
+function ns.WindowList()
+    local out = {}
+    for _, w in ipairs(ns.Windows) do
+        local ok, on = true, true
+        if w.avail then ok, on = pcall(w.avail) end
+        if ok and on then out[#out + 1] = w end
+    end
+    return out
+end
+
+-- 点 × 关浮窗时在聊天框说一声怎么再开：同一扇窗最多说 3 次（计数存 ns.db.ui.closeHint[key]），说了返回 true
+function ns.CloseHint(key, msg)
+    if not (ns.db and key and msg) then return false end
+    ns.db.ui = ns.db.ui or {}
+    local t = ns.db.ui.closeHint
+    if type(t) ~= "table" then t = {}; ns.db.ui.closeHint = t end
+    local n = tonumber(t[key]) or 0
+    if n >= 3 then return false end
+    t[key] = n + 1
+    ns.Print(msg)
+    return true
+end
+
 -- ---------- 启动 + 斜杠命令 ----------
 ns.modules = {}
+-- 11-13 重构第 4 期：按需加载的子插件（_Prof / _Class / _Info）里原来 table.insert(ns.modules, fn) 的初始化 ——
+--   子插件加载时主插件早跑完 ns.modules 了，改用 ns.AddInit(fn)：存档已经读好（ns.db 有了）= 子插件是后来才加载的 →
+--   先攒着，等这个子插件最后一个文件（*Init.lua）调 ns.FlushInits() 时按登记顺序跑（整个子插件都加载完了才跑，和原来「全部文件加载完才跑 ns.modules」一样）；
+--   还没读好（合并打包 / 拆分前的加载顺序：文件在 ADDON_LOADED 之前执行）就照旧排进 ns.modules
+local lateInits = {}
+function ns.AddInit(fn)
+    if ns.db then lateInits[#lateInits + 1] = fn else table.insert(ns.modules, fn) end
+end
+function ns.FlushInits()
+    local list = lateInits
+    lateInits = {}
+    for _, fn in ipairs(list) do pcall(fn) end
+end
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("ADDON_LOADED")
 -- ⛔ 10-07：别注册 ADDON_ACTION_FORBIDDEN / ADDON_ACTION_BLOCKED（只给暴雪 UI），插件一注册就被判
@@ -426,22 +515,47 @@ local function help()
     local rep = ns.Report and ns.L(" · " .. C .. " report 我的升级报告（网站出定制路线）", " · " .. C .. " report my leveling report (web)") or ""
     -- 10-22 扫码绑定（BindQR.lua，HOLD）：同上，没进包时不提
     if ns.ShowBindQR then rep = rep .. ns.L(" · " .. C .. " bind 扫码把角色挂到你的 GearInsight 账号", " · " .. C .. " bind link this character to your account (QR)") end
-    ns.Print(ns.L("命令：" .. C .. " 打开主界面 · " .. C .. " lv 升级指引"
-        .. " · " .. C .. " talent 导入配点码 · " .. C .. " talent qr 当前配点发到手机 · " .. C .. " talent pop 热门配点一键套用"
-        .. " · " .. C .. " macro 宏库 · " .. C .. " news 资讯 · " .. C .. " data 导出数据 · " .. C .. " data off|on 关 / 开记录" .. rep,
-        "Commands: " .. C .. " open window · " .. C .. " lv leveling · " .. C .. " card beta card QR · " .. C .. " talent import build · " .. C .. " talent qr build to phone"
-        .. " · " .. C .. " talent pop popular builds · " .. C .. " macro · " .. C .. " news · " .. C .. " data export · " .. C .. " data off|on" .. rep))
+    -- 11-12 手法钉板 / 决策 HUD 的命令名对反了（keys hud = 钉板）：帮助里写清楚，新名字 keys board
+    -- 11-13 第 4 期：手法钉板在按需加载的 _Class 里，没加载时按「包里有没有 KeysRot.lua」判断
+    local keys = (ns.KeysRot or (ns.ModHas and ns.ModHas("class", "KeysRot.lua"))) and ns.L(" · " .. C .. " keys board 手法钉板（旧命令 keys hud 也是钉板）· " .. C .. " keys panel 决策 HUD",
+        " · " .. C .. " keys board rotation board (old: keys hud) · " .. C .. " keys panel decision HUD") or ""
+    -- 11-12 界面重构第 2 期：/gi help 按左栏 5 个一级菜单分组打（原来一长行挤在一起）；命令本身一个没改
+    local G = "|cffffd100"
+    ns.Print(ns.L("命令：" .. C .. " 打开主界面（下面按左栏分组；" .. C .. " set 关键词 = 搜设置）",
+        "Commands: " .. C .. " opens the window (grouped like the left menu; " .. C .. " set <words> searches settings)"))
+    ns.Print(ns.L(G .. "升级|r  " .. C .. " lv 升级指引 · " .. C .. " 睡袋 任务线追踪窗 · " .. C .. " route 路线 · " .. C .. " prof 专业 · " .. C .. " xp 经验加成",
+        G .. "Leveling|r  " .. C .. " lv guide · " .. C .. " chain quest line tracker · " .. C .. " route · " .. C .. " prof · " .. C .. " xp bonuses"))
+    ns.Print(ns.L(G .. "装备|r  " .. C .. " wish 掉落 · 心愿单 · " .. C .. " tier T1 套装 · " .. C .. " bis 装备角标 · " .. C .. " ilvl 装等",
+        G .. "Gear|r  " .. C .. " wish loot & wishlist · " .. C .. " tier · " .. C .. " bis corner icons · " .. C .. " ilvl"))
+    ns.Print(ns.L(G .. "职业|r  " .. C .. " t 天赋（导入配点码）· " .. C .. " talent qr 发到手机 · " .. C .. " talent pop 热门配点 · " .. C .. " talent plan 天赋计划小窗"
+        .. " · " .. C .. " rot 手法 · " .. C .. " kb 键位 · " .. C .. " macro 宏库 · " .. C .. " trainer 找训练师" .. keys,
+        G .. "Class|r  " .. C .. " t talents (import) · " .. C .. " talent qr to phone · " .. C .. " talent pop popular builds · " .. C .. " talent plan plan window"
+        .. " · " .. C .. " rot rotation · " .. C .. " kb keys · " .. C .. " macro · " .. C .. " trainer" .. keys))
+    ns.Print(ns.L(G .. "资讯|r  " .. C .. " news 资讯 · " .. C .. " 更新 本版更新 · " .. C .. " data 导出数据 · " .. C .. " data off|on 关 / 开记录" .. rep,
+        G .. "News|r  " .. C .. " news · " .. C .. " whatsnew · " .. C .. " data export · " .. C .. " data off|on" .. rep))
+    ns.Print(ns.L(G .. "右侧|r  " .. C .. " qm 组队 · " .. C .. " 吃喝 法师吃喝 · " .. C .. " layer 位面 · " .. C .. " greport 公会通报",
+        G .. "Right tabs|r  " .. C .. " qm group up · " .. C .. " water mage food · " .. C .. " layer · " .. C .. " greport guild report"))
+    ns.Print(ns.L(G .. "设置|r  " .. C .. " set 关键词 搜设置 · " .. C .. " win 窗口与提醒（小窗关了从这里找回）· " .. C .. " lang 语言 · " .. C .. " scale 窗口大小 · " .. C .. " perf 卡顿自查 · " .. C .. " minimap 小地图按钮",
+        G .. "Settings|r  " .. C .. " set <words> · " .. C .. " win windows & alerts · " .. C .. " lang · " .. C .. " scale · " .. C .. " perf lag check · " .. C .. " minimap"))
 end
 
 SLASH_GEARINSIGHTFOREVER1 = "/gif"
 if C == "/gi" then SLASH_GEARINSIGHTFOREVER2 = "/gi" end
 SlashCmdList.GEARINSIGHTFOREVER = function(msg)
+    local msg0 = msg
     -- 原样的参数（不转小写）：自定义文字要用（10-12 /gi qm text …：lower() 在某些环境会改坏中文字节 →「任务」变「任嚡」）
     local raw = (msg or ""):gsub("^[ 	]+", ""):gsub("[ 	]+$", "")
     local rawRest = raw:match("^[^ 	]*[ 	]*(.-)$") or ""
     local rawCmd = raw:match("^([^ 	]*)") or ""   -- 10-19 /gi 报告：中文命令按原样查（lower() 会改坏中文，见上）
-    msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+    -- 11-13 第 5 期（§2.6）：只把 A-Z 转小写（string.lower 跟 C 运行库的区域设置走，个别环境会改坏中文字节：「/gi 感谢 开」）
+    msg = (msg or ""):gsub("[A-Z]", function(ch) return string.char(ch:byte() + 32) end):gsub("^%s+", ""):gsub("%s+$", "")
     local cmd, rest = msg:match("^(%S*)%s*(.-)$")
+    -- 11-13 重构第 4 期：/gi keys …（钉板 / HUD / 诊断 / 键位页）和 /gi probe keys 的处理函数在按需加载的 _Class 里 →
+    --   先加载；战斗中（那个子插件有安全按钮，战斗中不加载）排到脱战后再执行这一条命令
+    if ((cmd == "keys" and rest ~= "off" and rest ~= "on") or (cmd == "probe" and rest == "keys")) and ns.ClassPrep then
+        local again = msg0
+        if not ns.ClassPrep(function() SlashCmdList.GEARINSIGHTFOREVER(again) end) then return end
+    end
     if cmd == "" then ns.ToggleMain()
     elseif cmd == "lv" or cmd == "level" then ns.ToggleLeveling()
     elseif cmd == "wish" or cmd == "lootui" then ns.ToggleMain("loot")
@@ -451,9 +565,12 @@ SlashCmdList.GEARINSIGHTFOREVER = function(msg)
     elseif cmd == "talent" or cmd == "t" then
         if rest == "qr" then ns.ShowTalentQR()
         elseif rest == "pop" then ns.ShowPopBuilds()
-        else ns.ImportTalentDialog() end
+        elseif rest == "plan" and ns.ShowTalentPlan then ns.ShowTalentPlan(true, true)   -- 11-12 天赋计划小窗关了以后再打开
+        elseif ns.ImportTalentDialog then ns.ImportTalentDialog() end   -- 11-13 第 4 期：在 _Class 里（没装那个子插件 = 没有这个命令）
     elseif cmd == "probe" and rest == "keys" and ns.KeysProbe then ns.KeysProbe.Toggle()   -- 键位手法 P0 探针（HOLD）
-    elseif cmd == "keys" and rest == "hud" and ns.KeysRot then ns.KeysRot.Toggle()   -- 手法钉板（HOLD）
+    -- ⛔ 历史遗留：keys hud 开的是「手法钉板」、keys panel 开的是「决策 HUD」，名字对反了。老玩家已经记住，行为不改；
+    --   11-12 补一个名副其实的 keys board（= 钉板），帮助里注明
+    elseif cmd == "keys" and (rest == "hud" or rest == "board") and ns.KeysRot then ns.KeysRot.Toggle()   -- 手法钉板
     elseif cmd == "keys" and rest == "panel" and ns.KeysHud then ns.KeysHud.Toggle()   -- 决策 HUD 分轨面板（HOLD）
     elseif cmd == "keys" and (rest == "off" or rest == "on") then   -- 录像用：隐藏 / 恢复还没发布的页签（重载生效）
         ns.db.hideHold = (rest == "off") or nil

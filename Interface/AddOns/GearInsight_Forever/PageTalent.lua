@@ -1,7 +1,7 @@
 -- 天赋页：三棵树模拟加点（与小程序 / 网站模拟器同一份数据、同一套 GIF2 配点码）
 -- 左键 +1，右键 -1；行解锁 = 每 5 点一行；前置天赋要点满；总数 ≤ 51
 -- 颜色：绿=《无限》新增  黄=改动  蓝=换位置  灰=没变
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local CLASSES = { "Warrior", "Paladin", "Hunter", "Rogue", "Priest", "Shaman", "Mage", "Warlock", "Druid" }
 local CLASS_COLOR = { Warrior = "c79c6e", Paladin = "f58cba", Hunter = "abd473", Rogue = "fff569", Priest = "ffffff",
@@ -86,6 +86,16 @@ function ns.TalentCodeFromSim()
 end
 
 local page
+-- 11-12 重构第 1 期：「计划小窗」按钮（导入过配点计划才出）——小窗点 × 关掉后从这里再打开
+local function planWinBtn()
+    local b = page and rawget(page, "planWin")
+    if not b then return end
+    local st = ns.TalentPlanState and ns.TalentPlanState() or "none"
+    if st == "shown" then b:SetText(ns.L("关闭计划小窗", "Hide plan window")); b:Show()
+    elseif st == "hidden" then b:SetText(ns.L("打开计划小窗", "Show plan window")); b:Show()
+    else b:Hide() end
+end
+ns._TalentPlanWinBtn = planWinBtn   -- 测试用
 local function refresh()
     -- 11-05 玩家「选了鸟德的天赋，天赋页还是野德的推荐」：天赋页第一次打开时就定了路线，之后点数投到别的系也不换
     --   → 自己职业、显示的是没动过的默认路线时，推荐方案变了（DefaultBuildKey 按投点最多的系）就换成新的
@@ -95,6 +105,7 @@ local function refresh()
         if want and want ~= S.plan.key then ns.LoadDefaultSim(S.cls); return end
     end
     if not page or not S.cls then return end
+    planWinBtn()
     local trees = ns.Data.talents[S.cls]
     for ti, tr in ipairs(trees) do
         local col = page.trees[ti]
@@ -305,6 +316,11 @@ local function build(p)
     end
     lg:SetText(dotTxt(ST_COLOR.new, ns.L("《无限》新增", "New")) .. "   " .. dotTxt(ST_COLOR.changed, ns.L("改动", "Changed"))
         .. "   " .. dotTxt(ST_COLOR.moved, ns.L("换位置", "Moved")))
+    p.planWin = ns.Button(p, "", 118, 20, function()
+        if ns.ShowTalentPlan then ns.ShowTalentPlan(ns.TalentPlanState() ~= "shown", true) end
+        planWinBtn()
+    end)
+    p.planWin:SetPoint("RIGHT", lg, "LEFT", -12, 0); p.planWin:Hide()
     -- 10-11 玩家「我是熊 D，推荐的是野德（猫），怎么换？」：推荐方案切换（每职业多套，按角色记住）
     p.buildBtn = ns.Button(p, "", 170, 20, function(self) ns.ShowBuildMenu(self) end)
     p.buildBtn:SetPoint("LEFT", p.info, "RIGHT", 10, 0)

@@ -1,7 +1,7 @@
 -- 资讯页（10-07 用户「之前的资讯栏目、群等信息都搬过来」+「板式也变成这种页签的」）：
 --   资讯卡两列（开服时间线 / 新内容 / 规则，来自网站 hub.json）→ 插件更新一行 → 关注 GearInsight 三列频道卡 + 微信群二维码
 -- 数据：NewsData.lua（scripts/gi_forever_news.py 生成；频道 / 群码和正式服 GearInsight 同一份）
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local CH_ICON = "Interface\\AddOns\\GearInsight_Forever\\media\\ch_"
 

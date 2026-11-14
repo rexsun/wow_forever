@@ -22,6 +22,7 @@ local TOOLTIP_GIVERS = 8
 local COLLECT_DELAY = 0.5
 local CATEGORY_KEYS = {"QUESTGIVEREVENT", "QUESTGIVERDAILY", "QUESTGIVERREP"}
 local CATEGORY_TAGS = {"LID_QUESTTAGEVENT", "LID_QUESTTAGDAILY", "LID_QUESTTAGREP"}
+local INSTANCE_TAGS = {"LID_QUESTTAGDUNGEON", "LID_QUESTTAGRAID"}
 local SKILL_SPELLS = {
 	[129] = 3273,
 	[164] = 2018,
@@ -42,6 +43,7 @@ local SKILL_SPELLS = {
 local updater = CreateFrame("Frame", nil, WorldMapFrame)
 local pins = {}
 if MapUtils.CanvasPinLists ~= nil then tinsert(MapUtils.CanvasPinLists, pins) end
+if MapUtils.RegisterRenderLayer ~= nil then MapUtils:RegisterRenderLayer("Quest givers", function() return pins end) end
 local spots = {}
 local clusters = {}
 local sources = {}
@@ -300,7 +302,7 @@ end
 
 function QG.IsShownOnMap(mapID)
 	if mapID == nil or C_Map.GetMapInfo(mapID) == nil or QG.IsAddOnLoaded("Questie") then return false end
-	QG.showStarts = MapUtils:GetConfig("QUESTGIVERWORLDMAPPINS", true) == true
+	QG.showStarts = MapUtils:IsPinShownOnMap("QUESTGIVERWORLDMAPPINS", true, mapID)
 	QG.showEnds = MapUtils:GetQuestTurnInDefault() and MapUtils:GetConfig("QUESTGIVERTURNIN", true) == true
 	if not QG.showStarts and not QG.showEnds then return false end
 
@@ -320,13 +322,39 @@ function QG.GetTurnIns(giver)
 	return quests
 end
 
+function QG.GetAvailableCache()
+	local logCount, logSum, doneCount, doneSum = 0, 0, 0, 0
+	for questID in pairs(inLog) do
+		logCount, logSum = logCount + 1, logSum + questID
+	end
+
+	for questID in pairs(complete) do
+		doneCount, doneSum = doneCount + 1, doneSum + questID
+	end
+
+	local key = format("%d:%d:%d:%s:%s:%d:%d:%d:%d", player.level or 0, player.green or 0, player.side or 0, tostring(QG.showStarts), tostring(QG.showEnds), logCount, logSum, doneCount, doneSum)
+	for index = 1, #CATEGORY_KEYS do
+		key = key .. (enabledCategories[index] and "1" or "0")
+	end
+
+	local now = GetTime()
+	if QG.available == nil or QG.stale or QG.availableKey ~= key or now - (QG.availableTime or 0) > 30 then
+		QG.available = {}
+		QG.availableKey = key
+		QG.availableTime = now
+		QG.stale = false
+	end
+
+	return QG.available
+end
+
 function QG.Collect(mapID)
 	wipe(spots)
 	if not QG.IsShownOnMap(mapID) then return end
 	QG.ReadPlayer()
 	QG.ReadLog()
 	QG.ReadSkills()
-	local available = {}
+	local available = QG.GetAvailableCache()
 	for _, source in ipairs(QG.GetSources(mapID)) do
 		local sourceID, left, right, top, bottom, outside = source[1], source[2], source[3], source[4], source[5], source[6]
 		for _, giver in ipairs(GIVERS[sourceID]) do
@@ -486,7 +514,8 @@ function QG.AddQuestLines(quests)
 		local level = QG.GetLevel(quest)
 		local color = GetQuestDifficultyColor and GetQuestDifficultyColor(level)
 		local tag = ""
-		if quest[5] then tag = " |cff9d9d9d(" .. MapUtils:Trans(CATEGORY_TAGS[quest[5]]) .. ")|r" end
+		if quest[22] then tag = " |cff9d9d9d(" .. MapUtils:Trans(INSTANCE_TAGS[quest[22]]) .. ")|r" end
+		if quest[5] then tag = tag .. " |cff9d9d9d(" .. MapUtils:Trans(CATEGORY_TAGS[quest[5]]) .. ")|r" end
 		if details and index > 1 then GameTooltip:AddLine(" ") end
 		if color then
 			GameTooltip:AddLine(format("%s[%d] %s%s", QG.INDENT, level, QG.GetTitle(questID, quest[3]), tag), color.r, color.g, color.b, true)
@@ -784,10 +813,11 @@ function QG.Layout(canvas)
 	local scale = canvas:GetScale()
 	local width, height = canvas:GetWidth(), canvas:GetHeight()
 	if scale == nil or scale <= 0 or width <= 0 or height <= 0 then return end
-	local key = format("%s|%s|%s|%d", scale, width, height, #spots)
+	local factor = MapUtils:GetPinSizeFactor("QUESTGIVERWORLDMAPPINS")
+	local key = format("%s|%s|%s|%d|%s", scale, width, height, #spots, factor)
 	if key == layoutKey then return end
 	layoutKey = key
-	local size = ICON_SIZE / scale
+	local size = ICON_SIZE / scale * factor
 	QG.BuildClusters(width, height, size)
 	local level = canvas:GetFrameLevel() + PIN_LEVEL
 	for index, cluster in ipairs(clusters) do
@@ -844,6 +874,7 @@ end
 if MapUtils.CanvasPinUpdaters ~= nil then tinsert(MapUtils.CanvasPinUpdaters, QG.Update) end
 function MapUtils:RefreshQuestGivers()
 	dirty = true
+	QG.stale = true
 	lastCollect = 0
 	QG.HidePins()
 end
@@ -857,8 +888,15 @@ updater:RegisterEvent("MODIFIER_STATE_CHANGED")
 updater:SetScript(
 	"OnEvent",
 	function(_, event)
+		if event == "QUEST_LOG_UPDATE" then
+			dirty = true
+
+			return
+		end
+
 		if event ~= "MODIFIER_STATE_CHANGED" then
 			dirty = true
+			QG.stale = true
 
 			return
 		end
@@ -869,12 +907,12 @@ updater:SetScript(
 )
 updater:SetScript(
 	"OnUpdate",
-	function(_, elapsed)
+	MapUtils.Profile("questgivers OnUpdate", function(_, elapsed)
 		elapsedTime = elapsedTime + elapsed
 		if elapsedTime < 0.1 then return end
 		elapsedTime = 0
 		QG.Update()
-	end
+	end)
 )
 
 WorldMapFrame:HookScript(
@@ -886,3 +924,4 @@ WorldMapFrame:HookScript(
 )
 
 WorldMapFrame:HookScript("OnHide", QG.HidePins)
+MapUtils.ProfileTable("QG", QG)

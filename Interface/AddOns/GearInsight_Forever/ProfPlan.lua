@@ -5,7 +5,7 @@
 --   R4 制造顺路冲：冲级路线这一步 + 背包里有多少材料 + 在哪做（随时 / 营火边 / 进城）
 -- ⛔ 只用确定的数据（采集点需求、档位要求、路线顺序、训练师 / 熔炉 / 商人位置），不估算刷多快。
 -- ⛔ 在 HOLD（_hold.txt）：没在游戏里测完不进发行包。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 local P = ns.Prof
 if not P then return end
 
@@ -165,12 +165,7 @@ local function trainTier(key, s)
 end
 
 -- ---------- 背包 ----------
-function P.BagCount(item)
-    if not GetItemCount then return nil end
-    local ok, n = pcall(GetItemCount, item, true)
-    if not ok or n == nil or (ns.Secret and ns.Secret(n)) then return nil end
-    return tonumber(n)
-end
+-- P.BagCount 11-13 挪进主插件 Prof.lua 小核（经验加成检查登录就用）
 
 -- ---------- R3 进城清单 ----------
 -- 第 i 段这张图能顺手办的专业事。isNow = 现在就在这一段（按当前技能 / 背包算）；否则只给「下一次能学」的预告

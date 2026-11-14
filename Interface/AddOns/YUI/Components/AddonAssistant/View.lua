@@ -649,7 +649,7 @@ function V:ShowMonitor()
         self.monitorResizeHandle:SetScript("OnLeave",function(owner) G.Tooltip:Hide(owner) end)
         w:HookScript("OnSizeChanged",function() self:LayoutMonitorHeight() end)
         G.WindowAppearance:Register(w,{themeProvider=function() return R.char.skin=="native" and "native" or "dark" end,
-            heading=self.monitorTitle,headingColorKey="color.text.primary",role="helper",noTopBar=true,
+            heading=self.monitorTitle,headingColorKey="color.text.primary",role="helper",noTopBar=true,nativeBorderOverflow=true,
             onRefresh=function() self:LayoutMonitorAppearance()
             end
         })
@@ -771,7 +771,7 @@ function V:Build()
     self.sourceButton:SetPoint("TOPLEFT",826,-11)
     for _,control in ipairs({self.sourceButton,self.skinButton,self.monitorButton,self.close}) do control:SetFrameLevel(header:GetFrameLevel()+1) end
     G.WindowAppearance:Register(w,{themeProvider=function() return R.char.skin=="native" and "native" or "dark" end,
-        heading=self.title,headingColorKey="color.text.primary",role="helper",noTopBar=true,
+        heading=self.title,headingColorKey="color.text.primary",role="helper",noTopBar=true,nativeBorderOverflow=true,
         onRefresh=function(_,context)
             self.headerBackground:SetShown(context.source~="native")
             self:RefreshAppearance()

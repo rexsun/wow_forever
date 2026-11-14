@@ -1,11 +1,13 @@
 return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
   local EARLY = {
-    { id = "gi.layernetwork", section = "layer", values = { on = false, pub = false, helper = false, helperV = 2 }, owner = "YUI" },
-    { id = "gi.layerautoaccept", section = "layer", values = { autoAccept = false }, owner = "YUI" },
-    { id = "gi.layerautoinvite", section = "layer", values = { autoHelp = false }, owner = "YUI" },
-    { id = "gi.layerautoleave", section = "layer", values = { autoLeave = false }, owner = "YUI" },
-    { id = "gi.groupautoload", section = "qm", values = { thanks = false }, owner = "YUI" },
-    { id = "gi.cityplates", section = "cityPlates", values = { on = false }, owner = "EllesmereUINameplates" },
+    { id = "gi.layernetwork", values = { layer = { on = false, pub = false, helper = false, helperV = 2 } }, owner = "YUI" },
+    { id = "gi.layerautoaccept", values = { layer = { autoAccept = false } }, owner = "YUI" },
+    { id = "gi.layerautoinvite", values = { layer = { autoHelp = false } }, owner = "YUI" },
+    { id = "gi.layerautoleave", values = { layer = { autoLeave = false } }, owner = "YUI" },
+    { id = "gi.groupautoload", values = { qm = { thanks = false }, ui = { groupLazy = true } }, owner = "YUI" },
+    { id = "gi.questshare", values = { qm = { share = false } }, owner = "YUI" },
+    { id = "gi.magewater", values = { ["dchat.mw"] = { fieldAsk = false, thank = false } }, owner = "YUI" },
+    { id = "gi.cityplates", values = { cityPlates = { on = false } }, owner = "EllesmereUINameplates" },
   }
 
   local function ReadFile(path)
@@ -21,7 +23,8 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
 
   local function UserData()
     return { layer = { order = { [1] = { 7 } }, log = { "kept" }, gather = "CODE" },
-      cityPlates = { noted = true }, qm = { share = true }, ui = { page = "tier" } }
+      cityPlates = { noted = true }, qm = { share = true, pinned = true }, ui = { page = "tier" },
+      dchat = { rec = { roles = { TANK = true } }, mw = { bar = false } } }
   end
 
   -- Mirrors the 1.0.1 runtime pieces the guard calls or hooks.
@@ -47,9 +50,17 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     return gi
   end
 
+  local function Section(db, path)
+    for part in path:gmatch("[^.]+") do db = db and db[part] end
+    return db
+  end
+
   local function AssertOff(db, rule, what)
-    for field, value in pairs(rule.values) do
-      eq(db[rule.section][field], value, rule.id .. " " .. field .. (what and (" " .. what) or ""))
+    for path, values in pairs(rule.values) do
+      local section = Section(db, path)
+      for field, value in pairs(values) do
+        eq(section and section[field], value, rule.id .. " " .. path .. "." .. field .. (what and (" " .. what) or ""))
+      end
     end
   end
 
@@ -77,7 +88,10 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     eq(db.layer.log[1], "kept")
     eq(db.layer.gather, "CODE")
     eq(db.cityPlates.noted, true)
-    eq(db.qm.share, true, "quest sharing itself is not guarded")
+    eq(db.qm.pinned, true, "other quest-mate settings kept")
+    eq(db.ui.page, "tier", "other UI settings kept")
+    eq(db.dchat.rec.roles.TANK, true, "dungeon recruiting settings kept")
+    eq(db.dchat.mw.bar, false, "other Mage water settings kept")
     ok(not ChatContains(w, "/reload"), "no reload")
     local gi = BuildGI(w, db)
     w.Login()
@@ -118,7 +132,8 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     w.RunTimers()
     eq(db.ui.ilvl, false, "item level toggle is reverted")
     db.layer.autoAccept, db.layer.autoHelp, db.layer.autoLeave, db.layer.on = true, true, true, true
-    db.qm.thanks = nil
+    db.qm.thanks, db.ui.groupLazy, db.qm.share = nil, nil, true
+    db.dchat.mw = nil
     w.Tick()
     for _, rule in ipairs(EARLY) do AssertOff(db, rule, "after slash-command edits") end
   end)
@@ -133,9 +148,12 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     eq(db.layer.on, nil)
     eq(db.layer.autoAccept, nil)
     eq(db.qm.thanks, nil)
+    eq(db.qm.share, true)
+    eq(db.ui.groupLazy, nil)
+    eq(db.dchat.mw.thank, nil)
     eq(db.cityPlates.on, nil)
     eq(db.ui.ilvl, nil)
-    for _, id in ipairs({ "gi.layernetwork", "gi.groupautoload", "gi.cityplates", "gi.itemlevel" }) do
+    for _, id in ipairs({ "gi.layernetwork", "gi.groupautoload", "gi.questshare", "gi.magewater", "gi.cityplates", "gi.itemlevel" }) do
       eq(StatusOf(w.ns.Check(), id), "inactive", id)
     end
   end)
@@ -144,21 +162,35 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     local root = ADDON_ROOT .. "../GearInsight_Forever/"
     local layer = ReadFile(root .. "Layer.lua")
     for _, needle in ipairs({ "if d.on == nil then d.on = true end", "if d.pub == nil then d.pub = true end",
-      "if d.helperV ~= 2 then d.helper = true; d.helperV = 2 end", "if d.autoAccept == nil then d.autoAccept = true end",
-      "if d.autoHelp == nil then d.autoHelp = true end", "if d.autoLeave == nil then d.autoLeave = true end",
+      "if d.helperV ~= 2 then d.helper = true; d.helperV = 2 end",
+      -- 1.1.x: nil asks once and the one-time migration clears only true, so the guard's false survives.
+      "if d[k] == true then d[k] = nil end",
       "local want = (LY.DB().pub and not inInstance())", "function LY.SyncPub()", "function LY.SetPub(v)" }) do
       ok(layer:find(needle, 1, true), "Layer.lua: " .. needle)
     end
     local _, beats = layer:gsub("if not d.on then return end", "")
     eq(beats, 2, "heartbeat building and sending both check layer.on")
-    ok(ReadFile(root .. "LayerGuild.lua"):find("if not LY.DB().autoAccept then return nil end", 1, true), "auto-accept switch")
+    ok(ReadFile(root .. "LayerGuild.lua"):find("if LY.DB().autoAccept == false then return nil end", 1, true), "auto-accept switch")
     local hop = ReadFile(root .. "LayerHop.lua")
-    ok(hop:find("if not LY.DB().autoHelp then return false end", 1, true), "auto-invite switch")
-    ok(hop:find("if LY.DB().autoLeave and IsInGroup", 1, true), "auto-leave switch")
+    ok(hop:find("if LY.DB().autoHelp == false then return false end", 1, true), "auto-invite switch")
+    ok(hop:find("if a == true then doLeave(); return true end", 1, true), "auto-leave switch")
     local plates = ReadFile(root .. "CityPlates.lua")
     ok(plates:find("function CP.Enabled() return CP.DB().on ~= false end", 1, true), "city plate switch")
     ok(plates:find("function CP.Restore()", 1, true), "city plate restore")
-    ok(ReadFile(root .. "UI.lua"):find("if ns.db and ns.db.qm and ns.db.qm.thanks == false then return end", 1, true), "group auto-load switch")
+    local ui = ReadFile(root .. "UI.lua")
+    ok(ui:find("if ns.db and ns.db.qm and ns.db.qm.thanks == false then return end", 1, true), "group auto-load in a group")
+    ok(ui:find("function ns.GroupAutoLoad() return not (ns.db and ns.db.ui and ns.db.ui.groupLazy) end", 1, true),
+      "group auto-load at login")
+    local quests = ReadFile(root .. "../GearInsight_Forever_Group/QuestMates.lua")
+    ok(quests:find("if q.share == nil then q.share = true end", 1, true), "quest sharing defaults on")
+    local _, shareChecks = quests:gsub("if not dbq%(%).share", "")
+    eq(shareChecks, 2, "broadcasts and replies both check qm.share")
+    local parts = ReadFile(root .. "../GearInsight_Forever_Group/GroupParts.lua")
+    ok(parts:find("return not (o and o.fieldAsk == false) or not (o and o.thank == false)", 1, true),
+      "Mage water auto-loads unless both switches are off")
+    local water = ReadFile(root .. "../GearInsight_Forever_GroupMage/MageWater.lua")
+    ok(water:find('if not MW.Opt("thank") or MW.IsMage() then return end', 1, true), "thank-you whisper switch")
+    ok(water:find('if not MW.Opt("fieldAsk") then return end', 1, true), "nearby Mage popup switch")
     local ilvl = ReadFile(root .. "ItemLevel.lua")
     ok(ilvl:find("ns.db.ui.ilvl == false", 1, true), "item level switch")
     ok(ilvl:find("function IL.RefreshAll()", 1, true), "item level refresh")

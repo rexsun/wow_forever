@@ -1,6 +1,6 @@
 ## Interface: 16001
 
-## Version: 1.6.3
+## Version: 1.7.1
 ## Title: MapUtils by |cff55d2ffD4KiR |T132115:16:16:0:0|t 
 ## Notes: Better world map: boats, zeppelins, flight points and dungeon entrances as clickable waypoints, dungeon & raid maps, unexplored areas, zone levels and a movable, scalable map
 ## Notes-deDE: Bessere Weltkarte: Schiffe, Zeppeline, Flugpunkte und Dungeon-Eingänge als anklickbare Wegpunkte, Dungeon- & Raidkarten, unerforschte Gebiete, Zonenlevel und eine verschieb- und skalierbare Karte
@@ -48,24 +48,29 @@ locale\zhCN.lua
 locale\zhTW.lua
 locale\names.lua
 
+profiler.lua
 flavor.lua
 data\classic\instances.lua
 data\forever\instances.lua
 data\classic\transports.lua
 data\forever\transports.lua
 core.lua
+pinvisibility.lua
 comm.lua
 pins.lua
 transports.lua
 areapois.lua
 convergences_wowhead.lua
 convergences.lua
+data\forever\librarybooks.lua
+librarybooks.lua
 discovery.lua
 gathernodes.lua
 questturnins.lua
 data\forever\questgivers.lua
 questgivers.lua
 guildmembers.lua
+custommarkers.lua
 zonelevels.lua
 data\classic\instancepins.lua
 data\forever\instancepins.lua
@@ -83,5 +88,7 @@ data\forever\zonemasks.lua
 zonedetail.lua
 data\forever\minimaptiles.lua
 data\forever\minimaplod.lua
+data\forever\minimapcoarse.lua
 debug.lua
+importexport.lua
 settings.lua

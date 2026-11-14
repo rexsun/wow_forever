@@ -3,7 +3,7 @@
 --   ① 每个技能按了几次（铺条排序 = 无限版的按键频率表）② 「按完 A 接着按 B」的次数（学手法优先级用）③ 战斗总时长
 -- ⛔ 只记法术编号和次数，不记角色名 / 服务器 / 目标 / 时间点；随公测数据导出串（GIFS1 的 cf 字段）由玩家自己上传。
 -- ⛔ HOLD（_hold.txt），测完才进包。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local C = {}
 ns.KeysCast = C

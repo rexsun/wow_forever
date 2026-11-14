@@ -1,6 +1,6 @@
 -- 自动生成：scripts/gi_forever_spec_gear.py，⛔别手改（权重改 scripts/forever_spec_weights.py）
 -- 推荐装备按天赋：权重 + 候选装备属性（掉落表文字 / 客户端 DB2 1.60.1.70532 / vmangos 补装备特效）
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 ns.SpecGearData = {
   rating = {hitR={"hit", 10}, shitR={"shit", 8}, critR={"crit", 14}, scritR={"scrit", 14}, defR={"def", 1.5}, dodgeR={"dodge", 12}, parryR={"parry", 15}, blockR={"block", 5}, hasteR={"haste", 10}},
   dw = {Hunter={all=true}, Rogue={all=true}, Warrior={fury=true}},

@@ -1,6 +1,6 @@
 -- 自动生成：scripts/gi_forever_pets.py，⛔别手改
 -- 数据：《无限》客户端 DB2 build 1.60.1.70532（wago.tools）；「新增」= 经典旧世 1.15.9.70003 宠物技能线里没有
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 ns.PetData = {
   build = "1.60.1.70532",
   families = {

@@ -209,7 +209,7 @@ local campPending
 
 local function campNames()
     local out = {}
-    local C = ns.ProfData and ns.ProfData.camp
+    local C = ns.ProfCore and ns.ProfCore.camp   -- 11-13 第 4 期：专业大表按需加载，营地设施名在常驻的 ProfCoreData.lua
     if not C then return out end
     for _, f in ipairs(C.fires or {}) do out[f.zh] = "fire"; out[f.en] = "fire" end
     for key, list in pairs(C.profs or {}) do

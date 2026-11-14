@@ -2,7 +2,7 @@
 -- 猎人宠物众包汇总（游戏内 ObsPet.lua 的 bf 野兽目击 / tm 驯服结果，北京主站 gi_fv_obs；≥2 个玩家一致才采信）
 -- PetTame.lua 合并：同 ID 盖掉 PetTameData 打底的字段并标「众包」，新发现的追加到对应家族
 -- 字段：fam = PetData 家族 ID · lo / hi = 等级 · ui = 地图 · x / y = 地图百分比 · r = 0 普通 1 精英 2 稀有精英 3 首领 4 稀有 · n = 几个玩家看到 · t = 驯服后会的技能法术 ID
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 ns.PetTameObs = {
   builtAt = "2026-11-07", players = 269, sightings = 6008,
   zones = {

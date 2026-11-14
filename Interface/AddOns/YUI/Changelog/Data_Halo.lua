@@ -1,6 +1,40 @@
 -- Generated from Docs/Products/YUI_YHUD/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yhud", {
+-- YUI-Notes-Record: halo-120|mainline|3537a178d10c43cae0fa254b98d7945f17ff906fa9499f1779106af8a27afe4c
+    {
+        version = "halo-120",
+        date = "2026-11-13",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "光环监控支持按可读取的层数匹配发光规则。",
+                "修复发光规则取色时选择器意外关闭。",
+            },
+            enUS = {
+                "Aura monitors now match glow rules against readable stack counts.",
+                "Fixed the color picker closing unexpectedly while editing glow rules.",
+            },
+        },
+    },
+-- YUI-Notes-Record: halo-120|forever|65f2cb7499898ce5b6c73ab203a623387f530a850d88b59cbe425b93e686412e
+    {
+        version = "halo-120",
+        date = "2026-11-13",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "光环监控支持按可读取的层数匹配发光规则。",
+                "修复奥术冲击增益监控的层数和倒计时显示。",
+                "修复发光规则取色时选择器意外关闭。",
+            },
+            enUS = {
+                "Aura monitors now match glow rules against readable stack counts.",
+                "Fixed stack counts and countdowns for Arcane Blast buff monitoring.",
+                "Fixed the color picker closing unexpectedly while editing glow rules.",
+            },
+        },
+    },
 -- YUI-Notes-Record: halo-119|mainline|ba2763fa2e5cb215c0c433457fd5ab1ac39476f782660fb0b3087b8bc3004702
 -- YUI-Notes-Record: halo-119|forever|03e8ffe81800c063af0b1a9fbf6a232d2a6dfeb86e8ecae759eae2ddc29e929b
     {
@@ -262,86 +296,6 @@ CL:Register("yhud", {
                 "Fixed obscured countdown and stack text on buff monitors.",
                 "Fixed position changes being overwritten on save and previews overlapping the position editor.",
                 "Fixed configuration import and keybind text issues when multiple standalone addons are loaded together.",
-            },
-        },
-    },
--- YUI-Notes-Record: halo-110|mainline|f8a0e7470d18931babc41a27c8e6ac59292fddea4d3f1bb88414c8d1f3a66e6a
-    {
-        version = "halo-110",
-        date = "2026-10-22",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "新增外部增益监控集合，便于添加队友提供的常用增益。",
-                "新增层数条和充能条，支持分段、阈值颜色及充能恢复显示设置。",
-                "支持跨组拖动，新增按行和按列布局。",
-                "监控图标新增可选的按下反馈。",
-                "新增15类事件声音提醒，并配套新增12条事件录音。",
-                "新增251条可选标准语音。",
-                "新增批量声音预设，快速添加提醒。",
-                "声音提醒支持增益分类与跨分类搜索。",
-                "统一字体设置，支持样式复制粘贴。",
-                "辅助高亮改为按角色统一设置，默认关闭。",
-                "修复监控台图标激活发光残留。",
-                "修复监控台冷却结束后未按设置隐藏的问题。",
-                "修复监控台引导施法被后续按键误判为中断的问题。",
-            },
-            enUS = {
-                "Added a monitor collection for buffs received from other players.",
-                "Added stack and charge bars with segment, threshold color, and recharge display settings.",
-                "Added cross-group dragging and row/column layouts.",
-                "Added optional press feedback for monitor icons.",
-                "Added 15 event sound reminders, including 12 new event recordings.",
-                "Added 251 selectable standard voice entries.",
-                "Added batch sound presets to quickly add reminders.",
-                "Added buff categories and cross-category search to sound reminders.",
-                "Unified font settings with style copy and paste.",
-                "Assisted highlighting now uses character-wide settings and is disabled by default.",
-                "Fixed lingering activation glows on monitor icons.",
-                "Fixed monitors failing to hide as configured when cooldowns finish.",
-                "Fixed cast monitoring incorrectly treating channels as interrupted by subsequent key presses.",
-            },
-        },
-    },
--- YUI-Notes-Record: halo-110|forever|157e9dca3eff54931f4f39d4690cd191488ef949a7f0f9201dac33ee14c2a56a
-    {
-        version = "halo-110",
-        date = "2026-10-22",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增声音提醒（测试版），支持技能、光环与事件提醒。",
-                "提供197条可选标准语音，其中137条为职业语音。",
-                "新增15类事件声音提醒，并配套新增12条事件录音。",
-                "新增批量声音预设，快速添加提醒。",
-                "声音提醒支持增益分类与跨分类搜索。",
-                "新增外部增益监控集合，便于添加队友提供的常用增益。",
-                "新增层数条和充能条，支持分段、阈值颜色及充能恢复显示设置。",
-                "支持跨组拖动，新增按行和按列布局。",
-                "监控图标新增可选的按下反馈。",
-                "统一字体设置，支持样式复制粘贴。",
-                "补充圣印默认监控。",
-                "修复监控台资源监控的连击点残留问题。",
-                "修复监控台图标激活发光残留。",
-                "修复监控台冷却结束后未按设置隐藏的问题。",
-                "修复监控台引导施法被后续按键误判为中断的问题。",
-            },
-            enUS = {
-                "Added sound reminders (Beta) for abilities, auras, and events.",
-                "Provided 197 selectable standard voice entries, including 137 class voice entries.",
-                "Added 15 event sound reminders, including 12 new event recordings.",
-                "Added batch sound presets to quickly add reminders.",
-                "Added buff categories and cross-category search to sound reminders.",
-                "Added a monitor collection for buffs received from other players.",
-                "Added stack and charge bars with segment, threshold color, and recharge display settings.",
-                "Added cross-group dragging and row/column layouts.",
-                "Added optional press feedback for monitor icons.",
-                "Unified font settings with style copy and paste.",
-                "Expanded default seal monitoring.",
-                "Fixed lingering combo points in resource monitors.",
-                "Fixed lingering activation glows on monitor icons.",
-                "Fixed monitors failing to hide as configured when cooldowns finish.",
-                "Fixed cast monitoring incorrectly treating channels as interrupted by subsequent key presses.",
             },
         },
     },

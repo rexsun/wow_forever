@@ -1,6 +1,10 @@
 # MapUtils by D4KiR
 
-## [v1.6.3](https://github.com/d4kir92/MapUtils/tree/v1.6.3) (2026-11-12)
-[Full Changelog](https://github.com/d4kir92/MapUtils/compare/v1.6.2...v1.6.3) [Previous Releases](https://github.com/d4kir92/MapUtils/releases)
+## [1.7.1](https://github.com/d4kir92/MapUtils/tree/1.7.1) (2026-11-14)
+[Full Changelog](https://github.com/d4kir92/MapUtils/compare/v1.7.0...1.7.1) [Previous Releases](https://github.com/d4kir92/MapUtils/releases)
 
-- v1.6.3  
+- v1.7.1  
+- Add follow mode to the player map widget  
+    - Right-clicking the player widget toggles follow mode, keeping the map centered on your character without changing the zoom  
+    - Active follow mode is shown with a pulsing glow around the widget  
+    - Player widget tooltip explains the right-click  

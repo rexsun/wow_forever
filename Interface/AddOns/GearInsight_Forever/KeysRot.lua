@@ -4,7 +4,7 @@
 --   读得到的直接读（IsSpellUsable、冷却、资源…以 P0 探针结论为准），读不到的按施法事件推算；推算的条件在依据里标「推算」。
 -- 只显示第一格（现在该按）：09-21 用户「暴雪只算下一个，再往后只能猜，猜错比不显示更糟」。
 -- ⛔ HOLD（_hold.txt），测完才进包。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 local K = ns.Keys
 
 local R = {}
@@ -304,6 +304,23 @@ function R.Toggle(on)
     return on
 end
 R._build = function() board = board or buildBoard(); return board end   -- 测试用
+-- 11-12 重构第 1 期：钉板放回默认位置（存的位置一起清）；登记进设置页「窗口与提醒」
+function R.ResetPos()
+    if ns.db then ns.db.keysBoardPos = nil end
+    if board then board:ClearAllPoints(); board:SetPoint("CENTER", 0, -180) end
+end
+ns.RegisterWindow({ key = "keysBoard", order = 50, title = function() return ns.L("手法钉板", "Rotation board") end,
+    state = function() return (board and board:IsShown()) and ns.L("显示中", "Shown") or ns.L("已关闭", "Closed") end,
+    actions = function()
+        local on = board and board:IsShown()
+        return {
+            { text = on and ns.L("关闭", "Hide") or ns.L("打开", "Show"), fn = function()
+                R.Toggle(not on)
+                if on and ns.KeysHud and ns.db.keysHud then ns.KeysHud.Toggle(false) end   -- 决策 HUD 锚在钉板下面，钉板关了它跟着关（同手法页勾选框）
+            end },
+            { text = ns.L("重置位置", "Reset position"), fn = function() R.ResetPos() end },
+        }
+    end })
 
 -- ---------- 事件 ----------
 local ev = CreateFrame("Frame")
@@ -325,3 +342,7 @@ ev:SetScript("OnEvent", function(_, e, a1, a2, a3)
     end
 end)
 ns.KeysRotChanged = function() R.ClearCache(); if ns.KeysHud then ns.KeysHud.ClearCache() end end
+-- 11-13 第 4 期：_Class 晚于进世界才加载（存档开着钉板 / HUD 等，登录后条件加载）→ 进世界那一下错过了，补跑一次
+ns.AddInit(function()
+    if IsLoggedIn and IsLoggedIn() and ns.db and ns.db.keysBoard then R.Toggle(true) end
+end)

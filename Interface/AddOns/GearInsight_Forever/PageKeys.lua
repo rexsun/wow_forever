@@ -5,7 +5,7 @@
 --   格子：左键 = 给这一格改键（同虚拟键盘点键帽）；不在条上的点「—」放上去。
 --   《无限》差异：正式服面板是「计划键」，点「将插件建议实现到动作条」才绑；这里一直是实况（保留你的键位），改键立刻生效。
 -- ⛔ 不碰宏。⛔ HOLD（_hold.txt），测完才进包。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 local K = ns.Keys
 
 local page
@@ -650,7 +650,8 @@ end)
 -- 升级学会新技能：页面没开时提醒一次（只在用过键位页之后）
 local lf = CreateFrame("Frame")
 pcall(lf.RegisterEvent, lf, "LEARNED_SPELL_IN_TAB")
-lf:SetScript("OnEvent", function()
+-- 11-13 第 4 期：_Class 没加载时这一下由主插件 ClassStub.lua 接住（加载完再调 ns._KeysLearned）
+local function learned()
     if not ns.db or not ns.db.keysMode then return end
     C_Timer.After(1, function()
         local _, miss = K.Status()
@@ -658,7 +659,9 @@ lf:SetScript("OnEvent", function()
             ns.Print(string.format(ns.L("学会新技能了：%d 个该上条的技能不在条上 · /gif keys 去放上", "New spell learned: %d spells not on your bars - /gif keys"), miss))
         end
     end)
-end)
+end
+lf:SetScript("OnEvent", learned)
+ns._KeysLearned = learned
 
 ns.RegisterPage({ key = "keys", order = 1.6, title = ns.L("键位", "Keys"), tabTitle = ns.L("键位", "Keys"),
     icon = "Interface\\Icons\\INV_Misc_Key_03", build = build, refresh = refresh })

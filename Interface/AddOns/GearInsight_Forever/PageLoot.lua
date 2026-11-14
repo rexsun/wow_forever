@@ -1,7 +1,11 @@
 -- 掉落页 + 心愿单（v1）：地下城 → 首领 → 装备（数据 = 小程序掉落页同一份 forever_loot）
 -- 心愿单：点星标收藏 → 进副本 / 开打首领 / 拾取窗口出现时提醒
 -- 物品鼠标提示：加一行「掉落：副本 · 首领」和心愿单标记
-local _, ns = ...
+-- 11-12 重构第 3 期：这个文件随 GearInsight_Forever_Plan 按需加载（第一次打开掉落页等才加载）。
+--   登录就要在的部分 —— 物品提示钩子、心愿单事件、拾取提醒、稀有怪判断 —— 搬到主插件 LootTip.lua（只用常驻索引 LootIndexData.lua）；
+--   这里留掉落页本身，和要整张掉落表才能做的事：进副本 / 开打首领时列心愿单装备名（ns.LootWishEnter / ns.LootWishEncounter，
+--   由 LootTip.lua 在名字对上时加载本文件后调用）、稀有怪提示的详细两行（ns.RareLinesFull）
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local QCOLOR = { q1 = "ffffff", q2 = "1eff00", q3 = "0070dd", q4 = "a335ee", q5 = "ff8000" }
 local idx = {}          -- itemId → { d=, b=, it= }
@@ -13,9 +17,15 @@ local function lootList()
     if lootCache then return lootCache end
     local out = {}
     for _, d in ipairs(ns.Data.loot.dungeons or {}) do out[#out + 1] = d end
-    local rs = {}
-    for _, r in ipairs(ns.Data.rares or {}) do if #(r.items or {}) > 0 then rs[#rs + 1] = r end end
-    table.sort(rs, function(a, b) return (a.lv[1] or 0) < (b.lv[1] or 0) end)
+    -- 11-12：等级下限并列的按数据里的先后排（table.sort 不稳定，光比等级的话并列的谁先谁后不确定）——
+    --   常驻索引 LootIndexData.lua 由 scripts/gi_forever_data_split.py 按同一规则生成，两边「同一件取最后一次」才对得上
+    local rs, ord = {}, {}
+    for i, r in ipairs(ns.Data.rares or {}) do if #(r.items or {}) > 0 then rs[#rs + 1] = r; ord[r] = i end end
+    table.sort(rs, function(a, b)
+        local la, lb = a.lv[1] or 0, b.lv[1] or 0
+        if la ~= lb then return la < lb end
+        return ord[a] < ord[b]
+    end)
     if #rs > 0 then out[#out + 1] = { n = "野外稀有", nEn = "World Rares", virtual = true, bosses = rs } end
     lootCache = out
     return out
@@ -59,9 +69,10 @@ function ns.MarkRare(b)
     return how ~= nil
 end
 
--- 鼠标指向稀有怪：一行刷新 + 专属 / 高掉率装备（Pack.lua 的单位提示钩子调用）
+-- 鼠标指向稀有怪：一行刷新 + 专属 / 高掉率装备（Pack.lua 的单位提示钩子调 ns.RareLines —— 那个在主插件 LootTip.lua，
+--   先用常驻的稀有怪编号表判断，是稀有怪才加载本文件、转到这里）
 local rareById
-function ns.RareLines(npcId)
+function ns.RareLinesFull(npcId)
     if not npcId then return nil end
     if not rareById then
         rareById = {}
@@ -634,13 +645,8 @@ end
 ns.RegisterPage({ key = "loot", order = 2, title = ns.L("掉落 · 心愿单", "Loot"), tabTitle = ns.L("掉落", "Loot"), build = build, refresh = refresh })
 
 -- ---------- 提醒 ----------
-local function notice(msg)
-    ns.Print(msg)
-    if RaidNotice_AddMessage and RaidWarningFrame and ChatTypeInfo then
-        RaidNotice_AddMessage(RaidWarningFrame, msg, ChatTypeInfo["RAID_WARNING"])
-    end
-    if PlaySound and SOUNDKIT and SOUNDKIT.RAID_WARNING then PlaySound(SOUNDKIT.RAID_WARNING) end
-end
+-- 11-12：事件帧、拾取提醒、物品提示钩子在主插件 LootTip.lua；这里是它加载本文件后调用的两段（要整张掉落表）
+local function notice(msg) return ns.LootNotice(msg) end
 
 local function sameName(a, x)
     if not a or a == "" then return false end
@@ -681,68 +687,7 @@ local function onEncounter(encName)
     end
 end
 
-local function onLoot()
-    if not GetNumLootItems then return end
-    for slot = 1, GetNumLootItems() do
-        local link = GetLootSlotLink and GetLootSlotLink(slot)
-        local id = link and tonumber(link:match("item:(%d+)"))
-        if id and isWished(id) then notice(ns.L("心愿单装备掉了：", "Wishlist item dropped: ") .. link) end
-    end
-end
+ns.LootWishEnter, ns.LootWishEncounter = onEnterInstance, onEncounter
 
--- ---------- 物品鼠标提示 ----------
-local function addItemLine(tt, id)
-    if not id or tt.__gifItem == id then return end
-    local e = idx[id]
-    if not e then return end
-    tt.__gifItem = id
-    tt:AddLine("|cff33ff99GI|r " .. ns.L("掉落：", "Drops: ") .. nm(e.d) .. " · " .. nm(e.b), 1, 0.82, 0.4)
-    if isWished(id) then tt:AddLine("|cff33ff99GI|r " .. ns.L("在你的心愿单里", "On your wishlist"), 1, 0.82, 0) end
-    tt:Show()
-end
-
-local function hookItems()
-    if TooltipDataProcessor and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Item then
-        TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tt, data)
-            local id = data and data.id
-            if ns.Secret(id) or not id then return end
-            if ns.TranslateTip then pcall(ns.TranslateTip, tt, id and idx[id] and idx[id].it.n) end
-            pcall(addItemLine, tt, id)
-        end)
-    end
-    for _, tt in ipairs({ GameTooltip, ItemRefTooltip }) do
-        if tt then
-            tt:HookScript("OnTooltipCleared", function(self) self.__gifItem = nil end)
-            if tt:HasScript("OnTooltipSetItem") then
-                tt:HookScript("OnTooltipSetItem", function(self)
-                    local _, link = self:GetItem()
-                    if ns.Secret(link) then return end
-                    local id = link and tonumber(link:match("item:(%d+)"))
-                    if ns.TranslateTip and not (TooltipDataProcessor and Enum and Enum.TooltipDataType) then
-                        pcall(ns.TranslateTip, self, id and idx[id] and idx[id].it.n)
-                    end
-                    addItemLine(self, id)
-                end)
-            end
-        end
-    end
-end
-
-table.insert(ns.modules, function()
-    buildIndex()
-    pcall(hookItems)
-    local f = CreateFrame("Frame")
-    f:RegisterEvent("PLAYER_ENTERING_WORLD")
-    f:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-    f:RegisterEvent("ENCOUNTER_START")
-    f:RegisterEvent("LOOT_OPENED")
-    local function onEvent(_, e, a, b)
-        if e == "ENCOUNTER_START" then pcall(onEncounter, b)
-        elseif e == "LOOT_OPENED" then pcall(onLoot)
-        else C_Timer.After(2, function() pcall(onEnterInstance) end) end
-    end
-    f:SetScript("OnEvent", onEvent)
-    ns._wishEvent = onEvent
-end)
-
+buildIndex()   -- 本文件加载 = 有人要用掉落数据了，索引直接建好（原来是登录时建）
 ns.LootIndex = idx

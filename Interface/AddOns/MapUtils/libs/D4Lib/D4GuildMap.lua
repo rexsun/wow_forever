@@ -55,6 +55,7 @@ function D4:CreateGuildMap(options)
         moveEpsilon = 0.0015,
         expireOwn = 75,
         checkInterval = 0.1,
+        settleDelay = 0.25,
         pruneInterval = 2,
         dotSize = 12,
         levelDotSize = 16,
@@ -180,9 +181,13 @@ function D4:CreateGuildMap(options)
     end
 
     function Guild.IsSelfSender(sender)
-        local name, realm = UnitFullName("player")
-        if name == nil or sender == name then return true end
-        if realm ~= nil and realm ~= "" and sender == name .. "-" .. realm then return true end
+        local key, ownName = D4:GetPlayerCharacterKey()
+        if key and (sender == key or sender == ownName) then return true end
+        if not key or D4:IsForever() then
+            local name, realm = UnitFullName("player")
+            if not D4:CanAccessValues(name, realm) or name == nil then return key == nil end
+            if sender == name or (realm ~= nil and realm ~= "" and sender == name .. "-" .. realm) then return true end
+        end
         local own = type(sender) == "string" and Guild.GetOwnRosterName()
 
         return own ~= nil and own == strlower(strsplit("-", sender))
@@ -1075,7 +1080,18 @@ function D4:CreateGuildMap(options)
         local width = canvas and canvas:GetWidth()
         local zoneSpace = Guild.GetZoneSpace(mapID)
         Guild.UpdateDebugMember()
-        if not Guild.debug.enabled and not Guild.dirty and mapID == Guild.lastMapID and scale == Guild.lastScale and width == Guild.lastWidth and zoneSpace == Guild.lastZoneSpace then return end
+        local onlyScale = not Guild.debug.enabled and not Guild.dirty and mapID == Guild.lastMapID and width == Guild.lastWidth and zoneSpace == Guild.lastZoneSpace
+        if onlyScale and scale == Guild.lastScale then return end
+        if onlyScale then
+            local now = GetTime()
+            if Guild.settleScale ~= scale then
+                Guild.settleScale, Guild.settleAt = scale, now
+
+                return
+            end
+
+            if now - Guild.settleAt < Guild.settleDelay then return end
+        end
         Guild.dirty = false
         Guild.lastMapID, Guild.lastScale, Guild.lastWidth, Guild.lastZoneSpace = mapID, scale, width, zoneSpace
         Guild.UpdatePins()

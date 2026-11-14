@@ -11,6 +11,7 @@
     <Script file="Catalog\Forever\Classes.lua"/>
     <Script file="Runtime\SwingTimers_Forever.lua"/>
     <Script file="Runtime\Ammo_Forever.lua"/>
+    <Script file="Runtime\ArcaneBlast_Forever.lua"/>
     <Include file="!load_Shared.xml"/>
     <Script file="Runtime\Sound.lua"/>
     <Script file="Product\Lifecycle.lua"/>

@@ -3,7 +3,7 @@
 --   11-05 第 4 个视图「在哪抓」+ 技能下面「会教的野兽」：代码在 PetTame.lua（HOLD），没加载时这里照旧三个视图
 -- 数据：PetData.lua（scripts/gi_forever_pets.py 从《无限》客户端 DB2 生成；⛔不搬攻略图）
 -- 所有职业都能看（资讯类攻略），猎人自己的当前宠物家族高亮
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local GREEN, RED, GREY = "|cff33ff66", "|cffff5555", "|cff888888"
 

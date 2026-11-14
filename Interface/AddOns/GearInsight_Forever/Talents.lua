@@ -3,7 +3,7 @@
 --   GIF1 = 开服前的树，同一串数字在新树上是另一套配点 → 一律提示「开服前的配点码」不套用；存档里旧树的计划（没有 v=2）自动作废
 -- 天赋顺序 = Data.lua 里的顺序 = 小程序 / 网站模拟器的顺序（⛔Data.lua 生成时别排序）
 -- 游戏里按「行 + 列」对上天赋（名字只用来核对），从最上面的行开始一点一点学
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local function classKey()
     local _, token = UnitClass("player")
@@ -18,33 +18,7 @@ local function findAtTree(tree, r, c)
     end
 end
 
--- 解析配点码 → { cls=, pts={ {..}, {..}, {..} } } 或 nil, 原因
-function ns.ParseTalentCode(code)
-    code = tostring(code or ""):gsub("%s+", "")
-    if code:match("^GIF1%.") then
-        return nil, ns.L("这是开服前的配点码，天赋树已经改了，请到小程序或网站重新生成（GIF2 开头）",
-            "This is a pre-launch build code and the talent trees have changed; make a new one (starts with GIF2)")
-    end
-    local cls, body = code:match("^GIF2%.(%a+)%.(.+)$")
-    if not cls then return nil, ns.L("不是配点码（应以 GIF2. 开头）", "Not a build code (should start with GIF2.)") end
-    local trees = ns.Data.talents[cls]
-    if not trees then return nil, ns.L("不认识的职业：", "Unknown class: ") .. cls end
-    local parts = {}
-    for p in (body .. "-"):gmatch("([^%-|]*)[%-|]") do parts[#parts + 1] = p end
-    local pts, total = {}, 0
-    for ti, tr in ipairs(trees) do
-        local s = parts[ti] or ""
-        pts[ti] = {}
-        for i, t in ipairs(tr.t) do
-            local v = tonumber(s:sub(i, i)) or 0
-            if v > t.m then v = t.m end
-            pts[ti][i] = v
-            total = total + v
-        end
-    end
-    if total > 51 then return nil, ns.L("点数超过 51", "More than 51 points") end
-    return { cls = cls, pts = pts, total = total, v = 2 }
-end
+-- 解析配点码 ns.ParseTalentCode：11-13 重构第 4 期挪进主插件 TraitTalents.lua（只靠天赋树骨架，推荐装备认主系 / 众包要在 _Class 没加载时用）
 
 -- 游戏里的天赋格：按 行:列 建索引
 local function gameIndex(tab)
@@ -289,10 +263,17 @@ local function buildPanel()
     qr:SetScript("OnClick", function() ns.ShowTalentQR() end)
     clear:SetText(ns.L("放弃计划", "Drop plan"))
     clear:SetScript("OnClick", function() ns.db.talentPlan = nil; f:Hide() end)
+    -- 11-12 重构第 1 期：关了以后以前没有任何入口再开（只能重新导入）→ 聊天框说一声（最多 3 次），天赋页按钮 / 小地图菜单 / 设置页 / 命令都能再开
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", 0, 0); close:SetScale(0.8)
+    close:SetPoint("TOPRIGHT", 0, 0); close:SetScale(0.8); f.closeBtn = close
     -- 11-09 用户截图「点了x，为啥重载后又出来了」：× 只藏了框，登录 / 重载又按「有计划就出」弹回来 → 记进存档，重新导入 / 点「按这套逐点学」才再出
-    close:SetScript("OnClick", function() if ns.db.talentPlan then ns.db.talentPlan.hidden = true end; f:Hide() end)   -- 10-18 战斗中关不掉：原生红叉走 HideUIPanel，战斗中被拦 → 直接 Hide
+    close:SetScript("OnClick", function()
+        if ns.db.talentPlan then ns.db.talentPlan.hidden = true end
+        f:Hide()
+        local C = ns.SlashHint or "/gif"
+        ns.CloseHint("talentPlan", ns.L("天赋计划小窗已关闭（计划还在）：输入 " .. C .. " talent plan，或右键小地图按钮 →「打开天赋计划小窗」、天赋页「计划小窗」按钮重新打开",
+            "Talent plan closed (the plan is kept): type " .. C .. " talent plan, or use the minimap menu / the Talents page to reopen"))
+    end)   -- 10-18 战斗中关不掉：原生红叉走 HideUIPanel，战斗中被拦 → 直接 Hide
     for _, e in ipairs(ns.TALENT_EVENTS) do pcall(f.RegisterEvent, f, e) end
     f:RegisterEvent("PLAYER_LEVEL_UP")
     f:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -327,6 +308,60 @@ function ns.ApplyTalentCode(code)
     return true
 end
 
+-- 11-12 重构第 1 期：天赋计划小窗的再开入口（天赋页按钮 / 小地图菜单 / 设置页「窗口与提醒」/ /gi talent plan 都走这里）
+--   状态："none" 没导入计划 · "other" 计划是别的职业的 · "hidden" 有计划但小窗关着 · "shown" 显示中
+function ns.TalentPlanState()
+    dropOldPlan()
+    local plan = ns.db and ns.db.talentPlan
+    if not plan then return "none" end
+    if plan.cls ~= classKey() then return "other" end
+    if panel and panel:IsShown() then return "shown" end
+    return "hidden"
+end
+function ns.ShowTalentPlan(on, say)
+    local st = ns.TalentPlanState()
+    if st == "none" or st == "other" then
+        if say then
+            local C = ns.SlashHint or "/gif"
+            ns.Print(st == "none" and ns.L("还没有导入配点计划：输入 " .. C .. " talent 粘贴配点码，或在天赋页点「按这套逐点学」",
+                    "No talent plan yet: type " .. C .. " talent to paste a build code, or use Learn this build on the Talents page")
+                or ns.L("存着的配点计划是别的职业的：输入 " .. C .. " talent 导入这个职业的配点码",
+                    "The saved plan is for another class: type " .. C .. " talent to import one for this class"))
+        end
+        return false
+    end
+    if on then
+        ns.db.talentPlan.hidden = nil
+        panel = panel or buildPanel()
+        panel:Show(); updatePanel()
+    else
+        ns.db.talentPlan.hidden = true
+        if panel then panel:Hide() end
+    end
+    return true
+end
+function ns.ResetTalentPlanPos()
+    if panel then panel:ClearAllPoints(); panel:SetPoint("TOP", 0, -140) end
+end
+
+ns.RegisterWindow({ key = "talentPlan", order = 40, title = function() return ns.L("天赋计划小窗", "Talent plan") end,
+    state = function()
+        local st = ns.TalentPlanState()
+        if st == "shown" then return ns.L("显示中", "Shown") end
+        if st == "hidden" then return ns.L("已关闭（计划还在）", "Closed (plan kept)") end
+        return ns.L("还没有导入配点计划", "No plan imported")
+    end,
+    actions = function()
+        local st = ns.TalentPlanState()
+        if st == "none" or st == "other" then
+            return { { text = ns.L("导入配点码", "Import build"), fn = function() ns.ImportTalentDialog() end } }
+        end
+        return {
+            { text = st == "shown" and ns.L("关闭", "Hide") or ns.L("打开", "Show"), fn = function() ns.ShowTalentPlan(st ~= "shown") end },
+            { text = ns.L("重置位置", "Reset position"), fn = function() ns.ResetTalentPlanPos() end },
+        }
+    end })
+
 function ns.ImportTalentDialog()
     ns.ShowBox(ns.L("导入配点码", "Import talent build"),
         ns.L("在网站或小程序「无限 · 天赋模拟」里复制 GIF2 开头的码，粘到这里",
@@ -334,7 +369,8 @@ function ns.ImportTalentDialog()
         "", ns.ApplyTalentCode, ns.L("导入", "Import"))
 end
 
-table.insert(ns.modules, function()
+-- 11-13 第 4 期：这个文件在按需加载的 _Class 里 → ns.AddInit（_Class 晚于登录才加载时当场跑；合并打包照旧排进 ns.modules）
+ns.AddInit(function()
     if ns.db.talentPlan then
         C_Timer.After(2, function()
             if ns.db.talentPlan and ns.db.talentPlan.cls == classKey() and not ns.db.talentPlan.hidden then
@@ -666,7 +702,7 @@ local function hookTalentFrame()
     end
 end
 
-table.insert(ns.modules, function()
+ns.AddInit(function()
     local f = CreateFrame("Frame")
     f:RegisterEvent("ADDON_LOADED")
     for _, e in ipairs(ns.TALENT_EVENTS) do pcall(f.RegisterEvent, f, e) end

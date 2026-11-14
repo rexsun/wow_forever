@@ -3308,7 +3308,8 @@ function View:ApplyConfig(profile, options)
             and YHUD.IsOfficialNativeView ~= nil
             and YHUD:IsOfficialNativeView(
                 entry.officialCategory,
-                monitor.view
+                monitor.view,
+                entry
             )
             or nil
         local soundState = compiledSound and YHUD.Model

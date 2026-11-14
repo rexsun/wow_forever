@@ -1,0 +1,16 @@
+## Interface: 16001, 11507
+## Title: GearInsight |cff33ff99Forever|r - Group UI
+## Title-zhCN: GearInsight |cff33ff99无限版|r · 组队界面
+## Notes: GearInsight Forever group window (loads when you open the Group tab)
+## Notes-zhCN: GearInsight 无限版的组队窗口（任务组队列表 / 副本组队）：点右侧「组队」页签时才加载
+## Author: GearInsight
+## Version: 1.1.4
+## Dependencies: GearInsight_Forever, GearInsight_Forever_Group
+## LoadOnDemand: 1
+## IconTexture: Interface\Icons\inv_misc_map_01
+
+# 11-13 界面重构第 5 期：从 GearInsight_Forever_Group 拆出来的抽屉界面；信标（共享任务进度）留在 GearInsight_Forever_Group 登录加载
+
+QuestMatesUI.lua
+# 11-13 招人顺带挂集合石（HOLD）：排在 DungeonChat.lua 前面，招人页一建好就有 ns.LfgListAuto
+DungeonChat.lua

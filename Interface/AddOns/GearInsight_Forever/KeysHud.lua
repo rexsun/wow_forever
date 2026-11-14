@@ -3,7 +3,7 @@
 --   资源轨（怒气 / 能量 / 法力 + 盗贼连击点）· DoT 轨（当前目标身上自己的持续伤害，剩余秒数）·
 --   冷却轨（规则里有冷却的技能，剩余秒数）· 触发轨（压制 / 复仇 / 还击 / 斩杀：能按就亮）
 -- ⛔ 游戏字体没有 ● ✓ → 等符号：格子用贴图。⛔ HOLD（_hold.txt），测完才进包。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 local R = ns.KeysRot
 
 local H = {}
@@ -189,10 +189,21 @@ function H.Toggle(on)
     return on
 end
 H._build = function(anchor) H.frame = H.frame or build(anchor); return H.frame end   -- 测试用
+-- 11-12 重构第 1 期：登记进设置页「窗口与提醒」（位置跟着钉板走，没有自己的重置）
+ns.RegisterWindow({ key = "keysHud", order = 51, title = function() return ns.L("决策 HUD（钉板下方）", "Decision HUD (below the board)") end,
+    state = function() return (H.frame and H.frame:IsShown()) and ns.L("显示中", "Shown") or ns.L("已关闭", "Closed") end,
+    actions = function()
+        local on = H.frame and H.frame:IsShown()
+        return { { text = on and ns.L("关闭", "Hide") or ns.L("打开", "Show"), fn = function() H.Toggle(not on) end } }
+    end })
 
 local ev = CreateFrame("Frame")
 for _, e in ipairs({ "SPELLS_CHANGED", "CHARACTER_POINTS_CHANGED", "TRAIT_CONFIG_UPDATED", "PLAYER_ENTERING_WORLD" }) do pcall(ev.RegisterEvent, ev, e) end
 ev:SetScript("OnEvent", function(_, e)
     H.ClearCache()
     if e == "PLAYER_ENTERING_WORLD" and ns.db and ns.db.keysHud then H.Toggle(true) end
+end)
+-- 11-13 第 4 期：_Class 晚于进世界才加载（存档开着钉板 / HUD 等，登录后条件加载）→ 进世界那一下错过了，补跑一次
+ns.AddInit(function()
+    if IsLoggedIn and IsLoggedIn() and ns.db and ns.db.keysHud then H.Toggle(true) end
 end)

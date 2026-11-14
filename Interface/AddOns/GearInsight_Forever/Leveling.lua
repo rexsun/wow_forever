@@ -3,6 +3,42 @@ local _, ns = ...
 
 local frame
 
+-- 11-12 玩家 Eason「左上角的推荐升级路线和睡袋任务流程，关闭后怎么再开启」：
+--   ① 开关按角色存（leveling.hide[角色]），关一次不再连坐小号 / 新角色；老存档账号级 shown=false 只算到第一个登录的角色头上
+--   ② × 关掉时聊天框告诉玩家怎么找回；③ 小窗里带上当前该做的任务线（睡袋）+「升级规划」「路线」两个按钮
+local function charKey() return (UnitName and UnitName("player") or "?") .. "-" .. (GetRealmName and GetRealmName() or "?") end
+local function lvdb()
+    ns.db.leveling = ns.db.leveling or {}
+    local d = ns.db.leveling
+    d.hide = d.hide or {}
+    if d.shown == false then d.hide[charKey()] = true end
+    d.shown = nil
+    return d
+end
+function ns.LevelingShown() return not lvdb().hide[charKey()] end
+local function setShown(on) lvdb().hide[charKey()] = (not on) and true or nil end
+
+local function closedHint()
+    local C = ns.SlashHint or "/gif"
+    ns.Print(ns.L("升级指引已关闭（只对这个角色）：输入 " .. C .. " lv，或右键小地图按钮 →「升级指引小窗」重新打开",
+        "Leveling guide closed for this character: type " .. C .. " lv or right-click the minimap button to reopen"))
+end
+
+-- 当前等级该做 / 快能做的任务线（没做完；提前 4 级预告）：返回 c, n, total
+function ns.LevelingChain()
+    local SC = ns.SideChains
+    if not (SC and SC.Progress and ns.SideChainsData) then return nil end
+    local lv = tonumber(UnitLevel and UnitLevel("player")) or 1
+    local fac = SC.Faction and SC.Faction() or "Alliance"
+    for _, c in ipairs(ns.SideChainsData) do
+        if lv >= (c.minLv or 1) - 4 then
+            local ok, _, n, total = pcall(SC.Progress, c, fac)
+            if ok and type(total) == "number" and total > 0 and (tonumber(n) or 0) < total then return c, n, total end
+        end
+    end
+    return nil
+end
+
 local function range(s)
     s = tostring(s or ""):gsub("–", "-")
     local a, b = s:match("(%d+)%s*%-%s*(%d+)")
@@ -66,6 +102,19 @@ local function refresh()
     local text = ns.LevelingText(level, faction)
     local pace = ns.LevelPaceLine and ns.LevelPaceLine(level)     -- 众包升级用时（数据包）
     if pace then text = "|cff99ccff" .. ns.EnSafe(pace) .. "|r\n" .. text end
+    local c, n, total = ns.LevelingChain()
+    if c then
+        local L = ns.L
+        local lvTip = (level < (c.minLv or 1)) and string.format(L("（%d 级能接）", " (from level %d)"), c.minLv) or ""
+        text = text .. "\n|cffffd100" .. L("任务线", "Quest line") .. "|r  |cffff9933" .. ns.EnSafe(L(c.t, c.tEn)) .. "|r  |cff888888"
+            .. (n or 0) .. "/" .. total .. lvTip .. "|r\n  " .. ns.EnSafe(L(c.gist, c.gistEn))
+        frame.chainBtn.chain = c
+        frame.chainBtn:SetText(L("路线：", "Route: ") .. L(c.t, c.tEn))
+        frame.chainBtn:Show()
+    else
+        frame.chainBtn.chain = nil
+        frame.chainBtn:Hide()
+    end
     frame.body:SetText(text)
     frame:SetHeight(frame.body:GetStringHeight() + 70)
 end
@@ -96,7 +145,17 @@ local function build()
     f.body:SetJustifyH("LEFT"); f.body:SetSpacing(2)
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 0, 0); close:SetScale(0.8)
-    close:SetScript("OnClick", function() ns.db.leveling.shown = false; f:Hide() end)
+    close:SetScript("OnClick", function() setShown(false); f:Hide(); closedHint() end)
+    -- 底部两个按钮：升级规划页（睡袋等任务线、逐级待办都在那）· 当前任务线的逐步路线弹框
+    f.planBtn = ns.Button(f, ns.L("升级规划", "Leveling plan"), 96, 22, function()
+        if ns.OpenPage then ns.OpenPage("plan") elseif ns.ToggleMain then ns.ToggleMain("plan") end
+    end)
+    f.planBtn:SetPoint("BOTTOMLEFT", 10, 8)
+    f.chainBtn = ns.Button(f, "", 200, 22, function(self)
+        local c = rawget(self, "chain")
+        if c and ns.SideChains and ns.SideChains.Show then ns.SideChains.Show(c) end
+    end)
+    f.chainBtn:SetPoint("LEFT", f.planBtn, "RIGHT", 6, 0); f.chainBtn:Hide()
     -- 11-05 战绩卡二维码下线：小窗底部的「战绩卡」按钮去掉
     f:SetScript("OnShow", refresh)
     f:RegisterEvent("PLAYER_LEVEL_UP")
@@ -110,15 +169,41 @@ end
 function ns.ToggleLeveling()
     frame = frame or build()
     if frame:IsShown() then
-        frame:Hide(); ns.db.leveling.shown = false
+        frame:Hide(); setShown(false); closedHint()
     else
-        ns.db.leveling.shown = true; frame:Show(); refresh()
+        setShown(true); frame:Show(); refresh()
     end
 end
 
+-- 设置页勾选框：直接设成开 / 关（不打找回提示，勾选框本身就是找回入口）
+function ns.SetLevelingShown(on)
+    setShown(on)
+    if on then frame = frame or build(); frame:Show(); refresh()
+    elseif frame then frame:Hide() end
+end
+
+-- 11-12 重构第 1 期：拖到屏幕外 / 找不着时放回默认位置（存的位置一起清）
+function ns.ResetLevelingPos()
+    lvdb().pos = nil
+    if frame then frame:ClearAllPoints(); frame:SetPoint("TOPLEFT", 30, -260) end
+end
+
+ns.RegisterWindow({ key = "leveling", order = 10, title = function() return ns.L("升级指引小窗", "Leveling guide") end,
+    state = function()
+        if frame and frame:IsShown() then return ns.L("显示中", "Shown") end
+        return ns.LevelingShown() and ns.L("已开（满级后登录不自动弹）", "On (not auto-shown at 60)") or ns.L("已关闭", "Closed")
+    end,
+    actions = function()
+        local on = frame and frame:IsShown()
+        return {
+            { text = on and ns.L("关闭", "Hide") or ns.L("打开", "Show"), fn = function() ns.SetLevelingShown(not on) end },
+            { text = ns.L("重置位置", "Reset position"), fn = function() ns.ResetLevelingPos() end },
+        }
+    end })
+
 table.insert(ns.modules, function()
-    -- 满级以下默认显示；关掉后记住
-    if ns.db.leveling.shown and (UnitLevel("player") or 1) < 60 then
+    -- 满级以下默认显示；关掉后按角色记住
+    if ns.LevelingShown() and (UnitLevel("player") or 1) < 60 then
         build():Show()
     end
 end)

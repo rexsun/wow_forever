@@ -1,6 +1,40 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v359|mainline|bc7a896bfc5bf783e7db2d6841830e314bda051d3b63c2c3955529060eb1abe3
+    {
+        version = "v359",
+        date = "2026-11-13",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "修复动作条图标偶尔消失或残留旧图标的问题。",
+                "修复技能变化后宏名称和冷却显示未及时同步的问题。",
+            },
+            enUS = {
+                "Fixed action bar icons occasionally disappearing or displaying an outdated image.",
+                "Fixed macro names and cooldown displays failing to update when actions change.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v358|mainline|e336065ff1ca9f08ce6a9c5464a3b4a594adbbade2e536785e83d272fc14af86
+    {
+        version = "v358",
+        date = "2026-11-13",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "Halo 光环监控支持按可读取的层数匹配发光规则。",
+                "修复 Halo 发光规则取色时选择器意外关闭。",
+                "修复插件助手原生样式的标题装饰被裁剪。",
+            },
+            enUS = {
+                "Halo aura monitors now match glow rules against readable stack counts.",
+                "Fixed Halo's color picker closing unexpectedly while editing glow rules.",
+                "Fixed clipped title decorations in Addon Assistant's native style.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v357|mainline|1ba3518e62846ead56c8d7945b5c641a6f39779634268de9f0814590b9b6ebc9
     {
         version = "v357",
@@ -172,68 +206,6 @@ CL:Register("suite", {
                 "Improved PVE icon text styling and positioning; chat bar text now has an independent font size.",
                 "Sound alert searches now span alert types and specializations.",
                 "Fixed resource updates and designer dragging, pet ability status displays, and automatic repair activation.",
-            },
-        },
-    },
--- YUI-Notes-Record: v349|mainline|aee9432ded7d86e975e7e313eb94ac72ccc169d502b8404aad0b7687f1c0cd69
-    {
-        version = "v349",
-        date = "2026-10-26",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "新增勾选收件、只收金币和批量删除空信。",
-                "新增邮件收发记录。",
-                "发件联系人支持搜索和最近寄送快捷收藏。",
-                "优化侧栏布局及其他邮件插件的兼容处理。",
-                "好友通知框支持单独移动并保存位置。",
-                "宠物动作条新增隐藏空槽选项。",
-                "原生界面新增背包栏控制开关，可关闭接管并保留显示模式。",
-                "监控进度条和资源条高度支持调整至 2–128。",
-                "优化法术警报预览及布局占位提示。",
-                "新建圆环分组默认关闭鼠标提示，保留已有设置。",
-                "优化音频同步，限制异常频繁重启并保留开关状态。",
-                "战斗中的地图标记刷新延至脱战后执行。",
-                "修复图腾类监控圆环与进度条的持续时间显示。",
-                "修复背包栏隐藏可能引发的战斗中 ESC 报错。",
-            },
-            enUS = {
-                "Added selected-mail collection, gold-only collection, and bulk empty-mail deletion.",
-                "Added mail history for sent and received messages.",
-                "Added contact search and quick favorites for recent recipients.",
-                "Improved sidebar layout and compatibility with other mail addons.",
-                "Friend notifications can now be moved independently with their position saved.",
-                "Added an option to hide empty pet action bar slots.",
-                "Added a bag bar control toggle that releases control while retaining the selected display mode.",
-                "Monitor progress and resource bar heights can now be adjusted from 2 to 128.",
-                "Improved spell alert previews and layout placeholder hints.",
-                "New ring groups now default to disabled tooltips, preserving existing settings.",
-                "Improved audio synchronization to limit excessive restarts while preserving the toggle state.",
-                "Map marker refreshes requested during combat now wait until combat ends.",
-                "Fixed duration displays for totem-based monitor rings and bars.",
-                "Fixed potential ESC errors in combat caused by bag bar hiding.",
-            },
-        },
-    },
--- YUI-Notes-Record: v348|mainline|2451eec6e57e8da3fc99cd3226b21a6e52b2bc878d2df14f73a15b5cf72670c5
-    {
-        version = "v348",
-        date = "2026-10-23",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "监控图标按键支持药水与饰品，改善技能和宏的按键识别。",
-                "游戏菜单新增头像插件设置入口。",
-                "购物助手新增物品加载提示，修复物品信息未就绪时点击搜索无响应的问题。",
-                "修复切图后的技能就绪声音误报与监控图标恢复异常。",
-                "修复增益监控倒计时和层数文字被遮挡的问题。",
-            },
-            enUS = {
-                "Added potion and trinket keybind text to monitor icons and improved spell and macro binding detection.",
-                "Added a portrait addon settings shortcut to the game menu.",
-                "Added item-loading feedback to Auction Helper and fixed unresponsive searches when item information is unavailable.",
-                "Fixed false ability-ready sound alerts and monitor icon recovery after zone transitions.",
-                "Fixed obscured countdown and stack text on buff monitors.",
             },
         },
     },

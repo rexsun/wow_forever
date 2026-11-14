@@ -1,6 +1,23 @@
 -- Generated from Docs/Products/YUI_NovaToolbox/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("toolbox", {
+-- YUI-Notes-Record: nova-140|mainline|3962d014bb9bab0af0084f796e0f4f08fc96a2f42119c178a624346452e42d7a
+-- YUI-Notes-Record: nova-140|forever|0590cfb27b58b81f5d8d6a4d837dce468e7a3fd2a430996190a8934a7713657c
+    {
+        version = "nova-140",
+        date = "2026-11-13",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "修复插件助手原生样式的标题装饰被裁剪。",
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Fixed clipped title decorations in Addon Assistant's native style.",
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: nova-139|mainline|ea92e38bfb69f5389bbd90ef28e6695d8991a02ebbd26fa8bb8b632dc2cb9f14
     {
         version = "nova-139",
@@ -286,26 +303,6 @@ CL:Register("toolbox", {
             },
         },
     },
--- YUI-Notes-Record: nova-130|forever|637a6ce336e98c8ae393e0b635ce1f4d949a5000dc3d0833e799a7cb9d8f7954
-    {
-        version = "nova-130",
-        date = "2026-10-23",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "任务追踪新增自动接交任务开关，可统一关闭已加载插件的自动接交。",
-                "Polestar 路线支持进入副本自动收起，离开后恢复。",
-                "修复多个单体共同加载时的配置导入与部分界面初始化异常。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Added a quest tracker toggle that can disable quest automation across loaded addons.",
-                "Polestar guides now collapse automatically on entering an instance and restore on leaving.",
-                "Fixed configuration import and some UI initialization issues when multiple standalone addons are loaded together.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
 -- YUI-Notes-Record: nova-129|mainline|1a3857d37a30e10dc732d1670a731f1979e81e299e579ed1228f742addddcd33
     {
         version = "nova-129",
@@ -317,34 +314,6 @@ CL:Register("toolbox", {
             },
             enUS = {
                 "Fixed incorrect lag tolerance restoration after failed configuration imports.",
-            },
-        },
-    },
--- YUI-Notes-Record: nova-128|mainline|9ba190554b64ec94594944b4806d0cb643675c2cbab00a0af4ff001ed1d3a7e5
-    {
-        version = "nova-128",
-        date = "2026-10-22",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "焦点施法条新增重要施法发光等条件。",
-                "角色属性面板支持战斗中固定显示项目与排列，数值仍实时更新。",
-                "装备摘要支持临时关闭，并补充附魔图标。",
-                "统一组件字体设置，支持样式复制粘贴。",
-                "界面美化新增蓝灰与炭黑主题，支持阴影和透明度设置。",
-                "优化任务追踪滚动体验。",
-                "改善与Shifter共同使用时的世界地图窗口兼容性。",
-                "优化邮件收件人筛选，减少其他游戏版本角色混入。",
-            },
-            enUS = {
-                "Added glow conditions to the focus cast bar, including important casts.",
-                "The character stats panel can now keep pre-combat items and their arrangement during combat while continuing to update values.",
-                "Added temporary dismissal and enchantment icons to equipment summaries.",
-                "Unified component font settings with style copy and paste.",
-                "Added blue-gray and charcoal themes to UI enhancements, with shadow and opacity settings.",
-                "Improved quest tracker scrolling.",
-                "Improved world map window compatibility with Shifter.",
-                "Improved mail recipient filtering to reduce entries from other game versions.",
             },
         },
     },

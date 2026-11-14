@@ -6,7 +6,7 @@
 --     落地页按这些直接给出这个角色的升级路线；去支持时再带角色名 + 服务器，打赏面板自动弹开、登记名字自动填好（GI_PAY_WHO）。
 --   · 网站按客户端语言：简体 / 繁体 → gearinsight.cn（国内直连），其它 → gearinsight.app；小程序只对中文客户端推荐。
 -- ⛔ 中文字体没有 ①②③ / ■ 的字形（时光服 10-11 实测变方框）→ 名次用带色数字，图例用带色文字。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local GOLD, DIM, TXT = "|cffffd200", "|cff8a93a6", "|cffe6e0c8"
 local CUR = { CNY = "¥", USD = "$", EUR = "€", GBP = "£", TWD = "NT$", HKD = "HK$", KRW = "₩" }

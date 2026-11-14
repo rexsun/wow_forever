@@ -1721,6 +1721,7 @@ local function BuildCooldownDiagnostic(manager, button, record)
     local directKnown, directIndex, directHolder = FindDirectActionButton(manager, button)
     local holder = record and record.holder or directHolder or button:GetParent()
     local icon, iconSource = GetButtonIconDiagnostic(button)
+    local identity = manager.buttonStates and manager.buttonStates[button]
     local hasActionRaw, hasActionOk = SafeDiagnosticCall(_G.HasAction, action)
     local hasAction = hasActionOk and FastBoolean(hasActionRaw, nil) or nil
     local cdInfo, cdOk = SafeDiagnosticCall(actionBar and actionBar.GetActionCooldown, action)
@@ -1750,6 +1751,8 @@ local function BuildCooldownDiagnostic(manager, button, record)
         iconHasDesaturation = icon and type(icon.SetDesaturation) == "function" or false,
         iconHasDesaturated = icon and type(icon.SetDesaturated) == "function" or false,
         hasAction = hasActionOk and DescribeDiagnosticBool(hasActionRaw) or "api-error",
+        cachedHasAction = identity and DescribeDiagnosticBool(identity.hasAction) or "missing",
+        identityReady = identity and DescribeDiagnosticBool(identity.identityReady) or "missing",
         cooldownActive = cdOk and DescribeDiagnosticBool(activeRaw) or "api-error",
         cooldownGCD = cdOk and DescribeDiagnosticBool(gcdRaw) or "api-error",
         durationObject = durationObject ~= nil,
@@ -1766,7 +1769,7 @@ local function FormatCooldownDiagnostic(diag, prefix)
     if not diag then return nil end
     prefix = prefix or "YActionBar: cd"
     return string.format(
-        "%s %s#%s action=%s active=%s gcd=%s stale=%s state(main=%s charge=%s desat=%s) shown(holder=%s button=%s icon=%s filter=%s) direct=%s:%s icon=%s desatAPI=%s/%s duration=%s eval=%s charges=%s",
+        "%s %s#%s action=%s active=%s gcd=%s stale=%s state(main=%s charge=%s desat=%s) shown(holder=%s button=%s icon=%s filter=%s) direct=%s:%s icon=%s desatAPI=%s/%s duration=%s eval=%s charges=%s hasAction=%s identity(has=%s ready=%s)",
         prefix,
         tostring(diag.barId),
         tostring(diag.index),
@@ -1788,7 +1791,10 @@ local function FormatCooldownDiagnostic(diag, prefix)
         tostring(diag.iconHasDesaturated),
         tostring(diag.durationObject),
         tostring(diag.durationEvaluator),
-        tostring(diag.maxCharges or 0)
+        tostring(diag.maxCharges or 0),
+        tostring(diag.hasAction),
+        tostring(diag.cachedHasAction),
+        tostring(diag.identityReady)
     )
 end
 
@@ -1854,17 +1860,23 @@ local function ApplyNativeCoreIcon(button, action, state)
     if not icon then return 0 end
     local texture = type(_G.GetActionTexture) == "function" and _G.GetActionTexture(action) or nil
     if IsSecretValue(texture) then return 0 end
+    local visuals = YAB.Visuals and YAB.Visuals.buttons
+    local visual = visuals and visuals[button]
+    -- Both icon writers must describe the same painted texture, even after a spec/override flip.
+    local iconState = visual and visual.icon == icon and visual or state
+    if icon.IsShown then state.iconShown = icon:IsShown() == true end
     if texture == nil then
-        return SetShownCached(state, "iconShown", icon, false)
+        -- Callers have confirmed HasAction; late texture data must not hide an occupied slot.
+        return SetShownCached(state, "iconShown", icon, true), nil, true
     end
     local writes = 0
-    if state.iconTexture ~= texture then
-        state.iconTexture = texture
+    if iconState.iconTexture ~= texture then
+        iconState.iconTexture = texture
         icon:SetTexture(texture)
         writes = writes + 1
     end
     writes = writes + SetShownCached(state, "iconShown", icon, true)
-    return writes
+    return writes, texture, true
 end
 
 function BarManager:ClearRangeChecks()
@@ -4279,11 +4291,23 @@ function BarManager:RefreshGlobalVisibleIcons(event)
     for index = 1, directCount do
         local button = buttons[index]
         local holder = holders and holders[index]
-        if button ~= extraButton and IsButtonVisible(button, holder) then
+        local cached = self.buttonStates[button]
+        local visible = IsButtonVisible(button, holder)
+        local hiddenEmpty = cached and cached.hasAction ~= true
+            and not (holder and holder.IsShown and not holder:IsShown())
+        if button ~= extraButton and (visible or hiddenEmpty) then
             local action = GetButtonAction(button)
             local hasAction = action and hasActionFunc(action) == true
-            if hasAction then
-                writes = writes + ApplyNativeCoreIcon(button, action, GetNativeCoreState(self, button))
+            local texture, textureKnown
+            if hasAction and visible then
+                local iconWrites
+                iconWrites, texture, textureKnown = ApplyNativeCoreIcon(button, action, GetNativeCoreState(self, button))
+                writes = writes + iconWrites
+            end
+            if action and cached and (cached.identityReady ~= true or cached.hasAction ~= hasAction
+                or textureKnown and (IsSecretValue(cached.texture) or cached.texture ~= texture)) then
+                -- Late slot content/override data must also refresh identity, text and cooldowns.
+                self:HandleNativeCoreSlotChanged(event, action)
             end
         end
     end
@@ -8640,7 +8664,8 @@ function BarManager:RefreshActionButton(button, page, index, db, mode, diagnosti
     local displayAuthoritative = false
     local displaySecret = false
     mode = mode or "full"
-    if state.slot ~= slot or mode == "identity" then
+    if state.slot ~= slot or mode == "identity" or not state.identityReady then
+        -- A partial pass that rebuilds identity must also paint every identity-owned region.
         mode = "full"
     end
     local identityRefreshed = false
@@ -8656,11 +8681,11 @@ function BarManager:RefreshActionButton(button, page, index, db, mode, diagnosti
         if diagnostic then diagnostic.backendReads = diagnostic.backendReads + 1 end
         YAB.Adapter:ReadActionIdentity(slot, state, maxDisplayCount, hotBackend)
         local hasFlyout = state.flyoutID ~= nil
-        if previousIdentityReady
-            and previousSlot == slot
-            and previouslyHadFlyout ~= hasFlyout
+        if previousSlot == slot
+            and (not previousIdentityReady or previouslyHadFlyout ~= hasFlyout)
             and YAB.SecureFactory
             and YAB.SecureFactory.SyncActionFlyoutIdentity then
+            -- A proc-only read may already have replaced flyoutID without updating secure state.
             YAB.SecureFactory:SyncActionFlyoutIdentity(button, hasFlyout)
         end
         self:SetButtonAssistedCombatSlot(button, slot, state.hasAction == true and state.assistedCombat == true)

@@ -29,8 +29,13 @@ function Comm.IsEnabled()
 end
 
 function Comm.IsSelf(sender)
+	local key, ownName = MapUtils:GetPlayerCharacterKey()
+	if key and (sender == key or sender == ownName) then return true end
+	if key and not MapUtils:IsForever() then return false end
+
 	local name, realm = UnitFullName("player")
-	if name == nil or sender == name then return true end
+	if not MapUtils:CanAccessValues(name, realm) or name == nil then return key == nil end
+	if sender == name then return true end
 
 	return realm ~= nil and realm ~= "" and sender == name .. "-" .. realm
 end
@@ -155,7 +160,7 @@ end
 function Comm.Enqueue(prefix, message, chatType, target)
 	if #Comm.queue >= Comm.maxQueue then return false end
 	tinsert(Comm.queue, {prefix, message, chatType, target})
-	if Comm.ticker == nil then Comm.ticker = C_Timer.NewTicker(0.2, Comm.Pump) end
+	if Comm.ticker == nil then Comm.ticker = C_Timer.NewTicker(0.2, MapUtils.Profile("comm Pump", Comm.Pump)) end
 
 	return true
 end

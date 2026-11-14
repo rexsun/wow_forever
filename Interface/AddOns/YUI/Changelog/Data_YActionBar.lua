@@ -1,6 +1,53 @@
 -- Generated from Docs/Products/YUI_YActionBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yactionbar", {
+-- YUI-Notes-Record: yactionbar-118|mainline|7a644f1dff492ea5df5b6674d93126401304c95d46cbd8539c6a786d9514769a
+-- YUI-Notes-Record: yactionbar-118|forever|7627ed35dc7c0c204988e8894bdd61213303d6d25aa77bb541efa65420dfca89
+    {
+        version = "yactionbar-118",
+        date = "2026-11-13",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "修复动作条图标偶尔消失或残留旧图标的问题。",
+                "修复技能变化后宏名称和冷却显示未及时同步的问题。",
+            },
+            enUS = {
+                "Fixed action bar icons occasionally disappearing or displaying an outdated image.",
+                "Fixed macro names and cooldown displays failing to update when actions change.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yactionbar-117|mainline|319992e04187267d2ad10cd9c480185c574ba79a7a72344c1d7a8cc54b2826d2
+    {
+        version = "yactionbar-117",
+        date = "2026-11-13",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yactionbar-117|forever|248beb3ab1742cc6801bb5fae40df299c54c7a9cc299af9683412da0e84ad4ec
+    {
+        version = "yactionbar-117",
+        date = "2026-11-13",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "修复法师智力与护甲增益在战斗中的倒计时和缺失提示。",
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Fixed combat countdowns and missing-buff alerts for Mage Intellect and armor buffs.",
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: yactionbar-116|mainline|08ac3bcbcd4968791edded8a0c9e6a8f9f4dc6d819e30919ad971d125fa690a1
     {
         version = "yactionbar-116",
@@ -204,59 +251,6 @@ CL:Register("yactionbar", {
             },
             enUS = {
                 "Fixed configuration import issues when multiple standalone addons are loaded together.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: yactionbar-108|mainline|78fcb1d2c54cb0e331489430e9e2aecd46ce4920c71f7a60e2f50512f3aa06a0
--- YUI-Notes-Record: yactionbar-108|forever|00a5353bede942d763d9ad0230a74ac3553f04be42165003e1918d12d20985da
-    {
-        version = "yactionbar-108",
-        date = "2026-10-22",
-        clients = { "Retail", "Forever" },
-        content = {
-            zhCN = {
-                "支持按专精设置隐身、姿态和形态翻页。",
-                "充能转圈、边缘和倒计时可分别控制。",
-                "统一字体设置，支持样式复制粘贴，并扩大文字偏移范围。",
-                "新增使用中状态显示选项。",
-                "优化设置项的悬停预览。",
-            },
-            enUS = {
-                "Added per-specialization paging for stealth, stances, and forms.",
-                "Added separate controls for charge swipe, edge, and countdown displays.",
-                "Unified font settings with style copy and paste, and expanded text offset ranges.",
-                "Added an option for displaying active-use states.",
-                "Improved hover previews in settings.",
-            },
-        },
-    },
--- YUI-Notes-Record: yactionbar-107|mainline|d0a32171634e301b13827db66cd469db0a3ddc87c6d4fa8087049039aad262d0
-    {
-        version = "yactionbar-107",
-        date = "2026-10-16",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "新增蓝色辅助提示，适配按钮形状，并可与技能触发发光同时显示。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Added blue assisted highlights that match button shapes and can appear alongside spell proc glows.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: yactionbar-107|forever|78d6e2b2f36c024f383b7e67804ce3f73aba534970a4d803d59611537cfce9ac
-    {
-        version = "yactionbar-107",
-        date = "2026-10-16",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
                 "Updated the shared core for compatibility with newer YUI addons.",
             },
         },

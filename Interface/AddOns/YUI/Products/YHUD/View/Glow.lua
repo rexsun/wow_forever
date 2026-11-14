@@ -8,6 +8,11 @@ YHUD.Glow = Glow
 local Conditions = YHUD.Conditions
 local STACK_DRIVER_CONDITION = { operator = "gt", value = 100 }
 
+function Glow:GetPublicAuraStacks(state)
+    local model = YHUD.Model
+    return model and model.GetPublicAuraStacks and model:GetPublicAuraStacks(state) or nil
+end
+
 local function MatchesAuthoredCount(condition, count)
     local value, operator = condition.value, condition.operator
     if operator == "lt" then return count < value end
@@ -248,20 +253,29 @@ function Glow:Resolve(
             or "native-default",
             nativeConfig.appearance
     end
+    local publicAuraStacks = self:GetPublicAuraStacks(state)
     for index = 1, #compiled.rules do
         local rule = compiled.rules[index]
-        if (rule.combatOnly ~= true or inCombat)
-            and (preview or (rule.stackCondition and compiled.kind == "aura"
-                and auraResolved == true and auraPresent == true)
-                or Conditions and Conditions:Matches(
-                rule.conditionType,
-                compiled.kind,
-                state,
-                auraResolved,
-                auraPresent,
-                persistentSlot
-            )) then
-            return "custom-rule", rule.appearance, rule
+        if rule.combatOnly ~= true or inCombat then
+            local matches
+            if preview then
+                matches = true
+            elseif rule.stackCondition and publicAuraStacks ~= nil then
+                matches = compiled.kind == "aura" and state.available == true
+                    and MatchesAuthoredCount(rule.stackCondition, publicAuraStacks)
+            else
+                matches = (rule.stackCondition and compiled.kind == "aura"
+                    and auraResolved == true and auraPresent == true)
+                    or Conditions and Conditions:Matches(
+                        rule.conditionType,
+                        compiled.kind,
+                        state,
+                        auraResolved,
+                        auraPresent,
+                        persistentSlot
+                    )
+            end
+            if matches then return "custom-rule", rule.appearance, rule end
         end
     end
     return nil

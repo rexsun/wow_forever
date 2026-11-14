@@ -33,7 +33,7 @@ local function inGuild() return IsInGuild and IsInGuild() and true or false end
 local function guildName()
     if not GetGuildInfo then return nil end
     local ok, g = pcall(GetGuildInfo, "player")
-    if ok and type(g) == "string" and g ~= "" and not secret(g) then return g end
+    if ok and type(g) == "string" and not secret(g) and g ~= "" then return g end
 end
 local function store()
     ns.db.guildProfs = ns.db.guildProfs or {}
@@ -256,6 +256,12 @@ local function build(host)
     d.title:SetPoint("RIGHT", -40, 0); d.title:SetJustifyH("LEFT"); d.title:SetWordWrap(false)
     local close = W and W.CloseButton and W.CloseButton(d) or nil
     if close then close:SetPoint("TOPRIGHT", -8, -8); close:SetScript("OnClick", function() GH.Hide() end) end
+    -- 11-12 界面重构第 2 期：「公会设置」齿轮（聊天里显示等级 / 升级播报 / 邀请入会 / 野外 PvP 通报；描述在主插件 Settings.lua，代码在内核）
+    if ns.SettingsGearButton then
+        d.gear = ns.SettingsGearButton(d, "guild")
+        d.gear:SetPoint("TOPRIGHT", -40, -10)
+        d.title:SetPoint("RIGHT", -122, 0)
+    end
     d.sub = d:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); d.sub:SetPoint("TOPLEFT", 14, -40); d.sub:SetPoint("RIGHT", -14, 0)
     d.sub:SetJustifyH("LEFT"); d.sub:SetWordWrap(true); d.sub:SetTextColor(0.7, 0.7, 0.7)
     local sf, c = ns.Scroll(d, 6, -76, DW - 12, 540 - 76 - 52)
@@ -294,7 +300,7 @@ end
 -- ⛔ 《无限》名字带姓（「Joker Dc」）：拼「/w 名字」会被聊天框当成只密「Joker」→ 先走 ChatFrame_SendTell（直接设密语对象），
 --   再退到直接给输入框设 chatType / tellTarget；名字没空格时最后才拼 /w
 function GH.Whisper(name)
-    if type(name) ~= "string" or name == "" or secret(name) then return false end
+    if type(name) ~= "string" or secret(name) or name == "" then return false end
     for _, f in ipairs({ ChatFrame_SendTell or false, ChatFrameUtil and ChatFrameUtil.SendTell or false }) do
         if type(f) == "function" and pcall(f, name) then return true end
     end
@@ -315,9 +321,10 @@ function GH.MemberMenu(anchor, name)
     local function tell()
         if not GH.Whisper(name) then ns.Print(L("打不开私聊框：手动输入 /w ", "Couldn't open chat: type /w ") .. name) end
     end
-    local KB = ns.KeysKb
-    if not (KB and KB.Menu) then return tell() end   -- 菜单不在就直接私聊
-    KB.Menu(anchor, "|cffffd100" .. name .. "|r", { { text = L("私聊", "Whisper"), fn = tell } })
+    -- 11-13 第 4 期：键位页（KeysKb.lua）搬进按需加载的 _Class，小菜单实现留在主插件 ns.PopMenu（ClassStub.lua）
+    local menu = (ns.KeysKb and ns.KeysKb.Menu) or ns.PopMenu
+    if not menu then return tell() end   -- 菜单不在就直接私聊
+    menu(anchor, "|cffffd100" .. name .. "|r", { { text = L("私聊", "Whisper"), fn = tell } })
 end
 
 function GH.Render()

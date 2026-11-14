@@ -1,7 +1,7 @@
 -- 套装页：T1（海加尔峰）各职业 / 定位的套装效果（数据 = 小程序 / 网站「T1 套装」同一份 tier1）
 -- Beta 客户端里套装件属性是隐藏的，只有套装效果；上线前可能改
 -- 10-07 用户：每个专精一张卡（左边专精图标），每条套装效果前加技能图标；职业按钮加图标，本职业高亮
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local page, cur
 local CARD_W = 600

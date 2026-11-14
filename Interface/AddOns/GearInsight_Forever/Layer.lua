@@ -34,11 +34,15 @@ local function secret(v) return ns.Secret and ns.Secret(v) end
 local function short(n) return type(n) == "string" and (n:match("^([^%-]+)") or n) or nil end
 LY.Short = short
 
+-- 11-13 玩家「哪里关😳」「或者初次的时候确认一次，后续要改的话去设置里找」：三个自动行为（会员求助自动拉 / 会长官员邀请自动接受 /
+--   换过去后自动退队）存档改三态 true / false / nil(=还没问过)。nil 时不自动做，第一次真碰到时弹小框问一次（LY.AskOnce），选了就存，之后不再问
+LY.ASK_KEYS = { "autoHelp", "autoAccept", "autoLeave" }
+LY.ASK_FRESH = 60         -- 秒：问一次的框里点「以后都…」时，这件事（求助 / 邀请 / 换层）还在这么久以内才顺手照做
 function LY.DB()
     ns.db.layer = ns.db.layer or {}
     local d = ns.db.layer
     if d.on == nil then d.on = true end                -- 读层 + 公会 / 集合频道心跳
-    if d.autoAccept == nil then d.autoAccept = true end -- 10-28 用户拍板：会长 / 官员的邀请默认自动接受（可关）
+    -- autoAccept（会长 / 官员的邀请自动接受）：10-28 起默认 true 写进存档；11-13 起不再给默认值（nil = 第一次碰到时问）
     if d.officerMax == nil then d.officerMax = 1 end    -- 会阶序号 ≤ 这个算「官员」（0 = 会长）
     if d.pub == nil then d.pub = true end              -- B：在公共频道报层（只报地图 / 层 / 任务 ID / 怪的数量）
     if d.helper == nil then d.helper = true end        -- B：愿意帮别人换到我这层（收到请求弹提示，点了才邀）
@@ -46,8 +50,16 @@ function LY.DB()
     --   帮手默认开；旧存档里自动写进去的 false 一次性改成 true（helperV=2 记已迁，之后玩家自己关的不再动）
     if d.helperV ~= 2 then d.helper = true; d.helperV = 2 end
     -- 11-06 照 Guild Master Forever（无限外服公会插件，MIT）的真机做法：会员求助自动拉、到了新层自动退队（都能关，默认开）
-    if d.autoHelp == nil then d.autoHelp = true end     -- 公会会员求助：我没在队伍里就直接邀请（不弹框）；路人求助照旧弹框
-    if d.autoLeave == nil then d.autoLeave = true end   -- 求助换层：进队、看到层变了就自动退队（层会留下）
+    --   autoHelp（公会会员求助：我没在队伍里就直接邀请，不弹框；路人求助照旧弹框）/ autoLeave（求助换层：进队、看到层变了就自动退队）同上，不给默认值
+    -- 11-13 老存档迁移（askV=1 记已迁，只跑一次）：1.1.1 及以前 DB() 一打开就把默认值 true 写进存档，没有「玩家改过」的记号，
+    --   存档里的 true 分不出是吃默认还是自己开的 → 一律当「还没问过」清成 nil（自己开过的人也只是被问一次，点「以后都…」就回到原样）；
+    --   false 只可能是玩家自己关的（这三项默认从来都是 true）→ 原样保留，不再问
+    if d.askV ~= 1 then
+        for _, k in ipairs(LY.ASK_KEYS) do
+            if d[k] == true then d[k] = nil end
+        end
+        d.askV = 1
+    end
     d.order = type(d.order) == "table" and d.order or {}   -- [地图] = { zoneUID, … }：本地 L1/L2 编号（按首次看到的先后）
     d.xmap = type(d.xmap) == "table" and d.xmap or {}      -- 11-06 跨地图对照表：["m:z_m:z"] = { s = { [来源] = 时间 }, t = 最近时间 }
     return d
@@ -186,7 +198,7 @@ function LY.MapName(map)
     if C_Map and C_Map.GetMapInfo then
         local ok, info = pcall(C_Map.GetMapInfo, map)
         local nm = ok and type(info) == "table" and info.name
-        if type(nm) == "string" and nm ~= "" and not secret(nm) then return nm end
+        if type(nm) == "string" and not secret(nm) and nm ~= "" then return nm end
     end
     return tostring(map)
 end
@@ -683,13 +695,21 @@ end
 -- 各模块挂规则：fn(inviterShort) → 理由字符串 / nil。A = 会长 / 官员 / 集合发起人；B = 自己刚求的那一层的帮手（30 秒内）
 LY.acceptRules = {}
 function LY.AddAcceptRule(fn) LY.acceptRules[#LY.acceptRules + 1] = fn end
+-- 规则可多返回一个 kind：「officer」= 会长 / 官员 / 集合发起人那条，受 autoAccept 管 —— 开关还是 nil（没问过）时不算数，
+--   记成第三个返回值 ask（OnInvite 拿去弹「问一次」），接着看别的规则（自己求的换层帮手那条不受影响）
 function LY.AcceptReason(inviter)
     local s = short(inviter)
     if not s or secret(s) then return nil end
+    local ask
     for _, fn in ipairs(LY.acceptRules) do
-        local ok, why = pcall(fn, s)
-        if ok and why then return why end
+        local ok, why, kind = pcall(fn, s)
+        if ok and why then
+            if kind == "officer" and LY.DB().autoAccept == nil then ask = ask or why
+            elseif kind then return why, kind
+            else return why end
+        end
     end
+    if ask then return nil, nil, ask end
     return nil
 end
 -- 11-10 用户「有人点了换位面，然后是她组我……她的位面没动」：换层收发全记一笔（存档留 40 条），/gi layer log 弹框复制，下次出事看得到谁邀请了谁
@@ -700,16 +720,126 @@ function LY.Log(line)
     if #d.log >= 40 then table.remove(d.log, 1) end
     d.log[#d.log + 1] = ts .. " " .. tostring(line)
 end
+-- ---------- 11-13 问一次（自动拉 / 自动接受 / 自动退队：开关还是 nil 时，第一次真碰到才问）----------
+-- LY.AskOnce(key, opts)：opts = { text, yes, no, onYes, onNo, onClose }
+--   点 yes「以后都…」→ 存 true，调 onYes（这次也照做）；点 no「每次问我 / 不自动退」→ 存 false，调 onNo；右上 × = 这次先不定（还是 nil，下次碰到再问），调 onClose
+--   ⛔ 插件自己的框，不用 StaticPopup（不往暴雪弹框表里塞东西）；⛔ 战斗中不弹：返回 "later"，调用方这次按「不自动」处理，脱战后再问（文字前加「刚才：」）
+--   框正在问别的事 → 排队，返回 "queued"；正在问同一件事 → "busy"；弹出来了 → "shown"；这项已经定过（不是 nil）→ nil
+LY.askQ = {}
+local askFrame
+function LY.OffHint() return L("（右侧『位面』页签可关）", " (turn off in the Layers tab)") end
+local function askShow(key, opts, later)
+    if not askFrame then
+        local f = CreateFrame("Frame", nil, UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+        f:SetSize(460, 100); f:SetPoint("TOP", UIParent, "TOP", 0, -170); f:SetFrameStrata("DIALOG")
+        if f.SetBackdrop then
+            f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+            f:SetBackdropColor(0.04, 0.06, 0.1, 0.95); f:SetBackdropBorderColor(1, 0.82, 0.2, 0.9)
+        end
+        f.text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        f.text:SetPoint("TOPLEFT", 12, -12); f.text:SetWidth(410); f.text:SetJustifyH("LEFT")
+        f.yes = ns.Button(f, "", 130, 22, function() LY.AskPick(true) end)
+        f.yes:SetPoint("BOTTOMLEFT", 12, 28)
+        f.no = ns.Button(f, "", 100, 22, function() LY.AskPick(false) end)
+        f.no:SetPoint("LEFT", f.yes, "RIGHT", 8, 0)
+        f.close = ns.Button(f, "×", 22, 20, function() LY.AskPick(nil) end)
+        f.close:SetPoint("TOPRIGHT", -4, -4)
+        f.foot = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        f.foot:SetPoint("BOTTOMLEFT", 12, 9); f.foot:SetJustifyH("LEFT")
+        f.foot:SetText(L("以后可以在右侧『位面』页签 → 设置里改", "You can change this later in the Layers tab (right side) -> Settings"))
+        askFrame = f
+    end
+    local t = opts.text or ""
+    if later then t = L("刚才：", "Earlier: ") .. t end
+    askFrame.key, askFrame.opts = key, opts
+    askFrame.text:SetText(ns.EnSafe and ns.EnSafe(t) or t)
+    askFrame.yes:SetText(opts.yes or L("以后都这样", "Always"))
+    askFrame.no:SetText(opts.no or L("每次问我", "Ask me each time"))
+    askFrame:Show()
+    LY.Log("问一次 " .. key .. (later and "（脱战 / 排队后补问）" or ""))
+end
+local function askBusy() return askFrame ~= nil and askFrame.key ~= nil and askFrame:IsShown() end
+local function askPush(key, opts)
+    for i = #LY.askQ, 1, -1 do if LY.askQ[i].key == key then table.remove(LY.askQ, i) end end
+    LY.askQ[#LY.askQ + 1] = { key = key, opts = opts }
+end
+function LY.AskNext()
+    if askBusy() or inCombat() then return false end
+    while #LY.askQ > 0 do
+        local it = table.remove(LY.askQ, 1)
+        if LY.DB()[it.key] == nil then askShow(it.key, it.opts, true); return true end
+    end
+    return false
+end
+function LY.AskOnce(key, opts)
+    if LY.DB()[key] ~= nil then return nil end
+    if askBusy() then
+        if askFrame.key == key then return "busy" end
+        askPush(key, opts)
+        return "queued"
+    end
+    if inCombat() then askPush(key, opts); return "later" end
+    askShow(key, opts, false)
+    return "shown"
+end
+-- v = true「以后都…」/ false「每次问我」/ nil 右上 ×（这次先不定）
+function LY.AskPick(v)
+    local f = askFrame
+    if not (f and f.key) then return end
+    local key, opts = f.key, f.opts or {}
+    f.key, f.opts = nil, nil
+    f:Hide()
+    local cb = opts.onClose
+    if v == true then cb = opts.onYes elseif v == false then cb = opts.onNo end
+    if v ~= nil then
+        LY.DB()[key] = v
+        local label = (v == true) and opts.yes or opts.no
+        ns.Print(string.format(L("已记住：%s（以后可以在右侧『位面』页签 → 设置里改）", "Saved: %s (change it in the Layers tab -> Settings)"), tostring(label or "")))
+    end
+    LY.Log("问一次 " .. key .. " 选=" .. tostring(v))
+    if cb then pcall(cb) end
+    if ns.RefreshSettings then pcall(ns.RefreshSettings) end
+    LY.dirty = true
+    LY.AskNext()
+end
+LY._ask = function() return askFrame end
+
 LY.lastAccept = nil
+-- 11-13：会长 / 官员（集合发起人）的邀请，autoAccept 还是 nil → 不自动接，弹「问一次」；暴雪自己的邀请框照常在，这次由玩家自己点
+function LY.AskAccept(inviter, why)
+    local s = short(inviter)
+    if not s or secret(s) then return nil end
+    local LG = ns.LayerGuild
+    local r = LG and LG.ranks and LG.ranks[s]
+    local role = why
+    if r == 0 then role = L("会长", "Guild leader")
+    elseif r ~= nil and LG.IsOfficerRank and LG.IsOfficerRank(r) then role = L("官员", "Officer") end
+    local at = now()
+    return LY.AskOnce("autoAccept", {
+        text = string.format(L("%s %s 邀请你组队（换层）。以后会长 / 官员的邀请要自动接受吗？", "%s %s invited you (layer hop). Auto-accept leader / officer invites from now on?"), tostring(role), s),
+        yes = L("以后都自动接受", "Always accept"), no = L("每次问我", "Ask me each time"),
+        onYes = function()
+            -- 这次也接：邀请还挂着才接（已经进队 / 暴雪邀请框没了 / 过了 60 秒 = 只记住设置）
+            if now() - at > LY.ASK_FRESH then return end
+            if IsInGroup and IsInGroup() then return end
+            if StaticPopup_Visible and not StaticPopup_Visible("PARTY_INVITE") then return end
+            LY.OnInvite(inviter)
+        end,
+    })
+end
 function LY.OnInvite(inviter)
-    local why = LY.AcceptReason(inviter)
-    LY.Log("收到邀请 from=" .. tostring(short(inviter)) .. " 自动接受=" .. tostring(why or "否"))
-    if not why then return false end
+    local why, kind, ask = LY.AcceptReason(inviter)
+    LY.Log("收到邀请 from=" .. tostring(short(inviter)) .. " 自动接受=" .. tostring(why or (ask and "先问一次") or "否"))
+    if not why then
+        if ask then LY.AskAccept(inviter, ask) end
+        return false
+    end
     if not AcceptGroup then return false end
     local ok = pcall(AcceptGroup)
     if ok and StaticPopup_Hide then pcall(StaticPopup_Hide, "PARTY_INVITE") end
     LY.lastAccept = { who = short(inviter), why = why, ok = ok, t = now() }
-    if ok then ns.Print(L("已自动接受 ", "Auto-accepted invite from ") .. tostring(short(inviter)) .. L("（" .. why .. "）", " (" .. why .. ")")) end
+    -- 11-13「哪里关」：会长 / 官员这条（受 autoAccept 管）行末带「（右侧『位面』页签可关）」；自己发起的换层帮手那条不受开关管，不带
+    if ok then ns.Print(L("已自动接受 ", "Auto-accepted invite from ") .. tostring(short(inviter)) .. L("（" .. why .. "）", " (" .. why .. ")") .. (kind == "officer" and LY.OffHint() or "")) end
     return ok
 end
 
@@ -771,7 +901,12 @@ ev:SetScript("OnEvent", function(_, e, a1, a2, a3, a4, a5, a6, a7, a8)
     elseif e == "UPDATE_MOUSEOVER_UNIT" then pcall(LY.ReadUnit, "mouseover")
     elseif e == "PLAYER_TARGET_CHANGED" then pcall(LY.ReadUnit, "target")
     elseif e == "PARTY_INVITE_REQUEST" then pcall(LY.OnInvite, a1)
-    elseif e == "PLAYER_REGEN_ENABLED" then LY.scanAt = now() + 1
+    elseif e == "PLAYER_REGEN_ENABLED" then
+        LY.scanAt = now() + 1
+        -- 11-13：战斗中碰到的「问一次」脱战后再问（等 2 秒，别一脱战就糊脸）
+        if #LY.askQ > 0 then
+            if C_Timer and C_Timer.After then C_Timer.After(2, function() pcall(LY.AskNext) end) else pcall(LY.AskNext) end
+        end
     elseif e == "GROUP_ROSTER_UPDATE" then
         LY.rosterAt = now()   -- 11-06 跨地图对照：名单一动，之前那段「走过地图边界」和队友的旧层都不能拿来学
         -- 进队 / 退队：接下来 90 秒放宽换层门槛，并在 3 / 8 / 15 秒后重读目标和姓名板（传层要几秒）
@@ -852,10 +987,33 @@ LY._onUpdate = onUpdate
 local function help()
     local C = ns.SlashHint or "/gi"
     ns.Print(L("位面：" .. C .. " layer 打开面板 · " .. C .. " layer lead 口令（会长：开服当晚还没公会时建集合频道）· "
-        .. C .. " layer join 口令（会员加入）· " .. C .. " layer leave · " .. C .. " layer accept on|off 会长 / 官员邀请自动接受 · "
-        .. C .. " layer helper on|off 帮别人换层 · " .. C .. " layer pub on|off 按地图的公共频道 · " .. C .. " layerprobe 开服探针",
+        .. C .. " layer join 口令（会员加入）· " .. C .. " layer leave · " .. C .. " layer helper on|off 帮别人换层 · "
+        .. C .. " layer pub on|off 按地图的公共频道 · " .. C .. " layerprobe 开服探针",
         "Layers: " .. C .. " layer panel · " .. C .. " layer lead CODE · " .. C .. " layer join CODE · " .. C .. " layer leave · "
-        .. C .. " layer accept on|off · " .. C .. " layer helper on|off · " .. C .. " layerprobe"))
+        .. C .. " layer helper on|off · " .. C .. " layer pub on|off · " .. C .. " layerprobe"))
+    -- 11-13 玩家「哪里关😳」：三个自动行为单独一行列清楚（右侧「位面」页签 → 设置 里也能勾）
+    ns.Print(L("位面自动行为（第一次碰到时会问你一次）：" .. C .. " layer autohelp on|off 会员求助自动拉 · " .. C .. " layer accept on|off 会长 / 官员邀请自动接受 · "
+        .. C .. " layer autoleave on|off 换过去后自动退队 · " .. C .. " layer auto on|off 三个一起；右侧『位面』页签 → 设置里也能改",
+        "Layer automation (asked once the first time): " .. C .. " layer autohelp on|off · " .. C .. " layer accept on|off · "
+        .. C .. " layer autoleave on|off · " .. C .. " layer auto on|off (all three); also in the Layers tab -> Settings"))
+end
+LY.Help = help
+
+-- 11-13：三个自动行为的命令开关（存 true / false，之后不再问）
+local AUTO_TEXT = {
+    autoHelp = function(on) return on and L("公会会员求助：自动拉（不弹框）", "Guildmate requests: auto-invite") or L("公会会员求助：每次弹框问我", "Guildmate requests: ask each time") end,
+    autoAccept = function(on) return on and L("会长 / 官员的组队邀请：自动接受", "Leader/officer invites: auto-accept") or L("会长 / 官员的组队邀请：不再自动接受", "Leader/officer invites: manual") end,
+    autoLeave = function(on) return on and L("换过去后：自动退队", "After the move: leave the group") or L("换过去后：不自动退队", "After the move: stay in the group") end,
+}
+function LY.SetAuto(key, on)
+    if not AUTO_TEXT[key] then return false end
+    LY.DB()[key] = on and true or false
+    if askFrame and askFrame.key == key then askFrame.key, askFrame.opts = nil, nil; askFrame:Hide(); LY.AskNext() end
+    for i = #LY.askQ, 1, -1 do if LY.askQ[i].key == key then table.remove(LY.askQ, i) end end
+    if ns.RefreshSettings then pcall(ns.RefreshSettings) end
+    LY.dirty = true
+    ns.Print(AUTO_TEXT[key](on) .. L("（右侧『位面』页签 → 设置里也能改）", " (also in the Layers tab -> Settings)"))
+    return true
 end
 
 function LY.SetGather(code, lead)
@@ -884,9 +1042,11 @@ ns.ExtraSlash.layer = function(rest, rawRest)
         ns.Print(sub == "lead" and L("集合频道已建，口令「" .. rawArg .. "」发到群里让会员 /gi layer join " .. rawArg, "Gather channel up; members: /gi layer join " .. rawArg)
             or L("已加入集合频道「" .. rawArg .. "」", "Joined gather channel " .. rawArg))
     elseif sub == "leave" then LY.SetGather(nil); ns.Print(L("已退出集合频道", "Left gather channel"))
-    elseif sub == "accept" and (arg == "on" or arg == "off") then
-        d.autoAccept = (arg == "on")
-        ns.Print(d.autoAccept and L("会长 / 官员的组队邀请：自动接受", "Leader/officer invites: auto-accept") or L("会长 / 官员的组队邀请：不再自动接受", "Leader/officer invites: manual"))
+    elseif sub == "accept" and (arg == "on" or arg == "off") then LY.SetAuto("autoAccept", arg == "on")
+    elseif sub == "autohelp" and (arg == "on" or arg == "off") then LY.SetAuto("autoHelp", arg == "on")
+    elseif sub == "autoleave" and (arg == "on" or arg == "off") then LY.SetAuto("autoLeave", arg == "on")
+    elseif sub == "auto" and (arg == "on" or arg == "off") then
+        for _, k in ipairs(LY.ASK_KEYS) do LY.SetAuto(k, arg == "on") end
     elseif sub == "helper" and (arg == "on" or arg == "off") then
         d.helper = (arg == "on"); LY.Beat(true)
         ns.Print(d.helper and L("已打开「帮别人换到我这层」：收到请求会弹提示，点了才邀请", "Helping others hop: on (you click to invite)") or L("已关闭「帮别人换层」", "Helping others hop: off"))

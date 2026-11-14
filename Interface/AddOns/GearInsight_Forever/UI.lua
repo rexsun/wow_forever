@@ -9,9 +9,24 @@ local GOLD = { 1, 0.82, 0 }
 local pages, frame, current = {}, nil, nil
 
 function ns.RegisterPage(p)
+    -- 11-12 重构第 3 期（页面注册 → 懒加载占位，只动这一小块）：按需加载的子插件的页，主插件先登记一张带 lazy 字段的占位页
+    --   （PlanStub.lua：升级规划 / 推荐装备 / 掉落 / T1 套装 / 成就）。子插件加载后真页用同一个 key 再登记 → 就地把内容换进占位页那张表，
+    --   位置 / 页签 / 排序都不动；页名沿用占位页的（它登记时记了中英文对照，手动切语言跟着换）。没有占位页 = 照旧新登记
+    -- 11-13 第 4 期：别的文件要「包住某一页的 build / refresh」（TrainNow.lua 包天赋页）时登记 ns._PageHooks：
+    --   页登记 / 真页顶替占位时都通知一次（合并打包时天赋页晚于 TrainNow.lua 登记、拆分时真页晚于占位顶替进来，原来那次性的包法会丢）
+    local function hooks(q) for _, fn in ipairs(ns._PageHooks or {}) do pcall(fn, q) end end
+    for _, q in ipairs(pages) do
+        if q.lazy and q.key == p.key and q ~= p then
+            for k, v in pairs(p) do if k ~= "title" and k ~= "tabTitle" then q[k] = v end end
+            q.lazy = nil
+            hooks(q)
+            return q
+        end
+    end
     if not ns.db and ns.PageLangPairs then ns.PageLangPairs(p) end   -- 11-09 GI-202：记下页名的中英文，读到存档后按手动选的语言换
     pages[#pages + 1] = p
     table.sort(pages, function(a, b) return (a.order or 99) < (b.order or 99) end)
+    hooks(p)
 end
 ns._Pages = pages   -- 测试用（左侧页签 / 顶部功能列表都按它画）
 -- 10-11 录像用：还没发布的页（RegisterPage 时带 hold = true）在 /gif keys off 后不出页签、不进顶部功能列表
@@ -295,13 +310,14 @@ end
 -- 点大类 = 打开这组上次看的那页（没有就第一页），这组的成员在大类页签正下方展开成缩进小按钮。
 -- 没有可用成员的大类不出（HOLD 隐藏 / hiddenTab 的成员不算）。
 local GROUPS = ns.LateL({   -- 11-09 GI-202：手动切语言后跟着换
-    -- 11-10 用户「游戏里弄个职业百宝箱页签…根据当前职业推职业特有工具」「之前猎人宠物也挪过来」「可以考虑和手法，宏合并」：
-    --   原「手法」大类改名「职业百宝箱」，职业专属页（带 class 字段，别的职业看不到）排最前
-    { key = "grp_rot", order = 1.5, title = ns.L("职业百宝箱", "Class toolkit"), icon = "Interface\\Icons\\INV_Misc_Bag_10", members = { "ammo", "pet", "rot", "macro", "keys" } },
-    { key = "grp_up", order = 1.8, title = ns.L("升级", "Leveling"), icon = "Interface\\Icons\\Ability_Hunter_Pathfinding", members = { "plan", "prof", "xp", "ach" } },   -- 11-09 xp = 经验加成（XpCheck.lua，HOLD）
-    { key = "grp_gear", order = 2, title = ns.L("装备", "Gear"), icon = "Interface\\Icons\\INV_Chest_Plate03", members = { "gear", "loot", "tier" } },
-    { key = "grp_info", order = 3.5, title = ns.L("资讯攻略", "News & Guides"), icon = "Interface\\Icons\\INV_Letter_15", members = { "news" } },   -- 11-10 用户「改成资讯攻略」；猎人宠物 11-10 挪去职业百宝箱
-    -- 10-19 用户「进阶就放最外面一级目录」：adv（进阶 · 网站与小程序，PageAdvanced.lua，HOLD）不进资讯组，单独一个左栏页签
+    -- 11-12 界面重构第 2 期「菜单合并」（用户「菜单进行合并精简，但是功能不能少」，§6 拍板 1：天赋收进「职业」）：
+    --   左栏一级 8 → 5：升级 / 装备 / 职业 / 资讯 / 设置。页 key 一个没改（ns.ToggleMain("talent")、存档里的 ui.page 照旧能开）；
+    --   大类 key 也没改（ui.grpLast 记的「这组上次看哪页」照旧）：grp_rot 原「职业百宝箱」现在叫「职业」，grp_info 原「资讯攻略」并进共建 / 进阶 / 攻略
+    { key = "grp_up", order = 1.1, title = ns.L("升级", "Leveling"), icon = "Interface\\Icons\\Ability_Hunter_Pathfinding", members = { "plan", "prof", "xp", "ach" } },
+    { key = "grp_gear", order = 1.2, title = ns.L("装备", "Gear"), icon = "Interface\\Icons\\INV_Chest_Plate03", members = { "gear", "loot", "tier" } },
+    -- 11-10 用户「游戏里弄个职业百宝箱页签…」：职业专属页（带 class 字段，别的职业看不到）也在这组
+    { key = "grp_rot", order = 1.3, title = ns.L("职业", "Class"), icon = "Interface\\Icons\\INV_Misc_Book_11", members = { "talent", "rot", "keys", "macro", "pet", "ammo" } },
+    { key = "grp_info", order = 1.4, title = ns.L("资讯", "News"), icon = "Interface\\Icons\\INV_Letter_15", members = { "news", "guide", "board", "adv" } },
 })
 ns._TabGroups = GROUPS   -- 测试用
 -- ---------- 10-18 公会 / 组队拆成按需加载的子插件（用户「工会和组队都单拆子模块，默认不加载」→ 选「页签照常显示，点了才加载」）----------
@@ -322,6 +338,21 @@ local MODS = {
 }
 local MOD_ORDER = { "guild", "group" }
 ns._Modules = MODS   -- 测试用
+-- 11-12 重构第 3 期：升级 / 装备子插件（升级规划 / 推荐装备 / 掉落 / T1 套装 / 成就页 + 大数据表）。和公会 / 组队不同：它没有右侧页签，
+--   所以不进 MOD_ORDER（不画占位页签）、stub / real 留空；占位页和加载时机在 PlanStub.lua，这里只借用 ns.LoadModule / ModuleAvailable。
+--   ready 认子插件最后一个文件 PlanInit.lua 置的标记（合并打包时那个文件在主插件 toc 末尾，同样置上）
+MODS.plan = { addon = "GearInsight_Forever_Plan", zh = "升级与装备", en = "Leveling & Gear",
+    ready = function() return ns._planReady == true end,
+    attach = function() end }
+-- 11-13 重构第 5 期：组队子插件拆三块。"group" 还是信标（登录加载，右侧「组队」页签也是它挂的）；下面两块由信标按需调 ns.LoadModule：
+--   groupui = 抽屉界面 + 副本组队面板（点页签 / 命令 / 小地图时）；mage = 法师吃喝（开关开着登录就加载，否则打开子页签时）
+--   都没有自己的右侧页签 → 不进 MOD_ORDER
+MODS.groupui = { addon = "GearInsight_Forever_GroupUI", zh = "组队界面", en = "Group window",
+    ready = function() return ns.QM ~= nil and ns.QM.uiLoaded == true end,
+    attach = function() end }
+MODS.mage = { addon = "GearInsight_Forever_GroupMage", zh = "法师吃喝", en = "Mage food",
+    ready = function() return ns.MageWater ~= nil end,
+    attach = function() end }
 
 local function addonInfo(name)
     local f = (C_AddOns and C_AddOns.GetAddOnInfo) or GetAddOnInfo
@@ -356,21 +387,84 @@ local function swapIn(key)
     end
 end
 
-function ns.LoadModule(key)
+-- 11-13 用户截图「组队模块加载失败（DISABLED）…」连刷三条 +「加载方式不符合预期」：
+--   旧写法每次自动加载（登录 / 每次队伍变动）失败都 Print，还偷偷 EnableAddOn 强开玩家在插件列表里关掉的子插件。
+--   → 插件列表里关了（DISABLED）= 尊重玩家：自动加载（quiet）一律静默跳过、不强开；只有玩家自己点页签 / 敲命令才问一次，
+--     启用后本次登录还加载不上就说「/reload 后生效」；同一模块的失败提示一次登录只说一次。
+-- 插件列表里被关了没有（本角色）
+function ns.ModuleDisabled(key)
+    local m = MODS[key]
+    if not m or m.ready() then return false end
+    local n, _, reason = addonInfo(m.addon)
+    if n == nil or reason == "MISSING" then return false end
+    if reason == "DISABLED" then return true end
+    local f = (C_AddOns and C_AddOns.GetAddOnEnableState)
+    if f then
+        local who = UnitName and UnitName("player")
+        if type(who) ~= "string" or (ns.Secret and ns.Secret(who)) then who = nil end
+        local ok, st = pcall(f, m.addon, who)
+        if ok and st == 0 then return true end
+    end
+    return false
+end
+local said = {}
+-- 11-13 用户「不是我关的」：AddOns.txt 里组队一直是 enabled，LoadAddOn 却回 DISABLED → 加载失败时把现场记进存档
+--   （GearInsightForeverDB.loadDiag，最多 20 条），/reload 后读 WTF 存档就能看到：谁在加载谁（嵌套）、启用状态、是否已登录 / 战斗中
+local function addonFn(n) return (C_AddOns and C_AddOns[n]) or _G[n] end
+local function noteFail(key, m, ok, loaded, reason, parent, quiet)
+    local db = ns.db
+    if type(db) ~= "table" then return end
+    local list = db.loadDiag
+    if type(list) ~= "table" then list = {}; db.loadDiag = list end
+    local e = { t = time and time() or 0, key = key, why = tostring(ok and reason or loaded), parent = parent, quiet = quiet and true or nil }
+    local st = addonFn("GetAddOnEnableState")
+    if st then local o, v = pcall(st, m.addon); if o then e.st = v end end
+    local inf = addonFn("GetAddOnInfo")
+    if inf then local o, _, _, _, ld, r = pcall(inf, m.addon); if o then e.loadable, e.info = ld and true or false, r end end
+    local il = addonFn("IsAddOnLoaded")
+    if il then
+        local o1, a1 = pcall(il, "GearInsight_Forever_Group"); if o1 then e.grp = a1 and true or false end
+        local o2, a2 = pcall(il, "GearInsight_Forever_GroupUI"); if o2 then e.ui = a2 and true or false end
+    end
+    e.login = (IsLoggedIn and IsLoggedIn()) and true or false
+    e.combat = (InCombatLockdown and InCombatLockdown()) and true or nil
+    e.ver = ns.AddonVersion and ns.AddonVersion() or nil
+    list[#list + 1] = e
+    while #list > 20 do table.remove(list, 1) end
+end
+ns._NoteLoadFail = noteFail   -- 测试用
+function ns.LoadModule(key, quiet)
     local m = MODS[key]
     if not m then return false end
     if m.ready() then return true end
     local load = (C_AddOns and C_AddOns.LoadAddOn) or LoadAddOn
     if not load then return false end
+    if quiet and ns.ModuleDisabled(key) then return false end
+    local parent = ns._loadingMod
+    ns._loadingMod = key
     local ok, loaded, reason = pcall(load, m.addon)
-    if ok and not loaded and reason == "DISABLED" then   -- 插件列表里被关了：这个角色启用一下再加载
+    ns._loadingMod = parent
+    if not (ok and loaded) then pcall(noteFail, key, m, ok, loaded, reason, parent, quiet) end
+    local enabled
+    if ok and not loaded and reason == "DISABLED" then
+        if quiet then return false end
+        -- 玩家自己点的：本角色启用一下再加载（角色名是受保护值时不传 = 全部角色）
         local en = (C_AddOns and C_AddOns.EnableAddOn) or EnableAddOn
-        if en then pcall(en, m.addon, UnitName and UnitName("player")) end
+        local who = UnitName and UnitName("player")
+        if type(who) ~= "string" or (ns.Secret and ns.Secret(who)) then who = nil end
+        if en then enabled = pcall(en, m.addon, who) end
         ok, loaded, reason = pcall(load, m.addon)
     end
     if ok and loaded and m.ready() then
         pcall(swapIn, key)   -- 不管从哪加载（页签 / 斜杠命令 / 小地图菜单），占位页签都立刻换成真的，不会出两个
         return true
+    end
+    if quiet or said[key] then return false end
+    said[key] = true
+    if enabled and reason == "DISABLED" then
+        ns.Print(string.format(ns.L("%s模块在插件列表里是关着的，已帮你重新勾上，/reload 后生效", "The %s module was turned off in your AddOns list; it is enabled again and works after /reload"),
+            ns.L(m.zh, m.en)))
+        return false
     end
     ns.Print(string.format(ns.L("%s模块加载失败（%s）：插件列表里看看 %s 是不是没装 / 被关了", "Couldn't load the %s module (%s): check %s in your AddOns list"),
         ns.L(m.zh, m.en), tostring(ok and reason or loaded), m.addon))
@@ -386,7 +480,8 @@ thLoader:SetScript("OnEvent", function(self)
     if MODS.group.ready() then self:UnregisterAllEvents(); return end
     if not (IsInGroup and IsInGroup()) or (InCombatLockdown and InCombatLockdown()) then return end
     if ns.db and ns.db.qm and ns.db.qm.thanks == false then return end
-    if ns.LoadModule("group") then
+    if ns.ModuleDisabled("group") then self:UnregisterAllEvents(); return end   -- 插件列表里关了：不再每次队伍变动都试
+    if ns.LoadModule("group", true) then
         self:UnregisterAllEvents()
         local QM = ns.QM
         if QM and QM.Thanks and QM.Thanks.Roster then pcall(QM.Thanks.Roster) end
@@ -439,7 +534,7 @@ ns.EnsureModuleStubs = ensureStubs
 
 -- 模块的斜杠命令：没加载时先加载再执行（加载后子插件会用真函数盖掉这里的占位）
 ns.ExtraSlash = ns.ExtraSlash or {}
-for key, cmds in pairs({ group = { "qm", "感谢", "thanks", "组队", "lfg", "lfg2", "lfgprobe" }, guild = { "guildprobe" } }) do   -- 升级播报 / lvlshare 10-19 随 LevelShare.lua 搬回主插件，不再是占位
+for key, cmds in pairs({ group = { "qm", "感谢", "thanks", "组队", "lfg", "lfg2", "lfgprobe", "吃喝", "water", "mw" }, guild = { "guildprobe" } }) do   -- 升级播报 / lvlshare 10-19 随 LevelShare.lua 搬回主插件，不再是占位
     for _, c in ipairs(cmds) do
         local stub
         stub = function(rest, rawRest)
@@ -462,15 +557,29 @@ do
     ev:SetScript("OnEvent", function()
         if not ns.ModuleAvailable("group") then return end
         local q = ns.db and ns.db.qm
-        if ns.GroupAutoLoad() or (q and q.pinned and q.open) then pcall(ns.LoadModule, "group") end
+        if ns.GroupAutoLoad() or (q and q.pinned and q.open) then pcall(ns.LoadModule, "group", true) end
     end)
     ns._LoginLoad = ev:GetScript("OnEvent")   -- 测试用
 end
 
 -- 10-18 右侧页签统一排位：上一个页签有展开的子页签（公会：本公会 / 公会招募；组队：附近任务 / 副本组队）→ 下一个往下让出高度
+-- 11-12 界面重构第 2 期：右侧页签顺序固定 公会 → 组队 → 位面（原来按谁先建谁在上，开了「不登录加载组队」后组队 / 位面会换位置）
+local function sideRank(host, b)
+    if b == rawget(host, "_giGuildTab") or b == rawget(host, "_giGuildStub") then return 1 end
+    if b == rawget(host, "_giQmTab") or b == rawget(host, "_giGroupStub") then return 2 end
+    if b == rawget(host, "_giLayerTab") then return 3 end
+    return 4
+end
 function ns.LayoutSideTabs(host)
     local side = host and rawget(host, "_giSide")
     if type(side) ~= "table" then return end
+    -- 稳定排序（插入排序：同一档保持原来的先后）
+    for i = 2, #side do
+        local b, j = side[i], i - 1
+        local rb = sideRank(host, b)
+        while j >= 1 and sideRank(host, side[j]) > rb do side[j + 1] = side[j]; j = j - 1 end
+        side[j + 1] = b
+    end
     -- 第一个页签贴主面板右上（公会 / 组队按需加载后真页签换下占位页签，可能换到第一个位置）
     if side[1] then side[1]:ClearAllPoints(); side[1]:SetPoint("TOPLEFT", host, "TOPRIGHT", -2, rawget(host, "_giSideTop") or -80) end
     for i = 2, #side do
@@ -524,6 +633,8 @@ local function showPage(key)
                 local ok, err = pcall(p.build, f)
                 if not ok then ns.Print("页面出错 " .. p.key .. ": " .. tostring(err)) end
                 p.frame = f
+                -- 11-12 界面重构第 2 期：功能页右上角「本页设置」（这一页有登记设置描述才出，见 Settings.lua）
+                if ns.AttachPageSettings then pcall(ns.AttachPageSettings, p) end
             end
             p.frame:Show()
             if p.refresh then pcall(p.refresh, p.frame) end
@@ -540,6 +651,8 @@ local function showPage(key)
     if layoutNav then layoutNav() end
 end
 ns.ShowPage = showPage
+-- 11-13 第 4 期：主窗口开着时正在看哪一页（没开 = nil）—— ModStub.lua 战斗中点开的占位页脱战后按真页重画要问
+function ns.CurrentPage() return (frame and frame:IsShown()) and current or nil end
 
 -- 11-09 GI-196「界面加个窗口放大吧，默认界面太小了眼都要瞎了」：主窗口整体缩放（存 ns.db.ui.scale，nil = 100%）
 --   设置页单选 / 主窗口上 Ctrl + 滚轮 / /gi scale 120；放大后超出屏幕高度就压到刚好放得下
@@ -831,6 +944,7 @@ local function openPage(key)
     if frame and frame:IsShown() and current == key then return end
     ns.ToggleMain(key)
 end
+ns.OpenPage = openPage   -- 升级指引小窗「升级规划」按钮用
 
 local function openGuild()
     if not (frame and frame:IsShown()) then ns.ToggleMain() end
@@ -846,25 +960,71 @@ local function openGuild()
 end
 
 -- 菜单项：入口不在（HOLD 没装）就不出
+-- 11-12 界面重构第 2 期「小地图菜单重排」：按主面板左栏一级的顺序排（升级 → 装备 → 职业 → 组队 → 公会 → 找回 / 设置），
+--   原来平铺的「专业」「键位」和两扇小窗的开关缩进挂在所属大类下面（sub = true，往右缩进、字灰一点）——一项不删，老入口照旧一步直达
 function ns.MinimapMenuItems()
     local L = ns.L
     local items = {}
-    local function add(text, fn) items[#items + 1] = { text = text, fn = fn } end
+    local function add(text, fn, sub) items[#items + 1] = { text = text, fn = fn, sub = sub or nil } end
+    -- 升级
     if hasPage("plan") then add(L("升级规划", "Leveling plan"), function() openPage("plan") end) end
-    if hasPage("prof") then add(L("专业", "Professions"), function() openPage("prof") end) end
-    -- 10-18 组队模块按需加载：没加载 = 子插件在就出（点了再加载）；已加载 = 要有打开抽屉的入口才出
+    if hasPage("prof") then add(L("专业", "Professions"), function() openPage("prof") end, true) end
+    -- 11-12 两位玩家问「左上角升级指引 / 睡袋追踪关了怎么再开」：两个小窗的开关也放进右键菜单（只对当前角色）
+    if ns.ToggleLeveling then
+        local lf = _G.GearInsightForeverLeveling
+        local on = lf and lf:IsShown()
+        add(on and L("关闭升级指引小窗", "Hide leveling guide") or L("打开升级指引小窗", "Show leveling guide"), function() ns.ToggleLeveling() end, true)
+    end
+    local SC = ns.SideChains
+    if SC and SC.SetTracking and ns.SideChainsData then
+        local lv = tonumber(UnitLevel and UnitLevel("player")) or 1
+        for _, c in ipairs(ns.SideChainsData) do
+            local ok, _, n, total = pcall(SC.Progress, c, SC.Faction and SC.Faction())
+            local done = ok and type(total) == "number" and total > 0 and (tonumber(n) or 0) >= total
+            if not done then
+                local t = L(c.t, c.tEn)
+                local on = SC.TrackerEnabled() and SC.Tracking(c)
+                add((on and L("关闭", "Hide ") or L("打开", "Show ")) .. t .. L("追踪", " tracker"), function()
+                    if on then SC.SetTracking(c, false)
+                    else
+                        if not SC.TrackerEnabled() then SC.SetTrackerEnabled(true) end
+                        SC.SetTracking(c, true)
+                        if lv < (c.minLv or 1) then
+                            ns.Print(string.format(L("已打开：%d 级起「%s」追踪小窗会钉在屏幕上", "Tracker on: it shows up from level %d (%s)"), c.minLv, t))
+                        end
+                    end
+                end, true)
+            end
+        end
+    end
+    -- 装备（11-12 第 2 期新增：原来菜单里没有装备）
+    if hasPage("gear") then add(L("装备", "Gear"), function() openPage("gear") end) end
+    -- 职业（拍板 1：天赋收进「职业」后，菜单保留「天赋」直达）
+    if hasPage("talent") then add(L("天赋", "Talents"), function() openPage("talent") end) end
+    -- 11-12 重构第 1 期：天赋计划小窗点 × 关掉后（计划还在）菜单里给一项再打开
+    if ns.TalentPlanState and ns.TalentPlanState() == "hidden" then
+        add(L("打开天赋计划小窗", "Show talent plan"), function() ns.ShowTalentPlan(true, true) end, true)
+    end
+    if hasPage("keys") then add(L("键位", "Keys"), function() openPage("keys") end, true) end
+    -- 组队：10-18 组队模块按需加载：没加载 = 子插件在就出（点了再加载）；已加载 = 要有打开抽屉的入口才出
     if (ns.ModuleLoaded("group") and ns.OpenGroupDrawer) or (not ns.ModuleLoaded("group") and ns.ModuleAvailable("group")) then
         local function og(m) return function() if ns.LoadModule("group") and ns.OpenGroupDrawer then ns.OpenGroupDrawer(m) end end end
         add(L("组队 · 附近任务", "Group up - nearby quests"), og("quest"))
-        -- 10-19 用户「副本组队暂时标记为测试状态，不对外放出，只有我自己能看到」：PageGroup / GroupLFG 回 HOLD（发行包里没有），
-        --   菜单只在模块真加载出副本组队（= 开发安装）时才出，没加载前不再预先挂这一项
-        if ns.BuildGroupPanel then add(L("副本组队 · 测试", "Dungeon group finder (test)"), og("dungeon")) end
+        -- 10-19 用户「副本组队暂时标记为测试状态，不对外放出，只有我自己能看到」：菜单只在模块真加载出副本组队（= 开发安装）时才出
+        if ns.BuildGroupPanel then add(L("副本组队 · 测试", "Dungeon group finder (test)"), og("dungeon"), true) end
     end
-    if ns.Trainers and ns.Trainers.Go then add(L("找最近的职业训练师", "Nearest class trainer"), function() ns.Trainers.Go() end) end
+    -- 11-12 用户「大街上问法师要水，放哪里合适，方便用户找到」：第 2 期起直达组队抽屉的「法师吃喝」子页签（决定 4）
+    if ns.ModuleLoaded("group") or ns.ModuleAvailable("group") then
+        add(L("法师吃喝（要水 / 发水）", "Mage food & water"), function()
+            if ns.OpenMageSettings then ns.OpenMageSettings()
+            elseif ns.LoadModule("group") and (ns.MageWater or (ns.GroupLoadMage and ns.GroupLoadMage(true))) and ns.MageWater.OpenSettings then ns.MageWater.OpenSettings() end
+        end, true)
+    end
     local W = ns.W or _G.GIWidgets
     if W and W.AttachGuildTab and ns.ModuleAvailable("guild") then add(L("公会招募", "Guild recruitment"), openGuild) end
-    if hasPage("talent") then add(L("天赋", "Talents"), function() openPage("talent") end) end
-    if hasPage("keys") then add(L("键位", "Keys"), function() openPage("keys") end) end
+    if ns.Trainers and ns.Trainers.Go then add(L("找最近的职业训练师", "Nearest class trainer"), function() ns.Trainers.Go() end) end
+    -- 11-12 重构第 1 期「找得回」：所有浮窗 / 提醒条的开关和重置位置（设置 → 窗口与提醒），菜单直达
+    if hasPage("data") and ns.OpenWindows then add(L("窗口与提醒（小窗关了从这里找回）", "Windows & alerts (bring a closed window back)"), function() ns.OpenWindows() end) end
     if hasPage("data") then add(L("设置", "Settings"), function() openPage("data") end) end
     items[#items + 1] = { sep = true }
     add("|cffaaaaaa" .. L("隐藏小地图按钮", "Hide minimap button") .. "|r", function()
@@ -904,7 +1064,7 @@ local function showMenu(anchor)
         local r = mmMenu.rows[i]
         if not r then
             r = CreateFrame("Button", nil, mmMenu)
-            r:SetSize(170, 20)
+            r:SetSize(196, 20)
             r.t = r:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); r.t:SetPoint("LEFT", 8, 0); r.t:SetJustifyH("LEFT")
             r.hl = r:CreateTexture(nil, "HIGHLIGHT"); r.hl:SetAllPoints(); r.hl:SetColorTexture(1, 0.82, 0, 0.14)
             r.line = r:CreateTexture(nil, "ARTWORK"); r.line:SetHeight(1)
@@ -917,13 +1077,16 @@ local function showMenu(anchor)
             y = y - 8
         else
             r:SetHeight(20); r.t:SetText(it.text); r.line:Hide(); r.hl:Show(); r:EnableMouse(true)
+            -- 第 2 期：挂在大类下面的项往右缩进、字灰一点
+            r.t:ClearAllPoints(); r.t:SetPoint("LEFT", it.sub and 22 or 8, 0)
+            if r.t.SetTextColor then if it.sub then r.t:SetTextColor(0.78, 0.78, 0.78) else r.t:SetTextColor(1, 1, 1) end end
             r:SetScript("OnClick", function() mmMenu:Hide(); pcall(it.fn) end)
             y = y - 20
         end
         r.item = it
         r:Show()
     end
-    mmMenu:SetSize(182, -y + 8)
+    mmMenu:SetSize(208, -y + 8)
     mmMenu:ClearAllPoints()
     -- 按钮在屏幕右半边：菜单往左开；下半边：往上开
     local cx, cy = anchor:GetCenter()
@@ -1083,3 +1246,11 @@ end
 ns.ExtraSlash.minimap = ns.ExtraSlash["小地图"]
 
 table.insert(ns.modules, function() pcall(buildMinimap) end)
+
+-- 11-12 重构第 1 期：小地图按钮登记进设置页「窗口与提醒」
+ns.RegisterWindow({ key = "minimap", order = 90, title = function() return ns.L("小地图按钮", "Minimap button") end,
+    state = function() return (ns.db.minimap or {}).hide and ns.L("已隐藏", "Hidden") or ns.L("显示中", "Shown") end,
+    actions = function()
+        local hide = (ns.db.minimap or {}).hide and true or false
+        return { { text = hide and ns.L("显示", "Show") or ns.L("隐藏", "Hide"), fn = function() ns.SetMinimapShown(hide) end } }
+    end })

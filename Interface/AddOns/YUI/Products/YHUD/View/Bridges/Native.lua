@@ -592,6 +592,7 @@ local function BuildMonitorMap(profile, category, layout)
                 or category == "trackedBar")
             and entry.origin == "official-cdm"
             and entry.officialCategory == category
+            and not (YHUD.ArcaneBlast and YHUD.ArcaneBlast:Matches(entry))
             and not YHUD:IsOfficialEntryClaimed(
                 entry,
                 claimedSources,

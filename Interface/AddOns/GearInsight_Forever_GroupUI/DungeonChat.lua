@@ -4,80 +4,18 @@
 --         下面列出识别到的组队消息：副本名 + 建议等级 + 缺什么职责（没写就写「没写职责」）+ 谁 · 多久前 → 「申请」=
 --         自动私聊队长（带我的职业 / 等级 / 职责）；之后 10 分钟内只自动接受这个队长的组队邀请（用户 11-10 选「只自动接我密过的队长」）
 --   招人：选副本（显示建议等级）+ 等级范围拖动条（最低 / 最高）+ 需要的职责多选 + 发到哪些频道 → 一键发到勾选的频道；
---         发完 15 分钟内密我的人列在下面，点「邀请」
+--         发完 15 分钟内密我的人列在下面，点「邀请」；11-13 起这份名单存进存档一直留着（重新喊话 / 重载不清），「清空」/ 行尾 × 才删
 --   ⛔ 发频道 / 私聊 / 邀请都只在按钮点击里调（硬件事件）；读聊天只注册 CHAT_MSG_CHANNEL / CHAT_MSG_WHISPER，不碰暴雪聊天框
 --   界面挂进 QuestMates 抽屉的 d.lfg 盖板（ns.BuildDungeonPanel），没加载这个文件 = 抽屉和以前一样
 local _, ns = ...; ns = _G.GearInsightForever or ns
 local L = function(cn, en) return ns.L(cn, en) end
 
-local DC = { posts = {}, applied = {}, replies = {}, lastShout = -1e9, view = "seek" }
-ns.DungeonChat = DC
-DC.TTL = 600            -- 组队消息留多久（秒）
-DC.MAX_POSTS = 60
-DC.APPLY_WIN = 600      -- 申请后多久内自动接受这个队长的邀请
-DC.SHOUT_CD = 30        -- 招人喊话冷却
-DC.REPLY_WIN = 900      -- 喊完多久内密我的算「来密我的人」
-
-local function now() return (GetTime and GetTime()) or 0 end
-local function clean(v)
-    if v == nil or (ns.Secret and ns.Secret(v)) then return nil end
-    return v
-end
-local function short(n) return type(n) == "string" and (n:match("^[^-]+") or n) or nil end
-DC.Short = short
--- 只把 A-Z 变小写：string.lower 跟着 C 运行库的区域设置走，碰到中文字节可能改坏（测试环境里就坏了），只动 ASCII 最稳
-local function lowerAscii(s) return (s:gsub("[A-Z]", function(c) return string.char(c:byte() + 32) end)) end
-DC.LowerAscii = lowerAscii
-
-
-function DC.DB()
-    ns.db.dchat = ns.db.dchat or {}
-    local d = ns.db.dchat
-    d.rec = d.rec or {}
-    d.rec.roles = d.rec.roles or { TANK = true, HEALER = true }
-    d.rec.chans = d.rec.chans or {}
-    return d
-end
-
--- ---------- 插件标识前缀 ----------
--- 11-12 用户截图（招人面板）「这个默认加上[GI插件]都，包括回复」→ 随后改名「[GI组队助手]」：
---   副本组队里插件发出去的话（招人喊话 / 申请私聊 / 自动反问 / 复制到聊天群）开头都带这个前缀；默认开，招人页「带标识」可关（rec.noTag = true）
---   ⛔ 前缀只在这里定义一处；聊天一条最多 255 字节 → 超长先裁正文、不裁前缀
-DC.TAG = "[GI组队助手]"
-DC.MAX_BYTES = 255
-function DC.TagOn() return DC.DB().rec.noTag ~= true end
--- 按 UTF-8 字符边界裁到 n 字节以内（别把中文切成半个字）
-local function cutBytes(s, n)
-    if #s <= n then return s end
-    if n <= 0 then return "" end
-    local i = n
-    while i > 0 do
-        local b = s:byte(i + 1)
-        if not b or b < 0x80 or b >= 0xC0 then break end   -- 下一个字节不是续字节 = 这里是字符边界
-        i = i - 1
-    end
-    return s:sub(1, i)
-end
-DC.CutBytes = cutBytes
--- 去掉文字里的前缀（别人的插件发来的 / 编辑框里带着的）
-function DC.StripTag(s)
-    if type(s) ~= "string" then return s end
-    local t = DC.TAG
-    local a, b = s:find(t, 1, true)
-    while a do
-        s = s:sub(1, a - 1) .. s:sub(b + 1)
-        a, b = s:find(t, 1, true)
-    end
-    return (s:gsub("^%s+", ""))
-end
-function DC.HasTag(s) return type(s) == "string" and s:find(DC.TAG, 1, true) ~= nil end
--- 最终要发的文字：前缀 + 正文；limit = 字节上限（发聊天传 DC.MAX_BYTES；复制框不限传 nil）
-function DC.Tagged(text, limit)
-    text = DC.StripTag(tostring(text or ""))
-    local pre = DC.TagOn() and DC.TAG or ""
-    if limit then text = cutBytes(text, limit - #pre) end
-    return pre .. text
-end
+-- 11-13 界面重构第 5 期：DC 表本身、存档、前缀、名字 / 人数小工具、满员通知、交易法师要吃喝搬进登录加载的
+--   GearInsight_Forever_Group/DungeonChatCore.lua（法师吃喝也要用）；这里是面板 + 读频道 + 来密我的人 + 自动反问，打开副本组队才加载
+local DC = ns.DungeonChat
+if not DC then return end
+local now, clean, short, lowerAscii = DC._now, DC._clean, DC.Short, DC.LowerAscii
+local me, fullName, isMe = DC._me, DC.FullName, DC._isMe
 
 -- ---------- 副本表：名字 + 建议等级（ns.Data.leveling.dungeons）+ 常用叫法 ----------
 -- 叫法照国服聊天习惯；英文缩写按整词认（%f 边界；⛔ 用 a-z0-9 字节范围，别用 %a / %w：跟区域设置走，中文字节可能被当成字母），「DM」死亡矿井 / 厄运之槌两边都有人叫，不认
@@ -123,26 +61,8 @@ local LFM_WORDS = { "缺", "差", "来个", "来一个", "来位", "招", "速�
     -- 11-10 用户截图「大脚和组队频道都要看啊」：大脚世界频道常见「黑暗深渊来T奶」「深渊任务队来TN」「血色4本 清任务来DPS」「N4=1」
     "来t", "来n", "来奶", "来坦", "来d", "来治疗", "来输出", "来法", "来猎", "来战", "来骑", "来牧", "来萨", "来术", "来贼", "来德", "来aa",
     "来两", "来俩", "来三", "来1", "来2", "来3", "任务队", "队来", "清任务" }
-local ROLE_WORDS = {
-    TANK = { "坦克", "坦", "mt", "tank", "%f[a-z]t%f[^a-z]", "%f[a-z]tn%f[^a-z]" },
-    HEALER = { "治疗", "奶", "heal", "%f[a-z]n%f[^a-z]", "%f[a-z]tn%f[^a-z]", "牧师", "萨满" },
-    DAMAGER = { "输出", "dps", "%f[a-z]dd%f[^a-z]", "法师", "术士", "猎人", "盗贼", "近战", "远程",
-        "%f[a-z]ss%f[^a-z]", "%f[a-z]fs%f[^a-z]", "%f[a-z]lr%f[^a-z]", "%f[a-z]dz%f[^a-z]" },
-}
-
-local function strip(msg)
-    msg = msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h(.-)|h", "%1"):gsub("|T.-|t", "")
-    return msg
-end
-
-local function has(lower, words)
-    for _, w in ipairs(words) do
-        if w:find("%%f") then
-            if lower:find(w) then return true end
-        elseif lower:find(w, 1, true) then return true end
-    end
-    return false
-end
+-- 职责词 / 去颜色码 / 认词：11-13 搬进小核（DungeonChatCore.lua，来密我的人在那边收），这里照旧用
+local ROLE_WORDS, strip, has = DC.ROLE_WORDS, DC.StripCodes, DC.HasWord
 
 local function matchDungeon(lower)
     local best, bestLen, bestKey
@@ -194,31 +114,10 @@ function DC.Parse(msg)
     return p
 end
 
-local function me() return clean(UnitName and UnitName("player")) end
--- 11-10 用户「复制的文案带上姓啊」：《无限》角色名是「名 姓」，UnitName 只回「名」→ GetUnitName(unit, true) 回全名（去掉 -服务器）
-local function fullName(u)
-    if GetUnitName then
-        local ok, n = pcall(GetUnitName, u, true)
-        n = ok and short(clean(n))
-        if n and n ~= "" then return n end
-    end
-    return clean(UnitName and UnitName(u))
-end
-DC.FullName = fullName
-local function isMe(author)
-    local s = short(author)
-    return s ~= nil and (s == me() or s == fullName("player"))
-end
 
 -- 11-10 用户截图「人的等级职业列出来」：职业从聊天事件带的 GUID 读（GetPlayerInfoByGUID，陌生人也有）；
 --   等级聊天里没有 → 公会名单 / 同队 / 好友能查到就显示（GuildChatLevel.Info），查不到不写
-function DC.WhoOf(guid)
-    guid = clean(guid)
-    if not guid or not GetPlayerInfoByGUID then return nil end
-    local ok, locCls, cls = pcall(GetPlayerInfoByGUID, guid)
-    if not ok then return nil end
-    return clean(cls), clean(locCls)
-end
+--   DC.WhoOf / DC.TextLevel 11-13 搬进小核（DungeonChatCore.lua）
 -- 11-11 用户截图「来密我的人」「这里为啥没显示等级」：陌生人不在公会 / 队伍 / 好友里，聊天事件不带等级 →
 --   ① 附近能看到的（目标 / 鼠标 / 焦点 / 姓名板）直接读 UnitLevel；② 他话里写了等级（「20 LR求组」「25级」）就用；都没有才空着
 local function nearbyLevel(s)
@@ -236,14 +135,6 @@ local function nearbyLevel(s)
     end
 end
 DC.NearbyLevel = nearbyLevel
-function DC.TextLevel(text)
-    if type(text) ~= "string" then return nil end
-    -- 11-12 喊话改成「M我带职责等级」后常见回「24奶」「28 T」「lv25 dps」→ 开头的数字后面跟着字就算（光回「1」「111」= 我来，不是等级）
-    local x = text:match("^%s*(%d%d?)%s*[^%d%s]") or text:match("(%d%d?)%s*级") or text:match("[Ll][Vv]%s*(%d%d?)")
-        or text:match("[^%d%s]%s*(%d%d?)%s*$")   -- 「求组SS 25」：前面有字、结尾的数字
-    x = tonumber(x)
-    if x and x >= 1 and x <= 60 then return x end
-end
 function DC.LevelOf(p)
     local GL = ns.GuildChatLevel
     local lv
@@ -297,12 +188,23 @@ function DC.OnChannel(msg, author, channelBase, guid)
     return true
 end
 
+-- 11-12 用户截图（招人页「来密」列表）「公会的在这里打个标记」：跟我同公会的人（不含自己）。
+--   名单走 GuildChatLevel 的缓存（GUILD_ROSTER_UPDATE 只记脏、最多 5 秒重建一次，按短名比 → 「名字-服务器」也认）；不在公会 = 恒 false
+function DC.IsGuild(name)
+    local GL = ns.GuildChatLevel
+    if type(name) ~= "string" or not (GL and GL.IsGuildmate) then return false end
+    local ok, yes = pcall(GL.IsGuildmate, name)
+    return ok and yes == true
+end
+-- 列表里统一的绿色「[公会]」标签 + 悬停提示那一行（求组列表 / 来密我的人 共用）
+function DC.GuildTag() return "|cff40ff40[" .. L("公会", "Guild") .. "]|r" end
+function DC.GuildTip() return "|cff40ff40" .. L("同公会", "Guildmate") .. "|r" end
+
 function DC.Live()
     local out, t = {}, now()
-    local GL = ns.GuildChatLevel
     for _, p in ipairs(DC.posts) do
         if t - p.t <= DC.TTL then
-            p.guild = GL and GL.IsGuildmate and GL.IsGuildmate(p.author) or false
+            p.guild = DC.IsGuild(p.author)
             out[#out + 1] = p
         end
     end
@@ -314,6 +216,80 @@ function DC.Live()
         return ord[a] < ord[b]
     end)
     return out
+end
+
+-- ---------- 求组页：按副本筛选（11-13 用户截图「怎么加按副本筛选」）----------
+--   存档 DC.DB().dgFilter = { [副本名] = true, … }；nil = 全部副本（一个都没选也存 nil）。按副本名存（数据表顺序变了也不串）
+--   分区（血色修道院·图书馆 / 墓地…）不单独筛：识别时 p.d 就是大副本，选「血色修道院」= 所有分区都算
+--   「招人」页下面「来密我的人」是密我的玩家、不分副本 → 不共用这个筛选
+function DC.DgFilter()
+    local f = DC.DB().dgFilter
+    if type(f) == "table" and next(f) ~= nil then return f end
+    return nil
+end
+function DC.DgOn(name) local f = DC.DgFilter(); return f ~= nil and f[name] == true end
+function DC.SetDg(name, on)
+    local db = DC.DB()
+    local f = type(db.dgFilter) == "table" and db.dgFilter or {}
+    if on then f[name] = true else f[name] = nil end
+    if next(f) ~= nil then db.dgFilter = f else db.dgFilter = nil end
+end
+function DC.ClearDg() DC.DB().dgFilter = nil end
+function DC.DgCount()
+    local n, f = 0, DC.DgFilter()
+    for _ in pairs(f or {}) do n = n + 1 end
+    return n
+end
+function DC.DgPass(p)
+    local f = DC.DgFilter()
+    if not f then return true end
+    local d = DC.Dungeons()[p.d]
+    return d ~= nil and f[d.n] == true
+end
+-- 按钮上的字：全部副本 / 血色修道院 / 已选 3 个副本
+function DC.DgLabel()
+    local f = DC.DgFilter()
+    if not f then return L("全部副本", "All dungeons") end
+    local n = DC.DgCount()
+    if n == 1 then return (next(f)) end
+    return string.format(L("已选 %d 个副本", "%d dungeons"), n)
+end
+-- 求组列表：先「适合我等级」再按副本 → 列出的, 全部, 等级筛掉几条, 副本筛掉几条
+function DC.SeekList(lv)
+    local all = DC.Live()
+    local onlyMine = DC.DB().fitLv ~= false
+    local out, lvOut, dgOut = {}, 0, 0
+    for _, p in ipairs(all) do
+        local d = DC.Dungeons()[p.d]
+        if d then
+            if onlyMine and not DC.FitsLevel(d, lv) then lvOut = lvOut + 1
+            elseif not DC.DgPass(p) then dgOut = dgOut + 1
+            else out[#out + 1] = p end
+        end
+    end
+    return out, all, lvOut, dgOut
+end
+-- 下拉里的副本 → seen（频道里有人组的，条数多的在前）, idle（适合我等级但暂时没人组的 + 选了但现在没消息的，条数 0 灰显）
+--   条数跟着「适合我等级」走：开着时只数等级合适的（= 选上后列表里真能看到几条）
+--   每项 { n, lo, hi, cnt, on, fit }
+function DC.DgMenu(lv)
+    local onlyMine = DC.DB().fitLv ~= false
+    local cnt = {}
+    for _, p in ipairs(DC.Live()) do
+        local d = DC.Dungeons()[p.d]
+        if d and (not onlyMine or DC.FitsLevel(d, lv)) then cnt[d.n] = (cnt[d.n] or 0) + 1 end
+    end
+    local seen, idle, order = {}, {}, {}
+    for i, d in ipairs(DC.Dungeons()) do
+        local it = { n = d.n, lo = d.lo, hi = d.hi, cnt = cnt[d.n] or 0, on = DC.DgOn(d.n), fit = DC.FitsLevel(d, lv) }
+        order[it] = i
+        if it.cnt > 0 then seen[#seen + 1] = it elseif it.fit or it.on then idle[#idle + 1] = it end
+    end
+    table.sort(seen, function(a, b)
+        if a.cnt ~= b.cnt then return a.cnt > b.cnt end
+        return order[a] < order[b]
+    end)
+    return seen, idle
 end
 
 -- ---------- 我的职责（职业能打什么）----------
@@ -460,28 +436,6 @@ function DC.SetRange(lo, hi)
     r.lo, r.hi = lo, hi
 end
 
-DC.CNT_MIN = 3
--- 11-11 用户截图「怎么不喊4=1」：GetNumGroupMembers 读不到（加密值 / nil）时退回 1 → 不带人数；
---   再数一遍 party1-4 谁在，两个取大的
-function DC.PartyCount()
-    local n = 1
-    if GetNumGroupMembers then
-        local ok, v = pcall(GetNumGroupMembers)
-        v = ok and tonumber(clean(v)) or nil
-        if v and v > n then n = v end
-    end
-    if UnitExists then
-        local c = 1
-        for i = 1, 4 do
-            local ok, e = pcall(UnitExists, "party" .. i)
-            if ok and clean(e) then c = c + 1 end
-        end
-        if c > n then n = c end
-    end
-    return n
-end
--- 11-11 用户截图「会发：…」「这个可编辑可保存」：每个副本可以存一句自己的话术（rec.custom[副本名]）；
---   存的时候把当时的人数「4=1」换成 {人数}，之后照样跟着队伍人数变；「默认」按钮清掉回插件生成的
 function DC.CountText()
     local cnt = DC.PartyCount()
     return (cnt > DC.CNT_MIN and cnt < 5) and (cnt .. "=" .. (5 - cnt)) or ""
@@ -522,35 +476,6 @@ function DC.RecText()
 end
 -- 招人喊话真正发出去的（带前缀、裁到 255 字节）；「会发」框里显示的也是这个
 function DC.SendText() return DC.Tagged(DC.RecText(), DC.MAX_BYTES) end
--- 11-12 用户「组满人自动在队伍里发：人员已满，立刻发车；分别私聊一下另外四个人也。这俩都是可选，默认关闭」
---   rec.fullSay = 队伍频道说一句；rec.fullTell = 逐个私聊四个队友。只在「从不满变成满 5 人」那一下发一次，
---   掉到 5 人以下再满才会再发；刚上线 / 重载时本来就满的不发；自己不是队长不发（免得五个人都开了一起刷）
-DC.FULL_N = 5
-function DC.FullText() return L("人员已满，立刻发车", "Group is full - heading out now") end
-function DC.CheckFull()
-    local n = DC.PartyCount()
-    local prev = DC.fullPrev
-    DC.fullPrev = n
-    if n < DC.FULL_N then DC.fullDone = nil; return false end
-    if prev == nil or prev >= DC.FULL_N or DC.fullDone then return false end
-    local r = DC.DB().rec
-    if not (r.fullSay or r.fullTell) then return false end
-    if IsInRaid then local ok, v = pcall(IsInRaid); if ok and clean(v) then return false end end
-    if UnitIsGroupLeader then local ok, v = pcall(UnitIsGroupLeader, "player"); if ok and not clean(v) then return false end end
-    local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
-    if not send then return false end
-    DC.fullDone = true
-    local text = DC.Tagged(DC.FullText(), DC.MAX_BYTES)
-    if r.fullSay then pcall(send, text, "PARTY") end
-    if r.fullTell then
-        for i = 1, 4 do
-            local ok, e = pcall(UnitExists or function() end, "party" .. i)
-            local who = ok and clean(e) and fullName("party" .. i) or nil
-            if who and who ~= "" then pcall(send, text, "WHISPER", nil, who) end
-        end
-    end
-    return true
-end
 -- 11-12 用户「加一个默认关闭当前平均等级报告」：自己 + 队友的平均等级（四舍五入）；读不到等级的队友不算
 function DC.AvgLevel()
     local sum, n = 0, 0
@@ -616,44 +541,12 @@ function DC.Shout()
         local ok = DC.ChanOn(c.name) and (c.guild and pcall(send, text, "GUILD") or (not c.guild and pcall(send, text, "CHANNEL", nil, c.id)))
         if ok then n = n + 1 end
     end
-    if n > 0 then DC.lastShout = now(); DC.replies = {} end
+    -- 11-13 用户「记录在这里不要老清除」：重新喊话不再清空「来密我的人」（DC.MarkShout 只记时刻，存档里也记一份）
+    if n > 0 then DC.MarkShout() end
     return n, n == 0 and "nochan" or nil
 end
 
--- 喊完 15 分钟内密我的人
-function DC.OnWhisper(msg, author, guid)
-    author, msg = clean(author), clean(msg)
-    if not author or not msg or now() - DC.lastShout > DC.REPLY_WIN then return false end
-    -- 11-12 要水 / 法师回话的私聊不是来报名的，别进「来密我的人」、别自动反问（MageWater.lua 在才认）
-    if ns.MageWater and ns.MageWater.SkipWhisper and ns.MageWater.SkipWhisper(msg) then return false end
-    local s = short(author)
-    local prev
-    for i = #DC.replies, 1, -1 do if DC.replies[i].short == s then prev = table.remove(DC.replies, i) end end
-    -- 对方也装了插件：前缀去掉再认等级 / 职责（「[GI组队助手]20 LR求组」开头不是数字就认不出 20），记 gi 标记
-    local raw = strip(msg)
-    local p = { author = author, short = s, text = DC.StripTag(raw), t = now(), roles = {}, reply = true, gi = DC.HasTag(raw) or nil }
-    p.cls, p.clsName = DC.WhoOf(guid)
-    local lower = lowerAscii(p.text)
-    for role, words in pairs(ROLE_WORDS) do if has(lower, words) then p.roles[role] = true end end
-    -- 11-12 用户「如果没有等级和职责，直接自动反问」「然后汇总到表格」：同一个人后面补的（先回「N」再回「25」）合进同一行
-    if prev then
-        for r in pairs(prev.roles or {}) do p.roles[r] = true end
-        -- 问过他之后光回一个数（「25」）就是等级；没问过的「1」「11」还是当「我来」
-        local bare = prev.asked and tonumber(p.text:match("^%s*(%d%d?)%s*$"))
-        if bare and (bare < 1 or bare > 60) then bare = nil end
-        p.lv = rawget(p, "lv") or DC.TextLevel(p.text) or bare or rawget(prev, "lv")
-        p.cls, p.clsName = p.cls or prev.cls, p.clsName or prev.clsName
-        p.asked, p.first = prev.asked, prev.first or prev.t
-        p.hist = prev.hist or { prev.text }
-        p.hist[#p.hist + 1] = p.text
-        while #p.hist > 6 do table.remove(p.hist, 1) end
-    end
-    table.insert(DC.replies, 1, p)
-    while #DC.replies > 20 do table.remove(DC.replies) end
-    DC.dirty = true
-    DC.MaybeAsk(p)
-    return true
-end
+-- 喊完 15 分钟内密我的人：DC.OnWhisper 11-13 搬进小核（DungeonChatCore.lua）——面板没加载也收、记进存档、不再被清掉
 
 -- 自动反问：没报等级 / 职责 → 密他一句（每人一次；开关在「来密我的人」右边，默认开）
 DC.ASK_TAG = "报下"
@@ -702,60 +595,27 @@ function DC.Invite(name)
     return (pcall(fn, name))
 end
 
--- 11-12 用户「副本内检测交易法师，自动密语功能」「要吃喝」：在副本里跟法师一开交易窗，自动密他一句要吃喝，
---   省得每次手打。rec.mageAsk 开关，默认关；同一个法师 MAGE_CD 秒内只密一次；自己是法师不发。
---   有蓝的职业要「水和面包」，没蓝的（战士 / 盗贼）只要「面包」。交易对象的单位名是 "NPC"。
-DC.MAGE_CD = 180
-function DC.MageAskText()
-    local mana = true
-    if UnitPowerType then
-        local ok, t = pcall(UnitPowerType, "player")
-        t = ok and clean(t)
-        if t ~= nil and t ~= 0 then mana = false end
-    end
-    if mana then return L("法师老板，求水和面包，谢谢~", "Could I get some water and food please? Thanks!") end
-    return L("法师老板，求面包，谢谢~", "Could I get some food please? Thanks!")
-end
-function DC.OnTradeShow()
-    -- 11-12 自动要水 / 自动发水（MageWater.lua，HOLD）：在就交给它（按背包缺多少、按等级要；法师那边出「一键放入」）；不在 = 下面 1.0.0 老逻辑
-    if ns.MageWater and ns.MageWater.OnTradeShow then return ns.MageWater.OnTradeShow() end
-    if not DC.DB().rec.mageAsk then return false end
-    if not IsInInstance then return false end
-    local okI, inInst, kind = pcall(IsInInstance)
-    if not (okI and clean(inInst)) then return false end
-    kind = clean(kind)
-    if kind ~= nil and kind ~= "party" and kind ~= "raid" then return false end
-    if not UnitClass then return false end
-    local okC, _, cls = pcall(UnitClass, "NPC")
-    if not (okC and clean(cls) == "MAGE") then return false end
-    local okM, _, mine = pcall(UnitClass, "player")
-    if okM and clean(mine) == "MAGE" then return false end
-    local who = fullName("NPC")
-    if not who or who == "" then return false end
-    DC.mageAsked = DC.mageAsked or {}
-    local t = now()
-    if DC.mageAsked[who] and t - DC.mageAsked[who] < DC.MAGE_CD then return false end
-    local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
-    if not send then return false end
-    DC.mageAsked[who] = t
-    pcall(send, DC.Tagged(DC.MageAskText(), DC.MAX_BYTES), "WHISPER", nil, who)
-    return true
-end
 
 -- ---------- 事件 ----------
 local ev = CreateFrame("Frame")
 DC.ev = ev
-for _, e in ipairs({ "CHAT_MSG_CHANNEL", "CHAT_MSG_GUILD", "CHAT_MSG_WHISPER", "PARTY_INVITE_REQUEST", "GROUP_ROSTER_UPDATE", "TRADE_SHOW" }) do pcall(ev.RegisterEvent, ev, e) end
+-- 11-13 第 5 期：TRADE_SHOW 挪到小核的事件框（DC.SyncCore，用得上才注册），这里不注册（下面那行处理留着给测试直接喂）
+for _, e in ipairs({ "CHAT_MSG_CHANNEL", "CHAT_MSG_GUILD", "CHAT_MSG_WHISPER", "PARTY_INVITE_REQUEST", "GROUP_ROSTER_UPDATE" }) do pcall(ev.RegisterEvent, ev, e) end
 ev:SetScript("OnEvent", function(_, e, a1, a2, _, a4, _, _, _, _, a9, _, _, a12)
     if e == "CHAT_MSG_CHANNEL" then pcall(DC.OnChannel, a1, a2, a9 or a4, a12)
     elseif e == "CHAT_MSG_GUILD" then pcall(DC.OnChannel, a1, a2, L("公会", "Guild"), a12)
     elseif e == "CHAT_MSG_WHISPER" then pcall(DC.OnWhisper, a1, a2, a12)
     elseif e == "PARTY_INVITE_REQUEST" then pcall(DC.OnInvite, a1)
     elseif e == "TRADE_SHOW" then pcall(DC.OnTradeShow)
-    elseif e == "GROUP_ROSTER_UPDATE" then DC.dirty = true; pcall(DC.CheckFull) end   -- 人数变了：招人预览的「4=1」跟着变
+    elseif e == "GROUP_ROSTER_UPDATE" then   -- 人数变了：招人预览的「4=1」跟着变
+        DC.dirty = true
+        if not DC.coreFull then pcall(DC.CheckFull) end   -- 满员通知开着时小核的事件框已经在管（别算两遍）
+    end
     if DC.dirty and DC.panel and DC.panel:IsShown() then DC.dirty = false; pcall(DC.Render) end
 end)
 DC._event = ev:GetScript("OnEvent")   -- 测试用
+-- 11-13 面板加载了：私聊由这里的事件框收，小核那边（喊完 /reload 时临时注册的）注销掉，别记两遍
+if DC.SyncWhisper then pcall(DC.SyncWhisper) end
 
 -- ---------- 界面（QuestMates 抽屉 d.lfg 盖板里）----------
 local GOLD, DIM = "|cffffd100", "|cff9a9a9a"
@@ -773,6 +633,40 @@ local function agoShort(t)
     return string.format(L("%d时", "%dh"), math.floor(s / 3600))
 end
 DC.AgoShort = agoShort
+-- 11-13「来密我的人」留到下次登录：行上「多久前」按 time() 秒算（存档里的 at），写全「3分钟前 / 2小时前」
+function DC.AgoAt(at)
+    local s = math.max(0, math.floor((DC._epoch() - (tonumber(at) or 0))))
+    if s < 60 then return L("刚刚", "now") end
+    if s < 3600 then return string.format(L("%d分钟前", "%dm ago"), math.floor(s / 60)) end
+    if s < 86400 then return string.format(L("%d小时前", "%dh ago"), math.floor(s / 3600)) end
+    return string.format(L("%d天前", "%dd ago"), math.floor(s / 86400))
+end
+-- 表格里的短写（按存档时间）：「刚刚」「3分」「2时」「1天」
+function DC.AgoShortAt(at)
+    local s = math.max(0, math.floor((DC._epoch() - (tonumber(at) or 0))))
+    if s < 60 then return L("刚刚", "now") end
+    if s < 3600 then return string.format(L("%d分", "%dm"), math.floor(s / 60)) end
+    if s < 86400 then return string.format(L("%d时", "%dh"), math.floor(s / 3600)) end
+    return string.format(L("%d天", "%dd"), math.floor(s / 86400))
+end
+-- 这人已经在我队伍里（标「已在队」，不删）
+function DC.InMyGroup(name)
+    local s = short(name)
+    if not s or not UnitExists then return false end
+    local raid = false
+    if IsInRaid then local ok, v = pcall(IsInRaid); raid = ok and clean(v) and true or false end
+    local n = raid and 40 or 4
+    for i = 1, n do
+        local u = (raid and "raid" or "party") .. i
+        local ok, e = pcall(UnitExists, u)
+        if ok and clean(e) then
+            local okN, un = pcall(UnitName or function() end, u)
+            un = okN and short(clean(un)) or nil
+            if un == s or fullName(u) == s then return true end
+        end
+    end
+    return false
+end
 
 local function seg(parent, text, w, fn)
     local b = (ns.SegButton or ns.Button)(parent, text, w, 22, fn)
@@ -814,7 +708,8 @@ local function rowFrame(parent, i, w)
     r:SetScript("OnEnter", function(self)
         if not self.tip then return end
         GameTooltip:SetOwner(self, "ANCHOR_LEFT"); GameTooltip:AddLine(self.tip[1], 1, 0.82, 0)
-        GameTooltip:AddLine(self.tip[2], 1, 1, 1, true); GameTooltip:Show()
+        for k = 2, #self.tip do GameTooltip:AddLine(self.tip[k], 1, 1, 1, true) end
+        GameTooltip:Show()
     end)
     r:SetScript("OnLeave", function() GameTooltip:Hide() end)
     rows[i] = r
@@ -822,28 +717,54 @@ local function rowFrame(parent, i, w)
 end
 
 -- 11-12 「来密我的人」表格：名字 | 职业 | 等级 | 职责 | 说的话 | 多久前 | 私聊 / 邀请（一人一行，悬停看他说过的全部）
-DC.TCOL = { { "name", 4, 92 }, { "cls", 98, 36 }, { "lv", 136, 24 }, { "role", 162, 58 }, { "txt", 224, 0 } }
+-- 11-13 用户截图「这里有一些信息被缩略掉了，可以展开点不」：「说的话」只露两三个字 → 列宽重分（378 宽的表）：
+--   名字列带职业图标（职业名进悬停 / 展开），等级职责合成一列（「25 奶」「30 坦/奶」），时间短写（「3分」），按钮收窄；
+--   说的话还放不下 → 点这一行展开成多行完整原文（全名-服务器 + 他说过的每一句），再点收起；悬停也给全文
+DC.TCOL = { { "name", 4, 82 }, { "lr", 90, 46 }, { "txt", 140, 0 } }
+DC.ROW_H, DC.ROW_GAP, DC.LINE_H, DC.AGO_W = 22, 1, 13, 26
+DC.expanded = DC.expanded or {}
+local function smallFont(b)
+    if b.SetNormalFontObject then pcall(b.SetNormalFontObject, b, "GameFontNormalSmall") end
+    if b.SetHighlightFontObject then pcall(b.SetHighlightFontObject, b, "GameFontHighlightSmall") end
+    if b.SetDisabledFontObject then pcall(b.SetDisabledFontObject, b, "GameFontDisableSmall") end
+end
 local function repRow(parent, i, w)
     local rows = rawget(parent, "_trows")
     if not rows then rows = {}; rawset(parent, "_trows", rows) end
     local r = rows[i]
     if r then return r end
     r = CreateFrame("Button", nil, parent)
-    r:SetSize(w, 22)
-    r:SetPoint("TOPLEFT", 0, -(i - 1) * 23)
+    r:SetSize(w, DC.ROW_H)
+    r:SetPoint("TOPLEFT", 0, -(i - 1) * (DC.ROW_H + DC.ROW_GAP))
     local bg = r:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(1, 1, 1, i % 2 == 0 and 0.03 or 0.07)
-    r.b = ns.Button(r, L("邀请", "Inv"), 40, 20); r.b:SetPoint("RIGHT", -2, 0)
-    r.w = ns.Button(r, L("私聊", "Tell"), 40, 20); r.w:SetPoint("RIGHT", r.b, "LEFT", -2, 0)
-    r.ago = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); r.ago:SetPoint("RIGHT", r.w, "LEFT", -4, 0); r.ago:SetWidth(30); r.ago:SetJustifyH("RIGHT")
+    r.bg, r.alt = bg, i % 2 == 0 and 0.03 or 0.07
+    -- 11-13 行尾「×」= 只删这一个人（列表不再自己清，用户自己删）；按钮都钉在第一行高度（展开后不跟着往下跑）
+    r.x = ns.Button(r, "×", 16, 20, function(self) local s = rawget(self, "who"); if s then DC.RemoveReply(s); DC.Render() end end); r.x:SetPoint("TOPRIGHT", -2, -1)
+    r.b = ns.Button(r, L("邀请", "Inv"), 40, 20); r.b:SetPoint("RIGHT", r.x, "LEFT", -2, 0)
+    r.w = ns.Button(r, L("私聊", "Tell"), 32, 20); r.w:SetPoint("RIGHT", r.b, "LEFT", -2, 0)
+    smallFont(r.x); smallFont(r.b); smallFont(r.w)
+    r.ago = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); r.ago:SetPoint("RIGHT", r.w, "LEFT", -3, 0); r.ago:SetWidth(DC.AGO_W); r.ago:SetJustifyH("RIGHT")
     if r.ago.SetWordWrap then r.ago:SetWordWrap(false) end
     r.c = {}
     for _, col in ipairs(DC.TCOL) do
         local fs = r:CreateFontString(nil, "OVERLAY", col[1] == "name" and "GameFontNormalSmall" or "GameFontHighlightSmall")
-        fs:SetPoint("LEFT", col[2], 0); fs:SetJustifyH("LEFT")
+        fs:SetPoint("TOPLEFT", col[2], -5); fs:SetJustifyH("LEFT")
         if col[3] > 0 then fs:SetWidth(col[3]) else fs:SetPoint("RIGHT", r.ago, "LEFT", -4, 0) end
         if fs.SetWordWrap then fs:SetWordWrap(false) end
         r.c[col[1]] = fs
     end
+    -- 展开后的完整原文（整行宽，按钮下面）
+    r.full = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.full:SetPoint("TOPLEFT", 6, -DC.ROW_H); r.full:SetWidth(w - 12); r.full:SetJustifyH("LEFT")
+    if r.full.SetJustifyV then r.full:SetJustifyV("TOP") end
+    if r.full.SetWordWrap then r.full:SetWordWrap(true) end
+    r.full:Hide()
+    r:SetScript("OnClick", function(self)
+        local s = rawget(self, "who")
+        if not s then return end
+        DC.expanded[s] = (not DC.expanded[s]) or nil
+        DC.Render()
+    end)
     r:SetScript("OnEnter", function(self)
         if not self.tip then return end
         GameTooltip:SetOwner(self, "ANCHOR_LEFT"); GameTooltip:AddLine(self.tip[1], 1, 0.82, 0)
@@ -853,6 +774,22 @@ local function repRow(parent, i, w)
     r:SetScript("OnLeave", function() GameTooltip:Hide() end)
     rows[i] = r
     return r
+end
+-- 展开那几行的文字：全名-服务器 · 职业，下面他说过的每一句
+function DC.ReplyFullText(p)
+    local lines = { "|cffffd100" .. tostring(p.author or p.short) .. "|r" .. (p.clsName and ("  " .. p.clsName) or "") }
+    for _, t in ipairs(p.hist or { p.text }) do lines[#lines + 1] = "· " .. tostring(t) end
+    return table.concat(lines, "\n"), #lines
+end
+function DC.LvRoleText(lv, rs, guessed, asked)
+    local ONE = { TANK = L("坦", "T"), HEALER = L("奶", "H"), DAMAGER = L("输", "D") }
+    local rn = {}
+    for _, r in ipairs(rs or {}) do rn[#rn + 1] = ONE[r] end
+    local role = #rn > 0 and ((guessed and "|cff9a9a9a" or "|cff66ccff") .. table.concat(rn, "/") .. "|r") or nil
+    if lv and role then return tostring(lv) .. " " .. role end
+    if lv then return tostring(lv) end
+    if role then return role end
+    return asked and ("|cffffaa33" .. L("问了", "asked") .. "|r") or "|cff777777-|r"
 end
 function DC.ReplyCells(p)
     local col = p.cls and RAID_CLASS_COLORS and RAID_CLASS_COLORS[p.cls]
@@ -870,14 +807,109 @@ function DC.ReplyCells(p)
         tc[1] * 256, tc[2] * 256, tc[3] * 256, tc[4] * 256) or ""
     if pick == "no" then clsTxt = "|cffff5555×" .. clsTxt .. "|r" elseif pick == "want" then clsTxt = "|cff33ff99" .. clsTxt .. "|r"
     else clsTxt = "|c" .. hex .. clsTxt .. "|r" end
+    local guild = DC.IsGuild(p.author)
     return {
-        name = "|c" .. hex .. p.short .. "|r",
+        guild = guild,
+        name = icon .. "|c" .. hex .. p.short .. "|r",
         cls = icon .. clsTxt,
         lv = lv and tostring(lv) or (rawget(p, "asked") and "|cffffaa33" .. L("问了", "asked") .. "|r" or "|cff777777-|r"),
         role = #rn > 0 and ((guessed and "|cff9a9a9a" or "|cff66ccff") .. table.concat(rn, "/") .. "|r")
             or (rawget(p, "asked") and "|cffffaa33" .. L("问了", "asked") .. "|r" or "|cff777777-|r"),
-        txt = p.text,
+        -- 11-13 等级职责合成一列：「25 奶」「30 坦/奶」（职责一律单字），都没有「问了」/「-」
+        lr = DC.LvRoleText(lv, rs, guessed, rawget(p, "asked")),
+        -- 名字列只有 92 宽，标签放「说的话」开头（一直看得见，不挤名字）
+        txt = guild and (DC.GuildTag() .. " " .. p.text) or p.text,
     }
+end
+
+-- 「副本：」下拉弹层（插件没有通用下拉控件 → 简单的弹出按钮列表）：顶上「全部副本」，
+--   下面两段两列按钮：「频道里有人组」（带条数）/「适合你等级 · 暂时没人组」（条数 0 灰显，也能先选上等人）；点一下选上 / 取消，可多选
+local function dgPop()
+    local S = DC.panel and DC.panel.seek
+    if not S then return nil end
+    local f = rawget(S, "dgPop")
+    if f then return f end
+    f = CreateFrame("Frame", nil, S, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    f:SetPoint("TOPLEFT", 0, -50)
+    f:SetWidth(rawget(S, "w") or 380)
+    f:SetFrameStrata("DIALOG")
+    f:EnableMouse(true)
+    if f.SetBackdrop then
+        f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+        f:SetBackdropColor(0.04, 0.045, 0.06, 0.98); f:SetBackdropBorderColor(1, 0.82, 0, 0.8)
+    end
+    local t = f:CreateFontString(nil, "OVERLAY", "GameFontNormal"); t:SetPoint("TOPLEFT", 8, -8)
+    t:SetText(L("按副本筛选（可多选）", "Filter by dungeon (multi-select)"))
+    f.close = ns.Button(f, L("关闭", "Close"), 52, 20, function() f:Hide() end)
+    f.close:SetPoint("TOPRIGHT", -6, -5)
+    f.all = seg(f, L("全部副本", "All dungeons"), 120, function() DC.ClearDg(); DC.Render() end)
+    f.all:SetPoint("TOPLEFT", 8, -30)
+    f.h1 = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.h2 = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.none = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    f.none:SetText(L("还没识别到组队消息，也没有适合你等级的副本", "No group posts yet and no dungeon fits your level"))
+    rawset(f, "_btns", {})
+    rawset(S, "dgPop", f)
+    f:Hide()
+    return f
+end
+function DC.RenderDgMenu(lv)
+    local f = dgPop()
+    if not f then return end
+    lv = lv or tonumber(clean(UnitLevel and UnitLevel("player"))) or 0
+    local seen, idle = DC.DgMenu(lv)
+    sel(f.all, DC.DgFilter() == nil)
+    local btns = rawget(f, "_btns")
+    local W = (rawget(DC.panel.seek, "w") or 380) - 16
+    local colW = math.floor((W - 6) / 2)
+    local y, k = -58, 0
+    local items = {}   -- 测试用：这一次画出来的 { n, cnt, on, idle }
+    local function section(head, list, isIdle)
+        if #list == 0 then head:Hide(); return end
+        head:ClearAllPoints(); head:SetPoint("TOPLEFT", 8, y); head:Show()
+        y = y - 16
+        for i, it in ipairs(list) do
+            k = k + 1
+            local b = btns[k]
+            if not b then b = seg(f, "", colW, nil); b:SetHeight(20); btns[k] = b end
+            local col = (i - 1) % 2
+            b:ClearAllPoints(); b:SetPoint("TOPLEFT", 8 + col * (colW + 6), y); b:Show()
+            if col == 1 or i == #list then y = y - 22 end
+            local txt = it.n .. " (" .. it.cnt .. ")"
+            if it.cnt == 0 and not it.on then txt = "|cff808080" .. txt .. "|r" end
+            b:SetText(txt)
+            sel(b, it.on)
+            local name, lo, hi = it.n, it.lo, it.hi
+            b:SetScript("OnClick", function() DC.SetDg(name, not DC.DgOn(name)); DC.Render() end)
+            b:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:AddLine(name, 1, 0.82, 0)
+                GameTooltip:AddLine(string.format(L("建议 %d-%d 级", "Lv %d-%d"), lo, hi), 1, 1, 1)
+                GameTooltip:AddLine(L("点一下选上 / 取消，可多选；副本里的各个区（如图书馆 / 墓地）都算在这个副本里", "Click to toggle (multi-select); all wings count"), 0.8, 0.8, 0.8, true)
+                GameTooltip:Show()
+            end)
+            b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            items[#items + 1] = { n = it.n, cnt = it.cnt, on = it.on, idle = isIdle }
+        end
+        y = y - 4
+    end
+    f.h1:SetText(L("频道里有人组", "Posted in channels"))
+    f.h2:SetText(L("适合你等级 · 暂时没人组", "Fits your level - no posts yet"))
+    section(f.h1, seen, false)
+    section(f.h2, idle, true)
+    for i = k + 1, #btns do btns[i]:Hide() end
+    if #seen == 0 and #idle == 0 then
+        f.none:ClearAllPoints(); f.none:SetPoint("TOPLEFT", 8, y); f.none:Show(); y = y - 18
+    else f.none:Hide() end
+    f:SetHeight(-y + 6)
+    rawset(f, "items", items)
+end
+function DC.ToggleDgMenu()
+    local f = dgPop()
+    if not f then return end
+    if f:IsShown() then f:Hide(); return end
+    f:Show()
+    DC.RenderDgMenu()
 end
 
 local function renderSeek(P)
@@ -889,13 +921,21 @@ local function renderSeek(P)
         b:SetAlpha(can and 1 or 0.4)
     end
     local lv = tonumber(clean(UnitLevel and UnitLevel("player"))) or 0
-    local list, shown = DC.Live(), 0
     local onlyMine = DC.DB().fitLv ~= false
     sel(P.fit, onlyMine)
-    for _, p in ipairs(list) do
+    local picked, list, lvOut, dgOut = DC.SeekList(lv)
+    local shown = 0
+    local filtered = DC.DgFilter() ~= nil
+    if rawget(P, "dgBtn") then
+        P.dgBtn:SetText(DC.DgLabel() .. " |TInterface\\Buttons\\Arrow-Down-Up:12:12:0:-3|t")
+        sel(P.dgBtn, filtered)
+        sel(P.dgAll, not filtered)
+        local pop = rawget(P, "dgPop")
+        if pop and pop:IsShown() then DC.RenderDgMenu(lv) end
+    end
+    for _, p in ipairs(picked) do
         local d = DC.Dungeons()[p.d]
-        local fits = not onlyMine or not d or DC.FitsLevel(d, lv)
-        if d and fits then
+        do
             shown = shown + 1
             local r = rowFrame(P.list, shown, P.listW)
             r:Show()
@@ -904,8 +944,9 @@ local function renderSeek(P)
                 .. GOLD .. d.n .. (p.wing and ("·" .. p.wing) or "") .. "|r  " .. DIM .. string.format(L("建议 %d-%d 级", "Lv %d-%d"), d.lo, d.hi) .. "|r")
             r.w:SetScript("OnClick", function() DC.Tell(p.author) end)
             -- 11-10 用户「公会的人，特别标注」：名字后绿色「公会」，排在前面
-            r.s:SetText(DC.NeedText(p) .. "  ·  " .. DC.WhoText(p) .. (p.guild and ("|cff40ff40 [" .. L("公会", "Guild") .. "]|r") or "") .. "  ·  " .. ago(p.t))
+            r.s:SetText(DC.NeedText(p) .. "  ·  " .. DC.WhoText(p) .. (p.guild and (" " .. DC.GuildTag()) or "") .. "  ·  " .. ago(p.t))
             r.tip = { p.short .. (p.ch and ("（" .. p.ch .. "）") or ""), p.text }
+            if p.guild then r.tip[3] = DC.GuildTip() end
             local applied = DC.Applied(p.author)
             if p.lfg then
                 r.b:SetText(L("邀请", "Invite")); r.b:SetEnabled(true)
@@ -919,10 +960,19 @@ local function renderSeek(P)
     local rows = rawget(P.list, "_rows") or {}
     for i = shown + 1, #rows do rows[i]:Hide() end
     P.list:SetHeight(math.max(10, shown * 42))
+    -- 选了副本却一条都没有：空态写明是筛选筛的，别让人以为插件没读到
+    if filtered and shown == 0 then
+        P.empty:SetText(L("选的副本暂时没人组，点「全部副本」看其它", "Nobody is grouping for the picked dungeons yet - click All dungeons to see the rest"))
+    else
+        P.empty:SetText(rawget(P, "emptyDef") or "")
+    end
     P.empty:SetShown(shown == 0)
     local st = string.format(L("10 分钟内从各频道识别到 %d 条组队消息，列出 %d 条", "%d group posts from channels in the last 10 min, %d shown"), #list, shown)
-    if onlyMine and #list > shown then
-        st = st .. string.format(L("（另 %d 条不在你的等级，点「适合我等级」看全部）", " (%d more outside your level: untick My level)"), #list - shown)
+    if onlyMine and lvOut > 0 then
+        st = st .. string.format(L("（另 %d 条不在你的等级，点「适合我等级」看全部）", " (%d more outside your level: untick My level)"), lvOut)
+    end
+    if filtered then
+        st = st .. string.format(L("；已按副本筛选，筛掉 %d 条（点「全部副本」看全部）", "; dungeon filter on, %d hidden (click All dungeons)"), dgOut)
     end
     P.status:SetText(st)
 end
@@ -976,8 +1026,10 @@ local function renderRecruit(P)
         x = x + 100
     end
     for i = #chans + 1, #P.chanBtns do P.chanBtns[i]:Hide() end
+    if ns.LfgListAuto then x, y = ns.LfgListAuto.Place(P, x, y) end   -- 11-13 集合石（LfgListAuto.lua，HOLD）：「发到」那排最后一个 +「下架」
     local extra = math.max(0, math.floor(-y / 26 + 0.5) - 1) * 26   -- 第 3 行起每多一行往下挪 26
     if rawget(P, "lower") then P.lower:ClearAllPoints(); P.lower:SetPoint("TOPLEFT", 0, -(P.lowY + extra)) end
+    DC.FitRepList(P, extra)
     P.noChan:SetShown(#chans == 0)
     if not P.edit:HasFocus() then P.edit:SetText(DC.SendText()); P.edit:SetCursorPosition(0) end
     if rawget(P, "tagBtn") then sel(P.tagBtn, DC.TagOn()) end
@@ -988,26 +1040,74 @@ local function renderRecruit(P)
     local left = DC.ShoutLeft()
     P.send:SetText(left > 0 and string.format(L("%d 秒后可再发", "Wait %ds"), left) or L("一键发到勾选的频道", "Send to ticked channels"))
     P.send:SetEnabled(left == 0)
-    local shown = 0
-    for _, p in ipairs(DC.replies) do
+    local shown, y = 0, 0
+    for _, p in ipairs(DC.PruneReplies()) do
         shown = shown + 1
         local row = repRow(P.rep, shown, P.listW)
         row:Show()
         local cells = DC.ReplyCells(p)
         for k, fs in pairs(row.c) do fs:SetText(cells[k] or "") end
-        row.ago:SetText(agoShort(p.t))
-        local tip = { p.short .. (p.clsName and (" · " .. p.clsName) or "") }
+        -- 时间列短写（「3分」「2时」），悬停给「3分钟前」
+        row.ago:SetText(p.at and DC.AgoShortAt(p.at) or agoShort(p.t))
+        rawset(row, "who", p.short)
+        -- 点行展开 / 收起
+        local open = DC.expanded[p.short] and true or false
+        local hh = DC.ROW_H
+        if open then
+            local txt, n = DC.ReplyFullText(p)
+            row.full:SetText(txt); row.full:Show()
+            local sh = row.full.GetStringHeight and tonumber(row.full:GetStringHeight()) or nil
+            local est = n * DC.LINE_H
+            if not sh or sh <= 0 or sh > est * 4 then sh = est end   -- 量不到（或量出离谱的数）按行数估
+            hh = DC.ROW_H + math.ceil(sh) + 4
+        else
+            row.full:Hide()
+        end
+        rawset(row, "open", open)
+        row:SetHeight(hh)
+        row:ClearAllPoints(); row:SetPoint("TOPLEFT", 0, -y)
+        y = y + hh + DC.ROW_GAP
+        -- 同公会：整行淡绿底 + 「说的话」开头绿色 [公会] + 悬停第二行「同公会」
+        rawset(row, "guild", cells.guild)
+        if row.bg then
+            if cells.guild then row.bg:SetColorTexture(0.25, 1, 0.25, 0.14) else row.bg:SetColorTexture(1, 1, 1, row.alt or 0.05) end
+        end
+        -- 悬停：全名-服务器 · 职业、他说过的每一句（全文，自动换行）、多久前；点一下展开 / 收起
+        local tip = { tostring(p.author or p.short) .. (p.clsName and (" · " .. p.clsName) or "") }
+        if cells.guild then tip[#tip + 1] = DC.GuildTip() end
         for _, t in ipairs(p.hist or { p.text }) do tip[#tip + 1] = t end
+        if p.at then tip[#tip + 1] = "|cff9a9a9a" .. DC.AgoAt(p.at) .. "|r" end
         row.tip = tip
+        -- 11-13 已经进了我的队：按钮写「已在队」、点不了（不删这一行）
+        local inGrp = DC.InMyGroup(p.author)
+        row.b:SetText(inGrp and L("已在队", "In group") or L("邀请", "Inv"))
+        if row.b.SetEnabled then row.b:SetEnabled(not inGrp) end
+        rawset(row, "inGroup", inGrp)
+        rawset(row.x, "who", p.short)
+        if p.firstAt and p.at and p.at - p.firstAt >= 60 then tip[#tip + 1] = "|cff9a9a9a" .. L("第一次密你：", "First whispered: ") .. DC.AgoAt(p.firstAt) .. "|r" end
+        tip[#tip + 1] = "|cff9a9a9a" .. (open and L("点一下收起", "Click to collapse") or L("点一下展开完整的话", "Click to expand")) .. "|r"
         row.b:SetScript("OnClick", function() DC.Invite(p.author) end)
         row.w:SetScript("OnClick", function() DC.Tell(p.author) end)
     end
     local rrows = rawget(P.rep, "_trows") or {}
     for i = shown + 1, #rrows do rrows[i]:Hide() end
-    P.rep:SetHeight(math.max(10, shown * 23))
+    P.rep:SetHeight(math.max(10, y))
     P.repEmpty:SetShown(shown == 0)
     P.repHead:SetShown(shown > 0)
+    if rawget(P, "clearBtn") then P.clearBtn:SetShown(shown > 0) end
     sel(P.askBtn, DC.AskOn())
+end
+
+-- 11-13 用户「只露 5 行就要滚」：列表高度 = 面板底边到表头下面剩下的全部（组队窗口跟着主面板变高时也吃满），上面的控件不动
+function DC.FitRepList(R, extra)
+    if not (rawget(R, "rsf") and rawget(R, "h")) then return end
+    local ph = DC.panel and DC.panel.GetHeight and tonumber(DC.panel:GetHeight()) or nil
+    if not ph or ph < R.h then ph = R.h end
+    local hh = math.floor(ph - 40 - (R.lowY + (extra or 0)) - 96 - 6)
+    hh = math.max(DC.ROW_H * 3, hh)
+    R.rsf:SetHeight(hh)
+    rawset(R, "repH", hh)
+    return hh
 end
 
 function DC.Render()
@@ -1185,13 +1285,29 @@ function ns.BuildDungeonPanel(host, w, h)
     end
     S.fit = seg(S, L("适合我等级", "My level"), 92, function() local d = DC.DB(); d.fitLv = (d.fitLv == false); DC.Render() end)
     S.fit:SetPoint("TOPRIGHT", 0, 0)
+    -- 11-13 第二行「副本：」[全部副本 ▼] 下拉（多选，记存档 dgFilter）……[全部副本] 一键清空（没筛选时亮金）
+    rawset(S, "w", innerW)
+    local dl = S:CreateFontString(nil, "OVERLAY", "GameFontNormal"); dl:SetPoint("TOPLEFT", 0, -30); dl:SetText(L("副本：", "Dungeon: "))
+    S.dgBtn = seg(S, "", innerW - 74 - 98, function() DC.ToggleDgMenu() end)
+    S.dgBtn:SetPoint("TOPLEFT", 74, -26)
+    S.dgBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(L("按副本筛选", "Filter by dungeon"), 1, 0.82, 0)
+        GameTooltip:AddLine(L("点开选副本（可多选）：列出频道里有人组的副本（带条数）和适合你等级的副本；只看选上的副本，副本里的各个区都算", "Pick dungeons (multi-select); wings count as their dungeon"), 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    S.dgBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    S.dgAll = seg(S, L("全部副本", "All"), 92, function() DC.ClearDg(); DC.Render() end)
+    S.dgAll:SetPoint("TOPRIGHT", 0, -26)
+    if S.HookScript then S:HookScript("OnHide", function() local f = rawget(S, "dgPop"); if f then f:Hide() end end) end
     S.listW = innerW - 24
-    local sf, child = ns.Scroll(S, 0, -30, innerW - 24, h - 40 - 30 - 26)
+    local sf, child = ns.Scroll(S, 0, -56, innerW - 24, h - 40 - 56 - 26)
     S.sf, S.list = sf, child
-    S.empty = S:CreateFontString(nil, "OVERLAY", "GameFontDisable"); S.empty:SetPoint("TOPLEFT", 4, -40); S.empty:SetWidth(innerW - 30)
+    S.empty = S:CreateFontString(nil, "OVERLAY", "GameFontDisable"); S.empty:SetPoint("TOPLEFT", 4, -66); S.empty:SetWidth(innerW - 30)
     S.empty:SetJustifyH("LEFT")
-    S.empty:SetText(L("还没识别到组队消息：插件会读你加入的所有频道（综合 / 交易 / 寻求组队 / 大脚世界频道……），有人喊「死矿缺T」这类就会列在这里",
+    rawset(S, "emptyDef", L("还没识别到组队消息：插件会读你加入的所有频道（综合 / 交易 / 寻求组队 / 大脚世界频道……），有人喊「死矿缺T」这类就会列在这里",
         "No group posts yet: the addon reads every channel you're in and lists posts like 'Deadmines LF tank' here"))
+    S.empty:SetText(rawget(S, "emptyDef"))
     S.status = S:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); S.status:SetPoint("BOTTOMLEFT", 0, 4); S.status:SetWidth(innerW)
     S.status:SetJustifyH("LEFT")
 
@@ -1291,6 +1407,9 @@ function ns.BuildDungeonPanel(host, w, h)
     e:SetScript("OnEscapePressed", function(self) self:ClearFocus(); DC.Render() end)
     e:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        -- 11-13 用户「信息被缩略掉了」：框里一行放不下 → 悬停先给完整一句
+        GameTooltip:AddLine(L("会发：", "Will send: "), 1, 0.82, 0)
+        GameTooltip:AddLine(DC.SendText(), 1, 1, 1, true)
         GameTooltip:AddLine(L("点进去改，回车保存（每个副本各存一句）", "Click to edit, Enter to save (one per dungeon)"), 1, 0.82, 0)
         GameTooltip:AddLine(L("队伍人数「4=1」会跟着队伍自动变", "The party count (4=1) keeps updating"), 1, 1, 1, true)
         GameTooltip:Show()
@@ -1305,15 +1424,16 @@ function ns.BuildDungeonPanel(host, w, h)
     R.def:SetPoint("TOPRIGHT", 0, 2)
     R.send = ns.Button(LR, "", 200, 26, function()
         local n, why = DC.Shout()
-        if n > 0 then ns.Print(string.format(L("已发到 %d 个频道：%s", "Sent to %d channel(s): %s"), n, DC.SendText()))
-        elseif why == "nochan" then ns.Print(L("没有勾选的频道", "No channel ticked")) end
+        if n > 0 then ns.Print(string.format(L("已发到 %d 个频道：%s", "Sent to %d channel(s): %s"), n, DC.SendText())) end
+        local lfg = ns.LfgListAuto and ns.LfgListAuto.OnSend(n)   -- 11-13 同一次点击里顺带挂集合石（LfgListAuto.lua，HOLD）
+        if n == 0 and why == "nochan" and not lfg then ns.Print(L("没有勾选的频道", "No channel ticked")) end
         DC.Render()
     end)
     R.send:SetPoint("TOPLEFT", 0, -22)
     R.copy = ns.Button(LR, L("复制到聊天群", "Copy for chat"), 130, 26, function() DC.ShowCopy() end)
     R.copy:SetPoint("LEFT", R.send, "RIGHT", 8, 0)
     local rl = LR:CreateFontString(nil, "OVERLAY", "GameFontNormal"); rl:SetPoint("TOPLEFT", 0, -58); rl:SetText(L("来密我的人", "Whispers to me"))
-    R.askBtn = seg(LR, L("自动反问", "Auto-ask"), 80, function() local rr = DC.DB().rec; rr.autoAsk = (rr.autoAsk == false) and nil or false; DC.Render() end)
+    R.askBtn = seg(LR, L("自动反问", "Auto-ask"), 80, function() local rr = DC.DB().rec; if rr.autoAsk == false then rr.autoAsk = nil else rr.autoAsk = false end; DC.Render() end)
     R.askBtn:SetPoint("TOPRIGHT", 0, -54)
     R.askBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
@@ -1335,7 +1455,11 @@ function ns.BuildDungeonPanel(host, w, h)
     R.tagBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- 11-12 满员自动通知（两个都默认关）
     local function fullBtn(key, zh, en, w, tipZh, tipEn, anchor)
-        local b = seg(LR, L(zh, en), w, function() local rr = DC.DB().rec; rr[key] = (not rr[key]) or nil; DC.Render() end)
+        local b = seg(LR, L(zh, en), w, function()
+            local rr = DC.DB().rec; rr[key] = (not rr[key]) or nil
+            if ns.GroupSync then pcall(ns.GroupSync) end   -- 11-13 第 5 期：满员通知 / 法师吃喝总开关一改，重算该加载的、该注册的
+            DC.Render()
+        end)
         b:SetPoint("RIGHT", anchor, "LEFT", -4, 0)
         b:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
@@ -1369,14 +1493,27 @@ function ns.BuildDungeonPanel(host, w, h)
     end)
     -- 表头
     local hd = CreateFrame("Frame", nil, LR); hd:SetPoint("TOPLEFT", 0, -78); hd:SetSize(innerW - 24, 16)
-    for _, col in ipairs({ { L("名字", "Name"), 4 }, { L("职业", "Class"), 98 }, { L("等级", "Lv"), 136 }, { L("职责", "Role"), 162 }, { L("说的话", "Said"), 224 } }) do
+    for _, col in ipairs({ { L("名字", "Name"), 4 }, { L("等级职责", "Lv/Role"), 90 }, { L("说的话（点行展开）", "Said (click a row)"), 140 } }) do
         local fs = hd:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); fs:SetPoint("LEFT", col[2], 0); fs:SetText(col[1])
     end
     R.repHead = hd
+    -- 11-13 用户「记录在这里不要老清除」：列表不再自己清，表头这一行最右边给个「清空」
+    R.clearBtn = ns.Button(hd, L("清空", "Clear"), 44, 16, function() DC.ClearReplies(); DC.Render() end)
+    R.clearBtn:SetPoint("RIGHT", hd, "RIGHT", 0, 0)
+    R.clearBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(L("清空「来密我的人」", "Clear the list"), 1, 0.82, 0)
+        GameTooltip:AddLine(string.format(L("列表不会自己清：重新喊话、/reload、重新登录都还在；最多留 %d 人、%d 小时，超出丢最旧的。只删一个人点那一行最右边的 ×", "The list is kept across shouts, /reload and relogs (max %d people, %d h; oldest dropped). Use x on a row to remove one"), DC.REC_MAX, math.floor(DC.REC_AGE / 3600)), 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    R.clearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     local rsf, rchild = ns.Scroll(LR, 0, -96, innerW - 24, h - 40 - 246 - 6 - 52 - 28 - 18)
     R.rsf, R.rep = rsf, rchild
+    R.h = h
     R.repEmpty = LR:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); R.repEmpty:SetPoint("TOPLEFT", 4, -84)
-    R.repEmpty:SetText(L("发出去 15 分钟内密你的人会列在这里，点「邀请」拉进队", "People who whisper you within 15 min show here"))
+    R.repEmpty:SetWidth(innerW - 32); R.repEmpty:SetJustifyH("LEFT")
+    R.repEmpty:SetText(L("喊完 15 分钟内密你的人会一直列在这里（/reload、重新登录也在），点「邀请」拉进队，点「清空」清掉",
+        "Anyone who whispers you within 15 min of a shout stays listed here (even after /reload). Invite them, or Clear the list"))
 
     -- 开着时每 5 秒刷一下「多久前」/ 冷却
     local acc = 0

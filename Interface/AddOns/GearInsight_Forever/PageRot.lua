@@ -6,7 +6,7 @@
 --     起手序列（正式服 WCL 顶尖玩家开怪）没有数据，不做、不放空壳。
 --   能力探针 / 公测众包施法频率（原键位手法页「高级」里的）挪到这页底部：两个都是给手法用的。
 -- ⛔ HOLD（_hold.txt），测完才进包。⛔ 只读：IsSpellUsable / 冷却 / 绑定，不改动作条。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 local K = ns.Keys
 local GOLD = { 1, 0.82, 0 }
 
@@ -355,7 +355,9 @@ ev:SetScript("OnEvent", function()
     C_Timer.After(0.3, function() queued = false; pcall(refresh) end)
 end)
 
-ns.RegisterPage({ key = "rot", order = 1.65, hiddenTab = true,   -- 10-16 用户「先隐藏这个 TAB」：手法页先不出左侧页签（职业手法还没做全）
+-- 10-16 用户「先隐藏这个 TAB」：手法页先不出左侧页签（职业手法还没做全）→ 只剩 /gi rot 一个入口，页上钉板 / 决策 HUD 的开关基本找不到
+-- 11-12 界面重构第 1 期「找得回」：页签放出来（职业百宝箱 → 手法）；/gi rot 照旧
+ns.RegisterPage({ key = "rot", order = 1.65,
     title = ns.L("手法", "Rotation"), tabTitle = ns.L("手法", "Rotation"),
     icon = "Interface\\Icons\\Ability_Warrior_BattleShout", build = build, refresh = refresh })
 ns.ExtraSlash = ns.ExtraSlash or {}

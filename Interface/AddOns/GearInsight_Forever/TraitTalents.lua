@@ -14,6 +14,28 @@ local function classKey()
     return token:sub(1, 1) .. token:sub(2):lower()
 end
 
+-- 11-13 重构第 4 期：整份天赋树（带说明文字 / 图标，DataClass.lua）随职业子插件 GearInsight_Forever_Class 按需加载；
+--   内核里只有 TalentIndexData.lua 的「骨架」（行 / 列 / 满点 / 中英文名，顺序和整份一样）。登录就要的配点码读法都走这里：
+--   _Class 加载了 → 用整份；没加载 → 把骨架展开成同样字段名的表（r / col / m / c / n；系的 n / c），按职业缓存。
+--   ⛔ rawget：别为了读骨架去碰 ns.Data.talents（那个字段没加载时一读就会去加载 _Class）
+local expanded = {}
+function ns.TalentTrees(cls)
+    local full = type(ns.Data) == "table" and rawget(ns.Data, "talents")
+    if full then return full[cls] end
+    local e = expanded[cls]
+    if e ~= nil then return e or nil end
+    local src = ns.TalentIdx and ns.TalentIdx[cls]
+    if not src then expanded[cls] = false; return nil end
+    e = {}
+    for ti, tr in ipairs(src) do
+        local t = {}
+        for i, c in ipairs(tr[3]) do t[i] = { r = c[1], col = c[2], m = c[3], c = c[4], n = c[5] } end
+        e[ti] = { n = tr[1], c = tr[2], t = t }
+    end
+    expanded[cls] = e
+    return e
+end
+
 local function activeConfig()
     if not (C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_Traits and C_Traits.GetConfigInfo) then return nil end
     local ok, cfg = pcall(C_ClassTalents.GetActiveConfigID)
@@ -62,7 +84,7 @@ end
 function ns.TraitCells()
     local cfg = activeConfig()
     if not cfg or not C_Traits.GetTreeNodes or not C_Traits.GetNodeInfo then return nil end
-    local trees = ns.Data and ns.Data.talents and ns.Data.talents[classKey()]
+    local trees = ns.TalentTrees(classKey())
     if not trees then return nil end
     local byName = {}
     for ti, tr in ipairs(trees) do
@@ -112,7 +134,8 @@ function ns.TraitTalentCode()
     local cells = ns.TraitCells()
     if not cells then return nil end
     local cls = classKey()
-    local trees = ns.Data.talents[cls]
+    local trees = ns.TalentTrees(cls)
+    if not trees then return nil end
     local parts, total = {}, 0
     for ti, tr in ipairs(trees) do
         local s = {}
@@ -148,6 +171,57 @@ function ns.UnspentTalentPoints()
     if not total then return 0 end
     local lv = UnitLevel and UnitLevel("player") or 0
     return math.max(0, math.min(51, lv - 9) - total)
+end
+
+-- 解析配点码 → { cls=, pts={ {..}, {..}, {..} } } 或 nil, 原因（11-13 第 4 期从 Talents.lua 挪来：只要天赋树骨架）
+function ns.ParseTalentCode(code)
+    code = tostring(code or ""):gsub("%s+", "")
+    if code:match("^GIF1%.") then
+        return nil, ns.L("这是开服前的配点码，天赋树已经改了，请到小程序或网站重新生成（GIF2 开头）",
+            "This is a pre-launch build code and the talent trees have changed; make a new one (starts with GIF2)")
+    end
+    local cls, body = code:match("^GIF2%.(%a+)%.(.+)$")
+    if not cls then return nil, ns.L("不是配点码（应以 GIF2. 开头）", "Not a build code (should start with GIF2.)") end
+    local trees = ns.TalentTrees(cls)
+    if not trees then return nil, ns.L("不认识的职业：", "Unknown class: ") .. cls end
+    local parts = {}
+    for p in (body .. "-"):gmatch("([^%-|]*)[%-|]") do parts[#parts + 1] = p end
+    local pts, total = {}, 0
+    for ti, tr in ipairs(trees) do
+        local s = parts[ti] or ""
+        pts[ti] = {}
+        for i, t in ipairs(tr.t) do
+            local v = tonumber(s:sub(i, i)) or 0
+            if v > t.m then v = t.m end
+            pts[ti][i] = v
+            total = total + v
+        end
+    end
+    if total > 51 then return nil, ns.L("点数超过 51", "More than 51 points") end
+    return { cls = cls, pts = pts, total = total, v = 2 }
+end
+
+-- 当前角色投点最多的系（自己职业才读得到；没点 → nil）。11-13 第 4 期从 DefaultBuilds.lua 挪来：
+--   推荐装备按天赋（_Plan 的 SpecGear.lua）、攻略页默认专精要用，不该为了它加载 _Class
+local function myClass()
+    if not UnitClass then return "" end   -- 网站导出（lupa）里没有游戏 API
+    local _, token = UnitClass("player")
+    token = token or ""
+    return token:sub(1, 1) .. token:sub(2):lower()
+end
+function ns.MyMainTree()
+    if not (ns.CurrentTalentCode and ns.ParseTalentCode) then return nil end
+    local ok, code = pcall(ns.CurrentTalentCode)
+    local plan = ok and code and ns.ParseTalentCode(code)
+    if not plan or (plan.total or 0) == 0 then return nil end
+    if plan.cls and plan.cls ~= myClass() then return nil end   -- 不是本职业的码（读错 / 测试）不算
+    local best, bp = nil, 0
+    for ti, row in ipairs(plan.pts) do
+        local s = 0
+        for _, v in ipairs(row) do s = s + v end
+        if s > bp then best, bp = ti, s end
+    end
+    return best
 end
 
 -- 天赋变化事件：经典 CHARACTER_POINTS_CHANGED 在《无限》不发 → 各模块注册这一组

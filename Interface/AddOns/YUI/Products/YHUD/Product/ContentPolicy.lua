@@ -256,7 +256,8 @@ function YHUD:IsFilteredAuraMonitor(entry, monitor)
     if type(entry) ~= "table"
         or type(monitor) ~= "table"
         or entry.sourceType ~= self.PLAYER_AURA_SOURCE_TYPE
-        or entry.sourceIdentity == "bloodlust-heroism" then
+        or entry.sourceIdentity == "bloodlust-heroism"
+        or self:UsesArcaneBlastSimulation(entry) then
         return false
     end
     if entry.bundleKind == "externalBuff" and not monitor._yhudParentMonitorId then
@@ -317,6 +318,7 @@ function YHUD:CanObserveOfficialTotemDuration(entry, monitor)
 end
 
 function YHUD:GetMonitorRuntimeSourceKey(entry, monitor)
+    if self:UsesArcaneBlastSimulation(entry) then return self.ArcaneBlast.SOURCE_KEY end
     if self:CanObserveOfficialTotemDuration(entry, monitor) then
         return "totem:cdm:" .. tostring(PositiveInteger(entry.cooldownId))
     end
@@ -1630,8 +1632,12 @@ function YHUD:GetEntryCompatibleViews(entry)
     }
 end
 
-function YHUD:IsOfficialNativeView(category, view)
-    return OFFICIAL_NATIVE_VIEWS[category] == view
+function YHUD:UsesArcaneBlastSimulation(entry)
+    return self.ArcaneBlast ~= nil and self.ArcaneBlast:Matches(entry)
+end
+
+function YHUD:IsOfficialNativeView(category, view, entry)
+    return not self:UsesArcaneBlastSimulation(entry) and OFFICIAL_NATIVE_VIEWS[category] == view
 end
 
 function YHUD:NormalizeGroupContentPolicy(group)

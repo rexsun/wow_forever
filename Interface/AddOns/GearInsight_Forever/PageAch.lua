@@ -1,7 +1,7 @@
 -- 成就 · 传承页（10-10 四期）：《无限》客户端 211 个成就，131 个给传承点数 —— 一眼看出「还有哪些成就能拿传承点」
 -- 数据 = 网站 / 小程序同一份 achievements.json（bis_wow tools/build_forever_achievements.py，客户端 DB2）
 -- 完成状态用 GetAchievementInfo（查不了就只列不打勾）；奖励里写着「N 点传承点数」的单独筛
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local page
 local mode = "legacy"          -- legacy = 只看给传承点数的 / todo = 只看没完成的 / all

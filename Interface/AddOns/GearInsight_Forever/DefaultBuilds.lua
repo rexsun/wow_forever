@@ -6,7 +6,7 @@
 -- 数据 = DefaultBuildsData.lua 生成的 { key, role, tree, spec, specCn, src, url, order = { { "树英文名", "天赋英文名" }, … } }
 --   order 是攻略里的逐点顺序（第 1 条 = 10 级那一点），天赋按英文名在运行时对到《无限》的树上（ns.Data.talents）；
 --   对不上的（《无限》删 / 改名了）跳过并记进 missing，测试会报出来。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local cache = {}
 local session = {}   -- 看别的职业时临时选的（不存档）
@@ -42,23 +42,8 @@ function ns.DefaultBuilds(cls)
     return { d }
 end
 
--- 当前角色投点最多的系（自己职业才读得到；没点 → nil）
-local function myMainTree()
-    if not (ns.CurrentTalentCode and ns.ParseTalentCode) then return nil end
-    local ok, code = pcall(ns.CurrentTalentCode)
-    local plan = ok and code and ns.ParseTalentCode(code)
-    if not plan or (plan.total or 0) == 0 then return nil end
-    if plan.cls and plan.cls ~= myClass() then return nil end   -- 不是本职业的码（读错 / 测试）不算
-    local best, bp = nil, 0
-    for ti, row in ipairs(plan.pts) do
-        local s = 0
-        for _, v in ipairs(row) do s = s + v end
-        if s > bp then best, bp = ti, s end
-    end
-    return best
-end
-
-ns.MyMainTree = myMainTree   -- 10-18 推荐装备按天赋（SpecGear.lua）自动识别也用这个
+-- 当前角色投点最多的系：ns.MyMainTree（11-13 第 4 期挪进主插件 TraitTalents.lua，推荐装备 / 攻略页不用为它加载 _Class）
+local function myMainTree() return ns.MyMainTree and ns.MyMainTree() or nil end   -- 网站导出（lupa）只加载数据文件时没有它
 
 -- 选哪套 → key
 function ns.DefaultBuildKey(cls)

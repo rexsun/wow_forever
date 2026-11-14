@@ -1,5 +1,5 @@
 -- 自动生成：scripts/gi_forever_whatsnew.py（⛔ 别手改；发版前重跑）
 local _, ns = ...
-ns.WhatsNewData = { v = "1.0.1", date = "2026-11-12",
-    zh = "【法师吃喝 · 自动要水 / 自动发水】\n- 开关还是副本组队「招人」页的「法师吃喝」按钮：左键开关，右键打开细项设置（也可以输入 /gi 吃喝）。\n- 不是法师：跟法师开交易、进副本、或队伍凑满 5 人时，按你背包缺多少、你能吃哪一档，自动私聊法师要一次；同一个法师 10 分钟最多要一次，背包够了就不要；战士、盗贼只要面包。\n- 法师：队友私聊或在队伍里要水时自动回一句，屏幕上方弹提醒条（谁、几级、要什么），没货点条上的「造水术 / 造食术」。\n- 法师：对方开交易后，交易窗下面多一个「给他：…」按钮，点一下放好对方能吃的最高一档水和面包，再自己点「交易」。",
-    en = "[Mage food & water - auto request / auto give]\n- Same \"Mage food\" button on the Dungeon groups recruit page: left-click toggles, right-click opens options (or /gi 吃喝).\n- Non-mages: when trading a mage, entering a dungeon, or when the party fills up, the addon whispers the mage once for the right tier based on your level and how much you are missing; at most once per mage every 10 minutes; warriors and rogues only ask for food.\n- Mages: auto-reply when a party member asks for water; a reminder bar shows who needs what, with Conjure Water / Conjure Food buttons.\n- Mages: a \"Give: ...\" button under the trade window puts the highest usable water and food in the trade; you still click Trade yourself." }
+ns.WhatsNewData = { v = "1.1.4", date = "2026-11-13",
+    zh = "【公会】\n- 「正在招人的公会」最上面的推荐位从 3 个增加到 4 个。\n- 刷新游戏内公会招募列表。",
+    en = "[Guilds]\n- The top of \"Recruiting guilds\" now shows 4 highlighted guilds instead of 3.\n- Refreshed the in-game guild recruiting list." }

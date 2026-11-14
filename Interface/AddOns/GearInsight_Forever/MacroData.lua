@@ -1,6 +1,6 @@
 -- 自动生成：scripts/gi_forever_macros.py，⛔别手改
 -- 宏来源：foreverdb.net（对过 Beta 1.60.1.70205）+ classicwowforever.com；技能名 → 法术 ID：Beta 1.60.1.70790
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 ns.Macros = {
   Warrior = {
     { key="warrior-charge-intercept", no=1, g="姿态切换", gEn="Stance dancing", t="Charge out of combat, Intercept in combat", tc="冲锋 / 拦截 自动切姿态", n="Out of combat it Charges your target from Battle Stance. In combat it Intercepts from Berserker Stance. If you're in the wrong stance for the situation, the press changes stance instead, and the next press charges.", nc="脱战冲锋、战斗中拦截；姿态不对时先切姿态，再按一下出技能", b="#showtooltip\n/cast [nocombat,stance:1] {{100}}; [combat,stance:3] {{20252}}; [nocombat] {{2457}}; {{2458}}", fv=false, lv=4, spells={100,2458,2457,20252} },

@@ -1,7 +1,7 @@
 -- 键位手法 · 底座（10-10，docs/forever-keybind-rotation-design.md §1/§6，从正式服 GearInsight_Layout 移植精简）
 -- 读键（游戏绑定 + Bartender / ElvUI / Dominos）、技能在不在条上、路 A 左键拿起 / 右键选格放、
 -- 备份 / 还原、战斗中排队到脱战。⛔ 不碰宏（无限版宏库在宏库页）。⛔ HOLD（_hold.txt），测完才进包。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local K = {}
 ns.Keys = K

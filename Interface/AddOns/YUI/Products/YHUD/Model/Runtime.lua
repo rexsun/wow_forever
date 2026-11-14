@@ -37,6 +37,7 @@ local function CreateState(sourceKey)
         currentCharges = nil,
         maxCharges = nil,
         displayCount = nil,
+        publicAuraStacks = nil,
         displayCountRaw = nil,
         countSecret = false,
         activationOverlay = false,
@@ -63,6 +64,15 @@ local function CreateState(sourceKey)
         timerEntriesRaw = nil,
         revision = 0,
     }
+end
+
+-- This is an explicit source contract; item/charge/display counts do not opt in.
+function Model:GetPublicAuraStacks(state)
+    if type(state) ~= "table" or state.sourceKind ~= "aura"
+        or state.resolved ~= true or state.secret == true or state.countSecret == true then return nil end
+    local value = state.publicAuraStacks
+    if _G.issecretvalue and _G.issecretvalue(value) then return nil end
+    if type(value) == "number" and value >= 0 and value < math.huge and value % 1 == 0 then return value end
 end
 
 local function ClearTransientState(state)
@@ -277,6 +287,14 @@ function Model:OnSourceState(source, sourceKey, forced)
             state.activationOverlay = false
             diff = diff + self.DIFF_COOLDOWN
             if YHUD.Stats then YHUD.Stats:Add("cooldownChanges") end
+        end
+    end
+
+    local publicAuraStacks = self:GetPublicAuraStacks(source)
+    if state.publicAuraStacks ~= publicAuraStacks then
+        state.publicAuraStacks = publicAuraStacks
+        if math.floor(diff / self.DIFF_COOLDOWN) % 2 == 0 then
+            diff = diff + self.DIFF_COOLDOWN
         end
     end
 

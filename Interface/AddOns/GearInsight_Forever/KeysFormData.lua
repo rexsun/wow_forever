@@ -1,7 +1,7 @@
 -- 自动生成（scripts/gi_forever_keys_forms.py ← 《无限》DB2 SpellShapeshift / SpellShapeshiftForm），⛔别手改。
 -- 键位页形态切换：每职业的形态（页 = 主条在该形态下换成的形态页号，nil = 主条本身）+ 每个技能能在哪些形态用。
 -- spells 键：技能编号（Data.keys 的 id）或英文名（天赋技能）；没列的技能按 def。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 ns.KeysForms = {
     Druid = {
         forms = {

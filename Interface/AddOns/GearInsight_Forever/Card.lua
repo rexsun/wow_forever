@@ -52,7 +52,7 @@ end
 -- 当前天赋 → 配点码（顺序 = Data.lua = 小程序模拟器）
 function ns.CurrentTalentCode()
     local cls = classKey()
-    local trees = ns.Data.talents[cls]
+    local trees = ns.TalentTrees(cls)   -- 11-13 第 4 期：天赋树骨架常驻（TraitTalents.lua），不用加载 _Class
     if not trees then return nil end
     -- 11-07：《无限》没有经典 GetTalentInfo（talentprobe 实测 nil）→ C_Traits 读法（TraitTalents.lua）
     if not GetTalentInfo then

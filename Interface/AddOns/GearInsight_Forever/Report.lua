@@ -7,7 +7,7 @@
 --    doc.opt 固定 { gn = 1, who = 1 }（协议兼容，网站照读）；旧存档里的 ns.db.ui.report 不再读。rh / gh 哈希照旧带。
 -- ⛔ 每一样读取都包 pcall：哪个接口在《无限》客户端没有 / 报错，就当这一项没有，Build 本身永远不炸。
 -- ⛔ HOLD（_hold.txt）：没在游戏里实测前不进发行包。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local R = {}
 ns.Report = R
@@ -46,15 +46,15 @@ end
 
 local function realmName()
     local r = try(GetRealmName)
-    if type(r) ~= "string" or r == "" or secret(r) then r = try(GetNormalizedRealmName) end
-    if type(r) ~= "string" or r == "" or secret(r) then return nil end
+    if type(r) ~= "string" or secret(r) or r == "" then r = try(GetNormalizedRealmName) end
+    if type(r) ~= "string" or secret(r) or r == "" then return nil end
     return r
 end
 
 local function guildName()
     if not (IsInGuild and try(IsInGuild)) then return nil end
     local g = try(GetGuildInfo, "player")
-    if type(g) == "string" and g ~= "" and not secret(g) then return g end
+    if type(g) == "string" and not secret(g) and g ~= "" then return g end
 end
 
 -- ---------- 各项读取（每个都 pcall 包住，出错 = 这一项没有）----------
@@ -104,6 +104,7 @@ local function readTalents()
 end
 
 local function readSpec()
+    if ns.PlanLoad then try(ns.PlanLoad) end   -- 11-12 第 3 期：天赋定位表在按需加载的 GearInsight_Forever_Plan（出报告是玩家点的，这时加载）
     if not (ns.SpecGear and ns.SpecGear.Current and ns.MyClass) then return nil end
     local cls = try(ns.MyClass)
     return cls and try(ns.SpecGear.Current, cls) or nil
@@ -239,7 +240,7 @@ local function readGuild(myLv, realmLower)
             if level then
                 local bi = (level >= 60 and 7) or (math.floor(level / 10) + 1)
                 if bi >= 1 and bi <= 7 then b[bi] = b[bi] + 1 end
-                if type(cls) == "string" and cls ~= "" and not secret(cls) then cl[cls] = (cl[cls] or 0) + 1 end
+                if type(cls) == "string" and not secret(cls) and cls ~= "" then cl[cls] = (cl[cls] or 0) + 1 end
                 if isOnline then on = on + 1 end
                 -- 第几个到当前等级：比我等级高的人一定先到 → 名次 = 比我高的人数 + 1（同 LevelShare.GuildRank；同级的先后拿不到）
                 local short = (type(name) == "string" and not secret(name)) and (name:match("^([^%-]+)") or name) or nil
@@ -340,7 +341,7 @@ function R.Build()
     doc.gu = gu
     if gname and realmLower then doc.gh = R.Checksum(realmLower .. "|" .. gname) end
     local me = try(UnitName, "player")   -- 只有自己的名字；别人的一律不带
-    if type(me) == "string" and me ~= "" and not secret(me) then doc.who = me .. "-" .. (realm or "") end
+    if type(me) == "string" and not secret(me) and me ~= "" then doc.who = me .. "-" .. (realm or "") end
     return doc
 end
 

@@ -1013,13 +1013,17 @@ end
 function Adapter:ReadActionProcIdentity(slot, out)
     CountRead("procIdentity")
     out = out or {}
-    out.hasAction = self:HasAction(slot)
+    local hasAction = self:HasAction(slot)
     local actionType, id, subType = self:GetActionInfo(slot)
     local spellID, flyoutID, safeType, safeID, safeSubType = self:GetActionProcInfoFromInfo(actionType, id, subType)
-    if out.actionSpellID ~= spellID or out.actionType ~= safeType or out.actionID ~= safeID then
-        -- A partial identity refresh must not carry another action's eligibility.
+    if out.slot ~= slot or out.hasAction ~= hasAction or out.actionType ~= safeType
+        or out.actionID ~= safeID or out.actionSubType ~= safeSubType
+        or out.actionSpellID ~= spellID or out.procSpellID ~= spellID or out.flyoutID ~= flyoutID then
+        -- Proc indexing can precede the queued repaint; changed identity is not rendered yet.
+        out.identityReady = false
         out.filterRecoveryCooldown = false
     end
+    out.hasAction = hasAction
     out.actionType = safeType
     out.actionID = safeID
     out.actionSubType = safeSubType

@@ -5,7 +5,7 @@
 --   《无限》差异：键位页是实况（不是正式服的计划键），所以录键直接 SetBinding；没有正式服的「系统键」编辑（回复密语 / 焦点…），
 --     那些键在键盘上按「被别的功能占着」显示。
 -- ⛔ HOLD（_hold.txt），测完才进包。⛔ 战斗中不改绑定（K.AssignSlotKey 自己拦）。
-local _, ns = ...
+local _, ns = ...; ns = _G.GearInsightForever or ns
 local K = ns.Keys
 
 local KB = {}
@@ -236,42 +236,12 @@ function KB.BeginGroupKeyCapture(slots, label)
 end
 function KB.Capturing() return capture and capture:IsShown() and CS.slot or nil end
 
--- ---------- 小下拉菜单（键位模板用；不依赖 MenuUtil / EasyMenu，《无限》客户端没验过它们）----------
-local menu
+-- ---------- 小下拉菜单（键位模板用）----------
+-- 11-13 重构第 4 期：实现挪到主插件 ClassStub.lua 的 ns.PopMenu（公会子插件点会员名也用它，不该为了一个菜单加载 _Class）
 function KB.Menu(anchor, title, items)
-    if not menu then
-        menu = CreateFrame("Frame", nil, UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
-        menu:SetFrameStrata("FULLSCREEN_DIALOG"); menu:SetClampedToScreen(true); menu:EnableMouse(true)
-        if menu.SetBackdrop then
-            menu:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12, insets = { left = 3, right = 3, top = 3, bottom = 3 } })
-            menu:SetBackdropColor(0.05, 0.05, 0.07, 0.98)
-        end
-        menu.t = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); menu.t:SetPoint("TOPLEFT", 10, -8)
-        menu.rows = {}
-        local cl = CreateFrame("Button", nil, menu, "UIPanelCloseButton"); cl:SetSize(20, 20); cl:SetPoint("TOPRIGHT", 0, 0)
-        cl:SetScript("OnClick", function() menu:Hide() end)   -- 10-18 战斗中关不掉：原生红叉走 HideUIPanel，战斗中被拦 → 直接 Hide
-    end
-    menu.t:SetText(title or "")
-    for _, r in ipairs(menu.rows) do r:Hide() end
-    for i, it in ipairs(items) do
-        local r = menu.rows[i]
-        if not r then
-            r = CreateFrame("Button", nil, menu)
-            r:SetSize(200, 18)
-            r.t = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); r.t:SetPoint("LEFT", 6, 0); r.t:SetJustifyH("LEFT")
-            local hl = r:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 0.82, 0, 0.12)
-            menu.rows[i] = r
-        end
-        r:ClearAllPoints(); r:SetPoint("TOPLEFT", 6, -24 - (i - 1) * 18)
-        r.t:SetText(it.text)
-        r:SetScript("OnClick", function() menu:Hide(); pcall(it.fn) end)
-        r:Show()
-    end
-    menu:SetSize(214, 32 + #items * 18)
-    menu:ClearAllPoints(); menu:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
-    menu:Show()
-    KB._menu = menu   -- 测试用
-    return menu
+    local m = ns.PopMenu(anchor, title, items)
+    KB._menu = m   -- 测试用
+    return m
 end
 
 -- ---------- 虚拟键盘 ----------
