@@ -27,6 +27,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'tools\WowResolution.psm1') -Force
 
 function Assert-WowClosed {
     $running = @(Get-Process -Name 'Wow*' -ErrorAction SilentlyContinue)
@@ -69,33 +70,8 @@ function Remove-OldAdoptionBackups([string]$BackupParent, [string]$CurrentBackup
 
 function Set-StagedResolution([string]$WtfPath) {
     if (-not $Resolution) { return }
-    $configPath = Join-Path $WtfPath 'Config.wtf'
-    $config = [IO.File]::ReadAllText($configPath)
-    $pattern = '(?im)^SET\s+gxWindowedResolution\s+"[^"]*"[^\r\n]*'
-    $line = 'SET gxWindowedResolution "' + $Resolution + '"'
-    if ([regex]::IsMatch($config, $pattern)) {
-        $config = [regex]::Replace($config, $pattern, $line)
-    } else { $config = $config.TrimEnd() + "`r`n" + $line + "`r`n" }
-    [IO.File]::WriteAllText($configPath, $config, [Text.UTF8Encoding]::new($false))
-
-    $dimensions = $Resolution.Split('x')
-    $width, $height = [int]$dimensions[0], [int]$dimensions[1]
-    $preferred = [Math]::Max(1.0, [Math]::Min($height / 1440.0, 2.0))
-    $fits = [Math]::Min(($width - 40) / 1500, ($height - 40) / 1154)
-    $scale = [Math]::Floor([Math]::Min($preferred, $fits) * 20) / 20
-    $scaleText = $scale.ToString('0.00', [Globalization.CultureInfo]::InvariantCulture)
-    foreach ($file in @(Get-ChildItem -LiteralPath $WtfPath -Filter 'EllesmereUI.lua' -Recurse -File)) {
-        $settings = [IO.File]::ReadAllText($file.FullName)
-        $panel = '(?m)^\s*\["panelScale"\]\s*=\s*[\d.]+\s*,[^\r\n]*'
-        $panelMatches = [regex]::Matches($settings, $panel)
-        if ($panelMatches.Count -gt 1) { throw "Ambiguous EUI panel scale: $($file.FullName)" }
-        if ($panelMatches.Count -eq 1) {
-            $settings = [regex]::Replace($settings, $panel, ('["panelScale"] = ' + $scaleText + ','))
-        } elseif ([regex]::IsMatch($settings, '(?m)^\s*EllesmereUIDB\s*=\s*\{')) {
-            $settings = [regex]::Replace($settings, '(?m)^(\s*EllesmereUIDB\s*=\s*\{)', ('$1' + "`r`n" + '["panelScale"] = ' + $scaleText + ','))
-        } else { throw "Unrecognized EUI saved variables: $($file.FullName)" }
-        [IO.File]::WriteAllText($file.FullName, $settings, [Text.UTF8Encoding]::new($false))
-    }
+    Set-WowResolution -WtfPath $WtfPath -Resolution $Resolution | Out-Null
+    $scaleText = (Get-EuiPanelScale $Resolution).ToString('0.00', [Globalization.CultureInfo]::InvariantCulture)
     Write-Host "Destination window: $Resolution; EUI options scale: $scaleText; gameplay UI scale retained."
 }
 

@@ -2,6 +2,11 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-15 - Sign-in sync from GitHub for other machines
+
+- New `Interface/sync_from_github.ps1` and `sync_from_github.vbs`: a current-user sign-in task updates a second installation from `main`, restores the settings bundle when it changed, and fits `gxWindowedResolution` and the EllesmereUI options-panel scale to that machine's game setting or display (1920x1080, 2560x1440 or 3840x2160). See [Settings/readme.md](../Settings/readme.md#sync-another-machine-from-github).
+- `adopt_addons.ps1` now uses the shared `tools/WowResolution.psm1`; its behaviour is unchanged. No addon files changed.
+
 ## 2026-11-15 - Update eight addon packages (OverlapSettingsGuard 0.15.0)
 
 - Update YUI v359 to v360, Auctionator 346 to 347, Bagnon 12.1.9 to 12.1.10 (all five folders), the EllesmereUI suite 9.8.4 to 9.8.6 (the seven installed modules only), GatherLite 8.4.8 to 8.4.11, GearInsight Forever 1.1.4 to 1.2.3 (beta channel, [file 9627081](https://www.curseforge.com/wow/addons/gearinsight-forever/files/9627081), all five folders), MapUtils 1.7.1 to 1.7.5 (forever build, [file 9629926](https://www.curseforge.com/wow/addons/maputils/files/9629926)) and Skinner beta12.70688.1 to beta12.70938.1. Every TOC still lists Interface 16001. !BugGrabber, Details, LootRollMover, Lueur and Waypoint UI were already current. YUI was extracted with GBK file names; its file set matches the previous install exactly, and `!YUI_Error` stays uninstalled.

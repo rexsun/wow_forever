@@ -57,6 +57,8 @@ function New-Fixture($Name) {
     Set-Content -LiteralPath (Join-Path $target 'Fonts\keep.txt') -Value 'font'
     $entry = Join-Path $source 'Interface\adopt_addons.ps1'
     Copy-Item -LiteralPath $scriptUnderTest -Destination $entry
+    New-Item -ItemType Directory -Path (Join-Path $source 'Interface\tools') -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'WowResolution.psm1') -Destination (Join-Path $source 'Interface\tools\WowResolution.psm1')
     return @{ Source = $source; Target = $target; Entry = $entry }
 }
 function Invoke-Adoption($Fixture, $Destination, $Resolution) {

@@ -1,3 +1,17 @@
+## [GitHub sign-in sync] - 2026-11-15
+### Features
+- Add `sync_from_github.ps1` with its hidden `sync_from_github.vbs` launcher. Install turns a game root into a checkout of `main`, backing up the previous Interface and carrying over `.env`, then registers a current-user sign-in task. Sync fetches, waits for WoW to close, resets to `origin/main`, restores the settings bundle when it changed and fits the window resolution and EllesmereUI options panel to this machine.
+- Move the resolution and EllesmereUI panel-scale code from `adopt_addons.ps1` into `tools/WowResolution.psm1`. It now writes files only when their content changes, and adds Config.wtf and display detection plus snapping to the three supported sizes.
+- When the settings helper fails, its error now includes the helper's own generic reason, such as a missing alias or a missing account folder.
+### Design Rationale
+- Git instead of zip downloads: updates are incremental, files of removed addons are deleted exactly, and the ignore rules already keep the client, WTF and `.env` out. The repository is public, so no credentials are needed.
+- Restore runs only when `Settings/WTF` changed since its last success, so in-game tweaks on the second machine are not reverted at every sign-in, and failed restores retry by themselves.
+- The resolution is read before restore, because restore writes the authoring machine's `gxWindowedResolution`. A value that differs from what the script last wrote is treated as a deliberate game setting.
+- The `.env` alias map is still copied by hand. It changes only when exports add aliases, and keeping it off GitHub preserves the pseudonymization design.
+### Notes & Caveats
+- Install refuses an authoring checkout: one with uncommitted or unpushed work, or with the export watcher task installed. Sync force-resets tracked files, saving them first as a patch and a backup branch.
+- Settings restore needs uv, the same game account logged in once, and a current `.env`. Until then, each sync updates addons and resolution and logs what is missing.
+
 ## [Addon update / OverlapSettingsGuard 0.15.0] - 2026-11-15
 ### Features
 - Update YUI v360, Auctionator 347, Bagnon 12.1.10, EllesmereUI 9.8.6, GatherLite 8.4.11, GearInsight Forever 1.2.3, MapUtils 1.7.5 and Skinner beta12.70938.1.

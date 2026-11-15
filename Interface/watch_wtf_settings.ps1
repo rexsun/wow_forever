@@ -121,7 +121,12 @@ function Invoke-ConsolelessProcess([string]$Executable, [string[]]$Arguments) {
         $process.WaitForExit()
         $output = $stdout.GetAwaiter().GetResult()
         $errorOutput = $stderr.GetAwaiter().GetResult()
-        if ($process.ExitCode -ne 0) { throw 'Settings helper failed; inspect local settings and retry.' }
+        if ($process.ExitCode -ne 0) {
+            # The helper prints only its own generic SettingsError text, so the reason is safe to surface.
+            $reason = @($output -split '\r?\n' | Where-Object { $_.Trim() } | Select-Object -Last 1)
+            $detail = if ($reason.Count -eq 1 -and $reason[0].Length -le 300) { ' ' + $reason[0].Trim() } else { '' }
+            throw ('Settings helper failed; inspect local settings and retry.' + $detail)
+        }
         if ($output) { Write-Output $output.TrimEnd("`r", "`n") }
         if ($errorOutput) { Write-Warning $errorOutput.TrimEnd("`r", "`n") }
     } finally {
