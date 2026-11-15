@@ -7,7 +7,7 @@
 local _, ns = ...; ns = _G.GearInsightForever or ns
 
 local page
-local tab                   -- pick / time / route / recipes / camp；第一次打开：有专业 = 时刻表，没有 = 选专业
+local tab                   -- pick / time / route / recipes / camp；第一次打开见 refresh()：有专业（学了的或选了的）= 冲级路线，都没有 = 选专业
 local routeKey              -- 冲级路线 / 配方库选中的专业
 local flt = { range = 0, slot = 1, new = false, mine = false, q = "", src = 1 }   -- 配方库筛选（src = SRC_FILTERS 下标）
 local shortSource   -- 配方出处短句（定义在配方库那段，冲级路线也用）
@@ -146,7 +146,7 @@ local function campLine(key)
     local c = P().Camp(key)[1]
     if not c then return "" end
     -- 游戏里的说明带数值（2% / 8% / 56 点）优先；没有（帐篷）再用我们的一句话
-    return ns.L(c.zh, c.en) .. "：" .. ns.EnSafe((c.tx and c.tx ~= "") and c.tx or c.fn)
+    return ns.L(c.zh, c.en) .. "：" .. ns.TD(ns.EnSafe((c.tx and c.tx ~= "") and c.tx or c.fn))   -- GI-253：设施说明（数据中文）繁体端也转
 end
 
 local function renderPick()
@@ -253,6 +253,8 @@ end
 -- 10-16 用户截图「选中的状态不明显，优化」：选中的保持可点，加金色粗边框 + 金色底光 + 白字
 local SEL = setmetatable({}, { __mode = "k" })
 local function markSel(b, on)
+    -- 11-14 用户截图专业页「按键美化」：按钮换成扁平分段样式（同组队顶上那种），选中 = 暗金底金边金线
+    if rawget(b, "_seg") and ns.SegSelect then ns.SegSelect(b, on); return end
     local box = SEL[b]
     if not box then
         box = {}
@@ -281,10 +283,23 @@ local GATHER_KEYS = { "skinning", "herbalism", "mining" }
 local IS_GATHER = { skinning = true, herbalism = true, mining = true }
 -- 11-12 专业助手（ProfAssist.lua，HOLD 时不在包里）：在的话第二排多一个钓鱼，冲级路线子页改叫「专业助手」
 if ns.ProfAssist then GATHER_KEYS[#GATHER_KEYS + 1] = "fishing"; IS_GATHER.fishing = true end
-local function pickRouteKey(skills)
+-- 11-14 用户「专业快速冲级整理的更加容易找到」：冲级路线默认选哪个专业
+--   ① 角色已经学了的主制造专业（P.CRAFT；没在「选专业」里规划也直接用，玩家不用先去选一遍）
+--   ② 冲级路线页：角色已经学了的采集专业（原来纯采集角色默认落在急救；配方库没有采集专业，不认这一档）
+--   ③ 「选专业」里规划了、还没学的主专业（制造优先，冲级路线页再认采集）
+--   ④ 角色学了的副专业（烹饪 / 急救，按 ROUTE_KEYS 顺序）
+--   ⑤ 都没有 = 急救（谁都能学）
+local function pickRouteKey(skills, gatherOk)
     if routeKey then return end
-    for _, k in ipairs(ROUTE_KEYS) do if skills[k] and P().CRAFT[k] then routeKey = k break end end
-    routeKey = routeKey or "firstaid"
+    skills = skills or {}
+    for _, k in ipairs(ROUTE_KEYS) do if skills[k] and P().CRAFT[k] then routeKey = k return end end
+    if gatherOk then for _, k in ipairs(GATHER_KEYS) do if skills[k] then routeKey = k return end end end
+    local planned = {}
+    for _, k in ipairs((P().Planned and P().Planned()) or {}) do planned[k] = true end
+    for _, k in ipairs(ROUTE_KEYS) do if planned[k] then routeKey = k return end end
+    if gatherOk then for _, k in ipairs(GATHER_KEYS) do if planned[k] then routeKey = k return end end end
+    for _, k in ipairs(ROUTE_KEYS) do if skills[k] then routeKey = k return end end
+    routeKey = "firstaid"
 end
 
 -- 地图名：猎宠数据里有中英文名；没有的几张补上；再没有就问客户端
@@ -359,7 +374,7 @@ ns._ProfUI = { head = head, item = item, icon = icon, zoneName = zoneName, rende
 
 local function renderRoute()
     local skills = P().Skills()
-    pickRouteKey(skills)
+    pickRouteKey(skills, true)
     -- 11-12 专业助手在包里就交给它画（分段 / 只列接下来的 / 合计材料 / 钓鱼 / 烹饪推荐）；不在就还是下面原来的路线
     if ns.ProfAssistRender and ns.ProfAssistRender(routeKey, skills) then return end
     if IS_GATHER[routeKey] then
@@ -667,7 +682,7 @@ local function renderCamp()
                 parts[#parts + 1] = ((s and s.r >= c.sk) and "|cff33ff99" or "|cffc8c8c8") .. ns.L(c.zh, c.en) .. "(" .. c.sk .. ")|r"
             end
             local tip = { P().Name(key) }
-            for _, c in ipairs(tiers) do tip[#tip + 1] = ns.L(c.zh, c.en) .. " " .. c.sk .. ": " .. ns.EnSafe(c.tx) end
+            for _, c in ipairs(tiers) do tip[#tip + 1] = ns.L(c.zh, c.en) .. " " .. c.sk .. ": " .. ns.TD(ns.EnSafe(c.tx)) end
             item(icon(key), P().Name(key) .. (s and ("  |cff888888" .. s.r .. "|r") or ""), table.concat(parts, "  "), tip)
         end
     end
@@ -709,16 +724,20 @@ local TOP = { pick = -98, time = -74, route = -124, recipes = -124, camp = -74 }
 local function refresh()
     if not page or not D() then return end
     -- ⛔ P().Skills() 返回两个值，直接塞进 next() 会把第二个当成 key 报错（10-18 整页空白、按钮全叠在一起）
+    -- 11-14 用户「专业快速冲级整理的更加容易找到」：第一次打开（本次登录还没点过子页）默认落在「冲级路线」（专业助手在包里时叫「专业助手」）——
+    --   原来是「有专业 = 我的时刻表」。角色学了专业、或在「选专业」里规划过 → 冲级路线（专业按 pickRouteKey 挑，角色现有专业优先）；
+    --   两样都没有 → 还是「选专业」（没有可冲的专业，先给建议）。时刻表 / 选专业 / 配方库 / 营地都还在，按钮一个没删，
+    --   外面指定子页（ns.ProfOpenTab("recipes") 等）照旧优先
     if not tab then
         local sk = P().Skills()
-        tab = next(P().PlanSkills(sk)) and "time" or "pick"
+        tab = next(P().PlanSkills(sk)) and "route" or "pick"
     end
     for k, b in pairs(page.tabBtns) do markSel(b, k == tab) end
     page.pickBtn:SetShown(tab == "pick"); page.unpickBtn:SetShown(tab == "pick" and P().Planned() ~= nil)
     local rk = tab == "route" or tab == "recipes"
-    if rk then pickRouteKey(P().Skills()) end
+    if rk then pickRouteKey(P().Skills(), tab == "route") end
     for k, b in pairs(page.routeBtns) do b:SetShown(rk and not (IS_GATHER[k] and tab ~= "route")); markSel(b, k == routeKey) end
-    if tab == "recipes" and IS_GATHER[routeKey] then routeKey = nil; pickRouteKey(P().Skills()); for k, b in pairs(page.routeBtns) do markSel(b, k == routeKey) end end
+    if tab == "recipes" and IS_GATHER[routeKey] then routeKey = nil; pickRouteKey(P().Skills(), false); for k, b in pairs(page.routeBtns) do markSel(b, k == routeKey) end end
     for i, b in ipairs(page.rangeBtns) do b:SetShown(tab == "recipes"); markSel(b, i - 1 == flt.range) end
     page.slotBtn:SetShown(tab == "recipes"); page.slotBtn:SetText(SLOTS[flt.slot][1])
     page.newBtn:SetShown(tab == "recipes"); markSel(page.newBtn, flt.new)
@@ -748,6 +767,13 @@ local function refresh()
 end
 ns.RefreshProfPage = refresh
 
+-- 11-14「按键美化」：页面里的按钮一律扁平分段样式；20 高的筛选行用小一号字（「151-225」这种原来被挤出按钮）
+local function pbtn(parent, text, w, h, onClick)
+    local b = (ns.SegButton or ns.Button)(parent, text, w, h, onClick)
+    if h and h <= 20 and rawget(b, "_segFs") and b._segFs.SetFontObject then b._segFs:SetFontObject("GameFontNormalSmall") end
+    return b
+end
+
 local function build(p)
     page = p
     ns.ProfPage = p   -- 测试用
@@ -756,32 +782,52 @@ local function build(p)
         ns.L("边练级边练专业：选专业、路线上的训练和采集门槛、配方库", "Level your professions while you level: picks, route timeline, recipes"))
     p.tabBtns = {}
     local x = 12
-    for _, t in ipairs({ { "pick", ns.L("选专业", "Choose") }, { "time", ns.L("我的时刻表", "Timeline") }, { "route", ns.ProfAssist and ns.L("专业助手", "Assistant") or ns.L("冲级路线", "Route") },
+    -- 11-14 用户「专业快速冲级整理的更加容易找到」：「冲级路线 / 专业助手」挪到第一个、按钮加宽，左边多一个路线地图小图标 + 悬停说明
+    --   （不管选没选中都比别的显眼；按钮文字本身不加颜色码，别处 / 测试按 text 认这个按钮）；
+    --   其余四个照原顺序排在后面、各窄 6（5 个总宽 132 + 4 × 106 + 间距 = 572，仍在 616 内容区里）。子页一个没删
+    for _, t in ipairs({ { "route", ns.ProfAssist and ns.L("专业助手", "Assistant") or ns.L("冲级路线", "Route"), 132, true },
+        { "pick", ns.L("选专业", "Choose") }, { "time", ns.L("我的时刻表", "Timeline") },
         { "recipes", ns.L("配方库", "Recipes") }, { "camp", ns.L("营地与传承", "Camp & Legacy") } }) do
-        local b = ns.Button(p, t[2], 112, 22, function() tab = t[1]; refresh() end)
-        b:SetPoint("TOPLEFT", x, -42); x = x + 116
+        local w = t[3] or 106
+        local b = pbtn(p, t[2], w, 22, function() tab = t[1]; refresh() end)
+        b:SetPoint("TOPLEFT", x, -42); x = x + w + 4
+        if t[4] then
+            local ic = b:CreateTexture(nil, "OVERLAY")
+            ic:SetSize(16, 16); ic:SetPoint("LEFT", 6, 0)
+            ic:SetTexture("Interface\\Icons\\INV_Misc_Map_01")
+            if ic.SetTexCoord then ic:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+            b._giIcon = ic   -- 测试用
+            b:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+                GameTooltip:AddLine(t[2], 1, 0.82, 0)
+                GameTooltip:AddLine(ns.L("从你现在的技能等级一路冲到 300：每一段做什么、要多少材料、去哪学",
+                    "Your route to 300 from where you are: what to craft, mats needed, where to train"), 1, 1, 1, true)
+                GameTooltip:Show()
+            end)
+            b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end
         p.tabBtns[t[1]] = b
     end
     -- 选专业：按这套规划 / 取消
-    p.pickBtn = ns.Button(p, ns.L("按这套规划", "Plan these"), 120, 22, function()
+    p.pickBtn = pbtn(p, ns.L("按这套规划", "Plan these"), 120, 22, function()
         local list = {}
         for _, k in ipairs(P().PICK) do list[#list + 1] = k end
         P().SetPlanned(list); refresh()
     end)
     p.pickBtn:SetPoint("TOPLEFT", 12, -70)
-    p.unpickBtn = ns.Button(p, ns.L("取消规划", "Clear plan"), 100, 22, function() P().SetPlanned(nil); refresh() end)
+    p.unpickBtn = pbtn(p, ns.L("取消规划", "Clear plan"), 100, 22, function() P().SetPlanned(nil); refresh() end)
     p.unpickBtn:SetPoint("LEFT", p.pickBtn, "RIGHT", 6, 0)
     -- 冲级路线 / 配方库：专业
     p.routeBtns = {}
     x = 12
     for _, k in ipairs(ROUTE_KEYS) do
-        local b = ns.Button(p, P().Name(k), 74, 20, function() routeKey = k; refresh() end)
+        local b = pbtn(p, P().Name(k), 74, 20, function() routeKey = k; refresh() end)
         b:SetPoint("TOPLEFT", x, -70); x = x + 76
         p.routeBtns[k] = b
     end
     x = 12
     for _, k in ipairs(GATHER_KEYS) do
-        local b = ns.Button(p, P().Name(k), 74, 20, function() routeKey = k; refresh() end)
+        local b = pbtn(p, P().Name(k), 74, 20, function() routeKey = k; refresh() end)
         b:SetPoint("TOPLEFT", x, -96); x = x + 76
         p.routeBtns[k] = b
     end
@@ -789,26 +835,26 @@ local function build(p)
     p.rangeBtns = {}
     x = 12
     for i, rg in ipairs(RANGES) do
-        local b = ns.Button(p, rg[3], i == 1 and 40 or 54, 20, function() flt.range = i - 1; refresh() end)
-        b:SetPoint("TOPLEFT", x, -96); x = x + (i == 1 and 42 or 56)
+        local b = pbtn(p, rg[3], i == 1 and 40 or 58, 20, function() flt.range = i - 1; refresh() end)
+        b:SetPoint("TOPLEFT", x, -96); x = x + (i == 1 and 42 or 60)
         p.rangeBtns[i] = b
     end
-    p.slotBtn = ns.Button(p, SLOTS[1][1], 70, 20, function() flt.slot = flt.slot % #SLOTS + 1; refresh() end)
+    p.slotBtn = pbtn(p, SLOTS[1][1], 70, 20, function() flt.slot = flt.slot % #SLOTS + 1; refresh() end)
     p.slotBtn:SetPoint("TOPLEFT", x + 2, -96); x = x + 74
     p.slotBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(ns.L("部位：点一下换下一个", "Slot: click to cycle"), 1, 0.82, 0); GameTooltip:Show()
     end)
     p.slotBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    p.newBtn = ns.Button(p, ns.L("新增", "New"), 46, 20, function() flt.new = not flt.new; refresh() end)
+    p.newBtn = pbtn(p, ns.L("新增", "New"), 46, 20, function() flt.new = not flt.new; refresh() end)
     p.newBtn:SetPoint("TOPLEFT", x, -96); x = x + 48
     p.newBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(ns.L("只看《无限》新增的配方", "Only recipes new in Forever"), 1, 0.82, 0); GameTooltip:Show()
     end)
     p.newBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    p.mineBtn = ns.Button(p, ns.L("我能穿", "Wearable"), 56, 20, function() flt.mine = not flt.mine; refresh() end)
+    p.mineBtn = pbtn(p, ns.L("我能穿", "Wearable"), 56, 20, function() flt.mine = not flt.mine; refresh() end)
     p.mineBtn:SetPoint("TOPLEFT", x, -96); x = x + 58
     -- 10-20 GI-22：按出处筛（商人 / 商人青睐 / 掉落 / 任务 / 声望 / 训练师 / 未记录），点一下换下一个，右键回到全部
-    p.srcBtn = ns.Button(p, SRC_FILTERS[1][1], 76, 20, function() flt.src = (flt.src or 1) % #SRC_FILTERS + 1; refresh() end)
+    p.srcBtn = pbtn(p, SRC_FILTERS[1][1], 76, 20, function() flt.src = (flt.src or 1) % #SRC_FILTERS + 1; refresh() end)
     p.srcBtn:SetPoint("TOPLEFT", x, -96); x = x + 78
     if p.srcBtn.RegisterForClicks then p.srcBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
     local leftClick = p.srcBtn:GetScript("OnClick")
@@ -847,5 +893,6 @@ function ns.ProfOpenTab(t)
     refresh()
 end
 
-ns.RegisterPage({ key = "prof", order = 1.85, title = ns.L("专业", "Professions"), tabTitle = ns.L("专业", "Profs"),
+-- 11-14 order 1.85 → 1.15：专业成了左栏独立一级，排在「升级」(1.1) 后、「装备」(1.2) 前（UI.lua GROUPS）；⛔ 和 ProfStub.lua 的占位页一致
+ns.RegisterPage({ key = "prof", order = 1.15, title = ns.L("专业", "Professions"), tabTitle = ns.L("专业", "Profs"),
     icon = "Interface\\Icons\\Trade_BlackSmithing", hold = true, build = build, refresh = refresh })

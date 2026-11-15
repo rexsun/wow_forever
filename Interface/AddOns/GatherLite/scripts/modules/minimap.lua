@@ -28,7 +28,7 @@ GatherLite.modules[SourceName] = {}
 local source = GatherLite.modules[SourceName]
 
 local MinimapFilter = function(node)
-    if not GatherLite.db.char.minimap.enabled then
+    if not GatherLite.db.profile.minimap.enabled then
         return false
     end
 
@@ -52,7 +52,7 @@ local MinimapFilter = function(node)
 end
 
 local function HideNearbyNode(distance)
-    local settings = GatherLite.db.char.minimap
+    local settings = GatherLite.db.profile.minimap
     return settings.hideNearbyNodes == true and distance < settings.distance
 end
 
@@ -86,6 +86,115 @@ local function ClosestNodes(type, worldX, worldY, instanceID, mapID, zoneX, zone
     return out
 end
 
+-- Ring tint per node type, so the resource kind reads even at small icon sizes.
+local ringColors = {
+    mining = { 1, 0.55, 0.1 },
+    herbalism = { 0.35, 1, 0.35 },
+    containers = { 1, 0.85, 0.2 },
+    fishing = { 0.35, 0.7, 1 },
+}
+local RING_GAP = 1
+local DEFAULT_RING_SIZE = 18
+
+-- Gathering difficulty colours, matching the game's skill-up colours.
+local difficultyColors = {
+    red = { 1, 0.1, 0.1 },
+    orange = { 1, 0.5, 0.25 },
+    yellow = { 1, 1, 0 },
+    green = { 0.25, 0.75, 0.25 },
+    grey = { 0.5, 0.5, 0.5 },
+}
+local professionSkillLines = { mining = 186, herbalism = 182 }
+
+local function ProfessionRank(nodeType)
+    local skillLine = professionSkillLines[nodeType]
+    if not skillLine or not C_SkillInfo or not C_SkillInfo.GetSkillLineInfoByID then return nil end
+    local info = C_SkillInfo.GetSkillLineInfoByID(skillLine)
+    return info and info.rank or 0
+end
+
+-- levels = { orange, yellow, green, grey } minimum skills. Some nodes publish only
+-- the minimum; for those report "can gather" as yellow rather than invent tiers.
+local function DifficultyColor(frame)
+    local levels = frame.object and frame.object.levels
+    if not levels or not levels[1] then return nil end
+    local rank = ProfessionRank(frame.node and frame.node.type)
+    if rank == nil then return nil end
+    if rank < levels[1] then return difficultyColors.red end
+    if #levels < 4 then return difficultyColors.yellow end
+    if rank < levels[2] then return difficultyColors.orange end
+    if rank < levels[3] then return difficultyColors.yellow end
+    if rank < levels[4] then return difficultyColors.green end
+    return difficultyColors.grey
+end
+
+local function RingColor(frame)
+    if GatherLite.db.profile.minimap.ringDifficultyColors == true then
+        local color = DifficultyColor(frame)
+        if color then return color end
+    end
+    return ringColors[frame.node and frame.node.type] or { 1, 1, 1 }
+end
+
+-- Show the parts of a pin that its layout and overlap state allow.
+local function UpdatePinVisibility(frame)
+    if frame.clustered then
+        frame.texture:Hide()
+        frame.ring:Hide()
+    elseif frame.ringLayout then
+        frame.ring:Show()
+        if GatherLite.db.profile.minimap.ringShowIcon ~= false then frame.texture:Show() else frame.texture:Hide() end
+    else
+        frame.texture:Show()
+        frame.ring:Hide()
+    end
+end
+
+local function MinimapViewRadius()
+    local radius = C_Minimap and C_Minimap.GetViewRadius and C_Minimap.GetViewRadius() or 233.333
+    if not radius or radius <= 0 then radius = 233.333 end
+    return radius
+end
+
+local function RingSize()
+    return GatherLite.db.profile.minimap.ringSize or DEFAULT_RING_SIZE
+end
+
+-- Lay out a minimap pin. In ring mode the pin frame (which HereBeDragons centres
+-- on the node) holds a hollow ring, and the resource icon hangs below it.
+local function ApplyMinimapLayout(frame, onEdge)
+    local settings = GatherLite.db.profile.minimap
+    local size = settings.size
+    if onEdge == nil then onEdge = frame.onEdge end
+    frame.onEdge = onEdge
+    frame.ringLayout = settings.ringMarkers == true and not onEdge
+
+    frame.texture:ClearAllPoints()
+    if frame.ringLayout then
+        local ringSize = RingSize()
+        frame:SetSize(ringSize, ringSize)
+        frame.ring:SetTexture(nearbyIcon)
+        local color = RingColor(frame)
+        frame.ring:SetVertexColor(color[1], color[2], color[3], 1)
+        frame.texture:SetSize(size, size)
+        frame.texture:SetPoint("TOP", frame, "BOTTOM", 0, -RING_GAP)
+        frame.texture:SetTexture(frame.object.icon)
+        if settings.ringShowIcon ~= false then
+            -- Stretch the hover area down over the icon so either part shows the tooltip.
+            frame:SetHitRectInsets(0, 0, 0, -(size + RING_GAP))
+        else
+            frame:SetHitRectInsets(0, 0, 0, 0)
+        end
+    else
+        frame:SetSize(size, size)
+        frame.texture:SetAllPoints(frame)
+        frame.texture:SetTexture(frame.nearby and nearbyIcon or frame.object.icon)
+        frame:SetHitRectInsets(0, 0, 0, 0)
+    end
+    UpdatePinVisibility(frame)
+end
+source.ApplyLayout = ApplyMinimapLayout
+
 -- Create minimap node
 local function CreateMinimapNode(node, worldX, worldY, instanceID)
     if not GatherLite:IsLoaded() then
@@ -100,16 +209,16 @@ local function CreateMinimapNode(node, worldX, worldY, instanceID)
     GatherLite:debug(_GatherLite.DEBUG_NODE, "Create node of type", node.type);
 
     local f = Frames:getFrame("minimap");
-    f:SetAlpha(GatherLite.db.char.minimap.opacity);
-    f:SetSize(GatherLite.db.char.minimap.size, GatherLite.db.char.minimap.size)
+    f:SetAlpha(GatherLite.db.profile.minimap.opacity);
 
     local _, distance = HBD:GetWorldVector(instanceID, worldX, worldY, node.worldX, node.worldY)
-    f.nearby = GatherLite.db.char.minimap.nearbyCircles == true
-        and distance and distance < GatherLite.db.char.minimap.distance or false
-    f.texture:SetTexture(f.nearby and nearbyIcon or object.icon)
+    f.nearby = GatherLite.db.profile.minimap.ringMarkers ~= true
+        and GatherLite.db.profile.minimap.nearbyCircles == true
+        and distance and distance < GatherLite.db.profile.minimap.distance or false
     f.node = node;
     f.object = object
     f.type = "minimap";
+    ApplyMinimapLayout(f)
 
     f:SetFrameStrata(Minimap:GetFrameStrata());
     --f:SetFrameLevel(Minimap:GetFrameLevel() + 5);
@@ -121,7 +230,7 @@ local function CreateMinimapNode(node, worldX, worldY, instanceID)
         GatherLite:hideTooltip()
     end)
 
-    Pins:AddMinimapIconWorld(_GatherLite.name, f, node.instance, node.worldX, node.worldY, GatherLite.db.char.minimap.edge)
+    Pins:AddMinimapIconWorld(_GatherLite.name, f, node.instance, node.worldX, node.worldY, GatherLite.db.profile.minimap.edge)
     return f;
 end
 
@@ -140,7 +249,7 @@ local function ResetMinimap()
 end
 
 local function createNodeThread(type)
-    if not GatherLite.db.char.minimap.enabled or not GatherLite:GetNodeTracking("minimap", type)
+    if not GatherLite.db.profile.minimap.enabled or not GatherLite:GetNodeTracking("minimap", type)
         or IsInInstance() then return end
     local worldX, worldY, instanceID, zoneX, zoneY, mapID = GetPlayerLocation()
 
@@ -148,7 +257,7 @@ local function createNodeThread(type)
         return
     end
     local t = ClosestNodes(type, worldX, worldY, instanceID, mapID, zoneX, zoneY,
-        GatherLite.db.char.minimap.range, MinimapFilter);
+        GatherLite.db.profile.minimap.range, MinimapFilter);
 
     for i = 1, #t do
         local node = t[i]
@@ -201,15 +310,18 @@ local function UpdateMinimapIcons(x, y, instanceID)
                 local _
                 _, distance = HBD:GetWorldVector(instanceID, x, y, node.worldX, node.worldY)
             end
-            if inInstance or not distance or distance >= GatherLite.db.char.minimap.range
+            if inInstance or not distance or distance >= GatherLite.db.profile.minimap.range
                 or not MinimapFilter(node) or HideNearbyNode(distance) then
                 frame:Unload()
             else
-                local nearby = GatherLite.db.char.minimap.nearbyCircles == true
-                    and distance < GatherLite.db.char.minimap.distance
-                if frame.nearby ~= nearby then
+                local nearby = GatherLite.db.profile.minimap.ringMarkers ~= true
+                    and GatherLite.db.profile.minimap.nearbyCircles == true
+                    and distance < GatherLite.db.profile.minimap.distance
+                -- Use the library's placement, which accounts for minimap shape and rotation.
+                local onEdge = GatherLite.db.profile.minimap.edge == true and Pins:IsMinimapIconOnEdge(frame) == true
+                if frame.nearby ~= nearby or frame.onEdge ~= onEdge then
                     frame.nearby = nearby
-                    frame.texture:SetTexture(nearby and nearbyIcon or frame.object.icon)
+                    ApplyMinimapLayout(frame, onEdge)
                 end
                 visible[#visible + 1] = {frame=frame, distance=distance}
             end
@@ -222,10 +334,12 @@ local function UpdateMinimapIcons(x, y, instanceID)
     table.sort(visible,function(a,b)
         return a.distance < b.distance or (a.distance == b.distance and a.frame.frameId < b.frame.frameId)
     end)
-    local radius=C_Minimap and C_Minimap.GetViewRadius and C_Minimap.GetViewRadius() or 233.333
-    if radius<=0 then radius=233.333 end
+    local radius=MinimapViewRadius()
     if Minimap:GetWidth()<=0 then return end
-    local spacing=2 * radius * (GatherLite.db.char.minimap.size + 2) / Minimap:GetWidth()
+    -- Ring markers are taller (ring plus icon below), so give them more room.
+    local footprint=GatherLite.db.profile.minimap.size
+    if GatherLite.db.profile.minimap.ringMarkers == true then footprint=math.max(footprint, RingSize()) end
+    local spacing=2 * radius * (footprint + 2) / Minimap:GetWidth()
     local cells={}
     for _,entry in ipairs(visible) do
         local frame=entry.frame
@@ -242,11 +356,11 @@ local function UpdateMinimapIcons(x, y, instanceID)
             end
         end
         frame:SetMouseMotionEnabled(not overlap)
+        frame.clustered = overlap and true or false
+        UpdatePinVisibility(frame)
         if overlap then
-            frame.texture:Hide()
             overlap.clusterNodes[#overlap.clusterNodes+1]=frame.node
         else
-            frame.texture:Show()
             local key=cx..":"..cy
             cells[key]=cells[key] or {}
             if frame:IsShown() then cells[key][#cells[key]+1]=frame end
@@ -355,7 +469,7 @@ source.setup = function()
         GatherLite:EnsureNodeWorld(node)
         if node.instance ~= instanceID or not node.worldX or not node.worldY then return end
         local _, distance = HBD:GetWorldVector(instanceID, worldX, worldY, node.worldX, node.worldY)
-        if not distance or distance >= GatherLite.db.char.minimap.range or HideNearbyNode(distance) then return end
+        if not distance or distance >= GatherLite.db.profile.minimap.range or HideNearbyNode(distance) then return end
         node.loaded = CreateMinimapNode(node, worldX, worldY, instanceID) ~= nil
         -- Recluster visible icons, retaining the existing discovery workers and timers.
         if node.loaded then UpdateMinimapIcons(worldX, worldY, instanceID) end
@@ -364,6 +478,15 @@ source.setup = function()
     local frame = CreateFrame("Frame")
     frame:SetScript("OnUpdate", function(self, elapsed)
         Update(elapsed)
+    end)
+    -- Recolour difficulty rings as gathering skill rises.
+    frame:RegisterEvent("SKILL_LINES_CHANGED")
+    frame:SetScript("OnEvent", function()
+        local settings = GatherLite.db.profile.minimap
+        if settings.ringMarkers ~= true or settings.ringDifficultyColors ~= true then return end
+        for _, pin in pairs(Frames.usedFrames) do
+            if pin.type == "minimap" then ApplyMinimapLayout(pin) end
+        end
     end)
 
     GatherLite:On("settings:update", function()

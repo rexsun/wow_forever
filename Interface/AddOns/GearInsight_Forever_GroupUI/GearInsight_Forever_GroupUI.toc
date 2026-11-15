@@ -4,7 +4,7 @@
 ## Notes: GearInsight Forever group window (loads when you open the Group tab)
 ## Notes-zhCN: GearInsight 无限版的组队窗口（任务组队列表 / 副本组队）：点右侧「组队」页签时才加载
 ## Author: GearInsight
-## Version: 1.1.4
+## Version: 1.2.3
 ## Dependencies: GearInsight_Forever, GearInsight_Forever_Group
 ## LoadOnDemand: 1
 ## IconTexture: Interface\Icons\inv_misc_map_01
@@ -14,3 +14,6 @@
 QuestMatesUI.lua
 # 11-13 招人顺带挂集合石（HOLD）：排在 DungeonChat.lua 前面，招人页一建好就有 ns.LfgListAuto
 DungeonChat.lua
+# 11-15 招人读取集合石散人（HOLD）：排在 DungeonChat.lua 后面（要 ns.DungeonChat 的面板函数）
+LfgSolo.lua
+# 11-14 BIS 撞装「队伍装备」子页签（HOLD）

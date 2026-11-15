@@ -483,9 +483,9 @@ function ns.ProfRenderRow(r, it, suffix)
     elseif it.sub == "camp" then
         local c = it.camp
         r.t:SetText(head .. P.Name(it.key) .. " " .. c.sk .. ns.L(" 点学营地设施：", ": camp object ") .. ns.L(c.zh, c.en))
-        r.s:SetText(ns.EnSafe(c.fn ~= "" and c.fn or c.tx))
+        r.s:SetText(ns.TD(ns.EnSafe(c.fn ~= "" and c.fn or c.tx)))   -- GI-253
         local fire = (D().camp.fires or {})[1]
-        lines = { ns.L(c.zh, c.en), ns.EnSafe(c.tx), ns.L("需要附近有营火；所有营地设施共享 1 小时冷却", "Needs a campfire; all camp objects share a 1 h cooldown"),
+        lines = { ns.L(c.zh, c.en), ns.TD(ns.EnSafe(c.tx)), ns.L("需要附近有营火；所有营地设施共享 1 小时冷却", "Needs a campfire; all camp objects share a 1 h cooldown"),
             (fire and fire.tool) and (ns.L("点营火要带 ", "A campfire needs ") .. ns.L(fire.tool, fire.toolEn) .. (fire.mat and (" + " .. ns.L(fire.mat, fire.matEn)) or "")) or nil }
     elseif it.sub == "legacy" then
         -- 10-18 用户截图「有点歧义」：「现在 1」像是已有 1 点传承、「可领」像要去哪领 → 写清楚是技能数、怎么给

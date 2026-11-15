@@ -318,7 +318,9 @@ function V:Modal(title, height)
     G:SetTextColorKey(m.notice,"color.state.error")
     if m.copyInput then m.copyInput:Hide() end
     if m.copyManifest then m.copyManifest:Hide() end
+    if m.cleanManifest then m.cleanManifest:Hide() end
     m.manifestText=nil
+    m.manifestProfile,m.manifestMissing=nil,nil
     m.body:SetWidth(394)
     m.cancel:Show(); m.accept=function() return true end
     if m.ruleFields then m.ruleFields:Hide() end
@@ -396,7 +398,7 @@ function V:Manifest()
     local profile=R.db.profiles[R.editing]
     local m=self:Modal(L.manifest.." · "..profile.name,400)
     local colors={"color.state.error","color.state.warning","color.text.primary","color.state.success"}
-    local lines,plain={},{}
+    local lines,plain,missing={},{},{}
     local records, current=A.Client.Scan()
     if not records then R:Error(current); return end
     local installed=M.Index(records)
@@ -404,8 +406,10 @@ function V:Manifest()
         local r,g,b=G:GetColor(colors[entry.rank])
         lines[#lines+1]=string.format("|cff%02x%02x%02x%s|r",math.floor(r*255),math.floor(g*255),math.floor(b*255),entry.title)
         plain[#plain+1]=entry.title
+        if entry.rank==1 then missing[#missing+1]=entry.name end
     end
     m.manifestText=table.concat(plain,"\n")
+    m.manifestProfile,m.manifestMissing=R.editing,missing
     m.body:SetText(#lines>0 and table.concat(lines,"\n") or L.empty)
     m.body:SetHeight(0)
     m.body:SetHeight(math.max(24,m.body:GetStringHeight()+8)); m.bodyScroll.child:SetHeight(m.body:GetHeight())
@@ -415,7 +419,21 @@ function V:Manifest()
         m.copyManifest:ClearAllPoints(); m.copyManifest:SetPoint("BOTTOMLEFT",18,16)
     end
     m.copyManifest:SetDisabled(#plain==0); m.copyManifest:Show()
+    if not m.cleanManifest then
+        m.cleanManifest=button(m,L["manifest.clean"],154,-358,176,function() self:CleanManifest() end,nil,"warning")
+        m.cleanManifest:ClearAllPoints(); m.cleanManifest:SetPoint("BOTTOMLEFT",154,16)
+    end
+    m.cleanManifest:SetDisabled(#missing==0); m.cleanManifest:Show()
     m.cancel:Hide(); m.ok:SetText(L.close); m.accept=function() return true end
+end
+
+function V:CleanManifest()
+    local m=self.modal
+    local id,names=m.manifestProfile,m.manifestMissing
+    local profile=id and R.db.profiles[id]
+    if not profile or not names or #names==0 then return end
+    local message=string.format(L["manifest.cleanHint"],profile.name,#names).."\n\n"..table.concat(names,"\n")
+    self:Confirm(L["manifest.clean"],message,function() return R:RemoveMissingAddons(id,names) end)
 end
 
 function V:CopyManifest()
@@ -1124,6 +1142,9 @@ function V:NewRow()
     row.name:SetScript("OnEnter", function(owner)
         local record = row.item.record
         local lines = { record.name, record.notes, record.author }
+        if not R.draft[record.name] and (row.moduleCount or 0)>0 then
+            lines[#lines+1]=string.format(L["group.parentOffHint"],row.moduleCount)
+        end
         if #record.deps > 0 then lines[#lines+1] = L.dependencies .. ": " .. table.concat(record.deps, ", ") end
         if self.unloadable and self.unloadable[record.name] then
             for _,line in ipairs(self:DependencyDetails(record)) do lines[#lines+1]=line end
@@ -1243,11 +1264,12 @@ function V:RenderRows(viewportOnly)
             end
             row.icon:SetShown(item.record.icon~=nil or item.record.iconAtlas~=nil)
             local moduleCount=enabled-(R.draft[item.name] and 1 or 0)
+            row.moduleCount=moduleCount
             local suffix = #item.children>0 and ("  ("..moduleCount.."/"..(#item.members-1)..")") or ""
-            local checked=R.draft[item.name]==true
-            local title=(issue or not checked) and item.record.title or (item.record.displayTitle or item.record.title)
+            local active=enabled>0
+            local title=(issue or not active) and item.record.title or (item.record.displayTitle or item.record.title)
             row.title:SetText(title.."|r"..suffix..(new and newSuffix or ""))
-            G:SetTextColorKey(row.title,issue and "color.state.error" or checked and "color.text.primary" or "color.text.disabled")
+            G:SetTextColorKey(row.title,issue and "color.state.error" or active and "color.text.primary" or "color.text.disabled")
             row.tags:ClearAllPoints(); row.tags:SetPoint("LEFT",positions.tags,0)
             row.tags:SetWidth(positions.cpu-positions.tags-12)
             local tagX=0; local chipWidths={}
@@ -1719,7 +1741,9 @@ function V:Refresh(stateOnly)
             b.label:SetText(L["column."..key]..(R.sortKey==key and (R.descending and " ↓" or " ↑") or ""))
             b:SetWidth(key=="enabled" and 38 or key=="name" and 104 or key=="tags" and positions.cpu-positions.tags-12 or key=="cpu" and 110 or 132)
         end
-        self.save:SetDisabled(not R:Unsaved())
+        local hasNew=false
+        for _,record in ipairs(R.records) do if not R.db.seen[record.name] then hasNew=true; break end end
+        self.save:SetDisabled(not R:Unsaved() and not hasNew)
         self.restoreSaved:SetDisabled(not R:Unsaved())
         self.deleteProfile:SetDisabled(#R:ProfileOptions()<2)
         local editing=R.db.profiles[R.editing]

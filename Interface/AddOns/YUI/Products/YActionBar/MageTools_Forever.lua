@@ -262,7 +262,7 @@ function Mage:RefreshBuffTimerStyle(button)
         return
     end
     if not self.nativeTimersReady then return end
-    local style = YAB.Visuals:CaptureStatusTimerStyle(button)
+    local style = YAB.Visuals:CaptureStatusTimerStyle(button, true)
     if not style then return end
     local same = entry.auraDisplay ~= nil and entry.timerStyle ~= nil
     if same then
@@ -498,6 +498,9 @@ function Mage:Refresh(record)
         local aura = self.auras and self.auras[key]
         local known = self.aurasReady == true and not (self.auraUnavailable and self.auraUnavailable[key])
         state.missingBuff = key ~= "scroll" and known and aura == nil
+        -- The native colour layer follows restricted presence without exposing
+        -- it to Lua. Its ordinary fallback must stay grey even in combat.
+        state.auraIconOverlay = entry.auraDisplay ~= nil and entry.timerStyle ~= nil and entry.timerStyle.iconLevel ~= nil
         state.hasAction, state.texture = true, aura and aura.icon or entry.texture
         state.usable = key ~= "scroll" or inventory.eligible > 0 or #inventory.decoded > 0
         state.count = key == "scroll" and inventory.eligible or nil

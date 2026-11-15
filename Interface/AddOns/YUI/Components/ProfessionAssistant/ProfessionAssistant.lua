@@ -314,6 +314,16 @@ local Feature = { id = KEY, name = L["name"], description = L["description"], de
     modSwitchImage = "modswitch\\professionassistant-bg.png", modSwitchImageCrop = false,
     toolboxManaged = true, settingsMode = "inline",
     callback = function(enabled) if enabled then YUI.Module:Enable(MODULE) else YUI.Module:Disable(MODULE) end end }
+-- Optional entry points use the same runtime and learned-spell gates as bag entries.
+YUI.ProfessionAssistant = Feature
+function Feature:IsAvailable()
+    return active and API.Known() == true
+end
+function Feature:Open()
+    if not self:IsAvailable() or API.InCombat() then return false end
+    Open()
+    return true
+end
 function Feature:GetOptions()
     local options = {
         { type = "button", label = L["enchanting"], width = 180, onClick = Open },

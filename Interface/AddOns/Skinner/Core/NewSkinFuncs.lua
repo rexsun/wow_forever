@@ -57,8 +57,8 @@ local function setScrollTrackOffsets(tbl, type)
 			tbl.y1 = _G.rawget(tbl, "y1") or -1
 			tbl.y2 = _G.rawget(tbl, "y2") or 1
 		elseif w == 25 then -- EditModeImportLayout ScrollFrame or Classic CommunitiesGuildLogFrame
-			tbl.x1 = _G.rawget(tbl, "x1") or not aObj.isMnln and 2 or 0
-			tbl.x2 = _G.rawget(tbl, "x2") or not aObj.isMnln and 4 or 0
+			tbl.x1 = _G.rawget(tbl, "x1") or not aObj.isMorF and 2 or 0
+			tbl.x2 = _G.rawget(tbl, "x2") or not aObj.isMorF and 4 or 0
 		end
 		tbl.y1 = _G.rawget(tbl, "y1") or 0
 		tbl.y2 = _G.rawget(tbl, "y2") or 0
@@ -351,10 +351,6 @@ local function applySkin(tbl)
 		else
 			aObj:clrFrameBdr(tbl.obj:GetParent(), tbl.bbclr, tbl.bba)
 		end
-	end
-	if tbl.bbclr then
-		tbl.obj.clr = tbl.bbclr
-		tbl.obj.ca = tbl.bba
 	end
 	if not tbl.ng then
 		aObj:applyGradient(tbl.obj, tbl.fh, tbl.invert, tbl.rotate)
@@ -758,11 +754,8 @@ local function skinFrame(tbl)
 	end
 	-- add hook to change border colour when disabled/enabled
 	if tbl.sechk then
-		-- save colour info on object
-		tbl.obj.sf.clr = tbl.clr
-		tbl.obj.sf.ca = tbl.ca
 		aObj:SecureHook(tbl.obj, "SetEnabled", function(fObj)
-			aObj:clrFrameBdr(fObj, fObj.sf.clr, fObj.sf.ca)
+			aObj:clrFrameBdr(fObj, tbl.clr, tbl.ca)
 		end)
 	end
 	-- setup Frame Border options
@@ -837,8 +830,8 @@ local function skinMoneyFrame(tbl)
 	end
 
 	aObj:skinObject("editbox", {obj=tbl.obj.gold, fType=tbl.fType})
-	aObj:skinObject("editbox", {obj=tbl.obj.silver, fType=tbl.fType, chginset=false, x1=-4, x2=-8})
-	aObj:skinObject("editbox", {obj=tbl.obj.copper, fType=tbl.fType, chginset=false, x1=-4, x2=-8})
+	aObj:skinObject("editbox", {obj=tbl.obj.silver, fType=tbl.fType, chginset=false, x1=-4})
+	aObj:skinObject("editbox", {obj=tbl.obj.copper, fType=tbl.fType, chginset=false, x1=-4})
 end
 skinFuncs.moneyframe = function(table) skinMoneyFrame(table) end
 local function skinProgressBar(tbl)
@@ -1379,6 +1372,19 @@ function aObj:skinStatusTrackingBars(container)
 end
 
 if aObj.isMorF then
+	function aObj:skinRewardTrackFrameElements(frame, ftype)
+		if not frame.elementPool then -- bugfix #289
+			return
+		end
+		for element in frame.elementPool:EnumerateActive() do
+			element.RewardCardBG:SetTexture(nil)
+			self:changeTex2Black(element, {"LevelSquare"})
+			element.LevelSquare:SetSize(18, 18)
+			self:skinObject("frame", {obj=element, fType=ftype, fb=true, ofs=-4, x2=-5, y2=5, clr="brownish"})
+		end
+
+	end
+
 	function aObj:skinTabSettingsMenu(frame, ftype)
 
 		self:SecureHookScript(frame.TabSettingsMenu, "OnShow", function(fObj)
@@ -1400,18 +1406,13 @@ if aObj.isMorF then
 
 	end
 
-	function aObj:skinRewardTrackFrameElements(frame, ftype)
-		if not frame.elementPool then -- bugfix #289
-			return
-		end
-		for element in frame.elementPool:EnumerateActive() do
-			element.RewardCardBG:SetTexture(nil)
-			self:changeTex2Black(element, {"LevelSquare"})
-			element.LevelSquare:SetSize(18, 18)
-			self:skinObject("frame", {obj=element, fType=ftype, fb=true, ofs=-4, x2=-5, y2=5, clr="brownish"})
-		end
+	function aObj.skinTutorialFrame(_, frame, ftype)
+
+		frame:DisableDrawLayer("BORDER") -- hide NineSlice UniqueCornersLayout
+		aObj:skinObject("frame", {obj=frame, fType=ftype, ofs=-30})
 
 	end
+
 end
 
 -- the following code has been moved from Skinner.lua OnEnable function

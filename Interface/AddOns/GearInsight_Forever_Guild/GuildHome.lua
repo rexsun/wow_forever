@@ -44,6 +44,34 @@ local function store()
 end
 GH.Store = store
 
+-- 11-15 本公会 YY 频道号（用户「yy91162686纳入GINS和gi」「gi注意看哪个公会」）：只给自己所在、对得上的公会显示
+--   判据：公会名（不分大小写）+ 阵营 都对上（本插件只跑《无限》，游戏固定 forever）
+--   数据：① GuildInsight 公会助手的同步包 GuildInsightSync.guild.yy（服务端从网站 gi_guild_recruit.yy 取，只发给本公会成员）
+--         ② 兜底 VOICE：网站库 gi_guild_recruit 里用户自己的公会 Gearinsight（id 11，无限·联盟，会长 克拉克.孔明）登记的 yy
+--   ⛔ 公开招募列表（GuildRecruit.lua 快照）照旧不带联系方式
+local VOICE = { { name = "gearinsight", game = "forever", faction = "Alliance", yy = "91162686" } }
+local FAC_KEY = { Alliance = "Alliance", Horde = "Horde", alliance = "Alliance", horde = "Horde", ["联盟"] = "Alliance", ["部落"] = "Horde" }
+local function yyNum(v) v = tostring(v or ""):gsub("%D", ""); return (#v >= 4 and #v <= 12) and v or nil end
+function GH.Voice()
+    if not inGuild() then return nil end
+    local g = guildName()
+    if not g then return nil end
+    local key = g:lower()
+    local fac = UnitFactionGroup and UnitFactionGroup("player") or ""
+    if type(fac) ~= "string" or secret(fac) then fac = "" end
+    local function match(name, game, faction)
+        return tostring(name or ""):lower() == key and (game or "forever") == "forever"
+            and FAC_KEY[faction or ""] ~= nil and FAC_KEY[faction] == fac
+    end
+    local d = rawget(_G, "GuildInsightSync")
+    local sg = type(d) == "table" and type(d.guild) == "table" and d.guild or nil
+    if sg and yyNum(sg.yy) and match(sg.name, sg.game, sg.faction) then return yyNum(sg.yy) end
+    for _, e in ipairs(VOICE) do
+        if match(e.name, e.game, e.faction) then return e.yy end
+    end
+    return nil
+end
+
 -- ---------- 我的专业 → 编码 ----------
 function GH.MySkills()
     if not (ns.Prof and ns.Prof.Skills) then return {} end
@@ -274,6 +302,13 @@ local function build(host)
         GH.Render()
     end)
     d.refresh:SetPoint("BOTTOMRIGHT", -12, 10)
+    -- 11-15 本公会 YY（GH.Voice：只在对得上的公会显示），刷新按钮左边；点一下弹复制框
+    d.yy = ns.Button(d, "", 150, 22, function(self)
+        if not d.yyNum then return end
+        if ns.W and ns.W.Copy then ns.W.Copy(d.yyNum, L("公会 YY 频道号（Ctrl+C 复制，到 YY 里搜）", "Guild YY channel (Ctrl+C, then search in YY)"))
+        else ns.Print(L("公会 YY：", "Guild YY: ") .. d.yyNum) end
+    end)
+    d.yy:SetPoint("RIGHT", d.refresh, "LEFT", -6, 0); d.yy:Hide()
     d.open = {}
     d:Hide()
     return d
@@ -337,9 +372,16 @@ function GH.Render()
         d.sub:SetText(L("你还没有公会。加入公会后，这里会列出会员的专业和等级；想找公会点左边「公会招募」。",
             "You're not in a guild. Once you join, members' professions show up here; see Guild recruitment on the left."))
         d.note:SetText("")
+        d.yyNum = nil; if d.yy then d.yy:Hide() end
         return
     end
     d.title:SetText(L("本公会", "My guild") .. "  |cffffd100" .. g .. "|r")
+    local yy = GH.Voice()
+    d.yyNum = yy
+    if d.yy then
+        d.yy:SetText(yy and (L("公会 YY：", "Guild YY: ") .. yy) or ""); d.yy:SetShown(yy ~= nil)
+        d.note:SetPoint("RIGHT", yy and -266 or -110, 0)
+    end
     local list, official, nSync = GH.Collect()
     d.sub:SetText(L("各专业有谁、多少级；点专业展开全部会员", "Who has which profession and at what skill; click a profession to see everyone"))
     if official then

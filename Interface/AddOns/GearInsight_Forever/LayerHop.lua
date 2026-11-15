@@ -27,6 +27,9 @@ LH.FRESH = 300            -- 秒：报告多新算满分
 LH.RATIO = 1.5
 LH.HELP_MAX, LH.HELP_WIN = 5, 600
 LH.ACCEPT_WIN = 30        -- 秒：发起后多久内接受帮手的邀请
+LH.POP_DELAY = 3          -- 秒：要弹框问的帮手晚这么久再弹（11-14 自动帮忙的人 0~1.5 秒就认领，弹框的这边别闪一下就没）
+LH.CLAIMED_LINGER = 4     -- 秒：框弹着时被别人认领，「XX 已经在拉他了」留多久再收
+LH.POP_LIVE = 90          -- 秒：帮手这边「XX 想换到你这层」框留多久（11-14 用户「让我组的窗口太短暂了」：30 → 90；对方到了别处 / 被别人认领就提前收）
 LH.CHAIN_MAX = 3          -- 11-10 用户「这里如果一个人没接，会自动换一个人？」「自动换人要做啊」：点名请人 30 秒没邀请 → 自动换下一位，一轮最多请几个人
 LH.SAME_AFTER = 45        -- 秒：进队这么久后亲眼读到的还是原来那层 → 判「没换成」
 LH.JOIN_WIN = 300         -- 秒：进队后这么久内层码变了都算到了（中途读不到怪就一直等，指一下怪就出结果）
@@ -324,8 +327,22 @@ local function toName(n) return (tostring(n or ""):gsub("%-.*$", ""):match("^(%S
 
 -- 11-08 用户「点了以后毫无反馈？」「我到底切换了没」：30 秒没人邀请 → 请求作废时屏幕中间提示 + 页面状态行写结果（以前静默作废）
 LH.last = nil             -- { ok = bool, text, t }
-function LH.SetResult(ok, text)
-    LH.last = { ok = ok, text = text, t = now() }
+-- 11-14 用户截图：页面「换层成功：… 第 11 层」、顶上「已经换过来了：… 第 12 层（层码 0049）」—— 第几层是插件按发现先后编的号，
+--   之后又发现新层编号就挪了，页面那句还是当时写死的字。→ 可以带 { m, z, tpl }：显示时按当前编号重算（LH.LastText），再带上层码
+function LH.LastText()
+    local l = LH.last
+    if not l then return nil end
+    if l.tpl and l.m and l.z and LY.LayerName then
+        local okN, name = pcall(LY.LayerName, l.m, l.z)
+        if okN and type(name) == "string" then
+            local code = LY.Tail and select(2, pcall(LY.Tail, l.z))
+            return string.format(l.tpl, name .. ((type(code) == "string" and code ~= "") and (L("（层码 ", " (") .. code .. L("）", ")")) or ""))
+        end
+    end
+    return l.text
+end
+function LH.SetResult(ok, text, m, z, tpl)
+    LH.last = { ok = ok, text = text, t = now(), m = m, z = z, tpl = tpl }
     LY.Flash(text, ok and 0.2 or 1, ok and 1 or 0.45, ok and 0.6 or 0.35)
     LY.dirty = true
 end
@@ -439,6 +456,7 @@ local function chainAsk(ch)
         if any then ok, why = LH.RequestAny(who) else ok, why = LH.RequestFrom(who) end
         if ok then
             ch.n = ch.n + 1
+            ch.asked = ch.asked or {}; ch.asked[who] = true   -- 11-14：真问过的（tried 里还混着「刚拉过我、直接跳过」的）
             if LH.pending then LH.pending.chain = ch end
             return who
         end
@@ -543,6 +561,12 @@ end
 LY.AddAcceptRule(function(s)
     local p = LH.pending
     if not p or now() - p.t > LH.ACCEPT_WIN then return nil end
+    -- 11-14：帮手框留到 90 秒 → 本轮自动换人前面问过、当时没点的，晚点了邀请也接（他点的就是我这一轮的求助）
+    if p.chain and p.chain.asked then
+        for nm in pairs(p.chain.asked) do
+            if sameName(nm, s) then return L("换层帮手", "layer helper") end
+        end
+    end
     if p.helper then return sameName(p.helper, s) and L("换层帮手", "layer helper") or nil end
     local peer = LY.peers[s]
     if not (peer and peer.m == p.m and peer.hp and peer.z) then return nil end
@@ -617,8 +641,9 @@ LY.OnChange(function(_, new, map)
     local left = leaveIfAuto(true)
     ns.Print(string.format(L("%s 把你拉到了 %s%s", "%s pulled you to %s%s"), who, where,
         left and L("，已自动退队（右侧『位面』页签可关）", "; left the group automatically (turn off in the Layers tab)") or "") .. note)
-    LH.SetResult(true, string.format(L("换层成功：%s 把你拉到了 %s", "Moved: %s pulled you to %s"), who, where) .. (left and L("，已自动退队", ", left group") or "")
-        .. (inferred and L("（按他报的层算）", " (per his report)") or ""))
+    local tail = (left and L("，已自动退队", ", left group") or "") .. (inferred and L("（按他报的层算）", " (per his report)") or "")
+    local tpl = string.format(L("换层成功：%s 把你拉到了 ", "Moved: %s pulled you to "), tostring(who):gsub("%%", "%%%%")) .. "%s" .. tail:gsub("%%", "%%%%")
+    LH.SetResult(true, string.format(L("换层成功：%s 把你拉到了 %s", "Moved: %s pulled you to %s"), who, where) .. tail, map, new, tpl)
 end)
 
 -- 11-12 按队长推断的「到了」之后又亲眼读到怪：回到原来那层 = 其实没换成；到了别的层 = 以亲眼的为准
@@ -876,17 +901,30 @@ LY.handlers.R = function(t, s, via, sender)
     end
     LY.Log("收到求助 from=" .. tostring(s) .. " via=" .. tostring(via) .. (t.to and " 点名我" or "") .. (any and " 别图" or "") .. " 能帮=" .. tostring(can))
     local delay = math.random() * 1.5   -- 抢答：多个帮手随机错开，先邀请的人认领，其他人的自动取消
-    LH.popups[t.n] = { from = s, full = sender, q = tonumber(t.q), t = now() + delay, any = any }
     local fn = (can and LH.AutoHelpOK(s, via)) and LH.AutoInvite or LH.ShowPopup
+    -- 11-14 群友「请求位面切换的那个弹窗怎么每次才停留一两秒」：公会里开了自动帮忙的人 0~1.5 秒就认领（C 回执）→ 弹框的人这边刚弹出来就被收掉。
+    --   要弹框问的晚 LH.POP_DELAY 秒再弹：这期间已经有人认领 = 根本不弹（不闪一下）；弹出来以后再被认领见下面 C 的处理
+    if fn == LH.ShowPopup then delay = LH.POP_DELAY + delay end
+    LH.popups[t.n] = { from = s, full = sender, q = tonumber(t.q), t = now() + delay, any = any }
     if C_Timer and C_Timer.After then C_Timer.After(delay, function() fn(t.n) end) else fn(t.n) end
 end
 LY.handlers.C = function(t, s, via)
     if (via ~= "pub" and via ~= "guild" and via ~= "whisper") or not t.n then return end
-    if LH.popups[t.n] and t.h ~= me() then LH.popups[t.n] = nil; LH.HidePopup(t.n) end
+    if LH.popups[t.n] and t.h ~= me() then
+        LH.popups[t.n] = nil
+        -- 11-14：框已经弹出来了才被别人认领 → 不一下子消失（看着像「只停一两秒」），改成写明谁在拉、停几秒再收
+        if not LH.ClaimedPopup(t.n, s or t.h) then LH.HidePopup(t.n) end
+    end
     if LH.pending and LH.pending.n == t.n and not LH.pending.helper then LH.pending.helper = s or t.h end   -- 11-09：s 带姓，t.h 可能只有名
 end
-LY.handlers.D = function(t)
+LY.handlers.D = function(t, s)
     if t.n and LH.popups[t.n] then LH.popups[t.n] = nil; LH.HidePopup(t.n) end
+    -- 11-14 框留 90 秒后：他换了一个人求（新的 n）、被那人拉到了 → 我这边旧的框也收掉，别留着让我白邀请
+    if s then
+        for k, q in pairs(LH.popups) do
+            if q.from and sameName(q.from, s) then LH.popups[k] = nil; LH.HidePopup(k) end
+        end
+    end
     local who = t.n and LH.myInvites and LH.myInvites[t.n]
     if who then
         LH.myInvites[t.n] = nil
@@ -946,14 +984,43 @@ function LH.ShowPopup(n)
         pop.yes:SetPoint("RIGHT", pop.no, "LEFT", -4, 0)
     end
     pop.n = n
+    pop.yes:Show(); pop.no:Show(); pop.mute:Show()   -- 上一个框被认领时收起过
     local qn = p.q and C_QuestLog and C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(p.q)
-    pop.text:SetText(ns.EnSafe(string.format(L("%s 想换到你这层%s", "%s wants to switch to your layer%s"), p.from,
-        (type(qn) == "string" and not ns.Secret(qn)) and ("（在做【" .. qn .. "】）") or "")))
+    local base = ns.EnSafe(string.format(L("%s 想换到你这层%s", "%s wants to switch to your layer%s"), p.from,
+        (type(qn) == "string" and not ns.Secret(qn)) and ("（在做【" .. qn .. "】）") or ""))
+    -- 11-14 用户「切位面的（询问我）太短暂了，几秒钟就消失了」：原来 10 秒就关 → 30 秒；同日又说「让我组的窗口太短暂了」→ LH.POP_LIVE = 90 秒
+    --   （对方 30 秒后会自动换人，但会长 / 官员 / 本轮问过的人晚点的邀请新版照样自动接；他到了别处 = D 回执把框收掉）。原注释：留到对方还肯接邀请的时候（LH.ACCEPT_WIN = 30 秒，
+    --   过了他那边会自动换下一个人，再拉也白拉），行尾倒计时「还剩 N 秒」
+    local untilT = now() + LH.POP_LIVE
+    local function paint()
+        local left = math.max(0, math.ceil(untilT - now()))
+        pop.text:SetText(base .. "  |cff888888" .. string.format(L("（还剩 %d 秒）", "(%ds left)"), left) .. "|r")
+    end
+    paint()
+    pop.untilT, pop.tick = untilT, 0
+    pop:SetScript("OnUpdate", function(self, el)
+        self.tick = (self.tick or 0) + (el or 0)
+        if self.tick < 1 then return end
+        self.tick = 0
+        if pop.n ~= n then return end
+        paint()
+    end)
     pop:Show()
     local my = n
-    if C_Timer and C_Timer.After then C_Timer.After(10, function() if pop.n == my then pop:Hide(); LH.popups[my] = nil end end) end
+    if C_Timer and C_Timer.After then C_Timer.After(LH.POP_LIVE, function() if pop.n == my then pop:Hide(); LH.popups[my] = nil end end) end
 end
 function LH.HidePopup(n)
     if pop and (not n or pop.n == n) then pop:Hide() end
+end
+-- 正显示着 n 的框被别人认领：文字改「XX 已经在拉他了」，按钮收起，LH.CLAIMED_LINGER 秒后关。返回 true = 处理了
+function LH.ClaimedPopup(n, by)
+    if not (pop and pop:IsShown() and pop.n == n) then return false end
+    local who = tostring(by or "?"):gsub("%-.*$", "")
+    pop:SetScript("OnUpdate", nil)
+    pop.yes:Hide(); pop.no:Hide(); pop.mute:Hide()
+    pop.text:SetText("|cff88ff88" .. string.format(L("%s 已经在拉他了，不用你邀请", "%s is already pulling them - nothing to do"), ns.EnSafe(who)) .. "|r")
+    pop.n = nil
+    if C_Timer and C_Timer.After then C_Timer.After(LH.CLAIMED_LINGER, function() if pop.n == nil then pop:Hide() end end) end
+    return true
 end
 LH._pop = function() return pop end

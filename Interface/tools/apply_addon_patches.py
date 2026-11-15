@@ -54,12 +54,12 @@ PATCHES = (
         '<Script file="EllesmereUI.lua"/>',
         '<!-- Script file="EllesmereUI.lua" excluded by this pack: see AddOns/readme.md -->',
     ),
-    # beta12.70688.1 dropped this line, assuming [Family] resolves to Forever. On this
-    # client [Family] is Mainline, so SetupForever_* stay nil and OnInitialize aborts.
+    # beta12.70938.1 loads Forever support through [Game] and game type "forever"; every other
+    # addon here gates Forever on "camelot", which is proven on this client. If the Forever
+    # files do not load, SetupForever_* stay nil and OnInitialize aborts.
     Patch(
         "Skinner/Skinner.toc",
-        "[Family]\\_Support.xml",
-        "[Family]\\_Support.xml\n\n"
+        "[Game]\\_Support.xml [AllowLoadGameType forever] [ExcludeLoadGameType standard, classic]",
         "Forever\\_Support.xml [AllowLoadGameType camelot] [ExcludeLoadGameType standard, classic]",
     ),
     # Bagnon hides only ContainerFrame1..N and relies on combined bags being off, but its nil

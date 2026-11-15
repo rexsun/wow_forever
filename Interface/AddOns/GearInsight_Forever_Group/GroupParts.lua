@@ -63,11 +63,16 @@ for _, c in ipairs({ "lfg2", "lfgprobe" }) do slashStub(c, "ui", function() retu
 
 -- 登录：本子插件整个载完（ADDON_LOADED）再按开关加载法师吃喝、注册副本组队小核的事件
 --   ⛔ 别在文件执行中途 LoadAddOn 依赖本插件的子插件（那时本插件还不算「已加载」）
+-- 11-15 网易DD 单文件夹包（gi_forever_pack.dd_variant）：这个文件并进主插件 → 认的是主插件自己的 ADDON_LOADED（名字取文件的 ...）
+local ME = ...
+if type(ME) ~= "string" then ME = "GearInsight_Forever_Group" end
 local pev = CreateFrame("Frame")
 pcall(pev.RegisterEvent, pev, "ADDON_LOADED")
 pev:SetScript("OnEvent", function(self, _, name)
-    if name ~= "GearInsight_Forever_Group" then return end
+    if name ~= ME then return end
     pcall(self.UnregisterEvent, self, "ADDON_LOADED")
+    -- 并进主插件时和 Core.lua 读存档是同一个 ADDON_LOADED：存档还没读好就下一帧再同步
+    if not ns.db and C_Timer and C_Timer.After then C_Timer.After(0, function() pcall(ns.GroupSync) end); return end
     pcall(ns.GroupSync)
 end)
 ns._GroupPartsEvent = pev:GetScript("OnEvent")   -- 测试用
@@ -75,7 +80,7 @@ ns._GroupPartsEvent = pev:GetScript("OnEvent")   -- 测试用
 local function selfLoaded()
     local f = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded
     if not f then return false end
-    local ok, yes = pcall(f, "GearInsight_Forever_Group")
+    local ok, yes = pcall(f, ME)
     return ok and yes and true or false
 end
 if IsLoggedIn and IsLoggedIn() and C_Timer and C_Timer.After then C_Timer.After(1, function() if selfLoaded() then pcall(ns.GroupSync) end end) end

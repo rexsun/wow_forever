@@ -35,7 +35,10 @@ local function visiblePages()
     for _, p in ipairs(pages) do
         -- 11-10 职业百宝箱：带 class 的页只给这个职业看（猎人弹药商 / 猎人宠物）
         local clsOk = not p.class or (ns.MyClass and ns.MyClass() == p.class)
-        if clsOk and not (p.hold and ns.db and ns.db.hideHold) then t[#t + 1] = p end
+        -- 11-14 p.visible：设置里能关掉的页（圣骑士一键祝福「页」开关）；出错当可见
+        local visOk = true
+        if p.visible then local ok, v = pcall(p.visible); visOk = not ok or v ~= false end
+        if clsOk and visOk and not (p.hold and ns.db and ns.db.hideHold) then t[#t + 1] = p end
     end
     return t
 end
@@ -153,11 +156,14 @@ function ns.ItemModClick(id, name)
     return true
 end
 
+-- 11-14 用户「其他页面的按钮也一起美化」：ns.Button 建出来的红色原生按钮一律换成扁平样式（ns.SkinButton，见下）。
+--   接口不变（还是 UIPanelButtonTemplate：SetText / Enable / Disable / LockHighlight 照用），只换外观
 function ns.Button(parent, text, w, h, onClick)
     local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
     b:SetSize(w or 100, h or 22)
     b:SetText(text)
     if onClick then b:SetScript("OnClick", onClick) end
+    if ns.SkinButton then ns.SkinButton(b) end
     return b
 end
 
@@ -167,14 +173,78 @@ end
 local SEG_BD = { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 }
 function ns.SegSelect(b, on)
     b._segOn = on and true or false
-    if b.SetBackdropColor then
+    -- ⛔ 字段一律 rawget：框体的元表可能给没设过的键返回方法（换皮按钮 GetFontString 可能是 nil）
+    local sk, fs, line = rawget(b, "_skin"), rawget(b, "_segFs"), rawget(b, "_segLine")
+    local off = b.IsEnabled and b:IsEnabled() == false
+    if sk then
+        -- 换皮的原生按钮（ns.SkinButton）：没背景框体方法，颜色画在自己建的贴图上
+        if on then sk.bg:SetColorTexture(0.22, 0.17, 0.04, 0.98)
+        elseif off then sk.bg:SetColorTexture(0.05, 0.055, 0.07, 0.9)
+        else sk.bg:SetColorTexture(0.09, 0.10, 0.13, 0.96) end
+        for _, t in ipairs(sk.edges) do
+            if on then t:SetColorTexture(1, 0.82, 0, 0.95)
+            elseif off then t:SetColorTexture(0.25, 0.25, 0.27, 0.8)
+            else t:SetColorTexture(0.52, 0.45, 0.28, 0.95) end
+        end
+    elseif b.SetBackdropColor then
         if on then b:SetBackdropColor(0.22, 0.17, 0.04, 0.98); b:SetBackdropBorderColor(1, 0.82, 0, 0.95)
         else b:SetBackdropColor(0.07, 0.08, 0.10, 0.95); b:SetBackdropBorderColor(0.32, 0.32, 0.34, 0.9) end
     end
-    if b._segFs then
-        if on then b._segFs:SetTextColor(1, 0.86, 0.2) else b._segFs:SetTextColor(0.78, 0.78, 0.78) end
+    if type(fs) == "table" then
+        if off then fs:SetTextColor(0.45, 0.45, 0.45)
+        elseif on then fs:SetTextColor(1, 0.86, 0.2)
+        elseif sk then fs:SetTextColor(0.95, 0.9, 0.76)   -- 普通动作按钮：暖白字，看得出能点（分段切换项没选中才用灰白）
+        else fs:SetTextColor(0.78, 0.78, 0.78) end
     end
-    if b._segLine then b._segLine:SetShown(on and true or false) end
+    if type(line) == "table" then line:SetShown(on and true or false) end
+end
+-- 11-14「按键美化」：把已经建好的 UIPanelButtonTemplate 原地换成扁平样式 —— 红色三段贴图透明掉，画深底 + 1px 金灰边 + 选中金线 + 悬停淡金光。
+--   ⛔ 只改外观：按钮还是原来那个（安全模板 / 点击 / 文字 / 禁用全不动）；LockHighlight = 选中（老代码拿它表示开关开着）
+--   直接 CreateFrame(…, "UIPanelButtonTemplate") 的地方建完调一下 ns.SkinButton(b) 就行；重复调没事
+function ns.SkinButton(b)
+    if not b or rawget(b, "_seg") then return b end
+    for _, k in ipairs({ "Left", "Middle", "Right" }) do
+        local t = rawget(b, k)
+        if t and t.SetAlpha then t:SetAlpha(0) end
+    end
+    for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetDisabledTexture", "GetHighlightTexture" }) do
+        local f = b[g]
+        local t = f and f(b)
+        if t and t.SetAlpha then t:SetAlpha(0) end
+    end
+    local bg = b:CreateTexture(nil, "BACKGROUND", nil, -7)
+    bg:SetAllPoints()
+    local edges = {}
+    for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", nil, 1 }, { "BOTTOMLEFT", "BOTTOMRIGHT", nil, 1 },
+        { "TOPLEFT", "BOTTOMLEFT", 1, nil }, { "TOPRIGHT", "BOTTOMRIGHT", 1, nil } }) do
+        local t = b:CreateTexture(nil, "BORDER", nil, 7)
+        t:SetPoint(e[1]); t:SetPoint(e[2])
+        if e[3] then t:SetWidth(e[3]) else t:SetHeight(e[4]) end
+        edges[#edges + 1] = t
+    end
+    local line = b:CreateTexture(nil, "OVERLAY")
+    line:SetColorTexture(1, 0.82, 0, 1)
+    line:SetPoint("BOTTOMLEFT", 1, 1); line:SetPoint("BOTTOMRIGHT", -1, 1); line:SetHeight(2)
+    local hl = b:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetPoint("TOPLEFT", 1, -1); hl:SetPoint("BOTTOMRIGHT", -1, 1); hl:SetColorTexture(1, 0.82, 0, 0.12)
+    b._skin = { bg = bg, edges = edges }
+    b._segLine = line
+    b._segFs = b.GetFontString and b:GetFontString() or nil
+    b._seg = true
+    -- 状态变了（禁用 / 启用 / 原生代码换字体）→ 重新上色；LockHighlight / UnlockHighlight = 选中 / 取消
+    if b.HookScript then
+        local function again(s) ns.SegSelect(s, rawget(s, "_segOn")) end
+        b:HookScript("OnEnable", again)
+        b:HookScript("OnDisable", again)
+        b:HookScript("OnMouseUp", again)
+        b:HookScript("OnShow", again)
+    end
+    if hooksecurefunc and b.LockHighlight then
+        hooksecurefunc(b, "LockHighlight", function(s) ns.SegSelect(s, true) end)
+        hooksecurefunc(b, "UnlockHighlight", function(s) ns.SegSelect(s, false) end)
+    end
+    ns.SegSelect(b, false)
+    return b
 end
 function ns.SegButton(parent, text, w, h, onClick)
     local b = CreateFrame("Button", nil, parent, BackdropTemplateMixin and "BackdropTemplate" or nil)
@@ -313,10 +383,14 @@ local GROUPS = ns.LateL({   -- 11-09 GI-202：手动切语言后跟着换
     -- 11-12 界面重构第 2 期「菜单合并」（用户「菜单进行合并精简，但是功能不能少」，§6 拍板 1：天赋收进「职业」）：
     --   左栏一级 8 → 5：升级 / 装备 / 职业 / 资讯 / 设置。页 key 一个没改（ns.ToggleMain("talent")、存档里的 ui.page 照旧能开）；
     --   大类 key 也没改（ui.grpLast 记的「这组上次看哪页」照旧）：grp_rot 原「职业百宝箱」现在叫「职业」，grp_info 原「资讯攻略」并进共建 / 进阶 / 攻略
-    { key = "grp_up", order = 1.1, title = ns.L("升级", "Leveling"), icon = "Interface\\Icons\\Ability_Hunter_Pathfinding", members = { "plan", "prof", "xp", "ach" } },
-    { key = "grp_gear", order = 1.2, title = ns.L("装备", "Gear"), icon = "Interface\\Icons\\INV_Chest_Plate03", members = { "gear", "loot", "tier" } },
+    -- 11-14 用户「专业专门拿出来」「专业快速冲级整理的更加容易找到」：prof 移出 grp_up，成了左栏独立一级（页 order = 1.15，
+    --   排在「升级」1.1 之后、「装备」1.2 之前；不属于任何大类的页按自己的 order 和大类混排，见 navEntries）。页 key 没改，
+    --   ns.ToggleMain("prof") / /gi prof / 存档 ui.page = "prof" 照旧能开；老存档 ui.grpLast.grp_up = "prof" 时点「升级」落回组内第一页（见下面 OnClick）
+    { key = "grp_up", order = 1.1, title = ns.L("升级", "Leveling"), icon = "Interface\\Icons\\Ability_Hunter_Pathfinding", members = { "plan", "xp", "ach" } },
+    { key = "grp_gear", order = 1.2, title = ns.L("装备", "Gear"), icon = "Interface\\Icons\\INV_Chest_Plate03", members = { "gear", "loot", "tier", "trash" } },   -- 11-14 trash = 清背包（Trash.lua，HOLD：文件不加载 = 没登记这页 → 不出）
     -- 11-10 用户「游戏里弄个职业百宝箱页签…」：职业专属页（带 class 字段，别的职业看不到）也在这组
-    { key = "grp_rot", order = 1.3, title = ns.L("职业", "Class"), icon = "Interface\\Icons\\INV_Misc_Book_11", members = { "talent", "rot", "keys", "macro", "pet", "ammo" } },
+    --   11-14 法师「造水」conj（MageConjure.lua，HOLD：文件不加载 = 没登记这页 → 成员里的 conj 不出，其余照旧）
+    { key = "grp_rot", order = 1.3, title = ns.L("职业", "Class"), icon = "Interface\\Icons\\INV_Misc_Book_11", members = { "talent", "rot", "keys", "macro", "pet", "ammo", "conj", "pally" } },   -- 11-14 pally = 圣骑士一键祝福（PallyBless.lua，HOLD）
     { key = "grp_info", order = 1.4, title = ns.L("资讯", "News"), icon = "Interface\\Icons\\INV_Letter_15", members = { "news", "guide", "board", "adv" } },
 })
 ns._TabGroups = GROUPS   -- 测试用
@@ -751,7 +825,7 @@ local function build()
     fLeft:SetPoint("BOTTOMLEFT", 14, 13); fLeft:SetJustifyH("LEFT")
     local qq = ns.zh and "152706590" or nil
     local link = qq or "gearinsight.app/wow/forever"
-    fLeft:SetText(qq and ("QQ群 |cff66ccff" .. qq .. "|r |cff888888（点击复制）|r") or ("|cff66ccff" .. link .. "|r |cff888888(click to copy)|r"))
+    fLeft:SetText(qq and ("QQ群 |cff66ccff" .. qq .. "|r |cff888888" .. ns.L("（点击复制）", "(click to copy)") .. "|r") or ("|cff66ccff" .. link .. "|r |cff888888(click to copy)|r"))   -- GI-253：「（点击复制）」过 ns.L，繁体端转
     local fHit = CreateFrame("Button", nil, f)
     fHit:SetPoint("TOPLEFT", fLeft, "TOPLEFT", -2, 3); fHit:SetPoint("BOTTOMRIGHT", fLeft, "BOTTOMRIGHT", 2, -3)
     fHit:SetScript("OnClick", function()
@@ -960,15 +1034,14 @@ local function openGuild()
 end
 
 -- 菜单项：入口不在（HOLD 没装）就不出
--- 11-12 界面重构第 2 期「小地图菜单重排」：按主面板左栏一级的顺序排（升级 → 装备 → 职业 → 组队 → 公会 → 找回 / 设置），
---   原来平铺的「专业」「键位」和两扇小窗的开关缩进挂在所属大类下面（sub = true，往右缩进、字灰一点）——一项不删，老入口照旧一步直达
+-- 11-12 界面重构第 2 期「小地图菜单重排」：按主面板左栏一级的顺序排（升级 → 专业 → 装备 → 职业 → 组队 → 公会 → 找回 / 设置；专业 11-14 起是一级），
+--   原来平铺的「键位」和两扇小窗的开关缩进挂在所属大类下面（sub = true，往右缩进、字灰一点）——一项不删，老入口照旧一步直达
 function ns.MinimapMenuItems()
     local L = ns.L
     local items = {}
     local function add(text, fn, sub) items[#items + 1] = { text = text, fn = fn, sub = sub or nil } end
     -- 升级
     if hasPage("plan") then add(L("升级规划", "Leveling plan"), function() openPage("plan") end) end
-    if hasPage("prof") then add(L("专业", "Professions"), function() openPage("prof") end, true) end
     -- 11-12 两位玩家问「左上角升级指引 / 睡袋追踪关了怎么再开」：两个小窗的开关也放进右键菜单（只对当前角色）
     if ns.ToggleLeveling then
         local lf = _G.GearInsightForeverLeveling
@@ -997,6 +1070,8 @@ function ns.MinimapMenuItems()
             end
         end
     end
+    -- 11-14 专业成了左栏独立一级：菜单里也从「升级」下面的缩进项提成一级，排在升级那几项之后、装备之前（和左栏同序）
+    if hasPage("prof") then add(L("专业", "Professions"), function() openPage("prof") end) end
     -- 装备（11-12 第 2 期新增：原来菜单里没有装备）
     if hasPage("gear") then add(L("装备", "Gear"), function() openPage("gear") end) end
     -- 职业（拍板 1：天赋收进「职业」后，菜单保留「天赋」直达）

@@ -3559,7 +3559,7 @@ function Visuals:PrepareExternalSpecialState(visual, preserveActionState)
 end
 
 function Visuals:GetIconCooldownDesaturation(visual, state)
-    if state and state.missingBuff == true then return 1 end
+    if state and (state.missingBuff == true or state.auraIconOverlay == true) then return 1 end
     if state and state.unlearned == true then return 1 end
     if visual.classSpell and state and state.aspectActiveStyle == "dimOthers" then return 0 end
     if ShouldDesaturate(state) then
@@ -3689,7 +3689,7 @@ local function ApplyRuntimeSnapshot(button, visual, snapshot, options)
         snapshot
     )
     if visual.cooldownDesaturation == 0 then
-        writes = writes + SetIconDesaturation(visual.icon, 0)
+        writes = writes + SetIconDesaturation(visual.icon, visual.auraIconOverlay and 1 or 0)
     end
     visual.lastColor = nil
     InvalidateBorderColor(visual)
@@ -5025,10 +5025,10 @@ function Visuals:ApplyStatusTimer(visual, state, force)
     return writes
 end
 
--- Capture only the public ordinary cooldown, before the separate native Aura
+-- Capture only public ordinary regions, before the separate native Aura
 -- subtree is bound. Theme/settings changes replace the public proxy, never
 -- restyle descendants whose access may have become restricted.
-function Visuals:CaptureStatusTimerStyle(button)
+function Visuals:CaptureStatusTimerStyle(button, includeIcon)
     local visual = self.buttons[button]
     local cooldown = visual and visual.cooldown
     local text = cooldown and cooldown:GetCountdownFontString()
@@ -5042,21 +5042,32 @@ function Visuals:CaptureStatusTimerStyle(button)
     local sx, sy = 0, 0
     if text.GetShadowColor then sr, sg, sb, sa = text:GetShadowColor() end
     if text.GetShadowOffset then sx, sy = text:GetShadowOffset() end
-    return { font = font, size = size, flags = flags or "", width = button:GetWidth(), height = button:GetHeight(),
+    local style = { font = font, size = size, flags = flags or "", width = button:GetWidth(), height = button:GetHeight(),
         level = button:GetFrameLevel() + 5, strata = button:GetFrameStrata(), hidden = ShouldHideCooldownNumbers(snapshot),
         x = self.TextAnchors:OffsetValue(snapshot, "cooldownTextOffsetX"),
         y = self.TextAnchors:OffsetValue(snapshot, "cooldownTextOffsetY"),
         r = r or 1, g = g or 1, b = b or 1, a = a or 1,
         alpha = text.GetAlpha and text:GetAlpha() or 1,
         sr = sr, sg = sg, sb = sb, sa = sa, sx = sx, sy = sy }
+    if includeIcon and visual.icon then
+        local iconStyle = visual.sharedIconSnapshot
+        local shape = SHAPE_STYLES[visual.runtimeSkin] or SHAPE_STYLES.square
+        style.iconLevel = button:GetFrameLevel()
+        style.iconInsetX, style.iconInsetY = visual.visualInsetX or 0, visual.visualInsetY or 0
+        style.iconZoom = iconStyle and iconStyle.zoom or snapshot.iconZoom or 0.08
+        style.iconAspect = iconStyle and iconStyle.aspect or shape.aspect or 1
+        style.iconMask = visual.maskPath or false
+    end
+    return style
 end
 
 function Visuals:CreateStatusTimerBindings(auraFrame, style)
     auraFrame:SetSize(style.width, style.height)
     auraFrame:SetAllPoints(auraFrame:GetParent())
-    auraFrame:SetFrameLevel(style.level)
+    auraFrame:SetFrameLevel(style.iconLevel or style.level)
     if style.strata then auraFrame:SetFrameStrata(style.strata) end
     local cooldown = CreateFrame("Cooldown", nil, auraFrame, "CooldownFrameTemplate")
+    cooldown:SetFrameLevel(style.level + 1)
     cooldown:SetAllPoints(auraFrame)
     cooldown:SetDrawSwipe(false); cooldown:SetDrawEdge(false); cooldown:SetDrawBling(false)
     cooldown:SetHideCountdownNumbers(style.hidden)
@@ -5067,7 +5078,22 @@ function Visuals:CreateStatusTimerBindings(auraFrame, style)
     text:SetShadowColor(style.sr, style.sg, style.sb, style.sa)
     text:SetShadowOffset(style.sx, style.sy)
     text:ClearAllPoints(); text:SetPoint("CENTER", cooldown, "CENTER", style.x, style.y)
-    return { durationCooldown = cooldown }
+    local bindings = { durationCooldown = cooldown }
+    if style.iconLevel then
+        local icon = CreateSkinTexture(auraFrame, "BACKGROUND", nil, 1)
+        local geometry = { visualInsetX = style.iconInsetX, visualInsetY = style.iconInsetY }
+        ApplyVisualRect(auraFrame, geometry, icon)
+        ApplyFlatIconCrop(icon, style.iconZoom, style.iconAspect)
+        icon:SetDesaturation(0)
+        if style.iconMask then
+            local mask = auraFrame:CreateMaskTexture(nil, "BACKGROUND")
+            ApplyVisualRect(auraFrame, geometry, mask)
+            SetMaskTexture(mask, style.iconMask)
+            AttachMaskTexture(icon, mask)
+        end
+        bindings.icon = icon
+    end
+    return bindings
 end
 
 -- Cold preparation for owned camp hosts; native cooldown digits remain native.
@@ -5105,6 +5131,7 @@ function Visuals:UpdateButton(button, state, mode)
     local writes = 0
 
     visual.hasAction = state.hasAction == true
+    visual.auraIconOverlay = state.auraIconOverlay == true
     visual.usable = state.usable ~= false
     visual.noMana = state.noMana == true
     visual.outOfRange = (state.rangeMode == "red" or visual.rangeMode == "red") and state.inRange == false

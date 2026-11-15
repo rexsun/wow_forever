@@ -4,7 +4,7 @@
 ## Notes: GearInsight Forever group beacon (shares your quest progress; loaded at login by the main addon)
 ## Notes-zhCN: GearInsight 无限版的组队信标：共享任务进度 / 回别人的进度 / 解散道谢，主插件登录时加载（设置里可改成点了才加载）
 ## Author: GearInsight
-## Version: 1.1.4
+## Version: 1.2.3
 ## Dependencies: GearInsight_Forever
 ## LoadOnDemand: 1
 ## IconTexture: Interface\Icons\inv_misc_map_01
@@ -15,3 +15,6 @@
 QuestMates.lua
 DungeonChatCore.lua
 GroupParts.lua
+# 11-14 BIS 撞装信标（HOLD）：算自己的需求、收发 GIFBIS1、存队友快照、算撞装；排在 QuestMates.lua 后面（用它的 myId / 失败分类）
+# 11-15 要 BUFF（HOLD）：野外碰到能给 BUFF 的人弹框（点了才密）+ 副本里看队伍配置缺了自动要；排在 GroupParts.lua 后面（包它的 ns.GroupSync）
+BuffAsk.lua

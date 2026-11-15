@@ -97,6 +97,33 @@ function ns.DQTitle(id)
     return ns.L((q.c ~= "" and q.c) or q.n, q.n)
 end
 
+-- 11-15 GI-253「繁體客戶端中仍有部分簡體內容」：官方指南（d.off / d.ent / d.entNote / d.warn）、奖励物品兜底名、声望名
+--   这些数据里的中文以前直接上屏，不经过 ns.L → 繁体端整组简体。显示前一律过 TD（繁体端逐字转繁，简体 / 英文端原样）；
+--   地区名繁体端优先客户端自己给的地图名（C_Map.GetMapInfo = 台服官方译名），任务名有 qid 的优先游戏现读（同 DQTitle）
+local function TD(s)
+    if type(s) ~= "string" or s == "" then return s end
+    return ns.TD and ns.TD(s) or s
+end
+local function zoneName(ui, zc)
+    if type(zc) ~= "string" or zc == "" then return zc or "" end   -- 数据没写地区 → 照旧不显示（不拿地图名硬补）
+    if ns.tw and ns.clientTw and ui and ui > 0 and C_Map and C_Map.GetMapInfo then
+        local ok, info = pcall(C_Map.GetMapInfo, ui)
+        local n = ok and type(info) == "table" and info.name
+        if type(n) == "string" and n ~= "" then return ns.ToTW(n) end
+    end
+    return TD(zc)
+end
+ns.DQZoneName = zoneName   -- 测试用
+-- 官方指南任务名：有 qid 且游戏读得到 → 游戏现读（繁体端 = 台服官方译名）；否则数据中文（繁体端逐字转繁）
+local function offTitle(o)
+    if o.qid and o.qid > 0 and C_QuestLog and C_QuestLog.GetTitleForQuestID then
+        local t = C_QuestLog.GetTitleForQuestID(o.qid)
+        if type(t) == "string" and t ~= "" then return t end
+    end
+    return TD(o.c or "")
+end
+ns.DQOffTitle = offTitle   -- 测试用
+
 local function itemText(id)
     local name, _, quality = nil, nil, nil
     name, _, quality = ns.ItemInfo(id)
@@ -105,7 +132,9 @@ local function itemText(id)
         --   GET_ITEM_INFO_RECEIVED / ITEM_DATA_LOAD_RESULT 回来后弹框自动刷新成官方中文名
         if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
         local zh = (ns.DQ.items or {})[id]
-        return "|cffcccccc" .. ((zh and ns.L(zh, "")) ~= "" and zh or ns.L("读取中…", "loading...")) .. "|r"
+        -- GI-253：以前算出 ns.L(zh) 却把没转过的 zh 拿去显示 → 繁体端奖励名是简体
+        local shown = zh and ns.L(zh, "") or ""
+        return "|cffcccccc" .. (shown ~= "" and shown or ns.L("读取中…", "loading...")) .. "|r"
     end
     local col = (ITEM_QUALITY_COLORS and quality and ITEM_QUALITY_COLORS[quality] and ITEM_QUALITY_COLORS[quality].hex) or "|cffffffff"
     return col .. name .. "|r"
@@ -117,7 +146,7 @@ local TAG_IN, TAG_OUT, TAG_ITEM, TAG_UNK = "|cffff9966", "|cff66ccff", "|cffc69b
 local function whoText(w, extra)
     if not w then return nil end
     local n = ns.L((w.c ~= "" and w.c) or w.n, w.n)
-    local z = ns.L((w.zc ~= "" and w.zc) or w.ze, w.ze)
+    local z = ns.zh and (w.zc ~= "") and zoneName(w.ui, w.zc) or ns.L((w.zc ~= "" and w.zc) or w.ze, w.ze)
     local sep = ns.L(" · ", " - ")
     if w.k == "item" then
         return TAG_ITEM .. ns.L("物品", "Item") .. "|r " .. n .. ((extra and extra ~= "") and (sep .. extra) or ns.L("（打怪掉落，右键开始）", " (drops - right-click to start)"))
@@ -159,16 +188,27 @@ end
 local function sideText(t)   -- 当前阵营的文字；没有就退到另一阵营并注明
     if not t then return nil end
     local side = mySide() or "A"
-    if t[side] and t[side] ~= "" then return t[side] end
+    if t[side] and t[side] ~= "" then return TD(t[side]) end
     local other = (side == "A") and "H" or "A"
     if t[other] and t[other] ~= "" then
-        return "|cff8a8a8a" .. (other == "A" and ns.L("【联盟路线】", "[Alliance] ") or ns.L("【部落路线】", "[Horde] ")) .. "|r" .. t[other]
+        return "|cff8a8a8a" .. (other == "A" and ns.L("【联盟路线】", "[Alliance] ") or ns.L("【部落路线】", "[Horde] ")) .. "|r" .. TD(t[other])
     end
+end
+-- GI-253：入口给界面用的是「显示副本」—— zc / sp 已按当前语言换好（繁体端地区名优先客户端官方译名），坐标等其它字段照读原表
+local entShow = setmetatable({}, { __mode = "k" })
+local function entDisplay(e)
+    if not ns.tw then return e end
+    local c = entShow[e]
+    if not c then
+        c = setmetatable({ zc = zoneName(e.ui, e.zc), sp = TD(e.sp) }, { __index = e })
+        entShow[e] = c
+    end
+    return c
 end
 function ns.DQEntrance(d)
     local e = d and d.ent
     if not e or not e.o then return nil end   -- 只认官方覆盖过的入口（e.o）
-    return e, sideText(d.entNote), sideText(d.warn)
+    return entDisplay(e), sideText(d.entNote), sideText(d.warn)
 end
 -- 标入口：有坐标就打地图标记；路线文字打到聊天框
 function ns.DQPinEntrance(d)
@@ -198,11 +238,11 @@ local function offByQid(d)
 end
 local function offWaypoint(o)
     if not o.ui or o.ui == 0 or not o.x or o.x <= 0 then
-        ns.Print(ns.L("官方指南没给这个任务可标的坐标：", "No map position: ") .. (o.p or o.t or ""))
+        ns.Print(ns.L("官方指南没给这个任务可标的坐标：", "No map position: ") .. TD(o.p or o.t or ""))
         return
     end
-    ns.ShowOnMap(o.ui, { { o.x, o.y } }, o.g or o.c)
-    ns.Print(ns.L("已在地图上标出：", "Map pin set: ") .. (o.g or "") .. " " .. (o.z or "") .. string.format(" (%.0f, %.0f)", o.x, o.y))
+    ns.ShowOnMap(o.ui, { { o.x, o.y } }, TD(o.g) or offTitle(o))
+    ns.Print(ns.L("已在地图上标出：", "Map pin set: ") .. TD(o.g or "") .. " " .. zoneName(o.ui, o.z or "") .. string.format(" (%.0f, %.0f)", o.x, o.y))
 end
 
 -- ---------- 弹框 ----------
@@ -270,13 +310,13 @@ local function rowTooltip(r)
     if r.offOnly then
         local o = r.offOnly
         GameTooltip:SetOwner(r, "ANCHOR_RIGHT")
-        GameTooltip:AddLine(o.c, 1, 0.82, 0)
+        GameTooltip:AddLine(offTitle(o), 1, 0.82, 0)
         GameTooltip:AddLine(ns.L("来自官方副本任务指南；任务等级、经验、奖励以游戏内为准", "From the official dungeon quest guide; levels, XP and rewards: see in game"), 0.7, 0.7, 0.7, true)
-        if o.g then GameTooltip:AddLine(ns.L("接：", "Start: ") .. o.g .. ((o.z and o.z ~= "") and ("　" .. o.z .. ((o.x and o.x > 0) and string.format(" (%.0f, %.0f)", o.x, o.y) or "")) or "") .. ((o.p and o.p ~= "") and ("　" .. o.p) or ""), 1, 1, 1, true) end
-        if o.i then GameTooltip:AddLine(ns.L("任务线起点：", "Chain starts: ") .. o.i .. (o.n and ("（" .. o.n .. ns.L(" 个任务）", " quests)")) or ""), 0.7, 0.9, 1, true) end
-        if o.pre then GameTooltip:AddLine(ns.L("前置：", "Requires: ") .. o.pre, 1, 0.6, 0.4, true) end
-        if o.t then GameTooltip:AddLine(ns.L("触发：", "Trigger: ") .. o.t, 1, 0.9, 0.5, true) end
-        if o.nt then GameTooltip:AddLine(o.nt, 0.8, 0.8, 0.8, true) end
+        if o.g then GameTooltip:AddLine(ns.L("接：", "Start: ") .. TD(o.g) .. ((o.z and o.z ~= "") and ("　" .. zoneName(o.ui, o.z) .. ((o.x and o.x > 0) and string.format(" (%.0f, %.0f)", o.x, o.y) or "")) or "") .. ((o.p and o.p ~= "") and ("　" .. TD(o.p)) or ""), 1, 1, 1, true) end
+        if o.i then GameTooltip:AddLine(ns.L("任务线起点：", "Chain starts: ") .. TD(o.i) .. (o.n and ("（" .. o.n .. ns.L(" 个任务）", " quests)")) or ""), 0.7, 0.9, 1, true) end
+        if o.pre then GameTooltip:AddLine(ns.L("前置：", "Requires: ") .. TD(o.pre), 1, 0.6, 0.4, true) end
+        if o.t then GameTooltip:AddLine(ns.L("触发：", "Trigger: ") .. TD(o.t), 1, 0.9, 0.5, true) end
+        if o.nt then GameTooltip:AddLine(TD(o.nt), 0.8, 0.8, 0.8, true) end
         GameTooltip:AddLine(ns.L("点击：在地图上标出接任务的人", "Click: pin the quest giver on the map"), 0.5, 0.5, 0.5)
         GameTooltip:Show()
         return
@@ -330,7 +370,7 @@ local function rowTooltip(r)
     local tail = {}
     if (q.xp or 0) > 0 then tail[#tail + 1] = ns.L("经验 ", "XP ") .. q.xp end
     if (q.money or 0) > 0 then tail[#tail + 1] = money(q.money) end
-    for _, rp in ipairs(q.rep or {}) do tail[#tail + 1] = rp[1] .. ns.L(" 声望 +", " rep +") .. rp[2] end
+    for _, rp in ipairs(q.rep or {}) do tail[#tail + 1] = TD(rp[1]) .. ns.L(" 声望 +", " rep +") .. rp[2] end
     if #tail > 0 then GameTooltip:AddLine(table.concat(tail, ns.L("　", "  ")), 0.7, 0.7, 0.7, true) end
     if (q.changed or "") ~= "" then
         GameTooltip:AddLine(" ")
@@ -339,9 +379,9 @@ local function rowTooltip(r)
     local ofc = r.off
     if ofc then
         GameTooltip:AddLine(" ")
-        GameTooltip:AddLine(ns.L("官方指南：", "Official guide: ") .. (ofc.p or ""), 0.2, 1, 0.6, true)
-        if ofc.t then GameTooltip:AddLine(ns.L("触发：", "Trigger: ") .. ofc.t, 1, 0.9, 0.5, true) end
-        if ofc.nt then GameTooltip:AddLine(ofc.nt, 0.8, 0.8, 0.8, true) end
+        GameTooltip:AddLine(ns.L("官方指南：", "Official guide: ") .. TD(ofc.p or ""), 0.2, 1, 0.6, true)
+        if ofc.t then GameTooltip:AddLine(ns.L("触发：", "Trigger: ") .. TD(ofc.t), 1, 0.9, 0.5, true) end
+        if ofc.nt then GameTooltip:AddLine(TD(ofc.nt), 0.8, 0.8, 0.8, true) end
     end
     if q.share then GameTooltip:AddLine(ns.L("可以共享给队友", "Shareable with your party"), 0.6, 0.6, 0.6) end
     if q.beta then
@@ -498,27 +538,27 @@ function ns.ShowDungeonQuests(d, parent)
             local r = getRow(hi + j)
             r.q, r.id, r.off, r.offOnly = nil, nil, false, o
             r.ic:SetTexture(STATE_TEX.ok); r.ic:SetDesaturated(false); r.ic:Show()
-            r.t:SetText("|cffffd100" .. o.c .. "|r")
+            r.t:SetText("|cffffd100" .. offTitle(o) .. "|r")
             local tags = {}
             if o.s == "A" then tags[#tags + 1] = "|cff66aaff" .. ns.L("联盟", "Alliance") .. "|r" elseif o.s == "H" then tags[#tags + 1] = "|cffff6666" .. ns.L("部落", "Horde") .. "|r" end
-            if o.k then tags[#tags + 1] = "|cffc69bff" .. o.k .. ns.L("限定", " only") .. "|r" end
+            if o.k then tags[#tags + 1] = "|cffc69bff" .. TD(o.k) .. ns.L("限定", " only") .. "|r" end
             if o.t then tags[#tags + 1] = "|cffffd100" .. ns.L("触发", "Trigger") .. "|r" end
             r.tag:SetText(table.concat(tags, " "))
-            local who = (o.g and o.g ~= "") and (o.g .. ns.L(" · ", " - ")) or ""
+            local who = (o.g and o.g ~= "") and (TD(o.g) .. ns.L(" · ", " - ")) or ""
             local where
             if o.w == "in" then
-                where = who .. TAG_IN .. ns.L("副本内", "Inside") .. "|r" .. (o.t and (" " .. o.t) or "")
+                where = who .. TAG_IN .. ns.L("副本内", "Inside") .. "|r" .. (o.t and (" " .. TD(o.t)) or "")
             else
                 local at = (o.x and o.x > 0) and string.format(" (%.0f, %.0f)", o.x, o.y) or ""
-                where = who .. TAG_OUT .. ns.L("副本外", "Outside") .. "|r " .. (o.z or "") .. at .. ((o.p and o.p ~= "") and (" " .. o.p) or "")
-                if o.t and who == "" then where = where .. " " .. o.t end
+                where = who .. TAG_OUT .. ns.L("副本外", "Outside") .. "|r " .. zoneName(o.ui, o.z or "") .. at .. ((o.p and o.p ~= "") and (" " .. TD(o.p)) or "")
+                if o.t and who == "" then where = where .. " " .. TD(o.t) end
             end
             r.a:SetText("|cffaaaaaa" .. ns.L("接：", "Start: ") .. "|r" .. where)
             local bits = {}
-            if o.i then bits[#bits + 1] = ns.L("起点任务：", "Starts with: ") .. o.i end
+            if o.i then bits[#bits + 1] = ns.L("起点任务：", "Starts with: ") .. TD(o.i) end
             if o.n then bits[#bits + 1] = ns.L("任务线共 ", "Chain of ") .. o.n .. ns.L(" 个", "") end
             if o.pk then bits[#bits + 1] = (o.pk > 0) and (ns.L("奖励任选其一（", "Choose one of ") .. o.pk .. ns.L(" 件）", "")) or ns.L("固定奖励", "Fixed reward") end
-            if o.ex then bits[#bits + 1] = ns.L("额外：", "Extra: ") .. o.ex end
+            if o.ex then bits[#bits + 1] = ns.L("额外：", "Extra: ") .. TD(o.ex) end
             r.b:SetText("|cffbbbbbb" .. table.concat(bits, ns.L("　", "  ")) .. "|r")
             r:ClearAllPoints(); r:SetPoint("TOPLEFT", 0, y); r:SetPoint("RIGHT", pop.child, "RIGHT", -4, 0); r:SetHeight(58)
             r:Show()

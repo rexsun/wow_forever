@@ -111,6 +111,10 @@ local gearInsightGroup = {
     reason = "GearInsight must not send your level, class, map position and quest progress every 30 seconds." },
   { id = "magewater", key = "MageWater", label = "Mage water helpers: thank-you whisper after trades and nearby-Mage popup",
     reason = "YUI owns chat; GearInsight must not whisper on its own, and its Mage module loads only when used." },
+  { id = "lowrank", key = "LowRank", label = "Low-rank spell checker: whispers and party/raid call-outs to groupmates",
+    reason = "YUI owns chat and spell ranks; GearInsight must not whisper or name groupmates in group chat on its own." },
+  { id = "buffask", key = "BuffAsk", label = "Buff requests: automatic party/raid ask in dungeons and nearby-player popup",
+    reason = "YUI owns chat; GearInsight must not post buff requests to group chat on its own." },
 }
 
 for _, setting in ipairs(gearInsightGroup) do

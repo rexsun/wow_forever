@@ -128,7 +128,7 @@ function PS.Format(kind, name, desc)
     end
     local where = PS.Where()
     -- 11-06 用户截图（公会频道带标记那句已能点）「加上[Gearinsight]」：句首挂品牌
-    tpl = L("[Gearinsight插件] ", "[Gearinsight] ") .. tpl   -- 11-06 用户「[Gearinsight插件]xxx」
+    tpl = L("[Gearinsight插件] ", "[Gearinsight插件] ") .. tpl   -- 11-06 用户「[Gearinsight插件]xxx」
     -- 用 {z} / {n} / {d} 占位（Lua 5.1 的 string.format 不支持 %2$s，中英文语序又不同）
     return (tpl:gsub("{z}", function() return where end):gsub("{n}", function() return short(name) end)
         :gsub("{d}", function() return desc or "" end))
@@ -166,8 +166,12 @@ local function mkPop()
     if pop then return pop end
     local f = CreateFrame("Frame", "GearInsightForeverPvPHelp", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
     f:SetSize(460, 168)
-    f:SetPoint("TOP", UIParent, "TOP", 0, -160)
+    -- 11-14 用户截图「优化下UI」：原来贴在 -160，正好压在游戏自己的「升到 N 级」大字上，背景半透明还透出来 → 往下挪到 -280 + 底色不透明
+    f:SetPoint("TOP", UIParent, "TOP", 0, -280)
     f:SetFrameStrata("DIALOG")
+    local bg = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+    bg:SetPoint("TOPLEFT", 6, -6); bg:SetPoint("BOTTOMRIGHT", -6, 6)
+    if bg.SetColorTexture then bg:SetColorTexture(0.05, 0.05, 0.07, 0.96) end
     if f.SetBackdrop then
         pcall(f.SetBackdrop, f, { bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background", edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
             tile = true, tileSize = 32, edgeSize = 24, insets = { left = 6, right = 6, top = 6, bottom = 6 } })
@@ -190,6 +194,25 @@ local function mkPop()
     f.send:SetPoint("BOTTOMRIGHT", -122, 16)
     f.no = ns.Button(f, L("不用了", "No thanks"), 96, 24, function() f:Hide() end)
     f.no:SetPoint("BOTTOMRIGHT", -20, 16)
+    -- 11-14 用户「升级了弹窗同时，有个地方引导点什么天赋，点了以后就跟升级规划点了去加点一样」：
+    --   预览下面一行「这一级点：天赋名 x/y（哪一系）」+「去点」—— 和升级规划天赋行的「去点」同一套（Talents.lua：
+    --   鼠标移上去 ns.TalentOpenerHover 盖安全按钮代点菜单栏天赋按钮 → 开天赋面板 + 绿框；盖不了走 ns.TalentGoFallback 提示按 N）
+    -- 11-14「优化下UI」：天赋一行改成一张小卡（淡金底 + 32 图标 + 天赋名 + 第二行「x/y · 哪一系」）；
+    --   只提示天赋时「去点」挪到底下按钮排、和「知道了」并排（原来在卡片右边，提示文字折两行时压到「知道了」上）
+    local tal = CreateFrame("Frame", nil, f)
+    tal:SetSize(424, 42); tal:SetPoint("TOPLEFT", f.preview, "BOTTOMLEFT", 0, -10)
+    tal.bg = tal:CreateTexture(nil, "BACKGROUND", nil, 2); tal.bg:SetAllPoints()
+    if tal.bg.SetColorTexture then tal.bg:SetColorTexture(1, 0.82, 0, 0.08) end
+    tal.ic = tal:CreateTexture(nil, "ARTWORK"); tal.ic:SetSize(32, 32); tal.ic:SetPoint("LEFT", 6, 0)
+    tal.t = tal:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    tal.t:SetPoint("TOPLEFT", tal.ic, "TOPRIGHT", 8, -1); tal.t:SetWidth(300); tal.t:SetJustifyH("LEFT")
+    tal.sub = tal:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    tal.sub:SetPoint("BOTTOMLEFT", tal.ic, "BOTTOMRIGHT", 8, 1); tal.sub:SetWidth(300); tal.sub:SetJustifyH("LEFT")
+    tal.go = ns.Button(tal, L("去点", "Go"), 96, 24, function() if tal.st and ns.TalentGoFallback then ns.TalentGoFallback(tal.st) end end)
+    tal.go:SetPoint("RIGHT", -8, 0)
+    tal.go:SetScript("OnEnter", function(self) if tal.st and ns.TalentOpenerHover then ns.TalentOpenerHover(self, tal.st) end end)
+    tal:Hide()
+    f.tal = tal
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetScript("OnClick", function() f:Hide() end)   -- 原生红叉走 HideUIPanel，战斗中被拦 → 直接 Hide
     close:SetPoint("TOPRIGHT", -2, -2)
@@ -222,6 +245,67 @@ local function setTitle(f, kind)
     local t = PS.TITLES[kind] or PS.TITLES.death
     f.title:SetText(L(t[1], t[2]))
 end
+PS.TITLES.talent = { "升级了！这一级点这个天赋", "Level up! Spend your talent point" }
+
+-- 11-14 发话模式 / 只提示天赋模式切换（同一个框）：只提示天赋时藏掉频道和「发送」，「不用了」改「知道了」
+--   11-14「优化下UI」：高度按实际内容算（提示折几行、有没有天赋卡、有没有频道排），不再写死 168 / 92 / +38 → 不会再叠在一起
+local function layout(f)
+    local ph = tonumber(f.preview.GetStringHeight and f.preview:GetStringHeight()) or 14
+    if ph < 12 then ph = 14 end
+    local share = f.send:IsShown()
+    local tal = f.tal
+    local h = 14 + 20 + 8 + ph
+    if tal:IsShown() then h = h + 10 + 42 end
+    h = h + 14 + (share and (22 + 8) or 0) + 24 + 16
+    f:SetHeight(math.max(share and 150 or 100, math.floor(h + 0.5)))
+    tal.go:ClearAllPoints()
+    if share then tal.go:SetPoint("RIGHT", tal, "RIGHT", -8, 0)
+    else tal.go:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -122, 16) end
+end
+PS.Layout = layout
+local function shareMode(f, share)
+    for _, b in ipairs(f.chs) do b:SetShown(share) end
+    f.send:SetShown(share)
+    if f.no.SetText then f.no:SetText(share and L("不用了", "No thanks") or L("知道了", "Got it")) end
+    f.tal.st = nil; f.tal:Hide()
+    layout(f)
+end
+PS.ShareMode = shareMode
+
+-- 给弹框挂上「这一级点什么天赋」（st = Talents.lua ns.PlanTalentSteps 里的一步：name / tree / icon / rank / rankMax / tab …）；st = nil 收起
+function PS.SetTalent(st, more)
+    local f = mkPop()
+    local tal = f.tal
+    tal.st = st
+    if not st then tal:Hide(); layout(f); return false end
+    tal.ic:SetTexture((st.icon and st.icon ~= "") and ("Interface\\Icons\\" .. st.icon) or "Interface\\Icons\\INV_Misc_Book_11")
+    tal.t:SetText(L("这一级点：", "This level: ") .. "|cffffd100" .. (st.name or "?") .. "|r")
+    local sub = {}
+    if st.rank and st.rankMax then sub[#sub + 1] = st.rank .. "/" .. st.rankMax end
+    if st.tree and st.tree ~= "" then sub[#sub + 1] = st.tree end
+    tal.sub:SetText("|cffaaaaaa" .. table.concat(sub, " · ") .. "|r"
+        .. (((more or 0) > 0) and ("   |cff33ff99" .. string.format(L("还有 %d 点没点", "+%d more"), more) .. "|r") or ""))
+    tal:Show()
+    layout(f)
+    return true
+end
+
+-- 只提示天赋（这一级没弹播报框时：逢 5 级自动发 / 播报关着 / 没公会没队伍）
+function PS.OfferTalent(st, more)
+    if not st then return false end
+    local f = mkPop()
+    f.msg, f.test, f.kind, f.onSent = nil, false, "talent", false
+    setTitle(f, "talent")
+    f.preview:SetText("|cffaaaaaa" .. L("点「去点」打开天赋面板，要点的格子会套上绿框（和升级规划一致）", "Go opens the talent panel and highlights the talent (same as the Leveling plan).") .. "|r")
+    shareMode(f, false)
+    PS.SetTalent(st, more)
+    f:Show()
+    local token = {}
+    f.token = token
+    if C_Timer and C_Timer.After then C_Timer.After(120, function() if f.token == token then f:Hide() end end) end
+    return true
+end
+function PS.Showing(kind) return pop ~= nil and pop:IsShown() and pop.kind == kind end
 
 -- 返回 true = 弹出来了
 function PS.Offer(kind, name, desc)
@@ -236,8 +320,10 @@ function PS.Offer(kind, name, desc)
     if not msg then return false end
     local f = mkPop()
     f.msg, f.test, f.kind, f.onSent = msg, false, kind, false
+    shareMode(f, true)
     setTitle(f, kind)
     f.preview:SetText(msg)
+    layout(f)   -- 11-14 按这句话折几行重算高度
     PS.PickChannel(first)   -- 默认公会；没公会退到小队 / 团队
     f:Show()
     local token = {}
@@ -254,8 +340,10 @@ function PS.OfferMsg(kind, msg, onSent)
     if not first then return false end
     local f = mkPop()
     f.msg, f.test, f.kind, f.onSent = msg, false, kind, onSent or false
+    shareMode(f, true)
     setTitle(f, kind)
     f.preview:SetText(msg)
+    layout(f)   -- 11-14 按这句话折几行重算高度
     PS.PickChannel(first)
     f:Show()
     local token = {}
@@ -548,29 +636,106 @@ function PS.KillerDesc(name, guid, unit)
     return d
 end
 
+-- 11-14 用户截图「为啥没有播报击杀的姓名 等级」：只报了「拿到一个荣誉击杀」= 荣誉消息没认出名字、目标 / 记下的敌人也没有
+--   ① 探针：每次荣誉消息 / 击杀数变化记一行进 ns.db.pvpProbe（最多 30 行）：消息原文或「保密值」、在不在战斗、目标读不读得到、记下几个敌人
+--      → /reload 后看存档就知道是保密值（12.x 战斗中加密）还是《无限》的荣誉消息格式和 COMBATLOG_HONORGAIN 对不上
+--   ② 没认出名字、又在战斗中：别马上弹，脱战（最多等 30 秒）后再按当前目标 / 刚记下的敌人认一次名字
+--      （被杀的人多半还选在目标上；战斗结束后名字一般就能读）
+local function probe(s)
+    if not ns.db then return end
+    local t = ns.db.pvpProbe
+    if type(t) ~= "table" then t = {}; ns.db.pvpProbe = t end
+    t[#t + 1] = (date and date("%m-%d %H:%M:%S") or "") .. " " .. s
+    while #t > 30 do table.remove(t, 1) end
+end
+PS.Probe = probe
+local function readable(v) return type(v) == "string" and not secret(v) and v ~= "" end
+local function probeState()
+    local cmb = (InCombatLockdown and InCombatLockdown()) and "战斗中" or "脱战"
+    local tn
+    local okT, ex = pcall(UnitExists, "target")
+    if okT and ex and not secret(ex) then
+        local okN, n = pcall(UnitName, "target")
+        tn = (okN and readable(n)) and ("目标=" .. n) or "目标=保密/读不到"
+    else
+        tn = "无目标"
+    end
+    return cmb .. " " .. tn .. " 记下敌人=" .. #(PS._recent or {})
+end
+
 local honorMsgSeen, honorAt = false, -999
+-- 荣誉击杀数：本次会话的（GetPVPSessionStats）优先，退回生涯的（GetPVPLifetimeStats）；读不到 = nil
+function PS.ReadHK()
+    for _, fn in ipairs({ GetPVPSessionStats, GetPVPLifetimeStats }) do
+        if fn then
+            local ok, hk = pcall(fn)
+            if ok and type(hk) == "number" and not secret(hk) then return hk end
+        end
+    end
+    return nil
+end
+PS.lastHK, PS.loginAt = nil, nil
+PS.LOGIN_QUIET = 30
+-- 击杀数真的涨了？（同时更新底数）
+function PS.HKUp()
+    local cur = PS.ReadHK()
+    if cur == nil then
+        return not (PS.loginAt and gt() - PS.loginAt < PS.LOGIN_QUIET)
+    end
+    local last = PS.lastHK
+    PS.lastHK = cur
+    return last ~= nil and cur > last
+end
+local waitRegen   -- 战斗中没认出名字：脱战后再认（函数）
 local f = CreateFrame("Frame")
-for _, e in ipairs({ "CHAT_MSG_COMBAT_HONOR_GAIN", "PLAYER_PVP_KILLS_CHANGED", "PLAYER_DEAD", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "NAME_PLATE_UNIT_ADDED" }) do
+for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "CHAT_MSG_COMBAT_HONOR_GAIN", "PLAYER_PVP_KILLS_CHANGED", "PLAYER_DEAD", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "NAME_PLATE_UNIT_ADDED", "PLAYER_REGEN_ENABLED" }) do
     local valid = not (C_EventUtils and C_EventUtils.IsEventValid) or C_EventUtils.IsEventValid(e)
     if valid then pcall(f.RegisterEvent, f, e) end
 end
 f:SetScript("OnEvent", function(_, e, msg)
+    if e == "PLAYER_ENTERING_WORLD" then
+        PS.loginAt = gt()
+        local hk = PS.ReadHK()
+        if hk ~= nil then PS.lastHK = hk end
+        return
+    end
     if e == "CHAT_MSG_COMBAT_HONOR_GAIN" then
         local ok, n = pcall(PS.VictimFromHonorMsg, msg)
+        pcall(probe, "荣誉消息 " .. (readable(msg) and ("「" .. msg .. "」") or (secret(msg) and "<保密值>" or tostring(type(msg))))
+            .. " 认出=" .. ((ok and n) and n or "无") .. " | " .. probeState())
         if ok and n then
             honorMsgSeen, honorAt = true, gt()
             local vn, vd = PS.Victim(n)
             pcall(PS.Offer, "kill", vn or n, vd)
         end
     elseif e == "PLAYER_PVP_KILLS_CHANGED" then
-        -- 两个事件谁先到不一定：等 1 秒，期间没来荣誉消息（这个客户端没有 / 没认出名字）才报不带名字的
+        -- 11-14 用户截图「现在所有号登录默认有个这个，是不是BUG」：登录 / 过图时客户端也发这个事件（击杀数刚读进来，并没有新击杀）
+        --   → 弹「拿到一个荣誉击杀」。改成：荣誉击杀数真的比上次读到的多才算；第一次读到只记底数；读不到击杀数时登录后 30 秒内一律不算
+        if not PS.HKUp() then return end
         local at = gt()
         local function later()
             if honorMsgSeen and honorAt >= at - 1 then return end
             local vn, vd = PS.Victim(nil)   -- 没有荣誉消息：按当前目标 / 刚打过的敌对玩家认
+            pcall(probe, "击杀数+1 没有可用的荣誉消息 认出=" .. (vn or "无") .. " | " .. probeState())
+            if not vn and InCombatLockdown and InCombatLockdown() then
+                -- 战斗中名字多半是保密值：脱战再认（30 秒还没脱战就不等了，照旧报不带名字的）
+                local mine
+                mine = function()
+                    if waitRegen ~= mine then return end
+                    waitRegen = nil
+                    local vn2, vd2 = PS.Victim(nil)
+                    pcall(probe, "脱战后再认 认出=" .. (vn2 or "无") .. " | " .. probeState())
+                    pcall(PS.Offer, "kill", vn2, vd2)
+                end
+                waitRegen = mine
+                if C_Timer and C_Timer.After then C_Timer.After(30, function() if waitRegen == mine then mine() end end) end
+                return
+            end
             pcall(PS.Offer, "kill", vn, vd)
         end
         if C_Timer and C_Timer.After then C_Timer.After(1, later) else later() end
+    elseif e == "PLAYER_REGEN_ENABLED" then
+        if waitRegen then pcall(waitRegen) end
     elseif e == "PLAYER_TARGET_CHANGED" or e == "UPDATE_MOUSEOVER_UNIT" then
         PS.Remember(e == "PLAYER_TARGET_CHANGED" and "target" or "mouseover")
     elseif e == "NAME_PLATE_UNIT_ADDED" then

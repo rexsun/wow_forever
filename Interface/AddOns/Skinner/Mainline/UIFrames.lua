@@ -517,16 +517,12 @@ aObj.SetupMainline_UIFrames = function()
 
 	end
 
-	local function skinTutorialFrame(frame)
-		frame:DisableDrawLayer("BORDER") -- hide NineSlice UniqueCornersLayout
-		aObj:skinObject("frame", {obj=frame, fType=ftype, ofs=-30})
-	end
 	aObj.blizzLoDFrames[ftype].BoostTutorial = function(self)
 		if not self.prdb.TutorialUI or self.initialized.BoostTutorial then return end
 		self.initialized.BoostTutorial = true
 
-		skinTutorialFrame(_G.TutorialKeyboardMouseFrame_Frame)
-		skinTutorialFrame(_G.TutorialWalk_Frame)
+		self:skinTutorialFrame(_G.TutorialKeyboardMouseFrame_Frame, ftype)
+		self:skinTutorialFrame(_G.TutorialWalk_Frame, ftype)
 
 	end
 
@@ -655,7 +651,7 @@ aObj.SetupMainline_UIFrames = function()
 		local function skinTempWindow(obj)
 			if aObj.prdb.ChatTabs then
 				-- Top Tabs
-				aObj:skinObject("tabs", {obj=obj, fType=ftype, tabs={_G[obj:GetName() .. "Tab"]}, lod=self.isTT and true, upwards=true, ignoreHLTex=false, regions={7, 8, 9, 10, 11}, offsets={x1=4, y1=self.isTT and -10 or -12, x2=-4, y2=self.isTT and -3 or -1}, track=false})
+				aObj:skinObject("tabs", {obj=obj, fType=ftype, tabs={_G[obj:GetName() .. "Tab"]}, lod=self.isTT, upwards=true, ignoreHLTex=false, regions={7, 8, 9, 10, 11}, offsets={x1=4, y1=self.isTT and -10 or -12, x2=-4, y2=self.isTT and -3 or -1}, track=false})
 			end
 			if aObj.prdb.ChatFrames	then
 				aObj:skinObject("frame", {obj=obj, fType=ftype, ofs=6, x2=27, y2=-9})
@@ -1112,7 +1108,7 @@ aObj.SetupMainline_UIFrames = function()
 
 		self:SecureHookScript(_G.GarrisonLandingPage, "OnShow", function(this)
 			this.HeaderBar:SetTexture(nil)
-			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT and true, regions={7, 8, 9, 10}})
+			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT, regions={7, 8, 9, 10}})
 			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, cb=true, ofs=-10, y2=18})
 
 			self:SecureHookScript(this.Report, "OnShow", function(fObj)
@@ -1141,7 +1137,7 @@ aObj.SetupMainline_UIFrames = function()
 				end
 				_G.ScrollUtil.AddAcquiredFrameCallback(fObj.List.ScrollBox, skinElement, aObj, true)
 				-- Top Tabs
-				self:skinObject("tabs", {obj=fObj, tabs={fObj.InProgress, fObj.Available}, fType=ftype, lod=self.isTT and true, upwards=true, offsets={x1=4, y1=self.isTT and -4 or -5, x2=-4, y2=self.isTT and -4 or 1}, regions={2, 3}, track=false, func=function(tab) tab:GetNormalTexture():SetAlpha(0) tab:SetFrameLevel(20) end})
+				self:skinObject("tabs", {obj=fObj, tabs={fObj.InProgress, fObj.Available}, fType=ftype, lod=self.isTT, upwards=true, offsets={x1=4, y1=self.isTT and -4 or -5, x2=-4, y2=self.isTT and -4 or 1}, regions={2, 3}, track=false, func=function(tab) tab:GetNormalTexture():SetAlpha(0) tab:SetFrameLevel(20) end})
 				if self.isTT then
 					self:SecureHook("GarrisonLandingPageReport_SetTab", function(tab)
 						self:setInactiveTab(tab:GetParent().unselectedTab.sf)
@@ -1231,7 +1227,7 @@ aObj.SetupMainline_UIFrames = function()
 				fObj.MaterialFrame:DisableDrawLayer("BACKGROUND")
 				fObj.Tabs = {fObj.Tab1, fObj.Tab2, fObj.Tab3}
 				-- Top Tabs
-				self:skinObject("tabs", {obj=fObj, tabs=fObj.Tabs, fType=ftype, lod=self.isTT and true, upwards=true, regions={1, 3}, offsets={y1=-7, y2=self.isTT and 2 or 7}, track=false, func=aObj.isTT and function(tab)
+				self:skinObject("tabs", {obj=fObj, tabs=fObj.Tabs, fType=ftype, lod=self.isTT, upwards=true, regions={1, 3}, offsets={y1=-7, y2=self.isTT and 2 or 7}, track=false, func=aObj.isTT and function(tab)
 					aObj:SecureHookScript(tab, "OnClick", function(blF)
 						for _, bTab in _G.pairs(blF:GetParent().Tabs) do
 							if bTab == this then
@@ -1400,7 +1396,7 @@ aObj.SetupMainline_UIFrames = function()
 			if self.modBtns then
 				self:skinCloseButton{obj=this.BorderFrame.CloseButton2, noSkin=true}
 			end
-			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT and true, ignoreHLTex=false, regions={7, 8, 9, 10}})
+			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT, ignoreHLTex=false, regions={7, 8, 9, 10}})
 			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, cb=true, x1=2, y1=2, x2=1, y2=-4})
 
 			self:SecureHookScript(this.MissionTab.MissionList, "OnShow", function(fObj)
@@ -2475,53 +2471,56 @@ aObj.SetupMainline_UIFrames = function()
 						self:SecureHookScript(cf.InitiativesFrame, "OnShow", function(ef)
 							ef.InitiativesArt.InitiativesBG:SetTexture(nil)
 							self:keepFontStrings(ef.InitiativesArt.BorderArt)
-							local efisf = ef.InitiativeSetFrame
-							efisf.InitiativeTimer.TimerBG:SetTexture(nil)
-							-- N.B. make sure reward is loaded
-							_G.C_Timer.After(0.5, function()
-								efisf.ProgressBar.Threshold4.Reward.IconBorder:SetTexture(nil)
-							end)
-							efisf.InitiativeActiveNeighborhoodSwitcher:DisableDrawLayer("BACKGROUND")
-							efisf.InitiativeTasks:DisableDrawLayer("BACKGROUND")
-							self:changeTex2Black(efisf.InitiativeTasks.TaskListTitleContainer, {"TitleTextureL", "TitleTextureM", "TitleTextureR"})
-							self:removeRegions(efisf.InitiativeTasks.TaskListTitleContainer, {5, 6})
-							self:skinObject("scrollbar", {obj=efisf.InitiativeTasks.ScrollBar, fType=ftype})
-							-- local function skinTask(...)
-							-- 	local _, element, elementData
-							-- 	if _G.select("#", ...) == 2 then
-							-- 		element, elementData = ...
-							-- 	else
-							-- 		_, element, elementData = ...
-							-- 	end
-							-- 	-- TODO: skin element
-							-- 	--[==[@debug@
-							-- 	-- _G.Spew("TL element", element)
-							-- 	-- _G.Spew("TL elementData", elementData)
-							-- 	--@end-debug@]==]
-							-- end
-							-- _G.ScrollUtil.AddInitializedFrameCallback(efisf.InitiativeTasks.TaskList, skinTask, aObj, true)
-							efisf.InitiativeActivity:DisableDrawLayer("BACKGROUND")
-							self:changeTex2Black(efisf.InitiativeActivity.ActivityLogTitleContainer, {"TitleTextureL", "TitleTextureM", "TitleTextureR"})
-							self:removeRegions(efisf.InitiativeActivity.ActivityLogTitleContainer, {5, 6})
-							self:skinObject("scrollbar", {obj=efisf.InitiativeActivity.ScrollBar, fType=ftype})
-							-- local function skinActivity(...)
-							-- 	local _, element, elementData
-							-- 	if _G.select("#", ...) == 2 then
-							-- 		element, elementData = ...
-							-- 	else
-							-- 		_, element, elementData = ...
-							-- 	end
-							-- 	-- TODO: skin element
-							-- 	--[==[@debug@
-							-- 	-- _G.Spew("AL element", element)
-							-- 	-- _G.Spew("AL elementData", elementData)
-							-- 	--@end-debug@]==]
-							-- end
-							-- _G.ScrollUtil.AddInitializedFrameCallback(efisf.InitiativeActivity.ActivityLog, skinActivity, aObj, true)
 							self:skinObject("frame", {obj=ef, fType=ftype, kfs=true, fb=true, x1=-6, y1=1, x2=4})
-							if self.modBtns then
-								self:skinStdButton{obj=efisf.InitiativeActiveNeighborhoodSwitcher.SwitchActiveNeighborhoodBtn, fType=ftype}
-							end
+
+							self:SecureHookScript(ef.InitiativeSetFrame, "OnShow", function(efisf)
+								efisf.InitiativeTimer.TimerBG:SetTexture(nil)
+								efisf.ProgressBar.BarBackground:SetTexture(nil)
+								self:skinObject("statusbar", {obj=efisf.ProgressBar, fType=ftype, fi=0})
+								-- hook this to remove the final rewards IconBorder
+								self:SecureHook(ef, "SetProgressBarThresholds", function(itm)
+									itm.InitiativeSetFrame.ProgressBar.Threshold4.Reward.IconBorder:SetTexture(nil)
+									self:Unhook(ef, "SetProgressBarThresholds")
+								end)
+								efisf.InitiativeActiveNeighborhoodSwitcher:DisableDrawLayer("BACKGROUND")
+								if self.modBtns then
+									self:skinStdButton{obj=efisf.InitiativeActiveNeighborhoodSwitcher.SwitchActiveNeighborhoodBtn, fType=ftype}
+								end
+								-- Task List
+								self:skinObject("frame", {obj=efisf.InitiativeTasks, fType=ftype, kfs=true, fb=true, ofs=4, y1=8, x2=0, y2=0})
+								self:changeTex2Black(efisf.InitiativeTasks.TaskListTitleContainer, {"TitleTextureL", "TitleTextureM", "TitleTextureR"})
+								self:removeRegions(efisf.InitiativeTasks.TaskListTitleContainer, {5, 6})
+								self:skinObject("scrollbar", {obj=efisf.InitiativeTasks.ScrollBar, fType=ftype})
+								local function skinTask(...)
+									local _, element
+									if _G.select("#", ...) == 2 then
+										element, _ = ...
+									else
+										_, element, _ = ...
+									end
+									aObj:skinObject("frame", {obj=element, fType=ftype, kfs=true, fb=true, ofs=0, x1=10, x2=-10, clr="brownish"})
+									element.EntryFlag:SetAlpha(1)
+								end
+								_G.ScrollUtil.AddInitializedFrameCallback(efisf.InitiativeTasks.TaskList, skinTask, aObj, true)
+								-- Activity List
+								self:skinObject("frame", {obj=efisf.InitiativeActivity, fType=ftype, kfs=true, fb=true, ofs=4, y1=8, x2=2, y2=0})
+								self:changeTex2Black(efisf.InitiativeActivity.ActivityLogTitleContainer, {"TitleTextureL", "TitleTextureM", "TitleTextureR"})
+								self:removeRegions(efisf.InitiativeActivity.ActivityLogTitleContainer, {5, 6})
+								self:skinObject("scrollbar", {obj=efisf.InitiativeActivity.ScrollBar, fType=ftype})
+								local function skinActivity(...)
+									local _, element
+									if _G.select("#", ...) == 2 then
+										element, _ = ...
+									else
+										_, element, _ = ...
+									end
+									element.Divider:SetTexture(nil)
+								end
+								_G.ScrollUtil.AddInitializedFrameCallback(efisf.InitiativeActivity.ActivityLog, skinActivity, aObj, true)
+
+								self:Unhook(ef.InitiativeSetFrame, "OnShow")
+							end)
+							self:checkShown(ef.InitiativeSetFrame)
 
 							self:Unhook(ef, "OnShow")
 						end)
@@ -3350,7 +3349,7 @@ aObj.SetupMainline_UIFrames = function()
 			-- end
 			-- _G.ScrollUtil.AddAcquiredFrameCallback(this.Content.ScrollBox, skinElement, aObj, true)
 			self:keepFontStrings(this.TabContainer)
-			self:skinObject("tabs", {obj=this.TabGroup, tabs=this.Tabs, fType=ftype, lod=self.isTT and true, track=false})
+			self:skinObject("tabs", {obj=this.TabGroup, tabs=this.Tabs, fType=ftype, lod=self.isTT, track=false})
 			if self.isTT then
 				self:SecureHook(this, "OnTabGroupClicked", function(fObj, selectedTab)
 					for _, tab in _G.pairs(fObj.Tabs) do
@@ -3394,7 +3393,7 @@ aObj.SetupMainline_UIFrames = function()
 			-- end
 			-- _G.ScrollUtil.AddAcquiredFrameCallback(this.content.scrollBox, skinElement, aObj, true)
 			self:keepFontStrings(this.content.tabContainer)
-			self:skinObject("tabs", {obj=this.tabGroup, tabs=this.Tabs, fType=ftype, lod=self.isTT and true, track=false})
+			self:skinObject("tabs", {obj=this.tabGroup, tabs=this.Tabs, fType=ftype, lod=self.isTT, track=false})
 			if self.isTT then
 				self:SecureHook(this, "OnTabGroupClicked", function(fObj, selectedTab)
 					for _, tab in _G.pairs(fObj.Tabs) do
@@ -4050,29 +4049,6 @@ aObj.SetupMainline_UIFrames = function()
 
 	end
 
-	aObj.blizzFrames[ftype].TutorialManager = function(self)
-		if not self.prdb.TutorialUI or self.initialized.TutorialManager then return end
-		self.initialized.TutorialManager = true
-
-		skinTutorialFrame(_G.TutorialMainFrame_Frame)
-		skinTutorialFrame(_G.TutorialSingleKey_Frame)
-		skinTutorialFrame(_G.TutorialDoubleKey_Frame)
-
-		self:RawHook(_G.TutorialPointerFrame, "_GetFrame", function(this, parentFrame)
-			local frame = aObj.hooks[this]._GetFrame(this, parentFrame)
-			self:skinObject("glowbox", {obj=frame.Content, fType=ftype})
-			frame.Glow:SetBackdrop(nil)
-			return frame
-		end, true)
-		if _G.TutorialPointerFrame_1
-		and not _G.TutorialPointerFrame_1.sf
-		then
-			self:skinObject("glowbox", {obj=_G.TutorialPointerFrame_1.Content, fType=ftype})
-			_G.TutorialPointerFrame_1.Glow:SetBackdrop(nil)
-		end
-
-	end
-
 	aObj.blizzLoDFrames[ftype].WarfrontsPartyPoseUI = function(self)
 		if not self.prdb.WarfrontsPartyPoseUI or self.initialized.WarfrontsPartyPoseUI then return end
 
@@ -4171,7 +4147,6 @@ aObj.SetupMainline_UIFramesOptions = function(self)
 		["Subscription Interstitial UI"] = _G.IsTrialAccount() or _G.IsVeteranTrialAccount() and true or nil,
 		["Talking Head"]                 = true,
 		["Torghast Level Picker"]        = {suff = "Frame"},
-		["Tutorial UI"]                  = true,
 		["Warfronts Party Pose UI"]      = true,
 		["Weekly Rewards"]               = {suff = "Frame"},
 		["Zone Ability"]                 = true,

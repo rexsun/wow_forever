@@ -231,7 +231,7 @@ local function build(p)
             local who = pend.helper and tostring(pend.helper):gsub("%-.*$", "") or L("公会会员", "a guildmate")
             p.hopSt:SetText("|cffffcc00" .. string.format(L("等 %s 邀请你（还剩 %d 秒）：他一邀请就自动进队，到了会提示", "Waiting for %s to invite you (%ds)"), who, math.max(0, math.ceil(LH.ACCEPT_WIN - (tn - pend.t)))) .. "|r")
         elseif last and tn - last.t < 120 then
-            p.hopSt:SetText((last.ok and "|cff33ff66" or "|cffff7766") .. last.text .. "|r")
+            p.hopSt:SetText((last.ok and "|cff33ff66" or "|cffff7766") .. ((LH.LastText and LH.LastText()) or last.text) .. "|r")   -- 11-14 按当前编号重算
         else
         p.hopSt:SetText(why and ((why == "pending" and "|cffffcc00" or "|cff999999") .. (WHY[why] or why) .. (why == "cooldown" and ("（" .. LH.CooldownLeft() .. " 秒）") or "") .. "|r")
             or ("|cff33ff66" .. L("可以求助：别的层的公会会员会拉你过去", "Ready") .. "|r"))

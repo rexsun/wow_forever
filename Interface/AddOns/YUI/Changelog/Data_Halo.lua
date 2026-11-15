@@ -1,6 +1,21 @@
 -- Generated from Docs/Products/YUI_YHUD/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yhud", {
+-- YUI-Notes-Record: halo-121|mainline|28f4dacfd4e05342432dbd7cccbdf99f0edade4d69ad7aa0e8a9083ab3b381d5
+-- YUI-Notes-Record: halo-121|forever|589f3a87a9be828fb2988b1087a570a2a7fe430aee3231cb17215136d2a7f214
+    {
+        version = "halo-121",
+        date = "2026-11-14",
+        clients = { "Retail", "Forever" },
+        content = {
+            zhCN = {
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: halo-120|mainline|3537a178d10c43cae0fa254b98d7945f17ff906fa9499f1779106af8a27afe4c
     {
         version = "halo-120",
@@ -273,29 +288,6 @@ CL:Register("yhud", {
                 "Improved spell alert previews and layout placeholder hints.",
                 "New ring groups now default to disabled tooltips, preserving existing settings.",
                 "Fixed duration displays for totem-based monitor rings and bars.",
-            },
-        },
-    },
--- YUI-Notes-Record: halo-111|mainline|cbf0d063cf1752d422eb5937676f52836fc8959d00b665f30f3d91fe2365bec1
--- YUI-Notes-Record: halo-111|forever|c616fb1e1e19bf026be8a4c3f28fdf11d8242cc778e0fe0d7c0d0f2244cdf870
-    {
-        version = "halo-111",
-        date = "2026-10-23",
-        clients = { "Retail", "Forever" },
-        content = {
-            zhCN = {
-                "监控图标按键支持药水与饰品，改善技能和宏的按键识别。",
-                "修复切图后的技能就绪声音误报与监控图标恢复异常。",
-                "修复增益监控倒计时和层数文字被遮挡的问题。",
-                "修复位置修改保存后被覆盖，以及预览遮挡位置编辑界面的问题。",
-                "修复多个单体共同加载时的配置导入与按键文字异常。",
-            },
-            enUS = {
-                "Added potion and trinket keybind text to monitor icons and improved spell and macro binding detection.",
-                "Fixed false ability-ready sound alerts and monitor icon recovery after zone transitions.",
-                "Fixed obscured countdown and stack text on buff monitors.",
-                "Fixed position changes being overwritten on save and previews overlapping the position editor.",
-                "Fixed configuration import and keybind text issues when multiple standalone addons are loaded together.",
             },
         },
     },

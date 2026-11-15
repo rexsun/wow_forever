@@ -85,6 +85,10 @@ function LY.OnChange(fn) LY.listeners[#LY.listeners + 1] = fn end
 -- 11-06 用户「切位面给点提示，给邀请人和被邀请人，就弹出一个快速消失的文字」：屏幕中上方一行字，几秒淡出（暴雪红字提示那一行）
 function LY.Flash(text, r, g, b)
     if type(text) ~= "string" or text == "" then return end
+    -- 11-14 用户截图「展示一堆吗」：连点「我想换一层」→ 同一句「已经换过来了」在屏幕顶上叠了三行 → 同一句 5 秒内只出一次
+    local t = now()
+    if LY._flashText == text and t - (LY._flashAt or -99) < 5 then return end
+    LY._flashText, LY._flashAt = text, t
     local f = _G.UIErrorsFrame
     if f and f.AddMessage then pcall(f.AddMessage, f, text, r or 0.2, g or 1, b or 0.6) end
 end

@@ -74,7 +74,10 @@ def check_account(saved: Path, class_name: str, faction: str) -> None:
         assert(yui:GetCurrentProfile()=="Default")
         assert(yui.profile == YUI_DB.profiles.Default)
         assert(GearInsightForeverDB.keysHud==false)
-        assert(GearInsightForeverDB.leveling.shown==false)
+        -- 1.1.x replaced the account-wide shown flag with a per-character hide list, which the
+        -- guard fills at each character's first login.
+        local leveling=GearInsightForeverDB.leveling
+        assert(leveling.shown==false or (leveling.shown==nil and type(leveling.hide)=="table"))
         assert(GearInsightForeverDB.qm.autoPlates==false)
     """)
 

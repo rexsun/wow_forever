@@ -12,7 +12,7 @@ local ADDED_1017 = "2026-10-17"
 local ADDED_1019 = "2026-10-19"
 local ADDED_1022 = "2026-10-22"
 local ADDED_1104 = "2026-11-04"
-local SHARED_KEYS = {"DUNGEONWORLDMAPPINS", "MEETINGSTONEWORLDMAPPINS", "DUNGEONMINIMAPPINS", "MEETINGSTONEMINIMAPPINS", "INSTANCEPINS_BOSS", "INSTANCEPINS_ITEM", "INSTANCEPINS_ENTRANCE", "INSTANCEPINS_LEVEL"}
+local SHARED_KEYS = {"DUNGEONWORLDMAPPINS", "MEETINGSTONEWORLDMAPPINS", "DUNGEONMINIMAPPINS", "MEETINGSTONEMINIMAPPINS", "INSTANCEPINS_BOSS", "INSTANCEPINS_ITEM", "INSTANCEPINS_QUEST", "INSTANCEPINS_ENTRANCE", "INSTANCEPINS_LEVEL"}
 local maset = nil
 local sharedCheckboxes = {}
 local cvarCheckboxes = {}
@@ -49,6 +49,13 @@ function MapUtils:GetConfig(key, value)
 	if MAUTTAB[key] == nil then MAUTTAB[key] = value end
 
 	return MAUTTAB[key]
+end
+
+function MapUtils:GetMapViewMode()
+	MAUTTAB = MAUTTAB or {}
+	if MAUTTAB["MAPVIEWMODE"] == nil then MAUTTAB["MAPVIEWMODE"] = MAUTTAB["REMEMBERMAPVIEW"] and "LOCATION" or "PLAYER" end
+
+	return MAUTTAB["MAPVIEWMODE"]
 end
 
 function MapUtils:ToggleSettings()
@@ -420,7 +427,6 @@ function MapUtils:InitSetting()
 	end
 	if MapUtils.RefreshCustomMarkers then AddTooltip(AddPinCategory("CUSTOMMARKERWORLDMAPPINS", function() MapUtils:RefreshCustomMarkers() end, "LID_CUSTOMMARKERWORLDMAPPINS", "2026-11-13"), "LID_CUSTOMMARKERWORLDMAPPINS", "LID_CUSTOMMARKERWORLDMAPPINSDESC") end
 	if MapUtils:IsForever() or MapUtils.RefreshQuestTurnIns or MapUtils.RefreshQuestGivers then AddCategory("QUESTS", 2, nil, ADDED_1104) end
-	if MapUtils:IsForever() then AddCheckbox("REMEMBERQUESTCATEGORIES", true, function() MapUtils:RestoreQuestCategories() end) end
 	if MapUtils.RefreshQuestGivers then
 		AddTooltip(AddPinCategory("QUESTGIVERWORLDMAPPINS", function() MapUtils:RefreshQuestGivers() end, "LID_QUESTGIVERWORLDMAPPINS", ADDED_1104), "LID_QUESTGIVERWORLDMAPPINS", "LID_QUESTGIVERWORLDMAPPINSDESC")
 		for _, key in ipairs({"QUESTGIVEREVENT", "QUESTGIVERDAILY", "QUESTGIVERREP"}) do
@@ -432,12 +438,12 @@ function MapUtils:InitSetting()
 
 	if MapUtils.RefreshQuestTurnIns then AddPinCategory("QUESTTURNINWORLDMAPPINS", function() MapUtils:RefreshQuestTurnIns() end, "LID_QUESTTURNINWORLDMAPPINS", "2026-10-07") end
 	AddCategory("MAPWINDOW", 2, nil, ADDED_0927)
-	local byMoveAny = MapUtils:IsWorldMapByMoveAny()
+	local mover = MapUtils:GetWorldMapMover()
 	for _, key in ipairs({"WORLDMAPMOVE", "WORLDMAPSCALE"}) do
 		local label = nil
-		if byMoveAny then label = MapUtils:Trans("LID_" .. key) .. " |cffff8000(" .. MapUtils:Trans("LID_HANDLEDBYMOVEANY") .. ")|r" end
+		if mover then label = MapUtils:Trans("LID_" .. key) .. " |cffff8000(" .. MapUtils:Trans("LID_HANDLEDBYADDON", nil, mover) .. ")|r" end
 		local checkbox = AddCheckbox(key, true, function() MapUtils:RefreshWorldMapFrame() end, label, ADDED_0927)
-		if byMoveAny then maset:AddDependency(checkbox, function() return false end, 0) end
+		if mover then maset:AddDependency(checkbox, function() return false end, 0) end
 	end
 	if MapUtils.IsSimpleMapFrameAvailable and MapUtils:IsSimpleMapFrameAvailable() then
 		local byLeatrix = MapUtils:IsSimpleMapFrameByLeatrix()
@@ -451,7 +457,20 @@ function MapUtils:InitSetting()
 
 	local wheelZoomAvailable = MapUtils.IsWorldMapWheelZoomAvailable and MapUtils:IsWorldMapWheelZoomAvailable()
 	if wheelZoomAvailable then AddCheckbox("WORLDMAPZOOM", true, nil, nil, "2026-10-08") end
-	AddTooltip(AddCheckbox("REMEMBERMAPVIEW", false, nil, nil, "2026-11-05"), "LID_REMEMBERMAPVIEW", "LID_REMEMBERMAPVIEWDESC")
+	MapUtils:GetMapViewMode()
+	AddTooltip(
+		AddDropdown(
+			"MAPVIEWMODE",
+			"PLAYER",
+			{
+				{["value"] = "PLAYER", ["label"] = MapUtils:Trans("LID_MAPVIEWPLAYER")},
+				{["value"] = "ZOOM", ["label"] = MapUtils:Trans("LID_MAPVIEWZOOM")},
+				{["value"] = "LOCATION", ["label"] = MapUtils:Trans("LID_MAPVIEWLOCATION")}
+			}, nil, nil, "2026-11-14"
+		),
+		"LID_MAPVIEWMODE",
+		"LID_MAPVIEWMODEDESC"
+	)
 	MapUtils:IsOneMap()
 	local oneMap = AddCheckbox(
 		"ONEMAP",
@@ -568,7 +587,8 @@ function MapUtils:InitSetting()
 	if not MapUtils.nativeInstanceMaps then
 		AddCategory("INSTANCEMAPPINS", 2, "LID_INSTANCEMAPS", ADDED_1004)
 		AddSharedCheckbox("INSTANCEPINS_BOSS", "LID_SHOWBOSSPINS", ADDED_1004)
-		AddSharedCheckbox("INSTANCEPINS_ITEM", "LID_SHOWQUESTPINS", ADDED_1004)
+		AddSharedCheckbox("INSTANCEPINS_ITEM", "LID_SHOWQUESTITEMPINS", ADDED_1004)
+		AddSharedCheckbox("INSTANCEPINS_QUEST", "LID_SHOWQUESTPINS", "2026-11-15")
 		AddSharedCheckbox("INSTANCEPINS_ENTRANCE", "LID_SHOWENTRANCEPINS", ADDED_1004)
 		AddSharedCheckbox("INSTANCEPINS_LEVEL", "LID_SHOWLEVELPINS", ADDED_1004)
 	end

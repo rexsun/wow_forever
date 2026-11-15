@@ -1,6 +1,32 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v360|forever|8da04912664ea861a24f9436844d63d19edac659ec62ac9b4bba2bddd593e6cd
+    {
+        version = "v360",
+        date = "2026-11-14",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "购物助手调整为五页分类，并补充合剂、防护药水和功能药水。",
+                "信息条专业菜单新增营火制造、使用及可用的分解助手入口。",
+                "信息条天赋提示支持优先读取无限副本手册的技能学习数据。",
+                "插件助手支持清理未安装记录，并修复“新”标记和分组状态显示。",
+                "优化信息条专业等级配色，未满级不再显示为错误色。",
+                "修复法师增益与营火限制图标在战斗中的显示异常。",
+                "修复隐藏地图标记后，筛选按钮未同步灰显的问题。",
+            },
+            enUS = {
+                "Reorganized Auction Helper into five tabs and added flasks, protection potions, and utility potions.",
+                "Added campfire crafting, campfire use, and an available Disenchant Assistant shortcut to the profession menu.",
+                "Talent tooltips now prioritize skill-training data from Dungeons Forever Handbook.",
+                "Addon Assistant can now remove uninstalled addon records, with fixes to “New” markers and group-status displays.",
+                "Improved profession-rank colors so ranks below the cap no longer use an error color.",
+                "Fixed combat display issues with Mage buff and campfire-restriction icons.",
+                "Fixed the filter button not turning gray when map markers are hidden.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v359|forever|ccc109a5fe60f6270ca0e52be0ed653d1ea5436c451b92fb475a81789345c15f
     {
         version = "v359",
@@ -214,30 +240,6 @@ CL:Register("suite", {
                 "Resource previews now return to the current character after leaving resource group editing.",
                 "Addon Assistant now toggles each addon separately and warns about dependency issues.",
                 "Fixed initial action bar import failures and interference from latency-tolerance updates.",
-            },
-        },
-    },
--- YUI-Notes-Record: v350|forever|a8d065694369b3b734535683c3414217b763bd04bd29e0c578ad9dde482224b0
-    {
-        version = "v350",
-        date = "2026-10-31",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增资源管理，支持自定义资源条、竖向排列、同行等分及几何／原生资源点。",
-                "监控台和动作条新增菱形、棱光与墨影外观，支持 Masque 皮肤。",
-                "新增插件助手独立窗口与游戏菜单入口，支持按场景和专精管理插件方案。",
-                "聊天条支持独立调整文字字号，并同步调整鼠标悬停区域。",
-                "声音提醒列表支持跨类型与专精搜索。",
-                "修复资源条刷新与设计拖动异常、宠物技能状态显示及自动修理启停问题。",
-            },
-            enUS = {
-                "Added resource management with custom resource bars, vertical layouts, equal-width rows, and geometric or native resource points.",
-                "Added Diamond, Contour, and Shade appearances for monitors and action bars, with Masque skin support.",
-                "Added a dedicated Addon Assistant window and game menu entry, with addon profiles by activity and specialization.",
-                "Chat bar text now has an independent font size, with matching mouseover areas.",
-                "Sound alert searches now span alert types and specializations.",
-                "Fixed resource updates and designer dragging, pet ability status displays, and automatic repair activation.",
             },
         },
     },

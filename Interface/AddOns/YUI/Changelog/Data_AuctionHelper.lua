@@ -1,6 +1,36 @@
 -- Generated from Docs/Products/YUI_AuctionHelper/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("auction_helper", {
+-- YUI-Notes-Record: yah-133|mainline|ff2968f257eb0f7e1573578579f43216c0fdf4eec9d0db38f40d79adeb608d25
+    {
+        version = "yah-133",
+        date = "2026-11-14",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yah-133|forever|f2b0fba23414cfb19b03679216d04d45d674004a16b6d3e7b1dfcdc839619d3e
+    {
+        version = "yah-133",
+        date = "2026-11-14",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "推荐清单调整为五页分类，新增药剂与防护页签。",
+                "补充合剂、防护与功能药水，并细化绷带标签。",
+            },
+            enUS = {
+                "Reorganized the recommended list into five tabs, including a new Elixirs and Protection tab.",
+                "Added flasks, protection and utility potions, and more specific bandage labels.",
+            },
+        },
+    },
 -- YUI-Notes-Record: yah-132|mainline|b5461db827121e22be1d7587e6f47fb09dcc6f6159f007333ac36f888692526f
 -- YUI-Notes-Record: yah-132|forever|df176f150d3c2f253a9b7f2eb7dda596639a82417b24e292ef60576f03839e40
     {
@@ -147,22 +177,6 @@ CL:Register("auction_helper", {
             },
             enUS = {
                 "Updated shared components to improve compatibility when loaded with other YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: yah-123|mainline|ff08ebd273ddfd1f81076c79967a64f268bd3e466a3932e2dbf6c4fbabbfa348
-    {
-        version = "yah-123",
-        date = "2026-10-16",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "配方追踪支持按材料缺口预填购买数量，并可只统计满星材料。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Recipe tracking now prefills purchase quantities from material shortages and supports highest-quality-only tracking.",
-                "Updated the shared core for compatibility with newer YUI addons.",
             },
         },
     },

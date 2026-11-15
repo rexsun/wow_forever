@@ -165,13 +165,18 @@ function Window:DrawMap()
     local left,right,top,bottom=Routes:GetViewport(map)
     if not left or right<=left or bottom<=top then return end
     local width,height=overlay:GetWidth(),overlay:GetHeight()
-    local state={map:GetMapID(),left,right,top,bottom,width,height,self.locations,Routes.active,GatherLite.db.char.routeVisible,addon.Fishing and addon.Fishing.visible,GatherLite.db.char.worldmap.neighbors}
+    local fish=self.object and self.object.type=="fish"
+    local options=GatherLite.db.profile.worldmap
+    local pinSize=fish and options.size or 14
+    local pinOpacity=fish and options.opacity or 1
+    local inset=pinSize/2
+    local state={map:GetMapID(),left,right,top,bottom,width,height,self.locations,Routes.active,
+        GatherLite.db.char.routeVisible,addon.Fishing and addon.Fishing.visible,options.neighbors,pinSize,pinOpacity}
     local same=self.lastDraw~=nil
-    if same then for i=1,12 do if state[i]~=self.lastDraw[i] then same=false; break end end end
+    if same then for i=1,14 do if state[i]~=self.lastDraw[i] then same=false; break end end end
     if same then return end
     self.lastDraw=state
     local count,cells=0,{}
-    local fish=self.object and self.object.type=="fish"
     local spacing=10
     local function occupied(x,y)
         local cx,cy=math.floor(x/spacing),math.floor(y/spacing)
@@ -190,7 +195,7 @@ function Window:DrawMap()
     local locations=(fish and self.displayLocations or self.locations) or {}
     if self.object and self.object.type=="fish" and not addon.Fishing.visible then locations={} end
     local allowed={[map:GetMapID()]=true}
-    if GatherLite.db.char.worldmap.neighbors and GatherLite.GetZoneTree then
+    if GatherLite.db.profile.worldmap.neighbors and GatherLite.GetZoneTree then
         local zone=GatherLite:GetZoneTree()[map:GetMapID()]
         for _,id in ipairs(zone and zone.neighbors or {}) do allowed[id]=true end
     end
@@ -204,7 +209,7 @@ function Window:DrawMap()
                     local pin=self.pins[count]
                     if not pin then
                         pin=CreateFrame("Frame",nil,overlay)
-                        pin:SetSize(14,14); pin:EnableMouse(false)
+                        pin:EnableMouse(false)
                         pin:SetMouseMotionEnabled(true); pin:SetMouseClickEnabled(false)
                         pin.icon=pin:CreateTexture(nil,"OVERLAY"); pin.icon:SetAllPoints()
                         pin:SetScript("OnEnter",function(p)
@@ -222,10 +227,12 @@ function Window:DrawMap()
                     end
                     pin.point,pin.mapID=point,sourceMap
                     pin.object=point.object and GatherLite:GetNodeObject(point.object) or self.object
+                    pin:SetSize(pinSize,pinSize)
+                    pin:SetAlpha(pinOpacity)
                     pin.icon:SetTexture(pin.object.icon)
                     pin:ClearAllPoints(); pin:SetPoint("CENTER",overlay,"TOPLEFT",x,-y)
                     -- Keep complete icons inside the map viewport.
-                    pin:SetShown(x>=7 and x<=width-7 and y>=7 and y<=height-7)
+                    pin:SetShown(x>=inset and x<=width-inset and y>=inset and y<=height-inset)
                 end
             end
         end
@@ -440,6 +447,22 @@ function Window:CreateMap(page)
     map:Show()
 end
 
+-- The breadcrumb arrows are Blizzard dropdown buttons. In the gamepad UI a
+-- mouse click on one opens a Blizzard menu from this addon's button, which
+-- taints the controller binding stack (ADDON_ACTION_FORBIDDEN on close). The
+-- controller opens the addon-owned menu instead, so the arrows ignore the mouse.
+function Window:UpdateDropdownInput()
+    local profiles = self.settingsPanels and self.settingsPanels.profiles
+    if profiles then profiles:UpdateDropdownInput() end
+    local bar = self.breadcrumb
+    if not bar then return end
+    local mouse = not (InputUtil and InputUtil.IsGamepadUIEnabled and InputUtil.IsGamepadUIEnabled() == true)
+    local function set(button) if button and button.EnableMouse then button:EnableMouse(mouse) end end
+    set(bar.overflowButton)
+    set(bar.homeButton and bar.homeButton.MenuArrowButton)
+    for _, crumb in ipairs(bar.navList or {}) do set(crumb.MenuArrowButton) end
+end
+
 -- Use the same native arrow-shaped breadcrumb templates as Blizzard's map.
 function Window:RefreshBreadcrumbs()
     local hierarchy, seen = {}, {}
@@ -473,6 +496,7 @@ function Window:RefreshBreadcrumbs()
             end,
         })
     end
+    self:UpdateDropdownInput()
 end
 
 function Window:CreateNavigation(page)
@@ -510,10 +534,10 @@ function Window:CreateSettings(page)
     rail:SetPoint("TOPLEFT"); rail:SetPoint("BOTTOMLEFT"); rail:SetWidth(184)
     UI.Background(rail,.19,.125,.065,1); UI.Border(rail)
     UI.Text(rail,T("window.settings.preferences"),"GameFontNormalSmall"):SetPoint("TOPLEFT",12,-16)
-    local groups={"general","worldmap","minimap","hud","tracking","debugging"}
-    local labels={"settings.general","window.settings.world_map","settings.minimap","settings.hud","window.settings.resources","settings.debugging"}
+    local groups={"general","worldmap","minimap","hud","tracking","debugging","profiles"}
+    local labels={"settings.general","window.settings.world_map","settings.minimap","settings.hud","window.settings.resources","settings.debugging","settings.profiles.title"}
     local icons={"Interface\\Icons\\inv_misc_spyglass_02","Interface\\Icons\\INV_Misc_Map_01",
-        "compass","compass","Interface\\Icons\\INV_Ore_Copper_01","Interface\\Icons\\Trade_Engineering"}
+        "compass","compass","Interface\\Icons\\INV_Ore_Copper_01","Interface\\Icons\\Trade_Engineering","Interface\\Icons\\INV_Misc_Book_09"}
     local descriptions={
         "window.settings.general.description",
         "window.settings.world_map.description",
@@ -521,6 +545,7 @@ function Window:CreateSettings(page)
         "settings.hud.description",
         "window.settings.resources.description",
         "window.settings.debugging.description",
+        "settings.profiles.description",
     }
     self.settingsTitle=UI.InkText(page,"","GameFontNormalLarge")
     self.settingsTitle:SetPoint("TOPLEFT",204,-18)
@@ -533,8 +558,12 @@ function Window:CreateSettings(page)
         local group=addon.SettingsOptions.args[key]
         local button=UI.NavButton(rail,T(labels[i]),168,function()
             if self.EndSliderEdit then self:EndSliderEdit() end
+            if self.CloseSettingsMenu then self:CloseSettingsMenu() end
             self.settingsCategory=key
-            if not self.settingsPanels[key] then self.settingsPanels[key]=UI.SettingsGroup(page,group,"GatherLiteSettings_"..key) end
+            if not self.settingsPanels[key] then
+                local create = key == "profiles" and UI.ProfileSettings or UI.SettingsGroup
+                self.settingsPanels[key] = create(page, group, "GatherLiteSettings_" .. key)
+            end
             for id,panel in pairs(self.settingsPanels) do panel:SetShown(id==key) end
             for id,tab in pairs(self.settingsButtons) do tab:Select(id==key) end
             self.settingsTitle:SetText(T(labels[i])); self.settingsDescription:SetText(T(descriptions[i]))
@@ -549,7 +578,7 @@ function Window:CreateSettings(page)
     local note=UI.Text(rail,T("window.settings.autosave"),"GameFontDisableSmall")
     note:SetPoint("BOTTOMLEFT",12,16); note:SetWidth(160)
 end
--- Bundled highlights for release 8.4.8. Update these alongside user-facing changes.
+-- Bundled highlights for release 8.4.11. Update these alongside user-facing changes.
 function Window:CreateChangelog(page)
     UI.Parchment(page)
     local title=UI.InkText(page,T("window.tab.changelog"),"GameFontNormalHuge")
@@ -563,9 +592,9 @@ function Window:CreateChangelog(page)
     self.changelogScroll=scroll
     local sections={
         {"GATHERING DATABASE",{
-            "Added 402 gathering locations, bringing the Forever database to 34,016.",
-            "The additions include 138 herb, 204 mineral vein and 60 container locations.",
-            "Retained all 33,614 locations from 8.4.7.",
+            "Added 555 unique gathering locations to the Forever database.",
+            "The database contains 34,881 locations. All 34,326 previously published locations were retained.",
+            "Location additions include Iron Deposit (+56), Silver Vein (+34), Copper Vein (+30).",
         }},
     }
     local y=0
@@ -584,6 +613,7 @@ function Window:CreateChangelog(page)
 
 end
 function Window:SelectTab(index)
+    if self.CloseSettingsMenu then self:CloseSettingsMenu() end
     if self.controllerNavigation then self.controllerNavigation:ClearDirectionInput() end
     if self.EndSliderEdit then self:EndSliderEdit() end
     if index~=1 and self.helpStep then self:CloseOnboarding() end
@@ -614,6 +644,17 @@ function Window:Create()
     ButtonFrameTemplate_HideButtonBar(frame)
     frame.Inset:ClearAllPoints(); frame.Inset:SetPoint("TOPLEFT",4,-66); frame.Inset:SetPoint("BOTTOMRIGHT",-6,27)
     frame:SetClampedToScreen(true)
+    frame:SetMovable(true)
+    local titleDrag=CreateFrame("Frame",nil,frame)
+    titleDrag:SetPoint("TOPLEFT",frame,"TOPLEFT",65,-3)
+    titleDrag:SetPoint("TOPRIGHT",frame.CloseButton,"TOPLEFT",-6,0)
+    titleDrag:SetHeight(26)
+    titleDrag:EnableMouse(true)
+    titleDrag:RegisterForDrag("LeftButton")
+    titleDrag:SetScript("OnDragStart",function() frame:StartMoving() end)
+    titleDrag:SetScript("OnDragStop",function() frame:StopMovingOrSizing() end)
+    titleDrag:SetScript("OnHide",function() frame:StopMovingOrSizing() end)
+    self.titleDrag=titleDrag
     -- This window owns its controller input. Registering it as a UIPanel makes
     -- Blizzard's FrameControlsManager call addon callbacks during protected
     -- binding-stack transitions (including SetPreferredGamepadInteractTarget).
@@ -701,9 +742,11 @@ function Window:Show()
     self:RefreshRoute()
 end
 
-function Window:ShowSettings()
+function Window:ShowSettings(category)
     self:Show()
     if not self.ready then return end
     self:SelectTab(2)
+    local button = category and self.settingsButtons[category]
+    if button then button:GetScript("OnClick")() end
     return true
 end

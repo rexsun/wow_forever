@@ -1,6 +1,24 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v360|mainline|802709cb8ab85bcf325574067aee959393ddc5b01954d12e41fb453b12e76258
+    {
+        version = "v360",
+        date = "2026-11-14",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "插件助手支持清理未安装记录，并修复“新”标记和分组状态显示。",
+                "优化信息条专业等级配色，未满级不再显示为错误色。",
+                "修复隐藏地图标记后，筛选按钮未同步灰显的问题。",
+            },
+            enUS = {
+                "Addon Assistant can now remove uninstalled addon records, with fixes to “New” markers and group-status displays.",
+                "Improved profession-rank colors so ranks below the cap no longer use an error color.",
+                "Fixed the filter button not turning gray when map markers are hidden.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v359|mainline|bc7a896bfc5bf783e7db2d6841830e314bda051d3b63c2c3955529060eb1abe3
     {
         version = "v359",
@@ -180,32 +198,6 @@ CL:Register("suite", {
                 "Addon Assistant now toggles each addon separately and warns about dependency issues.",
                 "Fixed initial action bar import failures and interference from latency-tolerance updates.",
                 "Fixed minimap displacement and blocked mouse interactions after cinematics.",
-            },
-        },
-    },
--- YUI-Notes-Record: v350|mainline|bae1adb1e99379e513613cbdf40844d19f3d50ce9b6ffd2d40049d7a9683a370
-    {
-        version = "v350",
-        date = "2026-10-31",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "新增资源管理，支持自定义资源条、竖向排列、同行等分及几何／原生资源点。",
-                "监控台和动作条新增菱形、棱光与墨影外观，支持 Masque 皮肤。",
-                "新增插件助手独立窗口与游戏菜单入口，支持按场景和专精管理插件方案。",
-                "驭龙术新增技能冷却显示样式，平衡德鲁伊新增日月蚀资源预设。",
-                "完善 PVE 图标文字样式与位置设置，聊天条支持独立调整字号。",
-                "声音提醒列表支持跨类型与专精搜索。",
-                "修复资源条刷新与设计拖动异常、宠物技能状态显示及自动修理启停问题。",
-            },
-            enUS = {
-                "Added resource management with custom resource bars, vertical layouts, equal-width rows, and geometric or native resource points.",
-                "Added Diamond, Contour, and Shade appearances for monitors and action bars, with Masque skin support.",
-                "Added a dedicated Addon Assistant window and game menu entry, with addon profiles by activity and specialization.",
-                "Added Skyriding ability cooldown styles and Solar/Lunar Eclipse resource presets for Balance Druids.",
-                "Improved PVE icon text styling and positioning; chat bar text now has an independent font size.",
-                "Sound alert searches now span alert types and specializations.",
-                "Fixed resource updates and designer dragging, pet ability status displays, and automatic repair activation.",
             },
         },
     },

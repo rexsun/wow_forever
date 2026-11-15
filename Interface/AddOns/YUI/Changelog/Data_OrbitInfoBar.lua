@@ -1,6 +1,38 @@
 -- Generated from Docs/Products/YUI_OrbitInfoBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("ybar", {
+-- YUI-Notes-Record: orbit-133|mainline|33618eaf52035c40b88cc18257d364c4e0c076d870542f1f2e7b98698f040f2f
+    {
+        version = "orbit-133",
+        date = "2026-11-14",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "优化专业等级配色，未满级不再显示为错误色。",
+            },
+            enUS = {
+                "Improved profession-rank colors so ranks below the cap no longer use an error color.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-133|forever|f2c2ed61becb9f73aa4f712198b1ada2ba85914cda890775aba8ea158dd320ed
+    {
+        version = "orbit-133",
+        date = "2026-11-14",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "专业菜单新增营火制造、使用及可用的分解助手入口。",
+                "天赋提示支持优先读取无限副本手册的技能学习数据。",
+                "优化专业等级配色，未满级不再显示为错误色。",
+            },
+            enUS = {
+                "Added campfire crafting, campfire use, and an available Disenchant Assistant shortcut to the profession menu.",
+                "Talent tooltips now prioritize skill-training data from Dungeons Forever Handbook.",
+                "Improved profession-rank colors so ranks below the cap no longer use an error color.",
+            },
+        },
+    },
 -- YUI-Notes-Record: orbit-132|mainline|450c817310190f1ac30906f706bb6e03bb4d7545d2f4f03d287a478cb62833e1
 -- YUI-Notes-Record: orbit-132|forever|d1ca0a96aea6e87c819ea3d127e2da3a01f7e5158dd50e3044ae833d8c7722a1
     {
@@ -215,44 +247,6 @@ CL:Register("ybar", {
             },
             enUS = {
                 "Fixed marker bar errors when importing older configurations.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-123|forever|a731b9c45cc6c67332e63b7f863bb29539e15cf60b24743fc1610fa83ecced37
-    {
-        version = "orbit-123",
-        date = "2026-10-22",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "修复导入旧配置时标记条可能报错的问题。",
-            },
-            enUS = {
-                "Fixed marker bar errors when importing older configurations.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-122|mainline|690e5d6c92e94eeaeb29c228412f3f92fbb37696d30bfa538722cc74915ca622
-    {
-        version = "orbit-122",
-        date = "2026-10-22",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "标记条新增样式，支持分别设置标记与工具尺寸及背景透明度。",
-                "标记条支持布局编辑。",
-                "新增自动战斗日志，可按副本场景设置记录规则。",
-                "统一文字样式设置，支持样式复制粘贴。",
-                "新增职责确认按钮。",
-                "优化组队入口与微型菜单联动。",
-            },
-            enUS = {
-                "Added marker bar styles, separate marker and tool sizes, and background opacity settings.",
-                "Added layout editing for the marker bar.",
-                "Added automatic combat logging with configurable instance rules.",
-                "Unified text styling with style copy and paste.",
-                "Added a role-check button.",
-                "Improved group entry and micro-menu integration.",
             },
         },
     },

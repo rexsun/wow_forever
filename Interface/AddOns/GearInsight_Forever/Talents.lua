@@ -242,6 +242,7 @@ local function buildPanel()
     f.text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.text:SetPoint("TOPLEFT", 10, -10); f.text:SetPoint("RIGHT", -28, 0); f.text:SetJustifyH("LEFT"); f.text:SetSpacing(4)
     f.learn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    if ns.SkinButton then ns.SkinButton(f.learn) end   -- 11-14 按键美化：扁平样式
     f.learn:SetSize(110, 22); f.learn:SetPoint("BOTTOMLEFT", 10, 8)
     f.learn:SetText(ns.L("指给我看", "Show me"))
     -- ⛔ 10-07 国服 Beta：插件调 LearnTalent 弹「GearInsight_Forever 已被禁用，该功能只对暴雪的 UI 开放」——
@@ -256,8 +257,10 @@ local function buildPanel()
         C_Timer.After(0.3, updatePanel)
     end)
     local clear = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    if ns.SkinButton then ns.SkinButton(clear) end   -- 11-14 按键美化：扁平样式
     clear:SetSize(90, 22); clear:SetPoint("LEFT", f.learn, "RIGHT", 6, 0); f.clear = clear
     local qr = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    if ns.SkinButton then ns.SkinButton(qr) end   -- 11-14 按键美化：扁平样式
     qr:SetSize(80, 22); qr:SetPoint("LEFT", clear, "RIGHT", 6, 0)
     qr:SetText(ns.L("发到手机", "To phone"))
     qr:SetScript("OnClick", function() ns.ShowTalentQR() end)

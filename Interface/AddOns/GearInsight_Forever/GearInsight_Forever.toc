@@ -4,7 +4,7 @@
 ## Notes: WoW: Forever helper - talent planner, leveling plan, loot table and wishlist, Tier 1 sets, macros, news, change tooltips, beta data
 ## Notes-zhCN: 《无限》助手：天赋模拟 · 升级规划 · 掉落表与心愿单 · T1 套装 · 宏库 · 资讯 · 改动提示 · 公测数据
 ## Author: GearInsight
-## Version: 1.1.4
+## Version: 1.2.3
 ## SavedVariables: GearInsightForeverDB
 ## IconTexture: Interface\Icons\inv_misc_map_01
 ## AddonCompartmentFunc: GearInsightForever_OnAddonCompartmentClick
@@ -60,6 +60,7 @@ TrainerData.lua
 Trainers.lua
 TrainNowData.lua
 TrainNow.lua
+LowRank.lua
 LootTip.lua
 WhatsNewData.lua
 WhatsNew.lua
@@ -68,6 +69,8 @@ PageData.lua
 Perf.lua
 Board.lua
 InviteMenu.lua
+# 11-15 右键法师「找他要水」（HOLD）：排在 InviteMenu.lua 后面（用它的 IM.Target 拼全名、ns.MenuTitle）
+MageAskMenu.lua
 BisCorner.lua
 ItemLevel.lua
 # 10-28 位面（HOLD）：A 公会位面 + B 换到最优层 + 开服探针 /gi layerprobe（设计稿 docs/forever-layering-addon-design-1028.md）
@@ -78,6 +81,10 @@ PageLayer.lua
 Camp.lua
 XpCheck.lua
 CityPlates.lua
+# 11-14 法师「造水」页 + 密语要水弹窗（HOLD）
+MageConjure.lua
+# 11-14 物品快速摧毁助手「清背包」页（HOLD）
+Trash.lua
 # 合并打包：以下来自 GearInsight_Forever_Plan，这个包里和主插件一起登录加载
 SpecGearData.lua
 SpecGear.lua
@@ -103,6 +110,7 @@ Talents.lua
 PageTalent.lua
 MacroData.lua
 PageMacro.lua
+PallyBless.lua
 PetData.lua
 PagePet.lua
 PetTameData.lua

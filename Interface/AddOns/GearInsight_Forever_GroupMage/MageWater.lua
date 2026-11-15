@@ -553,6 +553,7 @@ function MW.BuildField()
     close:SetScript("OnClick", function() MW.HideField() end)
     -- 11-12 用户「放哪里合适，加上配置，方便用户找到」：框上直接给「设置」（同 /gi 吃喝、设置页「法师吃喝」、小地图右键）
     f.opt = CreateFrame("Button", nil, f, "UIPanelButtonTemplate"); f.opt:SetSize(48, 18); f.opt:SetPoint("RIGHT", close, "LEFT", -2, 0)
+    if ns.SkinButton then ns.SkinButton(f.opt) end   -- 11-14 按键美化：扁平样式
     f.opt:SetText(L("设置", "Options"))
     f.opt:SetScript("OnClick", function() MW.OpenSettings() end)   -- 弹框在屏幕上方，挂在它上面会出屏 → 居中开
     f.opt:SetScript("OnEnter", function(self)
@@ -565,6 +566,7 @@ function MW.BuildField()
     f.text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); f.text:SetPoint("TOPLEFT", 10, -28); f.text:SetWidth(310); f.text:SetJustifyH("LEFT")
     local function btn(label, w, x, y, onClick, tipB)
         local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        if ns.SkinButton then ns.SkinButton(b) end   -- 11-14 按键美化：扁平样式
         b:SetSize(w, 22); b:SetPoint("BOTTOMLEFT", x, y); b:SetText(label)
         b.label = label
         b:SetScript("OnClick", onClick)
@@ -1163,8 +1165,13 @@ function MW.BuildSettings()
         end
         f:EnableMouse(true); f:SetMovable(true)
         if f.RegisterForDrag then f:RegisterForDrag("LeftButton") end
-        f:SetScript("OnDragStart", function(self) self:StartMoving() end)
-        f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+        -- 11-14 用户 BugGrabber「GearInsightForeverMageWaterOpts:StartMoving(): Frame is not movable」：嵌进组队抽屉时 SetMovable(false)，
+        --   在抽屉里按住拖一下还是走这里 → 报错。嵌着 / 不可移动就不拖
+        f:SetScript("OnDragStart", function(self)
+            if rawget(self, "embedded") or (self.IsMovable and not self:IsMovable()) then return end
+            self:StartMoving()
+        end)
+        f:SetScript("OnDragStop", function(self) if self.IsMovable and self:IsMovable() then self:StopMovingOrSizing() end end)
         local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"); title:SetPoint("TOPLEFT", 12, -10)
         title:SetText(L("法师吃喝", "Mage food & water"))
         local close = CreateFrame("Button", nil, f, "UIPanelCloseButton"); close:SetPoint("TOPRIGHT", 0, 0)

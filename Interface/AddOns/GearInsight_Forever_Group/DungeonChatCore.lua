@@ -57,7 +57,10 @@ end
 -- 11-12 用户截图（招人面板）「这个默认加上[GI插件]都，包括回复」→ 随后改名「[GI组队助手]」：
 --   副本组队里插件发出去的话（招人喊话 / 申请私聊 / 自动反问 / 复制到聊天群）开头都带这个前缀；默认开，招人页「带标识」可关（rec.noTag = true）
 --   ⛔ 前缀只在这里定义一处；聊天一条最多 255 字节 → 超长先裁正文、不裁前缀
-DC.TAG = "[GI组队助手]"
+-- 11-14 用户「所有前缀都变成[Gearinsight插件]」「GI组队助手意义不大」：改成和升级播报 / 求组喊话同一个品牌前缀
+DC.TAG = "[Gearinsight插件]"
+-- 旧版本插件发的前缀：别人的话里带着照样认（去前缀 / 认出对方也装了插件），自己不再发
+DC.OLD_TAGS = { "[GI组队助手]" }
 DC.MAX_BYTES = 255
 function DC.TagOn() return DC.DB().rec.noTag ~= true end
 -- 按 UTF-8 字符边界裁到 n 字节以内（别把中文切成半个字）
@@ -76,15 +79,23 @@ DC.CutBytes = cutBytes
 -- 去掉文字里的前缀（别人的插件发来的 / 编辑框里带着的）
 function DC.StripTag(s)
     if type(s) ~= "string" then return s end
-    local t = DC.TAG
-    local a, b = s:find(t, 1, true)
-    while a do
-        s = s:sub(1, a - 1) .. s:sub(b + 1)
-        a, b = s:find(t, 1, true)
+    local tags = { DC.TAG }
+    for _, o in ipairs(DC.OLD_TAGS) do tags[#tags + 1] = o end
+    for _, t in ipairs(tags) do
+        local a, b = s:find(t, 1, true)
+        while a do
+            s = s:sub(1, a - 1) .. s:sub(b + 1)
+            a, b = s:find(t, 1, true)
+        end
     end
     return (s:gsub("^%s+", ""))
 end
-function DC.HasTag(s) return type(s) == "string" and s:find(DC.TAG, 1, true) ~= nil end
+function DC.HasTag(s)
+    if type(s) ~= "string" then return false end
+    if s:find(DC.TAG, 1, true) then return true end
+    for _, t in ipairs(DC.OLD_TAGS) do if s:find(t, 1, true) then return true end end
+    return false
+end
 -- 最终要发的文字：前缀 + 正文；limit = 字节上限（发聊天传 DC.MAX_BYTES；复制框不限传 nil）
 function DC.Tagged(text, limit)
     text = DC.StripTag(tostring(text or ""))
@@ -374,7 +385,42 @@ function DC.OnWhisper(msg, author, guid)
     table.insert(list, 1, p)
     DC.PruneReplies()
     DC.dirty = true
-    if DC.MaybeAsk then DC.MaybeAsk(p) end   -- 自动反问在面板那边（DungeonChat.lua）；面板没加载就只记下来
+    -- 自动反问在面板那边（DungeonChat.lua）；11-14 用户截图「自动反问没工作？」：/reload 或重登后没打开过副本组队面板 → 面板没加载 →
+    --   原来只记下来不问。面板没加载就用下面登录就在的简版（同一句话、同一个开关、每人一次）
+    local ask = DC.MaybeAsk or DC.CoreMaybeAsk
+    if ask then ask(p) end
+    return true
+end
+
+-- ---------- 简版自动反问（面板没加载时用；面板加载后 DungeonChat.lua 的 DC.MaybeAsk 接管）----------
+local PURE_DPS = { MAGE = true, WARLOCK = true, ROGUE = true, HUNTER = true }
+function DC.CoreAskText(p)
+    local lv = rawget(p, "lv") or DC.TextLevel(p.text)
+    local GL = ns.GuildChatLevel
+    if not lv and GL and GL.Info then local ok, l = pcall(GL.Info, p.author); if ok then lv = l end end
+    local hasRole = false
+    for _, r in ipairs({ "TANK", "HEALER", "DAMAGER" }) do if p.roles and p.roles[r] then hasRole = true end end
+    if not hasRole and p.cls and PURE_DPS[p.cls] then hasRole = true end
+    if not lv and not hasRole then return L("老哥报下等级和职责哈（比如 25奶 / 28T / 30输出）", "Hi, what's your level and role? (e.g. 25 healer / 28 tank / 30 dps)") end
+    if not lv then return L("老哥报下等级哈", "Hi, what's your level?") end
+    if not hasRole then return L("老哥报下职责哈（T / 奶 / 输出）", "Hi, what's your role? (tank / healer / dps)") end
+    return nil
+end
+function DC.CoreMaybeAsk(p)
+    if DC.DB().rec.autoAsk == false or rawget(p, "asked") then return false end
+    if p.text:find("报下", 1, true) or p.text:find("M我", 1, true) then return false end
+    if not DC.CoreAskText(p) then return false end
+    p.asked = true
+    local function go()
+        local cur
+        for _, x in ipairs(DC.Replies()) do if x.short == p.short then cur = x; break end end
+        local f = DC.AskText or DC.CoreAskText   -- 这 2 秒里面板可能加载了：用面板那版（会读附近玩家等级）
+        local t = f(cur or p)
+        if not t then return end
+        local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
+        if send then pcall(send, DC.Tagged(t, DC.MAX_BYTES), "WHISPER", nil, p.author) end
+    end
+    if C_Timer and C_Timer.After then C_Timer.After(2, go) else go() end
     return true
 end
 
@@ -415,3 +461,18 @@ cev:SetScript("OnEvent", function(_, e, a1, a2, ...)
     end
 end)
 DC._coreEvent = cev:GetScript("OnEvent")   -- 测试用
+
+-- 11-14 用户截图（聊天框里「发送给[某法师]：[GI组队助手]法师老板，求点水…」）「需要隐藏这个的开关，默认开启」：
+--   插件替你自动发出去的私聊（要水 / 申请 / 自动反问 / 道谢 / 满员私聊，开头带 [Gearinsight插件]），自己聊天框里那行「发送给…」默认不显示；
+--   对方照常收到。招人页「来密」那排「隐藏自发」可关（rec.showOwn = true）。只认带前缀的：关了「带标识」的话分不出是插件发的，照常显示。
+--   只走官方 ChatFrame_AddMessageEventFilter（同 GuildChatLevel / Layer），不碰聊天框本身
+DC.OWN_TAGS = { DC.TAG, "[GI组队助手]" }   -- 新前缀 + 旧前缀
+function DC.HideOwnOn() return not (ns.db and DC.DB().rec.showOwn == true) end
+function DC.OwnFilter(_, _, msg)
+    if not DC.HideOwnOn() or type(msg) ~= "string" or ns.Secret(msg) then return false end
+    for _, t in ipairs(DC.OWN_TAGS) do
+        if msg:sub(1, #t) == t then return true end
+    end
+    return false
+end
+if ChatFrame_AddMessageEventFilter then pcall(ChatFrame_AddMessageEventFilter, "CHAT_MSG_WHISPER_INFORM", DC.OwnFilter) end

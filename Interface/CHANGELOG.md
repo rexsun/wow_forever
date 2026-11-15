@@ -1,3 +1,14 @@
+## [Addon update / OverlapSettingsGuard 0.15.0] - 2026-11-15
+### Features
+- Update YUI v360, Auctionator 347, Bagnon 12.1.10, EllesmereUI 9.8.6, GatherLite 8.4.11, GearInsight Forever 1.2.3, MapUtils 1.7.5 and Skinner beta12.70938.1.
+- Add guard rules `gi.lowrank` and `gi.buffask`.
+- Skinner's TOC patch now replaces upstream's `[Game]`/`forever` Forever-support line with the `camelot` line instead of adding one.
+### Design Rationale
+- GearInsight 1.2's low-rank checker and buff requests post to group chat and whisper groupmates on their own; YUI owns chat, so both follow the existing no-automatic-chat posture. Manual buff requests and the checker's own page stay usable.
+- The `forever` game type is unproven on this client while `camelot` is used by every other Forever TOC in the pack; replacing the line keeps one known-good load path instead of risking Skinner aborting or loading its Forever files twice.
+### Notes & Caveats
+- EllesmereUI migrates per-character data into `EllesmereUIDB.chars` once; Forever Essentials must be updated together with its parent. GatherLite moves per-character display settings into profiles. Unverified in game and at the three supported resolutions.
+
 ## [Addon update / OverlapSettingsGuard 0.14.0] - 2026-11-13
 ### Features
 - Update YUI v359, GatherLite 8.4.8, MapUtils 1.7.1 and GearInsight Forever 1.1.4 (adds `_GroupMage` and `_GroupUI`).

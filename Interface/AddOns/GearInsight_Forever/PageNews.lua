@@ -135,7 +135,7 @@ local function build(p)
         local ic = b:CreateTexture(nil, "ARTWORK"); ic:SetSize(26, 26); ic:SetPoint("LEFT", 6, 0)
         if ch[4] == "web" then ic:SetTexture("Interface\\Icons\\INV_Misc_Spyglass_02"); ic:SetTexCoord(0.07, 0.93, 0.07, 0.93)
         else ic:SetTexture(CH_ICON .. ch[4]) end
-        local t = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); t:SetPoint("TOPLEFT", ic, "TOPRIGHT", 6, -1); t:SetText(ch[1])
+        local t = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); t:SetPoint("TOPLEFT", ic, "TOPRIGHT", 6, -1); t:SetText(ns.TD(ch[1]))   -- GI-253：平台名（公众号 / 小红书…）繁体端转；账号名 ch[2] 是要去 App 里搜的原名，不转
         local v = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); v:SetPoint("TOPLEFT", t, "BOTTOMLEFT", 0, -2)
         v:SetPoint("RIGHT", -4, 0); v:SetJustifyH("LEFT"); v:SetWordWrap(false)
         v:SetText(ch.qr and ("|cff33ff99" .. ns.L("点击弹出二维码", "Click for QR") .. "|r") or ch[2])
@@ -144,7 +144,7 @@ local function build(p)
             else ns.ShowBox(ch[1] .. " · " .. ch[2], ns.L("Ctrl+C 复制，去对应 App 搜索 / 打开", "Ctrl+C, then search / open it"), ch[3]) end
         end)
         b:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_TOP"); GameTooltip:AddLine(ch[1], 1, 0.82, 0)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP"); GameTooltip:AddLine(ns.TD(ch[1]), 1, 0.82, 0)
             GameTooltip:AddLine(ch.qr and ("微信扫码入群 · 有效至 " .. (N.wx.expires or "")) or ch[3], 1, 1, 1, true); GameTooltip:Show()
         end)
         b:SetScript("OnLeave", function() GameTooltip:Hide() end)

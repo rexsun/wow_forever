@@ -198,7 +198,7 @@ aObj.SetupClassic_UIFrames = function()
 	-- 			end
 
 	-- 			-- Currency
-	-- 			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, ignoreSize=true, lod=self.isTT and true, upwards=true, regions={7}})
+	-- 			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, ignoreSize=true, lod=self.isTT, upwards=true, regions={7}})
 	-- 			_G.PVPFrameConquestBar:DisableDrawLayer("BORDER")
 	-- 			self:removeInset(this.topInset)
 	-- 			self:removeMagicBtnTex(_G.PVPFrameLeftButton)
@@ -651,7 +651,7 @@ aObj.SetupClassic_UIFrames = function()
 			    return
 			end
 
-			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT and true})
+			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT})
 			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, ri=true, cb=true})
 
 			self:Unhook(this, "OnShow")
@@ -789,7 +789,7 @@ aObj.SetupClassic_UIFrames = function()
 			end
 
 			self:skinObject("slider", {obj=_G.WorldStateScoreScrollFrame.ScrollBar, fType=ftype, rpTex="artwork"})
-			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT and true})
+			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT})
 			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, cb=true, x1=12, y1=-15, x2=-114, y2=70})
 			if self.modBtns then
 				self:skinStdButton{obj=_G.WorldStateScoreFrameLeaveButton, fType=ftype}
@@ -817,7 +817,6 @@ aObj.SetupClassic_UIFramesOptions = function(self)
 		["Level Up Display"]        = self.isClsc and true or nil,
 		["Product Choice"]          = {suff = "Frame"},
 		-- ["PVP Frame"]               = self.isClsc and {desc = "Player vs. Player"} or nil,
-		["Quest Log"]               = not _G.C_AddOns.IsAddOnLoaded("QuestLogEx") and true or nil,
 		["World State Score Frame"] = {desc = "Battle Score Frame"},
 	}
 	self:setupFramesOptions(optTab, "UI")

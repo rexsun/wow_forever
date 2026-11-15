@@ -31,6 +31,9 @@ function ns.ClassLoad() return M:Load(nil, true) end
 -- ---------- 占位页（⛔ 页名 / 顺序 / 图标要和各文件里真页的 ns.RegisterPage 一模一样）----------
 M:Page({ key = "talent", order = 1, title = ns.L("天赋", "Talents"), file = "PageTalent.lua" })
 M:Page({ key = "ammo", order = 1.45, class = "Hunter", title = ns.L("弹药商", "Ammo vendors"), file = "PageAmmo.lua" })
+-- 11-14 圣骑士一键祝福（PallyBless.lua，HOLD）：⛔ visible 和真页同一个判断（设置里关掉「页」= 不出页签）
+M:Page({ key = "pally", order = 1.46, class = "Paladin", title = ns.L("一键祝福", "Blessings"), file = "PallyBless.lua",
+    visible = function() return not (ns.db and type(ns.db.pally) == "table" and ns.db.pally.page == false) end })
 M:Page({ key = "macro", order = 1.5, title = ns.L("宏库", "Macros"), file = "PageMacro.lua" })
 M:Page({ key = "keys", order = 1.6, title = ns.L("键位", "Keys"), tabTitle = ns.L("键位", "Keys"),
     icon = "Interface\\Icons\\INV_Misc_Key_03", file = "PageKeys.lua" })
@@ -44,6 +47,7 @@ M:Slash({ "kb" }, "PageKeys.lua")
 M:Slash({ "rot", "手法" }, "PageRot.lua")
 M:Slash({ "talentprobe" }, "Talents.lua")
 if M:Has("AmmoRemind.lua") then M:Slash({ "ammo", "弹药" }, "AmmoRemind.lua") else M:Slash({ "ammo", "弹药" }, "PageAmmo.lua") end
+M:Slash({ "pb", "祝福" }, "PallyBless.lua")
 
 -- ---------- 主插件 / 别的子插件会调到的函数 ----------
 -- 打开窗口 / 改配点这类动作：战斗中排到脱战后（defer）
@@ -120,6 +124,9 @@ function ns.ClassLoginWhy()
         for _, n in ipairs(VIEWERS) do if _G[n] then return "cdmKeys" end end
     end
     if M:Has("AmmoRemind.lua") and ns.MyClass and ns.MyClass() == "Hunter" and not (type(db.ammoRemind) == "table" and db.ammoRemind.on == false) then return "ammo" end
+    -- 11-14 圣骑士一键祝福：在队伍里、悬浮按钮开着（默认开）才加载；单刷不加载（进队时 GROUP_ROSTER_UPDATE 再看）
+    if M:Has("PallyBless.lua") and ns.MyClass and ns.MyClass() == "Paladin" and IsInGroup and IsInGroup()
+        and not (type(db.pally) == "table" and db.pally.float == false) then return "pally" end
     return nil
 end
 local function loginCheck()
@@ -130,6 +137,7 @@ do
     ev:RegisterEvent("PLAYER_LOGIN")
     ev:RegisterEvent("ADDON_LOADED")
     pcall(ev.RegisterEvent, ev, "LEARNED_SPELL_IN_TAB")
+    if M:Active("PallyBless.lua") then pcall(ev.RegisterEvent, ev, "GROUP_ROSTER_UPDATE") end   -- 圣骑士进队 → 条件加载（一键祝福悬浮按钮）
     local TF_NAMES = { "PlayerTalentFrame", "TalentFrame", "ClassTalentFrame", "PlayerSpellsFrame", "TalentUIFrame", "EUI_ClassicTalents" }
     -- 天赋面板第一次打开：加载 _Class（天赋计划「下一点」的绿框在 Talents.lua，加载后它自己挂钩子），这一次的绿框补画上
     local function hl() if ns.HighlightTalentStep and C_Timer and C_Timer.After then C_Timer.After(0.1, ns.HighlightTalentStep) end end
@@ -151,6 +159,8 @@ do
         elseif e == "ADDON_LOADED" then
             if type(name) == "string" and name:find("Talent", 1, true) then pcall(hookShow) end
             if name == "Blizzard_CooldownViewer" and ns.db and not ns._modReady.class then loginCheck() end
+        elseif e == "GROUP_ROSTER_UPDATE" then
+            if ns.db and not ns._modReady.class and ns.ClassLoginWhy() == "pally" then M:Load(function() end, true) end   -- 战斗中：脱战后再加载（不提示）
         elseif e == "LEARNED_SPELL_IN_TAB" then
             -- 升级学会新技能、键位页用过（keysMode）：「该上条的技能不在条上」提醒在键位页文件里 → 加载后照常提醒
             if ns._modReady.class or not (ns.db and ns.db.keysMode) or not M:Active("PageKeys.lua") then return end

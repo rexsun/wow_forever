@@ -1,6 +1,36 @@
 -- Generated from Docs/Products/YUI_YActionBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yactionbar", {
+-- YUI-Notes-Record: yactionbar-119|mainline|a58052a3318f749d2d1820babe4783cd81f1f928e741a1fd09ce691d32df2239
+    {
+        version = "yactionbar-119",
+        date = "2026-11-14",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yactionbar-119|forever|fdf0b12771bedb03b6d2a771db2105ef8288b0b469a02d2b68659843e53831cf
+    {
+        version = "yactionbar-119",
+        date = "2026-11-14",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "修复法师智力与护甲增益图标在战斗中的彩色与灰色显示。",
+                "修复营火限制图标在战斗中消失或移除后残留的问题。",
+            },
+            enUS = {
+                "Fixed colored and grayscale displays of Mage Intellect and armor buff icons in combat.",
+                "Fixed campfire-restriction icons disappearing in combat or lingering after removal.",
+            },
+        },
+    },
 -- YUI-Notes-Record: yactionbar-118|mainline|7a644f1dff492ea5df5b6674d93126401304c95d46cbd8539c6a786d9514769a
 -- YUI-Notes-Record: yactionbar-118|forever|7627ed35dc7c0c204988e8894bdd61213303d6d25aa77bb541efa65420dfca89
     {
@@ -235,23 +265,6 @@ CL:Register("yactionbar", {
                 "Added an option to hide empty pet action bar slots.",
                 "Fixed pet button selection highlights with rounded and circular icon shapes.",
                 "Fixed incorrect action icon dimming during wand recovery.",
-            },
-        },
-    },
--- YUI-Notes-Record: yactionbar-109|mainline|7b993111ad6aa6045fb73de46bc265fb824c87b7cc3ccd4aa9b0e04e769d7fb0
--- YUI-Notes-Record: yactionbar-109|forever|d1128398769c624ddb2ebbd08a1ad2c0a39bb4587d0c58646fc2171b8542fbb7
-    {
-        version = "yactionbar-109",
-        date = "2026-10-23",
-        clients = { "Retail", "Forever" },
-        content = {
-            zhCN = {
-                "修复多个单体共同加载时的配置导入异常。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Fixed configuration import issues when multiple standalone addons are loaded together.",
-                "Updated the shared core for compatibility with newer YUI addons.",
             },
         },
     },

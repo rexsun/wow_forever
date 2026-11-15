@@ -7,6 +7,8 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     { id = "gi.groupautoload", values = { qm = { thanks = false }, ui = { groupLazy = true } }, owner = "YUI" },
     { id = "gi.questshare", values = { qm = { share = false } }, owner = "YUI" },
     { id = "gi.magewater", values = { ["dchat.mw"] = { fieldAsk = false, thank = false } }, owner = "YUI" },
+    { id = "gi.lowrank", values = { ui = { lowRank = false, lowRankW = false, lowRankP = false } }, owner = "YUI" },
+    { id = "gi.buffask", values = { buffAsk = { auto = false, field = false } }, owner = "YUI" },
     { id = "gi.cityplates", values = { cityPlates = { on = false } }, owner = "EllesmereUINameplates" },
   }
 
@@ -23,8 +25,8 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
 
   local function UserData()
     return { layer = { order = { [1] = { 7 } }, log = { "kept" }, gather = "CODE" },
-      cityPlates = { noted = true }, qm = { share = true, pinned = true }, ui = { page = "tier" },
-      dchat = { rec = { roles = { TANK = true } }, mw = { bar = false } } }
+      cityPlates = { noted = true }, qm = { share = true, pinned = true }, ui = { page = "tier", lowRankTag = "" },
+      dchat = { rec = { roles = { TANK = true } }, mw = { bar = false } }, buffAsk = { whisper = true, asked = { Ann = 1 } } }
   end
 
   -- Mirrors the 1.0.1 runtime pieces the guard calls or hooks.
@@ -45,6 +47,13 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     gi.ItemLevel = {
       RefreshAll = function() gi.calls.refresh = (gi.calls.refresh or 0) + 1 end,
       SetOn = function(on) gi.db.ui = gi.db.ui or {}; if on then gi.db.ui.ilvl = nil else gi.db.ui.ilvl = false end end,
+    }
+    -- 1.2.x: LowRank lives in the main addon; BuffAsk in the load-on-demand Group module.
+    local function uiSwitch(field) return function(v) gi.db.ui = gi.db.ui or {}; if v then gi.db.ui[field] = nil else gi.db.ui[field] = false end end end
+    gi.LowRank = { SetOn = uiSwitch("lowRank"), SetWhisper = uiSwitch("lowRankW"), SetParty = uiSwitch("lowRankP") }
+    gi.BuffAsk = {
+      SetOpt = function(k, v) gi.db.buffAsk = gi.db.buffAsk or {}; if v then gi.db.buffAsk[k] = nil else gi.db.buffAsk[k] = false end end,
+      SyncEvents = function() gi.calls.sync = (gi.calls.sync or 0) + 1 end,
     }
     GearInsightForever = gi
     return gi
@@ -92,6 +101,9 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     eq(db.ui.page, "tier", "other UI settings kept")
     eq(db.dchat.rec.roles.TANK, true, "dungeon recruiting settings kept")
     eq(db.dchat.mw.bar, false, "other Mage water settings kept")
+    eq(db.ui.lowRankTag, "", "low-rank tag kept")
+    eq(db.buffAsk.whisper, true, "buff request whisper choice kept")
+    eq(db.buffAsk.asked.Ann, 1, "buff request history kept")
     ok(not ChatContains(w, "/reload"), "no reload")
     local gi = BuildGI(w, db)
     w.Login()
@@ -131,6 +143,16 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     gi.ItemLevel.SetOn(true)
     w.RunTimers()
     eq(db.ui.ilvl, false, "item level toggle is reverted")
+    gi.LowRank.SetOn(true)
+    gi.LowRank.SetParty(true)
+    w.RunTimers()
+    eq(db.ui.lowRank, false, "low-rank checker toggle is reverted")
+    eq(db.ui.lowRankP, false, "low-rank party call-out toggle is reverted")
+    local syncs = gi.calls.sync or 0
+    gi.BuffAsk.SetOpt("auto", true)
+    w.RunTimers()
+    eq(db.buffAsk.auto, false, "automatic buff request toggle is reverted")
+    ok((gi.calls.sync or 0) > syncs, "buff request events are resynced at once")
     db.layer.autoAccept, db.layer.autoHelp, db.layer.autoLeave, db.layer.on = true, true, true, true
     db.qm.thanks, db.ui.groupLazy, db.qm.share = nil, nil, true
     db.dchat.mw = nil
@@ -153,7 +175,10 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     eq(db.dchat.mw.thank, nil)
     eq(db.cityPlates.on, nil)
     eq(db.ui.ilvl, nil)
-    for _, id in ipairs({ "gi.layernetwork", "gi.groupautoload", "gi.questshare", "gi.magewater", "gi.cityplates", "gi.itemlevel" }) do
+    eq(db.ui.lowRank, nil)
+    eq(db.buffAsk.auto, nil)
+    for _, id in ipairs({ "gi.layernetwork", "gi.groupautoload", "gi.questshare", "gi.magewater", "gi.lowrank", "gi.buffask",
+      "gi.cityplates", "gi.itemlevel" }) do
       eq(StatusOf(w.ns.Check(), id), "inactive", id)
     end
   end)
@@ -194,6 +219,19 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     local ilvl = ReadFile(root .. "ItemLevel.lua")
     ok(ilvl:find("ns.db.ui.ilvl == false", 1, true), "item level switch")
     ok(ilvl:find("function IL.RefreshAll()", 1, true), "item level refresh")
+    local lowRank = ReadFile(root .. "LowRank.lua")
+    for _, needle in ipairs({ "function LR.On() return not (ns.db and ns.db.ui and ns.db.ui.lowRank == false) end",
+      "if not LR.On() or not groupUnit(unit) or not UnitGUID then return nil end",
+      "function LR.WhisperOn() return not (ns.db and ns.db.ui and ns.db.ui.lowRankW == false) end",
+      "function LR.PartyOn() return not (ns.db and ns.db.ui and ns.db.ui.lowRankP == false) end" }) do
+      ok(lowRank:find(needle, 1, true), "LowRank.lua: " .. needle)
+    end
+    local buffAsk = ReadFile(root .. "../GearInsight_Forever_Group/BuffAsk.lua")
+    for _, needle in ipairs({ "BA.DEFAULTS = { on = true, field = true, auto = true, whisper = false }",
+      'function BA.FieldOn() return BA.Opt("on") and BA.Opt("field") end',
+      'function BA.AutoOn() return BA.Opt("on") and BA.Opt("auto") end', "function BA.SyncEvents()" }) do
+      ok(buffAsk:find(needle, 1, true), "BuffAsk.lua: " .. needle)
+    end
     local chat = ReadFile(root .. "GuildChatLevel.lua")
     for _, name in ipairs({ "GL.WhisperOn()", "GL.PartyOn()", "GL.SetWhisperOn(on)", "GL.SetPartyOn(on)", "GL.SetEnabled(on)" }) do
       ok(chat:find("function " .. name, 1, true), "GuildChatLevel " .. name)

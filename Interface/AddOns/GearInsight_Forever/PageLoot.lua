@@ -302,11 +302,24 @@ function ns.ItemFallbackTip(it0)
     end
 end
 local function tipLeave() hoverRow = nil; GameTooltip:Hide() end
+-- 物品行的名字：繁体端 ns.ItemNm 优先客户端给的台服官方名（没缓存先逐字转繁并向服务器要）
+local function setRowName(r)
+    local it = r.it
+    if type(it) ~= "table" then return end
+    r.t:SetText(r.gone and ("|cff777777" .. ns.ItemNm(it) .. "|r") or ("|cff" .. (QCOLOR[it.q] or "ffffff") .. ns.ItemNm(it) .. "|r"))
+end
 local tipEv = CreateFrame("Frame")
 tipEv:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 local function onTipEvent(_, _, itemID)
     local r = hoverRow
     if r and r.it and r.it.id == itemID and GameTooltip:IsOwned(r) then pcall(itemTooltip, r) end
+    -- 11-15 GI-242 玩家截图：列表里「萎縮束帶」（逐字转繁）、鼠标提示里客户端自己的名字是「萎縮束腰」（台服官方名）——
+    --   第一次打开时客户端还没缓存这件，列表先出了逐字转繁的名字，数据送到后没换。现在送到就原地换成官方名
+    if ns.tw and page and page.right and page.right.rows then
+        for _, row in pairs(page.right.rows) do
+            if type(row.it) == "table" and row.it.id == itemID and row:IsShown() then pcall(setRowName, row) end
+        end
+    end
 end
 tipEv:SetScript("OnEvent", onTipEvent)
 ns._lootTipEvent, ns._lootTipLeave = onTipEvent, tipLeave   -- 测试用（照 ns._wishEvent 先例）
@@ -526,9 +539,11 @@ local function refresh()
             -- 10-18 测试服服务器上查不到的（副本没开放 / 掉落换了，/gi itemprobe all 实测）：灰掉 + 角上标「测试服暂无」
             local gone = ns.ItemMissing and ns.ItemMissing(it.id)
             if r.ic.SetDesaturated then r.ic:SetDesaturated(gone and true or false) end
-            r.t:SetText(gone and ("|cff777777" .. ns.ItemNm(it) .. "|r") or ("|cff" .. (QCOLOR[it.q] or "ffffff") .. ns.ItemNm(it) .. "|r"))
+            r.gone = gone
+            setRowName(r)
             local slot = it.slot or ""
             if it.type and it.type ~= "" and it.type ~= slot then slot = slot .. " · " .. it.type end
+            slot = ns.TD(slot)   -- GI-253：部位 / 护甲类型（数据中文）繁体端也转
             local pt = pctText(it.p)
             r.s:SetText(ns.EnSafe(slot .. "　" .. ns.L("装等 ", "ilvl ") .. (it.ilvl or 0) .. ns.L(" · 需要 ", " · req ") .. (it.req or 0)
                 .. (pt and (ns.L(" · 掉率约 ", " · drop ~") .. pt) or "")))

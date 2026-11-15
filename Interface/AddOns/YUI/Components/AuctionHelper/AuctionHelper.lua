@@ -627,6 +627,7 @@ local DEFAULT_TAB_SHORT_KEYS = {
     ["tab.gems.name"] = "tab.gems.short",
     ["tab.enchants.name"] = "tab.enchants.short",
     ["tab.crafting.name"] = "tab.crafting.short",
+    ["forever.tab.elixirs.name"] = "forever.tab.elixirs.short",
     ["forever.tab.enhancements.name"] = "forever.tab.enhancements.short",
     ["forever.tab.materials.name"] = "forever.tab.materials.short",
     ["forever.tab.supplies.name"] = "forever.tab.supplies.short",
@@ -1806,15 +1807,16 @@ local function CreateUI()
 
         selectedTabIndex = math.max(1, math.min(preferredIndex or 1, #tabItems))
         local accent = optionalSkin and optionalSkin.accent
+        local compactForeverTabs = FOREVER_CATALOG and #tabItems == 5
         tabWidget = GUI2.Form:CreateUnderlineTabs(tabContainer, {
             width = itemGridWidth,
             height = 24,
             items = tabItems,
             value = selectedTabIndex,
             overflow = "scroll",
-            contentAlignment = #tabItems <= 4 and "CENTER" or "LEFT",
+            contentAlignment = (#tabItems <= 4 or compactForeverTabs) and "CENTER" or "LEFT",
             gap = 4,
-            itemPaddingX = 8,
+            itemPaddingX = compactForeverTabs and 3 or 8,
             minItemWidth = 54,
             indicatorOffsetY = -2,
             indicatorHeight = 3,

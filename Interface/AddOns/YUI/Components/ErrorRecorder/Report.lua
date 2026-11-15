@@ -176,7 +176,8 @@ function Report:Readable(record)
     local message = record.message:gsub('^%[string .-%]:%d+:%s*', "")
     local parts = { self:Code(message) }
     if record.stack ~= "" then parts[#parts + 1] = Color("color.text.secondary", L["stack"]) .. "\n" .. self:Code(record.stack) end
-    if record.locals ~= "" then parts[#parts + 1] = Color("color.text.secondary", L["locals"]) .. "\n" .. Escape(record.locals) end
+    local locals = _G.YUI_ErrorCollector:GetReportLocals(record)
+    if locals ~= "" then parts[#parts + 1] = Color("color.text.secondary", L["locals"]) .. "\n" .. Escape(locals) end
     return table.concat(parts, "\n\n")
 end
 function Report:ReadableSession(session, records)

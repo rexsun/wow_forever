@@ -23,7 +23,7 @@ local AvailableTrainingTitles = {
     ["Jetzt verfügbar"] = true, ["지금 사용 가능"] = true,
 }
 
--- What's Training 会在任务技能名前插入任务感叹号图标；只接受该已知图标标记。
+-- 外部提示可能在任务技能名前插入感叹号；只接受该已知图标标记。
 local QUEST_MARKER = "^|A:SmallQuestBang:%d+:%d+|a"
 
 local function TrainingText(value)
@@ -72,7 +72,124 @@ local function ReadTrainingHiddenCount(text)
     if value and value > 0 and value <= 999 then return value end
 end
 
-local function ReadTraining()
+local function TrainingType(value, kind)
+    return (not issecretvalue or not issecretvalue(value)) and type(value) == kind
+end
+
+local function TrainingNumber(value, minimum, maximum)
+    return TrainingType(value, "number") and value >= minimum and value <= maximum and value % 1 == 0
+end
+
+local function TrainingArray(rows)
+    if not TrainingType(rows, "table") or #rows > 4096 then return false end
+    local count = 0
+    for key, row in pairs(rows) do
+        if not TrainingNumber(key, 1, #rows) or not TrainingType(row, "table") then return false end
+        count = count + 1
+    end
+    return count == #rows
+end
+
+local function TrainingLabel(value)
+    return TrainingText(value) and value:find("%S") and not value:find("|", 1, true)
+end
+
+local function TrainingLoaded(name)
+    local System = YUI.API.System
+    return System and type(System.IsAddOnLoadedSafe) == "function" and System.IsAddOnLoadedSafe(name)
+end
+
+local function AddStructuredSpell(groups, levels, row, available, handbook)
+    local level
+    if handbook then level = row.learn else level = row.level end
+    local icon, name = row.icon, row.name
+    if not TrainingNumber(row.id, 1, 2147483647) or not TrainingNumber(level, available and 0 or 1, 1000)
+        or not TrainingLabel(name) then return false end
+    if not TrainingNumber(icon, 1, 2147483647)
+        and not (TrainingText(icon) and icon:match("^Interface[\\/][%w_\\/%-%.]+$")) then return false end
+    if handbook then
+        if not TrainingType(row.rank, "nil") then
+            if not TrainingNumber(row.rank, 1, 1000) then return false end
+            name = name .. string.format(L["talents.training.rank"], row.rank)
+        end
+    elseif not TrainingType(row.subText, "nil") then
+        if not TrainingText(row.subText) then return false end
+        if row.subText ~= "" then
+            if not TrainingLabel(row.subText) then return false end
+            name = name .. " (" .. row.subText .. ")"
+        end
+    end
+    local key = available and 0 or level
+    local group = levels[key]
+    if not group then
+        group = {available=available, level=key, spells={}}
+        if not available then group.levelText = string.format(L["talents.training.level"], level) end
+        levels[key], groups[#groups+1] = group, group
+    end
+    group.spells[#group.spells+1] = {icon=icon, name=name}
+    return true
+end
+
+local function SortTraining(groups)
+    table.sort(groups, function(a, b) return a.level < b.level end)
+    for _, group in ipairs(groups) do
+        table.sort(group.spells, function(a, b) return a.name < b.name end)
+        local count = #group.spells
+        if count > 10 then
+            group.hidden = count - 10
+            for i = count, 11, -1 do group.spells[i] = nil end
+        end
+    end
+    return groups
+end
+
+local function ReadHandbookTraining(dirty)
+    if not TrainingLoaded("DungeonsForeverSpell") then return end
+    local ns = _G.DF_NS
+    if not TrainingType(ns, "table") or not TrainingType(ns.SpellTraining, "table")
+        or type(ns.SpellTraining.Rows) ~= "function" then return end
+    -- 首次构建任务索引可能启用并加载其他模块；缺少前置数据时只回退，不触发该路径。
+    if type(ns.EnsureClassQuestInfo) ~= "function" then return end
+    if dirty then
+        if type(ns.SpellTraining.Invalidate) ~= "function" then return end
+        ns.SpellTraining.Invalidate()
+    end
+    local rows = ns.SpellTraining.Rows()
+    if not TrainingType(rows, "table") or not TrainingArray(rows.available) or not TrainingArray(rows.next) then return end
+    local groups, levels = {}, {}
+    for _, row in ipairs(rows.available) do
+        if not AddStructuredSpell(groups, levels, row, true, true) then return end
+    end
+    for _, row in ipairs(rows.next) do
+        if not AddStructuredSpell(groups, levels, row, false, true) then return end
+    end
+    return SortTraining(groups) -- 有效空列表仍是权威结果，不能继续回退。
+end
+
+local function ReadPublicTraining()
+    if not TrainingLoaded("WhatsTraining") then return end
+    local api = _G.WT_API
+    if not TrainingType(api, "table") or not TrainingNumber(api.version, 1, 1000)
+        or type(api.IsReady) ~= "function" or type(api.GetSpells) ~= "function"
+        or not TrainingType(api.Status, "table") then return end
+    local available, soon = api.Status.AVAILABLE, api.Status.NEXTLEVEL
+    if not TrainingLabel(available) or not TrainingLabel(soon) or available == soon then return end
+    local ready = api.IsReady()
+    if not TrainingType(ready, "boolean") then return end
+    if not ready then return {}, api end -- 等待公开就绪通知，不读取尚未完成的 Broker。
+    local rows = api.GetSpells()
+    if not TrainingArray(rows) then return end
+    local groups, levels = {}, {}
+    for _, row in ipairs(rows) do
+        if not TrainingType(row.status, "string") then return end
+        if row.status == available or row.status == soon then
+            if not AddStructuredSpell(groups, levels, row, row.status == available, false) then return end
+        end
+    end
+    return SortTraining(groups), api
+end
+
+local function ReadBrokerTraining()
     local System = YUI.API.System
     if not System or type(System.IsAddOnLoadedSafe) ~= "function"
         or not System.IsAddOnLoadedSafe("WhatsTraining") then return end
@@ -142,6 +259,18 @@ local function ReadTraining()
     if #groups > 0 then return groups end
 end
 
+local function ReadTraining(dirty)
+    local ok, groups = pcall(ReadHandbookTraining, dirty)
+    if ok and groups then return groups, nil, true end
+    local api
+    ok, groups, api = pcall(ReadPublicTraining)
+    if ok and groups then return groups, api end
+    ok, groups = pcall(ReadBrokerTraining)
+    TrainingSink.lines = nil
+    TrainingSink.invalid = nil
+    if ok then return groups end
+end
+
 local function GroupName(group)
     return L[group == 2 and "talents.forever.secondary" or "talents.forever.primary"]
 end
@@ -149,6 +278,7 @@ end
 function Module:OnInitialize()
     self.frame = nil
     self.runtimeAttached = false
+    self.trainingCallback = function() self:RefreshOwnedTooltip() end
 end
 
 function Module:GetGroupDisplay(group, showClassName)
@@ -225,13 +355,44 @@ function Module:OnModifierChanged(_, key)
     if self:OwnsTooltip() and self.tooltipExpanded ~= ShiftDown() then self:OnEnter(self.frame) end
 end
 
-function Module:OnWeaponSkillsChanged(event)
-    if not self:OwnsTooltip() or self.tooltipTimer
-        or not (self.tooltipExpanded or (event == "SPELLS_CHANGED" and self.trainingShown)) then return end
+function Module:RefreshOwnedTooltip()
+    if not self:OwnsTooltip() or self.tooltipTimer then return end
     self.tooltipTimer = C_Timer.NewTimer(0, function()
         self.tooltipTimer = nil
-        if self:OwnsTooltip() and (self.tooltipExpanded or self.trainingShown) then self:OnEnter(self.frame) end
+        if self:OwnsTooltip() then self:OnEnter(self.frame) end
     end)
+end
+
+function Module:OnWeaponSkillsChanged(event)
+    if event == "SPELLS_CHANGED" then self.handbookDirty = true end
+    if self.tooltipExpanded or self.trainingAvailable then self:RefreshOwnedTooltip() end
+end
+
+function Module:OnTrainingAddonLoaded(_, name)
+    if name == "DungeonsForeverSpell" or name == "DungeonsForeverClass" or name == "WhatsTraining" then
+        self:RefreshOwnedTooltip()
+    end
+end
+
+local TrainingEvents = {"READY", "SPELLS_CHANGED", "LEVEL_CHANGED", "IGNORED_CHANGED"}
+function Module:SyncTrainingAPI(api)
+    if self.trainingAPI == api then return end
+    local previous = self.trainingAPI
+    self.trainingAPI = nil
+    if previous then pcall(function() previous.UnregisterAllCallbacks(self) end) end
+    if not api then return end
+    local ok = pcall(function()
+        if type(api.RegisterCallback) ~= "function" or type(api.UnregisterAllCallbacks) ~= "function"
+            or not TrainingType(api.Event, "table") then return end
+        for _, key in ipairs(TrainingEvents) do
+            if not TrainingLabel(api.Event[key]) then return end
+        end
+        for _, key in ipairs(TrainingEvents) do
+            api.RegisterCallback(self, api.Event[key], self.trainingCallback)
+        end
+        self.trainingAPI = api
+    end)
+    if not ok then pcall(function() api.UnregisterAllCallbacks(self) end) end
 end
 
 local function AddWeaponLine(text, tone)
@@ -256,10 +417,11 @@ end
 
 function Module:AddTraining()
     -- 获取、解析和外部字段读取均受保护；验证结束前不向真实提示写入任何行。
-    local ok, groups = pcall(ReadTraining)
-    TrainingSink.lines = nil
-    TrainingSink.invalid = nil
-    self.trainingShown = ok and groups ~= nil
+    local groups, api, handbook = ReadTraining(self.handbookDirty)
+    if handbook then self.handbookDirty = nil end
+    self:SyncTrainingAPI(api)
+    self.trainingAvailable = groups ~= nil
+    self.trainingShown = groups ~= nil and #groups > 0
     if not self.trainingShown then return end
     for _, group in ipairs(groups) do
         GameTooltip:AddLine(" ")
@@ -271,7 +433,7 @@ function Module:AddTraining()
             AddWeaponLine(string.format(L["talents.training.soon" .. suffix], group.levelText, total), "subheading")
         end
         for _, spell in ipairs(group.spells) do
-            AddWeaponLine(string.format("|T%d:16:16|t %s", spell.icon, spell.name), "body")
+            AddWeaponLine(string.format("|T%s:16:16:0:0:64:64:5:59:5:59|t %s", spell.icon, spell.name), "body")
         end
         if group.hidden then
             local note = L["talents.training.hidden"]
@@ -331,6 +493,7 @@ end
 function Module:AttachRuntime()
     if not self.frame then return end
     self.runtimeAttached = true
+    self.handbookDirty = true
     YUI.Event:OffOwner(self)
     YUI.Event:On("YUI_WORLD_READY", "Refresh", self)
     YUI.Event:On("PLAYER_TALENT_UPDATE", "Refresh", self)
@@ -340,6 +503,8 @@ function Module:AttachRuntime()
     YUI.Event:On("MODIFIER_STATE_CHANGED", "OnModifierChanged", self)
     YUI.Event:On("SKILL_LINES_CHANGED", "OnWeaponSkillsChanged", self)
     YUI.Event:On("SPELLS_CHANGED", "OnWeaponSkillsChanged", self)
+    YUI.Event:On("LEARNED_SPELL_IN_SKILL_LINE", "OnWeaponSkillsChanged", self)
+    YUI.Event:On("ADDON_LOADED", "OnTrainingAddonLoaded", self)
     YUI.Event:On("YUI_APPEARANCE_ICON_SET_CHANGED", "Refresh", self)
     YUI.Event:On("YUI_APPEARANCE_ICON_SCOPE_CHANGED", function(_, scopeID)
         if scopeID == "ybar" then self:Refresh() end
@@ -349,11 +514,14 @@ end
 
 function Module:DetachRuntime()
     self.runtimeAttached = false
+    self:SyncTrainingAPI(nil)
     YUI.Event:OffOwner(self)
     if self.refreshTimer then self.refreshTimer:Cancel(); self.refreshTimer = nil end
     if self.tooltipTimer then self.tooltipTimer:Cancel(); self.tooltipTimer = nil end
     self.tooltipExpanded = nil
     self.trainingShown = nil
+    self.trainingAvailable = nil
+    self.handbookDirty = nil
     self.lastSwitchRequest = nil
     self.distributions = nil
     if GameTooltip and GameTooltip.GetOwner and GameTooltip:GetOwner() == self.frame then YUI.HideGameTooltip() end
@@ -420,9 +588,11 @@ function Module:OnEnter(frame)
 end
 
 function Module:OnLeave()
+    self:SyncTrainingAPI(nil)
     if self.tooltipTimer then self.tooltipTimer:Cancel(); self.tooltipTimer = nil end
     self.tooltipExpanded = nil
     self.trainingShown = nil
+    self.trainingAvailable = nil
     YUI.HideGameTooltip()
 end
 

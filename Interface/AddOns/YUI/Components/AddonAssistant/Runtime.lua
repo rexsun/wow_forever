@@ -68,6 +68,12 @@ function R:Init()
         for _, record in ipairs(records) do db.seen[record.name] = true end
         db.initialized = true
     end
+    -- Saved selections establish prior knowledge even when the read history is older.
+    for _, profile in pairs(db.profiles) do
+        for name in pairs(profile.addons) do
+            if self.byName[name] then db.seen[name] = true end
+        end
+    end
     for _, record in ipairs(records) do
         if db.tags[record.name] then record.tags = M.Copy(db.tags[record.name]) end
     end
@@ -335,7 +341,30 @@ function R:SaveProfile(name, create)
     self.editing, self.editBaseline, self.error = id, M.Copy(self.draft), nil
     self.selected = id
     if M.Same(self.draft,self.baseline) then self.char.active=id end
+    for _, record in ipairs(self.records) do self.db.seen[record.name] = true end
     self:Evaluate(false); self:Notify()
+    return true
+end
+
+function R:RemoveMissingAddons(id, names)
+    local profile = self.db.profiles[id]
+    if not profile then return false end
+    local records, err = C.Scan()
+    if not records then return self:Error(err) end
+    local installed, removed = M.Index(records), {}
+    for _, name in ipairs(names) do
+        if not installed[name] and profile.addons[name] ~= nil then
+            profile.addons[name] = nil
+            removed[name] = true
+        end
+    end
+    if profile.groups then
+        for name, subset in pairs(profile.groups) do
+            if removed[name] then profile.groups[name] = nil
+            else for member in pairs(subset) do if removed[member] then subset[member] = nil end end end
+        end
+    end
+    self:Notify()
     return true
 end
 

@@ -20,6 +20,8 @@ local LC = YUI.Locale and YUI.Locale:Get("Core") or {}
 local LegacyAPI = YUI.WOW_API
 local API = YUI.API and YUI.API.Profession or LegacyAPI
 local SecurityAPI = (YUI.API and YUI.API.Security) or LegacyAPI
+local ItemAPI = YUI.API and YUI.API.Item
+local SpellAPI = YUI.API and YUI.API.Spell
 local Module = YBar.Module:New("Professions")
 
 local function T(key, fallback, ...)
@@ -35,6 +37,29 @@ end
 local DEFAULT_SIZE = 14
 local DEFAULT_SPACING = 5
 local DEFAULT_FONT = STANDARD_TEXT_FONT
+local MENU_MIN_WIDTH = 240
+local MENU_PADDING = 8
+local MENU_TEXT_INSET = 72 -- outer padding, icon and the gaps between both text columns
+
+local function SafeNumber(value)
+    if SecurityAPI.SafeNumber then return SecurityAPI.SafeNumber(value) end
+    if (SecurityAPI.IsSecretValue and SecurityAPI.IsSecretValue(value))
+        or (issecretvalue and issecretvalue(value)) then return nil end
+    return type(value) == "number" and value or nil
+end
+
+local function Colored(text, token)
+    local r, g, b = GUI2:GetColor(token)
+    return string.format("|cff%02x%02x%02x%s|r", math.floor(r * 255 + .5),
+        math.floor(g * 255 + .5), math.floor(b * 255 + .5), text)
+end
+
+local function RankText(rank, maximum)
+    rank, maximum = SafeNumber(rank), SafeNumber(maximum)
+    return Colored(rank and tostring(rank) or "--", rank and maximum and maximum > 0 and rank >= maximum
+        and "color.state.success" or "color.text.primary")
+        .. " " .. Colored("/ " .. (maximum and tostring(maximum) or "--"), "color.text.secondary")
+end
 
 -- 文档
 -- 1. 采矿专精左键行为改为直接打开【熔炼】专业面板。
@@ -44,10 +69,13 @@ local DEFAULT_FONT = STANDARD_TEXT_FONT
 function Module:OnInitialize()
     self.frame = nil
     self.buttons = {}
+    self.menuOwner, self.menuCleanupOwner = {}, {}
 end
 
 local function ShowProfessionMenu(anchor)
+    if SecurityAPI.InCombatLockdown() then return end
     local allProfs = {}
+    local cooking, enchanting = false, false
     local p1, p2, p3, p4, p5, p6, p7 = API.GetProfessions()
     local profs = {p1, p2, p3, p4, p5, p6, p7}
 
@@ -56,11 +84,16 @@ local function ShowProfessionMenu(anchor)
         if index then
             local skillLine, name, skillLevel, maxSkillLevel, icon, extraSpellId = API.GetProfessionInfo(index)
             if name then
+                skillLine = SafeNumber(skillLine)
+                if skillLine == 185 then cooking = true end
+                if skillLine == 333 then enchanting = true end
                 local castName = API.GetOpenName(name, skillLine, extraSpellId, true)
                 local menuItem = {
                     icon = icon,
                     text = name,
-                    rText = string.format("    |cff%s%d / %d|r", skillLevel >= maxSkillLevel and "00ff00" or "ff0000", skillLevel, maxSkillLevel),
+                    rText = RankText(skillLevel, maxSkillLevel),
+                    key = "profession:" .. tostring(skillLine or index),
+                    kind = "profession",
                 }
 
                 if YUI.IsForever then
@@ -86,8 +119,283 @@ local function ShowProfessionMenu(anchor)
     end
 
     if #allProfs > 0 then
-        YBar:CreatePopIconMenu(anchor, allProfs, {columns = 1, colWidth = 200, iconSize = 24, fontSize = 16, itemHeight = 32, gui2 = true})
+        if YUI.IsForever then
+            Module:ShowForeverMenu(anchor, allProfs, cooking, enchanting)
+        else
+            YBar:CreatePopIconMenu(anchor, allProfs, {columns = 1, colWidth = 200, iconSize = 24, fontSize = 16, itemHeight = 32, gui2 = true})
+        end
+    elseif YUI.IsForever then
+        Module:HideForeverMenu()
     end
+end
+
+local function AssistantAvailable()
+    local assistant = YUI.ProfessionAssistant
+    return assistant and type(assistant.IsAvailable) == "function" and type(assistant.Open) == "function"
+        and assistant:IsAvailable() or false
+end
+
+local function WriteText(region, value)
+    if region.professionText ~= value then region.professionText = value; region:SetText(value); return true end
+    return false
+end
+
+local function MenuTooltipKey(row, state)
+    return row.kind .. ":" .. row.text .. ":" .. (row.rText or "") .. ":" .. tostring(row.disabled)
+        .. (row.kind == "craft" and (":" .. tostring(state.tools) .. ":" .. tostring(state.recipeLearned)) or "")
+end
+
+function Module:HideForeverMenu()
+    if self.professionMenu and not SecurityAPI.InCombatLockdown() then self.professionMenu:Hide() end
+end
+
+function Module:CancelMenuRefresh()
+    if self.menuTimer then self.menuTimer:Cancel(); self.menuTimer = nil end
+end
+
+function Module:ScheduleMenuRefresh()
+    if not self.runtimeAttached or not self.professionMenu or not self.professionMenu:IsShown()
+        or SecurityAPI.InCombatLockdown() or self.menuTimer then return end
+    self.menuTimer = C_Timer.NewTimer(.05, function()
+        self.menuTimer = nil
+        if self.runtimeAttached and self.professionMenu:IsShown() and not SecurityAPI.InCombatLockdown() then
+            ShowProfessionMenu(self.menuAnchor)
+        end
+    end)
+end
+
+function Module:OnMenuEnter(host, owner)
+    local row = owner.professionRow
+    if not row or not self.runtimeAttached then return end
+    self.menuTooltipButton = owner
+    self.menuTooltipKey = MenuTooltipKey(row, self.campfireState)
+    GameTooltip:SetOwner(host, "ANCHOR_RIGHT")
+    GameTooltip:ClearLines()
+    GameTooltip:AddLine(row.text, 1, 1, 1)
+    local errorR, errorG, errorB = GUI2:GetColor("color.state.error")
+    if row.kind == "craft" then
+        local state = self.campfireState
+        GameTooltip:AddLine(T("professions.forever.wood_format", "普通木柴 %s / %d", state.wood or "--", state.required), 1, 1, 1)
+        GameTooltip:AddLine(T("professions.forever.tool_format", "燧石和火绒：%s", state.tools == nil and "--" or state.tools > 0
+            and T("professions.forever.owned", "已持有") or T("professions.forever.missing", "未持有")), 1, 1, 1)
+        if not row.disabled then
+            GameTooltip:AddLine(T("professions.forever.craft_hint", "可制造 %d 个；点击制造 1 个", math.floor(state.wood / state.required)), 1, 1, 1)
+        else
+            GameTooltip:AddLine(T("professions.forever.craft_unavailable", "材料或工具不足，或配方尚不可用。"), errorR, errorG, errorB)
+        end
+    elseif row.kind == "use" then
+        GameTooltip:AddLine(T("professions.forever.use_hint", "使用背包中的基础营火工具包。"), 1, 1, 1)
+        if row.disabled then GameTooltip:AddLine(T("professions.forever.no_kits", "背包中没有可用的营火工具包。"), errorR, errorG, errorB) end
+    elseif row.kind == "assistant" then
+        GameTooltip:AddLine(T("professions.forever.assistant_hint", "打开现有分解助手。"), 1, 1, 1)
+    else
+        GameTooltip:AddLine(row.rText, 1, 1, 1)
+    end
+    GameTooltip:Show()
+end
+
+function Module:EnsureProfessionMenu()
+    if not self.professionMenu then
+        local menu = GUI2:CreatePanel(UIParent, {template = "BackdropTemplate,SecureHandlerStateTemplate",
+            width = MENU_MIN_WIDTH, height = 40, surface = "color.surface.popup", border = "color.popup.border", shadow = true})
+        self.professionMenu = menu
+        menu.buttons = {}
+        menu:SetFrameStrata("FULLSCREEN_DIALOG")
+        menu:SetClampedToScreen(true)
+        menu:SetAttribute("_onstate-visibility", [[if newstate == "hide" then self:Hide() end]])
+        menu.divider = YBar:CreateThemedTexture(menu, {colorKey = "color.border.subtle"})
+        menu.divider:SetSize(MENU_MIN_WIDTH - 20, 1)
+        menu.closer = GUI2:CreateButtonFrame(UIParent)
+        menu.closer:SetFrameStrata("FULLSCREEN_DIALOG")
+        menu.closer:SetFrameLevel(math.max(0, menu:GetFrameLevel() - 1))
+        menu.closer:SetAllPoints(UIParent)
+        menu.closer:RegisterForClicks("AnyUp")
+        menu.closer:SetScript("OnClick", function() self:HideForeverMenu() end)
+        menu:SetScript("OnHide", function()
+            self:CancelMenuRefresh()
+            YUI.Event:OffOwner(self.menuOwner)
+            self.menuListeners = 0
+            self.menuTooltipButton, self.menuTooltipKey = nil, nil
+            menu.closer:Hide()
+            YUI.HideGameTooltip()
+        end)
+        menu:Hide()
+    end
+    if not self.menuDriver then
+        RegisterStateDriver(self.professionMenu, "visibility", "[combat] hide; 0")
+        self.menuDriver = true
+    end
+    return self.professionMenu
+end
+
+function Module:CreateProfessionMenuRow(menu)
+    local button = GUI2:CreateFrame(menu, {template = "BackdropTemplate"})
+    GUI2:ApplyBackdrop(button, "color.surface.popup")
+    GUI2:CreateBorder(button, "color.border.subtle")
+    button.iconSlot, button.icon = YBar:CreateIconSlot(button, {size = 28, padding = 0, shape = "square", variant = "surface"})
+    button.iconSlot:EnableMouse(false)
+    button.iconSlot:SetPoint("LEFT", button, "LEFT", 5, 0)
+    button.text = YBar:CreateThemedText(button, {fontPath = DEFAULT_FONT, fontSize = 16, wordWrap = false, colorKey = "color.text.primary", justifyH = "LEFT"})
+    button.text:SetPoint("LEFT", button.iconSlot, "RIGHT", 9, 0)
+    button.rText = YBar:CreateThemedText(button, {fontPath = DEFAULT_FONT, fontSize = 15, wordWrap = false, colorKey = "color.text.secondary", justifyH = "RIGHT"})
+    button.rText:SetPoint("RIGHT", button, "RIGHT", -8, 0)
+    button.text:SetPoint("RIGHT", button.rText, "LEFT", -6, 0)
+    YBar:CreateActionHost(button, {
+        useOnKeyDown = false,
+        onEnter = function(host, owner)
+            if owner.SetBackdropColor then owner:SetBackdropColor(GUI2:GetColor("color.control.hover")) end
+            self:OnMenuEnter(host, owner)
+        end,
+        onLeave = function(_, owner)
+            if owner.SetBackdropColor then owner:SetBackdropColor(GUI2:GetColor("color.surface.popup")) end
+            self.menuTooltipButton, self.menuTooltipKey = nil, nil
+            YUI.HideGameTooltip()
+        end,
+        afterClick = function(_, mouseButton, owner)
+            if mouseButton ~= "LeftButton" then return end
+            local row = owner.professionRow
+            if row.disabled then return end
+            if row.kind == "profession" or row.kind == "assistant" or row.kind == "craft" then self:HideForeverMenu()
+            else self:ScheduleMenuRefresh() end
+        end,
+    })
+    return button
+end
+
+function Module:ShowForeverMenu(anchor, professions, cooking, enchanting)
+    if not self.runtimeAttached or SecurityAPI.InCombatLockdown() then return end
+    self.menuOwner = self.menuOwner or {}
+    self.menuCleanupOwner = self.menuCleanupOwner or {}
+    local rows = {}
+    if cooking then
+        self.campfireState = API.ReadCampfire(self.campfireState)
+        local state = self.campfireState
+        if state then
+            local craftAction = API.GetCampfireCraftAction()
+            rows[#rows + 1] = {key = "craft", kind = "craft", text = T("professions.forever.craft", "制造营火"), icon = 135805,
+                rText = T("professions.forever.wood_short", "木柴 %s / %d", state.wood == nil and "--"
+                    or Colored(tostring(state.wood), state.wood < state.required and "color.state.error" or "color.text.primary"), state.required),
+                disabled = not state.canCraft or not craftAction,
+                action = craftAction}
+            rows[#rows + 1] = {key = "use", kind = "use", text = T("professions.forever.use", "使用营火"),
+                icon = SafeNumber(ItemAPI.GetIcon(state.itemID)) or 7808148,
+                rText = T("professions.forever.kits", "持有 %s", state.kits or "--"),
+                disabled = state.kits == nil or state.kits < 1,
+                -- SecureCmdItemParse treats an unprefixed number as an equipment slot.
+                action = {kind = "item", item = "item:" .. state.itemID}}
+        end
+    end
+    if enchanting and AssistantAvailable() then
+        rows[#rows + 1] = {key = "assistant", kind = "assistant", text = T("professions.forever.assistant", "分解助手"),
+            icon = SpellAPI.GetTexture(13262), rText = T("professions.forever.open", "打开"),
+            action = {kind = "custom", onClick = function()
+                if self.runtimeAttached and AssistantAvailable() then YUI.ProfessionAssistant:Open() end
+            end}}
+    end
+    local quickCount = #rows
+    for _, row in ipairs(professions) do rows[#rows + 1] = row end
+    local menu = self:EnsureProfessionMenu()
+    local y = 8
+    local width = MENU_MIN_WIDTH
+    for i, row in ipairs(rows) do
+        if quickCount > 0 and i == quickCount + 1 then
+            if menu.dividerY ~= y then
+                menu.dividerY = y
+                menu.divider:ClearAllPoints(); menu.divider:SetPoint("TOPLEFT", menu, "TOPLEFT", 10, -y - 4)
+            end
+            y = y + 14
+        end
+        local button = menu.buttons[i]
+        if not button then button = self:CreateProfessionMenuRow(menu); menu.buttons[i] = button end
+        local height = i <= quickCount and 40 or 38
+        if button.rowY ~= y or button.rowHeight ~= height then
+            button.rowY, button.rowHeight = y, height
+            button.rowWidth = button.rowWidth or MENU_MIN_WIDTH - MENU_PADDING * 2
+            button:SetSize(button.rowWidth, height); button:ClearAllPoints()
+            button:SetPoint("TOPLEFT", menu, "TOPLEFT", 8, -y)
+        end
+        button.professionRow = row
+        local text = row.disabled and Colored(row.text, "color.text.disabled") or row.text
+        local textChanged = WriteText(button.text, text)
+        local valueChanged = WriteText(button.rText, row.rText or "")
+        if textChanged or valueChanged or not button.contentWidth then
+            button.contentWidth = math.ceil(button.text:GetStringWidth() + button.rText:GetStringWidth() + MENU_TEXT_INSET)
+        end
+        width = math.max(width, button.contentWidth)
+        if button.rowIcon ~= row.icon then button.rowIcon = row.icon; YBar:SetIconSlotTexture(button.iconSlot, row.icon) end
+        if button.rowDisabled ~= not not row.disabled then
+            button.rowDisabled = not not row.disabled
+            button.icon:SetDesaturated(button.rowDisabled)
+        end
+        local action = row.action
+        local actionKey = row.key .. ":" .. tostring(row.disabled) .. ":" .. tostring(action and action.kind)
+            .. ":" .. tostring(action and (action.spellID or action.item or action.macrotext))
+        if button.actionKey ~= actionKey then
+            local applied = button.actionHost:SetActions({left = row.disabled and {kind = "noop"} or row.action})
+            if not applied then self:HideForeverMenu(); return end
+            button.actionKey = actionKey
+        end
+        if not button:IsShown() then button:Show() end
+        y = y + height + 4
+    end
+    for i = #rows + 1, #menu.buttons do if menu.buttons[i]:IsShown() then menu.buttons[i]:Hide() end end
+    for i = 1, #rows do
+        local button = menu.buttons[i]
+        if button.rowWidth ~= width - MENU_PADDING * 2 then
+            button.rowWidth = width - MENU_PADDING * 2
+            button:SetWidth(button.rowWidth)
+        end
+    end
+    if menu:GetWidth() ~= width then menu:SetWidth(width); menu.divider:SetWidth(width - 20) end
+    local height = y + 4
+    if menu:GetHeight() ~= height then menu:SetHeight(height) end
+    if quickCount > 0 then if not menu.divider:IsShown() then menu.divider:Show() end
+    elseif menu.divider:IsShown() then menu.divider:Hide() end
+    local _, anchorY = anchor:GetCenter()
+    local above = not anchorY or anchorY <= UIParent:GetHeight() / 2
+    if self.menuAnchor ~= anchor or menu.above ~= above then
+        menu:ClearAllPoints()
+        menu:SetPoint(above and "BOTTOMLEFT" or "TOPLEFT", anchor, above and "TOPLEFT" or "BOTTOMLEFT", 0, above and 2 or -2)
+        menu.above = above
+        self.menuAnchor = anchor
+    end
+    if not menu:IsShown() then
+        YUI.Event:OffOwner(self.menuOwner)
+        local refresh = function(_, id)
+            if id == nil or id == "component.professionassistant" or type(id) ~= "string" then self:ScheduleMenuRefresh() end
+        end
+        for _, event in ipairs({"BAG_UPDATE_DELAYED", "SKILL_LINES_CHANGED", "SPELLS_CHANGED", "GET_ITEM_INFO_RECEIVED",
+            "YUI_MODULE_ENABLED", "YUI_MODULE_DISABLED"}) do
+            YUI.Event:On(event, (event == "YUI_MODULE_ENABLED" or event == "YUI_MODULE_DISABLED") and refresh
+                or function() self:ScheduleMenuRefresh() end, self.menuOwner)
+        end
+        self.menuListeners = 6
+        menu.closer:Show(); menu:Show()
+    end
+    local tooltipButton = self.menuTooltipButton
+    if tooltipButton and GameTooltip:GetOwner() == tooltipButton.actionHost then
+        if not tooltipButton:IsShown() then
+            self.menuTooltipButton, self.menuTooltipKey = nil, nil
+            YUI.HideGameTooltip()
+        elseif self.menuTooltipKey ~= MenuTooltipKey(tooltipButton.professionRow, self.campfireState) then
+            self:OnMenuEnter(tooltipButton.actionHost, tooltipButton)
+        end
+    end
+end
+
+function Module:FinishProfessionMenuCleanup()
+    if SecurityAPI.InCombatLockdown() then return end
+    YUI.Event:OffOwner(self.menuCleanupOwner)
+    if self.runtimeAttached then return end
+    self:HideForeverMenu()
+    if self.menuDriver then UnregisterStateDriver(self.professionMenu, "visibility"); self.menuDriver = nil end
+    if self.frame then self.frame:Hide() end
+end
+
+function Module:GetStats()
+    return {menuButtons = self.professionMenu and #self.professionMenu.buttons or 0,
+        menuListeners = self.menuListeners or 0, menuTimers = self.menuTimer and 1 or 0,
+        refreshTimers = self.refreshTimer and 1 or 0, menuDriver = self.menuDriver == true}
 end
 
 local function ConfigureProfessionActions(btn, info, preferExtraSpell)
@@ -156,7 +464,8 @@ local function ProfessionButtonOnEnter(host, owner)
 
     if owner.info and owner.info.skillLine then
         GameTooltip:SetOwner(host, tooltipAnchor)
-        GameTooltip:AddLine(string.format("|c%s%s|r |cff%s(%d/%d)|r", YBar.Colors_Hex.HEADER_TEXT_COLOR, owner.info.name, owner.info.skillLevel >= owner.info.maxSkillLevel and "00ff00" or "ff0000", owner.info.skillLevel, owner.info.maxSkillLevel), 1, 1, 1)
+        GameTooltip:AddLine(string.format("|c%s%s|r (%s)", YBar.Colors_Hex.HEADER_TEXT_COLOR, owner.info.name,
+            RankText(owner.info.skillLevel, owner.info.maxSkillLevel)), 1, 1, 1)
         GameTooltip:AddLine(" ")
 
         local headerColor = CreateColor(1, 0.82, 0)
@@ -274,6 +583,9 @@ end
 
 function Module:AttachRuntime()
     if not self.frame then return end
+    self.menuOwner = self.menuOwner or {}
+    self.menuCleanupOwner = self.menuCleanupOwner or {}
+    YUI.Event:OffOwner(self.menuCleanupOwner)
     self.runtimeAttached = true
     YUI.Event:OffOwner(self)
     YUI.Event:On("YUI_WORLD_READY", ProfessionsOnEvent, self)
@@ -288,20 +600,30 @@ end
 function Module:DetachRuntime()
     self.runtimeAttached = false
     if self.refreshTimer then self.refreshTimer:Cancel(); self.refreshTimer = nil end
+    self:CancelMenuRefresh()
     YUI.Event:OffOwner(self)
+    if self.menuOwner then YUI.Event:OffOwner(self.menuOwner) end
+    self.menuListeners = 0
+    self:HideForeverMenu()
     if self.frame then
         self.frame.updatePending = false
-        self.frame:Hide()
+        if not SecurityAPI.InCombatLockdown() then self.frame:Hide() end
     end
 
     self.needsUpdate = false
 
-    if YBar and YBar.PopIconMenu then
+    if YBar and YBar.PopIconMenu and not SecurityAPI.InCombatLockdown() then
         YBar.PopIconMenu:Hide()
     end
 
     if GameTooltip and GameTooltip.GetOwner and IsProfessionTooltipOwner(GameTooltip:GetOwner()) then
         YUI.HideGameTooltip()
+    end
+    self.menuCleanupOwner = self.menuCleanupOwner or {}
+    if SecurityAPI.InCombatLockdown() then
+        YUI.Event:On("PLAYER_REGEN_ENABLED", function() self:FinishProfessionMenuCleanup() end, self.menuCleanupOwner)
+    else
+        self:FinishProfessionMenuCleanup()
     end
 end
 
@@ -450,6 +772,7 @@ function Module:CreateBarItem(parent)
     end
     
     self.frame = container
+    container:HookScript("OnHide", function() self:HideForeverMenu() end)
     
     -- Events are attached by the lifecycle runtime.
     -- 移除 TRADE_SKILL_LIST_UPDATE，因为打开/操作专业窗口时触发过于频繁

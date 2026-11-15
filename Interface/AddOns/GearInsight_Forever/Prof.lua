@@ -217,3 +217,66 @@ ev:SetScript("OnEvent", function(_, e)
     P.Skills()
     if ns.ProfPage and ns.ProfPage.IsShown and ns.ProfPage:IsShown() and ns.RefreshProfPage then ns.RefreshProfPage() end
 end)
+
+-- ---------- 11-14 用户截图「学了剥皮的这里提醒多少技能可以剥，前面加 GI: 前缀」----------
+--   鼠标指到「可剥皮」的怪 / 尸体：学了剥皮的角色在提示里多一行「GI: 剥皮需要 N 技能（你现在 M）」，够了绿字、不够红字。
+--   技能要求按经典公式：怪 ≤10 级 = 1；11~20 级 = (等级-10)×10；20 级以上 = 等级×5（首领「??」级读不到等级 → 不写数字）
+--   「可剥皮」这一行用客户端全局串 UNIT_SKINNABLE_LEATHER 认（繁体 / 英文客户端自动对上）；没学剥皮 / 不是可剥皮的怪不加
+function P.SkinReq(level)
+    level = tonumber(level)
+    if not level or level < 1 then return nil end
+    if level <= 10 then return 1 elseif level <= 20 then return (level - 10) * 10 end
+    return level * 5
+end
+local skinCache, skinAt = nil, -1e9
+local function mySkinning()
+    local t = GetTime and GetTime() or 0
+    if t - skinAt > 5 then
+        local ok, s = pcall(P.Skills)
+        skinCache, skinAt = ok and type(s) == "table" and s.skinning or nil, t
+    end
+    return skinCache
+end
+P._skinReset = function() skinAt = -1e9 end   -- 离线测试用
+function P.SkinTip(tt)
+    if not tt or tt.__gifSkin or not tt.GetUnit then return false end
+    local _, unit = tt:GetUnit()
+    if not unit or ns.Secret(unit) or (UnitIsPlayer and UnitIsPlayer(unit)) then return false end
+    local sk = mySkinning()
+    if not sk then return false end
+    local want = (type(UNIT_SKINNABLE_LEATHER) == "string" and UNIT_SKINNABLE_LEATHER ~= "") and UNIT_SKINNABLE_LEATHER or ns.L("可剥皮", "Skinnable")
+    local name, found = tt.GetName and tt:GetName(), false
+    for i = 2, (tt.NumLines and tt:NumLines() or 0) do
+        local fs = name and _G[name .. "TextLeft" .. i]
+        local s = fs and fs:GetText()
+        if type(s) == "string" and not ns.Secret(s) and s:find(want, 1, true) then found = true; break end
+    end
+    if not found then return false end
+    local lv = UnitLevel and UnitLevel(unit)
+    if ns.Secret(lv) then lv = nil end
+    local req, r = P.SkinReq(lv), tonumber(sk.r)
+    local line
+    if not req then
+        line = ns.L("GI: 剥皮技能要求读不到（等级未知）", "GI: Skinning requirement unknown (level ??)")
+        tt:AddLine(line, 0.7, 0.7, 0.7)
+    else
+        line = string.format(ns.L("GI: 剥皮需要 %d 技能", "GI: Skinning %d required"), req)
+            .. (r and string.format(ns.L("（你现在 %d）", " (you: %d)"), r) or "")
+        if not r then tt:AddLine(line, 1, 0.82, 0)
+        elseif r >= req then tt:AddLine(line, 0.25, 1, 0.4)
+        else tt:AddLine(line, 1, 0.35, 0.3) end
+    end
+    tt.__gifSkin = true
+    if tt.Show then tt:Show() end
+    return true, line
+end
+table.insert(ns.modules, function()
+    local tt = GameTooltip
+    if not tt then return end
+    if TooltipDataProcessor and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Unit then
+        TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(t) if t == GameTooltip then pcall(P.SkinTip, t) end end)
+    elseif tt.HasScript and tt:HasScript("OnTooltipSetUnit") then
+        tt:HookScript("OnTooltipSetUnit", function(self) pcall(P.SkinTip, self) end)
+    end
+    if tt.HookScript then tt:HookScript("OnTooltipCleared", function(self) self.__gifSkin = nil end) end
+end)

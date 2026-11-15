@@ -284,6 +284,47 @@ function Profession.ToggleProfessionFrame(name, skillLineID)
     return ToggleClassicProfessionFrame(name)
 end
 
+-- Forever 1.60.1.70938: recipe 1229737 creates item 279981 from one Simple Wood.
+-- Bag-only, public counts; unknown/restricted values remain nil. No scans or polling.
+function Profession.ReadCampfire(target)
+    if not YUI.IsForever then return nil end
+    target = target or {}
+    local security, item = YUI.API.Security, YUI.API.Item
+    if not (security and security.SafeNumber and security.IsSecretValue and security.SafeBoolean) then return nil end
+    local function Count(id)
+        if not (item and item.GetCount and security and security.SafeNumber) then return nil end
+        local count = security.SafeNumber(item.GetCount(id, false, false, false, false))
+        return count and count >= 0 and count or nil
+    end
+    target.recipeID, target.itemID = 1229737, 279981
+    target.woodID, target.toolID, target.required = 4470, 4471, 1
+    target.wood, target.kits, target.tools = Count(4470), Count(279981), Count(4471)
+    target.learned = false
+    local p1, p2, p3, p4, p5, p6, p7 = Profession.GetProfessions()
+    for _, index in pairs({p1, p2, p3, p4, p5, p6, p7}) do
+        if security.SafeNumber(Profession.GetProfessionInfo(index)) == 185 then target.learned = true; break end
+    end
+    -- Recipe-window data is context-dependent and can report unlearned before cooking opens.
+    -- The spell adapter reads player knowledge independently of the active profession window.
+    local spell = YUI.API.Spell
+    target.recipeLearned = nil
+    if spell and spell.IsKnown then target.recipeLearned = security.SafeBoolean(spell.IsKnown(target.recipeID)) end
+    target.recipeRestricted = target.recipeLearned == nil
+    target.canCraft = target.learned and target.recipeLearned == true
+        and target.wood ~= nil and target.wood >= target.required
+        and target.tools ~= nil and target.tools > 0 or false
+    return target
+end
+
+-- Bind this description to a native secure macro host before the hardware click.
+-- Calling the protected APIs from an addon callback (including pcall) is not equivalent.
+function Profession.GetCampfireCraftAction()
+    if not YUI.IsForever then return nil end
+    local trade = C_TradeSkillUI
+    if not trade or not trade.OpenTradeSkill or not trade.CraftRecipe then return nil end
+    return {kind = "macro", macrotext = "/run if C_TradeSkillUI.OpenTradeSkill(185) then C_TradeSkillUI.CraftRecipe(1229737,1) end"}
+end
+
 Legacy.GetProfessions = Profession.GetProfessions
 Legacy.GetWrathProfessionInfo = Profession.GetClassicProfessionInfoMap
 Legacy.GetProfessionInfo = Profession.GetProfessionInfo

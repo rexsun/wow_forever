@@ -328,7 +328,8 @@ function QM.NearRows()
 end
 
 -- ---------- 界面：右侧「组队」页签 + 抽屉 ----------
-local DW, PAD, ROW_H = 430, 12, 30
+-- 11-14 用户截图「这里UI优化，整体界面变宽」：标题栏三个子页签按钮挤成一团（语音按钮加进来后只剩 48 宽）→ 430 加宽到 520
+local DW, PAD, ROW_H = 520, 12, 30
 -- 列：{ 左边距, 宽 }  玩家 · 距离 · 共同任务 / 他的进度 · 比我慢 / 我的；最右是 54 宽的「邀请」
 local COLS = { { 8, 138 }, { 150, 74 }, { 228, 58 }, { 288, 40 } }
 local GOLD, DIM, TXT = "|cffffd200", "|cff8a93a6", "|cffe6e0c8"
@@ -356,7 +357,7 @@ function QM.FocusQuest(peerE)
     return nil
 end
 -- 10-17 用户「加上[Gearinsight插件]」：中文客户端前缀改成 [Gearinsight插件]（私聊 / 喊人 / 解散道谢都走这里）
-local TAG = L("[Gearinsight插件] ", "[Gearinsight] ")
+local TAG = L("[Gearinsight插件] ", "[Gearinsight插件] ")
 QM.TAG = TAG
 function QM.Tagged(msg)
     if dbq().noTag or type(msg) ~= "string" or msg:sub(1, #TAG) == TAG then return msg end
@@ -542,6 +543,47 @@ local function build(host)
         if t and W.SelectTab then W.SelectTab(t, false) end
     end)
     if close then close:SetPoint("TOPRIGHT", -8, -8) end
+    -- 11-14 用户「右下角增加三个条的大小调节」：右下角三斜线拖拽角 → 按住拖 = 整个窗口等比放大缩小（和「外观」里的缩放是同一个值，存档记住）。
+    --   里面的列表 / 按钮是建窗口时按宽度排好的，拉宽拉高会错位，所以拖拽改的是缩放而不是宽高
+    local grip = CreateFrame("Button", nil, d)
+    grip:SetSize(16, 16); grip:SetPoint("BOTTOMRIGHT", -5, 5)
+    grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+    local glvl = d.GetFrameLevel and d:GetFrameLevel()
+    if glvl and grip.SetFrameLevel then grip:SetFrameLevel(glvl + 90) end   -- 压过副本组队（+30）/ 法师吃喝（+60）盖板
+    d.grip = grip
+    local function cursor()
+        local x, y = GetCursorPosition()
+        return x, y
+    end
+    grip:SetScript("OnMouseDown", function(self)
+        local es = d:GetEffectiveScale()
+        local l, t = d:GetLeft(), d:GetTop()
+        if not (l and t and es) then return end
+        local cx, cy = cursor()
+        local span = (cx - l * es) + (t * es - cy)
+        if span <= 10 then return end
+        self.drag = { l = l * es, t = t * es, span = span, sc = d:GetScale() or 1 }
+        self:SetScript("OnUpdate", function(g)
+            local dr = g.drag
+            if not dr then return end
+            local x, y = cursor()
+            local sc = dr.sc * ((x - dr.l) + (dr.t - y)) / dr.span
+            sc = math.max(QM.SCALE_MIN, math.min(QM.SCALE_MAX, math.floor(sc * 100 + 0.5) / 100))
+            if math.abs(sc - (tonumber(dbq().scale) or 1)) >= 0.01 then dbq().scale = sc; pcall(QM.ApplyLook) end
+        end)
+    end)
+    grip:SetScript("OnMouseUp", function(self)
+        self.drag = nil; self:SetScript("OnUpdate", nil)
+        if dbq().pinned then QM.SavePinPos() end
+    end)
+    grip:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(L("大小调节", "Resize"), 1, 0.82, 0)
+        GameTooltip:AddLine(L("按住拖：整个窗口放大 / 缩小（60%–150%），和「外观」里的缩放是同一个", "Drag to scale the whole window (60%-150%), same as Look > Scale"), 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- 钉在屏幕上（10-12 用户「保留钉在屏幕的能力和选项」）：钉住后不跟主面板走，关主面板也留着，能拖，重登 / reload 还在
     d.pin = (W and W.Button) and W.Button(d, nil) or ns.Button(d, "", 72, 22)
     d.pin:SetSize(72, 22); d.pin:SetPoint("TOPRIGHT", -40, -9)
@@ -1319,7 +1361,9 @@ function QM.RestorePinned()
     if not (cfg.pinned and cfg.open) then return end
     QM.drawer = QM.drawer or build(nil); pcall(QM.ApplyLook)
     placePinned(QM.drawer)
+    QM.noPlatesOnce = true   -- 11-14：登录 / reload 自己恢复出来的窗口不替玩家开友方姓名板（群友「每次上线自动打开 Shift+V」）
     QM.drawer:Show()
+    QM.noPlatesOnce = nil
     QM.Request()
     QM.Render()
     -- 11-10 用户「reload 后保持是副本组队，不要切任务组队」：恢复上次的模式。这时 DungeonChat.lua 可能还没载入 → 下一帧再切
@@ -1368,10 +1412,45 @@ function QM.EnsureMw(d)
     return o
 end
 
+-- 11-14 第四个子页签「队伍装备」（BIS 撞装，PartyGear.lua，HOLD）：和法师吃喝一样一层实底盖板
+function QM.EnsureGearPane(d)
+    if not d or rawget(d, "gearPane") then return d and rawget(d, "gearPane") end
+    if not (ns.PartyGear and ns.PartyGear.Show) then return nil end
+    local o = CreateFrame("Frame", nil, d, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    o:SetPoint("TOPLEFT", 4, -38); o:SetPoint("BOTTOMRIGHT", -4, 4)
+    if o.SetBackdrop then
+        o:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8" })
+        o:SetBackdropColor(0.035, 0.04, 0.055, 1)
+    end
+    local lvl = d.GetFrameLevel and d:GetFrameLevel()
+    if lvl and o.SetFrameLevel then o:SetFrameLevel(lvl + 62) end
+    o:EnableMouse(true)
+    o:Hide()
+    d.gearPane = o
+    return o
+end
+
 -- 10-16 抽屉模式：quest = 附近任务（原来的），dungeon = 副本组队；11-12 第 2 期 mage = 法师吃喝设置（不记进存档：下次开抽屉还是任务 / 副本）
 function QM.SetMode(m)
     local d = QM.drawer
     if d then QM.EnsureLfg(d) end
+    if m == "gear" then
+        local pane = d and QM.EnsureGearPane(d)
+        if not pane then return end
+        d.gearOn, d.mwOn = true, nil
+        if rawget(d, "lfg") then d.lfg:Hide() end
+        if rawget(d, "mwPane") then d.mwPane:Hide() end
+        pane:Show()
+        local ok, err = pcall(ns.PartyGear.Show, pane)
+        if not ok then ns.Print("|cffff6060" .. L("队伍装备出错（截图发给开发者）：", "Party gear error: ") .. tostring(err) .. "|r") end
+        QM.MarkMode("gear")
+        QM.SyncSubTabs()
+        return
+    end
+    if d then
+        d.gearOn = nil
+        if rawget(d, "gearPane") then d.gearPane:Hide() end
+    end
     if m == "mage" then
         if not (ns.MageWater and ns.MageWater.EmbedSettings) and ns.GroupLoadMage then ns.GroupLoadMage(true) end   -- 11-13 第 5 期：法师吃喝按需加载
         local pane = d and QM.EnsureMw(d)
@@ -1428,11 +1507,12 @@ function QM.BuildModeBtns(d)
     d.modeBtns = {}
     local list = modeList()
     -- 11-12 第 2 期多了「法师吃喝」：三个按钮收窄，别压到标题栏右边的「组队设置 / 外观 / 钉住」
-    local bw = (#list >= 3) and 58 or 92
-    local mx = PAD + ((#list >= 3) and 40 or 52)
+    -- 11-14 抽屉加宽到 520：标题栏右边「语音」左缘约 x=288（没语音时组队设置齿轮约 x=326），三个按钮各 74 宽放得下
+    local bw = (#list >= 4) and 56 or (#list >= 3) and 74 or 100
+    local mx = PAD + 40
     for _, m in ipairs(list) do
         local b = (ns.SegButton or ns.Button)(d, m[2], bw, 22, function() QM.SetMode(m[1]) end)   -- 10-17 分段按钮（扁平深底，选中金边金线）
-        b:SetPoint("TOPLEFT", mx, -9); mx = mx + bw + 2 + ((#list >= 3) and 0 or 2)
+        b:SetPoint("TOPLEFT", mx, -9); mx = mx + bw + 2
         b:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(m[2], 1, 0.82, 0)
             GameTooltip:AddLine(m[3], 1, 1, 1, true); GameTooltip:Show()

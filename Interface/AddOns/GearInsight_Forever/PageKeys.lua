@@ -36,6 +36,7 @@ end
 -- 选中样式：金色粗边框 + 金色底光 + 白字（同 PageProf.lua；⛔别用禁用变灰表示选中）
 local SEL = setmetatable({}, { __mode = "k" })
 local function markSel(b, on)
+    if rawget(b, "_seg") and ns.SegSelect then ns.SegSelect(b, on); return end   -- 11-14 按钮换了扁平样式：自带选中样式
     local box = SEL[b]
     if not box then
         box = {}

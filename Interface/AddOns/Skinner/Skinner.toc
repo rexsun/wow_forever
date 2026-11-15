@@ -2,7 +2,7 @@
 
 ## Title: Skinner
 ## Author: Jncl
-## Version: beta12.70688.1
+## Version: beta12.70938.1
 
 ## IconTexture: Interface\Icons\INV_Misc_Pelt_Wolf_01
 
@@ -39,12 +39,9 @@ Libs\_Optional.xml
 
 Locales\_Locales.xml
 
-Forever\Forever.lua [AllowLoadGameType camelot] [ExcludeLoadGameType standard, classic]
-
 Core\_Core.xml
 
 [Family]\_Support.xml
-
 Forever\_Support.xml [AllowLoadGameType camelot] [ExcludeLoadGameType standard, classic]
 
 Modules\_Modules.xml

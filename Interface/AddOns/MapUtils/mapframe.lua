@@ -30,11 +30,11 @@ local function IsEnabled(key)
 end
 
 local function MoveEnabled()
-	return not foreignMove and IsEnabled("WORLDMAPMOVE")
+	return not foreignMove and not MapUtils:IsWorldMapByOneForAll() and IsEnabled("WORLDMAPMOVE")
 end
 
 local function ScaleEnabled()
-	return IsEnabled("WORLDMAPSCALE")
+	return not MapUtils:IsWorldMapByOneForAll() and IsEnabled("WORLDMAPSCALE")
 end
 
 local function IsMaximized()
@@ -372,6 +372,17 @@ function MapUtils:IsWorldMapByMoveAny()
 	return MapUtils:IsAddOnActive("MoveAny")
 end
 
+function MapUtils:IsWorldMapByOneForAll()
+	return frame ~= nil and frame.ofaMovable == true
+end
+
+function MapUtils:GetWorldMapMover()
+	if MapUtils:IsWorldMapByMoveAny() then return "MoveAny" end
+	if MapUtils:IsAddOnActive("OneForAll") then return "OneForAll" end
+
+	return nil
+end
+
 function MapUtils:RefreshWorldMapFrame()
 	Apply()
 	if fader ~= nil then fader:Reset() end
@@ -576,58 +587,6 @@ if frame ~= nil then
 			if frame:IsShown() then Apply() end
 		end
 	)
-end
-
-function MapUtils:QuestCategoriesSearching()
-	return QuestScrollFrame and QuestScrollFrame.SearchBox and QuestScrollFrame.SearchBox:GetText() ~= ""
-end
-
-function MapUtils:SaveQuestCategories()
-	if not self.questCategoriesReady or self.restoringQuestCategories or self:QuestCategoriesSearching() then return end
-	if not self:GetConfig("REMEMBERQUESTCATEGORIES", true) then return end
-	MAUTTABPC = MAUTTABPC or {}
-	MAUTTABPC.QUESTCATEGORIES = MAUTTABPC.QUESTCATEGORIES or {}
-	for index = 1, C_QuestLog.GetNumQuestLogEntries() do
-		local info = C_QuestLog.GetInfo(index)
-		if info and info.isHeader then
-			MAUTTABPC.QUESTCATEGORIES[info.headerSortKey or info.title] = info.isCollapsed == true
-		end
-	end
-end
-
-function MapUtils:RestoreQuestCategories()
-	if self.restoringQuestCategories or self:QuestCategoriesSearching() then return end
-	if not self:GetConfig("REMEMBERQUESTCATEGORIES", true) then return end
-	local states = MAUTTABPC and MAUTTABPC.QUESTCATEGORIES
-	self.restoringQuestCategories = true
-	if states then
-		for index = C_QuestLog.GetNumQuestLogEntries(), 1, -1 do
-			local info = C_QuestLog.GetInfo(index)
-			if info and info.isHeader then
-				local collapsed = states[info.headerSortKey or info.title]
-				if collapsed == true and not info.isCollapsed then
-					CollapseQuestHeader(index)
-				elseif collapsed == false and info.isCollapsed then
-					ExpandQuestHeader(index)
-				end
-			end
-		end
-	end
-	self.restoringQuestCategories = nil
-	self.questCategoriesReady = true
-	self:SaveQuestCategories()
-end
-
-if MapUtils:IsForever() and C_QuestLog and CollapseQuestHeader and ExpandQuestHeader then
-	hooksecurefunc("CollapseQuestHeader", function() MapUtils:SaveQuestCategories() end)
-	hooksecurefunc("ExpandQuestHeader", function() MapUtils:SaveQuestCategories() end)
-	WorldMapFrame:HookScript("OnShow", function() MapUtils:RestoreQuestCategories() end)
-	MapUtils.questCategoriesLoader = CreateFrame("Frame")
-	MapUtils.questCategoriesLoader:RegisterEvent("PLAYER_ENTERING_WORLD")
-	MapUtils.questCategoriesLoader:SetScript("OnEvent", function()
-		MapUtils.questCategoriesReady = nil
-		C_Timer.After(0, function() MapUtils:RestoreQuestCategories() end)
-	end)
 end
 
 local WheelZoom = {
@@ -1479,7 +1438,7 @@ function CombatPins.Flush()
 end
 
 function MapUtils:InstallCombatPins()
-	if CombatPins.installed or frame == nil or not MapUtils:IsOneMap() then return end
+	if CombatPins.installed or frame == nil then return end
 	CombatPins.passthrough = MapCanvasPinMixin and MapCanvasPinMixin.CheckMouseButtonPassthrough
 	if type(CombatPins.passthrough) ~= "function" then return end
 	local propagation = SuperTrackablePinMixin and SuperTrackablePinMixin.UpdateMousePropagation
@@ -1680,7 +1639,8 @@ end
 local MapView = {}
 function MapView.Save()
 	local container = WheelZoom.container
-	if not MapUtils:GetConfig("REMEMBERMAPVIEW", false) or container == nil or container.mapID == nil then
+	local mode = MapUtils:GetMapViewMode()
+	if mode == "PLAYER" or container == nil or container.mapID == nil then
 		MapView.saved = nil
 
 		return
@@ -1701,6 +1661,15 @@ function MapView.Save()
 		return
 	end
 
+	if mode == "ZOOM" then
+		local minScale = container:GetScaleForMinZoom()
+		MapView.saved = minScale ~= nil and minScale > 0 and {
+			["zoom"] = scale / minScale,
+		} or nil
+
+		return
+	end
+
 	MapView.saved = {
 		["mapID"] = container.mapID,
 		["scale"] = scale,
@@ -1710,6 +1679,24 @@ function MapView.Save()
 end
 
 MapView.guardTime = 0.5
+function MapView.ApplyZoom(container, zoom)
+	local mapID = container.mapID
+	local minScale = mapID and container:GetScaleForMinZoom()
+	if minScale == nil or minScale <= 0 then return end
+	local x, y = 0.5, 0.5
+	local pos = C_Map.GetPlayerMapPosition(mapID, "player")
+	if pos ~= nil then
+		local px, py = pos:GetXY()
+		if px ~= nil and py ~= nil and (px ~= 0 or py ~= 0) then x, y = px, py end
+	end
+
+	local scale = minScale * zoom
+	SmoothZoom.pickMapID = mapID
+	SmoothZoom.SetView(container, scale, x, y, scale, x, y)
+	SmoothZoom.userMoved = false
+	if MapUtils.UpdateWorldPinsNow ~= nil then MapUtils.UpdateWorldPinsNow() end
+end
+
 function MapView.Apply()
 	local saved = MapView.pending
 	local container = WheelZoom.container
@@ -1723,6 +1710,13 @@ function MapView.Apply()
 	MapView.applying = true
 	SmoothZoom.anim = nil
 	WheelZoom.pending = nil
+	if saved.zoom ~= nil then
+		MapView.ApplyZoom(container, saved.zoom)
+		MapView.applying = false
+
+		return
+	end
+
 	if container.mapID ~= saved.mapID then
 		MapLevelZoom.lastSwitch = GetTime()
 		WheelZoom.own = true
@@ -1743,14 +1737,17 @@ function MapView.Apply()
 end
 
 function MapView.OnResetZoom()
-	if MapView.pending ~= nil and not MapView.applying and WheelZoom.container.mapID == MapView.pending.mapID then MapView.Apply() end
+	local pending = MapView.pending
+	if pending ~= nil and not MapView.applying and (pending.zoom ~= nil or WheelZoom.container.mapID == pending.mapID) then MapView.Apply() end
 end
 
 function MapView.Restore()
 	local saved = MapView.saved
 	MapView.pending = nil
-	if saved == nil or not MapUtils:GetConfig("REMEMBERMAPVIEW", false) then return end
-	if InCombatLockdown() or IsInInstance() or C_Map.GetMapInfo(saved.mapID) == nil then return end
+	if saved == nil then return end
+	local mode = MapUtils:GetMapViewMode()
+	if mode == "PLAYER" or (mode == "ZOOM") ~= (saved.zoom ~= nil) then return end
+	if InCombatLockdown() or IsInInstance() or (saved.zoom == nil and C_Map.GetMapInfo(saved.mapID) == nil) then return end
 	MapView.pending = saved
 	MapView.guardUntil = GetTime() + MapView.guardTime
 	SmoothZoom.userMoved = false

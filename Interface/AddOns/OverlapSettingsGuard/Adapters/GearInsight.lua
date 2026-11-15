@@ -27,6 +27,12 @@ local SETTINGS = {
     apply = function(gi) if type(gi.QM) == "table" and type(gi.QM.SetSharing) == "function" then gi.QM.SetSharing(false) end end },
   -- With both off, GroupParts no longer auto-loads GearInsight_Forever_GroupMage for non-Mages.
   MageWater = { values = { ["dchat.mw"] = { fieldAsk = false, thank = false } } },
+  -- LR.On() gates every path (whisper, party call-out, GIFLR claims); W and P are a backstop
+  -- should a later release stop checking it.
+  LowRank = { values = { ui = { lowRank = false, lowRankW = false, lowRankP = false } } },
+  -- SyncEvents unregisters the dungeon-entry and nearby-player triggers if the Group module is loaded.
+  BuffAsk = { values = { buffAsk = { auto = false, field = false } },
+    apply = function(gi) if type(gi.BuffAsk) == "table" and type(gi.BuffAsk.SyncEvents) == "function" then gi.BuffAsk.SyncEvents() end end },
   ItemLevel = { values = { ui = { ilvl = false } },
     apply = function(gi) if type(gi.ItemLevel) == "table" and type(gi.ItemLevel.RefreshAll) == "function" then gi.ItemLevel.RefreshAll() end end },
 }
@@ -224,7 +230,8 @@ function adapter.Watch(onChange)
   for _, spec in ipairs({ { gi, "ToggleLeveling" }, { gi, "SetLevelingShown" }, { gi.KeysHud, "Toggle" },
     { gi.QM, "PlatesOnOpen" }, { gi.QM, "PlatesOnClose" }, { gi.GuildChatLevel, "SetEnabled" },
     { gi.GuildChatLevel, "SetWhisperOn" }, { gi.GuildChatLevel, "SetPartyOn" }, { gi.Layer, "SetPub" },
-    { gi.CityPlates, "SetOn" }, { gi.ItemLevel, "SetOn" } }) do
+    { gi.CityPlates, "SetOn" }, { gi.ItemLevel, "SetOn" }, { gi.LowRank, "SetOn" },
+    { gi.LowRank, "SetWhisper" }, { gi.LowRank, "SetParty" }, { gi.BuffAsk, "SetOpt" } }) do
     local target, name = spec[1], spec[2]
     if type(target) == "table" and type(target[name]) == "function" then
       hooksecurefunc(target, name, onChange)

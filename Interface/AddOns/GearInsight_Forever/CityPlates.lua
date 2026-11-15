@@ -55,6 +55,7 @@ function CP.DB()
     local d = ns.db.cityPlates
     d.off = d.off or {}   -- [设置名] = true：插件关掉的、出城要开回来的
     d.qm = d.qm or {}     -- [设置名] = true：插件关的时候，那份「开着」是组队窗口替他开的（不是玩家的原值）
+    d.keep = d.keep or {} -- [设置名] = true：这趟进城玩家自己又打开了 → 出城前不再替他关（11-14 公会截图「开了，一会自己又关了」）
     if d.turnedOff then   -- 11-10 旧存档：只记了一项
         if d.key then d.off[d.key] = true end
         d.turnedOff, d.key = nil, nil
@@ -155,7 +156,8 @@ function CP.Update()
     if combat() then CP.pending = true; return end
     CP.pending = nil
     if not CP.Enabled() then return end
-    if not CP.InCity() then CP.Restore(); return end
+    CP.touched = CP.touched or {}
+    if not CP.InCity() then d.keep = {}; CP.touched = {}; CP.Restore(); return end
     local changed = false
     local q = qmDB()
     for _, k in ipairs(CP.Managed()) do
@@ -173,9 +175,12 @@ function CP.Update()
                     d.off[k], d.qm[k] = nil, nil
                 else
                     d.off[k], d.qm[k] = nil, nil   -- 城里自己（或在别处）又开了：尊重，出城不再动
+                    d.keep[k] = true               -- 11-14 ⛔ 以前只清了记账没记「他开过」：城里换个小区域（ZONE_CHANGED）下一轮又关了
                 end
             end
-        elseif v == "1" and not (byQM and not qmCityPause()) then
+        elseif v == "1" and CP.touched[k] and not byQM then
+            d.keep[k] = true   -- 11-14 进城时本来就关着、玩家在城里自己打开（不是组队窗口开的）：这趟不再替他关
+        elseif v == "1" and not d.keep[k] and not (byQM and not qmCityPause()) then
             if setCV(k, "0") then
                 d.off[k] = true
                 if byQM then d.qm[k] = true end
@@ -183,6 +188,7 @@ function CP.Update()
             end
         end
     end
+    CP.touched = {}
     if changed and d.noteV ~= 2 then
         d.noteV, d.noted = 2, true
         ns.Print(string.format(L("进主城：已临时隐藏友方玩家的姓名板和头顶名字（城里人多会卡），出城自动恢复。不想要：设置页「性能」栏取消勾选，或输入 %s cityplates off",
@@ -206,8 +212,11 @@ ev:SetScript("OnEvent", function(_, e, a1)
     if e == "PLAYER_REGEN_ENABLED" and not CP.pending then return end
     if e == "CVAR_UPDATE" then
         -- 只管自己那几项、不是自己改的；下一帧再判（组队窗口先改设置、后记「我开的」）
-        if CP._setting or type(a1) ~= "string" or not isManaged(a1) or CP._queued then return end
+        if CP._setting or type(a1) ~= "string" or not isManaged(a1) then return end
         if not (ns.db and (CP.AnyOff() or CP.InCity())) then return end
+        CP.touched = CP.touched or {}
+        CP.touched[a1] = true   -- 11-14 不是插件改的：记一笔，Update 里看是不是玩家自己打开的
+        if CP._queued then return end
         CP._queued = true
         if C_Timer and C_Timer.After then
             C_Timer.After(0, function() CP._queued = nil; pcall(CP.Update) end)

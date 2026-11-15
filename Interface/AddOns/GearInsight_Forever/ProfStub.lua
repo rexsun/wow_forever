@@ -14,7 +14,8 @@ local M = ns.LazyModule({ key = "prof", addon = "GearInsight_Forever_Prof", zh =
 ns._ProfMod = M   -- 测试用
 
 -- ⛔ 页名 / 顺序 / 图标要和 PageProf.lua 里真页的 ns.RegisterPage 一模一样
-M:Page({ key = "prof", order = 1.85, title = ns.L("专业", "Professions"), tabTitle = ns.L("专业", "Profs"),
+-- 11-14 order 1.85 → 1.15：专业从「升级」大类里拿出来成了左栏独立一级（UI.lua GROUPS 的 grp_up 1.1 / grp_gear 1.2 之间）
+M:Page({ key = "prof", order = 1.15, title = ns.L("专业", "Professions"), tabTitle = ns.L("专业", "Profs"),
     icon = "Interface\\Icons\\Trade_BlackSmithing", hold = true, file = "PageProf.lua" })
 
 -- 升级规划（_Plan）里画专业行用的函数

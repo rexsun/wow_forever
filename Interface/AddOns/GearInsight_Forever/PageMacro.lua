@@ -15,11 +15,7 @@ local CLASS_ICON = { Warrior = "inv_sword_27", Paladin = "spell_holy_holybolt", 
 -- 6 个设置名都在《无限》客户端 Wow.exe 里核对过存在（volumeFog / volumeFogLevel / ffxDeath / ffxGlow / giQuality / cameraDistanceMaxZoomFactor）。
 local SYS_KEY = "System"
 local SYS_MACROS = {
-    { key = "sys-clear-view", no = 1, g = "画面与视角", gEn = "Graphics and camera", icon = "INV_Misc_Spyglass_02",
-      t = "Clear view: no haze, no grey death screen, no glow, far camera", tc = "清爽画面一键",
-      n = "Removes the distance haze, keeps the screen in colour when you die, turns off the full-screen glow and lets the camera zoom out much further. Settings stay after relog.",
-      nc = "去掉远景灰雾、死后画面不变灰、关掉全屏泛光、视角能拉得更远；改的是游戏设置，下次登录还在",
-      b = "/console volumeFog 0\n/console volumeFogLevel 1\n/console ffxDeath 0\n/console ffxGlow 0\n/console giQuality 0\n/console cameraDistanceMaxZoomFactor 2.6" },
+    -- 11-14 用户截图「把这个宏干掉，不需要」：删掉「清爽画面一键」（sys-clear-view）；「恢复默认画面」留着，导过的人还能改回来
     { key = "sys-far-camera", no = 2, g = "画面与视角", gEn = "Graphics and camera", icon = "Ability_EyeOfTheOwl",
       t = "Far camera only", tc = "只拉远视角",
       n = "Only raises the maximum camera distance. Scroll out after pressing it.",
@@ -27,8 +23,8 @@ local SYS_MACROS = {
       b = "/console cameraDistanceMaxZoomFactor 2.6" },
     { key = "sys-restore-view", no = 3, g = "画面与视角", gEn = "Graphics and camera", icon = "INV_Misc_Gear_01",
       t = "Restore those settings to game defaults", tc = "恢复默认画面",
-      n = "Puts the six settings above back to the game's defaults (not to what you had before).",
-      nc = "把上面改过的 6 项设置恢复成游戏默认值（不是你改之前的值）",
+      n = "Puts fog, fog level, death grey screen, glow, global illumination and max camera distance back to the game's defaults.",
+      nc = "把远景雾、雾浓度、死亡灰屏、全屏泛光、全局光照、最远视角这 6 项恢复成游戏默认值（不是你改之前的值）",
       b = "/run local D=C_CVar and C_CVar.GetCVarDefault or GetCVarDefault for _,v in ipairs({\"volumeFog\",\"volumeFogLevel\",\"ffxDeath\",\"ffxGlow\",\"giQuality\",\"cameraDistanceMaxZoomFactor\"}) do SetCVar(v,D(v)) end" },
     { key = "sys-fps", no = 4, g = "画面与视角", gEn = "Graphics and camera", icon = "Spell_Nature_Cyclone",
       t = "Lighter graphics: no weather, shadows or ground clutter", tc = "低配提帧",

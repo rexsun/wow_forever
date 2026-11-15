@@ -20,7 +20,7 @@ if aObj.isMorCorF then
 		self:SecureHookScript(_G.AuctionHouseFrame, "OnShow", function(this)
 			self:removeInset(this.MoneyFrameInset) -- MerchantMoneyInset
 			self:keepFontStrings(this.MoneyFrameBorder)
-			self:skinObject("tabs", {obj=this, tabs=this.Tabs, fType=ftype, lod=self.isTT and true, track=false})
+			self:skinObject("tabs", {obj=this, tabs=this.Tabs, fType=ftype, lod=self.isTT, track=false})
 			if self.isTT then
 				self:SecureHook(this, "SetDisplayMode", function(fObj, displayMode)
 					for i, tab in _G.ipairs(fObj.Tabs) do
@@ -153,6 +153,7 @@ if aObj.isMorCorF then
 					fObj.ItemDisplay.ItemButton.EmptyBackground:SetAlpha(0) -- N.B. Texture changed in code
 				end
 				self:skinObject("moneyframe", {obj=fObj.BidFrame.BidAmount, fType=ftype})
+				self:moveObject{obj=fObj.BidFrame.BidButton, x=10}
 				skinItemList(fObj.ItemList)
 				if self.modBtns then
 					self:skinStdButton{obj=fObj.BackButton, fType=ftype}
@@ -234,7 +235,7 @@ if aObj.isMorCorF then
 
 			self:SecureHookScript(this.AuctionsFrame, "OnShow", function(fObj)
 				-- Top Tabs
-				self:skinObject("tabs", {obj=fObj, tabs=fObj.Tabs, fType=ftype, lod=self.isTT and true, upwards=true, offsets={x1=4, y1=-8, x2=-4,  y2=-1}, track=false})
+				self:skinObject("tabs", {obj=fObj, tabs=fObj.Tabs, fType=ftype, lod=self.isTT, upwards=true, offsets={x1=4, y1=-8, x2=-4,  y2=-1}, track=false})
 				if self.isTT then
 					self:SecureHook(fObj, "SetDisplayMode", function(frame, displayMode)
 						for i, tab in _G.pairs(frame.Tabs) do
@@ -330,7 +331,7 @@ if aObj.isMorF then
 			end
 
 			self:skinObject("editbox", {obj=_G.BankItemSearchBox, fType=ftype, si=true})
-			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, rns=true, cb=true, x2=self.isFrvr and 6})
+			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, rns=true, cb=true, x2=self.isFrvr and 6 or nil})
 
 			if self.isMnln then
 				self:skinObject("tabs", {obj=this.TabSystem,  pool=true, fType=ftype, ignoreSize=true, track=false})
@@ -605,7 +606,7 @@ aObj.blizzFrames[ftype].MerchantFrame = function(self)
 		    return
 		end
 
-		self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT and true})
+		self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT})
 		self:removeInset(_G.MerchantMoneyInset)
 		_G.MerchantMoneyBg:DisableDrawLayer("BACKGROUND")
 		-- Items/Buyback Items
@@ -619,7 +620,7 @@ aObj.blizzFrames[ftype].MerchantFrame = function(self)
 			end
 		end
 		_G.MerchantBuyBackItemNameFrame:SetTexture(nil)
-		if self.isMnln then
+		if self.isMorF then
 			self:skinObject("ddbutton", {obj=this.FilterDropdown, fType=ftype})
 			self:removeInset(_G.MerchantExtraCurrencyInset)
 			_G.MerchantExtraCurrencyBg:DisableDrawLayer("BACKGROUND")

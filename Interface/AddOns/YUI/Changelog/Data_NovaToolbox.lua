@@ -1,6 +1,44 @@
 -- Generated from Docs/Products/YUI_NovaToolbox/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("toolbox", {
+-- YUI-Notes-Record: nova-141|mainline|7f73fd2cb579e1f1c49f1b2e0e6242eaf80de0c3b85c7ab6284986396581665f
+    {
+        version = "nova-141",
+        date = "2026-11-14",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "插件助手支持清理方案中未安装插件的记录。",
+                "修复插件助手“新”标记误判及分组启用状态显示。",
+                "修复隐藏地图标记后，筛选按钮未同步灰显的问题。",
+            },
+            enUS = {
+                "Addon Assistant can now remove uninstalled addon records from a profile.",
+                "Fixed incorrect “New” markers and group-status displays in Addon Assistant.",
+                "Fixed the filter button not turning gray when map markers are hidden.",
+            },
+        },
+    },
+-- YUI-Notes-Record: nova-141|forever|2a7ca41d8fb80e07e781f29621e219b2233e00de79948427f1c9e0e8d6ca8c64
+    {
+        version = "nova-141",
+        date = "2026-11-14",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "购物助手调整为五页分类，并补充合剂、防护药水和功能药水。",
+                "插件助手支持清理方案中未安装插件的记录。",
+                "修复插件助手“新”标记误判及分组启用状态显示。",
+                "修复隐藏地图标记后，筛选按钮未同步灰显的问题。",
+            },
+            enUS = {
+                "Reorganized Auction Helper into five tabs and added flasks, protection potions, and utility potions.",
+                "Addon Assistant can now remove uninstalled addon records from a profile.",
+                "Fixed incorrect “New” markers and group-status displays in Addon Assistant.",
+                "Fixed the filter button not turning gray when map markers are hidden.",
+            },
+        },
+    },
 -- YUI-Notes-Record: nova-140|mainline|3962d014bb9bab0af0084f796e0f4f08fc96a2f42119c178a624346452e42d7a
 -- YUI-Notes-Record: nova-140|forever|0590cfb27b58b81f5d8d6a4d837dce468e7a3fd2a430996190a8934a7713657c
     {
@@ -259,32 +297,6 @@ CL:Register("toolbox", {
             },
         },
     },
--- YUI-Notes-Record: nova-131|forever|28e5ba87ffa09c3fb8b16161e5732aa643092c8159daaf975f301be782e59b7a
-    {
-        version = "nova-131",
-        date = "2026-10-26",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增邮件助手，支持勾选收件、只收金币和批量删除空信。",
-                "新增邮件收发记录。",
-                "发件联系人支持搜索和最近寄送快捷收藏。",
-                "优化侧栏布局及其他邮件插件的兼容处理。",
-                "优化法术警报预览及布局占位提示。",
-                "战斗中的地图标记刷新延至脱战后执行。",
-                "修复邮件联系人完整姓名与服务器信息处理。",
-            },
-            enUS = {
-                "Added Mail Assistant with selected-mail collection, gold-only collection, and bulk empty-mail deletion.",
-                "Added mail history for sent and received messages.",
-                "Added contact search and quick favorites for recent recipients.",
-                "Improved sidebar layout and compatibility with other mail addons.",
-                "Improved spell alert previews and layout placeholder hints.",
-                "Map marker refreshes requested during combat now wait until combat ends.",
-                "Fixed full-name and realm information handling for mail contacts.",
-            },
-        },
-    },
 -- YUI-Notes-Record: nova-130|mainline|96c2f7f58060ed80c6a151923c17b211fe3a84a2e7d87bdd7ef7bb23e7212f19
     {
         version = "nova-130",
@@ -300,20 +312,6 @@ CL:Register("toolbox", {
                 "Added item-loading feedback to Auction Helper and fixed unresponsive searches when item information is unavailable.",
                 "Fixed configuration import and some UI initialization issues when multiple standalone addons are loaded together.",
                 "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: nova-129|mainline|1a3857d37a30e10dc732d1670a731f1979e81e299e579ed1228f742addddcd33
-    {
-        version = "nova-129",
-        date = "2026-10-22",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "修复配置导入失败后的延迟容限恢复异常。",
-            },
-            enUS = {
-                "Fixed incorrect lag tolerance restoration after failed configuration imports.",
             },
         },
     },

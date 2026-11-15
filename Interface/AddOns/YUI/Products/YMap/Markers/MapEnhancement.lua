@@ -881,6 +881,9 @@ UpdateQuickFilterButton = function()
     if button.Icon and type(button.Icon.SetVertexColor) == "function" then
         button.Icon:SetVertexColor(color[1], color[2], color[3])
     end
+    if button.Icon and type(button.Icon.SetDesaturated) == "function" then
+        button.Icon:SetDesaturated(state.markersHidden == true)
+    end
     if type(button.SetAlpha) == "function" then
         button:SetAlpha(state.markersHidden and 0.72 or 1)
     end

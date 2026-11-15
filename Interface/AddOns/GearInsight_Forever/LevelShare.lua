@@ -32,7 +32,12 @@ local function db()
         if d.lvlShare == "milestone" then d.lvlShare = "ask" end
         d.lvlShareV = 3
     end
-    if d.lvlShare == "every" then d.lvlShare = "ask" end   -- 每级自动发这档没了：一律改成每级弹框（逢 5 级照样自动发）
+    if d.lvlShare == "every" then d.lvlShare = "ask" end
+    -- 11-14 用户「这些都要打开的」「网易DD只需要关闭捐赠入口这一个选项」：撤回 1.1.5 的默认关 —— 1.1.5 一次性改成关的（lvlShareV=4）恢复成每级弹框问；1.1.5 之后自己又打开的不动
+    if d.lvlShareV == 4 then
+        if d.lvlShare == "off" then d.lvlShare = "ask" end
+        d.lvlShareV = 5
+    end   -- 每级自动发这档没了：一律改成每级弹框（逢 5 级照样自动发）
     d.lvlx = d.lvlx or {}
     d.lvlCur = d.lvlCur or {}
     return d
@@ -297,6 +302,7 @@ local function finish(played)
     for k in pairs(t) do n = n + 1; if not minK or k < minK then minK = k end end
     if n > MAX_PER_CHAR and minK then t[minK] = nil end
     -- 播报（同一级只发一次）
+    local offered = false
     d.lvlShared = d.lvlShared or {}
     local key = p.id .. ":" .. p.lvl
     if LS.ShouldShare(p.lvl) and not d.lvlShared[key] then
@@ -310,12 +316,42 @@ local function finish(played)
         -- 11-06 用户「每5级是必发，其他等级弹窗问是否发」：ask 档逢 5 级直接发
         if (d.lvlShare == "ask") and p.lvl % 5 ~= 0 and PS and PS.OfferMsg then
             -- 弹框：预览这句 + 公会 / 小队 / 团队（默认公会），点「发送」才发；发了才记这一级已播
-            PS.OfferMsg("level", msg, function() d.lvlShared[key] = true end)
+            offered = PS.OfferMsg("level", msg, function() d.lvlShared[key] = true end) and true or false
         else
             local ok = send(msg)
             if ok then d.lvlShared[key] = true end
         end
+    end
+    pcall(LS.TalentTip, p.lvl, offered)   -- 11-14 升级弹框带「这一级点什么天赋」
+end
+
+-- 11-14 用户「升级了弹窗同时，有个地方引导点什么天赋，点了以后就跟升级规划点了去加点一样」：
+--   这一级计划里该点的天赋（和升级规划同一个算法 ns.PlanTalentSteps）：播报框弹了就挂在它下面，没弹就单独弹一个只提示天赋的框。
+--   10 级以下 / 没计划 / 计划和已点对不上 / 这一级没要点的 → 不弹。ns.db.ui.lvlTalent = false 关（/gi 升级天赋 关）。
+--   天赋算法在职业子插件里（拆分包按需加载、战斗中不加载）→ ns.ClassPrep 拉起来，战斗中排到脱战后再弹
+function LS.TalentStepNow(lvl)
+    if not ns.PlanTalentSteps then return nil end
+    local ok, steps = pcall(ns.PlanTalentSteps, lvl, lvl)
+    if not ok or type(steps) ~= "table" then return nil end
+    local first, n = nil, 0
+    for _, s in ipairs(steps) do
+        if s.avail then n = n + 1; first = first or s end
     end
+    return first, math.max(0, n - 1)
+end
+function LS.TalentOn() return not (ns.db and ns.db.ui and ns.db.ui.lvlTalent == false) end
+function LS.TalentTip(lvl, offered)
+    if not lvl or lvl < 10 or not LS.TalentOn() then return false end
+    local PS = ns.PvPShout
+    if not (PS and PS.SetTalent) then return false end
+    local function go()
+        local st, more = LS.TalentStepNow(lvl)
+        if not st then return false end
+        if offered and PS.Showing and PS.Showing("level") then return PS.SetTalent(st, more) end
+        return PS.OfferTalent(st, more)
+    end
+    if ns.ClassPrep and not ns.ClassPrep(function() pcall(go) end) then return false end   -- 战斗中：脱战后加载完再弹
+    return go()
 end
 
 function LS.OnLevelUp(newLvl)
@@ -432,6 +468,15 @@ ns.ExtraSlash["升级播报"] = function(rest)
         .. ns.L("。/gi 升级播报 开 | 关 | 每5级 | 里程碑", ". /gi lvlshare on|off|five|milestone"))
 end
 ns.ExtraSlash.lvlshare = ns.ExtraSlash["升级播报"]
+-- 11-14 升级弹框里的「这一级点什么天赋」：默认开，/gi 升级天赋 开 | 关
+ns.ExtraSlash["升级天赋"] = function(rest)
+    rest = (rest or ""):gsub("%s+", "")
+    ns.db.ui = ns.db.ui or {}
+    if rest == "开" or rest == "on" then ns.db.ui.lvlTalent = nil elseif rest == "关" or rest == "off" then ns.db.ui.lvlTalent = false end
+    ns.Print(ns.L("升级时提示这一级点什么天赋：", "Talent tip on level-up: ") .. (LS.TalentOn() and ns.L("开", "on") or ns.L("关", "off"))
+        .. ns.L("。/gi 升级天赋 开 | 关", ". /gi lvltalent on|off"))
+end
+ns.ExtraSlash.lvltalent = ns.ExtraSlash["升级天赋"]
 
 -- 已登录（晚加载）才补跑一次「进入游戏」那段初始化；主插件正常加载时这里不跑，等事件
 if IsLoggedIn and IsLoggedIn() then pcall(onEvent, f, "PLAYER_ENTERING_WORLD") end

@@ -4,7 +4,7 @@
 ## Notes: GearInsight Forever mage food helper (loaded at login only when its options are on)
 ## Notes-zhCN: GearInsight 无限版的法师吃喝：野外弹框 / 交易道谢 / 总开关开着时登录加载，否则打开「法师吃喝」子页签时才加载
 ## Author: GearInsight
-## Version: 1.1.4
+## Version: 1.2.3
 ## Dependencies: GearInsight_Forever, GearInsight_Forever_Group
 ## LoadOnDemand: 1
 ## IconTexture: Interface\Icons\inv_misc_map_01

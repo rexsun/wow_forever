@@ -92,13 +92,20 @@ function Camp:SetExpanded(value)
 end
 
 local function ReadAura(id, now)
-    if not (Unit and Unit.GetUnitAuraBySpellID) then return nil end
-    local aura = Unit.GetUnitAuraBySpellID("player", id)
-    if type(aura) ~= "table" or Security.IsSecretValue(aura) or Security.CanAccessTable(aura) == false then return nil end
+    if not (Unit and Unit.GetUnitAuraBySpellID) then return nil, "unknown" end
+    local aura, reason = Unit.GetUnitAuraBySpellID("player", id)
+    if Security.IsSecretValue(aura) then return nil, "unknown" end
+    if aura == nil then return nil, reason and "unknown" or "absent" end
+    if type(aura) ~= "table" or Security.CanAccessTable(aura) == false then return nil, "unknown" end
     local spellID, expires, duration = Number(aura.spellId), Number(aura.expirationTime), Number(aura.duration)
-    if spellID ~= id or (expires and expires > 0 and expires <= now) then return nil end
+    if spellID ~= id then return nil, "unknown" end
+    if expires and expires > 0 and expires <= now then return nil, "expired" end
+    local instance = Number(aura.auraInstanceID)
+    -- Partial restriction metadata cannot replace its last public deadline or
+    -- instance with fabricated zero/nil values while access is restricted.
+    if id == FATIGUE and (expires == nil or duration == nil or instance == nil) then return nil, "unknown" end
     return { spellID = id, icon = Number(aura.icon), name = String(aura.name),
-        instance = Number(aura.auraInstanceID), expires = expires or 0, duration = duration or 0,
+        instance = instance, expires = expires or 0, duration = duration or 0,
         applications = Number(aura.applications) }
 end
 
@@ -180,7 +187,13 @@ function Camp:ReadAuras(now)
     self.near = ReadAura(NEAR, now)
     self.rest = ReadAura(REST, now) or ReadAura(REST_ALT, now)
     self.benefit = ReadAura(BENEFIT, now)
-    self.fatigue = ReadAura(FATIGUE, now)
+    local fatigue, fatigueStatus = ReadAura(FATIGUE, now)
+    -- A restricted query is not removal evidence. Keep only the last public
+    -- restriction, bounded by its actual expiry and explicit removal events.
+    local uncertain = fatigueStatus == "unknown" or fatigueStatus == "absent"
+        and Unit.CanConfirmAuraAbsence and not Unit.CanConfirmAuraAbsence()
+    if uncertain and self.fatigue and (self.fatigue.expires == 0 or self.fatigue.expires > now) then fatigue = self.fatigue end
+    self.fatigue = fatigue
     self.sleepingBenefit = ReadAura(SLEEPING_BENEFIT, now)
     self.effects = {}
     for _, id in ipairs(EFFECTS) do
@@ -320,6 +333,10 @@ end
 function Camp:Tooltip(button)
     local entry = self.entries[button]
     if not entry or not self.active or Items().editing then return end
+    if entry.presentationHidden then
+        if GameTooltip:IsOwned(button) then GameTooltip:Hide() end
+        return
+    end
     if YAB:GetDB().interaction.tooltipMode == "outOfCombat" and InCombat() then
         if GameTooltip:IsOwned(button) then GameTooltip:Hide() end
         return
@@ -403,7 +420,7 @@ function Camp:Tooltip(button)
 end
 
 local function Enter(button)
-    if not Camp.active then return end
+    if not Camp.active or Camp.entries[button].presentationHidden then return end
     Items().hovered = button
     Camp:Tooltip(button)
 end
@@ -552,8 +569,20 @@ function Camp:RefreshVisuals()
                 or count > 0 and "color.tooltip.heading" or "color.tooltip.secondary")
         elseif entry.key == "fatigue" then
             aura = self.fatigue
-            state.texture, state.usable = aura and aura.icon or 134250, false
+            entry.restrictionIcon = aura and aura.icon or entry.restrictionIcon
+            state.texture, state.usable = entry.restrictionIcon or 134250, false
             state.campPresentation = aura and "restriction" or nil
+            -- Protected slots cannot be removed in combat. Clear the whole
+            -- presentation until the existing structural refresh can reclaim it.
+            local hidden = not aura and not editing
+            if entry.presentationHidden ~= hidden then
+                button:SetAlpha(hidden and 0 or 1)
+                entry.presentationHidden = hidden
+            end
+            if hidden then
+                if owner.hovered == button then owner.hovered = nil end
+                if GameTooltip:IsOwned(button) then GameTooltip:Hide() end
+            end
         elseif entry.key == "toggle" then
             state.texture, state.checked = FACILITIES_ICON, self.expanded == true
             state.usable = not InCombat()
@@ -628,6 +657,7 @@ function Camp:Apply(record, editing)
                 shown[button] = true
                 record.buttons[#record.buttons + 1] = button
                 button:SetAlpha(1)
+                self.entries[button].presentationHidden = false
                 button:Show()
             end
         end
@@ -750,6 +780,13 @@ local function TooltipPostCall(tooltip, data) Camp:ObserveTooltip(tooltip, data)
 local function RelevantUpdate(update)
     if type(update) ~= "table" or Security.IsSecretValue(update) or Security.CanAccessTable(update) == false then return true end
     if Security.SafeBoolean(update.isFullUpdate) == true then return true end
+    local removed = update.removedAuraInstanceIDs
+    if Camp.fatigue and Camp.fatigue.instance and type(removed) == "table"
+        and not Security.IsSecretValue(removed) and Security.CanAccessTable(removed) ~= false then
+        for _, instance in ipairs(removed) do
+            if Number(instance) == Camp.fatigue.instance then Camp.fatigue = nil; return true end
+        end
+    end
     for _, field in ipairs({ "addedAuras", "updatedAuraInstanceIDs", "removedAuraInstanceIDs" }) do
         local value = update[field]
         if value ~= nil and (Security.IsSecretValue(value) or Security.CanAccessTable(value) == false) then return true end

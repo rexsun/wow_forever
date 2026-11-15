@@ -54,6 +54,11 @@ local function dbq()
     ns.db.qm = ns.db.qm or {}
     local q = ns.db.qm
     if q.share == nil then q.share = true end
+    -- 11-14 用户「这些都要打开的」「网易DD只需要关闭捐赠入口这一个选项」：撤回 1.1.5 的默认关 —— 1.1.5 一次性关掉的同任务共享（shareOff1113）恢复打开
+    if q.shareOff1113 then
+        if q.share == false then q.share = true end
+        q.shareOff1113 = nil
+    end
     if q.onlyBehind == nil then q.onlyBehind = true end
     -- 10-12 用户「不在一定范围内没用啊」：只看本区域 → 距离范围（码）；0 = 本区域（不限距离）
     if q.range == nil then q.range = (q.onlyZone == false) and 0 or 100 end
@@ -804,11 +809,20 @@ end
 function QM.PlatesOnOpen()
     if not dbq().autoPlates then QM.PlatesOnClose(); return end   -- 关了自动开：以前我们替他开的那次顺手还原（只还原我们开的）
     if InCombatLockdown and InCombatLockdown() then return end
+    -- 11-14 群友「每次上线插件会自动打开Shift+V，在哪可以关掉」：钉住的组队窗口登录 / reload 时自己恢复出来 → 以前也替他开了姓名板
+    --   → 自己恢复出来的那次不开，只有玩家自己点开组队窗口才开（QuestMatesUI.lua QM.RestorePinned 置 QM.noPlatesOnce）
+    if QM.noPlatesOnce then QM.noPlatesOnce = nil; return end
     local k, v = friendCVar()
     if QM.CityPlatesHolding(k) then return end   -- 11-13 第 5 期（§2.6）/ GI-244：主城里「进城关友方姓名板」正关着这一项 → 尊重它，不打开
     if k and v ~= "1" and SetCVar and pcall(SetCVar, k, "1") then
         dbq().platesWeOpened = k
         QM.dirty = true
+        -- 11-14 第一次替他开时说清楚是谁开的、怎么关（只说一次）
+        if not dbq().platesNoted then
+            dbq().platesNoted = true
+            ns.Print(L("组队窗口开着：已临时打开友方姓名板（Shift+V），好认出身边没装插件的人；关掉组队窗口自动还原。不想要：设置 →「组队」取消「打开组队窗口时自动开友方姓名板」，或输入 /gi qm plates off",
+                "Group window open: friendly nameplates turned on to spot nearby players; restored when you close it. To stop: Settings > Group up, or /gi qm plates off"))
+        end
     end
 end
 -- 11-13 第 5 期（§2.6）+ GI-244 合并后统一：姓名板在主城里归 CityPlates（主插件「进城关友方姓名板」）管，组队尊重它。约定：
@@ -945,6 +959,10 @@ local function modeList()
     if mageThere() then
         t[#t + 1] = { "mage", L("法师吃喝", "Mage food"), L("找法师要水 / 法师发水的全部开关（/gi 吃喝 也能开）", "All options for asking mages for water / handing it out (/gi water)") }
     end
+    -- 11-14 BIS 撞装（BisShare.lua / PartyGear.lua，HOLD）：信标在 + 界面子插件装了才出第四个子页签
+    if ns.BisShare and (ns.PartyGear or QM.UIAvailable()) then
+        t[#t + 1] = { "gear", L("队伍装备", "Party gear"), L("队友之间交换「还缺哪些 BIS / 这本哪些是提升」：和谁撞、撞哪件、撞装率、每趟拿到的机会（/gi pg）", "Who in your group needs the same BIS / upgrades, overlap %, your share") }
+    end
     return t
 end
 QM.ModeList = modeList
@@ -991,7 +1009,7 @@ function QM.SyncSubTabs()
         local DIM = "|cff8a93a6"
         local dungeon = dbq().mode == "dungeon"
         local btns = rawget(d, "modeBtns") and not useSubs
-        local m = rawget(d, "mwOn") and L("法师吃喝", "Mage food") or dungeon and L("副本组队", "Dungeon group") or (subs and L("任务组队", "Quest group") or L("同任务的人 · 附近 · 实时", "players on your quests - nearby - live"))
+        local m = rawget(d, "gearOn") and L("队伍装备", "Party gear") or rawget(d, "mwOn") and L("法师吃喝", "Mage food") or dungeon and L("副本组队", "Dungeon group") or (subs and L("任务组队", "Quest group") or L("同任务的人 · 附近 · 实时", "players on your quests - nearby - live"))
         d.title:SetText(btns and L("组队", "Group up") or (L("组队", "Group up") .. "  " .. DIM .. m .. "|r"))
     end
     if not (host and tab and subs) then return end
@@ -1133,8 +1151,8 @@ ns.ExtraSlash.qm = function(rest, rawRest)
     rest = rest or ""
     if rest == "tag on" or rest == "tag off" then
         dbq().noTag = (rest == "tag off") or nil
-        ns.Print(rest == "tag on" and L("组队：私聊 / 喊人 / 道谢最前面加 [Gearinsight插件]", "Group up: messages prefixed with [GearInsight]")
-            or L("组队：私聊 / 喊人 / 道谢不再加 [Gearinsight插件]", "Group up: no [GearInsight] prefix"))
+        ns.Print(rest == "tag on" and L("组队：私聊 / 喊人 / 道谢最前面加 [Gearinsight插件]", "Group up: messages prefixed with [Gearinsight插件]")
+            or L("组队：私聊 / 喊人 / 道谢不再加 [Gearinsight插件]", "Group up: no [Gearinsight插件] prefix"))
     elseif rest == "quiet" or rest == "quiet on" or rest == "quiet off" then
         local on = rest ~= "quiet off" and not (rest == "quiet" and dbq().quietResult)
         dbq().quietResult = on or nil
@@ -1215,6 +1233,11 @@ TH.QUEST_LINE = { "谢啦%s，「%s」一起搞定了！下次再组~", "Thanks 
 function TH.On()
     local q = dbq()
     if q.thanks == nil then q.thanks = true end
+    -- 11-14 用户「这些都要打开的」「网易DD只需要关闭捐赠入口这一个选项」：撤回 1.1.5 的默认关 —— 1.1.5 一次性关掉的解散道谢提示（thanksOff1113）恢复打开
+    if q.thanksOff1113 then
+        if q.thanks == false then q.thanks = true end
+        q.thanksOff1113 = nil
+    end
     return q.thanks
 end
 function TH.Set(on)

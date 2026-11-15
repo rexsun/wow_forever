@@ -83,13 +83,13 @@ if aObj.isMorC then
 				-- remove textures etc from buttons
 				local btnName
 				for _, btn in _G.pairs(frame.buttons) do
-					aObj:SecureHook(btn, "Desaturate", function(bObj)
+					aObj:SecureHook("AchievementButton_Desaturate" or btn, "Desaturate", function(bObj)
 						if bObj.sbb then
 							bObj.sbb:SetBackdropBorderColor(bObj:GetBackdropBorderColor())
 							bObj.icon.sbb:SetBackdropBorderColor(bObj:GetBackdropBorderColor())
 						end
 					end)
-					aObj:SecureHook(btn, "Saturate", function(bObj)
+					aObj:SecureHook("AchievementButton_Saturate" or btn, "Saturate", function(bObj)
 						if bObj.sbb then
 							bObj.sbb:SetBackdropBorderColor(bObj:GetBackdropBorderColor())
 							bObj.icon.sbb:SetBackdropBorderColor(bObj:GetBackdropBorderColor())
@@ -207,7 +207,11 @@ if aObj.isMorC then
 
 		self:SecureHookScript(_G.AchievementFrame, "OnShow", function(this)
 			self:moveObject{obj=_G.AchievementFrameCloseButton, x=1, y=8}
-			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT and true, ignoreHLTex=false, regions={7, 8, 9, 10}, offsets={x1=6, x2=-2, y2=-7}})
+			if not aObj.isMnlnPTR then
+				self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT, ignoreHLTex=false, regions={7, 8, 9, 10}, offsets={x1=8, x2=-8, y2=-7}})
+			else
+				self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT, ignoreHLTex=false, regions={7, 8, 9, 10}, offsets={x1=8, x2=-4, y2=-7}})
+			end
 			if self.isMnln then
 				self:skinObject("frame", {obj=this, fType=ftype, kfs=true, cb=true, y1=7, x2=0, y2=-1})
 			else
@@ -233,7 +237,6 @@ if aObj.isMorC then
 			if self.isMnln then
 				self:SecureHookScript(this.HeaderDetails, "OnShow", function(fObj)
 					self:keepFontStrings(fObj)
-					self:moveObject{obj=fObj.Filters.FilterDropdown, y=-6}
 					self:skinObject("ddbutton", {obj=fObj.Filters.FilterDropdown, fType=ftype, filter=true})
 					self:skinObject("editbox", {obj=fObj.Filters.SearchBox, fType=ftype, si=true, y1=-4, y2=4})
 					self:skinObject("statusbar", {obj=fObj.Filters.SearchBox.SearchProgressBar, fType=ftype, fi=0, bg=fObj.Filters.SearchBox.SearchProgressBar.bg})
@@ -437,11 +440,12 @@ if aObj.isMorC then
 				end
 			end
 			local function skinSB(statusBar, moveText)
+				statusBar = _G[statusBar] or statusBar
 				if moveText then
-					aObj:moveObject{obj=_G[statusBar].Label or _G[statusBar .. "Label"] or _G[statusBar .. "Title"], y=-3}
-					aObj:moveObject{obj=_G[statusBar].Text or _G[statusBar .. "Text"], y=-3}
+						aObj:moveObject{obj=aObj:getRegion(statusBar, 1), y=-3}
+						aObj:moveObject{obj=aObj:getRegion(statusBar, 2), y=-3}
 				end
-				aObj:skinObject("statusbar", {obj=_G[statusBar], regions={3, 4, 5}, fi=0, bg=_G[statusBar .. "FillBar"]})
+				aObj:skinObject("statusbar", {obj=statusBar, regions={3, 4, 5}, fi=0, bg=aObj:getRegion(statusBar, 6)})
 			end
 			self:SecureHookScript(_G.AchievementFrameSummary, "OnShow", function(fObj)
 				fObj:DisableDrawLayer("BACKGROUND")
@@ -457,11 +461,11 @@ if aObj.isMorC then
 				_G.AchievementFrameSummaryAchievementsEmptyText:Hide()
 				local catName = "AchievementFrameSummaryCategories"
 				_G[catName .. "HeaderTexture"]:SetTexture(nil)
-				self:moveObject{obj=_G[catName .. "StatusBarTitle"], y=-3}
-				self:moveObject{obj=_G[catName .. "StatusBarText"], y=-3}
-				skinSB(catName .. "StatusBar")
+				skinSB(catName .. "StatusBar", true)
 				for i = 1, self.isMnln and 12 or 8 do
-					skinSB(catName .. "Category" .. i, true)
+					if _G[catName .. "Category" .. i] then
+						skinSB(catName .. "Category" .. i, true)
+					end
 				end
 
 				self:Unhook(_G.AchievementFrameSummary, "OnShow")
@@ -484,10 +488,7 @@ if aObj.isMorC then
 					for _, type in _G.pairs{"Player", "Friend"} do
 						self:removeNineSlice(fObj.Summary[type].NineSlice)
 						self:removeRegions(fObj.Summary[type], {1})
-						skinSB(fObj.Summary[type].StatusBar:GetName(), true)
-						-- self:moveObject{obj=fObj.Summary[type].StatusBar.Title, y=-3}
-						-- self:moveObject{obj=fObj.Summary[type].StatusBar.Text, y=-3}
-						-- self:skinObject("statusbar", {obj=fObj.Summary[type].StatusBar, regions={3, 4, 5}, fi=0})
+						skinSB(fObj.Summary[type].StatusBar, true)
 					end
 					self:skinObject("scrollbar", {obj=fObj.AchievementContainer.ScrollBar, fType=ftype})
 					local function skinAchieve(...)
@@ -593,6 +594,13 @@ if aObj.isMorC then
 					self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true, cb=true, x1=-8, y1=-1, x2=4})
 
 					self:Unhook(this.SearchResults, "OnShow")
+				end)
+				self:SecureHook("AchievementFrame_SetComparisonMode", function(_)
+					if _G.AchievementFrame.isComparison then
+						self:moveObject{obj=_G.AchievementFrame.HeaderDetails.Filters.SearchBox, y=-6}
+					else
+						self:moveObject{obj=_G.AchievementFrame.HeaderDetails.Filters.SearchBox, y=-6}
+					end
 				end)
 			end
 
@@ -778,7 +786,7 @@ if aObj.isMorCorF then
 
 			if not self.isFrvr then
 				self:removeInset(this.InsetRight)
-				self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT and true})
+				self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT})
 				self:skinObject("frame", {obj=this, fType=ftype, kfs=true, ri=true, rns=true, rp=true, cb=true, x2=self.isClsc and 1 or 3})
 				if self.isClsc then
 					if self.modBtnBs then
@@ -1248,6 +1256,7 @@ if aObj.isMorCorF then
 					end)
 				else
 					self:SecureHookScript(_G.TokenDetailFrame, "OnShow", function(frame)
+						-- TODO: remove header divider texture
 						if self.modBtnBs then
 							self:addButtonBorder{obj=frame.CurrencyTransferLogToggleButton, fType=ftype}
 						end
@@ -1360,14 +1369,11 @@ if aObj.isMorCorF then
 					-- .Content
 					-- .Footer
 					self:skinObject("progressbar", {obj=fObj.RankBar, fType=ftype})
-					for row in fObj.rowPools:EnumerateActive() do
-						skinRow(row)
-					end
-					self:RawHook(fObj, "AcquireRow", function(sPane, template)
-						local row = self.hooks[sPane].AquireRow(sPane, template)
-						skinRow(row)
-						return row
-					end, true)
+					self:SecureHook(fObj, "Refresh", function(frame)
+						for row in frame.rowPools:EnumerateActive() do
+							skinRow(row)
+						end
+					end)
 
 					self:Unhook(this.SkillDetailFrame, "OnShow")
 				end)
@@ -1413,19 +1419,20 @@ if aObj.isMorCorF then
 
 				self:skinObject("scrollbar", {obj=this.ScrollBar, fType=ftype})
 				local function skinElement(...)
-					local _, element
+					local _, element, elementData
 					if _G.select("#", ...) == 2 then
-						element, _ = ...
+						element, elementData = ...
 					else
-						_, element, _ = ...
+						_, element, elementData = ...
 					end
-					--[==[@debug@
-					-- _G.Spew("", element)
-					--@end-debug@]==]
 					if element.StateIcon then
 						aObj:getRegion(element, 1):SetTexture(nil)
 					end
-					-- .ToggleCollapseButton
+					if elementData.data.isCategory
+					and aObj.modBtns
+					then
+						aObj:skinExpandButton{obj=element.ToggleCollapseButton, fType=ftype, onSB=true}
+					end
 				end
 				_G.ScrollUtil.AddInitializedFrameCallback(this.ScrollBox, skinElement, aObj, true)
 				self:getPenultimateChild(this.ScrollBox):DisableDrawLayer("OVERLAY") -- Top Line Texture
@@ -1476,10 +1483,10 @@ if aObj.isMorF then
 					self:addButtonBorder{obj=this.RandomizeAppearanceButton, fType=ftype, ofs=-4, x1=5, y2=5, clr="gold"}
 				end
 			else
-				self:skinObject("frame", {obj=this.CustomizeOptionsContainerFrame, fType=ftype, kfs=true, ofs=0, clr="brownish"})
-				self:skinObject("frame", {obj=this.SmallButtons, fType=ftype, kfs=true, ofs=-4, clr="brownish"})
+				self:skinObject("frame", {obj=this.CustomizeOptionsContainerFrame, fType=ftype, kfs=true, ofs=0})
+				self:skinObject("frame", {obj=this.SmallButtons, fType=ftype, kfs=true, ofs=-4})
 				if self.modBtnBs then
-					self:addButtonBorder{obj=this.CustomizeOptionsContainerFrame.RandomizeAppearanceButton, fType=ftype, ofs=-4, x1=5, y2=5, clr="brownish"}
+					self:addButtonBorder{obj=this.CustomizeOptionsContainerFrame.RandomizeAppearanceButton, fType=ftype, ofs=-4, x1=5, y2=5}
 				end
 			end
 			self:SecureHook(this, "UpdateOptionButtons", function(_, _)
@@ -1516,7 +1523,7 @@ if aObj.isMorF then
 			end
 			if self.modBtnBs then
 				for _, btn in _G.pairs(this.SmallButtons.ControlButtons) do
-					self:addButtonBorder{obj=btn, fType=ftype, ofs=-4, x1=5, y2=5, clr=self.isFrvr and "brownish" or "gold", sechk=true}
+					self:addButtonBorder{obj=btn, fType=ftype, ofs=-4, x1=5, y2=5, clr=not self.isFrvr and "brownish" or nil, sechk=true}
 				end
 			end
 			if self.isFrvr then
@@ -1527,9 +1534,6 @@ if aObj.isMorF then
 
 			_G.RunNextFrame(function()
 			    self:add2Table(self.ttList, ftype, _G.CustomizationNoHeaderTooltip)
-			    if self.isFrvr then
-					self:clrBBC(_G.CustomizationNoHeaderTooltip.sf, "brownish")
-			    end
 			end)
 
 			self:Unhook(_G.CharCustomizeFrame, "OnShow")
@@ -1547,12 +1551,12 @@ if aObj.isMorCorF then
 		self:SecureHookScript(_G.CollectionsJournal, "OnShow", function(this)
 			if not aObj.isMnlnPTR then
 				if self.isMorC then
-					self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT and true, selectedTab=this.selectedTab})
+					self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT, selectedTab=this.selectedTab})
 				else
 					self:skinObject("sidetabs", {obj=this.TabContainer, tabs="Tabs", fType=ftype})
 				end
 			else
-				self:skinObject("tabs", {obj=this.TabContainer, prefix=this:GetName(), fType=ftype, lod=self.isTT and true, selectedTab=this.selectedTab})
+				self:skinObject("tabs", {obj=this.TabContainer, prefix=this:GetName(), fType=ftype, lod=self.isTT, selectedTab=this.selectedTab})
 			end
 			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, rns=true, cb=true, x2=self.Rtl and 3 or 1, y2=-2})
 
@@ -1869,7 +1873,7 @@ if aObj.isMorCorF then
 			end
 			self:skinObject("ddbutton", {obj=this.FilterButton, fType=ftype, filter=true})
 			self:skinObject("ddbutton", {obj=this.ClassDropdown, fType=ftype})
-			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT and true, upwards=true, offsets={x1=2, y1=-4, x2=-2, y2=-4}})
+			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT, upwards=true, offsets={x1=2, y1=-4, x2=-2, y2=-4}})
 			self:skinObject("editbox", {obj=this.searchBox, fType=ftype, si=true})
 			_G.RaiseFrameLevelByTwo(this.searchBox) -- raise above SetsCollectionFrame when displayed on it
 			self:skinObject("statusbar", {obj=this.progressBar, fi=0})
@@ -2109,7 +2113,7 @@ aObj.blizzLoDFrames[ftype].Communities = function(self)
 		self:skinObject("ddbutton", {obj=this.CommunitiesListDropdown, fType=ftype})
 		self:skinObject("editbox", {obj=this.ChatEditBox, fType=ftype, y1=-6, y2=6})
 		self:moveObject{obj=this.AddToChatButton, x=-6, y=-6}
-		self:skinObject("frame", {obj=this, fType=ftype, kfs=true, ri=true, rns=true, cb=true, x1=-5, x2=self.isFrvr and 4})
+		self:skinObject("frame", {obj=this, fType=ftype, kfs=true, ri=true, rns=true, cb=true, x1=-5, x2=self.isFrvr and 4 or nil})
 		if self.modBtns then
 			self:skinStdButton{obj=this.InviteButton, fType=ftype, sechk=true}
 		end
@@ -3076,7 +3080,7 @@ if aObj.isMorC then
 			this.navBar.home.text:SetPoint("RIGHT", -20, 0)
 			self:skinObject("editbox", {obj=this.searchBox, fType=ftype, si=true})
 			self:skinObject("ddbutton", {obj=this.LootJournalViewDropdown, fType=ftype})
-			self:skinObject("tabs", {obj=this, tabs=this.Tabs, selectedTab=this.selectedTab, fType=ftype, lod=self.isTT and true, offsets=not self.isClsc and {x1=-1, y1=2, x2=1, y2=1} or nil, regions=not self.isClscERA and {7, 8, 9, 10, 11} or {10, 21}, track=false, func=function(tab) tab:SetFrameLevel(20) end})
+			self:skinObject("tabs", {obj=this, tabs=this.Tabs, selectedTab=this.selectedTab, fType=ftype, lod=self.isTT, offsets=not self.isClsc and {x1=-1, y1=2, x2=1, y2=1} or nil, regions=not self.isClscERA and {7, 8, 9, 10, 11} or {10, 21}, track=false, func=function(tab) tab:SetFrameLevel(20) end})
 			if self.isTT then
 				self:SecureHook("EJ_ContentTab_Select", function(id)
 					for i, tab in _G.pairs(this.Tabs) do
@@ -3626,9 +3630,9 @@ if aObj.isMorF then
 			end
 
 			if self.isMnln then
-				self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT and true})
+				self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT})
 			else
-				self:skinObject("tabs", {obj=this, tabs=this.Tabs, fType=ftype, ignoreSize=true, lod=self.isTT and true, upwards=true})
+				self:skinObject("tabs", {obj=this, tabs=this.Tabs, fType=ftype, ignoreSize=true, lod=self.isTT, upwards=true})
 			end
 			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, ri=true, rns=true, cb=true, x2=3, y2=-2})
 
@@ -3636,7 +3640,7 @@ if aObj.isMorF then
 				_G.FriendsFrameBattlenetFrame:DisableDrawLayer("BACKGROUND")
 				self:skinObject("ddbutton", {obj=_G.FriendsFrameStatusDropdown, fType=ftype})
 				-- Top Tabs
-				self:skinObject("tabs", {obj=fTH.TabSystem, pool=true, fType=ftype, upwards=true, offsets={x1=1, y1=0, x2=-1, y2=-4}, track=false, regions=self.isFrvr and {15}})
+				self:skinObject("tabs", {obj=fTH.TabSystem, pool=true, fType=ftype, upwards=true, offsets={x1=1, y1=0, x2=-1, y2=-4}, track=false, regions=self.isFrvr and {15} or nil})
 				if self.modBtnBs then
 					self:addButtonBorder{obj=_G.FriendsFrameBattlenetFrame.BroadcastButton, fType=ftype, ofs=-2, x1=1}
 					self:addButtonBorder{obj=_G.FriendsFrameBattlenetFrame.ContactsMenuButton, fType=ftype, clr="gold", ofs=-2, x1=1}
@@ -3940,7 +3944,7 @@ if aObj.isMorF then
 			    return
 			end
 
-			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT and true})
+			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT})
 			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, ri=true, rns=true, cb=true})
 			if self.isFrvr then
 				self:skinObject("sidetabs", {obj=this.ModeTabs, tabs="Tabs", fType=ftype})
@@ -5228,7 +5232,7 @@ if aObj.isMorF then
 					skinHdrs(fObj)
 
 					self:SecureHookScript(fObj.BrowseFrame, "OnShow", function(frame)
-						self:skinObject("tabs", {obj=frame, tabs=frame.orderTypeTabs, fType=ftype, ignoreSize=true, lod=self.isTT and true, offsets={y2=-4}, track=false})
+						self:skinObject("tabs", {obj=frame, tabs=frame.orderTypeTabs, fType=ftype, ignoreSize=true, lod=self.isTT, offsets={y2=-4}, track=false})
 						if self.isTT then
 							self:SecureHook(fObj, "SetCraftingOrderType", function(frmObj, orderType)
 								for _, typeTab in _G.ipairs(frmObj.BrowseFrame.orderTypeTabs) do
@@ -5372,7 +5376,7 @@ if aObj.isMorF then
 		self:SecureHookScript(_G.ProfessionsCustomerOrdersFrame, "OnShow", function(this)
 			self:removeInset(this.MoneyFrameInset)
 			self:removeNineSlice(this.MoneyFrameBorder)
-			self:skinObject("tabs", {obj=this, tabs=this.Tabs, fType=ftype, lod=self.isTT and true, track=false})
+			self:skinObject("tabs", {obj=this, tabs=this.Tabs, fType=ftype, lod=self.isTT, track=false})
 			if self.isTT then
 				self:SecureHook(this, "SelectMode", function(fObj, mode)
 					for idx, tab in _G.ipairs(fObj.Tabs) do
@@ -5656,7 +5660,7 @@ if aObj.isMorF then
 				-- .Border
 				-- .Header
 			self:skinObject("ddbutton", {obj=this.BattleNetBar.ControlsContainer.OnlineStatusDropdown, fType=ftype, noSF=true})
-			self:skinObject("ddbutton", {obj=this.BattleNetBar.ControlsContainer.BattleNetMenuButton, fType=ftype, noSF=true, by1=0, by2=0, clr="brownish"})
+			self:skinObject("ddbutton", {obj=this.BattleNetBar.ControlsContainer.BattleNetMenuButton, fType=ftype, noSF=true, by1=0, by2=0})
 
 			self:skinObject("sidetabs", {obj=this, tabs="socialTabPool", pool=true, fType=ftype})
 			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, cb=true})
@@ -5673,7 +5677,7 @@ if aObj.isMorF then
 				fObj.EditBox:DisableDrawLayer("BACKGROUND")
 				self:skinObject("editbox", {obj=fObj.EditBox, fType=ftype})
 				self:moveObject{obj=fObj.EditBox.PromptText, x=6}
-				self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true, cb=true, ofs=-2, clr="brownish"})
+				self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true, cb=true, ofs=-2})
 				if self.modBtns then
 					self:skinStdButton{obj=fObj.UpdateButton, fType=ftype}
 					self:skinStdButton{obj=fObj.CancelButton, fType=ftype}
@@ -5689,7 +5693,7 @@ if aObj.isMorF then
 					return
 				end
 
-				self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true, cb=true, clr="brownish"})
+				self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true, cb=true})
 				if self.modBtns then
 					self:skinStdButton{obj=fObj.BlockButton, fType=ftype, sechk=true}
 					self:skinStdButton{obj=fObj.UnblockButton, fType=ftype, sechk=true}
@@ -5723,8 +5727,8 @@ if aObj.isMorF then
 				skinSocialUIContactsFrame(fObj, function(element, _)
 					element.Background:SetTexture(nil)
 					-- .PresenceHolder (Icon)
-					if aObj.modBtnBs then
-						aObj:addButtonBorder{obj=element.PartyButton, fType=ftype, ofs=0, y2=1, clr="brownish"}
+					if aObj.modBtns then
+						aObj:skinStdButton{obj=element.PartyButton, fType=ftype}
 					end
 					-- .GameIconHolder (Icon)
 					-- .TextHolder
@@ -5745,8 +5749,8 @@ if aObj.isMorF then
 				skinSocialUIContactsFrame(fObj, function(element, _)
 					element.Background:SetTexture(nil)
 					-- .PresenceHolder (Icon)
-					if aObj.modBtnBs then
-						aObj:addButtonBorder{obj=element.PartyButton, fType=ftype, ofs=0, y2=1, clr="brownish"}
+					if aObj.modBtns then
+						aObj:skinStdButton{obj=element.PartyButton, fType=ftype}
 					end
 					-- .StateDisplay
 						-- .PinDisplay (Icon)
@@ -5766,7 +5770,7 @@ if aObj.isMorF then
 				skinSocialUIContactsFrame(fObj, function(element, _)
 					element.Background:SetTexture(nil)
 					if aObj.modBtns then
-						aObj:skinStdButton{obj=element.AcceptButton, fType=ftype--[[, schk=true, sechk=true]]}
+						aObj:skinStdButton{obj=element.AcceptButton, fType=ftype}
 					end
 					-- .DeclineButton
 					-- .TextHolder

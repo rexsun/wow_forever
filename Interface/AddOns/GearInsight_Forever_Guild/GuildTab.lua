@@ -170,6 +170,7 @@ local function showAbout(tab, opts)
         p.cap = p.body:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         p.cap:SetWidth(308); p.cap:SetJustifyH("CENTER")
         p.btn = CreateFrame("Button", nil, p.body, "UIPanelButtonTemplate")
+        if ns.SkinButton then ns.SkinButton(p.btn) end   -- 11-14 按键美化：扁平样式
         p.btn:SetSize(200, 24)
         tab._giAbout = p
     end
@@ -289,6 +290,7 @@ local function patchDrawer(tab, d)
         end
     end
     local b = CreateFrame("Button", nil, c, "UIPanelButtonTemplate")
+    if ns.SkinButton then ns.SkinButton(b) end   -- 11-14 按键美化：扁平样式
     b:SetHeight(24)
     b:SetScript("OnClick", function()
         local card = rawget(tab, "_giCard")
@@ -697,7 +699,8 @@ local function skinCard(r)
     hl:SetPoint("TOPLEFT", 1, -1); hl:SetPoint("BOTTOMRIGHT", -1, 1)
     hl:SetColorTexture(1, 1, 1, 0.05)
     r._fvFac = r:CreateTexture(nil, "OVERLAY")
-    r._fvFac:SetSize(16, 16); r._fvFac:SetPoint("TOPLEFT", 10, -9)
+    -- 11-14 用户「公会那联盟部落的LOGO放大一些」：16 → 26（标题行跟着往右让）
+    r._fvFac:SetSize(26, 26); r._fvFac:SetPoint("TOPLEFT", 8, -3)   -- 底边 -29，不压第二行（-30）
     if r.l and r.l.SetFontObject then pcall(r.l.SetFontObject, r.l, "GameFontHighlightLarge") end
     r._fvLW = (r.l and r.l.GetWidth and tonumber(r.l:GetWidth())) or 200
     -- 扫码申请：抽屉自带的金色实心按钮藏起来，换一个次级按钮（点了照样走它的 OnClick）
@@ -725,13 +728,13 @@ local function dressCard(r, it)
     r.l:ClearAllPoints()
     if k then
         r._fvFac:SetTexture(FAC_ICON[k]); r._fvFac:SetTexCoord(0.08, 0.58, 0.045, 0.545); r._fvFac:Show()
-        r.l:SetPoint("LEFT", r._fvFac, "RIGHT", 5, 0)
+        r.l:SetPoint("LEFT", r._fvFac, "RIGHT", 6, 0)
     else
         r._fvFac:Hide()
         r.l:SetPoint("TOPLEFT", 10, -8)
     end
     r.l:SetTextColor(1, 1, 1)
-    r.l:SetWidth(math.max(60, r._fvLW - (k and 21 or 0)))
+    r.l:SetWidth(math.max(60, r._fvLW - (k and 32 or 0)))
     -- 第 2、3 行：灰色小字
     if r.meta then r.meta:SetTextColor(0.62, 0.62, 0.62) end
     if r.need then r.need:SetTextColor(0.62, 0.62, 0.62) end

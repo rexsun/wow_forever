@@ -55,8 +55,13 @@ local function copy(title, url)
     ns.ShowBox(title, ns.L("Ctrl+C 复制，到浏览器打开", "Ctrl+C, then open it in your browser"), url)
 end
 
+-- 11-13 网易DD「插件不得包含广告，不得在游戏内请求或引导捐赠」→ 用户「做一个网易DD专有版本」「以后区分两个版本打包」：
+--   支持榜 / 去支持 / 进阶页「支持与上榜」/ 共建看板「支持最多」全挂在 ns.SUPPORTERS 上 —— DD 专用包不带 Supporters.lua，这几处就都不出现；
+--   常规包（CF / 盒子 / 更新器）照常带，行为不变。打包见 scripts/gi_forever_pack.py dd_variant()
+if ns.SUPPORTERS then
 function ns.ShowSupportLink()
     copy(ns.L("免费事业支持榜", "Supporters"), ns.LandingURL("support"))
+end
 end
 
 -- ---------- 资讯页：免费事业支持榜 ----------
@@ -213,8 +218,9 @@ function ns.NewsOffsite(c, y, W)
         ns.L("按你的阵营 / 种族 / 等级排好，手机上也能看", "Laid out for your faction, race and level — works on phones too"),
         ns.zh and "gearinsight.cn/wow/forever/go" or "gearinsight.app/wow/en/forever/go")
     if ns.zh then
-        y = line(c, y, W, TXT .. "微信小程序|r  |cff66ccff微信搜「GearInsight」|r  " .. DIM .. "无限天赋模拟 · 掉落 · 公测数据，手机随时看|r", {
-            oneline = true, tip = "微信里搜「GearInsight」打开小程序",
+        -- GI-253：中文客户端专用的简体字面量 → 繁体端过 ns.TD（这里没有玩家名，整行转安全）
+        y = line(c, y, W, ns.TD(TXT .. "微信小程序|r  |cff66ccff微信搜「GearInsight」|r  " .. DIM .. "无限天赋模拟 · 掉落 · 公测数据，手机随时看|r"), {
+            oneline = true, tip = ns.TD("微信里搜「GearInsight」打开小程序"),
             click = function() copy("微信小程序", "GearInsight") end })
     end
     return y - 4
@@ -222,7 +228,9 @@ end
 
 -- ---------- 斜杠：/gi support · /gi site ----------
 ns.ExtraSlash = ns.ExtraSlash or {}
-ns.ExtraSlash.support = ns.ShowSupportLink
-ns.ExtraSlash["支持"] = ns.ShowSupportLink
+if ns.ShowSupportLink then   -- DD 专用包没有支持榜：命令也不注册
+    ns.ExtraSlash.support = ns.ShowSupportLink
+    ns.ExtraSlash["支持"] = ns.ShowSupportLink
+end
 ns.ExtraSlash.site = function() copy(ns.L("无限专区", "Forever hub"), ns.LandingURL("home")) end
 ns.ExtraSlash.web = ns.ExtraSlash.site

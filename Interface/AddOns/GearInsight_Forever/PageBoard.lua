@@ -188,14 +188,17 @@ local function build(p)
         ns.L("玩家提、作者做——正在做什么、接下来做什么、谁提的。", "Players suggest, the author builds - what's in progress, what's next, and who asked for it."))
     -- 最上面两个按钮：点了弹出对应提交页链接（⛔ 按钮文字别放 emoji，游戏字体显示成方框）
     local bBug = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
+    if ns.SkinButton then ns.SkinButton(bBug) end   -- 11-14 按键美化：扁平样式
     bBug:SetSize(120, 24); bBug:SetPoint("TOPLEFT", 12, y0); bBug:SetText(ns.L("报 BUG", "Report a bug"))
     bBug:SetScript("OnClick", function() openNew("bug") end)
     local bReq = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
+    if ns.SkinButton then ns.SkinButton(bReq) end   -- 11-14 按键美化：扁平样式
     bReq:SetSize(140, 24); bReq:SetPoint("LEFT", bBug, "RIGHT", 8, 0); bReq:SetText(ns.L("提需求", "Request a feature"))
     bReq:SetScript("OnClick", function() openNew("feat") end)
     -- 10-20 用户「加一个按钮看作者全部排期（包括无限和正式服）」：全部服务器 ↔ 本服；
     --   更新器还没写 GI_BOARD.everyone（0.2.49 及以前）→ 按钮改成弹网站看板链接
     local bAll = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
+    if ns.SkinButton then ns.SkinButton(bAll) end   -- 11-14 按键美化：扁平样式
     bAll:SetSize(130, 24); bAll:SetPoint("LEFT", bReq, "RIGHT", 8, 0)
     p._bdBug, p._bdReq, p._bdAll = bBug, bReq, bAll
     local top = y0 - 30
@@ -388,10 +391,11 @@ local function build(p)
         section(ns.L("共建者", "Builders"), nil)
         local T = type(B.tops) == "table" and B.tops or {}
         local GROUPS = {
-            { "tip", ns.L("支持最多", "Top supporters"), false },
             { "feat", ns.L("提需求最多", "Most requests"), true },
             { "bug", ns.L("提 BUG 最多", "Most bug reports"), true },
         }
+        -- 11-13 网易DD 专用包不带 Supporters.lua（不许引导捐赠）→ 「支持最多」这组跟着不出；常规包照旧排第一组
+        if ns.SUPPORTERS then table.insert(GROUPS, 1, { "tip", ns.L("支持最多", "Top supporters"), false }) end
         for _, g in ipairs(GROUPS) do
             local names = {}
             for _, pp in ipairs(list(T[g[1]])) do
@@ -564,9 +568,11 @@ local function makeBugFrame()
     sf:SetScript("OnMouseDown", function() e:SetFocus() end)
     f.edit = e
     local sel = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    if ns.SkinButton then ns.SkinButton(sel) end   -- 11-14 按键美化：扁平样式
     sel:SetSize(110, 24); sel:SetPoint("BOTTOMLEFT", 14, 14); sel:SetText(ns.L("重新全选", "Select all"))
     sel:SetScript("OnClick", function() e:SetFocus(); e:HighlightText() end)
     local ok = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    if ns.SkinButton then ns.SkinButton(ok) end   -- 11-14 按键美化：扁平样式
     ok:SetSize(90, 24); ok:SetPoint("BOTTOMRIGHT", -14, 14); ok:SetText(ns.L("关闭", "Close"))
     ok:SetScript("OnClick", function() f:Hide() end)
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")

@@ -91,7 +91,10 @@ local function __checkTex(opts)
 	btn = opts.obj.onSB and opts.obj.sb or opts.obj
 	if not btn then return end -- handle unskinned buttons
 	nTex = opts.nTex or opts.obj:GetNormalTexture() and opts.obj:GetNormalTexture():GetTexture() or nil
-	-- aObj:Debug("__checkTex: [%s, %s]", opts.obj, nTex)
+
+	--[==[@debug@
+	aObj:Debug("__checkTex: [%s, %s]", opts.obj, nTex)
+	--@end-debug@]==]
 
 	local header = false
 	if nTex then
@@ -159,12 +162,17 @@ function module:chgHLTex(obj, hTex)
 
 	if hTex then
 		hTexFile = hTex:GetTexture()
+		--[==[@debug@
+		-- aObj:Debug("chgHLTex Texture File: [%s, %s]", hTexFile)
+		--@end-debug@]==]
 		if hTexFile then
 			if _G.tonumber(hTexFile) then
 				if _G.tonumber(hTexFile) == 3046538 then -- auctionhouse-nav-button
 					clr = "grey"
 				elseif _G.tonumber(hTexFile) == 1536801 then -- addonlist button highlight
 					clr = "red"
+				elseif _G.tonumber(hTexFile) == 8069106 then -- WhoList Search/Invite Button
+					clr = "yellow"
 				end
 			else
 				if hTexFile:find("UI-Panel-Button-Highlight", 1, true) -- UIPanelButtonHighlightTexture
@@ -172,8 +180,8 @@ function module:chgHLTex(obj, hTex)
 				then
 					clr = "red"
 				elseif hTexFile:find("UI-Silver-Button-Highlight", 1, true) -- UIMenuButtonStretchTemplate
-				or hTexFile:find("UI-Minimap-ZoomButton-Highlight", 1, true)
-				or hTexFile:find("HelpButtons", 1, true) -- Classic Help Buttons
+				    or hTexFile:find("UI-Minimap-ZoomButton-Highlight", 1, true)
+				    or hTexFile:find("HelpButtons", 1, true) -- Classic Help Buttons
 				then
 					clr = "blue"
 				elseif hTexFile:find("UI-Silver-Button-Select", 1, true) then -- UIMenuButtonStretchTemplate
@@ -305,13 +313,11 @@ local function __skinCloseButton(opts)
 		end
 		aObj:clrBtnBdr(opts.obj, opts.clr, opts.ca)
 		if opts.schk then
-			opts.obj.sb.clr = opts.clr
-			opts.obj.sb.ca = opts.ca
 			aObj:SecureHook(opts.obj, "Disable", function(bObj, _)
 				aObj:clrBtnBdr(bObj)
 			end)
 			aObj:SecureHook(opts.obj, "Enable", function(bObj, _)
-				aObj:clrBtnBdr(bObj, bObj.sb.clr, bObj.sb.ca)
+				aObj:clrBtnBdr(bObj, opts.clr, opts.ca)
 			end)
 		end
 		if opts.onSB then -- Ace3, ArkInventory & BNToastFrame
@@ -400,7 +406,7 @@ local function __skinExpandButton(opts)
 			module:SecureHook(opts.obj, "SetNormalAtlas", function(this, tObj)
 				module:checkTex{obj=this, nTex=tObj}
 			end)
-			if aObj.isMnln then
+			if aObj.isMorF then
 				nTex = opts.obj:GetNormalTexture()
 				module:SecureHook(nTex, "SetAtlas", function(_, tObj)
 					module:checkTex{obj=opts.obj, nTex=tObj}
@@ -600,12 +606,12 @@ local function __skinStdButton(opts)
 			aObj:clrBtnBdr(bObj)
 		end)
 		aObj:SecureHook(opts.obj, "Enable", function(bObj, _)
-			aObj:clrBtnBdr(bObj, bObj.sb and bObj.sb.clr or bObj.clr, bObj.sb and bObj.sb.ca or bObj.ca)
+			aObj:clrBtnBdr(bObj, opts.clr, opts.ca)
 		end)
 	end
 	if opts.sechk then
 		aObj:SecureHook(opts.obj, "SetEnabled", function(bObj)
-			aObj:clrBtnBdr(bObj, bObj.sb and bObj.sb.clr or bObj.clr, bObj.sb and bObj.sb.ca or bObj.ca)
+			aObj:clrBtnBdr(bObj, opts.clr, opts.ca)
 		end)
 	end
 	if not opts.sptb
@@ -841,19 +847,13 @@ local function __addButtonBorder(opts)
 		aObj:secureHook(opts.obj, "Disable", function(bObj, _)
 			aObj:clrBtnBdr(bObj)
 		end)
-		-- store colour and alpha values with the skin button
-		opts.obj.sbb.clr = opts.clr
-		opts.obj.sbb.ca = opts.ca
 		aObj:secureHook(opts.obj, "Enable", function(bObj, _)
-			aObj:clrBtnBdr(bObj, bObj.sbb.clr, bObj.sbb.ca)
+			aObj:clrBtnBdr(bObj, opts.clr, opts.ca)
 		end)
 	end
 	if opts.sechk then
-		-- store colour and alpha values with the skin button
-		opts.obj.sbb.clr = opts.clr
-		opts.obj.sbb.ca = opts.ca
 		aObj:secureHook(opts.obj, "SetEnabled", function(bObj)
-			aObj:clrBtnBdr(bObj, bObj.sbb.clr, bObj.sbb.ca)
+			aObj:clrBtnBdr(bObj, opts.clr, opts.ca)
 		end)
 	end
 end
@@ -942,11 +942,8 @@ local function __skinCheckButton(opts)
 	aObj:skinObject("button", {obj=opts.obj, fType=opts.ftype, bd=bd, ng=true, ofs=ofs, y2=yOfs})
 	aObj:clrBtnBdr(opts.obj, opts.clr, opts.ca)
 	if opts.sechk then
-		-- store colour and alpha values with the skin button
-		opts.obj.sb.clr = opts.clr
-		opts.obj.sb.ca = opts.ca
 		aObj:secureHook(opts.obj, "SetEnabled", function(bObj)
-			aObj:clrBtnBdr(bObj, bObj.sb.clr, bObj.sb.ca)
+			aObj:clrBtnBdr(bObj, opts.clr, opts.ca)
 		end)
 	end
 	if opts.size then

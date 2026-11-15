@@ -123,6 +123,7 @@ function ns.ShowPopBuilds()
         if not r then
             r = { text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"),
                   btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate") }
+            if ns.SkinButton then ns.SkinButton(r.btn) end   -- 11-14 按键美化：扁平样式
             r.btn:SetSize(60, 20); r.btn:SetText(ns.L("套用", "Apply"))
             f.rows[i] = r
         end
@@ -142,9 +143,11 @@ local function attachTalentButtons()
     if not tf or tf.__gifBtns then return end
     tf.__gifBtns = true
     local a = CreateFrame("Button", nil, tf, "UIPanelButtonTemplate")
+    if ns.SkinButton then ns.SkinButton(a) end   -- 11-14 按键美化：扁平样式
     a:SetSize(96, 20); a:SetPoint("TOPRIGHT", tf, "BOTTOMRIGHT", -40, 76)
     a:SetText(ns.L("GI 热门配点", "GI builds")); a:SetScript("OnClick", ns.ShowPopBuilds)
     local b = CreateFrame("Button", nil, tf, "UIPanelButtonTemplate")
+    if ns.SkinButton then ns.SkinButton(b) end   -- 11-14 按键美化：扁平样式
     b:SetSize(96, 20); b:SetPoint("RIGHT", a, "LEFT", -4, 0)
     b:SetText(ns.L("发到手机", "To phone")); b:SetScript("OnClick", ns.ShowTalentQR)
 end

@@ -1,11 +1,11 @@
--- 无限服购物清单；物品数据基线 1.60.1.70888。
+-- 无限服购物清单；原有数据基线 1.60.1.70888，新增消耗品核对 1.60.1.70938。
 local _, addonNs = ...
 local ns = _G.YUI or addonNs
 if not ns or not ns.IsForever then return end
 
 ns.AuctionHelperForeverData = {
     id = "forever-all",
-    revision = 1,
+    revision = 2,
     nameKey = "profile.official_forever_all",
     fallbackName = "Ayan's Picks",
     -- 同版本 ItemSparse.AllowableRace：279972 为部落种族，279973 为联盟种族。
@@ -31,6 +31,13 @@ ns.AuctionHelperForeverData = {
                     { id = 6149, tagKey = "forever.tag.i6149" },
                     { id = 13443, tagKey = "forever.tag.i13443" },
                     { id = 13444, tagKey = "forever.tag.i13444" },
+                },
+                {
+                    { id = 2456, tagKey = "forever.tag.i2456" },
+                    { id = 9144, tagKey = "forever.tag.i9144" },
+                    { id = 18253, tagKey = "forever.tag.i18253" },
+                    { id = 12190, tagKey = "forever.tag.i12190" },
+                    { id = 20002, tagKey = "forever.tag.i20002" },
                 },
             },
         },
@@ -63,6 +70,11 @@ ns.AuctionHelperForeverData = {
                     { id = 250948, tagKey = "forever.tag.i250948" },
                     { id = 250949, tagKey = "forever.tag.i250949" },
                 },
+                {
+                    { id = 5631, tagKey = "forever.tag.i5631" },
+                    { id = 5633, tagKey = "forever.tag.i5633" },
+                    { id = 13442, tagKey = "forever.tag.i13442" },
+                },
             },
         },
         {
@@ -72,17 +84,17 @@ ns.AuctionHelperForeverData = {
             rows = {
                 {
                     { id = 1251, tagKey = "forever.tag.i1251" },
-                    { id = 2581, tagKey = "forever.tag.i1251" },
-                    { id = 3530, tagKey = "forever.tag.i1251" },
-                    { id = 3531, tagKey = "forever.tag.i1251" },
-                    { id = 6450, tagKey = "forever.tag.i1251" },
-                    { id = 6451, tagKey = "forever.tag.i1251" },
-                    { id = 8544, tagKey = "forever.tag.i1251" },
-                    { id = 8545, tagKey = "forever.tag.i1251" },
+                    { id = 2581, tagKey = "forever.tag.i2581" },
+                    { id = 3530, tagKey = "forever.tag.i3530" },
+                    { id = 3531, tagKey = "forever.tag.i3531" },
+                    { id = 6450, tagKey = "forever.tag.i6450" },
+                    { id = 6451, tagKey = "forever.tag.i6451" },
+                    { id = 8544, tagKey = "forever.tag.i8544" },
+                    { id = 8545, tagKey = "forever.tag.i8545" },
                 },
                 {
-                    { id = 14529, tagKey = "forever.tag.i1251" },
-                    { id = 14530, tagKey = "forever.tag.i1251" },
+                    { id = 14529, tagKey = "forever.tag.i14529" },
+                    { id = 14530, tagKey = "forever.tag.i14530" },
                     { id = 6452, tagKey = "forever.tag.i6452" },
                     { id = 6453, tagKey = "forever.tag.i6452" },
                     { id = 19440, tagKey = "forever.tag.i6452" },
@@ -110,6 +122,7 @@ ns.AuctionHelperForeverData = {
                     { id = 250349, tagKey = "forever.tag.i2454" },
                     { id = 250350, tagKey = "forever.tag.i250350" },
                     { id = 250351, tagKey = "forever.tag.i250351" },
+                    { id = 250328, tagKey = "forever.tag.i250328" },
                 },
             },
         },
@@ -164,6 +177,69 @@ ns.AuctionHelperForeverData = {
                     { id = 250345, tagKey = "forever.tag.i250344" },
                     { id = 250346, tagKey = "forever.tag.i250344" },
                     { id = 250347, tagKey = "forever.tag.i250344" },
+                },
+                {
+                    { id = 250329, tagKey = "forever.tag.i250329" },
+                    { id = 250336, tagKey = "forever.tag.i250336" },
+                    { id = 250348, tagKey = "forever.tag.i250348" },
+                },
+            },
+        },
+        {
+            key = "protection",
+            nameKey = "forever.category.protection",
+            bgColor = "557C53",
+            rows = {
+                {
+                    { id = 4623, tagKey = "forever.tag.i4623" },
+                    { id = 13455, tagKey = "forever.tag.i13455" },
+                    { id = 13457, tagKey = "forever.tag.i13457" },
+                    { id = 13456, tagKey = "forever.tag.i13456" },
+                    { id = 13458, tagKey = "forever.tag.i13458" },
+                    { id = 13459, tagKey = "forever.tag.i13459" },
+                    { id = 13460, tagKey = "forever.tag.i13460" },
+                    { id = 13461, tagKey = "forever.tag.i13461" },
+                },
+                {
+                    { id = 3387, tagKey = "forever.tag.i3387" },
+                    { id = 9036, tagKey = "forever.tag.i9036" },
+                },
+            },
+        },
+        {
+            key = "utility",
+            nameKey = "forever.category.utility",
+            bgColor = "607D8B",
+            rows = {
+                {
+                    { id = 5634, tagKey = "forever.tag.i5634" },
+                    { id = 20008, tagKey = "forever.tag.i20008" },
+                    { id = 9030, tagKey = "forever.tag.i9030" },
+                    { id = 13462, tagKey = "forever.tag.i13462" },
+                    { id = 2459, tagKey = "forever.tag.i2459" },
+                    { id = 6372, tagKey = "forever.tag.i6372" },
+                    { id = 3823, tagKey = "forever.tag.i3823" },
+                    { id = 9172, tagKey = "forever.tag.i9172" },
+                },
+            },
+        },
+        {
+            key = "flasks",
+            nameKey = "forever.category.flasks",
+            bgColor = "CC6600",
+            rows = {
+                {
+                    { id = 13510, tagKey = "forever.tag.i13510" },
+                    { id = 13511, tagKey = "forever.tag.i13511" },
+                    { id = 13512, tagKey = "forever.tag.i13512" },
+                    { id = 13513, tagKey = "forever.tag.i13513" },
+                    { id = 13506, tagKey = "forever.tag.i13506" },
+                    { id = 274273, tagKey = "forever.tag.i274273" },
+                    { id = 274274, tagKey = "forever.tag.i274274" },
+                    { id = 274275, tagKey = "forever.tag.i274275" },
+                },
+                {
+                    { id = 274276, tagKey = "forever.tag.i274276" },
                 },
             },
         },
@@ -587,9 +663,10 @@ ns.AuctionHelperForeverData = {
         },
     },
     tabs = {
-        { nameKey = "tab.consumables.name", icon = "consumable", categories = { "food-level", "recovery", "burst", "first-aid", "physical", "caster", "defense" } },
+        { nameKey = "tab.consumables.name", icon = "consumable", categories = { "food-level", "flasks", "recovery", "burst" } },
+        { nameKey = "forever.tab.elixirs.name", icon = "enchant", categories = { "physical", "caster", "defense", "protection" } },
         { nameKey = "forever.tab.enhancements.name", icon = "Repair", categories = { "weapon-oil", "weapon-stone", "armor-kits", "scopes" } },
         { nameKey = "forever.tab.materials.name", icon = "Profession", categories = { "herb-basic", "herb-advanced", "ore-bars", "leather", "cloth", "enchant-basic", "enchant-advanced", "elements", "raw-gems", "cooking-reagents", "processed" } },
-        { nameKey = "forever.tab.supplies.name", icon = "Innkeeper", categories = { "camp-basic", "bags" } },
+        { nameKey = "forever.tab.supplies.name", icon = "Innkeeper", categories = { "utility", "first-aid", "camp-basic", "bags" } },
     },
 }

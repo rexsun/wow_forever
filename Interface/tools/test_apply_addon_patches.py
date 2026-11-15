@@ -9,6 +9,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from apply_addon_patches import ADDONS, PATCHES, apply_patches
 
+BAGBROTHER_OVERRIDES = "BagBrother/core/features/uiOverrides.lua"
+BAGBROTHER_REGISTER = "\tself:RegisterEvent('CVAR_UPDATE', self.Delay, 'OnCVar')"
+
 
 def write_upstream(root: Path, newline: str = "\n") -> None:
     grouped: dict[str, list[str]] = {}
@@ -64,23 +67,24 @@ class ApplyAddonPatchesTests(unittest.TestCase):
         write_upstream(self.root, "\r\n")
         self.assertEqual(apply_patches(self.root), [])
         self.assertEqual(apply_patches(self.root), [])
-        toc = (self.root / "Skinner/Skinner.toc").read_bytes()
-        self.assertEqual(toc.count(b"[Family]\\_Support.xml\r\n"), 1)
-        self.assertEqual(toc.count(b"Forever\\_Support.xml"), 1)
+        overrides = (self.root / BAGBROTHER_OVERRIDES).read_bytes()
+        self.assertEqual(overrides.count(BAGBROTHER_REGISTER.encode() + b"\r\n"), 1)
+        self.assertEqual(overrides.count(b"\tif Addon.Frames:IsEnabled('inventory') then\r\n"), 1)
 
     def test_stray_upstream_line_beside_additive_patch_fails(self) -> None:
         write_upstream(self.root)
         self.assertEqual(apply_patches(self.root), [])
-        toc = self.root / "Skinner/Skinner.toc"
-        with toc.open("a", encoding="utf-8", newline="") as stream:
-            stream.write("[Family]\\_Support.xml\n")
+        with (self.root / BAGBROTHER_OVERRIDES).open("a", encoding="utf-8", newline="") as stream:
+            stream.write(BAGBROTHER_REGISTER + "\n")
         self.assertTrue(any("both patched" in problem for problem in apply_patches(self.root, check=True)))
 
-    def test_installed_skinner_loads_forever_support_only_on_forever(self) -> None:
+    def test_installed_skinner_loads_forever_support_once_on_forever(self) -> None:
         toc = (ADDONS / "Skinner/Skinner.toc").read_text(encoding="utf-8")
+        self.assertEqual(toc.count("Forever\\_Support.xml"), 1)
         self.assertIn(
             "Forever\\_Support.xml [AllowLoadGameType camelot] [ExcludeLoadGameType standard, classic]", toc
         )
+        self.assertNotIn("[Game]\\_Support.xml", toc)
 
     def test_installed_details_guards_every_spec_icon_lookup(self) -> None:
         for relative in (

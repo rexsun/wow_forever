@@ -373,13 +373,14 @@ end
 -- ---------- 在哪 / 跳转 ----------
 local PAGE_NAME = {
     plan = function() return L("升级 → 升级规划", "Leveling → Plan") end,
-    prof = function() return L("升级 → 专业", "Leveling → Professions") end,
+    prof = function() return L("专业", "Professions") end,   -- 11-14 专业成了左栏独立一级（原「升级 → 专业」）
     xp = function() return L("升级 → 经验加成", "Leveling → XP bonuses") end,
     gear = function() return L("装备 → 推荐装备", "Gear → Gear picks") end,
     talent = function() return L("职业 → 天赋", "Class → Talents") end,
     rot = function() return L("职业 → 手法", "Class → Rotation") end,
     keys = function() return L("职业 → 键位", "Class → Keys") end,
     ammo = function() return L("职业 → 弹药商", "Class → Ammo") end,
+    pally = function() return L("职业 → 一键祝福", "Class → Blessings") end,
     layer = function() return L("右侧「位面」页签", "Layers tab (right side)") end,
 }
 local DRAWER_NAME = {
@@ -758,7 +759,7 @@ ns.RegisterSettings({ key = "ilvl", order = 45, page = "gear", avail = function(
           get = function() return ns.ItemLevel.Enabled() end, set = function(v) ns.ItemLevel.SetOn(v) end },
     } })
 
--- ---------- 升级 → 专业 ----------
+-- ---------- 专业（11-14 起左栏独立一级） ----------
 ns.RegisterSettings({ key = "reagent", order = 50, page = "prof", avail = function() return ns.ReagentSrcTip ~= nil end,
     title = function() return L("材料来源提示", "Material sources") end, short = function() return L("材料来源", "Materials") end,
     items = {
@@ -773,6 +774,19 @@ ns.RegisterSettings({ key = "trainnow", order = 55, page = "talent", avail = fun
         { type = "check", id = "trainnow.remind", avail = function() return ns.TrainNow ~= nil end,
           text = function() return L("进有职业训练师的城镇时，提醒这一级能学的技能", "Remind me of trainable spells when I enter a town with my class trainer") end,
           get = function() return ns.TrainNow.RemindOn() end, set = function(v) ns.TrainNow.SetRemindOn(v) end },
+        -- 11-14 低等级技能提醒（LowRank.lua，HOLD）：没进包时不出
+        { type = "check", id = "trainnow.lowrank", avail = function() return ns.LowRank ~= nil end,
+          text = function() return L("我放了低等级技能（已经学会更高级）时，在聊天框提醒我", "Tell me in chat when I cast a lower rank than I know") end,
+          get = function() return ns.LowRank.On() end, set = function(v) ns.LowRank.SetOn(v) end },
+        { type = "check", id = "trainnow.lowrankW", avail = function() return ns.LowRank ~= nil end,
+          text = function() return L("队友放了低等级技能时，私聊提醒对方去训练师学（每人每个技能只提醒一次）", "Whisper teammates who cast outdated ranks (once per spell)") end,
+          get = function() return ns.LowRank.WhisperOn() end, set = function(v) ns.LowRank.SetWhisper(v) end },
+        { type = "check", id = "trainnow.lowrankP", avail = function() return ns.LowRank ~= nil end,
+          text = function() return L("队友放了低等级技能时，在小队 / 团队频道点名提醒（队里所有人都看得到）", "Call out outdated ranks in party / raid chat (everyone in the group sees it)") end,
+          get = function() return ns.LowRank.PartyOn() end, set = function(v) ns.LowRank.SetParty(v) end },
+        { type = "edit", id = "trainnow.lowrankTag", tag = "whisper", avail = function() return ns.LowRank ~= nil and ns.LowRank.Tag ~= nil end,
+          text = function() return L("私聊 / 点名的前缀（清空 = 不带）：", "Prefix for whispers / call-outs (empty = none):") end,
+          get = function() return ns.LowRank.Tag() end, set = function(v) ns.LowRank.SetTag(v or "") end },
         { type = "button", id = "trainnow.go", w = 160, avail = function() return ns.Trainers ~= nil and ns.Trainers.Go ~= nil end,
           text = function() return L("找最近的职业训练师", "Nearest class trainer") end, click = function() ns.Trainers.Go() end },
     } })
@@ -800,6 +814,33 @@ ns.RegisterSettings({ key = "ammo", order = 58, page = "ammo", avail = function(
               return string.format(L("少于 %d 发黄、少于 %d 发红，商人那里补到 %d 发；改：/gi ammo warn 400 · urgent 150 · full 1000", "Warn < %d, urgent < %d, top up to %d; change: /gi ammo warn 400 / urgent 150 / full 1000"),
                   get("warn"), get("urgent"), get("full"))
           end },
+    } })
+
+-- ---------- 职业 → 一键祝福（圣骑士；11-14 PallyBless.lua，HOLD：没进包时不出）----------
+--   读开关直接读存档 ns.db.pally（同一个键，⛔ 和 PallyBless.lua 的 PB.FloatOn / GreaterOn / AllKings 一致），改开关才加载 _Class
+local function pallyDB() return (ns.db and type(ns.db.pally) == "table") and ns.db.pally or {} end
+local function pallySet(k, v)   -- v = 默认值时存 nil
+    if not ns.db then return end
+    if type(ns.db.pally) ~= "table" then ns.db.pally = {} end
+    ns.db.pally[k] = v
+    classDo("PallyBless", function(PB) PB.Refresh() end)
+end
+ns.RegisterSettings({ key = "pally", order = 58.5, page = "pally", avail = function() return classHas("PallyBless.lua", "PallyBless") and ns.MyClass ~= nil and ns.MyClass() == "Paladin" end,
+    title = function() return L("一键祝福", "One-click blessings") end, short = function() return L("祝福", "Blessings") end,
+    items = {
+        { type = "check", id = "pally.page", text = function() return L("在「职业」里显示「一键祝福」页", "Show the Blessings page under Class") end,
+          get = function() return pallyDB().page ~= false end, set = function(v) if v then pallySet("page", nil) else pallySet("page", false) end end },
+        { type = "check", id = "pally.float", text = function() return L("组队时显示一键祝福悬浮按钮（可拖动；页上「设置快捷键」可绑一个键）", "Show the floating blessing button in groups (drag to move; bind a key on the page)") end,
+          get = function() return pallyDB().float ~= false end, set = function(v) if v then pallySet("float", nil) else pallySet("float", false) end end },
+        { type = "head", id = "pally.assignHead", text = function() return L("默认分配", "Default assignment") end },
+        { type = "note", indent = 8, h = 34, text = function() return L("战士 / 盗贼 = 力量；法师 / 术士 / 牧师 / 猎人 = 智慧；德鲁伊 / 圣骑士 / 萨满 = 智慧（页上点职业格可换，右键名字单独指定）",
+              "Warrior / Rogue = Might; Mage / Warlock / Priest / Hunter = Wisdom; Druid / Paladin / Shaman = Wisdom (change per class on the page)") end },
+        { type = "check", id = "pally.allKings", text = function() return L("学会王者祝福后全给王者", "Give everyone Kings once learned") end,
+          get = function() return pallyDB().allKings == true end, set = function(v) pallySet("allKings", v and true or nil) end },
+        { type = "check", id = "pally.greater", text = function() return L("52 级起同职业 ≥ 2 人时用强效祝福（一次给整个职业，需要王者印记）", "Use Greater blessings for 2+ of a class (level 52+, needs Symbol of Kings)") end,
+          get = function() return pallyDB().greater ~= false end, set = function(v) if v then pallySet("greater", nil) else pallySet("greater", false) end end },
+        { type = "button", id = "pally.reset", w = 140, text = function() return L("恢复默认分配", "Reset assignments") end,
+          click = function() if ns.db and type(ns.db.pally) == "table" then ns.db.pally.by, ns.db.pally.who, ns.db.pally.allKings = nil, nil, nil end; classDo("PallyBless", function(PB) PB.ResetAssign() end) end },
     } })
 
 -- ---------- 升级 → 经验加成：帐篷蹭露营 ----------
@@ -956,6 +997,10 @@ guildItems[#guildItems + 1] = { type = "check", id = "guild.mute", avail = funct
 guildItems[#guildItems + 1] = { type = "check", id = "guild.invite", avail = function() return ns.InviteMenu ~= nil and ns.InviteMenu.Enabled ~= nil end,
     text = function() return L("右键玩家菜单里加「邀请入会」", "Add \"Invite to guild\" to the player right-click menu") end,
     get = function() return ns.InviteMenu.Enabled() end, set = function(v) ns.InviteMenu.SetEnabled(v) end }
+-- 11-15 用户「设置里加个开关」：右键法师「找他要水」（MageAskMenu.lua，HOLD；不在包里时这项不出）—— 和「邀请入会」都是右键菜单项，放一起
+guildItems[#guildItems + 1] = { type = "check", id = "guild.mageAsk", avail = function() return ns.MageAskMenu ~= nil and ns.MageAskMenu.Enabled ~= nil end,
+    text = function() return L("右键法师菜单里加「找他要水」（战士 / 盗贼是「找他要面包」）", "Add \"Ask for water\" to a mage's right-click menu") end,
+    get = function() return ns.MageAskMenu.Enabled() end, set = function(v) ns.MageAskMenu.SetEnabled(v) end }
 -- 11-06 野外荣誉击杀 / 被杀报公会；每项一个开关 + 「最多多久报一次」（1 / 5 / 10 / 30 分钟，默认 5）
 guildItems[#guildItems + 1] = { type = "head", id = "guild.headPvp", avail = function() return ns.PvPShout ~= nil end, text = function() return L("野外 PvP 通报", "World PvP alerts") end }
 for _, r in ipairs({

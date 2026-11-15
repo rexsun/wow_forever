@@ -202,7 +202,8 @@ function ns.Secret(v)
 end
 
 function ns.Print(msg)
-    DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99GearInsight 无限版|r " .. tostring(msg))
+    -- GI-253：聊天框前缀繁体端也转（「GearInsight 無限版」）
+    DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99" .. ns.TD("GearInsight 无限版") .. "|r " .. tostring(msg))
 end
 
 -- 11-09 GI-210「各种自动私信内容编辑」：玩家在设置页「自动私信内容」填了就用自己的（存 ns.db.whispers[key]），
@@ -378,9 +379,11 @@ local function makeBox()
     e:SetScript("OnEscapePressed", function() f:Hide() end)
     f.edit = e
     local ok = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    if ns.SkinButton then ns.SkinButton(ok) end   -- 11-14 按键美化：扁平样式
     ok:SetSize(90, 26); ok:SetPoint("BOTTOMRIGHT", -14, 12)
     f.ok = ok
     local cancel = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    if ns.SkinButton then ns.SkinButton(cancel) end   -- 11-14 按键美化：扁平样式
     cancel:SetSize(80, 26); cancel:SetPoint("BOTTOMLEFT", 14, 12); cancel:SetText(ns.L("关闭", "Close"))
     cancel:SetScript("OnClick", function() f:Hide() end)
     f.cancel = cancel
@@ -519,12 +522,15 @@ local function help()
     -- 11-13 第 4 期：手法钉板在按需加载的 _Class 里，没加载时按「包里有没有 KeysRot.lua」判断
     local keys = (ns.KeysRot or (ns.ModHas and ns.ModHas("class", "KeysRot.lua"))) and ns.L(" · " .. C .. " keys board 手法钉板（旧命令 keys hud 也是钉板）· " .. C .. " keys panel 决策 HUD",
         " · " .. C .. " keys board rotation board (old: keys hud) · " .. C .. " keys panel decision HUD") or ""
-    -- 11-12 界面重构第 2 期：/gi help 按左栏 5 个一级菜单分组打（原来一长行挤在一起）；命令本身一个没改
+    -- 11-12 界面重构第 2 期：/gi help 按左栏一级菜单分组打（11-14 起 6 个：多了「专业」）（原来一长行挤在一起）；命令本身一个没改
     local G = "|cffffd100"
     ns.Print(ns.L("命令：" .. C .. " 打开主界面（下面按左栏分组；" .. C .. " set 关键词 = 搜设置）",
         "Commands: " .. C .. " opens the window (grouped like the left menu; " .. C .. " set <words> searches settings)"))
-    ns.Print(ns.L(G .. "升级|r  " .. C .. " lv 升级指引 · " .. C .. " 睡袋 任务线追踪窗 · " .. C .. " route 路线 · " .. C .. " prof 专业 · " .. C .. " xp 经验加成",
-        G .. "Leveling|r  " .. C .. " lv guide · " .. C .. " chain quest line tracker · " .. C .. " route · " .. C .. " prof · " .. C .. " xp bonuses"))
+    ns.Print(ns.L(G .. "升级|r  " .. C .. " lv 升级指引 · " .. C .. " 睡袋 任务线追踪窗 · " .. C .. " route 路线 · " .. C .. " xp 经验加成",
+        G .. "Leveling|r  " .. C .. " lv guide · " .. C .. " chain quest line tracker · " .. C .. " route · " .. C .. " xp bonuses"))
+    -- 11-14 专业成了左栏独立一级，帮助里也单独一行（命令没改）
+    ns.Print(ns.L(G .. "专业|r  " .. C .. " prof 专业页（默认打开冲级路线）",
+        G .. "Professions|r  " .. C .. " prof professions (opens on the leveling route)"))
     ns.Print(ns.L(G .. "装备|r  " .. C .. " wish 掉落 · 心愿单 · " .. C .. " tier T1 套装 · " .. C .. " bis 装备角标 · " .. C .. " ilvl 装等",
         G .. "Gear|r  " .. C .. " wish loot & wishlist · " .. C .. " tier · " .. C .. " bis corner icons · " .. C .. " ilvl"))
     ns.Print(ns.L(G .. "职业|r  " .. C .. " t 天赋（导入配点码）· " .. C .. " talent qr 发到手机 · " .. C .. " talent pop 热门配点 · " .. C .. " talent plan 天赋计划小窗"

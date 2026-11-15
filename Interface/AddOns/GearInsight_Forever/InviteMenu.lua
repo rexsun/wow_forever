@@ -236,6 +236,16 @@ ns.ExtraSlash.ginvite = function(rest, rawRest)
     if n ~= "" then IM.Invite(n) end
 end
 
+-- 11-15 右键法师「找他要水」（MageAskMenu.lua）也挂在「GearInsight」小标题下：同一个菜单只加一次分隔线 + 小标题
+--   （记在本地弱表里，不往暴雪的菜单表上写字段）
+local titled = setmetatable({}, { __mode = "k" })
+function ns.MenuTitle(root)
+    if titled[root] then return end
+    titled[root] = true
+    if root.CreateDivider then root:CreateDivider() end
+    if root.CreateTitle then root:CreateTitle("GearInsight") end
+end
+
 IM.hooked = false
 -- 11-06 用户「这些都是设置，有设置，默认打开」：开关 ns.db.ui.inviteMenu（nil = 默认开），设置页「公会」栏
 function IM.Enabled()
@@ -255,8 +265,7 @@ function IM.Hook()
             local ok, can = pcall(IM.CanInvite, ctx)
             if not ok or not can then return end
             local name = IM.Target(ctx)
-            if root.CreateDivider then root:CreateDivider() end
-            if root.CreateTitle then root:CreateTitle("GearInsight") end
+            ns.MenuTitle(root)
             root:CreateButton(ns.L("邀请入会", "Invite to guild"), function() IM.Invite(name) end)
         end)
     end

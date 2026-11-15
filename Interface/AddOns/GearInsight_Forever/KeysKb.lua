@@ -370,6 +370,7 @@ local function layoutKb()
         local b = kbModBtns[i]
         if not b then
             b = CreateFrame("Button", nil, kbf, "UIPanelButtonTemplate"); b:SetSize(70, 18); b:SetText(m[2])
+            if ns.SkinButton then ns.SkinButton(b) end   -- 11-14 按键美化：扁平样式
             b:SetScript("OnClick", function() ns.db.kbMod = m[1]; KB.Refresh() end)
             kbModBtns[i] = b
         end

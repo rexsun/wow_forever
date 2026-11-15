@@ -735,7 +735,7 @@ local function refreshTimeline(lo, hi)
             for _, x in ipairs(it.list) do
                 if x.st == "now" or x.st == "missed" then todo = todo + 1 end
                 if x.st == "missed" then miss = miss + 1 end
-                if #names < 4 then names[#names + 1] = x.n end
+                if #names < 4 then names[#names + 1] = ns.TD(x.n) end   -- GI-253：技能名（数据中文）繁体端也转
             end
             r.ic:SetTexture("Interface\\Icons\\INV_Misc_Book_11")
             r.pm:SetTexture(open and "Interface\\Buttons\\UI-MinusButton-Up" or "Interface\\Buttons\\UI-PlusButton-Up"); r.pm:Show()

@@ -41,7 +41,7 @@ aObj.blizzFrames[ftype].AddonList = function(self)
 		_G.ScrollUtil.AddAcquiredFrameCallback(this.ScrollBox, skinElement, aObj, true)
 		self:skinObject("ddbutton", {obj=this.Dropdown, fType=ftype})
 		self:skinObject("editbox", {obj=this.SearchBox, fType=ftype, si=true})
-		self:skinObject("frame", {obj=this, fType=ftype, kfs=true, ri=true, rns=true, cb=true, x2=self.isClsc and 1})
+		self:skinObject("frame", {obj=this, fType=ftype, kfs=true, ri=true, rns=true, cb=true, x2=self.isClsc and 1 or nil})
 		if self.modBtns then
 			self:skinStdButton{obj=this.CancelButton}
 			self:skinStdButton{obj=this.OkayButton}
@@ -907,7 +907,7 @@ aObj.blizzFrames[ftype].ChatConfig = function(self)
 
 		self:SecureHookScript(_G.ChatConfigCombatSettings, "OnShow", function(fObj)
 			-- Top Tabs
-			self:skinObject("tabs", {obj=fObj, prefix="CombatConfig", numTabs=#_G.COMBAT_CONFIG_TABS, fType=ftype, lod=self.isTT and true, upwards=true, offsets={y1=-8, y2=self.isTT and -5 or 0}, regions={4, 5}, track=false})
+			self:skinObject("tabs", {obj=fObj, prefix="CombatConfig", numTabs=#_G.COMBAT_CONFIG_TABS, fType=ftype, lod=self.isTT, upwards=true, offsets={y1=-8, y2=self.isTT and -5 or 0}, regions={4, 5}, track=false})
 			if self.isTT then
 				self:SecureHook("ChatConfig_UpdateCombatTabs", function(selectedTabID)
 					local tab
@@ -1150,7 +1150,7 @@ aObj.blizzFrames[ftype].ChatTabs = function(self)
 		end)
 	end
 	-- Top Tabs
-	self:skinObject("tabs", {obj=_G.FloatingChatFrameManager, tabs=fcfTabs, fType=ftype, lod=self.isTT and true, upwards=true, ignoreHLTex=false, regions={7, 8, 9, 10, 11}, offsets={x1=1, y1=-10, x2=-1, y2=-3}, track=false, func=function(tab) tab.sf:SetAlpha(tab:GetAlpha()) tab.sf:Hide() end})
+	self:skinObject("tabs", {obj=_G.FloatingChatFrameManager, tabs=fcfTabs, fType=ftype, lod=self.isTT, upwards=true, ignoreHLTex=false, regions={7, 8, 9, 10, 11}, offsets={x1=1, y1=-10, x2=-1, y2=-3}, track=false, func=function(tab) tab.sf:SetAlpha(tab:GetAlpha()) tab.sf:Hide() end})
 	if self.isTT then
 		self:SecureHook("FCF_Tab_OnClick", function(this, _)
 			for i = 1, _G.Constants.ChatFrameConstants.MaxChatWindows do
@@ -1600,7 +1600,7 @@ aObj.blizzFrames[ftype].EditMode = function(self)
 
 	self:SecureHookScript(_G.EditModeSystemSettingsDialog, "OnShow", function(fObj)
 		self:removeNineSlice(fObj.Border)
-		self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true, cb=true, ofs=self.isFrvr and -1, y2=not self.isFrvr and 14})
+		self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true, cb=true, ofs=self.isFrvr and -1 or nil, y2=not self.isFrvr and 14 or nil})
 		if self.modBtns then
 			self:skinStdButton{obj=fObj.Buttons.RevertChangesButton, fType=ftype, sechk=true}
 		end
@@ -2310,8 +2310,8 @@ elseif _G.C_LFGList.GetPremadeGroupFinderStyle
 and _G.C_LFGList.GetPremadeGroupFinderStyle() == _G.Enum.PremadeGroupFinderStyle.Vanilla
 then
 	aObj.blizzFrames[ftype].GroupFinder = function(self)
-		if not self.prdb.PVEFrame or self.initialized.LFGList then return end
-		self.initialized.LFGList = true
+		if not self.prdb.PVEFrame or self.initialized.LFGParentFrame then return end
+		self.initialized.LFGParentFrame = true
 
 		self:SecureHookScript(_G.LFGParentFrame, "OnShow", function(this)
 			if _G.InCombatLockdown() then
@@ -2319,24 +2319,33 @@ then
 			    return
 			end
 
-			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, ignoreSize=true, lod=self.isTT and true})
+			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, ignoreSize=true, lod=self.isTT})
 			if self.modBtns then
 				self:skinCloseButton{obj=self:getChild(this, 1), fType=ftype}
 			end
-			if self.isMnln then
-				_G.LFGParentFramePortraitIcon:SetTexture(nil)
-				self:skinObject("frame", {obj=this, fType=ftype, kfs=true, ofs=-11, x2=-29, y2=70})
-			else
-				_G.LFGParentFramePortrait.Texture:SetTexture(nil)
+			if self.isFrvr then
+				_G.LFGParentFramePortrait.texture:SetTexture(nil)
 				this.TabButtons = {this.ListingTab, this.BrowsingTab, this.WhoListingTab}
 				self:skinObject("sidetabs", {obj=this, tabs="TabButtons", fType=ftype})
+				-- self:skinObject("frame", {obj=this, fType=ftype, kfs=true})
+			else
+				_G.LFGParentFramePortraitIcon:SetTexture(nil)
+				self:skinObject("frame", {obj=this, fType=ftype, kfs=true, ofs=-11, x2=-29, y2=70})
 			end
 
 			self:SecureHookScript(_G.LFGListingFrame, "OnShow", function(fObj)
-				if self.isMnln then
-					self:keepFontStrings(fObj)
+				if _G.InCombatLockdown() then
+					self:add2Table(self.oocTab, {self.checkShown, {self, fObj}})
+					return
+				end
+
+				if self.isFrvr then
+					self:getRegion(fObj.RolesSection, 1):SetTexture(nil)
+					self:removeInset(fObj.Inset)
+					fObj.DividerFrame:SetAlpha(0)
+					self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true})
 				else
-					self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true, ofs=-11, x2=-29, y2=70})
+					self:keepFontStrings(fObj)
 				end
 				for _, btn in _G.pairs(fObj.SoloRoleButtons.RoleButtons) do
 					btn.Background:SetTexture(nil)
@@ -2365,6 +2374,9 @@ then
 				self:SecureHookScript(fObj.ActivityView, "OnShow", function(frame)
 					frame:DisableDrawLayer("OVERLAY")
 					self:skinObject("ddbutton", {obj=frame.PlayStyleDropdown, fType=ftype})
+					if self.modChkBtns then
+						self:skinCheckButton{obj=frame.LevelRangesCheckbox.Checkbox, fType=ftype}
+					end
 					self:skinObject("frame", {obj=frame.Comment, fType=ftype, kfs=true, fb=true, ofs=6})
 					frame.Comment.EditBox.Instructions:SetTextColor(self.BT:GetRGB())
 					self:skinObject("ddbutton", {obj=frame.VoiceChatDropdown, fType=ftype})
@@ -2397,9 +2409,12 @@ then
 			end)
 
 			self:SecureHookScript(_G.LFGBrowseFrame, "OnShow", function(fObj)
-				if self.isMnln then
-					self:keepFontStrings(fObj)
-				else
+				if _G.InCombatLockdown() then
+					self:add2Table(self.oocTab, {self.checkShown, {self, fObj}})
+					return
+				end
+
+				if self.isFrvr then
 					self:skinObject("scrollbar", {obj=fObj.ScrollBar, fType=ftype})
 					local function skinListEntry(...)
 						local _, element
@@ -2412,7 +2427,9 @@ then
 						element.Highlight:SetTexture(nil)
 					end
 					_G.ScrollUtil.AddInitializedFrameCallback(fObj.ScrollBox, skinListEntry, aObj, true)
-					self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true, ofs=-11, x2=-29, y2=70})
+					self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true})
+				else
+					self:keepFontStrings(fObj)
 				end
 				self:skinObject("ddbutton", {obj=fObj.CategoryDropdown, fType=ftype})
 				self:skinObject("ddbutton", {obj=fObj.ActivityDropdown, fType=ftype})
@@ -2440,7 +2457,7 @@ then
 					self:skinObject("ddbutton", {obj=fObj.FilterDropdown, fType=ftype, filter=true})
 					self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true})
 					if self.modBtns then
-						self:skinStdButton{obj=fObj.WhoSearch, fType=ftype, clr="gold"}
+						self:skinStdButton{obj=fObj.WhoSearch, fType=ftype, ofs=-2, clr="gold"}
 					end
 					self:skinObject("scrollbar", {obj=fObj.ScrollBar, fType=ftype})
 					local function skinListEntry(...)
@@ -2452,7 +2469,7 @@ then
 						end
 						element.Background:SetTexture(nil)
 						if aObj.modBtns then
-							aObj:skinStdButton{obj=element.InviteButton, fType=ftype}
+							aObj:skinStdButton{obj=element.InviteButton, fType=ftype, ofs=-2}
 						end
 					end
 					_G.ScrollUtil.AddInitializedFrameCallback(fObj.ScrollBox, skinListEntry, aObj, true)
@@ -2513,9 +2530,9 @@ aObj.blizzLoDFrames[ftype].GuildBankUI = function(self)
 			self:skinObject("slider", {obj=_G.GuildBankInfo.ScrollFrame.ScrollBar, fType=ftype, rpTex="artwork"})
 			self:skinObject("slider", {obj=this.Log.ScrollBar, fType=ftype, rpTex="artwork"})
 		end
-		self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT and true})
+		self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT})
 		if not self.isClsc then
-			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, hdr=true, cb=true, y1=self.isClsc and -11, x2=self.isClsc and 1, y2=self.isClsc and 3 or -2})
+			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, hdr=true, cb=true, y1=self.isClsc and -11 or nil, x2=self.isClsc and 1 or nil, y2=self.isClsc and 3 or -2})
 		else
 			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, hdr=true, cb=true, x2=1, y2=-2})
 		end
@@ -2715,14 +2732,9 @@ if aObj.isMorF then
 		self.initialized.LossOfControl = true
 
 		self:SecureHookScript(_G.LossOfControlFrame, "OnShow", function(this)
-			if _G.InCombatLockdown() then
-			    self:add2Table(self.oocTab, {self.checkShown, {self, this}})
-			    return
-			end
-
 			this.blackBg:SetTexture(nil)
 			if self.modBtnBs then
-				self:addButtonBorder{obj=this, relTo=this.Icon}
+				self:addButtonBorder{obj=this, relTo=this.Icon, ncc=true}
 			end
 
 			self:Unhook(_G.LossOfControlFrame, "OnShow")
@@ -2738,7 +2750,7 @@ aObj.blizzLoDFrames[ftype].MacroUI = function(self)
 
 	self:SecureHookScript(_G.MacroFrame, "OnShow", function(this)
 		-- Top Tabs
-		self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT and true, upwards=true, offsets={x1=1, y1=-6, x2=-1, y2=-2}, func=function(tab) tab:SetFrameLevel(20) end})
+		self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT, upwards=true, offsets={x1=1, y1=-6, x2=-1, y2=-2}, func=function(tab) tab:SetFrameLevel(20) end})
 		self:skinObject("scrollbar", {obj=this.MacroSelector.ScrollBar, fType=ftype})
 		self:skinObject("frame", {obj=this.MacroSelector, fType=ftype, kfs=true, fb=true, ofs=6, y1=10, x2=2})
 		if self.modBtnBs then
@@ -3200,10 +3212,13 @@ aObj.blizzFrames[ftype].Minimap = function(self)
 		elseif not self.isMnlnPTR then
 			aObj:removeNineSlice(_G.MinimapCluster.BorderTop)
 		end
-		_G.MinimapCluster.ZoneTextButton:ClearAllPoints()
-		_G.MinimapCluster.ZoneTextButton:SetPoint("BOTTOMLEFT", _G.Minimap, "TOPLEFT", 0, 5)
-		_G.MinimapCluster.ZoneTextButton:SetPoint("BOTTOMRIGHT", _G.Minimap, "TOPRIGHT", 0, 5)
-		self:skinObject("button", {obj=_G.MinimapCluster.ZoneTextButton, fType=ftype, x1=-5, x2=5})
+		if self.isMnln then
+			self:skinObject("button", {obj=_G.MinimapCluster.ZoneTextButton, fType=ftype, ofs=6, x1=-5, x2=37})
+		elseif aObj.isMnlnPTR then
+			self:skinObject("button", {obj=_G.MinimapCluster.ZoneTextButton, fType=ftype})
+		else
+			self:skinObject("button", {obj=_G.MinimapCluster.ZoneTextButton, fType=ftype, ofs=0})
+		end
 	else
 		_G.MinimapCluster.BorderTop:SetTexture(nil)
 		_G.MinimapZoneTextButton:ClearAllPoints()
@@ -3218,7 +3233,7 @@ aObj.blizzFrames[ftype].Minimap = function(self)
 	-- use file path for non Retail versions otherwise the minimap has a green overlay
 	_G.Minimap:SetMaskTexture(self.isMorF and self.tFDIDs.w8x8 or [[Interface\Buttons\WHITE8X8]])
 	-- use a backdrop with no Texture otherwise the map tiles are obscured
-	self:skinObject("frame", {obj=_G.Minimap, fType=ftype, ng=not self.prdb.Minimap.gloss and true, bd=8, ofs=5, y2=-4})
+	self:skinObject("frame", {obj=_G.Minimap, fType=ftype, ng=not self.prdb.Minimap.gloss and true, bd=8, ofs=5--[[, y2=-4]]})
 
 	if self.isMorF then
 		-- N.B. copied from SexyMap
@@ -3259,6 +3274,11 @@ aObj.blizzFrames[ftype].MinimapButtons = function(self)
 	local minBtn = self.prdb.MinimapButtons.style
 	local ignBtn = {
 		["OQ_MinimapButton"] = true,
+		["TTMinimapButton1"] = true,
+		["TTMinimapButton2"] = true,
+		["TTMinimapButton3"] = true,
+		["TTMinimapButton4"] = true,
+		["TTMinimapButton5"] = true,
 	}
 	if self.isMorF then
 		ignBtn["ExpansionLandingPageMinimapButton"] = true
@@ -3277,8 +3297,10 @@ aObj.blizzFrames[ftype].MinimapButtons = function(self)
 		local objName, objType
 		for _, obj in _G.ipairs{mmObj:GetChildren()} do
 			objName, objType = obj:GetName(), obj:GetObjectType()
+			--[==[@debug@
 			-- aObj:Debug("mmKids: [%s, %s, %s, %s]", obj, objName, objType)
-			if not ignBtn[obj]
+			--@end-debug@]==]
+			if not ignBtn[objName]
 			and obj ~= obj:GetParent().sf -- skinFrame
 			and obj ~= obj:GetParent().sb -- skinButton
 			and not obj.point -- TomTom waypoint
@@ -3334,11 +3356,11 @@ aObj.blizzFrames[ftype].MinimapButtons = function(self)
 		end)
 		if self.isFrvr then
 			self:moveObject{obj=_G.GameTimeFrame, x=7}
-			self:moveObject{obj=_G.MinimapCluster.Tracking, y=-25}
+			self:moveObject{obj=_G.MinimapCluster.Tracking, x=-6}
 			self:moveObject{obj=_G.MinimapCluster.DielFrame, x=55, y=-25}
 			if not minBtn then
-				self:addButtonBorder{obj=_G.GameTimeFrame, fType=ftype, x2=1, y2=-1, clr="brownish"}
-				self:addButtonBorder{obj=_G.MinimapCluster.Tracking.Button, fType=ftype, clr="brownish"}
+				self:addButtonBorder{obj=_G.GameTimeFrame, fType=ftype, x2=1, y2=-1}
+				self:addButtonBorder{obj=_G.MinimapCluster.Tracking.Button, fType=ftype}
 				self:keepFontStrings(_G.AddonCompartmentFrame)
 				self:skinObject("button", {obj=_G.AddonCompartmentFrame, ofs=0})
 			end
@@ -3451,6 +3473,10 @@ aObj.blizzFrames[ftype].MinimapButtons = function(self)
 	_G.RunNextFrame(function()
 		mmKids(_G.Minimap)
 	end)
+	-- skin any moved Minimap buttons if required
+	if _G.C_AddOns.IsAddOnLoaded("MinimapButtonFrame") then
+		mmKids(_G.MinimapButtonFrame)
+	end
 
 	-- skin other minimap buttons
 	local function skinMMBtn(_, mmBtn, _)
@@ -3478,10 +3504,6 @@ aObj.blizzFrames[ftype].MinimapButtons = function(self)
 		end
 	end)
 
-	-- skin any moved Minimap buttons if required
-	if _G.C_AddOns.IsAddOnLoaded("MinimapButtonFrame") then
-		mmKids(_G.MinimapButtonFrame)
-	end
 	-- show the Bongos minimap icon if required
 	if _G.Bongos3MinimapButton then
 		_G.Bongos3MinimapButton.icon:SetDrawLayer("ARTWORK")
@@ -4133,7 +4155,7 @@ if aObj.isMorF then
 				self:keepFontStrings(fObj.BorderFrame)
 				fObj.ScrollBox.Background:SetTexture(nil)
 				self:skinObject("scrollbar", {obj=fObj.ScrollBar, fType=ftype})
-				self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true, ng=self.isFrvr and true or nil, ofs=4, y1=34, y2=-12})
+				self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true, ng=self.isFrvr, ofs=4, y1=34, y2=-12})
 				local function skinEvents(...)
 					local _, element, elementData, new
 					if _G.select("#", ...) == 2 then
@@ -4191,7 +4213,7 @@ if aObj.isMorF then
 				self:keepFontStrings(fObj.BorderFrame)
 				self:skinObject("scrollbar", {obj=fObj.ScrollFrame.ScrollBar, fType=ftype})
 				fObj.ScrollFrame.Background:SetTexture(nil)
-				self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true, ng=self.isFrvr and true or nil, ofs=4, y1=34, y2=-12})
+				self:skinObject("frame", {obj=fObj, fType=ftype, kfs=true, ng=self.isFrvr, ofs=4, y1=34, y2=-12})
 				if self.modBtns then
 					self:skinStdButton{obj=fObj.BackButton, fType=ftype}
 				end
@@ -4273,7 +4295,10 @@ then
 			if this.Border then
 				self:keepFontStrings(this.Border)
 			end
-			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, hdr=true, ofs=0, x1=10, x2=-10})
+			if this.Header then
+				self:keepFontStrings(this.Header)
+			end
+			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, hdr=true, ofs=-10, y1=0})
 
 			self:Unhook(_G.QuestTimerFrame, "OnShow")
 		end)
@@ -4339,7 +4364,7 @@ if aObj.isMorF then
 			    return
 			end
 
-			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT and true})
+			self:skinObject("tabs", {obj=this, prefix=this:GetName(), fType=ftype, lod=self.isTT})
 			self:skinObject("frame", {obj=this, fType=ftype, kfs=true, ri=true, rns=true, cb=true})
 
 			self:Unhook(_G.RaidParentFrame, "OnShow")
@@ -4488,7 +4513,7 @@ aObj.blizzFrames[ftype].Settings = function(self)
 		this.Bg:DisableDrawLayer("BACKGROUND")
 		this.NineSlice.Text:SetDrawLayer("ARTWORK")
 		-- Top tabs
-		self:skinObject("tabs", {obj=this, tabs=this.tabsGroup.buttons, fType=ftype, ignoreSize=true, lod=self.isTT and true, upwards=true, regions={4}, offsets={x1=6, y1=-10, x2=-6, y2=-6}, track=false})
+		self:skinObject("tabs", {obj=this, tabs=this.tabsGroup.buttons, fType=ftype, ignoreSize=true, lod=self.isTT, upwards=true, regions={4}, offsets={x1=6, y1=-10, x2=-6, y2=-6}, track=false})
 		if self.isTT then
 			local function setTabState(_, _, idx)
 				for key, tab in _G.pairs(this.tabsGroup.buttons) do
@@ -4899,12 +4924,12 @@ if aObj.isMorCorF then
 					-- make button appear larger
 					this:SetSize(32, 32)
 					self:skinOtherButton{obj=this, font=self.fontS, text=self.nearrow}
+					this:GetNormalTexture():SetTexture(nil)
 				end
 
 				self:Unhook(_G.ShardTransferImminentMinimizeButton, "OnShow")
 			end)
 			self:checkShown(_G.ShardTransferImminentMinimizeButton)
-
 		end
 
 	end
@@ -5345,6 +5370,31 @@ aObj.blizzFrames[ftype].Tooltips = function(self)
 
 end
 
+if aObj.isMorF then
+	aObj.blizzFrames[ftype].TutorialManager = function(self)
+		if not self.prdb.TutorialUI or self.initialized.TutorialManager then return end
+		self.initialized.TutorialManager = true
+
+		self:skinTutorialFrame(_G.TutorialMainFrame_Frame, ftype)
+		self:skinTutorialFrame(_G.TutorialSingleKey_Frame, ftype)
+		self:skinTutorialFrame(_G.TutorialDoubleKey_Frame, ftype)
+
+		self:RawHook(_G.TutorialPointerFrame, "_GetFrame", function(this, parentFrame)
+			local frame = aObj.hooks[this]._GetFrame(this, parentFrame)
+			self:skinObject("glowbox", {obj=frame.Content, fType=ftype})
+			frame.Glow:SetBackdrop(nil)
+			return frame
+		end, true)
+		if _G.TutorialPointerFrame_1
+		and not _G.TutorialPointerFrame_1.sf
+		then
+			self:skinObject("glowbox", {obj=_G.TutorialPointerFrame_1.Content, fType=ftype})
+			_G.TutorialPointerFrame_1.Glow:SetBackdrop(nil)
+		end
+
+	end
+end
+
 -- These DropDownMenus are still used by TipTac amongst other AddOns
 aObj.blizzFrames[ftype].UIDropDownMenu = function(self)
 	if not self.prdb.UIDropDownMenu or self.initialized.UIDropDownMenu then return end
@@ -5698,11 +5748,18 @@ if aObj.isMorF then
 					self:skinObject("ddbutton", {obj=oFrame, fType=ftype})
 				-- Tracking Options Button (Forever)
 				elseif oFrame.buttonContext == "ButtonContext_WorldMapTrackingButton" then
+					if not aObj.isMnlnPTR then
+						self:addButtonBorder{obj=oFrame, fType=ftype, ofs=0, y1=2, y2=4, relTo=oFrame.Icon, clr="gold"}
+					else
+						oFrame.Border:SetTexture(nil)
+						oFrame.FilterCounterBanner:SetTexture(nil)
+						oFrame.Background:SetTexture(nil)
+						if self.modBtnBs then
+							self:addButtonBorder{obj=oFrame, fType=ftype--[[, relTo=oFrame.Icon]], ofs=-2, clr="gold"}
+						end
+					end
 					if self.modBtns then
 						self:skinCloseButton{obj=oFrame.ResetButton, fType=ftype, noSkin=true}
-					end
-					if self.modBtnBs then
-						self:addButtonBorder{obj=oFrame, fType=ftype, ofs=0, y1=2, y2=4, relTo=oFrame.Icon, clr="gold"}
 					end
 				-- Tracking Options/Pin Button
 				elseif oFrame.IconOverlay then

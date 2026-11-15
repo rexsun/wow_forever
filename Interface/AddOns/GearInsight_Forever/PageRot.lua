@@ -229,8 +229,8 @@ local function refresh()
     for i, r in ipairs(rules) do
         local cs = {}
         for _, w in ipairs(r.when or {}) do cs[#cs + 1] = condText(w) end
-        local _, _, nm = ruleSpell(cls, r.cast)
-        lines[#lines + 1] = string.format("|cffffd100%d.|r %s  |cffdddddd%s|r  |cff888888%s|r", i, nm or r.cast, ns.L(r.why[1], r.why[2]), table.concat(cs, " · "))
+        local _, _, nm = ruleSpell(cls, r.cast)   -- GI-253：技能名（数据中文）繁体端在下面过 ns.TD
+        lines[#lines + 1] = string.format("|cffffd100%d.|r %s  |cffdddddd%s|r  |cff888888%s|r", i, ns.TD(nm or r.cast), ns.L(r.why[1], r.why[2]), table.concat(cs, " · "))
     end
     page.coach:ClearAllPoints(); page.coach:SetPoint("TOPLEFT", 14, y); page.coach:SetPoint("RIGHT", vt, "RIGHT", -16, 0)
     page.coach:SetText(#lines > 0 and table.concat(lines, "\n")

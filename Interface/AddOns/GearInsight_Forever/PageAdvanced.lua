@@ -67,7 +67,8 @@ end
 local function offsiteItems()
     local C = ns.SlashHint or "/gi"
     local out = {}
-    local function add(cond, t, d, fn) if cond then out[#out + 1] = { t, d, fn } end end
+    -- GI-253：有几项是只给中文客户端的简体字面量（没过 ns.L）→ 繁体端统一在这里转
+    local function add(cond, t, d, fn) if cond then out[#out + 1] = { ns.TD(t), ns.TD(d), fn } end end
     add(ns.LandingURL, ns.L("网站 · 无限专区", "Website · Forever hub"),
         ns.L("你这个角色的升级路线 · 天赋模拟 · 掉落表 · 宏库 · 公测数据", "Your character's route · talent sim · loot · macros · beta data"),
         function() copy(ns.L("无限专区", "Forever hub"), ns.LandingURL("home")) end)
