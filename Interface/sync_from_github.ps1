@@ -74,8 +74,9 @@ function Write-SyncLog([string]$Message) {
     Add-Content -LiteralPath $script:LogPath -Value $line -Encoding UTF8
 }
 
-function Invoke-Native([string]$Executable, [string[]]$Arguments) {
+function Invoke-Native([string]$Executable, [string[]]$Arguments, [hashtable]$Environment = @{}) {
     $start = New-Object Diagnostics.ProcessStartInfo
+    foreach ($name in $Environment.Keys) { $start.EnvironmentVariables[$name] = [string]$Environment[$name] }
     $start.FileName = $Executable
     $start.Arguments = ($Arguments | ForEach-Object {
         '"' + ($_ -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
@@ -164,6 +165,9 @@ function Get-ResolutionHint([string]$Message) {
     if ($Message -match 'alias|\.env|private map') {
         return 'Copy Interface\.env from the main machine again; it gains aliases whenever settings are exported there.'
     }
+    if ($Message -match 'Python') {
+        return 'Run: uv python install 3.13'
+    }
     if ($Message -match 'account or character folder') {
         return 'Log in to the game once with the same account so its WTF folder exists.'
     }
@@ -222,12 +226,38 @@ function Update-Checkout([string]$Git, [string]$Root, [string]$Target, [string]$
     return @{ From = $head; To = $targetCommit }
 }
 
+<#
+.SYNOPSIS
+Makes sure uv has a Python 3.13+ for the settings helper, installing one into uv's user store when none exists.
+#>
+function Initialize-UvPython([string]$Uv) {
+    if ((Invoke-Native $Uv @('python', 'find', '--no-project', '>=3.13')).Code -eq 0) { return }
+    Write-SyncLog 'No Python 3.13+ found for uv; installing it with uv python install 3.13.'
+    $install = Invoke-Native $Uv @('python', 'install', '3.13')
+    if ($install.Code -ne 0) { throw ('uv could not install Python 3.13: ' + (Get-LastLine $install.Error)) }
+}
+
+# Prefix that marks the one line of the restore child's output carrying its failure reason.
+$script:RestoreErrorPrefix = 'RESTORE-ERROR: '
+
 function Invoke-DefaultRestore([string]$Root, [string]$Uv) {
-    $watcher = Join-Path $Root 'Interface\watch_wtf_settings.ps1'
+    Initialize-UvPython $Uv
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $arguments = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $watcher, '-Mode', 'Restore', '-UvPath', $Uv)
-    $result = Invoke-Native $powershell $arguments
-    if ($result.Code -ne 0) { throw (Get-LastLine ($result.Output + "`n" + $result.Error)) }
+    # Paths travel as environment variables, so no quoting is needed. The catch keeps the failure reason on one line
+    # instead of PowerShell's multi-line error record.
+    $command = '$ErrorActionPreference = ''Stop''; try { & $env:WOWSYNC_WATCHER -Mode Restore -UvPath $env:WOWSYNC_UV } ' +
+        'catch { [Console]::Out.WriteLine($env:WOWSYNC_PREFIX + $_.Exception.Message); exit 1 }'
+    $environment = @{
+        WOWSYNC_WATCHER = (Join-Path $Root 'Interface\watch_wtf_settings.ps1')
+        WOWSYNC_UV      = $Uv
+        WOWSYNC_PREFIX  = $script:RestoreErrorPrefix
+    }
+    $result = Invoke-Native $powershell @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', $command) $environment
+    if ($result.Code -ne 0) {
+        $reason = @($result.Output -split '\r?\n' | Where-Object { $_.StartsWith($script:RestoreErrorPrefix) } | Select-Object -Last 1)
+        if ($reason.Count -eq 1) { throw $reason[0].Substring($script:RestoreErrorPrefix.Length) }
+        throw ('Restore exited with code ' + $result.Code + ': ' + (Get-LastLine ($result.Output + "`n" + $result.Error)))
+    }
     return Get-LastLine $result.Output
 }
 
@@ -490,6 +520,9 @@ function Install-Sync([string]$Root) {
     $script:LogPath = Join-Path $stateDirectory 'sync.log'
     $uv = Find-Tool 'uv' $null
     if (-not $uv) { Write-Warning 'uv was not found; settings restore stays off until you install it (winget install --id astral-sh.uv -e) and run Install again.' }
+    else {
+        try { Initialize-UvPython $uv } catch { Write-Warning $_.Exception.Message }
+    }
     $state = Read-SyncState $stateDirectory
     $override = if ($Resolution) { $Resolution } else { Get-StateValue $state 'resolution' }
     Save-SyncState $stateDirectory (Update-SyncState $state @{ git = $git; uv = $uv; resolution = $override })

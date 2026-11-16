@@ -95,7 +95,8 @@ function Wait-WtfStable {
 
 function Invoke-SettingsHelper([string]$Action, [switch]$ValidateOnly) {
     $uv = if ($UvPath) { $UvPath } else { (Get-Command uv -ErrorAction Stop).Source }
-    $python = Invoke-ConsolelessProcess $uv @('python', 'find', '--no-project')
+    $python = try { Invoke-ConsolelessProcess $uv @('python', 'find', '--no-project', '>=3.13') }
+    catch { throw 'No uv-managed Python 3.13 or newer was found; run: uv python install 3.13' }
     $arguments = @($script:Helper, $Action, '--game-root', $script:GameRoot, '--state', (Get-PrivateStateDirectory))
     if ($ValidateOnly) { $arguments += '--dry-run' }
     # uv run can allocate a console for Python even when uv itself has no window.

@@ -8,7 +8,7 @@ Install it only on machines that consume the repository, because each sync force
 
 Do this once, with WoW closed:
 
-1. Install Git and uv: `winget install --id Git.Git -e` and `winget install --id astral-sh.uv -e`.
+1. Install Git and uv: `winget install --id Git.Git -e` and `winget install --id astral-sh.uv -e`. Restore needs Python 3.13 or newer under uv. If uv has none, Install and each sync install one with `uv python install 3.13`.
 2. Start the game once and log in with the same account, so `WTF\Account\<account>` exists.
 3. Copy `Interface\.env` privately from the main machine. Copying it by hand is fine. Copy it again whenever a sync logs "Copy Interface\.env from the main machine again": exports on the main machine add aliases that an older copy cannot decode.
 4. Download the script and run it with Windows PowerShell 5.1:

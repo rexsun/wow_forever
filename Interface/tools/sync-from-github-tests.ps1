@@ -220,6 +220,25 @@ try {
     $result = Sync
     Assert (($result.Problems -join ' ') -match 'Config\.wtf is missing') 'Missing Config.wtf must be reported, not thrown'
     $checks += 1
+
+    $fakeRoot = Join-Path $testRoot 'restore root'
+    $uvLog = Join-Path $testRoot 'uv calls.txt'
+    $fakeUv = Join-Path $testRoot 'fake uv.cmd'
+    Write-File $fakeUv "@echo %~1 %~2 %~3>>`"$uvLog`"`r`n@if `"%~2`"==`"find`" if exist `"$testRoot\python ready`" exit /b 0`r`n@if `"%~2`"==`"find`" exit /b 2`r`n@if `"%~2`"==`"install`" echo.>`"$testRoot\python ready`"`r`n@exit /b 0`r`n"
+    $fakeWatcher = Join-Path $fakeRoot 'Interface\watch_wtf_settings.ps1'
+    Write-File $fakeWatcher "param(`$Mode, `$UvPath)`nif (`$env:FAKE_RESTORE_FAIL) { throw 'Settings helper failed; inspect local settings and retry. Mapped account or character folder is missing.' }`nWrite-Output ('Restored 3 settings targets via ' + (Split-Path `$UvPath -Leaf))`n"
+    $message = Invoke-DefaultRestore $fakeRoot $fakeUv
+    Assert ($message -eq 'Restored 3 settings targets via fake uv.cmd') "Restore success output wrong: $message"
+    $calls = @(Get-Content -LiteralPath $uvLog)
+    Assert ($calls.Count -eq 2 -and $calls[1] -like 'python install 3.13*') 'Missing Python must be installed once through uv'
+    $null = Invoke-DefaultRestore $fakeRoot $fakeUv
+    Assert (@(Get-Content -LiteralPath $uvLog).Count -eq 3) 'An installed Python must not be reinstalled'
+    $env:FAKE_RESTORE_FAIL = '1'
+    $reason = $null
+    try { Invoke-DefaultRestore $fakeRoot $fakeUv | Out-Null } catch { $reason = $_.Exception.Message } finally { $env:FAKE_RESTORE_FAIL = $null }
+    Assert ($reason -eq 'Settings helper failed; inspect local settings and retry. Mapped account or character folder is missing.') "Restore failure reason lost: $reason"
+    Assert ((Get-ResolutionHint 'No uv-managed Python 3.13 or newer was found') -like 'Run: uv python install*') 'Python hint missing'
+    $checks += 5
 } finally {
     $resolved = [IO.Path]::GetFullPath($testRoot)
     $tempPrefix = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'

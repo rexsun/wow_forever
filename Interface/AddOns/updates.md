@@ -2,6 +2,11 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-15 - Sync installs uv's Python and reports restore failures clearly
+
+- On a fresh machine, settings restore failed with only "+ FullyQualifiedErrorId : Settings helper failed". uv had no Python, so `uv python find` failed before the helper could print a reason, and the sync logged the last line of PowerShell's multi-line error record.
+- `watch_wtf_settings.ps1` now asks uv for Python 3.13 or newer and names the fix when none exists. `sync_from_github.ps1` installs one with `uv python install 3.13` during Install and before each restore, and its log carries the restore's own one-line reason.
+
 ## 2026-11-15 - Fix sync Install started from inside Interface
 
 - `sync_from_github.ps1 -Mode Install` failed with "the item at ...\Interface is in use" when the shell's current directory was `Interface`, because Windows will not move a folder that is any process's current directory. The bootstrap now moves the folder's contents into `addon-backups\bootstrap-<timestamp>\Interface` and leaves the folder itself in place. It uses atomic renames, because `Move-Item` falls back to copy-then-delete and leaves a half-moved tree when a subfolder is locked. A locked item now fails with a hint to close programs using it, and everything is rolled back.
