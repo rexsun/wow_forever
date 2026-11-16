@@ -4,7 +4,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 
 ## 2026-11-15 - Sign-in sync from GitHub for other machines
 
-- New `Interface/sync_from_github.ps1` and `sync_from_github.vbs`: a current-user sign-in task updates a second installation from `main`, restores the settings bundle when it changed, and fits `gxWindowedResolution` and the EllesmereUI options-panel scale to that machine's game setting or display (1920x1080, 2560x1440 or 3840x2160). See [Settings/readme.md](../Settings/readme.md#sync-another-machine-from-github).
+- New `Interface/sync_from_github.ps1` and `sync_from_github.vbs`: a current-user sign-in task updates a second installation from `main`, restores the settings bundle when it changed, and fits `gxWindowedResolution` and the EllesmereUI options-panel scale to that machine's game setting or display (1920x1080, 2560x1440 or 3840x2160). See [auto-update.md](../../auto-update.md).
 - `adopt_addons.ps1` now uses the shared `tools/WowResolution.psm1`; its behaviour is unchanged. No addon files changed.
 
 ## 2026-11-15 - Update eight addon packages (OverlapSettingsGuard 0.15.0)

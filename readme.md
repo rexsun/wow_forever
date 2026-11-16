@@ -17,6 +17,7 @@ Every add-on here must declare Interface 16001 in its TOC and work on this clien
 - [Interface/AddOns/updates.md](Interface/AddOns/updates.md): change log, newest first. It covers installs, removals, setting changes and local patches, which upstream updates can overwrite.
 - [Interface/AGENTS.md](Interface/AGENTS.md): rules for maintaining the add-ons.
 - [Interface/Settings/readme.md](Interface/Settings/readme.md): anonymous settings snapshots after game exit, with readable local review and manual Git staging/commits.
+- [auto-update.md](auto-update.md): set up another machine to update its add-ons and settings from GitHub at every sign-in.
 
 ## Updating
 

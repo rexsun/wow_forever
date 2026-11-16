@@ -73,43 +73,7 @@ Before replacement, changed files and prepared replacements are backed up privat
 
 ## Sync another machine from GitHub
 
-`Interface/sync_from_github.ps1` keeps a second installation on the repository's `main` branch. It runs hidden at every Windows sign-in. Install it only on machines that consume the repository: Sync force-resets the checkout to `origin/main`. Install refuses a checkout with uncommitted or unpushed work, or one where the export watcher task is installed.
-
-One-time setup on the new machine, with WoW closed:
-
-1. Install Git and uv: `winget install --id Git.Git -e` and `winget install --id astral-sh.uv -e`.
-2. Start the game once and log in with the same account, so `WTF\Account\<account>` exists.
-3. Copy `Interface\.env` privately from the main machine. Copying it by hand is fine. Copy it again whenever a sync logs "Copy Interface\.env from the main machine again": exports on the main machine add aliases that an older copy cannot decode.
-4. Download `Interface/sync_from_github.ps1` from the repository and run it with Windows PowerShell 5.1:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\sync_from_github.ps1 -Mode Install -GameRoot 'D:\...\World of Warcraft\_forever_'
-```
-
-When the game root is not a checkout yet, Install creates one. It moves the old `Interface` folder to `addon-backups\bootstrap-<timestamp>`, carries a `.env` found there into the new `Interface`, and copies any tracked YUI font it replaces into the same backup. Other files in `Fonts`, the client and `WTF` are untouched. A failure rolls this back. Install then registers the current-user task `WoWSync-<installation-hash>`. The task starts 30 seconds after sign-in, runs without elevation and starts no visible window. Install then runs one sync in the terminal. If the game lives under `C:\Program Files`, grant your account Modify permission on the game root instead of running elevated. When Git reports that the folder is owned by another account, Install adds that one path to Git's `safe.directory`.
-
-Each sync:
-
-1. Fetches `main`, retrying three times 30 seconds apart. Offline, it continues with the current checkout.
-2. If this installation's WoW is running, waits for it to close.
-3. Moves the checkout to `origin/main`. Edits to tracked files are first saved as `local-changes-<timestamp>.patch` in the private state directory, and local commits are kept on a `sync-backup-<timestamp>` branch. Addons removed upstream disappear with their tracked files; untracked and ignored files stay.
-4. Restores `Settings/WTF` through `watch_wtf_settings.ps1 -Mode Restore`, only when that folder changed since its last successful restore, so settings you change in game survive until the bundle changes again. A missing `.env`, uv or account folder skips or fails the restore with a hint; the next sign-in retries it.
-5. Fits the window to this machine: it sets `gxWindowedResolution` and the EllesmereUI options-panel scale, as `adopt_addons.ps1 -Resolution` does. Gameplay UI scale stays as restored. The resolution comes from, in order:
-   1. a fixed `-Resolution` given to Install (`Auto` clears it);
-   2. the game's own setting whenever it differs from what the script last wrote, which covers the first run and later in-game changes;
-   3. the value last applied;
-   4. the primary display's mode in physical pixels.
-
-   Each value snaps to the largest supported size that fits: 1920x1080, 2560x1440 or 3840x2160. An ultrawide 3440x1440 display becomes 2560x1440.
-
-The private state directory `%LOCALAPPDATA%\WowSettings\<installation-hash>\` holds `sync.json` (tool paths, fixed resolution, applied resolution, last restored bundle) and the rotating `sync.log`.
-
-```powershell
-.\Interface\sync_from_github.ps1 -Mode Status
-.\Interface\sync_from_github.ps1 -Mode Sync
-.\Interface\sync_from_github.ps1 -Mode Install -Resolution 2560x1440
-.\Interface\sync_from_github.ps1 -Mode Uninstall
-```
+To keep another installation updated from GitHub at every sign-in, see [auto-update.md](../../auto-update.md).
 
 ## Private .env mappings
 
@@ -157,7 +121,6 @@ Windows PowerShell 5.1, `uv`, a uv-managed Python 3.13+ and Git are required. Th
 uv run --no-project python tools/test_wtf_settings.py
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/wtf-watcher-tests.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/wtf-helper-process-tests.ps1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/sync-from-github-tests.ps1
 ```
 
 Fixture tests exercise privacy, repeatable output, safe parsing/serialization, .env mappings, unchanged source/index, selective Config merging, private backups, missing destinations, restart refusal and rollback. PowerShell checks exercise session transitions, initial baseline, retry, settling, process filtering and restore's watcher suspension/resumption.
