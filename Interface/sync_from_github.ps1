@@ -334,14 +334,31 @@ function Grant-SafeDirectory([string]$Git, [string]$Root) {
 
 <#
 .SYNOPSIS
-Turns an existing game root into a checkout of the repository. The old Interface folder and any tracked font it
-would overwrite are moved or copied to addon-backups\bootstrap-<timestamp>; a failure puts them back.
+Renames a file or folder within one volume, or throws with nothing moved.
+.DESCRIPTION
+Move-Item is avoided because, when a folder below the source is in use, it falls back to copy-then-delete and
+leaves the content split between both places.
+#>
+function Move-PathAtomic([string]$Source, [string]$Destination) {
+    if (Test-Path -LiteralPath $Source -PathType Container) { [IO.Directory]::Move($Source, $Destination) }
+    else { [IO.File]::Move($Source, $Destination) }
+}
+
+<#
+.SYNOPSIS
+Turns an existing game root into a checkout of the repository. The old Interface contents and any tracked font
+the checkout would overwrite are moved or copied to addon-backups\bootstrap-<timestamp>; a failure puts them back.
+.DESCRIPTION
+The Interface folder itself stays in place: Windows refuses to move a folder that is any process's current
+directory, which it is whenever Install is started from inside Interface.
 #>
 function Initialize-Checkout([string]$Git, [string]$Root, [string]$Repo, [scriptblock]$ProcessProbe) {
     if (& $ProcessProbe) { throw 'Close WoW before installing. Nothing was changed.' }
     $backup = Join-Path $Root ('addon-backups\bootstrap-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
     $interface = Join-Path $Root 'Interface'
-    $movedInterface = $false
+    $previous = Join-Path $backup 'Interface'
+    $movedItems = New-Object Collections.Generic.List[string]
+    $checkoutStarted = $false
     $savedFonts = @()
     try {
         Invoke-Git $Git $Root @('init', '--quiet') | Out-Null
@@ -359,24 +376,37 @@ function Initialize-Checkout([string]$Git, [string]$Root, [string]$Repo, [script
                 $savedFonts += $font
             }
         }
+        [IO.Directory]::CreateDirectory($previous) | Out-Null
         if (Test-Path -LiteralPath $interface) {
-            Move-Item -LiteralPath $interface -Destination (Join-Path $backup 'Interface')
-            $movedInterface = $true
+            foreach ($item in @(Get-ChildItem -LiteralPath $interface -Force)) {
+                Move-PathAtomic $item.FullName (Join-Path $previous $item.Name)
+                $movedItems.Add($item.Name)
+            }
         }
+        $checkoutStarted = $true
         Invoke-Git $Git $Root @('checkout', '--force', '-B', $Branch, "origin/$Branch") | Out-Null
-        $privateMap = Join-Path $backup 'Interface\.env'
+        $privateMap = Join-Path $previous '.env'
         if (Test-Path -LiteralPath $privateMap -PathType Leaf) {
             Copy-Item -LiteralPath $privateMap -Destination (Join-Path $interface '.env')
             Write-SyncLog 'Carried the private Interface\.env over from the previous Interface folder.'
         }
         Write-SyncLog "Checkout created. Previous Interface and fonts: $backup"
     } catch {
-        $failure = $_.Exception.Message
-        if ($movedInterface) {
-            if (Test-Path -LiteralPath $interface) {
-                Move-Item -LiteralPath $interface -Destination (Join-Path $backup 'failed-Interface')
+        $cause = $_.Exception
+        while ($cause.InnerException) { $cause = $cause.InnerException }
+        $failure = $cause.Message
+        if ($cause -is [IO.IOException] -or $cause -is [UnauthorizedAccessException] -or $failure -match 'in use|being used') {
+            $failure += ' Close File Explorer windows, editors and other programs using files inside Interface, then retry.'
+        }
+        if ($checkoutStarted -and (Test-Path -LiteralPath $interface)) {
+            $leftovers = Join-Path $backup 'failed-Interface'
+            [IO.Directory]::CreateDirectory($leftovers) | Out-Null
+            foreach ($item in @(Get-ChildItem -LiteralPath $interface -Force)) {
+                Move-PathAtomic $item.FullName (Join-Path $leftovers $item.Name)
             }
-            Move-Item -LiteralPath (Join-Path $backup 'Interface') -Destination $interface
+        }
+        foreach ($name in $movedItems) {
+            Move-PathAtomic (Join-Path $previous $name) (Join-Path $interface $name)
         }
         foreach ($font in $savedFonts) {
             Copy-Item -LiteralPath (Join-Path $backup $font) -Destination (Join-Path $Root $font) -Force

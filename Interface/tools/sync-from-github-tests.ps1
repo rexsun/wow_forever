@@ -14,6 +14,15 @@ function Write-File([string]$Path, [string]$Text) {
     [IO.File]::WriteAllText($Path, $Text, [Text.UTF8Encoding]::new($false))
 }
 function Read-File([string]$Path) { return [IO.File]::ReadAllText($Path) }
+function Start-DirectoryLock([string]$Path) {
+    # A process whose current directory is $Path stops Windows from moving that folder or its parents.
+    $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    return Start-Process -FilePath $powershell -ArgumentList '-NoProfile', '-Command', 'Start-Sleep -Seconds 120' -WorkingDirectory $Path -WindowStyle Hidden -PassThru
+}
+function Stop-DirectoryLock($Process) {
+    Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+    $Process.WaitForExit()
+}
 function Commit-Upstream([string]$Message) {
     Invoke-TestGit $upstream @('add', '-A')
     Invoke-TestGit $upstream @('commit', '-q', '-m', $Message)
@@ -74,7 +83,22 @@ try {
     Assert ($refused -and -not (Test-Path -LiteralPath (Join-Path $broken '.git'))) 'Bootstrap must refuse while WoW runs'
     $checks += 4
 
-    Initialize-Checkout $git $syncGame $upstream { $false }
+    $locked = Join-Path $testRoot 'locked game'
+    Write-File (Join-Path $locked 'Wow.exe') ''
+    Write-File (Join-Path $locked 'Interface\a.txt') 'top'
+    Write-File (Join-Path $locked 'Interface\AddOns\Mine\m.lua') 'mine'
+    $lock = Start-DirectoryLock (Join-Path $locked 'Interface\AddOns\Mine')
+    $failed = $false
+    try { Initialize-Checkout $git $locked $upstream { $false } } catch { $failed = $_.Exception.Message -like '*Close File Explorer windows*' }
+    finally { Stop-DirectoryLock $lock }
+    Assert $failed 'A locked Interface subfolder must fail with the in-use hint'
+    Assert ((Read-File (Join-Path $locked 'Interface\a.txt')) -eq 'top' -and (Test-Path -LiteralPath (Join-Path $locked 'Interface\AddOns\Mine\m.lua'))) 'Partial move was not rolled back'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $locked '.git'))) 'Locked rollback left a .git folder'
+    $checks += 3
+
+    # Reproduces Install started from a shell whose current directory is Interface.
+    $lock = Start-DirectoryLock (Join-Path $syncGame 'Interface')
+    try { Initialize-Checkout $git $syncGame $upstream { $false } } finally { Stop-DirectoryLock $lock }
     $backup = @(Get-ChildItem -LiteralPath (Join-Path $syncGame 'addon-backups') -Directory)[0].FullName
     Assert (Test-Path -LiteralPath (Join-Path $syncGame 'Interface\AddOns\A\a.lua')) 'Bootstrap did not check out addons'
     Assert (-not (Test-Path -LiteralPath (Join-Path $syncGame 'Interface\AddOns\Old'))) 'Bootstrap kept the old Interface'

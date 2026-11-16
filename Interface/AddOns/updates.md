@@ -2,6 +2,10 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-15 - Fix sync Install started from inside Interface
+
+- `sync_from_github.ps1 -Mode Install` failed with "the item at ...\Interface is in use" when the shell's current directory was `Interface`, because Windows will not move a folder that is any process's current directory. The bootstrap now moves the folder's contents into `addon-backups\bootstrap-<timestamp>\Interface` and leaves the folder itself in place. It uses atomic renames, because `Move-Item` falls back to copy-then-delete and leaves a half-moved tree when a subfolder is locked. A locked item now fails with a hint to close programs using it, and everything is rolled back.
+
 ## 2026-11-15 - Sign-in sync from GitHub for other machines
 
 - New `Interface/sync_from_github.ps1` and `sync_from_github.vbs`: a current-user sign-in task updates a second installation from `main`, restores the settings bundle when it changed, and fits `gxWindowedResolution` and the EllesmereUI options-panel scale to that machine's game setting or display (1920x1080, 2560x1440 or 3840x2160). See [auto-update.md](../../auto-update.md).
