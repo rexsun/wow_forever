@@ -135,6 +135,7 @@ local foreverEssentials = {
   { id = "maptravel", key = "MapTravel", owner = "YUI", label = "World map travel markers", reason = "YUI's map markers already show portals, transports and points of interest." },
   { id = "threatmeter", key = "ThreatMeter", owner = "Details_TinyThreat", label = "Threat meter", reason = "Details owns threat display through Details_TinyThreat." },
   { id = "zonelevels", key = "ZoneLevels", owner = "MapUtils", label = "World map zone levels and fishing skill", reason = "MapUtils owns zone level and fishing skill labels on the world map." },
+  { id = "gatherskill", key = "GatherSkill", owner = "GatherLite", label = "Gathering skill in tooltips", reason = "GatherLite always adds the skill a herb or ore node needs to its tooltip." },
 }
 
 for _, setting in ipairs(foreverEssentials) do

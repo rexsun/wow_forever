@@ -87,7 +87,7 @@ test("the shipped policy has no errors", function()
   local w = Stubs.Fresh(ADDON_ROOT, {})
   local problems = w.ns.ValidatePolicy(w.ns.policy, w.ns.adapters)
   eq(#problems, 0, "policy problems: " .. table.concat(problems, "; "))
-  eq(#w.ns.policy, 54, "rule count")
+  eq(#w.ns.policy, 55, "rule count")
 end)
 
 test("ValidatePolicy reports bad rules", function()

@@ -2,6 +2,20 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-15 - Update three addon packages (OverlapSettingsGuard 0.16.0)
+
+- Update Bagnon 12.1.10 to 12.1.11 ([file 9638308](https://www.curseforge.com/wow/addons/bagnon/files/9638308), all five folders), GatherLite 8.4.11 to 8.4.12 ([file 9635893](https://www.curseforge.com/wow/addons/gatherlite/files/9635893)) and MapUtils 1.7.5 to 1.7.6 (forever build, [file 9633091](https://www.curseforge.com/wow/addons/maputils/files/9633091)). Every TOC still lists Interface 16001; no TOC load condition, dependency or SavedVariables declaration changed. Auctionator, !BugGrabber, Details, EllesmereUI, LootRollMover, Lueur, Skinner, Waypoint UI and YUI were already current.
+- Held: GearInsight Forever 1.2.5 ([file 9633634](https://www.curseforge.com/wow/addons/gearinsight-forever/files/9633634)) is published only on the beta channel, so it is not a stable release; 1.2.3 stays installed.
+- Guard: one new rule, 55 in total.
+  - New `euife.gatherskill` (Forever Essentials `gatherSkill.enabled` = false while GatherLite loads): GatherLite 8.4.12 moves its node tooltip into native tooltip post-calls for world objects and minimap tracking and now adds "Requires <profession> (<skill>)" whenever that exact line is missing, with no setting to stop it. Forever Essentials' Gathering Skill (off by default, unset in live settings) appends the same number to the game's own profession line, so both on would show the requirement twice. A test pins both upstream hooks.
+- Local patches: all 26 reapply unchanged. The MapUtils fade patch is still needed (1.7.6 ships the same `PlayerMovementFrameFader` check at `mapframe.lua:561`); the three BagBrother `combinedBags` anchors did not move.
+- Overlap review, no further rule needed:
+  - Bagnon 12.1.11: the combined-backpack hook now opens the inventory through `ToggleBag('inventory', 0)` (still idle while `combinedBags` stays off), the guild-bank log uses `TimeUtil.GetRecentTimeDate` when present, and "Server-Side Sorting" is renamed "Blizzard Sorting". No new automation.
+  - GatherLite 8.4.12: tooltip rework only, plus the changelog page. Its version broadcast is unchanged. Upstream changed `LICENSE` line endings only; the installed copy keeps its previous bytes.
+  - MapUtils 1.7.6: non-Forever fixes (settings and map cog on other clients, a nil guard for library-book pins). No new CVar writes, messages or popups.
+- Backup: `addon-backups/daily-20261115-184621`.
+- Verification: 2,971 Lua files under AddOns compile under Lua 5.1. Installed files match the releases byte for byte except the two locally patched files (`BagBrother/core/features/uiOverrides.lua`, `MapUtils/mapframe.lua`) and GatherLite's `LICENSE` line endings. 89 guard tests (1 new, 3 extended for `euife.gatherskill`, failing without the rule), 69 pytest tests, the patch check and the adoption, sync, helper and watcher tests pass. Nothing was run in game or checked at the three supported resolutions; check with `/osg` that `euife.gatherskill` shows locked off, that hovering a herb or ore node in the world and on the minimap shows one skill-requirement line, that Bagnon still opens alone (no Blizzard combined bag), and that the world map still fades with YUI while moving.
+
 ## 2026-11-15 - Sync installs uv's Python and reports restore failures clearly
 
 - On a fresh machine, settings restore failed with only "+ FullyQualifiedErrorId : Settings helper failed". uv had no Python, so `uv python find` failed before the helper could print a reason, and the sync logged the last line of PowerShell's multi-line error record.

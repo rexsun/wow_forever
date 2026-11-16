@@ -42,6 +42,7 @@ Version 0.13.0, for Interface 16001. This local addon keeps duplicate features s
 | `euife.maptravel` | Forever Essentials `mapTravel.enabled` | EllesmereUIForeverEssentials, YUI | YUI's map markers already show portals, transports and points of interest. |
 | `euife.threatmeter` | Forever Essentials `threatMeter.enabled` | EllesmereUIForeverEssentials, Details_TinyThreat | Details owns threat display. |
 | `euife.zonelevels` | Forever Essentials `zoneLevels.enabled` | EllesmereUIForeverEssentials, MapUtils | MapUtils owns zone-level and fishing-skill labels on the world map. |
+| `euife.gatherskill` | Forever Essentials `gatherSkill.enabled` | EllesmereUIForeverEssentials, GatherLite | GatherLite 8.4.12 always adds the skill a herb or ore node needs to its world and minimap tooltips and has no switch for it; both on would show the requirement twice. |
 | `mu.worldmapmove` | MapUtils `WORLDMAPMOVE` | MapUtils, YUI | YUI owns the world map position. |
 | `mu.worldmapscale` | MapUtils `WORLDMAPSCALE` | MapUtils, YUI | YUI owns the world map scale. |
 | `mu.worldmapfade` | MapUtils `WORLDMAPFADE` | MapUtils, YUI | YUI owns world map fading while moving. |
@@ -69,7 +70,7 @@ Details.20261104.15400.172 is the pack's only combat meter, with bundled DataSto
 
 Checks run after login, on supported option hooks and every two seconds as a fallback. Changes wait until combat ends. Chat messages explain reverted settings and name any other affected profiles. When a reload is needed, chat asks you to type `/reload` when ready. The guard never opens a popup. Failed enforcement is also reported in chat.
 
-The policy contains 54 rules for the installed pack. Ownership is conditional on addons being loaded, rather than the owner's optional feature currently being enabled; use the owner's settings when choosing whether to automate a task.
+The policy contains 55 rules for the installed pack. Ownership is conditional on addons being loaded, rather than the owner's optional feature currently being enabled; use the owner's settings when choosing whether to automate a task.
 
 CharacterUIBaseline 0.2.0 synchronizes existing owner settings once on each target login/reload, rather than creating a second display or continuous feature toggle, so it adds no rule. Its overlaps are native Edit Mode layout (including importing the source layout when different), chat font/primary-window geometry, EUI `partyUnlockPos`/`unlockPos`, and these display CVars: `nameplateSelectedScale`, `nameplateMaxDistance`, `nameplateMinScale`, `nameplateMaxScale`, `nameplateMaxAlphaDistance`, `nameplateTargetBehindMaxDistance`, `nameplateMinAlpha`, `nameplateMaxAlpha`, `nameplateMinAlphaDistance`, `cooldownViewerEnabled`, `mapFade`, `showQuestLevel`, `cameraSavedPitch`, `cameraSavedDistance` and `enableMultiActionBars`. The source character is excluded and publishes at logout; target edits are reset on the next login. OSG startup preferences still run normally after login and may supersede conflicting captured CVars. EUI spec-to-profile mappings and all specialization/talent data are preserved. `/uib apply` explicitly retries sync; no per-setting lock-off rule is appropriate for this ownership-preserving coordinator.
 

@@ -1,3 +1,13 @@
+## [Addon update / OverlapSettingsGuard 0.16.0] - 2026-11-15
+### Features
+- Update Bagnon 12.1.11, GatherLite 8.4.12 and MapUtils 1.7.6.
+- Add guard rule `euife.gatherskill`.
+### Design Rationale
+- GatherLite 8.4.12 always writes a node's gathering-skill requirement into world and minimap tooltips and offers no switch, so the only way to avoid a doubled line is to keep Forever Essentials' optional copy off while GatherLite loads.
+- GearInsight Forever 1.2.5 is held because it is published only as a beta.
+### Notes & Caveats
+- Forever Essentials' Gathering Skill was already off; the rule changes nothing until someone enables it. Unverified in game and at the three supported resolutions.
+
 ## [GitHub sign-in sync] - 2026-11-15
 ### Features
 - Add `sync_from_github.ps1` with its hidden `sync_from_github.vbs` launcher. Install turns a game root into a checkout of `main`, backing up the previous Interface and carrying over `.env`, then registers a current-user sign-in task. Sync fetches, waits for WoW to close, resets to `origin/main`, restores the settings bundle when it changed and fits the window resolution and EllesmereUI options panel to this machine.

@@ -14,6 +14,7 @@ local FEATURES = {
   MapTravel = "_MapTravel",
   ThreatMeter = "_ThreatMeter",
   ZoneLevels = "_ZoneLevels",
+  GatherSkill = "_GatherSkill",
 }
 
 local function Feature(key)

@@ -9,12 +9,13 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     { id = "euife.maptravel", key = "MapTravel", api = "_MapTravel" },
     { id = "euife.threatmeter", key = "ThreatMeter", api = "_ThreatMeter" },
     { id = "euife.zonelevels", key = "ZoneLevels", api = "_ZoneLevels" },
+    { id = "euife.gatherskill", key = "GatherSkill", api = "_GatherSkill" },
   }
 
   local function Loaded()
     local loaded = CurrentLoaded()
     loaded.EllesmereUIForeverEssentials, loaded.Details, loaded.Details_TinyThreat = true, true, true
-    loaded.MapUtils = true
+    loaded.MapUtils, loaded.GatherLite = true, true
     return loaded
   end
 
@@ -58,7 +59,30 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
       eq(ids[f.id].when[1], "EllesmereUIForeverEssentials", f.id .. " watches the module first")
     end
     eq(ids["euife.threatmeter"].when[2], "Details_TinyThreat")
+    eq(ids["euife.gatherskill"].when[2], "GatherLite")
     eq(#w.ns.ValidatePolicy(w.ns.policy, w.ns.adapters), 0, "policy validates")
+  end)
+
+  -- GatherLite has no switch for its node-skill tooltip line, so only EUI's copy can give way.
+  test("GatherLite always adds the node skill line that Forever Essentials Gathering Skill adds", function()
+    local function ReadFile(path)
+      local file = assert(io.open(path, "rb"))
+      local text = file:read("*a")
+      file:close()
+      return text
+    end
+    local addons = ADDON_ROOT .. "../"
+    local gl = ReadFile(addons .. "GatherLite/scripts/main.lua")
+    ok(gl:find("TooltipDataProcessor.AddTooltipPostCall(types.Object, onNativeTooltip)", 1, true),
+      "GatherLite hooks world-object tooltips")
+    ok(gl:find("tooltip:AddLine(requirement, GatherLite:GetNodeSkillRequirementColor(object, profession))", 1, true),
+      "GatherLite adds the skill requirement line")
+    ok(not gl:find("db.profile.tooltip", 1, true), "GatherLite still has no tooltip switch")
+    local fe = ReadFile(addons .. "EllesmereUIForeverEssentials/EllesmereUIForeverEssentials_GatherSkill.lua")
+    ok(fe:find("TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Object, OnObjectTooltip)", 1, true),
+      "Forever Essentials hooks the same tooltips")
+    ok(fe:find('module.Feature("gatherSkill", { enabled = false })', 1, true), "Forever Essentials is off by default")
+    ok(fe:find("EllesmereUI._GatherSkill = {", 1, true), "Forever Essentials publishes the feature API")
   end)
 
   test("Forever Essentials defaults stay off and saved overlaps are switched off at login", function()
@@ -93,7 +117,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
 
   test("Forever Essentials rules are inactive without their owners and leave fishing alone", function()
     local loaded = Loaded()
-    loaded.YUI, loaded.Details_TinyThreat, loaded.MapUtils = nil, nil, nil
+    loaded.YUI, loaded.Details_TinyThreat, loaded.MapUtils, loaded.GatherLite = nil, nil, nil, nil
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded })
     BuildFE(w)
     for _, f in ipairs(FEATURES) do Enable(f) end
