@@ -1,3 +1,20 @@
+## [Splash Alert] - 2026-11-15
+### Features
+- Add `tools/splash-alert`: a listen-only fishing bite alert. It captures only Wow.exe's audio, opens a listening window on each Fishing Key press (Delete or Backspace while WoW has focus), and on a splash that matches the calibrated one shows a click-through overlay on every monitor: a 20% black wash with `🎣 Bite!` in Maple Mono NF CN, 64 pt, light blue, for 3 s or until the next key press.
+- `calibrate` records three of your own splashes at your fishing spot; `preview` shows the overlay once. Without a calibration, `run` shows `🎣 Not calibrated` in the overlay at the first cast, and `autostart.ps1 -Mode Status` reports it.
+- Each counted Fishing Key press is logged, so the log shows whether the key reaches the tool.
+- `autostart.ps1 -Mode Install|Status|Uninstall` registers a current-user sign-in task that starts `run` hidden through `splash_alert.vbs`, logging to `%LOCALAPPDATA%\SplashAlert`. It tracks whether WoW runs and captures audio only from a Fishing Key press until 25 s after the last one. A running copy reloads a new calibration at the next cast, and a second `run` refuses to start.
+### Design Rationale
+- Addons get no bite event, and the Fishing Key relies on hearing the splash, so detection has to happen on the audio outside the game.
+- The tool sends no input: an alert keeps every in-game action with the player, whereas a key presser would be unattended play.
+- WASAPI process loopback isolates the game's audio, so other apps cannot cause alerts. Other players' splashes are filtered by loudness (yours is closest), a spectral match against your calibrated splash, the per-cast window and one alert per cast.
+- PySide6 for the overlay: per-pixel alpha keeps the text opaque over a 20% background, it renders the colour emoji, and DPI-aware points keep the size across 1080p, 1440p and 4K.
+### Notes & Caveats
+- Windows provides the game's mixed output, not individual sounds, so the splash is still picked out by loudness and spectrum.
+- Needs Windows 11 (or Windows 10 build 20348+), the game's Sound in Background on, and Windowed (Fullscreen). There is no fallback to capturing all system audio.
+- A bobber landing right beside yours can still trigger a false alert. Recalibrate after changing game volume.
+- Verified: 28 unit tests, capture isolation and on-demand capture against a test process, live capture of the running game, the overlay on two monitors, the installed task running hidden and the single-instance guard. Not yet verified on a real fishing session.
+
 ## [Addon update / OverlapSettingsGuard 0.16.0] - 2026-11-15
 ### Features
 - Update Bagnon 12.1.11, GatherLite 8.4.12 and MapUtils 1.7.6.

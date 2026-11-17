@@ -2,6 +2,19 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-16 - Splash Alert shows a missing calibration
+
+- The auto-started copy had run since 2026-11-15 without `calibration.local.json`, so it could never alert, and the only sign was a log line nobody sees while playing. `run` now shows `🎣 Not calibrated` in the overlay at the first cast without a calibration (again only if the calibration is later lost), and `autostart.ps1 -Mode Status` reports `calibrated: True/False`.
+- Each counted Fishing Key press now logs `Line out`, so the log shows whether presses reach the tool.
+- Verification: 28 unit tests; the overlay shows the notice and then the bite text on both monitors and closes on its timer; task restarted on the new code. Calibration itself still needs a fishing session in game.
+
+## 2026-11-15 - Splash Alert fishing bite notifier
+
+- New `Interface/tools/splash-alert` (not an addon): flashes a full-screen overlay when your own bobber splashes. It captures only Wow.exe's audio, counts Fishing Key presses (Delete or Backspace) only while WoW has focus, and never sends input to the game. See its [readme](../tools/splash-alert/readme.md).
+- Captures audio only while a line is out (from a Fishing Key press until 25 s after the last one) and only from WoW. `autostart.ps1 -Mode Install` starts it hidden at each sign-in.
+- Works with Forever Essentials' Fishing Key and Fishing Sounds; needs the game's Sound in Background on. No addon files or guard rules changed.
+- Verification: 25 unit tests; live capture of the running game, and isolation and on-demand capture against a test process; overlay checked on both monitors; installed task runs hidden. Not yet run during a real fishing session.
+
 ## 2026-11-15 - Update three addon packages (OverlapSettingsGuard 0.16.0)
 
 - Update Bagnon 12.1.10 to 12.1.11 ([file 9638308](https://www.curseforge.com/wow/addons/bagnon/files/9638308), all five folders), GatherLite 8.4.11 to 8.4.12 ([file 9635893](https://www.curseforge.com/wow/addons/gatherlite/files/9635893)) and MapUtils 1.7.5 to 1.7.6 (forever build, [file 9633091](https://www.curseforge.com/wow/addons/maputils/files/9633091)). Every TOC still lists Interface 16001; no TOC load condition, dependency or SavedVariables declaration changed. Auctionator, !BugGrabber, Details, EllesmereUI, LootRollMover, Lueur, Skinner, Waypoint UI and YUI were already current.
