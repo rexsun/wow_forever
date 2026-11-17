@@ -3,7 +3,7 @@
 -- l'effet sur un objet du décor : son modèle 3D, que la souris fait tourner, déplace et
 -- rapproche, la nameplate que le jeu lui donnerait, et la lueur qui s'y accroche. Il occupe un
 -- panneau de la page des objets, dans la fenêtre des réglages (Menu.lua le pose : ns.PreviewPane).
--- Lueur.lua anime la lueur comme sur une vraie cible ; ce fichier lui dit seulement où se
+-- Glow.lua anime la lueur comme sur une vraie cible ; ce fichier lui dit seulement où se
 -- poser (ns.StartPreview) et choisit la catégorie montrée.
 --
 -- Il n'y a qu'une lueur. L'aperçu la prend quand son panneau se montre, et la cède dès que le
@@ -18,7 +18,8 @@
 local _, ns = ...
 local L = ns.L
 local Skin = ns.Skin
-if not Skin then return end -- jeu pas relancé depuis la mise à jour qui a apporté Skin.lua : Menu.lua le dit
+-- jeu pas relancé depuis la mise à jour qui a apporté Skin.lua (Menu.lua le dit), ou les fichiers du cœur (Lueur.lua le dit)
+if not Skin or not ns.StartPreview then return end
 
 local FOV = math.rad(30)         -- champ de vision de la caméra
 local PITCH = math.asin(0.36)    -- la caméra plonge sous l'angle habituel du jeu : celui de GROUND, dans Effects.lua

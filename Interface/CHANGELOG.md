@@ -1,3 +1,16 @@
+## [Addon update / OverlapSettingsGuard 0.17.0] - 2026-11-17
+### Features
+- Update the EllesmereUI suite 9.8.8, GatherLite 8.4.13, Lueur 2.0.0 and MapUtils 1.7.9.
+- Remove guard rules `lueur.nodeherbs` and `lueur.nodeore` and the Lueur adapter (53 rules).
+- Re-anchor the Fishing Sounds comment, tooltip and zhTW patches to 9.8.7's text, and add master volume to its new sound-off set (27 local patches).
+### Design Rationale
+- Lueur 2.0.0 removed the minimap markers those rules guarded and deletes their saved keys; keeping the rules would rewrite dead keys at every login, so they go with the feature.
+- The sound-off set reuses the patched effects entry but had no master volume; adding it keeps Fishing Sounds' behaviour the same whether or not the game's sound was on.
+- GearInsight Forever 1.2.13 is held because it is published only as a beta.
+### Notes & Caveats
+- Lueur 2.0.0 adds new Lua files, which load only after a full client restart, not `/reload`.
+- The Splash Alert test module now skips under the shared `pytest tools` run when numpy is missing; its documented command still runs every test.
+
 ## [Splash Alert 2: game-sound template] - 2026-11-16
 ### Features
 - Build the splash template from the game's own bite sound (`fishbite.ogg`, file 569816), read from the local CASC storage by a small read-only reader (`casc.py`: local indices, BLTE, encoding table, MFST root), so alerts work with no calibration.

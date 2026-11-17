@@ -11,7 +11,10 @@ import unittest
 import zlib
 from pathlib import Path
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError as error:  # the shared `pytest tools` run installs no numpy; use the command above
+    raise unittest.SkipTest(f"needs numpy: {error}") from error
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 

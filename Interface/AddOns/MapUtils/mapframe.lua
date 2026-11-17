@@ -392,19 +392,39 @@ function MapUtils:IsWorldMapFullscreen()
 	return fullscreenWasMaximized ~= nil and IsMaximized()
 end
 
+function MapUtils:IsClassicWorldMapSkinned()
+	return frame ~= nil and frame.BorderFrame ~= nil and frame.BorderFrame.fcui ~= nil and MapUtils:IsAddOnActive("ClassicUIForever")
+end
+
 local function CreateFullscreenButton()
 	local arrow = frame.BorderFrame and frame.BorderFrame.MaximizeMinimizeFrame
 	if not arrow or not arrow.Maximize or not arrow.Minimize or not frame.UpdateMaximizedSize or not frame.SynchronizeDisplayState then return end
 
 	local button = CreateFrame("Button", nil, arrow, "UIPanelCloseButton")
 	arrow.MapUtilsFullscreenButton = button
-	button:SetSize(arrow:GetSize())
-	button:SetPoint("RIGHT", arrow, "LEFT", -2, 0)
+	function MapUtils:LayoutWorldMapFullscreenButton()
+		if self.IsSimpleMapFrameActive ~= nil and self:IsSimpleMapFrameActive() then return end
+		local gap = self:IsClassicWorldMapSkinned() and 8 or -2
+		button:SetSize(arrow:GetSize())
+		button:ClearAllPoints()
+		button:SetPoint("RIGHT", arrow, "LEFT", gap, 0)
+	end
+
+	MapUtils:LayoutWorldMapFullscreenButton()
 	local atlas = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("RedButton-MiniCondense")
 	local pressedAtlas = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("RedButton-MiniCondense-Pressed")
 	local hasNativeDash = atlas and (atlas.file or atlas.filename)
 	local face, art, pressed
+	local classicSkin = false
+	local classicFace = button:CreateTexture(nil, "ARTWORK")
+	classicFace:SetAllPoints(button)
+	classicFace:Hide()
+	local classicCenter = button:CreateTexture(nil, "ARTWORK", nil, 1)
+	classicCenter:SetPoint("CENTER", button, "CENTER", 0, 0)
+	classicCenter:SetColorTexture(0.075, 0.075, 0.075, 1)
+	classicCenter:Hide()
 	local function LayoutFace(self, width, height)
+		classicCenter:SetSize(width * 0.52, height * 0.52)
 		if art then
 			art.top:SetHeight(height * 0.49)
 			art.middle:SetHeight(height * 0.29)
@@ -448,14 +468,7 @@ local function CreateFullscreenButton()
 		art.bottom:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 0, 0)
 		art.bottom:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0, 0)
 		PaintArt()
-		button:HookScript("OnMouseDown", function()
-			pressed = true
-			PaintArt()
-		end)
-		button:HookScript("OnMouseUp", function()
-			pressed = false
-			PaintArt()
-		end)
+
 	else
 		face = button:CreateTexture(nil, "ARTWORK")
 		face:SetColorTexture(0.4, 0.06, 0.02)
@@ -466,29 +479,55 @@ local function CreateFullscreenButton()
 
 	local corners = {}
 	for _, corner in ipairs({"TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT"}) do
-		local x = corner:find("LEFT") and 5 or -5
-		local y = corner:find("TOP") and -5 or 5
 		local horizontal = button:CreateTexture(nil, "OVERLAY", nil, 7)
 		horizontal:SetColorTexture(1, 0.82, 0.2)
-		horizontal:SetSize(4, 1)
-		horizontal:SetPoint(corner, x, y)
 		local vertical = button:CreateTexture(nil, "OVERLAY", nil, 7)
 		vertical:SetColorTexture(1, 0.82, 0.2)
-		vertical:SetSize(1, 4)
-		vertical:SetPoint(corner, x, y)
-		tinsert(corners, horizontal)
-		tinsert(corners, vertical)
+		corners[corner] = {horizontal, vertical}
 	end
 
-	local dash
-	if not hasNativeDash then
-		dash = button:CreateTexture(nil, "OVERLAY", nil, 7)
-		dash:SetColorTexture(1, 0.82, 0.2)
-		dash:SetSize(8, 1)
-		dash:SetPoint("BOTTOM", 0, 5)
-		dash:Hide()
+	local function LayoutCorners(classic)
+		local length = classic and 3 or 4
+		for corner, pieces in pairs(corners) do
+			local x = corner:find("LEFT") and 5 or -5
+			local y = corner:find("TOP") and -5 or 5
+			local anchor = corner
+			if classic then
+				anchor = "CENTER"
+				x, y = -x, -y
+			end
+
+			pieces[1]:SetSize(length, 1)
+			pieces[2]:SetSize(1, length)
+			for _, piece in ipairs(pieces) do
+				piece:SetPoint(corner, button, anchor, x, y)
+			end
+		end
 	end
 
+	LayoutCorners(false)
+	local dash = button:CreateTexture(nil, "OVERLAY", nil, 7)
+	dash:SetColorTexture(1, 0.82, 0.2)
+	dash:SetSize(8, 1)
+	dash:SetPoint("BOTTOM", 0, 5)
+	dash:Hide()
+
+	local function RefreshClassicFace()
+		local source = arrow.MaximizeButton
+		local texture = source and (pressed and source:GetPushedTexture() or source:GetNormalTexture())
+		local file = texture and texture:GetTexture()
+		local shown = classicSkin and file ~= nil
+		if shown then
+			classicFace:SetTexture(file)
+			classicFace:SetTexCoord(texture:GetTexCoord())
+			classicFace:SetVertexColor(texture:GetVertexColor())
+		end
+
+		classicFace:SetShown(shown)
+		classicCenter:SetShown(shown)
+
+		return shown
+	end
 	local function ShowTooltip()
 		local key = MapUtils:IsWorldMapFullscreen() and "LID_FULLSCREENEXIT" or "LID_FULLSCREENENTER"
 		GameTooltip:SetText(MapUtils:Trans(key))
@@ -497,14 +536,27 @@ local function CreateFullscreenButton()
 
 	local function RefreshArtwork()
 		local fullscreen = MapUtils:IsWorldMapFullscreen()
-		if art then
-			art.full:SetShown(fullscreen)
-			art.top:SetShown(not fullscreen)
-			art.middle:SetShown(not fullscreen)
-			art.bottom:SetShown(not fullscreen)
+		local classic = MapUtils:IsClassicWorldMapSkinned()
+		if classic or classicSkin then MapUtils:LayoutWorldMapFullscreenButton() end
+		if classicSkin ~= classic then
+			classicSkin = classic
+			LayoutCorners(classic)
+			if MapUtils.LayoutMapMenuButton ~= nil then MapUtils:LayoutMapMenuButton() end
 		end
-		for _, piece in ipairs(corners) do piece:SetShown(not fullscreen) end
-		if dash then dash:SetShown(fullscreen) end
+
+		local classicFaceShown = RefreshClassicFace()
+		if face then face:SetShown(not classicFaceShown) end
+		if art then
+			art.full:SetShown(not classicFaceShown and fullscreen)
+			art.top:SetShown(not classicFaceShown and not fullscreen)
+			art.middle:SetShown(not classicFaceShown and not fullscreen)
+			art.bottom:SetShown(not classicFaceShown and not fullscreen)
+		end
+		for _, pieces in pairs(corners) do
+			pieces[1]:SetShown(not fullscreen)
+			pieces[2]:SetShown(not fullscreen)
+		end
+		dash:SetShown(fullscreen and (classicFaceShown or not hasNativeDash))
 		if GameTooltip:IsOwned(button) then ShowTooltip() end
 	end
 
@@ -512,7 +564,29 @@ local function CreateFullscreenButton()
 		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
 		ShowTooltip()
 	end)
-	button:HookScript("OnShow", RefreshArtwork)
+	local artworkQueued
+	local function QueueArtwork()
+		if artworkQueued or not frame:IsShown() then return end
+		artworkQueued = true
+		C_Timer.After(0, function()
+			artworkQueued = nil
+			if frame:IsShown() then RefreshArtwork() end
+		end)
+	end
+
+	button:HookScript("OnMouseDown", function()
+		pressed = true
+		if art then PaintArt() end
+		RefreshClassicFace()
+	end)
+	button:HookScript("OnMouseUp", function()
+		pressed = false
+		if art then PaintArt() end
+		RefreshClassicFace()
+	end)
+	button:HookScript("OnShow", QueueArtwork)
+	hooksecurefunc(arrow, "SetPoint", QueueArtwork)
+	hooksecurefunc(arrow, "SetSize", QueueArtwork)
 	hooksecurefunc(frame, "SynchronizeDisplayState", MapUtils.Profile("mapframe RefreshArtwork", RefreshArtwork))
 	button:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	button:SetScript("OnClick", function()
@@ -1102,11 +1176,13 @@ function SmoothZoom.Glide(container, toScale, toX, toY, onDone)
 		["glide"] = true,
 		["onDone"] = onDone,
 	}
+	if not MapUtils:GetConfig("ONEMAPTRANSITIONS", false) then SmoothZoom.StepCenter(container, SmoothZoom.centerDuration) end
 
 	return true
 end
 
 function SmoothZoom.GlideInto(container, target)
+	if not MapUtils:GetConfig("ONEMAPTRANSITIONS", false) then return false end
 	if container == nil or not SmoothZoom.CanSwitch(container) then return false end
 	local hostLeft, hostRight, hostTop, hostBottom = MapUtils:GetZoneDetailSpaceRect(container.mapID)
 	local space = MapUtils:GetZoneDetailSpace(container.mapID)
@@ -1591,7 +1667,7 @@ function MapUtils:CenterWorldMapOnUnit(unit, follow)
 
 	if instant then center.time = SmoothZoom.centerDuration end
 	SmoothZoom.center = center
-	if not MapLevelZoom.installed then SmoothZoom.StepCenter(container, SmoothZoom.centerDuration) end
+	if not MapLevelZoom.installed or (switched and not MapUtils:GetConfig("ONEMAPTRANSITIONS", false)) then SmoothZoom.StepCenter(container, SmoothZoom.centerDuration) end
 
 	return true
 end

@@ -5,6 +5,9 @@ local INFO = MapUtils.QUESTINFO
 local QG = {}
 local ICON_ATLAS = "QuestNormal"
 local ICON_FILE = "Interface\\GossipFrame\\AvailableQuestIcon"
+local REPEATABLE_ATLAS = "UI-QuestPoiRecurring-QuestBang"
+local REPEATABLE_FILE = "Interface\\GossipFrame\\DailyQuestIcon"
+local REPEATABLE_COLOR = "|cff3399ff"
 local TURNIN_ATLAS = "QuestTurnin"
 local TURNIN_FILE = "Interface\\GossipFrame\\ActiveQuestIcon"
 local ICON_SIZE = 18
@@ -180,6 +183,7 @@ function QG.ReadPlayer()
 	for index, key in ipairs(CATEGORY_KEYS) do
 		enabledCategories[index] = MapUtils:GetConfig(key, false) == true
 	end
+	QG.showPvP = MapUtils:GetConfig("QUESTGIVERPVP", false) == true
 end
 
 function QG.AllDone(list)
@@ -212,6 +216,19 @@ function QG.GetLevel(quest)
 	return player.level
 end
 
+function QG.IsRepeatable(questID, quest)
+	if quest[5] == 2 or quest[5] == 3 or QG.HasBit(quest[23] or 0, 1) then return true end
+
+	return C_QuestLog and C_QuestLog.IsRepeatableQuest and C_QuestLog.IsRepeatableQuest(questID) == true
+end
+
+function QG.IsPvP(questID, quest)
+	if quest and QG.HasBit(quest[23] or 0, 2) then return true end
+	local tag = C_QuestLog and C_QuestLog.GetQuestTagInfo and C_QuestLog.GetQuestTagInfo(questID)
+
+	return tag and tag.tagID == 41
+end
+
 function QG.IsAvailable(questID, quest, giverSide)
 	if inLog[questID] or quest[2] > player.level then return false end
 	local level = QG.GetLevel(quest)
@@ -220,6 +237,8 @@ function QG.IsAvailable(questID, quest, giverSide)
 	if quest[6] and player.level > quest[6] then return false end
 	if player.side ~= 0 and ((quest[4] and quest[4] ~= player.side) or (giverSide and giverSide ~= player.side)) then return false end
 	if quest[5] and not enabledCategories[quest[5]] then return false end
+	if quest[5] ~= 2 and not enabledCategories[3] and QG.IsRepeatable(questID, quest) then return false end
+	if not QG.showPvP and QG.IsPvP(questID, quest) then return false end
 	if quest[7] and player.race and not QG.HasBit(quest[7], player.race) then return false end
 	if quest[8] and player.class and not QG.HasBit(quest[8], player.class) then return false end
 	if QG.IsDone(questID) then return false end
@@ -313,7 +332,7 @@ function QG.GetTurnIns(giver)
 	if not QG.showEnds or giver[5] == nil then return nil end
 	local quests = nil
 	for _, questID in ipairs(giver[5]) do
-		if complete[questID] and not nativeQuests.current[questID] then
+		if complete[questID] and not nativeQuests.current[questID] and (QG.showPvP or not QG.IsPvP(questID, INFO[questID])) then
 			quests = quests or {}
 			tinsert(quests, questID)
 		end
@@ -337,6 +356,7 @@ function QG.GetAvailableCache()
 		key = key .. (enabledCategories[index] and "1" or "0")
 	end
 
+	key = key .. (QG.showPvP and "1" or "0")
 	local now = GetTime()
 	if QG.available == nil or QG.stale or QG.availableKey ~= key or now - (QG.availableTime or 0) > 30 then
 		QG.available = {}
@@ -362,7 +382,7 @@ function QG.Collect(mapID)
 			if QG.showStarts then
 				for _, questID in ipairs(giver[3]) do
 					local quest = INFO[questID]
-					local key = giver[4] and (questID * 4 + giver[4]) or questID * 4
+					local key = questID * 4 + (giver[4] or 0)
 					if available[key] == nil then available[key] = quest ~= nil and QG.IsAvailable(questID, quest, giver[4]) end
 					if available[key] then
 						quests = quests or {}
@@ -403,6 +423,13 @@ function QG.GetTitle(questID, fallback)
 	if type(title) == "string" and title ~= "" and not MapUtils:IsSecret(title) then return title end
 
 	return fallback
+end
+
+function QG.GetColoredTitle(questID, quest)
+	local title = QG.GetTitle(questID, quest and quest[3] or tostring(questID))
+	if quest and QG.IsRepeatable(questID, quest) then return REPEATABLE_COLOR .. title .. "|r", true end
+
+	return title
 end
 
 function QG.GetXP(quest)
@@ -502,7 +529,7 @@ function QG.AddQuestDetails(questID, quest)
 			first = false
 		end
 
-		GameTooltip:AddLine(QG.CHAIN_INDENT .. QG.GetTitle(nextID, INFO[nextID][3]), 0.75, 0.75, 0.75)
+		GameTooltip:AddLine(QG.CHAIN_INDENT .. QG.GetColoredTitle(nextID, INFO[nextID]), 0.75, 0.75, 0.75)
 		nextID = INFO[nextID][18]
 	end
 end
@@ -513,14 +540,17 @@ function QG.AddQuestLines(quests)
 		local quest = INFO[questID]
 		local level = QG.GetLevel(quest)
 		local color = GetQuestDifficultyColor and GetQuestDifficultyColor(level)
+		local title, repeatable = QG.GetColoredTitle(questID, quest)
+		local levelLabel = repeatable and format("%s[|r%d%s]|r", REPEATABLE_COLOR, level, REPEATABLE_COLOR) or format("[%d]", level)
 		local tag = ""
 		if quest[22] then tag = " |cff9d9d9d(" .. MapUtils:Trans(INSTANCE_TAGS[quest[22]]) .. ")|r" end
-		if quest[5] then tag = tag .. " |cff9d9d9d(" .. MapUtils:Trans(CATEGORY_TAGS[quest[5]]) .. ")|r" end
+		local category = quest[5] or (repeatable and 3)
+		if category then tag = tag .. " |cff9d9d9d(" .. MapUtils:Trans(CATEGORY_TAGS[category]) .. ")|r" end
 		if details and index > 1 then GameTooltip:AddLine(" ") end
 		if color then
-			GameTooltip:AddLine(format("%s[%d] %s%s", QG.INDENT, level, QG.GetTitle(questID, quest[3]), tag), color.r, color.g, color.b, true)
+			GameTooltip:AddLine(format("%s%s %s%s", QG.INDENT, levelLabel, title, tag), color.r, color.g, color.b, true)
 		else
-			GameTooltip:AddLine(format("%s[%d] %s%s", QG.INDENT, level, QG.GetTitle(questID, quest[3]), tag), 1, 1, 1, true)
+			GameTooltip:AddLine(format("%s%s %s%s", QG.INDENT, levelLabel, title, tag), 1, 1, 1, true)
 		end
 
 		if details then QG.AddQuestDetails(questID, quest) end
@@ -556,7 +586,7 @@ function QG.OnEnter(pin)
 
 			for _, questID in ipairs(spot.turnins or {}) do
 				local quest = INFO[questID]
-				GameTooltip:AddLine(format("%s%s: %s", QG.INDENT, MapUtils:Trans("LID_QUESTTURNIN"), QG.GetTitle(questID, quest and quest[3] or tostring(questID))), 0.25, 1, 0.25, true)
+				GameTooltip:AddLine(format("%s%s: %s", QG.INDENT, MapUtils:Trans("LID_QUESTTURNIN"), QG.GetColoredTitle(questID, quest)), 0.25, 1, 0.25, true)
 			end
 
 			if QG.AddQuestLines(spot.quests or {}) then hasQuests = true end
@@ -724,14 +754,13 @@ function QG.CreatePin(canvas)
 	return pin
 end
 
-function QG.SetPinIcon(pin, turnin)
-	if pin.turnin == turnin then return end
-	pin.turnin = turnin
-	local atlas = turnin and TURNIN_ATLAS or ICON_ATLAS
+function QG.SetPinIcon(pin, atlas, fallback)
+	if pin.iconAtlas == atlas then return end
+	pin.iconAtlas = atlas
 	if C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas) then
 		pin.icon:SetAtlas(atlas)
 	else
-		pin.icon:SetTexture(turnin and TURNIN_FILE or ICON_FILE)
+		pin.icon:SetTexture(fallback)
 	end
 end
 
@@ -741,6 +770,18 @@ function QG.HasTurnIn(cluster)
 	end
 
 	return false
+end
+
+function QG.HasOnlyRepeatableStarts(cluster)
+	local hasStarts = false
+	for _, spot in ipairs(cluster.spots) do
+		for _, questID in ipairs(spot.quests or {}) do
+			if not QG.IsRepeatable(questID, INFO[questID]) then return false end
+			hasStarts = true
+		end
+	end
+
+	return hasStarts
 end
 
 function QG.HidePins()
@@ -828,7 +869,13 @@ function QG.Layout(canvas)
 		end
 
 		pin.cluster = cluster
-		QG.SetPinIcon(pin, QG.HasTurnIn(cluster))
+		if QG.HasTurnIn(cluster) then
+			QG.SetPinIcon(pin, TURNIN_ATLAS, TURNIN_FILE)
+		elseif QG.HasOnlyRepeatableStarts(cluster) then
+			QG.SetPinIcon(pin, REPEATABLE_ATLAS, REPEATABLE_FILE)
+		else
+			QG.SetPinIcon(pin, ICON_ATLAS, ICON_FILE)
+		end
 		pin:SetSize(size, size)
 		local circle = size * CIRCLE_SCALE
 		for _, texture in ipairs({pin.normal, pin.pushed, pin.highlight}) do

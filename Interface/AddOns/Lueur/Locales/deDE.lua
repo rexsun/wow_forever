@@ -21,7 +21,7 @@ L.COMMANDS = {
 	reichweite = "range", exklusiv = "exclusive", kampf = "combat", instanz = "instance", gesperrt = "unavailable", beruf = "profession",
 	erz = "ore", kraut = "herb", truhe = "chest", schwimmer = "bobber", sonstiges = "other", ignorieren = "ignore", liste = "list",
 	leeren = "clear", ziele = "objectives", hilfe = "help", taste = "key", keine = "none", sprache = "language",
-	sammelpunkte = "nodes", wechseln = "switch", abtasten = "scan", rand = "ring",
+	wechseln = "switch", profil = "profile", tauschen = "swap",
 	nurlicht = "glowonly",
 }
 
@@ -144,6 +144,10 @@ L.FONT_TIP = "Schriftart des Namens über dem Objekt."
 L.FONT_GAME = "Spielschrift"
 L.COLOR = "Farbe"
 L.COLOR_TIP = "Die Farbe des Effekts auf diesen Objekten."
+L.COLOR_SECOND = "Zweite Farbe"
+L.COLOR_SECOND_TIP = "Die Farbe der feinen Linien und Funken des Effekts auf diesen Objekten. Dieselbe wie die erste, bis du eine wählst."
+L.TIP_COLOR_SAME = "Rechtsklick: wie die erste Farbe"
+L.TIP_COLOR_SWAP = "Umschalt-Klick: beide Farben tauschen"
 L.TIP_COLOR_SET = "Linksklick: Farbe wählen"
 L.TIP_COLOR_RESET = "Rechtsklick: zurück zur ursprünglichen Farbe"
 L.IGNORED = "Ignorierte Objekte: %d"
@@ -196,29 +200,27 @@ L.MINIMAP_TIP = "Zeigt den Knopf von Lueur am Rand der Minikarte."
 L.DEBUG = "Diagnose im Chat"
 L.DEBUG_TIP = "Beschreibt im Chatfenster jedes anvisierte Objekt und was Lueur daraus schließt."
 
-L.NODES_PAGE = "Kräuter und Erze auf der Minikarte"
-L.HEADER_NODES = "Symbole auf der Minikarte"
 L.HEADER_SWITCH = "Zwei Sammelberufe"
-L.NODE_HERBS = "Kräutersymbole"
-L.NODE_HERBS_TIP = "Jedes Kraut, das deine Suche auf der Minikarte anzeigt, erscheint dort mit seinem eigenen Symbol statt als einfacher Punkt."
-L.NODE_ORE = "Erzsymbole"
-L.NODE_ORE_TIP = "Jedes Erzvorkommen, das deine Suche auf der Minikarte anzeigt, erscheint dort mit dem Symbol seines Erzes statt als einfacher Punkt."
-L.NODE_SIZE = "Symbolgröße"
-L.NODE_SIZE_TIP = "Wie groß die Symbole auf der Minikarte sind."
-L.NODE_RING = "Ringstärke"
-L.NODE_RING_TIP = "Wie dick der farbige Ring um jedes Symbol ist, der zeigt, wie schwer das Vorkommen für deine Fertigkeit ist. Bei 0 % kein Ring."
-L.NODE_COMBAT = "Minikarte im Kampf lesen"
-L.NODE_COMBAT_TIP = "Lueur liest die Minikarte auch während eines Kampfes. Abwählen, um sie bis zum Ende des Kampfes in Ruhe zu lassen."
-L.HEADER_SCANNING = "Lesen der Minikarte"
-L.NODE_SCAN_YARDS = "Abstand zwischen zwei Scans"
-L.NODE_SCAN_YARDS_TIP = "Wie weit du gehst, bevor Lueur die Minikarte erneut liest. Jeder Scan blendet sie kurz aus: weiter auseinander seltener, neue Vorkommen erscheinen dafür später."
 L.NODE_SWITCH = "Beide Suchen abwechseln"
-L.NODE_SWITCH_TIP = "Das Spiel zeigt die Punkte der Kräutersuche oder die der Mineraliensuche, nie beide. Lueur schaltet die andere Suche ein, sobald du dich weit genug bewegt hast, und behält die Symbole beider auf der Minikarte. Jeder Charakter hat seine eigene Einstellung."
+L.NODE_SWITCH_TIP = "Das Spiel zeigt die Punkte der Kräutersuche oder die der Mineraliensuche, nie beide. Lueur schaltet die andere Suche ein, sobald du dich weit genug bewegt hast. Jeder Charakter hat seine eigene Einstellung."
 L.NODE_SWITCH_YARDS = "Strecke zwischen zwei Wechseln"
 L.NODE_SWITCH_YARDS_TIP = "Wie weit du läufst, bevor Lueur die andere Suche einschaltet."
 
 L.PREVIEW_NO_MODEL = "3D-Modell auf diesem Client nicht verfügbar"
 L.PREVIEW_HINT = "Ziehen: drehen  ·  Rechtsklick: verschieben  ·  Mausrad: zoomen"
+L.HEADER_PROFILE = "Profil"
+L.HEADER_PROFILE_TIP = "Ein benannter Satz von Einstellungen für Effekt, Erkennung und Ausblenden. Jeder Charakter nutzt das hier gewählte Profil."
+L.PROFILE_DEFAULT = "Standard"
+L.PROFILE_NEW = "Neu"
+L.PROFILE_NEW_TIP = "Erstellt ein Profil mit den ursprünglichen Einstellungen und gibt es diesem Charakter."
+L.PROFILE_COPY = "Kopieren"
+L.PROFILE_COPY_TIP = "Erstellt ein Profil mit den Einstellungen dieses Profils und gibt es diesem Charakter."
+L.PROFILE_RENAME = "Name"
+L.PROFILE_RENAME_TIP = "Gibt diesem Profil einen anderen Namen."
+L.PROFILE_DELETE = "Löschen"
+L.PROFILE_DELETE_TIP = "Löscht dieses Profil. Charaktere, die es nutzten, erhalten wieder das erste. Ein zweiter Klick bestätigt."
+L.PROFILE_OK = "OK"
+L.PROFILE_CANCEL = "Abbrechen"
 L.DEFAULTS = "Standard"
 L.DEFAULTS_TIP = "Setzt die Einstellungen von Effekt und Erkennung auf ihre ursprünglichen Werte zurück. Ein zweiter Klick bestätigt."
 L.FOOTER = "Lueur %s  ·  /lueur hilfe: alle Befehle"
@@ -239,7 +241,6 @@ L.TIP_DRAG = "Ziehen: diesen Knopf verschieben"
 L.MSG_ENABLED = "aktiviert."
 L.MSG_DISABLED = "deaktiviert, deine ursprünglichen Einstellungen sind wiederhergestellt."
 L.MSG_RESTART = "starte das Spiel vollständig neu, um die Aktualisierung von Lueur abzuschließen."
-L.MSG_NODES_OFF = "die Minikartensymbole für Kräuter und Erze sind jetzt standardmäßig aus, und dieses Update hat sie ausgeschaltet. Schalte sie in den Einstellungen (/lueur) oder mit /lueur nodes wieder ein."
 L.MSG_EXCLUSIVE_ON = "das Spiel weist nicht mehr auf Ziele hin, die keinen Effekt erhalten."
 L.MSG_EXCLUSIVE_OFF = "das Spiel zeigt Namen und Symbol aller Interaktionsziele (NSCs, Objekte der Spielwelt…)."
 L.MSG_SILHOUETTE_ON = "der Effekt liegt hinter deinem Charakter."
@@ -251,6 +252,7 @@ L.MSG_SILHOUETTE_VALUES = "Silhouette: Größe %d %%, Höhe %d %%"
 L.MSG_SILHOUETTE_USAGE = "Verwendung: /lueur silhouette | zeigen | <Größe {bodyScale}> [Höhe {bodyShift}]"
 L.MSG_EFFECTS = "verfügbare Effekte: %s (aktuell: %s)"
 L.MSG_FONTS = "verfügbare Schriftarten: %s (aktuell: %s)"
+L.MSG_COLOR_TWO = "%s: Farben %s und %s"
 L.MSG_COLOR = "%s: Farbe %s"
 L.MSG_NO_PICKER = "dieser Client hat keine Farbauswahl: Tippe /lueur farbe <Kategorie> <rrggbb>."
 L.MSG_SHARED = "%s: wieder Effekt und Aussehen aller Objekte."
@@ -271,13 +273,10 @@ L.MSG_RANGE_CLIENT = "Reichweite: %d m angefordert, der Client hat %s behalten."
 L.MSG_KEY_COMBAT = "die Tastaturbelegung lässt sich im Kampf nicht ändern."
 L.MSG_KEY_REFUSED = "das Spiel hat die Taste „%s“ abgelehnt."
 L.MSG_KEY_REPLACED = "%s löst nicht mehr „%s“ aus."
-L.MSG_NODES_UNAVAILABLE = "Symbole auf der Minikarte nicht verfügbar: %s."
 
 L.FAIL_NO_MASK = "dieser Client unterstützt keine Masken"
 L.FAIL_MASK_TEXTURE = "Maskentextur nicht gefunden (Spiel vollständig neu starten)"
 L.FAIL_MASK_REFUSED = "der Client hat die Maske abgelehnt"
-L.FAIL_NO_SCAN = "dieser Client lässt ein Addon die Punkte der Minikarte nicht lesen"
-L.FAIL_SCAN_ERROR = "das Spiel hat das Abtasten der Minikarte verweigert (/lueur abtasten sagt, warum)"
 
 L.STATUS_CLIENT = "Client %s (%s), Sprache %s; Texte von Lueur: %s. Geltende Werte:"
 L.STATUS_CVAR_UNKNOWN = "diesem Client unbekannt"
@@ -293,9 +292,13 @@ L.STATUS_DIRECT = "Ziel direkt über „softinteract“ gelesen: %s"
 L.STATUS_NOT_YET = "noch nicht beobachtet"
 L.STATUS_RANGE_API = "Interaktionsreichweite lesbar: %s"
 L.STATUS_LINE = "Angelschnur im Wasser: %s | laufende Kanalisierung: %s"
-L.STATUS_NODES = "Symbole auf der Minikarte: %s"
-L.STATUS_NODES_SHOWN = "Kräuter %s, Erze %s, Suchen abgewechselt %s"
 L.STATUS_HIDE = "im Kampf ausgeblendet: %s | in Instanzen: %s | auf nicht nutzbaren Objekten: %s | im Moment pausiert: %s"
+L.STATUS_SWITCH = "Suchen im Wechsel: %s | verfügbar: %s"
+L.MSG_PROFILES = "Profile: %s. Dieser Charakter nutzt: %s."
+L.MSG_PROFILE_UNNAMED = "ein Profil braucht einen Namen."
+L.MSG_PROFILE_TAKEN = "ein anderes Profil heißt bereits %s."
+L.STATUS_PROFILE = "Profil: %s | Profile: %d"
+L.STATUS_COST = "CPU seit dem letzten Status: Ziel %d Aufrufe, je %.3f ms (längster %.2f) | Animation %d Bilder, je %.3f ms (längstes %.2f)"
 L.STATUS_TRAINED = "kein Effekt auf Kräutern und Erz ohne den Beruf: %s | Kräuterkunde: %s, Bergbau: %s"
 L.STATUS_OBJECTS = "auf diesem Charakter angezeigte Kategorien: %s | ignorierte Objekte: %d"
 L.STATUS_OWN = "Kategorien mit eigenen Einstellungen: %s"
@@ -309,44 +312,6 @@ L.OBJECTIVES_HEADER = "%d laufende(s) Questziel(e):"
 L.OBJECTIVES_NOT_ITEM = "  (kein Objekt: nur mit dem ganzen Namen verglichen)"
 L.OBJECTIVES_LEARNED = "aus einem Tooltip gelernt: %s (%s)"
 
-L.SCAN_HEADER = "Abtasten der Minikarte: %s"
-L.SCAN_READY = "verfügbar"
-L.SCAN_TRACKING = "Suchen der Sammelberufe: %s"
-L.SCAN_SKILL = "gelesene Fertigkeit: Kräuterkunde %s, Bergbau %s"
-L.SCAN_VIEW = "Radius der Minikarte: %s m | dreht sich mit dir: %s | Position auf der Karte bekannt: %s | ein Punkt antwortet im Umkreis von %s Einheiten"
-L.SCAN_TWICE = "ein Name doppelt geschrieben, wo sich zwei Punkte überlagern: %s"
-L.SCAN_PLACED = "Symbole: %d genau platziert, %d in einer Gruppe, %d ungefähr, %d von der ausgeschalteten Suche behalten, %d nicht wiedergefunden | letztes Abtasten: %d Punkte in %.2f s, %d Gruppe(n) genauer betrachtet"
-L.SCAN_NODE = "%s: %s, antwortet im Umkreis von %s Einheiten, bei (%+.0f, %+.0f) von der Mitte der Minikarte"
-L.SCAN_HOW_EXACT = "genau platziert"
-L.SCAN_HOW_CLUSTER = "in einer Gruppe"
-L.SCAN_HOW_ROUGH = "ungefähr"
-L.SCAN_HOW_HELD = "von der ausgeschalteten Suche behalten"
-L.SCAN_HOW_MISSED = "nicht wiedergefunden"
-L.SCAN_FOUND = "%d Name(n) beim letzten Abtasten gelesen, %d Symbol(e):"
-L.SCAN_NOT_NODE = "weder ein Kraut noch ein Vorkommen, das Lueur kennt"
-L.SCAN_NEEDS = ", benötigt %d"
-L.SCAN_CAVE = ", in einer Höhle"
-L.SCAN_VIGNETTES = "Vignetten, die das Spiel auflistet: %s"
-L.SCAN_DATA = "Daten des Punkts unter dem Zeiger, außer seinem Text: %s"
-L.SCAN_POINTER = "unter dem Zeiger: %s"
-L.SCAN_READER = "Minikarte unter der Maus | letzter Scan: %d Bilder, %d Rasterpunkte%s, %d bekannte Vorkommen geprüft, %d Gruppen vermessen, %d Punkte neu gesetzt | %d-mal unterbrochen, zuletzt: %s | wartet auf: %s | Deckkraft nach Änderung durch anderen Code auf 0 zurückgesetzt: %d-mal"
-L.SCAN_HIDE = "verborgen durch ihre %s | Form: %s | %d ihrer Rahmen mit ihr verborgen, %d inzwischen wieder gezeigt und erneut verborgen"
-L.SCAN_BY_MASK = "Maske"
-L.SCAN_BY_ALPHA = "Deckkraft"
-L.SCAN_FULL = " (ganze Minikarte)"
-L.SCAN_SOON = "die Minikarte wird gescannt, sobald sie unter die Maus kann"
-L.SCAN_BUSY = "ein Scan der Minikarte läuft"
-L.SCAN_WHY_COMBAT = "Kampf"
-L.SCAN_WHY_HIDDEN = "Minikarte ausgeblendet"
-L.SCAN_WHY_POINTER = "Maus auf der Minikarte"
-L.SCAN_WHY_CAMERA = "Kamera mit der Maus gedreht"
-L.SCAN_WHY_WINDOW = "Maus über einem Fenster"
-L.SCAN_WHY_ZOOM = "Minikarte gezoomt"
-L.SCAN_WHY_TURN = "Minikarte gedreht"
-L.SCAN_WHY_MAP = "andere Karte"
-L.SCAN_WHY_TAXI = "ein Flug"
-L.SCAN_WHY_NPC = "ein offenes NSC-Fenster"
-L.SCAN_NOTHING = "nichts (setze den Zeiger auf einen Punkt der Minikarte und gib den Befehl erneut ein)"
 
 ---------------------------------------------------------------------------
 -- Diagnostic (/lueur debug)
@@ -392,7 +357,7 @@ L.HELP = {
 	"/lueur on | off — aktiviert oder deaktiviert Lueur (off stellt deine Einstellungen wieder her)",
 	"/lueur vorschau — öffnet das Einstellungsfenster mit der Vorschau, die den Effekt auf einem 3D-Objekt zeigt",
 	"/lueur effekt [Kategorie] <Name> — gibt diesen Effekt allen Kategorien oder nur einer (erz, kraut, quest, truhe, schwimmer, sonstiges); ohne Namen werden die Effekte aufgelistet",
-	"/lueur farbe <Kategorie> <rrggbb> | standard — Farbe des Effekts einer Kategorie; ohne Farbe wird sie angezeigt",
+	"/lueur farbe <Kategorie> <rrggbb> [<rrggbb>] | tauschen | standard — Farbe des Effekts einer Kategorie, und eine zweite Farbe für seine feinen Linien und Funken; tauschen vertauscht beide; ohne Farbe werden sie angezeigt",
 	"/lueur gemeinsam <Kategorie> — gibt einer Kategorie wieder Effekt und Aussehen aller Objekte",
 	"/lueur größe [Kategorie] <{size}> — Größe des Effekts (Standard {size=})",
 	"/lueur intensität [Kategorie] <{intensity}> — Helligkeit des Effekts, in % (Standard {intensity=})",
@@ -409,11 +374,10 @@ L.HELP = {
 	"/lueur kampf | instanz | gesperrt | beruf — ob der Effekt im Kampf, in Instanzen, auf nicht nutzbaren Objekten, auf Kräutern und Erz ohne den Beruf ausgeblendet wird",
 	"/lueur taste <TASTE> | keine — belegt die Taste, die das hervorgehobene Objekt aufhebt (F, SHIFT-E, BUTTON4…); ohne Taste wird sie angezeigt",
 	"/lueur erz | kraut | quest | truhe | schwimmer | sonstiges — zeigt oder verbirgt eine Kategorie, für diesen Charakter",
-	"/lueur sammelpunkte [erz | kraut] — zeigt oder verbirgt die Symbole der Kräuter und Erzvorkommen auf der Minikarte; sammelpunkte größe <{nodeSize}> stellt ihre Größe ein (Standard {nodeSize=}); sammelpunkte rand <{nodeRing}> stellt die Stärke ihres farbigen Rings ein, 0 für keinen (Standard {nodeRing=}); sammelpunkte kampf: ob die Minikarte im Kampf gelesen wird",
+	"/lueur profil [<Name>] — listet die Profile auf oder gibt diesem Charakter das mit diesem Namen",
 	"/lueur wechseln [<{nodeSwitchYards}>] — mit beiden Sammelberufen: wechselt beim Laufen zwischen Kräutersuche und Mineraliensuche; eine Zahl stellt die Strecke zwischen zwei Wechseln ein, in Metern (Standard {nodeSwitchYards=})",
-	"/lueur abtasten — zeigt, was das letzte Abtasten der Minikarte gelesen hat und was Lueur daraus gemacht hat; abtasten <{nodeScanYards}> stellt den Abstand zwischen zwei Scans in Metern ein (Standard {nodeScanYards=})",
 	"/lueur ignorieren — ignoriert das Objekt, vor dem du stehst, und alle gleichnamigen (zweimal bei einem ignorierten Objekt: hebt das auf); ignorieren liste, ignorieren leeren, ignorieren <Name>",
-	"/lueur sprache <auto | de | en | es | fr | ru> — Sprache der Texte und Befehle von Lueur",
+	"/lueur sprache <auto | de | en | es | fr | it | ko | pt | ru | zhCN | zhTW> — Sprache der Texte und Befehle von Lueur",
 	"/lueur debug — beschreibt jedes anvisierte Objekt und was Lueur daraus schließt",
 	"/lueur ziele — listet die Questziele auf, mit denen Objektnamen verglichen werden",
 	"/lueur status — zeigt die Werte, die der Client tatsächlich anwendet",

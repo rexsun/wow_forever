@@ -1,11 +1,11 @@
 -- Lueur : les effets
--- Un effet est une façon de dessiner la lueur posée sur l'objet visé. Lueur.lua fait vivre
+-- Un effet est une façon de dessiner la lueur posée sur l'objet visé. Glow.lua fait vivre
 -- l'état commun à tous (arrivée, à portée, indisponible, couleur) et le passe à chaque image
 -- à l'effet choisi, qui ne fait que placer et teinter ses propres couches.
 --
 -- Un effet déclare :
 --   Build(fx, Layer)  crée ses couches dans fx ; Layer(image, couche, sous-couche, mélange)
---   Update(fx, c)     les anime ; c décrit l'image en cours (voir Animate dans Lueur.lua)
+--   Update(fx, c)     les anime ; c décrit l'image en cours (voir Animate dans Glow.lua)
 --   wave, flat        l'image de ses ondes et leur aplatissement ; sans wave, pas d'ondes
 --   waveGain          leur intensité ; ping = false : pas d'onde régulière
 --   band              l'image de sa dissipation, quand ce n'est pas une simple lueur
@@ -270,8 +270,12 @@ EFFECTS.brackets = {
 		Sized(fx.haze, size * (1.5 + 0.1 * c.breath))
 		Tint(fx.haze, c.r, c.g, c.b, alpha * Lerp(0.30, 0.50, ready))
 
-		-- traînes : deux images du cadre le suivent avec retard, et ne se voient que pendant qu'il tourne
+		-- traînes : deux images du cadre le suivent avec retard, et ne se voient que pendant qu'il tourne ;
+		-- sur une nouvelle cible elles repartent du cadre, et non de là où la précédente les avait laissées
+		local fresh = c.arrive < (fx.arrive or 1)
+		fx.arrive = c.arrive
 		for _, echo in ipairs(fx.echoes) do
+			if fresh then echo.angle, echo.size = nil, nil end
 			local follow = min(c.elapsed * echo.rate, 1)
 			echo.angle = Lerp(echo.angle or angle, angle, follow)
 			echo.size = Lerp(echo.size or size, size, follow)
@@ -888,12 +892,16 @@ EFFECTS.storm = {
 		fx.cloud = {}
 		for i = 1, #CLOUD do fx.cloud[i] = { dark = Layer("glow", "OVERLAY", 0, "BLEND"), lit = Layer("glow", "OVERLAY", 1) } end
 		fx.flare = Layer("flare", "OVERLAY", 2)
+		fx.flash = 0
 	end,
 
 	Update = function(fx, c)
 		local size, alpha, ready, locked, flash = c.size, c.alpha, c.ready, c.locked, c.flash
 		local foot = FOOT * size
 		local time = -c.spin
+		-- (le passage à portée : l'éclair remonte. Un seuil sur sa valeur se manquait quand l'image tardait.)
+		local burst = flash > fx.flash
+		fx.flash = flash
 		-- le nuage descend se former au-dessus de l'objet
 		local ceiling = foot + size * (1.25 + 0.5 * (1 - c.arrive) + 0.02 * sin(c.phase))
 		fx.waveSize, fx.waveY = size * 1.0, foot
@@ -903,7 +911,7 @@ EFFECTS.storm = {
 		local strike = 0  -- l'éclat du plus vif des éclairs : le nuage, le sol et le cœur s'illuminent avec lui
 		for _, bolt in ipairs(fx.bolts) do
 			bolt.age = bolt.age + c.elapsed
-			if bolt.age >= bolt.life + bolt.pause or flash > 0.92 and bolt.age > 0.05 then
+			if bolt.age >= bolt.life + bolt.pause or burst then
 				bolt.age = 0
 				bolt.life = 0.16 + 0.14 * random()
 				bolt.pause = Lerp(3.2, 1.6, ready) + random() * Lerp(4.0, 2.2, ready)
@@ -1019,7 +1027,8 @@ EFFECTS.geyser = {
 			local landed = rise < 0
 			Place(drop.texture, c.frame, drop.vx * t * size * 0.95, foot + max(rise, 0) * size * 0.95)
 			Sized(drop.texture, size * (index % 3 == 0 and 0.34 or 0.15) * (1 - 0.5 * t))
-			Tint(drop.texture, c.wr, c.wg, c.wb, alpha * (landed and 0 or min(t * 10, 1) * (1 - t) ^ 0.6) * (1 - locked))
+			-- (elle s'éteint en approchant du sol, au lieu d'y disparaître d'un coup)
+			Tint(drop.texture, c.wr, c.wg, c.wb, alpha * (landed and 0 or min(t * 10, 1) * (1 - t) ^ 0.6 * min(rise * 9, 1)) * (1 - locked))
 		end
 
 		Sized(fx.flare, size * (0.30 + 0.08 * ready + 0.05 * c.twinkle + 0.40 * flash))

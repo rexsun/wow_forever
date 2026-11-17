@@ -22,7 +22,7 @@ L.COMMANDS = {
 	mineral = "ore", hierba = "herb", ["misión"] = "quest", cofre = "chest", corcho = "bobber", otro = "other", ignorar = "ignore",
 	lista = "list", vaciar = "clear", objetivos = "objectives", estado = "status", ayuda = "help", tecla = "key",
 	ninguna = "none", idioma = "language",
-	recursos = "nodes", alternar = "switch", barrido = "scan", borde = "ring",
+	alternar = "switch", perfil = "profile", intercambiar = "swap",
 	sololuz = "glowonly",
 }
 
@@ -145,6 +145,10 @@ L.FONT_TIP = "Fuente del nombre escrito sobre el objeto."
 L.FONT_GAME = "Fuente del juego"
 L.COLOR = "Color"
 L.COLOR_TIP = "El color del efecto en estos objetos."
+L.COLOR_SECOND = "Segundo color"
+L.COLOR_SECOND_TIP = "El color de los trazos finos y destellos del efecto en estos objetos. El mismo que el primero hasta que elijas uno."
+L.TIP_COLOR_SAME = "Clic derecho: igual que el primero"
+L.TIP_COLOR_SWAP = "Mayús-clic: intercambiar los dos colores"
 L.TIP_COLOR_SET = "Clic izquierdo: elegir un color"
 L.TIP_COLOR_RESET = "Clic derecho: volver al color original"
 L.IGNORED = "Objetos ignorados: %d"
@@ -197,29 +201,27 @@ L.MINIMAP_TIP = "Muestra el botón de Lueur en el borde del minimapa."
 L.DEBUG = "Diagnóstico en el chat"
 L.DEBUG_TIP = "Describe en la ventana de chat cada objeto apuntado y lo que Lueur deduce de él."
 
-L.NODES_PAGE = "Hierbas y filones en el minimapa"
-L.HEADER_NODES = "Iconos del minimapa"
 L.HEADER_SWITCH = "Dos profesiones de recolección"
-L.NODE_HERBS = "Iconos de las hierbas"
-L.NODE_HERBS_TIP = "Cada hierba que tu rastreo pone en el minimapa aparece con el icono de esa hierba, en lugar de un simple punto."
-L.NODE_ORE = "Iconos de los filones"
-L.NODE_ORE_TIP = "Cada filón que tu rastreo pone en el minimapa aparece con el icono de su mineral, en lugar de un simple punto."
-L.NODE_SIZE = "Tamaño de los iconos"
-L.NODE_SIZE_TIP = "Tamaño de los iconos en el minimapa."
-L.NODE_RING = "Grosor del anillo"
-L.NODE_RING_TIP = "Grosor del anillo de color alrededor de cada icono, que indica lo difícil que es el nodo para tu habilidad. Al 0 %, sin anillo."
-L.NODE_COMBAT = "Leer el minimapa en combate"
-L.NODE_COMBAT_TIP = "Lueur sigue leyendo el minimapa durante un combate. Desmárcalo para dejarlo tranquilo hasta que acabe."
-L.HEADER_SCANNING = "Lectura del minimapa"
-L.NODE_SCAN_YARDS = "Distancia entre escaneos"
-L.NODE_SCAN_YARDS_TIP = "Distancia que recorres antes de que Lueur vuelva a leer el minimapa. Cada escaneo lo oculta un instante: más espaciados, se oculta menos y los nuevos nodos aparecen más tarde."
 L.NODE_SWITCH = "Alternar los dos rastreos"
-L.NODE_SWITCH_TIP = "El juego muestra los puntos de las hierbas o los de los minerales, nunca ambos. Lueur activa el otro rastreo cada vez que te has desplazado lo suficiente, y conserva los iconos de los dos en el minimapa. Cada personaje tiene su ajuste."
+L.NODE_SWITCH_TIP = "El juego muestra los puntos de las hierbas o los de los minerales, nunca ambos. Lueur activa el otro rastreo cada vez que te has desplazado lo suficiente. Cada personaje tiene su ajuste."
 L.NODE_SWITCH_YARDS = "Distancia entre dos cambios"
 L.NODE_SWITCH_YARDS_TIP = "Distancia que recorres antes de que Lueur active el otro rastreo."
 
 L.PREVIEW_NO_MODEL = "Modelo 3D no disponible en este cliente"
 L.PREVIEW_HINT = "Arrastrar: girar  ·  clic derecho: mover  ·  rueda: zoom"
+L.HEADER_PROFILE = "Perfil"
+L.HEADER_PROFILE_TIP = "Un conjunto de ajustes del efecto, de la detección y del ocultamiento, con nombre. Cada personaje usa el perfil elegido aquí."
+L.PROFILE_DEFAULT = "Por defecto"
+L.PROFILE_NEW = "Nuevo"
+L.PROFILE_NEW_TIP = "Crea un perfil con los ajustes originales y se lo da a este personaje."
+L.PROFILE_COPY = "Copiar"
+L.PROFILE_COPY_TIP = "Crea un perfil con los ajustes de este y se lo da a este personaje."
+L.PROFILE_RENAME = "Renombrar"
+L.PROFILE_RENAME_TIP = "Da otro nombre a este perfil."
+L.PROFILE_DELETE = "Eliminar"
+L.PROFILE_DELETE_TIP = "Elimina este perfil. Los personajes que lo usaban vuelven al primero. Un segundo clic lo confirma."
+L.PROFILE_OK = "OK"
+L.PROFILE_CANCEL = "Cancelar"
 L.DEFAULTS = "Por defecto"
 L.DEFAULTS_TIP = "Devuelve los ajustes del efecto y de la detección a sus valores originales. Un segundo clic lo confirma."
 L.FOOTER = "Lueur %s  ·  /lueur ayuda: todos los comandos"
@@ -240,7 +242,6 @@ L.TIP_DRAG = "Arrastrar: mover este botón"
 L.MSG_ENABLED = "activado."
 L.MSG_DISABLED = "desactivado, tus ajustes originales quedan restaurados."
 L.MSG_RESTART = "reinicia el juego por completo para terminar de actualizar Lueur."
-L.MSG_NODES_OFF = "los iconos de hierbas y filones en el minimapa ahora están desactivados por defecto, y esta actualización los ha desactivado. Vuelve a activarlos en los ajustes (/lueur) o con /lueur nodes."
 L.MSG_EXCLUSIVE_ON = "el juego deja de señalar los objetivos que no reciben efecto."
 L.MSG_EXCLUSIVE_OFF = "el juego muestra el nombre y el icono de todos los objetivos de interacción (PNJ, objetos del mundo…)."
 L.MSG_SILHOUETTE_ON = "el efecto pasa por detrás de tu personaje."
@@ -252,6 +253,7 @@ L.MSG_SILHOUETTE_VALUES = "silueta: tamaño %d %%, altura %d %%"
 L.MSG_SILHOUETTE_USAGE = "uso: /lueur silhouette | mostrar | <tamaño {bodyScale}> [altura {bodyShift}]"
 L.MSG_EFFECTS = "efectos disponibles: %s (actual: %s)"
 L.MSG_FONTS = "fuentes disponibles: %s (actual: %s)"
+L.MSG_COLOR_TWO = "%s: colores %s y %s"
 L.MSG_COLOR = "%s: color %s"
 L.MSG_NO_PICKER = "este cliente no tiene selector de color: escribe /lueur color <categoría> <rrggbb>."
 L.MSG_SHARED = "%s: de nuevo el efecto y la apariencia de todos los objetos."
@@ -272,13 +274,10 @@ L.MSG_RANGE_CLIENT = "alcance: %d m pedidos, el cliente se ha quedado con %s."
 L.MSG_KEY_COMBAT = "las teclas no se pueden cambiar en combate."
 L.MSG_KEY_REFUSED = "el juego ha rechazado la tecla «%s»."
 L.MSG_KEY_REPLACED = "%s ya no sirve para «%s»."
-L.MSG_NODES_UNAVAILABLE = "iconos del minimapa no disponibles: %s."
 
 L.FAIL_NO_MASK = "este cliente no admite máscaras"
 L.FAIL_MASK_TEXTURE = "no se encuentra la textura de la máscara (reinicia el juego por completo)"
 L.FAIL_MASK_REFUSED = "el cliente ha rechazado la máscara"
-L.FAIL_NO_SCAN = "este cliente no deja que un addon lea los puntos del minimapa"
-L.FAIL_SCAN_ERROR = "el juego ha rechazado el barrido del minimapa (/lueur barrido dice por qué)"
 
 L.STATUS_CLIENT = "cliente %s (%s), idioma %s; textos de Lueur: %s. Valores vigentes:"
 L.STATUS_CVAR_UNKNOWN = "desconocida para este cliente"
@@ -294,9 +293,13 @@ L.STATUS_DIRECT = "objetivo leído directamente de «softinteract»: %s"
 L.STATUS_NOT_YET = "aún no observado"
 L.STATUS_RANGE_API = "alcance de interacción legible: %s"
 L.STATUS_LINE = "sedal en el agua: %s | canalización en curso: %s"
-L.STATUS_NODES = "iconos del minimapa: %s"
-L.STATUS_NODES_SHOWN = "hierbas %s, filones %s, rastreos alternados %s"
 L.STATUS_HIDE = "oculto en combate: %s | en estancias: %s | en objetos no disponibles: %s | en pausa ahora mismo: %s"
+L.STATUS_SWITCH = "rastreos alternados: %s | disponible: %s"
+L.MSG_PROFILES = "perfiles: %s. Este personaje usa: %s."
+L.MSG_PROFILE_UNNAMED = "el perfil necesita un nombre."
+L.MSG_PROFILE_TAKEN = "otro perfil ya se llama %s."
+L.STATUS_PROFILE = "perfil: %s | perfiles: %d"
+L.STATUS_COST = "CPU desde el último status: objetivo %d llamadas, %.3f ms cada una (la más larga %.2f) | animación %d fotogramas, %.3f ms cada uno (el más largo %.2f)"
 L.STATUS_TRAINED = "sin efecto en hierbas y minerales sin la profesión: %s | herboristería: %s, minería: %s"
 L.STATUS_OBJECTS = "categorías mostradas en este personaje: %s | objetos ignorados: %d"
 L.STATUS_OWN = "categorías con ajustes propios: %s"
@@ -310,44 +313,6 @@ L.OBJECTIVES_HEADER = "%d objetivo(s) de misión en curso:"
 L.OBJECTIVES_NOT_ITEM = "  (no es un objeto: solo se compara con el nombre entero)"
 L.OBJECTIVES_LEARNED = "aprendido de una descripción emergente: %s (%s)"
 
-L.SCAN_HEADER = "barrido del minimapa: %s"
-L.SCAN_READY = "disponible"
-L.SCAN_TRACKING = "rastreos de recolección: %s"
-L.SCAN_SKILL = "habilidad leída: herboristería %s, minería %s"
-L.SCAN_VIEW = "radio del minimapa: %s m | gira contigo: %s | posición conocida en el mapa: %s | un punto responde a %s unidades"
-L.SCAN_TWICE = "un nombre escrito dos veces donde se solapan dos puntos: %s"
-L.SCAN_PLACED = "iconos: %d colocados con exactitud, %d en un grupo, %d aproximados, %d conservados del rastreo apagado, %d no encontrados de nuevo | último barrido: %d puntos en %.2f s, %d grupo(s) mirado(s) de cerca"
-L.SCAN_NODE = "%s: %s, responde a %s unidades, en (%+.0f, %+.0f) desde el centro del minimapa"
-L.SCAN_HOW_EXACT = "colocado con exactitud"
-L.SCAN_HOW_CLUSTER = "en un grupo"
-L.SCAN_HOW_ROUGH = "aproximado"
-L.SCAN_HOW_HELD = "conservado del rastreo apagado"
-L.SCAN_HOW_MISSED = "no encontrado de nuevo"
-L.SCAN_FOUND = "%d nombre(s) leído(s) en el último barrido, %d icono(s):"
-L.SCAN_NOT_NODE = "ni una hierba ni un filón que Lueur conozca"
-L.SCAN_NEEDS = ", requiere %d"
-L.SCAN_CAVE = ", en una cueva"
-L.SCAN_VIGNETTES = "viñetas que lista el juego: %s"
-L.SCAN_DATA = "datos del punto bajo el puntero, aparte de su texto: %s"
-L.SCAN_POINTER = "bajo el puntero: %s"
-L.SCAN_READER = "minimapa bajo el ratón | último escaneo: %d fotogramas, %d puntos de cuadrícula%s, %d nodos conocidos comprobados, %d grupos medidos, %d puntos recolocados | interrumpido %d veces, la última: %s | esperando: %s | opacidad devuelta a 0 tras cambiarla otro código: %d veces"
-L.SCAN_HIDE = "oculto por su %s | forma: %s | %d de sus marcos ocultos con él, %d mostrados de nuevo entretanto y ocultados otra vez"
-L.SCAN_BY_MASK = "máscara"
-L.SCAN_BY_ALPHA = "opacidad"
-L.SCAN_FULL = " (todo el minimapa)"
-L.SCAN_SOON = "el minimapa se escaneará en cuanto pueda pasar bajo el ratón"
-L.SCAN_BUSY = "hay un escaneo del minimapa en curso"
-L.SCAN_WHY_COMBAT = "combate"
-L.SCAN_WHY_HIDDEN = "minimapa oculto"
-L.SCAN_WHY_POINTER = "ratón sobre el minimapa"
-L.SCAN_WHY_CAMERA = "cámara girada con el ratón"
-L.SCAN_WHY_WINDOW = "ratón sobre una ventana"
-L.SCAN_WHY_ZOOM = "zoom del minimapa"
-L.SCAN_WHY_TURN = "minimapa girado"
-L.SCAN_WHY_MAP = "otro mapa"
-L.SCAN_WHY_TAXI = "un vuelo"
-L.SCAN_WHY_NPC = "una ventana de PNJ abierta"
-L.SCAN_NOTHING = "nada (pon el puntero sobre un punto del minimapa y vuelve a escribir el comando)"
 
 ---------------------------------------------------------------------------
 -- Diagnostic (/lueur debug)
@@ -393,7 +358,7 @@ L.HELP = {
 	"/lueur on | off — activa o desactiva Lueur (off restaura tus ajustes)",
 	"/lueur vista — abre la ventana de ajustes en la vista previa, que muestra el efecto sobre un objeto en 3D",
 	"/lueur efecto [categoría] <nombre> — da este efecto a todas las categorías, o a una sola (mineral, hierba, misión, cofre, corcho, otro); sin nombre, los enumera",
-	"/lueur color <categoría> <rrggbb> | original — color del efecto de una categoría; sin color, lo muestra",
+	"/lueur color <categoría> <rrggbb> [<rrggbb>] | intercambiar | original — color del efecto de una categoría, y un segundo color para sus trazos finos y destellos; intercambiar los invierte; sin color, los muestra",
 	"/lueur común <categoría> — devuelve a una categoría el efecto y la apariencia de todos los objetos",
 	"/lueur tamaño [categoría] <{size}> — tamaño del efecto (por defecto {size=})",
 	"/lueur intensidad [categoría] <{intensity}> — brillo del efecto, en % (por defecto {intensity=})",
@@ -410,11 +375,10 @@ L.HELP = {
 	"/lueur combate | estancia | bloqueado | profesión — si el efecto se oculta en combate, en estancias, en objetos que no puedes usar, en hierbas y minerales sin la profesión",
 	"/lueur tecla <TECLA> | ninguna — asigna la tecla que recoge el objeto resaltado (F, SHIFT-E, BUTTON4…); sin tecla, la muestra",
 	"/lueur mineral | hierba | misión | cofre | corcho | otro — muestra u oculta una categoría, para este personaje",
-	"/lueur recursos [mineral | hierba] — muestra u oculta en el minimapa los iconos de las hierbas y los filones; recursos tamaño <{nodeSize}> ajusta su tamaño (original {nodeSize=}); recursos borde <{nodeRing}> ajusta el grosor de su anillo de color, 0 para ninguno (original {nodeRing=}); recursos combate: si el minimapa se lee en combate",
+	"/lueur perfil [<nombre>] — lista los perfiles, o da a este personaje el que lleva ese nombre",
 	"/lueur alternar [<{nodeSwitchYards}>] — con las dos profesiones de recolección: alterna el rastreo de hierbas y el de minerales mientras te desplazas; un número ajusta la distancia entre dos cambios, en metros (original {nodeSwitchYards=})",
-	"/lueur barrido — muestra lo que leyó el último barrido del minimapa, y lo que Lueur hizo con ello; barrido <{nodeScanYards}> ajusta la separación entre escaneos, en metros (original {nodeScanYards=})",
 	"/lueur ignorar — ignora el objeto que tienes delante y los del mismo nombre (dos veces sobre un objeto ignorado: deja de ignorarlo); ignorar lista, ignorar vaciar, ignorar <nombre>",
-	"/lueur idioma <auto | de | en | es | fr | ru> — idioma de los textos y comandos de Lueur",
+	"/lueur idioma <auto | de | en | es | fr | it | ko | pt | ru | zhCN | zhTW> — idioma de los textos y comandos de Lueur",
 	"/lueur debug — describe cada objeto apuntado y lo que Lueur deduce de él",
 	"/lueur objetivos — enumera los objetivos de misión con los que se comparan los nombres de objeto",
 	"/lueur estado — muestra los valores que el cliente aplica de verdad",

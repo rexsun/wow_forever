@@ -147,23 +147,36 @@ PATCHES = (
         "    Sound_SFXVolume = function() return 1 end,\n"
         "    Sound_MasterVolume = function() return 1 end,\n",
     ),
+    # 9.8.7 switches to a second set when the game's sound was off as fishing starts; it reuses
+    # the effects entry above but sets no master volume, so add the patched one there too.
     Patch(
         "EllesmereUIForeverEssentials/EllesmereUIForeverEssentials_Fishing.lua",
-        "--  Fishing Sounds   music and ambience down, effects up, for the session.",
-        "--  Fishing Sounds   music, ambience and dialog off, effects and master full, for the session.",
+        "    Sound_SFXVolume = SOUND_CVARS.Sound_SFXVolume,\n",
+        "    Sound_SFXVolume = SOUND_CVARS.Sound_SFXVolume,\n"
+        "    Sound_MasterVolume = SOUND_CVARS.Sound_MasterVolume,\n",
+    ),
+    Patch(
+        "EllesmereUIForeverEssentials/EllesmereUIForeverEssentials_Fishing.lua",
+        "--  Fishing Sounds   sound and effects on and up, music and ambience down,\n"
+        "--                   for the session (the game's sound off before: the\n"
+        "--                   effects alone).",
+        "--  Fishing Sounds   sound and effects on, music, ambience and dialog off,\n"
+        "--                   effects and master full, for the session.",
     ),
     Patch(
         "EllesmereUIOptions/EUI_ForeverEssentials_General_Options.lua",
-        'tooltip = "While you fish: music and ambience down, effects up, sound on in the background.",',
-        'tooltip = "While you fish: music, ambience and dialog off, effects and master volume full, sound on in the background.",',
+        'tooltip = "While you fish: sound and effects on and louder, music and ambience down, sound on in the background.",',
+        'tooltip = "While you fish: sound and effects on, music, ambience and dialog off, effects and master volume full,'
+        ' sound on in the background.",',
     ),
     # The tooltip is the translation key, so the client's locale must move with it.
     Patch(
         "EllesmereUILocales/zhTW.lua",
-        'L["While you fish: music and ambience down, effects up, sound on in the background."] = '
-        '"釣魚時：降低音樂與環境音、提高音效，並在遊戲於背景執行時仍播放聲音。"',
-        'L["While you fish: music, ambience and dialog off, effects and master volume full, sound on in the background."] = '
-        '"釣魚時：關閉音樂、環境音與對話，音效與主音量調到最大，並在遊戲於背景執行時仍播放聲音。"',
+        'L["While you fish: sound and effects on and louder, music and ambience down, sound on in the background."] = '
+        '"釣魚時：開啟並提高聲音與音效、降低音樂與環境音，並在遊戲於背景執行時仍播放聲音。"',
+        'L["While you fish: sound and effects on, music, ambience and dialog off, effects and master volume full,'
+        ' sound on in the background."] = '
+        '"釣魚時：開啟聲音與音效，關閉音樂、環境音與對話，音效與主音量調到最大，並在遊戲於背景執行時仍播放聲音。"',
     ),
     # 1.5.6 keeps its world map fader on whenever PlayerMovementFrameFader exists, even with
     # WORLDMAPFADE off; it then holds the map at full opacity and its SetAlpha hook undoes YUI's

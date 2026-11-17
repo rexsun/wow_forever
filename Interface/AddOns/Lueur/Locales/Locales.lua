@@ -10,7 +10,7 @@ local LOCALES = {}
 ns.LOCALES = LOCALES
 
 -- Clients qui se servent des textes d'une autre langue
-local SAME_AS = { esMX = "esES", enGB = "enUS" }
+local SAME_AS = { esMX = "esES", enGB = "enUS", ptPT = "ptBR" }
 
 local chosen  -- textes de la langue choisie ; nil : ceux de la langue du client
 
@@ -34,6 +34,27 @@ end })
 -- Sert désormais les textes de cette langue ; "auto", ou un code inconnu : celle du client
 function ns.UseLanguage(code)
 	chosen = LOCALES[code]
+end
+
+-- Langues que le menu propose sur ce client, par ordre de code. Le coréen et le chinois s'écrivent
+-- avec des polices que seuls leurs clients ont : ils ne sont offerts que là, où « Automatique » les
+-- donne déjà (/lueur language les accepte partout). Sur ces clients le russe n'est pas offert, faute
+-- de savoir si leurs polices l'écrivent. Rien de cela n'a été vu en jeu.
+local WRITTEN_BY = { koKR = { koKR = true }, zhCN = { zhCN = true, zhTW = true }, zhTW = { zhCN = true, zhTW = true } }
+
+function ns.LanguageChoices()
+	local client, list = GetLocale(), {}
+	for code in pairs(LOCALES) do
+		local offered
+		if WRITTEN_BY[code] then
+			offered = WRITTEN_BY[code][client] == true
+		else
+			offered = not (code == "ruRU" and WRITTEN_BY[client])
+		end
+		if offered then list[#list + 1] = code end
+	end
+	table.sort(list)
+	return list
 end
 
 -- Adjectifs trop répandus pour rapprocher à eux seuls un objet d'un objectif de quête. Ils sont

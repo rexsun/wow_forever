@@ -1,12 +1,18 @@
 ## Interface: 11509, 16001
 ## Title: Lueur
-## Notes: Makes ore veins, herbs, quest objects and chests glow as you approach them, with a choice of light effects, and shows herbs and veins on the minimap as their own icons (uses Blizzard's soft targeting).
-## Notes-frFR: Fait briller les filons, les plantes, les objets de quête et les coffres à ton approche, avec plusieurs effets de lumière au choix, et montre plantes et filons sur la minimap par leur icône (via le soft targeting de Blizzard).
-## Notes-deDE: Lässt Erzadern, Kräuter, Questobjekte und Truhen aufleuchten, wenn du dich ihnen näherst, mit mehreren Lichteffekten zur Auswahl, und zeigt Kräuter und Erze auf der Minikarte mit ihrem eigenen Symbol (nutzt Blizzards Soft-Targeting).
-## Notes-esES: Hace brillar los filones, las hierbas, los objetos de misión y los cofres cuando te acercas, con varios efectos de luz a elegir, y muestra hierbas y filones en el minimapa con su propio icono (usa el soft targeting de Blizzard).
-## Notes-esMX: Hace brillar los filones, las hierbas, los objetos de misión y los cofres cuando te acercas, con varios efectos de luz a elegir, y muestra hierbas y filones en el minimapa con su propio icono (usa el soft targeting de Blizzard).
-## Notes-ruRU: Подсвечивает рудные жилы, травы, квестовые объекты и сундуки при приближении к ним, с выбором световых эффектов, и показывает травы и жилы на миникарте их собственными иконками (использует soft targeting от Blizzard).
-## Version: 1.7.0
+## Notes: Makes ore veins, herbs, quest objects and chests glow as you approach them, with a choice of light effects (uses Blizzard's soft targeting).
+## Notes-frFR: Fait briller les filons, les plantes, les objets de quête et les coffres à ton approche, avec plusieurs effets de lumière au choix (via le soft targeting de Blizzard).
+## Notes-deDE: Lässt Erzadern, Kräuter, Questobjekte und Truhen aufleuchten, wenn du dich ihnen näherst, mit mehreren Lichteffekten zur Auswahl (nutzt Blizzards Soft-Targeting).
+## Notes-esES: Hace brillar los filones, las hierbas, los objetos de misión y los cofres cuando te acercas, con varios efectos de luz a elegir (usa el soft targeting de Blizzard).
+## Notes-esMX: Hace brillar los filones, las hierbas, los objetos de misión y los cofres cuando te acercas, con varios efectos de luz a elegir (usa el soft targeting de Blizzard).
+## Notes-ruRU: Подсвечивает рудные жилы, травы, квестовые объекты и сундуки при приближении к ним, с выбором световых эффектов (использует soft targeting от Blizzard).
+## Notes-ptBR: Faz brilhar veios de minério, ervas, objetos de missão e baús quando você se aproxima, com vários efeitos de luz à escolha (usa o soft targeting da Blizzard).
+## Notes-itIT: Fa brillare vene di minerali, erbe, oggetti delle missioni e forzieri quando ti avvicini, con vari effetti di luce a scelta (usa il soft targeting di Blizzard).
+## Notes-koKR: 광맥, 약초, 퀘스트 물체, 상자에 다가가면 빛나게 합니다. 여러 빛 효과 중에서 고를 수 있습니다 (블리자드의 소프트 타겟팅 사용).
+## Notes-zhCN: 靠近矿脉、草药、任务物体和箱子时让它们发光，有多种光效可选（使用暴雪的软目标功能）。
+## Notes-zhTW: 靠近礦脈、草藥、任務物件和箱子時讓它們發光，有多種光效可選（使用暴雪的軟目標功能）。
+## Notes-ptPT: Faz brilhar veios de minério, ervas, objetos de missão e baús quando você se aproxima, com vários efeitos de luz à escolha (usa o soft targeting da Blizzard).
+## Version: 2.0.0
 ## IconTexture: Interface\AddOns\Lueur\Media\icon.tga
 ## AddonCompartmentFunc: Lueur_OnAddonCompartmentClick
 ## SavedVariables: LueurDB
@@ -18,10 +24,20 @@ Locales\frFR.lua
 Locales\deDE.lua
 Locales\esES.lua
 Locales\ruRU.lua
+Locales\ptBR.lua
+Locales\itIT.lua
+Locales\koKR.lua
+Locales\zhCN.lua
+Locales\zhTW.lua
 Effects.lua
+Core.lua
+CVars.lua
+Classify.lua
+Glow.lua
 Lueur.lua
-Nodes.lua
-NodeScan.lua
+Settings.lua
+Commands.lua
+Tracking.lua
 Skin.lua
 Menu.lua
 Preview.lua

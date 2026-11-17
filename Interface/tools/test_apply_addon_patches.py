@@ -117,6 +117,11 @@ class ApplyAddonPatchesTests(unittest.TestCase):
             self.assertIn(f"{cvar} = function() return 0 end", block)
         for cvar in ("Sound_SFXVolume", "Sound_MasterVolume"):
             self.assertIn(f"{cvar} = function() return 1 end", block)
+        sound_off = block[block.index("local SOUND_OFF_CVARS = {") :]
+        for cvar in ("Sound_MusicVolume", "Sound_AmbienceVolume", "Sound_DialogVolume"):
+            self.assertIn(f"{cvar} = Silent,", sound_off)
+        for cvar in ("Sound_SFXVolume", "Sound_MasterVolume"):
+            self.assertIn(f"{cvar} = SOUND_CVARS.{cvar},", sound_off)
 
     def test_installed_maputils_fader_follows_its_fade_setting_only(self) -> None:
         text = (ADDONS / "MapUtils/mapframe.lua").read_text(encoding="utf-8")

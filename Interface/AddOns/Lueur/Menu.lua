@@ -1,18 +1,20 @@
 -- Lueur : menu des réglages et bouton de la minimap
 -- Le menu ne fait qu'afficher les réglages et demander leur changement : tout passe par les
--- fonctions que Lueur.lua expose dans la table de l'addon, comme pour les commandes /lueur.
+-- fonctions que Settings.lua expose dans la table de l'addon, comme pour les commandes /lueur.
 -- Un contrôle ne garde pas son texte mais le nom de ce texte : "SIZE" pour son libellé, et
 -- d'office "SIZE_TIP" pour son infobulle. La fenêtre change ainsi de langue sans se refaire.
 --
--- La fenêtre a l'allure de celle des métiers (Skin.lua) et trois pages, que choisissent les
+-- La fenêtre a l'allure de celle des métiers (Skin.lua) et deux pages, que choisissent les
 -- onglets de son bord droit. La première est une cabine d'essayage : en haut les objets que Lueur
 -- met en lumière, chacun avec son icône, sa case et sa couleur ; dessous, à gauche l'aperçu de
--- ceux que l'on y choisit (Preview.lua), à droite leur apparence. La deuxième règle les icônes
--- des filons et des plantes sur la minimap (NodeScan.lua). La troisième réunit le reste :
--- détection, réglages généraux, masquage, silhouette.
+-- ceux que l'on y choisit (Preview.lua), à droite leur apparence. La seconde réunit le reste :
+-- détection, réglages généraux, masquage, alternance des pistages, silhouette, profil.
 
 local ADDON_NAME, ns = ...
 local L = ns.L
+-- (le cœur de l'addon, arrivé en plusieurs fichiers après la 1.7.0, attend lui aussi le lancement
+-- du jeu : Lueur.lua le dit, et il n'y a rien à régler d'ici là)
+if not ns.GetOption then return end
 local Skin = ns.Skin
 if not Skin then
 	-- Skin.lua est arrivé avec une mise à jour, et le jeu ne charge un nouveau fichier qu'à son
@@ -47,20 +49,8 @@ local CATEGORY_ICONS = {
 	bobber = "Trade_Fishing", other = "INV_Misc_Gear_01",
 }
 local SETTINGS_ICON = "Trade_Engineering"
-local NODES_ICON = "INV_Misc_Map_01"
-local SWITCH_HEIGHT = 160     -- hauteur du panneau de l'alternance des pistages, sur la page de la minimap
-local SAMPLE = 190            -- diamètre du disque où cette page montre des icônes témoins
-
--- Les icônes témoins : objet donné par le nœud, métier, difficulté, dans une grotte ou non, et leur
--- place sur le disque (en fractions de son rayon)
-local SAMPLES = {
-	{ 2447, "herb", "trivial", false, -0.42, 0.44 }, { 765, "herb", "easy", false, 0.30, 0.52 },
-	{ 2770, "ore", "fair", false, 0.58, -0.08 }, { 2771, "ore", "difficult", false, -0.08, -0.02 },
-	{ 2772, "ore", "impossible", false, -0.56, -0.30 }, { 2450, "herb", "fair", true, 0.20, -0.56 },
-}
-
 -- Titre de chaque page sous la barre de titre ; celle des objets compose le sien (LookTitle)
-local PAGE_TITLES = { nodes = "NODES_PAGE", settings = "SETTINGS" }
+local PAGE_TITLES = { settings = "SETTINGS" }
 
 -- Choix d'un réglage : { valeur, nom du texte } ; ou { valeur, nil, libellé } quand le libellé
 -- ne se traduit pas
@@ -68,14 +58,14 @@ local ARC_CHOICES = { { 0, "ARC_0" }, { 1, "ARC_1" }, { 2, "ARC_2" } }
 
 local menu                    -- fenêtre des réglages, créée à sa première ouverture
 local minimapButton
-local pages = {}              -- nom d'une page ("look", "nodes", "settings") -> son cadre
+local pages = {}              -- nom d'une page ("look", "settings") -> son cadre
 local refreshers = {}         -- une fonction par contrôle, qui le remet en accord avec les réglages
 local captions = {}           -- une fonction par texte fixe de la fenêtre, qui le pose dans la langue courante
 local refreshing = false      -- pendant ce temps, un curseur qui bouge ne doit rien régler
 
 local blockClick = 0          -- frames pendant lesquelles les clics sur le bouton de touche sont ignorés
 local keybindButton           -- référence au bouton de key binding
-local openPage = "look"       -- page montrée : "look" (les objets et leur apparence), "nodes" (la minimap) ou "settings"
+local openPage = "look"       -- page montrée : "look" (les objets et leur apparence) ou "settings"
 local effectScope = "all"     -- catégorie dont la page règle l'effet et l'apparence, ou "all" pour tous les objets
 
 -- La catégorie que le menu personnalise ; nil : tous les objets
@@ -431,24 +421,30 @@ local function SetLabel(button, text)
 	if button:GetText() ~= text then button:SetText(text) end
 end
 
--- Ouvre le sélecteur de couleur du jeu sur la couleur d'une catégorie : elle suit le sélecteur
--- en direct, et lui revient s'il est annulé
-local function PickColor(key)
+-- Ouvre le sélecteur de couleur du jeu sur la couleur d'une catégorie, ou sur sa seconde couleur
+-- (`second`) : elle suit le sélecteur en direct, et lui revient s'il est annulé
+local function PickColor(key, second)
+	local get, set = second and ns.GetColor2 or ns.GetColor, second and ns.SetColor2 or ns.SetColor
 	if not (ColorPickerFrame and ColorPickerFrame.SetupColorPickerAndShow) then
 		ns.Print(L.MSG_NO_PICKER)
 		return
 	end
-	local r, g, b = ns.GetColor(key)
+	local r, g, b, own = get(key)
 	ColorPickerFrame:SetupColorPickerAndShow({
 		r = r, g = g, b = b, hasOpacity = false,
-		swatchFunc = function() ns.SetColor(key, ColorPickerFrame:GetColorRGB()) end,
-		cancelFunc = function(previous) ns.SetColor(key, previous.r, previous.g, previous.b) end,
+		swatchFunc = function() set(key, ColorPickerFrame:GetColorRGB()) end,
+		cancelFunc = function(previous)
+			-- (une seconde couleur qui n'existait pas avant le sélecteur n'existe pas davantage après)
+			if second and not own then set(key) else set(key, previous.r, previous.g, previous.b) end
+		end,
 	})
 end
 
--- Pastille de la couleur d'une catégorie. Un clic gauche ouvre le sélecteur de couleur, un clic
--- droit rend la couleur d'origine. `swatch.fill` est son aplat.
-local function AddSwatch(parent, key)
+-- Pastille de la couleur d'une catégorie, ou de sa seconde couleur (`second`), celle des traits fins
+-- et des éclats. Un clic gauche ouvre le sélecteur de couleur ; un clic droit rend la couleur
+-- d'origine, ou retire la seconde, qui redevient la première ; Maj-clic échange les deux.
+-- `swatch.fill` est son aplat.
+local function AddSwatch(parent, key, second)
 	local swatch = CreateFrame("Button", nil, parent)
 	swatch:SetSize(18, 18)
 	swatch:RegisterForClicks("AnyUp")
@@ -467,18 +463,28 @@ local function AddSwatch(parent, key)
 	swatch:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
 	swatch:SetScript("OnClick", function(_, mouseButton)
 		PlaySound(SOUNDKIT.IG_MAINMENU_OPTION)
-		if mouseButton == "RightButton" then ns.SetColor(key) else PickColor(key) end
+		if IsShiftKeyDown() then
+			ns.SwapColors(key)
+		elseif mouseButton == "RightButton" then
+			(second and ns.SetColor2 or ns.SetColor)(key)
+		else
+			PickColor(key, second)
+		end
 	end)
 	swatch:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip_SetTitle(GameTooltip, L.COLOR)
-		GameTooltip_AddNormalLine(GameTooltip, L.COLOR_TIP)
+		GameTooltip_SetTitle(GameTooltip, second and L.COLOR_SECOND or L.COLOR)
+		GameTooltip_AddNormalLine(GameTooltip, second and L.COLOR_SECOND_TIP or L.COLOR_TIP)
 		GameTooltip_AddInstructionLine(GameTooltip, L.TIP_COLOR_SET)
-		GameTooltip_AddInstructionLine(GameTooltip, L.TIP_COLOR_RESET)
+		GameTooltip_AddInstructionLine(GameTooltip, second and L.TIP_COLOR_SAME or L.TIP_COLOR_RESET)
+		GameTooltip_AddInstructionLine(GameTooltip, L.TIP_COLOR_SWAP)
 		GameTooltip:Show()
 	end)
 	swatch:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	refreshers[#refreshers + 1] = function() fill:SetColorTexture(ns.GetColor(key)) end
+	refreshers[#refreshers + 1] = function()
+		local r, g, b = (second and ns.GetColor2 or ns.GetColor)(key)
+		fill:SetColorTexture(r, g, b)
+	end
 	return swatch
 end
 
@@ -645,7 +651,7 @@ local function RefreshMenu()
 	refreshing = false
 end
 
--- Montre une page : "settings", "nodes", ou "look", avec les objets dont elle règle l'apparence
+-- Montre une page : "settings", ou "look", avec les objets dont elle règle l'apparence
 -- s'ils sont donnés ("all", ou une catégorie, que l'aperçu montre alors)
 local function Open(name, scope)
 	openPage, effectScope = name, scope or effectScope
@@ -662,7 +668,7 @@ end
 
 -- Case du bandeau des objets, à `x` et large de `width` : une icône et, dessous, un nom. La cliquer
 -- règle la page sur ces objets, et l'aperçu les montre. Pour une catégorie (`key`), elle porte aussi,
--- à droite de l'icône, la case qui la met ou non en lumière et sa couleur. Son infobulle dit ce
+-- à droite de l'icône, la case qui la met ou non en lumière et ses deux couleurs, l'une sous l'autre. Son infobulle dit ce
 -- qu'il advient des autres objets quand on règle ceux-là.
 local function AddEntry(parent, x, width, name, icon, key)
 	local scope = key or "all"
@@ -718,8 +724,11 @@ local function AddEntry(parent, x, width, name, icon, key)
 		end)
 		SetTooltip(toggle, name)
 		local swatch = AddSwatch(row, key)
-		swatch:SetPoint("LEFT", toggle, "RIGHT", 1, 0)
-		row.toggle, row.swatch = toggle, swatch
+		swatch:SetPoint("LEFT", toggle, "RIGHT", 1, 10)
+		-- sous elle, la seconde couleur
+		local swatch2 = AddSwatch(row, key, true)
+		swatch2:SetPoint("TOP", swatch, "BOTTOM", 0, -2)
+		row.toggle, row.swatch, row.swatch2 = toggle, swatch, swatch2
 	end
 	refreshers[#refreshers + 1] = function()
 		local selected = effectScope == scope
@@ -734,26 +743,129 @@ local function AddEntry(parent, x, width, name, icon, key)
 	return row
 end
 
--- Icônes témoins de la page de la minimap : sur un disque sombre, des icônes telles que la minimap
--- les montre, à la taille et à l'épaisseur d'anneau réglées (NodeScan.lua les dessine)
-local function AddSamples(column)
-	local row = CreateFrame("Frame", nil, column.parent)
-	row:SetSize(column.width, SAMPLE + 8)
-	row:SetPoint("TOPLEFT", column.x, column.y - 6)
-	column.y = column.y - SAMPLE - 14
-	for index, tone in ipairs({ { 0.62, 0.56, 0.46, 0.9 }, { 0.09, 0.11, 0.08, 1 } }) do
-		local disc = row:CreateTexture(nil, "BACKGROUND", nil, index)
-		disc:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-		disc:SetVertexColor(tone[1], tone[2], tone[3], tone[4])
-		disc:SetSize(SAMPLE + 6 - 4 * index, SAMPLE + 6 - 4 * index)
-		disc:SetPoint("CENTER")
+-- Le profil du personnage : son nom entre deux flèches, comme la police ; dessous, de quoi en créer un
+-- (réglages d'origine), doubler celui-ci, le renommer, le supprimer. Un nom se tape à la place du
+-- choix, et se valide par Entrée ou OK ; supprimer se confirme par un second clic, comme la remise à zéro.
+local function AddProfile(column)
+	local naming       -- nil, ou ce à quoi servira le nom tapé : "new", "copy", "rename"
+	local confirmLeft  -- secondes qui restent pour confirmer la suppression
+	local list, steps = {}, 0
+	local parent, top = column.parent, column.y
+
+	local row = CreateFrame("Frame", nil, parent)
+	row:SetSize(column.width, 28)
+	row:SetPoint("TOPLEFT", column.x, top)
+	row:EnableMouse(true)
+	local stepper = CreateFrame("Frame", nil, row, "MinimalSliderWithSteppersTemplate")
+	stepper:SetSize(column.width, 20)
+	stepper:SetPoint("CENTER", 0, 0)
+	stepper.Slider:Hide()
+	local text = stepper:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+	text:SetPoint("CENTER", stepper.Slider, "CENTER", 0, 0)
+	stepper:RegisterCallback(MinimalSliderWithSteppersMixin.Event.OnValueChanged, function(_, number)
+		local chosen = list[math.floor(number + 0.5)]
+		if chosen and not refreshing and chosen.id ~= ns.ActiveProfile() then ns.UseProfile(chosen.id) end
+	end, row)
+	SetTooltip(row, "HEADER_PROFILE")
+
+	local entry = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+	entry:SetSize(column.width - 10, 22)
+	entry:SetPoint("TOPLEFT", column.x + 7, top - 3)
+	entry:SetAutoFocus(false)
+	entry:SetMaxLetters(24)
+	entry:Hide()
+
+	local gap = 4
+	local width = (column.width - 3 * gap) / 4
+	local buttons = {}
+	local function Ask(kind)
+		return function()
+			naming, confirmLeft = kind, nil
+			entry:SetText(kind == "new" and "" or ns.ProfileName(ns.ActiveProfile()))
+			ns.Refresh()
+			entry:SetFocus()
+			entry:HighlightText()
+		end
 	end
-	if not ns.NodeSamples then return row end
-	local draw = ns.NodeSamples(row, SAMPLES, SAMPLE / 2)
+	buttons[1] = AddButton(parent, "PROFILE_NEW", Ask("new"), width)
+	buttons[2] = AddButton(parent, "PROFILE_COPY", Ask("copy"), width)
+	buttons[3] = AddButton(parent, "PROFILE_RENAME", Ask("rename"), width)
+	local delete = AddButton(parent, "PROFILE_DELETE", function()
+		if confirmLeft then
+			confirmLeft = nil
+			ns.DeleteProfile()
+		else
+			confirmLeft = CONFIRM_TIME
+		end
+	end, width)
+	buttons[4] = delete
+	for index, button in ipairs(buttons) do
+		button:SetPoint("TOPLEFT", column.x + (index - 1) * (width + gap), top - 36)
+	end
+	delete:SetScript("OnUpdate", function(self, elapsed)
+		if confirmLeft then
+			confirmLeft = confirmLeft - elapsed
+			if confirmLeft <= 0 then confirmLeft = nil end
+		end
+		SetLabel(self, confirmLeft and L.CONFIRM or L.PROFILE_DELETE)
+	end)
+
+	local function Close()
+		naming = nil
+		entry:ClearFocus()
+		ns.Refresh()
+	end
+	local function Accept()
+		local done, reason
+		if naming == "rename" then
+			done, reason = ns.RenameProfile(entry:GetText())
+		else
+			done, reason = ns.NewProfile(entry:GetText(), naming == "copy")
+		end
+		-- (un nom qui ne convient pas : la raison dans la discussion, et la saisie reste ouverte)
+		if done then Close() elseif reason then ns.Print(reason) end
+	end
+	entry:SetScript("OnEnterPressed", Accept)
+	entry:SetScript("OnEscapePressed", Close)
+	local function Plain(name, onClick)
+		local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+		button:SetSize(width, 22)
+		Caption(button, name)
+		button:SetScript("OnClick", function()
+			PlaySound(SOUNDKIT.IG_MAINMENU_OPTION)
+			onClick()
+		end)
+		return button
+	end
+	local cancel = Plain("PROFILE_CANCEL", Close)
+	cancel:SetPoint("TOPRIGHT", parent, "TOPLEFT", column.x + column.width, top - 36)
+	local accept = Plain("PROFILE_OK", Accept)
+	accept:SetPoint("RIGHT", cancel, "LEFT", -gap, 0)
+
 	refreshers[#refreshers + 1] = function()
-		draw(ns.GetOption("nodeSize"), ns.GetOption("nodeRing") / 100, ns.GetOption("nodeHerbs"), ns.GetOption("nodeOre"))
+		list = ns.Profiles()
+		local active, index = ns.ActiveProfile(), 1
+		for position, profile in ipairs(list) do
+			if profile.id == active then index = position end
+		end
+		-- (un seul profil : deux crans, et les flèches grisées)
+		local count = math.max(#list, 2)
+		if count ~= steps then
+			steps = count
+			stepper:Init(index, 1, count, count - 1)
+		end
+		stepper:SetValue(index)
+		stepper:SetEnabled(#list > 1)
+		text:SetText(list[index].name)
+		row:SetShown(not naming)
+		entry:SetShown(naming ~= nil)
+		for _, button in ipairs(buttons) do button:SetShown(not naming) end
+		delete:SetEnabled(#list > 1)
+		cancel:SetShown(naming ~= nil)
+		accept:SetShown(naming ~= nil)
 	end
-	return row
+	-- la fenêtre refermée en pleine saisie : elle se rouvre sur le choix du profil
+	parent:HookScript("OnHide", function() naming, confirmLeft = nil, nil end)
 end
 
 local function CreateMenu()
@@ -781,11 +893,8 @@ local function CreateMenu()
 		heading:SetText(openPage == "look" and LookTitle() or L[PAGE_TITLES[openPage]])
 	end
 
-	-- Les onglets du bord droit : un par page. Celle de la minimap n'existe qu'avec NodeScan.lua,
-	-- qu'une mise à jour faite pendant que le jeu tourne n'a pas encore chargé.
-	local list = { { "look", Skin.PORTRAIT, "HEADER_OBJECTS" } }
-	if ns.UpdateNodes then list[#list + 1] = { "nodes", ICONS .. NODES_ICON, "NODES_PAGE" } end
-	list[#list + 1] = { "settings", ICONS .. SETTINGS_ICON, "SETTINGS" }
+	-- Les onglets du bord droit : un par page
+	local list = { { "look", Skin.PORTRAIT, "HEADER_OBJECTS" }, { "settings", ICONS .. SETTINGS_ICON, "SETTINGS" } }
 	frame.tabs = {}
 	local previous
 	for _, tab in ipairs(list) do
@@ -863,46 +972,11 @@ local function CreateMenu()
 	end
 	AddFont(column, "FONT", 200)
 
-	-- Page de la minimap : à gauche les icônes des filons et des plantes, et des icônes témoins qui
-	-- suivent leurs réglages ; à droite l'alternance des deux pistages, pour qui a les deux métiers,
-	-- puis la lecture de la minimap. Rien n'y explique les couleurs des anneaux : une légende y
-	-- était, que le joueur a fait retirer.
 	local half = (page:GetWidth() - GAP) / 2
-	page = pages.nodes
-	if page then
-		column = NewCard(page, 0, 0, half, height, "HEADER_NODES")
-		local controls = {
-			AddOption(column, "NODE_HERBS", "nodeHerbs"),
-			AddOption(column, "NODE_ORE", "nodeOre"),
-			AddSlider(column, "NODE_SIZE", "nodeSize"),
-			AddSlider(column, "NODE_RING", "nodeRing", "FORMAT_PERCENT"),
-		}
-		AddSamples(column)
-		-- sur un client qui ne sait pas lire les points de la minimap : pourquoi tout est grisé
-		local reason = column.parent:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-		reason:SetPoint("TOPLEFT", column.x, column.y - 4)
-		reason:SetWidth(column.width)
-		reason:SetJustifyH("LEFT")
-		reason:SetTextColor(1, 0.5, 0.25)
 
-		column = NewCard(page, half + GAP, 0, half, SWITCH_HEIGHT, "HEADER_SWITCH")
-		controls[#controls + 1] = AddOption(column, "NODE_SWITCH", "nodeSwitch")
-		controls[#controls + 1] = AddSlider(column, "NODE_SWITCH_YARDS", "nodeSwitchYards", "FORMAT_RANGE")
-
-		-- dessous : quand la minimap se lit (chaque balayage la cache un instant)
-		column = NewCard(page, half + GAP, -(SWITCH_HEIGHT + GAP), half, height - SWITCH_HEIGHT - GAP, "HEADER_SCANNING")
-		controls[#controls + 1] = AddSlider(column, "NODE_SCAN_YARDS", "nodeScanYards", "FORMAT_RANGE")
-		controls[#controls + 1] = AddOption(column, "NODE_COMBAT", "nodeCombat")
-		refreshers[#refreshers + 1] = function()
-			local failure = ns.NodesFailure()
-			for _, control in ipairs(controls) do control:SetAvailable(not failure) end
-			reason:SetText(failure and L.MSG_NODES_UNAVAILABLE:format(failure) or "")
-		end
-	end
-
-	-- Page des réglages : quatre panneaux, qui valent pour tous les objets
+	-- Page des réglages : cinq panneaux, qui valent pour tous les objets
 	page = pages.settings
-	local upper = 214
+	local upper = 236 -- (trois rangées de langues dans le panneau général)
 	column = NewCard(page, 0, 0, half, upper, "HEADER_DETECTION")
 	AddSlider(column, "RANGE", "range", "FORMAT_RANGE", false, 170)
 	AddChoice(column, "DIRECTION", ARC_CHOICES, Getter("arc"), Setter("arc"), 3)
@@ -920,19 +994,33 @@ local function CreateMenu()
 	AddOption(column, "DEBUG", "debug")
 	-- chaque langue se présente sous le nom qu'elle se donne, pour rester reconnaissable depuis
 	-- n'importe quelle autre
-	local languages, codes = { { "auto", "LANGUAGE_AUTO" } }, {}
-	for code in pairs(ns.LOCALES) do codes[#codes + 1] = code end
-	table.sort(codes)
-	for _, code in ipairs(codes) do languages[#languages + 1] = { code, nil, ns.LOCALES[code].LANGUAGE_NAME } end
+	-- (celles que ce client sait écrire : Locales.lua)
+	local languages = { { "auto", "LANGUAGE_AUTO" } }
+	for _, code in ipairs(ns.LanguageChoices()) do languages[#languages + 1] = { code, nil, ns.LOCALES[code].LANGUAGE_NAME } end
 	AddChoice(column, "LANGUAGE", languages, Getter("language"), Setter("language"), 3)
 
-	column = NewCard(page, 0, -upper - GAP, half, height - upper - GAP, "HEADER_HIDE")
+	local hide = 170
+	column = NewCard(page, 0, -upper - GAP, half, hide, "HEADER_HIDE")
 	AddOption(column, "HIDE_COMBAT", "hideInCombat")
 	AddOption(column, "HIDE_INSTANCE", "hideInInstance")
 	AddOption(column, "HIDE_LOCKED", "hideLocked")
 	AddOption(column, "HIDE_UNTRAINED", "hideUntrained")
 
-	column = NewCard(page, half + GAP, -upper - GAP, half, height - upper - GAP, "HEADER_SILHOUETTE")
+	-- Sous lui, l'alternance des deux pistages, pour qui a les deux métiers de récolte (Tracking.lua,
+	-- qu'une mise à jour faite pendant que le jeu tourne n'a pas encore chargé : grisée d'ici là, comme
+	-- sur un client qui ne donne pas la liste de ses pistages)
+	column = NewCard(page, 0, -upper - hide - 2 * GAP, half, height - upper - hide - 2 * GAP, "HEADER_SWITCH")
+	local switches = {
+		AddOption(column, "NODE_SWITCH", "nodeSwitch"),
+		AddSlider(column, "NODE_SWITCH_YARDS", "nodeSwitchYards", "FORMAT_RANGE"),
+	}
+	refreshers[#refreshers + 1] = function()
+		local available = ns.CanSwitch ~= nil and ns.CanSwitch()
+		for _, control in ipairs(switches) do control:SetAvailable(available) end
+	end
+
+	local profile = 112
+	column = NewCard(page, half + GAP, -upper - GAP, half, height - upper - profile - 2 * GAP, "HEADER_SILHOUETTE")
 	local zoneScale = AddSlider(column, "ZONE_SIZE", "bodyScale", "FORMAT_PERCENT")
 	local zoneShift = AddSlider(column, "ZONE_HEIGHT", "bodyShift", "FORMAT_PERCENT")
 	local zoneShown = AddCheckbox(column, "ZONE_SHOW", ns.IsZoneShown, ns.ShowZone)
@@ -943,6 +1031,9 @@ local function CreateMenu()
 		zoneShift:SetAvailable(available)
 		zoneShown:SetAvailable(available)
 	end
+
+	-- Sous elle, le profil du personnage (Settings.lua)
+	AddProfile(NewCard(page, half + GAP, -(height - profile), half, profile, "HEADER_PROFILE"))
 
 	for name, shown in pairs(pages) do shown:SetShown(name == openPage) end
 
@@ -1086,6 +1177,78 @@ local function CreateMinimapButton()
 	PlaceMinimapButton()
 end
 
+-- LibDataBroker-1.1 et LibDBIcon-1.0 : ce que connaissent les addons qui rangent les boutons de la
+-- minimap et les barres de données. Lueur ne les embarque pas (LibDBIcon se déclare « All Rights
+-- Reserved », LibDataBroker n'a pas de licence ; lu le 2026-11-17) : il s'en sert quand un autre
+-- addon les a chargées, ce qui est le cas chez la plupart des joueurs. Avec LibDataBroker, Lueur
+-- s'annonce aux barres de données ; avec LibDBIcon en plus, c'est elle qui fait le bouton de la
+-- minimap, et celui de Lueur n'est pas créé. `broker` : data (l'objet annoncé), icons (LibDBIcon).
+local broker = {}
+local BROKER_NAME = "Lueur"
+
+-- LibDBIcon garde l'angle et le masquage sous d'autres noms (minimapPos, hide) dans la table qu'on lui
+-- donne : celle-ci les lit et les écrit dans les réglages de Lueur, qui gardent leur forme
+broker.settings = setmetatable({}, {
+	__index = function(_, key)
+		if key == "minimapPos" then return ns.db.minimap.angle end
+		if key == "hide" then return ns.db.minimap.hide end
+	end,
+	__newindex = function(self, key, value)
+		if key == "minimapPos" then
+			if type(value) == "number" then ns.db.minimap.angle = value + 0 end
+		elseif key == "hide" then
+			ns.db.minimap.hide = value and true or false
+		else
+			rawset(self, key, value)
+		end
+	end,
+})
+
+local function BrokerLibrary(name)
+	local stub = LibStub
+	if type(stub) ~= "table" or type(stub.GetLibrary) ~= "function" then return nil end
+	local ok, library = pcall(stub.GetLibrary, stub, name, true)
+	return ok and type(library) == "table" and library or nil
+end
+
+-- S'annonce aux bibliothèques présentes. Renvoie true quand LibDBIcon tient le bouton de la minimap.
+local function UseBroker()
+	local data = BrokerLibrary("LibDataBroker-1.1")
+	if not data or type(data.NewDataObject) ~= "function" then return false end
+	if not broker.data then
+		local ok, object = pcall(data.NewDataObject, data, BROKER_NAME, {
+			type = "launcher",
+			label = "Lueur",
+			icon = MEDIA .. "icon.tga",
+			OnClick = function(_, mouseButton)
+				if mouseButton == "RightButton" then ns.Toggle(not ns.db.enabled) else ns.ToggleMenu() end
+			end,
+			OnTooltipShow = function(tooltip)
+				tooltip:AddLine("Lueur", 1, 1, 1)
+				tooltip:AddLine(ns.db.enabled and L.TIP_ENABLED or L.TIP_DISABLED, 1, 0.82, 0)
+				tooltip:AddLine(L.TIP_LEFT_CLICK, 0.1, 1, 0.1)
+				tooltip:AddLine(L.TIP_RIGHT_CLICK, 0.1, 1, 0.1)
+			end,
+		})
+		if not ok or type(object) ~= "table" then return false end
+		broker.data = object
+	end
+	local icons = BrokerLibrary("LibDBIcon-1.0")
+	if not icons or type(icons.Register) ~= "function" or type(icons.GetMinimapButton) ~= "function" then return false end
+	if not broker.icons then
+		if not pcall(icons.Register, icons, BROKER_NAME, broker.data, broker.settings) then return false end
+		broker.icons = icons
+	end
+	return true
+end
+
+-- Appelée par Lueur.lua à la connexion, tous les addons chargés : le bouton de LibDBIcon, sinon
+-- celui de Lueur
+function ns.SetupMinimapButton()
+	if not UseBroker() and not minimapButton then CreateMinimapButton() end
+	ns.Refresh()
+end
+
 ---------------------------------------------------------------------------
 -- Entrée dans les options du jeu
 ---------------------------------------------------------------------------
@@ -1117,19 +1280,27 @@ local function RegisterOptionsPage()
 end
 
 ---------------------------------------------------------------------------
--- Liens avec Lueur.lua et avec le jeu
+-- Liens avec le cœur de l'addon et avec le jeu
 ---------------------------------------------------------------------------
 
--- Appelée par Lueur.lua à chaque changement de réglage, d'où qu'il vienne
+-- Appelée par Settings.lua à chaque changement de réglage, d'où qu'il vienne
 function ns.Refresh()
 	if minimapButton then
 		minimapButton:SetShown(not ns.db.minimap.hide)
 		minimapButton.icon:SetDesaturated(not ns.db.enabled) -- gris quand Lueur est désactivé
 	end
+	if broker.icons then
+		-- (LibDBIcon relit dans les réglages si son bouton se montre, et où)
+		pcall(broker.icons.Refresh, broker.icons, BROKER_NAME)
+		local ok, button = pcall(broker.icons.GetMinimapButton, broker.icons, BROKER_NAME)
+		if ok and type(button) == "table" and button.icon and button.icon.SetDesaturated then
+			button.icon:SetDesaturated(not ns.db.enabled)
+		end
+	end
 	if menu and menu:IsShown() then RefreshMenu() end
 end
 
--- Appelée par Lueur.lua quand la langue change : repose les textes fixes de la fenêtre. Les
+-- Appelée par Settings.lua quand la langue change : repose les textes fixes de la fenêtre. Les
 -- valeurs suivent avec le rafraîchissement qui accompagne tout changement de réglage.
 function ns.Retext()
 	for _, apply in ipairs(captions) do apply() end
@@ -1142,9 +1313,9 @@ function ns.ShowMinimapButton(shown)
 	ns.Refresh()
 end
 
--- Appelée par Lueur.lua une fois les réglages chargés
+-- Appelée par Lueur.lua une fois les réglages chargés (le bouton de la minimap attend la connexion :
+-- ns.SetupMinimapButton)
 function ns.SetupInterface()
-	CreateMinimapButton()
 	RegisterOptionsPage()
 	ns.Refresh()
 end

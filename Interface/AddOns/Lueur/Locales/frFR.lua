@@ -21,7 +21,7 @@ L.COMMANDS = {
 	["portée"] = "range", exclusif = "exclusive", indisponible = "unavailable", ["métier"] = "profession", minerai = "ore", herbe = "herb",
 	["quête"] = "quest", coffre = "chest", flotteur = "bobber", autre = "other", ignorer = "ignore", liste = "list", vider = "clear",
 	objectifs = "objectives", ["état"] = "status", aide = "help", touche = "key", aucune = "none", langue = "language",
-	ressources = "nodes", alterner = "switch", balayage = "scan", bordure = "ring",
+	alterner = "switch", profil = "profile", ["échanger"] = "swap",
 	seule = "glowonly",
 }
 
@@ -144,6 +144,10 @@ L.FONT_TIP = "Police du nom écrit au-dessus de l'objet."
 L.FONT_GAME = "Police du jeu"
 L.COLOR = "Couleur"
 L.COLOR_TIP = "La couleur de l'effet sur ces objets."
+L.COLOR_SECOND = "Seconde couleur"
+L.COLOR_SECOND_TIP = "La couleur des traits fins et des éclats de l'effet sur ces objets. La même que la première tant que tu n'en choisis pas."
+L.TIP_COLOR_SAME = "Clic droit : la même que la première"
+L.TIP_COLOR_SWAP = "Maj-clic : échanger les deux couleurs"
 L.TIP_COLOR_SET = "Clic gauche : choisir une couleur"
 L.TIP_COLOR_RESET = "Clic droit : revenir à la couleur d'origine"
 L.IGNORED = "Objets ignorés : %d"
@@ -196,29 +200,27 @@ L.MINIMAP_TIP = "Affiche le bouton de Lueur au bord de la minimap."
 L.DEBUG = "Diagnostic dans la discussion"
 L.DEBUG_TIP = "Décrit dans la fenêtre de discussion chaque objet ciblé et ce que Lueur en déduit."
 
-L.NODES_PAGE = "Plantes et filons sur la minimap"
-L.HEADER_NODES = "Icônes de la minimap"
 L.HEADER_SWITCH = "Deux métiers de récolte"
-L.NODE_HERBS = "Icônes des plantes"
-L.NODE_HERBS_TIP = "Chaque plante que ton pistage pose sur la minimap y prend l'icône de cette plante, au lieu d'un simple point."
-L.NODE_ORE = "Icônes des filons"
-L.NODE_ORE_TIP = "Chaque filon que ton pistage pose sur la minimap y prend l'icône de son minerai, au lieu d'un simple point."
-L.NODE_SIZE = "Taille des icônes"
-L.NODE_SIZE_TIP = "Taille des icônes sur la minimap."
-L.NODE_RING = "Épaisseur de l'anneau"
-L.NODE_RING_TIP = "Épaisseur de l'anneau coloré autour de chaque icône, qui dit ce que vaut le nœud pour ta compétence. À 0 %, pas d'anneau."
-L.NODE_COMBAT = "Lire la minimap en combat"
-L.NODE_COMBAT_TIP = "Lueur continue de lire la minimap pendant un combat. Décoche pour la laisser tranquille jusqu'à la fin du combat."
-L.HEADER_SCANNING = "Lecture de la minimap"
-L.NODE_SCAN_YARDS = "Distance entre deux balayages"
-L.NODE_SCAN_YARDS_TIP = "Distance parcourue avant que Lueur relise la minimap. Chaque balayage la cache un instant : plus espacés, elle se cache moins souvent, et les nouveaux nœuds apparaissent plus tard."
 L.NODE_SWITCH = "Alterner les deux pistages"
-L.NODE_SWITCH_TIP = "Le jeu montre les points des plantes ou ceux des minerais, jamais les deux. Lueur allume l'autre pistage chaque fois que tu t'es assez déplacé, et garde les icônes des deux sur la minimap. Chaque personnage a son réglage."
+L.NODE_SWITCH_TIP = "Le jeu montre les points des plantes ou ceux des minerais, jamais les deux. Lueur allume l'autre pistage chaque fois que tu t'es assez déplacé. Chaque personnage a son réglage."
 L.NODE_SWITCH_YARDS = "Distance entre deux bascules"
 L.NODE_SWITCH_YARDS_TIP = "Distance que tu parcours avant que Lueur allume l'autre pistage."
 
 L.PREVIEW_NO_MODEL = "Modèle 3D indisponible sur ce client"
 L.PREVIEW_HINT = "Glisser : tourner  ·  clic droit : déplacer  ·  molette : zoomer"
+L.HEADER_PROFILE = "Profil"
+L.HEADER_PROFILE_TIP = "Un jeu de réglages de l'effet, de la détection et du masquage, sous un nom. Chaque personnage utilise le profil choisi ici."
+L.PROFILE_DEFAULT = "Par défaut"
+L.PROFILE_NEW = "Nouveau"
+L.PROFILE_NEW_TIP = "Crée un profil aux réglages d'origine, et le donne à ce personnage."
+L.PROFILE_COPY = "Copier"
+L.PROFILE_COPY_TIP = "Crée un profil avec les réglages de celui-ci, et le donne à ce personnage."
+L.PROFILE_RENAME = "Renommer"
+L.PROFILE_RENAME_TIP = "Donne un autre nom à ce profil."
+L.PROFILE_DELETE = "Supprimer"
+L.PROFILE_DELETE_TIP = "Supprime ce profil. Les personnages qui l'utilisaient reprennent le premier. Un second clic le confirme."
+L.PROFILE_OK = "OK"
+L.PROFILE_CANCEL = "Annuler"
 L.DEFAULTS = "Par défaut"
 L.DEFAULTS_TIP = "Remet les réglages de l'effet et de la détection à leurs valeurs d'origine. Un second clic le confirme."
 L.FOOTER = "Lueur %s  ·  /lueur aide : toutes les commandes"
@@ -239,7 +241,6 @@ L.TIP_DRAG = "Glisser : déplacer ce bouton"
 L.MSG_ENABLED = "activé."
 L.MSG_DISABLED = "désactivé, tes réglages d'origine sont restaurés."
 L.MSG_RESTART = "relance complètement le jeu pour terminer la mise à jour de Lueur."
-L.MSG_NODES_OFF = "les icônes des plantes et des filons sur la minimap sont désormais désactivées par défaut, et cette mise à jour les a désactivées. Réactive-les dans les réglages (/lueur) ou avec /lueur nodes."
 L.MSG_EXCLUSIVE_ON = "le jeu ne signale plus les cibles qui ne reçoivent pas d'effet."
 L.MSG_EXCLUSIVE_OFF = "le jeu affiche le nom et l'icône de toutes les cibles d'interaction (PNJ, objets du décor…)."
 L.MSG_SILHOUETTE_ON = "l'effet passe derrière ton personnage."
@@ -251,6 +252,7 @@ L.MSG_SILHOUETTE_VALUES = "silhouette : taille %d %%, hauteur %d %%"
 L.MSG_SILHOUETTE_USAGE = "usage : /lueur silhouette | montrer | <taille {bodyScale}> [hauteur {bodyShift}]"
 L.MSG_EFFECTS = "effets disponibles : %s (actuel : %s)"
 L.MSG_FONTS = "polices disponibles : %s (actuelle : %s)"
+L.MSG_COLOR_TWO = "%s : couleurs %s et %s"
 L.MSG_COLOR = "%s : couleur %s"
 L.MSG_NO_PICKER = "ce client n'a pas de sélecteur de couleur : tape /lueur couleur <catégorie> <rrvvbb>."
 L.MSG_SHARED = "%s : de nouveau l'effet et l'apparence de tous les objets."
@@ -271,13 +273,10 @@ L.MSG_RANGE_CLIENT = "portée : %d m demandés, le client a retenu %s."
 L.MSG_KEY_COMBAT = "les raccourcis ne se changent pas en combat."
 L.MSG_KEY_REFUSED = "le jeu a refusé la touche « %s »."
 L.MSG_KEY_REPLACED = "%s ne sert plus à « %s »."
-L.MSG_NODES_UNAVAILABLE = "icônes de la minimap indisponibles : %s."
 
 L.FAIL_NO_MASK = "ce client ne gère pas les masques"
 L.FAIL_MASK_TEXTURE = "texture du masque introuvable (relance complètement le jeu)"
 L.FAIL_MASK_REFUSED = "masque refusé par le client"
-L.FAIL_NO_SCAN = "ce client ne laisse pas un addon lire les points de la minimap"
-L.FAIL_SCAN_ERROR = "le jeu a refusé le balayage de la minimap (/lueur balayage dit pourquoi)"
 
 L.STATUS_CLIENT = "client %s (%s), langue %s ; textes de Lueur : %s. Valeurs effectives :"
 L.STATUS_CVAR_UNKNOWN = "inconnue de ce client"
@@ -293,9 +292,13 @@ L.STATUS_DIRECT = "cible lue directement via « softinteract » : %s"
 L.STATUS_NOT_YET = "pas encore observé"
 L.STATUS_RANGE_API = "portée d'interaction lisible : %s"
 L.STATUS_LINE = "ligne de pêche à l'eau : %s | canalisation en cours : %s"
-L.STATUS_NODES = "icônes de la minimap : %s"
-L.STATUS_NODES_SHOWN = "plantes %s, filons %s, pistages alternés %s"
 L.STATUS_HIDE = "masqué en combat : %s | en instance : %s | sur les objets indisponibles : %s | en pause en ce moment : %s"
+L.STATUS_SWITCH = "pistages alternés : %s | disponible : %s"
+L.MSG_PROFILES = "profils : %s. Ce personnage utilise : %s."
+L.MSG_PROFILE_UNNAMED = "il faut un nom au profil."
+L.MSG_PROFILE_TAKEN = "un autre profil s'appelle déjà %s."
+L.STATUS_PROFILE = "profil : %s | profils : %d"
+L.STATUS_COST = "coût depuis le dernier status : cible %d appels, %.3f ms chacun (le plus long %.2f) | animation %d images, %.3f ms chacune (la plus longue %.2f)"
 L.STATUS_TRAINED = "pas d'effet sur les plantes et filons sans le métier : %s | herboristerie : %s, minage : %s"
 L.STATUS_OBJECTS = "catégories affichées sur ce personnage : %s | objets ignorés : %d"
 L.STATUS_OWN = "catégories aux réglages propres : %s"
@@ -309,44 +312,6 @@ L.OBJECTIVES_HEADER = "%d objectif(s) de quête en cours :"
 L.OBJECTIVES_NOT_ITEM = "  (pas un objet : comparé au nom entier seulement)"
 L.OBJECTIVES_LEARNED = "appris d'une infobulle : %s (%s)"
 
-L.SCAN_HEADER = "balayage de la minimap : %s"
-L.SCAN_READY = "disponible"
-L.SCAN_TRACKING = "pistages de récolte : %s"
-L.SCAN_SKILL = "compétence lue : herboristerie %s, minage %s"
-L.SCAN_VIEW = "rayon de la minimap : %s m | elle tourne avec toi : %s | position connue sur la carte : %s | un point répond à %s unités"
-L.SCAN_TWICE = "un nom écrit deux fois là où deux points se recouvrent : %s"
-L.SCAN_PLACED = "icônes : %d placées exactement, %d dans un groupe, %d à peu près, %d gardées du pistage éteint, %d non retrouvées | dernier balayage : %d points en %.2f s, %d groupe(s) regardé(s) de près"
-L.SCAN_NODE = "%s : %s, répond à %s unités, à (%+.0f, %+.0f) du centre de la minimap"
-L.SCAN_HOW_EXACT = "placée exactement"
-L.SCAN_HOW_CLUSTER = "dans un groupe"
-L.SCAN_HOW_ROUGH = "à peu près"
-L.SCAN_HOW_HELD = "gardée du pistage éteint"
-L.SCAN_HOW_MISSED = "non retrouvée"
-L.SCAN_FOUND = "%d nom(s) lu(s) au dernier balayage, %d icône(s) :"
-L.SCAN_NOT_NODE = "ni une plante ni un filon que Lueur connaît"
-L.SCAN_NEEDS = ", demande %d"
-L.SCAN_CAVE = ", dans une grotte"
-L.SCAN_VIGNETTES = "vignettes que le jeu liste : %s"
-L.SCAN_DATA = "données du point sous le pointeur, hors son texte : %s"
-L.SCAN_POINTER = "sous le pointeur : %s"
-L.SCAN_READER = "minimap sous la souris | dernier balayage : %d images, %d points de grille%s, %d nœuds connus vérifiés, %d groupes mesurés, %d points reposés | interrompu %d fois, la dernière : %s | en attente de : %s | opacité remise à 0 après qu'un autre code l'a changée : %d fois"
-L.SCAN_HIDE = "cachée par son %s | forme : %s | %d de ses cadres cachés avec elle, %d remontrés entre-temps et cachés de nouveau"
-L.SCAN_BY_MASK = "masque"
-L.SCAN_BY_ALPHA = "opacité"
-L.SCAN_FULL = " (toute la minimap)"
-L.SCAN_SOON = "la minimap sera balayée dès qu'elle pourra passer sous la souris"
-L.SCAN_BUSY = "un balayage de la minimap est en cours"
-L.SCAN_WHY_COMBAT = "le combat"
-L.SCAN_WHY_HIDDEN = "la minimap cachée"
-L.SCAN_WHY_POINTER = "la souris sur la minimap"
-L.SCAN_WHY_CAMERA = "la caméra tournée à la souris"
-L.SCAN_WHY_WINDOW = "la souris sur une fenêtre"
-L.SCAN_WHY_ZOOM = "le zoom de la minimap"
-L.SCAN_WHY_TURN = "la minimap tournée"
-L.SCAN_WHY_MAP = "une autre carte"
-L.SCAN_WHY_TAXI = "un vol"
-L.SCAN_WHY_NPC = "une fenêtre de PNJ ouverte"
-L.SCAN_NOTHING = "rien (pose le pointeur sur un point de la minimap et retape la commande)"
 
 ---------------------------------------------------------------------------
 -- Diagnostic (/lueur debug)
@@ -392,7 +357,7 @@ L.HELP = {
 	"/lueur on | off — active ou désactive Lueur (off restaure tes réglages)",
 	"/lueur aperçu — ouvre la fenêtre des réglages sur l'aperçu, qui montre l'effet sur un objet en 3D",
 	"/lueur effet [catégorie] <nom> — donne cet effet à toutes les catégories, ou à une seule (minerai, herbe, quête, coffre, flotteur, autre) ; sans nom, en donne la liste",
-	"/lueur couleur <catégorie> <rrvvbb> | défaut — couleur de l'effet d'une catégorie ; sans couleur, l'affiche",
+	"/lueur couleur <catégorie> <rrvvbb> [<rrvvbb>] | échanger | défaut — couleur de l'effet d'une catégorie, et seconde couleur pour ses traits fins et ses éclats ; échanger les inverse ; sans couleur, les affiche",
 	"/lueur commun <catégorie> — rend à une catégorie l'effet et l'apparence de tous les objets",
 	"/lueur taille [catégorie] <{size}> — taille de l'effet (défaut {size=})",
 	"/lueur intensité [catégorie] <{intensity}> — luminosité de l'effet, en % (défaut {intensity=})",
@@ -409,11 +374,10 @@ L.HELP = {
 	"/lueur combat | instance | indisponible | métier — masque ou non l'effet en combat, en instance, sur les objets indisponibles, sur les plantes et filons sans le métier",
 	"/lueur touche <TOUCHE> | aucune — assigne la touche qui ramasse l'objet mis en lumière (F, SHIFT-E, BUTTON4…) ; sans touche, l'affiche",
 	"/lueur minerai | herbe | quête | coffre | flotteur | autre — affiche ou masque une catégorie, pour ce personnage",
-	"/lueur ressources [minerai | herbe] — affiche ou masque sur la minimap les icônes des plantes et des filons ; ressources taille <{nodeSize}> règle leur taille (défaut {nodeSize=}) ; ressources bordure <{nodeRing}> règle l'épaisseur de leur anneau coloré, 0 pour aucun (défaut {nodeRing=}) ; ressources combat : si la minimap se lit en combat",
+	"/lueur profil [<nom>] — liste les profils, ou donne à ce personnage celui qui porte ce nom",
 	"/lueur alterner [<{nodeSwitchYards}>] — avec les deux métiers de récolte : alterne le pistage des plantes et celui des minerais au fil de tes déplacements ; un nombre règle la distance entre deux bascules, en mètres (défaut {nodeSwitchYards=})",
-	"/lueur balayage — affiche ce que le dernier balayage de la minimap a lu, et ce que Lueur en a fait ; balayage <{nodeScanYards}> règle l'espacement des balayages, en mètres (défaut {nodeScanYards=})",
 	"/lueur ignorer — ignore l'objet qui se trouve devant toi et ceux du même nom (deux fois sur un objet ignoré : cesse de l'ignorer) ; ignorer liste, ignorer vider, ignorer <nom>",
-	"/lueur langue <auto | de | en | es | fr | ru> — langue des textes et des commandes de Lueur",
+	"/lueur langue <auto | de | en | es | fr | it | ko | pt | ru | zhCN | zhTW> — langue des textes et des commandes de Lueur",
 	"/lueur debug — décrit chaque objet ciblé et ce que Lueur en déduit",
 	"/lueur objectifs — liste les objectifs de quête auxquels le nom des objets est comparé",
 	"/lueur état — affiche les valeurs réellement appliquées par le client",
