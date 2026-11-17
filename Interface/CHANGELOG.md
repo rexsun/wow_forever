@@ -1,3 +1,18 @@
+## [Splash Alert 2: game-sound template] - 2026-11-16
+### Features
+- Build the splash template from the game's own bite sound (`fishbite.ogg`, file 569816), read from the local CASC storage by a small read-only reader (`casc.py`: local indices, BLTE, encoding table, MFST root), so alerts work with no calibration.
+- Match the time-frequency pattern (11 frames x 24 bands, ±2-frame onset tolerance) instead of one averaged spectrum; reject sounds closer to the game's `fishingbobber_ver2` sounds.
+- Learn your own splash (template, loudness, threshold) from three alerts you reel in within 10 s; `calibrate` remains for re-sampling and backs up the current calibration first.
+- Overlay notices `🎣 Splash learned` and `🎣 No bite heard` (three full casts with no match).
+### Design Rationale
+- Reading the file instead of having an addon play it gives the exact sound with no addon and no need to time a capture around an in-game playback.
+- The averaged spectrum let 22% of random game sounds reach 0.75; keeping the time course lowers that to about 3.5% at 0.7, measured on 1,276 game sounds.
+- Loudness is what separates your bobber from other players', and the file cannot give it, so the level is learned from bites you confirm by reeling in. Until then the tool errs towards alerting rather than missing.
+### Notes & Caveats
+- Calibration files move to format 2 (time-frequency template, `source`, optional `decoys`, `level_db` may be null). Older files are copied aside and rebuilt from the game.
+- Heavy background noise lowers the bite's match below 0.7; the "No bite heard" notice points to `calibrate` for that case.
+- New dependency: `soundfile` (Ogg Vorbis decoding).
+
 ## [Splash Alert] - 2026-11-15
 ### Features
 - Add `tools/splash-alert`: a listen-only fishing bite alert. It captures only Wow.exe's audio, opens a listening window on each Fishing Key press (Delete or Backspace while WoW has focus), and on a splash that matches the calibrated one shows a click-through overlay on every monitor: a 20% black wash with `🎣 Bite!` in Maple Mono NF CN, 64 pt, light blue, for 3 s or until the next key press.

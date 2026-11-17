@@ -47,9 +47,13 @@ switch ($Mode) {
         $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         $state = if ($task) { [string]$task.State } else { 'not installed' }
         $running = @(Get-SplashAlertProcess | Where-Object Name -eq 'python.exe').Count -gt 0
-        $calibrated = Test-Path -LiteralPath (Join-Path $PSScriptRoot 'calibration.local.json')
-        Write-Output "Task: $state; running: $running; calibrated: $calibrated"
-        if (-not $calibrated) { Write-Output 'No bite can be detected until you run: uv run splash_alert.py calibrate' }
+        $calibrationFile = Join-Path $PSScriptRoot 'calibration.local.json'
+        $source = 'none'
+        if (Test-Path -LiteralPath $calibrationFile) {
+            try { $source = (Get-Content -LiteralPath $calibrationFile -Raw | ConvertFrom-Json).source } catch { $source = 'unreadable' }
+        }
+        Write-Output "Task: $state; running: $running; calibration: $source"
+        if ($source -in @('none', 'unreadable')) { Write-Output 'Start the task, or run: uv run splash_alert.py calibrate' }
         if (Test-Path -LiteralPath $LogFile) { Get-Content -LiteralPath $LogFile -Tail 10 }
     }
 }

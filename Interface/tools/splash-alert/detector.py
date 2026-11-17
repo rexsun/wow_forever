@@ -24,6 +24,9 @@ LEVEL_MARGIN_DB = 6.0
 SIMILARITY_SLACK = 0.1
 SIMILARITY_RANGE = (0.6, 0.95)
 MIN_SAMPLE_AGREEMENT = 0.5
+MAX_SHIFT_FRAMES = 2
+CALIBRATION_FORMAT = 2
+SOURCES = ("game", "learned", "calibrate")
 
 
 @dataclass(frozen=True)
@@ -35,30 +38,63 @@ class SoundEvent:
 
 @dataclass(frozen=True)
 class Calibration:
+    """level_db is None for the game's own sound: its loudness at your bobber is unknown until learned.
+
+    decoys are profiles of other game sounds that resemble the splash; a sound closer to one is not a bite.
+    """
+
     template: np.ndarray
-    level_db: float
+    level_db: float | None
     similarity: float
     samples: int
+    source: str = "calibrate"
+    decoys: tuple[np.ndarray, ...] = ()
+
+    def match(self, sound: np.ndarray) -> tuple[float, bool]:
+        """The sound's similarity to the template, and whether it is closer to a decoy."""
+        score = similarity(sound, self.template)
+        return score, any(similarity(sound, decoy) > score for decoy in self.decoys)
 
     def to_json(self) -> dict:
         return {
-            "template": [round(float(v), 6) for v in self.template],
-            "level_db": round(self.level_db, 2),
+            "format": CALIBRATION_FORMAT,
+            "source": self.source,
+            "template": _rows(self.template),
+            "decoys": [_rows(decoy) for decoy in self.decoys],
+            "level_db": None if self.level_db is None else round(self.level_db, 2),
             "similarity": round(self.similarity, 3),
             "samples": self.samples,
             "sample_rate": SAMPLE_RATE,
             "frame": FRAME,
             "bands": BAND_COUNT,
+            "event_frames": EVENT_FRAMES,
         }
 
     @classmethod
     def from_json(cls, data: dict) -> "Calibration":
-        if (data.get("sample_rate"), data.get("frame"), data.get("bands")) != (SAMPLE_RATE, FRAME, BAND_COUNT):
-            raise ValueError("calibration was made with different audio settings; calibrate again")
-        template = np.asarray(data["template"], dtype=np.float64)
-        if template.shape != (BAND_COUNT,):
-            raise ValueError("calibration template has the wrong size; calibrate again")
-        return cls(template, float(data["level_db"]), float(data["similarity"]), int(data["samples"]))
+        settings = (data.get("format"), data.get("sample_rate"), data.get("frame"), data.get("bands"),
+                    data.get("event_frames"))
+        if settings != (CALIBRATION_FORMAT, SAMPLE_RATE, FRAME, BAND_COUNT, EVENT_FRAMES):
+            raise ValueError("calibration was made with different audio settings")
+        template = _profile_array(data["template"])
+        decoys = tuple(_profile_array(decoy) for decoy in data.get("decoys", []))
+        source = data.get("source")
+        if source not in SOURCES:
+            raise ValueError(f"unknown calibration source {source!r}")
+        level = data["level_db"]
+        return cls(template, None if level is None else float(level), float(data["similarity"]),
+                   int(data["samples"]), source, decoys)
+
+
+def _rows(m: np.ndarray) -> list[list[float]]:
+    return [[round(float(v), 6) for v in row] for row in m]
+
+
+def _profile_array(rows: list) -> np.ndarray:
+    m = np.asarray(rows, dtype=np.float64)
+    if m.shape != (EVENT_FRAMES, BAND_COUNT):
+        raise ValueError("calibration profile has the wrong size")
+    return m
 
 
 def frame_db(frame: np.ndarray) -> float:
@@ -77,20 +113,36 @@ _WINDOW = np.hanning(FRAME)
 
 
 def profile(frames: Sequence[np.ndarray]) -> np.ndarray:
-    """Unit-length log band spectrum with its mean removed: the sound's shape, independent of loudness."""
-    power = np.zeros(FRAME // 2 + 1)
+    """Log band spectrum of each frame (frames x bands), unit length with its mean removed.
+
+    Keeping the frames apart matches how the sound changes over time, not only its average spectrum:
+    against a sample of the game's own sounds that rejects about ten times more non-splashes.
+    """
+    rows = []
     for frame in frames:
-        power += np.abs(np.fft.rfft(frame * _WINDOW)) ** 2
-    bands = 10.0 * np.log10(np.array([power[idx].sum() for idx in _BANDS]) + 1e-12)
+        power = np.abs(np.fft.rfft(frame * _WINDOW)) ** 2
+        rows.append([power[idx].sum() for idx in _BANDS])
+    bands = 10.0 * np.log10(np.asarray(rows, dtype=np.float64) + 1e-12)
     # Without a floor, near-silent bands dominate the shape and a pure tone resembles a splash.
     bands = np.maximum(bands, bands.max() - PROFILE_RANGE_DB)
-    bands -= bands.mean()
-    norm = np.linalg.norm(bands)
-    return bands / norm if norm > 0 else bands
+    return _unit(bands)
+
+
+def _unit(m: np.ndarray) -> np.ndarray:
+    m = m - m.mean()
+    norm = np.linalg.norm(m)
+    return m / norm if norm > 0 else m
 
 
 def similarity(a: np.ndarray, b: np.ndarray) -> float:
-    return float(np.dot(a, b))
+    """Best match over small time shifts, since an onset is found a frame or two earlier in a quieter scene."""
+    rows = min(len(a), len(b))
+    a, b = a[:rows], b[:rows]
+    best = float(np.sum(a * b))
+    for shift in range(1, min(MAX_SHIFT_FRAMES, rows - 1) + 1):
+        for x, y in ((a[shift:], b[:-shift]), (a[:-shift], b[shift:])):
+            best = max(best, float(np.sum(_unit(x) * _unit(y))))
+    return best
 
 
 class Framer:
@@ -157,12 +209,11 @@ class EventDetector:
         self._on_event(event)
 
 
-def calibrate(events: Sequence[SoundEvent]) -> Calibration:
+def calibrate(events: Sequence[SoundEvent], source: str = "calibrate") -> Calibration:
     if not events:
         raise ValueError("no splashes recorded")
     profiles = np.array([e.profile for e in events])
-    mean = profiles.mean(axis=0)
-    template = mean / np.linalg.norm(mean)
+    template = _unit(profiles.mean(axis=0))
     agreement = min(similarity(p, template) for p in profiles)
     if agreement < MIN_SAMPLE_AGREEMENT:
         raise ValueError(
@@ -172,4 +223,4 @@ def calibrate(events: Sequence[SoundEvent]) -> Calibration:
     lo, hi = SIMILARITY_RANGE
     threshold = min(hi, max(lo, agreement - SIMILARITY_SLACK))
     level = min(e.peak_db for e in events) - LEVEL_MARGIN_DB
-    return Calibration(template, level, threshold, len(events))
+    return Calibration(template, level, threshold, len(events), source)

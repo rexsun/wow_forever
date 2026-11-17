@@ -2,6 +2,15 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-16 - Splash Alert works without calibration
+
+- Splash Alert now builds its splash template at start-up from the game's own bite sound, `sound/spells/tradeskills/fishbite.ogg` (file 569816), read from the local game data (read-only, no network, no addon). Alerts work from the first cast; `calibrate` is optional.
+- Matching compares how the spectrum changes over the sound's first quarter second (11 frames x 24 bands, onset allowed ±2 frames), not one averaged spectrum. On 1,276 sounds sampled from the game, 3.5% reach the 0.7 threshold; with the old averaged spectrum, 22% of random game sounds reached 0.75. The three `fishingbobber_ver2` sounds, which score up to 0.82 against the bite, are kept as decoys: a sound closer to one is ignored.
+- The game file cannot say how loud your own bobber is, so at first any matching splash fires. Three alerts you reel in within 10 s become a learned calibration (template, loudness, threshold), after which other players' fainter splashes are ignored; the overlay shows `🎣 Splash learned`.
+- `calibrate` stays for re-sampling and now first copies the existing `calibration.local.json` to `calibration.<date-time>.local.json`. The file records its source (`game`, `learned` or `calibrate`), shown by `autostart.ps1 -Mode Status`. Calibrations in the old format are set aside the same way and rebuilt from the game.
+- Safety net: after three casts in a row run their full channel with nothing matched, the overlay shows `🎣 No bite heard` and the log suggests `calibrate`. Each such cast logs its closest match.
+- Verification: 50 unit tests, including the real bite sound read from this installation; a bite 20 dB quieter or muffled to 3 kHz still matches (0.75-0.81) and no decoy takes it, while the bobber sounds and a tone do not match. Under heavy background noise the bite scores 0.64-0.69 and is missed; that is what the notice and `calibrate` cover. Not yet tried on a real fishing session.
+
 ## 2026-11-16 - Splash Alert shows a missing calibration
 
 - The auto-started copy had run since 2026-11-15 without `calibration.local.json`, so it could never alert, and the only sign was a log line nobody sees while playing. `run` now shows `🎣 Not calibrated` in the overlay at the first cast without a calibration (again only if the calibration is later lost), and `autostart.ps1 -Mode Status` reports `calibrated: True/False`.

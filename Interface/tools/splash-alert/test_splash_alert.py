@@ -1,22 +1,27 @@
-"""Run with: uv run --no-project --with numpy --with psutil python -m unittest discover -s tools/splash-alert"""
+"""Run with: uv run --no-project --with numpy --with psutil --with soundfile python -m unittest discover -s tools/splash-alert"""
 
 import json
 import os
+import struct
 import sys
 import tempfile
 import threading
 import time
 import unittest
+import zlib
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from detector import (FRAME, LEVEL_MARGIN_DB, SAMPLE_RATE, Calibration, EventDetector, Framer,
+from casc import CascError, blte_decode
+from detector import (EVENT_FRAMES, FRAME, LEVEL_MARGIN_DB, SAMPLE_RATE, Calibration, EventDetector, Framer,
                       SoundEvent, calibrate, frame_db, profile, similarity)
+from game import GAME_ROOT
 from game_audio import GameAudio
-from session import LISTEN_DELAY_S, BiteSession, CalibrationSession
+from session import (CHANNEL_S, LISTEN_DELAY_S, SILENT_CASTS_NOTICE, BiteSession, CalibrationSession,
+                     SplashLearner)
 from splash_alert import CalibrationFile
 
 RNG = np.random.default_rng(7)
@@ -40,6 +45,10 @@ def tone(seconds: float = 0.6, hz: float = 440.0, gain: float = 0.3) -> np.ndarr
 
 def silence(seconds: float) -> np.ndarray:
     return (1e-4 * RNG.standard_normal(int(seconds * SAMPLE_RATE))).astype(np.float32)
+
+
+def frames(sound: np.ndarray) -> list[np.ndarray]:
+    return [sound[i * FRAME:(i + 1) * FRAME] for i in range(EVENT_FRAMES)]
 
 
 def detect(signal: np.ndarray, start: float = 100.0, chunk: int = 441) -> list[SoundEvent]:
@@ -81,12 +90,22 @@ class DetectorTests(unittest.TestCase):
         self.assertEqual([], detect(silence(3.0)))
 
     def test_shape_ignores_loudness_and_tells_splash_from_tone(self):
-        a = profile([splash(0.1, 0.3)[:FRAME]])
-        b = profile([splash(0.1, 0.03)[:FRAME]])
-        c = profile([tone(0.1)[:FRAME]])
+        a = profile(frames(splash(gain=0.3)))
+        b = profile(frames(splash(gain=0.03)))
+        c = profile(frames(tone()))
         self.assertGreater(similarity(a, b), 0.9)
         self.assertLess(similarity(a, c), 0.5)
-        self.assertLess(similarity(a, profile([tone(0.1, hz=1500)[:FRAME]])), 0.5)
+        self.assertLess(similarity(a, profile(frames(tone(hz=1500)))), 0.5)
+
+    def test_profile_keeps_time_so_a_reversed_splash_differs(self):
+        sound = splash()
+        self.assertLess(similarity(profile(frames(sound)), profile(frames(sound[::-1].copy()))), 0.7)
+
+    def test_similarity_tolerates_an_onset_a_frame_late(self):
+        sound = np.concatenate([silence(0.05), splash()])
+        early = profile(frames(sound))
+        late = profile(frames(sound[FRAME:]))
+        self.assertGreater(similarity(early, late), 0.9)
 
     def test_frame_db_of_full_scale_sine_is_about_minus_3(self):
         self.assertAlmostEqual(-3.0, frame_db(tone(0.1, gain=1.0)[:FRAME]), delta=0.2)
@@ -118,7 +137,7 @@ class CalibrationTests(unittest.TestCase):
 
 
 def event(start: float, sound: np.ndarray) -> SoundEvent:
-    return SoundEvent(start, frame_db(sound[:FRAME]), profile([sound[:FRAME]]))
+    return SoundEvent(start, frame_db(sound[:FRAME]), profile(frames(sound)))
 
 
 class BiteSessionTests(unittest.TestCase):
@@ -177,6 +196,79 @@ class UncalibratedTests(unittest.TestCase):
         self.cal = None
         self.session.key_pressed(60.0)
         self.assertEqual([1, 1], self.told)
+
+
+def game_like(level_db=None, source="game") -> Calibration:
+    loud = event(0, splash())
+    return Calibration(loud.profile, level_db, 0.7, 0, source)
+
+
+class GameTemplateSessionTests(unittest.TestCase):
+    def setUp(self):
+        self.cal = game_like()
+        self.bites, self.reeled, self.silent = [], [], []
+        self.session = BiteSession(lambda: self.cal, lambda: self.bites.append(1), lambda: None,
+                                   on_reeled=self.reeled.append, on_silent=lambda: self.silent.append(1))
+
+    def test_a_sound_closer_to_a_decoy_does_not_fire(self):
+        decoy = splash()
+        self.cal = Calibration(event(0, splash()).profile, None, 0.5, 0, "game", (event(0, decoy).profile,))
+        self.session.key_pressed(0.0)
+        self.assertFalse(self.session.event(event(5.0, decoy)))
+
+    def test_without_a_learned_level_any_matching_splash_fires(self):
+        self.session.key_pressed(0.0)
+        self.assertTrue(self.session.event(event(5.0, splash(gain=0.01))))
+
+    def test_a_reel_in_soon_after_the_alert_is_learned(self):
+        self.session.key_pressed(0.0)
+        self.session.event(event(8.0, splash()))
+        self.session.key_pressed(9.0)
+        self.assertEqual([8.0], [ev.start for ev in self.reeled])
+
+    def test_a_late_press_or_an_own_calibration_is_not_learned(self):
+        self.session.key_pressed(0.0)
+        self.session.event(event(8.0, splash()))
+        self.session.key_pressed(30.0)
+        self.cal = game_like(-40.0, "calibrate")
+        self.session.event(event(35.0, splash()))
+        self.session.key_pressed(36.0)
+        self.assertEqual([], self.reeled)
+
+    def test_tells_after_several_casts_run_out_unmatched(self):
+        t = 0.0
+        for _ in range(SILENT_CASTS_NOTICE + 1):
+            self.session.key_pressed(t)
+            self.session.event(event(t + 5.0, tone()))
+            t += CHANNEL_S + 1
+        self.assertEqual([1], self.silent)
+
+    def test_a_bite_resets_the_unmatched_count(self):
+        t = 0.0
+        for i in range(SILENT_CASTS_NOTICE * 2):
+            self.session.key_pressed(t)
+            if i == SILENT_CASTS_NOTICE - 1:
+                self.session.event(event(t + 5.0, splash()))
+            t += CHANNEL_S + 1
+        self.assertEqual([], self.silent)
+
+
+class SplashLearnerTests(unittest.TestCase):
+    def test_learns_from_three_alike_bites(self):
+        learned = []
+        learner = SplashLearner(learned.append)
+        for gain in (0.3, 0.2, 0.25):
+            learner.add(event(0, splash(gain=gain)))
+        self.assertEqual(1, len(learned))
+        self.assertEqual("learned", learned[0].source)
+        self.assertIsNotNone(learned[0].level_db)
+
+    def test_unlike_sounds_are_not_learned(self):
+        learned = []
+        learner = SplashLearner(learned.append)
+        for sound in (splash(), tone(), tone(hz=3000)):
+            learner.add(event(0, sound))
+        self.assertEqual([], learned)
 
 
 class CalibrationSessionTests(unittest.TestCase):
@@ -291,6 +383,113 @@ class CalibrationFileTests(unittest.TestCase):
         self.write("{not json", 1000)
         with self.assertLogs("splash-alert", "WARNING"):
             self.assertIsNone(self.file.refresh())
+
+    def test_an_older_format_is_not_calibrated(self):
+        self.write(json.dumps({**self.data, "format": 1}), 1000)
+        with self.assertLogs("splash-alert", "WARNING"):
+            self.assertIsNone(self.file.refresh())
+
+    def test_saving_keeps_the_previous_calibration(self):
+        self.write(json.dumps(self.data), 1000)
+        backup = self.file.save(game_like())
+        self.assertEqual(self.data, json.loads(backup.read_text(encoding="utf-8")))
+        self.assertTrue(backup.name.startswith("calibration.") and backup.name.endswith(".local.json"))
+        self.assertEqual("game", json.loads(self.path.read_text(encoding="utf-8"))["source"])
+
+    def test_first_save_has_no_backup(self):
+        self.assertIsNone(self.file.save(game_like()))
+
+    def test_ensure_builds_from_the_game_when_missing(self):
+        built = CalibrationFile(self.path, build=game_like)
+        cal = built.ensure()
+        self.assertEqual("game", cal.source)
+        self.assertIsNone(cal.level_db)
+        self.assertEqual([self.path.name], [p.name for p in self.path.parent.iterdir()])
+
+    def test_ensure_keeps_an_existing_calibration(self):
+        self.write(json.dumps(self.data), 1000)
+        built = CalibrationFile(self.path, build=lambda: self.fail("must not rebuild"))
+        self.assertEqual("calibrate", built.ensure().source)
+
+    def test_ensure_tries_the_game_once(self):
+        calls = []
+
+        def broken():
+            calls.append(1)
+            raise OSError("no game data")
+
+        built = CalibrationFile(self.path, build=broken)
+        with self.assertLogs("splash-alert", "WARNING"):
+            self.assertIsNone(built.ensure())
+            self.assertIsNone(built.ensure())
+        self.assertEqual([1], calls)
+
+    def test_game_calibration_round_trips_without_a_level(self):
+        cal = game_like()
+        cal = Calibration(cal.template, None, cal.similarity, 0, "game", (event(0, tone()).profile,))
+        back = Calibration.from_json(cal.to_json())
+        self.assertIsNone(back.level_db)
+        self.assertEqual("game", back.source)
+        np.testing.assert_allclose(cal.decoys[0], back.decoys[0], atol=1e-5)
+
+
+def blte(*chunks: bytes) -> bytes:
+    if len(chunks) == 1:
+        return b"BLTE" + struct.pack(">I", 0) + chunks[0]
+    table = b"".join(struct.pack(">II", len(c), 0) + bytes(16) for c in chunks)
+    header = 12 + len(table)
+    return b"BLTE" + struct.pack(">I", header) + b"\x0f" + len(chunks).to_bytes(3, "big") + table + b"".join(chunks)
+
+
+class BlteTests(unittest.TestCase):
+    def test_plain_and_zlib_chunks(self):
+        self.assertEqual(b"abc", blte_decode(blte(b"Nabc")))
+        self.assertEqual(b"hello" * 50, blte_decode(blte(b"Z" + zlib.compress(b"hello" * 50))))
+
+    def test_several_chunks_are_joined(self):
+        self.assertEqual(b"abcdef", blte_decode(blte(b"Nabc", b"Z" + zlib.compress(b"def"))))
+
+    def test_encrypted_and_foreign_data_are_refused(self):
+        with self.assertRaises(CascError):
+            blte_decode(blte(b"E\x00"))
+        with self.assertRaises(CascError):
+            blte_decode(b"OggS....")
+
+
+def _soundfile_available() -> bool:
+    try:
+        import soundfile  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+@unittest.skipUnless((GAME_ROOT.parent / ".build.info").exists() and _soundfile_available(),
+                     "needs the installed game and soundfile")
+class GameSoundTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from casc import Casc
+        from game_sound import BITE_SOUND_FDID, DECOY_FDIDS, decode, flavor_product, game_calibration
+
+        casc = Casc(GAME_ROOT.parent, flavor_product())
+        cls.bite = decode(casc.read_fdid(BITE_SOUND_FDID))
+        cls.decoy_sounds = [decode(casc.read_fdid(fdid)) for fdid in DECOY_FDIDS]
+        cls.cal = game_calibration()
+
+    def matches(self, sound: np.ndarray) -> bool:
+        from game_sound import first_event
+
+        score, decoy = self.cal.match(first_event(sound).profile)
+        return score >= self.cal.similarity and not decoy
+
+    def test_a_quieter_bite_matches(self):
+        self.assertTrue(self.matches(self.bite * 0.1))
+
+    def test_the_bobber_sounds_and_a_tone_do_not_match(self):
+        for sound in self.decoy_sounds:
+            self.assertFalse(self.matches(sound))
+        self.assertFalse(self.matches(tone(1.0)))
 
 
 if __name__ == "__main__":
