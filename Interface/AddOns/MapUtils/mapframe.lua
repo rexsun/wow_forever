@@ -3,6 +3,12 @@ local MIN_SCALE = 0.5
 local MAX_SCALE = 2
 local SCALE_EPSILON = 0.001
 local GRIP_SIZE = 26
+local MAP_SIZE = {
+	["minWidth"] = 500,
+	["minHeight"] = 300,
+	["custom"] = false,
+	["detailsInset"] = 0
+}
 local frame = WorldMapFrame
 local ready = false
 local foreign = false
@@ -132,6 +138,66 @@ local function SetScale(value)
 	if math.abs(frame:GetScale() - value) > SCALE_EPSILON then frame:SetScale(value) end
 end
 
+function MAP_SIZE.CanResize()
+	return frame.minimizedWidth ~= nil and frame.minimizedHeight ~= nil and not IsMaximized()
+end
+
+function MAP_SIZE.QuestExtra()
+	if frame.QuestLog ~= nil and frame.QuestLog:IsShown() and frame.questLogWidth ~= nil then return frame.questLogWidth end
+
+	return 0
+end
+
+function MAP_SIZE.Get()
+	local size = MAUTTAB["WORLDMAPSIZE"]
+	if not ScaleEnabled() or not MAP_SIZE.CanResize() or type(size) ~= "table" or size.w == nil or size.h == nil then return nil end
+
+	return size.w, size.h
+end
+
+function MAP_SIZE.Clamp(w, h, left, top)
+	local k = ToUi()
+	local maxW = (UIParent:GetWidth() - (left or 0)) / k - MAP_SIZE.QuestExtra()
+	local maxH = (top or UIParent:GetHeight()) / k
+
+	return max(MAP_SIZE.minWidth, min(w, maxW)), max(MAP_SIZE.minHeight, min(h, maxH))
+end
+
+function MAP_SIZE.Set(w, h)
+	local width = w + MAP_SIZE.QuestExtra()
+	if math.abs(frame:GetWidth() - width) <= SCALE_EPSILON and math.abs(frame:GetHeight() - h) <= SCALE_EPSILON then return false end
+	frame:SetSize(width, h)
+	if frame.OnFrameSizeChanged then frame:OnFrameSizeChanged() end
+
+	return true
+end
+
+function MAP_SIZE.Apply()
+	if not MAP_SIZE.CanResize() then return end
+	local w, h = MAP_SIZE.Get()
+	if w ~= nil then
+		MAP_SIZE.custom = true
+		MAP_SIZE.Set(MAP_SIZE.Clamp(w, h))
+	elseif MAP_SIZE.custom then
+		MAP_SIZE.custom = false
+		MAP_SIZE.Set(frame.minimizedWidth, frame.minimizedHeight)
+	end
+
+	MapUtils:LayoutQuestDetails()
+end
+
+function MapUtils:LayoutQuestDetails(inset)
+	if inset ~= nil then MAP_SIZE.detailsInset = inset end
+	local details = QuestMapFrame and QuestMapFrame.DetailsFrame
+	if details == nil or details.ScrollFrame == nil then return end
+	if InCombatLockdown() and (details:IsProtected() or details.ScrollFrame:IsProtected()) then return end
+	if MAP_SIZE.detailsHeight == nil then MAP_SIZE.detailsHeight, MAP_SIZE.detailsScrollHeight = details:GetHeight(), details.ScrollFrame:GetHeight() end
+	local delta = -MAP_SIZE.detailsInset
+	if MAP_SIZE.custom and MAP_SIZE.CanResize() then delta = delta + frame:GetHeight() - frame.minimizedHeight end
+	details:SetHeight(max(1, MAP_SIZE.detailsHeight + delta))
+	details.ScrollFrame:SetHeight(max(1, MAP_SIZE.detailsScrollHeight + delta))
+end
+
 local function NormalizePoint(point, relativeTo, relativePoint, x, y)
 	if type(relativeTo) == "number" then return point, frame:GetParent(), point, relativeTo, relativePoint or 0 end
 
@@ -164,11 +230,30 @@ local function ShiftScrollBars(shifted)
 	end
 end
 
+function MAP_SIZE.LayoutToggle(gripShown)
+	local toggle = frame.SidePanelToggle
+	if toggle == nil or (InCombatLockdown() and toggle:IsProtected()) then return end
+	local raise = gripShown and frame.QuestLog ~= nil and not frame.QuestLog:IsShown()
+	if raise == (MAP_SIZE.togglePoint ~= nil) then return end
+	if raise then
+		local point, relativeTo, relativePoint, x, y = toggle:GetPoint(1)
+		if point == nil then return end
+		MAP_SIZE.togglePoint = {point, relativeTo, relativePoint, x, y}
+		toggle:ClearAllPoints()
+		toggle:SetPoint(point, relativeTo, relativePoint, x, (y or 0) + GRIP_SIZE - 4)
+	else
+		toggle:ClearAllPoints()
+		toggle:SetPoint(unpack(MAP_SIZE.togglePoint))
+		MAP_SIZE.togglePoint = nil
+	end
+end
+
 local function UpdateGrip()
 	if grip == nil then return end
 	if foreign or not ScaleEnabled() or IsMaximized() then
 		grip:Hide()
 		ShiftScrollBars(false)
+		MAP_SIZE.LayoutToggle(false)
 
 		return
 	end
@@ -176,6 +261,7 @@ local function UpdateGrip()
 	MapUtils:RaiseSizeGrip(grip, frame)
 	grip:Show()
 	ShiftScrollBars(true)
+	MAP_SIZE.LayoutToggle(true)
 end
 
 local function Apply()
@@ -210,6 +296,7 @@ local function Apply()
 		local foreignLeft, foreignTop
 		if foreignMove then foreignLeft, foreignTop = GetPos() end
 		SetScale(scale)
+		MAP_SIZE.Apply()
 		local topGap = UpdateTopClamp()
 		local pos = MAUTTAB["WORLDMAPPOS"]
 		if foreignMove then
@@ -265,8 +352,39 @@ local function GetCursorUi()
 	return MapUtils:GetCursorUi()
 end
 
+function MAP_SIZE.ShowTooltip()
+	if not MAP_SIZE.CanResize() then
+		MapUtils:ShowScaleGripTooltip(grip)
+
+		return
+	end
+
+	local shift = MapUtils:Trans("LID_SHIFT") .. " + "
+	GameTooltip:SetOwner(grip, "ANCHOR_RIGHT")
+	GameTooltip:SetText(MapUtils:Trans("LID_WINDOWSIZE", nil, math.floor(frame:GetWidth() - MAP_SIZE.QuestExtra() + 0.5), math.floor(frame:GetHeight() + 0.5)))
+	GameTooltip:AddLine(MapUtils:Trans("LID_WIDGETSCALE", nil, math.floor(frame:GetScale() * 100 + 0.5)), 1, 1, 1)
+	GameTooltip:AddLine(format("|cffffd100%s|r  %s", MapUtils:Trans("LID_LEFTCLICK"), MapUtils:Trans("LID_DRAGTORESIZE")), 1, 1, 1)
+	GameTooltip:AddLine(format("|cffffd100%s|r  %s", shift .. MapUtils:Trans("LID_LEFTCLICK"), MapUtils:Trans("LID_DRAGTOSCALE")), 1, 1, 1)
+	GameTooltip:AddLine(format("|cffffd100%s|r  %s", MapUtils:Trans("LID_RIGHTCLICK"), MapUtils:Trans("LID_RESETSIZE")), 1, 1, 1)
+	GameTooltip:AddLine(format("|cffffd100%s|r  %s", shift .. MapUtils:Trans("LID_RIGHTCLICK"), MapUtils:Trans("LID_RESETSCALE", nil, 100)), 1, 1, 1)
+	GameTooltip:Show()
+end
+
+function MAP_SIZE.OnSizing()
+	local x, y = GetCursorUi()
+	local k = ToUi()
+	local w, h = MAP_SIZE.Clamp(sizing.width + (x - sizing.x) / k, sizing.height + (sizing.y - y) / k, sizing.left, sizing.top)
+	applying = true
+	MAP_SIZE.custom = true
+	MAP_SIZE.Set(w, h)
+	SetPos(sizing.left, sizing.top)
+	applying = false
+	MAP_SIZE.ShowTooltip()
+end
+
 local function OnSizing()
 	if sizing == nil then return end
+	if sizing.mode == "size" then return MAP_SIZE.OnSizing() end
 	local x, y = GetCursorUi()
 	local w = sizing.width + x - sizing.x
 	local h = sizing.height + sizing.y - y
@@ -277,15 +395,20 @@ local function OnSizing()
 	SetScale(ClampScale(scale, maxScale))
 	SetPos(sizing.left, sizing.top)
 	applying = false
-	MapUtils:ShowScaleGripTooltip(grip)
+	MAP_SIZE.ShowTooltip()
 end
 
 local function StopSizing()
 	if sizing == nil then return end
+	local mode = sizing.mode
 	sizing = nil
 	grip:SetScript("OnUpdate", nil)
 	grip:SetButtonState("NORMAL")
-	MapUtils:SV(MAUTTAB, "WORLDMAPSCALEVALUE", lastScale)
+	if mode == "size" then
+		MapUtils:SV(MAUTTAB, "WORLDMAPSIZE", {["w"] = frame:GetWidth() - MAP_SIZE.QuestExtra(), ["h"] = frame:GetHeight()})
+	else
+		MapUtils:SV(MAUTTAB, "WORLDMAPSCALEVALUE", lastScale)
+	end
 	if MoveEnabled() then
 		local left, top = GetPos()
 		if left ~= nil then MapUtils:SV(MAUTTAB, "WORLDMAPPOS", {["x"] = left, ["y"] = top}) end
@@ -310,6 +433,12 @@ local function StartSizing(_, button)
 		["height"] = h * s,
 		["scale"] = s
 	}
+
+	if not IsShiftKeyDown() and MAP_SIZE.CanResize() then
+		sizing.mode = "size"
+		sizing.width = frame:GetWidth() - MAP_SIZE.QuestExtra()
+		sizing.height = frame:GetHeight()
+	end
 
 	grip:SetButtonState("PUSHED", true)
 	grip:SetScript("OnUpdate", OnSizing)
@@ -340,13 +469,33 @@ end
 
 local function CreateGrip()
 	grip = MapUtils:CreateSizeGrip(frame, GRIP_SIZE)
+	grip:ClearAllPoints()
+	grip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 2, -2)
 	grip:SetScript("OnMouseDown", StartSizing)
-	grip:SetScript("OnMouseUp", StopSizing)
 	grip:SetScript("OnHide", StopSizing)
-	MapUtils:SetupScaleGrip(grip, function() return frame:GetScale() end, function()
-		if IsLocked() or CheckForeign() then return end
-		MapUtils:SV(MAUTTAB, "WORLDMAPSCALEVALUE", 1)
-		Apply()
+	grip.getScale = function() return frame:GetScale() end
+	grip:SetScript("OnEnter", MAP_SIZE.ShowTooltip)
+	grip:SetScript("OnLeave", function() if sizing == nil and GameTooltip:IsOwned(grip) then GameTooltip:Hide() end end)
+	grip:SetScript("OnMouseUp", function(_, button)
+		if button == "RightButton" then
+			if not IsLocked() and not CheckForeign() then
+				if IsShiftKeyDown() or not MAP_SIZE.CanResize() then
+					MapUtils:SV(MAUTTAB, "WORLDMAPSCALEVALUE", 1)
+				else
+					MapUtils:SV(MAUTTAB, "WORLDMAPSIZE", nil)
+				end
+
+				Apply()
+			end
+		else
+			StopSizing()
+		end
+
+		if grip:IsMouseOver() then
+			MAP_SIZE.ShowTooltip()
+		elseif GameTooltip:IsOwned(grip) then
+			GameTooltip:Hide()
+		end
 	end)
 
 	grip:Hide()
@@ -368,16 +517,11 @@ function MapUtils:PrintFadeDebug()
 	if MapUtils.PrintBattlefieldFadeDebug ~= nil then MapUtils:PrintBattlefieldFadeDebug() end
 end
 
-function MapUtils:IsWorldMapByMoveAny()
-	return MapUtils:IsAddOnActive("MoveAny")
-end
-
 function MapUtils:IsWorldMapByOneForAll()
 	return frame ~= nil and frame.ofaMovable == true
 end
 
 function MapUtils:GetWorldMapMover()
-	if MapUtils:IsWorldMapByMoveAny() then return "MoveAny" end
 	if MapUtils:IsAddOnActive("OneForAll") then return "OneForAll" end
 
 	return nil
@@ -629,6 +773,23 @@ if frame ~= nil then
 	end
 	frame:HookScript("OnShow", Apply)
 	frame:HookScript("OnSizeChanged", function() Apply() end)
+	if frame.OnFrameSizeChanged ~= nil then hooksecurefunc(frame, "OnFrameSizeChanged", function() MapUtils:LayoutQuestDetails() end) end
+	if frame.SidePanelToggle ~= nil then
+		for _, button in ipairs({frame.SidePanelToggle.OpenButton, frame.SidePanelToggle.CloseButton}) do
+			for _, region in ipairs({button:GetRegions()}) do
+				local atlas = region.GetAtlas and region:GetAtlas()
+				if type(atlas) == "string" and atlas:find("MapCornerShadow", 1, true) then
+					region:SetAlpha(0)
+					region:Hide()
+				end
+			end
+		end
+	end
+
+	if QuestMapFrame ~= nil then
+		QuestMapFrame:HookScript("OnShow", UpdateGrip)
+		QuestMapFrame:HookScript("OnHide", UpdateGrip)
+	end
 	fader = MapUtils:CreateMoveFader(
 		frame,
 		{
@@ -649,7 +810,6 @@ if frame ~= nil then
 		"OnEvent",
 		function()
 			MAUTTAB = MAUTTAB or {}
-			if MapUtils:IsWorldMapByMoveAny() then return end
 			HookDrag(frame)
 			for _, key in ipairs(dragRegions) do
 				HookDrag(frame[key])
@@ -809,21 +969,21 @@ end
 local SmoothZoom = {
 	extents = {time = 0},
 	extentsInterval = 0.5,
-	factor = 1.2,
+	factor = 1.22,
 	spaceZoom = 12,
 	zoneZoom = 6,
 	tileFullMargin = 1.15,
-	leave = 0.5,
+	panEdge = 0.3,
+	panOpenShare = 0.55,
 	enterArea = 2,
 	leaveArea = 3.3,
 	enterContinentArea = 1.1,
 	cityEnterShare = 0.5,
 	zoneEnterCover = 0.95,
-	parentFit = 0.8,
 	leaveContinentArea = 1.8,
 	checkInterval = 0.1,
 	lastCheck = 0,
-	speed = 12,
+	speed = 13,
 	snapLog = 0.002,
 	settleEpsilon = 0.0005,
 	centerDuration = 1.4,
@@ -855,29 +1015,64 @@ function SmoothZoom.GetParent(mapID)
 	return parent
 end
 
+function SmoothZoom.GetFitOnHost(container, mapID)
+	local hostLeft, hostRight, hostTop, hostBottom = MapUtils:GetZoneDetailSpaceRect(container.mapID)
+	if hostLeft == nil or mapID == nil or hostRight <= hostLeft or hostBottom <= hostTop then return nil end
+	local left, right, top, bottom = SmoothZoom.RectOn(mapID, MapUtils:GetZoneDetailSpace(container.mapID))
+	local width, height = container.Child:GetSize()
+	if left == nil or right <= left or bottom <= top or width == nil or width <= 0 or height == nil or height <= 0 then return nil end
+
+	return math.min(container:GetWidth() / ((right - left) * (hostRight - hostLeft) * width), container:GetHeight() / ((bottom - top) * (hostBottom - hostTop) * height))
+end
+
+function SmoothZoom.GetSpaceFit(container)
+	return SmoothZoom.GetFitOnHost(container, MapUtils:GetZoneDetailSpace(container.mapID))
+end
+
 function SmoothZoom.GetMinScale(container)
 	local minScale = container:GetScaleForMinZoom()
 	if MapUtils.GetZoneDetailCityZone ~= nil and MapUtils:GetZoneDetailCityZone(container.mapID) ~= nil then return minScale end
-	local parent = SmoothZoom.IsSpace(container.mapID) and SmoothZoom.GetParent(container.mapID)
-	if not parent then return minScale end
-	local relaxed = minScale * SmoothZoom.leave
-	local hostLeft, hostRight, hostTop, hostBottom = MapUtils:GetZoneDetailSpaceRect(container.mapID)
-	local space = MapUtils:GetZoneDetailSpace(container.mapID)
-	local parentLeft, parentRight, parentTop, parentBottom = 0, 1, 0, 1
-	if parent ~= space then parentLeft, parentRight, parentTop, parentBottom = C_Map.GetMapRectOnMap(parent, space) end
-	local width, height = container.Child:GetSize()
-	if hostLeft == nil or parentLeft == nil or width == nil or width <= 0 or height == nil or height <= 0 then return relaxed end
-	local parentWidth = (parentRight - parentLeft) * (hostRight - hostLeft) * width
-	local parentHeight = (parentBottom - parentTop) * (hostBottom - hostTop) * height
-	if parentWidth <= 0 or parentHeight <= 0 then return relaxed end
-	local fit = math.min(container:GetWidth() / parentWidth, container:GetHeight() / parentHeight)
+	if not SmoothZoom.IsSpace(container.mapID) then return minScale end
+	local fit = SmoothZoom.GetSpaceFit(container)
+	if fit == nil or fit <= 0 then return minScale end
 
-	return math.min(relaxed, fit * SmoothZoom.parentFit)
+	return math.min(minScale, fit)
 end
 
-function SmoothZoom.GetMaxScale(container)
+function SmoothZoom.GetDeepestScale(container, x, y)
+	local host = container.mapID
+	local left, right, top, bottom = MapUtils:GetZoneDetailSpaceRect(host)
+	x, y = x or container:GetCurrentScrollX(), y or container:GetCurrentScrollY()
+	if left == nil or x == nil or y == nil or right <= left or bottom <= top then return nil end
+	local space = MapUtils:GetZoneDetailSpace(host)
+	local preferred = MapUtils:GetZoneDetailContinent(host)
+	local continent, zone = SmoothZoom.ContinentAt(space, (x - left) / (right - left), (y - top) / (bottom - top), preferred)
+	if continent == nil then continent = preferred or MapUtils:GetZoneDetailContinents(space)[1] end
+	local deepest
+	local function Raise(value)
+		if value ~= nil and value > 0 and (deepest == nil or value > deepest) then deepest = value end
+	end
+
+	local continentFit = continent and SmoothZoom.GetFitOnHost(container, continent)
+	Raise(continentFit and continentFit * SmoothZoom.spaceZoom)
+	if zone ~= nil and zone.mapType == Enum.UIMapType.Zone and SmoothZoom.IsSpace(zone.mapID) then
+		local zoneFit = SmoothZoom.GetFitOnHost(container, zone.mapID)
+		Raise(zoneFit and zoneFit * SmoothZoom.zoneZoom)
+		local perScale = MapUtils.GetZoneDetailTilePixelsPerScale ~= nil and MapUtils:GetZoneDetailTilePixelsPerScale(zone.mapID)
+		local zoneLeft, zoneRight = MapUtils:GetZoneDetailSpaceRect(zone.mapID)
+		if perScale and perScale > 0 and zoneLeft ~= nil and zoneRight > zoneLeft then Raise(MapUtils:GetZoneDetailTileFullPixels(zone.mapID) * SmoothZoom.tileFullMargin / (perScale * (right - left) / (zoneRight - zoneLeft))) end
+	end
+
+	return deepest
+end
+
+function SmoothZoom.GetMaxScale(container, x, y)
 	local maxScale = container:GetScaleForMaxZoom()
 	local mapID = container.mapID
+	if SmoothZoom.IsSpace(mapID) then
+		local deepest = SmoothZoom.GetDeepestScale(container, x, y)
+		if deepest ~= nil then return math.max(maxScale, deepest) end
+	end
 	local info = mapID and C_Map.GetMapInfo(mapID)
 	local zone = info and info.mapType == Enum.UIMapType.Zone
 	if mapID == 1458 or SmoothZoom.IsSpace(mapID) then
@@ -896,14 +1091,38 @@ function SmoothZoom.GetPanRect(mapID)
 	return MapUtils:GetZoneDetailSpaceRect(mapID)
 end
 
+function SmoothZoom.PanRoom(share)
+	local open = Clamp((1 - share) / (1 - SmoothZoom.panOpenShare), 0, 1)
+
+	return 1 - (1 - open) * (1 - open)
+end
+
+function SmoothZoom.PanRange(low, high, half, room)
+	local centre, size = (low + high) / 2, (high - low) / 2
+	local reach = size >= half and size - half or (half - size) * room
+	reach = reach + half * 2 * SmoothZoom.panEdge * room
+
+	return centre - reach, centre + reach
+end
+
 function SmoothZoom.GetExtents(container, scale)
 	local minX, maxX, minY, maxY = container:CalculateScrollExtentsAtScale(scale)
 	if not MapUtils:IsOneMap() or container.mapID == nil or scale <= 0 then return minX, maxX, minY, maxY end
 	local left, right, top, bottom = 0, 1, 0, 1
-	if SmoothZoom.IsSpace(container.mapID) then left, right, top, bottom = SmoothZoom.GetPanRect(container.mapID) end
+	local space = SmoothZoom.IsSpace(container.mapID)
+	if space then left, right, top, bottom = SmoothZoom.GetPanRect(container.mapID) end
 	local width, height = container.Child:GetSize()
 	if left == nil or width == nil or width <= 0 or height == nil or height <= 0 then return minX, maxX, minY, maxY end
 	local viewWidth, viewHeight = container:GetWidth(), container:GetHeight()
+	local fit = space and SmoothZoom.GetSpaceFit(container)
+	if fit ~= nil and fit > 0 then
+		local halfWidth, halfHeight = viewWidth / 2 / (scale * width), viewHeight / 2 / (scale * height)
+		local room = SmoothZoom.PanRoom(math.max(halfWidth * 2 / (right - left), halfHeight * 2 / (bottom - top)))
+		local lowX, highX = SmoothZoom.PanRange(left, right, halfWidth, room)
+		local lowY, highY = SmoothZoom.PanRange(top, bottom, halfHeight, room)
+
+		return lowX, highX, lowY, highY
+	end
 	local scaledWidth, scaledHeight = scale * width, scale * height
 	local visibleSize = 10 / container:GetEffectiveScale()
 	local visibleWidth = math.min(visibleSize, viewWidth, (right - left) * scaledWidth)
@@ -927,7 +1146,8 @@ function SmoothZoom.WidenExtents(container)
 end
 
 function SmoothZoom.SetView(container, scale, x, y, targetScale, targetX, targetY, preserveCityScale)
-	local minScale, maxScale = SmoothZoom.GetMinScale(container), SmoothZoom.GetMaxScale(container)
+	local minScale = SmoothZoom.GetMinScale(container)
+	local maxScale = SmoothZoom.IsSpace(container.mapID) and math.max(scale, targetScale) or SmoothZoom.GetMaxScale(container)
 	if preserveCityScale then minScale = math.min(minScale, scale, targetScale) end
 	if preserveCityScale or SmoothZoom.IsSpace(container.mapID) then maxScale = math.max(maxScale, scale, targetScale) end
 	scale = Clamp(scale, minScale, maxScale)
@@ -1263,14 +1483,24 @@ end
 function SmoothZoom.Step(container, elapsed)
 	local anim = SmoothZoom.anim
 	if anim == nil then return end
-	local panning = container.mouseButtonInfo and container.mouseButtonInfo.LeftButton and container.mouseButtonInfo.LeftButton.down
-	if anim.mapID ~= container.mapID or panning or not container:IsVisible() then
+	if anim.mapID ~= container.mapID or not container:IsVisible() then
 		SmoothZoom.anim = nil
 
 		return
 	end
 
 	local scale = anim.scale or container:GetCanvasScale()
+	local panning = container.mouseButtonInfo and container.mouseButtonInfo.LeftButton and container.mouseButtonInfo.LeftButton.down or false
+	if panning then
+		local offsetX, offsetY = SmoothZoom.CursorOffset(container)
+		if offsetX ~= nil then
+			local x, y = container:GetCurrentScrollX(), container:GetCurrentScrollY()
+			if not anim.dragging and x ~= nil and y ~= nil then anim.anchorX, anim.anchorY = x + offsetX / scale, y + offsetY / scale end
+			anim.offsetX, anim.offsetY = offsetX, offsetY
+		end
+	end
+
+	anim.dragging = panning
 	local share = 1 - math.exp(-(elapsed or 0) * SmoothZoom.speed)
 	local nextScale = math.exp(math.log(scale) + (math.log(anim.target) - math.log(scale)) * share)
 	if math.abs(math.log(anim.target / nextScale)) < SmoothZoom.snapLog then
@@ -1344,29 +1574,24 @@ function SmoothZoom.OnUpdate(container, elapsed)
 	SmoothZoom.CheckPick(container, finishedDrag)
 end
 
-function SmoothZoom.CursorAnchor(container)
-	local scale = container:GetCanvasScale()
-	local scrollX, scrollY = container:GetCurrentScrollX(), container:GetCurrentScrollY()
+function SmoothZoom.CursorOffset(container)
 	local width, height = container.Child:GetSize()
 	local left, bottom, viewWidth, viewHeight = container:GetRect()
 	local effective = container:GetEffectiveScale()
-	if scrollX == nil or scrollY == nil or scale == nil or scale <= 0 or width == nil or width <= 0 or height == nil or height <= 0 or left == nil or effective == nil or effective <= 0 then return nil end
+	if width == nil or width <= 0 or height == nil or height <= 0 or left == nil or effective == nil or effective <= 0 then return nil end
 	local cursorX, cursorY = GetCursorPosition()
 	cursorX, cursorY = cursorX / effective, cursorY / effective
-	local offsetX = (cursorX - (left + viewWidth / 2)) / (scale * width)
-	local offsetY = ((bottom + viewHeight / 2) - cursorY) / (scale * height)
 
-	return scrollX + offsetX, scrollY + offsetY, scale, scrollX, scrollY
+	return (cursorX - (left + viewWidth / 2)) / width, ((bottom + viewHeight / 2) - cursorY) / height
 end
 
-function SmoothZoom.LeaveToParent(container, delta, base)
-	if delta >= 0 or not SmoothZoom.CanSwitch(container) then return false end
-	if base * SmoothZoom.factor ^ delta >= SmoothZoom.GetMinScale(container) * 1.001 then return false end
-	local parent = SmoothZoom.GetParent(container.mapID)
-	if parent == nil then return false end
-	SmoothZoom.anim = nil
+function SmoothZoom.CursorAnchor(container)
+	local scale = container:GetCanvasScale()
+	local scrollX, scrollY = container:GetCurrentScrollX(), container:GetCurrentScrollY()
+	local offsetX, offsetY = SmoothZoom.CursorOffset(container)
+	if scrollX == nil or scrollY == nil or scale == nil or scale <= 0 or offsetX == nil then return nil end
 
-	return SmoothZoom.Switch(container, parent)
+	return scrollX + offsetX / scale, scrollY + offsetY / scale, scale, scrollX, scrollY
 end
 
 function SmoothZoom.LeaveCity(container, delta, base)
@@ -1396,14 +1621,15 @@ function SmoothZoom.OnMouseWheel(container, delta)
 	if anim ~= nil and anim.mapID ~= container.mapID then anim = nil end
 	local base = anim and anim.target or container:GetCanvasScale()
 	local before = container:GetCanvasScale()
-	if SmoothZoom.LeaveCity(container, delta, base) or SmoothZoom.LeaveToParent(container, delta, base) then base = base * container:GetCanvasScale() / before end
-	local minScale, maxScale = SmoothZoom.GetMinScale(container), SmoothZoom.GetMaxScale(container)
+	if SmoothZoom.LeaveCity(container, delta, base) then base = base * container:GetCanvasScale() / before end
+	local cursorX, cursorY, scale, scrollX, scrollY = SmoothZoom.CursorAnchor(container)
+	if cursorX == nil then return end
+	local minScale, maxScale = SmoothZoom.GetMinScale(container), SmoothZoom.GetMaxScale(container, cursorX, cursorY)
 	local city = MapUtils:GetZoneDetailCityZone(container.mapID) ~= nil
 	if delta > 0 then maxScale = math.max(maxScale, base) end
 	if delta < 0 or city then minScale = math.min(minScale, base) end
 	local target = Clamp(base * SmoothZoom.factor ^ delta, minScale, maxScale)
-	local cursorX, cursorY, scale, scrollX, scrollY = SmoothZoom.CursorAnchor(container)
-	if cursorX == nil or target <= 0 then return end
+	if target <= 0 then return end
 	WheelZoom.pending = nil
 	container.targetScale = scale
 	container.zoomTarget = scale

@@ -10,7 +10,10 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     { id = "euife.threatmeter", key = "ThreatMeter", api = "_ThreatMeter" },
     { id = "euife.zonelevels", key = "ZoneLevels", api = "_ZoneLevels" },
     { id = "euife.gatherskill", key = "GatherSkill", api = "_GatherSkill" },
+    { id = "euife.skinningskill", key = "GatherSkinning", api = "_GatherSkill", field = "skinning" },
   }
+
+  local function Field(f) return f.field or "enabled" end
 
   local function Loaded()
     local loaded = CurrentLoaded()
@@ -19,18 +22,19 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     return loaded
   end
 
-  -- Mirrors the 9.7.6 feature kit: unset keys read defaults, Apply reads the saved switch.
+  -- Mirrors the 9.7.6 feature kit: unset keys read defaults, Apply reads the saved switches.
+  -- Gathering Skill's Skinning (9.8.9) is a second switch on the same feature.
   local function BuildFE(w, saved)
     EllesmereUIDB = saved or {}
     EllesmereUI = {}
     w.applied = {}
     for _, f in ipairs(FEATURES) do
       local dbKey = f.api
-      EllesmereUI[f.api] = {
+      EllesmereUI[f.api] = EllesmereUI[f.api] or {
         Get = function(key)
           local c = EllesmereUIDB[dbKey]
           local v = c and c[key]
-          if v == nil and key == "enabled" then return false end
+          if v == nil and (key == "enabled" or key == "skinning") then return false end
           return v
         end,
         Cfg = function()
@@ -39,7 +43,9 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
         end,
         Apply = function()
           local c = EllesmereUIDB[dbKey]
-          w.applied[f.key] = c and c.enabled == true or false
+          for _, g in ipairs(FEATURES) do
+            if g.api == dbKey then w.applied[g.key] = c and c[Field(g)] == true or false end
+          end
         end,
       }
     end
@@ -47,7 +53,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
   end
 
   local function Enable(f)
-    EllesmereUI[f.api].Cfg().enabled = true
+    EllesmereUI[f.api].Cfg()[Field(f)] = true
   end
 
   test("Forever Essentials rules cover the documented YUI and Details overlaps", function()
@@ -60,6 +66,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     end
     eq(ids["euife.threatmeter"].when[2], "Details_TinyThreat")
     eq(ids["euife.gatherskill"].when[2], "GatherLite")
+    eq(ids["euife.skinningskill"].when[2], "GearInsight_Forever")
     eq(#w.ns.ValidatePolicy(w.ns.policy, w.ns.adapters), 0, "policy validates")
   end)
 
@@ -81,8 +88,41 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     local fe = ReadFile(addons .. "EllesmereUIForeverEssentials/EllesmereUIForeverEssentials_GatherSkill.lua")
     ok(fe:find("TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Object, OnObjectTooltip)", 1, true),
       "Forever Essentials hooks the same tooltips")
-    ok(fe:find('module.Feature("gatherSkill", { enabled = false })', 1, true), "Forever Essentials is off by default")
+    ok(fe:find('module.Feature("gatherSkill", { enabled = false, skinning = false })', 1, true),
+      "Forever Essentials is off by default")
     ok(fe:find("EllesmereUI._GatherSkill = {", 1, true), "Forever Essentials publishes the feature API")
+  end)
+
+  -- GearInsight has no switch for its skinning tooltip line, so only EUI's Skinning can give way.
+  test("GearInsight always adds the skinning skill line that Forever Essentials Skinning adds", function()
+    local function ReadFile(path)
+      local file = assert(io.open(path, "rb"))
+      local text = file:read("*a")
+      file:close()
+      return text
+    end
+    local addons = ADDON_ROOT .. "../"
+    local gi = ReadFile(addons .. "GearInsight_Forever/Prof.lua")
+    ok(gi:find("TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(t) if t == GameTooltip then pcall(P.SkinTip, t) end end)", 1, true),
+      "GearInsight hooks unit tooltips for skinning")
+    ok(gi:find("UNIT_SKINNABLE_LEATHER", 1, true), "GearInsight finds the Skinnable line")
+    local skinTip = gi:sub(gi:find("function P.SkinTip", 1, true), gi:find("table.insert(ns.modules", 1, true))
+    ok(not skinTip:find("db", 1, true) and not skinTip:find("Opt", 1, true), "GearInsight still has no skinning switch")
+    local fe = ReadFile(addons .. "EllesmereUIForeverEssentials/EllesmereUIForeverEssentials_GatherSkill.lua")
+    ok(fe:find('not (F.Enabled() and F.Get("skinning"))', 1, true), "Forever Essentials Skinning reads its own switch")
+    ok(fe:find("TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, OnUnitTooltip)", 1, true),
+      "Forever Essentials hooks the same tooltips")
+    ok(fe:find("text == UNIT_SKINNABLE_LEATHER", 1, true), "Forever Essentials annotates the same line")
+  end)
+
+  test("Forever Essentials Skinning is switched off without touching Gathering Skill", function()
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded() })
+    BuildFE(w, { _GatherSkill = { skinning = true } })
+    w.Login()
+    eq(EllesmereUIDB._GatherSkill.skinning, false, "skinning off")
+    eq(EllesmereUIDB._GatherSkill.enabled, nil, "Gathering Skill default left unwritten")
+    eq(StatusOf(w.ns.Check(), "euife.skinningskill"), "off")
+    eq(StatusOf(w.ns.Check(), "euife.gatherskill"), "off")
   end)
 
   test("Forever Essentials defaults stay off and saved overlaps are switched off at login", function()
@@ -104,10 +144,10 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     w.Login()
     for _, f in ipairs(FEATURES) do
       local api = EllesmereUI[f.api]
-      api.Cfg().enabled = true
+      api.Cfg()[Field(f)] = true
       api.Apply()
       w.RunTimers()
-      eq(api.Get("enabled"), false, f.key)
+      eq(api.Get(Field(f)), false, f.key)
       eq(w.applied[f.key], false, f.key .. " applied off")
     end
     Enable(FEATURES[1])
@@ -118,12 +158,13 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
   test("Forever Essentials rules are inactive without their owners and leave fishing alone", function()
     local loaded = Loaded()
     loaded.YUI, loaded.Details_TinyThreat, loaded.MapUtils, loaded.GatherLite = nil, nil, nil, nil
+    loaded.GearInsight_Forever = nil
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded })
     BuildFE(w)
     for _, f in ipairs(FEATURES) do Enable(f) end
     w.Login()
     for _, f in ipairs(FEATURES) do
-      eq(EllesmereUI[f.api].Get("enabled"), true, f.key .. " kept without its owner")
+      eq(EllesmereUI[f.api].Get(Field(f)), true, f.key .. " kept without its owner")
       eq(StatusOf(w.ns.Check(), f.id), "inactive", f.id)
     end
   end)

@@ -128,6 +128,21 @@ class ApplyAddonPatchesTests(unittest.TestCase):
         line = next(line for line in text.splitlines() if '["isEnabled"]' in line and "WORLDMAPFADE" in line)
         self.assertNotIn("PlayerMovementFrameFader", line)
 
+    def test_installed_auctionator_loads_classic_crafting_data_once_on_forever(self) -> None:
+        # 349 moves Forever's disenchant, prospect and mill data into camelot-gated TOC lines; the
+        # classic and mainline manifests must not load a second copy on this client.
+        auctionator = ADDONS / "Auctionator"
+        toc = (auctionator / "Auctionator.toc").read_text(encoding="utf-8").splitlines()
+        for module in ("Enchant", "Prospect", "Mill"):
+            line = f"Source_Classic\\{module}\\Manifest.xml [AllowLoadGameType camelot][ExcludeLoadGameType classic, standard]"
+            self.assertEqual(toc.count(line), 1, line)
+            self.assertTrue((auctionator / "Source_Classic" / module / "Manifest.xml").is_file(), module)
+        self.assertIn("Source_Classic\\Manifest.xml [AllowLoadGameType classic]", toc)
+        self.assertIn("Source_Retail\\Enchant\\Manifest.xml [AllowLoadGameType standard]", toc)
+        self.assertIn("Source_Mainline\\Manifest.xml [AllowLoadGameType mainline]", toc)
+        mainline = (auctionator / "Source_Mainline/Manifest.xml").read_text(encoding="utf-8")
+        self.assertNotIn("Enchant", mainline)
+
     def test_installed_pack_is_patched(self) -> None:
         self.assertEqual(apply_patches(ADDONS, check=True), [])
 

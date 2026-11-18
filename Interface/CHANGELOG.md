@@ -1,3 +1,17 @@
+## [Addon update / OverlapSettingsGuard 0.18.0] - 2026-11-18
+### Features
+- Update Auctionator 349, Bagnon 12.1.12, the EllesmereUI suite 9.8.9 and MapUtils 1.7.10.
+- Add guard rule `euife.skinningskill` (54 rules): Forever Essentials' new Skinning tooltip option stays off while GearInsight Forever loads.
+- Pin Auctionator 349's camelot-gated crafting-data TOC lines and MapUtils 1.7.10's resize grip gate in tests.
+### Design Rationale
+- GearInsight adds its skinning requirement line with no switch, so only Forever Essentials' copy can give way; the rule targets the `skinning` switch alone so Gathering Skill stays under its own GatherLite rule.
+- The Forever Essentials adapter gained per-rule switch names instead of a second adapter, because both rules use the same published `_GatherSkill` API.
+- MapUtils' resize grip needs no new rule: it is gated on `WORLDMAPSCALE`, which `mu.worldmapscale` already keeps off; a source test fails if that gate moves.
+- GearInsight Forever 1.3.1 is held because it is published only as a beta.
+### Notes & Caveats
+- Auctionator 349 keys Forever prices by faction; the earlier shared history ends up under one faction, and the other faction starts from new scans.
+- Forever Essentials 9.8.9 adds always-on flight times to flight-map tooltips; no other installed addon edits those tooltips.
+
 ## [Addon update / OverlapSettingsGuard 0.17.0] - 2026-11-17
 ### Features
 - Update the EllesmereUI suite 9.8.8, GatherLite 8.4.13, Lueur 2.0.0 and MapUtils 1.7.9.

@@ -142,6 +142,11 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     ok(mapframe:find('IsEnabled("WORLDMAPMOVE")', 1, true), "MapUtils reads the move switch")
     ok(mapframe:find('IsEnabled("WORLDMAPSCALE")', 1, true), "MapUtils reads the scale switch")
     ok(mapframe:find('MAUTTAB["WORLDMAPFADE"] ~= false', 1, true), "MapUtils reads the fade switch")
+    -- 1.7.10 adds window resizing to the scale grip: with mu.worldmapscale off, YUI keeps the size too.
+    ok(mapframe:find('if not ScaleEnabled() or not MAP_SIZE.CanResize() or type(size) ~= "table"', 1, true),
+      "MapUtils applies a saved map size only with the scale switch on")
+    ok(mapframe:find("if foreign or not ScaleEnabled%(%) or IsMaximized%(%) then\r?\n\t\tgrip:Hide%(%)"),
+      "MapUtils hides the resize grip with the scale switch off")
     local markers = ReadFile(addons .. "YUI/Products/YMap/Markers/MapEnhancement.lua")
     local data = ReadFile(addons .. "YUI/Products/YMap/Markers/MapDataShared.lua")
     ok(markers:find("config.serviceFilters[source.typeID] ~= false", 1, true), "YUI filters by marker type")
