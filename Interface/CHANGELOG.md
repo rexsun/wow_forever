@@ -1,3 +1,16 @@
+## [Addon update / OverlapSettingsGuard 0.19.0] - 2026-11-19
+### Features
+- Update the EllesmereUI suite 9.9, GatherLite 8.4.14 and MapUtils 1.7.15.
+- Add guard rules `mu.friendshare` and `mu.friendpins` (56 rules): MapUtils' new friend map pins and friend position sharing stay off while YUI loads.
+- Pin MapUtils 1.7.15's friend switch checks and send sites in a source test.
+### Design Rationale
+- Either friend switch alone makes MapUtils greet every online friend with hidden addon whispers at login, so only both off stops the traffic; both are guarded rather than sharing alone.
+- The rules sit with the other MapUtils rules under YUI as the chat owner, as the GearInsight network rules do; guild pins and guild sharing, accepted earlier, are left as they were.
+- GearInsight Forever 1.4.1 is held because it is published only as a beta.
+### Notes & Caveats
+- MapUtils' new Lua files load only after a full client restart, not `/reload`.
+- GatherLite 8.4.14 turns nearby-marker hiding back on once for profiles using regular minimap icons, now at 150 yards.
+
 ## [Addon update / OverlapSettingsGuard 0.18.0] - 2026-11-18
 ### Features
 - Update Auctionator 349, Bagnon 12.1.12, the EllesmereUI suite 9.8.9 and MapUtils 1.7.10.

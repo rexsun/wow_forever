@@ -4,6 +4,8 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     { id = "mu.worldmapscale", field = "WORLDMAPSCALE" },
     { id = "mu.worldmapfade", field = "WORLDMAPFADE" },
     { id = "mu.pierpins", field = "WORLDMAPPINS_ENABLED" },
+    { id = "mu.friendshare", field = "FRIENDMEMBERSHARE" },
+    { id = "mu.friendpins", field = "FRIENDMEMBERPINS_ENABLED" },
   }
   local FLIGHT = "travel.flight"
 
@@ -125,7 +127,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     local settings = ReadFile(addons .. "MapUtils/settings.lua")
     local mapframe = ReadFile(addons .. "MapUtils/mapframe.lua")
     for _, setting in ipairs(GUARDED) do
-      if setting.id ~= "mu.pierpins" then
+      if setting.id ~= "mu.pierpins" and setting.id ~= "mu.friendpins" then
         ok(settings:find('"' .. setting.field .. '"', 1, true), setting.field .. " in MapUtils settings")
       end
     end
@@ -155,6 +157,28 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     ok(zones:find("EllesmereUI._ZoneLevels", 1, true), "Forever Essentials publishes zone levels")
   end)
 
+  -- 1.7.15 greets every online friend and Battle.net friend with hidden addon whispers while
+  -- either friend switch is on, and sends map positions while sharing is on.
+  test("MapUtils friend traffic stops with both guarded friend switches off", function()
+    local friends = ReadFile(ADDON_ROOT .. "../MapUtils/friendmembers.lua")
+    local settings = ReadFile(ADDON_ROOT .. "../MapUtils/settings.lua")
+    ok(settings:find('AddPinEnabled("FRIENDMEMBERPINS"', 1, true), "friend pins are a pin category")
+    ok(settings:find('AddCheckbox("FRIENDMEMBERSHARE", true', 1, true), "friend sharing defaults on")
+    ok(friends:find('if not MapUtils:IsPinCategoryEnabled("FRIENDMEMBERPINS") then return false end', 1, true),
+      "friend pins read the category switch")
+    ok(friends:find('return MapUtils:GetConfig("FRIENDMEMBERSHARE", true) == true', 1, true), "sharing reads MAUTTAB")
+    ok(friends:find("return Friends.IsShown() or Friends.IsSharing()", 1, true), "active needs one switch")
+    ok(friends:find("local active, shown = Friends.IsActive(), Friends.IsShown()", 1, true), "greetings need a switch")
+    ok(friends:find("if not Friends.IsSharing() or next(Friends.known) == nil then return end", 1, true),
+      "positions need sharing")
+    ok(friends:find("if name == nil or Friends.online[name] == nil or not Friends.IsActive() then return end", 1, true),
+      "replies need a switch")
+    ok(friends:find("if name == nil or Friends.online[name] == nil or not Friends.IsShown() then return end", 1, true),
+      "OpenMap replies need the pins")
+    local _, sends = friends:gsub("Friends%.Queue%(", "")
+    eq(sends, 6, "no unreviewed send site (5 sends and the definition)")
+  end)
+
   test("MapUtils first run: missing saved variables are created and need no reload", function()
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded() })
     for _, setting in ipairs(GUARDED) do eq(MAUTTAB[setting.field], false, setting.field) end
@@ -166,11 +190,12 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     local saved = { WORLDMAPMOVE = true, WORLDMAPSCALE = true, WORLDMAPFADE = true, REVEALMAP = true, WORLDMAPPINS_ENABLED = true,
       WORLDMAPPINS = true, WORLDMAPPINS_AZEROTH = true,
       WORLDMAPSCALEVALUE = 1.2, ONEMAP = true, MINIMAPPINS = true, VESSELWORLDMAPPINS = true,
-      FLIGHTWORLDMAPPINS = true, CROSSINGWORLDMAPPINS = true, FISHINGLEVELS = true, ZONELEVELS = true }
+      FLIGHTWORLDMAPPINS = true, CROSSINGWORLDMAPPINS = true, FISHINGLEVELS = true, ZONELEVELS = true,
+      FRIENDMEMBERSHARE = true, FRIENDMEMBERPINS_ENABLED = true, GUILDMEMBERPINS_ENABLED = true, GUILDMEMBERSHARE = true }
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded(), beforeGuard = Saved(saved) })
     for _, setting in ipairs(GUARDED) do eq(saved[setting.field], false, setting.field) end
     for _, key in ipairs({ "WORLDMAPPINS", "WORLDMAPPINS_AZEROTH", "ONEMAP", "MINIMAPPINS", "VESSELWORLDMAPPINS", "FLIGHTWORLDMAPPINS",
-      "CROSSINGWORLDMAPPINS", "FISHINGLEVELS", "ZONELEVELS" }) do
+      "CROSSINGWORLDMAPPINS", "FISHINGLEVELS", "ZONELEVELS", "GUILDMEMBERPINS_ENABLED", "GUILDMEMBERSHARE" }) do
       eq(saved[key], true, key .. " kept")
     end
     eq(saved.REVEALMAP, true, "reveal kept")

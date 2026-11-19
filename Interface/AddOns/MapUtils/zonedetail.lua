@@ -144,7 +144,9 @@ local hooked = false
 local preload = {}
 local base = {
 	["continents"] = {},
-	["world"] = {}
+	["world"] = {},
+	["extra"] = {},
+	["extraData"] = {}
 }
 
 local function NewArt(mapID)
@@ -893,7 +895,7 @@ local function Preload()
 	preload.files = {}
 	PreloadMap(WORLD)
 	for _, continentID in ipairs(CONTINENTS) do
-		PreloadMap(continentID)
+		if SPACE_OF[continentID] == continentID then PreloadMap(continentID) end
 		local children = C_Map.GetMapChildrenInfo(continentID, Enum.UIMapType.Zone, false)
 		if children ~= nil then
 			for _, child in ipairs(children) do
@@ -928,6 +930,16 @@ local function DrawTileLayer(pool, mapID, offsetX, offsetY, scale, drawLayer, ma
 	local layer = layers and layers[1]
 	local files = C_Map.GetMapArtLayerTextures(mapID, 1)
 	if layer == nil or files == nil then return false end
+	local edits = mapID == WORLD and MapUtils.WORLDARTEDITS
+	if edits then
+		local edited = {}
+		for index, fileID in pairs(files) do
+			edited[index] = edits[fileID] and "Interface\\AddOns\\MapUtils\\media\\worldart\\" .. edits[fileID] or fileID
+		end
+
+		files = edited
+	end
+
 	local cols = math.ceil(layer.layerWidth / layer.tileWidth)
 	local rows = math.ceil(layer.layerHeight / layer.tileHeight)
 	for row = 1, rows do
@@ -1017,7 +1029,7 @@ local function DrawContinent(continentID, refWidth, refHeight)
 	entry.edge:SetSize((right - left) * refWidth, (bottom - top) * refHeight)
 	entry.edge:ClearAllPoints()
 	entry.edge:SetPoint("TOPLEFT", container, "TOPLEFT", left * refWidth, -top * refHeight)
-	if not DrawTileLayer(entry.pool, continentID, left * refWidth, top * refHeight, (right - left) * refWidth / layer.layerWidth, "BORDER", highlight and entry.mask or nil, entry.edge) then return nil end
+	if own and not DrawTileLayer(entry.pool, continentID, left * refWidth, top * refHeight, (right - left) * refWidth / layer.layerWidth, "BORDER", nil, entry.edge) then return nil end
 	entry.drawn = true
 
 	return {left, right, top, bottom}
@@ -1031,6 +1043,10 @@ local function ShowBase(shown)
 	end
 
 	for _, texture in pairs(base.world) do
+		base.cull.SetWanted(texture, shown and texture.used == true)
+	end
+
+	for _, texture in pairs(base.extra) do
 		base.cull.SetWanted(texture, shown and texture.used == true)
 	end
 
@@ -1049,7 +1065,7 @@ base.cull = {
 	interval = 0.1,
 	hideDelay = 0.3,
 	switchWindow = 0.6,
-	minZoneScale = 0.05
+	minZonePixels = 12
 }
 
 function base.cull.Track(region)
@@ -1190,6 +1206,10 @@ function base.cull.Run()
 		for _, texture in pairs(base.world) do
 			if texture.culled then base.cull.Set(texture, false) end
 		end
+
+		for _, texture in pairs(base.extra) do
+			if texture.culled then base.cull.Set(texture, false) end
+		end
 	end
 
 	local full = active and container.built == MODE_FULL
@@ -1197,7 +1217,7 @@ function base.cull.Run()
 		for _, art in pairs(list) do
 			local wasCulled = art.frame.culled
 			local continent = full and index < 3 and art.continent
-			if continent and continent.drawn and art.scaleX * effective < cull.minZoneScale then
+			if continent and continent.drawn and art.frame:GetWidth() * effective < cull.minZonePixels then
 				base.cull.Set(art.frame, true)
 			else
 				Apply(art.frame)
@@ -1234,6 +1254,11 @@ local function Build(mode, space)
 		texture:Hide()
 	end
 
+	for _, texture in pairs(base.extra) do
+		texture.used = nil
+		texture:Hide()
+	end
+
 	container.built = mode
 	container.space = space
 	container.cityZones = {}
@@ -1254,6 +1279,7 @@ local function Build(mode, space)
 		end
 
 		if continentRect and mode == MODE_FULL then
+			base.DrawExtraArt(continentID)
 			local children = C_Map.GetMapChildrenInfo(continentID, Enum.UIMapType.Zone, false)
 			if children ~= nil then
 				for _, info in ipairs(children) do
@@ -1848,6 +1874,93 @@ function MinimapLayer.GetLOD(instance)
 	}
 
 	return MinimapLayer.lodParsed[instance]
+end
+
+function MapUtils:AddExtraZoneArt(dataFlavor, continentID, region, layerWidth, layerHeight, files, mask)
+	if MapUtils.GetRevealFlavor == nil or dataFlavor ~= MapUtils:GetRevealFlavor() then return end
+	local list = base.extraData[continentID]
+	if list == nil then
+		list = {}
+		base.extraData[continentID] = list
+	end
+
+	tinsert(
+		list,
+		{
+			["region"] = region,
+			["layer"] = {
+				["layerWidth"] = layerWidth,
+				["layerHeight"] = layerHeight,
+				["tileWidth"] = 256,
+				["tileHeight"] = 256
+			},
+			["files"] = files,
+			["mask"] = mask
+		}
+	)
+end
+
+function base.DrawExtraArt(continentID)
+	local entry = base.continents[continentID]
+	local list = base.extraData[continentID]
+	if entry == nil or entry.mask == nil or list == nil then return end
+	local source = MinimapLayer.GetSources(continentID)[1]
+	local transform = source and MinimapLayer.GetTransform(source)
+	if transform == nil then return end
+	for index, art in ipairs(list) do
+		base.DrawExtraTiles(continentID, index, art, entry, transform)
+	end
+end
+
+function base.DrawExtraTiles(continentID, index, art, entry, transform)
+	do
+		local minX, maxX, minY, maxY = unpack(art.region)
+		local u1, v1 = MinimapLayer.ToWorld(transform, maxX, maxY)
+		local u2, v2 = MinimapLayer.ToWorld(transform, minX, minY)
+		local left, top = math.min(u1, u2) * container.refWidth, math.min(v1, v2) * container.refHeight
+		local width, height = math.abs(u2 - u1) * container.refWidth, math.abs(v2 - v1) * container.refHeight
+		local edgeKey = continentID .. ":" .. index
+		base.extraEdges = base.extraEdges or {}
+		local edge = base.extraEdges[edgeKey]
+		if edge == nil then
+			edge = container:CreateMaskTexture()
+			edge.mapMaskGroup = continentID
+			SetMapMaskTexture(edge, art.mask and MASK_PATH .. art.mask or EDGE_PATH, "CLAMPTOBLACKADDITIVE")
+			base.extraEdges[edgeKey] = edge
+		end
+
+		edge:ClearAllPoints()
+		edge:SetPoint("TOPLEFT", container, "TOPLEFT", left, -top)
+		edge:SetSize(width, height)
+		local layer = art.layer
+		local scaleX, scaleY = width / layer.layerWidth, height / layer.layerHeight
+		local cols = math.ceil(layer.layerWidth / layer.tileWidth)
+		local rows = math.ceil(layer.layerHeight / layer.tileHeight)
+		for row = 1, rows do
+			local pixelHeight, fileHeight = GetTileSize(layer.layerHeight, layer.tileHeight, row, rows)
+			for col = 1, cols do
+				local fileID = art.files[(row - 1) * cols + col]
+				if fileID ~= nil then
+					local pixelWidth, fileWidth = GetTileSize(layer.layerWidth, layer.tileWidth, col, cols)
+					local key = edgeKey .. ":" .. row .. ":" .. col
+					local texture = base.extra[key]
+					if texture == nil then
+						texture = container:CreateTexture(nil, "ARTWORK")
+						if not art.mask then AddMapMask(texture, entry.mask) end
+						AddMapMask(texture, edge)
+						base.extra[key] = texture
+					end
+
+					texture:SetTexture(fileID, nil, nil, "TRILINEAR")
+					texture:SetTexCoord(0, pixelWidth / fileWidth, 0, pixelHeight / fileHeight)
+					texture:SetSize(pixelWidth * scaleX, pixelHeight * scaleY)
+					texture:ClearAllPoints()
+					texture:SetPoint("TOPLEFT", container, "TOPLEFT", left + layer.tileWidth * (col - 1) * scaleX, -(top + layer.tileHeight * (row - 1) * scaleY))
+					texture.used = true
+				end
+			end
+		end
+	end
 end
 
 function MapUtils:AddMinimapLOD(dataFlavor, instance, group, data)

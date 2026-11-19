@@ -11,6 +11,9 @@ local FIELDS = {
   -- 1.7.x: WORLDMAPPINS covers only zone maps; the category switch hides piers on every map
   -- and the Piers button on the map-icons bar.
   PierPins = "WORLDMAPPINS_ENABLED",
+  -- 1.7.15: friend traffic stops only with both off (Friends.IsActive in friendmembers.lua).
+  FriendShare = "FRIENDMEMBERSHARE",
+  FriendPins = "FRIENDMEMBERPINS_ENABLED",
 }
 
 function adapter.Knows(key) return FIELDS[key] ~= nil end

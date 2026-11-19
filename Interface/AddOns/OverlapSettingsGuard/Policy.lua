@@ -152,6 +152,10 @@ local mapUtilsSettings = {
   { id = "worldmapscale", key = "WorldMapScale", label = "World map scaling", reason = "YUI owns the world map scale." },
   { id = "worldmapfade", key = "WorldMapFade", label = "World map fade while moving", reason = "YUI owns world map fading while moving." },
   { id = "pierpins", key = "PierPins", label = "World map pier, zeppelin and tram pins", reason = "YUI's map markers already show docks, zeppelin towers and the tram." },
+  -- 1.7.15: no other addon shows friends, but either switch greets every online friend with hidden
+  -- addon whispers at login, and sharing then sends them your map position; YUI owns chat.
+  { id = "friendshare", key = "FriendShare", label = "Share my position with friends", reason = "YUI owns chat; MapUtils must not send your map position to friends by hidden whispers." },
+  { id = "friendpins", key = "FriendPins", label = "Friends on the map", reason = "YUI owns chat; showing friends greets every online friend with hidden addon whispers at each login." },
 }
 
 -- Early, because MapUtils applies its map window and fade settings at PLAYER_LOGIN.
