@@ -5,19 +5,17 @@ local System = YUI and YUI.API and YUI.API.System
 local Security = YUI and YUI.API and YUI.API.Security
 if not (Native and Native.IS_SUITE and YUI.IsForever == true and System and Security) then return end
 
-local CVARS = {
-    { "outlineModeShowLootEffectWhenDisabled", "1" },
-    { "graphicsOutlineMode", "0" },
-    { "OutlineEngineMode", "0" },
-    { "raidGraphicsOutlineMode", "0" },
-    { "RAIDOutlineEngineMode", "0" },
+local SPARKLE_CVAR = "outlineModeShowLootEffectWhenDisabled"
+local SPARKLE_EVENT_NAME = SPARKLE_CVAR:lower()
+local LEGACY_OUTLINES = {
+    { "graphicsOutlineMode", "OutlineEngineMode" },
+    { "raidGraphicsOutlineMode", "RAIDOutlineEngineMode" },
 }
-local WATCHED = { graphicsquality = true, raidgraphicsquality = true }
-for _, entry in ipairs(CVARS) do WATCHED[entry[1]:lower()] = true end
+local WATCHED = { graphicsquality = true, raidgraphicsquality = true, [SPARKLE_EVENT_NAME] = true }
 
 local owner, recoveryOwner = {}, {}
-local watching, recovering, applying = false, false, false
-local timer, pending, lastError
+local watching, applying = false, false
+local timer, recoveryEvent, pending, lastError
 local applyWrites, restoreWrites = 0, 0
 local Reconcile
 
@@ -46,17 +44,16 @@ local function CancelTimer()
     if timer then timer:Cancel(); timer = nil end
 end
 
-local function OnRecovery()
-    if not Security.InCombatLockdown() then Reconcile() end
+local function IsPlayerLoggedIn()
+    return type(IsLoggedIn) ~= "function" or IsLoggedIn()
 end
 
-local function SetRecovery(enabled)
-    if enabled == recovering then return end
-    recovering = enabled
-    if enabled then
-        YUI.Event:On("PLAYER_REGEN_ENABLED", OnRecovery, recoveryOwner, { moduleId = Native.MODULE_ID })
-    else
-        YUI.Event:OffOwner(recoveryOwner)
+local function SetRecovery(event)
+    if event == recoveryEvent then return end
+    if recoveryEvent then YUI.Event:OffOwner(recoveryOwner) end
+    recoveryEvent = event
+    if event then
+        YUI.Event:On(event, Reconcile, recoveryOwner, { moduleId = Native.MODULE_ID })
     end
 end
 
@@ -70,54 +67,70 @@ local function Write(name, value, restoring)
     return true
 end
 
+local function RestoreLegacyOutline(saved, graphicsName, engineName)
+    local graphics, engine = saved[graphicsName], saved[engineName]
+    if graphics == nil and engine == nil then return true end
+
+    if type(graphics) == "string" then
+        local current = Read(graphicsName)
+        if current and current ~= "0" and current ~= graphics then
+            saved[graphicsName], saved[engineName] = nil, nil
+            return true
+        end
+        -- The graphics write can also change the engine value. Keep the pair until both are settled.
+        if not Write(graphicsName, graphics, true) then return false end
+    end
+    if type(engine) == "string" and not Write(engineName, engine, true) then return false end
+    saved[graphicsName], saved[engineName] = nil, nil
+    return true
+end
+
 Reconcile = function()
     CancelTimer()
     local desired = Desired()
-    local saved = Storage(desired)
+    local loggedIn = IsPlayerLoggedIn()
+    local saved = Storage(desired and loggedIn)
+    if not loggedIn then
+        pending = not desired and saved and next(saved) ~= nil and "restore" or nil
+        SetRecovery(pending and "PLAYER_LOGIN")
+        return true
+    end
     if not saved then
         pending = nil
         lastError = desired and "storage-unavailable" or nil
-        SetRecovery(false)
+        SetRecovery(nil)
         return false
     end
     if Security.InCombatLockdown() then
         pending = desired and "apply" or (next(saved) ~= nil and "restore" or nil)
-        SetRecovery(pending ~= nil)
+        SetRecovery(pending and "PLAYER_REGEN_ENABLED")
         return true
     end
 
     pending, lastError = nil, nil
     applying = true
+    for _, pair in ipairs(LEGACY_OUTLINES) do
+        if not RestoreLegacyOutline(saved, pair[1], pair[2]) then pending = "restore" end
+    end
+
+    local original = saved[SPARKLE_CVAR]
     if desired then
-        local sparkleName = CVARS[1][1]
-        if Read(sparkleName) == nil then
-            applying = false
-            lastError = sparkleName
-            SetRecovery(false)
-            return false
+        local current = Read(SPARKLE_CVAR)
+        if current then
+            if original == nil then saved[SPARKLE_CVAR] = current end
+            Write(SPARKLE_CVAR, "1", false)
+        else
+            lastError = SPARKLE_CVAR
         end
-        -- Capture every value before writing: graphics settings can change engine CVars too.
-        for _, entry in ipairs(CVARS) do
-            local name = entry[1]
-            if saved[name] == nil then saved[name] = Read(name) end
+    elseif type(original) == "string" then
+        if Write(SPARKLE_CVAR, original, true) then
+            saved[SPARKLE_CVAR] = nil
+        else
+            pending = "restore"
         end
-        -- Do not turn outlines off if this client rejects the native sparkle switch.
-        if Write(sparkleName, CVARS[1][2], false) then
-            for index = 2, #CVARS do
-                local name, value = CVARS[index][1], CVARS[index][2]
-                if saved[name] ~= nil then Write(name, value, false) end
-            end
-        end
-    else
-        for _, entry in ipairs(CVARS) do
-            local name = entry[1]
-            local original = saved[name]
-            if type(original) == "string" and Write(name, original, true) then saved[name] = nil end
-        end
-        if next(saved) ~= nil then pending = "restore" end
     end
     applying = false
-    SetRecovery(pending ~= nil)
+    SetRecovery(pending and "PLAYER_REGEN_ENABLED")
     return lastError == nil
 end
 
@@ -132,6 +145,7 @@ local function Schedule(delay)
 end
 
 local function OnLogin()
+    if not IsPlayerLoggedIn() then return end
     Reconcile()
     if Desired() then Schedule(5) end
 end
@@ -140,13 +154,9 @@ local function OnCVarChanged(_, name)
     if applying or not Desired() or Security.IsSecretValue(name) or type(name) ~= "string" then return end
     name = name:lower()
     if not WATCHED[name] then return end
-    if name ~= "graphicsquality" and name ~= "raidgraphicsquality" then
-        local changed = false
-        for _, entry in ipairs(CVARS) do
-            local current = Read(entry[1])
-            if current ~= nil and current ~= entry[2] then changed = true; break end
-        end
-        if not changed then return end
+    if name == SPARKLE_EVENT_NAME then
+        local current = Read(SPARKLE_CVAR)
+        if current == nil or current == "1" then return end
     end
     Schedule(1)
 end
@@ -168,7 +178,7 @@ function Native:RefreshQuestLootSparkles()
         YUI.Event:On("PLAYER_LOGIN", OnLogin, owner, options)
         YUI.Event:On("VARIABLES_LOADED", OnLogin, owner, options)
         YUI.Event:On("CVAR_UPDATE", OnCVarChanged, owner, options)
-        if type(IsLoggedIn) ~= "function" or IsLoggedIn() then OnLogin() end
+        OnLogin()
         return true
     end
     return Reconcile()
@@ -181,9 +191,9 @@ end
 
 function Native:GetQuestLootSparklesDiagnostics()
     local saved, count = Storage(false), 0
-    if saved then for _, entry in ipairs(CVARS) do if saved[entry[1]] ~= nil then count = count + 1 end end end
+    if saved then for _ in pairs(saved) do count = count + 1 end end
     return {
-        enabled = Desired(), watching = watching, recovering = recovering,
+        enabled = Desired(), watching = watching, recovering = recoveryEvent ~= nil,
         timerPending = timer ~= nil, pending = pending, savedCVars = count,
         applyWrites = applyWrites, restoreWrites = restoreWrites, lastError = lastError,
     }

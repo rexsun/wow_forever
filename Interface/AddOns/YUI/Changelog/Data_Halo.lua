@@ -1,6 +1,58 @@
 -- Generated from Docs/Products/YUI_YHUD/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yhud", {
+-- YUI-Notes-Record: halo-122|mainline|8a571abab441a7d43b150e380bc3eeb0579d78b4cac495b2b09c7e3df830b6c2
+    {
+        version = "halo-122",
+        date = "2026-11-21",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "新增「主题外观」设置页。",
+                "新增吃喝倒计时，进食和饮水可分别显示。",
+                "优化监控选择器的标签与间距，统一倒计时最后 3 秒的小数显示。",
+                "修复部分增益计时条刷新时的报错。",
+            },
+            enUS = {
+                "Added a Theme & Appearance settings page.",
+                "Added separate timers for eating and drinking.",
+                "Improved monitor picker labels and spacing and standardized decimals in the final three seconds.",
+                "Fixed an error when refreshing some buff timers.",
+            },
+        },
+    },
+-- YUI-Notes-Record: halo-122|forever|3b315c0b77ab960e62693d1cb2285bd88c8b41ea0f8f6fab0ae1e2f01b05d521
+    {
+        version = "halo-122",
+        date = "2026-11-21",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增「主题外观」设置页。",
+                "新增吃喝倒计时，进食和饮水可分别显示。",
+                "新增猎人双鹰计时，并加入猎人三个专精的默认方案。",
+                "新增增强萨满漩涡武器层数资源条，默认隐藏层数数字。",
+                "新增法力条 5 秒回蓝倒计时。",
+                "优化监控选择器，统一倒计时最后 3 秒的小数显示。",
+                "圣印改用原生监控，迁移符合条件的旧位置和样式。",
+                "推荐桃桃奶兮与摘风铃语音包。",
+                "修复乱舞、强化风暴打击和奥术冲击监控。",
+                "修复部分增益计时条刷新时的报错。",
+            },
+            enUS = {
+                "Added a Theme & Appearance settings page.",
+                "Added separate timers for eating and drinking.",
+                "Added separate timers for both Hunter hawks and included them in the defaults for all three Hunter specs.",
+                "Added a Maelstrom Weapon stack bar for Enhancement Shamans, with stack numbers hidden by default.",
+                "Added a five-second mana rule countdown on the mana bar.",
+                "Improved the monitor picker and standardized decimals in the final three seconds.",
+                "Moved Seal tracking to the game's Cooldown Manager and migrated eligible positions and styles.",
+                "Added recommendations for the Taotao Naixi and Zhaifengling voice packs.",
+                "Fixed Flurry, Improved Stormstrike, and Arcane Blast tracking.",
+                "Fixed an error when refreshing some buff timers.",
+            },
+        },
+    },
 -- YUI-Notes-Record: halo-121|mainline|28f4dacfd4e05342432dbd7cccbdf99f0edade4d69ad7aa0e8a9083ab3b381d5
 -- YUI-Notes-Record: halo-121|forever|589f3a87a9be828fb2988b1087a570a2a7fe430aee3231cb17215136d2a7f214
     {
@@ -267,27 +319,6 @@ CL:Register("yhud", {
                 "Added Diamond, Contour, and Shade icon appearances, Masque skin support, and diagonal layouts.",
                 "Sound alert searches now span alert types and specializations.",
                 "Fixed resource countdowns, reverse fills, and designer dragging; improved ElvUI press-feedback compatibility.",
-            },
-        },
-    },
--- YUI-Notes-Record: halo-112|mainline|6cbafc441ebed26d69a7862e6b60c0de8dd224410cad2a86177605d4fe200e5c
--- YUI-Notes-Record: halo-112|forever|58326e70bf346cb926ecafb58ac6e8d89546accf0c034cb8630cb9c3b75bf371
-    {
-        version = "halo-112",
-        date = "2026-10-26",
-        clients = { "Retail", "Forever" },
-        content = {
-            zhCN = {
-                "进度条和资源条分组高度支持调整至 2–128。",
-                "优化法术警报预览及布局占位提示。",
-                "新建圆环分组默认关闭鼠标提示，保留已有设置。",
-                "修复图腾类监控圆环与进度条的持续时间显示。",
-            },
-            enUS = {
-                "Progress and resource group bar heights can now be adjusted from 2 to 128.",
-                "Improved spell alert previews and layout placeholder hints.",
-                "New ring groups now default to disabled tooltips, preserving existing settings.",
-                "Fixed duration displays for totem-based monitor rings and bars.",
             },
         },
     },

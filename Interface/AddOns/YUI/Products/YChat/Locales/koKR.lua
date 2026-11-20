@@ -214,7 +214,6 @@ YUI.Locale:Register("YChat", "koKR", {
     ["settings.records.local_limit"] = "역사 기록 한계",
     ["settings.records.restore_on_login"] = "로그인 후 역사를 복원합니다",
     ["settings.records.restore_limit"] = "로그인 후에 복원 된 메시지",
-    ["settings.records.frame_limit"] = "채팅 창 제한",
     ["settings.records.count"] = "이 문자에 대한 저장 : %d",
     ["settings.records.empty"] = "채팅 기록이 저장되지 않습니다.",
     ["settings.records.snapshot_title"] = "채팅 기록",

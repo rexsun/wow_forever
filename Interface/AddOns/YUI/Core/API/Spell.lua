@@ -1347,6 +1347,16 @@ local function GetCooldownFromGlobal(spellID)
     return nil
 end
 
+-- Readable usability flags only; unavailable or restricted data stays unknown.
+-- No table allocation. Suitable for event-driven visual refreshes.
+function Spell.GetUsableState(spellID)
+    local api = _G.C_Spell and _G.C_Spell.IsSpellUsable or _G.IsUsableSpell
+    if type(api) ~= "function" or not SafeNumberValue(spellID) then return nil, nil end
+    local ok, usable, noMana = pcall(api, spellID)
+    if not ok then return nil, nil end
+    return SafeBooleanValue(usable, nil), SafeBooleanValue(noMana, nil)
+end
+
 function Spell.GetCooldown(spellID)
     if not spellID then return nil end
 
@@ -3077,6 +3087,47 @@ function Spell.GetPublicDescription(spellID)
         or not (C_Spell and C_Spell.GetSpellDescription) then return nil end
     local ok, text = pcall(C_Spell.GetSpellDescription, spellID)
     if ok and not IsSecretValue(text) and type(text) == 'string' then return text end
+end
+
+-- Read the client's formatted description without populating a GameTooltip.
+function Spell.GetPublicTooltipDescription(spellID)
+    if IsSecretValue(spellID) or type(spellID) ~= "number"
+        or not (C_TooltipInfo and C_TooltipInfo.GetSpellByID) then return nil end
+    local lineType = Enum and Enum.TooltipDataLineType and Enum.TooltipDataLineType.SpellDescription
+    local security = YUI.API.Security
+    if not (lineType and security and security.CanAccessTable) then return nil end
+    local ok, data = pcall(C_TooltipInfo.GetSpellByID, spellID, false, true, true)
+    if not ok or not security.CanAccessTable(data) or not security.CanAccessTable(data.lines) then return nil end
+    local description
+    for _, line in ipairs(data.lines) do
+        if not security.CanAccessTable(line) then return nil end
+        local kind = security.SafeNumber(line.type)
+        if kind == nil then return nil end
+        if kind == lineType then
+            local text = security.SafeString(line.leftText)
+            if not text then return nil end
+            if text ~= "" or description then
+                description = description and (description .. "\n" .. text) or text
+            end
+        end
+    end
+    return description
+end
+
+function Spell.GetPublicManaCost(spellID)
+    if IsSecretValue(spellID) or type(spellID) ~= "number"
+        or not (C_Spell and C_Spell.GetSpellPowerCost) then return nil end
+    local security = YUI.API.Security
+    if not (security and security.CanAccessTable) then return nil end
+    local ok, costs = pcall(C_Spell.GetSpellPowerCost, spellID)
+    if not ok or not security.CanAccessTable(costs) then return nil end
+    local mana = Enum and Enum.PowerType and Enum.PowerType.Mana or 0
+    for _, cost in ipairs(costs) do
+        if security.CanAccessTable(cost) and security.SafeNumber(cost.type) == mana
+            and (security.SafeNumber(cost.requiredAuraID) == 0 or security.SafeBoolean(cost.hasRequiredAura) == true) then
+            return security.SafeNumber(cost.cost)
+        end
+    end
 end
 
 -- Forever cast-family candidates, cold path only. A positive ID is a known,

@@ -58,17 +58,21 @@ function E:UpdateCopyHint()
         GUI:SetBorderColor(self.reportPanel, focused and "color.border.focus" or "color.border.subtle")
     end
 end
+function E:UpdateReportHeight()
+    local height = self.copySelectionVisible and self.edit:GetHeight() or (self.readerHeight or 0)
+    height = math.max(self.reportScroll:GetHeight(), height)
+    if self.reportContent:GetHeight() ~= height then self.reportContent:SetHeight(height) end
+end
 function E:SetCopySelectionVisible(visible)
     visible = visible == true and self.rawReport ~= nil and self.rawReport ~= ""
     local wasVisible = self.copySelectionVisible
     self.copySelectionVisible = visible
     if visible ~= wasVisible then
         if visible then self.readerScrollOffset = self.reportScroll:GetVerticalScroll() end
-        local child = visible and self.edit or self.reportContent
-        self.reportScroll.child, self.reportScroll.scrollChild = child, child
-        self.reportScroll:SetScrollChild(child)
-        self.reportContent:SetShown(not visible)
-        self.edit:SetAlpha(visible and 1 or 0); self.edit:Show()
+        self.reportText:SetShown(not visible)
+        self.edit:SetAlpha(visible and 1 or 0)
+        self.edit:SetShown(visible)
+        self:UpdateReportHeight()
         local range = math.max(0, self.reportContent:GetHeight() - self.reportScroll:GetHeight())
         self.reportScroll:SetVerticalScroll(visible and 0 or math.min(self.readerScrollOffset or 0, range))
     end
@@ -79,16 +83,28 @@ function E:FocusReport(showSelection)
     if showSelection ~= true and not self.copySelectionVisible then self:ReleaseCopyFocus(); return end
     if self.rawReport and self.rawReport ~= "" then
         self.selectingCopy = true
-        if showSelection ~= nil then self:SetCopySelectionVisible(showSelection) end
-        self.edit:SetFocus(); self.edit:HighlightText(0)
+        self.edit:Show()
+        if not self.edit:HasFocus() then self.edit:SetFocus() end
+        -- Recheck the native buffer after showing and focusing it.
+        if self.edit:GetText() ~= self.rawReport then
+            self.settingReport = true; self.edit:SetText(self.rawReport); self.settingReport = nil
+        end
+        local ready = self.edit:HasFocus() and self.edit:GetText() == self.rawReport
+        if ready then
+            self:SetCopySelectionVisible(true)
+            self.edit:HighlightText(0, -1)
+            self:UpdateReportHeight()
+        end
         self.selectingCopy = nil
+        if not ready then self:ReleaseCopyFocus(); return end
     end
     self:UpdateCopyHint()
 end
 function E:ReleaseCopyFocus()
     self.copyChordKey = nil
     self.edit:ClearFocus()
-    if self.copySelectionVisible then self:SetCopySelectionVisible(false) end
+    self:SetCopySelectionVisible(false)
+    self.edit:Hide()
     self:UpdateCopyHint()
 end
 function E:RefreshTheme()
@@ -136,7 +152,8 @@ function E:ShowReport(selectText, showSelection)
         end
         if self.reportText:GetText() ~= readable then
             self.reportText:SetText(readable); self.reportText:SetHeight(0)
-            self.reportContent:SetHeight(math.max(self.reportScroll:GetHeight(), self.reportText:GetStringHeight() + 16))
+            self.readerHeight = self.reportText:GetStringHeight() + 16
+            self:UpdateReportHeight()
         end
         self.renderedRecord, self.renderedSession, self.renderedAll = record, session, self.copyAll
         self.renderedCount, self.renderedLast = record and record.count, record and record.last
@@ -285,17 +302,18 @@ function E:EnsureView()
     self.reportText:SetPoint("TOPLEFT", 0, -4); self.reportText:SetWidth(612); self.reportText:SetWordWrap(true); self.reportText:SetSpacing(3)
     self.reportText:SetFont(GUI:GetFont("font.family.body"), GUI:GetMetric("font.size.md", 13), "")
     self.reportText:SetShadowColor(0, 0, 0, 0); self.reportText:SetShadowOffset(0, 0)
-    -- Reading and native text selection share one clipped viewport and one scrollbar.
-    self.edit = GUI.Form:CreateEditBox(self.reportScroll, { width = 612, height = 26, autoFocus = false })
+    -- Keep both views anchored to the same scroll child so activating focus does not reparent it.
+    self.edit = GUI.Form:CreateEditBox(self.reportContent, { width = 612, height = 350, autoFocus = false })
+    self.edit:SetPoint("TOPLEFT", self.reportContent, "TOPLEFT")
     self.edit:SetTextInsets(0, 0, 4, 0); self.edit:EnableMouse(false)
     if self.edit.gui2Bg then self.edit.gui2Bg:SetAlpha(0) end
     self.edit:SetHighlightColor(0, 0, 0, 0)
-    self.edit:SetMultiLine(true); self.edit:SetMaxLetters(0)
-    self.reportScroll:SetScrollChild(self.edit)
+    self.edit:SetMultiLine(true); self.edit:SetMaxLetters(0); self.edit:SetMaxBytes(0)
     self:SetCopySelectionVisible(false)
     self.edit:SetScript("OnEscapePressed", function() E:ReleaseCopyFocus() end)
     self.edit:HookScript("OnEditFocusGained", function() E:UpdateCopyHint() end)
     self.edit:HookScript("OnEditFocusLost", function() E.copyChordKey = nil; E:UpdateCopyHint() end)
+    self.edit:HookScript("OnSizeChanged", function() if E.copySelectionVisible then E:UpdateReportHeight() end end)
     self.edit:HookScript("OnKeyDown", function(_, key)
         if key == "C" and IsControlKeyDown() then E.copyChordKey = key end
     end)

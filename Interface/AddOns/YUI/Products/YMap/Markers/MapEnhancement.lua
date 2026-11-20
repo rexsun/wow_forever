@@ -518,14 +518,22 @@ function MapEnhancement:UpdateZoomMode(map)
     return changed
 end
 
-function ProviderMixin:RemoveAllData()
+local function ClearPins(provider)
     if MapEnhancement.expandedPin then MapEnhancement.expandedPin:CloseExpansion(true) end
-    local map = self:GetMap()
-    if map and type(map.RemoveAllPinsByTemplate) == "function" then
-        map:RemoveAllPinsByTemplate(PIN_TEMPLATE)
+    if provider.displayPins then
+        local map = provider:GetMap()
+        if map and type(map.RemoveAllPinsByTemplate) == "function" then
+            map:RemoveAllPinsByTemplate(PIN_TEMPLATE)
+        end
     end
-    self.displayPins = nil
+    provider.displayPins = nil
     runtime.stats.activePins = 0
+end
+
+function ProviderMixin:RemoveAllData()
+    ClearPins(self)
+    self.refreshedMapID, self.visiblePoints = nil, nil
+    self.membership, self.signature, self.lastScale = nil, nil, nil
 end
 
 local function DeferCombatRefresh(provider)
@@ -534,8 +542,10 @@ local function DeferCombatRefresh(provider)
     if type(check) ~= "function" or check() ~= true then return false end
     -- Acquiring native map pins changes protected mouse passthrough attributes.
     -- Discard old-map markers now and rebuild once after combat has ended.
-    runtime.pendingCombatRefresh = true
-    provider:RemoveAllData()
+    if not runtime.pendingCombatRefresh then
+        runtime.pendingCombatRefresh = true
+        provider:RemoveAllData()
+    end
     return true
 end
 
@@ -545,7 +555,7 @@ function ProviderMixin:RenderPoints()
     local map = self:GetMap()
     if YUI.IsRetail then
         MapEnhancement:UpdateZoomMode(map)
-        self:RemoveAllData()
+        ClearPins(self)
         self.displayPins = {}
         for _, entry in ipairs(MapEnhancement:PrepareRetailTextEntries(self.visiblePoints or {}, map:GetMapID())) do
             entry.mapID, entry.dataProvider = map:GetMapID(), self
@@ -584,7 +594,7 @@ function ProviderMixin:RenderPoints()
     end
     self.signature, self.membership = signature, membership
     MapEnhancement:HideMarkerMenu(true)
-    self:RemoveAllData()
+    ClearPins(self)
     self.displayPins = {}
     for _, group in ipairs(groups) do
         group.mapID, group.dataProvider = map:GetMapID(), self
@@ -593,15 +603,15 @@ function ProviderMixin:RenderPoints()
     end
 end
 
-function ProviderMixin:RefreshAllData()
+function ProviderMixin:RefreshMarkers()
+    local map = self:GetMap()
+    if not (runtime.enabled and map and map:IsShown()) then return end
+    local mapID = map:GetMapID()
+    if not mapID then return end
     if DeferCombatRefresh(self) then return end
     runtime.pendingCombatRefresh = false
     MapEnhancement:HideMarkerMenu(true)
     self:RemoveAllData()
-    self.visiblePoints, self.membership, self.signature = {}, nil, nil
-    if not runtime.enabled then return end
-    local map = self:GetMap()
-    local mapID = map and map:GetMapID()
     local data, config = MapEnhancement.Data, MapEnhancement:GetConfig()
     if YUI.IsForever and data then
         data:LoadPlayerFactionPoints()
@@ -611,9 +621,13 @@ function ProviderMixin:RefreshAllData()
     SyncNativeFlights(true)
     SyncNativeFlights(false)
     runtime.stats.refreshes = runtime.stats.refreshes + 1
-    if config.markersHidden or not data or config.maps[mapID] == false then return end
-    local points = data:GetMapPoints(mapID, config.showOpposingFactionNPCs == true)
-    if not points then return end
+    local points = not config.markersHidden and data and config.maps[mapID] ~= false
+        and data:GetMapPoints(mapID, config.showOpposingFactionNPCs == true)
+    if not points then
+        self.refreshedMapID = mapID
+        return
+    end
+    self.visiblePoints = {}
     local taxi = {}
     if C_TaxiMap and C_TaxiMap.GetTaxiNodesForMap then
         local ok, nodes = pcall(C_TaxiMap.GetTaxiNodesForMap, mapID)
@@ -660,13 +674,19 @@ function ProviderMixin:RefreshAllData()
     end
     table.sort(self.visiblePoints, function(a,b) return a.id < b.id end)
     self:RenderPoints()
+    if not runtime.pendingCombatRefresh then self.refreshedMapID = mapID end
 end
 
-function ProviderMixin:OnMapChanged() MapEnhancement:HideMarkerMenu(); self:RefreshAllData() end
+function ProviderMixin:RefreshAllData()
+    -- 原生开图会接连调用地图变更、全量刷新和 OnShow。
+    local map = self:GetMap()
+    if map and self.refreshedMapID ~= map:GetMapID() then self:RefreshMarkers() end
+end
+
+function ProviderMixin:OnMapChanged() MapEnhancement:HideMarkerMenu(); self:RefreshMarkers() end
 function ProviderMixin:OnShow() self:RefreshAllData() end
 function ProviderMixin:OnHide()
     self:RemoveAllData()
-    self.visiblePoints, self.membership, self.signature = nil, nil, nil
     MapEnhancement:HideMarkerMenu()
 end
 function ProviderMixin:OnCanvasScaleChanged()
@@ -680,12 +700,15 @@ function ProviderMixin:OnCanvasScaleChanged()
         end
         return
     end
+    if not self.visiblePoints or self.refreshedMapID ~= map:GetMapID() then return end
     local scale = map.GetCanvasScale and map:GetCanvasScale() or 1
     if not self.lastScale or math.abs(scale/self.lastScale-1) >= 0.06 then self:RenderPoints() end
 end
 
 function ProviderMixin:OnCanvasSizeChanged()
     if YUI.IsRetail then self:OnCanvasScaleChanged(); return end
+    -- SetMapID 可先触发尺寸回调，等新地图的数据准备好再做聚类。
+    if not self.visiblePoints or self.refreshedMapID ~= self:GetMap():GetMapID() then return end
     self.signature = nil
     self:RenderPoints()
 end
@@ -950,7 +973,7 @@ local function RegisterRuntimeEvents()
         if not runtime.pendingCombatRefresh then return end
         runtime.pendingCombatRefresh = false
         if runtime.enabled and runtime.provider and runtime.map and runtime.map:IsShown() then
-            runtime.provider:RefreshAllData()
+            runtime.provider:RefreshMarkers()
         end
     end, runtime.eventOwner, { moduleId = "product:ymap:markers" })
 end
@@ -1011,7 +1034,7 @@ local function EnsureMap()
 end
 
 Refresh = function()
-    if runtime.provider and runtime.enabled and runtime.map:IsShown() then runtime.provider:RefreshAllData() end
+    if runtime.provider then runtime.provider:RefreshMarkers() end
     UpdateQuickFilterButton()
 end
 

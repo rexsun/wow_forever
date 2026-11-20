@@ -11,6 +11,7 @@ Conditions.AURA_PRESENT = "aura-present"
 Conditions.AURA_MISSING = "aura-missing"
 Conditions.CONDITION_MET = "condition-met"
 Conditions.TIMER_ENDED = "timer-ended"
+Conditions.TIMER_EXPIRING = "timer-expiring"
 
 local function ResolveAuraState(state, auraResolved, auraPresent)
     if auraResolved ~= nil then
@@ -31,6 +32,10 @@ function Conditions:Evaluate(
     auraPresent,
     persistentSlot
 )
+    if kind == "summon-hawk" and conditionType == self.TIMER_EXPIRING then
+        if not (state and state.resolved == true and state.secret ~= true) then return false, false end
+        return state.available == true and state.expiring == true, true
+    end
     if kind == "devourer-transform" then
         if not (state and state.classExtra and state.resolved) then return false, false end
         return conditionType == self.CONDITION_MET and state.extraActive == true and state.thresholdReached == true, true

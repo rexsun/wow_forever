@@ -167,6 +167,7 @@ local DEFAULTS = {
     playerTooltipMythicPlusScoreEnabled = false,
     playerTooltipModifier = MOD_SHIFT,
     tooltipIDEnabled = true,
+    tooltipItemLevelEnabled = YUI.IsForever == true,
     itemSpellIDEnabled = true,
     tooltipInstantHide = true,
     tooltipCursorEnabled = false,
@@ -282,6 +283,7 @@ local function NormalizeDB(db)
         db.playerTooltipModifier = "NONE"
     end
     db.tooltipIDEnabled = db.tooltipIDEnabled ~= false
+    db.tooltipItemLevelEnabled = db.tooltipItemLevelEnabled ~= false
     db.itemSpellIDEnabled = db.itemSpellIDEnabled ~= false
     db.cursorEffectsEnabled = db.cursorEffectsEnabled == true
     if db.displayMode ~= MODE_ALWAYS and db.displayMode ~= MODE_MODIFIER then
@@ -2530,6 +2532,8 @@ function State.ConfigureTooltips(db, enabled)
     if tooltipCursor then tooltipCursor.Configure(db, enabled) end
     local tooltipFade = YUI._MouseEnhancementTooltipFade
     if tooltipFade then tooltipFade.Configure(db, enabled) end
+    local itemTooltip = YUI._MouseEnhancementItemTooltip
+    if itemTooltip then itemTooltip.Configure(db, enabled) end
 end
 
 local function RefreshFeatureSettings(feature)
@@ -2690,6 +2694,18 @@ local function GetOptions(feature)
                             set = function(value)
                                 db.playerTooltipColorEnabled = value == true
                                 RefreshVisibleTooltipForModifier()
+                                RefreshFeatureSettings(feature)
+                            end,
+                        },
+                        {
+                            type = "checkbox",
+                            label = T("settings.tooltip_item_level", "显示物品等级"),
+                            tooltip = T("settings.tooltip_item_level_help"),
+                            labelPosition = "left",
+                            hidden = function() return YUI.IsForever ~= true end,
+                            get = function() return db.tooltipItemLevelEnabled ~= false end,
+                            set = function(value)
+                                db.tooltipItemLevelEnabled = value == true
                                 RefreshFeatureSettings(feature)
                             end,
                         },
@@ -3243,6 +3259,7 @@ Components:RegisterFeature(FEATURE_KEY, {
         return {
             tooltipCursor = tooltipCursor and tooltipCursor.GetDiagnostics() or nil,
             tooltipFade = tooltipFade and tooltipFade.GetDiagnostics() or nil,
+            itemTooltip = YUI._MouseEnhancementItemTooltip and YUI._MouseEnhancementItemTooltip.GetDiagnostics() or nil,
         }
     end,
 })

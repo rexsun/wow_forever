@@ -2,6 +2,8 @@
 	<Script file='Module.lua'/>
 	<Script file='AutoRepair.lua'/>
 	<Include file='Layout\!load.xml'/>
+	<Script file='InfoOutput.lua'/>
+	<Script file='InfoOutputSettings.lua'/>
 	<Script file='Monitor.lua'/>
 	<Script file='MonitorData.lua'/>
 	<Script file='MonitorSources.lua'/>

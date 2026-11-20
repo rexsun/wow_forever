@@ -415,32 +415,103 @@ local function GetKnownAppearanceState(itemInfo, classID)
     return C_TransmogCollection.PlayerHasTransmogByItemInfo(itemInfo) == true, true
 end
 
-local function TooltipShowsKnown(itemInfo)
+local function CanReadTooltipTable(value)
+    if IsSecretValue(value) or type(value) ~= "table" then return false end
+    local security = YUI.API.Security
+    if security and security.CanAccessTable then
+        local accessible = security.CanAccessTable(value)
+        return accessible == true or accessible == nil and not canaccesstable
+    end
+    return not canaccesstable
+end
+
+local function IsRedTooltipColor(color)
+    if not CanReadTooltipTable(color) then return nil end
+    local r, g, b = color.r, color.g, color.b
+    if IsSecretValue(r) or IsSecretValue(g) or IsSecretValue(b)
+        or type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then return nil end
+    return r > 0.9 and g < 0.2 and b < 0.2
+end
+
+local function ReadTooltipCollectionState(itemInfo, isRecipe)
     if not C_TooltipInfo or type(C_TooltipInfo.GetHyperlink) ~= "function" then
-        return false, true
+        return false, not isRecipe
     end
 
-    local data = C_TooltipInfo.GetHyperlink(itemInfo)
-    if not data or type(data.lines) ~= "table" then
+    local ok, data = pcall(C_TooltipInfo.GetHyperlink, itemInfo)
+    if not ok or not CanReadTooltipTable(data) then
+        return false, false
+    end
+    local lines = data.lines
+    if not CanReadTooltipTable(lines) or (isRecipe and #lines < 2) then
         return false, false
     end
 
-    for i = 1, #data.lines do
-        local line = data.lines[i]
-        local text = line and line.leftText
-        if type(text) == "string" then
-            if type(COLLECTED) == "string" and text == COLLECTED then
-                return true, true
+    local lineTypes = Enum and Enum.TooltipDataLineType
+    local requirementTypes = Enum and Enum.TooltipDataUsageRequirementType
+    local knownRequirement = requirementTypes and requirementTypes.NotAlreadyKnown
+    local scanRequirements = isRecipe and lineTypes and lineTypes.UsageRequirement ~= nil
+    local resolved, blocked = true, false
+    for i = 1, #lines do
+        local line = lines[i]
+        if CanReadTooltipTable(line) then
+            local lineType = isRecipe and line.type
+            if isRecipe and IsSecretValue(lineType) then
+                resolved, scanRequirements = false, false
+            elseif lineTypes and lineType and (lineType == lineTypes.NestedBlock or i > 1 and lineType == lineTypes.ItemName) then
+                -- An embedded item starts its own tooltip. The recipe's Use line can precede its requirements.
+                break
             end
-            if type(ITEM_SPELL_KNOWN) == "string" and text == ITEM_SPELL_KNOWN then
-                return true, true
+            local text = line.leftText
+            if IsSecretValue(text) then
+                resolved = false
+            elseif type(text) == "string" then
+                if type(COLLECTED) == "string" and text == COLLECTED then
+                    return true, true
+                end
+                if type(ITEM_SPELL_KNOWN) == "string" and text == ITEM_SPELL_KNOWN then
+                    return true, true
+                end
+                if PET_KNOWN_PREFIX and PET_KNOWN_PREFIX ~= "" and text:find(PET_KNOWN_PREFIX, 1, true) then
+                    return true, true
+                end
             end
-            if PET_KNOWN_PREFIX and PET_KNOWN_PREFIX ~= "" and text:find(PET_KNOWN_PREFIX, 1, true) then
-                return true, true
+
+            if scanRequirements and lineType == lineTypes.UsageRequirement then
+                local red = IsRedTooltipColor(line.leftColor)
+                if red == nil then
+                    resolved = false
+                elseif red then
+                    local requirement = line.requirementType
+                    if IsSecretValue(requirement) then
+                        resolved = false
+                    elseif knownRequirement ~= nil and requirement == knownRequirement then
+                        return true, true
+                    else
+                        blocked = true
+                    end
+                end
             end
+        else
+            resolved, scanRequirements = false, false
         end
     end
+    if isRecipe then return false, resolved, blocked end
     return false, true
+end
+
+-- Returns "known", "unusable", false for a neutral icon, or nil for unreadable data.
+function Item.RecipeLearningState(link)
+    if IsSecretValue(link) or type(link) ~= "string" then return nil end
+    local known, resolved, blocked = ReadTooltipCollectionState(link, true)
+    if known then return "known" end
+    if not resolved then return nil end
+    if blocked then return "unusable" end
+    if type(IsUsableItem) ~= "function" and not (C_Item and type(C_Item.IsUsableItem) == "function") then return nil end
+    local ok, usable, insufficientResource = pcall(Item.IsUsable, link)
+    if not ok or IsSecretValue(usable) or IsSecretValue(insufficientResource) or type(usable) ~= "boolean" then return nil end
+    if not usable and insufficientResource ~= true then return "unusable" end
+    return false
 end
 
 -- Returns known, resolved without allocating a result table. `resolved == false`
@@ -493,7 +564,7 @@ function Item.IsKnownCollectible(itemInfo)
     if not KNOWABLE_ITEM_CLASSES[classID] then
         return false, true
     end
-    return TooltipShowsKnown(itemInfo)
+    return ReadTooltipCollectionState(itemInfo)
 end
 
 local DURATION_PATTERNS = {
@@ -505,6 +576,23 @@ local DURATION_PATTERNS = {
     { "([%d%.]+)%s*minutes?", 60 },
     { "([%d%.]+)%s*mins?", 60 },
 }
+
+-- Read only the client's typed Use line, without populating a GameTooltip.
+function Item.GetPublicUseText(itemID)
+    if IsSecretValue(itemID) or type(itemID) ~= "number"
+        or not (C_TooltipInfo and C_TooltipInfo.GetItemByID) then return nil end
+    local lineType = Enum and Enum.TooltipDataLineType and Enum.TooltipDataLineType.ItemSpellTriggerOnUse
+    local security = YUI.API.Security
+    if not (lineType and security and security.CanAccessTable) then return nil end
+    local ok, data = pcall(C_TooltipInfo.GetItemByID, itemID)
+    if not ok or not security.CanAccessTable(data) or not security.CanAccessTable(data.lines) then return nil end
+    for _, line in ipairs(data.lines) do
+        if security.CanAccessTable(line) and security.SafeNumber(line.type) == lineType then
+            local text = security.SafeString(line.leftText)
+            if text and text ~= "" then return text end
+        end
+    end
+end
 
 local function ParseUseEffectDuration(text)
     if IsSecretValue(text) or type(text) ~= "string" or text == "" then
@@ -695,6 +783,9 @@ local function NormalizeCooldown(startTime, duration, isEnabled)
     if startTime == nil and duration == nil and isEnabled == nil then
         return nil
     end
+    local security = YUI.API.Security
+    local secret = security and security.IsSecretValue and security.IsSecretValue(isEnabled)
+    if not secret and type(isEnabled) == "number" then isEnabled = isEnabled ~= 0 end
 
     return {
         startTime = startTime or 0,
@@ -949,6 +1040,33 @@ function Item.GetInventoryItemID(unit, slot)
         return GetInventoryItemID(unit, slot)
     end
     return nil
+end
+
+-- Public temporary-enchantment state. nil means the API/data was unavailable.
+function Item.ReadWeaponEnchant(slot, target)
+    target = type(target) == "table" and target or {}
+    local security = YUI.API.Security
+    local api = _G.C_PaperDollInfo
+    local has, remaining, charges, enchantID
+    if api and type(api.GetTemporaryEnchantmentInfo) == "function" then
+        local ok, info = pcall(api.GetTemporaryEnchantmentInfo, slot)
+        if not ok then return nil end
+        if security.IsSecretValue and security.IsSecretValue(info) then return nil end
+        if info ~= nil and not security.CanAccessTable(info) then return nil end
+        if info then
+            has, remaining, charges, enchantID = true, info.remainingTimeMs, info.chargesRemaining, info.enchantID
+        else has = false end
+    elseif type(_G.GetWeaponEnchantInfo) == "function" then
+        local ok, main, mainTime, mainCharges, mainID, off, offTime, offCharges, offID = pcall(_G.GetWeaponEnchantInfo)
+        if not ok then return nil end
+        if slot == 16 then has, remaining, charges, enchantID = main, mainTime, mainCharges, mainID
+        elseif slot == 17 then has, remaining, charges, enchantID = off, offTime, offCharges, offID
+        else return nil end
+    else return nil end
+    target.hasEnchant = security.SafeBoolean(has)
+    if target.hasEnchant == nil then return nil end
+    target.remainingMS, target.charges, target.enchantID = security.SafeNumber(remaining), security.SafeNumber(charges), security.SafeNumber(enchantID)
+    return target
 end
 
 -- Forever 1.60.1.70235: character/client ammo capability.

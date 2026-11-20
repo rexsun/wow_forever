@@ -1,6 +1,60 @@
 -- Generated from Docs/Products/YUI_NovaToolbox/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("toolbox", {
+-- YUI-Notes-Record: nova-142|mainline|feac8236ff3a7800aa1c03a85f14751deb45ff3214daa013e73b2c0262f486c7
+    {
+        version = "nova-142",
+        date = "2026-11-21",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "新增「主题外观」设置页。",
+                "经验条增加标记，显示交付已完成任务后预计达到的经验位置。",
+                "插件助手在新配置中默认开启。",
+                "减少打开世界地图时标记的重复刷新。",
+                "装备槽长附魔改用简称。",
+            },
+            enUS = {
+                "Added a Theme & Appearance settings page.",
+                "The experience bar now marks where your XP will reach after turning in completed quests.",
+                "Enabled Addon Assistant by default for new configurations.",
+                "Reduced duplicate marker refreshes when opening the world map.",
+                "Shortened long enchant names on equipment slots.",
+            },
+        },
+    },
+-- YUI-Notes-Record: nova-142|forever|fd7560f9a7d930ac3962c1caef70176348ea0bfb9d922090a5f4dd6d05e2b1be
+    {
+        version = "nova-142",
+        date = "2026-11-21",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增 Roll 点增强，支持查看选择人数、点数、掉落记录与获奖播报，并优化队列图标和倒计时布局。",
+                "聊天条骰子左键看掉落记录，右键掷点。",
+                "新增「主题外观」设置页，可进入「信息输出」试播。",
+                "经验条增加标记，显示交付已完成任务后预计达到的经验位置。",
+                "装备观察重做装备加成统计，新增底部标签，并修复设置按钮被遮挡。",
+                "属性面板重做，支持横排／竖排、图标／进度条。",
+                "物品提示新增装等，商人购买页支持已知物品染色。",
+                "插件助手在新配置中默认开启。",
+                "优化 Polestar 收起与暂停恢复，减少地图标记重复刷新。",
+                "购物助手将银锭归入「矿石与金属」。",
+            },
+            enUS = {
+                "Added enhanced loot rolls with vote counts, rolls, loot history, and winner announcements, and refined the queue icons and countdown layout.",
+                "Left-click the chat bar dice to open loot history or right-click to roll.",
+                "Added a Theme & Appearance page with access to Information Output and previews.",
+                "The experience bar now marks where your XP will reach after turning in completed quests.",
+                "Reworked equipment bonus summaries, added bottom tabs, and fixed the settings button being obstructed.",
+                "Reworked the stats panel with horizontal or vertical layouts and optional icons and progress bars.",
+                "Item tooltips show item level, and known items can be color-coded on the merchant buy tab.",
+                "Enabled Addon Assistant by default for new configurations.",
+                "Improved Polestar collapse and reopening after a pause, and reduced duplicate map marker refreshes.",
+                "Moved Silver Bars to Ores & Metals in Auction Helper.",
+            },
+        },
+    },
 -- YUI-Notes-Record: nova-141|mainline|7f73fd2cb579e1f1c49f1b2e0e6242eaf80de0c3b85c7ab6284986396581665f
     {
         version = "nova-141",
@@ -255,24 +309,6 @@ CL:Register("toolbox", {
             },
         },
     },
--- YUI-Notes-Record: nova-132|forever|15beb72a97c812155975e085dc184d575acd28fb7f261885da19a588003f3bc2
-    {
-        version = "nova-132",
-        date = "2026-10-31",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增插件助手独立窗口与游戏菜单入口，支持按场景和专精管理插件方案。",
-                "聊天条支持独立调整文字字号，并同步调整鼠标悬停区域。",
-                "修复关闭交易增强后自动修理仍可能执行的问题。",
-            },
-            enUS = {
-                "Added a dedicated Addon Assistant window and game menu entry, with addon profiles by activity and specialization.",
-                "Chat bar text now has an independent font size, with matching mouseover areas.",
-                "Fixed automatic repair potentially remaining active after Trade Enhancement was disabled.",
-            },
-        },
-    },
 -- YUI-Notes-Record: nova-131|mainline|73d96d02e77732d3d25b8e6b36818fe520a3dd6dde5b28e950ba336f917c60c9
     {
         version = "nova-131",
@@ -294,24 +330,6 @@ CL:Register("toolbox", {
                 "Improved sidebar layout and compatibility with other mail addons.",
                 "Improved spell alert previews with fixed specialization layouts and labeled placeholders.",
                 "Map marker refreshes requested during combat now wait until combat ends.",
-            },
-        },
-    },
--- YUI-Notes-Record: nova-130|mainline|96c2f7f58060ed80c6a151923c17b211fe3a84a2e7d87bdd7ef7bb23e7212f19
-    {
-        version = "nova-130",
-        date = "2026-10-23",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "购物助手新增物品加载提示，修复物品信息未就绪时点击搜索无响应的问题。",
-                "修复多个单体共同加载时的配置导入与部分界面初始化异常。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Added item-loading feedback to Auction Helper and fixed unresponsive searches when item information is unavailable.",
-                "Fixed configuration import and some UI initialization issues when multiple standalone addons are loaded together.",
-                "Updated the shared core for compatibility with newer YUI addons.",
             },
         },
     },

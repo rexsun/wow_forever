@@ -1,0 +1,27 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Script file="Locales.lua"/>
+    <Script file="GuildServicesLocale.lua"/>
+    <Script file="Bootstrap.lua"/>
+    <Script file="Config.lua"/>
+    <Script file="Classification.lua"/>
+    <Script file="Stats.lua"/>
+    <Script file="Diagnostics.lua"/>
+    <Script file="Model.lua"/>
+    <Script file="Layout.lua"/>
+    <Script file="Cache.lua"/>
+    <Script file="Holdings.lua"/>
+    <Script file="Currency.lua"/>
+    <Script file="Deposit.lua"/>
+    <Script file="Actions.lua"/>
+    <Script file="SortPlanner.lua"/>
+    <Script file="BagRemoval.lua"/>
+    <Script file="Appearance.lua"/>
+    <Script file="View.lua"/>
+    <Script file="ViewOperations.lua"/>
+    <Script file="BankView.lua"/>
+    <Script file="GuildInventory.lua"/>
+    <Script file="GuildServices.lua"/>
+    <Script file="Sync.lua"/>
+    <Script file="Runtime.lua"/>
+    <Script file="Settings.lua"/>
+</Ui>

@@ -30,6 +30,8 @@ local preview, previewDB, banner, previewTooltipOwner
 local previewItems = {}
 local WHITE = { r = 1, g = 1, b = 1 }
 local ENCHANT_COLOR = { r = .35, g = 1, b = .35 }
+local ENCHANT_MIN_SIZE = 9
+local ENCHANT_GAP = 4
 local GEM_GAP = 0
 local weaponLayouts = {}
 local layoutRestoreOwner = {}
@@ -69,11 +71,15 @@ local function RestoreWeaponLayouts()
     end
 end
 
+local function GetWeaponStride(gemSize)
+    return math.max(80, 40 + gemSize * 2 + GEM_GAP + 8) - gemSize / 2
+end
+
 local function LayoutWeapons(prefix, db)
     if restorePending and YUI.Event then YUI.Event:OffOwner(layoutRestoreOwner); restorePending = false end
     if InCombatLockdown and InCombatLockdown() then return end
     local gemSize = math.max(8, math.min(24, tonumber(db.slotGemSize) or 16))
-    local stride = math.max(80, 40 + gemSize * 2 + GEM_GAP + 8) - gemSize / 2
+    local stride = GetWeaponStride(gemSize)
     local signature = stride * 100
     for index, name in ipairs(weaponNames) do
         local button = _G[prefix .. name .. "Slot"]
@@ -170,6 +176,60 @@ local function SetText(region, text)
     if (region:GetText() or "") ~= text then region:SetText(text) end
 end
 
+local function FormatEnchantStat(part, labels)
+    part = part:match("^%s*(.-)%s*$")
+    local format = labels.format
+    local stop, pointUnit = format.stop, format.pointUnit
+    if stop and part:sub(-#stop) == stop then part = part:sub(1, -#stop - 1) end
+
+    local unit = ""
+    if pointUnit and part:sub(-#pointUnit) == pointUnit then
+        unit = pointUnit
+        part = part:sub(1, -#unit - 1)
+    end
+    local name, value = part:match("^(.-)%s*([+-]%d+[.,]?%d*%%?)%s*$")
+    if not value then value, name = part:match("^([+-]%d+[.,]?%d*%%?)%s*(.-)$") end
+    local label = name and labels[name:lower()]
+    if type(label) == "string" then
+        if format.valueFirst then return value .. " " .. label end
+        return label .. value .. unit
+    end
+    if format.periodic then
+        for _, entry in ipairs(format.periodic) do
+            local amount, periodUnit = part:match(entry[1])
+            if amount then return entry[2] .. "+" .. amount .. (periodUnit or "") end
+        end
+    end
+end
+
+local function FormatEnchant(text)
+    if YUI.IsRetail then
+        local _, separatorEnd = text:find(" - ", 1, true)
+        if separatorEnd and text:sub(separatorEnd + 1):find("%S") then
+            text = text:sub(separatorEnd + 1)
+        end
+    end
+
+    local locale = YUI.Locale
+    if text == "" or not locale then return text end
+    local clientLocale = locale:GetClientLocale()
+    if clientLocale ~= "enUS" and clientLocale ~= "zhCN" and clientLocale ~= "zhTW" then return text end
+    local labels = locale:Resolve("CharacterEquipmentInfo", "slot.enchant.stats", clientLocale)
+    if not labels then return text end
+
+    local stats, badge = text:match("^(.-)(%s*|A:[^|]+|a%s*)$")
+    stats = (stats or text):gsub("，", "/"):gsub(",%s+", "/")
+    local join = labels.format.join
+    if join then stats = stats:gsub(join .. "(%s*[+-]%d)", "/%1") end
+    local parts = {}
+    for part in (stats .. "/"):gmatch("(.-)/") do
+        local short = FormatEnchantStat(part, labels)
+        if not short then return text end
+        parts[#parts + 1] = short
+    end
+    return table.concat(parts, " / ") .. (badge or "")
+end
+
 local function Acquire(button, left, flyout, weapon)
     local record = records[button]
     if record then return record end
@@ -184,13 +244,17 @@ local function Acquire(button, left, flyout, weapon)
     record.enchant = GUI:CreateText(frame, "", 10, "color.text.primary", left and "RIGHT" or "LEFT")
     record.durability = GUI:CreateText(frame, "", 11, "color.text.primary", "CENTER")
     record.enchant:SetWordWrap(false)
+    if record.enchant.SetMaxLines then record.enchant:SetMaxLines(1) end
     record.enchant:SetWidth(0)
-    if flyout then
+    if YUI.IsForever then
+        record.level:SetJustifyH("LEFT")
+        record.level:SetWordWrap(false)
+    elseif flyout then
         record.level:SetJustifyH("RIGHT")
         record.level:SetWordWrap(false)
     end
     if weapon then
-        record.level:SetJustifyH("CENTER")
+        if not YUI.IsForever then record.level:SetJustifyH("CENTER") end
         record.level:SetWordWrap(false)
         record.enchant:SetJustifyH("CENTER")
     end
@@ -219,11 +283,14 @@ local function Acquire(button, left, flyout, weapon)
     return record
 end
 
-local function ApplyTextStyle(region, style, data, cache)
-    if cache.font ~= style.font or cache.size ~= style.size or cache.outline ~= style.outline then
-        region:SetFont(style.font, style.size, style.outline)
-        cache.font, cache.size, cache.outline = style.font, style.size, style.outline
+local function ApplyTextFont(region, style, cache, size)
+    if cache.font ~= style.font or cache.size ~= size or cache.outline ~= style.outline then
+        region:SetFont(style.font, size, style.outline)
+        cache.font, cache.size, cache.outline = style.font, size, style.outline
     end
+end
+
+local function ApplyTextStyle(region, style, data, cache)
     if cache.shadow ~= style.shadow then
         region:SetShadowColor(0, 0, 0, style.shadow and 1 or 0)
         region:SetShadowOffset(style.shadow and 1 or 0, style.shadow and -1 or 0)
@@ -247,11 +314,17 @@ local function Place(record, key, style, x, y)
     local cache = record[key .. "Style"]
     if not cache then cache = {}; record[key .. "Style"] = cache end
     local region = record[key]
+    if key ~= "enchant" then ApplyTextFont(region, style, cache, style.size) end
     ApplyTextStyle(region, style, record.data, cache)
     if cache.x ~= x or cache.y ~= y or cache.anchor ~= record.weaponAnchor then
         region:ClearAllPoints()
         if key == "durability" then
-            region:SetPoint("BOTTOM", record.button, "BOTTOM", x, y)
+            if YUI.IsForever then region:SetPoint("BOTTOMRIGHT", record.button, "BOTTOMRIGHT", x - 2, y + 2)
+            else region:SetPoint("BOTTOM", record.button, "BOTTOM", x, y) end
+        elseif YUI.IsForever and key == "level" then
+            local offsetX = (record.flyout or record.weapon) and 1 or 1 - STYLE_DEFAULTS.level.x
+            local offsetY = record.flyout and 0 or (record.weapon and -1 or 1)
+            region:SetPoint("TOPLEFT", record.button, "TOPLEFT", x + offsetX, y + offsetY)
         elseif record.weapon then
             region:SetPoint("TOP", record.button, "BOTTOM", x, y)
         elseif record.flyout then
@@ -265,21 +338,68 @@ local function Place(record, key, style, x, y)
     end
 end
 
-local function Render(record, db, flyout)
+local function GetCenterX(frame)
+    local x = frame and frame.GetCenter and frame:GetCenter()
+    return x and x * frame:GetEffectiveScale()
+end
+
+local function GetEnchantWidth(record, centerX, gemSize)
+    if record.weapon then return math.floor(GetWeaponStride(gemSize) - ENCHANT_GAP) end
+    if not centerX then return nil end
+
+    local button = record.button
+    local slotX = button:GetCenter()
+    if not slotX then return nil end
+    local center = centerX / button:GetEffectiveScale()
+    local distance = record.left and slotX - center or center - slotX
+    return math.max(0, math.floor(distance - button:GetWidth() / 2 - styles.enchant.x - ENCHANT_GAP / 2))
+end
+
+local function RenderEnchant(record, source, width)
+    if record.enchantSource ~= source then
+        record.enchantSource = source
+        record.enchantDisplay = FormatEnchant(source)
+    end
+    local text, region, style, cache = record.enchantDisplay, record.enchant, styles.enchant, record.enchantStyle
+    if cache.text == text and cache.width == width and cache.baseSize == style.size
+        and cache.font == style.font and cache.outline == style.outline then return end
+
+    if cache.clipped then region:SetWidth(0) end
+    SetText(region, width == 0 and "" or text)
+    local size = style.size
+    ApplyTextFont(region, style, cache, size)
+    cache.clipped = false
+    if width and width > 0 and text ~= "" then
+        local getWidth = region.GetUnboundedStringWidth or region.GetStringWidth
+        local textWidth = getWidth(region)
+        while size > ENCHANT_MIN_SIZE and textWidth > width do
+            size = size - 1
+            ApplyTextFont(region, style, cache, size)
+            textWidth = getWidth(region)
+        end
+        if textWidth > width then
+            -- The native single-line ellipsis preserves UTF-8 text and inline quality icons.
+            region:SetWidth(width)
+            cache.clipped = true
+        end
+    end
+    cache.text, cache.width, cache.baseSize = text, width, style.size
+end
+
+local function Render(record, db, flyout, centerX)
     local data = record.data
     if not data.link then record.frame:Hide(); return end
-    local weaponWidth
     local size = Number(db.slotGemSize, 16, 8, 24)
     if record.weapon then
-        weaponWidth = 74
-        if record.weaponWidth ~= weaponWidth then
+        if not record.weaponLevelWidthSet then
             record.level:SetWidth(36)
-            record.weaponWidth = weaponWidth
+            record.weaponLevelWidthSet = true
         end
         local levelY = styles.level.y + 2
         Place(record, "level", styles.level, styles.level.x - 8, levelY)
+        local enchantGap = YUI.IsForever and 3 or styles.level.size
         Place(record, "enchant", styles.enchant, styles.enchant.x - 8,
-            styles.enchant.y + 20 + levelY - styles.level.size)
+            styles.enchant.y + 20 + levelY - enchantGap)
     else
         Place(record, "level", styles.level,
             flyout and Number(db.slotFlyoutOffsetX, 0, -40, 60) or styles.level.x,
@@ -292,17 +412,15 @@ local function Render(record, db, flyout)
     if flyout and level ~= "" and flyoutComparisonActive
             and type(flyoutEquipped.level) == "number" and type(data.level) == "number"
             and data.level > flyoutEquipped.level then
-        level = "|A:bags-greenarrow:0:0:2:2|a" .. level
+        if YUI.IsForever then
+            level = level .. (data.level >= 100 and "|A:bags-greenarrow:11:11:0:1|a" or "|A:bags-greenarrow:12:12:0:1|a")
+        else
+            level = "|A:bags-greenarrow:0:0:2:2|a" .. level
+        end
     end
     SetText(record.level, level)
     local enchant = not flyout and db.slotEnchant ~= false and data.enchant or ""
-    if YUI.IsRetail then
-        local _, separatorEnd = enchant:find(" - ", 1, true)
-        if separatorEnd and enchant:sub(separatorEnd + 1):find("%S") then
-            enchant = enchant:sub(separatorEnd + 1)
-        end
-    end
-    SetText(record.enchant, enchant)
+    RenderEnchant(record, enchant, enchant ~= "" and GetEnchantWidth(record, centerX, size) or nil)
     local count = not flyout and db.slotGems ~= false and #data.gems or 0
     local x, y = Number(db.slotGemOffsetX, 4, -40, 60), Number(db.slotGemOffsetY, 0, -40, 40)
     for index = 1, 4 do
@@ -310,7 +428,8 @@ local function Render(record, db, flyout)
         if record.gemSize ~= size or record.gemX ~= x or record.gemY ~= y
             or record.gemAnchor ~= record.weaponAnchor or record.gemCount ~= count
             or record.gemAnchorX ~= styles.enchant.x or record.gemAnchorY ~= styles.enchant.y
-            or record.gemAnchorSize ~= styles.enchant.size or record.gemLevelSize ~= styles.level.size then
+            or record.gemAnchorSize ~= styles.enchant.size or record.gemLevelSize ~= styles.level.size
+            or record.gemLevelY ~= styles.level.y then
             gem:SetSize(size, size)
             gem:ClearAllPoints()
             if record.weapon then
@@ -318,8 +437,15 @@ local function Render(record, db, flyout)
                     ((count - 1) / 2 - (index - 1)) * (size + GEM_GAP) + y)
             else
                 local direction = record.left and -1 or 1
-                gem:SetPoint(record.left and "RIGHT" or "LEFT", record.level,
-                    record.left and "LEFT" or "RIGHT", direction * (x + (index - 1) * (size + GEM_GAP)), y)
+                local distance = x + (index - 1) * (size + GEM_GAP)
+                if YUI.IsForever then
+                    gem:SetPoint(record.left and "RIGHT" or "LEFT", record.button,
+                        record.left and "TOPLEFT" or "TOPRIGHT",
+                        direction * (distance + STYLE_DEFAULTS.level.x), y + styles.level.y + 1 - styles.level.size / 2)
+                else
+                    gem:SetPoint(record.left and "RIGHT" or "LEFT", record.level,
+                        record.left and "LEFT" or "RIGHT", direction * distance, y)
+                end
             end
         end
         if record[index] ~= icon then
@@ -332,7 +458,8 @@ local function Render(record, db, flyout)
     record.gemAnchor, record.gemCount = record.weaponAnchor, count
     record.gemAnchorX, record.gemAnchorY, record.gemAnchorSize = styles.enchant.x, styles.enchant.y, styles.enchant.size
     record.gemLevelSize = styles.level.size
-    local durability = db.slotDurability ~= false and data.durability or nil
+    record.gemLevelY = styles.level.y
+    local durability = (not YUI.IsForever or not flyout) and db.slotDurability ~= false and data.durability or nil
     SetText(record.durability, durability and durability < 1 and string.format("%d%%", math.floor(durability * 100 + 0.5)) or "")
     record.frame:Show()
 end
@@ -357,6 +484,7 @@ end
 local function UpdateSettingsButton()
     local host = _G.CharacterFrame
     if not host or not GUI.CreateBlizzardIconButton then return end
+    local created = false
     if not settingsButton then
         if InCombatLockdown and InCombatLockdown() then return end
         local atlas = "Warfronts-BaseMapIcons-Empty-Workshop-Minimap"
@@ -377,12 +505,31 @@ local function UpdateSettingsButton()
         settingsButton.icon:ClearAllPoints()
         settingsButton.icon:SetSize(16, 16)
         settingsButton.icon:SetPoint("CENTER", settingsButton, "CENTER", 0, 0)
+        if YUI.IsForever then settingsButton:SetHitRectInsets(0, 0, 0, 0) end
+        created = true
+    end
+    -- 标题栏可在显示或换肤后重排层级；仅在创建时置顶会留下被遮挡的命中区域。
+    if (created or YUI.IsForever) and not (InCombatLockdown and InCombatLockdown()) then
         local close = host.CloseButton or _G.CharacterFrameCloseButton
-        if close then settingsButton:SetPoint("RIGHT", close, "LEFT", -5, 0)
-        else settingsButton:SetPoint("TOPRIGHT", host, "TOPRIGHT", -40, -6) end
+        local point, relative, relativePoint, x, y = "RIGHT", close, "LEFT", -5, 0
+        if not close then point, relative, relativePoint, x, y = "TOPRIGHT", host, "TOPRIGHT", -40, -6 end
+        local count = settingsButton:GetNumPoints()
+        local a, b, c, px, py
+        if count == 1 then a, b, c, px, py = settingsButton:GetPoint(1) end
+        if count ~= 1 or a ~= point or b ~= relative or c ~= relativePoint or px ~= x or py ~= y then
+            settingsButton:ClearAllPoints()
+            settingsButton:SetPoint(point, relative, relativePoint, x, y)
+        end
         local border = host.BorderFrame
-        settingsButton:SetFrameLevel(math.max(host:GetFrameLevel() + 10,
-            close and close:GetFrameLevel() + 1 or 0, border and border:GetFrameLevel() + 1 or 0))
+        local level = math.max(host:GetFrameLevel() + 10,
+            close and close:GetFrameLevel() + 1 or 0, border and border:GetFrameLevel() + 1 or 0)
+        if YUI.IsForever then
+            local title, nineSlice = host.TitleContainer, host.NineSlice
+            level = math.max(level, title and title:GetFrameLevel() + 1 or 0, nineSlice and nineSlice:GetFrameLevel() + 1 or 0)
+            local strata = (close or host):GetFrameStrata()
+            if settingsButton:GetFrameStrata() ~= strata then settingsButton:SetFrameStrata(strata) end
+        end
+        if settingsButton:GetFrameLevel() ~= level then settingsButton:SetFrameLevel(level) end
     end
     settingsButton:SetShown(_G.PaperDollFrame and _G.PaperDollFrame:IsShown())
 end
@@ -454,6 +601,12 @@ function Overlays:Refresh(db)
         local unit = prefix == "Character" and "player" or (host and host.unit)
         local paperDoll = prefix == "Inspect" and _G.InspectPaperDollFrame or host
         if not suppressed and host and host:IsShown() and paperDoll and paperDoll:IsShown() and unit then
+            local centerX
+            if db.slotEnchant ~= false then
+                local model = _G.InspectModelFrame
+                if prefix == "Character" then model = _G.CharacterModelScene or _G.CharacterModelFrame end
+                centerX = GetCenterX(model) or GetCenterX(paperDoll)
+            end
             for _, slot in ipairs(slots) do
                 local button = _G[prefix .. slot[1] .. "Slot"]
                 if button and button:IsShown() then
@@ -467,7 +620,7 @@ function Overlays:Refresh(db)
                             if record.data.link == "preview" then record.data = {} end
                             API.ReadSlotDisplay(unit, slot[2], nil, record.data)
                         end
-                        Render(record, db, false)
+                        Render(record, db, false, centerX)
                     end
                 end
             end

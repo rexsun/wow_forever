@@ -161,21 +161,7 @@ end
 
 function Module:UpdateGoldDB()
     if not IsLoggedIn() then return end
-    local realm = GetRealmName()
-    local name = UnitName("player")
-    local money = GetMoney()
-
-    -- 使用全局 DB
-    local goldDB = EnsureGoldDB()
-    if not goldDB then return end
-    goldDB[realm] = goldDB[realm] or {}
-    goldDB[realm].money = goldDB[realm].money or {}
-    goldDB[realm].class = goldDB[realm].class or {}
-    goldDB[realm].faction = goldDB[realm].faction or {}
-
-    goldDB[realm].money[name] = money
-    goldDB[realm].class[name] = select(2, UnitClass("player"))
-    goldDB[realm].faction[name] = UnitFactionGroup("player")
+    YUI.CharacterMoney:Record("ybar")
 end
 
 function Module:LeftClick()
@@ -216,7 +202,7 @@ local function CurrencyOnEvent(event)
         return
     end
 
-    Module:UpdateGoldDB()
+    if event=="PLAYER_MONEY" or event=="YUI_WORLD_READY" then Module:UpdateGoldDB() end
     if not IsCurrencyFrameReady(frame) then return end
     Module:UpdateBarItem(frame, Module.parent)
 end
@@ -527,70 +513,10 @@ function Module:OnEnter(frame)
             GameTooltip:AddLine(" ")
         end
 
-        -- 本服角色列表
-        local realm = GetRealmName()
-        local myName = UnitName("player")
-
-        local totalGold = 0
-        local totalAlliance = 0
-        local totalHorde = 0
-        local goldList = {}
-        -- 使用全局 DB
-        local goldDB = EnsureGoldDB()
-        if goldDB and goldDB[realm] and goldDB[realm].money then
-            for name, money in pairs(goldDB[realm].money) do
-                table_insert(goldList, {name = name, money = money})
-                totalGold = totalGold + money
-
-                local faction = goldDB[realm].faction[name]
-                if faction == "Alliance" then
-                    totalAlliance = totalAlliance + money
-                elseif faction == "Horde" then
-                    totalHorde = totalHorde + money
-                end
-            end
-        end
-
-        -- 排序：金额从大到小
-        table_sort(goldList, function(a, b) return a.money > b.money end)
-
-        GameTooltip:AddLine(L["currency.tooltip.characters"])
-        for _, info in ipairs(goldList) do
-            local moneyStr = FormatMoney(info.money)
-            local classFileName = goldDB[realm].class[info.name]
-            local faction = goldDB[realm].faction[info.name]
-
-            local color = UnitAPI.GetClassColor and UnitAPI.GetClassColor(classFileName)
-            local nameStr = info.name
-            if color then
-                local hex = color:GenerateHexColor()
-                nameStr = format("|c%s%s|r", hex, info.name)
-            end
-
-            -- 阵营图标
-            if faction == "Alliance" then
-                nameStr = "|TInterface\\FriendsFrame\\PlusManz-Alliance:14|t " .. nameStr
-            elseif faction == "Horde" then
-                nameStr = "|TInterface\\FriendsFrame\\PlusManz-Horde:14|t " .. nameStr
-            end
-
-            if info.name == myName then
-                nameStr = nameStr .. " |TInterface\\COMMON\\Indicator-Green:14|t"
-            end
-
-            GameTooltip:AddDoubleLine(nameStr, moneyStr, 1, 1, 1, 1, 1, 1)
-        end
-
-        GameTooltip:AddLine(" ")
-
-        -- 阵营总计
-        if totalAlliance > 0 and totalHorde > 0 then
-            GameTooltip:AddDoubleLine(L["currency.tooltip.alliance"], FormatMoney(totalAlliance), 0, 0.7, 1, 1, 1, 1)
-            GameTooltip:AddDoubleLine(L["currency.tooltip.horde"], FormatMoney(totalHorde), 1, 0.2, 0.2, 1, 1, 1)
-            GameTooltip:AddLine(" ")
-        end
-
-        GameTooltip:AddDoubleLine(L["currency.tooltip.character_total"], FormatMoney(totalGold), 1, 1, 1, 1, 1, 1)
+        local totalGold = YUI.CharacterMoney:AppendTooltip(GameTooltip, "ybar", {
+            characters=L["currency.tooltip.characters"], total=L["currency.tooltip.character_total"],
+            alliance=L["currency.tooltip.alliance"], horde=L["currency.tooltip.horde"],
+        }, FormatMoney)
 
     -- 战团银行 (Retail Only)
     if YUI.IsRetail and C_Bank and C_Bank.FetchDepositedMoney then

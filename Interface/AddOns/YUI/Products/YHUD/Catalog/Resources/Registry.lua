@@ -186,6 +186,10 @@ end
 
 function Catalog:IsDefinitionAvailable(definition)
     local provider = definition and definition.provider
+    local learnedSpellID = provider and provider.requiresLearnedSpellID
+    if learnedSpellID then
+        return SpellAPI.IsKnown ~= nil and SpellAPI.IsKnown(learnedSpellID) == true
+    end
     local spellID = provider and provider.requiresKnownSpellID
     if not spellID then return true end
     if not SpellAPI.IsKnownOrInSpellBook then return false end
@@ -1067,6 +1071,9 @@ end
 local function InitialDefinitionAvailable(definition)
     if definition and definition.initialEnabled == false then return false end
     local provider = definition and definition.provider or {}
+    if provider.requiresLearnedSpellID then
+        return Catalog:IsDefinitionAvailable(definition)
+    end
     if definition and type(definition.powerType) == "number"
         and UnitAPI.ReadPowerDisplay then
         local state = UnitAPI.ReadPowerDisplay(

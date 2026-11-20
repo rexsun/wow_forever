@@ -100,7 +100,6 @@ local function IsMerchantFrameSupported()
 end
 
 function KnownItems:IsEnabled()
-    if YUI.IsForever then return false end
     if not isFeatureEnabled or not IsMerchantFrameSupported() then
         return false
     end
@@ -3190,7 +3189,9 @@ function KnownItems:Refresh()
         return
     end
 
-    if type(GetMerchantNumItems) ~= "function" or type(GetMerchantItemLink) ~= "function" then
+    if not IsMerchantBuyTabActive()
+        or type(GetMerchantNumItems) ~= "function" or type(GetMerchantItemLink) ~= "function"
+    then
         return
     end
 
@@ -4255,7 +4256,6 @@ local Feature = {
             }
             thirdRow[#thirdRow + 1] = {
                 type = "checkbox",
-                hidden = YUI.IsForever == true,
                 label = T("settings.general.feature.trade_enhancement.known_items.label"),
                 tooltip = T("settings.general.feature.trade_enhancement.known_items.tooltip"),
                 width = optionWidth,
@@ -4267,7 +4267,6 @@ local Feature = {
             }
             fourthRow[#fourthRow + 1] = {
                 type = "color",
-                hidden = YUI.IsForever == true,
                 label = T("settings.general.feature.trade_enhancement.known_items.color"),
                 tooltip = T("settings.general.feature.trade_enhancement.known_items.color_tooltip"),
                 inlineLabel = true,

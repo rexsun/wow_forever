@@ -1,3 +1,17 @@
+## [Addon update / OverlapSettingsGuard 0.20.0] - 2026-11-20
+### Features
+- Update YUI v362, the EllesmereUI suite 9.9.1 and MapUtils 1.7.22.
+- Add guard rules `yui.lootroll` and `gi.pallyfloat` (58 rules): YUI's new Loot Roll HUD stays off while LootRollMover loads, and GearInsight's floating blessing button stays off while YUI loads.
+- Generalize the YUI adapter's component-feature handling so the auction panel and loot roll HUD share one read/revert path.
+### Design Rationale
+- LootRollMover is kept as the owner of the roll frames: YUI's HUD hides them rather than moving them, and turning it off through YUI's own switch restores them without a reload.
+- YUI owns action bars and bindings, so its raid blessing bar is kept and GearInsight's floating button, which can also take a key binding, gives way; GearInsight's Blessings page stays available.
+- YUI's new Maelstrom Weapon bar is not guarded because EllesmereUI shows no Maelstrom display on Forever.
+- GearInsight Forever 1.4.5 is held because it is published only as a beta.
+### Notes & Caveats
+- YUI v361 adds 51 files and MapUtils and EUI one each; they load only after a full client restart, not `/reload`.
+- YUI Bags is off by default and stands down while Bagnon loads.
+
 ## [Addon update / OverlapSettingsGuard 0.19.0] - 2026-11-19
 ### Features
 - Update the EllesmereUI suite 9.9, GatherLite 8.4.14 and MapUtils 1.7.15.

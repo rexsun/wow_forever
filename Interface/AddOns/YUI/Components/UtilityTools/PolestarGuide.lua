@@ -131,9 +131,25 @@ end
 local function PlaceChrome()
     local current = binding
     if not (Feature.enabled and Feature.attached and current) then return end
+    -- 原生样式刷新会重设菜单锚点；布局结束后重新腾位，并保留当前皮肤的右侧留白。
+    local point, relative, relativePoint, x, y = current.menu:GetPoint(1)
+    if point == "RIGHT" and relative == current.nav and relativePoint == "RIGHT" then
+        local nativePoint = current.menuPoint
+        if nativePoint[4] ~= x or nativePoint[5] ~= y then
+            nativePoint[4], nativePoint[5] = x, y
+            button:ClearAllPoints()
+            button:SetPoint(Unpack(nativePoint))
+        end
+        current.menu:ClearAllPoints()
+        current.menu:SetPoint("RIGHT", button, "LEFT", 0, 0)
+    end
     -- 原有右侧控件都锚定菜单；挪动菜单即可整组留出一个按钮位。
     local title = current.nav.Title
     title:SetWidth(math.max(1, title:GetWidth() - button:GetWidth()))
+end
+
+local function WindowPaused()
+    return binding.pauseHides and Security.SafeBoolean(binding.pauseHides("window")) == true
 end
 
 Sync = function()
@@ -151,8 +167,9 @@ Sync = function()
     badge:ClearAllPoints()
     badge:SetPoint(corner, frame, corner, 0, 0)
     badge:SetFrameStrata(frame:GetFrameStrata())
-    -- 原生临时隐藏不生成标签；显式收起（含本扩展进本收起）保留恢复入口。
-    badge:SetShown(hidden or (not frame:IsShown() and (manualHidden or Security.SafeBoolean(binding.get("ui.shown")) == false)))
+    -- 原生战斗/副本隐藏不生成标签；显式收起及暂停保留恢复入口。
+    badge:SetShown(hidden or WindowPaused()
+        or (not frame:IsShown() and (manualHidden or Security.SafeBoolean(binding.get("ui.shown")) == false)))
 end
 
 local function ContentShown()
@@ -173,8 +190,8 @@ local function OnClick(_, mouseButton)
     if mouseButton ~= "LeftButton" or not Feature.enabled or not Feature.attached then return end
     Run(function()
         restoreBinding = nil
-        if binding.hidden and Security.SafeBoolean(binding.hidden()) == false
-            and (manualHidden or Security.SafeBoolean(binding.get("ui.shown")) == false) then
+        -- 窗口关闭或暂停可与整体隐藏叠加；原生窗口入口会一起恢复，避免只反转父层。
+        if binding.hidden and (manualHidden or Security.SafeBoolean(binding.get("ui.shown")) == false or WindowPaused()) then
             binding.toggleFrame()
         else
             binding.toggle()
@@ -232,6 +249,7 @@ local function Attach(addon, guide)
     local current = { theme = addon.Theme, guide = guide, frame = frame, menu = menu, nav = nav,
         menuPoint = point, originalLayout = guide.Layout, toggle = addon.ToggleHidden or addon.Bindings.Toggle,
         toggleFrame = addon.Bindings.Toggle, hidden = addon.Hidden, setHidden = addon.SetHidden,
+        pauseHides = type(addon.PauseHides) == "function" and addon.PauseHides or nil,
         get = addon.Get, set = addon.Set, off = addon.Off, handles = {} }
     current.wrapper = function(...)
         current.originalLayout(...)
@@ -264,6 +282,11 @@ local function Attach(addon, guide)
             local hidden = Security.SafeBoolean(current.hidden())
             if not autoChanging and hidden ~= current.hiddenState then restoreBinding = nil end
             current.hiddenState = hidden
+            Run(Sync)
+        end)
+    end
+    if current.pauseHides then
+        current.handles[#current.handles + 1] = addon.On("POLESTAR_PAUSED", function()
             Run(Sync)
         end)
     end

@@ -1597,6 +1597,9 @@ local function ConfigureResourceAppearance(
     slot._yhudResourceStyle = style
     if I.ConfigurePlayerCast then I.ConfigurePlayerCast(slot, preset, style) end
     if I.ConfigureResourceProgress then I.ConfigureResourceProgress(slot, runtime, preset) end
+    if I.ConfigureManaRegenSpark and not projectionOnly then
+        I.ConfigureManaRegenSpark(slot, preset.id == "mana" and style.manaRegenSpark ~= false)
+    end
     slot._yhudResourceColorPolicy = {
         thresholdColorEnabled = style.thresholdColorEnabled == true,
         thresholdMode = style.thresholdMode,
@@ -1706,6 +1709,15 @@ function View:ConfigureSlot(slot, runtime, monitor)
     if GUI2.BeginIconSkin and not GUI2:BeginIconSkin(slot) then
         GUI2:DeferIconSkin(slot, function() self:ConfigureSlot(slot, runtime, monitor) end)
         return
+    end
+    local cooldown = slot.countdown or slot.cooldown
+    if (runtime.view == "icon" or runtime.view == "bar" or runtime.view == "ring")
+        and cooldown and cooldown.SetCountdownMillisecondsThreshold
+        and slot._yhudCountdownPrecisionTarget ~= cooldown then
+        local threshold = cooldown.GetCountdownMillisecondsThreshold
+            and cooldown:GetCountdownMillisecondsThreshold() or 0
+        if threshold < 3 then cooldown:SetCountdownMillisecondsThreshold(3) end
+        slot._yhudCountdownPrecisionTarget = cooldown
     end
     if runtime.view ~= "icon" and self.HideIconShadow then self:HideIconShadow(slot) end
     if self.GetMonitorDisplayLayer then
@@ -2177,6 +2189,7 @@ function View:ShouldUseFilteredAuraSingleLineNativeProjection(
         and entry.origin == "official-cdm"
         and displayCategory == "trackedBuff"
         and monitor.view == "icon"
+        and YHUD:IsOfficialNativeView(displayCategory, monitor.view, entry)
 end
 
 function View:ShouldUseFilteredAuraChainSlot(monitorId, runtime)
@@ -2620,6 +2633,7 @@ function View:ReleaseSlot(monitorId)
     local releaseStartedAt = view == "resource" and ProfileNowMS() or nil
     if view == "resource" then
         if I.ConfigurePlayerCast then I.ConfigurePlayerCast(slot, {}, {}) end
+        if I.ConfigureManaRegenSpark then I.ConfigureManaRegenSpark(slot, false) end
         slot._yhudResourceColorPolicy, slot._yhudResourceColorCurve = nil, nil
         slot._yhudResourceCurveInitialized, slot._yhudResourceCurveMax = nil, nil
         if runtime then runtime.fixedResourceGeometryReady = false end

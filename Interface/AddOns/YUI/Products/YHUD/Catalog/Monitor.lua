@@ -1402,6 +1402,23 @@ local function BuildTimedBuffPresetOption(profile, groupId, preset)
     }
 end
 
+local function BuildSummonHawkOption(profile, groupId, resourceSelection)
+    local entry = YHUD:BuildSummonHawkEntry()
+    local monitor, current
+    if not resourceSelection then
+        monitor, current = FindMonitor(profile, entry.entryKey, groupId)
+    end
+    return {
+        key = "preset:buff:summon-hawk", kind = "summon-hawk", section = "preset",
+        name = entry.name, entryKey = entry.entryKey,
+        tooltipNoteKey = "designer.preset.summon_hawk_tooltip",
+        icon = entry.icon, spellID = entry.spellId, tooltipSpellID = entry.spellId,
+        view = GetTargetView(profile, groupId),
+        status = current and "current" or monitor and "move" or "add",
+        monitorId = monitor and monitor.id, fromGroupId = monitor and monitor.groupId,
+    }
+end
+
 local function ImportRows(profile, rows, specKey)
     local preview, code = CDMImport:BuildPreview(profile, rows, specKey)
     if not preview then return nil, code end
@@ -1547,6 +1564,9 @@ function MonitorCatalog:Build(
     else
         local nativeAuraRows = rows
         local nativeAuraRead = includeOfficial
+        if YUI.IsForever == true and catalogSpecKey:match("^HUNTER:") then
+            result.options[#result.options + 1] = BuildSummonHawkOption(profile, groupId, resourceSelection)
+        end
         result.options[#result.options + 1] =
             BuildEquipmentAuraBundleOption(profile, groupId)
         if YUI.HelpfulBuffs then
@@ -1609,22 +1629,6 @@ function MonitorCatalog:GetClaimedCooldownSources(profile)
                 monitor = monitor,
                 semantic = semantic or "cooldown",
             }
-        end
-    end
-
-    local seals = YHUD.FOREVER_SEAL_PRESET
-    local sealEntry = seals and profile.entries[seals.entryKey]
-    if sealEntry and YHUD:IsForeverSealPreset(sealEntry)
-        and YHUD:CanUseFilteredAuraDisplay() then
-        local monitor = FindActiveMonitor(profile, seals.entryKey)
-        if monitor and YHUD:IsFilteredAuraMonitor(sealEntry, monitor)
-            and YHUD:EvaluateEntryAvailability(
-                sealEntry, rawget(profile, "_yhudSpecKey")
-            ) == "available" then
-            StoreClaim(
-                "cdm:" .. tostring(seals.nativeCooldownID),
-                "forever-seals", monitor, "buff"
-            )
         end
     end
 
@@ -1878,6 +1882,7 @@ local function PlaceEntry(staged, groupId, entryKey, view, origin)
 
     local monitor
     if existing then
+        local fromGroupId = existing.groupId
         monitor, code =
             ProfileModel:MoveMonitor(
                 staged,
@@ -1890,7 +1895,7 @@ local function PlaceEntry(staged, groupId, entryKey, view, origin)
         return {
             action = "move",
             monitor = monitor,
-            fromGroupId = existing.groupId,
+            fromGroupId = fromGroupId,
         }
     end
 
@@ -1913,6 +1918,36 @@ local function AdoptResult(target, staged, result)
     result.entryKey = result.monitor and result.monitor.entryKey
     result.groupId = result.monitor and result.monitor.groupId
     return result
+end
+
+local function AddSummonHawk(draft, groupId)
+    if YUI.IsForever ~= true or type(draft.specKey) ~= "string" or not draft.specKey:match("^HUNTER:") then
+        return nil, "preset-context-mismatch"
+    end
+    local staged, beginCode = ProfileModel:BeginDraft(draft.profile, {
+        combat = draft.combat == true, specKey = draft.specKey,
+    })
+    if not staged then return nil, beginCode end
+    local entryKey = YHUD.SUMMON_HAWK_KEY
+    local entry = staged.profile.entries[entryKey]
+    if entry and not YHUD:IsSummonHawkEntry(entry) then return nil, "entry-conflict" end
+    if not entry then
+        local code
+        entry, code = ProfileModel:AddEntry(staged, entryKey, YHUD:BuildSummonHawkEntry())
+        if not entry then return nil, code end
+    end
+    local result, code = PlaceEntry(staged, groupId, entryKey, GetTargetView(staged.profile, groupId), "preset")
+    if not result then return nil, code end
+    if result.action == "add" then
+        local glow
+        glow, code = ProfileModel:SetMonitorGlow(staged, result.monitor.id, { rules = { {
+            condition = { type = "timer-expiring" },
+            appearance = { style = "pixel" },
+        } } })
+        if not glow then return nil, code end
+        result.monitor.glow = glow
+    end
+    return AdoptResult(draft, staged, result)
 end
 
 local function ApplyOfficial(target, groupId, row)
@@ -2003,6 +2038,9 @@ function MonitorCatalog:Apply(draft, groupId, option)
             GetTargetView(staged.profile, groupId), "preset")
         if not result then return nil, code end
         return AdoptResult(draft, staged, result)
+    end
+    if option.kind == "summon-hawk" then
+        return AddSummonHawk(draft, groupId)
     end
     if option.kind == "slot" then
         local slotID = IsPositiveInteger(option.slotID)

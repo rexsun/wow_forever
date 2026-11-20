@@ -407,6 +407,71 @@ function Unit.GetUnitClassColor(unit)
     return Unit.GetClassColor(classToken)
 end
 
+-- Cold roster compilation only. Never infer identity from restricted values or
+-- rebuild named secure targets while combat is active.
+function Unit.GetGroupRosterName(unit)
+    if InCombatLockdown and InCombatLockdown() then return nil end
+    local security = YUI.API.Security
+    unit = security.SafeString(unit)
+    if not unit then return nil end
+    local index = tonumber(unit:match("^raid(%d+)$"))
+    local ok, name, realm
+    if index then
+        if index < 1 or index > 40 or type(GetRaidRosterInfo) ~= "function" then return nil end
+        ok, name = pcall(GetRaidRosterInfo, index)
+    else
+        if unit ~= "player" and not unit:match("^party[1-4]$") or type(UnitName) ~= "function" then return nil end
+        ok, name, realm = pcall(UnitName, unit)
+    end
+    if not ok or IsSecretValue(name) or IsSecretValue(realm) then return nil end
+    name, realm = security.SafeString(name), security.SafeString(realm)
+    if not name then return nil end
+    -- Match the native secure header's key, not UnitFullName's display label.
+    if realm and realm ~= "" then name = name .. "-" .. realm end
+    if name == "" or #name > 100 or name:find("[%[%];,\n\r]") then return nil end
+    return name
+end
+
+function Unit.ReadRaidMembers()
+    if InCombatLockdown and InCombatLockdown() then return nil end
+    local security = YUI.API.Security
+    if type(IsInRaid) ~= "function" then return nil end
+    local ok, raiding = pcall(IsInRaid)
+    if not ok then return nil end
+    raiding = security.SafeBoolean(raiding)
+    if raiding == nil then return nil end
+    local result = {}
+    if not raiding then return result, false, true end
+    local countOK, count = pcall(GetNumGroupMembers)
+    count = countOK and security.SafeNumber(count)
+    if not count or count < 0 or count % 1 ~= 0 then return nil end
+    for i = 1, math.min(40, count) do
+        local token = "raid" .. i
+        local info = Unit.GetDisplayNameInfo(token)
+        local name = info and security.SafeString(info.displayName)
+        local class = Unit.GetClassToken(token)
+        if name and #name <= 100 and not name:find("[%[%];\n\r]") and class then
+            result[#result + 1] = { unit=token, name=name, class=class }
+        end
+    end
+    return result, true, #result == math.min(40,count)
+end
+
+function Unit.ReadGroupMembers()
+    local members, raid, complete = Unit.ReadRaidMembers()
+    if not members or raid then return members,complete end
+    for i=1,4 do
+        local token="party"..i
+        local info=Unit.GetDisplayNameInfo(token)
+        local name=info and YUI.API.Security.SafeString(info.displayName)
+        local exists=info and info.exists
+        if not info then exists=SafeBool(UnitExists,token) end
+        if not name and exists~=false then complete=false end
+        if name and #name<=100 and not name:find("[%[%];\n\r]") then members[#members+1]={unit=token,name=name} end
+    end
+    return members,complete
+end
+
 function Unit.UnitTreatAsPlayerForDisplay(unit)
     if UnitTreatAsPlayerForDisplay then
         return UnitTreatAsPlayerForDisplay(unit) == true
@@ -433,6 +498,24 @@ function Unit.UnitFullName(unit)
     end
 
     return nil
+end
+
+-- A character name without a realm suffix. Forever's second result is a surname.
+function Unit.GetCharacterName(unit)
+    if type(UnitName) ~= "function" or IsSecretValue(unit) then return nil end
+    if unit == nil then unit = "player" end
+    if type(unit) ~= "string" or unit == "" then return nil end
+    local ok, name, surname = pcall(UnitName, unit)
+    if not ok or IsSecretValue(name) or type(name) ~= "string" or name == "" then return nil end
+    if YUI.IsForever then
+        if IsSecretValue(surname) then return nil end
+        if type(surname) == "string" and surname ~= "" then
+            local separators = Constants and Constants.CharacterNameSeparatorConsts
+            local separator = separators and separators.CHARACTERNAME_SURNAME_SEPARATOR or " "
+            return name .. separator .. surname
+        end
+    end
+    return name
 end
 
 function Unit.GetDisplayNameInfo(unit)
@@ -537,6 +620,20 @@ end
 
 function Unit.IsDead(unit)
     return SafeBool(UnitIsDead, unit) == true
+end
+
+-- true only for a publicly confirmed, online, living assist target; false for
+-- a confirmed invalid state, nil when any required state is unavailable.
+function Unit.GetAssistTargetState(unit)
+    unit=YUI.API.Security.SafeString(unit)
+    if not unit or unit=="" then return nil end
+    local exists=SafeBool(UnitExists,unit)
+    if exists~=true then return exists end
+    local dead=SafeBool(UnitIsDeadOrGhost,unit)
+    local connected=SafeBool(UnitIsConnected,unit)
+    local assist=SafeBool(UnitCanAssist,"player",unit)
+    if dead==true or connected==false or assist==false then return false end
+    if dead==false and connected==true and assist==true then return true end
 end
 
 function Unit.IsFriend(unit, otherUnit)
@@ -746,13 +843,18 @@ function Unit.GetPlayerAuraBySpellID(spellID)
     return nil, "aura-api-unavailable"
 end
 
-function Unit.GetPlayerLevel()
-    local level = SafeValue(UnitLevel, "player")
+function Unit.GetLevel(unit)
+    if IsSecretValue(unit) or type(unit) ~= "string" or unit == "" then return nil end
+    local level = SafeValue(UnitLevel, unit)
     if type(level) ~= "number" or not (level > 0)
         or level == math.huge or level ~= math.floor(level) then
         return nil
     end
     return level
+end
+
+function Unit.GetPlayerLevel()
+    return Unit.GetLevel("player")
 end
 
 function Unit.GetMaxPlayerLevel()
@@ -862,6 +964,7 @@ local function ReadHelpfulTimer(aura)
         expirationTime = YUI.API.Security.SafeNumber(ReadAuraField(aura, "expirationTime")),
         icon = YUI.API.Security.SafeNumber(ReadAuraField(aura, "icon")),
         auraInstanceID = YUI.API.Security.SafeNumber(ReadAuraField(aura, "auraInstanceID")),
+        sourceUnit = YUI.API.Security.SafeString(ReadAuraField(aura, "sourceUnit")),
     }
 end
 

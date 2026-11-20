@@ -5,11 +5,11 @@ local YAB = YUI.YActionBar
 local Client = assert(YAB.Client, "YActionBar client must load before shared runtime")
 local ConfigSets = {}
 YAB.ConfigSets = ConfigSets
-ConfigSets.dormantPlacements = {}
+local dormantPlacementsByProfile = setmetatable({}, { __mode = "k" })
 ConfigSets.dormantConfigOverrides = {}
 
 ConfigSets.PROVIDER_ID = "yactionbar"
-ConfigSets.SCHEMA_VERSION = 7
+ConfigSets.SCHEMA_VERSION = 8
 ConfigSets.BASELINE_VERSION = 1
 ConfigSets.DEFAULT_BUILTIN_ID = "classic-three-row"
 
@@ -72,7 +72,7 @@ local CONFIG_FIELDS = {
         "showPetUtilities",
         "showQuestItems",
         "showCampTools",
-        "classToolsIndependent", "classToolsInitialized", "classToolsDetached", "mageScroll", "mageIntellect", "mageArmor",
+        "teamVisibility", "classToolsEnabled", "classToolsIndependent", "classToolsInitialized", "classToolsDetached", "mageScroll", "mageIntellect", "mageArmor", "classToolDisabled",
         "hideSkyriding",
     },
     layout = {
@@ -82,8 +82,11 @@ local CONFIG_FIELDS = {
         "spacing",
         "alignment",
         "aspectOrder",
+        "classToolOrder", "classToolSelected", "teamBlessings",
+        "travelTextOffsetX", "travelTextOffsetY",
+        "teamClassIconOffsetX", "teamClassIconOffsetY",
         "flyoutDirection",
-        "mageArmorLeft", "mageArmorMiddle", "mageArmorRight",
+        "mageArmorLeft", "mageArmorMiddle", "mageArmorRight", "mageManaGemCount",
     },
     appearance = {
         "skinId",
@@ -290,7 +293,7 @@ local VALID_ANCHOR_POINT = MakeSet({
 local BOOLEAN_FIELDS = MakeSet({
     "enabled", "hideEmptySlots", "hideSkyriding", "cooldownFade", "shadow", "showUnlearned", "showPetUtilities", "showQuestItems", "showCampTools",
     "showHotkeys", "showCounts", "showMacroNames", "showProfessionQuality",
-    "classToolsIndependent", "classToolsInitialized", "classToolsDetached", "mageScroll", "mageIntellect", "mageArmor",
+    "classToolsEnabled", "classToolsIndependent", "classToolsInitialized", "classToolsDetached", "mageScroll", "mageIntellect", "mageArmor",
 })
 
 local NUMBER_LIMITS = {
@@ -307,6 +310,10 @@ local NUMBER_LIMITS = {
     hotkeyOffsetY = { -64, 64, true },
     countOffsetX = { -64, 64, true },
     countOffsetY = { -64, 64, true },
+    travelTextOffsetX = { -64, 64, true },
+    travelTextOffsetY = { -64, 64, true },
+    teamClassIconOffsetX = { -64, 64, true },
+    teamClassIconOffsetY = { -64, 64, true },
     macroNameOffsetX = { -64, 64, true },
     macroNameOffsetY = { -64, 64, true },
     cooldownTextOffsetX = { -64, 64, true },
@@ -419,7 +426,8 @@ end
 
 local function GetSpecialCapabilities(barId)
     if barId == "pet" then SPECIAL_CAPABILITIES.pet.hideEmptySlots = Client.petEmptySlots == true end
-    if barId == "questItems" or barId == "aspects" or barId == "totems" then
+    if barId == "questItems" or barId == "aspects" or barId == "totems" or barId == "mageTools" or barId == "classTools"
+        or (YAB.ClassTools and YAB.ClassTools:IsClassBar(barId)) then
         local rule = YAB.SpecialBars:GetRule(barId)
         return rule and rule.capabilities or {}
     end
@@ -430,11 +438,20 @@ local function GetSpecialCapabilities(barId)
 end
 
 local function IsFieldSupported(kind, id, field)
-    if field == "mageMissingBuffGlow" then
+    if field == "teamVisibility" then return Client.classBars == true and kind == "specialBars" and id == "paladinBlessings" end
+    if field == "classToolsEnabled" then
+        return Client.classBars == true and kind == "specialBars" and id ~= "paladinBlessings"
+            and YAB.ClassTools and YAB.ClassTools:IsClassBar(id) == true
+    end
+    if field == "teamBlessings" or field == "teamClassIconOffsetX" or field == "teamClassIconOffsetY" then return Client.classBars == true and kind == "specialBars" and (id == "paladinTools" or id == "paladinBlessings") end
+    if field == "classToolOrder" or field == "classToolDisabled" or field == "classToolSelected" then
+        return Client.classBars == true and kind == "specialBars" and YAB.ClassTools and YAB.ClassTools:IsClassBar(id) == true
+    end
+    if field == "mageMissingBuffGlow" or field == "mageManaGemCount" then
         return Client.classBars == true and kind == "specialBars" and id == "mageTools"
     end
     if field == "flyoutDirection" then
-        return kind == "specialBars" and ((Client.classBars == true and (id == "aspects" or id == "totems"))
+        return kind == "specialBars" and ((Client.classBars == true and (id == "aspects" or id == "totems" or id == "mageTools" or id == "classTools" or YAB.ClassTools and YAB.ClassTools:IsClassBar(id)))
             or (Client.questItems == true and id == "questItems"))
     end
     if field == "showQuestItems" or field == "showCampTools" then return Client.questItems == true and kind == "specialBars" and id == "questItems" end
@@ -454,7 +471,11 @@ local function IsFieldSupported(kind, id, field)
 end
 
 local function IsPortableFieldSupported(kind, id, field)
-    if field == "mageMissingBuffGlow" then return IsFieldSupported(kind, id, field) end
+    if field == "teamVisibility" then return Client.classBars == true and kind == "specialBars" and id == "paladinBlessings" end
+    if field == "classToolsEnabled" then return IsFieldSupported(kind, id, field) end
+    if field == "teamBlessings" or field == "teamClassIconOffsetX" or field == "teamClassIconOffsetY" then return IsFieldSupported(kind, id, field) end
+    if field == "classToolOrder" or field == "classToolDisabled" or field == "classToolSelected" then return IsFieldSupported(kind, id, field) end
+    if field == "mageMissingBuffGlow" or field == "mageManaGemCount" then return IsFieldSupported(kind, id, field) end
     if field == "aspectOrder" or field == "aspectActiveStyle" or field == "showPetUtilities" or field == "flyoutDirection" or field == "showQuestItems" or field == "showCampTools" then
         return IsFieldSupported(kind, id, field)
     end
@@ -505,6 +526,44 @@ function ConfigSets:NormalizeMageGlow(value)
 end
 
 local function NormalizeFieldValue(field, value, id)
+    if field == "teamVisibility" then
+        if id == "paladinBlessings" and (value == "raid" or value == "group" or value == "always") then return value end
+        return nil, "invalid blessing visibility"
+    end
+    if field == "teamBlessings" then
+        if (id ~= "paladinTools" and id ~= "paladinBlessings") or type(value) ~= "table" then return nil, "invalid team blessings" end
+        local result, classes = {}, {MAGE=true,HUNTER=true,SHAMAN=true,WARLOCK=true,ROGUE=true,PRIEST=true,PALADIN=true,DRUID=true,WARRIOR=true}
+        for class, spell in pairs(value) do
+            if not classes[class] or (spell ~= 25782 and spell ~= 25894 and spell ~= 25898) then return nil, "invalid team blessing assignment" end
+            result[class] = spell
+        end
+        return result
+    end
+    if field == "classToolOrder" or field == "classToolDisabled" or field == "classToolSelected" then
+        local valid = YAB.ClassTools and YAB.ClassTools.buttonKeys[id]
+        if not valid or type(value) ~= "table" then return nil, "invalid class toolbar configuration" end
+        local result, allowed, seen = {}, {}, {}
+        for _, key in ipairs(valid) do allowed[key] = true end
+        if id == "paladinTools" then allowed.teamBlessing = true end
+        if field == "classToolOrder" then
+            for _, key in ipairs(value) do
+                if not allowed[key] or seen[key] then return nil, "invalid class toolbar order" end
+                result[#result + 1], seen[key] = key, true
+            end
+        else
+            for key, selection in pairs(value) do
+                if not allowed[key] then return nil, "invalid class toolbar button" end
+                if field == "classToolDisabled" then
+                    if type(selection) ~= "boolean" then return nil, "invalid class toolbar switch" end
+                elseif type(selection) ~= "number" or selection <= 0 or selection % 1 ~= 0 then return nil, "invalid class toolbar selection" end
+                if field == "classToolSelected" and YAB.ClassToolData and not YAB.ClassToolData:SupportsSelection(id, key, selection) then
+                    return nil, "selection does not belong to the class toolbar button"
+                end
+                result[key] = selection
+            end
+        end
+        return result
+    end
     if field == "mageMissingBuffGlow" then
         if id ~= "mageTools" then return nil, "mage glow belongs to mage tools" end
         return ConfigSets:NormalizeMageGlow(value)
@@ -556,6 +615,11 @@ local function NormalizeFieldValue(field, value, id)
     if BOOLEAN_FIELDS[field] then
         if type(value) ~= "boolean" then return nil, "expected boolean" end
         return value
+    end
+    if field == "mageManaGemCount" then
+        local count = tonumber(value)
+        if not count or count ~= count then return nil, "expected number" end
+        return YAB.ClassTools:GetManaGemCount({mageManaGemCount=count})
     end
     local limits = NUMBER_LIMITS[field]
     if limits then
@@ -675,10 +739,28 @@ local function CaptureRegisteredPlacement(layout, layoutId)
     return type(placement) == "table" and CopyValue(placement) or nil
 end
 
+local function GetDormantPlacements(reset)
+    local profile = YAB.GetProfile and YAB:GetProfile() or YAB:GetDB()
+    local placements = dormantPlacementsByProfile[profile]
+    if reset or not placements then
+        placements = {}
+        dormantPlacementsByProfile[profile] = placements
+    end
+    return placements
+end
+
+function ConfigSets:GetDormantPlacement(layoutId)
+    return CopyValue(GetDormantPlacements()[layoutId])
+end
+
+function ConfigSets:ClearDormantPlacement(layoutId)
+    GetDormantPlacements()[layoutId] = nil
+end
+
 local function CapturePlacement(layout, layoutId)
     local placement = CaptureRegisteredPlacement(layout, layoutId)
     if placement then return placement end
-    placement = ConfigSets.dormantPlacements and ConfigSets.dormantPlacements[layoutId]
+    placement = GetDormantPlacements()[layoutId]
     return type(placement) == "table" and CopyValue(placement) or nil
 end
 
@@ -1222,7 +1304,9 @@ for _, scopeId in ipairs({ "display", "layout", "appearance", "text" }) do
     if FROZEN_BASELINE[scopeId].specialBars then FROZEN_BASELINE[scopeId].specialBars.questItems = nil end
 end
 FROZEN_BASELINE.screenPosition.placements["yactionbar.questItems"] = nil
-for _, id in ipairs({ "aspects", "totems", "mageTools", "classTools" }) do
+local optionalClassIds = { "classTools" }
+for _, id in ipairs(YAB.ClassTools and YAB.ClassTools.ids or { "aspects", "totems", "mageTools" }) do optionalClassIds[#optionalClassIds + 1] = id end
+for _, id in ipairs(optionalClassIds) do
     for _, scopeId in ipairs({ "display", "layout", "appearance", "text" }) do
         if FROZEN_BASELINE[scopeId].specialBars then FROZEN_BASELINE[scopeId].specialBars[id] = nil end
     end
@@ -1235,7 +1319,9 @@ FROZEN_BASELINE.global.interaction.formPagingSpecs = nil
 local runtimeBaselineDefaults = schemaBaselineDefaults
 if Client.questItems == true or Client.classBars == true then
     runtimeBaselineDefaults = CopyValue(schemaBaselineDefaults)
-    for _, id in ipairs({ "questItems", "aspects", "totems", "mageTools", "classTools" }) do
+    local optionalIds = { "questItems" }
+    for _, id in ipairs(optionalClassIds) do optionalIds[#optionalIds + 1] = id end
+    for _, id in ipairs(optionalIds) do
         local config = YAB.Defaults.specialBars[id]
         if config then runtimeBaselineDefaults.specialBars[id] = CopyValue(config) end
     end
@@ -1253,7 +1339,7 @@ if RUNTIME_BASELINE.appearance.specialGrouping then
 end
 local CURRENT_DEFAULT_SNAPSHOT = BuildBaseline(
     function(kind, id, field)
-        if kind == "specialBars" and (id == "aspects" or id == "totems" or id == "mageTools" or id == "classTools" or id == "questItems") then
+        if kind == "specialBars" and (id == "classTools" or id == "questItems" or YAB.ClassTools and YAB.ClassTools:IsClassBar(id)) then
             return IsFieldSupported(kind, id, field)
         end
         return IsPortableFieldSupported(kind, id, field)
@@ -1261,6 +1347,10 @@ local CURRENT_DEFAULT_SNAPSHOT = BuildBaseline(
     YAB.Defaults,
     YAB.DefaultPlacements
 )
+local blessingAppearance = CURRENT_DEFAULT_SNAPSHOT.appearance.specialBars
+    and CURRENT_DEFAULT_SNAPSHOT.appearance.specialBars.paladinBlessings
+local iconSkins = YUI.GUI2 and YUI.GUI2.IconSkins
+if blessingAppearance and iconSkins then iconSkins:NormalizeSettings(blessingAppearance, "Flare") end
 YAB.ConfigSetBaselineDefaultsV1 = nil
 ConfigSets.BASELINE_SIGNATURE = string.format("%08x", HashValue(5381, FROZEN_BASELINE))
 ConfigSets.EXPECTED_BASELINE_SIGNATURE = "7e1c8478"
@@ -1338,6 +1428,22 @@ local function NormalizeSparseConfigBucket(source, scopeId)
             result["specialBars.mageTools.mageArmorLeft"], result["specialBars.mageTools.mageArmorRight"] = "auto", "mage"
         end
         result["specialBars.mageTools.mageArmorMiddle"] = nil
+    end
+    if Client.classBars == true then
+        if scopeId == "display" then
+            local disabled = result["specialBars.paladinTools.classToolDisabled"]
+            if result["specialBars.paladinBlessings.enabled"] == nil and type(disabled) == "table"
+                and type(disabled.teamBlessing) == "boolean" then
+                result["specialBars.paladinBlessings.enabled"] = not disabled.teamBlessing
+            end
+        elseif scopeId == "layout" then
+            for _, field in ipairs({ "teamBlessings", "teamClassIconOffsetX", "teamClassIconOffsetY" }) do
+                local target = "specialBars.paladinBlessings." .. field
+                if result[target] == nil then
+                    result[target] = CopyValue(result["specialBars.paladinTools." .. field])
+                end
+            end
+        end
     end
     return result
 end
@@ -1596,7 +1702,7 @@ function ConfigSets:CaptureSparse(scopeIds, context)
     end
     if scopeSet.screenPosition then
         sparse.screenPosition = sparse.screenPosition or {}
-        for layoutId, placement in pairs(self.dormantPlacements or {}) do
+        for layoutId, placement in pairs(GetDormantPlacements()) do
             local baseline = FROZEN_BASELINE.screenPosition.placements[layoutId]
             if not ValuesEqual(placement, baseline) then
                 sparse.screenPosition[layoutId] = CopyValue(placement)
@@ -1610,7 +1716,7 @@ function ConfigSets:ApplySparse(data, scopeIds, context)
     local materialized, normalized = self:MaterializeSparse(data, scopeIds)
     if not materialized then return false, normalized end
     local scopeSet = NormalizeScopeIds(scopeIds)
-    if scopeSet.screenPosition then self.dormantPlacements = {} end
+    if scopeSet.screenPosition then GetDormantPlacements(true) end
     self.dormantConfigOverrides = self.dormantConfigOverrides or {}
     for scopeId in pairs(CONFIG_FIELDS) do
         if scopeSet[scopeId] then self.dormantConfigOverrides[scopeId] = nil end
@@ -1645,11 +1751,13 @@ local function RecordBarChange(result, kind, id, scopeId, field)
     touched.fields = touched.fields or {}
     touched.fields[field] = true
     local classDisplayStructure = Client.classBars == true and kind == "specialBars"
-        and (field == "classToolsDetached" or id == "aspects" and (field == "showUnlearned" or field == "showPetUtilities"))
+        and (field == "classToolsEnabled" or field == "classToolsDetached" or field == "classToolOrder" or field == "classToolDisabled" or field == "classToolSelected" or field == "teamBlessings" or field == "teamVisibility"
+            or id == "aspects" and (field == "showUnlearned" or field == "showPetUtilities")
+            or id == "mageTools" and field == "mageManaGemCount")
     if classDisplayStructure or field == "enabled" or field == "classToolsIndependent" or field == "mageScroll"
         or field == "mageIntellect" or field == "mageArmor" or field:match("^mageArmor") then
         result.structuralBars[id] = true
-        if kind == "specialBars" then
+        if kind == "specialBars" and field ~= "classToolsEnabled" and field ~= "mageManaGemCount" then
             result.reloadRequired = true
         end
     end
@@ -1663,6 +1771,7 @@ local function ApplyFields(target, fields, result, kind, id, scopeId)
         end
     end
     if scopeId == "layout" and id ~= "questItems" and id ~= "aspects" and id ~= "totems" and id ~= "mageTools" and id ~= "classTools"
+        and not (YAB.ClassTools and YAB.ClassTools:IsClassBar(id))
         and target.buttons ~= nil and target.rows ~= nil then
         local maximum = math.max(1, math.floor(tonumber(target.buttons) or 1))
         local rows = math.max(1, math.min(math.floor(tonumber(target.rows) or 1), maximum))
@@ -1853,12 +1962,13 @@ end
 
 local function ApplyAvailablePlacements(result, pending)
     local layout = YUI.Layout
+    local dormant = GetDormantPlacements()
     for layoutId, placement in pairs(result.placements or {}) do
         if CaptureRegisteredPlacement(layout, layoutId) then
             CaptureSnapshotExtension(result, layout, layoutId)
             local ok, err = ApplyPlacement(layout, layoutId, placement)
             if not ok then return false, err end
-            ConfigSets.dormantPlacements[layoutId] = nil
+            dormant[layoutId] = nil
         else
             pending[layoutId] = placement
         end
@@ -1868,14 +1978,15 @@ end
 
 local function ApplyPendingPlacements(result, pending)
     local layout = YUI.Layout
+    local dormant = GetDormantPlacements()
     for layoutId, placement in pairs(pending) do
         CaptureSnapshotExtension(result, layout, layoutId)
         if not CaptureRegisteredPlacement(layout, layoutId) then
-            ConfigSets.dormantPlacements[layoutId] = CopyValue(placement)
+            dormant[layoutId] = CopyValue(placement)
         else
             local ok, err = ApplyPlacement(layout, layoutId, placement)
             if not ok then return false, err end
-            ConfigSets.dormantPlacements[layoutId] = nil
+            dormant[layoutId] = nil
         end
     end
     return true
@@ -1885,28 +1996,28 @@ function ConfigSets:PreserveDormantPlacement(layoutId, placement)
     if not LAYOUT_ID_SET[layoutId] or type(placement) ~= "table" then
         return false, "invalid-placement"
     end
-    self.dormantPlacements = self.dormantPlacements or {}
-    self.dormantPlacements[layoutId] = CopyValue(placement)
+    GetDormantPlacements()[layoutId] = CopyValue(placement)
     return true
 end
 
 function ConfigSets:CopyClassToolsPlacement(source, target)
     local placement = YUI.Layout and YUI.Layout.GetPlacement and YUI.Layout:GetPlacement(source)
-        or self.dormantPlacements and self.dormantPlacements[source]
+        or GetDormantPlacements()[source]
         or CURRENT_DEFAULT_SNAPSHOT.screenPosition.placements[source]
     if not placement then return false end
     return self:PreserveDormantPlacement(target, placement)
 end
 
 function ConfigSets:ApplyDormantPlacement(layoutId)
-    local placement = self.dormantPlacements and self.dormantPlacements[layoutId]
+    local dormant = GetDormantPlacements()
+    local placement = dormant[layoutId]
     if not placement then return false, "no-dormant-placement" end
     if not CaptureRegisteredPlacement(YUI.Layout, layoutId) then
         return false, "screen-position-frame-unavailable"
     end
     local ok, err = ApplyPlacement(YUI.Layout, layoutId, placement)
     if not ok then return false, err end
-    self.dormantPlacements[layoutId] = nil
+    dormant[layoutId] = nil
     return true
 end
 
@@ -2096,6 +2207,17 @@ function ConfigSets:PreserveLegacyClassModes(data)
     return data
 end
 
+local function RepairLegacyClassPlacements(data, source)
+    if YAB.GetCorrectedClassBarPlacement and data.screenPosition then
+        for layoutId in pairs(data.screenPosition) do
+            -- Normalization rounds offsets. Match the original bad value only.
+            local corrected = YAB:GetCorrectedClassBarPlacement(layoutId, source[layoutId])
+            if corrected then data.screenPosition[layoutId] = corrected end
+        end
+    end
+    return data
+end
+
 function ConfigSets:Migrate(data, fromVersion, toVersion, context)
     fromVersion = tonumber(fromVersion) or self.SCHEMA_VERSION
     toVersion = tonumber(toVersion) or self.SCHEMA_VERSION
@@ -2109,13 +2231,21 @@ function ConfigSets:Migrate(data, fromVersion, toVersion, context)
     if fromVersion == toVersion and toVersion == self.SCHEMA_VERSION then
         return UpgradeSparseVisibility(self:NormalizeSparse(data, scopeIds))
     end
-    if toVersion ~= self.SCHEMA_VERSION or (fromVersion ~= 1 and fromVersion ~= 2 and fromVersion ~= 3 and fromVersion ~= 4 and fromVersion ~= 5 and fromVersion ~= 6) then
+    if not self:CanMigrate(fromVersion, toVersion) then
         return nil, "unsupported-schema-version"
+    end
+    if fromVersion == 7 then
+        local normalized, err = self:NormalizeSparse(data, scopeIds)
+        if not normalized then return nil, err end
+        return RepairLegacyClassPlacements(normalized, data.screenPosition)
     end
     if fromVersion == 1 then
         local legacy, err = NormalizeLegacyPortable(data, scopeIds)
         if not legacy then return nil, err end
-        return UpgradeSparseVisibility(self:PreserveLegacyClassModes(self:BuildSparseFromFull(legacy, scopeIds)))
+        local sparse, sparseError = self:BuildSparseFromFull(legacy, scopeIds)
+        if not sparse then return nil, sparseError end
+        return RepairLegacyClassPlacements(UpgradeSparseVisibility(self:PreserveLegacyClassModes(sparse)),
+            data.screenPosition and data.screenPosition.placements)
     end
 
     local migrated = CopyValue(data)
@@ -2141,12 +2271,14 @@ function ConfigSets:Migrate(data, fromVersion, toVersion, context)
             end
         end
     end
-    return UpgradeSparseVisibility(self:NormalizeSparse(migrated, scopeIds))
+    local normalized, err = self:NormalizeSparse(migrated, scopeIds)
+    if not normalized then return nil, err end
+    return RepairLegacyClassPlacements(UpgradeSparseVisibility(normalized), data.screenPosition)
 end
 
 function ConfigSets:CanMigrate(fromVersion, toVersion)
     fromVersion = tonumber(fromVersion)
-    return (fromVersion == 1 or fromVersion == 2 or fromVersion == 3 or fromVersion == 4 or fromVersion == 5 or fromVersion == 6)
+    return fromVersion ~= nil and fromVersion >= 1 and fromVersion <= 7 and fromVersion % 1 == 0
         and tonumber(toVersion) == self.SCHEMA_VERSION
 end
 

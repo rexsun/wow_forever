@@ -1487,22 +1487,6 @@ local function BuildRecordsOptions(parent, options)
     options[#options].ychatColumns = 1
     options[#options + 1] = {
         type = "dropdown",
-        searchKey = "settings.records.frame_limit",
-        label = T("settings.records.frame_limit", "Chat window limit"),
-        width = CONTROL_WIDTH,
-        options = {
-            { text = "50", value = 50 },
-            { text = "100", value = 100 },
-            { text = "200", value = 200 },
-            { text = "300", value = 300 },
-            { text = "500", value = 500 },
-            { text = "1,000", value = 1000 },
-        },
-        get = function() return History().frameLimit end,
-        set = function(value) YChat:SetHistoryValue("frameLimit", value) end,
-    }
-    options[#options + 1] = {
-        type = "dropdown",
         searchKey = "settings.records.local_limit",
         label = T("settings.records.local_limit", "History record limit"),
         width = CONTROL_WIDTH,

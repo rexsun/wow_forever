@@ -1,5 +1,8 @@
 local YUI = _G.YUI
 local S = YUI.Settings
+local PAGE_ID = "settings.appearance"
+if S.modulesById[PAGE_ID] then return end
+
 local GUI2 = YUI.GUI2
 local LC = YUI.Locale:Get("Core")
 local UnitAPI = YUI.API and YUI.API.Unit or YUI.WOW_API or {}
@@ -500,14 +503,30 @@ local function GetClassColor(classInfo)
     return 1, 1, 1, 1
 end
 
+local function GetSkinRuntime()
+    return YUI.Appearance and YUI.Appearance.Skins or YUI.Skins
+end
+
+local function IsTabAvailable(tab)
+    if tab == "icons" then
+        local icons = YUI.API and YUI.API.Icons
+        return icons and icons.GetIconSets and #icons.GetIconSets() > 1
+    elseif tab == "pluginSkins" then
+        local skins = GetSkinRuntime()
+        return not YUI.IsForever and skins and skins.GetOption and skins.SetOption
+    end
+    return tab == nil or tab == "" or tab == "skin"
+end
+
 local function CreateTabs(parent, width)
-    local items = {
-        { text = LC["settings.appearance.tab.skin"], value = "skin" },
-        { text = LC["settings.appearance.tab.icons"], value = "icons" },
-    }
-    if not YUI.IsForever then
+    local items = { { text = LC["settings.appearance.tab.skin"], value = "skin" } }
+    if IsTabAvailable("icons") then
+        items[#items + 1] = { text = LC["settings.appearance.tab.icons"], value = "icons" }
+    end
+    if IsTabAvailable("pluginSkins") then
         items[#items + 1] = { text = LC["settings.appearance.tab.plugin_skins"], value = "pluginSkins" }
     end
+    if not IsTabAvailable(activeTab) then activeTab = "skin" end
     local tabs = GUI2.Form:CreateUnderlineTabs(parent, {
         width = width,
         value = activeTab,
@@ -526,10 +545,6 @@ local function CreateTabs(parent, width)
     })
     tabs:SetPoint("TOPLEFT", PAGE_INSET, -PAGE_TABS_TOP)
     return tabs
-end
-
-local function GetSkinRuntime()
-    return YUI.Appearance and YUI.Appearance.Skins or YUI.Skins
 end
 
 local function GetVisibleSkinOptions(options)
@@ -932,6 +947,13 @@ local function RenderIconTab(parent, tabs, width)
     parent:SetHeight(math.max(300, ICON_SELECTOR_HEIGHT + scopeHeight + previewHeight + 146))
 end
 
+local function HasInfoOutputSource()
+    for _, feature in pairs(YUI.Components and YUI.Components.features or {}) do
+        if feature.usesInfoOutput then return true end
+    end
+    return false
+end
+
 Render = function(parent)
     if not GUI2 or not GUI2.Appearance or not GUI2.Form or not GUI2.Form.CreateUnderlineTabs then
         S:RenderConfig(parent, {
@@ -951,6 +973,14 @@ Render = function(parent)
     local title = GUI2:CreateText(parent, LC["settings.appearance.title"], "font.size.title", "color.text.heading")
     title:SetPoint("TOPLEFT", PAGE_INSET, -PAGE_TITLE_TOP)
 
+    if YUI.InfoOutput and YUI.InfoOutput.OpenSettings and HasInfoOutputSource() then
+        local infoOutput = GUI2.Form:CreateButton(parent, {
+            text = LC["info_output.name"], width = 160,
+            onClick = function() YUI.InfoOutput:OpenSettings() end,
+        })
+        infoOutput:SetPoint("TOPRIGHT", -PAGE_INSET, -12)
+    end
+
     local tabs = CreateTabs(parent, width)
     if S.Search and S.Search.pending then S.Search:Bind({ label = LC["settings.appearance.tab." .. (activeTab == "pluginSkins" and "plugin_skins" or activeTab)] }, tabs) end
     if activeTab == "icons" then
@@ -967,14 +997,14 @@ Render = function(parent)
 end
 
 S:RegisterModule(MODULE_NAME, MODULE_ICON, Render, {
-    id = "settings.appearance",
-    product = "suite",
+    id = PAGE_ID,
+    product = "core",
     scope = "core",
     titleKey = "settings.modules.appearance",
 })
 
 if S.Search then
-    S.Search:RegisterRoute("settings.appearance", function(tab)
-        if tab == "skin" or tab == "icons" or (tab == "pluginSkins" and not YUI.IsForever) then activeTab = tab end
-    end)
+    S.Search:RegisterRoute(PAGE_ID, function(tab)
+        if IsTabAvailable(tab) then activeTab = tab and tab ~= "" and tab or "skin" end
+    end, IsTabAvailable)
 end

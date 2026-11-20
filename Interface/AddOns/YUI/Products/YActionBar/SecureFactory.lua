@@ -540,8 +540,12 @@ function Factory:RestoreNativeSpecialButton(button)
     if self.nativeSpecialButtons then
         self.nativeSpecialButtons[button] = nil
     end
+    local meta = self.buttonMeta and self.buttonMeta[button]
     if self.buttonMeta then
         self.buttonMeta[button] = nil
+    end
+    if meta and meta.barId == "pet" and type(button.SetHotkeys) == "function" then
+        pcall(button.SetHotkeys, button)
     end
     if self.nativePetDragGuardInstalled then
         self.nativePetDragGuardInstalled[button] = nil
@@ -700,25 +704,418 @@ function Factory:ApplyClickAttributes(button)
     return ApplyActionButtonClickAttributes(button)
 end
 
+local function CreateClassFlyoutPanel(holder, template)
+    local panel = CreateFrame("Frame", nil, holder, template)
+    -- Class menus sit above gameplay and design overlays, below tooltips.
+    panel:SetFrameStrata("FULLSCREEN_DIALOG")
+    panel:SetClampedToScreen(true)
+    return panel
+end
+
 function Factory:CreateMageScrollPanel(holder)
     if self:InCombat() then return nil end
-    local panel = CreateFrame("Frame", nil, holder, "SecureHandlerShowHideTemplate")
-    panel:SetFrameStrata("HIGH")
-    panel:SetClampedToScreen(true)
+    local panel = CreateClassFlyoutPanel(holder, "SecureHandlerShowHideTemplate")
     panel:SetAttribute("_onhide", "self:Hide()")
     panel:Hide()
     return panel
 end
 
+-- Resolve only native name mappings prepared for this row. A class action may
+-- try another prepared member, but an explicitly clicked member never retargets.
+local BLESSING_CAST = [[
+    if not row then return false end
+    local spell = row:GetAttribute("blessing")
+    if not spell or spell == 0 then return false end
+    local recipient = self
+    local index = recipient:GetAttribute("blessing-target-index")
+    local targetFrame = index and owner:GetFrameRef("blessing-target" .. index)
+    local target = targetFrame and targetFrame:GetAttribute("unit")
+    if not target or not UnitExists(target) or UnitIsDead(target) or UnitIsGhost(target) then
+        if self:GetAttribute("blessing-member") then return false end
+        target = nil
+        for i = 1, row:GetAttribute("members") do
+            local candidate = row:GetFrameRef("member" .. i)
+            local candidateIndex = candidate:GetAttribute("blessing-target-index")
+            if candidateIndex ~= index then
+                local frame = owner:GetFrameRef("blessing-target" .. candidateIndex)
+                local unit = frame and frame:GetAttribute("unit")
+                if unit and UnitExists(unit) and not UnitIsDead(unit) and not UnitIsGhost(unit) then
+                    recipient, index, target = candidate, candidateIndex, unit
+                    break
+                end
+            end
+        end
+        if not target then return false end
+    end
+    local name = recipient:GetAttribute("blessing-target-name")
+    local class = row:GetAttribute("class")
+    local cast, toolbar = row:GetFrameRef("cast"), row:GetFrameRef("toolbar")
+    local changed = owner:GetAttribute("team-class") ~= class
+    if changed then owner:SetAttribute("team-class", class) end
+    if toolbar and not toolbar:GetAttribute("blessing-bar-enabled") then toolbar = nil end
+    for i = 1, 3 do
+        local action = i == 1 and owner or i == 2 and cast or toolbar
+        if action and (action:GetAttribute("blessing-target-index") ~= index
+            or action:GetAttribute("unit1") ~= target or action:GetAttribute("spell1") ~= spell
+            or action:GetAttribute("type1") ~= "spell") then
+            changed = true
+            action:SetAttribute("blessing-target-index", index)
+            action:SetAttribute("blessing-target-name", name)
+            action:SetAttribute("type1", "spell")
+            action:SetAttribute("spell1", spell)
+            action:SetAttribute("unit1", target)
+            action:SetAttribute("*type-Keybind", "spell")
+            action:SetAttribute("*spell-Keybind", spell)
+            action:SetAttribute("*unit-Keybind", target)
+        end
+    end
+    if self:GetAttribute("blessing-member") then self:SetAttribute("unit1", target) end
+    if changed then owner:CallMethod("TeamClassSelected") end
+    owner:CallMethod("TeamBlessingSubmitted", index, spell)
+    return nil, true
+]]
+local BLESSING_CAST_DONE = [[
+    local owner = self:GetFrameRef("owner") or self
+    owner:CallMethod("TeamBlessingSubmissionEnded")
+]]
+
+local CLASS_TOOL_OPEN = [[
+    if (button == "LeftButton" or button == "Keybind") and (self:GetAttribute("team-rows") or 0) > 0 then
+        if not self:GetAttribute("class-tool-interactive") then return false end
+        local owner = self
+        local class = owner:GetAttribute("team-class")
+        local row = class and owner:GetFrameRef("blessing-row-" .. class)
+]] .. BLESSING_CAST .. [[
+    end
+    if button == "RightButton" and not down then
+        local interactive = self:GetAttribute("class-tool-interactive")
+        local targetCraft = self:GetAttribute("class-tool-target-craft")
+        if (not interactive and not targetCraft) or self:GetAttribute("class-tool-hover-menu") then return end
+        local panel = self:GetFrameRef("class-tool-panel")
+        if targetCraft and IsControlKeyDown()
+            and not IsAltKeyDown() and not IsShiftKeyDown() then
+            if panel then panel:Hide() end
+            local spell = self:GetAttribute("class-tool-target-spell")
+            self:SetAttribute("class-tool-target-spell", nil)
+            if not interactive or not spell or SecureCmdOptionParse("[nocombat] allow") ~= "allow" then return false end
+            self:SetAttribute("ctrl-type2", "spell")
+            self:SetAttribute("ctrl-spell2", spell)
+            return nil, true
+        end
+        if not interactive then return end
+        if self:GetAttribute("class-tool-shift-menu") and not IsShiftKeyDown() then
+            if panel then panel:Hide() end
+            return
+        end
+        if panel and (self:GetAttribute("class-tool-choices") or 0) > 0 then
+            if panel:IsShown() then panel:Hide() else
+                local rows = self:GetAttribute("team-rows") or 0
+                for i = 1, rows do
+                    local row = self:GetFrameRef("team-row" .. i)
+                    row:GetFrameRef("choices"):Hide()
+                    row:GetFrameRef("members-panel"):Hide()
+                end
+                if rows > 0 then self:RunAttribute("team-layout") end
+                panel:Show()
+            end
+        end
+    end
+]]
+local CLASS_TOOL_TARGET_CRAFT_DONE = [[
+    self:SetAttribute("ctrl-type2", "none")
+    self:SetAttribute("ctrl-spell2", nil)
+]]
+local CLASS_TOOL_SELECT = [[
+    if down then return false end
+    local owner = self:GetFrameRef("class-tool-owner")
+    local panel = self:GetParent()
+    if not owner:GetAttribute("class-tool-interactive") then return false end
+    if self:GetAttribute("class-tool-cast-only") then
+        if button ~= "LeftButton" then return false end
+        panel:Hide()
+        return
+    end
+    local selectOnRight = self:GetAttribute("class-tool-select-on-right")
+    if selectOnRight and button == "LeftButton" then
+        panel:Hide()
+        return
+    end
+    if button ~= (selectOnRight and "RightButton" or "LeftButton") then return false end
+    local value = self:GetAttribute("class-tool-value")
+    owner:SetAttribute("class-tool-selected", value)
+    local updatesRight = owner:GetAttribute("class-tool-shift-menu") or owner:GetAttribute("class-tool-paired")
+    for _, field in ipairs(newtable("type", "spell", "item", "macrotext", "unit")) do
+        local action = self:GetAttribute("selected-" .. field)
+        owner:SetAttribute(field .. "1", action)
+        owner:SetAttribute("*" .. field .. "-Keybind", action)
+        if updatesRight then
+            owner:SetAttribute(field .. "2", self:GetAttribute("selected-right-" .. field))
+        end
+    end
+    -- Checked visuals are updated by the ordinary owner refresh, outside this restricted handle API.
+    owner:CallMethod("ClassToolSelected", value)
+    panel:Hide()
+    if selectOnRight then return false end
+]]
+
+function Factory:CreateClassTool(holder, id, key, hoverMenu, targetCraft)
+    if self:InCombat() then return end
+    local button = CreateFrame("CheckButton", self:FrameName("ClassTool", id, key), holder,
+        hoverMenu and "SecureActionButtonTemplate,SecureHandlerBaseTemplate,SecureHandlerEnterLeaveTemplate"
+            or "SecureActionButtonTemplate,SecureHandlerBaseTemplate")
+    button:RegisterForClicks("AnyUp")
+    button:SetAttribute("useOnKeyDown", false)
+    local panel = self:CreateMageScrollPanel(holder)
+    if hoverMenu then
+        button:SetAttribute("class-tool-hover-menu", true)
+        panel:EnableMouse(true)
+    end
+    if targetCraft then
+        button:SetAttribute("class-tool-target-craft", true)
+        button:SetAttribute("ctrl-type2", "none")
+    end
+    button:SetFrameRef("class-tool-panel", panel)
+    local post = targetCraft and CLASS_TOOL_TARGET_CRAFT_DONE
+        or id == "paladinTools" and key == "teamBlessing" and BLESSING_CAST_DONE
+    button:WrapScript(button, "OnClick", CLASS_TOOL_OPEN, post or nil)
+    self:SetButtonMeta(button, { barId = id, tool = key })
+    self:PrepareClassToolPanel(panel, button, id .. key)
+    return button, panel
+end
+
+function Factory:PrepareClassToolPanel(panel, opener, suffix)
+    if self:InCombat() or panel.classToolClose then return end
+    local close = CreateFrame("Button", self:FrameName("ClassToolClose", suffix, 1), panel, "SecureHandlerClickTemplate")
+    close:RegisterForClicks("AnyUp")
+    close:SetAttribute("_onclick", "self:GetParent():Hide()")
+    panel:SetFrameRef("class-tool-close", close)
+    panel:SetFrameRef("class-tool-opener", opener)
+    panel:SetAttribute("_onshow", [[
+        self:SetBindingClick(true, "ESCAPE", self:GetFrameRef("class-tool-close"):GetName(), "LeftButton")
+        if not self:GetAttribute("class-tool-persistent") then
+            self:RegisterAutoHide(0.4)
+            self:AddToAutoHide(self:GetFrameRef("class-tool-opener"))
+        end
+    ]])
+    panel:SetAttribute("_onhide", "self:ClearBindings(); self:UnregisterAutoHide(); self:Hide()")
+    panel.classToolClose = close
+end
+
+function Factory:CreateClassToolChoice(panel, owner, index)
+    if self:InCombat() then return end
+    local button = CreateFrame("CheckButton", nil, panel, "SecureActionButtonTemplate,SecureHandlerBaseTemplate")
+    button:RegisterForClicks("AnyUp")
+    button:SetAttribute("useOnKeyDown", false)
+    button:SetFrameRef("class-tool-owner", owner)
+    button:WrapScript(button, "OnClick", CLASS_TOOL_SELECT)
+    owner:SetFrameRef("choice" .. index, button)
+    self:SetButtonMeta(button, { barId = self:GetButtonMeta(owner).barId, classToolChoice = true })
+    return button
+end
+
+-- All target/spell alternatives are prepared out of combat. Click handlers only
+-- select those alternatives; ordinary callbacks never repair protected actions.
+function Factory:CreateBlessingControl(parent, owner, row, kind, index)
+    if self:InCombat() then return end
+    local name = (kind == "toolbar" or kind == "manage") and self:FrameName("ClassTool", "paladinBlessings", index or "manage") or nil
+    local button = CreateFrame("CheckButton", name, parent, "SecureActionButtonTemplate,SecureHandlerBaseTemplate")
+    button:RegisterForClicks("AnyUp")
+    button:SetAttribute("useOnKeyDown", false)
+    button:SetAttribute("alt-type1", "none")
+    if name then button:SetAttribute("blessing-opener-name",name) end
+    button:SetFrameRef("owner", owner)
+    button:SetFrameRef("row", row)
+    self:SetButtonMeta(button, {barId="paladinTools",classToolChoice=true})
+    if kind == "manage" then
+        button:WrapScript(button, "OnClick", [[
+            if down or (button == "LeftButton" and (IsAltKeyDown() or IsShiftKeyDown())) or not self:GetAttribute("blessing-bar-enabled") then return false end
+            local owner = self:GetFrameRef("owner")
+            if not owner:GetAttribute("class-tool-interactive") then return false end
+            local panel = owner:GetFrameRef("class-tool-panel")
+            if panel:IsShown() then panel:Hide() else
+                for i = 1, owner:GetAttribute("team-rows") do
+                    local row = owner:GetFrameRef("team-row" .. i)
+                    row:GetFrameRef("choices"):Hide();row:GetFrameRef("members-panel"):Hide()
+                end
+                if not panel:GetAttribute("blessing-panel-moved") then
+                    panel:SetAttribute("blessing-panel-opener",self:GetAttribute("blessing-opener-name"))
+                    panel:ClearAllPoints();panel:SetPoint("BOTTOMLEFT",self,"TOPLEFT",0,12)
+                end
+                owner:RunAttribute("team-layout");panel:Show()
+            end
+            return false
+        ]])
+    elseif kind == "choice" then
+        button:WrapScript(button, "OnClick", [[
+            if down or button ~= "LeftButton" or IsAltKeyDown() then return false end
+            local row, owner = self:GetFrameRef("row"), self:GetFrameRef("owner")
+            if not owner:GetAttribute("class-tool-interactive") then return false end
+            local value = self:GetAttribute("value")
+            row:SetAttribute("blessing", value)
+            local cast = row:GetFrameRef("cast")
+            local index = cast:GetAttribute("blessing-target-index")
+            local targetFrame = index and owner:GetFrameRef("blessing-target" .. index)
+            local target = targetFrame and targetFrame:GetAttribute("unit")
+            cast:SetAttribute("type1", value > 0 and targetFrame and "spell" or "none")
+            cast:SetAttribute("spell1", value > 0 and value or nil)
+            cast:SetAttribute("unit1", target)
+            if value > 0 then cast:Show() else cast:Hide() end
+            for i = 1, row:GetAttribute("members") do
+                local member = row:GetFrameRef("member" .. i)
+                member:SetAttribute("type1", value > 0 and "spell" or "none")
+                member:SetAttribute("spell1", value > 0 and value or nil)
+            end
+            owner:SetAttribute("team-class", row:GetAttribute("class"))
+            owner:SetAttribute("blessing-target-index", cast:GetAttribute("blessing-target-index"))
+            owner:SetAttribute("blessing-target-name", cast:GetAttribute("blessing-target-name"))
+            owner:SetAttribute("type1", value > 0 and targetFrame and "spell" or "none")
+            owner:SetAttribute("spell1", value > 0 and value or nil)
+            owner:SetAttribute("unit1", target)
+            owner:SetAttribute("*type-Keybind", value > 0 and targetFrame and "spell" or "none")
+            owner:SetAttribute("*spell-Keybind", value > 0 and value or nil)
+            owner:SetAttribute("*unit-Keybind", target)
+            local toolbar = row:GetFrameRef("toolbar")
+            if toolbar and toolbar:GetAttribute("blessing-bar-enabled") then
+                toolbar:SetAttribute("type1", value > 0 and targetFrame and "spell" or "none")
+                toolbar:SetAttribute("spell1", value > 0 and value or nil)
+                toolbar:SetAttribute("unit1", target)
+                toolbar:SetAttribute("*type-Keybind", value > 0 and targetFrame and "spell" or "none")
+                toolbar:SetAttribute("*spell-Keybind", value > 0 and value or nil)
+                toolbar:SetAttribute("*unit-Keybind", target)
+            end
+            row:GetFrameRef("choices"):Hide()
+            row:CallMethod("SelectionChanged", value)
+            return false
+        ]])
+    elseif kind == "select" then
+        button:WrapScript(button, "OnClick", [[
+            if down or button ~= "LeftButton" then return false end
+            local row, owner = self:GetFrameRef("row"), self:GetFrameRef("owner")
+            local menu = row:GetFrameRef("choices")
+            if menu:IsShown() then menu:Hide() else
+                for i = 1, owner:GetAttribute("team-rows") do owner:GetFrameRef("team-row" .. i):GetFrameRef("choices"):Hide() end
+                menu:Show()
+            end
+            return false
+        ]])
+    elseif kind == "members" then
+        button:WrapScript(button, "OnClick", [[
+            if down or button ~= "LeftButton" then return false end
+            local row = self:GetFrameRef("row")
+            local panel = row:GetFrameRef("members-panel")
+            local owner = self:GetFrameRef("owner")
+            if panel:IsShown() then panel:Hide() else
+                for i = 1, owner:GetAttribute("team-rows") do
+                    owner:GetFrameRef("team-row" .. i):GetFrameRef("members-panel"):Hide()
+                end
+                panel:Show()
+            end
+            owner:RunAttribute("team-layout")
+            return false
+        ]])
+    else
+        button:WrapScript(button, "OnClick", [[
+            if down or (button == "LeftButton" and (IsAltKeyDown() or IsShiftKeyDown())) then return false end
+            local owner, row = self:GetFrameRef("owner"), self:GetFrameRef("row")
+            if button == "RightButton" and self:GetAttribute("blessing-toolbar") then
+                if not owner:GetAttribute("class-tool-interactive") then return false end
+                local panel = owner:GetFrameRef("class-tool-panel")
+                for i = 1, owner:GetAttribute("team-rows") do
+                    local other = owner:GetFrameRef("team-row" .. i)
+                    other:GetFrameRef("members-panel"):Hide()
+                    other:GetFrameRef("choices"):Hide()
+                end
+                if not panel:GetAttribute("blessing-panel-moved") then
+                    panel:SetAttribute("blessing-panel-opener",self:GetAttribute("blessing-opener-name"))
+                    panel:ClearAllPoints();panel:SetPoint("BOTTOMLEFT",self,"TOPLEFT",0,12)
+                end
+                owner:RunAttribute("team-layout");panel:Show()
+                return false
+            end
+            if button ~= "LeftButton" and button ~= "Keybind" then return false end
+            if not owner:GetAttribute("class-tool-interactive") then return false end
+            if self:GetAttribute("blessing-toolbar") and not self:GetAttribute("blessing-bar-enabled") then return false end
+        ]] .. BLESSING_CAST, BLESSING_CAST_DONE)
+    end
+    return button
+end
+
+function Factory:CreateBlessingRow(panel)
+    if self:InCombat() then return end
+    return CreateFrame("Frame", nil, panel, "SecureHandlerBaseTemplate")
+end
+
+-- The engine maintains the name-to-unit mapping even when raid slots reorder.
+-- Each prepared member owns one invisible native header and one preallocated child.
+function Factory:CreateBlessingTarget(parent)
+    if self:InCombat() then return end
+    local header=CreateFrame("Frame",nil,parent,"SecureGroupHeaderTemplate")
+    header:SetAttribute("_ignore",true)
+    header:SetAlpha(0);header:SetPoint("TOPLEFT",parent,"TOPLEFT",0,0)
+    for _,flag in ipairs({"showRaid","showParty","showPlayer","showSolo"}) do header:SetAttribute(flag,true) end
+    header:SetAttribute("unitsPerColumn",1);header:SetAttribute("maxColumns",1)
+    header:SetAttribute("nameList","");header:SetAttribute("sortMethod","NAMELIST")
+    local child=CreateFrame("Frame",nil,header,"SecureHandlerBaseTemplate")
+    child:SetSize(1,1)
+    header:SetAttribute("child1",child)
+    header:SetAttribute("_ignore",nil)
+    return header,child
+end
+
+function Factory:PrepareBlessingTarget(header,name,unit)
+    if self:InCombat() then return end
+    if header:IsShown() and header:GetAttribute("nameList")==name and header:GetAttribute("child1"):GetAttribute("unit")==unit then return end
+    header:Hide()
+    header:GetAttribute("child1"):SetAttribute("unit",unit)
+    header:SetAttribute("nameList",name)
+    SecureGroupHeader_OnLoad(header)
+    header:Show()
+end
+
+function Factory:ReleaseBlessingTarget(header)
+    if self:InCombat() or not header then return end
+    if not header:IsShown() and header:GetAttribute("nameList")=="" and not header:IsEventRegistered("GROUP_ROSTER_UPDATE") then return end
+    header:Hide();header:UnregisterAllEvents()
+    header:SetAttribute("nameList","")
+    header:GetAttribute("child1"):SetAttribute("unit",nil)
+end
+
+function Factory:PrepareBlessingLayout(owner, rows, layout)
+    if self:InCombat() then return end
+    owner:SetAttribute("team-rows", #rows)
+    owner:SetAttribute("team-layout-top",layout and layout.top or 48)
+    owner:SetAttribute("team-layout-left",layout and layout.padding or 10)
+    owner:SetAttribute("team-layout-step",layout and layout.rowHeight or 36)
+    owner:SetAttribute("team-layout-footer",layout and layout.footer or 34)
+    for i, row in ipairs(rows) do
+        owner:SetFrameRef("team-row" .. i, row)
+        owner:SetFrameRef("blessing-row-" .. row:GetAttribute("class"), row)
+    end
+    owner:SetAttribute("team-layout", [[
+        local panel = self:GetFrameRef("class-tool-panel")
+        local y = self:GetAttribute("team-layout-top")
+        for i = 1, self:GetAttribute("team-rows") do
+            local row = self:GetFrameRef("team-row" .. i)
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", panel, "TOPLEFT", self:GetAttribute("team-layout-left"), -y)
+            y = y + self:GetAttribute("team-layout-step")
+            if row:GetFrameRef("members-panel"):IsShown() then y = y + row:GetAttribute("member-height") end
+        end
+        panel:SetHeight(y + self:GetAttribute("team-layout-footer"))
+    ]])
+end
+
 function Factory:CreateMageToolButton(holder, key, panel)
     if self:InCombat() then return nil end
-    local button = CreateFrame("CheckButton", nil, holder, "SecureActionButtonTemplate,SecureHandlerBaseTemplate")
+    local button = CreateFrame("CheckButton", self:FrameName("MageTool", "mageTools", key), holder,
+        "SecureActionButtonTemplate,SecureHandlerBaseTemplate")
     button:RegisterForClicks("AnyUp", "AnyDown")
     self:ApplyClickAttributes(button)
     self:SetButtonMeta(button, { barId = "mageTools", tool = key })
     self:SetSecureAttribute(button, "alt-type1", "none")
     if key == "scroll" then
         button:SetFrameRef("scrolls", panel)
+        self:PrepareClassToolPanel(panel, button, "MageScrolls")
         button:WrapScript(button, "OnClick", [[
             if button == "RightButton" and not down then
                 local panel = self:GetFrameRef("scrolls")
@@ -727,13 +1124,16 @@ function Factory:CreateMageToolButton(holder, key, panel)
             end
         ]])
     end
+    if YAB.ClassTools and YAB.ClassTools.PrepareButton then YAB.ClassTools:PrepareButton(button, "mageTools", key) end
     return button
 end
 
 function Factory:ClearMageTool(button)
-    for _, key in ipairs({ "type", "type1", "type2", "type3", "spell1", "spell2", "spell3", "macrotext1", "item" }) do
+    for _, key in ipairs({ "type", "type1", "type2", "type3", "spell1", "spell2", "spell3", "macrotext1", "item",
+        "unit", "unit1", "unit2", "checkselfcast", "checkfocuscast" }) do
         self:SetSecureAttribute(button, key, nil)
     end
+    self:SetSecureAttribute(button, "*type-Keybind", "none")
 end
 
 function Factory:ConfigureMageTool(button, key, config, inventory, editing)
@@ -747,7 +1147,9 @@ function Factory:ConfigureMageTool(button, key, config, inventory, editing)
         self:SetSecureAttribute(button, "type" .. mouse, name and "spell" or nil)
         self:SetSecureAttribute(button, "spell" .. mouse, name)
     end
-    self:SetSecureAttribute(button, "unit", "player")
+    self:SetSecureAttribute(button, "unit", key ~= "intellect" and "player" or nil)
+    self:SetSecureAttribute(button, "checkselfcast", key == "intellect" or nil)
+    self:SetSecureAttribute(button, "checkfocuscast", key == "intellect" or nil)
     if key == "scroll" then
         local target = inventory.target
         local info = spell.GetInfo(data.comprehendSpellID)
@@ -764,6 +1166,7 @@ function Factory:ConfigureMageTool(button, key, config, inventory, editing)
         Bind(1, YAB.MageTools:ResolveArmor(config.mageArmorLeft))
         Bind(2, YAB.MageTools:ResolveArmor(config.mageArmorRight or "mage"))
     end
+    if YAB.ClassTools and YAB.ClassTools.PrepareButton then YAB.ClassTools:PrepareButton(button, "mageTools", key) end
 end
 
 function Factory:CreateMageScrollChoice(panel, index)
@@ -795,7 +1198,10 @@ local TOTEM_SET_PAGE = [[
     if not base then return end
     for slot = 1, 4 do
         local main = self:GetFrameRef("slot" .. slot)
-        if main then main:SetAttribute("action", base + (page - 1) * 4 + slot) end
+        if main then
+            main:SetAttribute("action", base + (page - 1) * 4 + slot)
+            main:SetAttribute("*action-Keybind", base + (page - 1) * 4 + slot)
+        end
     end
     for i = 1, self:GetAttribute("selector-count") or 0 do
         local selector = self:GetFrameRef("selector" .. i)
@@ -804,7 +1210,10 @@ local TOTEM_SET_PAGE = [[
         end
     end
     local summon = self:GetFrameRef("summon")
-    if summon then summon:SetAttribute("spell", self:GetAttribute("summon" .. page)) end
+    if summon then
+        summon:SetAttribute("spell", self:GetAttribute("summon" .. page))
+        summon:SetAttribute("*spell-Keybind", self:GetAttribute("summon" .. page))
+    end
     self:SetAttribute("totem-page", page)
     self:CallMethod("TotemPageChanged", page)
 ]]
@@ -813,7 +1222,9 @@ local TOTEM_HOVER = [[
     local controller = self:GetFrameRef("totem-controller")
     local panel = self:GetFrameRef("totem-panel")
     if not controller or not panel or not controller:GetAttribute("interactive") then return end
-    for i = 1, 5 do
+    if self:GetAttribute("class-tool-hover-menu") and (not self:GetAttribute("class-tool-interactive")
+        or (self:GetAttribute("class-tool-choices") or 0) == 0) then return end
+    for i = 1, controller:GetAttribute("panel-count") do
         local other = controller:GetFrameRef("panel" .. i)
         if other and other ~= panel then other:Hide() end
     end
@@ -824,7 +1235,7 @@ local TOTEM_HOVER = [[
 ]]
 
 local TOTEM_CLOSE_PANELS = [[
-    for i = 1, 5 do
+    for i = 1, self:GetAttribute("panel-count") do
         local panel = self:GetFrameRef("panel" .. i)
         if panel then panel:Hide() end
     end
@@ -841,11 +1252,11 @@ local TOTEM_SELECT_PAGE = [[
 ]]
 
 local TOTEM_CLOSE_AFTER_CLICK = [[
-    if not down then
+    if not down and (button == "LeftButton" or button == "RightButton") then
         local panel = self:GetFrameRef("totem-panel")
         if panel then panel:Hide() end
         local controller = self:GetFrameRef("totem-controller")
-        if controller and self:GetAttribute("totem-slot") then
+        if controller and button == "RightButton" and self:GetAttribute("totem-slot") then
             controller:CallMethod("TotemSelectionChanged")
         end
     end
@@ -855,6 +1266,7 @@ function Factory:CreateTotemController(holder)
     if self:InCombat() or Client.classBars ~= true then return nil end
     local controller = CreateFrame("Frame", nil, holder,
         "SecureHandlerBaseTemplate,SecureHandlerShowHideTemplate")
+    controller:SetAttribute("panel-count", 5)
     controller:SetAttribute("set-totem-page", TOTEM_SET_PAGE)
     controller:SetAttribute("_onhide", TOTEM_CLOSE_PANELS)
     controller:SetAttribute("_onshow", [[self:CallMethod("TotemPresentationShown")]])
@@ -863,9 +1275,7 @@ end
 
 function Factory:CreateTotemPanel(holder, controller, index)
     if self:InCombat() or Client.classBars ~= true then return nil end
-    local panel = CreateFrame("Frame", nil, holder, "SecureHandlerBaseTemplate,SecureHandlerShowHideTemplate")
-    panel:SetFrameStrata("DIALOG")
-    panel:SetClampedToScreen(true)
+    local panel = CreateClassFlyoutPanel(holder, "SecureHandlerBaseTemplate,SecureHandlerShowHideTemplate")
     panel:EnableMouse(true)
     panel:SetAttribute("_onhide", [[self:UnregisterAutoHide()]])
     panel:Hide()
@@ -885,18 +1295,28 @@ function Factory:CreateTotemButton(holder, role, index)
     return button
 end
 
-function Factory:PrepareTotemOpener(button, panel, controller)
+function Factory:PrepareTotemOpener(button, panel, controller, index)
     if self:InCombat() then return end
     button:SetFrameRef("totem-controller", controller)
     button:SetFrameRef("totem-panel", panel)
+    if index then
+        controller:SetFrameRef("panel" .. index, panel)
+        controller:SetAttribute("panel-count", math.max(controller:GetAttribute("panel-count"), index))
+    end
     button:SetAttribute("_onenter", TOTEM_HOVER)
+    self:PrepareClassToolPanel(panel, button, button:GetName())
+end
+
+function Factory:CloseTotemPanels(controller)
+    if not self:InCombat() then controller:Execute(TOTEM_CLOSE_PANELS) end
 end
 
 function Factory:PrepareTotemChoice(button, panel, controller, page)
     if self:InCombat() then return end
     button:SetFrameRef("totem-controller", controller)
     button:SetFrameRef("totem-panel", panel)
-    button:RegisterForClicks("LeftButtonUp")
+    if page then button:RegisterForClicks("LeftButtonUp")
+    else button:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
     button:SetAttribute("useOnKeyDown", false)
     if page then
         button:SetAttribute("totem-page", page)
@@ -904,7 +1324,9 @@ function Factory:PrepareTotemChoice(button, panel, controller, page)
     else
         panel:WrapScript(button, "OnClick", [[
             local controller = self:GetFrameRef("totem-controller")
-            if not controller or not controller:GetAttribute("interactive") then return false end
+            if down or (button ~= "LeftButton" and button ~= "RightButton")
+                or not controller or not controller:GetAttribute("interactive") then return false end
+            if button == "LeftButton" and self:GetAttribute("spell") == 0 then return false end
             return nil, true
         ]], TOTEM_CLOSE_AFTER_CLICK)
     end
@@ -920,14 +1342,17 @@ function Factory:ApplyTotemBindings(controller, bindings)
     if self:InCombat() then return false end
     ClearOverrideBindings(controller)
     for _, binding in ipairs(bindings) do
-        if binding.primaryKey then SetOverrideBindingClick(controller, false, binding.primaryKey, binding.buttonName, "LeftButton") end
-        if binding.secondaryKey then SetOverrideBindingClick(controller, false, binding.secondaryKey, binding.buttonName, "LeftButton") end
+        if binding.primaryKey then SetOverrideBindingClick(controller, false, binding.primaryKey, binding.buttonName, binding.clickButton or "LeftButton") end
+        if binding.secondaryKey then SetOverrideBindingClick(controller, false, binding.secondaryKey, binding.buttonName, binding.clickButton or "LeftButton") end
     end
     return true
 end
 
 
 local PET_UTILITY_CLICK_PRE = [[
+    if button ~= "LeftButton" and button ~= "Keybind" then return false end
+    if button == "LeftButton" and (IsAltKeyDown() or IsShiftKeyDown()) then return false end
+    if button == "Keybind" then return nil, "toggle" end
     if self:GetAttribute("yab-pet-utility-drop") then
         if self:GetAttribute("yab-pet-feed-click") then
             self:SetAttribute("yab-pet-feed-click", nil)
@@ -978,16 +1403,15 @@ local PET_UTILITY_CLOSE = [[
 
 function Factory:CreatePetUtilityPanel(holder)
     if self:InCombat() or Client.classBars ~= true then return nil end
-    local panel = CreateFrame("Frame", nil, holder, "SecureHandlerShowHideTemplate")
-    panel:SetFrameStrata("HIGH")
-    panel:SetClampedToScreen(true)
+    local panel = CreateClassFlyoutPanel(holder, "SecureHandlerShowHideTemplate")
     -- A hidden parent must not reopen an old popup when it becomes visible again.
     panel:SetAttribute("_onhide", "self:Hide()")
     panel:Hide()
-    local toggle = CreateFrame("CheckButton", nil, holder,
+    local toggle = CreateFrame("CheckButton", self:FrameName("PetUtilityToggle", "aspects", 1), holder,
         "SecureActionButtonTemplate,SecureHandlerMouseUpDownTemplate,SecureHandlerEnterLeaveTemplate")
-    toggle:RegisterForClicks("LeftButtonUp")
+    toggle:RegisterForClicks("AnyUp")
     toggle:SetFrameRef("petUtilities", panel)
+    self:PrepareClassToolPanel(panel, toggle, "HunterUtilities")
     toggle:SetAttribute("unit", "pet")
     toggle:SetAttribute("useOnKeyDown", false)
     -- Native drag scripts supply no button argument. The native friendly-unit
@@ -1088,7 +1512,8 @@ local function IsTooltipScopedButton(button)
     if not button then return false end
     if Factory.detachedButtons and Factory.detachedButtons[button] then return true end
     local meta = Factory:GetButtonMeta(button)
-    return meta and (meta.barId == "pet" or meta.barId == "stance") or false
+    return meta and (meta.barId == "pet" or meta.barId == "stance"
+        or YAB.ClassTools and YAB.ClassTools:IsClassBar(meta.barId)) or false
 end
 
 function Factory:ShouldShowTooltip(button)

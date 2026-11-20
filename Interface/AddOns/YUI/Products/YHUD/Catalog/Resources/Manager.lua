@@ -180,6 +180,9 @@ function Manager:Capabilities(entry)
         or entry.slotId or entry.sourceType == "item-cooldown" then return nil end
     local spellID = PublicNumber(entry.overrideSpellId or entry.spellId)
     if not spellID or spellID < 1 then return nil end
+    if YHUD.IsSummonHawkEntry and YHUD:IsSummonHawkEntry(entry) then
+        return { time = true }
+    end
     if YHUD:CanUseSkillDurationSource(entry, BAR) then
         local spellID = entry.overrideSpellId or entry.spellId
         local api = YUI.API and YUI.API.Spell
@@ -307,7 +310,8 @@ function Manager:BuildCustomPreset(profile, custom, classFile, specID, enabled)
         if charge then charge.valueRaw, charge.rechargeDurationRaw = nil, nil end
     end
     maximum = PublicNumber(maximum)
-    local aura = YHUD:CanUseBarAuraProgress(entry, BAR) == true
+    local summonHawk = YHUD.IsSummonHawkEntry and YHUD:IsSummonHawkEntry(entry)
+    local aura = not summonHawk and YHUD:CanUseBarAuraProgress(entry, BAR) == true
     local scope = YHUD.GetFilteredAuraScopeKey and YHUD:GetFilteredAuraScopeKey(entry)
     local target = scope == YHUD.FILTERED_AURA_SCOPE_TARGET_HARMFUL
     local provider = {
@@ -328,7 +332,8 @@ function Manager:BuildCustomPreset(profile, custom, classFile, specID, enabled)
     definition.previewMax = progress.source == "time" and (entry.durationSeconds or 10) or maximum
     definition.segmentCountFallback = maximum
     definition.issue = self:Issue({ entry = entry, progress = progress }, enabled, unresolved)
-    definition.sourceKey = provider.kind == "monitor-time" and YHUD:GetMonitorRuntimeSourceKey(entry, {
+    definition.sourceKey = summonHawk and YHUD.SUMMON_HAWK_KEY
+        or provider.kind == "monitor-time" and YHUD:GetMonitorRuntimeSourceKey(entry, {
         view = "bar", sourceKey = entry.sourceKey,
     }) or ("resource-custom:" .. tostring(entry.entryKey or entry.sourceKey or spellID) .. ":" .. progress.source
         .. ":" .. tostring(maximum) .. ":" .. tostring(target))
@@ -419,6 +424,72 @@ function Manager:GetStylePreviewPreset(profile, id, classFile, specID, formKey)
     end
 end
 
+local function SummonHawkRank(entry)
+    local slot = YHUD.GetLegacySummonHawkSlot and YHUD:GetLegacySummonHawkSlot(entry)
+    if slot == 1 then return 1 end
+    if YHUD.IsSummonHawkEntry and YHUD:IsSummonHawkEntry(entry) then return 2 end
+    if slot == 2 then return 3 end
+end
+
+local function ConsolidateSummonHawk(manager, config)
+    local customs, ranks = config.customById, {}
+    for id, custom in pairs(customs) do ranks[id] = SummonHawkRank(custom.entry) end
+    if not next(ranks) then return end
+    local entry = YHUD:BuildSummonHawkEntry()
+    if not entry then return end
+
+    local function Prefer(id, current)
+        return not current or ranks[id] < ranks[current] or ranks[id] == ranks[current]
+            and tonumber(id:match("(%d+)$")) < tonumber(current:match("(%d+)$"))
+    end
+
+    -- The definition and appearance belong to the group. Each context keeps
+    -- the surviving slot's own position, row links, and enabled state.
+    local keep, placements = nil, {}
+    for context, items in pairs(config.itemsByContext) do
+        local best
+        for _, item in ipairs(items) do
+            local id = item.id
+            if ranks[id] then
+                if Prefer(id, best) then best = id end
+                if Prefer(id, keep) then keep = id end
+            end
+        end
+        placements[context] = best
+    end
+    if keep then
+        local custom = customs[keep]
+        if not YHUD:IsSummonHawkEntry(custom.entry) then
+            if custom.name == custom.entry.name then custom.name = entry.name or custom.name end
+            custom.entry = manager:NormalizeEntry(entry)
+        end
+        if custom.progress.source ~= "time" then
+            custom.progress = YHUD:SwitchBarProgressSource(custom.progress, "time")
+        end
+    end
+    for context, preferred in pairs(placements) do
+        local items = config.itemsByContext[context]
+        local rows, merged = BuildRows(items), {}
+        for _, item in ipairs(items) do
+            local id = item.id
+            if not ranks[id] or id == preferred then
+                if id == preferred then
+                    item.id, rows[keep] = keep, rows[id]
+                end
+                merged[#merged + 1] = item
+            end
+        end
+        RebuildLinks(merged, rows)
+        config.itemsByContext[context] = merged
+    end
+    for id in pairs(ranks) do
+        if id ~= keep then
+            customs[id] = nil
+            if config.settingsByResource then config.settingsByResource[id] = nil end
+        end
+    end
+end
+
 -- Normalize only public saved configuration. Never persist availability or raw
 -- game values; these are resolved again for the current character context.
 function Manager:NormalizeConfig(config, sourceVersion)
@@ -455,7 +526,61 @@ function Manager:NormalizeConfig(config, sourceVersion)
         end
     end
     config.itemsByContext = contexts
+    if YUI.IsForever then ConsolidateSummonHawk(self, config) end
     self:MigrateBalanceEclipses(config)
+end
+
+function Manager:MigrateForeverMaelstromWeapon(profile)
+    local classFile, specID = "SHAMAN", 11363
+    local id = "foreverMaelstromWeapon"
+    local groupId = YHUD.GROUP_IDS.RESOURCES
+    local scoped = YHUD:GetResourceProfile(profile, groupId)
+    local key = Context(classFile, specID)
+    local saved = scoped.resources.itemsByContext[key]
+    local items = self:GetItems(scoped, classFile, specID)
+    for index, item in ipairs(items) do
+        if item.id == id then
+            if saved then return end
+            -- Reposition the inherited preset after checking for a custom bar.
+            table.remove(items, index)
+            break
+        end
+    end
+
+    local spellID = YHUD.ResourceCatalog:GetDefinition(id).provider.spellID
+    for _, config in pairs(profile.resources.byGroup) do
+        for _, item in ipairs(config.itemsByContext[key] or {}) do
+            local custom = config.customById[item.id]
+            if custom and custom.progress.source == "aura-stacks"
+                and YHUD:GetFilteredAuraScopeKey(custom.entry) ~= YHUD.FILTERED_AURA_SCOPE_TARGET_HARMFUL then
+                for _, auraID in ipairs(self:GetAuraSpellIDs(custom.entry)) do
+                    if auraID == spellID then
+                        -- Freeze an inherited list too, so the default group does
+                        -- not show a second bar beside one saved in another group.
+                        if not saved then self:StoreItems(scoped, classFile, specID, nil, items) end
+                        return
+                    end
+                end
+            end
+        end
+    end
+
+    if #items >= self.LIMIT then return end
+    local position = #items + 1
+    local growsUp = YHUD:GetResourceGroupLayout(profile, groupId).direction == "up"
+    for index, item in ipairs(items) do
+        if item.id == "mana" then
+            position = index
+            if growsUp then
+                repeat position = position + 1 until not items[position] or not items[position].joinPrevious
+            else
+                while items[position].joinPrevious do position = position - 1 end
+            end
+            break
+        end
+    end
+    table.insert(items, position, { id = id, enabled = true })
+    self:StoreItems(scoped, classFile, specID, nil, items)
 end
 
 -- One-time conversion of compatible existing Balance aura timers. Explicit
@@ -694,19 +819,38 @@ function Manager:Mutate(draft, groupId, classFile, specID, formKey, action, id, 
     local index
     for i, item in ipairs(items) do if item.id == id then index = i break end end
     if action == "add" or action == "custom" then
-        if #items >= self.LIMIT then return nil, "resource-limit" end
         if action == "custom" then
             local entry = value and value.entry
             local caps = self:Capabilities(entry)
             local progress = YHUD:NormalizeBarProgress(value and value.progress)
             if not caps or not caps[progress.source] then return nil, "unsupported-resource-source" end
-            config.customById = config.customById or {}
-            local serial = config.nextCustomId or 1
-            if serial >= 1000000000 then return nil, "resource-limit" end
-            repeat id = "custom-resource:" .. serial; serial = serial + 1 until not config.customById[id]
-            config.nextCustomId = serial
-            config.customById[id] = { id = id, name = BoundedText(type(value.name) == "string" and value.name or entry.name or id, 160),
-                entry = self:NormalizeEntry(entry), progress = progress }
+            local existing
+            if YHUD.IsSummonHawkEntry and YHUD:IsSummonHawkEntry(entry) then
+                if classFile ~= "HUNTER" then return nil, "unsupported-resource-source" end
+                for customId, custom in pairs(config.customById or {}) do
+                    if YHUD:IsSummonHawkEntry(custom.entry) then existing = customId break end
+                end
+                if existing then
+                    for i, item in ipairs(items) do
+                        if item.id == existing then return existing, items, i end
+                    end
+                end
+            end
+            if #items >= self.LIMIT then return nil, "resource-limit" end
+            if existing then
+                id = existing
+            else
+                config.customById = config.customById or {}
+                local serial = config.nextCustomId or 1
+                repeat
+                    if serial >= 1000000000 then return nil, "resource-limit" end
+                    id, serial = "custom-resource:" .. serial, serial + 1
+                until not config.customById[id]
+                config.nextCustomId = serial
+                config.customById[id] = { id = id, name = BoundedText(type(value.name) == "string" and value.name or entry.name or id, 160),
+                    entry = self:NormalizeEntry(entry), progress = progress }
+            end
+        elseif #items >= self.LIMIT then return nil, "resource-limit"
         elseif index then return id end
         if not self:IsCustom(id) then
             local allowed = false

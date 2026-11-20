@@ -252,11 +252,19 @@ function R:Lock(names)
     self:Notify()
 end
 
-function R:FindProfileByName(name)
-    if not self.active or not self.db then return nil, "unavailable" end
+function R:FindProfileByName(name, includeInactive)
+    if not self.active and not includeInactive then return nil, "unavailable" end
+    local db = self.db
+    if not db and not self.active then
+        local global = YUI.DB:GetGlobal(A.product)
+        local root = global and global.AddonAssistant
+        db = type(root) == "table" and root[A.flavor] or nil
+    end
+    if not db then return nil, self.active and "unavailable" or "profileMissing" end
+    if type(db) ~= "table" or type(db.profiles) ~= "table" then return nil, "profileInvalid" end
     if type(name) ~= "string" or name == "" then return nil, "profileMissing" end
     local found
-    for id, profile in pairs(self.db.profiles) do
+    for id, profile in pairs(db.profiles) do
         if type(profile) == "table" and profile.name == name then
             if found then return nil, "profileDuplicate" end
             if type(profile.addons) ~= "table" then return nil, "profileInvalid" end

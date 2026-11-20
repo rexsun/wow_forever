@@ -8,7 +8,7 @@ Catalog:RegisterClassPack("PALADIN", { [11486] = { "mana" }, [11541] = { "mana" 
 Catalog:RegisterClassPack("HUNTER", { [11372] = { "mana" }, [11371] = { "mana" }, [11370] = { "mana" } })
 Catalog:RegisterClassPack("ROGUE", { [11580] = { "energy", "comboPoints" }, [11573] = { "energy", "comboPoints" }, [11572] = { "energy", "comboPoints" } })
 Catalog:RegisterClassPack("PRIEST", { [11608] = { "mana" }, [11615] = { "mana" }, [11622] = { "mana" } })
-Catalog:RegisterClassPack("SHAMAN", { [11326] = { "mana" }, [11363] = { "mana" }, [11362] = { "mana" } })
+Catalog:RegisterClassPack("SHAMAN", { [11326] = { "mana" }, [11363] = { "mana", "foreverMaelstromWeapon" }, [11362] = { "mana" } })
 Catalog:RegisterClassPack("MAGE", { [11582] = { "mana" }, [11594] = { "mana" }, [11601] = { "mana" } })
 Catalog:RegisterClassPack("WARLOCK", { [11629] = { "mana" }, [11636] = { "mana" }, [11637] = { "mana" } })
 

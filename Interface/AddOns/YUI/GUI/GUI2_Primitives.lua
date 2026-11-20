@@ -6698,7 +6698,7 @@ local function ApplyIconAppearanceBorderState(slot, colorKey)
         )
     end
     if slot.gui2IconAppearanceBorder then
-        if GUI2:IsIconBorderMaterial(slot.gui2IconBorder) then
+        if GUI2:IsIconBorderMaterial(slot.gui2IconBorder) and not slot.gui2IconMaterialTint then
             slot.gui2IconAppearanceBorder:SetVertexColor(1, 1, 1, 1)
         else
             slot.gui2IconAppearanceBorder:SetVertexColor(r, g, b, a)
@@ -6717,6 +6717,7 @@ end
 function GUI2:ApplyIconAppearance(slot, opts)
     if not slot then return false end
     opts = opts or {}
+    if opts.materialTint ~= nil then slot.gui2IconMaterialTint = opts.materialTint == true end
     local preset, shape = self:GetIconAppearancePreset(
         opts.shape or slot.gui2Shape
     )
@@ -7180,6 +7181,7 @@ function GUI2:CreateIconSlot(parent, opts)
         shape = slot.gui2Shape,
         border = iconBorder,
         zoom = slot.gui2IconZoom,
+        materialTint = opts.materialTint,
     })
     if opts.borderColor ~= nil then
         slot:SetIconBorderColor(opts.borderColor)
@@ -9050,6 +9052,8 @@ function GUI2:CreateDivider(parent, width, height, label, alignLeft)
 
     local collapsible = opts.collapsible == true
     local collapsed = opts.collapsed == true
+    local expandedSuffix = opts.expandedSuffix or "(-)"
+    local collapsedSuffix = opts.collapsedSuffix or "(+)"
     local centeredLabel = label and alignLeft == false and not collapsible
     local frame = self:CreateFrame(parent, {
         width = width or 320,
@@ -9087,7 +9091,7 @@ function GUI2:CreateDivider(parent, width, height, label, alignLeft)
             end)
         end
 
-        local textLabel = collapsible and (label .. (collapsed and "(+)" or "(-)")) or label
+        local textLabel = collapsible and (label .. (collapsed and collapsedSuffix or expandedSuffix)) or label
         local text = self:CreateText(frame, textLabel, "font.size.md", "color.text.heading")
         frame.gui2DividerText = text
         frame.gui2DividerBaseLabel = label
@@ -9161,13 +9165,20 @@ function GUI2:CreateDivider(parent, width, height, label, alignLeft)
         end
     end
 
+    frame.SetLabel = function(divider, nextLabel)
+        divider.gui2DividerBaseLabel = tostring(nextLabel or "")
+        if divider.gui2DividerText then
+            local suffix = divider.gui2DividerCollapsible and (divider.gui2DividerCollapsed and collapsedSuffix or expandedSuffix) or ""
+            local text = divider.gui2DividerBaseLabel .. suffix
+            if divider.gui2DividerText:GetText() ~= text then divider.gui2DividerText:SetText(text) end
+        end
+    end
+
     frame.SetCollapsed = function(divider, nextCollapsed, silent)
         if not divider.gui2DividerCollapsible then return end
         nextCollapsed = nextCollapsed == true
         divider.gui2DividerCollapsed = nextCollapsed
-        if divider.gui2DividerText and divider.gui2DividerBaseLabel then
-            divider.gui2DividerText:SetText(divider.gui2DividerBaseLabel .. (nextCollapsed and "(+)" or "(-)"))
-        end
+        divider:SetLabel(divider.gui2DividerBaseLabel)
         if not silent and opts.onToggle then
             opts.onToggle(nextCollapsed, divider)
         end

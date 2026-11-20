@@ -1,6 +1,46 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v362|mainline|ec50b3b1da1f9a700e8dae768f090dc293c975696e1aea8b0bb0e1e0bb22b59a
+    {
+        version = "v362",
+        date = "2026-11-21",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "修复物品补入已有堆叠后，背包满时无法拖动该堆物品的问题。",
+                "修复背包装备升级箭头误提示角色当前无法穿戴的装备。",
+                "修复分类布局下配方染色偶尔未更新的问题。",
+                "修复 Halo 部分增益计时条刷新时的报错。",
+            },
+            enUS = {
+                "Fixed stacks becoming undraggable after receiving more items when bags are full.",
+                "Fixed upgrade arrows appearing on gear your character cannot currently equip.",
+                "Fixed recipe colors sometimes failing to refresh in the category layout.",
+                "Fixed an error when refreshing some Halo buff timers.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v361|mainline|4babaa83f56ea54d7a5748c833824c7b127261fbf7f9e92c5b05f007356c680c
+    {
+        version = "v361",
+        date = "2026-11-20",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "新增 YUI 背包（分类整理、跨角色离线库存）。",
+                "Halo 新增吃喝倒计时。",
+                "修复宠物条键位裁切、换角色方案漏应用和长报错复制。",
+                "减少地图标记重复刷新。",
+            },
+            enUS = {
+                "Added YUI Bags with item categories and offline inventory across characters.",
+                "Halo now tracks eating and drinking timers.",
+                "Fixed clipped pet bar keybinds, profiles failing to apply after switching characters, and copying long error reports.",
+                "Reduced duplicate map marker refreshes.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v360|mainline|802709cb8ab85bcf325574067aee959393ddc5b01954d12e41fb453b12e76258
     {
         version = "v360",
@@ -152,52 +192,6 @@ CL:Register("suite", {
             enUS = {
                 "Improved the default chat-blocking word list and preserved custom filter settings.",
                 "Fixed dark blocks on the active-action indicator and brief dark flashes on key presses.",
-            },
-        },
-    },
--- YUI-Notes-Record: v352|mainline|ef71ca70ca3fdce3ae1d12524eb2d63e67754b5b925e3052dc57d877c65415c3
-    {
-        version = "v352",
-        date = "2026-11-05",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "新增聊天关键词过滤。",
-                "优化任务路线收起兼容性。",
-                "修复连击点重新显示时残留旧填充。",
-            },
-            enUS = {
-                "Added chat keyword filtering.",
-                "Improved compatibility for quest guide collapsing.",
-                "Fixed stale combo-point fills when the display reappears.",
-            },
-        },
-    },
--- YUI-Notes-Record: v351|mainline|efc63523a06f6db692adac8a61d8c9579eec5126e713e9e3b573835a4d74dbe2
-    {
-        version = "v351",
-        date = "2026-11-04",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "监控台原生触发发光新增“不发光”选项。",
-                "条形监控的原生默认发光仅围绕图标显示。",
-                "优化监控台、动作条和声音提醒性能，减少重复刷新。",
-                "修复资源设置首次打开报错、资源列表显示不全。",
-                "离开资源分组编辑后，恢复当前角色的资源预览。",
-                "插件助手支持分别勾选插件，并提示依赖异常。",
-                "修复首次导入动作条配置失败及延迟容限刷新干扰。",
-                "修复过场动画后小地图偏移、遮挡鼠标操作。",
-            },
-            enUS = {
-                "Added a No Glow option for native proc effects in monitors.",
-                "Default native proc glow on bar monitors now surrounds only the icon.",
-                "Improved monitor, action bar, and sound alert performance by reducing redundant updates.",
-                "Fixed errors when first opening resource settings and incomplete resource lists.",
-                "Resource previews now return to the current character after leaving resource group editing.",
-                "Addon Assistant now toggles each addon separately and warns about dependency issues.",
-                "Fixed initial action bar import failures and interference from latency-tolerance updates.",
-                "Fixed minimap displacement and blocked mouse interactions after cinematics.",
             },
         },
     },

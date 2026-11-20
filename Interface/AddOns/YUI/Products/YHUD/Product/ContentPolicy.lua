@@ -2,7 +2,7 @@ local YUI = _G.YUI
 local YHUD = YUI and YUI.YHUD
 if not YHUD then return end
 
-YHUD.CONTENT_POLICY_REVISION = 20
+YHUD.CONTENT_POLICY_REVISION = 21
 
 function YHUD:CanConfigureSkillAuraDisplay(entry)
     return type(entry) == "table"
@@ -35,10 +35,40 @@ YHUD.CONTENT_LANE_SPEC = "spec"
 YHUD.CONTENT_LANE_AFTER = "after"
 YHUD.CAST_BUFF_TIMER_SOURCE_TYPE = "yhud.cast-buff-timer"
 YHUD.SPELL_EVENT_WINDOW_SOURCE_TYPE = "yhud.spell-event-window"
+YHUD.SUMMON_HAWK_SOURCE_TYPE = "yhud.forever-summon-hawk"
+YHUD.SUMMON_HAWK_KEY = "forever-summon-hawk"
+YHUD.SUMMON_HAWK_SLOT_KEYS = { "forever-summon-hawk:1", "forever-summon-hawk:2" }
 YHUD.PLAYER_AURA_SOURCE_TYPE = "yhud.player-aura"
 YHUD.RUNTIME_CHANNEL_TIMED_SOURCE = "timed-source"
 YHUD.RUNTIME_CHANNEL_NATIVE_OFFICIAL = "native-official"
 YHUD.RUNTIME_CHANNEL_PREVIEW_ONLY = "preview-only"
+
+function YHUD:IsSummonHawkEntry(entry)
+    return YUI.IsForever == true and type(entry) == "table"
+        and entry.sourceType == self.SUMMON_HAWK_SOURCE_TYPE
+        and entry.sourceKey == self.SUMMON_HAWK_KEY
+end
+
+function YHUD:GetLegacySummonHawkSlot(entry)
+    if YUI.IsForever ~= true or type(entry) ~= "table"
+        or entry.sourceType ~= self.SUMMON_HAWK_SOURCE_TYPE then return nil end
+    if entry.sourceKey == self.SUMMON_HAWK_SLOT_KEYS[1] then return 1 end
+    if entry.sourceKey == self.SUMMON_HAWK_SLOT_KEYS[2] then return 2 end
+end
+
+function YHUD:BuildSummonHawkEntry()
+    if YUI.IsForever ~= true then return nil end
+    local key = self.SUMMON_HAWK_KEY
+    local nameKey = "designer.preset.summon_hawk"
+    return {
+        entryKey = key, sourceKey = key, presetId = key,
+        sourceType = self.SUMMON_HAWK_SOURCE_TYPE,
+        semantic = "buff", origin = "preset", contentScope = self.CONTENT_SCOPE_SPEC,
+        spellId = 1293241, icon = 132158, durationSeconds = 18,
+        nameKey = nameKey, name = self:T(nameKey, "Summon Hawk"),
+        compatibleViews = { icon = true, bar = true, ring = true, resource = true },
+    }
+end
 
 local CROSS_SPEC_DISPLAY_FIELDS = {
     visibilityMode = true,
@@ -227,14 +257,19 @@ function YHUD:CanUseFilteredAuraDisplay()
         and Unit.SupportsFilteredAuraDisplay() == true
 end
 
-function YHUD:IsForeverSealPreset(entry)
-    local seals = self.FOREVER_SEAL_PRESET
-    return self.Client.id == "forever" and seals ~= nil
-        and type(entry) == "table"
-        and entry.entryKey == seals.entryKey
+function YHUD:IsFoodDrinkPreset(entry)
+    return type(entry) == "table"
+        and entry.entryKey == "buff-aura:food-drink"
         and entry.origin == "preset"
         and entry.sourceType == self.PLAYER_AURA_SOURCE_TYPE
-        and entry.spellId == 20154
+end
+
+function YHUD:CanUseFoodDrinkIconFlow(entry, monitor, group, layout)
+    return self:IsFoodDrinkPreset(entry)
+        and group.layout == "icons"
+        and group.layoutMode ~= "fixed"
+        and monitor.visibilityMode ~= "always"
+        and (layout.itemOffset or 0) == 0
 end
 
 function YHUD:IsFilteredAuraEntry(entry)
@@ -242,6 +277,35 @@ function YHUD:IsFilteredAuraEntry(entry)
         and entry.sourceType == self.PLAYER_AURA_SOURCE_TYPE
         and entry.origin ~= "official-cdm"
         and entry.sourceIdentity ~= "bloodlust-heroism"
+end
+
+function YHUD:GetOfficialAuraCorrection(entry)
+    local corrections = self.Client and self.Client.officialAuraCorrections
+    if not (YUI.IsForever and corrections and type(entry) == "table"
+        and entry.origin == "official-cdm" and entry.sourceType == self.PLAYER_AURA_SOURCE_TYPE) then
+        return nil
+    end
+    local correction = corrections[entry.cooldownId]
+    if correction and (entry.spellId == correction.talent or entry.spellId == correction.aura) then
+        return correction
+    end
+end
+
+-- Resolve against the imported native metadata on every catalog projection.
+-- The saved entry and native API data retain their original identities.
+function YHUD:GetOfficialAuraFallbackSpellID(entry)
+    local correction = self:GetOfficialAuraCorrection(entry)
+    if not correction then return nil end
+    local auraID = correction.aura
+    if entry.spellId == auraID or entry.overrideSpellId == auraID or entry.overrideTooltipSpellId == auraID then
+        return nil
+    end
+    local linked = entry.linkedSpellIds
+    for index = 1, type(linked) == "table" and #linked or 0 do
+        local spellID = linked[index]
+        if spellID == auraID then return nil end
+    end
+    return auraID
 end
 
 function YHUD:IsLogicalEquipmentAuraParent(entry, monitor)
@@ -279,7 +343,8 @@ function YHUD:IsFilteredAuraMonitor(entry, monitor)
     end
     return not self:IsOfficialNativeView(
         displayCategory,
-        monitor.view
+        monitor.view,
+        entry
     )
 end
 
@@ -313,6 +378,7 @@ function YHUD:CanObserveOfficialTotemDuration(entry, monitor)
         and entry.origin == "official-cdm"
         and (monitor.view == "ring" or monitor.view == "bar")
         and PositiveInteger(entry.cooldownId) ~= nil
+        and not self:GetOfficialAuraFallbackSpellID(entry)
         and self:CanUseFilteredAuraDisplay()
         and self:IsFilteredAuraMonitor(entry, monitor)
 end
@@ -360,7 +426,8 @@ end
 
 function YHUD:IsFilteredAuraLayoutMonitor(entry, monitor, assumeNativeTarget)
     if assumeNativeTarget == true
-        and self:GetOfficialNativeCategoryTarget(entry, monitor) then
+        and self:GetOfficialNativeCategoryTarget(entry, monitor)
+        and not self:GetOfficialAuraFallbackSpellID(entry) then
         return false
     end
     return self:IsFilteredAuraMonitor(entry, monitor)
@@ -527,18 +594,26 @@ function YHUD:GetFilteredAuraGroupProjectionStrategy(
             and self.MonitorCatalog.GetClaimedCooldownSources
             and self.MonitorCatalog:GetClaimedCooldownSources(profile) or nil
     end
+    local layout
     if group.layout == "icons" and self.GetIconGroupLayout then
-        local layout = self:GetIconGroupLayout(profile, group.id)
+        layout = self:GetIconGroupLayout(profile, group.id)
         state.maxPerLine = math.max(
             1,
             math.floor(tonumber(layout and layout.maxPerLine) or 1)
         )
     end
     local function Accumulate(candidate, candidateEntry, projectedCount, filtered)
-        -- Limited external collections own a native flow block. Other members
-        -- retain their existing projection and source-matching strategy.
-        if candidate and candidate._yhudAuraMaxFrameCount then return end
         if candidate and candidateEntry then
+            if self:IsFoodDrinkPreset(candidateEntry) then
+                if not layout or not self:CanUseFoodDrinkIconFlow(
+                    candidateEntry, candidate, group, layout
+                ) then return end
+                -- Both possible native displays must fit, even if only one
+                -- aura is active. Preview uses the same public capacity.
+                projectedCount = 2
+            elseif candidate._yhudAuraMaxFrameCount then
+                return
+            end
             projectedCount = math.max(
                 1,
                 math.floor(tonumber(projectedCount) or 1)
@@ -773,11 +848,17 @@ local EVENT_WINDOW_SOUND_CONDITIONS = {
     "condition-met",
     "timer-ended",
 }
+local SUMMON_HAWK_GLOW_CAPABILITIES = {
+    kind = "summon-hawk", conditions = { "timer-expiring" }, labelKind = "timer",
+}
 
 function YHUD:GetEntryMonitorConditionCapabilities(entry, channel)
     if type(entry) ~= "table" then return nil end
     channel = channel == "sound" and "sound" or "glow"
     if channel == "sound" and self.Client and self.Client.soundReminders == false then return nil end
+    if self:IsSummonHawkEntry(entry) then
+        return channel == "glow" and SUMMON_HAWK_GLOW_CAPABILITIES or nil
+    end
     local officialCooldown = entry.origin == "official-cdm"
         and (entry.officialCategory == "essential"
             or entry.officialCategory == "utility")
@@ -879,6 +960,10 @@ function YHUD:GetMonitorGlowCapabilities(profile, monitor)
         and groups.items[monitor.groupId]
     if type(monitor) == "table" and monitor.view == "ring"
         or group and group.layout == "rings" then return nil end
+    if type(monitor) == "table" and monitor.view == "resource" then
+        local entry = type(profile) == "table" and profile.entries and profile.entries[monitor.entryKey]
+        if self:IsSummonHawkEntry(entry) then return nil end
+    end
     return self:GetMonitorConditionCapabilities(profile, monitor, "glow")
 end
 
@@ -1637,7 +1722,9 @@ function YHUD:UsesArcaneBlastSimulation(entry)
 end
 
 function YHUD:IsOfficialNativeView(category, view, entry)
-    return not self:UsesArcaneBlastSimulation(entry) and OFFICIAL_NATIVE_VIEWS[category] == view
+    return OFFICIAL_NATIVE_VIEWS[category] == view
+        and not self:UsesArcaneBlastSimulation(entry)
+        and not self:GetOfficialAuraFallbackSpellID(entry)
 end
 
 function YHUD:NormalizeGroupContentPolicy(group)

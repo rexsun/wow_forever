@@ -60,17 +60,19 @@ function Skins:Label(key, fallback)
     local text = L and L["icon_skin." .. key]
     return text and text ~= "icon_skin." .. key and text or fallback
 end
-function Skins:GetOptions(current, native)
+function Skins:GetOptions(current, native, builtinOnly)
     local options = {}
     current = aliases[current] or current
-    if current and current ~= "legacy" and current ~= "masque" and current ~= "native" and not self.definitions[current] then
-        options[#options + 1] = { value = current, label = self:Label("unavailable", "皮肤不可用（使用默认外观）") }
+    if not builtinOnly then
+        if current and current ~= "legacy" and current ~= "masque" and current ~= "native" and not self.definitions[current] then
+            options[#options + 1] = { value = current, label = self:Label("unavailable", "皮肤不可用（使用默认外观）") }
+        end
     end
     if native then options[#options + 1] = { value = "native", label = self:Label("native", "原生外观") } end
     for _, id in ipairs(self.order) do
         options[#options + 1] = { value = id, label = self:Label(id, self.definitions[id].label) }
     end
-    options[#options + 1] = { value = "masque", label = "Masque" }
+    if not builtinOnly then options[#options + 1] = { value = "masque", label = "Masque" } end
     for _, option in ipairs(options) do option.text = option.label end
     return options
 end

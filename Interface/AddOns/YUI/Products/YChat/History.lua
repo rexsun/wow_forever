@@ -11,6 +11,7 @@ local Adapter = YChat.Adapter
 local L = YUI.Locale and YUI.Locale:Get("YChat") or {}
 local concat = table.concat
 local floor = math.floor
+local min = math.min
 local type = type
 
 local HISTORY_SCHEMA = 2
@@ -20,9 +21,6 @@ local snapshotLines = {}
 local replaySlots = {}
 local replayTexts = {}
 local activeCategories = {}
-local originalFrameLimits = setmetatable({}, { __mode = "k" })
-local frameLimitApplyOK = true
-local frameLimitApplyReason
 
 local EVENT_CATEGORIES = {
     CHAT_MSG_SAY = "player",
@@ -228,54 +226,6 @@ function History:RefreshStore()
     root[currentCharacterKey] = store
     currentStore = store
     return true
-end
-
-local function ApplyFrameLimit(frame)
-    if not History.runtimeEnabled or not Adapter then return true end
-    local config = YChat:GetHistory()
-    local target = config and config.frameLimit or 200
-    local current, readReason = Adapter:ReadMaxLines(frame)
-    if current == nil then return false, readReason end
-    if originalFrameLimits[frame] == nil then originalFrameLimits[frame] = current end
-    if current == target then return true end
-    return Adapter:WriteMaxLines(frame, target, false)
-end
-
-local function ApplyDiscoveredFrameLimit(frame)
-    local ok, reason = ApplyFrameLimit(frame)
-    if not ok then
-        frameLimitApplyOK = false
-        frameLimitApplyReason = reason
-    end
-end
-
-function History:RefreshFrameLimits()
-    if not self.runtimeEnabled or not Adapter then return true end
-    frameLimitApplyOK = true
-    frameLimitApplyReason = nil
-    Adapter:ForEachSupportedFrame(ApplyDiscoveredFrameLimit)
-    return frameLimitApplyOK, frameLimitApplyReason
-end
-
-function History:RestoreFrameLimits()
-    if not Adapter then return true end
-    local restored = true
-    local lastReason
-    for frame, original in pairs(originalFrameLimits) do
-        local current = Adapter:ReadMaxLines(frame)
-        if current == original then
-            originalFrameLimits[frame] = nil
-        else
-            local ok, reason = Adapter:WriteMaxLines(frame, original, true)
-            if ok then
-                originalFrameLimits[frame] = nil
-            else
-                restored = false
-                lastReason = reason
-            end
-        end
-    end
-    return restored, lastReason
 end
 
 local function Bypass(reason)
@@ -504,9 +454,12 @@ function History:ReplayOnLogin(initialLogin, reloadingUI)
     if not frame or type(frame.BackFillMessage) ~= "function" then
         return false, "history-login-replay-frame-unavailable"
     end
-    local target = floor(tonumber(config.restoreLimit) or 0)
-    local frameLimit = floor(tonumber(config.frameLimit) or target)
-    if target > frameLimit then target = frameLimit end
+    local capacity, capacityReason = Adapter:ReadMaxLines(frame)
+    if capacity == nil then return false, capacityReason end
+    local count, countReason = Adapter:ReadNumMessages(frame)
+    if count == nil then return false, countReason end
+    -- Blizzard owns the buffer capacity. Reserve one free slot for the history separator.
+    local target = min(floor(tonumber(config.restoreLimit) or 0), capacity - count - 1)
     if target < 1 then
         self.loginReplayDone = true
         return true, false
@@ -623,16 +576,9 @@ function History:ClearAllHistory(deferRecreate)
 end
 
 function History:SetEnabled(enabled, reason)
-    local nextEnabled = enabled == true
-    if not nextEnabled then
-        local restored, restoreReason = self:RestoreFrameLimits()
-        if not restored then return false, restoreReason end
-    end
-    self.runtimeEnabled = nextEnabled
+    self.runtimeEnabled = enabled == true
     if self.runtimeEnabled then
         local storeReady, storeReason = self:RefreshStore()
-        local frameReady, frameReason = self:RefreshFrameLimits()
-        if not frameReady then return false, frameReason end
         if not storeReady then
             self.lastReason = storeReason
             return true
@@ -644,14 +590,7 @@ function History:SetEnabled(enabled, reason)
 end
 
 function History:OnConfigChanged()
-    local ready, reason = self:RefreshStore()
-    if not ready then return false, reason end
-    return self:RefreshFrameLimits()
-end
-
-function History:OnFrameDiscovered(frame, valid)
-    if valid ~= true or not self.runtimeEnabled then return true end
-    return ApplyFrameLimit(frame)
+    return self:RefreshStore()
 end
 
 function History:GetRuntimeGauges(target)

@@ -5126,6 +5126,24 @@ function ConfigSets:PrepareProfileStateImport(
     return prepared
 end
 
+function ConfigSets:GetPreparedProfileActiveScope(prepared, providerId, scopeId)
+    local data
+    if self.ProfileOwnership then
+        data = self.ProfileOwnership:GetPreparedProfileActiveData(prepared, providerId)
+    else
+        for _, entry in ipairs(prepared.entries or {}) do
+            if entry.providerId == providerId then
+                local catalog = entry.catalog
+                local item = catalog.items[catalog.activeByProfile[prepared.targetProfileName]]
+                data = item and item.data
+                break
+            end
+        end
+    end
+    local scope = data and data[scopeId]
+    if type(scope) == "table" then return CloneProviderPayload(self.providers[providerId], scope) end
+end
+
 function ConfigSets:CommitProfileStateImport(prepared)
     if self.ProfileOwnership then return self.ProfileOwnership:CommitProfileStateImport(prepared) end
     if type(prepared) ~= "table"

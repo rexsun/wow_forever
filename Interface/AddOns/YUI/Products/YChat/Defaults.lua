@@ -45,7 +45,7 @@ YChat.Defaults = {
     },
     history = {
         enabled = false,
-        frameLimit = 200,
+        frameLimit = 200, -- Legacy profile compatibility. The client owns the native buffer size.
         limit = 2000,
         restoreOnLogin = false,
         restoreLimit = 50,

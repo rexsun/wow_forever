@@ -3223,6 +3223,9 @@ function View:ConfigureDesignSlotInteraction(slot)
     slot._yhudDragPairId = runtime and runtime.handPairMode == "split" and resource
         and (resource.id == "swingMainHand" or resource.id == "swingOffHand")
         and (slot._yhudGroupId .. ":swingHands") or nil
+    if resource and YHUD.IsSummonHawkEntry and YHUD:IsSummonHawkEntry(resource.customEntry) then
+        slot._yhudDragPairId = slot._yhudLogicalMonitorId
+    end
     local dragEnabled = not readOnlyPreview
     if not dragEnabled and slot._yhudDragging then
         self:FinishMonitorDrag(slot, true)
@@ -3346,6 +3349,7 @@ function View:SetPreview(enabled, suppressRefresh)
     end
     if self.preview == enabled then return false end
     self.preview = enabled
+    if I.RefreshManaRegenSparkVisibility then I.RefreshManaRegenSparkVisibility() end
     if suppressRefresh == true then return true end
     return self:RefreshAll()
 end
@@ -3355,6 +3359,7 @@ function View:SetLayoutEditMode(enabled, suppressRefresh)
     if enabled and YHUD.PressFeedback and YHUD.PressFeedback.active then YHUD.PressFeedback:Clear() end
     if self.layoutEditMode == enabled then return false end
     self.layoutEditMode = enabled
+    if I.RefreshManaRegenSparkVisibility then I.RefreshManaRegenSparkVisibility() end
     if self.RefreshBuffTimerStackModes then self:RefreshBuffTimerStackModes() end
     if suppressRefresh == true then return true end
     return self:Relayout()
@@ -4681,7 +4686,13 @@ local function ApplySharedProjectionGeometry(runtime, slots, specialFlags)
         local slot = self.slots[index]
         if not (slot and slot.SetSize) then return false end
         if self.runtime.view == "resource" and slot.SetResourceBarSize then
+            local geometryChanged = slot.gui2ResourceWidth ~= width
+                or slot.gui2ResourceHeight ~= height
+                or slot.gui2ResourceOrientation ~= self.runtime.orientation
             slot:SetResourceBarSize(width, height, self.runtime.orientation)
+            if geometryChanged and slot._yhudBarProgress and View.LayoutBarTicks then
+                View:LayoutBarTicks(slot, self.runtime, slot._yhudBarMaximum)
+            end
             local preview = slot._yhudDesignResourcePreview
             if slot._yhudDesignResourcePreviewBound and preview and preview.SetResourceBarSize then
                 preview:SetResourceBarSize(width, height, self.runtime.orientation)
@@ -5473,6 +5484,7 @@ function View:PrepareDesignMode(
     end
     self.designMode = enabled
     self:SetVisibilityBypass(enabled)
+    if I.RefreshManaRegenSparkVisibility then I.RefreshManaRegenSparkVisibility() end
     self.designSelect = enabled and onSelect or nil
     self.designAdd = enabled and onAdd or nil
     self.selectedGroupId = enabled and selectedGroupId or nil

@@ -105,10 +105,15 @@ local function BuildShadowedAuraSpellIds(profile)
             and monitor.enabled ~= false
             and group
             and group.enabled == true then
+            local playerHelpful = YHUD:GetFilteredAuraScopeKey(entry) == YHUD.FILTERED_AURA_SCOPE_PLAYER_HELPFUL
+            -- False still records a matching spell in a different aura scope.
             for index = 1, #(entry.spellIds or {}) do
-                result[entry.spellIds[index]] = true
+                local spellID = entry.spellIds[index]
+                result[spellID] = playerHelpful or result[spellID] or false
             end
-            if entry.spellId then result[entry.spellId] = true end
+            if entry.spellId then
+                result[entry.spellId] = playerHelpful or result[entry.spellId] or false
+            end
         end
     end
     return result
@@ -122,11 +127,13 @@ local function IsShadowedOfficial(plan, entry)
         return false
     end
     local shadowed = plan.shadowedAuraSpellIds
-    if shadowed[entry.spellId] or shadowed[entry.overrideSpellId] then
+    local correction = YHUD:GetOfficialAuraCorrection(entry)
+    if correction then return shadowed[correction.aura] == true end
+    if shadowed[entry.spellId] ~= nil or shadowed[entry.overrideSpellId] ~= nil then
         return true
     end
     for index = 1, #(entry.linkedSpellIds or {}) do
-        if shadowed[entry.linkedSpellIds[index]] then return true end
+        if shadowed[entry.linkedSpellIds[index]] ~= nil then return true end
     end
     return false
 end
@@ -288,6 +295,17 @@ local function AddMember(
         groupPlan.hasCombatResourceVisibility = true
     end
     return member
+end
+
+local function AppendSummonHawkMembers(plan, groupPlan, monitor, entry, availability, resourceSpec)
+    local logicalId = monitor.id
+    for index, sourceKey in ipairs(YHUD.SUMMON_HAWK_SLOT_KEYS) do
+        -- Editor actions resolve the first element directly by the logical ID.
+        local childId = index == 1 and logicalId or logicalId .. ":hawk:" .. index
+        local member = AddMember(plan, groupPlan, monitor, entry, logicalId, childId,
+            availability, false, sourceKey)
+        member.resourceSpec = resourceSpec
+    end
 end
 
 local function GetResourcePresets(plan, groupPlan)
@@ -592,18 +610,14 @@ local function AppendResourceMember(plan, groupPlan, preset, index)
         preset
     )
     monitor._yhudResourcePresentation = resourceSpec
-    local member = AddMember(
-        plan,
-        groupPlan,
-        monitor,
-        preset.customEntry,
-        monitorId,
-        monitorId,
-        preset.issue and "unavailable" or "available",
-        false,
-        preset.sourceKey
-    )
-    member.resourceSpec = resourceSpec
+    local availability = preset.issue and "unavailable" or "available"
+    if YHUD.IsSummonHawkEntry and YHUD:IsSummonHawkEntry(preset.customEntry) then
+        AppendSummonHawkMembers(plan, groupPlan, monitor, preset.customEntry, availability, resourceSpec)
+    else
+        local member = AddMember(plan, groupPlan, monitor, preset.customEntry, monitorId, monitorId,
+            availability, false, preset.sourceKey)
+        member.resourceSpec = resourceSpec
+    end
     if preset.resourceRowKey ~= nil then groupPlan.hasResourceRowLinks = true end
 end
 
@@ -764,7 +778,9 @@ local function AppendConfiguredMonitor(plan, groupPlan, monitorId)
         and availability ~= "ineligible"
         and (availability == "available" or includeUnavailable)
     if not eligible then return end
-    if bundleKind then
+    if YHUD.IsSummonHawkEntry and YHUD:IsSummonHawkEntry(entry) then
+        AppendSummonHawkMembers(plan, groupPlan, monitor, entry, availability)
+    elseif bundleKind then
         AppendBundleMembers(
             plan,
             groupPlan,
@@ -775,6 +791,14 @@ local function AppendConfiguredMonitor(plan, groupPlan, monitorId)
             availability
         )
     else
+        if not plan.preview and YHUD.IsFoodDrinkPreset
+            and YHUD:IsFoodDrinkPreset(entry) then
+            -- One configured monitor owns a bounded native collection. Keep
+            -- the display capacity off the saved monitor and its preview.
+            monitor = CopyMonitor(monitor)
+            monitor._yhudAuraMaxFrameCount = 2
+            groupPlan.hasExternalBuffBlock = true
+        end
         AddMember(
             plan,
             groupPlan,

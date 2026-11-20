@@ -13,7 +13,7 @@ YHUD.SETTINGS_ENTRY = "yhud.settings"
 YHUD.CONFIG_SET_PROVIDER_ID = "yhud"
 YHUD.LAYOUT_TRINKETS_ID = "yui.product.yhud.trinkets"
 YHUD.VERSION = "0.5.0"
-YHUD.SCHEMA_VERSION = 50
+YHUD.SCHEMA_VERSION = YHUD.Client.id == "forever" and 51 or 50
 YHUD.MAX_MONITOR_GLOW_RULES = 8
 YHUD.PROFILE_VERSION = 44
 
@@ -470,6 +470,8 @@ local RESOURCE_SETTINGS_STORAGE_BASELINE_V31 = {
     ["focus"] = {
         ["valueFormat"] = "value",
     },
+    -- New in Forever schema 51. Older saved deltas have no entry for this ID.
+    ["foreverMaelstromWeapon"] = { valueText = false, visibilityMode = "nonzero" },
     ["frozen"] = {
         ["fillColor"] = {
             ["g"] = 0.56078433990479,
@@ -1779,6 +1781,7 @@ local MONITOR_GLOW_CONDITIONS = {
     ["aura-missing"] = true,
     ["aura-stacks"] = true,
     ["condition-met"] = true,
+    ["timer-expiring"] = true,
 }
 
 local MONITOR_SOUND_CONDITIONS = {
@@ -3035,6 +3038,9 @@ local function NormalizeResourceSetting(
             DEFAULT_RESOURCE_GROUP_STYLE
         ),
     }
+    if YUI.IsForever and definition.id == "mana" and setting.manaRegenSpark == false then
+        result.manaRegenSpark = false
+    end
     if definition.id == "swingRanged" then
         local windup = type(setting.rangedWindup) == "table" and setting.rangedWindup or {}
         result.rangedWindup = {
@@ -3141,9 +3147,15 @@ local function MaterializeResourceSettingDeltas(
             definition,
             initialBorderColor
         )
+        local delta = settings[resourceId]
+        if resourceId == "foreverMaelstromWeapon"
+            and type(delta) == "table" and type(delta.fillColor) == "table" then
+            -- Older color overrides only stored channels that differed from blue.
+            baseline.fillColor = NormalizeColor(nil, { 0.20, 0.70, 1.00, 1 })
+        end
         materialized[resourceId] = ApplyResourceSettingDelta(
             baseline,
-            settings[resourceId]
+            delta
         )
     end
     return materialized
@@ -4272,6 +4284,50 @@ end
 
 local EnsureMigratedCooldownGroup
 
+local function MigrateLegacySummonHawkContent(profile, content)
+    local slotKeys = YHUD.SUMMON_HAWK_SLOT_KEYS
+    if YUI.IsForever ~= true or not slotKeys then return end
+    local entries = content.entries
+    local firstKey, secondKey = slotKeys[1], slotKeys[2]
+    local hasFirst = YHUD:GetLegacySummonHawkSlot(entries[firstKey]) == 1
+    local hasSecond = YHUD:GetLegacySummonHawkSlot(entries[secondKey]) == 2
+    if not (hasFirst or hasSecond) then return end
+
+    local key = YHUD.SUMMON_HAWK_KEY
+    if entries[key] and not YHUD:IsSummonHawkEntry(entries[key]) then return end
+    local placementRanks = BuildMonitorPlacementRanks(profile, content)
+    local priorities = {}
+    if entries[key] then priorities[key] = 1 end
+    if hasFirst then priorities[firstKey] = 2 end
+    if hasSecond then priorities[secondKey] = 3 end
+    local groups = profile.groups and profile.groups.items or {}
+    local selectedId, selectedPriority, selectedRank
+    for monitorId, monitor in pairs(content.monitors) do
+        local priority = type(monitor) == "table" and priorities[monitor.entryKey]
+        local rank = placementRanks[monitorId]
+        if type(monitorId) == "string" and priority and (rank or groups[monitor.groupId]) then
+            rank = rank or math.huge
+            if not selectedId or priority < selectedPriority
+                or (priority == selectedPriority
+                    and (rank < selectedRank or (rank == selectedRank and monitorId < selectedId))) then
+                selectedId, selectedPriority, selectedRank = monitorId, priority, rank
+            end
+        end
+    end
+    for monitorId, monitor in pairs(content.monitors) do
+        if type(monitor) == "table" and priorities[monitor.entryKey] then
+            if monitorId == selectedId then
+                monitor.entryKey, monitor.sourceKey = key, key
+            else
+                content.monitors[monitorId] = nil
+            end
+        end
+    end
+    if selectedId and not entries[key] then entries[key] = YHUD:BuildSummonHawkEntry() end
+    if hasFirst then entries[firstKey] = nil end
+    if hasSecond then entries[secondKey] = nil end
+end
+
 local function NormalizeContent(profile, content, scope, specKey)
     content = type(content) == "table" and content or {}
     scope = scope == YHUD.CONTENT_SCOPE_SHARED
@@ -4298,6 +4354,7 @@ local function NormalizeContent(profile, content, scope, specKey)
     content.monitors = type(content.monitors) == "table" and content.monitors or {}
     content.groupMembers = type(content.groupMembers) == "table"
         and content.groupMembers or {}
+    MigrateLegacySummonHawkContent(profile, content)
     local retired = YHUD.Client and YHUD.Client.retiredPresetKeys
     if retired then
         for entryKey, entry in pairs(content.entries) do
@@ -4444,6 +4501,8 @@ local function NormalizeContent(profile, content, scope, specKey)
         if not listed[monitorId] then content.monitors[monitorId] = nil end
     end
 
+    local sealPreset = not shared and YHUD.Client.legacySealPreset
+    local legacySealEntries
     for entryKey, entry in pairs(content.entries) do
         if type(entryKey) ~= "string" or type(entry) ~= "table" then
             content.entries[entryKey] = nil
@@ -4451,44 +4510,6 @@ local function NormalizeContent(profile, content, scope, specKey)
             entry.entryKey = entryKey
             YHUD:RepairConsumablePresetReplication(entry, entryKey)
             YHUD:RepairAmmoPresetReplication(entry)
-            -- Upgrade only the managed preset; preserve manual aura entries.
-            if YHUD.Client.id == "forever"
-                and entryKey == "aura:player:helpful:20154"
-                and entry.origin == "preset"
-                and entry.sourceType == "yhud.player-aura"
-                and entry.spellId == 20154 then
-                local seals = YHUD.FOREVER_SEAL_PRESET
-                if seals and (entry.icon == nil or entry.icon == 132325) then
-                    entry.icon = seals.icon
-                end
-                if seals and (entry.name == nil or entry.name == "正义圣印"
-                    or entry.name == "正義聖印"
-                    or entry.name == "Seal of Righteousness") then
-                    entry.name = nil
-                    entry.nameKey = seals.nameKey
-                end
-                local canonical = seals and seals.spellIDs
-                if type(canonical) == "table" then
-                    local ids, seen = {}, {}
-                    local function AddSpellID(spellID)
-                        if type(spellID) == "number" and spellID > 0
-                            and spellID == math.floor(spellID)
-                            and not seen[spellID] then
-                            ids[#ids + 1] = spellID
-                            seen[spellID] = true
-                        end
-                    end
-                    for index = 1, #canonical do
-                        AddSpellID(canonical[index])
-                    end
-                    local existing = type(entry.spellIds) == "table"
-                        and entry.spellIds or {}
-                    for index = 1, #existing do
-                        AddSpellID(existing[index])
-                    end
-                    entry.spellIds = ids
-                end
-            end
             if entryKey == (YHUD.EQUIPMENT_AURA_BUNDLE_ENTRY_KEY
                 or "bundle:equipment-auras") then
                 entry.name = nil
@@ -4511,6 +4532,13 @@ local function NormalizeContent(profile, content, scope, specKey)
                 and YHUD:GetEntrySemantic(entry)
                 or entry.semantic
                 or "cooldown"
+            if sealPreset and entry.origin == "preset" and entry.sourceType == "yhud.player-aura"
+                and (entryKey == sealPreset.key or entry.presetKey == sealPreset.key
+                    or entry.presetKey == sealPreset.id or entry.presetId == sealPreset.id
+                    or entry.sourceIdentity == sealPreset.key) then
+                legacySealEntries = legacySealEntries or {}
+                legacySealEntries[#legacySealEntries + 1] = entryKey
+            end
             if entry.sourceType == YHUD.CAST_BUFF_TIMER_SOURCE_TYPE
                 or entry.sourceType == YHUD.SPELL_EVENT_WINDOW_SOURCE_TYPE then
                 local duration = tonumber(entry.durationSeconds)
@@ -4545,6 +4573,28 @@ local function NormalizeContent(profile, content, scope, specKey)
                     if monitorId then content.monitors[monitorId] = nil end
                 end
             end
+        end
+    end
+
+    if legacySealEntries then
+        local configSets = YHUD.ConfigSets
+        local nativeKey = sealPreset.nativeKey
+        local nativeMonitor = content.monitors[entryMonitors[nativeKey]]
+        for index = 1, #legacySealEntries do
+            local entryKey = legacySealEntries[index]
+            if configSets and configSets.MigrateLegacySealMonitor then
+                configSets:MigrateLegacySealMonitor(
+                    profile, content, specKey, content.entries[entryKey],
+                    content.monitors[entryMonitors[entryKey]], nativeMonitor
+                )
+            end
+            content.entries[entryKey] = nil
+        end
+        local nativeEntry = content.entries[nativeKey]
+        if not nativeMonitor and nativeEntry and nativeEntry.origin == "official-cdm" then
+            -- A claimed CDM row can have metadata without a placement.
+            -- Let the native catalog import it again after the handoff.
+            content.entries[nativeKey] = nil
         end
     end
 
@@ -6192,6 +6242,7 @@ function YHUD:GetEffectiveResourceStyle(profile, groupId, resourceId, specID)
         thresholdMarkerColor = CopyValue(setting.thresholdMarkerColor),
         thresholdMarkerThickness = setting.thresholdMarkerThickness,
         rangedWindup = setting.rangedWindup and CopyValue(setting.rangedWindup) or nil,
+        manaRegenSpark = setting.manaRegenSpark,
     }
 end
 
@@ -6860,6 +6911,9 @@ function YHUD:NormalizeProfile(profile, specKey)
     if self.ResourceManager then
         for _, config in pairs(normalizedResourceGroups) do
             self.ResourceManager:NormalizeConfig(config, sourceVersion)
+        end
+        if self.Client.id == "forever" and sourceVersion < 51 then
+            self.ResourceManager:MigrateForeverMaelstromWeapon(profile)
         end
     end
     return profile

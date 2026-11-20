@@ -214,7 +214,6 @@ YUI.Locale:Register("YChat", "ruRU", {
     ["settings.records.local_limit"] = "Предельный рекорд истории",
     ["settings.records.restore_on_login"] = "Восстановите историю после входа",
     ["settings.records.restore_limit"] = "Сообщения восстановлены после входа",
-    ["settings.records.frame_limit"] = "Ограничение окна чат",
     ["settings.records.count"] = "Сохраняется для этого персонажа: %d",
     ["settings.records.empty"] = "История чата не хранится.",
     ["settings.records.snapshot_title"] = "История чата",

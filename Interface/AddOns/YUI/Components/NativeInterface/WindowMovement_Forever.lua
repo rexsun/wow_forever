@@ -266,6 +266,11 @@ local function Attach(definition)
     local title = frame
     if definition.titleKey then title = frame[definition.titleKey] end
     if not title or not SafeFrame(title) then return end
+    local titleText
+    if definition.titleText then
+        titleText = _G[definition.titleText]
+        if not titleText or not SafeFrame(titleText) then return end
+    end
     if Security.InCombatLockdown() then WaitForCombat(); return end
     if not Number(frame:GetFrameLevel()) then return end
     local state = { id = definition.id, frame = frame, title = title }
@@ -274,8 +279,14 @@ local function Attach(definition)
     local handle = CreateFrame("Button", nil, frame, "PanelDragBarTemplate,SmartNavigationIgnoredTemplate")
     state.handle = handle
     handle:Hide()
-    handle:SetPoint("TOPLEFT", title, "TOPLEFT", definition.titleLeft or 65, -3)
-    handle:SetPoint("TOPRIGHT", title, "TOPRIGHT", -(definition.titleRight or 40), -3)
+    if titleText then
+        -- The dropdown starts 10 pixels after the localized title.
+        handle:SetPoint("TOPLEFT", titleText, "TOPLEFT", -4, 4)
+        handle:SetPoint("TOPRIGHT", titleText, "TOPRIGHT", 4, 4)
+    else
+        handle:SetPoint("TOPLEFT", title, "TOPLEFT", definition.titleLeft or 65, -3)
+        handle:SetPoint("TOPRIGHT", title, "TOPRIGHT", -(definition.titleRight or 40), -3)
+    end
     handle:SetHeight(22)
     handle:EnableMouse(true)
     handle:EnableMouseWheel(true)

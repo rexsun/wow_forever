@@ -163,7 +163,10 @@ local SETTING_FIELDS = {
     "aspectActiveStyle",
     "showPetUtilities",
     "mageMissingBuffGlow",
-    "mageScroll", "mageIntellect", "mageArmor", "mageArmorLeft", "mageArmorMiddle", "mageArmorRight",
+    "mageScroll", "mageIntellect", "mageArmor", "mageArmorLeft", "mageArmorMiddle", "mageArmorRight", "mageManaGemCount",
+    "classToolOrder", "classToolDisabled", "classToolSelected", "teamBlessings", "teamVisibility", "aspectOrder",
+    "travelTextOffsetX", "travelTextOffsetY",
+    "teamClassIconOffsetX", "teamClassIconOffsetY",
     "flyoutDirection",
     "showQuestItems",
     "showCampTools",
@@ -216,9 +219,15 @@ end
 DEFAULT_SETTING_CAPABILITIES.aspectActiveStyle = false
 DEFAULT_SETTING_CAPABILITIES.showPetUtilities = false
 DEFAULT_SETTING_CAPABILITIES.mageMissingBuffGlow = false
-for _, key in ipairs({ "mageScroll", "mageIntellect", "mageArmor", "mageArmorLeft", "mageArmorMiddle", "mageArmorRight" }) do
+for _, key in ipairs({ "mageScroll", "mageIntellect", "mageArmor", "mageArmorLeft", "mageArmorMiddle", "mageArmorRight", "mageManaGemCount" }) do
     DEFAULT_SETTING_CAPABILITIES[key] = false
 end
+DEFAULT_SETTING_CAPABILITIES.classToolOrder, DEFAULT_SETTING_CAPABILITIES.classToolDisabled, DEFAULT_SETTING_CAPABILITIES.classToolSelected = false, false, false
+DEFAULT_SETTING_CAPABILITIES.teamBlessings = false
+DEFAULT_SETTING_CAPABILITIES.teamVisibility = false
+DEFAULT_SETTING_CAPABILITIES.teamClassIconOffsetX,DEFAULT_SETTING_CAPABILITIES.teamClassIconOffsetY = false,false
+DEFAULT_SETTING_CAPABILITIES.travelTextOffsetX, DEFAULT_SETTING_CAPABILITIES.travelTextOffsetY = false, false
+DEFAULT_SETTING_CAPABILITIES.aspectOrder = false
 DEFAULT_SETTING_CAPABILITIES.flyoutDirection = false
 DEFAULT_SETTING_CAPABILITIES.showQuestItems = false
 DEFAULT_SETTING_CAPABILITIES.showCampTools = false
@@ -443,8 +452,9 @@ local function GetSettingCapabilities(barId)
     if barId == "pet" then
         BAR_SETTING_CAPABILITIES.pet.hideEmptySlots = HasClientCapability("petEmptySlots")
     end
-    if barId == "questItems" or barId == "aspects" or barId == "totems" then
-        local yab = YUI.YActionBar
+    local yab = YUI.YActionBar
+    if barId == "questItems" or barId == "aspects" or barId == "totems" or barId == "classTools"
+        or (yab and yab.ClassTools and yab.ClassTools:IsClassBar(barId)) then
         local rule = yab and yab.SpecialBars and yab.SpecialBars:GetRule(barId)
         return rule and rule.capabilities or {}
     end
@@ -524,6 +534,7 @@ local SPECIAL_BUTTON_WIDTHS = {
     specialActionsGroup = 110,
     questItems = 136,
     classTools = 136,
+    paladinBlessings = 168,
     mageTools = 152,
     aspects = 152,
     totems = 152,
@@ -639,10 +650,11 @@ function SpecialSettings:GetLayoutButtonCount(barId, cfg, snapshot)
         cfg = yab.ClassTools:GetPreviewConfig(barId)
         barId = yab.ClassTools:GetPreviewBarId(barId)
         if barId == "mageTools" then return math.max(#yab.MageTools:GetButtonKeys(cfg), 1) end
-        if barId == "aspects" and yab.SpecialBars:GetPlayerClassToken() ~= "HUNTER" then
+        if not yab.UtilityTools and barId == "aspects" and yab.SpecialBars:GetPlayerClassToken() ~= "HUNTER" then
             return cfg.showPetUtilities ~= false and 7 or 6
         end
     end
+    if yab.UtilityTools and yab.ClassTools:IsClassBar(barId) then return math.max(yab.UtilityTools:GetPreviewButtonCount(barId, cfg), 1) end
     if barId == "questItems" then
         return math.max((cfg.showQuestItems ~= false and 3 or 0) + (cfg.showCampTools ~= false and 5 or 0), 1)
     end
@@ -719,6 +731,7 @@ local function IsClassBarSamplePreview(barId)
     local yab = GetYAB()
     if not (yab and yab.Client and yab.Client.classBars == true) then return false end
     if barId == "classTools" or barId == "mageTools" then return true end
+    if yab.ClassTools and yab.ClassTools:IsClassBar(barId) and barId ~= "aspects" and barId ~= "totems" then return true end
     if barId ~= "aspects" and barId ~= "totems" then return false end
     return yab.SpecialBars:GetPlayerClassToken() ~= (barId == "aspects" and "HUNTER" or "SHAMAN")
 end
@@ -1039,12 +1052,13 @@ local function SetSetting(cfg, key, value, refreshScope, deferSave)
     end
 end
 
-local function CopySettings(source, target, targetBarId)
+local function CopySettings(source, target, targetBarId, sourceBarId)
     if type(source) ~= "table" or type(target) ~= "table" then return end
     local capabilities = GetSettingCapabilities(targetBarId)
     for _, key in ipairs(SETTING_FIELDS) do
         local capabilityKey = TEXT_COLOR_CAPABILITIES[key] or key
-        if capabilities[capabilityKey] == true then
+        local classMap = key == "classToolOrder" or key == "classToolDisabled" or key == "classToolSelected" or key == "teamBlessings" or key == "aspectOrder"
+        if capabilities[capabilityKey] == true and (not classMap or not sourceBarId or sourceBarId == targetBarId) then
             target[key] = CopyValue(source[key])
         end
     end
@@ -1053,7 +1067,11 @@ end
 local function ResetSettingsToDefault(barId, cfg)
     local defaults = GetDefaultBar(barId)
     if not defaults or not cfg then return end
-    CopySettings(defaults, cfg, barId)
+    CopySettings(defaults, cfg, barId, barId)
+    local tools = GetYAB().ClassTools
+    if tools and (barId == "classTools" or tools:IsClassBar(barId)) then
+        tools:ResetClassOptions(tools:GetPreviewBarId(barId))
+    end
     if barId == SpecialSettings.specialGroupId then
         cfg.growthDirection = defaults.growthDirection
         cfg.groupAlignment = defaults.groupAlignment
@@ -1370,13 +1388,22 @@ local function ResetEditorForBarChange()
     editorState.panY = 0
 end
 
-local function GetPreviewBindingText(barId, index)
+local function GetPreviewBindingText(barId, index, realButton, classToolKey)
     local yab = GetYAB()
     local keybinds = yab and yab.Keybinds
     if not (keybinds and keybinds.GetBindingText) then
         return ""
     end
-    local buttonKey = keybinds.GetButtonKey and keybinds:GetButtonKey(barId, index)
+    local factory = yab.SecureFactory
+    local meta = realButton and factory and factory.GetButtonMeta and factory:GetButtonMeta(realButton)
+    local buttonKey = meta and meta.buttonKey
+    if not buttonKey and classToolKey and yab.ClassTools and yab.ClassTools:IsClassBar(barId) then
+        local key = classToolKey
+        if barId == "aspects" then key = tonumber(key:match("^aspect(%d+)$")) or key
+        elseif barId == "totems" then key = ({ fire=1, earth=2, water=3, air=4 })[key] or key end
+        buttonKey = barId .. "." .. key
+    end
+    buttonKey = buttonKey or (keybinds.GetButtonKey and keybinds:GetButtonKey(barId, index))
         or (tostring(barId) .. "." .. tostring(index))
     return keybinds:GetBindingText(buttonKey) or ""
 end
@@ -1404,6 +1431,7 @@ local function GetPreviewSnapshot(db, barId, cfg)
     local specialBars = yab and yab.SpecialBars
     if specialBars and specialBars.NormalizeConfigSnapshot and not IsOrdinaryBar(db, barId) then
         previewSnapshot = CopyValue(previewSnapshot)
+        previewSnapshot.barId = barId
         specialBars:NormalizeConfigSnapshot(barId, previewSnapshot, cfg)
     end
     return previewSnapshot
@@ -1437,6 +1465,7 @@ end
 
 local function GetPreviewRecordButton(record, index)
     if not record then return nil end
+    if record.classToolPrepared and GetYAB().ClassTools then return GetYAB().ClassTools:GetLayoutButtons(record)[index] end
     if record.externalButtons and record.externalButtons[index] then
         return record.externalButtons[index]
     end
@@ -1729,11 +1758,17 @@ local function BuildPreviewLayout(db, barId, cfg, snapshot)
     end
     local record = GetPreviewRecord(barId)
     local sample = IsClassBarSamplePreview(barId)
-    local count = sample and (barId == "mageTools" and #GetYAB().MageTools:GetButtonKeys(cfg)
+    local count = sample and (GetYAB().UtilityTools and GetYAB().UtilityTools:GetPreviewButtonCount(barId, cfg)
+        or barId == "mageTools" and #GetYAB().MageTools:GetButtonKeys(cfg)
         or barId == "aspects" and cfg.showPetUtilities ~= false and 7 or 6)
         or GetPreviewButtonCount(db, barId, cfg, snapshot, record)
     local configuredLayout = BuildFallbackPreviewLayout(db, barId, cfg, snapshot, count, record)
     if sample or barId == "questItems" then return configuredLayout end
+    if record and record.classToolPrepared then
+        local buttons = GetYAB().ClassTools:GetLayoutButtons(record)
+        for index, position in ipairs(configuredLayout.positions) do position.realButton = buttons[index] end
+        return configuredLayout
+    end
     if barId == "aspects" and record and record.petUtilityToggle and cfg.showPetUtilities ~= false then
         configuredLayout.positions[#configuredLayout.positions].realButton = record.petUtilityToggle
         return configuredLayout
@@ -1851,18 +1886,21 @@ local function BuildPreviewButtonState(db, barId, cfg, snapshot, index, realButt
         if adapter.ReadActionState then adapter:ReadActionState(slot, state) end
         if adapter.ReadActionGlow then adapter:ReadActionGlow(slot, state) end
     elseif IsClassBarSamplePreview(barId) and yab.ClassBars then
-        local spellID = yab.ClassBars:GetSampleSpellID(barId, index, cfg)
+        local spellID, sampleKey = yab.ClassBars:GetSampleSpellID(barId, index, cfg)
         local info = spellID and YUI.API.Spell.GetInfo(spellID)
         state.texture = info and (PreviewSafety:Value(info.originalIconID) or PreviewSafety:Value(info.iconID))
-        if barId == "aspects" and index == 7 then state.texture = yab.ClassBars.petUtilityAbsentTexture end
+        state.classToolKey, state.classToolSpell = sampleKey, spellID
+        if barId == "paladinBlessings" and sampleKey and sampleKey~="manage" then
+            state.classToolClass=sampleKey
+            state.classToolCaption=T("class_tools.blessing_short_"..sampleKey)
+        end
+        if barId == "paladinBlessings" and sampleKey == "manage" then state.texture = PreviewSafety:Value(YUI.API.Item.GetIcon(21177)) end
+        if barId == "aspects" and (sampleKey == "pet" or not sampleKey and index == 7) then state.texture = yab.ClassBars.petUtilityAbsentTexture end
         state.hasAction = state.texture ~= nil
-        if barId == "aspects" and index <= 6 then
-            state.aspectActiveStyle = cfg.aspectActiveStyle or "innerGlow"
+        if barId == "aspects" and sampleKey ~= "pet" and index <= 6 then
+            state.aspectActiveStyle = "dimOthers"
             state.checked = index == 2
-            state.aspectDimmed = state.aspectActiveStyle == "dimOthers" and not state.checked
-            if state.checked and state.aspectActiveStyle == "nativeIcon" then
-                state.texture = yab.ClassBars.aspectActiveTexture
-            end
+            state.aspectDimmed = not state.checked
         end
     elseif barId == "aspects" and yab and yab.ClassBars and yab.ClassBars.petUtilities
         and realButton == yab.ClassBars.petUtilities.toggle and realButton ~= nil then
@@ -1879,12 +1917,11 @@ local function BuildPreviewButtonState(db, barId, cfg, snapshot, index, realButt
         else
             spellID, known = yab.ClassBars:GetAspectPreview(index, cfg)
         end
-        if spellID then
+        if spellID and known then
             local info = YUI.API.Spell.GetInfo(spellID)
             state.texture = info and (PreviewSafety:Value(info.originalIconID) or PreviewSafety:Value(info.iconID))
-            state.hasAction, state.usable = state.texture ~= nil, known
-            state.unlearned = not known
-            state.aspectActiveStyle = cfg.aspectActiveStyle or "innerGlow"
+            state.hasAction = state.texture ~= nil
+            state.aspectActiveStyle = "dimOthers"
             local live = realButton and yab.ClassBars.states[realButton]
             if live then
                 state.checked = live.visual.checked == true
@@ -1979,7 +2016,8 @@ local function BuildPreviewButtonState(db, barId, cfg, snapshot, index, realButt
     CopyRealButtonVisualState(state, realButton, false, externalIcon)
 
     state.rangeMode = snapshot and snapshot.rangeMode or state.rangeMode
-    state.hotkeyText = snapshot and snapshot.showHotkeys == false and "" or GetPreviewBindingText(barId, index)
+    state.hotkeyText = snapshot and snapshot.showHotkeys == false and ""
+        or GetPreviewBindingText(barId, index, realButton, state.classToolKey)
     state.countText = BuildPreviewCountText(state, snapshot)
     state.nameText = BuildPreviewNameText(state, snapshot)
     CopyRealButtonVisualState(state, realButton, copyRealText == true)
@@ -2344,6 +2382,49 @@ local function RenderPreviewButton(parent, db, barId, cfg, snapshot, index, widt
         button:SetFrameLevel((parent:GetFrameLevel() or 1) + 1)
     end
     ApplyPreviewVisual(button, db, barId, snapshot, width, height, visualSize, state)
+    local yab = GetYAB()
+    if yab.UtilityTools and yab.ClassTools:IsClassBar(barId) then
+        local _, key = yab.UtilityTools:GetSampleSpellID(barId, index, cfg)
+        local liveButton = options.realButton or not IsClassBarSamplePreview(barId) and GetPreviewRecordButton(GetPreviewRecord(barId), index)
+        if liveButton then
+            local meta = yab.SecureFactory:GetButtonMeta(liveButton)
+            key = meta and meta.classToolKey or key
+        end
+        button.classToolId, button.classToolKey = barId, key
+        button:RegisterForDrag("LeftButton")
+        button:SetScript("OnDragStart", function(self)
+            if not IsShiftKeyDown() or yab.Adapter:InCombat() or yab.KeybindMode and yab.KeybindMode.active then return end
+            if editorState.classToolDrag then yab.ClassTools:CancelDrag() end
+            StopPreviewDrag()
+            if yab.ClassTools:BeginDrag(self, self.classToolId, self.classToolKey) then editorState.classToolDrag = self end
+        end)
+        button:SetScript("OnDragStop", function(self)
+            if editorState.classToolDrag ~= self then return end
+            editorState.classToolDrag = nil
+            local active = yab.ClassTools.dragButton == self
+            yab.ClassTools:CancelDrag()
+            if not active then return end
+            if yab.Adapter:InCombat() then return end
+            for _, target in ipairs(editorState.previewButtons or {}) do
+                if target ~= self and target.classToolId == self.classToolId and target:IsMouseOver() then
+                    if yab.ClassTools:SwapButtons(self.classToolId, self.classToolKey, target.classToolKey) and onRerender then onRerender() end
+                    break
+                end
+            end
+        end)
+        button:HookScript("OnHide", function(self)
+            if editorState.classToolDrag == self then editorState.classToolDrag = nil; yab.ClassTools:CancelDrag() end
+        end)
+        yab.ClassTools:PrepareDragFeedback(button)
+        local city = state.classToolSpell and yab.ClassToolData.cityKeys[state.classToolSpell]
+        if city or state.classToolCaption then
+            local visual = yab.Visuals.buttons[button]
+            local caption = state.classToolCaption or T("class_tools.city_" .. city)
+            local label = GUI2:CreateText(visual and visual.classTextHost or button, caption, "font.size.sm", "color.text.primary", "CENTER")
+            if state.classToolClass then yab.ClassTools:AnchorTeamClassCaption(label,button,state.classToolClass,cfg)
+            else yab.ClassTools:AnchorCaption(label,button,snapshot);yab.ClassTools:StyleText(label) end
+        end
+    end
     local professionQualityPreviewActive = editorState.textSettingsType == "professionQuality"
         and editorState.textSettingsPopover ~= nil
     if index == 1
@@ -2366,6 +2447,7 @@ local function RenderPreviewButton(parent, db, barId, cfg, snapshot, index, widt
     end
     SyncPreviewTextOverlayLevel(button)
     button:SetScript("OnMouseDown", function(self)
+        if self.classToolKey and IsShiftKeyDown() then return end
         local strip = self:GetParent()
         local viewport = strip and strip:GetParent()
         StartPreviewPanDrag(self, viewport, strip)
@@ -2586,6 +2668,14 @@ local function ShowCopyMenu(parent, db, barId, onRerender)
 end
 
 local function CreateVisibilityEditor(parent, cfg, width, compact)
+    if selectedBarId == "paladinBlessings" then
+        return GUI2.Form:CreateDropdown(parent, {width=width,height=compact and 24 or 28,
+            options={{value="raid",text=T("class_tools.blessing_visibility_raid")},
+                {value="group",text=T("class_tools.blessing_visibility_group")},
+                {value="always",text=T("class_tools.blessing_visibility_always")}},
+            get=function() return cfg.teamVisibility or "raid" end,
+            set=function(value) SetSetting(cfg,"teamVisibility",value,"structure") end})
+    end
     return GUI2.Form:CreateVisibilityRuleEditor(parent, {
         width = width, height = compact and 24 or nil, popupWidth = 320,
         labelWidth = compact and 128 or math.min(128, math.floor(width * 0.35)),
@@ -2604,13 +2694,14 @@ local PREVIEW_CONTROL_WIDTHS = {
 }
 
 local function BuildPreviewControlSpecs(barId)
+    local enabledLabelExtraWidth = barId == "classTools" and 30 or 0
     local specs = barId == SpecialSettings.specialGroupId
         and {
             { id = "visibility", width = PREVIEW_CONTROL_WIDTHS.visibility },
         }
         or {
-            { id = "enabled", width = PREVIEW_CONTROL_WIDTHS.enabled },
-            { id = "visibility", width = PREVIEW_CONTROL_WIDTHS.visibility },
+            { id = "enabled", width = PREVIEW_CONTROL_WIDTHS.enabled + enabledLabelExtraWidth },
+            { id = "visibility", width = PREVIEW_CONTROL_WIDTHS.visibility - enabledLabelExtraWidth },
         }
     local width = math.max(#specs - 1, 0) * PREVIEW_CONTROL_GAP
     for index = 1, #specs do
@@ -2640,6 +2731,9 @@ local function RenderPreviewControls(parent, db, barId, cfg, onRerender)
             local actionText = cfg.enabled == false
                 and T("settings.enable_bar_action", "启用")
                 or T("settings.disable_bar_action", "停用")
+            if barId == "classTools" then
+                actionText = T(cfg.enabled == false and "class_tools.enable_shared" or "class_tools.disable_shared")
+            end
             control = CreateButton(controlGroup, actionText, spec.width, function()
                 cfg.enabled = cfg.enabled == false
                 ApplyStructuralRefresh(GetDB(), selectedBarId, "settings:enabled")
@@ -2658,7 +2752,7 @@ local function RenderPreviewControls(parent, db, barId, cfg, onRerender)
                     RefreshPreviewOnly("structure")
                 end
             end, cfg.enabled == false and "success" or "default", 24,
-                cfg.enabled == false and "play" or "square")
+                barId ~= "classTools" and (cfg.enabled == false and "play" or "square") or nil)
         elseif spec.id == "visibility" then
             control = CreateVisibilityEditor(controlGroup, cfg, spec.width, true)
         end
@@ -2697,9 +2791,14 @@ function SpecialSettings:RenderClassToolsPreview(frame, db, barId, onRerender)
         })
         button:SetPoint("TOPLEFT", 12 + (index - 1) * 32, -12)
         button:SetFrameLevel(frame:GetFrameLevel() + 12)
+        local config = tools:GetConfig(id, db)
+        if config and button.icon and button.icon.SetDesaturated then
+            button.icon:SetDesaturated(config.enabled == false)
+        end
     end
     local independent = tools:IsIndependent(previewId, db)
-    local toggle = CreateButton(frame, T(independent and "class_tools.join" or "class_tools.detach"), 104, function()
+    local actionWidth = 120
+    local toggle = CreateButton(frame, T(independent and "class_tools.join" or "class_tools.detach"), actionWidth, function()
         if tools:SetIndependent(previewId, not independent) then
             selectedBarId = tools:GetSettingsBarId(previewId)
             if onRerender then onRerender() end
@@ -2707,6 +2806,19 @@ function SpecialSettings:RenderClassToolsPreview(frame, db, barId, onRerender)
     end, "default", 24)
     toggle:SetPoint("BOTTOMRIGHT", -12, 10)
     toggle:SetFrameLevel(frame:GetFrameLevel() + 12)
+    if barId == "classTools" then
+        local own = db.specialBars[previewId]
+        local disabled = own.classToolsEnabled == false
+        local classToggle = CreateButton(frame, T(disabled and "class_tools.enable_class" or "class_tools.disable_class"), actionWidth, function()
+            own.classToolsEnabled = disabled
+            local reason = "settings:classToolsEnabled"
+            ApplyStructuralRefresh(db, previewId, reason)
+            PatchConfigSetSetting(previewId, "classToolsEnabled", disabled, reason)
+            if onRerender then onRerender() end
+        end, disabled and "success" or "default", 24)
+        classToggle:SetPoint("BOTTOMRIGHT", toggle, "TOPRIGHT", 0, 4)
+        classToggle:SetFrameLevel(frame:GetFrameLevel() + 12)
+    end
 end
 
 local function RenderPreviewEditor(parent, db, barId, x, y, width, onRerender)
@@ -2799,7 +2911,7 @@ local function RenderPreviewEditor(parent, db, barId, x, y, width, onRerender)
     end
 
     RenderPreviewControls(frame, db, barId, cfg, onRerender)
-    if SpecialSettings:IsSettingsGroupSupported(barId, "class") then
+    if barId ~= "paladinBlessings" and SpecialSettings:IsSettingsGroupSupported(barId, "class") then
         label:Hide()
         SpecialSettings:RenderClassToolsPreview(frame, db, barId, onRerender)
     end
@@ -2900,7 +3012,7 @@ ShowCopySourcePopup = function(db, targetBarId, onComplete)
             local col = (index - 1) % columns
             local currentSource = sourceBarId
             local button = CreateButton(popup, GetBarLabel(currentSource, groupTable[currentSource]), itemWidth, function()
-                CopySettings(groupTable[currentSource], targetConfig, targetBarId)
+                CopySettings(groupTable[currentSource], targetConfig, targetBarId, currentSource)
                 ApplyStructuralRefresh(db, targetBarId, "settings:copy")
                 AutoSaveCurrentConfigSet("settings:copy")
                 popup:Hide()
@@ -3008,7 +3120,7 @@ ShowCopyTargetsPopup = function(db, sourceBarId, onComplete)
         local changedBars = {}
         for _, targetBarId in ipairs(targetIds) do
             if selectedTargets[targetBarId] == true then
-                CopySettings(sourceConfig, groupTable[targetBarId], targetBarId)
+                CopySettings(sourceConfig, groupTable[targetBarId], targetBarId, sourceBarId)
                 changedBars[#changedBars + 1] = targetBarId
             end
         end
@@ -3539,11 +3651,6 @@ local function RenderDisplaySection(parent, cfg, barId, x, y, width, specialPare
     end
     local specialFields = {}
     if not SpecialSettings:IsSettingsGroupSupported(barId, "class") then
-    AddSettingField(specialFields, barId, "showUnlearned", {
-        type = "checkbox", label = T("settings.show_unlearned"), tooltip = T("settings.show_unlearned_tooltip"), default = false,
-        get = function() return cfg.showUnlearned == true end,
-        set = function(value) SetSetting(cfg, "showUnlearned", value == true, "action") end,
-    })
     AddSettingField(specialFields, barId, "showPetUtilities", {
         type = "checkbox", label = T("settings.show_pet_utilities"), default = true,
         get = function() return cfg.showPetUtilities ~= false end,
@@ -3701,14 +3808,44 @@ function SpecialSettings:RenderClassToolsOptions(parent, width, onRerender)
         PatchConfigSetSetting(id, key, value, "settings:" .. key)
         if onRerender then onRerender() end
     end
+    local availableWidth = math.max(width - 40, 1)
+    local toggleHeight = 0
+    if yab.UtilityTools and id ~= "paladinBlessings" then
+        for _, key in ipairs(yab.ClassTools:GetButtonOrder(id, cfg)) do
+            local gemSlot = id == "mageTools" and yab.ClassTools.manaGemSlot[key]
+            local show = true
+            if id == "aspects" and (key == "aspect7" or key == "aspect8") then
+                local family = yab.ClassBars.aspectFamilies[tonumber(key:sub(7))]
+                show = yab.SpecialBars:GetPlayerClassToken() == "HUNTER"
+                    and select(2, yab.ClassBars:ResolveAspect(family)) == true
+            end
+            if show and (not gemSlot or gemSlot == 1) then
+                local spell = yab.ClassToolData.preview[id] and yab.ClassToolData.preview[id][key]
+                local info = spell and YUI.API.Spell.GetInfo(spell)
+                local icon = info and (PreviewSafety:Value(info.originalIconID) or PreviewSafety:Value(info.iconID)) or 134400
+                local labelKey = id == "totems" and key == "water" and "water_totem" or key
+                local label = key:match("^aspect%d+$") and info and info.name or T("class_tools." .. labelKey)
+                fields[#fields + 1] = {type="checkbox", height=24,
+                    label="|T" .. tostring(icon) .. ":16:16:0:0:64:64:4:60:4:60|t " .. label,
+                    get=function() return yab.ClassTools:IsButtonEnabled(id, key, cfg) end,
+                    set=function(value)
+                        yab.ClassTools:SetButtonEnabled(id, key, value == true)
+                        if onRerender then onRerender() end
+                    end}
+            end
+        end
+        local _, _, height = S:RenderAlignedFields(parent, {fields=fields,x=20,y=-12,width=availableWidth,
+            columns=4,labelPosition="top",columnGap=12,minColumnWidth=132,rowHeight=24,rowGap=4})
+        toggleHeight = height
+        fields = {}
+    end
     if id == "mageTools" then
-        local availableWidth = math.max(width - 40, 1)
-        local formWidth = math.min(availableWidth, 488)
+        local formWidth = availableWidth
         local iconCoords = { 1 / 16, 15 / 16, 1 / 16, 15 / 16 }
         local function Icon(info)
             return info and (PreviewSafety:Value(info.originalIconID) or PreviewSafety:Value(info.iconID)) or 134400
         end
-        for _, entry in ipairs({ { "mageScroll", "scroll", yab.MageData.comprehendSpellID },
+        for _, entry in ipairs(yab.UtilityTools and {} or { { "mageScroll", "scroll", yab.MageData.comprehendSpellID },
             { "mageIntellect", "intellect", yab.MageData.intellectSpellID },
             { "mageArmor", "armor", yab.MageTools:ResolveArmor(cfg.mageArmorLeft) } }) do
             local key = entry[1]
@@ -3717,24 +3854,50 @@ function SpecialSettings:RenderClassToolsOptions(parent, width, onRerender)
                 label = "|T" .. tostring(icon) .. ":16:16:0:0:64:64:4:60:4:60|t " .. T("class_tools." .. entry[2]),
                 get = function() return cfg[key] ~= false end, set = function(value) Set(key, value == true) end }
         end
-        local _, _, toggleHeight = S:RenderAlignedFields(parent, { fields = fields, x = 20, y = -12,
-            width = math.min(availableWidth, 324), columns = 3, labelPosition = "top", columnGap = 12,
-            minColumnWidth = 96, rowHeight = 24, rowGap = 8 })
-        fields = {}
-        local infoIce = YUI.API.Spell.GetInfo(yab.MageData.armorSpells.ice)
-        local infoFrost = YUI.API.Spell.GetInfo(yab.MageData.armorSpells.frost)
-        local options = { { value = "auto", icon = Icon(YUI.API.Spell.GetInfo(yab.MageTools:ResolveArmor("auto"))),
-            iconSize = 16, texCoords = iconCoords, text = string.format(T("class_tools.armor_auto"),
-            infoIce and infoIce.name or "", infoFrost and infoFrost.name or "") } }
-        for _, key in ipairs({ "mage", "ice", "frost" }) do
-            local info = YUI.API.Spell.GetInfo(yab.MageData.armorSpells[key])
-            options[#options + 1] = { value = key, text = info and info.name or T("class_tools.unlearned"),
-                icon = Icon(info), iconSize = 16, texCoords = iconCoords }
+        if #fields > 0 then
+            local _, _, legacyToggleHeight = S:RenderAlignedFields(parent, { fields = fields, x = 20, y = -12,
+                width = math.min(availableWidth, 324), columns = 3, labelPosition = "top", columnGap = 12,
+                minColumnWidth = 96, rowHeight = 24, rowGap = 4 })
+            toggleHeight = math.max(toggleHeight, legacyToggleHeight)
         end
+        fields = {}
+        local infoFrost = YUI.API.Spell.GetInfo(yab.MageData.armorSpells.frost)
+        local infoMage = YUI.API.Spell.GetInfo(yab.MageData.armorSpells.mage)
+        local options = {
+            { value = "auto", text = T("class_tools.armor_auto"), icon = Icon(infoFrost), iconSize = 16, texCoords = iconCoords },
+            { value = "mage", text = T("class_tools.armor_mage"), icon = Icon(infoMage), iconSize = 16, texCoords = iconCoords },
+        }
         for _, entry in ipairs({ { "mageArmorLeft", "left" }, { "mageArmorRight", "right" } }) do
             local key = entry[1]
-            fields[#fields + 1] = { type = "dropdown", label = T("class_tools." .. entry[2]), options = options,
-                get = function() return cfg[key] end, set = function(value) Set(key, value) end }
+            fields[#fields + 1] = { type = "dropdown", layoutPreset="inlineSelector",
+                label = T("class_tools.armor") .. " · " .. T("class_tools." .. entry[2]), options = options,
+                get = function() return cfg[key] == "mage" and "mage" or "auto" end,
+                set = function(value) Set(key, value) end }
+        end
+        for _, axis in ipairs({"X", "Y"}) do
+            local key = "travelTextOffset" .. axis
+            fields[#fields + 1] = {type="slider", layoutPreset="inlineSelector", controlWidth=80, minControlWidth=80,
+                label=T("class_tools.travel_offset_" .. axis:lower()), min=-64, max=64, step=1,
+                get=function() return cfg[key] or (axis == "X" and 2 or 0) end,
+                set=function(value)
+                    cfg[key] = value
+                    yab.ClassTools:Invalidate()
+                    if yab.BarManager and yab.BarManager.QueueSettingsRefresh then yab.BarManager:QueueSettingsRefresh(id, "text") end
+                    if RefreshPreviewOnly then RefreshPreviewOnly("text") end
+                end,
+                onCommit=function() PatchConfigSetSetting(id, key, cfg[key], "settings:" .. key) end}
+        end
+        fields[#fields + 1] = { type="dropdown", layoutPreset="inlineSelector", label=T("settings.flyout_direction"), options=BuildMappedOptions(SpecialSettings.growthDirectionOptionKeys),
+            get=function() return cfg.flyoutDirection or "up" end, set=function(value) Set("flyoutDirection", value) end }
+        if yab.UtilityTools then
+            local counts = {}
+            for count = 1, #yab.ClassTools.manaGemKeys do
+                counts[count] = { value = count, text = tostring(count) }
+            end
+            fields[#fields + 1] = { type = "dropdown", layoutPreset = "inlineSelector",
+                label = T("class_tools.mana_gem_count"), options = counts,
+                get = function() return yab.ClassTools:GetManaGemCount(cfg) end,
+                set = function(value) Set("mageManaGemCount", value) end }
         end
         local glowOptions = {}
         for _, style in ipairs({ "none", "pixel", "soft", "button", "autocast", "proc", "pulse", "masque" }) do
@@ -3767,30 +3930,41 @@ function SpecialSettings:RenderClassToolsOptions(parent, width, onRerender)
                 end
             end,
         }
-        local _, _, height = S:RenderAlignedFields(parent, { fields = fields, x = 20, y = -toggleHeight - 26,
+        local form, _, height = S:RenderAlignedFields(parent, { fields = fields, x = 20, y = -toggleHeight - 24,
             width = formWidth, columns = 2, labelPosition = "top", columnGap = 12, minColumnWidth = 216,
-            rowHeight = 26, rowGap = 14, topLabelGap = 4 })
-        return toggleHeight + height + 38
+            rowHeight = 26, rowGap = 8, topLabelGap = 4 })
+        for _, field in ipairs(fields) do
+            if field.type == "slider" and field.widget and field.widget.SetCompactMode then
+                field.widget:SetCompactMode(true, field.widget:GetWidth(), field.onCommit)
+            end
+        end
+        if form and form.Relayout then height = form:Relayout() end
+        return toggleHeight + height + 36
     end
-    if id == "aspects" then
-        for _, entry in ipairs({ { "showUnlearned", "settings.show_unlearned" }, { "showPetUtilities", "settings.show_pet_utilities" } }) do
-            local key = entry[1]
-            fields[#fields + 1] = { type = "checkbox", label = T(entry[2]),
-                get = function() return cfg[key] == true end, set = function(value) Set(key, value == true) end }
+    if id == "aspects" and not yab.UtilityTools then
+        fields[#fields + 1] = { type = "checkbox", label = T("settings.show_pet_utilities"),
+            get = function() return cfg.showPetUtilities == true end,
+            set = function(value) Set("showPetUtilities", value == true) end }
+    end
+    if id == "paladinBlessings" then
+        for _,axis in ipairs({"X","Y"}) do
+            local key="teamClassIconOffset"..axis
+            fields[#fields+1]={type="slider",label=T("class_tools.team_icon_offset_"..axis:lower()),min=-64,max=64,step=1,
+                get=function() return cfg[key] or 0 end,
+                set=function(value)
+                    cfg[key]=value;yab.ClassTools:Invalidate()
+                    if yab.PaladinBlessings and yab.PaladinBlessings.entry then yab.PaladinBlessings:LayoutToolbar(yab.PaladinBlessings.record) end
+                    if RefreshPreviewOnly then RefreshPreviewOnly("text") end
+                end,
+                onCommit=function() PatchConfigSetSetting(id,key,cfg[key],"settings:"..key) end}
         end
     end
-    if id == "aspects" then
-        fields[#fields + 1] = { type = "dropdown", label = T("settings.aspect_active_style"),
-            options = { { value = "innerGlow", text = T("aspect_active.inner_glow") },
-                { value = "nativeIcon", text = T("aspect_active.native_icon") },
-                { value = "dimOthers", text = T("aspect_active.dim_others") } },
-            get = function() return cfg.aspectActiveStyle or "innerGlow" end,
-            set = function(value) Set("aspectActiveStyle", value) end }
-    end
+    if id ~= "paladinBlessings" then
     fields[#fields + 1] = { type = "dropdown", label = T("settings.flyout_direction"),
         options = BuildMappedOptions(SpecialSettings.growthDirectionOptionKeys),
         get = function() return cfg.flyoutDirection or "up" end, set = function(value) Set("flyoutDirection", value) end }
-    return RenderAligned(parent, fields, 20, -16, width - 40, 2) + 32
+    end
+    return RenderAligned(parent, fields, 20, -toggleHeight - 16, width - 40, 2) + toggleHeight + 32
 end
 
 local function RenderCurrentOptions(parent, cfg, formWidth, onRerender, db)
@@ -4134,26 +4308,18 @@ local function RenderCurrentOptions(parent, cfg, formWidth, onRerender, db)
             end,
         }
     end
-    AddSettingField(layoutFields, barId, "alignment", {
-            type = "dropdown",
-            label = T("settings.alignment", "末行对齐"),
-            options = BuildMappedOptions(ALIGNMENT_OPTION_KEYS),
-            default = barId == "stance" and "center" or "left",
-            get = function() return cfg.alignment or (barId == "stance" and "center" or "left") end,
-            set = function(value) SetSetting(cfg, "alignment", value or "left", "layout") end,
-            hidden = function() return not IsAlignmentEffective(barId, cfg) end,
-    })
+    local layoutRowLimit = barId == "paladinBlessings" and 10 or layoutButtonCount
     AddSettingField(layoutFields, barId, "rows", {
             type = "slider",
             label = T("settings.rows", "行数"),
             min = 1,
-            max = layoutButtonCount,
+            max = layoutRowLimit,
             step = 1,
-            default = ClampNumber(cfg.rows, 1, layoutButtonCount, 1),
-            get = function() return ClampNumber(cfg.rows, 1, layoutButtonCount, 1) end,
+            default = ClampNumber(cfg.rows, 1, layoutRowLimit, 1),
+            get = function() return ClampNumber(cfg.rows, 1, layoutRowLimit, 1) end,
             set = function(value)
                 local alignmentWasEffective = IsAlignmentEffective(barId, cfg)
-                cfg.rows = ClampNumber(value, 1, SpecialSettings:GetLayoutButtonCount(barId, cfg), 1)
+                cfg.rows = ClampNumber(value, 1, barId == "paladinBlessings" and 10 or SpecialSettings:GetLayoutButtonCount(barId, cfg), 1)
                 SyncSelectedConfigSnapshot("layout")
                 if alignmentWasEffective ~= IsAlignmentEffective(barId, cfg) and onRerender then
                     onRerender()
@@ -4167,6 +4333,15 @@ local function RenderCurrentOptions(parent, cfg, formWidth, onRerender, db)
                     "settings:rows"
                 )
             end,
+    })
+    AddSettingField(layoutFields, barId, "alignment", {
+            type = "dropdown",
+            label = T("settings.alignment", "末行对齐"),
+            options = BuildMappedOptions(ALIGNMENT_OPTION_KEYS),
+            default = barId == "stance" and "center" or "left",
+            get = function() return cfg.alignment or (barId == "stance" and "center" or "left") end,
+            set = function(value) SetSetting(cfg, "alignment", value or "left", "layout") end,
+            hidden = function() return not IsAlignmentEffective(barId, cfg) end,
     })
     if not SpecialSettings:IsSettingsGroupSupported(barId, "class") then
     AddSettingField(layoutFields, barId, "flyoutDirection", {
@@ -4236,20 +4411,6 @@ local function RenderCurrentOptions(parent, cfg, formWidth, onRerender, db)
             return control
         end,
     })
-    if not SpecialSettings:IsSettingsGroupSupported(barId, "class") then
-    AddSettingField(appearanceFields, barId, "aspectActiveStyle", {
-            type = "dropdown",
-            label = T("settings.aspect_active_style"),
-            options = {
-                { value = "innerGlow", text = T("aspect_active.inner_glow") },
-                { value = "nativeIcon", text = T("aspect_active.native_icon") },
-                { value = "dimOthers", text = T("aspect_active.dim_others") },
-            },
-            default = "innerGlow",
-            get = function() return cfg.aspectActiveStyle or "innerGlow" end,
-            set = function(value) SetSetting(cfg, "aspectActiveStyle", value or "innerGlow", "visual") end,
-    })
-    end
     if selectedGroup == "appearance" then
         -- 完整皮肤合并外观项，按实际字段数计算高度。
         return RenderAligned(parent, appearanceFields, x, -4, sectionWidth, 2, APPEARANCE_LAYOUT) + 8

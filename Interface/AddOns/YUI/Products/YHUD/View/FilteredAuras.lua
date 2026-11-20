@@ -369,6 +369,8 @@ local function AddSpellID(result, seen, value)
 end
 
 local function GetEntrySpellIDs(entry, monitor)
+    local fallbackSpellID = YHUD.GetOfficialAuraFallbackSpellID and YHUD:GetOfficialAuraFallbackSpellID(entry)
+    if fallbackSpellID then return { fallbackSpellID } end
     local result = {}
     local seen = {}
     for index = 1, #(monitor and monitor._yhudSpellIdentities or {}) do
@@ -1030,6 +1032,7 @@ local function BuildDynamicNodeHandle(
         or (runtime.itemWidth + (tonumber(runtime.columnSpacing) or 0)))
     local effectiveWidth = balance and cellWidth / 2 or cellWidth
     local elementWidth = effectiveWidth + FILTERED_AURA_RESTING_WIDTH
+    local capacity = monitor._yhudAuraMaxFrameCount or 1
     local keyPrefix = balance and "yhud-special-balance-"
         or "yhud-special-aura-"
     local handle, code = Unit.CreateFilteredAuraDisplay(runtime.frame, {
@@ -1038,17 +1041,22 @@ local function BuildDynamicNodeHandle(
         filter = scope.filter,
         requirePlayerSource = scope.requirePlayerSource,
         point = columnIcons and "TOP" or "LEFT",
-        layout = ResolveDynamicNodeLayout(runtime, elementWidth, balance),
+        layout = ResolveDynamicNodeLayout(runtime, capacity * effectiveWidth
+            + FILTERED_AURA_RESTING_WIDTH, balance),
         groups = {
             {
                 key = keyPrefix .. tostring(monitor.id),
                 spellIDs = spellIDs,
-                maxFrameCount = 1,
+                maxFrameCount = capacity,
+                sortMethod = capacity > 1 and 0 or nil,
+                sortDirection = capacity > 1 and 0 or nil,
                 layout = {
                     layoutIndex = 1,
                     elementWidth = columnIcons and runtime.itemWidth or elementWidth,
                     elementHeight = columnIcons and elementWidth or runtime.itemHeight,
-                    elementSpacing = 0,
+                    -- Retain one resting unit for the entire chain node,
+                    -- rather than adding another one between live auras.
+                    elementSpacing = capacity > 1 and -FILTERED_AURA_RESTING_WIDTH or 0,
                     lineSpacing = 0,
                     groupSpacing = 0,
                     groupLineSpacing = 0,
@@ -1111,6 +1119,7 @@ local function BuildDynamicMonitor(runtime, monitor, entry, spellIDs, scope)
         monitorId = monitor.id,
         groupId = runtime.id,
         dynamic = true,
+        capacity = monitor._yhudAuraMaxFrameCount or 1,
         glowRecords = {},
         identitySuppressed = IsAuraIdentitySuppressed(scope),
     }
@@ -1170,13 +1179,15 @@ UpdateIndependentBarWidth = function(self, runtime)
                     local width = math_max(1, columnIcons and (runtime.itemHeight + (runtime.rowSpacing or 0))
                         or (runtime.itemWidth + (runtime.columnSpacing or 0)))
                     if balance then width = width / 2 end
+                    local lineWidth = (display.capacity or 1) * width + FILTERED_AURA_RESTING_WIDTH
                     width = width + FILTERED_AURA_RESTING_WIDTH
                     local key = (balance and "yhud-special-balance-" or "yhud-special-aura-") .. tostring(id)
                     changed = Unit.SetFilteredAuraDisplayLayout(handle,
-                        ResolveDynamicNodeLayout(runtime, width, balance), {
+                        ResolveDynamicNodeLayout(runtime, lineWidth, balance), {
                             [key] = { layoutIndex = 1,
                                 elementWidth = columnIcons and runtime.itemWidth or width,
-                                elementHeight = columnIcons and width or runtime.itemHeight, elementSpacing = 0,
+                                elementHeight = columnIcons and width or runtime.itemHeight,
+                                elementSpacing = (display.capacity or 1) > 1 and -FILTERED_AURA_RESTING_WIDTH or 0,
                                 lineSpacing = 0, groupSpacing = 0, groupLineSpacing = 0 },
                         }) or changed
                 end

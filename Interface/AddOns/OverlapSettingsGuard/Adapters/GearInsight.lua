@@ -33,6 +33,9 @@ local SETTINGS = {
   -- SyncEvents unregisters the dungeon-entry and nearby-player triggers if the Group module is loaded.
   BuffAsk = { values = { buffAsk = { auto = false, field = false } },
     apply = function(gi) if type(gi.BuffAsk) == "table" and type(gi.BuffAsk.SyncEvents) == "function" then gi.BuffAsk.SyncEvents() end end },
+  -- Refresh hides a floating button that is already up (out of combat; the next one after combat).
+  PallyFloat = { values = { pally = { float = false } },
+    apply = function(gi) if type(gi.PallyBless) == "table" and type(gi.PallyBless.Refresh) == "function" then gi.PallyBless.Refresh() end end },
   ItemLevel = { values = { ui = { ilvl = false } },
     apply = function(gi) if type(gi.ItemLevel) == "table" and type(gi.ItemLevel.RefreshAll) == "function" then gi.ItemLevel.RefreshAll() end end },
 }
@@ -231,7 +234,8 @@ function adapter.Watch(onChange)
     { gi.QM, "PlatesOnOpen" }, { gi.QM, "PlatesOnClose" }, { gi.GuildChatLevel, "SetEnabled" },
     { gi.GuildChatLevel, "SetWhisperOn" }, { gi.GuildChatLevel, "SetPartyOn" }, { gi.Layer, "SetPub" },
     { gi.CityPlates, "SetOn" }, { gi.ItemLevel, "SetOn" }, { gi.LowRank, "SetOn" },
-    { gi.LowRank, "SetWhisper" }, { gi.LowRank, "SetParty" }, { gi.BuffAsk, "SetOpt" } }) do
+    { gi.LowRank, "SetWhisper" }, { gi.LowRank, "SetParty" }, { gi.BuffAsk, "SetOpt" },
+    { gi.PallyBless, "SetFloat" } }) do
     local target, name = spec[1], spec[2]
     if type(target) == "table" and type(target[name]) == "function" then
       hooksecurefunc(target, name, onChange)

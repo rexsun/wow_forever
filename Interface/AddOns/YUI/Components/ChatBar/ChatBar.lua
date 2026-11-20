@@ -155,7 +155,19 @@ if YUI.IsForever then
             table.remove(CHANNELS, index)
         end
     end
-    table.insert(CHANNELS, { key = "DUNGEONSFOREVER", name = ChatBarText("chatbar.channel.loot.short", "L"), tooltip = ChatBarText("chatbar.dungeons_forever.title", "DungeonsForever"), color = {0, 1, 0}, icon = "Interface\\Icons\\INV_Box_01" })
+    local addon = "DungeonsForever"
+    local installed = SystemAPI and SystemAPI.DoesAddOnExist and SystemAPI.DoesAddOnExist(addon) == true
+    local icon = installed and SystemAPI.GetAddOnMetadata and SystemAPI.GetAddOnMetadata(addon, "IconTexture")
+    table.insert(CHANNELS, {
+        key = "DUNGEONSFOREVER",
+        name = ChatBarText("chatbar.channel.loot.short", "L"),
+        tooltip = ChatBarText("chatbar.dungeons_forever.title", "DungeonsForever"),
+        color = {0, 1, 0},
+        isAvailable = function()
+            return installed and SystemAPI.GetAddOnEnabledState and SystemAPI.GetAddOnEnabledState(addon) == true
+        end,
+        buttonIcon = icon and icon ~= "" and (tonumber(icon) or icon) or nil,
+    })
 end
 
 table.insert(CHANNELS, {
@@ -514,6 +526,10 @@ local function EnsureChannelSettings(db)
     return db
 end
 
+local function IsChannelAvailable(info)
+    return info and (not info.isAvailable or info.isAvailable())
+end
+
 local function GetOrderedChannels(db)
     EnsureChannelSettings(db)
     local ordered = {}
@@ -523,14 +539,14 @@ local function GetOrderedChannels(db)
             local customButton = GetCustomButtonByKey(db, key)
             if customButton then info = GetCustomButtonInfo(customButton) end
         end
-        if info then ordered[#ordered + 1] = info end
+        if IsChannelAvailable(info) then ordered[#ordered + 1] = info end
     end
     return ordered
 end
 
 local function IsButtonEnabled(db, info)
     if info and info.customButton then return info.customButton.enabled == true end
-    return info and db.channels and db.channels[info.key] == true
+    return IsChannelAvailable(info) and db.channels and db.channels[info.key] == true
 end
 
 local function GetChannelColor(db, info)
@@ -763,7 +779,11 @@ local function OnButtonClick(key)
         return SwitchChatBarChannel(key)
     end
     if key == "ROLL" then
-        RandomRoll(1, 100)
+        if YUI.IsForever then
+            if YUI.LootRoll and YUI.LootRoll.OpenHistory then YUI.LootRoll:OpenHistory() end
+        else
+            RandomRoll(1, 100)
+        end
     elseif key == "RL" then
         ReloadChatBarUI()
     elseif key == "KEYSTONELOOT" then
@@ -949,7 +969,9 @@ end
 
 -- 按钮右键点击处理 (World Channel)
 OnButtonRightClick = function(key)
-    if key == "ROLL" and YUI.IsRetail then
+    if key == "ROLL" and YUI.IsForever then
+        RandomRoll(1, 100)
+    elseif key == "ROLL" and YUI.IsRetail then
         ExecuteCustomCommand("/loot")
     elseif key == "KEYSTONELOOT" then
         OpenGreatVault()
@@ -1746,9 +1768,16 @@ local function ShowRuntimeButtonTooltip(btn)
     elseif info.key == "ROLL" then
         GameTooltip:AddLine(ChatBarText("chatbar.channel.roll", "Roll"), 1, 0.82, 0)
         GameTooltip:AddLine(" ")
-        GameTooltip:AddLine(ChatBarText("chatbar.tooltip.roll_left", "|cffffffffLeft Click:|r Roll"))
-        if YUI.IsRetail then
-            GameTooltip:AddLine(ChatBarText("chatbar.tooltip.roll_right", "|cffffffffRight Click:|r Loot rolls"))
+        if YUI.IsForever then
+            if YUI.LootRoll and YUI.LootRoll.OpenHistory then
+                GameTooltip:AddLine(ChatBarText("chatbar.tooltip.roll_history_left", "|cffffffffLeft Click:|r Loot history"))
+            end
+            GameTooltip:AddLine(ChatBarText("chatbar.tooltip.roll_dice_right", "|cffffffffRight Click:|r Roll"))
+        else
+            GameTooltip:AddLine(ChatBarText("chatbar.tooltip.roll_left", "|cffffffffLeft Click:|r Roll"))
+            if YUI.IsRetail then
+                GameTooltip:AddLine(ChatBarText("chatbar.tooltip.roll_right", "|cffffffffRight Click:|r Loot rolls"))
+            end
         end
     elseif info.key == "WORLD" then
         GameTooltip:AddLine(ChatBarText("chatbar.channel.world", "World Channel"), 1, 0.82, 0)
@@ -1835,8 +1864,7 @@ local function UpdateLayout(skipAnim)
                 btn.text:SetShadowOffset(1, -1)
                 
                 btn.icon = GUI2:CreateTexture(btn, { layer = "ARTWORK" })
-                btn.icon:SetAllPoints()
-                btn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                btn.icon:SetPoint("CENTER")
                 
                 -- 创建背景纹理 (用于 Block 模式)
                 btn.bgTex = GUI2:CreateTexture(btn, { layer = "BACKGROUND" })
@@ -1884,12 +1912,18 @@ local function UpdateLayout(skipAnim)
             
             -- 更新字体大小
             btn.text:SetFont(fontPath, fontSize, "OUTLINE")
+            local buttonIcon = info.buttonIcon
+            if buttonIcon then
+                local size = math.min(width, height)
+                btn.icon:SetSize(size, size)
+                btn.icon:SetTexture(buttonIcon)
+            end
+            btn.icon:SetShown(buttonIcon ~= nil)
             
             if style == "TEXT" then
                 local channelColor = GetChannelColor(db, info)
-                btn.icon:Hide()
                 btn.bgTex:Hide()
-                btn.text:Show()
+                btn.text:SetShown(buttonIcon == nil)
                 btn.text:SetText(info.name)
                 btn.text:SetTextColor(unpack(channelColor))
                 -- 文字模式背景全透明但保留交互
@@ -1901,7 +1935,6 @@ local function UpdateLayout(skipAnim)
             else -- BLOCK
                 local channelColor = GetChannelColor(db, info)
                 btn.text:Hide()
-                btn.icon:Hide()
                 
                 -- 使用 LSM 解析纹理路径
                 local texPath = LSM:Fetch("statusbar", db.blockTexture) or "Interface\\Buttons\\WHITE8x8"
@@ -2321,11 +2354,12 @@ local function RefreshChannelOrderPopup(popup)
         if info then
             local color = GetChannelColor(db, info)
             row.rank:SetText(tostring(index))
-            row.name:SetText(info.name)
+            row.name:SetText(info.buttonIcon and info.tooltip or info.name)
             row.name.gui2ColorKey = nil
             row.name.gui2ColorFallback = nil
             row.name:SetTextColor(color[1], color[2], color[3], 1)
-            row.swatch:SetColorTexture(color[1], color[2], color[3], 1)
+            if info.buttonIcon then row.swatch:SetTexture(info.buttonIcon)
+            else row.swatch:SetColorTexture(color[1], color[2], color[3], 1) end
             row:SetAlpha(IsButtonEnabled(db, info) and 1 or 0.45)
             row.up:SetDisabled(index <= 1)
             row.down:SetDisabled(index >= #draftOrder)
@@ -3084,97 +3118,100 @@ local function GetOptions(feature)
                     local colIndex = (index - 1) % channelColumns
                     local cellX = colIndex * (channelCellWidth + channelGap)
                     local cellY = -(rowIndex * (rowHeight + channelGap))
+                    local icon = channel.buttonIcon
                     local checkbox = GUI2.Form:CreateCheckbox(channelGrid, {
-                        label = "",
-                        width = 20,
+                        label = icon and ("|T%s:20:20|t"):format(icon) or "",
+                        width = icon and 50 or 20,
                         get = function() return db.channels[channel.key] end,
                         set = function(v) db.channels[channel.key] = v; UpdateLayout(true) end,
                     })
                     checkbox:SetPoint("TOPLEFT", channelGrid, "TOPLEFT", cellX, cellY)
                     AddSimpleTooltip(checkbox, channel.tooltip or channel.name)
 
-                    local colorPicker
-                    local colorLink = GUI2.Form:CreateTextLink(channelGrid, {
-                        text = channel.name,
-                        width = math.max(48, channelCellWidth - 30),
-                        height = rowHeight,
-                        onClick = function()
-                            if colorPicker and colorPicker.GetScript then
-                                local onClick = colorPicker:GetScript("OnClick")
-                                if onClick then onClick(colorPicker) end
-                            end
-                        end,
-                    })
-                    if colorLink.underline then colorLink.underline:Hide() end
-                    colorLink:SetPoint("TOPLEFT", channelGrid, "TOPLEFT", cellX + 26, cellY)
-                    if colorLink.text then
-                        colorLink.text:ClearAllPoints()
-                        colorLink.text:SetPoint("LEFT", colorLink, "LEFT", 0, 1)
-                        colorLink.text:SetWidth(colorLink:GetWidth())
-                        colorLink.text:SetJustifyH("LEFT")
-                    end
-
-                    local function ApplyChannelTextColor()
-                        local color = GetChannelColor(db, channel)
-                        if colorLink.text then
-                            colorLink.text.gui2ColorKey = nil
-                            colorLink.text.gui2ColorFallback = nil
-                            colorLink.text:SetTextColor(color[1], color[2], color[3], 1)
-                        end
-                    end
-                    ApplyChannelTextColor()
-                    local originalLinkRefreshTheme = colorLink.RefreshTheme
-                    colorLink.RefreshTheme = function(self)
-                        if originalLinkRefreshTheme then originalLinkRefreshTheme(self) end
-                        ApplyChannelTextColor()
-                    end
-                    local originalLinkOnEnter = colorLink:GetScript("OnEnter")
-                    local originalLinkOnLeave = colorLink:GetScript("OnLeave")
-                    colorLink:SetScript("OnEnter", function(self)
-                        if originalLinkOnEnter then originalLinkOnEnter(self) end
-                        ApplyChannelTextColor()
-                    end)
-                    colorLink:SetScript("OnLeave", function(self)
-                        if originalLinkOnLeave then originalLinkOnLeave(self) end
-                        ApplyChannelTextColor()
-                    end)
-                    AddSimpleTooltip(colorLink, ChatBarText("chatbar.channel_color_tooltip", "点击频道文字修改颜色"))
-
-                    local originalColor = GetChannelColor(db, channel)
-                    originalColor = { originalColor[1], originalColor[2], originalColor[3] }
-                    colorPicker = GUI2.Form:CreateColorPicker(channelGrid, {
-                        width = 1,
-                        height = 1,
-                        hasAlpha = false,
-                        default = channel.color,
-                        get = function() return GetChannelColor(db, channel) end,
-                        set = function(value)
-                            SetChannelColor(db, channel.key, value)
-                            UpdateLayout(true)
-                            Refresh()
-                        end,
-                    })
-                    if colorPicker.SetColorLifecycle then
-                        colorPicker:SetColorLifecycle(
-                            function(value)
-                                SetChannelColor(db, channel.key, value)
-                                ApplyChannelTextColor()
-                                UpdateLayout(true)
+                    if not icon then
+                        local colorPicker
+                        local colorLink = GUI2.Form:CreateTextLink(channelGrid, {
+                            text = channel.name,
+                            width = math.max(48, channelCellWidth - 30),
+                            height = rowHeight,
+                            onClick = function()
+                                if colorPicker and colorPicker.GetScript then
+                                    local onClick = colorPicker:GetScript("OnClick")
+                                    if onClick then onClick(colorPicker) end
+                                end
                             end,
-                            function(value)
+                        })
+                        if colorLink.underline then colorLink.underline:Hide() end
+                        colorLink:SetPoint("TOPLEFT", channelGrid, "TOPLEFT", cellX + 26, cellY)
+                        if colorLink.text then
+                            colorLink.text:ClearAllPoints()
+                            colorLink.text:SetPoint("LEFT", colorLink, "LEFT", 0, 1)
+                            colorLink.text:SetWidth(colorLink:GetWidth())
+                            colorLink.text:SetJustifyH("LEFT")
+                        end
+
+                        local function ApplyChannelTextColor()
+                            local color = GetChannelColor(db, channel)
+                            if colorLink.text then
+                                colorLink.text.gui2ColorKey = nil
+                                colorLink.text.gui2ColorFallback = nil
+                                colorLink.text:SetTextColor(color[1], color[2], color[3], 1)
+                            end
+                        end
+                        ApplyChannelTextColor()
+                        local originalLinkRefreshTheme = colorLink.RefreshTheme
+                        colorLink.RefreshTheme = function(self)
+                            if originalLinkRefreshTheme then originalLinkRefreshTheme(self) end
+                            ApplyChannelTextColor()
+                        end
+                        local originalLinkOnEnter = colorLink:GetScript("OnEnter")
+                        local originalLinkOnLeave = colorLink:GetScript("OnLeave")
+                        colorLink:SetScript("OnEnter", function(self)
+                            if originalLinkOnEnter then originalLinkOnEnter(self) end
+                            ApplyChannelTextColor()
+                        end)
+                        colorLink:SetScript("OnLeave", function(self)
+                            if originalLinkOnLeave then originalLinkOnLeave(self) end
+                            ApplyChannelTextColor()
+                        end)
+                        AddSimpleTooltip(colorLink, ChatBarText("chatbar.channel_color_tooltip", "点击频道文字修改颜色"))
+
+                        local originalColor = GetChannelColor(db, channel)
+                        originalColor = { originalColor[1], originalColor[2], originalColor[3] }
+                        colorPicker = GUI2.Form:CreateColorPicker(channelGrid, {
+                            width = 1,
+                            height = 1,
+                            hasAlpha = false,
+                            default = channel.color,
+                            get = function() return GetChannelColor(db, channel) end,
+                            set = function(value)
                                 SetChannelColor(db, channel.key, value)
-                                ApplyChannelTextColor()
                                 UpdateLayout(true)
                                 Refresh()
                             end,
-                            function()
-                                SetChannelColor(db, channel.key, originalColor)
-                                ApplyChannelTextColor()
-                                UpdateLayout(true)
-                            end
-                        )
+                        })
+                        if colorPicker.SetColorLifecycle then
+                            colorPicker:SetColorLifecycle(
+                                function(value)
+                                    SetChannelColor(db, channel.key, value)
+                                    ApplyChannelTextColor()
+                                    UpdateLayout(true)
+                                end,
+                                function(value)
+                                    SetChannelColor(db, channel.key, value)
+                                    ApplyChannelTextColor()
+                                    UpdateLayout(true)
+                                    Refresh()
+                                end,
+                                function()
+                                    SetChannelColor(db, channel.key, originalColor)
+                                    ApplyChannelTextColor()
+                                    UpdateLayout(true)
+                                end
+                            )
+                        end
+                        colorPicker:Hide()
                     end
-                    colorPicker:Hide()
                 end
 
                 AddSection(ChatBarText("chatbar.custom.section", "Custom buttons"))

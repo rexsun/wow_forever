@@ -243,6 +243,8 @@ end
 
 local function GetRuntimeClickButton(button)
     local factory = YAB.SecureFactory
+    local meta = factory and factory.GetButtonMeta and factory:GetButtonMeta(button)
+    if meta and meta.keybindClickButton then return meta.keybindClickButton end
     return factory and factory.detachedButtons and factory.detachedButtons[button] and "Keybind" or "LeftButton"
 end
 

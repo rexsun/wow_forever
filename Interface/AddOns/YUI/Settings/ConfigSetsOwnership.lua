@@ -156,6 +156,13 @@ function Ownership:ValidateProfileStateImport(token)
     return true
 end
 
+function Ownership:GetPreparedProfileActiveData(token, providerId)
+    local staged = imports[token]
+    local catalog = staged and staged.store.providers[providerId]
+    local item = catalog and catalog.items[catalog.activeByProfile[staged.name]]
+    return item and item.data
+end
+
 function Ownership:CommitProfileStateImport(token)
     local valid, code = self:ValidateProfileStateImport(token)
     if not valid then return nil, code end

@@ -1298,6 +1298,7 @@ function Sources:RegisterSourceTypes()
     if YHUD.PlayerBars then YHUD.PlayerBars:RegisterSourceTypes() end
     if YHUD.Ammo then YHUD.Ammo:RegisterSourceType() end
     if YHUD.ArcaneBlast then YHUD.ArcaneBlast:RegisterSourceType() end
+    if YHUD.SummonHawk then YHUD.SummonHawk:RegisterSourceType() end
     local buffTimerOK = self:RegisterBuffTimerSourceType()
     local spellEventWindowOK = self:RegisterSpellEventWindowSourceType()
     local playerAuraOK = self:RegisterPlayerAuraSourceType()
@@ -1318,6 +1319,17 @@ function Sources:RegisterSourceTypes()
 end
 
 function Sources:OnSourceState(state, sourceKey, _, forced)
+    local hawk = YHUD.SummonHawk
+    if hawk and sourceKey == hawk.SOURCE_KEY and YHUD.Model then
+        local changed = false
+        for index, key in ipairs(YHUD.SUMMON_HAWK_SLOT_KEYS) do
+            local slot = hawk:GetSlotState(state, index)
+            if slot then
+                changed = YHUD.Model:OnSourceState(slot, key, forced == true) or changed
+            end
+        end
+        return changed
+    end
     if YHUD.ClassExtra then state = YHUD.ClassExtra:Project(state, sourceKey) end
     if YHUD.Model then
         local changed = YHUD.Model:OnSourceState(state, sourceKey, forced == true)
@@ -1397,6 +1409,9 @@ local function ResolveSource(profile, sourceKey, monitorIds)
 end
 
 function Sources:ResolveEntrySource(profile, entry, monitor, sourceKey)
+    if YHUD.SummonHawk and YHUD:IsSummonHawkEntry(entry) then
+        return YHUD.SummonHawk.SOURCE_TYPE, YHUD.SummonHawk.SOURCE_KEY, { icon = 132158 }
+    end
     if YHUD:UsesArcaneBlastSimulation(entry) then
         return YHUD.ArcaneBlast.SOURCE_TYPE, YHUD.ArcaneBlast.SOURCE_KEY,
             { icon = entry.icon, signature = "forever-arcane-blast:199342" }
@@ -1492,9 +1507,8 @@ function Sources:ResolveEntrySource(profile, entry, monitor, sourceKey)
             }
         end
     elseif entry.sourceType == PLAYER_AURA_SOURCE_TYPE then
-        -- This managed preset is native-only; never fan out 35 per-ID queries
-        -- when the native container is unavailable.
-        if YHUD.IsForeverSealPreset and YHUD:IsForeverSealPreset(entry) then
+        -- Food and drink uses the native display without per-ID queries.
+        if YHUD.IsFoodDrinkPreset and YHUD:IsFoodDrinkPreset(entry) then
             return nil
         end
         if YHUD.CanUseFilteredAuraDisplay
@@ -1511,6 +1525,14 @@ function Sources:ResolveEntrySource(profile, entry, monitor, sourceKey)
                 }
             end
             return nil
+        end
+        local fallbackSpellID = YHUD.GetOfficialAuraFallbackSpellID and YHUD:GetOfficialAuraFallbackSpellID(entry)
+        if fallbackSpellID then
+            return PLAYER_AURA_SOURCE_TYPE, sourceKey, {
+                identity = sourceKey,
+                spellIDs = { fallbackSpellID },
+                signature = tostring(fallbackSpellID),
+            }
         end
         if entry.origin ~= "official-cdm"
             and YHUD.GetFilteredAuraScopeKey
@@ -2054,6 +2076,9 @@ function Sources:ApplyConfig(profile, deferTrinketView)
             CancelTimedWindow(sourceKey)
             Monitor:ReleaseSource(handle)
             self.handles[sourceKey] = nil
+            if YHUD.Model and YHUD.SummonHawk and sourceKey == YHUD.SummonHawk.SOURCE_KEY then
+                for _, key in ipairs(YHUD.SUMMON_HAWK_SLOT_KEYS) do YHUD.Model.states[key] = nil end
+            end
         end
     end
 

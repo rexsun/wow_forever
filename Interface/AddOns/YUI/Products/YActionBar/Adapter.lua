@@ -576,7 +576,11 @@ function Adapter:BuildVisibilityDriver(mode, hideSkyriding, context)
     local specialStatePrefix = petBattlePrefix .. "[vehicleui][overridebar][possessbar,@vehicle,exists] hide; "
     local driver
 
-    if barId == "main" then
+    if barId == "paladinBlessings" then
+        local condition = type(context) == "table" and context.configSnapshot and context.configSnapshot.teamVisibility or "raid"
+        driver = PrefixDriver(condition == "always" and BuildBaseVisibilityDriver(mode)
+            or BuildConditionalVisibilityDriver(mode, condition == "group" and "group" or "group:raid"), specialStatePrefix)
+    elseif barId == "main" then
         driver = PrefixDriver(BuildBaseVisibilityDriver(mode), petBattlePrefix)
     elseif kind == "action" then
         driver = PrefixDriver(BuildBaseVisibilityDriver(mode), specialStatePrefix)
@@ -1266,7 +1270,7 @@ function Adapter:GetShapeshiftFormCooldown(index)
 end
 
 function Adapter:IsShapeshiftFormCooldownOnGCD(spellID)
-    if Client.id ~= "mainline" or not spellID then return false end
+    if (Client.id ~= "mainline" and Client.id ~= "forever") or not spellID then return false end
     local spell = YUI.API and YUI.API.Spell
     if not (spell and spell.GetCooldownDurationObject) then return false end
     CountRead("stanceRealCooldown")

@@ -820,6 +820,68 @@ function Talent.GetCurrentConfigurationSpecializationInfo()
     return CopySpecInfo(configurationSpecInfoCache)
 end
 
+-- Forever 1.60.1.70938 @ bebcb6bf309cf41b41bd74f8ca651e6a105b2676:
+-- ClassTalentsFrame uses INSPECT_TRAIT_CONFIG_ID; native spec IDs only identify the class.
+-- Cold INSPECT_READY path only; returns nil for unavailable/restricted/empty inspected data.
+function Talent.GetInspectConfigurationSpecializationInfo(unit)
+    if not isForever or (issecretvalue and issecretvalue(unit)) or type(unit) ~= "string" then return nil end
+    local traits = C_Traits
+    local constants = Constants and Constants.TraitConsts
+    if not traits or not constants or not traits.HasValidInspectData or not traits.GenerateInspectImportString
+        or not traits.GetConfigInfo or not traits.GetGroupCurrencyInfo then return nil end
+    local ok, valid = pcall(traits.HasValidInspectData)
+    if not ok or (issecretvalue and issecretvalue(valid)) or valid ~= true then return nil end
+    local exported
+    ok, exported = pcall(traits.GenerateInspectImportString, unit)
+    if not ok or (issecretvalue and issecretvalue(exported)) or type(exported) ~= "string" or exported == "" then return nil end
+    if type(UnitClass) ~= "function" then return nil end
+    local classOK, _, _, classID = pcall(UnitClass, unit)
+    if not classOK or not IsPublicGroupNumber(classID) then return nil end
+    local classInfo = ResolveClassInfo(classID)
+    local catalog = classInfo and Talent.ConfigurationCatalog and Talent.ConfigurationCatalog[classInfo.classFile]
+    local configID = constants.INSPECT_TRAIT_CONFIG_ID
+    if not catalog or not IsPublicGroupNumber(configID) then return nil end
+    local config
+    ok, config = pcall(traits.GetConfigInfo, configID)
+    if not ok or (issecretvalue and issecretvalue(config)) or type(config) ~= "table" then return nil end
+    local treeIDs = config.treeIDs
+    if (issecretvalue and issecretvalue(treeIDs)) or type(treeIDs) ~= "table"
+        or not IsPublicGroupNumber(treeIDs[1]) or treeIDs[1] ~= catalog.treeID then return nil end
+    local ids = { catalog.trees[1].specID, catalog.trees[2].specID, catalog.trees[3].specID }
+    local currencies
+    ok, currencies = pcall(traits.GetGroupCurrencyInfo, configID, ids)
+    if not ok or (issecretvalue and issecretvalue(currencies)) or type(currencies) ~= "table" then return nil end
+    local bestIndex, bestPoints, total = nil, -1, 0
+    for _, entry in ipairs(currencies) do
+        if (issecretvalue and issecretvalue(entry)) or type(entry) ~= "table"
+            or not IsPublicGroupNumber(entry.traitNodeGroupID) then return nil end
+    end
+    for index, id in ipairs(ids) do
+        local points = 0
+        for _, entry in ipairs(currencies) do
+            if entry.traitNodeGroupID == id then
+                local info = entry.currencyInfos
+                if (issecretvalue and issecretvalue(info)) or type(info) ~= "table" then return nil end
+                local currency = info[1]
+                if issecretvalue and issecretvalue(currency) then return nil end
+                if currency ~= nil then
+                    if type(currency) ~= "table" then return nil end
+                    points = currency.spent
+                end
+                break
+            end
+        end
+        if not IsPublicGroupNumber(points) or points < 0 then return nil end
+        total = total + points
+        if points > bestPoints then bestIndex, bestPoints = index, points end
+    end
+    if total <= 0 then return nil end
+    local tree = catalog.trees[bestIndex]
+    local locale = YUI.Locale and YUI.Locale:Get("Core")
+    return { treeIndex = bestIndex, specIndex = bestIndex, specID = tree.specID,
+        classFile = classInfo.classFile, points = bestPoints, name = locale and locale[tree.nameKey] or tree.name, icon = tree.icon }
+end
+
 function Talent.SetActiveTalentGroup(group)
     local security = YUI.API and YUI.API.Security
     if not isForever or not security or security.InCombatLockdown()

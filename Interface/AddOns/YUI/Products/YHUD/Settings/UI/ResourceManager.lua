@@ -10,6 +10,7 @@ local WIDTH, ROW_HEIGHT, LINK_HEIGHT = 368, 50, 20
 local LINK_PAINTS = { "color.state.info", "color.badge.purple", "color.badge.green",
     "color.badge.orange", "color.badge.pink" }
 local function T(key, fallback) return YHUD:T(key, fallback) end
+
 local function Place(control, parent, x, y, width)
     control:ClearAllPoints()
     control:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -y)
@@ -877,6 +878,13 @@ local function ProgressOptions(entry, progress)
 end
 
 function UI:OpenCustomResourceEditor(entry, id)
+    if not id and YHUD.IsSummonHawkEntry and YHUD:IsSummonHawkEntry(entry) then
+        local saved = self:IsResourceSelectionCurrent() and self:MutateManagedResource("custom", nil, {
+            entry = entry, progress = { source = "time" },
+        })
+        self:CloseResourceDialog()
+        return not not saved
+    end
     CloseTransient(self)
     local panel = self:EnsureResourceDialog()
     ResetDialog(panel)

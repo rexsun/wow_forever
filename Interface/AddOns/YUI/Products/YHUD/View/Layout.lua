@@ -2013,6 +2013,7 @@ local function ResetFilteredAuraLayoutCache(runtime)
     cache.specialCount = 0
     cache.specialSequenceCount = 0
     cache.sequenceCount = 0
+    cache.capacityCount = 0
     return cache
 end
 
@@ -2070,6 +2071,7 @@ local function CollectFilteredAuraLayout(self, runtime)
             cache.sequenceKinds[cache.sequenceCount] = special
                 and "special" or "normal-dynamic"
             cache.sequenceValues[cache.sequenceCount] = monitorId
+            cache.capacityCount = cache.capacityCount + (dynamic.capacity or 1)
         else
             local frame, nativeFrame = ResolveFilteredAuraLayoutFrame(
                 self,
@@ -2094,6 +2096,7 @@ local function CollectFilteredAuraLayout(self, runtime)
                 cache.sequenceKinds[cache.sequenceCount] = special
                     and "special-frame" or "normal"
                 cache.sequenceValues[cache.sequenceCount] = frame
+                cache.capacityCount = cache.capacityCount + 1
                 usedNative[frame] = true
             end
         end
@@ -2108,6 +2111,7 @@ local function CollectFilteredAuraLayout(self, runtime)
             cache.sequenceCount = cache.sequenceCount + 1
             cache.sequenceKinds[cache.sequenceCount] = "normal"
             cache.sequenceValues[cache.sequenceCount] = frame
+            cache.capacityCount = cache.capacityCount + 1
             usedNative[frame] = true
         end
     end
@@ -2464,10 +2468,11 @@ end
 local function RelayoutFilteredAuraPlannedLine(self, runtime, groupId, cache)
     local itemWidth, itemHeight = runtime.itemWidth, runtime.itemHeight
     local count = cache.sequenceCount
+    local capacity = cache.capacityCount
     local height = I.GetAutoIconColumnHeight(runtime)
-        or (count * itemHeight + math.max(0, count - 1) * runtime.rowSpacing)
+        or (capacity * itemHeight + math.max(0, capacity - 1) * runtime.rowSpacing)
     local geometry = {
-        width = itemWidth, height = height, count = count,
+        width = itemWidth, height = height, count = capacity,
         itemWidth = itemWidth, itemHeight = itemHeight,
         columnSpacing = runtime.columnSpacing, rowSpacing = runtime.rowSpacing,
     }
@@ -2515,7 +2520,7 @@ local function RelayoutFilteredAuraSingleLine(self, runtime, groupId, cache)
     local itemHeight = runtime.itemHeight or DEFAULT_ICON_SIZE
     local columnSpacing = math.max(1 - itemWidth, tonumber(runtime.columnSpacing) or 0)
     local cellWidth = itemWidth + columnSpacing
-    local count = cache.sequenceCount
+    local count = cache.capacityCount
     local contentWidth = math.max(itemWidth, count * cellWidth - columnSpacing)
     local width = I.GetAutoIconRowWidth(runtime) or contentWidth
     local geometry, blockWrote = nil, false
@@ -3156,9 +3161,17 @@ local function SeparateExternalBuffBlocks(runtime, groupPlan)
         runtime.externalBuffMonitorIds = nil
         return
     end
+    local strategy = groupPlan.filteredAuraProjectionStrategy
+    local state = groupPlan.filteredAuraProjectionState
+    local foodDrinkFlow = strategy == YHUD.FILTERED_AURA_LAYOUT_MIXED_DYNAMIC_SINGLE_LINE
+        or (strategy == YHUD.FILTERED_AURA_LAYOUT_ENGINE_FLOW
+            and not (state and state.hasScopeMismatch))
     local count, blocks = 0, nil
     for _, member in ipairs(groupPlan.members) do
-        if member.monitor._yhudAuraMaxFrameCount then
+        local inline = foodDrinkFlow and YHUD:CanUseFoodDrinkIconFlow(
+            member.entry, member.monitor, groupPlan.group, groupPlan.layout
+        )
+        if member.monitor._yhudAuraMaxFrameCount and not inline then
             blocks = blocks or {}
             blocks[#blocks + 1] = member.physicalId
         else
@@ -3201,6 +3214,7 @@ function View:ApplyConfig(profile, options)
         self:SetDesignDurationPreviewEnabled(false)
     end
     self.resourceConfigRevision = (self.resourceConfigRevision or 0) + 1
+    if self.profile ~= profile and I.ClearManaRegenSparkTimer then I.ClearManaRegenSparkTimer() end
     self.profile = profile
     self.inCombat = IsInCombat()
     if RuntimeSound and RuntimeSound.Reset then RuntimeSound:Reset() end

@@ -2038,6 +2038,18 @@ do
         return statusOK
     end
 
+    local function ApplyTextCarrierLayer(carrier, level, strata)
+        if not carrier then return end
+        -- 原生 Aura 子框体在初始化后可能受限，保留已布置的层级。
+        local canAccess = carrier.CanBeAccessedInContext
+        if type(canAccess) == "function" then
+            local ok, allowed = pcall(canAccess, carrier)
+            if not ok or IsSecretValue(allowed) or allowed ~= true then return end
+        end
+        if carrier.SetFrameLevel then carrier:SetFrameLevel(level) end
+        if strata and carrier.SetFrameStrata then carrier:SetFrameStrata(strata) end
+    end
+
     function App:CreateDurationBar(parent, opts)
         opts = type(opts) == "table" and opts or {}
         if not (GUI2.Data and GUI2.Data.CreateProgressBar) then
@@ -2181,16 +2193,10 @@ do
             countdown:SetMinimumCountdownDuration(0)
         end
         frame.countdown = countdown
-        -- 只调整预建承载层，不迁移已交给暴雪的受限文字或冷却对象。
         frame.SetDurationTextLayer = function(self, level, strata)
-            self.durationOverlay:SetFrameLevel(level)
-            self.durationCountdownHolder:SetFrameLevel(level + 1)
-            self.countdown:SetFrameLevel(level + 2)
-            if strata then
-                self.durationOverlay:SetFrameStrata(strata)
-                self.durationCountdownHolder:SetFrameStrata(strata)
-                self.countdown:SetFrameStrata(strata)
-            end
+            ApplyTextCarrierLayer(self.durationOverlay, level, strata)
+            ApplyTextCarrierLayer(self.durationCountdownHolder, level + 1, strata)
+            ApplyTextCarrierLayer(self.countdown, level + 2, strata)
         end
         frame:SetDurationTextLayer((frame.track:GetFrameLevel() or 0) + 5)
         ApplyDurationTextAppearance(frame, opts.cooldownText or {
@@ -3627,37 +3633,24 @@ do
         return true
     end
 
-    local function ApplyResourceTextCarrierLayer(carrier, level, strata)
-        if not carrier then return end
-        -- Native Aura descendants can become inaccessible after initialization.
-        -- Keep their native hierarchy intact without aborting resource refreshes.
-        local canAccess = carrier.CanBeAccessedInContext
-        if type(canAccess) == "function" then
-            local ok, allowed = pcall(canAccess, carrier)
-            if not ok or IsSecretValue(allowed) or allowed ~= true then return end
-        end
-        if carrier.SetFrameLevel then carrier:SetFrameLevel(level) end
-        if strata and carrier.SetFrameStrata then carrier:SetFrameStrata(strata) end
-    end
-
     local function ApplyResourceAuraTextLayers(handle, level, strata)
         local frames = handle and handle.frames
         if not frames then return end
         for index = 1, #frames do
-            ApplyResourceTextCarrierLayer(frames[index].gui2ResourceTextCarrier, level, strata)
+            ApplyTextCarrierLayer(frames[index].gui2ResourceTextCarrier, level, strata)
         end
     end
 
     local function SetResourceTextLayer(frame, level, strata)
         frame.gui2ResourceTextLevel = level
         frame.gui2ResourceTextStrata = strata
-        ApplyResourceTextCarrierLayer(frame.resourceOverlay, level, strata)
-        ApplyResourceTextCarrierLayer(frame.resourceDurationCountdown, level + 1, strata)
-        ApplyResourceTextCarrierLayer(frame.resourceDurationCountdown2, level + 1, strata)
+        ApplyTextCarrierLayer(frame.resourceOverlay, level, strata)
+        ApplyTextCarrierLayer(frame.resourceDurationCountdown, level + 1, strata)
+        ApplyTextCarrierLayer(frame.resourceDurationCountdown2, level + 1, strata)
         local cells = frame.resourceCells
         if cells then
             for index = 1, #cells do
-                ApplyResourceTextCarrierLayer(cells[index].cooldown, level + 1, strata)
+                ApplyTextCarrierLayer(cells[index].cooldown, level + 1, strata)
             end
         end
         ApplyResourceAuraTextLayers(frame.gui2FilteredAuraDurationDisplay, level + 1, strata)
@@ -3669,7 +3662,7 @@ do
     local ResourceTextHelpers = {
         Points = ResourcePoints,
         SetLayer = SetResourceTextLayer,
-        ApplyCarrierLayer = ApplyResourceTextCarrierLayer,
+        ApplyCarrierLayer = ApplyTextCarrierLayer,
         ClearValue = ClearResourceValueText,
         Position = PositionResourceText,
     }
@@ -3777,7 +3770,7 @@ do
         }
         ApplyResourceCellCooldownAppearance(frame, cell)
         if frame.gui2ResourceTextLevel then
-            ApplyResourceTextCarrierLayer(cooldown, frame.gui2ResourceTextLevel + 1,
+            ApplyTextCarrierLayer(cooldown, frame.gui2ResourceTextLevel + 1,
                 frame.gui2ResourceTextStrata)
         end
         return cell

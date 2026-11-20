@@ -1470,6 +1470,7 @@ function ProfileModel:SetResourceSetting(draft, resourceId, patch, groupId)
         thresholdMarkerColor = true,
         thresholdMarkerThickness = true,
         rangedWindup = resourceId == "swingRanged",
+        manaRegenSpark = YUI.IsForever and resourceId == "mana",
     }
     if patch.thresholdMode and patch.thresholdMode ~= setting.thresholdMode and not patch.thresholds then
         local saved = setting.thresholdValues and setting.thresholdValues[patch.thresholdMode]
@@ -4189,6 +4190,8 @@ local function ValidateResourceSettings(profile, groupId)
             or not ValidateUnitColor(setting.dividerColor)
             or type(setting.thresholdColorEnabled) ~= "boolean"
             or (setting.inverseFill ~= nil and type(setting.inverseFill) ~= "boolean")
+            or (setting.manaRegenSpark ~= nil
+                and (not YUI.IsForever or resourceId ~= "mana" or setting.manaRegenSpark ~= false))
             or type(setting.thresholdMarkerEnabled) ~= "boolean"
             or not ValidateResourceThresholds(
                 setting.thresholds,

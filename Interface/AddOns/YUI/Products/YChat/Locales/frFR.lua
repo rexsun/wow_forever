@@ -214,7 +214,6 @@ YUI.Locale:Register("YChat", "frFR", {
     ["settings.records.local_limit"] = " Limite historique",
     ["settings.records.restore_on_login"] = "Restaurer l'historique après l'ouverture",
     ["settings.records.restore_limit"] = "Messages restaurés après connexion",
-    ["settings.records.frame_limit"] = " Limite de fenêtre de discussion",
     ["settings.records.count"] = "Conservé pour ce personnage : %d",
     ["settings.records.empty"] = " Aucun historique de chat n'est stocké.",
     ["settings.records.snapshot_title"] = "Clavardez l'histoire",

@@ -245,7 +245,6 @@ YUI.Locale:Register("YChat", "zhCN", {
     ["settings.records.local_limit"] = "历史记录上限",
     ["settings.records.restore_on_login"] = "登录后回填聊天记录",
     ["settings.records.restore_limit"] = "登录后回填条数",
-    ["settings.records.frame_limit"] = "聊天窗口上限",
     ["settings.records.count"] = "本角色已保存：%d 条",
     ["settings.records.empty"] = "暂无聊天记录。",
     ["settings.records.snapshot_title"] = "聊天记录",

@@ -1899,6 +1899,8 @@ function S:ShowConfirmPopup(text, onAccept, options)
         HideConfirmPopup(S.ConfirmFrame)
     end
     S.ConfirmFrame.confirmGeneration = (S.ConfirmFrame.confirmGeneration or 0) + 1
+    local foreground = options and options.frameStrata == "TOOLTIP"
+    S.ConfirmFrame:SetFrameStrata(foreground and "TOOLTIP" or "FULLSCREEN_DIALOG")
 
     local offsetX = tonumber(options and options.offsetX) or 0
     local offsetY = tonumber(options and options.offsetY) or 0
@@ -2076,6 +2078,7 @@ function S:ShowConfirmPopup(text, onAccept, options)
         })
     end
     S.ConfirmFrame:Show()
+    if foreground then S.ConfirmFrame:Raise() end
     PlaySettingsPopup(S.ConfirmFrame, "settings-confirm-popup")
 end
 

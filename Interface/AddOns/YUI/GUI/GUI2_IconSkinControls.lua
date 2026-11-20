@@ -367,7 +367,7 @@ function GUI.Form:CreateIconSkinControl(parent, opts)
     frame.binding = opts
     local function Options()
         local style = Style(frame)
-        local list = Skins:GetOptions(style.skinId, opts.native)
+        local list = Skins:GetOptions(style.skinId, opts.native, opts.builtinOnly)
         for _, option in ipairs(list) do
             local id = option.value
             option.onEnter = function(row) ShowPreview(frame, id, row) end
@@ -377,6 +377,7 @@ function GUI.Form:CreateIconSkinControl(parent, opts)
     end
     frame.dropdown = self:CreateDropdown(frame, { width = (opts.width or 220) - 32, menuWidth = 240, height = 30, options = Options,
         set = function(id)
+            if opts.builtinOnly and not Skins.definitions[id] and not (opts.native and id == "native") then return end
             ClosePopup(frame)
             local style = Style(frame)
             local selection = Skins:WithSelection(style, opts.product, id)

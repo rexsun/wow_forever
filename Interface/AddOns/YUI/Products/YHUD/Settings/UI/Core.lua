@@ -117,6 +117,36 @@ local function SetShown(control, shown)
     end
 end
 
+local function CreateMonitorIconLabel(icon)
+    local label = GUI2:CreateText(
+        icon, "", "font.size.sm", "color.text.primary", "CENTER"
+    )
+    local font, size = label:GetFont()
+    label:SetFont(font, size - 1, "OUTLINE")
+    label:SetShadowColor(0, 0, 0, 0.8)
+    label:SetPoint("BOTTOM", icon, "BOTTOM", 0, 0)
+    label:SetWidth(0)
+    label:SetWordWrap(false)
+    label:Hide()
+    return label
+end
+
+local function SetMonitorIconLabel(label, text)
+    local shown = type(text) == "string" and text ~= ""
+    label:SetText(shown and text or "")
+    SetShown(label, shown)
+end
+
+local function MonitorPresetThumbnailLabel(item)
+    local entryKey = item and item.entryKey
+    if entryKey == "buff-aura:food-drink" then
+        return T("designer.preset.label.food_drink", "吃喝")
+    end
+    if entryKey and entryKey == YHUD.SUMMON_HAWK_KEY then
+        return T("designer.preset.label.summon_hawk", "雄鹰")
+    end
+end
+
 local function BuildDirectionOptions()
     return {
         {
@@ -650,23 +680,6 @@ local function EntryIcon(entry)
     return entry.icon or QUESTION_ICON
 end
 
-function DesignerUI:ShowForeverSealTooltip(control, value)
-    local seals = YHUD.FOREVER_SEAL_PRESET
-    if not (YUI.IsForever == true and seals and control and GameTooltip
-        and type(value) == "table") then return false end
-    if value.presetId ~= "forever-seals"
-        and not (YHUD.IsForeverSealPreset
-            and YHUD:IsForeverSealPreset(value)) then return false end
-    GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
-    if GameTooltip.ClearLines then GameTooltip:ClearLines() end
-    local r, g, b = GUI2:GetColor("color.tooltip.id.value")
-    GameTooltip:SetText(T(seals.nameKey, "Seals"), r, g, b, 1, true)
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine(T("designer.preset.forever_seals_tooltip"), 1, 1, 1, true)
-    GameTooltip:Show()
-    return true
-end
-
 function DesignerUI:SetStatus(message)
     if self.statusText then
         self.statusText:SetText(message or "")
@@ -1112,6 +1125,9 @@ DesignerUI._internal = {
     MONITOR_LAYOUTS = MONITOR_LAYOUTS,
     CanAddMonitor = CanAddMonitor,
     SetShown = SetShown,
+    CreateMonitorIconLabel = CreateMonitorIconLabel,
+    SetMonitorIconLabel = SetMonitorIconLabel,
+    MonitorPresetThumbnailLabel = MonitorPresetThumbnailLabel,
     BuildDirectionOptions = BuildDirectionOptions,
     BuildAlignmentOptions = BuildAlignmentOptions,
     BuildIconAlignmentOptions = BuildIconAlignmentOptions,

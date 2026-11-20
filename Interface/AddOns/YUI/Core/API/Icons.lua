@@ -32,6 +32,30 @@ local SCOPE_STATE_VERSION = 2
 local NATIVE_SPEC_TEXCOORD = { 0.08, 0.92, 0.08, 0.92 }
 local DEFAULT_TEXTURE_INDEX_ROOT = "Interface\\Icons\\"
 
+if YUI.IsForever then
+    local characterStatIcons = {
+        str = 236314, agi = 132307, sta = 135987, int = 133739, spirit = 135977,
+        ap = 135274, rap = 135495, healing = 135915,
+        sp_holy = 135924, sp_fire = 135808, sp_nature = 136048, sp_frost = 135846,
+        sp_shadow = 136197, sp_arcane = 135735, sp_frostfire = 135846,
+        hit_melee = 132222, hit_offhand = 132306, hit_ranged = 132212, hit_spell = 135737,
+        crit_melee = 132109, crit_ranged = 236178, crit_spell = 135789,
+        haste_melee = 132306, haste_ranged = 132208, haste_spell = 136103,
+        expertise = 132367, expertise_off = 132269,
+        hp = 135881, mana = 134856, armor = 132737, defense = 132341,
+        dodge = 136047, parry = 132269, block = 132110, block_value = 134950,
+        regen_cast = 136053, regen_idle = 135920, mp5 = 136096, piercing = 135735, armorpen = 236198,
+        main_speed = 132355, off_speed = 132306, ranged_speed = 132208,
+        main_skill = 132367, off_skill = 132269, ranged_skill = 132222,
+        main_damage = 135274, off_damage = 132308, ranged_damage = 132271,
+        pet_hp = 135881, pet_armor = 132737, pet_ap = 132355, pet_hit = 132212, pet_crit = 236178,
+    }
+
+    function Icons.GetCharacterStatIcon(statID)
+        return characterStatIcons[statID]
+    end
+end
+
 local DEFAULT_SEARCH_ALIASES = {
     ["红"] = { "red", "crimson", "scarlet", "ruby", "blood" },
     ["红色"] = { "red", "crimson", "scarlet", "ruby", "blood" },

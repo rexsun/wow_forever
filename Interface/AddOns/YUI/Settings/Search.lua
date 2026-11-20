@@ -2,7 +2,7 @@ local YUI = _G.YUI
 local S = YUI and YUI.Settings
 if not S or S.Search then return end
 local GUI, Locale = YUI.GUI2, YUI.Locale
-local Search = { catalog = {}, routes = {}, rows = {}, page = 1, selected = 1, generation = 0 }
+local Search = { catalog = {}, routes = {}, routeAvailability = {}, rows = {}, page = 1, selected = 1, generation = 0 }
 S.Search = Search
 local LC = Locale:Get("Core")
 local function T(key) return LC["settings.search." .. key] end
@@ -17,7 +17,11 @@ function Search:RegisterCatalog(owner, namespace, route, keys)
     self.catalog[#self.catalog + 1] = { owner = owner, namespace = namespace, route = route, keys = keys }
     self.index = nil
 end
-function Search:RegisterRoute(owner, callback) self.routes[owner] = callback end
+function Search:RegisterRoute(owner, callback, isAvailable)
+    self.routes[owner] = callback
+    self.routeAvailability[owner] = isAvailable
+    self.index = nil
+end
 function Search:CancelTimer(key)
     local timer = self[key]
     if timer then timer:Cancel(); self[key] = nil end
@@ -130,6 +134,8 @@ function Search:BuildIndex()
     local index, ids = {}, {}
     local function add(owner, namespace, key, route, module, component)
         if not AvailableKey(namespace, key) then return end
+        local isAvailable = self.routeAvailability[owner]
+        if isAvailable and not isAvailable(route) then return end
         if route and route:sub(1, 5) == "ybar:" then
             local registered = YUI.YBar and YUI.YBar.RegisteredModules
             if not (registered and registered[route:sub(6)]) then return end

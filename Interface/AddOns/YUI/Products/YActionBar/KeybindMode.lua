@@ -134,6 +134,11 @@ function KeybindMode:GetHoveredButtonTitle()
     local meta = YAB.SecureFactory and YAB.SecureFactory.GetButtonMeta and YAB.SecureFactory:GetButtonMeta(button) or nil
     local barId = meta and meta.barId or nil
     local index = meta and meta.index or nil
+    local tools = YAB.ClassTools
+    if tools and meta then
+        local label = tools:GetButtonLabel(barId, meta.classToolKey)
+        if label then return label end
+    end
     if not barId and YAB.BarManager then
         barId = YAB.BarManager.externalButtonOwners and YAB.BarManager.externalButtonOwners[button] or nil
         index = YAB.BarManager.externalButtonIndices and YAB.BarManager.externalButtonIndices[button] or nil

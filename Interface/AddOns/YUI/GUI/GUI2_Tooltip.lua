@@ -22,12 +22,13 @@ function Tooltip:ColorText(text, tone)
     return Colored(text, tone)
 end
 
-function Tooltip:IconText(text, icon)
+function Tooltip:IconText(text, icon, size, tight)
     if not icon then return text end
-    local size = GUI:GetToken("tooltip.icon.size") or 12
+    size = size or GUI:GetToken("tooltip.icon.size") or 12
     local atlas = type(icon) == "string" and icon:match("^atlas:(.+)$")
-    if atlas then return string.format("|A:%s:%d:%d|a %s", atlas, size, size, text) end
-    return string.format("|T%s:%d:%d:0:0:64:64:5:59:5:59|t %s", icon, size, size, text)
+    local gap = tight and "" or " "
+    if atlas then return string.format("|A:%s:%d:%d|a%s%s", atlas, size, size, gap, text) end
+    return string.format("|T%s:%d:%d:0:0:64:64:5:59:5:59|t%s%s", icon, size, size, gap, text)
 end
 
 local buttons = {LeftButton="left", RightButton="right", MiddleButton="middle"}
@@ -116,6 +117,7 @@ function Tooltip:Show(owner, spec)
     if spec.settings then body:AddLine(self:FormatAction(spec.settings,true),"settings") end
     if spec.footer then
         local footer = type(spec.footer) == "table" and spec.footer or {text=spec.footer}
+        if footer.spaceBefore then body:AddSpace() end
         body:AddLine(footer.text,footer.tone or "secondary",footer.icon)
     end
     tip:Show()

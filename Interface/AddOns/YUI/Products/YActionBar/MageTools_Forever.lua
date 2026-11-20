@@ -11,13 +11,6 @@ local function Name(id) local info = Info(id); return info and Security.SafeStri
 local function Icon(id) local info = Info(id); return info and (Number(info.originalIconID) or Number(info.iconID)) end
 local function Texture(icon) return "|T" .. tostring(icon or 134400) .. ":16:16:0:0:64:64:4:60:4:60|t" end
 local TIMER_KEYS = { "intellect", "armor" }
-local function Action(tip, key, id, showLearningState)
-    local name = Name(id) or Text("unlearned")
-    if showLearningState and Spell.GetKnownState(id) == false then
-        name = "|cff808080" .. name .. "|r |cffff2020" .. Text("unlearned_suffix") .. "|r"
-    end
-    tip:AddLine(Text(key) .. ": " .. Texture(Icon(id)) .. " " .. name, 1, 1, 1)
-end
 
 local function Now()
     local system = YUI.API.System
@@ -190,10 +183,8 @@ function Mage:InitializeDB(db)
 end
 
 function Mage:ResolveArmor(binding)
-    if binding == "auto" or binding == nil then
-        return Spell.GetKnownState(Data.armorSpells.ice) == true and Data.armorSpells.ice or Data.armorSpells.frost
-    end
-    return Data.armorSpells[binding] or Data.armorSpells.frost
+    if binding == "mage" then return Data.armorSpells.mage end
+    return Spell.GetKnownState(Data.armorSpells.ice) == true and Data.armorSpells.ice or Data.armorSpells.frost
 end
 
 function Mage:SetMissingGlow(entry, shown)
@@ -215,7 +206,7 @@ function Mage:PrepareMissingGlows(record, config)
     end
     for _, button in ipairs(record.buttons) do
         local entry = self.states[button]
-        if entry.key ~= "scroll" then
+        if entry and entry.key ~= "scroll" then
             entry.glowEnabled = params.style ~= "none"
             if entry.glowEnabled then
                 local options = YAB:CopyValue(params)
@@ -243,13 +234,12 @@ function Mage:ApplyMissingGlowSettings(config)
     self:PrepareMissingGlows(record, config)
     for _, button in ipairs(record.buttons) do
         local entry = self.states[button]
-        self:SetMissingGlow(entry, entry.visual.missingBuff)
+        if entry then self:SetMissingGlow(entry, entry.visual.missingBuff) end
     end
 end
 
 function Mage:ReleaseBuffTimer(entry)
-    if entry.auraDisplay then Unit.ReleaseFilteredAuraDisplay(entry.auraDisplay) end
-    entry.auraDisplay, entry.timerStyle = nil, nil
+    YAB.ClassTools:ReleaseAuraTimer(entry)
 end
 
 -- The native subtree owns its clock. Only its public proxy is touched after
@@ -264,22 +254,7 @@ function Mage:RefreshBuffTimerStyle(button)
     if not self.nativeTimersReady then return end
     local style = YAB.Visuals:CaptureStatusTimerStyle(button, true)
     if not style then return end
-    local same = entry.auraDisplay ~= nil and entry.timerStyle ~= nil
-    if same then
-        for key, value in pairs(style) do
-            if entry.timerStyle[key] ~= value then same = false; break end
-        end
-    end
-    if same then return end
-    self:ReleaseBuffTimer(entry)
-    local handle, code = Unit.CreateFilteredAuraDisplay(button, {
-        unit = "player", filter = "HELPFUL", key = "mage-" .. entry.key,
-        spellIDs = Data.auraFamilies[entry.key],
-        initializeFrame = function(auraFrame)
-            return YAB.Visuals:CreateStatusTimerBindings(auraFrame, style)
-        end,
-    })
-    entry.auraDisplay, entry.timerStyle, entry.timerIssue = handle, handle and style or nil, code
+    YAB.ClassTools:SyncAuraTimer(entry, button, "mage-" .. entry.key, Data.auraFamilies[entry.key], style)
 end
 
 function Mage:PrepareBuffTimers(record)
@@ -323,7 +298,7 @@ function Mage:SelectScrolls(slots, rank, level)
 end
 
 function Mage:ReadInventory()
-    self.powder = Number(Item.GetCount(Data.powderItemID, false, false, false, false)) or 0
+    self.powder = Number(Item.GetCount(Data.powderItemID, false, false, false, false))
     local slots = Item.ReadCarriedSlots and Item.ReadCarriedSlots()
     if not slots then self.inventory = { eligible = 0, locked = 0, decoded = {}, decodedCounts = {}, total = 0, available = false }; return end
     local profession = YUI.API.Profession
@@ -334,6 +309,7 @@ function Mage:ReadInventory()
 end
 
 function Mage:GetButtonKeys(config)
+    if YAB.UtilityTools then return YAB.UtilityTools:GetPreviewKeys("mageTools", config) end
     local keys = {}
     if config.mageScroll ~= false then keys[#keys + 1] = "scroll" end
     if config.mageIntellect ~= false then keys[#keys + 1] = "intellect" end
@@ -342,6 +318,7 @@ function Mage:GetButtonKeys(config)
 end
 
 function Mage:GetSampleSpellID(position, config)
+    if YAB.UtilityTools then return YAB.UtilityTools:GetSampleSpellID("mageTools", position, config) end
     local key = self:GetButtonKeys(config)[position]
     return key == "scroll" and Data.comprehendSpellID or key == "intellect" and Data.intellectSpellID
         or key == "armor" and self:ResolveArmor(config.mageArmorLeft)
@@ -350,34 +327,59 @@ end
 function Mage:ShowTooltip(button)
     local entry = self.states[button]
     if not entry then return end
+    if not YAB.SecureFactory:ShouldShowTooltip(button) then
+        if GameTooltip:IsOwned(button) then GameTooltip:Hide() end
+        return
+    end
     local tip, config = GameTooltip, YAB.ClassTools:GetConfig("mageTools")
     tip:SetOwner(button, "ANCHOR_RIGHT")
-    if entry.itemID then tip:SetItemByID(entry.itemID); tip:Show(); return end
-    tip:AddLine(Text(entry.key), 1, 0.82, 0)
+    local tools = YAB.ClassTools
+    if entry.itemID then
+        tip:SetItemByID(entry.itemID); tools:TooltipNativeTitle(tip)
+        tip:AddLine(" ")
+        tools:TooltipAction(tip, "LeftButton", Text("use"), Item.GetIcon(entry.itemID))
+        tip:Show(); return
+    end
+    tools:TooltipTitle(tip, Text(entry.key))
+    local leftSpell = entry.key == "scroll" and Data.comprehendSpellID
+        or entry.key == "intellect" and Data.intellectSpellID
+        or self.armorLeft or self:ResolveArmor(config.mageArmorLeft)
+    local leftType = entry.key == "scroll" and "macro" or "spell"
+    if button:GetAttribute("type1") == leftType and Spell.GetKnownState(leftSpell) ~= false then
+        tools:TooltipSpellEffect(tip, leftSpell)
+    end
     if entry.key == "scroll" then
-        Action(tip, "left", Data.comprehendSpellID)
-        tip:AddLine(Text("right") .. ": " .. Texture(Item.GetIcon(213548)) .. " " .. Text("usable_scrolls"), 1, 1, 1)
         local inventory = self.inventory
-        if not inventory or not inventory.rank then tip:AddLine(Text("skill_unknown"), 1, 0.2, 0.2)
-        else
-            tip:AddLine(string.format(Text("eligible"), inventory.eligible), 1, 1, 1)
+        local unknown = not inventory or inventory.available == false or inventory.rank == nil
+        local unavailable = unknown and Text("state_unknown")
+            or inventory.eligible == 0 and Text("no_scrolls") or nil
+        tools:TooltipSpell(tip, "LeftButton", leftSpell, unavailable, nil, unknown and "secondary" or nil)
+        local decodedUnknown = not inventory or inventory.available == false
+        tools:TooltipAction(tip, "RightButton", Text("usable_scrolls"), Item.GetIcon(213548),
+            decodedUnknown and Text("state_unknown") or not (inventory and #inventory.decoded > 0) and Text("no_usable_scrolls") or nil,
+            nil, decodedUnknown and "secondary" or nil)
+        if not unknown and inventory.total > 0 then
+            tip:AddLine(" ")
+            tip:AddLine(string.format(Text("eligible"), inventory.eligible), 1, 1, 1, true)
             if inventory.locked > 0 then
-                tip:AddLine(string.format(Text("insufficient"), inventory.locked, inventory.rank, inventory.minimum), 1, 0.2, 0.2)
+                tip:AddLine(string.format(Text("insufficient"), inventory.locked, inventory.rank, inventory.minimum), 1, 0.2, 0.2, true)
             end
         end
     elseif entry.key == "intellect" then
-        Action(tip, "left", Data.intellectSpellID, true)
-        Action(tip, "right", Data.brillianceSpellID, true)
+        tools:TooltipSpell(tip, "LeftButton", leftSpell)
+        local count = self.powder
+        tools:TooltipSpell(tip, "RightButton", Data.brillianceSpellID,
+            count == nil and Text("state_unknown") or count == 0 and Text("missing") or nil,
+            nil, count == nil and "secondary" or nil)
         tip:AddLine(" ")
-        local count = self.powder or 0
-        tip:AddLine(Texture(Item.GetIcon(Data.powderItemID) or Data.powderIcon) .. " " .. Text("powder") .. ": " .. count
-            .. (count == 0 and " " .. Text("missing") or ""), 1, count == 0 and 0.2 or 0.82, count == 0 and 0.2 or 0)
+        local tone = count == nil and "secondary" or count == 0 and "requirement" or "heading"
+        tip:AddLine(YUI.GUI2.Tooltip:IconText(string.format(Text("action_row"), Text("powder"),
+            YUI.GUI2.Tooltip:ColorText(count or "—", tone)), Item.GetIcon(Data.powderItemID) or Data.powderIcon), 1, 1, 1, true)
     else
-        Action(tip, "left", self.armorLeft or self:ResolveArmor(config.mageArmorLeft), true)
-        Action(tip, "right", self.armorRight or self:ResolveArmor(config.mageArmorRight or "mage"), true)
+        tools:TooltipSpell(tip, "LeftButton", leftSpell)
+        tools:TooltipSpell(tip, "RightButton", self.armorRight or self:ResolveArmor(config.mageArmorRight or "mage"))
     end
-    tip:AddLine(" ")
-    tip:AddLine(Text("settings"), 0.2, 1, 0.2)
+    tools:TooltipSettings(tip, button)
     tip:Show()
 end
 
@@ -419,12 +421,12 @@ function Mage:Build(record, config)
         local id = key == "scroll" and Data.comprehendSpellID or key == "intellect" and Data.intellectSpellID
             or self.armorLeft
         entry.texture = Icon(id) or (key == "scroll" and Data.comprehendIcon)
-        local enabled = config["mage" .. key:sub(1, 1):upper() .. key:sub(2)] ~= false
+        local enabled = YAB.ClassTools:IsButtonEnabled("mageTools", key, config)
         entry.timerWanted = key ~= "scroll" and enabled and not record.classBarEditing
         if not entry.timerWanted then self:ReleaseBuffTimer(entry) end
         factory:ConfigureMageTool(button, key, config, self.inventory, record.classBarEditing)
         manager.buttonConfigSnapshots[button] = record.configSnapshot
-        if enabled or record.classBarEditing then
+        if enabled then
             record.buttons[#record.buttons + 1] = button; button:Show()
         else button:Hide() end
     end
@@ -434,8 +436,11 @@ function Mage:Build(record, config)
     end
     for _, id in pairs(Data.armorSpells) do local name = Name(id); if name then self.auraNames[name] = "armor" end end
     self:BuildChoices(record)
+    if YAB.UtilityTools then YAB.UtilityTools:Build(record, config, true) end
     record.configSnapshot.buttons = math.max(#record.buttons, 1)
+    record.classToolPrepared = YAB.ClassTools and YAB.ClassTools.GetLayoutButtons ~= nil
     manager:ApplyLayout(record, config, YAB:GetDB())
+    if YAB.UtilityTools then YAB.UtilityTools:Layout(record) end
     self:PrepareBuffTimers(record)
     self:PrepareMissingGlows(record, config)
     self:PrepareReceipts()
@@ -494,6 +499,7 @@ function Mage:Refresh(record)
     end
     for _, button in ipairs(record.buttons) do
         local entry = self.states[button]
+        if entry then
         local state, key = entry.visual, entry.key
         local aura = self.auras and self.auras[key]
         local known = self.aurasReady == true and not (self.auraUnavailable and self.auraUnavailable[key])
@@ -530,6 +536,7 @@ function Mage:Refresh(record)
         end
         self:SetMissingGlow(entry, state.missingBuff)
         if GameTooltip:IsOwned(button) then self:ShowTooltip(button) end
+        end
     end
     for index = 1, self.panel.choiceCount or 0 do
         local button = self.choices[index]
@@ -552,7 +559,7 @@ function Mage:OnEvent(event, ...)
     if event == "PLAYER_ENTERING_WORLD" then self.comprehension = nil; self:HideReceipts() end
     if event == "GET_ITEM_INFO_RECEIVED" and not (Data.decoded[Number(itemID)] or itemID == Data.powderItemID) then return end
     if event == "UNIT_AURA" or event == "SPELLS_CHANGED" or event == "PLAYER_ENTERING_WORLD"
-        or event == "PLAYER_REGEN_ENABLED" then self.auraDirty = true end
+        or event == "PLAYER_REGEN_ENABLED" or event == "ADDON_RESTRICTION_STATE_CHANGED" then self.auraDirty = true end
     if event == "BAG_UPDATE_DELAYED" or event == "SKILL_LINES_CHANGED" or event == "GET_ITEM_INFO_RECEIVED"
         or event == "SPELLS_CHANGED" or event == "PLAYER_LEVEL_UP" or event == "PLAYER_ENTERING_WORLD" then
         self.inventoryDirty = true
@@ -561,6 +568,7 @@ function Mage:OnEvent(event, ...)
 end
 
 function Mage:Stop()
+    if YAB.UtilityTools then YAB.UtilityTools:Stop("mageTools") end
     self.comprehension = nil
     self:HideReceipts()
     for _, entry in pairs(self.states) do self:SetMissingGlow(entry, false) end
@@ -572,6 +580,7 @@ function Mage:Stop()
         self:ReleaseBuffTimer(self.states[button])
         self.states[button].timerWanted = nil
         YAB.SecureFactory:ClearMageTool(button)
+        if YAB.ClassTools and YAB.ClassTools.ReleaseButton then YAB.ClassTools:ReleaseButton(button) end
         button:Hide(); YAB.Visuals:ReleaseButton(button)
         YAB.BarManager.buttonConfigSnapshots[button], YAB.BarManager.mouseoverRecords[button] = nil, nil
         if GameTooltip:IsOwned(button) then GameTooltip:Hide() end

@@ -18,12 +18,12 @@ S.knownVoicePacks = {
         addonName='WYJJDB', addonIcon='Interface\\AddOns\\WYJJDB\\Media\\icon.tga', listOrder=2,
         builtinIcon='icons\\wyjjdb.tga' },
     ['voice.e4893b47a0d36bc600d88313'] = {
-        recommendClients={mainline=true,wrath=true,mists=true},
+        recommendClients={mainline=true,wrath=true,mists=true,forever=true},
         names={enUS='桃桃奶兮TTNX语音包',zhCN='桃桃奶兮TTNX语音包',zhTW='桃桃奶兮TTNX语音包'},
         icon=136183, author='桃桃奶兮', language='zhCN', listOrder=3, addonName='YUI_VoicePack_TTNX',
         addonIcon='Interface\\AddOns\\YUI_VoicePack_TTNX\\Icon.tga', builtinIcon='icons\\ttnx.tga' },
     ['voice.f0f55c3f08372f1e189a9b9f'] = {
-        recommendClients={mainline=true,wrath=true,mists=true},
+        recommendClients={mainline=true,wrath=true,mists=true,forever=true},
         names={enUS='摘风铃的语音包',zhCN='摘风铃的语音包',zhTW='摘风铃的语音包'},
         icon=136183, author='摘风铃', language='zhCN', listOrder=4, addonName='YUI_VoicePack_Ring',
         addonIcon='Interface\\AddOns\\YUI_VoicePack_Ring\\Icon.tga', builtinIcon='icons\\ring.tga' },

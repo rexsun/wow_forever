@@ -1,6 +1,68 @@
 -- Generated from Docs/Products/YUI_YActionBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yactionbar", {
+-- YUI-Notes-Record: yactionbar-120|mainline|2b78e9e0e1dbb8d10e801edd5d41a762087bd549e7d3dc51abeb19d334d789c9
+    {
+        version = "yactionbar-120",
+        date = "2026-11-21",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "新增「主题外观」设置页。",
+                "修复宠物动作条键位缩写被覆盖和文字裁切。",
+                "修复初学姿态后未刷新、公共冷却时图标误变灰。",
+                "修复换角色后动作条方案偶尔漏应用。",
+            },
+            enUS = {
+                "Added a Theme & Appearance settings page.",
+                "Fixed pet bar keybind abbreviations being overwritten and text clipping.",
+                "Fixed stance buttons failing to refresh when first learned or dimming during the global cooldown.",
+                "Fixed action bar profiles sometimes failing to apply after switching characters.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yactionbar-120|forever|f46e4bf684dd56f40d8ce17381bde6dfbe528354f6ee67d303d019c96591d620
+    {
+        version = "yactionbar-120",
+        date = "2026-11-21",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增骑士团队祝福管理条，支持按职业分配、查缺与补施，并调整了默认位置与外观。",
+                "职业条扩展至 9 个职业，布局编辑可调整其他职业已单独摆放的工具条。",
+                "法师支持造食造水、法力宝石与传送增强。",
+                "圣骑士可设置常用祝福。",
+                "猎人支持宠物技能菜单与拖放喂养。",
+                "萨满支持图腾计时、护盾切换与武器附魔显示。",
+                "术士支持恶魔召唤、治疗石与灵魂石工具。",
+                "潜行者可查看主副手毒药库存与计时。",
+                "牧师可用左右键分别施放单体与群体增益。",
+                "德鲁伊支持野性印记、野性赐福与荆棘术。",
+                "战士支持战斗怒吼与增益计时。",
+                "新增「主题外观」设置页。",
+                "修复宠物动作条键位缩写被覆盖和文字裁切。",
+                "修复初学姿态后未刷新、公共冷却时图标误变灰。",
+                "修复任务物品漏显、换角色后方案漏应用和旧方案职业条错位。",
+            },
+            enUS = {
+                "Added a Paladin group blessing bar for assigning blessings by class, checking who needs them, and refreshing them, with an updated default position and appearance.",
+                "Expanded class tools to all nine classes. Layout editing can also reposition detached toolbars for other classes.",
+                "Mage: Improved food and water conjuring, mana gems, and teleport tools.",
+                "Paladin: Set a preferred blessing.",
+                "Hunter: Pet skills menu and drag-to-feed.",
+                "Shaman: Totem timers, shield switching, and weapon imbue display.",
+                "Warlock: Demon summons, Healthstones, and Soulstones.",
+                "Rogue: Track main-hand and off-hand poisons, stock, and remaining time.",
+                "Priest: Use left and right clicks for single-target and group buffs.",
+                "Druid: Mark of the Wild, Gift of the Wild, and Thorns.",
+                "Warrior: Battle Shout and its remaining duration.",
+                "Added a Theme & Appearance settings page.",
+                "Fixed pet bar keybind abbreviations being overwritten and text clipping.",
+                "Fixed stance buttons failing to refresh when first learned or dimming during the global cooldown.",
+                "Fixed missing quest items, profiles failing to apply after switching characters, and class bars moving out of place after importing older profiles.",
+            },
+        },
+    },
 -- YUI-Notes-Record: yactionbar-119|mainline|a58052a3318f749d2d1820babe4783cd81f1f928e741a1fd09ce691d32df2239
     {
         version = "yactionbar-119",
@@ -219,52 +281,6 @@ CL:Register("yactionbar", {
                 "Improved cooldown, glow, and autocast effects for shaped buttons; fixed macro name layering.",
                 "Fixed lingering desaturation after pet ability cooldowns and incorrect autocast status displays.",
                 "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: yactionbar-110|mainline|cc0474a348b53f3fc7880c72d4c85d294a3f4623c99d1662c8960da7be9c6a6e
-    {
-        version = "yactionbar-110",
-        date = "2026-10-26",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "宠物动作条新增隐藏空槽选项。",
-                "修复宠物按钮选中效果与圆角、圆形外观不一致的问题。",
-                "同步共享核心，保持与新版 YUI 系列插件的兼容。",
-            },
-            enUS = {
-                "Added an option to hide empty pet action bar slots.",
-                "Fixed pet button selection highlights with rounded and circular icon shapes.",
-                "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: yactionbar-110|forever|26e765bfe2313a53e956cbf3c2c43702fb612fd8efe7062b2e2bd420f793f742
-    {
-        version = "yactionbar-110",
-        date = "2026-10-26",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增猎人守护条，支持激活效果、顺序调整及未学技能提示。",
-                "新增宠物技能折叠菜单，支持拖入食物喂养。",
-                "新增宠物快乐状态与食物提示。",
-                "新增萨满图腾组合条，支持组合切换和图腾选择。",
-                "职业动作条支持布局、展开方向与键位设置。",
-                "宠物动作条新增隐藏空槽选项。",
-                "修复宠物按钮选中效果与圆角、圆形外观不一致的问题。",
-                "修复魔杖恢复期间动作条图标异常变灰的问题。",
-            },
-            enUS = {
-                "Added a hunter aspect bar with activation effects, reordering, and unlearned-spell hints.",
-                "Added a collapsible pet utility menu with drag-to-feed support.",
-                "Added pet happiness indicators and food tooltips.",
-                "Added a shaman totem bar with set switching and totem selection.",
-                "Added layout, flyout direction, and keybind settings for class action bars.",
-                "Added an option to hide empty pet action bar slots.",
-                "Fixed pet button selection highlights with rounded and circular icon shapes.",
-                "Fixed incorrect action icon dimming during wand recovery.",
             },
         },
     },

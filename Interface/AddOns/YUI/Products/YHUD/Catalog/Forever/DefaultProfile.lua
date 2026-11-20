@@ -1586,71 +1586,6 @@ YHUD.Client.defaultProfile = {
         },
         ["PALADIN:11486"] = {
             ["entries"] = {
-                ["aura:player:helpful:20154"] = {
-                    ["compatibleViews"] = {
-                        ["bar"] = true,
-                        ["icon"] = true,
-                        ["ring"] = true,
-                    },
-                    ["contentScope"] = "spec",
-                    ["contract"] = {
-                        ["capability"] = "aura-display",
-                        ["fallback"] = "hide",
-                        ["group"] = "free",
-                        ["status"] = "verified",
-                        ["style"] = "full",
-                        ["view"] = "self",
-                    },
-                    ["crossSpecMaterialization"] = "immediate",
-                    ["entryKey"] = "aura:player:helpful:20154",
-                    ["filteredAuraScope"] = "player-helpful",
-                    ["icon"] = 1030100,
-                    ["nameKey"] = "designer.preset.label.forever_seals",
-                    ["origin"] = "preset",
-                    ["presetKey"] = "aura:player:helpful:20154",
-                    ["semantic"] = "buff",
-                    ["sourceIdentity"] = "aura:player:helpful:20154",
-                    ["sourceKey"] = "aura:player:helpful:20154",
-                    ["sourceType"] = "yhud.player-aura",
-                    ["spellId"] = 20154,
-                    ["spellIds"] = {
-                        [1] = 20154,
-                        [2] = 21084,
-                        [3] = 20287,
-                        [4] = 20288,
-                        [5] = 20289,
-                        [6] = 20290,
-                        [7] = 20291,
-                        [8] = 20292,
-                        [9] = 20293,
-                        [10] = 21082,
-                        [11] = 20162,
-                        [12] = 20305,
-                        [13] = 20306,
-                        [14] = 20307,
-                        [15] = 20308,
-                        [16] = 20164,
-                        [17] = 20375,
-                        [18] = 20915,
-                        [19] = 20918,
-                        [20] = 20919,
-                        [21] = 20920,
-                        [22] = 20165,
-                        [23] = 20347,
-                        [24] = 20348,
-                        [25] = 20349,
-                        [26] = 20166,
-                        [27] = 20356,
-                        [28] = 20357,
-                        [29] = 1311649,
-                        [30] = 1311656,
-                        [31] = 20163,
-                        [32] = 20419,
-                        [33] = 20421,
-                        [34] = 20422,
-                        [35] = 20423,
-                    },
-                },
                 ["item:5512"] = {
                     ["contentScope"] = "spec",
                     ["contract"] = {
@@ -1742,7 +1677,6 @@ YHUD.Client.defaultProfile = {
                 ["group:official:bar"] = {
                 },
                 ["group:official:buff"] = {
-                    [1] = "monitor:forever-seals",
                 },
                 ["group:official:important"] = {
                 },
@@ -1763,18 +1697,6 @@ YHUD.Client.defaultProfile = {
                 ["nativeSeedVersion"] = 0,
             },
             ["monitors"] = {
-                ["monitor:forever-seals"] = {
-                    ["contentScope"] = "spec",
-                    ["enabled"] = true,
-                    ["entryKey"] = "aura:player:helpful:20154",
-                    ["groupId"] = "group:official:buff",
-                    ["id"] = "monitor:forever-seals",
-                    ["order"] = 1,
-                    ["origin"] = "preset",
-                    ["sourceKey"] = "aura:player:helpful:20154",
-                    ["view"] = "icon",
-                    ["visibilityMode"] = "active",
-                },
                 ["monitor:slot:13"] = {
                     ["contentScope"] = "spec",
                     ["enabled"] = true,
@@ -1825,71 +1747,6 @@ YHUD.Client.defaultProfile = {
         },
         ["PALADIN:11541"] = {
             ["entries"] = {
-                ["aura:player:helpful:20154"] = {
-                    ["compatibleViews"] = {
-                        ["bar"] = true,
-                        ["icon"] = true,
-                        ["ring"] = true,
-                    },
-                    ["contentScope"] = "spec",
-                    ["contract"] = {
-                        ["capability"] = "aura-display",
-                        ["fallback"] = "hide",
-                        ["group"] = "free",
-                        ["status"] = "verified",
-                        ["style"] = "full",
-                        ["view"] = "self",
-                    },
-                    ["crossSpecMaterialization"] = "immediate",
-                    ["entryKey"] = "aura:player:helpful:20154",
-                    ["filteredAuraScope"] = "player-helpful",
-                    ["icon"] = 1030100,
-                    ["nameKey"] = "designer.preset.label.forever_seals",
-                    ["origin"] = "preset",
-                    ["presetKey"] = "aura:player:helpful:20154",
-                    ["semantic"] = "buff",
-                    ["sourceIdentity"] = "aura:player:helpful:20154",
-                    ["sourceKey"] = "aura:player:helpful:20154",
-                    ["sourceType"] = "yhud.player-aura",
-                    ["spellId"] = 20154,
-                    ["spellIds"] = {
-                        [1] = 20154,
-                        [2] = 21084,
-                        [3] = 20287,
-                        [4] = 20288,
-                        [5] = 20289,
-                        [6] = 20290,
-                        [7] = 20291,
-                        [8] = 20292,
-                        [9] = 20293,
-                        [10] = 21082,
-                        [11] = 20162,
-                        [12] = 20305,
-                        [13] = 20306,
-                        [14] = 20307,
-                        [15] = 20308,
-                        [16] = 20164,
-                        [17] = 20375,
-                        [18] = 20915,
-                        [19] = 20918,
-                        [20] = 20919,
-                        [21] = 20920,
-                        [22] = 20165,
-                        [23] = 20347,
-                        [24] = 20348,
-                        [25] = 20349,
-                        [26] = 20166,
-                        [27] = 20356,
-                        [28] = 20357,
-                        [29] = 1311649,
-                        [30] = 1311656,
-                        [31] = 20163,
-                        [32] = 20419,
-                        [33] = 20421,
-                        [34] = 20422,
-                        [35] = 20423,
-                    },
-                },
                 ["item:5512"] = {
                     ["contentScope"] = "spec",
                     ["contract"] = {
@@ -1981,7 +1838,6 @@ YHUD.Client.defaultProfile = {
                 ["group:official:bar"] = {
                 },
                 ["group:official:buff"] = {
-                    [1] = "monitor:forever-seals",
                 },
                 ["group:official:important"] = {
                 },
@@ -2002,18 +1858,6 @@ YHUD.Client.defaultProfile = {
                 ["nativeSeedVersion"] = 0,
             },
             ["monitors"] = {
-                ["monitor:forever-seals"] = {
-                    ["contentScope"] = "spec",
-                    ["enabled"] = true,
-                    ["entryKey"] = "aura:player:helpful:20154",
-                    ["groupId"] = "group:official:buff",
-                    ["id"] = "monitor:forever-seals",
-                    ["order"] = 1,
-                    ["origin"] = "preset",
-                    ["sourceKey"] = "aura:player:helpful:20154",
-                    ["view"] = "icon",
-                    ["visibilityMode"] = "active",
-                },
                 ["monitor:slot:13"] = {
                     ["contentScope"] = "spec",
                     ["enabled"] = true,
@@ -2064,71 +1908,6 @@ YHUD.Client.defaultProfile = {
         },
         ["PALADIN:11559"] = {
             ["entries"] = {
-                ["aura:player:helpful:20154"] = {
-                    ["compatibleViews"] = {
-                        ["bar"] = true,
-                        ["icon"] = true,
-                        ["ring"] = true,
-                    },
-                    ["contentScope"] = "spec",
-                    ["contract"] = {
-                        ["capability"] = "aura-display",
-                        ["fallback"] = "hide",
-                        ["group"] = "free",
-                        ["status"] = "verified",
-                        ["style"] = "full",
-                        ["view"] = "self",
-                    },
-                    ["crossSpecMaterialization"] = "immediate",
-                    ["entryKey"] = "aura:player:helpful:20154",
-                    ["filteredAuraScope"] = "player-helpful",
-                    ["icon"] = 1030100,
-                    ["nameKey"] = "designer.preset.label.forever_seals",
-                    ["origin"] = "preset",
-                    ["presetKey"] = "aura:player:helpful:20154",
-                    ["semantic"] = "buff",
-                    ["sourceIdentity"] = "aura:player:helpful:20154",
-                    ["sourceKey"] = "aura:player:helpful:20154",
-                    ["sourceType"] = "yhud.player-aura",
-                    ["spellId"] = 20154,
-                    ["spellIds"] = {
-                        [1] = 20154,
-                        [2] = 21084,
-                        [3] = 20287,
-                        [4] = 20288,
-                        [5] = 20289,
-                        [6] = 20290,
-                        [7] = 20291,
-                        [8] = 20292,
-                        [9] = 20293,
-                        [10] = 21082,
-                        [11] = 20162,
-                        [12] = 20305,
-                        [13] = 20306,
-                        [14] = 20307,
-                        [15] = 20308,
-                        [16] = 20164,
-                        [17] = 20375,
-                        [18] = 20915,
-                        [19] = 20918,
-                        [20] = 20919,
-                        [21] = 20920,
-                        [22] = 20165,
-                        [23] = 20347,
-                        [24] = 20348,
-                        [25] = 20349,
-                        [26] = 20166,
-                        [27] = 20356,
-                        [28] = 20357,
-                        [29] = 1311649,
-                        [30] = 1311656,
-                        [31] = 20163,
-                        [32] = 20419,
-                        [33] = 20421,
-                        [34] = 20422,
-                        [35] = 20423,
-                    },
-                },
                 ["item:5512"] = {
                     ["contentScope"] = "spec",
                     ["contract"] = {
@@ -2220,7 +1999,6 @@ YHUD.Client.defaultProfile = {
                 ["group:official:bar"] = {
                 },
                 ["group:official:buff"] = {
-                    [1] = "monitor:forever-seals",
                 },
                 ["group:official:important"] = {
                 },
@@ -2241,18 +2019,6 @@ YHUD.Client.defaultProfile = {
                 ["nativeSeedVersion"] = 0,
             },
             ["monitors"] = {
-                ["monitor:forever-seals"] = {
-                    ["contentScope"] = "spec",
-                    ["enabled"] = true,
-                    ["entryKey"] = "aura:player:helpful:20154",
-                    ["groupId"] = "group:official:buff",
-                    ["id"] = "monitor:forever-seals",
-                    ["order"] = 1,
-                    ["origin"] = "preset",
-                    ["sourceKey"] = "aura:player:helpful:20154",
-                    ["view"] = "icon",
-                    ["visibilityMode"] = "active",
-                },
                 ["monitor:slot:13"] = {
                     ["contentScope"] = "spec",
                     ["enabled"] = true,
@@ -5307,7 +5073,6 @@ YHUD.Client.defaultProfile = {
                     [37] = "official:cdm:200299",
                     [38] = "official:cdm:200283",
                     [39] = "official:cdm:200295",
-                    [40] = "preset:aura:player:helpful:20154",
                 },
                 ["group:user:1"] = {
                     [1] = "preset:slot:13",
@@ -5359,7 +5124,6 @@ YHUD.Client.defaultProfile = {
                     [37] = "official:cdm:200299",
                     [38] = "official:cdm:200283",
                     [39] = "official:cdm:200295",
-                    [40] = "preset:aura:player:helpful:20154",
                 },
                 ["group:user:1"] = {
                     [1] = "preset:slot:13",
@@ -5411,7 +5175,6 @@ YHUD.Client.defaultProfile = {
                     [37] = "official:cdm:200299",
                     [38] = "official:cdm:200283",
                     [39] = "official:cdm:200295",
-                    [40] = "preset:aura:player:helpful:20154",
                 },
                 ["group:user:1"] = {
                     [1] = "preset:slot:13",
@@ -7322,3 +7085,25 @@ YHUD.Client.defaultProfile = {
         ["pandemicGlow"] = true,
     },
 }
+
+local buffGroupId = "group:official:buff"
+local hawkEntryKey, hawkMonitorId = "forever-summon-hawk", "monitor:forever-summon-hawk"
+for _, specKey in ipairs({ "HUNTER:11370", "HUNTER:11371", "HUNTER:11372" }) do
+    local content = YHUD.Client.defaultProfile.contentBySpec[specKey]
+    local members = content.groupMembers[buffGroupId]
+    content.entries[hawkEntryKey] = {
+        entryKey = hawkEntryKey, sourceKey = hawkEntryKey, presetId = hawkEntryKey,
+        sourceType = "yhud.forever-summon-hawk", semantic = "buff", origin = "preset", contentScope = "spec",
+        spellId = 1293241, icon = 132158, durationSeconds = 18, nameKey = "designer.preset.summon_hawk",
+        compatibleViews = { icon = true, bar = true, ring = true, resource = true },
+    }
+    content.monitors[hawkMonitorId] = {
+        id = hawkMonitorId, entryKey = hawkEntryKey, sourceKey = hawkEntryKey, groupId = buffGroupId,
+        contentScope = "spec", origin = "preset", enabled = true, order = #members + 1,
+        view = "icon", visibilityMode = "active",
+        glow = { rules = { {
+            condition = { type = "timer-expiring" }, appearance = { style = "pixel" },
+        } } },
+    }
+    members[#members + 1] = hawkMonitorId
+end

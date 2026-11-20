@@ -414,6 +414,10 @@ local ALIGNMENT_VALUES = { left = true, center = true, right = true }
 local EXTERNAL_SPECIAL_BARS
 
 local function ShouldRegisterHotEvent(event, auraEnabled, hasOrdinaryActions, hasExtraAction)
+    if (event == "SPELLS_CHANGED" or event == "SPELL_UPDATE_ICON")
+        and BarManager.bars and BarManager.bars.stance then
+        return true
+    end
     if ORDINARY_ACTION_EVENTS[event] and hasOrdinaryActions ~= true then
         return false
     end
@@ -853,6 +857,7 @@ function BarManager:UpdateConfigSnapshot(barId, config, group)
     snapshot.barId = barId
     snapshot.group = group or snapshot.group or "normal"
     snapshot.alpha = SnapshotNumber(config.alpha, 1, 0, 1)
+    snapshot.teamVisibility = SnapshotString(config.teamVisibility, "raid")
     if YUI.Visibility and type(config.visibility) == "table" then
         snapshot.visibilityRule = YUI.Visibility:NormalizeBranches(config.visibility, snapshot.visibilityRule)
         snapshot.visibility = "always"
@@ -863,7 +868,7 @@ function BarManager:UpdateConfigSnapshot(barId, config, group)
     snapshot.hideEmptySlots = SnapshotBoolean(config.hideEmptySlots, false)
     snapshot.hideSkyriding = SnapshotBoolean(config.hideSkyriding, false)
     snapshot.buttons = SnapshotNumber(config.buttons, 12, 1, 12)
-    snapshot.rows = SnapshotNumber(config.rows, 1, 1, barId == "questItems" and 12 or snapshot.buttons)
+    snapshot.rows = SnapshotNumber(config.rows, 1, 1, barId == "paladinBlessings" and 10 or barId == "questItems" and 12 or snapshot.buttons)
     snapshot.size = SnapshotNumber(config.size, 36, 1, 128)
     snapshot.spacing = SnapshotNumber(config.spacing, 4, -10, 64)
     snapshot.alignment = NormalizeAlignment(config.alignment, barId == "stance" and "center" or "left")
@@ -4456,6 +4461,12 @@ function BarManager:RefreshDynamicSpecialLayoutsForEditMode(reason)
     if YAB.ClassBars then
         YAB.ClassBars:SyncPetUtilityInteraction(self.bars and self.bars.aspects)
         YAB.ClassBars:SyncTotemInteraction()
+        if YAB.UtilityTools and not InCombat() then
+            for id in pairs(YAB.ClassBars.active) do
+                YAB.ClassBars.configDirty[id] = true
+                YAB.ClassBars:Refresh(id)
+            end
+        end
     end
     local refreshed = false
     for _, kind in ipairs(SPECIAL_NATIVE_SUPPRESSION_KINDS) do
@@ -4527,9 +4538,10 @@ end
 function BarManager:QueueSettingsRefresh(barId, scope)
     if YAB.ClassTools and YAB.ClassBars:Owns(barId) then
         YAB.ClassTools:Invalidate()
-        if barId == "classTools" then
-            if InCombat() then self.pendingStructuralBars.classTools = "class-tools-settings"
-            else YAB.LayoutBridge:SyncClassToolsMover() end
+        if barId == "classTools" or (YAB.ClassTools:IsIndependent(barId) and not YAB.ClassBars.active[barId]
+            and SettingScopeHas(scope or "full", "layout")) then
+            if InCombat() then self.pendingStructuralBars[barId] = "class-tools-settings"
+            else YAB.LayoutBridge:SyncClassToolsMover(barId) end
         end
         for id in pairs(YAB.ClassBars.active) do
             if id == barId or barId == "classTools" and YAB.ClassTools:GetSettingsBarId(id) == barId then
@@ -4894,9 +4906,9 @@ function BarManager:GetLayoutButtonSize(config, snapshot, db)
 end
 
 -- Pure geometry: no config snapshots, buttons, DB normalization or runtime startup.
-function BarManager:MeasureDormantActionBar(config)
+function BarManager:MeasureDormantActionBar(config, buttonCount)
     config = config or {}
-    local count = math.floor(SnapshotNumber(config.buttons, 12, 1, 12))
+    local count = math.floor(SnapshotNumber(buttonCount or config.buttons, 12, 1, 12))
     local rows = SnapshotNumber(config.rows, 1, 1, count)
     local size = SnapshotNumber(config.size, 36, 1, 128)
     local height = size
@@ -4925,10 +4937,14 @@ function BarManager:ApplyLayout(record, config, db)
     local snapshot = record.configSnapshot or (record.id and self:GetConfigSnapshot(record.id)) or DEFAULT_CONFIG_SNAPSHOT
     local managedCount = record.kind == "action" and GetConfiguredButtonCount(config, snapshot) or GetManagedSpecialButtonCount(record.kind, config, snapshot)
     local layoutButtons, layoutButtonCount, layoutSignature = BuildLayoutButtons(record, managedCount)
+    if YAB.ClassTools and YAB.ClassTools:IsClassBar(record.id) and record.classToolPrepared then
+        layoutButtons, layoutButtonCount = YAB.ClassTools:GetLayoutButtons(record)
+    end
     local count = managedCount
     if record.kind == "aspects" then
         count = math.max(#record.buttons + (record.petUtilityToggle and 1 or 0), 1)
     end
+    if record.classToolPrepared then count = math.max(layoutButtonCount or 0, 1) end
     if IsCompactSpecialLayoutRecord(record) then
         count = math.max(layoutButtonCount or 0, 1)
     end
@@ -5851,8 +5867,14 @@ function BarManager:ApplyBarStructureChange(
     if not barId then return false, "missing bar id" end
     if YAB.ClassBars and YAB.ClassBars:Owns(barId) then
         if YAB.ClassTools then YAB.ClassTools:Invalidate() end
-        YAB.ClassBars:SyncEnabled()
-        if not InCombat() then self.pendingStructuralBars[barId] = nil end
+        if InCombat() then
+            self.pendingStructuralBars[barId] = reason or true
+            return true
+        end
+        self.pendingStructuralBars[barId] = nil
+        local requestedId = barId ~= "classTools" and barId or nil
+        local applied, applyReason = YAB.ClassBars:SyncEnabled(requestedId)
+        if applied == false then return false, applyReason end
         return true
     end
     if barId == "questItems" and YAB.QuestItems then
@@ -6165,11 +6187,12 @@ end
 
 function BarManager:RestoreNativeClassFrame(frame, state)
     if InCombat() or not (YAB.ClassBars and YAB.ClassBars.nativeFrames[frame] == state) then return false end
-    if not CallFrameMethod(frame, "SetParent", state.parent) then return false end
-    frame:SetSize(state.width, state.height)
-    frame:ClearAllPoints()
-    for _, point in ipairs(state.points) do frame:SetPoint(unpack(point)) end
-    return true
+    if not CallFrameMethod(frame, "SetSize", state.width, state.height)
+        or not CallFrameMethod(frame, "ClearAllPoints") then return false end
+    for _, point in ipairs(state.points) do
+        if not CallFrameMethod(frame, "SetPoint", unpack(point)) then return false end
+    end
+    return CallFrameMethod(frame, "SetParent", state.parent)
 end
 
 local function CaptureExternalFrame(manager, frame)
@@ -7544,7 +7567,10 @@ function BarManager:CreateRuntime()
 end
 
 function BarManager:ShutdownRuntime()
-    if YAB.ClassBars then YAB.ClassBars:Stop() end
+    if YAB.ClassBars then
+        local stopped, reason = YAB.ClassBars:Stop()
+        if stopped == false then return false, reason or "combat lockdown" end
+    end
     if YAB.RankUpgrade then YAB.RankUpgrade:Stop() end
     if YAB.QuestItems then YAB.QuestItems:Stop() end
     if InCombat() then
@@ -7739,18 +7765,27 @@ function BarManager:SyncClassBarEvents()
         local wanted = bars:ConsumesEvent(event) or (BASE_HOT_EVENTS[event]
             and ShouldRegisterHotEvent(event, auraEnabled, ordinary, extra))
         local registered = frame:IsEventRegistered(event)
+        local groupAura=event=="UNIT_AURA" and ((bars.active.paladinBlessings and YAB.PaladinBlessings and YAB.PaladinBlessings.groupAuraActive)
+            or (bars.active.warlockTools and YAB.SoulstoneBinding and YAB.SoulstoneBinding.groupAuraActive)) == true
+        if event=="UNIT_AURA" and registered and (self.classGroupAura==true)~=groupAura then
+            frame:UnregisterEvent(event);registered=false;self.eventCount=math.max(self.eventCount-1,0)
+        end
         if wanted and not registered then
             local ok
-            if event == "UNIT_AURA" or event == "UNIT_PET" or bars.mageCastEvents and bars.mageCastEvents[event] then
+            if groupAura then ok=pcall(frame.RegisterEvent,frame,event)
+            elseif event == "UNIT_AURA" or event == "UNIT_PET" or event == "UNIT_INVENTORY_CHANGED" or bars.mageCastEvents and bars.mageCastEvents[event] then
                 ok = pcall(frame.RegisterUnitEvent, frame, event, "player")
             elseif event == "UNIT_HAPPINESS" or event == "UNIT_NAME_UPDATE" then
                 ok = pcall(frame.RegisterUnitEvent, frame, event, "pet")
+            elseif event == "UNIT_LEVEL" then
+                ok = pcall(frame.RegisterUnitEvent, frame, event, "target")
             else ok = pcall(frame.RegisterEvent, frame, event) end
             if ok then self.eventCount = self.eventCount + 1 end
         elseif not wanted and registered then
             frame:UnregisterEvent(event)
             self.eventCount = math.max(self.eventCount - 1, 0)
         end
+        if event=="UNIT_AURA" then self.classGroupAura=wanted and groupAura or false end
     end
 end
 
@@ -7901,6 +7936,7 @@ function BarManager:OnEvent(event, ...)
             HotDiagnostics:NoteProcCaptureCombatStarted()
         end
         if YAB.CancelBindMode then YAB:CancelBindMode("combat") end
+        if YAB.ClassTools then YAB.ClassTools:CancelDrag() end
         if YAB.SecureFactory and YAB.SecureFactory.HideRestrictedCombatTooltip then
             YAB.SecureFactory:HideRestrictedCombatTooltip()
         end
@@ -8022,12 +8058,14 @@ function BarManager:OnEvent(event, ...)
         local diagnostic, started, timingDomain
         if HotDiagnostics and HotDiagnostics.enabled then diagnostic, started, timingDomain = HotDiagnostics:Begin("identity") end
         self:HandleNativeCoreIconEvent(event)
+        self:QueueSpecialRefresh("stance", event)
         if timingDomain then HotDiagnostics:Finish(timingDomain, started) end
         return
     elseif event == "SPELLS_CHANGED" then
         self:RefreshMainPaging()
         self:QueueAssistedHighlightRefresh(true)
         self:QueueActionRefresh(event, "identity")
+        self:QueueSpecialRefresh("stance", event)
         return
     elseif event == "PET_BAR_UPDATE" or event == "PET_BAR_UPDATE_COOLDOWN" or event == "PET_BAR_UPDATE_USABLE" or event == "UNIT_PET" then
         self:QueueSpecialRefresh("pet", event)
@@ -8538,7 +8576,8 @@ function BarManager:ApplyRecordEmptySlotVisibility(record)
 end
 
 function BarManager:BuildRecordVisibilityDriver(record)
-    if self:IsRecordInBindPresentation(record) then
+    if self:IsRecordInBindPresentation(record)
+        or (record and record.id == "paladinBlessings" and record.classBarEditing == true and not InCombat()) then
         return "show"
     end
     local snapshot = record and record.configSnapshot
@@ -8562,6 +8601,7 @@ function BarManager:ApplyRecordVisibility(record)
         return YAB.Drivers:RegisterVisibility(record.holder, self:BuildRecordVisibilityDriver(record))
     end
     local bypass = self:IsRecordInBindPresentation(record)
+        or (record.id == "paladinBlessings" and record.classBarEditing == true and not InCombat())
         or (self.emptySlotGridVisible == true and record.kind == "action" and not InCombat())
     bypass = bypass and "outOfCombat" or false
     local guard = YAB.Adapter:BuildVisibilityDriver("always", false, record)
@@ -8919,8 +8959,12 @@ function BarManager:RefreshStanceButton(button, index, db)
     if enable == true and state.cooldownActive ~= true then
         state.cooldownEnable = false
     end
-    if state.cooldownActive == true and YAB.Client.id == "mainline" then
+    if state.cooldownActive == true then
         state.cooldownOnGCD = YAB.Adapter:IsShapeshiftFormCooldownOnGCD(spellID)
+        if state.cooldownOnGCD == true then
+            -- Native castability can drop during GCD without a real form cooldown.
+            state.usable = true
+        end
     end
     local key = YAB.Keybinds:GetBindingText(YAB.Keybinds:GetButtonKey("stance", index), db)
     state.hotkeyText = snapshot.showHotkeys == true and key or ""

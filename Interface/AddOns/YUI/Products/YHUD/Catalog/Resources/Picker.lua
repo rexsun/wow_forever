@@ -43,6 +43,9 @@ function Manager:CreateManualEntry(kind, value, secondsText)
 end
 
 function Manager:BuildSelectionEntry(profile, option)
+    if option.kind == "summon-hawk" and YHUD.BuildSummonHawkEntry then
+        return YHUD:BuildSummonHawkEntry()
+    end
     if option.kind == "official" then
         return YHUD.CDMImport:CreateEntry(option.row, profile.entries[option.entryKey])
     end
@@ -79,7 +82,9 @@ function Manager:BuildSelectionOptions(profile, options, family)
     for _, option in ipairs(options) do Add(option, self:BuildSelectionEntry(profile, option)) end
     local keys = {}
     for key, entry in pairs(profile.entries or {}) do
-        if entry.origin ~= "official-cdm" and (entry.semantic == "buff") == (family == "buff") then
+        if entry.origin ~= "official-cdm" and (entry.semantic == "buff") == (family == "buff")
+            and not (YHUD.IsSummonHawkEntry and YHUD:IsSummonHawkEntry(entry))
+            and not (YHUD.GetLegacySummonHawkSlot and YHUD:GetLegacySummonHawkSlot(entry)) then
             keys[#keys + 1] = key
         end
     end

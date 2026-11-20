@@ -367,7 +367,7 @@ local function GetSAMProfileModule()
     local loadedOk, isLoaded = pcall(SystemAPI.IsAddOnLoaded, "SimpleAddonManager")
     if not loadedOk or isLoaded ~= true then
         local absent = type(SystemAPI.DoesAddOnExist) == "function" and SystemAPI.DoesAddOnExist("SimpleAddonManager") == false
-        return nil, nil, LC["installer.text.006"], not absent and (not loadedOk or isLoaded ~= false)
+        return nil, nil, LC["installer.text.006"], not absent and (not loadedOk or isLoaded ~= false), absent
     end
 
     local SAM = _G.SimpleAddonManager
@@ -423,8 +423,8 @@ local function ApplySAMProfile(profileName)
     return true
 end
 
-local function GetAddonProfileManager()
-    local profileModule, db, err, blocked = GetSAMProfileModule()
+local function GetAddonProfileManager(allowEnable)
+    local profileModule, db, err, blocked, absent = GetSAMProfileModule()
     if profileModule then return "sam", profileModule, db end
     local component = YUI.AddonAssistant
     local priority = component and component.GameMenu
@@ -432,7 +432,9 @@ local function GetAddonProfileManager()
         return nil, nil, nil, err
     end
     local assistant = component and component.Runtime
-    if assistant and assistant.active and type(assistant.FindProfileByName) == "function"
+    local components = YUI.Components
+    local canEnable = allowEnable and absent and components and type(components.SetFeatureEnabled) == "function"
+    if assistant and (assistant.active or canEnable) and type(assistant.FindProfileByName) == "function"
         and type(assistant.ApplyProfile) == "function" and type(assistant.GetActiveProfileName) == "function" then
         return "assistant", assistant
     end
@@ -440,7 +442,7 @@ local function GetAddonProfileManager()
 end
 
 local function GetAddonProfileTarget()
-    local manager, service, db, managerError = GetAddonProfileManager()
+    local manager, service, db, managerError = GetAddonProfileManager(true)
     if not manager then return nil, managerError or LC["installer.profiles.addons.unavailable"] end
     local option
     if manager == "sam" then
@@ -463,7 +465,8 @@ local function GetAddonProfileTarget()
     if manager == "sam" then
         if type(db.sets[target.profileName]) ~= "table" then reason = "profileMissing" end
     else
-        target.profileId, reason = service:FindProfileByName(target.profileName)
+        target.enableAssistant = not service.active
+        target.profileId, reason = service:FindProfileByName(target.profileName, target.enableAssistant)
     end
     if reason then
         local key = reason == "profileDuplicate" and "installer.profiles.addons.duplicate"
@@ -482,9 +485,24 @@ local function ApplyAddonProfile(expected)
     if err then return false, err end
     if not SameAddonProfile(target, expected) then return false, LC["installer.profiles.addons.changed"] end
     if target.manager == "sam" then return ApplySAMProfile(target.profileName) end
-    local runtime = YUI.AddonAssistant.Runtime
-    local ok, applied, reason = pcall(runtime.ApplyProfile, runtime, target.profileId)
-    if ok and applied then return true end
+    local runtime, components = YUI.AddonAssistant.Runtime, YUI.Components
+    local activationAttempted
+    local ok, applied, reason = pcall(function()
+        if target.enableAssistant then
+            if SystemAPI.IsAddOnSwitchSafe() ~= true then return false, "unsafe" end
+            activationAttempted = true
+            runtime:Enable()
+            if not runtime.active then return false, "unavailable" end
+            local profileId, lookupError = runtime:FindProfileByName(target.profileName)
+            if profileId ~= target.profileId then return false, lookupError or "profileMissing" end
+        end
+        return runtime:ApplyProfile(target.profileId)
+    end)
+    if ok and applied then
+        if activationAttempted then components:SetFeatureEnabled("AddonAssistant", true) end
+        return true
+    end
+    if activationAttempted then runtime:Disable() end
     local detail = ok and reason or applied
     local locale = YUI.AddonAssistant.L
     return false, string.format(LC["installer.profiles.addons.failed"], target.managerName, target.profileName,
@@ -537,19 +555,25 @@ local function GetPortraitProfileOption()
     end
 end
 
-local function HasNameplateProfile()
-    if not SystemAPI.DoesAddOnExist("Platynator") or not SystemAPI.IsAddOnLoadedSafe("Platynator") then
-        return false
+local NAMEPLATE_PROFILE_NAME = "YUI · 01 · 初心（圆角）"
+
+local function GetNameplateProfileName()
+    local addonName = "Platynator"
+    if not SystemAPI.DoesAddOnExist(addonName) or SystemAPI.GetAddOnEnabledState(addonName) ~= true
+        or not SystemAPI.IsAddOnLoadedSafe(addonName) then
+        return nil
     end
     local config = _G.PLATYNATOR_CONFIG
-    return type(config) == "table" and type(config.Profiles) == "table"
-        and type(config.Profiles.YUI) == "table"
+    if type(config) == "table" and type(config.Profiles) == "table"
+        and type(config.Profiles[NAMEPLATE_PROFILE_NAME]) == "table" then
+        return NAMEPLATE_PROFILE_NAME
+    end
 end
 
-local function ApplyNameplateProfile()
-    if not HasNameplateProfile() then return false end
+local function ApplyNameplateProfile(profileName)
+    if GetNameplateProfileName() ~= profileName then return false end
     -- 此插件没有公开切换 API；写入角色绑定，由向导结束重载后读取。
-    _G.PLATYNATOR_CURRENT_PROFILE = "YUI"
+    _G.PLATYNATOR_CURRENT_PROFILE = profileName
     return true
 end
 
@@ -725,14 +749,14 @@ table.insert(steps, {
         layoutStepSelection.addonProfileName = layoutStepSelection.addonProfileTarget and matchedAddonProfile.profileName or nil
         local portraitProfile = GetPortraitProfileOption()
         layoutStepSelection.portraitProfileName = portraitProfile and portraitProfile.profileName or nil
-        local hasNameplateProfile = HasNameplateProfile()
-        layoutStepSelection.nameplateProfileName = hasNameplateProfile and "YUI" or nil
+        local nameplateProfileName = GetNameplateProfileName()
+        layoutStepSelection.nameplateProfileName = nameplateProfileName
         local optionCount = 1 + (yuiProfileDB and 1 or 0)
             + (canAlignSupportedWindows and 1 or 0)
             + (hasPartyFrames and 1 or 0)
             + 1
             + (portraitProfile and 1 or 0)
-            + (hasNameplateProfile and 1 or 0)
+            + (nameplateProfileName and 1 or 0)
         local optionsHeight = optionCount * 28 + math.max(0, optionCount - 1) * 2
         local layoutGroup = GUI2:CreateFrame(content)
         local options = GUI2:CreateFrame(layoutGroup)
@@ -759,7 +783,7 @@ table.insert(steps, {
                 or (canAlignSupportedWindows and layoutStepSelection.alignSupportedWindows)
                 or (layoutStepSelection.addonProfileTarget and layoutStepSelection.applyAddonProfile)
                 or (portraitProfile and layoutStepSelection.applyPortraitProfile)
-                or (hasNameplateProfile and layoutStepSelection.applyNameplateProfile)
+                or (nameplateProfileName and layoutStepSelection.applyNameplateProfile)
             content.disableExecute = not enabled
             if currentStep ~= 1 or not Frame or not Frame.btnExecute then return end
             if enabled then
@@ -828,7 +852,8 @@ table.insert(steps, {
                 height = 28,
                 checked = not addonProfileError and layoutStepSelection.applyAddonProfile,
                 disabled = addonProfileError ~= nil,
-                tooltip = addonProfileError or string.format(LC["installer.profiles.addons.tooltip"],
+                tooltip = addonProfileError or string.format(LC[matchedAddonProfile.enableAssistant
+                    and "installer.profiles.addons.enable_tooltip" or "installer.profiles.addons.tooltip"],
                     matchedAddonProfile.managerName, matchedAddonProfile.profileName),
                 onClick = function(_, checked)
                     layoutStepSelection.applyAddonProfile = checked == true
@@ -857,13 +882,13 @@ table.insert(steps, {
             layoutRows[#layoutRows + 1] = { frame = applyPortraitProfile, checkbox = true }
         end
 
-        if hasNameplateProfile then
+        if nameplateProfileName then
             local applyNameplateProfile = GUI2.Form:CreateCheckbox(options, {
                 text = LC["installer.profiles.nameplate"],
                 autoWidth = true,
                 height = 28,
                 checked = layoutStepSelection.applyNameplateProfile,
-                tooltip = LC["installer.profiles.nameplate.tooltip"],
+                tooltip = string.format(LC["installer.profiles.nameplate.tooltip"], nameplateProfileName),
                 onClick = function(_, checked)
                     layoutStepSelection.applyNameplateProfile = checked == true
                     RefreshExecuteAvailability()
@@ -1048,9 +1073,8 @@ table.insert(steps, {
             portraitProfileQueued = queued == true
             MarkStepExecuted(currentStep)
         end
-        if layoutStepSelection.applyNameplateProfile and layoutStepSelection.nameplateProfileName
-            and HasNameplateProfile() then
-            requestedNameplateProfile = ApplyNameplateProfile()
+        if layoutStepSelection.applyNameplateProfile and layoutStepSelection.nameplateProfileName then
+            requestedNameplateProfile = ApplyNameplateProfile(layoutStepSelection.nameplateProfileName)
             if requestedNameplateProfile then MarkStepExecuted(currentStep) end
         end
         if requestedEditMode then
@@ -1082,7 +1106,8 @@ table.insert(steps, {
         if succeeded and portraitProfileQueued then
             SetStatus(LC["installer.profiles.portrait.pending"], "warning")
         elseif succeeded and requestedNameplateProfile then
-            SetStatus(LC["installer.profiles.nameplate.pending"], "warning")
+            SetStatus(string.format(LC["installer.profiles.nameplate.pending"], layoutStepSelection.nameplateProfileName),
+                "warning")
         elseif succeeded and (requestedYUIProfile or requestedPortraitProfile) then
             SetStatus(LC["installer.profiles.applied"], "success")
         elseif succeeded and requestedAddonProfile then

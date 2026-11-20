@@ -9,6 +9,7 @@ local Security = YUI.API.Security
 -- Only explicit missing identities are supplemented; no bag discovery.
 local COMPATIBILITY = { [1920] = { 7308, 7247 } }
 local COMPATIBILITY_ITEMS = {}
+local EMPTY = {}
 for _, ids in pairs(COMPATIBILITY) do
     for _, itemID in ipairs(ids) do COMPATIBILITY_ITEMS[itemID] = true end
 end
@@ -52,8 +53,7 @@ end
 
 local function CompatibilityItem(itemID)
     local count = QuestItems.GetCompatibilityCount(itemID)
-    if count == nil then return nil, nil, nil, false end
-    if count == 0 then return end
+    if not count or count == 0 then return nil, nil, count end
     local item = YUI.API.Item
     local info = Read(item and item.GetInfo, itemID)
     local link, texture = Field(info, "link"), Field(info, "texture")
@@ -61,6 +61,7 @@ local function CompatibilityItem(itemID)
         and (type(texture) == "number" or type(texture) == "string") then
         return link, texture, count
     end
+    return nil, nil, count
 end
 
 function QuestItems.IsInside(questID)
@@ -68,7 +69,10 @@ function QuestItems.IsInside(questID)
     if type(value) == "boolean" then return value end
 end
 
-function QuestItems.ReadLog()
+-- Global read failures return nil. Individual failures preserve the last
+-- confirmed items for that quest and allow other quests to refresh.
+-- pending[itemID] is true for missing item data and false for an unreadable count.
+function QuestItems.ReadLog(previous)
     local api = _G.C_QuestLog
     if not api then return nil end
     local count = Integer(Read(api.GetNumQuestLogEntries))
@@ -80,46 +84,84 @@ function QuestItems.ReadLog()
         if not questID then return nil end
         tracked[questID] = true
     end
-    local result = {}
+    local result, pending = {}, nil
+    local incomplete, previousByQuest
+    local function Retain(questID, index, itemID, compatibility)
+        if not previous or #previous == 0 then return end
+        if not previousByQuest then
+            previousByQuest = {}
+            for _, row in ipairs(previous) do
+                local group = previousByQuest[row.questID]
+                if not group then group = {}; previousByQuest[row.questID] = group end
+                group[#group + 1] = row
+            end
+        end
+        for _, row in ipairs(previousByQuest[questID] or EMPTY) do
+            if not itemID or (row.itemID == itemID and (row.compatibility == true) == compatibility) then
+                result[#result + 1] = { questID = questID, index = index, itemID = row.itemID,
+                    link = row.link, texture = row.texture, charges = row.charges, compatibility = row.compatibility,
+                    title = row.title, tracked = tracked[questID] == true, inside = QuestItems.IsInside(questID) }
+                if itemID then return true end
+            end
+        end
+    end
     for index = 1, count do
         local info = Read(api.GetInfo, index)
-        if not (Security and Security.CanAccessTable(info)) then return nil end
         local questID = Integer(Field(info, "questID"))
+        if not questID and Field(info, "isHeader") ~= true then
+            questID = Integer(Read(api.GetQuestIDForLogIndex, index))
+            if not questID then incomplete = true end
+        end
         if questID and questID > 0 then
             local link, texture, charges, showWhenComplete, readable = Read(_G.GetQuestLogSpecialItemInfo, index)
             local complete = Read(api.IsComplete, questID)
-            if not readable or type(complete) ~= "boolean" then return nil end
-            local nativeItemID
-            if type(link) == "string" and (type(texture) == "number" or type(texture) == "string") then
-                local itemID = Integer(tonumber(link:match("item:(%d+)")))
-                if itemID and itemID > 0 and (complete == false or (complete == true and showWhenComplete == true)) then
-                    local title = Field(info, "title")
-                    result[#result + 1] = { questID = questID, index = index, itemID = itemID,
-                        link = link, texture = texture, charges = Integer(charges),
-                        title = type(title) == "string" and title or "", tracked = tracked[questID] == true,
-                        inside = QuestItems.IsInside(questID) }
-                    nativeItemID = itemID
+            local itemID = type(link) == "string" and Integer(tonumber(link:match("item:(%d+)"))) or nil
+            if itemID == 0 then itemID = nil end
+            if not readable or type(complete) ~= "boolean" or ((link ~= nil or texture ~= nil) and not itemID) then
+                incomplete = true
+                Retain(questID, index)
+            else
+                local nativeItemID
+                local title = Field(info, "title")
+                if itemID and (not complete or showWhenComplete == true) then
+                    if texture == nil then
+                        local item = YUI.API.Item
+                        texture = Read(item and item.GetIcon, itemID)
+                    end
+                    if type(texture) == "number" or type(texture) == "string" then
+                        nativeItemID = itemID
+                        result[#result + 1] = { questID = questID, index = index, itemID = itemID,
+                            link = link, texture = texture, charges = Integer(charges),
+                            title = type(title) == "string" and title or "", tracked = tracked[questID] == true,
+                            inside = QuestItems.IsInside(questID) }
+                    else
+                        pending = pending or {}
+                        pending[itemID] = true
+                        if Retain(questID, index, itemID, false) then nativeItemID = itemID end
+                    end
                 end
-            end
-            local compatibility = COMPATIBILITY[questID]
-            if complete == false and compatibility then
-                for _, itemID in ipairs(compatibility) do
-                    if itemID ~= nativeItemID then
-                        local itemLink, icon, uses, itemReadable = CompatibilityItem(itemID)
-                        if itemReadable == false then return nil end
-                        if itemLink then
-                            local title = Field(info, "title")
-                            result[#result + 1] = { questID = questID, index = index, itemID = itemID,
-                                link = itemLink, texture = icon, charges = uses, compatibility = true,
-                                title = type(title) == "string" and title or "", tracked = tracked[questID] == true,
-                                inside = QuestItems.IsInside(questID) }
+                local compatibility = COMPATIBILITY[questID]
+                if not complete and compatibility then
+                    for _, compatibilityID in ipairs(compatibility) do
+                        if compatibilityID ~= nativeItemID then
+                            local itemLink, icon, uses = CompatibilityItem(compatibilityID)
+                            if itemLink then
+                                result[#result + 1] = { questID = questID, index = index, itemID = compatibilityID,
+                                    link = itemLink, texture = icon, charges = uses, compatibility = true,
+                                    title = type(title) == "string" and title or "", tracked = tracked[questID] == true,
+                                    inside = QuestItems.IsInside(questID) }
+                            elseif uses ~= 0 then
+                                pending = pending or {}
+                                pending[compatibilityID] = pending[compatibilityID] or uses ~= nil
+                                Retain(questID, index, compatibilityID, true)
+                            end
                         end
                     end
                 end
             end
         end
     end
-    return result
+    return result, pending, incomplete
 end
 
 -- Native cooldowns resolve the current quest index without allocating a table.

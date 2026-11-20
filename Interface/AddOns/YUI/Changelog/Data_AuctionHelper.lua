@@ -1,6 +1,36 @@
 -- Generated from Docs/Products/YUI_AuctionHelper/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("auction_helper", {
+-- YUI-Notes-Record: yah-134|mainline|2b41ad206e7ecbf6c428e3126f0d09f326f65a9cef0564e1f3b23e3cc353e505
+    {
+        version = "yah-134",
+        date = "2026-11-20",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
+-- YUI-Notes-Record: yah-134|forever|955254865381ad6e1741313397baad7e6dad1d66b852b22fe1e98253d6ecd2c2
+    {
+        version = "yah-134",
+        date = "2026-11-20",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "推荐清单中的银锭移至「矿石与金属」。",
+                "适配新版 YUI 系列插件。",
+            },
+            enUS = {
+                "Moved Silver Bars to Ores & Metals in the recommended list.",
+                "Updated compatibility with newer YUI addons.",
+            },
+        },
+    },
 -- YUI-Notes-Record: yah-133|mainline|ff2968f257eb0f7e1573578579f43216c0fdf4eec9d0db38f40d79adeb608d25
     {
         version = "yah-133",
@@ -163,20 +193,6 @@ CL:Register("auction_helper", {
                 "Added item-loading and timeout feedback, fixing unresponsive searches when item information is unavailable.",
                 "Fixed UI initialization issues when loaded alongside other addons.",
                 "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: yah-124|mainline|e74ca66f733d6c36604433c8425c3e1e4a8d07fb9713945df3cf049f9edae7ca
-    {
-        version = "yah-124",
-        date = "2026-10-22",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "同步共享组件，改善与其他YUI插件共同加载时的兼容性。",
-            },
-            enUS = {
-                "Updated shared components to improve compatibility when loaded with other YUI addons.",
             },
         },
     },

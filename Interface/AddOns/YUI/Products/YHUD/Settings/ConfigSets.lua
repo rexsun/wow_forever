@@ -686,6 +686,10 @@ local function CompactResourceSettings(profile, groupId)
                 initialBorderColor
             )
             local delta = BuildSparseDelta(setting, defaults)
+            if resourceId == "foreverMaelstromWeapon" and delta and delta.fillColor then
+                -- Keep explicit overrides independent of the preset's default color.
+                delta.fillColor = YHUD:CopyValue(setting.fillColor)
+            end
             if setting.heightOverride == nil
                 and defaults.heightOverride ~= nil then
                 delta = delta or {}
@@ -1042,9 +1046,13 @@ local function BuildSpecOverrides(profile, content, previous)
     local presetByMonitor = {}
     local presentOfficial = {}
     local orderedOfficial = {}
+    local sealPreset = YHUD.Client.legacySealPreset
     for entryKey, entry in pairs(content.entries or {}) do
         if IsOfficialEntry(entry) then
-            presentOfficial[entryKey] = true
+            -- A metadata-only seal row cannot apply migrated placement yet.
+            if not sealPreset or entryKey ~= sealPreset.nativeKey or entry.officialCategory then
+                presentOfficial[entryKey] = true
+            end
             orderedOfficial[#orderedOfficial + 1] = {
                 entryKey = entryKey,
                 groupId = YHUD.DEFAULT_GROUP_BY_CATEGORY
@@ -1301,6 +1309,110 @@ local function BuildCurrentGroupRefs(content, groupId)
         end
     end
     return refs
+end
+
+function ConfigSets:MigrateLegacySealMonitor(profile, content, specKey, entry, monitor, nativeMonitor)
+    if not YHUD:IsStableSpecKey(specKey) or not specKey:match("^PALADIN:") then return end
+    local preset = YHUD.Client.legacySealPreset
+    local nativeKey = preset.nativeKey
+    local nativeRef = OFFICIAL_REF_PREFIX .. nativeKey
+    local legacyRefs = {
+        [PRESET_REF_PREFIX .. preset.key] = true,
+        [PRESET_REF_PREFIX .. preset.id] = true,
+    }
+    local presetKey = GetPresetKey(entry, entry.entryKey)
+    if presetKey then legacyRefs[PRESET_REF_PREFIX .. presetKey] = true end
+    if monitor then legacyRefs[CUSTOM_REF_PREFIX .. monitor.id] = true end
+
+    local bySpec = type(profile.officialOverridesBySpec) == "table"
+        and profile.officialOverridesBySpec or {}
+    local overrides = type(bySpec[specKey]) == "table" and bySpec[specKey] or {}
+    local groups = type(overrides.groups) == "table" and overrides.groups or {}
+    local monitors = type(overrides.monitors) == "table" and overrides.monitors or {}
+    local suppressed = type(overrides.suppressed) == "table" and overrides.suppressed or {}
+    for key, hidden in pairs(content.suppressedOfficial) do
+        if hidden == true then suppressed[key] = true end
+    end
+    local factoryOverrides = YHUD.Client.defaultProfile.officialOverridesBySpec
+    local factoryGroups = factoryOverrides and factoryOverrides[specKey]
+        and factoryOverrides[specKey].groups or {}
+    local nativeRefs, nativeIndex, hasSavedNativePlacement
+    for groupId, refs in pairs(groups) do
+        local index = type(refs) == "table" and FindArrayValue(refs, nativeRef)
+        if index then
+            local withoutPreset = {}
+            for refIndex = 1, #refs do
+                local ref = refs[refIndex]
+                if not legacyRefs[ref] then withoutPreset[#withoutPreset + 1] = ref end
+            end
+            nativeRefs, nativeIndex = refs, index
+            hasSavedNativePlacement = nativeMonitor ~= nil
+                or not ArraysEqual(withoutPreset, factoryGroups[groupId] or {})
+            break
+        end
+    end
+
+    local source = (not suppressed[nativeKey] and not hasSavedNativePlacement and not monitors[nativeKey])
+        and (nativeMonitor or monitor) or nil
+    local groupId = source and source.groupId
+    local group = groupId and profile.groups.items[groupId]
+    local nativeEntry = content.entries[nativeKey]
+    if not (nativeEntry and nativeEntry.officialCategory) then
+        nativeEntry = {origin = "official-cdm", officialCategory = "trackedBuff", semantic = "buff"}
+    end
+    local canPlace = group and YHUD:CanPlaceEntry(nativeEntry, group, GetDefaultView(profile, groupId))
+
+    local function RewriteLegacyRefs(refs, replacement)
+        local replaced
+        for index = #refs, 1, -1 do
+            if legacyRefs[refs[index]] then
+                if replacement and not replaced then
+                    refs[index] = nativeRef
+                    replaced = true
+                else
+                    table.remove(refs, index)
+                end
+            end
+        end
+        return replaced
+    end
+
+    -- Factory order already lists the native row even while the old preset
+    -- owns its display. Move that reference only when a placement transfers.
+    local factoryRefRemoved = canPlace and nativeRefs ~= nil
+    if factoryRefRemoved then table.remove(nativeRefs, nativeIndex) end
+    local placed
+    for id, refs in pairs(groups) do
+        if type(refs) == "table" then
+            if RewriteLegacyRefs(refs, canPlace and source == monitor and groupId == id) then
+                placed = true
+            end
+        end
+    end
+    if canPlace and not placed then
+        local derived = BuildSpecOverrides(profile, content, {
+            groups = groups, monitors = monitors, suppressed = suppressed,
+        })
+        local refs = derived and derived.groups and derived.groups[groupId]
+        if refs then
+            RewriteLegacyRefs(refs, source == monitor)
+            if FindArrayValue(refs, nativeRef)
+                and (groupId ~= YHUD.GROUP_IDS.BUFF or #refs > 1) then
+                groups[groupId] = refs
+                placed = true
+            end
+        end
+    end
+    if factoryRefRemoved and not placed then
+        table.insert(nativeRefs, math.min(nativeIndex, #nativeRefs + 1), nativeRef)
+    end
+    if source then monitors[nativeKey] = BuildMonitorOverride(profile, source) end
+    if not next(groups) and not next(monitors) and not next(suppressed) then return end
+    if next(groups) then overrides.groups = groups end
+    if next(monitors) then overrides.monitors = monitors end
+    if next(suppressed) then overrides.suppressed = suppressed end
+    bySpec[specKey] = overrides
+    profile.officialOverridesBySpec = bySpec
 end
 
 local function PromoteLegacyPresetIndexes(profile, specKey, content, overrides)

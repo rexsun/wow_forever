@@ -47,6 +47,18 @@ local function SafeFunction(func, ...)
     return false, nil, "CALL_ERROR"
 end
 
+-- Cold-path XML metadata. Missing APIs, restricted arguments and failed reads return nil.
+function Frame.GetXMLTemplateInfo(name)
+    local security = Security or YUI.API.Security
+    if security and type(security.IsSecretValue) == "function" then
+        local ok, restricted = pcall(security.IsSecretValue, name)
+        if not ok or restricted ~= false then return nil end
+    end
+    if type(name) ~= "string" or name == "" then return nil end
+    local ok, info = SafeFunction(C_XMLUtil and C_XMLUtil.GetTemplateInfo, name)
+    if ok and type(info) == "table" then return info end
+end
+
 local function ClearTable(tbl)
     if type(wipe) == "function" then
         wipe(tbl)

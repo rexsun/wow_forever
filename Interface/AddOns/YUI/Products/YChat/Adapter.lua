@@ -47,7 +47,6 @@ local CHAT_FONT_ALPHABETS = {
 local nextChatFontFamilyId = 0
 
 local frameStates = setmetatable({}, { __mode = "k" })
-local maxLinesWriteSuppressed = setmetatable({}, { __mode = "k" })
 local channelTransformSuppressed = setmetatable({}, { __mode = "k" })
 local lineHookStates = setmetatable({}, { __mode = "k" })
 local lineShownStates = setmetatable({}, { __mode = "k" })
@@ -895,7 +894,6 @@ end
 
 local function MaxLinesHook(frame)
     if not Adapter.enabled then return end
-    if maxLinesWriteSuppressed[frame] == true then return end
     local state = frameStates[frame]
     if not state or not state.ready or state.supported ~= true then return end
     Dispatch("onInvalidate", frame, "MAX_LINES")
@@ -4517,25 +4515,6 @@ end
 
 function Adapter:ReadMaxLines(frame)
     return ReadMethod(frame, "GetMaxLines", ValidatePositiveInteger, "max-lines")
-end
-
-function Adapter:WriteMaxLines(frame, value, suppressInvalidation)
-    if not self.enabled or trustedFrames[frame] ~= true then
-        return false, "untrusted-chat-frame"
-    end
-    value = ValidatePositiveInteger(value)
-    if value == nil then return false, "max-lines-invalid" end
-    local callback = frame and frame.SetMaxLines
-    if type(callback) ~= "function" then return false, "missing-max-lines-write" end
-
-    if suppressInvalidation == true then maxLinesWriteSuppressed[frame] = true end
-    local ok = pcall(callback, frame, value)
-    maxLinesWriteSuppressed[frame] = nil
-    if not ok then return false, "max-lines-write-failed" end
-    local actual, readReason = self:ReadMaxLines(frame)
-    if actual == nil then return false, readReason end
-    if actual ~= value then return false, "max-lines-write-unconfirmed" end
-    return true
 end
 
 function Adapter:ReadSpacing(frame)

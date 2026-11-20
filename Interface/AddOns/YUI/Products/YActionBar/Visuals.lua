@@ -570,6 +570,19 @@ local function SetText(text, value)
     return writes
 end
 
+local function ReapplyNativePetHotkey(button)
+    local hotkey = button.HotKey
+    if not hotkey then return end
+    -- SetHotkeys replaces the text even when Flare's binding cache is unchanged.
+    local text = TEXT_CACHE[hotkey]
+    TEXT_CACHE[hotkey] = nil
+    local snapshots = YAB.BarManager and YAB.BarManager.buttonConfigSnapshots
+    local snapshot = snapshots and snapshots[button]
+    if not (snapshot and GetButtonMeta(button)) then return end
+    if snapshot.showHotkeys == false then text = "" end
+    if text ~= nil then SetText(hotkey, text) end
+end
+
 local function SetTextColor(text, color)
     if not (text and text.SetTextColor) then return 0 end
     color = color or DEFAULT_TEXT_COLOR
@@ -676,7 +689,9 @@ local function SetFont(text, snapshot, sizeOverride, config, prefix, fallbackFon
     local size = tonumber(sizeOverride) or (snapshot and snapshot.metrics and snapshot.metrics.fontSize)
     if font and size then
         Visuals:ApplyShadowFontObject(text)
-        local outline = config and config[prefix .. "Outline"] or "OUTLINE"
+        local tools = YAB.ClassTools
+        local classText = tools and config and (config.barId == "classTools" or tools:IsClassBar(config.barId))
+        local outline = classText and "OUTLINE" or config and config[prefix .. "Outline"] or "OUTLINE"
         local flags = outline == "NONE" and "" or outline
         if config and config[prefix .. "Monochrome"] then flags = flags == "" and "MONOCHROME" or flags .. ",MONOCHROME" end
         local style = GUI2 and GUI2.FontStyle
@@ -687,7 +702,7 @@ local function SetFont(text, snapshot, sizeOverride, config, prefix, fallbackFon
             applied = ok and result ~= false
         end
         if not applied and defaultFont and defaultFont ~= font then pcall(text.SetFont, text, defaultFont, size, flags) end
-        if config and config[prefix .. "Shadow"] == false then
+        if not classText and config and config[prefix .. "Shadow"] == false then
             text:SetShadowOffset(0, 0)
         else Visuals:ApplyOutlineShadow(text) end
     end
@@ -722,8 +737,9 @@ function Visuals.TextAnchors:ApplyHotkey(text, button, snapshot)
     if GUI2.IsIconSkinManaged and GUI2:IsIconSkinManaged(text) then return end
     local offsetX = self:OffsetValue(snapshot, "hotkeyOffsetX")
     local offsetY = self:OffsetValue(snapshot, "hotkeyOffsetY")
-    local left = 2 + offsetX
-    local right = -2 + offsetX
+    local inset = snapshot and snapshot.barId == "pet" and 0 or 2
+    local left = offsetX + inset
+    local right = offsetX - inset
     local y = -1 + offsetY
     local signature = "hotkey:" .. tostring(left) .. ":" .. tostring(right) .. ":" .. tostring(y)
     if Visuals.textAnchorSignatures[text] == signature then return end
@@ -1247,6 +1263,29 @@ local function PrepareText(text, justify)
     if text.SetDrawLayer then text:SetDrawLayer("OVERLAY", 7) end
     if text.SetJustifyH and justify then text:SetJustifyH(justify) end
     Visuals:ApplySingleLineTextConstraints(text)
+end
+
+-- FontString draw layers cannot rise above a sibling Cooldown frame. Prepare
+-- one mouse-transparent text owner per class button; anchors stay on the button.
+function Visuals:PrepareClassTextLayer(button, visual, snapshot)
+    local tools, meta = YAB.ClassTools, GetButtonMeta(button)
+    local id = meta and meta.barId or snapshot and snapshot.barId
+    if not (tools and (id == "classTools" or tools:IsClassBar(id))) then return end
+    if InCombat() then return visual.classTextHost end
+    local host = visual.classTextHost
+    if not host then
+        if not (GUI2 and GUI2.CreateFrame) then return end
+        host = GUI2:CreateFrame(button, {allPoints=true, mouse=false})
+        visual.classTextHost = host
+    end
+    local level = button:GetFrameLevel()
+    if visual.cooldown then level = math.max(level, visual.cooldown:GetFrameLevel()) end
+    if visual.chargeCooldown then level = math.max(level, visual.chargeCooldown:GetFrameLevel()) end
+    if host:GetFrameLevel() ~= level + 1 then host:SetFrameLevel(level + 1) end
+    for _, text in pairs({visual.hotkey, visual.count, visual.name}) do
+        if text:GetParent() ~= host then text:SetParent(host) end
+    end
+    return host
 end
 
 function Visuals:PrepareMacroNameLayer(button, visual)
@@ -3323,8 +3362,8 @@ local function ShouldHideCooldownNumbers(snapshot)
         and snapshot.cooldownTextSize > 0)
 end
 
-local function SetMainCooldownNumbersHidden(cooldown, snapshot)
-    return SetCooldownNumbersHidden(cooldown, ShouldHideCooldownNumbers(snapshot))
+local function SetMainCooldownNumbersHidden(cooldown, snapshot, suppress)
+    return SetCooldownNumbersHidden(cooldown, suppress == true or ShouldHideCooldownNumbers(snapshot))
 end
 
 function Visuals:ApplyChargeCooldownPresentation(cooldown, snapshot)
@@ -3420,7 +3459,8 @@ local function EnsureVisual(button, options)
     local meta = GetButtonMeta(button)
     local isQuestItem = meta and meta.kind == "questItems"
         and YAB.Client and YAB.Client.questItems == true
-    local isClassSpell = meta and (meta.barId == "aspects" or meta.barId == "mageTools" or meta.kind == "totems")
+    local isClassSpell = meta and (meta.barId == "aspects" or meta.barId == "mageTools" or meta.kind == "totems"
+        or (YAB.ClassTools and YAB.ClassTools:IsClassBar(meta.barId)))
         and YAB.Client and YAB.Client.classBars == true
     local isNativeSpecial = meta
         and (meta.nativeSpecial == true or meta.ownedStanceTemplate == true) or false
@@ -3477,6 +3517,9 @@ local function EnsureVisual(button, options)
             visual.assistedCombatBorder:Hide()
         end
         if visual.nativeSpecialKind == "pet" then
+            if type(hooksecurefunc) == "function" and type(button.SetHotkeys) == "function" then
+                pcall(hooksecurefunc, button, "SetHotkeys", ReapplyNativePetHotkey)
+            end
             visual.petCheckedState = CreateSkinTexture(button, "OVERLAY", nil, 5)
             if visual.petCheckedState.SetBlendMode then
                 visual.petCheckedState:SetBlendMode("ADD")
@@ -3683,7 +3726,8 @@ local function ApplyRuntimeSnapshot(button, visual, snapshot, options)
         writes = writes + ApplyBackground(visual)
     end
     ApplyTextFonts(button, visual, snapshot)
-    writes = writes + SetMainCooldownNumbersHidden(visual.cooldown, snapshot)
+    if visual.totemLifetimeTimer then Visuals:PrepareTotemTimer(button, visual.totemLifetimeTimer) end
+    writes = writes + SetMainCooldownNumbersHidden(visual.cooldown, snapshot, visual.hideCooldownNumbers)
     writes = writes + SetChargeCooldownNumbersHidden(
         visual.chargeCooldown,
         snapshot
@@ -3708,6 +3752,7 @@ local function ApplyRuntimeSnapshot(button, visual, snapshot, options)
         if snapshot.skinId == "masque" and canLayout then EnsureManagedProcGlow(button, visual) end
         YAB.IconSkinAdapter:Apply(button, visual, snapshot)
     end
+    if canLayout then Visuals:PrepareClassTextLayer(button, visual, snapshot) end
     -- Skin callbacks can restore pressed art even when the skin falls back.
     -- Reconcile both regions only after final skin ownership is known.
     writes = writes + Visuals:SetCheckedVisualState(button, visual.checked)
@@ -3719,6 +3764,10 @@ local function ApplyRuntimeSnapshot(button, visual, snapshot, options)
         writes = writes + Visuals:ApplyStatusTimer(visual, visual.statusTimer and STATUS_TIMER_STATE or nil, true)
     end
     if YAB.MageTools then YAB.MageTools:RefreshBuffTimerStyle(button) end
+    if YAB.UtilityTools then YAB.UtilityTools:RefreshBuffTimerStyle(button) end
+    if YAB.ClassBars and YAB.ClassBars.RefreshAspectAuraStyle then
+        YAB.ClassBars:RefreshAspectAuraStyle(button)
+    end
     return writes
 end
 
@@ -5025,6 +5074,24 @@ function Visuals:ApplyStatusTimer(visual, state, force)
     return writes
 end
 
+local function CaptureStatusIconStyle(style, button, visual, snapshot)
+    local iconStyle = visual.sharedIconSnapshot
+    local shape = SHAPE_STYLES[visual.runtimeSkin] or SHAPE_STYLES.square
+    style.iconLevel = button:GetFrameLevel()
+    style.iconInsetX, style.iconInsetY = visual.visualInsetX or 0, visual.visualInsetY or 0
+    style.iconZoom = iconStyle and iconStyle.zoom or snapshot.iconZoom or 0.08
+    style.iconAspect = iconStyle and iconStyle.aspect or shape.aspect or 1
+    style.iconMask = visual.maskPath or false
+end
+
+function Visuals:CaptureStatusAuraIconStyle(button)
+    local visual = self.buttons[button]
+    if not (visual and visual.icon) then return end
+    local style = { iconOnly = true, width = button:GetWidth(), height = button:GetHeight(), strata = button:GetFrameStrata() }
+    CaptureStatusIconStyle(style, button, visual, visual.runtimeSnapshot or DEFAULT_RUNTIME_SNAPSHOT)
+    return style
+end
+
 -- Capture only public ordinary regions, before the separate native Aura
 -- subtree is bound. Theme/settings changes replace the public proxy, never
 -- restyle descendants whose access may have become restricted.
@@ -5050,27 +5117,15 @@ function Visuals:CaptureStatusTimerStyle(button, includeIcon)
         alpha = text.GetAlpha and text:GetAlpha() or 1,
         sr = sr, sg = sg, sb = sb, sa = sa, sx = sx, sy = sy }
     if includeIcon and visual.icon then
-        local iconStyle = visual.sharedIconSnapshot
-        local shape = SHAPE_STYLES[visual.runtimeSkin] or SHAPE_STYLES.square
-        style.iconLevel = button:GetFrameLevel()
-        style.iconInsetX, style.iconInsetY = visual.visualInsetX or 0, visual.visualInsetY or 0
-        style.iconZoom = iconStyle and iconStyle.zoom or snapshot.iconZoom or 0.08
-        style.iconAspect = iconStyle and iconStyle.aspect or shape.aspect or 1
-        style.iconMask = visual.maskPath or false
+        CaptureStatusIconStyle(style, button, visual, snapshot)
     end
     return style
 end
 
-function Visuals:CreateStatusTimerBindings(auraFrame, style)
-    auraFrame:SetSize(style.width, style.height)
-    auraFrame:SetAllPoints(auraFrame:GetParent())
-    auraFrame:SetFrameLevel(style.iconLevel or style.level)
-    if style.strata then auraFrame:SetFrameStrata(style.strata) end
-    local cooldown = CreateFrame("Cooldown", nil, auraFrame, "CooldownFrameTemplate")
+local function StyleStatusTimer(cooldown, style)
     cooldown:SetFrameLevel(style.level + 1)
-    cooldown:SetAllPoints(auraFrame)
     cooldown:SetDrawSwipe(false); cooldown:SetDrawEdge(false); cooldown:SetDrawBling(false)
-    cooldown:SetHideCountdownNumbers(style.hidden)
+    SetCooldownNumbersHidden(cooldown, style.hidden)
     local text = cooldown:GetCountdownFontString()
     text:SetFont(style.font, style.size, style.flags)
     text:SetTextColor(style.r, style.g, style.b, style.a)
@@ -5078,7 +5133,20 @@ function Visuals:CreateStatusTimerBindings(auraFrame, style)
     text:SetShadowColor(style.sr, style.sg, style.sb, style.sa)
     text:SetShadowOffset(style.sx, style.sy)
     text:ClearAllPoints(); text:SetPoint("CENTER", cooldown, "CENTER", style.x, style.y)
-    local bindings = { durationCooldown = cooldown }
+end
+
+function Visuals:CreateStatusTimerBindings(auraFrame, style)
+    auraFrame:SetSize(style.width, style.height)
+    auraFrame:SetAllPoints(auraFrame:GetParent())
+    auraFrame:SetFrameLevel(style.iconLevel or style.level)
+    if style.strata then auraFrame:SetFrameStrata(style.strata) end
+    local bindings = {}
+    if not style.iconOnly then
+        local cooldown = CreateFrame("Cooldown", nil, auraFrame, "CooldownFrameTemplate")
+        cooldown:SetAllPoints(auraFrame)
+        StyleStatusTimer(cooldown, style)
+        bindings.durationCooldown = cooldown
+    end
     if style.iconLevel then
         local icon = CreateSkinTexture(auraFrame, "BACKGROUND", nil, 1)
         local geometry = { visualInsetX = style.iconInsetX, visualInsetY = style.iconInsetY }
@@ -5094,6 +5162,36 @@ function Visuals:CreateStatusTimerBindings(auraFrame, style)
         bindings.icon = icon
     end
     return bindings
+end
+
+function Visuals:PrepareTotemTimer(button, cooldown, onDone)
+    if InCombat() then return cooldown end
+    local style = self:CaptureStatusTimerStyle(button)
+    if not style then return cooldown end
+    local visual = self.buttons[button]
+    style.hidden = style.hidden or visual.hideTotemLifetimeNumbers == true
+    if not cooldown then
+        cooldown = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+        cooldown:SetAllPoints(button)
+        cooldown:HookScript("OnCooldownDone", onDone)
+        cooldown:Hide()
+        visual.totemLifetimeTimer = cooldown
+    end
+    StyleStatusTimer(cooldown, style)
+    return cooldown
+end
+
+function Visuals:ApplyTotemTimer(cooldown, clock, start, duration, rate)
+    if not cooldown then return false, false end
+    if clock ~= nil and cooldown.SetCooldownFromDurationObject then
+        local cache = EnsureCooldownCache(cooldown)
+        cache.active, cache.durationObject = true, true
+        if pcall(cooldown.SetCooldownFromDurationObject, cooldown, clock)
+            and Security.SafeBoolean(cooldown:IsShown()) == true then return true, true end
+    end
+    local enabled = start ~= nil and duration ~= nil
+    SetCooldown(cooldown, nil, start, duration, enabled, rate)
+    return enabled and Security.SafeBoolean(cooldown:IsShown()) == true, false
 end
 
 -- Cold preparation for owned camp hosts; native cooldown digits remain native.
@@ -5270,7 +5368,13 @@ function Visuals:UpdateButton(button, state, mode)
             local cooldownWrites = 0
             local cooldownEnabled = state.cooldownActive == true or state.cooldownEnable == true
             cooldownWrites = cooldownWrites + SetText(visual.count, countText)
-            cooldownWrites = cooldownWrites + SetMainCooldownNumbersHidden(visual.cooldown, snapshot)
+            visual.hideCooldownNumbers = state.hideCooldownNumbers
+            cooldownWrites = cooldownWrites + SetMainCooldownNumbersHidden(visual.cooldown, snapshot, visual.hideCooldownNumbers)
+            if visual.totemLifetimeTimer then
+                visual.hideTotemLifetimeNumbers = state.hideTotemLifetimeNumbers
+                cooldownWrites = cooldownWrites + SetMainCooldownNumbersHidden(visual.totemLifetimeTimer,
+                    snapshot, visual.hideTotemLifetimeNumbers)
+            end
             if updateCooldown then
                 cooldownWrites = cooldownWrites + SetCooldown(visual.cooldown, state.cooldownDurationObject, state.cooldownStart, state.cooldownDuration, cooldownEnabled, state.cooldownModRate)
             end
@@ -5361,6 +5465,28 @@ function Visuals:EnsureBindHighlight(button)
     return state
 end
 
+function Visuals:SetClassDragHighlight(button, shown)
+    local visual = self.buttons[button]
+    if not visual then return false end
+    local texture = visual.classDragHighlight
+    if shown and not texture then
+        if InCombat() then return false end
+        texture = CreateSkinTexture(visual.classTextHost or button, "OVERLAY", nil, 7)
+        visual.classDragHighlight = texture
+    end
+    if not texture then return false end
+    if shown then
+        local style = SHAPE_STYLES[visual.runtimeSkin] or SHAPE_STYLES.square
+        SetTexturePath(texture, style.stateTexture or BUTTON_STATE_INNER_TEXTURES.square)
+        ApplyVisualRect(button, visual, texture)
+        local r, g, b = 1, 1, 1
+        if GUI2 and GUI2.GetColor then r, g, b = GUI2:GetColor("color.text.primary") end
+        texture:SetVertexColor(r, g, b, 0.95)
+    end
+    RegionShown(texture, shown == true)
+    return true
+end
+
 function Visuals:SetBindHighlight(button, shown, hovered)
     local active = shown == true and hovered == true
     local state = active and self:EnsureBindHighlight(button) or self.bindHighlights[button]
@@ -5424,6 +5550,7 @@ function Visuals:ReleaseButton(button)
     end
     if not visual then return end
     self:RestoreMacroNameLayer(button, visual)
+    RegionShown(visual.classDragHighlight, false)
     RegionShown(visual.petHappinessDot, false)
     if visual.nativeChecked then YAB.BarManager:ClearButtonCheckedState(button) end
     if GUI2 and GUI2.HideShapeShadow then GUI2:HideShapeShadow(visual.shadowHandle) end

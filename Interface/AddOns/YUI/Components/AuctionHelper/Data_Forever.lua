@@ -5,7 +5,7 @@ if not ns or not ns.IsForever then return end
 
 ns.AuctionHelperForeverData = {
     id = "forever-all",
-    revision = 2,
+    revision = 3,
     nameKey = "profile.official_forever_all",
     fallbackName = "Ayan's Picks",
     -- 同版本 ItemSparse.AllowableRace：279972 为部落种族，279973 为联盟种族。
@@ -419,6 +419,7 @@ ns.AuctionHelperForeverData = {
                     { id = 2841, tagKey = "forever.tag.i2841" },
                 },
                 {
+                    { id = 2842, tagKey = "forever.tag.i2842" },
                     { id = 3575, tagKey = "forever.tag.i3575" },
                     { id = 3577, tagKey = "forever.tag.i3577" },
                     { id = 3859, tagKey = "forever.tag.i3859" },
@@ -615,7 +616,6 @@ ns.AuctionHelperForeverData = {
                 },
                 {
                     { id = 15992, tagKey = "forever.tag.i15992" },
-                    { id = 2842, tagKey = "forever.tag.i2842" },
                     { id = 4387, tagKey = "forever.tag.i4387" },
                     { id = 10561, tagKey = "forever.tag.i3858" },
                     { id = 10560, tagKey = "forever.tag.i10560" },

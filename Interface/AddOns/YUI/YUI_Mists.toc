@@ -5,7 +5,7 @@
 ## Notes-zhCN: YUI 整合界面插件。
 ## Notes-zhTW: YUI 整合介面插件。
 ## Author: Ayan
-## Version: v360
+## Version: v362
 ## SavedVariables: YUI_DB, YUI_CPUDiagnostics
 ## Interface: 50503
 ## OptionalDeps: Masque, NDUI, ElvUI, Details
@@ -40,6 +40,7 @@ Core\API\Item.lua
 Core\API\PaperDoll.lua
 Core\API\Profession.lua
 Core\API\Security.lua
+Core\CharacterMoney.lua
 Core\API\Quest.lua
 Core\API\ChatInput.lua
 Core\API\ActionBar.lua

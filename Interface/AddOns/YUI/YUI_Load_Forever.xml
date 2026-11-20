@@ -30,6 +30,8 @@
     <Script file="Core\WeaponSkillData_Forever.lua"/>
     <Script file="Core\API\WeaponSkill.lua"/>
     <Script file="Core\API\Security.lua"/>
+    <Script file="Core\CharacterMoney.lua"/>
+    <Script file="Core\API\Bags.lua"/>
     <Script file="Core\API\Quest.lua"/>
     <Script file="Core\API\ChatInput.lua"/>
     <Script file="Core\API\ActionBar.lua"/>
@@ -74,6 +76,7 @@
     <Include file="Products\YChat\!load_Mainline.xml"/>
     <Include file="Products\YHUD\Locales\!load.xml"/>
     <Include file="Products\YHUD\!load_Forever.xml"/>
+    <Include file="Products\YBags\!load.xml"/>
     <Script file="Dev\Clean.lua"/>
     <Script file="Dev\NoticePreview.lua"/>
     <Script file="Dev\EffectPreview.lua"/>

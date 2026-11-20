@@ -12,7 +12,8 @@ local function RaiseOverlay(overlay, level)
     if overlay and overlay:GetFrameLevel() < level then overlay:SetFrameLevel(level) end
 end
 local function EntrySpellID(entry, monitor)
-    return monitor and monitor._yhudRuntimeSpellID or entry.overrideSpellId
+    local fallbackSpellID = YHUD.GetOfficialAuraFallbackSpellID and YHUD:GetOfficialAuraFallbackSpellID(entry)
+    return fallbackSpellID or monitor and monitor._yhudRuntimeSpellID or entry.overrideSpellId
         or entry.spellId or entry.spellID or entry.sourceParams and entry.sourceParams.spellID
 end
 local function PublicMaximum(value)

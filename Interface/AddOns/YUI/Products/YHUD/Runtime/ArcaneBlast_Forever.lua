@@ -10,6 +10,7 @@ Arcane.SOURCE_TYPE = "yhud.forever-arcane-blast"
 Arcane.SOURCE_KEY = "forever-arcane-blast:199342"
 local AURA_IDENTITY = "aura:cdm:199342"
 local DURATION, MAX_STACKS = 18, 4
+local BOUNDARY_CAST_GRACE = 1
 Arcane.MAX_STACKS = MAX_STACKS
 local CAST_IDS = { 400574, 1239696, 1239697, 1239699, 1239700 }
 local CASTS = {}
@@ -82,7 +83,12 @@ local function IsCurrentFrame(frame)
             or Viewer:GetRuntimeFrame("trackedBar", 199342) == frame)
 end
 
-local function Clear(source)
+local function ClearBoundaryCast(source)
+    source.boundaryCastAt, source.boundaryCastRevision, source.boundaryCastEnd = nil, nil, nil
+    source.boundaryGainAt, source.boundaryGainEpoch = nil, nil
+end
+
+local function Clear(source, preserveBoundaryCast)
     local state = source.state
     local changed = state.available == true or state.displayCount ~= nil
     Monitor:CancelTasks(source)
@@ -90,11 +96,34 @@ local function Clear(source)
     source.nativePresent = nil
     state.available, state.startTime, state.displayCount = false, 0, nil
     state.publicAuraStacks = 0
+    if not preserveBoundaryCast then ClearBoundaryCast(source) end
     return changed
 end
 
 local function FinishWindow(source)
     Monitor:RefreshSourceNow(source, "arcane-expired")
+end
+
+local function StartWindow(source, state, now)
+    Clear(source)
+    local epoch = source.nativeEpoch or 0
+    source.windowEpoch = source.nativeLive == true and epoch ~= source.windowEpoch and epoch or epoch + 1
+    local scheduled, code = Monitor:ScheduleTask(source, "window-end", now + DURATION, FinishWindow)
+    state.issue = not scheduled and code or nil
+    state.available, state.startTime = scheduled == true, scheduled and now or 0
+    state.displayCount = scheduled and 1 or nil
+    state.publicAuraStacks = state.displayCount or 0
+    source.dirty = true
+end
+
+local function ApplyBoundaryGain(source)
+    local gainAt = source.boundaryGainAt
+    if not gainAt then return false end
+    local valid = source.boundaryCastRevision == source.castRevision
+        and source.boundaryGainEpoch == source.nativeEpoch and source.nativeLive == true
+    if valid then StartWindow(source, source.state, gainAt)
+    else ClearBoundaryCast(source) end
+    return valid
 end
 
 local function FinishLoss(source)
@@ -111,7 +140,7 @@ local function FinishLoss(source)
         source.nativeFrame, source.nativePresent = current, true
     elseif confirmed or present == false and current == frame and IsCurrentFrame(frame) then
         source.nativeLive = false
-        if Clear(source) then Monitor:RefreshSourceNow(source, "arcane-removed", true) end
+        if Clear(source, true) then Monitor:RefreshSourceNow(source, "arcane-removed", true) end
     elseif current == frame then
         -- Keep the last known presence across an inconclusive reconciliation.
         source.nativePresent = true
@@ -138,7 +167,23 @@ local function OnNativeApplied(frame)
     if not source or source.consumerCount <= 0
         or not IsCurrentFrame(frame) or not MatchesFrame(frame) then return end
     local ok, unit = Method(frame, "GetAuraDataUnit")
-    if ok and unit == "player" then NoteGain(source, frame) end
+    if not ok or unit ~= "player" then return end
+    NoteGain(source, frame)
+    local castAt, now = source.boundaryCastAt, GetTime()
+    if castAt and now >= castAt and now - castAt <= BOUNDARY_CAST_GRACE
+        and source.boundaryCastRevision == source.castRevision
+        and not source.boundaryGainAt
+        and (not source.state.available or source.lossConfirmed
+            or now >= source.boundaryCastEnd) then
+        -- Only a fresh native application can hand a recent boundary cast to
+        -- the next generation. Reconcile after the native update finishes.
+        if source.nativeEpoch <= source.windowEpoch then
+            source.nativeEpoch = source.windowEpoch + 1
+            source.state.nativeFrames[frame] = source.nativeEpoch
+        end
+        source.boundaryGainAt, source.boundaryGainEpoch = now, source.nativeEpoch
+        Monitor:QueueSource(source, "arcane-boundary-gain")
+    end
 end
 
 ReadPresence = function(source)
@@ -200,7 +245,9 @@ local function Cast(source, state, _, unit, guid, spellID)
         if previous then state.seenCasts[previous] = nil end
         state.castOrder[index], state.seenCasts[guid], state.castCursor = guid, true, index
     end
+    ApplyBoundaryGain(source)
     source.castRevision = (source.castRevision or 0) + 1
+    ClearBoundaryCast(source)
     if source.lossRevision ~= nil then
         local present, frame = ReadPresence(source)
         if (source.lossConfirmed and source.lossEpoch >= source.windowEpoch)
@@ -210,17 +257,17 @@ local function Cast(source, state, _, unit, guid, spellID)
     CancelLoss(source)
     local now = GetTime()
     if not state.available or now >= state.startTime + DURATION then
-        Clear(source)
-        local epoch = source.nativeEpoch or 0
-        source.windowEpoch = source.nativeLive == true and epoch ~= source.windowEpoch and epoch or epoch + 1
-        local scheduled, code = Monitor:ScheduleTask(source, "window-end", now + DURATION, FinishWindow)
-        state.issue = not scheduled and code or nil
-        state.available, state.startTime = scheduled == true, scheduled and now or 0
-        state.displayCount = scheduled and 1 or nil
-        source.dirty = true
-    elseif state.displayCount < MAX_STACKS then
-        state.displayCount = state.displayCount + 1
-        source.dirty = true
+        StartWindow(source, state, now)
+    else
+        local endAt = state.startTime + DURATION
+        if now >= endAt - BOUNDARY_CAST_GRACE then
+            source.boundaryCastAt, source.boundaryCastRevision, source.boundaryCastEnd =
+                now, source.castRevision, endAt
+        end
+        if state.displayCount < MAX_STACKS then
+            state.displayCount = state.displayCount + 1
+            source.dirty = true
+        end
     end
     state.publicAuraStacks = state.displayCount or 0
     return source.dirty == true
@@ -228,9 +275,10 @@ end
 
 local function Read(source, state, reason)
     local changed = source.dirty == true
+    if reason ~= "PLAYER_DEAD" then changed = ApplyBoundaryGain(source) or changed end
     source.dirty = nil
     if reason == "PLAYER_DEAD" or state.available and GetTime() >= state.startTime + DURATION then
-        changed = Clear(source) or changed
+        changed = Clear(source, reason ~= "PLAYER_DEAD") or changed
     end
     ObserveNative(source, reason == "arcane-native-refresh")
     return changed

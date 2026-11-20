@@ -331,6 +331,12 @@ function Runtime:OnProviderRegistered(_, providerId)
     end
 end
 
+function Runtime:OnProviderReady(_, providerId)
+    if providerId and self.pendingByProvider[providerId] then
+        self:ReconcileProvider(providerId, "provider-ready")
+    end
+end
+
 function Runtime:OnModuleEnabled(_, moduleId, moduleDefinition)
     local service = S.ConfigSets
     for providerId, provider in pairs(service and service.providers or {}) do
@@ -425,6 +431,10 @@ function Runtime:OnEnable()
     Event:On("YUI_CONFIG_SET_PROVIDER_REGISTERED", "OnProviderRegistered", self, {
         moduleId = self.MODULE_ID,
         phase = "provider-registered",
+    })
+    Event:On("YUI_CONFIG_SET_PROVIDER_READY", "OnProviderReady", self, {
+        moduleId = self.MODULE_ID,
+        phase = "provider-ready",
     })
     Event:On("YUI_MODULE_ENABLED", "OnModuleEnabled", self, {
         moduleId = self.MODULE_ID,

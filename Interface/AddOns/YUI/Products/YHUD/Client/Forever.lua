@@ -6,6 +6,17 @@ YUI.YHUD.Client = {
     soundReminders = true,
     skyriding = false,
     nativeBuffBarSeconds = true,
+    specialResourceIds = { foreverMaelstromWeapon = true },
+    -- Forever 70888/70959 link these CDM rows back to the talent itself.
+    officialAuraCorrections = {
+        [200320] = { talent = 1223031, aura = 1238931 }, -- Improved Stormstrike
+        [200321] = { talent = 16256, aura = 16257 }, -- Flurry
+    },
+    legacySealPreset = {
+        key = "aura:player:helpful:20154",
+        id = "forever-seals",
+        nativeKey = "cdm:200340",
+    },
     retiredPresetKeys = {
         ["bundle:defensive"] = true,
         ["buff-aura:bloodlust"] = true,
@@ -34,23 +45,5 @@ YUI.YHUD.Client = {
         ["PRIEST:1487"] = { "PRIEST:11608", "PRIEST:11615", "PRIEST:11622" },
         ["WARLOCK:1490"] = { "WARLOCK:11629", "WARLOCK:11636", "WARLOCK:11637" },
         ["WARRIOR:1491"] = { "WARRIOR:11650", "WARRIOR:11657", "WARRIOR:11670" },
-    },
-}
-
--- Keep the original entry identity so saved placements and overrides survive.
-YUI.YHUD.FOREVER_SEAL_PRESET = {
-    entryKey = "aura:player:helpful:20154",
-    nativeCooldownID = 200340,
-    nameKey = "designer.preset.label.forever_seals",
-    -- Native seal summary icon, verified in Forever 1.60.1.70862.
-    icon = 1030100,
-    spellIDs = {
-        20154, 21084, 20287, 20288, 20289, 20290, 20291, 20292, 20293,
-        21082, 20162, 20305, 20306, 20307, 20308,
-        20164,
-        20375, 20915, 20918, 20919, 20920,
-        20165, 20347, 20348, 20349,
-        20166, 20356, 20357,
-        1311649, 1311656, 20163, 20419, 20421, 20422, 20423,
     },
 }

@@ -41,8 +41,8 @@ local function ConfiguredDefaultPlacement(layoutId)
     return type(placement) == "table" and CopyPlacement(placement) or nil
 end
 
-local function DefaultPlacement(id, config)
-    local configured = ConfiguredDefaultPlacement("yactionbar." .. tostring(id))
+local function DefaultPlacement(id, config, layoutId)
+    local configured = ConfiguredDefaultPlacement(layoutId or "yactionbar." .. tostring(id))
     if configured then return configured end
     local layout = config and config.layout or nil
     return {
@@ -191,6 +191,26 @@ function LayoutBridge:GetLayoutId(id)
         or YAB.ClassTools and YAB.ClassTools:GetLayoutId(id) or "yactionbar." .. tostring(id)
 end
 
+local function MigrateClassBarPlacement(layoutId)
+    local layout = YUI.Layout
+    if not (YAB.GetCorrectedClassBarPlacement and layout.HasPlacement and layout.GetPlacement and layout.SetPlacement) then return end
+    local database = YUI.DB
+    local profile = database and database.GetProfile and database:GetProfile(YUI.ProductId or "suite")
+    if type(profile) ~= "table" then return end
+    -- Product imports can replace YActionBar settings without replacing the class bar positions.
+    local migrated = profile.YActionBarPlacementMigrations
+    if type(migrated) == "table" and migrated[layoutId] then return end
+    if layout:HasPlacement(layoutId) then
+        local corrected = YAB:GetCorrectedClassBarPlacement(layoutId, layout:GetPlacement(layoutId))
+        if corrected and not layout:SetPlacement(layoutId, corrected, true) then return end
+    end
+    if type(migrated) ~= "table" then
+        migrated = {}
+        profile.YActionBarPlacementMigrations = migrated
+    end
+    migrated[layoutId] = true
+end
+
 function LayoutBridge:Register(id, record, title, config)
     local frame = ResolveRecordFrame(record)
     if not frame then return false end
@@ -224,7 +244,7 @@ function LayoutBridge:Register(id, record, title, config)
         title = localizedTitle or layoutId,
         category = "product",
         defaultPlacement = function()
-            return DefaultPlacement(id, config)
+            return DefaultPlacement(id, config, layoutId)
         end,
         combatProtected = true,
         showOnlyInEditMode = record.classToolsPlaceholder == true,
@@ -268,6 +288,9 @@ function LayoutBridge:Register(id, record, title, config)
         end,
     })
     self.registered[layoutId] = true
+    if classTransition or id == "classTools" then
+        MigrateClassBarPlacement(layoutId)
+    end
     if YAB.ConfigSets and YAB.ConfigSets.ApplyDormantPlacement then
         YAB.ConfigSets:ApplyDormantPlacement(layoutId)
     end
@@ -275,21 +298,72 @@ function LayoutBridge:Register(id, record, title, config)
     return true
 end
 
--- Other classes have no runtime buttons on this character, but their shared
--- placement must remain editable after the current class detaches.
-function LayoutBridge:SyncClassToolsMover()
+local function SyncIndependentClassMover(bridge, id, db, manager, playerClass)
+    if not playerClass or playerClass == YAB.ClassTools:GetClassToken(id) then return false end
+
+    local config = db.specialBars[id]
+    local layoutId = "yactionbar." .. id
+    local registered = bridge.classLayoutIds and bridge.classLayoutIds[id] == layoutId
+    local record = bridge.independentClassPlaceholders and bridge.independentClassPlaceholders[id]
+    if not (db.enabled and manager.runtimeActive and config and config.enabled and YAB.ClassTools:IsIndependent(id, db)) then
+        if record and registered then
+            record.config = nil
+            return bridge:Unregister(id, true)
+        end
+        return false
+    end
+
+    if not record then
+        record = { mover = YAB.SecureFactory:CreateMover(id), classToolsPlaceholder = true }
+        bridge.independentClassPlaceholders = bridge.independentClassPlaceholders or {}
+        bridge.independentClassPlaceholders[id] = record
+    end
+    local count = YAB.SpecialBars:GetPreviewButtonCount(id, config)
+    local width, height = manager:MeasureDormantActionBar(config, count)
+    local resized = width ~= record.layoutWidth or height ~= record.layoutHeight
+    if resized then
+        record.layoutWidth, record.layoutHeight = width, height
+        record.mover:SetSize(width, height)
+    end
+    if not registered or record.config ~= config then
+        record.config = config
+        if not bridge:Register(id, record, nil, config) then return false end
+    elseif resized then
+        bridge:Refresh(id)
+    else
+        return true
+    end
+    YUI.Layout:RefreshEditSessionEntry(layoutId)
+    return true
+end
+
+function LayoutBridge:SyncClassToolsMover(id, playerClass)
     local tools, manager = YAB.ClassTools, YAB.BarManager
     if not tools or not manager or InCombat() or not (YUI.Layout and YUI.Layout.RegisterFrame) then return false end
     local db, shared = YAB:GetDB(), false
-    if not (db.enabled and manager.runtimeActive) then return self:Unregister("classTools", true) end
+    if id and tools:IsClassBar(id) then
+        return SyncIndependentClassMover(self, id, db, manager, playerClass or YAB.SpecialBars:GetPlayerClassToken())
+    end
+    if not id then
+        playerClass = playerClass or YAB.SpecialBars:GetPlayerClassToken()
+        if playerClass then
+            for _, barId in ipairs(tools.ids) do
+                SyncIndependentClassMover(self, barId, db, manager, playerClass)
+            end
+        end
+    end
+
+    -- Retain the shared placement when the current class has detached.
+    local config = db.specialBars.classTools
+    if not (db.enabled and manager.runtimeActive and config and config.enabled) then return self:Unregister("classTools", true) end
     for _, id in ipairs(tools.ids) do
-        if not tools:IsIndependent(id, db) then
+        local own = db.specialBars[id]
+        if own and own.classToolsEnabled ~= false and not tools:IsIndependent(id, db) then
             shared = true
             if YAB.ClassBars.active[id] and self:GetLayoutId(id) == "yactionbar.classTools" then return true end
         end
     end
     if not shared then return self:Unregister("classTools", true) end
-    local config = db.specialBars.classTools
     local record = self.classToolsPlaceholder
     if not record then
         record = { mover = YAB.SecureFactory:CreateMover("classTools"), classToolsPlaceholder = true }
@@ -478,6 +552,7 @@ function LayoutBridge:UnregisterAll()
     self.registered = {}
     self.classLayoutIds = nil
     self.classToolsPlaceholderActive = nil
+    self.independentClassPlaceholders = nil
 end
 
 

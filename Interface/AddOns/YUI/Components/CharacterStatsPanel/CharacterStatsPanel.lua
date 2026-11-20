@@ -25,8 +25,10 @@ local ItemAPI = YUI.API and YUI.API.Item or API
 local TalentAPI = YUI.API and YUI.API.Talent or API
 local UnitAPI = YUI.API and YUI.API.Unit or API
 local PaperDollAPI = YUI.API and YUI.API.PaperDoll
+local Forever = YUI.IsForever and YUI.CharacterStatsPanelForever
 local Animation = YUI.Animation
 local PLAYER_UNIT_FILTER = { unit = "player" }
+local PLAYER_PET_UNIT_FILTER = YUI.IsForever and { units = { "player", "pet" } }
 
 -- ============================================================================
 --  缓存常用 Lua 与 WoW API
@@ -157,10 +159,10 @@ local SPEED_UPDATE_INTERVAL = 1.0
 local DEFAULT_SPEED_UPDATE_FREQ = SPEED_UPDATE_INTERVAL
 local STATS_FADE_ANIMATION_OWNER = {}
 local STATS_LAYOUT_ID = "ybar.stats.panel"
-local DEFAULT_PANEL_POINT = "BOTTOM"
-local DEFAULT_PANEL_RELATIVE_POINT = "BOTTOM"
-local DEFAULT_PANEL_OFFSET_X = -455
-local DEFAULT_PANEL_OFFSET_Y = 0
+local DEFAULT_PANEL_POINT = Forever and "BOTTOMLEFT" or "BOTTOM"
+local DEFAULT_PANEL_RELATIVE_POINT = DEFAULT_PANEL_POINT
+local DEFAULT_PANEL_OFFSET_X = Forever and 435 or -455
+local DEFAULT_PANEL_OFFSET_Y = Forever and 2 or 0
 local PANEL_ORIENTATION_VERTICAL = "VERTICAL"
 local PANEL_ORIENTATION_HORIZONTAL = "HORIZONTAL"
 local HORIZONTAL_ALIGNMENT_LEFT = "LEFT"
@@ -194,7 +196,9 @@ local VERSATILITY_SPLIT_FORMATS = {
     [2] = "%.2f%%+%.2f%%",
 }
 local MAX_STATS_LINES = 14
-if YUI and YUI.IsForever then MAX_STATS_LINES = 16 end
+if YUI and YUI.IsForever then
+    MAX_STATS_LINES = YUI.CharacterStatsPanelForeverData and #YUI.CharacterStatsPanelForeverData.definitions or 16
+end
 
 local function NormalizeVersatilityDisplayMode(value)
     return value == VERSATILITY_DISPLAY_SPLIT and VERSATILITY_DISPLAY_SPLIT or VERSATILITY_DISPLAY_SINGLE
@@ -341,13 +345,13 @@ local function ApplyFontEffect(fontString, effect)
     end
 end
 
-local function SetLineTextWidth(text, width)
+local function SetLineTextWidth(text, width, allowNaturalWidth)
     if not text then return end
     if text.SetWordWrap and text._yuiStatsWordWrapDisabled ~= true then
         text:SetWordWrap(false)
         text._yuiStatsWordWrapDisabled = true
     end
-    SetWidthIfChanged(text, math.max(width or 1, 1))
+    SetWidthIfChanged(text, math.max(width or 1, allowNaturalWidth and 0 or 1))
 end
 
 local function NormalizeSafeWidth(width, fallback)
@@ -392,7 +396,9 @@ local function RecordSafeFontStringWidth(fontString, fallback)
     end
     local numericWidth = tonumber(width)
     if numericWidth then
-        fontString._yuiStatsLastSafeWidth = math.max(math.ceil(numericWidth), 0)
+        local measured = math.max(math.ceil(numericWidth), 0)
+        fontString._yuiStatsLastSafeWidth = measured
+        return measured
     end
 end
 
@@ -921,9 +927,10 @@ local function SetFontCached(fontString, fontPath, fontSize, fontFlag)
     fontString._yuiStatsFontFlag = fontFlag
 end
 
-local function ApplyStatsFont(fontString, fontPath, fontSize, fontEffect)
+local function ApplyStatsFont(fontString, fontPath, fontSize, fontEffect, monochrome)
     local flags=GetFontFlagForEffect(fontEffect)
-    if Module.settings and Module.settings.textMonochrome then flags=flags~="" and flags..",MONOCHROME" or "MONOCHROME" end
+    if monochrome == nil then monochrome = Module.settings and Module.settings.textMonochrome end
+    if monochrome then flags=flags~="" and flags..",MONOCHROME" or "MONOCHROME" end
     SetFontCached(fontString, fontPath, fontSize, flags)
     ApplyFontEffect(fontString, fontEffect)
 end
@@ -1005,7 +1012,7 @@ local function SetTextIfChanged(fontString, text, fallbackWidth)
         fontString:SetText(text)
     end
     fontString._yuiStatsTextIsSecret = false
-    RecordSafeFontStringWidth(fontString, fallbackWidth)
+    return RecordSafeFontStringWidth(fontString, fallbackWidth)
 end
 
 local function SetSecretFormattedText(fontString, formatString, valueCount, firstValue, secondValue, thirdValue)
@@ -1753,6 +1760,25 @@ local DEFAULT_CONFIG = {
     wrathOtherScale = 1.2,
 }
 
+local VALUE_TEXT_DEFAULTS = {
+    valueFont = DEFAULT_FONT, valueFontSize = DEFAULT_SIZE, valueFontEffect = DEFAULT_FONT_EFFECT, valueTextMonochrome = false,
+}
+local LEGACY_TEXT_FIELDS = {
+    valueFont = "font", valueFontSize = "fontSize", valueFontEffect = "fontEffect", valueTextMonochrome = "textMonochrome",
+}
+
+local function EnsureForeverSettings(settings)
+    local config = Forever.EnsureSettings(settings)
+    Forever.SyncLegacyLayout(settings, config)
+    if config.valueTextInitialized then return end
+    for field, legacy in pairs(LEGACY_TEXT_FIELDS) do
+        if settings[field] == nil and settings[legacy] ~= VALUE_TEXT_DEFAULTS[field] then
+            settings[field] = settings[legacy]
+        end
+    end
+    config.valueTextInitialized = true
+end
+
 local PANEL_CONFIG_KEYS = {
     "framePosition",
     "font",
@@ -1814,7 +1840,9 @@ local function GetLegacyStatsPosition(profile)
 end
 
 local function MigrateLegacyConfig(config, profile)
-    if tonumber(config.migrationVersion) and config.migrationVersion >= MIGRATION_VERSION then
+    local version = tonumber(config.migrationVersion)
+    if version and version >= MIGRATION_VERSION then
+        if YUI.IsForever then config.migrationVersion = version end
         return
     end
 
@@ -1837,13 +1865,12 @@ local function MigrateLegacyConfig(config, profile)
             config.framePosition = CopyConfigValue(legacyPosition)
         end
 
-        local legacyShown = profile.StatsPanelShown
-        if legacyShown == nil and legacy then
-            legacyShown = legacy.panelShown
+        if not YUI.IsForever or config.panelShown == nil then
+            local legacyShown = profile.StatsPanelShown
+            if legacyShown == nil and legacy then legacyShown = legacy.panelShown end
+            local ybarEnabled = not ybar or ybar.enable ~= false
+            config.panelShown = ybarEnabled and IsStatsOnBar(ybar) and legacyShown ~= false
         end
-        if legacyShown == nil then legacyShown = true end
-        local ybarEnabled = not ybar or ybar.enable ~= false
-        config.panelShown = ybarEnabled and IsStatsOnBar(ybar) and legacyShown ~= false
     end
 
     config.migrationVersion = MIGRATION_VERSION
@@ -1853,14 +1880,30 @@ function Module:EnsureSettings()
     local profile = GetProductProfile()
     local store = Components:GetStore(PRODUCT_ID)
     if type(store) ~= "table" then
-        self.settings = self.settings or CopyConfigValue(DEFAULT_CONFIG)
+        if not self.settings then
+            self.settings = CopyConfigValue(DEFAULT_CONFIG)
+            if Forever then Forever.InitializeNewConfig(self.settings) end
+        end
+        if Forever then EnsureForeverSettings(self.settings) end
         return self.settings
     end
     if type(store[CONFIG_KEY]) ~= "table" then
         store[CONFIG_KEY] = {}
     end
-    MigrateLegacyConfig(store[CONFIG_KEY], profile)
-    self.settings = Components:EnsureConfig(CONFIG_KEY, DEFAULT_CONFIG, PRODUCT_ID) or store[CONFIG_KEY]
+    local config = store[CONFIG_KEY]
+    local newConfig = Forever and next(config) == nil
+    MigrateLegacyConfig(config, profile)
+    if newConfig then
+        -- 迁移带进旧面板字段时，保留旧版的缺省外观。
+        for key in pairs(config) do
+            if key ~= "migrationVersion" and key ~= "panelShown" then
+                newConfig = false
+                break
+            end
+        end
+        if newConfig then Forever.InitializeNewConfig(config) end
+    end
+    self.settings = Components:EnsureConfig(CONFIG_KEY, DEFAULT_CONFIG, PRODUCT_ID) or config
     self.settings.horizontalMaxWidth = GetHorizontalMaxWidth(self.settings)
     self.settings.horizontalAlignment = NormalizeHorizontalAlignment(self.settings.horizontalAlignment)
     self.settings.appearanceStyle = NormalizeColorStyle(self.settings.appearanceStyle)
@@ -1869,6 +1912,7 @@ function Module:EnsureSettings()
     if self.settings.panelOrientation ~= PANEL_ORIENTATION_HORIZONTAL then
         self.settings.panelOrientation = PANEL_ORIENTATION_VERTICAL
     end
+    if Forever then EnsureForeverSettings(self.settings) end
     return self.settings
 end
 
@@ -1878,6 +1922,10 @@ end
 
 function Module:RefreshStatsSettings()
     self:ResetCombatDisplaySnapshot()
+    if Forever then
+        EnsureForeverSettings(self.settings)
+        Forever.Invalidate(self, true)
+    end
     self:UpdateStatsPanel()
 end
 
@@ -1953,6 +2001,7 @@ end
 
 function Module:GetStatsMoverBounds()
     local frame = self.statsFrame
+    if Forever and frame then return frame:GetWidth(), math.max(frame:GetHeight() or 0, 1) end
     return GetStatsPanelWidth(self.settings), math.max(frame and frame:GetHeight() or 0, 1)
 end
 
@@ -2003,6 +2052,7 @@ function Module:RegisterStatsLayout()
             return self.enabled == true
         end,
         onEnterEditMode = function()
+            if Forever then Forever.FinishDrag(self, false) end
             self:ResetCombatDisplaySnapshot()
             self.layoutPreviewing = true
             if self.enabled then
@@ -2162,7 +2212,20 @@ function Module:RequestStatsPanelRefresh(immediate)
     end)
 end
 
-function Module:OnDataEvent()
+function Module:OnDataEvent(event, _, powerToken)
+    if Forever and event == "UNIT_HEALTH" then Forever.RefreshResource(self, "hp"); return end
+    if Forever and event == "UNIT_POWER_UPDATE" then
+        if not IsSecretValue(powerToken) and powerToken == "MANA" then Forever.RefreshResource(self, "mana") end
+        return
+    end
+    if Forever and event == "MODIFIER_STATE_CHANGED" then Forever.UpdateMoveHighlight(self); return end
+    if Forever and event == "PLAYER_REGEN_DISABLED" then
+        Forever.FinishDrag(self, false)
+    end
+    if Forever and (event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED"
+        or event == "TRAIT_CONFIG_UPDATED" or event == "YUI_WORLD_READY") then
+        Forever.Invalidate(self, true)
+    end
     self:RequestStatsPanelRefresh(false)
 end
 
@@ -2189,8 +2252,24 @@ function Module:AttachDataEvents()
     On("PLAYER_AVG_ITEM_LEVEL_UPDATE")
     On("UNIT_INVENTORY_CHANGED", PLAYER_UNIT_FILTER)
     On("UNIT_STATS", PLAYER_UNIT_FILTER)
-    On("UNIT_RESISTANCES", PLAYER_UNIT_FILTER)
-    On("UNIT_AURA", PLAYER_UNIT_FILTER)
+    On("UNIT_RESISTANCES", YUI.IsForever and PLAYER_PET_UNIT_FILTER or PLAYER_UNIT_FILTER)
+    On("UNIT_AURA", YUI.IsForever and PLAYER_PET_UNIT_FILTER or PLAYER_UNIT_FILTER)
+    if YUI.IsForever then
+        On("MODIFIER_STATE_CHANGED")
+        On("PLAYER_TALENT_UPDATE")
+        On("ACTIVE_TALENT_GROUP_CHANGED")
+        On("TRAIT_CONFIG_UPDATED")
+        On("UNIT_MAXHEALTH", PLAYER_PET_UNIT_FILTER)
+        On("UNIT_MAXPOWER", PLAYER_UNIT_FILTER)
+        On("UNIT_HEALTH", PLAYER_UNIT_FILTER)
+        On("UNIT_POWER_UPDATE", PLAYER_UNIT_FILTER)
+        On("UNIT_ATTACK_POWER", PLAYER_PET_UNIT_FILTER)
+        On("UNIT_RANGED_ATTACK_POWER", PLAYER_UNIT_FILTER)
+        On("UNIT_ATTACK_SPEED", PLAYER_UNIT_FILTER)
+        On("UNIT_DAMAGE", PLAYER_UNIT_FILTER)
+        On("UNIT_PET", PLAYER_UNIT_FILTER)
+        On("SKILL_LINES_CHANGED")
+    end
     if YUI.IsRetail or YUI.IsForever then
         On("UNIT_SPELL_HASTE", PLAYER_UNIT_FILTER)
     end
@@ -2237,7 +2316,10 @@ function Module:UpdateVisibility()
         self:EnsureRuntime()
         local wasShown = self.statsFrame:IsShown()
         self.statsFrame:Show()
-        if wasShown then self:RequestStatsPanelRefresh(true) end
+        if wasShown then
+            if Forever and (self.dataListeners or 0) == 0 then self:AttachDataEvents() end
+            self:RequestStatsPanelRefresh(true)
+        end
     elseif self.statsFrame then
         self.statsFrame:Hide()
     end
@@ -2272,13 +2354,14 @@ function Module:SetEnabled(enabled)
     if enabled then
         self.lifecycleOwner = self.lifecycleOwner or { traceName = "CharacterStatsPanel:lifecycle" }
         self.dataOwner = self.dataOwner or { traceName = "CharacterStatsPanel:data" }
-        self.dataOwner.OnDataEvent = self.dataOwner.OnDataEvent or function()
-            Module:OnDataEvent()
+        self.dataOwner.OnDataEvent = self.dataOwner.OnDataEvent or function(_, event, ...)
+            Module:OnDataEvent(event, ...)
         end
         self:AttachLifecycleEvents()
         self:UpdateVisibility()
     else
         self:ResetCombatDisplaySnapshot()
+        if Forever then Forever.Release(self) end
         self:DetachDataEvents()
         self:DetachLifecycleEvents()
         self:CancelPendingPanelRefresh()
@@ -2297,6 +2380,7 @@ end
 
 function Module:OnProfileChanged()
     self:ResetCombatDisplaySnapshot()
+    if Forever then Forever.Release(self) end
     self:DetachDataEvents()
     self:CancelPendingPanelRefresh()
     self:StopSpeedTicker()
@@ -2402,6 +2486,22 @@ end
 --  属性面板
 -- ============================================================================
 
+local FOREVER_RENDER = Forever and {
+    size = SetSizeIfChanged,
+    scale = SetScaleIfChanged,
+    shown = SetShownIfChanged,
+    font = ApplyStatsFont,
+    valueTextDefaults = VALUE_TEXT_DEFAULTS,
+    text = SetTextIfChanged,
+    secretText = SetSecretFormattedText,
+    safeWidth = SafeFontStringWidth,
+    textWidth = function(text, width) SetLineTextWidth(text, width, width == 0) end,
+    color = ApplyStatColorStyle,
+    fontPath = function(font)
+        return NormalizeFontValue(font, LibStub("LibSharedMedia-3.0"))
+    end,
+}
+
 function Module:CreateStatsFrame()
     local f = GUI2:CreateFrame(UIParent, { name = "YBarStatsFrame" })
     f:SetSize(GetStatsPanelWidth(self.settings), 1)
@@ -2409,25 +2509,42 @@ function Module:CreateStatsFrame()
     f:SetClampedToScreen(true)
     f:SetMovable(true)
     f:EnableMouse(true)
+    if Forever then Forever.PrepareMouse(self, f) end
     f:Hide()
 
     f:SetScript("OnEnter", function()
         self.isHovering = true
+        if Forever then
+            self.statsBaseAlpha = 1
+            self:ApplyLinkedFadeAlpha()
+            Forever.UpdateMoveHighlight(self)
+            return
+        end
         self:UpdateStatsPanel()
     end)
 
     f:SetScript("OnLeave", function()
         self.isHovering = false
+        if Forever then
+            self.statsBaseAlpha = SecurityAPI.InCombatLockdown() and 1 or (self.settings.outOfCombatAlpha or 1)
+            self:ApplyLinkedFadeAlpha()
+            Forever.UpdateMoveHighlight(self)
+            return
+        end
         self:UpdateStatsPanel()
     end)
 
     f:SetScript("OnShow", function()
+        if Forever then Forever.Invalidate(self, true) end
         self:AttachDataEvents()
         self:RequestStatsPanelRefresh(true)
         self:RefreshSpeedTickerState()
     end)
 
     f:SetScript("OnHide", function()
+        if Forever then
+            Forever.CancelInteraction(self)
+        end
         self:DetachDataEvents()
         self:CancelPendingPanelRefresh()
         self:StopSpeedTicker()
@@ -2441,6 +2558,7 @@ function Module:CreateStatsFrame()
     content:SetSize(GetStatsPanelWidth(self.settings), 1)
     if content.EnableMouse then content:EnableMouse(false) end
     f.contentFrame = content
+    if Forever then Forever.PrepareResourceMeters(self, content) end
     f.lines = {}
     self.statsCache = {}
     for i = 1, MAX_STATS_LINES do
@@ -2448,10 +2566,28 @@ function Module:CreateStatsFrame()
         line:Hide()
         line._yuiStatsShown = false
         f.lines[i] = line
+        if Forever then
+            local highlight = GUI2:CreateTexture(line, { layer = "BACKGROUND", paint = "color.text.primary" })
+            highlight:SetAllPoints(line)
+            highlight:SetAlpha(0.06)
+            highlight:Hide()
+            line.hoverHighlight = highlight
+            Forever.PrepareLine(self, line)
+        end
         self.statsCache[i] = {}
     end
 
     self.statsFrame = f
+    if Forever then
+        local highlight = GUI2:CreateFrame(f)
+        highlight:SetAllPoints(f)
+        highlight:EnableMouse(false)
+        highlight:SetFrameLevel(f:GetFrameLevel() + 5)
+        GUI2:CreateBorder(highlight, "color.border.accent")
+        highlight:Hide()
+        highlight.foreverShown = false
+        f.foreverMoveHighlight = highlight
+    end
     self:RegisterStatsLayout()
 end
 
@@ -2541,6 +2677,12 @@ function Module:GetOptions(feature)
             collapseKey = "component.character_stats_panel." .. key,
             collapsed = false,
         }
+    end
+
+    if Forever then
+        return Forever.GetOptions(self, feature, {
+            fontOptions = fontOptions, styleOptions = styleOptions, fontEffectOptions = fontEffectOptions,
+        })
     end
 
     local options = {
@@ -3187,6 +3329,10 @@ function Module:UpdateStatsPanel()
         self:UpdateWrathStatsPanel()
         return
     end
+    if Forever then
+        Forever.Update(self, FOREVER_RENDER)
+        return
+    end
 
     RefreshStatDefLabels()
 
@@ -3572,6 +3718,15 @@ local Feature = {
     end,
 }
 
+if Forever then
+    Feature.transfer = {
+        refresh = function()
+            Module:OnProfileChanged()
+            return true
+        end,
+    }
+end
+
 function Feature:GetOptions()
     return Module:GetOptions(self)
 end
@@ -3601,12 +3756,28 @@ end
 
 if GUI2.FontStyle and GUI2.FontStyle.RegisterConfig then
     local style=GUI2.FontStyle
+    local targets = {{ id = "text", label = Forever and function() return YT("forever.label_text", "名称文字") end
+        or function() return Feature.name end,
+        fields = { font = "font", size = "fontSize", monochrome = "textMonochrome" },
+        effect = "fontEffect", format = "stats", defaults = DEFAULT_CONFIG, minSize = 8,
+        maxSize = Forever and Forever.FONT_SIZE_MAX or 20 }}
+    if Forever then
+        targets[2] = { id = "value", label = function() return YT("forever.value_text", "数值文字") end,
+            fields = { font = "valueFont", size = "valueFontSize", monochrome = "valueTextMonochrome" },
+            effect = "valueFontEffect", format = "stats", defaults = VALUE_TEXT_DEFAULTS, minSize = 8,
+            maxSize = Forever.FONT_SIZE_MAX }
+    end
     style:RegisterConfig("character_stats", {
         label=function() return Feature.name end,
         get=function() return style.ComponentConfig(PRODUCT_ID,CONFIG_KEY) end,
-        refresh=function(db) if Module.settings==db then Module:RefreshStatsSettings() end end,
-        targets={{id="text",label=function() return Feature.name end,
-            fields={font="font",size="fontSize",monochrome="textMonochrome"}, effect="fontEffect",format="stats",
-            defaults=DEFAULT_CONFIG,minSize=8,maxSize=20}},
+        refresh = function(db)
+            if Forever then
+                for key, value in pairs(VALUE_TEXT_DEFAULTS) do
+                    if db[key] == value then db[key] = nil end
+                end
+            end
+            if Module.settings == db then Module:RefreshStatsSettings() end
+        end,
+        targets = targets,
     })
 end

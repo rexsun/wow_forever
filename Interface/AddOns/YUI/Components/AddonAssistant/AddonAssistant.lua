@@ -14,7 +14,7 @@ end
 YUI.Components:RegisterFeature("AddonAssistant", {
     name = A.L.title, description = A.L.description, product = A.product,
     standalone = true, toolboxManaged = A.product == "suite" or A.product == "toolbox",
-    default = false, settingsMode = "toggleOnly", order = 400.5, sourceRoot = "Components\\AddonAssistant",
+    default = true, settingsMode = "toggleOnly", order = 400.5, sourceRoot = "Components\\AddonAssistant",
     assetFolders = { "Components\\AddonAssistant\\Media" },
     modSwitchImage = "modswitch\\addonassistant-bg.png", modSwitchImageCrop = false,
     versions = { mainline = true, forever = true }, tags = { "实用功能" },

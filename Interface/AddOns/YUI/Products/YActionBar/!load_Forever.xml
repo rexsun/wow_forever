@@ -8,6 +8,10 @@
     <Script file="ClassTools_Forever.lua"/>
     <Script file="MageData_Forever.lua"/>
     <Script file="MageTools_Forever.lua"/>
+    <Script file="ClassToolData_Forever.lua"/>
+    <Script file="UtilityTools_Forever.lua"/>
+    <Script file="PaladinBlessings_Forever.lua"/>
+    <Script file="SoulstoneBinding_Forever.lua"/>
     <Script file="ClassBars_Forever.lua"/>
     <Include file="!load_Shared.xml"/>
 </Ui>

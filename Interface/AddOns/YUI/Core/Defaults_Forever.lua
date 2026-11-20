@@ -229,6 +229,7 @@ YUI.ForeverFactoryProfile = {
             playerTooltipMythicPlusEnabled = true,
             playerTooltipMythicPlusScoreEnabled = false,
             tooltipIDEnabled = true,
+            tooltipItemLevelEnabled = true,
             trailMode = "none",
             trailQuality = "balanced",
         },

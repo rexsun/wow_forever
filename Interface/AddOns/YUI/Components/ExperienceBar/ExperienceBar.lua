@@ -58,6 +58,7 @@ local frame, track, fill, badge, ring, levelText, percentText, etaText, panel, h
 local prediction
 local secondFill, secondPrediction
 local restedOverlay, secondRestedOverlay
+local questMarker, secondQuestMarker
 local colorPreview = false
 local previewStats = { xp = 210000, maximum = 600000, gained = 36000, started = 0, levelSeconds = 2400, levelTimeAt = 720 }
 local dragging, suppressClick = false, false
@@ -275,6 +276,10 @@ local function EnsureFrame()
     secondPrediction = GUI2:CreateTexture(secondFill, { layer = "OVERLAY" })
     secondPrediction:SetColorTexture(0.92, 0.72, 0.30, 0.40)
     secondPrediction:Hide()
+    questMarker = GUI2:CreateTexture(fill, { layer = "OVERLAY", subLevel = 2 })
+    questMarker:Hide()
+    secondQuestMarker = GUI2:CreateTexture(secondFill, { layer = "OVERLAY", subLevel = 2 })
+    secondQuestMarker:Hide()
     for index, bar in ipairs({ fill, secondFill }) do
         local join = {}
         joins[index] = join
@@ -436,6 +441,11 @@ ApplyAppearance = function()
         overlay:SetTexture(path or "Interface\\TargetingFrame\\UI-StatusBar")
         GUI2:ApplyTexturePixelPolicy(overlay)
     end
+    local questColor = db.questColor
+    for _, marker in ipairs({ questMarker, secondQuestMarker }) do
+        marker:SetWidth(2 * pixel)
+        marker:SetColorTexture(questColor[1], questColor[2], questColor[3], questColor[4])
+    end
     fill:ClearAllPoints()
     secondFill:ClearAllPoints()
     -- The background overlaps the badge, but progress uses only unobscured pixels.
@@ -591,6 +601,22 @@ local function ShowSegment(bar, overlay, fraction, predicted, index, split)
     end
 end
 
+local function ShowQuestMarker(bar, marker, show, position)
+    local width = show and bar:GetWidth() or 0
+    local shown = width > 0
+    if shown then
+        local markerWidth = marker:GetWidth()
+        local offset = math.max(0, math.min(width - markerWidth, width * position - markerWidth / 2))
+        if marker.questEndOffset ~= offset then
+            marker:ClearAllPoints()
+            marker:SetPoint("TOPLEFT", bar, "TOPLEFT", offset, 0)
+            marker:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", offset, 0)
+            marker.questEndOffset = offset
+        end
+    end
+    if marker:IsShown() ~= shown then marker:SetShown(shown) end
+end
+
 Render = function()
     if not frame then return end
     if not active and not preview and not colorPreview then frame:Hide(); panel:Hide(); return end
@@ -644,10 +670,17 @@ Render = function()
         join[3]:SetShown(join.enabled and not normal and restedFraction > 0 and fraction <= edge
             and (fraction + restedFraction > edge or not join.atLeft and fraction + restedFraction == edge))
     end
-    ShowSegment(fill, restedOverlay, fraction, restedFraction, 1, db.layout == "center")
-    if db.layout == "center" then ShowSegment(secondFill, secondRestedOverlay, fraction, restedFraction, 2, true) end
-    ShowSegment(fill, prediction, fraction, predicted, 1, db.layout == "center")
-    if db.layout == "center" then ShowSegment(secondFill, secondPrediction, fraction, predicted, 2, true) end
+    local split = db.layout == "center"
+    ShowSegment(fill, restedOverlay, fraction, restedFraction, 1, split)
+    ShowSegment(fill, prediction, fraction, predicted, 1, split)
+    if split then
+        ShowSegment(secondFill, secondRestedOverlay, fraction, restedFraction, 2, true)
+        ShowSegment(secondFill, secondPrediction, fraction, predicted, 2, true)
+    end
+    local questEnd = math.min(1, fraction + predicted)
+    local endsOnSecondBar = split and questEnd > 0.5
+    ShowQuestMarker(fill, questMarker, predicted > 0 and not endsOnSecondBar, split and questEnd * 2 or questEnd)
+    ShowQuestMarker(secondFill, secondQuestMarker, predicted > 0 and endsOnSecondBar, questEnd * 2 - 1)
     if colorPreview or pinned or (hovering and db.hoverEnabled) then
         FillDetails(now, rate, eta, rested)
         SetDetails(true)

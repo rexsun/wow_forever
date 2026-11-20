@@ -324,6 +324,11 @@ function Model:OnSourceState(source, sourceKey, forced)
         state.classExtra, state.extraRevision, state.extraActive, state.elapsedValue, state.session, state.thresholdReached = nil, nil, nil, nil, nil, nil
         if math.floor(diff / self.DIFF_COOLDOWN) % 2 == 0 then diff = diff + self.DIFF_COOLDOWN end
     end
+    local expiring = source.expiring
+    if state.expiring ~= expiring then
+        state.expiring = expiring
+        if math.floor(diff / self.DIFF_COOLDOWN) % 2 == 0 then diff = diff + self.DIFF_COOLDOWN end
+    end
     local forcedReplay = forced == true
     if diff == 0 and not forcedReplay then return false end
     state.durationObject = source.durationObject

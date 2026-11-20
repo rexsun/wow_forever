@@ -117,6 +117,26 @@ local function CleanSpellAlertPreviewMaterials()
     return nil
 end
 
+local function ClearLootRollHistory()
+    local lootRoll = YUI.IsForever and YUI.LootRoll
+    if type(lootRoll) ~= "table" or type(lootRoll.ClearHistory) ~= "function" then return nil end
+    local ok, cleared = pcall(lootRoll.ClearHistory, lootRoll)
+    return ok and cleared == true
+end
+
+local function ClearYBagsPersonalData(global)
+    local cache = YUI.YBags and YUI.YBags.Cache
+    if cache and type(cache.ClearPersonalData) == "function" then
+        local ok, cleared = pcall(cache.ClearPersonalData, cache)
+        return ok and cleared == true
+    end
+
+    local bags = global.YBags
+    if type(bags) ~= "table" then return nil end
+    bags.characters, bags.shared, bags.guilds = nil, nil, nil
+    return true
+end
+
 local function ClearYChatHistory()
     if YUI.IsRetail ~= true and YUI.IsForever ~= true then return nil end
     local ychat = YUI.YChat
@@ -197,6 +217,12 @@ function Dev:CleanSavedCharacterData()
         Print("Locale 覆盖已清理。")
     end
     CleanSpellAlertPreviewMaterials()
+    local lootRollCleared = ClearLootRollHistory()
+    if lootRollCleared == true then Print("掉落历史已清理。")
+    elseif lootRollCleared == false then Print("掉落历史清理失败。") end
+    local bagsCleared = ClearYBagsPersonalData(global)
+    if bagsCleared == true then Print("背包个人数据和库存缓存已清理。")
+    elseif bagsCleared == false then Print("背包个人数据清理失败。") end
     local ychatHistoryCleared = ClearYChatHistory()
     if ychatHistoryCleared == false then
         Print("YChat 全部角色聊天记录清理失败。")
@@ -207,5 +233,5 @@ function Dev:CleanSavedCharacterData()
     end
     local mailLogCleared = ClearMailAssistantLog(global)
     if not mailLogCleared then Print("邮箱收发记录清理失败。") end
-    return ychatHistoryCleared ~= false and mailAssistantCleared ~= false and mailLogCleared
+    return lootRollCleared ~= false and bagsCleared ~= false and ychatHistoryCleared ~= false and mailAssistantCleared ~= false and mailLogCleared
 end

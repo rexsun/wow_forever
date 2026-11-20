@@ -25,7 +25,8 @@ local FORMS = {
 }
 local pendingRefresh = {}
 local FLIGHT_MARKER = "travel.flight"
-local AUCTION_HELPER = "AuctionHelper"
+-- YUI component features guarded through YUI's own switch, which runs their disable callback.
+local FEATURES = { AuctionHelper = "auction helper", LootRoll = "loot roll HUD" }
 local PLAYER_RESOURCES = { PlayerHealth = { "health" }, PlayerCast = { "cast" } }
 
 local function LiveProfile()
@@ -344,13 +345,13 @@ local function RevertMapReveal()
   return true, false, names
 end
 
-local function AuctionState()
+local function FeatureState(key)
   local components = type(_G.YUI) == "table" and _G.YUI.Components
   local features = type(components) == "table" and components.features
-  local feature = type(features) == "table" and features[AUCTION_HELPER]
+  local feature = type(features) == "table" and features[key]
   if not (type(feature) == "table" and type(components.SetFeatureEnabled) == "function"
     and type(components.GetStore) == "function") then
-    return nil, "YUI auction helper API is unavailable"
+    return nil, "YUI " .. FEATURES[key] .. " API is unavailable"
   end
   local active = components:GetStore(feature.product)
   if type(active) ~= "table" then return nil, "YUI has not finished loading" end
@@ -366,36 +367,37 @@ local function AuctionState()
 end
 
 -- YUI's Components store leaves a feature unset until it initializes, then uses its default.
-local function AuctionOn(store, feature)
-  local value = store[AUCTION_HELPER]
+local function FeatureOn(store, feature, key)
+  local value = store[key]
   if value == nil then return feature.default == true end
   return value == true
 end
 
-local function ReadAuctionHelper()
-  local state, problem = AuctionState()
+local function ReadFeature(key)
+  local state, problem = FeatureState(key)
   if not state then return nil, problem end
   local running = type(state.components.initializedFeatureStates) == "table"
-    and state.components.initializedFeatureStates[AUCTION_HELPER] == true
-  if running or AuctionOn(state.active, state.feature) then return true end
+    and state.components.initializedFeatureStates[key] == true
+  if running or FeatureOn(state.active, state.feature, key) then return true end
   for _, profile in ipairs(state.stored) do
-    if AuctionOn(profile.store, state.feature) then return true end
+    if FeatureOn(profile.store, state.feature, key) then return true end
   end
   return false
 end
 
--- SetFeatureEnabled runs the feature's own callback, which hides the docked panel at once.
-local function RevertAuctionHelper()
-  local state, problem = AuctionState()
+-- SetFeatureEnabled runs the feature's own callback: the auction panel hides at once and the
+-- loot roll HUD hands Blizzard's roll frames back.
+local function RevertFeature(key)
+  local state, problem = FeatureState(key)
   if not state then return false, problem end
   local names = {}
   for _, profile in ipairs(state.stored) do
-    if AuctionOn(profile.store, state.feature) then
-      profile.store[AUCTION_HELPER] = false
+    if FeatureOn(profile.store, state.feature, key) then
+      profile.store[key] = false
       names[#names + 1] = profile.name
     end
   end
-  state.components:SetFeatureEnabled(AUCTION_HELPER, false)
+  state.components:SetFeatureEnabled(key, false)
   table.sort(names)
   return true, false, names
 end
@@ -403,11 +405,11 @@ end
 function adapter.Knows(key)
   return UTILITY[key] ~= nil or key == "Resources" or PLAYER_RESOURCES[key] ~= nil
     or key == "ChatKeywordFilter" or key == "FlightMarkers" or key == "MapReveal"
-    or key == AUCTION_HELPER
+    or FEATURES[key] ~= nil
 end
 
 function adapter.Read(key)
-  if key == AUCTION_HELPER then return ReadAuctionHelper() end
+  if FEATURES[key] then return ReadFeature(key) end
   if key == "ChatKeywordFilter" then return ReadChatFilter() end
   if key == "FlightMarkers" then return ReadFlightMarkers() end
   if key == "MapReveal" then return ReadMapReveal() end
@@ -432,7 +434,7 @@ function adapter.Read(key)
 end
 
 function adapter.Revert(key)
-  if key == AUCTION_HELPER then return RevertAuctionHelper() end
+  if FEATURES[key] then return RevertFeature(key) end
   if key == "ChatKeywordFilter" then return RevertChatFilter() end
   if key == "FlightMarkers" then return RevertFlightMarkers() end
   if key == "MapReveal" then return RevertMapReveal() end

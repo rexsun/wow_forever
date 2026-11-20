@@ -223,6 +223,7 @@ local GLOW_CONDITION_TEXT = {
     ["aura-missing"] = { "designer.glow.aura_missing", "Aura Missing" },
     ["aura-stacks"] = { "designer.glow.aura_stacks", "Aura Stacks" },
     ["condition-met"] = { "designer.glow.timer_active", "Timer Active" },
+    ["timer-expiring"] = { "designer.glow.timer_expiring_3s", "3 Seconds Remaining" },
 }
 
 local function GlowConditionText(conditionType, capabilities)
@@ -1017,8 +1018,6 @@ end
 local function ShowMonitorBrowserTooltip(control)
     local entry = control and control.yhudEntry
     if not (entry and GameTooltip) then return end
-    if DesignerUI.ShowForeverSealTooltip
-        and DesignerUI:ShowForeverSealTooltip(control, entry) then return end
     GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
     if GameTooltip.ClearLines then GameTooltip:ClearLines() end
     GameTooltip:SetText(control.yhudMonitorName or "-", 1, 1, 1)
@@ -2407,40 +2406,7 @@ local function BuildMonitorBrowser(self)
                 + ((index - 1) * (MONITOR_ICON_SIZE + MONITOR_ICON_GAP)),
             -8
         )
-        button.bundleLabelBackdrop = GUI2:CreatePanel(button, {
-            width = MONITOR_ICON_SIZE - 2,
-            height = 13,
-            surface = "color.surface.popup",
-            border = false,
-        })
-        button.bundleLabelBackdrop:SetPoint(
-            "BOTTOM",
-            button,
-            "BOTTOM",
-            0,
-            1
-        )
-        if button.bundleLabelBackdrop.EnableMouse then
-            button.bundleLabelBackdrop:EnableMouse(false)
-        end
-        button.bundleLabel = GUI2:CreateText(
-            button.bundleLabelBackdrop,
-            "",
-            "font.size.sm",
-            "color.text.primary",
-            "CENTER"
-        )
-        button.bundleLabel:SetPoint(
-            "CENTER",
-            button.bundleLabelBackdrop,
-            "CENTER",
-            0,
-            0
-        )
-        button.bundleLabel:SetWidth(MONITOR_ICON_SIZE - 4)
-        button.bundleLabel:SetWordWrap(false)
-        button.bundleLabelBackdrop:Hide()
-        button.bundleLabel:Hide()
+        button.bundleLabel = I.CreateMonitorIconLabel(button)
         button.sourceBadge = GUI2:CreateIcon(button, {
             icon = SOURCE_BADGE_WARNING,
             size = 16,
@@ -2512,8 +2478,6 @@ local function BuildMonitorBrowser(self)
     identityIcon:HookScript("OnEnter", function(control)
         local entry = control.yhudEntry
         if not (entry and GameTooltip) then return end
-        if DesignerUI.ShowForeverSealTooltip
-            and DesignerUI:ShowForeverSealTooltip(control, entry) then return end
         GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
         if GameTooltip.ClearLines then GameTooltip:ClearLines() end
         local shown
@@ -6110,6 +6074,16 @@ local function BuildResourceEditors(self)
             ))
         end,
     }))
+    local manaRegenSparkLabel = Keep(NewResourceLabel(
+        body, "designer.resource.mana_regen_spark", "五秒回蓝提示"
+    ))
+    local manaRegenSpark = Keep(GUI2.Form:CreateSwitch(body, {
+        set = function(value)
+            RefreshResourceMutation(Designer:SetResourceSetting(
+                DesignerUI.resourceStyleResourceId, { manaRegenSpark = value == true }
+            ))
+        end,
+    }))
     local segmentSpacing = Keep(GUI2.Form:CreateSlider(body, {
         width = COLUMN_WIDTH, inline = true, inputWidth = 42,
         min = -5, max = 32, step = 1,
@@ -6502,6 +6476,7 @@ local function BuildResourceEditors(self)
         visibilityMode = visibilityMode,
         displayModeLabel = displayModeLabel, displayMode = displayMode,
         inverseFillLabel = inverseFillLabel, inverseFill = inverseFill,
+        manaRegenSparkLabel = manaRegenSparkLabel, manaRegenSpark = manaRegenSpark,
         segmentSpacingLabel = segmentSpacingLabel, segmentSpacing = segmentSpacing,
         dotSpacingLabel = dotSpacingLabel, dotSpacing = dotSpacing,
         pointShapeLabel = pointControls.shapeLabel, pointShape = pointControls.shape,
@@ -7139,6 +7114,7 @@ function DesignerUI:RefreshMonitorBrowser()
             local shortLabel = YHUD.ClassExtra and YHUD.ClassExtra:SettingsLabel(entry)
                 or YHUD.GetEntryPresetLabel
                     and YHUD:GetEntryPresetLabel(entry)
+                or I.MonitorPresetThumbnailLabel(entry)
                 or bundleKind == "defensive"
                     and T("designer.bundle.short.defensive", "防御")
                 or bundleKind == "externalBuff"
@@ -7153,15 +7129,7 @@ function DesignerUI:RefreshMonitorBrowser()
                 or BloodlustBadgeText(entry)
                 or button.yhudSpecialMonitor
                     and T("designer.monitor.special_badge", "特殊")
-            local showShortLabel = type(shortLabel) == "string"
-                and shortLabel ~= ""
-            if button.bundleLabel then
-                button.bundleLabel:SetText(shortLabel or "")
-                SetShown(button.bundleLabel, showShortLabel)
-            end
-            if button.bundleLabelBackdrop then
-                SetShown(button.bundleLabelBackdrop, showShortLabel)
-            end
+            I.SetMonitorIconLabel(button.bundleLabel, shortLabel)
         else
             button.yhudEntry = nil
             button.yhudMonitorName = nil
@@ -7169,10 +7137,7 @@ function DesignerUI:RefreshMonitorBrowser()
             button.yhudCacheOnlyPreview = nil
             button.yhudSpecialMonitor = nil
             ApplyMonitorWarningBadge(button.sourceBadge, nil, nil)
-            if button.bundleLabel then button.bundleLabel:Hide() end
-            if button.bundleLabelBackdrop then
-                button.bundleLabelBackdrop:Hide()
-            end
+            I.SetMonitorIconLabel(button.bundleLabel, nil)
             button:Hide()
         end
     end
@@ -8238,6 +8203,7 @@ local function RefreshResourceAppearancePage(self, profile, group)
         ui.visibilityModeLabel, ui.visibilityMode,
         ui.displayModeLabel, ui.displayMode,
         ui.inverseFillLabel, ui.inverseFill,
+        ui.manaRegenSparkLabel, ui.manaRegenSpark,
         ui.heightOverrideLabel, ui.heightOverride,
         ui.heightLabel, ui.height,
         ui.segmentSpacingLabel, ui.segmentSpacing,
@@ -8338,6 +8304,11 @@ local function RefreshResourceAppearancePage(self, profile, group)
     end
     y = I.PlaceResourceAppearanceRow(body, y,
         { ui.visibilityModeLabel, ui.visibilityMode, "fullSelect" })
+    if YUI.IsForever and resourceId == "mana" then
+        y = I.PlaceResourceAppearanceRow(body, y,
+            { ui.manaRegenSparkLabel, ui.manaRegenSpark, "switch" })
+        ui.manaRegenSpark:SetValue(not setting or setting.manaRegenSpark ~= false, true)
+    end
     y = I.PlaceResourceAppearanceRow(body, y,
         { ui.fillDirectionLabel, ui.fillDirection, "fullSelect" })
     y = I.PlaceResourceAppearanceRow(body, y,

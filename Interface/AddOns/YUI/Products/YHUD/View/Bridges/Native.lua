@@ -197,6 +197,8 @@ NativeBridge.barContentHookedFrames = NativeBridge.barContentHookedFrames
     or setmetatable({}, { __mode = "k" })
 NativeBridge.barDurationHookedFrames = NativeBridge.barDurationHookedFrames
     or setmetatable({}, { __mode = "k" })
+NativeBridge.barDurationMirrors = NativeBridge.barDurationMirrors
+    or setmetatable({}, { __mode = "k" })
 NativeBridge.staticCooldownHookedFrames =
     NativeBridge.staticCooldownHookedFrames
     or setmetatable({}, { __mode = "k" })
@@ -360,6 +362,15 @@ end
 local function SafeField(object, fieldName)
     if not object then return false, "missing-object" end
     return pcall(ReadObjectField, object, fieldName)
+end
+
+local function ClearBarDurationMirror(frame)
+    local mirror = NativeBridge.barDurationMirrors[frame]
+    if not (mirror and mirror.timerID) then return end
+    mirror.unit, mirror.timerID = nil, nil
+    SafeMethod(mirror.binding, "SetEnabled", false)
+    SafeMethod(mirror.binding, "SetToDefaults")
+    SafeMethod(mirror.text, "SetText", "")
 end
 
 local function IsEditModeActive()
@@ -593,6 +604,7 @@ local function BuildMonitorMap(profile, category, layout)
             and entry.origin == "official-cdm"
             and entry.officialCategory == category
             and not (YHUD.ArcaneBlast and YHUD.ArcaneBlast:Matches(entry))
+            and not (YHUD.GetOfficialAuraFallbackSpellID and YHUD:GetOfficialAuraFallbackSpellID(entry))
             and not YHUD:IsOfficialEntryClaimed(
                 entry,
                 claimedSources,
@@ -2944,7 +2956,15 @@ ApplyManagedFrameVisibility = function(state, frame, styleState, verify)
                 ._yhudFilteredAuraChainCompatible == true
     )
     if projected then visible = false end
+    local wasSuppressed = styleState.visibilitySuppressed
     styleState.visibilitySuppressed = not visible
+    if styleState.compactDurationTextEnabled then
+        if not visible then
+            ClearBarDurationMirror(frame)
+        elseif wasSuppressed then
+            NativeBridge:_BindBarDurationMirror(frame)
+        end
+    end
     if not visible then
         SetNativeProcGlowShown(styleState, false)
         SetPandemicGlowShown(styleState, false)
@@ -4691,10 +4711,95 @@ local function PositionNativeBar(frame, runtime)
     return changed
 end
 
+local function ReadBarTimerIdentity(frame)
+    -- The native viewer uses totem timing in preference to its cached Aura.
+    local totemOK, totem = SafeField(frame, "totemData")
+    if not totemOK then return end
+    if type(totem) ~= "nil" then
+        local slotOK, slot = SafeMethod(frame, "GetTotemSlot")
+        return nil, slotOK and SafeNumber(slot) or nil
+    end
+    local unitOK, unit = SafeField(frame, "auraDataUnit")
+    local instanceOK, instance = SafeField(frame, "auraInstanceID")
+    unit = unitOK and SafeString(unit)
+    if unit and instanceOK then return unit, SafeNumber(instance) end
+end
+
+function NativeBridge:_GetBarDurationMirrorFormatter()
+    if self.barDurationMirrorFormatter ~= nil then
+        return self.barDurationMirrorFormatter or nil
+    end
+    local format = SafeString(_G.COOLDOWN_DURATION_SEC)
+    local strings = _G.C_StringUtil
+    if not (format and strings and strings.CreateNumericRuleFormatter) then return end
+    local ok, formatter = pcall(function()
+        local rule = strings.CreateNumericRuleFormatter()
+        local rounding = _G.Enum and _G.Enum.NumericRuleFormatRounding
+        rule:SetBreakpoints({
+            { threshold = 0, step = 0.1, rounding = rounding and rounding.Down or 2, format = "%.1f" },
+            { threshold = 3, format = format },
+        })
+        -- Check the active locale's native format before replacing any text.
+        for _, seconds in ipairs({ 3, 3.75, 59.5, 60, 3600.75 }) do
+            if rule:FormatNumber(seconds) ~= string.format(format, seconds) then return end
+        end
+        return rule
+    end)
+    self.barDurationMirrorFormatter = ok and formatter or false
+    return self.barDurationMirrorFormatter or nil
+end
+
+function NativeBridge:_BindBarDurationMirror(frame)
+    local state = self.frameStates[frame]
+    if not state or state.visibilitySuppressed then return end
+    local api = YUI.API
+    local durationAPI = _G.C_DurationUtil
+    if not (api and durationAPI and durationAPI.CreateDurationTextBinding) then return end
+    local unit, timerID = ReadBarTimerIdentity(frame)
+    local duration
+    if unit and timerID and api.Unit and api.Unit.GetAuraDurationObject then
+        duration = api.Unit.GetAuraDurationObject(unit, timerID)
+    elseif not unit and timerID and api.Totem and api.Totem.GetSlotDuration then
+        duration = api.Totem.GetSlotDuration(timerID)
+    end
+    if not duration then
+        ClearBarDurationMirror(frame)
+        return
+    end
+    local formatter = self:_GetBarDurationMirrorFormatter()
+    if not formatter then return end
+    local mirror = self.barDurationMirrors[frame]
+    if mirror and mirror.unit == unit and mirror.timerID == timerID then
+        if not SafeMethod(mirror.binding, "SetDuration", duration) then ClearBarDurationMirror(frame) end
+        return
+    end
+    if not mirror then
+        local gui = YUI.GUI2
+        if not (_G.UIParent and gui and gui.CreateText) then return end
+        local ok, binding = pcall(durationAPI.CreateDurationTextBinding)
+        if not ok or not binding then return end
+        local text = gui:CreateText(_G.UIParent, "", "font.size.sm", "color.text.primary")
+        text:SetPoint("TOPLEFT", _G.UIParent, "TOPLEFT")
+        text:SetAlpha(0)
+        mirror = { binding = binding, text = text }
+        self.barDurationMirrors[frame] = mirror
+    end
+    ClearBarDurationMirror(frame)
+    mirror.unit, mirror.timerID = unit, timerID
+    local binding = mirror.binding
+    if not (SafeMethod(binding, "SetFontString", mirror.text)
+        and SafeMethod(binding, "SetFormatter", formatter)
+        and SafeMethod(binding, "SetExpiredText", "")
+        and SafeMethod(binding, "SetDuration", duration)
+        and SafeMethod(binding, "SetEnabled", true)) then
+        ClearBarDurationMirror(frame)
+    end
+end
+
 function NativeBridge:RefreshNativeBarDurationText(frame)
     local styleState = self.frameStates[frame]
     if not self.active or not styleState or styleState.nativeManaged ~= true
-        or styleState.compactDurationTextEnabled ~= true
+        or styleState.visibilitySuppressed or styleState.compactDurationTextEnabled ~= true
         or not styleState.compactDurationFormatter or IsNativeEditModeActive() then
         return false
     end
@@ -4706,12 +4811,24 @@ function NativeBridge:RefreshNativeBarDurationText(frame)
     local cooldownOK, expirationTime = SafeMethod(frame, "GetCooldownValues")
     expirationTime = cooldownOK and SafeNumber(expirationTime) or nil
     local currentTime = _G.GetTime and SafeNumber(_G.GetTime()) or nil
-    if not expirationTime or not currentTime then return false end
-    local remaining = expirationTime - currentTime
-    -- 原生短秒数不变；受限值已在 SafeNumber 处拒绝，不读取文字反推计时。
-    if remaining < 60 then return false end
-    local formattedOK, formatted = SafeMethod(styleState.compactDurationFormatter, "FormatNumber", remaining)
-    if not formattedOK then return false end
+    local formattedOK, formatted
+    if expirationTime and currentTime then
+        local remaining = expirationTime - currentTime
+        if remaining <= 0 or (remaining >= 3
+            and (remaining < 60 or not styleState.compactDurationTextLong)) then return false end
+        formattedOK, formatted = SafeMethod(styleState.compactDurationFormatter, "FormatNumber", remaining)
+    else
+        local mirror = self.barDurationMirrors[frame]
+        if not (mirror and mirror.timerID) then return false end
+        local unit, timerID = ReadBarTimerIdentity(frame)
+        if mirror.unit ~= unit or mirror.timerID ~= timerID then
+            ClearBarDurationMirror(frame)
+            return false
+        end
+        formattedOK, formatted = SafeMethod(mirror.text, "GetText")
+    end
+    if not formattedOK or type(formatted) ~= "string"
+        or (not IsSecret(formatted) and formatted == "") then return false end
     local written = SafeMethod(text, "SetText", formatted)
     if written then AddStat("nativeDurationTextWrites") end
     return written
@@ -4722,12 +4839,18 @@ function NativeBridge._OnNativeBarDurationRefresh(frame)
 end
 
 function NativeBridge:_InstallNativeBarDurationFormatter(frame, styleState, appearance)
-    if not (YHUD.Client and YHUD.Client.nativeBuffBarSeconds == true) then return end
     styleState.compactDurationTextEnabled = appearance and appearance.enabled ~= false
+    if not styleState.compactDurationTextEnabled then
+        ClearBarDurationMirror(frame)
+        return
+    end
+    styleState.compactDurationTextLong = YHUD.Client and YHUD.Client.nativeBuffBarSeconds == true
     local gui = YUI.GUI2
     styleState.compactDurationFormatter = gui and gui.GetDurationTextFormatter
         and gui:GetDurationTextFormatter() or nil
     if not styleState.compactDurationFormatter then return end
+    local mirror = self.barDurationMirrors[frame]
+    if not (mirror and mirror.timerID) then self:_BindBarDurationMirror(frame) end
     if not NativeBridge.barDurationHookedFrames[frame]
         and type(frame.RefreshCooldownInfo) == "function" and _G.hooksecurefunc then
         local ok = pcall(_G.hooksecurefunc, frame, "RefreshCooldownInfo", self._OnNativeBarDurationRefresh)
@@ -5372,6 +5495,19 @@ local function ApplyNativeStyle(
     end
     if descriptor.kind == "bar" then
         InstallNativeBarContentHooks(frame)
+    elseif styleState.countdownPrecisionTarget ~= frame.Cooldown then
+        local previous = styleState.countdownPrecisionTarget
+        if previous and styleState.countdownPrecisionOriginal ~= nil then
+            SafeMethod(previous, "SetCountdownMillisecondsThreshold", styleState.countdownPrecisionOriginal)
+        end
+        styleState.countdownPrecisionTarget, styleState.countdownPrecisionOriginal = nil, nil
+        local read, threshold = SafeMethod(frame.Cooldown, "GetCountdownMillisecondsThreshold")
+        threshold = read and SafeNumber(threshold) or nil
+        if threshold and (threshold >= 3
+            or SafeMethod(frame.Cooldown, "SetCountdownMillisecondsThreshold", 3)) then
+            styleState.countdownPrecisionTarget = frame.Cooldown
+            if threshold < 3 then styleState.countdownPrecisionOriginal = threshold end
+        end
     end
     ApplyNativeTooltipMouse(frame, runtime, styleState)
     ApplyNativeKeybindText(frame, runtime, descriptor, binding, styleState)
@@ -6227,6 +6363,10 @@ local function RestoreFrameStyle(frame)
     if view and view.HideIconShadow then view:HideIconShadow(frame) end
     local styleState = frame and NativeBridge.frameStates[frame]
     if not styleState then return end
+    ClearBarDurationMirror(frame)
+    if styleState.countdownPrecisionTarget and styleState.countdownPrecisionOriginal ~= nil then
+        SafeMethod(styleState.countdownPrecisionTarget, "SetCountdownMillisecondsThreshold", styleState.countdownPrecisionOriginal)
+    end
     NativeBridge:CancelIconTextRecovery(frame)
     styleState.restoring = true
     if styleState.keybindOverlay then
@@ -6886,6 +7026,7 @@ local function ApplyNativeDescriptor(
             local styleState = NativeBridge.frameStates[frame]
             if styleState then
                 styleState.visibilitySuppressed = true
+                ClearBarDurationMirror(frame)
                 SetNativeProcGlowShown(styleState, false)
                 SetPandemicGlowShown(styleState, false)
                 NativeBridge:_StopCustomGlow(styleState)
@@ -6991,6 +7132,8 @@ function NativeBridge:OnOfficialAuraFrameRefresh(
     GetAlphaBaseline(state, frame)
     state.itemAlphaFrames[frame] = true
     if shouldInclude then
+        local hadDurationMirror = descriptor.kind == "bar" and self.barDurationMirrors[frame]
+        hadDurationMirror = hadDurationMirror and hadDurationMirror.timerID ~= nil
         ApplyNativeStyle(
             frame,
             runtime,
@@ -7006,6 +7149,9 @@ function NativeBridge:OnOfficialAuraFrameRefresh(
         styleState.monitorId = binding and binding.monitorId or nil
         state.dynamicMembers[frame] = styleState
         if descriptor.kind == "bar" then
+            if hadDurationMirror and styleState.compactDurationTextEnabled then
+                self:_BindBarDurationMirror(frame)
+            end
             AddStat("exactNativeBarRewrites")
         end
         ApplyManagedFrameVisibility(state, frame, styleState, true)
@@ -7786,6 +7932,7 @@ function NativeBridge:EnterLayoutPreview()
             local styleState = NativeBridge.frameStates[frame]
             if styleState then
                 styleState.visibilitySuppressed = true
+                ClearBarDurationMirror(frame)
                 SetNativeProcGlowShown(styleState, false)
                 SetPandemicGlowShown(styleState, false)
                 self:_StopCustomGlow(styleState)
@@ -8421,7 +8568,8 @@ function NativeBridge:Disable()
     self.officialRuntimeProfile = nil
     self.active = false
     self:CancelActivationSettle()
-    for _, styleState in pairs(self.frameStates) do
+    for frame, styleState in pairs(self.frameStates) do
+        ClearBarDurationMirror(frame)
         self:_StopCustomGlow(styleState)
         SetNativeProcGlowShown(styleState, false)
         SetPandemicGlowShown(styleState, false)

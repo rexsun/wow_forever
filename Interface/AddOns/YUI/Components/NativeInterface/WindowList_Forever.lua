@@ -4,7 +4,7 @@ if not (Native and YUI.IsForever) then return end
 
 -- Title strips exclude the portrait and close button. Only verified native roots belong here.
 Native.MovableWindows = {
-    { id = "CharacterFrame", addon = "Blizzard_UIPanels_Game" },
+    { id = "CharacterFrame", addon = "Blizzard_UIPanels_Game", titleRight = 64 },
     { id = "PlayerSpellsFrame", addon = "Blizzard_PlayerSpells" },
     { id = "LegacySystemFrame", addon = "Blizzard_LegacySystem" },
     { id = "MerchantFrame", addon = "Blizzard_UIPanels_Game" },
@@ -22,6 +22,7 @@ Native.MovableWindows = {
     { id = "ProfessionsFrame", addon = "Blizzard_Professions" },
     { id = "CollectionsJournal", addon = "Blizzard_Collections" },
     { id = "FriendsFrame", addon = "Blizzard_FriendsFrame" },
+    { id = "SocialUIFrame", addon = "Blizzard_SocialUI" },
     { id = "DressUpFrame", addon = "Blizzard_UIPanels_Game" },
     { id = "InspectFrame", addon = "Blizzard_InspectUI" },
     { id = "ClassTrainerFrame", addon = "Blizzard_TrainerUI" },
@@ -29,6 +30,7 @@ Native.MovableWindows = {
     { id = "ItemSocketingFrame", addon = "Blizzard_ItemSocketingUI" },
     { id = "PetStableFrame", addon = "Blizzard_StableUI" },
     { id = "CommunitiesFrame", addon = "Blizzard_Communities", titleRight = 65 },
+    { id = "GuildControlUI", addon = "Blizzard_GuildControlUI", titleText = "GuildControlUITitle" },
     { id = "LFGParentFrame", addon = "Blizzard_GroupFinder_VanillaStyle" },
     { id = "AchievementFrame", addon = "Blizzard_AchievementUI", titleKey = "Header" },
     { id = "ContainerFrameCombinedBags", addon = "Blizzard_UIPanels_Game", bag = true },

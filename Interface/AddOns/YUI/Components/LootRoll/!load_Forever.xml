@@ -1,0 +1,7 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Include file="Locales\!load.xml"/>
+    <Script file="Adapter_Forever.lua"/>
+    <Script file="Model.lua"/>
+    <Script file="View.lua"/>
+    <Script file="LootRoll.lua"/>
+</Ui>

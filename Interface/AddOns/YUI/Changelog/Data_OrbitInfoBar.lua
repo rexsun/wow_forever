@@ -1,6 +1,40 @@
 -- Generated from Docs/Products/YUI_OrbitInfoBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("ybar", {
+-- YUI-Notes-Record: orbit-134|mainline|23733d16618603cd03a99e317cd96fb2298d79df2d24dd220a1c4324ef960a15
+    {
+        version = "orbit-134",
+        date = "2026-11-20",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "新增「主题外观」设置页。",
+                "金币提示可汇总互通服务器上已记录的角色，并在涉及多个服务器时显示服务器名。",
+            },
+            enUS = {
+                "Added a Theme & Appearance settings page.",
+                "Gold tooltips include recorded characters on connected realms and show realm names when multiple realms are involved.",
+            },
+        },
+    },
+-- YUI-Notes-Record: orbit-134|forever|cf3a9a146c093d2495c9727526f5035655ee28712171741ef6b0d72d2e3cbca1
+    {
+        version = "orbit-134",
+        date = "2026-11-20",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "新增「主题外观」设置页。",
+                "优化跨服务器角色的金币汇总，修复部分角色被重复统计。",
+                "改善专业菜单与专业助手共用时的兼容性。",
+            },
+            enUS = {
+                "Added a Theme & Appearance settings page.",
+                "Improved the gold summary for characters across realms and fixed duplicate character counts.",
+                "Improved profession menu compatibility with Profession Assistant.",
+            },
+        },
+    },
 -- YUI-Notes-Record: orbit-133|mainline|33618eaf52035c40b88cc18257d364c4e0c076d870542f1f2e7b98698f040f2f
     {
         version = "orbit-133",
@@ -218,11 +252,10 @@ CL:Register("ybar", {
         },
     },
 -- YUI-Notes-Record: orbit-124|mainline|d27b7032d37fa22ab0139f30ffbf75d4160f79aeb30be795b18dbb3aee30c574
--- YUI-Notes-Record: orbit-124|forever|eb48d02d9ea2d019f3c8760ea79b6c6f32f1512122f5c115a09b68be30cde02f
     {
         version = "orbit-124",
         date = "2026-10-23",
-        clients = { "Retail", "Forever" },
+        clients = { "Retail" },
         content = {
             zhCN = {
                 "调整标记条默认外观，采用彩色工具图标与无背景样式，保留已有设置。",
@@ -233,20 +266,6 @@ CL:Register("ybar", {
                 "Updated marker bar defaults to colored tool icons with no background, preserving existing settings.",
                 "Fixed configuration import issues when multiple standalone addons are loaded together.",
                 "Updated the shared core for compatibility with newer YUI addons.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-123|mainline|bc1bba26d7d51ca6254d42881a25471131f3cc188e111e8d1da9f463910ed2ac
-    {
-        version = "orbit-123",
-        date = "2026-10-22",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "修复导入旧配置时标记条可能报错的问题。",
-            },
-            enUS = {
-                "Fixed marker bar errors when importing older configurations.",
             },
         },
     },

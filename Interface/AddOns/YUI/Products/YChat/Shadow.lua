@@ -1021,10 +1021,6 @@ local function FrameDiscovered(frame, valid, reason)
     if channelInput and type(channelInput.OnFrameDiscovered) == "function" then
         pcall(channelInput.OnFrameDiscovered, channelInput, frame, valid, reason)
     end
-    local history = YChat.HistoryRuntime
-    if history and type(history.OnFrameDiscovered) == "function" then
-        pcall(history.OnFrameDiscovered, history, frame, valid, reason)
-    end
     local appearance = YChat.Appearance
     if appearance and type(appearance.OnFrameDiscovered) == "function" then
         pcall(appearance.OnFrameDiscovered, appearance, frame, valid, reason)

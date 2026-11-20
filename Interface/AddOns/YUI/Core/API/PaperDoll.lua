@@ -862,7 +862,34 @@ local FOREVER_SUMMARY_RULES = {
     ranged_attack_power = { "ITEM_MOD_RANGED_ATTACK_POWER_SHORT", "ITEM_MOD_ATTACK_POWER_SHORT" },
     crit = { "ITEM_MOD_CRIT_RATING_SHORT", "ITEM_MOD_CRIT_MELEE_RATING_SHORT", "ITEM_MOD_CRIT_RANGED_RATING_SHORT", "ITEM_MOD_CRIT_SPELL_RATING_SHORT" },
     haste = { "ITEM_MOD_HASTE_RATING_SHORT", "ITEM_MOD_HASTE_MELEE_RATING_SHORT", "ITEM_MOD_HASTE_RANGED_RATING_SHORT", "ITEM_MOD_HASTE_SPELL_RATING_SHORT" },
+    sta = { "ITEM_MOD_STAMINA_SHORT" },
+    spirit = { "ITEM_MOD_SPIRIT_SHORT" },
+    armor = { "RESISTANCE0_NAME", "ITEM_MOD_ARMOR_SHORT" },
+    ap = { "ITEM_MOD_ATTACK_POWER_SHORT" },
+    rap = { "ITEM_MOD_ATTACK_POWER_SHORT", "ITEM_MOD_RANGED_ATTACK_POWER_SHORT" },
+    healing = { "ITEM_MOD_SPELL_HEALING_DONE_SHORT" },
+    mp5 = { "ITEM_MOD_MANA_REGENERATION_SHORT" },
+    defense = { "ITEM_MOD_DEFENSE_SKILL_RATING_SHORT" },
+    block_value = { "ITEM_MOD_BLOCK_VALUE_SHORT" },
+    expertise = { "ITEM_MOD_EXPERTISE_RATING_SHORT" },
+    hit_melee = { "ITEM_MOD_HIT_RATING_SHORT", "ITEM_MOD_HIT_MELEE_RATING_SHORT" },
+    hit_ranged = { "ITEM_MOD_HIT_RATING_SHORT", "ITEM_MOD_HIT_RANGED_RATING_SHORT" },
+    hit_spell = { "ITEM_MOD_HIT_RATING_SHORT", "ITEM_MOD_HIT_SPELL_RATING_SHORT" },
+    crit_melee = { "ITEM_MOD_CRIT_RATING_SHORT", "ITEM_MOD_CRIT_MELEE_RATING_SHORT" },
+    crit_ranged = { "ITEM_MOD_CRIT_RATING_SHORT", "ITEM_MOD_CRIT_RANGED_RATING_SHORT" },
+    crit_spell = { "ITEM_MOD_CRIT_RATING_SHORT", "ITEM_MOD_CRIT_SPELL_RATING_SHORT" },
+    sp_holy = { "ITEM_MOD_HOLY_DAMAGE_DONE_SHORT" },
+    sp_fire = { "ITEM_MOD_FIRE_DAMAGE_DONE_SHORT" },
+    sp_frost = { "ITEM_MOD_FROST_DAMAGE_DONE_SHORT" },
+    sp_shadow = { "ITEM_MOD_SHADOW_DAMAGE_DONE_SHORT" },
+    sp_arcane = { "ITEM_MOD_ARCANE_DAMAGE_DONE_SHORT" },
+    sp_nature = { "ITEM_MOD_NATURE_DAMAGE_DONE_SHORT" },
 }
+local FOREVER_ADDITIVE_SUMMARY = {
+    rap = true, hit_melee = true, hit_ranged = true, hit_spell = true,
+    crit_melee = true, crit_ranged = true, crit_spell = true,
+}
+local FOREVER_SCHOOL_SUMMARY_IDS = { "sp_holy", "sp_fire", "sp_frost", "sp_shadow", "sp_arcane", "sp_nature" }
 
 local FOREVER_SUMMARY_PROFILES = {
     WARRIOR = { primary = { "str" }, power = { "attack_power" } },
@@ -999,9 +1026,20 @@ function PaperDoll.ReadEquipmentSlot(unit, definition, target)
                     local value = 0
                     for _, key in ipairs(keys) do
                         local amount = itemStats[key]
-                        if type(amount) == "number" then value = math.max(value, amount) end
+                        if type(amount) == "number" then
+                            value = FOREVER_ADDITIVE_SUMMARY[id] and value + amount or math.max(value, amount)
+                        end
                     end
                     target.summaryStats[id] = value
+                end
+                -- Generic spell power applies to every school; school-only bonuses stay separate.
+                for _, id in ipairs(FOREVER_SCHOOL_SUMMARY_IDS) do
+                    target.summaryStats[id] = target.summaryStats[id] + target.summaryStats.spell_power
+                end
+                -- Damage-only legacy modifiers must not become a healing bonus.
+                local universalSpellPower = itemStats.ITEM_MOD_SPELL_POWER_SHORT
+                if type(universalSpellPower) == "number" then
+                    target.summaryStats.healing = math.max(target.summaryStats.healing, universalSpellPower)
                 end
                 target._slotDisplay = PaperDoll.ReadSlotDisplay(unit, slotID, link, target._slotDisplay, nil, tooltipData)
                 target.slotDisplay = target._slotDisplay
@@ -1406,6 +1444,218 @@ if YUI.IsForever then
         if not ok or IsSecretValue(melee) or IsSecretValue(offhand) or IsSecretValue(ranged)
             or type(melee) ~= "number" or type(offhand) ~= "number" or type(ranged) ~= "number" then return nil end
         return Maximum(melee, offhand, ranged)
+    end
+end
+
+if YUI.IsForever then
+    -- Forever 1.60.1.70938, wow-ui-source @ bebcb6bf309cf41b41bd74f8ca651e6a105b2676:
+    -- Camelot/PaperDollFrameStats.lua:171-209, 341-451, 519-678, 681-719;
+    -- Camelot/PaperDollFrame.lua:611-706, 868-904, 1231-1255;
+    -- UnitDocumentation.lua:682-697 (main/off/ranged attack speeds).
+    -- This reader is separate from STAT_READERS: legacy summaries keep their semantics.
+    local function Restriction(value)
+        -- The native predicate is checked directly so a failed check stays unavailable.
+        local security = (YUI.API and YUI.API.Security) or Security
+        local predicate = type(issecretvalue) == "function" and issecretvalue
+            or (security and security.IsSecretValue)
+        if type(predicate) == "function" then
+            local ok, secret = pcall(predicate, value)
+            if ok and type(secret) == "boolean" then return secret end
+            return nil
+        end
+        return false
+    end
+
+    local function IsPublic(value)
+        return Restriction(value) == false
+    end
+
+    local function Number(value)
+        local restricted = Restriction(value)
+        if restricted == true then return nil, true end
+        if restricted ~= false or type(value) ~= "number" then return nil end
+        return value
+    end
+
+    -- Return the declared number unchanged for the display path.
+    local function ReadNumber(callback, index, ...)
+        if type(callback) ~= "function" then return nil end
+        return (select(index, callback(...)))
+    end
+
+    local function Sum(first, second)
+        local left, leftRestricted = Number(first)
+        local right, rightRestricted = Number(second)
+        if (left == nil and not leftRestricted) or (right == nil and not rightRestricted) then return nil end
+        if leftRestricted or rightRestricted then return nil, "restricted" end
+        return left + right
+    end
+
+    local function SumTwo(callback, ...)
+        if type(callback) ~= "function" then return nil end
+        return Sum(callback(...))
+    end
+
+    local function AttackPower(callback, unit)
+        if type(callback) ~= "function" then return nil end
+        local base, positive, negative = callback(unit)
+        local subtotal, mode = Sum(base, positive)
+        if subtotal == nil then return nil, mode end
+        return Sum(subtotal, negative)
+    end
+
+    local function Hit(rating, modifier)
+        rating = Number(rating)
+        if rating == nil then return nil end
+        return Sum(ReadNumber(GetCombatRatingBonus, 1, rating), ReadNumber(modifier, 1))
+    end
+
+    local function ManaRegen(index)
+        local raw = ReadNumber(GetManaRegen, index)
+        local value, restricted = Number(raw)
+        if restricted then return raw, "per_second" end
+        if value ~= nil then return value * 5 end
+    end
+
+    local readers = {
+        str = function(unit) return ReadNumber(UnitStat, 2, unit, 1) end,
+        agi = function(unit) return ReadNumber(UnitStat, 2, unit, 2) end,
+        sta = function(unit) return ReadNumber(UnitStat, 2, unit, 3) end,
+        int = function(unit) return ReadNumber(UnitStat, 2, unit, 4) end,
+        spirit = function(unit) return ReadNumber(UnitStat, 2, unit, 5) end,
+        ap = function(unit) return AttackPower(UnitAttackPower, unit) end,
+        rap = function(unit) return AttackPower(UnitRangedAttackPower, unit) end,
+        healing = function() return ReadNumber(GetSpellBonusHealing, 1) end,
+        sp_holy = function() return ReadNumber(GetSpellBonusDamage, 1, 2) end,
+        sp_fire = function() return ReadNumber(GetSpellBonusDamage, 1, 3) end,
+        sp_nature = function() return ReadNumber(GetSpellBonusDamage, 1, 4) end,
+        sp_frost = function() return ReadNumber(GetSpellBonusDamage, 1, 5) end,
+        sp_shadow = function() return ReadNumber(GetSpellBonusDamage, 1, 6) end,
+        sp_arcane = function() return ReadNumber(GetSpellBonusDamage, 1, 7) end,
+        hit_melee = function() return Hit(CR_HIT_MELEE, GetHitModifier) end,
+        hit_offhand = function() return Hit(CR_HIT_MELEE, GetOffhandHitModifier) end,
+        hit_ranged = function() return Hit(CR_HIT_RANGED, GetRangedHitModifier) end,
+        hit_spell = function() return Hit(CR_HIT_SPELL, GetSpellHitModifier) end,
+        crit_melee = function() return ReadNumber(GetCritChance, 1) end,
+        crit_ranged = function() return ReadNumber(GetRangedCritChance, 1) end,
+        crit_spell = function() return ReadNumber(GetSpellCritChance, 1) end,
+        haste_melee = function() return ReadNumber(GetMeleeHaste, 1) end,
+        haste_ranged = function() return SumTwo(GetRangedHaste) end,
+        haste_spell = function(unit) return ReadNumber(UnitSpellHaste, 1, unit) end,
+        expertise = function() return ReadNumber(GetExpertise, 1) end,
+        expertise_off = function() return ReadNumber(GetExpertise, 2) end,
+        hp = function(unit) return ReadNumber(UnitHealthMax, 1, unit) end,
+        mana = function(unit) return ReadNumber(UnitPowerMax, 1, unit, 0) end,
+        armor = function(unit) return ReadNumber(UnitArmor, 2, unit) end,
+        defense = function(unit)
+            local value, mode = SumTwo(UnitDefenseSkill, unit)
+            if value == nil then return nil, mode end
+            return math.max(0, value)
+        end,
+        dodge = function() return ReadNumber(GetDodgeChance, 1) end,
+        parry = function() return ReadNumber(GetParryChance, 1) end,
+        block = function() return ReadNumber(GetBlockChance, 1) end,
+        block_value = function() return ReadNumber(GetShieldBlock, 1) end,
+        regen_cast = function() return ManaRegen(2) end,
+        regen_idle = function() return ManaRegen(1) end,
+        piercing = function() return ReadNumber(GetSpellPenetration, 1) end,
+        armorpen = function() return ReadNumber(GetArmorPenetration, 1) end,
+        main_speed = function(unit) return ReadNumber(UnitAttackSpeed, 1, unit) end,
+        off_speed = function(unit) return ReadNumber(UnitAttackSpeed, 2, unit) end,
+        ranged_speed = function(unit) return ReadNumber(UnitAttackSpeed, 3, unit) end,
+        -- Raw damage bounds, without display rounding, clamping or DPS conversion.
+        main_damage_min = function(unit) return ReadNumber(UnitDamage, 1, unit) end,
+        main_damage_max = function(unit) return ReadNumber(UnitDamage, 2, unit) end,
+        off_damage_min = function(unit) return ReadNumber(UnitDamage, 3, unit) end,
+        off_damage_max = function(unit) return ReadNumber(UnitDamage, 4, unit) end,
+        ranged_damage_min = function(unit) return ReadNumber(UnitRangedDamage, 2, unit) end,
+        ranged_damage_max = function(unit) return ReadNumber(UnitRangedDamage, 3, unit) end,
+    }
+
+    local unitReaders = {
+        str = true, agi = true, sta = true, int = true, spirit = true,
+        ap = true, rap = true, hp = true, mana = true, armor = true, defense = true,
+        haste_spell = true, main_speed = true, off_speed = true, ranged_speed = true,
+        main_damage_min = true, main_damage_max = true, off_damage_min = true, off_damage_max = true,
+        ranged_damage_min = true, ranged_damage_max = true,
+    }
+
+    local weaponSkills = {
+        Sword1H = 43, Axe1H = 44, Bows = 45, Guns = 46, Mace1H = 54,
+        Sword2H = 55, Staff = 136, Mace2H = 160, Axe2H = 172, Dagger = 173,
+        Thrown = 176, Crossbow = 226, Wand = 228, Polearm = 229, Unarmed = 162,
+    }
+
+    local function WeaponSkill(slot, field)
+        local form = Number(ReadNumber(GetShapeshiftForm, 1))
+        if form == nil or type(UnitClass) ~= "function" then return nil end
+        local _, class = UnitClass("player")
+        if not IsPublic(class) or type(class) ~= "string" then return nil end
+        local skillID
+        if form ~= 0 and class == "DRUID" then
+            skillID = 3014
+        else
+            if type(GetInventoryItemID) ~= "function" then return nil end
+            local itemID = GetInventoryItemID("player", slot)
+            if not IsPublic(itemID) then return nil end
+            if itemID == nil then
+                -- An empty main hand uses the native unarmed skill. Other empty slots have none.
+                if slot ~= 16 then return nil end
+                skillID = 162
+            else
+                if Number(itemID) == nil then return nil end
+                local itemAPI = _G.C_Item
+                if not itemAPI or type(itemAPI.GetItemInfoInstant) ~= "function" then return nil end
+                local _, _, _, _, _, classID, subclassID = itemAPI.GetItemInfoInstant(itemID)
+                classID, subclassID = Number(classID), Number(subclassID)
+                if classID == nil or subclassID == nil then return nil end
+                local enums = _G.Enum
+                local weaponClass = enums and enums.ItemClass and Number(enums.ItemClass.Weapon)
+                local subclasses = enums and enums.ItemWeaponSubclass
+                if weaponClass == nil or classID ~= weaponClass or not subclasses then return nil end
+                for name, id in pairs(weaponSkills) do
+                    local subclass = Number(subclasses[name])
+                    if subclass ~= nil and subclassID == subclass then
+                        skillID = id
+                        break
+                    end
+                end
+            end
+        end
+        local skillAPI = _G.C_SkillInfo
+        if not skillID or not skillAPI or type(skillAPI.GetSkillLineInfoByID) ~= "function" then return nil end
+        local info = skillAPI.GetSkillLineInfoByID(skillID)
+        if not IsPublic(info) or type(info) ~= "table" then return nil end
+        return info[field]
+    end
+
+    -- Each skill field remains numeric/nil, rather than returning a tooltip or a table.
+    for prefix, slot in pairs({ main = 16, off = 17, ranged = 18 }) do
+        for suffix, field in pairs({ rank = "rank", modifier = "modifier", max = "maxRank" }) do
+            local weaponSlot, skillField = slot, field
+            readers[prefix .. "_skill_" .. suffix] = function() return WeaponSkill(weaponSlot, skillField) end
+        end
+    end
+
+    -- Public numbers by default; percentages are percentage points, regen is mana per 5 seconds.
+    -- The opt-in display path returns raw values with "secret" or "per_second" for native
+    -- formatting, or nil with "restricted" when the total requires Lua arithmetic.
+    -- Global player APIs are never reused for another unit.
+    -- No events, caches or result tables are created by this on-demand reader.
+    function PaperDoll.ReadForeverStat(id, unit, forDisplay)
+        if not IsPublic(id) or type(id) ~= "string" or not IsPublic(unit) then return nil end
+        if unit == nil then unit = "player" end
+        if type(unit) ~= "string" or unit == "" then return nil end
+        local reader = readers[id]
+        if not reader or (unit ~= "player" and not unitReaders[id]) then return nil end
+        local value, ok, mode = SafeCall(reader, unit)
+        if not ok then return nil end
+        local numeric, restricted = Number(value)
+        if forDisplay then
+            if restricted then return value, mode or "secret" end
+            return numeric, mode
+        end
+        return numeric
     end
 end
 

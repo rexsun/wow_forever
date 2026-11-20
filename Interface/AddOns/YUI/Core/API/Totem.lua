@@ -2,11 +2,12 @@ local _, addonTable = ...
 local YUI = _G.YUI or addonTable
 if not YUI then return end
 YUI.API = YUI.API or {}
-if YUI.API.Totem then return end
+local Totem = YUI.API.Totem
+if Totem and Totem.GetSlotCount and Totem.ReadSlot and Totem.GetSlotDuration then return end
 
 -- Native selection owns identity. This service owns only its timer transaction;
 -- it has no spell catalogue, display type, frame hooks, events or polling.
-local Totem = {}
+Totem = Totem or {}
 YUI.API.Totem = Totem
 
 local function IsSecret(value)
@@ -28,22 +29,62 @@ function Totem.SupportsDuration()
         and type(_G.GetTotemDuration) == "function"
 end
 
+function Totem.GetSlotCount()
+    if type(_G.GetNumTotemSlots) == "function" then
+        local ok, count = pcall(_G.GetNumTotemSlots)
+        count = ok and PublicSlot(count)
+        if count then return count end
+    end
+    return PublicSlot(_G.MAX_TOTEMS) or 4
+end
+
+-- A readable 'have' with no identity can also mean the elemental tool in the
+-- bag. A partial/secret observation must not be treated as an empty slot.
+function Totem.ReadSlot(slot, result)
+    local security = YUI.API.Security
+    result.spellID, result.name, result.start, result.duration, result.rate = nil, nil, nil, nil, nil
+    result.icon = nil
+    if not (PublicSlot(slot) and security and _G.GetTotemInfo) then return nil end
+    local ok, have, name, start, duration, icon, rate, spellID = pcall(_G.GetTotemInfo, slot)
+    if not ok then return nil end
+    if security.SafeBoolean(have) == false then return false end
+    name, spellID = security.SafeString(name), PublicSlot(spellID)
+    if name == "" then name = nil end
+    if not (spellID or name) then return nil end
+    result.name, result.spellID = name, spellID
+    result.icon = PublicSlot(icon)
+    result.start, result.duration = security.SafeNumber(start), security.SafeNumber(duration)
+    result.rate = security.SafeNumber(rate)
+    return true
+end
+
+local function ReadDuration(slot)
+    local ok, clock = pcall(_G.GetTotemDuration, slot)
+    if not ok then return nil, "duration-call-failed" end
+    if clock == nil then return nil, "duration-empty" end
+    return clock, "ready"
+end
+
 local function Acquire(state, slot)
     local public = PublicSlot(slot)
     state.lastSlotKind = public and "public" or IsSecret(slot) and "secret" or "absent"
     if not public and not IsSecret(slot) then return nil, "slot-unavailable" end
     if not Totem.SupportsDuration() then return nil, "duration-api-unavailable" end
     state.reads = (state.reads or 0) + 1
-    local ok, clock = pcall(_G.GetTotemDuration, slot)
-    if not ok then
+    local clock, status = ReadDuration(slot)
+    if status == "duration-call-failed" then
         state.rejections = (state.rejections or 0) + 1
-        return nil, "duration-call-failed"
-    end
-    if clock == nil then
+    elseif status == "duration-empty" then
         state.emptyReads = (state.emptyReads or 0) + 1
-        return nil, "duration-empty"
     end
-    return clock, "ready"
+    return clock, status
+end
+
+-- The caller has already established this public slot's ownership. Keep the
+-- opaque duration transient and let the native display sink decide usability.
+function Totem.GetSlotDuration(slot)
+    if not (PublicSlot(slot) and Totem.SupportsDuration()) then return nil end
+    return (ReadDuration(slot))
 end
 
 local function ClearCandidate(state)

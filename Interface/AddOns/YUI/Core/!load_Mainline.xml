@@ -4,6 +4,8 @@
 	<Script file='TeleportData_Mainline.lua'/>
 	<Script file='TeleportAnnouncement.lua'/>
 	<Include file='Layout\!load.xml'/>
+	<Script file='InfoOutput.lua'/>
+	<Script file='InfoOutputSettings.lua'/>
 	<Include file="!load_Monitor.xml"/>
 	<Script file="MonitorTotemSignals.lua"/>
 	<Script file="MonitorItemGroups.lua"/>

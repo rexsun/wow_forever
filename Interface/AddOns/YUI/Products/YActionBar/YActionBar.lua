@@ -400,6 +400,10 @@ function YAB:OnLifecycleEnable()
             db.runtime.takeoverMode = "strong"
             db.runtime.specialButtonMode = YAB.SPECIAL_BUTTON_MODE or "native-reuse"
         end
+        if ok and self.BarManager.runtimeActive == true and YUI.Event then
+            -- Module enable can finish before the world-deferred runtime exists.
+            YUI.Event:Emit("YUI_CONFIG_SET_PROVIDER_READY", self.PRODUCT_ID)
+        end
     end
 end
 

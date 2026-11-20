@@ -11,7 +11,7 @@ YUI.Locale:Register("NativeInterface", "enUS", {
     ["hide.raid_manager"] = "Hide Group Management Panel",
     ["hide.raid_manager.tooltip"] = "Hide the left-side group management panel and its collapse arrows. Party and raid health frames remain unchanged. Turning this off restores native visibility; changes during combat wait until combat ends.",
     ["quest.sparkles"] = "Show Quest Object Sparkles",
-    ["quest.sparkles.tooltip"] = "Keep native loot sparkles on quest objects by turning off outline mode in both normal and raid graphics settings. Reapply after graphics changes; changes during combat wait until combat ends.\n\nTurning this off restores your original settings. Fully restart the game if sparkles remain. /reload is not enough.",
+    ["quest.sparkles.tooltip"] = "Enable native loot sparkles on quest objects and keep your chosen outline settings. The sparkle setting is reapplied after graphics preset changes. Changes made during combat take effect when combat ends.\n\nTurning this off restores the previous sparkle setting. Fully restart the game if sparkles remain.",
     ["bags.visibility"] = "Bag bar visibility",
     ["bags.enabled"] = "Enable bag bar control",
     ["bags.enabled.tooltip"] = "On by default. Controls the bag bar with the selected mode. Disabling returns control to the game or bag addon and keeps your selection. Auto hide follows native bags only; third-party bags may override this behavior.",

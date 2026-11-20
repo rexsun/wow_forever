@@ -1014,12 +1014,21 @@ local function HasRuntimeAvailabilityChanged(catalog, profile, specKey)
     end
     local rows, code = catalog:Read({ allowUnlearned = true })
     if not rows then return nil, code end
+    local corrections = YHUD.Client and YHUD.Client.officialAuraCorrections
     for index = 1, #rows do
         local row = rows[index]
-        if row.isKnown ~= nil then
+        local checkCorrection = corrections and corrections[row.cooldownID]
+        local checkAvailability = (YUI.IsRetail or checkCorrection) and row.isKnown ~= nil
+        if checkAvailability or checkCorrection then
             local entry = runtime.entries["cdm:" .. tostring(row.cooldownID)]
-            if not entry or (entry.isKnown ~= false) ~= row.isKnown then
+            if checkAvailability and (not entry or (entry.isKnown ~= false) ~= row.isKnown) then
                 return true
+            end
+            if checkCorrection and entry then
+                local updated = YHUD.CDMImport:CreateEntry(row)
+                if updated and YHUD:GetOfficialAuraFallbackSpellID(entry) ~= YHUD:GetOfficialAuraFallbackSpellID(updated) then
+                    return true
+                end
             end
         end
     end
@@ -1189,7 +1198,9 @@ function CDMCatalog:OnNativeSettingsChanged()
     if layoutUnchanged then
         self.stats.layoutUnchangedSkips =
             self.stats.layoutUnchangedSkips + 1
-        if YUI.IsRetail then return self:OnNativeAvailabilityChanged() end
+        if YUI.IsRetail or (YUI.IsForever and specKey:match("^SHAMAN:")) then
+            return self:OnNativeAvailabilityChanged()
+        end
         return true
     end
     return self:RequestReconcile("native-settings")

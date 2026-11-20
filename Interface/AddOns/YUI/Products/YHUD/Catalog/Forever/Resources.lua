@@ -51,10 +51,27 @@ YHUD.ResourceDefinitions = {
             chargedColor = { 0.44, 0.77, 1.00, 1 },
         },
     },
+    foreverMaelstromWeapon = {
+        id = "foreverMaelstromWeapon",
+        nameKey = "resource.maelstrom_weapon",
+        descriptionKey = "resource.info.player_buff_stacks",
+        valueKind = "discrete",
+        previewMax = 5,
+        segmentCountFallback = 5,
+        defaultDisplayMode = "divided",
+        defaultValueText = false,
+        defaultSettings = { visibilityMode = "nonzero" },
+        color = { 0.65, 0.35, 0.90, 1 },
+        provider = {
+            kind = "unit-aura-stacks", unit = "player", filter = "HELPFUL",
+            spellID = 408505, fallbackMax = 5, auraBackend = "filtered-only",
+            requiresLearnedSpellID = 408498,
+        },
+    },
 }
 YHUD.ResourceDefinitions.mana.defaultValueText = false
 YHUD.ResourceDefinitions.mana.defaultValueFormat = "percent"
-YHUD.ResourceDefinitionIds = { "mana", "rage", "energy", "comboPoints" }
+YHUD.ResourceDefinitionIds = { "mana", "rage", "energy", "comboPoints", "foreverMaelstromWeapon" }
 YHUD.ResourceCommonCandidateIds = { "swingMainHand", "swingOffHand", "swingRanged" }
 for _, hand in ipairs({
     { "swingMainHand", "mainhand", "resource.swing_main_hand" },

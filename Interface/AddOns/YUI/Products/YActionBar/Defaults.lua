@@ -16,10 +16,13 @@ YAB.BAR_ORDER = { "main", "bar2", "bar3", "bar4", "bar5", "bar6", "bar7", "bar8"
 YAB.SPECIAL_BAR_ORDER = { "pet", "stance", "possess", "extraAction", "zoneAbility", "vehicleExit" }
 if Client.questItems == true then YAB.SPECIAL_BAR_ORDER[#YAB.SPECIAL_BAR_ORDER + 1] = "questItems" end
 if Client.classBars == true then
-    YAB.SPECIAL_BAR_ORDER[#YAB.SPECIAL_BAR_ORDER + 1] = "aspects"
-    YAB.SPECIAL_BAR_ORDER[#YAB.SPECIAL_BAR_ORDER + 1] = "totems"
-    YAB.SPECIAL_BAR_ORDER[#YAB.SPECIAL_BAR_ORDER + 1] = "mageTools"
+    local blessingBar
+    for _, id in ipairs(YAB.ClassTools and YAB.ClassTools.ids or { "aspects", "totems", "mageTools" }) do
+        if id == "paladinBlessings" then blessingBar = id
+        else YAB.SPECIAL_BAR_ORDER[#YAB.SPECIAL_BAR_ORDER + 1] = id end
+    end
     YAB.SPECIAL_BAR_ORDER[#YAB.SPECIAL_BAR_ORDER + 1] = "classTools"
+    if blessingBar then YAB.SPECIAL_BAR_ORDER[#YAB.SPECIAL_BAR_ORDER + 1] = blessingBar end
 end
 YAB.SPECIAL_GROUP_ID = "specialActionsGroup"
 YAB.SPECIAL_GROUPING_MODE_INDEPENDENT = "independent"
@@ -236,11 +239,42 @@ if Client.classBars == true then
         capabilities.countColor, capabilities.countOffsetX, capabilities.countOffsetY = true, true, true
         if id == "mageTools" then
             for _, key in ipairs({ "classToolsIndependent", "classToolsInitialized", "classToolsDetached", "mageScroll", "mageIntellect",
-                "mageArmor", "mageArmorLeft", "mageArmorMiddle", "mageArmorRight", "mageMissingBuffGlow" }) do capabilities[key] = true end
+                "mageArmor", "mageArmorLeft", "mageArmorMiddle", "mageArmorRight", "mageMissingBuffGlow", "mageManaGemCount",
+                "travelTextOffsetX", "travelTextOffsetY" }) do capabilities[key] = true end
         end
         SPECIAL_BAR_RULES[id] = { buttonMode = "runtime", previewButtons = 3, keybindable = false,
             capabilities = capabilities, snapshotOverrides = { hideEmptySlots = false,
                 rangeMode = "none", showMacroNames = false } }
+    end
+    for _, id in ipairs(YAB.ClassTools and YAB.ClassTools.ids or {}) do
+        if not SPECIAL_BAR_RULES[id] then
+            SPECIAL_BAR_RULES[id] = CopyTable and CopyTable(SPECIAL_BAR_RULES.mageTools) or {
+                buttonMode = "runtime", previewButtons = 3, capabilities = {},
+                snapshotOverrides = { hideEmptySlots = false, rangeMode = "none", showMacroNames = false },
+            }
+            if not CopyTable then
+                for key, value in pairs(SPECIAL_BAR_RULES.mageTools.capabilities) do SPECIAL_BAR_RULES[id].capabilities[key] = value end
+            end
+        end
+        local rule = SPECIAL_BAR_RULES[id]
+        if id ~= "mageTools" then
+            for _, key in ipairs({"mageScroll","mageIntellect","mageArmor","mageArmorLeft","mageArmorMiddle","mageArmorRight","mageMissingBuffGlow","mageManaGemCount"}) do
+                rule.capabilities[key] = nil
+            end
+        end
+        rule.keybindable = true
+        rule.capabilities.classToolOrder, rule.capabilities.classToolDisabled, rule.capabilities.classToolSelected = true, true, true
+        if id == "paladinTools" or id == "paladinBlessings" then
+            rule.capabilities.teamBlessings = true
+            rule.capabilities.teamClassIconOffsetX,rule.capabilities.teamClassIconOffsetY = true,true
+        end
+        if id == "paladinBlessings" then
+            rule.capabilities.buttons, rule.capabilities.classToolDisabled, rule.capabilities.flyoutDirection = false, false, false
+        end
+        rule.capabilities.teamVisibility = id == "paladinBlessings"
+        rule.capabilities.showCounts, rule.capabilities.countSize = true, true
+        rule.capabilities.countColor, rule.capabilities.countOffsetX, rule.capabilities.countOffsetY = true, true, true
+        rule.snapshotOverrides.showCounts = nil
     end
 end
 if Client.questItems == true then
@@ -315,9 +349,10 @@ end
 function SpecialBars:GetRuntimeButtonCount(barId, config, snapshot)
     local rule = SPECIAL_BAR_RULES[barId]
     if not rule then return nil end
-    if barId == "aspects" or barId == "totems" then
+    if barId == "aspects" or barId == "totems" or (YAB.ClassTools and YAB.ClassTools:IsClassBar(barId)) then
         local record = YAB.BarManager and YAB.BarManager.bars[barId]
-        return math.max(record and #record.buttons or 6, 1)
+        local keys = YAB.ClassTools and YAB.ClassTools.buttonKeys[barId]
+        return math.max(record and #record.buttons or keys and #keys or 6, 1)
     end
     if barId == "stance" then
         return GetRuntimeStanceCount(rule, config, snapshot)
@@ -388,12 +423,16 @@ function SpecialBars:NormalizeConfigSnapshot(barId, snapshot, config)
     else
         ApplySnapshotOverrides(snapshot, rule.nonRetailSnapshotOverrides)
     end
-    if barId == "aspects" or barId == "totems" or barId == "mageTools" or barId == "classTools" or barId == "questItems" then
-        snapshot.rows = ClampSpecialButtonCount(config and config.rows or snapshot.rows, 1, 12, 1)
+    if barId == "aspects" or barId == "totems" or barId == "classTools" or barId == "questItems" or (YAB.ClassTools and YAB.ClassTools:IsClassBar(barId)) then
+        snapshot.rows = ClampSpecialButtonCount(config and config.rows or snapshot.rows, 1, barId == "paladinBlessings" and 10 or 12, 1)
         local direction = config and config.flyoutDirection
         snapshot.flyoutDirection = (direction == "down" or direction == "left" or direction == "right") and direction or "up"
     end
-    if barId ~= "questItems" and barId ~= "aspects" and barId ~= "totems" and barId ~= "mageTools" and barId ~= "classTools"
+    if barId == "mageTools" or barId == "classTools" then
+        snapshot.travelTextOffsetX = math.max(-64, math.min(64, tonumber(config and config.travelTextOffsetX) or (barId == "mageTools" and 2 or 0)))
+        snapshot.travelTextOffsetY = math.max(-64, math.min(64, tonumber(config and config.travelTextOffsetY) or 0))
+    end
+    if barId ~= "aspects" and barId ~= "totems" and barId ~= "questItems" and barId ~= "classTools" and not (YAB.ClassTools and YAB.ClassTools:IsClassBar(barId))
         and (barId == "pet" or Client.deterministicSpecialBars == true) and snapshot.buttons then
         local rowValue = snapshot.rows
         if barId == "pet" or (barId == "stance" and Client.ownedStanceButtons == true) then
@@ -409,6 +448,7 @@ function SpecialBars:GetPreviewButtonCount(barId, config, snapshot)
         return self:GetPreviewButtonCount(YAB.ClassTools:GetPreviewBarId(barId), YAB.ClassTools:GetPreviewConfig(barId), snapshot)
     end
     if barId == "mageTools" then return #YAB.MageTools:GetButtonKeys(config or {}) end
+    if YAB.UtilityTools and YAB.ClassTools:IsClassBar(barId) then return YAB.UtilityTools:GetPreviewButtonCount(barId, config or {}) end
     config = config or {}
     local rule = SPECIAL_BAR_RULES[barId]
     if not rule then return nil end
@@ -1208,10 +1248,13 @@ end
 
 -- Optional client bars are outside the frozen ConfigSets V1 baseline.
 if Client.classBars == true then
-    for _, id in ipairs({ "aspects", "totems", "mageTools", "classTools" }) do
+    local classDefaults = {}
+    for _, id in ipairs(YAB.ClassTools and YAB.ClassTools.ids or { "aspects", "totems", "mageTools" }) do classDefaults[#classDefaults + 1] = id end
+    classDefaults[#classDefaults + 1] = "classTools"
+    for _, id in ipairs(classDefaults) do
         local config = CopyValue(YAB.Defaults.specialBars.pet)
         config.enabled = true
-        config.label = id == "aspects" and "猎人守护条" or "萨满图腾条"
+        config.label = id == "aspects" and "猎人守护条" or id == "totems" and "萨满图腾条" or "职业工具条"
         config.buttons, config.rangeMode = 6, "none"
         config.flyoutDirection = "up"
         config.hideEmptySlots, config.showUnlearned = false, false
@@ -1221,6 +1264,11 @@ if Client.classBars == true then
             config.showPetUtilities = true
         end
         config.showCounts, config.showMacroNames = false, false
+        config.classToolDisabled = id == "paladinTools" and { righteous = true, seal = true } or {}
+        config.classToolSelected = {}
+        if id == "paladinTools" or id == "paladinBlessings" then config.teamBlessings = {};config.teamClassIconOffsetX,config.teamClassIconOffsetY=0,0 end
+        if id == "mageTools" then config.travelTextOffsetX, config.travelTextOffsetY = 2, 0 end
+        if id ~= "aspects" then config.showCounts = true end
         if id == "totems" then config.spacing = 8 end
         if id == "mageTools" or id == "classTools" then
             config.label, config.buttons, config.showCounts = "职业工具条", 3, true
@@ -1228,6 +1276,7 @@ if Client.classBars == true then
             config.mageArmorLeft, config.mageArmorRight = "auto", "mage"
         end
         if id == "mageTools" then
+            config.mageManaGemCount = YAB.ClassTools and YAB.ClassTools.defaultManaGemCount or 3
             config.mageMissingBuffGlow = { style = "pixel", size = 1, lines = 6, thickness = 2,
                 length = 20, speed = 0.25, alpha = 0.9, falloff = 0.3, offsetX = 0, offsetY = 0,
                 color = { 1, 0.82, 0.12, 1 } }
@@ -1236,8 +1285,33 @@ if Client.classBars == true then
             config.classToolsIndependent = false
             config.classToolsInitialized = false
             config.classToolsDetached = false
+            if id ~= "paladinBlessings" then config.classToolsEnabled = true end
         end
         config.layout = { point = "BOTTOM", relativePoint = "BOTTOM", x = 0, y = 232 }
+        if id == "paladinBlessings" then
+            config.label, config.buttons, config.teamVisibility = "骑士团队祝福条", 10, "raid"
+            config.classToolsIndependent, config.classToolsDetached, config.classToolsInitialized = true, true, true
+            config.size, config.skin = 32, "circle"
+            config.layout.x, config.layout.y = -333, 189
+        end
         YAB.Defaults.specialBars[id] = config
+        YAB.DefaultPlacements["yactionbar." .. id] = {
+            version = 2,
+            anchor = { point = config.layout.point, relative = "UIParent", relativePoint = config.layout.relativePoint },
+            offset = { x = config.layout.x, y = config.layout.y },
+        }
+    end
+
+    function YAB:GetCorrectedClassBarPlacement(layoutId, placement)
+        if type(placement) ~= "table" then return nil end
+        local id = layoutId:match("^yactionbar%.(.+)$")
+        if id ~= "classTools" and not (self.ClassTools and self.ClassTools:IsClassBar(id)) then return nil end
+        local anchor, offset = placement.anchor, placement.offset
+        -- The old Core fallback has no captured position. Normal drag commits include one.
+        if placement.version == 2 and placement.fallback == nil and type(anchor) == "table" and type(offset) == "table"
+            and anchor.point == "CENTER" and anchor.relative == "UIParent" and anchor.relativePoint == "CENTER"
+            and offset.x == 0 and offset.y == 0 then
+            return self:CopyValue(self.DefaultPlacements[layoutId])
+        end
     end
 end

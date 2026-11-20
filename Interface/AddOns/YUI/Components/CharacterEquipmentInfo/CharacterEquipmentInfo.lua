@@ -12,6 +12,8 @@ local PaperDoll = YUI.API and YUI.API.PaperDoll
 local Item = YUI.API and YUI.API.Item
 local UnitAPI = YUI.API and YUI.API.Unit
 local TalentAPI = YUI.API and YUI.API.Talent
+local ForeverSummary = YUI.IsForever and YUI.CharacterEquipmentSummaryForever
+local ForeverTabs = YUI.IsForever and YUI.CharacterEquipmentTabsForever
 local Security = YUI.API and YUI.API.Security
 local Appearance = GUI2 and GUI2.WindowAppearance
 local LocaleManager = YUI.Locale
@@ -73,7 +75,7 @@ local EMPTY_TRACK_COLOR = { 0.44, 0.44, 0.44, 1.00 }
 
 local SECONDARY_STAT_IDS = (YUI.IsForever or YUI.IsWrath) and { "crit", "haste", "hit", "expertise" }
     or { "crit", "haste", "mastery", "versatility" }
-local SUMMARY_STAT_IDS = YUI.IsForever and { "primary_summary", "power_summary", "crit", "haste" } or SECONDARY_STAT_IDS
+local SUMMARY_STAT_IDS = ForeverSummary and ForeverSummary.StatIDs or SECONDARY_STAT_IDS
 local ZHCN_SLOT_TEXT_OPTICAL_OFFSETS = {
     head = true,
     neck = true,
@@ -565,7 +567,11 @@ end
 
 local function ApplyCardTheme(card, context)
     if not card or not Appearance or type(Appearance.ApplyFont) ~= "function" then return end
-    card.contentInset = YUI.IsForever and context and context.source == "native" and 20 or CARD_INSET
+    card.foreverNativeTheme = YUI.IsForever and context and context.source == "native"
+    card.contentInset = card.foreverNativeTheme and 20 or CARD_INSET
+    if YUI.IsForever and card.secondaryLine then
+        GUI2:SetTexturePaintKey(card.secondaryLine, card.foreverNativeTheme and "color.border.strong" or "color.border.default")
+    end
     for _, fontString in ipairs(card.themeTexts or {}) do
         -- 先恢复创建时字体，避免外观 provider 将上次的用户覆盖当成默认值。
         fontString:SetFont(fontString._equipmentDefaultPath, fontString._equipmentDefaultSize, fontString._equipmentDefaultFlags)
@@ -851,6 +857,7 @@ local function CreateSection(card, key, labelKey)
     return section
 end
 
+local UpdateStatRows
 local function BuildCard(kind)
     local card = GUI2:CreateFrame(UIParent, {
         name = kind == "player" and "YUICharacterEquipmentInfoPlayer" or "YUICharacterEquipmentInfoInspect",
@@ -948,15 +955,17 @@ local function BuildCard(kind)
         end
     end
 
-    if YUI.IsForever then
-        for _, id in ipairs({ "primary_summary", "power_summary" }) do
-            local row = CreateStatRow(card, { id = id, category = "primary" })
-            row.label:SetText(T("stat." .. id))
-            card.statRows[id] = row
-            card.themeTexts[#card.themeTexts + 1] = row.label
-            card.themeTexts[#card.themeTexts + 1] = row.value
-            card.themeTexts[#card.themeTexts + 1] = row.comparison
-        end
+    if ForeverSummary then
+        ForeverSummary:Build(card, {
+            CreateStatRow = CreateStatRow,
+            CreateText = CreateText,
+            Refresh = function(target)
+                if Security and Security.InCombatLockdown and Security.InCombatLockdown() then return end
+                UpdateStatRows(target, target.kind == "inspect", target.foreverComparisonTotals)
+                LayoutCard(target, target.kind == "inspect")
+                if SyncCardWidths then SyncCardWidths() end
+            end,
+        })
     end
 
     card.statsNotice = CreateText(GetContentParent(card), T("stats.unavailable"), BODY_TEXT_SIZE, "color.text.muted")
@@ -1283,45 +1292,9 @@ local function UpdateComparison(row, value, baseline, enabled)
     row.comparison:Show()
 end
 
-local function UpdateStatRows(card, isInspect, comparisonTotals)
-    if YUI.IsForever then
-        local snapshot = PaperDoll.ReadEquipmentSummaryTotals and PaperDoll.ReadEquipmentSummaryTotals(card.equipmentSnapshot, card.secondaryTotals)
-        card.secondaryTotals, card.statsAvailable = snapshot, snapshot ~= nil
-        local profile = PaperDoll.GetEquipmentSummaryProfile and PaperDoll.GetEquipmentSummaryProfile(card.classToken)
-        for _, id in ipairs(SUMMARY_STAT_IDS) do
-            local row = card.statRows[id]
-            if row then
-                local keys = id == "primary_summary" and profile and profile.primary
-                    or id == "power_summary" and profile and profile.power
-                local label, value = "", ""
-                row.summaryColorKey = keys and #keys == 1 and keys[1] or nil
-                if keys then
-                    for index, key in ipairs(keys) do
-                        local separator = index > 1 and "/" or ""
-                        local partLabel = T((id == "power_summary" and "summary." or "stat.") .. key)
-                        local partValue = FormatNumber(snapshot and snapshot.values[key])
-                        local color = #keys > 1 and SECONDARY_STAT_COLORS[key]
-                        if color then
-                            local prefix = string.format("|cff%02x%02x%02x", math.floor(color[1] * 255 + .5),
-                                math.floor(color[2] * 255 + .5), math.floor(color[3] * 255 + .5))
-                            partLabel, partValue = prefix .. partLabel .. "|r", prefix .. partValue .. "|r"
-                        end
-                        label = label .. separator .. partLabel
-                        value = value .. separator .. partValue
-                    end
-                else
-                    label = T("stat." .. id)
-                    value = FormatNumber(snapshot and snapshot.values[id])
-                end
-                row.label:SetText(label)
-                row.value:SetText(snapshot and snapshot.pending and T("item.loading") or value)
-                row._visible = true
-                -- Compound values do not have one meaningful comparison percentage.
-                UpdateComparison(row, snapshot and snapshot.values[id], comparisonTotals and comparisonTotals.values[id],
-                    isInspect and snapshot and snapshot.complete and comparisonTotals and comparisonTotals.complete and not keys)
-            end
-        end
-        card.statsNotice:Hide()
+UpdateStatRows = function(card, isInspect, comparisonTotals)
+    if ForeverSummary then
+        ForeverSummary:Update(card, isInspect, comparisonTotals)
         return
     end
     local snapshot
@@ -1421,6 +1394,7 @@ local function ApplySecondaryStatColor(row, statID)
 end
 
 local function LayoutSecondaryStats(card, top, isInspect, db)
+    if ForeverSummary then return ForeverSummary:Layout(card, top, db) end
     local CARD_INSET = card.contentInset or CARD_INSET
     local SECONDARY_STAT_IDS = SUMMARY_STAT_IDS
     local secondaryEnabled = db.showSecondaryStats == true
@@ -1513,11 +1487,12 @@ LayoutCard = function(card, isInspect)
     local db = GetDB()
     local height = card.hostHeight or GetCardHeight(card)
     local lineHeight = GetLineHeight(card.headerLine or card.secondaryLine)
-    local statsHeight = STAT_ROW_HEIGHT * 2
+    local equipmentBottomGap = card.foreverNativeTheme and GetPixelMetric(card, 10) or 0
+    local statsHeight = ForeverSummary and ForeverSummary:GetHeight(db) or STAT_ROW_HEIGHT * 2
     local statsTop = -height + CARD_BOTTOM_INSET + statsHeight
     local statsLineY = statsTop + CARD_SECTION_GAP + lineHeight
     local equipmentTop = -CARD_HEADER_HEIGHT - CARD_SECTION_GAP - lineHeight
-    local availableEquipmentHeight = equipmentTop - statsLineY
+    local availableEquipmentHeight = equipmentTop - statsLineY - equipmentBottomGap
     local rowHeight = math.floor(availableEquipmentHeight / #SLOT_DEFINITIONS)
     rowHeight = math.max(1, math.min(24, rowHeight))
 
@@ -1560,12 +1535,13 @@ LayoutCard = function(card, isInspect)
         or db.numberFontSize ~= DEFAULT_FONT_SIZE)
     then
         local statWidth = 0
+        local iconSpace = ForeverSummary and ForeverSummary:GetIconSpace(db) or 0
         for _, id in ipairs(SUMMARY_STAT_IDS) do
             local row = card.statRows[id]
             if row then
                 local valueWidth = math.max(STAT_VALUE_WIDTH, GetRenderedTextWidth(row.value, STAT_VALUE_WIDTH))
                 local comparisonWidth = row._comparisonVisible and 60 or 0
-                statWidth = math.max(statWidth, GetRenderedTextWidth(row.label, 0) + STAT_LABEL_PADDING
+                statWidth = math.max(statWidth, GetRenderedTextWidth(row.label, 0) + STAT_LABEL_PADDING + iconSpace
                     + valueWidth + comparisonWidth + STAT_CONTENT_GAP * 2)
             end
         end
@@ -1583,17 +1559,20 @@ LayoutCard = function(card, isInspect)
     if YUI.IsForever then
         local minimumRowHeight = math.max(card._textSize or DEFAULT_FONT_SIZE, card._numberSize or DEFAULT_FONT_SIZE) + 5
         local minimumHeight = CARD_HEADER_HEIGHT + CARD_SECTION_GAP * 2 + lineHeight * 2
-            + #SLOT_DEFINITIONS * minimumRowHeight + CARD_BOTTOM_INSET + statsHeight
-        height = math.max(height, minimumHeight)
+            + #SLOT_DEFINITIONS * minimumRowHeight + CARD_BOTTOM_INSET + statsHeight + equipmentBottomGap
+        -- 当前原生宿主决定外部高度，装备文字只在可用空间内适配。
+        if not card.fitHostHeight then height = math.max(height, minimumHeight) end
         card.desiredHeight = height
-        height = math.max(height, card.sharedHeight or 0)
+        if not card.fitHostHeight then height = math.max(height, card.sharedHeight or 0) end
         card:SetHeight(height)
         statsTop = -height + CARD_BOTTOM_INSET + statsHeight
         statsLineY = statsTop + CARD_SECTION_GAP + lineHeight
-        rowHeight = math.max(minimumRowHeight, math.min(24, math.floor((equipmentTop - statsLineY) / #SLOT_DEFINITIONS)))
+        rowHeight = math.max(card.fitHostHeight and 1 or minimumRowHeight,
+            math.min(24, math.floor((equipmentTop - statsLineY - equipmentBottomGap) / #SLOT_DEFINITIONS)))
     end
 
-    PlaceSectionLine(card.headerLine, card, -CARD_HEADER_HEIGHT)
+    if card.foreverNativeTheme then HideSectionLine(card.headerLine)
+    else PlaceSectionLine(card.headerLine, card, -CARD_HEADER_HEIGHT) end
     LayoutEquipment(card, equipmentTop, rowHeight)
 
     local hasStats = LayoutSecondaryStats(card, statsTop, isInspect, db)
@@ -1617,7 +1596,8 @@ SyncCardWidths = function()
     playerCard.sharedWidth = sharedWidth
     inspectCard.sharedWidth = IsShown(_G.InspectFrame) and sharedWidth or nil
     if YUI.IsForever and IsShown(_G.InspectFrame) then
-        local sharedHeight = math.max(playerCard.desiredHeight or 0, inspectCard.desiredHeight or 0)
+        local sharedHeight = playerCard.fitHostHeight and playerCard.hostHeight
+            or math.max(playerCard.desiredHeight or 0, inspectCard.desiredHeight or 0)
         playerCard.sharedHeight, inspectCard.sharedHeight = sharedHeight, sharedHeight
     end
     if playerCard:GetWidth() ~= sharedWidth or (playerCard.sharedHeight and playerCard:GetHeight() ~= playerCard.sharedHeight) then LayoutCard(playerCard, false) end
@@ -1681,6 +1661,8 @@ end
 local function IsCharacterPaperDollActive()
     return _G.CharacterFrame
         and _G.CharacterFrame.activeSubframe == "PaperDollFrame"
+        and not (YUI.IsForever and _G.CharacterStatsPanePetScrollBox
+            and _G.CharacterStatsPanePetScrollBox:IsVisible())
 end
 
 local function ReadHostHeight(host)
@@ -1727,6 +1709,7 @@ local function RefreshRuntime()
     if YUI.CharacterEquipmentOverlays then YUI.CharacterEquipmentOverlays:Refresh(GetDB()) end
     -- 摘要属于原生窗口的子框架；结构刷新复用已有脱战事件补做。
     if Security and Security.InCombatLockdown and Security.InCombatLockdown() then return end
+    if ForeverTabs then ForeverTabs:Refresh(GetDB().foreverBottomTabs ~= false, runtime.tabsRefresh) end
     if GetDB().showSummary == false then
         if runtime.playerCard then runtime.playerCard:Hide() end
         if runtime.inspectCard then runtime.inspectCard:Hide() end
@@ -1739,8 +1722,9 @@ local function RefreshRuntime()
         return
     end
 
-    if not inspecting and (not IsCharacterPaperDollActive()
-        or ((YUI.IsRetail or YUI.IsForever) and IsShown(_G.GearManagerPopupFrame))) then
+    if (inspecting and YUI.IsForever and _G.InspectPaperDollFrame and not _G.InspectPaperDollFrame:IsShown())
+        or (not inspecting and (not IsCharacterPaperDollActive()
+        or ((YUI.IsRetail or YUI.IsForever) and IsShown(_G.GearManagerPopupFrame)))) then
         if runtime.playerCard then runtime.playerCard:Hide() end
         if runtime.inspectCard then runtime.inspectCard:Hide() end
         return
@@ -1749,6 +1733,10 @@ local function RefreshRuntime()
     local hostHeight = ReadHostHeight(host)
     local playerCard = runtime.playerCard
     local inspectCard = runtime.inspectCard
+    if YUI.IsForever then
+        local fitHostHeight = hostHeight ~= nil
+        playerCard.fitHostHeight, inspectCard.fitHostHeight = fitHostHeight, fitHostHeight
+    end
     AttachCardToHost(playerCard, host)
     AttachCardToHost(inspectCard, host)
     playerCard.sharedWidth, inspectCard.sharedWidth = nil, nil
@@ -1820,6 +1808,9 @@ local function HookFrame(frame)
     runtime.hookedFrames[frame] = true
     frame:HookScript("OnShow", function() RequestRefresh(nil, "host.OnShow") end)
     frame:HookScript("OnHide", function()
+        if ForeverSummary and frame == _G.InspectFrame then
+            ForeverSummary:ResetInspection(runtime.inspectCard)
+        end
         if frame == _G.CharacterFrame or frame == _G.InspectFrame then
             runtime.dismissedHosts[frame] = nil
         end
@@ -1840,6 +1831,8 @@ local function RequestOverlayRefresh()
     RequestRefresh(nil, "slot overlay")
 end
 
+runtime.tabsRefresh = function() RequestRefresh(nil, "native tabs") end
+
 local function TryHookFrames()
     if YUI.CharacterEquipmentOverlays then YUI.CharacterEquipmentOverlays:Hook(RequestOverlayRefresh) end
     HookFrame(_G.CharacterFrame)
@@ -1853,6 +1846,10 @@ local function TryHookFrames()
     HookFrame(_G.TokenFrame)
     HookFrame(_G.InspectFrame)
     HookFrame(_G.InspectPaperDollFrame)
+    if ForeverTabs then
+        HookFrame(_G.CharacterStatsPanePetScrollBox)
+        HookFrame(_G.PaperDollItemsFrame)
+    end
 end
 
 local function HasPendingItem(card, itemID)
@@ -1892,18 +1889,28 @@ local function OnRuntimeEvent(event, arg1, arg2)
     end
 
     TryHookFrames()
+    if ForeverTabs and (event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED") then
+        ForeverTabs:CombatChanged()
+    end
     if event == "UNIT_INVENTORY_CHANGED" then
         if IsSecret(arg1) then return end
         local inspectUnit = _G.InspectFrame and _G.InspectFrame.unit
         if arg1 ~= "player" and arg1 ~= inspectUnit then return end
     elseif event == "INSPECT_READY" then
+        if ForeverSummary then ForeverSummary:InspectReady(runtime.inspectCard, arg1) end
         RequestRefresh(0.05, event)
         return
     elseif event == "ADDON_LOADED" then
         RequestRefresh(0.05, event)
         return
+    elseif event == "UNIT_PET" and (IsSecret(arg1) or arg1 ~= "player") then
+        return
     end
 
+    if ForeverSummary and (event == "PLAYER_TALENT_UPDATE" or event == "PLAYER_SPECIALIZATION_CHANGED"
+        or event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED") then
+        ForeverSummary:InvalidateTalents(runtime.playerCard)
+    end
     RequestRefresh(nil, event)
 end
 
@@ -1930,6 +1937,15 @@ local function AttachEvents()
         "PLAYER_TARGET_CHANGED",
         "YUI_WORLD_READY",
     }
+    if ForeverSummary then
+        events[#events + 1] = "ACTIVE_TALENT_GROUP_CHANGED"
+        events[#events + 1] = "TRAIT_CONFIG_UPDATED"
+        events[#events + 1] = "TRAIT_CONFIG_LIST_UPDATED"
+    end
+    if ForeverTabs then
+        events[#events + 1] = "UNIT_PET"
+        events[#events + 1] = "PLAYER_REGEN_DISABLED"
+    end
     for _, event in ipairs(events) do
         Event:On(event, OnRuntimeEvent, runtime.eventOwner)
     end
@@ -1949,6 +1965,7 @@ local function EnsureRuntime()
     if runtime.playerCard then
         AttachEvents()
         TryHookFrames()
+        if ForeverSummary then ForeverSummary:InspectShown(runtime.inspectCard) end
         RequestRefresh()
         return
     end
@@ -1957,6 +1974,7 @@ local function EnsureRuntime()
     runtime.inspectCard = BuildCard("inspect")
     AttachEvents()
     TryHookFrames()
+    if ForeverSummary then ForeverSummary:InspectShown(runtime.inspectCard) end
     RequestRefresh()
 end
 
@@ -1967,6 +1985,8 @@ local function SetEnabled(enabled)
         EnsureRuntime()
     else
         DetachEvents()
+        if ForeverTabs then ForeverTabs:Stop() end
+        if ForeverSummary then ForeverSummary:HideTooltip() end
         if YUI.CharacterEquipmentOverlays then YUI.CharacterEquipmentOverlays:Hide() end
         if runtime.playerCard then runtime.playerCard:Hide() end
         if runtime.inspectCard then runtime.inspectCard:Hide() end
@@ -2117,7 +2137,23 @@ function Feature:GetDetailOptions()
         FontOptions("text"),
         FontOptions("number"),
     }
-    if YUI.IsForever then table.remove(cardOptions[2].children, 1) end
+    if YUI.IsForever then
+        table.remove(cardOptions[2].children, 1)
+        table.insert(cardOptions[1].children, {
+            type = "checkbox", label = T("settings.show_summary_icons"),
+            get = function() return db.showSummaryIcons ~= false end,
+            set = function(value) db.showSummaryIcons = value == true end,
+            onChange = Refresh,
+        })
+    end
+    if ForeverTabs then
+        table.insert(cardOptions, 2, {
+            type = "checkbox", label = T("settings.bottom_tabs"), tooltip = T("settings.bottom_tabs.help"),
+            get = function() return db.foreverBottomTabs ~= false end,
+            set = function(value) if value == false then db.foreverBottomTabs = false else db.foreverBottomTabs = nil end end,
+            onChange = Refresh,
+        })
+    end
     if GUI2.FontStyle and GUI2.FontStyle.MergeOptions then
         GUI2.FontStyle:MergeOptions(cardOptions, {
             {key="equipment_summary:text",label=T("settings.text_font"),sources={"textFont","textFontSize"}},

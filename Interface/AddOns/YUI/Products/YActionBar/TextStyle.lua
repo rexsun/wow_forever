@@ -3,6 +3,9 @@ local YAB = YUI and YUI.YActionBar
 if not YAB then return end
 local TextStyle = { prefixes = { "hotkey", "count", "macroName", "cooldownText" }, fields = {}, fieldOrder = {} }
 YAB.TextStyle = TextStyle
+local function ClassText(barId)
+    return YAB.ClassTools and (barId == "classTools" or YAB.ClassTools:IsClassBar(barId))
+end
 for _, prefix in ipairs(TextStyle.prefixes) do
     for _, attribute in ipairs({"Font", "Outline", "Shadow", "Monochrome"}) do
         TextStyle.fields[prefix .. attribute] = { prefix = prefix, attribute = attribute, capability = prefix .. "Size" }
@@ -58,8 +61,9 @@ function TextStyle:RegisterEditor(context)
         end
         local function Read(entry)
             local cfg, prefix = entry.config, entry.prefix
-            local value = style.Decode(cfg[prefix.."Outline"] or "OUTLINE",
-                cfg[prefix.."Shadow"] ~= false, cfg[prefix.."Monochrome"])
+            local classText = ClassText(entry.barId)
+            local value = style.Decode(classText and "OUTLINE" or cfg[prefix.."Outline"] or "OUTLINE",
+                classText or cfg[prefix.."Shadow"] ~= false, cfg[prefix.."Monochrome"])
             value.font = cfg[prefix.."Font"] and style.FontPath(cfg[prefix.."Font"]) or gui:GetFont("font.family.body")
             value.size = cfg[prefix.."Size"]
             if value.size == nil then value.size = entry.defaults[prefix.."Size"] or (prefix=="macroName" and 10 or 12) end
@@ -93,7 +97,7 @@ function TextStyle:RegisterEditor(context)
                     local entry = {barId=barId,prefix=prefix,config=cfg,defaults=context.defaults(barId) or {}}
                     entry.fields = Fields(entry); owned[id] = entry
                     local target = {id=id,label=context.label(barId).." · "..labels["settings.preview.text_"..roles[prefix]],
-                        capabilities={font=true,size=true,outline=true,shadow=true,monochrome=true,color=true},
+                        capabilities={font=true,size=true,outline=not ClassText(barId),shadow=not ClassText(barId),monochrome=true,color=true},
                         minSize=prefix=="cooldownText" and 0 or 8,maxSize=prefix=="cooldownText" and 32 or 24,
                         fontOptions=function() return {{value="__theme",text=core["font_style.follow_theme"],
                             fontPath=cfg[prefix.."Font"]==nil and gui:GetFont("font.family.body") or nil}} end,fontOptionsPosition="last",

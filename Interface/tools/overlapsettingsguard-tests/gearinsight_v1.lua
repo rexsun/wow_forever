@@ -9,6 +9,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     { id = "gi.magewater", values = { ["dchat.mw"] = { fieldAsk = false, thank = false } }, owner = "YUI" },
     { id = "gi.lowrank", values = { ui = { lowRank = false, lowRankW = false, lowRankP = false } }, owner = "YUI" },
     { id = "gi.buffask", values = { buffAsk = { auto = false, field = false } }, owner = "YUI" },
+    { id = "gi.pallyfloat", values = { pally = { float = false } }, owner = "YUI" },
     { id = "gi.cityplates", values = { cityPlates = { on = false } }, owner = "EllesmereUINameplates" },
   }
 
@@ -26,7 +27,8 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
   local function UserData()
     return { layer = { order = { [1] = { 7 } }, log = { "kept" }, gather = "CODE" },
       cityPlates = { noted = true }, qm = { share = true, pinned = true }, ui = { page = "tier", lowRankTag = "" },
-      dchat = { rec = { roles = { TANK = true } }, mw = { bar = false } }, buffAsk = { whisper = true, asked = { Ann = 1 } } }
+      dchat = { rec = { roles = { TANK = true } }, mw = { bar = false } }, buffAsk = { whisper = true, asked = { Ann = 1 } },
+      pally = { by = { WARRIOR = "M" }, allKings = true } }
   end
 
   -- Mirrors the 1.0.1 runtime pieces the guard calls or hooks.
@@ -54,6 +56,10 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     gi.BuffAsk = {
       SetOpt = function(k, v) gi.db.buffAsk = gi.db.buffAsk or {}; if v then gi.db.buffAsk[k] = nil else gi.db.buffAsk[k] = false end end,
       SyncEvents = function() gi.calls.sync = (gi.calls.sync or 0) + 1 end,
+    }
+    gi.PallyBless = {
+      SetFloat = function(v) gi.db.pally = gi.db.pally or {}; if v then gi.db.pally.float = nil else gi.db.pally.float = false end end,
+      Refresh = function() gi.calls.pally = (gi.calls.pally or 0) + 1 end,
     }
     GearInsightForever = gi
     return gi
@@ -104,6 +110,8 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     eq(db.ui.lowRankTag, "", "low-rank tag kept")
     eq(db.buffAsk.whisper, true, "buff request whisper choice kept")
     eq(db.buffAsk.asked.Ann, 1, "buff request history kept")
+    eq(db.pally.by.WARRIOR, "M", "blessing assignments kept")
+    eq(db.pally.allKings, true, "all-Kings choice kept")
     ok(not ChatContains(w, "/reload"), "no reload")
     local gi = BuildGI(w, db)
     w.Login()
@@ -153,6 +161,11 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     w.RunTimers()
     eq(db.buffAsk.auto, false, "automatic buff request toggle is reverted")
     ok((gi.calls.sync or 0) > syncs, "buff request events are resynced at once")
+    local refreshes = gi.calls.pally or 0
+    gi.PallyBless.SetFloat(true)
+    w.RunTimers()
+    eq(db.pally.float, false, "floating blessing button toggle is reverted")
+    ok((gi.calls.pally or 0) > refreshes, "the floating button is hidden at once")
     db.layer.autoAccept, db.layer.autoHelp, db.layer.autoLeave, db.layer.on = true, true, true, true
     db.qm.thanks, db.ui.groupLazy, db.qm.share = nil, nil, true
     db.dchat.mw = nil
@@ -177,8 +190,9 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     eq(db.ui.ilvl, nil)
     eq(db.ui.lowRank, nil)
     eq(db.buffAsk.auto, nil)
+    eq(db.pally.float, nil)
     for _, id in ipairs({ "gi.layernetwork", "gi.groupautoload", "gi.questshare", "gi.magewater", "gi.lowrank", "gi.buffask",
-      "gi.cityplates", "gi.itemlevel" }) do
+      "gi.pallyfloat", "gi.cityplates", "gi.itemlevel" }) do
       eq(StatusOf(w.ns.Check(), id), "inactive", id)
     end
   end)
@@ -232,6 +246,18 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
       'function BA.AutoOn() return BA.Opt("on") and BA.Opt("auto") end', "function BA.SyncEvents()" }) do
       ok(buffAsk:find(needle, 1, true), "BuffAsk.lua: " .. needle)
     end
+    ok(ReadFile(root .. "GearInsight_Forever.toc"):find("PallyBless.lua", 1, true), "the blessing helper loads with GearInsight")
+    local pally = ReadFile(root .. "PallyBless.lua")
+    for _, needle in ipairs({ "ns.PallyBless = PB",
+      "function PB.FloatOn() return not (ns.db and type(ns.db.pally) == \"table\" and ns.db.pally.float == false) end",
+      "function PB.SetFloat(v) if v then PB.DB().float = nil else PB.DB().float = false end; PB.Refresh() end",
+      "function PB.FloatWanted() return PB.IsPaladin() and PB.FloatOn() and (inGroup() or PB.floatPreview == true) end",
+      "if want then float:Show() else float:Hide() end" }) do
+      ok(pally:find(needle, 1, true), "PallyBless.lua: " .. needle)
+    end
+    -- YUI v361 added the raid blessing bar that owns this job beside YUI's action bars.
+    local yuiBars = ReadFile(root .. "../YUI/Products/YActionBar/!load_Forever.xml")
+    ok(yuiBars:find("PaladinBlessings_Forever.lua", 1, true), "YUI loads its Paladin blessing bar on Forever")
     local chat = ReadFile(root .. "GuildChatLevel.lua")
     for _, name in ipairs({ "GL.WhisperOn()", "GL.PartyOn()", "GL.SetWhisperOn(on)", "GL.SetPartyOn(on)", "GL.SetEnabled(on)" }) do
       ok(chat:find("function " .. name, 1, true), "GuildChatLevel " .. name)

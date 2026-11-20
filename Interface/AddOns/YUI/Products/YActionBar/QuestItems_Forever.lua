@@ -10,7 +10,7 @@ local Camp = YAB.Camp
 local EVENTS = { "QUEST_LOG_UPDATE", "QUEST_WATCH_LIST_CHANGED", "QUEST_POI_UPDATE",
     "QUEST_REMOVED", "QUEST_TURNED_IN", "PLAYER_INSIDE_QUEST_BLOB_STATE_CHANGED",
     "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_ENTERING_WORLD", "BAG_UPDATE_DELAYED",
-    "BAG_UPDATE_COOLDOWN", "SPELL_UPDATE_COOLDOWN", "GET_ITEM_INFO_RECEIVED" }
+    "BAG_UPDATE_COOLDOWN", "SPELL_UPDATE_COOLDOWN", "GET_ITEM_INFO_RECEIVED", "ITEM_DATA_LOAD_RESULT" }
 
 local function Config()
     local db = YAB:GetDB()
@@ -374,6 +374,8 @@ function Items:RefreshCooldowns()
                 local count = API.GetCompatibilityCount(entry.itemID)
                 if count then
                     entry.charges, state.usable = count, count > 0
+                    local latest = self.available and self.available[entry.itemID]
+                    if latest and latest.compatibility then latest.charges = count end
                     state.countText = Config().showCounts ~= false and count > 0 and tostring(count) or ""
                     if count == 0 then self:Request() end
                 end
@@ -383,11 +385,28 @@ function Items:RefreshCooldowns()
     end
 end
 
+function Items:UpdatePendingItemData(pending)
+    local previous = self.pendingItemData
+    self.pendingItemData = pending
+    local item = YUI.API.Item
+    if not pending or not (item and item.RequestLoadDataByID) then return end
+    for itemID, needsData in pairs(pending) do
+        if needsData and not (previous and previous[itemID]) then pcall(item.RequestLoadDataByID, itemID) end
+    end
+end
+
 -- One item can belong to several quests. Aggregate native area information
 -- before starting a leave deadline, so one source cannot remove another source.
 function Items:Collect(now)
-    local rows = self.testData and self.testData.rows or API.ReadLog()
-    if not rows then return nil end
+    local rows, pending, incomplete
+    if self.testData then
+        rows = self.testData.rows
+    else
+        rows, pending, incomplete = API.ReadLog(self.questRows)
+        if not rows then return nil end
+        self.questRows = rows
+        self:UpdatePendingItemData(pending)
+    end
     local entries, ids = {}, {}
     for _, row in ipairs(rows) do
         local inside, tracked = row.inside, row.tracked
@@ -431,10 +450,15 @@ function Items:Collect(now)
         elseif not state.leaveAt then state.wasAutoInside = nil end
         if pins[itemID] or (not state.snoozed and (entry.autoInside or hold)) then visible[itemID] = entry end
     end
-    for itemID in pairs(self.states) do
-        if not entries[itemID] then self.states[itemID] = nil end
+    -- An unidentified item can still belong to a saved pin.
+    if not incomplete then
+        for itemID in pairs(self.states) do
+            if not entries[itemID] and (not pending or pending[itemID] == nil) then self.states[itemID] = nil end
+        end
+        for itemID in pairs(pins) do
+            if not entries[itemID] and (not pending or pending[itemID] == nil) then pins[itemID] = nil end
+        end
     end
-    for itemID in pairs(pins) do if not entries[itemID] then pins[itemID] = nil end end
     self.available, self.availableOrder = entries, ids
     return visible, ids, nextDeadline
 end
@@ -652,7 +676,9 @@ function Items:Refresh()
     if Config().showQuestItems == false then
         visible, ids, deadline = EMPTY, EMPTY, nil
         self.questDirty = true
+        self.pendingItemData = nil
     elseif self.questDirty ~= false or not self.visibleCache then
+        self.questDirty = false
         visible, ids, deadline = self:Collect(now)
         if visible then
             self.visibleCache, self.idsCache, self.deadlineCache = visible, ids, deadline
@@ -661,7 +687,6 @@ function Items:Refresh()
             -- when an independent camp event changes the shared bar.
             visible, ids, deadline = self.visibleCache, self.idsCache, self.deadlineCache
         end
-        self.questDirty = false
     else
         visible, ids, deadline = self.visibleCache, self.idsCache, self.deadlineCache
     end
@@ -726,6 +751,7 @@ function Items:Stop()
     self:ClearTestItems()
     self.active, self.pending, self.editing = false, false, false
     self.visibleCache, self.idsCache, self.deadlineCache, self.questDirty = nil, nil, nil, true
+    self.questRows, self.pendingItemData = nil, nil
     self.appliedCampSignature = nil
     self.deadlineAt = nil
     self:StopFades()
@@ -756,8 +782,13 @@ local function OnEvent(_, event, itemID, success)
     end
     if event == "PLAYER_REGEN_ENABLED" and Items.pendingStop then Items:Stop(); return end
     if Config().showQuestItems == false and event ~= "PLAYER_REGEN_ENABLED" and event ~= "PLAYER_ENTERING_WORLD" then return end
-    if event == "GET_ITEM_INFO_RECEIVED" and (not API.IsCompatibilityItem(itemID)
-        or YUI.API.Security.SafeBoolean(success) ~= true) then return end
+    if event == "GET_ITEM_INFO_RECEIVED" or event == "ITEM_DATA_LOAD_RESULT" then
+        local security = YUI.API.Security
+        if security.SafeBoolean(success) ~= true then return end
+        local id = security.SafeNumber(itemID)
+        if not (id and Items.pendingItemData and Items.pendingItemData[id])
+            and not (event == "GET_ITEM_INFO_RECEIVED" and API.IsCompatibilityItem(id)) then return end
+    end
     if event == "BAG_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_COOLDOWN" then Items:RefreshCooldowns() else Items:Request() end
 end
 

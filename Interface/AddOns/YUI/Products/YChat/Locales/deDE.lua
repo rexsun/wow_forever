@@ -214,7 +214,6 @@ YUI.Locale:Register("YChat", "deDE", {
     ["settings.records.local_limit"] = "Historienrekordlimit",
     ["settings.records.restore_on_login"] = "Wiederherstellen der Historie nach dem Login",
     ["settings.records.restore_limit"] = "Meldungen nach dem Login wiederhergestellt",
-    ["settings.records.frame_limit"] = "Chat-fensterlimit",
     ["settings.records.count"] = "Für diesen Charakter gespeichert: %d",
     ["settings.records.empty"] = "Es wird kein Chatverlauf gespeichert.",
     ["settings.records.snapshot_title"] = "Chat-Geschichte",

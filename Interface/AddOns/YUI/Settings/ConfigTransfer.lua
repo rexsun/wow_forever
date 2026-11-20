@@ -614,6 +614,18 @@ local function RegisterAutomaticModules(self)
                 if ConfigSets and ConfigSets.GetProvider and ConfigSets:GetProvider(productId) then
                     providerIds[1] = productId
                 end
+                local layoutIds = CopyArray(PRODUCT_LAYOUTS[productId])
+                local optionalLayoutIds
+                local classTools = productId == "yactionbar" and YUI.IsForever and YUI.YActionBar and YUI.YActionBar.ClassTools
+                if classTools then
+                    optionalLayoutIds = { ["yactionbar.classTools"] = true }
+                    layoutIds[#layoutIds + 1] = "yactionbar.classTools"
+                    for _, classId in ipairs(classTools.ids) do
+                        local layoutId = "yactionbar." .. classId
+                        optionalLayoutIds[layoutId] = true
+                        layoutIds[#layoutIds + 1] = layoutId
+                    end
+                end
                 self:RegisterModule({
                     id = id,
                     kind = "product",
@@ -622,7 +634,8 @@ local function RegisterAutomaticModules(self)
                     schemaVersion = 1,
                     productId = productId,
                     dataPaths = { product.db.storageKey },
-                    layoutIds = PRODUCT_LAYOUTS[productId] or {},
+                    layoutIds = layoutIds,
+                    optionalLayoutIds = optionalLayoutIds,
                     providerIds = providerIds,
                     beforeCapture = type(product.transfer) == "table"
                         and product.transfer.beforeCapture or nil,
@@ -772,6 +785,18 @@ function ConfigTransfer:EndImportSession(token)
     return true
 end
 
+local function PrepareClassBarPlacement(layoutId, placement, legacy)
+    local actionBar = YUI.YActionBar
+    local corrected = actionBar and actionBar.GetCorrectedClassBarPlacement
+        and actionBar:GetCorrectedClassBarPlacement(layoutId, placement)
+    if not corrected then return placement end
+    if legacy then return corrected end
+    -- A current, explicit center must remain distinguishable on first load of the destination profile.
+    local copy = actionBar:CopyValue(placement)
+    copy.fallback = actionBar:CopyValue(placement)
+    return copy
+end
+
 local function CaptureStandard(definition, context)
     local productId = ResolveProductId(definition)
     local database, profileName, code = CurrentProfileIdentity(productId)
@@ -859,15 +884,23 @@ local function CaptureStandard(definition, context)
         payload.enabled = stored == nil and feature and feature.default == true or stored == true
     end
     local Layout = YUI.Layout
+    local layoutProfile = definition.optionalLayoutIds and YUI.DB:GetProfile(YUI.ProductId or "suite")
+    local migrations = layoutProfile and layoutProfile.YActionBarPlacementMigrations
     for _, layoutId in ipairs(definition.layoutIds) do
         if Layout and Layout.GetPlacement then
             local placement = Layout:GetPlacement(layoutId)
+            local optional = definition.optionalLayoutIds and definition.optionalLayoutIds[layoutId]
+            local sets = optional and YUI.YActionBar.ConfigSets
+            local dormant = not placement and sets and sets.GetDormantPlacement and sets:GetDormantPlacement(layoutId)
+            if dormant then placement = dormant end
             if not placement and Layout._private and Layout._private.GetSavedPlacement then
                 placement = Layout._private.GetSavedPlacement(layoutId)
             end
-            local present = Layout.HasPlacement
-                and Layout:HasPlacement(layoutId) == true
-                or (not Layout.HasPlacement and placement ~= nil)
+            local present = (dormant and true) or (Layout.HasPlacement
+                and Layout:HasPlacement(layoutId) == true) or (not Layout.HasPlacement and placement ~= nil)
+            if present and optional then
+                placement = PrepareClassBarPlacement(layoutId, placement, not dormant and not (migrations and migrations[layoutId]))
+            end
             payload.layoutPresent[layoutId] = present
             if present and placement then payload.layouts[layoutId] = placement end
         end
@@ -954,7 +987,9 @@ local function ValidateStandardPayload(definition, payload)
     local allowedLayouts = {}
     for _, layoutId in ipairs(definition.layoutIds) do allowedLayouts[layoutId] = true end
     for layoutId in pairs(allowedLayouts) do
-        if type(payload.layoutPresent[layoutId]) ~= "boolean" then
+        local present = payload.layoutPresent[layoutId]
+        if type(present) ~= "boolean" and not (present == nil and definition.optionalLayoutIds
+            and definition.optionalLayoutIds[layoutId]) then
             return nil, "unexpected_layout"
         end
     end
@@ -2011,6 +2046,20 @@ function ConfigTransfer:PrepareImport(parsed, moduleIds, context, work)
                 )
             end
         end
+        if definition.optionalLayoutIds then
+            local ConfigSets = S.ConfigSets
+            local positions = configSetsPrepared and ConfigSets.GetPreparedProfileActiveScope
+                and ConfigSets:GetPreparedProfileActiveScope(configSetsPrepared, "yactionbar", "screenPosition")
+            for layoutId in pairs(definition.optionalLayoutIds) do
+                local present = payload.layoutPresent[layoutId]
+                local placement = present == true and payload.layouts[layoutId]
+                    or (present == nil and positions and positions[layoutId])
+                if placement then
+                    payload.layouts[layoutId] = PrepareClassBarPlacement(layoutId, placement, false)
+                    payload.layoutPresent[layoutId] = true
+                end
+            end
+        end
         prepared.entries[#prepared.entries + 1] = {
             id = id, definition = definition, payload = payload, snapshot = snapshot,
             includePersonalData = includePersonalData,
@@ -2196,9 +2245,12 @@ local function ApplyStandard(entry)
     end
     local Layout = YUI.Layout
     for _, layoutId in ipairs(definition.layoutIds) do
-        local placement = payload.layouts and payload.layouts[layoutId]
-        local ok, code = WriteLayoutPlacement(layoutId, placement, payload.layoutPresent[layoutId])
-        if not ok then return nil, code end
+        local present = payload.layoutPresent[layoutId]
+        if present ~= nil then
+            local placement = payload.layouts and payload.layouts[layoutId]
+            local ok, code = WriteLayoutPlacement(layoutId, placement, present)
+            if not ok then return nil, code end
+        end
     end
     if entry.configSetsPrepared then
         local ok, code = S.ConfigSets:CommitProfileStateImport(entry.configSetsPrepared)
@@ -2531,7 +2583,17 @@ function ConfigTransfer:CommitImport(prepared, owner)
     end
     self.busy = false
     local requiresReload = false
-    for _, entry in ipairs(prepared.entries) do requiresReload = requiresReload or entry.definition.requiresReload == true end
+    for _, entry in ipairs(prepared.entries) do
+        requiresReload = requiresReload or entry.definition.requiresReload == true
+        if entry.definition.optionalLayoutIds then
+            local sets = YUI.YActionBar.ConfigSets
+            for layoutId in pairs(entry.definition.optionalLayoutIds) do
+                if entry.payload.layoutPresent[layoutId] ~= nil and sets and sets.ClearDormantPlacement then
+                    sets:ClearDormantPlacement(layoutId)
+                end
+            end
+        end
+    end
     local result = { moduleCount = #prepared.entries, requiresReload = requiresReload }
     local completions = {}
     for _, entry in ipairs(prepared.entries) do

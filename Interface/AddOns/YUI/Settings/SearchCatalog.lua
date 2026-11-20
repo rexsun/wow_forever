@@ -498,7 +498,6 @@ settings.typography.line_spacing
 ]])
 Search:RegisterCatalog("ychat.settings", "YChat", "records", [[
 settings.records.clear
-settings.records.frame_limit
 settings.records.local_limit
 settings.records.open
 settings.records.restore_limit
