@@ -26,7 +26,7 @@ local FORMS = {
 local pendingRefresh = {}
 local FLIGHT_MARKER = "travel.flight"
 -- YUI component features guarded through YUI's own switch, which runs their disable callback.
-local FEATURES = { AuctionHelper = "auction helper", LootRoll = "loot roll HUD" }
+local FEATURES = { AuctionHelper = "auction helper" }
 local PLAYER_RESOURCES = { PlayerHealth = { "health" }, PlayerCast = { "cast" } }
 
 local function LiveProfile()
@@ -385,8 +385,7 @@ local function ReadFeature(key)
   return false
 end
 
--- SetFeatureEnabled runs the feature's own callback: the auction panel hides at once and the
--- loot roll HUD hands Blizzard's roll frames back.
+-- SetFeatureEnabled runs the feature's own callback, so the auction panel hides at once.
 local function RevertFeature(key)
   local state, problem = FeatureState(key)
   if not state then return false, problem end

@@ -92,13 +92,6 @@ OSG.policy = {
     label = "YUI: Auction house shopping panel", when = { "YUI", "Auctionator" },
     reason = "Auctionator owns auction shopping lists and searches; YUI must not dock a second shopping panel.",
   },
-  -- v361: on by default, it hides GroupLootFrame1-4 and draws its own roll list, which would leave
-  -- LootRollMover's anchor with nothing to place.
-  {
-    id = "yui.lootroll", adapter = "YUI", key = "LootRoll",
-    label = "YUI: Loot roll HUD replacing Blizzard's roll frames", when = { "YUI", "LootRollMover" },
-    reason = "LootRollMover owns the group loot roll frames and their position; YUI must not hide them behind a second roll list.",
-  },
 }
 
 -- No other addon offers these, so they follow the guard's chat and group owner, YUI. Early,

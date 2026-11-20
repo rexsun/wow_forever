@@ -1,31 +1,25 @@
 return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
+  -- LootRollMover was removed because YUI's Loot Roll HUD replaces it, so the guard must not
+  -- keep that HUD off any more.
   local KEY = "LootRoll"
-  local RULE = "yui.lootroll"
-
-  local function Loaded()
-    local loaded = CurrentLoaded()
-    loaded.LootRollMover = true
-    return loaded
-  end
 
   local function ReadFile(path)
-    local file = assert(io.open(path, "rb"))
+    local file = io.open(path, "rb")
+    if not file then return nil end
     local text = file:read("*a")
     file:close()
     return text
   end
 
-  local function BuildYUI(activeValue)
-    local live = { Components = { [KEY] = activeValue, AuctionHelper = false } }
-    local other = { Components = { [KEY] = true, Other = true, AuctionHelper = false } }
-    local unset = { Components = { AuctionHelper = false } }
+  local function BuildYUI()
+    local live = { Components = { [KEY] = true, AuctionHelper = false } }
     local calls = {}
     local components = {
       features = {
         [KEY] = { product = "suite", default = true },
         AuctionHelper = { product = "suite", default = true },
       },
-      initializedFeatureStates = { [KEY] = activeValue ~= false, AuctionHelper = false },
+      initializedFeatureStates = { [KEY] = true, AuctionHelper = false },
     }
     function components:GetStore() return live.Components end
     function components:SetFeatureEnabled(key, enable)
@@ -35,79 +29,44 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
       return true
     end
     YUI = { DB = { GetProfile = function() return live end }, Components = components }
-    YUI_DB = { profiles = { Default = live, Other = other, Unset = unset } }
-    return live, other, unset, calls
+    YUI_DB = { profiles = { Default = live } }
+    return live, calls
   end
 
-  test("YUI loot roll rule needs YUI and LootRollMover and runs after login", function()
-    local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded() })
-    local rule
-    for _, candidate in ipairs(w.ns.policy) do
-      if candidate.id == RULE then rule = candidate end
+  test("LootRollMover has no guard rule and YUI's loot roll HUD is not guarded", function()
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+    for _, rule in ipairs(w.ns.policy) do
+      ok(rule.id ~= "yui.lootroll", "obsolete rule yui.lootroll")
+      ok(rule.key ~= KEY, "no rule targets YUI's loot roll HUD: " .. rule.id)
+      for _, name in ipairs(rule.when or {}) do
+        ok(name ~= "LootRollMover", "rule still depends on LootRollMover: " .. rule.id)
+      end
     end
-    ok(rule, RULE)
-    eq(rule.when[1], "YUI")
-    eq(rule.when[2], "LootRollMover")
-    eq(rule.early, nil, "the component starts with YUI after login")
+    ok(not w.ns.adapters.YUI.Knows(KEY), "the YUI adapter no longer handles LootRoll")
   end)
 
-  test("YUI loot roll HUD is off in every profile and Blizzard's roll frames are handed back at once", function()
-    local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded() })
-    local live, other, unset, calls = BuildYUI(true)
-    w.Login()
-    eq(live.Components[KEY], false)
-    eq(other.Components[KEY], false)
-    eq(other.Components.Other, true, "other components kept")
-    eq(unset.Components[KEY], false, "an unset value reads as YUI's default on")
-    local disabled = false
-    for _, call in ipairs(calls) do
-      if call == KEY .. "=false" then disabled = true end
-      ok(call ~= "AuctionHelper=true", "the auction panel is not switched on")
-    end
-    ok(disabled, "YUI's own switch runs the disable callback")
-    ok(ChatContains(w, "Other"), "other profile named in chat")
-    ok(not ChatContains(w, "/reload"), "no reload")
-    eq(StatusOf(w.ns.Check(), RULE), "off")
-    YUI.Components:SetFeatureEnabled(KEY, true)
-    w.RunTimers()
-    eq(live.Components[KEY], false, "switching it back on in YUI is caught")
-  end)
-
-  test("YUI loot roll HUD stays on without LootRollMover", function()
-    local loaded = Loaded()
-    loaded.LootRollMover = nil
+  test("YUI's loot roll HUD stays on with the installed pack", function()
+    local loaded = {}
+    for name in pairs(INSTALLED_ADDONS) do loaded[name] = true end
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded })
-    local live = BuildYUI(true)
+    local live, calls = BuildYUI()
     w.Login()
+    w.Tick()
     eq(live.Components[KEY], true)
-    eq(StatusOf(w.ns.Check(), RULE), "inactive")
+    for _, call in ipairs(calls) do ok(call ~= KEY .. "=false", "the HUD is not switched off") end
   end)
 
-  test("YUI loot roll HUD reports a missing API instead of writing", function()
-    local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded() })
-    local live = BuildYUI(true)
-    YUI.Components.features[KEY] = nil
-    w.Login()
-    eq(StatusOf(w.ns.Check(), RULE), "blocked")
-    eq(live.Components[KEY], true, "nothing written")
-  end)
-
-  test("YUI's loot roll component and the frames it hides exist in the installed source", function()
-    local addons = ADDON_ROOT .. "../YUI/"
-    local load = ReadFile(addons .. "Components/!load_Forever.xml")
+  test("LootRollMover is gone and YUI's loot roll component loads on Forever", function()
+    local addons = ADDON_ROOT .. "../"
+    eq(ReadFile(addons .. "LootRollMover/LootRollMover.toc"), nil, "LootRollMover removed")
+    local toc = assert(ReadFile(ADDON_ROOT .. "OverlapSettingsGuard.toc"))
+    ok(not toc:find("LootRollMover", 1, true), "no TOC dependency on LootRollMover")
+    local load = assert(ReadFile(addons .. "YUI/Components/!load_Forever.xml"))
     ok(load:find("LootRoll\\!load_Forever.xml", 1, true), "Forever loads the loot roll component")
-    local roll = ReadFile(addons .. "Components/LootRoll/LootRoll.lua")
-    ok(roll:find('local KEY, MODULE, LAYOUT = "LootRoll"', 1, true), "the component key is LootRoll")
-    ok(roll:find("Components:RegisterFeature(KEY, Feature)", 1, true), "the HUD is a YUI component feature")
+    local roll = assert(ReadFile(addons .. "YUI/Components/LootRoll/LootRoll.lua"))
     ok(roll:find('local Feature = { id = KEY, name = L["name"], description = L["description"], default = true,', 1, true),
       "the HUD is on by default")
-    ok(roll:find("callback = function(enabled) if enabled then YUI.Module:Enable(MODULE) else YUI.Module:Disable(MODULE) end end", 1, true),
-      "switching the feature off disables the module")
-    ok(roll:find("C.active, C.nativeTakeover = false, false; API.Release()", 1, true), "disabling hands the native frames back")
-    local adapter = ReadFile(addons .. "Components/LootRoll/Adapter_Forever.lua")
+    local adapter = assert(ReadFile(addons .. "YUI/Components/LootRoll/Adapter_Forever.lua"))
     ok(adapter:find("GroupLootFrame", 1, true), "it takes over Blizzard's group loot roll frames")
-    ok(adapter:find("function API.Release(keepClosed)", 1, true), "it can restore them")
-    local mover = ReadFile(ADDON_ROOT .. "../LootRollMover/LootRollMover.lua")
-    ok(mover:find("GroupLootFrame", 1, true), "LootRollMover positions the same frames")
   end)
 end

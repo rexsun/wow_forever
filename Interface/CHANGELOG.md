@@ -1,3 +1,14 @@
+## [Remove LootRollMover / OverlapSettingsGuard 0.21.0] - 2026-11-20
+### Features
+- Remove LootRollMover; YUI's Loot Roll HUD now owns group loot rolls.
+- Remove guard rule `yui.lootroll` (57 rules) and LootRollMover from the guard's optional dependencies.
+### Design Rationale
+- YUI's HUD covers everything LootRollMover was used for here (a saved roll-window position) and adds roll results and loot history; its alert-toast mover was already off.
+- The roll list keeps YUI's default position instead of the old anchor above the stance and totem bars.
+### Notes & Caveats
+- With the gamepad interface on, YUI hands rolls back to Blizzard's frames, which now stay at Blizzard's default position.
+- The guard had written YUI `Components.LootRoll=false`; it was set back to true in the account's saved settings, since the guard no longer touches it.
+
 ## [Addon update / OverlapSettingsGuard 0.20.0] - 2026-11-20
 ### Features
 - Update YUI v362, the EllesmereUI suite 9.9.1 and MapUtils 1.7.22.
