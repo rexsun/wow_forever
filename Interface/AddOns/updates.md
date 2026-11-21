@@ -2,6 +2,10 @@
 
 This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
 
+## 2026-11-20 - Correct Bagnon tooltip-count note
+
+- `readme.md` said no installed addon adds tooltip item counts. Bagnon's `TooltipCounts` module adds cross-character item, guild-bank and currency counts (`countItems`, `countGuild`, `countCurrency`, on by default and not overridden in the account's `Bagnon_Sets`). The note now credits Bagnon and states that YUI Bags has none. Bagnon stays installed after a feature comparison with YUI Bags; no addon, setting or guard rule changed.
+
 ## 2026-11-20 - Replace LootRollMover with YUI's Loot Roll HUD (OverlapSettingsGuard 0.21.0)
 
 - Remove LootRollMover 8.3. YUI v361's Loot Roll HUD, on by default on Forever, replaces it: it hides `GroupLootFrame1`-`4` and draws its own roll list with Need, Greed, Disenchant, Transmog and Pass choices, roll counts, a filterable loot history and a local winner readout. It is placed in YUI's layout edit mode, sized by width, visible items and growth direction, and keeps YUI's default position right of screen centre. LootRollMover was used only for the roll window's anchor: its alert-toast mover was off (`alertEnabled=false`) and this client has no bonus-roll frame. Blizzard's confirmation popup for bind-on-pickup rolls still appears; with the gamepad interface on, YUI hands rolls back to Blizzard's frames at their default position.
