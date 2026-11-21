@@ -676,6 +676,20 @@
                                           "value": {
                                             "$number": "number-0000074"
                                           }
+                                        },
+                                        {
+                                          "key": {
+                                            "$text": "text-0003210"
+                                          },
+                                          "value": false
+                                        },
+                                        {
+                                          "key": {
+                                            "$text": "text-0003211"
+                                          },
+                                          "value": {
+                                            "$text": "text-0000589"
+                                          }
                                         }
                                       ]
                                     }
