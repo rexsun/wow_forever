@@ -427,7 +427,7 @@ function Initialize-Checkout([string]$Git, [string]$Root, [string]$Repo, [script
                 $target = Join-Path $interface $privateFile
                 [IO.Directory]::CreateDirectory((Split-Path $target -Parent)) | Out-Null
                 Copy-Item -LiteralPath $kept -Destination $target
-                Write-SyncLog "Carried the private Interface$privateFile over from the previous Interface folder."
+                Write-SyncLog "Carried the private Interface\$privateFile over from the previous Interface folder."
             }
         }
         Write-SyncLog "Checkout created. Previous Interface and fonts: $backup"
