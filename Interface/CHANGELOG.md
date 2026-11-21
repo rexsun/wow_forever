@@ -8,6 +8,7 @@ Quarterly logs:
 
 ## 2026 Q4
 
+- 2026-11-20 · **GitHub sign-in sync**: [Sync Install keeps the CharacterUIBaseline source configuration](AddOns/updates-2026-Q4.md#2026-11-20---sync-install-keeps-the-characteruibaseline-source-configuration)
 - 2026-11-20 · **CharacterUIBaseline 0.4.0**: [`rex` layout for every character, no login popups](AddOns/updates-2026-Q4.md#2026-11-20---characteruibaseline-040-rex-layout-for-every-character-no-login-popups)
 - 2026-11-20 · **OverlapSettingsGuard 0.21.0**: [Replace LootRollMover with YUI's Loot Roll HUD (OverlapSettingsGuard 0.21.0)](AddOns/updates-2026-Q4.md#2026-11-20---replace-lootrollmover-with-yuis-loot-roll-hud-overlapsettingsguard-0210)
 - 2026-11-20 · **OverlapSettingsGuard 0.20.0**: [Update three addon packages (OverlapSettingsGuard 0.20.0)](AddOns/updates-2026-Q4.md#2026-11-20---update-three-addon-packages-overlapsettingsguard-0200)

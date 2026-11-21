@@ -2,6 +2,13 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-20 - Sync Install keeps the CharacterUIBaseline source configuration
+
+- Problem: `sync_from_github.ps1 -Mode Install` moves the old `Interface` to `addon-backupsootstrap-<timestamp>` and carried only `.env` back. On a machine first set up with `adopt_addons.ps1`, the Git-ignored CharacterUIBaseline source configuration (`Settings/character-ui-source.local.json` and `AddOns/CharacterUIBaseline/Source.local.lua`) stayed in the backup, so the per-login source UI sync turned itself off there.
+- Install now carries every file in a `$PrivateInterfaceFiles` list (those two plus `.env`) from the replaced folder. Regular syncs already kept them, because `git checkout --force` leaves ignored files alone.
+- The `rex` Edit Mode switch and the login-popup suppression need no private files, so a GitHub-synced machine gets them from the push alone. `adopt_addons.ps1` needed no change: it copies the whole `Interface` (including the private files and the two new CharacterUIBaseline files) and `WTF`.
+- Verification: the sync tests pass (60 checks). The two new carry-over checks failed against the previous script.
+
 ## 2026-11-20 - CharacterUIBaseline 0.4.0: `rex` layout for every character, no login popups
 
 - Problem: a new character, on this or another installation, started on Blizzard's preset Edit Mode layout instead of the account layout `rex`, and its first login opened YUI's setup wizard (followed by YUI's "switch to the YUI layout" prompt), GearInsight's leveling window with a guard chat line, and Blizzard's help tips. 0.3.0 only reported a layout mismatch, and compared against the stale published name `YUI v3`, which no longer exists on the account.

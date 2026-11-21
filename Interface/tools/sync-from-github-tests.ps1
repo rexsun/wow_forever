@@ -65,6 +65,8 @@ try {
     Write-File (Join-Path $syncGame 'Interface\AddOns\Old\o.lua') 'old = 1'
     Write-File (Join-Path $syncGame 'Interface\.env') 'WTF_MAP_VERSION=1'
     Write-File (Join-Path $syncGame 'Fonts\YUIText.ttf') 'old font'
+    Write-File (Join-Path $syncGame 'Interface\Settings\character-ui-source.local.json') '{"enabled": true}'
+    Write-File (Join-Path $syncGame 'Interface\AddOns\CharacterUIBaseline\Source.local.lua') 'source = 1'
     Write-File (Join-Path $syncGame 'Fonts\Other.ttf') 'untracked font'
     Write-File (Join-Path $syncGame 'WTF\Config.wtf') "SET gxWindowedResolution `"3440x1440`"`r`nSET uiScale `"0.6`"`r`n"
     $eui = Join-Path $syncGame 'WTF\Account\ACC\SavedVariables\EllesmereUI.lua'
@@ -104,10 +106,12 @@ try {
     Assert (-not (Test-Path -LiteralPath (Join-Path $syncGame 'Interface\AddOns\Old'))) 'Bootstrap kept the old Interface'
     Assert (Test-Path -LiteralPath (Join-Path $backup 'Interface\AddOns\Old\o.lua')) 'Old Interface not backed up'
     Assert ((Read-File (Join-Path $syncGame 'Interface\.env')) -eq 'WTF_MAP_VERSION=1') '.env not carried over'
+    Assert ((Read-File (Join-Path $syncGame 'Interface\Settings\character-ui-source.local.json')) -eq '{"enabled": true}') 'UI source configuration not carried over'
+    Assert ((Read-File (Join-Path $syncGame 'Interface\AddOns\CharacterUIBaseline\Source.local.lua')) -eq 'source = 1') 'UI source metadata not carried over'
     Assert ((Read-File (Join-Path $backup 'Fonts\YUIText.ttf')) -eq 'old font') 'Overwritten font not backed up'
     Assert ((Read-File (Join-Path $syncGame 'Fonts\YUIText.ttf')) -eq 'new font') 'Tracked font not installed'
     Assert ((Read-File (Join-Path $syncGame 'Fonts\Other.ttf')) -eq 'untracked font') 'Untracked font touched'
-    $checks += 7
+    $checks += 9
 
     $global:restoreCalls = 0
     $global:restoreFails = $null

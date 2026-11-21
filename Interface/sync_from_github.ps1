@@ -5,8 +5,8 @@ window resolution to this machine.
 .DESCRIPTION
 Install (once, with WoW closed): turns the game root into a checkout of the repository when it is not one yet,
 records git/uv and an optional fixed resolution, registers a hidden current-user sign-in task and runs one sync.
-The previous Interface folder is moved to addon-backups\bootstrap-<timestamp>; a private Interface\.env in it is
-carried over.
+The previous Interface folder is moved to addon-backups\bootstrap-<timestamp>; the Git-ignored private files in it
+(Interface\.env and the CharacterUIBaseline source configuration) are carried over.
 
 Sync (what the sign-in task runs): fetch main, wait for WoW to close, move the checkout to main, restore the
 Settings\WTF bundle through watch_wtf_settings.ps1 when the bundle changed since its last successful restore,
@@ -39,6 +39,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:LogPath = $null
+# Git-ignored files under Interface that GitHub cannot provide; Install keeps them from the replaced folder.
+$PrivateInterfaceFiles = @(
+    '.env',
+    'Settings\character-ui-source.local.json',
+    'AddOns\CharacterUIBaseline\Source.local.lua'
+)
 
 function Get-InstallationId([string]$Root) {
     $sha = [Security.Cryptography.SHA256]::Create()
@@ -415,10 +421,14 @@ function Initialize-Checkout([string]$Git, [string]$Root, [string]$Repo, [script
         }
         $checkoutStarted = $true
         Invoke-Git $Git $Root @('checkout', '--force', '-B', $Branch, "origin/$Branch") | Out-Null
-        $privateMap = Join-Path $previous '.env'
-        if (Test-Path -LiteralPath $privateMap -PathType Leaf) {
-            Copy-Item -LiteralPath $privateMap -Destination (Join-Path $interface '.env')
-            Write-SyncLog 'Carried the private Interface\.env over from the previous Interface folder.'
+        foreach ($privateFile in $PrivateInterfaceFiles) {
+            $kept = Join-Path $previous $privateFile
+            if (Test-Path -LiteralPath $kept -PathType Leaf) {
+                $target = Join-Path $interface $privateFile
+                [IO.Directory]::CreateDirectory((Split-Path $target -Parent)) | Out-Null
+                Copy-Item -LiteralPath $kept -Destination $target
+                Write-SyncLog "Carried the private Interface$privateFile over from the previous Interface folder."
+            }
         }
         Write-SyncLog "Checkout created. Previous Interface and fonts: $backup"
     } catch {
