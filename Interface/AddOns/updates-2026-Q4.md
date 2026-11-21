@@ -1,6 +1,19 @@
-# WoW: Forever add-on updates
+# WoW: Forever add-on updates, 2026 Q4
 
-This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources.
+This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
+
+## 2026-11-20 - CharacterUIBaseline 0.4.0: `rex` layout for every character, no login popups
+
+- Problem: a new character, on this or another installation, started on Blizzard's preset Edit Mode layout instead of the account layout `rex`, and its first login opened YUI's setup wizard (followed by YUI's "switch to the YUI layout" prompt), GearInsight's leveling window with a guard chat line, and Blizzard's help tips. 0.3.0 only reported a layout mismatch, and compared against the stale published name `YUI v3`, which no longer exists on the account.
+- New `EditModeLayout.lua`: when a character's active layout is a Blizzard preset and the account has a layout named `rex`, it selects `rex` and reloads the UI at once, once per spec group (recorded in `CharacterUIBaselineDB.editModeLayout`). The reload discards the tainted Edit Mode state that broke logout in 0.2.0, the pattern EllesmereUI documents for its own preset import. Characters already on `rex` or on another saved layout are left alone; if the selection does not persist, it asks for a manual selection instead of reloading again. It defers in combat or while Edit Mode is open, and needs no source configuration, so GitHub-synced installations get it too. Offline edits to the Edit Mode cache were not used: the server's copy replaced them at login (2026-11-04).
+- New `QuietLogin.lua`, following the new `AGENTS.md` rule that no window may open by itself at any login. It replaces YUI's `Installer.CheckInstall`, `EditMode.CheckAndPromptSwitchToYUI` and `Changelog.CheckVersion` (the last records the version as seen), stamps EllesmereUI's first-install state and holds its incompatible-add-on popup, hides GearInsight's leveling window under YUI (same condition as `gi.levelingstats`) and records its What's New version as seen, skips the Details first-run welcome once, marks GatherLite's controls guide seen, turns off MapUtils' "Show what's new", holds Bagnon's outdated-version popup, and closes every Blizzard `LE_FRAME_TUTORIAL_*` help tip plus `showTutorials`. Upstream addon files are unchanged.
+- Inspected without change: EllesmereUI's other popups, the Details profile picker, Auctionator, WaypointUI, Lueur and Skinner open nothing at login here. Bagnon's invalid-build popup, GatherLite's login chat line and BugGrabber's chat reminder remain.
+- Bootstrap: the stale layout-mismatch notice is removed, and the per-character record is read at use time, because a cached reference pointed at the table that the loaded saved variables replace.
+- Overlap review: no new guard rule; these are one-time login actions on owner settings, documented with the existing CharacterUIBaseline overlaps in the guard readme. The private source configuration's `fallbackLayoutName` is now informational; the example uses `rex`.
+- Verification: 28 CharacterUIBaseline runtime checks (including the `rex` switch, deferral, kept choices, failed persistence, per-spec handling and each suppression), 7 helper tests and 92 guard tests pass; all addon Lua compiles under Lua 5.1. In-game behaviour on a new character, including the one extra loading screen, is unverified.
+- The suppression replaces the add-ons' own login checks at load time instead of patching their files, so add-on updates do not undo it. Like the layout switch, it needs no private source configuration, so it applies on every installation.
+- A new character sees one extra loading screen on its first login, and once more on its second spec group. An account without a `rex` layout is told so and left unchanged.
+- YUI's changelog page and GearInsight's `/gif lv` stay available manually.
 
 ## 2026-11-20 - Correct Bagnon tooltip-count note
 
@@ -28,6 +41,8 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
   - MapUtils 1.7.16-1.7.22: cloth-donation quest givers hidden unless the new `QUESTGIVERCLOTH` option (off) is on, opposite-faction reputation quests hidden, low-level quest filtering limited to one-star quests, quest-giver and library-book caching, world-map click and cursor fixes, and its damage-meter movers moved into a shared edit-mode snapping helper. No new CVar writes, messages or channels.
 - Backup: `addon-backups/daily-20261120-130007`.
 - Verification: 3,033 Lua files under AddOns compile under Lua 5.1. Installed files match the releases byte for byte except the locally patched files (`YUI/Media/Init_SharedMedia.lua`, `YUI/Components/TalentFrameEnhancement/TalentFrameEnhancement.lua`, `EllesmereUIForeverEssentials_Fishing.lua`, `EUI_ForeverEssentials_General_Options.lua`, `EllesmereUILocales/zhTW.lua`, `MapUtils/mapframe.lua`). 94 guard tests (5 new, 4 extended), 71 pytest tests (70 passed, 1 skipped for Splash Alert's numpy), the patch check and the adoption, sync, helper and watcher tests pass. Nothing was run in game or checked at the three supported resolutions.
+- `gi.pallyfloat` keeps YUI's raid blessing bar rather than GearInsight's button because YUI owns action bars and key bindings.
+- MapUtils 1.7.22 also adds one Lua file, which loads only after a full client restart, not `/reload`.
 
 ## 2026-11-19 - Update three addon packages (OverlapSettingsGuard 0.19.0)
 
@@ -42,6 +57,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
   - GatherLite 8.4.14: 240 more gathering locations (35,933 in total); Shift-click on its world-map button hides or restores its markers; minimap ring opacity, an optional custom ring colour and a switch for its minimap tooltips. Nearby-marker hiding now defaults to 150 yards, and a one-time migration turns hiding back on for profiles using regular icons that had it off. Upstream again ships CRLF copies of `LICENSE`, `scripts/libraries/LibDataBroker-1.1/README.textile`, `plugins/routes/navigation/vendor/LICENSE` and `vendor/manifest.json`; the installed copies keep their bytes.
 - Backup: `addon-backups/daily-20261119-130007`.
 - Verification: 2,984 Lua files under AddOns compile under Lua 5.1. Installed files match the releases byte for byte except the four locally patched files in the updated folders (`EllesmereUIForeverEssentials_Fishing.lua`, `EUI_ForeverEssentials_General_Options.lua`, `EllesmereUILocales/zhTW.lua`, `MapUtils/mapframe.lua`) and GatherLite's four line-ending-only files. 89 guard tests (1 new, 4 extended), 71 pytest tests (70 passed, 1 skipped for Splash Alert's numpy), the patch check and the adoption, sync, helper and watcher tests pass. Nothing was run in game or checked at the three supported resolutions.
+- The friend rules sit with the other MapUtils rules under YUI as the chat owner, as the GearInsight network rules do. Guild pins and guild sharing, accepted earlier, are left as they were.
 
 ## 2026-11-18 - Update four addon packages (OverlapSettingsGuard 0.18.0)
 
@@ -58,6 +74,8 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
   - Bagnon 12.1.12: bank bag icons and tooltips use the current bank API, Shift-click on a currency adds it to the backpack (click only), the slot-background default moves into the frame settings, and the item search fades profession-quality overlays. The `combinedBags` hook stays idle with the local patch.
 - Backup: `addon-backups/daily-20261118-130007`.
 - Verification: 2,981 Lua files under AddOns compile under Lua 5.1. Installed files match the releases byte for byte except the five locally patched files (`BagBrother/core/features/uiOverrides.lua`, `EllesmereUIForeverEssentials_Fishing.lua`, `EUI_ForeverEssentials_General_Options.lua`, `EllesmereUILocales/zhTW.lua`, `MapUtils/mapframe.lua`). 88 guard tests (2 new, 4 extended), 71 pytest tests (1 new; 70 passed, 1 skipped for Splash Alert's numpy), the patch check and the adoption, sync, helper and watcher tests pass. Nothing was run in game or checked at the three supported resolutions.
+- `euife.skinningskill` targets the `skinning` switch alone, so Gathering Skill stays under its own GatherLite rule (`euife.gatherskill`).
+- The Forever Essentials adapter gained per-rule switch names instead of a second adapter being added, because both rules use the same published `_GatherSkill` API.
 
 ## 2026-11-17 - Update four addon packages (OverlapSettingsGuard 0.17.0)
 
@@ -72,6 +90,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
   - MapUtils 1.7.7-1.7.9: pin performance work, nearby world-map pins of one type grouped under a shared tooltip, quest-giver data, an addon compartment entry (on, switchable in `/maputils`), and a PvP quest-giver filter and One Map transitions (both off). No new CVar writes, messages or channels.
 - Backup: `addon-backups/daily-20261117-141902`.
 - Verification: 2,981 Lua files under AddOns compile under Lua 5.1. Installed files match the releases byte for byte except the four locally patched files and GatherLite's four line-ending-only files. 86 guard tests (Lueur tests rewritten, failing before the rules were removed), 69 pytest tests (1 skipped, see below), the patch check and the adoption, sync, helper and watcher tests pass. The Splash Alert tests need numpy, which the shared `pytest tools` run does not install, so its module now skips there instead of failing collection; its own command still runs all 50 tests, which pass. Nothing was run in game or checked at the three supported resolutions.
+- The sound-off set reuses the patched effects entry but had no master volume. Adding it keeps Fishing Sounds' behaviour the same whether or not the game's sound was on.
 
 ## 2026-11-16 - Splash Alert works without calibration
 
@@ -81,6 +100,10 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - `calibrate` stays for re-sampling and now first copies the existing `calibration.local.json` to `calibration.<date-time>.local.json`. The file records its source (`game`, `learned` or `calibrate`), shown by `autostart.ps1 -Mode Status`. Calibrations in the old format are set aside the same way and rebuilt from the game.
 - Safety net: after three casts in a row run their full channel with nothing matched, the overlay shows `🎣 No bite heard` and the log suggests `calibrate`. Each such cast logs its closest match.
 - Verification: 50 unit tests, including the real bite sound read from this installation; a bite 20 dB quieter or muffled to 3 kHz still matches (0.75-0.81) and no decoy takes it, while the bobber sounds and a tone do not match. Under heavy background noise the bite scores 0.64-0.69 and is missed; that is what the notice and `calibrate` cover. Not yet tried on a real fishing session.
+- The bite sound is read from the local CASC storage by a small read-only reader, `casc.py` (local indices, BLTE, encoding table, MFST root).
+- Reading the file instead of having an addon play it gives the exact sound with no need to time a capture around an in-game playback.
+- Calibration files move to format 2: a time-frequency template, `source`, optional `decoys`, and a `level_db` that may be null.
+- New dependency: `soundfile`, for Ogg Vorbis decoding.
 
 ## 2026-11-16 - Splash Alert shows a missing calibration
 
@@ -94,6 +117,16 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Captures audio only while a line is out (from a Fishing Key press until 25 s after the last one) and only from WoW. `autostart.ps1 -Mode Install` starts it hidden at each sign-in.
 - Works with Forever Essentials' Fishing Key and Fishing Sounds; needs the game's Sound in Background on. No addon files or guard rules changed.
 - Verification: 25 unit tests; live capture of the running game, and isolation and on-demand capture against a test process; overlay checked on both monitors; installed task runs hidden. Not yet run during a real fishing session.
+- On a splash that matches the calibrated one, it shows a click-through overlay on every monitor: a 20% black wash with `🎣 Bite!` in Maple Mono NF CN, 64 pt, light blue, for 3 s or until the next key press.
+- `calibrate` records three of your own splashes at your fishing spot. `preview` shows the overlay once.
+- `autostart.ps1 -Mode Install|Status|Uninstall` registers a current-user sign-in task that starts `run` hidden through `splash_alert.vbs`, logging to `%LOCALAPPDATA%\SplashAlert`. A running copy reloads a new calibration at the next cast, and a second `run` refuses to start (single-instance guard verified).
+- Detection happens on the audio outside the game because addons get no bite event and the Fishing Key relies on hearing the splash.
+- The tool sends no input: an alert keeps every in-game action with the player, whereas a key presser would be unattended play.
+- WASAPI process loopback isolates the game's audio, so other apps cannot cause alerts. Other players' splashes are filtered by loudness (yours is closest), a spectral match against your calibrated splash, the per-cast window and one alert per cast.
+- The overlay uses PySide6: per-pixel alpha keeps the text opaque over a 20% background, it renders the colour emoji, and DPI-aware points keep the size at 1080p, 1440p and 4K.
+- Windows provides the game's mixed output, not individual sounds, so the splash is still picked out by loudness and spectrum.
+- Needs Windows 11 (or Windows 10 build 20348+) and Windowed (Fullscreen). There is no fallback to capturing all system audio.
+- A bobber landing right beside yours can still trigger a false alert. Recalibrate after changing game volume.
 
 ## 2026-11-15 - Update three addon packages (OverlapSettingsGuard 0.16.0)
 
@@ -122,6 +155,14 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 
 - New `Interface/sync_from_github.ps1` and `sync_from_github.vbs`: a current-user sign-in task updates a second installation from `main`, restores the settings bundle when it changed, and fits `gxWindowedResolution` and the EllesmereUI options-panel scale to that machine's game setting or display (1920x1080, 2560x1440 or 3840x2160). See [auto-update.md](../../auto-update.md).
 - `adopt_addons.ps1` now uses the shared `tools/WowResolution.psm1`; its behaviour is unchanged. No addon files changed.
+- Install turns a game root into a checkout of `main`, backing up the previous Interface and carrying over `.env`, then registers the sign-in task. Sync fetches, waits for WoW to close and resets to `origin/main` before the restore and fitting steps.
+- `tools/WowResolution.psm1` writes files only when their content changes, and adds Config.wtf and display detection with snapping to the three supported sizes.
+- Git is used instead of zip downloads: updates are incremental, files of removed addons are deleted exactly, and the ignore rules already keep the client, WTF and `.env` out. The repository is public, so no credentials are needed.
+- Restore runs only when `Settings/WTF` changed since its last success, so in-game tweaks on the second machine are not reverted at every sign-in. Failed restores retry by themselves.
+- The resolution is read before restore, because restore writes the authoring machine's `gxWindowedResolution`. A value that differs from what the script last wrote is treated as a deliberate game setting.
+- The `.env` alias map is still copied by hand. It changes only when exports add aliases, and keeping it off GitHub preserves the pseudonymization design.
+- Install refuses an authoring checkout: one with uncommitted or unpushed work, or with the export watcher task installed. Sync force-resets tracked files, saving them first as a patch and a backup branch.
+- Settings restore needs uv, the same game account logged in once, and a current `.env`. Until then, each sync updates addons and resolution and logs what is missing.
 
 ## 2026-11-15 - Update eight addon packages (OverlapSettingsGuard 0.15.0)
 
@@ -142,6 +183,8 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - `tools/profile-compatibility-tests.py` now accepts GearInsight 1.1's per-character leveling hide list; the live WTF lost the account-wide `leveling.shown` after 1.1.4's migration, so the old assertion failed independently of this update.
 - Backup: `addon-backups/addon-upgrade-20261115` holds the replaced folders, the 0.14.0 guard and live WTF.
 - Verification: 2,464 Lua files in the updated folders and the guard compile under Lua 5.1. Installed files match the releases byte for byte except the nine locally patched files. 88 guard tests (5 extended for 1.2.x, failing without the new rules), 69 pytest tests (patch tool, settings, baseline, cursor), fresh-profile, font, baseline, adoption, watcher and helper tests pass. Nothing was run in game or checked at the three supported resolutions; check with `/osg` that `gi.lowrank` and `gi.buffask` show locked off, that Skinner starts without errors and still skins Forever windows, and that Forever Essentials' Gathering Skill shows node names.
+- `gi.lowrank` and `gi.buffask` follow the existing no-automatic-chat posture. The low-rank checker's own page stays usable.
+- Replacing Skinner's line, rather than adding one, avoids risking Skinner aborting or loading its Forever files twice under the unproven `forever` game type.
 
 ## 2026-11-13 - Update four addon packages (OverlapSettingsGuard 0.14.0)
 
@@ -163,6 +206,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Caveat: the leveling window is now per character and the guard reverts it two seconds after entering the world, so a character that never closed it can show it briefly once.
 - Backup: `addon-backups/addon-upgrade-20261113` holds the replaced folders, the 0.13.0 guard and live WTF.
 - Verification: 1,299 Lua files in the updated folders and the guard compile under Lua 5.1. 88 guard tests (1 new, 6 updated for 1.1.x and 1.7.x), 69 pytest tests (patch tool, settings, baseline, cursor), fresh-profile, font, adoption, watcher and helper tests pass. Nothing was run in game or checked at the three supported resolutions; check with `/osg` that `gi.questshare`, `gi.magewater`, `gi.groupautoload`, `gi.levelingstats` and `mu.pierpins` show locked off, that no Group module loads at login (`/gi` Group tab still opens it), that piers stay hidden on the continent map, and the action bars and world-map fade while moving, with BugGrabber.
+- The Mage water whisper is outbound chat, which YUI owns.
 
 ## 2026-11-12 - Update GearInsight Forever to 1.0.1 (OverlapSettingsGuard 0.13.0)
 
@@ -173,6 +217,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Left on, worth knowing: tent-sharing pop-up and a thank-you whisper after leaving the tent owner's group, XP-check window and alerts, auto-whisper to dungeon recruit responders missing level or role (Group module), What's New pop-up, material-source tooltip line, Traditional Chinese conversion on zhTW. Opening the Group tab still starts quest-mate sharing until `/gi qm off`. Its Group/Guild loader still re-enables those modules if they are disabled in the addon list.
 - Backup: `addon-backups/gearinsight-upgrade-20261112` holds the 0.7.4 folders and live WTF.
 - Verification: 94 GearInsight Lua files compile under Lua 5.1. 87 guard tests (7 new), patch-tool, settings, baseline and fresh-profile tests pass. Nothing was run in game; check with `/osg` that all GearInsight rules show locked off, that no `GIFM` channel is joined, that party invites from officers still prompt, and that item level shows only from YUI.
+- Settings are written straight into GearInsight's saved table because GearInsight sends its first heartbeat on the first frame after loading and publishes no API for most switches.
 
 ## 2026-11-12 - Update six addon packages (OverlapSettingsGuard 0.12.0)
 
@@ -189,6 +234,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
   - GatherLite 8.4.7: 1,549 more locations (33,614), Demonsage and three chest types, accent-insensitive name matching. Lueur 1.7.0: Brackets effect restored, ignore-by-name; `nodeHerbs`/`nodeOre` and its CVar handling are unchanged.
 - Backup: `addon-backups/addon-upgrade-20261112` holds the replaced folders and live WTF.
 - Verification: all Lua in the updated folders compiles under Lua 5.1 (1,663 files). 80 guard tests (5 new), 13 patch-tool tests, settings, baseline, cursor, fresh-profile, font, adoption and watcher tests pass. Nothing was run in game or checked at the three supported resolutions; check for a Bagnon load error and that B opens only Bagnon, that the YUI auction panel stays hidden at the auction house, that the MapUtils cog and YUI's map drag handle both work, the Mage tool bar position, and the world-map fade while moving, with BugGrabber.
+- Turning the Auction Helper off through YUI's component switch keeps its saved shopping lists.
 
 ## 2026-11-10 - Update seven addon packages and patch MapUtils fade
 
@@ -205,6 +251,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
   - Auctionator 344: Forever selling fixes (copper hidden for gear, prices round up to silver). On RP-PvP realms with regional unique names, old price history is not reused.
 - Backup: `addon-backups/addon-upgrade-20261110` holds the replaced folders and live WTF.
 - Verification: 321 changed Lua files compile under Lua 5.1. 75 guard tests, 13 patch-tool tests, settings, baseline, cursor, fresh-profile, font and adoption tests pass. Nothing was run in game or checked at the three supported resolutions; check the world-map fade while moving, the Lueur glow on game objects, and Details' new spell displays with BugGrabber.
+- The one-line patch keeps YUI as the world-map fade owner, matching the existing `mu.worldmapfade` decision. Handing the fade to MapUtils instead would have changed the look and the guard's ownership split.
 
 ## 2026-11-09 - Restore unexplored areas on the world map (OverlapSettingsGuard 0.11.1)
 
@@ -216,6 +263,8 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Appearance: MapUtils' saved tint is Blue (0.6, 0.6, 1, opaque), which is close to YUI's blue (0.65, 0.75, 1 at 65% opacity) but not identical. Change it under Unexplored areas in `/maputils`. Only zone maps are tinted, as upstream does.
 - Backup: `addon-backups/map-reveal-owner-20261109` holds the previous `MapUtils.lua` saved variables.
 - Verification: 75 guard tests pass, 4 of them new. Nothing was run in game or checked at the three supported resolutions.
+- MapUtils is the one owner that works with One Map on or off. Turning One Map off instead would have kept YUI's look but removed stepless zoom.
+- Removing MapUtils later leaves YUI's reveal saved as off, so turn it back on in YUI.
 
 ## 2026-11-09 - Install GatherLite 8.4.3 and Lueur 1.5.0 (OverlapSettingsGuard 0.11.0)
 
@@ -226,6 +275,9 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Caveats: Lueur shares `SoftTargetInteractRange` with EUI Fishing Key, and its glow attaches to game-object nameplates that EUI Nameplates also handles; check fishing and that the glow appears. GatherLite's compressed route data was not decoded during review.
 - Backup: `addon-backups/gatherlite-lueur-install-20261109` holds the 15 edited character addon lists.
 - Verification: 71 guard tests pass, 6 of them new. Nothing was run in game or checked at the three supported resolutions.
+- GatherLite adds known gathering locations, fish areas and zone routes. Lueur adds an in-world glow on the object you would interact with.
+- MapUtils stays the owner of markers for tracked nodes because Lueur draws the same nodes and each of its scans briefly hides the minimap.
+- Lueur publishes no API, so the guard writes its saved table before login, when no reload is needed.
 
 ## 2026-11-09 - Silence other channels in Forever Essentials Fishing Sounds
 
@@ -244,6 +296,8 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Caveats: MapUtils uses its own dungeon maps and boss pins only if the client has no native art for those instances; confirm "Show boss pins" appears in `/maputils`. Undiscovered flight points need each character to open a flight master before they are confirmed. Neither fishing pool locations nor zone-crossing coverage were checked in game. Nothing was run in game, including appearance at 1080p, 1440p and 4K.
 - Backup: `addon-backups/maputils-install-20261108` holds the 15 edited character addon lists.
 - Verification: 65 guard tests pass, 9 of them new.
+- MapUtils adds undiscovered flight points, zone crossings, fishing-skill and zone-level labels, and dungeon maps with boss pins.
+- YUI keeps the map window and the static transport markers it already manages. MapUtils owns flight points because YUI shows an unconfirmed point as a normal pin.
 
 ## 2026-11-07 - Update six addon packages (OverlapSettingsGuard 0.9.1)
 
@@ -259,6 +313,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - `tools/font-asset-tests.py` now loads EUI's real damage-font locale gate instead of failing on the missing `EllesmereUI` table.
 - Backup: `addon-backups/addon-upgrade-20261107` holds the replaced folders and live WTF.
 - Verification: 56 guard tests, 11 patch-tool tests, settings, baseline, fresh-profile, font and adoption tests pass. 2,673 Lua files compile under Lua 5.1 except five unchanged-style files that start with a UTF-8 BOM, which the client accepts. Nothing was run in game.
+- GearInsight is kept as the single owner of level-up announcement filtering, even though it is now off by default, rather than re-enabling YUI's broader keyword filter.
 
 ## 2026-11-06 - Enlarge the Forever Essentials Bobber Indicator
 
@@ -280,6 +335,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Overlap review: no other installed addon positions the roll stack or alert toasts on this client; YUI's loot-roll bridge loads only on retail. No guard policy is added.
 - Caveats: YUI HUD groups centred near y=169 (important, utility, resources) and the buff group can still overlap the roll stack while it is shown; accepted because rolls are short-lived. The position is fixed, so it does not follow later changes to YUI bar size, rows or position; drag it with `/lrm anchor`. LootRollMover re-anchors the roll windows from Blizzard's `GroupLootContainer_Update`/`GroupLootFrame_OnShow` hooks; whether this client's bottom-managed layout moves them afterwards is unverified in-game, as is placement at 1080p, 1440p and 4K.
 - Backups of the edited character addon lists are in `addon-backups/lootrollanchor-removal-20261106`.
+- A maintained community addon with a fixed, user-adjustable anchor replaces local placement code that depended on EllesmereUI's frame placer and YUI internals.
 
 ## 2026-11-06 - Install EllesmereUI Forever Essentials for its fishing tools (OverlapSettingsGuard 0.9.0)
 
@@ -304,6 +360,8 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
   - A YUI frame that appears only after a roll opens is not avoided until the next layout.
   - `/lra` reports the current anchor and the computed spot.
 - Verification: 8 new LootRollAnchor tests and the existing suites pass, and the addon's Lua compiles under Lua 5.1. Placement is unverified in-game at 1080p, 1440p and 4K.
+- A separate addon keeps the fix out of upstream files and survives YUI updates. The EllesmereUI frame placer is used rather than direct `SetPoint` calls because it also hands Blizzard's anchor back when it is removed.
+- Requires EllesmereUI.
 
 ## 2026-11-05 - Guard Details row hover against a secret truncation value
 
@@ -334,6 +392,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
   - 51 guard tests pass, 4 of them new. 11 patch-tool tests, 44 settings tests and 7 baseline tests pass, plus the baseline runtime, fresh-profile, font and adoption checks.
   - All 2,625 Lua files under AddOns compile under Lua 5.1.
   - Nothing was run in game: settings migrations, `/osg` (25 rules), the two chat rules, nameplate target marking and appearance at 1080p/1440p/4K still need in-game checks.
+- The live state goes through each addon's own setter (`SetMessageFilterEnabled`, `GuildChatLevel.SetEnabled`), so YChat refreshes its filter interests and no reload is needed.
 
 ## 2026-11-05 - Turn off bloom at startup (OverlapSettingsGuard 0.8.2)
 
@@ -380,6 +439,9 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Add `tools/apply_addon_patches.py` to reapply this patch and YUI's eight portable-font references after updates; it fails without writing if upstream text changed. YUI's seven bundled fonts are byte-identical to v341, so game-root copies are unchanged.
 - Overlap review: no new guard rule. YUI's `EllesmereUIEnhancement` window styling needs the absent EllesmereUIBlizzardSkin. Its damage-meter reset prompt is opt-in and supplements Details. GearInsight now hides other players' level-up announcements by default and announces your own at every tenth level; no installed addon overlaps this.
 - Backup: `addon-backups/addon-upgrade-20261104` holds the replaced folders and live WTF. Verification: every installed file matches its release archive except the two YUI files and one Skinner file patched above; 2,130 Lua files compile under Lua 5.1; 47 guard tests, 5 patch tests, 51 settings/baseline tests, font, fresh-profile, baseline runtime and adoption checks pass. Nothing was run in game: settings migrations, `/osg`, the Group tab, `AsyncFile.log` and appearance at 1080p/1440p/4K still require in-game checks.
+- Editing methods are locked one by one, and a test fails on unclassified methods, so new ones are reviewed at update time. GearInsight and YUI both ship several releases per week.
+- YUI's portable-font paths are kept to preserve current behaviour. Whether upstream's bundled paths now load cleanly is untested.
+- Saved settings migrate on first login.
 
 ## 2026-10-23 - Inspect release client language resources
 
@@ -393,6 +455,8 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Preserve existing addon backups, font backup, diagnostics, utility files and private watcher state under `addon-backups/beta-migration-20261023-141603`. Keep beta files intact until uninstall.
 - Update the current inventory and adoption examples for release; replace the beta scheduled settings watcher with the release watcher. Private source-character identities are retained rather than guessed for new release realms.
 - Verify copied files with SHA256 and run existing adoption, overlap guard and settings checks from release. First release login, profile/realm mapping and visuals at 1080p/1440p/4K require in-game verification.
+- The existing adoption utility was used to preserve UI configuration and rollback behaviour. Addon versions and overlap ownership stay unchanged because the beta and release clients share the same build and Interface 16001.
+- New release identities may require selecting shared profiles and updating the private UI source configuration.
 
 ## 2026-10-17 - Stop CharacterUIBaseline Edit Mode writes
 
@@ -435,6 +499,8 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Preserve specialization/talent choices, spec-to-profile assignments, per-spec content/documents, action contents, macros, bindings, subscriptions, tracking and combat history. Source and generated private configuration are ignored by Git and carried by adoption. A transferred installation may require changing the configured source folder identifiers.
 - Recovery copies of the previous initializer, live WTF, helper/tests and documentation are outside Interface under `addon-backups/login-ui-sync-20261017-072226`. In-game identity matching, source publication and final visuals still require a fresh source/target login cycle.
 - Verification: 51 Python tests (44 settings plus seven source-refresh cases), eleven runtime checks including source publication, native custom/preset layouts, per-login application, spec/talent exclusions and three-resolution geometry; 39 guard tests and 18 fresh-character profiles pass. Three-resolution adoption carries both private configuration files intact and preserves rollback behavior. All 151 live WTF files are byte-identical to the pre-change backup. Generated output is stable, all initializer Lua files compile under Lua 5.1 and TOC references resolve. The existing watcher task is running and uses the updated exporter without reinstalling it.
+- Game addons cannot read another character's or account's WTF directly, so account SavedVariables carry source-to-target character switches and an offline bridge carries persisted and cross-account updates.
+- Another running client's unsaved settings are unavailable. Other addon appearance stays managed by the existing shared profiles.
 
 ## 2026-10-17 - Share the reference UI across characters
 
@@ -445,6 +511,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Review initialization overlaps in the guard readme; no continuously competing setting toggle is introduced, so its 23 enforcement policies remain unchanged. Adoption already copies the initializer and live revision markers with all Interface/WTF files.
 - Back up live WTF, anonymous snapshots and current pack documentation outside Interface under `addon-backups/character-ui-20261017-071132`. The manifest lists twenty changed/created WTF files. First-login behavior and visual consistency at 1080p/1440p/4K require in-game verification.
 - Verification: five initializer checks, including the three target resolutions; all 39 overlap-guard tests; 18 fresh character profiles. Generated baseline and initializer compile under Lua 5.1, all TOC references exist, and exact-file/semantic checks confirm the twenty WTF changes while preserving macros, bindings, subscriptions, tracking and combat history. Anonymous snapshots are refreshed; the existing adoption script needs no modification.
+- Successful initialization is marked per character so later deliberate customization survives subsequent logins.
 
 ## 2026-10-17 - Save independent buff anchors and bag clearance
 
@@ -474,6 +541,8 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Restore shared configuration while preserving current excluded data, including nested caches and records absent from the selected bundle. Ignore excluded data in older snapshots and skip legacy character-file snapshots. Regenerate the current settings bundle without modifying live WTF.
 - Keep private adoption as a full live-WTF transfer. Filtering applies to version-controlled snapshots, not the private game installation or adoption backups. Existing Git history and private aliases are retained.
 - Verification: 44 settings tests and 19 watcher/restore lifecycle checks pass, including gameplay-only export stability, shared-preference retention, old-snapshot protection and missing-file restore. Seven real settings targets validate in restore dry run; all 106 live WTF files remain byte-identical after export, and a repeated export produces identical snapshots.
+- Anonymization alone does not make gameplay records useful configuration. Migration markers are kept so migrations do not rerun against restored layouts.
+- Addon schema updates require a filter review.
 
 ## 2026-10-15 - Install Details combat analysis
 
@@ -482,6 +551,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Confirm YUI's Forever loader excludes YDamageMeter and EUI Damage Meters is absent. Details is the sole combat meter; YUI icon synchronization and EUI threat indicators remain complementary. No new overlapping setting remains in the selected modules, so the guard's existing eleven rules stay unchanged. Document the overlap review in its readme.
 - Preserve all existing saved addon settings, UI scale, fonts and layouts. First-run Details window setup is upstream. Private recovery copies of WTF, current documentation and the release ZIP live outside Interface under `_classic_beta_/addon-backups/details-20261015-111109`. The adoption script already copies the new folders and future live saved variables at all three target resolutions.
 - Verification: all 636 installed files match the official archive; six Camelot TOCs and 311 reachable load files/dependencies resolve; all 33 guard tests and three-resolution adoption/rollback checks pass. Four character lists enable the modules; all other live WTF files are byte-identical to the recovery copy. In-game loading, combat data, Chinese UI text and meter placement at 1080p/1440p/4K still need a fresh client session.
+- Details combat databases are not added to anonymous snapshots.
 
 ## 2026-10-15 - Inspect the first post-migration session
 
@@ -497,6 +567,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Seed account GearInsight overlap defaults off, preserve YUI/EUI settings and other WTF bytes, and switch anonymous settings capture to EUI/YUI/GearInsight. Remove obsolete RestedXP adapter, dependencies, fixtures, tests and current documentation. Update fresh-profile checks to use YUI's installed AceDB libraries. Preserve historical changelogs and private aliases.
 - Keep private recovery copies outside Interface under `_classic_beta_/addon-backups/gearinsight-20261015-102755`; retired active files were moved there. Existing unrelated working changes remain. The settings watcher was paused for migration and resumed afterward.
 - Verification: 33 Lua 5.1 guard tests, including actual GearInsight bar-editor code; 36 settings tests; 18 fresh class/faction profiles; seven font assets and EUI damage-font application; adoption at 1080p/1440p/4K with rollback; 19 watcher/restore checks. Official archive integrity, removed files and preservation of unrelated active files are checked separately. The existing adoption script copies the new pack without code changes. In-game loading and rendering remain unverified.
+- The local guard enforces the editing locks because upstream provides no setting to disable GearInsight's bar editor.
 
 ## 2026-10-14 - Upgrade Forever addons and retain EUI frame ownership
 
@@ -513,18 +584,25 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Added `watch_wtf_settings.ps1 -Mode Restore`, with DryRun validation, strict alias/path checks, complete restoration of represented addon saved files, selective Config.wtf merging, private backups and rollback.
 - Pause/resume the scheduled watcher around restoration without overwriting the selected source bundle at startup. Foreground watchers must be stopped first; a previously stopped task remains stopped.
 - Migrated private mappings to ignored Interface/.env and added .env.example. Existing aliases and anonymous snapshots are preserved. Logs/locks/backups stay outside the repository, with an optional state-directory override. Addon code and overlap policies are unchanged.
+- The selected bundle is the recovery source and Git is not changed. The full reversible map is kept as flat `.env` variables, and bulk aliases are read directly instead of enlarging the Windows process environment. Lua is parsed and serialized as data.
+- Files absent from the bundle and unrepresented Config.wtf fields remain intact. Account and character folders must already exist. The former `map.json` remains only as a private backup.
+- Verification: validated in fixtures and with DryRun against the installed bundle. A live restore was not run.
 
 ## 2026-10-13 - Add anonymous settings capture after game exit
 
 - Added `Interface/watch_wtf_settings.ps1`, a restricted data parser/exporter and local settings-review documentation. Optional current-user sign-in installation monitors this game installation and exports after all its WoW processes exit and WTF writes settle.
 - Snapshots in `Interface/Settings/WTF` alias every text and numeric value using a private map outside the repository. Live WTF, addon behavior, resolution values, existing overlap policies and adoption's private-copy behavior are unchanged.
 - No automatic staging, commits or pushes. Fixture checks cover privacy, stable aliases, failure preservation, parser safety, concurrent exports, readable review and the Git index; watcher checks cover lifecycle, retries and settling.
+- Manual export and review commands are included. Snapshots are published as a unit with locking and rollback, and diffs are decoded only for local review.
+- Coverage is restricted to eight approved addon saved-file names and an explicit CVar allowlist.
+- Real game shutdown timing remains a live check.
 
 ## 2026-10-13 - Match screenshot display settings at startup
 
 - Updated OverlapSettingsGuard to 0.5.2. Append separate SetCVar calls for Contrast 85, Brightness 55 and Gamma 1.5 after the existing seven startup commands, matching the screenshot's 85%, 55% and 1.5 values.
 - Retained once-per-login/reload timing and documented EllesmereUI's contrast Optimize/Restore overlap. Later option changes can overwrite these startup values; continuous policies and resolution-specific layouts are unchanged. Adoption already copies the updated files.
 - Verification: all 26 Lua 5.1 tests pass, including the ten calls in order with exact values and reload/zone-transition behavior. Live client rendering remains unverified.
+- The values are the same at 1080p, 1440p and 4K.
 
 ## 2026-10-13 - Add six startup console settings
 
@@ -595,6 +673,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Removed obsolete adapter fixtures and tests, plus orphaned Kallye setup test scripts. Retained current-pack profile/template, hook, combat, timer, reload-message and refresh-retry coverage. Added installed-pack dependency and unused-adapter checks.
 - Updated the policy table, inventory and AGENTS.md removal requirements. Existing overlap ownership and chat-only reporting remain intact. No new overlapping setting was introduced; no settings, layout or adoption-script changes are required.
 - Verification: all 24 Lua 5.1 guard tests pass. Live in-game confirmation remains pending.
+- Removed integrations must be implemented again if their addons return.
 
 ## 2026-10-11 - OverlapSettingsGuard messages moved to chat
 
@@ -609,6 +688,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Added optional -Resolution to adopt_addons.ps1 for 1920x1080, 2560x1440 and 3840x2160. It changes only the staged gxWindowedResolution and EUI panelScale (0.90/1.00/1.50), preserving gameplay UI scale, positions, Unicode and source settings. Without this option copying is unchanged; existing backup/rollback behavior is retained.
 - Verified 18 new class/faction profiles with the installed EUI/AceDB engines; 34 guard tests pass. Adoption tests pass for transfers/repeated runs, all three resolutions, source preservation, rejection paths and rollback. Resolution tests establish panel fit; live appearance on other displays remains unverified.
 - Latest BugGrabber session records one blocked SubmitBug() call attributed to DungeonsForever through Blizzard PTR feedback. No EUI/RestedXP errors were captured; the separate feedback-report issue remains unresolved. WTF remains excluded from Git and is transferred by the adoption script.
+- A frozen EUI options scale of 1.5 exceeds 1080p, so only that window is resized during staging and the gameplay layout is left intact.
 ## 2026-10-11 - Repair EUI startup and RestedXP arrow visibility
 
 - Confirmed that EUI 9.4 standalone modules deliberately become inert when another standalone is enabled. Installed the unmodified shared EllesmereUI 9.4 core with UnitFrames, RaidFrames, Nameplates, Options and Locales from the official suite release; no other suite modules are installed. Disabled the three standalone addons for all four stored characters.
@@ -622,6 +702,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Keep EllesmereUI nameplate class-power displays off while its unit frames load, including saved profiles/spec presets. Assign quest/gossip/reward automation and junk selling to YUI, disabling competing RestedXP options. TalentsForeverBook owns talent guidance. Navigation and optional statistics remain user-adjustable.
 - Enabled the guard for four stored characters. It checks after login, on supported hooks and every two seconds, defers during combat, reports blocked APIs, and exposes status/reasons via /osg. Addon enable lists and optional appearance settings are tracked separately; the guard does not turn disabled addons on.
 - Verification: 33 Lua 5.1 tests pass, including missing APIs, refresh retries, profile resets, combat deferral and retained swing timers. Upstream YUI/EllesmereUI packages remain unmodified. Live rendering and three-resolution validation remain pending.
+- Saved settings alone cannot preserve ownership after user changes or profile resets, so the combat-safe guard is reused with adapters for the current upstream APIs.
 
 ## 2026-10-11 - Install EllesmereUI standalone frames and nameplates
 
@@ -637,6 +718,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Checked archive integrity and paths; verified all 983 installed files against archive bytes with zero mismatches. No upstream addon code was locally edited. Live loading remains pending.
 - Documented talent-guidance overlap with RXPGuides and optional DungeonsForever navigation overlap. No settings or overlap policy were changed, and OverlapSettingsGuard remains absent.
 - Traced unavailable YUI individual frames to an unloaded YUnitFrames product; it does not provide group frames. Nameplate presets require external Platynator plus an existing YUI profile. Recorded recommendations without applying frame fixes.
+- The specialist auction, dungeon, talent and Lua-error tools are kept while the upstream YUI interface is evaluated.
 
 ## 2026-10-11 - Clean YUI and RestedXP trial
 
@@ -663,6 +745,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - OverlapSettingsGuard 0.3.0 adds rules for Leatrix combat plates and Plater class resource/personal health-mana displays, enforcing across stored Plater profiles and live CVars after combat. RestedXP's maximum nameplate-distance rule now depends on Plater. Legacy ForeverUI rules remain inactive. Leatrix options are labelled locked only when their policy is active.
 - ClassUIEnhanced manages duplicate Blizzard cooldown viewers through its own first-login prompt; allow it to hide the viewers while retaining the Cooldown Manager data source. Personal Plater health/resource/buff displays disappear with its personal bar, leaving CUE trackers. Leatrix quest automation and RestedXP navigation remain unchanged.
 - Verification: 27 Lua 5.1 guard tests pass, including no-ForeverUI ownership, inactive option labels, stored profiles, profile changes and combat deferral. Package contents, TOC references, saved-setting syntax and backup integrity are checked separately. In-game cooldown behaviour, quest-item use and group-frame appearance still require login.
+- Each UI area gets one owner, which avoids the broad hooks and maintenance of the previous full UI replacement.
 
 ## 2026-10-10 - Removed adoption confirmation prompt
 
@@ -675,6 +758,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - Stages copies with robocopy, retains dated destination backups under the game root's `addon-backups`, then replaces Interface and WTF exactly. Copy failures preserve the originals; replacement failures trigger rollback. Logs and failed copies are retained. Fonts and resolution/UI scale settings are unchanged; the utility remains available if absent from the source.
 - Documented usage and restoration in `AddOns/readme.md`. No addon packages or overlap policy changed, and no live saved variables were modified.
 - Verification: Windows PowerShell 5.1 regression tests with real robocopy in temporary installations cover exact replacement, backup contents, repeat runs, unchanged source/settings/Fonts, invalid sources, local WoW refusal, cancellation, copy failure and replacement rollback. UNC access depends on the destination's share permissions and has not been exercised against another machine.
+- Whole folders are replaced so source patches and settings are kept and obsolete destination addons do not remain.
 
 ## 2026-10-10 - Party frames enabled for groups
 
@@ -691,6 +775,7 @@ This log records changes made in `World of Warcraft/_forever_/Interface/AddOns` 
 - RestedXP flight-path, binding and trainer automation are unchanged. Reward recommendations remain available. Leatrix still requires manual selection when a quest offers multiple reward choices.
 - Verification: 24 guard tests pass, including enforcement across profiles and changes from options; Lua syntax and saved settings checked. In-game behavior awaits the next login.
 - Saved-variable backups: `D:\tmp\wow-quest-automation-20261009-183620`.
+- Guide-dependent RestedXP automation left quests outside the active route manual. RestedXP navigation is kept and quest interactions go to Leatrix.
 
 ## 2026-10-09 — RestedXP Guides installed; OverlapSettingsGuard 0.2.0
 

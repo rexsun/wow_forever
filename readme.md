@@ -14,14 +14,14 @@ Every add-on here must declare Interface 16001 in its TOC and work on this clien
 ## Contents
 
 - [Interface/AddOns/readme.md](Interface/AddOns/readme.md): YUI v338, modular EllesmereUI 9.4 frames/nameplates, RXPGuides and four specialist addons, with OverlapSettingsGuard. The frame and arrow setup has been reported working in-game; see the inventory for remaining caveats.
-- [Interface/AddOns/updates.md](Interface/AddOns/updates.md): change log, newest first. It covers installs, removals, setting changes and local patches, which upstream updates can overwrite.
+- [Interface/AddOns/updates-2026-Q4.md](Interface/AddOns/updates-2026-Q4.md): change log, one file per calendar quarter (`updates-YYYY-QN.md`), newest first. It covers installs, removals, setting changes and local patches, which upstream updates can overwrite. [Interface/CHANGELOG.md](Interface/CHANGELOG.md) links every quarter.
 - [Interface/AGENTS.md](Interface/AGENTS.md): rules for maintaining the add-ons.
 - [Interface/Settings/readme.md](Interface/Settings/readme.md): anonymous settings snapshots after game exit, with readable local review and manual Git staging/commits.
 - [auto-update.md](auto-update.md): set up another machine to update its add-ons and settings from GitHub at every sign-in.
 
 ## Updating
 
-Exit the game before replacing add-on folders. Record each change in `updates.md` and keep `readme.md` in sync. Then commit.
+Exit the game before replacing add-on folders. Record each change in the current quarter's `AddOns/updates-YYYY-QN.md` and keep `readme.md` in sync. Then commit.
 
 The `ForeverUI` branch preserves the addon bundle before the 2026-10-10 replacement. Its saved settings are separately backed up in `addon-backups/foreverui-replacement-20261010-211803/WTF`; switching branches does not restore WTF.
 
