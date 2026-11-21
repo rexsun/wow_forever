@@ -3,6 +3,8 @@ from lupa import lua51
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'AddOns/CharacterUIBaseline/Bootstrap.lua'
+LAYOUT = ROOT / 'AddOns/CharacterUIBaseline/EditModeLayout.lua'
+QUIET = ROOT / 'AddOns/CharacterUIBaseline/QuietLogin.lua'
 
 
 def world(source=False, saved=False):
@@ -10,8 +12,9 @@ def world(source=False, saved=False):
     lua.execute('''
         calls, timers, handlers = {}, {}, {}
         function record(k) calls[k] = (calls[k] or 0) + 1 end
-        function CreateFrame() return {RegisterEvent=function() end,
-            SetScript=function(_,_,fn) handlers.event=fn end} end
+        frameSlot='layout'
+        function CreateFrame() local slot=frameSlot return {RegisterEvent=function() end,
+            SetScript=function(_,_,fn) handlers[slot]=fn end} end
         C_Timer={After=function(_,fn) timers[#timers+1]=fn end}
         function flush() local list=timers timers={} for _,fn in ipairs(list) do fn() end end
         function InCombatLockdown() return combat == true end
@@ -57,6 +60,8 @@ def world(source=False, saved=False):
         lua.execute("playerName='Source'")
     if saved:
         lua.execute('CharacterUIBaselineDB={revision=99}')
+    lua.execute(LAYOUT.read_text(), 'CharacterUIBaseline', lua.globals().baseline)
+    lua.execute("frameSlot='event'")
     lua.execute(SOURCE.read_text(), 'CharacterUIBaseline', lua.globals().baseline)
     return lua
 
@@ -108,14 +113,9 @@ def run():
         EditModePresetLayoutManager={GetCopyOfPresetLayouts=function() return {{layoutName='Modern'},{layoutName='Classic'}} end}
         EllesmereUI={ApplyPresetEditMode=function() record('import') return true end}
         handlers.event(nil,'PLAYER_ENTERING_WORLD');flush()
-        assert(not calls.layout and not calls.import and active==1 and calls.eui==1)
-        local found
-        for _,m in ipairs(printed) do if m:find("'Modern'",1,true) and m:find("'YUI v3'",1,true) then found=true end end
-        assert(found)
+        assert(not calls.layout and not calls.import and active==1 and calls.eui==1 and #printed==1)
     ''')
-    lua = world()
-    lua.execute("active=4;handlers.event(nil,'PLAYER_ENTERING_WORLD');flush();assert(#printed==1 and not calls.layout)")
-    print('PASS Edit Mode layouts are never selected or imported; a mismatch is reported once')
+    print('PASS the login sync never selects or imports Edit Mode layouts')
     lua = world(source=True)
     lua.execute('''
         active=1
@@ -137,5 +137,148 @@ def run():
     lua.execute("handlers.event(nil,'PLAYER_LOGOUT');assert(not CharacterUIBaselineAccountDB.baseline)")
     print('PASS the source publishes the layout last seen in the world, not the logout-time preset')
 
+
+def layout_world(active=1, names=('Other', 'rex'), saved=None, ready=True, group=1):
+    lua = world()
+    lua.execute(f'''
+        active={active}; specGroup={group}; reloads=0
+        C_EditMode.GetLayouts=function() local list={{}} for _,n in ipairs(layoutNames) do list[#list+1]={{layoutName=n}} end
+            return {{activeLayout=active, layouts=list}} end
+        function ReloadUI() reloads=reloads+1 end
+        function GetActiveTalentGroup() return specGroup end
+        EditModeManagerFrame.accountSettings={'{}' if ready else 'nil'}
+    ''')
+    lua.globals().layoutNames = lua.table_from(list(names))
+    if saved:
+        lua.execute(saved)
+    return lua
+
+
+def run_layout():
+    lua = layout_world()
+    lua.execute('''handlers.layout(nil,'PLAYER_ENTERING_WORLD'); flush()
+        assert(active==4 and calls.layout==1 and reloads==1)
+        assert(CharacterUIBaselineDB.editModeLayout['1'].reloads==1)''')
+    print('PASS a character on a Blizzard preset switches to rex and reloads once')
+    lua = layout_world(active=4, saved="CharacterUIBaselineDB={editModeLayout={['1']={reloads=1}}}")
+    lua.execute('''handlers.layout(nil,'PLAYER_ENTERING_WORLD'); flush()
+        local e=CharacterUIBaselineDB.editModeLayout['1']
+        assert(not calls.layout and reloads==0 and e.assigned=='rex' and not e.reloads and #printed==0)''')
+    print('PASS after the reload the switch is recorded without further writes')
+    lua = layout_world(saved="CharacterUIBaselineDB={editModeLayout={['1']={reloads=1}}}")
+    lua.execute('''handlers.layout(nil,'PLAYER_ENTERING_WORLD'); flush(); flush()
+        assert(not calls.layout and reloads==0 and #printed==1 and printed[1]:find('Select it once',1,true))''')
+    print('PASS a selection that did not persist is reported instead of reloading again')
+    lua = layout_world(saved="CharacterUIBaselineDB={editModeLayout={['1']={assigned='rex'}}}")
+    lua.execute("handlers.layout(nil,'PLAYER_ENTERING_WORLD'); flush(); assert(not calls.layout and reloads==0 and #printed==0)")
+    lua = layout_world(active=3)
+    lua.execute("handlers.layout(nil,'PLAYER_ENTERING_WORLD'); flush(); assert(not calls.layout and reloads==0)")
+    print('PASS later preset choices and other saved layouts are kept')
+    lua = layout_world(names=('Other',))
+    lua.execute("handlers.layout(nil,'PLAYER_ENTERING_WORLD'); flush(); flush(); assert(not calls.layout and #printed==1 and printed[1]:find('not saved',1,true))")
+    print('PASS an account without rex keeps its layout and says so once')
+    lua = layout_world(ready=False)
+    lua.execute('''combat=true; handlers.layout(nil,'PLAYER_ENTERING_WORLD'); for i=1,40 do flush() end
+        assert(not calls.layout and #timers==0)
+        EditModeManagerFrame.accountSettings={}; handlers.layout(nil,'PLAYER_ENTERING_WORLD'); flush(); assert(not calls.layout)
+        combat=false; handlers.layout(nil,'PLAYER_REGEN_ENABLED'); flush(); assert(calls.layout==1 and reloads==1)''')
+    print('PASS combat and unready Edit Mode defer the switch with bounded retries')
+    lua = layout_world(group=2, saved="CharacterUIBaselineDB={editModeLayout={['1']={assigned='rex'}}}")
+    lua.execute('''handlers.layout(nil,'PLAYER_ENTERING_WORLD'); flush(); assert(calls.layout==1)
+        active=1; reloads=0; specGroup=1; handlers.layout(nil,'ACTIVE_TALENT_GROUP_CHANGED'); flush(); assert(calls.layout==1 and reloads==0)''')
+    print('PASS each spec group is switched once')
+    lua = layout_world()
+    lua.execute('''CharacterUIBaselineDB={loaded=true}; handlers.layout(nil,'PLAYER_ENTERING_WORLD'); flush()
+        assert(CharacterUIBaselineDB.loaded and CharacterUIBaselineDB.editModeLayout['1'].reloads==1)''')
+    print('PASS the record is written to the loaded per-character saved variables')
+
+
+def quiet_world(loaded=('YUI',), addons=True, before=''):
+    lua = lua51.LuaRuntime()
+    lua.execute('''
+        calls, bits, cvars = {}, {}, {showTutorials='1'}
+        function record(k) calls[k] = (calls[k] or 0) + 1 end
+        function CreateFrame() return {RegisterEvent=function() end, SetScript=function(_,_,fn) onLogin=fn end} end
+        loadedAddons = {}
+        C_AddOns = {IsAddOnLoaded=function(n) return loadedAddons[n] end}
+        C_CVar = {GetCVarBitfield=function(f,i) return bits[f..i] == true end,
+            SetCVarBitfield=function(f,i,v) record(f) bits[f..i]=v end,
+            GetCVar=function(k) return cvars[k] end, SetCVar=function(k,v) record(k) cvars[k]=v end}
+        LE_FRAME_TUTORIAL_BAGS=3; LE_FRAME_TUTORIAL_TALENTS=7; LE_FRAME_TUTORIAL_ACCOUNT_PING=2
+        bits['closedInfoFrames7'] = true
+    ''')
+    for name in loaded:
+        lua.execute(f"loadedAddons['{name}']=true")
+    if addons:
+        lua.execute('''
+            installerDone, prompted, welcome = false, false, 0
+            YUI = {Installer={CheckInstall=function() installerShown=true return true end},
+                EditMode={CheckAndPromptSwitchToYUI=function() prompted=true end}}
+            levelingShown = true
+            GearInsightForever = {LevelingShown=function() return levelingShown end,
+                SetLevelingShown=function(on) record('leveling') levelingShown=on end,
+                db={whatsNewSeen='1.2.2'}, WhatsNew={Current=function() return {}, '1.2.4' end,
+                    Check=function() giNews=true return true end}}
+            YUI.global={lastChangelogVersion='v361'}
+            YUI.Changelog={GetData=function() return {{version='v363'}} end,
+                CheckVersion=function() yuiNews=true end}
+            MAUTTAB={WHATSNEW={seen={a=true}}}
+            Bagnon_Sets={latest={id='99.0.0', cooldown=0}}
+            Details = {is_first_run=true, OpenWelcomeWindow=function() welcome=welcome+1 end}
+            GatherLite = {db={global={}}}
+            EllesmereUIDB = {styleChoicePending=true}; EllesmereUI = {_firstInstallPending=true}
+        ''')
+    if before:
+        lua.execute(before)
+    lua.execute(QUIET.read_text(), 'CharacterUIBaseline', lua.table())
+    return lua
+
+
+def run_quiet():
+    lua = quiet_world()
+    lua.execute('''
+        local done
+        assert(YUI.Installer:CheckInstall(function() done=true end) == false and done and not installerShown)
+        YUI.EditMode:CheckAndPromptSwitchToYUI(); assert(not prompted)
+    ''')
+    print('PASS YUI setup wizard and layout prompt are skipped while the login chain continues')
+    lua.execute("assert(levelingShown==false and calls.leveling==1); onLogin(); assert(calls.leveling==1)")
+    lua = quiet_world(loaded=())
+    lua.execute("assert(levelingShown==true and not calls.leveling)")
+    print('PASS GearInsight leveling window is hidden only under YUI, matching the guard rule')
+    lua = quiet_world()
+    lua.execute("onLogin(); Details:OpenWelcomeWindow(); assert(welcome==0); Details:OpenWelcomeWindow(); assert(welcome==1)")
+    lua = quiet_world(before="Details.is_first_run=nil")
+    lua.execute("onLogin(); Details:OpenWelcomeWindow(); assert(welcome==1)")
+    print('PASS the Details first-run welcome is skipped once; later manual opens work')
+    lua = quiet_world()
+    lua.execute("assert(GatherLite.db.global.controlsGuideSeen==true)")
+    print('PASS GatherLite controls guide is marked seen')
+    lua = quiet_world()
+    lua.execute('''
+        assert(bits.closedInfoFrames3 and bits.closedInfoFramesAccountWide2 and not bits.closedInfoFrames2)
+        assert(calls.closedInfoFrames==1 and calls.closedInfoFramesAccountWide==1)
+        assert(cvars.showTutorials=='0')
+        onLogin(); assert(calls.closedInfoFrames==1 and calls.showTutorials==1)
+    ''')
+    print('PASS Blizzard help tips are closed per character and account without repeated writes')
+    lua = quiet_world()
+    lua.execute('''
+        YUI.Changelog:CheckVersion(); assert(not yuiNews and YUI.global.lastChangelogVersion=='v363')
+        assert(GearInsightForever.WhatsNew.Check()==false and not giNews and GearInsightForever.db.whatsNewSeen=='1.2.4')
+        assert(MAUTTAB.WHATSNEW.enabled==false and MAUTTAB.WHATSNEW.seen.a)
+        assert(Bagnon_Sets.latest.id=='99.0.0' and Bagnon_Sets.latest.cooldown==2147483647)
+    ''')
+    print('PASS update notices (YUI changelog, GearInsight and MapUtils what\'s new, Bagnon outdated) are marked seen or held')
+    lua = quiet_world()
+    lua.execute("assert(EllesmereUIDB.firstInstallPopupShown and not EllesmereUIDB.styleChoicePending and not EllesmereUI._firstInstallPending and _EUI_ConflictCheckRan)")
+    print('PASS EllesmereUI first-install, style and conflict popups are held')
+    lua = quiet_world(loaded=(), addons=False)
+    lua.execute("onLogin(); assert(cvars.showTutorials=='0')")
+    print('PASS missing add-ons are skipped without errors')
+
+
 if __name__ == '__main__':
     run()
+    run_layout()
+    run_quiet()

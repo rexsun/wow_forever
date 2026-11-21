@@ -1,7 +1,6 @@
 local _, baseline = ...
 CharacterUIBaselineDB = CharacterUIBaselineDB or {}
 CharacterUIBaselineAccountDB = CharacterUIBaselineAccountDB or {}
-local state = CharacterUIBaselineDB
 local queued, attempts, sessionDone = false, 0, false
 local Queue
 local points = { CENTER=true, LEFT=true, RIGHT=true, TOP=true, BOTTOM=true,
@@ -50,31 +49,12 @@ local function RaidProfile()
   return profile and profile.addons and profile.addons.EllesmereUIRaidFrames
 end
 
--- Read-only: selecting or importing an Edit Mode layout from addon code runs Blizzard's
--- EDIT_MODE_LAYOUTS_UPDATED handler in tainted execution, which broke Edit Mode and
--- blocked logout. The layout is therefore only reported; the player selects it.
-local function ActiveLayoutName()
-  local layouts = C_EditMode and type(C_EditMode.GetLayouts) == "function" and C_EditMode.GetLayouts()
-  local presets = Enum and Enum.EditModePresetLayoutsMeta and Enum.EditModePresetLayoutsMeta.NumValues
-  if not (layouts and Number(presets) and Number(layouts.activeLayout)) then return end
-  local active = layouts.activeLayout
-  if active >= 1 and active <= presets then
-    local manager = EditModePresetLayoutManager
-    local copies = manager and type(manager.GetCopyOfPresetLayouts) == "function" and manager:GetCopyOfPresetLayouts()
-    local preset = copies and copies[active]
-    return preset and preset.layoutName, active
-  end
-  local layout = type(layouts.layouts) == "table" and layouts.layouts[active - presets]
-  return layout and layout.layoutName
-end
-
-local layoutNotice
 -- At PLAYER_LOGOUT the layout API reported the Modern preset although the source used
 -- a custom layout, so the source's layout is remembered while it is still in the world.
 local seenLayoutName, seenPreset
 
 local function RememberLayout()
-  local name, preset = ActiveLayoutName()
+  local name, preset = baseline.ActiveLayoutName()
   if type(name) == "string" and name ~= "" then seenLayoutName, seenPreset = name, preset end
 end
 
@@ -88,10 +68,6 @@ local function Apply()
     and type(FCF_SavePositionAndDimensions) == "function") then return false end
   local width, height = UIParent:GetWidth(), UIParent:GetHeight()
   if not Number(width) or not Number(height) or width <= 0 or height <= 0 then return false end
-  local activeName = ActiveLayoutName()
-  layoutNotice = activeName and activeName ~= data.layoutName
-    and ("CharacterUIBaseline: Edit Mode layout is '" .. activeName .. "'; the source uses '"
-      .. data.layoutName .. "'. Select it in Edit Mode if this character should match.") or nil
   for name in pairs(baseline.cvars) do
     local value = data.cvars[name]
     if type(value) == "string" and GetCVar(name) ~= value then SetCVar(name, value) end
@@ -112,8 +88,8 @@ local function Apply()
     end
   end
   if type(_ERF_RefreshAll) == "function" then _ERF_RefreshAll() end
-  state.revision = baseline.revision
-  state.sourceKey = baseline.source.key
+  local state = CharacterUIBaselineDB
+  state.revision, state.sourceKey = baseline.revision, baseline.source.key
   return true
 end
 
@@ -161,7 +137,6 @@ Queue = function()
       sessionDone = true
       print(IsSource() and "CharacterUIBaseline: source character; UI changes will publish at logout."
         or "CharacterUIBaseline: source UI synchronized for this login.")
-      if layoutNotice then print(layoutNotice) end
       return
     end
     attempts = attempts + 1
