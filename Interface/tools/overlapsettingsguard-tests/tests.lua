@@ -124,7 +124,7 @@ end)
 local function HudConfig()
   return { resources = { byGroup = { ["group:system:resources"] = {
     selectionDefault = "catalog",
-    bySpec = { ROGUE = { ["11572"] = { comboPoints = true, swingMainHand = true } } },
+    bySpec = { ROGUE = { ["11572"] = { energy = true, comboPoints = true, swingMainHand = true } } },
     formOverrides = { DRUID = { ["11347"] = { cat = { enabled = { energy = true, comboPoints = true } } } } },
   } } } }
 end
@@ -150,7 +150,17 @@ test("current YUI and EllesmereUI policy has enforceable rules", function()
   local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
   local ids = {}
   for _, rule in ipairs(w.ns.policy) do ids[rule.id] = rule end
-  for _, id in ipairs({ "yui.nameplateoutline", "yui.friendlynameplates", "yui.resources", "yui.playerhealth", "yui.playercast", "eui.nameplatepower",
+  eq(ids["yui.resources"], nil, "YUI's class resource bars are not guarded")
+  for _, rule in ipairs(w.ns.policy) do
+    ok(not (rule.adapter == "YUI" and rule.key == "Resources"), rule.id .. " must not target YUI class resources")
+  end
+  ok(not w.ns.adapters.YUI.Knows("Resources"), "the YUI adapter has no class resource setting")
+  for _, rule in ipairs(w.ns.policy) do
+    ok(rule.key ~= "PlayerPower", rule.id .. " must not hide EllesmereUI's player power bar")
+  end
+  ok(not w.ns.adapters.EllesmereUI.Knows("PlayerPower"), "EllesmereUI's player power bar is not guarded")
+  for _, id in ipairs({ "yui.nameplateoutline", "yui.friendlynameplates", "eui.classpower",
+    "yui.playerhealth", "yui.playercast", "eui.nameplatepower",
     "gi.friendlynameplates", "gi.combathud", "gi.resources", "gi.levelingstats", "gi.actionbaredits",
     "yui.chatkeywordfilter", "gi.guildchatlevel" }) do
     ok(ids[id], id)
@@ -275,15 +285,15 @@ test("YUI resource manager contexts cannot bypass the player bar policies", func
   end
   local activeItems, savedItems = Contexts(live.YHUD.profile), Contexts(saved)
   local a = w.ns.adapters.YUI
-  for _, key in ipairs({ "Resources", "PlayerHealth", "PlayerCast" }) do
+  for _, key in ipairs({ "PlayerHealth", "PlayerCast" }) do
     eq(a.Read(key), true, key)
     eq(a.Revert(key), true, key)
     eq(a.Read(key), false, key)
   end
   for _, items in ipairs({ activeItems, savedItems }) do
-    eq(items["ROGUE:11572:"][1].enabled, false)
+    eq(items["ROGUE:11572:"][1].enabled, true, "YUI owns energy")
     eq(items["ROGUE:11572:"][2].enabled, true, "swing timers stay available")
-    eq(items["DRUID:11347:cat"][1].enabled, false)
+    eq(items["DRUID:11347:cat"][1].enabled, true, "YUI owns combo points")
     eq(items["DRUID:11347:cat"][2].enabled, false)
     eq(items["MAGE:11582:"][1].enabled, false)
     eq(items["MAGE:11582:"][2].enabled, true, "custom resources stay available")
@@ -402,23 +412,31 @@ test("YChat keyword filter is left alone without GearInsight or the YChat API", 
   eq(YUI_DB.profiles.Alt.YChat.messageFilter, nil, "stored profiles untouched when blocked")
 end)
 
-test("YUI resource enforcement covers defaults, druid forms and saved HUD sets without removing swings", function()
+test("YUI class resource selections and defaults are never written by the guard", function()
   local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
   local live, saved, set = BuildYUI(w)
-  local a = w.ns.adapters.YUI
-  ok(a, "YUI adapter")
-  eq(a.Read("Resources"), true)
-  eq(a.Revert("Resources"), true)
-  eq(a.Read("Resources"), false)
   for _, config in ipairs({ live.YHUD.profile, saved, set }) do
     local r = config.resources.byGroup["group:system:resources"]
-    eq(r.bySpec.ROGUE["11572"].comboPoints, false)
-    eq(r.bySpec.WARRIOR["11650"].rage, false)
-    eq(r.bySpec.MAGE["11582"].mana, false)
-    eq(r.formOverrides.DRUID["11347"].cat.enabled.energy, false)
+    r.bySpec.WARRIOR = { ["11650"] = { rage = true } }
+    r.bySpec.SHAMAN = { ["11363"] = { mana = true, foreverMaelstromWeapon = true } }
+    r.formOverrides.DRUID["11347"].bear = { enabled = { rage = true } }
+  end
+  w.Login()
+  w.Tick()
+  for _, config in ipairs({ live.YHUD.profile, saved, set }) do
+    local r = config.resources.byGroup["group:system:resources"]
+    eq(r.selectionDefault, "catalog", "unset class resources keep YUI's catalog defaults")
+    eq(r.bySpec.ROGUE["11572"].energy, true)
+    eq(r.bySpec.ROGUE["11572"].comboPoints, true)
+    eq(r.bySpec.WARRIOR["11650"].rage, true)
+    eq(r.bySpec.SHAMAN["11363"].mana, true)
+    eq(r.bySpec.SHAMAN["11363"].foreverMaelstromWeapon, true)
+    eq(r.bySpec.MAGE, nil, "no selections are created for unset classes")
+    eq(r.formOverrides.DRUID["11347"].cat.enabled.energy, true)
+    eq(r.formOverrides.DRUID["11347"].cat.enabled.comboPoints, true)
+    eq(r.formOverrides.DRUID["11347"].bear.enabled.rage, true)
     eq(r.bySpec.ROGUE["11572"].swingMainHand, true)
   end
-  eq(w.hudRefreshes, 1)
 end)
 
 test("missing YUI runtime APIs block enforcement without mutating saved settings", function()
@@ -427,9 +445,10 @@ test("missing YUI runtime APIs block enforcement without mutating saved settings
   YUI.YHUD.OnLifecycleConfigChanged = nil
   local a = w.ns.adapters.YUI
   ok(a, "YUI adapter")
-  eq(a.Read("Resources"), nil)
-  eq(a.Revert("Resources"), false)
-  eq(live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].comboPoints, true)
+  live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].cast = true
+  eq(a.Read("PlayerCast"), nil)
+  eq(a.Revert("PlayerCast"), false)
+  eq(live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].cast, true)
 end)
 
 test("EllesmereUI nameplate resources are disabled in profiles and spec presets", function()
@@ -480,6 +499,79 @@ test("EllesmereUI spec override keys cannot restore nameplate class power", func
   eq(a.Read(), false)
 end)
 
+test("EllesmereUI player combo points are held off under YUI, unset Forever defaults included", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  local styleKey = "EllesmereUIUnitFrames\031player.classPowerStyle"
+  local rogueKey = "EllesmereUIUnitFrames\031player.foreverRogueClassPowerStyle"
+  local unrelated = "EllesmereUIUnitFrames\031player.classPowerSize"
+  local bucket = { [styleKey] = "modern", [rogueKey] = "__SPECOV_NIL__", [unrelated] = 12 }
+  local default = { frameWidth = 200 }
+  local alt = { player = { classPowerStyle = "none", foreverRogueClassPowerStyle = "circles" } }
+  EllesmereUIDB = { profiles = {
+    Default = { addons = { EllesmereUIUnitFrames = { player = default } },
+      specOverrides = { { values = { default = bucket } } } },
+    Alt = { addons = { EllesmereUIUnitFrames = alt } },
+    Bare = { addons = { EllesmereUIUnitFrames = {} } },
+  } }
+  _EUF_ReloadFrames = function() w.ufReloads = (w.ufReloads or 0) + 1 end
+  local a = w.ns.adapters.EllesmereUI
+  eq(a.Read("ClassPower"), true)
+  eq(a.Revert("ClassPower"), true)
+  eq(a.Read("ClassPower"), false)
+  eq(default.classPowerStyle, "none")
+  eq(default.showClassPowerBar, false)
+  eq(default.foreverRogueClassPowerStyle, nil, "an unset rogue style already builds nothing")
+  eq(default.frameWidth, 200)
+  eq(alt.player.foreverRogueClassPowerStyle, "none")
+  eq(EllesmereUIDB.profiles.Bare.addons.EllesmereUIUnitFrames.player.classPowerStyle, "none")
+  eq(bucket[styleKey], "none")
+  eq(bucket[rogueKey], "__SPECOV_NIL__")
+  eq(bucket[unrelated], 12)
+  eq(w.ufReloads, 1)
+  eq(a.Read("NameplatePower"), nil, "nameplate refresh API is separate")
+end)
+
+test("EllesmereUI player combo points: reading never writes, a missing reload API blocks", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
+  local uf = {}
+  EllesmereUIDB = { profiles = { Default = { addons = { EllesmereUIUnitFrames = uf } } } }
+  _EUF_ReloadFrames = function() end
+  local a = w.ns.adapters.EllesmereUI
+  eq(a.Read("ClassPower"), true)
+  eq(uf.player, nil)
+  _EUF_ReloadFrames = nil
+  eq(a.Read("ClassPower"), nil)
+  eq(a.Revert("ClassPower"), false)
+  eq(uf.player, nil)
+end)
+
+test("EllesmereUI player combo points stay available without YUI", function()
+  local w = Stubs.Fresh(ADDON_ROOT, { loaded = { EllesmereUIUnitFrames = true, EllesmereUINameplates = true } })
+  local player = { classPowerStyle = "modern" }
+  EllesmereUIDB = { profiles = { Default = { addons = { EllesmereUIUnitFrames = { player = player } } } } }
+  _EUF_ReloadFrames = function() end
+  eq(StatusOf(w.ns.Check(), "eui.classpower"), "inactive")
+  eq(player.classPowerStyle, "modern")
+end)
+
+test("installed sources keep the combo-point hand-off between EllesmereUI and YUI", function()
+  local function Read(path)
+    local file = assert(io.open(ADDON_ROOT .. "../" .. path, "rb"))
+    local text = file:read("*a")
+    file:close()
+    return text
+  end
+  local uf = Read("EllesmereUIUnitFrames/EllesmereUIUnitFrames.lua")
+  ok(uf:find('classPowerStyle = (EllesmereUI.IS_FOREVER == true) and "modern"', 1, true), "Forever default style")
+  ok(Read("EllesmereUIUnitFrames/EUI_UnitFrames_StockStyles.lua"):find('return "foreverRogueClassPowerStyle"', 1, true),
+    "rogue style key")
+  ok(Read("EllesmereUIUnitFrames/EUI_UnitFrames_OptionsSetup.lua"):find("_G._EUF_ReloadFrames = ns.ReloadFrames", 1, true),
+    "reload API")
+  local classes = Read("YUI/Products/YHUD/Catalog/Forever/Classes.lua")
+  ok(classes:find('[11580] = { "energy", "comboPoints" }', 1, true), "YUI rogue combo points")
+  ok(classes:find('cat = Form({ "energy", "comboPoints", "mana" }', 1, true), "YUI cat-form combo points")
+end)
+
 test("current frame overlaps defer in combat and catch changes bypassing hooks", function()
   local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
   local live = BuildYUI(w)
@@ -490,32 +582,36 @@ test("current frame overlaps defer in combat and catch changes bypassing hooks",
   w.Fire("PLAYER_REGEN_ENABLED")
   eq(live.Components.UtilityTools_Config.nameplateOutline, false)
   live.Components.UtilityTools_Config.nameplateOutline = true
-  live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].comboPoints = true
+  live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].health = true
   w.Tick()
   eq(live.Components.UtilityTools_Config.nameplateOutline, false)
-  eq(live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].comboPoints, false)
+  eq(live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].health, false)
+  eq(live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].energy, true)
 end)
 
 test("failed live HUD refresh stays pending and is retried", function()
   local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
-  BuildYUI(w)
+  local live = BuildYUI(w)
+  live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].health = true
   local a = w.ns.adapters.YUI
   YUI.YHUD.OnLifecycleConfigChanged = function() return nil, "specialization-transition" end
-  eq(a.Revert("Resources"), false)
-  eq(a.Read("Resources"), true, "pending refresh is still a violation")
+  eq(a.Revert("PlayerHealth"), false)
+  eq(a.Read("PlayerHealth"), true, "pending refresh is still a violation")
   YUI.YHUD.OnLifecycleConfigChanged = function() return true end
-  eq(a.Revert("Resources"), true)
-  eq(a.Read("Resources"), false)
+  eq(a.Revert("PlayerHealth"), true)
+  eq(a.Read("PlayerHealth"), false)
 end)
 
 test("numeric YUI spec keys retain their swing timers and form ordering", function()
   local w = Stubs.Fresh(ADDON_ROOT, { loaded = CurrentLoaded() })
   local live = BuildYUI(w)
   local r = live.YHUD.profile.resources.byGroup["group:system:resources"]
-  r.bySpec.ROGUE = { [11572] = { comboPoints = true, swingMainHand = true } }
+  r.bySpec.ROGUE = { [11572] = { energy = true, comboPoints = true, health = true, swingMainHand = true } }
   r.formOverrides.DRUID = { [11347] = { cat = { order = { "energy", "comboPoints" }, enabled = { energy = true } } } }
-  eq(w.ns.adapters.YUI.Revert("Resources"), true)
-  eq(r.bySpec.ROGUE[11572].comboPoints, false)
+  eq(w.ns.adapters.YUI.Revert("PlayerHealth"), true)
+  eq(r.bySpec.ROGUE[11572].health, false)
+  eq(r.bySpec.ROGUE[11572].energy, true)
+  eq(r.bySpec.ROGUE[11572].comboPoints, true)
   eq(r.bySpec.ROGUE[11572].swingMainHand, true)
   eq(r.formOverrides.DRUID[11347].cat.order[1], "energy")
 end)
@@ -545,12 +641,14 @@ test("a YUI profile reset is enforced without cached old profile references", fu
   BuildYUI(w)
   w.Login()
   local fresh = { Components = {}, YHUD = { profile = HudConfig() } }
+  fresh.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].health = true
   YUI_DB.profiles.Fresh = fresh
   YUI.DB.GetProfile = function() return fresh end
   YUI.YHUD.GetConfigProfile = function() return fresh.YHUD.profile end
   w.Tick()
   eq(fresh.Components.UtilityTools_Config.nameplateOutline, false)
-  eq(fresh.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].comboPoints, false)
+  eq(fresh.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].health, false)
+  eq(fresh.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].energy, true)
 end)
 
 test("new rules stay inactive when their owner addon is absent", function()
@@ -558,7 +656,7 @@ test("new rules stay inactive when their owner addon is absent", function()
   local live = BuildYUI(w)
   w.Login()
   eq(live.Components.UtilityTools_Config.nameplateOutline, true)
-  eq(live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].comboPoints, true)
+  eq(live.YHUD.profile.resources.byGroup["group:system:resources"].bySpec.ROGUE["11572"].energy, true)
 end)
 
 assert(loadfile(TESTS_ROOT .. "gearinsight.lua"))()(test, eq, ok, Stubs, CurrentLoaded, StatusOf)

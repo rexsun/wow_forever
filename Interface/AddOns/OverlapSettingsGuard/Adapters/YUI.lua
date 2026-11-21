@@ -7,22 +7,14 @@ local UTILITY = {
   FriendlyNameplates = { field = "syncFriendlyNameplates", default = false, runtime = "UtilityToolsNameplates" },
 }
 
--- Forever uses configuration-specialization IDs, not retail spec IDs.
-local CLASSES = {
-  WARRIOR = { specs = { 11650, 11657, 11670 }, resources = { "rage" } },
-  PALADIN = { specs = { 11486, 11541, 11559 }, resources = { "mana" } },
-  HUNTER = { specs = { 11372, 11371, 11370 }, resources = { "mana" } },
-  ROGUE = { specs = { 11580, 11573, 11572 }, resources = { "energy", "comboPoints" } },
-  PRIEST = { specs = { 11608, 11615, 11622 }, resources = { "mana" } },
-  SHAMAN = { specs = { 11326, 11363, 11362 }, resources = { "mana" } },
-  MAGE = { specs = { 11582, 11594, 11601 }, resources = { "mana" } },
-  WARLOCK = { specs = { 11629, 11636, 11637 }, resources = { "mana" } },
-  DRUID = { specs = { 11328, 11347, 11340 }, resources = { "mana", "rage", "energy", "comboPoints" } },
+-- Forever uses configuration-specialization IDs, not retail spec IDs. Class resources
+-- (mana, rage, energy, combo points, Maelstrom Weapon) are YHUD's and never written here.
+local CLASS_SPECS = {
+  WARRIOR = { 11650, 11657, 11670 }, PALADIN = { 11486, 11541, 11559 }, HUNTER = { 11372, 11371, 11370 },
+  ROGUE = { 11580, 11573, 11572 }, PRIEST = { 11608, 11615, 11622 }, SHAMAN = { 11326, 11363, 11362 },
+  MAGE = { 11582, 11594, 11601 }, WARLOCK = { 11629, 11636, 11637 }, DRUID = { 11328, 11347, 11340 },
 }
-local FORMS = {
-  caster = { "mana" }, moonkin = { "mana" }, travel = { "mana" },
-  cat = { "energy", "comboPoints", "mana" }, bear = { "rage", "mana" },
-}
+local FORMS = { "caster", "moonkin", "cat", "bear", "travel" }
 local pendingRefresh = {}
 local FLIGHT_MARKER = "travel.flight"
 -- YUI component features guarded through YUI's own switch, which runs their disable callback.
@@ -110,20 +102,11 @@ local function ResourceState()
 end
 
 -- A context edited in YUI's resource manager reads itemsByContext instead of bySpec.
-local function ContextResources(context, key)
-  if PLAYER_RESOURCES[key] then return PLAYER_RESOURCES[key] end
-  local class, form = tostring(context):match("^(%u+):%d+:(.*)$")
-  local pack = CLASSES[class]
-  if not pack then return {} end
-  return FORMS[form] or pack.resources
-end
-
 local function GuardedContextItems(config, key)
-  local found = {}
+  local found, guarded = {}, {}
+  for _, resource in ipairs(PLAYER_RESOURCES[key]) do guarded[resource] = true end
   local contexts = type(config.itemsByContext) == "table" and config.itemsByContext or {}
-  for context, items in pairs(contexts) do
-    local guarded = {}
-    for _, resource in ipairs(ContextResources(context, key)) do guarded[resource] = true end
+  for _, items in pairs(contexts) do
     for _, item in ipairs(type(items) == "table" and items or {}) do
       if type(item) == "table" and guarded[item.id] and item.enabled == true then found[#found + 1] = item end
     end
@@ -131,27 +114,25 @@ local function GuardedContextItems(config, key)
   return found
 end
 
+-- Player health and cast are opt-in upstream, so only an explicit true counts.
 local function ResourceOn(config, key)
-  local fallback = key == "Resources" and config.selectionDefault ~= "none"
-  for class, pack in pairs(CLASSES) do
+  for class, specs in pairs(CLASS_SPECS) do
     local byClass = type(config.bySpec) == "table" and config.bySpec[class]
-    for _, spec in ipairs(pack.specs) do
+    for _, spec in ipairs(specs) do
       local selected = type(byClass) == "table" and (byClass[tostring(spec)] or byClass[spec]) or {}
-      for _, resource in ipairs(PLAYER_RESOURCES[key] or pack.resources) do
-        local value = type(selected) == "table" and selected[resource]
-        if value == true or (value == nil and fallback) then return true end
+      for _, resource in ipairs(PLAYER_RESOURCES[key]) do
+        if type(selected) == "table" and selected[resource] == true then return true end
       end
     end
   end
   local forms = type(config.formOverrides) == "table" and config.formOverrides.DRUID or {}
-  for _, spec in ipairs(CLASSES.DRUID.specs) do
+  for _, spec in ipairs(CLASS_SPECS.DRUID) do
     local overrides = type(forms) == "table" and (forms[tostring(spec)] or forms[spec]) or {}
-    for form, resources in pairs(FORMS) do
+    for _, form in ipairs(FORMS) do
       local override = type(overrides) == "table" and overrides[form]
       local enabled = type(override) == "table" and override.enabled or {}
-      for _, resource in ipairs(PLAYER_RESOURCES[key] or resources) do
-        local value = type(enabled) == "table" and enabled[resource]
-        if value == true or (value == nil and fallback) then return true end
+      for _, resource in ipairs(PLAYER_RESOURCES[key]) do
+        if type(enabled) == "table" and enabled[resource] == true then return true end
       end
     end
   end
@@ -165,23 +146,23 @@ end
 
 local function DisableResources(config, resourceKey)
   local bySpec = Ensure(config, "bySpec")
-  for class, pack in pairs(CLASSES) do
+  for class, specs in pairs(CLASS_SPECS) do
     local byClass = Ensure(bySpec, class)
-    for _, spec in ipairs(pack.specs) do
+    for _, spec in ipairs(specs) do
       local key = tostring(spec)
       if byClass[key] == nil and type(byClass[spec]) == "table" then byClass[key] = byClass[spec] end
       local selected = Ensure(byClass, key)
-      for _, resource in ipairs(PLAYER_RESOURCES[resourceKey] or pack.resources) do selected[resource] = false end
+      for _, resource in ipairs(PLAYER_RESOURCES[resourceKey]) do selected[resource] = false end
     end
   end
   local forms = Ensure(Ensure(config, "formOverrides"), "DRUID")
-  for _, spec in ipairs(CLASSES.DRUID.specs) do
+  for _, spec in ipairs(CLASS_SPECS.DRUID) do
     local key = tostring(spec)
     if forms[key] == nil and type(forms[spec]) == "table" then forms[key] = forms[spec] end
     local overrides = Ensure(forms, key)
-    for form, resources in pairs(FORMS) do
+    for _, form in ipairs(FORMS) do
       local enabled = Ensure(Ensure(overrides, form), "enabled")
-      for _, resource in ipairs(PLAYER_RESOURCES[resourceKey] or resources) do enabled[resource] = false end
+      for _, resource in ipairs(PLAYER_RESOURCES[resourceKey]) do enabled[resource] = false end
     end
   end
   for _, item in ipairs(GuardedContextItems(config, resourceKey)) do item.enabled = false end
@@ -402,7 +383,7 @@ local function RevertFeature(key)
 end
 
 function adapter.Knows(key)
-  return UTILITY[key] ~= nil or key == "Resources" or PLAYER_RESOURCES[key] ~= nil
+  return UTILITY[key] ~= nil or PLAYER_RESOURCES[key] ~= nil
     or key == "ChatKeywordFilter" or key == "FlightMarkers" or key == "MapReveal"
     or FEATURES[key] ~= nil
 end
@@ -412,7 +393,7 @@ function adapter.Read(key)
   if key == "ChatKeywordFilter" then return ReadChatFilter() end
   if key == "FlightMarkers" then return ReadFlightMarkers() end
   if key == "MapReveal" then return ReadMapReveal() end
-  if key == "Resources" or PLAYER_RESOURCES[key] then
+  if PLAYER_RESOURCES[key] then
     local state, problem = ResourceState()
     if not state then return nil, problem end
     if pendingRefresh[key] then return true end
@@ -437,7 +418,7 @@ function adapter.Revert(key)
   if key == "ChatKeywordFilter" then return RevertChatFilter() end
   if key == "FlightMarkers" then return RevertFlightMarkers() end
   if key == "MapReveal" then return RevertMapReveal() end
-  if key == "Resources" or PLAYER_RESOURCES[key] then
+  if PLAYER_RESOURCES[key] then
     local state, problem = ResourceState()
     if not state then return false, problem end
     local changed = {}

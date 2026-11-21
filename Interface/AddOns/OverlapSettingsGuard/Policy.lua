@@ -12,9 +12,9 @@ OSG.policy = {
     reason = "EllesmereUI owns friendly nameplate visibility; YUI must not synchronize its CVars.",
   },
   {
-    id = "yui.resources", adapter = "YUI", key = "Resources",
-    label = "YUI: Mana, rage, energy and combo-point HUD bars", when = { "YUI", "EllesmereUIUnitFrames" },
-    reason = "EllesmereUI unit frames own player power and class resources; YUI swing timers remain available.",
+    id = "eui.classpower", adapter = "EllesmereUI", key = "ClassPower",
+    label = "EllesmereUI: Player frame combo points", when = { "EllesmereUIUnitFrames", "YUI" },
+    reason = "YUI's HUD owns combo points in the middle of the screen; do not duplicate them on the player or target frame.",
   },
   {
     id = "yui.playerhealth", adapter = "YUI", key = "PlayerHealth",
@@ -34,7 +34,7 @@ OSG.policy = {
   {
     id = "eui.nameplatepower", adapter = "EllesmereUI", key = "NameplatePower",
     label = "EllesmereUI: Nameplate class power", when = { "EllesmereUINameplates", "EllesmereUIUnitFrames" },
-    reason = "EllesmereUI unit frames own class resources; do not duplicate them on the target nameplate.",
+    reason = "Combo points already show on the YUI HUD or the EllesmereUI player frame; do not duplicate them on the target nameplate.",
   },
   {
     id = "gi.friendlynameplates", adapter = "GearInsight", key = "FriendlyNameplates",
@@ -49,7 +49,7 @@ OSG.policy = {
   {
     id = "gi.resources", adapter = "GearInsight", key = "CombatHUD",
     label = "GearInsight: Power and combo-point HUD", when = { "GearInsight_Forever", "EllesmereUIUnitFrames" },
-    reason = "EllesmereUI owns player power and combo points; the combined GearInsight HUD stays off.",
+    reason = "EllesmereUI's player frame and YUI's HUD already show player power and combo points; the combined GearInsight HUD stays off.",
   },
   {
     id = "gi.levelingstats", adapter = "GearInsight", key = "LevelingStats",
