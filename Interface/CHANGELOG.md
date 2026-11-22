@@ -8,6 +8,7 @@ Quarterly logs:
 
 ## 2026 Q4
 
+- 2026-11-21 · **Splash Alert removed**: [Remove Splash Alert](AddOns/updates-2026-Q4.md#2026-11-21---remove-splash-alert)
 - 2026-11-21 · **OverlapSettingsGuard 0.22.0**: [YUI keeps its class resource bars](AddOns/updates-2026-Q4.md#2026-11-21---yui-keeps-its-class-resource-bars-overlapsettingsguard-0220)
 - 2026-11-20 · **GitHub sign-in sync**: [Sync Install keeps the CharacterUIBaseline source configuration](AddOns/updates-2026-Q4.md#2026-11-20---sync-install-keeps-the-characteruibaseline-source-configuration)
 - 2026-11-20 · **CharacterUIBaseline 0.4.0**: [`rex` layout for every character, no login popups](AddOns/updates-2026-Q4.md#2026-11-20---characteruibaseline-040-rex-layout-for-every-character-no-login-popups)

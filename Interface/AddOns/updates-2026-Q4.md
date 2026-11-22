@@ -2,6 +2,12 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-21 - Remove Splash Alert
+
+- Splash Alert did not detect bites reliably, so it is removed. `autostart.ps1 -Mode Uninstall` stopped it and unregistered the `WoWSplashAlert` sign-in task; `Interface/tools/splash-alert` (scripts, tests, the Git-ignored calibrations) and its log folder `%LOCALAPPDATA%\SplashAlert` are deleted.
+- Kept: EllesmereUI Forever Essentials' Fishing Key and Fishing Sounds, which never depended on it. No addon, guard rule, TOC or patch referred to it.
+- Verification: no scheduled task or process remains, and no tracked file outside this log refers to it.
+
 ## 2026-11-21 - YUI keeps its class resource bars (OverlapSettingsGuard 0.22.0)
 
 - Problem: a level 9 rogue had no combo points anywhere. `yui.resources` kept YUI's mana, rage, energy and combo-point HUD bars off because EllesmereUI was meant to show them, but EllesmereUI 9.9.1 on Forever gives rogues under its own look a separate class power style, `player.foreverRogueClassPowerStyle`, which is `none` until picked (`ns.UF_RogueCPKey`). Level and spec played no part: EllesmereUI keys Forever class power by class alone.
