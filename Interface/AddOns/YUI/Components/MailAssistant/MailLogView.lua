@@ -119,7 +119,7 @@ function View:DetailLines(entry)
     local lines = {
         { entry.subject ~= "" and entry.subject or T("log.no_subject", "(No subject)"), "color.text.heading" },
         { T("log.party", "Other party") .. ": " .. ClassText(party, classFile) },
-        { T("log.character", "Character") .. ": " .. ClassText(entry.character, characterClass) },
+        { T("log.character", "Character") .. ": " .. ClassText(Assistant:GetMailLogCharacterLabel(entry.character), characterClass) },
         { Stamp(entry.at, true), "color.text.secondary" },
     }
     for _, item in ipairs(entry.items) do
@@ -256,9 +256,15 @@ function View:Refresh()
     if not store then return end
     Model.Prune(store, _G.time())
     Assistant:RefreshMailLogClasses(store)
-    self.rows, self.goldIn, self.goldOut = Model.Filter(store, self.filter, _G.time())
-    local characters = {}
-    for _, entry in ipairs(store.records) do characters[entry.character] = true end
+    local characters, labels = {}, {}
+    for _, entry in ipairs(store.records) do
+        if not labels[entry.character] then
+            local label = Assistant:GetMailLogCharacterLabel(entry.character)
+            labels[entry.character] = label
+            characters[label] = true
+        end
+    end
+    self.rows, self.goldIn, self.goldOut = Model.Filter(store, self.filter, _G.time(), labels)
     local ordered = {}; for name in pairs(characters) do ordered[#ordered + 1] = name end
     table.sort(ordered)
     for index = #self.characterOptions, 1, -1 do self.characterOptions[index] = nil end

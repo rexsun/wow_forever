@@ -294,6 +294,14 @@ function View:ApplyCooldown(slot, state, runtime)
     slot._yhudCooldownFlashEligible = cooldownActive and state.isOnGCD ~= true
 end
 
+local function RefreshUsableMonitorGlow(slot)
+    local monitorId = slot._yhudMonitorId
+    local monitor = View.desiredMonitors[monitorId]
+    if View.active and monitor and View.byMonitor[monitorId] == slot then
+        View:ApplyMonitorGlow(slot, monitor, YHUD.Model:GetState(monitor.sourceKey))
+    end
+end
+
 function View:ApplyMonitorGlow(
     slot,
     monitor,
@@ -318,6 +326,12 @@ function View:ApplyMonitorGlow(
         or monitor and monitor._yhudGlowRuntime
     local preview = (self.preview == true or slot._yhudDesignProjection == true)
         and not (state and state.classExtraPreview == true)
+    local usableStatus
+    if supportsGlow and not preview and self.active and compiled and compiled.usableSpellID then
+        usableStatus = Glow:WatchUsable(slot, compiled, state and state.spellID, RefreshUsableMonitorGlow)
+    else
+        Glow:ReleaseUsable(slot)
+    end
     if auraResolved == nil
         and monitor
         and monitor._yhudEquipmentTriggerKind == "active-timer"
@@ -371,7 +385,8 @@ function View:ApplyMonitorGlow(
             nativeSignal,
             auraResolved,
             auraPresent,
-            persistentSlot
+            persistentSlot,
+            usableStatus
         )
         if slot._yhudDesignProjection == true and self.designGlowPreviewAppearance
             and (slot._yhudLogicalMonitorId or slot._yhudMonitorId) == self.designGlowPreviewMonitorId then

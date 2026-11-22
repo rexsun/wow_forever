@@ -3,7 +3,9 @@ local B = YUI and YUI.YBags
 if not B then return end
 local G,A,S=YUI.GUI2,YUI.API.Bags,YUI.API.Security
 local V={windows={},windowOrder={},buttonData=setmetatable({}, {__mode="k"}),itemInputs=setmetatable({}, {__mode="k"}),
+    itemBindings=setmetatable({}, {__mode="k"}),
     equippedLevels={},waitingEquipment={},equipmentRevision=0}
+local nativeSlotLocks=setmetatable({}, {__mode="k"})
 B.View=V
 V.currencyLeftInset=2
 local windowBase,windowStride=20,20
@@ -62,6 +64,30 @@ end
 local function Tooltip(button,text)
     GameTooltip:SetOwner(button,"ANCHOR_RIGHT");GameTooltip:SetText(text);GameTooltip:Show()
 end
+local function PrepareRecentClearHint(button,title)
+    local hint=Label(button,B:T("action.clear_recent_hint"),12,"color.state.success")
+    B.Appearance:Text(hint,"heading")
+    hint:SetPoint("LEFT",title,"LEFT")
+    hint:SetAlpha(0)
+    button.recentClearHint=hint
+    local hovered=false
+    local function ShowHint(shown)
+        if hovered==shown then return end
+        hovered=shown
+        title:SetAlpha(shown and 0 or 1)
+        hint:SetAlpha(shown and 1 or 0)
+    end
+    local function ResetHint() ShowHint(false) end
+    button:SetScript("OnEnter",function() ShowHint(true) end)
+    button:SetScript("OnLeave",ResetHint)
+    button:SetScript("OnHide",ResetHint)
+    local parent=button:GetParent()
+    local onHide=parent:GetScript("OnHide")
+    parent:SetScript("OnHide",function(owner)
+        ResetHint()
+        if onHide then onHide(owner) end
+    end)
+end
 local function Icon(parent,id,label,callback,atlas,command,size)
     local button=id=="close" and G:CreateButtonFrame(parent,{width=22,height=22,frameLevel=parent:GetFrameLevel()+1,template="UIPanelCloseButton"})
         or B.Appearance:Icon(parent,{asset=icons[id],atlas=atlas or atlases[id],
@@ -90,22 +116,43 @@ function V:SetSortSpace(count)
     count=S.SafeNumber(count)
     count=count and count>=1 and math.floor(count) or nil
     if w.sortSpace==count then return end
-    local show=count~=nil
-    if w.sortSpaceLabel:IsShown()~=show then
-        w.sort.image:ClearAllPoints()
-        w.sort.image:SetPoint("CENTER",w.sort,"CENTER",0,show and 4 or 0)
-    end
     w.sortSpace=count
     w.sortSpaceLabel:SetText(count and string.format("+%d",count) or "")
-    w.sortSpaceLabel:SetShown(show)
+    w.sortSpaceLabel:SetShown(count~=nil)
     if w.open and w.sort:IsMouseOver() and GameTooltip:IsOwned(w.sort) then ShowSortTooltip(w) end
 end
+local function RestoreCombinedPool(w)
+    local slots=w.combinedSlots
+    if not slots or not slots.normalPool then return end
+    for _,button in ipairs(w.pool) do button:Hide() end
+    w.pool,slots.normalPool=slots.normalPool,nil
+end
+
 function V:ClearWindow(w)
     B.Appearance:SetTradeSweep(w)
+    B.Appearance:SetRecentSweep(w)
+    RestoreCombinedPool(w)
+    local combined=w.combinedSlots
+    if combined then
+        for _,button in pairs(combined.spares) do
+            button:Hide();self.buttonData[button]=nil;nativeSlotLocks[button]=nil
+        end
+        combined.items,combined.nodes,combined.bySlot=nil,nil,nil
+        combined.drawn={}
+    end
+    if w.combatLoot then
+        self:HideCombatLoot(w)
+        for _,button in pairs(w.combatLoot.bySlot) do self.buttonData[button]=nil;nativeSlotLocks[button]=nil end
+        w.combatLoot.prepared={}
+    end
+    w.combatLootItems,w.combatLootNodes=nil,nil
     w.nodes={};w.items=nil;w.projectedLive=nil;w.cols=0;w.prepared=false;w.pendingGrouping=nil
     if not B.active then w.splitPlacements,w.splitAnchors,w.splitSequence={},{},0 end
-    for _,pool in ipairs({w.pool,w.cachePool,w.labels}) do
-        for _,button in ipairs(pool) do button:Hide();self.buttonData[button]=nil end
+    for _,pool in ipairs({w.pool,w.cachePool,w.labels,w.alternates}) do
+        for _,button in ipairs(pool) do
+            button:Hide();self.buttonData[button]=nil
+            if nativeSlotLocks[button] then nativeSlotLocks[button]=nil end
+        end
     end
 end
 function V:RegisterEscape(frame)
@@ -171,6 +218,7 @@ function V:NewWindow(id,title)
     root:SetPoint("CENTER",UIParent,"CENTER",id=="player" and 250 or -260,0)
     local positionKey=(id=="player" or id=="keyring" or id=="live-bank" or id=="live-guild") and id or "cache"
     local w={id=id,root=root,pool={},cachePool={},labels={},nodes={},query="",collapsed=id=="player" and config.collapsed or {},cols=0,provider={},positionKey=positionKey}
+    if id=="player" then w.alternates={} end
     w.provider.IsCombinedBagContainer=function() return false end
     self.windows[id]=w
     w.header=G:CreateFrame(root,{width=534,height=20})
@@ -235,6 +283,8 @@ function V:NewWindow(id,title)
     w.scroll=G:CreateFrame(root,{type="ScrollFrame",width=510,height=380,mouseWheel=true})
     w.scroll:SetPoint("TOPLEFT",10,-71)
     w.content=G:CreateFrame(w.scroll,{width=510,height=380});w.scroll:SetScrollChild(w.content)
+    -- Retail's native item template asks its parent whether to draw combined bag slot art.
+    if YUI.IsRetail then w.content.IsCombinedBagContainer=w.provider.IsCombinedBagContainer end
     w.scroll:SetScript("OnMouseWheel",function(_,delta)
         if A.InCombat() then return end
         local frame=w.scroll
@@ -257,15 +307,18 @@ function V:NewWindow(id,title)
     else w.currencyHost:SetPoint("BOTTOMLEFT",10,7) end
     w.currencyButtons={}
     root:SetScript("OnHide",function()
+        if w.id=="player" then self:HideHelp(w) end
+        if w.combatLoot then self:HideCombatLoot(w);w.combatLoot.revision=nil end
         if w.capacityEquipmentChanged then
             YUI.Event:OffOwner(w.capacity)
             B.Stats.listeners=math.max(0,B.Stats.listeners-1)
             w.capacitySockets=nil
         end
         B.Appearance:SetTradeSweep(w)
+        B.Appearance:SetRecentSweep(w)
         self:ForgetWindow(w)
         CancelTransferLayout(w)
-        w.open=false
+        w.open,w.autoOpenedBy=false,nil
         if w.sortSpaceLabel and B.SortSpaceVisibility then B:SortSpaceVisibility(false) end
         if w.liveBank=="bank" and B.Actions:IsPersonalBatch() then
             B.Actions:Stop()
@@ -331,6 +384,7 @@ end
 function V:EnsurePlayer()
     if self.windows.player then return self.windows.player end
     local w=self:NewWindow("player",string.format(B:T("window.bags"),A.PlayerName() or ""))
+    self:CreateHelp(w)
     w.toolbarHost=YUI.IsForever and w.root or w.header
     local function Tool(parent,id,label,callback,atlas)
         local size=YUI.IsForever and parent==w.header and 16 or nil
@@ -506,7 +560,8 @@ function V:RememberCursor(button,item)
     item=item or data and data.item
     local w=self.windows.player
     if w and item and not item.empty and A.CursorBusy() then
-        w.dragSource={bag=item.bag,slot=item.slot,itemID=item.itemID,link=item.link,guid=item.guid,stackKey=B.Classification:StackKey(item)}
+        w.dragSource={bag=item.bag,slot=item.slot,itemID=item.itemID,link=item.link,guid=item.guid,
+            stackKey=item.stackKey or B.Classification:StackKey(item)}
         local bag=B.Model.bags[item.bag]
         local source=bag and bag.slots[item.slot]
         B.Model.recentCursor=source and source.guid and source.itemID==item.itemID and source.link==item.link and source or nil
@@ -521,7 +576,9 @@ function V:ReturnToGroup(button)
     if not cursor or cursor.itemID~=source.itemID or source.stackKey~=data.item.stackKey
         or cursor.link and cursor.link~=source.link then return false end
     local current,err=A.Slot(source.bag,source.slot)
-    if err or current and (not B.Classification:SameStack(current,data.item) or source.guid and current.guid~=source.guid) then return false end
+    if err or current and (data.item.maxStack==1 and not source.guid
+        or not B.Classification:SameStack(current,data.item,data.item.ignoreDisplayBinding)
+        or source.guid and current.guid~=source.guid) then return false end
     if A.Pickup(source.bag,source.slot) and not A.CursorBusy() then
         if w.splitPlacements then w.splitPlacements[tostring(source.bag)..":"..source.slot]=nil end
         w.dragSource=nil
@@ -585,16 +642,23 @@ function V:DropEmpty(button)
         if bankDrag then return B.BankView:DropBagDrag() end
         return false
     end
+    local item=data.item
+    local profession=YUI.IsForever and data.window.id=="player" and item.space and item.space:sub(1,7)=="family:"
     local cursor=A.CursorItem()
-    if not cursor then return bankDrag and B.BankView:DropBagDrag() or false end
-    local target={bag=data.item.bag,slot=data.item.slot}
-    if data.item.aggregate then
-        local ids=data.window.liveBank=="bank" and A.BankBags("bank")
+    if not cursor and not (profession and A.CursorKind()=="item") then
+        return bankDrag and B.BankView:DropBagDrag() or false
+    end
+    local target={bag=item.bag,slot=item.slot}
+    if item.aggregate then
+        local ids=item.bagScoped and {item.bag} or data.window.liveBank=="bank" and A.BankBags("bank")
             or data.window.id=="keyring" and {KEYRING_CONTAINER} or A.GetCarryBags(false)
-        target=B.Actions:FreeSlot(cursor,ids,nil,data.item.space,bankDrag and bankDrag.bag or data.window.dragBag)
+        -- The player chose this domain explicitly. Let the client validate the drop.
+        local candidate=not profession and cursor or nil
+        target=B.Actions:FreeSlot(candidate,ids,nil,item.space,bankDrag and bankDrag.bag or data.window.dragBag)
     end
     if bankDrag then return B.BankView:DropBagDrag(target) end
-    if not target or target.bag==data.window.dragBag or not A.Fits(cursor,B.Model.bags[target.bag]) then return false end
+    if not target or target.bag==data.window.dragBag
+        or not profession and not A.Fits(cursor,B.Model.bags[target.bag]) then return false end
     local occupied,err=A.Slot(target.bag,target.slot)
     if occupied or err then return false end
     local moving=data.window.dragSource
@@ -613,7 +677,7 @@ function V:DropEmpty(button)
                 end
             end
             w.dragSource=nil;w.reflow=true
-        else self:PinSlot(target,cursor,w) end
+        elseif cursor then self:PinSlot(target,cursor,w) end
         B:MarkBag(target.bag);return true
     end
     return false
@@ -853,7 +917,7 @@ local function BuildInventoryLayout(w,config,cols,force,reflow,grouping,transfer
     end
     local live=B.Model.byUID
     if grouping then
-        projection,live=B.Layout:Aggregate(projection,w.expandedItems,w.splitPlacements)
+        projection,live=B.Layout:Aggregate(projection,w.expandedItems,w.splitPlacements,w.id=="player")
         if not w.owner then setmetatable(live,{__index=B.Model.byUID}) end
     end
     w.projectedLive=live
@@ -875,7 +939,7 @@ local function BuildInventoryLayout(w,config,cols,force,reflow,grouping,transfer
             for _,item in ipairs(projection) do
                 local discard=false
                 if item.held then for _,prototype in pairs(reflow) do
-                    if B.Classification:SameStack(item,prototype) then discard=true;break end
+                    if B.Classification:SameStack(item,prototype,prototype.ignoreDisplayBinding) then discard=true;break end
                 end end
                 if discard then free[#free+1]={empty=true,bag=item.bag,slot=item.slot,family=item.family,space=item.space}
                 else retained[#retained+1]=item end
@@ -896,7 +960,9 @@ function V:Layout(w,force,transferLayout)
     force=force or w.reflow;w.reflow=nil
     if not w.open then return end
     if w.liveBank=="guild" then self:RefreshGuildBagRoute() end
-    if A.InCombat() then w.deferred=true;self:Patch(w);return end
+    if A.InCombat() then w.deferred=true;self:Patch(w,true);return end
+    RestoreCombinedPool(w)
+    if w.combatLoot then self:HideCombatLoot(w) end
     w.deferred=nil
     force=force or w.id=="player" and (B.Actions.nativeSort==true or B.Actions.kind=="sort")
         or w.liveBank=="bank" and B.Actions:IsSortingBank()
@@ -917,6 +983,7 @@ function V:Layout(w,force,transferLayout)
     local screenWidth,screenHeight=UIParent:GetWidth(),UIParent:GetHeight()
     local maxWindowHeight=screenHeight-48
     local config=setmetatable({layout=w.id=="keyring" and "single" or w.layout or profile.layout},{__index=profile})
+    config.combinedWrapSpecialBags=YUI.IsForever and w.id=="player" and profile.combinedWrapSpecialBags==true
     if personalBank then
         for key,value in pairs(profile.bankView) do config[key]=value end
     elseif guildView then
@@ -933,6 +1000,10 @@ function V:Layout(w,force,transferLayout)
         config.slotSize=math.min(config.slotSize,math.max(1,math.floor((screenWidth-m.left-m.right-guildScrollGutter-45)/14)))
     end
     w.effectiveLayout,w.slotSize=config.layout,(personalBank or guildView) and config.slotSize or nil
+    if YUI.IsForever and w.id=="player" then
+        w.combinedConfig=config.layout=="single" and config.emptyMode=="one" and
+            {layout="single",emptyMode="one",slotSize=config.slotSize,combinedWrapSpecialBags=config.combinedWrapSpecialBags} or nil
+    end
     config.splitPlacements=w.splitPlacements
     local physicalStacks=self:InteractionStacks(w)
     local grouping=self:Grouping(w,physicalStacks)
@@ -1038,6 +1109,7 @@ function V:Layout(w,force,transferLayout)
     B.Appearance:Surface(w)
     w.content:SetSize(gridWidth,math.max(height,visible));w.scroll:SetSize(gridWidth,visible)
     w.scroll:ClearAllPoints();w.scroll:SetPoint("TOPLEFT",m.left,-top)
+    if w.id=="player" and YUI.IsForever and w.effectiveLayout=="category" then w.scrollLeft,w.scrollTop=m.left,top end
     w.scroll:SetVerticalScroll(math.min(w.scroll:GetVerticalScroll(),math.max(0,height-visible)))
     if guildBank then LayoutGuildScrollBar(w,height,visible) end
     local capacity=self:CapacityText(w)
@@ -1098,6 +1170,18 @@ local function SameChoiceStack(item,source)
         and item.slot==source.slot and item.guid==source.guid and item.itemID==source.itemID
         and item.link==source.link and item.count==source.count
 end
+local function RefreshWindowItemInputs(view,w,cursor,merchantCursor)
+    for _,button in ipairs(w.pool) do
+        if button:IsShown() then view:UpdateItemInput(button,cursor,merchantCursor) end
+    end
+    local loot=w.combatLoot
+    if loot and loot.frame:IsShown() then
+        for _,button in ipairs(loot.prepared) do
+            if button:IsShown() then view:UpdateItemInput(button,cursor,merchantCursor) end
+        end
+    end
+end
+
 function V:RefreshGuildBagRoute(metadataUpdated)
     if B.Deposit.bagDeposit then B.Deposit:CheckBagDeposit() end
     local blocked=GuildBagBlocked(self)
@@ -1113,11 +1197,7 @@ function V:RefreshGuildBagRoute(metadataUpdated)
     if blocked==self.guildBagBlocked then return end
     self.guildBagBlocked=blocked
     for _,w in pairs(self.windows) do
-        if w.open and IsCarriedWindow(w) then
-            for _,button in ipairs(w.pool) do
-                if button:IsShown() then self:UpdateItemInput(button) end
-            end
-        end
+        if w.open and IsCarriedWindow(w) then RefreshWindowItemInputs(self,w) end
     end
 end
 local function ChooseGuildDestination(view,owner)
@@ -1154,26 +1234,32 @@ local function ChooseGuildDestination(view,owner)
     GameTooltip:Hide()
     view:Menu(owner,rows,nil,true,choice)
 end
-function V:UpdateItemInput(button)
+local function HasItemMenu(window)
+    return not (YUI.IsForever and window.id=="player" and window.effectiveLayout=="single")
+end
+
+function V:UpdateItemInput(button,cursor,merchantCursor)
     local data=self.buttonData[button]
     local input=self.itemInputs[button]
     if not data or not input then return end
     local item=data.item
     local left,right=false,false
     local inCombat=A.InCombat()
-    if item and not item.held and not inCombat and (B.Actions:BlocksItemInput() or B.BankView.bagDrag) then
+    -- A deferred aggregate is still bound to just one physical stack.
+    if item and not item.held and NeedsPhysicalStack(self,data) then
+        left,right=true,true
+    elseif item and not item.held and not inCombat and (B.Actions:BlocksItemInput() or B.BankView.bagDrag) then
         left,right=true,true
     elseif item and not item.held and not inCombat and data.window.liveBank~="bank" then
-        local cursor=A.CursorBusy()
-        -- Empty cells accept cursor drops; idle clicks must not enter native item use.
-        left=item.empty or cursor and item.members and data.window.dragSource~=nil
+        if cursor==nil then cursor=A.CursorBusy() end
+        -- The native slot handles merchant purchases and their confirmation dialogs.
+        if item.empty and cursor and merchantCursor==nil then merchantCursor=A.CursorKind()=="merchant" end
+        left=item.empty and (not cursor or not merchantCursor)
+            or cursor and item.members and data.window.dragSource~=nil
             or IsShiftKeyDown() and (item.count>1 or (item.displayCount or 0)>1) and not cursor
-        right=item.empty and not cursor or not item.empty and (IsAltKeyDown() or item.quality==0 and A.Context()=="travel" and not B.Actions:Protected(item))
-    end
-    -- Block native transfer from a projected count while the physical layout is deferred.
-    if item and not item.held and NeedsPhysicalStack(self,data) then
-        right=true
-        if not inCombat and not A.CursorBusy() then left=true end
+        if item.empty then right=not cursor
+        elseif IsAltKeyDown() then right=HasItemMenu(data.window)
+        else right=item.quality==0 and A.IsNonEquippable(item) and A.Context()=="travel" and not B.Actions:Protected(item) end
     end
     if self.guildBagBlocked and IsCarriedWindow(data.window) then right=true end
     local route=(left and 1 or 0)+(right and 2 or 0)
@@ -1188,12 +1274,14 @@ function V:RefreshItemInputs(cursorChanged)
     -- Start installs the input guard, and newly painted buttons inherit it in Bind.
     -- Picking up and dropping each queued item cannot change that guard.
     if cursorChanged and B.Actions:IsPersonalBatch() and not A.InCombat() then return end
+    local cursor=A.CursorBusy()
+    local merchantCursor=cursor and A.CursorKind()=="merchant"
     for _,w in pairs(self.windows) do
-        if not A.CursorBusy() then
+        if not cursor then
             w.dragSource=nil
             if w.dragBag then w.dragBag=nil;if w.open then self:Paint(w) end end
         end
-        if w.open then for _,button in ipairs(w.pool) do if button:IsShown() then self:UpdateItemInput(button) end end end
+        if w.open then RefreshWindowItemInputs(self,w,cursor,merchantCursor) end
     end
 end
 function V:CloseItemSplitDialogs()
@@ -1201,15 +1289,19 @@ function V:CloseItemSplitDialogs()
     local owner=StackSplitFrame and StackSplitFrame.owner
     if owner and self.buttonData[owner] then B.BankView:DismissStackSplit(owner) end
 end
+local function RefreshCooldownPool(view,pool)
+    for _,button in ipairs(pool) do
+        local data=view.buttonData[button]
+        if data and button:IsShown() and not data.item.empty and not data.item.held then
+            A.UpdateCooldown(button,data.item)
+            B.Appearance:ItemCooldownText(button)
+        end
+    end
+end
 function V:RefreshCooldowns()
     for _,w in pairs(self.windows) do
-        if w.open or w.prepared then for _,button in ipairs(w.pool) do
-            local data=self.buttonData[button]
-            if data and button:IsShown() and not data.item.empty and not data.item.held then
-                A.UpdateCooldown(button,data.item)
-                B.Appearance:ItemCooldownText(button)
-            end
-        end end
+        if w.open or w.prepared then RefreshCooldownPool(self,w.pool) end
+        if w.combatLoot and w.combatLoot.frame:IsShown() then RefreshCooldownPool(self,w.combatLoot.prepared) end
     end
 end
 function V:ItemInputClick(button,mouse)
@@ -1220,10 +1312,11 @@ function V:ItemInputClick(button,mouse)
         if mouse=="LeftButton" then self:DropEmpty(button) else B.BankView:DropBagDrag() end
         return
     end
-    if mouse=="LeftButton" and item.empty and A.CursorBusy() then self:DropEmpty(button)
+    if NeedsPhysicalStack(self,data) then self:UpdateGrouping()
+    elseif mouse=="LeftButton" and item.empty and A.CursorBusy() then self:DropEmpty(button)
     elseif mouse=="LeftButton" and item.members and A.CursorBusy() then self:ReturnToGroup(button)
-    elseif NeedsPhysicalStack(self,data) then self:UpdateGrouping()
-    elseif IsAltKeyDown() and mouse=="RightButton" and not item.empty then self:ItemMenu(button,item)
+    elseif IsAltKeyDown() and mouse=="RightButton" and not item.empty then
+        if HasItemMenu(data.window) then self:ItemMenu(button,item) end
     elseif mouse=="RightButton" and self.guildBagBlocked and IsCarriedWindow(data.window) then
         if item.empty then return end
         if IsShiftKeyDown() or IsControlKeyDown and IsControlKeyDown() then A.HandleModifiedClick(item.link);return end
@@ -1258,7 +1351,7 @@ function V:InstallItemInput(button)
         end
     end)
     input:SetScript("OnReceiveDrag",function()
-        if not B.Actions:BlocksItemInput() and (B.BankView.bagDrag or not self:ReturnToGroup(button)) then self:DropEmpty(button) end
+        if A.CursorBusy() or B.BankView.bagDrag then self:ItemInputClick(button,"LeftButton") end
     end)
     self.itemInputs[button]=input
 end
@@ -1268,7 +1361,7 @@ local function AppendDragQuantity(view,data)
         GameTooltip:AddLine(string.format(B:T("stack.drag_quantity"),item.displayCount,item.count),1,.82,0)
     end
 end
-function V:CreateItem(w,live)
+function V:CreateItem(w,live,parent)
     local button
     if live=="bank" then
         button=B.Appearance:Item(w.content,false,"CamelotBankItemButtonTemplate")
@@ -1281,7 +1374,7 @@ function V:CreateItem(w,live)
         button:HookScript("OnClick",function(_,mouse) if mouse=="LeftButton" then B.BankView:DropBagDrag() end end)
         self:InstallItemInput(button)
     elseif live then
-        button=B.Appearance:Item(w.content,true)
+        button=B.Appearance:Item(parent or w.content,true)
         self:InstallItemInput(button)
         button:HookScript("OnClick",function(owner,mouse)
             B.Actions:CancelDelete()
@@ -1543,7 +1636,7 @@ function V:BeginSplitDisplay(w,plan)
         end
     end
 end
-function V:Bind(button,w,node,item)
+function V:Bind(button,w,node,item,hidden)
     item=item or node.item
     local menu=self.menu
     if menu and menu.owner==button and menu.actionContext and menu.actionContext.guildTargets
@@ -1552,6 +1645,7 @@ function V:Bind(button,w,node,item)
     local data=self.buttonData[button]
     if not data then data={};self.buttonData[button]=data end
     local binding=data.bag~=item.bag or data.slot~=item.slot
+    local initialized=false
     if w.liveBank=="bank" and not item.held and self.itemInputs[button] then
         if binding or not data.item or data.item.link~=item.link or data.count~=item.count or item.locked then
             B.BankView:DismissStackSplit(button)
@@ -1561,24 +1655,40 @@ function V:Bind(button,w,node,item)
             self.buttonData[button]=nil
             return
         end
+        initialized=binding
     end
     if button.Initialize and binding and not item.held and A.InCombat() then w.deferred=true;return end
     button.ybagsSpace=item.empty and (item.space or "normal") or nil
-    if button.Initialize and binding and not item.held then A.InitializeButton(button,w.provider,item.bag,item.slot) end
+    if button.Initialize and binding and not item.held then
+        if A.InitializeButton(button,w.provider,item.bag,item.slot) then
+            initialized=true
+            if YUI.IsForever and w.id=="player" then nativeSlotLocks[button]=A.HasNativeSlotLock(button) or nil end
+        end
+    end
+    if initialized then
+        -- The native frame retains its slot when pooled visual data is cleared.
+        local native=self.itemBindings[button]
+        if not native then native={};self.itemBindings[button]=native end
+        native.previousBag,native.previousSlot=native.bag,native.slot
+        native.bag,native.slot,native.at=item.bag,item.slot,A.Now()
+    end
     local texture=item.empty and "Interface\\PaperDoll\\UI-Backpack-EmptySlot" or item.icon
     local count=item.aggregate or (not item.empty and (item.displayCount or item.count)) or 0
     local otherBag=w.hoverBag~=nil and item.bag~=w.hoverBag
     if item.aggregate and (w.dragBag or w.hoverBag) then
         count=0
         for _,empty in ipairs(w.empties) do
-            if empty.space==item.space and (w.dragBag and empty.bag~=w.dragBag or not w.dragBag and empty.bag==w.hoverBag) then count=count+1 end
+            if empty.space==item.space and (not item.bagScoped or empty.bag==item.bag)
+                and (w.dragBag and empty.bag~=w.dragBag or not w.dragBag and empty.bag==w.hoverBag) then count=count+1 end
         end
         otherBag=count==0
     elseif item.members and w.hoverBag and not w.dragBag then
         count=0
         for _,member in ipairs(item.members) do
             local current=w.owner and member or B.Model.byUID[member.uid]
-            if current and current.bag==w.hoverBag and B.Classification:SameStack(current,item) then count=count+current.count end
+            if current and current.bag==w.hoverBag and B.Classification:SameStack(current,item,item.ignoreDisplayBinding) then
+                count=count+current.count
+            end
         end
         otherBag=count==0
     end
@@ -1613,7 +1723,7 @@ function V:Bind(button,w,node,item)
     local slotSize=w.slotSize or B:GetConfig().slotSize
     local resized=data.size~=slotSize and not A.InCombat()
     local badge=self:ItemBadgeText(button,w,data,item,resized and slotSize or data.size or slotSize)
-    if projected then ShowSplitCount(button,data,split.unseparated) end
+    if projected and (button.splitCountLabel or not A.InCombat()) then ShowSplitCount(button,data,split.unseparated) end
     BindCharges(button,data,item)
     if data.badge~=badge then button.badge:SetText(badge);data.badge=badge;changed=true end
     if data.badgeQuality~=item.quality then
@@ -1621,11 +1731,12 @@ function V:Bind(button,w,node,item)
         r,g,b=S.SafeNumber(r) or 1,S.SafeNumber(g) or 1,S.SafeNumber(b) or 1
         button.badge:SetTextColor(r,g,b,1);button.bindBadge:SetTextColor(r,g,b,1);data.badgeQuality=item.quality
     end
-    local locked=w.liveBank~="guild" and w.kind~="guild" and not item.empty and B:GetConfig().locks[item.key] and "|T134237:10|t" or ""
+    local locked=w.liveBank~="guild" and w.kind~="guild" and not item.empty and HasItemMenu(w)
+        and B:GetConfig().locks[item.key] and "|T134237:10|t" or ""
     if data.locked~=locked then button.slotLock:SetText(locked);data.locked=locked;changed=true end
     if changed then B.Stats.writes=B.Stats.writes+1 end
     if data.x~=node.x or data.y~=node.y then
-        button:ClearAllPoints();button:SetPoint("TOPLEFT",w.content,"TOPLEFT",node.x,-node.y)
+        button:ClearAllPoints();button:SetPoint("TOPLEFT",node.content or w.content,"TOPLEFT",node.x,-node.y)
         data.x,data.y=node.x,node.y
     end
     data.item,data.bag,data.slot,data.window=item,item.bag,item.slot,w
@@ -1638,6 +1749,8 @@ function V:Bind(button,w,node,item)
     if changed or resized or data.space~=space or data.recipeTint~=tint then
         B.Appearance:CellAppearance(button,item.empty==true,item,tint)
     end
+    local questVisual=item.questVisual and self.itemInputs[button] and not item.empty and not item.held and item.questVisual or nil
+    B.Appearance:CellQuest(button,questVisual)
     data.space,data.recipeTint=space,tint
     local match=item.empty or B.Classification:Matches(item,w.query)
     local dimmed=otherBag
@@ -1659,7 +1772,9 @@ function V:Bind(button,w,node,item)
     if w.liveBank=="guild" then B.GuildInventory:PaintHighlight(w,button,item)
     elseif button.ybagsGuildLocate then B.GuildInventory:ReleaseHighlight(button) end
     if bound.mouse~=(not item.held) then button:EnableMouse(not item.held);bound.mouse=not item.held end
-    if not button:IsShown() then button:Show() end
+    if hidden then
+        if button:IsShown() then button:Hide() end
+    elseif not button:IsShown() then button:Show() end
 end
 -- Display the physical slot during a batch; keep its original layout node
 -- intact so the final category layout can retain vacated positions.
@@ -1720,18 +1835,265 @@ local function ReuseTransferButtons(view,w,low,high)
         end
     end
 end
+local function PrepareAlternateButtons(view,w,node,data,count,slotSize)
+    local item=data.item
+    data.combatGroup,data.firstAlternate,data.lastAlternate=nil,nil,nil
+    if not item.members or #item.members<2 then return count end
+    -- Every spare has its own native slot binding and the visible cell's position.
+    data.combatGroup,data.firstAlternate=item,count+1
+    for _,member in ipairs(item.members) do
+        if member.bag~=item.bag or member.slot~=item.slot then
+            count=count+1
+            local button=w.alternates[count]
+            if not button then button=view:CreateItem(w,true);w.alternates[count]=button end
+            local binding=view.buttonData[button]
+            if not binding or binding.bag~=member.bag or binding.slot~=member.slot
+                or binding.x~=node.x or binding.y~=node.y or binding.size~=slotSize then
+                view:Bind(button,w,node,member,true)
+            end
+        end
+    end
+    data.lastAlternate=count
+    return count
+end
+
+local function CreateCombatLoot(view,w)
+    local frame=G:CreateFrame(w.root,{hidden=true})
+    local text=B:T("section.recent")
+    local frames=B.Appearance:RecentCaptionFrames(text)
+    local titleText=frames and frames[0] or text
+    local title=Label(frame,titleText,12,"color.text.heading")
+    B.Appearance:Text(title,"heading")
+    title:SetPoint("TOPLEFT",B.Appearance.headingInset,-1)
+    local scroll=G:CreateFrame(frame,{type="ScrollFrame",mouseWheel=true})
+    scroll:SetPoint("TOPLEFT",0,-16)
+    local content=G:CreateFrame(scroll,{width=1,height=1})
+    scroll:SetScrollChild(content)
+    local loot={frame=frame,title=title,titleText=titleText,scroll=scroll,content=content,bySlot={},prepared={},represented=setmetatable({}, {__mode="k"}),node={content=content}}
+    local titleWidth=B.Appearance:HeadingWidth("recent",0,false)
+    local hintWidth=B.Appearance:TextWidth(B:T("action.clear_recent_hint"),"heading")
+    local clear=G:CreateButtonFrame(frame,{height=16,width=math.max(titleWidth,hintWidth)})
+    clear:SetPoint("TOPLEFT")
+    clear:RegisterForClicks("LeftButtonUp")
+    PrepareRecentClearHint(clear,title)
+    clear:SetScript("OnClick",function()
+        GameTooltip:Hide()
+        for _,button in ipairs(loot.prepared) do
+            local data=view.buttonData[button]
+            local bag=B.Model.bags[data.bag]
+            data.combatLootOriginal=bag and bag.slots[data.slot]
+        end
+        view:HideCombatLoot(w)
+        B.Actions:ClearRecent(A.GetCarryBags(false))
+    end)
+    scroll:SetScript("OnMouseWheel",function(owner,delta)
+        local offset=math.max(0,math.min(owner:GetVerticalScroll()-delta*loot.pitch,content:GetHeight()-owner:GetHeight()))
+        owner:SetVerticalScroll(offset)
+    end)
+    w.combatLoot=loot
+    return loot
+end
+
+function V:HideCombatLoot(w)
+    local loot=w.combatLoot
+    if not loot.frame:IsShown() then return end
+    loot.frame:Hide()
+    for _,button in ipairs(loot.prepared) do if button:IsShown() then button:Hide() end end
+    if loot.replacedHeading then loot.replacedHeading:Show();loot.replacedHeading=nil end
+    w.scroll:ClearAllPoints();w.scroll:SetPoint("TOPLEFT",w.scrollLeft,-w.scrollTop)
+    w.scroll:SetHeight(loot.viewHeight)
+    w.root:SetHeight(loot.windowHeight)
+end
+
+local function PrepareCombatLoot(view,w,slotSize)
+    if w.combatLootItems==w.items and w.combatLootNodes==w.nodes then return end
+    w.combatLootItems,w.combatLootNodes=w.items,w.nodes
+    local loot=w.combatLoot
+    local viewHeight,windowHeight=w.scroll:GetHeight(),w.root:GetHeight()
+    local extraHeight=slotSize+22
+    local shrink=math.min(viewHeight-1,math.max(0,windowHeight+extraHeight-UIParent:GetHeight()))
+    local covered={}
+    -- A slot already represented by the normal layout keeps its place, even
+    -- when the scroll viewport has clipped it or Paint has not bound it yet.
+    for _,node in ipairs(w.nodes) do
+        if node.kind=="item" and not node.item.held then
+            covered[node.item.bag..":"..node.item.slot]=true
+        end
+    end
+    local count=0
+    for _,items in ipairs({w.items,w.empties}) do
+        for _,item in ipairs(items) do
+            local key=item.bag..":"..item.slot
+            if not covered[key] then
+                loot=loot or CreateCombatLoot(view,w)
+                local button=loot.bySlot[key]
+                if not button then button=view:CreateItem(w,true,loot.content);loot.bySlot[key]=button end
+                local data=view.buttonData[button]
+                if not data or data.size~=slotSize then
+                    loot.node.x,loot.node.y=0,0
+                    view:Bind(button,w,loot.node,item,true)
+                    data=view.buttonData[button]
+                end
+                data.combatLootOriginal=item
+                count=count+1;loot.prepared[count]=button
+            end
+        end
+    end
+    if not loot then return end
+    for index=count+1,#loot.prepared do loot.prepared[index]=nil end
+    local existingGUIDs={}
+    for _,item in ipairs(w.items) do if item.guid then existingGUIDs[item.guid]=true end end
+    loot.existingGUIDs=existingGUIDs
+    loot.revision,loot.visibleCount=nil,nil
+    loot.pitch,loot.columns=slotSize+3,w.cols
+    loot.windowHeight,loot.viewHeight=windowHeight,viewHeight
+    loot.extraHeight,loot.shrink=extraHeight,shrink
+    local width=w.scroll:GetWidth()
+    loot.frame:ClearAllPoints();loot.frame:SetPoint("TOPLEFT",w.root,"TOPLEFT",w.scrollLeft,-w.scrollTop)
+    loot.frame:SetSize(width,loot.extraHeight-3)
+    loot.scroll:SetSize(width,loot.pitch)
+    loot.content:SetSize(width,loot.pitch)
+    loot.scroll:SetVerticalScroll(0)
+end
+
+local function PatchCombatLoot(view,w)
+    local loot=w.combatLoot
+    if not loot then return end
+    local revision=B.Model.revision
+    local scrolled=w.scroll:GetVerticalScroll()>0
+    if loot.revision==revision and loot.query==w.query and loot.scrolled==scrolled then return end
+    local queryChanged=loot.query~=w.query
+    loot.revision,loot.query,loot.scrolled=revision,w.query,scrolled
+    local arrivals=B.Model.combatArrivals
+    local represented=loot.represented
+    for item in pairs(represented) do represented[item]=nil end
+    if arrivals then
+        for _,button in ipairs(w.pool) do
+            local data=view.buttonData[button]
+            if data and button:IsShown() and not data.item.empty then
+                local item=data.item
+                if item.members then
+                    for _,member in ipairs(item.members) do if arrivals[member] then represented[member]=true end end
+                elseif arrivals[item] then represented[item]=true end
+            end
+        end
+    end
+    local count=0
+    for _,button in ipairs(loot.prepared) do
+        local data=view.buttonData[button]
+        local bag=B.Model.bags[data.bag]
+        local item=bag and bag.slots[data.slot]
+        if item and arrivals and arrivals[item] and not represented[item] and item~=data.combatLootOriginal
+            and not (item.guid and loot.existingGUIDs[item.guid]) then
+            local x,y=(count%loot.columns)*loot.pitch,math.floor(count/loot.columns)*loot.pitch
+            if data.item~=item or data.revision~=item.revision or data.x~=x or data.y~=y or queryChanged or button:IsShown()==scrolled then
+                loot.node.x,loot.node.y=x,y
+                view:Bind(button,w,loot.node,item,scrolled)
+            end
+            count=count+1
+        elseif button:IsShown() then button:Hide() end
+    end
+    if count==0 or scrolled then view:HideCombatLoot(w);return end
+    local height=math.ceil(count/loot.columns)*loot.pitch
+    if loot.content:GetHeight()~=height then loot.content:SetHeight(height) end
+    local maxScroll=height-loot.pitch
+    if loot.scroll:GetVerticalScroll()>maxScroll then loot.scroll:SetVerticalScroll(maxScroll) end
+    if loot.visibleCount~=count then
+        loot.visibleCount=count
+        loot.title:SetText(count>loot.columns and loot.titleText.." · "..count or loot.titleText)
+    end
+    if not loot.frame:IsShown() then
+        B.Appearance:SetRecentSweep(w)
+        for _,label in ipairs(w.labels) do
+            if label.section=="recent" and label:IsShown() then
+                label:Hide();loot.replacedHeading=label;break
+            end
+        end
+        w.scroll:ClearAllPoints();w.scroll:SetPoint("TOPLEFT",loot.frame,"BOTTOMLEFT",0,-3)
+        w.scroll:SetHeight(loot.viewHeight-loot.shrink)
+        w.root:SetHeight(loot.windowHeight+loot.extraHeight-loot.shrink)
+        loot.frame:Show()
+    end
+end
+
+local function PrepareCombinedSlots(view,w)
+    local slots=w.combinedSlots
+    local top=w.scroll:GetVerticalScroll()
+    if slots and slots.items==w.items and slots.nodes==w.nodes and slots.top==top then return end
+    if not slots then
+        slots={spares={},first={},second={},drawn={}}
+        w.combinedSlots=slots
+    end
+    local bySlot={}
+    for _,button in ipairs(w.pool) do
+        local data=view.buttonData[button]
+        if data and button:IsShown() then bySlot[data.bag..":"..data.slot]=button end
+    end
+    local slotSize=w.combinedConfig.slotSize
+    -- A counted vacancy represents several slots, but a native click must
+    -- always address the slot that actually received the item.
+    for _,items in ipairs({w.items,w.empties}) do
+        for _,item in ipairs(items) do
+            local key=item.bag..":"..item.slot
+            if not bySlot[key] then
+                local button=slots.spares[key]
+                if not button then button=view:CreateItem(w,true);slots.spares[key]=button end
+                local data=view.buttonData[button]
+                if not data or data.size~=slotSize then view:Bind(button,w,{x=0,y=0},item,true) end
+                bySlot[key]=button
+            end
+        end
+    end
+    slots.bySlot,slots.columns,slots.revision=bySlot,w.cols,B.Model.revision
+    slots.items,slots.nodes,slots.top=w.items,w.nodes,top
+end
+
+local function RefreshCombinedSlots(view,w)
+    local slots=w.combinedSlots
+    if not w.combinedConfig or not slots or not slots.bySlot or slots.revision==B.Model.revision then return false end
+    local items,empties=view:Items(w)
+    local nodes,height=B.Layout:Build(items,empties,w.combinedConfig,slots.columns,w.collapsed,w.query)
+    local top=w.scroll:GetVerticalScroll()
+    local visible=w.scroll:GetHeight()
+    local pool=w.pool==slots.first and slots.second or slots.first
+    local revision=B.Model.revision
+    local count=0
+    for _,node in ipairs(nodes) do
+        local item=node.item
+        local button=slots.bySlot[item.bag..":"..item.slot]
+        if button then
+            if node.y+node.h>=top-42 and node.y<=top+visible+42 then
+                view:Bind(button,w,node,item)
+                count=count+1;pool[count]=button;slots.drawn[button]=revision
+            elseif not item.empty then
+                local data=view.buttonData[button]
+                if data.item~=item or data.revision~=item.revision then view:Bind(button,w,data,item,true) end
+            end
+        end
+    end
+    for index=count+1,#pool do pool[index]=nil end
+    for _,button in ipairs(w.pool) do if slots.drawn[button]~=revision then button:Hide() end end
+    slots.normalPool=slots.normalPool or w.pool
+    w.pool,w.nodes,w.totalHeight,w.items,w.empties=pool,nodes,height,items,empties
+    local contentHeight=math.max(height,visible+top)
+    if w.content:GetHeight()~=contentHeight then w.content:SetHeight(contentHeight) end
+    slots.revision=revision
+    return true
+end
+
 function V:Paint(w,transferLayout)
     if not w.open then return end
-    if A.InCombat() then self:Patch(w);return end
+    if A.InCombat() then B.Appearance:SetRecentSweep(w);self:Patch(w);return end
+    RestoreCombinedPool(w)
     w.transferButtons=nil
     local top=w.scroll:GetVerticalScroll()
     local bottom=top+w.scroll:GetHeight()
     local low,high=top-42,bottom+42
     if transferLayout and w.transferPhysical then ReuseTransferButtons(self,w,low,high) end
-    local liveIndex,cacheIndex,labelIndex=0,0,0
+    local liveIndex,cacheIndex,labelIndex,alternateCount=0,0,0,0
     local transferring=w.transferPhysical and B.Actions:IsPersonalBatch()
     local slotSize=w.slotSize or B:GetConfig().slotSize
-    local tradeLabel,tradeFrames
+    local tradeLabel,tradeFrames,recentLabel,recentFrames
     for _,node in ipairs(w.nodes) do
         if node.y+node.h>=low and node.y<=high then
             if node.kind=="item" then
@@ -1757,7 +2119,10 @@ function V:Paint(w,transferLayout)
                     self:Bind(button,w,node,item)
                     data=self.buttonData[button]
                 end
-                if data then data.layoutSection,data.layoutGroup=node.section,node.group end
+                if data then
+                    data.layoutSection,data.layoutGroup=node.section,node.group
+                    if live and w.alternates then alternateCount=PrepareAlternateButtons(self,w,node,data,alternateCount,slotSize) end
+                end
             else
                 labelIndex=labelIndex+1
                 local button=w.labels[labelIndex]
@@ -1770,6 +2135,7 @@ function V:Paint(w,transferLayout)
                     button.fold=G:CreateDivider(button,{label="",height=16,collapsible=true,lineGap=8,
                         expandedSuffix=B.Appearance.expandedSuffix,collapsedSuffix=B.Appearance.collapsedSuffix,
                         expandTooltip=B:T("action.expand"),collapseTooltip=B:T("action.collapse"),onToggle=function(collapsed,owner)
+                        if heading.section=="recent" then return end
                         if A.InCombat() then owner:SetCollapsed(w.collapsed[heading.section],true);return end
                         if heading.section then
                             GameTooltip:Hide()
@@ -1780,14 +2146,12 @@ function V:Paint(w,transferLayout)
                     button.fold.gui2DividerText:SetJustifyV("MIDDLE")
                     button.fold.arrow=G:CreateGlyph(button.fold,{glyph="dropdownDown",size=12,colorKey="color.text.heading"})
                     button.fold.arrow:SetPoint("LEFT",button.fold.gui2DividerText,"RIGHT",6,0)
-                    button.fold.gui2DividerLine:ClearAllPoints()
-                    button.fold.gui2DividerLine:SetPoint("LEFT",button.fold.arrow,"RIGHT",8,0)
-                    button.fold.gui2DividerLine:SetPoint("RIGHT",0,0)
                     local divider=button.fold
                     divider.hover=G:CreateTexture(divider,"color.control.hover","BACKGROUND")
                     divider.hover:SetPoint("TOPLEFT",-2,1);divider.hover:SetPoint("BOTTOMLEFT",-2,-1);divider.hover:SetAlpha(.18);divider.hover:Hide()
                     local enter,leave=divider:GetScript("OnEnter"),divider:GetScript("OnLeave")
                     divider:SetScript("OnEnter",function(owner)
+                        if heading.section=="recent" then return end
                         owner.hover:Show();enter(owner)
                         if button.transfer then
                             GameTooltip:AddLine(B:T(w.liveBank=="bank" and "bank.group_withdraw" or "bank.group_deposit"))
@@ -1799,7 +2163,9 @@ function V:Paint(w,transferLayout)
                     divider:SetScript("OnMouseUp",function(owner,mouse)
                         if mouse=="RightButton" and button.transfer then
                             GameTooltip:Hide();B.Deposit:TransferCategory(w,button.section)
-                        elseif mouse=="LeftButton" and heading.section and not A.InCombat() then owner:SetCollapsed(not owner:GetCollapsed()) end
+                        elseif mouse=="LeftButton" and heading.section and heading.section~="recent" and not A.InCombat() then
+                            owner:SetCollapsed(not owner:GetCollapsed())
+                        end
                     end)
                     button:SetScript("OnClick",function(owner,mouse)
                         if mouse=="RightButton" and owner.transfer then
@@ -1809,8 +2175,7 @@ function V:Paint(w,transferLayout)
                         end
                     end)
                     button:SetScript("OnEnter",function(owner)
-                        if owner.section=="recent" and w.id=="player" then Tooltip(owner,B:T("action.clear_recent"))
-                        elseif owner.transfer then
+                        if owner.transfer then
                             Tooltip(owner,owner.fullText)
                             GameTooltip:AddLine(B:T(w.liveBank=="bank" and "bank.group_withdraw" or "bank.group_deposit"))
                             GameTooltip:Show()
@@ -1820,21 +2185,24 @@ function V:Paint(w,transferLayout)
                     button.recentTitle=G:CreateButtonFrame(divider,{width=40,height=16})
                     button.recentTitle:SetPoint("LEFT",0,0)
                     button.recentTitle:SetScript("OnClick",function(_,mouse) button:GetScript("OnClick")(button,mouse) end)
-                    button.recentTitle:SetScript("OnEnter",function() divider.hover:Show();button:GetScript("OnEnter")(button) end)
-                    button.recentTitle:SetScript("OnLeave",function() divider.hover:Hide();GameTooltip:Hide() end)
                     w.labels[labelIndex]=button
                 end
                 local text=node.kind=="heading" and B.Appearance:HeadingText(node.section,node.count,node.collapsed) or B.Appearance:GroupText(node.text)
                 local trade=w.id=="player" and node.kind=="label" and node.text==B.Classification.tradeGroup
-                local frames=trade and B.Appearance:TradeCaptionFrames(text)
+                local recentHeading=node.kind=="heading" and node.section=="recent"
+                local recent=recentHeading and w.id=="player"
+                local frames=trade and B.Appearance:TradeCaptionFrames(text) or recent and B.Appearance:RecentCaptionFrames(text)
                 local data=self.buttonData[button]
                 if not data then data={};self.buttonData[button]=data end
                 if data.text~=text or data.captionFrames~=frames then
-                    button.text:SetText(frames and frames[0] or text or "")
-                    button.fold:SetLabel(text or "")
+                    button.text:SetText(trade and frames and frames[0] or text or "")
+                    button.fold:SetLabel(recent and frames and frames[0] or text or "")
                     data.text,data.captionFrames=text,frames
                 end
-                if frames and node.y<bottom and node.y+node.h>top then tradeLabel,tradeFrames=button.text,frames end
+                if frames and node.y<bottom and node.y+node.h>top then
+                    if trade then tradeLabel,tradeFrames=button.text,frames
+                    else recentLabel,recentFrames=button.fold.gui2DividerText,frames end
+                end
                 button.fullText=text
                 button.section=node.kind=="heading" and node.section or nil
                 button.transferSection,button.transferGroup=node.section,node.kind=="label" and node.text or nil
@@ -1853,35 +2221,64 @@ function V:Paint(w,transferLayout)
                     button.text:SetWordWrap(node.kind=="label");button.text:SetNonSpaceWrap(node.kind=="label");button.text:SetJustifyV(node.kind=="heading" and "MIDDLE" or "TOP")
                     button.text:SetShown(node.kind=="label")
                 end
-                local recent=node.kind=="heading" and node.section=="recent" and w.id=="player"
-                button:EnableMouse(recent or node.kind=="label" and button.transfer)
+                button:EnableMouse(node.kind=="label" and button.transfer)
                 button.text:SetShown(node.kind=="label")
-                button.fold:EnableMouse(node.kind=="heading")
+                button.fold:EnableMouse(node.kind=="heading" and not recentHeading)
                 button.fold:SetShown(node.kind=="heading")
+                if recent and not button.recentTitle.recentClearHint then
+                    PrepareRecentClearHint(button.recentTitle,button.fold.gui2DividerText)
+                end
                 button.recentTitle:SetShown(recent)
-                local lineShown=node.kind=="heading" and node.divider==true
-                    and width-B.Appearance:HeadingWidth(node.section,node.count,node.collapsed)-8>=48
-                if data.lineShown~=lineShown then button.fold.gui2DividerLine:SetShown(lineShown);data.lineShown=lineShown end
+                if data.recentHeading~=recentHeading then
+                    button.fold.arrow:SetShown(not recentHeading)
+                    local anchor=recent and button.recentTitle or recentHeading and button.fold.gui2DividerText or button.fold.arrow
+                    button.fold.gui2DividerLine:ClearAllPoints()
+                    button.fold.gui2DividerLine:SetPoint("LEFT",anchor,"RIGHT",8,0)
+                    button.fold.gui2DividerLine:SetPoint("RIGHT",0,0)
+                    if recentHeading then button.fold:SetCollapsed(false,true) end
+                    data.recentHeading=recentHeading
+                end
+                local titleWidth
                 if node.kind=="heading" then
-                    local hoverWidth=math.min(width,B.Appearance:HeadingWidth(node.section,node.count,node.collapsed)+4)
+                    titleWidth=B.Appearance:HeadingWidth(node.section,node.count,node.collapsed)
+                    if recent then titleWidth=math.max(titleWidth,B.Appearance:TextWidth(B:T("action.clear_recent_hint"),"heading")) end
+                end
+                local lineShown=titleWidth~=nil and node.divider==true and width-titleWidth-8>=48
+                if data.lineShown~=lineShown then button.fold.gui2DividerLine:SetShown(lineShown);data.lineShown=lineShown end
+                if titleWidth then
+                    local hoverWidth=math.min(width,titleWidth+4)
                     if data.hoverWidth~=hoverWidth then button.fold.hover:SetWidth(hoverWidth);data.hoverWidth=hoverWidth end
-                    button.fold:SetCollapsed(node.collapsed,true)
-                    if data.arrowCollapsed~=node.collapsed then
-                        button.fold.arrow.icon:SetRotation(node.collapsed and math.pi/2 or 0);data.arrowCollapsed=node.collapsed
+                    if recentHeading then
+                        if recent then button.recentTitle:SetSize(math.min(width,titleWidth),node.h) end
+                    else
+                        button.fold:SetCollapsed(node.collapsed,true)
+                        if data.arrowCollapsed~=node.collapsed then
+                            button.fold.arrow.icon:SetRotation(node.collapsed and math.pi/2 or 0);data.arrowCollapsed=node.collapsed
+                        end
                     end
-                    if recent then button.recentTitle:SetSize(B.Appearance:TextWidth(text,"heading"),node.h) end
                 end
             end
         end
     end
     if tradeLabel or w.tradeSweep then B.Appearance:SetTradeSweep(w,tradeLabel,tradeFrames) end
+    if recentLabel or w.recentSweep then B.Appearance:SetRecentSweep(w,recentLabel,recentFrames) end
     for _,entry in ipairs({{w.pool,liveIndex},{w.cachePool,cacheIndex},{w.labels,labelIndex}}) do
         for n=entry[2]+1,#entry[1] do
             local button=entry[1][n]
             if button.ybagsGuildLocate then B.GuildInventory:ReleaseHighlight(button) end
             button:Hide();self.buttonData[button]=nil
+            if nativeSlotLocks[button] then nativeSlotLocks[button]=nil end
         end
     end
+    if w.alternates then
+        for n=alternateCount+1,#w.alternates do
+            local button=w.alternates[n]
+            self.buttonData[button]=nil
+            if nativeSlotLocks[button] then nativeSlotLocks[button]=nil end
+        end
+    end
+    if YUI.IsForever and w.id=="player" and w.effectiveLayout=="category" then PrepareCombatLoot(self,w,slotSize) end
+    if w.combinedConfig then PrepareCombinedSlots(self,w) end
 end
 function V:MarkTransferSlot(w,bag,slot)
     if not w.transferPhysical then return end
@@ -2006,7 +2403,23 @@ function V:FinishTransferDisplay()
         end
     end
 end
-function V:Patch(w)
+local function SwapAggregateButton(view,w,index,button,data,item)
+    if not data.firstAlternate then return end
+    for n=data.firstAlternate,data.lastAlternate do
+        local spare=w.alternates[n]
+        local binding=view.buttonData[spare]
+        if binding and binding.bag==item.bag and binding.slot==item.slot then
+            button:Hide()
+            w.pool[index],w.alternates[n]=spare,button
+            binding.combatGroup,binding.firstAlternate,binding.lastAlternate=data.combatGroup,data.firstAlternate,data.lastAlternate
+            data.combatGroup,data.firstAlternate,data.lastAlternate=nil,nil,nil
+            A.UpdateCooldown(spare,item)
+            B.Appearance:ItemCooldownText(spare)
+            return spare,binding
+        end
+    end
+end
+function V:Patch(w,structural)
     if w.liveBank then return
     elseif w.owner then
         local container=B.Cache:GetContainer(w.owner,w.kind)
@@ -2036,21 +2449,33 @@ function V:Patch(w)
         if w.cacheTimestamp~=container.updated then w.money:SetText(container.updated and date("%m-%d %H:%M",container.updated) or "");w.cacheTimestamp=container.updated end
         return
     end
-    for _,button in ipairs(w.pool) do
+    local inCombat=A.InCombat()
+    if inCombat and structural and RefreshCombinedSlots(self,w) then return end
+    for index,button in ipairs(w.pool) do
         local data=self.buttonData[button]
         if data and button:IsShown() then
             local item=data.item
-            local bag=B.Model.bags[item.bag]
+            local group=data.combatGroup or item.members and item
             local current
-            if item.members and not item.empty then
-                if B.Layout:RefreshAggregate(item,B.Model.byUID,A.InCombat()) then current=item end
-            else current=bag and bag.slots[item.slot] end
-            if current then self:Bind(button,w,{item=current,x=data.x,y=data.y})
+            local preparedBags=inCombat and data.combatGroup and B.Model.bags
+            if group and B.Layout:RefreshAggregate(group,B.Model.byUID,inCombat,preparedBags) then
+                if data.bag==group.bag and data.slot==group.slot then current=group
+                else
+                    local spare,binding=SwapAggregateButton(self,w,index,button,data,group)
+                    if spare then button,data,current=spare,binding,group
+                    elseif not inCombat then current=group end
+                end
+            elseif not group then
+                local bag=B.Model.bags[data.bag]
+                current=bag and bag.slots[data.slot]
+            end
+            if current then self:Bind(button,w,data,current)
             elseif not item.empty then
-                self:Bind(button,w,{item={empty=true,held=true,bag=item.bag,slot=item.slot,space=item.space},x=data.x,y=data.y})
+                self:Bind(button,w,data,{empty=true,held=true,bag=data.bag,slot=data.slot,space=item.space})
             end
         end
     end
+    if inCombat and w.id=="player" and w.effectiveLayout=="category" then PatchCombatLoot(self,w) end
 end
 function V:Refresh(structural,splitDisplay)
     for _,w in pairs(self.windows) do
@@ -2084,23 +2509,58 @@ function V:PreparePlayer()
     if not ok then error(message,0) end
     return true
 end
-function V:ShowPlayer()
+function V:RecheckNativeSlotLocks(bag,capacity)
+    if not next(nativeSlotLocks) or A.InCombat() or not self.windows.player.open then return end
+    for button in pairs(nativeSlotLocks) do
+        local data=self.buttonData[button]
+        if not data then
+            nativeSlotLocks[button]=nil
+        elseif data.bag==bag and data.slot<=capacity and not data.item.held and button:IsShown()
+            and A.RecheckNativeSlotLock(button,bag,data.slot) then
+            nativeSlotLocks[button]=nil
+        end
+    end
+end
+function V:QueueNativeSlotLockReads()
+    if not next(nativeSlotLocks) or A.InCombat() or not self.windows.player.open then return end
+    local queued={}
+    for button in pairs(nativeSlotLocks) do
+        local data=self.buttonData[button]
+        if not data then
+            nativeSlotLocks[button]=nil
+        elseif button:IsShown() and not data.item.held and not queued[data.bag] then
+            queued[data.bag]=true
+            B:MarkBag(data.bag)
+        end
+    end
+end
+function V:ShowPlayer(opener)
     if not B.active then return false end
     if A.InCombat() then
         local w=self.windows.player
         if not w or not w.prepared then return false end
-        w.open=true;w.root:Show();self:Patch(w);return true
+        if not w.open then w.autoOpenedBy=opener end
+        w.open=true;w.root:Show();self:Patch(w,true);return true
     end
     local w=self:EnsurePlayer();local wasOpen=w.open
     if not wasOpen then
+        w.autoOpenedBy=opener
         w.cols=0;self.recipeStates,self.recipePending={},{}
         B:RefreshTimedGear()
     end
-    w.open=true;w.root:Show();self:ApplySkin(true);self:RenderBagBar(w);self:Layout(w,not wasOpen);return true
+    w.open=true;w.root:Show();self:ApplySkin(true);self:RenderBagBar(w);self:Layout(w,not wasOpen)
+    if not wasOpen then self:QueueNativeSlotLockReads() end
+    return true
 end
-function V:HidePlayer() local w=self.windows.player;if w then w.root:Hide() end end
+function V:HidePlayer(opener)
+    local w=self.windows.player
+    if w and (opener==nil or w.autoOpenedBy==opener) then w.root:Hide() end
+end
 function V:Toggle() local w=self.windows.player;if w and w.open then self:HidePlayer();return true else return self:ShowPlayer() end end
 function V:HideAll()
+    local player=self.windows.player
+    self:ResetHelpAlert()
+    if player then self:HideHelp(player) end
     if self.menu then self.menu:Hide() end
     if self.directoryPanel then self.directoryPanel:Hide() end
     if self.dialog then self.dialog:Hide() end
@@ -2130,9 +2590,6 @@ function V:ShowCache(owner,kind)
     w.owner,w.kind,w.open=owner,kind,true;w.root:Show();self:ApplySkin(true);self:Layout(w,true)
 end
 function V:ShowBank(kind) self:ShowCache(B.Cache.playerKey,kind or "bank") end
-function V:BankOpened()
-    self:ShowPlayer()
-end
 function V:BankClosed()
     local w=self.windows.player
     if w and w.open then self:Paint(w) end

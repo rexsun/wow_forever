@@ -1776,6 +1776,7 @@ local MONITOR_GLOW_STYLES = {
 
 local MONITOR_GLOW_CONDITIONS = {
     ["self-ready"] = true,
+    ["self-usable"] = true,
     ["self-cooldown"] = true,
     ["aura-present"] = true,
     ["aura-missing"] = true,
@@ -2037,7 +2038,7 @@ function YHUD:GetMonitorGlowRuleLimit(capabilities)
     for index = 1, #conditions do
         if conditions[index] == "aura-stacks" then return self.MAX_MONITOR_GLOW_RULES end
     end
-    return math.min(2, #conditions)
+    return #conditions
 end
 
 local function NormalizeMonitorGlow(glow)
@@ -2076,14 +2077,19 @@ local function NormalizeMonitorGlow(glow)
             seen[key] = true
             local appearance = type(sourceRule.appearance) == "table"
                 and sourceRule.appearance or DEFAULT_MONITOR_GLOW_APPEARANCE
-            rules[#rules + 1] = {
+            local rule = {
                 condition = normalizedCondition,
                 appearance = NormalizeMonitorGlowAppearance(appearance),
                 combatOnly = sourceRule.combatOnly == true and true or nil,
             }
+            if conditionType == "self-usable" then
+                rule.weakenWithoutPower = sourceRule.weakenWithoutPower ~= false
+            end
+            rules[#rules + 1] = rule
         end
     end
-    return #rules > 0 and { rules = rules } or nil
+    if #rules > 0 then return { rules = rules } end
+    if glow.suppressDefault == true then return { rules = {}, suppressDefault = true } end
 end
 
 local function NormalizeSoundReference(value)
@@ -2163,7 +2169,56 @@ local function FilterMonitorGlowForEntry(glow, entry, monitor)
         end
     end
     glow.rules = rules
-    return #rules > 0 and glow or nil
+    return (#rules > 0 or glow.suppressDefault == true) and glow or nil
+end
+
+local DEFAULT_USABLE_SPELLS = {
+    [7384] = true, [7887] = true, [11584] = true, [11585] = true, -- 压制
+    [6572] = true, [6574] = true, [7379] = true, [11600] = true, [11601] = true, [25288] = true, -- 复仇
+    [402927] = true, -- 乘胜追击
+    [5308] = true, [20658] = true, [20660] = true, [20661] = true, [20662] = true, -- 斩杀
+    [1495] = true, [14269] = true, [14270] = true, [14271] = true, -- 猫鼬撕咬
+    [19306] = true, [20909] = true, [20910] = true, [1242634] = true, -- 反击
+    [14251] = true, -- 还击
+    [24239] = true, [24274] = true, [24275] = true, -- 愤怒之锤
+}
+local DEFAULT_USABLE_VIEWER_ROWS = {
+    [199557] = true, [199615] = true, [199584] = true, [199709] = true,
+    [200410] = true, [200399] = true, [200166] = true, [200302] = true,
+}
+
+function YHUD:IsDefaultUsableGlowEntry(entry)
+    if not (YUI.IsForever == true and type(entry) == "table") then return false end
+    if not (DEFAULT_USABLE_SPELLS[entry.spellId] or DEFAULT_USABLE_SPELLS[entry.spellID]
+        or DEFAULT_USABLE_SPELLS[entry.baseSpellId]
+        or DEFAULT_USABLE_SPELLS[entry.overrideSpellId]
+        or entry.origin == "official-cdm" and DEFAULT_USABLE_VIEWER_ROWS[entry.cooldownId]) then return false end
+    local capabilities = self.GetEntryMonitorConditionCapabilities
+        and self:GetEntryMonitorConditionCapabilities(entry, "glow")
+    for _, condition in ipairs(capabilities and capabilities.conditions or {}) do
+        if condition == "self-usable" then return true end
+    end
+    return false
+end
+
+function YHUD:NormalizeEntryMonitorGlow(monitor, entry)
+    local saved = monitor.glow
+    local normalized = FilterMonitorGlowForEntry(NormalizeMonitorGlow(saved), entry, monitor)
+    if normalized then return normalized end
+    if not self:IsDefaultUsableGlowEntry(entry) then return nil end
+    local native = monitor.nativeProcGlowOverride
+    if saved ~= nil or (type(native) == "table"
+        and (native.mode == "disabled" or native.mode == "custom" or native.combatOnly == true)) then
+        return { rules = {}, suppressDefault = true }
+    end
+    local appearance = self:GetDefaultMonitorGlowAppearance()
+    appearance.style = "proc"
+    appearance.color = { 1, 246 / 255, 25 / 255, 1 }
+    return { rules = { {
+        condition = { type = "self-usable" },
+        appearance = appearance,
+        weakenWithoutPower = true,
+    } } }
 end
 
 local function FilterMonitorSoundForEntry(sound, entry)
@@ -4392,11 +4447,7 @@ local function NormalizeContent(profile, content, scope, specKey)
         monitor.enabled = monitor.enabled ~= false
         monitor.sourceKey = entry.sourceKey
         monitor.contentScope = scope
-        monitor.glow = FilterMonitorGlowForEntry(
-            NormalizeMonitorGlow(monitor.glow),
-            entry,
-            monitor
-        )
+        monitor.glow = YHUD:NormalizeEntryMonitorGlow(monitor, entry)
         monitor.sound = FilterMonitorSoundForEntry(
             NormalizeMonitorSound(monitor.sound),
             entry
@@ -4468,11 +4519,7 @@ local function NormalizeContent(profile, content, scope, specKey)
             monitor.enabled = monitor.enabled ~= false
             monitor.sourceKey = entry.sourceKey
             monitor.contentScope = scope
-            monitor.glow = FilterMonitorGlowForEntry(
-                NormalizeMonitorGlow(monitor.glow),
-                entry,
-                monitor
-            )
+            monitor.glow = YHUD:NormalizeEntryMonitorGlow(monitor, entry)
             monitor.sound = FilterMonitorSoundForEntry(
                 NormalizeMonitorSound(monitor.sound),
                 entry
@@ -4501,8 +4548,6 @@ local function NormalizeContent(profile, content, scope, specKey)
         if not listed[monitorId] then content.monitors[monitorId] = nil end
     end
 
-    local sealPreset = not shared and YHUD.Client.legacySealPreset
-    local legacySealEntries
     for entryKey, entry in pairs(content.entries) do
         if type(entryKey) ~= "string" or type(entry) ~= "table" then
             content.entries[entryKey] = nil
@@ -4510,6 +4555,44 @@ local function NormalizeContent(profile, content, scope, specKey)
             entry.entryKey = entryKey
             YHUD:RepairConsumablePresetReplication(entry, entryKey)
             YHUD:RepairAmmoPresetReplication(entry)
+            -- Upgrade only the managed preset; preserve manual aura entries.
+            if YHUD.Client.id == "forever"
+                and entryKey == "aura:player:helpful:20154"
+                and entry.origin == "preset"
+                and entry.sourceType == "yhud.player-aura"
+                and entry.spellId == 20154 then
+                local seals = YHUD.FOREVER_SEAL_PRESET
+                if seals and (entry.icon == nil or entry.icon == 132325) then
+                    entry.icon = seals.icon
+                end
+                if seals and (entry.name == nil or entry.name == "正义圣印"
+                    or entry.name == "正義聖印"
+                    or entry.name == "Seal of Righteousness") then
+                    entry.name = nil
+                    entry.nameKey = seals.nameKey
+                end
+                local canonical = seals and seals.spellIDs
+                if type(canonical) == "table" then
+                    local ids, seen = {}, {}
+                    local function AddSpellID(spellID)
+                        if type(spellID) == "number" and spellID > 0
+                            and spellID == math.floor(spellID)
+                            and not seen[spellID] then
+                            ids[#ids + 1] = spellID
+                            seen[spellID] = true
+                        end
+                    end
+                    for index = 1, #canonical do
+                        AddSpellID(canonical[index])
+                    end
+                    local existing = type(entry.spellIds) == "table"
+                        and entry.spellIds or {}
+                    for index = 1, #existing do
+                        AddSpellID(existing[index])
+                    end
+                    entry.spellIds = ids
+                end
+            end
             if entryKey == (YHUD.EQUIPMENT_AURA_BUNDLE_ENTRY_KEY
                 or "bundle:equipment-auras") then
                 entry.name = nil
@@ -4532,13 +4615,6 @@ local function NormalizeContent(profile, content, scope, specKey)
                 and YHUD:GetEntrySemantic(entry)
                 or entry.semantic
                 or "cooldown"
-            if sealPreset and entry.origin == "preset" and entry.sourceType == "yhud.player-aura"
-                and (entryKey == sealPreset.key or entry.presetKey == sealPreset.key
-                    or entry.presetKey == sealPreset.id or entry.presetId == sealPreset.id
-                    or entry.sourceIdentity == sealPreset.key) then
-                legacySealEntries = legacySealEntries or {}
-                legacySealEntries[#legacySealEntries + 1] = entryKey
-            end
             if entry.sourceType == YHUD.CAST_BUFF_TIMER_SOURCE_TYPE
                 or entry.sourceType == YHUD.SPELL_EVENT_WINDOW_SOURCE_TYPE then
                 local duration = tonumber(entry.durationSeconds)
@@ -4573,28 +4649,6 @@ local function NormalizeContent(profile, content, scope, specKey)
                     if monitorId then content.monitors[monitorId] = nil end
                 end
             end
-        end
-    end
-
-    if legacySealEntries then
-        local configSets = YHUD.ConfigSets
-        local nativeKey = sealPreset.nativeKey
-        local nativeMonitor = content.monitors[entryMonitors[nativeKey]]
-        for index = 1, #legacySealEntries do
-            local entryKey = legacySealEntries[index]
-            if configSets and configSets.MigrateLegacySealMonitor then
-                configSets:MigrateLegacySealMonitor(
-                    profile, content, specKey, content.entries[entryKey],
-                    content.monitors[entryMonitors[entryKey]], nativeMonitor
-                )
-            end
-            content.entries[entryKey] = nil
-        end
-        local nativeEntry = content.entries[nativeKey]
-        if not nativeMonitor and nativeEntry and nativeEntry.origin == "official-cdm" then
-            -- A claimed CDM row can have metadata without a placement.
-            -- Let the native catalog import it again after the handoff.
-            content.entries[nativeKey] = nil
         end
     end
 
@@ -6917,6 +6971,32 @@ function YHUD:NormalizeProfile(profile, specKey)
         end
     end
     return profile
+end
+
+function YHUD:GetCountdownDecimalThreshold()
+    if self.countdownDecimalThreshold ~= nil then return self.countdownDecimalThreshold end
+    local global = YUI.DB and YUI.DB.GetGlobal and YUI.DB:GetGlobal(self.PRODUCT_ID)
+    if not global then return 3 end
+    local preferences = global.consolePreferences
+    local value = type(preferences) == "table" and preferences.countdownDecimalThreshold
+    self.countdownDecimalThreshold = type(value) == "number" and value >= 0 and value <= 60
+        and math.floor(value) or 3
+    return self.countdownDecimalThreshold
+end
+
+function YHUD:SetCountdownDecimalThreshold(value)
+    if type(value) ~= "number" or not (value >= 0 and value <= 60) then return false end
+    value = math.floor(value)
+    local global = YUI.DB and YUI.DB.GetGlobal and YUI.DB:GetGlobal(self.PRODUCT_ID)
+    if not global then return false end
+    local previous = self:GetCountdownDecimalThreshold()
+    if type(global.consolePreferences) ~= "table" then global.consolePreferences = {} end
+    global.consolePreferences.countdownDecimalThreshold = value
+    self.countdownDecimalThreshold = value
+    if previous ~= value and self.View and self.View.RefreshCountdownDecimalThreshold then
+        self.View:RefreshCountdownDecimalThreshold()
+    end
+    return true
 end
 
 -- Character preferences are intentionally outside the ConfigSets profile.

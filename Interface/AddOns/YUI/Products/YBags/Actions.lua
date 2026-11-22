@@ -14,9 +14,10 @@ end
 function Actions:IsVirtualChargeGroup(item)
     return item~=nil and item.members~=nil and item.maxStack==1 and item.charges~=nil
 end
-function Actions:Protected(item)
+function Actions:Protected(item,allowQuestMove)
     local config=B:GetConfig()
-    return not item or item.locked or item.quest or config.favorites[tostring(item.itemID)] or config.locks[item.key]
+    return not item or item.locked or item.quest and not allowQuestMove
+        or config.favorites[tostring(item.itemID)] or config.locks[item.key]
 end
 function Actions:CancelDelete()
     if self.deleteTimer then self.deleteTimer:Cancel();self.deleteTimer=nil;B.Stats.timers=math.max(0,B.Stats.timers-1) end
@@ -33,9 +34,10 @@ function Actions:DeleteHint()
 end
 function Actions:DeleteClick(item,button)
     if self:IsVirtualChargeGroup(item) then self:CancelDelete();return true end
-    if A.Context()~="travel" or A.InCombat() or A.CursorBusy() or self.queue or item.quality~=0 or self:Protected(item) then self:CancelDelete();return false end
+    if A.Context()~="travel" or A.InCombat() or A.CursorBusy() or self.queue
+        or item.quality~=0 or not A.IsNonEquippable(item) or self:Protected(item) then self:CancelDelete();return false end
     local fresh=A.Slot(item.bag,item.slot)
-    if not fresh or fresh.quality~=0 or fresh.quest or fresh.locked then self:CancelDelete();return true end
+    if not fresh or fresh.quality~=0 or fresh.quest or fresh.locked or not A.IsNonEquippable(fresh) then self:CancelDelete();return true end
     if self.deleteItem and Same(fresh,self.deleteItem) and Same(item,self.deleteItem) then
         self:CancelDelete()
         if not A.Delete(item.bag,item.slot) then B:Notify("error.operation") end
@@ -50,9 +52,11 @@ function Actions:DeleteClick(item,button)
     return true
 end
 function Actions:FreeSlot(item,ids,used,space,excludedBag)
+    if not item and not space then return end
     for _,id in ipairs(ids) do
         local bag=B.Model.bags[id]
-        if id~=excludedBag and bag and A.Fits(item,bag) and (not space or (bag.space or A.SpaceKey(id,bag.family,bag.kind))==space) then
+        if id~=excludedBag and bag and (not space or (bag.space or A.SpaceKey(id,bag.family,bag.kind))==space)
+            and (not item or A.Fits(item,bag)) then
             for slot=1,bag.capacity do
                 local key=tostring(id)..":"..slot
                 if not bag.slots[slot] and not B:GetConfig().locks[key] and not (used and used[key]) then return {bag=id,slot=slot,key=key} end
@@ -77,29 +81,88 @@ function Actions:MakeSplit(item,size,parts)
     end
     return {steps=steps,original=item.count,size=size,parts=parts,remainder=remainder,needed=needed}
 end
-function Actions:MakeSplitGroups(item,size,parts)
-    local plan=self:MakeSplit(item,size,parts)
-    if not plan then return nil end
-    local chunks={}
-    if plan.remainder>0 then chunks[1]=plan.remainder end
-    for _=1,parts do chunks[#chunks+1]=size end
-    local rounds,steps,nextTarget={},{},0
+local function BuildSplitTree(item,size,targets,rounds,steps)
+    local nextTarget=0
     local function Divide(source,first,last,total,depth)
         if first==last then return end
         local middle=math.floor((first+last)/2)
-        local amount=0;for n=middle+1,last do amount=amount+chunks[n] end
+        -- Only the leftmost pile can have a different size. Every right
+        -- subtree consists of equal requested piles.
+        local amount=(last-middle)*size
         nextTarget=nextTarget+1
-        local target=plan.steps[nextTarget].target
+        local target=targets[nextTarget].target
         local operation={source=source,target=target,count=amount,sourceCount=total,itemID=item.itemID,link=item.link}
         rounds[depth]=rounds[depth] or {};rounds[depth][#rounds[depth]+1]=operation;steps[#steps+1]=operation
         Divide(source,first,middle,total-amount,depth+1)
         Divide(target,middle+1,last,amount,depth+1)
     end
-    Divide({bag=item.bag,slot=item.slot},1,#chunks,item.count,1)
-    plan.rounds,plan.steps=rounds,steps
+    Divide({bag=item.bag,slot=item.slot},1,#targets+1,item.count,1)
+end
+function Actions:MakeSplitGroups(item,size,parts)
+    local plan=self:MakeSplit(item,size,parts)
+    if not plan then return nil end
+    local targets=plan.steps
+    plan.rounds,plan.steps={},{}
+    BuildSplitTree(item,size,targets,plan.rounds,plan.steps)
     return plan
 end
 local function SlotKey(item) return tostring(item.bag)..":"..item.slot end
+local firstPlacementSliceBudgetMs=70
+local function InventoryActionTime()
+    local clock=YUI.API.System and YUI.API.System.GetTimePreciseSec
+    return clock and clock() or A.Now()
+end
+local function FinishPlacementBatch(plan)
+    local timing=plan.firstBatchTiming
+    if not timing then return end
+    plan.firstBatchTiming=nil
+    if not plan.observe then return end
+    local at=InventoryActionTime()
+    local result=B:Copy(timing)
+    result.elapsedMs=(timing.firstSliceMs or 0)+(timing.started and (at-timing.started)*1000 or 0)
+    result.started=nil
+    result.pausedAt=nil
+    plan.observe("first-batch",at,nil,result)
+end
+local function FinishMaterialTrace(round,reason)
+    local trace=round and round.materialTrace
+    if not trace then return end
+    round.materialTrace=nil
+    if trace.observe then trace.observe("finish",InventoryActionTime(),nil,reason) end
+end
+local function FinishCategoryTrace(state,reason)
+    if not state or not state.observe then return end
+    local observe=state.observe
+    state.observe=nil
+    observe("finish",InventoryActionTime(),nil,reason)
+end
+local function ObserveMoveSlots(trace,op,sourceReady,targetReady)
+    local firstSource=sourceReady and not op.sourceReadyReported
+    local firstTarget=targetReady and not op.targetReadyReported
+    if not firstSource and not firstTarget then return end
+    op.sourceReadyReported=op.sourceReadyReported or firstSource
+    op.targetReadyReported=op.targetReadyReported or firstTarget
+    trace.observe("slots",InventoryActionTime(),op,firstSource,firstTarget)
+end
+local function BalanceSelectedSplits(plan)
+    local sources,order,targets={},{},{}
+    for _,op in ipairs(plan.steps) do
+        if op.combine or op.count~=plan.size then return end
+        local from,to=SlotKey(op.source),SlotKey(op.target)
+        if sources[to] or targets[from] or targets[to] then return end
+        local group=sources[from]
+        if not group then
+            group={item={bag=op.source.bag,slot=op.source.slot,count=op.sourceCount,itemID=op.itemID,link=op.link},
+                targets={}}
+            sources[from]=group;order[#order+1]=group
+        end
+        targets[to]=true
+        group.targets[#group.targets+1]=op
+    end
+    local steps,rounds={},{}
+    for _,group in ipairs(order) do BuildSplitTree(group.item,plan.size,group.targets,rounds,steps) end
+    plan.steps,plan.rounds=steps,rounds
+end
 function Actions:Selection(item)
     if not item or (item.maxStack or 1)<=1 then return nil end
     local selection={members={},count=0,maxStack=item.maxStack or 1,stackKey=B.Classification:StackKey(item),
@@ -222,13 +285,16 @@ function Actions:CompleteSelection()
         ok=A.Pickup(item.bag,item.slot) and A.CursorBusy()
         if ok then B.View:RememberCursor(nil,item) end
     end
-    self:Stop()
+    local carryBatch=self.carryBatch
+    self:Stop((self.splitBatch or self.serialSplitTrace) and "complete" or nil)
     local w=B.View.windows.player
-    if w and w.open and not plan.progressiveGroups then B.View:Layout(w,false) end
+    if w and w.open and not plan.progressiveGroups and not carryBatch then B.View:Layout(w,false) end
     return ok
 end
 function Actions:StartSelection(plan)
+    if B.Runtime.finalCarryBatch and not self.queue then B:Flush() end
     if not plan or self.queue or self.nativeSort or A.InCombat() or A.CursorBusy() or not self:SelectionValid(plan.selection) then return false end
+    if YUI.IsForever and plan.mode=="groups" and not plan.rounds and #plan.steps>0 then BalanceSelectedSplits(plan) end
     self.selection=plan
     local window=B.View.windows.player
     plan.progressiveGroups=plan.mode=="groups" and plan.selection.groupUID~=nil
@@ -259,6 +325,11 @@ function Actions:StartSelection(plan)
     end
     if #plan.steps==0 then return self:CompleteSelection() end
     if plan.rounds then return self:StartGroups(plan) end
+    if YUI.IsForever and plan.mode=="groups" and self.splitObserver then
+        local readyAt=InventoryActionTime()
+        self.serialSplitTrace={observe=self.splitObserver,readyAt=readyAt}
+        self.splitObserver("start",readyAt,nil,"serial")
+    end
     return self:Start(plan.steps,plan.mode=="extract" and "extract" or "split")
 end
 function Actions:SelectionConfirmed(item,step)
@@ -280,10 +351,30 @@ function Actions:SelectionConfirmed(item,step)
     local operations=plan.sourcesBySlot[key]
     if operations then for _,op in ipairs(operations) do op.guid=op.guid or item.guid end end
 end
-local function TimedOut()
+local function StopOnTimeout()
     local transfer=Actions.transferResult
     Actions:Stop("timeout")
     if not transfer then B:Notify("error.timeout") end
+end
+local function TimedOut()
+    local round=Actions.sortRound
+    local placement=round and round.placement
+    if not placement then
+        if round and not round.bank and not round.compaction and round.receipts and #round.receipts>0 then
+            local timer=Actions.timeout
+            round.checkingDeadline=true
+            B:Flush()
+            round.checkingDeadline=nil
+            if Actions.sortRound~=round or Actions.timeout~=timer then return end
+        end
+        StopOnTimeout();return
+    end
+    Actions.timeout=nil
+    B.Stats.timers=B.Stats.timers-1
+    placement.checkingDeadline=true
+    if B:MarkPendingPlacementReads(round,true) then B:Flush()
+    else Actions:ConfirmSortRound() end
+    placement.checkingDeadline=nil
 end
 local function SetGuildManual(waiting,active)
     if waiting.guildManual==active then return end
@@ -389,10 +480,16 @@ function Actions:PlaceWaitingGuildStack(tab,slot)
     return submitted==true
 end
 local function SortSettled() Actions:FinishNativeSort() end
+local function TrackCarryMove(batch,from,to)
+    if not batch then return end
+    batch.bags[from.bag],batch.bags[to.bag]=true,true
+end
 function Actions:StartGroups(plan)
     if self.queue or self.nativeSort or A.InCombat() or A.CursorBusy() or not plan or not plan.rounds then return false end
     self:CancelDelete();self.queue,self.kind,self.groupPlan,self.roundIndex=plan.steps,"split-groups",plan,1
+    if YUI.IsForever then self.carryBatch={bags={}};B.View:RefreshItemInputs() end
     B:RefreshSortSpace()
+    if YUI.IsForever then return self:StartSplitBatch(plan) end
     return self:SendSplitRound()
 end
 function Actions:SendSplitRound()
@@ -409,6 +506,7 @@ function Actions:SendSplitRound()
     end
     local waiting={};self.roundWaiting=waiting;self.roundBySlot={};self.roundRemaining=#round;self.sendingRound=true
     for _,op in ipairs(round) do
+        TrackCarryMove(self.carryBatch,op.source,op.target)
         if not A.Split(op.source.bag,op.source.slot,op.count) or not A.CursorBusy() then self:Stop();return false end
         B.Deposit:PickupTarget(op.target)
         if A.CursorBusy() then A.Pickup(op.source.bag,op.source.slot);self:Stop();return false end
@@ -426,27 +524,199 @@ function Actions:ConfirmGroupSlot(bag,slot)
     local op=self.roundBySlot and self.roundBySlot[tostring(bag)..":"..slot]
     if op then self:ConfirmGroups(op) end
 end
+local function ReadSplitReceipt(self,op)
+    local source=op.splitSourceReceipt or A.Slot(op.source.bag,op.source.slot)
+    local target,targetError=B.Deposit:ReadTarget(op.target)
+    local sourceMatches=source and source.itemID==op.itemID and source.link==op.link
+        and source.count==op.sourceCount-op.count and not source.locked
+    local targetFields=target and target.itemID==op.itemID and target.link==op.link and target.count==op.count
+    local targetMatches=targetFields and not target.locked
+    local batch=self.splitBatch
+    local earlySource
+    if batch then
+        local sourceReady=sourceMatches and source.bound==op.splitBound and (not op.sourceGUID or source.guid==op.sourceGUID)
+        local targetIdentity=targetFields and target.bound==op.splitBound and (not op.sourceGUID or target.guid~=op.sourceGUID)
+        if batch.observe then
+            ObserveMoveSlots(batch,op,sourceReady,
+                targetMatches and targetIdentity and (not self.selection or not op.sourceGUID or target.guid~=nil))
+        end
+        if sourceReady and op.sourceGUID and not targetError and (not target or targetIdentity) then earlySource=source end
+    end
+    if not sourceMatches or not targetMatches then return nil,nil,earlySource end
+    if op.sourceGUID and source.guid~=op.sourceGUID then
+        if source.guid or not self.splitBatch then self:Stop("changed") end
+        return
+    end
+    if self.selection and op.sourceGUID and not target.guid then return nil,nil,earlySource end
+    if self.splitBatch and (source.bound~=op.splitBound or target.bound~=op.splitBound
+        or op.sourceGUID and target.guid==op.sourceGUID) then self:Stop("changed");return end
+    return source,target
+end
+local function PublishSplitReceipt(self,op,source,target)
+    self:SelectionConfirmed(source,op);self:SelectionConfirmed(target,op)
+    if self.selection and self.selection.progressiveGroups then B:MarkMoveReceipt(op) end
+    B.View:ConfirmSplitPlacement(target)
+    if target.new then A.ClearNewItem(target.bag,target.slot) end
+end
 local function ConfirmSplitOperation(self,op)
-        if op.confirmed then return end
-        local source=A.Slot(op.source.bag,op.source.slot)
-        local target=B.Deposit:ReadTarget(op.target)
-        if not source or source.itemID~=op.itemID or source.link~=op.link or source.count~=op.sourceCount-op.count or source.locked
-            or not target or target.itemID~=op.itemID or target.link~=op.link or target.count~=op.count or target.locked then return end
-        if op.sourceGUID and source.guid~=op.sourceGUID then self:Stop();return end
-        if self.selection and op.sourceGUID and not target.guid then return end
-        self:SelectionConfirmed(source,op);self:SelectionConfirmed(target,op)
-        if self.selection and self.selection.progressiveGroups then B:MarkSplitReceipt(op) end
-        B.View:ConfirmSplitPlacement(target)
-        if target.new then A.ClearNewItem(target.bag,target.slot) end
-        op.confirmed=true;self.roundRemaining=self.roundRemaining-1
+    if op.confirmed then return end
+    local source,target=ReadSplitReceipt(self,op)
+    if not source then return end
+    PublishSplitReceipt(self,op,source,target)
+    op.confirmed=true;self.roundRemaining=self.roundRemaining-1
 end
 function Actions:ConfirmGroups(single)
     if self.sendingRound or not self.roundWaiting then return end
-    if single then ConfirmSplitOperation(self,single) else for _,op in ipairs(self.roundWaiting) do ConfirmSplitOperation(self,op) end end
+    if single then ConfirmSplitOperation(self,single)
+    else
+        for _,op in ipairs(self.roundWaiting) do
+            ConfirmSplitOperation(self,op)
+            if not self.groupPlan then return end
+        end
+    end
     if not self.groupPlan then return end
     if self.roundRemaining>0 then return end
     if self.timeout then self.timeout:Cancel();self.timeout=nil;B.Stats.timers=math.max(0,B.Stats.timers-1) end
     self.roundWaiting=nil;self.roundIndex=self.roundIndex+1;self:SendSplitRound()
+end
+
+local function QueueSplitStep(batch,op,readyAt)
+    op.splitReadyAt=readyAt
+    batch.ready[#batch.ready+1]=op
+end
+function Actions:StartSplitBatch(plan)
+    local started=InventoryActionTime()
+    local batch={ready={},head=1,pending={},sourceBarriers={},remaining=#plan.steps,observe=self.splitObserver}
+    local producer={}
+    for index,op in ipairs(plan.steps) do
+        local from,to=SlotKey(op.source),SlotKey(op.target)
+        local parent=producer[from]
+        op.splitIndex,op.splitParent,op.splitChildren=index,parent and parent.splitIndex,nil
+        op.splitSourceKey,op.splitSourceChild,op.splitSourceReceipt=from,nil,nil
+        op.splitDeferred,op.splitEarlyReceipt=nil,nil
+        op.sourceReadyReported,op.targetReadyReported=nil,nil
+        if parent then
+            parent.splitChildren=parent.splitChildren or {}
+            parent.splitChildren[#parent.splitChildren+1]=op
+            if parent.splitSourceKey==from then parent.splitSourceChild=op end
+        else
+            QueueSplitStep(batch,op,started)
+        end
+        producer[from],producer[to]=op,op
+    end
+    self.splitBatch=batch
+    if batch.observe then batch.observe("start",started,nil,"balanced") end
+    return self:AdvanceSplitBatch()
+end
+local function SendSplitStep(self,batch,op)
+    local from,to=op.source,op.target
+    local source=A.Slot(from.bag,from.slot)
+    local target,err=B.Deposit:ReadTarget(to)
+    local early=op.splitEarlyReceipt
+    if not source or source.itemID~=op.itemID or source.link~=op.link or source.count~=op.sourceCount
+        or op.guid and source.guid~=op.guid or self:Protected(source) or target or err
+        or early and (source.guid~=early.guid or source.bound~=early.bound)
+        or B:GetConfig().locks[SlotKey(to)] or not A.Fits(source,B.Model.bags[to.bag]) then return false end
+    op.sourceGUID,op.splitBound=source.guid,source.bound
+    TrackCarryMove(self.carryBatch,from,to)
+    local submitted=InventoryActionTime()
+    if batch.observe then batch.observe("submit",submitted,op) end
+    if not A.Split(from.bag,from.slot,op.count) or self.splitBatch~=batch or not A.CursorBusy() then return false end
+    local current,readError=B.Deposit:ReadTarget(to)
+    if not current and not readError and not A.InCombat() and not B:GetConfig().locks[SlotKey(to)]
+        and A.ItemOnCursorFromSlot(from.bag,from.slot,op.itemID) then B.Deposit:PickupTarget(to) end
+    if self.splitBatch~=batch then return false end
+    if A.CursorBusy() then
+        if A.ItemOnCursorFromSlot(from.bag,from.slot,op.itemID,true)==true then A.Pickup(from.bag,from.slot) end
+        return false
+    end
+    op.splitDeadline=submitted+3
+    batch.pending[#batch.pending+1]=op
+    if not self.selection then B.View:PlaceSplit(to,from,op) end
+    return true
+end
+local function WakeSplitBatch()
+    Actions.timeout=nil
+    B.Stats.timers=math.max(0,B.Stats.timers-1)
+    if Actions.splitBatch then B:QueueFlush() end
+end
+local function ReleaseSplitChildren(batch,op,confirmed)
+    local barriers=batch.sourceBarriers
+    if barriers[op.splitSourceKey]==op then
+        barriers[op.splitSourceKey]=nil
+        if op.splitDeferred then QueueSplitStep(batch,op.splitDeferred,confirmed) end
+    end
+    if not op.splitChildren then return end
+    for _,child in ipairs(op.splitChildren) do
+        if not op.splitSourceReceipt or child~=op.splitSourceChild then
+            local barrier=barriers[child.splitSourceKey]
+            -- Even an already confirmed younger move must wait for the
+            -- older destination before this source can advance a second time.
+            if barrier then barrier.splitDeferred=child
+            else QueueSplitStep(batch,child,confirmed) end
+        end
+    end
+end
+function Actions:AdvanceSplitBatch()
+    local batch=self.splitBatch
+    if not batch or self.sendingRound then return end
+    if not B.active or A.InCombat() or A.CursorBusy() then self:Stop();return false end
+    self.sendingRound=true
+    local pending=batch.pending
+    local kept=0
+    for _,op in ipairs(pending) do
+        local source,target,earlySource=ReadSplitReceipt(self,op)
+        if self.splitBatch~=batch then return false end
+        if source then
+            local confirmed=InventoryActionTime()
+            if batch.observe then batch.observe("confirm",confirmed,op) end
+            PublishSplitReceipt(self,op,source,target)
+            if self.splitBatch~=batch then return false end
+            ReleaseSplitChildren(batch,op,confirmed)
+            batch.remaining=batch.remaining-1
+        else
+            if InventoryActionTime()>=op.splitDeadline then TimedOut();return false end
+            local child=op.splitSourceChild
+            if earlySource and child and not op.splitSourceReceipt and not batch.sourceBarriers[op.splitSourceKey] then
+                -- This receipt keeps the original source count even after
+                -- the next move consumes more from that same physical stack.
+                op.splitSourceReceipt=earlySource
+                batch.sourceBarriers[op.splitSourceKey]=op
+                child.splitEarlyReceipt=earlySource
+                QueueSplitStep(batch,child,InventoryActionTime())
+            end
+            kept=kept+1
+            pending[kept]=op
+        end
+    end
+    for index=#pending,kept+1,-1 do pending[index]=nil end
+    if batch.remaining==0 then
+        if self.selection then return self:CompleteSelection() end
+        self:Stop("complete");return true
+    end
+    -- Break up local command submission without waiting for unrelated receipts.
+    local deadline=InventoryActionTime()+.002
+    while batch.head<=#batch.ready do
+        local op=batch.ready[batch.head]
+        if A.InCombat() or A.CursorBusy() or not SendSplitStep(self,batch,op) then
+            if self.splitBatch==batch then self:Stop("changed");B:Notify("error.changed") end
+            return false
+        end
+        batch.head=batch.head+1
+        if InventoryActionTime()>=deadline then break end
+    end
+    self.sendingRound=nil
+    local expires=pending[1] and pending[1].splitDeadline
+    if self.timeout and batch.expires~=expires then
+        self.timeout:Cancel();self.timeout=nil;B.Stats.timers=math.max(0,B.Stats.timers-1)
+    end
+    batch.expires=expires
+    if expires and not self.timeout then
+        self.timeout=C_Timer.NewTimer(math.max(0,expires-InventoryActionTime()),WakeSplitBatch)
+        B.Stats.timers=B.Stats.timers+1
+    end
+    if batch.head<=#batch.ready or #pending>kept then B:QueueFlush() end
+    return true
 end
 function Actions:FinishNativeSort()
     if not self.nativeSort then return end
@@ -482,14 +752,19 @@ function Actions:ClearRecent(ids)
             end
         end end
     end
-    if changed then B.Model.revision=B.Model.revision+1;B.View:Invalidate(true);B:RefreshVisible(true) end
+    if changed then
+        B.Model.revision=B.Model.revision+1
+        if not A.InCombat() then B.View:Invalidate(true) end
+        B:RefreshVisible(true)
+    end
     return changed
 end
 function Actions:IsSortingBank()
     return self.nativeSort=="bank" or self.kind=="bank-sort" or self.kind=="bank-restack"
 end
 function Actions:BlocksItemInput()
-    return self.sortRound~=nil or self.kind=="deposit" or self.kind=="bag-remove" or self:IsSortingBank()
+    return self.sortRound~=nil or self.carryBatch~=nil or B.Runtime.finalCarryBatch~=nil
+        or self.kind=="deposit" or self.kind=="bag-remove" or self:IsSortingBank()
         or self.selection and self.selection.progressiveGroups or false
 end
 function Actions:IsPersonalBatch()
@@ -615,6 +890,11 @@ local function SubmitStep(self)
         if A.CursorBusy() then self:Stop();return false end
     end
     if guild then self.guildDispatch=operation end
+    local trace=self.serialSplitTrace
+    if trace then
+        operation.splitIndex,operation.splitParent,operation.splitReadyAt=index,index>1 and index-1 or nil,trace.readyAt
+        trace.observe("submit",InventoryActionTime(),operation)
+    end
     local pickupCallOK
     if operation.count then pickupCallOK=A.Split(source.bag,source.slot,operation.count) else pickupCallOK=A.Pickup(source.bag,source.slot) end
     if personalActive then
@@ -834,6 +1114,17 @@ function Actions:Confirm(finalRead)
     if waiting.guildReceipt then target,readError=B.Deposit:ReadGuildReceipt(waiting.operation)
     else target,readError=B.Deposit:ReadTarget(waiting.operation.target) end
     if self.waiting~=waiting then return end
+    local trace=self.serialSplitTrace
+    if trace then
+        local expected=waiting.source
+        ObserveMoveSlots(trace,op,
+            not sourceError and (waiting.expectedSource==0 and not source
+                or source and not source.locked and source.itemID==expected.itemID and source.link==expected.link
+                    and source.count==waiting.expectedSource and (not expected.guid or expected.guid==source.guid)),
+            not readError and target and not target.locked and target.itemID==expected.itemID and target.link==expected.link
+                and target.count==waiting.expectedTarget and (not expected.guid or target.guid~=nil)
+                and (not waiting.targetGUID or waiting.targetGUID==target.guid))
+    end
     if waiting.guildReceipt and readError=="session" then self:Stop();return end
     if (waiting.guildCanOffer or waiting.guildManual) and not readError and not sourceError
         and not SameManualBaseline(waiting,source,target) then RetireManualOffer(waiting) end
@@ -892,6 +1183,10 @@ function Actions:Confirm(finalRead)
         end
         B.Deposit:RecordGuildOrigin(waiting.source,target)
     elseif target.link~=waiting.source.link then return end
+    if trace then
+        trace.readyAt=InventoryActionTime()
+        trace.observe("confirm",trace.readyAt,op)
+    end
     local transfer=self.transferResult
     if transfer then
         transfer.confirmed=transfer.confirmed+waiting.source.count-waiting.expectedSource
@@ -900,7 +1195,7 @@ function Actions:Confirm(finalRead)
     if self.selection then
         if self.selection.progressiveGroups then
             self:SelectionConfirmed(source,op)
-            B:MarkSplitReceipt(op)
+            B:MarkMoveReceipt(op)
         end
         self:SelectionConfirmed(target,op)
     end
@@ -934,11 +1229,36 @@ function Actions:Confirm(finalRead)
     end
     self:Step()
 end
-function Actions:Stop(reason)
+function Actions:Stop(reason,carryReconciled)
     local wasRunning=self.queue~=nil or self.nativeSort~=nil
     local personalBatch=self:IsPersonalBatch()
     if self.guildInterrupted and reason=="timeout" then reason="cancelled" end
     local sortRound=self.sortRound
+    local carryBatch=self.carryBatch
+    FinishMaterialTrace(sortRound,reason or "interrupted")
+    FinishCategoryTrace(sortRound and sortRound.compaction,reason or "interrupted")
+    local placement=sortRound and sortRound.placement
+    if placement and placement.firstBatchTimer then
+        placement.firstBatchTimer:Cancel();placement.firstBatchTimer=nil
+        B.Stats.timers=B.Stats.timers-1
+    end
+    if placement and placement.receiptCheckTimer then
+        placement.receiptCheckTimer:Cancel();placement.receiptCheckTimer=nil
+        B.Stats.timers=B.Stats.timers-1
+    end
+    if placement then FinishPlacementBatch(placement) end
+    local placementObserver=sortRound and sortRound.placementTrace
+    if placementObserver then
+        placementObserver("finish",InventoryActionTime(),nil,reason or "interrupted")
+    end
+    if sortRound and carryBatch and reason~="complete" then
+        self:RememberCarrySortReceipts(sortRound.receipts,sortRound.inFlight)
+    end
+    local splitBatch=self.splitBatch
+    local splitTrace=splitBatch or self.serialSplitTrace
+    self.splitBatch=nil
+    self.serialSplitTrace=nil
+    if splitTrace and splitTrace.observe then splitTrace.observe("finish",InventoryActionTime(),nil,reason or "interrupted") end
     local bankSorting=self:IsSortingBank()
     local sorting=self.nativeSort or self.kind=="sort" or self.kind=="restack"
     local removing=self.removalPlan~=nil
@@ -961,6 +1281,7 @@ function Actions:Stop(reason)
     end
     self.guildDispatch=nil
     self.sortRound=nil
+    self.carryBatch=nil
     if waiting then SetGuildManual(waiting,nil) end
     self.groupPlan,self.roundWaiting,self.roundIndex,self.sendingRound=nil,nil,nil,nil
     self.roundBySlot,self.roundRemaining=nil,nil
@@ -982,14 +1303,16 @@ function Actions:Stop(reason)
     if heldGuildCursor then B:Notify("guild.bag_check_cursor") end
     if personalBatch then B.View:FinishTransferDisplay() end
     if B.active then
-        if sortRound then
+        if carryBatch then
+            if not carryReconciled then B:FinishCarryBatch(carryBatch,sortRound) end
+        elseif sortRound then
             B.View:FinishSortLayout(sortRound)
         elseif bankSorting then B.BankView:Refresh("bank",true)
         elseif sorting or removing then B.View:Invalidate();B:RefreshVisible(true) end
         if blocked then B.View:RefreshItemInputs() end
         B.View:UpdateGrouping()
         if B.bankOpen or B.guildOpen then B.BankView:UpdateBankControls(true) end
-        if wasRunning then B:InvalidateSortSpace(true) end
+        if wasRunning and not carryBatch then B:InvalidateSortSpace(true) end
     end
 end
 local function SmallerStack(a,b)
@@ -1114,25 +1437,56 @@ local function SortCanPlace(round)
     return Actions.sortRound==round and not A.InCombat() and (not round.bank or B.bankOpen and A.CanUsePersonalBank())
 end
 
-local function ReturnSortPickup(source,round)
+local function RecordSortCall(timing,started,timeKey,countKey,count)
+    timing[timeKey]=timing[timeKey]+(InventoryActionTime()-started)*1000
+    timing[countKey]=timing[countKey]+(count or 1)
+end
+
+local function ReturnSortPickup(source,round,timing)
+    local started=timing and InventoryActionTime()
     local origin,err=A.Slot(source.bag,source.slot)
+    if timing then RecordSortCall(timing,started,"slotReadMs","slotReadCalls") end
     if err or not SortCanPlace(round) or origin and (not source.guid or origin.guid~=source.guid
         or not B.Classification:SameStack(origin,source)) then return end
     if A.ItemOnCursorFromSlot(source.bag,source.slot,source.itemID,true)==true then
+        started=timing and InventoryActionTime()
         A.Pickup(source.bag,source.slot)
+        if timing then RecordSortCall(timing,started,"returnToSourceMs","returnToSourceCalls") end
     end
 end
 
-local function SendSortMove(op,round)
+local function DirectionChanged(round)
+    return round.carryLayout and round.carryLayout~=B:GetConfig().layout
+        or round.direction and round.direction~=Actions:DirectionalSort()
+end
+
+function Actions:CancelSortForConfigChange()
+    local round=self.sortRound
+    if not round or not round.placement and not DirectionChanged(round) then return end
+    round.cancelled=true
+    B:QueueFlush()
+end
+
+function Actions:SortProtected(item,allowQuestMove)
+    return self:Protected(item,allowQuestMove) or not allowQuestMove and item.classID==12
+end
+
+local function SendSortMove(op,round,timing)
     local from,to=op.source,op.target
+    local sourceBag,targetBag=B.Model.bags[from.bag],B.Model.bags[to.bag]
+    local allowQuestMove=round.placement and op.placementSource and not op.count and not op.combine
+    if allowQuestMove and (not B.Runtime.readable[from.bag] or not B.Runtime.readable[to.bag]
+        or not targetBag or to.slot>targetBag.capacity) then return nil,nil,"unreadable" end
+    local started=timing and InventoryActionTime()
     local source,sourceError=A.Slot(from.bag,from.slot)
     local target,targetError=A.Slot(to.bag,to.slot)
-    local sourceBag,targetBag=B.Model.bags[from.bag],B.Model.bags[to.bag]
-    if sourceError or targetError or not MatchesSortItem(source,from,op.sourceCount,op.guid)
-        or Actions:Protected(source) or B:GetConfig().locks[SlotKey(to)]
+    if timing then RecordSortCall(timing,started,"slotReadMs","slotReadCalls",2) end
+    if sourceError or targetError then return nil,nil,"unreadable" end
+    if not MatchesSortItem(source,from,op.sourceCount,op.guid)
+        or Actions:SortProtected(source,allowQuestMove) or B:GetConfig().locks[SlotKey(to)]
         or not A.Fits(source,targetBag,round.bank) then return end
     if target then
-        if Actions:Protected(target) then return end
+        if Actions:SortProtected(target,allowQuestMove) or allowQuestMove and B.Classification:SameStack(source,target) then return end
         if op.combine then
             if not MatchesSortItem(target,source,op.targetCount,op.targetGUID or to.guid)
                 or target.count+(op.count or source.count)>target.maxStack then return end
@@ -1140,98 +1494,756 @@ local function SendSortMove(op,round)
             or not A.Fits(target,sourceBag,round.bank) then return end
     elseif op.swapTarget or op.combine then return end
     local picked
+    started=timing and InventoryActionTime()
     if op.count then picked=A.Split(from.bag,from.slot,op.count)
     else picked=A.Pickup(from.bag,from.slot) end
+    if timing then RecordSortCall(timing,started,"sourcePickupMs","sourcePickupCalls") end
     if not picked or not SortCanPlace(round) or not A.CursorBusy() then return end
     -- Pickup and split can dispatch callbacks. Compare the live destination
     -- against the pre-pickup snapshot before issuing the second native call.
+    started=timing and InventoryActionTime()
     local current,err=A.Slot(to.bag,to.slot)
-    if not SortCanPlace(round) or not A.ItemOnCursorFromSlot(from.bag,from.slot,source.itemID) then return end
-    if err or B:GetConfig().locks[SlotKey(to)] or not target and current
-        or target and (not MatchesSortItem(current,target,target.count,target.guid) or Actions:Protected(current)) then
-        ReturnSortPickup(source,round)
+    if timing then RecordSortCall(timing,started,"slotReadMs","slotReadCalls") end
+    if not SortCanPlace(round) or not A.ItemOnCursorFromSlot(from.bag,from.slot,source.itemID,round.direction) then return end
+    if err or round.cancelled or DirectionChanged(round) or B:GetConfig().locks[SlotKey(to)] or not target and current
+        or target and (not MatchesSortItem(current,target,target.count,target.guid) or Actions:SortProtected(current,allowQuestMove)) then
+        ReturnSortPickup(source,round,timing)
         return
     end
-    A.Pickup(to.bag,to.slot)
-    if Actions.sortRound~=round then return end
+    local receipt={source=source,target=target,to=to,moved=op.count or source.count,combine=op.combine}
+    -- Native calls can synchronously close or disable the bags. Keep the
+    -- outcome verifiable even if Stop runs before this call returns.
+    round.inFlight=receipt
+    started=timing and InventoryActionTime()
+    local called=A.Pickup(to.bag,to.slot)
+    if timing then RecordSortCall(timing,started,"targetDropMs","targetDropCalls") end
+    if not SortCanPlace(round) then return end
     if A.CursorBusy() then
         -- Some clients leave the displaced item on the cursor after a swap.
         -- A rejected drop may instead leave our original stack in hand.
-        if (op.swapTarget and A.ItemOnCursorFromSlot(to.bag,to.slot,target.itemID))
-            or A.ItemOnCursorFromSlot(from.bag,from.slot,source.itemID) then
-            A.Pickup(from.bag,from.slot)
+        local requireLocation=round.direction or target and target.itemID==source.itemID
+        local displaced=op.swapTarget and A.ItemOnCursorFromSlot(to.bag,to.slot,target.itemID,requireLocation)
+        local original=not displaced and A.ItemOnCursorFromSlot(from.bag,from.slot,source.itemID,requireLocation)
+        if (displaced or original) and not round.cancelled and not DirectionChanged(round) then
+            started=timing and InventoryActionTime()
+            local returned=A.Pickup(from.bag,from.slot)
+            if timing then RecordSortCall(timing,started,"returnToSourceMs","returnToSourceCalls") end
+            if original then
+                round.inFlight=nil
+                if called and returned and op.professionRoute and not round.bank
+                    and not target and not op.count and targetBag.family and targetBag.family~=0 and targetBag.space~="reagent"
+                    and SortCanPlace(round) and not A.CursorBusy() then
+                    return nil,true
+                end
+                return
+            end
         end
         if A.CursorBusy() then return end
     end
-    return {source=source,target=target,to=to,moved=op.count or source.count,combine=op.combine}
+    round.inFlight=nil
+    return receipt
 end
 
-local function SendSortRound(actions,steps)
+local function BeginMaterialTrace(actions,round)
+    if not actions.materialObserver then return end
+    local trace=round.materialTrace
+    if not trace then
+        trace={observe=actions.materialObserver,issued=0,round=0}
+        round.materialTrace=trace
+    end
+    local at=InventoryActionTime()
+    if trace.round==0 and trace.observe then trace.observe("start",at,nil,"priority") end
+    trace.readyAt,trace.round=at,trace.round+1
+end
+
+local function TraceMaterialSubmit(trace,op,phase,submitted)
+    trace.issued=trace.issued+1
+    op.mergeIndex,op.mergeReadyAt=trace.issued,trace.readyAt
+    op.materialPhase,op.materialRound=phase,trace.round
+    trace.observe("submit",submitted,op)
+end
+
+local function SendSortRound(actions,steps,phase)
     local round=actions.sortRound
-    round.receipts,round.bags={},{}
+    local plan=round.wavePlan
+    local route=plan and plan.phase=="material-route"
+    local first=plan and plan.nextStep or 1
+    if first==1 then round.receipts,round.bags={},{} end
     round.sending=true
     actions.queue=steps
+    if phase and first==1 then BeginMaterialTrace(actions,round) end
+    local trace=phase and round.materialTrace
     local clock=YUI.API.System.GetTimePreciseSec
     local deadline=clock and clock()
     if deadline then deadline=deadline+.002 end
-    for _,op in ipairs(steps) do
+    for index=first,#steps do
+        local op=steps[index]
+        if round.cancelled or DirectionChanged(round) then round.cancelled=true;break end
         if round.remaining<=0 then actions:Stop();B:Notify("error.operation");return false end
         if A.CursorBusy() or A.InCombat() or round.bank and (not B.bankOpen or not A.CanUsePersonalBank()) then
             actions:Stop();return false
         end
-        local receipt=SendSortMove(op,round)
+        if trace and trace.observe then TraceMaterialSubmit(trace,op,phase,InventoryActionTime()) end
+        TrackCarryMove(actions.carryBatch,op.source,op.target)
+        local receipt,rejected=SendSortMove(op,round)
         if actions.sortRound~=round then return false end
-        if not receipt then actions:Stop();B:Notify("error.changed");return false end
-        round.receipts[#round.receipts+1]=receipt
+        if rejected then
+            local bagID=op.target.bag
+            local routes=round.rejectedRoutes or {}
+            local items=routes[bagID] or {}
+            round.rejectedRoutes,routes[bagID],items[op.source.itemID]=routes,items,true
+        elseif receipt then
+            if trace then receipt.materialOperation=op end
+            round.receipts[#round.receipts+1]=receipt
+        else actions:Stop();B:Notify("error.changed");return false end
+        if plan then plan.nextStep=index+1 end
         round.remaining=round.remaining-1
         round.bags[op.source.bag],round.bags[op.target.bag]=true,true
-        if #round.receipts>=actions.sortRoundLimit or deadline and (clock() or deadline)>=deadline then break end
+        if not route and #round.receipts>=actions.sortRoundLimit or deadline and (clock() or deadline)>=deadline then break end
     end
     round.sending=nil
-    actions.timeout=C_Timer.NewTimer(3,TimedOut)
-    B.Stats.timers=B.Stats.timers+1
+    if not actions.timeout then
+        actions.timeout=C_Timer.NewTimer(3,TimedOut)
+        B.Stats.timers=B.Stats.timers+1
+    end
     B:QueueFlush()
     return true
 end
 
-function Actions:ConfirmSortRound()
-    local round=self.sortRound
-    if not round or round.sending or not round.receipts or #round.receipts==0 then return end
-    if A.InCombat() or A.CursorBusy() or round.bank and (not B.bankOpen or not A.CanUsePersonalBank()) then
-        self:Stop();return
+local function StartSortWave(actions,steps,phase,waves)
+    if phase=="material-route" and B.Model.bags[steps[1].target.bag].space=="reagent" then
+        waves={steps}
     end
-    for _,receipt in ipairs(round.receipts) do
-        local from,to=receipt.source,receipt.to
+    if waves then actions.sortRound.wavePlan={waves=waves,index=1,nextStep=1,phase=phase} end
+    return SendSortRound(actions,steps,phase)
+end
+
+local function ReadSortReceipt(receipt,live)
+    local from,to=receipt.source,receipt.to
+    local oldTarget=receipt.target
+    local source,target,sourceReadable,targetReadable
+    if live then
+        local sourceError,targetError
+        source,sourceError=A.Slot(from.bag,from.slot)
+        target,targetError=A.Slot(to.bag,to.slot)
+        sourceReadable,targetReadable=not sourceError,not targetError
+    else
         local a,b=B.Model.bags[from.bag],B.Model.bags[to.bag]
-        if not B.Runtime.readable[from.bag] or not B.Runtime.readable[to.bag]
-            or from.slot>a.capacity or to.slot>b.capacity then return end
-        local oldTarget=receipt.target
+        source,target=a and a.slots[from.slot],b and b.slots[to.slot]
+        sourceReadable=a and B.Runtime.readable[from.bag] and from.slot<=a.capacity
+        targetReadable=b and B.Runtime.readable[to.bag] and to.slot<=b.capacity
+    end
+    local sourceReady,targetReady
+    if sourceReadable then
+        if oldTarget and not receipt.combine then
+            sourceReady=MatchesSortItem(source,oldTarget,oldTarget.count,oldTarget.guid)
+        elseif receipt.moved<from.count then
+            sourceReady=MatchesSortItem(source,from,from.count-receipt.moved,from.guid)
+        else sourceReady=not source end
+    end
+    if targetReadable then
         local destCount=receipt.moved+(receipt.combine and oldTarget.count or 0)
         local destGUID
         if receipt.combine then destGUID=oldTarget.guid
         elseif receipt.moved==from.count then destGUID=from.guid end
-        if not MatchesSortItem(b.slots[to.slot],from,destCount,destGUID) then return end
-        local source=a.slots[from.slot]
-        if oldTarget and not receipt.combine then
-            if not MatchesSortItem(source,oldTarget,oldTarget.count,oldTarget.guid) then return end
-        elseif receipt.moved<from.count then
-            if not MatchesSortItem(source,from,from.count-receipt.moved,from.guid) then return end
-        elseif source then return end
+        targetReady=MatchesSortItem(target,from,destCount,destGUID)
+    end
+    return sourceReady,targetReady
+end
+
+local function CopyUnsettledReceipt(receipt)
+    return {source=receipt.source,target=receipt.target,to={bag=receipt.to.bag,slot=receipt.to.slot},
+        moved=receipt.moved,combine=receipt.combine,externalCheck=receipt.externalCheck}
+end
+
+function Actions:RememberCarrySortReceipts(receipts,inFlight)
+    if not inFlight and (not receipts or #receipts==0) then return end
+    local pending={}
+    for _,receipt in ipairs(receipts or {}) do
+        if not receipt.confirmed then pending[#pending+1]=CopyUnsettledReceipt(receipt) end
+    end
+    if inFlight then pending[#pending+1]=CopyUnsettledReceipt(inFlight) end
+    if #pending>0 then
+        local recovery=self.carrySortRecovery
+        if recovery and recovery.player==B.Cache.playerKey then
+            for _,receipt in ipairs(pending) do recovery.receipts[#recovery.receipts+1]=receipt end
+            recovery.verify=true
+        else
+            self.carrySortRecovery={receipts=pending,player=B.Cache.playerKey,verify=true}
+        end
+    end
+end
+
+function Actions:ReconcileCarrySortRecovery(live)
+    local recovery=self.carrySortRecovery
+    if not recovery then return end
+    if recovery.player and B.Cache.playerKey and recovery.player~=B.Cache.playerKey then self.carrySortRecovery=nil;return end
+    if not recovery.verify or A.CursorBusy() then return recovery.receipts[1] end
+    recovery.verify=nil
+    recovery.checkedAt=A.Now()
+    local kept=0
+    for _,receipt in ipairs(recovery.receipts) do
+        local settled
+        if receipt.externalCheck then settled=receipt.externalCheck()
+        else
+            local sourceReady,targetReady=ReadSortReceipt(receipt,live)
+            settled=sourceReady and targetReady
+        end
+        if not settled then
+            kept=kept+1
+            recovery.receipts[kept]=receipt
+        end
+    end
+    for index=#recovery.receipts,kept+1,-1 do recovery.receipts[index]=nil end
+    if kept==0 then self.carrySortRecovery=nil;return end
+    return recovery.receipts[1]
+end
+
+function Actions:CheckCarrySortRecovery()
+    local recovery=self.carrySortRecovery
+    if not recovery then return end
+    if recovery.checkedAt~=A.Now() and not self.sortRound and not self.carryBatch and not B.Runtime.finalCarryBatch
+        and not A.InCombat() and not A.CursorBusy() then
+        if B.active then
+            B:MarkCarrySortRecovery(nil,nil,true)
+            B:Flush()
+        else
+            recovery.verify=true
+            self:ReconcileCarrySortRecovery(true)
+        end
+    end
+    return self.carrySortRecovery and self.carrySortRecovery.receipts[1]
+end
+
+local function AdvancePlacement(actions,round)
+    local plan,receipts=round.placement,round.receipts
+    if plan.verifying then return end
+    local observe=plan.observe
+    plan.cancelled=plan.cancelled or round.cancelled or DirectionChanged(round)
+    local kept,confirmed=0,false
+    for _,receipt in ipairs(receipts) do
+        local sourceReady,targetReady=ReadSortReceipt(receipt)
+        if sourceReady and targetReady then
+            if observe then observe("confirm",InventoryActionTime(),receipt.operation) end
+            actions:ConfirmPlacementStep(receipt.operation)
+            confirmed=true
+        else
+            kept=kept+1
+            receipts[kept]=receipt
+        end
+    end
+    for index=#receipts,kept+1,-1 do receipts[index]=nil end
+    if confirmed then plan.needsSteps=true end
+    if receipts[1] and receipts[1].expires<=A.Now() then
+        if plan.checkingDeadline then
+            if plan.cancelled then actions:Stop("interrupted");return end
+            if not plan.deadlineRetried then
+                for _,receipt in ipairs(receipts) do
+                    if receipt.expires>A.Now() then break end
+                    if not B.Runtime.readable[receipt.source.bag] or not B.Runtime.readable[receipt.to.bag] then
+                        plan.deadlineRetried=true
+                        actions.timeout=C_Timer.NewTimer(.12,TimedOut)
+                        B.Stats.timers=B.Stats.timers+1
+                        return
+                    end
+                end
+            end
+            StopOnTimeout()
+        end
+        return
+    end
+
+    local steps,firstStep
+    if not plan.cancelled and not plan.firstBatchTimer and (not plan.dispatchRetry or plan.dispatchRetryReady) then
+        if plan.firstBatchSteps then
+            steps,firstStep=plan.firstBatchSteps,plan.firstBatchNextStep
+            plan.firstBatchSteps,plan.firstBatchNextStep=nil,nil
+        elseif plan.needsSteps then
+            local misplaced
+            steps,misplaced=actions:PlanPlacementSteps(plan)
+            plan.needsSteps=false
+            if #steps==0 and kept==0 then
+                if misplaced then actions:Stop("changed");B:Notify("error.changed")
+                else
+                    plan.verifying=true
+                    if actions.timeout then
+                        actions.timeout:Cancel();actions.timeout=nil;B.Stats.timers=B.Stats.timers-1
+                    end
+                    B:FinishCarryBatch(actions.carryBatch,round)
+                end
+                return
+            end
+        end
+    end
+
+    if steps and #steps>0 then
+        local timing,budgetMs,sliceStarted
+        if firstStep then
+            timing=plan.firstBatchTiming
+            if timing then
+                timing.started=InventoryActionTime()
+                timing.sliceGapMs=(timing.started-timing.pausedAt)*1000
+                timing.pausedAt=nil
+            end
+        elseif not plan.firstBatchStarted then
+            plan.firstBatchStarted=true
+            budgetMs=plan.firstBatchBudgetMs
+            if observe or budgetMs and #steps>1 then sliceStarted=InventoryActionTime() end
+            if observe then
+                timing={started=sliceStarted,plannedSteps=#steps,issuedSteps=0,
+                    firstSliceBudgetMs=budgetMs,
+                    slotReadMs=0,slotReadCalls=0,sourcePickupMs=0,sourcePickupCalls=0,
+                    targetDropMs=0,targetDropCalls=0,returnToSourceMs=0,returnToSourceCalls=0}
+                plan.firstBatchTiming=timing
+            end
+        end
+        local expires=A.Now()+3
+        round.sending=true
+        for index=firstStep or 1,#steps do
+            local op=steps[index]
+            if round.cancelled or DirectionChanged(round) then plan.cancelled=true;break end
+            if actions.sortRound~=round then return end
+            if A.InCombat() or A.CursorBusy() then actions:Stop();return end
+            if round.remaining<=0 then
+                plan.cancelled=true;B:Notify("error.operation");break
+            end
+            TrackCarryMove(actions.carryBatch,op.source,op.target)
+            local submitted=observe and InventoryActionTime()
+            local receipt,_,failure=SendSortMove(op,round,timing)
+            if actions.sortRound~=round then return end
+            if not receipt then
+                if failure=="unreadable" and not plan.dispatchRetry and not round.cancelled and not DirectionChanged(round) then
+                    plan.dispatchRetry=op
+                    B:SchedulePlacementReceiptCheck(round)
+                    break
+                end
+                plan.cancelled=true
+                if not round.cancelled and not DirectionChanged(round) then
+                    B:Notify(failure=="unreadable" and "error.sort_unreadable" or "error.changed")
+                end
+                break
+            end
+            op.placementSource.pending,op.placementTarget.pending=true,true
+            receipt.operation,receipt.expires=op,expires
+            receipts[#receipts+1]=receipt
+            round.remaining=round.remaining-1
+            if timing then timing.issuedSteps=timing.issuedSteps+1 end
+            if observe then observe("submit",submitted,op) end
+            if budgetMs and index<#steps then
+                local at=InventoryActionTime()
+                local spentMs=(at-sliceStarted)*1000
+                if spentMs>=budgetMs then
+                    if timing then
+                        timing.firstSliceMs,timing.firstSliceSteps=spentMs,index
+                        timing.started,timing.pausedAt=nil,at
+                    end
+                    plan.firstBatchSteps,plan.firstBatchNextStep=steps,index+1
+                    plan.firstBatchTimer=C_Timer.NewTimer(0,function()
+                        plan.firstBatchTimer=nil
+                        B.Stats.timers=B.Stats.timers-1
+                        if actions.sortRound==round then actions:ConfirmSortRound() end
+                    end)
+                    B.Stats.timers=B.Stats.timers+1
+                    if observe then observe("yield",at) end
+                    break
+                end
+            end
+        end
+        round.sending=nil
+        if timing and not plan.firstBatchTimer then FinishPlacementBatch(plan) end
+        if firstStep and plan.needsSteps and not plan.cancelled then B:QueueFlush() end
+    end
+
+    local deadline=receipts[1] and receipts[1].expires
+    if deadline~=plan.armedDeadline or deadline and not actions.timeout then
+        if actions.timeout then
+            actions.timeout:Cancel();actions.timeout=nil;B.Stats.timers=B.Stats.timers-1
+        end
+        plan.armedDeadline=deadline
+        if deadline then
+            actions.timeout=C_Timer.NewTimer(math.max(0,deadline-A.Now()),TimedOut)
+            B.Stats.timers=B.Stats.timers+1
+        end
+    end
+    if not deadline and plan.cancelled then actions:Stop() end
+end
+
+local function StartPlacement(actions,round,plan)
+    round.placement,round.receipts=plan,{}
+    if round.placementStarted then
+        plan.firstBatchStarted=true
+    else
+        round.placementStarted=true
+        round.placementTrace=actions.placementObserver
+        plan.firstBatchBudgetMs=not actions.placementFirstBatchUnbounded and firstPlacementSliceBudgetMs or nil
+        if round.placementTrace then round.placementTrace("start",InventoryActionTime(),nil,"classified") end
+    end
+    plan.observe=round.placementTrace
+    plan.needsSteps=true
+    AdvancePlacement(actions,round)
+    return not plan.cancelled
+end
+
+local function PlanSortDispatch(actions,bank,direction)
+    local allowMaterialWaves=YUI.IsForever and not bank
+    if allowMaterialWaves and not direction then
+        local steps,compaction,phase,waves=actions:BeginCategoryMerges(actions.sortRoundLimit,true)
+        if steps or compaction then return steps,compaction,phase,waves end
+    end
+    local steps,phase,waves,placement=actions:PlanSortRound(bank,actions.sortRoundLimit,allowMaterialWaves,direction)
+    return steps,nil,allowMaterialWaves and phase or nil,waves,placement
+end
+
+local function CheckPlacementSnapshot(plan)
+    for id,expected in pairs(plan.bags) do
+        local bag=B.Model.bags[id]
+        if not bag or not B.Runtime.readable[id] then return nil,id end
+        if bag.capacity~=expected.capacity or bag.family~=expected.family or bag.space~=expected.space then
+            return false,nil,true
+        end
+    end
+    for _,scope in ipairs(plan.scopes) do
+        for _,cell in ipairs(scope) do
+            local item=B.Model.bags[cell.bag].slots[cell.slot]
+            local expected=cell.item
+            if item and (item.locked or item.guidRetained or item.loaded==false) then return nil,cell.bag end
+            if expected then
+                if not MatchesSortItem(item,expected,expected.count,expected.guid) then return false end
+            elseif item then return false end
+        end
+    end
+    return true
+end
+
+-- Called after the existing final bag reads have reached the model, before rendering.
+function Actions:ConfirmPlacementLayout(round)
+    if self.sortRound~=round then return end
+    if round.cancelled or DirectionChanged(round) or A.InCombat() or A.CursorBusy() then
+        self:Stop("interrupted",true);return
+    end
+    local plan=round.placement
+    local complete,unreadable,topologyChanged=CheckPlacementSnapshot(plan)
+    if complete then self:Stop("complete",true);return end
+    if unreadable then
+        if not plan.finalReadRetried and B.Runtime.kind[unreadable]=="bags" then
+            plan.finalReadRetried=true
+            B.Runtime.finalCarryBatch=self.carryBatch
+            for id in pairs(plan.bags) do
+                if id==unreadable or not B.Runtime.readable[id] then B:MarkBag(id) end
+            end
+            return true
+        end
+        self:Stop("unreadable",true);B:Notify("error.sort_unreadable");return
+    end
+    if topologyChanged or round.replanned or round.remaining<=0 then
+        self:Stop("changed",true);B:Notify("error.changed");return
+    end
+    round.replanned=true
+    if plan.observe then plan.observe("replan",InventoryActionTime()) end
+    local steps,_,phase,waves,placement=PlanSortDispatch(self,false,round.direction)
+    round.placement=nil
+    if placement and #placement.targets>0 then
+        StartPlacement(self,round,placement)
+        return true
+    end
+    if #steps>0 then
+        StartSortWave(self,steps,phase,waves)
+        return true
+    end
+    self:Stop("complete",true)
+end
+
+local function QueueMergeGroup(state,group)
+    if group.queued then return end
+    group.queued=true
+    state.ready[#state.ready+1]=group
+end
+
+local function ReadyCategoryMerge(group,operation,at)
+    operation.mergeReadyAt=at
+    group.moves[#group.moves+1]=operation
+end
+
+local function LinkCategoryMerges(group,steps,at)
+    group.toIssue=#steps
+    if #steps==0 then group.exhausted=true end
+    for _,operation in ipairs(steps) do
+        local first,second=operation.mergePredecessor,operation.mergeTargetPredecessor
+        operation.mergeDependencies=0
+        if first and not first.mergeConfirmed then
+            first.mergeChildren=first.mergeChildren or {}
+            first.mergeChildren[#first.mergeChildren+1]=operation
+            operation.mergeDependencies=operation.mergeDependencies+1
+        end
+        if second and second~=first and not second.mergeConfirmed then
+            second.mergeChildren=second.mergeChildren or {}
+            second.mergeChildren[#second.mergeChildren+1]=operation
+            operation.mergeDependencies=operation.mergeDependencies+1
+        end
+        if operation.mergeDependencies==0 then ReadyCategoryMerge(group,operation,at) end
+    end
+end
+
+local function WakeCategoryMerges()
+    Actions.timeout=nil
+    B.Stats.timers=math.max(0,B.Stats.timers-1)
+    if Actions.sortRound and Actions.sortRound.compaction then B:QueueFlush() end
+end
+
+local function SendTrackedMerge(actions,round,group,operation)
+    if round.remaining<=0 then actions:Stop("limit");B:Notify("error.operation");return false end
+    if A.InCombat() or A.CursorBusy() then actions:Stop();return false end
+    local submitted=InventoryActionTime()
+    local trace=group and round.compaction or round.materialTrace
+    if trace and trace.observe then
+        if group then
+            trace.issued=trace.issued+1
+            operation.mergeIndex,operation.mergeGroup=trace.issued,group.index
+            trace.observe("submit",submitted,operation)
+        else TraceMaterialSubmit(trace,operation,"material-merge",submitted) end
+    end
+    TrackCarryMove(actions.carryBatch,operation.source,operation.target)
+    local receipt=SendSortMove(operation,round)
+    if actions.sortRound~=round then return false end
+    if not receipt then actions:Stop("changed");B:Notify("error.changed");return false end
+    receipt.group,receipt.operation,receipt.expires=group,operation,submitted+3
+    round.receipts[#round.receipts+1]=receipt
+    round.remaining=round.remaining-1
+    return true
+end
+
+local function AdvanceParallelMaterial(actions,round,deadline)
+    local material=round.parallelMaterial
+    local wave=material.waves[material.index]
+    if material.nextStep>#wave and material.pending==0 then
+        local trace=round.materialTrace
+        if trace and trace.observe then
+            local released=InventoryActionTime()
+            for _,op in ipairs(wave) do trace.observe("release",released,op) end
+        end
+        material.index,material.nextStep=material.index+1,1
+        wave=material.waves[material.index]
+        if not wave then
+            round.parallelMaterial=nil
+            FinishMaterialTrace(round,"complete")
+            local state=round.compaction
+            for _,group in ipairs(state.deferred) do state.ready[#state.ready+1]=group end
+            state.deferred=nil
+            return true
+        end
+        BeginMaterialTrace(actions,round)
+    end
+    while not round.cancelled and material.nextStep<=#wave and #round.receipts<actions.sortRoundLimit do
+        if not SendTrackedMerge(actions,round,nil,wave[material.nextStep]) then return false end
+        material.nextStep,material.pending=material.nextStep+1,material.pending+1
+        if InventoryActionTime()>=deadline then break end
+    end
+    return true
+end
+
+local function AdvanceCategoryMerges(actions,round)
+    local state,receipts=round.compaction,round.receipts
+    round.cancelled=round.cancelled or DirectionChanged(round)
+    round.sending=true
+    local kept=0
+    for _,receipt in ipairs(receipts) do
+        local sourceReady,targetReady=ReadSortReceipt(receipt)
+        local at=InventoryActionTime()
+        local operation,group=receipt.operation,receipt.group
+        local trace=group and state or round.materialTrace
+        if trace and trace.observe then ObserveMoveSlots(trace,operation,sourceReady,targetReady) end
+        if sourceReady and targetReady then
+            if trace and trace.observe then trace.observe("confirm",InventoryActionTime(),operation) end
+            operation.mergeConfirmed=true
+            if not group then
+                local material=round.parallelMaterial
+                material.pending=material.pending-1
+            end
+            if operation.mergeChildren then
+                for _,child in ipairs(operation.mergeChildren) do
+                    child.mergeDependencies=child.mergeDependencies-1
+                    if child.mergeDependencies==0 then
+                        ReadyCategoryMerge(group,child,at)
+                        QueueMergeGroup(state,group)
+                    end
+                end
+            end
+        else
+            if at>=receipt.expires then TimedOut();return false end
+            kept=kept+1
+            receipts[kept]=receipt
+        end
+    end
+    for index=#receipts,kept+1,-1 do receipts[index]=nil end
+    if round.cancelled and #receipts==0 then actions:Stop("interrupted");return true end
+    local deadline,yielded=InventoryActionTime()+.002,false
+    if not round.cancelled and round.parallelMaterial then
+        if not AdvanceParallelMaterial(actions,round,deadline) then return false end
+        yielded=InventoryActionTime()>=deadline
+    end
+    while not round.cancelled and state.head<=#state.ready and #receipts<actions.sortRoundLimit and not yielded do
+        local group=state.ready[state.head]
+        state.head=state.head+1
+        group.queued=nil
+        if not group.toIssue or group.toIssue==0 then
+            LinkCategoryMerges(group,actions:PlanCategoryMergeGroup(group,actions.sortRoundLimit),InventoryActionTime())
+        end
+        while not round.cancelled and #receipts<actions.sortRoundLimit and group.nextMove<=#group.moves do
+            local operation=group.moves[group.nextMove]
+            if not SendTrackedMerge(actions,round,group,operation) then return false end
+            group.nextMove=group.nextMove+1
+            group.toIssue=group.toIssue-1
+            if InventoryActionTime()>=deadline then yielded=true;break end
+        end
+        if not group.exhausted and (group.toIssue==0 or group.nextMove<=#group.moves) then QueueMergeGroup(state,group) end
+        if InventoryActionTime()>=deadline then yielded=true end
+    end
+    round.sending=nil
+    local material=round.parallelMaterial
+    if not round.cancelled and state.head>#state.ready then
+        if not material and #receipts==0 then actions:Stop("complete");return true end
+        -- Finish the ordinary trace as soon as its own work is done.
+        if material and #receipts==material.pending and #state.deferred==0 then
+            FinishCategoryTrace(state,"complete")
+        end
+    end
+
+    local expires=receipts[1] and receipts[1].expires
+    if actions.timeout and state.expires~=expires then
+        actions.timeout:Cancel();actions.timeout=nil;B.Stats.timers=math.max(0,B.Stats.timers-1)
+    end
+    state.expires=expires
+    if expires and not actions.timeout then
+        actions.timeout=C_Timer.NewTimer(math.max(0,expires-InventoryActionTime()),WakeCategoryMerges)
+        B.Stats.timers=B.Stats.timers+1
+    end
+    local materialReady=material and material.nextStep<=#material.waves[material.index]
+    if not round.cancelled and (#receipts>kept or (materialReady or state.head<=#state.ready)
+        and #receipts<actions.sortRoundLimit) then B:QueueFlush() end
+    return true
+end
+
+local function StartCategoryMerges(actions,round,state,waves)
+    round.compaction,round.receipts=state,{}
+    actions.queue=state.ready
+    if waves then
+        round.parallelMaterial={waves=waves,index=1,nextStep=1,pending=0}
+        BeginMaterialTrace(actions,round)
+    end
+    local started=InventoryActionTime()
+    state.observe=actions.compactObserver
+    if state.observe then state.observe("start",started,nil,"category") end
+    return AdvanceCategoryMerges(actions,round)
+end
+
+function Actions:ConfirmSortRound()
+    local round=self.sortRound
+    if not round or round.sending or not round.receipts then return end
+    if A.InCombat() or A.CursorBusy() or round.bank and (not B.bankOpen or not A.CanUsePersonalBank()) then
+        self:Stop();return
+    end
+    if round.placement then return AdvancePlacement(self,round) end
+    if round.compaction then return AdvanceCategoryMerges(self,round) end
+    round.cancelled=round.cancelled or DirectionChanged(round)
+    if #round.receipts==0 and not round.rejectedRoutes then
+        if round.cancelled then self:Stop() end
+        return
+    end
+    local plan=round.wavePlan
+    local wave=plan and plan.waves[plan.index]
+    local extend=not round.cancelled and wave and plan.nextStep<=#wave
+    local route=plan and plan.phase=="material-route"
+    local trace=round.materialTrace
+    local observed=trace and trace.observe
+    local ready=true
+    for _,receipt in ipairs(round.receipts) do
+        if not receipt.confirmed then
+            local sourceReady,targetReady=ReadSortReceipt(receipt)
+            if not sourceReady or not targetReady then
+                if not observed and not extend and not route then return end
+                ready=false
+            elseif route then receipt.confirmed=true end
+            if observed and receipt.materialOperation then
+                local op=receipt.materialOperation
+                ObserveMoveSlots(trace,op,sourceReady,targetReady)
+                if sourceReady and targetReady and not receipt.materialObserved then
+                    receipt.materialObserved=true
+                    observed("confirm",InventoryActionTime(),op)
+                end
+            end
+        end
+    end
+    -- A frame-budget yield can leave disjoint moves from this wave unsent.
+    -- Submit them without throwing away earlier receipts or their deadline.
+    if extend and not round.checkingDeadline then return SendSortRound(self,wave,plan.phase) end
+    if not ready then return end
+    if round.cancelled then self:Stop();return end
+    if observed and not extend then
+        local released=InventoryActionTime()
+        for _,receipt in ipairs(round.receipts) do
+            if receipt.materialOperation then observed("release",released,receipt.materialOperation) end
+        end
     end
     self.timeout:Cancel()
     self.timeout=nil
     B.Stats.timers=B.Stats.timers-1
-    local steps=self:PlanSortRound(round.bank,self.sortRoundLimit)
+    if extend then return SendSortRound(self,wave,plan.phase) end
+    if plan then
+        plan.index,plan.nextStep=plan.index+1,1
+        local nextWave=plan.waves[plan.index]
+        if nextWave then return SendSortRound(self,nextWave,plan.phase) end
+        if not plan.phase then self:Stop("complete");return end
+        round.wavePlan=nil
+    end
+    local steps,compaction,phase,waves,placement=PlanSortDispatch(self,round.bank,round.direction)
+    if not phase then FinishMaterialTrace(round,"complete") end
+    if compaction then return StartCategoryMerges(self,round,compaction,waves) end
+    if placement then return StartPlacement(self,round,placement) end
     if #steps==0 then self:Stop("complete");return end
-    SendSortRound(self,steps)
+    StartSortWave(self,steps,phase,waves)
 end
 
-function Actions:SortInventory(bank)
-    if not B.active or self.queue or self.nativeSort or A.InCombat() or A.CursorBusy() then return false end
+function Actions:SortInventory(bank,direction)
+    if not bank and self.externalCarrySort then B:Notify("error.carry_sort_busy");return false end
+    if not B.active or self.queue or self.nativeSort or self.carryBatch or B.Runtime.finalCarryBatch
+        or A.InCombat() or A.CursorBusy() then return false end
     self:CancelDelete()
+    if not bank then
+        local pending=self:CheckCarrySortRecovery()
+        if pending then
+            local recovery=self.carrySortRecovery
+            local from,to=pending.source,pending.to
+            if recovery.notified~=pending then
+                recovery.notified=pending
+                B:Notify("error.sort_receipt_pending",from.bag,from.slot,to.bag,to.slot)
+            end
+            return false
+        end
+        local retryRead=false
+        for id,kind in pairs(B.Runtime.kind) do
+            local bag=B.Model.bags[id]
+            if kind=="bags" and B.Runtime.readable[id]==false and (not bag or bag.space~="keyring") then
+                retryRead=true
+                if self.carrySortReadAt~=A.Now() then B:MarkBag(id) end
+            end
+        end
+        if retryRead and self.carrySortReadAt~=A.Now() then
+            self.carrySortReadAt=A.Now()
+            B:Flush()
+        end
+        if retryRead then
+            for id,kind in pairs(B.Runtime.kind) do
+                local bag=B.Model.bags[id]
+                if kind=="bags" and B.Runtime.readable[id]==false and (not bag or bag.space~="keyring") then
+                    B:Notify("error.sort_unreadable");return false
+                end
+            end
+        end
+    end
     if B.Stats.pendingRefresh then B:Flush() end
-    local steps=self:PlanSortRound(bank,self.sortRoundLimit)
-    if #steps==0 then
+    if self.queue or self.nativeSort or self.carryBatch or B.Runtime.finalCarryBatch or A.InCombat() or A.CursorBusy() then return false end
+    local steps,compaction,phase,waves,placement=PlanSortDispatch(self,bank,direction)
+    if not compaction and not placement and #steps==0 then
         local w=B.View:ResetSortLayout(bank,true)
         if w then B.View:Layout(w,true) end
         return true
@@ -1244,18 +2256,25 @@ function Actions:SortInventory(bank)
     end
     -- Bound a single explicit command even if external mutations repeatedly
     -- undo acknowledged moves. Normal merges and permutation cycles use O(n) moves.
-    self.sortRound={bank=bank,remaining=capacity*4}
-    self.queue,self.index=steps,1
+    self.sortRound={bank=bank,remaining=capacity*4,direction=direction,carryLayout=not bank and B:GetConfig().layout or nil}
+    if YUI.IsForever and not bank then self.carryBatch={bags={}} end
+    self.queue,self.index=steps or compaction.ready,1
     B:RefreshSortSpace()
     B.View:CloseItemSplitDialogs()
     B.View:RefreshItemInputs()
     if B.bankOpen or B.guildOpen then B.BankView:UpdateBankControls(true) end
-    return SendSortRound(self,steps)
+    if compaction then return StartCategoryMerges(self,self.sortRound,compaction,waves) end
+    if placement then return StartPlacement(self,self.sortRound,placement) end
+    return StartSortWave(self,steps,phase,waves)
+end
+
+function Actions:DirectionalSort()
+    if YUI.IsForever and SingleBagLayout() then return B:GetConfig().combinedSortDirection end
 end
 
 function Actions:Sort()
     if A.InCombat() or A.CursorBusy() or self.queue or self.nativeSort then return false end
-    if YUI.IsForever then return self:SortInventory(false) end
+    if YUI.IsForever then return self:SortInventory(false,self:DirectionalSort()) end
     self:CancelDelete();B.View:Invalidate();B:RefreshVisible(true)
     if next(B:GetConfig().locks)==nil then
         self.nativeSort=true;self.sortTimer=C_Timer.NewTimer(2,SortSettled);B.Stats.timers=B.Stats.timers+1

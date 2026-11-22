@@ -332,13 +332,21 @@ local ProviderMixin = {}
 local nativeFlightsHidden = setmetatable({}, {__mode="k"})
 local nativeFlightHooked = false
 local function HideDuplicateFlight(pin, info)
-    if not runtime.enabled then return end
+    if not runtime.enabled or not info then return end
     local map = pin.GetMap and pin:GetMap()
     if map ~= runtime.map then return end
-    local config = MapEnhancement:GetConfig()
     local mapID = map:GetMapID()
-    if config.maps[mapID] == false then return end
-    if info and MapEnhancement.Data:HasFlight(mapID,info.nodeID,config.showOpposingFactionNPCs == true) then
+    local provider = runtime.provider
+    local stitchedFlights = provider and provider.refreshedMapID == mapID and provider.stitchedFlights
+    local duplicate
+    if stitchedFlights then
+        duplicate = stitchedFlights[info.nodeID]
+    else
+        local config = MapEnhancement:GetConfig()
+        duplicate = config.maps[mapID] ~= false and MapEnhancement.Data
+            and MapEnhancement.Data:HasFlight(mapID, info.nodeID, config.showOpposingFactionNPCs == true)
+    end
+    if duplicate then
         nativeFlightsHidden[pin] = true
         pin:Hide()
     end
@@ -534,25 +542,26 @@ function ProviderMixin:RemoveAllData()
     ClearPins(self)
     self.refreshedMapID, self.visiblePoints = nil, nil
     self.membership, self.signature, self.lastScale = nil, nil, nil
+    self.stitchAPI, self.stitchedRegions, self.stitchedViewReady, self.stitchedFlights = nil, nil, nil, nil
 end
 
-local function DeferCombatRefresh(provider)
+local function DeferCombatRefresh(provider, mapID, hideMarkers)
     local security = YUI.API and YUI.API.Security
     local check = security and security.InCombatLockdown or InCombatLockdown
     if type(check) ~= "function" or check() ~= true then return false end
     -- Acquiring native map pins changes protected mouse passthrough attributes.
-    -- Discard old-map markers now and rebuild once after combat has ended.
-    if not runtime.pendingCombatRefresh then
-        runtime.pendingCombatRefresh = true
+    -- Same-map pins can stay visible while a rebuild waits for combat to end.
+    runtime.pendingCombatRefresh = true
+    if provider.refreshedMapID and (provider.refreshedMapID ~= mapID or hideMarkers) then
         provider:RemoveAllData()
     end
     return true
 end
 
 function ProviderMixin:RenderPoints()
-    if DeferCombatRefresh(self) then return end
-    if MapEnhancement.expandedPin then MapEnhancement.expandedPin:CloseExpansion() end
     local map = self:GetMap()
+    if DeferCombatRefresh(self, map:GetMapID()) then return end
+    if MapEnhancement.expandedPin then MapEnhancement.expandedPin:CloseExpansion() end
     if YUI.IsRetail then
         MapEnhancement:UpdateZoomMode(map)
         ClearPins(self)
@@ -603,47 +612,76 @@ function ProviderMixin:RenderPoints()
     end
 end
 
-function ProviderMixin:RefreshMarkers()
-    local map = self:GetMap()
-    if not (runtime.enabled and map and map:IsShown()) then return end
-    local mapID = map:GetMapID()
-    if not mapID then return end
-    if DeferCombatRefresh(self) then return end
-    runtime.pendingCombatRefresh = false
-    MapEnhancement:HideMarkerMenu(true)
-    self:RemoveAllData()
-    local data, config = MapEnhancement.Data, MapEnhancement:GetConfig()
-    if YUI.IsForever and data then
-        data:LoadPlayerFactionPoints()
-        if config.showOpposingFactionNPCs then data:LoadOpposingFactionPoints() end
+local function GetStitchedAPI()
+    if not YUI.IsForever then return end
+    local api = _G.OpenMapAPI
+    if type(api) == "table" and api.provider == "OpenMapLiteCN"
+        and type(api.IsStitched) == "function" and type(api.WorldFromMap) == "function"
+        and type(api.MapFromWorld) == "function" and api.IsStitched() then
+        return api
     end
-    local playerClass = GetPlayerClassToken()
-    SyncNativeFlights(true)
-    SyncNativeFlights(false)
-    runtime.stats.refreshes = runtime.stats.refreshes + 1
-    local points = not config.markersHidden and data and config.maps[mapID] ~= false
-        and data:GetMapPoints(mapID, config.showOpposingFactionNPCs == true)
-    if not points then
-        self.refreshedMapID = mapID
-        return
+end
+
+local function GetStitchedRegions(api, hostID, records, maps)
+    local regions = {}
+    for id in pairs(records) do
+        if maps[id] ~= false then
+            local u1, v1 = api.WorldFromMap(id, 0, 0)
+            local u2, v2 = api.WorldFromMap(id, 1, 1)
+            if u1 and u2 then
+                local left, top = api.MapFromWorld(hostID, u1, v1)
+                local right, bottom = api.MapFromWorld(hostID, u2, v2)
+                if left and right and left < right and top < bottom then
+                    regions[#regions + 1] = { id = id, left = left, top = top, right = right, bottom = bottom }
+                end
+            end
+        end
     end
-    self.visiblePoints = {}
+    return regions
+end
+
+local function UpdateStitchedRegions(provider, map)
+    local canvas = map:GetCanvas()
+    local scroll = map:GetCanvasContainer()
+    local width, height = canvas:GetWidth(), canvas:GetHeight()
+    local scale = map:GetCanvasScale()
+    local viewWidth, viewHeight = scroll:GetWidth(), scroll:GetHeight()
+    if width <= 0 or height <= 0 or scale <= 0 or viewWidth <= 0 or viewHeight <= 0 then return false end
+
+    -- Use the current scroll offsets: a zoom callback can run before the cached view rect is invalidated.
+    local left, top = scroll:GetHorizontalScroll() / width, scroll:GetVerticalScroll() / height
+    local spanX, spanY = viewWidth / (width * scale), viewHeight / (height * scale)
+    if not (spanX > 0 and spanY > 0 and math.abs(left) < math.huge and math.abs(top) < math.huge) then return false end
+    local changed = not provider.stitchedViewReady
+    provider.stitchedViewReady = true
+    for _, region in ipairs(provider.stitchedRegions) do
+        -- Preload near the edge like other map icons. Keep service markers out of the distant overview.
+        local margin = region.shown and 0.30 or 0.25
+        local minSize = region.shown and 0.20 or 0.25
+        local shown = (region.right - region.left >= spanX * minSize or region.bottom - region.top >= spanY * minSize)
+            and region.right >= left - spanX * margin and region.left <= left + spanX * (1 + margin)
+            and region.bottom >= top - spanY * margin and region.top <= top + spanY * (1 + margin)
+        if shown ~= (region.shown == true) then
+            region.shown = shown
+            if not shown then region.points = nil end
+            changed = true
+        end
+    end
+    return changed
+end
+
+local function CollectMapPoints(mapID, config, playerClass, measure, region, hostID)
+    if config.maps[mapID] == false then return end
+    local data = MapEnhancement.Data
+    local points = data:GetMapPoints(mapID, config.showOpposingFactionNPCs == true)
+    if not points then return end
+    local visible = {}
     local taxi = {}
     if C_TaxiMap and C_TaxiMap.GetTaxiNodesForMap then
         local ok, nodes = pcall(C_TaxiMap.GetTaxiNodesForMap, mapID)
         if ok and type(nodes) == "table" then
             for _, node in ipairs(nodes) do taxi[node.nodeID] = node end
         end
-    end
-    -- 跨启停复用测量对象，避免每次启用积累 FontString。
-    if not runtime.measure and map.CreateFontString then
-        runtime.measure = map:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        runtime.measure:Hide()
-    end
-    local measure = runtime.measure
-    if measure then
-        local font = GameFontNormalSmall and GameFontNormalSmall:GetFont() or STANDARD_TEXT_FONT
-        measure:SetFont(font, config.fontSize, config.fontOutline)
     end
     for _, source in ipairs(points) do
         if data:IsValidPoint(source) and IsAllowedForClass(source, playerClass)
@@ -668,13 +706,81 @@ function ProviderMixin:RefreshMarkers()
                     point.displayWidth = measure and measure:GetStringWidth()+8 or #point.displayLabel*config.fontSize/2+8
                     point.displayHeight = config.fontSize+6
                 else point.displayWidth, point.displayHeight = config.iconSize+4, config.iconSize+4 end
-                self.visiblePoints[#self.visiblePoints+1] = point
+                if region and mapID ~= hostID then
+                    point.sourceX, point.sourceY = point.x, point.y
+                    point.x = region.left + point.x * (region.right - region.left)
+                    point.y = region.top + point.y * (region.bottom - region.top)
+                end
+                visible[#visible + 1] = point
             end
         end
     end
-    table.sort(self.visiblePoints, function(a,b) return a.id < b.id end)
-    self:RenderPoints()
+    return visible
+end
+
+function ProviderMixin:PrepareVisiblePoints(config, mapID)
+    local map = self:GetMap()
+    -- 跨启停复用测量对象，避免每次启用积累 FontString。
+    if not runtime.measure and map.CreateFontString then
+        runtime.measure = map:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        runtime.measure:Hide()
+    end
+    local measure = runtime.measure
+    if measure then
+        local font = GameFontNormalSmall and GameFontNormalSmall:GetFont() or STANDARD_TEXT_FONT
+        measure:SetFont(font, config.fontSize, config.fontOutline)
+    end
+    local playerClass = GetPlayerClassToken()
+    local points
+    if self.stitchedViewReady then
+        points = {}
+        local flights = self.stitchedFlights or {}
+        for nodeID in pairs(flights) do flights[nodeID] = nil end
+        for _, region in ipairs(self.stitchedRegions) do
+            if region.shown then
+                region.points = region.points or CollectMapPoints(region.id, config, playerClass, measure, region, mapID) or {}
+                for _, point in ipairs(region.points) do
+                    points[#points + 1] = point
+                    if point.taxiNodeID then flights[point.taxiNodeID] = true end
+                end
+            end
+        end
+        self.stitchedFlights = flights
+    else
+        points = CollectMapPoints(mapID, config, playerClass, measure)
+    end
+    self.visiblePoints = points
+    if points then table.sort(points, function(a, b) return a.id < b.id end) end
+end
+
+function ProviderMixin:RefreshMarkers()
+    local map = self:GetMap()
+    if not (runtime.enabled and map and map:IsShown()) then return end
+    local mapID = map:GetMapID()
+    if not mapID then return end
+    local data, config = MapEnhancement.Data, MapEnhancement:GetConfig()
+    local api = GetStitchedAPI()
+    if DeferCombatRefresh(self, mapID, config.markersHidden or (not api and config.maps[mapID] == false)) then return end
+    runtime.pendingCombatRefresh = false
+    MapEnhancement:HideMarkerMenu(true)
+    self:RemoveAllData()
+    self.stitchAPI = api
+    if YUI.IsForever and data then
+        data:LoadPlayerFactionPoints()
+        if config.showOpposingFactionNPCs then data:LoadOpposingFactionPoints() end
+    end
+    runtime.stats.refreshes = runtime.stats.refreshes + 1
+    if not config.markersHidden and data then
+        if api then
+            self.stitchedRegions = GetStitchedRegions(api, mapID, data.records or {}, config.maps)
+            UpdateStitchedRegions(self, map)
+        end
+        self:PrepareVisiblePoints(config, mapID)
+        if self.visiblePoints then self:RenderPoints() end
+    end
     if not runtime.pendingCombatRefresh then self.refreshedMapID = mapID end
+    SyncNativeFlights(true)
+    SyncNativeFlights(false)
 end
 
 function ProviderMixin:RefreshAllData()
@@ -689,6 +795,28 @@ function ProviderMixin:OnHide()
     self:RemoveAllData()
     MapEnhancement:HideMarkerMenu()
 end
+
+function ProviderMixin:RefreshStitchedView(map)
+    if not YUI.IsForever or not self.refreshedMapID or self.refreshedMapID ~= map:GetMapID() then return false end
+    if self.stitchAPI ~= GetStitchedAPI() then
+        self:RefreshMarkers()
+        return true
+    end
+    if not self.stitchedRegions or not UpdateStitchedRegions(self, map) then return false end
+    if not DeferCombatRefresh(self, self.refreshedMapID) then
+        runtime.stats.refreshes = runtime.stats.refreshes + 1
+        self:PrepareVisiblePoints(MapEnhancement:GetConfig(), self.refreshedMapID)
+        self:RenderPoints()
+        SyncNativeFlights(true)
+        SyncNativeFlights(false)
+    end
+    return true
+end
+
+function ProviderMixin:OnCanvasPanChanged()
+    if YUI.IsForever then self:RefreshStitchedView(self:GetMap()) end
+end
+
 function ProviderMixin:OnCanvasScaleChanged()
     local map = self:GetMap()
     if YUI.IsRetail then
@@ -700,6 +828,7 @@ function ProviderMixin:OnCanvasScaleChanged()
         end
         return
     end
+    if self:RefreshStitchedView(map) then return end
     if not self.visiblePoints or self.refreshedMapID ~= map:GetMapID() then return end
     local scale = map.GetCanvasScale and map:GetCanvasScale() or 1
     if not self.lastScale or math.abs(scale/self.lastScale-1) >= 0.06 then self:RenderPoints() end
@@ -707,6 +836,7 @@ end
 
 function ProviderMixin:OnCanvasSizeChanged()
     if YUI.IsRetail then self:OnCanvasScaleChanged(); return end
+    if self:RefreshStitchedView(self:GetMap()) then return end
     -- SetMapID 可先触发尺寸回调，等新地图的数据准备好再做聚类。
     if not self.visiblePoints or self.refreshedMapID ~= self:GetMap():GetMapID() then return end
     self.signature = nil

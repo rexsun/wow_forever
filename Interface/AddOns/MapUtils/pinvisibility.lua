@@ -59,6 +59,13 @@ function MapUtils:IsAzerothMap(mapID)
 	return azeroth
 end
 
+function MapUtils:IsPinScopeAzeroth(mapID)
+	if mapID == nil and WorldMapFrame ~= nil and WorldMapFrame.GetMapID ~= nil then mapID = WorldMapFrame:GetMapID() end
+	if mapID ~= nil and MapUtils.IsZoneDetailArtFull ~= nil and MapUtils:IsOneMap() and MapUtils:IsZoneDetailMap(mapID) then return not MapUtils:IsZoneDetailArtFull() end
+
+	return MapUtils:IsAzerothMap(mapID)
+end
+
 function MapUtils:IsPinCategoryEnabled(key)
 	return PinVisibility.GetDB()[key .. "_ENABLED"] ~= false
 end
@@ -67,7 +74,21 @@ function MapUtils:IsPinZoneOnly(key)
 	return PinVisibility.zoneOnly[key] == true
 end
 
+function MapUtils:ArePinsHidden()
+	return PinVisibility.hidden == true
+end
+
+function MapUtils:SetPinsHidden(value)
+	PinVisibility.hidden = value == true
+end
+
 function MapUtils:GetPinScopeShown(key, default, azeroth)
+	if PinVisibility.hidden then return false end
+
+	return MapUtils:GetPinScopeSetting(key, default, azeroth)
+end
+
+function MapUtils:GetPinScopeSetting(key, default, azeroth)
 	if azeroth and MapUtils:IsPinZoneOnly(key) then return false end
 	local zone = MapUtils:GetConfig(key, default) == true
 	if not azeroth then return zone end
@@ -87,7 +108,7 @@ end
 function MapUtils:KeepPinAzerothState(key, default)
 	local db = PinVisibility.GetDB()
 	if MapUtils:IsPinZoneOnly(key) then return end
-	if db[key .. "_AZEROTH"] == nil then db[key .. "_AZEROTH"] = MapUtils:GetPinScopeShown(key, default, true) end
+	if db[key .. "_AZEROTH"] == nil then db[key .. "_AZEROTH"] = MapUtils:GetPinScopeSetting(key, default, true) end
 end
 
 function MapUtils:SetPinAzerothShown(key, default, value)
@@ -99,7 +120,7 @@ end
 function MapUtils:IsPinShownOnMap(key, default, mapID)
 	if not MapUtils:IsPinCategoryEnabled(key) then return false end
 
-	return MapUtils:GetPinScopeShown(key, default, MapUtils:IsAzerothMap(mapID))
+	return MapUtils:GetPinScopeShown(key, default, MapUtils:IsPinScopeAzeroth(mapID))
 end
 
 function MapUtils:GetPinSizeDefault(key)

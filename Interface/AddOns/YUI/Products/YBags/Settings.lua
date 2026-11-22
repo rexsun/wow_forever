@@ -92,8 +92,9 @@ local function ItemTextPreview(parent)
         return textPreview
     end
     local appearance=B.Appearance
-    local preview=G:CreateFrame(parent,{width=104,height=50})
+    local preview=G:CreateFrame(parent,{width=160,height=50})
     local gearItem,potionItem={icon=132536,quality=3},{icon=134856,quality=1}
+    local questItem={icon="Interface\\Icons\\INV_Misc_Note_01",quality=1}
     local function Slot(item,count)
         local slot=appearance:Item(preview,false)
         slot:EnableMouse(false)
@@ -103,9 +104,10 @@ local function ItemTextPreview(parent)
         slot:Show()
         return slot
     end
-    local gear,potion=Slot(gearItem,1),Slot(potionItem,79)
+    local gear,potion,quest=Slot(gearItem,1),Slot(potionItem,79),Slot(questItem,1)
     gear:SetPoint("LEFT")
     potion:SetPoint("LEFT",gear,"RIGHT",8,0)
+    quest:SetPoint("LEFT",potion,"RIGHT",8,0)
     local level=G:CreateText(gear,"92",13);level:SetPoint("TOPLEFT",1,-1)
     local bind=G:CreateText(gear,T("item.bind_on_equip"),11);bind:SetPoint("BOTTOMLEFT",2,2)
     local countdown=G:CreateText(potion,"1:32",14)
@@ -114,9 +116,11 @@ local function ItemTextPreview(parent)
     function preview:RefreshText(size)
         local style,styles=appearance:ItemTextStyle(size)
         appearance:RefreshIconStyle()
-        gear:SetSize(size,size);potion:SetSize(size,size)
+        gear:SetSize(size,size);potion:SetSize(size,size);quest:SetSize(size,size)
         appearance:CellAppearance(gear,false,gearItem)
         appearance:CellAppearance(potion,false,potionItem)
+        appearance:CellAppearance(quest,false,questItem)
+        appearance:CellQuest(quest,"starter")
         G:ApplyFontAppearance(level,style.level)
         G:ApplyFontAppearance(bind,style.bind)
         appearance:ApplyItemCountText(potion,style.count)
@@ -212,10 +216,35 @@ local function BagLayout(parent,options,c)
     local aggregate=Check(T("settings.aggregate"),function() return c.aggregateItems end,function(v) Set("aggregateItems",v) end)
     subnames.disabled,aggregate.disabled=c.layout=="single",c.layout=="single"
     subnames.tooltip,aggregate.tooltip=T("settings.category_hint"),T("settings.category_hint")
-    Group(options,"settings.group.items",{subnames,aggregate,
+    local fields={subnames,aggregate,
         ShortSelect(T("settings.empty"),Options({"all","one"},"empty."),function() return c.emptyMode end,function(v) Set("emptyMode",v) end),
         Action(T("action.clear_recent"),function() B.Actions:ClearRecent() end,"default"),
-    })
+    }
+    if forever then
+        local function RefreshCombinedLayout()
+            local w=B.View.windows.player
+            if B.active and w then
+                if w.open then B.View:Layout(w,true)
+                elseif not YUI.API.Bags.InCombat() then
+                    w.prepared=false
+                    B.View:PreparePlayer()
+                end
+            end
+        end
+        local direction=ShortSelect(T("settings.combined_sort_direction"),Options({"forward","reverse"},"sort_direction."),
+            function() return c.combinedSortDirection end,function(v) c.combinedSortDirection=v end)
+        local wrap=Check(T("settings.combined_wrap_special_bags"),function() return c.combinedWrapSpecialBags end,function(v)
+            if c.combinedWrapSpecialBags==v then return end
+            c.combinedWrapSpecialBags=v
+            RefreshCombinedLayout()
+        end)
+        direction.disabled,wrap.disabled=c.layout~="single",c.layout~="single"
+        direction.tooltip,wrap.tooltip=T("settings.combined_hint"),T("settings.combined_hint")
+        direction.searchKey,wrap.searchKey="settings.combined_sort_direction","settings.combined_wrap_special_bags"
+        fields[#fields+1]=direction
+        fields[#fields+1]=wrap
+    end
+    Group(options,"settings.group.items",fields)
 end
 local function Bank(parent,options,c)
     local bank=c.bankView
@@ -506,7 +535,7 @@ Render=function(parent)
         badge:SetPoint("LEFT",title,"RIGHT",10,0)
         if tab=="general" or tab=="appearance" then
             local open=G.Form:CreateButton(header,{text=T("action.open"),width=math.min(144,math.floor(width*.42)),height=28,disabled=B.conflict~=nil,
-                onClick=function() if not B.active then B:SetEnabled(true) end;B.View:ShowPlayer() end})
+                onClick=function() B:OpenBagsFromSettings() end})
             open:SetPoint("RIGHT",0,0)
             if S.Search then S.Search:Bind({searchKey="action.open"},open) end
         end
@@ -545,6 +574,7 @@ S:RegisterModule("YBags",133633,Render,{id=B.SETTINGS_ENTRY,product=B.PRODUCT_ID
 if S.Search then
     local function Catalog(route,keys) S.Search:RegisterCatalog(B.SETTINGS_ENTRY,"YBags",route,keys) end
     local bagKeys="settings.layout settings.auto_size settings.subnames settings.aggregate settings.empty settings.columns settings.slot_size action.clear_recent"
+    if forever then bagKeys=bagKeys.." settings.combined_sort_direction settings.combined_wrap_special_bags" end
     Catalog(forever and "general" or "appearance","action.open settings.skin settings.icon_skin settings.opacity settings.item_font settings.item_text_scale settings.tint_known_recipes settings.tint_unusable_recipes action.export action.import")
     Catalog(forever and "layout" or "appearance",bagKeys)
     if forever then

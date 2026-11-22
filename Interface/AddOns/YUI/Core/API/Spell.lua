@@ -254,6 +254,35 @@ function Spell.GetImportantFlag(spellIdentifier)
     return nil
 end
 
+local function ReadPublicSpellFlag(method, spellID)
+    if type(method) ~= "function" then return nil end
+    local ok, value = pcall(method, spellID)
+    if ok and not IsSecretValue(value) and type(value) == "boolean" then
+        return value
+    end
+    return nil
+end
+
+-- An affirmative hostile flag still supplies a candidate when the two flags
+-- do not establish one exclusive cast direction.
+function Spell.GetTargetDisposition(spellID)
+    local api = _G.C_Spell
+    spellID = SafeNumberValue(spellID)
+    if not api or not spellID or spellID <= 0 then return nil end
+    local harmful = ReadPublicSpellFlag(api.IsSpellHarmful, spellID)
+    if harmful == nil then return nil end
+    local helpful = ReadPublicSpellFlag(api.IsSpellHelpful, spellID)
+    if helpful == nil or harmful == helpful then return nil, harmful end
+    return harmful and "hostile" or "friendly", harmful
+end
+
+function Spell.IsPassive(spellID)
+    local api = _G.C_Spell
+    spellID = SafeNumberValue(spellID)
+    if not api or not spellID or spellID <= 0 then return nil end
+    return ReadPublicSpellFlag(api.IsSpellPassive, spellID)
+end
+
 function Spell.ReadMaxCumulativeAuraApplications(spellID)
     spellID = SafeNumberValue(spellID)
     if not spellID or spellID <= 0 then return nil, "invalid-spell" end
@@ -1357,6 +1386,15 @@ function Spell.GetUsableState(spellID)
     return SafeBooleanValue(usable, nil), SafeBooleanValue(noMana, nil)
 end
 
+function Spell.GetCurrentState(spellIdentifier)
+    local api = _G.C_Spell and _G.C_Spell.IsCurrentSpell
+    if not api or IsSecretValue(spellIdentifier) then return nil end
+    if type(spellIdentifier) ~= "string" and not SafeNumberValue(spellIdentifier) then return nil end
+    local ok, current = pcall(api, spellIdentifier)
+    if not ok then return nil end
+    return SafeBooleanValue(current, nil)
+end
+
 function Spell.GetCooldown(spellID)
     if not spellID then return nil end
 
@@ -1659,6 +1697,24 @@ local function ReadRetailCooldownInfo(spellID)
         return info
     end
     return nil
+end
+
+-- Safe outside SPELL_UPDATE_COOLDOWN, where isOnGCD is not reliable.
+function Spell.ReadCooldownReadyIgnoringGCD(spellID)
+    spellID = SafeNumberValue(spellID)
+    if not spellID then return nil end
+    if C_Spell and C_Spell.GetSpellCooldownDuration then
+        local ok, duration = pcall(C_Spell.GetSpellCooldownDuration, spellID, true)
+        if ok and not IsSecretValue(duration) and duration ~= nil then
+            local remaining = SafeNumberValue(ReadDurationObjectMethod(duration, "GetRemainingDuration"))
+            if remaining ~= nil then return remaining <= 0 end
+        end
+    end
+    local info = ReadRetailCooldownInfo(spellID)
+    if not IsSecretValue(info) and type(info) == "table"
+        and SafeBooleanValue(info.isActive, nil) == false then
+        return true
+    end
 end
 
 -- Optional evidence reuses the caller's state; no extra API read or allocation.

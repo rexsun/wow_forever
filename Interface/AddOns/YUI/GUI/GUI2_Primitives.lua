@@ -2655,6 +2655,17 @@ end
 
 local ApplyGlowColor
 
+function GUI2:_ResolveProcTextureAlpha(glow, frame, alpha)
+    -- Opt-in opacity belongs outside the flipbook's animated texture alpha.
+    local frameAlpha = glow.gui2GlowStyle == "proc" and glow.gui2ProcOpacityOnFrame and alpha or nil
+    local changed = frame.gui2ProcFrameOpacity ~= frameAlpha
+    if changed then
+        frame.gui2ProcFrameOpacity = frameAlpha
+        frame:SetAlpha(frameAlpha or 1)
+    end
+    return frameAlpha and 1 or alpha, changed
+end
+
 function GUI2:_SyncManagedCircleProcAppearance(glow, frame)
     if not (glow and frame and GUI2.SetManagedProcGlowAppearance) then
         return false
@@ -2669,14 +2680,15 @@ function GUI2:_SyncManagedCircleProcAppearance(glow, frame)
     color[2] = glow.gui2GlowResolvedG or glow.gui2ColorG or 1
     color[3] = glow.gui2GlowResolvedB or glow.gui2ColorB or 1
     color[4] = 1
-    appearance.alpha = glow.gui2GlowResolvedAlpha
-        or glow.gui2GlowAlpha or 1
+    local alpha = glow.gui2GlowResolvedAlpha or glow.gui2GlowAlpha or 1
+    local textureAlpha, frameOpacityChanged = self:_ResolveProcTextureAlpha(glow, frame, alpha)
+    appearance.alpha = textureAlpha
     appearance.size = glow.gui2GlowSize or 1
     appearance.speed = glow.gui2GlowSpeed or 1
     appearance.offsetX = glow.gui2GlowOffsetX or 0
     appearance.offsetY = glow.gui2GlowOffsetY or 0
     appearance.horizontalCompensationPixels = 1
-    return GUI2:SetManagedProcGlowAppearance(frame, appearance)
+    return GUI2:SetManagedProcGlowAppearance(frame, appearance) or frameOpacityChanged
 end
 
 function GUI2:_EnsureManagedCircleProcGlow(glow)
@@ -4450,15 +4462,17 @@ ApplyGlowColor = function(glow)
         end
         if glow.gui2ProcFrame then
             local procFrame = glow.gui2ProcFrame
+            local textureAlpha = GUI2:_ResolveProcTextureAlpha(glow, procFrame, alpha)
             if procFrame.ProcLoopFlipbook and procFrame.ProcLoopFlipbook.SetVertexColor then
-                procFrame.ProcLoopFlipbook:SetVertexColor(r, g2, b2, alpha)
+                procFrame.ProcLoopFlipbook:SetVertexColor(r, g2, b2, textureAlpha)
             end
             if procFrame.ProcStartFlipbook and procFrame.ProcStartFlipbook.SetVertexColor then
-                procFrame.ProcStartFlipbook:SetVertexColor(r, g2, b2, alpha)
+                procFrame.ProcStartFlipbook:SetVertexColor(r, g2, b2, textureAlpha)
             end
         end
         if glow.gui2ProcFallback and glow.gui2ProcFallback.Texture and glow.gui2ProcFallback.Texture.SetVertexColor then
-            glow.gui2ProcFallback.Texture:SetVertexColor(r, g2, b2, alpha)
+            local textureAlpha = GUI2:_ResolveProcTextureAlpha(glow, glow.gui2ProcFallback, alpha)
+            glow.gui2ProcFallback.Texture:SetVertexColor(r, g2, b2, textureAlpha)
         end
         if glow.gui2ShapeProcFrames then
             for _, frame in pairs(glow.gui2ShapeProcFrames) do
@@ -4887,7 +4901,10 @@ function GUI2:CreateGlow(frame, opts)
         if params.offsetY ~= nil then object.gui2GlowOffsetY = ClampGlowExpansion(params.offsetY) end
         if params.xOffset ~= nil then object.gui2GlowOffsetX = ClampGlowExpansion(params.xOffset) end
         if params.yOffset ~= nil then object.gui2GlowOffsetY = ClampGlowExpansion(params.yOffset) end
-        if params.alpha ~= nil then object.gui2GlowAlpha = ClampGlowUnit(params.alpha, object.gui2GlowAlpha or 1) end
+        if params.alpha ~= nil then
+            object.gui2GlowAlpha = ClampGlowUnit(params.alpha, object.gui2GlowAlpha or 1)
+            object.gui2ProcOpacityOnFrame = params.procOpacityOnFrame == true or nil
+        end
         if params.falloff ~= nil then object.gui2GlowFalloff = ClampGlowUnit(params.falloff, object.gui2GlowFalloff or 0.18) end
 
         object.gui2GlowLines = ClampGlowLines(object.gui2GlowLines or GetDefaultGlowLines(object.gui2GlowStyle))

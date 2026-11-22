@@ -81,5 +81,6 @@
     <Script file="Dev\NoticePreview.lua"/>
     <Script file="Dev\EffectPreview.lua"/>
     <Script file="Dev\SkinPreview.lua"/>
+    <Script file="Dev\BagSortSlash.lua"/>
     <Script file="Dev\Clean_Forever.lua"/>
 </Ui>

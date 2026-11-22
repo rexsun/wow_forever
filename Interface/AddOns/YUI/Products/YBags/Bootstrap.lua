@@ -2,7 +2,7 @@ local addonName, addonTable = ...
 local bootstrap = _G.YUI_CORE_EMBED_STATE and _G.YUI_CORE_EMBED_STATE[addonName]
 if bootstrap and not bootstrap.productEnabled then return end
 local YUI = _G.YUI or addonTable
-if not YUI or not (YUI.IsRetail or YUI.IsForever) then return end
+if not YUI or not YUI.IsForever then return end
 local host = YUI.GetAddonProductId and YUI:GetAddonProductId(addonName, "suite") or YUI.ProductId or "suite"
 if host ~= "suite" and host ~= "ybags" then return end
 if YUI.YBags then return end
@@ -32,8 +32,12 @@ function B:Copy(value)
     for key, child in pairs(value) do result[key] = self:Copy(child) end
     return result
 end
-function B:Notify(key)
-    if YUI.Print then YUI:Print(self:T(key)) end
+function B:Notify(key,...)
+    if YUI.Print then
+        local message=self:T(key)
+        if select("#",...)>0 then message=message:format(...) end
+        YUI:Print(message)
+    end
 end
 function B:Plain(value,depth,seen,budget)
     depth,seen,budget=depth or 0,seen or {},budget or {left=20000}

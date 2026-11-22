@@ -26,25 +26,36 @@ local tonumber = tonumber
 local tostring = tostring
 local type = type
 
-function GUI2:GetDurationTextFormatter()
-    if self.resourceDurationTextFormatter then return self.resourceDurationTextFormatter end
+function GUI2:GetDurationTextFormatter(decimalThreshold)
+    decimalThreshold = decimalThreshold or 3
+    local formatters = self.resourceDurationTextFormatters or {}
+    self.resourceDurationTextFormatters = formatters
+    if formatters[decimalThreshold] then return formatters[decimalThreshold] end
     if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter) then return nil end
     local formatter = C_StringUtil.CreateNumericRuleFormatter()
     if not (formatter and formatter.SetBreakpoints) then return nil end
     local rounding = _G.Enum and _G.Enum.NumericRuleFormatRounding
     local roundUp = rounding and rounding.Up or 1
     local roundDown = rounding and rounding.Down or 2
-    formatter:SetBreakpoints({
-        { threshold = 0, min = 0, step = 0.1, rounding = roundDown, format = "%.1f" },
-        { threshold = 3, step = 1, rounding = roundDown, format = "%d" },
-        { threshold = 60, format = "%dm", components = {
-            { div = 60, step = 1, rounding = roundUp },
-        } },
-        { threshold = 3600, format = "%dh", components = {
-            { div = 3600, step = 1, rounding = roundUp },
-        } },
-    })
-    self.resourceDurationTextFormatter = formatter
+    local rules = {}
+    if decimalThreshold > 0 then
+        rules[1] = { threshold = 0, min = 0, step = 0.1, rounding = roundDown, format = "%.1f" }
+    else
+        -- Preserve integer seconds above three and keep active subsecond timers out of zero.
+        rules[1] = { threshold = 0, min = 0, step = 1, rounding = roundUp, format = "%d" }
+    end
+    local integerThreshold = decimalThreshold == 0 and 3 or decimalThreshold
+    if integerThreshold < 60 then
+        rules[#rules + 1] = { threshold = integerThreshold, step = 1, rounding = roundDown, format = "%d" }
+    end
+    rules[#rules + 1] = { threshold = 60, format = "%dm", components = {
+        { div = 60, step = 1, rounding = roundUp },
+    } }
+    rules[#rules + 1] = { threshold = 3600, format = "%dh", components = {
+        { div = 3600, step = 1, rounding = roundUp },
+    } }
+    formatter:SetBreakpoints(rules)
+    formatters[decimalThreshold] = formatter
     return formatter
 end
 
@@ -2781,13 +2792,15 @@ do
     end
     end
 
-    local function FormatResourceValue(value, maxValue, valueFormat, abbreviate, fractionalValues)
+    local function FormatResourceValue(value, maxValue, valueFormat, abbreviate, fractionalValues, decimalThreshold)
         if valueFormat == "whole" then return tostring(math_floor(value)) end
         if valueFormat == "duration" then
             value = math_max(0, value)
             if value >= 3600 then return string_format("%dh", math_ceil(value / 3600)) end
             if value >= 60 then return string_format("%dm", math_ceil(value / 60)) end
-            if value >= 3 then return tostring(math_floor(value)) end
+            decimalThreshold = decimalThreshold or 3
+            if decimalThreshold == 0 and value < 3 then return tostring(math_ceil(value)) end
+            if value >= decimalThreshold then return tostring(math_floor(value)) end
             return string_format("%.1f", math_floor(value * 10) / 10)
         end
         local roundedValue = math_floor(value + 0.5)
@@ -2933,7 +2946,8 @@ do
                             * appearance.previewDuration or 0
                     end
                     text:SetText(FormatResourceValue(display, maximum or 0,
-                        appearance.valueFormat, appearance.abbreviateValues, appearance.fractionalValues))
+                        appearance.valueFormat, appearance.abbreviateValues, appearance.fractionalValues,
+                        frame.gui2ResourceDurationDecimalThreshold))
                 end
             end
         end
@@ -3665,6 +3679,7 @@ do
         ApplyCarrierLayer = ApplyTextCarrierLayer,
         ClearValue = ClearResourceValueText,
         Position = PositionResourceText,
+        SecondAppearance = ResourceSecondTextAppearance,
     }
 
     local function CreateResourceCell(frame)
@@ -5363,7 +5378,7 @@ do
                 durationCountdown2:SetMinimumCountdownDuration(0)
             end
             if durationCountdown2.SetCountdownMillisecondsThreshold then
-                durationCountdown2:SetCountdownMillisecondsThreshold(3)
+                durationCountdown2:SetCountdownMillisecondsThreshold(frame.gui2ResourceDurationDecimalThreshold or 3)
             end
             durationCountdown2:Hide()
             frame.resourceDurationCountdown2 = durationCountdown2
@@ -5371,6 +5386,27 @@ do
                 ResourceTextHelpers.ApplyCarrierLayer(durationCountdown2, frame.gui2ResourceTextLevel + 1,
                     frame.gui2ResourceTextStrata)
             end
+        end
+
+        frame.SetResourceDurationDecimalThreshold = function(self, threshold)
+            if (self.gui2ResourceDurationDecimalThreshold or 3) == threshold then return true end
+            self.gui2ResourceDurationDecimalThreshold = threshold
+            local second = self.resourceDurationCountdown2
+            if durationCountdown.SetCountdownMillisecondsThreshold then
+                durationCountdown:SetCountdownMillisecondsThreshold(threshold)
+            end
+            if second and second.SetCountdownMillisecondsThreshold then
+                second:SetCountdownMillisecondsThreshold(threshold)
+            end
+            local unit = YUI.API and YUI.API.Unit
+            local formatter = GUI2:GetDurationTextFormatter(threshold)
+            if not (unit and unit.SetFilteredAuraDurationTextOptions and formatter) then return true end
+            local options = { textFormatter = formatter }
+            local primary = self.gui2FilteredAuraDurationDisplay
+            local extra = self.gui2ResourceExtraTextDisplay
+            if primary then unit.SetFilteredAuraDurationTextOptions(primary, options, true) end
+            if extra then unit.SetFilteredAuraDurationTextOptions(extra, options, true) end
+            return true
         end
 
         local baseRefreshTheme = frame.RefreshTheme
@@ -5561,7 +5597,7 @@ do
         local function ConfigureFilteredAuraDurationText(self, auraFrame, appearance)
             local text = ConfigureFilteredAuraBoundText(self, auraFrame, appearance)
             if not text then return nil end
-            local formatter = GUI2:GetDurationTextFormatter()
+            local formatter = GUI2:GetDurationTextFormatter(self.gui2ResourceDurationDecimalThreshold)
             if not formatter then return text end
             return { target = text, options = { textFormatter = formatter } }
         end
@@ -7002,7 +7038,7 @@ do
         local function EnsureResourceExtraTextDisplay(self)
             local config = self.gui2ResourceDisplayConfig or {}
             local appearance = self.gui2ResourceTextAppearance or {}
-            local second = ResourceSecondTextAppearance(appearance)
+            local second = ResourceTextHelpers.SecondAppearance(appearance)
             local unitAPI = YUI.API and YUI.API.Unit
             local existing = self.gui2ResourceExtraTextDisplay
             local slots = {}
@@ -7324,7 +7360,7 @@ do
             appearance = type(appearance) == "table"
                 and appearance or {}
             self.gui2ResourceTextAppearance = appearance
-            self.gui2ResourceTextAppearance2 = ResourceSecondTextAppearance(appearance)
+            self.gui2ResourceTextAppearance2 = ResourceTextHelpers.SecondAppearance(appearance)
             local second = self.gui2ResourceTextAppearance2
             self.resourceValueText2:SetShown(second.valueText ~= false)
             if GUI2.ApplyFontAppearance then GUI2:ApplyFontAppearance(self.resourceValueText2, second) end

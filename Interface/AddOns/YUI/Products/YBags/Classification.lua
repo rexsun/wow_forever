@@ -112,11 +112,11 @@ function C:RuleMatches(rule, item)
     if rule.contains and rule.contains ~= "" then Check(item.name:find(rule.contains, 1, true) ~= nil) end
     return checks > 0 and (rule.any == true and matches > 0 or matches == checks)
 end
-function C:Classify(item, config, compiled)
+function C:Classify(item, config, compiled, ignoreRecent)
     if item.gearTrade then return "equipment", self.tradeGroup, -2 end
     if item.gearSet then return "equipment", setGroupPrefix..item.gearSet.name, -1 end
     if item.quality == 0 then return "junk", "", 0 end
-    if item.new then return "recent", "", 0 end
+    if item.new and not ignoreRecent then return "recent", "", 0 end
     local itemKey = tostring(item.itemID)
     local manual = config.manual[itemKey]
     for _, rule in ipairs(compiled or {}) do
@@ -162,21 +162,37 @@ function C:Matches(item, query)
     end
     return true
 end
-function C:StackKey(item)
+-- 这些物品每件独占一格，只允许随身分类背包合并显示。
+local singleSlotDisplayItems = {
+    [6265]="ignoreBinding", -- 灵魂碎片
+    [5523]=true, [5524]=true, [7973]=true, -- 小蚌壳、厚蚌壳、巨型蚌壳
+    [18232]=true, -- 修理机器人74A型
+}
+local function GroupKey(item, allowSingleSlotItems)
     if item.empty or item.held or not item.itemID or item.classID==2 or item.classID==4 then return nil end
     if item.maxCharges and item.charges==nil then return nil end
+    local ignoreBinding
     if (item.maxStack or 1)<=1 then
-        if not (YUI.IsForever and item.maxStack==1 and item.charges~=nil and (item.classID==0 or item.chargeConsumable)
-            and not HasEquipSlot(item.equipLoc)) then return nil end
+        local listed=allowSingleSlotItems and item.link and item.link~="" and singleSlotDisplayItems[item.itemID]
+        local charged=YUI.IsForever and item.charges~=nil and (item.classID==0 or item.chargeConsumable)
+        if item.maxStack~=1 or not (listed or charged) or HasEquipSlot(item.equipLoc) then return nil end
+        ignoreBinding=listed=="ignoreBinding"
     end
-    return tostring(item.itemID).."\031"..tostring(item.link or "").."\031"..tostring(item.bound==true).."\031"..tostring(item.quality)
-        .."\031"..tostring(item.maxStack).."\031"..tostring(item.charges or "")
+    local binding=ignoreBinding and "" or tostring(item.bound==true)
+    return tostring(item.itemID).."\031"..tostring(item.link or "").."\031"..binding.."\031"..tostring(item.quality)
+        .."\031"..tostring(item.maxStack).."\031"..tostring(item.charges or ""),ignoreBinding
 end
-function C:SameStack(a,b)
-    return a and b and a.itemID==b.itemID and a.link==b.link and (a.bound==true)==(b.bound==true)
+function C:StackKey(item)
+    return (GroupKey(item))
+end
+function C:DisplayGroupKey(item)
+    return GroupKey(item,YUI.IsForever)
+end
+function C:SameStack(a,b,ignoreDisplayBinding)
+    return a and b and a.itemID==b.itemID and a.link==b.link and (ignoreDisplayBinding or (a.bound==true)==(b.bound==true))
         and a.quality==b.quality and a.maxStack==b.maxStack and a.charges==b.charges and a.classID==b.classID
 end
-local function QuickAccessOrder(itemID)
+function C:QuickAccessOrder(itemID)
     if itemID == hearthstoneID then return 1 end
     return classSpellReagents[itemID] and 3 or 2
 end
@@ -194,7 +210,7 @@ function C:Compare(a,b)
     if a.itemID and b.itemID then
         if a.itemID~=b.itemID then
             if YUI.IsForever and a.section=="general" and b.section=="general" and a.group=="favorites" then
-                local ao,bo=QuickAccessOrder(a.itemID),QuickAccessOrder(b.itemID)
+                local ao,bo=self:QuickAccessOrder(a.itemID),self:QuickAccessOrder(b.itemID)
                 if ao~=bo then return ao<bo end
             end
             return a.itemID<b.itemID

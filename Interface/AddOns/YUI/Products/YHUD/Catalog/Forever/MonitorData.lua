@@ -1,5 +1,6 @@
 local YHUD = _G.YUI and _G.YUI.YHUD
 if not YHUD then return end
+local seals = YHUD.FOREVER_SEAL_PRESET
 local FOOD_DRINK_PRESET = {
     presetId = "food-drink",
     entryKey = "buff-aura:food-drink",
@@ -40,6 +41,21 @@ YHUD.MonitorPresets = {
     },
     timedBuffs = {
         FOOD_DRINK_PRESET,
+        -- Observe actual aura IDs, including both rank-1 Righteousness variants.
+        {
+            presetId = "forever-seals",
+            classToken = "PALADIN",
+            entryKey = "aura:player:helpful:20154",
+            sourceKey = "aura:player:helpful:20154",
+            sourceIdentity = "aura:player:helpful:20154",
+            sourceType = "yhud.player-aura",
+            displaySpellID = 20154,
+            spellIDs = seals.spellIDs,
+            nameKey = seals.nameKey,
+            fallbackName = "Seals",
+            icon = seals.icon,
+            tooltipNoteKey = "designer.preset.forever_seals_tooltip",
+        },
     },
     timedItems = {},
     defensives = {},

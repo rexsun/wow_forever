@@ -132,7 +132,7 @@ YUI.Locale:Register("MailAssistant", "enUS", {
     ["editor.class"] = "Class",
     ["editor.faction"] = "Faction",
     ["editor.input_hint"] = "Use Name for this realm or Name-Realm for another realm",
-    ["editor.input_hint.forever"] = "Enter the full Firstname Surname; append -Realm for another realm",
+    ["editor.input_hint.forever"] = "Enter the full Firstname Surname",
     ["editor.add"] = "Add",
     ["editor.saved"] = "Saved Contacts",
     ["editor.recent"] = "Sent this session (click to toggle favorite)",

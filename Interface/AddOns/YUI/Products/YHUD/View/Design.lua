@@ -3349,6 +3349,7 @@ function View:SetPreview(enabled, suppressRefresh)
     end
     if self.preview == enabled then return false end
     self.preview = enabled
+    if YHUD.QueuedAttack then YHUD.QueuedAttack:RefreshPresentation() end
     if I.RefreshManaRegenSparkVisibility then I.RefreshManaRegenSparkVisibility() end
     if suppressRefresh == true then return true end
     return self:RefreshAll()
@@ -3359,6 +3360,7 @@ function View:SetLayoutEditMode(enabled, suppressRefresh)
     if enabled and YHUD.PressFeedback and YHUD.PressFeedback.active then YHUD.PressFeedback:Clear() end
     if self.layoutEditMode == enabled then return false end
     self.layoutEditMode = enabled
+    if YHUD.QueuedAttack then YHUD.QueuedAttack:RefreshPresentation() end
     if I.RefreshManaRegenSparkVisibility then I.RefreshManaRegenSparkVisibility() end
     if self.RefreshBuffTimerStackModes then self:RefreshBuffTimerStackModes() end
     if suppressRefresh == true then return true end
@@ -3449,6 +3451,9 @@ local function SyncDesignResourcePreviewAppearance(slot, preview)
     end
     if preview.SetResourceBackgroundColor then
         preview:SetResourceBackgroundColor(slot.gui2ResourceBackgroundColor)
+    end
+    if preview.SetResourceDurationDecimalThreshold then
+        preview:SetResourceDurationDecimalThreshold(slot.gui2ResourceDurationDecimalThreshold or 3)
     end
     if preview.SetResourceDisplayConfig then
         local source = slot.gui2ResourceDisplayConfig or {}
@@ -5483,6 +5488,7 @@ function View:PrepareDesignMode(
         self.resourceStylePreviewGroupId = nil
     end
     self.designMode = enabled
+    if YHUD.QueuedAttack then YHUD.QueuedAttack:RefreshPresentation() end
     self:SetVisibilityBypass(enabled)
     if I.RefreshManaRegenSparkVisibility then I.RefreshManaRegenSparkVisibility() end
     self.designSelect = enabled and onSelect or nil

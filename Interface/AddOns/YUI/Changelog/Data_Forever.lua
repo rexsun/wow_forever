@@ -1,6 +1,94 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v365|forever|876b26695ff742fc52f7600ba1983e47ff887706f6b06ddabc2d0a25ae5b17de
+    {
+        version = "v365",
+        date = "2026-11-22",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "Halo 默认为压制、复仇、乘胜追击、斩杀、猫鼬撕咬、反击、还击和愤怒之锤启用「技能可施放」发光。",
+                "英勇打击、顺劈斩、重殴和猛禽一击排队时高亮。",
+                "Halo 支持设置倒计时小数阈值，恢复圣印预设，并修复屠戮监控与光环发光残留。",
+                "Flare 职业工具加入磨刀石、平衡石、火焰石和法术石，并显示这些效果与毒药的剩余时间。",
+                "满包整理更流畅，同布局实测最长一帧耗时降低约 39%。中断后可再次整理。",
+                "背包设置新增使用帮助，优化最近物品与战斗交互，并修复首次开通个人银行的问题。",
+                "恢复属性面板的移动速度显示，修复装备面板底部页签在战斗中消失的问题。",
+            },
+            enUS = {
+                "Halo enables Spell Usable glow by default for Overpower, Revenge, Victory Rush, Execute, Mongoose Bite, Counterattack, Riposte and Hammer of Wrath.",
+                "Heroic Strike, Cleave, Maul and Raptor Strike glow while queued.",
+                "Halo lets you choose when countdowns show decimals, restores Seal presets and fixes Decimation tracking and lingering aura glows.",
+                "Flare adds sharpening stones, weightstones, Firestones and Spellstones to class tools and shows their active durations alongside poisons.",
+                "Full-bag sorting is smoother and can be restarted after an interruption. In same-layout tests, the longest frame was about 39% shorter.",
+                "Added bag help, improved Recent Items and bag interactions in combat, and fixed unlocking the personal bank for the first time.",
+                "Restored movement speed in the stats panel and fixed the equipment panel’s bottom tabs disappearing in combat.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v364|forever|ae65d3b690a383ebe83c56c7b8d25f6f9f7ba4934e46d083ce3400d45bd52789
+    {
+        version = "v364",
+        date = "2026-11-22",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "优化背包整理速度，减少正反序整理时的搬动。",
+                "任务物品使用原生感叹号，设置中可预览。",
+                "无缝地图可显示视野内的地点标记。",
+                "修复战斗拾取后背包物品格刷新异常。",
+                "个人银行就绪后立即显示。",
+                "修复战斗中地图标记消失。",
+                "修复 Halo 光环混排偏移。",
+                "修复 Halo 被动天赋关联减益漏显。",
+                "修复 Halo 常驻减益图标不亮。",
+                "修复邮箱助手联系人悬停报错。",
+            },
+            enUS = {
+                "Optimized bag sorting speed by reducing moves in both directions.",
+                "Quest items use the default exclamation mark, with a preview in settings.",
+                "Nearby landmarks now appear on seamless maps.",
+                "Fixed bag slots failing to refresh after looting in combat.",
+                "The personal bank opens as soon as it is ready.",
+                "Fixed map markers disappearing in combat.",
+                "Fixed misaligned auras in mixed Halo layouts.",
+                "Fixed missing Halo debuffs linked to passive talents.",
+                "Fixed Halo’s always-visible debuff icons staying dim.",
+                "Fixed an error when hovering over mail contacts.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v363|forever|3eff907a7c71a6ddb268dd7444e1c2c735590d1f007f764630a0fff9f21c7fa4
+    {
+        version = "v363",
+        date = "2026-11-21",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "修复背包拖放和物品锁定残留。",
+                "修复 Esc 关包时误开游戏菜单。",
+                "修复个人银行首次打开异常。",
+                "防止双右键误删灰色装备。",
+                "优化背包整理速度。",
+                "整合背包改用原生整理，支持正序和反序。",
+                "修复 Halo 吃喝计时与原生增益的单行混排。",
+                "新增任务物品标记。",
+                "支持恢复符合条件的旧角色数据。",
+            },
+            enUS = {
+                "Fixed bag drag-and-drop and lingering item locks.",
+                "Fixed Esc opening the game menu when closing bags.",
+                "Fixed issues when first opening the personal bank.",
+                "Prevented accidental deletion of poor-quality gear on double right-click.",
+                "Optimized bag sorting speed.",
+                "Combined bags use native sorting in forward or reverse order.",
+                "Fixed Halo's single-row layout for food, drink, and native buffs.",
+                "Added quest item markers.",
+                "Added recovery for eligible older character data.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v362|forever|38121285fa517d2c61bcff6471a3ba468849ddcd67c19ba0fac460113ed90b3b
     {
         version = "v362",
@@ -220,72 +308,6 @@ CL:Register("suite", {
                 "Fixed Mail Assistant receipt checks and preserved class colors in history.",
                 "Fixed chat windows not fading after the mouse leaves.",
                 "Fixed hidden Orbit clocks not reappearing on hover.",
-            },
-        },
-    },
--- YUI-Notes-Record: v355|forever|e274d85989cea7aa257b176a3bc59407d1e8197ca09049666d158182c31f4119
-    {
-        version = "v355",
-        date = "2026-11-09",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增系统错误／信息提示的位置编辑，可预览、移动和重置，默认关闭。",
-                "自动修理新增等级限制，默认从 10 级开始，支持调整或关闭。",
-                "圣印预设扩展至七类圣印的各等级，图标与剩余时间跟随当前圣印。",
-                "优化背包附魔助手入口的兼容性。",
-                "优化好友添加流程，并停用公会邀请增强。",
-                "聊天关键词过滤不再区分英文字母大小写。",
-                "修复新版中文技能学习提示的识别异常。",
-            },
-            enUS = {
-                "Added position editing for system error and information messages, with preview, movement, and reset controls; disabled by default.",
-                "Added an automatic repair level limit, starting at level 10 by default, with options to adjust or disable it.",
-                "Expanded the Seals preset to all ranks of seven seal types, with icons and remaining time following the active seal.",
-                "Improved compatibility for the bag disenchanting assistant button.",
-                "Improved the add-friend flow and disabled enhanced guild invitations.",
-                "Chat keyword filtering now ignores English letter case.",
-                "Fixed recognition of updated Chinese skill-training tooltip headings.",
-            },
-        },
-    },
--- YUI-Notes-Record: v354|forever|fc2a704eab7aaa2f2c66e6ee93a65b2d3998f7fc73c2d2f83dc7f6d61cf7274d
-    {
-        version = "v354",
-        date = "2026-11-06",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "新增 RXP 龙卷风图钉过滤，加载 RXPGuides 时默认开启。",
-                "补全无限服正义圣印 1–8 级监控，并保留已有的自定义图标和条目。",
-                "优化新版 EllesmereUI 自定义任务追踪器和自动交接入口的兼容性。",
-                "优化无限服训练提示，识别任务奖励技能并显示超出十项的技能数量。",
-                "修复目标光环结束时监控可能报错的问题。",
-            },
-            enUS = {
-                "Added an RXP tornado pin filter, enabled by default when RXPGuides is loaded.",
-                "Added complete rank 1–8 Seal of Righteousness monitoring on Forever while preserving existing custom icons and entries.",
-                "Improved compatibility with the newer EllesmereUI custom quest tracker and auto-handoff controls.",
-                "Improved Forever training tooltips to recognize quest-reward spells and indicate how many additional skills are hidden beyond ten.",
-                "Fixed possible monitor errors when a target aura expires.",
-            },
-        },
-    },
--- YUI-Notes-Record: v353|forever|6e166a170320ff29361f3c9ca62903b5b93a1649e7795ee243a6398a5aacfdcf
-    {
-        version = "v353",
-        date = "2026-11-06",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "优化默认聊天屏蔽词，并保留自定义过滤配置。",
-                "修复任务分组折叠及 EllesmereUI 解锁模式下的任务追踪滚动异常。",
-                "修复动作条使用状态黑块与按压短闪。",
-            },
-            enUS = {
-                "Improved the default chat-blocking word list and preserved custom filter settings.",
-                "Fixed quest tracker scrolling when quest groups are collapsed or EllesmereUI unlock mode is active.",
-                "Fixed dark blocks on the active-action indicator and brief dark flashes on key presses.",
             },
         },
     },

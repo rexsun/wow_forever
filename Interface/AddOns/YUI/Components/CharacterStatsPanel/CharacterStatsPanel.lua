@@ -1444,6 +1444,15 @@ local function ReadRetailSharedStat(statID, fallback)
     return fallback()
 end
 
+local function ReadForeverMovementSpeed()
+    if type(GetUnitSpeed) ~= "function" then return nil end
+    local ok, value = pcall(GetUnitSpeed, "player")
+    if not ok then return nil end
+    if IsSecretValue(value) then return value, "secret_speed" end
+    if type(value) ~= "number" then return nil end
+    return value / 7 * 100
+end
+
 local STAT_DEFS = {
     ilvl = {
         labelKey = "ilvl",
@@ -1564,12 +1573,9 @@ local STAT_DEFS = {
         percent = true,
         api = function()
             if YUI.IsForever then
-                if type(GetUnitSpeed) ~= "function" then return nil end
-                local ok, value = pcall(GetUnitSpeed, "player")
-                if not ok then return nil end
-                if IsSecretValue(value) then return { isSecretSpeed = true, val = value } end
-                if type(value) ~= "number" then return nil end
-                return value / 7 * 100
+                local value, mode = ReadForeverMovementSpeed()
+                if mode == "secret_speed" then return { isSecretSpeed = true, val = value } end
+                return value
             end
             local yardsPerSec = 0
 
@@ -2128,6 +2134,7 @@ function Module:GetSpeedUpdateInterval()
 end
 
 function Module:UpdateSpeedLine()
+    if Forever then return Forever.RefreshMovementSpeed(self) end
     local f = self.statsFrame
     if not f or not f.speedLineValue or not f.speedFmtStr then
         return false
@@ -2155,7 +2162,14 @@ end
 
 function Module:RefreshSpeedTickerState()
     local f = self.statsFrame
-    if not self:IsRuntimeActive() or not f or not f:IsShown() or not f.speedLineValue or not f.speedFmtStr then
+    local hasSpeedLine
+    if Forever then
+        local panelLine, overviewLine = Forever.GetMovementSpeedLines(self)
+        hasSpeedLine = panelLine or overviewLine
+    else
+        hasSpeedLine = f and f.speedLineValue and f.speedFmtStr
+    end
+    if not self:IsRuntimeActive() or not f or not f:IsShown() or not hasSpeedLine then
         self:StopSpeedTicker()
         return
     end
@@ -2167,7 +2181,7 @@ function Module:RefreshSpeedTickerState()
 
     self:StopSpeedTicker()
     self.speedTickerInterval = interval
-    self:UpdateSpeedLine()
+    if not Forever then self:UpdateSpeedLine() end
 
     if C_Timer and C_Timer.NewTicker then
         self.speedTicker = C_Timer.NewTicker(interval, SpeedTickerCallback)
@@ -2494,6 +2508,8 @@ local FOREVER_RENDER = Forever and {
     valueTextDefaults = VALUE_TEXT_DEFAULTS,
     text = SetTextIfChanged,
     secretText = SetSecretFormattedText,
+    readMovementSpeed = ReadForeverMovementSpeed,
+    secretSpeedText = SetSecretMovementSpeedText,
     safeWidth = SafeFontStringWidth,
     textWidth = function(text, width) SetLineTextWidth(text, width, width == 0) end,
     color = ApplyStatColorStyle,

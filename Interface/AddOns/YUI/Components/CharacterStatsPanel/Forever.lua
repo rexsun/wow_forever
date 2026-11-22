@@ -219,7 +219,7 @@ local SECRET_REGEN = NumberFormat(5)
 
 local function StatPercentFormat(def, detailed)
     -- Camelot rounds the block row to a whole percent and shows tenths in its tooltip.
-    return not detailed and def.id == "block" and WHOLE_PERCENT_FORMAT or DECIMAL_PERCENT_FORMAT
+    return not detailed and (def.id == "block" or def.id == "movespeed") and WHOLE_PERCENT_FORMAT or DECIMAL_PERCENT_FORMAT
 end
 
 local function FormatStatValue(value, def, detailed)
@@ -231,6 +231,11 @@ end
 
 local function ReadStatDisplay(module, def, detailed)
     local id = def.id
+    if id == "movespeed" then
+        local value, mode = module.foreverRenderHooks.readMovementSpeed()
+        if mode then return "—", nil, mode, value end
+        return value and FormatStatValue(value, def, detailed) or "—", value
+    end
     if id:match("_damage$") then
         local low, lowMode = Forever.Read(id .. "_min", true)
         local high, highMode = Forever.Read(id .. "_max", true)
@@ -255,7 +260,11 @@ local function ReadStatDisplay(module, def, detailed)
 end
 
 local function PaintStatText(hooks, text, def, mode, first, second, detailed)
-    if mode == "range" then
+    if mode == "secret_speed" then
+        if type(AbbreviateNumbers) ~= "function" then return false end
+        local ok = pcall(hooks.secretSpeedText, text, first)
+        return ok
+    elseif mode == "range" then
         hooks.secretText(text, "%.1f–%.1f", 2, first, second)
     elseif mode == "secret" and def.percent then
         hooks.secretText(text, StatPercentFormat(def, detailed), 1, first)
@@ -671,6 +680,29 @@ function Forever.OverviewShown(module)
     return module.foreverOverview and module.foreverOverview:IsShown() or false
 end
 
+function Forever.GetMovementSpeedLines(module)
+    local frame = module.statsFrame
+    if not frame or not frame:IsShown() then return end
+    return frame.speedLineValue, Forever.OverviewShown(module) and module.foreverOverview.speedLineValue
+end
+
+local function PaintMovementSpeed(hooks, text, value, mode, detailed)
+    local def = Data.byID.movespeed
+    if not PaintStatText(hooks, text, def, mode, value) then
+        hooks.text(text, not mode and value and FormatStatValue(value, def, detailed) or "—")
+    end
+end
+
+function Forever.RefreshMovementSpeed(module)
+    local panelLine, overviewLine = Forever.GetMovementSpeedLines(module)
+    if not panelLine and not overviewLine then return false end
+    local hooks = module.foreverRenderHooks
+    local value, mode = hooks.readMovementSpeed()
+    if panelLine then PaintMovementSpeed(hooks, panelLine, value, mode, false) end
+    if overviewLine then PaintMovementSpeed(hooks, overviewLine, value, mode, true) end
+    return true
+end
+
 function Forever.CloseOverview(module)
     if module.foreverOverview then module.foreverOverview:Hide() end
     module.foreverOverviewRows = nil
@@ -699,6 +731,7 @@ end
 function Forever.UpdateOverview(module, hooks)
     if not Forever.OverviewShown(module) then return end
     local popup, settings = module.foreverOverview, module.settings
+    popup.speedLineValue = nil
     local rows = Forever.OverviewRows(module)
     local screenWidth, screenHeight = UIParent:GetWidth(), UIParent:GetHeight()
     local fontSize = math.max(11, math.min(settings.fontSize or 14, 16))
@@ -745,6 +778,8 @@ function Forever.UpdateOverview(module, hooks)
             PaintResourceText(hooks, line.value, ReadResource(module, id), mode, true)
             resourceLines[id] = line
             valueWidth = math.min(columnWidth - fontSize * 2 - 4, math.max(valueWidth, ResourceTextWidth(mode, valueSize)))
+        elseif id == "movespeed" then
+            popup.speedLineValue = line.value
         else
             local display, _, mode, first, second = ReadStatDisplay(module, row.def, true)
             if not PaintStatText(hooks, line.value, row.def, mode, first, second, true) then
@@ -1248,8 +1283,7 @@ function Forever.Update(module, hooks)
     module.foreverResourceLines = resourceLines
     resourceLines.hp, resourceLines.mana = nil, nil
     local previousWidth, previousHeight = frame:GetWidth(), frame:GetHeight()
-    frame.speedLineValue, frame.speedFmtStr = nil, nil
-    module:StopSpeedTicker()
+    frame.speedLineValue = nil
     local config = Forever.EnsureSettings(settings)
     local fontSize = settings.fontSize or 14
     local fontPath = hooks.fontPath(settings.font)
@@ -1312,6 +1346,9 @@ function Forever.Update(module, hooks)
             PaintResourceText(hooks, line.value, ReadResource(module, id), mode)
             -- Reserve space independently of live or restricted resource values.
             valueWidth = ResourceTextWidth(mode, valueSize)
+        elseif id == "movespeed" then
+            frame.speedLineValue = line.value
+            valueWidth = valueSize * 4
         else
             local display, mode, first, second
             display, value, mode, first, second = ReadStatDisplay(module, row.def)
@@ -1416,6 +1453,8 @@ function Forever.Update(module, hooks)
     hooks.size(frame.contentFrame, frameWidth, frame:GetHeight())
     hooks.scale(frame.contentFrame, 1)
     Forever.UpdateOverview(module, hooks)
+    Forever.RefreshMovementSpeed(module)
+    module:RefreshSpeedTickerState()
     if module.foreverHoveredLine then
         if GameTooltip and GameTooltip:IsOwned(module.foreverHoveredLine) then
             Forever.ShowTooltip(module, module.foreverHoveredLine)
@@ -1505,6 +1544,8 @@ BuildOverview = function(module)
     popup.rows = {}
     popup:SetScript("OnHide", function()
         popup:StopMovingOrSizing()
+        popup.speedLineValue = nil
+        if not module.statsFrame.speedLineValue then module:StopSpeedTicker() end
         if module.foreverHoveredLine and module.foreverHoveredLine.foreverOverview then Forever.HideTooltip(module) end
         module.foreverOverviewRows = nil
         for _, line in ipairs(popup.rows) do line.foreverRow = nil end

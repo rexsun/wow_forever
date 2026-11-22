@@ -2,6 +2,7 @@ local YUI=_G.YUI
 local B=YUI and YUI.YBags
 if not B then return end
 local A,S=YUI.API.Bags,YUI.API.Security
+local Unit = YUI.API.Unit
 local H={dirty={}}
 B.Holdings=H
 function H:Queue(kind)
@@ -21,18 +22,29 @@ function H:Flush()
         if entries then B.Cache:WriteLocation(kind,entries,complete) end
     end
 end
-local function Realm(name) return name:gsub("%s",""):lower() end
+local function NormalizeRealm(value)
+    local realm = Unit.NormalizeCharacterRealm(value)
+    return realm and realm:lower()
+end
+
 local function MailTarget(recipient)
-    recipient=S.SafeString(recipient)
+    recipient = S.SafeString(recipient)
     if not recipient then return end
-    local name,realm=recipient:match("^(.-)%-(.+)$")
-    name,realm=name or recipient,realm or GetRealmName()
-    name=name:match("^%s*(.-)%s*$"):lower()
+    local name, explicitRealm = recipient:match("^(.-)%-(.+)$")
+    name = (name or recipient):match("^%s*(.-)%s*$"):lower()
+    local realm = NormalizeRealm(explicitRealm or Unit.GetRealmName())
+    local useFullName = B.client == "forever" and not explicitRealm and not realm
+        and not name:find("-", 1, true) and Unit.SplitForeverName(name)
+    if name == "" or (not realm and not useFullName) then return end
+
+    -- A regional full name can match a single character in this local account cache.
     local target
-    for key,character in pairs(B.Cache.db.characters) do
-        if character.client==B.client and character.source==B.Cache.source and character.name:lower()==name and Realm(character.realm)==Realm(realm) then
+    for key, character in pairs(B.Cache.db.characters) do
+        if character.client == B.client and character.source == B.Cache.source
+            and type(character.name) == "string" and character.name:lower() == name
+            and (useFullName or NormalizeRealm(character.realm) == realm) then
             if target then return end
-            target=key
+            target = key
         end
     end
     return target

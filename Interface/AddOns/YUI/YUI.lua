@@ -2,7 +2,7 @@ local ADDON_NAME, YUI = ...
 local bootstrapState = _G.YUI_CORE_EMBED_STATE and _G.YUI_CORE_EMBED_STATE[ADDON_NAME]
 
 YUI.AddonName = ADDON_NAME
-YUI.CoreVersion = YUI.CoreVersion or (bootstrapState and bootstrapState.embeddedCoreVersion) or 42
+YUI.CoreVersion = YUI.CoreVersion or (bootstrapState and bootstrapState.embeddedCoreVersion) or 46
 YUI.CoreMode = YUI.CoreMode or (bootstrapState and bootstrapState.coreMode) or "suite"
 YUI.ProductId = YUI.ProductId or (bootstrapState and bootstrapState.productId) or "suite"
 YUI.SettingsScope = YUI.SettingsScope or (bootstrapState and bootstrapState.settingsScope) or "suite"
@@ -44,7 +44,12 @@ function Player:GetRealmName()
     return self and self.Server or nil
 end
 
+local function IsForeverFullNameKey(key)
+    return YUI.IsForever and type(key) == "string" and key ~= "" and not key:find(" - ", 1, true)
+end
+
 function Player:GetCharacterKey(fallback)
+    if IsForeverFullNameKey(fallback) then return fallback end
     local playerName = self:GetName()
     local realmName = self:GetRealmName()
     if playerName and playerName ~= "" and realmName and realmName ~= "" then
@@ -219,24 +224,35 @@ local function EnsureProfileKeys(sv)
     return sv.profileKeys
 end
 
-local function ResolvePersistedProfileName(sv, charKey)
+local function IsStoredProfile(profiles, name, currentProfile)
+    if type(name) ~= "string" or type(profiles[name]) ~= "table" then
+        return false
+    end
+    if name == currentProfile then return true end
+    local _, minor = LibStub("AceDB-3.0")
+    if type(minor) == "number" and minor >= 40 then
+        local length = strlenutf8(name)
+        return length and length >= 1 and length <= 50 and not name:find("^ +$")
+    end
+    return true
+end
+
+function DB:FindPersistedProfileName(sv, charKey, currentProfile)
     if type(sv) ~= "table" or not charKey or charKey == "" or type(sv.profiles) ~= "table" then
         return nil
     end
 
-    local profileKeys = EnsureProfileKeys(sv)
-    local profileName = profileKeys and profileKeys[charKey] or nil
-    if profileName and type(sv.profiles[profileName]) == "table" then
+    local profileName = type(sv.profileKeys) == "table" and sv.profileKeys[charKey]
+    -- AceDB can select Default before that profile's table is materialized.
+    if profileName == "Default" and IsForeverFullNameKey(charKey) then return profileName end
+    if IsStoredProfile(sv.profiles, profileName, currentProfile) then
         return profileName
     end
 
-    local legacyProfileName = type(sv.yuiProfileKeys) == "table" and sv.yuiProfileKeys[charKey] or nil
-    if legacyProfileName and type(sv.profiles[legacyProfileName]) == "table" and profileKeys then
-        profileKeys[charKey] = legacyProfileName
-        return legacyProfileName
+    local legacyProfileName = type(sv.yuiProfileKeys) == "table" and sv.yuiProfileKeys[charKey]
+    if IsStoredProfile(sv.profiles, legacyProfileName, currentProfile) then
+        return legacyProfileName, true
     end
-
-    return nil
 end
 
 function DB:PersistCurrentProfile(db, savedVariableName)
@@ -279,14 +295,16 @@ function DB:RestorePersistedProfile(db, savedVariableName)
         return false
     end
 
-    local profileName = ResolvePersistedProfileName(sv, charKey)
+    local currentProfile = db:GetCurrentProfile()
+    local profileName, legacy = self:FindPersistedProfileName(sv, charKey, currentProfile)
     if not profileName then
         return false
     end
 
+    if legacy then EnsureProfileKeys(sv)[charKey] = profileName end
     db.profiles = sv.profiles
 
-    if db:GetCurrentProfile() ~= profileName then
+    if currentProfile ~= profileName then
         db:SetProfile(profileName)
     else
         local _ = db.profile
@@ -477,6 +495,17 @@ local function RegisterProductDatabaseCallbacks(db)
     db.__yuiCallbacksRegistered = true
 end
 
+local function CreateProductDatabase(savedVariableName)
+    local recovery = DB.PrepareForeverCharacterRecovery
+        and DB:PrepareForeverCharacterRecovery(GetRawSavedVariables(savedVariableName))
+    local db = AceDB:New(savedVariableName, defaults, true)
+    if recovery then
+        DB:ApplyForeverCharacterRecovery(db, recovery)
+    end
+    RegisterProductDatabaseCallbacks(db)
+    return db
+end
+
 function DB:IsProductAddonReady(productOrId)
     local product = type(productOrId) == "table" and productOrId or self:GetProduct(productOrId)
     local addonName = product and product.addonName
@@ -543,8 +572,7 @@ function DB:RepairProductDatabaseBinding(product, db, savedVariableName)
         YUI.Trace:RecordDBSplit(product.id, db, savedVariableName)
     end
 
-    local repaired = AceDB:New(savedVariableName, defaults, true)
-    RegisterProductDatabaseCallbacks(repaired)
+    local repaired = CreateProductDatabase(savedVariableName)
     return self:AdoptProductDatabase(product, repaired, savedVariableName, db)
 end
 
@@ -569,9 +597,8 @@ function DB:EnsureProductDatabase(productId)
     db = self:RepairProductDatabaseBinding(product, db, savedVariableName)
 
     if not db then
-        db = AceDB:New(savedVariableName, defaults, true)
+        db = CreateProductDatabase(savedVariableName)
         self.savedVariables[savedVariableName] = db
-        RegisterProductDatabaseCallbacks(db)
     end
 
     db = self:AdoptProductDatabase(product, db, savedVariableName)

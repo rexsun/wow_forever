@@ -25,32 +25,41 @@ local function HeldCell(item)
     hole.empty,hole.held=true,true
     return hole
 end
-function Layout:RefreshAggregate(group,live,fixed)
-    local total,representative=0,nil
-    for _,member in ipairs(group.members) do
+function Layout:RefreshAggregate(group,live,fixed,preparedBags)
+    local total,representative,preferred=0,nil,nil
+    local allowAlternate=not fixed or preparedBags
+    for index,member in ipairs(group.members) do
         local current=live and live[member.uid] or not live and member
-        if current and B.Classification:SameStack(current,group) then
+        if not current and preparedBags then
+            local bag=preparedBags[member.bag]
+            current=bag and bag.slots[member.slot]
+        end
+        if current and B.Classification:SameStack(current,group,group.ignoreDisplayBinding) then
+            if preparedBags then group.members[index]=current end
             total=total+current.count
-            if fixed then
-                if current.bag==group.bag and current.slot==group.slot then representative=current end
-            elseif not representative or representative.locked and not current.locked
+            if fixed and current.bag==group.bag and current.slot==group.slot then preferred=current
+            elseif allowAlternate and not preferred and (not representative or representative.locked and not current.locked
                 or (not representative.locked==not current.locked and (current.count<representative.count
                     or current.count==representative.count and (current.bag<representative.bag
-                        or current.bag==representative.bag and current.slot<representative.slot))) then representative=current end
+                        or current.bag==representative.bag and current.slot<representative.slot)))) then representative=current end
         end
     end
+    representative=preferred or representative
     if not representative then return false end
     local uid=group.uid
     for key,value in pairs(representative) do group[key]=value end
+    group.questVisual=representative.questVisual
     group.uid,group.physicalUID,group.displayCount=uid,representative.uid,total
     group.key=tostring(representative.bag)..":"..representative.slot
     return true
 end
-function Layout:Aggregate(items,expanded,separated)
+function Layout:Aggregate(items,expanded,separated,allowSingleSlotItems)
     local result,groups,live={},{},{}
     local locks=B:GetConfig().locks
+    local classification=B.Classification
+    local groupKey=allowSingleSlotItems and classification.DisplayGroupKey or classification.StackKey
     for _,item in ipairs(items) do
-        local key=B.Classification:StackKey(item)
+        local key,ignoreBinding=groupKey(classification,item)
         local individual=separated and separated[item.key]
         individual=individual and individual.itemID==item.itemID and individual.link==item.link and (not individual.guid or individual.guid==item.guid)
         if key and not individual and not (expanded and expanded[key]) and not locks[item.key] then
@@ -59,6 +68,7 @@ function Layout:Aggregate(items,expanded,separated)
             if not group then
                 group={};for field,value in pairs(item) do group[field]=value end
                 group.uid,group.stackKey,group.members="group:"..identity,key,{}
+                if ignoreBinding then group.ignoreDisplayBinding=true end
                 groups[identity]=group;result[#result+1]=group
             end
             group.members[#group.members+1]=item
@@ -126,12 +136,15 @@ function Layout:OrderSplits(items,placements)
     for _,item in ipairs(items) do if not emitted[item] then Emit(item) end end
     return result
 end
-function Layout:EmptyGroups(empties,aggregate)
+function Layout:EmptyGroups(empties,aggregate,wrapSpecialBags)
     local groups,order={},{}
     for _,item in ipairs(empties) do
         if item.empty then
-            local key=Space(item);local group=groups[key]
-            if not group then group={key=key,items={}};groups[key]=group;order[#order+1]=group end
+            local space=Space(item)
+            -- Wrapped specialty bags each display their own free-slot count.
+            local key=wrapSpecialBags and space~="normal" and item.bag or space
+            local group=groups[key]
+            if not group then group={key=space,items={}};groups[key]=group;order[#order+1]=group end
             group.items[#group.items+1]=item
         end
     end
@@ -139,7 +152,8 @@ function Layout:EmptyGroups(empties,aggregate)
     for _,group in ipairs(order) do
         if aggregate then
             local first=group.items[1]
-            group.items={{empty=true,aggregate=#group.items,bag=first.bag,slot=first.slot,family=first.family,space=group.key}}
+            group.items={{empty=true,aggregate=#group.items,bag=first.bag,slot=first.slot,family=first.family,space=group.key,
+                bagScoped=wrapSpecialBags and group.key~="normal" or nil}}
         end
     end
     return order
@@ -157,15 +171,24 @@ function Layout:Build(items, empties, config, cols, collapsed, query)
     local nodes, step, y = {}, config.slotSize+3, 0
     local function Cell(item, x, rowY) nodes[#nodes+1]={kind="item",item=item,x=x,y=rowY,h=step,section=item.section,group=item.group} end
     if config.layout == "single" then
+        local wrapSpecialBags=config.combinedWrapSpecialBags==true and B.client=="forever"
         local cells={}
         for _, item in ipairs(items) do cells[#cells+1]=item end
         if config.emptyMode=="one" then
             for _,item in ipairs(empties) do if not item.empty then cells[#cells+1]=item end end
-            for _,group in ipairs(self:EmptyGroups(empties,true)) do cells[#cells+1]=group.items[1] end
+            for _,group in ipairs(self:EmptyGroups(empties,true,wrapSpecialBags)) do cells[#cells+1]=group.items[1] end
         else for _, item in ipairs(empties) do cells[#cells+1]=item end end
         table.sort(cells,SingleCellLess)
-        for n,item in ipairs(cells) do Cell(item,((n-1)%cols)*step,math.floor((n-1)/cols)*step) end
-        return nodes, math.ceil(#cells/cols)*step
+        local index,previousBag=0,nil
+        for _,item in ipairs(cells) do
+            if wrapSpecialBags and item.bag~=previousBag then
+                if BagTypeOrder(item)~=1 then index=math.ceil(index/cols)*cols end
+                previousBag=item.bag
+            end
+            Cell(item,(index%cols)*step,math.floor(index/cols)*step)
+            index=index+1
+        end
+        return nodes, math.ceil(index/cols)*step
     end
     local sections={}
     for _, id in ipairs(B.Classification.sections) do sections[id]={} end
@@ -200,17 +223,17 @@ function Layout:Build(items, empties, config, cols, collapsed, query)
                 groups[group][#groups[group]+1]=item
             end
             local showSubnames=config.showSubnames and id~="recent" and id~="junk" and id~="system"
-            local isCollapsed=collapsed[id]==true
+            local isCollapsed=id~="recent" and collapsed[id]==true
             local small=(id=="material" or id=="other") and (isCollapsed or #list<=cols)
             local groupWidths,packedWidth={},0
-            if small and not collapsed[id] then
+            if small and not isCollapsed then
                 for _,group in ipairs(order) do
                     local width=#groups[group]*step-3
                     if showSubnames and group~="" then width=math.max(width,B.Appearance:TextWidth(B.Appearance:GroupText(group),"label")+2) end
                     groupWidths[group]=width;packedWidth=packedWidth+width+3
                 end
             end
-            local headingWidth=B.Appearance:HeadingWidth(id,count,collapsed[id])
+            local headingWidth=B.Appearance:HeadingWidth(id,count,isCollapsed)
             if small and packedWidth-3>gridWidth then small=false end
             local width=small and math.min(gridWidth,math.max(headingWidth,packedWidth-3)) or gridWidth
             -- Compact collapsed headings share a row with each other, never an open block.
@@ -221,7 +244,7 @@ function Layout:Build(items, empties, config, cols, collapsed, query)
             nodes[#nodes+1]=heading
             soleHeading=bandHeight==0 and heading or nil
             local localY,x=16,0
-            if not collapsed[id] then
+            if not isCollapsed then
                 local rows,row={},nil
                 local function Row()
                     row={cells={},labels={}};rows[#rows+1]=row;x=0

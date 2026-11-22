@@ -92,6 +92,7 @@ Define("pet_armor", ARMOR, false, { "pet_hp" })
 Define("pet_ap", RED, false, {})
 Define("pet_hit", HIT, true, {})
 Define("pet_crit", CRIT, true, {})
+Define("movespeed", NEUTRAL, true, {})
 
 -- A full bar is a visual reference. Damage ranges have no single plotted value.
 local meterMaxByID = {
@@ -114,6 +115,7 @@ local GetStatIcon = Icons and Icons.GetCharacterStatIcon
 for id, def in pairs(Data.byID) do
     def.icon, def.meterMax = GetStatIcon and GetStatIcon(id), meterMaxByID[id]
 end
+Data.byID.movespeed.icon = "Interface\\Icons\\Ability_Rogue_Sprint"
 
 Data.schools = {
     PALADIN = { sp_holy = true }, PRIEST = { sp_holy = true, sp_shadow = true },
@@ -134,10 +136,12 @@ local function Preset(classFile, id, rows, core)
         entries = {}
         Data.presets[classFile] = entries
     end
+    local residentRows = CopyIDs(rows)
+    residentRows[#residentRows + 1] = "movespeed"
     entries[#entries + 1] = {
         id = id,
         nameKey = "forever.preset." .. classFile .. "." .. id,
-        rows = CopyIDs(rows),
+        rows = residentRows,
         core = CopyIDs(core),
     }
 end

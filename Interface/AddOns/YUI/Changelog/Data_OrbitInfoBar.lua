@@ -1,37 +1,39 @@
 -- Generated from Docs/Products/YUI_OrbitInfoBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("ybar", {
--- YUI-Notes-Record: orbit-134|mainline|23733d16618603cd03a99e317cd96fb2298d79df2d24dd220a1c4324ef960a15
+-- YUI-Notes-Record: orbit-134|mainline|03f6c1f510310daa355f2ed0da849fea58624a6e4ca6119825641f5eff33b1b0
     {
         version = "orbit-134",
         date = "2026-11-20",
         clients = { "Retail" },
         content = {
             zhCN = {
-                "新增「主题外观」设置页。",
-                "金币提示可汇总互通服务器上已记录的角色，并在涉及多个服务器时显示服务器名。",
+                "新增「主题外观」。",
+                "金币提示汇总互通服务器角色，跨服时显示服名。",
             },
             enUS = {
-                "Added a Theme & Appearance settings page.",
-                "Gold tooltips include recorded characters on connected realms and show realm names when multiple realms are involved.",
+                "Added Theme & Appearance settings.",
+                "Gold tooltips include connected realms and show realm names when needed.",
             },
         },
     },
--- YUI-Notes-Record: orbit-134|forever|cf3a9a146c093d2495c9727526f5035655ee28712171741ef6b0d72d2e3cbca1
+-- YUI-Notes-Record: orbit-134|forever|3a963e6ff951a65b6f201499b8111ecd57ce97e58f3bdb4e8ad6a795cb63e1b4
     {
         version = "orbit-134",
-        date = "2026-11-20",
+        date = "2026-11-21",
         clients = { "Forever" },
         content = {
             zhCN = {
-                "新增「主题外观」设置页。",
-                "优化跨服务器角色的金币汇总，修复部分角色被重复统计。",
-                "改善专业菜单与专业助手共用时的兼容性。",
+                "新增「主题外观」。",
+                "修复跨服金币汇总重复统计角色。",
+                "改善专业菜单与专业助手的兼容性。",
+                "使用新版 Core 可恢复符合条件的旧角色数据。",
             },
             enUS = {
-                "Added a Theme & Appearance settings page.",
-                "Improved the gold summary for characters across realms and fixed duplicate character counts.",
-                "Improved profession menu compatibility with Profession Assistant.",
+                "Added Theme & Appearance settings.",
+                "Fixed duplicate characters in the cross-realm gold summary.",
+                "Improved compatibility with Profession Assistant.",
+                "Eligible older character data can be recovered with the updated Core.",
             },
         },
     },

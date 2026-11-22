@@ -132,7 +132,7 @@ YUI.Locale:Register("MailAssistant", "zhCN", {
     ["editor.class"] = "职业",
     ["editor.faction"] = "阵营",
     ["editor.input_hint"] = "当前服务器可只填角色名，跨服请填写“角色名-服务器”",
-    ["editor.input_hint.forever"] = "请输入完整的“名 姓”，跨服可在完整姓名后加“-服务器”",
+    ["editor.input_hint.forever"] = "请输入完整的“名 姓”",
     ["editor.add"] = "添加",
     ["editor.saved"] = "已保存联系人",
     ["editor.recent"] = "本次登录已发送（点击切换收藏）",

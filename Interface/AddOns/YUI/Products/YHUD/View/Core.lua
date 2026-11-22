@@ -693,6 +693,7 @@ local function SameGlowAppearance(slot, appearance)
         and slot._yhudGlowThickness == appearance.thickness
         and slot._yhudGlowSpeed == appearance.speed
         and slot._yhudGlowAlpha == appearance.alpha
+        and slot._yhudGlowProcOpacityOnFrame == appearance.procOpacityOnFrame
         and slot._yhudGlowOffsetX == appearance.offsetX
         and slot._yhudGlowOffsetY == appearance.offsetY
         and type(color) == "table"
@@ -710,6 +711,7 @@ local function CacheGlowAppearance(slot, appearance)
     slot._yhudGlowThickness = appearance.thickness
     slot._yhudGlowSpeed = appearance.speed
     slot._yhudGlowAlpha = appearance.alpha
+    slot._yhudGlowProcOpacityOnFrame = appearance.procOpacityOnFrame
     slot._yhudGlowOffsetX = appearance.offsetX
     slot._yhudGlowOffsetY = appearance.offsetY
     slot._yhudGlowColorR = color[1]
@@ -1123,6 +1125,8 @@ function View:SetVisibilityBypass(enabled)
 end
 
 function View:Disable()
+    self.countdownDecimalThresholdPending = nil
+    if YHUD.QueuedAttack then YHUD.QueuedAttack:Disable() end
     if YHUD.PressFeedback then YHUD.PressFeedback:Disable() end
     if YHUD.AssistedHighlight then YHUD.AssistedHighlight:Reset() end
     self.active = false

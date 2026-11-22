@@ -26,8 +26,8 @@ Tools.buttonKeys = {
     mageTools = { "scroll", "intellect", "armor", "water", "bread", unpack(Tools.manaGemKeys) },
     aspects = { "aspect1", "aspect2", "aspect3", "aspect4", "aspect5", "aspect6", "aspect7", "aspect8", "pet" },
     totems = { "summon", "earth", "fire", "water", "air", "recall", "imbue", "shield" },
-    warlockTools = { "demon", "healthstone", "soulstone", "armor", "ritual" },
-    rogueTools = { "mainhand", "offhand" }, priestTools = { "fortitude", "spirit", "shadow", "innerfire" },
+    warlockTools = { "demon", "healthstone", "soulstone", "firestone", "spellstone", "armor", "ritual" },
+    rogueTools = { "mainhand", "mainhandStone", "offhand", "offhandStone" }, priestTools = { "fortitude", "spirit", "shadow", "innerfire" },
     paladinTools = { "blessing", "righteous", "seal" }, druidTools = { "mark", "thorns" },
     warriorTools = { "battle" },
     paladinBlessings = { "manage", "MAGE", "HUNTER", "SHAMAN", "WARLOCK", "ROGUE", "PRIEST", "PALADIN", "DRUID", "WARRIOR" },
@@ -111,6 +111,8 @@ function Tools:GetClassToken(id)
     for class, candidate in pairs(self.classes) do if candidate == id then return class end end
 end
 
+local ADDED_AFTER = { mainhandStone="mainhand", offhandStone="offhand", firestone="soulstone", spellstone="firestone" }
+
 function Tools:GetButtonOrder(id, config)
     local defaults, result, seen = self.buttonKeys[id] or {}, {}, {}
     local saved = config and config.classToolOrder
@@ -127,8 +129,8 @@ function Tools:GetButtonOrder(id, config)
         if not seen[key] then
             local after
             local slot = id == "mageTools" and self.manaGemSlot[key]
-            if slot then
-                local previous = self.manaGemKeys[slot - 1] or "bread"
+            local previous = slot and (self.manaGemKeys[slot - 1] or "bread") or ADDED_AFTER[key]
+            if previous then
                 for index, existing in ipairs(result) do if existing == previous then after = index + 1; break end end
             end
             table.insert(result, after or #result + 1, key)

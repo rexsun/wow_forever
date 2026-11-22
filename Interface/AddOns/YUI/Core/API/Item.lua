@@ -1069,6 +1069,43 @@ function Item.ReadWeaponEnchant(slot, target)
     return target
 end
 
+-- Forever 1.60.1.71037: BuffFrame reads both enchant types and converts timeLeft from ms.
+-- Caller-owned buffers. nil return indicates unsupported or unavailable data.
+function Item.ReadWeaponEnchants(slot, target)
+    local item, enums, security = _G.C_Item, _G.Enum, YUI.API.Security
+    local slots, kinds = enums and enums.WeaponSlot, enums and enums.ItemEnchantType
+    local weaponSlot = slots and (slot == 16 and slots.MainHand or slot == 17 and slots.OffHand)
+    if not (item and item.GetWeaponEnchantInfo and kinds and type(weaponSlot) == "number") then return nil, false end
+    local ok, entries = pcall(item.GetWeaponEnchantInfo, weaponSlot)
+    if not ok or type(entries) ~= "table" or not security.CanAccessTable(entries) then return nil, true end
+
+    local imbue, temporary = target.imbue, target.temporary
+    imbue.hasEnchant, imbue.enchantID, imbue.remainingMS = false, nil, nil
+    temporary.hasEnchant, temporary.enchantID, temporary.remainingMS = false, nil, nil
+    local incomplete
+    for _, info in pairs(entries) do
+        if type(info) == "table" and security.CanAccessTable(info) then
+            local kind = security.SafeNumber(info.enchantType)
+            local hasEnchant = security.SafeBoolean(info.hasEnchant)
+            local result = kind == kinds.Imbue and imbue or kind == kinds.Temporary and temporary
+            if result and hasEnchant ~= false then
+                result.hasEnchant = hasEnchant
+                result.enchantID = security.SafeNumber(info.enchantID)
+                result.remainingMS = security.SafeNumber(info.timeLeft)
+            elseif not kind and hasEnchant ~= false then
+                incomplete = true
+            end
+        else
+            incomplete = true
+        end
+    end
+    if incomplete then
+        if imbue.hasEnchant == false then imbue.hasEnchant = nil end
+        if temporary.hasEnchant == false then temporary.hasEnchant = nil end
+    end
+    return target, true
+end
+
 -- Forever 1.60.1.70235: character/client ammo capability.
 -- true/false means confirmed capability; nil means unavailable/restricted data.
 function Item.GetAmmoCapability()

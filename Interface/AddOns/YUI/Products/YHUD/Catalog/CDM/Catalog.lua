@@ -303,6 +303,8 @@ local function ProjectDraftClaims(staged, claimed)
     local removed = 0
     local restored = 0
     local code
+    local seals = YHUD.FOREVER_SEAL_PRESET
+    local configSets = seals and YHUD.ConfigSets
 
     for categoryIndex = 1, #OFFICIAL_CATEGORIES do
         local category = OFFICIAL_CATEGORIES[categoryIndex]
@@ -317,8 +319,12 @@ local function ProjectDraftClaims(staged, claimed)
             local entryKey = ordered[position]
             local entry = profile.entries[entryKey]
             local monitorId = FindMonitorForEntry(profile, entryKey)
+            local sealPlacement = configSets and entryKey == seals.nativeEntryKey
             if IsOfficialEntryClaimed(entry, claimed) then
                 if monitorId then
+                    if sealPlacement then
+                        configSets:CaptureSealClaimOverrides(profile, staged.specKey)
+                    end
                     local removedMonitor
                     removedMonitor, code = profileModel:RemoveMonitor(
                         staged,
@@ -332,8 +338,7 @@ local function ProjectDraftClaims(staged, claimed)
                 end
             elseif not monitorId
                 and profile.suppressedOfficial[entryKey] ~= true then
-                local monitor
-                monitor, code = profileModel:AddMonitor(staged, {
+                local definition = {
                     id = "monitor:" .. entryKey,
                     entryKey = entryKey,
                     groupId = groupId,
@@ -346,7 +351,12 @@ local function ProjectDraftClaims(staged, claimed)
                     ),
                     origin = "official-cdm",
                     officialCategory = category,
-                })
+                }
+                if sealPlacement then
+                    configSets:RestoreSealClaimPlacement(profile, staged.specKey, definition)
+                end
+                local monitor
+                monitor, code = profileModel:AddMonitor(staged, definition)
                 if not monitor then
                     return RecordClaimProjectionFailure(code)
                 end

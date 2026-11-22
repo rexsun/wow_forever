@@ -510,6 +510,8 @@ function Unit.GetCharacterName(unit)
     if YUI.IsForever then
         if IsSecretValue(surname) then return nil end
         if type(surname) == "string" and surname ~= "" then
+            local _, existingSurname = Unit.SplitForeverName(name)
+            if existingSurname == surname then return name end
             local separators = Constants and Constants.CharacterNameSeparatorConsts
             local separator = separators and separators.CHARACTERNAME_SURNAME_SEPARATOR or " "
             return name .. separator .. surname
@@ -588,6 +590,74 @@ function Unit.GetRealmName()
     end
 
     return nil
+end
+
+local function ReadableNameString(value)
+    return not IsSecretValue(value) and type(value) == "string" and value ~= "" and value or nil
+end
+
+function Unit.NormalizeCharacterRealm(value)
+    value = ReadableNameString(value)
+    return value and ReadableNameString((value:gsub("%s+", ""))) or nil
+end
+
+function Unit.GetKnownRealmName()
+    return Unit.NormalizeCharacterRealm(Unit.GetNormalizedRealmName())
+        or Unit.NormalizeCharacterRealm(Unit.GetRealmName())
+end
+
+function Unit.GetForeverRegion()
+    if not YUI.IsForever then return nil end
+    local region = ReadableNameString(SafeCall(GetCurrentRegionName))
+    if region and region:match("^[A-Za-z][A-Za-z]$") then return region:lower() end
+end
+
+function Unit.SplitForeverName(value)
+    value = ReadableNameString(value)
+    if value then return value:match("^([^%s]+) ([^%s]+)$") end
+end
+
+-- Only interpret the second value from a source already known to return a surname.
+-- A single name is usable for display/legacy callers, but has no verified pair.
+function Unit.FormatForeverName(first, surname)
+    first = ReadableNameString(first)
+    if not first or IsSecretValue(surname) then return nil end
+    surname = type(surname) == "string" and surname ~= "" and surname or nil
+    local givenName, existingSurname = Unit.SplitForeverName(first)
+    if givenName then
+        if not surname or surname == existingSurname then return first, givenName, existingSurname end
+        return nil
+    end
+    if not surname or first:find("%s") or surname:find("%s") then return first end
+    return first .. " " .. surname, first, surname
+end
+
+-- The last two returns keep the native fields available to existing storage keys.
+function Unit.ReadForeverName(unit, reader, validate)
+    if not YUI.IsForever or not ReadableNameString(unit) then return nil end
+    reader = reader or UnitNameUnmodified
+    if type(reader) ~= "function" then return nil end
+    local ok, first, surname = pcall(reader, unit)
+    if not ok or (validate and (not validate(first) or not validate(surname))) then return nil end
+    local fullName, givenName, familyName = Unit.FormatForeverName(first, surname)
+    if fullName then return fullName, givenName, familyName, first, surname end
+end
+
+-- A confirmed legacy realm marker identifies a region, not a native address.
+function Unit.GetForeverLegacyRealmRegion(realm)
+    realm = ReadableNameString(realm)
+    if not realm then return nil end
+    local code = realm:lower():gsub("^camwow", "")
+    if code:match("^cn%d+realm%d+pv[ep]$") then return "cn" end
+end
+
+function Unit.SplitForeverLegacyName(value)
+    value = ReadableNameString(value)
+    if not value then return nil end
+    local fullName, realm = value:match("^(.*)%-([^%-]+)$")
+    if not Unit.SplitForeverName(fullName) then return nil end
+    local region = Unit.GetForeverLegacyRealmRegion(realm)
+    if region then return fullName, region end
 end
 
 function Unit.UnitFactionGroup(unit)
@@ -2503,17 +2573,24 @@ function Unit.CreateAuraDurationTextColor(r, g, b, a)
     return ok and result or nil
 end
 
-function Unit.SetFilteredAuraDurationTextOptions(handle, options)
+function Unit.SetFilteredAuraDurationTextOptions(handle, options, skipUnbound)
     if type(handle) ~= 'table' or handle.released then return false end
+    local applied = true
     for _, frame in ipairs(handle.frames or {}) do
         local ok = pcall(function()
             local text = frame:GetDurationText()
-            if not text then error('duration-text-unavailable') end
+            if not text then
+                if skipUnbound then return end
+                error('duration-text-unavailable')
+            end
             frame:SetDurationText(text, options)
         end)
-        if not ok then return false end
+        if not ok then
+            if not skipUnbound then return false end
+            applied = false
+        end
     end
-    return true
+    return applied
 end
 
 local function ApplyFilteredAuraBindings(auraFrame, bindings)

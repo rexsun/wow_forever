@@ -217,7 +217,7 @@ YUI.Locale:Register("CharacterEquipmentInfo", "zhTW", {
     ["section.summary"] = "裝備摘要面板",
     ["settings.enabled"] = "啟用",
     ["settings.bottom_tabs"] = "底部標籤",
-    ["settings.bottom_tabs.help"] = "將角色和觀察視窗的右側導覽改為底部標籤；關閉後恢復原生導覽。寵物等條件入口保持原生規則。戰鬥中的切頁與佈局調整將在脫戰後恢復。",
+    ["settings.bottom_tabs.help"] = "將角色和觀察視窗的導覽移到底部，關閉後恢復原位。切頁和條件入口遵循遊戲原生規則，介面配置調整會等到脫戰後執行。",
     ["tabs.character"] = "角色",
     ["tabs.reputation"] = "聲望",
     ["tabs.skills"] = "技能",

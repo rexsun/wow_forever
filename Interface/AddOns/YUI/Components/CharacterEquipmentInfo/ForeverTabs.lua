@@ -14,6 +14,8 @@ YUI.CharacterEquipmentTabsForever = Tabs
 local hosts = setmetatable({}, { __mode = "k" })
 local restoreOwner = {}
 local accentHooks = setmetatable({}, { __mode = "k" })
+local layoutHooks = setmetatable({}, { __mode = "k" })
+local Unpack = unpack or table.unpack
 local tabBackground = { .068, .056, .052 }
 local tabAtlasBodyHeight = {
     ["uiframe-tab-left"] = 29, ["_uiframe-tab-center"] = 29, ["uiframe-tab-right"] = 29,
@@ -80,9 +82,6 @@ local function BuildSkin(button)
     skin.label.gui2ColorKey = nil
     skin.label:SetWordWrap(false)
     skin.label:SetPoint("CENTER")
-    skin.enter = function() button.hovered = true; Paint(button) end
-    skin.leave = function() button.hovered = false; Paint(button) end
-    skin.hide = function() button.hovered = false end
     button.skin = skin
     return skin
 end
@@ -106,19 +105,14 @@ local function ApplySkin(button, provider, pixel)
         end
         skin.underline:SetHeight(pixel)
         skin.background:Show(); skin.label:Show()
-        button:SetScript("OnEnter", skin.enter)
-        button:SetScript("OnLeave", skin.leave)
-        button:SetScript("OnHide", skin.hide)
     else
         if button.skin then for _, part in ipairs({ "background", "wash", "underline", "label" }) do button.skin[part]:Hide() end end
-        button:SetScript("OnEnter", nil)
-        button:SetScript("OnLeave", nil)
     end
 end
 
 Paint = function(button)
     local selected = button.selected == true
-    local enabled = not InCombat() and (not button.native.IsEnabled or button.native:IsEnabled())
+    local enabled = not button.native.IsEnabled or button.native:IsEnabled()
     local changed = button.paintedSelected ~= selected or button.paintedEnabled ~= enabled
     if changed then
         button.paintedSelected, button.paintedEnabled = selected, enabled
@@ -175,14 +169,15 @@ end
 local function BuildButton(state, native)
     nextButtonID = nextButtonID + 1
     local name = "YUIEquipmentBottomTab" .. nextButtonID
-    local button = GUI2:CreateButtonFrame(state.row, { name = name,
-        template = tabTemplate, clicks = "LeftButtonUp" })
+    local button = GUI2:CreateButtonFrame(state.row, { name = name, template = tabTemplate, clicks = "LeftButtonUp" })
+    button:EnableMouse(false)
     -- 原生模板只负责美术；移除它与角色／拍卖行窗口的事件和切页耦合。
     button:UnregisterAllEvents()
     button:SetScript("OnEvent", nil)
     button:SetScript("OnShow", nil)
     button:SetScript("OnEnter", nil)
     button:SetScript("OnLeave", nil)
+    button:SetScript("OnClick", nil)
     -- 两类模板分别使用单张控件高亮或三段 HIGHLIGHT 纹理；保留原生选中图层。
     local highlight = button:GetHighlightTexture()
     if highlight then highlight:SetAlpha(0) end
@@ -207,50 +202,122 @@ local function BuildButton(state, native)
         end
     end
     button.label:SetWordWrap(false)
-    button:SetScript("OnClick", function()
-        if not Tabs.active or not state.applied or InCombat() or not native:IsShown()
-            or (native.IsEnabled and not native:IsEnabled()) then return end
-        -- 由原生入口处理切页、声音及条件；不复制角色或观察窗口的切页逻辑。
-        native:OnMouseUp("LeftButton", true)
-        RequestRefresh()
-    end)
     if type(_G.hooksecurefunc) == "function" and type(native.SetChecked) == "function" then
         _G.hooksecurefunc(native, "SetChecked", function(_, checked)
-            button.selected = checked == true
-            if Tabs.active and state.applied then Paint(button); RequestRefresh() end
+            checked = checked == true
+            if not button.originalPoints or button.selected == checked then return end
+            button.selected = checked
+            Paint(button)
+            if not InCombat() then RequestRefresh() end
         end)
     end
-    -- 原生容器隐藏后，子项的条件变化不一定触发 OnShow / OnHide。
-    if type(_G.hooksecurefunc) == "function" then
-        for _, method in ipairs({ "Show", "Hide", "SetShown" }) do
-            if type(native[method]) == "function" then _G.hooksecurefunc(native, method, RequestRefresh) end
-        end
-    end
     if type(native.HookScript) == "function" then
-        native:HookScript("OnShow", RequestRefresh)
-        native:HookScript("OnHide", RequestRefresh)
+        local function SyncVisibility()
+            if not button.originalPoints then return end
+            button.hovered = false
+            button:SetShown(state.native:IsShown() and native:IsShown())
+            Paint(button)
+            if not InCombat() then RequestRefresh() end
+        end
+        native:HookScript("OnShow", SyncVisibility)
+        native:HookScript("OnHide", SyncVisibility)
+        native:HookScript("OnEnter", function()
+            if not button.originalPoints then return end
+            local tooltip = _G.GetAppropriateTooltip and _G.GetAppropriateTooltip()
+            if tooltip and tooltip:IsOwned(native) then Security.HideTooltip(tooltip) end
+            button.hovered = true
+            Paint(button)
+        end)
+        native:HookScript("OnLeave", function()
+            if not button.originalPoints then return end
+            button.hovered = false
+            Paint(button)
+        end)
     end
     state.buttons[native] = button
     return button
 end
 
+local function AnchorNativeTab(button)
+    local native = button.native
+    local count = native:GetNumPoints()
+    if button.originalPoints and count == 2 then
+        local _, first = native:GetPoint(1)
+        local _, second = native:GetPoint(2)
+        if first == button and second == button then return end
+    end
+
+    local points = {}
+    for index = 1, count do
+        local point, relative, relativePoint, x, y = native:GetPoint(index)
+        if relative ~= button then points[#points + 1] = { point, relative, relativePoint, x, y } end
+    end
+    if not button.originalPoints then
+        button.originalAlpha = native:GetAlpha()
+        native:SetAlpha(0)
+    end
+    if #points > 0 or not button.originalPoints then button.originalPoints = points end
+    -- 保留父级和原生鼠标脚本，命中区域跟随同一份底部标签外观。
+    native:ClearAllPoints()
+    native:SetAllPoints(button)
+end
+
+local function RestoreNativeTab(button)
+    local points = button.originalPoints
+    if not points then return end
+    button.originalPoints, button.hovered = nil, false
+    local native = button.native
+    for index = 1, native:GetNumPoints() do
+        local _, relative = native:GetPoint(index)
+        if relative == button then
+            native:ClearAllPoints()
+            for _, point in ipairs(points) do native:SetPoint(Unpack(point, 1, 5)) end
+            break
+        end
+    end
+    native:SetAlpha(button.originalAlpha)
+end
+
 local function Restore(state)
-    if state.row then state.row:Hide() end
-    if state.applied and not InCombat() then
-        state.applied = false
-        state.native:SetShown(state.wasShown)
+    if not state.applied or InCombat() then return end
+    state.applied = false
+    for _, button in pairs(state.buttons) do RestoreNativeTab(button) end
+    state.row:Hide()
+end
+
+local function LayoutButton(state, button, previous, overlap)
+    if not button.anchored or button.previous ~= previous or button.overlap ~= overlap then
+        button:ClearAllPoints()
+        if previous then button:SetPoint("LEFT", previous, "RIGHT", -overlap, 0)
+        else button:SetPoint("TOPLEFT", state.row, "TOPLEFT") end
+        button.previous, button.anchored, button.overlap = previous, true, overlap
     end
 end
 
 local function UpdateHost(host, provider, pixel)
-    if not host or not host:IsShown() then return end
+    if not host then return end
     local native = host.ModeTabs
-    if not native or not native.Tabs or #native.Tabs == 0 then return end
     local state = hosts[host]
-    if state and state.native ~= native then Restore(state); state = nil end
+    if state and state.native ~= native then Restore(state); hosts[host] = nil; state = nil end
+    if not native or not native.Tabs or #native.Tabs == 0 then
+        if state then Restore(state) end
+        return
+    end
+    local shown = host:IsShown()
+    local hostWidth = host:GetWidth()
+    -- 角色面板首次显示才会应用展开或收起后的宽度。
+    if not shown and host == _G.CharacterFrame and type(host.IsRightPaneCollapsed) == "function" then
+        local width = host:IsRightPaneCollapsed() and _G.CHARACTER_FRAME_COLLAPSED_WIDTH or _G.CHARACTER_FRAME_WIDTH
+        hostWidth = width or hostWidth
+    end
+    -- 脱战时也准备尚未打开的面板，首次在战斗中打开即可使用同一排标签。
+    if state and state.applied and not shown and not state.layoutDirty and state.hostWidth == hostWidth
+        and state.provider == provider and state.pixel == pixel and state.accentRevision == Tabs.accentRevision then return end
+    if hostWidth <= 16 then return end
     -- 未识别的客户端入口保留整组原生导航，避免丢失条件页签。
     for _, tab in ipairs(native.Tabs) do
-        if type(tab.OnMouseUp) ~= "function" or type(tab.GetID) ~= "function" then
+        if type(tab.OnMouseUp) ~= "function" or type(tab.GetID) ~= "function"
+            or type(tab.GetNumPoints) ~= "function" or (tab.IsProtected and tab:IsProtected()) then
             if state then Restore(state) end
             return
         end
@@ -264,12 +331,20 @@ local function UpdateHost(host, provider, pixel)
         state.row:SetPoint("TOPRIGHT", host, "BOTTOMRIGHT", -8, 2)
         hosts[host] = state
     end
-    if not state.applied then
-        state.wasShown = native:IsShown()
-        if not state.wasShown then return end
-        state.applied = true
+    if not state.applied and not native:IsShown() then return end
+    if not layoutHooks[host] and type(_G.hooksecurefunc) == "function" then
+        local method = host == _G.CharacterFrame and "UpdateTabLayout" or "InitializeModeTabLayout"
+        if type(host[method]) == "function" then
+            layoutHooks[host] = true
+            _G.hooksecurefunc(host, method, function()
+                local current = hosts[host]
+                if not current or not current.applied then return end
+                current.layoutDirty = true
+                RequestRefresh()
+            end)
+        end
     end
-    native:Hide()
+    state.applied = true
     local count = 0
     for _, tab in ipairs(native.Tabs) do if tab:IsShown() then count = count + 1 end end
     local overlap = provider and -pixel or ((tabTemplate == "AuctionTabTemplate" or tabTemplate == "CharacterFrameTabButtonTemplate") and 15 or 0)
@@ -279,52 +354,63 @@ local function UpdateHost(host, provider, pixel)
     for _, button in pairs(state.buttons) do button.present = false end
     for _, tab in ipairs(native.Tabs) do
         local button = state.buttons[tab] or BuildButton(state, tab)
+        button.present = true
+        local frameName = tab.frameName or (host == _G.InspectFrame
+            and _G.INSPECTFRAME_SUBFRAMES and _G.INSPECTFRAME_SUBFRAMES[tab:GetID()])
+        local key = names[frameName]
+        -- 原生键盘快捷键、条件回退和外部调用也会更新 SetChecked。
+        button.selected = tab.SelectedTexture and tab.SelectedTexture:IsShown()
+            or (not tab.SelectedTexture and host.selectedTab == tab:GetID())
+        ApplySkin(button, provider, pixel)
+        Paint(button)
+        local label = (key and Locale["tabs." .. key]) or tab.tooltipText or tostring(tab:GetID())
+        if button.displayText ~= label then
+            button:SetText(label)
+            _G.PanelTemplates_TabResize(button, 0, nil, 36, 88)
+            button.displayText, button.naturalWidth, button.fittedWidth = label, button:GetWidth(), nil
+        end
+        if button.skinActive and button.skin.text ~= label then
+            button.skin.label:SetText(label)
+            button.skin.text = label
+        end
         if tab:IsShown() then
-            button.present = true
-            local frameName = tab.frameName or (host == _G.InspectFrame
-                and _G.INSPECTFRAME_SUBFRAMES and _G.INSPECTFRAME_SUBFRAMES[tab:GetID()])
-            local key = names[frameName]
-            -- 原生键盘快捷键、条件回退和外部调用也会更新 SetChecked。
-            button.selected = tab.SelectedTexture and tab.SelectedTexture:IsShown()
-                or (not tab.SelectedTexture and host.selectedTab == tab:GetID())
-            ApplySkin(button, provider, pixel)
-            Paint(button)
-            local label = (key and Locale["tabs." .. key]) or tab.tooltipText or tostring(tab:GetID())
-            if button.displayText ~= label then
-                button:SetText(label)
-                _G.PanelTemplates_TabResize(button, 0, nil, 36, 88)
-                button.displayText, button.naturalWidth, button.fittedWidth = label, button:GetWidth(), nil
-            end
-            if button.skinActive and button.skin.text ~= label then
-                button.skin.label:SetText(label)
-                button.skin.text = label
-            end
             totalWidth = totalWidth + button.naturalWidth
-            if not button.anchored or button.previous ~= previous or button.overlap ~= overlap then
-                button:ClearAllPoints()
-                if previous then button:SetPoint("LEFT", previous, "RIGHT", -overlap, 0)
-                else button:SetPoint("TOPLEFT", state.row, "TOPLEFT") end
-                button.previous, button.anchored, button.overlap = previous, true, overlap
-            end
-            button:Show()
+            LayoutButton(state, button, previous, overlap)
             previous = button
         end
     end
-    local fitted = totalWidth > host:GetWidth() - 16
-        and (host:GetWidth() - 16 + math.max(0, count - 1) * overlap) / math.max(1, count) or nil
-    for _, button in pairs(state.buttons) do
-        if button.present and button.fittedWidth ~= fitted then
+    local fitted = totalWidth > hostWidth - 16
+        and (hostWidth - 16 + math.max(0, count - 1) * overlap) / math.max(1, count) or nil
+    for _, tab in ipairs(native.Tabs) do
+        local button = state.buttons[tab]
+        local shown = tab:IsShown()
+        if not shown then
+            -- 条件标签可以在战斗中出现，预先放到当前可见标签末尾。
+            LayoutButton(state, button, previous, overlap)
+            previous = button
+        end
+        if button.fittedWidth ~= fitted then
             _G.PanelTemplates_TabResize(button, 0, fitted, 36, 88)
             button.fittedWidth = fitted
         end
-        if button.present and button.skinActive and button.skin.width ~= button:GetWidth() then
+        if button.skinActive and button.skin.width ~= button:GetWidth() then
             button.skin.width = button:GetWidth()
             button.skin.label:SetWidth(math.max(1, button:GetWidth() - 12))
         end
-        if button.present then SyncNativeLabel(button) end
+        SyncNativeLabel(button)
+        AnchorNativeTab(button)
+        button:SetShown(shown and native:IsShown())
     end
-    for _, button in pairs(state.buttons) do if not button.present then button:Hide() end end
-    state.row:SetShown(count > 0)
+    for _, button in pairs(state.buttons) do
+        if not button.present then
+            RestoreNativeTab(button)
+            button:Hide()
+        end
+    end
+    state.layoutDirty = false
+    state.hostWidth = hostWidth
+    state.provider, state.pixel, state.accentRevision = provider, pixel, Tabs.accentRevision
+    state.row:Show()
 end
 
 function Tabs:Refresh(enabled, requestRefresh)
@@ -338,10 +424,9 @@ function Tabs:Refresh(enabled, requestRefresh)
     UpdateHost(_G.InspectFrame, provider, pixel)
 end
 
-function Tabs:CombatChanged()
-    for _, state in pairs(hosts) do
-        if state.applied then for _, button in pairs(state.buttons) do Paint(button) end end
-    end
+function Tabs:IsApplied(host)
+    local state = hosts[host]
+    return state and state.applied and state.native == host.ModeTabs
 end
 
 function Tabs:Stop()

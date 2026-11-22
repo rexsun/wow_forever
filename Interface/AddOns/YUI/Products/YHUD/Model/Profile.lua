@@ -1921,9 +1921,7 @@ function ProfileModel:AddMonitor(draft, definition)
             or (entry.origin == "official-cdm" and "official-cdm" or nil),
         officialCategory = definition.officialCategory
             or entry.officialCategory,
-        glow = definition.glow
-            and YHUD:NormalizeMonitorGlow(definition.glow)
-            or nil,
+        glow = definition.glow,
         sound = definition.sound
             and YHUD:NormalizeMonitorSound(definition.sound)
             or nil,
@@ -1944,6 +1942,7 @@ function ProfileModel:AddMonitor(draft, definition)
             group.layout
         ),
     }
+    monitor.glow = YHUD:NormalizeEntryMonitorGlow(monitor, entry)
     profile.monitors[monitorId] = monitor
     profile._yhudScopeByMonitor[monitorId] = entry.contentScope
     InsertArrayValue(group.monitors, monitorId, definition.index)
@@ -2632,6 +2631,10 @@ function ProfileModel:SetMonitorGlow(draft, monitorId, definition)
 
     local normalized = definition == nil
         and nil or YHUD:NormalizeMonitorGlow(definition)
+    local entry = draft.profile.entries[monitor.entryKey]
+    if normalized == nil and YHUD:IsDefaultUsableGlowEntry(entry) then
+        normalized = { rules = {}, suppressDefault = true }
+    end
     for index = 1, #(normalized and normalized.rules or {}) do
         local condition = normalized.rules[index].condition
         if not YHUD:IsMonitorGlowConditionSupported(
@@ -3580,10 +3583,11 @@ local function ValidateMonitorGlow(profile, monitor, glow)
     if glow == nil then return true end
     if type(glow) ~= "table"
         or type(glow.rules) ~= "table"
-        or #glow.rules < 1
         or #glow.rules > YHUD.MAX_MONITOR_GLOW_RULES then
         return false
     end
+    if #glow.rules == 0 then return glow.suppressDefault == true end
+    if glow.suppressDefault ~= nil then return false end
     local seen = {}
     for index = 1, #glow.rules do
         local rule = glow.rules[index]
@@ -3592,6 +3596,10 @@ local function ValidateMonitorGlow(profile, monitor, glow)
             and condition.type or nil
         if type(rule) ~= "table" or type(condition) ~= "table" then return false end
         if rule.combatOnly ~= nil and rule.combatOnly ~= true then
+            return false
+        end
+        if rule.weakenWithoutPower ~= nil
+            and (conditionType ~= "self-usable" or type(rule.weakenWithoutPower) ~= "boolean") then
             return false
         end
         local key = condition and YHUD:GetGlowConditionKey(condition)

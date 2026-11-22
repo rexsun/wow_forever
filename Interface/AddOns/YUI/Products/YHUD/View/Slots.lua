@@ -161,7 +161,8 @@ local function ApplyIconTextLayers(slot, runtime)
                 slot._yhudMonitorId
             )
         end
-        level = level or runtime and runtime.displayLayerBase or 0
+        level = (level or runtime and runtime.displayLayerBase or 0)
+            + (slot._yhudFilteredAuraLayerOffset or 0)
     else
         level = slot.GetFrameLevel and slot:GetFrameLevel() or 0
         displayStrata = runtime and runtime.displayLayerStrata
@@ -1703,6 +1704,55 @@ function View:RefreshResourceTextLayers(slot, runtime)
     return true
 end
 
+function View:ApplySlotCountdownDecimalThreshold(slot, view, threshold)
+    if view == "resource" then
+        if slot.SetResourceDurationDecimalThreshold then
+            slot:SetResourceDurationDecimalThreshold(threshold)
+        end
+        local preview = slot._yhudDesignResourcePreview
+        if preview and preview.SetResourceDurationDecimalThreshold then
+            if (preview.gui2ResourceDurationDecimalThreshold or 3) ~= threshold then
+                preview:SetResourceDurationDecimalThreshold(threshold)
+                preview._yhudPreviewResourceId = nil
+            end
+        end
+        return
+    end
+    if view ~= "icon" and view ~= "bar" and view ~= "ring" then return end
+    local cooldown = slot.countdown or slot.cooldown
+    if not (cooldown and cooldown.SetCountdownMillisecondsThreshold) then return end
+    if slot._yhudCountdownPrecisionTarget == cooldown
+        and slot._yhudCountdownPrecision == threshold then return end
+    if not pcall(cooldown.SetCountdownMillisecondsThreshold, cooldown, threshold) then return end
+    slot._yhudCountdownPrecisionTarget = cooldown
+    slot._yhudCountdownPrecision = threshold
+end
+
+function View:RefreshCountdownDecimalThreshold()
+    if _G.InCombatLockdown and _G.InCombatLockdown() then
+        self.countdownDecimalThresholdPending = true
+        return
+    end
+    self.countdownDecimalThresholdPending = nil
+    local threshold = YHUD:GetCountdownDecimalThreshold()
+    for _, slot in pairs(self.byMonitor) do
+        self:ApplySlotCountdownDecimalThreshold(slot, slot._yhudView, threshold)
+    end
+    local projection = self.designProjection
+    if projection then
+        for _, slot in pairs(projection.byMonitor) do
+            self:ApplySlotCountdownDecimalThreshold(slot, slot._yhudView, threshold)
+        end
+    end
+    if self.RefreshFilteredAuraCountdownDecimalThreshold then
+        self:RefreshFilteredAuraCountdownDecimalThreshold(threshold)
+    end
+    local bridge = YHUD.NativeBridge
+    if bridge and bridge.RefreshCountdownDecimalThreshold then
+        bridge:RefreshCountdownDecimalThreshold(threshold)
+    end
+end
+
 function View:ConfigureSlot(slot, runtime, monitor)
     if not slot then return end
     if runtime.view ~= "resource" then slot._yhudResourceRowKey = nil end
@@ -1710,15 +1760,8 @@ function View:ConfigureSlot(slot, runtime, monitor)
         GUI2:DeferIconSkin(slot, function() self:ConfigureSlot(slot, runtime, monitor) end)
         return
     end
-    local cooldown = slot.countdown or slot.cooldown
-    if (runtime.view == "icon" or runtime.view == "bar" or runtime.view == "ring")
-        and cooldown and cooldown.SetCountdownMillisecondsThreshold
-        and slot._yhudCountdownPrecisionTarget ~= cooldown then
-        local threshold = cooldown.GetCountdownMillisecondsThreshold
-            and cooldown:GetCountdownMillisecondsThreshold() or 0
-        if threshold < 3 then cooldown:SetCountdownMillisecondsThreshold(3) end
-        slot._yhudCountdownPrecisionTarget = cooldown
-    end
+    self:ApplySlotCountdownDecimalThreshold(slot, runtime.view,
+        YHUD.GetCountdownDecimalThreshold and YHUD:GetCountdownDecimalThreshold() or 3)
     if runtime.view ~= "icon" and self.HideIconShadow then self:HideIconShadow(slot) end
     if self.GetMonitorDisplayLayer then
         local level, strata = self:GetMonitorDisplayLayer(
@@ -1726,7 +1769,9 @@ function View:ConfigureSlot(slot, runtime, monitor)
             slot._yhudMonitorId or (monitor and monitor.id)
         )
         if strata and slot.SetFrameStrata then slot:SetFrameStrata(strata) end
-        if level and slot.SetFrameLevel then slot:SetFrameLevel(level) end
+        if level and slot.SetFrameLevel then
+            slot:SetFrameLevel(level + (slot._yhudFilteredAuraLayerOffset or 0))
+        end
     end
     local profile = type(monitor) == "table"
         and monitor._yhudProjectionProfile or self.profile
@@ -1740,6 +1785,7 @@ function View:ConfigureSlot(slot, runtime, monitor)
     if YHUD.PressFeedback and YHUD.PressFeedback.active then
         YHUD.PressFeedback:Bind(slot, runtime, monitor, entry)
     end
+    if YHUD.QueuedAttack then YHUD.QueuedAttack:Bind(slot, runtime, monitor, entry) end
     ConfigureSlotTooltip(slot, runtime, monitor, entry, self.designMode)
     self:ApplyKeybindText(slot, runtime, monitor, entry)
     self:ApplyIconLabel(slot, runtime, entry)
@@ -1997,7 +2043,7 @@ function View:RefreshFilteredAuraSlotLayers(slot, runtime)
     return ApplyIconTextLayers(slot, runtime)
 end
 
-function View:CreateFilteredAuraSlot(parent, runtime, monitor, nativeTooltip)
+function View:CreateFilteredAuraSlot(parent, runtime, monitor, nativeTooltip, abovePlaceholder)
     if not (parent and runtime) then return nil end
     local profile = type(monitor) == "table"
         and monitor._yhudProjectionProfile or self.profile
@@ -2057,6 +2103,9 @@ function View:CreateFilteredAuraSlot(parent, runtime, monitor, nativeTooltip)
     end
     if not slot then return nil end
     slot._yhudFilteredAuraGlow = true
+    -- The rendered slot receives its own configured level, independently of
+    -- the Aura frame that controls when it appears.
+    slot._yhudFilteredAuraLayerOffset = abovePlaceholder and 1 or nil
     slot._yhudNativeAuraTooltip = nativeTooltip == true
     slot._yhudMonitorId = monitor and monitor.id
     slot._yhudLogicalMonitorId = monitor and monitor.id
@@ -2610,6 +2659,8 @@ function View:ReleaseSlot(monitorId)
     end
     local slot = self.byMonitor[monitorId]
     if not slot then return false end
+    Glow:ReleaseUsable(slot)
+    if YHUD.QueuedAttack then YHUD.QueuedAttack:Release(slot) end
     if YUI.GUI2.HideBarShadow then YUI.GUI2:HideBarShadow(slot) end
     if self.ClearBarProgress then self:ClearBarProgress(slot) end
     if self.SuspendBuffTimerStacks then self:SuspendBuffTimerStacks(slot) end

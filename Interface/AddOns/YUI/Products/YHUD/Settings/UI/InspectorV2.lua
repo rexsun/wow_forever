@@ -214,7 +214,8 @@ function I.BuildAuraActivationStyleOptions()
 end
 
 local GLOW_CONDITION_TEXT = {
-    ["self-ready"] = { "designer.glow.self_ready", "Skill Ready" },
+    ["self-ready"] = { "designer.glow.self_ready", "Cooldown Ready" },
+    ["self-usable"] = { "designer.glow.self_usable", "Spell Usable" },
     ["self-cooldown"] = {
         "designer.glow.self_cooldown",
         "Skill Cooling Down",
@@ -1018,6 +1019,8 @@ end
 local function ShowMonitorBrowserTooltip(control)
     local entry = control and control.yhudEntry
     if not (entry and GameTooltip) then return end
+    if DesignerUI.ShowForeverSealTooltip
+        and DesignerUI:ShowForeverSealTooltip(control, entry) then return end
     GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
     if GameTooltip.ClearLines then GameTooltip:ClearLines() end
     GameTooltip:SetText(control.yhudMonitorName or "-", 1, 1, 1)
@@ -2478,6 +2481,8 @@ local function BuildMonitorBrowser(self)
     identityIcon:HookScript("OnEnter", function(control)
         local entry = control.yhudEntry
         if not (entry and GameTooltip) then return end
+        if DesignerUI.ShowForeverSealTooltip
+            and DesignerUI:ShowForeverSealTooltip(control, entry) then return end
         GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
         if GameTooltip.ClearLines then GameTooltip:ClearLines() end
         local shown
@@ -3910,6 +3915,29 @@ local function BuildMonitorBrowser(self)
             end,
         })
         row.combat:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -10, 4)
+        row.weakenLabel = GUI2:CreateText(
+            row,
+            T("designer.glow.weaken_without_power", "Dim if resources are low"),
+            "font.size.md",
+            "color.text.primary",
+            "LEFT"
+        )
+        row.weakenLabel:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 10, 44)
+        row.weaken = GUI2.Form:CreateSwitch(row, {
+            width = 48,
+            height = 26,
+            set = function(value)
+                if DesignerUI.v2Refreshing then return end
+                local _, monitor = SelectedGlowContext()
+                if not monitor then return end
+                local config = CopySelectedGlowRules(monitor)
+                local rule = config.rules[row.index]
+                if not rule or rule.condition.type ~= "self-usable" then return end
+                rule.weakenWithoutPower = value == true
+                FinishGlowMutation(Designer:SetMonitorGlow(monitor.id, config))
+            end,
+        })
+        row.weaken:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -10, 40)
         monitorGlowRules[index] = row
     end
     local monitorGlowAuraWarning = GUI2:CreatePanel(body, {
@@ -9291,6 +9319,7 @@ function I.PlaceMonitorGlowSettings(
             local conditionType = rule.condition and rule.condition.type
             row.condition:SetValue(conditionType, true)
             local stacks = conditionType == "aura-stacks"
+            local usable = conditionType == "self-usable"
             row.stackMonitorId = monitor.id
             SetDisabled(row.up, index == 1)
             SetDisabled(row.down, index == #rules)
@@ -9299,7 +9328,10 @@ function I.PlaceMonitorGlowSettings(
             row.stackLabel:SetShown(stacks)
             row.stackOperator:SetShown(stacks)
             row.stackValue:SetShown(stacks)
-            local rowHeight = MONITOR_GLOW_RULE_HEIGHT + (stacks and 36 or 0)
+            row.weakenLabel:SetShown(usable)
+            row.weaken:SetShown(usable)
+            if usable then row.weaken:SetValue(rule.weakenWithoutPower ~= false, true) end
+            local rowHeight = MONITOR_GLOW_RULE_HEIGHT + ((stacks or usable) and 36 or 0)
             row:SetHeight(rowHeight)
             if stacks then
                 row.stackOperator:SetValue(rule.condition.operator, true)

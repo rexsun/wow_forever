@@ -193,6 +193,7 @@ local PRIVATE_FIELDS = {
     key = "encodedKey",
     name = "encodedName",
     displayName = "encodedDisplayName",
+    foreverTarget = "encodedForeverTarget",
     battleTag = "encodedBattleTag",
     bnAccountName = "encodedBNAccountName",
 }
@@ -313,6 +314,10 @@ function Manager:ParseNameRealm(value)
 end
 
 function Manager:GetNormalizedRealm()
+    if YUI.IsForever then
+        if self.foreverRealm == nil then self.foreverRealm = UnitAPI.GetKnownRealmName() or false end
+        return self.foreverRealm or nil
+    end
     if type(self.normalizedRealm) == "string" and self.normalizedRealm ~= "" then
         return self.normalizedRealm
     end
@@ -363,6 +368,23 @@ local function NonEmptyString(value)
     if type(value) == "string" and value ~= "" then
         return value
     end
+end
+
+function Manager:GetForeverRegion()
+    if self.foreverRegion then return self.foreverRegion end
+    local now = time()
+    if self.foreverRegionCheckedAt ~= now then
+        self.foreverRegionCheckedAt = now
+        self.foreverRegion = UnitAPI.GetForeverRegion()
+    end
+    return self.foreverRegion
+end
+
+function Manager:GetLegacyForeverFullName(name)
+    local region = self:GetForeverRegion()
+    if region ~= "cn" then return nil end
+    local fullName, legacyRegion = UnitAPI.SplitForeverLegacyName(name)
+    if region == legacyRegion then return fullName end
 end
 
 function Manager:NormalizePlayerIdentity(data)
@@ -641,6 +663,8 @@ local function EncodeStoredConversation(data)
 end
 
 local function ResetRuntimeCaches()
+    Manager.foreverNormalizedHistory = nil
+    Manager.foreverRecentLegacy = nil
     Manager.headerCache = NewRuntimeCache()
     Manager.messageCache = NewRuntimeCache()
     Manager.playerInfoCache = {}
@@ -1234,6 +1258,7 @@ local function GetHistoryStore(config)
     if store._migrations[HISTORY_MIGRATION_KEY] then
         if MigrateLegacyConfigHistory(config, store, false) then
             SortHistoryByLatest(store)
+            Manager.foreverNormalizedHistory = nil
         end
     else
         MigrateAllLegacyProfileHistory(store, config)
@@ -1255,7 +1280,13 @@ local function GetHistoryStore(config)
         Manager.nextMessageOrder = maximum
         Manager.messageOrderInitialized = true
     end
-    NormalizePlayerHistory(store)
+    if not YUI.IsForever or Manager.foreverNormalizedHistory ~= store.history then
+        NormalizePlayerHistory(store)
+        if YUI.IsForever then
+            Manager.foreverNormalizedHistory = store.history
+            Manager.foreverRecentLegacy = nil
+        end
+    end
     if TrimHistory and not Manager.deferredBatch then
         TrimHistory(store)
     end
@@ -1688,19 +1719,40 @@ function Manager:ConfirmClearHistory()
     end
 end
 
-FindConversation = function(db, key)
+FindConversation = function(db, key, legacyFullName, needsNameEvidence)
     if not db or type(key) ~= "string" then
         return nil, nil
     end
 
+    local history = db.history or {}
+    local recent = legacyFullName and Manager.foreverRecentLegacy
+    if recent and recent.key == key and recent.history == history and recent.store == history[1] then
+        local data = EnsureRuntimeHeader(recent.store)
+        if data then return 1, data, true end
+    end
+
     local encodedKey = EncodePrivateString(key)
-    for index, stored in ipairs(db.history or {}) do
+    local legacyPrefix = legacyFullName and (key .. "-")
+    local legacyIndex, legacyData, ambiguous
+    for index, stored in ipairs(history) do
         local data = EnsureRuntimeHeader(stored)
         if data then
             if stored.encodedKey == encodedKey or stored.key == key or data.key == key then
                 return index, data
             end
+            if legacyPrefix and not ambiguous and data.kind == "player"
+                and strsub(data.key, 1, #legacyPrefix) == legacyPrefix and data.foreverTarget ~= data.name
+                and Manager:GetLegacyForeverFullName(data.name) == legacyFullName then
+                if legacyIndex then
+                    ambiguous = true
+                else
+                    legacyIndex, legacyData = index, data
+                end
+            end
         end
+    end
+    if not ambiguous and legacyData and (not needsNameEvidence or legacyData.foreverTarget == legacyFullName) then
+        return legacyIndex, legacyData, true
     end
 end
 
@@ -2554,6 +2606,30 @@ function Manager:ProcessChatMessage(name, class, text, inform, bnid, playerInfo,
     if deferred and self.deferredDeleted and (self.deferredDeleted[identity.key] or 0) >= deferred.receiptOrder then
         return
     end
+    local legacyFullName, needsNameEvidence
+    if YUI.IsForever and identity.kind == "player" and not self:GetNormalizedRealm() and UnitAPI.SplitForeverName(name) then
+        local hasHyphen = strfind(name, "-", 1, true)
+        -- Peer info queried with the event GUID can disambiguate a native hyphenated surname.
+        if hasHyphen and type(playerInfo) == "table" and not HasAnySecretValue(playerInfo.name, playerInfo.realm)
+            and playerInfo.name == name and not NonEmptyString(playerInfo.realm) and not self:GetLegacyForeverFullName(name) then
+            identity.foreverTarget = name
+        end
+        if self:GetForeverRegion() == "cn" then
+            legacyFullName = name
+            needsNameEvidence = hasHyphen and not identity.foreverTarget
+        end
+    end
+    local index, data, matchedLegacy = FindConversation(db, identity.key, legacyFullName, needsNameEvidence)
+    if matchedLegacy then
+        local recent = self.foreverRecentLegacy
+        if not recent or recent.store ~= data._store or recent.key ~= identity.key then
+            self.foreverRecentLegacy = { key = identity.key, history = db.history, store = data._store }
+        end
+        -- Preserve the original row and key, including selection and favorites.
+        identity.key, identity.name = data.key, data.name
+    elseif self.foreverRecentLegacy and (not data or data._store ~= self.foreverRecentLegacy.store) then
+        self.foreverRecentLegacy = nil
+    end
     if not deferred then self.nextMessageOrder = (self.nextMessageOrder or time() * 1000000) + 1 end
     if identity.kind == "player" and type(playerInfo) == "table" then
         if playerInfo.classFile then
@@ -2565,7 +2641,6 @@ function Manager:ProcessChatMessage(name, class, text, inform, bnid, playerInfo,
         CachePlayerInfo(identity.name, identity)
     end
 
-    local index, data = FindConversation(db, identity.key)
     if index then
         if index > 1 then
             local stored = data._store
@@ -3676,11 +3751,15 @@ function Manager:GetConversationTargetName(data)
     local target = NonEmptyString(data.name)
     if not target then return nil end
     if YUI.IsForever and data.kind == "player" then
-        -- History uses a realm-qualified key; native actions need the regional full name.
-        -- Only remove the exact local suffix from a complete name, without rewriting history.
+        -- Native actions need the regional full name. Keep the archived address intact.
         local realm = self:GetNormalizedRealm()
-        local suffix = realm and ("-" .. realm)
-        if suffix and strsub(target, -#suffix) == suffix then
+        if not realm then
+            if data.foreverTarget == target then return target end
+            if UnitAPI.SplitForeverName(target) and not strfind(target, "-", 1, true) then return target end
+            return self:GetLegacyForeverFullName(target)
+        end
+        local suffix = "-" .. realm
+        if strsub(target, -#suffix) == suffix then
             local name = strsub(target, 1, #target - #suffix)
             if strfind(name, " ", 1, true) then target = name end
         end
@@ -3702,7 +3781,8 @@ function Manager:GetConversationFullName(data)
     end
 
     if YUI.IsForever and data.kind == "player" then
-        return self:GetConversationTargetName(data) or ""
+        if IsSecretValue(data.name) then return "" end
+        return self:GetConversationTargetName(data) or NonEmptyString(data.name) or ""
     end
     return data.name or self:GetDisplayName(data, true) or self:GetDisplayName(data) or ""
 end
@@ -3909,7 +3989,8 @@ function Manager:ShowFallbackContextMenu(anchor, data)
     end
 
     local items = {
-        { text = T("action.reply"), action = function() Manager:ReplySelected() end },
+        { text = T("action.reply"), disabled = YUI.IsForever and data.kind == "player"
+            and not self:GetConversationTargetName(data), action = function() Manager:ReplySelected() end },
     }
     if data.kind == "player" then
         tinsert(items, { text = T("action.who"), action = function() Manager:WhoSelected() end })
@@ -5397,7 +5478,7 @@ function Manager:RefreshMessages()
         frame.conversationTag:Show()
     end
     frame.protectCheck:SetChecked(data.protected, true)
-    frame.replyButton:SetDisabled(false)
+    frame.replyButton:SetDisabled(YUI.IsForever and data.kind == "player" and not self:GetConversationTargetName(data))
     local playerActionsDisabled = data.kind ~= "player"
     frame.whoButton:SetDisabled(playerActionsDisabled)
     frame.inviteButton:SetDisabled(not self:CanInviteConversation(data))
@@ -5599,6 +5680,14 @@ function Manager:ExportSelectedLog()
     self:ShowCopyEditBox(self:BuildExportText(data))
 end
 
+function Manager:PLAYER_ENTERING_WORLD()
+    local previousRealm = self.foreverRealm
+    self.foreverRealm, self.foreverRegion, self.foreverRegionCheckedAt = nil, nil, nil
+    self:GetNormalizedRealm()
+    if previousRealm ~= self.foreverRealm then self.foreverNormalizedHistory = nil end
+    self.foreverRecentLegacy = nil
+end
+
 function Manager:AttachEvents()
     if self.eventsAttached or not Event then
         return
@@ -5609,6 +5698,9 @@ function Manager:AttachEvents()
     Event:On("CHAT_MSG_BN_WHISPER", "CHAT_MSG_BN_WHISPER", self, { moduleId = "component:" .. FEATURE_KEY })
     Event:On("CHAT_MSG_BN_WHISPER_INFORM", "CHAT_MSG_BN_WHISPER_INFORM", self, { moduleId = "component:" .. FEATURE_KEY })
     Event:On("PLAYER_LOGOUT", "PLAYER_LOGOUT", self, { moduleId = "component:" .. FEATURE_KEY })
+    if YUI.IsForever then
+        Event:On("PLAYER_ENTERING_WORLD", "PLAYER_ENTERING_WORLD", self, { moduleId = "component:" .. FEATURE_KEY })
+    end
     Event:On("WHO_LIST_UPDATE", "WHO_LIST_UPDATE", self, { moduleId = "component:" .. FEATURE_KEY })
     Event:On("FRIENDLIST_UPDATE", function()
         BroadcastUpdate()
@@ -5627,6 +5719,8 @@ end
 
 function Manager:DetachEvents()
     self:StopDeferredWhispers(true)
+    self.foreverRealm, self.foreverRegion, self.foreverRegionCheckedAt = nil, nil, nil
+    self.foreverNormalizedHistory, self.foreverRecentLegacy = nil, nil
     if Event and Event.OffOwner then
         Event:OffOwner(self)
     end

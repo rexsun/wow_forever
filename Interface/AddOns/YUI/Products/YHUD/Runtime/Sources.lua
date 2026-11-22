@@ -1507,8 +1507,10 @@ function Sources:ResolveEntrySource(profile, entry, monitor, sourceKey)
             }
         end
     elseif entry.sourceType == PLAYER_AURA_SOURCE_TYPE then
-        -- Food and drink uses the native display without per-ID queries.
-        if YHUD.IsFoodDrinkPreset and YHUD:IsFoodDrinkPreset(entry) then
+        -- Managed collections are native-only; missing native capabilities
+        -- must not fan out their candidate lists into per-ID queries.
+        if (YHUD.IsForeverSealPreset and YHUD:IsForeverSealPreset(entry))
+            or (YHUD.IsFoodDrinkPreset and YHUD:IsFoodDrinkPreset(entry)) then
             return nil
         end
         if YHUD.CanUseFilteredAuraDisplay
@@ -2859,6 +2861,10 @@ function Sources:OnCombatStateChanged(event)
     end
     if self.active and YHUD.View and YHUD.View.RefreshGlows then
         YHUD.View:RefreshGlows(inCombat)
+    end
+    if event == "PLAYER_REGEN_ENABLED" and self.active
+        and YHUD.View and YHUD.View.countdownDecimalThresholdPending then
+        YHUD.View:RefreshCountdownDecimalThreshold()
     end
     if event == "PLAYER_REGEN_ENABLED" and self.active
         and self.resourceWorldSettlePending == true then

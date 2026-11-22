@@ -428,9 +428,12 @@ local function NonEmptyString(value)
 end
 
 local function NormalizeRealm(value)
+    if YUI.IsForever and type(UnitAPI.NormalizeCharacterRealm) == "function" then
+        return UnitAPI.NormalizeCharacterRealm(value)
+    end
     value = NonEmptyString(value)
     if not value then return nil end
-    return string_gsub(value, "%s+", "")
+    return NonEmptyString((string_gsub(value, "%s+", "")))
 end
 
 local function SplitNameRealm(value, explicitRealm)
@@ -444,26 +447,35 @@ local function SplitNameRealm(value, explicitRealm)
     return name or value, NormalizeRealm(realm)
 end
 
+local function SplitForeverName(value)
+    if type(UnitAPI.SplitForeverName) == "function" then return UnitAPI.SplitForeverName(value) end
+    value = NonEmptyString(value)
+    if value then return string_match(value, "^([^%s]+) ([^%s]+)$") end
+end
+
 local function IsValidContactName(value)
     value = NonEmptyString(value)
     if not value or #value > 64 then return false end
     if not string_match(value, "%s") then return true end
-    -- Forever regional names have exactly one space between given name and surname.
-    return YUI.IsForever == true and string_match(value, "^[^%s]+ [^%s]+$") ~= nil
+    return YUI.IsForever == true and SplitForeverName(value) ~= nil
 end
 
 local function GetCurrentRealm()
+    if YUI.IsForever and type(UnitAPI.GetKnownRealmName) == "function" then
+        return UnitAPI.GetKnownRealmName()
+    end
     if type(UnitAPI.GetNormalizedRealmName) == "function" then
-        local realm = UnitAPI.GetNormalizedRealmName()
-        if NonEmptyString(realm) then return NormalizeRealm(realm) end
+        local realm = NormalizeRealm(UnitAPI.GetNormalizedRealmName())
+        if realm then return realm end
     end
     if type(_G.GetNormalizedRealmName) == "function" then
         local ok, realm = pcall(_G.GetNormalizedRealmName)
-        if ok and NonEmptyString(realm) then return NormalizeRealm(realm) end
+        realm = ok and NormalizeRealm(realm)
+        if realm then return realm end
     end
     if type(_G.GetRealmName) == "function" then
         local ok, realm = pcall(_G.GetRealmName)
-        if ok and NonEmptyString(realm) then return NormalizeRealm(realm) end
+        if ok then return NormalizeRealm(realm) end
     end
 end
 
@@ -472,6 +484,119 @@ local function ContactKey(name, realm)
     realm = NormalizeRealm(realm)
     if not name or not realm then return nil end
     return string_lower(name) .. "-" .. string_lower(realm)
+end
+
+local function NormalizeRegion(value)
+    value = NonEmptyString(value)
+    if value and value:match("^[A-Za-z][A-Za-z]$") then return string_lower(value) end
+end
+
+local foreverRegion
+local function GetForeverRegion()
+    if not YUI.IsForever then return nil end
+    if not foreverRegion then
+        if type(UnitAPI.GetForeverRegion) == "function" then
+            foreverRegion = UnitAPI.GetForeverRegion()
+        elseif type(_G.GetCurrentRegionName) == "function" then
+            local ok, region = pcall(_G.GetCurrentRegionName)
+            if ok then foreverRegion = NormalizeRegion(region) end
+        end
+    end
+    return foreverRegion
+end
+
+local function RegionalContactKey(name, region)
+    if region and name and #name <= 64 and SplitForeverName(name) then
+        return "forever:" .. region .. ":" .. string_lower(name)
+    end
+end
+
+local function GetSavedRegion(realm, region, currentRealm, realmUnknown)
+    if not region or not realm or realmUnknown then return nil end
+    local lowerRealm = string_lower(realm)
+    if type(UnitAPI.GetForeverLegacyRealmRegion) == "function" then
+        local legacyRegion = UnitAPI.GetForeverLegacyRealmRegion(realm)
+        if legacyRegion then return legacyRegion end
+    else
+        local realmCode = lowerRealm:gsub("^camwow", "")
+        if realmCode:match("^cn%d+realm%d+pv[ep]$") then return "cn" end
+    end
+    if currentRealm and lowerRealm == string_lower(currentRealm) then return region end
+end
+
+local PERSONAL_FIELDS = { "name", "realm", "region", "realmUnknown", "classFile", "faction", "manuallyAdded", "sortOrder" }
+local PERSONAL_MERGE_FIELDS = { "name", "realm", "region", "classFile", "faction", "sortOrder" }
+
+local function MergeMissingFields(target, source)
+    if target.realmUnknown and not source.realmUnknown then
+        target.realm, target.realmUnknown = source.realm, nil
+    end
+    for _, field in ipairs(PERSONAL_MERGE_FIELDS) do
+        if target[field] == nil and source[field] ~= nil then target[field] = source[field] end
+    end
+end
+
+local regionalAliases = setmetatable({}, { __mode = "k" })
+
+local function SavedRegionalIdentity(entry, region)
+    if not region or type(entry) ~= "table" then return nil end
+    local entryRegion = NormalizeRegion(entry.region)
+    if entry.region ~= nil and not entryRegion then return nil end
+    local realm = NormalizeRealm(entry.realm)
+    local name, embeddedRealm = SplitNameRealm(entry.name, realm)
+    entryRegion = entryRegion
+        or GetSavedRegion(embeddedRealm or realm, region, runtime.regionalLegacyRealm, entry.realmUnknown)
+    return RegionalContactKey(name, entryRegion), entryRegion
+end
+
+local function IndexRegionalAliases(collection, region)
+    if regionalAliases[collection] then return end
+    local aliases = {}
+    for rawKey, entry in pairs(collection) do
+        local key = type(rawKey) == "string" and SavedRegionalIdentity(entry, region)
+        if key and key ~= rawKey then
+            if not aliases[key] then aliases[key] = {} end
+            table_insert(aliases[key], rawKey)
+        end
+    end
+    for key, keys in pairs(aliases) do
+        table_sort(keys)
+        local target = type(collection[key]) == "table" and collection[key] or collection[keys[1]]
+        for _, rawKey in ipairs(keys) do
+            local source = collection[rawKey]
+            if source ~= target then
+                for _, field in ipairs({ "classFile", "faction", "sortOrder" }) do
+                    if target[field] == nil then target[field] = source[field] end
+                end
+            end
+        end
+    end
+    regionalAliases[collection] = aliases
+end
+
+-- Use the existing physical key when the regional identity has an older spelling.
+local function GetPersonalEntry(collection, key)
+    local entry = collection[key]
+    if entry ~= nil then return entry, key end
+    local aliases = regionalAliases[collection]
+    local keys = aliases and aliases[key]
+    if keys then
+        for _, savedKey in ipairs(keys) do
+            if collection[savedKey] ~= nil then return collection[savedKey], savedKey end
+        end
+    end
+    return nil, key
+end
+
+local function DeletePersonalEntry(collection, key)
+    if GetPersonalEntry(collection, key) == nil then return false end
+    collection[key] = nil
+    local aliases = regionalAliases[collection]
+    if aliases and aliases[key] then
+        for _, rawKey in ipairs(aliases[key]) do collection[rawKey] = nil end
+        aliases[key] = nil
+    end
+    return true
 end
 
 local function NormalizeCategory(value)
@@ -550,21 +675,40 @@ local function GetPersonalStore(create)
         end
     end
     store.schemaVersion = STORE_SCHEMA_VERSION
+    local region = GetForeverRegion()
+    if region then
+        if runtime.regionalStore ~= store then
+            runtime.regionalLegacyRealm = GetCurrentRealm()
+            runtime.regionalStore = store
+            runtime.dirty[CATEGORY_ALTS], runtime.dirty[CATEGORY_FAVORITES] = true, true
+        end
+        IndexRegionalAliases(store.characters, region)
+        IndexRegionalAliases(store.favorites, region)
+    end
     return store
 end
 
 local function GetCurrentIdentity()
     local name, realm
     local classFile
+    local region = GetForeverRegion()
     if YUI.IsForever then
         local names = _G.NameUtil
-        local getName = names and names.GetUnmodifiedUnitFullName or _G.UnitNameUnmodified
-        if type(getName) == "function" then
-            local ok, first, surname = pcall(getName, "player")
-            if ok then
-                name = NonEmptyString(first)
-                if name and NonEmptyString(surname) then name = name .. " " .. surname end
-                realm = GetCurrentRealm()
+        local reader = _G.UnitNameUnmodified
+        local formatter = names and names.GetUnmodifiedUnitFullName
+        if type(UnitAPI.ReadForeverName) == "function" then
+            name = UnitAPI.ReadForeverName("player", reader)
+            if not name and formatter then name = UnitAPI.ReadForeverName("player", formatter) end
+        else
+            reader = reader or formatter
+            if type(reader) == "function" then
+                local ok, first, surname = pcall(reader, "player")
+                if ok then
+                    name = NonEmptyString(first)
+                    if name and not string_match(name, "%s") and NonEmptyString(surname) then
+                        name = name .. " " .. surname
+                    end
+                end
             end
         end
     end
@@ -589,13 +733,21 @@ local function GetCurrentIdentity()
     end
     if YUI.IsForever then
         -- The second unit-name result is a surname on this client.
-        local currentRealm = GetCurrentRealm()
-        if NonEmptyString(name) and NonEmptyString(realm) and NormalizeRealm(realm) ~= currentRealm
-            and not string_match(name, "%s") then name = name .. " " .. realm end
-        realm = currentRealm
+        if NonEmptyString(name) and NonEmptyString(realm) and not string_match(name, "%s")
+            and NormalizeRealm(realm) ~= GetCurrentRealm() then
+            if type(UnitAPI.FormatForeverName) == "function" then
+                name = UnitAPI.FormatForeverName(name, realm)
+            else
+                name = name .. " " .. realm
+            end
+        end
+        realm = nil
     end
-    realm = NormalizeRealm(realm) or GetCurrentRealm()
-    if not NonEmptyString(name) or not realm then return nil end
+    name = NonEmptyString(name)
+    local regionalKey = RegionalContactKey(name, region)
+    if not regionalKey then realm = NormalizeRealm(realm) or GetCurrentRealm() end
+    local key = regionalKey or ContactKey(name, realm)
+    if not key then return nil end
 
     local className
     if type(_G.UnitClass) == "function" then
@@ -610,10 +762,11 @@ local function GetCurrentIdentity()
     return {
         name = name,
         realm = realm,
+        region = regionalKey and region or nil,
         className = className,
         classFile = classFile,
         faction = faction,
-        key = ContactKey(name, realm),
+        key = key,
     }
 end
 
@@ -623,10 +776,10 @@ local function IsCurrentCharacter(contact)
 end
 
 local function RepairForeverPersonalNames(store)
-    if not YUI.IsForever or not store then return end
+    if not YUI.IsForever or not store or GetForeverRegion() then return end
     local identity = GetCurrentIdentity()
     if not identity then return end
-    local surname = string_match(identity.name, "^[^%s]+ ([^%s]+)$")
+    local _, surname = SplitForeverName(identity.name)
     local repairs = {}
     for key, entry in pairs(store.characters) do
         if type(entry) == "table" and entry.manuallyAdded ~= true then
@@ -667,9 +820,42 @@ local function RepairForeverPersonalNames(store)
     if #repairs > 0 then runtime.dirty[CATEGORY_ALTS], runtime.dirty[CATEGORY_FAVORITES] = true, true end
 end
 
+local function RepairCurrentRegionalAliases(store, identity)
+    local given, surname = SplitForeverName(identity.name)
+    local nameKey = ContactKey(given, surname)
+    local keys = {}
+    for oldKey, entry in pairs(store.characters) do
+        if type(oldKey) == "string" and type(entry) == "table" and not entry.region and entry.manuallyAdded ~= true then
+            if (entry.realmUnknown and entry.name == identity.name)
+                or (oldKey == nameKey and entry.name == given and entry.realm == surname and (entry.classFile or entry.faction)) then
+                keys[#keys + 1] = oldKey
+            end
+        end
+    end
+    table_sort(keys)
+    for _, oldKey in ipairs(keys) do
+        local alt = store.characters[oldKey]
+        local favorite = store.favorites[oldKey]
+        if type(favorite) == "table" and not favorite.region and favorite.name == alt.name and favorite.realm == alt.realm then
+            favorite.name, favorite.realm, favorite.region = identity.name, identity.realm, identity.region
+            favorite.realmUnknown = nil
+        end
+        alt.name, alt.realm, alt.region = identity.name, identity.realm, identity.region
+        alt.realmUnknown = nil
+    end
+    if #keys > 0 then
+        regionalAliases[store.characters], regionalAliases[store.favorites] = nil, nil
+        IndexRegionalAliases(store.characters, identity.region)
+        IndexRegionalAliases(store.favorites, identity.region)
+    end
+    return #keys > 0
+end
+
 function MailAssistant:GetMailLogCharacter()
     local identity = GetCurrentIdentity()
-    return identity and (identity.name .. "-" .. identity.realm)
+    if identity then
+        return identity.region and identity.name or (identity.name .. "-" .. identity.realm)
+    end
 end
 
 local classFileByLocalizedName
@@ -753,15 +939,19 @@ local function GetManualFactionOptions()
 end
 
 local function NewContact(name, realm, options)
-    local explicitRealm = realm
-    name, realm = SplitNameRealm(name, explicitRealm or (options and options.realm) or GetCurrentRealm())
-    realm = realm or NormalizeRealm(explicitRealm) or NormalizeRealm(options and options.realm) or GetCurrentRealm()
-    local key = ContactKey(name, realm)
+    local region = options and options.region
+    local explicitRealm = NormalizeRealm(realm) or NormalizeRealm(options and options.realm)
+    local currentRealm = not region and not explicitRealm and GetCurrentRealm() or nil
+    name, realm = SplitNameRealm(name, explicitRealm or currentRealm)
+    realm = realm or explicitRealm
+    realm = realm or currentRealm
+    local key = region and RegionalContactKey(name, region) or (not region and ContactKey(name, realm))
     if not key then return nil end
     return {
         key = key,
         name = name,
         realm = realm,
+        region = region,
         realmUnknown = options and options.realmUnknown == true or nil,
         classFile = options and options.classFile,
         className = options and options.className,
@@ -794,8 +984,8 @@ local function SyncAutomaticContactMetadata(contact)
         or (contact.source ~= CATEGORY_FRIENDS and contact.source ~= CATEGORY_GUILD) then return false end
     local store = GetPersonalStore(false)
     if not store then return false end
-    local charactersChanged = ApplyAutomaticMetadata(store.characters[contact.key], contact)
-    local favoritesChanged = ApplyAutomaticMetadata(store.favorites[contact.key], contact)
+    local charactersChanged = ApplyAutomaticMetadata(GetPersonalEntry(store.characters, contact.key), contact)
+    local favoritesChanged = ApplyAutomaticMetadata(GetPersonalEntry(store.favorites, contact.key), contact)
     if charactersChanged then runtime.dirty[CATEGORY_ALTS] = true end
     if favoritesChanged then runtime.dirty[CATEGORY_FAVORITES] = true end
     return charactersChanged or favoritesChanged
@@ -808,6 +998,26 @@ local function AddUniqueContact(list, seen, contact)
     seen[contact.key] = true
     list[#list + 1] = contact
     return true
+end
+
+local function AddSavedContact(list, seen, collection, rawKey, entry, source, region)
+    if type(entry) ~= "table" then return end
+    local key, entryRegion = SavedRegionalIdentity(entry, region)
+    entryRegion = entryRegion or entry.region
+    if entryRegion and entryRegion ~= region then return end
+    if key then
+        local _, savedKey = GetPersonalEntry(collection, key)
+        if rawKey ~= savedKey then return end
+    end
+    AddUniqueContact(list, seen, NewContact(entry.name, entry.realm, {
+        region = entryRegion,
+        realmUnknown = entry.realmUnknown,
+        classFile = entry.classFile,
+        faction = entry.faction,
+        manuallyAdded = entry.manuallyAdded,
+        source = source,
+        sortOrder = entry.sortOrder,
+    }))
 end
 
 local function NormalizeSortOrder(value)
@@ -842,15 +1052,17 @@ function MailAssistant:RegisterCurrentCharacter()
     if not store then return false end
 
     RepairForeverPersonalNames(store)
-    local previous = store.characters[identity.key]
-    store.characters[identity.key] = {
+    if identity.region and RepairCurrentRegionalAliases(store, identity) then self:Invalidate(CATEGORY_FAVORITES) end
+    local previous, savedKey = GetPersonalEntry(store.characters, identity.key)
+    store.characters[savedKey] = {
         name = identity.name,
-        realm = identity.realm,
+        realm = identity.realm or (type(previous) == "table" and previous.realm or nil),
+        region = identity.region,
         classFile = identity.classFile,
         faction = identity.faction,
         sortOrder = type(previous) == "table" and previous.sortOrder or nil,
     }
-    if ApplyAutomaticMetadata(store.favorites[identity.key], identity) then
+    if ApplyAutomaticMetadata(GetPersonalEntry(store.favorites, identity.key), identity) then
         self:Invalidate(CATEGORY_FAVORITES)
     end
     runtime.characterRegistered = true
@@ -862,17 +1074,10 @@ function MailAssistant:BuildAlts()
     local list, seen = {}, {}
     local store = GetPersonalStore(false)
     RepairForeverPersonalNames(store)
-    for _, entry in pairs(store and store.characters or {}) do
-        if type(entry) == "table" then
-            AddUniqueContact(list, seen, NewContact(entry.name, entry.realm, {
-                realmUnknown = entry.realmUnknown,
-                classFile = entry.classFile,
-                faction = entry.faction,
-                manuallyAdded = entry.manuallyAdded,
-                source = CATEGORY_ALTS,
-                sortOrder = entry.sortOrder,
-            }))
-        end
+    local region = GetForeverRegion()
+    local collection = store and store.characters or {}
+    for rawKey, entry in pairs(collection) do
+        AddSavedContact(list, seen, collection, rawKey, entry, CATEGORY_ALTS, region)
     end
     return SortContacts(list)
 end
@@ -892,17 +1097,18 @@ local function IsCurrentWowGameAccount(info)
         and info.isInCurrentRegion == true
 end
 
-local function AddBattleNetGameAccount(list, seen, info, accountName, faction)
+local function AddBattleNetGameAccount(list, seen, info, accountName, faction, region)
     if not IsCurrentWowGameAccount(info) then return end
-    -- Battle.net spans products and regions; never infer a missing address from this character.
     local name = NonEmptyString(info.characterName)
     local realm = NormalizeRealm(info.realmName)
-    if not name or not NonEmptyString(realm) then return end
-    if faction and NonEmptyString(info.factionName) and info.factionName ~= faction then return end
+    local friendFaction = NonEmptyString(info.factionName)
+    if not name or (not region and not realm) then return end
+    if faction and (region or friendFaction) and friendFaction ~= faction then return end
     AddUniqueContact(list, seen, NewContact(name, realm, {
+        region = region,
         className = info.className,
         classFile = GetClassFile(info.className),
-        faction = info.factionName or faction,
+        faction = friendFaction or faction,
         bnetName = accountName,
         source = CATEGORY_FRIENDS,
     }))
@@ -911,11 +1117,13 @@ end
 function MailAssistant:BuildFriends()
     local list, seen = {}, {}
     local faction = GetCurrentFaction()
+    local region = GetForeverRegion()
     local friendCount = type(Social.GetNumFriends) == "function" and Social.GetNumFriends() or 0
     for index = 1, tonumber(friendCount) or 0 do
         local info = type(Social.GetFriendInfoByIndex) == "function" and Social.GetFriendInfoByIndex(index) or nil
         if info and (info.connected == true or info.online == true) then
             AddUniqueContact(list, seen, NewContact(info.name, nil, {
+                region = region,
                 className = info.className,
                 classFile = GetClassFile(info.className),
                 faction = faction,
@@ -941,10 +1149,10 @@ function MailAssistant:BuildFriends()
             and _G.C_BattleNet and type(_G.C_BattleNet.GetFriendGameAccountInfo) == "function" then
             for gameIndex = 1, gameAccountCount do
                 local ok, gameInfo = pcall(_G.C_BattleNet.GetFriendGameAccountInfo, friendIndex, gameIndex)
-                if ok then AddBattleNetGameAccount(list, seen, gameInfo, accountName, faction) end
+                if ok then AddBattleNetGameAccount(list, seen, gameInfo, accountName, faction, region) end
             end
         elseif accountInfo then
-            AddBattleNetGameAccount(list, seen, accountInfo.gameAccountInfo, accountName, faction)
+            AddBattleNetGameAccount(list, seen, accountInfo.gameAccountInfo, accountName, faction, region)
         end
     end
     return SortContacts(list)
@@ -980,6 +1188,7 @@ function MailAssistant:BuildGuild()
     end
     local getInfo = type(API.GetGuildRosterInfo) == "function" and API.GetGuildRosterInfo
         or (type(_G.GetGuildRosterInfo) == "function" and _G.GetGuildRosterInfo) or nil
+    local region = GetForeverRegion()
     for index = 1, tonumber(count) or 0 do
         local fullName, _, _, _, className, _, _, _, _, _, classFile
         if getInfo then
@@ -988,6 +1197,7 @@ function MailAssistant:BuildGuild()
             if not ok then fullName, className, classFile = nil, nil, nil end
         end
         AddUniqueContact(list, seen, NewContact(fullName, nil, {
+            region = region,
             className = className,
             classFile = classFile or GetClassFile(className),
             source = CATEGORY_GUILD,
@@ -1000,24 +1210,17 @@ function MailAssistant:BuildFavorites()
     local list, seen = {}, {}
     local store = GetPersonalStore(false)
     RepairForeverPersonalNames(store)
-    for _, entry in pairs(store and store.favorites or {}) do
-        if type(entry) == "table" then
-            AddUniqueContact(list, seen, NewContact(entry.name, entry.realm, {
-                realmUnknown = entry.realmUnknown,
-                classFile = entry.classFile,
-                faction = entry.faction,
-                manuallyAdded = entry.manuallyAdded,
-                source = CATEGORY_FAVORITES,
-                sortOrder = entry.sortOrder,
-            }))
-        end
+    local region = GetForeverRegion()
+    local collection = store and store.favorites or {}
+    for rawKey, entry in pairs(collection) do
+        AddSavedContact(list, seen, collection, rawKey, entry, CATEGORY_FAVORITES, region)
     end
     return SortContacts(list)
 end
 
 function MailAssistant:IsFavorite(contact)
     local store = GetPersonalStore(false)
-    return store and contact and contact.key and store.favorites[contact.key] ~= nil or false
+    return store and contact and contact.key and GetPersonalEntry(store.favorites, contact.key) ~= nil or false
 end
 
 function MailAssistant:SetFavorite(contact, favorite)
@@ -1025,17 +1228,18 @@ function MailAssistant:SetFavorite(contact, favorite)
     local store = GetPersonalStore(true)
     if not store then return false end
     if favorite == true then
-        local previous = store.favorites[contact.key]
-        store.favorites[contact.key] = {
+        local previous, savedKey = GetPersonalEntry(store.favorites, contact.key)
+        store.favorites[savedKey] = {
             name = contact.name,
             realm = contact.realm,
+            region = contact.region,
             realmUnknown = contact.realmUnknown,
             classFile = contact.classFile,
             faction = contact.faction,
             sortOrder = type(previous) == "table" and previous.sortOrder or nil,
         }
     else
-        store.favorites[contact.key] = nil
+        DeletePersonalEntry(store.favorites, contact.key)
     end
     self:Invalidate(CATEGORY_FAVORITES)
     return true
@@ -1052,15 +1256,14 @@ end
 function MailAssistant:RecordSentRecipient(value)
     value = NonEmptyString(value)
     if not value then return false end
-    local contact = NewContact(string_match(value, "^%s*(.-)%s*$"))
-    if not contact or not IsValidContactName(contact.name) or not NonEmptyString(contact.realm)
-        or #contact.realm > 128
+    local contact = NewContact(string_match(value, "^%s*(.-)%s*$"), nil, { region = GetForeverRegion() })
+    if not contact or not IsValidContactName(contact.name) or (contact.realm and #contact.realm > 128)
         or IsCurrentCharacter(contact) then return false end
 
     local store = GetPersonalStore(false)
     if store then
-        CopyContactMetadata(contact, store.characters[contact.key])
-        CopyContactMetadata(contact, store.favorites[contact.key])
+        CopyContactMetadata(contact, GetPersonalEntry(store.characters, contact.key))
+        CopyContactMetadata(contact, GetPersonalEntry(store.favorites, contact.key))
     end
     local recent = runtime.recentRecipients
     for index = #recent, 1, -1 do
@@ -1084,9 +1287,12 @@ function MailAssistant:AddPersonalContact(category, value, metadata)
     value = NonEmptyString(value)
     if not value then return nil, "invalid" end
     value = string_match(value, "^%s*(.-)%s*$")
-    local contact = NewContact(value, nil, { source = category })
-    if not contact or not IsValidContactName(contact.name) or not NonEmptyString(contact.realm)
-        or #contact.realm > 128 then
+    local region = GetForeverRegion()
+    local contact = NewContact(value, nil, { source = category, region = region })
+    if not contact or not IsValidContactName(contact.name) or (contact.realm and #contact.realm > 128) then
+        return nil, "invalid"
+    end
+    if region and contact.realm and GetSavedRegion(contact.realm, region, GetCurrentRealm()) ~= region then
         return nil, "invalid"
     end
     if IsCurrentCharacter(contact) then return nil, "current_character" end
@@ -1096,17 +1302,18 @@ function MailAssistant:AddPersonalContact(category, value, metadata)
     local store = GetPersonalStore(true)
     if not store then return nil, "store_unavailable" end
     local collection = category == CATEGORY_ALTS and store.characters or store.favorites
-    if collection[contact.key] ~= nil then return nil, "duplicate" end
+    if GetPersonalEntry(collection, contact.key) ~= nil then return nil, "duplicate" end
 
     local entry = {
         name = contact.name,
         realm = contact.realm,
+        region = contact.region,
         classFile = classFile,
         faction = faction,
         manuallyAdded = true,
     }
     local other = category == CATEGORY_ALTS and store.favorites or store.characters
-    CopyContactMetadata(entry, other[contact.key])
+    CopyContactMetadata(entry, GetPersonalEntry(other, contact.key))
     collection[contact.key] = entry
     contact.realmUnknown = entry.realmUnknown
     contact.classFile = entry.classFile
@@ -1123,8 +1330,7 @@ function MailAssistant:RemovePersonalContact(category, contact)
     if type(contact) ~= "table" or not contact.key then return false end
     local store = GetPersonalStore(false)
     local collection = store and (category == CATEGORY_ALTS and store.characters or store.favorites)
-    if type(collection) ~= "table" or collection[contact.key] == nil then return false end
-    collection[contact.key] = nil
+    if type(collection) ~= "table" or not DeletePersonalEntry(collection, contact.key) then return false end
     self:Invalidate(category)
     self:RefreshNow(true)
     return true
@@ -1144,18 +1350,26 @@ function MailAssistant:MovePersonalContact(category, contact, direction)
     if not neighbor then return false end
     local store = GetPersonalStore(false)
     local collection = store and (category == CATEGORY_ALTS and store.characters or store.favorites)
-    local target = collection and collection[contact.key]
-    local adjacent = collection and collection[neighbor.key]
+    local target = collection and GetPersonalEntry(collection, contact.key)
+    local adjacent = collection and GetPersonalEntry(collection, neighbor.key)
     if type(target) ~= "table" or type(adjacent) ~= "table" then return false end
 
     -- 保留当前角色在账号顺序中的位置，再交换相邻的可见角色。
     local ordered = {}
-    for _, entry in pairs(collection) do
+    local region = GetForeverRegion()
+    for rawKey, entry in pairs(collection) do
         if type(entry) == "table" then
-            local saved = NewContact(entry.name, entry.realm, { sortOrder = entry.sortOrder })
-            if saved then
-                saved.personalEntry = entry
-                ordered[#ordered + 1] = saved
+            local key, entryRegion = SavedRegionalIdentity(entry, region)
+            local _, savedKey = GetPersonalEntry(collection, key or rawKey)
+            if rawKey == savedKey then
+                local saved = NewContact(entry.name, entry.realm, {
+                    region = entryRegion or entry.region,
+                    sortOrder = entry.sortOrder,
+                })
+                if saved then
+                    saved.personalEntry = entry
+                    ordered[#ordered + 1] = saved
+                end
             end
         end
     end
@@ -1171,8 +1385,8 @@ function MailAssistant:RefreshRecentRecipientMetadata()
     local store = GetPersonalStore(false)
     if store then
         for _, contact in ipairs(recent) do
-            CopyContactMetadata(contact, store.characters[contact.key])
-            CopyContactMetadata(contact, store.favorites[contact.key])
+            CopyContactMetadata(contact, GetPersonalEntry(store.characters, contact.key))
+            CopyContactMetadata(contact, GetPersonalEntry(store.favorites, contact.key))
         end
     end
     for _, category in ipairs({ CATEGORY_FRIENDS, CATEGORY_GUILD }) do
@@ -1213,6 +1427,10 @@ end
 
 function MailAssistant:FormatRecipient(contact)
     if type(contact) ~= "table" or not NonEmptyString(contact.name) then return nil end
+    if contact.region then
+        if contact.region == GetForeverRegion() then return contact.name end
+        return nil
+    end
     if YUI.IsForever and contact.realmUnknown == true then return contact.name end
     local currentRealm = GetCurrentRealm()
     local contactRealm = NormalizeRealm(contact.realm)
@@ -1241,20 +1459,36 @@ end
 
 local function MailLogCharacter(value)
     value = NonEmptyString(value)
-    local name, realm
-    if value then name, realm = string_match(value, "^(.+)%-(.+)$") end
-    -- Recorded character identities always include the real realm, unlike
-    -- a recipient's potentially hyphenated Forever given name and surname.
-    return name and NewContact(name, realm)
+    if not value then return nil end
+    local region = GetForeverRegion()
+    local name, realm = string_match(value, "^(.+)%-(.+)$")
+    if not name then return region and NewContact(value, nil, { region = region }) or nil end
+    realm = NormalizeRealm(realm)
+    local savedRegion = GetSavedRegion(realm, region, runtime.regionalLegacyRealm)
+    return NewContact(name, realm, { region = savedRegion }) or NewContact(name, realm)
+end
+
+function MailAssistant:GetMailLogCharacterLabel(value)
+    local region = GetForeverRegion()
+    if not region then return value end
+    local character = MailLogCharacter(value)
+    return character and character.region == region and character.name or value
+end
+
+local function MailLogParty(value, character)
+    if not character then return NewContact(value, nil, { region = GetForeverRegion() }) end
+    return NewContact(value, character.realm, { region = character.region }) or NewContact(value, character.realm)
 end
 
 local function MailLogContacts(entry)
     local character = MailLogCharacter(entry.character)
-    return character, character and NewContact(entry.party, character.realm)
+    return character, character and MailLogParty(entry.party, character)
 end
 
 local function SavedMailLogClass(contact, saved)
-    if contact and type(saved) == "table" and NonEmptyString(saved.key) == contact.key then
+    if not contact or type(saved) ~= "table" then return nil end
+    local key = NonEmptyString(saved.key)
+    if key and (key == contact.key or (contact.region and key == ContactKey(contact.name, contact.realm))) then
         return MailLogClass(saved.classFile)
     end
 end
@@ -1297,11 +1531,11 @@ end
 function MailAssistant:GetMailLogParty(value, character, savedClass)
     local actor = MailLogCharacter(character)
     if character ~= nil and not actor then return value end
-    local contact = actor and NonEmptyString(value) == character and actor or NewContact(value, actor and actor.realm)
+    local contact = actor and NonEmptyString(value) == character and actor or MailLogParty(value, actor)
     if not contact then return value end
     local resolveClass = actor and MailLogClass or NonEmptyString
     local store = GetPersonalStore(false)
-    local saved = store and (store.characters[contact.key] or store.favorites[contact.key])
+    local saved = store and (GetPersonalEntry(store.characters, contact.key) or GetPersonalEntry(store.favorites, contact.key))
     local classFile
     if type(saved) == "table" and (not actor or saved.realmUnknown ~= true) then classFile = resolveClass(saved.classFile) end
     if not classFile then
@@ -1382,8 +1616,10 @@ function MailAssistant:ShowContactTooltip(button)
             1, 0.15, 0.15, true)
     end
     tooltip:AddLine(" ")
-    local realm = contact.realmUnknown ~= true and contact.realm or T("value.unknown", "Unknown")
-    tooltip:AddDoubleLine(T("tooltip.realm", "Realm"), realm or T("value.unknown", "Unknown"), 1, 1, 1, 1, 1, 1)
+    if not contact.region then
+        local realm = contact.realmUnknown ~= true and contact.realm or T("value.unknown", "Unknown")
+        tooltip:AddDoubleLine(T("tooltip.realm", "Realm"), realm or T("value.unknown", "Unknown"), 1, 1, 1, 1, 1, 1)
+    end
     local className = GetClassDisplayName(contact)
     if className then tooltip:AddDoubleLine(T("tooltip.class", "Class"), className, 1, 1, 1, r, g, b) end
     local faction = GetFactionDisplayName(contact.faction)
@@ -1571,6 +1807,12 @@ function MailAssistant:ToggleRecentFavorite(contact)
     return true
 end
 
+local function FormatContactEditorName(contact)
+    local name = contact.name or ""
+    local realm = not contact.region and not contact.realmUnknown and NonEmptyString(contact.realm)
+    return realm and (name .. "-" .. realm) or name
+end
+
 function MailAssistant:RefreshContactEditor()
     local editor = runtime.contactEditor
     if not editor then return false end
@@ -1617,7 +1859,7 @@ function MailAssistant:RefreshContactEditor()
         row.moveUp:SetDisabled(not contact or startIndex + rowIndex - 1 == 1)
         row.moveDown:SetDisabled(not contact or startIndex + rowIndex - 1 == #contacts)
         if contact then
-            row.name:SetText((contact.name or "") .. (contact.realm and "-" .. contact.realm or ""))
+            row.name:SetText(FormatContactEditorName(contact))
             row.name:SetTextColor(GetClassColor(contact.classFile))
             row:Show()
         else
@@ -1773,7 +2015,7 @@ function MailAssistant:ConstructContactEditor()
     inputLabel:SetPoint("TOPLEFT", editor, "TOPLEFT", 16, -84)
     editor.inputLabel = inputLabel
 
-    local inputHint = YUI.IsForever and T("editor.input_hint.forever", "Enter the full Firstname Surname; append -Realm for another realm")
+    local inputHint = YUI.IsForever and T("editor.input_hint.forever", "Enter the full Firstname Surname")
         or T("editor.input_hint", "Use Name for this realm or Name-Realm for another realm")
     local input = GUI2.Form:CreateEditBox(editor, {
         width = EDITOR_WIDTH - 126,
@@ -1855,7 +2097,7 @@ function MailAssistant:ConstructContactEditor()
             local contact, tooltip = owner.contact, _G.GameTooltip
             if not contact or not tooltip then return end
             tooltip:SetOwner(owner, "ANCHOR_RIGHT")
-            tooltip:SetText(contact.name .. "-" .. contact.realm, GetClassColor(contact.classFile))
+            tooltip:SetText(FormatContactEditorName(contact), GetClassColor(contact.classFile))
             tooltip:AddLine(MailAssistant:IsFavorite(contact)
                 and T("tooltip.remove_favorite", "Remove from favorites")
                 or T("tooltip.add_favorite", "Add to favorites"), 1, 1, 1)
@@ -1915,7 +2157,7 @@ function MailAssistant:ConstructContactEditor()
             local contact, tooltip = owner.contact, _G.GameTooltip
             if not contact or not tooltip then return end
             tooltip:SetOwner(owner, "ANCHOR_RIGHT")
-            tooltip:SetText(contact.name .. "-" .. contact.realm, GetClassColor(contact.classFile))
+            tooltip:SetText(FormatContactEditorName(contact), GetClassColor(contact.classFile))
             tooltip:Show()
         end)
         row:SetScript("OnLeave", HideSharedTooltip)
@@ -3064,9 +3306,6 @@ function MailAssistant:ConfirmClearPersonalData()
     return true
 end
 
-local PERSONAL_FIELDS = { "name", "realm", "realmUnknown", "classFile", "faction", "manuallyAdded", "sortOrder" }
-local PERSONAL_MERGE_FIELDS = { "name", "realm", "classFile", "faction", "sortOrder" }
-
 local function CopyPersonalEntry(entry)
     if type(entry) ~= "table" then return nil end
     local result = {}
@@ -3089,18 +3328,26 @@ local function CopyPersonalStore(store)
     return result
 end
 
-local function NormalizePersonalEntry(entry)
+local function NormalizePersonalEntry(entry, currentRegion, currentRealm)
     if type(entry) ~= "table" then return nil, "invalid_personal_data" end
     for field in pairs(entry) do
         if field ~= "name" and field ~= "realm" and field ~= "classFile"
-            and field ~= "faction" and field ~= "manuallyAdded" and field ~= "sortOrder" and field ~= "realmUnknown" then
+            and field ~= "faction" and field ~= "manuallyAdded" and field ~= "sortOrder"
+            and field ~= "realmUnknown" and field ~= "region" then
             return nil, "invalid_personal_data"
         end
     end
-    local name, embeddedRealm = SplitNameRealm(entry.name)
+    local name, embeddedRealm = SplitNameRealm(entry.name, NormalizeRealm(entry.realm))
     name = NonEmptyString(name)
     local realm = NormalizeRealm(entry.realm) or embeddedRealm
-    if not name or #name > 64 or not realm or #realm > 128 then return nil, "invalid_personal_data" end
+    local region = NormalizeRegion(entry.region)
+    if entry.region ~= nil and (not region or not RegionalContactKey(name, region)) then
+        return nil, "invalid_personal_data"
+    end
+    region = region or GetSavedRegion(realm, currentRegion, currentRealm, entry.realmUnknown)
+    local regionalKey = RegionalContactKey(name, region)
+    local key = regionalKey or ContactKey(name, realm)
+    if not key or #name > 64 or (realm and #realm > 128) then return nil, "invalid_personal_data" end
     local classFile = NonEmptyString(entry.classFile)
     if classFile and (#classFile > 24 or not classFile:match("^[A-Z]+$")) then
         return nil, "invalid_personal_data"
@@ -3121,20 +3368,13 @@ local function NormalizePersonalEntry(entry)
     return {
         name = name,
         realm = realm,
+        region = regionalKey and region or nil,
         realmUnknown = entry.realmUnknown == true and true or nil,
         classFile = classFile,
         faction = faction,
         manuallyAdded = entry.manuallyAdded == true and true or nil,
         sortOrder = entry.sortOrder,
-    }, ContactKey(name, realm)
-end
-
-local function MergeMissingFields(target, source)
-    if target.realmUnknown and not source.realmUnknown then target.realmUnknown = nil end
-    for _, field in ipairs(PERSONAL_MERGE_FIELDS) do
-        if target[field] == nil and source[field] ~= nil then target[field] = source[field] end
-    end
-    return target
+    }, key
 end
 
 function MailAssistant:NormalizePersonalData(value)
@@ -3145,6 +3385,8 @@ function MailAssistant:NormalizePersonalData(value)
         if field ~= "characters" and field ~= "favorites" then return nil, "invalid_personal_data" end
     end
     local result = { characters = {}, favorites = {} }
+    local region = GetForeverRegion()
+    local realm = region and GetCurrentRealm() or nil
     for _, collection in ipairs({ "characters", "favorites" }) do
         local pending = {}
         for sourceKey, entry in pairs(value[collection]) do
@@ -3152,7 +3394,7 @@ function MailAssistant:NormalizePersonalData(value)
         end
         table_sort(pending, function(left, right) return left.sourceKey < right.sourceKey end)
         for _, item in ipairs(pending) do
-            local normalized, key = NormalizePersonalEntry(item.entry)
+            local normalized, key = NormalizePersonalEntry(item.entry, region, realm)
             if not normalized then return nil, key end
             if result[collection][key] then
                 MergeMissingFields(result[collection][key], normalized)
@@ -3199,10 +3441,11 @@ function MailAssistant:ApplyPersonalData(data)
     if not store then return nil, "global_unavailable" end
     for _, collection in ipairs({ "characters", "favorites" }) do
         for key, imported in pairs(normalized[collection]) do
-            if type(store[collection][key]) == "table" then
-                MergeMissingFields(store[collection][key], imported)
+            local existing, savedKey = GetPersonalEntry(store[collection], key)
+            if type(existing) == "table" then
+                MergeMissingFields(existing, imported)
             else
-                store[collection][key] = CopyPersonalEntry(imported)
+                store[collection][savedKey] = CopyPersonalEntry(imported)
             end
         end
     end

@@ -489,6 +489,26 @@ function GlobalSettings:GetConfig()
         },
         get = function() return YHUD:GetLowLevelHideScope() end,
         set = function(value) YHUD:SetLowLevelHideScope(value); self:Refresh() end,
+    }, {
+        type = "slider",
+        searchKey = "settings.countdown_decimal_threshold",
+        label = T("settings.countdown_decimal_threshold", "倒计时小数阈值"),
+        tooltip = T("settings.countdown_decimal_threshold.tooltip",
+            "剩余时间低于此秒数时显示一位小数。0 为整数秒。"),
+        labelWidth = 120,
+        controlWidth = 154,
+        valueWidth = 56,
+        gap = 10,
+        rowWidth = 350,
+        rowHeight = 32,
+        rowGap = 10,
+        min = 0,
+        max = 60,
+        step = 1,
+        default = 3,
+        instantUpdate = false,
+        get = function() return YHUD:GetCountdownDecimalThreshold() end,
+        set = function(value) YHUD:SetCountdownDecimalThreshold(value); self:Refresh() end,
     } }
     return leftConfig, rightConfig
 end

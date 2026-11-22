@@ -1,6 +1,52 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v365|mainline|7416ed90c82e5fa7cbadebede05719da405243cc5af0584c8d785704540b7712
+    {
+        version = "v365",
+        date = "2026-11-22",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "Halo 支持设置倒计时从几秒开始显示小数。",
+                "修复 Halo 部分光环结束后仍然发光的问题。",
+            },
+            enUS = {
+                "Halo lets you choose when countdowns start showing decimals.",
+                "Fixed lingering Halo glows after some auras ended.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v364|mainline|381f0d3cc8b0a37b858fb8e0ee7bf7d8672e53d228ba401efc7d2b9e2df6d4c6
+    {
+        version = "v364",
+        date = "2026-11-22",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "修复战斗中地图标记消失。",
+                "修复 Halo 常驻减益图标不亮。",
+            },
+            enUS = {
+                "Fixed map markers disappearing in combat.",
+                "Fixed Halo’s always-visible debuff icons staying dim.",
+            },
+        },
+    },
+-- YUI-Notes-Record: v363|mainline|769ca756513c5592e0031b1bbca3e66c08e9bc09cc9d2af74793cdf9abfe7aed
+    {
+        version = "v363",
+        date = "2026-11-21",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "暂停 YUI 背包，恢复游戏原生背包。",
+            },
+            enUS = {
+                "Temporarily restored the default bag interface.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v362|mainline|ec50b3b1da1f9a700e8dae768f090dc293c975696e1aea8b0bb0e1e0bb22b59a
     {
         version = "v362",
@@ -146,52 +192,6 @@ CL:Register("suite", {
                 "Fixed chat windows not fading after the mouse leaves.",
                 "Fixed hidden Orbit clocks not reappearing on hover.",
                 "Fixed action-bar stance icons turning gray during the global cooldown.",
-            },
-        },
-    },
--- YUI-Notes-Record: v355|mainline|5671b06e0550424e2cb08fbef277f87139f453a090bea4c7a248ae5e3dc3b160
-    {
-        version = "v355",
-        date = "2026-11-09",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "自动修理新增等级限制，默认从 10 级开始，支持调整或关闭。",
-                "聊天关键词过滤不再区分英文字母大小写。",
-            },
-            enUS = {
-                "Added an automatic repair level limit, starting at level 10 by default, with options to adjust or disable it.",
-                "Chat keyword filtering now ignores English letter case.",
-            },
-        },
-    },
--- YUI-Notes-Record: v354|mainline|e5a5e59c2f43ef8e0f2627cf51bf710e0ea23ab374f117043f1fc25113ab9551
-    {
-        version = "v354",
-        date = "2026-11-06",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "修复目标光环结束时监控可能报错的问题。",
-            },
-            enUS = {
-                "Fixed possible monitor errors when a target aura expires.",
-            },
-        },
-    },
--- YUI-Notes-Record: v353|mainline|20384615d0a8c59fdc84a2f816806f6685c059893ad678e8e0969b5a7e7e12a6
-    {
-        version = "v353",
-        date = "2026-11-06",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "优化默认聊天屏蔽词，并保留自定义过滤配置。",
-                "修复动作条使用状态黑块与按压短闪。",
-            },
-            enUS = {
-                "Improved the default chat-blocking word list and preserved custom filter settings.",
-                "Fixed dark blocks on the active-action indicator and brief dark flashes on key presses.",
             },
         },
     },

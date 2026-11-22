@@ -7,6 +7,131 @@ YHUD.Glow = Glow
 
 local Conditions = YHUD.Conditions
 local STACK_DRIVER_CONDITION = { operator = "gt", value = 100 }
+local Spell = YUI.API and YUI.API.Spell
+local isSecret = _G.issecretvalue
+
+local function PublicSpellID(id)
+    if (not isSecret or not isSecret(id)) and type(id) == "number" and id > 0 then return id end
+end
+
+local usable = YUI.IsForever and {
+    spells = {},
+    targets = {},
+    stats = { cooldownReads = 0, usabilityReads = 0, changes = 0 },
+} or nil
+Glow.usable = usable
+
+local function ReadUsableCooldown(spell, cooldownEvent)
+    usable.stats.cooldownReads = usable.stats.cooldownReads + 1
+    if cooldownEvent then
+        local active, resolved = Spell.ReadCooldownRuleState(spell.id)
+        if resolved then
+            spell.cooldownReady = active == false
+            return
+        end
+    end
+    spell.cooldownReady = Spell.ReadCooldownReadyIgnoringGCD(spell.id) == true
+end
+
+local function ReadUsability(spell)
+    if not spell.cooldownReady then return nil end
+    usable.stats.usabilityReads = usable.stats.usabilityReads + 1
+    local ready, insufficientPower = Spell.GetUsableState(spell.id)
+    if ready == true then return "ready" end
+    if ready == false and insufficientPower == true then return "power" end
+end
+
+local function FlushUsability()
+    usable.timer = nil
+    local recheck = usable.recheck
+    usable.recheck = nil
+    for _, spell in pairs(usable.spells) do
+        if recheck and not spell.cooldownReady then ReadUsableCooldown(spell) end
+        local status = ReadUsability(spell)
+        if status ~= spell.status then
+            spell.status = status
+            usable.stats.changes = usable.stats.changes + 1
+            for target, watch in pairs(spell.targets) do
+                watch.refresh(target)
+            end
+        end
+    end
+end
+
+local function RequestUsableRefresh()
+    if usable.timer then return end
+    if _G.C_Timer and _G.C_Timer.NewTimer then
+        usable.timer = _G.C_Timer.NewTimer(0, FlushUsability)
+    else
+        FlushUsability()
+    end
+end
+
+local function RequestUsableRecheck()
+    usable.recheck = true
+    RequestUsableRefresh()
+end
+
+local function RefreshUsableCooldowns()
+    -- The GCD flag must be read while handling SPELL_UPDATE_COOLDOWN.
+    for _, spell in pairs(usable.spells) do ReadUsableCooldown(spell, true) end
+    RequestUsableRefresh()
+end
+
+local function RefreshUsableWorld()
+    for _, spell in pairs(usable.spells) do spell.cooldownReady = false end
+    RequestUsableRecheck()
+end
+
+function Glow:ReleaseUsable(target)
+    if not usable then return end
+    local watch = usable.targets[target]
+    if not watch then return end
+    usable.targets[target] = nil
+    local spell = watch.spell
+    spell.targets[target] = nil
+    if not next(spell.targets) then usable.spells[spell.id] = nil end
+    if not next(usable.spells) then
+        YUI.Event:OffOwner(usable)
+        if usable.timer then usable.timer:Cancel() end
+        usable.timer, usable.listening, usable.recheck = nil, nil, nil
+    end
+end
+
+function Glow:WatchUsable(target, compiled, spellID, refresh)
+    local id = compiled and compiled.usableSpellID
+        and (PublicSpellID(spellID) or compiled.usableSpellID)
+    if not (id and usable and YUI.Event and Spell
+        and Spell.ReadCooldownRuleState and Spell.ReadCooldownReadyIgnoringGCD and Spell.GetUsableState) then
+        self:ReleaseUsable(target)
+        return nil
+    end
+    local watch = usable.targets[target]
+    if watch and watch.spell.id == id then return watch.spell.status end
+    if watch then self:ReleaseUsable(target) end
+    local spell = usable.spells[id]
+    if not spell then
+        spell = { id = id, targets = {} }
+        ReadUsableCooldown(spell)
+        spell.status = ReadUsability(spell)
+        usable.spells[id] = spell
+    end
+    watch = { spell = spell, refresh = refresh }
+    usable.targets[target], spell.targets[target] = watch, watch
+    if not usable.listening then
+        usable.listening = true
+        local event = YUI.Event
+        event:On("SPELL_UPDATE_COOLDOWN", RefreshUsableCooldowns, usable)
+        event:On("SPELL_UPDATE_CHARGES", RequestUsableRecheck, usable)
+        event:On("SPELL_UPDATE_USABLE", RequestUsableRecheck, usable)
+        event:On("ACTION_USABLE_CHANGED", RequestUsableRecheck, usable)
+        event:On("PLAYER_TARGET_CHANGED", RequestUsableRecheck, usable)
+        event:On("UPDATE_SHAPESHIFT_FORM", RequestUsableRecheck, usable)
+        event:On("UNIT_POWER_FREQUENT", RequestUsableRefresh, usable, { unit = "player" })
+        event:On("PLAYER_ENTERING_WORLD", RefreshUsableWorld, usable)
+    end
+    return spell.status
+end
 
 function Glow:GetPublicAuraStacks(state)
     local model = YHUD.Model
@@ -111,12 +236,30 @@ function Glow:Compile(profile, monitor)
             conditionType
         ) and type(rule.appearance) == "table"
             and rule.appearance.style ~= "none" then
-            compiled.rules[#compiled.rules + 1] = {
+            local compiledRule = {
                 conditionType = conditionType,
                 stackCondition = conditionType == "aura-stacks" and condition or nil,
                 appearance = rule.appearance,
                 combatOnly = rule.combatOnly == true,
             }
+            if conditionType == "self-usable" then
+                local entry = profile.entries and profile.entries[monitor.entryKey]
+                local _, current
+                if YHUD.KeybindText then _, current = YHUD.KeybindText:GetIdentity(monitor, entry) end
+                compiled.usableSpellID = PublicSpellID(current or entry and (
+                    entry.runtimeSpellId or entry.overrideSpellId or entry.spellId or entry.spellID or entry.baseSpellId
+                ))
+                if rule.appearance.style == "proc" then
+                    compiledRule.appearance = YHUD:CopyValue(rule.appearance)
+                    compiledRule.appearance.procOpacityOnFrame = true
+                end
+                if rule.weakenWithoutPower ~= false then
+                    local faded = YHUD:CopyValue(compiledRule.appearance)
+                    faded.alpha = (faded.alpha or 1) * 0.5
+                    compiledRule.fadedAppearance = faded
+                end
+            end
+            compiled.rules[#compiled.rules + 1] = compiledRule
             compiled.hasCombatOnly = compiled.hasCombatOnly
                 or rule.combatOnly == true
             if conditionType == "aura-stacks" then compiled.stackRuleCount = compiled.stackRuleCount + 1 end
@@ -237,7 +380,8 @@ function Glow:Resolve(
     nativeSignal,
     auraResolved,
     auraPresent,
-    persistentSlot
+    persistentSlot,
+    usableStatus
 )
     if type(compiled) ~= "table" then return nil end
     if nativeSignal == nil then
@@ -260,6 +404,11 @@ function Glow:Resolve(
             local matches
             if preview then
                 matches = true
+            elseif rule.conditionType == "self-usable" then
+                if usableStatus == "power" and rule.fadedAppearance then
+                    return "custom-rule", rule.fadedAppearance, rule
+                end
+                matches = usableStatus == "ready"
             elseif rule.stackCondition and publicAuraStacks ~= nil then
                 matches = compiled.kind == "aura" and state.available == true
                     and MatchesAuthoredCount(rule.stackCondition, publicAuraStacks)

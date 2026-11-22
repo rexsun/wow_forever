@@ -263,6 +263,13 @@ local function ResolveSavedProfileName(sv, charKey)
         return nil
     end
 
+    local dbService = YUI.DB
+    if dbService and dbService.FindPersistedProfileName then
+        local profileName, legacy = dbService:FindPersistedProfileName(sv, charKey)
+        if legacy then EnsureProfileKeys(sv)[charKey] = profileName end
+        return profileName
+    end
+
     local profileKeys = EnsureProfileKeys(sv)
     local profileName = profileKeys and profileKeys[charKey] or nil
     if profileName and type(sv.profiles[profileName]) == "table" then
@@ -1126,6 +1133,75 @@ local function ImportLegacyProfileString(value, profileName)
     return true
 end
 
+local function AddLegacyCharacterRecovery(config, db)
+    local dbService = YUI.DB
+    if not (db and dbService and dbService.GetForeverLegacyCharacters
+        and dbService.RecoverForeverLegacyCharacter) then
+        return
+    end
+
+    local options = {}
+    for _, candidate in ipairs(dbService:GetForeverLegacyCharacters(db)) do
+        options[#options + 1] = {
+            value = candidate.key,
+            text = candidate.profile
+                and string.format(LC["settings.profiles.legacy_character.option_with_profile"], candidate.key, candidate.profile)
+                or candidate.key,
+        }
+    end
+    if #options == 0 then return end
+
+    local savedVariables = db.sv
+    local selectedKey
+    config[#config + 1] = { type = "space", height = 10 }
+    config[#config + 1] = { type = "divider", label = LC["settings.profiles.legacy_character.title"], alignLeft = true, width = 600 }
+    config[#config + 1] = { type = "text", label = LC["settings.profiles.legacy_character.help"], width = 600 }
+    config[#config + 1] = { type = "row", children = {
+        {
+            type = "dropdown",
+            width = 320,
+            menuWidth = 440,
+            placeholder = LC["settings.profiles.legacy_character.select"],
+            options = options,
+            get = function() return selectedKey end,
+            set = function(value) selectedKey = value end,
+        },
+        {
+            type = "button",
+            label = LC["settings.profiles.legacy_character.review"],
+            width = 144,
+            onClick = function(button)
+                local legacyKey = selectedKey
+                if not legacyKey then
+                    YUI:Print(LC["settings.profiles.legacy_character.select"])
+                    return
+                end
+                S:ShowConfirmPopup(string.format(LC["settings.profiles.legacy_character.confirm"], legacyKey), function()
+                    if GetActiveDB() == db and db.sv == savedVariables then
+                        for _, candidate in ipairs(dbService:GetForeverLegacyCharacters(db)) do
+                            if candidate.key == legacyKey then
+                                if dbService:RecoverForeverLegacyCharacter(db, legacyKey) then
+                                    FrameAPI.ReloadUI()
+                                    return
+                                end
+                                break
+                            end
+                        end
+                    end
+                    YUI:Print(LC["settings.profiles.legacy_character.failed"])
+                end, {
+                    ownerFrame = button,
+                    dismissWithOwner = true,
+                    noteText = LC["settings.profiles.legacy_character.confirm_note"],
+                    acceptText = LC["settings.profiles.legacy_character.accept"],
+                    acceptWidth = 160,
+                    height = 200,
+                })
+            end,
+        },
+    } }
+end
+
 local function Render(parent)
     local db = GetActiveDB()
     local savedVariableName = GetActiveSavedVariableName()
@@ -1377,6 +1453,7 @@ local function Render(parent)
         }},
     }
     
+    AddLegacyCharacterRecovery(config, db)
     S:RenderConfig(parent, config)
 end
 

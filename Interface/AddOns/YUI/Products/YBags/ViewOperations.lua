@@ -9,6 +9,126 @@ local function Button(parent,text,x,y,width,callback)
     local button=B.Appearance:Button(parent,{text=text,width=width or 110,onClick=callback})
     button:SetPoint("TOPLEFT",x,y);button:SetScript("OnClick",callback);return button
 end
+
+local function StopHelpPulse(w)
+    if w.helpPulse then
+        w.helpPulse:Stop();w.helpPulse=nil
+        w.helpGlyph:SetAlpha(1)
+    end
+end
+
+function V:HideHelp(w)
+    if not w.helpPanel then return end
+    if w.helpPanel:IsShown() then w.helpPanel:Hide() end
+    StopHelpPulse(w)
+end
+
+function V:ResetHelpAlert()
+    if self.helpTimer then self.helpTimer:Cancel();self.helpTimer=nil end
+    self.helpAlertPending=nil
+    local w=self.windows.player
+    if not w or not w.helpMark then return end
+    StopHelpPulse(w)
+    w.helpUnread=nil;w.helpMark:Hide()
+end
+
+function V:ClearItemUseHelp()
+    self:ResetHelpAlert()
+    local w=self.windows.player
+    if w and w.helpPanel and w.helpPanel:IsShown() then self:RefreshHelp(w) end
+end
+
+function V:SignalItemUseHelp(confirmed)
+    local w=self.windows.player
+    if not B.active or not w or not w.helpMark then return end
+    local alert=confirmed~=false and not w.helpUnread
+    if not alert and not w.helpPanel:IsShown() then return end
+    if alert then self.helpAlertPending=true end
+    if self.helpTimer then return end
+    -- The protected error callback only queues work on the next frame.
+    self.helpTimer=C_Timer.NewTimer(0,function()
+        self.helpTimer=nil
+        local alertPending=self.helpAlertPending
+        self.helpAlertPending=nil
+        if not B.active then return end
+        if w.helpPanel:IsShown() then self:RefreshHelp(w);return end
+        if not alertPending then return end
+        w.helpUnread=true;w.helpMark:Show()
+        local animation=YUI.Animation
+        if w.root:IsVisible() and animation then
+            w.helpPulse=animation:Play(w.helpGlyph,{driver="native",effects={
+                {type="alpha",order=1,from=1,to=.25,duration=.26},
+                {type="alpha",order=2,from=.25,to=1,duration=.26},
+                {type="alpha",order=3,from=1,to=.25,duration=.26},
+                {type="alpha",order=4,from=.25,to=1,duration=.26},
+            }})
+        end
+    end)
+end
+
+function V:RefreshHelp(w)
+    local record,_,current=B.Diagnostics:HelpHistory()
+    local title=B.pendingNativeBags and "help.switch_pending" or not record and "help.no_report" or current and "help.blocked" or "help.saved"
+    w.helpPanel.status:SetText(B:T(title))
+    w.helpPanel.copy:SetText(B:T(record and "help.copy_report" or "help.copy_environment"))
+    w.helpPanel.environment:SetShown(record~=nil and not current)
+    w.helpPanel.switch:SetEnabled(not B.pendingNativeBags)
+end
+
+function V:CreateHelp(w)
+    local help=G:CreateButtonFrame(w.header,{width=22,height=22,frameLevel=w.header:GetFrameLevel()+1})
+    help:SetPoint("RIGHT",w.settings,"LEFT",-1,0)
+    local glyph=G:CreateText(help,"?",14,"color.text.heading");glyph:SetPoint("CENTER")
+    local mark=G:CreateText(help,"•",13,"color.state.warning");mark:SetPoint("TOPRIGHT",0,2);mark:Hide()
+    w.helpButton,w.helpMark,w.helpGlyph=help,mark,glyph
+    help:SetScript("OnEnter",function(button)
+        GameTooltip:SetOwner(button,"ANCHOR_RIGHT");GameTooltip:SetText(B:T("help.title"));GameTooltip:Show()
+    end)
+    help:SetScript("OnLeave",function() GameTooltip:Hide() end)
+
+    local panel=G:CreateFrame(UIParent,{width=382,height=178,hidden=true,mouse=true})
+    w.helpPanel=panel
+    panel:SetFrameStrata("DIALOG");panel:SetClampedToScreen(true)
+    panel:SetPoint("TOPRIGHT",help,"BOTTOMRIGHT",0,-8)
+    self:RegisterEscape(panel)
+    local heading=G:CreateText(panel,B:T("help.title"),14,"color.text.heading")
+    heading:SetPoint("LEFT",panel,"TOPLEFT",14,-21);heading:SetJustifyH("LEFT")
+    local close=B.Appearance:Button(panel,{text=B:T("action.close"),width=76,onClick=function() panel:Hide() end})
+    close:SetPoint("RIGHT",panel,"TOPRIGHT",-14,-21)
+    G.WindowAppearance:Register(panel,{themeProvider=function() return B:GetConfig().skin=="native" and "native" or "dark" end,
+        heading=heading,role="helper",nativeLayout="Dialog",noTopBar=true,nativeBorderOverflow=true})
+    local introduction=Text(panel,B:T("help.beta"),14,-41)
+    introduction:SetWidth(354);introduction:SetWordWrap(true)
+    panel.status=Text(panel,"",14,-77)
+    panel.status:SetWidth(354);panel.status:SetWordWrap(true)
+    local function ShowReport(record,session)
+        YUI.Settings:ShowMultilineCopyPopup(B:T("help.copy_title"),B.Diagnostics:HelpReport(record,session))
+    end
+    panel.copy=Button(panel,B:T("help.copy_environment"),14,-113,173,function()
+        local record,session=B.Diagnostics:HelpHistory()
+        ShowReport(record,session)
+    end)
+    Button(panel,B:T("help.reload"),195,-113,173,function()
+        YUI.Settings:ShowConfirmPopup(B:T(A.InCombat() and "help.reload_combat" or "help.reload_confirm"),function()
+            YUI.API.Frame.ReloadUI()
+        end,{titleText=B:T("help.reload"),ownerFrame=panel,dismissWithOwner=true})
+    end)
+    panel.switch=Button(panel,B:T("help.switch"),14,-141,173,function()
+        YUI.Settings:ShowConfirmPopup(B:T(A.InCombat() and "help.switch_combat" or "help.switch_confirm"),function()
+            B:RequestNativeBags()
+            if panel:IsShown() then self:RefreshHelp(w) end
+        end,{titleText=B:T("help.switch"),ownerFrame=panel,dismissWithOwner=true})
+    end)
+    panel.environment=Button(panel,B:T("help.copy_environment"),195,-141,173,function() ShowReport() end)
+
+    help:SetScript("OnClick",function()
+        if panel:IsShown() then panel:Hide();return end
+        self:ResetHelpAlert()
+        self:RefreshHelp(w)
+        G.WindowAppearance:Refresh(panel);panel:Show()
+    end)
+end
+
 local function MenuOutsideClick()
     local menu=V.menu
     if not menu or not menu:IsShown() or menu:IsMouseOver() then return end
@@ -492,6 +612,9 @@ function V:RenderBagBar(w)
             index=index+1
             local button=w.bagButtons[index]
             if not button then
+                -- Combat-created ItemButtons can taint later item clicks. The
+                -- post-combat layout will render any sockets still missing.
+                if A.InCombat() then break end
                 button=B.Appearance:Item(w.root,false);button.image=button.icon
                 B.Cache.tooltipBags[button]=true
                 button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square","ADD")
@@ -1065,7 +1188,7 @@ function V:Toolbar(w,width)
             button:SetWidth(step)
             button:ClearAllPoints();button:SetPoint("RIGHT",w.search,"LEFT",-6-(#shown-n)*step,0);button:Show()
         end
-        local titleWidth=width-2*math.max(54,m.left+#headerButtons*headerStep+4)
+        local titleWidth=width-2*math.max(w.helpButton and 80 or 54,m.left+#headerButtons*headerStep+4)
         w.title:SetWidth(titleWidth)
         w.drag:ClearAllPoints();w.drag:SetPoint("CENTER",w.header,"CENTER",0,0);w.drag:SetSize(titleWidth,m.headerHeight)
         return

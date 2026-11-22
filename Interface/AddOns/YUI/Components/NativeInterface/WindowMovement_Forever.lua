@@ -192,6 +192,9 @@ end
 
 local function ApplyUnsafe(state)
     local frame = state.frame
+    local definition = definitions[state.id]
+    local bags = YUI.API.Bags
+    if definition.bag and bags and bags.IsOpeningFirstPersonalBank() then return false end
     local changed = false
     if state.reset or not Active(state) then
         if state.moving then FinishDrag(state, false) end
@@ -200,6 +203,10 @@ local function ApplyUnsafe(state)
         state.reset = nil
     end
     if not Active(state) or not frame:IsShown() then return changed end
+    if definition.bank and (not bags or not bags.BankWindowReady()) then
+        if state.handle:IsShown() then state.handle:Hide() end
+        return changed
+    end
     if not Capture(state) then return changed end
     local scale = Desired(state, "scale")
     local currentScale = frame:GetScale()
@@ -348,6 +355,8 @@ function Native:RefreshWindowMovement(reason)
     config = parent.windowMovement
     local enabled = self.runtimeEnabled and config.enabled
     if enabled and not listening then
+        local bags = YUI.API.Bags
+        if bags then bags.HookBankWindowShown() end
         listening = true
         YUI.Event:On("ADDON_LOADED", OnAddonLoaded, owner, { moduleId = self.MODULE_ID })
     elseif not enabled and listening then

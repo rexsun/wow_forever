@@ -1686,6 +1686,7 @@ end
 
 local function GetHostCardGap(host, card)
     if not YUI.IsForever then return CARD_GAP end
+    if ForeverTabs and ForeverTabs:IsApplied(host) then return CARD_GAP end
     local modeTabs = host.ModeTabs
     if not modeTabs or not IsShown(modeTabs) or not modeTabs.Tabs
         or type(host.GetRight) ~= "function" then return CARD_GAP end
@@ -1889,9 +1890,6 @@ local function OnRuntimeEvent(event, arg1, arg2)
     end
 
     TryHookFrames()
-    if ForeverTabs and (event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED") then
-        ForeverTabs:CombatChanged()
-    end
     if event == "UNIT_INVENTORY_CHANGED" then
         if IsSecret(arg1) then return end
         local inspectUnit = _G.InspectFrame and _G.InspectFrame.unit
@@ -1944,7 +1942,6 @@ local function AttachEvents()
     end
     if ForeverTabs then
         events[#events + 1] = "UNIT_PET"
-        events[#events + 1] = "PLAYER_REGEN_DISABLED"
     end
     for _, event in ipairs(events) do
         Event:On(event, OnRuntimeEvent, runtime.eventOwner)

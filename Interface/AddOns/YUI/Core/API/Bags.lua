@@ -74,6 +74,25 @@ local function Visible(frame)
     return frame and not frame:IsForbidden() and S.SafeBoolean(frame:IsShown()) == true
 end
 function A.InCombat() return S.SafeBoolean(S.InCombatLockdown()) ~= false end
+local function ReadableTable(value)
+    return type(value)=="table" and not S.IsSecretValue(value) and S.CanAccessTable(value)~=false
+end
+-- Read only during capture of a blocked native click.
+function A.ItemUseMouseFocus()
+    local mouse=String(Call(GetMouseButtonClicked))
+    local foci=Call(GetMouseFoci)
+    local focus=ReadableTable(foci) and foci[1]
+    if not ReadableTable(focus) or Call(focus.IsForbidden,focus)~=false then return nil,nil,mouse end
+    local parent=Call(focus.GetParent,focus)
+    return focus,ReadableTable(parent) and parent or nil,mouse
+end
+function A.ItemUseButtonSlot(button)
+    if Call(button.IsForbidden,button)~=false then return end
+    return Number(Call(button.GetBagID,button)),Number(Call(button.GetID,button))
+end
+function A.ItemUseCombatState()
+    return S.SafeBoolean(Call(UnitAffectingCombat,"player")),S.SafeBoolean(Call(S.InCombatLockdown))
+end
 function A.CursorBusy()
     if type(GetCursorInfo)=="function" then
         local ok,kind=pcall(GetCursorInfo)
@@ -82,6 +101,7 @@ function A.CursorBusy()
     end
     return type(CursorHasItem)=="function" and S.SafeBoolean(CursorHasItem())~=false
 end
+function A.CursorKind() return String(Call(GetCursorInfo)) end
 function A.HandleModifiedClick(link)
     return S.SafeBoolean(Call(HandleModifiedItemClick,link))==true
 end
@@ -127,8 +147,11 @@ function A.BagSlotType(id)
 end
 function A.SpaceKey(id,family,kind)
     if A.IsKeyring(id) then return "keyring" end
-    if (kind==nil or kind=="bags") and A.BagSlotType(id)=="reagent" then return "reagent" end
     family=Number(family) or 0
+    -- On Forever a profession bag keeps its family even in the material socket.
+    if (family==0 or not YUI.IsForever) and (kind==nil or kind=="bags") and A.BagSlotType(id)=="reagent" then
+        return "reagent"
+    end
     return family~=0 and "family:"..family or "normal"
 end
 function A.ItemCount(id)
@@ -341,6 +364,11 @@ function A.CharacterAppearance(character)
     local color=class and colors and colors[class]
     return raceAtlas,classAtlas,color and Number(color.r) or 1,color and Number(color.g) or 1,color and Number(color.b) or 1
 end
+local function ItemFamily(id,link)
+    -- Native placement on Forever 1.60.1.71037 confirms the herb bag accepts Incense Candle.
+    if YUI.IsForever and id==279962 then return 32 end
+    return Number(Call(C_Item and C_Item.GetItemFamily or GetItemFamily,link or id)) or 0
+end
 function A.CursorItem()
     if type(GetCursorInfo)~="function" then return nil end
     local ok,kind,id,link=pcall(GetCursorInfo)
@@ -350,7 +378,7 @@ function A.CursorItem()
     local info=YUI.API.Item.GetInfo(link or id)
     return {itemID=id,link=link,classID=type(info)=="table" and Number(info.classID),subClassID=type(info)=="table" and Number(info.subclassID),
         equipLoc=type(info)=="table" and String(info.equipLoc),isCraftingReagent=type(info)=="table" and S.SafeBoolean(info.isCraftingReagent),
-        family=Number(Call(C_Item and C_Item.GetItemFamily or GetItemFamily,link or id)) or 0}
+        family=ItemFamily(id,link)}
 end
 function A.ClassOptions()
     local options={}
@@ -479,6 +507,8 @@ function A.CanEquipBag(kind,item)
     -- Uncached item metadata is left to the native inventory-slot validation.
     if item.classID==nil then return true end
     if item.classID~=1 and item.equipLoc~="INVTYPE_BAG" then return false end
+    -- The Forever material socket uses the client's equipment validation.
+    if YUI.IsForever and kind=="reagent" then return true end
     if item.subClassID==nil then return true end
     local reagent=item.classID==1 and item.subClassID==11
     return kind=="reagent" and reagent or kind~="reagent" and not reagent
@@ -524,9 +554,51 @@ end
 function A.BankWindowShown(kind)
     return Visible(BankWindow(kind))
 end
+function A.FirstPersonalBankBag()
+    local indices=YUI.IsForever and Enum and Enum.BagIndex
+    return indices and Number(indices.CharacterBankTab_1)
+end
+local function ReadPurchasedPersonalBankTabs()
+    local character=Enum and Enum.BankType and Enum.BankType.Character
+    if character~=nil then return Number(Call(C_Bank and C_Bank.FetchNumPurchasedBankTabs,character)) end
+end
+local bankPanelHook,finishedPersonalBank,trackedPersonalBank
+local bankWindowShownCallbacks={}
+function A.IsOpeningFirstPersonalBank()
+    local frame=BankFrame
+    if not bankPanelHook or finishedPersonalBank==frame or not Visible(frame) then return false end
+    local purchased=ReadPurchasedPersonalBankTabs()
+    return not purchased or purchased<1
+end
+function A.BankWindowReady()
+    local kind=A.ActiveBankKind()
+    if kind=="shared" then return true end
+    local first=kind=="bank" and A.FirstPersonalBankBag()
+    if not first then return false end
+    local purchased=ReadPurchasedPersonalBankTabs()
+    if not purchased or purchased<1 then return false end
+    local capacity=Number(Call(C_Container and C_Container.GetContainerNumSlots,first))
+    return capacity~=nil and capacity>0 and capacity<=512
+end
 function A.CanUsePersonalBank()
     local bankType=Enum and Enum.BankType and Enum.BankType.Character
     return bankType~=nil and S.SafeBoolean(Call(C_Bank and C_Bank.CanUseBank,bankType))==true
+end
+function A.GetCarrySortRightToLeft()
+    return S.SafeBoolean(Call(C_Container and C_Container.GetSortBagsRightToLeft))
+end
+function A.SetCarrySortRightToLeft(enabled)
+    local setter=C_Container and C_Container.SetSortBagsRightToLeft
+    if type(enabled)~="boolean" or type(setter)~="function" then return false end
+    -- A successful call requests the preference change. The readback can lag.
+    local ok,result=pcall(setter,enabled)
+    return ok and not S.IsSecretValue(result) and result~=false
+end
+function A.SortCarryBags()
+    local sort=C_Container and C_Container.SortBags
+    if A.InCombat() or A.CursorBusy() or type(sort)~="function" then return false end
+    local ok,result=pcall(sort)
+    return ok and not S.IsSecretValue(result) and result~=false
 end
 function A.SortPersonalBank()
     if not YUI.IsForever or A.InCombat() or A.CursorBusy() or not A.BankWindowShown("bank")
@@ -633,12 +705,29 @@ function A.CancelBankBagPickup(container,slot,itemID)
 end
 function A.HookBankWindowShown(callback)
     if not YUI.IsForever then return false end
-    -- Both the banker and the load-on-demand guild bank enter through this panel manager.
-    return S.SafeHook("YBags.BankPanelShown",_G,"ShowUIPanel",function(frame)
-        if not frame then return end
-        if frame==BankFrame then callback("bank")
-        elseif frame==GuildBankFrame then callback("guild") end
-    end)
+    if not bankPanelHook then
+        bankPanelHook=S.SafeHook("Bags.BankPanelShown",_G,"ShowUIPanel",function(frame)
+            if not frame then return end
+            local kind
+            if frame==BankFrame then
+                kind="bank"
+                if Visible(frame) then
+                    -- The native OnShow has returned, even if the server still owes us its first tab.
+                    if trackedPersonalBank~=frame then
+                        frame:HookScript("OnHide",function(owner)
+                            if finishedPersonalBank==owner then finishedPersonalBank=nil end
+                        end)
+                        trackedPersonalBank=frame
+                    end
+                    finishedPersonalBank=frame
+                end
+            elseif frame==GuildBankFrame then kind="guild"
+            else return end
+            for handler in pairs(bankWindowShownCallbacks) do handler(kind) end
+        end)
+    end
+    if bankPanelHook and callback then bankWindowShownCallbacks[callback]=true end
+    return bankPanelHook
 end
 local parkedBanks,bankAnchorHooks={},setmetatable({},{__mode="k"})
 local function MoveBankOffscreen(frame,state)
@@ -654,7 +743,7 @@ function A.ParkBankWindow(kind)
     if kind=="bank" then
         local character=Enum and Enum.BankType and Enum.BankType.Character
         if character==nil or not C_Bank or Call(C_Bank.CanViewBank,character)~=true
-            or Call(frame.GetActiveBankType,frame)~=character then return false end
+            or Call(frame.GetActiveBankType,frame)~=character or not A.BankWindowReady() then return false end
     end
     if not bankAnchorHooks[frame] then
         -- The panel manager can re-anchor a shown bank while arranging other panels.
@@ -807,6 +896,19 @@ function A.ReadSlotCharges(bag,slot)
         end
     end
 end
+function A.SlotQuestState(bag,slot)
+    local quest=Call(C_Container.GetContainerItemQuestInfo,bag,slot)
+    if not S.CanAccessTable(quest) then return false end
+    if Number(quest.questID) then
+        local active=S.SafeBoolean(quest.isActive)
+        if active==false then return true,"starter" end
+        if active==true then return true,"item" end
+        return true
+    end
+    if S.SafeBoolean(quest.isQuestItem)==true then return true,"item" end
+    return false
+end
+
 function A.Slot(bag,slot)
     local info,err=ContainerItemInfo(bag,slot)
     if not info then return nil,err end
@@ -853,10 +955,9 @@ function A.Slot(bag,slot)
     end
     result.locked=S.SafeBoolean(info.isLocked)~=false
     result.bound=S.SafeBoolean(info.isBound)
-    local quest=Call(C_Container.GetContainerItemQuestInfo,bag,slot)
-    result.quest=S.CanAccessTable(quest) and (Number(quest.questID)~=nil or S.SafeBoolean(quest.isQuestItem)==true) or false
+    result.quest,result.questVisual=A.SlotQuestState(bag,slot)
     result.new=C_NewItems and S.SafeBoolean(Call(C_NewItems.IsNewItem,bag,slot))==true or false
-    result.family=Number(Call(C_Item and C_Item.GetItemFamily or GetItemFamily,link or id)) or 0
+    result.family=ItemFamily(id,link)
     if C_Item and type(C_Item.GetItemGUID)=="function" then
         result.guid=String(Call(C_Item.GetItemGUID,{bagID=bag,slotIndex=slot}))
     end
@@ -1102,6 +1203,17 @@ function A.InitializeButton(button,container,bag,slot)
     else button:Initialize(bag,slot) end
     return true
 end
+function A.HasNativeSlotLock(button)
+    return button.IsExtended and S.SafeBoolean(button:IsExtended())==true
+end
+function A.RecheckNativeSlotLock(button,bag,slot)
+    if A.InCombat() or not button.UpdateExtended or Number(Call(button.GetBagID,button))~=bag
+        or Number(Call(button.GetID,button))~=slot then return false end
+    local locked=S.SafeBoolean(Call(button.IsExtended,button))
+    if locked~=true then return locked==false end
+    local ok=pcall(button.UpdateExtended,button)
+    return ok and S.SafeBoolean(Call(button.IsExtended,button))==false
+end
 function A.RegisterItemTooltip(callback)
     local processor=TooltipDataProcessor
     local itemType=Enum and Enum.TooltipDataType and Enum.TooltipDataType.Item
@@ -1160,10 +1272,15 @@ function A.PlaceCursor(context)
     local ok=pcall(callback,slot)
     return ok and not A.CursorBusy()
 end
+function A.IsNonEquippable(item)
+    if not item.loaded then return false end
+    local location=item.equipLoc
+    return location=="" or location=="INVTYPE_NON_EQUIP" or location=="INVTYPE_NON_EQUIP_IGNORE"
+end
 function A.Delete(bag,slot)
     if A.InCombat() or A.CursorBusy() or A.Context()~="travel" then return false end
     local item=A.Slot(bag,slot)
-    if not item or item.quality~=0 or item.quest or item.locked then return false end
+    if not item or item.quality~=0 or item.quest or item.locked or not A.IsNonEquippable(item) then return false end
     C_Container.PickupContainerItem(bag,slot)
     if not CursorHasItem() then return false end
     DeleteCursorItem()

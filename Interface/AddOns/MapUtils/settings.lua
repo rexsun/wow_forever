@@ -18,6 +18,7 @@ local sharedCheckboxes = {}
 local cvarCheckboxes = {}
 local guildCheckboxes = {}
 local optionCheckboxes = {}
+local styleControls = {}
 
 MapUtils:RegisterSharedSettings({
 	keys = {"GUILDMEMBERPINS", "GUILDMEMBERLEVEL", "GUILDMEMBERNAME", "GUILDMEMBERSHARE", "GUILDMEMBERZONES"},
@@ -84,6 +85,40 @@ function MapUtils:SetMapOption(key, value, func)
 		if maset ~= nil then maset:UpdateDependencies() end
 	end
 	if func then func() end
+end
+
+function MapUtils:OnOneMapChanged()
+	MapUtils:RefreshZoneDetail()
+	MapUtils.OneMapPinCache = {}
+	MapUtils:RefreshPins()
+	MapUtils:InstallCombatPins()
+	if MapUtils.RefreshMapSettingsWidget ~= nil then MapUtils:RefreshMapSettingsWidget() end
+end
+
+function MapUtils:SetOneMapEnabled(value)
+	MapUtils:SetMapOption("ONEMAP", value == true, function() MapUtils:OnOneMapChanged() end)
+end
+
+function MapUtils:GetMapStyleOption(key)
+	MAUTTAB = MAUTTAB or {}
+	if key == "CITYMAPSTYLE" then return MAUTTAB["CITYMAPSTYLE"] or MAUTTAB["MAPSTYLE"] or "MIXED" end
+
+	return MAUTTAB["MAPSTYLE"] or "MIXED"
+end
+
+function MapUtils:OnMapStyleChanged(key, style)
+	local controls = styleControls[key]
+	if controls ~= nil and controls[2] ~= nil then controls[2](style) end
+	MapUtils:RefreshZoneDetail()
+	if MapUtils.RefreshMapSettingsWidget ~= nil then MapUtils:RefreshMapSettingsWidget() end
+end
+
+function MapUtils:SetMapStyleOption(key, style)
+	MAUTTAB = MAUTTAB or {}
+	MapUtils:SV(MAUTTAB, key, style)
+	local controls = styleControls[key]
+	if controls ~= nil and controls[1] ~= nil and controls[1].SetValue ~= nil then controls[1]:SetValue(style) end
+	MapUtils:OnMapStyleChanged(key, style)
 end
 
 function MapUtils:SetGuildOption(key, value)
@@ -336,6 +371,8 @@ local function HandleSlash(args)
 		MapUtils:PrintTransports()
 	elseif sub == "shiplog" and MapUtils.ToggleTransportLog ~= nil then
 		MapUtils:ToggleTransportLog()
+	elseif sub == "taint" and MapUtils.PrintTaintReport ~= nil then
+		MapUtils:PrintTaintReport()
 	else
 		MapUtils:ToggleSettings()
 	end
@@ -484,19 +521,27 @@ function MapUtils:InitSetting()
 		"LID_MAPVIEWMODEDESC"
 	)
 	MapUtils:IsOneMap()
-	local oneMap = AddCheckbox(
-		"ONEMAP",
-		true,
-		function()
-			MapUtils:RefreshZoneDetail()
-			MapUtils.OneMapPinCache = {}
-			MapUtils:RefreshPins()
-			MapUtils:InstallCombatPins()
-		end, nil, ADDED_1022
-	)
+	local oneMap = AddCheckbox("ONEMAP", true, function() MapUtils:OnOneMapChanged() end, nil, ADDED_1022)
 	if wheelZoomAvailable then Requires(oneMap, "WORLDMAPZOOM") end
 	AddTooltip(oneMap, "LID_ONEMAP", "LID_ONEMAPDESC")
 	Requires(AddCheckbox("ONEMAPTRANSITIONS", false, nil, nil, "2026-11-16"), "ONEMAP")
+	Requires(AddCheckbox("ONEMAPHOVER", false, function() MapUtils:RefreshOneMapHover() end, nil, "2026-11-22"), "ONEMAP")
+	maset:AddDependency(
+		maset:AddColorPicker(
+			{
+				["label"] = "LID_ONEMAPHOVERCOLOR",
+				["search"] = "ONEMAPHOVERCOLOR",
+				["added"] = "2026-11-22",
+				["value"] = {MapUtils:GetOneMapHoverColor()},
+				["func"] = function(r, g, b, a)
+					MapUtils:SV(MAUTTAB, "ONEMAPHOVERCOLOR", {["r"] = r, ["g"] = g, ["b"] = b, ["a"] = a})
+					MapUtils:RefreshOneMapHover()
+				end
+			}
+		),
+		function() return type(MAUTTAB) == "table" and MAUTTAB["ONEMAP"] == true and MAUTTAB["ONEMAPHOVER"] == true end,
+		2
+	)
 	local mapStyles = {}
 	for _, key in ipairs({"MIXED", "MAP", "TERRAIN"}) do
 		tinsert(
@@ -508,21 +553,14 @@ function MapUtils:InitSetting()
 		)
 	end
 
-	local showZoneFade, showCityFade
-	local zoneStyle = AddDropdown("MAPSTYLE", "MIXED", mapStyles, function(style)
-		showZoneFade(style)
-		MapUtils:RefreshZoneDetail()
-	end, "LID_ZONEMAPSTYLE", ADDED_1022)
+	local zoneStyle = AddDropdown("MAPSTYLE", "MIXED", mapStyles, function(style) MapUtils:OnMapStyleChanged("MAPSTYLE", style) end, "LID_ZONEMAPSTYLE", ADDED_1022)
 	AddTooltip(zoneStyle, "LID_ZONEMAPSTYLE", "LID_MAPSTYLEDESC")
-	showZoneFade = AddTerrainFadeSliders("ZONETERRAINFADE", false)
-	showZoneFade(MapUtils:GetConfig("MAPSTYLE", "MIXED"))
-	local cityStyle = AddDropdown("CITYMAPSTYLE", MapUtils:GetConfig("MAPSTYLE", "MIXED"), mapStyles, function(style)
-		showCityFade(style)
-		MapUtils:RefreshZoneDetail()
-	end, nil, ADDED_1022)
+	styleControls["MAPSTYLE"] = {zoneStyle, AddTerrainFadeSliders("ZONETERRAINFADE", false)}
+	styleControls["MAPSTYLE"][2](MapUtils:GetMapStyleOption("MAPSTYLE"))
+	local cityStyle = AddDropdown("CITYMAPSTYLE", MapUtils:GetConfig("MAPSTYLE", "MIXED"), mapStyles, function(style) MapUtils:OnMapStyleChanged("CITYMAPSTYLE", style) end, nil, ADDED_1022)
 	AddTooltip(cityStyle, "LID_CITYMAPSTYLE", "LID_MAPSTYLEDESC")
-	showCityFade = AddTerrainFadeSliders("CITYTERRAINFADE", true)
-	showCityFade(MapUtils:GetConfig("CITYMAPSTYLE", "MIXED"))
+	styleControls["CITYMAPSTYLE"] = {cityStyle, AddTerrainFadeSliders("CITYTERRAINFADE", true)}
+	styleControls["CITYMAPSTYLE"][2](MapUtils:GetMapStyleOption("CITYMAPSTYLE"))
 	AddCategory("NAVIGATION", 2, nil, ADDED_0928)
 	AddTooltip(AddCheckbox("ALWAYSSHOWWAYPOINT", false, nil, nil, ADDED_0928), "LID_ALWAYSSHOWWAYPOINT", "LID_ALWAYSSHOWWAYPOINTDESC")
 	if (C_Navigation and C_Navigation.GetDistance) or WorldMapPin_GetDistance then
@@ -600,6 +638,13 @@ function MapUtils:InitSetting()
 	AddExploreCheckbox("MEETINGSTONE")
 	if not MapUtils.nativeInstanceMaps then
 		AddCategory("INSTANCEMAPPINS", 2, "LID_INSTANCEMAPS", ADDED_1004)
+		AddCheckbox(
+			"SHOWINSTANCEMAPS",
+			true,
+			function()
+				if not MapUtils:IsInstanceMapEnabled() and MapUtils:IsInstanceMapShown() then MapUtils:ToggleInstanceMap() end
+			end, nil, "2026-11-22"
+		)
 		AddSharedCheckbox("INSTANCEPINS_BOSS", "LID_SHOWBOSSPINS", ADDED_1004)
 		AddSharedCheckbox("INSTANCEPINS_ITEM", "LID_SHOWQUESTITEMPINS", ADDED_1004)
 		AddSharedCheckbox("INSTANCEPINS_QUEST", "LID_SHOWQUESTPINS", "2026-11-15")
@@ -614,6 +659,7 @@ function MapUtils:InitSetting()
 		AddDropdown("SPIRITHEALERSTYLE", "NORMAL", {
 			{value = "NORMAL", label = MapUtils:Trans("LID_NORMAL")},
 			{value = "CHIBI", label = "Chibi"},
+			{value = "SIMPLE", label = MapUtils:Trans("LID_SPIRITHEALERSIMPLE")},
 		}, function() MapUtils:RefreshPins() end)
 		AddExploreCheckbox("SPIRITHEALER")
 		AddCategory("CONVERGENCES", 2, nil, ADDED_1017)
@@ -655,9 +701,10 @@ function MapUtils:InitSetting()
 		["name"] = "MapUtils",
 		["icon"] = ICON,
 		["dbtab"] = MAUTTAB,
-		["vTT"] = {{format("|T%d:16:16:0:0|t MapUtils", ICON), "v" .. MapUtils:GetAddonVersion()}, {MapUtils:Trans("LID_LEFTCLICK"), MapUtils:Trans("LID_OPENSETTINGS")}, {MapUtils:Trans("LID_RIGHTCLICK"), MapUtils:Trans("LID_HIDEMINIMAPBUTTON")}},
+		["vTT"] = {{format("|T%d:16:16:0:0|t MapUtils", ICON), "v" .. MapUtils:GetAddonVersion()}, {MapUtils:Trans("LID_LEFTCLICK"), MapUtils:Trans("LID_OPENSETTINGS")}, {MapUtils:Trans("LID_RIGHTCLICK"), MapUtils:Trans("LID_OPENSETTINGS")}, {MapUtils:Trans("LID_SHIFTRIGHTCLICK"), MapUtils:Trans("LID_HIDEMINIMAPBUTTON")}},
 		["funcL"] = function() MapUtils:ToggleSettings() end,
-		["funcR"] = function()
+		["funcR"] = function() MapUtils:ToggleSettings() end,
+		["funcSR"] = function()
 			MapUtils:SV(MAUTTAB, "MMBTN", false)
 			MapUtils:INFO("Minimap Button is now hidden.")
 			MapUtils:HideMMBtn("MapUtils")

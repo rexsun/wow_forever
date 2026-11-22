@@ -54,6 +54,8 @@ B.Defaults = {
     },
 }
 if B.client == "forever" then
+    B.Defaults.combinedSortDirection = "forward"
+    B.Defaults.combinedWrapSpecialBags = true
     B.Defaults.tracked = {{kind="currency", id=3402}, {kind="currency", id=515}}
     B.Defaults.bankView = bankViewDefaults
     B.Defaults.guildView = {slotSize=B.Defaults.slotSize, showSubnames=B.Defaults.showSubnames}
@@ -102,6 +104,12 @@ function B:GetConfig()
     end
     config.layout = config.layout == "single" and "single" or "category"
     config.emptyMode = config.emptyMode == "one" and "one" or "all"
+    if self.client == "forever" then
+        config.combinedSortDirection = config.combinedSortDirection == "reverse" and "reverse" or "forward"
+        if type(config.combinedWrapSpecialBags) ~= "boolean" then
+            config.combinedWrapSpecialBags = self.Defaults.combinedWrapSpecialBags
+        end
+    end
     if self.Defaults.bankView then
         for key, value in pairs(config.bankView) do
             if not IsBankViewOptionValid(key, value) then config.bankView[key] = bankViewDefaults[key] end
@@ -176,6 +184,7 @@ function B:SetEnabled(enabled, lifecycle)
 end
 function B:ConfigChanged(layout)
     if not self.active then return end
+    self.Actions:CancelSortForConfigChange()
     self:InvalidateSortSpace()
     self.Model:Reclassify()
     if layout ~= false and self.View then self.View:Invalidate() end
@@ -217,12 +226,18 @@ function B:ImportConfig(text)
     end
     self.config = nil
     self:GetConfig()
+    self.Diagnostics:NoteConfig("bag-import")
     if self.Defaults.bankView and source.bankView then RefreshBankWindows(self, "bank", true, false) end
     if self.active then self.View:ApplySkin(true) end
     self:ConfigChanged()
     return true
 end
 function B:ValidateConfig(source)
+    if self.client == "forever" then
+        local direction, wrap = source.combinedSortDirection, source.combinedWrapSpecialBags
+        if direction ~= nil and direction ~= "forward" and direction ~= "reverse" then return false end
+        if wrap ~= nil and type(wrap) ~= "boolean" then return false end
+    end
     if self.Defaults.guildView and source.guildView ~= nil then
         if type(source.guildView) ~= "table" then return false end
         for key, value in pairs(source.guildView) do

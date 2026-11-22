@@ -27,13 +27,22 @@ Data.catalog.warlockTools = {
         items = {5512,19004,19005,5511,19006,19007,5509,19008,19009,5510,19010,19011,9421,19012,19013} },
     soulstone = { stone = true, friend = true, binding = true, boundAuras = {20707,20762,20763,20764,20765}, families = { Family(693,20752,20755,20756,20757) },
         items = {5232,16892,16893,16895,16896} },
+    firestone = { stone = true, weaponSlot = 16, families = { Family(6366,17951,17952,17953) },
+        items = {1254,13699,13700,13701} },
+    spellstone = { stone = true, weaponSlot = 16, families = { Family(2362,17727,17728) },
+        items = {5522,13602,13603} },
     armor = { aura = true, target = "player", families = { Family(687,696,706,1086,11733,11734,11735) } },
     ritual = { counter = 6265, families = { {698} }, right = {437169} },
 }
 local poisons = {6947,6949,6950,8926,8927,8928,2892,2893,8984,8985,20844,3775,3776,5237,6951,9186,10918,10920,10921,10922}
+-- Forever 1.60.1.71037: ItemSparse, ItemXItemEffect, SpellEffect and SpellEquippedItems.
+local sharpening = {}
+Data.poisonSkillLine, Data.poisonSkillSpell = 40, 2842
 Data.catalog.rogueTools = {
     mainhand = { mode = "cast", poison = true, weaponSlot = 16, items = poisons },
     offhand = { mode = "cast", poison = true, weaponSlot = 17, items = poisons },
+    mainhandStone = { mode = "cast", sharpening = true, weaponSlot = 16, items = sharpening, previewItem = 2862 },
+    offhandStone = { mode = "cast", sharpening = true, weaponSlot = 17, items = sharpening, previewItem = 2862 },
 }
 Data.catalog.priestTools = {
     fortitude = { friend = true, aura = true, families = { Family(1243,1244,1245,2791,10937,10938) }, right = {21562,21564} },
@@ -96,7 +105,8 @@ Data.cityKeys = { [3561] = "stormwind", [10059] = "stormwind", [3562] = "ironfor
     [3563] = "undercity", [11418] = "undercity", [3566] = "thunderbluff", [11420] = "thunderbluff",
     [1297659] = "dalaran" }
 for spell, key in pairs(Data.cityKeys) do Data.reagents[spell] = { itemID = key and (spell < 10000 or spell == 1297659) and 17031 or 17032, count = 1 } end
-for _, spell in ipairs({693,697,698,691,712,5699,6201,6202,11730,11729,20752,20755,20756,20757}) do
+for _, spell in ipairs({693,697,698,691,712,5699,6201,6202,11730,11729,20752,20755,20756,20757,
+    6366,17951,17952,17953,2362,17727,17728}) do
     Data.reagents[spell] = { itemID = 6265, count = 1 }
 end
 Data.reagents[437169] = { itemID = 6265, count = 5 }
@@ -118,6 +128,25 @@ for index, item in ipairs(poisons) do
     Data.items[item] = { level = poisonLevels[index], enchantID = poisonEnchants[index], useSpellID = poisonUseSpells[item] }
     Data.poisonByEnchant[poisonEnchants[index]] = item
 end
+Data.warlockStoneByEnchant = {}
+for _, row in ipairs({{1254,1803,758},{13699,1823,17945},{13700,1824,17947},{13701,1825,17949},
+    {5522,8059,1237152},{13602,8060,1237156},{13603,8061,1237159}}) do
+    Data.items[row[1]] = {level=0, useSpellID=row[3]}
+    Data.warlockStoneByEnchant[row[2]] = row[1]
+end
+Data.sharpeningByEnchant = {}
+Data.sharpeningAlternates = {}
+for _, row in ipairs({{2862,1,40,2828,33219},{287978,1,40,2828,33219},{3239,1,19,3112,9264},
+    {2863,5,13,2829,33219},{3240,5,20,3113,9264},{2871,15,14,2830,33219},{3241,15,21,3114,9264},
+    {7964,25,483,9900,33219},{7965,25,484,9903,9264},{12404,35,1643,16138,33219},{12643,35,1703,16622,9264},
+    {18262,50,2506,22756,42483},{287980,1,2506,22756,42483},{23122,50,2684,28891,1097203},{211845,0,7098,430392,42483}}) do
+    local item, level, enchant, spell, mask = row[1], row[2], row[3], row[4], row[5]
+    sharpening[#sharpening + 1] = item
+    Data.items[item] = {level=level, useSpellID=spell, weaponMask=mask}
+    local original = Data.sharpeningByEnchant[enchant]
+    if original then Data.sharpeningAlternates[original] = item
+    else Data.sharpeningByEnchant[enchant] = item end
+end
 Data.enchants = {}
 for _, row in ipairs({{8017,29},{8018,6},{8019,1},{10399,503},{16314,1663},{16315,683},{16316,1664},
     {8024,5},{8027,4},{8030,3},{16339,523},{16341,1665},{16342,1666},{8033,2},{8038,12},
@@ -132,8 +161,8 @@ Data.preview = {
     aspects = { aspect1=13163,aspect2=13165,aspect3=5118,aspect4=13161,aspect5=13159,aspect6=20043,
         aspect7=415423,aspect8=469145,pet=883 },
     totems = { summon=66842,earth=8071,fire=3599,water=5394,air=8512,recall=36936,imbue=8232,shield=324 },
-    warlockTools = { demon=688,healthstone=6201,soulstone=693,armor=706,ritual=698 },
-    rogueTools = { mainhand=8679,offhand=2823 }, priestTools={fortitude=1243,spirit=14752,shadow=976,innerfire=588},
+    warlockTools = { demon=688,healthstone=6201,soulstone=693,firestone=6366,spellstone=2362,armor=706,ritual=698 },
+    rogueTools = { mainhand=8679,mainhandStone=2828,offhand=2823,offhandStone=2828 }, priestTools={fortitude=1243,spirit=14752,shadow=976,innerfire=588},
     paladinBlessings={manage=25898,MAGE=25894,HUNTER=25782,SHAMAN=25894,WARLOCK=25894,ROGUE=25782,PRIEST=25894,PALADIN=25898,DRUID=25898,WARRIOR=25782},
     paladinTools={blessing=19740,teamBlessing=25898,righteous=25780,seal=20154},druidTools={mark=1126,thorns=467},warriorTools={battle=6673},
 }

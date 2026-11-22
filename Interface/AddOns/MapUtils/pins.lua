@@ -204,6 +204,7 @@ local SUPERTRACKED_ALPHA = 0.5
 local SUPERTRACKED_MIN_DISTANCE = 1000
 local TRACKED_ICON_SCALE = 0.72
 local MEETING_STONE_ICON_SCALE = 0.8
+local SHIP_ICON_SCALE = 1.4
 local PUSHED_OFFSET = 1
 local CIRCLE_TRACKED = "UI-QuestPoi-QuestNumber-SuperTracked"
 local CIRCLE_TRACKED_PUSHED = "UI-QuestPoi-QuestNumber-Pressed-SuperTracked"
@@ -251,8 +252,10 @@ local PinCache = {
 	["templates"] = {"LeaMapsGlobalPinTemplate", "FlightPointPinTemplate"},
 	["atlas"] = {},
 	["atlasWidth"] = {},
+	["simpleSpiritHealer"] = "Vehicle-TempleofKotmogu-GreenBall",
 	["halfCoords"] = {},
-	["druidFlights"] = {[62] = true, [63] = true}
+	["druidFlights"] = {[62] = true, [63] = true},
+	["zoomLayoutInterval"] = 0.08
 }
 
 local MINIMAP_YARDS = {}
@@ -910,7 +913,7 @@ AddDungeon(
 		["maxLevel"] = 45,
 	},
 	{
-		[2548] = {0.485, 0.261},
+		[2548] = {0.375, 0.375},
 	}
 )
 
@@ -1561,7 +1564,12 @@ local function GetEntryIcon(entry)
 	if entry.kind == "dungeon" and entry.entrance == "both" then return SPLIT_ICON end
 	if entry.kind == "dungeon" then return GetDungeonIcon() end
 	if entry.kind == "meetingstone" then return MEETING_STONE_ICON end
-	if entry.kind == "spirithealer" then return "Interface\\AddOns\\MapUtils\\media\\" .. (MapUtils:GetConfig("SPIRITHEALERSTYLE", "NORMAL") == "CHIBI" and "spirithealer_chibi" or "spirithealer") end
+	if entry.kind == "spirithealer" then
+		local style = MapUtils:GetConfig("SPIRITHEALERSTYLE", "NORMAL")
+		if style == "SIMPLE" and IsAtlas(PinCache.simpleSpiritHealer) then return PinCache.simpleSpiritHealer end
+
+		return "Interface\\AddOns\\MapUtils\\media\\" .. (style == "CHIBI" and "spirithealer_chibi" or "spirithealer")
+	end
 	if entry.kind == "crossing" then return GetCrossingIcon(entry.up) end
 	if entry.kind == nil and MapUtils:GetConfig("PIERICONSTYLE", "NEW") == "PORTALS" then return GetIcon(entry.faction) end
 	if entry.kind == nil and (MAUTTAB == nil or MAUTTAB["icon"] == nil or MAUTTAB["icon"] == "") then
@@ -2227,7 +2235,7 @@ local function GetClickHints(pin)
 	)
 
 	if entry.kind == "dungeon" then
-		if (entry.instanceMap or entry.instance) ~= nil and MapUtils.ShowInstanceMap ~= nil then
+		if (entry.instanceMap or entry.instance) ~= nil and MapUtils.IsInstanceMapEnabled ~= nil and MapUtils:IsInstanceMapEnabled() then
 			tinsert(
 				hints,
 				{
@@ -2575,7 +2583,7 @@ local function OnPinClick(pin, button)
 			end
 
 			if MapUtils.GlideToMap == nil or not MapUtils:GlideToMap(destMapID, destX, destY) then WorldMapFrame:SetMapID(destMapID) end
-		elseif button == "RightButton" and entry.kind == "dungeon" and (entry.instanceMap or entry.instance) ~= nil and MapUtils.ShowInstanceMap ~= nil then
+		elseif button == "RightButton" and entry.kind == "dungeon" and (entry.instanceMap or entry.instance) ~= nil and MapUtils.IsInstanceMapEnabled ~= nil and MapUtils:IsInstanceMapEnabled() then
 			MapUtils:ShowInstanceMap(entry.instanceMap or entry.instance, entry.instanceMapLevel)
 		end
 	end
@@ -2636,8 +2644,12 @@ local function PiersEnabled(worldMap)
 	return MapUtils:GetConfig("MINIMAPPINS", true) == true
 end
 
+function PinCache.IsOpenMapStitched()
+	return OpenMapAPI ~= nil and OpenMapAPI.IsStitched ~= nil and OpenMapAPI.IsStitched() == true
+end
+
 local function DungeonsEnabled(worldMap)
-	if worldMap then return MapUtils:IsPinShownOnMap("DUNGEONWORLDMAPPINS", true) end
+	if worldMap then return not PinCache.IsOpenMapStitched() and MapUtils:IsPinShownOnMap("DUNGEONWORLDMAPPINS", true) end
 
 	return MapUtils:GetConfig("DUNGEONMINIMAPPINS", true) == true
 end
@@ -2649,7 +2661,7 @@ local function FlightsEnabled(worldMap)
 end
 
 local function MeetingStonesEnabled(worldMap)
-	if worldMap then return MapUtils:IsPinShownOnMap("MEETINGSTONEWORLDMAPPINS", true) end
+	if worldMap then return not PinCache.IsOpenMapStitched() and MapUtils:IsPinShownOnMap("MEETINGSTONEWORLDMAPPINS", true) end
 
 	return MapUtils:GetConfig("MEETINGSTONEMINIMAPPINS", true) == true
 end
@@ -2769,12 +2781,22 @@ function MapUtils:GetOneMapForeignPins(mapID, piersOn, dungeonsOn, convergencesO
 	local items = {}
 	local seen = {}
 	local function Remember(entry, u, v)
-		tinsert(seen, {entry.kind, entry.name, u, v})
+		local bucketKey = tostring(entry.kind) .. "\1" .. tostring(entry.name)
+		local bucket = seen[bucketKey]
+		if bucket == nil then
+			bucket = {}
+			seen[bucketKey] = bucket
+		end
+
+		bucket[#bucket + 1] = u
+		bucket[#bucket + 1] = v
 	end
 
 	local function IsSeen(entry, u, v)
-		for _, other in ipairs(seen) do
-			if other[1] == entry.kind and other[2] == entry.name and math.abs(other[3] - u) < 0.004 and math.abs(other[4] - v) < 0.004 then return true end
+		local bucket = seen[tostring(entry.kind) .. "\1" .. tostring(entry.name)]
+		if bucket == nil then return false end
+		for index = 1, #bucket, 2 do
+			if math.abs(bucket[index] - u) < 0.004 and math.abs(bucket[index + 1] - v) < 0.004 then return true end
 		end
 
 		return false
@@ -2840,7 +2862,12 @@ end
 
 local function GetPoiScale()
 	local zoom = 0
-	if WorldMapFrame.GetCanvasZoomPercent ~= nil then zoom = WorldMapFrame:GetCanvasZoomPercent() or 0 end
+	local oneMap = MapUtils.GetOneMapZoomPercent ~= nil and MapUtils:GetOneMapZoomPercent()
+	if oneMap then
+		zoom = oneMap
+	elseif WorldMapFrame.GetCanvasZoomPercent ~= nil then
+		zoom = WorldMapFrame:GetCanvasZoomPercent() or 0
+	end
 	zoom = math.min(math.max(zoom, 0), 1)
 	local scale = POI_START_SCALE + (POI_END_SCALE - POI_START_SCALE) * zoom
 	if WorldMapFrame.GetGlobalPinScale ~= nil then scale = scale * (WorldMapFrame:GetGlobalPinScale() or 1) end
@@ -2935,12 +2962,18 @@ local function UpdateWorldPins()
 	local sameState = mapID == worldMapID and piersOn == worldPiers and dungeonsOn == worldDungeons and flightsOn == worldFlights and meetingStonesOn == worldMeetingStones and crossingsOn == worldCrossings and spiritHealersOn == worldSpiritHealers and convergencesOn == worldConvergences and libraryBooksOn == PinCache.worldLibraryBooks
 	local w, h = child:GetWidth(), child:GetHeight()
 	if scale == nil or scale <= 0 or w <= 0 or h <= 0 then return end
-	if sameState and scale == worldScale and w == PinCache.worldWidth and h == PinCache.worldHeight then
+	local zoneShown = PinCache.ZoneShown()
+	local sameSize = PinCache.SameSize(w, h)
+	local sameView = sameState and sameSize and zoneShown == PinCache.worldZoneShown
+	local now = GetTime()
+	if sameView and (scale == worldScale or MapUtils.IsSmoothZooming ~= nil and MapUtils:IsSmoothZooming() and now - (PinCache.worldLayoutTime or 0) < PinCache.zoomLayoutInterval) then
 		PinCache.CullWorldPins(child, w, h, baseLevel, false)
 
 		return
 	end
 
+	PinCache.CountLayoutReason(sameState, sameSize, sameView, scale == worldScale)
+	PinCache.worldLayoutTime = now
 	PinCache.worldWidth, PinCache.worldHeight = w, h
 	worldMapID = mapID
 	worldScale = scale
@@ -2968,6 +3001,9 @@ local function UpdateWorldPins()
 		PinCache.worldEntries = list
 	end
 
+	PinCache.worldZoneShown = zoneShown
+	local entries = PinCache.worldEntries
+
 	local size = ICON_SIZE / scale
 	local poiScale = GetPoiScale()
 	local dungeonSize = DUNGEON_ICON_SIZE * poiScale / scale
@@ -2975,11 +3011,11 @@ local function UpdateWorldPins()
 	local clusters
 	if MapUtils:IsDebug() then
 		clusters = {}
-		for _, item in ipairs(PinCache.worldEntries) do
+		for _, item in ipairs(entries) do
 			tinsert(clusters, {items = {item}})
 		end
 	else
-		for _, item in ipairs(PinCache.worldEntries) do
+		for _, item in ipairs(entries) do
 			local kind = item.entry.kind
 			local baseSize = (kind == "dungeon" or kind == "flight") and dungeonSize or size
 			if kind == "crossing" then baseSize = dungeonSize * 0.7 end
@@ -2988,7 +3024,7 @@ local function UpdateWorldPins()
 			if sizeFactors[key] == nil then sizeFactors[key] = MapUtils:GetPinKindSizeFactor(kind) end
 			item.distance = baseSize * sizeFactors[key]
 		end
-		clusters = MapUtils:ClusterMapPins(PinCache.worldEntries, w, h)
+		clusters = MapUtils:ClusterMapPins(entries, w, h)
 	end
 
 	for _, cluster in ipairs(clusters) do
@@ -3053,7 +3089,8 @@ local function UpdateWorldPins()
 			local flightSize = (GetAtlasWidth(entry.icon) or ICON_SIZE) * poiScale / scale * factor
 			pin:SetSize(flightSize, flightSize)
 		else
-			pin:SetSize(size * factor, size * factor)
+			local shipScale = pin.icon == TRANSPORT_ICONS["ship"] and SHIP_ICON_SCALE or 1
+			pin:SetSize(size * factor * shipScale, size * factor * shipScale)
 		end
 
 		local wasRescaled = pin.rescaleFactor ~= nil and pin.rescaleFactor ~= 1
@@ -3073,6 +3110,43 @@ local function UpdateWorldPins()
 	PinCache.CullWorldPins(child, w, h, baseLevel, true)
 end
 
+PinCache.layoutReasons = {
+	["state"] = MapUtils.Profile("World pin layout: pin state", function() end),
+	["size"] = MapUtils.Profile("World pin layout: canvas size", function() end),
+	["view"] = MapUtils.Profile("World pin layout: zone art shown", function() end),
+	["zoom"] = MapUtils.Profile("World pin layout: zoom step", function() end),
+	["scale"] = MapUtils.Profile("World pin layout: scale idle", function() end),
+	["same"] = MapUtils.Profile("World pin layout: nothing changed", function() end)
+}
+
+function PinCache.SameSize(w, h)
+	local lastWidth, lastHeight = PinCache.worldWidth, PinCache.worldHeight
+	if lastWidth == nil or lastHeight == nil then return false end
+
+	return math.abs(w - lastWidth) <= lastWidth * 0.001 and math.abs(h - lastHeight) <= lastHeight * 0.001
+end
+
+function PinCache.CountLayoutReason(sameState, sameSize, sameView, sameScale)
+	local reasons = PinCache.layoutReasons
+	if not sameState then
+		reasons.state()
+	elseif not sameSize then
+		reasons.size()
+	elseif not sameView then
+		reasons.view()
+	elseif sameScale then
+		reasons.same()
+	elseif MapUtils.IsSmoothZooming ~= nil and MapUtils:IsSmoothZooming() then
+		reasons.zoom()
+	else
+		reasons.scale()
+	end
+end
+
+function PinCache.ZoneShown()
+	return MapUtils.IsZoneDetailArtFull == nil or MapUtils:IsZoneDetailArtFull()
+end
+
 PinCache.updateWorldPins = MapUtils.Profile("pins UpdateWorldPins", UpdateWorldPins)
 function PinCache.PollWorldPins()
 	local child = GetWorldCanvas()
@@ -3087,7 +3161,7 @@ function PinCache.PollWorldPins()
 	local moved = view.scrollX ~= x or view.scrollY ~= y or view.width ~= width or view.height ~= height
 	view.scrollX, view.scrollY, view.width, view.height = x, y, width, height
 	local w, h = child:GetSize()
-	if worldMapID ~= WorldMapFrame:GetMapID() or worldScale ~= child:GetScale() or PinCache.worldWidth ~= w or PinCache.worldHeight ~= h or view.nextPoll == nil or now >= view.nextPoll then
+	if worldMapID ~= WorldMapFrame:GetMapID() or worldScale ~= child:GetScale() or not PinCache.SameSize(w, h) or PinCache.ZoneShown() ~= PinCache.worldZoneShown or view.nextPoll == nil or now >= view.nextPoll then
 		view.nextPoll = now + 0.5
 		PinCache.updateWorldPins()
 	elseif moved and view.level ~= nil then
@@ -3198,7 +3272,9 @@ local function UpdateMinimapPins()
 		pin.entry = entry
 		ApplyIcon(pin, GetEntryIcon(entry))
 		ApplyEntryTint(pin, entry)
-		LayoutPinIcon(pin, ICON_SIZE * GetEntryIconScale(entry), 0, 0)
+		local minimapSize = ICON_SIZE * (pin.icon == TRANSPORT_ICONS["ship"] and SHIP_ICON_SCALE or 1)
+		pin:SetSize(minimapSize, minimapSize)
+		LayoutPinIcon(pin, minimapSize * GetEntryIconScale(entry), 0, 0)
 		local pos = GetEntryWorldPos(mapID, entry)
 		if pos == nil then
 			pin:Hide()

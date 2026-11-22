@@ -1,6 +1,9 @@
 local YUI = _G.YUI
 local GUI2 = YUI and YUI.GUI2
-if not GUI2 or GUI2.PaintIconPressedVisual then return end
+if not GUI2 then return end
+
+GUI2.ActionStateLightColor = GUI2.ActionStateLightColor or { 1, 1, 1, 0.9 }
+if GUI2.PaintIconPressedVisual then return end
 
 -- Shared by action buttons and passive icon monitors; geometry stays with the owner.
 do

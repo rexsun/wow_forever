@@ -221,10 +221,15 @@ function Profiler.TrackState(delta, lua)
 	state.frames = state.frames + 1
 	state.time = state.time + delta
 	state.lua = state.lua + lua
-	if delta > state.worst then state.worst = delta end
-	if delta > 1 / 60 then state.slow = state.slow + 1 end
+	if afterCount then
+		state.countFrames = (state.countFrames or 0) + 1
+	else
+		if delta > state.worst then state.worst = delta end
+		if delta > 1 / 60 then state.slow = state.slow + 1 end
+	end
+
 	local now = GetTime()
-	if delta >= Profiler.hitchThreshold then
+	if delta >= Profiler.hitchThreshold and not afterCount then
 		local top = {}
 		for label, value in pairs(Profiler.frameSelf) do
 			tinsert(top, {label, value})
@@ -283,8 +288,70 @@ function Profiler.SortOpen(a, b)
 	return (a.openSelf or 0) > (b.openSelf or 0)
 end
 
+function Profiler.GetMetadata(name, field)
+	if C_AddOns and C_AddOns.GetAddOnMetadata then return C_AddOns.GetAddOnMetadata(name, field) end
+	if GetAddOnMetadata then return GetAddOnMetadata(name, field) end
+end
+
+function Profiler.SystemLine()
+	local settings = type(MAUTTAB) == "table" and MAUTTAB or {}
+	local zoneStyle = settings["MAPSTYLE"] or "MIXED"
+	local width, height = GetPhysicalScreenSize()
+	local cvars = {}
+	for _, name in ipairs({"graphicsQuality", "graphicsTextureResolution", "gxApi", "maxFPS", "useUiScale", "uiScale"}) do
+		local value = GetCVar(name)
+		if value ~= nil then tinsert(cvars, name .. "=" .. value) end
+	end
+
+	return format("MapUtils %s, map style %s, city style %s, screen %dx%d, Lua memory %.1f MB, %s", tostring(Profiler.GetMetadata(addonName, "Version")), zoneStyle, settings["CITYMAPSTYLE"] or zoneStyle, width or 0, height or 0, collectgarbage("count") / 1024, table.concat(cvars, ", "))
+end
+
+function Profiler.SettingsLines(lines)
+	local keys = {}
+	for key, value in pairs(type(MAUTTAB) == "table" and MAUTTAB or {}) do
+		local kind = type(value)
+		if type(key) == "string" and (kind == "boolean" or kind == "number" or kind == "string" and #value <= 40) then tinsert(keys, key) end
+	end
+
+	table.sort(keys)
+	local line = {}
+	for _, key in ipairs(keys) do
+		tinsert(line, key .. "=" .. tostring(MAUTTAB[key]))
+		if #line == 8 then
+			tinsert(lines, "  " .. table.concat(line, ", "))
+			line = {}
+		end
+	end
+
+	if #line > 0 then tinsert(lines, "  " .. table.concat(line, ", ")) end
+end
+
+function Profiler.AddonLines(lines)
+	local count = C_AddOns and C_AddOns.GetNumAddOns and C_AddOns.GetNumAddOns() or GetNumAddOns and GetNumAddOns() or 0
+	local isLoaded = C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
+	local getInfo = C_AddOns and C_AddOns.GetAddOnInfo or GetAddOnInfo
+	local line = {}
+	local loaded = 0
+	for index = 1, count do
+		local name = getInfo and getInfo(index)
+		if name ~= nil and isLoaded and isLoaded(index) then
+			loaded = loaded + 1
+			local version = Profiler.GetMetadata(name, "Version")
+			tinsert(line, version ~= nil and version ~= "" and name .. " " .. version or name)
+			if #line == 6 then
+				tinsert(lines, "  " .. table.concat(line, ", "))
+				line = {}
+			end
+		end
+	end
+
+	if #line > 0 then tinsert(lines, "  " .. table.concat(line, ", ")) end
+
+	return loaded
+end
+
 function Profiler.BuildReport()
-	local lines = {"MapUtils profiler report " .. date("%Y-%m-%d %H:%M:%S"), Profiler.BenchContext()}
+	local lines = {"MapUtils profiler report " .. date("%Y-%m-%d %H:%M:%S"), Profiler.BenchContext(), Profiler.SystemLine()}
 	local duration = Profiler.GetDuration()
 	tinsert(lines, format("%.1f s, %d frames, MapUtils Lua avg %.3f ms/frame, peak %.1f ms", duration, Profiler.frames, Profiler.frames > 0 and Profiler.frameSum / Profiler.frames or 0, Profiler.framePeak))
 	tinsert(lines, "")
@@ -297,9 +364,10 @@ function Profiler.BuildReport()
 	table.sort(list, function(a, b) return a.time > b.time end)
 	for _, state in ipairs(list) do
 		local avg = state.frames > 0 and state.time / state.frames * 1000 or 0
-		tinsert(lines, format("%s %7d %6.0f %8.2f %9.1f %6.0f%% %7.3f %5s %6s %9.1f %4d", state.key, state.frames, avg > 0 and 1000 / avg or 0, avg, state.worst * 1000, state.frames > 0 and state.slow / state.frames * 100 or 0, state.frames > 0 and state.lua / state.frames or 0, state.samples > 0 and format("%d", state.textures / state.samples) or "-", state.samples > 0 and format("%d", state.masks / state.samples) or "-", state.frames > 0 and (state.alloc or 0) / state.frames or 0, state.gc or 0))
+		tinsert(lines, format("%s %7d %6.0f %8.2f %9.1f %6.0f%% %7.3f %5s %6s %9.1f %4d", state.key, state.frames, avg > 0 and 1000 / avg or 0, avg, state.worst * 1000, state.frames > (state.countFrames or 0) and state.slow / (state.frames - (state.countFrames or 0)) * 100 or 0, state.frames > 0 and state.lua / state.frames or 0, state.samples > 0 and format("%d", state.textures / state.samples) or "-", state.samples > 0 and format("%d", state.masks / state.samples) or "-", state.frames > 0 and (state.alloc or 0) / state.frames or 0, state.gc or 0))
 	end
 
+	tinsert(lines, "worst ms, <60fps and hitches skip the frame after each texture count (profiler's own cost, every " .. Profiler.stateSampleInterval .. " s)")
 	tinsert(lines, "")
 	tinsert(lines, format("Hitches >= %d ms (last %d): time, state, frame ms, MapUtils lua ms, memory change (gc = Lua garbage collection ran), top self ms", Profiler.hitchThreshold * 1000, Profiler.hitchMax))
 	for _, hitch in ipairs(Profiler.hitches) do
@@ -333,6 +401,28 @@ function Profiler.BuildReport()
 		local stat = open[i]
 		tinsert(lines, format("  %-34s %7d %9.1f %9.1f %7.3f %7.2f", stat.label, stat.openCalls, stat.openTotal or 0, stat.openSelf, (stat.openTotal or 0) / stat.openCalls, stat.openPeak or 0))
 	end
+
+	local reasons = {}
+	for _, stat in pairs(Profiler.stats) do
+		if stat.label:find("^World pin layout: ") or stat.label:find("^Quest cache rebuild: ") then tinsert(reasons, stat) end
+	end
+
+	if #reasons > 0 then
+		table.sort(reasons, function(a, b) return a.label < b.label end)
+		tinsert(lines, "")
+		tinsert(lines, "Rebuild reasons (calls):")
+		for _, stat in ipairs(reasons) do
+			tinsert(lines, format("  %-48s %7d", stat.label, stat.calls))
+		end
+	end
+
+	tinsert(lines, "")
+	tinsert(lines, "MapUtils settings:")
+	Profiler.SettingsLines(lines)
+	tinsert(lines, "")
+	local header = #lines + 1
+	tinsert(lines, "")
+	lines[header] = format("Loaded addons (%d):", Profiler.AddonLines(lines))
 
 	return table.concat(lines, "\n"), lines
 end

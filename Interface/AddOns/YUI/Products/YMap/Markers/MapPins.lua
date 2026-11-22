@@ -301,7 +301,7 @@ end
 local function SetWaypoint(entry)
     if not (entry and C_Map and UiMapPoint and C_SuperTrack) then return false end
     if C_Map.CanSetUserWaypointOnMap and not C_Map.CanSetUserWaypointOnMap(entry.mapID) then return false end
-    local point = UiMapPoint.CreateFromCoordinates(entry.mapID, entry.x, entry.y)
+    local point = UiMapPoint.CreateFromCoordinates(entry.mapID, entry.sourceX or entry.x, entry.sourceY or entry.y)
     if not point or not C_Map.SetUserWaypoint(point) then return false end
     C_SuperTrack.SetSuperTrackedUserWaypoint(true)
     return true

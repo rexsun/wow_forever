@@ -35,6 +35,8 @@ local function Effects(owner, spec)
     spec.assisted = highlight and highlight.active and highlight.glow or nil
     local layer = YHUD.PressFeedback and YHUD.PressFeedback.layers[owner]
     spec.regions.Pushed = layer and layer.pressState and layer.pressState.pressedOverlay or nil
+    local queued = YHUD.QueuedAttack and YHUD.QueuedAttack.layers[owner]
+    spec.regions.Checked = queued and queued.state.Texture or nil
 end
 
 function View:ApplySlotIconSkin(slot, runtime, monitor)

@@ -247,7 +247,7 @@ function LogModel.Receive(store, receipt, character, now)
     return record.id
 end
 
-function LogModel.Filter(store, filter, now)
+function LogModel.Filter(store, filter, now, characterLabels)
     local rows, goldIn, goldOut = {}, 0, 0
     local query = string.lower(filter.query or "")
     local from = filter.from or (filter.days and filter.days > 0 and now - filter.days * 86400) or 0
@@ -258,8 +258,9 @@ function LogModel.Filter(store, filter, now)
     end
     for index = #store.records, 1, -1 do
         local entry = store.records[index]
+        local character = characterLabels and characterLabels[entry.character] or entry.character
         local matches = (not filter.direction or filter.direction == "all" or entry.direction == filter.direction)
-            and (not filter.character or filter.character == "all" or entry.character == filter.character)
+            and (not filter.character or filter.character == "all" or character == filter.character)
             and entry.at >= from and (not filter.to or entry.at < filter.to)
         if matches and query ~= "" then
             local haystack = entry.party .. " " .. entry.character .. " " .. entry.subject

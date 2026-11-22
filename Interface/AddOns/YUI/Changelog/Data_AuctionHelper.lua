@@ -15,19 +15,19 @@ CL:Register("auction_helper", {
             },
         },
     },
--- YUI-Notes-Record: yah-134|forever|955254865381ad6e1741313397baad7e6dad1d66b852b22fe1e98253d6ecd2c2
+-- YUI-Notes-Record: yah-134|forever|ee77b857349a503621d14ebe555a7e3c64598c8b8b08f38b90f3915e85b1c774
     {
         version = "yah-134",
-        date = "2026-11-20",
+        date = "2026-11-21",
         clients = { "Forever" },
         content = {
             zhCN = {
-                "推荐清单中的银锭移至「矿石与金属」。",
-                "适配新版 YUI 系列插件。",
+                "银锭移至「矿石与金属」。",
+                "使用新版 Core 可恢复符合条件的旧角色数据。",
             },
             enUS = {
-                "Moved Silver Bars to Ores & Metals in the recommended list.",
-                "Updated compatibility with newer YUI addons.",
+                "Moved Silver Bars to Ores & Metals.",
+                "Eligible older character data can be recovered with the updated Core.",
             },
         },
     },

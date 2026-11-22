@@ -81,7 +81,7 @@ local function Boolean(value) return Security.SafeBoolean(value) end
 function Bars:Owns(id) return id == "classTools" or YAB.ClassTools:IsClassBar(id) end
 
 function Bars:ConsumesEvent(event)
-    if event == "WEAPON_ENCHANT_CHANGED" then return self.active.rogueTools == true or self.active.totems == true end
+    if event == "WEAPON_ENCHANT_CHANGED" then return self.active.rogueTools == true or self.active.totems == true or self.active.warlockTools == true end
     if event == "GROUP_ROSTER_UPDATE" then return self.active.paladinBlessings == true or self.active.warlockTools == true end
     if event == "PLAYER_TOTEM_UPDATE" then return Totem ~= nil and self.active.totems == true end
     if event == "ADDON_RESTRICTION_STATE_CHANGED" then return next(self.active) ~= nil end
@@ -96,7 +96,9 @@ function Bars:ConsumesEvent(event)
     if COMMON_EVENTS[event] then return next(self.active) ~= nil end
     if self.utilityEvents[event] then
         if event == "UNIT_PET" then return self.active.warlockTools == true or self.active.aspects == true end
-        if event == "UNIT_INVENTORY_CHANGED" or event == "PLAYER_EQUIPMENT_CHANGED" then return self.active.totems == true or self.active.rogueTools == true end
+        if event == "UNIT_INVENTORY_CHANGED" or event == "PLAYER_EQUIPMENT_CHANGED" then
+            return self.active.totems == true or self.active.rogueTools == true or self.active.warlockTools == true
+        end
         if self.active.paladinBlessings then return true end
         for id in pairs(self.active) do if YAB.UtilityTools and YAB.ClassToolData.catalog[id] then return true end end
     end

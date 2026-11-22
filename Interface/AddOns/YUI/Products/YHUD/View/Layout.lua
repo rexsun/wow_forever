@@ -1963,6 +1963,10 @@ local function ResolveFilteredAuraLayoutFrame(self, runtime, monitorId)
     local monitor = monitorId and self.desiredMonitors[monitorId]
     local nativeFrame = runtime.nativeByMonitor
         and runtime.nativeByMonitor[monitorId]
+    local filteredFrame = self.filteredAuraFrames and self.filteredAuraFrames[monitorId]
+    if filteredFrame and filteredFrame._yhudFilteredAuraReplacesNative then
+        return filteredFrame, nativeFrame
+    end
     local ownedFrame = self.byMonitor[monitorId]
     if ownedFrame
         and not self:IsMonitorLayoutParticipating(
@@ -3163,9 +3167,10 @@ local function SeparateExternalBuffBlocks(runtime, groupPlan)
     end
     local strategy = groupPlan.filteredAuraProjectionStrategy
     local state = groupPlan.filteredAuraProjectionState
-    local foodDrinkFlow = strategy == YHUD.FILTERED_AURA_LAYOUT_MIXED_DYNAMIC_SINGLE_LINE
+    local foodDrinkFlow = not (state and state.foodDrinkSeparated)
+        and (strategy == YHUD.FILTERED_AURA_LAYOUT_MIXED_DYNAMIC_SINGLE_LINE
         or (strategy == YHUD.FILTERED_AURA_LAYOUT_ENGINE_FLOW
-            and not (state and state.hasScopeMismatch))
+            and not (state and state.hasScopeMismatch)))
     local count, blocks = 0, nil
     for _, member in ipairs(groupPlan.members) do
         local inline = foodDrinkFlow and YHUD:CanUseFoodDrinkIconFlow(

@@ -143,6 +143,21 @@ class ApplyAddonPatchesTests(unittest.TestCase):
         mainline = (auctionator / "Source_Mainline/Manifest.xml").read_text(encoding="utf-8")
         self.assertNotIn("Enchant", mainline)
 
+    def test_installed_auctionator_loads_forever_suffix_data_once_after_its_constants(self) -> None:
+        # 351 keys Forever random-suffix gear prices by English suffix name; the table must load
+        # only on camelot and after Auctionator.Utilities exists.
+        auctionator = ADDONS / "Auctionator"
+        toc = (auctionator / "Auctionator.toc").read_text(encoding="utf-8").splitlines()
+        line = "Data_Forever\\Suffixes.lua [AllowLoadGameType camelot][ExcludeLoadGameType classic, standard]"
+        self.assertEqual(toc.count(line), 1)
+        self.assertEqual(
+            [entry for entry in toc if "Suffixes.lua" in entry and entry != line],
+            ["Data_Vanilla\\Suffixes.lua [AllowLoadGameType vanilla, tbc, wrath]"],
+        )
+        self.assertGreater(toc.index(line), toc.index("Source\\Manifest.xml"))
+        suffixes = (auctionator / "Data_Forever/Suffixes.lua").read_text(encoding="utf-8")
+        self.assertIn("Auctionator.Utilities.SuffixesToLabel = {}", suffixes)
+
     def test_installed_pack_is_patched(self) -> None:
         self.assertEqual(apply_patches(ADDONS, check=True), [])
 

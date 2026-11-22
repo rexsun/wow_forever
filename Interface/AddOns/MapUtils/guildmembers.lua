@@ -5,10 +5,10 @@ local Guild = MapUtils:CreateGuildMap({
 	priority = 10,
 	isHidden = function(mapID, kind)
 		if MapUtils.IsInstanceMapShown ~= nil and MapUtils:IsInstanceMapShown() then return true end
-		if kind == "friend" then return not MapUtils:IsPinCategoryEnabled("FRIENDMEMBERPINS") or not MapUtils:GetPinScopeShown("FRIENDMEMBERPINS", true, MapUtils:IsAzerothMap(mapID)) end
+		if kind == "friend" then return not MapUtils:IsPinCategoryEnabled("FRIENDMEMBERPINS") or not MapUtils:GetPinScopeShown("FRIENDMEMBERPINS", true, MapUtils:IsPinScopeAzeroth(mapID)) end
 		if not MapUtils:IsPinCategoryEnabled("GUILDMEMBERPINS") then return true end
 
-		return not MapUtils:GetGuildPinScopeShown(MapUtils:IsAzerothMap(mapID))
+		return not MapUtils:GetGuildPinScopeShown(MapUtils:IsPinScopeAzeroth(mapID))
 	end,
 	getClip = function(mapID)
 		if MapUtils.IsOneMap ~= nil and MapUtils.IsZoneDetailMap ~= nil and MapUtils:IsOneMap() and MapUtils:IsZoneDetailMap(mapID) then return -50, 51 end
@@ -36,6 +36,12 @@ function MapUtils:RefreshGuildMembers()
 end
 
 function MapUtils:GetGuildPinScopeShown(azeroth)
+	if MapUtils:ArePinsHidden() then return false end
+
+	return MapUtils:GetGuildPinScopeSetting(azeroth)
+end
+
+function MapUtils:GetGuildPinScopeSetting(azeroth)
 	if MapUtils:GetConfig("GUILDMEMBERPINS", true) ~= true then return false end
 	local zone = MAUTTAB["GUILDMEMBERPINS_ZONE"] ~= false
 	if not azeroth then return zone end
@@ -45,7 +51,7 @@ function MapUtils:GetGuildPinScopeShown(azeroth)
 end
 
 function MapUtils:SetGuildPinScopeShown(azeroth, value)
-	local zone, az = MapUtils:GetGuildPinScopeShown(false), MapUtils:GetGuildPinScopeShown(true)
+	local zone, az = MapUtils:GetGuildPinScopeSetting(false), MapUtils:GetGuildPinScopeSetting(true)
 	if azeroth then
 		az = value == true
 	else

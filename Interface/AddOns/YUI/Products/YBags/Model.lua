@@ -22,7 +22,7 @@ local function RecentChange(changes,item,delta)
     if delta<0 then change.removed=(change.removed or 0)-delta end
     return change
 end
-function Model:UpdateRecent(changes,allowNew)
+function Model:UpdateRecent(changes,allowNew,trackCombatLoot)
     -- Use the native new marker and matched GUIDs first. Net gain is the
     -- fallback bound when a newly marked slot could come from an old pile.
     local changed=false
@@ -30,6 +30,7 @@ function Model:UpdateRecent(changes,allowNew)
     for _,change in pairs(changes) do
         if change.arrivals then
             local remaining=change.delta
+            local combatGain=trackCombatLoot and remaining-(change.grown or 0)
             for _,arrival in ipairs(change.arrivals) do
                 local item=arrival.item
                 local previous=item.guid and change.departed and change.departed[item.guid]
@@ -52,13 +53,21 @@ function Model:UpdateRecent(changes,allowNew)
                     item.revision=item.revision+1
                     changed=true
                 end
+                -- Scripted loot can lack a native new-item marker. Require
+                -- a carried gain that cannot be explained by moving a stack.
+                if trackCombatLoot and allowNew and not previous and (item.new or
+                    combatGain>=item.count and (item.guid or item.count>(change.removed or 0))) then
+                    combatGain=combatGain-item.count
+                    self.combatArrivals=self.combatArrivals or setmetatable({}, {__mode="k"})
+                    self.combatArrivals[item]=true
+                end
             end
         end
     end
     if cursor and not YUI.API.Bags.CursorBusy() then self.recentCursor=nil end
     return changed
 end
-function Model:ApplyBag(id, incoming, capacity, family, isInitial, kind, recentChanges, space, selectedSlots, changedSlots)
+function Model:ApplyBag(id, incoming, capacity, family, isInitial, kind, recentChanges, space, selectedSlots, changedSlots, trackCombatLoot)
     local bag = self.bags[id]
     local structural, changed, occupiedDelta = false, false, 0
     local chargeSlotsChanged=false
@@ -92,7 +101,8 @@ function Model:ApplyBag(id, incoming, capacity, family, isInitial, kind, recentC
                 or old.maxCharges~=value.maxCharges or old.chargeConsumable~=value.chargeConsumable or old.chargeSpellID~=value.chargeSpellID
             local loadedChanged=old.loaded~=value.loaded
             for _, key in ipairs(metadata) do if old[key] ~= value[key] then identityChanged = true; break end end
-            if old.count ~= value.count or old.locked ~= value.locked or old.bound ~= value.bound or identityChanged or groupingChanged or loadedChanged then
+            if old.count ~= value.count or old.locked ~= value.locked or old.bound ~= value.bound or old.questVisual ~= value.questVisual
+                or identityChanged or groupingChanged or loadedChanged then
                 if trackSort and not sortChanged then
                     sortChanged=old.count~=value.count or old.locked~=value.locked or groupingChanged or loadedChanged
                         or old.quest~=value.quest or old.family~=value.family or old.isCraftingReagent~=value.isCraftingReagent
@@ -130,7 +140,7 @@ function Model:ApplyBag(id, incoming, capacity, family, isInitial, kind, recentC
                 end
                 if value then
                     local change=RecentChange(recentChanges,value,value.count)
-                    if value.new or value.guid then
+                    if value.new or value.guid or trackCombatLoot then
                         change.arrivals=change.arrivals or {}
                         change.arrivals[#change.arrivals+1]={item=value,signal=value.new==true}
                     end
@@ -180,6 +190,7 @@ end
 function Model:Reset()
     self.bags, self.byUID, self.totals, self.waiting = {}, {}, {}, {}
     self.recentCursor=nil
+    self.combatArrivals=nil
     self.serial, self.revision = 0, 0
     self.compiled = B.Classification:Compile(B:GetConfig().rules)
 end

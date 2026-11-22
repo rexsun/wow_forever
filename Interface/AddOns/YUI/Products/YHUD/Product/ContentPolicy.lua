@@ -2,7 +2,7 @@ local YUI = _G.YUI
 local YHUD = YUI and YUI.YHUD
 if not YHUD then return end
 
-YHUD.CONTENT_POLICY_REVISION = 21
+YHUD.CONTENT_POLICY_REVISION = 22
 
 function YHUD:CanConfigureSkillAuraDisplay(entry)
     return type(entry) == "table"
@@ -255,6 +255,16 @@ function YHUD:CanUseFilteredAuraDisplay()
     local Unit = YUI.API and YUI.API.Unit
     return Unit and Unit.SupportsFilteredAuraDisplay
         and Unit.SupportsFilteredAuraDisplay() == true
+end
+
+function YHUD:IsForeverSealPreset(entry)
+    local seals = self.FOREVER_SEAL_PRESET
+    return self.Client.id == "forever" and seals ~= nil
+        and type(entry) == "table"
+        and entry.entryKey == seals.entryKey
+        and entry.origin == "preset"
+        and entry.sourceType == self.PLAYER_AURA_SOURCE_TYPE
+        and entry.spellId == 20154
 end
 
 function YHUD:IsFoodDrinkPreset(entry)
@@ -538,30 +548,63 @@ local function HasCDMExtendedPlayerAuraIdentity(entry)
     return false
 end
 
-function YHUD:GetFilteredAuraScopeKey(entry)
+local function GetLinkedAuraScope(linked, spell)
+    local getDisposition = spell and spell.GetTargetDisposition
+    if not (getDisposition and type(linked) == "table" and #linked > 0) then return nil end
+    local disposition, hasHostileLink, ambiguous
+    for index = 1, #linked do
+        local candidate, hostile = getDisposition(linked[index])
+        hasHostileLink = hasHostileLink or hostile
+        if not candidate or (disposition and disposition ~= candidate) then
+            ambiguous = true
+        else
+            disposition = candidate
+        end
+    end
+    if ambiguous then return nil, hasHostileLink end
+    if disposition == "hostile" then return YHUD.FILTERED_AURA_SCOPE_TARGET_HARMFUL, true end
+    return YHUD.FILTERED_AURA_SCOPE_PLAYER_HELPFUL_CDM_EXTENDED
+end
+
+-- The third result limits a mixed native projection to the associated effects
+-- that provided its scope. The base spell may apply a different effect.
+function YHUD:GetFilteredAuraScopeKey(entry, resolveLinked)
     if type(entry) == "table" then
         if entry.bundleKind == "externalBuff" then
-            return self.FILTERED_AURA_SCOPE_EXTERNAL_HELPFUL
+            return self.FILTERED_AURA_SCOPE_EXTERNAL_HELPFUL, true
         end
         local explicitScope = entry.filteredAuraScope
-        if explicitScope == self.FILTERED_AURA_SCOPE_TARGET_HARMFUL then
-            return self.FILTERED_AURA_SCOPE_TARGET_HARMFUL
-        end
-        if explicitScope == self.FILTERED_AURA_SCOPE_PLAYER_HELPFUL then
-            return self.FILTERED_AURA_SCOPE_PLAYER_HELPFUL
+        if explicitScope == self.FILTERED_AURA_SCOPE_TARGET_HARMFUL
+            or explicitScope == self.FILTERED_AURA_SCOPE_PLAYER_HELPFUL then
+            return explicitScope, true
         end
     end
-    if type(entry) == "table"
+    local officialAuraEnabled = type(entry) == "table"
         and entry.origin == "official-cdm"
-        and entry.hasAura == true
-        and entry.selfAura == false
-        and entry.canUseAuraForCooldown == true then
-        return self.FILTERED_AURA_SCOPE_TARGET_HARMFUL
+        and entry.canUseAuraForCooldown == true
+    if officialAuraEnabled and entry.hasAura == true and entry.selfAura == false then
+        return self.FILTERED_AURA_SCOPE_TARGET_HARMFUL, true
     end
     if HasCDMExtendedPlayerAuraIdentity(entry) then
-        return self.FILTERED_AURA_SCOPE_PLAYER_HELPFUL_CDM_EXTENDED
+        return self.FILTERED_AURA_SCOPE_PLAYER_HELPFUL_CDM_EXTENDED, true
     end
-    return self.FILTERED_AURA_SCOPE_PLAYER_HELPFUL
+    local scopeKnown = officialAuraEnabled and entry.hasAura == true and entry.selfAura == true
+    if officialAuraEnabled and YUI.IsForever and resolveLinked then
+        local spell = YUI.API and YUI.API.Spell
+        local linked = entry.linkedSpellIds
+        local linkedScope, hasHostileLink = GetLinkedAuraScope(linked, spell)
+        if hasHostileLink then
+            -- A passive base can describe the talent while the linked effect
+            -- supplies the actual timer. Active base spells can have both effects.
+            if linkedScope and (not scopeKnown
+                or spell.IsPassive and spell.IsPassive(entry.spellId) == true) then
+                return linkedScope, true, linked
+            end
+            return self.FILTERED_AURA_SCOPE_PLAYER_HELPFUL, false
+        end
+        if not scopeKnown and linkedScope then return linkedScope, true, linked end
+    end
+    return self.FILTERED_AURA_SCOPE_PLAYER_HELPFUL, scopeKnown
 end
 
 function YHUD:GetFilteredAuraGroupProjectionStrategy(
@@ -586,6 +629,7 @@ function YHUD:GetFilteredAuraGroupProjectionStrategy(
         hasNonFlowMember = false,
     }
     local hasPersistentMember = false
+    local foodDrinkCapacity = 0
     local scopeKey
     local claimedSources = projectionContext
         and projectionContext.claimedCooldownSources or nil
@@ -605,12 +649,12 @@ function YHUD:GetFilteredAuraGroupProjectionStrategy(
     local function Accumulate(candidate, candidateEntry, projectedCount, filtered)
         if candidate and candidateEntry then
             if self:IsFoodDrinkPreset(candidateEntry) then
-                if not layout or not self:CanUseFoodDrinkIconFlow(
+                if layout and self:CanUseFoodDrinkIconFlow(
                     candidateEntry, candidate, group, layout
-                ) then return end
-                -- Both possible native displays must fit, even if only one
-                -- aura is active. Preview uses the same public capacity.
-                projectedCount = 2
+                ) then
+                    foodDrinkCapacity = foodDrinkCapacity + 2
+                end
+                return
             elseif candidate._yhudAuraMaxFrameCount then
                 return
             end
@@ -628,15 +672,28 @@ function YHUD:GetFilteredAuraGroupProjectionStrategy(
             end
             if not filtered then
                 state.otherCount = state.otherCount + projectedCount
-                local displayCategory = candidateEntry.displayCategory
-                    or candidateEntry.officialCategory
-                if candidateEntry.origin == "official-cdm"
-                    and displayCategory ~= "trackedBuff"
-                    and not self:GetOfficialNativeCategoryTarget(
-                        candidateEntry,
-                        candidate
-                    ) then
-                    state.hasNonFlowMember = true
+                if candidateEntry.origin == "official-cdm" then
+                    local displayCategory = candidateEntry.displayCategory
+                        or candidateEntry.officialCategory
+                    if displayCategory ~= "trackedBuff"
+                        and not self:GetOfficialNativeCategoryTarget(candidateEntry, candidate) then
+                        state.hasNonFlowMember = true
+                    elseif YUI.IsForever and candidate.view == "icon"
+                        and self:IsOfficialNativeView(displayCategory, candidate.view, candidateEntry) then
+                        -- A unit-specific Aura projection needs a proven scope.
+                        local scope, scopeKnown, linkedSpellIDs =
+                            self:GetFilteredAuraScopeKey(candidateEntry, true)
+                        if not scopeKnown then
+                            state.hasNonFlowMember = true
+                        elseif linkedSpellIDs or (candidate.visibilityMode == "always"
+                            and scope == self.FILTERED_AURA_SCOPE_TARGET_HARMFUL) then
+                            state.nativeAuraProjections = state.nativeAuraProjections or {}
+                            state.nativeAuraProjections[candidate.id] = {
+                                scope = scope,
+                                spellIDs = linkedSpellIDs,
+                            }
+                        end
+                    end
                 end
             else
                 state.specialCount = state.specialCount + projectedCount
@@ -691,6 +748,20 @@ function YHUD:GetFilteredAuraGroupProjectionStrategy(
         end
     end
     state.hasPersistentMember = hasPersistentMember
+    if foodDrinkCapacity > 0 then
+        local sameScopeFlow = state.otherCount == 0
+            and not state.hasScopeMismatch
+            and (not scopeKey or scopeKey == self.FILTERED_AURA_SCOPE_PLAYER_HELPFUL)
+        -- In overflow, the bounded food block still stays outside the ordinary
+        -- rows, which can retain their existing segmented Aura projections.
+        if not state.hasNonFlowMember and not hasPersistentMember
+            and (sameScopeFlow or state.otherCount > 0) then
+            state.specialCount = state.specialCount + foodDrinkCapacity
+            state.potentialCount = state.potentialCount + foodDrinkCapacity
+        else
+            state.foodDrinkSeparated = true
+        end
+    end
     if state.specialCount == 0 then return nil, nil, state end
     if group.layout ~= "icons" and group.layout ~= "bars" then
         return self.FILTERED_AURA_LAYOUT_MIXED_FIXED,
@@ -810,6 +881,7 @@ local COOLDOWN_MONITOR_CONDITIONS = {
     "self-ready",
     "self-cooldown",
 }
+local SPELL_GLOW_CONDITIONS = { "self-ready", "self-cooldown", "self-usable" }
 
 local AURA_MONITOR_CONDITIONS = {
     "aura-present",
@@ -879,7 +951,8 @@ function YHUD:GetEntryMonitorConditionCapabilities(entry, channel)
     if entry.sourceType == "spell-cooldown" or officialCooldown then
         return {
             kind = "cooldown",
-            conditions = COOLDOWN_MONITOR_CONDITIONS,
+            conditions = channel == "glow" and YUI.IsForever == true
+                and SPELL_GLOW_CONDITIONS or COOLDOWN_MONITOR_CONDITIONS,
             nativeProc = true,
             labelKind = "spell",
         }

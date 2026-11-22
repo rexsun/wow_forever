@@ -17,6 +17,7 @@ local type = type
 local HISTORY_SCHEMA = 2
 local currentStore
 local currentCharacterKey
+local foreverCharacterKey
 local snapshotLines = {}
 local replaySlots = {}
 local replayTexts = {}
@@ -97,26 +98,46 @@ local function ClearReplaySlots()
     for index = #replayTexts, 1, -1 do replayTexts[index] = nil end
 end
 
-local function ReadCharacterKey()
+local function IsUsableKeyPart(value, validate)
+    return (not validate or validate(value)) and type(value) == "string" and value ~= ""
+end
+
+local function ReadCharacterKey(validate)
     if not Unit or type(Unit.GetDisplayNameInfo) ~= "function" then return nil end
     local ok, info = pcall(Unit.GetDisplayNameInfo, "player")
-    if not ok or type(info) ~= "table"
-        or type(info.nameRaw) ~= "string"
-        or info.nameRaw == ""
-    then
-        return nil
-    end
+    if not ok or type(info) ~= "table" or not IsUsableKeyPart(info.nameRaw, validate) then return nil end
     local realm = info.realm
-    if type(realm) ~= "string" or realm == "" then
+    if not IsUsableKeyPart(realm, validate) then
         realm = type(Unit.GetNormalizedRealmName) == "function"
             and Unit.GetNormalizedRealmName()
             or nil
     end
-    if type(realm) ~= "string" or realm == "" then
+    if not IsUsableKeyPart(realm, validate) then
         realm = type(Unit.GetRealmName) == "function" and Unit.GetRealmName() or nil
     end
-    if type(realm) ~= "string" or realm == "" then return nil end
+    if not IsUsableKeyPart(realm, validate) then return nil end
     return info.nameRaw .. "-" .. realm
+end
+
+local function IsReadableNamePart(value)
+    return Adapter:IsExplicitlySafeValue(value) == true
+end
+
+local function ReadForeverCharacterKey()
+    local regionalNames = _G.RegionalUniqueNamesEnabled
+    if type(regionalNames) ~= "function" then return nil end
+
+    local ok, enabled = pcall(regionalNames)
+    if not ok or not IsReadableNamePart(enabled) then return nil end
+    if enabled == false then return ReadCharacterKey(IsReadableNamePart) end
+    if enabled ~= true or not Unit or type(Unit.ReadForeverName) ~= "function" then return nil end
+
+    local _, name, surname, rawName, rawSurname = Unit.ReadForeverName("player", nil, IsReadableNamePart)
+    if not name or not surname then return nil end
+
+    -- Preserve the original pair when both raw values were available.
+    if type(rawSurname) == "string" and rawSurname ~= "" then return rawName .. "-" .. rawSurname end
+    return name .. "-" .. surname
 end
 
 local function GetHistoryRoot(create)
@@ -136,6 +157,10 @@ local function GetHistoryRoot(create)
 end
 
 function History:GetCharacterKey()
+    if YUI.IsForever then
+        if not foreverCharacterKey then foreverCharacterKey = ReadForeverCharacterKey() end
+        return foreverCharacterKey
+    end
     return ReadCharacterKey()
 end
 
@@ -206,7 +231,7 @@ function History:RefreshStore()
         local key = CATEGORY_KEYS[index]
         activeCategories[key] = type(categories) == "table" and categories[key] == true
     end
-    currentCharacterKey = ReadCharacterKey()
+    currentCharacterKey = self:GetCharacterKey()
     if not currentCharacterKey then
         currentStore = nil
         return false, "history-character-key-unavailable"
@@ -265,6 +290,8 @@ function History:ProcessMessage(
     end
     local store = currentStore
     if not store then
+        -- Login, window setup and config refresh can resolve identity off the message path.
+        if YUI.IsForever and not foreverCharacterKey then return Bypass("history-character-key-unavailable") end
         local ready, reason = self:RefreshStore()
         if not ready then return Bypass(reason) end
         store = currentStore

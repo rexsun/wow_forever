@@ -275,20 +275,31 @@ local function DynamicNodeGrowsLeft(runtime)
     return runtime.alignment == "end"
 end
 
-local function CreateFilteredAuraDurationTextFormatter()
-    local gui = YUI.GUI2
-    return gui and gui.GetDurationTextFormatter and gui:GetDurationTextFormatter() or nil
-end
-
-local FILTERED_AURA_DURATION_TEXT_FORMATTER =
-    CreateFilteredAuraDurationTextFormatter()
-
 View.filteredAuraDisplays = View.filteredAuraDisplays or {}
 View.filteredAuraFrames = View.filteredAuraFrames or {}
 View.filteredAuraDynamicNodes = View.filteredAuraDynamicNodes or {}
 View.filteredAuraGlowRecords = View.filteredAuraGlowRecords or {}
 View.filteredAuraFrameRecords = View.filteredAuraFrameRecords
     or setmetatable({}, { __mode = "k" })
+
+function View:RefreshFilteredAuraCountdownDecimalThreshold(threshold)
+    local gui = YUI.GUI2
+    local formatter = gui and gui.GetDurationTextFormatter and gui:GetDurationTextFormatter(threshold)
+    local options = formatter and { textFormatter = formatter }
+    for _, display in pairs(self.filteredAuraDisplays) do
+        for _, record in ipairs(display.glowRecords or {}) do
+            local slot = record.slot
+            if self.ApplySlotCountdownDecimalThreshold then
+                self:ApplySlotCountdownDecimalThreshold(slot, slot._yhudView, threshold)
+            end
+        end
+        if options and Unit and Unit.SetFilteredAuraDurationTextOptions then
+            for _, handle in ipairs(display.handles or {}) do
+                Unit.SetFilteredAuraDurationTextOptions(handle, options, true)
+            end
+        end
+    end
+end
 
 local PLAYER_AURA_SCOPE = {
     unit = "player",
@@ -322,8 +333,8 @@ local function IsAuraIdentitySuppressed(scope)
         and Unit.IsPlayerHelpfulAuraIdentityTrusted() == true)
 end
 
-local function ResolveFilteredAuraScope(entry)
-    local scopeKey = YHUD:GetFilteredAuraScopeKey(entry)
+local function ResolveFilteredAuraScope(entry, scopeKey)
+    scopeKey = scopeKey or YHUD:GetFilteredAuraScopeKey(entry)
     if scopeKey == YHUD.FILTERED_AURA_SCOPE_EXTERNAL_HELPFUL then
         return EXTERNAL_AURA_SCOPE
     end
@@ -578,7 +589,8 @@ end
 
 local function DisplayParticipatesInLayout(display)
     if not (display and display.proxy) then return false end
-    return display.identitySuppressed ~= true
+    return display.proxy._yhudFilteredAuraReplacesNative == true
+        or display.identitySuppressed ~= true
 end
 
 local function SyncDisplayLayoutParticipation(display, relayout)
@@ -635,9 +647,11 @@ local function RegisterGlowRecord(display, monitor, slot, kind, auraFrame)
     return record
 end
 
-local function CreateLiveSlot(auraFrame, runtime, monitor, handle, display)
+local function CreateLiveSlot(auraFrame, runtime, monitor, handle, display, abovePlaceholder)
     auraFrame:SetSize(runtime.itemWidth, runtime.itemHeight)
-    local slot = View:CreateFilteredAuraSlot(auraFrame, runtime, monitor, true)
+    local slot = View:CreateFilteredAuraSlot(
+        auraFrame, runtime, monitor, true, abovePlaceholder
+    )
     if not slot then return nil end
     local bindings = View:GetFilteredAuraSlotBindings(slot, runtime)
     if not bindings then return nil end
@@ -668,13 +682,13 @@ local function CreateLiveSlot(auraFrame, runtime, monitor, handle, display)
             options = GetDurationBarOptions(runtime),
         }
     end
-    if bindings.durationText and FILTERED_AURA_DURATION_TEXT_FORMATTER then
-        bindings.durationText = {
-            target = bindings.durationText,
-            options = {
-                textFormatter = FILTERED_AURA_DURATION_TEXT_FORMATTER,
-            },
-        }
+    if bindings.durationText then
+        local gui = YUI.GUI2
+        local threshold = YHUD.GetCountdownDecimalThreshold and YHUD:GetCountdownDecimalThreshold() or 3
+        local formatter = gui and gui.GetDurationTextFormatter and gui:GetDurationTextFormatter(threshold)
+        if formatter then
+            bindings.durationText = { target = bindings.durationText, options = { textFormatter = formatter } }
+        end
     end
     handle.visuals = handle.visuals or {}
     handle.visuals[#handle.visuals + 1] = slot
@@ -924,7 +938,7 @@ local function BuildExternalBuffBlock(runtime, monitor, entry)
     return display
 end
 
-local function BuildMixedMonitor(runtime, monitor, entry, spellIDs, scope)
+local function BuildMixedMonitor(runtime, monitor, entry, spellIDs, scope, nativeReplacement, inFlow)
     local display = {
         monitorId = monitor.id,
         groupId = runtime.id,
@@ -933,13 +947,21 @@ local function BuildMixedMonitor(runtime, monitor, entry, spellIDs, scope)
         glowRecords = {},
         identitySuppressed = IsAuraIdentitySuppressed(scope),
     }
-    local proxy = CreateFrame("Frame", nil, runtime.frame)
+    local carrier = nativeReplacement and inFlow and CreateFrame(
+        "Frame", nil, runtime.frame, "DisableUntrustedLayoutScriptsTemplate"
+    )
+    local proxy = CreateFrame("Frame", nil, carrier or runtime.frame)
+    if nativeReplacement then
+        proxy._yhudFilteredAuraChainCarrier = carrier or nil
+        proxy._yhudFilteredAuraReplacesNative = true
+    end
     proxy:SetSize(runtime.itemWidth, runtime.itemHeight)
     local staticSlot
     if monitor.visibilityMode == "always" then
         staticSlot = View:CreateFilteredAuraSlot(proxy, runtime, monitor)
         if not staticSlot then
             proxy:Hide()
+            if carrier then carrier:Hide() end
             return nil, "filtered-aura-static-slot-failed"
         end
         local inactiveDesaturate = YHUD:GetEffectiveInactiveDesaturate(
@@ -970,13 +992,19 @@ local function BuildMixedMonitor(runtime, monitor, entry, spellIDs, scope)
                 runtime,
                 monitor,
                 displayHandle,
-                display
+                display,
+                nativeReplacement and staticSlot ~= nil
             )
         end,
     })
     if not handle then
         proxy:Hide()
+        if carrier then carrier:Hide() end
         return nil, code
+    end
+    if nativeReplacement then
+        staticSlot:Show()
+        if carrier then carrier:Show() end
     end
     proxy:Show()
     display.handle = handle
@@ -1216,48 +1244,48 @@ function View:ReleaseFilteredAuraDisplays()
     for key, display in pairs(self.filteredAuraDisplays or {}) do
         for index = 1, #(display.glowRecords or {}) do
             local record = display.glowRecords[index]
-            if record.slot and record.slot.gui2Glow
-                and record.slot.gui2Glow.SetGlowShown then
-                record.slot.gui2Glow:SetGlowShown(false)
-                record.slot._yhudGlowShown = false
-            end
-            if record.slot then
-                if record.slot._yhudAuraStackSet then
-                    YHUD.Glow:ReleaseStackSet(record.slot._yhudAuraStackSet)
-                    record.slot._yhudAuraStackSet = nil
-                end
-                local gate = record.slot._yhudAuraStackGate
-                if gate then
-                    gate.driver:SetValue(0)
-                    gate.lastPublicValue = nil
-                    if record.slot.gui2Glow and record.slot.gui2Glow.SetGlowClipParent then
-                        record.slot.gui2Glow:SetGlowClipParent(nil)
+            local slot = record.slot
+            if slot then
+                local live = record.kind == "live"
+                local glow = slot.gui2Glow
+                -- The public display owner retires the entire native Aura subtree.
+                -- Its initialized descendants can reject Hide, SetValue and SetParent.
+                if not live then
+                    if glow and glow.SetGlowShown then glow:SetGlowShown(false) end
+                    if slot._yhudAuraStackSet then
+                        YHUD.Glow:ReleaseStackSet(slot._yhudAuraStackSet)
+                    end
+                    local gate = slot._yhudAuraStackGate
+                    if gate then
+                        gate.driver:SetValue(0)
+                        gate.lastPublicValue = nil
+                        if glow and glow.SetGlowClipParent then glow:SetGlowClipParent(nil) end
                     end
                 end
-                record.slot._yhudAuraStackGate = nil
-                record.slot._yhudBarStackInputs = nil
-                record.slot._yhudBarStackPolicy = nil
-                record.slot._yhudBarStackBaseColor = nil
-                -- Live descendants retire with the public display owner;
-                -- resetting their native drivers after initialization is unsafe.
-                if record.kind ~= "live" and self.ClearBarProgress then
-                    self:ClearBarProgress(record.slot)
+                slot._yhudGlowShown = false
+                slot._yhudAuraStackSet = nil
+                slot._yhudAuraStackGate = nil
+                slot._yhudBarStackInputs = nil
+                slot._yhudBarStackPolicy = nil
+                slot._yhudBarStackBaseColor = nil
+                if not live and self.ClearBarProgress then self:ClearBarProgress(slot) end
+                local thresholdHandle = slot.gui2AuraBarThresholdHandle
+                -- Parent-managed threshold release only clears Lua state.
+                if YUI.GUI2.ReleaseAuraBarThresholds
+                    and (not live or (thresholdHandle and thresholdHandle.parentManaged)) then
+                    YUI.GUI2:ReleaseAuraBarThresholds(slot)
                 end
-                if YUI.GUI2.ReleaseAuraBarThresholds then
-                    YUI.GUI2:ReleaseAuraBarThresholds(record.slot)
-                    self.barStackThresholdOwners[record.slot] = nil
-                end
-                record.slot._yhudGlowRuntime = nil
+                self.barStackThresholdOwners[slot] = nil
+                slot._yhudGlowRuntime = nil
                 -- Live slots remain children of Blizzard's restricted
                 -- AuraFrame after the display is released.  They are still
                 -- retained by GUI2's cold refresh registries, so their trusted
                 -- geometry context must remain intact even while hidden.
-                if record.kind ~= "live" then
-                    if record.slot.gui2Glow
-                        and record.slot.gui2Glow._SetGlowLayoutContext then
-                        record.slot.gui2Glow:_SetGlowLayoutContext(false)
+                if not live then
+                    if glow and glow._SetGlowLayoutContext then
+                        glow:_SetGlowLayoutContext(false)
                     end
-                    record.slot._yhudFilteredAuraGlow = nil
+                    slot._yhudFilteredAuraGlow = nil
                 end
             end
             record.display = nil
@@ -1271,7 +1299,11 @@ function View:ReleaseFilteredAuraDisplays()
                 Unit.ReleaseFilteredAuraDisplay(display.handle)
             end
         end
-        if display.proxy then display.proxy:Hide() end
+        if display.proxy then
+            display.proxy:Hide()
+            local carrier = display.proxy._yhudFilteredAuraChainCarrier
+            if carrier then carrier:Hide() end
+        end
         if display.handle then
             display.handle.visuals = nil
         end
@@ -1439,7 +1471,7 @@ function View:SyncFilteredAuraDisplays(profile)
         for _, monitorId in ipairs(runtime.externalBuffMonitorIds or {}) do
             local monitor = self.desiredMonitors[monitorId]
             local entry = monitor and profile.entries[monitor.entryKey]
-            if monitor and entry then
+            if entry and monitor.groupId == groupId then
                 local display, code = BuildExternalBuffBlock(runtime, monitor, entry)
                 if display then
                     self.filteredAuraDisplays["monitor:" .. monitorId] = display
@@ -1452,6 +1484,9 @@ function View:SyncFilteredAuraDisplays(profile)
             end
         end
         local list
+        local groupState = runtime.filteredAuraProjectionState
+        local separatedFoodProjections = not self.layoutEditMode and groupState
+            and groupState.foodDrinkSeparated and groupState.nativeAuraProjections
         for index = 1, runtime.monitorCount or 0 do
             local monitor = self.desiredMonitors[runtime.monitorIds[index]]
             local entry = monitor and profile.entries
@@ -1462,7 +1497,12 @@ function View:SyncFilteredAuraDisplays(profile)
                     monitor.id,
                     runtime
                 )
+            local separatedProjection = separatedFoodProjections and monitor
+                and monitor.visibilityMode == "always" and separatedFoodProjections[monitor.id]
+            local separatedTargetAura = separatedProjection
+                and separatedProjection.scope == YHUD.FILTERED_AURA_SCOPE_TARGET_HARMFUL
             if monitor and (YHUD:IsFilteredAuraMonitor(entry, monitor)
+                or separatedTargetAura
                 or nativeSingleLineProjection == true) then
                 list = list or {}
                 list[#list + 1] = monitor
@@ -1508,11 +1548,18 @@ function View:SyncFilteredAuraDisplays(profile)
             for index = 1, #monitors do
                 local monitor = monitors[index]
                 local entry = profile.entries[monitor.entryKey]
-                local spellIDs = GetEntrySpellIDs(entry, monitor)
-                local scope = entry and ResolveFilteredAuraScope(entry)
+                local nativeProjection = groupState and groupState.nativeAuraProjections
+                    and groupState.nativeAuraProjections[monitor.id]
+                local scope = ResolveFilteredAuraScope(entry, nativeProjection and nativeProjection.scope)
+                local spellIDs = nativeProjection and nativeProjection.spellIDs
+                    or GetEntrySpellIDs(entry, monitor)
+                local nativeReplacement = monitor.visibilityMode == "always"
+                    and entry.origin == "official-cdm"
+                    and (entry.displayCategory or entry.officialCategory) == "trackedBuff"
+                    and YHUD:IsOfficialNativeView("trackedBuff", monitor.view, entry)
                 local display, code
                 if spellIDs then
-                    if independent then
+                    if independent and not nativeReplacement then
                         display, code = BuildDynamicMonitor(
                             runtime,
                             monitor,
@@ -1526,7 +1573,9 @@ function View:SyncFilteredAuraDisplays(profile)
                             monitor,
                             entry,
                             spellIDs,
-                            scope
+                            scope,
+                            nativeReplacement,
+                            independent
                         )
                     end
                 else
@@ -1539,7 +1588,7 @@ function View:SyncFilteredAuraDisplays(profile)
                     end
                     monitor._yhudFilteredAuraManaged = true
                     built = true
-                else
+                elseif not nativeReplacement or independent then
                     monitor._yhudFilteredAuraFailed = true
                     monitor._yhudFilteredAuraFailureCode =
                         code or "filtered-aura-create-failed"

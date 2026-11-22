@@ -959,6 +959,7 @@ function Dev:SetEnabled(enabled, silent)
         self:CreateButtons()
     else
         self:StopYABProbe(true)
+        if self.BagSortBenchmark then self.BagSortBenchmark:Cancel() end
         if self.EffectPreview then self.EffectPreview:Close() end
         if self.SkinPreview then self.SkinPreview:Close() end
         self:SetYABSpecialGroupPreview(false, true)
@@ -1012,6 +1013,7 @@ function Dev:PrintHelp()
     Print("/yui dev cpu run [label]")
     Print("/yui dev yabprobe on|off|reset|stats")
     Print("/yui dev yabgroup [on|off|toggle|status]")
+    Print("/yui dev bagsort [arm|status|stop|cancel|summary|report]")
     Print("/yui dev pvestats stress [count] [seed]")
     Print("/yui dev pvestats random [seed]")
     Print("/yui dev pvestats clear")
@@ -1023,6 +1025,7 @@ function Dev:HandleSlash(args)
     if self.HandleNoticePreview and self:HandleNoticePreview(args) then return true end
     if self.HandleEffectPreview and self:HandleEffectPreview(args) then return true end
     if self.HandleSkinPreview and self:HandleSkinPreview(args) then return true end
+    if self.HandleBagSortSlash and self:HandleBagSortSlash(args) then return true end
     if args == "" or args == "help" then
         self:PrintHelp()
         return true

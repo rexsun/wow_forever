@@ -716,6 +716,146 @@ function DB:MigrateNativeInterfaceV1(db, savedVariableName)
     return stats
 end
 
+local function GetForeverCharacterNames()
+    if not YUI.IsForever or not RegionalUniqueNamesEnabled or not RegionalUniqueNamesEnabled()
+        or not UnitNameUnmodified then
+        return nil
+    end
+    local first, surname = UnitNameUnmodified("player")
+    if issecretvalue and (issecretvalue(first) or issecretvalue(surname)) then return nil end
+    if type(first) ~= "string" or first == "" or type(surname) ~= "string" or surname == "" then return nil end
+    return first .. " " .. surname, first
+end
+
+local characterPreferenceGroups = { "sound", "consolePreferences" }
+
+local function VisitCharacterSections(sv, visit)
+    if type(sv.char) == "table" then visit(sv.char, true) end
+    if type(sv.namespaces) == "table" then
+        for _, namespace in pairs(sv.namespaces) do
+            if type(namespace) == "table" and type(namespace.char) == "table" then visit(namespace.char) end
+        end
+    end
+    if type(sv.global) == "table" then
+        for _, field in ipairs(characterPreferenceGroups) do
+            local group = rawget(sv.global, field)
+            if type(group) == "table" and type(group.characters) == "table" then visit(group.characters) end
+        end
+    end
+end
+
+local function MatchesLegacyCharacterKey(key, fullName, firstName)
+    local name = type(key) == "string" and key:match("^(.-) %- .*$")
+    return name and (name == fullName or name == firstName)
+end
+
+local function FindLegacyCharacterKeys(sv, fullName, firstName)
+    local keys = {}
+    local function Collect(section)
+        if type(section) ~= "table" then return end
+        for key in pairs(section) do
+            if MatchesLegacyCharacterKey(key, fullName, firstName) then keys[key] = true end
+        end
+    end
+    Collect(sv.profileKeys)
+    Collect(sv.yuiProfileKeys)
+    VisitCharacterSections(sv, Collect)
+    return keys
+end
+
+local function RestoreEmptyList(source, target, apply)
+    if type(source) ~= "table" or next(source) == nil or type(target) ~= "table" or next(target) then
+        return false
+    end
+    if apply then
+        for key, value in pairs(source) do target[key] = CopyValue(value) end
+    end
+    return true
+end
+
+local function RecoverCharacterFields(sv, sourceKey, targetKey, apply, manual)
+    local changed = false
+    VisitCharacterSections(sv, function(section, rootChar)
+        if changed and not apply then return end
+        local source, target = rawget(section, sourceKey), rawget(section, targetKey)
+        if type(source) ~= "table" or (target ~= nil and type(target) ~= "table") then return end
+        if manual and rootChar and target then
+            -- These modules can create empty lists before Settings opens.
+            changed = RestoreEmptyList(rawget(source, "ymapKnownFlightsForever"), rawget(target, "ymapKnownFlightsForever"), apply) or changed
+            local oldItems = rawget(source, "YActionBarQuestItems")
+            local currentItems = rawget(target, "YActionBarQuestItems")
+            if type(oldItems) == "table" and type(currentItems) == "table" then
+                changed = RestoreEmptyList(rawget(oldItems, "pins"), rawget(currentItems, "pins"), apply) or changed
+            end
+        end
+        for field, value in pairs(source) do
+            if not target or rawget(target, field) == nil then
+                changed = true
+                if not apply then return end
+                if not target then
+                    target = {}
+                    section[targetKey] = target
+                end
+                target[field] = CopyValue(value)
+            end
+        end
+    end)
+    return changed
+end
+
+function DB:PrepareForeverCharacterRecovery(sv)
+    if type(sv) ~= "table" then return nil end
+    local fullName = GetForeverCharacterNames()
+    if not fullName then return nil end
+
+    -- AceDB writes Default during New, so an existing binding must be checked first.
+    if type(sv.profileKeys) == "table" and sv.profileKeys[fullName] ~= nil then return nil end
+    local profile = self:FindPersistedProfileName(sv, fullName)
+    if profile then return { sv = sv, key = fullName, profile = profile } end
+
+    -- Automatic recovery requires an exact full name and one old slot in this DB.
+    local keys = FindLegacyCharacterKeys(sv, fullName)
+    local legacyKey = next(keys)
+    if not legacyKey or next(keys, legacyKey) then return nil end
+    return { sv = sv, key = fullName, legacyKey = legacyKey, profile = self:FindPersistedProfileName(sv, legacyKey) }
+end
+
+function DB:ApplyForeverCharacterRecovery(db, recovery)
+    if db.sv ~= recovery.sv or db.keys.char ~= recovery.key then return end
+    if recovery.profile then db:SetProfile(recovery.profile) end
+    if recovery.legacyKey then
+        RecoverCharacterFields(db.sv, recovery.legacyKey, recovery.key, true)
+    end
+end
+
+local function GetLegacyRecoveryContext(db)
+    local savedVariableName = db and DB.databaseSavedVariables[db]
+    if not savedVariableName or type(db.sv) ~= "table" or _G[savedVariableName] ~= db.sv then return nil end
+    local fullName, firstName = GetForeverCharacterNames()
+    if not fullName or db.keys.char ~= fullName then return nil end
+    return db.sv, fullName, firstName
+end
+
+function DB:GetForeverLegacyCharacters(db)
+    local candidates = {}
+    local sv, fullName, firstName = GetLegacyRecoveryContext(db)
+    if sv then
+        for key in pairs(FindLegacyCharacterKeys(sv, fullName, firstName)) do
+            if RecoverCharacterFields(sv, key, fullName, false, true) then
+                candidates[#candidates + 1] = { key = key, profile = self:FindPersistedProfileName(sv, key) }
+            end
+        end
+        table.sort(candidates, function(a, b) return a.key < b.key end)
+    end
+    return candidates
+end
+
+function DB:RecoverForeverLegacyCharacter(db, legacyKey)
+    local sv, fullName, firstName = GetLegacyRecoveryContext(db)
+    if not sv or not MatchesLegacyCharacterKey(legacyKey, fullName, firstName) then return false end
+    return RecoverCharacterFields(sv, legacyKey, fullName, true, true)
+end
+
 function DB:MigrateSavedVariables(db, savedVariableName)
     local legacy = self:MigrateSavedVariablesToV2(db, savedVariableName)
     local native, nativeError = self:MigrateNativeInterfaceV1(db, savedVariableName)

@@ -447,6 +447,8 @@ local function ShowMonitorPickerTooltip(control, option)
     if not (control and GameTooltip and type(option) == "table") then
         return
     end
+    if DesignerUI.ShowForeverSealTooltip
+        and DesignerUI:ShowForeverSealTooltip(control, option) then return end
     GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
     if GameTooltip.ClearLines then GameTooltip:ClearLines() end
     local summaryKey, summaryFallback, helpKey, helpFallback =

@@ -304,7 +304,7 @@ function P:HeadingText(section,count,collapsed)
     return text
 end
 function P:HeadingWidth(section,count,collapsed)
-    return self:TextWidth(self:HeadingText(section,count,collapsed),"heading")+18
+    return self:TextWidth(self:HeadingText(section,count,collapsed),"heading")+(section=="recent" and 0 or 18)
 end
 local shortGroups={
     ["Food & Drink"]="food",["Food and Drink"]="food",["食物和饮料"]="food",["食物和飲料"]="food",
@@ -320,39 +320,50 @@ function P:GroupText(group)
     return text=="group."..group and group or text
 end
 local tradeGold,tradeAmber={1,.83,.48},{1,.60,.28}
-local tradeSweepSteps=12
-function P:TradeCaptionFrames(text)
+local recentMint,recentCyan={.72,1,.92},{.38,.79,1}
+local sweepSteps=12
+local function MakeCaptionFrames(text,first,last,red,green,blue)
     local gradient=YUI.F
     if not gradient or not gradient.GetGradientText then return nil end
-    if self.tradeCaptionText==text then return self.tradeCaptionFrames end
-    local base=gradient:GetGradientText(text,tradeGold,tradeAmber)
-    local frames={[0]=base,[tradeSweepSteps]=base}
+    local base=gradient:GetGradientText(text,first,last)
+    local frames={[0]=base,[sweepSteps]=base}
     local colorPattern="|cff(%x%x)(%x%x)(%x%x)"
     local _,count=base:gsub(colorPattern,"")
     if count>1 then
         local radius=.32
-        for step=1,tradeSweepSteps-1 do
-            local center=-radius+(1+2*radius)*step/tradeSweepSteps
+        for step=1,sweepSteps-1 do
+            local center=-radius+(1+2*radius)*step/sweepSteps
             local index=0
             frames[step]=base:gsub(colorPattern,function(r,g,b)
                 local weight=1-math.abs(index/(count-1)-center)/radius
                 index=index+1
                 if weight<=0 then return nil end
                 weight=weight*weight*(3-2*weight)
-                local green,blue=tonumber(g,16),tonumber(b,16)
-                return string.format("|cff%s%02x%02x",r,math.floor(green+(250-green)*weight+.5),
-                    math.floor(216*weight+blue*(1-weight)+.5))
+                local r0,g0,b0=tonumber(r,16),tonumber(g,16),tonumber(b,16)
+                return string.format("|cff%02x%02x%02x",math.floor(r0+(red-r0)*weight+.5),
+                    math.floor(g0+(green-g0)*weight+.5),math.floor(b0+(blue-b0)*weight+.5))
             end)
         end
     end
-    self.tradeCaptionText,self.tradeCaptionFrames=text,frames
     return frames
 end
-function P:SetTradeSweep(window,label,frames)
-    local old=window.tradeSweep
+function P:TradeCaptionFrames(text)
+    if self.tradeCaptionText~=text or not self.tradeCaptionFrames then
+        self.tradeCaptionText,self.tradeCaptionFrames=text,MakeCaptionFrames(text,tradeGold,tradeAmber,255,250,216)
+    end
+    return self.tradeCaptionFrames
+end
+function P:RecentCaptionFrames(text)
+    if self.recentCaptionText~=text or not self.recentCaptionFrames then
+        self.recentCaptionText,self.recentCaptionFrames=text,MakeCaptionFrames(text,recentMint,recentCyan,255,255,255)
+    end
+    return self.recentCaptionFrames
+end
+local function SetCaptionSweep(window,field,label,frames,repeating)
+    local old=window[field]
     if old and old.label==label and old.frames==frames then return end
     if old then
-        window.tradeSweep=nil
+        window[field]=nil
         if old.timer then old.timer:Cancel();B.Stats.timers=B.Stats.timers-1 end
         if old.handle then old.handle:Stop() end
         if old.phase~=0 and old.label:GetText()==old.frames[old.phase] then old.label:SetText(old.frames[0]) end
@@ -360,15 +371,15 @@ function P:SetTradeSweep(window,label,frames)
     local animation=YUI.Animation
     if not (label and frames and frames[1] and animation and animation.Tween and window.root:IsVisible()) then return end
     local state={label=label,frames=frames,phase=0}
-    window.tradeSweep=state
+    window[field]=state
     local start
     local function Schedule()
         state.timer=C_Timer.NewTimer(5,start)
         B.Stats.timers=B.Stats.timers+1
     end
     local function Advance(progress)
-        if window.tradeSweep~=state then return end
-        local phase=math.floor(progress*tradeSweepSteps)
+        if window[field]~=state then return end
+        local phase=math.floor(progress*sweepSteps)
         if phase~=state.phase then
             state.phase=phase
             local text=frames[phase]
@@ -377,21 +388,26 @@ function P:SetTradeSweep(window,label,frames)
     end
     local function Finish(_,_,finished)
         state.handle=nil
-        if not finished or window.tradeSweep~=state then return end
+        if not finished or window[field]~=state then return end
         Advance(0)
-        Schedule()
+        if repeating then Schedule() end
     end
     start=function()
-        if window.tradeSweep~=state or not state.timer then return end
-        state.timer=nil
-        B.Stats.timers=B.Stats.timers-1
-        if not B.active or not label:IsVisible() then self:SetTradeSweep(window);return end
-        state.handle=animation:Tween({owner=window,target=label,key="ybags.tradeSweep",easing="linear",
+        if window[field]~=state then return end
+        if state.timer then state.timer=nil;B.Stats.timers=B.Stats.timers-1 end
+        if not B.active or not label:IsVisible() then SetCaptionSweep(window,field);return end
+        state.handle=animation:Tween({owner=window,target=label,key="ybags."..field,easing="linear",
             duration=.9,from=0,to=1,onUpdate=Advance,onFinished=Finish})
-        if state.handle.noop then self:SetTradeSweep(window) end
+        if state.handle.noop then state.handle=nil;if repeating then SetCaptionSweep(window,field) end end
     end
     if label:GetText()~=frames[0] then label:SetText(frames[0]) end
-    Schedule()
+    if repeating then Schedule() else start() end
+end
+function P:SetTradeSweep(window,label,frames)
+    SetCaptionSweep(window,"tradeSweep",label,frames,true)
+end
+function P:SetRecentSweep(window,label,frames)
+    SetCaptionSweep(window,"recentSweep",label,frames)
 end
 function P:TextWidth(text,role,itemStyle)
     self.textWidths=self.textWidths or {}
@@ -835,14 +851,79 @@ function P:Artwork(owner,texture,source,size,quality,role,empty,tint,desaturated
     self:ApplyArtwork(owner,state)
 end
 
+local questGlowColor={1,.78,.18,.5}
+local questBadgeInsets={circle=.19,diamond=.28,roundedSquare=.10,flatRounded=.10,wideRounded=.10}
+local questBadgeAtlas="QuestNormal"
+local questBadgeArtwork
+local function PaintCellQuest(button,state)
+    local mode=state.questVisual
+    local badge,glow=state.questBadge,state.questGlow
+    if mode=="starter" and not badge and not A.InCombat() then
+        if not questBadgeArtwork then
+            local atlas=C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(questBadgeAtlas) and questBadgeAtlas
+            questBadgeArtwork={layer="OVERLAY",subLevel=2,atlas=atlas,texture="Interface\\ContainerFrame\\UI-Icon-QuestBang"}
+        end
+        badge=G:CreateTexture(button,questBadgeArtwork)
+        state.questBadge=badge
+    elseif mode=="item" and not glow and not A.InCombat() then
+        glow=G:CreateTexture(button,{layer="ARTWORK",subLevel=2})
+        state.questGlow=glow
+    end
+    if mode=="starter" and not badge or mode=="item" and not glow then mode=nil end
+    local slot=state.styled and state.slot
+    local anchor=slot or button.icon
+    local shape=slot and state.recipe.shape or "square"
+    local short=slot and math.min(slot:GetWidth(),slot:GetHeight()) or state.size
+    local mask=slot and state.mask or nil
+    if mode==state.drawnQuest and (not mode or state.questAnchor==anchor and state.questShape==shape
+        and state.questShort==short and (mode~="item" or state.questMask==mask)) then return end
+    if mode=="starter" then
+        local inset=math.max(1,math.floor(short*(questBadgeInsets[shape] or .06)+.5))
+        local size=math.max(14,math.floor(short*.68+.5))
+        -- Align the glyph past QuestNormal's transparent side padding.
+        local padding=questBadgeArtwork.atlas and math.floor(size*.30+.5) or 0
+        badge:SetSize(size,size)
+        badge:ClearAllPoints();badge:SetPoint("TOPRIGHT",anchor,"TOPRIGHT",padding-inset,-inset)
+        badge:SetAlpha(state.alpha or 1)
+    elseif mode=="item" then
+        glow:ClearAllPoints()
+        if slot then
+            glow:SetAllPoints(anchor)
+        else
+            local inset=2
+            glow:SetPoint("TOPLEFT",anchor,"TOPLEFT",inset,-inset)
+            glow:SetPoint("BOTTOMRIGHT",anchor,"BOTTOMRIGHT",-inset,inset)
+        end
+        if state.questMask then glow:RemoveMaskTexture(state.questMask) end
+        if mask then glow:AddMaskTexture(mask) end
+        state.questMask=mask
+        G:PaintIconStateTexture(glow,shape,questGlowColor)
+        glow:SetAlpha(state.alpha or 1)
+    end
+    if badge then badge:SetShown(mode=="starter") end
+    if glow then glow:SetShown(mode=="item") end
+    state.drawnQuest,state.questAnchor,state.questShape,state.questShort=mode,anchor,shape,short
+end
+
+function P:CellQuest(button,mode)
+    local state=self.artwork[button]
+    if not state or not (mode or state.questVisual) then return end
+    state.questVisual=mode
+    PaintCellQuest(button,state)
+end
+
 function P:RefreshIconStyle()
     if A.InCombat() then return end
     local choice=B:GetIconSkin()
     if self.iconChoice==choice then return end
     self.iconChoice=choice
     self.iconRecipe=choice.skinId~="native" and G.IconSkins:Resolve(choice,B.PRODUCT_ID) or nil
+    local bindings=B.View and B.View.buttonData
     for owner,state in pairs(self.artwork) do
-        if state.role and (state.slot or owner:IsShown()) then self:ApplyArtwork(owner,state) end
+        if state.role and (state.slot or owner:IsShown() or bindings and bindings[owner]) then
+            self:ApplyArtwork(owner,state)
+            if state.questVisual then PaintCellQuest(owner,state) end
+        end
     end
 end
 
@@ -885,5 +966,7 @@ function P:CellAlpha(button,alpha)
     if visual then
         visual.alpha=alpha
         if visual.styled then visual.texture:SetAlpha(0);visual.slot:SetAlpha(alpha) end
+        if visual.drawnQuest=="starter" then visual.questBadge:SetAlpha(alpha)
+        elseif visual.drawnQuest=="item" then visual.questGlow:SetAlpha(alpha) end
     end
 end

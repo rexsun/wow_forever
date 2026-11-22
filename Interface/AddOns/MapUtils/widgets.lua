@@ -213,6 +213,23 @@ local Player = {
 	following = false,
 }
 
+local MapSettings = {
+	size = 22,
+	gap = 3,
+	dotScale = 0.45,
+	ringWidth = 2,
+	ringColor = {1, 0.82, 0, 1},
+	circleMask = "Interface\\CharacterFrame\\TempPortraitAlphaMask",
+	blizzardButtonSpace = 52,
+	oneMapIcon = "Interface\\Icons\\INV_Misc_Spyglass_02",
+	zoneIcon = "Interface\\Icons\\INV_Misc_Map_01",
+	allianceCityIcon = "Interface\\Icons\\Spell_Arcane_TeleportStormWind",
+	hordeCityIcon = "Interface\\Icons\\Spell_Arcane_TeleportOrgrimmar",
+	dotColors = {MAP = {0.85, 0.72, 0.45}, TERRAIN = {0.3, 0.75, 0.25}},
+	styles = {LeftButton = "MAP", RightButton = "TERRAIN", MiddleButton = "MIXED"},
+	buttons = {},
+}
+
 function Widgets.CreateFrame()
 	local container = map.ScrollContainer
 	local frame = CreateFrame("Frame", nil, map)
@@ -242,12 +259,14 @@ function Toggles.IsEnabled(category)
 end
 
 function Toggles.IsOn(category, azeroth)
-	if category.guild then return MapUtils:GetGuildPinScopeShown(azeroth) end
+	if category.guild then return MapUtils:GetGuildPinScopeSetting(azeroth) end
 
-	return MapUtils:GetPinScopeShown(category.key, category.default, azeroth)
+	return MapUtils:GetPinScopeSetting(category.key, category.default, azeroth)
 end
 
 function Toggles.IsZoneOnly(category)
+	if category.all then return true end
+
 	return category.key ~= nil and not category.guild and MapUtils:IsPinZoneOnly(category.key)
 end
 
@@ -255,20 +274,8 @@ function Toggles.HasScope(category, azeroth)
 	return not azeroth or not Toggles.IsZoneOnly(category)
 end
 
-function Toggles.AreAllOn(azeroth)
-	local any = false
-	for _, category in ipairs(Toggles.categories) do
-		if Toggles.IsEnabled(category) and Toggles.HasScope(category, azeroth) then
-			any = true
-			if not Toggles.IsOn(category, azeroth) then return false end
-		end
-	end
-
-	return any
-end
-
 function Toggles.GetState(category, azeroth)
-	if category.all then return Toggles.AreAllOn(azeroth) end
+	if category.all then return not MapUtils:ArePinsHidden() end
 
 	return Toggles.IsOn(category, azeroth)
 end
@@ -315,19 +322,26 @@ function Toggles.Set(category, azeroth, value)
 	Toggles.Refresh()
 end
 
-function Toggles.SetAll(azeroth, value)
+function Toggles.SetAllHidden(hidden)
+	MapUtils:SetPinsHidden(hidden)
 	for _, category in ipairs(Toggles.categories) do
-		if Toggles.IsEnabled(category) and Toggles.HasScope(category, azeroth) and Toggles.IsOn(category, azeroth) ~= value then Toggles.Apply(category, azeroth, value) end
+		if Toggles.IsEnabled(category) then
+			if category.guild then
+				MapUtils:RefreshGuildMembers()
+			else
+				Toggles.RefreshCategory(category)
+			end
+		end
 	end
 
-	Notify.Show(Toggles.GetIconMarkup(Toggles.eye) .. MapUtils:Trans(Toggles.eye.label), azeroth, value)
+	Notify.ShowText(Toggles.GetIconMarkup(Toggles.eye) .. MapUtils:Trans(Toggles.eye.label) .. ": " .. Toggles.GetStateText(not hidden))
 	Toggles.Refresh()
 end
 
 function Toggles.Click(category, mouseButton)
 	local azeroth = mouseButton == "RightButton" and not Toggles.IsZoneOnly(category)
 	if category.all then
-		Toggles.SetAll(azeroth, not Toggles.AreAllOn(azeroth))
+		Toggles.SetAllHidden(not MapUtils:ArePinsHidden())
 	else
 		Toggles.Set(category, azeroth, not Toggles.IsOn(category, azeroth))
 	end
@@ -491,6 +505,13 @@ function Toggles.ShowTooltip(button)
 	local category = button.category
 	GameTooltip:SetOwner(button, "ANCHOR_LEFT")
 	GameTooltip:SetText(MapUtils:Trans(category.label))
+	if category.all then
+		GameTooltip:AddDoubleLine(format("|cffffd100%s|r", MapUtils:Trans("LID_LEFTCLICK")), Toggles.GetStateText(Toggles.GetState(category, false)), 1, 1, 1)
+		GameTooltip:Show()
+
+		return
+	end
+
 	if Toggles.IsZoneOnly(category) then
 		GameTooltip:AddDoubleLine(format("|cffffd100%s|r  %s", MapUtils:Trans("LID_LEFTCLICK"), MapUtils:Trans("LID_ZONEMAP")), Toggles.GetStateText(Toggles.GetState(category, false)), 1, 1, 1)
 		GameTooltip:Show()
@@ -1134,6 +1155,10 @@ function Player.SetFollowing(following)
 	end
 end
 
+function MapUtils:IsFollowingPlayer()
+	return Player.following == true and map:IsShown()
+end
+
 function Player.OnClick(_, mouseButton)
 	if mouseButton == "RightButton" then
 		Player.SetFollowing(not Player.following)
@@ -1201,6 +1226,189 @@ function Player.Create()
 	MapUtils:RegisterMapEditElement(Player.element)
 end
 
+function MapSettings.GetIcon(button)
+	if button.key ~= "CITYMAPSTYLE" then return button.icon end
+	if UnitFactionGroup("player") == "Horde" then return MapSettings.hordeCityIcon end
+
+	return button.icon
+end
+
+function MapSettings.ShowTooltip(button)
+	GameTooltip:SetOwner(button, "ANCHOR_TOP")
+	if button.key == nil then
+		GameTooltip:SetText(MapUtils:Trans("LID_ONEMAP"))
+		GameTooltip:AddDoubleLine(format("|cffffd100%s|r", MapUtils:Trans("LID_LEFTCLICK")), MapUtils:IsOneMap() and "|cff20ff20" .. MapUtils:Trans("LID_STATUSON") .. "|r" or "|cffff4040" .. MapUtils:Trans("LID_STATUSOFF") .. "|r", 1, 1, 1)
+	else
+		local current = MapUtils:GetMapStyleOption(button.key)
+		GameTooltip:SetText(MapUtils:Trans(button.title))
+		for _, entry in ipairs({{"LeftButton", "LID_LEFTCLICK"}, {"RightButton", "LID_RIGHTCLICK"}, {"MiddleButton", "LID_MIDDLECLICK"}}) do
+			local style = MapSettings.styles[entry[1]]
+			local shade = style == current and 0.2 or 1
+			GameTooltip:AddDoubleLine(format("|cffffd100%s|r", MapUtils:Trans(entry[2])), MapUtils:Trans("LID_MAPSTYLE" .. style), 1, 1, 1, shade, 1, shade)
+		end
+	end
+
+	GameTooltip:Show()
+end
+
+function MapSettings.OnClick(button, mouseButton)
+	if InCombatLockdown() then return end
+	if button.key == nil then
+		if mouseButton == "LeftButton" then MapUtils:SetOneMapEnabled(not MapUtils:IsOneMap()) end
+	else
+		local style = MapSettings.styles[mouseButton]
+		if style ~= nil then MapUtils:SetMapStyleOption(button.key, style) end
+	end
+
+	MapSettings.Refresh()
+	if GameTooltip:IsOwned(button) then MapSettings.ShowTooltip(button) end
+end
+
+function MapSettings.Mask(owner, anchor, inset)
+	if owner.CreateMaskTexture == nil then return nil end
+	local mask = owner:CreateMaskTexture()
+	mask:SetTexture(MapSettings.circleMask, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	mask:SetPoint("TOPLEFT", anchor, "TOPLEFT", inset, -inset)
+	mask:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", -inset, inset)
+
+	return mask
+end
+
+function MapSettings.Round(owner, anchor, inset, ...)
+	local mask = MapSettings.Mask(owner, anchor, inset)
+	if mask == nil then return end
+	for _, texture in ipairs({...}) do
+		texture:AddMaskTexture(mask)
+	end
+end
+
+function MapSettings.CreateDot(button)
+	local size = MapSettings.size * MapSettings.dotScale
+	local dot = CreateFrame("Frame", nil, button)
+	dot:SetSize(size, size)
+	dot:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 1, -1)
+	dot:SetFrameLevel(button:GetFrameLevel() + 2)
+	dot.border = dot:CreateTexture(nil, "BACKGROUND")
+	dot.border:SetAllPoints(dot)
+	dot.border:SetColorTexture(0, 0, 0, 1)
+	dot.left = dot:CreateTexture(nil, "ARTWORK")
+	dot.left:SetPoint("TOPLEFT", dot, "TOPLEFT", 0, 0)
+	dot.left:SetPoint("BOTTOMRIGHT", dot, "BOTTOM", 0, 0)
+	dot.right = dot:CreateTexture(nil, "ARTWORK")
+	dot.right:SetPoint("TOPLEFT", dot, "TOP", 0, 0)
+	dot.right:SetPoint("BOTTOMRIGHT", dot, "BOTTOMRIGHT", 0, 0)
+	MapSettings.Round(dot, dot, 0, dot.border)
+	MapSettings.Round(dot, dot, 1, dot.left, dot.right)
+
+	return dot
+end
+
+function MapSettings.CreateButton(key, icon, title)
+	local button = CreateFrame("Button", nil, MapSettings.frame)
+	button.key, button.icon, button.title = key, icon, title
+	button:SetSize(MapSettings.size, MapSettings.size)
+	button:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
+	button.back = button:CreateTexture(nil, "BACKGROUND")
+	button.back:SetAllPoints(button)
+	button.back:SetColorTexture(0, 0, 0, 0.8)
+	button.ring = button:CreateTexture(nil, "BORDER")
+	button.ring:SetAllPoints(button)
+	button.ring:SetColorTexture(unpack(MapSettings.ringColor))
+	button.ring:Hide()
+	button.texture = button:CreateTexture(nil, "ARTWORK")
+	button.texture:SetPoint("TOPLEFT", button, "TOPLEFT", MapSettings.ringWidth, -MapSettings.ringWidth)
+	button.texture:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -MapSettings.ringWidth, MapSettings.ringWidth)
+	button.texture:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	button.hover = button:CreateTexture(nil, "HIGHLIGHT")
+	button.hover:SetAllPoints(button)
+	button.hover:SetColorTexture(1, 1, 1, 0.25)
+	button.hover:SetBlendMode("ADD")
+	MapSettings.Round(button, button, 0, button.back, button.ring, button.hover)
+	MapSettings.Round(button, button, MapSettings.ringWidth, button.texture)
+	if key ~= nil then button.dot = MapSettings.CreateDot(button) end
+	button:SetScript("OnClick", MapSettings.OnClick)
+	button:SetScript("OnEnter", MapSettings.ShowTooltip)
+	button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	tinsert(MapSettings.buttons, button)
+
+	return button
+end
+
+function MapSettings.ApplyState(button)
+	button.texture:SetTexture(MapSettings.GetIcon(button))
+	if button.key == nil then
+		local on = MapUtils:IsOneMap()
+		button.texture:SetDesaturated(not on)
+		button.texture:SetAlpha(on and 1 or Toggles.offAlpha)
+		button.ring:SetShown(on)
+
+		return
+	end
+
+	local style = MapUtils:GetMapStyleOption(button.key)
+	local left = MapSettings.dotColors[style == "TERRAIN" and "TERRAIN" or "MAP"]
+	local right = MapSettings.dotColors[style == "MAP" and "MAP" or "TERRAIN"]
+	button.dot.left:SetColorTexture(left[1], left[2], left[3], 1)
+	button.dot.right:SetColorTexture(right[1], right[2], right[3], 1)
+end
+
+function MapSettings.Refresh()
+	local frame = MapSettings.frame
+	if frame == nil then return end
+	local vertical = MapSettings.element ~= nil and MapUtils:GetMapEditOrientation(MapSettings.element) == "VERTICAL"
+	local step = MapSettings.size + MapSettings.gap
+	for index, button in ipairs(MapSettings.buttons) do
+		MapSettings.ApplyState(button)
+		button:ClearAllPoints()
+		if vertical then
+			button:SetPoint("TOP", frame, "TOP", 0, -(index - 1) * step)
+		else
+			button:SetPoint("LEFT", frame, "LEFT", (index - 1) * step, 0)
+		end
+	end
+
+	local length = math.max(1, #MapSettings.buttons * step - MapSettings.gap)
+	if vertical then
+		frame:SetSize(MapSettings.size, length)
+	else
+		frame:SetSize(length, MapSettings.size)
+	end
+end
+
+function MapUtils:RefreshMapSettingsWidget()
+	MapSettings.Refresh()
+end
+
+function MapSettings.Layout()
+	local frame = MapSettings.frame
+	if frame == nil then return end
+	MapSettings.Refresh()
+	frame:SetShown(MapUtils:IsMapEditElementVisible(MapSettings.element))
+end
+
+function MapSettings.Create()
+	MapSettings.frame = Widgets.CreateFrame()
+	MapSettings.CreateButton(nil, MapSettings.oneMapIcon, "LID_ONEMAP")
+	MapSettings.CreateButton("MAPSTYLE", MapSettings.zoneIcon, "LID_ZONEMAPSTYLE")
+	MapSettings.CreateButton("CITYMAPSTYLE", MapSettings.allianceCityIcon, "LID_CITYMAPSTYLE")
+	MapSettings.element = {
+		key = "MAPSETTINGSWIDGET",
+		title = "LID_MAPSETTINGSWIDGET",
+		frame = MapSettings.frame,
+		defaultPoint = {"TOPLEFT", Widgets.inset + MapSettings.blizzardButtonSpace, -Widgets.inset},
+		defaultAlign = "LEFT",
+		defaultOrientation = "HORIZONTAL",
+		options = {
+			orientation = true,
+			scale = true
+		},
+		OnLayout = MapSettings.Layout,
+		OnEditMode = MapSettings.Layout,
+	}
+
+	MapUtils:RegisterMapEditElement(MapSettings.element)
+end
+
 function Widgets.Init()
 	if Widgets.ready or MapUtils.RegisterMapEditElement == nil or MapUtils.GetConfig == nil then return end
 	Widgets.ready = true
@@ -1208,8 +1416,10 @@ function Widgets.Init()
 	Notify.Create()
 	Party.Create()
 	Player.Create()
+	MapSettings.Create()
 	map:HookScript("OnShow", function()
 		Toggles.Layout()
+		MapSettings.Refresh()
 		Party.Update(true)
 	end)
 end
@@ -1225,3 +1435,4 @@ MapUtils.ProfileTable("Toggles", Toggles)
 MapUtils.ProfileTable("Notify", Notify)
 MapUtils.ProfileTable("Party", Party)
 MapUtils.ProfileTable("Player", Player)
+MapUtils.ProfileTable("MapSettings", MapSettings)
