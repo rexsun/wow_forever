@@ -2,6 +2,12 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-23 - Profile compatibility test runs against AceDB 40
+
+- Problem: `tools/profile-compatibility-tests.py` stopped while loading `YUI/Libs/AceDB-3.0/AceDB-3.0.lua` with `attempt to call global 'UnitNameUnmodified'`. The 2026-11-22 package update moved YUI's AceDB from revision 33 to 40, and revision 40 builds the character profile key from `UnitNameUnmodified("player")` instead of `UnitName`. The test's game-API stubs defined only `UnitName`.
+- The test now stubs `UnitNameUnmodified` with the same test name. The game provides this API: `EllesmereUI.lua`, BugGrabber and `CharacterUIBaseline/Bootstrap.lua` already call it, so no addon changed. The stubs don't define `RegionalUniqueNamesEnabled`, so AceDB still uses the `Name - Realm` key the saved profiles were written with.
+- Verification: `uv run --with lupa python tools/profile-compatibility-tests.py` passes (18 fresh character profiles: 9 classes × 2 factions).
+
 ## 2026-11-23 - One unreadable addon file no longer blocks the settings export
 
 - Problem: the export was all-or-nothing. One approved file that failed to decode or parse stopped every addon's export, including EllesmereUI's, so `Settings/WTF` stopped tracking the game with no visible reason. Examples: a string WoW saved with invalid UTF-8 (strict `utf-8-sig` decoding), or syntax the safe parser rejects. A failing CharacterUIBaseline refresh, which runs first, did the same. The watcher logged only a generic "Export deferred" line every 30 seconds and threw away the reason.

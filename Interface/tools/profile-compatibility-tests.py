@@ -24,6 +24,8 @@ def check_account(saved: Path, class_name: str, faction: str) -> None:
         strmatch = string.match
         function GetRealmName() return "Classic Beta PvP" end
         function UnitName() return "Compatibility" .. TEST_CLASS end
+        -- AceDB 40 (YUI, 2026-11-22) builds its character key from this instead of UnitName.
+        UnitNameUnmodified = UnitName
         function UnitClass() return TEST_CLASS, TEST_CLASS end
         function UnitRace() return "Human", "Human" end
         function UnitFactionGroup() return TEST_FACTION end
