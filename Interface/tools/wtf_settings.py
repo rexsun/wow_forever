@@ -45,6 +45,7 @@ GEARINSIGHT_SETTINGS = {
     'qm': frozenset({'share', 'onlyBehind', 'onlyZone', 'range', 'autoPlates'}),
 }
 MISSING = object()
+EXPORT_RECORD = 'last-export.json'
 
 
 class SettingsError(Exception):
@@ -344,6 +345,35 @@ def approved_inventory(wtf):
     return {p for p in wtf.rglob("*") if p.is_file() and (p.name in APPROVED_LUA or p == wtf / "Config.wtf")}
 
 
+def wtf_fingerprint(wtf, contents):
+    digest = hashlib.sha256()
+    for path in sorted(contents, key=lambda p: p.relative_to(wtf).as_posix()):
+        name = path.relative_to(wtf).as_posix().encode('utf-8', errors='surrogateescape')
+        digest.update(len(name).to_bytes(4, 'big') + name + hashlib.sha256(contents[path]).digest())
+    return digest.hexdigest()
+
+
+def record_export(state, wtf, contents):
+    atomic_text(state / EXPORT_RECORD, json_text({'version': 1, 'wtf': wtf_fingerprint(wtf, contents)}))
+
+
+def check_fresh(game, state):
+    """Raise unless the approved live WTF files are exactly those the last export read."""
+    game, state = Path(game).resolve(), Path(state).absolute()
+    wtf = game / 'WTF'
+    record = state / EXPORT_RECORD
+    if not record.is_file():
+        raise SettingsError("No settings export is recorded; run watch_wtf_settings.ps1 -Mode Export with the game closed.")
+    recorded = json.loads(record.read_text(encoding='utf-8'))
+    if not isinstance(recorded, dict) or recorded.get('version') != 1 or not isinstance(recorded.get('wtf'), str):
+        raise SettingsError("The private export record is invalid; run watch_wtf_settings.ps1 -Mode Export.")
+    if not wtf.is_dir():
+        raise SettingsError("WTF directory is missing.")
+    contents = {path: path.read_bytes() for path in approved_inventory(wtf)}
+    if wtf_fingerprint(wtf, contents) != recorded['wtf']:
+        raise SettingsError("Saved game settings changed after the last export; wait for the watcher's export or run watch_wtf_settings.ps1 -Mode Export.")
+
+
 def settings_path_allowed(filename, path):
     if path == ('YUI_CPUDiagnostics',):
         return False
@@ -496,6 +526,7 @@ def export_settings(game, state, dry_run=False, before_publish=None):
                 shutil.rmtree(staging)
             if published and backup.exists():
                 shutil.rmtree(backup)
+        record_export(state, wtf, observed)
         return len(snapshots)
 
 
@@ -803,7 +834,7 @@ def require_game_closed(game):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("export", "review", "restore"))
+    parser.add_argument("mode", choices=("export", "review", "restore", "check"))
     parser.add_argument("--game-root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--state", type=Path)
     parser.add_argument("--dry-run", action="store_true")
@@ -816,6 +847,9 @@ def main():
         state = args.state or (Path(os.path.expandvars(configured_state)) if configured_state else Path(os.environ["LOCALAPPDATA"]) / "WowSettings" / identity)
         if args.mode == "review":
             review(game, state)
+        elif args.mode == "check":
+            check_fresh(game, state)
+            print("Settings snapshots match the saved game settings.")
         elif args.mode == "restore":
             require_game_closed(game)
             count, backup = restore_settings(game, state, dry_run=args.dry_run, before_publish=lambda: require_game_closed(game))

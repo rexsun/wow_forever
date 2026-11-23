@@ -27,6 +27,17 @@ $script:position = 0
 Watch-Installation -ProcessProbe { $value = $script:states[$script:position]; $script:position++; return $value } -ExportAction { $script:exports++; return $true } -SleepAction {} -IterationLimit 3 -SkipInitialExport
 Assert ($script:exports -eq 1) 'Resume must still capture the next session.'
 
+function Write-WatcherLog {}
+$script:exports = 0
+$script:states = @($false, 'unreadable', 'unreadable', $false)
+$script:position = 0
+Watch-Installation -ProcessProbe {
+    $value = $script:states[$script:position]; $script:position++
+    if ($value -is [string]) { throw $value }
+    return $value
+} -ExportAction { $script:exports++; return $true } -SleepAction {} -IterationLimit 4 -SkipInitialExport
+Assert ($script:exports -eq 1) 'A session seen only through a failing probe must export after exit.'
+
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('wtf-watcher-' + [guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory((Join-Path $testRoot 'WTF')) | Out-Null
 try {
@@ -131,4 +142,4 @@ try {
     if (-not $resolvedRestore.StartsWith($tempPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'Restore-test cleanup escaped the temporary directory.' }
     if (Test-Path -LiteralPath $resolvedRestore) { Remove-Item -LiteralPath $resolvedRestore -Recurse -Force }
 }
-Write-Output '19 watcher/restore lifecycle, .env, stability, process and syntax checks passed.'
+Write-Output '20 watcher/restore lifecycle, .env, stability, process and syntax checks passed.'

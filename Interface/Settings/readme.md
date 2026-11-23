@@ -46,6 +46,8 @@ git add -- Settings/WTF
 git commit -m "Update interface settings"
 ```
 
+The export finishes about a minute after WoW exits, so a commit made right after exit could capture stale JSON. A pre-commit hook in `tools/git-hooks/` (enabled by Install through `core.hooksPath`) runs only when `Settings/WTF` is staged. It blocks the commit if those files changed after staging, or if the approved live WTF files differ from the ones the last export read. Each export records a content fingerprint in the private `last-export.json`. If the commit is blocked, wait for `Anonymous settings exported` in `watcher.log` (or run Export), then stage again. After a Restore, run Export before committing settings. To enable the hook without reinstalling the task, run `git config core.hooksPath Interface/tools/git-hooks` from the game folder.
+
 Remove the sign-in task without deleting settings or the private map:
 
 ```powershell
@@ -111,7 +113,7 @@ The next export removes previously captured excluded data from the current snaps
 
 The exporter owns the complete generated `Settings/WTF/` directory and replaces it as a unit. Put hand-written documentation outside it. A private file lock serializes exports and releases automatically if the exporter exits or crashes. The old snapshot is restored on a failed replacement; if Windows also blocks rollback, the previous snapshot is retained in an ignored `.wtf-stage.local-*-backup` directory for recovery.
 
-Windows PowerShell 5.1, `uv`, a uv-managed Python 3.13+ and Git are required. The installed task runs as the current user with limited privileges and a hidden window; no administrator elevation or password is requested. Logs contain generic status messages and rotate at 1 MiB. If a WoW process's executable path cannot be read, export waits rather than assuming closure.
+Windows PowerShell 5.1, `uv`, a uv-managed Python 3.13+ and Git are required. The installed task runs as the current user with limited privileges and a hidden window; no administrator elevation or password is requested. Logs contain generic status messages and rotate at 1 MiB. If a WoW process's executable path cannot be read, export waits rather than assuming closure, and the session is still exported once the path check succeeds again.
 
 `adopt_addons.ps1` still copies live WTF and therefore contains real account paths. Its existing behavior is appropriate for a private machine-to-machine transfer. Copying Interface also copies .env and the snapshots, but does not install the watcher task or copy external logs/backups. Restore remains an explicit command, separate from exit capture.
 

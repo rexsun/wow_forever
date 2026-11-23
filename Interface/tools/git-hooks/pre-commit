@@ -1,0 +1,20 @@
+#!/bin/sh
+# Refuses settings snapshots that predate the latest saved game settings: the watcher
+# exports about a minute after WoW exits, so an early commit captures stale JSON.
+settings=Interface/Settings/WTF
+
+git diff --cached --quiet -- "$settings" && exit 0
+
+if ! git diff --quiet -- "$settings" || [ -n "$(git ls-files --others --exclude-standard -- "$settings")" ]; then
+    echo "pre-commit: $settings changed after staging (a newer export). Stage it again, then commit." >&2
+    exit 1
+fi
+
+python=$(uv python find --no-project '>=3.13' 2>/dev/null) || {
+    echo "pre-commit: a uv-managed Python 3.13+ is required to check settings freshness." >&2
+    exit 1
+}
+if ! "$python" Interface/tools/wtf_settings.py check >&2; then
+    echo "pre-commit: settings snapshot is stale; commit blocked." >&2
+    exit 1
+fi

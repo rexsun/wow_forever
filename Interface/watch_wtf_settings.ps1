@@ -164,6 +164,9 @@ function Watch-Installation {
                 if (& $ExportAction) { $pending = $false }
             }
         } catch {
+            # A failing probe may hide a whole session (e.g. an elevated WoW has no readable path),
+            # so assume WTF may have changed and export once the probe reports closure.
+            $pending = $true
             Write-WatcherLog 'Export deferred: game state or settings validation failed. Retrying in 30 seconds.'
             & $SleepAction 30000
         }
@@ -213,7 +216,9 @@ function Install-WatcherTask {
     $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'Export anonymous WoW settings after exit; leave Git staging and commits manual.' -Force | Out-Null
     Start-ScheduledTask -TaskName $taskName
-    Write-Output 'Installed and started the current-user settings watcher. No automatic Git writes.'
+    git -C $script:GameRoot config core.hooksPath 'Interface/tools/git-hooks'
+    if ($LASTEXITCODE -ne 0) { throw 'Could not enable the settings pre-commit hook.' }
+    Write-Output 'Installed and started the current-user settings watcher and enabled the settings pre-commit hook. No automatic Git writes.'
 }
 
 Initialize-SettingsEnvironment

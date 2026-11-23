@@ -2,6 +2,14 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-23 - Settings commits wait for the watcher's export
+
+- Problem: WoW saved EllesmereUI's nameplate changes at 11:34:50, but the watcher only published `EllesmereUI.json` at 11:36:13 (wait for the process to exit, six quiet seconds, baseline refresh, re-validation of every snapshot). The 11:35:38 "update saved JSON" commit happened in between and captured only an older `YUI.json`. The export itself was complete: every changed nameplate setting is in the JSON.
+- New `tools/git-hooks/pre-commit`, enabled by `watch_wtf_settings.ps1 -Mode Install` through `core.hooksPath`. It runs only when `Settings/WTF` is staged. It blocks the commit when those files changed after staging, or when the approved live WTF files differ from the ones the last export read. The comparison uses a content fingerprint that each export writes to the private `last-export.json`, checked by the new `wtf_settings.py check` mode.
+- Watcher: a probe error (for example a `Wow*.exe` whose path cannot be read, such as an elevated client) left `pending` unchanged. A session seen only through failing probes was therefore never exported after exit. The error handler now marks the session pending.
+- Found while restarting the task: `Stop-ScheduledTask` ends the `wscript.exe` launcher but not its PowerShell child, so the old watcher kept the mutex and the restarted task quit. It was stopped by hand. Restore's task pause has the same gap, but it fails safe ("Stop the foreground settings watcher"). Not changed here.
+- Verification: 49 helper tests (5 new) and 20 watcher checks (1 new) pass. The new watcher check fails against the previous script. The helper-process, sync and CharacterUIBaseline suites pass. The restarted watcher re-exported byte-identical JSON, and `check` passes against the live installation.
+
 ## 2026-11-22 - Update five addon packages (OverlapSettingsGuard 0.22.0)
 
 - Update YUI v362 to v365 (wclbox Forever download, extracted with GBK file names; `!YUI_Error` stays uninstalled), Auctionator 349 to 351 ([file 9740188](https://www.curseforge.com/wow/addons/auctionator/files/9740188)), the EllesmereUI suite 9.9.1 to 9.9.2 ([file 9747094](https://www.curseforge.com/wow/addons/ellesmereui/files/9747094), the seven installed modules only), GatherLite 8.4.14 to 8.4.15 ([file 9730320](https://www.curseforge.com/wow/addons/gatherlite/files/9730320)) and MapUtils 1.7.22 to 1.7.29 (forever build, [file 9756503](https://www.curseforge.com/wow/addons/maputils/files/9756503)). Every TOC still lists Interface 16001; no dependency or SavedVariables declaration changed. !BugGrabber, Bagnon, Details, Lueur, Skinner and Waypoint UI were already current.

@@ -106,6 +106,37 @@ class SettingsTests(unittest.TestCase):
         MODULE.export_settings(self.game, self.state, dry_run=True)
         self.assertFalse(self.output.exists())
         self.assertFalse((self.game / 'Interface/.env').exists())
+        with self.assertRaises(MODULE.SettingsError):
+            MODULE.check_fresh(self.game, self.state)
+
+    def test_check_requires_a_recorded_export(self):
+        with self.assertRaises(MODULE.SettingsError):
+            MODULE.check_fresh(self.game, self.state)
+
+    def test_check_detects_settings_saved_after_export(self):
+        self.export()
+        MODULE.check_fresh(self.game, self.state)
+        self.source.write_text(self.source.read_text().replace('0.8', '0.9'))
+        with self.assertRaises(MODULE.SettingsError):
+            MODULE.check_fresh(self.game, self.state)
+        self.export()
+        MODULE.check_fresh(self.game, self.state)
+
+    def test_check_detects_added_and_removed_approved_files(self):
+        self.export()
+        extra = self.saved / "EllesmereUI.lua"
+        extra.write_text('EllesmereUIDB = {activeProfile="Default"}')
+        with self.assertRaises(MODULE.SettingsError):
+            MODULE.check_fresh(self.game, self.state)
+        self.export()
+        extra.unlink()
+        with self.assertRaises(MODULE.SettingsError):
+            MODULE.check_fresh(self.game, self.state)
+
+    def test_check_ignores_unapproved_files(self):
+        self.export()
+        (self.saved / "Bagnon.lua").write_text('Bagnon_Sets = {}')
+        MODULE.check_fresh(self.game, self.state)
 
     def test_restart_before_publication_preserves_snapshot(self):
         self.export()
