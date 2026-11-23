@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from typing import NamedTuple
 import uuid
 
 
@@ -46,6 +47,11 @@ GEARINSIGHT_SETTINGS = {
 }
 MISSING = object()
 EXPORT_RECORD = 'last-export.json'
+
+
+class ExportSummary(NamedTuple):
+    files: int
+    skipped: tuple
 
 
 class SettingsError(Exception):
@@ -193,7 +199,17 @@ class LuaParser:
 
 
 def parse_lua(text):
-    return LuaParser(text).parse()
+    parser = LuaParser(text)
+    try:
+        return parser.parse()
+    except SettingsError as error:
+        line = parser.text.count("\n", 0, parser.pos) + 1
+        raise SettingsError(f"{error} Line {line}.") from None
+
+
+def decode_saved(raw):
+    # WoW can save strings cut mid-character; surrogateescape keeps those bytes so restore writes them back unchanged.
+    return raw.decode("utf-8-sig", errors="surrogateescape")
 
 
 def json_text(value):
@@ -353,12 +369,15 @@ def wtf_fingerprint(wtf, contents):
     return digest.hexdigest()
 
 
-def record_export(state, wtf, contents):
-    atomic_text(state / EXPORT_RECORD, json_text({'version': 1, 'wtf': wtf_fingerprint(wtf, contents)}))
+def record_export(state, wtf, contents, skipped=()):
+    atomic_text(state / EXPORT_RECORD, json_text({'version': 1, 'wtf': wtf_fingerprint(wtf, contents), 'skipped': list(skipped)}))
 
 
 def check_fresh(game, state):
-    """Raise unless the approved live WTF files are exactly those the last export read."""
+    """Raise unless the approved live WTF files are exactly those the last export read.
+
+    Returns the files that export skipped; their snapshots are older than live settings.
+    """
     game, state = Path(game).resolve(), Path(state).absolute()
     wtf = game / 'WTF'
     record = state / EXPORT_RECORD
@@ -372,6 +391,10 @@ def check_fresh(game, state):
     contents = {path: path.read_bytes() for path in approved_inventory(wtf)}
     if wtf_fingerprint(wtf, contents) != recorded['wtf']:
         raise SettingsError("Saved game settings changed after the last export; wait for the watcher's export or run watch_wtf_settings.ps1 -Mode Export.")
+    skipped = recorded.get('skipped', [])
+    if not isinstance(skipped, list) or not all(isinstance(item, str) for item in skipped):
+        raise SettingsError("The private export record is invalid; run watch_wtf_settings.ps1 -Mode Export.")
+    return tuple(skipped)
 
 
 def settings_path_allowed(filename, path):
@@ -458,6 +481,7 @@ def export_settings(game, state, dry_run=False, before_publish=None):
         reject_links(wtf)
         snapshots = {}
         observed = {}
+        skipped = []
         for folder, directories, files in os.walk(wtf, followlinks=False):
             directories.sort()
             for name in directories:
@@ -469,7 +493,7 @@ def export_settings(game, state, dry_run=False, before_publish=None):
                 reject_links(path)
                 raw = path.read_bytes()
                 observed[path] = raw
-                text = raw.decode("utf-8-sig")
+                text = decode_saved(raw)
                 if path == wtf / "Config.wtf":
                     values = {}
                     for line in text.splitlines():
@@ -481,19 +505,26 @@ def export_settings(game, state, dry_run=False, before_publish=None):
                     parts = path.relative_to(wtf).parts
                     if len(parts) != 4 or parts[0] != 'Account' or parts[2] != 'SavedVariables':
                         continue
-                    values = settings_only(name, parse_lua(text))
-                    parts = path.relative_to(wtf).parts[:-1]
-                    anonymous = [part if part in {"Account", "SavedVariables"} else aliases.text(part) for part in parts]
+                    anonymous = [part if part in {"Account", "SavedVariables"} else aliases.text(part) for part in parts[:-1]]
                     relative = Path("scopes", *anonymous, path.stem + ".json")
+                    try:
+                        values = settings_only(name, parse_lua(text))
+                    except (SettingsError, RecursionError) as error:
+                        # One unreadable addon file must not hold back every other addon's settings.
+                        skipped.append(f"{name}: {error if isinstance(error, SettingsError) else 'Saved-variable nesting is too deep.'}")
+                        previous = output / relative
+                        if previous.is_file():
+                            snapshots[relative] = previous.read_text(encoding="utf-8")
+                        continue
                 snapshots[relative] = json_text(aliases.encode(values))
         if not snapshots:
-            raise SettingsError("No approved settings were found.")
+            raise SettingsError("No approved settings could be exported." + (" Skipped " + "; ".join(skipped) if skipped else ""))
         if approved_inventory(wtf) != set(observed) or any(path.read_bytes() != raw for path, raw in observed.items()):
             raise SettingsError("WTF changed during export; retry after the game exits.")
         if before_publish:
             before_publish()
         if dry_run:
-            return len(snapshots)
+            return ExportSummary(len(snapshots), tuple(skipped))
         output.parent.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=".wtf-stage.local-", dir=output.parent))
         backup = staging.with_name(staging.name + "-backup")
@@ -526,8 +557,8 @@ def export_settings(game, state, dry_run=False, before_publish=None):
                 shutil.rmtree(staging)
             if published and backup.exists():
                 shutil.rmtree(backup)
-        record_export(state, wtf, observed)
-        return len(snapshots)
+        record_export(state, wtf, observed, skipped)
+        return ExportSummary(len(snapshots), tuple(skipped))
 
 
 def decode(value, reverse):
@@ -651,7 +682,7 @@ def merge_config(original, values):
         raise SettingsError("Snapshot contains an unapproved CVar or invalid value.")
     if not values:
         return original if original is not None else b''
-    text = original.decode('utf-8-sig') if original is not None else ''
+    text = decode_saved(original) if original is not None else ''
     newline = '\r\n' if '\r\n' in text else '\n'
     replaced = set()
     lines = []
@@ -669,7 +700,7 @@ def merge_config(original, values):
     for key in sorted(values.keys() - replaced):
         lines.append(f'SET {key} "{values[key]}"' + newline)
     bom = b'\xef\xbb\xbf' if original and original.startswith(b'\xef\xbb\xbf') else b''
-    return bom + ''.join(lines).encode('utf-8')
+    return bom + ''.join(lines).encode('utf-8', errors='surrogateescape')
 
 
 def restore_settings(game, state, dry_run=False, before_publish=None):
@@ -729,7 +760,7 @@ def restore_settings(game, state, dry_run=False, before_publish=None):
             if parts == ('global', 'Config.json'):
                 replacement = merge_config(old, values)
             else:
-                live = parse_lua(old.decode('utf-8-sig')) if old is not None else {}
+                live = parse_lua(decode_saved(old)) if old is not None else {}
                 replacement = serialize_lua(merge_settings(filename, values, live)).encode('utf-8')
             plan[target] = (relative, old, replacement)
         if not plan:
@@ -832,6 +863,13 @@ def require_game_closed(game):
         raise SettingsError("Game closure could not be confirmed. Close WoW before changing settings files.")
 
 
+def safe_reason(error, fixed_text=(SettingsError,)):
+    # Only errors raised with this package's fixed texts are shown; others (OSError, relative_to) can name private paths.
+    if type(error) in fixed_text or isinstance(error, SettingsError):
+        return str(error)
+    return f"Settings operation failed ({type(error).__name__}); no private file paths or contents are logged."
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("export", "review", "restore", "check"))
@@ -848,8 +886,10 @@ def main():
         if args.mode == "review":
             review(game, state)
         elif args.mode == "check":
-            check_fresh(game, state)
+            skipped = check_fresh(game, state)
             print("Settings snapshots match the saved game settings.")
+            for item in skipped:
+                print(f"Warning: the last export skipped {item}; that snapshot is older than the saved game settings.")
         elif args.mode == "restore":
             require_game_closed(game)
             count, backup = restore_settings(game, state, dry_run=args.dry_run, before_publish=lambda: require_game_closed(game))
@@ -860,11 +900,17 @@ def main():
             require_game_closed(game)
             if (game / 'Interface/Settings/character-ui-source.local.json').exists():
                 from character_ui_baseline import refresh
-                refresh(game, dry_run=args.dry_run, before_publish=lambda: require_game_closed(game))
-            count = export_settings(game, state, dry_run=args.dry_run, before_publish=lambda: require_game_closed(game))
-            print(f"{'Validated' if args.dry_run else 'Exported'} {count} anonymous settings files. Git index and history untouched.")
+                try:
+                    refresh(game, dry_run=args.dry_run, before_publish=lambda: require_game_closed(game))
+                except (ValueError, KeyError, TypeError, AttributeError, OSError) as error:
+                    # The login baseline is optional; its failure must not hold back the settings export.
+                    print(f"Skipped UI baseline refresh: {safe_reason(error, fixed_text=(ValueError,))}")
+            summary = export_settings(game, state, dry_run=args.dry_run, before_publish=lambda: require_game_closed(game))
+            for item in summary.skipped:
+                print(f"Skipped {item}; kept its previous snapshot.")
+            print(f"{'Validated' if args.dry_run else 'Exported'} {summary.files} anonymous settings files. Git index and history untouched.")
     except (SettingsError, OSError, ValueError, KeyError, TypeError, RecursionError) as error:
-        print(str(error) if isinstance(error, SettingsError) else "Settings operation failed; no private file paths or contents are logged.")
+        print(safe_reason(error))
         return 1
     return 0
 

@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import uuid
 
-from wtf_settings import SettingsError, atomic_bytes, lua_value, parse_lua, require_game_closed
+from wtf_settings import SettingsError, atomic_bytes, decode_saved, lua_value, parse_lua, require_game_closed
 
 DISPLAY_CVARS = frozenset({
     'nameplateSelectedScale', 'cooldownViewerEnabled', 'nameplateMaxDistance',
@@ -62,7 +62,7 @@ def position(value):
 
 def saved(path):
     try:
-        return parse_lua(path.read_text(encoding='utf-8-sig')) if path.exists() else {}
+        return parse_lua(decode_saved(path.read_bytes())) if path.exists() else {}
     except SettingsError as error:
         raise ValueError('Source saved variables are invalid') from error
 

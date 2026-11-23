@@ -24,6 +24,8 @@ The sign-in task uses `watch_wtf_settings.vbs` through Windows Script Host to la
 
 The watcher polls every two seconds. It observes only WoW executables directly in this installation, waits until all of them have exited, then requires six seconds without WTF file changes. A restart during export defers the snapshot. Starting the watcher while the game is closed exports one baseline. Failed exports retry after 30 seconds and preserve the previous snapshot. Duplicate watcher instances are prevented.
 
+If one addon's saved-variables file cannot be parsed, the rest still export. That file keeps its previous snapshot, and `watcher.log` gets a `Skipped <file>: <reason> Line <n>.` line. While the skip lasts, the pre-commit hook prints a warning but doesn't block. Strings that WoW saved with invalid UTF-8 bytes (for example, cut mid-character) are kept byte for byte through export and restore. A failed CharacterUIBaseline refresh is logged as `Skipped UI baseline refresh: …` and no longer stops the settings export.
+
 Manual export or validation, with the game closed:
 
 ```powershell
@@ -113,7 +115,7 @@ The next export removes previously captured excluded data from the current snaps
 
 The exporter owns the complete generated `Settings/WTF/` directory and replaces it as a unit. Put hand-written documentation outside it. A private file lock serializes exports and releases automatically if the exporter exits or crashes. The old snapshot is restored on a failed replacement; if Windows also blocks rollback, the previous snapshot is retained in an ignored `.wtf-stage.local-*-backup` directory for recovery.
 
-Windows PowerShell 5.1, `uv`, a uv-managed Python 3.13+ and Git are required. The installed task runs as the current user with limited privileges and a hidden window; no administrator elevation or password is requested. Logs contain generic status messages and rotate at 1 MiB. If a WoW process's executable path cannot be read, export waits rather than assuming closure, and the session is still exported once the path check succeeds again.
+Windows PowerShell 5.1, `uv`, a uv-managed Python 3.13+ and Git are required. The installed task runs as the current user with limited privileges and a hidden window; no administrator elevation or password is requested. Logs rotate at 1 MiB. They show a failure's reason only when it is one of the tool's fixed messages (with a line number for parse errors). Any other error is logged by its type alone, because its text can contain private account paths. A failure that repeats is logged once until an export succeeds. If a WoW process's executable path cannot be read, export waits rather than assuming closure, and the session is still exported once the path check succeeds again.
 
 `adopt_addons.ps1` still copies live WTF and therefore contains real account paths. Its existing behavior is appropriate for a private machine-to-machine transfer. Copying Interface also copies .env and the snapshots, but does not install the watcher task or copy external logs/backups. Restore remains an explicit command, separate from exit capture.
 

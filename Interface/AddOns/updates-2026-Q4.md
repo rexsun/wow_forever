@@ -2,6 +2,15 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-23 - One unreadable addon file no longer blocks the settings export
+
+- Problem: the export was all-or-nothing. One approved file that failed to decode or parse stopped every addon's export, including EllesmereUI's, so `Settings/WTF` stopped tracking the game with no visible reason. Examples: a string WoW saved with invalid UTF-8 (strict `utf-8-sig` decoding), or syntax the safe parser rejects. A failing CharacterUIBaseline refresh, which runs first, did the same. The watcher logged only a generic "Export deferred" line every 30 seconds and threw away the reason.
+- Saved variables now decode with `surrogateescape`, which the parser and Lua serializer already supported. Invalid bytes are kept and written back unchanged on restore (as `\ddd` escapes).
+- A file that still fails is skipped. It keeps its previous snapshot (or stays absent if it never had one), and the other files publish as usual. The helper prints `Skipped <file>: <reason> Line <n>.` Parse errors now include the line. The watcher copies those lines into `watcher.log`, and `last-export.json` records them, so the pre-commit hook warns that the snapshot is older without blocking the commit.
+- A CharacterUIBaseline refresh failure is reported as `Skipped UI baseline refresh: …` and the export continues. A game-restart refusal still stops the export.
+- `watcher.log` now records why an export was deferred. It shows the reason only for the scripts' own fixed messages (an exact `RuntimeException` whose error id is its text, or a `SettingsError`). Any other error is logged by type alone, since its text can contain private paths. A repeated reason is logged once until an export succeeds.
+- Verification: 54 helper tests (6 new, plus 1 updated: a bad file now keeps its snapshot instead of failing the export) and 27 watcher checks (5 new). All the new and changed checks fail against the previous code. The helper-process, sync, CharacterUIBaseline unit and runtime suites pass. `profile-compatibility-tests.py` stops inside EllesmereUI's Lua the same way before and after this change. On this installation, a dry-run export validated 7 files, the reinstalled watcher exported byte-identical JSON, and `check` passes.
+
 ## 2026-11-23 - Stopping the settings task ends its watcher
 
 - Problem: the scheduled task runs `wscript.exe`, which starts the hidden PowerShell watcher. `Stop-ScheduledTask` ended only `wscript.exe`, so the watcher kept running with the old code and held the installation mutex. A restarted task then quit at once (and logged nothing), and Restore could not get the mutex. Reinstalling the task had the same problem.

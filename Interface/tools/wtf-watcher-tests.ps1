@@ -27,7 +27,8 @@ $script:position = 0
 Watch-Installation -ProcessProbe { $value = $script:states[$script:position]; $script:position++; return $value } -ExportAction { $script:exports++; return $true } -SleepAction {} -IterationLimit 3 -SkipInitialExport
 Assert ($script:exports -eq 1) 'Resume must still capture the next session.'
 
-function Write-WatcherLog {}
+$script:logged = New-Object 'Collections.Generic.List[string]'
+function Write-WatcherLog([string]$Message) { $script:logged.Add($Message) }
 $script:exports = 0
 $script:states = @($false, 'unreadable', 'unreadable', $false)
 $script:position = 0
@@ -37,6 +38,20 @@ Watch-Installation -ProcessProbe {
     return $value
 } -ExportAction { $script:exports++; return $true } -SleepAction {} -IterationLimit 4 -SkipInitialExport
 Assert ($script:exports -eq 1) 'A session seen only through a failing probe must export after exit.'
+Assert (($script:logged -join '|') -ceq 'Export deferred: unreadable Retrying every 30 seconds.') 'A repeated failure must be logged once, with its reason.'
+
+$script:logged.Clear()
+try { throw [IO.FileNotFoundException]::new('C:\PrivateAccount\SavedVariables\YUI.lua') } catch { $reason = Get-SafeFailureReason $_ }
+Assert ($reason -ceq 'unexpected FileNotFoundException.') 'Errors that can carry private paths must be logged by type only.'
+try { throw "Settings helper failed; inspect local settings and retry.`n Unsupported saved-variable syntax. Line 3." } catch { $reason = Get-SafeFailureReason $_ }
+Assert ($reason -ceq 'Settings helper failed; inspect local settings and retry. Unsupported saved-variable syntax. Line 3.') 'Fixed helper failure texts must be logged on one line.'
+
+function Wait-WtfStable { return $true }
+function Invoke-SettingsHelper { "Skipped YUI.lua: Unsupported saved-variable syntax. Line 3.; kept its previous snapshot.`nExported 6 anonymous settings files. Git index and history untouched." }
+Assert (Invoke-WatchedExport { $false }) 'A partial export must count as finished.'
+Assert (($script:logged -join '|') -ceq 'Skipped YUI.lua: Unsupported saved-variable syntax. Line 3.; kept its previous snapshot.|Anonymous settings exported. Git index and history untouched.') 'Skipped files must be logged with their reason.'
+Remove-Item Function:\Wait-WtfStable, Function:\Invoke-SettingsHelper
+. (Join-Path $PSScriptRoot '..\watch_wtf_settings.ps1')
 
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('wtf-watcher-' + [guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory((Join-Path $testRoot 'WTF')) | Out-Null
@@ -168,4 +183,4 @@ try {
     if (-not $resolvedRestore.StartsWith($tempPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'Restore-test cleanup escaped the temporary directory.' }
     if (Test-Path -LiteralPath $resolvedRestore) { Remove-Item -LiteralPath $resolvedRestore -Recurse -Force }
 }
-Write-Output '22 watcher/restore lifecycle, .env, stability, process and syntax checks passed.'
+Write-Output '27 watcher/restore lifecycle, .env, stability, process and syntax checks passed.'

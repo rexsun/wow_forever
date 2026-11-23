@@ -145,6 +145,26 @@ function Write-WatcherLog([string]$Message) {
     Add-Content -LiteralPath $log -Value ('{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message)
 }
 
+function Get-SafeFailureReason([Management.Automation.ErrorRecord]$Record) {
+    $exception = $Record.Exception
+    # Only this script's own `throw 'text'` (an exact RuntimeException whose id is its text) carries a fixed,
+    # path-free message; cmdlet and .NET errors can name private account paths.
+    if ($exception.GetType() -eq [Management.Automation.RuntimeException] -and $Record.FullyQualifiedErrorId -ceq $exception.Message) {
+        return ($exception.Message -replace '\s+', ' ').Trim()
+    }
+    return 'unexpected ' + $exception.GetType().Name + '.'
+}
+
+function Invoke-WatchedExport([scriptblock]$ProcessProbe) {
+    if (-not (Wait-WtfStable -Root $script:GameRoot -Seconds $StableSeconds -ProcessProbe $ProcessProbe)) { return $false }
+    $output = Invoke-SettingsHelper 'export' -ValidateOnly:$DryRun
+    foreach ($line in @([string]$output -split '\r?\n')) {
+        if ($line -like 'Skipped *') { Write-WatcherLog $line.Trim() }
+    }
+    Write-WatcherLog 'Anonymous settings exported. Git index and history untouched.'
+    return $true
+}
+
 function Watch-Installation {
     param(
         [scriptblock]$ProcessProbe,
@@ -155,19 +175,24 @@ function Watch-Installation {
         [switch]$SkipInitialExport
     )
     $pending = -not $SkipInitialExport
+    $lastFailure = $null
     $iteration = 0
     while ($IterationLimit -eq 0 -or $iteration -lt $IterationLimit) {
         try {
             if (& $ProcessProbe) {
                 $pending = $true
             } elseif ($pending) {
-                if (& $ExportAction) { $pending = $false }
+                if (& $ExportAction) { $pending = $false; $lastFailure = $null }
             }
         } catch {
             # A failing probe may hide a whole session (e.g. an elevated WoW has no readable path),
             # so assume WTF may have changed and export once the probe reports closure.
             $pending = $true
-            Write-WatcherLog 'Export deferred: game state or settings validation failed. Retrying in 30 seconds.'
+            $reason = Get-SafeFailureReason $_
+            if ($reason -cne $lastFailure) {
+                Write-WatcherLog ('Export deferred: ' + $reason + ' Retrying every 30 seconds.')
+                $lastFailure = $reason
+            }
             & $SleepAction 30000
         }
         $iteration++
@@ -280,12 +305,7 @@ switch ($Mode) {
             $skipPath = Join-Path (Get-PrivateStateDirectory) 'skip-initial-export'
             $skipInitial = Test-Path -LiteralPath $skipPath
             if ($skipInitial) { Remove-Item -LiteralPath $skipPath }
-            Watch-Installation -ProcessProbe $probe -Interval $PollSeconds -SkipInitialExport:$skipInitial -ExportAction {
-                if (-not (Wait-WtfStable -Root $script:GameRoot -Seconds $StableSeconds -ProcessProbe $probe)) { return $false }
-                Invoke-SettingsHelper 'export' -ValidateOnly:$DryRun | Out-Null
-                Write-WatcherLog 'Anonymous settings exported. Git index and history untouched.'
-                return $true
-            }
+            Watch-Installation -ProcessProbe $probe -Interval $PollSeconds -SkipInitialExport:$skipInitial -ExportAction { Invoke-WatchedExport $probe }
         } finally {
             if ($owned) { $mutex.ReleaseMutex() }
             $mutex.Dispose()

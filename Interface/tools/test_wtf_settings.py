@@ -4,6 +4,7 @@ import io
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -60,9 +61,64 @@ class SettingsTests(unittest.TestCase):
         self.export()
         before = {p: p.read_bytes() for p in self.output.rglob("*.json")}
         self.source.write_text('YUIDB = os.execute("never execute")')
-        with self.assertRaises(MODULE.SettingsError):
-            self.export()
+        self.assertEqual(self.export().skipped, ("YUI.lua: Executable Lua is not accepted. Line 1.",))
         self.assertEqual(before, {p: p.read_bytes() for p in self.output.rglob("*.json")})
+
+    def test_unreadable_addon_file_does_not_block_other_addons(self):
+        eui = self.saved / "EllesmereUI.lua"
+        eui.write_text('EllesmereUIDB = {panelScale=1.5}')
+        self.export()
+        yui_snapshot = next(self.output.rglob("YUI.json")).read_bytes()
+        self.source.write_text('YUIDB = {\n  scale = 0.9,\n  broken = os.execute("never execute"),\n}')
+        eui.write_text('EllesmereUIDB = {panelScale=1.25}')
+        summary = self.export()
+        self.assertEqual(summary.files, 2)
+        self.assertEqual(summary.skipped, ("YUI.lua: Executable Lua is not accepted. Line 3.",))
+        self.assertEqual(next(self.output.rglob("YUI.json")).read_bytes(), yui_snapshot)
+        self.assertIn("1.25", MODULE.readable_snapshot(self.output, self.state))
+        self.assertEqual(MODULE.check_fresh(self.game, self.state), summary.skipped)
+
+    def test_unreadable_file_without_previous_snapshot_is_left_out(self):
+        (self.saved / "EllesmereUI.lua").write_text('EllesmereUIDB = {panelScale=1.5}')
+        self.source.write_text('YUIDB = {broken = os.execute("x")}')
+        summary = self.export()
+        self.assertEqual(summary.files, 1)
+        self.assertEqual([p.name for p in self.output.rglob("*.json")], ["EllesmereUI.json"])
+
+    def test_invalid_utf8_strings_export_and_restore_byte_for_byte(self):
+        raw = b'YUIDB = {\n["note"] = "caf\xe9 \xe4\xb8",\n}\n'
+        self.source.write_bytes(raw)
+        self.export()
+        self.assertEqual(MODULE.check_fresh(self.game, self.state), ())
+        self.source.write_bytes(b'YUIDB = {\n["note"] = "changed",\n}\n')
+        MODULE.restore_settings(self.game, self.state)
+        restored = MODULE.parse_lua(MODULE.decode_saved(self.source.read_bytes()))
+        self.assertEqual(restored, MODULE.parse_lua(MODULE.decode_saved(raw)))
+        self.assertIn(b'caf\\233 \\228\\184', self.source.read_bytes())
+
+    def test_main_reports_safe_reasons(self):
+        (self.saved / "EllesmereUI.lua").write_text('EllesmereUIDB = {panelScale=1.5}')
+        self.source.write_text('YUIDB = {broken = os.execute("x")}')
+        argv = ["wtf_settings.py", "export", "--game-root", str(self.game), "--state", str(self.state)]
+        with patch("sys.argv", argv), patch.object(MODULE, "require_game_closed"), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(MODULE.main(), 0)
+        self.assertIn("Skipped YUI.lua: Executable Lua is not accepted. Line 1.; kept its previous snapshot.", out.getvalue())
+        self.assertEqual(MODULE.safe_reason(FileNotFoundError(2, "missing", str(self.saved))),
+                         "Settings operation failed (FileNotFoundError); no private file paths or contents are logged.")
+        self.assertEqual(MODULE.safe_reason(ValueError("Source has no supported display preferences"), fixed_text=(ValueError,)),
+                         "Source has no supported display preferences")
+        self.assertNotIn("SECRET123", MODULE.safe_reason(ValueError(str(self.saved))))
+
+    def test_failed_ui_baseline_refresh_does_not_block_export(self):
+        settings = self.game / "Interface/Settings"
+        settings.mkdir(parents=True)
+        (settings / "character-ui-source.local.json").write_text('{"unexpected": true}')
+        argv = ["wtf_settings.py", "export", "--game-root", str(self.game), "--state", str(self.state)]
+        with patch("sys.argv", argv), patch("sys.path", [str(Path(__file__).parent), *sys.path]), \
+                patch.object(MODULE, "require_game_closed"), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(MODULE.main(), 0)
+        self.assertIn("Skipped UI baseline refresh: Invalid UI source configuration", out.getvalue())
+        self.assertTrue(next(self.output.rglob("YUI.json")).is_file())
 
     def test_only_approved_files_and_settings_cvars(self):
         (self.saved / "!BugGrabber.lua").write_text('bad data containing secrets')
