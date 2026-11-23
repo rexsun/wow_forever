@@ -2,6 +2,13 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-23 - Stopping the settings task ends its watcher
+
+- Problem: the scheduled task runs `wscript.exe`, which starts the hidden PowerShell watcher. `Stop-ScheduledTask` ended only `wscript.exe`, so the watcher kept running with the old code and held the installation mutex. A restarted task then quit at once (and logged nothing), and Restore could not get the mutex. Reinstalling the task had the same problem.
+- New `Stop-OrphanedWatchers`, used by Install, Uninstall and Restore after stopping the task. It ends `powershell.exe` processes that run this installation's `watch_wtf_settings.ps1 -Mode Watch` and whose parent is `wscript.exe` or no longer exists. Terminal watchers, other modes, other installations and the calling process are left alone. Restore now also resumes the task when it ended such a leftover watcher, even if the task itself was no longer shown as running.
+- A watcher that exits because another one holds the mutex now writes that to `watcher.log`.
+- Verification: 22 watcher checks pass (2 new, both failing against the previous script). On this installation, detection found the running task watcher, and `-Mode Install` replaced it with a single new watcher (`Watcher started` at 12:26:36).
+
 ## 2026-11-23 - Settings commits wait for the watcher's export
 
 - Problem: WoW saved EllesmereUI's nameplate changes at 11:34:50, but the watcher only published `EllesmereUI.json` at 11:36:13 (wait for the process to exit, six quiet seconds, baseline refresh, re-validation of every snapshot). The 11:35:38 "update saved JSON" commit happened in between and captured only an older `YUI.json`. The export itself was complete: every changed nameplate setting is in the JSON.

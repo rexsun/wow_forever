@@ -74,6 +74,26 @@ $blocked = $false
 try { Test-InstallationRunning $script:GameRoot | Out-Null } catch { $blocked = $true }
 Assert $blocked 'Unreadable process paths must block export.'
 
+$watcherScript = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\watch_wtf_settings.ps1'))
+function New-FakeWatcher([int]$Id, [int]$Parent, [string]$Arguments) {
+    [pscustomobject]@{ ProcessId = $Id; ParentProcessId = $Parent; CommandLine = 'powershell.exe -NoProfile -File ' + $Arguments }
+}
+function Get-Process { [CmdletBinding()] param([int]$Id) if ($script:liveParents.ContainsKey($Id)) { [pscustomobject]@{ ProcessName = $script:liveParents[$Id] } } }
+function Stop-Process { [CmdletBinding()] param([int]$Id, [switch]$Force) $script:killed.Add($Id) }
+function Wait-Process { [CmdletBinding()] param([int[]]$Id, [int]$Timeout) }
+$script:liveParents = @{ 20 = 'wscript'; 30 = 'WindowsTerminal'; 40 = 'wscript' }
+$script:killed = New-Object 'Collections.Generic.List[int]'
+$script:fakeProcesses = @(
+    (New-FakeWatcher 11 10 ('"' + $watcherScript + '" -Mode Watch -UvPath "uv.exe"')),
+    (New-FakeWatcher 21 20 ('"' + $watcherScript + '" -Mode Watch -UvPath "uv.exe"')),
+    (New-FakeWatcher 31 30 ('"' + $watcherScript + '" -Mode Watch')),
+    (New-FakeWatcher 41 40 ('"' + $watcherScript + '" -Mode Restore')),
+    (New-FakeWatcher 51 10 '"C:\OtherWoW\Interface\watch_wtf_settings.ps1" -Mode Watch'),
+    (New-FakeWatcher $PID 10 ('"' + $watcherScript + '" -Mode Watch'))
+)
+Assert ((Stop-OrphanedWatchers) -eq 2 -and ($script:killed -join ',') -eq '11,21') 'Stopping the task must end only launcher-owned or orphaned watchers of this installation.'
+$script:fakeProcesses = @()
+
 $restoreRoot = Join-Path ([IO.Path]::GetTempPath()) ('wtf-restore-wrapper-' + [guid]::NewGuid().ToString('N'))
 $originalLocalData = $env:LOCALAPPDATA
 $originalWtfState = $env:WTF_SETTINGS_STATE_DIR
@@ -120,6 +140,12 @@ try {
     $script:taskState = 'Ready'
     Invoke-SettingsRestore
     Assert (($script:calls -join ',') -eq 'stable,restore') 'Restore must leave a stopped watcher stopped.'
+    $script:calls.Clear()
+    $script:killed.Clear()
+    $script:fakeProcesses = @(New-FakeWatcher 11 10 ('"' + $watcherScript + '" -Mode Watch -UvPath "uv.exe"'))
+    Invoke-SettingsRestore
+    Assert (($script:killed -join ',') -eq '11' -and ($script:calls -join ',') -eq 'stable,restore,start') 'Restore must end an orphaned watcher and resume the task afterward.'
+    $script:fakeProcesses = @()
     $envFile = Join-Path $restoreRoot '.env'
     $privateDir = Join-Path $restoreRoot 'custom-private'
     [IO.File]::WriteAllText($envFile, ('WTF_SETTINGS_STATE_DIR=' + "'" + $privateDir + "'"))
@@ -142,4 +168,4 @@ try {
     if (-not $resolvedRestore.StartsWith($tempPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'Restore-test cleanup escaped the temporary directory.' }
     if (Test-Path -LiteralPath $resolvedRestore) { Remove-Item -LiteralPath $resolvedRestore -Recurse -Force }
 }
-Write-Output '20 watcher/restore lifecycle, .env, stability, process and syntax checks passed.'
+Write-Output '22 watcher/restore lifecycle, .env, stability, process and syntax checks passed.'

@@ -20,7 +20,7 @@ Alternatively run the watcher in a terminal, stopping it with Ctrl+C:
 .\watch_wtf_settings.ps1 -Mode Watch
 ```
 
-The sign-in task uses `watch_wtf_settings.vbs` through Windows Script Host to launch PowerShell invisibly from the outset. Export helpers also run without console windows; background status stays in the private `watcher.log`. Manual Export, Review and Restore still return output to the invoking terminal. Run Install again to upgrade an existing task after stopping it.
+The sign-in task uses `watch_wtf_settings.vbs` through Windows Script Host to launch PowerShell invisibly from the outset. Export helpers also run without console windows; background status stays in the private `watcher.log`. Manual Export, Review and Restore still return output to the invoking terminal. Run Install again to upgrade an existing task. Install, Uninstall and Restore stop the task and also end its hidden PowerShell watcher, which Task Scheduler leaves running when it stops the `wscript.exe` launcher. A watcher started from a terminal is left alone.
 
 The watcher polls every two seconds. It observes only WoW executables directly in this installation, waits until all of them have exited, then requires six seconds without WTF file changes. A restart during export defers the snapshot. Starting the watcher while the game is closed exports one baseline. Failed exports retry after 30 seconds and preserve the previous snapshot. Duplicate watcher instances are prevented.
 
@@ -69,7 +69,7 @@ Approved account-level addon files are restored with their shared configuration 
 
 Within represented addon files, included configuration is replaced by the selected snapshot; omitted included settings are removed. Excluded live data is retained even beneath a profile absent from the selected bundle. Approved CVars represented in Config.json are merged into live Config.wtf; account information and other CVars are preserved. Files absent from the bundle are not deleted.
 
-The command pauses a running scheduled watcher, holds its installation mutex, checks closure and stable writes, then restores under the private state lock. It resumes the task afterward without exporting a startup baseline over your selected bundle. If you run a foreground watcher, stop it with Ctrl+C before restoring. A previously stopped task remains stopped.
+The command pauses a running scheduled watcher, holds its installation mutex, checks closure and stable writes, then restores under the private state lock. It resumes the task afterward without exporting a startup baseline over your selected bundle. It also resumes the task when it had to end a watcher left behind by an earlier stop. If you run a foreground watcher, stop it with Ctrl+C before restoring. A previously stopped task remains stopped.
 
 Before replacement, changed files and prepared replacements are backed up privately in `<state-directory>\backups\restore-<timestamp>-<id>`. A private manifest records which files existed. Failed writes trigger rollback, including removal of newly created files; incomplete rollback retains the backup and reports its identifier. Neither the selected snapshots nor Git are changed. DryRun validates destinations and data without modifying live files or creating restore backups.
 

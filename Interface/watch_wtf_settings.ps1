@@ -175,6 +175,28 @@ function Watch-Installation {
     }
 }
 
+function Get-OrphanedWatcherIds {
+    $scriptPath = Join-Path $PSScriptRoot 'watch_wtf_settings.ps1'
+    foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'")) {
+        $commandLine = [string]$process.CommandLine
+        if ($process.ProcessId -eq $PID -or $commandLine.IndexOf($scriptPath, [StringComparison]::OrdinalIgnoreCase) -lt 0 -or $commandLine -notmatch '\s-Mode\s+"?Watch"?(\s|$)') { continue }
+        # A live non-launcher parent means a foreground watcher, which the user stops with Ctrl+C.
+        $parent = Get-Process -Id $process.ParentProcessId -ErrorAction SilentlyContinue
+        if (-not $parent -or $parent.ProcessName -ieq 'wscript') { $process.ProcessId }
+    }
+}
+
+function Stop-OrphanedWatchers {
+    # Stop-ScheduledTask ends only the wscript.exe launcher; its hidden PowerShell child
+    # survives with the installation mutex, so a restarted task or Restore cannot take over.
+    $ids = @(Get-OrphanedWatcherIds)
+    if ($ids.Count -gt 0) {
+        foreach ($id in $ids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+        Wait-Process -Id $ids -Timeout 5 -ErrorAction SilentlyContinue
+    }
+    return $ids.Count
+}
+
 function Invoke-SettingsRestore {
     $id = Get-InstallationId $script:GameRoot
     $taskName = 'WoWSettings-' + $id
@@ -184,6 +206,7 @@ function Invoke-SettingsRestore {
     $owned = $false
     try {
         if ($resumeTask) { Stop-ScheduledTask -TaskName $taskName }
+        if ($task -and (Stop-OrphanedWatchers) -gt 0) { $resumeTask = $true }
         try { $owned = $mutex.WaitOne(5000) } catch [Threading.AbandonedMutexException] { $owned = $true }
         if (-not $owned) { throw 'Stop the foreground settings watcher before restoring. No live settings were changed.' }
         if (Test-InstallationRunning $script:GameRoot) { throw 'Close this installation before restoring settings.' }
@@ -213,6 +236,8 @@ function Install-WatcherTask {
     $action = New-ScheduledTaskAction -Execute $shell -Argument ('//B //NoLogo "{0}" "{1}"' -f $launcher, $uv) -WorkingDirectory $PSScriptRoot
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
+    if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) { Stop-ScheduledTask -TaskName $taskName }
+    Stop-OrphanedWatchers | Out-Null
     $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'Export anonymous WoW settings after exit; leave Git staging and commits manual.' -Force | Out-Null
     Start-ScheduledTask -TaskName $taskName
@@ -230,6 +255,7 @@ switch ($Mode) {
     'Uninstall' {
         $taskName = 'WoWSettings-' + (Get-InstallationId $script:GameRoot)
         Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        Stop-OrphanedWatchers | Out-Null
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
         Write-Output 'Watcher removed; exported settings and the private alias map are retained.'
     }
@@ -246,7 +272,10 @@ switch ($Mode) {
         $owned = $false
         try {
             try { $owned = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $owned = $true }
-            if (-not $owned) { throw 'A watcher for this installation is already running.' }
+            if (-not $owned) {
+                Write-WatcherLog 'Another watcher for this installation is already running; this instance exited.'
+                throw 'A watcher for this installation is already running.'
+            }
             Write-WatcherLog 'Watcher started.'
             $skipPath = Join-Path (Get-PrivateStateDirectory) 'skip-initial-export'
             $skipInitial = Test-Path -LiteralPath $skipPath

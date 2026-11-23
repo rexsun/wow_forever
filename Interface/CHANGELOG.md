@@ -8,6 +8,7 @@ Quarterly logs:
 
 ## 2026 Q4
 
+- 2026-11-23 · **Settings watcher**: [Stopping the settings task ends its watcher](AddOns/updates-2026-Q4.md#2026-11-23---stopping-the-settings-task-ends-its-watcher)
 - 2026-11-23 · **Settings export**: [Settings commits wait for the watcher's export](AddOns/updates-2026-Q4.md#2026-11-23---settings-commits-wait-for-the-watchers-export)
 - 2026-11-22 · **Five addon packages**: [Update five addon packages (OverlapSettingsGuard 0.22.0)](AddOns/updates-2026-Q4.md#2026-11-22---update-five-addon-packages-overlapsettingsguard-0220)
 - 2026-11-21 · **Splash Alert removed**: [Remove Splash Alert](AddOns/updates-2026-Q4.md#2026-11-21---remove-splash-alert)
