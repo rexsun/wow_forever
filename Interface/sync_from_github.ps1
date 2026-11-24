@@ -89,7 +89,7 @@ function Write-SyncLog([string]$Message) {
     Add-Content -LiteralPath $script:LogPath -Value $line -Encoding UTF8
 }
 
-function Invoke-Native([string]$Executable, [string[]]$Arguments, [hashtable]$Environment = @{}) {
+function Invoke-Native([string]$Executable, [string[]]$Arguments, [hashtable]$Environment = @{}, [int]$TimeoutSeconds = 0) {
     $start = New-Object Diagnostics.ProcessStartInfo
     foreach ($name in $Environment.Keys) { $start.EnvironmentVariables[$name] = [string]$Environment[$name] }
     $start.FileName = $Executable
@@ -107,6 +107,10 @@ function Invoke-Native([string]$Executable, [string[]]$Arguments, [hashtable]$En
         $null = $process.Start()
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
+        if ($TimeoutSeconds -gt 0 -and -not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            try { $process.Kill() } catch { }
+            throw "$([IO.Path]::GetFileName($Executable)) did not finish within $TimeoutSeconds seconds."
+        }
         $process.WaitForExit()
         return [pscustomobject]@{
             Code   = $process.ExitCode
@@ -290,6 +294,13 @@ function ConvertFrom-PrivateMapOutput([string]$Text) {
     catch { throw 'the source did not send an alias map.' }
 }
 
+function Test-SourceReachable([string]$HostName, [int]$Port = 22, [int]$TimeoutMilliseconds = 5000) {
+    $client = New-Object Net.Sockets.TcpClient
+    try { return ($client.ConnectAsync($HostName, $Port).Wait($TimeoutMilliseconds) -and $client.Connected) }
+    catch { return $false }
+    finally { $client.Dispose() }
+}
+
 <#
 .SYNOPSIS
 Reads the main machine's Interface\.env over SSH. The source authorizes this machine's key with a forced command
@@ -297,11 +308,15 @@ that prints the file as base64, so the requested command is only a label and no 
 UTF-8 text. -n closes stdin, which a PowerShell default shell would otherwise wait on.
 #>
 function Get-PrivateMapFromSource([string]$Source, [string]$Key) {
+    # Windows ssh.exe started without a console can ignore ConnectTimeout and hang on a host that is switched off,
+    # so reachability is checked first and the call itself has a hard limit.
+    $hostName = $Source.Substring($Source.IndexOf('@') + 1)
+    if (-not (Test-SourceReachable $hostName)) { throw "$Source does not answer on port 22 (switched off or offline)." }
     $ssh = Find-Tool 'ssh' 'The OpenSSH client (ssh.exe) is not installed.'
     $arguments = @('-n', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=5',
         '-o', 'ServerAliveCountMax=2', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'LogLevel=ERROR')
     if ($Key) { $arguments += @('-i', $Key, '-o', 'IdentitiesOnly=yes') }
-    $result = Invoke-Native $ssh ($arguments + @($Source, 'private-map'))
+    $result = Invoke-Native $ssh ($arguments + @($Source, 'private-map')) -TimeoutSeconds 60
     if ($result.Code -ne 0) {
         $reason = Get-LastLine $result.Error
         if (-not $reason) { $reason = "exit code $($result.Code)" }

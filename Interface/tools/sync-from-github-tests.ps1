@@ -226,6 +226,27 @@ try {
     Assert ($refused -eq 4) 'Output that is not base64 must be refused'
     $checks += 2
 
+    $listener = New-Object Net.Sockets.TcpListener ([Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    $openPort = $listener.LocalEndpoint.Port
+    Assert (Test-SourceReachable '127.0.0.1' $openPort 3000) 'A listening port must count as reachable'
+    $listener.Stop()
+    $started = Get-Date
+    Assert (-not (Test-SourceReachable '127.0.0.1' $openPort 3000)) 'A closed port must count as unreachable'
+    Assert (-not (Test-SourceReachable 'no-such-host.invalid' 22 3000)) 'An unknown host must count as unreachable'
+    Assert (((Get-Date) - $started).TotalSeconds -lt 10) 'Reachability checks must respect their timeout'
+    $checks += 4
+
+    $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $started = Get-Date
+    $timedOut = $false
+    try { $null = Invoke-Native $powershell @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60') -TimeoutSeconds 2 }
+    catch { $timedOut = $_.Exception.Message -like '*did not finish within 2 seconds*' }
+    Assert ($timedOut -and ((Get-Date) - $started).TotalSeconds -lt 20) 'A hung native command must be stopped at its timeout'
+    $quick = Invoke-Native $powershell @('-NoProfile', '-Command', 'Write-Output done') -TimeoutSeconds 30
+    Assert ($quick.Code -eq 0 -and $quick.Output -eq 'done') 'A timeout must not change a command that finishes'
+    $checks += 2
+
     $global:envPath = Join-Path $syncGame 'Interface\.env'
     Write-File $global:envPath $map
     $global:fetchCalls = 0

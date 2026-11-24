@@ -72,7 +72,7 @@ The synced machine pulls the map itself, so it doesn't matter whether it was on 
    .\Interface\sync_from_github.ps1 -Mode Install -EnvSource user@main-host -EnvSourceKey $HOME\.ssh\wowsync_ed25519
    ```
 
-Each fetch has a 10-second connect timeout. The fetched map replaces the local one only when it keeps every alias the local copy has, because the main machine only ever adds aliases. The replaced copy is saved as `env-<timestamp>.bak` in the private state directory, and the five newest are kept. A refused map, an unreachable source or a missing key is logged as `Interface\.env not refreshed`. The restore then runs with the local copy, and if that fails, the next sign-in tries again. The first connection records the source's host key. `-EnvSource off` turns fetching off.
+Each fetch first checks that port 22 answers within 5 seconds, and `ssh` is stopped after 60 seconds, so a switched-off main machine costs the sync a few seconds. The fetched map replaces the local one only when it keeps every alias the local copy has, because the main machine only ever adds aliases. The replaced copy is saved as `env-<timestamp>.bak` in the private state directory, and the five newest are kept. A refused map, an unreachable source or a missing key is logged as `Interface\.env not refreshed`. The restore then runs with the local copy, and if that fails, the next sign-in tries again. The first connection records the source's host key. `-EnvSource off` turns fetching off.
 
 ## Maintenance
 
