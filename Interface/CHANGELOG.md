@@ -8,6 +8,7 @@ Quarterly logs:
 
 ## 2026 Q4
 
+- 2026-11-23 · **GitHub sign-in sync**: [Sync fetches the alias map over SSH](AddOns/updates-2026-Q4.md#2026-11-23---sync-fetches-the-alias-map-over-ssh)
 - 2026-11-23 · **Profile test**: [Profile compatibility test runs against AceDB 40](AddOns/updates-2026-Q4.md#2026-11-23---profile-compatibility-test-runs-against-acedb-40)
 - 2026-11-23 · **Settings export**: [One unreadable addon file no longer blocks the settings export](AddOns/updates-2026-Q4.md#2026-11-23---one-unreadable-addon-file-no-longer-blocks-the-settings-export)
 - 2026-11-23 · **Settings watcher**: [Stopping the settings task ends its watcher](AddOns/updates-2026-Q4.md#2026-11-23---stopping-the-settings-task-ends-its-watcher)

@@ -2,6 +2,14 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-23 - Sync fetches the alias map over SSH
+
+- Problem: a synced machine's restore fails with "Snapshot alias is missing or invalid in the private map" whenever the main machine exported settings with new aliases. The fix was to copy `Interface\.env` by hand, and nothing copied it while either machine was off.
+- `sync_from_github.ps1 -Mode Install -EnvSource user@host [-EnvSourceKey <key>]` records an SSH source in `sync.json`. Each sync with a pending restore first fetches the map. The fetch uses `ssh -n -T` with `BatchMode`, a 10-second connect timeout and `StrictHostKeyChecking=accept-new`. The source authorizes the key with `restrict,command="powershell … -EncodedCommand …"`, which prints the file as base64, so the key can do nothing else. Base64 keeps the UTF-8 bytes intact through a PowerShell default shell and the process text reader. `-n` closes stdin, which that shell otherwise waits on forever.
+- The fetched map replaces the local copy only when it is an alias map with `WTF_MAP_VERSION` 1 that keeps every alias the local copy has. This refuses a wrong file, an error message or a shrunken map. The old copy is kept as `env-<timestamp>.bak` (five newest) in the private state directory. Any failure is logged as `Interface\.env not refreshed`, and the restore then runs with the local copy. The fetch runs only when a restore is pending. `-EnvSource off` clears the setting.
+- Setup is documented in `auto-update.md` under "Fetch the alias map over SSH".
+- Verification: 77 sync checks (17 new: map decisions, base64 decoding, fetch before restore, no fetch without a pending restore, unreachable source, shrunken map). They failed before the change. A live fetch through the forced command returned a byte-identical map in 3 seconds.
+
 ## 2026-11-23 - Profile compatibility test runs against AceDB 40
 
 - Problem: `tools/profile-compatibility-tests.py` stopped while loading `YUI/Libs/AceDB-3.0/AceDB-3.0.lua` with `attempt to call global 'UnitNameUnmodified'`. The 2026-11-22 package update moved YUI's AceDB from revision 33 to 40, and revision 40 builds the character profile key from `UnitNameUnmodified("player")` instead of `UnitName`. The test's game-API stubs defined only `UnitName`.

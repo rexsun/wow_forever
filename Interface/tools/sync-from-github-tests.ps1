@@ -202,6 +202,75 @@ try {
     Assert ($global:sleeps.Count -eq 3 -and $global:sleeps[-1] -eq 10000 -and $result.Restored) 'Sync must wait for WoW to close, settle, then continue'
     $checks += 1
 
+    $map = "# Private settings aliases.`nWTF_MAP_VERSION=`"1`"`nWTF_TEXT_0000001=`"a`"`n"
+    $grown = $map + "WTF_TEXT_0000002=`"b`"`n"
+    $decision = Test-PrivateMapUpdate $map $grown
+    Assert ($decision.Action -eq 'Replace' -and $decision.Added -eq 1) 'A map with a new alias must replace the local copy'
+    Assert ((Test-PrivateMapUpdate $map $map).Action -eq 'Keep') 'An identical map must be kept'
+    Assert ((Test-PrivateMapUpdate '' $map).Action -eq 'Replace') 'A missing local map must be replaced'
+    Assert ((Test-PrivateMapUpdate $grown $map).Action -eq 'Reject') 'A map that drops an alias must be refused'
+    Assert ((Test-PrivateMapUpdate $map ($map -replace '"a"', '"z"')).Action -eq 'Reject') 'A map that changes an alias must be refused'
+    Assert ((Test-PrivateMapUpdate $map "'type' is not recognized as an internal or external command,`r`n").Action -eq 'Reject') 'Command output must not pass as a map'
+    Assert ((Test-PrivateMapUpdate $map "WTF_TEXT_0000001=`"a`"`n").Action -eq 'Reject') 'A map without its version must be refused'
+    $checks += 7
+
+    $mapBytes = [Text.UTF8Encoding]::new($false).GetBytes("WTF_TEXT_0000009=`"測試`"`r`nlast line without newline")
+    $encoded = [Convert]::ToBase64String($mapBytes)
+    $wrapped = $encoded.Substring(0, 10) + "`r`n" + $encoded.Substring(10) + "`r`n"
+    $decoded = ConvertFrom-PrivateMapOutput $wrapped
+    Assert ($decoded -is [byte[]] -and [Convert]::ToBase64String($decoded) -eq $encoded) 'Base64 map output must decode to the exact bytes'
+    $refused = 0
+    foreach ($bad in @('', "Permission denied (publickey).`r`n", 'WTF_MAP_VERSION="1"', 'QUJD=Q')) {
+        try { $null = ConvertFrom-PrivateMapOutput $bad } catch { if ($_.Exception.Message -like '*did not send an alias map*') { $refused++ } }
+    }
+    Assert ($refused -eq 4) 'Output that is not base64 must be refused'
+    $checks += 2
+
+    $global:envPath = Join-Path $syncGame 'Interface\.env'
+    Write-File $global:envPath $map
+    $global:fetchCalls = 0
+    $global:fetchFails = $null
+    $global:fetched = $grown + "WTF_TEXT_0000003=`"測試`"`n"
+    $fetch = {
+        $global:fetchCalls++
+        if ($global:fetchFails) { throw $global:fetchFails }
+        , [Text.UTF8Encoding]::new($false).GetBytes($global:fetched)
+    }
+    $global:mapAtRestore = $null
+    $restoreWithMap = { $global:mapAtRestore = Read-File $global:envPath; & $restore }
+    $mapSync = @{ PrivateMapFetch = $fetch; RestoreAction = $restoreWithMap }
+
+    Write-File (Join-Path $upstream 'Interface\Settings\WTF\global\Config.json') '{"v":5}'
+    Commit-Upstream 'settings with a new alias'
+    $result = Sync $mapSync
+    Assert ($global:fetchCalls -eq 1 -and $result.Restored -and $result.PrivateMap -like 'Updated*') 'A pending restore must fetch the map first'
+    Assert ($global:mapAtRestore -eq $global:fetched) 'Restore must run against the fetched map'
+    Assert ([Convert]::ToBase64String([IO.File]::ReadAllBytes($global:envPath)) -eq [Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes($global:fetched))) 'Fetched map bytes changed on disk'
+    $backups = @(Get-ChildItem -LiteralPath $state -Filter 'env-*.bak')
+    Assert ($backups.Count -eq 1 -and (Read-File $backups[0].FullName) -eq $map) 'Replaced map must be backed up in the private state'
+    $checks += 4
+
+    $result = Sync $mapSync
+    Assert ($global:fetchCalls -eq 1 -and $null -eq $result.PrivateMap) 'No pending restore must mean no fetch'
+    $checks += 1
+
+    Write-File (Join-Path $upstream 'Interface\Settings\WTF\global\Config.json') '{"v":6}'
+    Commit-Upstream 'settings while the source is off'
+    $before = Read-File $global:envPath
+    $global:fetchFails = 'ssh to source failed: connect to host source port 22: Connection timed out.'
+    $result = Sync $mapSync
+    Assert ($result.Restored -and $result.PrivateMap -like 'Failed*timed out*') 'An unreachable source must not block the restore'
+    Assert ((Read-File $global:envPath) -eq $before) 'A failed fetch must leave the map alone'
+    $global:fetchFails = $null
+    $checks += 2
+
+    Write-File (Join-Path $upstream 'Interface\Settings\WTF\global\Config.json') '{"v":7}'
+    Commit-Upstream 'settings from a shrunken map'
+    $global:fetched = $map
+    $result = Sync $mapSync
+    Assert ($result.PrivateMap -like 'Failed*drops or changes 2*' -and (Read-File $global:envPath) -eq $before) 'A map losing aliases must be refused'
+    $checks += 1
+
     Assert-ConsumerCheckout $git $syncGame
     Write-File (Join-Path $syncGame 'Interface\AddOns\A\a.lua') 'a = "authoring"'
     Invoke-TestGit $syncGame @('commit', '-q', '-am', 'local work')

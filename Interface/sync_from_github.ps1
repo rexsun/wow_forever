@@ -18,6 +18,12 @@ Resolution: a fixed -Resolution chosen at Install wins. Otherwise the game's own
 differs from what this script last wrote (first run, or a change made in game), else the primary display is used.
 Values snap to the largest supported size that fits: 1920x1080, 2560x1440 or 3840x2160.
 
+Private map: with -EnvSource user@host (and -EnvSourceKey for a dedicated key) given at Install, every sync with a
+pending restore first fetches Interface\.env from that machine over SSH. The fetched map replaces the local one only
+when it keeps every alias the local copy has; the old copy is kept in the private state directory. When the source
+is off or unreachable the local copy is used and the restore is retried at the next sign-in. -EnvSource off clears
+the setting.
+
 Uninstall removes the task only. Status prints configuration, state and the recent log.
 .EXAMPLE
 .\Interface\sync_from_github.ps1 -Mode Install
@@ -33,7 +39,10 @@ param(
     [ValidatePattern('^[A-Za-z0-9._/-]+$')]
     [string]$Branch = 'main',
     [ValidateSet('Auto', '1920x1080', '2560x1440', '3840x2160')]
-    [string]$Resolution
+    [string]$Resolution,
+    [ValidatePattern('^(off|[A-Za-z0-9._-]+@[A-Za-z0-9._-]+)$')]
+    [string]$EnvSource,
+    [string]$EnvSourceKey
 )
 
 Set-StrictMode -Version Latest
@@ -169,7 +178,7 @@ function Update-SyncState([hashtable]$State, [hashtable]$Changes) {
 
 function Get-ResolutionHint([string]$Message) {
     if ($Message -match 'alias|\.env|private map') {
-        return 'Copy Interface\.env from the main machine again; it gains aliases whenever settings are exported there.'
+        return 'Copy Interface\.env from the main machine again (or Install with -EnvSource so sync fetches it); it gains aliases whenever settings are exported there.'
     }
     if ($Message -match 'Python') {
         return 'Run: uv python install 3.13'
@@ -243,6 +252,84 @@ function Initialize-UvPython([string]$Uv) {
     if ($install.Code -ne 0) { throw ('uv could not install Python 3.13: ' + (Get-LastLine $install.Error)) }
 }
 
+function Get-MapLines([string]$Text) {
+    return @($Text.TrimStart([char]0xFEFF) -split '\r?\n' | ForEach-Object { $_.TrimEnd() } | Where-Object { $_ })
+}
+
+<#
+.SYNOPSIS
+Decides whether a fetched alias map may replace the local Interface\.env. Returns @{ Action = Keep|Replace|Reject;
+Reason; Added }. The main machine only ever adds aliases, so a map that drops or changes one the local copy has is
+the wrong file and is refused.
+#>
+function Test-PrivateMapUpdate([string]$Current, [string]$Fetched) {
+    $lines = @(Get-MapLines $Fetched)
+    $foreign = @($lines | Where-Object { -not $_.StartsWith('#') -and $_ -notmatch '^[A-Za-z_][A-Za-z0-9_]*=' })
+    if ($lines.Count -eq 0 -or $foreign.Count -gt 0) {
+        return [pscustomobject]@{ Action = 'Reject'; Reason = 'the source did not send an alias map.'; Added = 0 }
+    }
+    if (@($lines | Where-Object { $_ -cmatch '^WTF_MAP_VERSION="?1"?$' }).Count -ne 1) {
+        return [pscustomobject]@{ Action = 'Reject'; Reason = 'the fetched map has no WTF_MAP_VERSION 1.'; Added = 0 }
+    }
+    if ($Fetched -ceq $Current) { return [pscustomobject]@{ Action = 'Keep'; Reason = $null; Added = 0 } }
+    $aliasPattern = '^WTF_(TEXT|NUMBER)_\d{7}='
+    $fetchedAliases = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+    foreach ($line in $lines) { if ($line -cmatch $aliasPattern) { [void]$fetchedAliases.Add($line) } }
+    $currentAliases = @(Get-MapLines $Current | Where-Object { $_ -cmatch $aliasPattern })
+    $missing = @($currentAliases | Where-Object { -not $fetchedAliases.Contains($_) }).Count
+    if ($missing -gt 0) {
+        return [pscustomobject]@{ Action = 'Reject'; Reason = "the fetched map drops or changes $missing alias(es) the local copy has."; Added = 0 }
+    }
+    return [pscustomobject]@{ Action = 'Replace'; Reason = $null; Added = $fetchedAliases.Count - $currentAliases.Count }
+}
+
+function ConvertFrom-PrivateMapOutput([string]$Text) {
+    $compact = $Text -replace '\s', ''
+    if (-not $compact -or $compact -notmatch '^[A-Za-z0-9+/]+={0,2}$') { throw 'the source did not send an alias map.' }
+    try { return , [Convert]::FromBase64String($compact) }
+    catch { throw 'the source did not send an alias map.' }
+}
+
+<#
+.SYNOPSIS
+Reads the main machine's Interface\.env over SSH. The source authorizes this machine's key with a forced command
+that prints the file as base64, so the requested command is only a label and no shell between can re-encode the
+UTF-8 text. -n closes stdin, which a PowerShell default shell would otherwise wait on.
+#>
+function Get-PrivateMapFromSource([string]$Source, [string]$Key) {
+    $ssh = Find-Tool 'ssh' 'The OpenSSH client (ssh.exe) is not installed.'
+    $arguments = @('-n', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=5',
+        '-o', 'ServerAliveCountMax=2', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'LogLevel=ERROR')
+    if ($Key) { $arguments += @('-i', $Key, '-o', 'IdentitiesOnly=yes') }
+    $result = Invoke-Native $ssh ($arguments + @($Source, 'private-map'))
+    if ($result.Code -ne 0) {
+        $reason = Get-LastLine $result.Error
+        if (-not $reason) { $reason = "exit code $($result.Code)" }
+        throw "ssh to $Source failed: $($reason.TrimEnd('.'))."
+    }
+    return , (ConvertFrom-PrivateMapOutput $result.Output)
+}
+
+function Update-PrivateMap([string]$Root, [string]$StateDirectory, [byte[]]$Fetched) {
+    $path = Join-Path $Root 'Interface\.env'
+    try { $text = [Text.UTF8Encoding]::new($false, $true).GetString($Fetched) }
+    catch { throw 'the fetched map is not UTF-8.' }
+    $current = if (Test-Path -LiteralPath $path -PathType Leaf) { [IO.File]::ReadAllText($path) } else { '' }
+    $decision = Test-PrivateMapUpdate $current $text
+    if ($decision.Action -eq 'Reject') { throw $decision.Reason }
+    if ($decision.Action -eq 'Keep') { return 'Current.' }
+    if ($current) {
+        [IO.Directory]::CreateDirectory($StateDirectory) | Out-Null
+        Copy-Item -LiteralPath $path -Destination (Join-Path $StateDirectory ('env-{0}.bak' -f (Get-Date -Format 'yyyyMMdd-HHmmss')))
+        Get-ChildItem -LiteralPath $StateDirectory -Filter 'env-*.bak' | Sort-Object Name -Descending |
+            Select-Object -Skip 5 | Remove-Item -Force
+    }
+    $temporary = $path + '.sync-tmp'
+    [IO.File]::WriteAllBytes($temporary, $Fetched)
+    Move-Item -LiteralPath $temporary -Destination $path -Force
+    return "Updated: $($decision.Added) new alias(es)."
+}
+
 # Prefix that marks the one line of the restore child's output carrying its failure reason.
 $script:RestoreErrorPrefix = 'RESTORE-ERROR: '
 
@@ -282,10 +369,16 @@ function Invoke-WowSync {
         [scriptblock]$SleepAction = { param($Milliseconds) Start-Sleep -Milliseconds $Milliseconds },
         [scriptblock]$RestoreAction = { Invoke-DefaultRestore $Root $Uv },
         [scriptblock]$DisplayProbe = { Get-DisplayResolution },
-        [int]$FetchAttempts = 3
+        [int]$FetchAttempts = 3,
+        [string]$EnvSource,
+        [string]$EnvSourceKey,
+        [scriptblock]$PrivateMapFetch = { Get-PrivateMapFromSource $EnvSource $EnvSourceKey }
     )
     $state = Read-SyncState $StateDirectory
-    $summary = [ordered]@{ Fetched = $false; Updated = $null; Restored = $false; Resolution = $null; Problems = @() }
+    $summary = [ordered]@{
+        Fetched = $false; Updated = $null; Restored = $false; Resolution = $null; PrivateMap = $null; Problems = @()
+    }
+    $refreshMap = $EnvSource -or $PSBoundParameters.ContainsKey('PrivateMapFetch')
     $target = "refs/remotes/origin/$Branch"
 
     for ($attempt = 1; $attempt -le $FetchAttempts; $attempt++) {
@@ -317,6 +410,16 @@ function Invoke-WowSync {
 
     $tree = (Invoke-Git $Git $Root @('rev-parse', '--verify', '--quiet', 'HEAD:Interface/Settings/WTF') -AllowFailure).Output
     if ($tree -and $tree -ne (Get-StateValue $state 'restoredTree')) {
+        # Only a pending restore needs the map, and a source that is switched off must not block the restore.
+        if ($refreshMap) {
+            try {
+                $summary.PrivateMap = Update-PrivateMap $Root $StateDirectory ([byte[]](& $PrivateMapFetch))
+                Write-SyncLog ('Interface\.env from the main machine: ' + $summary.PrivateMap)
+            } catch {
+                $summary.PrivateMap = 'Failed: ' + $_.Exception.Message
+                Write-SyncLog ('Interface\.env not refreshed, using the local copy: ' + $_.Exception.Message)
+            }
+        }
         $skip = if (-not $hasConfig) { 'WTF\Config.wtf is missing; start the game once and log in.' }
         elseif (-not (Test-Path -LiteralPath (Join-Path $Root 'Interface\.env') -PathType Leaf)) {
             'Interface\.env is missing; copy it from the main machine.'
@@ -520,6 +623,8 @@ function Install-Sync([string]$Root) {
         # A standalone download only bootstraps; the checked-out copy finishes the install.
         $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $inRepo, '-Mode', 'Install', '-GameRoot', $Root, '-Branch', $Branch)
         if ($Resolution) { $arguments += @('-Resolution', $Resolution) }
+        if ($EnvSource) { $arguments += @('-EnvSource', $EnvSource) }
+        if ($EnvSourceKey) { $arguments += @('-EnvSourceKey', $EnvSourceKey) }
         & (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') @arguments
         if ($LASTEXITCODE -ne 0) { throw 'The checked-out sync script failed to finish the install.' }
         return
@@ -535,10 +640,17 @@ function Install-Sync([string]$Root) {
     }
     $state = Read-SyncState $stateDirectory
     $override = if ($Resolution) { $Resolution } else { Get-StateValue $state 'resolution' }
-    Save-SyncState $stateDirectory (Update-SyncState $state @{ git = $git; uv = $uv; resolution = $override })
+    $source = if ($EnvSource -eq 'off') { $null } elseif ($EnvSource) { $EnvSource } else { Get-StateValue $state 'envSource' }
+    $sourceKey = if (-not $source) { $null }
+    elseif ($EnvSourceKey) { (Resolve-Path -LiteralPath $EnvSourceKey).Path }
+    else { Get-StateValue $state 'envSourceKey' }
+    Save-SyncState $stateDirectory (Update-SyncState $state @{
+        git = $git; uv = $uv; resolution = $override; envSource = $source; envSourceKey = $sourceKey
+    })
     Register-SyncTask $Root
     Write-SyncLog "Sign-in task $(Get-TaskName $Root) registered."
-    $summary = Invoke-WowSync -Root $Root -StateDirectory $stateDirectory -Git $git -Uv $uv -ResolutionOverride $override
+    $summary = Invoke-WowSync -Root $Root -StateDirectory $stateDirectory -Git $git -Uv $uv -ResolutionOverride $override `
+        -EnvSource $source -EnvSourceKey $sourceKey
     if ($summary.Problems.Count -gt 0) { Write-Warning ('Needs attention: ' + ($summary.Problems -join ' | ')) }
 }
 
@@ -557,7 +669,8 @@ function Invoke-ScheduledSync([string]$Root) {
         if (-not (Test-Path -LiteralPath $git)) { $git = Find-Tool 'git' 'Git is not installed.' }
         $uv = Get-StateValue $state 'uv'
         if ($uv -and -not (Test-Path -LiteralPath $uv)) { $uv = Find-Tool 'uv' $null }
-        Invoke-WowSync -Root $Root -StateDirectory $stateDirectory -Git $git -Uv $uv -ResolutionOverride (Get-StateValue $state 'resolution') | Out-Null
+        Invoke-WowSync -Root $Root -StateDirectory $stateDirectory -Git $git -Uv $uv -ResolutionOverride (Get-StateValue $state 'resolution') `
+            -EnvSource (Get-StateValue $state 'envSource') -EnvSourceKey (Get-StateValue $state 'envSourceKey') | Out-Null
     } catch {
         Write-SyncLog ('Sync failed: ' + $_.Exception.Message)
         throw
