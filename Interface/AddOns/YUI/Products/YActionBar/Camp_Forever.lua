@@ -349,6 +349,12 @@ function Camp:Tooltip(button)
                 GameTooltip:SetText(Text("resting"))
                 GameTooltip:AddLine(Text("keep_resting"), 1, 1, 1, true)
             end
+            local count = self:ObservedCount()
+            if count > 0 then
+                AddLine(string.format(Text("nearby_facility_count"), count))
+            else
+                AddLine(Text("nearby_facility_unknown"), "color.tooltip.secondary")
+            end
         elseif self.waitStartedAt then
             GameTooltip:SetText(Text("sit"))
             AddLine(Text(self.waitReady and "waiting_retry" or "waiting"), "color.state.warning")

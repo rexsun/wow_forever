@@ -231,8 +231,6 @@ YUI.Locale:Register("CharacterEquipmentInfo", "zhCN", {
     ["section.durability"] = "耐久度显示",
     ["section.summary"] = "装备摘要面板",
     ["settings.enabled"] = "启用",
-    ["settings.bottom_tabs"] = "底部标签",
-    ["settings.bottom_tabs.help"] = "将角色和观察窗口的导航移到底部，关闭后恢复原位。切页和条件入口遵循游戏原生规则，布局调整会等到脱战后执行。",
     ["tabs.character"] = "角色",
     ["tabs.reputation"] = "声望",
     ["tabs.skills"] = "技能",

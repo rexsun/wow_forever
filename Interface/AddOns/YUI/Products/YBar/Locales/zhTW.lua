@@ -222,6 +222,7 @@ YUI.Locale:Register("YBar", "zhTW", {
     ["micromenu.tooltip.no_guild"] = "無公會",
     ["micromenu.tooltip.friends_title"] = "好友列表",
     ["micromenu.message.combat_blocked"] = "戰鬥中無法執行此操作，請使用快捷鍵",
+    ["micromenu.message.native_character"] = "請使用原生角色按鈕或角色面板快捷鍵",
     ["micromenu.message.meeting_stone_missing"] = "集合石插件可能未載入",
     ["micromenu.message.ndui_settings_missing"] = "NDui: 未在遊戲選單中找到設定按鈕，請手動開啟 ESC 選單。",
 

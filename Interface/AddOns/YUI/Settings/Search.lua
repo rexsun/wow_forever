@@ -122,6 +122,14 @@ local function AvailableKey(namespace, key)
     end
     if namespace ~= "NativeInterface" then return true end
     if YUI.IsMists == true then return false end
+    if key == "section.friends" or key == "section.character" or key == "section.beta"
+        or key == "manage.error_messages" or key == "hide.raid_manager"
+        or key:match("^social%.") or key:match("^character%.") or key:match("^windows%.") or key:match("^quest%.") then
+        return YUI.IsForever == true
+    end
+    if key == "section.window_layout" or key == "section.quest_help" then
+        return YUI.IsForever == true or YUI.IsRetail == true
+    end
     if key:sub(1, 5) == "beta." then return YUI.IsForever == true end
     if key:sub(1, 7) == "manage." or key:sub(1, 9) == "tutorial." or key == "hide.buff_collapse" then
         return YUI.IsRetail == true

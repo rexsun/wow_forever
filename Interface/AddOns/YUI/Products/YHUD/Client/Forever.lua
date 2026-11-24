@@ -13,6 +13,11 @@ YUI.YHUD.Client = {
         [200321] = { talent = 16256, aura = 16257 }, -- Flurry
         [199822] = { talent = 440870, aura = 440873 }, -- Decimation
     },
+    -- Native timer identities outside the shared summon families (CN 1.60.1.71037).
+    nativeTotemSpells = {
+        [200491] = { 5678 }, -- Mana Spring Totem CDM display spell
+        [200496] = { 5730, 6390, 6391, 6392, 10427, 10428 }, -- Stoneclaw Totem
+    },
     retiredPresetKeys = {
         ["bundle:defensive"] = true,
         ["buff-aura:bloodlust"] = true,

@@ -39,7 +39,12 @@ function GUI2:CreateFeatureSettingsLayout(parent, opts)
     local settings = YUI.Settings
     local root = self:CreateFrame(parent, { width = opts.width, height = opts.height })
     root.rows, root.pages = {}, {}
-    local navWidth, gap = 190, 24
+    local compact = opts.compactNavigation
+    local navWidth, gap = compact and 154 or 190, 24
+    local rowInset = compact and 0 or 34
+    local rowHeight = compact and 28 or 36
+    local rowGap = compact and 2 or 4
+    local groupSpace = compact and 22 or 28
     local separator = self:CreateTexture(root, { layer = "BACKGROUND" })
     separator:SetWidth(self.mult or 1)
     separator:SetPoint("TOPLEFT", navWidth + gap / 2, 0)
@@ -127,7 +132,7 @@ function GUI2:CreateFeatureSettingsLayout(parent, opts)
             page = GUI2:CreateFrame(scroll, { height = 1 })
             if root.options.retainPages then page.yuiRetainedBindings = {} end
             root.pages[pageKey] = page
-            page.yuiConfigTopInset = 0
+            page.yuiConfigTopInset = opts.detailTopInset or 0
             page.yuiConfigScrollFrame = scroll
             page.yuiConfigAfterRender = function(_, height)
                 GUI2:FitScrollContent(scroll, height)
@@ -216,25 +221,23 @@ function GUI2:CreateFeatureSettingsLayout(parent, opts)
         for _, section in ipairs(nextOptions.sections) do
             local row = self.rows[section.id]
             if not row then
-                row = GUI2:CreateButtonFrame(self, { width = navWidth - 34, height = 36 })
+                row = GUI2:CreateButtonFrame(self, { width = navWidth - rowInset, height = rowHeight })
                 row.background = GUI2:CreateTexture(row, { layer = "BACKGROUND" })
-                row.background:SetPoint("TOPLEFT", -34, 0)
+                row.background:SetPoint("TOPLEFT", -rowInset, 0)
                 row.background:SetPoint("BOTTOMRIGHT", 0, 0)
                 GUI2:SetTexturePaintKey(row.background, "color.interaction.soft")
                 row.accent = GUI2:CreateTexture(row, { layer = "ARTWORK" })
-                row.accent:SetSize(2 * (GUI2.mult or 1), 24)
-                row.accent:SetPoint("LEFT", -34, 0)
+                row.accent:SetSize(2 * (GUI2.mult or 1), rowHeight - 12)
+                row.accent:SetPoint("LEFT", -rowInset, 0)
                 GUI2:SetTexturePaintKey(row.accent, "color.accent.primary")
                 row.icon = GUI2:CreateTexture(row, { layer = "ARTWORK" })
                 row.icon:SetSize(20, 20)
-                row.icon:SetPoint("LEFT", 2, 0)
+                row.icon:SetPoint("LEFT", compact and 12 or 2, 0)
                 row.label = GUI2:CreateText(row, "", "font.size.md", "color.text.primary")
-                row.label:SetPoint("LEFT", 30, 0)
-                row.label:SetWidth(navWidth - 68)
                 row.label:SetJustifyH("LEFT")
                 row.label:SetWordWrap(false)
                 row.group = GUI2:CreateText(row, "", "font.size.sm", "color.text.secondary")
-                row.group:SetPoint("TOPLEFT", -26, 22)
+                row.group:SetPoint("TOPLEFT", 8 - rowInset, groupSpace - (compact and 4 or 6))
                 row.group:SetWidth(navWidth - 8)
                 row.group:SetJustifyH("LEFT")
                 row:SetScript("OnClick", function() self:Select(row.section.id) end)
@@ -247,19 +250,26 @@ function GUI2:CreateFeatureSettingsLayout(parent, opts)
             local showGroup = section.group and section.group ~= group
             row.group:SetShown(showGroup == true)
             if showGroup then
-                rowY = rowY - 28
+                rowY = rowY - groupSpace
                 row.group:SetText(section.group)
             end
             group = section.group
-            row:SetPoint("TOPLEFT", 34, rowY)
+            row:SetPoint("TOPLEFT", rowInset, rowY)
             row.label:SetText(section.label)
             RefreshRowIcon(row)
+            local hasIcon = section.atlas or section.icon
+            local labelInset = hasIcon and 30 or 2
+            if compact then
+                local controlSpace = (section.toggle or section.getState) and 24 or 0
+                row.icon:SetPoint("LEFT", 12 + controlSpace, 0)
+                labelInset = 14 + controlSpace + (hasIcon and 24 or 0)
+            end
             row.label:ClearAllPoints()
-            row.label:SetPoint("LEFT", (section.atlas or section.icon) and 30 or 2, 0)
-            row.label:SetWidth(navWidth - ((section.atlas or section.icon) and 68 or 40))
+            row.label:SetPoint("LEFT", labelInset, 0)
+            row.label:SetWidth(navWidth - rowInset - labelInset - (compact and 8 or 4))
             if section.getNote and not row.note then
                 row.note = GUI2:CreateText(row, "", "font.size.sm", "color.text.secondary")
-                row.note:SetPoint("TOPLEFT", -26, -32)
+                row.note:SetPoint("TOPLEFT", 8 - rowInset, 4 - rowHeight)
                 row.note:SetWidth(navWidth - 8)
                 row.note:SetJustifyH("LEFT")
                 row.note:SetWordWrap(false)
@@ -274,17 +284,17 @@ function GUI2:CreateFeatureSettingsLayout(parent, opts)
                         RefreshRows()
                         if self.options.onToggle then self.options.onToggle(row.section.id) end
                     end })
-                row.toggle:SetPoint("LEFT", -26, 0)
+                row.toggle:SetPoint("LEFT", 8 - rowInset, 0)
             end
             if row.toggle then row.toggle:SetShown(section.toggle ~= nil) end
             if section.getState and not row.status then
                 row.status = GUI2:CreateTexture(row, { layer = "ARTWORK" })
                 row.status:SetSize(18, 18)
-                row.status:SetPoint("LEFT", -26, 0)
+                row.status:SetPoint("LEFT", 8 - rowInset, 0)
             end
             if row.status then row.status:SetShown(section.getState ~= nil) end
             row:Show()
-            rowY = rowY - (section.getNote and 54 or 40)
+            rowY = rowY - rowHeight - (section.getNote and 18 or rowGap)
         end
         RefreshRows()
         if selected then RenderDetail(selected, self.previousSelected ~= selected.id) end

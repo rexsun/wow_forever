@@ -1,6 +1,22 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v366|mainline|8a4778a810356834d8c4915228d1396403a02a915856f01b59661914371eafa4
+    {
+        version = "v366",
+        date = "2026-11-24",
+        clients = { "Retail" },
+        content = {
+            zhCN = {
+                "Orbit 好友提示显示魔兽角色等级，好友和公会弹层不再遮挡中文选字框。",
+                "修复 Flare 载具退出按钮偏离设定位置。",
+            },
+            enUS = {
+                "Orbit’s friends tooltip shows WoW character levels. Friends and guild popups stay clear of Chinese input suggestions.",
+                "Fixed Flare’s Leave Vehicle button moving away from its set position.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v365|mainline|7416ed90c82e5fa7cbadebede05719da405243cc5af0584c8d785704540b7712
     {
         version = "v365",
@@ -158,40 +174,6 @@ CL:Register("suite", {
                 "Prevented competing addon managers from automatically switching profiles at the same time.",
                 "Fixed automatically matched portrait profiles sometimes not persisting after a reload.",
                 "Fixed hidden buttons still taking up space in special action-bar groups.",
-            },
-        },
-    },
--- YUI-Notes-Record: v356|mainline|a5face94b6d35af737046cc5357b1ddb989166d3f918d7e38b30b909295b91c4
-    {
-        version = "v356",
-        date = "2026-11-11",
-        clients = { "Retail" },
-        content = {
-            zhCN = {
-                "新增内置报错记录，支持历史查看和完整复制。",
-                "Orbit 位面编号可调整间距，并按编号显示不同颜色。",
-                "修复切换小区域时，位面编号反复变为“待识别”。",
-                "Halo 添加监控的入口改为“自身增益、目标减益、施法计时”。",
-                "修复 Halo 首次登录时，部分已学技能监控不显示。",
-                "修复 Halo 计时条图标大小和切换形态后的监控发光异常。",
-                "修复邮件助手收件记录核对异常，并保存历史记录中的职业配色。",
-                "修复小队与宠物框架左右侧不同步。",
-                "修复聊天窗口鼠标移出后不再渐隐。",
-                "修复 Orbit 时钟隐藏后，鼠标移入仍不显示。",
-                "修复动作条姿态按钮在公共冷却时错误变灰。",
-            },
-            enUS = {
-                "Added built-in error logs with history and full-report copying.",
-                "Orbit shard IDs now support label spacing and ID-based colors.",
-                "Fixed shard IDs repeatedly becoming unknown when moving between subzones.",
-                "Halo's monitor picker now shows Self Buff, Target Debuff, and Cast Timer.",
-                "Fixed some Halo learned-skill monitors not appearing after login.",
-                "Fixed Halo bar-icon sizes and monitor glow issues after changing forms.",
-                "Fixed Mail Assistant receipt checks and preserved class colors in history.",
-                "Fixed party pet frames appearing on the wrong side.",
-                "Fixed chat windows not fading after the mouse leaves.",
-                "Fixed hidden Orbit clocks not reappearing on hover.",
-                "Fixed action-bar stance icons turning gray during the global cooldown.",
             },
         },
     },

@@ -1,61 +1,43 @@
 -- Generated from Docs/Products/YUI_NovaToolbox/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("toolbox", {
--- YUI-Notes-Record: nova-142|mainline|3e0623a1fb498f6df3c89030a4642614ae40960c68a24b5df454a517891654b3
+-- YUI-Notes-Record: nova-142|mainline|2393d02911fd62c055c12f1a3a749500853729e72800e6182e469a6a1e40e811
     {
         version = "nova-142",
-        date = "2026-11-22",
+        date = "2026-11-24",
         clients = { "Retail" },
         content = {
             zhCN = {
-                "新增「主题外观」。",
-                "新配置默认启用插件助手。",
-                "经验条标记交付已完成任务后的经验位置。",
-                "减少世界地图标记重复刷新。",
-                "装备槽长附魔改用简称。",
-                "修复战斗中地图标记消失。",
+                "新增「主题外观」，新配置默认启用插件助手。",
+                "经验条可预览交付已完成任务后获得的经验。",
+                "优化世界地图标记和装备附魔显示。",
             },
             enUS = {
-                "Added Theme & Appearance settings.",
-                "Enabled Addon Assistant by default for new configurations.",
+                "Added Theme & Appearance. New configurations enable Addon Assistant by default.",
                 "The XP bar previews XP from completed quest turn-ins.",
-                "Reduced duplicate world map marker refreshes.",
-                "Shortened long enchant names on gear slots.",
-                "Fixed map markers disappearing in combat.",
+                "Improved world map markers and enchant text on gear.",
             },
         },
     },
--- YUI-Notes-Record: nova-142|forever|72b55e490f6a112be9db798f8482efa57bba9d71b9ff5a346692ebfe4f74738b
+-- YUI-Notes-Record: nova-142|forever|727dc2680685880a8f06efc2aea462f06c819b662e0e389291fb8aa91773421d
     {
         version = "nova-142",
-        date = "2026-11-22",
+        date = "2026-11-24",
         clients = { "Forever" },
         content = {
             zhCN = {
-                "新增 Roll 点增强和掉落记录。",
-                "聊天条骰子左键看记录，右键掷点。",
+                "新增 Roll 点增强和掉落历史，可调整队列缩放和字体。",
                 "新增「主题外观」和信息输出试播。",
-                "经验条标记交付已完成任务后的经验位置。",
-                "重做装备加成统计和属性面板。",
+                "经验条预览任务交付经验，重做装备加成统计和属性面板。",
                 "物品提示显示装等，商人页标色已知物品。",
-                "新配置默认启用插件助手。",
-                "改善邮箱联系人和密语回复的姓名识别。",
-                "支持恢复符合条件的旧角色数据。",
-                "修复 Polestar 暂停后恢复异常。",
-                "修复邮箱联系人悬停报错。",
+                "新配置默认启用插件助手，支持恢复符合条件的旧角色数据。",
             },
             enUS = {
-                "Added enhanced loot rolls and loot history.",
-                "Left-click the chat dice for history or right-click to roll.",
-                "Added Theme & Appearance settings and Information Output previews.",
-                "The XP bar previews XP from completed quest turn-ins.",
-                "Reworked equipment bonus summaries and the stats panel.",
-                "Added item levels to tooltips and coloring for known merchant items.",
-                "Enabled Addon Assistant by default for new configurations.",
-                "Improved name matching for mail contacts and whisper replies.",
-                "Added recovery for eligible older character data.",
-                "Fixed issues when resuming Polestar after a pause.",
-                "Fixed an error when hovering over mail contacts.",
+                "Added enhanced loot rolls and loot history, with queue scaling and font settings.",
+                "Added Theme & Appearance and Information Output previews.",
+                "The XP bar previews quest turn-in XP. Reworked equipment bonus summaries and the stats panel.",
+                "Item tooltips show item levels, and merchant lists highlight known items.",
+                "New configurations enable Addon Assistant by default. Eligible older character data can be recovered.",
             },
         },
     },

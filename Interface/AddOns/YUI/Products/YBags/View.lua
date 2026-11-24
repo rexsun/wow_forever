@@ -307,6 +307,7 @@ function V:NewWindow(id,title)
     else w.currencyHost:SetPoint("BOTTOMLEFT",10,7) end
     w.currencyButtons={}
     root:SetScript("OnHide",function()
+        if w.id=="player" or w.liveBank then B.BankView:ClearPresetPreview() end
         if w.id=="player" then self:HideHelp(w) end
         if w.combatLoot then self:HideCombatLoot(w);w.combatLoot.revision=nil end
         if w.capacityEquipmentChanged then
@@ -1478,7 +1479,7 @@ function V:ItemBadgeText(button,w,data,item,slotSize)
         class,level,loc,bind=B.GuildInventory:BadgeFields(item,data,self.equipmentRevision)
     end
     data.badgeBindType=bind
-    level=not item.empty and (class==2 or class==4) and level
+    level=not item.empty and (class==2 or class==4) and B.Classification.HasEquipSlot(loc) and level
     level=level and level>1 and level or nil
     local compare=w.id=="player" or w.liveBank=="bank" or w.liveBank=="guild" and not item.guildCached
     local slot=level and compare and equipSlots[loc] or nil
@@ -1564,6 +1565,16 @@ local function BindCharges(button,data,item)
         data.shownCharges=charges
     end
 end
+local function ShowExperienceFoodBadge(button,item,visible)
+    local badge=button.experienceFoodBadge
+    local shown=visible and not item.empty and B.Classification.IsExperienceFood(item.itemID)
+    if shown and not badge and not A.InCombat() then
+        badge=G:CreateTexture(button,{atlas="bonus-objective-star",width=14,height=14,layer="OVERLAY",subLevel=2})
+        badge:SetPoint("TOPLEFT",button,"TOPLEFT",1,-1)
+        button.experienceFoodBadge=badge
+    end
+    if badge and badge:IsShown()~=shown then badge:SetShown(shown) end
+end
 function V:RefreshEquipmentText(button,data)
     local badge=self:ItemBadgeText(button,data.window,data,data.item,data.size or button:GetWidth())
     if data.badge~=badge then button.badge:SetText(badge);data.badge=badge end
@@ -1636,6 +1647,63 @@ function V:BeginSplitDisplay(w,plan)
         end
     end
 end
+local function IsPresetSource(bags,item)
+    local slots=bags[item.bag]
+    local source=slots and slots[item.slot]
+    return source and source.itemID==item.itemID and source.link==item.link
+end
+
+local function PaintPresetHighlight(preview,w,button,item)
+    local sources=preview.sources[w]
+    local show
+    if sources and item and not (item.empty or item.held or item.guildCached) then
+        show=IsPresetSource(sources,item)
+        if not show and item.members then
+            for _,member in ipairs(item.members) do
+                if IsPresetSource(sources,member) then show=true;break end
+            end
+        end
+    end
+    if show and not preview.shown[button] then
+        local marker=button.ybagsPresetHighlight
+        if not marker then
+            marker={}
+            button.ybagsPresetHighlight=marker
+        end
+        B.Appearance:ShowNewItemGlow(button,marker)
+        preview.shown[button]=marker
+    elseif not show and preview.shown[button] then
+        B.Appearance:HideNewItemGlow(preview.shown[button])
+        preview.shown[button]=nil
+    end
+end
+
+function V:ShowPresetPreview(bank,deposit,withdraw)
+    local preview=self.presetPreview or {sources={},shown={}}
+    self.presetPreview=preview
+    local player=self.windows.player
+    preview.sources[bank]=withdraw
+    if player then preview.sources[player]=deposit end
+    for _,w in ipairs({bank,player}) do
+        for _,pool in ipairs({w.pool,w.cachePool}) do
+            for _,button in ipairs(pool) do
+                local data=self.buttonData[button]
+                if data or preview.shown[button] then
+                    local visible=w.open and data and button:IsShown()
+                    PaintPresetHighlight(preview,w,button,visible and data.item)
+                end
+            end
+        end
+    end
+end
+
+function V:ClearPresetPreview()
+    local preview=self.presetPreview
+    if not preview then return end
+    for _,marker in pairs(preview.shown) do B.Appearance:HideNewItemGlow(marker) end
+    self.presetPreview=nil
+end
+
 function V:Bind(button,w,node,item,hidden)
     item=item or node.item
     local menu=self.menu
@@ -1768,9 +1836,12 @@ function V:Bind(button,w,node,item,hidden)
         B.Appearance:CellAlpha(button,alpha)
         bound.alpha=alpha
     end
-    ShowEquipmentBadges(button,data,item,match and not dimmed and not item.held)
+    local showBadges=match and not dimmed and not item.held
+    ShowEquipmentBadges(button,data,item,showBadges)
+    if YUI.IsForever then ShowExperienceFoodBadge(button,item,showBadges) end
     if w.liveBank=="guild" then B.GuildInventory:PaintHighlight(w,button,item)
     elseif button.ybagsGuildLocate then B.GuildInventory:ReleaseHighlight(button) end
+    if self.presetPreview then PaintPresetHighlight(self.presetPreview,w,button,not hidden and item) end
     if bound.mouse~=(not item.held) then button:EnableMouse(not item.held);bound.mouse=not item.held end
     if hidden then
         if button:IsShown() then button:Hide() end
@@ -2131,6 +2202,8 @@ function V:Paint(w,transferLayout)
                     button:RegisterForClicks("LeftButtonUp","RightButtonUp")
                     button.text=Label(button,"",12);button.text:SetPoint("LEFT")
                     button.text:SetPoint("RIGHT");button.text:SetWordWrap(false)
+                    button.text:SetNonSpaceWrap(false)
+                    if button.text.SetMaxLines then button.text:SetMaxLines(1) end
                     local heading=button
                     button.fold=G:CreateDivider(button,{label="",height=16,collapsible=true,lineGap=8,
                         expandedSuffix=B.Appearance.expandedSuffix,collapsedSuffix=B.Appearance.collapsedSuffix,
@@ -2179,7 +2252,7 @@ function V:Paint(w,transferLayout)
                             Tooltip(owner,owner.fullText)
                             GameTooltip:AddLine(B:T(w.liveBank=="bank" and "bank.group_withdraw" or "bank.group_deposit"))
                             GameTooltip:Show()
-                        elseif owner.fullText and owner.text:GetStringWidth()>owner:GetWidth() then Tooltip(owner,owner.fullText) end
+                        elseif owner.labelClipped then Tooltip(owner,owner.fullText) end
                     end)
                     button:SetScript("OnLeave",function() GameTooltip:Hide() end)
                     button.recentTitle=G:CreateButtonFrame(divider,{width=40,height=16})
@@ -2188,22 +2261,24 @@ function V:Paint(w,transferLayout)
                     w.labels[labelIndex]=button
                 end
                 local text=node.kind=="heading" and B.Appearance:HeadingText(node.section,node.count,node.collapsed) or B.Appearance:GroupText(node.text)
+                local caption=node.caption or text
                 local trade=w.id=="player" and node.kind=="label" and node.text==B.Classification.tradeGroup
                 local recentHeading=node.kind=="heading" and node.section=="recent"
                 local recent=recentHeading and w.id=="player"
-                local frames=trade and B.Appearance:TradeCaptionFrames(text) or recent and B.Appearance:RecentCaptionFrames(text)
+                local frames=trade and B.Appearance:TradeCaptionFrames(caption) or recent and B.Appearance:RecentCaptionFrames(caption)
                 local data=self.buttonData[button]
                 if not data then data={};self.buttonData[button]=data end
-                if data.text~=text or data.captionFrames~=frames then
-                    button.text:SetText(trade and frames and frames[0] or text or "")
-                    button.fold:SetLabel(recent and frames and frames[0] or text or "")
-                    data.text,data.captionFrames=text,frames
+                if data.text~=caption or data.captionFrames~=frames then
+                    button.text:SetText(trade and frames and frames[0] or caption or "")
+                    button.fold:SetLabel(recent and frames and frames[0] or caption or "")
+                    data.text,data.captionFrames=caption,frames
                 end
                 if frames and node.y<bottom and node.y+node.h>top then
                     if trade then tradeLabel,tradeFrames=button.text,frames
                     else recentLabel,recentFrames=button.fold.gui2DividerText,frames end
                 end
                 button.fullText=text
+                button.labelClipped=node.clipped
                 button.section=node.kind=="heading" and node.section or nil
                 button.transferSection,button.transferGroup=node.section,node.kind=="label" and node.text or nil
                 button.transfer=YUI.IsForever and B.bankOpen and (w.id=="player" or w.liveBank=="bank")
@@ -2218,10 +2293,10 @@ function V:Paint(w,transferLayout)
                     G:SetTextColorKey(button.text,node.kind=="heading" and "color.text.heading" or "color.text.secondary")
                     B.Appearance:Text(button.text,node.kind=="heading" and "heading" or "label");data.kind=node.kind
                     button.text:ClearAllPoints();button.text:SetPoint("LEFT",node.kind=="heading" and B.Appearance.headingInset or 0,0);button.text:SetPoint("RIGHT")
-                    button.text:SetWordWrap(node.kind=="label");button.text:SetNonSpaceWrap(node.kind=="label");button.text:SetJustifyV(node.kind=="heading" and "MIDDLE" or "TOP")
+                    button.text:SetJustifyV(node.kind=="heading" and "MIDDLE" or "TOP")
                     button.text:SetShown(node.kind=="label")
                 end
-                button:EnableMouse(node.kind=="label" and button.transfer)
+                button:EnableMouse(node.kind=="label" and (button.transfer or button.labelClipped))
                 button.text:SetShown(node.kind=="label")
                 button.fold:EnableMouse(node.kind=="heading" and not recentHeading)
                 button.fold:SetShown(node.kind=="heading")
@@ -2266,6 +2341,7 @@ function V:Paint(w,transferLayout)
         for n=entry[2]+1,#entry[1] do
             local button=entry[1][n]
             if button.ybagsGuildLocate then B.GuildInventory:ReleaseHighlight(button) end
+            if self.presetPreview and self.presetPreview.shown[button] then PaintPresetHighlight(self.presetPreview,w,button) end
             button:Hide();self.buttonData[button]=nil
             if nativeSlotLocks[button] then nativeSlotLocks[button]=nil end
         end

@@ -89,8 +89,8 @@ StepSortSpace=function()
     end
 end
 
-local function BankBagsReady()
-    if A.ActiveBankKind()=="shared" then return true end
+local function BankBagsReady(personalOnly)
+    if A.ActiveBankKind()=="shared" then return not personalOnly end
     local first=A.FirstPersonalBankBag()
     return first and Runtime.readable[first]==true and A.BankWindowReady()
 end
@@ -98,14 +98,24 @@ local function PresentPendingBank(kind)
     Runtime.bankPresentation=nil
     local ok,shown=xpcall(B.BankView.Open,OnViewError,B.BankView,kind)
     if not ok or not shown then B.BankView:Close(kind) end
+    if kind=="bank" and ok and shown and Runtime.bankPurchaseBlocked then
+        Runtime.bankPurchaseBlocked=nil
+        B.BankView:RefreshFirstBankActivation(false)
+    end
     if kind=="guild" then B.View:RefreshGuildBagRoute() end
 end
+local OpenBankSession
 local function FlushQueued()
     Runtime.timer=nil;B.Stats.timers=math.max(0,B.Stats.timers-1);B.Stats.pendingRefresh=false
     if not B.active then return end
+    if Runtime.bankOpenDeferred or (Runtime.bankPurchaseBlocked and not B.bankOpen) then
+        Runtime.bankOpenDeferred=nil
+        if A.BankWindowShown("bank") then OpenBankSession() end
+    end
     B:Flush(nil,true)
     local opener=Runtime.bankBagOpenPending
     if opener and A.BankWindowShown("bank") and BankBagsReady() then Runtime:PresentBags(false,opener) end
+    if Runtime.bankPurchaseBlocked then B.BankView:RefreshFirstBankActivation(true) end
 end
 function B:QueueFlush()
     if not self.active then return end
@@ -344,7 +354,7 @@ function B:Flush(initial,canPresentBank)
     self.Holdings:Flush()
     local started=self.Diagnostics:Begin()
     local structural,changed=false,false
-    local bankChanged=false
+    local bankChanged,carryReadinessChanged=false,false
     local sortSpaceChanged=false
     local recentChanges={}
     local player=self.View.windows.player
@@ -458,8 +468,8 @@ function B:Flush(initial,canPresentBank)
         local due=self.Cache.player and self.Cache.player.pendingBagReads
         local retry=due and due[kind] and due[kind][id]
         local slots,capacity,family,space,selected=ReadDirtyBag(id,kind,retry or read)
+        local wasReadable=Runtime.readable[id]
         if slots and (kind=="bags" or capacity>0) then
-            local wasReadable=Runtime.readable[id]
             Runtime.readable[id]=true
             self.Stats.reads=self.Stats.reads+(selected and #selected or capacity)
             if Runtime.gearSets and kind=="bags" then
@@ -530,6 +540,7 @@ function B:Flush(initial,canPresentBank)
             end
             if not slots then self.Stats.errors=self.Stats.errors+1 end
         end
+        if kind=="bags" and wasReadable~=Runtime.readable[id] then carryReadinessChanged=true end
     end
     if gearReview and #gearReview==0 then gearReview=nil end
     local snapshots=actions.transferResult and actions.transferResult.snapshots
@@ -588,13 +599,13 @@ function B:Flush(initial,canPresentBank)
     if self.Deposit.withdrawal and self.Deposit:CheckGuildWithdrawal() then
         Runtime.guildRefresh="metadata"
     end
-    if Runtime.guildRefresh then
-        local mode=Runtime.guildRefresh
+    local guildRefresh=Runtime.guildRefresh
+    if guildRefresh then
         Runtime.guildRefresh=nil
         if self.guildOpen then
             local updated=self.Deposit.slotEvents and self.Deposit:FlushGuildSlots()
             local w=self.View.windows["live-guild"]
-            if mode=="metadata" or updated or not w or w.page or w.guildMode~="items" then
+            if guildRefresh=="metadata" or updated or not w or w.page or w.guildMode~="items" then
                 self.BankView:Refresh("guild")
             end
             if self.Deposit.bagDeposit then self.Deposit:TryBagDeposit() end
@@ -603,7 +614,7 @@ function B:Flush(initial,canPresentBank)
     -- Personal bank presentation is allowed after native show or on the queued read.
     local kind=Runtime.bankPresentation
     if kind and not A.InCombat() and A.BankWindowShown(kind)
-        and (kind~="bank" or canPresentBank and BankBagsReady()) then
+        and (kind~="bank" or canPresentBank and BankBagsReady(true)) then
         PresentPendingBank(kind)
     end
     if finalCarryBatch then self:InvalidateSortSpace(true)
@@ -620,6 +631,10 @@ function B:Flush(initial,canPresentBank)
             end
         end
         self.View:PatchTransferWindows(transferWindows)
+    end
+    local hover=self.BankView.presetHover
+    if hover and (hover.pending or changed or structural or bankChanged or guildRefresh or carryReadinessChanged) then
+        self.BankView:RefreshPresetPreview()
     end
     self.Diagnostics:Finish("inventory",started)
 end
@@ -702,7 +717,8 @@ local function PrepareBankPresentation(kind)
     if kind=="guild" then A.ParkBankWindow(kind) end
     B:QueueFlush()
 end
-local function OnBankOpen()
+OpenBankSession=function()
+    Runtime.bankOpenDeferred=nil
     if not B.active or B.bankOpen then return end
     B.bankOpen=true;B:ReadAll(false)
     if YUI.IsForever then
@@ -713,7 +729,18 @@ local function OnBankOpen()
     end
     B.View:UpdateGrouping();B.View:RefreshItemInputs()
 end
+local function OnBankOpen()
+    if not B.active or B.bankOpen then return end
+    if YUI.IsForever and A.IsOpeningFirstPersonalBank(true) then
+        -- This event can arrive before the native default tab and its free purchase.
+        Runtime.bankOpenDeferred=true
+        B:QueueFlush()
+        return
+    end
+    OpenBankSession()
+end
 local function OnBankClose()
+    Runtime.bankOpenDeferred,Runtime.bankPurchaseBlocked=nil,nil
     Runtime.bankBagOpenPending=nil
     if Runtime.bankPresentation=="bank" then Runtime.bankPresentation=nil end
     B.bankOpen=false;B.Actions:Stop();B.Actions:CancelDelete()
@@ -766,8 +793,9 @@ end
 local function OnNativeBankShown(kind)
     if not B.active or A.InCombat() then return end
     if kind=="bank" then
+        if not A.BankWindowShown("bank") then return end
         local readBeforeShow=B.bankOpen
-        OnBankOpen()
+        OpenBankSession()
         if Runtime.bankPresentation=="bank" then
             local first=A.FirstPersonalBankBag()
             if PresentPersonalBankAfterShow(first,readBeforeShow) then return end
@@ -823,12 +851,24 @@ local function OnGuildViewport()
 end
 local function OnBankTabs(_,bankType)
     if not B.bankOpen then return end
+    if Runtime.bankPurchaseBlocked then
+        B.BankView:RefreshFirstBankActivation(false)
+        B:QueueFlush()
+    end
     B:ReadAll(false);B.BankView:Refresh("bank",true)
     if Runtime.bankPresentation=="bank"
         and (bankType==nil or YUI.API.Security.SafeNumber(bankType)==Enum.BankType.Character) then
         -- Native tab data can arrive after the first bank presentation attempt.
         B:QueueFlush()
     end
+end
+local function OnBankPurchaseBlocked(_,addon,action)
+    local safe=YUI.API.Security.SafeString
+    action=safe(action)
+    if safe(addon)~="YUI" or (action~="PurchaseBankTab()" and action~="C_Bank.PurchaseBankTab()")
+        or not A.BankWindowShown("bank") then return end
+    Runtime.bankPurchaseBlocked=true
+    B:QueueFlush()
 end
 local function OnContainers()
     if not B.active then return end
@@ -914,7 +954,7 @@ local function OnRegen()
         B.Appearance:RefreshIconStyle();B.View:Invalidate(true);B:RefreshVisible(true)
         B.View:QueueNativeSlotLockReads()
         if B.guildOpen then B.Deposit:UpdateGuildAccess();B.View:RefreshGuildBagRoute() end
-        if Runtime.bankPresentation then B:QueueFlush() end
+        if Runtime.bankPresentation or Runtime.bankPurchaseBlocked then B:QueueFlush() end
         B:RefreshSortSpace()
     end
 end
@@ -1204,6 +1244,8 @@ function B:OnLifecycleEnable()
     self:ReadAll(true)
     for event,handler in pairs(events) do YUI.Event:On(event,handler,self);self.Stats.listeners=self.Stats.listeners+1 end
     if YUI.IsForever then
+        YUI.Event:On("ADDON_ACTION_FORBIDDEN",OnBankPurchaseBlocked,self)
+        self.Stats.listeners=self.Stats.listeners+1
         YUI.Event:On("PLAYER_LOGOUT",OnLogout,self)
         self.Stats.listeners=self.Stats.listeners+1
         YUI.Event:On("UNIT_SPELLCAST_SUCCEEDED",OnChargeSpell,self,{unit="player"})
@@ -1230,6 +1272,7 @@ function B:OnLifecycleDisable()
     self.openBagsOnEnable=nil
     Runtime.combatEndedAt=nil
     Runtime.bankBagOpenPending=nil
+    Runtime.bankOpenDeferred,Runtime.bankPurchaseBlocked=nil,nil
     Runtime.splitDisplay=nil
     Runtime.finalCarryBatch=nil
     self:SortSpaceVisibility(false)

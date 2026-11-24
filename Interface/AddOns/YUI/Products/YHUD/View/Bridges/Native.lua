@@ -2956,6 +2956,21 @@ local function IsNativeGroupVisible(groupId)
             or view:IsGroupLevelDisplayAllowed(runtime))
 end
 
+function NativeBridge:GetMixedTotemMonitorId(frame)
+    local styleState = self.frameStates[frame]
+    if not (styleState and styleState.nativeIncluded
+        and (styleState.mixedTotemMonitorId or styleState.mixedTotemAnchorMonitorId)) then
+        return nil
+    end
+    local cooldownID = GetCooldownID(frame)
+    if styleState.mixedTotemMonitorId and cooldownID == styleState.cooldownID then
+        return styleState.mixedTotemMonitorId
+    end
+    if styleState.mixedTotemAnchorMonitorId and cooldownID == styleState.mixedTotemAnchorCooldownId then
+        return styleState.mixedTotemAnchorMonitorId
+    end
+end
+
 ApplyManagedFrameVisibility = function(state, frame, styleState, verify)
     if not (state and frame and styleState) then return false, false end
     local visible = styleState.nativeIncluded == true
@@ -2966,15 +2981,44 @@ ApplyManagedFrameVisibility = function(state, frame, styleState, verify)
         or styleState.binding and styleState.binding.monitorId
     local filteredFrame = monitorId and view and view.filteredAuraFrames
         and view.filteredAuraFrames[monitorId]
-    local projected = monitorId and view and (
+    local auraProjected = monitorId and view and (
         view.filteredAuraDynamicNodes
             and view.filteredAuraDynamicNodes[monitorId]
         or filteredFrame and filteredFrame._yhudFilteredAuraReplacesNative == true
-        or view.byMonitor and view.byMonitor[monitorId]
-            and view.byMonitor[monitorId]
-                ._yhudFilteredAuraChainCompatible == true
     )
-    if projected then visible = false end
+    local previousTotemMonitorId = styleState.mixedTotemMonitorId
+    local totemMonitorId, nativeTotemFlow
+    if YUI.IsForever and styleState.nativeIncluded and monitorId
+        and styleState.nativeCategory == "trackedBuff" then
+        if not auraProjected and view and view.UsesNativeTotemFlow then
+            local runtime = view.groups and view.groups[styleState.nativeGroupId]
+            nativeTotemFlow = view:UsesNativeTotemFlow(runtime, monitorId)
+        end
+        if auraProjected or nativeTotemFlow then
+            -- Inspect the selected backend type without reading the totem data.
+            local ok, totem = SafeField(frame, "totemData")
+            if ok and type(totem) == "table" and styleState.cooldownID ~= nil
+                and GetCooldownID(frame) == styleState.cooldownID then
+                totemMonitorId = monitorId
+            end
+        end
+    end
+    local slot = monitorId and view and view.byMonitor and view.byMonitor[monitorId]
+    local projected = auraProjected or slot and slot._yhudFilteredAuraChainCompatible == true
+        and not (nativeTotemFlow and slot._yhudNativePersistentPlaceholder == true)
+    styleState.mixedTotemMonitorId = totemMonitorId
+    local anchorMonitorId = styleState.mixedTotemAnchorMonitorId
+    local fallbackMonitorId = styleState.mixedTotemFallbackMonitorId
+    if fallbackMonitorId and fallbackMonitorId ~= totemMonitorId then
+        styleState.mixedTotemFallbackMonitorId = nil
+        if view and view.SetFilteredAuraTotemTakeover then
+            view:SetFilteredAuraTotemTakeover(fallbackMonitorId, false, true)
+        end
+    end
+    if projected and not (totemMonitorId
+        and (anchorMonitorId == totemMonitorId or fallbackMonitorId == totemMonitorId)) then
+        visible = false
+    end
     local wasSuppressed = styleState.visibilitySuppressed
     styleState.visibilitySuppressed = not visible
     local queuedAttack = YHUD.QueuedAttack
@@ -3000,12 +3044,28 @@ ApplyManagedFrameVisibility = function(state, frame, styleState, verify)
         if styleState.nativeAuraStackSet then
             YHUD.Glow:ApplyStackSet(styleState.nativeAuraStackSet, false, false)
         end
-    elseif styleState.nativeCustomGlow then
+    elseif styleState.nativeCustomGlow or (wasSuppressed and totemMonitorId) then
+        -- A totem can take over its cell before a custom glow has been created.
         SyncNativeProcGlow(frame, styleState, styleState.compiledIcon)
-        NativeBridge:QueueActivationSettle(frame, styleState)
+        if styleState.nativeCustomGlow then
+            NativeBridge:QueueActivationSettle(frame, styleState)
+        end
     end
     local alpha = visible and GetAlphaBaseline(state, frame) or 0
     local ok, wrote = SetAlphaIfChanged(state, frame, alpha, verify)
+    if anchorMonitorId and anchorMonitorId ~= totemMonitorId
+        and (ok or styleState.nativeIncluded ~= true
+            or GetCooldownID(frame) ~= styleState.mixedTotemAnchorCooldownId) then
+        styleState.mixedTotemAnchor = nil
+        styleState.mixedTotemAnchorMonitorId = nil
+        styleState.mixedTotemAnchorCooldownId = nil
+        if view and view.SetFilteredAuraTotemTakeover then
+            view:SetFilteredAuraTotemTakeover(anchorMonitorId, false, true)
+        end
+    end
+    if anchorMonitorId and not ok and IsInCombat() then
+        NativeBridge:ScheduleDeferred("categories")
+    end
     if SetNativeTooltipMouseEnabled then
         SetNativeTooltipMouseEnabled(
             frame,
@@ -3017,7 +3077,7 @@ ApplyManagedFrameVisibility = function(state, frame, styleState, verify)
         ApplyStaticFrameParking(frame, styleState)
     end
     RecordVisibilityAlphaResult(ok, wrote)
-    return ok, wrote
+    return ok, wrote, previousTotemMonitorId ~= styleState.mixedTotemMonitorId
 end
 
 local function RestoreCooldownFlash(styleState)
@@ -4023,6 +4083,46 @@ local function RestoreFramePoints(frame, styleState)
     end
     styleState.nativeParkingWrite = nil
     return ok
+end
+
+function NativeBridge:PlaceMixedTotemFrame(frame, monitorId, anchor)
+    local styleState = self.frameStates[frame]
+    if not styleState or self:GetMixedTotemMonitorId(frame) ~= monitorId then return false end
+    if styleState.mixedTotemAnchor == anchor
+        and styleState.mixedTotemAnchorMonitorId == monitorId then
+        return true
+    end
+    local state = self.states.trackedBuff
+    if not state or styleState.mixedTotemMonitorId ~= monitorId then return false end
+    styleState.mixedTotemPlaced = true
+    styleState.dynamicGeometryWrite = true
+    local placed = SafeMethod(frame, "ClearAllPoints")
+        and SafeMethod(frame, "SetPoint", "CENTER", anchor, "CENTER", 0, 0)
+    if placed then
+        styleState.mixedTotemAnchor = anchor
+        styleState.mixedTotemAnchorMonitorId = monitorId
+        styleState.mixedTotemAnchorCooldownId = styleState.cooldownID
+        styleState.mixedTotemFallbackMonitorId = nil
+        placed = ApplyManagedFrameVisibility(state, frame, styleState, true)
+            and styleState.mixedTotemAnchor == anchor
+    end
+    local fallback = false
+    if not placed then
+        styleState.mixedTotemAnchor = nil
+        styleState.mixedTotemAnchorMonitorId = nil
+        styleState.mixedTotemAnchorCooldownId = nil
+        styleState.mixedTotemFallbackMonitorId = monitorId
+        RestoreFramePoints(frame, styleState)
+        fallback = ApplyManagedFrameVisibility(state, frame, styleState, true)
+            and styleState.visibilitySuppressed ~= true
+        if not fallback then
+            styleState.mixedTotemFallbackMonitorId = nil
+            ApplyManagedFrameVisibility(state, frame, styleState, true)
+        end
+        if IsInCombat() then self:ScheduleDeferred("categories") end
+    end
+    styleState.dynamicGeometryWrite = nil
+    return placed, fallback
 end
 
 ApplyStaticFrameParking = function(frame, styleState, force)
@@ -6548,7 +6648,14 @@ local function RestoreFrameStyle(frame)
     RestoreNativeFrameLayers(styleState)
     RestoreMouseInputState(frame.Cooldown, styleState.nativeCooldownInput)
     RestoreMouseInputState(frame, styleState.nativeTooltipInput)
-    if styleState.nativeCategory == "essential"
+    if styleState.mixedTotemPlaced then
+        ClearDynamicIconGeometry(styleState)
+        if styleState.nativeOriginalPoints and #styleState.nativeOriginalPoints == 0 then
+            SafeMethod(frame, "ClearAllPoints")
+        else
+            RestoreFramePoints(frame, styleState)
+        end
+    elseif styleState.nativeCategory == "essential"
         or styleState.nativeCategory == "utility" then
         RestoreFramePoints(frame, styleState)
     end
@@ -6738,7 +6845,9 @@ local function ApplyNativeFrameSet(
         local cooldownID = GetCooldownID(frame)
         local binding = cooldownID and monitorByCooldown[cooldownID]
         local styleState = GetFrameStyleState(frame)
-        if descriptor.dynamicVisibility ~= true
+        if (descriptor.dynamicVisibility ~= true
+            or YUI.IsForever and descriptor.category == "trackedBuff"
+                and binding and IsShown(frame))
             and not styleState.nativeOriginalPoints then
             styleState.nativeOriginalPoints = CaptureFramePoints(frame)
         end
@@ -6812,7 +6921,9 @@ local function ApplyNativeFrameSet(
                 styleState.cooldownID = cooldownID
                 dynamicMembers[frame] = styleState
             end
-            ApplyManagedFrameVisibility(state, frame, styleState, false)
+            local _, _, totemModeChanged =
+                ApplyManagedFrameVisibility(state, frame, styleState, false)
+            if totemModeChanged then bucket.totemModeChanged = true end
         else
             if descriptor.category == "trackedBuff" then
                 ClearDynamicIconGeometry(styleState)
@@ -6833,7 +6944,7 @@ local function ApplyNativeFrameSet(
             bucket.byMonitor,
             bucket.frames,
             descriptor.category,
-            forceLayout,
+            forceLayout or bucket.totemModeChanged,
             bucket.stableMembers
         )
         if descriptor.category == "trackedBuff" then
@@ -7211,6 +7322,9 @@ function NativeBridge:OnOfficialAuraFrameRefresh(
     styleState.cooldownID = cooldownID
     if category == "trackedBuff" then
         if shouldInclude then
+            if YUI.IsForever and binding and not styleState.nativeOriginalPoints then
+                styleState.nativeOriginalPoints = CaptureFramePoints(frame)
+            end
             InstallDynamicTrackedBuffGeometryHooks(frame)
             SetDynamicIconGeometryIdentity(styleState, cooldownID)
         else
@@ -7242,18 +7356,20 @@ function NativeBridge:OnOfficialAuraFrameRefresh(
             end
             AddStat("exactNativeBarRewrites")
         end
-        ApplyManagedFrameVisibility(state, frame, styleState, true)
     else
         state.dynamicMembers[frame] = nil
         if category == "trackedBuff" then
             ClearDynamicIconGeometry(styleState)
         end
+    end
+    local _, _, totemModeChanged =
         ApplyManagedFrameVisibility(state, frame, styleState, true)
+    if not shouldInclude then
         SyncNativeProcGlow(frame, styleState, styleState.compiledIcon)
     end
     SyncNativeAuraPlaceholderGlow(binding, shouldInclude)
 
-    if memberChanged then
+    if memberChanged or totemModeChanged then
         MarkDynamicGroupDirty(state, previousGroupId)
         MarkDynamicGroupDirty(state, targetGroupId)
         if suppressSignalStats ~= true then
@@ -7279,7 +7395,7 @@ function NativeBridge:OnOfficialAuraFrameRefresh(
             )
         end
     end
-    return true, memberChanged
+    return true, memberChanged or totemModeChanged
 end
 
 local function RecordTrackedBuffViewerScaleMismatch(viewer)
@@ -7681,13 +7797,14 @@ local function ApplyGroupCategoryVisibility(
     local state = GetState(category)
     local changed = false
     local failed = false
+    local totemLayoutChanged = false
     local byMonitor = content.byMonitor
     if type(byMonitor) == "table" then
         for _, frame in pairs(byMonitor) do
             local styleState = NativeBridge.frameStates[frame]
             if styleState then
                 styleState.nativeGroupId = groupId
-                local ok, wrote = ApplyManagedFrameVisibility(
+                local ok, wrote, totemModeChanged = ApplyManagedFrameVisibility(
                     state,
                     frame,
                     styleState,
@@ -7695,6 +7812,7 @@ local function ApplyGroupCategoryVisibility(
                 )
                 changed = wrote == true or changed
                 failed = ok ~= true or failed
+                totemLayoutChanged = totemLayoutChanged or totemModeChanged
             end
         end
     end
@@ -7713,6 +7831,10 @@ local function ApplyGroupCategoryVisibility(
             changed = wrote == true or changed
             failed = ok ~= true or failed
         end
+    end
+    if totemLayoutChanged then
+        MarkDynamicGroupDirty(state, groupId)
+        NativeBridge:RequestCategorySync(category, "mixed-totem-visibility", DIRTY_MEMBERSHIP)
     end
     return changed, failed
 end

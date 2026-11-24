@@ -13,7 +13,6 @@ local Item = YUI.API and YUI.API.Item
 local UnitAPI = YUI.API and YUI.API.Unit
 local TalentAPI = YUI.API and YUI.API.Talent
 local ForeverSummary = YUI.IsForever and YUI.CharacterEquipmentSummaryForever
-local ForeverTabs = YUI.IsForever and YUI.CharacterEquipmentTabsForever
 local Security = YUI.API and YUI.API.Security
 local Appearance = GUI2 and GUI2.WindowAppearance
 local LocaleManager = YUI.Locale
@@ -1686,7 +1685,8 @@ end
 
 local function GetHostCardGap(host, card)
     if not YUI.IsForever then return CARD_GAP end
-    if ForeverTabs and ForeverTabs:IsApplied(host) then return CARD_GAP end
+    local native = YUI.NativeInterface
+    if native and native.IsCharacterBottomTabsApplied and native:IsCharacterBottomTabsApplied(host) then return CARD_GAP end
     local modeTabs = host.ModeTabs
     if not modeTabs or not IsShown(modeTabs) or not modeTabs.Tabs
         or type(host.GetRight) ~= "function" then return CARD_GAP end
@@ -1710,7 +1710,6 @@ local function RefreshRuntime()
     if YUI.CharacterEquipmentOverlays then YUI.CharacterEquipmentOverlays:Refresh(GetDB()) end
     -- 摘要属于原生窗口的子框架；结构刷新复用已有脱战事件补做。
     if Security and Security.InCombatLockdown and Security.InCombatLockdown() then return end
-    if ForeverTabs then ForeverTabs:Refresh(GetDB().foreverBottomTabs ~= false, runtime.tabsRefresh) end
     if GetDB().showSummary == false then
         if runtime.playerCard then runtime.playerCard:Hide() end
         if runtime.inspectCard then runtime.inspectCard:Hide() end
@@ -1832,8 +1831,6 @@ local function RequestOverlayRefresh()
     RequestRefresh(nil, "slot overlay")
 end
 
-runtime.tabsRefresh = function() RequestRefresh(nil, "native tabs") end
-
 local function TryHookFrames()
     if YUI.CharacterEquipmentOverlays then YUI.CharacterEquipmentOverlays:Hook(RequestOverlayRefresh) end
     HookFrame(_G.CharacterFrame)
@@ -1847,7 +1844,7 @@ local function TryHookFrames()
     HookFrame(_G.TokenFrame)
     HookFrame(_G.InspectFrame)
     HookFrame(_G.InspectPaperDollFrame)
-    if ForeverTabs then
+    if YUI.IsForever then
         HookFrame(_G.CharacterStatsPanePetScrollBox)
         HookFrame(_G.PaperDollItemsFrame)
     end
@@ -1940,8 +1937,9 @@ local function AttachEvents()
         events[#events + 1] = "TRAIT_CONFIG_UPDATED"
         events[#events + 1] = "TRAIT_CONFIG_LIST_UPDATED"
     end
-    if ForeverTabs then
+    if YUI.IsForever then
         events[#events + 1] = "UNIT_PET"
+        events[#events + 1] = "YUI_CHARACTER_BOTTOM_TABS_CHANGED"
     end
     for _, event in ipairs(events) do
         Event:On(event, OnRuntimeEvent, runtime.eventOwner)
@@ -1982,7 +1980,6 @@ local function SetEnabled(enabled)
         EnsureRuntime()
     else
         DetachEvents()
-        if ForeverTabs then ForeverTabs:Stop() end
         if ForeverSummary then ForeverSummary:HideTooltip() end
         if YUI.CharacterEquipmentOverlays then YUI.CharacterEquipmentOverlays:Hide() end
         if runtime.playerCard then runtime.playerCard:Hide() end
@@ -2140,14 +2137,6 @@ function Feature:GetDetailOptions()
             type = "checkbox", label = T("settings.show_summary_icons"),
             get = function() return db.showSummaryIcons ~= false end,
             set = function(value) db.showSummaryIcons = value == true end,
-            onChange = Refresh,
-        })
-    end
-    if ForeverTabs then
-        table.insert(cardOptions, 2, {
-            type = "checkbox", label = T("settings.bottom_tabs"), tooltip = T("settings.bottom_tabs.help"),
-            get = function() return db.foreverBottomTabs ~= false end,
-            set = function(value) if value == false then db.foreverBottomTabs = false else db.foreverBottomTabs = nil end end,
             onChange = Refresh,
         })
     end

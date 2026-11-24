@@ -26,6 +26,8 @@ local definitions = {
     { id = "quest", cvar = "instantQuestText", label = "installer.settings.quest", value = 1 },
     { id = "deathEffect", cvar = "ffxDeath", label = "installer.settings.deathEffect", value = 0,
         tooltip = "installer.settings.deathEffect.hint" },
+    { id = "autoPushSpell", cvar = "AutoPushSpellToActionBar", label = "installer.settings.autoPushSpell", value = 0,
+        tooltip = "installer.settings.autoPushSpell.hint" },
 }
 local npcNames = {
     "UnitNameFriendlySpecialNPCName", "UnitNameHostleNPC", "UnitNameInteractiveNPC",
@@ -289,8 +291,9 @@ function Settings:BuildPage(content, onSelectionChanged)
     local convenience = Card("installer.settings.convenience", 1, 96, 104, 370)
     Checkbox(convenience, "loot", LC["installer.settings.loot"], 27)
     Checkbox(convenience, "compare", LC["installer.settings.compare"], 27, 198)
-    Checkbox(convenience, "quest", LC["installer.settings.quest"], 57)
-    Checkbox(convenience, "deathEffect", LC["installer.settings.deathEffect"], 57, 198)
+    Checkbox(convenience, "quest", LC["installer.settings.quest"], 53)
+    Checkbox(convenience, "deathEffect", LC["installer.settings.deathEffect"], 53, 198)
+    Checkbox(convenience, "autoPushSpell", LC["installer.settings.autoPushSpell"], 79, 9, 352)
 
     RefreshFeedback = function()
         for id, checkbox in pairs(controls) do

@@ -1,39 +1,37 @@
 -- Generated from Docs/Products/YUI_OrbitInfoBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("ybar", {
--- YUI-Notes-Record: orbit-134|mainline|03f6c1f510310daa355f2ed0da849fea58624a6e4ca6119825641f5eff33b1b0
+-- YUI-Notes-Record: orbit-134|mainline|a1bc0c04e35731231842fb24af74129a723cc86f506aaaf01d107d96e8342751
     {
         version = "orbit-134",
-        date = "2026-11-20",
+        date = "2026-11-24",
         clients = { "Retail" },
         content = {
             zhCN = {
-                "新增「主题外观」。",
-                "金币提示汇总互通服务器角色，跨服时显示服名。",
+                "新增「主题外观」，金币提示汇总互通服务器角色。",
+                "好友提示显示魔兽角色等级，好友和公会弹层不再遮挡中文选字框。",
             },
             enUS = {
-                "Added Theme & Appearance settings.",
-                "Gold tooltips include connected realms and show realm names when needed.",
+                "Added Theme & Appearance. Gold tooltips include characters on connected realms.",
+                "Friends tooltips show WoW character levels, and friends and guild popups stay clear of Chinese input suggestions.",
             },
         },
     },
--- YUI-Notes-Record: orbit-134|forever|3a963e6ff951a65b6f201499b8111ecd57ce97e58f3bdb4e8ad6a795cb63e1b4
+-- YUI-Notes-Record: orbit-134|forever|986cfbe456dac49b8e1f4772220be64267222002fc437b414de3e7dd6f181b9c
     {
         version = "orbit-134",
-        date = "2026-11-21",
+        date = "2026-11-24",
         clients = { "Forever" },
         content = {
             zhCN = {
-                "新增「主题外观」。",
-                "修复跨服金币汇总重复统计角色。",
-                "改善专业菜单与专业助手的兼容性。",
-                "使用新版 Core 可恢复符合条件的旧角色数据。",
+                "新增「主题外观」，修复跨服金币重复统计。",
+                "好友提示显示魔兽角色等级，好友和公会弹层不再遮挡中文选字框。",
+                "改善专业菜单兼容性，支持恢复符合条件的旧角色数据。",
             },
             enUS = {
-                "Added Theme & Appearance settings.",
-                "Fixed duplicate characters in the cross-realm gold summary.",
-                "Improved compatibility with Profession Assistant.",
-                "Eligible older character data can be recovered with the updated Core.",
+                "Added Theme & Appearance and fixed duplicate totals in cross-realm gold summaries.",
+                "Friends tooltips show WoW character levels, and friends and guild popups stay clear of Chinese input suggestions.",
+                "Improved profession menu compatibility and added recovery for eligible older character data.",
             },
         },
     },

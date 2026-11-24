@@ -514,18 +514,28 @@ local function TransferBag(position,kind)
     end
 end
 
+-- 随身工具在无限服被归为制造材料（wowf 1.60.1.71037 Item/ItemSparse）。
+local materialTools={
+    [4471]=true, [10498]=true, [260811]=true, -- 燧石和火绒、侏儒微调器、侏儒军刀
+    [6218]=true, [6339]=true, [11130]=true, [11145]=true, [16207]=true, -- 附魔棒
+}
+local function KeepOnBatchDeposit(item)
+    return YUI.IsForever and B.Classification.IsCampingItem(item)
+end
+
 local presets={
     materials=function(item)
         local class=item.classID
         if class~=5 and class~=7 and class~=19 then return false end
-        if B.Classification:IsClassSpellReagent(item.itemID) then return false end
+        if materialTools[item.itemID] or B.Classification:IsClassSpellReagent(item.itemID) then return false end
         -- The generic reagent class also contains class spell reagents.
         if class==5 then return item.subClassID==0 and item.isCraftingReagent==true end
         return not item.equipLoc or item.equipLoc=="" or item.equipLoc=="INVTYPE_NON_EQUIP_IGNORE"
     end,
     recipes=function(item) return item.classID==9 end,
     consumables=function(item)
-        return (item.classID==0 and item.subClassID~=nil or item.classID==3 or item.classID==8) and not B.Classification.IsMageScroll(item)
+        return (item.classID==0 and item.subClassID~=nil or item.classID==3 or item.classID==8)
+            and not B.Classification.IsMageScroll(item) and not B.Classification.IsConjured(item)
     end,
     boe=function(item) return B.Classification:IsUnboundEquipment(item) end,
     scrolls=B.Classification.IsMageScroll,
@@ -621,6 +631,21 @@ local function PlanMove(steps,target,item,sourceCount,moved,personalTransfer,pre
     end
     dest.count=targetCount+moved
     if target.kind=="guild" then dest.link=item.link end
+end
+
+function D.PresetSources(steps)
+    local sources,total,slots={},0,0
+    for _,step in ipairs(steps) do
+        local bag,slot=step.source.bag,step.source.slot
+        local bySlot=sources[bag]
+        if not bySlot then bySlot={};sources[bag]=bySlot end
+        if not bySlot[slot] then
+            bySlot[slot]=step
+            slots=slots+1
+        end
+        total=total+(step.count or step.sourceCount)
+    end
+    return total,slots,sources
 end
 
 local function WithdrawStackMatches(item,carried)
@@ -938,7 +963,7 @@ function D:Plan(kind,rule,query,page,preset,readLiveSources)
     local useRule=not preset
     local keepPerItem=useRule and rule.keep or 0
     for _,item in ipairs(items) do
-        local protected=B.Actions:Protected(item)
+        local protected=KeepOnBatchDeposit(item) or B.Actions:Protected(item)
         local excluded=rule.exclude and rule.exclude~="" and (item.name or ""):find(rule.exclude,1,true)
         if kind=="guild" and (readLiveSources or preset) and not protected and not excluded
             and (not item.loaded or item.classID==nil or not item.link or item.link=="" or not item.maxStack
@@ -1025,7 +1050,8 @@ local function ReadyTransferBags()
 end
 
 local function TransferQuantity(item,targetKind,quantityFor)
-    if item.empty or item.held or not item.link or B.Actions:Protected(item) then return end
+    if item.empty or item.held or not item.link or B.Actions:Protected(item)
+        or targetKind=="bank" and KeepOnBatchDeposit(item) then return end
     local quantity=quantityFor(item)
     if quantity and quantity>0 and (targetKind~="bank" or A.CanDeposit(item,"bank")) then return quantity end
 end
@@ -1037,7 +1063,7 @@ function D:NotifyTransferResult(key,confirmed,total)
     end
 end
 
-local function StartTransfer(items,targetKind,targetIDs,quantityFor,preset)
+local function PlanTransfer(items,targetKind,targetIDs,quantityFor,preset)
     local targets,steps,seen={},{},{}
     for _,id in ipairs(targetIDs) do
         local bag=B.Model.bags[id]
@@ -1055,6 +1081,10 @@ local function StartTransfer(items,targetKind,targetIDs,quantityFor,preset)
             end
         end
     end
+    return steps,total
+end
+
+local function StartTransfer(steps,total)
     if total==0 then B:Notify("bank.transfer_empty");return false end
     if #steps==0 then D:NotifyTransferResult("bank.transfer_space",0,total);return false end
     return B.Actions:Start(steps,"deposit",total)
@@ -1263,21 +1293,19 @@ function D:ConfirmGuildWithdraw(waiting)
     return true
 end
 
-function D:CountPreset(key,withdraw)
+local function PlanPersonalPreset(key,quantityFor,carry,bank,withdraw)
+    local items=B.Model:List(withdraw and bank or carry)
+    return PlanTransfer(items,withdraw and "bags" or "bank",withdraw and carry or bank,quantityFor,key)
+end
+
+function D:PreviewPreset(key)
     local quantityFor=PresetQuantity(key)
-    if not quantityFor or not PersonalBankOpen() then return 0,false end
-    withdraw=withdraw==true
-    local targetKind=withdraw and "bags" or "bank"
-    local sourceIDs,ready
-    if withdraw then sourceIDs,ready=LiveIDs(A.BankBags("bank"),"bank")
-    else sourceIDs,ready=LiveIDs(A.GetCarryBags(false),"bags") end
-    local total=0
-    for _,id in ipairs(sourceIDs) do
-        for _,item in pairs(B.Model.bags[id].slots) do
-            total=total+(TransferQuantity(item,targetKind,quantityFor) or 0)
-        end
-    end
-    return total,#sourceIDs>0 and ready and not B.Stats.pendingRefresh and not B.Actions.queue and not B.Actions.nativeSort
+    if not quantityFor or PersonalTransferBlocked() then return end
+    local carry,bank,ready=TransferBags()
+    if not ready or #carry==0 or #bank==0 then return end
+    local deposit=PlanPersonalPreset(key,quantityFor,carry,bank,false)
+    local withdraw=PlanPersonalPreset(key,quantityFor,carry,bank,true)
+    return deposit,withdraw
 end
 
 function D:TransferPreset(key,withdraw)
@@ -1285,8 +1313,7 @@ function D:TransferPreset(key,withdraw)
     if not quantityFor then return false end
     local carry,bank=ReadyTransferBags()
     if not carry then return false end
-    if withdraw==true then return StartTransfer(B.Model:List(bank),"bags",carry,quantityFor,key) end
-    return StartTransfer(B.Model:List(carry),"bank",bank,quantityFor,key)
+    return StartTransfer(PlanPersonalPreset(key,quantityFor,carry,bank,withdraw==true))
 end
 
 function D:TransferCategory(window,section,group)
@@ -1301,7 +1328,7 @@ function D:TransferCategory(window,section,group)
     local carry,bank=ReadyTransferBags()
     if not carry or not window.open then return false end
     local items=B.Model:List(withdrawing and bank or carry)
-    return StartTransfer(items,withdrawing and "bags" or "bank",withdrawing and carry or bank,function(item)
+    local steps,total=PlanTransfer(items,withdrawing and "bags" or "bank",withdrawing and carry or bank,function(item)
         if item.section~=section and not (section=="other" and item.section=="system") then return end
         local itemGroup=section=="other" and item.group=="" and "misc" or item.group
         if group and group~="" and itemGroup~=group then return end
@@ -1309,6 +1336,7 @@ function D:TransferCategory(window,section,group)
         if pinned and pinned.itemID==item.itemID and pinned.link==item.link then return end
         if B.Classification:Matches(item,window.query) then return item.count end
     end)
+    return StartTransfer(steps,total)
 end
 -- Capture the candidates at dispatch time. The selected tab may change before Flush.
 function D:MarkGuildSlots(locks)

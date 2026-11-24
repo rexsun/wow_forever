@@ -499,7 +499,7 @@ function Data:LoadPlayerFactionPoints()
     Data:RegisterGroup(1439, "travel.boat.darnassus", nil, {
         "map1439.point.035", 0.3317, 0.3974,
     })
-    Data:RegisterGroup(1439, "travel.boat.menethil_southshore", nil, {
+    Data:RegisterGroup(1439, "travel.boat.auberdine_menethil", nil, {
         "map1439.point.034", 0.3238, 0.4388,
     })
     Data:RegisterGroup(1453, "travel.boat.auberdine", nil, {
@@ -508,14 +508,39 @@ function Data:LoadPlayerFactionPoints()
     Data:RegisterGroup(1437, "travel.boat.theramore", nil, {
         "map1437.point.025", 0.0558, 0.6363,
     })
-    Data:RegisterGroup(1424, "travel.boat.auberdine_menethil", nil, {
+    Data:RegisterGroup(1424, "travel.boat.southshore_auberdine", nil, {
         "map1424.point.028", 0.5070, 0.6980,
     })
-    Data:RegisterGroup(1437, "travel.boat.southshore_auberdine", nil, {
+    Data:RegisterGroup(1437, "travel.boat.menethil_southshore", nil, {
         "map1437.point.032", 0.0473, 0.5706,
     })
     Data:RegisterGroup(1438, "travel.boat.auberdine", nil, {
         "map1438.point.036", 0.5490, 0.9634,
+    })
+    -- 国服 1.60.1.71037 的交通停靠坐标。
+    Data:RegisterGroup(1413, "travel.boat.booty_bay", nil, {
+        "forever.1413.travel.boat.booty_bay", 0.6380, 0.3875,
+    })
+    Data:RegisterGroup(1434, "travel.boat.ratchet", nil, {
+        "forever.1434.travel.boat.ratchet", 0.2567, 0.7308,
+    })
+    Data:RegisterGroup(1446, "travel.boat.powderfuse", nil, {
+        "forever.1446.travel.boat.powderfuse", 0.6858, 0.2299,
+    })
+    Data:RegisterGroup(2548, "travel.boat.steamwheedle", nil, {
+        "forever.2548.travel.boat.steamwheedle", 0.8060, 0.5461,
+    })
+    Data:RegisterGroup(1444, "travel.boat.forgotten_coast", nil, {
+        "forever.1444.travel.boat.forgotten_coast", 0.3101, 0.3951,
+    })
+    Data:RegisterGroup(1444, "travel.boat.feathermoon", nil, {
+        "forever.1444.travel.boat.feathermoon", 0.4313, 0.4276,
+    })
+    Data:RegisterGroup(1445, "travel.boat.menethil", nil, {
+        "forever.1445.travel.boat.menethil", 0.7173, 0.5666,
+    })
+    Data:RegisterGroup(1416, "travel.zeppelin.map2521", nil, {
+        "forever.1416.travel.zeppelin.map2521", 0.1283, 0.5117,
     })
     Data:RegisterGroup(1438, "travel.portal.darnassus", nil, {
         "map1438.point.039", 0.5596, 0.8976,

@@ -7,7 +7,8 @@ local API = YUI.API.LootRoll
 local Appearance = GUI.WindowAppearance
 local ROW_HEIGHT, ROW_GAP, FOOTER_HEIGHT = 42, 2, 28
 local ROW_STRIDE = ROW_HEIGHT + ROW_GAP
-local QUEUE_ITEM_X, QUEUE_VOTE_INSET, ITEM_NAME_SIZE = ROW_HEIGHT + 5, 90, 14
+local QUEUE_ITEM_X, QUEUE_VOTE_INSET, ITEM_NAME_SIZE = ROW_HEIGHT + 5, 106, 14
+local VOTE_BUTTON_WIDTH, VOTE_BUTTON_GAP = 24, 12
 local QUEUE_ITEM_INSET = QUEUE_ITEM_X + QUEUE_VOTE_INSET
 local MAX_VISIBLE, ROW_POOL_SIZE = 12, 24
 local HISTORY_PAGE_SIZE, HISTORY_WIDTH = 10, 592
@@ -28,7 +29,7 @@ local TRACK_HEIGHT = 3
 local TRACK_RED, TRACK_GREEN, TRACK_BLUE = 0.85, 0.66, 0.27
 local TRACK_PIXEL_POLICY = { snapToPixelGrid = true }
 local HISTORY_FILTER_ICON_CROP = { 0.08, 0.92, 0.08, 0.92 }
-local V = {}
+local V = { DEFAULT_HISTORY_FONT_SIZE = 14 }
 YUI.LootRollView = V
 local stateKeys = { [0] = "main", [1] = "off", [2] = "transmog", [3] = "greed", [4] = "waiting", [5] = "pass" }
 local rollStates = Enum and Enum.EncounterLootDropRollState
@@ -63,14 +64,15 @@ local function NaturalWidth(region)
 end
 local function FitQueueName(text, name, width)
     local nameChanged = text:GetText() ~= name
-    if not nameChanged and text:GetWidth() == width then return end
+    if not nameChanged and text:GetWidth() == width and not text.lootFontChanged then return end
+    text.lootFontChanged = nil
     if nameChanged then text:SetText(name) end
     text:SetWidth(width)
     local currentScale = text:GetTextScale()
     local fullWidth = text:GetUnboundedStringWidth() / currentScale
     local scale = math.min(1, (width - 2) / math.max(1, fullWidth))
     if scale ~= currentScale then text:SetTextScale(scale) end
-    local scaleStep = 1 / ITEM_NAME_SIZE
+    local scaleStep = 1 / (text.lootFontSize or ITEM_NAME_SIZE)
     while scale > scaleStep and text:IsTruncated() do
         scale = math.max(scaleStep, scale - scaleStep)
         text:SetTextScale(scale)
@@ -258,12 +260,16 @@ function V.New(controller, placement)
         batchSerial = controller.model.serial, pulsed = setmetatable({}, { __mode = "k" }), pulseDeadlines = {} }
     local hud = GUI:CreateFrame(UIParent, { name = "YUILootRollHUD", width = controller.config.width, height = 290, strata = "DIALOG", clamped = true, mouse = false })
     self.hud = hud
-    self.previewLabel = Font(hud, 13)
-    self.previewLabel:SetPoint("BOTTOMLEFT", hud, "TOPLEFT", 0, 4)
+    -- Layout 保存 UIParent 单位的位置和边界；缩放只作用于内部队列。
+    local content = GUI:CreateFrame(hud, { width = controller.config.width, height = 290, mouse = false })
+    self.content = content
+    content:SetPoint("TOPLEFT", hud, "TOPLEFT", 0, 0)
+    self.previewLabel = Font(content, 13)
+    self.previewLabel:SetPoint("BOTTOMLEFT", content, "TOPLEFT", 0, 4)
     Text(self.previewLabel, L["preview.label"]); self.previewLabel:Hide()
     local anchor, offset = placement.anchor, placement.offset
     hud:SetPoint(anchor.point, UIParent, anchor.relativePoint, offset.x, offset.y)
-    local footer = GUI:CreateFrame(hud, { height = FOOTER_HEIGHT, mouse = true })
+    local footer = GUI:CreateFrame(content, { height = FOOTER_HEIGHT, mouse = true })
     self.footer, self.more = footer, Font(footer, 13)
     BindMotion(self, footer)
     self.more:SetPoint("LEFT", 0, 0)
@@ -380,7 +386,8 @@ function V.New(controller, placement)
         if stripe then row.item:SetPoint("TOPLEFT", itemX, -5)
         elseif result then row.item:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 6, 0)
         else row.item:SetPoint("LEFT", row, "LEFT", QUEUE_ITEM_X, 0) end
-        row.name, row.meta = Font(row.item, ITEM_NAME_SIZE), Font(row.item, 12)
+        row.name = Font(row.item, stripe and V.DEFAULT_HISTORY_FONT_SIZE or ITEM_NAME_SIZE)
+        row.meta = Font(row.item, 12)
         row.timerText = Font(row.item, 12); row.timerText:SetWidth(TIMER_TEXT_WIDTH); row.timerText:SetJustifyH("LEFT")
         row.timerText:SetPoint("LEFT", row.meta, "RIGHT", 5, 0)
         row.timerText:SetTextColor(GUI:GetColor("color.text.secondary"))
@@ -411,8 +418,8 @@ function V.New(controller, placement)
             row.buttons = {}
             local voteDown, voteClick = BindRowClick(self, row, true)
             for i = 1, 3 do
-                local button = GUI:CreateButtonFrame(row, { width = 24, height = 26, clicks = "LeftButtonUp" })
-                button:SetPoint("RIGHT", row, "RIGHT", -3 - (3 - i) * 28, -2)
+                local button = GUI:CreateButtonFrame(row, { width = VOTE_BUTTON_WIDTH, height = 26, clicks = "LeftButtonUp" })
+                button:SetPoint("RIGHT", row, "RIGHT", -3 - (3 - i) * (VOTE_BUTTON_WIDTH + VOTE_BUTTON_GAP), -2)
                 button.count = Font(button, 20); button.count:SetFont(DAMAGE_TEXT_FONT or STANDARD_TEXT_FONT, 20, "OUTLINE")
                 button.count:SetPoint("TOP", 0, 5)
                 button:SetScript("OnMouseDown", voteDown)
@@ -434,13 +441,13 @@ function V.New(controller, placement)
     end
     self.createItem = CreateItem
     for index = 1, ROW_POOL_SIZE do
-        local row = CreateItem(hud)
+        local row = CreateItem(content)
         row.phase = "free"; row:Hide(); self.rowPool[index] = row
         BindMotion(self, row)
         V.SetRowInput(self, row, false)
     end
     function hud.UpdateGUI2PixelLayout(frame)
-        local height = math.max(GUI:GetPixelSize(frame), GUI:SnapLayoutBoundary(frame, TRACK_HEIGHT))
+        local height = math.max(GUI:GetPixelSize(content), GUI:SnapLayoutBoundary(content, TRACK_HEIGHT))
         for _, row in ipairs(self.rowPool) do row.track:SetHeight(height) end
     end
     table.insert(GUI.PixelObjects, hud)
@@ -512,7 +519,7 @@ end
 function V:SetRowPose(row, x, y, alpha)
     row.poseX, row.poseY, row.poseAlpha = x, y, alpha
     local point = self.growth == "up" and "BOTTOMLEFT" or "TOPLEFT"
-    row:ClearAllPoints(); row:SetPoint(point, self.hud, point, x, y); row:SetAlpha(alpha)
+    row:ClearAllPoints(); row:SetPoint(point, self.content, point, x, y); row:SetAlpha(alpha)
 end
 function V:FreeRow(row)
     if row.motion then local handle = row.motion; row.motion = nil; handle:Stop(false) end
@@ -606,7 +613,63 @@ function V:SetEditing(editing)
 end
 function V:GetMoverBounds()
     -- 包含图标外阴影与文字描边，不改变实际队列锚点。
-    return self.hud:GetWidth() + 12, self.hud:GetHeight() + 12, 0, 0
+    local padding = 12 * (self.queueScale or 1)
+    return self.hud:GetWidth() + padding, self.hud:GetHeight() + padding, 0, 0
+end
+local function ResolveFont(font, fallback)
+    local media = LibStub and LibStub("LibSharedMedia-3.0", true)
+    local path = media and media:Fetch("font", font, true)
+    return type(path) == "string" and path ~= "" and path or fallback
+end
+function V:ApplyQueueAppearance()
+    local config = self.controller.config
+    local font, size, countSize, scale = config.font, config.fontSize or 14,
+        config.countFontSize or 20, config.scale or 1
+    local changed = false
+    if self.queueScale ~= scale then
+        self.queueScale, changed = scale, true
+        self.content:SetScale(scale)
+        self.hud:SetSize(self.content:GetWidth() * scale, self.content:GetHeight() * scale)
+        self.hud:UpdateGUI2PixelLayout()
+    end
+    local fontChanged = self.queueFont ~= font
+    local countFontChanged = self.queueCountFont ~= config.countFont
+    local textChanged = fontChanged or self.queueFontSize ~= size
+    local countChanged = countFontChanged or self.queueCountSize ~= countSize
+    if not textChanged and not countChanged then return changed end
+    self.queueFont, self.queueFontSize, self.queueCountSize = font, size, countSize
+    self.queueCountFont = config.countFont
+    if fontChanged then
+        self.queueFontPath = ResolveFont(font, GUI:GetFont("font.family.body"))
+    end
+    if countFontChanged then
+        self.queueCountPath = ResolveFont(config.countFont, DAMAGE_TEXT_FONT or STANDARD_TEXT_FONT or GUI:GetFont("font.family.body"))
+    end
+    local path, countPath = self.queueFontPath, self.queueCountPath
+    for _, row in ipairs(self.rowPool) do
+        if textChanged then
+            row.name:SetFont(path, size, "OUTLINE")
+            row.name.lootFontSize, row.name.lootFontChanged = size, true
+            row.name:SetTextScale(1)
+            row.name:SetHeight(size + 2)
+            row.meta:SetFont(path, size - 2, "OUTLINE"); row.meta:SetHeight(size)
+            row.timerText:SetFont(path, size - 2, "OUTLINE")
+            row.timerText:SetWidth(math.ceil(TIMER_TEXT_WIDTH * (size - 2) / 12))
+            row.item:SetHeight(size * 2 + 2)
+            row.quantity:SetFont(path, size - 2, "OUTLINE")
+            row.voted:SetFont(path, size - 2, "OUTLINE")
+            row.binding:SetFont(path, math.max(8, size - 4), "OUTLINE")
+        end
+        if countChanged then
+            for _, button in ipairs(row.buttons) do button.count:SetFont(countPath, countSize, "OUTLINE") end
+        end
+    end
+    if textChanged then
+        self.previewLabel:SetFont(path, size - 1, "OUTLINE")
+        self.more:SetFont(path, size - 1, "OUTLINE")
+        self.settlingText:SetFont(path, size - 1, "OUTLINE")
+    end
+    return true
 end
 function V:Paint(row, r, result)
     if row.record and row.record ~= r then
@@ -652,7 +715,7 @@ function V:Paint(row, r, result)
             row.quantity:SetPoint("TOPRIGHT", 0, bindOnEquip and -7 or 2)
         end
     end
-    FitMetadata(row, result and 0 or TIMER_TEXT_WIDTH + 5)
+    FitMetadata(row, result and 0 or row.timerText:GetWidth() + 5)
     if details.equip == "usable" then row.meta:SetTextColor(0.12, 1, 0.18)
     elseif details.equip == "unusable" then row.meta:SetTextColor(1, 0.2, 0.2)
     else row.meta:SetTextColor(GUI:GetColor("color.text.secondary")) end
@@ -779,7 +842,8 @@ function V:RenderQueue(model, records, preview, showPending)
     self.tracked = tracked
     local capacity = math.max(3, math.min(MAX_VISIBLE, config.visibleItems or 6))
     if self.hoverKind == "summary" and self.capacity ~= capacity then self.offset = 0 end
-    local geometryChanged = self.capacity and (self.capacity ~= capacity or self.growth ~= config.growth or self.layoutWidth ~= config.width)
+    local geometryChanged = self.capacity and (self.appearanceChanged or self.capacity ~= capacity
+        or self.growth ~= config.growth or self.layoutWidth ~= config.width)
     local leavingPreview = self.displayPreview and not preview
     if geometryChanged or leavingPreview then self:StopMotion(false) end
     self.suppressMotion = self.editing or geometryChanged or leavingPreview
@@ -793,7 +857,9 @@ function V:RenderQueue(model, records, preview, showPending)
         else self.hud:SetFrameStrata(self.editing and "MEDIUM" or "DIALOG"); self.hud:SetFrameLevel(20) end
     end
     local up = config.growth == "up"
-    self.hud:SetSize(config.width, capacity * ROW_STRIDE - ROW_GAP + FOOTER_HEIGHT)
+    local height = capacity * ROW_STRIDE - ROW_GAP + FOOTER_HEIGHT
+    self.content:SetSize(config.width, height)
+    self.hud:SetSize(config.width * self.queueScale, height * self.queueScale)
     for record in pairs(self.desired) do self.desired[record] = nil end
     local count, previousCount = math.min(#pending, capacity), #self.rows
     for index = 1, count do self.desired[pending[index]] = true end
@@ -832,6 +898,7 @@ function V:RenderQueue(model, records, preview, showPending)
 end
 function V:Render()
     local controller = self.controller
+    self.appearanceChanged = self:ApplyQueueAppearance()
     local records
     if controller.active then
         records = M.List(controller.model)
@@ -1150,6 +1217,22 @@ function V:TurnHistoryPage(direction)
     self:CloseHover()
     self:RenderHistory()
 end
+function V:ApplyHistoryRowFonts()
+    local config = self.controller.config
+    local path = ResolveFont(config.historyFont, GUI:GetFont("font.family.body"))
+    local size = config.historyFontSize
+    local detailSize, resultSize, bindingSize = size - 2, size - 1, math.max(8, size - 4)
+    for _, row in ipairs(self.historyRows) do
+        row.name:SetFont(path, size, "OUTLINE")
+        row.meta:SetFont(path, detailSize, "OUTLINE")
+        row.binding:SetFont(path, bindingSize, "OUTLINE")
+        row.quantity:SetFont(path, detailSize, "OUTLINE")
+        row.score:SetFont(path, resultSize, "")
+        row.leader:SetFont(path, resultSize, "")
+        row.stamp:SetFont(path, detailSize, "")
+        row.source:SetFont(path, detailSize, "")
+    end
+end
 function V:OpenHistory()
     if API.IsConfirming() then self:YieldToConfirmation(); return false end
     if not self.history then
@@ -1235,20 +1318,14 @@ function V:OpenHistory()
                 Appearance:ApplyFont(self.historyPage, context); Appearance:ApplyFont(self.historyEmpty, context)
                 Appearance:ApplyFont(clear.text, context)
                 for _, button in ipairs(self.historyButtons) do Appearance:ApplyFont(button.text, context) end
-                for _, row in ipairs(self.historyRows) do
-                    for _, text in ipairs({ row.name, row.meta, row.binding }) do Appearance:ApplyFont(text, context) end
-                    for _, text in ipairs({ row.score, row.leader, row.stamp, row.source }) do
-                        Appearance:ApplyFont(text, context)
-                        local path, size = text:GetFont()
-                        if path then text:SetFont(path, size, "") end
-                        text:SetShadowColor(0, 0, 0, 0); text:SetShadowOffset(0, 0)
-                    end
-                end
+                self:ApplyHistoryRowFonts()
                 if history:IsShown() then self:RenderHistory() end
             end })
     end
     for _, filter in pairs(self.historyFilters) do filter:SetValue("all", true) end
-    self.page = 1; self:CloseHover(); self:RenderHistory(); Appearance:Refresh(self.history); self.history:Show(); BringToFront(self.history)
+    self.page = 1; self:CloseHover(); Appearance:Refresh(self.history)
+    if not self.history:IsShown() then self:RenderHistory() end
+    self.history:Show(); BringToFront(self.history)
     return true
 end
 function V:RenderHistory()

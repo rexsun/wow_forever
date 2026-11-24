@@ -12,7 +12,6 @@
     <Include file="CharacterEquipmentInfo\Locales\!load.xml"/>
     <Script file="CharacterEquipmentInfo\SlotOverlays.lua"/>
     <Script file="CharacterEquipmentInfo\ForeverSummary.lua"/>
-    <Script file="CharacterEquipmentInfo\ForeverTabs.lua"/>
     <Script file="CharacterEquipmentInfo\CharacterEquipmentInfo.lua"/>
     <Include file="CharacterStatsPanel\Locales\!load.xml"/>
     <Script file="CharacterStatsPanel\ForeverData.lua"/>
@@ -20,6 +19,9 @@
     <Script file="CharacterStatsPanel\CharacterStatsPanel.lua"/>
     <Script file="ChatBar\ChatBar.lua"/>
     <Script file="NativeInterface\NativeInterface.lua"/>
+    <Script file="CharacterEquipmentInfo\ForeverTabs.lua"/>
+    <Script file="NativeInterface\SocialCompactView_Forever.lua"/>
+    <Script file="NativeInterface\SocialList_Forever.lua"/>
     <Script file="NativeInterface\WindowList_Forever.lua"/>
     <Script file="NativeInterface\WindowMovement_Forever.lua"/>
     <Script file="NativeInterface\Visibility.lua"/>

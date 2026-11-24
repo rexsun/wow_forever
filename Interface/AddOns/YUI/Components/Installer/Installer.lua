@@ -706,23 +706,26 @@ local function DescribeAlignmentFailures(summary)
 end
 
 local function ApplyYUIEditModeLayout()
-    if YUI.IsForever and not YUI.EditMode:CanModifyLayouts() then return false end
     local latestName, latestVersion = YUI.EditMode:GetLatestYUILayout()
     local currentName = YUI.EditMode:GetCurrentLayoutName()
+    if YUI.IsForever then
+        local bestName, bestVersion = nil, latestVersion
+        for _, layout in ipairs(YUI.EditMode:GetAllLayouts() or {}) do
+            local version = YUI.EditMode:GetCurrentLayoutVersion(layout.layoutName)
+            if version > bestVersion then bestName, bestVersion = layout.layoutName, version end
+        end
+        if bestName then
+            if not YUI.EditMode:PrepareForInstall() then return false end
+            if currentName == bestName then return true end
+            return YUI.EditMode:SwitchLayoutByName(bestName) == true
+        end
+        return YUI.EditMode:ImportDefaultLayout(true) == true
+    end
     if latestName and currentName == latestName then
         return true
     end
 
     local layouts = YUI.EditMode:GetAllLayouts() or {}
-    if YUI.IsForever then
-        if YUI.EditMode:GetCurrentLayoutVersion(currentName) >= latestVersion then return true end
-        local bestName, bestVersion = nil, latestVersion - 1
-        for _, layout in ipairs(layouts) do
-            local version = YUI.EditMode:GetCurrentLayoutVersion(layout.layoutName)
-            if version > bestVersion then bestName, bestVersion = layout.layoutName, version end
-        end
-        if bestName then return YUI.EditMode:SwitchLayoutByName(bestName) == true end
-    end
     for _, layout in ipairs(layouts) do
         if latestName and layout.layoutName == latestName then
             return YUI.EditMode:SwitchLayoutByName(latestName) == true
@@ -818,7 +821,7 @@ table.insert(steps, {
             autoWidth = true,
             height = 28,
             checked = layoutStepSelection.importEditMode,
-            tooltip = LC["installer.text.032"],
+            tooltip = LC[YUI.IsForever and "installer.layout.replace.tooltip" or "installer.text.032"],
             onClick = function(_, checked)
                 layoutStepSelection.importEditMode = checked == true
                 RefreshExecuteAvailability()
@@ -1016,7 +1019,7 @@ table.insert(steps, {
             return false
         end
         if YUI.IsForever and layoutStepSelection.importEditMode then
-            local ready, reason = YUI.EditMode:CanModifyLayouts()
+            local ready, reason = YUI.EditMode:CanModifyLayouts(true)
             if not ready then
                 SetStatus(LC[reason == "editing" and "installer.layout.editing" or "installer.layout.not_ready"], "warning")
                 return false

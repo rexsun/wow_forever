@@ -86,10 +86,10 @@ Data.types = {
     ["travel.boat.menethil"] = { atlas = "FlightMasterFerry", labelKey = "travel.boat.menethil", category = "travel" },
     ["travel.boat.theramore"] = { atlas = "FlightMasterFerry", labelKey = "travel.boat.theramore", category = "travel" },
     ["travel.boat.auberdine"] = { atlas = "FlightMasterFerry", labelKey = "travel.boat.auberdine", category = "travel" },
-    ["travel.boat.southshore_auberdine"] = { atlas = "FlightMasterFerry", labelKey = "travel.boat.southshore_auberdine", category = "travel" },
-    ["travel.boat.menethil_southshore"] = { atlas = "FlightMasterFerry", labelKey = "travel.boat.menethil_southshore", category = "travel" },
+    ["travel.boat.southshore_auberdine"] = { atlas = "FlightMasterFerry", labelKey = "travel.boat.southshore_auberdine", tooltipKey = "travel.boat.menethil_loop.description", category = "travel" },
+    ["travel.boat.menethil_southshore"] = { atlas = "FlightMasterFerry", labelKey = "travel.boat.menethil_southshore", tooltipKey = "travel.boat.menethil_loop.description", category = "travel" },
     ["trainer.portal"] = { atlas = "MagePortalAlliance", factionAtlases = { Alliance = "MagePortalAlliance", Horde = "MagePortalHorde" }, labelKey = "trainer.portal", category = "trainer", class = "MAGE" },
-    ["travel.boat.auberdine_menethil"] = { atlas = "FlightMasterFerry", labelKey = "travel.boat.auberdine_menethil", category = "travel" },
+    ["travel.boat.auberdine_menethil"] = { atlas = "FlightMasterFerry", labelKey = "travel.boat.auberdine_menethil", tooltipKey = "travel.boat.menethil_loop.description", category = "travel" },
     ["travel.portal.darnassus"] = { atlas = "MagePortalAlliance", labelKey = "travel.portal.darnassus", category = "travel" },
     ["travel.portal.ruttheran"] = { atlas = "MagePortalAlliance", labelKey = "travel.portal.ruttheran", category = "travel", tooltipKey = "travel.portal.ruttheran.description" },
     ["travel.harbor"] = { atlas = "FlightMasterFerry", labelKey = "travel.harbor", category = "travel", icon = "Interface\\Icons\\Spell_Arcane_TeleportStormWind" },
@@ -99,6 +99,12 @@ if YUI.IsForever then
     Data.types["travel.dalaran"].tooltipKey = "travel.dalaran.description"
     Data.types["travel.zeppelin.thunder_bluff"] = { atlas = "FlightMasterFerry", labelKey = "travel.zeppelin.thunder_bluff", tooltipKey = "travel.zeppelin.thunder_bluff.description", category = "travel" }
     Data.types["travel.zeppelin.map2521"] = { atlas = "FlightMasterFerry", labelKey = "travel.zeppelin.map2521", tooltipKey = "travel.zeppelin.map2521.description", category = "travel" }
+    Data.types["travel.boat.booty_bay"] = { atlas = "FlightMasterFerry", labelKey = "travel.boat.booty_bay", category = "travel" }
+    Data.types["travel.boat.ratchet"] = { atlas = "FlightMasterFerry", labelKey = "travel.boat.ratchet", category = "travel" }
+    Data.types["travel.boat.powderfuse"] = { atlas = "FlightMasterFerry", labelKey = "travel.boat.powderfuse", category = "travel" }
+    Data.types["travel.boat.steamwheedle"] = { atlas = "FlightMasterFerry", labelKey = "travel.boat.steamwheedle", category = "travel" }
+    Data.types["travel.boat.feathermoon"] = { atlas = "FlightMasterFerry", labelKey = "travel.boat.feathermoon", category = "travel" }
+    Data.types["travel.boat.forgotten_coast"] = { atlas = "FlightMasterFerry", labelKey = "travel.boat.forgotten_coast", category = "travel" }
 end
 if YUI.IsRetail then
     Data.types["collection.black_market"] = { labelKey = "poi.recorded.2393.023", category = "collection", icon = "Interface\\Icons\\INV_Misc_Gift_01" }

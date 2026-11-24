@@ -595,6 +595,8 @@ YUI.Locale:Register("YActionBar", "enUS", {
     ["camp.resting"] = "Cozy Campfire",
     ["camp.benefits"] = "Camping benefits",
     ["camp.keep_resting"] = "Remain seated.",
+    ["camp.nearby_facility_count"] = "Nearby facility types identified: %d",
+    ["camp.nearby_facility_unknown"] = "Nearby facility count unknown.",
     ["camp.refresh"] = "Click to sit again.",
     ["camp.sit_help"] = "Click to sit and wait for the campfire timer.",
     ["camp.waiting_short"] = "Wait",

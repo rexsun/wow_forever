@@ -564,9 +564,9 @@ local function ReadPurchasedPersonalBankTabs()
 end
 local bankPanelHook,finishedPersonalBank,trackedPersonalBank
 local bankWindowShownCallbacks={}
-function A.IsOpeningFirstPersonalBank()
+function A.IsOpeningFirstPersonalBank(beforeShow)
     local frame=BankFrame
-    if not bankPanelHook or finishedPersonalBank==frame or not Visible(frame) then return false end
+    if not bankPanelHook or not frame or finishedPersonalBank==frame or (not beforeShow and not Visible(frame)) then return false end
     local purchased=ReadPurchasedPersonalBankTabs()
     return not purchased or purchased<1
 end
@@ -611,6 +611,13 @@ local function CharacterBankSockets()
     if not YUI.IsForever or not A.BankWindowShown("bank") or not (Enum and Enum.BagIndex and Enum.BankType and C_Bank)
         or Call(BankFrame.GetActiveBankType,BankFrame)~=Enum.BankType.Character then return end
     return Number(Enum.BagIndex.Characterbanktab),Enum.BankType.Character
+end
+function A.CanActivateFreePersonalBankTab()
+    local _,bankType=CharacterBankSockets()
+    if bankType==nil or ReadPurchasedPersonalBankTabs()~=0
+        or S.SafeBoolean(Call(C_Bank.CanPurchaseBankTab,bankType))~=true then return false end
+    local offer=Call(C_Bank.FetchNextPurchasableBankTabData,bankType)
+    return ReadableTable(offer) and Number(offer.tabCost)==0
 end
 function A.BankBagBar()
     local container,bankType=CharacterBankSockets()

@@ -102,6 +102,7 @@ function W:Select(w,tab)
     if w.liveBank~="guild" or A.InCombat() or B.Actions.queue or B.Actions.nativeSort or not SessionOpen("guild") then return false end
     if A.CursorBusy() and (not tab or not A.CursorItem() or w.guildMode~="items") then return false end
     if tab and not B.Deposit:SelectGuildTab(tab) then return false end
+    self:ClearPresetPreview()
     if not tab then B.Deposit:RequestGuildPages() end
     B.GuildServices:ClearTabTooltip(w)
     self:CancelGuildSplit()
@@ -589,6 +590,9 @@ local function UpdateGuildPresets(w)
     end
 end
 function W:UpdateBankControls(queueChanged)
+    if self.presetHover and (A.InCombat() or A.CursorBusy() or B.Actions.queue or B.Actions.nativeSort) then
+        self:ClearPresetPreview()
+    end
     local guild=V.windows["live-guild"]
     UpdateGuildPresets(guild)
     -- CURSOR_CHANGED can arrive before the final deposit receipt clears the queue.
@@ -740,15 +744,21 @@ function W:LayoutHeader(w,width,m)
     B.GuildServices:Layout(w,width,m)
 end
 
-local function GuildPresetTooltip(owner,w,key)
+local function PresetAction(key,steps)
+    local count,slots,sources=B.Deposit.PresetSources(steps)
+    return string.format(B:T(key),count,slots),slots>0 and sources or nil
+end
+
+local function GuildPresetActions(w,key)
     local tab=w.pageInfo
-    if not tab then return end
     local depositText,withdrawText
+    local deposit,withdraw
     if V:CanQuickGuildDeposit(w) then
-        local _,count,_,requested=B.Deposit:Plan("guild",B:GetConfig().deposit.guild,nil,tab.id,key)
-        local direct=tab.limit==-1 and tab.remaining==-1 and not V:GuildBatchNeedsReview(requested,requested and count and requested>count)
-        local action=direct and "bank.guild_deposit_now" or "bank.guild_review_list"
-        depositText=count~=nil and string.format(B:T(action),count) or B:T("deposit.count_pending")
+        local steps,count,_,requested=B.Deposit:Plan("guild",B:GetConfig().deposit.guild,nil,tab.id,key)
+        if count~=nil then
+            local direct=tab.limit==-1 and tab.remaining==-1 and not V:GuildBatchNeedsReview(requested,requested and requested>count)
+            depositText,deposit=PresetAction(direct and "bank.guild_deposit_now" or "bank.guild_review_list",steps)
+        else depositText=B:T("deposit.count_pending") end
     elseif not tab.deposit then
         depositText=B:T("bank.preset_no_deposit")
     else
@@ -761,16 +771,52 @@ local function GuildPresetTooltip(owner,w,key)
     elseif tab.remaining==nil or tab.limit==nil then
         withdrawText=B:T("bank.guild_quota_pending")
     else
-        local count,ready,requested,spaceShort=B.Deposit:CountGuildWithdrawPreset(tab.id,key)
-        local action=V:GuildBatchNeedsReview(requested,spaceShort) and "bank.guild_review_withdraw" or "bank.preset_withdraw"
-        withdrawText=ready and string.format(B:T(action),count) or B:T("deposit.count_pending")
+        local steps,_,requested,spaceShort=B.Deposit:PlanGuildWithdrawPreset(tab.id,key)
+        if steps then
+            local action=V:GuildBatchNeedsReview(requested,spaceShort) and "bank.guild_review_withdraw" or "bank.preset_withdraw"
+            withdrawText,withdraw=PresetAction(action,steps)
+        else withdrawText=B:T("deposit.count_pending") end
     end
-    G.Tooltip:Show(owner,{anchor="ANCHOR_TOP",title=owner.tooltip,actions={
+    return depositText,withdrawText,deposit,withdraw
+end
+
+function W:ClearPresetPreview(owner)
+    local hover=self.presetHover
+    if not hover or owner and owner~=hover.owner then return end
+    self.presetHover=nil
+    V:ClearPresetPreview()
+    G.Tooltip:Hide(hover.owner)
+end
+
+function W:RefreshPresetPreview()
+    local hover=self.presetHover
+    if not hover then return end
+    local w,owner,key=hover.window,hover.owner,hover.key
+    local guild=w.liveBank=="guild"
+    if not w.open or not owner:IsShown() or guild and (w.guildMode~="items" or w.page~=hover.page or not w.pageInfo) then
+        self:ClearPresetPreview()
+        return
+    end
+    local depositText,withdrawText,deposit,withdraw
+    if guild then
+        depositText,withdrawText,deposit,withdraw=GuildPresetActions(w,key)
+    else
+        local incoming,outgoing=B.Deposit:PreviewPreset(key)
+        if incoming then
+            depositText,deposit=PresetAction("bank.preset_deposit",incoming)
+            withdrawText,withdraw=PresetAction("bank.preset_withdraw",outgoing)
+        end
+    end
+    if deposit or withdraw then V:ShowPresetPreview(w,deposit,withdraw) else V:ClearPresetPreview() end
+    hover.pending=not depositText
+    if hover.rendered and hover.depositText==depositText and hover.withdrawText==withdrawText then return end
+    hover.rendered,hover.depositText,hover.withdrawText=true,depositText,withdrawText
+    local actions=depositText and {
         {button="LeftButton",text=depositText,textTone="heading"},
         {button="RightButton",text=withdrawText,textTone="heading"},
-    },footer={text=B:T("bank.guild_batch_beta"),tone="requirement",spaceBefore=true},content=function(body)
-        body:AddLine(string.format(B:T("guild.service.quickTarget"),TabName(tab)))
-    end})
+    }
+    G.Tooltip:Show(owner,{anchor="ANCHOR_TOP",title=owner.tooltip,actions=actions,
+        content=not actions and function(body) body:AddLine(B:T("bank.loading"),"secondary") end or nil})
 end
 
 local function SetupBankPresets(w)
@@ -781,9 +827,8 @@ local function SetupBankPresets(w)
         local button=B.Appearance:Icon(w.root,{asset=asset,command="toolbar"})
         button:SetWidth(B.Appearance.toolbarStep)
         button.tooltip=string.format(B:T("bank.preset_title"),B:T("bank.preset."..key))
-        button.detail=B:T("bank.preset_hint."..key)
         w.presets[n]=SetupCommand(button,function(_,mouse)
-            G.Tooltip:Hide(button)
+            W:ClearPresetPreview()
             if guild then
                 if w.open and w.guildMode=="items" and w.page and not (V.guildDepositDialog and V.guildDepositDialog:IsShown()) then
                     V:QuickGuildPreset(button,w,key,mouse=="RightButton")
@@ -795,22 +840,12 @@ local function SetupBankPresets(w)
             button:SetPoint("RIGHT",w.search,"LEFT",-8-(#presets-n)*B.Appearance.toolbarStep,0)
         end
         button:SetScript("OnEnter",function(owner)
-            if guild then return GuildPresetTooltip(owner,w,key) end
-            local deposit,depositReady=B.Deposit:CountPreset(key,false)
-            local withdraw,withdrawReady=B.Deposit:CountPreset(key,true)
-            local actions
-            if depositReady and withdrawReady then
-                actions={
-                    {button="LeftButton",text=string.format(B:T("bank.preset_deposit"),deposit),textTone="heading"},
-                    {button="RightButton",text=string.format(B:T("bank.preset_withdraw"),withdraw),textTone="heading"},
-                }
-            end
-            G.Tooltip:Show(owner,{anchor="ANCHOR_TOP",title=owner.tooltip,actions=actions,content=function(body)
-                body:AddLine(owner.detail)
-                if not actions then body:AddLine(B:T("bank.loading"),"secondary") end
-            end})
+            W:ClearPresetPreview()
+            W.presetHover={owner=owner,window=w,key=key,page=w.page}
+            W:RefreshPresetPreview()
         end)
-        button:SetScript("OnLeave",function(owner) G.Tooltip:Hide(owner) end)
+        button:SetScript("OnLeave",function(owner) W:ClearPresetPreview(owner) end)
+        button:SetScript("OnHide",function(owner) W:ClearPresetPreview(owner) end)
     end
 end
 local function SetupPersonalBank(w)
@@ -877,6 +912,7 @@ function W:Refresh(kind,rebuild)
     if not w or not w.open or A.InCombat() or not SessionOpen(kind) then return end
     local current=kind=="guild" and A.CurrentGuildTab()
     if current and w.page and w.page~=current then
+        self:ClearPresetPreview()
         B.GuildServices:ClearTabTooltip(w)
         self:CancelGuildSplit()
         B.GuildInventory:Clear(w)
@@ -886,8 +922,28 @@ function W:Refresh(kind,rebuild)
     V:Layout(w,rebuild or kind=="guild")
 end
 
+function W:RefreshFirstBankActivation(blocked)
+    local button=self.firstBankActivation
+    local available=blocked and not A.InCombat() and A.CanActivateFreePersonalBankTab()
+    if available and (not button or button:GetParent()~=BankFrame) then
+        local frame=BankFrame
+        button=G:CreateButtonFrame(frame,{width=220,height=24,hidden=true,clicks="LeftButtonUp",
+            template="BankPanelPurchaseButtonScriptTemplate, UIPanelButtonTemplate",frameLevel=frame:GetFrameLevel()+10})
+        if not A.InitBankBagPurchase(button) then return end
+        button:SetText(B:T("bank.activate_free"))
+        button:SetPoint("CENTER",frame,"CENTER",0,-35)
+        self.firstBankActivation=button
+        -- The native click opens the confirmation. A bank-type change withdraws this offer immediately.
+        YUI.API.Security.SafeHook("YBags.FirstBankActivation",frame,"SetTab",function()
+            if button:IsShown() then button:Hide() end
+            if B.Runtime.bankPurchaseBlocked then B:QueueFlush() end
+        end)
+    end
+    if button and button:IsShown()~=(available==true) then button:SetShown(available==true) end
+end
+
 function W:Close(kind)
-    if kind=="bank" then self:DropBagDrag() end
+    if kind=="bank" then self:RefreshFirstBankActivation(false);self:DropBagDrag() end
     A.RestoreBankWindow(kind)
     local w=V.windows["live-"..kind]
     if w and w.open then w.root:Hide() end

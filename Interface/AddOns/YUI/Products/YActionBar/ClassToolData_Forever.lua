@@ -22,7 +22,7 @@ Data.catalog.totems = {
     shield = { mode = "cast", hoverMenu = 7, shield = true, families = { Family(324,325,905,945,8134,10431,10432), {408510}, {408514,408519} } },
 }
 Data.catalog.warlockTools = {
-    demon = { mode = "cast", pet = true, counter = 6265, families = { {688},{697},{712},{691} } },
+    demon = { mode = "cast", pet = true, counter = 6265, families = { {688},{697},{712},{691},{713} } },
     healthstone = { stone = true, families = { Family(6201,6202,5699,11729,11730) },
         items = {5512,19004,19005,5511,19006,19007,5509,19008,19009,5510,19010,19011,9421,19012,19013} },
     soulstone = { stone = true, friend = true, binding = true, boundAuras = {20707,20762,20763,20764,20765}, families = { Family(693,20752,20755,20756,20757) },
@@ -105,7 +105,7 @@ Data.cityKeys = { [3561] = "stormwind", [10059] = "stormwind", [3562] = "ironfor
     [3563] = "undercity", [11418] = "undercity", [3566] = "thunderbluff", [11420] = "thunderbluff",
     [1297659] = "dalaran" }
 for spell, key in pairs(Data.cityKeys) do Data.reagents[spell] = { itemID = key and (spell < 10000 or spell == 1297659) and 17031 or 17032, count = 1 } end
-for _, spell in ipairs({693,697,698,691,712,5699,6201,6202,11730,11729,20752,20755,20756,20757,
+for _, spell in ipairs({693,697,698,691,712,713,5699,6201,6202,11730,11729,20752,20755,20756,20757,
     6366,17951,17952,17953,2362,17727,17728}) do
     Data.reagents[spell] = { itemID = 6265, count = 1 }
 end

@@ -206,8 +206,6 @@ YUI.Locale:Register("CharacterEquipmentInfo", "enUS", {
     ["section.durability"] = "Durability",
     ["section.summary"] = "Equipment summary",
     ["settings.enabled"] = "Enabled",
-    ["settings.bottom_tabs"] = "Bottom tabs",
-    ["settings.bottom_tabs.help"] = "Move character and inspect navigation to the bottom. Disable to restore the original position. Tab clicks and conditional entries follow the game's rules. Layout changes wait until combat ends.",
     ["tabs.character"] = "Character",
     ["tabs.reputation"] = "Reputation",
     ["tabs.skills"] = "Skills",

@@ -38,6 +38,15 @@ local RETAIL_DEFAULTS = {
     suppressSupertrackTutorial = true,
 }
 
+local FOREVER_WINDOW_DEFAULTS = {
+    friendsEnhancementEnabled = true,
+    socialListCompact = true,
+    currentGameFirst = true,
+    socialFontSize = 14,
+    characterEnhancementEnabled = true,
+    characterBottomTabs = true,
+}
+
 local COMMON_KEYS = {
     hideStatusTrackingBars = true,
     hideMicroMenu = true,
@@ -50,6 +59,10 @@ local RETAIL_KEYS = {
     managePowerBarWidget = true,
     suppressSupertrackTutorial = true,
 }
+
+function Native:IsValidSocialFontSize(size)
+    return type(size) == "number" and size >= 11 and size <= 18 and size == math.floor(size)
+end
 
 local function ApplyDefaults(config)
     if type(rawget(config, "manageBagsBar")) ~= "boolean" then
@@ -79,6 +92,13 @@ local function ApplyDefaults(config)
     if YUI.IsForever == true and type(config.manageErrorMessages) ~= "boolean" then
         config.manageErrorMessages = false
     end
+    if YUI.IsForever == true then
+        for key, value in pairs(FOREVER_WINDOW_DEFAULTS) do
+            if key == "socialFontSize" then
+                if not Native:IsValidSocialFontSize(config[key]) then config[key] = value end
+            elseif type(rawget(config, key)) ~= "boolean" then config[key] = value end
+        end
+    end
     for key, value in pairs(COMMON_DEFAULTS) do
         if config[key] == nil then config[key] = value end
     end
@@ -100,6 +120,7 @@ local function ApplyDefaults(config)
 end
 
 function Native:IsOptionSupported(key)
+    if FOREVER_WINDOW_DEFAULTS[key] ~= nil then return YUI.IsForever == true end
     if key == "manageErrorMessages" then return YUI.IsForever == true end
     if key == "hideRaidManager" then return YUI.IsForever == true end
     if key == "compactBetaReporter" or key == "fixBagSortButton" or key == "fixProfessionsIcon" or key == "questLootSparkles" then return YUI.IsForever == true end
@@ -108,6 +129,7 @@ function Native:IsOptionSupported(key)
 end
 
 function Native:GetOptionDefault(key)
+    if YUI.IsForever == true and FOREVER_WINDOW_DEFAULTS[key] ~= nil then return FOREVER_WINDOW_DEFAULTS[key] end
     if key == "manageErrorMessages" and YUI.IsForever == true then return false end
     if key == "hideRaidManager" and YUI.IsForever == true then return false end
     if (key == "compactBetaReporter" or key == "fixBagSortButton" or key == "fixProfessionsIcon" or key == "questLootSparkles") and YUI.IsForever == true then return true end
@@ -131,6 +153,103 @@ function Native:GetConfig()
     return ApplyDefaults(config)
 end
 
+local skinKeys = { friends = "socialui", character = "charsheet", inspect = "inspect" }
+local windowFrames = { friends = "SocialUIFrame", character = "CharacterFrame", inspect = "InspectFrame" }
+local function ReadExternal(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, value = pcall(fn, ...)
+    if not ok then return nil end
+    local security = YUI.API and YUI.API.Security
+    if security and security.IsSecretValue and security.IsSecretValue(value) then return nil end
+    return value
+end
+
+local function WindowSkinController(key)
+    local ui = _G.EllesmereUI
+    local modules = ui and ui._ModuleNS
+    if not modules or _G.EUI_CLIENT_BLOCKED then return end
+    local skin = modules.EllesmereUIBlizzardSkin
+    if key == "friends" then
+        local tile = ui.FriendsKit and ui.FriendsKit._tile
+        local host = tile and ReadExternal(tile.Host)
+        if host and host.fontKey == "friends" and modules.EllesmereUIFriends then
+            local profile = ReadExternal(host.Settings)
+            if profile and profile.enabled == true then return "EllesmereUI Friends" end
+        end
+        if not (skin and ui.IS_FOREVER == true) then return end
+        -- The native card hooks survive a reload-pending style change. A
+        -- stock-style host can also run just the independently toggled list.
+        local decorated = host and host.fontKey == "blizzardSkin" and host.cards == true
+        local list = ui.FriendsList
+        local style = ReadExternal(ui.GetBlizzWindowStyle, "socialui")
+        if decorated or style == "eui" or style == "modern" or style == "blizzard"
+            or (style == "off" and ReadExternal(skin.FriendsCardGet, "customTiles") == true
+                and list and ReadExternal(list.Available) == true) then
+            return "EllesmereUI Blizzard Skins+"
+        end
+    elseif skin and ui.IS_FOREVER == true then
+        local style = ReadExternal(ui.GetBlizzWindowStyle, skinKeys[key])
+        if style ~= "modern" and style ~= "eui" and style ~= "blizzard" then return end
+        -- Inspect uses its own enable key and the character sheet's latched
+        -- look. Avoid calling CharSheetStyle before the provider latches it.
+        local db = _G.EllesmereUIDB
+        local looks = db and db.blizzWindowSkinStyles
+        local sheetStyle = skin._csStyle or (looks and looks.charsheet)
+        if not sheetStyle and key == "character" then sheetStyle = style end
+        if sheetStyle == nil or sheetStyle == "eui" or sheetStyle == "modern" then return "EllesmereUI Blizzard Skins+" end
+    end
+end
+
+local function ProfileSkinController(key)
+    local engine = _G.ElvUI and _G.ElvUI[1]
+    local skins = engine and engine.private and engine.private.skins
+    local windows = skins and skins.blizzard
+    if not windows or windows.enable ~= true or windows[key] ~= true or engine.Initialized ~= true
+        or (key == "friends" and engine.Modern ~= true) then return end
+    local module = ReadExternal(engine.GetModule, engine, "Skins", true)
+    if module and module.Initialized == true then return "ElvUI" end
+end
+
+function Native:GetWindowEnhancementController(key)
+    if not YUI.IsForever or not skinKeys[key] then return nil end
+    if self.HasObservedWindowSkin and self:HasObservedWindowSkin(_G[windowFrames[key]]) then
+        return "EllesmereUI Blizzard Skins+"
+    end
+    return ReadExternal(WindowSkinController, key) or ReadExternal(ProfileSkinController, key)
+end
+
+local lastFriends, lastCharacter, lastInspect
+local function ApplyWindowOptions(native, config, forceFriends, forceCharacter)
+    local friends = native:GetWindowEnhancementController("friends")
+    local character = native:GetWindowEnhancementController("character")
+    local inspect = native:GetWindowEnhancementController("inspect")
+    local friendsChanged = friends ~= lastFriends
+    local characterChanged = character ~= lastCharacter or inspect ~= lastInspect
+    lastFriends, lastCharacter, lastInspect = friends, character, inspect
+    if native.ApplySocialListCompact and (forceFriends or friendsChanged) then
+        config = config or native:GetConfig()
+        local enabled = native.runtimeEnabled and config.friendsEnhancementEnabled and not friends
+        native:ApplySocialListCompact(enabled and config.socialListCompact, config.socialFontSize,
+            enabled and config.currentGameFirst, friends ~= nil)
+    end
+    if native.ApplyCharacterBottomTabs and (forceCharacter or characterChanged) then
+        config = config or native:GetConfig()
+        native:ApplyCharacterBottomTabs(native.runtimeEnabled and config.characterEnhancementEnabled and config.characterBottomTabs)
+    end
+    if not friendsChanged and not characterChanged then return false end
+    local settings = YUI.Settings
+    if settings and settings.IsOpen and settings:IsOpen() and settings.GetSelectedModule and settings.RefreshSelectedModule then
+        local selected = settings:GetSelectedModule()
+        if selected and selected.id == "suite.settings.native_interface" then settings:RefreshSelectedModule() end
+    end
+    return true
+end
+
+function Native:RefreshWindowEnhancementControllers()
+    if not self.runtimeEnabled then return false end
+    return ApplyWindowOptions(self)
+end
+
 function Native:SetOption(key, enabled)
     if not self:IsOptionSupported(key) then return false, "unsupported-option" end
     if key == "hideBagsBar" then
@@ -141,8 +260,20 @@ function Native:SetOption(key, enabled)
     end
     local config = self:GetConfig()
     local value = key == "bagsBarVisibility" and enabled or enabled == true
+    if key == "socialFontSize" then
+        if not self:IsValidSocialFontSize(enabled) then return false, "invalid-option" end
+        value = enabled
+    end
     if config[key] == value then return true, "unchanged" end
     config[key] = value
+    if key == "friendsEnhancementEnabled" or key == "socialListCompact" or key == "socialFontSize" or key == "currentGameFirst" then
+        ApplyWindowOptions(self, config, true, false)
+        return true
+    end
+    if key == "characterEnhancementEnabled" or key == "characterBottomTabs" then
+        ApplyWindowOptions(self, config, false, true)
+        return true
+    end
     if self.ResetOptionFailure then self:ResetOptionFailure(key) end
     return self:Refresh("option:" .. key)
 end
@@ -171,6 +302,9 @@ function Native:Refresh(reason)
     if self.RefreshErrorMessages then self:RefreshErrorMessages(reason) end
     if self.RefreshQuestLootSparkles then self:RefreshQuestLootSparkles(reason) end
     if self.RefreshWindowMovement then self:RefreshWindowMovement(reason) end
+    if self.ApplySocialListCompact or self.ApplyCharacterBottomTabs then
+        ApplyWindowOptions(self, self:GetConfig(), true, true)
+    end
     if YUI.IsRetail == true then
         if self.RefreshRetail then self:RefreshRetail(reason) end
         if self.RefreshTutorial then self:RefreshTutorial(reason) end
@@ -191,6 +325,7 @@ function Native:GetDiagnostics()
     if self.GetErrorMessagesDiagnostics then result.errorMessages = self:GetErrorMessagesDiagnostics() end
     if self.GetQuestLootSparklesDiagnostics then result.questLootSparkles = self:GetQuestLootSparklesDiagnostics() end
     if self.GetWindowMovementDiagnostics then result.windows = self:GetWindowMovementDiagnostics() end
+    if self.GetSocialListCompactDiagnostics then result.socialList = self:GetSocialListCompactDiagnostics() end
     if self.GetRetailDiagnostics then result.retail = self:GetRetailDiagnostics() end
     if self.GetTutorialDiagnostics then result.tutorial = self:GetTutorialDiagnostics() end
     return result

@@ -558,7 +558,7 @@ local function DeferCombatRefresh(provider, mapID, hideMarkers)
     return true
 end
 
-function ProviderMixin:RenderPoints()
+function ProviderMixin:RenderPoints(projectedScale, projectedZoomPercent)
     local map = self:GetMap()
     if DeferCombatRefresh(self, map:GetMapID()) then return end
     if MapEnhancement.expandedPin then MapEnhancement.expandedPin:CloseExpansion() end
@@ -574,12 +574,12 @@ function ProviderMixin:RenderPoints()
         return
     end
     local canvas = map.GetCanvas and map:GetCanvas()
-    local scale = map.GetCanvasScale and map:GetCanvasScale() or 1
+    local scale = projectedScale or (map.GetCanvasScale and map:GetCanvasScale()) or 1
     local width = canvas and canvas.GetWidth and canvas:GetWidth() or 1000
     local height = canvas and canvas.GetHeight and canvas:GetHeight() or 668
     local groups,membership
     if MapEnhancement:GetConfig().displayMode == "icon" then
-        local iconScale=MapEnhancement:GetIconLayoutScale(map)
+        local iconScale=MapEnhancement:GetIconLayoutScale(map, projectedZoomPercent)
         groups,membership=MapEnhancement:PrepareVisibleIconGroups(self.visiblePoints or {},width*scale/iconScale,height*scale/iconScale)
     else
         groups,membership=MapEnhancement:ClusterPoints(self.visiblePoints or {},width*scale,height*scale,self.membership)
@@ -641,16 +641,23 @@ local function GetStitchedRegions(api, hostID, records, maps)
 end
 
 local function UpdateStitchedRegions(provider, map)
-    local canvas = map:GetCanvas()
-    local scroll = map:GetCanvasContainer()
-    local width, height = canvas:GetWidth(), canvas:GetHeight()
-    local scale = map:GetCanvasScale()
-    local viewWidth, viewHeight = scroll:GetWidth(), scroll:GetHeight()
-    if width <= 0 or height <= 0 or scale <= 0 or viewWidth <= 0 or viewHeight <= 0 then return false end
+    local left, top, spanX, spanY, projectedScale, projectedZoomPercent
+    local api = provider.stitchAPI
+    if type(api.GetPendingViewport) == "function" then
+        left, top, spanX, spanY, projectedScale, projectedZoomPercent = api.GetPendingViewport()
+    end
+    if left == nil then
+        local canvas = map:GetCanvas()
+        local scroll = map:GetCanvasContainer()
+        local width, height = canvas:GetWidth(), canvas:GetHeight()
+        local scale = map:GetCanvasScale()
+        local viewWidth, viewHeight = scroll:GetWidth(), scroll:GetHeight()
+        if width <= 0 or height <= 0 or scale <= 0 or viewWidth <= 0 or viewHeight <= 0 then return false end
 
-    -- Use the current scroll offsets: a zoom callback can run before the cached view rect is invalidated.
-    local left, top = scroll:GetHorizontalScroll() / width, scroll:GetVerticalScroll() / height
-    local spanX, spanY = viewWidth / (width * scale), viewHeight / (height * scale)
+        -- The cached view rect can still describe the preceding zoom.
+        left, top = scroll:GetHorizontalScroll() / width, scroll:GetVerticalScroll() / height
+        spanX, spanY = viewWidth / (width * scale), viewHeight / (height * scale)
+    end
     if not (spanX > 0 and spanY > 0 and math.abs(left) < math.huge and math.abs(top) < math.huge) then return false end
     local changed = not provider.stitchedViewReady
     provider.stitchedViewReady = true
@@ -667,7 +674,7 @@ local function UpdateStitchedRegions(provider, map)
             changed = true
         end
     end
-    return changed
+    return changed, projectedScale, projectedZoomPercent
 end
 
 local function CollectMapPoints(mapID, config, playerClass, measure, region, hostID)
@@ -771,12 +778,14 @@ function ProviderMixin:RefreshMarkers()
     end
     runtime.stats.refreshes = runtime.stats.refreshes + 1
     if not config.markersHidden and data then
+        local projectedScale, projectedZoomPercent
         if api then
             self.stitchedRegions = GetStitchedRegions(api, mapID, data.records or {}, config.maps)
-            UpdateStitchedRegions(self, map)
+            local _, scale, zoom = UpdateStitchedRegions(self, map)
+            projectedScale, projectedZoomPercent = scale, zoom
         end
         self:PrepareVisiblePoints(config, mapID)
-        if self.visiblePoints then self:RenderPoints() end
+        if self.visiblePoints then self:RenderPoints(projectedScale, projectedZoomPercent) end
     end
     if not runtime.pendingCombatRefresh then self.refreshedMapID = mapID end
     SyncNativeFlights(true)
@@ -802,11 +811,13 @@ function ProviderMixin:RefreshStitchedView(map)
         self:RefreshMarkers()
         return true
     end
-    if not self.stitchedRegions or not UpdateStitchedRegions(self, map) then return false end
+    if not self.stitchedRegions then return false end
+    local changed, projectedScale, projectedZoomPercent = UpdateStitchedRegions(self, map)
+    if not changed then return false, projectedScale, projectedZoomPercent end
     if not DeferCombatRefresh(self, self.refreshedMapID) then
         runtime.stats.refreshes = runtime.stats.refreshes + 1
         self:PrepareVisiblePoints(MapEnhancement:GetConfig(), self.refreshedMapID)
-        self:RenderPoints()
+        self:RenderPoints(projectedScale, projectedZoomPercent)
         SyncNativeFlights(true)
         SyncNativeFlights(false)
     end
@@ -828,19 +839,22 @@ function ProviderMixin:OnCanvasScaleChanged()
         end
         return
     end
-    if self:RefreshStitchedView(map) then return end
-    if not self.visiblePoints or self.refreshedMapID ~= map:GetMapID() then return end
-    local scale = map.GetCanvasScale and map:GetCanvasScale() or 1
-    if not self.lastScale or math.abs(scale/self.lastScale-1) >= 0.06 then self:RenderPoints() end
+    local refreshed, projectedScale, projectedZoomPercent = self:RefreshStitchedView(map)
+    if refreshed or not self.visiblePoints or self.refreshedMapID ~= map:GetMapID() then return end
+    local scale = projectedScale or (map.GetCanvasScale and map:GetCanvasScale()) or 1
+    if not self.lastScale or math.abs(scale/self.lastScale-1) >= 0.06 then
+        self:RenderPoints(projectedScale, projectedZoomPercent)
+    end
 end
 
 function ProviderMixin:OnCanvasSizeChanged()
     if YUI.IsRetail then self:OnCanvasScaleChanged(); return end
-    if self:RefreshStitchedView(self:GetMap()) then return end
+    local map = self:GetMap()
+    local refreshed, projectedScale, projectedZoomPercent = self:RefreshStitchedView(map)
     -- SetMapID 可先触发尺寸回调，等新地图的数据准备好再做聚类。
-    if not self.visiblePoints or self.refreshedMapID ~= self:GetMap():GetMapID() then return end
+    if refreshed or not self.visiblePoints or self.refreshedMapID ~= map:GetMapID() then return end
     self.signature = nil
-    self:RenderPoints()
+    self:RenderPoints(projectedScale, projectedZoomPercent)
 end
 
 local function IsAltKeyDownSafe()

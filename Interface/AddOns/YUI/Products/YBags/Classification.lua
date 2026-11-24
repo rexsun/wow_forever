@@ -2,6 +2,7 @@ local YUI = _G.YUI
 local B = YUI and YUI.YBags
 if not B then return end
 
+local Unit = YUI.API.Unit
 local C = {}
 B.Classification = C
 C.sections = { "recent", "general", "consumable", "equipment", "material", "system", "other", "junk" }
@@ -9,19 +10,20 @@ C.tradeGroup = "limited_trade"
 local onEquip = Enum and Enum.ItemBind and Enum.ItemBind.OnEquip or 2
 -- wowf 1.60.1.70938，核验方式见 Docs/Products/YBags/forever-common-items.md。
 local classSpellReagents = {
-    [5140]=true, [5530]=true, -- 潜行者：消失、致盲
-    [5565]=true, [6265]=true, [16583]=true, -- 术士：召唤、造石、仪式
-    [17020]=true, [17031]=true, [17032]=true, -- 法师：团队增益、传送、传送门
-    [17056]=true, -- 法师缓落术、牧师漂浮术共用轻羽毛
-    [17021]=true, [17026]=true, -- 德鲁伊：野性赐福
-    [17034]=true, [17035]=true, [17036]=true, [17037]=true, [17038]=true, -- 德鲁伊：复生
-    [17028]=true, [17029]=true, -- 牧师：祷言
-    [17030]=true, [17057]=true, [17058]=true, -- 萨满祭司：复生、水下呼吸、水上行走
-    [17033]=true, [21177]=true, -- 圣骑士：神圣干涉、强效祝福
+    [5140]={ROGUE=true}, [5530]={ROGUE=true}, -- 消失、致盲
+    [5565]={WARLOCK=true}, [6265]={WARLOCK=true}, [16583]={WARLOCK=true}, -- 召唤、造石、仪式
+    [17020]={MAGE=true}, [17031]={MAGE=true}, [17032]={MAGE=true}, -- 团队增益、传送、传送门
+    [17056]={MAGE=true, PRIEST=true}, -- 缓落术、漂浮术共用轻羽毛
+    [17021]={DRUID=true}, [17026]={DRUID=true}, -- 野性赐福
+    [17034]={DRUID=true}, [17035]={DRUID=true}, [17036]={DRUID=true}, [17037]={DRUID=true}, [17038]={DRUID=true}, -- 复生
+    [17028]={PRIEST=true}, [17029]={PRIEST=true}, -- 祷言
+    [17030]={SHAMAN=true}, [17057]={SHAMAN=true}, [17058]={SHAMAN=true}, -- 复生、水下呼吸、水上行走
+    [17033]={PALADIN=true}, [21177]={PALADIN=true}, -- 神圣干涉、强效祝福
 }
+local playerClass
 local hearthstoneID = 6948
 local cozySleepingBagID = 211527
-local commonItems = {
+local conjuredItems = {
     -- 法师造水
     [2136]=true, [2288]=true, [3772]=true, [5350]=true, [8077]=true, [8078]=true, [8079]=true, [231778]=true,
     -- 法师造食
@@ -40,7 +42,36 @@ local commonItems = {
 }
 
 function C:IsClassSpellReagent(itemID)
-    return classSpellReagents[itemID] == true
+    return classSpellReagents[itemID] ~= nil
+end
+
+function C.IsConjured(item)
+    return conjuredItems[item.itemID] == true
+end
+
+function C.IsCampingItem(item)
+    return item.system == "camp" or item.itemID == cozySleepingBagID
+end
+
+-- wowf 1.60.1.71037：引用击杀经验法术 1243969 的饮食，含本机热修复补充。
+local experienceFoods = {
+    [724]=true, [733]=true, [787]=true, [1017]=true, [1082]=true, [2680]=true, [2681]=true, [2682]=true,
+    [2683]=true, [2684]=true, [2685]=true, [2687]=true, [2888]=true, [3220]=true, [3662]=true, [3663]=true,
+    [3664]=true, [3665]=true, [3666]=true, [3726]=true, [3727]=true, [3728]=true, [3729]=true, [4457]=true,
+    [4592]=true, [4593]=true, [4594]=true, [5095]=true, [5472]=true, [5474]=true, [5476]=true, [5477]=true,
+    [5479]=true, [5480]=true, [5525]=true, [5526]=true, [5527]=true, [6038]=true, [6290]=true, [6316]=true,
+    [6887]=true, [6888]=true, [6890]=true, [8364]=true, [8957]=true, [10841]=true, [12209]=true, [12210]=true,
+    [12212]=true, [12213]=true, [12214]=true, [12215]=true, [12216]=true, [12218]=true, [12224]=true, [13851]=true,
+    [13927]=true, [13928]=true, [13929]=true, [13930]=true, [13931]=true, [13932]=true, [13933]=true, [13934]=true,
+    [13935]=true, [16766]=true, [17222]=true, [18045]=true, [18254]=true, [20074]=true, [20452]=true, [21072]=true,
+    [21217]=true, [249865]=true, [249866]=true, [249867]=true, [249868]=true, [249869]=true, [249870]=true, [249871]=true,
+    [249872]=true, [249873]=true, [249874]=true, [249875]=true, [249876]=true, [250065]=true, [250066]=true, [250067]=true,
+    [250068]=true, [250069]=true, [250070]=true, [250071]=true, [250072]=true, [250073]=true, [250074]=true, [250075]=true,
+    [250076]=true, [250077]=true, [250078]=true, [250079]=true, [250080]=true, [250081]=true, [263509]=true, [263512]=true,
+    [267341]=true, [268912]=true, [268913]=true, [274971]=true, [274976]=true, [286152]=true, [287973]=true, [287974]=true,
+}
+function C.IsExperienceFood(itemID)
+    return experienceFoods[itemID] == true
 end
 
 -- 无限服已理解与未理解的法师卷轴，背包分类和银行快捷存取共用。
@@ -63,12 +94,12 @@ for id=248682,248699 do supplyCrates[id]=true end
 for id=248702,248713 do supplyCrates[id]=true end
 for id=248765,248779 do supplyCrates[id]=true end
 
-local function HasEquipSlot(slot)
+function C.HasEquipSlot(slot)
     return slot ~= nil and slot ~= "" and slot ~= "INVTYPE_NON_EQUIP" and slot ~= "INVTYPE_NON_EQUIP_IGNORE"
 end
 function C:IsUnboundEquipment(item)
     return (item.classID == 2 or item.classID == 4) and item.bindType == onEquip and item.bound == false
-        and not item.gearTrade and HasEquipSlot(item.equipLoc)
+        and not item.gearTrade and C.HasEquipSlot(item.equipLoc)
 end
 
 local setGroupPrefix = "equipment-set:"
@@ -124,10 +155,18 @@ function C:Classify(item, config, compiled, ignoreRecent)
             return rule.section, rule.name or rule.id, tonumber(rule.order) or 0
         end
     end
-    if config.favorites[itemKey] or YUI.IsForever and (item.itemID == hearthstoneID or commonItems[item.itemID] or self:IsClassSpellReagent(item.itemID)) then
+    if config.favorites[itemKey] or YUI.IsForever and (item.itemID == hearthstoneID or C.IsConjured(item)) then
         return "general", "favorites", 0
     end
-    if YUI.IsForever and item.itemID == cozySleepingBagID then return "system", "camp", -2 end
+    if YUI.IsForever then
+        local reagentClasses = classSpellReagents[item.itemID]
+        if reagentClasses then
+            playerClass = playerClass or Unit.GetClassToken("player")
+            if reagentClasses[playerClass] then return "general", "favorites", 0 end
+            return "other", "spell_reagents", -1
+        end
+        if C.IsCampingItem(item) then return "system", "camp", item.itemID == cozySleepingBagID and -2 or 0 end
+    end
     if item.system then return "system", item.system, 0 end
     local class = item.classID
     if YUI.IsForever and supplyCrates[item.itemID] then return "other", "supply_crates", -2 end
@@ -139,7 +178,10 @@ function C:Classify(item, config, compiled, ignoreRecent)
         return "consumable", "scrolls", 4
     end
     if class == 2 or class == 4 then
-        if YUI.IsForever and self:IsUnboundEquipment(item) then return "equipment", "boe", math.huge end
+        if YUI.IsForever then
+            if item.equipLoc ~= nil and not C.HasEquipSlot(item.equipLoc) then return "other", "", 0 end
+            if self:IsUnboundEquipment(item) then return "equipment", "boe", math.huge end
+        end
         return "equipment", item.equipLoc or "equipment", equipmentOrder[item.equipLoc] or 99
     elseif class == 0 or class == 3 or class == 8 then
         return "consumable", item.subType or "consumable", item.subClassID or 99
@@ -175,7 +217,7 @@ local function GroupKey(item, allowSingleSlotItems)
     if (item.maxStack or 1)<=1 then
         local listed=allowSingleSlotItems and item.link and item.link~="" and singleSlotDisplayItems[item.itemID]
         local charged=YUI.IsForever and item.charges~=nil and (item.classID==0 or item.chargeConsumable)
-        if item.maxStack~=1 or not (listed or charged) or HasEquipSlot(item.equipLoc) then return nil end
+        if item.maxStack~=1 or not (listed or charged) or C.HasEquipSlot(item.equipLoc) then return nil end
         ignoreBinding=listed=="ignoreBinding"
     end
     local binding=ignoreBinding and "" or tostring(item.bound==true)

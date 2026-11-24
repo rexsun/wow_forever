@@ -459,15 +459,32 @@ function Frame.IsControlKeyDown()
     return false
 end
 
+local function CanReadStatusBarText(bar)
+    if not bar.TextString then return true end
+    local value = bar:GetValue()
+    local minimum, maximum = bar:GetMinMaxValues()
+    return not Security.IsSecretValue(value) and not Security.IsSecretValue(minimum)
+        and not Security.IsSecretValue(maximum)
+end
+
+-- Camelot's CharacterFrame OnShow and OnHide both update these five text bars.
+-- The widget values can remain restricted independently of combat lockdown.
+local function CanUpdateCharacterStatusText()
+    local alternate = PlayerFrame_GetAlternatePowerBar()
+    return CanReadStatusBarText(PlayerFrame_GetHealthBar()) and CanReadStatusBarText(PlayerFrame_GetManaBar())
+        and (not alternate or CanReadStatusBarText(alternate))
+        and CanReadStatusBarText(PetFrameHealthBar) and CanReadStatusBarText(PetFrameManaBar)
+end
+
 function Frame.ToggleCharacter(tab)
     if ToggleCharacter then
         if YUI.IsForever then
-            -- Native OnShow reads restricted health values. Keep its execution
-            -- outside the addon-tainted click callback; do not replace native code.
             if type(_G.securecallfunction) ~= "function" or not Security
                 or type(Security.SecureCallFunction) ~= "function" then
                 return false, "secure_call_unavailable"
             end
+            local ok, readable = pcall(CanUpdateCharacterStatusText)
+            if not ok or not readable then return false, "restricted_status_text" end
             return Security.SecureCallFunction(ToggleCharacter, tab)
         end
         return ToggleCharacter(tab)

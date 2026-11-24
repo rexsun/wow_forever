@@ -156,20 +156,37 @@ function Security.SafeHook(label, object, method, callback)
     return true
 end
 
+local function GetTooltipHide(tooltip)
+    return tooltip.Hide
+end
+
 function Security.HideTooltip(tooltip)
     if not tooltip then
         return false, "tooltip is nil"
     end
 
-    if type(securecallmethod) == "function" then
-        local ok, result = pcall(securecallmethod, tooltip, "Hide")
-        if ok then
-            return true, result
-        end
-        DebugSafeFailure("HideTooltip", result)
+    -- 原生 Hide 可能来自元表；securecallmethod 的原始查找不会解析继承方法。
+    local lookupOk, hide = pcall(GetTooltipHide, tooltip)
+    if not lookupOk then
+        DebugSafeFailure("HideTooltip", hide)
+        return false, hide
     end
 
-    return Security.SafeMethod("HideTooltip", tooltip, "Hide")
+    if type(hide) ~= "function" then
+        local err = "method is not a function: Hide"
+        DebugSafeFailure("HideTooltip", err)
+        return false, err
+    end
+
+    if type(securecallfunction) ~= "function" then
+        return Security.SafeCall("HideTooltip", hide, tooltip)
+    end
+
+    local ok, result = pcall(securecallfunction, hide, tooltip)
+    if not ok then
+        DebugSafeFailure("HideTooltip", result)
+    end
+    return ok, result
 end
 
 function Security.HideGameTooltip()

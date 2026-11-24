@@ -556,6 +556,12 @@ local RETAIL_NATIVE_INTERFACE_ALLOWED = {
     _migrationVersion = true,
 }
 
+local function NativeSocialFontSize(config)
+    local size = type(config) == "table" and rawget(config, "socialFontSize")
+    if type(size) == "number" and size >= 11 and size <= 18 and size == math.floor(size) then return size end
+    return 14
+end
+
 local function IsNormalizedNativeInterfaceConfig(config)
     if type(config) ~= "table"
         or config._migrationVersion ~= NATIVE_INTERFACE_MIGRATION_VERSION
@@ -573,6 +579,12 @@ local function IsNormalizedNativeInterfaceConfig(config)
     if YUI.IsForever == true and type(config.questLootSparkles) ~= "boolean" then return false end
     if YUI.IsForever == true and type(config.hideRaidManager) ~= "boolean" then return false end
     if YUI.IsForever == true and type(config.manageErrorMessages) ~= "boolean" then return false end
+    if YUI.IsForever == true and (type(rawget(config, "friendsEnhancementEnabled")) ~= "boolean"
+        or type(rawget(config, "characterEnhancementEnabled")) ~= "boolean"
+        or type(rawget(config, "socialListCompact")) ~= "boolean"
+        or type(rawget(config, "currentGameFirst")) ~= "boolean"
+        or rawget(config, "socialFontSize") ~= NativeSocialFontSize(config)
+        or type(rawget(config, "characterBottomTabs")) ~= "boolean") then return false end
     if YUI.IsRetail == true then
         for _, key in ipairs(RETAIL_NATIVE_INTERFACE_KEYS) do
             if type(config[key]) ~= "boolean" then return false end
@@ -583,7 +595,9 @@ local function IsNormalizedNativeInterfaceConfig(config)
     for key in pairs(config) do
         local foreverField = YUI.IsForever == true and (key == "compactBetaReporter"
             or key == "windowMovement" or key == "fixBagSortButton" or key == "fixProfessionsIcon" or key == "questLootSparkles"
-            or key == "hideRaidManager" or key == "manageErrorMessages")
+            or key == "hideRaidManager" or key == "manageErrorMessages"
+            or key == "friendsEnhancementEnabled" or key == "characterEnhancementEnabled"
+            or key == "socialListCompact" or key == "currentGameFirst" or key == "socialFontSize" or key == "characterBottomTabs")
         if expected[key] ~= true and not foreverField then return false end
     end
     return true
@@ -652,6 +666,18 @@ local function BuildNativeInterfaceCandidate(profile)
         candidate.questLootSparkles = not (type(current) == "table" and current.questLootSparkles == false)
         candidate.hideRaidManager = type(current) == "table" and current.hideRaidManager == true or false
         candidate.manageErrorMessages = type(current) == "table" and current.manageErrorMessages == true or false
+        candidate.friendsEnhancementEnabled = type(current) ~= "table" or rawget(current, "friendsEnhancementEnabled") ~= false
+        candidate.characterEnhancementEnabled = type(current) ~= "table" or rawget(current, "characterEnhancementEnabled") ~= false
+        candidate.socialListCompact = type(current) ~= "table" or rawget(current, "socialListCompact") ~= false
+        candidate.currentGameFirst = type(current) ~= "table" or rawget(current, "currentGameFirst") ~= false
+        candidate.socialFontSize = NativeSocialFontSize(current)
+        local bottomTabs = type(current) == "table" and rawget(current, "characterBottomTabs")
+        if type(current) == "table" and type(bottomTabs) == "boolean" then
+            candidate.characterBottomTabs = bottomTabs
+        else
+            local equipment = components and components.CharacterEquipmentInfo_Config
+            candidate.characterBottomTabs = not (type(equipment) == "table" and rawget(equipment, "foreverBottomTabs") == false)
+        end
     end
     if YUI.IsForever == true and type(current) == "table" then
         for _, key in ipairs({ "compactBetaReporter", "windowMovement" }) do

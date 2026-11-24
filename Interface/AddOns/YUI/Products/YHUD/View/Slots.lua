@@ -2043,7 +2043,7 @@ function View:RefreshFilteredAuraSlotLayers(slot, runtime)
     return ApplyIconTextLayers(slot, runtime)
 end
 
-function View:CreateFilteredAuraSlot(parent, runtime, monitor, nativeTooltip, abovePlaceholder)
+function View:CreateFilteredAuraSlot(parent, runtime, monitor, nativeTooltip, abovePlaceholder, ringPlacement)
     if not (parent and runtime) then return nil end
     local profile = type(monitor) == "table"
         and monitor._yhudProjectionProfile or self.profile
@@ -2080,7 +2080,7 @@ function View:CreateFilteredAuraSlot(parent, runtime, monitor, nativeTooltip, ab
         })
     elseif runtime.view == "ring" and App.CreateDurationRing then
         slot = App:CreateDurationRing(parent, {
-            diameter = runtime.diameter,
+            diameter = ringPlacement and ringPlacement.diameter or runtime.diameter,
             icon = QUESTION_ICON,
             iconBorder = runtime.border,
             fillColor = runtime.fillColor,
@@ -2113,6 +2113,15 @@ function View:CreateFilteredAuraSlot(parent, runtime, monitor, nativeTooltip, ab
     slot._yhudView = runtime.view
     slot._yhudBarStackLive = nativeTooltip == true
     self:ConfigureSlot(slot, runtime, monitor)
+    if ringPlacement and slot.SetDurationRingSize then
+        slot:SetDurationRingSize(
+            ringPlacement.diameter,
+            runtime.border,
+            ringPlacement.thickness,
+            ringPlacement.referenceDiameter,
+            ringPlacement.material
+        )
+    end
     if slot.SetAllPoints then slot:SetAllPoints(parent) end
     if runtime.view == "bar" and runtime.orientation ~= "vertical"
         and runtime.barWidthMode == "auto" and slot.track then
@@ -2213,6 +2222,17 @@ function View:ConfigureFilteredAuraStaticSlot(
     return true
 end
 
+function View:UsesNativeTotemFlow(runtime, monitorId)
+    if self.preview or self.designMode or self.layoutEditMode then return false end
+    local strategy = runtime and runtime.filteredAuraProjectionStrategy
+    if strategy ~= YHUD.FILTERED_AURA_LAYOUT_MIXED_DYNAMIC_SINGLE_LINE
+        and strategy ~= YHUD.FILTERED_AURA_LAYOUT_MIXED_SEGMENTED_OVERFLOW then
+        return false
+    end
+    local state = runtime.filteredAuraProjectionState
+    return state and state.nativeTotems and state.nativeTotems[monitorId] == true
+end
+
 function View:ShouldUseFilteredAuraSingleLineNativeProjection(
     monitorId,
     runtime
@@ -2224,7 +2244,7 @@ function View:ShouldUseFilteredAuraSingleLineNativeProjection(
                 YHUD.FILTERED_AURA_LAYOUT_MIXED_SEGMENTED_OVERFLOW)
         and self.preview ~= true
         and self.designMode ~= true
-        and self.layoutEditMode ~= true) then
+        and self.layoutEditMode ~= true) or self:UsesNativeTotemFlow(runtime, monitorId) then
         return false
     end
     local monitor = self.desiredMonitors[monitorId]
@@ -2247,6 +2267,10 @@ function View:ShouldUseFilteredAuraChainSlot(monitorId, runtime)
         and self.designMode ~= true
         and self.layoutEditMode ~= true) then
         return false
+    end
+    if self:UsesNativeTotemFlow(runtime, monitorId) then
+        local monitor = self.desiredMonitors[monitorId]
+        return monitor ~= nil and monitor.visibilityMode == "always"
     end
     local strategy = runtime.filteredAuraProjectionStrategy
     if strategy == YHUD.FILTERED_AURA_LAYOUT_MIXED_SEGMENTED_OVERFLOW then

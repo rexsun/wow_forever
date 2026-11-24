@@ -1,6 +1,8 @@
-local _, addonTable = ...
+local ADDON_NAME, addonTable = ...
 local YUI = _G.YUI or addonTable
-if not YUI or not YUI.IsForever then return end
+local Native = YUI and YUI.NativeInterface
+if not (YUI and YUI.IsForever and Native and Native.IS_SUITE) or Native.ApplyCharacterBottomTabs then return end
+if YUI.GetAddonProductId and YUI:GetAddonProductId(ADDON_NAME, "suite") ~= "suite" then return end
 
 local GUI2, Event = YUI.GUI2, YUI.Event
 local Security = YUI.API and YUI.API.Security
@@ -10,11 +12,13 @@ if not GUI2 or not Event or not Security then return end
 
 local Locale = YUI.Locale and YUI.Locale:Get("CharacterEquipmentInfo") or {}
 local Tabs = { active = false }
-YUI.CharacterEquipmentTabsForever = Tabs
 local hosts = setmetatable({}, { __mode = "k" })
-local restoreOwner = {}
+local owner, regenOwner = {}, {}
+local eventOptions = { moduleId = Native.MODULE_ID }
 local accentHooks = setmetatable({}, { __mode = "k" })
 local layoutHooks = setmetatable({}, { __mode = "k" })
+local frameHooks = setmetatable({}, { __mode = "k" })
+local RequestRefresh
 local Unpack = unpack or table.unpack
 local tabBackground = { .068, .056, .052 }
 local tabAtlasBodyHeight = {
@@ -32,10 +36,6 @@ local names = {
 
 local function InCombat()
     return Security.InCombatLockdown and Security.InCombatLockdown()
-end
-
-local function RequestRefresh()
-    if Tabs.active and Tabs.requestRefresh then Tabs.requestRefresh() end
 end
 
 local function ResolveSkin()
@@ -208,7 +208,8 @@ local function BuildButton(state, native)
             if not button.originalPoints or button.selected == checked then return end
             button.selected = checked
             Paint(button)
-            if not InCombat() then RequestRefresh() end
+            Tabs.layoutChanged = true
+            RequestRefresh()
         end)
     end
     if type(native.HookScript) == "function" then
@@ -217,7 +218,8 @@ local function BuildButton(state, native)
             button.hovered = false
             button:SetShown(state.native:IsShown() and native:IsShown())
             Paint(button)
-            if not InCombat() then RequestRefresh() end
+            Tabs.layoutChanged = true
+            RequestRefresh()
         end
         native:HookScript("OnShow", SyncVisibility)
         native:HookScript("OnHide", SyncVisibility)
@@ -262,25 +264,32 @@ local function AnchorNativeTab(button)
     native:SetAllPoints(button)
 end
 
+local function AppliedCorner(native, index, button)
+    local point, relative, relativePoint, x, y = native:GetPoint(index)
+    local secret = Security.IsSecretValue
+    if secret and (secret(point) or secret(relative) or secret(relativePoint) or secret(x) or secret(y)) then return end
+    if relative == button and point == relativePoint and x == 0 and y == 0 then return point end
+end
+
 local function RestoreNativeTab(button)
     local points = button.originalPoints
     if not points then return end
     button.originalPoints, button.hovered = nil, false
     local native = button.native
-    for index = 1, native:GetNumPoints() do
-        local _, relative = native:GetPoint(index)
-        if relative == button then
+    if native:GetNumPoints() == 2 then
+        local a, b = AppliedCorner(native, 1, button), AppliedCorner(native, 2, button)
+        if (a == "TOPLEFT" and b == "BOTTOMRIGHT") or (a == "BOTTOMRIGHT" and b == "TOPLEFT") then
             native:ClearAllPoints()
             for _, point in ipairs(points) do native:SetPoint(Unpack(point, 1, 5)) end
-            break
         end
     end
-    native:SetAlpha(button.originalAlpha)
+    if native:GetAlpha() == 0 then native:SetAlpha(button.originalAlpha) end
 end
 
 local function Restore(state)
     if not state.applied or InCombat() then return end
     state.applied = false
+    Tabs.layoutChanged = true
     for _, button in pairs(state.buttons) do RestoreNativeTab(button) end
     state.row:Hide()
 end
@@ -294,9 +303,24 @@ local function LayoutButton(state, button, previous, overlap)
     end
 end
 
+local function HookFrame(frame, sizeChanged)
+    if not frame or frameHooks[frame] or type(frame.HookScript) ~= "function" then return end
+    frameHooks[frame] = true
+    frame:HookScript("OnShow", RequestRefresh)
+    frame:HookScript(sizeChanged and "OnSizeChanged" or "OnHide", RequestRefresh)
+end
+
 local function UpdateHost(host, provider, pixel)
     if not host then return end
+    if Native.GetWindowEnhancementController and
+        Native:GetWindowEnhancementController(host == _G.CharacterFrame and "character" or "inspect") then
+        local state = hosts[host]
+        if state then Restore(state) end
+        return
+    end
     local native = host.ModeTabs
+    HookFrame(host, true)
+    HookFrame(native, false)
     local state = hosts[host]
     if state and state.native ~= native then Restore(state); hosts[host] = nil; state = nil end
     if not native or not native.Tabs or #native.Tabs == 0 then
@@ -344,6 +368,7 @@ local function UpdateHost(host, provider, pixel)
             end)
         end
     end
+    if not state.applied or state.layoutDirty then Tabs.layoutChanged = true end
     state.applied = true
     local count = 0
     for _, tab in ipairs(native.Tabs) do if tab:IsShown() then count = count + 1 end end
@@ -399,7 +424,8 @@ local function UpdateHost(host, provider, pixel)
         end
         SyncNativeLabel(button)
         AnchorNativeTab(button)
-        button:SetShown(shown and native:IsShown())
+        local visible = shown and native:IsShown()
+        if button:IsShown() ~= visible then button:SetShown(visible) end
     end
     for _, button in pairs(state.buttons) do
         if not button.present then
@@ -410,38 +436,92 @@ local function UpdateHost(host, provider, pixel)
     state.layoutDirty = false
     state.hostWidth = hostWidth
     state.provider, state.pixel, state.accentRevision = provider, pixel, Tabs.accentRevision
-    state.row:Show()
+    if not state.row:IsShown() then state.row:Show() end
 end
 
-function Tabs:Refresh(enabled, requestRefresh)
-    self.requestRefresh = requestRefresh
-    if enabled == false then self:Stop(); return end
-    self.active = true
-    Event:OffOwner(restoreOwner)
-    if InCombat() then return end
+local function NotifyLayoutChanged()
+    if not Tabs.layoutChanged then return end
+    Tabs.layoutChanged = false
+    Event:Emit("YUI_CHARACTER_BOTTOM_TABS_CHANGED")
+end
+
+local Refresh
+local function OnRegen()
+    Tabs.waitingForRegen = false
+    if Tabs.active then
+        Refresh()
+    else
+        for _, state in pairs(hosts) do Restore(state) end
+        NotifyLayoutChanged()
+    end
+end
+
+local function WaitForRegen()
+    if Tabs.waitingForRegen then return end
+    Tabs.waitingForRegen = true
+    Event:Once("PLAYER_REGEN_ENABLED", OnRegen, regenOwner, eventOptions)
+end
+
+Refresh = function()
+    if not Tabs.active or Tabs.refreshing then return end
+    if InCombat() then WaitForRegen(); return end
+    Tabs.refreshing = true
     local provider, pixel = ResolveSkin()
     UpdateHost(_G.CharacterFrame, provider, pixel)
     UpdateHost(_G.InspectFrame, provider, pixel)
+    Tabs.refreshing = false
+    NotifyLayoutChanged()
 end
 
-function Tabs:IsApplied(host)
-    local state = hosts[host]
-    return state and state.applied and state.native == host.ModeTabs
+local function RunRefresh()
+    Tabs.timer = nil
+    Refresh()
 end
 
-function Tabs:Stop()
-    self.active = false
-    self.requestRefresh = nil
-    Event:OffOwner(restoreOwner)
+RequestRefresh = function()
+    if not Tabs.active or Tabs.refreshing or Tabs.timer then return end
+    if InCombat() then WaitForRegen(); return end
+    Tabs.timer = C_Timer.NewTimer(0, RunRefresh)
+end
+
+local function OnAddonLoaded(_, addon)
+    if addon == "Blizzard_UIPanels_Game" or addon == "Blizzard_InspectUI" then RequestRefresh() end
+end
+
+local function Stop()
+    if Tabs.active then
+        Tabs.active = false
+        Event:OffOwner(owner)
+        if Tabs.timer then Tabs.timer:Cancel(); Tabs.timer = nil end
+    end
     local pending = false
     for _, state in pairs(hosts) do
         Restore(state)
         pending = pending or state.applied
     end
     if pending then
-        Event:Once("PLAYER_REGEN_ENABLED", function()
-            if self.active then return end
-            for _, state in pairs(hosts) do Restore(state) end
-        end, restoreOwner)
+        WaitForRegen()
+    elseif Tabs.waitingForRegen then
+        Event:OffOwner(regenOwner)
+        Tabs.waitingForRegen = false
     end
+    NotifyLayoutChanged()
+end
+
+function Native:ApplyCharacterBottomTabs(enabled)
+    if enabled ~= true then Stop(); return end
+    if not Tabs.active then
+        Tabs.active = true
+        Event:On("ADDON_LOADED", OnAddonLoaded, owner, eventOptions)
+        if not (YUI.Lifecycle and YUI.Lifecycle:IsReady("YUI_WORLD_READY")) then
+            Event:Once("YUI_WORLD_READY", RequestRefresh, owner, eventOptions)
+        end
+    end
+    if Tabs.timer then Tabs.timer:Cancel(); Tabs.timer = nil end
+    Refresh()
+end
+
+function Native:IsCharacterBottomTabsApplied(host)
+    local state = host and hosts[host]
+    return state ~= nil and state.applied == true and not state.layoutDirty and state.native == host.ModeTabs
 end

@@ -8,7 +8,9 @@ local ID = "questItems"
 local API = YUI.API.QuestItems
 local Camp = YAB.Camp
 local EVENTS = { "QUEST_LOG_UPDATE", "QUEST_WATCH_LIST_CHANGED", "QUEST_POI_UPDATE",
+    "ADDON_LOADED",
     "QUEST_REMOVED", "QUEST_TURNED_IN", "PLAYER_INSIDE_QUEST_BLOB_STATE_CHANGED",
+    "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA",
     "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_ENTERING_WORLD", "BAG_UPDATE_DELAYED",
     "BAG_UPDATE_COOLDOWN", "SPELL_UPDATE_COOLDOWN", "GET_ITEM_INFO_RECEIVED", "ITEM_DATA_LOAD_RESULT" }
 
@@ -26,6 +28,17 @@ end
 local function InCombat() return YAB.Adapter:InCombat() end
 local function Text(key) return YUI.Locale:Get("YActionBar")[key] end
 local EMPTY = {}
+local cooldownOwners = setmetatable({}, { __mode = "k" })
+local cooldownHooks = setmetatable({}, { __mode = "k" })
+local function TrackingChanged()
+    if Items.active and Config().showQuestItems ~= false then Items:Request() end
+end
+
+local function SyncTracking()
+    if Config().showQuestItems == false then API.StopTracking(); return false end
+    return API.WatchTracking(TrackingChanged)
+end
+
 local function SyncCamp()
     if not Camp then return end
     if Config().showCampTools ~= false then Camp:Start()
@@ -362,14 +375,33 @@ function Items:EnsureRecord()
     return self.record
 end
 
-function Items:RefreshCooldowns()
-    if not self.active or not self.record or self.editing or Config().showQuestItems == false then return end
+local function CooldownDone(cooldown)
+    local button = cooldownOwners[cooldown]
+    if button then Items:RefreshCooldowns(button) end
+end
+
+function Items:RefreshCooldowns(onlyButton)
+    if not self.active or not self.record or self.editing or self.refreshingCooldowns or Config().showQuestItems == false then return end
+    self.refreshingCooldowns = true
+    local now = GetTime()
     for _, button in ipairs(self.record.buttons) do
         local entry = self.bound[button]
-        if entry and not entry.testItem then
+        if entry and not entry.testItem and (not onlyButton or button == onlyButton) then
+            local visual = YAB.Visuals.buttons and YAB.Visuals.buttons[button]
+            local cooldown = visual and visual.cooldown
+            if cooldown then
+                cooldownOwners[cooldown] = button
+                if not cooldownHooks[cooldown] and not InCombat() and type(cooldown.HookScript) == "function" then
+                    cooldownHooks[cooldown] = pcall(cooldown.HookScript, cooldown, "OnCooldownDone", CooldownDone)
+                end
+            end
             local state = entry.visualState
             state.cooldownStart, state.cooldownDuration, state.cooldownEnable = API.GetCooldown(entry.questID, entry.compatibility and entry.itemID or nil)
-            state.cooldownActive = state.cooldownEnable and state.cooldownDuration > 0
+            state.cooldownActive = state.cooldownEnable == true and state.cooldownStart ~= nil and state.cooldownDuration ~= nil
+                and state.cooldownDuration > 0 and state.cooldownStart + state.cooldownDuration > now
+            -- A native completion may precede the next cooldown event/API reset.
+            -- Never re-arm an already elapsed public span or recurse on Clear.
+            state.cooldownEnable = state.cooldownActive
             if entry.compatibility then
                 local count = API.GetCompatibilityCount(entry.itemID)
                 if count then
@@ -383,6 +415,7 @@ function Items:RefreshCooldowns()
             YAB.Visuals:UpdateButton(button, state, "cooldown")
         end
     end
+    self.refreshingCooldowns = nil
 end
 
 function Items:UpdatePendingItemData(pending)
@@ -668,6 +701,7 @@ end
 function Items:Refresh()
     if not self.active or not Enabled() then self:Stop(); return end
     local now = GetTime()
+    SyncTracking()
     SyncCamp()
     if Camp then Camp:Update(now) end
     self.pending = true
@@ -747,6 +781,8 @@ function Items:HideRecord()
 end
 
 function Items:Stop()
+    API.StopTracking()
+    wipe(cooldownOwners)
     if Camp then Camp:Stop() end
     self:ClearTestItems()
     self.active, self.pending, self.editing = false, false, false
@@ -773,6 +809,10 @@ function Items:Stop()
 end
 
 local function OnEvent(_, event, itemID, success)
+    if event == "ADDON_LOADED" then
+        if SyncTracking() then TrackingChanged() end
+        return
+    end
     if event == "PLAYER_REGEN_DISABLED" then
         Items:StopFades()
         if YAB:GetDB().interaction.tooltipMode == "outOfCombat" and Items.hovered and GameTooltip:IsOwned(Items.hovered) then
@@ -803,6 +843,7 @@ function Items:SyncEnabled()
         self.active, self.pendingStop = true, nil
     end
     SyncCamp()
+    SyncTracking()
     self:Request()
 end
 

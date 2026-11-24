@@ -592,6 +592,7 @@ function View:UpdateMonitor(monitorId, state)
     if not (runtime and runtime.enabled) then
         return self:ReleaseSlot(monitorId), monitor.groupId
     end
+    local durationView = runtime.view == "ring" or runtime.view == "bar"
     local layoutParticipating = self.IsMonitorLayoutParticipating == nil
         or self:IsMonitorLayoutParticipating(
             monitor,
@@ -599,7 +600,7 @@ function View:UpdateMonitor(monitorId, state)
             runtime.layoutMode == "fixed"
         )
     if layoutParticipating ~= true then
-        if self.SetFilteredAuraTotemTakeover then
+        if durationView and self.SetFilteredAuraTotemTakeover then
             self:SetFilteredAuraTotemTakeover(monitorId, false)
         end
         local slot = self.byMonitor[monitorId]
@@ -609,12 +610,11 @@ function View:UpdateMonitor(monitorId, state)
     local entry = self.profile
         and self.profile.entries
         and self.profile.entries[monitor.entryKey]
-    local totemActive = not self.preview
-        and (runtime.view == "ring" or runtime.view == "bar")
+    local totemActive = not self.preview and durationView
         and YHUD:CanObserveOfficialTotemDuration(entry, monitor)
         and state ~= nil and state.durationMode == "totem"
         and state.available == true and state.cooldownActive == true
-    if self.SetFilteredAuraTotemTakeover then
+    if durationView and self.SetFilteredAuraTotemTakeover then
         self:SetFilteredAuraTotemTakeover(monitorId, totemActive == true)
     end
     if (monitor._yhudFilteredAuraManaged == true

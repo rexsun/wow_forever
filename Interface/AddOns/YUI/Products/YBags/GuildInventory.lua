@@ -96,9 +96,7 @@ function I:ReleaseHighlight(button)
     local marker = button.ybagsGuildLocate
     if not marker or not marker.state then return end
     if marker.skin == "native" then
-        if marker.pulse then marker.pulse:Stop(); marker.burst:Stop() end
-        marker.glow:Hide()
-        marker.flash:Hide()
+        B.Appearance:HideNewItemGlow(marker)
     else
         button:UnlockHighlight()
     end
@@ -398,51 +396,6 @@ function I:Tooltip(w, item, owner, refreshing)
     return true
 end
 
-local function AddFade(group, order, duration, from, to, smoothing)
-    local fade = group:CreateAnimation("Alpha")
-    fade:SetOrder(order)
-    fade:SetDuration(duration)
-    fade:SetFromAlpha(from)
-    fade:SetToAlpha(to)
-    fade:SetSmoothing(smoothing)
-end
-
--- Use the native container's new-item artwork and timing on separate regions.
--- A guild tab/slot is never a player bag/slot for the new-item API.
-local function ShowNativeLocate(button, marker, quality)
-    if not marker.glow then
-        local G = YUI.GUI2
-        marker.flash = G:CreateTexture(button, {layer="OVERLAY", subLevel=2})
-        marker.flash:SetPoint("CENTER")
-        marker.flash:SetBlendMode("ADD")
-        marker.flash:SetAtlas("bags-glow-flash", true)
-        marker.glow = G:CreateTexture(button, {layer="OVERLAY", subLevel=2})
-        marker.glow:SetPoint("CENTER")
-        marker.glow:SetBlendMode("ADD")
-        if marker.glow.CreateAnimationGroup then
-            marker.pulse = marker.glow:CreateAnimationGroup()
-            marker.pulse:SetLooping("REPEAT")
-            marker.pulse:SetToFinalAlpha(true)
-            AddFade(marker.pulse, 1, .5, 1, .2, "NONE")
-            AddFade(marker.pulse, 2, .5, .2, 1, "NONE")
-            marker.burst = marker.flash:CreateAnimationGroup()
-            marker.burst:SetToFinalAlpha(true)
-            AddFade(marker.burst, 1, .6, 1, 0, "OUT")
-        end
-    end
-    local atlas = quality and ColorManager and ColorManager.GetAtlasDataForNewItemQuality
-        and ColorManager.GetAtlasDataForNewItemQuality(quality)
-    marker.glow:SetAtlas(atlas or "bags-glow-white", true)
-    marker.glow:SetAlpha(1)
-    marker.glow:Show()
-    marker.flash:SetShown(marker.burst ~= nil)
-    if marker.burst then
-        marker.flash:SetAlpha(1)
-        marker.burst:Play()
-        marker.pulse:Play()
-    end
-end
-
 function I:PaintHighlight(w, button, item)
     local state = w.guildInventory
     if state and state.tipOwner == button and item and
@@ -467,7 +420,7 @@ function I:PaintHighlight(w, button, item)
     end
     marker.state, marker.slot, marker.skin, marker.quality = state, item.slot, skin, item.quality
     state.painted[button] = item.slot
-    if skin == "native" then ShowNativeLocate(button, marker, item.quality)
+    if skin == "native" then B.Appearance:ShowNewItemGlow(button, marker, item.quality, true)
     else button:LockHighlight() end
     marker:Show()
 end

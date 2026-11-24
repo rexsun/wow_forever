@@ -8573,32 +8573,34 @@ GetScrollFrameScrollBar = function(scrollFrame)
     return scrollBar
 end
 
+local IsScrollValueSecret = issecretvalue
+
 local function UpdateVisualScrollThumb(scrollBar)
     if not scrollBar or not scrollBar.visualThumb then return end
 
     local scrollFrame = scrollBar.gui2ScrollFrame
-    local trackHeight = scrollBar.GetHeight and scrollBar:GetHeight() or 0
+    local trackHeight = scrollBar.GetHeight and scrollBar:GetHeight()
+    if IsScrollValueSecret and IsScrollValueSecret(trackHeight) then return end
     if not trackHeight or trackHeight <= 0 then return end
 
-    local viewportHeight = scrollFrame and scrollFrame.GetHeight and scrollFrame:GetHeight() or trackHeight
-    if not viewportHeight or viewportHeight <= 0 then
-        viewportHeight = trackHeight
-    end
-
-    local contentHeight
+    local viewportHeight = scrollFrame and scrollFrame.GetHeight and scrollFrame:GetHeight()
     local scrollChild = scrollFrame and ((scrollFrame.GetScrollChild and scrollFrame:GetScrollChild()) or scrollFrame.scrollChild or scrollFrame.child)
-    if scrollChild and scrollChild.GetHeight then
-        contentHeight = scrollChild:GetHeight()
-    end
+    local contentHeight = scrollChild and scrollChild.GetHeight and scrollChild:GetHeight()
 
     local minValue, maxValue = 0, 0
     if scrollBar.GetMinMaxValues then
         minValue, maxValue = scrollBar:GetMinMaxValues()
     end
-    local range = math_max(0, (maxValue or 0) - (minValue or 0))
-    if scrollFrame and scrollFrame.GetVerticalScrollRange then
-        range = math_max(range, scrollFrame:GetVerticalScrollRange() or 0)
+    local scrollRange = scrollFrame and scrollFrame.GetVerticalScrollRange and scrollFrame:GetVerticalScrollRange()
+    if IsScrollValueSecret and (IsScrollValueSecret(viewportHeight) or IsScrollValueSecret(contentHeight)
+        or IsScrollValueSecret(minValue) or IsScrollValueSecret(maxValue) or IsScrollValueSecret(scrollRange)) then
+        return
     end
+
+    if not viewportHeight or viewportHeight <= 0 then
+        viewportHeight = trackHeight
+    end
+    local range = math_max(0, (maxValue or 0) - (minValue or 0), scrollRange or 0)
     if contentHeight and contentHeight > 0 then
         range = math_max(range, contentHeight - viewportHeight)
     end
@@ -8609,13 +8611,17 @@ local function UpdateVisualScrollThumb(scrollBar)
         return
     end
 
+    local frameValue = scrollFrame and scrollFrame.GetVerticalScroll and scrollFrame:GetVerticalScroll()
+    local barValue = scrollBar.GetValue and scrollBar:GetValue()
+    if IsScrollValueSecret and (IsScrollValueSecret(frameValue) or IsScrollValueSecret(barValue)) then return end
+
     local minThumbHeight = math_min(trackHeight, scrollBar.gui2MinThumbHeight or 16)
     local thumbHeight = math_floor(trackHeight * (viewportHeight / contentHeight) + 0.5)
     thumbHeight = math_max(minThumbHeight, math_min(trackHeight, thumbHeight))
 
-    local value = scrollFrame and scrollFrame.GetVerticalScroll and scrollFrame:GetVerticalScroll() or 0
+    local value = frameValue or 0
     if scrollBar.GetValue then
-        value = math_max(value, (scrollBar:GetValue() or 0) - (minValue or 0))
+        value = math_max(value, (barValue or 0) - (minValue or 0))
     end
     value = math_max(0, math_min(range, value))
 
@@ -8649,18 +8655,30 @@ end
 
 -- Opt-in for bounded settings viewports. Never hide overflowing content.
 function GUI2:FitScrollContent(scrollFrame, contentHeight)
-    if contentHeight then scrollFrame.child:SetHeight(math.max(1, contentHeight)) end
     local child = scrollFrame.child
     if not child then return end
-    local range = math.max(0, child:GetHeight() - scrollFrame:GetHeight())
-    local current = scrollFrame:GetVerticalScroll() or 0
-    if current > range then scrollFrame:SetVerticalScroll(range) end
+    if IsScrollValueSecret and IsScrollValueSecret(contentHeight) then return end
+    if contentHeight then child:SetHeight(math.max(1, contentHeight)) end
+
+    local childHeight = child:GetHeight()
+    local viewportHeight = scrollFrame:GetHeight()
+    local current = scrollFrame:GetVerticalScroll()
+    if IsScrollValueSecret and (IsScrollValueSecret(childHeight) or IsScrollValueSecret(viewportHeight)
+        or IsScrollValueSecret(current)) then
+        return
+    end
+
+    local range = math.max(0, childHeight - viewportHeight)
+    if (current or 0) > range then scrollFrame:SetVerticalScroll(range) end
     scrollFrame:EnableMouseWheel(range > 0)
     local bar = scrollFrame.gui2ScrollBar
     if bar then
         bar:SetShown(range > 0)
-        if bar.visualThumb then bar.visualThumb:SetShown(range > 0) end
-        if range > 0 and bar.UpdateVisualThumb then bar:UpdateVisualThumb() end
+        if range > 0 and bar.UpdateVisualThumb then
+            bar:UpdateVisualThumb()
+        elseif bar.visualThumb then
+            bar.visualThumb:SetShown(range > 0)
+        end
     end
 end
 

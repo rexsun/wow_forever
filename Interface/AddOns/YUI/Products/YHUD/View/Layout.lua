@@ -900,7 +900,13 @@ local function SetRingGeometry(
 end
 
 local function ApplyRuntimeGeometry(runtime, frames, geometry)
+    local ordinaryHeight = geometry.height
     local blockWrote = LayoutExternalBuffBlocks(runtime, geometry)
+    local concentricOffsetY
+    if geometry.mode == "concentric" and geometry.height ~= ordinaryHeight then
+        local reserved = (geometry.height - ordinaryHeight) / 2
+        concentricOffsetY = runtime.wrapDirection == "up" and -reserved or reserved
+    end
     local layoutScale = GetPixelLayoutScale(runtime.frame)
     local adapter = {
         runtime = runtime,
@@ -972,7 +978,7 @@ local function ApplyRuntimeGeometry(runtime, frames, geometry)
             )
         end
         local x = SnapOffset(placement.x)
-        local y = SnapOffset(placement.y)
+        local y = concentricOffsetY or SnapOffset(placement.y)
         local changed = false
         if self.runtime.view == "resource" and (self.runtime.handPairMode == "split" or self.resourceRowsLinked)
             and slot.SetResourceBarSize and placement.width and placement.height then
@@ -1959,6 +1965,44 @@ local function AcquireFilteredAuraLayoutAnchor(runtime, key)
     return anchor
 end
 
+local function SyncNativePersistentPlaceholder(placeholder, nativeFrame)
+    local hidden = nativeFrame ~= nil
+    if placeholder._yhudNativePlaceholderHidden == hidden then return false end
+    placeholder._yhudNativePlaceholderHidden = hidden
+    if hidden then placeholder:Hide() else placeholder:Show() end
+    return true
+end
+
+local function ResolveNativeMixedTotemFrame(self, runtime, monitorId, nativeFrame, dynamic)
+    if not (YUI.IsForever and runtime.view == "icon") then return nil end
+    local filtered = self.filteredAuraFrames and self.filteredAuraFrames[monitorId]
+    local nativeOnly = self:UsesNativeTotemFlow(runtime, monitorId)
+    if not (nativeOnly or dynamic or filtered and filtered._yhudFilteredAuraReplacesNative) then
+        return nil
+    end
+    local bridge = YHUD.NativeBridge
+    if nativeFrame and bridge and bridge.PlaceMixedTotemFrame
+        and bridge:GetMixedTotemMonitorId(nativeFrame) == monitorId then
+        local cell = AcquireFilteredAuraLayoutAnchor(runtime, monitorId)
+        if not cell._yhudFilteredAuraChainCarrier then
+            cell._yhudFilteredAuraChainCarrier =
+                AcquireFilteredAuraLayoutAnchor(runtime, "totem-flow:" .. monitorId)
+        end
+        local placed, fallback = bridge:PlaceMixedTotemFrame(nativeFrame, monitorId, cell)
+        if placed or fallback then
+            self:SetFilteredAuraTotemTakeover(monitorId, true, true)
+            local placeholder = nativeOnly and self.byMonitor[monitorId]
+            if placeholder and placeholder._yhudNativePersistentPlaceholder then
+                SyncNativePersistentPlaceholder(placeholder, nativeFrame)
+            end
+            -- A rejected Aura-chain anchor must not retire a visible native clock.
+            return placed and cell or nativeFrame, fallback
+        end
+    end
+    self:SetFilteredAuraTotemTakeover(monitorId, false, true)
+    return nil, nativeOnly and nativeFrame ~= nil
+end
+
 local function ResolveFilteredAuraLayoutFrame(self, runtime, monitorId)
     local monitor = monitorId and self.desiredMonitors[monitorId]
     local nativeFrame = runtime.nativeByMonitor
@@ -1984,11 +2028,7 @@ local function ResolveFilteredAuraLayoutFrame(self, runtime, monitorId)
     local persistentPlaceholder = ownedFrame
         and ownedFrame._yhudNativePersistentPlaceholder == true
     if persistentPlaceholder then
-        local hidden = nativeFrame ~= nil
-        if ownedFrame._yhudNativePlaceholderHidden ~= hidden then
-            ownedFrame._yhudNativePlaceholderHidden = hidden
-            if hidden then ownedFrame:Hide() else ownedFrame:Show() end
-        end
+        SyncNativePersistentPlaceholder(ownedFrame, nativeFrame)
     end
     local frame = persistentPlaceholder and nativeFrame
         or ownedFrame
@@ -2008,6 +2048,7 @@ local function ResetFilteredAuraLayoutCache(runtime)
             specialValues = {},
             sequenceKinds = {},
             sequenceValues = {},
+            sequenceRanks = {},
         }
         runtime.filteredAuraLayoutCache = cache
     end
@@ -2018,6 +2059,7 @@ local function ResetFilteredAuraLayoutCache(runtime)
     cache.specialSequenceCount = 0
     cache.sequenceCount = 0
     cache.capacityCount = 0
+    cache.separateNativeRow = false
     return cache
 end
 
@@ -2035,6 +2077,7 @@ local function ClearFilteredAuraLayoutCacheTail(cache)
     for index = cache.sequenceCount + 1, #cache.sequenceKinds do
         cache.sequenceKinds[index] = nil
         cache.sequenceValues[index] = nil
+        cache.sequenceRanks[index] = nil
     end
 end
 
@@ -2044,6 +2087,7 @@ local function CollectFilteredAuraLayout(self, runtime)
     runtime.filteredAuraUsedNative = usedNative
     for frame in pairs(usedNative) do usedNative[frame] = nil end
     for index = 1, runtime.monitorCount do
+        local previousCount = cache.sequenceCount
         local monitorId = runtime.monitorIds[index]
         local monitor = monitorId and self.desiredMonitors[monitorId]
         local entry = monitor and self.profile and self.profile.entries
@@ -2056,9 +2100,17 @@ local function CollectFilteredAuraLayout(self, runtime)
             or false
         local dynamic = self.filteredAuraDynamicNodes
             and self.filteredAuraDynamicNodes[monitorId]
-        if dynamic and dynamic.node then
-            local projectedNative = runtime.nativeByMonitor
-                and runtime.nativeByMonitor[monitorId]
+        local projectedNative = runtime.nativeByMonitor
+            and runtime.nativeByMonitor[monitorId]
+        local nativeTotem, nativeTotemOutsideFlow = ResolveNativeMixedTotemFrame(
+            self, runtime, monitorId, projectedNative, dynamic
+        )
+        if nativeTotemOutsideFlow then cache.separateNativeRow = true end
+        if dynamic and dynamic.publicExternalFallback then
+            cache.sequenceCount = cache.sequenceCount + 1
+            cache.sequenceKinds[cache.sequenceCount] = "special"
+            cache.sequenceValues[cache.sequenceCount] = monitorId
+        elseif dynamic and dynamic.node and not nativeTotem then
             if projectedNative then usedNative[projectedNative] = true end
             if special then
                 cache.specialCount = cache.specialCount + 1
@@ -2077,11 +2129,10 @@ local function CollectFilteredAuraLayout(self, runtime)
             cache.sequenceValues[cache.sequenceCount] = monitorId
             cache.capacityCount = cache.capacityCount + (dynamic.capacity or 1)
         else
-            local frame, nativeFrame = ResolveFilteredAuraLayoutFrame(
-                self,
-                runtime,
-                monitorId
-            )
+            local frame, nativeFrame = nativeTotem, projectedNative
+            if not frame then
+                frame, nativeFrame = ResolveFilteredAuraLayoutFrame(self, runtime, monitorId)
+            end
             if nativeFrame then usedNative[nativeFrame] = true end
             if frame then
                 if special then
@@ -2104,6 +2155,10 @@ local function CollectFilteredAuraLayout(self, runtime)
                 usedNative[frame] = true
             end
         end
+        if cache.sequenceCount > previousCount then
+            cache.sequenceRanks[cache.sequenceCount] = runtime.publicMixedRanks
+                and runtime.publicMixedRanks[presentationMember and presentationMember.logicalId or monitorId]
+        end
     end
     for index = 1, #(runtime.nativeFrames or {}) do
         local frame = runtime.nativeFrames[index]
@@ -2115,6 +2170,7 @@ local function CollectFilteredAuraLayout(self, runtime)
             cache.sequenceCount = cache.sequenceCount + 1
             cache.sequenceKinds[cache.sequenceCount] = "normal"
             cache.sequenceValues[cache.sequenceCount] = frame
+            cache.sequenceRanks[cache.sequenceCount] = nil
             cache.capacityCount = cache.capacityCount + 1
             usedNative[frame] = true
         end
@@ -2684,7 +2740,8 @@ local function RelayoutFilteredAuraSegments(self, runtime, groupId, cache)
     local geometryItems, specialFlags = {}, {}
     for index = 1, cache.normalCount do
         geometryItems[#geometryItems + 1] = cache.normalFrames[index] or true
-        specialFlags[#specialFlags + 1] = false
+        specialFlags[#specialFlags + 1] = cache.separateNativeRow
+            and cache.normalKinds[index] == "normal-dynamic"
     end
     for index = 1, specialCount do
         geometryItems[#geometryItems + 1] = true
@@ -2697,6 +2754,7 @@ local function RelayoutFilteredAuraSegments(self, runtime, groupId, cache)
         {
             segmented = true,
             specialFlags = specialFlags,
+            separateOrdinaryRows = cache.separateNativeRow,
         }
     )
     local blockWrote = LayoutExternalBuffBlocks(runtime, geometry)
@@ -2752,8 +2810,121 @@ local function RelayoutFilteredAuraSegments(self, runtime, groupId, cache)
     return true, wrote
 end
 
+local function ResetPublicMixedAuraLayout(self, runtime)
+    local public = runtime.publicMixedAuraLayout
+    if not public then return end
+    local displays = self.filteredAuraDynamicNodes
+    for id, display in pairs(public.touched) do
+        if displays[id] == display then
+            self:SetPublicMixedAuraSplit(runtime, display, nil)
+            self:SetPublicMixedAuraLayoutExcluded(display, false)
+            if display.publicExternalFallback then
+                self:SetPublicMixedAuraLayoutInline(display, false)
+            end
+        end
+        public.touched[id] = nil
+    end
+    for index = 1, #public.frames do
+        public.frames[index], public.isAura[index] = nil, nil
+    end
+end
+
+local function CollectPublicMixedAuraFrames(self, runtime, cache, matches)
+    local public = runtime.publicMixedAuraLayout
+    if not public then
+        public = {frames = {}, isAura = {}, touched = {}, order = {}}
+        runtime.publicMixedAuraLayout = public
+    end
+    local frames, isAura = public.frames, public.isAura
+    for id, display in pairs(public.touched) do
+        if self.filteredAuraDynamicNodes[id] ~= display then public.touched[id] = nil end
+    end
+    local order
+    if runtime.publicMixedRanks then
+        order = public.order
+        for index = 1, cache.sequenceCount do order[index] = index end
+        for index = cache.sequenceCount + 1, #order do order[index] = nil end
+        local ranks = cache.sequenceRanks
+        table.sort(order, function(left, right)
+            local leftRank, rightRank = ranks[left] or math.huge, ranks[right] or math.huge
+            if leftRank == rightRank then return left < right end
+            return leftRank < rightRank
+        end)
+    end
+    local count = 0
+    for position = 1, cache.sequenceCount do
+        local index = order and order[position] or position
+        local kind, value = cache.sequenceKinds[index], cache.sequenceValues[index]
+        if kind == "special" or kind == "normal-dynamic" then
+            local display = self.filteredAuraDynamicNodes[value]
+            local spellIDs = matches[value]
+            if not (display and spellIDs) then return nil end
+            public.touched[value] = display
+            if display.publicExternalFallback then
+                self:SetPublicMixedAuraLayoutInline(display, true)
+            end
+            if #spellIDs > 1 then
+                local split = self:SetPublicMixedAuraSplit(runtime, display, spellIDs)
+                if not split then return nil end
+                self:SetPublicMixedAuraLayoutExcluded(display, false)
+                for auraIndex = 1, #split do
+                    count = count + 1
+                    frames[count], isAura[count] = split[auraIndex].node, true
+                end
+            else
+                self:SetPublicMixedAuraSplit(runtime, display, nil)
+                self:SetPublicMixedAuraLayoutExcluded(display, #spellIDs == 0)
+                if #spellIDs == 1 then
+                    count = count + 1
+                    frames[count], isAura[count] = display.node, true
+                end
+            end
+        else
+            count = count + 1
+            frames[count], isAura[count] = value, false
+        end
+    end
+    for index = count + 1, #frames do
+        frames[index], isAura[index] = nil, nil
+    end
+    return frames, isAura, count
+end
+
+local function RelayoutPublicMixedAuraGroup(self, runtime, groupId, cache, matches)
+    local frames, isAura, count = CollectPublicMixedAuraFrames(self, runtime, cache, matches)
+    if not frames then return false end
+    local geometry = BuildGroupGeometry(runtime, frames, count)
+    local wrote = LayoutExternalBuffBlocks(runtime, geometry)
+    runtime.presentationGeometry = geometry
+    local holderSizeChanged = SetLayoutSize(runtime.frame, geometry.width, geometry.height)
+    wrote = holderSizeChanged or wrote
+    local growth = ResolveFilteredAuraChainGrowth(runtime)
+    local edge = growth == "left" and "RIGHT" or growth == "right" and "LEFT"
+        or growth == "up" and "BOTTOM" or "TOP"
+    for index, placement in ipairs(geometry.placements) do
+        local frame = frames[index]
+        -- Negative keys keep public cell anchors apart from the segmented rows.
+        local cell = isAura[index] and AcquireFilteredAuraLayoutAnchor(runtime, -index) or frame
+        wrote = SetLayoutSize(cell, placement.width, placement.height) or wrote
+        wrote = SetLayoutPoint(cell, placement.point, runtime.frame, placement.relativePoint,
+            placement.x, placement.y) or wrote
+        if isAura[index] then
+            wrote = AnchorFilteredAuraFlowNode(frame, cell, edge, growth) or wrote
+        else
+            frame._yhudPlaced = true
+        end
+    end
+    runtime.layoutEligible = count > 0
+    wrote = ProjectRuntimeVisibility(self, runtime) or wrote
+    RequestPixelAlignmentRefresh(self, groupId, holderSizeChanged, true)
+    AddViewWrite(wrote)
+    PublishImportantGroupWidth(self, groupId, geometry.contentWidth or geometry.width, count > 0)
+    return true, wrote
+end
+
 local function RelayoutFilteredAuraDynamicGroup(self, runtime, groupId)
     if runtime.view ~= "icon" or runtime.layoutMode == "fixed" then
+        ResetPublicMixedAuraLayout(self, runtime)
         return false
     end
     local strategy = runtime.filteredAuraProjectionStrategy
@@ -2764,12 +2935,23 @@ local function RelayoutFilteredAuraDynamicGroup(self, runtime, groupId)
         YHUD.FILTERED_AURA_LAYOUT_MIXED_DYNAMIC_SINGLE_LINE
     local segmented = strategy ==
         YHUD.FILTERED_AURA_LAYOUT_MIXED_SEGMENTED_OVERFLOW
-    if not (singleLine or segmented or independentPure) then return false end
+    if not (singleLine or segmented or independentPure) then
+        ResetPublicMixedAuraLayout(self, runtime)
+        return false
+    end
     local cache = CollectFilteredAuraLayout(self, runtime)
-    if singleLine and cache.specialCount > 0 then
+    if YUI.IsForever and segmented and self.ReadPublicMixedAuraLayout then
+        local matches = self:ReadPublicMixedAuraLayout(runtime, cache)
+        if matches then
+            local handled, wrote = RelayoutPublicMixedAuraGroup(self, runtime, groupId, cache, matches)
+            if handled then return handled, wrote end
+        end
+    end
+    ResetPublicMixedAuraLayout(self, runtime)
+    if singleLine and cache.specialCount > 0 and not cache.separateNativeRow then
         return RelayoutFilteredAuraSingleLine(self, runtime, groupId, cache)
     end
-    if segmented or independentPure then
+    if segmented or independentPure or cache.separateNativeRow then
         return RelayoutFilteredAuraSegments(self, runtime, groupId, cache)
     end
     return false
@@ -2799,6 +2981,10 @@ function View:RelayoutGroupCore(groupId, combatResourceEdge)
         local monitor = monitorId and self.desiredMonitors[monitorId]
         local nativeFrame = runtime.nativeByMonitor
             and runtime.nativeByMonitor[monitorId]
+        local dynamic = self.filteredAuraDynamicNodes and self.filteredAuraDynamicNodes[monitorId]
+        local nativeTotem = ResolveNativeMixedTotemFrame(
+            self, runtime, monitorId, nativeFrame, dynamic
+        )
         local ownedFrame = self.byMonitor[monitorId]
         if I.IsPlayerCastCollapsed and I.IsPlayerCastCollapsed(self, monitor) then
             collapsedCastCount = collapsedCastCount + 1
@@ -2826,18 +3012,14 @@ function View:RelayoutGroupCore(groupId, combatResourceEdge)
         local persistentPlaceholder = ownedFrame
             and ownedFrame._yhudNativePersistentPlaceholder == true
         if persistentPlaceholder then
-            local hidden = nativeFrame ~= nil
-            if ownedFrame._yhudNativePlaceholderHidden ~= hidden then
-                ownedFrame._yhudNativePlaceholderHidden = hidden
-                if hidden then ownedFrame:Hide() else ownedFrame:Show() end
-                wrote = true
-            end
+            wrote = SyncNativePersistentPlaceholder(ownedFrame, nativeFrame) or wrote
         elseif ownedFrame and ownedFrame._yhudNativePlaceholderHidden == true then
             ownedFrame._yhudNativePlaceholderHidden = nil
             ownedFrame:Show()
             wrote = true
         end
-        local frame = persistentPlaceholder and nativeFrame
+        local frame = nativeTotem
+            or persistentPlaceholder and nativeFrame
             or ownedFrame
             or (self.filteredAuraFrames
                 and self.filteredAuraFrames[monitorId])
@@ -2851,7 +3033,7 @@ function View:RelayoutGroupCore(groupId, combatResourceEdge)
             local frameIndex = fixedLayout and (index - collapsedCastCount) or frameCount
             frames[frameIndex] = frame
             usedNative[frame] = true
-            if frame == nativeFrame then hasNativeFrames = true end
+            if nativeTotem or frame == nativeFrame then hasNativeFrames = true end
             if not visibilitySuppressed then
                 visibleCount = visibleCount + 1
             end
@@ -3061,18 +3243,22 @@ LayoutExternalBuffBlocks = function(runtime, geometry)
         or runtime.filteredAuraWidth ~= nil or (runtime.nativeWidth or 0) > 0
     local width = hasContent and (geometry.width or 0) or 0
     local height = hasContent and (geometry.height or 0) or 0
+    local columnIcons = runtime.view == "icon" and runtime.fillMode == "columns"
+    local verticalBars = runtime.view == "bar" and runtime.orientation == "vertical"
+    local wrapLeft = columnIcons and runtime.rowDirection == "left"
+        or verticalBars and runtime.wrapDirection == "up"
     local wrote = false
     for _, id in ipairs(runtime.externalBuffMonitorIds) do
         local display = View.filteredAuraDisplays["monitor:" .. id]
-        if display and display.externalBuffBlock then
-            if runtime.view == "icon" and runtime.fillMode == "columns" then
+        if display and display.externalBuffBlock and not display.publicMixedInline then
+            if columnIcons or verticalBars then
                 height = math.max(height, display.height)
                 local offset = width + (hasContent and runtime.columnSpacing or 0)
                 local y = runtime.alignment == "end" and height - display.height
                     or runtime.alignment == "center" and (height - display.height) / 2 or 0
-                local point = runtime.rowDirection == "left" and "TOPRIGHT" or "TOPLEFT"
+                local point = wrapLeft and "TOPRIGHT" or "TOPLEFT"
                 wrote = SetLayoutPoint(display.proxy, point, runtime.frame, point,
-                    runtime.rowDirection == "left" and -offset or offset, -y) or wrote
+                    wrapLeft and -offset or offset, -y) or wrote
                 width = offset + display.width
             else
                 width = math.max(width, display.width)
@@ -3161,12 +3347,17 @@ function View:RelayoutGroup(groupId, combatResourceEdge)
 end
 
 local function SeparateExternalBuffBlocks(runtime, groupPlan)
+    runtime.publicMixedFoodIds = nil
     if not groupPlan.hasExternalBuffBlock then
         runtime.externalBuffMonitorIds = nil
         return
     end
     local strategy = groupPlan.filteredAuraProjectionStrategy
     local state = groupPlan.filteredAuraProjectionState
+    local unit = YUI.API and YUI.API.Unit
+    local allowPublicFood = YUI.IsForever and unit and unit.ReadPublicAuraLayout
+        and strategy == YHUD.FILTERED_AURA_LAYOUT_MIXED_SEGMENTED_OVERFLOW
+        and not (state and state.foodDrinkSeparated)
     local foodDrinkFlow = not (state and state.foodDrinkSeparated)
         and (strategy == YHUD.FILTERED_AURA_LAYOUT_MIXED_DYNAMIC_SINGLE_LINE
         or (strategy == YHUD.FILTERED_AURA_LAYOUT_ENGINE_FLOW
@@ -3179,6 +3370,14 @@ local function SeparateExternalBuffBlocks(runtime, groupPlan)
         if member.monitor._yhudAuraMaxFrameCount and not inline then
             blocks = blocks or {}
             blocks[#blocks + 1] = member.physicalId
+            if allowPublicFood and YHUD:CanUseFoodDrinkIconFlow(
+                member.entry, member.monitor, groupPlan.group, groupPlan.layout
+            ) then
+                runtime.publicMixedFoodIds = runtime.publicMixedFoodIds or {}
+                runtime.publicMixedFoodIds[member.physicalId] = true
+                count = count + 1
+                runtime.monitorIds[count], runtime.monitorLanes[count] = member.physicalId, member.lane
+            end
         else
             count = count + 1
             runtime.monitorIds[count], runtime.monitorLanes[count] = member.physicalId, member.lane
@@ -3281,6 +3480,10 @@ function View:ApplyConfig(profile, options)
                         self.resourcePreviewClassFile, self.resourcePreviewSpecID))
             end
             SeparateExternalBuffBlocks(runtime, groupPlan)
+            local configSets = YHUD.ConfigSets
+            runtime.publicMixedRanks = YUI.IsForever and configSets and configSets.GetSavedGroupMonitorRanks
+                and groupPlan.filteredAuraProjectionStrategy == YHUD.FILTERED_AURA_LAYOUT_MIXED_SEGMENTED_OVERFLOW
+                and configSets:GetSavedGroupMonitorRanks(profile, groupId) or nil
         end
     end
     local desiredMonitors = presentationPlan.desiredMonitors

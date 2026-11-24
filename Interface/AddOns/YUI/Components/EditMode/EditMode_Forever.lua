@@ -1,8 +1,9 @@
 local _, YUI = ...
 if not YUI.IsForever or not YUI.EditMode then return end
 local EM = YUI.EditMode
+local installExitPending = false
 
-function EM:CanModifyLayouts()
+function EM:CanModifyLayouts(allowPendingEdits)
     local api, manager = C_EditMode, EditModeManagerFrame
     if InCombatLockdown() then return false, "combat" end
     if not (api and api.GetLayouts and api.SaveLayouts and api.OnLayoutAdded
@@ -11,10 +12,37 @@ function EM:CanModifyLayouts()
         and manager and manager.IsInitialized and manager:IsInitialized()) then
         return false, "not-ready"
     end
-    if manager:IsEditModeActive() or manager:HasActiveChanges() then
+    if not allowPendingEdits and (installExitPending or manager:IsEditModeActive() or manager:HasActiveChanges()) then
         return false, "editing"
     end
     return true
+end
+
+-- Only the explicit installer action may discard unfinished native edits.
+function EM:PrepareForInstall()
+    local ready, reason = self:CanModifyLayouts()
+    if ready or reason ~= "editing" then return ready, reason end
+    local manager = EditModeManagerFrame
+    local security = YUI.API and YUI.API.Security
+    if not (security and security.SecureCallFunction and manager.RevertAllChanges
+        and manager.CheckHideAndLockEditMode and manager.ClearEditModeLockState and manager.ExitEditMode) then
+        return false, "not-ready"
+    end
+    local ok = pcall(function()
+        if installExitPending or manager:IsEditModeActive() then
+            installExitPending = true
+            -- Hide without running ExitEditMode from OnHide, where errors are swallowed.
+            assert(security.SecureCallFunction(pcall, manager.CheckHideAndLockEditMode, manager, "hideSelections"))
+            -- Catch errors inside the secure boundary; an incomplete exit must be retried in full.
+            assert(security.SecureCallFunction(pcall, manager.ExitEditMode, manager))
+            assert(security.SecureCallFunction(pcall, manager.ClearEditModeLockState, manager))
+            installExitPending = false
+        elseif manager:HasActiveChanges() then
+            assert(security.SecureCallFunction(pcall, manager.RevertAllChanges, manager))
+        end
+    end)
+    if not ok then return false, "not-ready" end
+    return self:CanModifyLayouts()
 end
 
 local function SaveSnapshot(snapshot)
@@ -68,12 +96,16 @@ function EM:DeleteNonYUILayout()
     return false
 end
 
-function EM:ImportLayout(layoutString, layoutName, matchSuffix)
-    local ready, reason = self:CanModifyLayouts()
+function EM:ImportLayout(layoutString, layoutName, matchSuffix, replacePendingEdits)
+    local ready, reason = self:CanModifyLayouts(replacePendingEdits == true)
     if not ready then return false, reason end
     local parsed, info = pcall(C_EditMode.ConvertStringToLayoutInfo, layoutString)
     if not parsed or type(info) ~= "table" or type(info.systems) ~= "table" or #info.systems == 0 then
         return false, "invalid-layout"
+    end
+    if replacePendingEdits == true then
+        ready, reason = self:PrepareForInstall()
+        if not ready then return false, reason end
     end
     local ok, failure = pcall(function()
         -- Parse before replacing old layouts, then use native index notifications.
@@ -94,11 +126,11 @@ function EM:ImportLayout(layoutString, layoutName, matchSuffix)
     return ok, ok and nil or failure
 end
 
-function EM:ImportDefaultLayout()
+function EM:ImportDefaultLayout(replacePendingEdits)
     local layoutString = YUI.Data and YUI.Data:GetData("EditMode")
     if not layoutString then return false, "missing-preset" end
     local name = self:GetLatestYUILayout()
-    return self:ImportLayout(layoutString, name, false)
+    return self:ImportLayout(layoutString, name, false, replacePendingEdits)
 end
 
 local SwitchLayoutByName = EM.SwitchLayoutByName

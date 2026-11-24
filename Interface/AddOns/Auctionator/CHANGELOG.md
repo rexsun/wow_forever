@@ -1,7 +1,7 @@
 # Auctionator
 
-## [351](https://github.com/TheMouseNest/Auctionator/tree/351) (2026-11-21)
-[Full Changelog](https://github.com/TheMouseNest/Auctionator/compare/350...351) 
+## [353](https://github.com/TheMouseNest/Auctionator/tree/353) (2026-11-24)
+[Full Changelog](https://github.com/TheMouseNest/Auctionator/compare/352...353) 
 
-- Remove final usages of DBKeyFromBrowseResult  
-- Retail+Forever: Fix full scan  
+- Only store suffix index, not entire thing (hopefully reduce risk of CBOR issues)  
+- Fix suffix detection for other locales  

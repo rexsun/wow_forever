@@ -234,6 +234,8 @@ YUI.ForeverFactoryProfile = {
             trailQuality = "balanced",
         },
         NativeInterface_Config = {
+            friendsEnhancementEnabled = true,
+            characterEnhancementEnabled = true,
             _migrationVersion = 3, manageBagsBar = true, bagsBarVisibility = "auto", hideMicroMenu = true, hideStatusTrackingBars = false,
             fixBagSortButton = true,
             fixProfessionsIcon = true,

@@ -9,7 +9,6 @@ local function Number(value) return Security.SafeNumber(value) end
 local function Info(id) return Spell.GetInfo(id) end
 local function Name(id) local info = Info(id); return info and Security.SafeString(info.name) end
 local function Icon(id) local info = Info(id); return info and (Number(info.originalIconID) or Number(info.iconID)) end
-local function Texture(icon) return "|T" .. tostring(icon or 134400) .. ":16:16:0:0:64:64:4:60:4:60|t" end
 local TIMER_KEYS = { "intellect", "armor" }
 
 local function Now()
@@ -17,53 +16,22 @@ local function Now()
     return system and system.GetTime and Number(system.GetTime())
 end
 
-function Mage:HideReceipts()
-    local root = self.receiptFrame
-    if not root then return end
-    if YUI.Animation then YUI.Animation:StopOwner(root) end
-    for _, row in ipairs(root.rows) do row.active = false; row:Hide() end
-    root:Hide()
+function Mage:ClearComprehension()
+    self.comprehension = nil
+    local output = YUI.InfoOutput
+    if output and output.ClearOwner then output:ClearOwner(self) end
 end
 
 local function ScrollHidden()
-    Mage.comprehension = nil
-    Mage:HideReceipts()
+    Mage:ClearComprehension()
 end
 
--- The three visual rows are prepared OOC, independent of secure spell hosts.
-function Mage:PrepareReceipts()
-    if self.receiptFrame or YAB.Adapter:InCombat() then return end
-    local gui = YUI.GUI2
-    if not (gui and gui.CreateFrame and gui.CreateText and gui.ApplyFontAppearance
-        and YUI.Animation and YUI.Animation.FloatText) then return end
-    local root = gui:CreateFrame(UIParent, { mouse = false, frameStrata = "HIGH" })
-    root.rows, root.cursor = {}, 0
-    for index = 1, 3 do
-        local row = gui:CreateFrame(root, { width = 1, height = 24, mouse = false })
-        row.text = gui:CreateText(row, "", "font.size.md", "color.text.primary", "CENTER")
-        row.text:SetAllPoints(row)
-        row.text:SetWordWrap(false)
-        gui:ApplyFontAppearance(row.text, { size = 14, outline = "outlineShadow" })
-        row.finished = function()
-            row.active = false
-            for _, other in ipairs(root.rows) do if other.active then return end end
-            root:Hide()
-        end
-        row:Hide()
-        root.rows[index] = row
-    end
-    root:SetScript("OnHide", function()
-        YUI.Animation:StopOwner(root)
-        for _, row in ipairs(root.rows) do row.active = false; row:Hide() end
-    end)
-    root:Hide()
-    self.receiptFrame = root
-end
-
-function Mage:ShowReceipt(itemID, count)
+function Mage:PublishReceipt(itemID, count)
     local record = YAB.BarManager and YAB.BarManager.bars.mageTools
-    local root, scroll = self.receiptFrame, self.pool.scroll
-    if not (root and record and not record.classBarEditing and scroll and scroll:IsVisible()) then return false end
+    local scroll = self.pool.scroll
+    if not (record and not record.classBarEditing and scroll and scroll:IsVisible()) then return false end
+    local output = YUI.InfoOutput
+    if not (output and output.Push) then return true end
     local info = Item.GetInfo(itemID)
     local name = info and Security.SafeString(info.name)
     if not name then return false, "item-data" end
@@ -73,39 +41,15 @@ function Mage:ShowReceipt(itemID, count)
         hex = Security.SafeString(hex)
         if hex and hex:match("^%x%x%x%x%x%x%x%x$") then name = "|c" .. hex .. name .. "|r" end
     end
-    local mover = record.mover
-    local scale = mover and Number(mover:GetEffectiveScale())
-    local parentScale, width, height = Number(UIParent:GetEffectiveScale()), Number(UIParent:GetWidth()), Number(UIParent:GetHeight())
-    local x = mover and Number(mover:GetCenter())
-    local top, bottom = mover and Number(mover:GetTop()), mover and Number(mover:GetBottom())
-    if not (x and top and bottom and scale and parentScale and width and height and parentScale > 0 and width > 24 and height > 96) then return false end
-    scale = scale / parentScale
-    x, top, bottom = x * scale, top * scale, bottom * scale
-    local above = height - top >= bottom
-    local index = root.cursor % 3 + 1
-    for candidate, row in ipairs(root.rows) do if not row.active then index = candidate; break end end
-    root.cursor = index
-    local row = root.rows[index]
-    YUI.Animation:StopTarget(row, "comprehension-result")
-    local message = Texture(info.texture or Item.GetIcon(itemID)) .. " " .. name
+    local icon = Number(info.texture) or Security.SafeString(info.texture)
+    if not icon then
+        local fallback = Item.GetIcon(itemID)
+        icon = Number(fallback) or Security.SafeString(fallback) or 134400
+    end
+    local message = name
     if count > 1 then message = message .. " ×" .. count end
-    row:SetSize(width - 16, 24)
-    row.text:SetText(string.format(Text("received"), message))
-    local textWidth = math.min(Number(row.text:GetStringWidth()) or 256, width - 20)
-    row:SetSize(textWidth + 4, 24)
-    local halfWidth = (textWidth + 4) / 2
-    x = math.max(halfWidth + 8, math.min(width - halfWidth - 8, x))
-    -- Keep the whole 32px travel outside adjacent rows, even for quick casts.
-    local offset = (index - 1) * 60
-    local y = above and math.min(top + 8 + offset, height - 64) or math.max(bottom - 8 - offset, 64)
-    row:ClearAllPoints()
-    row:SetPoint(above and "BOTTOM" or "TOP", UIParent, "BOTTOMLEFT", x, y)
-    row:SetAlpha(1)
-    row.active = true
-    root:Show(); row:Show()
-    local handle = YUI.Animation:FloatText(row, { owner = root, key = "comprehension-result",
-        direction = above and "up" or "down", distance = 32, duration = 2, easing = "linear", onFinished = row.finished })
-    if not handle or handle.noop then row:Hide(); row.finished() end
+    -- The receipt is confirmed even when the shared queue declines it.
+    output:Push(self, string.format(Text("received"), message), { icon = icon, iconBefore = name })
     return true
 end
 
@@ -121,8 +65,8 @@ function Mage:CheckComprehensionResult()
         for itemID, count in pairs(inventory.decodedCounts) do
             local gained = math.min(budget, count - (pending.beforeCounts[itemID] or 0) - (pending.reportedCounts[itemID] or 0))
             if gained > 0 then
-                local shown, reason = self:ShowReceipt(itemID, gained)
-                if shown then
+                local handled, reason = self:PublishReceipt(itemID, gained)
+                if handled then
                     pending.reportedCounts[itemID] = (pending.reportedCounts[itemID] or 0) + gained
                     pending.reported, budget = pending.reported + gained, budget - gained
                 elseif reason == "item-data" and not pending.requested[itemID] and Item.RequestLoadDataByID then
@@ -400,7 +344,7 @@ end
 
 function Mage:Build(record, config)
     local manager, factory = YAB.BarManager, YAB.SecureFactory
-    if record.classBarEditing then ScrollHidden() end
+    if record.classBarEditing then self:ClearComprehension() end
     for _, entry in pairs(self.states) do self:SetMissingGlow(entry, false) end
     self.armorLeft, self.armorRight = self:ResolveArmor(config.mageArmorLeft), self:ResolveArmor(config.mageArmorRight or "mage")
     self.inventoryDirty, self.auraDirty = true, true
@@ -443,7 +387,6 @@ function Mage:Build(record, config)
     if YAB.UtilityTools then YAB.UtilityTools:Layout(record) end
     self:PrepareBuffTimers(record)
     self:PrepareMissingGlows(record, config)
-    self:PrepareReceipts()
     local snapshot = record.configSnapshot
     YAB.ClassBars:LayoutFlyout(self.panel, self.pool.scroll, self.choices,
         snapshot.size, snapshot.buttonHeight or snapshot.size, snapshot.spacing, snapshot.flyoutDirection, true)
@@ -556,7 +499,7 @@ end
 function Mage:OnEvent(event, ...)
     if YAB.ClassBars.mageCastEvents[event] then self:OnComprehensionCast(event, ...); return end
     local itemID = ...
-    if event == "PLAYER_ENTERING_WORLD" then self.comprehension = nil; self:HideReceipts() end
+    if event == "PLAYER_ENTERING_WORLD" then self:ClearComprehension() end
     if event == "GET_ITEM_INFO_RECEIVED" and not (Data.decoded[Number(itemID)] or itemID == Data.powderItemID) then return end
     if event == "UNIT_AURA" or event == "SPELLS_CHANGED" or event == "PLAYER_ENTERING_WORLD"
         or event == "PLAYER_REGEN_ENABLED" or event == "ADDON_RESTRICTION_STATE_CHANGED" then self.auraDirty = true end
@@ -569,8 +512,7 @@ end
 
 function Mage:Stop()
     if YAB.UtilityTools then YAB.UtilityTools:Stop("mageTools") end
-    self.comprehension = nil
-    self:HideReceipts()
+    self:ClearComprehension()
     for _, entry in pairs(self.states) do self:SetMissingGlow(entry, false) end
     if self.panel then
         self.panel:Hide()

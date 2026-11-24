@@ -1,57 +1,39 @@
 -- Generated from Docs/Products/YUI_YHUD/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yhud", {
--- YUI-Notes-Record: halo-122|mainline|7ae264810d5c6abb69132ffe4169cbad6fe6e41c79c7f1cb5f4a7e77cad56219
+-- YUI-Notes-Record: halo-122|mainline|d93d9b1c7e5708ac041cace93b7b08a7b038970603434e4565fa583a7a4b10bf
     {
         version = "halo-122",
-        date = "2026-11-22",
+        date = "2026-11-24",
         clients = { "Retail" },
         content = {
             zhCN = {
-                "新增吃喝倒计时。",
-                "新增「主题外观」。",
-                "优化监控选择器和倒计时小数显示。",
-                "修复部分增益计时条刷新报错。",
-                "修复常驻减益图标不亮。",
+                "新增吃喝倒计时，可设置倒计时何时显示小数。",
+                "新增「主题外观」，优化监控选择器。",
             },
             enUS = {
-                "Added food and drink timers.",
-                "Added Theme & Appearance settings.",
-                "Improved the monitor picker and timer decimals.",
-                "Fixed errors when refreshing some buff timers.",
-                "Fixed always-visible debuff icons staying dim.",
+                "Added food and drink timers and a setting for when countdowns show decimals.",
+                "Added Theme & Appearance and improved the monitor picker.",
             },
         },
     },
--- YUI-Notes-Record: halo-122|forever|c2ff8cc7625e85998ad494e7834a33d64254d14c9a3191c846522d2aa3263fcb
+-- YUI-Notes-Record: halo-122|forever|dc3c4bb3998b1c482b9aed9554e7d9c466cd0d7d7306d9e19f3e08e16a635d58
     {
         version = "halo-122",
-        date = "2026-11-22",
+        date = "2026-11-24",
         clients = { "Forever" },
         content = {
             zhCN = {
-                "新增猎人双鹰计时。",
-                "新增增强萨满漩涡武器层数条。",
-                "新增法力条 5 秒回蓝倒计时。",
-                "圣印改用原生监控，并迁移符合条件的样式。",
-                "新增「主题外观」。",
-                "支持恢复符合条件的旧角色数据。",
-                "修复吃喝计时与原生光环的混排偏移。",
-                "修复被动天赋关联减益漏显。",
-                "修复常驻减益图标不亮。",
-                "修复乱舞、强化风暴打击和奥术冲击监控。",
+                "新增技能可施放发光和排队攻击高亮。",
+                "新增猎人双鹰、漩涡武器和五秒回蓝监控。",
+                "恢复圣印预设，优化吃喝、图腾和增益混排与计时。",
+                "新增「主题外观」，可设置倒计时何时显示小数。",
             },
             enUS = {
-                "Added timers for both Hunter hawks.",
-                "Added Maelstrom Weapon stacks for Enhancement Shamans.",
-                "Added a five-second mana rule timer.",
-                "Moved Seals to native tracking and migrated eligible styles.",
-                "Added Theme & Appearance settings.",
-                "Added recovery for eligible older character data.",
-                "Fixed alignment when mixing food and drink timers with native auras.",
-                "Fixed missing debuffs linked to passive talents.",
-                "Fixed always-visible debuff icons staying dim.",
-                "Fixed Flurry, Improved Stormstrike, and Arcane Blast tracking.",
+                "Added Spell Usable glow and queued attack highlights.",
+                "Added tracking for Hunter hawks, Maelstrom Weapon, and the five-second mana rule.",
+                "Restored Seal presets and improved mixed layouts and timers for food, drink, totems, and buffs.",
+                "Added Theme & Appearance and a setting for when countdowns show decimals.",
             },
         },
     },

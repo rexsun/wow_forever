@@ -222,6 +222,7 @@ YUI.Locale:Register("YBar", "enUS", {
     ["micromenu.tooltip.no_guild"] = "No Guild",
     ["micromenu.tooltip.friends_title"] = "Friends List",
     ["micromenu.message.combat_blocked"] = "Cannot do this in combat; use the binding",
+    ["micromenu.message.native_character"] = "Use Blizzard's Character Info button or its key binding",
     ["micromenu.message.meeting_stone_missing"] = "Meeting Stone addon may not be loaded",
     ["micromenu.message.ndui_settings_missing"] = "NDui: Settings button not found in Game Menu. Open the ESC menu manually.",
 

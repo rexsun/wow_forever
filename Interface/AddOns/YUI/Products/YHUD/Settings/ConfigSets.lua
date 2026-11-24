@@ -1287,27 +1287,37 @@ local function ResolveOverrideRef(content, monitorByEntry, monitorByPreset, ref)
     return nil
 end
 
+local function GetGroupMonitorRef(content, monitorId)
+    local monitor = content.monitors and content.monitors[monitorId]
+    local entry = monitor and content.entries and content.entries[monitor.entryKey]
+    if IsOfficialEntry(entry) then return OFFICIAL_REF_PREFIX .. monitor.entryKey end
+    local entryKey = monitor and monitor.entryKey
+    local presetKey = GetCompactedPresetKey(entry, entryKey) or GetPresetKey(entry, entryKey)
+    if presetKey then return PRESET_REF_PREFIX .. presetKey end
+    return monitor and (CUSTOM_REF_PREFIX .. monitorId) or nil
+end
+
 local function BuildCurrentGroupRefs(content, members)
     local refs = {}
     for index = 1, #members do
-        local monitorId = members[index]
-        local monitor = content.monitors and content.monitors[monitorId]
-        local entry = monitor and content.entries and content.entries[monitor.entryKey]
-        if IsOfficialEntry(entry) then
-            refs[#refs + 1] = OFFICIAL_REF_PREFIX .. monitor.entryKey
-        else
-            local presetKey = GetCompactedPresetKey(
-                entry,
-                monitor and monitor.entryKey
-            ) or GetPresetKey(entry, monitor and monitor.entryKey)
-            if presetKey then
-                refs[#refs + 1] = PRESET_REF_PREFIX .. presetKey
-            elseif monitor then
-                refs[#refs + 1] = CUSTOM_REF_PREFIX .. monitorId
-            end
-        end
+        refs[#refs + 1] = GetGroupMonitorRef(content, members[index])
     end
     return refs
+end
+
+function ConfigSets:GetSavedGroupMonitorRanks(profile, groupId)
+    local root = YHUD:GetCanonicalProfile(profile)
+    local specKey = rawget(profile, "_yhudSpecKey") or YHUD:GetCurrentSpecKey()
+    local override = root.officialOverridesBySpec and root.officialOverridesBySpec[specKey]
+    local refs = override and override.groups and override.groups[groupId]
+    local group = profile.groups.items[groupId]
+    if not (refs and group) then return nil end
+    local refRanks, ranks = {}, {}
+    for index, ref in ipairs(refs) do refRanks[ref] = index end
+    for _, monitorId in ipairs(group.monitors) do
+        ranks[monitorId] = refRanks[GetGroupMonitorRef(profile, monitorId)]
+    end
+    return ranks
 end
 
 function ConfigSets:CaptureSealClaimOverrides(profile, specKey)

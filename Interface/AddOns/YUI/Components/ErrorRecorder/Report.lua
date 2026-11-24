@@ -176,7 +176,14 @@ function Report:Readable(record)
     local message = record.message:gsub('^%[string .-%]:%d+:%s*', "")
     local parts = { self:Code(message) }
     if record.itemUseContext and record.itemUseContext ~= "" then parts[#parts + 1] = Escape(record.itemUseContext) end
+    if record.itemUseState and record.itemUseState ~= "" then
+        parts[#parts + 1] = "Bounded samples; count is not total blocked clicks.\nItem-use state (first):\n" .. Escape(record.itemUseState)
+    end
     if record.stack ~= "" then parts[#parts + 1] = Color("color.text.secondary", L["stack"]) .. "\n" .. self:Code(record.stack) end
+    for i, item in ipairs(record.itemUseFollowups or {}) do
+        parts[#parts + 1] = "Item-use followup " .. i .. " at " .. item.time .. ":\n" .. Escape(item.context)
+            .. "\nState:\n" .. Escape(item.state) .. "\n" .. Color("color.text.secondary", L["stack"]) .. "\n" .. self:Code(item.stack)
+    end
     local locals = _G.YUI_ErrorCollector:GetReportLocals(record)
     if locals ~= "" then parts[#parts + 1] = Color("color.text.secondary", L["locals"]) .. "\n" .. Escape(locals) end
     return table.concat(parts, "\n\n")

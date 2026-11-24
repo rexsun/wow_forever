@@ -238,26 +238,89 @@ function Event:_Debug(...)
     end
 end
 
-function Event:_RecordError(event, err)
+-- 只在错误路径格式化；错误对象和诊断接口本身也可能不可读或抛错。
+local function ErrorText(value, fallback, limit)
+    if type(issecretvalue) == "function" then
+        local ok, secret = pcall(issecretvalue, value)
+        if not ok or secret then return fallback end
+    end
+    if value == nil then return fallback end
+    local ok, text = pcall(tostring, value)
+    if not ok then return fallback end
+    if type(issecretvalue) == "function" then
+        local readable, secret = pcall(issecretvalue, text)
+        if not readable or secret then return fallback end
+    end
+    limit = limit or 256
+    if #text <= limit then return text end
+    local last = limit - 14
+    -- 截断点退回 UTF-8 字符边界，给可见的截断提示留空间。
+    while last > 0 and string.byte(text, last + 1) >= 128 and string.byte(text, last + 1) < 192 do
+        last = last - 1
+    end
+    return string.sub(text, 1, last) .. "\n[truncated]"
+end
+
+local function CaptureListenerError(err)
+    local message = ErrorText(err, "<unreadable error>", 4096)
+    local ok, stack
+    if type(debugstack) == "function" then
+        ok, stack = pcall(debugstack, 2, 32, 8)
+    elseif type(debug) == "table" and type(debug.traceback) == "function" then
+        ok, stack = pcall(debug.traceback, "", 2)
+    end
+    return {
+        message = message,
+        stack = ok and ErrorText(stack, "<stack unavailable>", 8192) or "<stack unavailable>",
+    }
+end
+
+local function DescribeListener(listener)
+    local owner = listener.owner
+    local moduleId = listener.moduleId or (type(owner) == "table" and owner.moduleId) or nil
+    local handler = listener.handler
+    local callback = ErrorText(handler, "<unknown callback>")
+    -- 标准 Lua 的离线运行器可补充函数定义位置；客户端没有此接口时保留函数身份。
+    if type(handler) == "function" and type(debug) == "table" and type(debug.getinfo) == "function" then
+        local ok, info = pcall(debug.getinfo, handler, "S")
+        if ok and info then
+            callback = ErrorText(info.short_src, "?") .. ":" .. ErrorText(info.linedefined, "?")
+        end
+    end
+    return "Module: " .. ErrorText(moduleId, "<unspecified>")
+        .. "\nListener: " .. ErrorText(GetListenerTraceName(listener), "<unnamed>")
+        .. "\nCallback: " .. callback
+        .. "\nOwner: " .. ErrorText(GetOwnerTraceName(owner), "<unnamed>")
+        .. "\nListener ID: " .. ErrorText(listener.sequence, "?")
+end
+
+function Event:_RecordError(event, err, listener, originalStack)
+    local reason = ErrorText(err, "<unreadable error>", 4096)
+    local stack = ErrorText(originalStack, "<stack unavailable>", 8192)
+    local ok, identity = pcall(DescribeListener, listener)
+    if not ok then identity = "Listener: <identity unavailable>" end
     local stats = GetStatsTable(self, event)
     stats.errorCount = stats.errorCount + 1
-    stats.lastError = tostring(err)
+    stats.lastError = reason
     stats.lastErrorTime = Now()
+    stats.lastErrorContext = identity
+    stats.lastErrorStack = stack
 
-    local message = "YUI.Event listener error [" .. tostring(event) .. "]: " .. tostring(err)
+    local message = "YUI.Event listener error [" .. tostring(event) .. "]: " .. reason
+        .. "\n" .. identity .. "\nOriginal stack:\n" .. stack
     if type(geterrorhandler) == "function" then
-        local errorHandler = geterrorhandler()
-        if type(errorHandler) == "function" then
-            pcall(errorHandler, message)
-            return
+        local gotHandler, errorHandler = pcall(geterrorhandler)
+        if gotHandler and type(errorHandler) == "function" then
+            local reported = pcall(errorHandler, message)
+            if reported then return end
         end
     end
 
-    if YUI.Print then
-        YUI:Print(message)
-    else
-        print(message)
+    if type(YUI.Print) == "function" then
+        local reported = pcall(YUI.Print, YUI, message)
+        if reported then return end
     end
+    if type(print) == "function" then pcall(print, message) end
 end
 
 function Event:_RegisterFrameEvent(event)
@@ -453,7 +516,7 @@ function Event:_Invoke(listener, event, ...)
     local cpuWatchdog = self.cpuTimingWatchdog
     local cpuStartedAt = cpuWatchdog and cpuWatchdog:BeginProbeTiming()
     local profileStart, profiler = ProfileBegin("event.bus.total")
-    local success, err = pcall(CallListener, listener, event, ...)
+    local success, err = xpcall(CallListener, CaptureListenerError, listener, event, ...)
     ProfileFinish(profiler, "event.bus.total", profileStart)
     if cpuStartedAt then
         local diagnosticID = listener.cpuDiagnosticID
@@ -482,10 +545,11 @@ function Event:_Invoke(listener, event, ...)
             trace:Finish(traceRecord, "ok")
         end
     else
+        local reason = type(err) == "table" and err.message or err
         if trace and traceRecord and trace.Finish then
-            trace:Finish(traceRecord, "error", err)
+            trace:Finish(traceRecord, "error", reason)
         end
-        self:_RecordError(event, err)
+        self:_RecordError(event, reason, listener, type(err) == "table" and err.stack or nil)
     end
 end
 
@@ -788,6 +852,8 @@ function Event:GetStats(event)
         errorCount = stats.errorCount or 0,
         lastError = stats.lastError,
         lastErrorTime = stats.lastErrorTime,
+        lastErrorContext = stats.lastErrorContext,
+        lastErrorStack = stats.lastErrorStack,
         throttleCount = stats.throttleCount or 0,
         debounceCount = stats.debounceCount or 0,
         registered = YUI.f.registeredEvents[event],

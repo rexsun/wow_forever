@@ -1,51 +1,41 @@
 -- Generated from Docs/Products/YUI_YActionBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("yactionbar", {
--- YUI-Notes-Record: yactionbar-120|mainline|ddecc6c63aecae1e2248a3001e04bc21379260d4edca88a4b043791eb4c27040
+-- YUI-Notes-Record: yactionbar-120|mainline|42c9fc88ad43ccafcb62f287e45b32ff0e0590eb22b668728ef37b1f6086b126
     {
         version = "yactionbar-120",
-        date = "2026-11-21",
+        date = "2026-11-24",
         clients = { "Retail" },
         content = {
             zhCN = {
                 "新增「主题外观」。",
-                "修复宠物条键位被覆盖或裁切。",
-                "修复姿态按钮未刷新或误变灰。",
+                "修复宠物条键位、姿态按钮和载具退出按钮异常。",
                 "修复换角色后方案漏应用。",
             },
             enUS = {
-                "Added Theme & Appearance settings.",
-                "Fixed overwritten or clipped pet bar keybinds.",
-                "Fixed stance buttons failing to refresh or dimming incorrectly.",
+                "Added Theme & Appearance.",
+                "Fixed pet bar bindings, stance buttons, and Leave Vehicle button placement.",
                 "Fixed profiles failing to apply after switching characters.",
             },
         },
     },
--- YUI-Notes-Record: yactionbar-120|forever|2bebb75210945ada3ca50fc6e29faf38b02bb92b0ce7ff6217640e6404ec6ef1
+-- YUI-Notes-Record: yactionbar-120|forever|dbe5b71a10a859d3faf077907e2d2968b38220d5d6c82eb202596d90047a9142
     {
         version = "yactionbar-120",
-        date = "2026-11-21",
+        date = "2026-11-24",
         clients = { "Forever" },
         content = {
             zhCN = {
-                "新增圣骑士团队祝福管理条。",
-                "职业工具扩展至 9 个职业。",
+                "新增「主题外观」和圣骑士团队祝福条。",
+                "职业工具覆盖九个职业，支持武器消耗品计时和术士夜魔召唤。",
                 "布局编辑可调整其他职业的工具条。",
-                "新增「主题外观」。",
-                "修复宠物条键位和姿态按钮显示。",
-                "修复任务物品漏显和旧方案职业条错位。",
-                "修复换角色后方案漏应用。",
-                "使用新版 Core 可恢复符合条件的旧角色数据。",
+                "改善任务物品识别和冷却显示。",
             },
             enUS = {
-                "Added a Paladin group blessing bar.",
-                "Expanded class tools to all nine classes.",
+                "Added Theme & Appearance and a Paladin group blessing bar.",
+                "Class tools now cover all nine classes, with weapon consumable timers and Summon Incubus for Warlocks.",
                 "Layout editing can reposition toolbars for other classes.",
-                "Added Theme & Appearance settings.",
-                "Fixed pet bar keybinds and stance button display.",
-                "Fixed missing quest items and misplaced toolbars in older profiles.",
-                "Fixed profiles failing to apply after switching characters.",
-                "Eligible older character data can be recovered with the updated Core.",
+                "Improved quest item detection and cooldown display.",
             },
         },
     },

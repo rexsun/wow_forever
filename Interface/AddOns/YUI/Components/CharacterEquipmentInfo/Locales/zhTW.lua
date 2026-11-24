@@ -216,8 +216,6 @@ YUI.Locale:Register("CharacterEquipmentInfo", "zhTW", {
     ["section.durability"] = "耐久度顯示",
     ["section.summary"] = "裝備摘要面板",
     ["settings.enabled"] = "啟用",
-    ["settings.bottom_tabs"] = "底部標籤",
-    ["settings.bottom_tabs.help"] = "將角色和觀察視窗的導覽移到底部，關閉後恢復原位。切頁和條件入口遵循遊戲原生規則，介面配置調整會等到脫戰後執行。",
     ["tabs.character"] = "角色",
     ["tabs.reputation"] = "聲望",
     ["tabs.skills"] = "技能",

@@ -647,10 +647,11 @@ local function RegisterGlowRecord(display, monitor, slot, kind, auraFrame)
     return record
 end
 
-local function CreateLiveSlot(auraFrame, runtime, monitor, handle, display, abovePlaceholder)
-    auraFrame:SetSize(runtime.itemWidth, runtime.itemHeight)
+local function CreateLiveSlot(auraFrame, runtime, monitor, handle, display, abovePlaceholder, ringPlacement)
+    local diameter = ringPlacement and ringPlacement.diameter
+    auraFrame:SetSize(diameter or runtime.itemWidth, diameter or runtime.itemHeight)
     local slot = View:CreateFilteredAuraSlot(
-        auraFrame, runtime, monitor, true, abovePlaceholder
+        auraFrame, runtime, monitor, true, abovePlaceholder, ringPlacement
     )
     if not slot then return nil end
     local bindings = View:GetFilteredAuraSlotBindings(slot, runtime)
@@ -938,7 +939,35 @@ local function BuildExternalBuffBlock(runtime, monitor, entry)
     return display
 end
 
-local function BuildMixedMonitor(runtime, monitor, entry, spellIDs, scope, nativeReplacement, inFlow)
+local concentricRingResolver
+
+local function BuildConcentricAuraPlacements(runtime)
+    if runtime.view ~= "ring" or runtime.layoutMode ~= "fixed"
+        or (runtime.direction ~= "outward" and runtime.direction ~= "inward") then
+        return nil
+    end
+    if not concentricRingResolver then
+        local app = I.App
+        if not (app and app.CreateDurationRing) then return nil end
+        -- The regular ring's metric resolvers take public dimensions. Keep
+        -- one hidden sample so even a group with no active cooldown has them.
+        concentricRingResolver = app:CreateDurationRing(_G.UIParent, {})
+        concentricRingResolver:Hide()
+    end
+    local items = {}
+    for index = 1, runtime.monitorCount do items[index] = concentricRingResolver end
+    local geometry = I.BuildGroupGeometry(runtime, items, runtime.monitorCount,
+        { fixedLayout = true })
+    local byMonitor = {}
+    for index = 1, runtime.monitorCount do
+        byMonitor[runtime.monitorIds[index]] = geometry.placements[index]
+    end
+    return byMonitor
+end
+
+local function BuildMixedMonitor(
+    runtime, monitor, entry, spellIDs, scope, nativeReplacement, inFlow, ringPlacement
+)
     local display = {
         monitorId = monitor.id,
         groupId = runtime.id,
@@ -955,10 +984,17 @@ local function BuildMixedMonitor(runtime, monitor, entry, spellIDs, scope, nativ
         proxy._yhudFilteredAuraChainCarrier = carrier or nil
         proxy._yhudFilteredAuraReplacesNative = true
     end
-    proxy:SetSize(runtime.itemWidth, runtime.itemHeight)
+    local diameter = ringPlacement and ringPlacement.diameter
+    if ringPlacement then
+        -- Relayout uses the same public metrics after activity changes.
+        proxy.ResolveDurationRingMetrics = concentricRingResolver.ResolveDurationRingMetrics
+        proxy.ResolveConcentricDurationRingMetrics =
+            concentricRingResolver.ResolveConcentricDurationRingMetrics
+    end
+    proxy:SetSize(diameter or runtime.itemWidth, diameter or runtime.itemHeight)
     local staticSlot
     if monitor.visibilityMode == "always" then
-        staticSlot = View:CreateFilteredAuraSlot(proxy, runtime, monitor)
+        staticSlot = View:CreateFilteredAuraSlot(proxy, runtime, monitor, nil, nil, ringPlacement)
         if not staticSlot then
             proxy:Hide()
             if carrier then carrier:Hide() end
@@ -993,7 +1029,8 @@ local function BuildMixedMonitor(runtime, monitor, entry, spellIDs, scope, nativ
                 monitor,
                 displayHandle,
                 display,
-                nativeReplacement and staticSlot ~= nil
+                nativeReplacement and staticSlot ~= nil,
+                ringPlacement
             )
         end,
     })
@@ -1053,16 +1090,19 @@ local function BuildDynamicNodeHandle(
     spellIDs,
     scope,
     display,
-    balance
+    balance,
+    splitIndex
 )
     local columnIcons = runtime.fillMode == "columns"
     local cellWidth = math_max(1, columnIcons and (runtime.itemHeight + (runtime.rowSpacing or 0))
         or (runtime.itemWidth + (tonumber(runtime.columnSpacing) or 0)))
     local effectiveWidth = balance and cellWidth / 2 or cellWidth
     local elementWidth = effectiveWidth + FILTERED_AURA_RESTING_WIDTH
-    local capacity = monitor._yhudAuraMaxFrameCount or 1
+    local capacity = splitIndex and 1 or monitor._yhudAuraMaxFrameCount or 1
     local keyPrefix = balance and "yhud-special-balance-"
         or "yhud-special-aura-"
+    local key = keyPrefix .. tostring(monitor.id)
+    if splitIndex then key = key .. "-split-" .. splitIndex end
     local handle, code = Unit.CreateFilteredAuraDisplay(runtime.frame, {
         showTooltip = balance ~= true and runtime.showTooltip ~= false,
         unit = scope.unit,
@@ -1073,7 +1113,7 @@ local function BuildDynamicNodeHandle(
             + FILTERED_AURA_RESTING_WIDTH, balance),
         groups = {
             {
-                key = keyPrefix .. tostring(monitor.id),
+                key = key,
                 spellIDs = spellIDs,
                 maxFrameCount = capacity,
                 sortMethod = capacity > 1 and 0 or nil,
@@ -1139,15 +1179,74 @@ local function BuildDynamicNodeHandle(
             0
         )
     end
-    return handle, nil, endpoint
+    return handle, nil, endpoint, key
 end
 
-local function BuildDynamicMonitor(runtime, monitor, entry, spellIDs, scope)
+local function UsesPublicMixedAuraLayout(runtime)
+    return YUI.IsForever == true and runtime.view == "icon"
+        and runtime.layoutMode == "auto"
+        and runtime.filteredAuraProjectionStrategy == YHUD.FILTERED_AURA_LAYOUT_MIXED_SEGMENTED_OVERFLOW
+end
+
+local function PreparePublicMixedAuraSplit(runtime, monitor, display, spellIDs)
+    if not monitor or not Unit.SetFilteredAuraGroupSpellIDs then return false end
+    local glowCount = #display.glowRecords
+    local byMonitor = View.filteredAuraGlowRecords[display.monitorId]
+    local monitorGlowCount = byMonitor and #byMonitor or 0
+    local parts = {}
+    for index = 1, 2 do
+        local partSpellIDs = { spellIDs[index] }
+        local handle, _, endpoint, key = BuildDynamicNodeHandle(
+            runtime, monitor, partSpellIDs, display.scope, display, false, index
+        )
+        if not handle then
+            for _, part in ipairs(parts) do
+                Unit.ReleaseFilteredAuraDisplay(part.handle)
+                part.handle.visuals = nil
+            end
+            for recordIndex = #display.glowRecords, glowCount + 1, -1 do
+                local record = display.glowRecords[recordIndex]
+                record.slot._yhudGlowRuntime = nil
+                record.slot._yhudAuraStackSet = nil
+                record.slot._yhudAuraStackGate = nil
+                record.display, record.slot = nil, nil
+                display.glowRecords[recordIndex] = nil
+            end
+            byMonitor = View.filteredAuraGlowRecords[display.monitorId]
+            if byMonitor then
+                for recordIndex = #byMonitor, monitorGlowCount + 1, -1 do
+                    byMonitor[recordIndex] = nil
+                end
+            end
+            for auraFrame, record in pairs(View.filteredAuraFrameRecords) do
+                if record.slot == nil then View.filteredAuraFrameRecords[auraFrame] = nil end
+            end
+            return false
+        end
+        handle.proxy:Hide()
+        parts[index] = {
+            monitorId = display.monitorId,
+            proxy = handle.proxy,
+            node = handle.container,
+            endNode = endpoint,
+            handle = handle,
+            key = key,
+            spellIDs = partSpellIDs,
+        }
+    end
+    for _, part in ipairs(parts) do display.handles[#display.handles + 1] = part.handle end
+    return parts
+end
+
+local function BuildDynamicMonitor(runtime, monitor, entry, spellIDs, scope, externalFallback)
     local display = {
         monitorId = monitor.id,
         groupId = runtime.id,
         dynamic = true,
         capacity = monitor._yhudAuraMaxFrameCount or 1,
+        spellIDs = spellIDs,
+        scope = scope,
+        publicExternalFallback = externalFallback,
         glowRecords = {},
         identitySuppressed = IsAuraIdentitySuppressed(scope),
     }
@@ -1185,8 +1284,13 @@ local function BuildDynamicMonitor(runtime, monitor, entry, spellIDs, scope)
     display.balanceNode = balanceHandle.container
     display.balanceEndNode = balanceEndpoint
     display.handles[2] = balanceHandle
+    if UsesPublicMixedAuraLayout(runtime) then
+        display.spellIDSet = {}
+        for index = 1, #spellIDs do display.spellIDSet[spellIDs[index]] = true end
+    end
     display.auraPresent = ResolveDisplayAuraPresence(display)
     RefreshDisplayGlow(display)
+    if externalFallback then display.proxy:SetAlpha(0) end
     View.filteredAuraDynamicNodes[monitor.id] = display
     return display
 end
@@ -1225,21 +1329,241 @@ UpdateIndependentBarWidth = function(self, runtime)
     return changed
 end
 
--- Projected duration views have one public display owner per monitor. Suppress it
--- while a verified native totem clock is drawn by the ordinary owned slot;
--- the Aura container and its restricted descendants keep all native bindings.
-function View:SetFilteredAuraTotemTakeover(monitorId, active)
+local function SyncPublicMixedAuraAlpha(display)
+    local hidden = display.publicLayoutExcluded or display.publicSplitActive
+        or display.totemAlphaHidden
+        or (display.publicExternalFallback and not display.publicInline)
+    display.proxy:SetAlpha(hidden and 0 or 1)
+end
+
+local function SyncPublicMixedAuraSplitVisibility(display)
+    local parts = display.publicSplitParts
+    if not parts then return end
+    local shown = display.publicSplitActive
+        and (not display.publicExternalFallback or display.publicInline)
+    for _, part in ipairs(parts) do
+        if shown then part.proxy:Show() else part.proxy:Hide() end
+    end
+end
+
+function View:SetPublicMixedAuraLayoutInline(display, inline)
+    local fallback = display and display.publicExternalFallback
+    inline = inline == true
+    if not fallback or (display.publicInline == true) == inline then return false end
+    display.publicInline = inline or nil
+    if inline then fallback.proxy:Hide() end
+    SyncPublicMixedAuraAlpha(display)
+    SyncPublicMixedAuraSplitVisibility(display)
+    if not inline then fallback.proxy:Show() end
+    return true
+end
+
+function View:SetPublicMixedAuraLayoutExcluded(display, excluded)
+    excluded = excluded == true
+    if not (display and display.proxy and display.proxy.SetAlpha)
+        or (display.publicLayoutExcluded == true) == excluded then
+        return false
+    end
+    display.publicLayoutExcluded = excluded or nil
+    SyncPublicMixedAuraAlpha(display)
+    return true
+end
+
+function View:SetPublicMixedAuraSplit(runtime, display, spellIDs)
+    local parts = display.publicSplitParts
+    local canSplit = spellIDs and #spellIDs == 2 and spellIDs[1] ~= spellIDs[2]
+        and runtime.id == display.groupId and display.capacity == 2
+        and not display.identitySuppressed
+    if canSplit then
+        if parts == nil then
+            parts = PreparePublicMixedAuraSplit(
+                runtime, self.desiredMonitors[display.monitorId], display, spellIDs
+            )
+            display.publicSplitParts = parts
+        end
+        if not parts then return nil end
+        for index = 1, 2 do
+            local part = parts[index]
+            local spellID = spellIDs[index]
+            if part.spellIDs[1] ~= spellID then
+                part.spellIDs[1] = spellID
+                if not Unit.SetFilteredAuraGroupSpellIDs(
+                    part.handle, part.key, part.spellIDs, display.scope.requirePlayerSource
+                ) then
+                    -- Retry the binding if the adapter rejected it.
+                    part.spellIDs[1] = nil
+                    return self:SetPublicMixedAuraSplit(runtime, display, nil)
+                end
+            end
+        end
+        if not display.publicSplitActive then
+            display.publicSplitActive = true
+            SyncPublicMixedAuraAlpha(display)
+            SyncPublicMixedAuraSplitVisibility(display)
+        end
+        return parts
+    end
+    if parts and display.publicSplitActive then
+        display.publicSplitActive = nil
+        SyncPublicMixedAuraSplitVisibility(display)
+        SyncPublicMixedAuraAlpha(display)
+    end
+    return nil
+end
+
+local publicAuraLayoutWatch = { groups = {} }
+
+local function ReadPublicMixedAuraLayout(cache, scopeReads)
+    local result = {}
+    for index = 1, cache.sequenceCount do
+        local kind = cache.sequenceKinds[index]
+        if kind == "normal-dynamic" or kind == "special" then
+            local monitorId = cache.sequenceValues[index]
+            local display = View.filteredAuraDynamicNodes[monitorId]
+            if display then
+                local scope = display.scope
+                if display.identitySuppressed or not (scope and display.spellIDSet) then
+                    return nil
+                end
+                local auraIDs = scopeReads[scope]
+                if auraIDs == nil then
+                    auraIDs = Unit.ReadPublicAuraLayout(scope.unit, scope.filter, scope.requirePlayerSource) or false
+                    scopeReads[scope] = auraIDs
+                end
+                if auraIDs == false then return nil end
+                local matches = {}
+                for auraIndex = 1, #auraIDs do
+                    local spellID = auraIDs[auraIndex]
+                    if display.spellIDSet[spellID] then
+                        matches[#matches + 1] = spellID
+                        if #matches == display.capacity then break end
+                    end
+                end
+                result[monitorId] = matches
+            end
+        end
+    end
+    return result
+end
+
+function View:ReadPublicMixedAuraLayout(runtime, cache)
+    if not (UsesPublicMixedAuraLayout(runtime) and Unit and Unit.ReadPublicAuraLayout) then
+        return nil
+    end
+    local result = ReadPublicMixedAuraLayout(cache, {})
+    local watched = publicAuraLayoutWatch.groups[runtime.id]
+    if watched then
+        watched.cache = cache
+        watched.snapshot = result
+    end
+    return result
+end
+
+local function SamePublicAuraLayout(previous, current)
+    if previous == nil or current == nil then return previous == current end
+    for monitorId, oldIDs in pairs(previous) do
+        local newIDs = current[monitorId]
+        if not newIDs or #oldIDs ~= #newIDs then return false end
+        for index = 1, #oldIDs do
+            if oldIDs[index] ~= newIDs[index] then return false end
+        end
+    end
+    for monitorId in pairs(current) do
+        if not previous[monitorId] then return false end
+    end
+    return true
+end
+
+local function FlushPublicAuraLayout()
+    publicAuraLayoutWatch.timer = nil
+    local targetChanged = publicAuraLayoutWatch.targetChanged
+    publicAuraLayoutWatch.targetChanged = nil
+    local scopeReads = {}
+    for groupId, watched in pairs(publicAuraLayoutWatch.groups) do
+        local runtime = watched.runtime
+        if watched.cache and View.groups[groupId] == runtime and UsesPublicMixedAuraLayout(runtime) then
+            local current = ReadPublicMixedAuraLayout(watched.cache, scopeReads)
+            if (targetChanged and watched.hasTarget)
+                or not SamePublicAuraLayout(watched.snapshot, current) then
+                View:RelayoutGroup(groupId)
+            end
+        end
+    end
+end
+
+local function RequestPublicAuraLayout(event)
+    local owner = publicAuraLayoutWatch
+    if event == "PLAYER_TARGET_CHANGED" then owner.targetChanged = true end
+    if not owner.timer then
+        local timer = _G.C_Timer
+        if timer and timer.NewTimer then
+            owner.timer = timer.NewTimer(0, FlushPublicAuraLayout)
+        else
+            FlushPublicAuraLayout()
+        end
+    end
+end
+
+local function WatchPublicAuraLayout(runtime, display)
+    local event = YUI.Event
+    if not (UsesPublicMixedAuraLayout(runtime) and Unit.ReadPublicAuraLayout and event and event.On) then
+        return
+    end
+    local owner = publicAuraLayoutWatch
+    local watched = owner.groups[runtime.id]
+    if not watched then
+        watched = { runtime = runtime }
+        owner.groups[runtime.id] = watched
+    end
+    if display.scope.unit == "target" then watched.hasTarget = true end
+    if owner.listening then return end
+    owner.listening = true
+    event:On("UNIT_AURA", RequestPublicAuraLayout, owner, { units = { "player", "target" } })
+    event:On("PLAYER_TARGET_CHANGED", RequestPublicAuraLayout, owner)
+    event:On("PLAYER_REGEN_DISABLED", RequestPublicAuraLayout, owner)
+    event:On("PLAYER_REGEN_ENABLED", RequestPublicAuraLayout, owner)
+    event:On("ENCOUNTER_START", RequestPublicAuraLayout, owner)
+    event:On("ENCOUNTER_END", RequestPublicAuraLayout, owner)
+    local eventUtils = _G.C_EventUtils
+    if not (eventUtils and eventUtils.IsEventValid)
+        or eventUtils.IsEventValid("ADDON_RESTRICTION_STATE_CHANGED") then
+        event:On("ADDON_RESTRICTION_STATE_CHANGED", RequestPublicAuraLayout, owner)
+    end
+end
+
+local function ReleasePublicAuraLayoutWatch()
+    local owner = publicAuraLayoutWatch
+    if owner.listening then
+        YUI.Event:OffOwner(owner)
+        owner.listening = nil
+    end
+    if owner.timer then
+        owner.timer:Cancel()
+        owner.timer = nil
+    end
+    owner.targetChanged = nil
+    for groupId in pairs(owner.groups) do owner.groups[groupId] = nil end
+end
+
+-- Keep the Aura binding available when a totem temporarily owns the timer.
+function View:SetFilteredAuraTotemTakeover(monitorId, active, nativeIcon)
     local display = self.filteredAuraDisplays["monitor:" .. monitorId]
     if not display or (display.totemActive == true) == active then return false end
     local proxy = display.proxy
     if not (proxy and proxy.SetAlpha) then return false end
-    proxy:SetAlpha(active and 0 or 1)
+    if nativeIcon then
+        if active then proxy:Hide() else proxy:Show() end
+    else
+        display.totemAlphaHidden = active or nil
+        SyncPublicMixedAuraAlpha(display)
+    end
     display.totemActive = active or nil
     if I.AddViewWrite then I.AddViewWrite(false) end
     return true
 end
 
 function View:ReleaseFilteredAuraDisplays()
+    ReleasePublicAuraLayoutWatch()
     local released = false
     for key, display in pairs(self.filteredAuraDisplays or {}) do
         for index = 1, #(display.glowRecords or {}) do
@@ -1317,6 +1641,8 @@ function View:ReleaseFilteredAuraDisplays()
         display.endNode = nil
         display.balanceNode = nil
         display.balanceEndNode = nil
+        display.publicSplitParts = nil
+        display.publicExternalFallback = nil
         display.proxy = nil
         self.filteredAuraDisplays[key] = nil
         released = true
@@ -1356,6 +1682,7 @@ function View:ReconcilePlayerHelpfulFilteredAuraDisplays(trusted)
     local changed = false
     local restored = 0
     local eligible = 0
+    local publicLayoutChanged = false
     for _, display in pairs(self.filteredAuraDisplays or {}) do
         local displayEligible = false
         local handles = display.handles
@@ -1381,6 +1708,11 @@ function View:ReconcilePlayerHelpfulFilteredAuraDisplays(trusted)
         end
         if displayEligible then
             eligible = eligible + 1
+            local watched = publicAuraLayoutWatch.groups[display.groupId]
+            if watched and watched.cache and display.dynamic
+                and display.identitySuppressed ~= suppressed then
+                publicLayoutChanged = true
+            end
             display.identitySuppressed = suppressed
             if display.dynamic ~= true then
                 changed = SyncDisplayLayoutParticipation(display, true)
@@ -1427,6 +1759,7 @@ function View:ReconcilePlayerHelpfulFilteredAuraDisplays(trusted)
     if resourceChanged and resourceGroupId and self.RelayoutGroup then
         self:RelayoutGroup(resourceGroupId)
     end
+    if publicLayoutChanged then RequestPublicAuraLayout() end
     return changed, restored, eligible
 end
 
@@ -1545,9 +1878,12 @@ function View:SyncFilteredAuraDisplays(profile)
                 MarkFilteredAuraFailed(monitors, code)
             end
         elseif runtime then
+            local ringPlacements = BuildConcentricAuraPlacements(runtime)
             for index = 1, #monitors do
                 local monitor = monitors[index]
                 local entry = profile.entries[monitor.entryKey]
+                local publicFood = runtime.publicMixedFoodIds and runtime.publicMixedFoodIds[monitor.id]
+                local externalFallback = publicFood and self.filteredAuraDisplays["monitor:" .. monitor.id]
                 local nativeProjection = groupState and groupState.nativeAuraProjections
                     and groupState.nativeAuraProjections[monitor.id]
                 local scope = ResolveFilteredAuraScope(entry, nativeProjection and nativeProjection.scope)
@@ -1558,14 +1894,17 @@ function View:SyncFilteredAuraDisplays(profile)
                     and (entry.displayCategory or entry.officialCategory) == "trackedBuff"
                     and YHUD:IsOfficialNativeView("trackedBuff", monitor.view, entry)
                 local display, code
-                if spellIDs then
+                if publicFood and not externalFallback then
+                    code = "filtered-aura-external-fallback-unavailable"
+                elseif spellIDs then
                     if independent and not nativeReplacement then
                         display, code = BuildDynamicMonitor(
                             runtime,
                             monitor,
                             entry,
                             spellIDs,
-                            scope
+                            scope,
+                            externalFallback
                         )
                     else
                         display, code = BuildMixedMonitor(
@@ -1575,20 +1914,24 @@ function View:SyncFilteredAuraDisplays(profile)
                             spellIDs,
                             scope,
                             nativeReplacement,
-                            independent
+                            independent,
+                            ringPlacements and ringPlacements[monitor.id]
                         )
                     end
                 else
                     code = "filtered-aura-spell-identity-missing"
                 end
                 if display then
-                    self.filteredAuraDisplays["monitor:" .. monitor.id] = display
+                    local key = (externalFallback and "public-monitor:" or "monitor:") .. monitor.id
+                    self.filteredAuraDisplays[key] = display
                     if display.dynamic ~= true then
                         SyncDisplayLayoutParticipation(display, false)
+                    else
+                        WatchPublicAuraLayout(runtime, display)
                     end
                     monitor._yhudFilteredAuraManaged = true
                     built = true
-                elseif not nativeReplacement or independent then
+                elseif not externalFallback and (not nativeReplacement or independent) then
                     monitor._yhudFilteredAuraFailed = true
                     monitor._yhudFilteredAuraFailureCode =
                         code or "filtered-aura-create-failed"

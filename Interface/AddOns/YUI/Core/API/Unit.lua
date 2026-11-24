@@ -972,6 +972,95 @@ local function ReadAuraField(aura, key)
     return value, false
 end
 
+local function IsPublicAuraTable(value)
+    if IsSecretValue(value) or type(value) ~= "table" then return false end
+    if _G.issecrettable and SafeValue(_G.issecrettable, value) ~= false then return false end
+    local security = YUI.API.Security
+    return not (security and security.CanAccessTable and security.CanAccessTable(value) == false)
+end
+
+local function IsPublicAuraRecord(record, allowArray)
+    if not IsPublicAuraTable(record) then return false end
+    for key, value in next, record do
+        if IsSecretValue(key) or IsSecretValue(value) then return false end
+        if type(value) == "table" and (not allowArray or not IsPublicAuraRecord(value, false)) then
+            return false
+        end
+    end
+    return true
+end
+
+local function IsValidAuraSpellID(value)
+    return type(value) == "number" and value > 0
+        and value < math.huge and value == math.floor(value)
+end
+
+local function CollectPublicAuraSpellIDs(auras, requirePlayerSource)
+    if not IsPublicAuraTable(auras) then return nil end
+    local count = 0
+    for key in next, auras do
+        if IsSecretValue(key) or not IsValidAuraSpellID(key) then return nil end
+        count = count + 1
+    end
+
+    local spellIDs = {}
+    for index = 1, count do
+        local aura = rawget(auras, index)
+        if not IsPublicAuraRecord(aura, true) then return nil end
+        local spellID = ReadAuraField(aura, "spellId")
+        if not IsValidAuraSpellID(spellID) then return nil end
+
+        local include = true
+        if requirePlayerSource then
+            local sourceUnit = ReadAuraField(aura, "sourceUnit")
+            if type(sourceUnit) ~= "string" or sourceUnit == "" then return nil end
+            -- PLAYER filters can also include the player's pet and vehicle.
+            include = sourceUnit == "player" or SafeBool(_G.UnitIsUnit, sourceUnit, "player")
+            if include == nil
+                or (include == false and SafeValue(_G.UnitExists, sourceUnit) ~= true) then
+                return nil
+            end
+        end
+        if include then spellIDs[#spellIDs + 1] = spellID end
+    end
+    return spellIDs
+end
+
+-- A complete, public snapshot of one native filter. Nil means the caller
+-- must keep engine-owned visibility and cannot infer count or absence.
+function Unit.ReadPublicAuraLayout(unit, filter, requirePlayerSource)
+    if YUI.IsForever ~= true or type(_G.issecretvalue) ~= "function"
+        or IsSecretValue(unit) or type(unit) ~= "string" or unit == ""
+        or IsSecretValue(filter) or type(filter) ~= "string" or filter == ""
+        or IsSecretValue(requirePlayerSource)
+        or (requirePlayerSource ~= nil and type(requirePlayerSource) ~= "boolean") then
+        return nil
+    end
+
+    local exists = SafeValue(_G.UnitExists, unit)
+    if unit == "target" and exists == false then return {} end
+    if exists ~= true then return nil end
+
+    local secrets = _G.C_Secrets
+    if SafeValue(secrets and secrets.ShouldAurasBeSecret) ~= false
+        or Unit.IsAuraRestricted() ~= false then
+        return nil
+    end
+
+    local auraAPI = _G.C_UnitAuras
+    local enums = _G.Enum
+    local sortRule = enums and enums.UnitAuraSortRule and enums.UnitAuraSortRule.Default
+    local sortDirection = enums and enums.UnitAuraSortDirection and enums.UnitAuraSortDirection.Normal
+    if type(sortRule) ~= "number" or type(sortDirection) ~= "number" then return nil end
+
+    -- 71037 defaults to Unsorted. Default/Normal gives a stable native order
+    -- with aura-instance ID as the final tie-breaker. Leave maxCount unset.
+    local auras = SafeCall(auraAPI and auraAPI.GetUnitAuras, unit, filter, nil, sortRule, sortDirection)
+    local ok, spellIDs = pcall(CollectPublicAuraSpellIDs, auras, requirePlayerSource)
+    if ok then return spellIDs end
+    return nil
+end
+
 local function ReadAuraIdentity(aura)
     if IsSecretValue(aura) then return nil, "aura-result-secret" end
     if type(aura) ~= "table" then return nil, "aura-result-invalid" end
@@ -2497,17 +2586,21 @@ function Unit.IsPlayerHelpfulAuraIdentityTrusted()
     return SafeBool(_G.UnitCanAssist, "player", "player") == true
 end
 
-local function NormalizeFilteredAuraSpellIDs(value)
+local function BuildCandidateFilters(value, replacing)
+    if IsSecretValue(value) then return nil end
     if type(value) == "number" then value = { value } end
-    if type(value) ~= "table" then return nil end
-    local result = {}
-    for key, candidate in pairs(value) do
+    if not IsPublicAuraTable(value) then return nil end
+    local includeSpellIDs = {}
+    for key, candidate in next, value do
+        if IsSecretValue(key) or IsSecretValue(candidate) then return nil end
         local spellID = type(candidate) == "number" and candidate
             or candidate == true and key or nil
         spellID = SafeNumberValue(spellID)
-        if spellID then result[spellID] = true end
+        if replacing and not IsValidAuraSpellID(spellID) then return nil end
+        if spellID then includeSpellIDs[spellID] = true end
     end
-    return next(result) and result or nil
+    if not replacing and not next(includeSpellIDs) then return nil end
+    return { includeSpellIDs = includeSpellIDs }
 end
 
 local FILTERED_AURA_FILTER_HELPFUL = "HELPFUL"
@@ -2715,6 +2808,39 @@ function Unit.SetFilteredAuraDisplayLayout(handle, layout, groups)
     return true
 end
 
+local function ApplyFilteredAuraGroupCandidateFilters(container, groupKey, candidateFilters)
+    return container:SetAuraGroupCandidateFilters(groupKey, candidateFilters)
+end
+
+function Unit.SetFilteredAuraGroupSpellIDs(handle, groupKey, spellIDs, requirePlayerSource)
+    if not IsPublicAuraTable(handle) or IsSecretValue(groupKey) or type(groupKey) ~= "string"
+        or IsSecretValue(requirePlayerSource)
+        or (requirePlayerSource ~= nil and type(requirePlayerSource) ~= "boolean") then
+        return false
+    end
+    local released = rawget(handle, "released")
+    local container = rawget(handle, "container")
+    local groupFilters = rawget(handle, "groupFilters")
+    if IsSecretValue(released) or released == true or IsSecretValue(container)
+        or container == nil or not IsPublicAuraTable(groupFilters) then
+        return false
+    end
+    local filter = rawget(groupFilters, groupKey)
+    if IsSecretValue(filter) or type(filter) ~= "string" then return false end
+    -- Preserve the group's native source filter. Candidate ownership flags
+    -- describe any player's aura and cannot add an exact local-caster filter.
+    if requirePlayerSource and filter ~= FILTERED_AURA_FILTER_PLAYER_HELPFUL
+        and filter ~= FILTERED_AURA_FILTER_PLAYER_HARMFUL
+        and filter ~= FILTERED_AURA_FILTER_CDM_PLAYER_HELPFUL then
+        return false
+    end
+
+    local ok, candidateFilters = pcall(BuildCandidateFilters, spellIDs, true)
+    if not ok or not candidateFilters then return false end
+    local updated, result = pcall(ApplyFilteredAuraGroupCandidateFilters, container, groupKey, candidateFilters)
+    return updated and not IsSecretValue(result) and result ~= false
+end
+
 function Unit.RefreshFilteredAuraDisplay(handle)
     if type(handle) ~= "table" or handle.released == true then
         return false, "filtered-aura-handle-unavailable"
@@ -2859,6 +2985,7 @@ function Unit.CreateFilteredAuraDisplay(parent, spec)
         container = container,
         proxy = proxy,
         frames = {},
+        groupFilters = #groups > 0 and {} or nil,
         unit = unit,
         hasHelpfulFilter = false,
         hasHarmfulFilter = false,
@@ -2898,18 +3025,11 @@ function Unit.CreateFilteredAuraDisplay(parent, spec)
         end
     end
 
-    local function BuildCandidateFilters(display)
-        local spellIDs = NormalizeFilteredAuraSpellIDs(
-            display.spellIDs or display.spellID
-                or spec.spellIDs or spec.spellID
-        )
-        if not spellIDs then return nil end
-        return { includeSpellIDs = spellIDs }
-    end
-
     for index = 1, #slots do
         local slot = type(slots[index]) == "table" and slots[index] or {}
-        local candidateFilters = BuildCandidateFilters(slot)
+        local candidateFilters = BuildCandidateFilters(
+            slot.spellIDs or slot.spellID or spec.spellIDs or spec.spellID
+        )
         if not candidateFilters then
             Unit.ReleaseFilteredAuraDisplay(handle)
             return nil, "invalid-spell"
@@ -2952,7 +3072,9 @@ function Unit.CreateFilteredAuraDisplay(parent, spec)
     end
     for index = 1, #groups do
         local group = type(groups[index]) == "table" and groups[index] or {}
-        local candidateFilters = BuildCandidateFilters(group)
+        local candidateFilters = BuildCandidateFilters(
+            group.spellIDs or group.spellID or spec.spellIDs or spec.spellID
+        )
         if not candidateFilters then
             Unit.ReleaseFilteredAuraDisplay(handle)
             return nil, "invalid-spell"
@@ -3000,6 +3122,7 @@ function Unit.CreateFilteredAuraDisplay(parent, spec)
             Unit.ReleaseFilteredAuraDisplay(handle)
             return nil, "filtered-aura-group-create-failed"
         end
+        handle.groupFilters[groupKey] = filter
         if handle.initializerFailureCode then
             local code = handle.initializerFailureCode
             Unit.ReleaseFilteredAuraDisplay(handle)

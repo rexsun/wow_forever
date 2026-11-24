@@ -10,7 +10,27 @@ local PRODUCT = YUI:GetAddonProductId(ADDON_NAME, "suite") or "suite"
 local KEY, MODULE, LAYOUT = "LootRoll", "component.lootroll", "yui.component.lootroll"
 local CLEAR_BOUNDARY_LIMIT = 16
 local MIN_WIDTH, MAX_WIDTH = 280, 440
-local defaults = { width = MIN_WIDTH, growth = "up", visibleItems = 6 }
+local MIN_TEXT_SIZE, MAX_TEXT_SIZE = 10, 18
+local function DefaultFonts()
+    local media = LibStub and LibStub("LibSharedMedia-3.0", true)
+    local font = media and media:GetDefault("font") or "默认"
+    local countFont = font
+    if media and DAMAGE_TEXT_FONT then
+        for _, name in ipairs(media:List("font")) do
+            local path = media:Fetch("font", name, true)
+            if type(path) == "string" and path:lower() == DAMAGE_TEXT_FONT:lower() then countFont = name; break end
+        end
+    end
+    return font, countFont
+end
+local defaultFont, defaultCountFont = DefaultFonts()
+local defaults = { width = MIN_WIDTH, growth = "up", visibleItems = 6,
+    scale = 1, font = defaultFont, countFont = defaultCountFont, fontSize = 14, countFontSize = 20,
+    historyFont = defaultFont, historyFontSize = View.DEFAULT_HISTORY_FONT_SIZE }
+local configDefaults = {}
+for key, value in pairs(defaults) do configDefaults[key] = value end
+-- 保留旧标记用于区分“使用原字体”和用户明确选择媒体库默认字体。
+configDefaults.font = "default"
 local DEFAULT_PLACEMENT = {
     anchor = { point = "BOTTOMRIGHT", relative = "UIParent", relativePoint = "CENTER" },
     offset = { x = -230, y = 195 },
@@ -19,13 +39,30 @@ local owner = {}
 local C = { active = false, nativeTakeover = false, model = M.New(), events = 0, refreshes = 0, listeners = 0, retries = {}, itemDetails = {} }
 YUI.LootRoll = C
 local function Config()
-    local config = Components:EnsureConfig("LootRoll_Config", defaults, PRODUCT)
+    local config = Components:EnsureConfig("LootRoll_Config", configDefaults, PRODUCT)
     if (tonumber(config.layoutVersion) or 0) < 2 then
         if config.width == 400 then config.width = defaults.width end
         config.layoutVersion = 2
     end
     config.width = math.max(MIN_WIDTH, math.min(MAX_WIDTH, tonumber(config.width) or defaults.width))
     config.visibleItems = math.max(3, math.min(12, math.floor(tonumber(config.visibleItems) or 6)))
+    config.scale = math.max(0.5, math.min(2, tonumber(config.scale) or defaults.scale))
+    config.fontSize = math.max(MIN_TEXT_SIZE, math.min(MAX_TEXT_SIZE, math.floor(tonumber(config.fontSize) or defaults.fontSize)))
+    config.countFontSize = math.max(12, math.min(24, math.floor(tonumber(config.countFontSize) or defaults.countFontSize)))
+    config.historyFontSize = math.max(MIN_TEXT_SIZE, math.min(MAX_TEXT_SIZE,
+        math.floor(tonumber(config.historyFontSize) or defaults.historyFontSize)))
+    if type(config.historyFont) ~= "string" or config.historyFont == "" or config.historyFont == "theme" then
+        config.historyFont = defaults.historyFont
+    end
+    if not config.fontVersion then
+        config.countFont = type(config.font) == "string" and config.font ~= "" and config.font ~= "default"
+            and config.font or defaults.countFont
+        config.fontVersion = 1
+    end
+    if type(config.font) ~= "string" or config.font == "" or config.font == "default" then config.font = defaults.font end
+    if type(config.countFont) ~= "string" or config.countFont == "" or config.countFont == "default" then
+        config.countFont = defaults.countFont
+    end
     if config.growth ~= "up" and config.growth ~= "down" then config.growth = defaults.growth end
     return config
 end
@@ -715,29 +752,80 @@ function Feature:GetSettingsTitleAction()
 end
 function Feature:OnSettingsLeave() C:SetPreview(false) end
 function Feature:GetOptions()
+    local function CanResize()
+        return not (YUI.Layout and C.layoutRegistered and YUI.Layout.SetAnchorTargetAvailable)
+            or YUI.Layout:SetAnchorTargetAvailable(LAYOUT, false) ~= false
+    end
+    local function Refresh()
+        if C.active or C.settingsPreview or C.editPreview then Render()
+        elseif C.view then C.view:ApplyQueueAppearance() end
+        if YUI.Layout and C.layoutRegistered and YUI.Layout.RefreshFrame then YUI.Layout:RefreshFrame(LAYOUT) end
+    end
     local function Field(kind, key, extra)
         local f = extra or {}; f.type, f.label = kind, L["setting." .. key]
         f.get = function() return Config()[key] end
         f.set = function(value)
+            if key == "scale" and not CanResize() then return end
             Config()[key] = value; C.config = Config()
+            if key == "historyFont" or key == "historyFontSize" then
+                local view = C.view
+                if view and view.history and view.history:IsShown() then
+                    view:ApplyHistoryRowFonts()
+                    view:RenderHistory()
+                end
+                return
+            end
             if key == "visibleItems" then C.previewModel = nil end
-            if C.active or C.settingsPreview or C.editPreview then Render() end
-            if YUI.Layout and C.layoutRegistered and YUI.Layout.RefreshFrame then YUI.Layout:RefreshFrame(LAYOUT) end
+            Refresh()
         end
         return f
     end
-    local options = {
+    local fields = {
         Field("slider", "width", { min = MIN_WIDTH, max = MAX_WIDTH, step = 4 }),
+        Field("slider", "scale", { min = 0.5, max = 2, step = 0.05 }),
         Field("slider", "visibleItems", { min = 3, max = 12, step = 1 }),
         Field("dropdown", "growth", { options = { { text = L["growth.down"], value = "down" }, { text = L["growth.up"], value = "up" } } }),
-        { type = "button", label = L["history.title"], onClick = function() C:OpenHistory() end },
+        Field("font", "font"),
+        Field("slider", "fontSize", { min = MIN_TEXT_SIZE, max = MAX_TEXT_SIZE, step = 1 }),
+        Field("font", "countFont"),
+        Field("slider", "countFontSize", { min = 12, max = 24, step = 1 }),
+        Field("font", "historyFont"),
+        Field("slider", "historyFontSize", { min = MIN_TEXT_SIZE, max = MAX_TEXT_SIZE, step = 1 }),
+        { type = "button", text = L["history.title"], onClick = function() C:OpenHistory() end },
     }
     local output = YUI.InfoOutput
     if output and output.OpenSettings then
-        options[#options + 1] = { type = "button", label = YUI.Locale:Get("Core")["info_output.name"], width = 160,
+        fields[#fields + 1] = { type = "button", text = YUI.Locale:Get("Core")["info_output.name"],
             onClick = function() output:OpenSettings() end }
     end
-    return options
+    fields[#fields + 1] = {
+        type = "button", text = L["setting.reset"], tooltip = L["setting.resetTip"],
+        onClick = function()
+            local layout = YUI.Layout
+            if layout and not C.layoutRegistered then EnsureView() end
+            if not CanResize() then return end
+            local config = Config()
+            for key, value in pairs(defaults) do config[key] = value end
+            C.config, C.previewModel = config, nil
+            local history = C.view and C.view.history
+            if history then
+                history:ClearAllPoints()
+                history:SetPoint("CENTER")
+                if history:IsShown() then C.view:ApplyHistoryRowFonts() end
+            end
+            Refresh()
+            if layout and C.layoutRegistered then layout:ResetFrame(LAYOUT) end
+            if self.RefreshCurrentModule then self.RefreshCurrentModule() end
+        end,
+    }
+    return {
+        { type = "custom", retainedFields = fields, render = function(parent, x, y, width)
+            local _, gridWidth, height = YUI.Settings:RenderAlignedFields(parent, {
+                x = x, y = y, width = width, columns = 2, labelPosition = "top", fields = fields,
+            })
+            return gridWidth, height
+        end },
+    }
 end
 function Feature:GetStats() return C:GetStats() end
 YUI.Module:Register({ id = MODULE, owner = owner, product = PRODUCT,

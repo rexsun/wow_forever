@@ -276,6 +276,12 @@ local function FormatName(name, classFilename)
     return color:WrapTextInColorCode(name)
 end
 
+local function FormatLevel(level)
+    local color = API.GetQuestDifficultyColor(level or 1)
+    local hex = CreateColor(color.r, color.g, color.b):GenerateHexColor()
+    return format("|c%s%s|r", hex, level or "??")
+end
+
 local function SafeCall(func, bindingKey, allowInCombat, ...)
     if not func then return end
     if not allowInCombat and SecurityAPI.InCombatLockdown() then
@@ -1080,6 +1086,9 @@ local function GetOnlineFriends()
                 local wowProjectID = gameAccountInfo.wowProjectID
                 local isMobile = gameAccountInfo.isWowMobile
                 local factionName = gameAccountInfo.factionName or "?"
+                if client ~= BNET_CLIENT_WOW or isMobile or type(level) ~= "number" or level <= 0 then
+                    level = nil
+                end
 
                 local status = CONFIG.TEXTURE_ONLINE
                 if isAFK or isGameAFK then
@@ -1176,7 +1185,8 @@ local function CreateInteractiveTooltip()
 
     local f = GUI2:CreateFrame(UIParent, { name = "YUIMicroMenuInteractiveTooltip", template = "BackdropTemplate" })
     f:SetClampedToScreen(true)
-    f:SetFrameStrata("TOOLTIP")
+    -- 原生中文选字框使用 TOOLTIP 层，公会和好友列表放在下一层。
+    f:SetFrameStrata("FULLSCREEN_DIALOG")
 
     GUI2:CreateBackdrop(f, {
         surface = "color.surface.popup",
@@ -1281,7 +1291,7 @@ local function CreateInteractiveTooltip()
             end
         end
     end
-    f:SetScript("OnUpdate", InteractiveTooltipOnUpdate)
+    f:Hide()
     f:SetScript("OnShow", function(self)
         self:SetScript("OnUpdate", InteractiveTooltipOnUpdate)
     end)
@@ -1467,12 +1477,7 @@ local function ShowInteractiveTooltip(owner, type)
         local rightText = ""
 
         if type == "Guild" then
-            local levelColor = API.GetQuestDifficultyColor(data.level or 1)
-            local levelHex = CreateColor(levelColor.r, levelColor.g,
-                                         levelColor.b):GenerateHexColor()
-
-            leftText = format("|c%s%s|r %s |cff888888(%s)|r", levelHex,
-                              data.level or "??",
+            leftText = format("%s %s |cff888888(%s)|r", FormatLevel(data.level),
                               FormatName(data.name, data.class), data.rank)
 
             local zoneColor = (data.zone == API.GetRealZoneText()) and
@@ -1504,7 +1509,7 @@ local function ShowInteractiveTooltip(owner, type)
                                               CONFIG.BNET_NAME_COLOR.b)
                 nameText = bnetColor:WrapTextInColorCode(data.name)
 
-                if data.charName then
+                if data.charName and data.charName ~= "" then
                     local charNameText = data.charName
                     if data.client == BNET_CLIENT_WOW and data.wowProjectID ==
                         WOW_PROJECT_ID then
@@ -1518,6 +1523,9 @@ local function ShowInteractiveTooltip(owner, type)
                         end
                     else
                         charNameText = "|cff888888" .. data.charName .. "|r"
+                    end
+                    if data.level then
+                        charNameText = FormatLevel(data.level) .. " " .. charNameText
                     end
                     nameText = nameText .. " (" .. charNameText .. ")"
                 end
@@ -1553,12 +1561,7 @@ local function ShowInteractiveTooltip(owner, type)
                 if btn.gameIconSlot then btn.gameIconSlot:Show() else btn.gameIcon:Show() end
 
             else
-                local levelColor = API.GetQuestDifficultyColor(data.level or 1)
-                local levelHex = CreateColor(levelColor.r, levelColor.g,
-                                             levelColor.b):GenerateHexColor()
-
-                nameText = format("|c%s%s|r %s", levelHex, data.level or "??",
-                                  FormatName(data.name, data.class))
+                nameText = FormatLevel(data.level) .. " " .. FormatName(data.name, data.class)
 
                 infoText = "|c" .. zoneColorHex .. (data.zone or "") .. "|r"
 
@@ -2095,7 +2098,12 @@ local function GetButtons()
             icon = ICON_PATH .. "Character.png",
             leftName = T("micromenu.action.character_panel", "角色面板"),
             leftFunc = function()
-                FrameAPI.ToggleCharacter("PaperDollFrame")
+                local opened, reason = FrameAPI.ToggleCharacter("PaperDollFrame")
+                if opened == false and reason == "restricted_status_text" then
+                    local key = GetBindingKey("TOGGLECHARACTER0")
+                    local hint = T("micromenu.message.native_character", "请使用原生角色按钮或角色面板快捷键")
+                    YUI:Print(key and (hint .. " [" .. (API.GetBindingText(key) or key) .. "]") or hint)
+                end
             end
         }, {
             name = "法术书和专业",

@@ -76,8 +76,8 @@ local function IconVisualScale(member)
 end
 
 -- 与原生 Pin 的有限缩放保持一致，避免缩小时图标变小而空隙不变。
-function MapEnhancement:GetIconLayoutScale(map)
-    local zoom=map.GetCanvasZoomPercent and map:GetCanvasZoomPercent() or .5
+function MapEnhancement:GetIconLayoutScale(map, projectedZoomPercent)
+    local zoom=projectedZoomPercent or (map.GetCanvasZoomPercent and map:GetCanvasZoomPercent()) or .5
     zoom=math.max(0,math.min(1,zoom or .5))
     return LABEL_MIN_SCALE+(LABEL_MAX_SCALE-LABEL_MIN_SCALE)*zoom
 end

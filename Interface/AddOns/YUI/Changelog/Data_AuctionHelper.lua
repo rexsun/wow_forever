@@ -1,10 +1,10 @@
 -- Generated from Docs/Products/YUI_AuctionHelper/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("auction_helper", {
--- YUI-Notes-Record: yah-134|mainline|2b41ad206e7ecbf6c428e3126f0d09f326f65a9cef0564e1f3b23e3cc353e505
+-- YUI-Notes-Record: yah-134|mainline|4123d3450b1cdbb4ea0da8f7ea6f67f6c0c42e0e81c54bb58a00aaa2dca0a105
     {
         version = "yah-134",
-        date = "2026-11-20",
+        date = "2026-11-24",
         clients = { "Retail" },
         content = {
             zhCN = {
@@ -15,19 +15,19 @@ CL:Register("auction_helper", {
             },
         },
     },
--- YUI-Notes-Record: yah-134|forever|ee77b857349a503621d14ebe555a7e3c64598c8b8b08f38b90f3915e85b1c774
+-- YUI-Notes-Record: yah-134|forever|4674397bcdcf35f804932c0cfe6e3ca6699ea270cf0a71319bfa6f410979c857
     {
         version = "yah-134",
-        date = "2026-11-21",
+        date = "2026-11-24",
         clients = { "Forever" },
         content = {
             zhCN = {
-                "银锭移至「矿石与金属」。",
-                "使用新版 Core 可恢复符合条件的旧角色数据。",
+                "银锭归入「矿石与金属」。",
+                "支持恢复符合条件的旧角色数据。",
             },
             enUS = {
                 "Moved Silver Bars to Ores & Metals.",
-                "Eligible older character data can be recovered with the updated Core.",
+                "Added recovery for eligible older character data.",
             },
         },
     },

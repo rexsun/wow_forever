@@ -595,6 +595,8 @@ YUI.Locale:Register("YActionBar", "zhCN", {
     ["camp.resting"] = "温馨营火",
     ["camp.benefits"] = "露营增益",
     ["camp.keep_resting"] = "保持坐下。",
+    ["camp.nearby_facility_count"] = "附近已识别设施 %d 种",
+    ["camp.nearby_facility_unknown"] = "附近设施数量未知",
     ["camp.refresh"] = "点击再次坐下。",
     ["camp.sit_help"] = "点击坐下，等待营火计时。",
     ["camp.waiting_short"] = "等待",

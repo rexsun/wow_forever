@@ -566,8 +566,36 @@ local function GetLinkedAuraScope(linked, spell)
     return YHUD.FILTERED_AURA_SCOPE_PLAYER_HELPFUL_CDM_EXTENDED
 end
 
+local function GetVerifiedTotemRecipientAuras(entry, family)
+    local linked = entry.linkedSpellIds
+    if not family or type(linked) ~= "table" then return nil end
+    local auraIDs
+    for _, auraID in ipairs(family.auras) do
+        for _, spellID in ipairs(linked) do
+            if spellID == auraID then
+                auraIDs = auraIDs or {}
+                auraIDs[#auraIDs + 1] = auraID
+                break
+            end
+        end
+    end
+    return auraIDs
+end
+
+local function HasVerifiedTotemSpell(entry, spellIDs)
+    local linked = entry.linkedSpellIds
+    for _, spellID in ipairs(spellIDs) do
+        if spellID == entry.spellId or spellID == entry.overrideSpellId then return true end
+        for index = 1, type(linked) == "table" and #linked or 0 do
+            if linked[index] == spellID then return true end
+        end
+    end
+    return false
+end
+
 -- The third result limits a mixed native projection to the associated effects
 -- that provided its scope. The base spell may apply a different effect.
+-- The fourth result identifies a verified native totem without a projectable Aura.
 function YHUD:GetFilteredAuraScopeKey(entry, resolveLinked)
     if type(entry) == "table" then
         if entry.bundleKind == "externalBuff" then
@@ -584,6 +612,30 @@ function YHUD:GetFilteredAuraScopeKey(entry, resolveLinked)
         and entry.canUseAuraForCooldown == true
     if officialAuraEnabled and entry.hasAura == true and entry.selfAura == false then
         return self.FILTERED_AURA_SCOPE_TARGET_HARMFUL, true
+    end
+    if YUI.IsForever and resolveLinked and type(entry) == "table"
+        and entry.origin == "official-cdm"
+        and (entry.displayCategory or entry.officialCategory) == "trackedBuff" then
+        -- Forever CDM omits Stoneform's Aura link. The verified player scope
+        -- lets the existing mixed layout use the entry's exact Aura identity.
+        if entry.cooldownId == 200189 and entry.spellId == 20594 then
+            return self.FILTERED_AURA_SCOPE_PLAYER_HELPFUL, true
+        end
+        -- CDM links can contain both summon spells and the recipient buffs.
+        -- Use only verified recipient ranks that the current entry still links.
+        local identities = YUI.API and YUI.API.ForeverAuraIdentities
+        local family = identities and identities.totems[entry.cooldownId]
+        local auraIDs = entry.canUseAuraForCooldown ~= false and entry.selfAura ~= false
+            and GetVerifiedTotemRecipientAuras(entry, family)
+        if auraIDs then
+            return self.FILTERED_AURA_SCOPE_PLAYER_HELPFUL_CDM_EXTENDED, true, auraIDs
+        end
+        local nativeSpells = self.Client and self.Client.nativeTotemSpells
+        local aliases = nativeSpells and nativeSpells[entry.cooldownId]
+        if (family and HasVerifiedTotemSpell(entry, family.casts))
+            or (aliases and HasVerifiedTotemSpell(entry, aliases)) then
+            return self.FILTERED_AURA_SCOPE_PLAYER_HELPFUL, false, nil, true
+        end
     end
     if HasCDMExtendedPlayerAuraIdentity(entry) then
         return self.FILTERED_AURA_SCOPE_PLAYER_HELPFUL_CDM_EXTENDED, true
@@ -629,6 +681,7 @@ function YHUD:GetFilteredAuraGroupProjectionStrategy(
         hasNonFlowMember = false,
     }
     local hasPersistentMember = false
+    local hasNativeAuraIcon = false
     local foodDrinkCapacity = 0
     local scopeKey
     local claimedSources = projectionContext
@@ -675,15 +728,21 @@ function YHUD:GetFilteredAuraGroupProjectionStrategy(
                 if candidateEntry.origin == "official-cdm" then
                     local displayCategory = candidateEntry.displayCategory
                         or candidateEntry.officialCategory
+                    local nativeIcon = candidate.view == "icon"
+                        and self:IsOfficialNativeView(displayCategory, candidate.view, candidateEntry)
+                    hasNativeAuraIcon = hasNativeAuraIcon
+                        or displayCategory == "trackedBuff" and nativeIcon
                     if displayCategory ~= "trackedBuff"
                         and not self:GetOfficialNativeCategoryTarget(candidateEntry, candidate) then
                         state.hasNonFlowMember = true
-                    elseif YUI.IsForever and candidate.view == "icon"
-                        and self:IsOfficialNativeView(displayCategory, candidate.view, candidateEntry) then
+                    elseif YUI.IsForever and nativeIcon then
                         -- A unit-specific Aura projection needs a proven scope.
-                        local scope, scopeKnown, linkedSpellIDs =
+                        local scope, scopeKnown, linkedSpellIDs, nativeTotem =
                             self:GetFilteredAuraScopeKey(candidateEntry, true)
-                        if not scopeKnown then
+                        if nativeTotem then
+                            state.nativeTotems = state.nativeTotems or {}
+                            state.nativeTotems[candidate.id] = true
+                        elseif not scopeKnown then
                             state.hasNonFlowMember = true
                         elseif linkedSpellIDs or (candidate.visibilityMode == "always"
                             and scope == self.FILTERED_AURA_SCOPE_TARGET_HARMFUL) then
@@ -752,9 +811,12 @@ function YHUD:GetFilteredAuraGroupProjectionStrategy(
         local sameScopeFlow = state.otherCount == 0
             and not state.hasScopeMismatch
             and (not scopeKey or scopeKey == self.FILTERED_AURA_SCOPE_PLAYER_HELPFUL)
-        -- In overflow, the bounded food block still stays outside the ordinary
-        -- rows, which can retain their existing segmented Aura projections.
+        local onlyFoodOverflows = hasNativeAuraIcon and state.specialCount == 0
+            and state.potentialCount + foodDrinkCapacity > state.maxPerLine
+        -- A separate food block cannot provide an anchor for a segmented row.
+        -- Keep the ordinary layout when it is the only special member.
         if not state.hasNonFlowMember and not hasPersistentMember
+            and not onlyFoodOverflows
             and (sameScopeFlow or state.otherCount > 0) then
             state.specialCount = state.specialCount + foodDrinkCapacity
             state.potentialCount = state.potentialCount + foodDrinkCapacity

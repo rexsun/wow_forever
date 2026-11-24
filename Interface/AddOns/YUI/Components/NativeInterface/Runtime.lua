@@ -71,11 +71,18 @@ local function NormalizeTransferPayload(payload, path, fields, layouts)
                 config[key] = normalized
             elseif key == "bagsBarVisibility" then
                 if value ~= "auto" and value ~= "hide" and value ~= "show" then return nil, "invalid_data_field" end
+            elseif key == "socialFontSize" then
+                if not Native:IsValidSocialFontSize(value) then return nil, "invalid_data_field" end
             elseif type(value) ~= "boolean" then return nil, "invalid_data_field" end
         end
+        local currentConfig
         for key in pairs(fields) do
             if config[key] == nil then
                 if key == "windowMovement" then config[key] = Native:NormalizeWindowMovement(nil)
+                elseif key == "friendsEnhancementEnabled" or key == "socialListCompact" or key == "currentGameFirst"
+                    or key == "socialFontSize" or key == "characterEnhancementEnabled" or key == "characterBottomTabs" then
+                    currentConfig = currentConfig or Native:GetConfig()
+                    config[key] = currentConfig[key]
                 else config[key] = Native:GetOptionDefault(key) end
             end
         end
@@ -110,6 +117,60 @@ local function OnExternalStateChanged()
     end
 end
 
+local observedSkinMethods = setmetatable({}, { __mode = "k" })
+local appliedShells = setmetatable({}, { __mode = "k" })
+function Native:HasObservedWindowSkin(frame)
+    return frame ~= nil and appliedShells[frame] == true
+end
+
+local function OnWindowStyleChanged()
+    if Native.runtimeEnabled then Native:RefreshWindowEnhancementControllers() end
+end
+
+-- Shell installation strips the original art until reload. A later change
+-- to the saved style does not release an already adopted window.
+local function OnShellAdopted(key, frame)
+    if not frame or appliedShells[frame] then return end
+    if (key == "socialui" and frame == _G.SocialUIFrame)
+        or (key == "charsheet" and (frame == _G.CharacterFrame or frame == _G.InspectFrame)) then
+        appliedShells[frame] = true
+        OnWindowStyleChanged()
+    end
+end
+
+local function ObserveSkinMethod(object, method, callback)
+    if type(object) ~= "table" or type(hooksecurefunc) ~= "function" or type(object[method]) ~= "function" then return end
+    local installed = observedSkinMethods[object]
+    if installed and installed[method] then return end
+    if pcall(hooksecurefunc, object, method, callback or OnWindowStyleChanged) then
+        installed = installed or {}
+        installed[method] = true
+        observedSkinMethods[object] = installed
+    end
+end
+
+local function WatchWindowSkins()
+    local ui = _G.EllesmereUI
+    local modules = ui and ui._ModuleNS
+    local skin = modules and modules.EllesmereUIBlizzardSkin
+    if skin then
+        ObserveSkinMethod(skin.WSkin, "AdoptShell", OnShellAdopted)
+        ObserveSkinMethod(ui, "_WSkinRefreshStyles")
+        ObserveSkinMethod(skin, "FriendsCardSet")
+        ObserveSkinMethod(skin, "FriendsCardRefresh")
+    end
+end
+
+local windowAddons = {
+    EllesmereUIBlizzardSkin = true, EllesmereUIFriends = true, ElvUI = true,
+    Blizzard_SocialUI = true, Blizzard_InspectUI = true, Blizzard_UIPanels_Game = true,
+}
+local function OnWindowAddon(_, name)
+    if not windowAddons[name] then return end
+    pcall(WatchWindowSkins)
+    OnWindowStyleChanged()
+end
+
 local definition = {
     id = Native.MODULE_ID,
     name = "NativeInterface",
@@ -138,6 +199,13 @@ local definition = {
                 traceName = "NativeInterface:external-state",
             })
         end
+        if YUI.IsForever and (self.ApplySocialListCompact or self.ApplyCharacterBottomTabs)
+            and YUI.Event and YUI.Event.On then
+            pcall(WatchWindowSkins)
+            local options = { moduleId = self.MODULE_ID, traceName = "NativeInterface:window-skins" }
+            YUI.Event:On("ADDON_LOADED", OnWindowAddon, externalOwner, options)
+            YUI.Event:On("PLAYER_ENTERING_WORLD", OnWindowStyleChanged, externalOwner, options)
+        end
         return self:Refresh("enable")
     end,
     OnDisable = function(self)
@@ -152,6 +220,8 @@ local definition = {
         if self.ReleaseErrorMessages then self:ReleaseErrorMessages() end
         if self.ReleaseQuestLootSparkles then self:ReleaseQuestLootSparkles() end
         if self.RefreshWindowMovement then self:RefreshWindowMovement("disable") end
+        if self.ApplySocialListCompact then self:ApplySocialListCompact(false, nil, false, true) end
+        if self.ApplyCharacterBottomTabs then self:ApplyCharacterBottomTabs(false) end
         if self.RefreshRetail then self:RefreshRetail("disable") end
         if self.ReleaseTutorial then self:ReleaseTutorial() end
         return true
@@ -182,6 +252,12 @@ if transfer and transfer.RegisterModule then
         fields.questLootSparkles = true
         fields.hideRaidManager = true
         fields.manageErrorMessages = true
+        fields.friendsEnhancementEnabled = true
+        fields.socialListCompact = true
+        fields.currentGameFirst = true
+        fields.socialFontSize = true
+        fields.characterEnhancementEnabled = true
+        fields.characterBottomTabs = true
         layouts = { Native.ERROR_MESSAGES_LAYOUT_ID }
         if Native.NormalizeWindowMovement then fields.windowMovement = true end
     end

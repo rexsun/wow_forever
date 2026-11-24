@@ -6455,6 +6455,10 @@ end
 function BarManager:IsExternalSpecialLayoutOwned(record, primary, frames, buttons)
     local holder = record and record.holder
     if not holder then return false end
+    local mover = record.mover
+    if mover and (holder:GetParent() ~= mover or not self:HasSingleCenterAnchor(holder, mover)) then
+        return false
+    end
     for index = 1, #(frames or {}) do
         local frame = frames[index]
         if frame and (frame:GetParent() ~= holder or not self:HasSingleCenterAnchor(frame, holder)) then
@@ -6606,6 +6610,7 @@ local function ApplyExternalSpecialLayoutBody(self, record, config, db)
     if record.holder then
         record.holder:SetSize(width, height)
         if record.mover then
+            record.holder:SetParent(record.mover)
             record.holder:ClearAllPoints()
             record.holder:SetPoint("CENTER", record.mover, "CENTER", 0, 0)
         end
@@ -6749,20 +6754,27 @@ function BarManager:InstallExternalSpecialHooks()
         hooked = hooks.zoneAbilityUpdate or hooked
     end
     local leave = _G.MainMenuBarVehicleLeaveButton or _G.VehicleExitButton
-    if leave and hooks.vehicleExitSetPointFrame ~= leave and type(leave.SetPoint) == "function" then
+    hooks.vehicleExitSetPointFrames = hooks.vehicleExitSetPointFrames or setmetatable({}, { __mode = "k" })
+    hooks.vehicleExitUpdateFrames = hooks.vehicleExitUpdateFrames or setmetatable({}, { __mode = "k" })
+    if leave and not hooks.vehicleExitSetPointFrames[leave] and type(leave.SetPoint) == "function" then
         local setPointHooked = pcall(hooksecurefunc, leave, "SetPoint", function(frame)
             BarManager:OnExternalSpecialNativeFrameChanged(frame == leave and frame or leave, "vehicle exit set point")
         end) == true
         if setPointHooked then
-            hooks.vehicleExitSetPointFrame = leave
+            hooks.vehicleExitSetPointFrames[leave] = true
             hooked = true
         end
     end
-    if not hooks.vehicleExitUpdate and leave and type(leave.Update) == "function" then
-        hooks.vehicleExitUpdate = pcall(hooksecurefunc, leave, "Update", function(frame)
+    local updateMethod = leave and (type(leave.UpdateShownState) == "function" and "UpdateShownState"
+        or type(leave.Update) == "function" and "Update" or nil)
+    if updateMethod and not hooks.vehicleExitUpdateFrames[leave] then
+        local updateHooked = pcall(hooksecurefunc, leave, updateMethod, function(frame)
             BarManager:OnExternalSpecialNativeFrameChanged(frame == leave and frame or leave, "vehicle exit update")
         end) == true
-        hooked = hooks.vehicleExitUpdate or hooked
+        if updateHooked then
+            hooks.vehicleExitUpdateFrames[leave] = true
+            hooked = true
+        end
     end
     return hooked
 end

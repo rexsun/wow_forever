@@ -307,6 +307,7 @@ function P:HeadingWidth(section,count,collapsed)
     return self:TextWidth(self:HeadingText(section,count,collapsed),"heading")+(section=="recent" and 0 or 18)
 end
 local shortGroups={
+    INVTYPE_HOLDABLE="offhand",INVTYPE_TABARD="tabard",INVTYPE_NON_EQUIP="no_equip_slot",
     ["Food & Drink"]="food",["Food and Drink"]="food",["食物和饮料"]="food",["食物和飲料"]="food",
     ["Item Enhancement"]="enhancement",["物品强化"]="enhancement",["物品強化"]="enhancement",
     ["Metal & Stone"]="ore",["金属和矿石"]="ore",["金屬和礦石"]="ore",["金屬與礦石"]="ore",
@@ -424,6 +425,27 @@ function P:TextWidth(text,role,itemStyle)
     local width=math.ceil(self.measure:GetStringWidth())
     cache[text]=width
     return width
+end
+local captionCharacter="^([\32-\126\194-\244][\128-\191]*)()"
+function P:FitGroupCaption(text,width)
+    local prefix,marked,characters,offset="",nil,0,1
+    while offset<=#text do
+        local char,nextOffset=text:match(captionCharacter,offset)
+        if not char then break end
+        if char=="|" then
+            if text:sub(nextOffset,nextOffset)~="|" then break end
+            char,nextOffset="||",nextOffset+1
+        end
+        local candidate=prefix..char
+        if self:TextWidth(candidate,"label")>width then break end
+        prefix,offset=candidate,nextOffset
+        characters=characters+1
+        if characters>=2 then
+            local shortened=prefix.."…"
+            if self:TextWidth(shortened,"label")<=width then marked=shortened end
+        end
+    end
+    return marked or (prefix~="" and prefix or text)
 end
 function P:WrappedTextHeight(text,width)
     if self:TextWidth(text,"label")<=width then return 14 end
@@ -947,6 +969,58 @@ function P:CellAppearance(button,empty,item,recipeTint)
         SuppressNativeCellFrame(button)
     end
 end
+local function AddGlowFade(group,order,duration,from,to,smoothing)
+    local fade=group:CreateAnimation("Alpha")
+    fade:SetOrder(order)
+    fade:SetDuration(duration)
+    fade:SetFromAlpha(from)
+    fade:SetToAlpha(to)
+    fade:SetSmoothing(smoothing)
+end
+
+-- Draw the new-item artwork on independent regions so the stock slot can still display its own state.
+function P:ShowNewItemGlow(button,marker,quality,pulse)
+    if not marker.glow then
+        marker.flash=G:CreateTexture(button,{layer="OVERLAY",subLevel=2})
+        marker.flash:SetPoint("CENTER")
+        marker.flash:SetBlendMode("ADD")
+        marker.flash:SetAtlas("bags-glow-flash",true)
+        marker.glow=G:CreateTexture(button,{layer="OVERLAY",subLevel=2})
+        marker.glow:SetPoint("CENTER")
+        marker.glow:SetBlendMode("ADD")
+        if marker.flash.CreateAnimationGroup then
+            marker.burst=marker.flash:CreateAnimationGroup()
+            marker.burst:SetToFinalAlpha(true)
+            AddGlowFade(marker.burst,1,.6,1,0,"OUT")
+        end
+        if pulse and marker.glow.CreateAnimationGroup then
+            marker.pulse=marker.glow:CreateAnimationGroup()
+            marker.pulse:SetLooping("REPEAT")
+            marker.pulse:SetToFinalAlpha(true)
+            AddGlowFade(marker.pulse,1,.5,1,.2,"NONE")
+            AddGlowFade(marker.pulse,2,.5,.2,1,"NONE")
+        end
+    end
+    local atlas=quality and ColorManager and ColorManager.GetAtlasDataForNewItemQuality
+        and ColorManager.GetAtlasDataForNewItemQuality(quality)
+    marker.glow:SetAtlas(atlas or "bags-glow-white",true)
+    marker.glow:SetAlpha(1)
+    marker.glow:Show()
+    marker.flash:SetShown(marker.burst~=nil)
+    if marker.burst then
+        marker.flash:SetAlpha(1)
+        marker.burst:Play()
+    end
+    if marker.pulse then marker.pulse:Play() end
+end
+
+function P:HideNewItemGlow(marker)
+    if marker.pulse then marker.pulse:Stop() end
+    if marker.burst then marker.burst:Stop() end
+    marker.glow:Hide()
+    marker.flash:Hide()
+end
+
 function P:CellAlpha(button,alpha)
     -- Intrinsic ItemButton.SetAlpha changes selected regions, not the frame.
     local visual=self.artwork[button]

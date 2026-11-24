@@ -167,6 +167,7 @@ function Layout:Columns(count, available, config, current)
     local wanted = config.autoSize and 12 or config.columns
     return math.min(limit, math.max(config.autoSize and current or 0, wanted))
 end
+local maxEquipmentSetLabelWidth=72
 function Layout:Build(items, empties, config, cols, collapsed, query)
     local nodes, step, y = {}, config.slotSize+3, 0
     local function Cell(item, x, rowY) nodes[#nodes+1]={kind="item",item=item,x=x,y=rowY,h=step,section=item.section,group=item.group} end
@@ -253,9 +254,9 @@ function Layout:Build(items, empties, config, cols, collapsed, query)
                 local afterSeparateRow
                 for _, group in ipairs(order) do
                     local members=groups[group]
-                    local fixed=id=="equipment" and B.Classification:IsFixedGearGroup(group)
+                    local setName=id=="equipment" and B.Classification:SetGroupName(group)
                     local separateRow=id=="equipment" and group==B.Classification.tradeGroup
-                    local showLabel=group~="" and (showSubnames or fixed)
+                    local showLabel=group~="" and (showSubnames or setName or separateRow)
                     if small then
                         if showLabel then row.labels[#row.labels+1]={text=group,x=x,w=groupWidths[group]} end
                         for n,item in ipairs(members) do row.cells[#row.cells+1]={item=item,x=x+(n-1)*step} end
@@ -267,7 +268,9 @@ function Layout:Build(items, empties, config, cols, collapsed, query)
                             if x>=cols then Row() end
                             local count=math.min(#members-at+1,cols-x)
                             if showLabel and at==1 then
-                                row.labels[#row.labels+1]={text=group,x=x*step,w=(separateRow and cols or count)*step-3}
+                                local width=(separateRow and cols or count)*step-3
+                                if setName then width=math.min(width,maxEquipmentSetLabelWidth) end
+                                row.labels[#row.labels+1]={text=group,x=x*step,w=width}
                             end
                             for k=0,count-1 do row.cells[#row.cells+1]={item=members[at+k],x=(x+k)*step} end
                             at,x=at+count,x+count
@@ -279,9 +282,12 @@ function Layout:Build(items, empties, config, cols, collapsed, query)
                     if rowIndex==1 and #entry.labels>0 then localY=localY+1 end
                     local caption=#entry.labels>0 and 14 or 0
                     for _,text in ipairs(entry.labels) do
-                        caption=math.max(caption,B.Appearance:WrappedTextHeight(B.Appearance:GroupText(text.text),text.w))
+                        local fullText=B.Appearance:GroupText(text.text)
+                        local clipped=B.Appearance:TextWidth(fullText,"label")>text.w
+                        local shortened=clipped and B.Appearance:FitGroupCaption(fullText,text.w) or nil
+                        nodes[#nodes+1]={kind="label",section=id,text=text.text,x=startX+text.x,y=startY+localY,w=text.w,h=caption,
+                            clipped=clipped,caption=shortened}
                     end
-                    for _,text in ipairs(entry.labels) do nodes[#nodes+1]={kind="label",section=id,text=text.text,x=startX+text.x,y=startY+localY,w=text.w,h=caption} end
                     for _,cell in ipairs(entry.cells) do Cell(cell.item,startX+cell.x,startY+localY+caption) end
                     localY=localY+step+caption
                 end

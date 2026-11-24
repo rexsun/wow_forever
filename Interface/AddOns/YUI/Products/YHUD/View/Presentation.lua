@@ -1489,7 +1489,7 @@ local function ApplyItemOffset(layout, geometry)
     return geometry
 end
 
-local function BuildSegmentedGeometry(layout, items, count, specialFlags)
+local function BuildSegmentedGeometry(layout, items, count, options)
     local itemWidth, itemHeight = ItemSize(layout)
     local columnSpacing, rowSpacing = IconSpacing(layout, itemWidth, itemHeight, DEFAULT_SPACING)
     local maxPerLine = math.max(
@@ -1497,6 +1497,7 @@ local function BuildSegmentedGeometry(layout, items, count, specialFlags)
         math.floor(tonumber(layout.maxPerLine) or DEFAULT_MAX_PER_LINE)
     )
     local ordinary, special = {}, {}
+    local specialFlags = options.specialFlags
     for index = 1, count do
         if items[index] then
             local target = specialFlags and specialFlags[index]
@@ -1508,7 +1509,7 @@ local function BuildSegmentedGeometry(layout, items, count, specialFlags)
     AppendRows(ordinaryRows, ordinary, maxPerLine, "ordinary")
     local specialStart = 1
     local lastOrdinaryRow = ordinaryRows[#ordinaryRows]
-    if lastOrdinaryRow and #lastOrdinaryRow.indices < maxPerLine then
+    if not options.separateOrdinaryRows and lastOrdinaryRow and #lastOrdinaryRow.indices < maxPerLine then
         local available = maxPerLine - #lastOrdinaryRow.indices
         local fillCount = math.min(available, #special)
         for index = 1, fillCount do
@@ -1833,7 +1834,7 @@ function I.BuildGroupGeometry(layout, items, count, options)
             layout,
             items,
             count,
-            options.specialFlags
+            options
         )
     else
         geometry = BuildStaticGeometry(layout, items, count, options)
