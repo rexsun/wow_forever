@@ -38,14 +38,15 @@ Other findings on the way:
 
 ## Bindings added
 
-All at `"Size": 64`. Blue is used for active cursors and DarkBlue for greyed ones, as in the stock preset. Rows marked 128 are the client's 128×128 versions (`cursorSizePreferred` 4); the others are its 64×64 versions (`cursorSizePreferred` 2).
+All at `"Size": 64`, with the white glow (`"Glow": 6`) chosen in YoloMouse's editor. Blue is used for active cursors and DarkBlue for greyed ones, as in the stock preset. Rows marked 128 are the client's 128×128 versions (`cursorSizePreferred` 4); the others are its 64×64 versions (`cursorSizePreferred` 2). Rows marked *new* were added on 2026-11-25 at 11:50, after YoloMouse had recorded them in game.
 
 | Client cursor | Hash | Bundle | Colour |
 |---|---|---|---|
 | Gauntlet (point) | `FB064CDEEE05E2CC` | Arrow | Blue |
 | Gauntlet (point), 128 | `C581271E4B8C5D50` | Arrow | Blue |
 | Gauntlet (point), 128 variant | `4EEEB73873806AEF` | Arrow | Blue |
-| Dagger (attack) | `536BD734CA1BC01` | Sword | Blue |
+| Dagger (attack), *new* | `A08963F8D6119022` | Sword | Blue |
+| Dagger, greyed (was Blue before the coloured dagger was seen) | `536BD734CA1BC01` | Sword | DarkBlue |
 | Loot bag | `816E9BD23E96571` | Bag | Blue |
 | Loot bag, 128 | `1316F3BCF64B9EFA` | Bag | Blue |
 | Loot bag, greyed | `A0AFB2D7A2E867AB` | Bag | DarkBlue |
@@ -53,12 +54,16 @@ All at `"Size": 64`. Blue is used for active cursors and DarkBlue for greyed one
 | Several bags, greyed | `4D5DA8F9D9A5066` | Bag | DarkBlue |
 | Speech bubble | `81389BC76775C5B2` | Speech | Blue |
 | Speech bubble, greyed | `F74275F36BBF2C77` | Speech | DarkBlue |
+| Speech bubble, 128, *new* | `613D99BD9C5CD244` | Speech | Blue |
+| Speech bubble, greyed, 128, *new* | `BFFE5C98A416C790` | Speech | DarkBlue |
 | Mail | `A2F2005EDC51C6DE` | Mail | Blue |
 | Mail, greyed | `5E9C9FAD5310FF3A` | Mail | DarkBlue |
 | Hearthstone (innkeeper) | `17FF887D12AD46D0` | Home | Blue |
 | Hearthstone, 128 | `440077699B277E05` | Home | Blue |
 | Hearthstone, greyed, 128 | `F6DFC9102999B102` | Home | DarkBlue |
+| Hearthstone, greyed, *new* | `BFA59479D90F4C69` | Home | DarkBlue |
 | Anvil (repair), 128 | `6D13A35AB2053E3` | Anvil | Blue |
+| Anvil (repair), *new* | `49FBCB4F601DA6E` | Anvil | Blue |
 | Anvil, greyed | `64FEF5812A5DC17C` | Anvil | DarkBlue |
 | Anvil, greyed, 128 | `996EDC99F59763BA` | Anvil | DarkBlue |
 | Helmet (purple) | `B6B56394A10AE696` | Helmet | Blue |
@@ -68,19 +73,32 @@ All at `"Size": 64`. Blue is used for active cursors and DarkBlue for greyed one
 | Grey ? (quest incomplete) | `6899CD451FB083E9` | Question | DarkBlue |
 | Gear, greyed | `CB53E7B211FF9B17` | Gear | DarkBlue |
 | Book (trainer) | `BCD7E36E00E23EED` | Book | Blue |
+| Book, greyed, *new* | `DF80BE4D0D83E9E7` | Book | DarkBlue |
+| Winged boot (flight master), *new* | `E5C2325E2D303BEF` | Bird | Blue |
+| Winged boot, greyed, *new* | `4A042F904E43FAD7` | Bird | DarkBlue |
+| Skinning, *new* | `318D9A8144978C94` | Hatchet | Blue |
+| Skinning, greyed, *new* | `6E2E3040FF1F5582` | Hatchet | DarkBlue |
+| Several bags (loot), *new* | `60660C41305440CC` | Coins | Blue |
+| Pick (mining), greyed, *new* | `109EC49519072622` | Pick | DarkBlue |
 | Magnifier (inspect) | `61AF6E00255B2011` | Magnifier | Blue |
 | Flowers (herb), greyed | `70B553CE9B3B2E94` | Plant | DarkBlue |
 | Gold diamond | `9C41E75097F43981` | Map | Blue (best guess for its job) |
 
+Left unbound on purpose, so they keep the client's art at the default size and glow: the item icons the client shows while an item is dragged (fish `224DDB0EA8AE3111`, heart `CFF9178C64AF3D1F`, potion `40B610DD6FB4168A`) and a blank cursor with only the corner triangle (`DEDDFCF59ED3C0EF`).
+
 ## Keeping it working
+
+- **Don't apply a preset to the World of Warcraft game in YoloMouse's editor.** Applying one replaces the game's whole binding list with the preset's 88 stock WoW hashes, which this client never shows. On 2026-11-25 at about 11:46 an edit-and-apply did this: 23 of the 29 bindings above were dropped and every cursor reverted to the client's art. The fix was to close YoloMouse, put the client bindings back into `Bindings.json` and start it again. To change the look of every cursor, change the hand-written bindings instead, or ask for them to be regenerated with the new bundle, colour, size or glow.
+- **Keep the client bindings first, and leave the stock preset's entries out.** After the preset apply, the 80 stock entries sat ahead of the client bindings, and YoloMouse then matched only the first client binding (the gauntlet). Repair, quest and hearthstone cursors kept the client's art with just the default glow. With the 41 client bindings alone, every bound cursor is replaced again, without restarting the game.
+- The local preset **Rex Blue** (`%LOCALAPPDATA%\YoloMouse\Presets\Preset002`, last saved 2026-11-25 at 12:07) holds exactly the live WoW set: the 41 bindings above in the same order, and the same default binding (the client's own art at size 64 with the white glow). Applying it is the one safe preset apply, because it puts this exact set back. It is a snapshot, so bindings added later are not in it until it is saved again.
 
 - Keep the game's cursor size at 64×64 (`/console cursorSizePreferred 2`); most bindings were recorded there. Only the gauntlet, bag, hearthstone and anvil also have 128×128 bindings.
 - A cursor not met yet (mining, fishing, flight master, locked chest and so on) shows the client's own art. Hover it and press **Ctrl+Alt+1** to cycle bundles, or **Ctrl+Alt+C** for the picker; YoloMouse saves the binding itself. To bind a batch by hand: close YoloMouse, read the new hashes from `AppProfiles.json` (images in the same folder), add entries like the ones above to the WoW `Bindings` array, then start YoloMouse.
 - If every cursor reverts to the client's art at once, YoloMouse was toggled off: press **Ctrl+Alt+Y** in game.
 - After restarting YoloMouse, restart the game if the cursors do not change.
-- Before the edit, `Bindings.json` was backed up beside itself as `Bindings.json.bak-20261125-092922` (and `Bindings.json.bak-20261125-075723` from an earlier size change from 92 to 64).
+- Before the edit, `Bindings.json` was backed up beside itself as `Bindings.json.bak-20261125-092922` (and `Bindings.json.bak-20261125-075723` from an earlier size change from 92 to 64). The bindings dropped by the preset apply were put back after a backup to `Bindings.json.bak-20261125-115039`.
 
-## Bindings.json (as of 2026-11-25 09:29)
+## Bindings.json (as of 2026-11-25 12:07)
 
 `%LOCALAPPDATA%\YoloMouse\Bindings.json`, verbatim. The `Name` fields hold the game's Traditional Chinese title as YoloMouse stores it.
 
@@ -98,7 +116,7 @@ All at `"Size": 64`. Blue is used for active cursors and DarkBlue for greyed one
         {
             "Original": "true",
             "Size": 64,
-            "Glow": 10,
+            "Glow": 6,
             "GlowColor": "FFFFFFFF"
         },
         "Bindings":
@@ -107,667 +125,329 @@ All at `"Size": 64`. Blue is used for active cursors and DarkBlue for greyed one
                 "Hash": "FB064CDEEE05E2CC",
                 "Bundle": "Arrow",
                 "Cursor": "Blue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
                 "Hash": "C581271E4B8C5D50",
                 "Bundle": "Arrow",
                 "Cursor": "Blue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
                 "Hash": "4EEEB73873806AEF",
                 "Bundle": "Arrow",
                 "Cursor": "Blue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "A08963F8D6119022",
+                "Bundle": "Sword",
+                "Cursor": "Blue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
                 "Hash": "536BD734CA1BC01",
                 "Bundle": "Sword",
-                "Cursor": "Blue",
-                "Size": 64
+                "Cursor": "DarkBlue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
                 "Hash": "816E9BD23E96571",
                 "Bundle": "Bag",
                 "Cursor": "Blue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
                 "Hash": "1316F3BCF64B9EFA",
                 "Bundle": "Bag",
                 "Cursor": "Blue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
                 "Hash": "A0AFB2D7A2E867AB",
                 "Bundle": "Bag",
                 "Cursor": "DarkBlue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
                 "Hash": "CCCB95F31AFA7FC1",
                 "Bundle": "Bag",
                 "Cursor": "DarkBlue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
                 "Hash": "4D5DA8F9D9A5066",
                 "Bundle": "Bag",
                 "Cursor": "DarkBlue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
                 "Hash": "81389BC76775C5B2",
                 "Bundle": "Speech",
                 "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "F74275F36BBF2C77",
-                "Bundle": "Speech",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "A2F2005EDC51C6DE",
-                "Bundle": "Mail",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "5E9C9FAD5310FF3A",
-                "Bundle": "Mail",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "17FF887D12AD46D0",
-                "Bundle": "Home",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "440077699B277E05",
-                "Bundle": "Home",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "F6DFC9102999B102",
-                "Bundle": "Home",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "6D13A35AB2053E3",
-                "Bundle": "Anvil",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "64FEF5812A5DC17C",
-                "Bundle": "Anvil",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "996EDC99F59763BA",
-                "Bundle": "Anvil",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "B6B56394A10AE696",
-                "Bundle": "Helmet",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "43D2E2078A812219",
-                "Bundle": "Helmet",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "18101738406A518",
-                "Bundle": "Bang",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "18D42120CD624034",
-                "Bundle": "Bang",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "6899CD451FB083E9",
-                "Bundle": "Question",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "CB53E7B211FF9B17",
-                "Bundle": "Gear",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "BCD7E36E00E23EED",
-                "Bundle": "Book",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "61AF6E00255B2011",
-                "Bundle": "Magnifier",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "70B553CE9B3B2E94",
-                "Bundle": "Plant",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "9C41E75097F43981",
-                "Bundle": "Map",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "A9C9DCD5A72D2827",
-                "Bundle": "Sword",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "E78B9D6A6A62C34A",
-                "Bundle": "Arrow",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "47CA3F1285AABBF0",
-                "Bundle": "Speech",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "A1851749475D141F",
-                "Bundle": "Speech",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "9C1E583EF7C6F062",
-                "Bundle": "Coins",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "F6042F7A8CD8C7B",
-                "Bundle": "Coins",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "8A585C0C4418084E",
-                "Bundle": "Sword",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "50E6E0518630BE9",
-                "Bundle": "Mail",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "78C599A521E065BA",
-                "Bundle": "Mail",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "C4482F2DEB4B711D",
-                "Bundle": "Bang",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "F30E3195D613F390",
-                "Bundle": "Bang",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "DDADC2975773935A",
-                "Bundle": "Map",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "AA4FE41763433438",
-                "Bundle": "Question",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "91920AAFFF3DAB92",
-                "Bundle": "Question",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "3B4A0A4AE68194D7",
-                "Bundle": "Gear",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "3C7BF5DB26D9F810",
-                "Bundle": "Gear",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "49A79A3EA6AB75BD",
-                "Bundle": "Arrow",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "821D7CAD7C22C53A",
-                "Bundle": "Arrow",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "96A9D5091E6035B2",
-                "Bundle": "Question",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "B1E781B9255098EB",
-                "Bundle": "Question",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "C3B2BBADD4F24F57",
-                "Bundle": "Sword",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "F49296E62393132E",
-                "Bundle": "Bang",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "71E6E58DDF3ACC48",
-                "Bundle": "Bird",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "1304B9AC03620E07",
-                "Bundle": "Bird",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "D9A3162D7C223DF1",
-                "Bundle": "Bird",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "EEC7A8433EFF8D11",
-                "Bundle": "Bird",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "7791913B7E980A80",
-                "Bundle": "Map",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "67F80BDFBFCABDEB",
-                "Bundle": "Map",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "5A55DC1C5EBDCA8E",
-                "Bundle": "Map",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "B7F8227CF0FBC69D",
-                "Bundle": "Horse",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "FE93C2A112316BD7",
-                "Bundle": "Gear",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "72CFC6AF07F2A64",
-                "Bundle": "Horse",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "A37BCAA56D4ECC61",
-                "Bundle": "Horse",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "BDFFA3D7E208D4C3",
-                "Bundle": "Horse",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "62A708F8DD3FE56E",
-                "Bundle": "Book",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "4340B35CF923F309",
-                "Bundle": "Book",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "51326BA465E829AA",
-                "Bundle": "Home",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "4D0CC324E5F6B9D0",
-                "Bundle": "Home",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "73C4F03ADCC2F4E3",
-                "Bundle": "Book",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "B4F727A3DAC5D7C",
-                "Bundle": "Book",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "1AB292E18C7D202C",
-                "Bundle": "Bang",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "BFFE5C98A416C790",
-                "Bundle": "Speech",
-                "Cursor": "DarkBlue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
                 "Hash": "613D99BD9C5CD244",
                 "Bundle": "Speech",
                 "Cursor": "Blue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
-                "Hash": "EFEDEFA8FB1D67D1",
-                "Bundle": "Anvil",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "63ACED4A40FF0020",
-                "Bundle": "Anvil",
+                "Hash": "F74275F36BBF2C77",
+                "Bundle": "Speech",
                 "Cursor": "DarkBlue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
-                "Hash": "A11CA37FF9606491",
-                "Bundle": "Sword",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "B9176029D65AD569",
-                "Bundle": "Arrow",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "30F68349A3969316",
-                "Bundle": "Mail",
+                "Hash": "BFFE5C98A416C790",
+                "Bundle": "Speech",
                 "Cursor": "DarkBlue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
-                "Hash": "A31BF14AD793BFA6",
+                "Hash": "A2F2005EDC51C6DE",
                 "Bundle": "Mail",
                 "Cursor": "Blue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
-                "Hash": "2DDF34FC4955A67C",
-                "Bundle": "Bang",
+                "Hash": "5E9C9FAD5310FF3A",
+                "Bundle": "Mail",
                 "Cursor": "DarkBlue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
-                "Hash": "66FF68B6ECDF16A3",
+                "Hash": "17FF887D12AD46D0",
+                "Bundle": "Home",
+                "Cursor": "Blue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "440077699B277E05",
+                "Bundle": "Home",
+                "Cursor": "Blue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "F6DFC9102999B102",
+                "Bundle": "Home",
+                "Cursor": "DarkBlue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "BFA59479D90F4C69",
+                "Bundle": "Home",
+                "Cursor": "DarkBlue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "6D13A35AB2053E3",
+                "Bundle": "Anvil",
+                "Cursor": "Blue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "49FBCB4F601DA6E",
+                "Bundle": "Anvil",
+                "Cursor": "Blue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "64FEF5812A5DC17C",
+                "Bundle": "Anvil",
+                "Cursor": "DarkBlue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "996EDC99F59763BA",
+                "Bundle": "Anvil",
+                "Cursor": "DarkBlue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "B6B56394A10AE696",
+                "Bundle": "Helmet",
+                "Cursor": "Blue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "43D2E2078A812219",
+                "Bundle": "Helmet",
+                "Cursor": "DarkBlue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "18101738406A518",
                 "Bundle": "Bang",
                 "Cursor": "Blue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
-                "Hash": "83EFACB44CEDA752",
-                "Bundle": "Bang",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "3A37AE7DECB3F1B2",
+                "Hash": "18D42120CD624034",
                 "Bundle": "Bang",
                 "Cursor": "DarkBlue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
-                "Hash": "82F70802C95DE577",
+                "Hash": "6899CD451FB083E9",
                 "Bundle": "Question",
                 "Cursor": "DarkBlue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
-                "Hash": "58C6F782FE2AD271",
-                "Bundle": "Question",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "E080D3113053360D",
-                "Bundle": "Question",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "3630C946721F7D88",
-                "Bundle": "HandOpen",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "BACFCB1D4A5A5D1",
-                "Bundle": "HandOpen",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "B14C580E05A86DD",
-                "Bundle": "HandOpen",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "53FB17B5256CC012",
-                "Bundle": "HandOpen",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "F2404A452B9C6B64",
+                "Hash": "CB53E7B211FF9B17",
                 "Bundle": "Gear",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "D1FDEDBE839C44DE",
-                "Bundle": "Question",
                 "Cursor": "DarkBlue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
-                "Hash": "98867198FD48135E",
-                "Bundle": "Pick",
+                "Hash": "BCD7E36E00E23EED",
+                "Bundle": "Book",
                 "Cursor": "Blue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
-                "Hash": "8366B28447EC7971",
-                "Bundle": "Plant",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "C526028A80FA349E",
-                "Bundle": "Plant",
+                "Hash": "DF80BE4D0D83E9E7",
+                "Bundle": "Book",
                 "Cursor": "DarkBlue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
-                "Hash": "978FCAC11D57192E",
-                "Bundle": "Plant",
+                "Hash": "61AF6E00255B2011",
+                "Bundle": "Magnifier",
                 "Cursor": "Blue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
-                "Hash": "91185E743E749E5F",
+                "Hash": "70B553CE9B3B2E94",
                 "Bundle": "Plant",
                 "Cursor": "DarkBlue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             },
             {
-                "Hash": "9A9031DB4AAD38CF",
+                "Hash": "9C41E75097F43981",
+                "Bundle": "Map",
+                "Cursor": "Blue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "E5C2325E2D303BEF",
+                "Bundle": "Bird",
+                "Cursor": "Blue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "4A042F904E43FAD7",
+                "Bundle": "Bird",
+                "Cursor": "DarkBlue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "318D9A8144978C94",
+                "Bundle": "Hatchet",
+                "Cursor": "Blue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "6E2E3040FF1F5582",
+                "Bundle": "Hatchet",
+                "Cursor": "DarkBlue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "60660C41305440CC",
+                "Bundle": "Coins",
+                "Cursor": "Blue",
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "109EC49519072622",
                 "Bundle": "Pick",
                 "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "BA261EC6C27B687D",
-                "Bundle": "Pick",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "1A77200702EA43C7",
-                "Bundle": "Pick",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "FC6EAAB270E6E330",
-                "Bundle": "Anvil",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "246692FEB44EDB72",
-                "Bundle": "Anvil",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "26ABD269C847B213",
-                "Bundle": "Anvil",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "C824D4E5EB9DE86E",
-                "Bundle": "Anvil",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "FD37BC2D3DA575E2",
-                "Bundle": "Pick",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "452F18DD0F07C0A1",
-                "Bundle": "Pick",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "5FC29766622345E7",
-                "Bundle": "HandOpen",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "25F58C7104D88495",
-                "Bundle": "HandOpen",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "8B469A4850441378",
-                "Bundle": "Arrow",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "1A7BE95CE1BF9538",
-                "Bundle": "Arrow",
-                "Cursor": "DarkBlue",
-                "Size": 64
-            },
-            {
-                "Hash": "FEA9A846F88E0266",
-                "Bundle": "Speech",
-                "Cursor": "Blue",
-                "Size": 64
-            },
-            {
-                "Hash": "A335809BBC348B85",
-                "Bundle": "Speech",
-                "Cursor": "DarkBlue",
-                "Size": 64
+                "Size": 64,
+                "Glow": 6,
+                "GlowColor": "FFFFFFFF"
             }
         ],
         "Preset": "WoW.Basic.Blue"
@@ -789,6 +469,146 @@ All at `"Size": 64`. Blue is used for active cursors and DarkBlue for greyed one
             "GlowColor": "FFFFFFFF"
         },
         "Preset": "Shared.BlueArrow"
+    },
+    {
+        "Game":
+        {
+            "Id": "windows",
+            "OldId": "windows",
+            "Name": "Windows"
+        },
+        "Bindings":
+        [
+            {
+                "Hash": "C0FFEE0000000001",
+                "Bundle": "Desktop",
+                "Cursor": "AppStarting.Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "C0FFEE0000000002",
+                "Bundle": "Desktop",
+                "Cursor": "Crosshair.Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "C0FFEE0000000003",
+                "Bundle": "Hand",
+                "Cursor": "Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "C0FFEE0000000004",
+                "Bundle": "Desktop",
+                "Cursor": "Help.Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "C0FFEE0000000005",
+                "Bundle": "Desktop",
+                "Cursor": "IBeam.Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "C0FFEE0000000006",
+                "Bundle": "Stop",
+                "Cursor": "Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "C0FFEE0000000007",
+                "Bundle": "Desktop",
+                "Cursor": "Person.Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "C0FFEE0000000008",
+                "Bundle": "Desktop",
+                "Cursor": "Pin.Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "C0FFEE0000000009",
+                "Bundle": "Desktop",
+                "Cursor": "SizeAll.Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "C0FFEE000000000A",
+                "Bundle": "Desktop",
+                "Cursor": "SizeNESW.Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "C0FFEE000000000B",
+                "Bundle": "Desktop",
+                "Cursor": "SizeNS.Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "C0FFEE000000000C",
+                "Bundle": "Desktop",
+                "Cursor": "SizeNWSE.Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "C0FFEE000000000D",
+                "Bundle": "Desktop",
+                "Cursor": "SizeWE.Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "C0FFEE0000000000",
+                "Bundle": "Arrow",
+                "Cursor": "Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "C0FFEE000000000E",
+                "Bundle": "Desktop",
+                "Cursor": "UpArrow.Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            },
+            {
+                "Hash": "C0FFEE000000000F",
+                "Bundle": "Desktop",
+                "Cursor": "Wait.Blue",
+                "Size": 32,
+                "Glow": 5,
+                "GlowColor": "FFFFFFFF"
+            }
+        ],
+        "Preset": "Windows.Basic.Blue"
     }
 ]
 ```
