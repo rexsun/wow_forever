@@ -32,6 +32,8 @@ $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('wow sync tests ' + [guid]::Ne
 $upstream = Join-Path $testRoot 'upstream repo'
 $global:syncGame = Join-Path $testRoot 'WoW\game root'
 $state = Join-Path $testRoot 'private state'
+$gitData = Join-Path $testRoot 'git data'
+$brokenGitData = Join-Path $gitData 'broken'
 $checks = 0
 try {
     foreach ($case in @(
@@ -76,12 +78,13 @@ try {
     Write-File (Join-Path $broken 'Wow.exe') ''
     Write-File (Join-Path $broken 'Interface\AddOns\Mine\m.lua') 'mine'
     $failed = $false
-    try { Initialize-Checkout $git $broken (Join-Path $testRoot 'no such repo') { $false } } catch { $failed = $_.Exception.Message -like 'Install failed and was rolled back*' }
+    try { Initialize-Checkout $git $broken (Join-Path $testRoot 'no such repo') { $false } $brokenGitData } catch { $failed = $_.Exception.Message -like 'Install failed and was rolled back*' }
     Assert $failed 'Bootstrap from a missing repository must fail with rollback'
     Assert (Test-Path -LiteralPath (Join-Path $broken 'Interface\AddOns\Mine\m.lua')) 'Rollback lost the existing Interface'
     Assert (-not (Test-Path -LiteralPath (Join-Path $broken '.git'))) 'Rollback left a .git folder'
+    Assert (-not (Test-Path -LiteralPath $brokenGitData)) 'Rollback left the Git data outside the install'
     $refused = $false
-    try { Initialize-Checkout $git $broken $upstream { $true } } catch { $refused = $_.Exception.Message -like 'Close WoW*' }
+    try { Initialize-Checkout $git $broken $upstream { $true } $brokenGitData } catch { $refused = $_.Exception.Message -like 'Close WoW*' }
     Assert ($refused -and -not (Test-Path -LiteralPath (Join-Path $broken '.git'))) 'Bootstrap must refuse while WoW runs'
     $checks += 4
 
@@ -91,7 +94,7 @@ try {
     Write-File (Join-Path $locked 'Interface\AddOns\Mine\m.lua') 'mine'
     $lock = Start-DirectoryLock (Join-Path $locked 'Interface\AddOns\Mine')
     $failed = $false
-    try { Initialize-Checkout $git $locked $upstream { $false } } catch { $failed = $_.Exception.Message -like '*Close File Explorer windows*' }
+    try { Initialize-Checkout $git $locked $upstream { $false } (Join-Path $gitData 'locked') } catch { $failed = $_.Exception.Message -like '*Close File Explorer windows*' }
     finally { Stop-DirectoryLock $lock }
     Assert $failed 'A locked Interface subfolder must fail with the in-use hint'
     Assert ((Read-File (Join-Path $locked 'Interface\a.txt')) -eq 'top' -and (Test-Path -LiteralPath (Join-Path $locked 'Interface\AddOns\Mine\m.lua'))) 'Partial move was not rolled back'
@@ -100,7 +103,7 @@ try {
 
     # Reproduces Install started from a shell whose current directory is Interface.
     $lock = Start-DirectoryLock (Join-Path $syncGame 'Interface')
-    try { Initialize-Checkout $git $syncGame $upstream { $false } } finally { Stop-DirectoryLock $lock }
+    try { Initialize-Checkout $git $syncGame $upstream { $false } (Join-Path $gitData 'game') } finally { Stop-DirectoryLock $lock }
     Assert (-not (Test-Path -LiteralPath (Join-Path $syncGame 'addon-backups'))) 'Bootstrap backup written inside the install'
     $backup = @(Get-ChildItem -LiteralPath (Join-Path $testRoot 'WoW Addon Backups\game root') -Directory)[0].FullName
     Assert (Test-Path -LiteralPath (Join-Path $syncGame 'Interface\AddOns\A\a.lua')) 'Bootstrap did not check out addons'
@@ -112,7 +115,33 @@ try {
     Assert ((Read-File (Join-Path $backup 'Fonts\YUIText.ttf')) -eq 'old font') 'Overwritten font not backed up'
     Assert ((Read-File (Join-Path $syncGame 'Fonts\YUIText.ttf')) -eq 'new font') 'Tracked font not installed'
     Assert ((Read-File (Join-Path $syncGame 'Fonts\Other.ttf')) -eq 'untracked font') 'Untracked font touched'
-    $checks += 9
+    Assert (Test-Path -LiteralPath (Join-Path $syncGame '.git') -PathType Leaf) 'Bootstrap must leave only a .git pointer file in the install'
+    Assert ((Get-GitPointerTarget $syncGame) -eq (Join-Path $gitData 'game')) 'Bootstrap Git data must live outside the install'
+    $checks += 11
+
+    $oldGame = Join-Path $testRoot 'WoW\old game'
+    Invoke-TestGit $testRoot @('clone', '-q', $upstream, $oldGame)
+    $oldHead = (Invoke-Native $git @('-C', $oldGame, 'rev-parse', 'HEAD')).Output
+    $readOnly = { param($Path) @(Get-ChildItem -LiteralPath $Path -Recurse -File -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReadOnly }).Count }
+    Assert ((& $readOnly (Join-Path $oldGame '.git')) -gt 0) 'Fixture must have the read-only Git objects Battle.net rejects'
+    $taken = Join-Path $gitData 'taken'
+    [IO.Directory]::CreateDirectory($taken) | Out-Null
+    $refused = $false
+    try { Move-GitDataOutOfInstall $git $oldGame $taken | Out-Null } catch { $refused = $_.Exception.Message -like 'Git data is still inside*' }
+    Assert ($refused -and (Test-Path -LiteralPath (Join-Path $oldGame '.git') -PathType Container)) 'An occupied destination must leave .git in place'
+    $outside = Join-Path $gitData 'old'
+    Assert (Move-GitDataOutOfInstall $git $oldGame $outside) 'An in-install .git folder must be moved'
+    Assert ((Invoke-Native $git @('-C', $oldGame, 'rev-parse', 'HEAD')).Output -eq $oldHead) 'Moved checkout must keep HEAD'
+    Assert ((Invoke-Native $git @('-C', $oldGame, 'status', '--porcelain')).Output -eq '') 'Moved checkout must stay clean'
+    Assert ((& $readOnly $oldGame) -eq 0) 'Read-only files left inside the install'
+    Assert (@(Get-ChildItem -LiteralPath $oldGame -Force -Filter '.git-moved-*').Count -eq 0) 'Old .git copy left inside the install'
+    Assert (-not (Move-GitDataOutOfInstall $git $oldGame $outside)) 'A pointer file must not be moved again'
+    $checks += 8
+
+    $cramped = Join-Path $testRoot 'Locked down\WoW\game'
+    Write-File (Join-Path $testRoot 'Locked down\WoW Addon Backups') 'a file where the backup folder would go'
+    Assert ((Get-AddonBackupRoot $cramped) -eq (Join-Path $cramped 'addon-backups')) 'An unwritable folder beside the install must fall back inside it'
+    $checks += 1
 
     $global:restoreCalls = 0
     $global:restoreFails = $null

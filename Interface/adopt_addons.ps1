@@ -57,14 +57,28 @@ Where backups for this game root go; matches sync_from_github.ps1 and addon_back
 .DESCRIPTION
 The folder holding the WoW install gets 'WoW Addon Backups\<game folder>': outside the Battle.net install, which scans
 and repairs every file under it, but on the same volume so folders can be moved in. A game root with no folder above
-its install, such as a share pointing at the install itself, keeps the old in-game 'addon-backups'.
+its install, such as a share pointing at the install itself, or one whose folder above cannot be written by this
+account (the default C:\Program Files (x86)), keeps the old in-game 'addon-backups'.
 #>
 function Get-AddonBackupRoot([string]$GameRoot) {
     $game = [IO.Path]::GetFullPath($GameRoot).TrimEnd('\')
+    $inside = Join-Path $game 'addon-backups'
     $install = [IO.Path]::GetDirectoryName($game)
     $outside = if ($install) { [IO.Path]::GetDirectoryName($install) } else { $null }
-    if (-not $outside) { return Join-Path $game 'addon-backups' }
-    return Join-Path $outside ('WoW Addon Backups\' + [IO.Path]::GetFileName($game))
+    if (-not $outside) { return $inside }
+    $beside = Join-Path $outside ('WoW Addon Backups\' + [IO.Path]::GetFileName($game))
+    if (Test-DirectoryWritable $beside) { return $beside }
+    return $inside
+}
+
+function Test-DirectoryWritable([string]$Path) {
+    try {
+        [IO.Directory]::CreateDirectory($Path) | Out-Null
+        $probe = Join-Path $Path ('.write-test-' + [guid]::NewGuid().ToString('N'))
+        [IO.File]::WriteAllText($probe, '')
+        [IO.File]::Delete($probe)
+        return $true
+    } catch { return $false }
 }
 
 function Remove-OldAdoptionBackups([string]$BackupParent, [string]$CurrentBackup) {

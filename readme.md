@@ -37,6 +37,31 @@ The argument is the existing destination game root. The script copies Interface,
 
 EUI and YUI share Default with new characters. RestedXP uses a supported default template for new character profiles; guide progress, Blizzard keybindings and character-only layout settings remain separate. WTF is ignored by Git, so pulling this repository alone does not install the configured settings. Use the adoption utility with the same account, or transfer SavedVariables into the destination account folder.
 
+## Keeping another machine in sync
+
+[`Interface/sync_from_github.ps1`](Interface/sync_from_github.ps1) keeps a second installation on `main`. Install it once on that machine, with WoW closed:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\sync_from_github.ps1 -Mode Install -GameRoot 'D:\...\World of Warcraft\_forever_'
+```
+
+Install turns the game root into a checkout if it isn't one yet, with its Git data outside the install, and registers a hidden current-user task `WoWSync-<installation-hash>` that runs at every sign-in. Each sync:
+
+1. fetches `main` and waits for that installation's WoW to close;
+2. force-resets the checkout to `origin/main`, saving tracked edits as a patch and local commits on a `sync-backup-<timestamp>` branch;
+3. restores the `Interface/Settings/WTF` bundle when it changed (this needs `Interface\.env` from the main machine, copied by hand or fetched over SSH with `-EnvSource`);
+4. fits the windowed resolution and EllesmereUI options scale to the display.
+
+Use it only on machines that consume the repository: Install refuses a checkout with uncommitted or unpushed work, or one running the settings export watcher. `-Mode Status`, `-Mode Sync` and `-Mode Uninstall` show the state and log, run a sync now, and remove the task. The private state and log are in `%LOCALAPPDATA%\WowSettings\<installation-hash>\`.
+
+Keep Git data and backups outside the install. Battle.net checks every file under `_forever_`, and Git writes its object files read-only. A `.git` folder in the game root fails that check ("Permissions check failure"), and Battle.net then repairs the game with repeated same-version updates.
+
+- **Git data:** the script keeps it in `repo.git` in the private state folder, with only a `.git` pointer file in the game root. Install and every sync move an older in-game `.git` folder there.
+- **Other checkouts:** on a machine without the sync, such as the one where add-ons are edited, move the Git data out by hand with `git init --separate-git-dir <folder outside the install>`.
+- **Backups:** they go to `WoW Addon Backups\_forever_` beside the WoW install folder. If your account can't write there, as under `C:\Program Files (x86)`, they fall back to `addon-backups` inside the game root. To keep them outside, have an administrator create the folder once and give your account Modify permission on it.
+
+[auto-update.md](auto-update.md) has the full setup, the SSH alias-map fetch and the maintenance commands.
+
 ## Release migration
 
 The active project is now in `_forever_` for the installed `wowf` release build 1.60.1.70532 (Interface 16001). The beta copy is retained only as a migration source; use the release folder for subsequent edits and Git operations.

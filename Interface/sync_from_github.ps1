@@ -5,6 +5,8 @@ window resolution to this machine.
 .DESCRIPTION
 Install (once, with WoW closed): turns the game root into a checkout of the repository when it is not one yet,
 records git/uv and an optional fixed resolution, registers a hidden current-user sign-in task and runs one sync.
+The Git data goes to repo.git in the private state directory, leaving only a .git pointer file in the game root
+(see Get-GitDirectory); Install and Sync move an older checkout's .git folder there.
 The previous Interface folder is moved to bootstrap-<timestamp> in the backup folder beside the WoW install
 (WoW Addon Backups\<game folder>, see Get-AddonBackupRoot); the Git-ignored private files in it
 (Interface\.env and the CharacterUIBaseline source configuration) are carried over.
@@ -62,15 +64,29 @@ Where backups for this game root go; matches adopt_addons.ps1 and addon_backup_r
 .DESCRIPTION
 Kept here rather than in a module because Install runs before the game root has a checkout. The folder holding the
 WoW install gets 'WoW Addon Backups\<game folder>': outside the Battle.net install, which scans and repairs every file
-under it, but on the same volume so folders can be moved in. A game root with no folder above its install keeps the
-old in-game 'addon-backups'.
+under it, but on the same volume so folders can be moved in. A game root with no folder above its install, or one
+whose folder above cannot be written by this account (the default C:\Program Files (x86)), keeps the old in-game
+'addon-backups'.
 #>
 function Get-AddonBackupRoot([string]$GameRoot) {
     $game = [IO.Path]::GetFullPath($GameRoot).TrimEnd('\')
+    $inside = Join-Path $game 'addon-backups'
     $install = [IO.Path]::GetDirectoryName($game)
     $outside = if ($install) { [IO.Path]::GetDirectoryName($install) } else { $null }
-    if (-not $outside) { return Join-Path $game 'addon-backups' }
-    return Join-Path $outside ('WoW Addon Backups\' + [IO.Path]::GetFileName($game))
+    if (-not $outside) { return $inside }
+    $beside = Join-Path $outside ('WoW Addon Backups\' + [IO.Path]::GetFileName($game))
+    if (Test-DirectoryWritable $beside) { return $beside }
+    return $inside
+}
+
+function Test-DirectoryWritable([string]$Path) {
+    try {
+        [IO.Directory]::CreateDirectory($Path) | Out-Null
+        $probe = Join-Path $Path ('.write-test-' + [guid]::NewGuid().ToString('N'))
+        [IO.File]::WriteAllText($probe, '')
+        [IO.File]::Delete($probe)
+        return $true
+    } catch { return $false }
 }
 
 function Get-InstallationId([string]$Root) {
@@ -95,6 +111,28 @@ function Resolve-GameRoot([string]$Requested) {
 
 function Get-StateDirectory([string]$Root) {
     return Join-Path $env:LOCALAPPDATA ('WowSettings\' + (Get-InstallationId $Root))
+}
+
+<#
+.SYNOPSIS
+Where this installation's Git data lives. The game root holds only a '.git' pointer file to it.
+.DESCRIPTION
+Battle.net checks every file under the install, and Git writes its object files read-only. A .git folder in the game
+root fails that check ("Permissions check failure") and makes Battle.net repair the game with repeated same-version
+updates. The private state directory is always writable by this account, wherever the game is installed.
+#>
+function Get-GitDirectory([string]$Root) {
+    return Join-Path (Get-StateDirectory $Root) 'repo.git'
+}
+
+function Get-GitPointerTarget([string]$Root) {
+    $dotGit = Join-Path $Root '.git'
+    if (-not (Test-Path -LiteralPath $dotGit -PathType Leaf)) { return $null }
+    $line = @(Get-Content -LiteralPath $dotGit -TotalCount 1)[0]
+    if ($line -notmatch '^gitdir:\s*(.+?)\s*$') { return $null }
+    $target = $Matches[1]
+    if (-not [IO.Path]::IsPathRooted($target)) { $target = Join-Path $Root $target }
+    return [IO.Path]::GetFullPath($target)
 }
 
 function Write-SyncLog([string]$Message) {
@@ -524,8 +562,11 @@ the checkout would overwrite are moved or copied to bootstrap-<timestamp> in the
 The Interface folder itself stays in place: Windows refuses to move a folder that is any process's current
 directory, which it is whenever Install is started from inside Interface.
 #>
-function Initialize-Checkout([string]$Git, [string]$Root, [string]$Repo, [scriptblock]$ProcessProbe) {
+function Initialize-Checkout([string]$Git, [string]$Root, [string]$Repo, [scriptblock]$ProcessProbe,
+    [string]$GitDirectory = (Get-GitDirectory $Root)) {
     if (& $ProcessProbe) { throw 'Close WoW before installing. Nothing was changed.' }
+    # Only a failed earlier Install leaves data here, and reinitialising it would keep its stale remote.
+    if (Test-Path -LiteralPath $GitDirectory) { Remove-Item -LiteralPath $GitDirectory -Recurse -Force -Confirm:$false }
     $backup = Join-Path (Get-AddonBackupRoot $Root) ('bootstrap-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
     $interface = Join-Path $Root 'Interface'
     $previous = Join-Path $backup 'Interface'
@@ -533,7 +574,8 @@ function Initialize-Checkout([string]$Git, [string]$Root, [string]$Repo, [script
     $checkoutStarted = $false
     $savedFonts = @()
     try {
-        Invoke-Git $Git $Root @('init', '--quiet') | Out-Null
+        [IO.Directory]::CreateDirectory((Split-Path $GitDirectory -Parent)) | Out-Null
+        Invoke-Git $Git $Root @('init', '--quiet', '--separate-git-dir', $GitDirectory) | Out-Null
         Grant-SafeDirectory $Git $Root
         Invoke-Git $Git $Root @('remote', 'add', 'origin', $Repo) | Out-Null
         Invoke-Git $Git $Root @('fetch', '--no-tags', 'origin', "+refs/heads/${Branch}:refs/remotes/origin/$Branch") | Out-Null
@@ -587,10 +629,64 @@ function Initialize-Checkout([string]$Git, [string]$Root, [string]$Repo, [script
         foreach ($font in $savedFonts) {
             Copy-Item -LiteralPath (Join-Path $backup $font) -Destination (Join-Path $Root $font) -Force
         }
-        $dotGit = Join-Path $Root '.git'
-        if (Test-Path -LiteralPath $dotGit) { Remove-Item -LiteralPath $dotGit -Recurse -Force -Confirm:$false }
+        foreach ($gitData in @((Join-Path $Root '.git'), $GitDirectory)) {
+            if (Test-Path -LiteralPath $gitData) { Remove-Item -LiteralPath $gitData -Recurse -Force -Confirm:$false }
+        }
         throw "Install failed and was rolled back: $failure"
     }
+}
+
+<#
+.SYNOPSIS
+Moves a .git folder out of the game root to $Destination and leaves a pointer file in its place; returns whether it
+moved anything. On failure everything stays as it was and the error says so.
+.DESCRIPTION
+For checkouts made before Install kept Git data outside the install (see Get-GitDirectory). The data is copied rather
+than renamed because the state directory is usually on another volume, and the original is deleted only after the
+pointer resolves HEAD to the same commit.
+#>
+function Move-GitDataOutOfInstall([string]$Git, [string]$Root, [string]$Destination) {
+    $dotGit = Join-Path $Root '.git'
+    if (-not (Test-Path -LiteralPath $dotGit -PathType Container)) { return $false }
+    if (Test-Path -LiteralPath $Destination) {
+        throw "Git data is still inside the game folder: $Destination already exists. Move or delete it, then sync again."
+    }
+    $head = (Invoke-Git $Git $Root @('rev-parse', '--verify', '--quiet', 'HEAD') -AllowFailure).Output
+    $staging = $Destination + '.partial'
+    $parked = Join-Path $Root ('.git-moved-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    try {
+        if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force -Confirm:$false }
+        [IO.Directory]::CreateDirectory((Split-Path $Destination -Parent)) | Out-Null
+        Copy-Item -LiteralPath $dotGit -Destination $staging -Recurse -Force
+        [IO.Directory]::Move($staging, $Destination)
+        [IO.Directory]::Move($dotGit, $parked)
+        [IO.File]::WriteAllText($dotGit, 'gitdir: ' + $Destination.Replace('\', '/') + "`n", [Text.UTF8Encoding]::new($false))
+        $moved = (Invoke-Git $Git $Root @('rev-parse', '--verify', '--quiet', 'HEAD') -AllowFailure).Output
+        if ($moved -ne $head) { throw "the moved copy resolves HEAD to '$moved' instead of '$head'." }
+    } catch {
+        $failure = $_.Exception.Message
+        if (Test-Path -LiteralPath $parked) {
+            if (Test-Path -LiteralPath $dotGit -PathType Leaf) { Remove-Item -LiteralPath $dotGit -Force }
+            [IO.Directory]::Move($parked, $dotGit)
+        }
+        foreach ($copy in @($Destination, $staging)) {
+            if (Test-Path -LiteralPath $copy) { Remove-Item -LiteralPath $copy -Recurse -Force -Confirm:$false }
+        }
+        throw "Git data is still inside the game folder; moving it to $Destination failed: $failure"
+    }
+    # -Force also deletes the read-only object files that Battle.net trips over.
+    try { Remove-Item -LiteralPath $parked -Recurse -Force -Confirm:$false }
+    catch { throw "Git data moved to $Destination, but the old copy $parked could not be deleted; delete it by hand: $($_.Exception.Message)" }
+    return $true
+}
+
+function Move-GitDataWithLog([string]$Git, [string]$Root) {
+    try {
+        $destination = Get-GitDirectory $Root
+        if (Move-GitDataOutOfInstall $Git $Root $destination) {
+            Write-SyncLog "Moved the Git data out of the game folder to $destination, so Battle.net no longer repairs the game for it."
+        }
+    } catch { Write-SyncLog $_.Exception.Message }
 }
 
 function Get-TaskName([string]$Root) { return 'WoWSync-' + (Get-InstallationId $Root) }
@@ -645,10 +741,16 @@ function Install-Sync([string]$Root) {
     $git = Find-Tool 'git' 'Git is required: winget install --id Git.Git -e'
     $probe = { Test-InstallationRunning $Root }
     $script:LogPath = $null
+    $pointer = Get-GitPointerTarget $Root
+    if ($pointer -and -not (Test-Path -LiteralPath $pointer -PathType Container)) {
+        throw "The game folder's .git file points to $pointer, which does not exist. Restore that folder, or delete the .git file so Install creates a new checkout."
+    }
     if (-not (Test-Path -LiteralPath (Join-Path $Root '.git'))) { Initialize-Checkout $git $Root $Repository $probe }
     else {
         Grant-SafeDirectory $git $Root
         Assert-ConsumerCheckout $git $Root
+        $destination = Get-GitDirectory $Root
+        if (Move-GitDataOutOfInstall $git $Root $destination) { Write-Host "Moved the Git data out of the game folder to $destination." }
     }
 
     $inRepo = Join-Path $Root 'Interface\sync_from_github.ps1'
@@ -702,6 +804,7 @@ function Invoke-ScheduledSync([string]$Root) {
         if (-not (Test-Path -LiteralPath $git)) { $git = Find-Tool 'git' 'Git is not installed.' }
         $uv = Get-StateValue $state 'uv'
         if ($uv -and -not (Test-Path -LiteralPath $uv)) { $uv = Find-Tool 'uv' $null }
+        Move-GitDataWithLog $git $Root
         Invoke-WowSync -Root $Root -StateDirectory $stateDirectory -Git $git -Uv $uv -ResolutionOverride (Get-StateValue $state 'resolution') `
             -EnvSource (Get-StateValue $state 'envSource') -EnvSourceKey (Get-StateValue $state 'envSourceKey') | Out-Null
     } catch {
@@ -728,6 +831,11 @@ switch ($Mode) {
         $task = Get-ScheduledTask -TaskName (Get-TaskName $root) -ErrorAction SilentlyContinue
         Write-Output ('Task: ' + $(if ($task) { "$($task.TaskName) ($($task.State))" } else { 'not installed' }))
         Write-Output "State: $stateDirectory"
+        $gitData = if (Test-Path -LiteralPath (Join-Path $root '.git') -PathType Container) {
+            'inside the game folder (Battle.net will keep repairing the game; run Sync or Install to move it out)'
+        } else { Get-GitPointerTarget $root }
+        Write-Output "Git data: $gitData"
+        Write-Output ('Backups: ' + (Get-AddonBackupRoot $root))
         (Read-SyncState $stateDirectory).GetEnumerator() | Sort-Object Name | ForEach-Object { Write-Output ('  {0} = {1}' -f $_.Name, $_.Value) }
         $log = Join-Path $stateDirectory 'sync.log'
         if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 20 }

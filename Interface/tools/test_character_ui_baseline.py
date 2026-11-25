@@ -56,6 +56,10 @@ class RefreshTests(unittest.TestCase):
         root = Path(Path(self.temp.name).anchor)
         self.assertEqual(MODULE.addon_backup_root(root / '_forever_'), root / '_forever_' / 'addon-backups')
 
+    def test_backup_root_falls_back_inside_when_the_folder_above_is_not_writable(self):
+        (Path(self.temp.name) / 'WoW Addon Backups').write_text('a file where the backup folder would go')
+        self.assertEqual(MODULE.addon_backup_root(self.game), self.game.resolve() / 'addon-backups')
+
     def test_refresh_tracks_source_changes_without_writing_wtf(self):
         before={p:p.read_bytes() for p in (self.game/'WTF').rglob('*') if p.is_file()}
         self.assertTrue(MODULE.refresh(self.game))

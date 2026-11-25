@@ -20,13 +20,16 @@ powershell -ExecutionPolicy Bypass -File .\sync_from_github.ps1 -Mode Install -G
 
 If the game root is not a Git checkout yet, Install creates one:
 
-- It moves the old `Interface` folder to `bootstrap-<timestamp>` in `WoW Addon Backups\<game folder>` beside the WoW install folder (for `D:\Program Files\World of Warcraft\_forever_` that is `D:\Program Files\WoW Addon Backups\_forever_`). Keeping backups outside the Battle.net install stops its file checks from scanning them.
+- It keeps the Git data in `repo.git` in the private state directory (see [Maintenance](#maintenance)) and leaves only a one-line `.git` pointer file in the game root. Battle.net checks every file under the install, and Git writes its object files read-only. A `.git` folder in the game root fails that check, and Battle.net then repairs the game with repeated same-version updates.
+- It moves the old `Interface` folder to `bootstrap-<timestamp>` in `WoW Addon Backups\<game folder>` beside the WoW install folder (for `D:\Program Files\World of Warcraft\_forever_` that is `D:\Program Files\WoW Addon Backups\_forever_`). Keeping backups outside the Battle.net install stops its file checks from scanning them. If your account can't create or write that folder, as under Blizzard's default `C:\Program Files (x86)`, backups go to `addon-backups` inside the game root instead. To keep them outside, have an administrator create the folder once and give your account Modify permission on it.
 - It copies the Git-ignored private files found in that old folder into the new `Interface`: `.env`, and the CharacterUIBaseline source configuration (`Settings/character-ui-source.local.json`, `AddOns/CharacterUIBaseline/Source.local.lua`) that an earlier adoption brought over. Later syncs leave these ignored files alone.
 - It copies any tracked YUI font it is about to replace into the same backup.
 - It leaves the rest of `Fonts`, the client and `WTF` alone.
 - If anything fails, it rolls all of this back.
 
 Install then registers the current-user task `WoWSync-<installation-hash>`. The task starts 30 seconds after sign-in, runs without elevation and opens no visible window. Install finishes by running one sync in the terminal.
+
+If the game root is already a checkout with a `.git` folder inside it, from before Install kept Git data outside, Install moves that folder to `repo.git` in the private state directory. Each sync does the same for older installations. The move copies first, checks that the checkout still points at the same commit, and only then deletes the old folder. If anything fails, `.git` stays where it was and the log says why.
 
 If the game lives under `C:\Program Files`, grant your account Modify permission on the game root instead of running elevated. If Git reports that the folder is owned by another account, Install adds that one path to Git's `safe.directory`.
 
@@ -76,7 +79,7 @@ Each fetch first checks that port 22 answers within 5 seconds, and `ssh` is stop
 
 ## Maintenance
 
-The private state directory `%LOCALAPPDATA%\WowSettings\<installation-hash>\` holds `sync.json` and the rotating `sync.log`. `sync.json` records the tool paths, the fixed resolution, the applied resolution, the alias-map source and the last restored bundle.
+The private state directory `%LOCALAPPDATA%\WowSettings\<installation-hash>\` holds `sync.json`, the rotating `sync.log` and the checkout's Git data `repo.git`. Don't delete it while sync is installed: the game root's `.git` file points into it. `-Mode Status` shows where the Git data and backups are. `sync.json` records the tool paths, the fixed resolution, the applied resolution, the alias-map source and the last restored bundle.
 
 ```powershell
 .\Interface\sync_from_github.ps1 -Mode Status

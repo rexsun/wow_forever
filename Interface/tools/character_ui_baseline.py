@@ -26,14 +26,28 @@ def addon_backup_root(game):
     """Where backups for this game root go; matches Get-AddonBackupRoot in adopt_addons.ps1 and sync_from_github.ps1.
 
     The folder holding the WoW install gets 'WoW Addon Backups/<game folder>': outside the Battle.net install, which
-    scans and repairs every file under it, but on the same volume. A game root with no folder above its install keeps
-    the old in-game 'addon-backups'.
+    scans and repairs every file under it, but on the same volume. A game root with no folder above its install, or one
+    whose folder above cannot be written by this account (the default C:\\Program Files (x86)), keeps the old in-game
+    'addon-backups'.
     """
     game = Path(game).resolve()
+    inside = game / 'addon-backups'
     install = game.parent
     if install.parent == install:
-        return game / 'addon-backups'
-    return install.parent / 'WoW Addon Backups' / game.name
+        return inside
+    beside = install.parent / 'WoW Addon Backups' / game.name
+    return beside if directory_writable(beside) else inside
+
+
+def directory_writable(path):
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / f'.write-test-{uuid.uuid4().hex}'
+        probe.write_bytes(b'')
+        probe.unlink()
+        return True
+    except OSError:
+        return False
 
 
 def component(value):
