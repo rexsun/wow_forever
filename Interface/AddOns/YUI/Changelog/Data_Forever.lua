@@ -1,6 +1,22 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v368|forever|cc8376bba59d6d133f4cdbc53ba61febf98dc7952f39488bd2e063591b43ba0e
+    {
+        version = "v368",
+        date = "2026-11-25",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "背包：修复了一个导致右键无效的问题",
+                "微菜单：修复角色按钮可能打不开的问题",
+            },
+            enUS = {
+                "Bags: Fixed an issue that could prevent right-click actions.",
+                "Micro Menu: Fixed an issue that could prevent the Character button from opening the Character panel.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v367|forever|76d5cce2bd1c0af48c2da9b861c1fa60026756a7a74d849fa575e7f68af65c84
     {
         version = "v367",
@@ -260,28 +276,6 @@ CL:Register("suite", {
             enUS = {
                 "Fixed action bar icons occasionally disappearing or displaying an outdated image.",
                 "Fixed macro names and cooldown displays failing to update when actions change.",
-            },
-        },
-    },
--- YUI-Notes-Record: v358|forever|8dffc782bca58e84b35d4fa386b09cb9d8b988fcbc0e656498ad141f5999807b
-    {
-        version = "v358",
-        date = "2026-11-13",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "Halo 光环监控支持按可读取的层数匹配发光规则。",
-                "修复 Halo 奥术冲击增益监控的层数和倒计时显示。",
-                "修复法师智力与护甲增益在战斗中的倒计时和缺失提示。",
-                "修复 Halo 发光规则取色时选择器意外关闭。",
-                "修复插件助手原生样式的标题装饰被裁剪。",
-            },
-            enUS = {
-                "Halo aura monitors now match glow rules against readable stack counts.",
-                "Fixed stack counts and countdowns for Halo's Arcane Blast buff monitoring.",
-                "Fixed combat countdowns and missing-buff alerts for Mage Intellect and armor buffs.",
-                "Fixed Halo's color picker closing unexpectedly while editing glow rules.",
-                "Fixed clipped title decorations in Addon Assistant's native style.",
             },
         },
     },

@@ -142,6 +142,36 @@ local function IsMicroMenuButtonReady(btn)
     return IsMicroMenuReady(Module.frame) and btn and btn.GetParent and btn:GetParent()
 end
 
+local function ApplyDeferredLayout()
+    local updateVisibility = Module.combatVisibilityPending
+    Module.combatVisibilityPending = nil
+    Module.combatLayoutHandle = nil
+
+    local frame = Module.frame
+    if not Module._runtimeAttached then
+        if updateVisibility and frame then frame:Hide() end
+        return
+    end
+    if not IsMicroMenuReady(frame) then return end
+
+    if updateVisibility then
+        frame:Show()
+        Module:UpdateBarItem(frame, Module.parent)
+        YBar:UpdateLayout()
+    else
+        Module:UpdateMicroMenu()
+    end
+end
+
+local function DeferProtectedLayout(updateVisibility)
+    if not YUI.IsForever or not SecurityAPI.InCombatLockdown() then return false end
+    if updateVisibility then Module.combatVisibilityPending = true end
+    if not Module.combatLayoutHandle then
+        Module.combatLayoutHandle = YUI.Event:Once("PLAYER_REGEN_ENABLED", ApplyDeferredLayout, Module)
+    end
+    return true
+end
+
 local function GetButtonDisplayName(config)
     if not config then return "" end
     return config.displayName or config.name or ""
@@ -211,8 +241,11 @@ function Module:AttachRuntime()
 
     if IsMicroMenuReady(self.frame) then
         self:RegisterButtonEvents()
-        self.frame:Show()
-        self:UpdateBarItem(self.frame, self.parent)
+        if not DeferProtectedLayout(true) then
+            self.combatVisibilityPending = nil
+            self.frame:Show()
+            self:UpdateBarItem(self.frame, self.parent)
+        end
         if self.RefreshAudioSyncRuntime then
             self:RefreshAudioSyncRuntime()
         end
@@ -240,7 +273,8 @@ function Module:DetachRuntime()
         YUI.HideGameTooltip()
     end
 
-    if self.frame then
+    if self.frame and not DeferProtectedLayout(true) then
+        self.combatVisibilityPending = nil
         self.frame:Hide()
     end
 end
@@ -1775,6 +1809,7 @@ local function CreateButton(parent, config)
         if math.abs(self:GetWidth() - width) < 0.1 then
             return
         end
+        if DeferProtectedLayout() then return end
 
         self:SetWidth(width)
 
@@ -1976,8 +2011,9 @@ local function CreateButton(parent, config)
     end)
 
     -- 初始尺寸
+    local nativeClickButton = config.nativeClickButton
     YBar:CreateActionHost(btn, {
-        secure = false,
+        secure = nativeClickButton ~= nil,
         onEnter = function(_, owner)
             local script = owner:GetScript("OnEnter")
             if script then script(owner) end
@@ -1987,7 +2023,16 @@ local function CreateButton(parent, config)
             if script then script(owner) end
         end,
     })
-    if btn.actionHost then
+    if nativeClickButton and btn.actionHost then
+        btn.actionHost:SetActions({
+            left = {
+                kind = "click",
+                clickbutton = nativeClickButton,
+                rawAttributes = { modifiers = "SHIFT" },
+            },
+            shiftLeft = { kind = "noop" },
+        })
+    elseif btn.actionHost then
         btn.actionHost:SetActions({
             left = {
                 kind = "custom",
@@ -2097,6 +2142,7 @@ local function GetButtons()
             displayName = T("micromenu.button.character", "角色"),
             icon = ICON_PATH .. "Character.png",
             leftName = T("micromenu.action.character_panel", "角色面板"),
+            nativeClickButton = YUI.IsForever and _G.CharacterMicroButton or nil,
             leftFunc = function()
                 local opened, reason = FrameAPI.ToggleCharacter("PaperDollFrame")
                 if opened == false and reason == "restricted_status_text" then
@@ -2285,6 +2331,10 @@ function Module:UpdateMicroMenu(skipLayout)
 
     local db = EnsureModuleDB()
     if not db then return end
+    if DeferProtectedLayout() then
+        self:RefreshAudioSyncRuntime()
+        return
+    end
     local size = db.size or DEFAULT_SIZE
     local iconSize = size + ICON_SIZE_PLUS
     local spacing = db.spacing or DEFAULT_SPACING

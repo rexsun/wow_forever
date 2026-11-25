@@ -11,6 +11,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     { id = "euife.zonelevels", key = "ZoneLevels", api = "_ZoneLevels" },
     { id = "euife.gatherskill", key = "GatherSkill", api = "_GatherSkill" },
     { id = "euife.skinningskill", key = "GatherSkinning", api = "_GatherSkill", field = "skinning" },
+    { id = "euife.ingamenav", key = "InGameNavigation", api = "_InGameNavigation" },
   }
 
   local function Field(f) return f.field or "enabled" end
@@ -18,7 +19,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
   local function Loaded()
     local loaded = CurrentLoaded()
     loaded.EllesmereUIForeverEssentials, loaded.Details, loaded.Details_TinyThreat = true, true, true
-    loaded.MapUtils, loaded.GatherLite = true, true
+    loaded.MapUtils, loaded.GatherLite, loaded.WaypointUI = true, true, true
     return loaded
   end
 
@@ -67,6 +68,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     eq(ids["euife.threatmeter"].when[2], "Details_TinyThreat")
     eq(ids["euife.gatherskill"].when[2], "GatherLite")
     eq(ids["euife.skinningskill"].when[2], "GearInsight_Forever")
+    eq(ids["euife.ingamenav"].when[2], "WaypointUI")
     eq(#w.ns.ValidatePolicy(w.ns.policy, w.ns.adapters), 0, "policy validates")
   end)
 
@@ -116,6 +118,28 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     ok(fe:find("text == UNIT_SKINNABLE_LEATHER", 1, true), "Forever Essentials annotates the same line")
   end)
 
+  -- 9.9.3 draws its own marker on the game's navigation frame, the frame Waypoint UI already draws on.
+  test("Waypoint UI and Forever Essentials Show Waypoints in the World draw on the same navigation frame", function()
+    local function ReadFile(path)
+      local file = assert(io.open(path, "rb"))
+      local text = file:read("*a")
+      file:close()
+      return text
+    end
+    local addons = ADDON_ROOT .. "../"
+    local wp = ReadFile(addons .. "WaypointUI/Code/Waypoint/Waypoint_DataProvider.lua")
+    ok(wp:find("local GetNavigationFrame = C_Navigation.GetFrame", 1, true), "Waypoint UI reads the navigation frame")
+    ok(wp:find('f:RegisterEvent("NAVIGATION_FRAME_CREATED")', 1, true), "Waypoint UI follows new navigation frames")
+    local fe = ReadFile(addons .. "EllesmereUIForeverEssentials/EllesmereUIForeverEssentials_InGameNavigation.lua")
+    ok(fe:find('eventFrame:RegisterEvent("NAVIGATION_FRAME_CREATED")', 1, true), "Forever Essentials follows the same frame")
+    ok(fe:find('marker:SetPoint("CENTER", nav, "CENTER")', 1, true), "Forever Essentials draws its marker on it")
+    ok(fe:find('module.Feature("inGameNavigation", {\n    enabled = false,', 1, true)
+      or fe:find('module.Feature("inGameNavigation", {\r\n    enabled = false,', 1, true), "Forever Essentials is off by default")
+    ok(fe:find("EllesmereUI._InGameNavigation = {", 1, true), "Forever Essentials publishes the feature API")
+    ok(ReadFile(addons .. "EllesmereUIForeverEssentials/EllesmereUIForeverEssentials_Camelot.toc")
+      :find("EllesmereUIForeverEssentials_InGameNavigation.lua", 1, true), "the Forever TOC loads it")
+  end)
+
   test("Forever Essentials Skinning is switched off without touching Gathering Skill", function()
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded() })
     BuildFE(w, { _GatherSkill = { skinning = true } })
@@ -159,7 +183,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
   test("Forever Essentials rules are inactive without their owners and leave fishing alone", function()
     local loaded = Loaded()
     loaded.YUI, loaded.Details_TinyThreat, loaded.MapUtils, loaded.GatherLite = nil, nil, nil, nil
-    loaded.GearInsight_Forever = nil
+    loaded.GearInsight_Forever, loaded.WaypointUI = nil, nil
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded })
     BuildFE(w)
     for _, f in ipairs(FEATURES) do Enable(f) end

@@ -161,6 +161,18 @@ function ZoneInfo.CreateText(frame, font)
 	return text
 end
 
+function ZoneInfo.ApplyMousePropagation(frame)
+	if frame == nil or frame.SetPropagateMouseClicks == nil then return end
+	if InCombatLockdown() then
+		frame.propagatePending = true
+
+		return
+	end
+
+	frame.propagatePending = nil
+	frame:SetPropagateMouseClicks(true)
+end
+
 function ZoneInfo.Create()
 	if ZoneInfo.frame ~= nil then return ZoneInfo.frame end
 	local container = WorldMapFrame and WorldMapFrame.ScrollContainer
@@ -170,7 +182,7 @@ function ZoneInfo.Create()
 	frame:SetSize(1, 1)
 	frame:SetFrameLevel(container:GetFrameLevel() + ZoneInfo.levelOffset)
 	frame:EnableMouse(false)
-	if frame.SetPropagateMouseClicks ~= nil then frame:SetPropagateMouseClicks(true) end
+	ZoneInfo.ApplyMousePropagation(frame)
 	frame:SetScript("OnEnter", ZoneInfo.OnEnter)
 	frame:SetScript("OnLeave", ZoneInfo.OnLeave)
 	frame.title = ZoneInfo.CreateText(frame, "GameFontNormalLarge")
@@ -195,10 +207,10 @@ end
 function ZoneInfo.CursorPosition()
 	local container = WorldMapFrame.ScrollContainer
 	if container == nil or WorldMapFrame.GetNormalizedCursorPosition == nil or container.GetCanvasScale == nil or container.Child == nil then return nil end
-	local scale = container:GetCanvasScale()
+	local scale = MapUtils:GetCanvasScale(container)
 	if scale == nil or scale <= 0 or container.Child:GetLeft() == nil or container.Child:GetTop() == nil then return nil end
 
-	return WorldMapFrame:GetNormalizedCursorPosition()
+	return MapUtils:GetCanvasCursorPosition(container)
 end
 
 function ZoneInfo.GetZoneID(mapID)
@@ -382,6 +394,7 @@ end
 function ZoneInfo.Update()
 	local frame = ZoneInfo.Create()
 	if frame == nil then return end
+	if frame.propagatePending and not InCombatLockdown() then ZoneInfo.ApplyMousePropagation(frame) end
 	if ZoneInfo.hovered and frame:IsShown() and frame:IsMouseOver() then return end
 	ZoneInfo.hovered = false
 	local label = ZoneInfo.label

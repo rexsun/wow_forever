@@ -15,6 +15,7 @@ Addon.INSTANCEMAPPINS = {
     [900001002] = {
         {"level", 0.300, 0.770, 900001, true},
         {"level", 0.680, 0.130, 900001, true},
+        {"boss", 0.669, 0.553, 263886}, -- Primeval Elemental
     },
     [220005] = {
         {"marker", 0.400, 0.500, "Interface\\AddOns\\AzerothCompendium\\media\\serpentstatue", label = "3", tip = "Southwest"},
@@ -27,6 +28,7 @@ Addon.INSTANCEMAPPINS = {
     [220004] = {
         {"boss", 0.609, 0.722, 8580}, -- Atal'alarion <Guardian of the Idol>
         {"questend", 0.610, 0.660, 3447}, -- Secret of the Circle
+        {"questend", 0.500, 0.460, 3447}, -- Secret of the Circle
     },
     [220003] = {
         {"boss", 0.361, 0.535, 5714}, -- Loro
@@ -41,7 +43,6 @@ Addon.INSTANCEMAPPINS = {
         {"boss", 0.349, 0.538, 260202}, -- Deathless Marrow
         {"boss", 0.516, 0.700, 258924}, -- Var'Taka
         {"boss", 0.558, 0.340, 260042}, -- Captain Dreadrise
-        {"boss", 0.605, 0.640, 263886}, -- Primeval Elemental
         {"boss", 0.700, 0.541, 258905}, -- Zul'Alai
         {"entrance", 0.845, 0.522},
         {"boss", 0.435, 0.530, 264177}, -- Gill
@@ -177,7 +178,6 @@ Addon.INSTANCEMAPPINS = {
         {"level", 0.526, 0.872, 312},
         {"boss", 0.544, 0.537, 4274}, -- Fenrus the Devourer
         {"questend", 0.624, 0.436, 1013}, -- The Book of Ur
-        {"boss", 0.500, 0.480, 4627}, -- Arugal's Voidwalker
         {"boss", 0.545, 0.537, 46963}, -- Lord Walden
     },
     [315] = { -- Shadowfang Keep 6
@@ -261,14 +261,14 @@ Addon.INSTANCEMAPPINS = {
     },
     [301] = { -- Razorfen Kraul
         {"entrance", 0.715, 0.837},
-        {"boss", 0.810, 0.510, 6168},
-        {"boss", 0.865, 0.410, 4424},
-        {"boss", 0.570, 0.300, 4428},
-        {"boss", 0.215, 0.300, 4420},
-        {"boss", 0.112, 0.724, 4422},
+        {"boss", 0.650, 0.460, 6168}, -- Roogug
+        {"boss", 0.805, 0.510, 4424}, -- Aggem Thorncurse <Death's Head Prophet>
+        {"boss", 0.870, 0.410, 4428}, -- Death Speaker Jargba <Death's Head Captain>
+        {"boss", 0.575, 0.300, 4420}, -- Overlord Ramtusk
+        {"boss", 0.082, 0.684, 4422}, -- Agathelos the Raging
         {"boss", 0.110, 0.303, 4425},
-        {"boss", 0.080, 0.690, 4421},
-        {"boss", 0.494, 0.471, 4842},
+        {"boss", 0.230, 0.310, 4421}, -- Charlga Razorflank <The Crone>
+        {"boss", 0.484, 0.451, 4842}, -- Earthcaller Halmgar
         {"queststart", 0.370, 0.308, 1142}, -- Mortality Wanes
         {"queststart", 0.370, 0.332, 1144}, -- Willix the Importer
     },
@@ -463,7 +463,7 @@ Addon.INSTANCEMAPPINS = {
     },
     [227] = { -- Gnomeregan - The Dormitory
         {"level", 0.245, 0.580, 228},
-        {"level", 0.430, 0.830, 226, true},
+        {"level", 0.430, 0.830, 226},
         {"level", 0.640, 0.580, 226, true},
         {"boss", 0.755, 0.450, 7079},
         {"boss", 0.242, 0.678, 6235},

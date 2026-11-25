@@ -1761,6 +1761,7 @@ function PinCache.WatchOutline(pin)
 	end
 end
 
+PinCache.bookMaskPath = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 PinCache.bookBorderColors = {
 	bag = {0.2, 1, 0.2},
 	bank = {0.2, 1, 0.2},
@@ -1768,45 +1769,67 @@ PinCache.bookBorderColors = {
 }
 
 function PinCache.ApplyBookBorder(pin, entry)
-	local color = entry.kind == "librarybook" and PinCache.bookBorderColors[entry.state] or nil
-	if color == nil then
-		if pin.bookBorder ~= nil then
-			for _, edge in ipairs(pin.bookBorder) do
-				edge:Hide()
-			end
+	local isBook = entry.kind == "librarybook"
+	local icon = pin.texture
+	if isBook then
+		if pin.bookMask == nil and pin.CreateMaskTexture ~= nil and icon.AddMaskTexture ~= nil then
+			pin.bookMask = pin:CreateMaskTexture()
+			pin.bookMask:SetTexture(PinCache.bookMaskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+			pin.bookMask:SetAllPoints(icon)
 		end
+
+		if pin.bookMask ~= nil and not pin.bookMaskActive then
+			icon:AddMaskTexture(pin.bookMask)
+			pin.bookMaskActive = true
+		end
+
+		icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	else
+		if pin.bookMask ~= nil and pin.bookMaskActive and icon.RemoveMaskTexture ~= nil then
+			icon:RemoveMaskTexture(pin.bookMask)
+			pin.bookMaskActive = false
+		end
+
+		if pin.bookBorder ~= nil then pin.bookBorder:Hide() end
+		if pin.bookBg ~= nil then pin.bookBg:Hide() end
 
 		return
 	end
 
-	local icon = pin.texture
-	local t = pin.pixel or 1
+	local color = PinCache.bookBorderColors[entry.state]
+	if color == nil then
+		if pin.bookBorder ~= nil then pin.bookBorder:Hide() end
+		if pin.bookBg ~= nil then pin.bookBg:Hide() end
+
+		return
+	end
+
+	local t = (pin.pixel or 1) * 1.5
 	if pin.bookBorder == nil then
-		pin.bookBorder = {}
-		for i = 1, 4 do
-			pin.bookBorder[i] = pin:CreateTexture(nil, "OVERLAY", nil, 1)
+		pin.bookBorder = pin:CreateTexture(nil, "OVERLAY", nil, -2)
+		pin.bookBorder:SetTexture(PinCache.bookMaskPath)
+	end
+
+	pin.bookBorder:ClearAllPoints()
+	pin.bookBorder:SetPoint("TOPLEFT", icon, "TOPLEFT", -t, t)
+	pin.bookBorder:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", t, -t)
+	pin.bookBorder:SetVertexColor(color[1], color[2], color[3], 1)
+	pin.bookBorder:Show()
+
+	local owned = entry.state == "bag" or entry.state == "bank"
+	if owned then
+		if pin.bookBg == nil then
+			pin.bookBg = pin:CreateTexture(nil, "OVERLAY", nil, -1)
+			pin.bookBg:SetTexture(PinCache.bookMaskPath)
+			pin.bookBg:SetVertexColor(0, 0, 0, 0.75)
 		end
-	end
 
-	local top, bottom, left, right = unpack(pin.bookBorder)
-	for _, edge in ipairs(pin.bookBorder) do
-		edge:ClearAllPoints()
-		edge:SetColorTexture(color[1], color[2], color[3], 1)
-		edge:Show()
+		pin.bookBg:ClearAllPoints()
+		pin.bookBg:SetAllPoints(icon)
+		pin.bookBg:Show()
+	elseif pin.bookBg ~= nil then
+		pin.bookBg:Hide()
 	end
-
-	top:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, 0)
-	top:SetPoint("TOPRIGHT", icon, "TOPRIGHT", 0, 0)
-	top:SetHeight(t)
-	bottom:SetPoint("BOTTOMLEFT", icon, "BOTTOMLEFT", 0, 0)
-	bottom:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 0)
-	bottom:SetHeight(t)
-	left:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, 0)
-	left:SetPoint("BOTTOMLEFT", icon, "BOTTOMLEFT", 0, 0)
-	left:SetWidth(t)
-	right:SetPoint("TOPRIGHT", icon, "TOPRIGHT", 0, 0)
-	right:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 0)
-	right:SetWidth(t)
 end
 
 local function ApplyEntryTint(pin, entry)
@@ -2300,6 +2323,23 @@ function MapUtils:ShowPinHighlight(pin)
 				texture:AddMaskTexture(mask)
 			end
 		end
+		if pin.row == nil and pin.CreateMaskTexture ~= nil and texture.AddMaskTexture ~= nil then
+			local round = pin.entry ~= nil and pin.entry.kind == "librarybook"
+			if round then
+				if texture.roundMask == nil then
+					texture.roundMask = pin:CreateMaskTexture()
+					texture.roundMask:SetAllPoints(texture)
+					texture.roundMask:SetTexture(PinCache.bookMaskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+				end
+				if not texture.roundMaskActive then
+					texture:AddMaskTexture(texture.roundMask)
+					texture.roundMaskActive = true
+				end
+			elseif texture.roundMask ~= nil and texture.roundMaskActive and texture.RemoveMaskTexture ~= nil then
+				texture:RemoveMaskTexture(texture.roundMask)
+				texture.roundMaskActive = false
+			end
+		end
 		texture:SetAllPoints(source)
 		local atlas = source.GetAtlas ~= nil and source:GetAtlas() or nil
 		if atlas ~= nil then
@@ -2413,10 +2453,15 @@ local function GetWaypointKey()
 end
 
 local function IsSameEntry(a, b)
-	if a == b then return true end
+	if a == b or a.source == b or b.source == a then return true end
 	if a.kind ~= b.kind then return false end
 	if a.kind == "flight" then return a.nodeID ~= nil and a.nodeID == b.nodeID end
 	if a.kind == "dungeon" or a.kind == "meetingstone" then return a.instance ~= nil and a.instance == b.instance end
+	if a.kind == "librarybook" then
+		local sa, sb = a.source or a, b.source or b
+
+		return sa.x == sb.x and sa.y == sb.y and (a.sourceMapID == nil or b.sourceMapID == nil or a.sourceMapID == b.sourceMapID)
+	end
 
 	return false
 end
@@ -2607,7 +2652,7 @@ local function OnPinClick(pin, button)
 				if route ~= nil and other.name == route.dest then destX, destY = other.x, other.y end
 			end
 
-			if MapUtils.GlideToMap == nil or not MapUtils:GlideToMap(destMapID, destX, destY) then WorldMapFrame:SetMapID(destMapID) end
+			if MapUtils.GlideToMap == nil or not MapUtils:GlideToMap(destMapID, destX, destY) then MapUtils:SetWorldMapID(destMapID) end
 		elseif button == "RightButton" and entry.kind == "dungeon" and (entry.instanceMap or entry.instance) ~= nil and MapUtils.IsInstanceMapEnabled ~= nil and MapUtils:IsInstanceMapEnabled() then
 			MapUtils:ShowInstanceMap(entry.instanceMap or entry.instance, entry.instanceMapLevel)
 		end
@@ -2929,7 +2974,7 @@ function PinCache.CullWorldPins(child, w, h, baseLevel, layoutChanged)
 	local scroll = WorldMapFrame.ScrollContainer
 	local left, right, top, bottom
 	if scroll ~= nil and scroll.GetCurrentScrollX ~= nil and scroll.GetCurrentScrollY ~= nil then
-		local x, y = scroll:GetCurrentScrollX(), scroll:GetCurrentScrollY()
+		local x, y = MapUtils:GetCanvasScroll(scroll)
 		if x ~= nil and y ~= nil then
 			local ratio = scroll:GetEffectiveScale() / child:GetEffectiveScale()
 			local width = (scroll:GetWidth() / 2 + 32) * ratio
@@ -3178,8 +3223,7 @@ function PinCache.PollWorldPins()
 	if child == nil then return end
 	local scroll = WorldMapFrame.ScrollContainer
 	local view = PinCache.worldView
-	local x = scroll and scroll.GetCurrentScrollX and scroll:GetCurrentScrollX()
-	local y = scroll and scroll.GetCurrentScrollY and scroll:GetCurrentScrollY()
+	local x, y = MapUtils:GetCanvasScroll(scroll)
 	local width, height = 0, 0
 	if scroll ~= nil then width, height = scroll:GetSize() end
 	local now = GetTime()

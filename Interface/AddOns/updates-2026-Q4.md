@@ -2,6 +2,32 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-25 - Update seven addon packages (OverlapSettingsGuard 0.24.0)
+
+- Update YUI v367 to v368 (wclbox Forever download, extracted with GBK file names; `!YUI_Error` stays uninstalled), Auctionator 353 to 354 ([file 9809922](https://www.curseforge.com/wow/addons/auctionator/files/9809922)), Bagnon 12.1.12 to 12.1.13 ([file 9811157](https://www.curseforge.com/wow/addons/bagnon/files/9811157)), Details 15410.172 to Details.20261124.15450.172 ([file 9801507](https://www.curseforge.com/wow/addons/details/files/9801507), the six installed modules only), the EllesmereUI suite 9.9.2 to 9.9.4 ([file 9807097](https://www.curseforge.com/wow/addons/ellesmereui/files/9807097), the seven installed modules only), GatherLite 8.4.16 to 8.4.17 ([file 9807711](https://www.curseforge.com/wow/addons/gatherlite/files/9807711)) and MapUtils 1.7.35 to 1.7.37 (forever build, [file 9812599](https://www.curseforge.com/wow/addons/maputils/files/9812599)). Every TOC still lists Interface 16001; no game-type load condition, dependency or SavedVariables declaration changed. Forever Essentials' Forever TOC adds `EllesmereUIForeverEssentials_InGameNavigation.lua` and EllesmereUIOptions adds `ActionBars_Options\BarSpells_Options.lua` and `EUI_QoL_LootRolls_Options.lua` (options for the absent ActionBars and QoL modules); new files load only after a full client restart. !BugGrabber, Lueur, Skinner and Waypoint UI were already current.
+- Held: GearInsight Forever 1.5.2 ([file 9806365](https://www.curseforge.com/wow/addons/gearinsight-forever/files/9806365)) is published only on the beta channel, so it is not a stable release; 1.4.20 stays installed.
+- Guard: one new rule, 68 in total.
+  - `euife.ingamenav` (`inGameNavigation.enabled`, while Waypoint UI loads): Forever Essentials 9.9.3's Show Waypoints in the World, off by default, draws a marker, beam, distance, arrival time and screen-edge arrow for the super-tracked quest or map pin on the game's navigation frame, the frame Waypoint UI already draws its pinpoint and arrow on. Enforced through the published `EllesmereUI._InGameNavigation` `Get`/`Cfg`/`Apply`, like the other Forever Essentials rules; `Apply` is hooked. A source test pins both addons' use of `NAVIGATION_FRAME_CREATED`, the feature's off default, its API and its Forever TOC line.
+  - Every key and function the existing rules and CharacterUIBaseline use is unchanged.
+- Local patches: all 27 reapply unchanged; no anchor moved. Bagnon 12.1.13's `uiOverrides.lua` changed only in the patched lines' context, and the MapUtils fade-patch line is still upstream's.
+- Overlap review, no further rule needed:
+  - YUI v368: a fix for right-click in bags (on Forever `IsBagOpen` now reads the shown Blizzard bag frames, which stay closed beside Bagnon) and the character micro button now opens through the game's own button; micro-menu layout changes wait until combat ends.
+  - Auctionator 354: suffixed-gear lookups fall back to the base item's price when the suffix is not recognised, and a typo fix in the modern auction house key lookup.
+  - Bagnon 12.1.13: the deposit option also shows for the guild bank window.
+  - Details 15450: a "Keep Size of Grouped Windows" profile option (off), "Animate Bars" moved to the window designer, the breakdown window no longer opens in combat and closes when combat starts, and fixes for hide-out-of-combat, the compare tab, deaths display and font lists. No new chat messages or automation.
+  - EllesmereUI 9.9.3-9.9.4: rounded aura and cooldown icons (off), mini-frame power bars and rare/elite border colours on unit frames (off), Heal Prediction on by default for new Raid & Party Frames profiles only (a migration keeps existing profiles off), a mouse-wheel Fishing Key option, and a Chat sidebar migration for the absent EllesmereUIChat. Its bundled LibKeystone and LibSpecialization updates send addon messages only on the retail client. The What's New card covers the absent QoL module's Loot Roll Frame (off). EllesmereUI stays the owner of the frames and nameplates; no new CVar writes.
+  - GatherLite 8.4.17: 738 more gathering locations (37,494 in total).
+  - MapUtils 1.7.36-1.7.37: on Forever One Map's stepless zoom now uses the map canvas's own scale and scroll with a click-catching frame of its own under the map pins (left-click opens the zone under the cursor, Ctrl-left-click sets a map pin, right-click goes up a level), switches zones through the game's secure path and stops CombatPins from tainting the map, so opening the map in combat no longer blocks actions. Library-book pins are round and show the tracked circle. No change to the map window's position, scale or fade, and no new CVar writes, messages or channels.
+  - No new window, dialog or what's-new panel opens by itself at login.
+- Line endings: YUI's `Data/Forever.lua` and `Products/YHUD/Product/Defaults.lua` came as LF and keep HEAD's CRLF; GatherLite's four upstream LF copies of `LICENSE`, `plugins/routes/navigation/vendor/LICENSE`, `vendor/manifest.json` and `LibDataBroker-1.1/README.textile` keep their installed bytes.
+- Backup: `WoW Addon Backups/_forever_/daily-20261125-130009` (taken by the day's automatic run).
+- Verification:
+  - 3,082 Lua files under AddOns compile under Lua 5.1.
+  - Installed files match the releases except the ten files the local patches change.
+  - 103 guard tests pass: the Forever Essentials rule tests cover the new rule (4 extended and 1 new, all failing before the change) and the rule count is 68.
+  - 85 pytest tests, the patch check (27 patches) and the adoption, sync (99), helper and watcher tests pass.
+  - Nothing was run in game or checked at the three supported resolutions.
+
 ## 2026-11-25 - Two backups of each kind
 
 - Every backup kind now keeps only its two newest copies:

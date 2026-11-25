@@ -1,6 +1,20 @@
 -- Generated from Docs/Products/YUI_OrbitInfoBar/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("ybar", {
+-- YUI-Notes-Record: orbit-135|forever|f939df83eb241f717a215c506eb673b42e0313f4e25aca18a0e791bd508d5313
+    {
+        version = "orbit-135",
+        date = "2026-11-25",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "微菜单：修复角色按钮可能打不开的问题",
+            },
+            enUS = {
+                "Micro Menu: Fixed an issue that could prevent the Character button from opening the Character panel.",
+            },
+        },
+    },
 -- YUI-Notes-Record: orbit-134|mainline|a1bc0c04e35731231842fb24af74129a723cc86f506aaaf01d107d96e8342751
     {
         version = "orbit-134",
@@ -230,24 +244,6 @@ CL:Register("ybar", {
                 "Audio synchronization now pauses for 30 seconds when triggered too frequently while preserving the toggle state.",
                 "Fixed audio synchronization recovery and notification issues to reduce repeated restarts.",
                 "Fixed potential ESC errors in combat caused by bag bar hiding.",
-            },
-        },
-    },
--- YUI-Notes-Record: orbit-125|forever|2586b9cdffe330391e01ba5fcc4cb8b432f898eaf07c806893c05423e1b70a38
-    {
-        version = "orbit-125",
-        date = "2026-10-26",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "法师传送菜单新增未学技能、学习等级、训练地点提示及传送材料数量。",
-                "优化音频同步，异常频繁时暂停同步 30 秒并保留开关状态。",
-                "修复音频同步恢复与提示异常，减少重复重启。",
-            },
-            enUS = {
-                "Mage teleport menus now show unlearned spells, learning levels, trainer hints, and reagent counts.",
-                "Audio synchronization now pauses for 30 seconds when triggered too frequently while preserving the toggle state.",
-                "Fixed audio synchronization recovery and notification issues to reduce repeated restarts.",
             },
         },
     },

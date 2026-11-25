@@ -171,6 +171,7 @@ local foreverEssentials = {
   { id = "zonelevels", key = "ZoneLevels", owner = "MapUtils", label = "World map zone levels and fishing skill", reason = "MapUtils owns zone level and fishing skill labels on the world map." },
   { id = "gatherskill", key = "GatherSkill", owner = "GatherLite", label = "Gathering skill in tooltips", reason = "GatherLite always adds the skill a herb or ore node needs to its tooltip." },
   { id = "skinningskill", key = "GatherSkinning", owner = "GearInsight_Forever", label = "Skinning skill on corpse tooltips", reason = "GearInsight adds the skill a skinnable creature needs to its tooltip by default." },
+  { id = "ingamenav", key = "InGameNavigation", owner = "WaypointUI", label = "Show Waypoints in the World", reason = "Waypoint UI owns the in-world waypoint, distance and edge arrow on the game's navigation frame." },
 }
 
 for _, setting in ipairs(foreverEssentials) do

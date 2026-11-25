@@ -514,7 +514,37 @@ function A.CanEquipBag(kind,item)
     return kind=="reagent" and reagent or kind~="reagent" and not reagent
 end
 function A.IsKeyring(id) return KEYRING_CONTAINER and id==KEYRING_CONTAINER or false end
-function A.IsBagOpen(id) return S.SafeBoolean(Call(IsBagOpen,id))==true end
+local function IsBagFrameShown(frame)
+    return not S.IsSecretValue(frame) and frame ~= nil
+        and Call(frame.IsForbidden, frame) == false
+        and Call(frame.IsShown, frame) == true
+end
+
+function A.IsBagOpen(id)
+    if not YUI.IsForever then return S.SafeBoolean(Call(IsBagOpen, id)) == true end
+    if S.IsSecretValue(id) or type(id) ~= "number" then return false end
+
+    -- The global query can initialize shared Blizzard caches before the bank opens.
+    -- A parked bag is still shown even when its parent makes it invisible.
+    local combined = ContainerFrameCombinedBags
+    if IsBagFrameShown(combined) then
+        if Call(combined.IsBagOpen, combined, id) then return true end
+        local settings = ContainerFrameSettingsManager
+        if settings and Call(settings.IsUsingCombinedBags, settings) == true
+            and Call(combined.MatchesBagID, combined, id) == true then
+            return true
+        end
+    end
+
+    local container = ContainerFrameContainer
+    local frames = container and container.ContainerFrames
+    if not ReadableTable(frames) then return false end
+    for index = 1, Number(NUM_CONTAINER_FRAMES) or 0 do
+        local frame = frames[index]
+        if IsBagFrameShown(frame) and Number(Call(frame.GetID, frame)) == id then return true end
+    end
+    return false
+end
 function A.BankTabs(kind)
     if not (C_Bank and Enum and Enum.BankType) then return {} end
     local bankType=kind=="shared" and Enum.BankType.Account or Enum.BankType.Character

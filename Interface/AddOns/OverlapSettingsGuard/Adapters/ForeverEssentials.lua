@@ -17,6 +17,7 @@ local FEATURES = {
   ZoneLevels = { api = "_ZoneLevels" },
   GatherSkill = { api = "_GatherSkill" },
   GatherSkinning = { api = "_GatherSkill", field = "skinning" },
+  InGameNavigation = { api = "_InGameNavigation" },
 }
 
 local function Field(key) return FEATURES[key].field or "enabled" end
