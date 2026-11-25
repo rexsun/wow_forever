@@ -27,6 +27,7 @@ local function clean(v)
     if v == nil or (ns.Secret and ns.Secret(v)) then return nil end
     return v
 end
+ns._Clean = clean   -- 11-20 ItemLevel / MageConjure 共用
 
 -- 键值都转成短字符串；同一条再见一次只加次数、更新时间
 function O.Add(k, key, val)
@@ -171,7 +172,6 @@ local function objectIdOf(guid)
     if kind ~= "GameObject" then return nil end
     return tonumber(id)
 end
-O.ObjectIdOf = objectIdOf
 function O.AddPoint(kind, idOrName, m, x, y)
     if not (kind and idOrName and m and x and y) then return false end
     local D = db()

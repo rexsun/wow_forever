@@ -2,13 +2,19 @@
 ## Title: GearInsight |cff33ff99Forever|r - Mage food
 ## Title-zhCN: GearInsight |cff33ff99无限版|r · 法师吃喝
 ## Notes: GearInsight Forever mage food helper (loaded at login only when its options are on)
-## Notes-zhCN: GearInsight 无限版的法师吃喝：野外弹框 / 交易道谢 / 总开关开着时登录加载，否则打开「法师吃喝」子页签时才加载
+## Notes-zhCN: GearInsight 无限版的法师吃喝：野外弹框 / 交易道谢 / 总开关开着时登录加载，否则打开「法师吃喝」子页签时才加载；队友的灵魂石提醒也在这里（副本里组队时才加载）
 ## Author: GearInsight
-## Version: 1.2.3
-## Dependencies: GearInsight_Forever, GearInsight_Forever_Group
+## Version: 1.4.20
+## Dependencies: GearInsight_Forever
 ## LoadOnDemand: 1
 ## IconTexture: Interface\Icons\inv_misc_map_01
 
 # 11-13 界面重构第 5 期：从 GearInsight_Forever_Group 拆出来；要用的 DC.*（存档 / 前缀 / 名字）在 GearInsight_Forever_Group 的 DungeonChatCore（登录加载）
+# 11-21 灵魂石提醒（队友）SoulstoneAsk.lua 也放这里（信标登录内存没余量）：组队信标 BuffAsk.lua 在副本 + 组队 + 我不是术士 + 开关开着时才 ns.LoadModule("mage") 加载；
+#   排在 MageWater.lua 后面，依赖信标的 ns.BuffAsk / ns.DungeonChat；术士角色文件开头就返回（什么都不建）
 
+# 11-21 要 BUFF 诊断（/gi buff 诊断）BuffAskDiag.lua 从信标 BuffAsk.lua 搬来（给上面灵魂石提醒的登录触发腾内存）：敲命令时才 ns.LoadModule("mage")
 MageWater.lua
+SoulstoneAsk.lua
+BuffAskDiag.lua
+AskTypo.lua

@@ -46,7 +46,9 @@ ns.ExportAll = exportAll
 --   各功能自己的开关搬到功能页右上角「本页设置」（描述表在 Settings.lua，⛔ 存档键不变）；公会 / 组队的在抽屉齿轮里；
 --   法师吃喝在组队抽屉第三个子页签（决定 4：总设置页不放它的开关，只在索引里有、能跳过去）。
 --   p.checks = 设置页上画出来的全部勾选框（通用 → 性能 → 索引）；p.modChecks = 索引里公会 / 组队那两组（模块加载状态一变就重画）
+-- 11-17 界面重构第 6 期：最前面加「功能」子页（功能开关中心，默认落这里；存档 ui.setSub = nil 就是它，老存档的 nil 原来是「通用」→ 现在落「功能」）
 local SUBS = {
+    { key = "features", zh = "功能", en = "Features" },
     { key = "general", zh = "通用", en = "General" },
     { key = "windows", zh = "窗口与提醒", en = "Windows" },
     { key = "perf", zh = "性能", en = "Performance" },
@@ -105,7 +107,7 @@ local function collect(p)
 end
 
 local function selectSub(p, key)
-    if not (p.subs and p.subs[key]) then key = "general" end
+    if not (p.subs and p.subs[key]) then key = "features" end
     for _, s in ipairs(SUBS) do
         local e = p.subs[s.key]
         local on = s.key == key
@@ -114,7 +116,7 @@ local function selectSub(p, key)
     end
     p.sub = key
     ns.db.ui = ns.db.ui or {}
-    ns.db.ui.setSub = (key ~= "general") and key or nil
+    ns.db.ui.setSub = (key ~= "features") and key or nil
     p.scroll = p.subs[key].sf
 end
 
@@ -129,6 +131,114 @@ local function refresh()
     refreshWins(page)
     local idx = page.subs and page.subs.all
     if idx and idx.relayoutToc then idx.relayoutToc() end
+end
+
+
+-- ================= 功能开关中心（11-17 界面重构第 6 期，设计稿 docs/forever-ui-refactor-p6-design.md 第 2 节）=================
+--   一行一个功能：[✓] 名称 · 灰色一句说明 ·「设置 ›」（跳到它的设置组）·「打开 ›」（它的页面）；按 Features.lua 的分类分区，分区标题带「开 x / 共 y」。
+--   复用 Settings.lua 的渲染器：每类登记一个设置组（data = "features"，feature = true → 不进「全部设置」索引），第一次打开设置页才登记（不占登录内存）。
+--   文件闸 / 纯页面功能改了要重载：顶部「N 项改动重载后生效 [重载界面]」。职业专属只给本职业、HOLD 没进包的不出（ns.FeatureShown）
+local FEAT_GROUPS
+local function featTitle(c)
+    local on, all = 0, 0
+    for _, f in ipairs(ns.FeatureList(c.key)) do
+        all = all + 1
+        if ns.FeatureOn(f.key) then on = on + 1 end
+    end
+    return ns.L(c.zh, c.en) .. "  |cff999999" .. string.format(ns.L("开 %d / 共 %d", "on %d / %d"), on, all) .. "|r"
+end
+local function featDesc(f) return ns.L(f.dzh or "", f.den or f.dzh or "") end
+local function featItems(f)
+    local function shown() return ns.FeatureShown(f) end
+    local reload = ns.FeatureNeedsReload(f)
+    local keys = table.concat({ f.zh or "", f.en or "", f.dzh or "", f.den or "", f.key }, " ")
+    return {
+        { type = "check", id = "feat." .. f.key, avail = shown, keys = keys, minW = 150, gap = 0,
+          text = function() return ns.L(f.zh, f.en) end,
+          get = function() return ns.FeatureOn(f.key) end, set = function(v) ns.SetFeature(f.key, v) end,
+          tip = function(self)
+              GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+              GameTooltip:AddLine(ns.L(f.zh, f.en), 1, 0.82, 0)
+              GameTooltip:AddLine(featDesc(f), 1, 1, 1, true)
+              if reload then GameTooltip:AddLine(ns.L("改了要重载界面才生效", "Takes effect after a UI reload"), 1, 0.6, 0.2, true) end
+              GameTooltip:Show()
+          end },
+        { type = "custom", inline = true, x = 200, id = "feat." .. f.key .. ".d", avail = shown,
+          text = function() return featDesc(f) end,
+          build = function(row, x)
+              local fs = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+              fs:SetPoint("TOPLEFT", x, -7); fs:SetWidth(290); fs:SetJustifyH("LEFT"); fs:SetWordWrap(false)
+              fs:SetText(featDesc(f) .. (reload and ("  |cffff9933" .. ns.L("重载", "reload") .. "|r") or ""))
+              return fs, 0
+          end },
+        { type = "button", inline = true, x = 492, w = 64, id = "feat." .. f.key .. ".cfg",
+          avail = function() return shown() and f.cfg ~= nil and ((ns._SettingsItems or {})[f.cfg] ~= nil or ns.SettingsGroup(f.cfg) ~= nil) end,
+          text = function() return ns.L("设置 ›", "Settings ›") end, click = function() ns.JumpToSetting(f.cfg) end },
+        { type = "button", inline = true, x = 560, w = 64, id = "feat." .. f.key .. ".open",
+          avail = function() return shown() and f.page ~= nil end,
+          text = function() return ns.L("打开 ›", "Open ›") end, click = function() if ns.OpenPage then ns.OpenPage(f.page) end end },
+    }
+end
+-- 每类一个设置组（第一次要用时才登记）；返回组 key 列表
+function ns.FeatureSettingsGroups()
+    if FEAT_GROUPS then return FEAT_GROUPS end
+    FEAT_GROUPS = {}
+    for i, c in ipairs(ns.FEATURE_CATS or {}) do
+        local items = {}
+        for _, f in ipairs(ns.FeatureList(c.key, true)) do
+            for _, it in ipairs(featItems(f)) do items[#items + 1] = it end
+        end
+        local key = "feat_" .. c.key
+        ns.RegisterSettings({ key = key, order = 0.1 + i * 0.01, data = "features", feature = true,
+            avail = function() return #ns.FeatureList(c.key) > 0 end,
+            title = function() return featTitle(c) end, short = function() return ns.L(c.zh, c.en) end, items = items })
+        FEAT_GROUPS[#FEAT_GROUPS + 1] = key
+    end
+    return FEAT_GROUPS
+end
+
+local FEAT_TOP = -56
+local function buildFeatures(p)
+    local e = p.subs.features
+    local body = e.body
+    local lbl = body:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    lbl:SetPoint("TOPLEFT", 14, -9); lbl:SetText(ns.L("搜索：", "Search:"))
+    local sb = CreateFrame("EditBox", nil, body, "InputBoxTemplate")
+    sb:SetSize(240, 20); sb:SetPoint("TOPLEFT", ns.zh and 62 or 70, -6)
+    sb:SetAutoFocus(false); sb:SetMaxLetters(40)
+    p.featSearch = sb
+    local clr = ns.Button(body, ns.L("清空", "Clear"), 60, 20, function() sb:SetText(""); if e.block then e.block:SetFilter("", nil) end end)
+    clr:SetPoint("LEFT", sb, "RIGHT", 8, 0)
+    local hint = body:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hint:SetPoint("LEFT", clr, "RIGHT", 8, 0); hint:SetText(string.format(ns.L("勾掉 = 关掉这个功能；也可以输入 %s 功能 关键词", "Uncheck to turn a feature off; or type %s feat <words>"), ns.SlashHint))
+    sb:SetScript("OnTextChanged", function(self) if e.block then e.block:SetFilter(self:GetText() or "", nil) end end)
+    sb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    sb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    -- 重载提示条：文件闸 / 纯页面功能改了几项
+    local bar = body:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    bar:SetPoint("TOPLEFT", 16, -36); bar:SetJustifyH("LEFT")
+    local rl = ns.Button(body, ns.L("重载界面", "Reload UI"), 90, 20, function() ReloadUI() end)
+    rl:SetPoint("LEFT", bar, "RIGHT", 10, 0)
+    p.featBar, p.featReload = bar, rl
+    local function paintBar()
+        local n = ns.FeaturePending and ns.FeaturePending() or 0
+        if n > 0 then
+            bar:SetText("|cffff9933" .. string.format(ns.L("%d 项改动重载后生效", "%d change(s) take effect after a reload"), n) .. "|r"); rl:Show()
+        else
+            bar:SetText("|cff888888" .. ns.L("勾选立刻生效；标「重载」的要重载界面才生效", "Changes apply right away; items marked reload need a UI reload") .. "|r"); rl:Hide()
+        end
+    end
+    e.block = ns.SettingsBlock(body, ns.FeatureSettingsGroups(), { width = 630, top = FEAT_TOP,
+        onLayout = function(b) body:SetHeight(-FEAT_TOP + (b.height or 10) + 16) end })
+    -- 勾了 / 取消：分区标题的「开 x / 共 y」和重载提示条跟着刷
+    ns.OnSettingsRefresh(function()
+        local b = e.block
+        for _, ent in ipairs(b and b.entries or {}) do
+            if ent.head and ent.head.title then ent.head.title:SetText(ns.SettingText(ent.group.title)) end
+        end
+        paintBar()
+    end)
+    paintBar()
 end
 
 local function build(p)
@@ -166,8 +276,11 @@ local function build(p)
         return e.block
     end
 
+    -- ⓪ 功能（11-17 第 6 期功能开关中心）
+    buildFeatures(p)
+
     -- ① 通用
-    mkBlock("general", { "lang", "ui" })
+    mkBlock("general", { "lang", "ui", "callword", "trade", "mounttrinket", "bagbuttons_gen", "dnav" })   -- 11-17 bagbuttons_gen = 背包上的清背包按钮（BagButtons.lua；右键「不再显示」后来这里找回）；11-15 trade = 交易回执（TradeReceipt.lua）；dnav = 副本导航（DungeonNav.lua）；没加载 = 这组不画；11-24 GI-350 mounttrinket = 上马自动换胡萝卜（MountStub.lua，常驻）
 
     -- ② 窗口与提醒（第 1 期「找得回」：所有浮窗 / 提醒条集中一处 —— 现在开没开、怎么再打开、位置拖丢了怎么重置）
     do
@@ -235,7 +348,7 @@ local function build(p)
         local tocDefs = { { key = "_windows", text = function() return ns.L("窗口与提醒", "Windows") end },
             { key = "_whisper", text = function() return ns.L("自动私信", "Whispers") end } }
         for _, g in ipairs(ns._SettingsGroups or {}) do
-            tocDefs[#tocDefs + 1] = { key = g.key, text = function() return ns.SettingText(g.short or g.title) end }
+            if not g.feature then tocDefs[#tocDefs + 1] = { key = g.key, text = function() return ns.SettingText(g.short or g.title) end } end   -- 功能中心的分组不进索引（开关本身已在各功能组里）
         end
         p.tocBtns = {}
         for i, d in ipairs(tocDefs) do
@@ -288,14 +401,14 @@ local function build(p)
         local top = e.relayoutToc()
         mkBlock("all", function()
             local keys = {}
-            for _, g in ipairs(ns._SettingsGroups or {}) do keys[#keys + 1] = g.key end
+            for _, g in ipairs(ns._SettingsGroups or {}) do if not g.feature then keys[#keys + 1] = g.key end end
             return keys
         end, { jump = true, index = true, top = top })
         e.relayoutToc()
     end
 
     collect(p)
-    selectSub(p, (ns.db.ui and ns.db.ui.setSub) or "general")
+    selectSub(p, (ns.db.ui and ns.db.ui.setSub) or "features")
 end
 
 -- 子页切换 + 滚到某项（全部设置 / 跳转用）
@@ -339,7 +452,22 @@ function ns.OpenWindows()
     scrollTo(p, p.subs.windows.sf, 0)
     return true
 end
+-- 11-17 第 6 期：功能开关中心 = 设置页「功能」子页；小地图右键「功能开关」、/gi 功能 [关键词]、/gi feat [关键词]
+function ns.OpenFeatures(q)
+    local p = openData()
+    if not p then return false end
+    selectSub(p, "features")
+    refresh()
+    q = tostring(q or "")
+    if p.featSearch then p.featSearch:SetText(q) end
+    local blk = p.subs.features.block
+    if blk then blk:SetFilter(q, nil) end
+    scrollTo(p, p.subs.features.sf, 0)
+    return true, blk
+end
 ns.ExtraSlash = ns.ExtraSlash or {}
+ns.ExtraSlash.feat = function(rest, rawRest) ns.OpenFeatures(rawRest or rest) end
+ns.ExtraSlash["功能"] = ns.ExtraSlash.feat
 ns.ExtraSlash.win = function() ns.OpenWindows() end
 ns.ExtraSlash["窗口"] = ns.ExtraSlash.win
 ns._SettingsScrollTo = function(y) if page then return scrollTo(page, page.scroll, y) end end   -- 测试用
@@ -402,6 +530,19 @@ ns.RegisterWindow({ key = "mageBar", order = 60, title = function() return ns.L(
             end },
         }
     end })
+-- 11-17 用户「这些弹出的功能都确保能永久关闭」：按需加载的子插件里会自己弹出来的东西，关掉后这个子插件登录时可能就不加载了，
+--   真模块的「窗口与提醒」条目也就没了 → 这里放同 key 的占位：读存档显示状态，点「打开」写回存档再加载子插件（真模块加载后用同一个 key 顶替）
+ns.RegisterWindow({ key = "mageGive", order = 60.5, title = function() return ns.L("交易窗一键放入吃喝", "Trade put-in button") end,
+    avail = function() return groupThere() and iAmMage() end,
+    state = function()
+        local m = mwSaved()
+        return (m and m.giveBtn == false) and ns.L("已关闭", "Closed") or ns.L("跟人交易时出在交易窗下面", "Shows under the trade window")
+    end,
+    actions = function()
+        local m = mwSaved()
+        local on = not (m and m.giveBtn == false)
+        return { { text = on and ns.L("关闭", "Turn off") or ns.L("打开", "Turn on"), fn = function() setMwOpt("giveBtn", not on) end } }
+    end })
 ns.RegisterWindow({ key = "mageField", order = 61, title = function() return ns.L("野外找法师要水弹框", "Ask-a-mage prompt") end,
     avail = function() return groupThere() and not iAmMage() end,
     state = function()
@@ -432,7 +573,43 @@ ns.RegisterWindow({ key = "mageField", order = 61, title = function() return ns.
                     unmute()
                 end
             end },
+            -- 11-15 用户「主城要水，窗口怎么能常驻打开」：钉住常驻（同 /gi 要水）
+            { text = ns.L("常驻打开", "Keep open"), fn = function()
+                local MW = mw()
+                if MW and MW.OpenFieldPinned then MW.OpenFieldPinned() end
+            end },
         }
+    end })
+
+-- 11-17 用户「这些弹出的功能都确保能永久关闭」：带文件开关的功能（WhatsNew.lua / LootTip.lua 关着时整个文件不跑）的弹出物登记在这里，关着也找得回
+ns.RegisterWindow({ key = "whatsnew", order = 80, title = function() return ns.L("新版说明弹窗", "Update notes") end,
+    state = function()
+        if not ns.FeatureOn("whatsnew") then return ns.L("已关闭（以后更新也不弹）", "Closed (won't show on updates)") end
+        return ns.L("每个新版本登录时弹一次", "Shows once per new version")
+    end,
+    actions = function()
+        local on = ns.FeatureOn("whatsnew")
+        local t = { { text = on and ns.L("关闭", "Turn off") or ns.L("打开", "Turn on"), fn = function()
+            ns.SetFeature("whatsnew", not on)
+            if not on and not ns.WhatsNew then ns.FeatureRunLate("whatsnew") end   -- 登录时关着：正文当场补跑，不用重载
+        end } }
+        if on then
+            t[2] = { text = ns.L("现在看看", "Show now"), fn = function()
+                if not ns.WhatsNew then ns.FeatureRunLate("whatsnew") end
+                if ns.WhatsNew then ns.WhatsNew.Show(true) end
+            end }
+        end
+        return t
+    end })
+ns.RegisterWindow({ key = "wishCenter", order = 81, title = function() return ns.L("心愿单屏幕提醒", "Wishlist on-screen alert") end,
+    state = function()
+        if not ns.FeatureOn("wishcenter") then return ns.L("已关闭（只在聊天框说）", "Off (chat only)") end
+        if not ns.FeatureOn("loottip") then return ns.L("「掉落提示」功能关着", "Loot tips feature is off") end
+        return ns.L("心愿单装备进本 / 开打 / 掉落时屏幕中间提醒", "Big text when a wishlist item drops / is here")
+    end,
+    actions = function()
+        local on = ns.FeatureOn("wishcenter")
+        return { { text = on and ns.L("关闭", "Turn off") or ns.L("打开", "Turn on"), fn = function() ns.SetFeature("wishcenter", not on) end } }
     end })
 
 -- 11-09 GI-196：/gi scale 120（70-160）
@@ -451,6 +628,14 @@ end
 ns.ExtraSlash = ns.ExtraSlash or {}
 ns.ExtraSlash.lang = function(rest)
     rest = (rest or ""):lower()
+    -- 11-19 /gi chat [auto | zh | tw | en]（= /gi lang chat …）：对外说话语言（插件替你发的私聊 / 喊话；ns.ChatL），立即生效
+    local c = rest:match("^chat%s*(%a*)")
+    if c then
+        if c ~= "" then ns.db.chatLang = c ~= "auto" and c or nil end   -- 不认识的词读的时候当自动（ns.ChatLang）
+        ns.Print(ns.L("对外说话（插件替你发的私聊 / 喊话）：", "Chat out (messages the addon sends): ") .. (ns.db.chatLang and "" or ns.L("自动 → ", "auto → "))
+            .. ns.ChatLang() .. "  (" .. ns.SlashHint .. " chat auto | zh | tw | en)")
+        return
+    end
     if rest == "zh" or rest == "cn" or rest == "中文" or rest == "简体" then ns.SetLang("zh")
     elseif rest == "tw" or rest == "繁体" or rest == "繁體" then ns.SetLang("tw")   -- 11-10 GI-216
     elseif rest == "en" or rest == "english" then ns.SetLang("en")
@@ -461,6 +646,7 @@ ns.ExtraSlash.lang = function(rest)
     end
     if page then page.refresh() end
 end
+ns.ExtraSlash.chat = function(rest) ns.ExtraSlash.lang("chat " .. (rest or "")) end
 
 ns.RegisterPage({ key = "data", order = 4, title = ns.L("设置", "Settings"), icon = "Interface\\Icons\\INV_Misc_Gear_01",
     build = build, refresh = refresh })

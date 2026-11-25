@@ -75,7 +75,6 @@ pev:SetScript("OnEvent", function(self, _, name)
     if not ns.db and C_Timer and C_Timer.After then C_Timer.After(0, function() pcall(ns.GroupSync) end); return end
     pcall(ns.GroupSync)
 end)
-ns._GroupPartsEvent = pev:GetScript("OnEvent")   -- 测试用
 -- 兜底：个别情况下没收到自己的 ADDON_LOADED（按需加载已经在登录之后）→ 1 秒后再同步一次（重复调用无害：已加载就直接返回）
 local function selfLoaded()
     local f = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded

@@ -78,26 +78,19 @@ end
 local function fmtDur(sec)
     sec = math.floor(sec or 0)
     local d, h, m, s = math.floor(sec / 86400), math.floor(sec % 86400 / 3600), math.floor(sec % 3600 / 60), sec % 60
-    if d > 0 then return string.format(ns.L("%d 天 %d 小时 %d 分", "%dd %dh %dm"), d, h, m) end
-    if h > 0 then return string.format(ns.L("%d 小时 %d 分", "%dh %dm"), h, m) end
-    return string.format(ns.L("%d 分 %d 秒", "%dm %ds"), m, s)
+    if d > 0 then return string.format(ns.ChatL("%d 天 %d 小时 %d 分", "%dd %dh %dm"), d, h, m) end
+    if h > 0 then return string.format(ns.ChatL("%d 小时 %d 分", "%dh %dm"), h, m) end
+    return string.format(ns.ChatL("%d 分 %d 秒", "%dm %ds"), m, s)
 end
-local function thousands(n)
-    local s = tostring(math.floor(n + 0.5))
-    local out = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()
-    return (out:gsub("^,", ""))
-end
-LS.FmtDur = fmtDur
 
 -- 播报里的用时：短（「38 分」「1 小时 2 分」），不带秒
 local function fmtShort(sec)
     sec = math.floor(sec or 0)
-    if sec < 60 then return string.format(ns.L("%d 秒", "%ds"), sec) end
+    if sec < 60 then return string.format(ns.ChatL("%d 秒", "%ds"), sec) end
     local h, m = math.floor(sec / 3600), math.floor(sec % 3600 / 60)
-    if h > 0 then return string.format(ns.L("%d 小时 %d 分", "%dh %dm"), h, m) end
-    return string.format(ns.L("%d 分", "%dm"), m)
+    if h > 0 then return string.format(ns.ChatL("%d 小时 %d 分", "%dh %dm"), h, m) end
+    return string.format(ns.ChatL("%d 分", "%dm"), m)
 end
-LS.FmtShort = fmtShort
 
 -- 挂机：/afk 标记期间 + 自动挂机前那 5 分钟不算（游戏没动 5 分钟才自动挂 AFK）
 local AFK_LEAD = 300
@@ -141,20 +134,20 @@ function LS.StatLine(rec, rot)
         local total = 0
         for k, v in pairs(rec.killers or {}) do total = total + v; if v > topN then top, topN = k, v end end
         if top and topN == dead then
-            if dead == 1 then return string.format(ns.L("死了 1 次，栽在%s手里", "died once, to %s"), top) end
-            return string.format(ns.L("死了 %d 次，都栽在%s手里", "died %d times, all to %s"), dead, top)
+            if dead == 1 then return string.format(ns.ChatL("死了 1 次，栽在%s手里", "died once, to %s"), top) end
+            return string.format(ns.ChatL("死了 %d 次，都栽在%s手里", "died %d times, all to %s"), dead, top)
         end
-        return string.format(ns.L("死了 %d 次", "died %d times"), dead)
+        return string.format(ns.ChatL("死了 %d 次", "died %d times"), dead)
     end
     if kills >= 5 then
         local top, topN = nil, 0
         for k, v in pairs(rec.mobs or {}) do if v > topN then top, topN = k, v end end
         if top and topN >= 3 and ((rot or 0) % 2 == 0) then
-            return string.format(ns.L("砍了 %d 只怪，%d 只是%s", "%d kills, %d of them %s"), kills, topN, top)
+            return string.format(ns.ChatL("砍了 %d 只怪，%d 只是%s", "%d kills, %d of them %s"), kills, topN, top)
         end
-        return string.format(ns.L("砍了 %d 只怪，零死亡", "%d kills, no deaths"), kills)
+        return string.format(ns.ChatL("砍了 %d 只怪，零死亡", "%d kills, no deaths"), kills)
     end
-    return ns.L("零死亡", "no deaths")
+    return ns.ChatL("零死亡", "no deaths")
 end
 
 -- 这一级要不要发
@@ -204,7 +197,7 @@ function LS.GuildRank(lvl)
     end
     if n < 1 then return nil end
     local r = { rank = higher + 1, tie = tie, atMax = atMax, n = n }
-    if myFile and cN >= 1 then r.cls, r.crank, r.ctie, r.cn = myName or myFile, cHigher + 1, cTie, cN end
+    if myFile and cN >= 1 then r.cls, r.cfile, r.crank, r.ctie, r.cn = myName or myFile, myFile, cHigher + 1, cTie, cN end
     return r
 end
 LS.MAX_LEVEL = 60
@@ -213,39 +206,41 @@ LS.MAX_LEVEL = 60
 local function rankTxt(g)
     if not g then return "" end
     local t
-    if g.tie > 0 then t = string.format(ns.L("，公会里并列第 %d", ", tied #%d in the guild"), g.rank)
-    else t = string.format(ns.L("，公会里排第 %d", ", #%d in the guild"), g.rank) end
+    if g.tie > 0 then t = string.format(ns.ChatL("，公会里并列第 %d", ", tied #%d in the guild"), g.rank)
+    else t = string.format(ns.ChatL("，公会里排第 %d", ", #%d in the guild"), g.rank) end
     -- 职业排名：「，法师里并列第 1」/「，法师里排第 3」（公会里没有同职业的人就不带）
-    if g.cls and g.crank then
-        if g.ctie and g.ctie > 0 then t = t .. string.format(ns.L("，%s里并列第 %d", ", %s: tied #%d"), g.cls, g.crank)
-        else t = t .. string.format(ns.L("，%s里排第 %d", ", %s: #%d"), g.cls, g.crank) end
+    -- 11-19 播报走对外说话语言（ns.ChatL）；对外英文、客户端中文时职业名用英文标识（MAGE → Mage）
+    local cls = ns.ChatCls(g.cfile, g.cls)
+    if cls and g.crank then
+        if g.ctie and g.ctie > 0 then t = t .. string.format(ns.ChatL("，%s里并列第 %d", ", %s: tied #%d"), cls, g.crank)
+        else t = t .. string.format(ns.ChatL("，%s里排第 %d", ", %s: #%d"), cls, g.crank) end
     end
     return t
 end
 
 -- rec = { lvl, sec(本级用时，可 nil), played(累计，可 nil), xpMax(上一级经验条，可 nil), quests, guild = LS.GuildRank 结果（可 nil）}
 function LS.Message(rec)
-    local P = "[Gearinsight插件] "   -- 10-22 用户「这里改成[Gearinsight插件]」（原「[GearInsight 无限版]」）
+    local P = ns.ChatTag() .. " "   -- 11-19 对外英文 = [GearInsight]；10-22 用户「这里改成[Gearinsight插件]」（原「[GearInsight 无限版]」）
     local lvl = rec.lvl
     local g = rec.guild
     if lvl >= LS.MAX_LEVEL then
         -- 第几个到满级 = 公会里已经满级的人数 + 1（名单里的人才算；退了会的不算）
-        local nth = g and string.format(ns.L("公会里第 %d 个到 %d 级的，", "#%d in the guild to hit %d. "), g.atMax + 1, LS.MAX_LEVEL) or ""
+        local nth = g and string.format(ns.ChatL("公会里第 %d 个到 %d 级的，", "#%d in the guild to hit %d. "), g.atMax + 1, LS.MAX_LEVEL) or ""
         if rec.played and rec.played > 0 then
-            return P .. string.format(ns.L("满级了！%s1 到 %d 级游戏时长 %s", "Max level! %s1 to %d in %s played"), nth, LS.MAX_LEVEL, fmtDur(rec.played))
+            return P .. string.format(ns.ChatL("满级了！%s1 到 %d 级游戏时长 %s", "Max level! %s1 to %d in %s played"), nth, LS.MAX_LEVEL, fmtDur(rec.played))
         end
-        return P .. ns.L("满级了！", "Max level! ") .. (nth ~= "" and nth:gsub("，$", "") or ns.L("一路走来", ""))
+        return P .. ns.ChatL("满级了！", "Max level! ") .. (nth ~= "" and nth:gsub("，$", "") or ns.ChatL("一路走来", ""))
     end
     if lvl % 10 == 0 and rec.played and rec.played > 0 then
-        return P .. string.format(ns.L("到 %d 级了%s！1 到 %d 级游戏时长 %s", "Level %d%s! 1 to %d in %s played"), lvl, rankTxt(g), lvl, fmtDur(rec.played))
+        return P .. string.format(ns.ChatL("到 %d 级了%s！1 到 %d 级游戏时长 %s", "Level %d%s! 1 to %d in %s played"), lvl, rankTxt(g), lvl, fmtDur(rec.played))
     end
     -- ⛔ 别用「→」：游戏字体会变方框
-    local head = P .. string.format(ns.L("升到 %d 级", "reached level %d"), lvl) .. rankTxt(g)
+    local head = P .. string.format(ns.ChatL("升到 %d 级", "reached level %d"), lvl) .. rankTxt(g)
     local stat = LS.StatLine(rec, rec.rot)
     local sec = rec.act or rec.sec
-    if not sec or sec <= 0 then return head .. ns.L("，", ", ") .. stat end
+    if not sec or sec <= 0 then return head .. ns.ChatL("，", ", ") .. stat end
     -- 10-17 用户「不需要这样比」：不再和公测玩家比快慢，固定 = 活跃用时 + 一句战绩
-    return head .. string.format(ns.L("，用时 %s，", ", %s, "), fmtShort(sec)) .. stat
+    return head .. string.format(ns.ChatL("，用时 %s，", ", %s, "), fmtShort(sec)) .. stat
 end
 
 local function send(msg)

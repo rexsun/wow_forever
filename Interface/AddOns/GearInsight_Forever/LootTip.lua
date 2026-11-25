@@ -6,6 +6,8 @@
 --   3. 鼠标指向野外稀有怪（Pack.lua 调 ns.RareLines）：先查常驻的稀有怪编号表，是稀有怪才加载子插件出「刷新 + 掉落」两行
 -- 合并打包时（没有子插件文件夹）行为相同：ns.PlanLoad 直接返回 true。
 local _, ns = ...
+-- 11-17 界面重构第 6a 期：功能开关「loottip」—— 正文包成函数，读完存档关着就不跑（见 Features.lua 的 ns.FeatureDefer；正文没缩进是为了不动原有行）
+local function body()
 
 local X = ns.LootIdx or { d = {}, it = {}, rare = {}, zh = {} }
 
@@ -28,12 +30,14 @@ local function where(id)
     if not b then return nil end
     return d, b
 end
-ns.LootWhere = where   -- 测试用
 local function nm(x) return ns.L(x[1], x[2]) end
 
 -- ---------- 提醒 ----------
+-- 11-17 用户「这些弹出的功能都确保能永久关闭」：屏幕中间的大字 + 提示音可以单独关（存档 ns.db.ui.wishCenter = false，nil = 开），
+--   聊天框那一行照旧；功能中心「心愿单屏幕提醒」、设置页「窗口与提醒」读写同一个键
 local function notice(msg)
     ns.Print(msg)
+    if ns.db and ns.db.ui and ns.db.ui.wishCenter == false then return end
     if RaidNotice_AddMessage and RaidWarningFrame and ChatTypeInfo then
         RaidNotice_AddMessage(RaidWarningFrame, msg, ChatTypeInfo["RAID_WARNING"])
     end
@@ -83,13 +87,30 @@ local function onLoot()
 end
 
 -- ---------- 物品鼠标提示 ----------
+-- 11-24 GI-332「一箱异国零件为什么没任务，道具在背包」：《无限》新增任务物品不开任务（ItemSparse 无 StartQuestID），
+--   游戏提示只写「任务物品」看不出给哪个任务 → 加一行用途；任务日志里没有、也没交过 → 告诉玩家去哪重接。数据：wowhead 无限站
+--   [物品] = { 任务, 用途中, 英, 不在任务日志时中, 英 }；交过的（IsQuestFlaggedCompleted）只出用途行
+local QITEM = {
+    [250725] = { 92009, "任务「厚望之箱」：2 小时内送到海加尔山 凯莱娜·春语 60,62", "Quest Crate Expectations: to Kaylaena Springwhisper, Hyjal 60,62 in 2h",
+        "任务日志里没有 → 回冬泉谷 努米 61,37 重接（过期也找她补）", "Not in quest log: get it again from Nami, Winterspring 61,37" },
+}
 local function addItemLine(tt, id)
     if not id or tt.__gifItem == id then return end
     local d, b = where(id)
-    if not d then return end
+    local q = QITEM[id]
+    if not d and not q then return end
     tt.__gifItem = id
-    tt:AddLine("|cff33ff99GI|r " .. ns.L("掉落：", "Drops: ") .. nm(d) .. " · " .. nm(b), 1, 0.82, 0.4)
-    if isWished(id) then tt:AddLine("|cff33ff99GI|r " .. ns.L("在你的心愿单里", "On your wishlist"), 1, 0.82, 0) end
+    if d then
+        tt:AddLine("|cff33ff99GI|r " .. ns.L("掉落：", "Drops: ") .. nm(d) .. " · " .. nm(b), 1, 0.82, 0.4)
+        if isWished(id) then tt:AddLine("|cff33ff99GI|r " .. ns.L("在你的心愿单里", "On your wishlist"), 1, 0.82, 0) end
+    end
+    if q then
+        tt:AddLine("|cff33ff99GI|r " .. ns.L(q[2], q[3]), 1, 0.82, 0.4, true)
+        local C = C_QuestLog
+        if not ((C and C.IsQuestFlaggedCompleted and C.IsQuestFlaggedCompleted(q[1])) or (GetQuestLogIndexByID and (GetQuestLogIndexByID(q[1]) or 0) > 0)) then
+            tt:AddLine("|cff33ff99GI|r " .. ns.L(q[4], q[5]), 1, 0.3, 0.3, true)
+        end
+    end
     tt:Show()
 end
 ns._LootAddItemLine = addItemLine   -- 测试用
@@ -147,3 +168,5 @@ function ns.RareLines(npcId)
     if not (ns.PlanLoad and ns.PlanLoad()) then return nil end
     return ns.RareLinesFull and ns.RareLinesFull(npcId) or nil
 end
+end
+if ns.FeatureDefer then ns.FeatureDefer("loottip", body) else body() end

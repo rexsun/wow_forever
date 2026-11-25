@@ -264,9 +264,10 @@ end
 function GL.ReportText()
     local total, online, gname, avg = GL.Counts()
     if not total then return nil end
-    local s = ns.L("[Gearinsight插件] 公会", "[Gearinsight插件] Guild") .. (gname and (" " .. gname) or "") .. string.format(ns.L(" 共 %d 人", " %d members"), total)
-    if online then s = s .. string.format(ns.L(" · 在线 %d 人", " · %d online"), online) end
-    if avg then s = s .. string.format(ns.L(" · 平均 %d 级", " · avg level %d"), avg) end
+    -- 11-19 发到公会频道：走对外说话语言（ns.ChatL / ns.ChatTag）
+    local s = ns.ChatTag() .. ns.ChatL(" 公会", " Guild") .. (gname and (" " .. gname) or "") .. string.format(ns.ChatL(" 共 %d 人", " %d members"), total)
+    if online then s = s .. string.format(ns.ChatL(" · 在线 %d 人", " · %d online"), online) end
+    if avg then s = s .. string.format(ns.ChatL(" · 平均 %d 级", " · avg level %d"), avg) end
     return s
 end
 function GL.Report()

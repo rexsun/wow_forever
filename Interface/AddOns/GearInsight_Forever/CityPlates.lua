@@ -37,7 +37,6 @@ local function setCV(k, v)
     CP._setting = nil
     return cvar(k) == v
 end
-CP._cvar = cvar
 function CP.Key()
     for _, k in ipairs(CP.KEYS) do if cvar(k) ~= nil then return k end end
     return nil

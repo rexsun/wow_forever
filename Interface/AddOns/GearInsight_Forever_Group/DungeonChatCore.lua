@@ -9,6 +9,8 @@
 --     · 「要水 / 要面包」私聊识别（原 MageWater.ParseAsk）：副本组队「来密我的人」要用它跳过要水的私聊，法师吃喝没加载时也得在
 local _, ns = ...; ns = _G.GearInsightForever or ns
 local L = function(cn, en) return ns.L(cn, en) end
+-- 11-19 对外说的话（别人看得见）走 ns.ChatL：按「对外说话语言」（自动 = 服务器地区）出中文 / 繁体 / 英文；界面照旧 L
+local CL = function(cn, en) return ns.ChatL(cn, en) end
 
 local DC = { posts = {}, applied = {}, lastShout = -1e9, view = "seek" }
 ns.DungeonChat = DC
@@ -61,6 +63,9 @@ end
 DC.TAG = "[Gearinsight插件]"
 -- 旧版本插件发的前缀：别人的话里带着照样认（去前缀 / 认出对方也装了插件），自己不再发
 DC.OLD_TAGS = { "[GI组队助手]" }
+-- 11-19 对外说英文时前缀是 [GearInsight]（ns.ChatTag）；认别人的话中英两种都认（两边插件互相认得出）
+DC.TAG_EN = ns.CHAT_TAG_EN or "[GearInsight]"
+DC.OLD_TAGS[#DC.OLD_TAGS + 1] = DC.TAG_EN
 DC.MAX_BYTES = 255
 function DC.TagOn() return DC.DB().rec.noTag ~= true end
 -- 按 UTF-8 字符边界裁到 n 字节以内（别把中文切成半个字）
@@ -99,11 +104,19 @@ end
 -- 最终要发的文字：前缀 + 正文；limit = 字节上限（发聊天传 DC.MAX_BYTES；复制框不限传 nil）
 function DC.Tagged(text, limit)
     text = DC.StripTag(tostring(text or ""))
-    local pre = DC.TagOn() and DC.TAG or ""
+    local pre = (DC.TagOn() and not DC.tagBlocked) and (ns.ChatTag and ns.ChatTag() or DC.TAG) or ""   -- 11-19 tagBlocked：私聊带标识被服务器拦过（MW.WatchEcho）
     if limit then text = cutBytes(text, limit - #pre) end
     return pre .. text
 end
 
+-- 11-19 用户「私聊默认都不带前缀」（私聊带 [Gearinsight插件] 疑被服务器过滤，要水发不出去）：一对一私聊一律不带标识；
+--   频道 / 公会 / 小队喊话照旧 DC.Tagged。不带标识后「隐藏自发」认不出是插件发的 → 发的时候记下这句（DC.ownSent），10 秒内回显对上就藏
+DC.ownSent = {}
+function DC.Whisper(text, limit)
+    text = cutBytes(DC.StripTag(tostring(text or "")), limit or 255)
+    DC.ownSent[text] = now()
+    return text
+end
 local function me() return clean(UnitName and UnitName("player")) end
 -- 11-10 用户「复制的文案带上姓啊」：《无限》角色名是「名 姓」，UnitName 只回「名」→ GetUnitName(unit, true) 回全名（去掉 -服务器）
 local function fullName(u)
@@ -149,7 +162,7 @@ end
 --   rec.fullSay = 队伍频道说一句；rec.fullTell = 逐个私聊四个队友。只在「从不满变成满 5 人」那一下发一次，
 --   掉到 5 人以下再满才会再发；刚上线 / 重载时本来就满的不发；自己不是队长不发（免得五个人都开了一起刷）
 DC.FULL_N = 5
-function DC.FullText() return L("人员已满，立刻发车", "Group is full - heading out now") end
+function DC.FullText() return CL("人员已满，立刻发车", "Group is full - heading out now") end
 function DC.CheckFull()
     local n = DC.PartyCount()
     local prev = DC.fullPrev
@@ -175,19 +188,118 @@ function DC.CheckFull()
     return true
 end
 
+-- ---------- 求人话术变体（11-17 用户截图：连着两条「法师老板，求点水，谢谢~」「法师老板，求个智力，谢谢~」，
+--   「话术变化增多，扩展到10个以上的组合和变体」——每次一模一样像机器人刷屏）----------
+--   一句 = 称呼 × 请求 × 结尾，每段 6 种：对一个人 6×6×6 = 216 种、对大家 216 种；要 BUFF（BuffAsk）/ 要吃喝（MageWater、下面 1.0.0 老逻辑）共用
+--   ⛔ 不带插件名（网易 DD 红线）；⛔ 每个片段都写成 L("简体", "英文") 字面量：scripts/gi_forever_zhtw.py 扫 L("…") 生成繁体
+--   ⛔ 别用「不用 / 不要 / 有了 / 我有 / 够了 / 不缺」这类词：DC.MageParseAsk 的 NEG_W 会把整句当成「不要」；
+--      「水 / 面包 / water / food」原样留在句子里（法师端靠它认要什么）；等级「（我39级：魔法泉水）」由调用方接在句尾
+--   防重复：同一会话连着两句不一样，且「请求 / 结尾」都尽量换（DC.askLast）；对同一个人再优先换「称呼 / 请求」（DC.askLastTo[who]）
+--   预览 = 实发：弹框 / 鼠标提示里先拼的那句的组合记在 DC.askPend[key]；真发出去（DC.AskSent）才换下一句
+--   rec.askFixed = true → 固定一种说法（每段第 1 种：「义父，求个Y，谢谢~」）；默认关 = 变化话术
+DC.askPend, DC.askLastTo, DC.askBuilt = {}, {}, {}
+DC.ASK_N = 6
+function DC.AskParts()
+    return {
+        -- 11-17 用户截图（「嗨 牧师，能给个耐力吗？」）「所有职业换成大佬」→ 随后「改成义父」「都改」：称呼不带职业名，一律叫义父（对大家 = 各位义父）
+        call1 = { CL("义父，", "Hi friend, "), CL("嗨 义父，", "Hello friend, "), CL("义父好，", "Hey friend, "),
+            CL("好心的义父，", "Excuse me friend, "), CL("打扰下义父，", "Sorry to bother you, friend, "), CL("义父你好，", "Hi there friend, ") },
+        callN = { CL("各位义父，", "Hi all, "), CL("义父们，", "Hey folks, "), CL("各位义父好，", "Hey team, "),
+            CL("好心的义父们，", "Hello everyone, "), CL("嗨 各位义父，", "Hi everyone, "), CL("打扰下各位义父，", "Excuse me all, ") },
+        reqBuff = { CL("求个%s，", "could I get %s please? "), CL("能给个%s吗？", "any chance of %s? "), CL("方便加个%s吗？", "mind casting %s on me? "),
+            CL("麻烦来个%s，", "could you spare %s? "), CL("蹭个%s，", "%s please? "), CL("想要个%s，", "would you mind buffing %s? ") },
+        reqFood = { CL("求点%s，", "could I get some %s please? "), CL("能给点%s吗？", "any chance of some %s? "), CL("方便做点%s吗？", "mind making me some %s? "),
+            CL("麻烦来点%s，", "could you spare some %s? "), CL("蹭点%s，", "some %s please? "), CL("想要点%s，", "would you mind conjuring some %s? ") },
+        done = { CL("谢谢~", "Thanks!"), CL("多谢！", "Much appreciated!"), CL("感谢感谢", "Thank you!"),
+            CL("辛苦啦", "Cheers!"), CL("谢啦~", "Thanks a lot!"), CL("先谢过啦", "Appreciate it!") },
+    }
+end
+-- 要吃喝的物品词：w / f = 要不要水、面包
+function DC.AskFoodWord(w, f)
+    if w and f then return CL("水和面包", "water and food") end
+    if w then return CL("水", "water") end
+    return CL("面包", "food")
+end
+function DC.AskFixed() return (ns.db and DC.DB().rec.askFixed == true) and true or false end
+local function sameCombo(a, b) return (a and b and a[1] == b[1] and a[2] == b[2] and a[3] == b[3]) and true or false end
+local function rnd(n)
+    if math and math.random then
+        local ok, v = pcall(math.random, n)
+        if ok and type(v) == "number" and v >= 1 and v <= n then return v end
+    end
+    return 1
+end
+-- 这次用哪一组（{称呼, 请求, 结尾} 下标）；key = 对谁（私聊名字 / "PARTY"；不知道 = "*"）
+function DC.AskCombo(key)
+    if DC.AskFixed() then return { 1, 1, 1 } end
+    key = key or "*"
+    local last, prev = DC.askLast, DC.askLastTo[key]
+    local p = DC.askPend[key]
+    if p and not sameCombo(p, last) then return p end
+    local n, pick = DC.ASK_N, nil
+    for i = 1, 60 do
+        local c = { rnd(n), rnd(n), rnd(n) }
+        local ok = not sameCombo(c, last)
+        if ok and i <= 40 then
+            -- 前 40 次挑严的：和上一句「请求 / 结尾」都不同；和上次对这个人说的「称呼 / 请求」都不同
+            if last and (c[2] == last[2] or c[3] == last[3]) then ok = false end
+            if prev and (c[1] == prev[1] or c[2] == prev[2]) then ok = false end
+        end
+        if ok then pick = c; break end
+    end
+    if not pick then   -- 随机数坏了（总回同一个）：按上一句往后轮
+        local b = last or { 0, 0, 0 }
+        pick = { b[1] % n + 1, b[2] % n + 1, b[3] % n + 1 }
+    end
+    DC.askPend[key] = pick
+    return pick
+end
+-- 拼一句：cls = 对谁（职业名；nil = 对大家「各位…」；11-17 起称呼一律「义父」，不再把职业名放进去）；kind = "buff" / "food"；what = 要的东西；tail = 句尾补充（等级 / 品名）
+function DC.AskPhrase(key, cls, kind, what, tail)
+    local P = DC.AskParts()
+    local c = DC.AskCombo(key)
+    local call = cls and P.call1[c[1]] or P.callN[c[1]]   -- cls 只用来区分「对一个人 / 对大家」（11-17 起称呼不带职业名）
+    local req, done = (kind == "food" and P.reqFood or P.reqBuff)[c[2]], P.done[c[3]]
+    if DC.Typo then call, req, done = DC.Typo(c, call, req, done) end   -- 11-22 手滑错字（_GroupMage 的 AskTypo.lua；登录内存没余量）
+    local text = call .. string.format(req, what or "") .. done .. (tail or "")
+    if ns.ApplyCall then text = ns.ApplyCall(text) end   -- 11-18 GI-307 称呼可改（默认义父）
+    local B = DC.askBuilt
+    B[#B + 1] = { text = text, key = key or "*", c = c }
+    while #B > 12 do table.remove(B, 1) end
+    return text
+end
+-- 真发出去了：记下这句（下次换一句）。text = 发出去的话（带不带前缀、被裁过都行）；who = 发给谁
+function DC.AskSent(text, who)
+    if type(text) ~= "string" then return false end
+    local s = DC.StripTag(text)
+    local B = DC.askBuilt
+    for i = #B, 1, -1 do
+        local b = B[i]
+        if b.text == s or (#s >= 24 and b.text:sub(1, #s) == s) then
+            DC.askLast = b.c
+            DC.askLastTo[b.key] = b.c
+            DC.askPend[b.key] = nil
+            if who then DC.askLastTo[who] = b.c; DC.askPend[who] = nil end
+            DC.askBuilt = {}
+            return true
+        end
+    end
+    return false
+end
+
 -- 11-12 用户「副本内检测交易法师，自动密语功能」「要吃喝」：在副本里跟法师一开交易窗，自动密他一句要吃喝，
 --   省得每次手打。rec.mageAsk 开关，默认关；同一个法师 MAGE_CD 秒内只密一次；自己是法师不发。
 --   有蓝的职业要「水和面包」，没蓝的（战士 / 盗贼）只要「面包」。交易对象的单位名是 "NPC"。
 DC.MAGE_CD = 180
-function DC.MageAskText()
+function DC.MageAskText(who)
     local mana = true
     if UnitPowerType then
         local ok, t = pcall(UnitPowerType, "player")
         t = ok and clean(t)
         if t ~= nil and t ~= 0 then mana = false end
     end
-    if mana then return L("法师老板，求水和面包，谢谢~", "Could I get some water and food please? Thanks!") end
-    return L("法师老板，求面包，谢谢~", "Could I get some food please? Thanks!")
+    -- 11-17 换成变化话术（DC.AskPhrase）；key = 交易对象
+    return DC.AskPhrase(who or "*", "MAGE", "food", DC.AskFoodWord(mana, true))   -- cls 只区分「对一个人」
 end
 function DC.OnTradeShow()
     -- 11-12 自动要水 / 自动发水（MageWater.lua，HOLD）：在就交给它（按背包缺多少、按等级要；法师那边出「一键放入」）；不在 = 下面 1.0.0 老逻辑
@@ -211,16 +323,17 @@ function DC.OnTradeShow()
     local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
     if not send then return false end
     DC.mageAsked[who] = t
-    pcall(send, DC.Tagged(DC.MageAskText(), DC.MAX_BYTES), "WHISPER", nil, who)
+    local text = DC.MageAskText(who)
+    if pcall(send, DC.Whisper(text, DC.MAX_BYTES), "WHISPER", nil, who) then DC.AskSent(text, who) end
     return true
 end
 
 -- ---------- 认「要吃喝」的话（11-13 第 5 期从 MageWater.lua 搬来，原样；MW.ParseAsk / MW.SkipWhisper 指向这里）----------
 local NOT_WATER = { "水平", "水晶", "下水道", "水下", "水元素", "水果", "水母", "水手", "水桶", "水泥", "水怪", "水域", "水路", "口水", "灌水", "风水", "水友", "薪水", "水货", "水深", "水草" }
 local WATER_W = { "水", "喝的", "喝点", "饮料" }
-local FOOD_W = { "面包", "吃的", "吃点", "食物", "粮", "馒头", "饼" }
-local BOTH_W = { "吃喝", "吃的喝的", "水和面包", "水跟面包", "水面包" }
-local INTENT_W = { "求", "要", "给", "来", "麻烦", "能", "有", "发", "整", "搞", "弄", "谢", "法师", "老板", "大佬", "拜托", "一组", "点", "些", "plz", "pls", "please", "need", "?", "？" }
+local FOOD_W = { "面包", "麵包", "吃的", "吃点", "食物", "粮", "馒头", "饼" }
+local BOTH_W = { "吃喝", "吃的喝的", "水和面包", "水跟面包", "水面包", "水和麵包" }
+local INTENT_W = { "求", "要", "给", "来", "麻烦", "能", "有", "发", "整", "搞", "弄", "谢", "法师", "老板", "大佬", "拜托", "一组", "点", "些", "蹭", "辛苦", "方便", "點", "謝", "給", "麻煩", "法師", "老闆", "拜託", "plz", "pls", "please", "need", "?", "？" }
 local NEG_W = { "不用", "不要", "不需要", "够了", "有了", "我有", "不缺", "别给", "不渴", "no need" }
 -- 英文按整词认（⛔ 用 a-z 字节范围，别用 %a：跟区域设置走，中文字节可能被当成字母）
 local EN_WATER = { "%f[a-z]water%f[^a-z]", "%f[a-z]drinks?%f[^a-z]" }
@@ -258,7 +371,7 @@ end
 function DC.MageSkipWhisper(msg)
     local w, f = DC.MageParseAsk(msg)
     if w or f then return true end
-    return DC.HasTag(msg) and type(msg) == "string" and (msg:find("交易", 1, true) or msg:find("稍等", 1, true)) and true or false
+    return DC.HasTag(msg) and type(msg) == "string" and (msg:find("交易", 1, true) or msg:find("稍等", 1, true) or msg:find("trade", 1, true) or msg:find("One sec", 1, true)) and true or false
 end
 
 -- ---------- 来密我的人（11-13 从 DungeonChat.lua 搬来：面板没加载也要收；/reload、换区、重登都还在）----------
@@ -267,10 +380,11 @@ end
 --   每条：author / short / text / hist（最近 6 句）/ roles / lv / cls / clsName / asked / gi / at（最后一次密我，time() 秒）/ firstAt / t（GetTime，本次登录内用）
 --   喊话时刻另存 ns.db.dchat.lastShoutAt（time() 秒）：喊完马上 /reload，剩下的窗口照样收
 DC.ROLE_WORDS = {
-    ["TANK"] = { "坦克", "坦", "mt", "tank", "%f[a-z]t%f[^a-z]", "%f[a-z]tn%f[^a-z]" },
-    ["HEALER"] = { "治疗", "奶", "heal", "%f[a-z]n%f[^a-z]", "%f[a-z]tn%f[^a-z]", "牧师", "萨满" },
+    -- 11-19 外服别人回英文：原有 tank / heal / dps 外补 prot / resto / holy / damage / dmg / melee / ranged（纯输出职业靠 GUID 职业认，见 PURE_DPS）
+    ["TANK"] = { "坦克", "坦", "mt", "tank", "%f[a-z]t%f[^a-z]", "%f[a-z]tn%f[^a-z]", "prot" },
+    ["HEALER"] = { "治疗", "奶", "heal", "%f[a-z]n%f[^a-z]", "%f[a-z]tn%f[^a-z]", "牧师", "萨满", "resto", "holy" },
     ["DAMAGER"] = { "输出", "dps", "%f[a-z]dd%f[^a-z]", "法师", "术士", "猎人", "盗贼", "近战", "远程",
-        "%f[a-z]ss%f[^a-z]", "%f[a-z]fs%f[^a-z]", "%f[a-z]lr%f[^a-z]", "%f[a-z]dz%f[^a-z]" },
+        "%f[a-z]ss%f[^a-z]", "%f[a-z]fs%f[^a-z]", "%f[a-z]lr%f[^a-z]", "%f[a-z]dz%f[^a-z]", "damage", "dmg", "melee", "ranged" },
 }
 function DC.StripCodes(msg)
     msg = msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h(.-)|h", "%1"):gsub("|T.-|t", "")
@@ -295,7 +409,7 @@ end
 function DC.TextLevel(text)
     if type(text) ~= "string" then return nil end
     -- 11-12 喊话改成「M我带职责等级」后常见回「24奶」「28 T」「lv25 dps」→ 开头的数字后面跟着字就算（光回「1」「111」= 我来，不是等级）
-    local x = text:match("^%s*(%d%d?)%s*[^%d%s]") or text:match("(%d%d?)%s*级") or text:match("[Ll][Vv]%s*(%d%d?)")
+    local x = text:match("^%s*(%d%d?)%s*[^%d%s]") or text:match("(%d%d?)%s*级") or text:match("[Ll][Vv][Ll]?%s*(%d%d?)") or text:match("[Ll][Ee][Vv][Ee][Ll]%s*(%d%d?)")
         or text:match("[^%d%s]%s*(%d%d?)%s*$")   -- 「求组SS 25」：前面有字、结尾的数字
     x = tonumber(x)
     if x and x >= 1 and x <= 60 then return x end
@@ -401,14 +515,21 @@ function DC.CoreAskText(p)
     local hasRole = false
     for _, r in ipairs({ "TANK", "HEALER", "DAMAGER" }) do if p.roles and p.roles[r] then hasRole = true end end
     if not hasRole and p.cls and PURE_DPS[p.cls] then hasRole = true end
-    if not lv and not hasRole then return L("老哥报下等级和职责哈（比如 25奶 / 28T / 30输出）", "Hi, what's your level and role? (e.g. 25 healer / 28 tank / 30 dps)") end
-    if not lv then return L("老哥报下等级哈", "Hi, what's your level?") end
-    if not hasRole then return L("老哥报下职责哈（T / 奶 / 输出）", "Hi, what's your role? (tank / healer / dps)") end
+    if not lv and not hasRole then return CL("老哥报下等级和职责哈（比如 25奶 / 28T / 30输出）", "Hi, what's your level and role? (e.g. 25 healer / 28 tank / 30 dps)") end
+    if not lv then return CL("老哥报下等级哈", "Hi, what's your level?") end
+    if not hasRole then return CL("老哥报下职责哈（T / 奶 / 输出）", "Hi, what's your role? (tank / healer / dps)") end
     return nil
+end
+-- 对方插件自动发的（反问「报下…」/ 招人「M我带职责等级」；11-19 加英文那两句）不回，免得两边插件来回问
+DC.AUTO_MARKS = { "报下", "M我", "what's your", "whisper me your" }
+function DC.IsAutoText(t)
+    if type(t) ~= "string" then return false end
+    for _, m in ipairs(DC.AUTO_MARKS) do if t:find(m, 1, true) then return true end end
+    return false
 end
 function DC.CoreMaybeAsk(p)
     if DC.DB().rec.autoAsk == false or rawget(p, "asked") then return false end
-    if p.text:find("报下", 1, true) or p.text:find("M我", 1, true) then return false end
+    if DC.IsAutoText(p.text) then return false end
     if not DC.CoreAskText(p) then return false end
     p.asked = true
     local function go()
@@ -418,7 +539,7 @@ function DC.CoreMaybeAsk(p)
         local t = f(cur or p)
         if not t then return end
         local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
-        if send then pcall(send, DC.Tagged(t, DC.MAX_BYTES), "WHISPER", nil, p.author) end
+        if send then pcall(send, DC.Whisper(t, DC.MAX_BYTES), "WHISPER", nil, p.author) end
     end
     if C_Timer and C_Timer.After then C_Timer.After(2, go) else go() end
     return true
@@ -460,16 +581,25 @@ cev:SetScript("OnEvent", function(_, e, a1, a2, ...)
         if rawget(DC, "ev") ~= nil or not DC.InReplyWin() then DC.SyncWhisper() end
     end
 end)
-DC._coreEvent = cev:GetScript("OnEvent")   -- 测试用
 
 -- 11-14 用户截图（聊天框里「发送给[某法师]：[GI组队助手]法师老板，求点水…」）「需要隐藏这个的开关，默认开启」：
 --   插件替你自动发出去的私聊（要水 / 申请 / 自动反问 / 道谢 / 满员私聊，开头带 [Gearinsight插件]），自己聊天框里那行「发送给…」默认不显示；
 --   对方照常收到。招人页「来密」那排「隐藏自发」可关（rec.showOwn = true）。只认带前缀的：关了「带标识」的话分不出是插件发的，照常显示。
 --   只走官方 ChatFrame_AddMessageEventFilter（同 GuildChatLevel / Layer），不碰聊天框本身
-DC.OWN_TAGS = { DC.TAG, "[GI组队助手]" }   -- 新前缀 + 旧前缀
+DC.OWN_TAGS = { DC.TAG, "[GI组队助手]", DC.TAG_EN }   -- 新前缀 + 旧前缀 + 英文前缀（11-19）
 function DC.HideOwnOn() return not (ns.db and DC.DB().rec.showOwn == true) end
+DC.ASK_ECHO = { "报下", "報下", "what's your" }   -- 自动反问的话（DC.CoreAskText / DungeonChat DC.AskText）里都有
+function DC.IsAskEcho(msg)
+    for _, w in ipairs(DC.ASK_ECHO) do if msg:find(w, 1, true) then return true end end
+    return false
+end
 function DC.OwnFilter(_, _, msg)
     if not DC.HideOwnOn() or type(msg) ~= "string" or ns.Secret(msg) then return false end
+    -- 11-19 用户「怎么不反问了」（反问其实发了、被这里藏了）→ 定为方案 1：自动反问照常显示，要水 / 道谢 / 申请等其余自发照旧藏
+    if DC.IsAskEcho(msg) then return false end
+    local at = DC.ownSent[msg]
+    DC.ownSent[msg] = nil
+    if at and now() - at <= 10 then return true end
     for _, t in ipairs(DC.OWN_TAGS) do
         if msg:sub(1, #t) == t then return true end
     end

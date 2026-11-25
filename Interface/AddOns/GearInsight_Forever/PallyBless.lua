@@ -17,10 +17,13 @@
 --   · 强效祝福要「王者印记」（物品 21177，db_items.json）：背包里没有就改用单体（无限有没有改掉没实测，先按经典处理）
 --
 -- ③ 分配（默认，玩家可改；存 ns.db.pally）：
---   · 战士 / 盗贼 → 力量；法师 / 术士 / 牧师 → 智慧；猎人 → 智慧（力量祝福只加「近战」攻击强度，猎人吃不到）
+--   · 战士 / 盗贼 → 力量；法师 / 术士 / 牧师 → 智慧；猎人 → 智慧（默认先给智慧：猎人有蓝、靠远程，回蓝最实在）
+--     11-19 用户「猎人的力量祝福也得要把」：猎人三种祝福都要（要 BUFF / 出发前清单缺力量也算缺）→ 猎人「有用的祝福」= 力量 / 智慧 / 王者，
+--     第二个圣骑士冲突换替补时会落到王者、第三个落到力量；只有一个圣骑士想先给力量：页上点「猎人」格换成力量
+--     （查证：开服客户端技能书 1.60.1.70862 和 wowhead 无限站，力量祝福都只写「近战攻击强度」，无限没改成加远程攻强；按用户要求照样要齐）
 --   · 德鲁伊 / 圣骑士 / 萨满（有蓝的混合职业）→ 智慧；熊猫德 / 增强萨 / 惩戒骑想要力量：页上点职业格换，或右键名字单独指定这个人
 --   · 学会王者祝福后可勾「全给王者」：所有人改给王者（职业格单独设了「不加」的照旧不加）
---   · 每个职业「有用的祝福」：纯近战 = 力量 / 王者；纯法系 + 猎人 = 智慧 / 王者；混合职业三种都行 —— 冲突时只在这里面挑替补
+--   · 每个职业「有用的祝福」：纯近战 = 力量 / 王者；纯法系 = 智慧 / 王者；猎人 + 混合职业三种都行 —— 冲突时只在这里面挑替补
 --   · 多个圣骑士（各自一套，不冲突就行）：插件频道 GIFPB 互发自己的分配；名字排序靠前的先挑，靠后的遇到同职业同祝福就换替补
 --     （首选 → 王者 → 另一种有用的），都被占了这个职业就不加。名字靠前的分配不看靠后的人 → 不会来回改
 --   · 没装插件的圣骑士：读队友身上的光环，同类祝福已经是别人加的（来源不是我）→ 这个人换替补；替补都被占 = 跳过（不覆盖别人的）
@@ -90,15 +93,18 @@ PB.CLASS_CN = { WARRIOR = "战士", ROGUE = "盗贼", HUNTER = "猎人", DRUID =
 PB.CLASS_EN = { WARRIOR = "Warrior", ROGUE = "Rogue", HUNTER = "Hunter", DRUID = "Druid", PALADIN = "Paladin", SHAMAN = "Shaman",
     MAGE = "Mage", WARLOCK = "Warlock", PRIEST = "Priest" }
 PB.DEFAULT = { WARRIOR = "M", ROGUE = "M", HUNTER = "W", DRUID = "W", PALADIN = "W", SHAMAN = "W", MAGE = "W", WARLOCK = "W", PRIEST = "W" }
--- 这个职业用得上的祝福（冲突换替补只在这里面挑）
+-- 这个职业用得上的祝福（冲突换替补只在这里面挑；11-19 猎人改成三种都要，见文件头 ③）
 local MELEE, CASTER, HYBRID = { M = true, K = true }, { W = true, K = true }, { M = true, W = true, K = true }
-PB.USEFUL = { WARRIOR = MELEE, ROGUE = MELEE, HUNTER = CASTER, MAGE = CASTER, WARLOCK = CASTER, PRIEST = CASTER,
+PB.USEFUL = { WARRIOR = MELEE, ROGUE = MELEE, HUNTER = HYBRID, MAGE = CASTER, WARLOCK = CASTER, PRIEST = CASTER,
     DRUID = HYBRID, PALADIN = HYBRID, SHAMAN = HYBRID }
 
 -- ---------- 小工具 ----------
 local function now() return GetTime and GetTime() or 0 end
 local function combat() return InCombatLockdown and InCombatLockdown() and true or false end
-local function call(f, ...) if not f then return nil end local ok, a, b, c = pcall(f, ...); if ok then return a, b, c end end
+-- 11-15 BugGrabber 202 次「PallyBless.lua:358 attempt to perform boolean test on local 'checked' (a secret boolean value)」：
+--   副本里 UnitInRange 等接口回的是受保护（secret）值，拿来判真假就报错 → 统一在这里把 secret 当成「不知道」（nil）
+local function unsecret(v) if issecretvalue and issecretvalue(v) then return nil end return v end
+local function call(f, ...) if not f then return nil end local ok, a, b, c = pcall(f, ...); if ok then return unsecret(a), unsecret(b), unsecret(c) end end
 local function short(name) return type(name) == "string" and (name:match("^([^%-]+)") or name) or nil end
 local function exists(u)
     if UnitExists then return call(UnitExists, u) and true or false end
@@ -219,13 +225,13 @@ local function auraAt(u, i)
     if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
         local a = call(C_UnitAuras.GetAuraDataByIndex, u, i, "HELPFUL")
         if type(a) ~= "table" then return nil end
-        return a.name or "", a.expirationTime, a.sourceUnit, a.spellId
+        return unsecret(a.name) or "", unsecret(a.expirationTime), unsecret(a.sourceUnit), unsecret(a.spellId)   -- 副本里字段可能是 secret
     end
     local f = UnitAura or UnitBuff
     if not f then return nil end
     local ok, name, _, _, _, _, exp, src, _, _, sid = pcall(f, u, i, UnitAura and "HELPFUL" or nil)
     if not ok or not name then return nil end
-    return name, exp, src, sid
+    return unsecret(name) or "", unsecret(exp), unsecret(src), unsecret(sid)
 end
 -- → { [t] = { mine = 剩余秒数或 nil, other = true 或 nil } }
 function PB.Auras(u)
@@ -603,6 +609,7 @@ function PB.StatusText(e)
 end
 
 -- ---------- 悬浮框 ----------
+PB.FLOAT_TWO_LINES = 26   -- 两行小字的高度：框平时也按这个留高（战斗中改不了尺寸）
 local float
 local function savePos()
     if not float then return end
@@ -615,7 +622,8 @@ function PB.SetFloatText(text)
     float.line:SetText(text)
     if combat() then return end
     local h = tonumber(float.line.GetStringHeight and float.line:GetStringHeight()) or 14
-    if h < 12 then h = 14 end
+    -- 11-15 用户截图：战斗中第二行「脱战后先给…」压在按钮后面 —— 战斗中框不能改高度，进战斗前是一行高 → 平时就留够两行
+    if h < PB.FLOAT_TWO_LINES then h = PB.FLOAT_TWO_LINES end
     float:SetHeight(math.floor(7 + h + 6 + 26 + 7 + 0.5))
 end
 function PB.BuildFloat()
@@ -634,7 +642,24 @@ function PB.BuildFloat()
     f:SetScript("OnDragStart", function(self) if not combat() then self:StartMoving() end end)   -- 里面有安全按钮：战斗中不能挪
     f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); savePos() end)
     f.line = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.line:SetPoint("TOPLEFT", 8, -7); f.line:SetPoint("TOPRIGHT", -8, -7); f.line:SetJustifyH("LEFT")
+    f.line:SetPoint("TOPLEFT", 8, -7); f.line:SetPoint("TOPRIGHT", -26, -7); f.line:SetJustifyH("LEFT")
+    -- 11-15 用户「怎么打开设置页，这里放个入口」：右上角齿轮 → 打开「一键祝福」页（页右上角有本页设置）
+    local gear = CreateFrame("Button", nil, f)
+    gear:SetSize(16, 16); gear:SetPoint("TOPRIGHT", -6, -6)
+    gear:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
+    gear:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+    -- 11-17 用户「这些弹出的功能都确保能永久关闭」：齿轮右键 = 永久关闭悬浮框（存档 pally.float = false）
+    if gear.RegisterForClicks then gear:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
+    gear:SetScript("OnClick", function(_, mb) if mb == "RightButton" then PB.FloatNever() else PB.OpenSettings() end end)
+    gear:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(L("一键祝福设置", "Blessing settings"), 1, 0.82, 0)
+        GameTooltip:AddLine(L("打开「一键祝福」页：职业 / 个人分配、王者 / 强效、悬浮框开关", "Open the Blessings page: assignments, Kings / Greater, floater"), 1, 1, 1, true)
+        GameTooltip:AddLine(L("左键打开设置  ·  右键永久关闭悬浮框  ·  拖拽移动", "Left: settings  ·  Right: close for good  ·  Drag: move"), 0.25, 0.9, 0.35, true)
+        GameTooltip:Show()
+    end)
+    gear:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.gear = gear
     if f.line.SetWordWrap then f.line:SetWordWrap(true) end
     if f.line.SetMaxLines then f.line:SetMaxLines(2) end   -- 最多两行（战斗中框不能改高度，再长就截断，明细看鼠标提示）
     local b = secureBtn(PB.BTN, f, 244, 26)
@@ -645,6 +670,26 @@ function PB.BuildFloat()
     float = f
     PB.float = f
     return f
+end
+-- 打开「一键祝福」页（悬浮框齿轮用）：主面板关着就打开并切到这页
+function PB.OpenSettings()
+    if not ns.ToggleMain then return false end
+    ns.ToggleMain("pally")
+    local host = _G.GearInsightForeverMain
+    if host and host.IsShown and not host:IsShown() then ns.ToggleMain("pally") end
+    return true
+end
+-- 齿轮右键：永久关闭悬浮框（⛔ 框里有安全按钮，战斗中收不起来 → 只提示）
+function PB.FloatNever()
+    if combat() then ns.Print(L("战斗中收不起悬浮框，脱战后再右键", "Can't hide it in combat - right-click again after")); return false end
+    PB.floatPreview = nil
+    PB.SetFloat(false)
+    if float then float:Hide() end
+    if ns.CloseHint then
+        ns.CloseHint("pallyFloat", L("一键祝福悬浮框已永久关闭。找回：GI 菜单 → 设置 → 窗口与提醒「一键祝福悬浮框」点「打开」，或 /gi 祝福 悬浮 开",
+            "Blessing floater closed for good. Bring it back: GI menu > Settings > Windows & alerts, or /gi pb float on"))
+    end
+    return true
 end
 function PB.FloatWanted() return PB.IsPaladin() and PB.FloatOn() and (inGroup() or PB.floatPreview == true) end
 function PB.ResetPos()
@@ -897,16 +942,33 @@ local function build(p)
 end
 
 -- 页上的安全按钮：脱战时建好挂到页上（页在战斗中第一次打开 → 脱战后再挂）
+-- 11-15 用户截图「战斗中没法关闭」：页上的安全按钮原来是主面板的子框体 → 整个主面板被带成受保护框体，战斗中 Hide 被游戏拦。
+--   → 安全按钮挂 UIParent（不进主面板的父子链），脱战时贴到页上占位格上；进战斗前（PLAYER_REGEN_DISABLED 里还能动）摘下来藏好，
+--     主面板就始终是普通框体，战斗中照样能关
 function PB.AttachPageBtn()
     page = curPage() or page
     if not page or combat() then return end
     if not PB.pageBtn then
-        PB.pageBtn = secureBtn("GearInsightForeverPallyBlessPageBtn", page.slot, 200, 30)
+        PB.pageBtn = secureBtn("GearInsightForeverPallyBlessPageBtn", UIParent, 200, 30)
         PB.pageBtn:SetText(L("加下一个祝福", "Bless next"))
     end
-    PB.pageBtn:SetParent(page.slot)
-    PB.pageBtn:ClearAllPoints(); PB.pageBtn:SetAllPoints(page.slot)
-    PB.pageBtn:Show()
+    local b, slot = PB.pageBtn, page.slot
+    if b:GetParent() ~= UIParent then b:SetParent(UIParent) end
+    b:ClearAllPoints(); b:SetAllPoints(slot)
+    if slot.GetFrameStrata then b:SetFrameStrata(slot:GetFrameStrata()) end
+    if slot.GetFrameLevel then b:SetFrameLevel((slot:GetFrameLevel() or 0) + 5) end
+    if not rawget(slot, "_pbHooked") and slot.HookScript then
+        rawset(slot, "_pbHooked", true)
+        slot:HookScript("OnHide", function() PB.DetachPageBtn() end)
+        slot:HookScript("OnShow", function() PB.AttachPageBtn() end)
+    end
+    if slot.IsVisible and slot:IsVisible() then b:Show() else b:Hide() end
+end
+-- 摘下页上的安全按钮（页关了 / 要进战斗）：战斗中动不了就算了（状态驱动已经把它藏了）
+function PB.DetachPageBtn()
+    local b = PB.pageBtn
+    if not b or (InCombatLockdown and InCombatLockdown()) then return end
+    b:Hide(); b:ClearAllPoints()
 end
 
 -- ---------- 刷新（每秒 / 事件）----------
@@ -1018,6 +1080,7 @@ function PB.OnEvent(e, a1, a2, a3, a4)
     elseif e == "PLAYER_REGEN_ENABLED" then
         PB.OnRegen()
     elseif e == "PLAYER_REGEN_DISABLED" then
+        PB.DetachPageBtn()   -- 进战斗前最后一刻：页上的安全按钮摘下来，主面板别被它锁住
         PB.SetFloatText(PB.NextText())
     elseif e == "GROUP_ROSTER_UPDATE" then
         for n in pairs(PB.peers) do if not rosterNames()[n] then PB.peers[n] = nil end end
@@ -1071,3 +1134,19 @@ ns.ExtraSlash["祝福"] = function(rest)
     end
 end
 ns.ExtraSlash.pb = ns.ExtraSlash["祝福"]
+
+-- 「窗口与提醒」（11-17）：右键关掉的悬浮框从这里找回（⛔ 关掉后 _Class 不再为它登录加载 → 主插件 ClassStub.lua 要有同 key 占位）
+if ns.RegisterWindow then
+    ns.RegisterWindow({ key = "pallyFloat", order = 57, title = function() return L("一键祝福悬浮框（圣骑士）", "Blessing floater (Paladin)") end,
+        avail = function() return PB.IsPaladin() end,
+        state = function() return PB.FloatOn() and L("组队时出", "Shows in a group") or L("已关闭", "Closed") end,
+        actions = function()
+            local on = PB.FloatOn()
+            return {
+                { text = on and L("关闭", "Turn off") or L("打开", "Turn on"), fn = function()
+                    if on then PB.FloatNever() else PB.SetFloat(true); PB.floatPreview = (not inGroup()) or nil; PB.Refresh() end
+                end },
+                { text = L("重置位置", "Reset position"), fn = function() PB.ResetPos() end },
+            }
+        end })
+end

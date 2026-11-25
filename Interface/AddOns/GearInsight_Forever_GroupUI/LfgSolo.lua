@@ -341,7 +341,7 @@ end
 function S.GreetText(p)
     local base = DC.RecText and DC.RecText() or ""
     local ask = DC.AskText and DC.AskText(p)
-    if ask and not base:find("M我", 1, true) then base = base .. " " .. ask end
+    if ask and not DC.IsAutoText(base) then base = base .. " " .. ask end   -- 招人话术里已有「M我…」/ 11-19 英文 whisper me your…（话术本身走对外说话语言）
     return base
 end
 function S.Greeted(name)
@@ -353,7 +353,7 @@ function S.Greet(p)
     if S.Greeted(p.author) then return DC.Tell(p.author) end
     local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
     if not send then return DC.Tell(p.author) end
-    local text = DC.Tagged(S.GreetText(p), DC.MAX_BYTES)
+    local text = (DC.Whisper or DC.Tagged)(S.GreetText(p), DC.MAX_BYTES)   -- 11-19 私聊不带标识
     local ok = pcall(send, text, "WHISPER", nil, p.author)
     if ok then
         S.greeted[p.short] = now()

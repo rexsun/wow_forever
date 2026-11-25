@@ -113,11 +113,43 @@ local gearInsightGroup = {
     reason = "YUI owns chat; GearInsight must not whisper on its own, and its Mage module loads only when used." },
   { id = "lowrank", key = "LowRank", label = "Low-rank spell checker: whispers and party/raid call-outs to groupmates",
     reason = "YUI owns chat and spell ranks; GearInsight must not whisper or name groupmates in group chat on its own." },
-  { id = "buffask", key = "BuffAsk", label = "Buff requests: automatic party/raid ask in dungeons and nearby-player popup",
+  { id = "buffask", key = "BuffAsk", label = "Buff requests: dungeon ask or auto-post, soulstone reminder and nearby-player popup",
     reason = "YUI owns chat; GearInsight must not post buff requests to group chat on its own." },
   { id = "pallyfloat", key = "PallyFloat", label = "Floating one-click Paladin blessing button",
     reason = "YUI owns action bars and bindings and has its own raid blessing bar; GearInsight's Blessings page stays available." },
+  { id = "tradereceipt", key = "TradeReceipt", label = "Trade receipt whisper after every trade",
+    reason = "YUI owns chat; GearInsight must not whisper your trade partner on its own." },
+  { id = "mounttrinket", key = "MountTrinket", label = "Carrot on a Stick swap on mount and its screen icon",
+    reason = "Equipment changes stay manual; GearInsight must not swap trinkets when you mount or dismount." },
+  { id = "auraremind", key = "AuraRemind", label = "Paladin no-aura reminder bar",
+    reason = "YUI owns action bars and class tool bars; GearInsight must not add a cast bar of its own." },
+  { id = "ammoremind", key = "AmmoRemind", label = "Hunter ammo reminder: icon, city alerts and vendor button",
+    reason = "YUI's HUD shows the equipped ammo count; GearInsight's Ammo page stays available." },
+  { id = "xpprep", key = "XpPrep", label = "Departure checklist that opens in cities and inns",
+    reason = "YUI owns the experience display; GearInsight's checklist page stays available." },
+  { id = "selljunk", key = "SellJunk", label = "Sell-junk panel at every merchant and automatic grey selling",
+    reason = "YUI owns junk selling at merchants." },
 }
+
+-- Early, because each is read when its window, tooltip or button first appears after login.
+local gearInsightOwned = {
+  { id = "dungeonnav", key = "DungeonNav", owner = "MapUtils", label = "Dungeon guide that opens in every dungeon",
+    reason = "MapUtils owns dungeon maps with boss pins; /gi 导航 still opens GearInsight's guide." },
+  { id = "auctionpricetip", key = "AuctionPriceTip", owner = "Auctionator", label = "Auction-versus-vendor line in item tooltips",
+    reason = "Auctionator owns auction prices in tooltips." },
+  { id = "profshopping", key = "ProfShopping", owner = "Auctionator", label = "Profession shopping list and button at merchants and the auction house",
+    reason = "Auctionator owns auction shopping lists and searches; GearInsight's profession pages stay available." },
+  { id = "bagbuttons", key = "BagButtons", owner = "Bagnon", label = "Clean-up and sell-junk buttons on bag windows",
+    reason = "Bagnon owns the bag windows and YUI owns junk selling; GearInsight's Bag page stays available." },
+}
+
+for _, setting in ipairs(gearInsightOwned) do
+  OSG.policy[#OSG.policy + 1] = {
+    id = "gi." .. setting.id, adapter = "GearInsight", key = setting.key,
+    label = "GearInsight: " .. setting.label, reason = setting.reason,
+    when = { "GearInsight_Forever", setting.owner }, early = true,
+  }
+end
 
 for _, setting in ipairs(gearInsightGroup) do
   OSG.policy[#OSG.policy + 1] = {
@@ -138,7 +170,7 @@ local foreverEssentials = {
   { id = "threatmeter", key = "ThreatMeter", owner = "Details_TinyThreat", label = "Threat meter", reason = "Details owns threat display through Details_TinyThreat." },
   { id = "zonelevels", key = "ZoneLevels", owner = "MapUtils", label = "World map zone levels and fishing skill", reason = "MapUtils owns zone level and fishing skill labels on the world map." },
   { id = "gatherskill", key = "GatherSkill", owner = "GatherLite", label = "Gathering skill in tooltips", reason = "GatherLite always adds the skill a herb or ore node needs to its tooltip." },
-  { id = "skinningskill", key = "GatherSkinning", owner = "GearInsight_Forever", label = "Skinning skill on corpse tooltips", reason = "GearInsight always adds the skill a skinnable creature needs to its tooltip." },
+  { id = "skinningskill", key = "GatherSkinning", owner = "GearInsight_Forever", label = "Skinning skill on corpse tooltips", reason = "GearInsight adds the skill a skinnable creature needs to its tooltip by default." },
 }
 
 for _, setting in ipairs(foreverEssentials) do

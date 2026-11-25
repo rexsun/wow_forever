@@ -31,6 +31,9 @@ CP.XP_WORDS = { "经验", "經驗", "[Ee]xperience", "XP" }
 -- 11-11 用户截图「营火在附近」1283391（营火的增益，英文 Campfire 会撞上 [Cc]amp）：不是露营效果，有它照样弹
 CP.BUFF_SKIP_IDS = { [1283391] = true }
 CP.BUFF_SKIP = { "营火", "營火", "[Cc]ampfire" }
+-- GI-309 玩家「帐篷强化休息剩余一分钟就可以允许M人」：强化休息 / 帐篷经验加成只剩 CP.SOON 秒以内 = 当成快没了，照常弹
+--   （密人、等同意、进队、走过去坐下要一会儿，等坐下时冷却已经过了）；剩余时间读不到 / 保密值 = 照旧当有
+CP.SOON = 60
 
 CP.asked, CP.whispered, CP.thanked = {}, {}, {}
 CP.joined = nil        -- { who, at }
@@ -46,6 +49,11 @@ end
 local function on(k) return CP.DB()[k] ~= false end
 function CP.Enabled() return on("on") end
 function CP.SetOn(v) CP.DB().on = v and true or false; if not v and CP.pop then CP.pop:Hide() end end
+-- 11-24 GI-347「改成按 ctrl+鼠标指向弹窗，不然主城门口一直弹很烦；满级角色能不能就别弹了」：
+--   ctrl（nil = 默认开，false = 关）：只在按住 Ctrl 指帐篷时弹 —— 主城门口帐篷一片，路过就弹正是投诉点；第一次没按 Ctrl 路过帐篷时聊天框说一次怎么用
+--   maxLv（nil = 默认满级不弹，true = 满级也弹）：60 级拿不到经验，弹了没用
+--   设置页 camp.ctrl / camp.maxLv 直接读写这两个键（内核内存紧，不另包函数）
+CP.MAX_LV = 60
 local function short(n) n = str(n); return n and (n:match("^([^%-]+)") or n) or nil end
 
 local function anyMatch(s, pats)
@@ -105,17 +113,18 @@ end
 local function eachBuff(fn, filter)
     filter = filter or "HELPFUL"
     for i = 1, 40 do
-        local name, sid
+        local name, sid, exp
         if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
             local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, filter)
             if not ok or not a then break end
-            name, sid = a.name, a.spellId
+            name, sid, exp = a.name, a.spellId, a.expirationTime
         elseif UnitBuff then
-            local ok, n, _, _, _, _, _, _, _, s = pcall(filter == "HARMFUL" and UnitDebuff or UnitBuff, "player", i)
+            local ok, n, _, _, _, _, e, _, _, s = pcall(filter == "HARMFUL" and UnitDebuff or UnitBuff, "player", i)
             if not ok or not n then break end
-            name, sid = n, s
+            name, sid, exp = n, s, e
         else break end
-        if fn(str(name), (sid ~= nil and not secret(sid)) and tonumber(sid) or nil, i, filter) then return true end
+        exp = (exp ~= nil and not secret(exp)) and tonumber(exp) or nil
+        if fn(str(name), (sid ~= nil and not secret(sid)) and tonumber(sid) or nil, i, filter, exp) then return true end
     end
     return false
 end
@@ -151,11 +160,16 @@ end
 -- 返回 has, 效果名, 原因（"xp" 已有帐篷经验 / "lockout" 强化休息冷却）, 名字像露营但没经验的那个效果名
 function CP.HasCampBuff()
     local found, kind, nonxp
-    local function hit(name, sid, i, filter)
+    CP.soon = nil
+    local function hit(name, sid, i, filter, exp)
         local tentish = (sid and (CP.TENT_IDS[sid] or CP.LOCK_IDS[sid])) or (name and (anyMatch(name, CP.BUFF) or anyMatch(name, CP.LOCK)))
         if not tentish then return false end
         local k = CP.TentKind(name, sid, CP.AuraTip(i, filter))
-        if k == "xp" or k == "lockout" then found, kind = name or tostring(sid), k; return true end
+        if k == "xp" or k == "lockout" then
+            local left = exp and exp > 0 and exp - now()
+            if left and left <= CP.SOON then CP.soon = { name = name or tostring(sid), left = math.max(0, math.ceil(left)) }; return false end
+            found, kind = name or tostring(sid), k; return true
+        end
         if k == "nonxp" then nonxp = nonxp or name or tostring(sid) end
         return false
     end
@@ -183,35 +197,13 @@ function CP.OnAura()
     lastBuffs = cur
 end
 
--- ---------- 弹窗 ----------
-local pop
-local function buildPop()
-    local f = CreateFrame("Frame", "GearInsightForeverCampPop", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
-    f:SetSize(360, 74); f:SetPoint("TOP", 0, -150); f:SetFrameStrata("DIALOG"); f:SetClampedToScreen(true)
-    if f.SetBackdrop then
-        pcall(f.SetBackdrop, f, { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-        f:SetBackdropColor(0.03, 0.035, 0.05, 0.9); f:SetBackdropBorderColor(0.85, 0.68, 0.25, 0.85)
-    end
-    f.t = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.t:SetPoint("TOPLEFT", 10, -10); f.t:SetPoint("TOPRIGHT", -10, -10); f.t:SetJustifyH("LEFT"); f.t:SetWordWrap(true)
-    f.yes = ns.Button(f, L("密他求组", "Whisper"), 120, 22, function() f:Hide(); CP.Request(f.owner) end)
-    f.yes:SetPoint("BOTTOMLEFT", 10, 8)
-    f.no = ns.Button(f, L("不用", "No thanks"), 80, 22, function() f:Hide() end)
-    f.no:SetPoint("LEFT", f.yes, "RIGHT", 8, 0)
-    -- 11-08 玩家「鼠标路过别人帐篷 组队的 哪里关啊」：弹窗上直接给「不再提示」，设置页也有开关
-    f.off = ns.Button(f, L("不再提示", "Don't ask again"), 90, 22, function()
-        f:Hide(); CP.SetOn(false)
-        ns.Print(string.format(L("帐篷蹭露营提示已关：设置页「界面」栏或 %s camp on 可重新打开", "Tent prompts off - turn back on in Settings or with %s camp on"), ns.SlashHint or "/gi"))
-    end)
-    f.off:SetPoint("BOTTOMRIGHT", -10, 8)
-    f:Hide()
-    return f
-end
-
 -- 11-09 用户截图「为啥不弹了？」：不弹时第二个返回值说原因（ReadTooltip 在聊天框提示一次，免得以为坏了）
 function CP.CanOffer(who)
     if not who or isMe(who) then return false end
     if not on("on") then return false, "off" end
+    local d = CP.DB()
+    if not d.maxLv and (tonumber(UnitLevel and UnitLevel("player")) or 0) >= CP.MAX_LV then return false end
+    if d.ctrl ~= false and not (CP.ctrlHeld or (IsControlKeyDown and IsControlKeyDown())) then return false, "ctrl" end
     if InCombatLockdown and InCombatLockdown() then return false end
     if IsInInstance then local inst = IsInInstance(); if inst then return false end end
     if now() - (CP.asked[who] or -1e9) < CP.ASK_CD then return false, "asked" end
@@ -228,8 +220,8 @@ CP.WHY_CD = 1800
 CP.whyNoted = {}
 function CP.NoteWhy(who, why, extra)
     if not why then return end
-    if why == "off" then
-        if CP.whyNoted.off then return end
+    if why == "off" or why == "ctrl" then
+        if CP.whyNoted[why] then return end
     elseif now() - (CP.whyNoted[why] or -1e9) < CP.WHY_CD then return end
     CP.whyNoted[why] = now()
     local slash = ns.SlashHint or "/gi"
@@ -237,6 +229,9 @@ function CP.NoteWhy(who, why, extra)
     if why == "off" then
         msg = string.format(L("看到 %s 的帐篷，但帐篷蹭露营提示是关的（点过「不再提示」）：设置页「界面」栏或 %s camp on 打开（本次登录不再说）",
             "Saw %s's tent, but tent prompts are off - turn on in Settings or with %s camp on (won't repeat this session)"), who, slash)
+    elseif why == "ctrl" then
+        msg = string.format(L("看到 %s 的帐篷：按住 Ctrl 再指帐篷才弹求组窗（设置 → 升级 → 经验加成 可改成路过就弹；本次登录不再说）",
+            "Saw %s's tent: hold Ctrl while pointing at a tent to get the prompt (change in Settings; won't repeat this session)"), who)
     elseif why == "buff" then
         msg = string.format(L("看到 %s 的帐篷，没弹：你身上已有带经验加成的帐篷效果「%s」（不用再蹭）",
             "Saw %s's tent, not prompting: you already have the tent XP bonus \"%s\""), who, extra or "?")
@@ -251,107 +246,20 @@ function CP.NoteWhy(who, why, extra)
     if msg then ns.Print(msg) end
 end
 
+-- 11-24 内核减肥：弹窗 / 求组密语 / /who 查图 / 离队感谢 / /gi camp 搬进按需加载的 GearInsight_Forever_Gate（CampAsk.lua）。
+--   这里只判断弹不弹（不弹的原因照旧在聊天框说），真要弹才加载；子插件加载不上 = 不弹（登录时 LazyModule 已提示安装不完整）
+function CP.Load()
+    if not CP.Show and ns.ModLoad then ns.ModLoad("gate") end
+    return CP.Show ~= nil
+end
 function CP.Offer(who)
     local can, why, extra = CP.CanOffer(who)
     if not can then CP.NoteWhy(who, why, extra); return false end
+    if not CP.Load() then return false end
     CP.asked[who] = now()
-    pop = pop or buildPop()
-    CP.pop = pop
-    pop.owner = who
-    local text = string.format(L("附近有 |cffffd100%s|r 放的帐篷，密他求组蹭露营？（他拉你才进队）", "|cffffd100%s|r placed a tent nearby. Whisper them for an invite?"), who)
-    if CP.nonxp then
-        text = text .. "\n" .. string.format(L("你身上的「%s」没有经验加成：进他队伍后在帐篷旁坐满 60 秒才有", "Your \"%s\" gives no XP: join their group and sit by the tent for 60 seconds"), CP.nonxp)
-    end
-    pop.t:SetText(text)
-    -- 11-08 用户截图：主人名字长（「看我脸色行事 大天使泰瑞尔」）时第三行被截掉 → 按文字实际高度撑开
-    local th = tonumber(pop.t.GetStringHeight and pop.t:GetStringHeight()) or 28
-    pop:SetHeight(math.max(74, th + 50))
-    pop:Show()
-    pop.at = now()
-    if C_Timer and C_Timer.After then
-        local at = pop.at
-        C_Timer.After(30, function() if pop and pop.at == at then pop:Hide() end end)
-    end
-    return true
+    return CP.Show(who)
 end
 
-local function send(msg, who)
-    local f = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
-    if not (f and msg and who) then return false end
-    return (pcall(f, msg, "WHISPER", nil, who))
-end
-
--- 11-09 用户「措辞委婉点，比如说老哥，求xxx」→「多弄几个变体，可以随机出，不至于被认出来」：
---   求组 / 感谢各一池随机挑，和上一句不重样；/gi camp msg、/gi camp thanks 自定义了就只用自定义的
-CP.ASK = {
-    { "老哥，求拉一下蹭个帐篷~ 坐一分钟就走，谢谢啦！", "Hey friend, mind inviting me to share your tent? Just a minute, thanks a lot!" },
-    { "大佬，能拉我进队蹭下帐篷不？蹭完就退，感谢感谢~", "Hi! Could you invite me to rest at your tent? I'll leave right after, thanks!" },
-    { "兄弟，路过看到你的帐篷，求带一下~ 坐会儿就走", "Hey, saw your tent - mind inviting me for a minute?" },
-    { "老板好，求组一下蹭个帐篷经验，一分钟就退，谢啦！", "Hello! Could I join for a minute to use your tent? Thanks!" },
-    { "老哥你好~ 帐篷能借我坐一下不？拉我进队就行，蹭完马上走", "Hi there - could I borrow a spot at your tent? Just invite me, I'll head off soon after." },
-    { "打扰啦，求拉进队蹭个帐篷，坐满一分钟就退，谢谢老哥！", "Sorry to bother - could you invite me to share the tent? Only a minute, thank you!" },
-    { "好心人求拉一下~ 想在你帐篷边坐会儿，马上就走", "Kind stranger, could you invite me to sit by your tent for a bit?" },
-}
-CP.THANK = {
-    { "谢谢老哥的帐篷，祝你玩得开心！", "Thanks for the tent, have fun!" },
-    { "蹭完啦，谢谢大佬~ 祝出好装备！", "All done - thank you! Good luck with your loot!" },
-    { "谢谢兄弟，帐篷很舒服，一路顺风~", "Thanks a lot, the tent was great. Safe travels!" },
-    { "感谢老板的帐篷！祝升级飞快~", "Thanks for the tent! Happy leveling!" },
-    { "谢谢好心人~ 有缘再见！", "Thank you, kind stranger - see you around!" },
-}
-local lastPick = {}
-function CP.Pick(pool)
-    local n = #pool
-    local i = math.random(1, n)
-    if n > 1 and i == lastPick[pool] then i = i % n + 1 end
-    lastPick[pool] = i
-    return L(pool[i][1], pool[i][2])
-end
-
--- 11-10 用户「无限露营主动发私聊就行，申请加入功能放到设置，默认关闭」：点了只密一句（对方愿意就拉你）；
---   系统入队申请（RequestInviteFromUnit）改成设置项 camp.reqJoin，默认关
-function CP.ReqJoinOn() return CP.DB().reqJoin == true end
--- 求组：密一句说明来意（+ 设置里开了才发系统入队申请）；不自动接受任何邀请
-function CP.Request(who)
-    if not who then return false end
-    local req = false
-    if CP.ReqJoinOn() and C_PartyInfo and C_PartyInfo.RequestInviteFromUnit then
-        req = (pcall(C_PartyInfo.RequestInviteFromUnit, who))
-    end
-    local msg = CP.DB().msg or CP.Pick(CP.ASK)
-    local sent = send(msg, who)
-    -- 11-09 用户「只主动拒绝露营申请的人」：再发一个插件暗号，对方插件靠它认出这是来蹭露营的（自定义话术里没「帐篷」也认得出）
-    local am = (C_ChatInfo and C_ChatInfo.SendAddonMessage) or SendAddonMessage
-    if am then pcall(am, CP.PREFIX, "ask", "WHISPER", who) end
-    if not (req or sent) then return false end
-    CP.whispered[who] = now()
-    ns.Print(string.format(req and L("已密 %s 并发了入队申请，等对方同意", "Whispered %s and sent a join request - waiting for them to accept")
-        or L("已密 %s 求组，等对方拉你", "Whispered %s - waiting for an invite"), who))
-    return true
-end
-CP.Whisper = CP.Request
-
--- 进队 / 离队：同过队的帐篷主人，离队时密一句谢谢
-function CP.OnRoster()
-    if CP.joined then
-        if not CP.InGroupWith(CP.joined.who) then
-            local who = CP.joined.who
-            CP.joined = nil
-            if on("thank") and not CP.thanked[who] then
-                local msg = CP.DB().thankMsg or CP.Pick(CP.THANK)
-                if send(msg, who) then CP.thanked[who] = true end
-            end
-        end
-        return
-    end
-    for who, t in pairs(CP.whispered) do
-        if now() - t < 7200 and CP.InGroupWith(who) then
-            CP.joined = { who = who, at = now() }
-            ns.Print(L("已进队：在帐篷旁坐下（按 X）满 60 秒才拿到奖励经验", "Joined: sit (X) next to the tent for 60 sec to get the rested XP"))
-            return
-        end
-    end
-end
 
 -- ---------- 读提示框 ----------
 function CP.ReadTooltip(tt)
@@ -374,6 +282,7 @@ function CP.ReadTooltip(tt)
     local tent, who = CP.Parse(lines)
     if not tent then return end
     CP.seenAt = now()
+    CP.seenWho = who   -- 11-17 经验加成「附近有 XX 的帐篷」用（XpCheck.lua）
     local raw = {}
     for i = 1, #lines do raw[#raw + 1] = str(lines[i]) or "?" end
     probeAdd("tip " .. table.concat(raw, " | "))
@@ -488,7 +397,7 @@ end
 local ev = CreateFrame("Frame")
 CP._ev = ev
 if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then pcall(C_ChatInfo.RegisterAddonMessagePrefix, CP.PREFIX) end
-for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "GROUP_INVITE_CONFIRMATION", "CHAT_MSG_WHISPER", "CHAT_MSG_ADDON" }) do
+for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "GROUP_INVITE_CONFIRMATION", "CHAT_MSG_WHISPER", "CHAT_MSG_ADDON", "WHO_LIST_UPDATE", "MODIFIER_STATE_CHANGED" }) do
     local valid = not (C_EventUtils and C_EventUtils.IsEventValid) or C_EventUtils.IsEventValid(e)
     if valid then pcall(ev.RegisterEvent, ev, e) end
 end
@@ -499,30 +408,29 @@ ev:SetScript("OnEvent", function(_, e, a1, a2, a3, a4)
     elseif e == "GROUP_INVITE_CONFIRMATION" then pcall(CP.OnInviteConfirmation)
     elseif e == "CHAT_MSG_WHISPER" then pcall(CP.OnWhisper, a1, a2)
     elseif e == "CHAT_MSG_ADDON" then if a1 == CP.PREFIX and a2 == "ask" then pcall(CP.NoteCampAsk, a4) end
-    else pcall(CP.OnRoster) end
+    elseif e == "WHO_LIST_UPDATE" then if CP.pendingWho then pcall(CP.OnWho) end
+    elseif e == "MODIFIER_STATE_CHANGED" then
+        -- GI-347：已经指着帐篷再按下 Ctrl → 世界物体的提示框不会重画，这里重读一次（ReadTooltip 只认帐篷）
+        if a2 == 1 and (a1 == "LCTRL" or a1 == "RCTRL") and CP.DB().ctrl ~= false and GameTooltip and GameTooltip:IsShown() then CP.ctrlHeld = true; pcall(CP.ReadTooltip, GameTooltip); CP.ctrlHeld = nil end
+    elseif CP.OnRoster then pcall(CP.OnRoster) end
 end)
 
--- ---------- /gi camp ----------
+-- ---------- /gi camp：真处理函数在 _Gate 的 CampAsk.lua，第一次敲时加载 ----------
 ns.ExtraSlash = ns.ExtraSlash or {}
-ns.ExtraSlash.camp = function(rest, rawRest)
-    local sub, arg = (rest or ""):match("^(%S*)%s*(.-)$")
-    local rawArg = (rawRest or ""):match("^%S*%s*(.-)$") or arg
-    local d = CP.DB()
-    local C = (ns.SlashHint or "/gif") .. " camp"
-    if sub == "on" or sub == "off" then d.on = sub == "on"
-    elseif sub == "thank" and (arg == "on" or arg == "off") then d[sub] = arg == "on"
-    elseif sub == "accept" and (arg == "on" or arg == "off") then d.reqAcceptSolo = arg == "on" or nil
-    elseif sub == "decline" and (arg == "on" or arg == "off") then d.reqDecline = arg == "on" or nil
-    elseif sub == "msg" then d.msg = rawArg ~= "" and rawArg or nil
-    elseif sub == "thanks" then d.thankMsg = rawArg ~= "" and rawArg or nil
-    elseif sub == "probe" then
-        ns.ShowBox(L("帐篷探针", "Tent probe"), L("复制全部发给开发者", "Copy all and send to the developer"), table.concat(d.probe or {}, "\n"))
-        return
-    end
-    local function st(k) return on(k) and L("开", "on") or L("关", "off") end
-    local function st2(v) return v and L("开", "on") or L("关", "off") end
-    ns.Print(string.format(L("帐篷蹭露营：%s · 离队自动感谢：%s · 入队申请单人自动同意：%s · 自动拒绝蹭露营的：%s", "Tent: %s - thank on leave: %s - auto-accept solo: %s - decline tent requests: %s"),
-        st("on"), st("thank"), st2(d.reqAcceptSolo), st2(d.reqDecline))
-        .. "\n" .. L(C .. " on|off · " .. C .. " thank on|off · " .. C .. " accept on|off 单人自动同意 · " .. C .. " decline on|off 拒绝蹭露营的 · " .. C .. " msg 求组话术 · " .. C .. " thanks 感谢话术 · " .. C .. " probe 探针",
-            C .. " on|off · thank on|off · accept on|off · decline on|off · msg <text> · thanks <text> · probe"))
+local campSlash
+campSlash = function(rest, rawRest)
+    local f = CP.Load() and ns.ExtraSlash.camp
+    if f and f ~= campSlash then return f(rest, rawRest) end
 end
+ns.ExtraSlash.camp = campSlash
+
+-- 11-17「这些弹出的功能都确保能永久关闭」：弹窗「不再提示」关掉的从设置页「窗口与提醒」找回（和功能中心「帐篷蹭露营」同一个存档键 camp.on）
+if ns.RegisterWindow then ns.RegisterWindow({ key = "campPop", order = 35, title = function() return L("帐篷蹭露营弹窗", "Tent prompt") end,
+    state = function()
+        if not CP.Enabled() then return L("已关闭", "Closed") end
+        return L("鼠标指到别人的帐篷时弹出", "Pops up when you mouse over someone's tent")
+    end,
+    actions = function()
+        local on = CP.Enabled()
+        return { { text = on and L("关闭", "Turn off") or L("打开", "Turn on"), fn = function() CP.SetOn(not on) end } }
+    end }) end

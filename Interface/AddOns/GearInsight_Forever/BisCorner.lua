@@ -98,6 +98,7 @@ local function slotButton(inv)
         end
     end
 end
+BC._SlotId, BC._SlotButton = slotId, slotButton   -- 11-20 ItemLevel.lua 共用
 
 local function equippedId(inv)
     local id = slotId(inv)

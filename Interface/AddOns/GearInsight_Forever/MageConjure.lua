@@ -51,16 +51,14 @@ MC.NO_MANA = { WARRIOR = true, ROGUE = true, DEATHKNIGHT = true }   -- 没蓝职
 
 -- ---------- 小工具 ----------
 local function now() return (GetTime and GetTime()) or 0 end
-local function clean(v)
-    if v == nil or (ns.Secret and ns.Secret(v)) then return nil end
-    return v
-end
+local clean = ns._Clean   -- Obs.lua
 local function pass(ok, ...) if ok then return ... end return nil end
 local function call(f, ...)
     if type(f) ~= "function" then return nil end
     return pass(pcall(f, ...))
 end
-local function combat() return InCombatLockdown and InCombatLockdown() and true or false end
+ns._Call = call   -- 11-20 BagStub 共用
+local combat = ns._InCombat   -- ModStub.lua
 MC.Combat = combat
 local function bool(v) return clean(v) and true or false end
 local function short(n) return type(n) == "string" and (n:match("^[^-]+") or n) or nil end
@@ -107,6 +105,14 @@ function MC.SetOpt(k, v)
     if MC.Sync then pcall(MC.Sync) end
 end
 function MC.PopOn() return MC.Opt("pop") and true or false end
+function MC.Never()
+    MC.SetOpt("pop", false)
+    if ns.RefreshSettings then pcall(ns.RefreshSettings) end
+    if ns.CloseHint then
+        ns.CloseHint("conjAsk", L("密语要水弹窗已永久关闭。找回：GI 菜单 → 窗口与提醒 → 密语要水弹窗，或设置页「造水」那组",
+            "Water request pop-up closed for good. Bring it back: GI menu > Windows & alerts > Water request pop-up, or the Conjure settings"))
+    end
+end
 
 -- ---------- 档位 ----------
 local function hasSpellApi()
@@ -209,7 +215,7 @@ end
 function MC.LevelInText(msg)
     if type(msg) ~= "string" then return nil end
     local s = msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-    local n = s:match("(%d+)[ \t]*级") or s:match("[Ll][Vv][Ll]?%.?[ \t]*(%d+)") or s:match("[Ll]evel[ \t]*(%d+)")
+    local n = s:match("(%d+)[ \t]*级") or s:match("(%d+)[ \t]*級") or s:match("[Ll][Vv][Ll]?%.?[ \t]*(%d+)") or s:match("[Ll]evel[ \t]*(%d+)")
     n = tonumber(n)
     if n and n >= 1 and n <= MC.MAX_LV then return n end
     return nil
@@ -260,15 +266,15 @@ local SRC_TEXT = { group = { "队伍", "group" }, unit = { "目标", "target" },
 --   优先用组队信标的 DC.MageParseAsk（法师吃喝同一个函数）；信标没加载 → 简版：短句或带「求 / 要 / 给…」的、提到水 / 面包的
 local FB_WATER = { "水", "喝的" }
 local FB_NOT_WATER = { "水晶", "水果", "水下", "水元素", "潜水", "风水", "水平", "口水", "水手" }
-local FB_FOOD = { "面包", "吃的", "食物" }
+local FB_FOOD = { "面包", "麵包", "吃的", "食物" }
 local FB_BOTH = { "吃喝", "吃的喝的" }
-local FB_INTENT = { "求", "要", "给", "麻烦", "来点", "能不能", "可以", "?", "？", "plz", "pls", "please" }
+local FB_INTENT = { "求", "要", "给", "麻烦", "来点", "能不能", "可以", "蹭", "点", "谢", "辛苦", "方便", "點", "謝", "給", "麻煩", "來點", "?", "？", "plz", "pls", "please", "need", "could", "spare", "some" }
 local function hasAny(s, words) for _, w in ipairs(words) do if s:find(w, 1, true) then return true end end return false end
 function MC.ParseFallback(msg)
     if type(msg) ~= "string" or msg == "" then return false, false end
     local s = msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h(.-)|h", "%1")
     s = s:gsub("[A-Z]", function(c) return string.char(c:byte() + 32) end)   -- ⛔ 只动 ASCII（lower() 会切坏中文）
-    if s:find(MC.TAG, 1, true) or s:find("[gi", 1, true) then
+    if s:find("[gi", 1, true) or s:find("[gearinsight", 1, true) then   -- 已转小写：[gearinsight插件] / [gearinsight] / [gi组队助手]
         if s:find("交易", 1, true) or s:find("稍等", 1, true) or s:find("trade", 1, true) then return false, false end
     end
     local w = s
@@ -292,8 +298,8 @@ end
 -- ---------- 发话（默认关；开了才回一句）----------
 local function tagged(text)
     local DC = ns.DungeonChat
-    if DC and DC.Tagged then return DC.Tagged(text, DC.MAX_BYTES or 255) end
-    return MC.TAG .. text
+    if DC and DC.Whisper then return DC.Whisper(text, DC.MAX_BYTES or 255) end   -- 11-19 法师回话是私聊：不带标识
+    return (ns.ChatTag and ns.ChatTag() or MC.TAG) .. text
 end
 MC.Tagged = tagged
 function MC.CanChat()
@@ -305,10 +311,11 @@ function MC.ReplyText(o)
     local names = {}
     local we = o.water and MC.TierFor(MC.WATER, o.lv)
     local fe = o.food and MC.TierFor(MC.FOOD, o.lv)
-    if we then names[#names + 1] = MC.ItemName(we) end
-    if fe then names[#names + 1] = MC.ItemName(fe) end
-    if #names == 0 then return L("好的，稍等，我先造一下~", "Sure, give me a sec to conjure some~") end
-    return L("好的，稍等，给你造", "Sure, conjuring ") .. table.concat(names, " + ") .. L("，好了叫你来交易~", " - I'll ping you to trade~")
+    -- 11-19 回给要水的人：走对外说话语言；品名对外语言和客户端不一样时用数据里的名字（ns.ChatName）
+    if we then names[#names + 1] = ns.ChatName(we.n, we.en, we.id, "item") end
+    if fe then names[#names + 1] = ns.ChatName(fe.n, fe.en, fe.id, "item") end
+    if #names == 0 then return ns.ChatL("好的，稍等，我先造一下~", "Sure, give me a sec to conjure some~") end
+    return ns.ChatL("好的，稍等，给你造", "Sure, conjuring ") .. table.concat(names, " + ") .. ns.ChatL("，好了叫你来交易~", " - I'll ping you to trade~")
 end
 function MC.MaybeReply(o)
     if not MC.Opt("reply") or not o or rg(o, "preview") then return false end
@@ -394,7 +401,6 @@ local function plainBtn(parent, w, h)
     b:SetScript("OnClick", function(self) MC.FallbackClick(self) end)
     return b
 end
-MC.PlainBtn = plainBtn
 -- 设按钮：e = 档位（nil = 不可点），text = 显示文字
 local function setBtn(b, e, text, order)
     b.entry, b.spell, b.order = e, e and e.spell or nil, order
@@ -405,7 +411,6 @@ local function setBtn(b, e, text, order)
         if e then MC.Hover(b) else MC.cast:Hide(); MC.cast.anchor = nil end
     end
 end
-MC.SetBtn = setBtn
 function MC.Tip(btn, owner)
     local e = rg(btn, "entry")
     local tip = rg(btn, "tip")
@@ -425,7 +430,6 @@ end
 
 -- ================= ① 「造水」页 =================
 local ROW_H = 26
-local CLS_ZH = { WARRIOR = "战士", PALADIN = "圣骑士", HUNTER = "猎人", ROGUE = "盗贼", PRIEST = "牧师", SHAMAN = "萨满", MAGE = "法师", WARLOCK = "术士", DRUID = "德鲁伊" }
 local CLS_COLOR = { WARRIOR = "c79c6e", PALADIN = "f58cba", HUNTER = "abd473", ROGUE = "fff569", PRIEST = "ffffff", SHAMAN = "0070de", MAGE = "69ccf0", WARLOCK = "9482c9", DRUID = "ff7d0a" }
 local function colorName(who, cls)
     local c = cls and CLS_COLOR[cls]
@@ -584,7 +588,7 @@ end
 -- 示例窗（设置页「弹一个示例窗」：摆位置 / 看样子）
 function MC.Preview()
     local s = L("示例玩家", "Example")
-    MC.orders[s] = { who = s, short = s, lv = 27, src = "said", water = true, food = true, msg = L("法师老板，求点水，谢谢~（我27级）", "Could I get some water please? (Lv27)"), t = now(), casts = 0, preview = true }
+    MC.orders[s] = { who = s, short = s, lv = 27, src = "said", water = true, food = true, msg = L("嗨 法师，能给点水吗？多谢！（我27级）", "Hi Mage, any chance of some water? Much appreciated! (Lv27)"), t = now(), casts = 0, preview = true }
     MC.cur = s
     return MC.ShowAsk()
 end
@@ -599,7 +603,6 @@ local function utf8Cut(s, maxBytes)
     end
     return s:sub(1, i) .. "…"
 end
-MC.Utf8Cut = utf8Cut
 function MC.AskText(o)
     local want = {}
     if o.water then want[#want + 1] = L("水", "water") end
@@ -643,6 +646,11 @@ function MC.BuildAsk()
     title:SetText(L("造水 · 有人密你要吃喝", "Conjure - someone whispered for food / water"))
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton"); close:SetSize(22, 22); close:SetPoint("TOPRIGHT", 0, 0)
     close:SetScript("OnClick", function() MC.HideAsk() end)
+    -- 11-17 用户「这些弹出的功能都确保能永久关闭」：标题栏右边「不再弹」= 永久关掉密语要水弹窗（存档 mageConj.pop = false，
+    --   和设置页「造水」那组、功能中心「密语要水弹窗」同一个键），聊天框说一次怎么找回
+    f.never = CreateFrame("Button", nil, f, "UIPanelButtonTemplate"); if ns.SkinButton then ns.SkinButton(f.never) end
+    f.never:SetSize(64, 18); f.never:SetPoint("RIGHT", close, "LEFT", -2, 0); f.never:SetText(L("不再弹", "Never"))
+    f.never:SetScript("OnClick", function() MC.Never() end)
     f.text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); f.text:SetPoint("TOPLEFT", 10, -28); f.text:SetWidth(330); f.text:SetJustifyH("LEFT")
     -- 造水 / 造食（普通按钮，鼠标移上去盖安全按钮）
     f.cw = plainBtn(f, 160, 24); f.cf = plainBtn(f, 160, 24)
@@ -861,3 +869,18 @@ ns.ExtraSlash["造水"] = function(rest)
     if rest == "测试" or rest == "test" then MC.Preview() else MC.Open() end
 end
 ns.ExtraSlash.conj = ns.ExtraSlash["造水"]
+
+-- 11-17「这些弹出的功能都确保能永久关闭」：弹窗「不再弹」关掉的从设置页「窗口与提醒」找回（只给法师）
+if ns.RegisterWindow then ns.RegisterWindow({ key = "conjAsk", order = 62, title = function() return L("密语要水弹窗（法师）", "Water request pop-up (Mage)") end,
+    avail = function() return MC.IsMage() end,
+    state = function()
+        if not MC.PopOn() then return L("已关闭", "Closed") end
+        return L("有人密你要水 / 面包时弹出", "Pops up when someone whispers for food / water")
+    end,
+    actions = function()
+        local on = MC.PopOn()
+        return {
+            { text = on and L("关闭", "Turn off") or L("打开", "Turn on"), fn = function() MC.SetOpt("pop", not on) end },
+            { text = L("弹一个示例", "Preview"), fn = function() MC.Preview() end },
+        }
+    end }) end

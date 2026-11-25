@@ -49,19 +49,125 @@ function ns.TD(s)
     if ns.tw then return ns.ToTW(s) end
     return s
 end
-local itemAsked = {}
+-- 11-15 共建看板 GI-266「繁體端仍有部分地方沒改成繁體或沒改成繁體客戶端名稱」（训练师可学列表「凿击 / 脚踢」是简体）：
+--   根因：TrainNow 只认全局 GetSpellInfo，《无限》新客户端上拿不到（只有 C_Spell.GetSpellName）→ 退回数据里的简体名，
+--   又因为「繁体客户端会给繁体名」跳过了转繁。统一走下面三个函数：
+--   ns.SpellNm(id, 简体, 英文) / ns.ItemNmId(id, 简体, 英文) / ns.ItemNm(it)：界面语言和客户端同一种 → 客户端运行时的名字（台服官方名）；
+--   拿不到（物品没缓存 / 接口没有）→ 数据里的名字：繁体先查 TW_NAME（暴雪十语言技能名表里的台服官方名，整名对上才换），再逐字转繁；
+--   顺手向服务器要物品数据，回来后当前页原地刷新（ns.NameArrived）
+--   ⛔ 繁体客户端给的名字不再过 ToTW（「台 / 里 / 干 / 后」在台服名里是正字，逐字表会把它们改坏）
+function ns.ClientNameOK() return (ns.zh and ns.clientZh) or (not ns.zh and not ns.clientZh) end
+-- 客户端给的名字 → 显示：简体客户端但设置选了繁體 → 转繁；其余原样
+function ns.FromClient(n)
+    if ns.tw and not ns.clientTw then return ns.ToTW(n) end
+    return n
+end
+-- 数据里的中文名 → 显示（繁体：台服官方技能名整名对照 → 逐字转繁）
+function ns.TWName(s)
+    if not ns.tw or type(s) ~= "string" then return s end
+    local t = ns.TW_NAME and ns.TW_NAME[s]
+    if t then return t end
+    return ns.ToTW(s)
+end
+local function dataName(cn, en)
+    if ns.zh then return ns.TWName(cn or en or "?") end
+    if en and en ~= "" then return en end
+    return cn or "?"
+end
+local function okName(n) return type(n) == "string" and n ~= "" and n end
+function ns.SpellNameRaw(id)
+    id = tonumber(id)
+    if not id then return nil end
+    if C_Spell and C_Spell.GetSpellName then
+        local ok, n = pcall(C_Spell.GetSpellName, id)
+        if ok and okName(n) then return n end
+    end
+    if GetSpellInfo then
+        local ok, n = pcall(GetSpellInfo, id)
+        if ok and okName(n) then return n end
+    end
+    return nil
+end
+function ns.SpellNm(id, cn, en)
+    if ns.ClientNameOK() then
+        local n = ns.SpellNameRaw(id)
+        if n then return ns.FromClient(n) end
+    end
+    return dataName(cn, en)
+end
+-- 按客户端给的名字查我们的数据表（键是简体名 / 英文小写）：繁体客户端给的是台服名 → 查不到时用「键转繁」的反查表再查一次
+--   （技能鼠标提示「《无限》改了什么」、数据包 Beta 改动以前在繁体客户端一条都对不上）
+local revIdx = setmetatable({}, { __mode = "k" })
+function ns.NameLookup(t, name)
+    if type(t) ~= "table" or type(name) ~= "string" or name == "" then return nil end
+    local v = t[name] or t[name:lower()]
+    if v ~= nil or not (ns.clientTw and ns.TW_CHAR) then return v end
+    local r = revIdx[t]
+    if not r then
+        r = {}
+        for k, val in pairs(t) do
+            if type(k) == "string" and k:find("[\228-\233]") then
+                r[ns.ToTW(k)] = r[ns.ToTW(k)] or val
+                local tn = ns.TW_NAME and ns.TW_NAME[k]
+                if tn then r[tn] = r[tn] or val end
+            end
+        end
+        revIdx[t] = r
+    end
+    return r[name]
+end
+local itemAsked, nameWait = {}, {}
+local function askItem(id)
+    if itemAsked[id] then return end
+    itemAsked[id] = true
+    nameWait[id] = true
+    if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
+end
+function ns.ItemNameRaw(id)
+    id = tonumber(id)
+    if not id then return nil end
+    if C_Item and C_Item.GetItemNameByID then
+        local ok, n = pcall(C_Item.GetItemNameByID, id)
+        if ok and okName(n) then return n end
+    end
+    if ns.ItemInfo then
+        local n = ns.ItemInfo(id)
+        if okName(n) then return n end
+    end
+    return nil
+end
+-- 物品名：非繁体照旧数据名（ns.L，行为不变）；繁体端优先客户端名，没缓存先用数据名转繁并向服务器要，回来原地刷新
+function ns.ItemNmId(id, cn, en)
+    if not ns.tw then return ns.L(cn or en or "?", en) end
+    id = tonumber(id)
+    if id and ns.ClientNameOK() then
+        local n = ns.ItemNameRaw(id)
+        if n then return ns.FromClient(n) end
+        askItem(id)
+    end
+    return ns.L(cn or en or "?", en)   -- 物品名不查 TW_NAME（那是技能名对照，同名物品会被换错），逐字转繁
+end
 function ns.ItemNm(it)
     if type(it) ~= "table" then return "?" end
-    if not ns.tw then return ns.L(it.n or "?", it.nEn) end
-    if it.id and ns.clientZh and ns.ItemInfo then
-        local name = ns.ItemInfo(it.id)
-        if type(name) == "string" and name ~= "" then return ns.ToTW(name) end
-        if not itemAsked[it.id] and C_Item and C_Item.RequestLoadItemDataByID then
-            itemAsked[it.id] = true
-            pcall(C_Item.RequestLoadItemDataByID, it.id)
+    return ns.ItemNmId(it.id, it.n, it.nEn)
+end
+-- 物品数据回来：要过名字的物品到了 → 0.3 秒后当前页原地重画一次（多件一起到只画一次）
+local nameEv = CreateFrame and CreateFrame("Frame")
+if nameEv then
+    for _, e in ipairs({ "GET_ITEM_INFO_RECEIVED", "ITEM_DATA_LOAD_RESULT" }) do pcall(nameEv.RegisterEvent, nameEv, e) end
+    local queued = false
+    nameEv:SetScript("OnEvent", function(_, _, id)
+        id = tonumber(id)
+        if not (id and nameWait[id]) then return end
+        nameWait[id] = nil
+        if queued then return end
+        queued = true
+        local function go()
+            queued = false
+            if ns.NameArrived then pcall(ns.NameArrived) end
         end
-    end
-    return ns.ToTW(it.n or "?")
+        if C_Timer and C_Timer.After then C_Timer.After(0.3, go) else go() end
+    end)
 end
 
 -- 中英二选一：中文客户端用 cn，其它用 en（en 空时退回 cn）
@@ -69,6 +175,33 @@ end
 --   存档要等 ADDON_LOADED 才读得到，各文件顶层（页签名、筛选表…）在那之前就调过 ns.L →
 --   加载期出的字记进 loadPairs，读到存档后 ns.ApplyLang 把页签表和 ns.LateL 登记过的表里这些字换成另一种语言
 local loadPairs, loadLog = {}, {}
+-- 11-18 GI-307（玩家「求人给buff改改词儿啊，别老说义父啊…以前说老哥不挺好的吗」）→ 用户「增加自定义」：
+--   求人 / 道谢里对别人的称呼可改（ns.db.ui.callWord；nil = 默认「义父」）。各处话术照旧写「义父」，发之前 ns.ApplyCall 换成玩家选的词
+-- 11-19 GI-315（又一位玩家「你见人就喊义父啊」）→ 用户「默认都改老哥」：默认 = 老哥；话术原文照旧写「义父」，只有玩家主动选了义父才保留
+ns.CALL_DEFAULT = "老哥"
+ns.CALL_PRESETS = { "老哥", "义父", "大佬", "兄弟", "老板" }
+function ns.CallWord()
+    local u = ns.db and ns.db.ui
+    local v = u and u.callWord
+    if type(v) == "string" and v ~= "" then return v end
+    return ns.CALL_DEFAULT
+end
+function ns.SetCallWord(v)
+    if not ns.db then return end
+    ns.db.ui = ns.db.ui or {}
+    v = type(v) == "string" and v:gsub("^%s+", ""):gsub("%s+$", "") or nil
+    ns.db.ui.callWord = (v and v ~= "" and v ~= ns.CALL_DEFAULT) and v or nil
+end
+function ns.ApplyCall(s)
+    if type(s) ~= "string" then return s end
+    local w = ns.CallWord()
+    if w == "义父" then return s end   -- 话术原文写的就是义父
+    w = w:gsub("%%", "%%%%")
+    s = s:gsub("义父", w):gsub("義父", w)
+    -- 11-19 对外英文：默认称呼「friend」；自己填的是英文（bro / mate…）才换，填中文的不往英文句里塞
+    if not w:find("[\128-\255]") then s = s:gsub("%f[a-zA-Z]friend%f[^a-zA-Z]", w) end
+    return s
+end
 function ns.L(cn, en)
     local r
     if ns.zh or not en or en == "" then r = cn else r = en end
@@ -147,18 +280,72 @@ function ns.SetLang(v)
     ns.Print(ns.L("语言已改，输入 /reload 重载界面后生效", "Language changed - type /reload to apply"))
 end
 
+-- 11-19 用户「外服向外说话的交流语言要换成主流语言，插件语言可以保持客户端或者插件设置」：
+--   插件替你发出去、别人看得见的话（私聊 / 小队 / 团队 / 公会 / 说 / 喊 / 频道）一律 ns.ChatL(简体, 英文)；界面照旧 ns.L。
+--   存档 ns.db.chatLang：nil = 自动（按服务器地区）/ "zh" / "tw" / "en"。自动：GetCurrentRegion 1 美 / 3 欧 → 英文（欧服德法西也用英文：插件没有这些语言）；
+--   5 国服 → 简体；4 台服 → 繁体；2 韩 → 繁体客户端用繁体（11-19 线上统计：无限台服玩家读出来是 2 / 1，没有 4）、其余英文（插件没有韩文）；
+--   读不到 → GetCurrentRegionName → 客户端语言。⛔ 玩家自己填的话术 / 称呼不翻译
+local RG = { "en", "kr", "en", "tw", "zh", US = "en", KR = "kr", EU = "en", TW = "tw", CN = "zh" }
+local LOC_CHAT = { zhCN = "zh", zhTW = "tw", enUS = "en", enGB = "en" }
+function ns.ChatLang()
+    local v = ns.db and ns.db.chatLang
+    if v == "zh" or v == "tw" or v == "en" then return v end
+    local ok, r = pcall(GetCurrentRegion or error)
+    r = ok and RG[r]
+    if not r then ok, r = pcall(GetCurrentRegionName or error); r = ok and type(r) == "string" and RG[r:upper()] end
+    if r == "kr" then r = LOC == "zhTW" and "tw" or "en" end
+    return r or LOC_CHAT[LOC] or "en"
+end
+function ns.ChatL(cn, en)
+    local c = ns.ChatLang()
+    if c == "en" then return (en and en ~= "") and en or cn end
+    return (c == "tw" and ns.LoadTW()) and ns.ToTW(cn) or cn
+end
+-- 对外的品牌前缀：英文 [GearInsight]；认别人的话两种都认（DungeonChat.HasTag）
+ns.CHAT_TAG, ns.CHAT_TAG_EN = "[Gearinsight插件]", "[GearInsight]"
+function ns.ChatTag() return ns.ChatL(ns.CHAT_TAG, ns.CHAT_TAG_EN) end
+-- 数据里的名字（副本 / 物品 / 技能）对外用。id + kind（"item" / "spell"）：客户端语言 = 对外语言才用客户端给的名字
+--   （⛔ C_Item.GetItemNameByID 是客户端语言：中文客户端读出来是中文名，英文服不能用）；否则英文 → en（没有退回中文）、繁体 → 台服技能名对照 / 逐字转繁
+function ns.ChatName(cn, en, id, kind)
+    local c = ns.ChatLang()
+    if id and LOC_CHAT[LOC] == c then
+        local n = (kind == "spell" and ns.SpellNameRaw or ns.ItemNameRaw)(id)
+        if n then return n end
+    end
+    if c == "en" then return (en and en ~= "") and en or cn or "?" end
+    cn = cn or en or "?"
+    if c == "tw" and ns.LoadTW() then return (kind ~= "item" and ns.TW_NAME and ns.TW_NAME[cn]) or ns.ToTW(cn) end
+    return cn
+end
+-- 职业 / 种族 / 阵营名对外：对外英文、客户端中文 → 英文标识（MAGE → Mage，NightElf → Night Elf，Scourge → Undead）；否则客户端给的名字
+function ns.ChatCls(token, name)
+    if not (ns.ChatLang() == "en" and ns.clientZh) then return name end
+    if type(token) ~= "string" or token == "" then return nil end
+    if token == "Scourge" then return "Undead" end
+    return ((token:sub(1, 1) .. (token:find("%l") and token:sub(2) or token:sub(2):lower())):gsub("(%l)(%u)", "%1 %2"))
+end
+-- 地图名（GetRealZoneText，客户端语言）对外：对外语言和客户端不一样 → nil（别把中文地名发进英文频道；坐标 + 地图标记链接照发）
+function ns.ChatZone(name) if LOC_CHAT[LOC] == ns.ChatLang() then return name end end
+
 -- 10-18 物品信息兼容：新客户端全局 GetItemInfo 拿不到（用户截图：Shift 点已缓存的装备也一直「还在加载」）→
 --   先 C_Item.GetItemInfo，再旧的 GetItemInfo；返回值和 GetItemInfo 一样（名字, 链接, 品质, 装等, …），拿不到 = nil
+-- 11-18 内存：这个函数一分钟被调几百次（出发前清单 / 物资每格物品都问一次名字），原来每次新建两张表（接口清单 + pcall 结果）→
+--   改成直接接返回值（不建表）。顺序和结果不变：先 C_Item.GetItemInfo，第一个返回值（名字）是空的再试老的 GetItemInfo
+local function itemInfoPass(ok, name, ...) if ok and name then return name, ... end return nil end
+local function itemInfoOld(item)
+    local f = GetItemInfo
+    if type(f) ~= "function" then return nil end
+    return itemInfoPass(pcall(f, item))
+end
+local function itemInfoNew(item, ok, name, ...)
+    if ok and name then return name, ... end
+    return itemInfoOld(item)
+end
 function ns.ItemInfo(item)
     if item == nil then return nil end
-    local fs = { C_Item and C_Item.GetItemInfo or false, GetItemInfo or false }   -- ⛔ 别放 nil：ipairs 遇到 nil 就停，后面那个永远试不到
-    for _, f in ipairs(fs) do
-        if type(f) == "function" then
-            local r = { pcall(f, item) }
-            if r[1] and r[2] then return unpack(r, 2, table.maxn(r)) end
-        end
-    end
-    return nil
+    local f = C_Item and C_Item.GetItemInfo
+    if type(f) == "function" then return itemInfoNew(item, pcall(f, item)) end
+    return itemInfoOld(item)
 end
 -- 物品链接：ItemInfo 第 2 个返回值；还没有就试鼠标提示数据（C_TooltipInfo，正式服引擎有）
 function ns.ItemLink(id)
@@ -541,8 +728,8 @@ local function help()
         G .. "News|r  " .. C .. " news · " .. C .. " whatsnew · " .. C .. " data export · " .. C .. " data off|on" .. rep))
     ns.Print(ns.L(G .. "右侧|r  " .. C .. " qm 组队 · " .. C .. " 吃喝 法师吃喝 · " .. C .. " layer 位面 · " .. C .. " greport 公会通报",
         G .. "Right tabs|r  " .. C .. " qm group up · " .. C .. " water mage food · " .. C .. " layer · " .. C .. " greport guild report"))
-    ns.Print(ns.L(G .. "设置|r  " .. C .. " set 关键词 搜设置 · " .. C .. " win 窗口与提醒（小窗关了从这里找回）· " .. C .. " lang 语言 · " .. C .. " scale 窗口大小 · " .. C .. " perf 卡顿自查 · " .. C .. " minimap 小地图按钮",
-        G .. "Settings|r  " .. C .. " set <words> · " .. C .. " win windows & alerts · " .. C .. " lang · " .. C .. " scale · " .. C .. " perf lag check · " .. C .. " minimap"))
+    ns.Print(ns.L(G .. "设置|r  " .. C .. " 功能 功能开关（所有功能勾选开 / 关）· " .. C .. " set 关键词 搜设置 · " .. C .. " win 窗口与提醒（小窗关了从这里找回）· " .. C .. " lang 语言 · " .. C .. " scale 窗口大小 · " .. C .. " perf 卡顿自查 · " .. C .. " minimap 小地图按钮",
+        G .. "Settings|r  " .. C .. " feat feature switches · " .. C .. " set <words> · " .. C .. " win windows & alerts · " .. C .. " lang · " .. C .. " scale · " .. C .. " perf lag check · " .. C .. " minimap"))
 end
 
 SLASH_GEARINSIGHTFOREVER1 = "/gif"

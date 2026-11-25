@@ -4,8 +4,7 @@ local _, ns = ...
 
 local function lookup(name)
     if ns.Secret(name) or type(name) ~= "string" or name == "" then return nil end
-    local notes = ns.Data.notes
-    return notes[name] or notes[name:lower()]
+    return ns.NameLookup(ns.Data.notes, name)   -- 11-15 GI-266：繁体客户端给的台服名也查得到
 end
 
 local function firstLine(tt)
@@ -27,7 +26,7 @@ local function addNote(tt, name)
     if not text and not latest then return end
     tt.__gifDone = true
     tt:AddLine(" ")
-    if text then tt:AddLine("|cff33ff99GI 无限|r " .. text, 1, 0.82, 0.4, true) end
+    if text then tt:AddLine("|cff33ff99" .. ns.L("GI 无限", "GI Forever") .. "|r " .. text, 1, 0.82, 0.4, true) end
     if latest then tt:AddLine("|cff33ff99GI|r " .. latest, 0.6, 0.9, 1, true) end
     tt:Show()
 end
@@ -38,7 +37,7 @@ local function onSpell(tt)
         local a, b = tt:GetSpell()
         if ns.Secret(a) or ns.Secret(b) then return end
         name = type(a) == "string" and a or nil
-        if not name and type(b) == "number" and GetSpellInfo then name = GetSpellInfo(b) end
+        if not name and type(b) == "number" then name = ns.SpellNameRaw(b) end   -- 11-15 GI-266：C_Spell 优先（新客户端没有全局 GetSpellInfo）
     end
     addNote(tt, name)
 end
@@ -64,7 +63,7 @@ table.insert(ns.modules, function()
         TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Spell, function(tt, data)
             local id = data and data.id
             if ns.Secret(id) or not id then return end
-            pcall(function() addNote(tt, GetSpellInfo and GetSpellInfo(id)) end)
+            pcall(function() addNote(tt, ns.SpellNameRaw(id)) end)
         end)
         GameTooltip:HookScript("OnTooltipCleared", function(self) self.__gifDone = nil end)
         if GameTooltip.SetTalent then

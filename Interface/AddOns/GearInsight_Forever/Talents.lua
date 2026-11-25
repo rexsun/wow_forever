@@ -686,6 +686,7 @@ end
 
 -- 10-16：《无限》天赋面板名字不在老两个里 → 候选名都挂；「去点」认出真实面板后也会挂上（ns.HookTalentFrame）
 local function hookOne(tf)
+    if tf and ns.AttachWclTalentBtn then pcall(ns.AttachWclTalentBtn, tf) end   -- 11-23 天赋窗顶上「天赋模拟」旁挂「GI WCL 天赋」（PageTalent.lua，重复调不重复建）
     if not tf or tf.__gifGlowHook or type(tf.HookScript) ~= "function" then return end
     tf.__gifGlowHook = true
     tf:HookScript("OnShow", function() C_Timer.After(0.1, ns.HighlightTalentStep) end)
@@ -713,7 +714,7 @@ ns.AddInit(function()
         if ns.IsTalentEvent(ev) then
             target = nil   -- 点掉了一点：绿框回到计划的下一点
             C_Timer.After(0.3, ns.HighlightTalentStep)
-        elseif type(name) == "string" and name:find("Talent", 1, true) then pcall(hookTalentFrame) end
+        elseif type(name) == "string" and (name:find("Talent", 1, true) or name:find("PlayerSpells", 1, true)) then pcall(hookTalentFrame) end
     end)
     pcall(hookTalentFrame)
 end)

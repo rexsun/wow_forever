@@ -86,7 +86,6 @@ local ECC = {
 local FORMAT_BITS = { L = 1, M = 0 }
 local ALIGN = { {}, {6,18}, {6,22}, {6,26}, {6,30}, {6,34}, {6,22,38}, {6,24,42}, {6,26,46}, {6,28,50}, {6,30,54},
                 {6,32,58}, {6,34,62} }
-local REMAINDER = { 0, 7, 7, 7, 7, 7, 0, 0, 0, 0, 0, 0, 0 }
 QR.MAX_VERSION = 13
 
 local function dataCapacity(ver, ecl)

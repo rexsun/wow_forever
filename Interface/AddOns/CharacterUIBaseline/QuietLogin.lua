@@ -87,10 +87,16 @@ local function QuietGatherLite()
   if type(db) == "table" and type(db.global) == "table" then db.global.controlsGuideSeen = true end
 end
 
--- MapUtils keeps an existing WHATSNEW table when it builds the window at login.
+-- MapUtils keeps an existing WHATSNEW table when it builds the window at login. Since 1.7.35 it
+-- marks a profile without saved settings PRESETSHOWN=false at PLAYER_LOGIN and opens its map
+-- preset dialog at PLAYER_ENTERING_WORLD; a stored true skips that. /maputils preset still opens it.
 local function QuietMapUtils()
+  if type(_G.MAUTTAB) ~= "table" then
+    if not Loaded("MapUtils") then return end
+    _G.MAUTTAB = {}
+  end
   local db = _G.MAUTTAB
-  if type(db) ~= "table" then return end
+  db.PRESETSHOWN = true
   if type(db.WHATSNEW) ~= "table" then db.WHATSNEW = {} end
   db.WHATSNEW.enabled = false
 end

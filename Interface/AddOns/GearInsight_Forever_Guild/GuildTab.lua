@@ -436,6 +436,7 @@ end
 -- 11-10 用户指定的置顶公会：{ id = 招募卡编号, untilDay = 北京日期（含当天）}
 -- 11-12 用户「打包最新支付置顶位」：按网站置顶位在位且有平台交易号的订单同步（站长指定 / 后台赠送的不算）；用户「新的顶到最上」→ 新付的排前
 ns.GUILD_PINS = {
+    { id = 577, untilDay = "2026-12-16" },   -- 冰风王座（联盟）11-16 网站付费 30 天；用户「刚付钱的，置顶啊」「最上面」
     { id = 360, untilDay = "2026-12-19" },   -- 绝版青春（部落）11-13 付费（人工核对到账），站长指示排部落第一
     { id = 423, untilDay = "2026-12-12" },   -- Warm Team（联盟）
     { id = 452, untilDay = "2026-12-08" },   -- 恒守玄暮（部落）
@@ -447,8 +448,15 @@ local function slotData()
     local items = (type(d) == "table" and type(d.items) == "table") and d.items or {}
     local byId, used, out = {}, {}, {}
     for _, it in ipairs(items) do if type(it) == "table" and it[1] then byId[it[1]] = it end end
+    -- 11-16 GearInsight 官方会不占席（同网站规则）：4 格只算别家，官方会额外一格 → 第 4 家置顶不会把它挤掉
+    local others = 0
     local function add(it, kind, rank)
-        if it and not used[it[1]] and #out < 4 then used[it[1]] = true; out[#out + 1] = { it = it, kind = kind, rank = rank } end
+        if not it or used[it[1]] then return end
+        local official = isOfficial(it)
+        if not official and others >= 4 then return end
+        if kind == "heat" and #out >= 4 then return end   -- 热度补位照旧最多补到 4 格（只有付费置顶满 4 家时官方会才多出一格）
+        used[it[1]] = true; out[#out + 1] = { it = it, kind = kind, rank = rank }
+        if not official then others = others + 1 end
     end
     -- 11-08 用户截图「置顶的公会顶到最上面，超过 GEARINSIGHT」：别人的置顶（更新器看广告那种免费置顶 pins）排在 Gearinsight 前面；
     --   ⛔ 付费精选照旧不进插件（10-12 规定 + 国服 09-24「插件不得包含广告」），这里只认 pins

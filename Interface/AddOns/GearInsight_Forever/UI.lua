@@ -38,7 +38,9 @@ local function visiblePages()
         -- 11-14 p.visible：设置里能关掉的页（圣骑士一键祝福「页」开关）；出错当可见
         local visOk = true
         if p.visible then local ok, v = pcall(p.visible); visOk = not ok or v ~= false end
-        if clsOk and visOk and not (p.hold and ns.db and ns.db.hideHold) then t[#t + 1] = p end
+        -- 11-17 界面重构第 6 期：功能中心关掉的纯页面功能（Features.lua pageFeat）左栏不出（按登录时的状态，改了重载生效）
+        local featOk = not (ns.FeaturePageOff and ns.FeaturePageOff(p.key))
+        if clsOk and visOk and featOk and not (p.hold and ns.db and ns.db.hideHold) then t[#t + 1] = p end
     end
     return t
 end
@@ -95,7 +97,6 @@ local function insertChat(text)
     ns.Print(ns.L("没找到聊天输入框，发不了：请把这句截图给我们（/gi itemprobe 可以帮忙查）", "Couldn't find the chat box (try /gi itemprobe and send us a screenshot)"))
     return nil
 end
-ns.InsertChat = insertChat
 local function doMod(p, link)
     if p.shift then
         -- 游戏自带的物品修饰点击（Shift 发聊天 / Ctrl 试穿都管）有就先用它，最贴近原生行为
@@ -387,10 +388,18 @@ local GROUPS = ns.LateL({   -- 11-09 GI-202：手动切语言后跟着换
     --   排在「升级」1.1 之后、「装备」1.2 之前；不属于任何大类的页按自己的 order 和大类混排，见 navEntries）。页 key 没改，
     --   ns.ToggleMain("prof") / /gi prof / 存档 ui.page = "prof" 照旧能开；老存档 ui.grpLast.grp_up = "prof" 时点「升级」落回组内第一页（见下面 OnClick）
     { key = "grp_up", order = 1.1, title = ns.L("升级", "Leveling"), icon = "Interface\\Icons\\Ability_Hunter_Pathfinding", members = { "plan", "xp", "ach" } },
-    { key = "grp_gear", order = 1.2, title = ns.L("装备", "Gear"), icon = "Interface\\Icons\\INV_Chest_Plate03", members = { "gear", "loot", "tier", "trash" } },   -- 11-14 trash = 清背包（Trash.lua，HOLD：文件不加载 = 没登记这页 → 不出）
+    -- 11-17 界面重构第 6 期（docs/forever-ui-refactor-p6-design.md 第 3 节「按我要干什么分类」）：左栏一级改成 升级 · 副本 · 装备 · 职业 · 专业 · 背包 · 资讯 · 设置。
+    --   页 key / 页面本身一个没改，只改分组：掉落·心愿单 → 副本；清背包 → 背包（原来在装备里）；专业 → 专业（原来是不进大类的独立一格）；社交（公会 / 组队 / 位面）仍是右侧页签，不在左栏。
+    --   只有一页的组（副本 / 专业 / 背包）就是单独一格（见 navEntries：点了直接开那一页，不展开小按钮）；icon 不写 = 用那一页自己的图标
+    { key = "grp_dungeon", order = 1.15, title = ns.L("副本", "Dungeons"), members = { "loot" } },
+    { key = "grp_gear", order = 1.2, title = ns.L("装备", "Gear"), icon = "Interface\\Icons\\INV_Chest_Plate03", members = { "gear", "tier" } },   -- 11-17 第 6 期：掉落 loot 搬去「副本」、清背包 trash 搬去「背包」
     -- 11-10 用户「游戏里弄个职业百宝箱页签…」：职业专属页（带 class 字段，别的职业看不到）也在这组
     --   11-14 法师「造水」conj（MageConjure.lua，HOLD：文件不加载 = 没登记这页 → 成员里的 conj 不出，其余照旧）
-    { key = "grp_rot", order = 1.3, title = ns.L("职业", "Class"), icon = "Interface\\Icons\\INV_Misc_Book_11", members = { "talent", "rot", "keys", "macro", "pet", "ammo", "conj", "pally" } },   -- 11-14 pally = 圣骑士一键祝福（PallyBless.lua，HOLD）
+    { key = "grp_rot", order = 1.3, title = ns.L("职业", "Class"), icon = "Interface\\Icons\\INV_Misc_Book_11", members = { "talent", "cguide", "rot", "keys", "macro", "pet", "ammo", "conj", "pally", "liminal" } },   -- 11-16 liminal = 法师阈限传送（Liminal.lua，HOLD）；11-14 pally = 圣骑士一键祝福（PallyBless.lua，HOLD）；11-15 cguide = 职业攻略（PageClassGuide.lua，HOLD）
+    { key = "grp_prof", order = 1.32, title = ns.L("专业", "Professions"), members = { "prof" } },
+    { key = "grp_bag", order = 1.34, title = ns.L("背包", "Bags"), members = { "trash" } },
+    -- 社交（公会 / 组队 / 位面）不进左栏：三个都是右侧页签（位面 11-06 用户「放到右边」），左栏再放一格只是重复入口；
+    --   功能中心「社交」分类照常列全部社交功能（Features.lua cat = "social"）
     { key = "grp_info", order = 1.4, title = ns.L("资讯", "News"), icon = "Interface\\Icons\\INV_Letter_15", members = { "news", "guide", "board", "adv" } },
 })
 ns._TabGroups = GROUPS   -- 测试用
@@ -427,6 +436,8 @@ MODS.groupui = { addon = "GearInsight_Forever_GroupUI", zh = "组队界面", en 
 MODS.mage = { addon = "GearInsight_Forever_GroupMage", zh = "法师吃喝", en = "Mage food",
     ready = function() return ns.MageWater ~= nil end,
     attach = function() end }
+-- 11-23 任务配对（HOLD，默认关）：开关开着时信标登录加载；/gi qp 先加载再执行
+MODS.qp = { addon = "GearInsight_Forever_GroupPair", zh = "任务配对", en = "Quest pairing", ready = function() return ns._qpReady == true end, attach = function() end }
 
 local function addonInfo(name)
     local f = (C_AddOns and C_AddOns.GetAddOnInfo) or GetAddOnInfo
@@ -506,11 +517,13 @@ local function noteFail(key, m, ok, loaded, reason, parent, quiet)
     list[#list + 1] = e
     while #list > 20 do table.remove(list, 1) end
 end
-ns._NoteLoadFail = noteFail   -- 测试用
 function ns.LoadModule(key, quiet)
     local m = MODS[key]
     if not m then return false end
     if m.ready() then return true end
+    -- 11-18 用户截图（插件列表里「法师吃喝」「组队界面」没挂在主插件下面）：这两个的 toc 依赖只留主插件（多一个依赖列表就不往下挂），
+    --   游戏不再自动先加载组队信标 → 这里先加载组队，加载不上就不加载它们
+    if (key == "mage" or key == "groupui" or key == "qp") and not ns.LoadModule("group", quiet) then return false end
     local load = (C_AddOns and C_AddOns.LoadAddOn) or LoadAddOn
     if not load then return false end
     if quiet and ns.ModuleDisabled(key) then return false end
@@ -604,11 +617,10 @@ local function ensureStubs()
     end
     if W.KeepSideTabsOnScreen then W.KeepSideTabsOnScreen(host) end
 end
-ns.EnsureModuleStubs = ensureStubs
 
 -- 模块的斜杠命令：没加载时先加载再执行（加载后子插件会用真函数盖掉这里的占位）
 ns.ExtraSlash = ns.ExtraSlash or {}
-for key, cmds in pairs({ group = { "qm", "感谢", "thanks", "组队", "lfg", "lfg2", "lfgprobe", "吃喝", "water", "mw" }, guild = { "guildprobe" } }) do   -- 升级播报 / lvlshare 10-19 随 LevelShare.lua 搬回主插件，不再是占位
+for key, cmds in pairs({ group = { "qm", "感谢", "thanks", "组队", "lfg", "lfg2", "lfgprobe", "吃喝", "water", "mw" }, guild = { "guildprobe" }, qp = { "qp" } }) do   -- 升级播报 / lvlshare 10-19 随 LevelShare.lua 搬回主插件，不再是占位
     for _, c in ipairs(cmds) do
         local stub
         stub = function(rest, rawRest)
@@ -668,7 +680,7 @@ for _, g in ipairs(GROUPS) do for _, k in ipairs(g.members) do grpOf[k] = g end 
 
 local function groupMembers(g)
     local byKey = {}
-    for _, p in ipairs(visiblePages()) do if not p.hiddenTab then byKey[p.key] = p end end
+    for _, p in ipairs(visiblePages()) do if not p.hiddenTab or (g.showHidden and g.showHidden[p.key]) then byKey[p.key] = p end end
     local t = {}
     for _, k in ipairs(g.members) do if byKey[k] then t[#t + 1] = byKey[k] end end
     return t
@@ -681,7 +693,10 @@ local function navEntries()
         if not p.hiddenTab and not grpOf[p.key] then t[#t + 1] = { order = p.order or 99, page = p } end
     end
     for _, g in ipairs(GROUPS) do
-        if #groupMembers(g) > 0 then t[#t + 1] = { order = g.order, grp = g } end
+        local mem = groupMembers(g)
+        -- 11-17 第 6 期：只有一页可见的组 = 单独一格（标题 / 图标用大类的，点了直接开那一页）
+        if #mem == 1 then t[#t + 1] = { order = g.order, page = mem[1], single = g }
+        elseif #mem > 1 then t[#t + 1] = { order = g.order, grp = g } end
     end
     table.sort(t, function(a, b) return a.order < b.order end)
     return t
@@ -727,6 +742,13 @@ end
 ns.ShowPage = showPage
 -- 11-13 第 4 期：主窗口开着时正在看哪一页（没开 = nil）—— ModStub.lua 战斗中点开的占位页脱战后按真页重画要问
 function ns.CurrentPage() return (frame and frame:IsShown()) and current or nil end
+-- 11-15 GI-266：繁体端物品名等服务器数据回来（Core.lua ns.ItemNmId 要过的）→ 当前页原地重画，换成客户端的台服官方名
+function ns.NameArrived()
+    if not (frame and frame:IsShown()) then return end
+    for _, p in ipairs(pages) do
+        if p.key == current and p.frame and p.frame:IsShown() and p.refresh then pcall(p.refresh, p.frame) end
+    end
+end
 
 -- 11-09 GI-196「界面加个窗口放大吧，默认界面太小了眼都要瞎了」：主窗口整体缩放（存 ns.db.ui.scale，nil = 100%）
 --   设置页单选 / 主窗口上 Ctrl + 滚轮 / /gi scale 120；放大后超出屏幕高度就压到刚好放得下
@@ -738,6 +760,18 @@ local function fitScale(s)
     if sh and sh > 0 then s = math.min(s, (sh - 20) / H) end
     return s
 end
+-- 11-20 GI-292 看板原话「底色不是 100% 的能透出底下的字或者画面来」= 要实色：ns.db.ui.alpha（-1 = 实色不透明；1~100 = 透明 N%；nil = 默认，底色 0.96 / 金边 1 / 标题底条 1）
+--   只动底色 / 金边 / 标题底条，文字按钮照常；返回「面板底色：…」文字 + N；设置页按钮传数字；/gi alpha solid|实色|0-100 传字符串（顺便报一声）
+function ns.SetUIAlpha(a)
+    local u, n = ns.db.ui or {}, (a == "solid" or a == "实色") and -1 or tonumber(a)
+    if n then u.alpha = n == -1 and -1 or n >= 0.5 and math.floor(math.min(100, n) + 0.5) or nil; ns.db.ui = u end
+    n = u.alpha or 0
+    if frame then local k = 1 - math.max(n, 0) / 100; frame:SetBackdropColor(0.04, 0.05, 0.07, n < 0 and 1 or 0.96 * k); frame:SetBackdropBorderColor(0.85, 0.68, 0.25, k); frame.band:SetAlpha(k); frame.solidOn = n < 0; for _, t in ipairs(frame.solids) do if n < 0 and (t.o == frame or t.o:IsShown()) then t:Show() else t:Hide() end end end
+    u = ns.L("面板底色：", "Panel background: ") .. (n < 0 and ns.L("实色（不透明）", "Solid") or n == 0 and ns.L("默认", "Default") or ns.L("透明 ", "Transparent ") .. n .. "%")
+    if type(a) == "string" then ns.Print(u .. "（/gi alpha solid | 0-100）") end
+    return u, n
+end
+ns.ExtraSlash.alpha = ns.SetUIAlpha
 function ns.ApplyUIScale()
     if frame and frame.SetScale then frame:SetScale(fitScale(ns.UIScale())) end
 end
@@ -781,11 +815,23 @@ local function build()
             edgeSize = 16, insets = { left = 4, right = 4, top = 4, bottom = 4 } })
         f:SetBackdropColor(0.04, 0.05, 0.07, 0.96); f:SetBackdropBorderColor(0.85, 0.68, 0.25, 1)
     end
+    -- 11-24 GI-343 / GI-324「实色」还透出后面的姓名板 / 文字：底图 UI-Tooltip-Background 自带半透明（颜色 alpha 给 1 也乘不满），
+    --   左栏页签底色 0.92 → 「实色」时在主窗口 / 每个左栏页签下面垫一层 alpha = 1 的纯色贴图（SetUIAlpha 开关），其余档位不出
+    f.solids = {}
+    local function solid(o, d)
+        local t = f:CreateTexture(nil, "BACKGROUND", nil, -8)   -- 画在主窗口上、锚到页签：在页签自己的底色（选中金色）下面，不盖住它
+        t:SetPoint("TOPLEFT", o, d, -d); t:SetPoint("BOTTOMRIGHT", o, -d, d); t:SetColorTexture(0.04, 0.05, 0.07, 1); t:Hide(); t.o = o
+        f.solids[#f.solids + 1] = t
+        if o ~= f then   -- 左栏小按钮跟着大类展开 / 收起：垫底跟着它显示 / 隐藏
+            o:HookScript("OnShow", function() if f.solidOn then t:Show() end end); o:HookScript("OnHide", function() t:Hide() end)
+        end
+    end
+    solid(f, 3)
 
     -- 标题栏：logo + 名字 + 版本；下一行 = 角色 / 开服提示
     local band = f:CreateTexture(nil, "BACKGROUND", nil, 1)
     band:SetPoint("TOPLEFT", 5, -5); band:SetPoint("TOPRIGHT", -5, -5); band:SetHeight(68)
-    band:SetColorTexture(0.10, 0.20, 0.16, 0.55)
+    band:SetColorTexture(0.10, 0.20, 0.16, 0.55); f.band = band
     local logo = f:CreateTexture(nil, "ARTWORK"); logo:SetSize(58, 58); logo:SetPoint("TOPLEFT", 12, -10); logo:SetTexture(LOGO)
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"); title:SetPoint("TOPLEFT", logo, "TOPRIGHT", 10, -6)
     local ver = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("GearInsight_Forever", "Version"))
@@ -854,7 +900,7 @@ local function build()
         -- 页签名现查 pages 表拼，⛔别手写死list：新加页会漏（10-07 升级规划/资讯两页上线时就漏过一次）
         -- 10-18 页签分大类后：顶部列的是左栏大类（和左栏一一对应）
         local names = {}
-        for _, e in ipairs(navEntries()) do names[#names + 1] = e.grp and e.grp.title or (e.page.tabTitle or e.page.title) end
+        for _, e in ipairs(navEntries()) do names[#names + 1] = e.grp and e.grp.title or (e.single and e.single.title) or (e.page.tabTitle or e.page.title) end
         self.sub:SetText("|cff" .. (ns.CLASS_COLOR[cls] or "ffffff") .. ns.L(ns.Data.classCn[cls] or cls, cls) .. "|r  "
             .. ns.L("等级 ", "level ") .. lv .. "   |cff888888" .. table.concat(names, " · ") .. "|r")
     end)
@@ -865,7 +911,10 @@ local function build()
     --   高度：6 大类 × 48 + 5 × 6 = 318，加最长一组展开 3 × 28 = 84 → 402 + 起点 80 = 482 < 面板 564
     local TH, TG, SUB_H, SUB_STEP = 48, 6, 24, 28
     -- 10-21 左栏加「攻略」后 9 个大类：9 × 48 + 8 × 6 + 最长一组展开 88 = 568 → 起点 80 超出面板 → 9 个及以上时大标签压到 42 高、间距 5（9 × 42 + 8 × 5 + 88 + 80 = 586 = 面板高）
-    if #navEntries() >= 9 then TH, TG = 42, 5 end
+    -- 11-17 第 6 期左栏 9 格（升级 · 副本 · 装备 · 职业 · 专业 · 背包 · 社交 · 资讯 · 设置）：大标签 34 高、间距 4，小按钮 22 高、步长 24
+    --   （9 × 34 + 8 × 4 + 起点 80 = 418，最长一组（猎人职业 7 页）展开 7 × 24 + 4 = 172 → 590 ≈ 面板高 586）
+    local nNav = #navEntries()
+    if nNav >= 9 then TH, TG, SUB_H, SUB_STEP = 34, 4, 22, 24 end
     local function bigTab(label, icon)
         local b = CreateFrame("Button", nil, f, BackdropTemplateMixin and "BackdropTemplate" or nil)
         b:SetSize(100, TH)
@@ -888,13 +937,13 @@ local function build()
             end
         end
         local hl = b:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 0.82, 0, 0.10)
-        setTabSel(b, false)
+        setTabSel(b, false); solid(b, 2)
         return b
     end
     -- 成员小按钮：纯文字、比大标签窄 14（右对齐 = 往里缩进），选中金边金字（和 ns.SegButton 一个配色）
     local function subTab(p)
         local b = ns.SegButton(f, p.tabTitle or p.title, 86, SUB_H, function() showPage(p.key) end)
-        b:Hide()
+        b:Hide(); solid(b, 1)
         return b
     end
     local entries = navEntries()
@@ -918,7 +967,8 @@ local function build()
             end
         else
             local p = e.page
-            e.btn = bigTab(p.tabTitle or p.title, p.icon or TAB_ICON[p.key])
+            local sg = e.single
+            e.btn = bigTab(sg and sg.title or (p.tabTitle or p.title), (sg and sg.icon) or p.icon or TAB_ICON[p.key])
             e.btn:SetScript("OnClick", function() showPage(p.key) end)
             p.tab = e.btn
         end
@@ -955,7 +1005,7 @@ local function build()
 end
 
 function ns.ToggleMain(key)
-    if not frame then frame = build(); ns.ApplyUIScale() end
+    if not frame then frame = build(); ns.ApplyUIScale(); ns.SetUIAlpha() end
     if frame:IsShown() and (not key or key == current) then frame:Hide(); return end
     frame:Show()
     pcall(ensureStubs)   -- 10-18 公会 / 组队占位页签（模块没加载时）；先于子插件挂在 ToggleMain 后面的真页签，保证顺序
@@ -1100,6 +1150,8 @@ function ns.MinimapMenuItems()
     if ns.Trainers and ns.Trainers.Go then add(L("找最近的职业训练师", "Nearest class trainer"), function() ns.Trainers.Go() end) end
     -- 11-12 重构第 1 期「找得回」：所有浮窗 / 提醒条的开关和重置位置（设置 → 窗口与提醒），菜单直达
     if hasPage("data") and ns.OpenWindows then add(L("窗口与提醒（小窗关了从这里找回）", "Windows & alerts (bring a closed window back)"), function() ns.OpenWindows() end) end
+    -- 11-17 界面重构第 6 期：功能开关中心（设置 → 功能）—— 所有功能一页勾选开 / 关
+    if hasPage("data") and ns.OpenFeatures then add(L("功能开关", "Feature switches"), function() ns.OpenFeatures() end) end
     if hasPage("data") then add(L("设置", "Settings"), function() openPage("data") end) end
     items[#items + 1] = { sep = true }
     add("|cffaaaaaa" .. L("隐藏小地图按钮", "Hide minimap button") .. "|r", function()

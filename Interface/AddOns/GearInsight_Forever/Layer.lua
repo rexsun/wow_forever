@@ -10,6 +10,7 @@
 --   H|k=v|…   心跳：m 地图 / z 层 / c 置信 / r 会阶(0 会长 1 官员 2 会员) / ld 集合发起人 / lv 等级 / hp 愿意帮人换层 / q 任务 / t 看到的怪
 --   Q|to=名字           A：请会长拉我                R|m=|z=|q=|n=   B：求邀请到 z 层
 --   C|n=|h=名字          B：帮手认领                  D|n=|ok=1       B：到了
+--   11-19 心跳加 za（层码读到距今秒数）/ zi（按队长推断）；帮手收到 D「到了」马上重读层、补发心跳
 -- ⛔ 红线（设计稿 4.7 / 5.8）：邀请只在按钮点击里调（不批量、不自动邀请任何人）；不自动退队 / 解散；
 --    副本内不工作；不循环换层；全部免费。⛔ HOLD：开服第一小时 /gi layerprobe 9 项探针通过、用户点头才出 HOLD。
 -- ⛔ UI.lua 顶上写着「公会 / 组队 / 社交功能不放这里（归 GuildInsight）」——10-28 用户明确改口「都做到GEARINSIGHT」，本模块例外。
@@ -26,6 +27,14 @@ LY.MIN_GAP = 5            -- 秒：层变了立即补发，但最少隔这么久
 LY.SEEN_WINDOW = 180      -- 秒：「看到的怪」只算最近这么久
 LY.MAX_PEERS = 300
 LY.HOLD = 6               -- 秒：原来那层多久没见到才认新层（照 Guild Master Forever Layers.HOLD）
+LY.BOUNCE = 60            -- 秒：11-20 换回这么久以内刚离开的层，不走进退队后的放宽门槛
+-- 11-19 用户截图「展示还是有误」：小辛恶魔刚把我拉到第 10 层（0029），列表里他却在第 8 层（0020）、我那层写「没有别的公会会员」。
+--   ① 心跳里的层码没有「多久前读到的」：对方几分钟没读到怪，报的还是旧层，页面当成确定的事实 → 心跳带 za（读到距今秒数）/ zi（按队长推断），
+--      读到超过 STALE 秒的显示「N 分钟前 · 可能已变」；
+--   ② 「第几层」按本机首次看到的先后编号、存档里永不过期（荆棘谷攒了十几个早就没了的层码 → 第 10 层），两边各编各的 →
+--      改成「同一张图、现在还在用的层码从小到大」编号：我这层 + 在线会员报的层 + ORDER_TTL 秒内见过的层，同一批在线会员看到的号一致
+LY.STALE = 180            -- 秒：别人报的层码是这么久以前读到的 → 页面写「N 分钟前 · 可能已变」
+LY.ORDER_TTL = 1200       -- 秒：见过的层码这么久没再出现就不参与编号（服务器重启 / 层合并后层码会变）
 local L = function(cn, en) return ns.L(cn, en) end
 
 local function now() return (GetTime and GetTime()) or 0 end
@@ -38,6 +47,15 @@ LY.Short = short
 --   换过去后自动退队）存档改三态 true / false / nil(=还没问过)。nil 时不自动做，第一次真碰到时弹小框问一次（LY.AskOnce），选了就存，之后不再问
 LY.ASK_KEYS = { "autoHelp", "autoAccept", "autoLeave" }
 LY.ASK_FRESH = 60         -- 秒：问一次的框里点「以后都…」时，这件事（求助 / 邀请 / 换层）还在这么久以内才顺手照做
+-- 在不在 Gearinsight 公会：true / false；没在公会 = false；公会名还没读到 = nil
+LY.GI_GUILD = "gearinsight"
+function LY.InGIGuild()
+    if not (IsInGuild and IsInGuild()) then return false end
+    if not GetGuildInfo then return nil end
+    local ok, name = pcall(GetGuildInfo, "player")
+    if not ok or type(name) ~= "string" or name == "" or (ns.Secret and ns.Secret(name)) then return nil end
+    return name:lower() == LY.GI_GUILD
+end
 function LY.DB()
     ns.db.layer = ns.db.layer or {}
     local d = ns.db.layer
@@ -60,7 +78,18 @@ function LY.DB()
         end
         d.askV = 1
     end
-    d.order = type(d.order) == "table" and d.order or {}   -- [地图] = { zoneUID, … }：本地 L1/L2 编号（按首次看到的先后）
+    -- 11-18 用户「gearinsight公会内部，自动默认开启允许切位面邀请和组队」：在 Gearinsight 公会里，这三项还没定（nil = 第一次碰到才问）
+    --   → 直接按开（写 true，giAuto[k] 记「公会自动开的」）；玩家自己改过（true / false）不动；退出这个公会 → 自动开的退回 nil（不把别的公会也自动拉）
+    d.giAuto = type(d.giAuto) == "table" and d.giAuto or {}
+    local inGI = LY.InGIGuild()
+    if inGI ~= nil then   -- 公会信息还没读到（刚登录）= 这次先不动
+        for _, k in ipairs(LY.ASK_KEYS) do
+            if inGI and d[k] == nil then d[k] = true; d.giAuto[k] = true
+            elseif not inGI and d.giAuto[k] and d[k] == true then d[k] = nil; d.giAuto[k] = nil end
+        end
+    end
+    d.order = type(d.order) == "table" and d.order or {}   -- [地图] = { zoneUID, … }：这张图见过的层码（「你来过」）
+    d.orderT = type(d.orderT) == "table" and d.orderT or {}   -- 11-19 [地图] = { [zoneUID] = 最近见到的 time() }：老存档里没时间的层码当已过期，不参与编号
     d.xmap = type(d.xmap) == "table" and d.xmap or {}      -- 11-06 跨地图对照表：["m:z_m:z"] = { s = { [来源] = 时间 }, t = 最近时间 }
     return d
 end
@@ -83,20 +112,42 @@ LY.names = {}                                            -- [npcID] = 名字（B
 
 function LY.OnChange(fn) LY.listeners[#LY.listeners + 1] = fn end
 -- 11-06 用户「切位面给点提示，给邀请人和被邀请人，就弹出一个快速消失的文字」：屏幕中上方一行字，几秒淡出（暴雪红字提示那一行）
-function LY.Flash(text, r, g, b)
-    if type(text) ~= "string" or text == "" then return end
-    -- 11-14 用户截图「展示一堆吗」：连点「我想换一层」→ 同一句「已经换过来了」在屏幕顶上叠了三行 → 同一句 5 秒内只出一次
+function LY.Dup(text)
     local t = now()
-    if LY._flashText == text and t - (LY._flashAt or -99) < 5 then return end
+    if LY._flashText == text and t - (LY._flashAt or -99) < 5 then return true end
     LY._flashText, LY._flashAt = text, t
+end
+function LY.Flash(text, r, g, b, seen)
+    if type(text) ~= "string" or text == "" then return end
+    -- 11-17 用户「这些弹出的功能都确保能永久关闭」：屏幕上方这行字可以关（存档 layer.flash = false，nil = 开；位面页设置里那个勾）
+    -- 11-14 用户截图「展示一堆吗」：连点「我想换一层」→ 同一句「已经换过来了」在屏幕顶上叠了三行 → 同一句 5 秒内只出一次
+    --   11-20 seen = 调用方已经查过 LY.Dup（聊天框那行也跟着去重）；关了屏幕提示也照样记，聊天框照样去重
+    if not seen and LY.Dup(text) then return end
+    if ns.db and type(ns.db.layer) == "table" and ns.db.layer.flash == false then return end
     local f = _G.UIErrorsFrame
     if f and f.AddMessage then pcall(f.AddMessage, f, text, r or 0.2, g or 1, b or 0.6) end
 end
 
-local function fire(old, new, map)
-    if old and new and old ~= new and LY.LayerName then
-        LY.Flash(string.format(ns.L("位面已切换：%s → %s", "Layer changed: %s -> %s"), LY.LayerName(map, old), LY.LayerName(map, new)))
+-- 11-20 用户录像「为啥这里狂刷」（被拉层、自动退队后一串「位面已切换：第 17 层 → 第 4 层」「第 8 层 → 第 4 层」…）：
+--   屏幕提示等层稳住 FLASH_SETTLE 秒再出，中间来回换几次只出一行「最早那层 → 最后那层」；换回原层 = 不出
+LY.FLASH_SETTLE = 4
+local function flashChange(old, new, map)
+    local q = LY._flashQ
+    if q and q.map == map then q.to = new else q = { map = map, from = old, to = new }; LY._flashQ = q end
+    q.n = (q.n or 0) + 1
+    local n = q.n
+    local function show()
+        if LY._flashQ ~= q or q.n ~= n then return end
+        LY._flashQ = nil
+        if q.from ~= q.to and LY.LayerName then
+            LY.Flash(string.format(ns.L("位面已切换：%s → %s", "Layer changed: %s -> %s"), LY.LayerName(map, q.from), LY.LayerName(map, q.to)))
+        end
     end
+    if C_Timer and C_Timer.After then C_Timer.After(LY.FLASH_SETTLE, show) else show() end
+end
+
+local function fire(old, new, map)
+    if old and new and old ~= new then flashChange(old, new, map) end
     local c = LY.changes
     c[#c + 1] = { t = now(), wall = wall(), map = map, from = old, to = new }
     while #c > 50 do table.remove(c, 1) end
@@ -144,9 +195,15 @@ function LY.Feed(guid, map, name)
     if not p or p.z ~= g.zuid then p = { z = g.zuid, npcs = {} }; LY.pend = p end
     p.npcs[key] = true
     -- 11-06 用户「切过来，看到位面换了，但是这里没有展示」：进 / 退队后层随时会被传走，这 90 秒里见到 1 只新层的怪就换（LY.fastUntil）
+    -- 11-20 用户录像「狂刷」：放宽期里新层旧层的怪混着出现，见 1 只就换 → 来回换十几次。
+    --   放宽只给一次（换过一次就收回）；换回 BOUNCE 秒内刚离开的层也不走放宽，照平时门槛（2 只 + 原层 6 秒没见到）
     local fast = LY.fastUntil and now() < LY.fastUntil
+    local left = LY.leftZ
+    if fast and left and left.m == map and left.z == g.zuid and now() - left.at < LY.BOUNCE then fast = false end
     if expect == g.zuid or fast or (count(p.npcs) >= 2 and now() - (cur.seenAt or 0) >= LY.HOLD) then
         local old = cur.z
+        if fast and expect ~= g.zuid then LY.fastUntil = nil end
+        LY.leftZ = { m = map, z = old, at = now() }
         LY.cur = { map = map, z = p.z, conf = 2, npcs = p.npcs, seenAt = now() }
         LY.pend = nil
         LY.lastSeen = { m = map, z = p.z, at = now() }
@@ -169,22 +226,55 @@ function LY.Mine()
 end
 function LY.Confirmed() return LY.cur.z ~= nil and LY.cur.conf >= 2 end
 
--- 本地编号：同一张图按首次看到的先后 L1 / L2 …（⛔ zoneUID 本身没有序号，不编造「第几层」；只代表本插件网络所见）
+-- 编号：同一张图「现在还在用的层码」从小到大 L1 / L2 …（⛔ zoneUID 本身没有序号，不编造官方层号；只代表本插件网络所见）
+--   11-19 原来按本机首次看到的先后、存档永不过期 → 两边号对不上、号越攒越大。现在参与编号的 = 我这层 + 在线会员报的层 + ORDER_TTL 秒内见过的层
 function LY.Remember(map, z)
     if not map or not z then return end
-    local o = LY.DB().order
+    local d = LY.DB()
+    local o, ot = d.order, d.orderT
     local k = tostring(map)
     o[k] = o[k] or {}
-    for _, v in ipairs(o[k]) do if v == z then return end end
-    if #o[k] >= 12 then table.remove(o[k], 1) end
+    ot[k] = ot[k] or {}
+    local w = wall()
+    for _, v in ipairs(o[k]) do if v == z then ot[k][z] = w; return end end
+    -- 11-20 用户截图：页面「第 4 层（层码 0011）」，红字却轮流「第 2 层 / 第 3 层（层码 0011）」—— 层多（公共频道一张图 12+ 个层码）时
+    --   原来挤掉最早记下的那个（哪怕还在用），下一条心跳又把它记回来、挤掉另一个 → 编号几秒一跳。现在先挤过期的、再挤最久没见的
+    -- 11-22 用户录像「我所在的层数还是不停变化」：层码 4812 不变，第 11～15 层几秒一跳 —— 公共频道一张图在用的层码超过 24 个，
+    --   「挤最久没见的」挤的还是在用的 → 照样来回挤。现在满了只挤 ORDER_TTL 没再出现的；都还在用就先不记新的（编号不动）
+    if #o[k] >= 24 then
+        local wi
+        for i, v in ipairs(o[k]) do
+            local at = ot[k][v] or 0
+            if w - at > LY.ORDER_TTL and (not wi or at < (ot[k][o[k][wi]] or 0)) then wi = i end
+        end
+        if not wi then return end
+        ot[k][table.remove(o[k], wi)] = nil
+    end
     o[k][#o[k] + 1] = z
+    ot[k][z] = w
 end
+-- 第几 = 1 + 比它小的「还在用的层码」个数（每张图最多 24 个层码，现算不缓存、不建表）；z 自己不在用 → nil
+local function rankOf(map, z)
+    local curz = (LY.cur.map == map) and LY.cur.z or nil
+    local ot, w, ttl = LY.DB().orderT[tostring(map)], wall(), LY.ORDER_TTL
+    local live, n = z == curz, (curz and curz < z) and 2 or 1
+    if ot then
+        for v, at in pairs(ot) do
+            if v ~= curz and w - at <= ttl then
+                if v == z then live = true elseif v < z then n = n + 1 end
+            end
+        end
+    end
+    return live and n or nil
+end
+LY.Live = rankOf   -- 还在用的层码给第几，不在用给 nil（「你来过」卡片只列在用的）
 function LY.Label(map, z)
     if not z then return "?" end
-    LY.Remember(map, z)
-    local o = LY.DB().order[tostring(map)] or {}
-    for i, v in ipairs(o) do if v == z then return "L" .. i end end
-    return "L?"
+    if not map then return "L?" end
+    -- 11-20 1.4.4 截图：顶上「第 1 层 0012」、列表「第 2 层 0012 你在这里」，0062 和 0021 都叫「第 3 层」——原来读编号时碰到不在用的层码
+    --   就顺手记进去，同一页画到一半编号就挪了。现在读编号不改数据（不在用的层码写「某一层」，后面都带层码）
+    local n = rankOf(map, z)
+    return n and ("L" .. n) or "L?"
 end
 function LY.Tail(z) return z and string.format("%04d", z % 10000) or "----" end
 -- 11-06 页面给玩家看的叫法：「第 N 层」（N = 本地编号，同 L1 / L2；⛔ 不是官方层号）
@@ -479,10 +569,55 @@ function LY.ChanReady()
     if not LY.loginAt then return true end
     return now() - LY.loginAt >= LY.CHAN_WAIT
 end
+-- ⛔ 11-16 GI-286「聊天频道加入太多就爆掉了」：游戏最多 10 个自定义频道，插件再占一个，玩家自己的频道就加不进去 →
+--   ① 加之前数一下：已经占了 CHAN_LIMIT 个（默认 8，给玩家留 2 个空位）就不加，聊天框说一次；
+--   ② 万一还是撞上「频道太多」（系统消息 ERR_TOO_MANY_CHAT_CHANNELS）→ 马上退掉插件的频道腾位置，CHAN_FULL_CD 秒内不再加
+LY.CHAN_LIMIT, LY.CHAN_FULL_CD = 8, 600
+-- 已加入的频道名（GI-287 也拿来找插件自己的频道）
+local function chanList()
+    local out = {}
+    if GetChannelList then
+        local t = { pcall(GetChannelList) }
+        if t[1] then for i = 3, #t, 3 do out[#out + 1] = t[i] end; return out end
+    end
+    if GetChannelName then
+        for i = 1, 20 do
+            local ok, id, nm = pcall(GetChannelName, i)
+            if ok and tonumber(id) and tonumber(id) > 0 then out[#out + 1] = nm or "" end
+        end
+    end
+    return out
+end
+function LY.ChanCount() return #chanList() end
+-- 11-21 用户截图「你自己的聊天频道快满了（8/10）」→「不能自己退吗」「退掉最老的，换最新的地图的」：
+--   换图时旧图频道 GIFM<旧图> 是这一刻才退（LeaveChannelByName 不是马上从 GetChannelList 消失），还被算进 8 个里 → 新图频道加不上。
+--   插件自己的频道（GIFM / GIFL / 旧 GIForeverLY）不算占位：SyncPub 会把旧的退掉换成这张图的，一换一，不多占玩家的格子；
+--   只留着的集合口令频道（keep）照算。⛔ 玩家自己的频道一个都不碰
+function LY.ChanUsed(keep)
+    local n = 0
+    for _, nm in ipairs(chanList()) do
+        if not LY.IsOurChannel(nm) or (keep and nm == keep) then n = n + 1 end
+    end
+    return n
+end
+function LY.ChanRoom()
+    if LY.chanFullAt and now() - LY.chanFullAt < LY.CHAN_FULL_CD then return false, "full" end
+    local n = LY.ChanUsed(LY.GatherChannel and LY.GatherChannel())
+    if n >= LY.CHAN_LIMIT then return false, n end
+    return true
+end
 local function joinChannel(name)
     if not name then return false end
     if chanIndex(name) then return true end
     if not LY.ChanReady() then return false end
+    local room, n = LY.ChanRoom()
+    if not room then
+        if not LY.chanNoted then
+            LY.chanNoted = true
+            ns.Print(string.format(L("聊天频道快满了（%s/10）：GI 位面频道这次不加（位面照样走公会）", "Chat channels nearly full (%s/10): GI layer channel not joined"), tostring(n == "full" and 10 or n)))
+        end
+        return false
+    end
     if JoinTemporaryChannel then pcall(JoinTemporaryChannel, name)
     elseif JoinChannelByName then pcall(JoinChannelByName, name) end
     -- ⛔ 别碰暴雪聊天框（gi_forever_forbidden_check）：插件消息不进聊天框，加入频道只多一个编号
@@ -493,21 +628,41 @@ end
 --   每张图一个频道 GIFM<地图编号>：心跳里的层 / 任务 / 怪本来就只对同图的人有用；换图时退旧的、加新的（停稳 5 秒再换，路过不折腾）。
 --   旧的 GIForeverLY 还在就顺手退掉。副本里不加（副本没有层）
 LY.pubJoined = nil
+-- 11-23 玩家截图「荆棘谷一直是0人，我飞走就有人了」：自建频道谁先建谁是主人，GIFM<图> 被人设了密码 / 拉黑 → 这张图谁都加不进（加频道要等服务器回话的那一下没进，每次心跳 rawSend PUB → SyncPub 会再试，不另开定时器：内核没余量）。
+--   收到「密码错误 / 被禁止」就换备用名 GIFM<图>x1…x3（所有插件用户换法一样，照样碰得到一起）
+-- 11-23 用户截图冬泉谷「同图其他玩家 0 人」：备用名会把人分开 ——
+--   ① 加频道是异步的，回话前每次心跳 / 发送重试又各加一次 → 一串「密码错误」每条都 +1，有人停 x1、有人跳到 x3；→ 只认「现在想进的那个名字」的回话
+--   ② 换了备用就一直不回来（锁主频道的人走了 / 频道散了，后来的人进主频道，我还在 x1）；BANNED 只是我一个人被拉黑 → 备用名 ALT_BACK 秒后回去试主频道，还进不去再换
+--   ⛔ 内核内存：LY 表再加字段会触发整表扩容（实测 +5 KB）→ 换备用的时间记在 pubAlt[-地图]、公共频道心跳计数记在 pubAlt.rx（_LayerUI /gi layer pub 读）
+LY.pubAlt = {}
+local ALT_BACK = 600
 function LY.PubChannel()
     local m = myMap()
     if type(m) ~= "number" then return nil end
-    return "GIFM" .. m
+    if LY.pubAlt[m] and now() - (LY.pubAlt[-m] or 0) > ALT_BACK then LY.pubAlt[m] = nil end
+    return "GIFM" .. m .. (LY.pubAlt[m] and ("x" .. LY.pubAlt[m]) or "")
 end
+local leftAt = {}   -- GI-287：插件自己退的频道 → 时间（YOU_LEFT 回来时分清是不是玩家手动退的）
 local function leave(name)
-    if name and LeaveChannelByName and chanIndex(name) then pcall(LeaveChannelByName, name) end
+    if name and LeaveChannelByName and chanIndex(name) then leftAt[name] = now(); pcall(LeaveChannelByName, name) end
 end
 -- 让「我在的公共频道」= 这张图的频道。返回 true = 现在已经在这张图的频道里
+-- ⛔ GI-287「自动加入频道 关闭后 也无法删除」：原来只退内存里记的 pubJoined，/reload 后它是空的 → 关掉不退、换图旧图频道也留着；
+--   现在按名字找全插件自己的频道（GIFM<图> / GIForeverLY / 不在用的 GIFL 口令频道）都退，玩家自己的频道不碰；位面识别关了也不加
 function LY.SyncPub()
+    local d = LY.DB()
+    local want = (d.on and d.pub and not inInstance()) and LY.PubChannel() or nil
+    local g = LY.GatherChannel()
+    for _, nm in ipairs(chanList()) do
+        if nm ~= want and nm ~= g and LY.IsOurChannel(nm) then leave(nm) end
+    end
     leave(PUB)   -- 旧的全服频道
-    local want = (LY.DB().pub and not inInstance()) and LY.PubChannel() or nil
     if LY.pubJoined and LY.pubJoined ~= want then leave(LY.pubJoined); LY.pubJoined = nil end
     if not want then return false end
-    if joinChannel(want) then LY.pubJoined = want; return true end
+    if joinChannel(want) then
+        if LY.pubJoined ~= want then LY.Log("频道 已加入 " .. want) end
+        LY.pubJoined = want; return true
+    end
     return false
 end
 function LY.SetPub(v)
@@ -518,6 +673,46 @@ function LY.SetPub(v)
 end
 LY.PUB = PUB
 function LY.GatherChannel() return LY.gather and ("GIFL" .. LY.gather) or nil end
+-- 系统提示「频道太多」：退掉插件自己的频道给玩家腾位置
+function LY.OnTooMany(msg)
+    local err = _G.ERR_TOO_MANY_CHAT_CHANNELS
+    if type(msg) ~= "string" or ns.Secret(msg) or type(err) ~= "string" or msg ~= err then return false end
+    LY.chanFullAt = now()
+    local left = false
+    for _, nm in ipairs({ LY.pubJoined, LY.GatherChannel() }) do
+        if nm and chanIndex(nm) then leave(nm); left = true end
+    end
+    LY.pubJoined = nil
+    if left then
+        ns.Print(L("聊天频道满了：已退出 GI 位面频道腾位置，10 分钟内不再自动加", "Channel limit: left the GI layer channel (no rejoin for 10 min)"))
+    end
+    return left
+end
+-- GI-287：玩家自己 /leave 插件的频道（不是插件刚退的）→ 记住，不再自动加回去：公共频道 = 关掉开关；集合频道 = 退出口令
+function LY.PubMsg(on)
+    return on and L("已打开公共频道（每张图一个）：同图其他公会的插件用户也能互相看到层、互相拉", "Public channel on (one per map)")
+        or L("已退出公共频道：位面只和公会会员互通（" .. (ns.SlashHint or "/gi") .. " layer pub on 重新加入）", "Public channel off (guild only)")
+end
+function LY.OnNotice(kind, chan)
+    if (kind == "WRONG_PASSWORD" or kind == "BANNED") and LY.IsOurChannel(chan) then
+        local m, a = myMap(), LY.pubAlt
+        if m and chan:gsub("^%d+%.%s*", ""):upper() == LY.PubChannel():upper() and (a[m] or 0) < 3 then
+            a[m], a[-m] = (a[m] or 0) + 1, now()
+            LY.Log("频道 " .. kind .. " " .. chan .. " → " .. LY.PubChannel())
+            pcall(LY.SyncPub)
+        end
+        return true
+    end
+    if kind ~= "YOU_LEFT" or not LY.IsOurChannel(chan) then return false end
+    local base = chan:gsub("^%d+%.%s*", "")
+    if now() - (leftAt[base] or -99) < 15 then return false end
+    if base == LY.GatherChannel() then LY.SetGather(nil); ns.Print(L("已退出集合频道", "Left gather channel")); return true end
+    if LY.pubJoined == base then LY.pubJoined = nil end
+    if not LY.DB().pub then return false end
+    LY.DB().pub = false; LY.dirty = true
+    ns.Print(LY.PubMsg(false))
+    return true
+end
 
 -- 11-10 用户「这个能不能用户看不到感知不到」「但是功能照常实现？」：插件频道照常加、插件消息照常收发（本来就不进聊天框），
 --   只把玩家能看到的两样藏掉：加入 / 离开频道的系统提示（「已加入频道：5. GIForeverLY」）、有人在这个频道里打字。
@@ -540,10 +735,11 @@ end
 LY.ChanIndex, LY.JoinChannel = chanIndex, joinChannel
 
 -- dist = "GUILD" / "GATHER" / "PUB" / "WHISPER:名字"
-function LY.Queue(dist, msg)
+-- 11-19 first = 插到队首（换层「已完成」回执 D 要赶在换层后补发的心跳前面发出去）
+function LY.Queue(dist, msg, first)
     if #msg > 250 then msg = msg:sub(1, 250) end
     if #queue > 40 then table.remove(queue, 1) end
-    queue[#queue + 1] = { dist, msg }
+    table.insert(queue, first and 1 or #queue + 1, { dist, msg })
 end
 LY._queue = queue
 
@@ -555,7 +751,7 @@ local function rawSend(dist, msg)
         if not (IsInGuild and IsInGuild()) then return true end   -- 没公会：丢掉，不重试
         ok, res = pcall(fn, PREFIX, msg, "GUILD")
     elseif dist == "GATHER" or dist == "PUB" then
-        if dist == "PUB" and not LY.DB().pub then return true end   -- GI-201：公共频道关了 → 丢掉，不加频道
+        if dist == "PUB" and not (LY.DB().pub and LY.DB().on) then return true end   -- GI-201：公共频道关了 → 丢掉，不加频道
         local name = (dist == "PUB") and LY.PubChannel() or LY.GatherChannel()
         if not name then return true end
         if dist == "PUB" and inInstance() then return true end
@@ -603,6 +799,13 @@ function LY.Heartbeat(scope)
     if not d.on then return end
     local m, z, c = LY.Mine()
     local base = { m = m, z = z, c = c, lv = UnitLevel and UnitLevel("player") or nil }
+    -- 11-19：层码是多久以前亲眼读到的（za 秒）/ 是不是按队长推断的（zi）—— 收到的人据此写「N 分钟前 · 可能已变」，不当确定的事实
+    if z then
+        local cu, ls = LY.cur, LY.lastSeen
+        local at = (ls and ls.m == cu.map and ls.z == cu.z and ls.at) or cu.seenAt
+        if at then base.za = math.floor(now() - at) end
+        if cu.inferred then base.zi = 1 end
+    end
     if UnitClass then   -- 11-06 位面页会员名字用职业色
         local ok, _, cf = pcall(UnitClass, "player")
         if ok and type(cf) == "string" and not secret(cf) then base.cl = cf end
@@ -662,6 +865,10 @@ function LY.Handle(msg, sender, via)
         end
         p.name, p.full = s, sender
         p.m, p.z, p.c = tonumber(t.m), tonumber(t.z), tonumber(t.c) or 0
+        -- 11-19：他的层码多久前读到的（老版本不带 = nil，页面按心跳时间算）；zAt 换算成本机 GetTime 时刻
+        local za = tonumber(t.za)
+        p.zAt = za and (now() - za) or nil
+        p.zi = t.zi == "1" or nil
         p.r, p.ld, p.lv, p.hp, p.inst = tonumber(t.r), t.ld == "1", tonumber(t.lv), t.hp == "1", t.i == "1"
         p.cl = (type(t.cl) == "string" and t.cl:match("^%u+$")) and t.cl or nil
         p.ig = t.g == "1"
@@ -671,20 +878,34 @@ function LY.Handle(msg, sender, via)
                 pcall(LY.XLearn, tonumber(a1), tonumber(b1), tonumber(a2), tonumber(b2), s)
             end
         end
-        p.q, p.t = {}, {}
+        -- 11-18 内存：每条心跳都新建两张表 → 复用这个人原来的两张（清空再填；别处只读 p.q / p.t，不存引用）
+        local pq, pt = p.q or {}, p.t or {}
+        for k in pairs(pq) do pq[k] = nil end
+        for k in pairs(pt) do pt[k] = nil end
+        p.q, p.t = pq, pt
         for q in (t.q or ""):gmatch("(%d+)") do p.q[tonumber(q)] = true end
         for npc, n in (t.t or ""):gmatch("(%d+):(%d+)") do p.t[tonumber(npc)] = tonumber(n) end
         p.seen = now()
         p.via[via] = now()
+        if via == "pub" then LY.pubAlt.rx = (LY.pubAlt.rx or 0) + 1 end   -- 11-23 /gi layer pub 诊断：收到几条公共频道心跳
         if p.m and p.z then LY.Remember(p.m, p.z) end
         pcall(LY.XFromParty, p)
         LY.dirty = true
     end
     local h = LY.handlers[t.kind]
     if h then pcall(h, t, s, via, sender) end
+    -- 11-22 邀请比他的认领 C / 心跳先到、当时没自动接：他的消息到了再判一次（LayerHop LY.Recheck）
+    if LY.missInv and LY.Recheck then pcall(LY.Recheck, s) end
 end
 
 -- 只看某个来源（guild / gather / pub）的在线 peer
+-- 11-18：只清掉过期的（和 LY.Peers 顺带做的一样），不建名单、不排序 —— 给每秒跑的提示条用（见 LayerGuild LG.UpdateBar）
+function LY.Prune()
+    local t = now()
+    for name, p in pairs(LY.peers) do
+        if t - (p.seen or 0) > LY.EXPIRE then LY.peers[name] = nil end
+    end
+end
 function LY.Peers(via)
     local out, t = {}, now()
     for name, p in pairs(LY.peers) do
@@ -701,6 +922,7 @@ LY.acceptRules = {}
 function LY.AddAcceptRule(fn) LY.acceptRules[#LY.acceptRules + 1] = fn end
 -- 规则可多返回一个 kind：「officer」= 会长 / 官员 / 集合发起人那条，受 autoAccept 管 —— 开关还是 nil（没问过）时不算数，
 --   记成第三个返回值 ask（OnInvite 拿去弹「问一次」），接着看别的规则（自己求的换层帮手那条不受影响）
+--   11-19「no」= 一票否决（LayerHop 换好层后这轮求助的帮手晚到的邀请：不自动接、会长官员那条也不算）
 function LY.AcceptReason(inviter)
     local s = short(inviter)
     if not s or secret(s) then return nil end
@@ -708,7 +930,8 @@ function LY.AcceptReason(inviter)
     for _, fn in ipairs(LY.acceptRules) do
         local ok, why, kind = pcall(fn, s)
         if ok and why then
-            if kind == "officer" and LY.DB().autoAccept == nil then ask = ask or why
+            if kind == "no" then return nil
+            elseif kind == "officer" and LY.DB().autoAccept == nil then ask = ask or why
             elseif kind then return why, kind
             else return why end
         end
@@ -797,6 +1020,7 @@ function LY.AskPick(v)
     if v == true then cb = opts.onYes elseif v == false then cb = opts.onNo end
     if v ~= nil then
         LY.DB()[key] = v
+        LY.DB().giAuto[key] = nil
         local label = (v == true) and opts.yes or opts.no
         ns.Print(string.format(L("已记住：%s（以后可以在右侧『位面』页签 → 设置里改）", "Saved: %s (change it in the Layers tab -> Settings)"), tostring(label or "")))
     end
@@ -831,13 +1055,40 @@ function LY.AskAccept(inviter, why)
         end,
     })
 end
+-- 11-24 GI-330「开帐篷后被邀请组队，位面切换帐篷消失」：进别人的队 = 被拉到队长那一层，自己的帐篷留在原层（游戏机制，帐篷没被删）。
+--   自己 30 分钟内放过帐篷 → 任何自动接受（官员 / 换层帮手 / 副本申请）都不接，暴雪邀请框留着，玩家自己点「接受」才走
+LY.TENT_KEEP = 1800
+function LY.TentHold(inviter)
+    local at = tonumber(LY.DB().tentAt)
+    if not at or wall() - at > LY.TENT_KEEP then return false end
+    local s = short(inviter) or "?"
+    if now() - (LY.tentSaid or -99) > 3 then
+        LY.tentSaid = now()
+        ns.Print("|cffff8040" .. string.format(L("%s 邀请你组队：没自动接受——你刚放了帐篷，进他的队可能把你拉到别的位面，帐篷会留在原层（你看不到也用不了）。确定要走就点邀请框的「接受」", "%s invited you - not auto-accepted: you just placed a tent; joining may move you to another layer and the tent stays behind. Click Accept yourself if you want to go"), s) .. "|r")
+    end
+    LY.Log("开着帐篷，不自动接 " .. s)
+    return true
+end
+local tentEv = CreateFrame("Frame")
+if tentEv.RegisterUnitEvent then pcall(tentEv.RegisterUnitEvent, tentEv, "UNIT_SPELLCAST_SUCCEEDED", "player") end
+tentEv:SetScript("OnEvent", function(_, _, u, _, sid)
+    local PS = ns.PvPShout
+    if u == "player" and PS and PS.IsTentSpell and PS.IsTentSpell(sid) then LY.DB().tentAt = wall() end
+end)
+LY._tentEv = tentEv   -- 测试用
 function LY.OnInvite(inviter)
+    LY.noWhy = nil
     local why, kind, ask = LY.AcceptReason(inviter)
-    LY.Log("收到邀请 from=" .. tostring(short(inviter)) .. " 自动接受=" .. tostring(why or (ask and "先问一次") or "否"))
+    LY.Log("收到邀请 from=" .. tostring(short(inviter)) .. " 自动接受=" .. tostring(why or (ask and "先问一次") or "否") .. (not why and LY.noWhy and (" " .. LY.noWhy) or ""))
     if not why then
+        -- 11-22 用户「老是过30秒没人组」：日志里邀请 18 秒就到了、只是没自动接 → 记下来，他的认领 / 心跳到了再判（LY.Recheck），换层这轮里提示玩家点接受
+        LY.missInv = { who = inviter, t = now() }
+        if LY.onMiss then pcall(LY.onMiss, short(inviter)) end
         if ask then LY.AskAccept(inviter, ask) end
         return false
     end
+    LY.missInv = nil
+    if LY.TentHold(inviter) then return false end
     if not AcceptGroup then return false end
     local ok = pcall(AcceptGroup)
     if ok and StaticPopup_Hide then pcall(StaticPopup_Hide, "PARTY_INVITE") end
@@ -871,6 +1122,26 @@ function LY.ObsLayer(map, z)
     return ns.Obs.Add("ly", tostring(map) .. ":" .. h, LY.Hash(z))
 end
 LY.OnChange(function(_, new, map) LY.ObsLayer(map, new); LY.Beat(true) end)
+-- 11-22 换层成功率统计：存档 layer.st[日期] = { 短键 = 次数 }，留 14 天（显示 / 汇总在 _LayerUI 的 LayerCredit.lua）
+--   求助方 r 发出求助 / i 进了帮手的队 / o 换成 / f 没换成 / t 没人邀请 / u 进队后确认不了 / b 换成后又读回原层（11-23 回弹）；帮手 p 弹框 / a 自动拉 / c 手动拉 / k 对方回执到了
+--   众包 lh：键 = 日期，值 = 当天各计数（只有数字，不带名字 / 公会 / 层码）；计数一变就换掉当天旧的那条（每天只留一条最新的）
+local SK = "riofutbpack"
+function LY.Stat(k, n)
+    if not date then return end
+    local d, td = LY.DB(), date("%Y-%m-%d")
+    local st = d.st or {}
+    d.st = st
+    if not st[td] then
+        local cut = date("%Y-%m-%d", wall() - 1123200)   -- 13 天前：连今天留 14 天
+        for x in pairs(st) do if x < cut then st[x] = nil end end
+        st[td] = {}
+    end
+    local b, s = st[td], ""
+    b[k] = math.max(0, (b[k] or 0) + (n or 1))
+    for c in SK:gmatch(".") do if b[c] then s = s .. c .. b[c] end end
+    -- b.x = 当天上一次报的值：先删掉那条，再记新的
+    if ns.Obs then (ns.db.obs or {})["lh\1" .. td .. "\1" .. (b.x or "")] = nil; ns.Obs.Add("lh", td, s); b.x = s end
+end
 
 -- ---------- 事件 ----------
 local ev = CreateFrame("Frame")
@@ -878,7 +1149,7 @@ LY._ev = ev
 if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then pcall(C_ChatInfo.RegisterAddonMessagePrefix, PREFIX)
 elseif RegisterAddonMessagePrefix then pcall(RegisterAddonMessagePrefix, PREFIX) end
 for _, e in ipairs({ "CHAT_MSG_ADDON", "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "NAME_PLATE_UNIT_ADDED", "UPDATE_MOUSEOVER_UNIT",
-    "PLAYER_TARGET_CHANGED", "PARTY_INVITE_REQUEST", "PLAYER_REGEN_ENABLED", "GUILD_ROSTER_UPDATE", "GROUP_ROSTER_UPDATE" }) do
+    "PLAYER_TARGET_CHANGED", "PARTY_INVITE_REQUEST", "PLAYER_REGEN_ENABLED", "GUILD_ROSTER_UPDATE", "GROUP_ROSTER_UPDATE", "CHAT_MSG_SYSTEM", "CHAT_MSG_CHANNEL_NOTICE" }) do
     local valid = not (C_EventUtils and C_EventUtils.IsEventValid) or C_EventUtils.IsEventValid(e)
     if valid then pcall(ev.RegisterEvent, ev, e) end
 end
@@ -901,6 +1172,8 @@ ev:SetScript("OnEvent", function(_, e, a1, a2, a3, a4, a5, a6, a7, a8)
         if a1 ~= PREFIX then return end
         local via = LY.ViaOf(a3, a8, tonumber(a7))
         if via then pcall(LY.Handle, a2, a4, via) end
+    elseif e == "CHAT_MSG_SYSTEM" then pcall(LY.OnTooMany, a1)
+    elseif e == "CHAT_MSG_CHANNEL_NOTICE" then pcall(LY.OnNotice, a1, a4)
     elseif e == "NAME_PLATE_UNIT_ADDED" then pcall(LY.ReadUnit, a1)
     elseif e == "UPDATE_MOUSEOVER_UNIT" then pcall(LY.ReadUnit, "mouseover")
     elseif e == "PLAYER_TARGET_CHANGED" then pcall(LY.ReadUnit, "target")
@@ -988,30 +1261,22 @@ ev:SetScript("OnUpdate", onUpdate)
 LY._onUpdate = onUpdate
 
 -- ---------- 斜杠命令 /gi layer … ----------
-local function help()
-    local C = ns.SlashHint or "/gi"
-    ns.Print(L("位面：" .. C .. " layer 打开面板 · " .. C .. " layer lead 口令（会长：开服当晚还没公会时建集合频道）· "
-        .. C .. " layer join 口令（会员加入）· " .. C .. " layer leave · " .. C .. " layer helper on|off 帮别人换层 · "
-        .. C .. " layer pub on|off 按地图的公共频道 · " .. C .. " layerprobe 开服探针",
-        "Layers: " .. C .. " layer panel · " .. C .. " layer lead CODE · " .. C .. " layer join CODE · " .. C .. " layer leave · "
-        .. C .. " layer helper on|off · " .. C .. " layer pub on|off · " .. C .. " layerprobe"))
-    -- 11-13 玩家「哪里关😳」：三个自动行为单独一行列清楚（右侧「位面」页签 → 设置 里也能勾）
-    ns.Print(L("位面自动行为（第一次碰到时会问你一次）：" .. C .. " layer autohelp on|off 会员求助自动拉 · " .. C .. " layer accept on|off 会长 / 官员邀请自动接受 · "
-        .. C .. " layer autoleave on|off 换过去后自动退队 · " .. C .. " layer auto on|off 三个一起；右侧『位面』页签 → 设置里也能改",
-        "Layer automation (asked once the first time): " .. C .. " layer autohelp on|off · " .. C .. " layer accept on|off · "
-        .. C .. " layer autoleave on|off · " .. C .. " layer auto on|off (all three); also in the Layers tab -> Settings"))
+-- 11-22 帮助文字（和新加的 /gi layer stat 换层成功率）搬到按需加载的 _LayerUI（LayerCredit.lua 的 ns.LayerSlash），省主插件登录内存
+local function help(sub)
+    pcall((C_AddOns and C_AddOns.LoadAddOn) or LoadAddOn, "GearInsight_Forever_LayerUI")
+    if ns.LayerSlash then ns.LayerSlash(sub) end
 end
-LY.Help = help
 
 -- 11-13：三个自动行为的命令开关（存 true / false，之后不再问）
 local AUTO_TEXT = {
-    autoHelp = function(on) return on and L("公会会员求助：自动拉（不弹框）", "Guildmate requests: auto-invite") or L("公会会员求助：每次弹框问我", "Guildmate requests: ask each time") end,
+    autoHelp = function(on) return on and L("换层求助：自动拉（没组队时，不弹框）", "Layer requests: auto-invite when solo") or L("换层求助：每次弹框问我", "Layer requests: ask each time") end,
     autoAccept = function(on) return on and L("会长 / 官员的组队邀请：自动接受", "Leader/officer invites: auto-accept") or L("会长 / 官员的组队邀请：不再自动接受", "Leader/officer invites: manual") end,
     autoLeave = function(on) return on and L("换过去后：自动退队", "After the move: leave the group") or L("换过去后：不自动退队", "After the move: stay in the group") end,
 }
 function LY.SetAuto(key, on)
     if not AUTO_TEXT[key] then return false end
     LY.DB()[key] = on and true or false
+    LY.DB().giAuto[key] = nil   -- 玩家自己定的：不再算「公会自动开的」
     if askFrame and askFrame.key == key then askFrame.key, askFrame.opts = nil, nil; askFrame:Hide(); LY.AskNext() end
     for i = #LY.askQ, 1, -1 do if LY.askQ[i].key == key then table.remove(LY.askQ, i) end end
     if ns.RefreshSettings then pcall(ns.RefreshSettings) end
@@ -1026,7 +1291,7 @@ function LY.SetGather(code, lead)
         if code == "" then code = nil end
     end
     local old = LY.GatherChannel()
-    if old and LeaveChannelByName then pcall(LeaveChannelByName, old) end
+    leave(old)
     LY.gather = code
     LY.gatherLead = (code and lead) and true or false
     LY.DB().gather, LY.DB().gatherLead = code, LY.gatherLead
@@ -1056,14 +1321,13 @@ ns.ExtraSlash.layer = function(rest, rawRest)
         ns.Print(d.helper and L("已打开「帮别人换到我这层」：收到请求会弹提示，点了才邀请", "Helping others hop: on (you click to invite)") or L("已关闭「帮别人换层」", "Helping others hop: off"))
     elseif sub == "pub" and (arg == "on" or arg == "off") then
         LY.SetPub(arg == "on")
-        ns.Print(d.pub and L("已打开公共频道（每张图一个）：同图其他公会的插件用户也能互相看到层、互相拉", "Public channel on (one per map)")
-            or L("已退出公共频道：位面只和公会会员互通（" .. (ns.SlashHint or "/gi") .. " layer pub on 重新加入）", "Public channel off (guild only)"))
+        ns.Print(LY.PubMsg(d.pub))
     elseif sub == "probe" and ns.LayerProbe then ns.LayerProbe.Toggle()
     elseif sub == "log" then
         ns.ShowBox(L("换层记录", "Layer log"), L("复制全部发给开发者", "Copy all and send to the developer"), table.concat(d.log or {}, "\n"))
     elseif sub == "off" or sub == "on" then
-        d.on = (sub == "on"); ns.Print(d.on and L("位面识别已打开", "Layer detection on") or L("位面识别已关闭", "Layer detection off"))
-    else help() end
+        d.on = (sub == "on"); LY.SyncPub(); ns.Print(d.on and L("位面识别已打开", "Layer detection on") or L("位面识别已关闭", "Layer detection off"))
+    else help(sub) end
 end
 ns.ExtraSlash["位面"] = ns.ExtraSlash.layer
 

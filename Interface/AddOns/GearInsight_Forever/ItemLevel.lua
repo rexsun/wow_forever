@@ -17,10 +17,7 @@ function IL.SetOn(on)
     IL.RefreshAll()
 end
 
-local function clean(v)
-    if v == nil or (ns.Secret and ns.Secret(v)) then return nil end
-    return v
-end
+local clean = ns._Clean   -- Obs.lua
 
 -- 链接 / ID → 装等, 品质, 装备位（不是装备 → nil）
 local NOT_GEAR = { [""] = true, INVTYPE_NON_EQUIP = true, INVTYPE_NON_EQUIP_IGNORE = true, INVTYPE_BAG = true, INVTYPE_QUIVER = true,
@@ -75,22 +72,8 @@ IL.SetLabel = setLabel
 IL.SLOTS = { "HeadSlot", "NeckSlot", "ShoulderSlot", "BackSlot", "ChestSlot", "WristSlot", "HandsSlot", "WaistSlot", "LegsSlot", "FeetSlot",
     "Finger0Slot", "Finger1Slot", "Trinket0Slot", "Trinket1Slot", "MainHandSlot", "SecondaryHandSlot", "RangedSlot" }
 
-local function slotId(inv)
-    if not GetInventorySlotInfo then return nil end
-    local ok, id = pcall(GetInventorySlotInfo, inv)
-    return ok and id or nil
-end
-local function slotButton(inv)
-    local b = _G["Character" .. inv]
-    if b then return b end
-    local id = slotId(inv)
-    local parent = _G.PaperDollItemsFrame or _G.PaperDollFrame
-    if id and parent and parent.GetChildren then
-        for _, k in ipairs({ parent:GetChildren() }) do
-            if k.GetID and k:GetID() == id then return k end
-        end
-    end
-end
+local slotId = ns.BisCorner._SlotId   -- BisCorner.lua
+local slotButton = ns.BisCorner._SlotButton
 local function equipped(inv)
     local id = slotId(inv)
     local link = id and GetInventoryItemLink and clean(GetInventoryItemLink("player", id))

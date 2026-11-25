@@ -1,0 +1,22 @@
+## Interface: 16001, 11507
+## Title: GearInsight |cff33ff99Forever|r - Bag cleanup
+## Title-zhCN: GearInsight |cff33ff99无限版|r · 清背包
+## Notes: GearInsight Forever bag cleanup (destroy cheapest first) and merchant sell-junk panel (loads the first time you use them)
+## Notes-zhCN: GearInsight 无限版的清背包（按价值从低到高一键摧毁）和商人处卖垃圾面板：第一次用到时才加载
+## Author: GearInsight
+## Version: 1.4.20
+## Dependencies: GearInsight_Forever
+## LoadOnDemand: 1
+## IconTexture: Interface\Icons\INV_Misc_Bag_07
+
+# 11-17 用户「模块做好按需加载」：清背包页 / 卖垃圾面板从主插件搬出来，登录不加载；主插件 BagStub.lua 放占位页 / 命令占位 / 设置描述，
+#   背包上的按钮（BagButtons.lua）留在主插件。和组队界面 / 法师吃喝一样：合并包 / 拆分包里都是独立文件夹；网易DD 包并进主文件夹（DD_FOLD）
+#   ⛔ 这里的文件都晚于主插件加载：文件头一律 ns = _G.GearInsightForever or ns；最后一个文件 BagInit.lua 置就绪标记
+
+# 11-17 商人助手外框（卖垃圾 / 买材料两块合成一个面板；登记小核在主插件 MerchantDock.lua）：排在 SellJunk.lua 前面
+MerchantDockUI.lua
+Trash.lua
+SellJunk.lua
+# 11-20 上马自动换饰品（HOLD）：主插件 MountStub.lua 第一次上马、背包里有坐骑饰品时才加载
+MountTrinket.lua
+BagInit.lua

@@ -8,7 +8,11 @@ local KEYS = { FriendlyNameplates = true, CombatHUD = true, LevelingStats = true
 -- GearInsight reads these straight from its saved table and treats nil as on. They are written
 -- to GearInsightForeverDB so early rules work before GearInsight publishes ns.db; InitDB keeps an
 -- existing table, and its section accessors (Layer.DB, DC.DB, MW.Opts) only fill nil fields.
--- `values` maps a dotted section path to the fields written there.
+-- `values` maps a dotted section path to the fields written there; "" is the saved table's root.
+local function Call(target, name)
+  if type(target) == "table" and type(target[name]) == "function" then target[name]() end
+end
+
 local SETTINGS = {
   -- helperV=2 marks GearInsight's one-time migration as done; otherwise it forces helper back on.
   LayerNetwork = { values = { layer = { on = false, pub = false, helper = false, helperV = 2 } },
@@ -25,14 +29,38 @@ local SETTINGS = {
   -- SetSharing also drops messages already queued.
   QuestShare = { values = { qm = { share = false } },
     apply = function(gi) if type(gi.QM) == "table" and type(gi.QM.SetSharing) == "function" then gi.QM.SetSharing(false) end end },
-  -- With both off, GroupParts no longer auto-loads GearInsight_Forever_GroupMage for non-Mages.
+  -- With both off, GroupParts no longer auto-loads GearInsight_Forever_GroupMage for non-Mages. 1.4.x's
+  -- soulstone reminder loads it too; BuffAsk's ss = false closes that path.
   MageWater = { values = { ["dchat.mw"] = { fieldAsk = false, thank = false } } },
   -- LR.On() gates every path (whisper, party call-out, GIFLR claims); W and P are a backstop
   -- should a later release stop checking it.
   LowRank = { values = { ui = { lowRank = false, lowRankW = false, lowRankP = false } } },
   -- SyncEvents unregisters the dungeon-entry and nearby-player triggers if the Group module is loaded.
-  BuffAsk = { values = { buffAsk = { auto = false, field = false } },
-    apply = function(gi) if type(gi.BuffAsk) == "table" and type(gi.BuffAsk.SyncEvents) == "function" then gi.BuffAsk.SyncEvents() end end },
+  -- 1.4.x reads a saved dmode (off/ask/auto) before auto, which only decides for saves without one;
+  -- ss gates the soulstone reminder, which loads the Mage module in dungeon groups.
+  BuffAsk = { values = { buffAsk = { auto = false, field = false, dmode = "off", ss = false } },
+    apply = function(gi) Call(gi.BuffAsk, "SyncEvents") end },
+  TradeReceipt = { values = { ui = { tradeReceipt = false } } },
+  -- Sync swaps a trinket already put on for a mount back; mtBtn.hide removes the carrot icon,
+  -- which the Bag module shows whenever a carrot is owned, even with the swap off.
+  MountTrinket = { values = { [""] = { mountTrinket = false }, mtBtn = { hide = true } },
+    apply = function(gi) Call(gi.MountTrinket, "Sync"); Call(gi.MountTrinket, "BtnUpdate") end },
+  AuraRemind = { values = { auraRemind = { on = false } }, apply = function(gi) Call(gi.AuraRemind, "Refresh") end },
+  AmmoRemind = { values = { ammoRemind = { on = false } }, apply = function(gi) Call(gi.AmmoRemind, "Update") end },
+  -- Prep lives in the load-on-demand Xp module.
+  XpPrep = { values = { xpcheck = { prep = false } },
+    apply = function(gi) Call(type(gi.XpCheck) == "table" and gi.XpCheck.Prep, "Hide") end },
+  -- auto stays at its false default; it is written so a user switch cannot start selling on its own.
+  SellJunk = { values = { sellJunk = { panel = false, auto = false } } },
+  AuctionPriceTip = { values = { sellJunk = { ahTip = false } } },
+  -- No setter exists; both are read whenever a merchant or the auction house opens.
+  ProfShopping = { values = { prof = { quick = false, btn = false } } },
+  BagButtons = { values = { bagButtons = { show = false } }, apply = function(gi) Call(gi.BagButtons, "ApplyAll") end },
+  DungeonNav = { values = { dnav = { on = false } },
+    apply = function(gi)
+      local frame = type(gi.DungeonNav) == "table" and gi.DungeonNav.frame
+      if frame and not gi.DungeonNav.preview then frame:Hide() end
+    end },
   -- Refresh hides a floating button that is already up (out of combat; the next one after combat).
   PallyFloat = { values = { pally = { float = false } },
     apply = function(gi) if type(gi.PallyBless) == "table" and type(gi.PallyBless.Refresh) == "function" then gi.PallyBless.Refresh() end end },
@@ -234,8 +262,9 @@ function adapter.Watch(onChange)
     { gi.QM, "PlatesOnOpen" }, { gi.QM, "PlatesOnClose" }, { gi.GuildChatLevel, "SetEnabled" },
     { gi.GuildChatLevel, "SetWhisperOn" }, { gi.GuildChatLevel, "SetPartyOn" }, { gi.Layer, "SetPub" },
     { gi.CityPlates, "SetOn" }, { gi.ItemLevel, "SetOn" }, { gi.LowRank, "SetOn" },
-    { gi.LowRank, "SetWhisper" }, { gi.LowRank, "SetParty" }, { gi.BuffAsk, "SetOpt" },
-    { gi.PallyBless, "SetFloat" } }) do
+    { gi.LowRank, "SetWhisper" }, { gi.LowRank, "SetParty" }, { gi.BuffAsk, "SetOpt" }, { gi.BuffAsk, "SetDMode" },
+    { gi.PallyBless, "SetFloat" }, { gi, "SetFeature" }, { gi.TradeReceipt, "SetOn" }, { gi.AuraRemind, "SetOn" },
+    { gi.AmmoRemind, "SetOn" }, { gi.DungeonNav, "SetEnabled" }, { gi.SellCfg, "SetOpt" }, { gi.BagButtons, "SetOpt" } }) do
     local target, name = spec[1], spec[2]
     if type(target) == "table" and type(target[name]) == "function" then
       hooksecurefunc(target, name, onChange)

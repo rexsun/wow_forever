@@ -82,6 +82,67 @@ function QG.IsAddOnLoaded(name)
 	return false
 end
 
+function QG.GetQuestieProfile()
+	if not QG.IsAddOnLoaded("Questie") then return nil end
+	local questie = _G.Questie
+	if type(questie) ~= "table" or type(questie.db) ~= "table" or type(questie.db.profile) ~= "table" then return false end
+
+	return questie.db.profile
+end
+
+function QG.GetQuestieMask(profile)
+	if profile == nil then return -1 end
+	if profile == false then return -2 end
+	local mask = 0
+	if profile.enabled ~= false then mask = mask + 1 end
+	if profile.enableMapIcons ~= false then mask = mask + 2 end
+	if profile.enableTurnins ~= false then mask = mask + 4 end
+	if profile.showAvailableQuests ~= false then mask = mask + 8 end
+	if profile.enableAvailable ~= false then mask = mask + 16 end
+	if profile.showRepeatableQuests ~= false then mask = mask + 32 end
+	if profile.showEventQuests ~= false then mask = mask + 64 end
+	if profile.showDungeonQuests ~= false then mask = mask + 128 end
+	if profile.showRaidQuests ~= false then mask = mask + 256 end
+	if profile.showPvPQuests ~= false then mask = mask + 512 end
+
+	return mask
+end
+
+function QG.QuestieShowsMap(profile)
+	return profile.enabled ~= false and profile.enableMapIcons ~= false
+end
+
+function QG.QuestieShowsTurnIns(profile)
+	if profile == nil then return false end
+	if profile == false then return true end
+
+	return QG.QuestieShowsMap(profile) and profile.enableTurnins ~= false
+end
+
+function QG.QuestieShowsAllStarts(profile)
+	if profile == nil then return false end
+	if profile == false then return true end
+	if not QG.QuestieShowsMap(profile) or profile.showAvailableQuests == false then return false end
+
+	return profile.enableAvailable ~= false and profile.showRepeatableQuests ~= false and profile.showEventQuests ~= false and profile.showDungeonQuests ~= false and profile.showRaidQuests ~= false and profile.showPvPQuests ~= false
+end
+
+function QG.QuestieShowsStart(profile, questID, quest)
+	if profile == nil then return false end
+	if profile == false then return true end
+	if not QG.QuestieShowsMap(profile) or profile.showAvailableQuests == false then return false end
+	local repeatable = QG.IsRepeatable(questID, quest)
+	local event = quest[5] == 1
+	local instanceKind = MapUtils:GetQuestInstanceKind(questID, quest)
+	local dungeon = instanceKind == 1
+	local raid = instanceKind == 2
+	local pvp = QG.IsPvP(questID, quest)
+	local normal = not (repeatable or event or dungeon or raid or pvp)
+	if (normal and profile.enableAvailable == false) or (repeatable and profile.showRepeatableQuests == false) or (event and profile.showEventQuests == false) or (dungeon and profile.showDungeonQuests == false) or (raid and profile.showRaidQuests == false) or (pvp and profile.showPvPQuests == false) then return false end
+
+	return true
+end
+
 function QG.IsDone(questID)
 	if C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted then return C_QuestLog.IsQuestFlaggedCompleted(questID) == true end
 	if IsQuestFlaggedCompleted then return IsQuestFlaggedCompleted(questID) == true end
@@ -215,6 +276,8 @@ function QG.ReadPlayer()
 	end
 	QG.showPvP = MapUtils:GetConfig("QUESTGIVERPVP", false) == true
 	QG.showCloth = MapUtils:GetConfig("QUESTGIVERCLOTH", false) == true
+	QG.questieProfile = QG.GetQuestieProfile()
+	QG.questieMask = QG.GetQuestieMask(QG.questieProfile)
 end
 
 function QG.IsClothDonation(quest)
@@ -261,10 +324,7 @@ function QG.IsRepeatable(questID, quest)
 end
 
 function QG.IsPvP(questID, quest)
-	if quest and QG.HasBit(quest[23] or 0, 2) then return true end
-	local tag = C_QuestLog and C_QuestLog.GetQuestTagInfo and C_QuestLog.GetQuestTagInfo(questID)
-
-	return tag and tag.tagID == 41
+	return MapUtils:IsPvPQuest(questID, quest, true)
 end
 
 function QG.IsAvailable(questID, quest, giverSide)
@@ -281,6 +341,7 @@ function QG.IsAvailable(questID, quest, giverSide)
 	if quest[5] ~= 2 and not enabledCategories[3] and QG.IsRepeatable(questID, quest) then return false end
 	if not QG.showPvP and QG.IsPvP(questID, quest) then return false end
 	if not QG.showCloth and QG.IsClothDonation(quest) then return false end
+	if QG.QuestieShowsStart(QG.questieProfile, questID, quest) then return false end
 	if quest[7] and player.race and not QG.HasBit(quest[7], player.race) then return false end
 	if quest[8] and player.class and not QG.HasBit(quest[8], player.class) then return false end
 	if QG.IsDone(questID) then return false end
@@ -362,9 +423,10 @@ function QG.GetSources(mapID)
 end
 
 function QG.IsShownOnMap(mapID)
-	if mapID == nil or C_Map.GetMapInfo(mapID) == nil or QG.IsAddOnLoaded("Questie") then return false end
-	QG.showStarts = MapUtils:IsPinShownOnMap("QUESTGIVERWORLDMAPPINS", true, mapID)
-	QG.showEnds = MapUtils:GetQuestTurnInDefault() and MapUtils:GetConfig("QUESTGIVERTURNIN", true) == true
+	if mapID == nil or C_Map.GetMapInfo(mapID) == nil then return false end
+	local profile = QG.GetQuestieProfile()
+	QG.showStarts = MapUtils:IsPinShownOnMap("QUESTGIVERWORLDMAPPINS", true, mapID) and not QG.QuestieShowsAllStarts(profile)
+	QG.showEnds = MapUtils:GetQuestTurnInDefault() and MapUtils:GetConfig("QUESTGIVERTURNIN", true) == true and not QG.QuestieShowsTurnIns(profile)
 	if not QG.showStarts and not QG.showEnds then return false end
 
 	return #QG.GetSources(mapID) > 0
@@ -398,7 +460,7 @@ function QG.GetAvailableCache()
 		key = key .. (enabledCategories[index] and "1" or "0")
 	end
 
-	key = key .. (QG.showPvP and "1" or "0") .. (QG.showCloth and "1" or "0") .. (player.showLowLevel and "1" or "0")
+	key = key .. (QG.showPvP and "1" or "0") .. (QG.showCloth and "1" or "0") .. (player.showLowLevel and "1" or "0") .. ":" .. (QG.questieMask or -1)
 	local now = GetTime()
 	if QG.available == nil or QG.stale or QG.availableKey ~= key or now - (QG.availableTime or 0) > 30 then
 		if QG.available == nil then
@@ -477,11 +539,22 @@ function QG.GetTitle(questID, fallback)
 	return fallback
 end
 
+function QG.GetQuestColor(questID, quest)
+	local kind = MapUtils:GetQuestPinKind(questID, quest, true)
+	if kind == 3 then return MapUtils.QUEST_RAID_COLOR end
+	if kind == 2 then return MapUtils.QUEST_DUNGEON_COLOR end
+	if kind == 1 then return MapUtils.QUEST_PVP_COLOR end
+	if quest and QG.IsRepeatable(questID, quest) then return REPEATABLE_COLOR end
+
+	return nil
+end
+
 function QG.GetColoredTitle(questID, quest)
 	local title = QG.GetTitle(questID, quest and quest[3] or tostring(questID))
-	if quest and QG.IsRepeatable(questID, quest) then return REPEATABLE_COLOR .. title .. "|r", true end
+	local titleColor = QG.GetQuestColor(questID, quest)
+	if titleColor then return titleColor .. title .. "|r", titleColor end
 
-	return title
+	return title, nil
 end
 
 function QG.GetXP(quest)
@@ -546,6 +619,31 @@ function QG.AddWrapped(text, indent, r, g, b)
 	if line ~= "" then GameTooltip:AddLine(indent .. line, r, g, b) end
 end
 
+function QG.GetItemIcon(itemID)
+	local icon = C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(itemID)
+	if icon == nil and GetItemIcon then icon = GetItemIcon(itemID) end
+
+	return icon
+end
+
+function QG.FormatRewardIcons(list)
+	if type(list) ~= "table" then return nil end
+	local parts = {}
+	for i = 1, #list - 1, 2 do
+		local itemID, count = list[i], list[i + 1]
+		local icon = QG.GetItemIcon(itemID)
+		if icon then
+			local entry = format("|T%s:18:18:0:0:64:64:4:60:4:60|t", tostring(icon))
+			if count and count > 1 then entry = entry .. format("|cffffffffx%d|r", count) end
+			tinsert(parts, entry)
+		end
+	end
+
+	if #parts == 0 then return nil end
+
+	return table.concat(parts, " ")
+end
+
 QG.WRAP = 44
 QG.INDENT = "  "
 QG.CHAIN_INDENT = "     "
@@ -556,7 +654,15 @@ function QG.AddQuestDetails(questID, quest)
 	if xp > 0 then tinsert(rewards, format("%s %s", BreakUpLargeNumbers and BreakUpLargeNumbers(xp) or xp, MapUtils:Trans("LID_QUESTXP"))) end
 	local money = QG.GetMoney(questID)
 	if money > 0 and GetCoinTextureString then tinsert(rewards, GetCoinTextureString(money)) end
-	if #rewards > 0 then QG.AddWrapped(format("|cffffd100%s:|r %s", MapUtils:Trans("LID_QUESTREWARD"), table.concat(rewards, "  ")), QG.INDENT, 1, 1, 1) end
+	local fixedIcons = QG.FormatRewardIcons(quest[24])
+	local choiceIcons = QG.FormatRewardIcons(quest[25])
+	local itemRow = fixedIcons and choiceIcons and (fixedIcons .. "  |cff9d9d9d/|r  " .. choiceIcons) or fixedIcons or choiceIcons
+	if #rewards > 0 then
+		QG.AddWrapped(format("|cffffd100%s:|r %s", MapUtils:Trans("LID_QUESTREWARD"), table.concat(rewards, "  ")), QG.INDENT, 1, 1, 1)
+		if itemRow then GameTooltip:AddLine(QG.INDENT .. itemRow, 1, 1, 1) end
+	elseif itemRow then
+		GameTooltip:AddLine(format("%s|cffffd100%s:|r %s", QG.INDENT, MapUtils:Trans("LID_QUESTREWARD"), itemRow), 1, 1, 1)
+	end
 	local reputation = quest[21]
 	if type(reputation) == "table" then
 		local parts = {}
@@ -592,10 +698,13 @@ function QG.AddQuestLines(quests)
 		local quest = INFO[questID]
 		local level = QG.GetLevel(quest)
 		local color = GetQuestDifficultyColor and GetQuestDifficultyColor(level)
-		local title, repeatable = QG.GetColoredTitle(questID, quest)
-		local levelLabel = repeatable and format("%s[|r%d%s]|r", REPEATABLE_COLOR, level, REPEATABLE_COLOR) or format("[%d]", level)
+		local title, titleColor = QG.GetColoredTitle(questID, quest)
+		local repeatable = quest and QG.IsRepeatable(questID, quest)
+		local levelLabel = titleColor and format("%s[|r%d%s]|r", titleColor, level, titleColor) or format("[%d]", level)
 		local tag = ""
-		if quest[22] then tag = " |cff9d9d9d(" .. MapUtils:Trans(INSTANCE_TAGS[quest[22]]) .. ")|r" end
+		local instanceKind = MapUtils:GetQuestInstanceKind(questID, quest)
+		if instanceKind then tag = " |cff9d9d9d(" .. MapUtils:Trans(INSTANCE_TAGS[instanceKind]) .. ")|r" end
+		if QG.IsPvP(questID, quest) then tag = tag .. " |cff9d9d9d(" .. MapUtils:Trans("LID_QUESTTAGPVP") .. ")|r" end
 		local category = quest[5] or (repeatable and 3)
 		if category then tag = tag .. " |cff9d9d9d(" .. MapUtils:Trans(CATEGORY_TAGS[category]) .. ")|r" end
 		if details and index > 1 then GameTooltip:AddLine(" ") end
@@ -611,37 +720,68 @@ function QG.AddQuestLines(quests)
 	return #quests > 0
 end
 
+function QG.MergeUnique(target, seen, list)
+	for _, questID in ipairs(list or {}) do
+		if not seen[questID] then
+			seen[questID] = true
+			tinsert(target, questID)
+		end
+	end
+end
+
+function QG.GroupSpots(list)
+	local entries = {}
+	local byName = {}
+	for _, spot in ipairs(list) do
+		local entry = byName[spot.name]
+		if entry == nil then
+			entry = {
+				["name"] = spot.name,
+				["quests"] = {},
+				["turnins"] = {},
+				["seenQuests"] = {},
+				["seenTurnins"] = {}
+			}
+
+			byName[spot.name] = entry
+			tinsert(entries, entry)
+		end
+
+		QG.MergeUnique(entry.quests, entry.seenQuests, spot.quests)
+		QG.MergeUnique(entry.turnins, entry.seenTurnins, spot.turnins)
+	end
+
+	return entries
+end
+
 function QG.OnEnter(pin)
 	local cluster = pin.cluster
 	if cluster == nil then return end
 	GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
 	QG.hovered = pin
 	local hasQuests = false
-	local seen = {}
 	local first = true
 	local shown = 0
 	local hidden = 0
-	for _, spot in ipairs(cluster.spots) do
-		if not seen[spot.giver] and shown >= TOOLTIP_GIVERS then
-			seen[spot.giver] = true
+	for _, entry in ipairs(QG.GroupSpots(cluster.spots)) do
+		if shown >= TOOLTIP_GIVERS then
 			hidden = hidden + 1
-		elseif not seen[spot.giver] then
-			seen[spot.giver] = true
+		else
 			shown = shown + 1
 			if first then
-				GameTooltip:SetText(spot.name, 1, 0.82, 0)
+				GameTooltip:SetText(entry.name, 1, 0.82, 0)
 				first = false
 			else
 				GameTooltip:AddLine(" ")
-				GameTooltip:AddLine(spot.name, 1, 0.82, 0)
+				GameTooltip:AddLine(entry.name, 1, 0.82, 0)
 			end
 
-			for _, questID in ipairs(spot.turnins or {}) do
+			for _, questID in ipairs(entry.turnins) do
 				local quest = INFO[questID]
 				GameTooltip:AddLine(format("%s%s: %s", QG.INDENT, MapUtils:Trans("LID_QUESTTURNIN"), QG.GetColoredTitle(questID, quest)), 0.25, 1, 0.25, true)
 			end
 
-			if QG.AddQuestLines(spot.quests or {}) then hasQuests = true end
+			if QG.AddQuestLines(entry.quests) then hasQuests = true end
 		end
 	end
 
@@ -807,33 +947,43 @@ function QG.CreatePin(canvas)
 end
 
 function QG.SetPinIcon(pin, atlas, fallback)
-	if pin.iconAtlas == atlas then return end
-	pin.iconAtlas = atlas
-	if C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas) then
+	local key = atlas or fallback
+	if pin.iconKey == key then return end
+	pin.iconKey = key
+	if atlas and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas) then
 		pin.icon:SetAtlas(atlas)
 	else
+		pin.icon:SetTexCoord(0, 1, 0, 1)
 		pin.icon:SetTexture(fallback)
 	end
 end
 
-function QG.HasTurnIn(cluster)
+function QG.GetClusterTurnInKind(cluster)
+	local best = nil
 	for _, spot in ipairs(cluster.spots) do
-		if spot.turnins then return true end
-	end
-
-	return false
-end
-
-function QG.HasOnlyRepeatableStarts(cluster)
-	local hasStarts = false
-	for _, spot in ipairs(cluster.spots) do
-		for _, questID in ipairs(spot.quests or {}) do
-			if not QG.IsRepeatable(questID, INFO[questID]) then return false end
-			hasStarts = true
+		for _, questID in ipairs(spot.turnins or {}) do
+			local kind = MapUtils:GetQuestPinKind(questID, INFO[questID], true)
+			if best == nil or kind > best then best = kind end
+			if best == 3 then return 3 end
 		end
 	end
 
-	return hasStarts
+	return best
+end
+
+function QG.GetClusterStartPriority(cluster)
+	local best = 0
+	for _, spot in ipairs(cluster.spots) do
+		for _, questID in ipairs(spot.quests or {}) do
+			local quest = INFO[questID]
+			local kind = MapUtils:GetQuestPinKind(questID, quest, QG.showPvP)
+			local priority = kind == 3 and 5 or kind == 2 and 4 or kind == 1 and 3 or (quest and QG.IsRepeatable(questID, quest) and 1 or 2)
+			if priority > best then best = priority end
+			if best == 5 then return 5 end
+		end
+	end
+
+	return best
 end
 
 function QG.HidePins()
@@ -921,12 +1071,30 @@ function QG.Layout(canvas)
 		end
 
 		pin.cluster = cluster
-		if QG.HasTurnIn(cluster) then
-			QG.SetPinIcon(pin, TURNIN_ATLAS, TURNIN_FILE)
-		elseif QG.HasOnlyRepeatableStarts(cluster) then
-			QG.SetPinIcon(pin, REPEATABLE_ATLAS, REPEATABLE_FILE)
+		local turnInKind = QG.GetClusterTurnInKind(cluster)
+		if turnInKind ~= nil then
+			if turnInKind == 3 then
+				QG.SetPinIcon(pin, nil, MapUtils.QUEST_RAID_TURNIN_ICON)
+			elseif turnInKind == 2 then
+				QG.SetPinIcon(pin, nil, MapUtils.QUEST_DUNGEON_TURNIN_ICON)
+			elseif turnInKind == 1 then
+				QG.SetPinIcon(pin, nil, MapUtils.QUEST_PVP_TURNIN_ICON)
+			else
+				QG.SetPinIcon(pin, TURNIN_ATLAS, TURNIN_FILE)
+			end
 		else
-			QG.SetPinIcon(pin, ICON_ATLAS, ICON_FILE)
+			local priority = QG.GetClusterStartPriority(cluster)
+			if priority == 5 then
+				QG.SetPinIcon(pin, nil, MapUtils.QUEST_RAID_START_ICON)
+			elseif priority == 4 then
+				QG.SetPinIcon(pin, nil, MapUtils.QUEST_DUNGEON_START_ICON)
+			elseif priority == 3 then
+				QG.SetPinIcon(pin, nil, MapUtils.QUEST_PVP_START_ICON)
+			elseif priority == 1 then
+				QG.SetPinIcon(pin, REPEATABLE_ATLAS, REPEATABLE_FILE)
+			else
+				QG.SetPinIcon(pin, ICON_ATLAS, ICON_FILE)
+			end
 		end
 		pin:SetSize(size, size)
 		local circle = size * CIRCLE_SCALE
@@ -975,6 +1143,14 @@ function QG.Update()
 	local scope = MapUtils:IsPinScopeAzeroth(mapID)
 	if scope ~= QG.scope then
 		QG.scope = scope
+		QG.collectSignature = nil
+		dirty = true
+		lastCollect = 0
+	end
+
+	local questieMask = QG.GetQuestieMask(QG.GetQuestieProfile())
+	if questieMask ~= QG.questieMask then
+		QG.questieMask = questieMask
 		QG.collectSignature = nil
 		dirty = true
 		lastCollect = 0

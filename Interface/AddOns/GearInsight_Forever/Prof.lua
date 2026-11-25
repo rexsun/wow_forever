@@ -11,7 +11,7 @@ ns.Prof = P
 -- 11-13 重构第 4 期：内核里只留登录就要用的「小核」（读角色专业 / 专业名 / 材料名 / 营地设施 / 探针 / 事件），数据用 ProfCoreData.lua 的精简表；
 --   专业页、冲级路线、升级规划里的专业行、专业助手和大数据表（ProfData / ProfRecipes …）在按需加载的 GearInsight_Forever_Prof（ProfLib.lua 接着往 ns.Prof 上挂函数）
 local function D() return ns.ProfCore end
-local function charKey() return (UnitName and UnitName("player") or "?") .. "-" .. (GetRealmName and GetRealmName() or "?") end
+local charKey = ns._CharKey   -- Leveling.lua
 local function store()
     ns.db.prof = ns.db.prof or {}
     local s = ns.db.prof
@@ -117,11 +117,19 @@ end
 function P.Camp(key) return (D().camp.profs or {})[key] or {} end
 
 -- 背包里有几个（原在 ProfPlan.lua，11-13 挪进小核：经验加成检查 XpCheck.lua 登录就用）
+-- 11-18 GI-302：《无限》客户端老接口 GetItemCount 读不到 → 新接口 C_Item.GetItemCount 优先，两个取大的（含银行，和原来一样）
 function P.BagCount(item)
-    if not GetItemCount then return nil end
-    local ok, n = pcall(GetItemCount, item, true)
-    if not ok or n == nil or (ns.Secret and ns.Secret(n)) then return nil end
-    return tonumber(n)
+    local best
+    for _, f in ipairs({ C_Item and C_Item.GetItemCount or false, GetItemCount or false }) do   -- ⛔ 别放 nil：ipairs 遇到 nil 就停
+        if f then
+            local ok, n = pcall(f, item, true)
+            if ok and n ~= nil and not (ns.Secret and ns.Secret(n)) then
+                n = tonumber(n)
+                if n and (not best or n > best) then best = n end
+            end
+        end
+    end
+    return best
 end
 
 -- 经验食物的成品物品（配方库第 7 格；ProfCoreData.lua 的精简表，不用加载整个配方库）
@@ -220,7 +228,7 @@ end)
 
 -- ---------- 11-14 用户截图「学了剥皮的这里提醒多少技能可以剥，前面加 GI: 前缀」----------
 --   鼠标指到「可剥皮」的怪 / 尸体：学了剥皮的角色在提示里多一行「GI: 剥皮需要 N 技能（你现在 M）」，够了绿字、不够红字。
---   技能要求按经典公式：怪 ≤10 级 = 1；11~20 级 = (等级-10)×10；20 级以上 = 等级×5（首领「??」级读不到等级 → 不写数字）
+--   技能要求按经典公式：怪 ≤10 级 = 1；11~20 级 = (等级-10)×10；20 级以上 = 等级×5（首领「??」级读不到等级 → 11-23 起整行不写）
 --   「可剥皮」这一行用客户端全局串 UNIT_SKINNABLE_LEATHER 认（繁体 / 英文客户端自动对上）；没学剥皮 / 不是可剥皮的怪不加
 function P.SkinReq(level)
     level = tonumber(level)
@@ -238,8 +246,15 @@ local function mySkinning()
     return skinCache
 end
 P._skinReset = function() skinAt = -1e9 end   -- 离线测试用
+-- 11-23 玩家「这行信息怎么关掉」：设置 → 专业 →「材料来源提示」里可关（ns.db.ui.skinTip = false；nil = 开）
+--   P.SkinTipOn() = 开着没；P.SkinTipOn(true / false) = 设（设置页 get / set 共用这一个，省内核内存）
+function P.SkinTipOn(v)
+    -- ⛔ 11-23 玩家截图「这个勾选没作用，取消不了」：原来写 (not v) and false or nil，恒为 nil → 关不掉
+    if v ~= nil then ns.db.ui = ns.db.ui or {}; if v then ns.db.ui.skinTip = nil else ns.db.ui.skinTip = false end end
+    return not (ns.db and ns.db.ui and ns.db.ui.skinTip == false)
+end
 function P.SkinTip(tt)
-    if not tt or tt.__gifSkin or not tt.GetUnit then return false end
+    if not tt or tt.__gifSkin or not tt.GetUnit or not P.SkinTipOn() then return false end
     local _, unit = tt:GetUnit()
     if not unit or ns.Secret(unit) or (UnitIsPlayer and UnitIsPlayer(unit)) then return false end
     local sk = mySkinning()
@@ -255,17 +270,12 @@ function P.SkinTip(tt)
     local lv = UnitLevel and UnitLevel(unit)
     if ns.Secret(lv) then lv = nil end
     local req, r = P.SkinReq(lv), tonumber(sk.r)
-    local line
-    if not req then
-        line = ns.L("GI: 剥皮技能要求读不到（等级未知）", "GI: Skinning requirement unknown (level ??)")
-        tt:AddLine(line, 0.7, 0.7, 0.7)
-    else
-        line = string.format(ns.L("GI: 剥皮需要 %d 技能", "GI: Skinning %d required"), req)
-            .. (r and string.format(ns.L("（你现在 %d）", " (you: %d)"), r) or "")
-        if not r then tt:AddLine(line, 1, 0.82, 0)
-        elseif r >= req then tt:AddLine(line, 0.25, 1, 0.4)
-        else tt:AddLine(line, 1, 0.35, 0.3) end
-    end
+    if not req then return false end   -- 11-23 ?? 级（首领）读不到等级：不写（原来写「读不到」，给设置开关腾内核内存）
+    local line = string.format(ns.L("GI: 剥皮需要 %d 技能", "GI: Skinning %d required"), req)
+        .. (r and string.format(ns.L("（你现在 %d）", " (you: %d)"), r) or "")
+    if not r then tt:AddLine(line, 1, 0.82, 0)
+    elseif r >= req then tt:AddLine(line, 0.25, 1, 0.4)
+    else tt:AddLine(line, 1, 0.35, 0.3) end
     tt.__gifSkin = true
     if tt.Show then tt:Show() end
     return true, line

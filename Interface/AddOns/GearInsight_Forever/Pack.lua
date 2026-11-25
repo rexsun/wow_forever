@@ -11,7 +11,7 @@ ns.Pack = _G.GIF_PACK        -- DataPack.lua 在 toc 里排在本文件前面（
 function ns.PackNote(name)
     local P = ns.Pack
     if not P or not P.notes or not name or name == "" then return nil end
-    local n = P.notes[name] or P.notes[name:lower()]
+    local n = ns.NameLookup and ns.NameLookup(P.notes, name) or P.notes[name] or P.notes[name:lower()]   -- 11-15 GI-266：繁体客户端台服名也查得到
     if not n then return nil end
     local text = ns.L(n.cn, n.en)
     if not text or text == "" then return nil end

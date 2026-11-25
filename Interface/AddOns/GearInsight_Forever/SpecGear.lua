@@ -79,7 +79,7 @@ function SG.Score(id, slot, cls, key, lv)
     local sp = SG.SpecInfo(cls, key)
     if not sp then return nil end
     local w, rating, f = sp.w, d.rating, SG.RatingFactor(lv)
-    local s = 0
+    local s, sd = 0, 0
     for k, v in pairs(st) do
         local r = rating[k]
         if r then
@@ -88,11 +88,13 @@ function SG.Score(id, slot, cls, key, lv)
             s = s + (w[k:sub(1, -2)] or 0) * v
         elseif k == "dps" then   -- 双持副手那把只打一半伤害（经典旧世规则）
             s = s + (w[slot == "远程" and "dps_r" or "dps_m"] or 0) * v * (slot == "副手" and 0.5 or 1)
+        elseif k:sub(1, 3) == "sd_" then   -- 单系法伤只算最值钱的一系（一次只打一个系）
+            sd = math.max(sd, (w[k] or 0) * v)
         else
             s = s + (w[k] or 0) * v
         end
     end
-    return s
+    return s + sd
 end
 
 -- 悬停用：这件对当前天赋最值钱的几项属性（中文名 + 数值）

@@ -1,0 +1,20 @@
+## Interface: 16001, 11507
+## Title: GearInsight |cff33ff99Forever|r - Mage
+## Title-zhCN: GearInsight |cff33ff99无限版|r · 法师专属
+## Notes: GearInsight Forever mage-only tools (Liminal teleport). Loads only on mages, the first time you open them (never in combat)
+## Notes-zhCN: GearInsight 无限版的法师专属功能（阈限传送：选目的地旅店 / 找人 / 用卷轴）：只有法师角色才加载，第一次打开时才加载（战斗中不加载）
+## Author: GearInsight
+## Version: 1.4.20
+## Dependencies: GearInsight_Forever
+## LoadOnDemand: 1
+## IconTexture: Interface\Icons\inv_misc_map_01
+
+# 11-20 用户新规「职业专属的只有这个职业才加载」：法师专属的代码 / 数据放这里，主插件 ClassStub.lua 只在法师角色上放占位页 / 命令，
+#   非法师连占位都不放、这里一个文件都不加载；每个文件头再挡一次（不是法师直接 return）。
+#   ⛔ 含安全按钮：战斗中不加载（LazyModule noCombat）。⛔ 文件头一律 ns = _G.GearInsightForever or ns。
+#   1.4.4 用户实测后解除 HOLD，登记进 gi_forever_tocfiles.MODULES：常规包里是独立文件夹；⛔ 合并包 / DD 包都不许并进主文件夹（会丢掉「只有法师加载」），DD 包不带
+
+# 11-20 GI-280 第二期：所有旅店老板的位置（scripts/gi_forever_liminal_inns.py 生成）
+LiminalInnData.lua
+# 11-16 GI-280 第一期从 GearInsight_Forever_Class 搬来：阈限传送页（最后一个文件，置就绪标记 ns._modReady.cmage）
+Liminal.lua

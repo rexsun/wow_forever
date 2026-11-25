@@ -1,0 +1,20 @@
+## Interface: 16001, 11507
+## Title: GearInsight |cff33ff99Forever|r - Quest lines
+## Title-zhCN: GearInsight |cff33ff99无限版|r · 任务线 / 门任务
+## Notes: GearInsight Forever quest line route window (sleeping bag) and gate quests (dungeon / raid keys and attunements); loads the first time you open a route
+## Notes-zhCN: GearInsight 无限版的任务线路线弹框（睡袋）和门任务（副本钥匙 / 调和）：第一次打开路线时才加载
+## Author: GearInsight
+## Version: 1.4.20
+## Dependencies: GearInsight_Forever
+## LoadOnDemand: 1
+## IconTexture: Interface\Icons\INV_Misc_Key_14
+
+# 11-23 用户「下一步在升级规划加入重要的门任务必做的任务，点击可以打开悬浮窗，任务追踪，跟睡袋一样」：
+#   路线大弹框从主插件 SideChains.lua 搬来（睡袋也用，⛔ 不 HOLD）；门任务数据 GateChainsData.lua + 清单 GateList.lua 在 HOLD（游戏实测后解除）。
+#   和 _Xp 一样：合并包 / 拆分包里都是独立文件夹；网易DD 包并进主文件夹（DD_FOLD）
+#   11-24 内核减肥：帐篷蹭露营的弹窗 / 求组 / 离队感谢 / /gi camp（CampAsk.lua）从主插件 Camp.lua 搬来，要弹窗 / 敲命令时才加载（⛔ 不 HOLD，已发布功能）
+#   ⛔ 这里的文件都晚于主插件加载：文件头一律 ns = _G.GearInsightForever or ns；最后一个文件 GateInit.lua 置就绪标记
+
+GatePop.lua
+CampAsk.lua
+GateInit.lua

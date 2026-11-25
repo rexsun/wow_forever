@@ -186,13 +186,6 @@ function LG.ConvertToRaid()
     return ok and "ok" or "fail"
 end
 
--- 建会助手（GuildInsight Found.lua，也在 HOLD）：装了就给一个按钮打开
-function LG.OpenFound()
-    local gi = _G.GuildInsight
-    if gi and gi.Found and SlashCmdList and SlashCmdList.GUILDINSIGHT then pcall(SlashCmdList.GUILDINSIGHT, "found"); return true end
-    ns.Print(L("签名：会长拿着公会登记表，同层的人挨个右键会长「签名」（装 GuildInsight 有建会助手）", "Signing: leader shows the charter, same-layer members sign"))
-    return false
-end
 
 LY.OnEvent("GUILD_ROSTER_UPDATE", function() LG.ReadRoster() end)
 LY.OnEvent("PLAYER_ENTERING_WORLD", function()
@@ -218,6 +211,15 @@ function LG.Bar()
     bar.text:SetPoint("LEFT", 8, 0); bar.text:SetJustifyH("LEFT")
     bar.close = ns.Button(bar, "×", 24, 20, function() LG.barHideUntil = now() + 600; bar:Hide() end)
     bar.close:SetPoint("RIGHT", -4, 0)
+    -- 11-17 用户「这些弹出的功能都确保能永久关闭」：× 照旧只收 10 分钟；右键提示条 = 永久不出（存档 layer.leadBar = false，位面页设置同一个键）
+    bar:SetScript("OnMouseUp", function(_, mb) if mb == "RightButton" then LG.CloseBarForGood() end end)
+    bar:SetScript("OnEnter", function(self)
+        if not GameTooltip then return end
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(L("× 收起 10 分钟  ·  右键永久关闭  ·  拖拽移动", "×: hide 10 min  ·  Right-click: close for good  ·  Drag: move"), 0.25, 0.9, 0.35, true)
+        GameTooltip:Show()
+    end)
+    bar:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
     bar.btn = ns.Button(bar, L("请会长拉我", "Ask to be pulled"), 100, 20, function()
         local r = LG.RequestPull()
         ns.Print(r == "sent" and L("已告诉会长，等他邀请（会长 / 官员的邀请会自动接受）", "Sent - wait for the invite")
@@ -228,8 +230,31 @@ function LG.Bar()
     return bar
 end
 LG.barHideUntil = -1e9
+function LG.BarOn() return not (ns.db and type(ns.db.layer) == "table" and ns.db.layer.leadBar == false) end
+function LG.SetBarOn(v)
+    if v then LY.DB().leadBar = nil else LY.DB().leadBar = false end
+    if not v and bar then bar:Hide() end
+end
+function LG.CloseBarForGood()
+    if GameTooltip then GameTooltip:Hide() end
+    LG.SetBarOn(false)
+    if ns.CloseHint then
+        ns.CloseHint("layerLeadBar", L("「你和会长不在同一层」提示条已永久关闭。找回：GI 菜单 → 窗口与提醒 → 会长不同层提示条，或位面页设置",
+            "Leader-layer bar closed for good. Bring it back: GI menu > Windows & alerts > Leader layer bar, or the Layers tab"))
+    end
+end
 function LG.UpdateBar()
+    -- 11-18 卡顿 / 内存：这条每秒跑一次，原来不管提示条能不能显示都先算「会长在哪层」（建全部在线 peer 的名单再排序）。
+    --   提示条只在开服集合口令频道开着时显示 → 没开集合频道时只做原来算的时候顺带的事：会阶不是 0 时清一遍过期 peer
+    --   （原来 LG.Leader 走 LY.Peers("guild") 会清；会阶 0 = 我就是会长，原来也不走那里），然后照旧收起提示条
+    if not LY.gather then
+        if LG.MyRank() ~= 0 then LY.Prune() end
+        if not LG.BarOn() then if bar then bar:Hide() end; return end
+        LG.Bar():Hide()
+        return
+    end
     local k, ref = LG.MyStatus()
+    if not LG.BarOn() then if bar then bar:Hide() end; return end
     local b = LG.Bar()
     -- 11-06 公会早建好了，练级时会长在哪层无所谓：「你和会长不在同一层」只在开服集合口令频道开着时提示
     if LY.gather and k == "other" and ref and now() >= LG.barHideUntil then
@@ -242,3 +267,15 @@ function LG.UpdateBar()
     end
 end
 LY.OnTick(function() if LY.DB().on then LG.UpdateBar() end end)
+
+-- 11-17「这些弹出的功能都确保能永久关闭」：右键关掉的提示条从设置页「窗口与提醒」找回（位面识别开着才有）
+if ns.RegisterWindow then ns.RegisterWindow({ key = "layerLeadBar", order = 76, title = function() return L("会长不同层提示条", "Leader layer bar") end,
+    avail = function() return LY.DB().on ~= false end,
+    state = function()
+        if not LG.BarOn() then return L("已关闭", "Closed") end
+        return L("开服集合时你和会长不在同一层才出", "Shows during guild gathering when you're not on the leader's layer")
+    end,
+    actions = function()
+        local on = LG.BarOn()
+        return { { text = on and L("关闭", "Turn off") or L("打开", "Turn on"), fn = function() LG.SetBarOn(not on) end } }
+    end }) end

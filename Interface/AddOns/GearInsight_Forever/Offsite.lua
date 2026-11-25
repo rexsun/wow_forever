@@ -99,6 +99,22 @@ local function classIcon(cls)
     if not cls or not CLASS_ICON[cls] then return "" end
     return "|TInterface\\Icons\\ClassIcon_" .. CLASS_ICON[cls] .. ":11:11:0:-1:64:64:4:60:4:60|t "
 end
+-- 11-16 用户截图「这里展示无限服更有视觉观感」：无限服区服名是「CN1 Realm 3 PvE」这种（前面可能带别的字，如 CAMWOW），
+--   拆成 大区 / 服号 / 类型 → 沙漏小图标 + 紫色「无限」+「1区3服」+ 类型色块（PvE 绿 / PvP 红 / RP 紫）；认不出的原样返回 nil
+local REALM_KIND = { PVE = "7fd67f", PVP = "ff6a5a", RP = "c79bff" }
+local function foreverRealm(realm)
+    if type(realm) ~= "string" then return nil end
+    local cn, n, kind = realm:match("CN(%d+)%s*Realm%s*(%d+)%s*(%a*)")
+    if not cn then return nil end
+    kind = (kind or ""):upper()
+    local kc = REALM_KIND[kind]
+    local tag = "|TInterface\\Icons\\Spell_Nature_TimeStop:11:11:0:-1:64:64:5:59:5:59|t" .. "|cffc79bff" .. ns.L("无限", "Forever") .. "|r "
+        .. "|cffe6dcb4" .. string.format(ns.L("%s区%s服", "CN%s-%s"), cn, n) .. "|r"
+        .. (kc and (" |cff" .. kc .. ((kind == "PVE" and "PvE") or (kind == "PVP" and "PvP") or "RP") .. "|r") or "")
+    local full = string.format(ns.L("无限服 · %s区 %s服", "Forever realm · CN%s realm %s"), cn, n) .. ((kind ~= "") and (" · " .. ((kind == "PVE" and "PvE") or (kind == "PVP" and "PvP") or kind)) or "")
+    return tag, full
+end
+ns.ForeverRealmTag = foreverRealm
 
 -- 一行：文字 + 右侧小字；可点 / 可悬停。返回新的 y
 local function line(c, y, w, text, opts)
@@ -179,12 +195,14 @@ function ns.NewsSupport(c, y, W)
             if amt ~= lastA or (cur or "CNY") ~= lastC then rank = i end
             lastA, lastC = amt, cur or "CNY"
             local lead = byRank and ((RANKC[rank] or DIM) .. rank .. "|r") or (DIM .. ((ts or ""):sub(6, 10):gsub("-", "/")) .. "|r")
+            local fvTag, fvFull = foreverRealm(realm)
             local who = classIcon(cls ~= "" and cls or nil) .. "|cff" .. classHex(cls ~= "" and cls or nil) .. (name or "?") .. "|r"
-                .. ((realm and realm ~= "") and (" " .. DIM .. trunc(realm, realm:byte(1) < 128 and 10 or 5) .. "|r") or "")   -- 英文区服名（Pandaren）给 10 个字母
+                .. ((fvTag and (" " .. fvTag))
+                    or ((realm and realm ~= "") and (" " .. DIM .. trunc(realm, realm:byte(1) < 128 and 10 or 5) .. "|r")) or "")   -- 英文区服名（Pandaren）给 10 个字母
             -- 10-19 名字随界面语言转写（Supporters.lua 末尾），原名在 rw[10]：悬停里带上，方便对上游戏里的角色
             local orig = (rw[10] and rw[10] ~= name) and (" (" .. rw[10] .. ")") or ""
             local tip = ((msg and msg ~= "") and ("“" .. msg .. "”\n") or "") .. (name or "") .. orig
-                .. ((realm and realm ~= "") and (" · " .. realm) or "") .. ((ts and ts ~= "") and ("\n" .. ts) or "")
+                .. ((realm and realm ~= "") and (" · " .. (fvFull and (fvFull .. "（" .. realm .. "）") or realm)) or "") .. ((ts and ts ~= "") and ("\n" .. ts) or "")
             yy = line(c, yy, W, lead .. "  " .. who, { x = x0, w = colW, oneline = true, tip = tip,
                 right = GOLD .. money(amt, cur) .. "|r" .. (((n or 1) > 1) and (DIM .. " " .. n .. ns.L("笔", "x") .. "|r") or "") })
         end

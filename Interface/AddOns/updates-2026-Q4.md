@@ -2,6 +2,50 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-24 - Update MapUtils and GearInsight Forever (OverlapSettingsGuard 0.23.0)
+
+- Update MapUtils 1.7.29 to 1.7.35 (forever build, [file 9799275](https://www.curseforge.com/wow/addons/maputils/files/9799275)) and GearInsight Forever 1.2.3 to 1.4.20 (beta channel, [file 9788605](https://www.curseforge.com/wow/addons/gearinsight-forever/files/9788605)), the two the day's automatic run held; both were approved after review. Every TOC lists Interface 16001; no SavedVariables declaration changed. MapUtils 1.7.36 and GearInsight 1.5.0 (beta) appeared later the same day and are not installed.
+- GearInsight 1.4.20 adds six load-on-demand folders: `GearInsight_Forever_Bag`, `_ClassHunter`, `_ClassMage`, `_Gate`, `_LayerUI` and `_Xp`. `_GroupMage` and `_GroupUI` no longer depend on `_Group`. `Trash.lua` moved from the main folder into `_Bag`, so the main folder's copy was removed. `_ClassHunter` loads at login on every Hunter, with no switch for the module.
+- CharacterUIBaseline 0.4.1: `QuietLogin.lua` sets `MAUTTAB.PRESETSHOWN = true`, creating `MAUTTAB` when MapUtils loads without saved settings and setting it again at `PLAYER_LOGIN` after MapUtils marks first use. MapUtils 1.7.35's map preset dialog therefore no longer opens by itself on an account without MapUtils settings; `/maputils preset` still opens it. GearInsight 1.4 publishes its What's New table only after its own load; the existing `PLAYER_LOGIN` pass still marks the version seen before its 4-second timer (new test).
+- Guard: ten new early rules, 67 in total; `gi.buffask` extended.
+  - `gi.buffask` now also writes `buffAsk.dmode = "off"` and `buffAsk.ss = false`. 1.4 reads a saved `dmode` (off/ask/auto) before `auto`, so `auto = false` alone no longer stops a dungeon ask or post once `dmode` is saved. Its new soulstone reminder loads `GearInsight_Forever_GroupMage` from the Group module, bypassing `gi.magewater`. `BuffAsk.SetDMode` is hooked.
+  - While YUI loads:
+    - `gi.tradereceipt` (`ui.tradeReceipt`): whispers your trade partner the items and gold exchanged after every trade.
+    - `gi.mounttrinket` (`mountTrinket`, `mtBtn.hide`): equips Carrot on a Stick on mount, swaps back on dismount, and shows a carrot icon even with the swap off.
+    - `gi.auraremind` (`auraRemind.on`): Paladin no-aura bar with a secure cast button.
+    - `gi.ammoremind` (`ammoRemind.on`): Hunter ammo icon, raid-warning text and a sound on every capital entry, plus vendor and top-up buttons. YUI's Forever HUD already shows the equipped ammo count.
+    - `gi.xpprep` (`xpcheck.prep`): departure checklist that opens when rested in a city or inn, including at login.
+    - `gi.selljunk` (`sellJunk.panel`, `sellJunk.auto`): sell-junk panel at every merchant. Automatic selling is already off by default and stays off.
+  - While MapUtils loads: `gi.dungeonnav` (`dnav.on`), a dungeon guide that opens by itself in every dungeon, including at login inside one.
+  - While Auctionator loads:
+    - `gi.auctionpricetip` (`sellJunk.ahTip`): auction-versus-vendor line in item tooltips.
+    - `gi.profshopping` (`prof.quick`, `prof.btn`): profession shopping list and button at merchants and the auction house.
+  - While Bagnon loads: `gi.bagbuttons` (`bagButtons.show`), clean-up and sell-junk buttons on the bag frames.
+  - Hooked: `SetFeature` (the feature centre that can switch any of these back on), `TradeReceipt.SetOn`, `AuraRemind.SetOn`, `AmmoRemind.SetOn`, `DungeonNav.SetEnabled`, `SellCfg.SetOpt` and `BagButtons.SetOpt`.
+  - The previous rules' keys and functions are unchanged. `Keys.lua`, `KeysHud.lua` and `KeysKb.lua` are byte-identical. 1.4 adds no one-time migration that overwrites a stored `false`. New in 1.4, GearInsight switches `autoHelp`, `autoAccept` and `autoLeave` on while they are nil for members of a guild named "Gearinsight"; the guard's stored `false` values prevent that.
+  - The four upstream lines the v1 source test anchors on were reworded and re-anchored: `Layer.SyncPub`, `LayerHop` auto-help and auto-leave, and `BuffAsk.AutoOn`.
+  - GearInsight 1.4 added an off switch for its skinning tooltip line (`ui.skinTip`). `euife.skinningskill` keeps GearInsight as the owner, and its test now checks the switch.
+- Local patches: all 27 reapply unchanged. The MapUtils fade-patch anchor did not move.
+- Overlap review, no further rule needed:
+  - MapUtils 1.7.30-1.7.35: quest status on quest-item tooltips (`QUESTITEMTOOLTIP`, on; no other installed addon adds it), a collapsible instance-map floor panel, coloured turn-in pins and gamepad guards. Picking a map preset by hand can switch on world map fade and friends on the map; the guard turns its guarded keys back off at the next reload.
+  - GearInsight 1.4, left on:
+    - 60 BiS rank tooltip line (`ui.bisTip`).
+    - A popup after casting a tent offering to announce it; posting is click-only.
+    - Hunter beast-ability tooltips (`feat.beasttip`) and taming records (`feat.obs`; no messages sent).
+    - Once-per-login bags-full chat tip.
+    - A "GI · WCL talents" button on the talent frame.
+    - Deliberate typos in buff and water requests you send yourself (`dchat.rec.askTypo`).
+  - GearInsight 1.4, click-only:
+    - Item deletion, ammo and profession purchases, Mage portal-finder invites, layer requests and AutoBuff key binding (AutoBuff is off by default).
+  - GearInsight 1.4 adds no new CVar, binding or action-bar writes outside `AutoBuff`.
+- Backup: `addon-backups/daily-20261124-130010` (taken by the day's automatic run) holds MapUtils 1.7.29, GearInsight 1.2.3 and the 0.22.0 guard, which were unchanged since.
+- Verification:
+  - 3,079 Lua files under AddOns compile under Lua 5.1.
+  - Installed files match the releases except the patched `MapUtils/mapframe.lua`.
+  - 102 guard tests pass: 6 new for the 1.4 rules (failing before the change), and the v1 and skinning tests updated.
+  - 80 pytest tests, 30 baseline checks (2 new), the 18-profile compatibility test, the font test, the patch check (27 patches) and the adoption, sync, helper and watcher tests pass.
+  - Nothing was run in game or checked at the three supported resolutions.
+
 ## 2026-11-24 - Update three addon packages
 
 - Update YUI v365 to v367 (wclbox Forever download, extracted with GBK file names; `!YUI_Error` stays uninstalled), Auctionator 351 to 353 ([file 9797528](https://www.curseforge.com/wow/addons/auctionator/files/9797528)) and GatherLite 8.4.15 to 8.4.16 ([file 9770790](https://www.curseforge.com/wow/addons/gatherlite/files/9770790)). Every TOC still lists Interface 16001; no game-type load condition, dependency or SavedVariables declaration changed. YUI's Forever manifest adds `NativeInterface\SocialCompactView_Forever.lua` and `NativeInterface\SocialList_Forever.lua` and now loads `CharacterEquipmentInfo\ForeverTabs.lua` after `NativeInterface.lua`; new files load only after a full client restart. !BugGrabber, Bagnon, Details (only alpha builds since 15410.172), EllesmereUI, Lueur, Skinner and Waypoint UI were already current.

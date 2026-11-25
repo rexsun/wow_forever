@@ -93,7 +93,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
     ok(fe:find("EllesmereUI._GatherSkill = {", 1, true), "Forever Essentials publishes the feature API")
   end)
 
-  -- GearInsight has no switch for its skinning tooltip line, so only EUI's Skinning can give way.
+  -- GearInsight's skinning line is on unless ui.skinTip is false (1.4.x); it stays the owner, so EUI's Skinning gives way.
   test("GearInsight always adds the skinning skill line that Forever Essentials Skinning adds", function()
     local function ReadFile(path)
       local file = assert(io.open(path, "rb"))
@@ -107,7 +107,8 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf)
       "GearInsight hooks unit tooltips for skinning")
     ok(gi:find("UNIT_SKINNABLE_LEATHER", 1, true), "GearInsight finds the Skinnable line")
     local skinTip = gi:sub(gi:find("function P.SkinTip", 1, true), gi:find("table.insert(ns.modules", 1, true))
-    ok(not skinTip:find("db", 1, true) and not skinTip:find("Opt", 1, true), "GearInsight still has no skinning switch")
+    ok(skinTip:find("not P.SkinTipOn()", 1, true), "GearInsight's skinning line has its own switch")
+    ok(gi:find("return not (ns.db and ns.db.ui and ns.db.ui.skinTip == false)", 1, true), "GearInsight's skinning line is on by default")
     local fe = ReadFile(addons .. "EllesmereUIForeverEssentials/EllesmereUIForeverEssentials_GatherSkill.lua")
     ok(fe:find('not (F.Enabled() and F.Get("skinning"))', 1, true), "Forever Essentials Skinning reads its own switch")
     ok(fe:find("TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, OnUnitTooltip)", 1, true),

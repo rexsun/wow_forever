@@ -41,7 +41,7 @@ function LR.On() return not (ns.db and ns.db.ui and ns.db.ui.lowRank == false) e
 function LR.WhisperOn() return not (ns.db and ns.db.ui and ns.db.ui.lowRankW == false) end
 function LR.SetOn(v) if ns.db then if v then ui().lowRank = nil else ui().lowRank = false end end end
 function LR.SetWhisper(v) if ns.db then if v then ui().lowRankW = nil else ui().lowRankW = false end end end
-LR.DEFAULT_TAG = "[GI技能提醒]"
+LR.DEFAULT_TAG = ""   -- 11-19 用户「私聊默认都不带前缀」：默认不带（原「[GI技能提醒]」）；自己设了前缀照旧带
 function LR.Tag()
     local t = ns.db and ns.db.ui and ns.db.ui.lowRankTag
     if type(t) ~= "string" then return LR.DEFAULT_TAG end
@@ -55,6 +55,7 @@ function LR.SetTag(v)
 end
 local function withTag(msg)
     local t = LR.Tag()
+    if t == LR.DEFAULT_TAG then t = ns.ChatL(t, "[GI rank tip]") end   -- 11-19 默认前缀跟对外说话语言；自己改过的原样
     return t ~= "" and (t .. " " .. msg) or msg
 end
 function LR.PartyOn() return not (ns.db and ns.db.ui and ns.db.ui.lowRankP == false) end
@@ -130,7 +131,8 @@ local function inPvp()
 end
 local function groupUnit(u) return u == "player" or (type(u) == "string" and (u:match("^party%d+$") or u:match("^raid%d+$"))) end
 local function spellText(id, n)
-    local link = GetSpellLink and GetSpellLink(id)
+    local f = GetSpellLink or (C_Spell and C_Spell.GetSpellLink)   -- 11-19 新客户端可能只有 C_Spell.GetSpellLink
+    local link = f and f(id)
     return (type(link) == "string" and link ~= "") and link or ("【" .. n .. "】")
 end
 
@@ -184,24 +186,30 @@ local function cut255(msg)
 end
 LR.Cut255 = cut255
 
+-- 11-19 发给别人的技能名：对外语言和客户端一样 → 客户端名；对外英文但客户端是中文（数据里只有中文名）→ 技能链接（[名字] 仍是客户端语言，拿不到才退回中文名）
+local function chatSpell(s)
+    if ns.ChatLang() == "en" and ns.clientZh then return spellText(s.id, s.n) end
+    return "【" .. ns.ChatName(s.n, nil, s.id, "spell") .. "】"
+end
 local function spellList(p)
     local parts = {}
+    local CL = ns.ChatL
     for i, s in ipairs(p.list) do
         if i > 3 then break end
-        parts[#parts + 1] = string.format(L("【%s】%d级（能学%d级了）", "[%s] rank %d (rank %d available)"), s.n, s.r, s.best)
+        parts[#parts + 1] = string.format(CL("%s%d级（能学%d级了）", "%s rank %d (rank %d available)"), chatSpell(s), s.r, s.best)
     end
-    return table.concat(parts, L("、", ", "))
+    return table.concat(parts, CL("、", ", "))
 end
 
 function LR.Message(p)
-    local msg = withTag(L("友情提醒：你刚才用的 ", "Friendly heads-up: you just used ")) .. spellList(p)
-        .. L("，去训练师学一下，再把动作条上的换成新的就好～打扰啦", ". Visit your trainer and update your action bar. Sorry to bother!")
+    local msg = withTag(ns.ChatL("友情提醒：你刚才用的 ", "Friendly heads-up: you just used ")) .. spellList(p)
+        .. ns.ChatL("，去训练师学一下，再把动作条上的换成新的就好～打扰啦", ". Visit your trainer and update your action bar. Sorry to bother!")
     return cut255(msg)
 end
 
 -- 队伍频道点名
 function LR.PartyMessage(p)
-    return cut255(withTag(string.format(L("%s 刚才用的 %s，记得去训练师学一下、换上新的～", "%s just used %s - time to visit the trainer!"), p.short or p.name, spellList(p))))
+    return cut255(withTag(string.format(ns.ChatL("%s 刚才用的 %s，记得去训练师学一下、换上新的～", "%s just used %s - time to visit the trainer!"), p.short or p.name, spellList(p))))
 end
 
 local function groupChannel()

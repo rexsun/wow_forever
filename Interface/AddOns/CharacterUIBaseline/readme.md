@@ -1,6 +1,6 @@
 # CharacterUIBaseline
 
-Version 0.4.0, Interface 16001. Synchronizes the configured source character's supported UI baseline on every other character's login or UI reload, moves characters off Blizzard's preset Edit Mode layouts to the account layout `rex`, and keeps setup, guide and what's-new windows from opening by themselves at login. A session gate prevents repeated application on zone transitions. Upstream addon files are unchanged.
+Version 0.4.1, Interface 16001. Synchronizes the configured source character's supported UI baseline on every other character's login or UI reload, moves characters off Blizzard's preset Edit Mode layouts to the account layout `rex`, and keeps setup, guide and what's-new windows from opening by themselves at login. A session gate prevents repeated application on zone transitions. Upstream addon files are unchanged.
 
 The layout switch and the login quieting need no source configuration, so they also run on installations without `Source.local.lua`, such as GitHub-synced ones.
 
@@ -52,14 +52,15 @@ Targets apply the latest matching source publication, or the generated fallback,
 | YUI | Changelog notice after an update | The new version is recorded as seen; the Changelog settings page still lists it. |
 | EllesmereUI | First-install module picker and style picker (fresh account), incompatible-add-on popup | `firstInstallPopupShown` set, pending pickers cleared, `_EUI_ConflictCheckRan` set. Overlaps are covered by OverlapSettingsGuard. |
 | GearInsight | Leveling window (per character below level 60) | Hidden and recorded per character while YUI loads, the condition of guard rule `gi.levelingstats`, so the guard no longer announces it. `/gif lv` reopens it. |
-| GearInsight | What's New after an update | The version is recorded as seen. |
+| GearInsight | What's New after an update | The version is recorded as seen. GearInsight 1.4 publishes it only after its own load, so the `PLAYER_LOGIN` pass catches it before its 4-second timer. |
 | Details | Welcome wizard on an account's first Details run | The first call is skipped; the rest of the first-run setup still runs. |
 | GatherLite | Controls guide on an account's first run | `controlsGuideSeen` is set. |
 | MapUtils | What's New after an update | `MAUTTAB.WHATSNEW.enabled = false` ("Show what's new" off). |
+| MapUtils | Map preset dialog (1.7.35+, an account without MapUtils settings) | `MAUTTAB.PRESETSHOWN = true`, creating `MAUTTAB` when MapUtils loads without saved settings; set again at `PLAYER_LOGIN` after MapUtils marks first use. `/maputils preset` and the settings button still open it. |
 | Bagnon | Outdated-version popup | `Bagnon_Sets.latest.cooldown` is held at the maximum time. |
 | Blizzard | Help tips (`closedInfoFrames`, per character) and account tips (`closedInfoFramesAccountWide`) | Every `LE_FRAME_TUTORIAL_*` bit is marked closed; `showTutorials` is set to `0` when the client has it at `1`. |
 
-The Details profile picker, Auctionator, WaypointUI, Lueur and Skinner open nothing at login with this pack. Left unchanged: Bagnon's "invalid build" popup (only on an unsupported client build), GatherLite's login chat line and BugGrabber's chat reminder (chat text, not windows).
+The Details profile picker, Auctionator, WaypointUI, Lueur and Skinner open nothing at login with this pack. GearInsight 1.4's departure checklist (rested in a city or inn), dungeon guide (inside a dungeon), Paladin aura bar and Hunter ammo alerts can appear right after login; OverlapSettingsGuard writes their switches off before login (`gi.xpprep`, `gi.dungeonnav`, `gi.auraremind`, `gi.ammoremind`), so they are not repeated here. Left unchanged: Bagnon's "invalid build" popup (only on an unsupported client build), GatherLite's login chat line and BugGrabber's chat reminder (chat text, not windows).
 
 ## Exact scope and exclusions
 

@@ -8,6 +8,8 @@
 -- ⛔ 每一样读取都包 pcall：哪个接口在《无限》客户端没有 / 报错，就当这一项没有，Build 本身永远不炸。
 -- ⛔ HOLD（_hold.txt）：没在游戏里实测前不进发行包。
 local _, ns = ...; ns = _G.GearInsightForever or ns
+-- 11-17 界面重构第 6a 期：功能开关「report」—— 正文包成函数交给 ns.FeatureDefer（合并打包时这个文件在主插件 toc 里，开头 return 读不到存档；正文没缩进是为了不动原有行）
+local function body()
 
 local R = {}
 ns.Report = R
@@ -422,3 +424,5 @@ end
 ns.ExtraSlash = ns.ExtraSlash or {}
 ns.ExtraSlash.report = function() R.Show() end
 ns.ExtraSlash["报告"] = ns.ExtraSlash.report
+end
+if ns.FeatureDefer then ns.FeatureDefer("report", body) else body() end

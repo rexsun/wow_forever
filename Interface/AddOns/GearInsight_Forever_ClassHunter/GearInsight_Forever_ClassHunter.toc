@@ -1,0 +1,23 @@
+## Interface: 16001, 11507
+## Title: GearInsight |cff33ff99Forever|r - Hunter
+## Title-zhCN: GearInsight |cff33ff99无限版|r · 猎人专属
+## Notes: GearInsight Forever hunter-only crowdsourcing (pet taming results, beast abilities, Beast Training costs). Loads only on hunters
+## Notes-zhCN: GearInsight 无限版的猎人专属众包（驯服结果 / 野兽会放的技能 / 训练野兽的训练点）：只有猎人角色才加载
+## Author: GearInsight
+## Version: 1.4.20
+## Dependencies: GearInsight_Forever
+## LoadOnDemand: 1
+## IconTexture: Interface\Icons\Ability_Hunter_BeastTaming
+
+# 11-20 用户「加强猎人宠物BB技能的众包」+ 硬规「职业专属的只有这个职业才加载」：
+#   主插件 ClassStub.lua 只在猎人角色、众包观测开着时登录 LoadAddOn 这里；非猎人一个文件都不加载。每个文件头再挡一次（不是猎人直接 return）。
+#   ⛔ 文件头一律 ns = _G.GearInsightForever or ns。⛔ 合并包 / DD 包都不许并进主文件夹（gi_forever_pack.CLASS_ONLY），DD 包不带。
+
+# 驯服结果 tm（11-20 从主插件 ObsPet.lua 搬来，1.4.4 起已在采，格式不变）
+HunterTame.lua
+# 野兽施法 bc（11-21 1.4.7 解除 HOLD） / 训练野兽 bt·bp / 驯服结果补强（排除兽栏老宠物、攻速、宠物等级）/ 探针
+HunterObs.lua
+# 11-21 用户「LR宝宝对应野兽TOOLTIP显示可以学的技能等级」（HOLD）：鼠标指向野兽 → 提示里「驯服可学：技能（等级 N）」；
+#   BeastTipData.lua = _Class 的 PetTameData 抽出的 npcID 索引（scripts/gi_forever_beast_tip_build.py 生成，约 6 KB，不为提示加载 _Class）
+BeastTipData.lua
+BeastTip.lua

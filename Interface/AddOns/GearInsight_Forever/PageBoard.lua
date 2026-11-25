@@ -202,6 +202,24 @@ local function build(p)
     bAll:SetSize(130, 24); bAll:SetPoint("LEFT", bReq, "RIGHT", 8, 0)
     p._bdBug, p._bdReq, p._bdAll = bBug, bReq, bAll
     local top = y0 - 30
+    -- 11-15 用户「提BUG和需求…里面加上支持链接」「写上开发耗时费力，请大家支持我们走下去」：
+    --   支持按钮 + 一句话（复制支持页链接，插件不能开浏览器）；网易DD 专用包不带 Supporters.lua（不许引导捐赠）→ ns.SUPPORTERS 为空就不出
+    if ns.SUPPORTERS then
+        local bSup = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
+        if ns.SkinButton then ns.SkinButton(bSup) end
+        bSup:SetSize(110, 24); bSup:SetPoint("LEFT", bAll, "RIGHT", 8, 0); bSup:SetText(ns.L("支持我们", "Support us"))
+        bSup:SetScript("OnClick", function()
+            ns.ShowBoardLink(ns.L("支持我们：复制链接，用浏览器打开", "Support us: copy this link and open it in your browser"),
+                SITE .. "/wow/en/supporters",
+                ns.L("插件永久免费；开发耗时费力，请大家支持我们走下去。支持完全自愿，不换任何功能。", "The addon is free forever. Development takes a lot of time and effort - your support keeps us going. It's entirely voluntary and unlocks nothing."))
+        end)
+        local sl = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        sl:SetPoint("TOPLEFT", 14, y0 - 30); sl:SetWidth(620); sl:SetJustifyH("LEFT")
+        sl:SetText(ns.L("插件永久免费；开发耗时费力，请大家支持我们走下去（点「支持我们」复制支持页链接）",
+            "The addon is free forever. Development takes a lot of time and effort - please support us to keep it going (click \"Support us\")"))
+        p._bdSup, p._bdSupLine = bSup, sl
+        top = y0 - 48
+    end
     local CW = 620
     local sf = ns.Scroll(p, 4, top, 646, 474 + top - 6)
     p.sf = sf

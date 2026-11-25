@@ -9,7 +9,29 @@ local CLASS_COLOR = { Warrior = "c79c6e", Paladin = "f58cba", Hunter = "abd473",
 local ST_COLOR = { new = { 0.2, 1, 0.4 }, changed = { 1, 0.82, 0.2 }, moved = { 0.4, 0.7, 1 }, same = { 0.45, 0.45, 0.45 } }
 local CELL, GAP = 40, 12
 
-local S = { cls = nil, pts = nil, path = nil, plan = nil, noAuto = {} }
+local S = { cls = nil, pts = nil, path = nil, plan = nil, noAuto = {}, wcl = nil }
+
+-- 11-23 重构 P2「WCL 热门」：TalentWclData.lua（scripts/gi_forever_talents_wcl.py 生成，forever WCL 60 级 51 点角色）按职业现解
+--   → { { spec, specCn, n 样本, tree 主系, rec 推荐码正文, recN 推荐同款人数, diff 和最热门差几点, top = { { code, n }, … } }, … }；没数据（HOLD 没进包）= nil
+local wclCache = {}
+function ns.TalentWclSpecs(cls)
+    local D = ns.TalentWclData
+    if not (cls and type(D) == "table" and type(D.d) == "string") then return nil end
+    if wclCache[cls] ~= nil then return wclCache[cls] or nil end
+    local out = {}
+    for line in D.d:gmatch("[^\r\n]+") do
+        local f = {}
+        for v in (line .. "\t"):gmatch("([^\t]*)\t") do f[#f + 1] = v end
+        if f[1] == cls then
+            local top = {}
+            for code, n in (f[9] or ""):gmatch("([^,;]+),(%d+)") do top[#top + 1] = { code = code, n = tonumber(n) } end
+            out[#out + 1] = { spec = f[2], specCn = f[3], n = tonumber(f[4]) or 0, tree = tonumber(f[5]) or 1,
+                rec = f[6], recN = tonumber(f[7]) or 0, diff = tonumber(f[8]) or 0, top = top }
+        end
+    end
+    wclCache[cls] = #out > 0 and out or false
+    return wclCache[cls] or nil
+end
 -- 10-07 用户截图「怎么没有默认配点路径？」：天赋页打开时这个职业一点没点 → 自动载入本职业默认升级加点（DefaultBuilds.lua），
 --   每个点了的天赋右上角标「第几级开始点」，悬停写「第 10–14 级点这里（5 点）」；自己动了点就不再标（顺序不作数了）；
 --   「清空」之后本次不再自动载入；底部「默认路线」随时一键恢复
@@ -96,6 +118,35 @@ local function planWinBtn()
     else b:Hide() end
 end
 ns._TalentPlanWinBtn = planWinBtn   -- 测试用
+-- 11-23 用户截图「这里展示不对」：顶栏右侧几个按钮都是各自建的（本页设置 Settings.lua、训练师可学 TrainNow.lua、WCL 这里），
+--   以前各锚各的 → 训练师按钮（TOPRIGHT -108）和 WCL 按钮叠在一起、副标题被挤。每次刷新从右往左排一遍：
+--   本页设置 · WCL 热门天赋 · 训练师可学 · 副标题；按钮限宽、字超长省略，副标题单行省略 → 任何宽度都不叠
+--   （TrainNow 的 paintBtn 之后会把副标题右端锚到训练师按钮左边 —— 训练师按钮本来就排在最左，一致）
+local function layoutHead()
+    local p = page
+    if not p then return end
+    local left = rawget(p, "_setBtn")
+    local function put(b, w)
+        b:SetWidth(w)
+        local ok, fs = pcall(b.GetFontString, b)
+        if ok and fs then fs:SetWidth(w - 12); fs:SetWordWrap(false) end
+        b:ClearAllPoints()
+        if left then b:SetPoint("RIGHT", left, "LEFT", -6, 0) else b:SetPoint("TOPRIGHT", p, "TOPRIGHT", -8, -7) end
+        left = b
+    end
+    -- 11-23 用户截图「选不了其他排名了」：右键菜单没人发现 → WCL 按钮右边加「▼」，左键点它就是选专精 / 热门 #2 #3 / 推荐
+    if p.wclArrow then p.wclArrow:SetShown(p.wclBtn and p.wclBtn:IsShown()) end
+    if p.wclArrow and p.wclArrow:IsShown() then put(p.wclArrow, 22); left = p.wclArrow end
+    if p.wclBtn and p.wclBtn:IsShown() then put(p.wclBtn, 116) end
+    local TN = ns.TrainNow
+    local tb = TN and TN._Btn and TN._Btn()
+    if tb and rawequal(select(2, pcall(tb.GetParent, tb)), p) then put(tb, 116) end
+    local sub = rawget(p, "_sub")
+    if sub then
+        sub:SetWordWrap(false)
+        if left then sub:SetPoint("RIGHT", left, "LEFT", -8, 0) end
+    end
+end
 local function refresh()
     -- 11-05 玩家「选了鸟德的天赋，天赋页还是野德的推荐」：天赋页第一次打开时就定了路线，之后点数投到别的系也不换
     --   → 自己职业、显示的是没动过的默认路线时，推荐方案变了（DefaultBuildKey 按投点最多的系）就换成新的
@@ -146,6 +197,11 @@ local function refresh()
             page.buildBtn:SetText((on and "|cffffd100" or "") .. ns.L("升级天赋选择：", "Leveling build: ") .. ns.L(dp.specCn or dp.spec or "", dp.spec or "") .. (on and "|r" or ""))
         end
     end
+    if page.wclBtn then
+        page.wclBtn:SetShown(ns.TalentWclSpecs(S.cls) ~= nil)
+        page.wclBtn:SetText(S.wcl and ("|cffffd100WCL：" .. S.wcl .. "|r") or ns.L("WCL 热门天赋", "WCL popular"))
+    end
+    layoutHead()
     page.code:SetText(ns.TalentCodeFromSim() or "")
     page.learn:SetEnabled(S.cls == myClass() and n > 0)
 end
@@ -154,7 +210,7 @@ ns.RefreshTalentSim = refresh
 local function setClass(cls)
     S.cls = cls
     S.pts = blank(cls)
-    S.path, S.plan = nil, nil
+    S.path, S.plan, S.wcl = nil, nil, nil
     ns.db.ui = ns.db.ui or {}
     ns.db.ui.simCls = cls
     if page then
@@ -203,6 +259,17 @@ function ns.LoadSimCode(code)
     return true   -- 导入的码只有最终配点、没有顺序：不标第几级
 end
 
+-- WCL 热门：把一套码载入模拟器（⛔ 只改模拟器，不动玩家天赋；要学照旧点「按这套逐点学」）
+function ns.LoadWclSim(cls, body, label)
+    local plan = ns.ParseTalentCode("GIF2." .. tostring(cls) .. "." .. tostring(body or ""))
+    if not plan or plan.cls ~= cls then return false end
+    S.noAuto[cls] = true   -- 本次不再被默认路线自动盖掉
+    setClass(cls)
+    S.pts, S.wcl = plan.pts, label
+    refresh()
+    return true
+end
+
 local function click(cell, btn)
     local ti, i, t = cell.ti, cell.i, cell.t
     local old = S.pts[ti][i]
@@ -215,7 +282,7 @@ local function click(cell, btn)
         S.pts[ti][i] = old + 1
         if not treeValid(ti) then S.pts[ti][i] = old end
     end
-    if S.pts[ti][i] ~= old then S.path = nil end   -- 自己动了点：默认路线的顺序不作数了，不再标第几级
+    if S.pts[ti][i] ~= old then S.path, S.wcl = nil, nil end   -- 自己动了点：默认路线的顺序不作数了，不再标第几级（WCL 那套也不算了）
     refresh()
 end
 
@@ -250,6 +317,20 @@ end
 local function build(p)
     page = p
     ns.PageHeader(p, ns.L("天赋", "Talents"), ns.L("和小程序 / 网站模拟器同一套配点码", "Same build codes as the site and mini program"))
+
+    -- 11-23 重构 P2：右上角「WCL 热门天赋」（数据没进包时不显示）
+    p.wclBtn = ns.Button(p, ns.L("WCL 热门天赋", "WCL popular"), 150, 20, function(self) ns.WclTop1(self) end)
+    if p.wclBtn.RegisterForClicks then p.wclBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
+    p.wclBtn:SetScript("OnClick", function(self, btn) GameTooltip:Hide(); if btn == "RightButton" then ns.ShowWclMenu(self) else ns.WclTop1(self) end end)
+    p.wclArrow = ns.Button(p, "▼", 22, 20, function(self) GameTooltip:Hide(); ns.ShowWclMenu(self) end)
+    p.wclArrow:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT"); GameTooltip:AddLine(ns.L("选别的专精 / 热门 #2 #3 / 推荐", "Other spec / #2 #3 / recommended"), 1, 0.82, 0); GameTooltip:Show()
+    end)
+    p.wclArrow:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    p.wclBtn:SetPoint("TOPRIGHT", -10, -7)
+    if p._sub then p._sub:SetPoint("RIGHT", p.wclBtn, "LEFT", -8, 0) end
+    p.wclBtn:SetScript("OnEnter", function(self) ns.WclTip(self, "ANCHOR_BOTTOMLEFT") end)
+    p.wclBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- 职业按钮
     p.classBtns = ns.ClassBar(p, -38, function(cls) showClass(cls) end)
@@ -445,6 +526,201 @@ function ns.ShowBuildMenu(anchor)
 end
 
 ns._BuildMenu = function() return menu end   -- 测试用
+
+-- 11-23 重构 P2「WCL 热门」菜单：本职业每个专精一组（标题 = 专精 · 样本），下面「推荐」+ 热门前 3（占比 · 人数），点一行载入模拟器
+local wmenu
+local function wclRows(cls)
+    local rows = {}
+    local mt = (cls == myClass()) and ns.MyMainTree and ns.MyMainTree() or nil
+    for _, s in ipairs(ns.TalentWclSpecs(cls) or {}) do
+        local name = ns.L(s.specCn, s.spec)
+        rows[#rows + 1] = { head = true, text = ((mt and s.tree == mt) and "|cffffd100" or "|cffcfcfcf") .. name .. "|r  |cff9a9a9a"
+            .. string.format(ns.L("样本 %d 人", "%d players"), s.n) .. "|r" }
+        -- 11-23 用户截图「默认直接换热门1」：热门 #1 排第一，推荐（逐格选取率）挪到最后
+        for k, b in ipairs(s.top) do
+            rows[#rows + 1] = { code = b.code, label = name .. "#" .. k, spec = s,
+                text = string.format(ns.L("热门 #%d  %.1f%%", "Popular #%d  %.1f%%"), k, s.n > 0 and 100 * b.n / s.n or 0)
+                    .. "  |cff9a9a9a" .. string.format(ns.L("%d 人在用", "%d players"), b.n) .. "|r" }
+        end
+        local recPct = s.n > 0 and (100 * s.recN / s.n) or 0
+        rows[#rows + 1] = { code = s.rec, label = name .. ns.L("·推荐", " rec"), spec = s, rec = true,
+            text = ns.L("推荐（逐格选取率）", "Recommended (per-talent)") .. "  |cff9a9a9a"
+                .. (s.diff == 0 and ns.L("= 最热门", "= most popular") or string.format(ns.L("和最热门差 %d 点", "%d pts from top"), s.diff))
+                .. (s.recN > 0 and string.format(ns.L(" · 同款 %.1f%%", " · %.1f%% exact"), recPct) or "") .. "|r" }
+    end
+    return rows
+end
+ns._WclRows = wclRows   -- 测试用
+-- WCL 按钮悬停提示（天赋页右上角的按钮、游戏天赋窗上的「GI WCL 天赋」共用）
+function ns.WclTip(self, where)
+    local D, T = ns.TalentWclData or {}, GameTooltip
+    T:SetOwner(self, where)
+    T:AddLine(ns.L("GI · WCL 热门天赋（60 级）", "GI · WCL popular builds (level 60)"), 1, 0.82, 0)
+    T:AddLine(string.format(ns.L("数据来自 WCL 全球 60 级排行：%s 至 %s\n共 %d 份日志，只算天赋点正好 51 的角色",
+        "WCL level-60 rankings worldwide: %s-%s, %d logs, exactly 51 points"),
+        tostring(D.from or "?"), tostring(D.to or "?"), D.reports or 0), 1, 1, 1, false)   -- 11-23 截图：自动折行时提示框太窄、一句折成四五行 → 手动换行、不自动折
+    T:AddLine(ns.L("左键：在 GI 天赋页直接载入热门 #1（按你天赋点最多那系的专精）\n右键或旁边「▼」：选别的专精 / 热门 #2 #3 / 推荐（逐格选取率）",
+        "Left: Popular #1 for your main spec\nRight: other spec / #2 #3 / recommended"), 0.2, 1, 0.6, false)
+    T:AddLine(ns.L("只是在 GI 里模拟显示，不会改你的天赋，要自己去点", "Simulator only - your talents are not changed"), 1, 0.6, 0.3, false)
+    T:Show()
+end
+-- 11-23 用户「默认直接换热门1」：按钮左键 = 直接载入热门 #1（看自己职业 = 我天赋点最多那系的专精；看别的职业 = 样本最多的专精）；右键 = 菜单
+function ns.WclTop1Spec(cls)
+    local specs = cls and ns.TalentWclSpecs(cls)
+    if not specs then return nil end
+    local mt = (cls == myClass()) and ns.MyMainTree and ns.MyMainTree() or nil
+    local pick
+    for _, s in ipairs(specs) do if mt and s.tree == mt and s.top[1] then pick = s end end
+    if not pick then for _, s in ipairs(specs) do if s.top[1] and (not pick or s.n > pick.n) then pick = s end end end
+    return pick
+end
+-- cls 不传 = 天赋页当前看的职业；游戏天赋窗上的「GI WCL 天赋」按钮传自己的职业
+function ns.WclTop1(anchor, cls)
+    cls = cls or S.cls
+    local s = ns.WclTop1Spec(cls)
+    if not s then return ns.ShowWclMenu(anchor, cls) end
+    return ns.LoadWclSim(cls, s.top[1].code, ns.L(s.specCn, s.spec) .. "#1")
+end
+
+function ns.ShowWclMenu(anchor, cls)
+    cls = cls or S.cls
+    if not cls or not ns.TalentWclSpecs(cls) then return end
+    if not wmenu then
+        wmenu = CreateFrame("Frame", "GearInsightForeverWclMenu", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+        wmenu:SetFrameStrata("DIALOG"); wmenu:SetClampedToScreen(true); wmenu:EnableMouse(true)
+        if wmenu.SetBackdrop then
+            wmenu:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12,
+                insets = { left = 3, right = 3, top = 3, bottom = 3 } })
+            wmenu:SetBackdropColor(0.05, 0.05, 0.06, 0.97)
+        end
+        wmenu.rows = {}
+        if UISpecialFrames then table.insert(UISpecialFrames, "GearInsightForeverWclMenu") end
+    end
+    for _, r in ipairs(wmenu.rows) do r:Hide() end
+    local list = wclRows(cls)
+    for k, it in ipairs(list) do
+        local r = wmenu.rows[k]
+        if not r then
+            r = CreateFrame("Button", nil, wmenu)
+            r:SetSize(300, 20)
+            r.t = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); r.t:SetPoint("LEFT", 8, 0); r.t:SetPoint("RIGHT", -6, 0)
+            r.t:SetJustifyH("LEFT"); r.t:SetWordWrap(false)
+            r.hl = r:CreateTexture(nil, "HIGHLIGHT"); r.hl:SetAllPoints(); r.hl:SetColorTexture(1, 1, 1, 0.08)
+            r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            wmenu.rows[k] = r
+        end
+        r.it = it
+        r.t:SetText(ns.EnSafe((it.head and "" or "    ") .. it.text))
+        r:EnableMouse(not it.head)
+        r:SetScript("OnClick", not it.head and function(self)
+            if ns.LoadWclSim(wmenu._for, self.it.code, self.it.label) then wmenu:Hide() end
+        end or nil)
+        r:SetScript("OnEnter", not it.head and function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(self.it.label, 1, 0.82, 0)
+            GameTooltip:AddLine(ns.L("点一下载入模拟器（不改你的天赋）", "Click to load into the simulator (your talents are not changed)"), 0.2, 1, 0.6, true)
+            if self.it.rec then
+                GameTooltip:AddLine(ns.L("每个天赋格按「点了的人数比例」从高到低挑，守行解锁和前置，点满 51 点", "Each talent taken by share of players, highest first, within row and prerequisite rules, filled to 51"), 0.8, 0.8, 0.8, true)
+            end
+            GameTooltip:Show()
+        end or nil)
+        r:ClearAllPoints(); r:SetPoint("TOPLEFT", 4, -4 - (k - 1) * 20)
+        r:Show()
+    end
+    wmenu:SetSize(308, 8 + #list * 20)
+    wmenu:ClearAllPoints(); wmenu:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -2)
+    wmenu:SetShown(not wmenu:IsShown() or wmenu._for ~= cls)
+    wmenu._for = cls
+end
+ns._WclMenu = function() return wmenu end   -- 测试用
+
+-- 11-23 用户截图游戏天赋窗「GI WCL天赋可以直接挂到这里吗放到上面天赋模拟旁边」：
+--   天赋窗（Talents.lua TF_NAMES 那几个，ns.HookTalentFrame 挂钩时顺带调这里）顶上「天赋模拟」页签右边挂「GI WCL 天赋」。
+--   页签是别的插件加的、可能晚于窗口建：每次窗口显示都重新找一次（窗口下层控件里文字是「天赋模拟」的那个控件），找不到就放窗口左上（头像右边）。
+--   ⛔ 普通按钮（不是安全按钮）：只打开 GI 天赋页、载入模拟器，不碰玩家天赋；不往别人的框体上写字段（按钮记在自己的弱表里）
+-- 11-23 用户截图：按钮落在回退位置（左上，压在「主要」页签上方）—— 旧版深度优先搜、上限 800 个节点，
+--   天赋窗里三棵树几十个天赋格（每格好几个贴图）先把额度吃光，根本没搜到顶上的页签。
+--   现在：广度优先（页签离窗口近）、上限 4000；文字先剥 |T..|t 图标 / |A..|a / |c 颜色 / |r / 空白再 find（子串，不是前缀）；
+--   认 Button:GetText 和所有 FontString；窗口显示后 0.1 / 0.5 / 1.5 秒重找。
+--   ⛔ 别对中文 :lower()（按字节 tolower 会改坏 UTF-8）
+local function isSim(o)
+    local ok, t = pcall(o.GetText, o)
+    if not ok or type(t) ~= "string" or (issecretvalue and issecretvalue(t)) then return end
+    t = t:gsub("|T.-|t", ""):gsub("|A.-|a", ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("%s+", "")
+    return t:find("天赋模拟", 1, true) or t:find("天賦模擬", 1, true) or t:find("TalentSim", 1, true)
+end
+local function typ(o) local ok, t = pcall(o.GetObjectType, o); return ok and type(t) == "string" and t or "" end
+-- 这个框自己或它的文字 region 是「天赋模拟」→ 返回页签（文字直接挂在窗口上时返回那个 FontString；文字在页签按钮的子框上 → 返回页签按钮）
+local function simIn(f, tf)
+    local hit = f ~= tf and isSim(f) and f
+    if not hit then
+        local rs = { pcall(f.GetRegions, f) }
+        for i = 2, #rs do if isSim(rs[i]) then hit = f ~= tf and f or rs[i]; break end end
+    end
+    local ok, par = pcall(f.GetParent, f)
+    if hit == f and ok and type(par) == "table" and par ~= tf and typ(par):find("Button") and not typ(f):find("Button") then return par end
+    return hit
+end
+local function findSim(tf)
+    local q, h = { tf }, 1
+    while q[h] and h <= 4000 do
+        local f = q[h]; q[h] = false; h = h + 1
+        local hit = simIn(f, tf)
+        if hit then return hit end
+        local cs = { pcall(f.GetChildren, f) }
+        for i = 2, #cs do q[#q + 1] = cs[i] end
+    end
+end
+local simTabs = setmetatable({}, { __mode = "kv" })   -- [窗口] = 找到的页签（还是那个文字就不重找）
+local function placeWclBtn(b, tf)
+    local tab = simTabs[tf]
+    if not (tab and simIn(tab, tf)) then tab = findSim(tf); simTabs[tf] = tab end
+    local _, h = pcall(tab and tab.GetHeight, tab)
+    local _, lv = pcall(tab and tab.GetFrameLevel, tab)
+    h = tonumber(h) or 0
+    local bh = tab and h >= 18 and h <= 40 and h or (tab and 24 or 20)
+    local _, fs = pcall(b.GetFontString, b)
+    local _, tw = pcall(fs and fs.GetStringWidth, fs)
+    tw = tonumber(tw) or 0
+    b:SetSize(math.floor(((tw > 0) and tw or 84) + 2 * 16 + 0.5), bh)   -- 字宽 + 左右 16 padding（和页签同量级）
+    b:ClearAllPoints()
+    if tab then b:SetPoint("LEFT", tab, "RIGHT", 8, 0)
+    else   -- 找不到页签：放标题栏右侧（「天赋」标题右边、关闭按钮左边），⛔ 别再压在页签上方
+        local okn, n = pcall(tf.GetName, tf)
+        local close = rawget(tf, "CloseButton") or (okn and type(n) == "string" and _G[n .. "CloseButton"])
+        if type(close) == "table" then b:SetPoint("RIGHT", close, "LEFT", -6, 0) else b:SetPoint("TOPRIGHT", tf, "TOPRIGHT", -34, -3) end
+    end
+    b:SetFrameLevel(math.max(tonumber(tf:GetFrameLevel()) or 0, tonumber(lv) or 0) + 3)
+    b:SetShown(ns.TalentWclSpecs(myClass()) ~= nil)   -- 数据没进包（HOLD）= 不显示
+    return tab
+end
+local wclBtns = setmetatable({}, { __mode = "k" })
+function ns.AttachWclTalentBtn(tf)
+    if type(tf) ~= "table" or not tf.HookScript then return end
+    local b = wclBtns[tf]
+    if not b then
+        -- 外观：和「天赋模拟」那个高亮页签一个样子 —— 主插件扁平按钮的「选中」态（暗金底 + 金边 + 亮金字 + 底下金线，悬停淡金光），不用 GI 灰底小按钮
+        b = ns.Button(tf, ns.L("GI · WCL 天赋", "GI · WCL talents"), 110, 24)
+        if ns.SegSelect then ns.SegSelect(b, true) end
+        b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        b:SetScript("OnClick", function(self, btn)
+            if ns.CurrentPage() then ns.ShowPage("talent") else ns.ToggleMain("talent") end   -- 打开 GI 主界面 职业 → 天赋
+            if btn == "RightButton" then ns.ShowWclMenu(self, myClass()) else ns.WclTop1(self, myClass()) end
+        end)
+        b:SetScript("OnEnter", function(self) ns.WclTip(self, "ANCHOR_BOTTOMRIGHT") end)
+        b:SetScript("OnLeave", GameTooltip_Hide)
+        wclBtns[tf] = b
+        -- 别的插件的页签可能窗口显示时才建 / 才 SetText：当场摆一次，0.1 / 0.5 / 1.5 秒后再摆
+        local function place() pcall(placeWclBtn, b, tf) end
+        tf:HookScript("OnShow", function()
+            place()
+            for _, d in ipairs({ 0.1, 0.5, 1.5 }) do C_Timer.After(d, place) end
+        end)
+    end
+    pcall(placeWclBtn, b, tf)
+    return b
+end
+ns._TalentPage = function() return page end   -- 测试用
 ns._sim, ns._simClick = S, click
 ns.RegisterPage({ key = "talent", order = 1, title = ns.L("天赋", "Talents"), build = build, refresh = refresh })
 

@@ -9,6 +9,7 @@
 --   界面挂进 QuestMates 抽屉的 d.lfg 盖板（ns.BuildDungeonPanel），没加载这个文件 = 抽屉和以前一样
 local _, ns = ...; ns = _G.GearInsightForever or ns
 local L = function(cn, en) return ns.L(cn, en) end
+local CL = function(cn, en) return ns.ChatL(cn, en) end   -- 11-19 对外说的话（喊话 / 申请 / 反问 / 复制到群）走对外说话语言
 
 -- 11-13 界面重构第 5 期：DC 表本身、存档、前缀、名字 / 人数小工具、满员通知、交易法师要吃喝搬进登录加载的
 --   GearInsight_Forever_Group/DungeonChatCore.lua（法师吃喝也要用）；这里是面板 + 读频道 + 来密我的人 + 自动反问，打开副本组队才加载
@@ -56,11 +57,13 @@ end
 
 -- ---------- 识别一条聊天 ----------
 -- 11-10 用户截图「SK 有吗」：「有吗 / 有没有」也算求组（问有没有队）
-local LFG_WORDS = { "求组", "求带", "求队", "找队", "有队吗", "带一个", "带个", "有吗", "有没有", "组我", "带我", "算我", "lfg" }
+local LFG_WORDS = { "求组", "求带", "求队", "找队", "有队吗", "带一个", "带个", "有吗", "有没有", "组我", "带我", "算我", "lfg", "lookingforgroup" }
 local LFM_WORDS = { "缺", "差", "来个", "来一个", "来位", "招", "速来", "组人", "密我", "m我", "lfm", "+1", "来人",
     -- 11-10 用户截图「大脚和组队频道都要看啊」：大脚世界频道常见「黑暗深渊来T奶」「深渊任务队来TN」「血色4本 清任务来DPS」「N4=1」
     "来t", "来n", "来奶", "来坦", "来d", "来治疗", "来输出", "来法", "来猎", "来战", "来骑", "来牧", "来萨", "来术", "来贼", "来德", "来aa",
-    "来两", "来俩", "来三", "来1", "来2", "来3", "任务队", "队来", "清任务" }
+    "来两", "来俩", "来三", "来1", "来2", "来3", "任务队", "队来", "清任务",
+    -- 11-19 外服英文招人（认词时已去空格）：LF1M / LF tank / need heal
+    "lf1m", "lf2m", "lf3m", "lf4m", "lftank", "lfheal", "lfdps", "needtank", "needheal", "needdps" }
 -- 职责词 / 去颜色码 / 认词：11-13 搬进小核（DungeonChatCore.lua，来密我的人在那边收），这里照旧用
 local ROLE_WORDS, strip, has = DC.ROLE_WORDS, DC.StripCodes, DC.HasWord
 
@@ -312,7 +315,7 @@ end
 function DC.SetRole(r) if DC.CanRole(r) then DC.DB().role = r end end
 
 local ROLE_NAME = { TANK = { "坦克", "Tank" }, HEALER = { "治疗", "Healer" }, DAMAGER = { "伤害输出", "Damage" } }
-function DC.RoleName(r) local t = ROLE_NAME[r] or ROLE_NAME.DAMAGER; return L(t[1], t[2]) end
+function DC.RoleName(r, chat) local t = ROLE_NAME[r] or ROLE_NAME.DAMAGER; return (chat and CL or L)(t[1], t[2]) end
 
 -- 这条消息缺的职责 → 「缺 坦克、治疗」/「没写职责」
 function DC.NeedText(p)
@@ -335,11 +338,11 @@ DC.CLS_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "M
 local CLS_CN = { WARRIOR = { "战士", "Warrior", "战" }, PALADIN = { "圣骑士", "Paladin", "骑" }, HUNTER = { "猎人", "Hunter", "猎" },
     ROGUE = { "盗贼", "Rogue", "贼" }, PRIEST = { "牧师", "Priest", "牧" }, SHAMAN = { "萨满", "Shaman", "萨" },
     MAGE = { "法师", "Mage", "法" }, WARLOCK = { "术士", "Warlock", "术" }, DRUID = { "德鲁伊", "Druid", "德" } }
-function DC.ClsName(c, shortOne)
+function DC.ClsName(c, shortOne, chat)
     local t = CLS_CN[c or ""]
     if not t then return c or "?" end
     if shortOne then return L(t[3], t[2]:sub(1, 3)) end
-    return L(t[1], t[2])
+    return (chat and CL or L)(t[1], t[2])
 end
 function DC.ClsPick(c) local r = DC.DB().rec; return r.cls and r.cls[c] or nil end
 function DC.CycleCls(c)
@@ -350,9 +353,16 @@ function DC.CycleCls(c)
 end
 -- 11-12 用户「加一个简称选项，T N DPS这样，职业也可以加」：勾上「简称」喊话里职责写 T / N / DPS、职业写 ZS / FS 这类拼音缩写（记住选择）
 local ROLE_ABBR = { TANK = "T", HEALER = "N", DAMAGER = "DPS" }
+-- 11-19 对外说英文：简称用英文玩家的叫法（T / H / DPS；Hunt / Pala / Lock…），拼音缩写外服看不懂
+local ROLE_ABBR_EN = { TANK = "T", HEALER = "H", DAMAGER = "DPS" }
+DC.CLS_ABBR_EN = { HUNTER = "Hunt", PALADIN = "Pala", DRUID = "Druid", WARRIOR = "War", PRIEST = "Priest", MAGE = "Mage",
+    WARLOCK = "Lock", ROGUE = "Rogue", SHAMAN = "Sham" }
+function DC.ChatAbbr(c) return (ns.ChatLang() == "en" and DC.CLS_ABBR_EN or CLS_ABBR)[c or ""] end
 function DC.AbbrOn() return DC.DB().rec.abbr and true or false end
-function DC.RoleShout(r) return DC.AbbrOn() and (ROLE_ABBR[r] or "DPS") or DC.RoleName(r) end
-function DC.ClsShout(c) return DC.AbbrOn() and (CLS_ABBR[c] or DC.ClsName(c)) or DC.ClsName(c) end
+function DC.RoleShout(r) return DC.AbbrOn() and ((ns.ChatLang() == "en" and ROLE_ABBR_EN or ROLE_ABBR)[r] or "DPS") or DC.RoleName(r, true) end
+function DC.ClsShout(c) return DC.AbbrOn() and (DC.ChatAbbr(c) or DC.ClsName(c, nil, true)) or DC.ClsName(c, nil, true) end
+-- 副本名对外：英文 → nEn，繁体 → 转繁
+function DC.ChatDungeon(d) return d and ns.ChatName(d.n, d.en) or "?" end
 -- 「要法师、牧师 不要盗贼」；都没选 = 空
 function DC.ClsText()
     local want, no = {}, {}
@@ -361,25 +371,25 @@ function DC.ClsText()
         if v == "want" then want[#want + 1] = DC.ClsShout(c) elseif v == "no" then no[#no + 1] = DC.ClsShout(c) end
     end
     local out = {}
-    if #want > 0 then out[#out + 1] = L("要", "want ") .. table.concat(want, L("、", "/")) end
-    if #no > 0 then out[#out + 1] = L("不要", "no ") .. table.concat(no, L("、", "/")) end
+    if #want > 0 then out[#out + 1] = CL("要", "want ") .. table.concat(want, CL("、", "/")) end
+    if #no > 0 then out[#out + 1] = CL("不要", "no ") .. table.concat(no, CL("、", "/")) end
     return table.concat(out, " ")
 end
 
 function DC.ApplyText(p)
     local d = DC.Dungeons()[p.d] or {}
     local lv = tonumber(clean(UnitLevel and UnitLevel("player"))) or 0
-    local cls = clean(UnitClass and UnitClass("player")) or ""
-    local mine = ns.MyWhisper and ns.MyWhisper("lfg", { ["活动"] = d.n, ["职业"] = cls, ["等级"] = lv > 0 and lv or nil })
+    local cls = DC.MyClass() and DC.ClsName(DC.MyClass(), nil, true) or clean(UnitClass and UnitClass("player")) or ""
+    local mine = ns.MyWhisper and ns.MyWhisper("lfg", { ["活动"] = DC.ChatDungeon(d), ["职业"] = cls, ["等级"] = lv > 0 and lv or nil })
     if mine then return mine end
-    return string.format(L("%d %s求组 %s", "%d %s LFG %s"), lv, CLS_ABBR[DC.MyClass() or ""] or cls, d.n or "?")
+    return string.format(CL("%d %s求组 %s", "%d %s LFG %s"), lv, DC.ChatAbbr(DC.MyClass()) or cls, DC.ChatDungeon(d))
 end
 
 function DC.Apply(p)
     if not p or not p.author then return false end
     local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
     if not send then return false end
-    local ok = pcall(send, DC.Tagged(DC.ApplyText(p), DC.MAX_BYTES), "WHISPER", nil, p.author)
+    local ok = pcall(send, DC.Whisper(DC.ApplyText(p), DC.MAX_BYTES), "WHISPER", nil, p.author)   -- 11-19 私聊不带标识
     if ok then
         DC.applied[p.short] = { t = now(), d = p.d }
         local d = DC.Dungeons()[p.d] or {}
@@ -398,6 +408,8 @@ function DC.OnInvite(inviter)
     inviter = clean(inviter)
     local a = inviter and DC.Applied(inviter)
     if not a or not AcceptGroup then return false end
+    local LY = ns.Layer   -- 11-24 GI-330：刚放了帐篷不自动进队（会被拉到别的位面，帐篷留原层）
+    if LY and LY.TentHold and LY.TentHold(inviter) then return false end
     local ok = pcall(AcceptGroup)
     if ok and StaticPopup_Hide then pcall(StaticPopup_Hide, "PARTY_INVITE") end
     if ok then
@@ -458,7 +470,7 @@ function DC.VoiceText()
     if not r.voiceOn then return "" end
     local tool, num, chan = DC.Voice()
     if tool == "" or num == "" then return "" end
-    return tool .. L("：", ": ") .. num .. (chan ~= "" and (L(" 频道", " ch ") .. chan) or "")
+    return tool .. CL("：", ": ") .. num .. (chan ~= "" and (CL(" 频道", " ch ") .. chan) or "")
 end
 function DC.Custom()
     local d = DC.RecDungeon()
@@ -499,7 +511,7 @@ function DC.RecText()
         if t:find("{语音}", 1, true) then
             if vt ~= "" then t = t:gsub("{语音}", function() return vt end) else t = t:gsub("，%s*{语音}", ""):gsub(",%s*{语音}", ""):gsub("{语音}", "") end   -- 「，」是 3 字节，别写成「，?」
         elseif vt ~= "" then
-            t = t .. L("，", ", ") .. vt
+            t = t .. CL("，", ", ") .. vt
         end
         t = t:gsub("{人数}", ct):gsub("  +", " "):gsub("】 ", "】")
         return (t:gsub("^%s+", ""):gsub("%s+$", ""))
@@ -531,19 +543,19 @@ function DC.RecDefaultText()
     local r = DC.DB().rec
     local need = {}
     for _, role in ipairs({ "TANK", "HEALER", "DAMAGER" }) do if r.roles[role] then need[#need + 1] = DC.RoleShout(role) end end
-    local lv = lo == hi and string.format(L("%d级", "Lv%d"), lo) or string.format(L("%d-%d级", "Lv%d-%d"), lo, hi)
-    local needTxt = #need > 0 and (L("缺", "LF ") .. table.concat(need, L("、", "/"))) or L("缺人", "LF more")
+    local lv = lo == hi and string.format(CL("%d级", "Lv%d"), lo) or string.format(CL("%d-%d级", "Lv%d-%d"), lo, hi)
+    local needTxt = #need > 0 and (CL("缺", "LF ") .. table.concat(need, CL("、", "/"))) or CL("缺人", "LF more")
     -- 11-10 用户「？=？也说一下，注意是超过3个人发」：队里超过 3 人（4 人）才带「4=1」（有几个 = 还差几个，按 5 人本）
     local cnt = DC.PartyCount()
-    local head = L("【", "[") .. (d and d.n or "?") .. L("】", "] ") .. ((cnt > DC.CNT_MIN and cnt < 5) and (cnt .. "=" .. (5 - cnt) .. " ") or "")
+    local head = CL("【", "[") .. DC.ChatDungeon(d) .. CL("】", "] ") .. ((cnt > DC.CNT_MIN and cnt < 5) and (cnt .. "=" .. (5 - cnt) .. " ") or "")
     -- 11-10 用户截图「等级可以不喊」：关了「喊等级」就不带等级范围
     -- 11-11 用户「加一个选项，有SS可拉」：队里有术士能拉人，勾上就带一句（记住选择）
     -- 11-12 用户「带职责等级M，加这个」：结尾改「M我带职责等级」（回的人写上职责 / 等级，下面「来密我的人」直接认出来）
     local ct = DC.ClsText()
-    return head .. (r.noLv and "" or (lv .. " ")) .. needTxt .. (ct ~= "" and (" " .. ct) or "") .. (r.ss and L("，有SS可拉", ", warlock summons") or "")
-        .. ((r.avg and DC.AvgLevel()) and string.format(L("，当前平均%d级", ", avg Lv%d"), (DC.AvgLevel())) or "")
-        .. (DC.VoiceText() ~= "" and (L("，", ", ") .. DC.VoiceText()) or "")
-        .. L("，M我带职责等级", " - whisper me your role & level")
+    return head .. (r.noLv and "" or (lv .. " ")) .. needTxt .. (ct ~= "" and (" " .. ct) or "") .. (r.ss and CL("，有SS可拉", ", warlock summons") or "")
+        .. ((r.avg and DC.AvgLevel()) and string.format(CL("，当前平均%d级", ", avg Lv%d"), (DC.AvgLevel())) or "")
+        .. (DC.VoiceText() ~= "" and (CL("，", ", ") .. DC.VoiceText()) or "")
+        .. CL("，M我带职责等级", " - whisper me your role & level")
 end
 
 -- 加入的频道（去掉插件自己的隐藏频道）：{ { id, name } … }
@@ -588,15 +600,15 @@ function DC.AskText(p)
     local noLv = not DC.LevelOf(p)
     local rs = DC.RolesOf(p)
     local noRole = #rs == 0
-    if noLv and noRole then return L("老哥报下等级和职责哈（比如 25奶 / 28T / 30输出）", "Hi, what's your level and role? (e.g. 25 healer / 28 tank / 30 dps)") end
-    if noLv then return L("老哥报下等级哈", "Hi, what's your level?") end
-    if noRole then return L("老哥报下职责哈（T / 奶 / 输出）", "Hi, what's your role? (tank / healer / dps)") end
+    if noLv and noRole then return CL("老哥报下等级和职责哈（比如 25奶 / 28T / 30输出）", "Hi, what's your level and role? (e.g. 25 healer / 28 tank / 30 dps)") end
+    if noLv then return CL("老哥报下等级哈", "Hi, what's your level?") end
+    if noRole then return CL("老哥报下职责哈（T / 奶 / 输出）", "Hi, what's your role? (tank / healer / dps)") end
     return nil
 end
 function DC.MaybeAsk(p)
     if not DC.AskOn() or rawget(p, "asked") then return false end
     -- 对方也是插件自动发的（「报下……」/ 招人喊话）就不回，免得两边插件来回问
-    if p.text:find(DC.ASK_TAG, 1, true) or p.text:find("M我", 1, true) then return false end
+    if DC.IsAutoText(p.text) then return false end   -- 「报下」/「M我」/ 11-19 英文的 what's your / whisper me your
     -- 11-12 对方插件发来的「[GI组队助手]…」：上面已按去掉前缀后的文字判过（反问里有「报下」不回）；
     --   带前缀的申请私聊（「20 QS求组」没职责）照常问一次——那是真人点的申请，对方插件收到「报下…」不会再回，不会来回刷
     if not DC.AskText(p) then return false end
@@ -608,7 +620,7 @@ function DC.MaybeAsk(p)
         local t = DC.AskText(cur or p)
         if not t then return end
         local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
-        if send then pcall(send, DC.Tagged(t, DC.MAX_BYTES), "WHISPER", nil, p.author) end
+        if send then pcall(send, DC.Whisper(t, DC.MAX_BYTES), "WHISPER", nil, p.author) end
     end
     if C_Timer and C_Timer.After then C_Timer.After(2, go) else go() end
     return true
@@ -1423,8 +1435,9 @@ function DC.Members()
         if u == "player" or (UnitExists and UnitExists(u)) then
             local name = fullName(u)
             if name then
-                local cls = UnitClass and select(1, UnitClass(u))
-                out[#out + 1] = { name = name, cls = clean(cls), lv = tonumber(clean(UnitLevel and UnitLevel(u))), zone = zoneOfUnit(u) }
+                local cls, tok
+                if UnitClass then cls, tok = UnitClass(u) end
+                out[#out + 1] = { name = name, cls = clean(cls), tok = clean(tok), lv = tonumber(clean(UnitLevel and UnitLevel(u))), zone = zoneOfUnit(u) }
             end
         end
     end
@@ -1437,63 +1450,147 @@ function DC.CopyText()
     local r = DC.DB().rec
     local mem = DC.Members()
     local cnt = #mem
-    local head = L("【无限·", "[Forever ") .. (d and d.n or "?") .. L("】", "] ")
+    local head = CL("【无限·", "[Forever ") .. DC.ChatDungeon(d) .. CL("】", "] ")
     if DC.CopyOn("cnt") then head = head .. cnt .. "=" .. math.max(0, 5 - cnt) .. " " end
-    if DC.CopyOn("lv") then head = head .. (lo == hi and string.format(L("%d级", "Lv%d"), lo) or string.format(L("%d-%d级", "Lv%d-%d"), lo, hi)) .. " " end
+    if DC.CopyOn("lv") then head = head .. (lo == hi and string.format(CL("%d级", "Lv%d"), lo) or string.format(CL("%d-%d级", "Lv%d-%d"), lo, hi)) .. " " end
     if DC.CopyOn("need") then
         local need = {}
         for _, role in ipairs({ "TANK", "HEALER", "DAMAGER" }) do if r.roles[role] then need[#need + 1] = DC.RoleShout(role) end end
-        head = head .. (#need > 0 and (L("缺", "LF ") .. table.concat(need, L("、", "/"))) or L("缺人", "LF more"))
+        head = head .. (#need > 0 and (CL("缺", "LF ") .. table.concat(need, CL("、", "/"))) or CL("缺人", "LF more"))
     end
     local lines = { (head:gsub("%s+$", "")) }
     if DC.CopyOn("cls") or DC.CopyOn("mlv") or DC.CopyOn("zone") then
-        lines[#lines + 1] = L("队伍：", "Party:")
+        lines[#lines + 1] = CL("队伍：", "Party:")
         for i, m in ipairs(mem) do
             local parts = { i .. ". " .. m.name }
-            if DC.CopyOn("cls") and m.cls then parts[#parts + 1] = m.cls end
-            if DC.CopyOn("mlv") and m.lv then parts[#parts + 1] = string.format(L("%d级", "Lv%d"), m.lv) end
-            if DC.CopyOn("zone") and m.zone then parts[#parts + 1] = m.zone end
+            if DC.CopyOn("cls") and m.cls then parts[#parts + 1] = m.tok and DC.ClsName(m.tok, nil, true) or m.cls end
+            if DC.CopyOn("mlv") and m.lv then parts[#parts + 1] = string.format(CL("%d级", "Lv%d"), m.lv) end
+            if DC.CopyOn("zone") and m.zone and ns.ChatZone(m.zone) then parts[#parts + 1] = m.zone end   -- 地区名是客户端语言：和对外语言不一样就不写
             lines[#lines + 1] = table.concat(parts, " ")
         end
     end
-    if DC.CopyOn("tell") and mem[1] then lines[#lines + 1] = L("游戏里密我：", "Whisper in game: ") .. mem[1].name end
+    if DC.CopyOn("tell") and mem[1] then lines[#lines + 1] = CL("游戏里密我：", "Whisper in game: ") .. mem[1].name end
     -- 贴到 QQ / 微信群，不受 255 字节限制：只加前缀不裁
     return DC.Tagged(table.concat(lines, "\n"), nil)
 end
 
 local copyBox
--- 语音弹层：工具 / 号码 / 频道（选填），「带进喊话」/「不带」
+-- 11-15 用户截图「语音功能去哪里了，可以直接喊YY或者KK的」：弹层顶上一排「快捷」——本公会的 YY / KK 一点就带进喊话
+--   YY：公会模块 GuildHome.Voice（公会助手同步包 / 内置，公会名 + 阵营对上才有）→ 没加载公会模块时读同步包 GuildInsightSync
+--   KK：公会助手「公会科普」里会长填的邀请码（GuildInsightDB.guide[公会名].kk）→ 内置默认
+--   都只认自己所在的公会；内置默认只有用户自己的公会 Gearinsight（YY 网站库 gi_guild_recruit id 11，KK 见 GuildInsight Guide.lua G.DEFAULTS）
+DC.GUILD_VOICE = { gearinsight = { yy = "91162686", yyFaction = "Alliance", kk = "riG7OG", kkName = "Gearinsight公会频道" } }
+local function myGuild()
+    if not (IsInGuild and IsInGuild()) or not GetGuildInfo then return nil end
+    local ok, g = pcall(GetGuildInfo, "player")
+    if not ok or type(g) ~= "string" or g == "" or (issecretvalue and issecretvalue(g)) then return nil end
+    return g
+end
+function DC.GuildVoices()
+    local out = {}
+    local g = myGuild()
+    if not g then return out end
+    local def = DC.GUILD_VOICE[g:lower()]
+    -- YY
+    local yy
+    local GH = ns.GuildHome
+    if GH and GH.Voice then local ok, v = pcall(GH.Voice); if ok and type(v) == "string" and v ~= "" then yy = v end end
+    if not yy then
+        local d = rawget(_G, "GuildInsightSync")
+        local sg = type(d) == "table" and type(d.guild) == "table" and d.guild or nil
+        if sg and tostring(sg.name or ""):lower() == g:lower() and (sg.game or "forever") == "forever" then
+            local v = tostring(sg.yy or ""):gsub("%D", "")
+            if #v >= 4 then yy = v end
+        end
+    end
+    if not yy and def and def.yy then
+        local fac = UnitFactionGroup and UnitFactionGroup("player")
+        if type(fac) == "string" and not (issecretvalue and issecretvalue(fac)) and fac == def.yyFaction then yy = def.yy end
+    end
+    if yy then out[#out + 1] = { tool = "YY", num = yy, chan = "", label = L("公会YY", "Guild YY") } end
+    -- KK
+    local kk, kkName
+    local gdb = rawget(_G, "GuildInsightDB")
+    local gc = type(gdb) == "table" and type(gdb.guide) == "table" and gdb.guide[g] or nil
+    if type(gc) == "table" and type(gc.kk) == "string" and gc.kk ~= "" then kk, kkName = gc.kk, gc.kkName end
+    if not kk and def and def.kk then kk, kkName = def.kk, def.kkName end
+    if kk then out[#out + 1] = { tool = "KK", num = kk, chan = type(kkName) == "string" and kkName or "", label = L("公会KK", "Guild KK") } end
+    return out
+end
+
+-- 11-15 用户截图「优化UI，然后我要发到指定频道，你给个按钮啊」「小队，公会 团队」：
+--   弹层改成不透明 + 标题栏 + 右上角 ×；分三段：快捷 / 工具·号码·频道 / 「喊话里」带不带 + 「直接发」小队 / 公会 / 团队（只发语音这一句）
+function DC.VoiceLine(tool, num, chan)
+    if tool == nil then tool, num, chan = DC.Voice() end
+    tool, num, chan = trimS(tool), trimS(num), trimS(chan)
+    if tool == "" or num == "" then return nil end
+    return CL("语音 ", "Voice ") .. tool .. CL("：", ": ") .. num .. (chan ~= "" and (CL(" 频道", " ch ") .. chan) or "")
+end
+-- 直接发语音这一句：chan = "PARTY" | "GUILD" | "RAID"；返回 true = 交给游戏发了
+function DC.SendVoice(chan, tool, num, cname)
+    local line = DC.VoiceLine(tool, num, cname)
+    if not line then ns.Print(L("语音：工具和号码都要填", "Voice: fill in both app and number")); return false, "empty" end
+    if chan == "GUILD" and not (IsInGuild and IsInGuild()) then ns.Print(L("你不在公会里", "Not in a guild")); return false, "noguild" end
+    if chan == "PARTY" and not (IsInGroup and IsInGroup()) then ns.Print(L("你不在小队里", "Not in a group")); return false, "nogroup" end
+    if chan == "RAID" and not (IsInRaid and IsInRaid()) then ns.Print(L("你不在团队里", "Not in a raid")); return false, "noraid" end
+    if InCombatLockdown and InCombatLockdown() then ns.Print(L("战斗中先不发，脱战再点", "In combat - try after combat")); return false, "combat" end
+    local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
+    if not send then return false, "nosend" end
+    local ok = pcall(send, line, chan)
+    if ok then ns.Print(string.format(L("已发到%s：%s", "Sent to %s: %s"), ({ PARTY = L("小队", "party"), GUILD = L("公会", "guild"), RAID = L("团队", "raid") })[chan] or chan, line)) end
+    return ok
+end
+
+-- 语音弹层
 local voiceBox
+local function vbg(fr, r, g, b, a, er, eg, eb)
+    if not fr.SetBackdrop then return end
+    fr:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+    fr:SetBackdropColor(r, g, b, a); fr:SetBackdropBorderColor(er or 0.3, eg or 0.3, eb or 0.32, 1)
+end
 function DC.ShowVoice(anchor)
     if not voiceBox then
+        local W, H = 330, 226
         local f = CreateFrame("Frame", "GearInsightForeverDCVoice", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
-        f:SetSize(300, 150); f:SetFrameStrata("DIALOG"); f:EnableMouse(true)
+        f:SetSize(W, H); f:SetFrameStrata("DIALOG"); f:SetToplevel(true); f:EnableMouse(true); f:SetClampedToScreen(true)
         f:SetMovable(true); f:RegisterForDrag("LeftButton")
         f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
-        if f.SetBackdrop then
-            f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-            f:SetBackdropColor(0.04, 0.045, 0.06, 0.97); f:SetBackdropBorderColor(0.6, 0.5, 0.2, 1)
+        vbg(f, 0.035, 0.04, 0.055, 1, 0.75, 0.6, 0.22)
+        -- 标题栏
+        local hd = CreateFrame("Frame", nil, f, BackdropTemplateMixin and "BackdropTemplate" or nil)
+        hd:SetPoint("TOPLEFT", 1, -1); hd:SetPoint("TOPRIGHT", -1, -1); hd:SetHeight(26)
+        vbg(hd, 0.16, 0.12, 0.04, 1, 0.16, 0.12, 0.04)
+        local t = hd:CreateFontString(nil, "OVERLAY", "GameFontNormal"); t:SetPoint("LEFT", 10, 0); t:SetText(L("语音", "Voice"))
+        local st = hd:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); st:SetPoint("LEFT", t, "RIGHT", 8, 0)
+        st:SetText(L("填好后可以带进喊话，也可以单独发一句", "Add to your shout or send it on its own"))
+        local x = ns.Button(hd, "×", 22, 20, function() f:Hide() end); x:SetPoint("RIGHT", -3, 0)
+        local function label(text, y)
+            local fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); fs:SetPoint("TOPLEFT", 12, y); fs:SetWidth(52); fs:SetJustifyH("RIGHT"); fs:SetText(text)
+            return fs
         end
-        local t = f:CreateFontString(nil, "OVERLAY", "GameFontNormal"); t:SetPoint("TOPLEFT", 12, -10); t:SetText(L("语音（喊话末尾带上）", "Voice (added to shouts)"))
+        -- 快捷
+        label(L("快捷", "Quick"), -40)
+        -- 工具 / 号码 / 频道
         f.boxes = {}
-        for i, row in ipairs({ { "tool", L("工具：", "App: "), L("YY / KOOK / QQ", "YY / Discord") }, { "num", L("号码：", "Number: "), "" }, { "chan", L("频道：", "Channel: "), L("选填", "optional") } }) do
-            local y = -32 - (i - 1) * 26
-            local lb = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); lb:SetPoint("TOPLEFT", 12, y - 4); lb:SetText(row[2])
+        for i, row in ipairs({ { L("工具", "App"), L("YY / KK / QQ", "YY / KK / Discord") }, { L("号码", "Number"), L("频道号 / 邀请码", "channel / invite code") }, { L("频道", "Channel"), L("选填", "optional") } }) do
+            local y = -68 - (i - 1) * 26
+            label(row[1], y - 4)
             local bg = CreateFrame("Frame", nil, f, BackdropTemplateMixin and "BackdropTemplate" or nil)
-            bg:SetPoint("TOPLEFT", 64, y); bg:SetSize(220, 20)
-            if bg.SetBackdrop then
-                bg:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-                bg:SetBackdropColor(0, 0, 0, 0.5); bg:SetBackdropBorderColor(0.3, 0.3, 0.32, 1)
-            end
+            bg:SetPoint("TOPLEFT", 72, y); bg:SetSize(W - 72 - 12, 20)
+            vbg(bg, 0, 0, 0, 0.7)
             local e = CreateFrame("EditBox", nil, bg)
-            e:SetPoint("TOPLEFT", 4, 0); e:SetPoint("BOTTOMRIGHT", -4, 0)
+            e:SetPoint("TOPLEFT", 5, 0); e:SetPoint("BOTTOMRIGHT", -5, 0)
             e:SetAutoFocus(false); e:SetFontObject(GameFontHighlightSmall); e:SetMaxLetters(24)
-            local ph = bg:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); ph:SetPoint("LEFT", 4, 0); ph:SetText(row[3])
+            local ph = bg:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); ph:SetPoint("LEFT", 5, 0); ph:SetText(row[2])
             e:SetScript("OnTextChanged", function(self) ph:SetShown((self:GetText() or "") == "") end)
             e:SetScript("OnEscapePressed", function() f:Hide() end)
             e:SetScript("OnTabPressed", function() local nx = f.boxes[i % 3 + 1]; if nx then nx:SetFocus() end end)
+            e:SetScript("OnEditFocusGained", function(self) bg:SetBackdropBorderColor(0.75, 0.6, 0.22, 1) end)
+            e:SetScript("OnEditFocusLost", function(self) bg:SetBackdropBorderColor(0.3, 0.3, 0.32, 1) end)
             f.boxes[i] = e
         end
+        local sep = f:CreateTexture(nil, "ARTWORK"); sep:SetColorTexture(0.75, 0.6, 0.22, 0.35); sep:SetHeight(1)
+        sep:SetPoint("TOPLEFT", 10, -146); sep:SetPoint("TOPRIGHT", -10, -146)
         local function save(on)
             DC.SetVoice(f.boxes[1]:GetText(), f.boxes[2]:GetText(), f.boxes[3]:GetText())
             local tool, num = DC.Voice()
@@ -1504,14 +1601,81 @@ function DC.ShowVoice(anchor)
         end
         f.save = save
         for _, e in ipairs(f.boxes) do e:SetScript("OnEnterPressed", function() save(true) end) end
-        local ok = ns.Button(f, L("带进喊话", "Add to shout"), 96, 24, function() save(true) end); ok:SetPoint("BOTTOMLEFT", 12, 10)
-        local off = ns.Button(f, L("不带", "Don't add"), 70, 24, function() save(false) end); off:SetPoint("LEFT", ok, "RIGHT", 6, 0)
-        local close = ns.Button(f, L("关闭", "Close"), 70, 24, function() f:Hide() end); close:SetPoint("BOTTOMRIGHT", -12, 10)
+        -- 喊话里
+        label(L("喊话里", "Shout"), -162)
+        local ok = ns.Button(f, L("带进喊话", "Add to shout"), 110, 22, function() save(true) end); ok:SetPoint("TOPLEFT", 72, -157)
+        local off = ns.Button(f, L("不带", "Don't add"), 70, 22, function() save(false) end); off:SetPoint("LEFT", ok, "RIGHT", 6, 0)
+        f.okBtn, f.offBtn = ok, off
+        -- 直接发（只发语音这一句，不改喊话）
+        label(L("直接发", "Send"), -192)
+        f.sendBtns = {}
+        local px = 72
+        for _, c in ipairs({ { "PARTY", L("小队", "Party") }, { "GUILD", L("公会", "Guild") }, { "RAID", L("团队", "Raid") } }) do
+            local b = ns.Button(f, c[2], 70, 22, function()
+                DC.SetVoice(f.boxes[1]:GetText(), f.boxes[2]:GetText(), f.boxes[3]:GetText())
+                DC.SendVoice(c[1], f.boxes[1]:GetText(), f.boxes[2]:GetText(), f.boxes[3]:GetText())
+            end)
+            b:SetPoint("TOPLEFT", px, -187); px = px + 76
+            b:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                GameTooltip:AddLine(string.format(L("把语音发到%s", "Send the voice line to %s"), c[2]), 1, 0.82, 0)
+                GameTooltip:AddLine(DC.VoiceLine(f.boxes[1]:GetText(), f.boxes[2]:GetText(), f.boxes[3]:GetText()) or L("（先填工具和号码）", "(fill in app and number first)"), 1, 1, 1, true)
+                GameTooltip:Show()
+            end)
+            b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            f.sendBtns[c[1]] = b
+        end
+        -- 快捷一排：本公会 YY / KK（一点就填好并带进喊话）+ 只填工具名的 YY / KK / QQ
+        f.quick = {}
+        for i = 1, 5 do
+            local b = ns.Button(f, "", 50, 20, function(self)
+                local q = rawget(self, "_q")
+                if not q then return end
+                if q.num then
+                    f.boxes[1]:SetText(q.tool); f.boxes[2]:SetText(q.num); f.boxes[3]:SetText(q.chan or "")
+                    save(true)
+                else
+                    f.boxes[1]:SetText(q.tool); f.boxes[2]:SetFocus()
+                end
+            end)
+            b:Hide()
+            f.quick[i] = b
+        end
+        f.layoutQuick = function()
+            local list = {}
+            for _, q in ipairs(DC.GuildVoices()) do list[#list + 1] = q end
+            for _, tt in ipairs({ "YY", "KK", "QQ" }) do list[#list + 1] = { tool = tt, label = tt } end
+            local qx = 72
+            for i, b in ipairs(f.quick) do
+                local q = list[i]
+                if q then
+                    rawset(b, "_q", q)
+                    b:SetText(q.label); b:SetWidth(q.num and 66 or 40)
+                    b:ClearAllPoints(); b:SetPoint("TOPLEFT", qx, -36); qx = qx + (q.num and 70 or 44)
+                    b:SetScript("OnEnter", function(self)
+                        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                        if q.num then
+                            GameTooltip:AddLine(q.label, 1, 0.82, 0)
+                            GameTooltip:AddLine(q.tool .. L("：", ": ") .. q.num .. ((q.chan or "") ~= "" and (L(" 频道", " ch ") .. q.chan) or ""), 1, 1, 1, true)
+                            GameTooltip:AddLine(L("点一下就填好并带进喊话", "Click to fill in and add to the shout"), 0.7, 0.7, 0.7, true)
+                        else
+                            GameTooltip:AddLine(L("工具填「", "App: \"") .. q.tool .. L("」，再填号码", "\", then the number"), 1, 1, 1, true)
+                        end
+                        GameTooltip:Show()
+                    end)
+                    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                    b:Show()
+                else
+                    rawset(b, "_q", nil); b:Hide()
+                end
+            end
+        end
         voiceBox = f
     end
     local f = voiceBox
     local tool, num, chan = DC.Voice()
     f.boxes[1]:SetText(tool); f.boxes[2]:SetText(num); f.boxes[3]:SetText(chan)
+    if f.layoutQuick then pcall(f.layoutQuick) end
     f:ClearAllPoints()
     if anchor then f:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -4) else f:SetPoint("CENTER") end
     f:Show()
@@ -1654,7 +1818,7 @@ function ns.BuildDungeonPanel(host, w, h)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine(L("语音", "Voice"), 1, 0.82, 0)
         local vt = DC.VoiceText()
-        GameTooltip:AddLine(vt ~= "" and (L("喊话里会带：", "Shouts include: ") .. vt) or L("点开填语音工具和号码（YY / KOOK / QQ…），喊话末尾带上", "Fill in your voice app and number; it goes at the end of the shout"), 1, 1, 1, true)
+        GameTooltip:AddLine(vt ~= "" and (L("喊话里会带：", "Shouts include: ") .. vt) or L("点开填语音工具和号码（YY / KK / QQ…），喊话末尾带上；本公会登记的 YY / KK 点「快捷」一下就带上", "Fill in your voice app and number; your guild's YY / KK are one click under Quick"), 1, 1, 1, true)
         GameTooltip:Show()
     end)
     R.voiceBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)

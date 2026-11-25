@@ -18,6 +18,506 @@ local MAX_RECIPES = 120
 local function D() return ns.ProfData end
 local P = function() return ns.Prof end
 
+-- ---------- 点一下就买（11-15 用户截图「如何点击就能买材料和配方」）----------
+--   开着商人窗口：点配方行 = 买这一步的图纸（这个商人卖、你还没学）+ 商人卖的材料（只补背包里缺的）；
+--     这一次要花超过 1 金 → 先在聊天框报总价，3 秒内再点一次才买（同卖垃圾的两下确认）
+--   开着拍卖行：点一下 = 在拍卖行搜这一行缺的材料（再点搜下一样）；材料都够了就搜图纸
+--   都没开：照旧在地图上标出图纸出处
+--   ⛔ 只在玩家点击里调 BuyMerchantItem / 拍卖行搜索（暴雪要求硬件点击）；不自动下单拍卖行（一口价要玩家自己点）
+local Shop = { CONFIRM_COPPER = 10000, CONFIRM_SEC = 3 }
+ns.ProfShop = Shop
+local function scall(f, ...)
+    if type(f) ~= "function" then return nil end
+    local r = { pcall(f, ...) }
+    if r[1] then return unpack(r, 2) end
+    return nil
+end
+local function shown(f) return f and f.IsShown and f:IsShown() and true or false end
+function Shop.MerchantOpen() return shown(_G.MerchantFrame) end
+function Shop.AHOpen() return shown(_G.AuctionFrame) or shown(_G.AuctionHouseFrame) end
+local function linkId(l) return type(l) == "string" and tonumber(l:match("item:(%d+)")) or nil end
+function Shop.Have(id) return (P().BagCount and P().BagCount(id)) or scall(_G.GetItemCount, id) or 0 end
+function Shop.Known(sp)
+    if not sp then return false end
+    return (scall(_G.IsPlayerSpell, sp) or scall(_G.IsSpellKnown, sp)) and true or false
+end
+-- 11-15 用户截图「烹饪书点击为啥是数字」：物品信息没缓存时 A.ItemName 退回物品编号 → 拿编号去拍卖行搜。
+--   改成：游戏物品信息 > 调用方给的名字（教材名）> 数据里的中文名（不是纯数字）；都没有 = 请求加载，Shop.SearchName 返回 nil
+local function isNum(s) return type(s) ~= "string" or s == "" or s:match("^#?%d+$") ~= nil end
+function Shop.SearchName(id, hint)
+    local n = scall(_G.GetItemInfo, id)
+    if not isNum(n) then return n end
+    if not isNum(hint) then return hint end
+    local a = ns.ProfAssist and ns.ProfAssist.ItemName and ns.ProfAssist.ItemName(id)
+    if not isNum(a) then return a end
+    local C = _G.C_Item
+    if C and C.RequestLoadItemDataByID then pcall(C.RequestLoadItemDataByID, id) end
+    return nil
+end
+function Shop.Name(id, hint) return Shop.SearchName(id, hint) or ("#" .. id) end
+-- 商人这一页卖的：{ [物品] = { i, price, stack, avail } }
+function Shop.MerchantGoods()
+    local out = {}
+    local n = tonumber(scall(_G.GetMerchantNumItems)) or 0
+    for i = 1, n do
+        local id = linkId(scall(_G.GetMerchantItemLink, i))
+        if id then
+            local price, stack, avail
+            local C = _G.C_MerchantFrame
+            local info = C and C.GetItemInfo and scall(C.GetItemInfo, i)
+            if type(info) == "table" then
+                price, stack, avail = info.price, info.stackCount, info.numAvailable
+            else
+                local _, _, p, q, a = scall(_G.GetMerchantItemInfo, i)
+                price, stack, avail = p, q, a
+            end
+            out[id] = { i = i, price = tonumber(price) or 0, stack = math.max(1, tonumber(stack) or 1), avail = tonumber(avail) or -1 }
+        end
+    end
+    return out
+end
+-- 这一行在这个商人能买的：{ { id, n(件), cost, recipe = true? } }
+function Shop.MerchantPlan(link, part)
+    local goods, plan, cost = Shop.MerchantGoods(), {}, 0
+    local r = part ~= "mats" and link.recipe or nil
+    local rid = r and tonumber(r[18])
+    if rid and goods[rid] and not Shop.Known(link.spell or r[1]) and Shop.Have(rid) == 0 then
+        local g = goods[rid]
+        plan[#plan + 1] = { id = rid, n = g.stack, buys = 1, g = g, recipe = true }
+        cost = cost + g.price
+    end
+    for _, mt in ipairs(part ~= "recipe" and link.mats or {}) do
+        local id, need = mt[1], mt[2]
+        local g = goods[id]
+        local lack = need - Shop.Have(id)
+        if g and lack > 0 then
+            local buys = math.ceil(lack / g.stack)
+            if g.avail >= 0 then buys = math.min(buys, g.avail) end
+            if buys > 0 then
+                plan[#plan + 1] = { id = id, n = buys * g.stack, buys = buys, g = g }
+                cost = cost + buys * g.price
+            end
+        end
+    end
+    return plan, cost
+end
+local function money(c)
+    if ns.Prices and ns.Prices.Money then return ns.Prices.Money(c) end
+    local s = scall(_G.GetCoinTextureString, c)
+    return s or (math.floor(c / 10000) .. "g")
+end
+function Shop.Buy(plan)
+    local done = {}
+    for _, p in ipairs(plan) do
+        local g = p.g
+        if g.stack > 1 then
+            for _ = 1, p.buys do scall(_G.BuyMerchantItem, g.i, 1) end
+        else
+            local left, cap = p.buys, tonumber(scall(_G.GetMerchantItemMaxStack, g.i)) or 20
+            if cap < 1 then cap = 1 end
+            while left > 0 do
+                local k = math.min(left, cap)
+                scall(_G.BuyMerchantItem, g.i, k)
+                left = left - k
+            end
+        end
+        done[#done + 1] = Shop.Name(p.id, p.hint) .. "×" .. p.n
+    end
+    return done
+end
+function Shop.AtMerchant(link, row, part)
+    local plan, cost = Shop.MerchantPlan(link, part)
+    for _, p in ipairs(plan) do if link.book and p.id == link.item then p.hint = link.book end end
+    if #plan == 0 then
+        ns.Print(part == "recipe" and ns.L("这个商人没卖这张图纸（或者你已经学会 / 包里有了）", "This vendor doesn't sell this recipe")
+            or ns.L("这个商人没卖这一步要的材料（或者背包里已经够了）", "This vendor sells nothing this step still needs"))
+        return false
+    end
+    local t = GetTime and GetTime() or 0
+    local key = tostring(row) .. (part or "")
+    if cost >= Shop.CONFIRM_COPPER and not (Shop.armed == key and Shop.armedAt and t - Shop.armedAt <= Shop.CONFIRM_SEC) then
+        Shop.armed, Shop.armedAt = key, t
+        local names = {}
+        for _, p in ipairs(plan) do names[#names + 1] = Shop.Name(p.id, p.hint) .. "×" .. p.n end
+        ns.Print(ns.L("要买：", "Will buy: ") .. table.concat(names, ns.L("、", ", ")) .. ns.L("，共 ", " for ") .. money(cost)
+            .. ns.L("。3 秒内再点一次确认", ". Click again within 3s to confirm"))
+        return false
+    end
+    Shop.armed, Shop.armedAt = nil, nil
+    local done = Shop.Buy(plan)
+    ns.Print(ns.L("已买：", "Bought: ") .. table.concat(done, ns.L("、", ", ")) .. ns.L("（", " (") .. money(cost) .. ns.L("）", ")"))
+    return true
+end
+-- 拍卖行搜一个名字：旧版拍卖行（BrowseName + QueryAuctionItems）/ 新版（AuctionHouseFrame.SearchBar）
+function Shop.AHSearch(name)
+    if shown(_G.AuctionHouseFrame) then
+        local bar = _G.AuctionHouseFrame.SearchBar
+        local box = bar and bar.SearchBox
+        if box and box.SetText then box:SetText(name) end
+        if bar and bar.StartSearch then return pcall(bar.StartSearch, bar) end
+        return false
+    end
+    if shown(_G.AuctionFrame) then
+        if _G.AuctionFrameTab1 and _G.AuctionFrameTab_OnClick and _G.PanelTemplates_GetSelectedTab
+            and _G.PanelTemplates_GetSelectedTab(_G.AuctionFrame) ~= 1 then
+            pcall(_G.AuctionFrameTab_OnClick, _G.AuctionFrameTab1)
+        end
+        if _G.BrowseName and _G.BrowseName.SetText then _G.BrowseName:SetText(name) end
+        if _G.AuctionFrameBrowse_Search then return pcall(_G.AuctionFrameBrowse_Search) end
+        if _G.QueryAuctionItems then return pcall(_G.QueryAuctionItems, name) end
+    end
+    return false
+end
+-- 这一行要在拍卖行找的：缺的材料（没缺的就全部材料）→ 再没有就图纸
+function Shop.AHList(link, part)
+    local lack, all = {}, {}
+    for _, mt in ipairs(part ~= "recipe" and link.mats or {}) do
+        local miss = mt[2] - Shop.Have(mt[1])
+        all[#all + 1] = { id = mt[1], miss = miss }
+        if miss > 0 then lack[#lack + 1] = { id = mt[1], miss = miss } end
+    end
+    local list = #lack > 0 and lack or {}
+    local r = part ~= "mats" and link.recipe or nil
+    local rid = r and tonumber(r[18])
+    if rid and (part == "recipe" or (not Shop.Known(link.spell or r[1]) and Shop.Have(rid) == 0)) then list[#list + 1] = { id = rid, recipe = true } end
+    if #list == 0 then list = all end
+    for _, e in ipairs(list) do if link.book and e.id == link.item then e.hint = link.book end end
+    return list
+end
+function Shop.AtAH(link, row, part)
+    local list = Shop.AHList(link, part)
+    if #list == 0 then return false end
+    if rawget(row, "shopLink") ~= link or rawget(row, "shopPart") ~= part then row.shopK, row.shopLink, row.shopPart = 0, link, part end
+    local k = (rawget(row, "shopK") or 0) % #list + 1
+    row.shopK = k
+    local e = list[k]
+    local name = Shop.SearchName(e.id, e.hint)
+    if not name then
+        ns.Print(ns.L("这件东西的名字游戏还没读到，过一秒再点一次", "Item info is still loading - click again in a second"))
+        row.shopK = k - 1
+        return true
+    end
+    Shop.AHSearch(name)
+    ns.Print(ns.L("拍卖行搜：", "AH search: ") .. name .. (e.recipe and ns.L("（图纸）", " (recipe)") or (e.miss and e.miss > 0 and string.format(ns.L("（缺 %d）", " (need %d)"), e.miss) or ""))
+        .. (#list > 1 and string.format(ns.L("  · 再点搜下一样（%d/%d）", "  - click again for the next (%d/%d)"), k, #list) or ""))
+    return true
+end
+-- ---------- 专业购买快捷窗口（11-15 用户「专业购买的快捷窗口」）----------
+--   开商人 / 拍卖行时，贴在它右边：列出你学了的专业「现在这一段」还要买的 —— 图纸（没学的）、缺的材料、下一档的教材；
+--   商人：只列这个商人卖的，每行「买」+ 底下「全部买」（超过 1 金两下确认，同 Shop.AtMerchant）；拍卖行：每行「搜」
+--   这一段什么都不用买 / 这个商人什么都不卖 → 不弹。× 关掉 = 这次不弹；「不再弹」= 存档关掉（/gi 专业购买 重新打开）
+Shop.QMAX = 10
+local function profDB() ns.db.prof = ns.db.prof or {}; return ns.db.prof end
+function Shop.QuickOn() return ns.db and profDB().quick ~= false end
+-- ⛔ 11-16 GI-272「点了不再弹，重新开商店还是弹」：原来写 (not v) and false or nil —— Lua 里 false or nil = nil，存不进 false
+function Shop.SetQuick(v)
+    if v then profDB().quick = nil else profDB().quick = false end
+end
+-- 11-17 用户「这些弹出的功能都确保能永久关闭」：「不再弹」之后再说一次「窗口与提醒」里能找回（同一扇最多 3 次）
+function Shop.NeverHint()
+    if ns.CloseHint then
+        ns.CloseHint("profShop", ns.L("也能在 GI 菜单的「设置 · 窗口与提醒」里，「专业购买窗口」那一行点「打开」", "Also: GI menu > Settings > Windows & alerts > Profession shopping window"))
+    end
+end
+-- 现在要买的：{ { id, need, recipe = rr?, book = name?, key, why } }（按 物品 去重，数量取大）
+function Shop.Needs()
+    local A, PP = ns.ProfAssist, ns.Prof
+    if not (A and A.CraftPlan and PP and PP.Skills) then return {} end
+    local skills = PP.Skills() or {}
+    local out, byId = {}, {}
+    local function add(e)
+        local o = byId[e.id]
+        if o then if (e.need or 0) > (o.need or 0) then o.need = e.need end return end
+        byId[e.id] = e; out[#out + 1] = e
+    end
+    local lv = UnitLevel and UnitLevel("player") or 1
+    for key, s in pairs(skills) do
+        local rank = type(s) == "table" and tonumber(s.r)
+        if rank and rank < 300 then
+            local plan = A.CraftPlan(key, rank)
+            for _, seg in ipairs(plan and plan.segs or {}) do
+                if seg.state == "here" then
+                    for _, e in ipairs(seg.steps) do
+                        if e.rem then
+                            local rr = ns.ProfRecipeBySpell and ns.ProfRecipeBySpell(e.st.sp)
+                            local rid = rr and rr[14] ~= 1 and tonumber(rr[18])
+                            if rid and not Shop.Known(e.st.sp) and Shop.Have(rid) == 0 then add({ id = rid, need = 1, recipe = rr, key = key, f = seg.f or seg[1], t = seg.t or seg[2] }) end
+                        end
+                    end
+                    for _, m in ipairs(seg.total or {}) do
+                        local lack = (m.need or 0) - Shop.Have(m.item)
+                        if lack > 0 then add({ id = m.item, need = lack, key = key, f = seg.f or seg[1], t = seg.t or seg[2] }) end
+                    end
+                end
+            end
+            local nt = A.NextTier and A.NextTier(key, s, lv)
+            local b = nt and A.BookOf and A.BookOf(nt.tier)
+            if b and Shop.Have(b.item) == 0 then add({ id = b.item, need = 1, book = b.book, key = key, tier = nt.tier }) end
+        end
+    end
+    return out
+end
+-- 商人：这一页卖的里面有哪些是要的 → { { e, g, buys, n, cost } }, 总价
+function Shop.QuickMerchantRows()
+    local goods, rows, total = Shop.MerchantGoods(), {}, 0
+    for _, e in ipairs(Shop.Needs()) do
+        local g = goods[e.id]
+        if g then
+            local buys = math.ceil(e.need / g.stack)
+            if g.avail >= 0 then buys = math.min(buys, g.avail) end
+            if buys > 0 then
+                rows[#rows + 1] = { e = e, g = g, buys = buys, n = buys * g.stack, cost = buys * g.price }
+                total = total + buys * g.price
+            end
+        end
+    end
+    return rows, total
+end
+-- 拍卖行：要的里面能上拍卖行的（物品信息没缓存 = 先列上）
+function Shop.QuickAHRows()
+    local rows = {}
+    for _, e in ipairs(Shop.Needs()) do
+        if Shop.CanAH(e.id) ~= false then rows[#rows + 1] = { e = e, n = e.need } end
+    end
+    return rows
+end
+-- 11-15 用户截图「数量」：写清楚 要买几个（商人按组凑整后的件数）+ 包里已有几个
+-- 11-16 用户截图「这里标记出来是什么专业，多少-多少的，对应好」：每行右边写哪个专业、哪一段技能
+function Shop.RangeTag(e)
+    if not (e and e.key) then return "" end
+    local P = ns.Prof
+    local nm = (P and P.Name and P.Name(e.key)) or e.key
+    if e.tier then return nm .. " " .. ns.L("学", "train ") .. ns.L(e.tier.zh or "", e.tier.en or e.tier.zh or "") end
+    if e.f and e.t then return nm .. " " .. e.f .. "-" .. e.t end
+    return nm
+end
+local function qrowLabel(r)
+    local e = r.e
+    local kind = e.recipe and ns.L("图纸 ", "Recipe ") or e.book and ns.L("教材 ", "Book ") or ""
+    local have = Shop.Have(e.id)
+    local n = r.n or e.need
+    local q = (e.recipe or e.book) and "" or ("  |cffff7070" .. ns.L("缺 ", "need ") .. e.need .. "|r"
+        .. ((r.n and r.n ~= e.need) and ("|cff999999" .. string.format(ns.L("（买 %d）", " (buy %d)"), r.n) .. "|r") or "")
+        .. (have > 0 and ("|cff999999" .. string.format(ns.L(" · 包里 %d", " - have %d"), have) .. "|r") or ""))
+    return "|cffffd100" .. kind .. "|r" .. Shop.Name(e.id, e.book) .. ((e.recipe or e.book) and (" ×" .. n) or "") .. q
+end
+-- 11-15 用户截图「图标」：GetItemIcon 在《无限》客户端拿不到 → 问号；C_Item.GetItemIconByID / GetItemInfoInstant 不用等物品缓存
+function Shop.Icon(id)
+    local C = _G.C_Item
+    local ic = C and C.GetItemIconByID and scall(C.GetItemIconByID, id)
+    if not ic and _G.GetItemInfoInstant then ic = select(5, scall(_G.GetItemInfoInstant, id)) end
+    if not ic and _G.GetItemIcon then ic = scall(_G.GetItemIcon, id) end
+    return ic or "Interface\\Icons\\INV_Misc_QuestionMark"
+end
+-- 11-17 用户截图「重合了，优化一下，是不是应该整合到一个」：商人处不再单独弹框 —— 变成主插件「商人助手」（MerchantDock.lua）里的「买材料」页签，
+--   和卖垃圾共用一个标题栏 / × / 「不再弹」/ 位置；页签上标件数，有材料可买时默认先显示这一页。拍卖行那边照旧是自己的小窗（下面 qf）
+--   「不再弹」= 原来的 ns.db.prof.quick = false（只关这一块，卖垃圾照常）；/gi 专业购买 重新打开
+local function Dock() return ns.MerchantDock end
+function Shop.RegisterDock()
+    local DK = Dock()
+    if Shop.docked then return DK end
+    if not (DK and DK.UI and DK.UI()) then return nil end   -- 外框在清背包子插件（MerchantDockUI.lua）；没装 = 退回独立小窗
+    Shop.docked = true
+    DK.Register("shop", { order = 1,
+        tab = function() return ns.L("买材料", "Buy mats") end,
+        count = function() return Shop.qmN end,
+        never = function()
+            Shop.SetQuick(false)
+            ns.Print(ns.L("专业购买窗口不再自动弹；想重新打开：/gi 专业购买", "Profession shopping window turned off - /gi profshop to turn it back on"))
+            Shop.NeverHint()
+        end,
+        neverTip = function() return ns.L("/gi 专业购买 重新打开", "/gi profshop turns it back on") end })
+    return DK
+end
+-- 行 + 「全部买」按钮（商人助手页签里和拍卖行小窗共用）；x0 / y0 = 第一行左上角
+local function qBuildRows(f, x0, y0)
+    f.x0, f.y0 = x0, y0
+    f.rows = {}
+    for i = 1, Shop.QMAX do
+        local r = CreateFrame("Frame", nil, f); r:SetSize(354, 20); r:SetPoint("TOPLEFT", x0, y0 - (i - 1) * 22)
+        r.ic = r:CreateTexture(nil, "ARTWORK"); r.ic:SetSize(18, 18); r.ic:SetPoint("LEFT", 0, 0)
+        r.cnt = r:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall"); r.cnt:SetPoint("BOTTOMRIGHT", r.ic, "BOTTOMRIGHT", 2, -1)
+        r.t = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); r.t:SetPoint("LEFT", r.ic, "RIGHT", 4, 0)
+        r.t:SetPoint("RIGHT", -142, 0); r.t:SetJustifyH("LEFT"); r.t:SetWordWrap(false)
+        r.tag = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); r.tag:SetPoint("RIGHT", -50, 0); r.tag:SetWidth(90)
+        r.tag:SetJustifyH("RIGHT"); r.tag:SetWordWrap(false); r.tag:SetTextColor(0.55, 0.8, 1)
+        r.b = CreateFrame("Button", nil, r, "UIPanelButtonTemplate"); r.b:SetSize(46, 18); r.b:SetPoint("RIGHT", 0, 0)
+        if ns.SkinButton then ns.SkinButton(r.b) end
+        r:Hide()
+        f.rows[i] = r
+    end
+    f.all = CreateFrame("Button", nil, f, "UIPanelButtonTemplate"); f.all:SetSize(160, 20)
+    if ns.SkinButton then ns.SkinButton(f.all) end
+end
+-- kind = "merchant"：商人助手里的「买材料」页（没有商人助手 = 退回独立小窗）；"ah"：拍卖行旁边的独立小窗
+function Shop.QuickBuild(kind)
+    local DK = kind == "merchant" and Shop.RegisterDock() or nil
+    if DK then
+        if Shop.qm then return Shop.qm end
+        local f = DK.Body("shop")
+        f.docked = true
+        f.title = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); f.title:SetPoint("TOPLEFT", 0, -1)
+        qBuildRows(f, 0, -16)
+        Shop.qm = f
+        return f
+    end
+    if Shop.qf then return Shop.qf end
+    local f = CreateFrame("Frame", "GearInsightForeverProfQuick", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    f:SetSize(370, 80); f:SetFrameStrata("HIGH")
+    if f.SetBackdrop then
+        pcall(f.SetBackdrop, f, { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+        f:SetBackdropColor(0.05, 0.06, 0.08, 0.95); f:SetBackdropBorderColor(1, 0.82, 0, 0.6)
+    end
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal"); f.title:SetPoint("TOPLEFT", 8, -7)
+    local close = CreateFrame("Button", nil, f, "UIPanelCloseButton"); close:SetSize(20, 20); close:SetPoint("TOPRIGHT", 0, 0)
+    close:SetScript("OnClick", function() f:Hide() end)
+    f.off = CreateFrame("Button", nil, f, "UIPanelButtonTemplate"); f.off:SetSize(56, 16); f.off:SetPoint("RIGHT", close, "LEFT", -2, 0)
+    if ns.SkinButton then ns.SkinButton(f.off) end
+    f.off:SetText(ns.L("不再弹", "Never"))
+    f.off:SetScript("OnClick", function()
+        Shop.SetQuick(false); f:Hide()
+        ns.Print(ns.L("专业购买窗口不再自动弹；想重新打开：/gi 专业购买", "Profession shopping window turned off - /gi profshop to turn it back on"))
+        Shop.NeverHint()
+    end)
+    qBuildRows(f, 8, -26)
+    f:Hide()
+    Shop.qf = f
+    return f
+end
+-- 这一块现在开着没（商人助手里 = 「买材料」页开着，切到卖垃圾页签也算；拍卖行小窗 = 显示着）
+function Shop.QuickVisible(kind)
+    local DK = Dock()
+    if kind == "merchant" and DK and Shop.qm then return DK.IsOn("shop") end
+    local f = Shop.qf
+    return f ~= nil and f:IsShown() and true or false
+end
+local function qhide(f)
+    if f and rawget(f, "docked") then
+        Shop.qmN = 0
+        local DK = Dock()
+        if DK then DK.Hide("shop") end
+    elseif f then f:Hide() end
+end
+-- kind = "merchant" / "ah"；force = 手动打开（/gi 专业购买），没东西也弹出来说一声
+function Shop.QuickShow(kind, force)
+    if not force and not Shop.QuickOn() then return false end
+    local rows, total
+    if kind == "merchant" then rows, total = Shop.QuickMerchantRows() else rows = Shop.QuickAHRows() end
+    local f = Shop.QuickBuild(kind)
+    local docked = rawget(f, "docked") and true or false
+    if #rows == 0 then
+        qhide(f)
+        if force then ns.Print(ns.L("现在这一段专业路线没有要在这里买的", "Nothing on your current profession route to buy here")) end
+        return false
+    end
+    if not docked then
+        local host = (kind == "merchant") and _G.MerchantFrame or (_G.AuctionHouseFrame and _G.AuctionHouseFrame:IsShown() and _G.AuctionHouseFrame) or _G.AuctionFrame
+        f:ClearAllPoints()
+        if host then f:SetPoint("TOPLEFT", host, "TOPRIGHT", 4, -24) else f:SetPoint("CENTER") end
+    end
+    f.kind = kind
+    f.title:SetText(kind == "merchant" and ns.L("专业路线 · 这个商人有卖", "Your profession route - sold here") or ns.L("专业路线 · 拍卖行找", "Your profession route - on the AH"))
+    local shown = math.min(#rows, Shop.QMAX)
+    for i = 1, Shop.QMAX do
+        local r, d = f.rows[i], rows[i]
+        if d and i <= shown then
+            r.ic:SetTexture(Shop.Icon(d.e.id))
+            r.cnt:SetText((d.n or d.e.need or 0) > 1 and tostring(d.n or d.e.need) or "")
+            r.tag:SetText(Shop.RangeTag(d.e))
+            r.t:SetText(qrowLabel(d) .. ((kind == "merchant") and ("  |cff999999" .. money(d.cost) .. "|r") or ""))
+            r.b:SetText(kind == "merchant" and ns.L("买", "Buy") or ns.L("搜", "Search"))
+            r.b:SetScript("OnClick", function()
+                if kind == "merchant" then
+                    -- ⛔ 就在这次点击里买（硬件事件），不挪到计时器里
+                    local done = Shop.Buy({ { id = d.e.id, n = d.n, buys = d.buys, g = d.g } })
+                    ns.Print(ns.L("已买：", "Bought: ") .. table.concat(done, ns.L("、", ", ")))
+                    if C_Timer and C_Timer.After then C_Timer.After(0.6, function() if Shop.QuickVisible("merchant") then Shop.QuickShow("merchant", true) end end) end
+                else
+                    local nm = Shop.SearchName(d.e.id, d.e.book)
+                    if nm then Shop.AHSearch(nm) else ns.Print(ns.L("这件东西的名字游戏还没读到，过一秒再点一次", "Item info is still loading - click again in a second")) end
+                end
+            end)
+            r:Show()
+        else
+            r:Hide()
+        end
+    end
+    local h = -f.y0 + shown * 22
+    if kind == "merchant" and #rows > 1 then
+        f.all:ClearAllPoints(); f.all:SetPoint("TOPLEFT", f.x0, -h - 2)
+        f.all:SetText(ns.L("全部买 ", "Buy all ") .. money(total))
+        f.all:SetScript("OnClick", function()
+            local t = GetTime and GetTime() or 0
+            if total >= Shop.CONFIRM_COPPER and not (Shop.qArmed and t - Shop.qArmed <= Shop.CONFIRM_SEC) then
+                Shop.qArmed = t
+                ns.Print(ns.L("全部买要花 ", "Buying everything costs ") .. money(total) .. ns.L("，3 秒内再点一次确认", " - click again within 3s to confirm"))
+                return
+            end
+            Shop.qArmed = nil
+            local plan = {}
+            for _, d in ipairs(rows) do plan[#plan + 1] = { id = d.e.id, n = d.n, buys = d.buys, g = d.g } end
+            local done = Shop.Buy(plan)
+            ns.Print(ns.L("已买：", "Bought: ") .. table.concat(done, ns.L("、", ", ")) .. ns.L("（", " (") .. money(total) .. ns.L("）", ")"))
+            if C_Timer and C_Timer.After then C_Timer.After(0.6, function() if Shop.QuickVisible("merchant") then Shop.QuickShow("merchant", true) end end) end
+        end)
+        f.all:Show()
+        h = h + 26
+    else
+        f.all:Hide()
+    end
+    if #rows > shown then h = h + 4 end
+    if docked then
+        Shop.qmN = #rows
+        local DK = Dock()
+        f:SetHeight(h)
+        DK.SetHeight("shop", h)
+        DK.Show("shop", force and { focus = true } or nil)
+    else
+        f:SetHeight(h + 8)
+        f:Show()
+    end
+    return true
+end
+function Shop.QuickHide()
+    if Shop.qf then Shop.qf:Hide() end
+    if Shop.qm then qhide(Shop.qm) end
+end
+-- 行点击总入口：返回 true = 已处理（不再打地图标记）
+function Shop.Click(link, row, part)
+    if type(link) ~= "table" then return false end
+    if Shop.MerchantOpen() then Shop.AtMerchant(link, row, part); return true end
+    if Shop.AHOpen() then return Shop.AtAH(link, row, part) end
+    return false
+end
+-- 能不能上拍卖行：物品信息里的绑定类型（1 = 拾取绑定 / 4 = 任务物品 → 不能）；物品信息还没缓存 = nil（不标）
+function Shop.CanAH(id)
+    if not id then return nil end
+    local r = { pcall(_G.GetItemInfo, id) }
+    if not r[1] or r[2] == nil then return nil end
+    local bind = r[15]
+    if bind == nil then return nil end
+    return not (bind == 1 or bind == 4)
+end
+function Shop.AHTag(id)
+    local ok = Shop.CanAH(id)
+    if ok == nil then return "" end
+    return ok and ("|cff33ff99" .. ns.L("可拍卖", "AH ok") .. "|r") or ("|cff808080" .. ns.L("拾取绑定·不能拍卖", "BoP - not on AH") .. "|r")
+end
+-- 行右边「买 / 搜」按钮的文字：开着商人 = 买，开着拍卖行 = 搜，都没开 = 出处
+function Shop.BtnText(link, part)
+    local what = part == "recipe" and ns.L("图纸", " recipe") or (link and link.book) and ns.L("书", " book") or (part == "mats" and ns.L("材料", " mats")) or ""
+    if Shop.MerchantOpen() then return ns.L("买", "Buy") .. what end
+    if Shop.AHOpen() then return ns.L("搜", "Find") .. what end
+    return part == "recipe" and ns.L("图纸在哪", "Recipe?") or ns.L("在哪买", "Where")
+end
+-- 这一行有没有能单独买 / 搜的图纸（训练师学的不算）
+function Shop.HasRecipe(link) return type(link) == "table" and link.recipe and tonumber(link.recipe[18]) and true or false end
+function Shop.TipLine(link)
+    if type(link) ~= "table" or not (link.mats or link.recipe) then return nil end
+    return ns.L("开着商人窗口点一下：买图纸和商人卖的材料（只补缺的）· 开着拍卖行点一下：搜缺的材料（再点搜下一样）",
+        "With a vendor open: click to buy the recipe and vendor mats you lack - with the AH open: click to search missing mats")
+end
+
 local function getRow(i)
     local r = page.rows[i]
     if r then return r end
@@ -48,13 +548,45 @@ local function getRow(i)
         for i, ln in ipairs(self.tip or {}) do
             if i == 1 and not shown then GameTooltip:AddLine(ln, 1, 0.82, 0, true) else GameTooltip:AddLine(ln, 1, 1, 1, true) end
         end
+        local sl = Shop.TipLine(link)
+        if sl then GameTooltip:AddLine(sl, 0.4, 0.8, 1, true) end
         GameTooltip:Show()
     end)
     r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- 11-15 用户「配方购买也要一个按钮」：带图纸 / 材料的行右边一个「买 / 搜 / 在哪买」小按钮（和点整行一样）
+    -- 11-15 用户截图「材料和图纸是两个按钮搜索」：右边两个按钮 —— 材料（r.buy）/ 图纸（r.buy2，只在要买图纸的配方行出）
+    --   开商人 = 买，开拍卖行 = 搜，都没开 = 图纸 / 教材打地图标记
+    local function mk(part, x)
+        local b = CreateFrame("Button", nil, r, "UIPanelButtonTemplate")
+        if ns.SkinButton then ns.SkinButton(b) end
+        b:SetSize(62, 18); b:SetPoint("TOPRIGHT", r, "TOPRIGHT", x, -4); b:Hide()
+        b.part = part
+        b:SetScript("OnClick", function(self)
+            local row = self:GetParent()
+            local link = rawget(row, "link")
+            if Shop.Click(link, row, self.part) then return end
+            if self.part == "recipe" and link and link.recipe and ns.ProfPinRecipeSource then ns.ProfPinRecipeSource(link.recipe); return end
+            if link and link.book and ns.ProfPinBook then ns.ProfPinBook(link); return end
+            ns.Print(ns.L("打开商人窗口点这个按钮就买、打开拍卖行就搜", "Open a vendor to buy, or the auction house to search"))
+        end)
+        b:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(Shop.TipLine(rawget(self:GetParent(), "link")) or "", 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        return b
+    end
+    r.buy = mk("mats", -6)
+    r.buy2 = mk("recipe", -72)
     -- 配方库：点一下 = 出处打地图标记 + 聊天框列全部出处（10-20 GI-22）
     r:SetScript("OnClick", function(self)
         local link = rawget(self, "link")
+        -- 11-18 任务档（专业助手「先学 大师级 · 任务：蚌肉大餐」）：点了追踪任务 / 标出接任务的人
+        if type(link) == "table" and link.quest and ns.ProfPinQuest then ns.ProfPinQuest(link); return end
+        if Shop.Click(link, self) then return end
         if link and link.recipe and ns.ProfPinRecipeSource then ns.ProfPinRecipeSource(link.recipe) end
+        if link and link.book and not link.recipe and ns.ProfPinBook then ns.ProfPinBook(link) end
     end)
     page.rows[i] = r
     return r
@@ -97,6 +629,8 @@ end
 local y, n
 local function reset(r, h)
     r.tip, r.link = nil, nil
+    local bb = rawget(r, "buy")
+    if bb then bb:Hide(); r.buy2:Hide() end
     local bar = rawget(r, "bar")
     if bar then bar:Hide() end
     r.s:ClearAllPoints(); r.s:SetPoint("TOPLEFT", 34, -20); r.s:SetPoint("RIGHT", -8, 0)
@@ -119,6 +653,19 @@ local function item(icon, title, sub, tip, link)
     r.t:SetText(title or ""); r.s:SetText(sub or "")
     r.tip = tip or { title or "", sub or "" }
     r.link = link
+    -- 带图纸 / 材料 / 教材的行：右边出「买 / 搜 / 在哪买」，标题让出按钮的位置
+    local hasMats = type(link) == "table" and link.mats and #link.mats > 0
+    local hasRec = Shop.HasRecipe(link)
+    local nb = 0
+    if hasMats then
+        -- 都没开：材料按钮没东西可买 → 只在教材行留「在哪买」，配方行交给图纸按钮
+        if Shop.MerchantOpen() or Shop.AHOpen() or link.book then r.buy:SetText(Shop.BtnText(link, "mats")); r.buy:Show(); nb = 1 end
+    end
+    if hasRec then
+        r.buy2:ClearAllPoints(); r.buy2:SetPoint("TOPRIGHT", r, "TOPRIGHT", nb == 1 and -72 or -6, -4)
+        r.buy2:SetText(Shop.BtnText(link, "recipe")); r.buy2:Show(); nb = nb + 1
+    end
+    r.t:SetPoint("RIGHT", nb == 2 and -140 or nb == 1 and -74 or -8, 0)
     y = y - ROW_H - 2
     return r
 end
@@ -512,6 +1059,25 @@ function ns.ProfPinRecipeSource(r)
     end
     return false
 end
+-- 11-15 教材出处：本阵营第一个有坐标的商人打地图标记，聊天框列全部（ns.ProfBooks 没收录 = 提示去拍卖行搜）
+function ns.ProfPinBook(link)
+    local name = link.book or ""
+    local vs = link.vendors or {}
+    local side = UnitFactionGroup and UnitFactionGroup("player")
+    side = side == "Alliance" and "A" or side == "Horde" and "H" or nil
+    ns.Print(ns.L("「", "") .. name .. ns.L("」在哪买：", " - where to buy:"))
+    if #vs == 0 then ns.Print(ns.L("  出处还没收录：打开拍卖行点「搜」", "  no vendor recorded yet - try the AH")) return false end
+    local pinned
+    for _, v in ipairs(vs) do
+        local other = side and v.side and v.side ~= "N" and v.side ~= side
+        ns.Print("  " .. (other and "|cff808080" or "") .. ns.L(v.n, v.ne or v.n) .. " · " .. ns.L(v.z or "", v.ze or v.z or "")
+            .. string.format(" %.1f, %.1f", v.x or 0, v.y or 0) .. (other and ns.L("（对方阵营）|r", " (other faction)|r") or ""))
+        if not pinned and not other and (v.um or 0) > 0 and ns.ShowOnMap then
+            pinned = ns.ShowOnMap(v.um, { { v.x, v.y } }, name) or true
+        end
+    end
+    return pinned and true or false
+end
 -- 配方行副标题用的短出处（本阵营第一条；只有训练师就写训练师）
 -- 鼠标提示里的「出处」段：全部出处（对方阵营灰色）+ 能打标时提示点一下
 function ns.ProfSourceTip(tip, r)
@@ -691,7 +1257,7 @@ local function renderCamp()
         local key = P().BlueprintProf(bp)
         local mine = key and skills[key]
         item("Interface\\Icons\\INV_Scroll_03", (mine and "|cff33ff99" or "") .. ns.L(bp.zh or bp.en, bp.en) .. (mine and "|r" or ""),
-            (bp.dun or "") .. " · " .. (bp.boss or "") .. (key and (ns.L("  （", "  (") .. P().Name(key) .. ns.L("）", ")")) or ""))
+            ns.TD(bp.dun or "") .. " · " .. ns.TD(bp.boss or "") .. (key and (ns.L("  （", "  (") .. P().Name(key) .. ns.L("）", ")")) or ""))
     end
     -- 传承
     head(ns.L("传承 · 制造专业里程碑：每档账号首次 1 点", "Legacy - crafting milestones: 1 point each, once per account"))
@@ -819,18 +1385,32 @@ local function build(p)
     p.unpickBtn:SetPoint("LEFT", p.pickBtn, "RIGHT", 6, 0)
     -- 冲级路线 / 配方库：专业
     p.routeBtns = {}
-    x = 12
-    for _, k in ipairs(ROUTE_KEYS) do
-        local b = pbtn(p, P().Name(k), 74, 20, function() routeKey = k; refresh() end)
-        b:SetPoint("TOPLEFT", x, -70); x = x + 76
-        p.routeBtns[k] = b
+    -- 11-15 用户截图「加上专业图标」「注意对齐」：按钮左边加专业图标（14px），文字跟着右挪；两排同一套 76px 格子，上下列对齐
+    local function withIcon(b, k)
+        local t = b:CreateTexture(nil, "OVERLAY")
+        t:SetSize(14, 14); t:SetPoint("LEFT", b, "LEFT", 5, 0)
+        t:SetTexture(icon(k)); t:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        b.pic = t
+        -- 文字整体右挪 8px 给图标让位（扁平按钮按下时自己把文字设回正中 +1/-1，这里跟在它后面再挪回来）
+        local fs = rawget(b, "_segFs") or (b.GetFontString and b:GetFontString())
+        if fs then
+            fs:ClearAllPoints(); fs:SetPoint("CENTER", 8, 0)
+            if b.HookScript then
+                b:HookScript("OnMouseDown", function() fs:ClearAllPoints(); fs:SetPoint("CENTER", 9, -1) end)
+                b:HookScript("OnMouseUp", function() fs:ClearAllPoints(); fs:SetPoint("CENTER", 8, 0) end)
+            end
+        end
+        return b
     end
-    x = 12
-    for _, k in ipairs(GATHER_KEYS) do
-        local b = pbtn(p, P().Name(k), 74, 20, function() routeKey = k; refresh() end)
-        b:SetPoint("TOPLEFT", x, -96); x = x + 76
-        p.routeBtns[k] = b
+    local function row(keys, yy)
+        for i, k in ipairs(keys) do
+            local b = withIcon(pbtn(p, P().Name(k), 74, 20, function() routeKey = k; refresh() end), k)
+            b:SetPoint("TOPLEFT", 12 + (i - 1) * 76, yy)
+            p.routeBtns[k] = b
+        end
     end
+    row(ROUTE_KEYS, -70)
+    row(GATHER_KEYS, -96)
     -- 配方库筛选：技能段 / 部位 / 只看新增 / 我能穿 / 搜索
     p.rangeBtns = {}
     x = 12
@@ -886,13 +1466,54 @@ local function build(p)
 end
 
 -- 外面跳进来：/gi prof 选专业 等
+-- 11-15 行上「买 / 搜 / 在哪」按钮的文字跟着商人 / 拍卖行开关变：开关时页面开着就重画一次
+do
+    local sev = CreateFrame("Frame")
+    for _, e in ipairs({ "MERCHANT_SHOW", "MERCHANT_CLOSED", "AUCTION_HOUSE_SHOW", "AUCTION_HOUSE_CLOSED" }) do pcall(sev.RegisterEvent, sev, e) end
+    sev:SetScript("OnEvent", function()
+        if page and page.IsVisible and page:IsVisible() and C_Timer and C_Timer.After then
+            C_Timer.After(0.2, function() if page:IsVisible() then pcall(refresh) end end)
+        end
+    end)
+end
 function ns.ProfOpenTab(t)
     tab = t
     if page and page.IsVisible and page:IsVisible() then refresh(); return end
     if ns.ToggleMain then ns.ToggleMain("prof") end
     refresh()
 end
+-- 11-23 用户「制造的也直接打开专业配方」：成品物品 → 配方库，切到那个专业、清筛选、搜索框填配方名；返回 专业键, 配方法术（找不到 nil）
+function ns.ProfOpenRecipe(id)
+    for k, lst in pairs(ns.ProfRecipes and ns.ProfRecipes.profs or {}) do
+        for _, r in ipairs(lst) do
+            if r[7] == id then
+                routeKey = k
+                flt.range, flt.slot, flt.new, flt.mine, flt.src, flt.q = 0, 1, false, false, 1, ns.L(r[2], r[3])
+                ns.ProfOpenTab("recipes")
+                if page and page.search then page.search:SetText(flt.q) end
+                return k, r[1]
+            end
+        end
+    end
+end
 
 -- 11-14 order 1.85 → 1.15：专业成了左栏独立一级，排在「升级」(1.1) 后、「装备」(1.2) 前（UI.lua GROUPS）；⛔ 和 ProfStub.lua 的占位页一致
 ns.RegisterPage({ key = "prof", order = 1.15, title = ns.L("专业", "Professions"), tabTitle = ns.L("专业", "Profs"),
     icon = "Interface\\Icons\\Trade_BlackSmithing", hold = true, build = build, refresh = refresh })
+
+-- 「窗口与提醒」（11-17）：开商人 / 拍卖行自己弹的专业购买窗口，「不再弹」关掉的从这里找回
+--   ⛔ 本子插件按需加载 → 没加载时主插件 ProfStub.lua 要有同 key 占位（见回报）
+if ns.RegisterWindow then
+    ns.RegisterWindow({ key = "profShop", order = 71, title = function() return ns.L("专业购买窗口（开商人 / 拍卖行时）", "Profession shopping window") end,
+        state = function() return Shop.QuickOn() and ns.L("开商人 / 拍卖行时弹出", "Pops up at merchants / the AH") or ns.L("已关闭（/gi 专业购买 仍能打开）", "Closed") end,
+        actions = function()
+            local on = Shop.QuickOn() and true or false
+            return { { text = on and ns.L("关闭", "Turn off") or ns.L("打开", "Turn on"), fn = function()
+                Shop.SetQuick(not on)
+                if on then
+                    if Shop.qf then Shop.qf:Hide() end
+                    Shop.NeverHint()
+                end
+            end } }
+        end })
+end

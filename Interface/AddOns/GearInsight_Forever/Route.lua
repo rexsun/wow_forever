@@ -20,10 +20,7 @@ function ns.RouteRace()
     return KNOWN[rf] and rf or "Skyborne"
 end
 
-local function myFaction()
-    local f = UnitFactionGroup and UnitFactionGroup("player")
-    return (f == "Horde") and "Horde" or "Alliance"
-end
+local myFaction = ns.SideChains.Faction   -- SideChains.lua（同一个函数）
 
 -- 一条完整路线：起始区（按种族）+ 阵营主路线 + 60 级
 function ns.RouteLegs(fac, race)

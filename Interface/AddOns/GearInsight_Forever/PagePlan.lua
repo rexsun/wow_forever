@@ -95,6 +95,7 @@ local function buildItems(lo, hi, desc)
     local cls, cur = myClass(), curLv()
     local items = {}
     local ranks = rankTable(cls)
+    local notTr = ns.TrainNow and ns.TrainNow.NotTrainer
     for _, s in ipairs((ns.Data.spells or {})[cls] or {}) do
         if s.lv >= lo and s.lv <= hi then
             if s.quest then
@@ -102,10 +103,12 @@ local function buildItems(lo, hi, desc)
             else
                 local known = spellKnown(s.id)
                 -- 天赋系技能（s.tal）没学会多半是没点那个天赋，不算「漏学」
-                local st = known and "done" or (s.tal and known == false and s.lv <= cur and "tal")
+                -- 11-19 整体更正：技能书 / 任务 / 掉落给的（安其拉书暗影箭 10、熊形态任务给的低吼…，TrainNowData.nt）同样不算漏学、不给找训练师
+                local nt = notTr and s.id and notTr(cls, s.id) or nil
+                local st = known and "done" or ((s.tal or nt) and known == false and s.lv <= cur and "tal")
                     or (s.lv < cur and known == false and "missed") or (s.lv <= cur and "now") or "future"
                 local rk, rkMax, nextLv = rankOf(ranks, s.n, s.lv)
-                items[#items + 1] = { lv = s.lv, kind = "spell", n = s.n, i = s.i, auto = s.auto, d = s.d, st = st, tal = s.tal,
+                items[#items + 1] = { lv = s.lv, kind = "spell", n = s.n, i = s.i, auto = s.auto, d = s.d, st = st, tal = s.tal, nt = nt,
                     rank = rk, rankMax = rkMax, nextLv = nextLv }
             end
         end
@@ -161,6 +164,13 @@ local function buildItems(lo, hi, desc)
     -- 10-18 特殊任务线（SideChains.lua，HOLD 里没装就没有）：舒适的睡袋等跨地图任务线，推荐等级那一级出一行
     if ns.SideChainItems then
         local ok, list = pcall(ns.SideChainItems, lo, hi, cur)
+        for _, it in ipairs(ok and list or {}) do items[#items + 1] = it end
+    end
+    -- 11-23 门任务（用户「升级规划加入重要的门任务必做的任务，点击可以打开悬浮窗，任务追踪，跟睡袋一样」）：
+    --   数据在按需加载的 GearInsight_Forever_Gate（HOLD 没进包时 ModHas 为假 → 不加载、没有这些行）；每条按推荐等级出一行（kind = "chain"，gate = true）
+    if not ns.GateChainsData and ns.ModHas and ns.ModHas("gate", "GateChainsData.lua") and ns.ModLoad then pcall(ns.ModLoad, "gate", nil, true) end
+    if ns.GateChainItems and ns.GateChainsData then
+        local ok, list = pcall(ns.GateChainItems, lo, hi, cur)
         for _, it in ipairs(ok and list or {}) do items[#items + 1] = it end
     end
     -- 10-16 专业接进地图待办（Prof.lua，HOLD 里没装就没有）：顺路采集 / 经验食物 / 训练 / 营地 / 图纸 / 传承
@@ -379,6 +389,334 @@ function ns.GearAltText(a)
         .. (a.pct and (ns.L("，+", ", +") .. a.pct .. "%") or "") .. ns.L("）", ")")
 end
 
+-- 11-23 用户拍板「按推荐、全球数据」：60 级起按 BisData.lua（scripts/gi_forever_bis_wcl.py）推荐，每格前 5：
+--   WCL 实测（这一专精这一格 ≥ 10 人在穿，按人数排）> 11-20 wowtbc.gg 人工清单 > 权重推算；第 1 名 = 推荐件，悬停列前 5（使用率 · 人数 · 来源）。
+--   专精：插件天赋键 → WCL 专精（BisData.map；猎人 / 盗贼 / 法师 / 术士「通用」和牧师「治疗」按点数最多的系挑，看别的职业用 d）。
+--   前 5 里的物品插件掉落池有就复用池里那条（副本 / 任务 / 商人的点击照旧），制造表里有的当制造件（点击给制作信息），
+--   都没有的做一条 src = "bis" 的条目（how = drop / craft / quest / rep / world / vendor，srcName = 来源）。
+--   ⛔ 网站导出 gi_forever_web_export.py 读同一个文件、同一条规则（三端一致），改一边必须改另一边
+local CUR_KEYS = { head = "head", neck = "neck", shoulder = "shoulder", back = "back", chest = "chest", wrist = "wrist", hands = "hands",
+    waist = "waist", legs = "legs", feet = "feet", finger1 = "finger", finger2 = "finger", trinket1 = "trinket", trinket2 = "trinket",
+    main = "main", off = "off", ranged = "ranged" }
+local BIS_SLOT_CN = { head = "头部", neck = "颈部", shoulder = "肩部", back = "背部", chest = "胸部", wrist = "手腕", hands = "手",
+    waist = "腰部", legs = "腿部", feet = "脚", finger = "手指", trinket = "饰品", main = "武器", off = "副手", ranged = "远程" }
+local BIS_HOW = { drop = { "副本掉落", "Dungeon drop" }, craft = { "制造", "Crafted" }, quest = { "任务", "Quest" },
+    rep = { "声望", "Reputation" }, world = { "野外 / 世界掉落", "World" }, vendor = { "商人", "Vendor" } }
+local BIS_SRC = { w = "wcl", c = "curated", k = "calc" }
+local BIS_CLASSES = { "Warrior", "Paladin", "Hunter", "Rogue", "Priest", "Shaman", "Mage", "Warlock", "Druid" }   -- 别的职业池按固定顺序找（网站导出同一条）
+ns.BisHowText = function(how) local t = BIS_HOW[how or ""]; return t and ns.L(t[1], t[2]) or "" end
+-- 按 \t 拆（空段保留）
+local function splitTab(s)
+    local out, p = {}, 1
+    while true do
+        local q = string.find(s, "\t", p, true)
+        if not q then out[#out + 1] = s:sub(p); return out end
+        out[#out + 1] = s:sub(p, q - 1); p = q + 1
+    end
+end
+local bisSrcC, bisItC, bisSpC = {}, {}, {}
+-- BisData.d 是一个长字符串，每行一条记录：按行首前缀明文找到那一行（"I12345\t" / "R7\t" / "S\tRogue/Combat\t"），返回前缀后面的部分
+local function bisLine(prefix)
+    local d = ns.BisData and ns.BisData.d
+    if type(d) ~= "string" then return nil end
+    local p = string.find(d, "\n" .. prefix, 1, true)
+    if not p then return nil end
+    local q = string.find(d, "\n", p + 1, true) or (#d + 1)
+    return d:sub(p + 1 + #prefix, q - 1)
+end
+local function bisSource(i)
+    local c = bisSrcC[i]
+    if not c then
+        local f = splitTab(bisLine("R" .. i .. "\t") or "world\t\t")
+        c = { how = f[1], s = f[2] or "", sEn = f[3] or "" }
+        bisSrcC[i] = c
+    end
+    return c
+end
+-- 某件物品的来源 + 显示信息（池外物品才有名字 / 图标…）
+local function bisItem(id)
+    local c = bisItC[id]
+    if c then return c end
+    local raw = id and bisLine("I" .. id .. "\t")
+    if not raw then return nil end
+    local f = splitTab(raw)
+    local s = bisSource(tonumber(f[1]) or 0)
+    local fl = f[2] or ""
+    c = { id = id, how = s.how, s = s.s, sEn = s.sEn, n = f[3] or "", nEn = f[4] or "", i = f[5] or "", ilvl = tonumber(f[6]) or 0,
+        req = tonumber(f[7]) or 0, q = (f[8] and f[8] ~= "") and f[8] or "q3", slot = f[9] or "",
+        two = string.find(fl, "2", 1, true) ~= nil, uniq = string.find(fl, "u", 1, true) ~= nil }
+    bisItC[id] = c
+    return c
+end
+ns.BisItemInfo = bisItem
+-- 一个 WCL 专精（"Rogue/Combat"）→ { n = 样本, zh, full, lv, head = { {id, pct, cnt, src, rank}… }… }，第一次用到才拆；pct = 人数 / 样本（一位小数）
+local function bisSpec(full)
+    local c = bisSpC[full]
+    if c then return c end
+    local raw = bisLine("S\t" .. full .. "\t")
+    if not raw then return nil end
+    local f = splitTab(raw)
+    local n = tonumber(f[1]) or 0
+    c = { n = n, zh = f[2] or "", full = full, lv = ns.BisData.lv or 60 }
+    for k = 3, #f do
+        local key, body = string.match(f[k], "^(%a+)=(.*)$")
+        if key and BIS_SLOT_CN[key] then
+            local lst = {}
+            for id, cnt, src in string.gmatch(body, "(%d+),(%d+),(%a)") do
+                cnt = tonumber(cnt)
+                lst[#lst + 1] = { id = tonumber(id), cnt = cnt, pct = n > 0 and math.floor(cnt * 1000 / n + 0.5) / 10 or 0,
+                    src = BIS_SRC[src] or src, rank = #lst + 1 }
+            end
+            c[key] = lst
+        end
+    end
+    for key in pairs(BIS_SLOT_CN) do c[key] = c[key] or {} end
+    bisSpC[full] = c
+    return c
+end
+-- 插件天赋键 → WCL 专精名（"Combat"）
+local function bisWclSpec(cls, spec)
+    local B = ns.BisData
+    local m = B and B.map and B.map[cls]
+    if not m then return nil end
+    local v = spec and m[spec]
+    if v == nil then
+        local SG = ns.SpecGear
+        local first = SG and SG.Available() and SG.Specs(cls)[1]
+        v = first and m[first.k]
+    end
+    if type(v) == "table" then
+        if cls == myClass() and ns.MyMainTree then
+            local ok, t = pcall(ns.MyMainTree)
+            if ok and t and v[t] then return v[t] end
+        end
+        return v.d
+    end
+    return v
+end
+local function bisFor(cls, spec, lv)
+    local B = ns.BisData
+    if not B or (lv or 0) < (B.lv or 60) then return nil end
+    local w = bisWclSpec(cls, spec)
+    return w and bisSpec(cls .. "/" .. w)
+end
+ns.PlanBisFor = bisFor
+-- 11-23 用户「60 bis有排名的展示，专精，WCL排名第几」：任何地方鼠标指装备（背包 / 聊天链接 / 掉落 / 观察…），这件在任一专精的 60 级 BiS 前 5 里
+--   → 加一行「GI 60 级 BiS：射击猎 远程 第2 18%，生存猎 远程 第1 25%」：本职业的专精排前面、金色；再按名次、使用率排；最多 3 个，其余写「等 N 个专精」。
+--   ⛔ 不另存反查表：BisData.d 里 S 行就是「=id,人数,来源」「;id,人数,来源」，第一次指到某件时明文找一遍（约 0.1 ms），结果按物品缓存成一串字；
+--   合并包（发版默认）BisData 登录就在内存里 → 0 额外数据；拆分包只在 _Plan 已加载时显示（不为一行提示 LoadAddOn _Plan，那要 +590 KB）。
+--   使用率只给 WCL 实测件（人工清单 / 推算件只写名次）；网站对照：scripts/gi_forever_bis_wcl.py 的 reverse_index（测试逐件比）
+do
+    local CLS_ZH = { Warrior = "战", Paladin = "骑", Hunter = "猎", Rogue = "贼", Priest = "牧", Shaman = "萨", Mage = "法", Warlock = "术", Druid = "德" }
+    local SHORT = { ["野兽控制"] = "兽王", ["恶魔学识"] = "恶魔" }
+    local tipC, tipN, rows = {}, 0, nil
+    -- 物品 → { { cls, ws, zh, slot, rank, pct }… }（同一专精多格取最好名次）；不在任何前 5 → 空表；没有 BisData → nil
+    local function find(id)
+        local d = ns.BisData and ns.BisData.d
+        id = tonumber(id)
+        if type(d) ~= "string" or not id then return nil end
+        if not rows or rows.d ~= d then   -- S 行：{ 起, 止, 职业, WCL 专精, 样本, 中文专精 }（28 条，第一次用到才建）
+            rows = { d = d }
+            for a, cls, ws, n, zh, e in string.gmatch(d, "\n()S\t(%a+)/(%a+)\t(%d+)\t([^\t]*)[^\n]*()") do rows[#rows + 1] = { a, e, cls, ws, tonumber(n), zh } end
+        end
+        local out, key, p, lastR = {}, id .. ",", 1, nil
+        while true do
+            local a = string.find(d, key, p, true)
+            if not a then break end
+            p = a + 1
+            local b = string.byte(d, a - 1)
+            if b == 61 or b == 59 then   -- 前一个字是「=」或「;」= 物品编号（不是人数里的一截）
+                local r
+                for _, x in ipairs(rows) do if a > x[1] and a < x[2] then r = x; break end end
+                if not r then break end   -- S 行都在 I / R 行前面
+                local t, u, rank = r[1], nil, 1
+                while true do u = string.find(d, "\t", t, true); if not u or u > a then break end; t = u + 1 end
+                u = t
+                while true do u = string.find(d, ";", u, true); if not u or u > a then break end; rank = rank + 1; u = u + 1 end
+                local slot = string.match(d, "^(%a+)=", t)
+                local cnt, src = string.match(d, "^%d+,(%d+),(%a)", a)
+                if slot and cnt then
+                    local e = { cls = r[3], ws = r[4], zh = r[6], slot = slot, rank = rank, pct = src == "w" and r[5] > 0 and math.floor(cnt * 100 / r[5] + 0.5) or nil }
+                    if lastR ~= r then out[#out + 1] = e; lastR = r elseif rank < out[#out].rank then out[#out] = e end
+                end
+            end
+        end
+        return out
+    end
+    ns._BisTipFind = find   -- 测试用
+    -- 排序（本职业在前 → 名次 → 使用率，没有使用率的排后）+ 拼一行
+    local function build(id)
+        local lst = find(id)
+        if not lst or #lst == 0 then return nil end
+        local me = myClass()
+        table.sort(lst, function(x, y)
+            if (x.cls == me) ~= (y.cls == me) then return x.cls == me end
+            if x.rank ~= y.rank then return x.rank < y.rank end
+            if (x.pct or -1) ~= (y.pct or -1) then return (x.pct or -1) > (y.pct or -1) end
+            return x.cls .. x.ws < y.cls .. y.ws
+        end)
+        local parts = {}
+        for i = 1, math.min(3, #lst) do
+            local e = lst[i]
+            parts[i] = (e.cls == me and "|cffffd100" or "|cffc0c0c0") .. ns.L((SHORT[e.zh] or e.zh) .. (CLS_ZH[e.cls] or "") .. " " .. (BIS_SLOT_CN[e.slot] or e.slot) .. " 第",
+                e.ws .. " " .. e.cls .. " " .. e.slot .. " #") .. e.rank .. (e.pct and (" " .. e.pct .. "%") or "") .. "|r"
+        end
+        return "|cff33ff99GI|r " .. ns.L("60 级 BiS：", "Lv60 BiS: ") .. table.concat(parts, ns.L("，", ", "))
+            .. (#lst > 3 and ns.L("  等 " .. (#lst - 3) .. " 个专精", "  +" .. (#lst - 3) .. " specs") or "")
+    end
+    ns._BisTipText = build   -- 测试用
+    local function clear(self) self.__gifBis = nil end
+    local function add(tt, id)
+        if not tt or not id or tt.__gifBis == id or not tt.AddLine then return end
+        if ns.db and ns.db.ui and ns.db.ui.bisTip == false then return end   -- 11-24 GI-348 关掉（设置 → 装备 → 推荐装备「物品提示里的 60 级 BiS 排名」）
+        if not tt.__gifBisHk and tt.HookScript then tt.__gifBisHk = true; tt:HookScript("OnTooltipCleared", clear) end
+        local s = tipC[id]
+        if s == nil then
+            if tipN >= 400 then tipC, tipN = {}, 0 end   -- 只缓存最近指过的 400 件
+            s = build(id) or false
+            tipC[id], tipN = s, tipN + 1
+        end
+        if not s then return end
+        tt.__gifBis = id
+        tt:AddLine(s, 1, 0.82, 0.4, true)
+        tt:Show()
+    end
+    ns._BisTipAdd = add   -- 测试用
+    local function hook()
+        if ns._bisTipHooked then return end
+        ns._bisTipHooked = true
+        local TDP, T = TooltipDataProcessor, Enum and Enum.TooltipDataType
+        if TDP and TDP.AddTooltipPostCall and T and T.Item then
+            TDP.AddTooltipPostCall(T.Item, function(tt, data)
+                local id = data and data.id
+                if id and not ns.Secret(id) then pcall(add, tt, id) end
+            end)
+            return
+        end
+        for _, tt in ipairs({ GameTooltip, ItemRefTooltip }) do
+            if tt and tt.HookScript and tt:HasScript("OnTooltipSetItem") then
+                tt:HookScript("OnTooltipSetItem", function(self)
+                    local _, link = self:GetItem()
+                    if link and not ns.Secret(link) then pcall(add, self, tonumber(link:match("item:(%d+)"))) end
+                end)
+            end
+        end
+    end
+    -- 拆分包：_Plan 是登录后才加载的（存档已读好）→ 当场挂；合并包：文件在 ADDON_LOADED 之前执行 → 排进 ns.modules（排在 LootTip 等后面，行序不变）
+    if ns.db then pcall(hook) else table.insert(ns.modules, function() pcall(hook) end) end
+end
+-- 没中文名的（无限新物品）：取客户端名字（GetItemInfo，第一次可能还没缓存 → 先用英文，物品数据到了页面会重画）
+local function curName(e)
+    local info = bisItem(e.id) or {}
+    if info.n and info.n ~= "" then return ns.ItemNmId(e.id, info.n, info.nEn) end
+    local a = ns.ItemNameRaw and ns.ItemNameRaw(e.id)
+    local nm = a or (GetItemInfo and GetItemInfo(e.id))
+    if nm then return nm end
+    for _, cl in ipairs(BIS_CLASSES) do
+        for _, it in ipairs((ns.Data.gear or {})[cl] or {}) do if it.id == e.id then return ns.ItemNm(it) end end
+    end
+    return (info.nEn and info.nEn ~= "" and info.nEn) or ("#" .. e.id)
+end
+ns.BisCuratedName = curName
+-- 来源短写（格子第二行）：「声望：塞拉摩远征军 崇拜」→「声望」、「荆棘谷 · 某 NPC」→「荆棘谷」。⛔ 按分隔符明文找，别用 [^…] 字符集（中文多字节会被拆）
+local function curShortSrc(s)
+    s = s or ""
+    local cut = #s + 1
+    for _, sep in ipairs({ "：", ": ", " · ", "（", " (" }) do
+        local p = string.find(s, sep, 1, true)
+        if p and p < cut then cut = p end
+    end
+    return s:sub(1, cut - 1)
+end
+local poolById, anyById, curMade = {}, nil, {}
+local function curItem(cls, e, key)
+    local idx = poolById[cls]
+    if not idx then
+        idx = {}
+        for _, it in ipairs((ns.Data.gear or {})[cls] or {}) do if not idx[it.id] then idx[it.id] = it end end
+        poolById[cls] = idx
+    end
+    if idx[e.id] then return idx[e.id] end
+    local c = curMade[e.id]
+    if c then
+        if not c.n or c.n == "" then c.n = (GetItemInfo and GetItemInfo(e.id)) or nil end
+        return c
+    end
+    if not anyById then   -- 别的职业池里的（项链 / 戒指 / 饰品 / 武器常见）+ 制造表
+        anyById = {}
+        for _, cl in ipairs(BIS_CLASSES) do
+            for _, it in ipairs((ns.Data.gear or {})[cl] or {}) do if not anyById[it.id] then anyById[it.id] = it end end
+        end
+        local gc = ns.Data.gearCraft
+        for _, it in ipairs(gc and gc.items or {}) do if not anyById[it.id] then anyById[it.id] = it end end
+    end
+    local info = bisItem(e.id) or { how = "world", s = "", sEn = "", n = "", nEn = "", i = "", ilvl = 0, req = 0, q = "q3", slot = "" }
+    local a = anyById[e.id]
+    if a then
+        c = {}
+        for k, v in pairs(a) do c[k] = v end
+        if a.pf then c.src = "craft" end   -- 制造表那条没有 src
+    else
+        c = { id = e.id, nEn = info.nEn, i = info.i, ilvl = info.ilvl, req = info.req, q = info.q, slot = (info.slot ~= "" and info.slot) or BIS_SLOT_CN[key] or "",
+            type = "", src = "bis", srcName = ns.L(info.s, info.sEn), how = info.how, two = info.two }
+        c.n = (info.n ~= "" and info.n) or (GetItemInfo and GetItemInfo(e.id)) or nil
+    end
+    curMade[e.id] = c
+    return c
+end
+-- 套到 out 上：戒指 / 饰品两格分第 1、2 名；主手是双手就不推副手；副手第 1 名和主手同一件且唯一装备 → 顺延
+local function applyCurated(cur, cls, out)
+    local function nth(key, n, skipId)
+        local k = 0
+        for _, e in ipairs(cur[key] or {}) do
+            if e.id ~= skipId then k = k + 1; if k == n then return curItem(cls, e, key) end end
+        end
+    end
+    local new = {}
+    for slot, key in pairs(CUR_KEYS) do
+        if slot ~= "off" then new[slot] = nth(key, (slot == "finger2" or slot == "trinket2") and 2 or 1) or out[slot] end
+    end
+    local m = new.main
+    local mi = m and bisItem(m.id)
+    new.off = nth("off", 1, (m and mi and mi.uniq) and m.id or nil) or out.off
+    if m and (m.two or (mi and mi.two)) then new.off = nil end
+    return new
+end
+-- 某格的前 5（槽位键 → 条目列表）；没有数据 / 不到 60 级返回 nil
+ns.PlanCuratedTop = function(lv, cls, spec, slot)
+    local cur = bisFor(cls or myClass(), spec, lv)
+    return cur and cur[CUR_KEYS[slot] or slot], cur
+end
+-- 悬停一行的右半：「使用率 23% · 284 人」；人工清单 / 推算的写「人工清单」「属性推算」（WCL 也有人穿就带上人数）
+local function bisStatText(e)
+    local info = bisItem(e.id) or {}
+    local parts = {}
+    if (e.cnt or 0) > 0 then
+        local p = e.pct or 0
+        parts[#parts + 1] = string.format(ns.L("使用率 %s%% · %d 人", "%s%% used · %d players"), (p == math.floor(p)) and tostring(math.floor(p)) or tostring(p), e.cnt)
+    end
+    if e.src == "curated" then parts[#parts + 1] = ns.L("人工清单", "curated list")
+    elseif e.src == "calc" then parts[#parts + 1] = ns.L("属性推算", "stat weights") end
+    if #parts == 0 then parts[1] = ns.BisHowText(info.how) end
+    return table.concat(parts, " · ")
+end
+ns.BisStatText = bisStatText
+-- 来源全文：「副本：黑石深渊 · 小怪」「声望：塞拉摩远征军 崇拜」「任务：…」「商人 · …」「野外：荆棘谷 · …」「世界掉落」
+local function bisSrcText(how, s, sEn)
+    local t = ns.L(s or "", sEn or "")
+    if t == "" then return ns.BisHowText(how) end
+    if how == "drop" then return ns.L("副本：", "Dungeon: ") .. t end
+    if how == "world" then
+        for _, pre in ipairs({ "世界", "野外", "来源", "World", "Source" }) do
+            if t:sub(1, #pre) == pre then return t end
+        end
+        return ns.L("野外：", "World: ") .. t
+    end
+    return t
+end
+ns.BisSrcText = bisSrcText
+
+local DW_CLASS = { Warrior = true, Rogue = true, Hunter = true }   -- 没天赋数据时按职业：经典旧世只有这三个职业能学双持
 local function bestGearBySlot(targetLv, cls, spec, profs)
     cls = cls or myClass()
     if profs == nil then profs = (cls == myClass()) and playerProfs() or {} end
@@ -423,6 +761,9 @@ local function bestGearBySlot(targetLv, cls, spec, profs)
             end
         end
     end
+    -- 11-24 GI-308/323/327/331：副手专用武器（部位「副手」、类型拳套 / 匕首 / 剑…）只有能双持的专精装得上；萨满 / 圣骑 / 德鲁伊…只挑盾牌 / 副手物品
+    local dw = spec and SG.DualWield(cls, spec) or (not spec and DW_CLASS[cls])
+    local function offOk(it) return dw or it.type == nil or it.type == "" or it.type == "盾牌" end
     if spec then
         -- 双手 vs 单手 + 副手：两种组合比总分（双持职业副手 = 第二把单手武器）
         local function sc(it) return it and score[it] or 0 end
@@ -439,18 +780,20 @@ local function bestGearBySlot(targetLv, cls, spec, profs)
                     end
                 end
             end
-            local oh = pick("副手")
+            local oh = pick("副手", nil, offOk)
             if oh and (not off or sc(oh) > offS + 1e-6) then off, offS = oh, sc(oh) end
         end
         -- 平手（差 ≤ 1e-6，两边求和顺序不同会差在最后一位）算双手：和网站导出同一条
         if two and (SG.TwoHand(cls, spec) or not one or sc(two) >= sc(one) + offS - 1e-6) then out.main, out.off = two, nil
         else out.main, out.off = one, off end
-        if not out.main then out.off = pick("副手") end   -- 一把武器都没有：副手照样推荐
+        if not out.main then out.off = pick("副手", nil, offOk) end   -- 一把武器都没有：副手照样推荐
     else
         out.main = pick("武器")
-        out.off = not (out.main and out.main.two) and pick("副手") or nil
+        out.off = not (out.main and out.main.two) and pick("副手", nil, offOk) or nil
     end
     out.ranged = pick("远程")
+    local cur = bisFor(cls, spec, targetLv)
+    if cur then return applyCurated(cur, cls, out), spec, {}, cur end   -- 前 5 里已经含制造件，不再出「也可以」备选
     return out, spec, craftAlts(targetLv, cls, spec, profs, out)
 end
 -- 测试 / 导出对拍用：某职业某一级每格选哪件（槽位键 → 物品 ID）。网站 / 小程序读 gear.json 里同一份结果（gi_forever_web_export.py）
@@ -540,6 +883,50 @@ end
 -- ---------- 时间轴行 ----------
 -- ⛔ 10-07 用户「调到多少级都是空的」：行以前只锚了 TOPLEFT + 高度、没有宽度 → 游戏里宽 0 的框体整行不画，
 --   列表从 0.3.0 起在游戏里就一直是空的（离线测试不算布局，测不出来）。行必须同时锚到 page.child 的 RIGHT。
+-- 任务线（睡袋）/ 门任务那一行怎么画（11-23 从主插件 SideChains.lua 搬来，内核净减）：左键 = 路线弹框（_Gate 里，点了才加载），右键 = 钉到界面追踪 / 取消
+local function chainRow(r, it, suffix)
+    local c, SC = it.c, ns.SideChains
+    local gate = c.gate
+    r.ic:SetTexture("Interface\\Icons\\" .. (c.icon or (gate and "INV_Misc_Key_14" or "INV_Misc_Note_01")))
+    r.ic:SetDesaturated(it.st == "done")
+    local head = gate and ns.L("门任务：", "Gate quest: ") or ns.L("任务线：", "Quest line: ")
+    r.t:SetText((it.st == "done" and "|cff808080" or "|cffff9933") .. head .. ns.L(c.t, c.tEn) .. "|r"
+        .. ((c.hint or it.total == 0) and "" or ("  |cff888888" .. string.format("%d/%d", it.n, it.total) .. "|r")))
+    local sub = ns.L(c.gist, c.gistEn)
+    if gate then
+        local fac = SC.Faction()
+        local steps = c.steps and c.steps[fac]
+        local _, _, _, nextI = SC.Progress(c, fac)
+        sub = ns.L("开", "Opens ") .. ns.L(c.door, c.doorEn) .. ((c.optFac and c.optFac[fac]) and ns.L("（可选）", " (optional)") or "")
+            .. ((it.st ~= "done" and steps and nextI and steps[nextI]) and (" · " .. ns.L("下一步：", "Next: ") .. ns.L(steps[nextI].obj, steps[nextI].objEn)) or "")
+        if ns.GateOpensText and ns.GateOpensText(c) then sub = sub .. " · " .. ns.GateOpensText(c) end
+        if SC.KeyMissing and SC.KeyMissing(c, fac) then sub = sub .. " · |cffff7f50" .. ns.L("任务做完了但身上没钥匙", "done, but the key isn't on you") .. "|r" end
+    end
+    r.s:SetText(ns.EnSafe(sub) .. (suffix or ""))
+    if r.RegisterForClicks then pcall(r.RegisterForClicks, r, "LeftButtonUp", "RightButtonUp") end
+    r:SetScript("OnClick", function(_, btn)
+        if btn == "RightButton" and not c.hint then   -- 11-07 右键 = 钉到界面追踪 / 取消
+            local on = SC.TogglePin(c)
+            if ns.Print then ns.Print(on and ns.L("已钉到界面上追踪（右键再点取消）", "Tracker pinned") or ns.L("已取消追踪", "Tracker unpinned")) end
+            return
+        end
+        SC.Show(c)
+    end)
+    r.btn:SetText(ns.L("路线", "Route")); r.btn:Show()
+    r.btn:SetScript("OnClick", function() SC.Show(c) end)
+    r:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(ns.L(c.t, c.tEn), 1, 0.82, 0)
+        GameTooltip:AddLine(ns.L(c.gist, c.gistEn), 1, 1, 1, true)
+        if not c.hint then
+            GameTooltip:AddLine(string.format(ns.L("已做 %d / %d 步 · 点击看逐步路线和坐标", "%d / %d steps done · click for the route"), it.n, it.total), 0.6, 0.6, 0.6, true)
+            GameTooltip:AddLine(ns.L("右键：钉到界面上追踪 / 取消", "Right-click: pin / unpin the tracker"), 0.6, 0.6, 0.6, true)
+        end
+        GameTooltip:Show()
+    end)
+end
+ns.SideChainRenderRow = chainRow
+
 local function getRow(p, i)
     local r = p.rows[i]
     if r then return r end
@@ -641,6 +1028,26 @@ local function refreshTimeline(lo, hi)
         end)
         y = y - 32
     end
+    -- 11-23 门任务汇总条（到了最低门槛等级才出）：「门任务 3/7 已开 · 下一个：熔火之心调和」，点了 = 门任务清单弹框（GateList.lua，HOLD 没进包就没有）
+    if ns.GateSummary and ns.GateListShow then
+        local ok, txt = pcall(ns.GateSummary, cur)
+        if ok and txt then
+            local r = nextRow(); place(r, 30)
+            r.ic:SetTexture("Interface\\Icons\\INV_Misc_Key_14"); r.ic:SetDesaturated(false); r.ic:Show()
+            r.t:SetText("|cffff9933" .. txt .. "|r")
+            r.s:SetText("|cff888888" .. ns.L("点击看本阵营全部门任务（进度 / 路线 / 钉追踪）", "Click for every gate quest of your faction") .. "|r"); r:Show()
+            r:SetScript("OnClick", function() ns.GateListShow() end)
+            r.btn:SetText(ns.L("清单", "List")); r.btn:Show(); r.btn:SetScript("OnClick", function() ns.GateListShow() end)
+            page.gateSum = r
+            y = y - 32
+        end
+    end
+    -- 11-24 攒任务提醒行（ZoneQuestXp.lua 填内容 / 点开清单；HOLD 没进包就没有）
+    page.turnIn = nil
+    if ns.TurnInFill then
+        local ok, txt = pcall(ns.TurnInSummary, cur)
+        if ok and txt then local r = nextRow(); place(r, 30); ns.TurnInFill(r, txt); page.turnIn = r; y = y - 32 end
+    end
     if err == "noplan" then
         warn(ns.L("还没有天赋计划：先去「天赋」页配好一套点、点「按这套逐点学」（技能 / 宏不受影响，照样往下看）", "No talent plan yet — import a build on the Talents page (skills and macros below still work)"))
     elseif err == "conflict" and plan and plan.default then
@@ -656,7 +1063,7 @@ local function refreshTimeline(lo, hi)
     end
     -- 10-16 用户截图「这种搞一个按钮就行了，多了乱，一级之内的训练师合并一下做个折叠，折叠标题有按钮就行」：
     --   同一级里要去职业训练师那学的技能 ≥2 个 → 合成一行折叠标题（带「找训练师」），点标题展开 / 收起；展开的子行不再带按钮
-    local function isTrainer(it) return it.kind == "spell" and not it.tal and not it.auto and not it.inGroup end
+    local function isTrainer(it) return it.kind == "spell" and not it.tal and not it.nt and not it.auto and not it.inGroup end
     local trN, trMiss = {}, {}
     for _, it in ipairs(items) do
         if isTrainer(it) then
@@ -716,7 +1123,14 @@ local function refreshTimeline(lo, hi)
             local e, z = it.entry, it.entry.zone
             r.ic:SetTexture("Interface\\Icons\\INV_Misc_Map_01")
             r.t:SetText("|cff66ccff" .. ns.L(e.primary and "练级地图：" or "备选地图：", e.primary and "Leveling zone: " or "Alternative: ") .. "|r" .. ns.L(z.zh, z.en))
-            r.s:SetText(e.lo .. "-" .. e.hi .. ns.L(" 级参考 · 按任务和位置选择，无需每张都去", " suggested levels; choose by quests and location"))
+            local rangeTxt = e.lo .. "-" .. e.hi .. ns.L(" 级参考 · 按任务和位置选择，无需每张都去", " suggested levels; choose by quests and location")
+            r.s:SetText(rangeTxt)
+            -- 11-24「我58才来，那些够至少3级」：有任务经验数据（ZoneQuestXp.lua，HOLD 没装就没有）→ 副标题换成「建议 N 级来 · 任务经验约够升 X 级」
+            local qxTip
+            if ns.ZoneQXLine then
+                local okq, qt, qtip = pcall(ns.ZoneQXLine, e, cur)
+                if okq and qt then r.s:SetText(qt); qxTip = qtip end
+            end
             r.btn:SetText(ns.L("打开地图", "Open map")); r.btn:Show()
             local function open() if ns.OpenRouteMap then ns.OpenRouteMap(z.m) end end
             r.btn:SetScript("OnClick", open); r:SetScript("OnClick", open)
@@ -724,6 +1138,10 @@ local function refreshTimeline(lo, hi)
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 GameTooltip:AddLine(ns.L(z.zh, z.en), 1, 0.82, 0)
                 GameTooltip:AddLine(r.s:GetText(), 1, 1, 1, true)
+                if qxTip then
+                    for _, line in ipairs(qxTip) do GameTooltip:AddLine(line, 0.6, 1, 0.75, true) end
+                    GameTooltip:AddLine(rangeTxt, 0.8, 0.8, 0.8, true)
+                end
                 if e.primary then GameTooltip:AddLine(ns.L(e.stage.zh, e.stage.en), 1, 1, 1, true) end
                 GameTooltip:AddLine(ns.L(e.stage.src == "fv" and "公开路线建议；非地图准入限制。" or "经典基线参考，Beta 可能调整；非准入限制。",
                     e.stage.src == "fv" and "Published route suggestion, not an entry restriction." or "Classic baseline; beta may change. Not an entry restriction."), 0.7, 0.7, 0.7, true)
@@ -752,7 +1170,7 @@ local function refreshTimeline(lo, hi)
         elseif it.kind == "prof" then
             if ns.ProfRenderRow then ns.ProfRenderRow(r, it, suffix) end
         elseif it.kind == "chain" then
-            if ns.SideChainRenderRow then ns.SideChainRenderRow(r, it, suffix) end
+            chainRow(r, it, suffix)
         elseif it.kind == "quest" then
             r.ic:SetTexture(ICON.quest)
             r.t:SetText("|cff33ff99" .. ns.L("任务解锁：", "Quest-unlocked: ") .. "|r" .. ns.TD(it.n))
@@ -768,10 +1186,11 @@ local function refreshTimeline(lo, hi)
             local rankTxt = it.rank and ("  |cff9d9d9d" .. ns.L("等级 ", "Rank ") .. it.rank .. "|r") or ""
             r.t:SetText((state == "done" and "|cff808080" or "") .. ns.TD(it.n) .. (state == "done" and "|r" or "") .. rankTxt)
             r.s:SetText((it.tal and ns.L("天赋技能：要先点对应天赋", "Talent ability: needs the talent first")
+                or it.nt and ns.L("不在训练师那里学：技能书 / 任务 / 掉落", "Not taught by trainers: tome / quest / drop")
                 or it.auto and ns.L("自动学会", "Learned automatically") or ns.L("去职业训练师那里学", "Learn from your class trainer")) .. suffix)
             r.ic:SetDesaturated(state == "done")
             -- 10-16 用户「点击找到最近的训练师，并打开小地图」：要去训练师那里学、现在就能学 / 漏学的行给「找训练师」
-            if not it.tal and not it.auto and not it.inGroup and (state == "now" or state == "missed") and ns.Trainers then
+            if not it.tal and not it.nt and not it.auto and not it.inGroup and (state == "now" or state == "missed") and ns.Trainers then
                 r.btn:SetText(ns.L("找训练师", "Trainer")); r.btn:Show()
                 r.btn:SetScript("OnClick", function() ns.Trainers.Go() end)
                 r:SetScript("OnClick", function() ns.Trainers.Go() end)
@@ -912,6 +1331,7 @@ local SLOT_PX, SLOT_GAP = 34, 37
 local SUB_FONT = STANDARD_TEXT_FONT or "Fonts\\ARKai_T.ttf"
 local UPGRADE_ICON = "Interface\\Icons\\Spell_ChargePositive"     -- 比身上好：游戏图标（⛔不用箭头字符，中文字体会变方框）
 local CHECK_ICON = "Interface\\Buttons\\UI-CheckBox-Check"           -- 已经穿着
+local T5_W = 38   -- 11-23 格子旁「前5」按钮宽（名字那行末端，名字让出这么宽 + 4）
 
 local function slotTexture(invName)
     if GetInventorySlotInfo then
@@ -962,6 +1382,9 @@ local function getSlotBtn(key)
     b.hit:SetScript("OnEnter", function() local f = b:GetScript("OnEnter"); if f then f(b) end end)
     b.hit:SetScript("OnLeave", function() GameTooltip:Hide() end)
     b.hit:SetScript("OnClick", function() local f = b:GetScript("OnClick"); if f then f(b) end end)
+    -- 11-23 用户「旁边加个按钮是看前5」：60 级有 BiS 数据的格子，名字那行末端放「前5」（setSlotItem 定位 / 显隐）
+    b.t5 = ns.Button(gp.gearFrame, ns.L("前5", "Top 5"), T5_W, 16, function() ns.BisShowTop(b) end)
+    b.t5:SetFrameLevel((b.hit:GetFrameLevel() or 0) + 3); b.t5:Hide()
     gp.gearBtns[key] = b
     return b
 end
@@ -980,6 +1403,7 @@ local function placeLabel(b, side, w)
         b.hit:SetPoint("TOPRIGHT", b, "TOPLEFT", 0, 0); b.hit:SetPoint("BOTTOMRIGHT", b, "BOTTOMLEFT", 0, 0)
     end
     b.name:SetWidth(w); b.sub:SetWidth(w); b.hit:SetWidth(w + GAP)
+    b.side, b.labW = side, w
     b.name:Show(); b.sub:Show(); b.hit:Show()
 end
 
@@ -997,11 +1421,19 @@ local function setSlotItem(b, g, it, mainTwo)
         -- 和身上比：已穿 = 勾；更好 = 升级图标；更差 = 变灰
         --   10-18 两件都有属性数据 → 按当前天赋的分数比（cmpBy = "spec"）；否则照旧比装等
         local eq = equipped(invName)
-        b.cmp, b.cmpBy = nil, nil
+        b.cmp, b.cmpBy, b.eqRank = nil, nil, nil
         local SG, spec = ns.SpecGear, gp.curSpec
-        local sNew = spec and eq and eq.id ~= it.id and SG.Score(it.id, it.slot, myClass(), spec, gp.curLv) or nil
+        -- 60 级 BiS 前 5（11-23 起 WCL 实测）：按名次比（身上那件也在前 5 里 = 不提示升级，悬停写第几名；不在 = 升级）
+        local top = gp.curTop and gp.curTop[CUR_KEYS[g[1]] or ""]
+        if top and eq and eq.id ~= it.id then
+            for r, e in ipairs(top) do if e.id == eq.id then b.eqRank = r end end
+        end
+        local sNew = not top and spec and eq and eq.id ~= it.id and SG.Score(it.id, it.slot, myClass(), spec, gp.curLv) or nil
         local sOld = sNew and SG.Score(eq.id, it.slot, myClass(), spec, gp.curLv) or nil
-        if eq and eq.id == it.id then
+        if top and eq and eq.id ~= it.id then
+            b.cmpBy = "bis"
+            if b.eqRank then b.cmp = "inlist" else b.cmp = "up"; b.badge:SetTexture(UPGRADE_ICON); b.badge:Show() end
+        elseif eq and eq.id == it.id then
             b.cmp = "worn"; b.badge:SetTexture(CHECK_ICON); b.badge:Show()
         elseif sNew and sOld then
             b.cmpBy = "spec"
@@ -1022,23 +1454,35 @@ local function setSlotItem(b, g, it, mainTwo)
             local req = (it.req and it.req > 0) and it.req or (it.min or 0)
             b.name:SetText("|cff" .. (QCOLOR[it.q] or "ffffff") .. ns.ItemNm(it) .. "|r")
             local src = (it.src == "quest") and ns.L("任务", "Quest") or (it.src == "craft") and ns.L("制造", "Crafted")
-                or (it.src == "vendor") and ns.L("商人", "Vendor") or ns.TD(it.dn or "")
+                or (it.src == "vendor") and ns.L("商人", "Vendor")
+                or (it.src == "bis") and ((it.how == "drop" or it.how == "world") and curShortSrc(it.srcName) or ns.BisHowText(it.how))
+                or ns.TD(it.dn or "")
             local sub = "|cffd8c79a" .. ns.L("装等 ", "ilvl ") .. (it.ilvl or 0) .. "|r|cff999999" .. ns.L(" · ", " · req ") .. req .. ns.L(" 级", "")
             if src ~= "" then sub = sub .. " · " .. src end
             sub = sub .. "|r"
             local alt = gp.curAlts and gp.curAlts[g[1]]
             if alt then sub = sub .. "|cff66ccff" .. ns.L(" · 也可制造", " · craft alt") .. (alt.pct and (" +" .. alt.pct .. "%") or "") .. "|r" end
             if b.cmp == "worn" then sub = "|cff66ff66" .. ns.L("已穿 · ", "worn · ") .. "|r" .. sub
-            elseif b.cmp == "up" then sub = "|cff66ff66" .. ns.L("可升级 · ", "upgrade · ") .. "|r" .. sub end
+            elseif b.cmp == "up" then sub = "|cff66ff66" .. ns.L("可升级 · ", "upgrade · ") .. "|r" .. sub
+            elseif b.cmp == "inlist" then sub = "|cffffd100" .. string.format(ns.L("身上的排第 %d · ", "yours is #%d · "), b.eqRank or 0) .. "|r" .. sub end
             b.sub:SetText(sub)
         elseif g[1] == "off" and mainTwo then
             b.name:SetText("|cff777777" .. ns.L("副手", "Off hand") .. "|r"); b.sub:SetText(ns.L("主手是双手武器", "Two-handed main hand"))
         elseif not g[2] then
             b.name:SetText("|cff777777" .. (g[1] == "shirt" and ns.L("衬衣", "Shirt") or ns.L("战袍", "Tabard")) .. "|r"); b.sub:SetText(ns.L("外观，不推荐", "Cosmetic"))
         else
-            b.name:SetText("|cff777777" .. g[2] .. "|r"); b.sub:SetText(ns.L("暂无推荐", "No pick yet"))
+            b.name:SetText("|cff777777" .. ns.TD(g[2]) .. "|r"); b.sub:SetText(ns.L("暂无推荐", "No pick yet"))
         end
     end
+    local top5 = it and gp.curTop and gp.curTop[CUR_KEYS[g[1]] or ""]
+    local t5on = (top5 and #top5 > 0) or false
+    b.t5:SetShown(t5on)
+    if t5on and b.labW then
+        local off = 6 + b.labW - T5_W
+        b.t5:ClearAllPoints()
+        if b.side == "R" then b.t5:SetPoint("TOPLEFT", b, "TOPRIGHT", off, 1) else b.t5:SetPoint("TOPRIGHT", b, "TOPLEFT", -off, 1) end
+        b.name:SetWidth(b.labW - T5_W - 4)
+    elseif b.labW then b.name:SetWidth(b.labW) end
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         if it then
@@ -1061,6 +1505,10 @@ local function setSlotItem(b, g, it, mainTwo)
                 GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("需要 ", "Req ") .. req .. ns.L(" 级 · 任务：", " · Quest: ") .. ns.TD(it.srcName or ""), 1, 0.82, 0.4, true)
             elseif it.src == "craft" or it.src == "vendor" then
                 GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("需要 ", "Req ") .. req .. ns.L(" 级 · ", " · ") .. ns.GearSourceText(it), 1, 0.82, 0.4, true)
+            elseif it.src == "bis" then
+                local info = bisItem(it.id) or {}
+                GameTooltip:AddLine("|cff33ff99GI|r " .. (req > 0 and (ns.L("需要 ", "Req ") .. req .. ns.L(" 级 · ", " · ")) or "")
+                    .. ns.L("来源：", "Source: ") .. bisSrcText(info.how or it.how, info.s, info.sEn), 1, 0.82, 0.4, true)
             elseif rawget(GameTooltip, "__gifItem") ~= it.id then   -- 全局那行没加上（物品没缓存、走了简版）才补
                 GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("需要 ", "Req ") .. req .. ns.L(" 级 · 掉落：", " · Drops: ") .. ns.TD(it.srcName or ""), 1, 0.82, 0.4, true)
             end
@@ -1070,21 +1518,34 @@ local function setSlotItem(b, g, it, mainTwo)
             -- 10-18 按天赋：写明按哪套挑的、这件最值钱的几项属性
             local SG, spec = ns.SpecGear, gp.curSpec
             local si = spec and SG.SpecInfo(myClass(), spec)
+            -- 60 级 BiS（11-23 起 WCL 实测）：只写一行「第 N 名 · 使用率 · 人数」；前 5 走格子旁「前5」按钮（用户：「不要这样列出来」）
+            local top = gp.curTop and gp.curTop[CUR_KEYS[g[1]] or ""]
+            if top then
+                local me
+                for _, e in ipairs(top) do if e.id == it.id then me = e end end
+                GameTooltip:AddLine("|cff33ff99GI|r " .. string.format(ns.L("%d 级 BiS 第 %d 名", "Lv %d BiS #%d"), gp.curTop.lv or 60, me and me.rank or 0)
+                    .. (me and (" · " .. bisStatText(me)) or ""), 1, 0.82, 0)
+                si = nil
+            end
             if si then
                 local top = SG.TopStats(it.id, it.slot, myClass(), spec, gp.curLv, 3)
                 GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("按天赋「", "Picked for ") .. ns.L(si.zh, si.en) .. ns.L("」挑的", "")
                     .. (#top > 0 and ("：" .. table.concat(top, " · ")) or ns.L("（这件没有属性数据，按装等排）", " (no stat data, ranked by ilvl)")), 0.8, 0.8, 0.8, true)
             end
-            local why = self.cmpBy == "spec" and ns.L("按这个天赋的属性算", "by this spec's stat weights") or ns.L("装等更高", "higher ilvl")
+            local why = self.cmpBy == "spec" and ns.L("按这个天赋的属性算", "by this spec's stat weights")
+                or self.cmpBy == "bis" and ns.L("身上那件不在前 5 里", "yours isn't in the top 5") or ns.L("装等更高", "higher ilvl")
             if self.cmp == "worn" then GameTooltip:AddLine(ns.L("你已经穿着这件", "You're wearing this"), 0.4, 1, 0.4)
+            elseif self.cmp == "inlist" then
+                GameTooltip:AddLine(string.format(ns.L("你身上这件在前 5 里排第 %d", "What you wear is #%d in the top 5"), self.eqRank or 0), 1, 0.82, 0)
             elseif self.cmp == "up" then GameTooltip:AddLine(ns.L("比你身上这格好（", "Upgrade over what you wear (") .. why .. ns.L("）", ")"), 0.4, 1, 0.4)
             elseif self.cmp == "down" then GameTooltip:AddLine(ns.L("不如你身上这格", "Worse than what you wear")
                 .. (self.cmpBy == "spec" and ns.L("（按这个天赋的属性算）", " (by this spec's stat weights)") or ""), 0.6, 0.6, 0.6) end
-            if it.src == "vendor" then GameTooltip:AddLine(ns.L("点击：在地图上标出商人", "Click: pin the vendor on the map"), 0.6, 0.6, 0.6)
+            if top then GameTooltip:AddLine(ns.L("点击：打开装备页（掉落首领 / 任务链 / 配方）· 「前5」看这格前 5", "Click: item page (boss loot / quest chain / recipe) - Top 5 button: this slot's top 5"), 0.6, 0.6, 0.6, true)
+            elseif it.src == "vendor" then GameTooltip:AddLine(ns.L("点击：在地图上标出商人", "Click: pin the vendor on the map"), 0.6, 0.6, 0.6)
             elseif it.src == "craft" then
                 GameTooltip:AddLine(playerProfs()[it.pf] and ns.L("点击：打开「专业」页找这个配方", "Click: open the Professions page")
                     or ns.L("点击：聊天框给出制作信息（找人做 / 拍卖行）", "Click: print crafting info (crafter / AH)"), 0.6, 0.6, 0.6)
-            elseif it.src ~= "quest" then GameTooltip:AddLine(ns.L("点击：去掉落页看这个副本", "Click: open this dungeon on the Loot page"), 0.6, 0.6, 0.6) end
+            elseif it.src ~= "quest" and it.src ~= "bis" then GameTooltip:AddLine(ns.L("点击：去掉落页看这个副本", "Click: open this dungeon on the Loot page"), 0.6, 0.6, 0.6) end
             GameTooltip:AddLine(ns.L("Shift + 点击：发到聊天框 · Ctrl + 点击：试穿", "Shift-click: link in chat - Ctrl-click: try on"), 0.6, 0.6, 0.6)
         elseif g[1] == "off" and mainTwo then
             GameTooltip:AddLine(ns.L("副手", "Off hand"), 1, 0.82, 0)
@@ -1092,7 +1553,7 @@ local function setSlotItem(b, g, it, mainTwo)
         elseif not g[2] then
             GameTooltip:AddLine(ns.L("衬衣 / 战袍只是外观，不推荐", "Shirt / tabard are cosmetic, no recommendation"), 0.8, 0.8, 0.8, true)
         else
-            GameTooltip:AddLine(g[2], 1, 0.82, 0)
+            GameTooltip:AddLine(ns.TD(g[2]), 1, 0.82, 0)
             GameTooltip:AddLine(ns.L("这个部位目前查不到候选——装备来源是地下城掉落 + 职业任务链套装 + 专业制造 + 商人出售，野外任务奖励还没收",
                 "No candidate for this slot yet — sources are dungeon drops, class quest-chain sets, crafted and vendor gear; open-world quest rewards are not included yet"), 0.6, 0.6, 0.6, true)
         end
@@ -1100,9 +1561,105 @@ local function setSlotItem(b, g, it, mainTwo)
     end)
     b:SetScript("OnClick", function()
         if it and ns.ItemModClick and ns.ItemModClick(it.id, it.n) then return end   -- Shift 发聊天 / Ctrl 试穿
+        if it and gp.curTop and gp.curTop[CUR_KEYS[g[1]] or ""] then ns.BisOpenItem(it.id); return end   -- 60 级 BiS：装备页
         if it and (it.src == "craft" or it.src == "vendor") then ns.GearGuide(it); return end
-        if it and it.src ~= "quest" and it.dn and ns.LootShowDungeon then ns.LootShowDungeon(it.dn) end
+        if it and it.src ~= "quest" and it.src ~= "bis" and it.dn and ns.LootShowDungeon then ns.LootShowDungeon(it.dn) end
     end)
+end
+
+-- ---------- 11-23 60 级 BiS「前5」小面板 + 装备页 ----------
+-- 用户截图「不要这样列出来，是旁边加个按钮是看前5，然后点击装备可以打开一个装备页，展示当前BOSS和掉落装备视图」：
+--   「前5」= 这个小面板（图标 · 品质色名字 / 使用率 · 人数 · 来源；悬停物品提示，Shift 发聊天 / Ctrl 试穿，ESC 关）。
+--   点装备 = 装备页：副本 → 掉落页定位到首领并高亮这件（ns.LootShowItem）；任务 → 副本任务链定位到那条任务（ns.DQOpenForItem）；
+--   制造 → 专业页配方库定位到配方（ns.ProfOpenRecipe）；找不到 / 声望 / 野外 / 商人 → 这个面板换成「这件 + 来源说明」
+--   ⛔ 合并包登录内存预算紧（MERGED_EXTRA_KB）：框体第一次点才建，一个面板两种用法，别再加函数
+local bisPop
+local function rowEnter(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    pcall(GameTooltip.SetItemByID, GameTooltip, self.id)
+    GameTooltip:AddLine(ns.L("点击：打开装备页 · Shift + 点击：发到聊天框 · Ctrl + 点击：试穿", "Click: item page - Shift-click: link - Ctrl-click: try on"), 0.6, 0.6, 0.6, true)
+    GameTooltip:Show()
+end
+local function rowClick(self) if not (ns.ItemModClick and ns.ItemModClick(self.id, self.nm)) then ns.BisOpenItem(self.id) end end
+-- list = 要列的条目（{ id, rank, cnt, pct }…，最多 5 行）；note = 装备页的来源说明（前 5 时 nil）
+local function bisShow(title, list, key, note)
+    local f = bisPop
+    if not f then
+        f = CreateFrame("Frame", "GearInsightForeverBisTop", gp.page, BackdropTemplateMixin and "BackdropTemplate" or nil)
+        f:SetSize(400, 214); f:SetFrameStrata("DIALOG"); f:EnableMouse(true); f:SetClampedToScreen(true)
+        if f.SetBackdrop then
+            f:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                edgeSize = 14, insets = { left = 3, right = 3, top = 3, bottom = 3 } })
+            f:SetBackdropColor(0.04, 0.04, 0.07, 0.97)
+        end
+        f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        f.title:SetPoint("TOPLEFT", 12, -10); f.title:SetPoint("RIGHT", -30, 0); f.title:SetJustifyH("LEFT")
+        local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+        close:SetPoint("TOPRIGHT", 0, 0); close:SetScript("OnClick", function() f:Hide() end)
+        f.note = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        f.note:SetPoint("TOPLEFT", 14, -84); f.note:SetPoint("RIGHT", -14, 0); f.note:SetJustifyH("LEFT")
+        f.rows = {}
+        for i = 1, 5 do
+            local r = CreateFrame("Button", nil, f)
+            r:SetPoint("TOPLEFT", 10, -44 - (i - 1) * 32); r:SetPoint("RIGHT", -10, 0); r:SetHeight(30)
+            r.ic = r:CreateTexture(nil, "ARTWORK"); r.ic:SetSize(26, 26); r.ic:SetPoint("LEFT"); r.ic:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            r.t = r:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); r.t:SetPoint("TOPLEFT", 32, -1)
+            r.s = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); r.s:SetPoint("BOTTOMLEFT", 32, 1)
+            for _, fs in ipairs({ r.t, r.s }) do fs:SetPoint("RIGHT", 0, 0); fs:SetWordWrap(false); fs:SetJustifyH("LEFT") end
+            local hl = r:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.08)
+            r:SetScript("OnEnter", rowEnter); r:SetScript("OnLeave", function() GameTooltip:Hide() end); r:SetScript("OnClick", rowClick)
+            f.rows[i] = r
+        end
+        if UISpecialFrames then table.insert(UISpecialFrames, "GearInsightForeverBisTop") end
+        bisPop = f
+    end
+    f.title:SetText(title)
+    for i, r in ipairs(f.rows) do
+        local e = list[i]
+        r:SetShown(e ~= nil)
+        if e then
+            local it, info = curItem(myClass(), e, key), bisItem(e.id) or {}
+            local ic = (it.i and it.i ~= "") and it.i or info.i
+            r.ic:SetTexture((ic and ic ~= "") and ("Interface\\Icons\\" .. ic) or (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(e.id))
+                or "Interface\\Icons\\inv_misc_questionmark")
+            r.id, r.nm = e.id, curName(e)
+            r.t:SetText("|cff" .. (QCOLOR[it.q or info.q] or "ffffff") .. (e.rank and (e.rank .. ". ") or "") .. r.nm .. "|r")
+            r.s:SetText((e.cnt and (bisStatText(e) .. " · ") or "") .. bisSrcText(info.how, info.s, info.sEn))
+        end
+    end
+    f.note:SetText(note or ""); f.note:SetShown(note ~= nil)
+    f:Show()
+    return f
+end
+-- 格子旁「前5」
+function ns.BisShowTop(b)
+    local key, ct = CUR_KEYS[b.slotKey or ""], gp.curTop
+    local top = key and ct and ct[key]
+    if not top or #top == 0 then return nil end
+    local f = bisShow(string.format(ns.L("%s · %d 级 BiS 前 %d（WCL 全球 %d 名%s实测）", "%s - Lv %d BiS top %d (WCL, %d %s players worldwide)"),
+        ns.L(ns.TD(BIS_SLOT_CN[key]), key), ct.lv or 60, #top, ct.n or 0, ns.L(ct.zh or "", (ct.full or ""):match("/(.+)$") or "")), top, key)
+    f:ClearAllPoints()
+    if b.side == "L" then f:SetPoint("TOPRIGHT", b, "BOTTOMRIGHT", 0, -2) else f:SetPoint("TOPLEFT", b, "BOTTOMLEFT", 0, -2) end
+    return f
+end
+-- 装备页：返回去了哪（测试用）loot / quest / recipe / note
+function ns.BisOpenItem(id)
+    local info = bisItem(id) or {}
+    local how, s = info.how, info.s or ""
+    local went = (how == "drop" and ns.LootShowItem and ns.LootShowItem(id) and "loot")
+        or (how == "quest" and ns.DQOpenForItem and ns.DQOpenForItem(id, (s:gsub("^任务：", ""))) and "quest")
+    if not went and how == "craft" and ns.LoadModule then
+        pcall(ns.LoadModule, "prof", true)
+        went = ns.ProfOpenRecipe and ns.ProfOpenRecipe(id) and "recipe"
+    end
+    if went then
+        if bisPop then bisPop:Hide() end
+        return went
+    end
+    local e, was = { id = id }, bisPop and bisPop:IsShown()
+    local f = bisShow(ns.L("装备页 · ", "Item - ") .. curName(e), { e }, nil, ns.L("来源：", "Source: ") .. bisSrcText(how, s, info.sEn))
+    if not was then f:ClearAllPoints(); f:SetPoint("CENTER", gp.page, "CENTER", 0, 0) end
+    return "note"
 end
 
 -- 中间的角色模型：试穿推荐装备。⛔ 无限客户端不确定有 DressUpModel / TryOn → pcall，失败退回 PlayerModel 只显示角色
@@ -1141,8 +1698,8 @@ local function dressModel(bySlot)
 end
 
 local function refreshGear(tgt)
-    local bySlot, spec, alts = bestGearBySlot(tgt)
-    gp.curSpec, gp.curLv, gp.curAlts = spec, tgt, alts or {}
+    local bySlot, spec, alts, cur = bestGearBySlot(tgt)
+    gp.curSpec, gp.curLv, gp.curAlts, gp.curTop = spec, tgt, alts or {}, cur
     local W = gp.gearFrame:GetWidth() or 646
     if not tonumber(W) or W < 300 then W = 646 end
     -- 10-08 照英雄榜纸娃娃：图标贴两边，名字朝中间写，模型夹在中间；底部 主手（字在左）· 副手（字在右）· 远程（右下角，字在左）
@@ -1287,10 +1844,11 @@ local function farmGroups(bySlot, sortBy)
     for _, it in pairs(bySlot) do
         if type(it) == "table" and it.id and not seen[it.id] then
             seen[it.id] = true
-            if it.src == "quest" or it.src == "craft" or it.src == "vendor" then
+            if it.src == "quest" or it.src == "craft" or it.src == "vendor" or it.src == "bis" then   -- 11-23 60 级 BiS 池外件（声望 / 野外 / 世界掉落…）按来源一组
                 -- 11-06 制造按专业一组（「制造 · 锻造」）、商人按商人一组（srcName「商人 · 名字 · 地区」），和任务线排在一起（网站同一条）
-                local key = (it.src == "craft") and ("制造 · " .. (PROF_NAME[it.pf] and PROF_NAME[it.pf][1] or it.pf or "?")) or it.srcName or "?"
-                if not qmap[key] then qmap[key] = { name = key, items = {}, req = 999, kind = it.src }; qlist[#qlist + 1] = qmap[key] end
+                local key = (it.src == "craft") and ("制造 · " .. (PROF_NAME[it.pf] and PROF_NAME[it.pf][1] or it.pf or "?"))
+                    or (it.src == "bis") and bisSrcText(it.how, it.srcName, it.srcName) or it.srcName or "?"
+                if not qmap[key] then qmap[key] = { name = key, items = {}, req = 999, kind = it.src, how = it.how }; qlist[#qlist + 1] = qmap[key] end
                 table.insert(qmap[key].items, it); qmap[key].req = math.min(qmap[key].req, it.req or 0)
             else
                 local dn = it.dn or "?"
@@ -1561,11 +2119,18 @@ local function refreshFarm(lo, tgt)
     if #qlist > 0 then
         -- 11-06 制造 / 商人组也挂在这张卡下（一张卡：任务线 + 制造 + 商人）
         local nq, nx = 0, 0
-        for _, q in ipairs(qlist) do if (q.kind or "quest") == "quest" then nq = nq + 1 else nx = nx + 1 end end
+        local nc = 0   -- 11-23 60 级 BiS 池外件（声望 / 野外 / 世界掉落…）
+        for _, q in ipairs(qlist) do if (q.kind or "quest") == "quest" then nq = nq + 1 elseif q.kind == "bis" then nc = nc + 1 else nx = nx + 1 end end
+        if nc > 0 then
+            card(ns.L("任务线 / 制造 / 商人 / 其他来源", "Quests / crafted / vendors / other"),
+                string.format(ns.L("%d 条任务线 · %d 组制造 / 商人 · %d 组其他来源（声望 / 野外 / 世界掉落…）", "%d quest chains · %d crafted / vendor · %d other (rep / world…)"), nq, nx, nc),
+                { icon = "Interface\\Icons\\INV_Misc_Book_09", iconCoord = { 0.07, 0.93, 0.07, 0.93 } }, nil)
+        else
         card(nx > 0 and ns.L("任务线 / 制造 / 商人", "Quests / crafted / vendors") or ns.L("职业任务链", "Class quest chains"),
             nx > 0 and string.format(ns.L("%d 条任务线 · %d 组制造 / 商人", "%d quest chains · %d crafted / vendor groups"), nq, nx)
                 or string.format(ns.L("%d 条任务线 · 奖励装备", "%d chains with gear rewards"), #qlist),
             { icon = "Interface\\Icons\\INV_Misc_Book_09", iconCoord = { 0.07, 0.93, 0.07, 0.93 } }, nil)
+        end
         for _, q in ipairs(qlist) do
             local r = row(20); r.ic:Hide(); r.t:ClearAllPoints(); r.t:SetPoint("LEFT", 12, 0); r.t:SetPoint("RIGHT", -10, 0)
             local head = (q.kind or "quest") == "quest" and (ns.L("任务：", "Quest: ") .. ns.TD(q.name)) or ns.TD(q.name)

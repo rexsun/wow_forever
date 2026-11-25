@@ -357,11 +357,13 @@ function QM.FocusQuest(peerE)
     return nil
 end
 -- 10-17 用户「加上[Gearinsight插件]」：中文客户端前缀改成 [Gearinsight插件]（私聊 / 喊人 / 解散道谢都走这里）
-local TAG = L("[Gearinsight插件] ", "[Gearinsight插件] ")
+-- 11-19 前缀 / 私聊 / 喊人走对外说话语言（ns.ChatTag / ns.ChatL）；任务名是客户端任务日志给的（客户端语言），不翻
+local TAG = "[Gearinsight插件] "
 QM.TAG = TAG
 function QM.Tagged(msg)
-    if dbq().noTag or type(msg) ~= "string" or msg:sub(1, #TAG) == TAG then return msg end
-    return TAG .. msg
+    local tag = ns.ChatTag() .. " "
+    if dbq().noTag or type(msg) ~= "string" or msg:sub(1, #tag) == tag then return msg end
+    return tag .. msg
 end
 -- 11-10 用户「求组私聊也去掉插件标识」：一对一私聊不加 [Gearinsight插件]（喊人照旧走 QM.Tagged）
 function QM.WhisperText(q, busy)
@@ -374,17 +376,17 @@ function QM.WhisperBody(q, busy)
     local mine = ns.MyWhisper and ns.MyWhisper("qm", { ["任务"] = t, ["人数"] = members > 1 and members or nil })
     if mine then return mine end
     if members > 1 then
-        local intro = t and string.format(L("你好，我们在做「%s」，目前队伍有 %d 人。", "Hi, we're working on \"%s\" and currently have %d people in our group. "), t, members)
-            or string.format(L("你好，我们正在附近做任务，目前队伍有 %d 人。", "Hi, we're questing nearby and currently have %d people in our group. "), members)
-        return intro .. (busy and L("看你也有队伍，方便的话要不要一起做任务？", "I see you have a group too. Would you like to quest together?")
-            or L("方便的话，要不要一起做任务？", "Would you like to join us and quest together?"))
+        local intro = t and string.format(ns.ChatL("你好，我们在做「%s」，目前队伍有 %d 人。", "Hi, we're working on \"%s\" and currently have %d people in our group. "), t, members)
+            or string.format(ns.ChatL("你好，我们正在附近做任务，目前队伍有 %d 人。", "Hi, we're questing nearby and currently have %d people in our group. "), members)
+        return intro .. (busy and ns.ChatL("看你也有队伍，方便的话要不要一起做任务？", "I see you have a group too. Would you like to quest together?")
+            or ns.ChatL("方便的话，要不要一起做任务？", "Would you like to join us and quest together?"))
     end
     if busy then
-        return t and string.format(L("老哥，看你有队伍了，我也在做「%s」，组我一下吗？", "Hey, saw you're in a group - I'm on \"%s\" too, mind inviting me?"), t)
-            or L("老哥，看你有队伍了，组我一下一起做任务吗？", "Hey, saw you're in a group - mind inviting me to quest together?")
+        return t and string.format(ns.ChatL("老哥，看你有队伍了，我也在做「%s」，组我一下吗？", "Hey, saw you're in a group - I'm on \"%s\" too, mind inviting me?"), t)
+            or ns.ChatL("老哥，看你有队伍了，组我一下一起做任务吗？", "Hey, saw you're in a group - mind inviting me to quest together?")
     end
-    return t and string.format(L("老哥，我在做「%s」，要不要一起组个队？", "Hey, I'm on \"%s\" - want to group up?"), t)
-        or L("老哥，附近一起做任务吗？组个队？", "Hey, want to group up and quest together?")
+    return t and string.format(ns.ChatL("老哥，我在做「%s」，要不要一起组个队？", "Hey, I'm on \"%s\" - want to group up?"), t)
+        or ns.ChatL("老哥，附近一起做任务吗？组个队？", "Hey, want to group up and quest together?")
 end
 function QM.Whisper(name, busy, peerE, quiet)
     local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
@@ -416,66 +418,273 @@ end
 -- 话术：「求组：我在做「XX」（7/10），同任务的老哥一起？密我直接进组」；/gi qm text 自定义（{任务} {进度}），空 = 恢复默认
 -- ⛔ 说话 / 大喊 / 公共频道发言要硬件事件（点击）才能发 → 只在点按钮时发；30 秒一次防刷屏
 -- QM.lastShout（上次喊人的时刻）在信标里初始化：每秒那轮 OnUpdate 界面没加载时也读它
-local SHOUT_CH = { "say", "yell", "local" }
-local SHOUT_NAME = { say = { "附近说话", "Say" }, yell = { "大喊", "Yell" }, ["local"] = { "本地频道", "Local channel" } }
-function QM.ShoutChannelName(ch) local t = SHOUT_NAME[ch or "say"]; return t and L(t[1], t[2]) or ch end
-function QM.ShoutChannel() return dbq().shoutCh or "say" end
-function QM.CycleShoutChannel()
-    local cur = QM.ShoutChannel()
-    local nxt = "say"
-    for i, c in ipairs(SHOUT_CH) do if c == cur then nxt = SHOUT_CH[i % #SHOUT_CH + 1] end end
-    dbq().shoutCh = nxt
-    QM.dirty = true
-    return nxt
+-- 11-19 用户「可以增加频道吗」：喊人可以多选频道 —— 附近说话 / 大喊 / 寻求组队 / 本地「综合」/ 已加入的其他编号频道（大脚世界频道、交易…）/ 公会 / 小队·团队
+--   选择存 dbq().shoutChs = { [键] = true }（键：say / yell / lfg / local / guild / group / "c:频道名"），按频道名记，不按编号（编号每次登录可能变）
+--   旧存档只有 dbq().shoutCh（单选）：没有 shoutChs 时按它来；/gi qm say|yell|local|lfg|guild|party 和「循环切换」两样都写（单选）
+--   右键：客户端有 MenuUtil（新菜单接口）→ 弹勾选菜单（勾几个就一次发几个）；没有 → 退回旧的循环切换（单选，只在能发的频道里转）
+--   没加入 / 不在公会 / 不在队伍的频道：菜单里灰字标出来，发的时候自动跳过并在聊天框提示；30 秒冷却照旧，多个频道算一次
+--   ⛔ 只有点「喊人」才发（说话 / 大喊 / 公共频道要硬件事件），不自动喊
+local SHOUT_NAME = { say = { "附近说话", "Say" }, yell = { "大喊", "Yell" }, ["local"] = { "本地频道", "Local channel" },
+    lfg = { "寻求组队", "LookingForGroup" }, guild = { "公会", "Guild" }, group = { "小队 / 团队", "Party / Raid" },
+    ["local+bf"] = { "本地 + 大脚世界频道", "Local + BigFoot world" } }
+local SHOUT_SHORT = { say = { "附近", "Say" }, yell = { "大喊", "Yell" }, ["local"] = { "本地", "Local" },
+    lfg = { "组队", "LFG" }, guild = { "公会", "Guild" }, group = { "队伍", "Party" } }
+local function chanBase(name)   -- 「综合 - 贫瘠之地」→「综合」；「5. 交易」→「交易」
+    name = name:gsub("^%d+%.%s*", "")
+    return name:match("^(.-)%s+%-%s+.+$") or name
 end
--- 本地频道 = 区域「综合」频道（中文客户端叫「综合」，英文 General）：按名字在已加入的频道里找编号
-function QM.LocalChannelIndex()
-    if not GetChannelList then return nil end
-    local list = { GetChannelList() }
-    for i = 1, #list, 3 do
-        local id, name = list[i], list[i + 1]
-        if type(name) == "string" and not ns.Secret(name) and (name:find("综合", 1, true) or name:lower():find("general", 1, true)) then
-            return tonumber(id)
+local function isLocal(b) local lb = b:lower(); return b:find("综合", 1, true) or lb:find("general", 1, true) end
+local function isLfg(b) local lb = b:lower(); return b:find("寻求组队", 1, true) or lb:find("lookingforgroup", 1, true) end
+local function isDefense(b) local lb = b:lower(); return b:find("防务", 1, true) or lb:find("defense", 1, true) end   -- 本地 / 世界防务：系统广播，玩家发不了
+local function isOurs(name, b)
+    if b:sub(1, 3) == "GIF" or b:sub(1, 11) == "GIForeverQM" then return true end
+    return ns.Layer and ns.Layer.IsOurChannel and (ns.Layer.IsOurChannel(name) or ns.Layer.IsOurChannel(b)) or false
+end
+local function shortText(s, n)   -- 按 UTF-8 字截前 n 个字（按钮上放得下）
+    local out, i = {}, 0
+    for ch in s:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        i = i + 1
+        if i > n then return table.concat(out) .. "…" end
+        out[i] = ch
+    end
+    return s
+end
+-- 已加入的编号频道（去掉插件自己的隐藏频道 / 防务频道）：{ { id, base } … }，按 GetChannelList 的顺序
+function QM.JoinedChannels()
+    local out = {}
+    if not GetChannelList then return out end
+    local t = { GetChannelList() }
+    local step = (type(t[3]) == "boolean") and 3 or 2   -- 同 DC.Channels：id, 名字, 是否禁用 三个一组（老客户端两个一组）
+    for i = 1, #t, step do
+        local id, name = tonumber(t[i]), t[i + 1]
+        if id and type(name) == "string" and not ns.Secret(name) then
+            local b = chanBase(name)
+            if b ~= "" and not isOurs(name, b) and not isDefense(b) then out[#out + 1] = { id = id, base = b } end
         end
     end
-    return nil
+    return out
+end
+local function inGroup()
+    if IsInGroup then return IsInGroup() and true or false end
+    return (tonumber(GetNumGroupMembers and GetNumGroupMembers()) or 0) > 1
+end
+-- 现在能选的频道（含选过但现在发不了的，方便取消勾选）：{ { key, name, avail, why, kind, id } … }
+function QM.ShoutChannels()
+    local joined = QM.JoinedChannels()
+    local lfgC, localC, others = nil, nil, {}
+    for _, c in ipairs(joined) do
+        if not lfgC and isLfg(c.base) then lfgC = c
+        elseif not localC and isLocal(c.base) then localC = c
+        else others[#others + 1] = c end
+    end
+    local NOJOIN = L("未加入", "not joined")
+    local out = {
+        { key = "say", name = QM.ShoutChannelName("say"), avail = true, kind = "SAY" },
+        { key = "yell", name = QM.ShoutChannelName("yell"), avail = true, kind = "YELL" },
+        { key = "lfg", name = QM.ShoutChannelName("lfg"), avail = lfgC ~= nil, why = not lfgC and NOJOIN or nil, kind = "CHANNEL", id = lfgC and lfgC.id },
+        { key = "local", name = QM.ShoutChannelName("local") .. (localC and (DIM .. "（" .. localC.base .. "）|r") or ""),
+            avail = localC ~= nil, why = not localC and NOJOIN or nil, kind = "CHANNEL", id = localC and localC.id },
+    }
+    local seen = { say = true, yell = true, lfg = true, ["local"] = true }
+    for _, c in ipairs(others) do
+        local k = "c:" .. c.base
+        if not seen[k] then seen[k] = true; out[#out + 1] = { key = k, name = c.base, avail = true, kind = "CHANNEL", id = c.id } end
+    end
+    local g = IsInGuild and IsInGuild() and true or false
+    out[#out + 1] = { key = "guild", name = QM.ShoutChannelName("guild"), avail = g, why = not g and L("没有公会", "no guild") or nil, kind = "GUILD" }
+    local grp = inGroup()
+    out[#out + 1] = { key = "group", name = QM.ShoutChannelName("group"), avail = grp, why = not grp and L("不在队伍", "not in a group") or nil,
+        kind = (IsInRaid and IsInRaid()) and "RAID" or "PARTY" }
+    -- 记住的编号频道现在没加入：也列出来（灰字），能取消勾选
+    local sel = QM.ShoutSel()
+    local stale = {}
+    for k in pairs(sel) do if type(k) == "string" and k:sub(1, 2) == "c:" and not seen[k] then stale[#stale + 1] = k end end
+    table.sort(stale)
+    for _, k in ipairs(stale) do out[#out + 1] = { key = k, name = k:sub(3), avail = false, why = NOJOIN, kind = "CHANNEL" } end
+    return out
+end
+function QM.ShoutChannelName(ch)
+    ch = ch or "say"
+    local t = SHOUT_NAME[ch]
+    if t then return L(t[1], t[2]) end
+    if type(ch) == "string" and ch:sub(1, 2) == "c:" then return ch:sub(3) end
+    return tostring(ch)
+end
+-- 选中的频道集合（新存档 shoutChs；旧存档只有单选 shoutCh）
+function QM.ShoutSel()
+    local cfg = dbq()
+    if type(cfg.shoutChs) == "table" then return cfg.shoutChs end
+    return { [cfg.shoutCh or "say"] = true }
+end
+function QM.ShoutOn(key) return QM.ShoutSel()[key] == true end
+function QM.SetShoutOnly(key)
+    dbq().shoutChs = { [key] = true }
+    dbq().shoutCh = key
+    QM.dirty = true
+end
+function QM.ToggleShout(key, on)
+    local cur, nxt = QM.ShoutSel(), {}
+    for k, v in pairs(cur) do if v == true then nxt[k] = true end end
+    if on == nil then on = not nxt[key] end
+    nxt[key] = on and true or nil
+    dbq().shoutChs = nxt
+    QM.dirty = true
+    return on
+end
+-- 选中的键，按菜单顺序（ShoutChannels 的顺序）
+function QM.ShoutSelected()
+    local sel, out = QM.ShoutSel(), {}
+    for _, c in ipairs(QM.ShoutChannels()) do if sel[c.key] then out[#out + 1] = c end end
+    return out
+end
+-- 兼容旧调用：一个字符串代表当前选择（单选时就是那个键，多选用 + 连起来）
+function QM.ShoutChannel()
+    local ks = {}
+    for _, c in ipairs(QM.ShoutSelected()) do ks[#ks + 1] = c.key end
+    return #ks > 0 and table.concat(ks, "+") or "none"
+end
+function QM.ShoutButtonLabel()
+    local s = QM.ShoutSelected()
+    if #s == 0 then return L("未选频道", "no channel") end
+    if #s == 2 and QM.IsLocalBigfoot() then return L("本地+大脚", "Local+BF") end
+    if #s > 1 then return string.format(L("%d 个频道", "%d channels"), #s) end
+    local t = SHOUT_SHORT[s[1].key]
+    return t and L(t[1], t[2]) or shortText(s[1].name, 4)
+end
+-- 11-21 用户「要同时喊大脚和本地」：一键选「本地 + 大脚世界频道」（两个都加入了才有）；返回大脚频道的键或 nil
+function QM.BigfootKey()
+    local hasLocal, bf = false, nil
+    for _, c in ipairs(QM.ShoutChannels()) do
+        if c.avail and c.key == "local" then hasLocal = true end
+        if c.avail and not bf and c.key:sub(1, 2) == "c:" and c.key:find("大脚", 1, true) then bf = c.key end
+    end
+    return hasLocal and bf or nil
+end
+function QM.IsLocalBigfoot()
+    local bf = QM.BigfootKey()
+    if not bf then return false end
+    local n = 0
+    for k, v in pairs(QM.ShoutSel()) do if v == true then n = n + 1 end end
+    return n == 2 and QM.ShoutOn("local") and QM.ShoutOn(bf)
+end
+function QM.SetLocalBigfoot()
+    local bf = QM.BigfootKey()
+    if not bf then return false end
+    dbq().shoutChs = { ["local"] = true, [bf] = true }
+    dbq().shoutCh = "local"
+    QM.dirty = true
+    return true
+end
+-- 没有新菜单接口时：在能发的频道里循环切换（单选；「本地」后面多一档「本地 + 大脚」）
+function QM.CycleShoutChannel()
+    local list, bf = {}, QM.BigfootKey()
+    for _, c in ipairs(QM.ShoutChannels()) do
+        if c.avail then
+            list[#list + 1] = c.key
+            if bf and c.key == "local" then list[#list + 1] = "local+bf" end
+        end
+    end
+    local s = QM.ShoutSelected()
+    local cur = QM.IsLocalBigfoot() and "local+bf" or ((#s == 1) and s[1].key or nil)
+    local nxt = list[1] or "say"
+    for i, k in ipairs(list) do if k == cur then nxt = list[i % #list + 1] end end
+    if nxt == "local+bf" then QM.SetLocalBigfoot() else QM.SetShoutOnly(nxt) end
+    return nxt
+end
+-- 右键菜单：MenuUtil 勾选菜单（可多选，点了菜单不关）；客户端没有 / 出错就退回循环切换。返回 "menu" / 循环到的键
+function QM.OpenShoutMenu(owner)
+    if MenuUtil and MenuUtil.CreateContextMenu then
+        local ok = pcall(MenuUtil.CreateContextMenu, owner, function(_, root)
+            if root.CreateTitle then root:CreateTitle(L("喊人发到（可多选，勾几个发几个）", "Call to (tick any)")) end
+            if QM.BigfootKey() then
+                root:CreateCheckbox(L("本地 + 大脚世界频道（一起喊）", "Local + BigFoot world (both)"), function() return QM.IsLocalBigfoot() end, function()
+                    QM.SetLocalBigfoot()
+                    if QM.Render then pcall(QM.Render) end
+                    return MenuResponse and MenuResponse.Refresh or nil
+                end, "local+bf")
+            end
+            for _, c in ipairs(QM.ShoutChannels()) do
+                local key = c.key
+                local label = c.avail and c.name or (DIM .. c.name .. "（" .. (c.why or "") .. "，会跳过）|r")
+                root:CreateCheckbox(label, function() return QM.ShoutOn(key) end, function()
+                    QM.ToggleShout(key)
+                    if QM.Render then pcall(QM.Render) end
+                    return MenuResponse and MenuResponse.Refresh or nil
+                end, key)
+            end
+        end)
+        if ok then QM._menuOpened = true; return "menu" end
+    end
+    local ch = QM.CycleShoutChannel()
+    ns.Print(L("喊人频道：", "Call channel: ") .. QM.ShoutChannelName(ch))
+    return ch
 end
 function QM.ShoutText()
     return QM.Tagged(QM.ShoutBody())
+end
+-- 11-21 用户「喊任务的时候，要把任务以链接方式放出去」：任务名换成可点的任务链接（别人点开能看任务；装了插件的按 |Hquest:ID 直接认）
+--   优先客户端 GetQuestLink（服务器认的格式）；拿不到再按 |cffffff00|Hquest:ID:等级|h[任务名]|h|r 拼；没有 ID = 退回纯文字「任务名」
+function QM.QuestLink(q)
+    local id = q and tonumber(q.id)
+    if not (id and id > 0) then return nil end
+    if GetQuestLink then
+        local ok, s = pcall(GetQuestLink, id)
+        if ok and type(s) == "string" and not ns.Secret(s) and s:find("|Hquest:" .. id, 1, true) then return s end
+    end
+    local t = q.title
+    if type(t) ~= "string" or t == "" or t:sub(1, 1) == "#" or t:find("[%[%]|]") then return nil end
+    return string.format("|cffffff00|Hquest:%d:%d|h[%s]|h|r", id, tonumber(q.lvl) or 0, t)
 end
 function QM.ShoutBody()
     local q = QM.FocusQuest(nil)
     local tpl = dbq().shoutText
     local prog = q and ((q.r and q.r > 0) and (q.f .. "/" .. q.r) or (q.p .. "%")) or ""
+    local link = q and QM.QuestLink(q)
     if type(tpl) == "string" and tpl ~= "" then
-        return (tpl:gsub("{任务}", q and q.title or L("任务", "quests")):gsub("{进度}", prog))
+        local nm = link or (q and q.title) or ns.ChatL("任务", "quests")
+        return (tpl:gsub("{任务}", function() return nm end):gsub("{进度}", function() return prog end))
+    end
+    if link then
+        return string.format(ns.ChatL("求组：我在做%s（%s），同任务的老哥一起？密我直接进组", "LFG: on %s (%s) - same quest? whisper me for an invite"), link, prog)
     end
     if q then
-        return string.format(L("求组：我在做「%s」（%s），同任务的老哥一起？密我直接进组", "LFG: on \"%s\" (%s) - same quest? whisper me for an invite"), q.title, prog)
+        return string.format(ns.ChatL("求组：我在做「%s」（%s），同任务的老哥一起？密我直接进组", "LFG: on \"%s\" (%s) - same quest? whisper me for an invite"), q.title, prog)
     end
-    return L("求组：附近一起做任务的老哥？密我直接进组", "LFG: anyone questing nearby? whisper me for an invite")
+    return ns.ChatL("求组：附近一起做任务的老哥？密我直接进组", "LFG: anyone questing nearby? whisper me for an invite")
 end
+-- 发一次：选中的频道各发一条（没加入的跳过并提示）；至少发出一条才进 30 秒冷却
+-- 返回 ok, 原因("cd" / "api" / "none" / "nochan"), 发出几条, 跳过的频道名列表
 function QM.Shout()
     if now() - QM.lastShout < SHOUT_GAP then
         ns.Print(string.format(L("喊人：%d 秒内只能喊一次，稍等", "Wait %ds between calls"), SHOUT_GAP))
-        return false, "cd"
+        return false, "cd", 0, {}
     end
     local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
-    if not send then return false, "api" end
-    local ch, msg = QM.ShoutChannel(), QM.ShoutText()
-    local ok
-    if ch == "local" then
-        local idx = QM.LocalChannelIndex()
-        if not idx then
-            ns.Print(L("喊人：没找到本地「综合」频道（可能没加入），右键按钮换成附近说话 / 大喊", "No local General channel found; right-click to switch to Say / Yell"))
-            return false, "nochan"
-        end
-        ok = pcall(send, msg, "CHANNEL", nil, idx)
-    else
-        ok = pcall(send, msg, ch == "yell" and "YELL" or "SAY")
+    if not send then return false, "api", 0, {} end
+    local targets = QM.ShoutSelected()
+    if #targets == 0 then
+        ns.Print(L("喊人：还没选频道，右键按钮选", "Call: no channel selected - right-click to pick"))
+        return false, "none", 0, {}
     end
-    if ok then QM.lastShout = now(); QM.dirty = true end
-    return ok
+    local msg = QM.ShoutText()
+    local sent, skipped = {}, {}
+    for _, c in ipairs(targets) do
+        if not c.avail then
+            skipped[#skipped + 1] = c.name:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+        else
+            local ok
+            if c.kind == "CHANNEL" then ok = c.id and pcall(send, msg, "CHANNEL", nil, c.id)
+            else ok = pcall(send, msg, c.kind) end
+            if ok then sent[#sent + 1] = c.name:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") end
+        end
+    end
+    if #sent > 0 then QM.lastShout = now(); QM.dirty = true end
+    if #skipped > 0 then
+        ns.Print(L("喊人：跳过没加入 / 发不了的频道：", "Call: skipped (not joined / unavailable): ") .. table.concat(skipped, L("、", ", "))
+            .. (#sent == 0 and L("，右键按钮换频道", " - right-click to change") or ""))
+    end
+    if #sent > 1 then ns.Print(L("喊人：已发到 ", "Call sent to ") .. table.concat(sent, L("、", ", "))) end
+    return #sent > 0, (#sent == 0 and "nochan" or nil), #sent, skipped
 end
 
 function QM.WhisperAll(cands)
@@ -723,14 +932,14 @@ local function build(host)
     d.invAll:SetSize(HB, 28); d.invAll:SetPoint("BOTTOMLEFT", PAD, 52)
     d.whAll = (W and W.Button) and W.Button(d, nil) or ns.Button(d, "", HB, 28)
     d.whAll:SetSize(HB, 28); d.whAll:SetPoint("BOTTOMLEFT", PAD + HB + 6, 52)
-    -- 喊人：左键发，右键换频道（附近说话 → 大喊 → 本地频道）
+    -- 喊人：左键发，右键选频道（11-19 新菜单可多选；客户端没有 MenuUtil 就循环切换）
     d.shout = (W and W.Button) and W.Button(d, nil) or ns.Button(d, "", HB, 28)
     d.shout:SetSize(HB, 28); d.shout:SetPoint("BOTTOMRIGHT", -PAD, 52)
     if d.shout.RegisterForClicks then d.shout:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
     d.shout:SetScript("OnClick", function(self, btn)
         if btn == "RightButton" then
-            local ch = QM.CycleShoutChannel()
-            ns.Print(L("喊人频道：", "Call channel: ") .. QM.ShoutChannelName(ch))
+            GameTooltip:Hide()
+            if QM.OpenShoutMenu(self) == "menu" then QM.Render(); return end
         else
             QM.Shout()
         end
@@ -739,10 +948,15 @@ local function build(host)
     end)
     d.shout:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP"); GameTooltip:AddLine(L("喊人", "Call for group"), 1, 0.82, 0)
-        GameTooltip:AddLine(L("频道：", "Channel: ") .. QM.ShoutChannelName(QM.ShoutChannel()), 1, 1, 1)
+        local sel, names = QM.ShoutSelected(), {}
+        for _, c in ipairs(sel) do names[#names + 1] = c.avail and c.name or (DIM .. c.name .. "（" .. (c.why or "") .. "，会跳过）|r") end
+        GameTooltip:AddLine(L("频道：", "Channel: ") .. (#names > 0 and table.concat(names, L("、", ", ")) or L("未选", "none")), 1, 1, 1, true)
         GameTooltip:AddLine(QM.ShoutText(), 0.7, 0.85, 1, true)
-        GameTooltip:AddLine(string.format(L("左键发一次（%d 秒一次）· 右键换频道：附近说话 / 大喊 / 本地频道\n%s qm text 自定义内容（{任务} {进度}）",
-            "Left-click to send (once per %ds) - right-click: Say / Yell / Local\n%s qm text to customise ({任务} {进度})"), SHOUT_GAP, ns.SlashHint or "/gif"), 0.6, 0.6, 0.6, true)
+        local hasMenu = MenuUtil and MenuUtil.CreateContextMenu
+        GameTooltip:AddLine(string.format(hasMenu and L("左键发一次（%d 秒一次，多个频道算一次）· 右键选频道（可多选：附近 / 大喊 / 寻求组队 / 本地 / 大脚世界频道等已加入的频道 / 公会 / 队伍）\n%s qm text 自定义内容（{任务} {进度}）",
+            "Left-click to send (once per %ds, all ticked channels count as one) - right-click to pick channels (multi-select)\n%s qm text to customise ({任务} {进度})")
+            or L("左键发一次（%d 秒一次）· 右键换频道（在附近 / 大喊 / 寻求组队 / 本地 / 已加入的频道 / 公会 / 队伍里轮换）\n%s qm text 自定义内容（{任务} {进度}）",
+            "Left-click to send (once per %ds) - right-click cycles channels\n%s qm text to customise ({任务} {进度})"), SHOUT_GAP, ns.SlashHint or "/gif"), 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
     end)
     d.shout:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1006,6 +1220,11 @@ function QM.Render()
     elseif rawget(d, "peerHint") then
         d.peerHint:Hide()
     end
+    -- 11-18 频道消息 · 同任务（HOLD：QuestMatesChanUI.lua 没加载时 QM.RenderChan 不存在，这一段不画）
+    if QM.RenderChan then
+        local okc, ny = pcall(QM.RenderChan, d, y, selQ)
+        if okc and type(ny) == "number" then y = ny end
+    end
     -- Received but excluded peers are opt-in diagnostics, never match results.
     local shownKeys = {}
     for _, it in ipairs(allRows) do shownKeys[it.key] = true end
@@ -1236,9 +1455,8 @@ function QM.Render()
     local nWh = #QM.WhisperCandidates(wc)
     d.whAll:SetText(nWh > 0 and string.format(L("私聊 · %d 人", "Whisper %d"), nWh) or L("私聊 · 暂无", "Whisper - none"))
     d.whAll:SetEnabled(nWh > 0)
-    local ch = QM.ShoutChannel()
     local cd = SHOUT_GAP - (now() - QM.lastShout)
-    d.shout:SetText(L("喊人 · ", "Call - ") .. ({ say = L("附近", "Say"), yell = L("大喊", "Yell"), ["local"] = L("本地", "Local") })[ch]
+    d.shout:SetText(L("喊人 · ", "Call - ") .. QM.ShoutButtonLabel()
         .. (cd > 0 and (" " .. math.ceil(cd) .. "s") or ""))
     -- The action itself enforces cooldown; keep right-click channel selection alive.
     d.shout:SetEnabled(true)
@@ -1278,6 +1496,7 @@ function QM.Render()
         GameTooltip:Show()
     end)
     d.refresh:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    if QM.QPBanner then pcall(QM.QPBanner) end
 end
 
 -- 抽屉贴着页签放（照公会抽屉 placeDrawer：顶边和主面板齐；右边放不下就放到页签左边）
@@ -1488,6 +1707,56 @@ function QM.SetMode(m)
     QM.MarkMode(m)
     QM.SyncSubTabs()
 end
+-- 11-23 任务配对（子插件 _GroupPair，HOLD，默认关）：任务组队列表上方一条横幅。没开过 = 介绍 + [开启] [不用了]（点「不用了」存 false，不再出现）；
+--   开着 = 一行状态 + [暂停 30 分钟] [关]；子插件不在（发行包里 HOLD 掉了）= 不出
+function QM.QPBanner()
+    local d = QM.drawer
+    if not d then return end
+    local b = rawget(d, "qpBar")
+    local q = type(ns.db.qp) == "table" and ns.db.qp or {}
+    local list = not (rawget(d, "gearOn") or rawget(d, "mwOn") or (rawget(d, "lfg") and d.lfg:IsShown()))
+    if q.on == false or not list or not (ns.ModuleAvailable and ns.ModuleAvailable("qp")) then if b then b:Hide() end return end
+    if not b then
+        b = CreateFrame("Frame", nil, d, BackdropTemplateMixin and "BackdropTemplate" or nil)
+        b:SetHeight(26); b:SetPoint("BOTTOMLEFT", d, "TOPLEFT", 0, 2); b:SetPoint("BOTTOMRIGHT", d, "TOPRIGHT", 0, 2)
+        if b.SetBackdrop then
+            b:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+            b:SetBackdropColor(0.04, 0.06, 0.1, 0.95); b:SetBackdropBorderColor(1, 0.82, 0.2, 0.7)
+        end
+        b.t = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        b.t:SetPoint("LEFT", 8, 0); b.t:SetPoint("RIGHT", -180, 0); b.t:SetJustifyH("LEFT"); b.t:SetWordWrap(false)
+        b.no = ns.Button(b, "", 70, 20, function()
+            if ns.QP then ns.QP.SetOn(false) else ns.db.qp = q; q.on = false end
+            ns.Print(L("任务配对：不用了（想开：/gi qp on）", "Quest pairing: off (turn on: /gi qp on)")); QM.QPBanner()
+        end)
+        b.no:SetPoint("RIGHT", -4, 0)
+        b.yes = ns.Button(b, "", 100, 20, function()
+            if ns.QP and ns.QP.On() then ns.QP.Pause(1800); ns.Print(L("任务配对：暂停 30 分钟", "Quest pairing: paused 30 min")); QM.QPBanner(); return end
+            ns.db.qp = q; q.on = true
+            if ns.LoadModule("qp") and ns.QP then ns.QP.SetOn(true) end
+            ns.Print(L("任务配对：已开启。在杀怪任务区域遇到同任务的插件用户时弹卡问你（不会自动邀请 / 自动进队）", "Quest pairing on: asks you when an addon user on the same kill quest is nearby (never auto-invites / auto-joins)"))
+            QM.QPBanner()
+        end)
+        b.yes:SetPoint("RIGHT", b.no, "LEFT", -4, 0)
+        b:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP"); GameTooltip:AddLine(L("任务配对", "Quest pairing"), 1, 0.82, 0)
+            GameTooltip:AddLine(L("你在杀怪任务的目标区域（看到目标怪）时，附近也在打同一个任务、也开了这个功能的插件用户，两人里只有一人弹卡问要不要邀请；点了才邀请，对方也要点「加入」才进队。公会会员也一样。只管杀怪目标和精英任务。同一个人 2 小时只提示一次。",
+                "When you're at a kill quest's area (target mobs in sight) and another addon user with this on is there for the same quest, one of you gets a card. Nothing is automatic: invite / join only on click, guild members too. Kill objectives and elite quests only; each player at most once per 2h."), 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        d.qpBar = b
+    end
+    if q.on then
+        b.t:SetText(ns.QP and ns.QP.StatusText() or L("任务配对：开", "Quest pairing: on"))
+        b.yes:SetText(L("暂停 30 分钟", "Pause 30 min")); b.no:SetText(L("关", "Off"))
+    else
+        b.t:SetText("|cff33ff99" .. L("新：", "New: ") .. "|r" .. L("任务配对 —— 杀怪任务区域遇到同任务的插件用户时弹框问你要不要组队（不会自动邀请 / 自动进队）",
+            "Quest pairing - asks whether to group when an addon user on the same kill quest is nearby (never auto-invites / joins)"))
+        b.yes:SetText(L("开启", "Turn on")); b.no:SetText(L("不用了", "No thanks"))
+    end
+    b:Show()
+end
 function QM.MarkMode(m)
     local d = QM.drawer
     local tab = QM.Tab()
@@ -1497,6 +1766,7 @@ function QM.MarkMode(m)
             elseif ns.MarkSelected then ns.MarkSelected(b, k == m) end
         end
     end
+    if QM.QPBanner then pcall(QM.QPBanner) end   -- 11-23 任务配对横幅只在任务组队列表上出
 end
 
 -- 11-11 用户截图「文字不对」：钉住的窗口登录时先建好，那会儿副本组队（DungeonChat.lua）还没载入 →
@@ -1567,13 +1837,34 @@ function QM.OpenDrawer(mode)
     if mode then QM.SetMode(mode) end
 end
 
+-- 列出客户端里所有和「姓名板 / 友方」有关的设置（probe 用：找真正的开关名；11-23 从信标搬来）
+function QM.PlateCVars()
+    local out = {}
+    local list
+    if C_Console and C_Console.GetAllCommands then local ok, l = pcall(C_Console.GetAllCommands); list = ok and l or nil end
+    for _, c in ipairs(list or {}) do
+        local name = type(c) == "table" and c.command or nil
+        if type(name) == "string" then
+            local low = name:lower()
+            if low:find("nameplate", 1, true) and (low:find("friend", 1, true) or low:find("player", 1, true)) then
+                local ok, v = pcall(GetCVar, name)
+                out[#out + 1] = name .. "=" .. tostring(ok and v or "?")
+            end
+        end
+    end
+    table.sort(out)
+    return out, list ~= nil
+end
 -- /gi qm 里要动抽屉的子命令（信标的 /gi qm 转过来）
 function QM.SlashUI(rest, rawRest)
     rest = rest or ""
-    if rest == "say" or rest == "yell" or rest == "local" then
-        dbq().shoutCh = rest
-        ns.Print(L("喊人频道：", "Call channel: ") .. QM.ShoutChannelName(rest))
-        QM.dirty = true
+    if rest == "say" or rest == "yell" or rest == "local" or rest == "lfg" or rest == "guild" or rest == "party" then
+        local k = (rest == "party") and "group" or rest   -- 11-19 加 lfg（寻求组队）/ guild / party；单选，多选用右键菜单
+        QM.SetShoutOnly(k)
+        ns.Print(L("喊人频道：", "Call channel: ") .. QM.ShoutChannelName(k))
+    elseif rest == "大脚" or rest == "本地大脚" or rest == "bigfoot" then   -- 11-21 本地 + 大脚世界频道一起喊
+        if QM.SetLocalBigfoot() then ns.Print(L("喊人频道：", "Call channel: ") .. QM.ShoutChannelName("local+bf"))
+        else ns.Print(L("喊人：本地频道或大脚世界频道没加入，先加入再选", "Call: join Local and the BigFoot channel first")) end
     elseif rest == "text" or rest:sub(1, 5) == "text " then
         local t = ((rawRest or rest):match("^[^ 	]*[ 	]*(.-)$") or ""):gsub("^[ 	]+", "")   -- 用原样的文字（不转小写）
         dbq().shoutText = (t ~= "") and t or nil
@@ -1591,6 +1882,36 @@ function QM.SlashUI(rest, rawRest)
             ns.Print(string.format("  %s  %s Lv%s  %s%s", ago(rec.t), rec.n or "?", tostring(rec.lvl or "?"), QM.ResultText(rec.r),
                 #qs > 0 and ("  · " .. table.concat(qs, "；")) or ""))
         end
+    elseif rest == "probe" then   -- 11-23 从信标 QuestMates.lua 搬来（省信标登录内存）
+        local selected = QM.SelectedQuest(QM.MyQuests())
+        local received, waiting, shared = 0, 0, 0
+        for _, peer in pairs(QM.peers) do
+            if peer.questReceived then received = received + 1 else waiting = waiting + 1 end
+            if selected and peer.quests[selected.id] then shared = shared + 1 end
+        end
+        ns.Print("QM tasks: selected=" .. tostring(selected and selected.id or "all")
+            .. " received=" .. received .. " waiting=" .. waiting .. " selectedPeers=" .. shared
+            .. " dropped=" .. QM.dropped)
+        local has = function(v) return v and "|cff33ff99OK|r" or "|cffff6060--|r" end
+        ns.Print("QM probe: C_QuestLog.GetInfo " .. has(C_QuestLog and C_QuestLog.GetInfo) .. " · GetQuestLogTitle " .. has(GetQuestLogTitle)
+            .. " · GetQuestObjectives " .. has(C_QuestLog and C_QuestLog.GetQuestObjectives) .. " · SendAddonMessage " .. has((C_ChatInfo and C_ChatInfo.SendAddonMessage) or SendAddonMessage)
+            .. " · JoinTemporaryChannel " .. has(JoinTemporaryChannel) .. " · channel " .. tostring(QM._b.chanIndex())
+            .. " · map " .. tostring((QM._b.myPos())) .. " · quests " .. #QM.MyQuests() .. " · peers " .. (function() local n = 0; for _ in pairs(QM.peers) do n = n + 1 end; return n end)()
+            .. " · InviteUnit " .. has((C_PartyInfo and C_PartyInfo.InviteUnit) or InviteUnit))
+        ns.Print("QM probe 发送: 最近结果 " .. tostring(QM.lastName or "（还没发过）") .. (QM.lastCode and ("(" .. QM.lastCode .. ")") or "")
+            .. " · 方式 " .. tostring(QM.lastVia or "-") .. " · 公会 " .. tostring(IsInGuild and IsInGuild() and "在" or "不在")
+            .. " · 本轮密语 " .. #QM.WhisperTargets() .. " 人 · 上次成功 " .. (QM.lastOkAt and string.format("%d 秒前", now() - QM.lastOkAt) or "从没成功")
+            .. " · 队列 " .. QM._b.qn() .. " · 间隔 " .. QM.SEND_GAP .. "s")
+        -- 10-12「必须点中其他玩家才能出现」：姓名板能看到几个、几个是玩家、几个名字是保密值；友方姓名板设置
+        QM.ScanNear()
+        local ps = QM.plateStat or {}
+        local nNear = 0
+        for _ in pairs(QM.near) do nNear = nNear + 1 end
+        ns.Print("QM probe 姓名板: 看到 " .. (ps.plates or 0) .. " 个 · 友方玩家 " .. (ps.players or 0) .. " · 名字保密 " .. (ps.secret or 0)
+            .. " · 友方开关 " .. tostring((QM.FriendCVar())) .. "=" .. tostring((select(2, QM.FriendCVar())))
+            .. " · 身边列表 " .. nNear .. " 人 · GetNamePlates " .. has(C_NamePlate and C_NamePlate.GetNamePlates))
+        local pc, okList = QM.PlateCVars()
+        ns.Print("QM probe 姓名板相关设置: " .. (okList and (#pc > 0 and table.concat(pc, " · ") or "（没有匹配的）") or "（客户端没有 C_Console.GetAllCommands）"))
     elseif rest == "pin" then
         QM.drawer = QM.drawer or build(nil); pcall(QM.ApplyLook)
         QM.SetPinned(not dbq().pinned)

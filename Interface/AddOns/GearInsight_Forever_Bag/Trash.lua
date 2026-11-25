@@ -16,7 +16,8 @@
 --        · 只在按钮的 OnClick（硬件事件）里调 PickupContainerItem + DeleteCursorItem；斜杠命令 / 事件 / 计时器里一律不摧毁。一次点击只摧毁一格
 --        · 点之前重读那一格：物品 / 数量变了 → 不动，刷新列表让玩家再看一眼；格子锁着（交易 / 邮寄中）→ 不动
 --        · ClearCursor → 拿起 → 核对光标上的物品 ID 和列表一致，不一致 → ClearCursor 放回原格并报错，什么都不删
---        · 绿色（优秀）及以上：第一次点只把按钮变成「再点一次确认」，3 秒内再点同一件才摧毁；白色 / 灰色直接摧毁
+--        · 11-17 用户截图「摧毁还是要弹出确认框的」：不分颜色，点「摧毁」先弹插件自己的确认框（图标 / 名字 / 数量 / 价值），
+--          框里点「摧毁」（这一下也是硬件事件）才真删；取消 / ESC / 背包变了 / 进战斗 = 不删。原「绿色及以上 3 秒内点两下」作废
 --        · 战斗中按钮全灰、点了也只提示
 --        · 「输入 DELETE」确认框：经典客户端 FrameXML 里那个框（StaticPopup DELETE_GOOD_ITEM，蓝色及以上要打字）是把物品拖到世界里时
 --          由 DELETE_ITEM_CONFIRM 事件弹出的，确认后才调 DeleteCursorItem；DeleteCursorItem 本身不弹框（wiki：确认是默认界面做的）。
@@ -28,17 +29,17 @@
 --   ⑤ 设置（ns.RegisterSettings，本页右上角「本页设置」+ 设置页索引）：背包满提示 · 列出紫色 · 不列魔法造物 · 清空不摧毁名单
 --        存 ns.db.trash = { keep = {}, fullTip / epic / skipConj（nil = 默认：开 / 关 / 开）}
 --   ⑥ 命令：/gi 摧毁 | /gi trash 打开本页；/gi 摧毁 清空名单 | 提示开 | 提示关
---   本文件在主插件 HOLD 里：不加载时没有这页 / 不提示 / 没有命令，UI.lua 装备大类成员里的 "trash" 没有对应页 → 不出，其余照旧
-local _, ns = ...
+--   11-17 用户「模块做好按需加载」：本文件搬进按需加载的子插件 GearInsight_Forever_Bag，登录不加载（主插件 BagStub.lua 放占位页 / 命令占位）；
+--        设置描述 + 存档读写（ns.TrashCfg）、背包满的判断（数空格）留在 BagStub.lua 常驻，背包满了才加载这里写「最便宜的是…」（T.FullTip）
+--        ⛔ 这个文件晚于主插件加载：文件头 ns = _G.GearInsightForever or ns；PLAYER_LOGIN 收不到（登录后才加载），别靠它
+local _, ns = ...; ns = _G.GearInsightForever or ns
 local L = function(cn, en) return ns.L(cn, en) end
 
 local T = { gone = {}, list = {}, hidden = {}, offset = 0 }
 ns.Trash = T
-T.CONFIRM_SEC = 3     -- 绿色及以上：3 秒内再点才摧毁
-T.MAX_ROWS = 13
+T.MAX_ROWS = 12   -- 11-17 页脚收拾：13 → 12，列表下面留出「已隐藏 / 共 N 件」一行和底部两行说明
 T.GONE_SEC = 3        -- 刚摧毁的格子：背包事件还没到时别再列出来
 T.WAIT_SEC = 0.3      -- DeleteCursorItem 后光标上还拿着 → 等这么久看有没有弹确认框
-T.LOGIN_DELAY = 5     -- 登录后几秒才开始看背包满
 
 T.HEARTH = { [6948] = true }
 T.SOUL_SHARD = 6265
@@ -112,43 +113,17 @@ function T.SourceText(src)
     return "?"
 end
 
--- ---------- 设置（ns.db.trash；nil = 默认值）----------
-T.DEFAULTS = { fullTip = true, epic = false, skipConj = true }
-function T.DB()
-    ns.db.trash = ns.db.trash or {}
-    local d = ns.db.trash
-    if type(d.keep) ~= "table" then d.keep = {} end
-    return d
-end
-function T.Opt(k)
-    if not ns.db then return T.DEFAULTS[k] end
-    local v = rawget(T.DB(), k)
-    if v == nil then return T.DEFAULTS[k] end
-    return v
-end
-function T.SetOpt(k, v)
-    if not ns.db then return end
-    v = v and true or false
-    if v == T.DEFAULTS[k] then T.DB()[k] = nil else T.DB()[k] = v end
-    if T.PageShown() then T.Refresh() end
-end
+-- ---------- 设置（ns.db.trash；nil = 默认值）：读写在主插件 BagStub.lua 的 ns.TrashCfg（设置页不用加载这个子插件就能改）----------
+local C = ns.TrashCfg
+T.DEFAULTS = C.DEFAULTS
+T.DB = C.DB
+T.Opt = C.Opt
+function T.SetOpt(k, v) C.SetOpt(k, v) end
+T.KeepCount = C.KeepCount
+T.ClearKeep = C.ClearKeep
 function T.IsKept(id) return ns.db ~= nil and id ~= nil and T.DB().keep[id] == true end
 function T.AddKeep(id) if ns.db and id then T.DB().keep[id] = true end end
 function T.RemoveKeep(id) if ns.db and id then T.DB().keep[id] = nil end end
-function T.KeepCount()
-    if not ns.db then return 0 end
-    local n = 0
-    for _ in pairs(T.DB().keep) do n = n + 1 end
-    return n
-end
-function T.ClearKeep()
-    if not ns.db then return 0 end
-    local n = T.KeepCount()
-    T.DB().keep = {}
-    if T.PageShown() then T.Refresh() end
-    return n
-end
-
 -- ---------- 背包接口（C_Container 优先，退回旧全局函数）----------
 local function cc(name)
     local C = rawget(_G, "C_Container")
@@ -192,23 +167,8 @@ function T.IsQuestSlot(bag, slot)
     end
     return false
 end
--- 普通背包（专业包 / 箭袋不算）的空格数、总格数
-function T.FreeSlots()
-    local free, total = 0, 0
-    local f = cc("GetContainerNumFreeSlots") or GetContainerNumFreeSlots
-    for bag = 0, T.NumBags() do
-        local n = T.NumSlots(bag)
-        if n > 0 then
-            local nf, fam = call(f, bag)
-            fam = tonumber(fam) or 0
-            if fam == 0 then
-                total = total + n
-                free = free + (tonumber(nf) or 0)
-            end
-        end
-    end
-    return free, total
-end
+-- 普通背包（专业包 / 箭袋不算）的空格数、总格数（BagStub.lua 常驻那一份）
+function T.FreeSlots() return ns.BagFreeSlots() end
 local function pickup(bag, slot) return call(cc("PickupContainerItem") or PickupContainerItem, bag, slot) end
 local function cursorItem()
     local kind, id = call(GetCursorInfo)
@@ -337,11 +297,17 @@ function T.HiddenText()
     return string.format(L("已隐藏 %d 件：", "%d hidden: "), n) .. table.concat(parts, L("、", ", "))
 end
 
+local function plainBtn(parent, w, h)
+    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    b:SetSize(w, h or 22)
+    if ns.SkinButton then ns.SkinButton(b) end
+    return b
+end
 -- ---------- 摧毁（⛔ 只许从按钮的 OnClick 里调：PickupContainerItem / DeleteCursorItem 要硬件事件）----------
 local function key(e) return e.bag .. ":" .. e.slot .. ":" .. e.id end
 T.Key = key
-function T.NeedConfirm(e) return (e.q or 1) >= 2 end
-function T.Confirming(e) return e ~= nil and T.confirm ~= nil and T.confirm.key == key(e) and now() - T.confirm.t <= T.CONFIRM_SEC end
+function T.NeedConfirm(e) return e ~= nil end   -- 11-17 一律要确认（原来只有绿色及以上）
+function T.Confirming(e) return e ~= nil and T.confirm ~= nil and T.confirm.key == key(e) end
 function T.PopupShown()
     if not StaticPopup_Visible then return false end
     for _, n in ipairs(T.POPUPS) do
@@ -357,8 +323,63 @@ function T.Done(e)
     ns.Print(string.format(L("已摧毁 %s（价值 %s）", "Destroyed %s (worth %s)"), itemText(e), T.ValueText(e.total)))
     T.Refresh()
 end
+-- ---------- 确认框（11-17 用户「摧毁还是要弹出确认框的」）----------
+--   插件自己的小框（⛔ 不往 StaticPopupDialogs 里塞东西，见 dev-notes no-reassign-blizzard-globals-taint），ESC 可关
+local ask
+local function buildAsk()
+    local f = CreateFrame("Frame", "GearInsightForeverTrashAsk", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    f:SetSize(340, 132); f:SetFrameStrata("DIALOG"); f:SetToplevel(true); f:SetClampedToScreen(true); f:EnableMouse(true)
+    f:SetPoint("CENTER", UIParent, "CENTER", 0, 120)
+    if f.SetBackdrop then
+        f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 14,
+            insets = { left = 3, right = 3, top = 3, bottom = 3 } })
+        f:SetBackdropColor(0.06, 0.05, 0.04, 0.96); f:SetBackdropBorderColor(1, 0.82, 0.1, 0.9)
+    end
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal"); f.title:SetPoint("TOP", 0, -12)
+    f.title:SetText(L("确认摧毁？", "Destroy this item?"))
+    f.icon = f:CreateTexture(nil, "ARTWORK"); f.icon:SetSize(32, 32); f.icon:SetPoint("TOPLEFT", 18, -36)
+    f.item = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); f.item:SetPoint("TOPLEFT", f.icon, "TOPRIGHT", 10, -1)
+    f.item:SetPoint("RIGHT", -16, 0); f.item:SetJustifyH("LEFT"); f.item:SetWordWrap(false)
+    f.val = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); f.val:SetPoint("TOPLEFT", f.item, "BOTTOMLEFT", 0, -4)
+    f.val:SetPoint("RIGHT", -16, 0); f.val:SetJustifyH("LEFT"); f.val:SetWordWrap(false)
+    f.yes = plainBtn(f, 110, 24); f.yes:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -6, 14)
+    f.yes:SetText(L("摧毁", "Destroy"))
+    f.no = plainBtn(f, 110, 24); f.no:SetPoint("BOTTOMLEFT", f, "BOTTOM", 6, 14)
+    f.no:SetText(L("取消", "Cancel"))
+    f.yes:SetScript("OnClick", function()
+        local e = rawget(f, "e")
+        -- 11-18 用户截图「不生效，摧毁」+ BugSack「GearInsight_Forever_Bag 尝试调用保护功能」：原来先关框再删，
+        --   DeleteCursorItem 被拦（点击的按钮所在框先藏了，这一下不再算玩家亲手点的）→ 先删，删完再关框
+        if e then T.Destroy(e, true) end
+        T.HideAsk()
+    end)
+    f.no:SetScript("OnClick", function() T.HideAsk() end)
+    -- ESC / 别处关掉也清「确认中」
+    f:SetScript("OnHide", function() f.e = nil; if T.confirm then T.confirm = nil; T.RefreshUI() end end)
+    if type(UISpecialFrames) == "table" then table.insert(UISpecialFrames, "GearInsightForeverTrashAsk") end   -- 追加，不重新赋值
+    f:Hide()
+    return f
+end
+function T.Ask(e)
+    ask = ask or buildAsk()
+    T.askFrame = ask
+    ask.e = e
+    ask.icon:SetTexture(e.icon)
+    ask.item:SetText(itemText(e))
+    ask.val:SetText(string.format(L("价值 %s · 删了就没了，找不回来", "Worth %s - this can't be undone"), T.ValueText(e.total)))
+    T.confirm = { key = key(e), t = now() }
+    ask:Show()
+    T.RefreshUI()
+    return ask
+end
+function T.HideAsk()
+    if ask then ask.e = nil; ask:Hide() end
+    if T.confirm then T.confirm = nil; T.RefreshUI() end
+end
+
 -- 返回 true / false, 原因（combat / busy / none / changed / locked / confirm / mismatch / wait）
-function T.Destroy(e)
+--   confirmed = 确认框里点了「摧毁」（⛔ 只许从那个按钮的 OnClick 传 true）
+function T.Destroy(e, confirmed)
     if combat() then
         ns.Print(L("战斗中不能摧毁物品，脱战再来", "Can't destroy items in combat"))
         return false, "combat"
@@ -376,13 +397,8 @@ function T.Destroy(e)
         ns.Print(L("这格物品锁着（交易 / 邮寄中？），先放好再来", "That item is locked (trade / mail?)"))
         return false, "locked"
     end
-    if T.NeedConfirm(e) and not T.Confirming(e) then
-        T.confirm = { key = key(e), t = now() }
-        T.RefreshUI()
-        local k = key(e)
-        after(T.CONFIRM_SEC + 0.05, function()
-            if T.confirm and T.confirm.key == k and now() - T.confirm.t >= T.CONFIRM_SEC then T.confirm = nil; T.RefreshUI() end
-        end)
+    if T.NeedConfirm(e) and not confirmed then
+        T.Ask(e)
         return false, "confirm"
     end
     T.confirm = nil
@@ -432,12 +448,8 @@ function T.KeepEntry(e)
     T.Refresh()
 end
 
--- ---------- 背包满提示 ----------
-function T.CheckFull()
-    if T.tipped or not T.ready or not ns.db or not T.Opt("fullTip") then return false end
-    local free, total = T.FreeSlots()
-    if total == 0 or free > 0 then return false end
-    T.tipped = true
+-- ---------- 背包满提示：判断在 BagStub.lua（数空格，每次登录最多一次），满了才加载这里写最便宜的那件 ----------
+function T.FullTip()
     T.Scan()
     local top = T.Top()
     local s = L("背包满了：/gi 摧毁 打开「装备 → 清背包」，按价值从低到高一键摧毁", "Bags full: /gi trash opens Gear > Bag cleanup, cheapest first, one click to destroy")
@@ -445,8 +457,8 @@ function T.CheckFull()
     ns.Print(s .. L("。每次登录最多提示一次，/gi 摧毁 提示关", ". Once per login; /gi trash tipoff"))
     return true
 end
+ns.TrashFullTip = T.FullTip
 function T.OnBags()
-    pcall(T.CheckFull)
     if T.PageShown() then T.Refresh() end
 end
 
@@ -469,12 +481,6 @@ function T.ShowTip(owner, e)
     GameTooltip:AddLine(string.format(L("单价 %s（%s）· 总价 %s", "Unit %s (%s) · total %s"), T.ValueText(e.unit), T.SourceText(e.src), T.ValueText(e.total)), 1, 0.82, 0)
     GameTooltip:AddLine(L("右键：加入不摧毁名单", "Right-click: add to keep list"), 0.7, 0.7, 0.7)
     GameTooltip:Show()
-end
-local function plainBtn(parent, w, h)
-    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    b:SetSize(w, h or 22)
-    if ns.SkinButton then ns.SkinButton(b) end
-    return b
 end
 function T.BuildPage(p)
     T.page = p
@@ -499,6 +505,9 @@ function T.BuildPage(p)
         r:SetSize(646, ROW_H - 2); r:SetPoint("TOPLEFT", 12, ry)
         if r.RegisterForClicks then r:RegisterForClicks("RightButtonUp") end
         r:SetScript("OnClick", function(self, btn) if btn == "RightButton" then T.KeepEntry(rg(self, "e")) end end)
+        -- 11-18 用户截图「鼠标tooltip看属性」：原来只有小图标悬停出物品提示，整行都出
+        r:SetScript("OnEnter", function(self) T.ShowTip(self, rg(self, "e")) end)
+        r:SetScript("OnLeave", function() GameTooltip:Hide() end)
         local hl = r:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.06)
         r.icon = CreateFrame("Button", nil, r)
         r.icon:SetSize(20, 20); r.icon:SetPoint("LEFT", 2, 0)
@@ -522,14 +531,19 @@ function T.BuildPage(p)
         p.rows[i] = r
     end
     p.empty = fs(p, "GameFontDisable", 12, y - 8, 640)
-    p.more = fs(p, "GameFontDisableSmall", 12, y - T.MAX_ROWS * ROW_H - 2, 640)
-    p.hid = fs(p, "GameFontDisableSmall", 12, y - T.MAX_ROWS * ROW_H - 18, 640)
+    -- 11-17 用户截图「下方UI收拾好一点」：原来页脚四行里两行折成两行、互相压住 →
+    --   列表下面一行：左「已隐藏 …」、右「共 N 件 · 第 a-b 件（滚轮）」；页面最底两行：卖垃圾说明（SellJunk.lua 挂在 BOTTOMLEFT 12, 20）、操作说明；全部单行不折
+    local fy = y - T.MAX_ROWS * ROW_H - 4
+    p.hid = fs(p, "GameFontDisableSmall", 12, fy, 470)
+    p.more = fs(p, "GameFontDisableSmall", 486, fy, 172, "RIGHT")
+    for _, f in ipairs({ p.hid, p.more }) do if f.SetWordWrap then f:SetWordWrap(false) end end
     if p.EnableMouseWheel then p:EnableMouseWheel(true) end
     p:SetScript("OnMouseWheel", function(_, d) T.Scroll(-(tonumber(d) or 0) * 3) end)
     p.note = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    p.note:SetPoint("BOTTOMLEFT", 12, 4); p.note:SetWidth(640); p.note:SetJustifyH("LEFT")
-    p.note:SetText(L("右键一行 = 加入不摧毁名单（本页设置可清空）· 绿色及以上 3 秒内点两下才摧毁 · 一次只摧毁一格 · 战斗中不能用",
-        "Right-click a row = keep list (clear in page settings) · green+ needs a second click within 3s · one slot per click · disabled in combat"))
+    p.note:SetPoint("BOTTOMLEFT", 12, 6); p.note:SetWidth(646); p.note:SetJustifyH("LEFT")
+    if p.note.SetWordWrap then p.note:SetWordWrap(false) end
+    p.note:SetText(L("右键一行 = 不摧毁（本页设置可清空） · 每次都会弹确认框 · 一次一格 · 战斗中不能用",
+        "Right-click a row = keep · always asks to confirm · one slot per click · not in combat"))
     T.Refresh()
 end
 function T.Scroll(d)
@@ -542,7 +556,7 @@ function T.TopText()
     if combat() then return L("战斗中不能摧毁", "Disabled in combat") end
     local e = T.Top()
     if not e then return L("背包里没有可以摧毁的东西", "Nothing to destroy") end
-    if T.Confirming(e) then return string.format(L("再点一次确认摧毁：%s", "Click again to destroy: %s"), itemText(e)) end
+    if T.Confirming(e) then return string.format(L("请在确认框里确认：%s", "Confirm in the dialog: %s"), itemText(e)) end
     return string.format(L("摧毁最便宜的：%s（价值 %s）", "Destroy cheapest: %s (worth %s)"), T.Colored(e) .. ((e.count or 1) > 1 and (" ×" .. e.count) or ""), T.ValueText(e.total))
 end
 function T.RefreshUI()
@@ -567,7 +581,7 @@ function T.RefreshUI()
             r.unit:SetText(T.ValueText(e.unit))
             r.total:SetText(T.ValueText(e.total))
             r.src:SetText(T.SourceText(e.src))
-            r.del:SetText(T.Confirming(e) and L("确认？", "Sure?") or L("摧毁", "Destroy"))
+            r.del:SetText(T.Confirming(e) and L("确认中", "Confirm") or L("摧毁", "Destroy"))
             if r.del.SetEnabled then r.del:SetEnabled(e.unit ~= nil and not fight) end
         else
             r:Hide()
@@ -578,7 +592,7 @@ function T.RefreshUI()
         p.empty:Show()
     else p.empty:Hide() end
     local extra = #T.list - T.MAX_ROWS
-    p.more:SetText(extra > 0 and string.format(L("共 %d 件，显示第 %d-%d 件（滚轮翻看）", "%d items, showing %d-%d (scroll)"), #T.list, (T.offset or 0) + 1, math.min(#T.list, (T.offset or 0) + T.MAX_ROWS)) or "")
+    p.more:SetText(extra > 0 and string.format(L("共 %d 件 · 第 %d-%d 件（滚轮）", "%d items · %d-%d (scroll)"), #T.list, (T.offset or 0) + 1, math.min(#T.list, (T.offset or 0) + T.MAX_ROWS)) or "")
     p.hid:SetText(T.HiddenText())
 end
 function T.Refresh()
@@ -596,16 +610,14 @@ end
 -- ---------- 事件 ----------
 local ev = CreateFrame("Frame")
 T.ev = ev
-for _, e in ipairs({ "PLAYER_LOGIN", "BAG_UPDATE", "BAG_UPDATE_DELAYED", "GET_ITEM_INFO_RECEIVED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "DELETE_ITEM_CONFIRM" }) do
+for _, e in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "GET_ITEM_INFO_RECEIVED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "DELETE_ITEM_CONFIRM" }) do
     pcall(ev.RegisterEvent, ev, e)
 end
 ev:SetScript("OnUpdate", function()
     if T.dirty and now() >= (T.dirtyAt or 0) then T.dirty = false; T.OnBags() end
 end)
 ev:SetScript("OnEvent", function(_, e)
-    if e == "PLAYER_LOGIN" then
-        after(T.LOGIN_DELAY, function() T.ready = true; T.OnBags() end)
-    elseif e == "BAG_UPDATE" or (e == "GET_ITEM_INFO_RECEIVED" and T.PageShown()) then
+    if (e == "BAG_UPDATE" or e == "GET_ITEM_INFO_RECEIVED") and T.PageShown() then
         T.dirty, T.dirtyAt = true, now() + 0.3
     elseif e == "BAG_UPDATE_DELAYED" then
         T.dirty = false
@@ -613,6 +625,7 @@ ev:SetScript("OnEvent", function(_, e)
     elseif e == "DELETE_ITEM_CONFIRM" then
         if T.deleting then T.sawPrompt = true end
     elseif e == "PLAYER_REGEN_DISABLED" then
+        T.HideAsk()
         T.confirm = nil
         T.RefreshUI()
     elseif e == "PLAYER_REGEN_ENABLED" then
@@ -627,26 +640,7 @@ ns.RegisterPage({ key = "trash", order = 3.1, title = L("清背包", "Bag cleanu
     build = function(p) T.BuildPage(p) end,
     refresh = function() T.Refresh() end })
 
-if ns.RegisterSettings then
-    ns.RegisterSettings({ key = "trash", order = 47, page = "trash", avail = function() return ns.Trash ~= nil end,
-        title = function() return L("清背包（物品摧毁助手）", "Bag cleanup") end, short = function() return L("清背包", "Cleanup") end,
-        items = {
-            { type = "check", id = "trash.full", text = function() return L("背包满时在聊天框提示一次可以用「清背包」（每次登录最多一次）", "When bags are full, mention Bag cleanup in chat (once per login)") end,
-              get = function() return T.Opt("fullTip") and true or false end, set = function(v) T.SetOpt("fullTip", v) end },
-            { type = "check", id = "trash.epic", text = function() return L("列出紫色（史诗）及以上物品（默认不列）", "List epic and better items (off by default)") end,
-              get = function() return T.Opt("epic") and true or false end, set = function(v) T.SetOpt("epic", v) end },
-            { type = "check", id = "trash.conj", text = function() return L("不列出魔法造的食物和水（含法力宝石 / 治疗石 / 灵魂石）", "Hide conjured food / water (and mana gems / healthstones / soulstones)") end,
-              get = function() return T.Opt("skipConj") and true or false end, set = function(v) T.SetOpt("skipConj", v) end },
-            { type = "button", id = "trash.clear", w = 200, text = function() return string.format(L("清空不摧毁名单（%d 件）", "Clear keep list (%d)"), T.KeepCount()) end,
-              click = function()
-                  local n = T.ClearKeep()
-                  ns.Print(string.format(L("不摧毁名单已清空（%d 件）", "Keep list cleared (%d)"), n))
-                  if ns.RefreshSettings then ns.RefreshSettings() end
-              end },
-            { type = "note", text = function() return L("右键「清背包」页上的一行 = 加入不摧毁名单。任务物品、炉石、专业工具、灵魂碎片、施法材料、弹药永远不列出",
-                "Right-click a row on the Bag cleanup page to keep that item. Quest items, hearthstone, tools, soul shards, reagents and ammo are never listed") end },
-        } })
-end
+-- 设置描述在主插件 BagStub.lua（索引 / 搜索 / 本页设置不用加载这个子插件）
 
 ns.ExtraSlash = ns.ExtraSlash or {}
 ns.ExtraSlash["摧毁"] = function(rest, rawRest)

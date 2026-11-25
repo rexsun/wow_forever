@@ -25,6 +25,7 @@ local SPECS = {}
 ns._LazySpecs = SPECS   -- 测试用
 
 local function inCombat() return InCombatLockdown and InCombatLockdown() and true or false end
+ns._InCombat = inCombat   -- 11-20 MageConjure / BagButtons 共用
 
 local function addonThere(name)
     local f = (C_AddOns and C_AddOns.GetAddOnInfo) or GetAddOnInfo
@@ -39,8 +40,6 @@ function ns.ModHas(key, file)
     if not (m and m[file]) then return false end
     return ns._modReady[key] == true or (ns.ModuleAvailable ~= nil and ns.ModuleAvailable(key))
 end
-
-function ns.ModReady(key) return ns._modReady[key] == true end
 
 -- ---------- 战斗中排队（只给 noCombat 的模块用）----------
 local pending, said = {}, {}
@@ -59,7 +58,6 @@ regen:SetScript("OnEvent", function(self)
 end)
 
 local failed = {}
-function ns._ModResetFailed(key) failed[key] = nil end   -- 测试用
 
 -- 加载子插件 → true = 已经在了 / 刚加载上。没装 / 加载失败 / 战斗中（noCombat）→ false
 --   after：战斗中时脱战后加载完再调它（同一场战斗里只提示一次「脱战后自动打开」）；quiet：战斗中也不提示

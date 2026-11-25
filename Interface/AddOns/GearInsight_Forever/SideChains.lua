@@ -1,7 +1,11 @@
--- HOLD：特殊任务线并进升级规划（10-18 用户转抖音「魔兽无限睡袋任务路线流程」：「把这个安排到升级规划，三端同步」）。
+-- 特殊任务线并进升级规划（10-18 用户转抖音「魔兽无限睡袋任务路线流程」：「把这个安排到升级规划，三端同步」）。
 --   数据 SideChainsData.lua ← scripts/forever_side_chains.py（网站 / 小程序导出同一份）。
 --   升级规划「地图待办」里：到推荐等级（按阵营）出一行；做完的步骤按任务 ID 查 C_QuestLog.IsQuestFlaggedCompleted 自动打勾。
---   点这一行 = 弹框：效果 / 推荐等级 / 逐步（地图 · 坐标 · 点什么 · 怎么走 · 对应任务）+ 每步「地图」按钮标点（ns.ShowOnMap）+ 奖励 + 避坑。
+-- 11-23 门任务（用户「升级规划加入重要的门任务必做的任务，点击可以打开悬浮窗，任务追踪，跟睡袋一样」）：
+--   同一套任务线，数据 GateChainsData.lua 在按需加载的 GearInsight_Forever_Gate 里（scripts/forever_gate_chains.py）。
+--   内核净减：路线大弹框（SC.Show）整块搬进 _Gate 的 GatePop.lua（睡袋也用它，点了才加载）；规划行怎么画搬进 _Plan 的 PagePlan.lua。
+--   这里留：进度判定（+ 并行任务步 doneAll / 物品步 need / 钥匙在身上 = 门已开）、时间轴行、追踪小窗（多条钉住时「‹ ›」切换）、开关。
+--   门任务默认不钉（右键 / 弹框按钮手动钉），睡袋照旧到级自动钉。
 local _, ns = ...
 local L = ns.L
 
@@ -34,13 +38,36 @@ local function onQuest(id)
     return false
 end
 SC._questDone, SC._onQuest = questDone, onQuest   -- 测试用
+-- 背包里有几个（第二个参数 true = 含银行；钥匙环在不在内要游戏实测）
+local function bagCount(id)
+    if not (id and GetItemCount) then return nil end
+    local ok, n = pcall(GetItemCount, id, true)
+    if ok and type(n) == "number" then return n end
+    return nil
+end
+SC.ItemCount = bagCount
 
--- 每一步状态：done（这步交的任务已完成，或接到的下一个任务已在日志 / 已完成）· next（第一个没做的）· todo
+-- 一步做没做：done 交了 / start 接了或交了 / doneAll 几个并行任务全交了 / 只有 need（没任务）的步：物品都齐了
+local function stepDone(s)
+    if s.done and questDone(s.done) then return true end
+    if s.start and s.start ~= s.done and (onQuest(s.start) or questDone(s.start)) then return true end
+    if s.doneAll then
+        for _, q in ipairs(s.doneAll) do if not questDone(q) then return false end end
+        return true
+    end
+    if s.need and not s.done and not s.start then
+        for _, e in ipairs(s.need) do if (bagCount(e[1]) or 0) < (e[2] or 1) then return false end end
+        return true
+    end
+    return false
+end
+
+-- 每一步状态：done · next（第一个没做的）· todo
 function SC.Progress(c, fac)
-    local steps = c.steps[fac or faction()] or {}
+    local steps = (c.steps and c.steps[fac or faction()]) or {}
     local st, n, nextI = {}, 0, nil
     for i, s in ipairs(steps) do
-        local d = (s.done and questDone(s.done)) or (s.start and s.start ~= s.done and (onQuest(s.start) or questDone(s.start)))
+        local d = stepDone(s)
         st[i] = d and "done" or "todo"
         if d then n = n + 1 end
     end
@@ -48,11 +75,13 @@ function SC.Progress(c, fac)
     local last = 0
     for i = #st, 1, -1 do if st[i] == "done" then last = i; break end end
     for i = 1, last do if st[i] ~= "done" then st[i] = "done"; n = n + 1 end end
-    -- 11-07 用户截图「睡袋任务咋没了，做到这步」：第 6 步的任务一拿到信使背包就被游戏标成完成 → 7 步全打勾、任务线判成做完、
-    --   从升级规划里消失，其实还差交任务。奖励物品（c.item）不在背包里就不算做完：最后一步留着当「下一步」
-    if #steps > 0 and n >= #steps and c.item and GetItemCount then
-        local ok, cnt = pcall(GetItemCount, c.item, true)
-        if ok and type(cnt) == "number" and cnt == 0 then
+    if #steps > 0 and c.item then
+        local cnt = bagCount(c.item)
+        if c.gate then
+            -- 门任务：钥匙在身上 = 门已开（终点任务在《无限》里改了名也不卡）；任务做完但钥匙不在身上不回退（SC.KeyMissing 提示）
+            if cnt and cnt > 0 then for i = 1, #steps do st[i] = "done" end; n = #steps end
+        elseif n >= #steps and cnt == 0 then
+            -- 11-07 用户截图「睡袋任务咋没了，做到这步」：第 6 步一拿到信使背包就被标完成 → 奖励物品不在背包里就不算做完，最后一步留着当「下一步」
             st[#steps] = "todo"; n = #steps - 1
         end
     end
@@ -60,24 +89,49 @@ function SC.Progress(c, fac)
     return st, n, #steps, nextI
 end
 
+-- 门任务做完了但钥匙不在身上（扔了 / 放银行以外的地方）
+function SC.KeyMissing(c, fac)
+    if not (c and c.gate and c.item) then return false end
+    local _, n, total = SC.Progress(c, fac)
+    return total > 0 and n >= total and bagCount(c.item) == 0
+end
+
+-- 物品步的计数文字「熔火碎片 0/1 · 瑟银锭 2/2」
+function SC.NeedText(s)
+    if not s.need then return nil end
+    local t = {}
+    for _, e in ipairs(s.need) do
+        local have, want = bagCount(e[1]) or 0, e[2] or 1
+        t[#t + 1] = (have >= want and "|cff33ff99" or "|cffff7f50") .. L(e[3] or "?", e[4] or e[3] or "?") .. " " .. math.min(have, want) .. "/" .. want .. "|r"
+    end
+    return table.concat(t, " · ")
+end
+
 -- 升级规划用：推荐等级（按阵营）那一级出一行；没做完且已经过了推荐等级 → 挪到当前等级（别让它掉进「已过去」）
-function ns.SideChainItems(lo, hi, cur)
+--   门任务：rec 里没有本阵营 = 本阵营不显示；提示行（hint，没有步骤）按钥匙在不在身上算做没做
+local function chainItems(list, lo, hi, cur, gate)
     local out = {}
     local fac = faction()
-    for _, c in ipairs(ns.SideChainsData or {}) do
-        local _, n, total = SC.Progress(c, fac)
-        local rec = (c.rec and c.rec[fac]) or c.minLv or 1
-        local finished = total > 0 and n >= total
-        local lv = rec
-        if not finished and cur > rec then lv = cur end
-        if lv >= lo and lv <= hi then
-            out[#out + 1] = { lv = lv, kind = "chain", c = c, n = n, total = total, st = finished and "done" or (lv <= cur and "now" or "future") }
+    for _, c in ipairs(list or {}) do
+        local rec = c.rec and c.rec[fac]
+        if rec or not gate then
+            local _, n, total = SC.Progress(c, fac)
+            rec = rec or c.minLv or 1
+            local finished = total > 0 and n >= total
+            if c.hint then finished = (bagCount(c.item) or 0) > 0 end
+            local lv = rec
+            if not finished and cur > rec then lv = cur end
+            if lv >= lo and lv <= hi and (total > 0 or c.hint or not gate) then
+                out[#out + 1] = { lv = lv, kind = "chain", c = c, n = n, total = total, gate = gate, st = finished and "done" or (lv <= cur and "now" or "future") }
+            end
         end
     end
     return out
 end
+function ns.SideChainItems(lo, hi, cur) return chainItems(ns.SideChainsData, lo, hi, cur) end
+function ns.GateChainItems(lo, hi, cur) return chainItems(ns.GateChainsData, lo, hi, cur, true) end
 
--- ---------- 11-07 追踪 / 视频 / 地图 公用（弹框和追踪小窗都用）----------
+-- ---------- 追踪 / 视频 / 地图 公用（追踪小窗和 _Gate 的路线弹框都用）----------
 local DOUYIN_ICON = "Interface\\AddOns\\GearInsight_Forever\\media\\ch_douyin"
 -- 11-09 用户截图「做的更像按钮一点，抖音也写全吧」：抖音入口统一成按钮（粉边深底 + 悬停变亮 + 按下下沉），文字「抖音 · xx」，宽度跟字走
 local function dyButton(parent, h)
@@ -99,15 +153,13 @@ local function dyButton(parent, h)
     end
     return b
 end
-SC._dyButton = dyButton   -- 测试用
+SC.DyButton = dyButton
 
 local function ui() ns.db.ui = ns.db.ui or {}; return ns.db.ui end
 function SC.TrackerEnabled() return not (ns.db and ns.db.ui and ns.db.ui.scTracker == false) end
--- 11-09 玩家「我把睡袋任务的监控关了，要怎么重新打开？」：小窗 × 关的是单条线（scTrack），设置页总开关还勾着 → 看着没关、勾了也没用。
---   设置页勾选 = 总开关开 + 把单条线的「关」一起清掉；设置页显示 = 总开关开且没有被 × 关掉的线
--- 11-12 又一位玩家问「关闭后怎么再开启」：小窗 × 改成按角色记（scTrackBy[角色][线]），关一次不再连坐小号 / 新角色；
---   老存档账号级 scTrack 第一次读到时并到当前登录的角色头上。设置页总开关 scTracker 仍是账号级（那是有意设置）
-local function charKey() return (UnitName and UnitName("player") or "?") .. "-" .. (GetRealmName and GetRealmName() or "?") end
+-- 11-09 / 11-12 玩家「关了怎么再开」：小窗 × 按角色记（scTrackBy[角色][线]，false = 关、门任务 true = 钉了），设置页总开关 scTracker 账号级。
+--   老存档账号级 scTrack 第一次读到时并到当前登录的角色头上。_focus = 多条钉住时小窗显示哪一条
+local charKey = ns._CharKey   -- Leveling.lua
 local function trackMap()
     local u = ui()
     u.scTrackBy = u.scTrackBy or {}
@@ -119,10 +171,14 @@ local function trackMap()
     u.scTrackBy[k] = u.scTrackBy[k] or {}
     return u.scTrackBy[k]
 end
+-- 设置页勾选 = 总开关开 + 把被 × 关掉的线一起清掉（门任务手动钉的保留）
 function SC.SetTrackerEnabled(on)
     local u = ui()
     u.scTracker = on and true or false
-    if on then u.scTrackBy = u.scTrackBy or {}; u.scTrackBy[charKey()] = {}; u.scTrack = nil end
+    if on then
+        local m = trackMap()
+        for k, v in pairs(m) do if v == false then m[k] = nil end end
+    end
     SC.UpdateTracker()
 end
 function SC.TrackerAllOn()
@@ -130,14 +186,26 @@ function SC.TrackerAllOn()
     for _, v in pairs(trackMap()) do if v == false then return false end end
     return true
 end
+-- 睡袋：没被 × 关就追踪；门任务：手动钉了才追踪
 function SC.Tracking(c)
     if not (c and ns.db) then return false end
-    return trackMap()[c.key] ~= false
+    local v = trackMap()[c.key]
+    if c.gate then return v == true end
+    return v ~= false
 end
 function SC.SetTracking(c, on)
     if not (c and ns.db) then return end
-    trackMap()[c.key] = on and true or false
+    local m = trackMap()
+    m[c.key] = on and true or false
+    if on then m._focus = c.key end   -- 刚钉上的那条直接显示在小窗里
     SC.UpdateTracker()
+end
+-- 规划行右键 / 弹框按钮：钉上 / 取消（总开关关着时顺手打开）
+function SC.TogglePin(c)
+    local on = not (SC.Tracking(c) and SC.TrackerEnabled())
+    if on and not SC.TrackerEnabled() then SC.SetTrackerEnabled(true) end
+    SC.SetTracking(c, on)
+    return on
 end
 
 local function copyVideo(vd)
@@ -149,183 +217,73 @@ end
 SC.CopyVideo = copyVideo
 
 local function showStepOnMap(s)
+    if not s.map then return end
     local pts = { { s.x, s.y } }
     if s.via then pts = { { s.x, s.y }, { s.via[1], s.via[2] } } end
     if ns.ShowOnMap then ns.ShowOnMap(s.map, pts, L(s.obj, s.objEn)) end
 end
 SC.ShowStepOnMap = showStepOnMap
-
--- ---------- 弹框 ----------
-local pop
-local function buildPop()
-    local f = CreateFrame("Frame", "GearInsightForeverSideChain", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
-    f:SetSize(620, 470); f:SetPoint("CENTER", 0, 40); f:SetFrameStrata("DIALOG")
-    if f.SetBackdrop then
-        f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12,
-            insets = { left = 3, right = 3, top = 3, bottom = 3 } })
-        f:SetBackdropColor(0.04, 0.045, 0.06, 0.97); f:SetBackdropBorderColor(0.85, 0.68, 0.25, 1)
-    end
-    f:EnableMouse(true); f:SetMovable(true); f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
-    if UISpecialFrames then table.insert(UISpecialFrames, "GearInsightForeverSideChain") end   -- ESC 关
-    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"); f.title:SetPoint("TOPLEFT", 14, -12); f.title:SetPoint("RIGHT", -170, 0)
-    f.title:SetJustifyH("LEFT")
-    local close = CreateFrame("Button", nil, f, "UIPanelCloseButton"); close:SetPoint("TOPRIGHT", -2, -2)
-    close:SetScript("OnClick", function() f:Hide() end)   -- 原生红叉走 HideUIPanel，战斗中被拦 → 直接 Hide
-    -- 11-07 「钉到界面上追踪」开关（这条线的追踪；小窗 × 也是关这个）
-    f.track = ns.Button(f, L("钉到界面追踪", "Pin tracker"), 124, 22); f.track:SetPoint("TOPRIGHT", -34, -10)
-    local sf, c = ns.Scroll(f, 8, -40, 604, 470 - 48)
-    f.sf, f.child, f.rows, f.texts = sf, c, {}, {}
-    f:Hide()
-    return f
+-- 「第 N 步 · 地图 (x, y)」；副本里的步没有坐标
+function SC.StepWhere(s)
+    if s.x and s.y then return string.format("%s (%.1f, %.1f)", L(s.z, s.zEn), s.x, s.y) end
+    return L(s.z or "副本内", s.zEn or "Instance")
 end
 
-local function text(i, tpl)
-    local t = pop.texts[i]
-    if not t then
-        t = pop.child:CreateFontString(nil, "OVERLAY", tpl or "GameFontHighlight")
-        t:SetJustifyH("LEFT"); t:SetSpacing(3)
-        pop.texts[i] = t
-    end
-    return t
+-- ---------- 路线大弹框：11-23 搬进按需加载的 GearInsight_Forever_Gate（GatePop.lua），点了才加载 ----------
+local GM = ns.LazyModule and ns.LazyModule({ key = "gate", addon = "GearInsight_Forever_Gate", zh = "任务线路线", en = "Quest line routes",
+    what = "任务线路线弹框 / 门任务", whatEn = "Quest line routes / Gate quests" }) or nil
+local stub
+stub = function(c)
+    if GM and GM:Load() and SC.Show ~= stub then return SC.Show(c) end
 end
-
-local function stepRow(i)
-    local r = pop.rows[i]
-    if r then return r end
-    r = CreateFrame("Frame", nil, pop.child)
-    r.bg = r:CreateTexture(nil, "BACKGROUND"); r.bg:SetAllPoints()
-    r.ic = r:CreateTexture(nil, "ARTWORK"); r.ic:SetSize(18, 18); r.ic:SetPoint("TOPLEFT", 6, -6)
-    r.no = r:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"); r.no:SetPoint("CENTER", r.ic, "CENTER")
-    r.t = r:CreateFontString(nil, "OVERLAY", "GameFontNormal"); r.t:SetPoint("TOPLEFT", 32, -6); r.t:SetPoint("RIGHT", -78, 0); r.t:SetJustifyH("LEFT")
-    r.s = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); r.s:SetPoint("TOPLEFT", r.t, "BOTTOMLEFT", 0, -3); r.s:SetPoint("RIGHT", -78, 0)
-    r.s:SetJustifyH("LEFT"); r.s:SetSpacing(2)
-    r.map = ns.Button(r, L("地图", "Map"), 66, 22); r.map:SetPoint("TOPRIGHT", -6, -6)
-    -- 11-07 这一步有视频（step.video）→ 地图按钮下面一个抖音小图标，点了弹复制框
-    r.vb = dyButton(r, 20); r.vb:SetPoint("TOPRIGHT", r.map, "BOTTOMRIGHT", 0, -3)
-    r.vb:SetLabel(L("视频", "Video"))
-    r.vb:Hide()
-    pop.rows[i] = r
-    return r
-end
-
-function SC.Show(c)
-    pop = pop or buildPop()
-    SC.pop = pop
-    local fac = faction()
-    local st, n, total = SC.Progress(c, fac)
-    pop.title:SetText("|cff33ff99" .. L("任务线：", "Quest line: ") .. "|r" .. L(c.t, c.tEn) .. "  |cff888888" .. n .. "/" .. total .. "|r")
-    pop.track:SetText(SC.Tracking(c) and SC.TrackerEnabled() and L("取消追踪", "Unpin tracker") or L("钉到界面追踪", "Pin tracker"))
-    pop.track:SetScript("OnClick", function()
-        local on = not (SC.Tracking(c) and SC.TrackerEnabled())
-        if on and not SC.TrackerEnabled() then SC.SetTrackerEnabled(true) end
-        SC.SetTracking(c, on)
-        SC.Show(c)
-    end)
-    for _, r in ipairs(pop.rows) do r:Hide() end
-    for _, t in ipairs(pop.texts) do t:Hide() end
-    local y, ti = -4, 0
-    local function para(s, tpl, color)
-        ti = ti + 1
-        local t = text(ti, tpl)
-        t:ClearAllPoints(); t:SetPoint("TOPLEFT", 6, y); t:SetWidth(580)
-        t:SetText(ns.EnSafe((color or "") .. s .. (color and "|r" or ""))); t:Show()
-        y = y - (tonumber(t:GetStringHeight()) or 14) - 8
-    end
-    local rec = (c.rec and c.rec[fac]) or c.minLv
-    -- 11-07 用户「加到这里！」「能弄个抖音的标志吗？」：顶上一行视频攻略（抖音图标 + 标题 +「复制链接」，游戏里打不开网页 → 弹复制框）
-    if not rawget(pop, "vid") then   -- 框的元表会把不认识的键转去方法表 → rawget
-        local v = CreateFrame("Button", nil, pop.child, BackdropTemplateMixin and "BackdropTemplate" or nil)
-        v:SetSize(580, 30)
-        if v.SetBackdrop then
-            pcall(v.SetBackdrop, v, { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-            v:SetBackdropColor(0.10, 0.06, 0.10, 0.9); v:SetBackdropBorderColor(0.55, 0.25, 0.45, 0.9)
-        end
-        v.ic = v:CreateTexture(nil, "ARTWORK"); v.ic:SetSize(20, 20); v.ic:SetPoint("LEFT", 6, 0)
-        v.ic:SetTexture("Interface\\AddOns\\GearInsight_Forever\\media\\ch_douyin")
-        v.t = v:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); v.t:SetPoint("LEFT", v.ic, "RIGHT", 6, 0); v.t:SetPoint("RIGHT", -96, 0); v.t:SetJustifyH("LEFT")
-        v.b = ns.Button(v, L("复制链接", "Copy link"), 84, 22); v.b:SetPoint("RIGHT", -4, 0)
-        local hl = v:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 0.4, 0.7, 0.08)
-        pop.vid = v
-    end
-    local vd = c.video
-    if vd and vd.url then
-        local function copy()
-            local W = ns.W or _G.GIWidgets
-            if W and W.Copy then W.Copy(vd.url, L("抖音视频链接：复制后发到手机，用抖音打开", "Douyin link - open it on your phone"))
-            elseif ns.Print then ns.Print(vd.url) end
-        end
-        pop.vid.t:SetText("|cffff5ea8" .. L("抖音视频攻略", "Douyin guide") .. "|r  " .. L(vd.t, vd.tEn))
-        pop.vid:SetScript("OnClick", copy); pop.vid.b:SetScript("OnClick", copy)
-        pop.vid:ClearAllPoints(); pop.vid:SetPoint("TOPLEFT", 6, y); pop.vid:Show()
-        y = y - 38
-    else
-        pop.vid:Hide()
-    end
-    para(L(c.gist, c.gistEn), "GameFontNormal", "|cffffd100")
-    for _, e in ipairs(c.effect or {}) do para("· " .. L(e[1], e[2]), "GameFontHighlightSmall") end
-    para(string.format(L("%d 级能接 · 推荐 %d 级（%s）", "Level %d to start · recommended %d (%s)"), c.minLv or 1, rec,
-        fac == "Horde" and L("部落", "Horde") or L("联盟", "Alliance")) .. "  |cff888888" .. L(c.recWhy, c.recWhyEn) .. "|r", "GameFontHighlightSmall")
-    y = y - 4
-    for i, s in ipairs(c.steps[fac] or {}) do
-        local r = stepRow(i)
-        local done, isNext = st[i] == "done", st[i] == "next"
-        r.bg:SetColorTexture(isNext and 0.2 or 1, isNext and 1 or 1, isNext and 0.4 or 1, isNext and 0.10 or 0.04)
-        if done then r.ic:SetTexture("Interface\\Buttons\\UI-CheckBox-Check"); r.ic:Show(); r.no:SetText("")
-        else r.ic:SetTexture(nil); r.no:SetText((isNext and "|cff33ff99" or "|cffffd100") .. i .. "|r") end
-        r.t:SetText((done and "|cff808080" or "") .. L(s.z, s.zEn) .. string.format("  (%.1f, %.1f)", s.x, s.y)
-            .. "  " .. (done and "" or "|cffffffff") .. L(s.obj, s.objEn) .. "|r")
-        local sub = "|cffcccccc" .. L(s.act, s.actEn) .. "|r"
-        if s.q then sub = sub .. "\n|cff888888" .. L("任务：", "Quest: ") .. L(s.q, s.qEn) .. "|r" end
-        -- 11-05 用户「信息详实」：怎么去 / 奖励 / 危险各一行
-        if s.note then sub = sub .. "\n|cffd8c79a" .. L("怎么去：", "Getting there: ") .. L(s.note, s.noteEn) .. "|r" end
-        if s.reward then sub = sub .. "\n|cff33ff99" .. L("奖励：", "Reward: ") .. L(s.reward, s.rewardEn) .. "|r" end
-        if s.warn then sub = sub .. "\n|cffff7f50" .. L("注意：", "Watch out: ") .. L(s.warn, s.warnEn) .. "|r" end
-        r.s:SetText(ns.EnSafe(sub))
-        r:ClearAllPoints(); r:SetPoint("TOPLEFT", 0, y); r:SetPoint("RIGHT", pop.child, "RIGHT", 0, 0)
-        r:SetHeight(math.max(44, 12 + (tonumber(r.t:GetStringHeight()) or 14) + 3 + (tonumber(r.s:GetStringHeight()) or 24)))
-        -- 11-06 用户截图「睡袋石爪山的坐标不对啊」：游戏标记打目的地，路口放第二个（SC.ShowStepOnMap）
-        r.map:SetScript("OnClick", function() showStepOnMap(s) end)
-        if s.video and s.video.url then
-            r.vb:Show(); r.vb:SetScript("OnClick", function() copyVideo(s.video) end)
-            r:SetHeight(math.max(tonumber(r:GetHeight()) or 44, 54))
-        else r.vb:Hide() end
-        r:Show()
-        y = y - (tonumber(r:GetHeight()) or 44) - 4
-    end
-    y = y - 6
-    local rw = {}
-    for _, e in ipairs(c.reward or {}) do rw[#rw + 1] = L(e[1], e[2]) end
-    para(L("奖励：", "Rewards: ") .. table.concat(rw, L("、", ", ")), "GameFontHighlightSmall", "|cff33ff99")
-    for _, o in ipairs(c.optional or {}) do
-        para(L("可选任务：", "Optional quest: ") .. L(o.q, o.qEn) .. "（" .. L(o.z, o.zEn) .. "）", "GameFontNormal", "|cffffd100")
-        para(L(o.t, o.tEn), "GameFontHighlightSmall")
-    end
-    para(L("避坑", "Tips"), "GameFontNormal", "|cffffd100")
-    for _, e in ipairs(c.tips or {}) do para("· " .. L(e[1], e[2]), "GameFontHighlightSmall") end
-    if c.sources then para(L("资料：", "Sources: ") .. table.concat(c.sources, " · "), "GameFontDisableSmall") end
-    pop.child:SetHeight(-y + 6)
-    pop:Show()
-end
+SC.Show = stub
 
 -- ---------- 11-07 全程追踪小窗 ----------
--- 用户「睡袋加一个全追踪的窗口吧，14级开始一直到做完，都能看到，开启追踪以后，钉在界面上，可以展示当前第几步了」：
---   到 c.minLv（14）级、没做完（SC.Progress，含「背包里没睡袋不算做完」）、追踪开着 → 屏幕上钉一个小窗：
---   标题「舒适的睡袋 3/7」+ 最小化 / 关闭（× = 关这条线的追踪）；当前步（第 N 步 · 地图 (x, y) + 点什么 +「地图」）；下一步灰字预告；
---   这一步有视频（step.video）→ 抖音小图标「视频」点了弹复制框；点小窗主体 = 打开完整路线弹框。可拖动，位置存档。
---   开关：全局 ns.db.ui.scTracker（设置页「睡袋任务线追踪窗」，nil = 开）+ 每条线 ns.db.ui.scTrack[key]（弹框按钮 / 规划行右键 / 小窗 ×，nil = 开）
--- 现在该追踪哪条线：到级、没做完、两层开关都开；返回 c, st, n, total, nextI
-function SC.TrackTarget()
-    if not ns.db or not SC.TrackerEnabled() then return nil end
+-- 用户「睡袋加一个全追踪的窗口吧，14级开始一直到做完，都能看到…可以展示当前第几步了」：到级、没做完、追踪开着 → 屏幕上钉一个小窗。
+-- 11-23 多条钉住（睡袋 + 门任务）：一个小窗显示「焦点」那条，标题右边「‹ 2/3 ›」切换；焦点那条做完自动换下一条，全做完小窗隐藏
+local lastN = {}
+function SC.TrackList()
+    local out = {}
+    if not ns.db or not SC.TrackerEnabled() then return out end
     local lv = UnitLevel and tonumber(UnitLevel("player")) or 0
     local fac = faction()
-    for _, c in ipairs(ns.SideChainsData or {}) do
-        if lv >= (c.minLv or 1) and SC.Tracking(c) then
-            local st, n, total, nextI = SC.Progress(c, fac)
-            if total > 0 and n < total and nextI then return c, st, n, total, nextI end
+    local function scan(list)
+        for _, c in ipairs(list or {}) do
+            if lv >= (c.minLv or 1) and not c.hint and SC.Tracking(c) then
+                local st, n, total, nextI = SC.Progress(c, fac)
+                if c.gate and total > 0 then
+                    -- 门任务推进到下一步 / 做完：聊天框说一句
+                    local was = lastN[c.key]
+                    if was and n > was and ns.Print then
+                        if n >= total then ns.Print(string.format(L("门任务完成：%s（已开门：%s）", "Gate quest done: %s (%s unlocked)"), L(c.t, c.tEn), L(c.door, c.doorEn)))
+                        else ns.Print(string.format(L("%s：第 %d 步完成，下一步看追踪小窗", "%s: step %d done"), L(c.t, c.tEn), n)) end
+                    end
+                    lastN[c.key] = n
+                end
+                if total > 0 and n < total and nextI then out[#out + 1] = { c, st, n, total, nextI } end
+            end
         end
     end
-    return nil
+    scan(ns.SideChainsData)
+    scan(ns.GateChainsData)
+    return out
+end
+-- 现在小窗显示哪条：返回 c, st, n, total, nextI, 第几条, 共几条
+function SC.TrackTarget()
+    local list = SC.TrackList()
+    if #list == 0 then return nil end
+    local f, idx = trackMap()._focus, 1
+    for i, e in ipairs(list) do if e[1].key == f then idx = i end end
+    local e = list[idx]
+    return e[1], e[2], e[3], e[4], e[5], idx, #list
+end
+function SC.FocusStep(d)
+    local list = SC.TrackList()
+    if #list < 2 then return end
+    local _, _, _, _, _, idx = SC.TrackTarget()
+    idx = ((idx or 1) - 1 + d) % #list + 1
+    trackMap()._focus = list[idx][1].key
+    SC.UpdateTracker()
 end
 
 local trk
@@ -351,7 +309,7 @@ local function buildTracker()
     f:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:AddLine(L("任务线追踪", "Quest line tracker"), 1, 0.82, 0)
-        GameTooltip:AddLine(L("点击打开完整路线 · 按住拖动 · × 关掉追踪（路线弹框 / 设置页能再打开）", "Click for the full route · drag to move · × stops tracking"), 1, 1, 1, true)
+        GameTooltip:AddLine(L("点击打开完整路线 · 按住拖动 · × 关掉追踪（路线弹框 / 设置页能再打开）· 钉了几条时点「‹ ›」切换", "Click for the full route · drag to move · × stops tracking · ‹ › switches lines"), 1, 1, 1, true)
         GameTooltip:Show()
     end)
     f:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -362,7 +320,8 @@ local function buildTracker()
         SC.SetTracking(c, false)
         if ns.Print then
             local t = L(c.t, c.tEn)
-            ns.Print(L("已关掉「" .. t .. "」追踪小窗（只对这个角色）：右键小地图按钮 →「" .. t .. "追踪」，或设置页勾「睡袋任务线追踪窗」重新打开",
+            ns.Print(c.gate and L("已取消「" .. t .. "」追踪（只对这个角色）：升级规划里右键那一行可以重新钉上", "Unpinned " .. t .. ": right-click its row in the leveling plan to pin it again")
+                or L("已关掉「" .. t .. "」追踪小窗（只对这个角色）：右键小地图按钮 →「" .. t .. "追踪」，或设置页勾「睡袋任务线追踪窗」重新打开",
                 "Closed the " .. t .. " tracker for this character: right-click the minimap button or tick it in Settings to reopen"))
         end
     end)
@@ -390,62 +349,89 @@ function SC.ResetTrackerPos()
     if trk then trk:ClearAllPoints(); trk:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -240, -260) end
 end
 
+-- 这个角色钉了门任务、门任务数据还没加载 → 静默加载 _Gate（只试一次；HOLD 没进包时 ModHas 为假，不加载）
+local gateTried = false
+local function gateNeeded()
+    if gateTried or ns.GateChainsData or not (ns.ModHas and ns.ModHas("gate", "GateChainsData.lua")) then return end
+    for k, v in pairs(trackMap()) do
+        if v == true and type(k) == "string" and k:sub(1, 5) == "gate-" then
+            gateTried = true
+            if GM then GM:Load(nil, true) end
+            return
+        end
+    end
+end
+
 function SC.UpdateTracker()
     if not ns.db then return end
-    local c, st, n, total, i = SC.TrackTarget()
+    gateNeeded()
+    local c, st, n, total, i, idx, cnt = SC.TrackTarget()
     if not c then if trk then trk:Hide() end; return end
     trk = trk or buildTracker()
     SC.tracker = trk
     trk.chain = c
-    local fac = faction()
-    local steps = c.steps[fac] or {}
+    local steps = c.steps[faction()] or {}
     local s, nx = steps[i], steps[i + 1]
     local mini = ns.db.ui and ns.db.ui.scTrackMin
-    trk.title:SetText("|cff33ff99" .. L(c.t, c.tEn) .. "|r  |cffcccccc" .. n .. "/" .. total .. "|r"
+    trk.title:SetText((c.gate and ("|cffff9933" .. L("门任务：", "Gate: ") .. "|r") or "") .. "|cff33ff99" .. L(c.t, c.tEn) .. "|r  |cffcccccc" .. n .. "/" .. total .. "|r"
         .. (mini and ("  |cffffd100" .. string.format(L("第 %d 步", "Step %d"), i) .. "|r") or ""))
     trk.min:SetText(mini and "+" or "-")
+    -- 11-23 多条钉住时的「‹ 2/3 ›」（第一次用到才建，只钉一条时不占内存）
+    local many = (cnt or 1) > 1
+    if many and not rawget(trk, "nx") then
+        trk.nx = ns.Button(trk, ">", 16, 16); trk.nx:SetPoint("RIGHT", trk.min, "LEFT", -2, 0); trk.nx:SetScript("OnClick", function() SC.FocusStep(1) end)
+        trk.idx = trk:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); trk.idx:SetPoint("RIGHT", trk.nx, "LEFT", -2, 0)
+        trk.pv = ns.Button(trk, "<", 16, 16); trk.pv:SetPoint("RIGHT", trk.idx, "LEFT", -2, 0); trk.pv:SetScript("OnClick", function() SC.FocusStep(-1) end)
+    end
+    if rawget(trk, "nx") then
+        trk.idx:SetText(many and (idx .. "/" .. cnt) or "")
+        if many then trk.pv:Show(); trk.nx:Show() else trk.pv:Hide(); trk.nx:Hide() end
+    end
+    trk.title:SetPoint("RIGHT", many and -100 or -44, 0)
     local h = 26
     if mini or not s then
         trk.cur:Hide(); trk.obj:Hide(); trk.nxt:Hide(); trk.map:Hide(); trk.vid:Hide(); trk.gvid:Hide()
     else
-        trk.cur:SetText(ns.EnSafe(string.format("|cffffd100" .. L("第 %d 步", "Step %d") .. "|r · %s (%.1f, %.1f)", i, L(s.z, s.zEn), s.x, s.y)))
+        trk.cur:SetText(ns.EnSafe("|cffffd100" .. string.format(L("第 %d 步", "Step %d"), i) .. "|r · " .. SC.StepWhere(s)))
         trk.cur:ClearAllPoints(); trk.cur:SetPoint("TOPLEFT", 8, -h); trk.cur:Show()
         h = h + (tonumber(trk.cur:GetStringHeight()) or 12) + 3
-        trk.obj:SetText(ns.EnSafe(L(s.obj, s.objEn)))
+        local need = SC.NeedText(s)
+        trk.obj:SetText(ns.EnSafe(L(s.obj, s.objEn) .. (need and ("\n" .. need) or "")))
         trk.obj:ClearAllPoints(); trk.obj:SetPoint("TOPLEFT", 8, -h); trk.obj:Show()
         h = h + (tonumber(trk.obj:GetStringHeight()) or 12) + 4
-        trk.map:ClearAllPoints(); trk.map:SetPoint("TOPLEFT", 8, -h); trk.map:Show()
-        trk.map:SetScript("OnClick", function() showStepOnMap(s) end)
+        local anchor, used = nil, 8
+        if s.map then   -- 副本里的步没有坐标：不给「地图」
+            trk.map:ClearAllPoints(); trk.map:SetPoint("TOPLEFT", 8, -h); trk.map:Show()
+            trk.map:SetScript("OnClick", function() showStepOnMap(s) end)
+            anchor, used = trk.map, 8 + (tonumber(trk.map:GetWidth()) or 52)
+        else trk.map:Hide() end
+        local function place(b, w)
+            b:ClearAllPoints()
+            if anchor then b:SetPoint("LEFT", anchor, "RIGHT", 8, 0) else b:SetPoint("TOPLEFT", 8, -h) end
+            b:Show(); anchor = b; used = used + 8 + w
+        end
         local vd = s.video
-        local anchor = trk.map
-        local used = 8 + (tonumber(trk.map:GetWidth()) or 52)
         if vd and vd.url then
-            trk.vid:ClearAllPoints(); trk.vid:SetPoint("LEFT", trk.map, "RIGHT", 8, 0); trk.vid:Show()
+            place(trk.vid, tonumber(trk.vid:GetWidth()) or 90)
             trk.vid:SetScript("OnClick", function() copyVideo(vd) end)
-            anchor = trk.vid
-            used = used + 8 + (tonumber(trk.vid:GetWidth()) or 90)
         else trk.vid:Hide() end
         local cv = c.video
         if cv and cv.url then
-            trk.gvid:ClearAllPoints()
-            if used + 8 + (tonumber(trk.gvid:GetWidth()) or 90) > TW - 8 then   -- 一行放不下（本步 + 全程都有）→ 换到下一行
-                h = h + 24
-                trk.gvid:SetPoint("TOPLEFT", 8, -h)
-            else
-                trk.gvid:SetPoint("LEFT", anchor, "RIGHT", 8, 0)
+            local w = tonumber(trk.gvid:GetWidth()) or 90
+            if anchor and used + 8 + w > TW - 8 then   -- 一行放不下（本步 + 全程都有）→ 换到下一行
+                h = h + 24; anchor = nil
             end
-            trk.gvid:Show()
+            place(trk.gvid, w)
             trk.gvid:SetScript("OnClick", function() copyVideo(cv) end)
         else trk.gvid:Hide() end
-        h = h + 24
+        if anchor then h = h + 24 end
         if nx then
             trk.nxt:SetText(ns.EnSafe(string.format(L("下一步：%s · %s", "Next: %s - %s"), L(nx.z, nx.zEn), L(nx.obj, nx.objEn))))
-            trk.nxt:ClearAllPoints(); trk.nxt:SetPoint("TOPLEFT", 8, -h); trk.nxt:Show()
-            h = h + (tonumber(trk.nxt:GetStringHeight()) or 12) + 4
         else
-            trk.nxt:SetText(L("下一步：交任务拿睡袋", "Next: turn in for the bag")); trk.nxt:ClearAllPoints(); trk.nxt:SetPoint("TOPLEFT", 8, -h); trk.nxt:Show()
-            h = h + 16
+            trk.nxt:SetText(c.finalTxt and ns.EnSafe(L("下一步：", "Next: ") .. L(c.finalTxt, c.finalTxtEn)) or L("下一步：交任务拿睡袋", "Next: turn in for the bag"))
         end
+        trk.nxt:ClearAllPoints(); trk.nxt:SetPoint("TOPLEFT", 8, -h); trk.nxt:Show()
+        h = h + (tonumber(trk.nxt:GetStringHeight()) or 12) + 4
     end
     trk:SetHeight(h + 6)
     trk:Show()
@@ -468,37 +454,6 @@ do
     SC._trackerEvent = ev:GetScript("OnEvent")   -- 测试用
 end
 
--- 升级规划那一行怎么画（PagePlan.lua 的 kind == "chain" 交给这里）
-function ns.SideChainRenderRow(r, it, suffix)
-    local c = it.c
-    r.ic:SetTexture("Interface\\Icons\\" .. (c.icon or "INV_Misc_Note_01"))
-    r.ic:SetDesaturated(it.st == "done")
-    r.t:SetText((it.st == "done" and "|cff808080" or "|cffff9933") .. L("任务线：", "Quest line: ") .. L(c.t, c.tEn) .. "|r  |cff888888"
-        .. it.n .. "/" .. it.total .. "|r")
-    r.s:SetText(L(c.gist, c.gistEn) .. (suffix or ""))
-    if r.RegisterForClicks then pcall(r.RegisterForClicks, r, "LeftButtonUp", "RightButtonUp") end
-    r:SetScript("OnClick", function(_, btn)
-        if btn == "RightButton" then   -- 11-07 右键 = 钉到界面追踪 / 取消
-            local on = not (SC.Tracking(c) and SC.TrackerEnabled())
-            if on and not SC.TrackerEnabled() then SC.SetTrackerEnabled(true) end
-            SC.SetTracking(c, on)
-            if ns.Print then ns.Print(on and L("已钉到界面上追踪（右键再点取消）", "Tracker pinned") or L("已取消追踪", "Tracker unpinned")) end
-            return
-        end
-        SC.Show(c)
-    end)
-    r.btn:SetText(L("路线", "Route")); r.btn:Show()
-    r.btn:SetScript("OnClick", function() SC.Show(c) end)
-    r:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine(L(c.t, c.tEn), 1, 0.82, 0)
-        GameTooltip:AddLine(L(c.gist, c.gistEn), 1, 1, 1, true)
-        GameTooltip:AddLine(string.format(L("已做 %d / %d 步 · 点击看逐步路线和坐标", "%d / %d steps done · click for the route"), it.n, it.total), 0.6, 0.6, 0.6, true)
-        GameTooltip:AddLine(L("右键：钉到界面上追踪 / 取消", "Right-click: pin / unpin the tracker"), 0.6, 0.6, 0.6, true)
-        GameTooltip:Show()
-    end)
-end
-
 -- 11-12 重构第 1 期「找得回」：追踪窗以前没有命令 → /gi 睡袋（/gi chain）开 / 关；登记进设置页「窗口与提醒」
 function SC.ToggleTracker()
     local on = not SC.TrackerAllOn()
@@ -516,7 +471,7 @@ ns.ExtraSlash = ns.ExtraSlash or {}
 ns.ExtraSlash["睡袋"] = function() SC.ToggleTracker() end
 ns.ExtraSlash.chain = ns.ExtraSlash["睡袋"]
 
-ns.RegisterWindow({ key = "chainTracker", order = 20, title = function() return L("任务线追踪窗（睡袋）", "Quest line tracker") end,
+ns.RegisterWindow({ key = "chainTracker", order = 20, title = function() return L("任务线追踪窗（睡袋 / 门任务）", "Quest line tracker") end,
     state = function()
         if trk and trk:IsShown() then return L("显示中", "Shown") end
         if not SC.TrackerEnabled() then return L("已关闭", "Closed") end

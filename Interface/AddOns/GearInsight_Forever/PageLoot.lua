@@ -54,6 +54,34 @@ function ns.MarkEntrance(e)
     return ok
 end
 
+-- 11-21 横幅「副本导航」：掉落表的副本 → 导航数据的键（中文 / 英文名都试；没导航数据 / 导航功能没加载 = nil，按钮不出）
+function ns.LootNavKey(d)
+    local DN = ns.DungeonNav
+    if not (d and DN and DN.Find and DN.Get) then return nil end
+    for _, q in ipairs({ d.n, d.nEn }) do
+        local k = type(q) == "string" and q ~= "" and DN.Find(q)
+        if k and DN.Get(k) then return k end
+    end
+    return nil
+end
+function ns.LootNavClick(k)
+    local DN = ns.DungeonNav
+    if not (DN and k) then return false end
+    local d = DN.Get(k)
+    if not d then return false end
+    local _, here = DN.Here()
+    if here ~= nil and here == d.iid then   -- 人就在这个副本里：开 / 关这一趟（不预览）
+        if DN.Shown() and not DN.preview then DN.Close(); return true end
+        if DN.Shown() and DN.frame then DN.frame:Hide() end
+        DN.preview, DN.previewRun = nil, nil
+        DN.Toggle()
+        return true
+    end
+    if DN.Shown() and DN.preview and DN.previewRun and DN.previewRun.iid == k then DN.Close(); return true end   -- 再点一次 = 收起预览
+    DN.Toggle(d.name or k)
+    return true
+end
+
 -- 10-11 野外稀有打标：装了 TomTom 就用 TomTom 打点（多个刷新点全打），没装用游戏地图标记（只能一个点）；
 --   聊天框同时给一行 /way（TomTom 语法 /way #地图编号 x y 名字），没装插件也能抄坐标
 function ns.MarkRare(b)
@@ -227,7 +255,7 @@ local function dungeonInfo(d)   -- 等级段 / 地点（Data.dungeons 里按名�
 end
 
 -- ---------- 页面 ----------
-local page, selD, selB = nil, 1, nil
+local page, selD, selB, hlId = nil, 1, nil, nil   -- hlId：从「装备」页跳来要高亮的那件（ns.LootShowItem）
 
 -- 《无限》新物品是新编号（25xxxx+），经典旧世原有物品编号小 —— 「客户端挖掘」标签只对新物品有意义
 local function isForeverNew(it) return (it.id or 0) >= 200000 end
@@ -261,10 +289,7 @@ local function itemTooltip(row)
     if not ok or not name or name == "" or name == RETRIEVING_ITEM_INFO then
         ns.ItemFallbackTip(it)
     end
-    if ns.ItemMissing and ns.ItemMissing(it.id) then
-        GameTooltip:AddLine("|cff33ff99GI|r " .. ns.L("《无限》测试服服务器上目前查不到这件：可能这个副本测试服还没开放，也可能《无限》换了掉落，正式服上线后再核对",
-            "The Forever beta server doesn't have this item right now: the dungeon may not be open in the beta yet, or Forever changed its loot. We'll recheck at launch."), 1, 0.5, 0.3, true)
-    end
+    -- 11-16 用户「把没有的都清除掉」：掉落表里不再有「测试服暂无」的物品（正式服确认有的清了标记，确认不了的删掉），这里不再加说明行
     GameTooltip:Show()
 end
 -- 物品没缓存时的简版提示（三处共用）：名字 / 部位 / 我们数据里的属性（经典原版的注明）/ 装等需要等级 / 读取状态
@@ -306,7 +331,7 @@ local function tipLeave() hoverRow = nil; GameTooltip:Hide() end
 local function setRowName(r)
     local it = r.it
     if type(it) ~= "table" then return end
-    r.t:SetText(r.gone and ("|cff777777" .. ns.ItemNm(it) .. "|r") or ("|cff" .. (QCOLOR[it.q] or "ffffff") .. ns.ItemNm(it) .. "|r"))
+    r.t:SetText("|cff" .. (QCOLOR[it.q] or "ffffff") .. ns.ItemNm(it) .. "|r")
 end
 local tipEv = CreateFrame("Frame")
 tipEv:RegisterEvent("GET_ITEM_INFO_RECEIVED")
@@ -408,7 +433,7 @@ local function refresh()
         r.c:SetText(cnt > 0 and ("|cffffffff" .. cnt .. "|r") or ("|cff777777" .. ns.L("待补", "tbd") .. "|r"))
         local on = selD == di
         for _, l in ipairs(r.sel) do l:SetShown(on) end
-        r:SetScript("OnClick", function() selD, selB = di, nil; refresh() end)
+        r:SetScript("OnClick", function() selD, selB, hlId = di, nil, nil; refresh() end)
         r:SetScript("OnEnter", function(self)   -- 名字长被截 → 悬停看全（用户硬规定）
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(nm(d), 1, 0.82, 0)
             if info then GameTooltip:AddLine(ns.EnSafe(ns.L("等级 ", "Level ") .. (info.lv or "?") .. ns.L(" · ", " - ") .. ns.L(info.where or "", info.whereEn or "")), 1, 1, 1) end
@@ -467,6 +492,18 @@ local function refresh()
         local gd = ns.DungeonGuideFor and ns.DungeonGuideFor(d)
         bn.gd.g = gd
         bn.gd:SetShown(gd ~= nil)
+        -- 11-21「副本导航」：和「副本任务」叠两行（都有时任务在上、导航在下；只有导航时居中）
+        local nk = ns.LootNavKey(d)
+        bn.nav.k = nk
+        bn.nav:SetShown(nk ~= nil)
+        bn.dq:ClearAllPoints(); bn.nav:ClearAllPoints()
+        if nk and dq then
+            bn.dq:SetPoint("BOTTOMRIGHT", bn, "RIGHT", -70, 2)
+            bn.nav:SetPoint("TOPRIGHT", bn, "RIGHT", -70, -2)
+        else
+            bn.dq:SetPoint("RIGHT", -70, 0)
+            bn.nav:SetPoint("RIGHT", -70, 0)
+        end
         bn:Show()
     else
         page.banner:Hide()
@@ -536,10 +573,8 @@ local function refresh()
             if not icon and C_Item and C_Item.GetItemIconByID then local okI, v = pcall(C_Item.GetItemIconByID, it.id); if okI and v then icon = v end end
             r.ic:SetTexture(icon or it.ic or "Interface\\Icons\\inv_misc_questionmark"); r.ic:Show()
             r.t:SetPoint("TOPLEFT", 58, -3); r.t:SetPoint("RIGHT", -60, 0)
-            -- 10-18 测试服服务器上查不到的（副本没开放 / 掉落换了，/gi itemprobe all 实测）：灰掉 + 角上标「测试服暂无」
-            local gone = ns.ItemMissing and ns.ItemMissing(it.id)
-            if r.ic.SetDesaturated then r.ic:SetDesaturated(gone and true or false) end
-            r.gone = gone
+            -- 11-16：「测试服暂无」整条去掉（掉落表里已不再有服务器上查不到的物品，见 docs/forever-newdungeon-loot-1116.md）
+            if r.ic.SetDesaturated then r.ic:SetDesaturated(false) end
             setRowName(r)
             local slot = it.slot or ""
             if it.type and it.type ~= "" and it.type ~= slot then slot = slot .. " · " .. it.type end
@@ -548,11 +583,11 @@ local function refresh()
             r.s:SetText(ns.EnSafe(slot .. "　" .. ns.L("装等 ", "ilvl ") .. (it.ilvl or 0) .. ns.L(" · 需要 ", " · req ") .. (it.req or 0)
                 .. (pt and (ns.L(" · 掉率约 ", " · drop ~") .. pt) or "")))
             -- 10-11 玩家实测过的《无限》新掉落（seen）标「无限新增」；客户端挖到但没人确认的照旧「客户端挖掘」
-            if gone then r.tag:SetText("|cff888888" .. ns.L("测试服暂无", "Not in beta yet") .. "|r")
-            elseif isForeverNew(it) then r.tag:SetText(it.seen and ("|cffe8b04a" .. ns.L("无限新增", "Forever") .. "|r") or ns.L("客户端挖掘", "datamined")) end
+            if isForeverNew(it) then r.tag:SetText(it.seen and ("|cffe8b04a" .. ns.L("无限新增", "Forever") .. "|r") or ns.L("客户端挖掘", "datamined")) end
             r.star:Show()
             local on = isWished(it.id)
-            r.bg:SetShown(on)
+            r.bg:SetShown(on or it.id == hlId)
+            r.bg:SetColorTexture(1, 0.82, 0, it.id == hlId and 0.25 or 0.07)
             r.star.tex:SetDesaturated(not on)
             r.star.tex:SetAlpha(on and 1 or 0.35)
             r.star:SetScript("OnClick", function()
@@ -630,6 +665,18 @@ local function build(p)
     end)
     bn.gd:SetScript("OnLeave", function() GameTooltip:Hide() end)
     bn.gd:Hide()
+    -- 11-21 用户截图「怎么找不到副本内导航的打开的入口了」：原来只有 /gi 导航 和设置页 → 横幅上放「副本导航」（有导航数据的副本才出）
+    --   人在这个副本里 = 打开 / 收起这一趟的导航（关过也重新打开）；不在 = 预览这个副本（DN.Toggle(名字)，不写存档）
+    bn.nav = ns.Button(bn, ns.L("副本导航", "Navigator"), 100, 22, function(self) ns.LootNavClick(self.k) end)
+    bn.nav:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine(ns.L("副本导航", "Dungeon navigator"), 1, 0.82, 0)
+        GameTooltip:AddLine(ns.L("首领顺序、怎么走、地图，击杀自动打勾。在这个副本里 = 打开这一趟的导航；不在 = 先预览", "Boss order, route and map; ticks on kills. Inside = this run; outside = preview"), 1, 1, 1, true)
+        GameTooltip:AddLine(ns.L("也可以输入 /gi 导航", "Or type /gi dnav"), 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    bn.nav:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    bn.nav:Hide()
     bn:EnableMouse(true)
     bn:SetScript("OnEnter", function(self)   -- 显示不全 → 悬停看全（用户硬规定）
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM"); GameTooltip:AddLine(self.name:GetText() or "", 1, 0.82, 0)
@@ -651,17 +698,31 @@ end
 -- 升级规划「装备」格子点一下 → 跳到掉落页那个副本（10-07 用户「装备像 C 键角色栏」，插件-工会会话转达）
 function ns.LootShowDungeon(name)
     for i, d in ipairs(lootList()) do
-        if d.n == name then selD, selB = i, nil; break end
+        if d.n == name then selD, selB, hlId = i, nil, nil; break end
     end
     ns.ToggleMain("loot")
     refresh()
+end
+-- 11-23 「前5」点装备 → 装备页：定位到掉这件的副本 + 首领（右边只列这个首领的掉落），这件高亮；掉落表里没有返回 false
+function ns.LootShowItem(id)
+    local e = idx[id]
+    if not e then return false end
+    for i, d in ipairs(lootList()) do
+        if d == e.d then
+            selD, selB, hlId = i, nil, id
+            for bi, b in ipairs(d.bosses) do if b == e.b then selB = bi end end
+        end
+    end
+    ns.ToggleMain("loot")
+    refresh()
+    return true
 end
 
 ns.RegisterPage({ key = "loot", order = 2, title = ns.L("掉落 · 心愿单", "Loot"), tabTitle = ns.L("掉落", "Loot"), build = build, refresh = refresh })
 
 -- ---------- 提醒 ----------
 -- 11-12：事件帧、拾取提醒、物品提示钩子在主插件 LootTip.lua；这里是它加载本文件后调用的两段（要整张掉落表）
-local function notice(msg) return ns.LootNotice(msg) end
+local function notice(msg) if ns.LootNotice then return ns.LootNotice(msg) end end   -- 11-17 第 6 期：功能中心关了「掉落提示」= LootTip.lua 不执行、没有 ns.LootNotice
 
 local function sameName(a, x)
     if not a or a == "" then return false end

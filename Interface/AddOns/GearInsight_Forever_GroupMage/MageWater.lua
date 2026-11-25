@@ -21,6 +21,7 @@
 --     加载后按开关只注册用得上的那一半事件（MW.SyncEvents）；DC.* 小工具在登录加载的 DungeonChatCore.lua
 local _, ns = ...; ns = _G.GearInsightForever or ns
 local L = function(cn, en) return ns.L(cn, en) end
+local CL = function(cn, en) return ns.ChatL(cn, en) end   -- 11-19 发给法师 / 队伍的话走对外说话语言
 local DC = ns.DungeonChat
 if not DC then return end
 
@@ -121,6 +122,11 @@ function MW.ItemName(e)
     if type(n) == "string" and n ~= "" then return n end
     return L(e.n, e.en or e.n)
 end
+-- 11-19 对外的话里的品名：对外语言和客户端一样才用客户端名（中文客户端读出来是中文名，英文服要用数据里的 en）
+function MW.ChatItemName(e)
+    if not e then return "" end
+    return ns.ChatName(e.n, e.en, e.id, "item")
+end
 -- 这个等级能吃 / 喝到的最高一档（noAsk 的不算：要的时候报给法师用）
 function MW.BestFor(list, lv, forAsk)
     local best
@@ -186,11 +192,53 @@ function MW.CanChat()
     if C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and call(C_ChatInfo.InChatMessagingLockdown) then return false end
     return true
 end
-function MW.Send(text, chan, to)
-    if not text or not MW.CanChat() then return false end
+-- showOwn = 玩家亲手点的（右键「找他要水」/ 野外弹框）：自己聊天框照常显示「发送给…」那行，不被「隐藏自发」藏掉
+--   11-20 用户截图「没M出去啊」：私聊其实发了，但回显被藏，聊天框只剩插件一句「已密」，看着像没发
+function MW.Send(text, chan, to, showOwn)
+    MW.lastSendErr = nil
+    if not text then return false end
+    if not MW.CanChat() then MW.lastSendErr = combat() and "combat" or "chat-lockdown"; return false end
     local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
     if not send then return false end
-    return (pcall(send, DC.Tagged(text, DC.MAX_BYTES), chan, nil, to))
+    local out = (chan == "WHISPER" and DC.Whisper) and DC.Whisper(text, DC.MAX_BYTES) or DC.Tagged(text, DC.MAX_BYTES)   -- 11-19 私聊不带标识
+    if showOwn and chan == "WHISPER" and DC.ownSent then DC.ownSent[out] = nil end
+    local ok, err = pcall(send, out, chan, nil, to)
+    MW.lastSendErr = (not ok) and tostring(err):sub(1, 120) or nil   -- 11-18「点要水无效」：发不出去时把报错留给调用方打出来
+    if ok and DC.AskSent then DC.AskSent(text, to) end   -- 11-17 话术变体：发出去了才换下一句
+    if ok and chan == "WHISPER" then MW.WatchEcho(to, text, out ~= DC.StripTag(out)) end
+    return ok
+end
+
+-- 11-19 用户「水还是要不了」「检查下文案是不是被服务器屏蔽了」：被服务器过滤的私聊 SendChatMessage 不报错、对方也收不到，
+--   插件以为发出去了（「隐藏自发」又把回显藏了）→ 发完 MW.ECHO_WAIT 秒内没收到发给他的 CHAT_MSG_WHISPER_INFORM 回显 = 被拦：
+--   带了前缀的 → 本次登录内不再带前缀（DC.tagBlocked，要 BUFF / 反问等也跟着不带）并去掉前缀重发一次；没前缀还被拦 → 聊天框说清楚，让玩家手动密
+MW.ECHO_WAIT = 3
+local echoF, echoPend
+function MW.EchoSeen(target)
+    local p = echoPend
+    if p and type(target) == "string" and not (ns.Secret and ns.Secret(target)) and short(target) == short(p.to) then p.ok = true end
+end
+function MW.WatchEcho(to, text, tagged)
+    if not (to and CreateFrame and C_Timer and C_Timer.After) then return end
+    if not echoF then
+        echoF = CreateFrame("Frame")
+        echoF:SetScript("OnEvent", function(_, _, _, target) MW.EchoSeen(target) end)
+    end
+    local p = { to = to, text = text, tagged = tagged }
+    echoPend = p
+    pcall(echoF.RegisterEvent, echoF, "CHAT_MSG_WHISPER_INFORM")
+    C_Timer.After(MW.ECHO_WAIT, function()
+        if echoPend == p then echoPend = nil; pcall(echoF.UnregisterEvent, echoF, "CHAT_MSG_WHISPER_INFORM") end
+        if p.ok then return end
+        if p.tagged and not DC.tagBlocked then
+            DC.tagBlocked = true
+            ns.Print(L("刚才那句私聊没发出去（多半被服务器过滤了开头的插件标识），已去掉标识重发；本次登录内插件私聊都不带标识",
+                "That whisper was blocked (likely the addon tag); resent without it - no tag for the rest of this session"))
+            MW.Send(text, "WHISPER", to)
+        else
+            ns.Print(L("私聊没发出去，可能被服务器过滤了：", "Whisper blocked by the server: ") .. tostring(DC.StripTag(text)) .. L("（可以自己手动密他）", " (try whispering manually)"))
+        end
+    end)
 end
 
 -- ================= 不是法师：要 =================
@@ -251,10 +299,10 @@ function MW.SetLastKind(k) if k == "water" or k == "food" or k == "both" then DC
 -- 这次默认要什么：上次选的 > 按背包推荐
 function MW.DefaultKind(scan) return MW.LastKind() or MW.Recommend(scan) end
 
--- 要吃喝的话（⛔ 不报数量）：「法师老板，求点水，谢谢~（我29级：魔法泉水）」
+-- 要吃喝的话（⛔ 不报数量）：「法师老板，求点水，谢谢~（我29级：魔法泉水）」——11-17 起说法随机换（「好心的法师，能给点水吗？多谢！（我29级：魔法泉水）」…）
 --   mode = "trade"（开了交易：按 kind 要，不管够不够）/ "auto"（自动要：只要 kind 里缺的；一样都不缺 → nil）/ "pick"（弹框里点的：按 kind 要）
 --   kind = nil → 上次选的 / 按背包推荐；mageLv = 对方法师等级（知道就按他造得出的口径报档）
-function MW.AskText(mode, mageLv, kind)
+function MW.AskText(mode, mageLv, kind, who)
     local lv, cls = unitLevel("player"), myClass()
     local scan = MW.ScanBags()
     kind = kind or MW.DefaultKind(scan)
@@ -267,15 +315,12 @@ function MW.AskText(mode, mageLv, kind)
         if not (w or f) then return nil end
     end
     local names = {}
-    if w then names[#names + 1] = MW.ItemName(askTier(MW.WATER, lv, mageLv)) end
-    if f then names[#names + 1] = MW.ItemName(askTier(MW.FOOD, lv, mageLv)) end
-    local what
-    if w and f then what = L("点水和面包", "some water and food")
-    elseif w then what = L("点水", "some water")
-    else what = L("点面包", "some food") end
-    local lvTxt = lv and string.format(L("我%d级：", "Lv%d: "), lv) or ""
-    return L("法师老板，求", "Could I get ") .. what
-        .. L("，谢谢~（", " please? Thanks! (") .. lvTxt .. table.concat(names, " / ") .. L("）", ")")
+    if w then names[#names + 1] = MW.ChatItemName(askTier(MW.WATER, lv, mageLv)) end
+    if f then names[#names + 1] = MW.ChatItemName(askTier(MW.FOOD, lv, mageLv)) end
+    -- 11-17 称呼 × 请求 × 结尾随机组合（DC.AskPhrase）；句尾「（我29级：魔法泉水）」照旧（法师端靠它认档位）
+    local lvTxt = lv and string.format(CL("我%d级：", "Lv%d: "), lv) or ""
+    local tail = CL("（", " (") .. lvTxt .. table.concat(names, " / ") .. CL("）", ")")
+    return DC.AskPhrase(who or "*", "MAGE", "food", DC.AskFoodWord(w, f), tail)   -- cls 只区分「对一个人」
 end
 
 -- 给某个法师发要水私聊的唯一出口：同一个法师 AUTO_CD（10 分钟）内不管哪条路径（交易 / 进本 / 满员 / 野外弹框）只发一次
@@ -285,12 +330,12 @@ function MW.RecentlyAsked(who, t)
     local last = who and MW.Asked()[who]
     return (last and last <= t and t - last < MW.AUTO_CD) and true or false
 end
-function MW.AskMage(who, text, chan)
+function MW.AskMage(who, text, chan, showOwn)
     if not who or who == "" or not text then return false, "notext" end
     local t = now()
     if MW.RecentlyAsked(who, t) then return false, "asked" end
     local ok
-    if chan == "PARTY" then ok = MW.Send(text, "PARTY") else ok = MW.Send(text, "WHISPER", who) end
+    if chan == "PARTY" then ok = MW.Send(text, "PARTY") else ok = MW.Send(text, "WHISPER", who, showOwn) end
     if not ok then return false, "send" end
     MW.MarkAsked(who, t)
     -- 弹框正问着同一个法师 → 已经要过了，收起
@@ -318,8 +363,9 @@ function MW.AskOnTrade()
     local t = now()
     if DC.mageAsked[who] and t - DC.mageAsked[who] < DC.MAGE_CD then return false end
     if MW.RecentlyAsked(who, t) then return false end
+    if MW.MageTooLow(unitLevel("NPC")) then return false end
     -- 种类按弹框里上次选的（没选过按背包缺什么）；档位按「他造得出就报我能吃的最高档」
-    local text = MW.AskText("trade", unitLevel("NPC"))
+    local text = MW.AskText("trade", unitLevel("NPC"), nil, who)
     if not MW.AskMage(who, text) then return false end
     DC.mageAsked[who] = t
     return true
@@ -338,19 +384,48 @@ local function groupUnits()
 end
 local function exists(u) return clean(call(UnitExists, u)) and true or false end
 local function isMe(u) return clean(call(UnitIsUnit, u, "player")) and true or false end
--- 返回 { 名字… }, { [名字] = 等级 }
+-- 返回 { 名字… }, { [名字] = 等级 }, { [名字] = 单位 }
 function MW.PartyMages()
-    local out, lvs = {}, {}
+    local out, lvs, us = {}, {}, {}
     for _, u in ipairs(groupUnits()) do
         if exists(u) and not isMe(u) and unitClass(u) == "MAGE" then
             local on = UnitIsConnected and call(UnitIsConnected, u)
             if on == nil or clean(on) ~= false then
                 local who = DC.FullName(u)
-                if who and who ~= "" then out[#out + 1] = who; lvs[who] = unitLevel(u) end
+                if who and who ~= "" then out[#out + 1] = who; lvs[who] = unitLevel(u); us[who] = u end
             end
         end
     end
-    return out, lvs
+    return out, lvs, us
+end
+-- 11-20 用户「进组以后立刻弹要水要BUFF，但是隔着很远，这个没必要」：法师在附近才弹框 / 才自动要（满 5 人 / 进本）
+--   判定借组队信标 BuffAsk.lua 的 BA.Near（UnitInRange 约 40 码 → 距离 → 28 码 → 地图坐标 → 看得见；读不到 = 不算近）；信标没加载 = 不挡（老行为）
+--   远的先挂着：每 WAIT 秒复查（野外弹框 FieldRoster / 自动要 AutoCheck），走近了照原规则弹 / 发；挂满 WAIT_MAX 秒或离队放弃（队伍再变动重新看）
+local function near(u)
+    local BA = ns.BuffAsk
+    if BA and BA.Near then return BA.Near(u) end
+    return true
+end
+MW.Near = near
+MW.WAIT, MW.WAIT_MAX = 5, 600
+function MW.Wait(k)
+    local w, t = MW.wait, now()
+    if not w or t - w.t0 > MW.WAIT_MAX then w = { t0 = t }; MW.wait = w end
+    w[k] = true
+    if not w.armed and C_Timer and C_Timer.After then w.armed = true; C_Timer.After(MW.WAIT, MW.WaitTick) end
+end
+function MW.WaitTick()
+    local w = MW.wait
+    if not w then return end
+    local f, a = w.f, w.a
+    w.armed, w.f, w.a = nil, nil, nil
+    if not (IsInGroup and clean(call(IsInGroup))) or now() - w.t0 > MW.WAIT_MAX then MW.wait = nil; return end
+    if f and MW.Opt("fieldAsk") then
+        local ok, why = MW.FieldGate()
+        if ok then pcall(MW.FieldRoster) elseif why == "showing" or why == "gap" or why == "combat" then w.f = true end
+    end
+    if a then pcall(MW.AutoCheck, "near") end
+    if w.f or w.a then MW.Wait(w.f and "f" or "a") elseif MW.wait == w then MW.wait = nil end
 end
 
 -- ② 进副本 / 满 5 人自动要：key 记「这个副本（或这次满员）× 这个法师」，同一个法师 AUTO_CD 内不再要
@@ -362,20 +437,27 @@ function MW.AutoCheck(reason)
     local inInst = inDungeon()
     local full = DC.PartyCount() >= DC.FULL_N
     if not inInst and not full then return false, "notyet" end
-    local mages, lvs = MW.PartyMages()
+    local mages, lvs, us = MW.PartyMages()
     if #mages == 0 then return false, "nomage" end
     if not MW.AskText("auto") then return false, "enough" end
     local t = now()
     local inst = inInst and (clean(call(GetInstanceInfo)) or "inst") or "full"
-    local target
+    local target, low, far
     local asked = MW.Asked()
     for _, m in ipairs(mages) do
         local key = inst .. "|" .. m
         local last = asked[m]
-        if not MW.autoKeys[key] and not (last and last <= t and t - last < MW.AUTO_CD) then target = target or m end
+        if not MW.autoKeys[key] and not (last and last <= t and t - last < MW.AUTO_CD) then
+            if MW.MageTooLow(lvs[m]) then low = true
+            elseif not near(us[m]) then far = true   -- 11-20 离得远：先不要，挂起等他走近
+            else target = target or m end
+        end
     end
-    if not target then return false, "asked" end
-    local text = MW.AskText("auto", lvs[target])
+    if not target then
+        if far then MW.Wait("a") end
+        return false, far and "far" or (low and "lowlevel" or "asked")
+    end
+    local text = MW.AskText("auto", lvs[target], nil, target)
     if not MW.AskMage(target, text, MW.Opt("askParty") and "PARTY" or nil) then return false, "send" end
     -- 队里几个法师都算问过了（发队伍频道本来就是问所有人；私聊只问一个，别挨个刷）
     for _, m in ipairs(mages) do MW.MarkAsked(m, t); MW.autoKeys[inst .. "|" .. m] = true end
@@ -428,10 +510,17 @@ function MW.FieldGate()
     if not MW.Opt("fieldAsk") then return false, "off" end
     if MW.IsMage() then return false, "mage" end
     if MW.FieldMuted() then return false, "muted" end
-    if MW.fieldFrame and MW.fieldFrame:IsShown() then return false, "showing" end
     local f, t = MW.FieldDB(), wall()
-    if f.last and f.last <= t and t - f.last < MW.FIELD_GAP then return false, "gap" end
+    -- 11-15 用户「主城要水，窗口怎么能常驻打开」：钉住 = 框常驻，空着时下一个碰到的法师直接填进来（不等 5 分钟间隔）；正显示着一个法师时不换人
+    if f.pin then
+        if MW.fieldCur then return false, "showing" end
+    else
+        if MW.fieldFrame and MW.fieldFrame:IsShown() then return false, "showing" end
+        if f.last and f.last <= t and t - f.last < MW.FIELD_GAP then return false, "gap" end
+    end
     if combat() then return false, "combat" end
+    -- 11-18 GI-277「飞行时能不能不跳求吃喝求BUFF的提示」：坐飞行点（UnitOnTaxi）不弹（要 BUFF 那边 1.2.14 已经加了）
+    if UnitOnTaxi and clean(call(UnitOnTaxi, "player")) then return false, "taxi" end
     if inAnyInstance() then return false, "instance" end
     return true
 end
@@ -452,6 +541,16 @@ function MW.FieldTier(list, mine, mageLv)
     for i, e in ipairs(list) do if e == mine then im = i end; if e == mk then ik = i end end
     if im and ik and im - ik <= MW.FIELD_SLACK then return mk end
     return nil
+end
+-- 11-17 用户「等级差得多的就不要问了，比如说40级碰到26级的，就不应该问水」：
+--   野外弹框早就按这条挡；组队自动要（满 5 人 / 进本）和交易时自动要以前不看等级 → 三条路同一口径：
+--   他造得出的最高档比我能吃的低 FIELD_SLACK 档以上、且比我低 FIELD_LV_DIFF 级以上 = 太低，不问。不知道他等级 = 不挡
+function MW.MageTooLow(mageLv, myLv)
+    mageLv, myLv = tonumber(mageLv), tonumber(myLv or unitLevel("player"))
+    if not (mageLv and mageLv > 0 and myLv) then return false end
+    if mageLv >= myLv - MW.FIELD_LV_DIFF then return false end
+    local list = MW.WantsWater(myClass()) and MW.WATER or MW.FOOD
+    return MW.FieldTier(list, MW.BestFor(list, myLv, true), mageLv) == nil
 end
 local function bool(v) return clean(v) and true or false end
 -- 一个单位来了：是不是该弹框。返回 true / false, 原因
@@ -478,6 +577,11 @@ function MW.FieldCheck(u)
     if asked and asked <= gt and gt - asked < MW.AUTO_CD then return false, "asked" end
     MW.fieldPeek[who] = gt
     local list, have, mine = MW.FieldNeed()
+    local plenty
+    if not list and f.pin then   -- 钉住 = 我就是要找法师要：包里够也照样填（不报剩几个）
+        list = MW.WantsWater(myClass()) and MW.WATER or MW.FOOD
+        have, plenty = 0, true
+    end
     if not list then return false, "enough" end
     local lvRaw = tonumber(clean(call(UnitLevel, u)))
     local mageLv = (lvRaw and lvRaw > 0) and lvRaw or 60   -- -1 = 骷髅（高你 10 级以上）= 什么都造得出
@@ -486,7 +590,11 @@ function MW.FieldCheck(u)
     if not tier and myLv and mageLv >= myLv - MW.FIELD_LV_DIFF then tier = askTier(list, myLv, mageLv) end
     if not tier then return false, "lowlevel" end
     MW.fieldPeek[who] = nil
-    MW.ShowField({ who = who, lv = (lvRaw and lvRaw > 0) and lvRaw or nil, mageLv = mageLv, water = (list == MW.WATER), have = have, tier = tier })
+    if not near(u) then   -- 11-20 离得远（刚进组的队友在别处）不弹；是队友就挂起，走近了再弹
+        if u:find("^party") or u:find("^raid") then MW.Wait("f") end
+        return false, "far"
+    end
+    MW.ShowField({ who = who, lv = (lvRaw and lvRaw > 0) and lvRaw or nil, mageLv = mageLv, water = (list == MW.WATER), have = have, tier = tier, plenty = plenty })
     return true, who
 end
 function MW.FieldText(o)
@@ -497,6 +605,10 @@ function MW.FieldText(o)
     local can = {}
     if MW.WantsWater(myClass()) then can[#can + 1] = MW.ItemName(askTier(MW.WATER, lv, o.mageLv)) end
     can[#can + 1] = MW.ItemName(askTier(MW.FOOD, lv, o.mageLv))
+    if o.plenty then
+        return string.format(L("附近有法师 %s%s，要不要密他要点？", "Mage %s%s is nearby - whisper them?"), short(o.who) or o.who, lvTxt)
+            .. "\n|cff999999" .. L("会报给他：", "Will ask for: ") .. table.concat(can, " / ") .. "|r"
+    end
     return string.format(L("附近有法师 %s%s，你的%s%s，要不要密他要点？", "Mage %s%s is nearby and your %s %s - whisper them?"), short(o.who) or o.who, lvTxt, what, left)
         .. "\n|cff999999" .. L("会报给他：", "Will ask for: ") .. table.concat(can, " / ") .. "|r"
 end
@@ -516,18 +628,61 @@ function MW.FieldSend(kind)
         ns.Print(L("现在发不了私聊（战斗中 / 聊天受限），过一会儿再点", "Can't whisper right now (combat / chat locked) - try again in a moment"))
         return false
     end
-    local text = MW.AskText("pick", o.mageLv, kind)
     local who = o.who
-    if not MW.AskMage(who, text) then return false end
+    local text = MW.AskText("pick", o.mageLv, kind, who)
+    if not MW.AskMage(who, text, nil, true) then return false end
     ns.Print(L("已密 ", "Whispered ") .. (short(who) or who) .. L(" 要吃喝；他开交易给你时，自己点「交易」确认就行", " - when they open a trade, click Trade to accept"))
     MW.HideField()
     return true
 end
-function MW.HideField()
+-- 钉住时「收起」= 清掉当前这个法师、框留着等下一个；force = 真关（右上角 ×、进副本）
+function MW.HideField(force)
     MW.fieldCur = nil
-    if MW.fieldFrame then MW.fieldFrame:Hide() end
+    local f = MW.fieldFrame
+    if not f then return end
+    if MW.FieldPinned() and not force then MW.ShowFieldIdle() else f:Hide() end
+end
+function MW.FieldPinned() return MW.FieldDB().pin and true or false end
+function MW.SetFieldPin(v)
+    MW.FieldDB().pin = v and true or nil
+    local f = MW.fieldFrame
+    if f and f.pinBtn then
+        f.pinBtn:SetText(v and ("|cff33ff99" .. L("已钉住", "Pinned") .. "|r") or L("钉住", "Pin"))
+    end
+    if MW.SyncEvents then pcall(MW.SyncEvents) end
+end
+-- 钉住、还没碰到法师：框留着，按钮灰掉
+function MW.ShowFieldIdle()
+    local f = MW.BuildField()
+    MW.fieldCur = nil
+    f.text:SetText(L("常驻中：碰到同阵营法师（鼠标指 / 选中 / 姓名板）会自动填到这里，点按钮才密他。\n|cff999999主城人多时把姓名板打开，路过的法师都能认到|r",
+        "Pinned: the next mage you see (mouseover / target / nameplate) shows up here; nothing is sent until you click.\n|cff999999Turn on nameplates in a busy city to catch passing mages|r"))
+    for _, b in pairs(f.kinds) do
+        if b.SetEnabled then b:SetEnabled(false) end
+        if b.UnlockHighlight then b:UnlockHighlight() end
+        local kl = MW.KIND_LABEL[b.kind]; if kl then b:SetText(L(kl[1], kl[2])) end
+    end
+    if f.no.SetEnabled then f.no:SetEnabled(false) end
+    if f.text.GetStringHeight then
+        local h = tonumber(f.text:GetStringHeight())
+        if h then f:SetHeight(math.max(136, 98 + h)) end
+    end
+    f:Show()
+    return f
+end
+-- /gi 要水：常驻打开（钉住 + 立刻摆出来；当前目标是法师就直接填上）
+function MW.OpenFieldPinned()
+    if MW.IsMage() then ns.Print(L("你自己就是法师～", "You are a mage yourself")); return false end
+    if inAnyInstance() then ns.Print(L("副本里用不了，出本后再开（队里有法师时「法师吃喝」会自动要）", "Not available inside instances")); return false end
+    if MW.FieldMuted() then MW.FieldMute(false) end
+    if not MW.Opt("fieldAsk") then MW.SetOpt("fieldAsk", true) end   -- 11-17：「不再弹」关掉过 → 手动常驻打开 = 重新打开
+    MW.SetFieldPin(true)
+    MW.ShowFieldIdle()
+    pcall(MW.FieldCheck, "target")
+    return true
 end
 local KIND_LABEL = { water = { "要水", "Water" }, food = { "要面包", "Food" }, both = { "都要", "Both" } }
+MW.KIND_LABEL = KIND_LABEL
 function MW.BuildField()
     if MW.fieldFrame then return MW.fieldFrame end
     local f = CreateFrame("Frame", "GearInsightForeverFieldMage", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
@@ -550,7 +705,7 @@ function MW.BuildField()
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal"); title:SetPoint("TOPLEFT", 10, -8)
     title:SetText(L("法师吃喝 · 附近有法师", "Mage food - a mage is nearby"))
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton"); close:SetSize(22, 22); close:SetPoint("TOPRIGHT", 0, 0)
-    close:SetScript("OnClick", function() MW.HideField() end)
+    close:SetScript("OnClick", function() MW.SetFieldPin(false); MW.HideField(true) end)
     -- 11-12 用户「放哪里合适，加上配置，方便用户找到」：框上直接给「设置」（同 /gi 吃喝、设置页「法师吃喝」、小地图右键）
     f.opt = CreateFrame("Button", nil, f, "UIPanelButtonTemplate"); f.opt:SetSize(48, 18); f.opt:SetPoint("RIGHT", close, "LEFT", -2, 0)
     if ns.SkinButton then ns.SkinButton(f.opt) end   -- 11-14 按键美化：扁平样式
@@ -563,6 +718,23 @@ function MW.BuildField()
         GameTooltip:Show()
     end)
     f.opt:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- 11-15「主城要水，窗口怎么能常驻打开」：钉住 = 不再 60 秒自己收起，要完一个空着等下一个法师；× 关掉 = 取消钉住
+    f.pinBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate"); f.pinBtn:SetSize(58, 18); f.pinBtn:SetPoint("RIGHT", f.opt, "LEFT", -2, 0)
+    if ns.SkinButton then ns.SkinButton(f.pinBtn) end
+    f.pinBtn:SetText(MW.FieldPinned() and ("|cff33ff99" .. L("已钉住", "Pinned") .. "|r") or L("钉住", "Pin"))
+    f.pinBtn:SetScript("OnClick", function()
+        local v = not MW.FieldPinned()
+        MW.SetFieldPin(v)
+        if v and not MW.fieldCur then MW.ShowFieldIdle() end
+    end)
+    f.pinBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(L("钉住（常驻）", "Pin"), 1, 0.82, 0)
+        GameTooltip:AddLine(L("钉住后这个框一直开着：要完一个法师就空出来，下一个碰到的法师自动填进来；包里水够也照样填。\n右上角 × 关掉 = 取消钉住。随时打开：/gi 要水",
+            "Keeps this box open: after one mage it waits for the next. Close with × to unpin. Open any time: /gi askwater"), 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    f.pinBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); f.text:SetPoint("TOPLEFT", 10, -28); f.text:SetWidth(310); f.text:SetJustifyH("LEFT")
     local function btn(label, w, x, y, onClick, tipB)
         local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
@@ -585,8 +757,8 @@ function MW.BuildField()
         local b = btn(L(KIND_LABEL[k][1], KIND_LABEL[k][2]), 96, 10 + (i - 1) * 104, 36, function() MW.FieldSend(k) end, function(self)
             if self.off then return L("你的职业不用蓝，只要面包", "Your class has no mana - food only") end
             local o = MW.fieldCur
-            local t = o and MW.AskText("pick", o.mageLv, k)
-            return L("点了才发，私聊他这句：\n", "Sends this whisper (only when you click):\n") .. (t and DC.Tagged(t, DC.MAX_BYTES) or "")
+            local t = o and MW.AskText("pick", o.mageLv, k, o.who)
+            return L("点了才发，私聊他这句：\n", "Sends this whisper (only when you click):\n") .. (t and DC.StripTag(t) or "")
                 .. L("\n|cff999999选过的下次默认它；交易 / 进副本 / 满员自动要也按它|r", "\n|cff999999Remembered as the default next time|r")
         end)
         b.kind = k
@@ -599,14 +771,30 @@ function MW.BuildField()
         MW.FieldMute(true); MW.HideField()
         ns.Print(L("今天不再提示附近的法师了；明天自动恢复。想现在恢复：主界面「设置」→ 窗口与提醒 点「解除静音」，或右键小地图按钮 →「法师吃喝」重新勾上", "Muted for today - unmute in Settings > Windows, or the minimap right-click menu > Mage food & water"))
     end, L("这次登录和今天都不再弹；明天自动恢复，或者在主界面「设置」→ 窗口与提醒 点「解除静音」", "Muted for this session and today; back tomorrow, or unmute it in Settings > Windows"))
+    -- 11-17 用户「这些弹出的功能都确保能永久关闭」：第二排再加一个永久的
+    f.never = btn(L("不再弹", "Never"), 66, 252, 8, function() MW.FieldNever() end,
+        L("永久不再弹这个框（记进存档，重载 / 换角色都不弹）。找回：主界面「设置」→ 窗口与提醒「野外找法师要水弹框」点「打开」，或 /gi 要水",
+            "Never show this prompt again (saved). Bring it back in Settings > Windows & alerts, or /gi askwater"))
     -- 60 秒没人理自己收起（只在开着时跑）
     f:SetScript("OnUpdate", function(self, el)
         self.age = (self.age or 0) + (el or 0)
-        if self.age >= MW.FIELD_TTL then MW.HideField() end
+        if self.age >= MW.FIELD_TTL and MW.fieldCur and not MW.FieldPinned() then MW.HideField() end
     end)
     f:Hide()
     MW.fieldFrame = f
     return f
+end
+-- 「不再弹」：关掉细项 fieldAsk（存档 dchat.mw.fieldAsk = false），钉住一起取消
+function MW.FieldNever()
+    MW.SetOpt("fieldAsk", false)
+    MW.SetFieldPin(false)
+    MW.HideField(true)
+    if MW.optFrame and MW.RefreshSettings then pcall(MW.RefreshSettings) end
+    if ns.CloseHint then
+        ns.CloseHint("mageFieldOff", L("野外找法师要水弹框已永久关闭。找回：GI 菜单 → 设置 → 窗口与提醒「野外找法师要水弹框」点「打开」，或 /gi 要水 常驻打开",
+            "Ask-a-mage prompt closed for good. Bring it back: GI menu > Settings > Windows & alerts, or /gi askwater"))
+    end
+    return true
 end
 -- 三个按钮的默认高亮：上次选的 > 按背包推荐（缺水推水、都缺推都要；没蓝职业推面包）
 function MW.FieldMarkDefault(f)
@@ -636,6 +824,7 @@ function MW.ShowField(o)
     db.mages[o.who] = t
     f.text:SetText(MW.FieldText(o))
     MW.FieldMarkDefault(f)
+    if f.no.SetEnabled then f.no:SetEnabled(true) end
     if f.text.GetStringHeight then
         local h = tonumber(f.text:GetStringHeight())
         if h then f:SetHeight(math.max(136, 98 + h)) end
@@ -694,10 +883,10 @@ function MW.PlanFor(cls, lv, water, food, scan)
     if food then p.fe, p.fs = MW.Supply(MW.FOOD, lv, scan) end
     return p
 end
-local function planText(p, withCount)
-    local t = {}
-    if p.we then t[#t + 1] = MW.ItemName(p.we) .. (withCount and ("×" .. p.ws.top) or "") end
-    if p.fe then t[#t + 1] = MW.ItemName(p.fe) .. (withCount and ("×" .. p.fs.top) or "") end
+local function planText(p, withCount, chat)   -- chat = 发给别人的（品名按对外说话语言）
+    local t, nm = {}, chat and MW.ChatItemName or MW.ItemName
+    if p.we then t[#t + 1] = nm(p.we) .. (withCount and ("×" .. p.ws.top) or "") end
+    if p.fe then t[#t + 1] = nm(p.fe) .. (withCount and ("×" .. p.fs.top) or "") end
     return table.concat(t, " + ")
 end
 MW.PlanText = planText
@@ -729,8 +918,8 @@ function MW.OnAsk(msg, author)
     local t = now()
     if MW.Opt("reply") and MW.tradeWith ~= who and not (MW.replied[who] and t - MW.replied[who] < MW.REPLY_CD) then
         local text
-        if planEnough(p) then text = L("好的，来交易就给你（", "Sure - open a trade and I'll put in ") .. planText(p) .. L("）", "")
-        else text = L("稍等，我先造一下，好了叫你~", "One sec, conjuring some - I'll ping you") end
+        if planEnough(p) then text = CL("好的，来交易就给你（", "Sure - open a trade and I'll put in ") .. planText(p, nil, true) .. CL("）", "")
+        else text = CL("稍等，我先造一下，好了叫你~", "One sec, conjuring some - I'll ping you") end
         if MW.Send(text, "WHISPER", who) then MW.replied[who] = t end
     end
     if MW.Opt("bar") then MW.RefreshBar(true) end
@@ -812,9 +1001,11 @@ function MW.BuildGiveBtn()
     local b = secureBtn("GearInsightForeverMageGive", UIParent, 260, 26)
     b:SetFrameStrata("DIALOG")
     b:SetText(L("给他吃喝", "Give food / water"))
-    b:SetScript("PreClick", function(self)
-        self.plan = nil
+    b:SetScript("PreClick", function(self, mb)
+        self.plan, self.never = nil, false
         if combat() then return end
+        -- 11-17「确保能永久关闭」：右键 = 以后不出这个按钮（不放东西）
+        if mb == "RightButton" then self:SetAttribute("type", nil); self.never = true; return end
         if not MW.tradeOpen then self:SetAttribute("type", nil); return end
         local p = MW.GivePlan()
         if p.macro == "" then
@@ -827,6 +1018,7 @@ function MW.BuildGiveBtn()
         self.plan = p
     end)
     b:SetScript("PostClick", function(self)
+        if rawget(self, "never") then self.never = false; MW.GiveNever(); return end   -- rawget：别读到框体元表上的同名方法
         local p = self.plan
         self.plan = nil
         if not combat() then self:SetAttribute("type", nil); self:SetAttribute("macrotext", nil) end
@@ -837,7 +1029,7 @@ function MW.BuildGiveBtn()
             MW.served = p.who
             if MW.Opt("reply") and not MW.tradeReplied then
                 MW.tradeReplied = true
-                MW.Send(L("吃喝放好了（", "Food / water is in the trade (") .. planText(p, true) .. L("），点交易就行~", ") - just hit Trade"), "WHISPER", p.who)
+                MW.Send(CL("吃喝放好了（", "Food / water is in the trade (") .. planText(p, true, true) .. CL("），点交易就行~", ") - just hit Trade"), "WHISPER", p.who)
             end
         end
         if C_Timer and C_Timer.After then C_Timer.After(0.3, function() pcall(MW.RefreshGive); pcall(MW.RefreshBar) end) end
@@ -847,12 +1039,23 @@ function MW.BuildGiveBtn()
         GameTooltip:AddLine(L("一键放入吃喝", "Put food / water in"), 1, 0.82, 0)
         GameTooltip:AddLine(L("按对方等级挑他能吃的最高一档，水和面包各放一组；战士 / 盗贼只放面包", "Picks the best tier for their level, one stack each; warriors / rogues get food only"), 1, 1, 1, true)
         GameTooltip:AddLine(L("放好后自己点「交易」确认（暴雪规定确认交易必须你本人点）", "Then click Trade yourself to confirm"), 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine(L("左键放入  ·  右键永久关闭", "Left: put in  ·  Right: close for good"), 0.25, 0.9, 0.35, true)
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     b:Hide()
     MW.giveBtn = b
     return b
+end
+function MW.GiveNever()
+    MW.SetOpt("giveBtn", false)
+    MW.HideGive()
+    if MW.optFrame and MW.RefreshSettings then pcall(MW.RefreshSettings) end
+    if ns.CloseHint then
+        ns.CloseHint("mageGive", L("交易窗「一键放入」按钮已永久关闭。找回：GI 菜单 → 设置 → 窗口与提醒「交易窗一键放入吃喝」点「打开」，或 /gi 吃喝 勾回来",
+            "Trade put-in button closed for good. Bring it back: GI menu > Settings > Windows & alerts, or /gi water"))
+    end
+    return true
 end
 function MW.RefreshGive()
     local b = MW.giveBtn
@@ -885,10 +1088,11 @@ end
 --   同一个法师 3 分钟只谢一次；战斗中 / 聊天锁定不发（MW.Send 管）；带不带 [GI组队助手] 跟招人页「带标识」
 MW.THANK_CD = 180
 MW.thanked = {}
+-- 11-17 用户截图（「感谢老板的吃喝，好人一生平安~」）「改成义父」「都改」：道谢里的称呼都换成「义父」
 local THANK_LINES = {
-    { "谢谢法师老板的%s~ 祝你游戏愉快！", "Thanks for the %s! Have fun!" },
-    { "收到%s啦，谢谢大佬~", "Got the %s - thank you!" },
-    { "感谢老板的%s，好人一生平安~", "Thanks a lot for the %s!" },
+    { "谢谢义父的%s~ 祝你游戏愉快！", "Thanks for the %s, friend! Have fun!" },
+    { "收到%s啦，谢谢义父~", "Got the %s - thank you, friend!" },
+    { "感谢义父的%s，好人一生平安~", "Thanks a lot for the %s!" },
 }
 function MW.ThankStart()
     MW.thankCtx = nil
@@ -917,11 +1121,12 @@ function MW.ThankScan()
     if got then c.got, c.water, c.food = true, c.water or water, c.food or food end
 end
 function MW.ThankText(c)
-    local what = (c.water and c.food) and L("吃喝", "food and water") or (c.water and L("水", "water")) or (c.food and L("面包", "food")) or L("东西", "stuff")
+    local what = (c.water and c.food) and CL("吃喝", "food and water") or (c.water and CL("水", "water")) or (c.food and CL("面包", "food")) or CL("东西", "stuff")
     local mine = ns.MyWhisper and ns.MyWhisper("mwThanks", { ["等级"] = unitLevel("player") })
     if mine and mine ~= "" then return mine end
     local r = THANK_LINES[math.random(#THANK_LINES)]
-    return string.format(L(r[1], r[2]), what)
+    local t = string.format(CL(r[1], r[2]), what)
+    return ns.ApplyCall and ns.ApplyCall(t) or t   -- 11-18 GI-307 称呼可改
 end
 function MW.ThankDone()
     local c = MW.thankCtx
@@ -1014,6 +1219,18 @@ function MW.BuildBar()
                 "Request bar dismissed: it pops again on the next request. To turn it off: " .. C .. " water and untick the request bar; reset its position in Settings > Windows & alerts"))
         end
     end)
+    -- 11-17 用户「这些弹出的功能都确保能永久关闭」：× 只收这一轮；「不再弹」= 关掉细项 bar（存档 dchat.mw.bar = false）
+    f.never = CreateFrame("Button", nil, f, "UIPanelButtonTemplate"); f.never:SetSize(52, 18); f.never:SetPoint("RIGHT", close, "LEFT", -2, 0)
+    if ns.SkinButton then ns.SkinButton(f.never) end
+    f.never:SetText(L("不再弹", "Never"))
+    f.never:SetScript("OnClick", function() MW.BarNever() end)
+    f.never:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(L("永久关闭提醒条", "Turn the request bar off"), 1, 0.82, 0)
+        GameTooltip:AddLine(L("以后有人要吃喝也不弹（记进存档）；找回：设置 → 窗口与提醒「法师发水提醒条」点「打开」", "Won't pop up on requests any more (saved); bring it back in Settings > Windows & alerts"), 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    f.never:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.list = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); f.list:SetPoint("TOPLEFT", 8, -24); f.list:SetWidth(264); f.list:SetJustifyH("LEFT")
     f.stock = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); f.stock:SetPoint("BOTTOMLEFT", 8, 34); f.stock:SetWidth(264); f.stock:SetJustifyH("LEFT")
     -- 造水 / 造食：安全施法按钮（玩家点了才施法）
@@ -1038,6 +1255,19 @@ function MW.BuildBar()
     f:Hide()
     MW.bar = f
     return f
+end
+-- 提醒条「不再弹」：⛔ 条上有安全施法按钮，战斗中不能收 → 只提示
+function MW.BarNever()
+    if combat() then ns.Print(L("战斗中动不了这个提醒条，脱战后再点", "Can't touch this bar in combat; try again after")); return false end
+    MW.SetOpt("bar", false)
+    MW.orders, MW.barPreview = {}, nil
+    if MW.bar and MW.bar:IsShown() then MW.bar:Hide() end
+    if MW.optFrame and MW.RefreshSettings then pcall(MW.RefreshSettings) end
+    if ns.CloseHint then
+        ns.CloseHint("mageBarOff", L("法师发水提醒条已永久关闭（有人要水不再弹）。找回：GI 菜单 → 设置 → 窗口与提醒「法师发水提醒条」点「打开」",
+            "Mage request bar turned off. Bring it back: GI menu > Settings > Windows & alerts > Mage request bar"))
+    end
+    return true
 end
 -- 11-12 重构第 1 期（设置页「窗口与提醒」）：提醒条平时没人要就不出，挪不了位置 → 给一个「摆出来」预览 + 重置位置。
 --   ⛔ 提醒条上有安全施法按钮：战斗中不建、不显示、不挪（返回 false, "combat"）
@@ -1377,6 +1607,7 @@ function MW.WantedEvents()
     if MW.pendingHide or MW.pendingBar or MW.pendingAuto then want.PLAYER_REGEN_ENABLED = true end
     if MW.bar and MW.bar.IsShown and MW.bar:IsShown() then want.BAG_UPDATE_DELAYED = true end
     if MW.fieldFrame and MW.fieldFrame.IsShown and MW.fieldFrame:IsShown() then add(MW.EVENTS.field) end
+    if not mage and MW.FieldPinned() then add(MW.EVENTS.field) end   -- 钉住着：登录 / 出副本要把框摆回来
     return want
 end
 local ev = CreateFrame("Frame")
@@ -1395,7 +1626,7 @@ ev:SetScript("OnEvent", function(_, e, a1, a2)
     if e == "PLAYER_TARGET_CHANGED" then MW.OnFieldUnit("target"); return
     elseif e == "UPDATE_MOUSEOVER_UNIT" then MW.OnFieldUnit("mouseover"); return
     elseif e == "NAME_PLATE_UNIT_ADDED" then if type(a1) == "string" then MW.OnFieldUnit(a1) end; return
-    elseif e == "PLAYER_REGEN_DISABLED" then if MW.fieldFrame and MW.fieldFrame:IsShown() then MW.HideField() end; return end
+    elseif e == "PLAYER_REGEN_DISABLED" then if MW.fieldFrame and MW.fieldFrame:IsShown() and not MW.FieldPinned() then MW.HideField() end; return end
     if e == "TRADE_TARGET_ITEM_CHANGED" or e == "TRADE_ACCEPT_UPDATE" or e == "UI_INFO_MESSAGE" or e == "UI_ERROR_MESSAGE" or e == "CHAT_MSG_SYSTEM" then
         pcall(MW.OnThankEvent, e, a1, a2); return
     end
@@ -1405,7 +1636,11 @@ ev:SetScript("OnEvent", function(_, e, a1, a2)
     elseif e == "PLAYER_ENTERING_WORLD" or e == "ZONE_CHANGED_NEW_AREA" then
         -- 出了副本：这个副本的「问过了」清掉，下次再进同名副本还能再要
         if not inDungeon() then MW.autoKeys = {} end
-        if inAnyInstance() and MW.fieldFrame and MW.fieldFrame:IsShown() then MW.HideField() end
+        if inAnyInstance() then
+            if MW.fieldFrame and MW.fieldFrame:IsShown() then MW.HideField(true) end
+        elseif MW.FieldPinned() and not MW.IsMage() and not (MW.fieldFrame and MW.fieldFrame:IsShown()) then
+            pcall(MW.ShowFieldIdle)   -- 钉住着：登录 / 出副本后框回来
+        end
         autoSoon("enter", MW.ENTER_DELAY)
     elseif e == "GROUP_ROSTER_UPDATE" then
         autoSoon("roster", 2)
@@ -1426,6 +1661,22 @@ MW._event = ev:GetScript("OnEvent")   -- 测试用
 -- /gi 吃喝 · /gi water：打开设置
 ns.ExtraSlash = ns.ExtraSlash or {}
 for _, c in ipairs({ "吃喝", "water", "mw" }) do ns.ExtraSlash[c] = function() MW.OpenSettings() end end
+-- 11-15 /gi 要水 · /gi askwater：「附近有法师」框常驻打开（钉住）
+for _, c in ipairs({ "要水", "要面包", "askwater" }) do ns.ExtraSlash[c] = function() MW.OpenFieldPinned() end end
 
 -- 按需加载：加载时登录早就过了 → 现在按开关注册（登录时随组队子插件一起加载也走这里；存档还没好时由 ns.GroupSync 补）
 if ns.db then pcall(MW.SyncEvents) end
+
+-- 「窗口与提醒」（11-17）：交易窗下面的「一键放入」按钮（法师），右键关掉的从这里找回。
+--   提醒条 / 野外弹框两扇登记在主插件 PageData.lua（mageBar / mageField），这里不重复
+if ns.RegisterWindow then
+    ns.RegisterWindow({ key = "mageGive", order = 60.5, title = function() return L("交易窗一键放入吃喝", "Trade put-in button") end,
+        avail = function() return MW.IsMage() end,
+        state = function() return MW.Opt("giveBtn") and L("跟人交易时出在交易窗下面", "Shows under the trade window") or L("已关闭", "Closed") end,
+        actions = function()
+            local on = MW.Opt("giveBtn") and true or false
+            return { { text = on and L("关闭", "Turn off") or L("打开", "Turn on"), fn = function()
+                if on then MW.GiveNever() else MW.SetOpt("giveBtn", true); if MW.tradeOpen then pcall(MW.ShowGive) end end
+            end } }
+        end })
+end

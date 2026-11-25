@@ -77,8 +77,15 @@ end
 -- 点了：加载法师吃喝 → 按野外弹框同一套口径发私聊
 function MA.Ask(name, mageLv)
     if not name then return false, "name" end
-    if not (ns.LoadModule and ns.LoadModule("group")) then return false, "group" end
-    if not (ns.MageWater or (ns.GroupLoadMage and ns.GroupLoadMage(true))) then return false, "mage" end
+    -- 11-18 用户截图「点要水无效」：下面几种失败原来都静默返回 → 一律在聊天框说原因
+    if not (ns.LoadModule and ns.LoadModule("group")) then
+        ns.Print(ns.L("要水没发出去：组队模块（GearInsight_Forever_Group）没加载上，看插件列表里有没有勾选", "Water request not sent: group module (GearInsight_Forever_Group) failed to load - check your addon list"))
+        return false, "group"
+    end
+    if not (ns.MageWater or (ns.GroupLoadMage and ns.GroupLoadMage(true))) then
+        ns.Print(ns.L("要水没发出去：法师吃喝模块（GearInsight_Forever_GroupMage）没加载上，看插件列表里有没有勾选", "Water request not sent: mage module (GearInsight_Forever_GroupMage) failed to load - check your addon list"))
+        return false, "mage"
+    end
     local MW = ns.MageWater
     if MW.RecentlyAsked(name) then
         ns.Print(ns.L("10 分钟内已经找 ", "Already asked ") .. short(name) .. ns.L(" 要过了，不重复密", " in the last 10 min - not sending again"))
@@ -89,8 +96,13 @@ function MA.Ask(name, mageLv)
         return false, "chat"
     end
     local kind = MW.WantsWater(myClass()) and MW.DefaultKind() or "food"
-    local text = MW.AskText("pick", mageLv, kind)
-    if not MW.AskMage(name, text) then return false, "send" end
+    local text = MW.AskText("pick", mageLv, kind, name)
+    local sent, why = MW.AskMage(name, text, nil, true)
+    if not sent then
+        ns.Print(ns.L("要水没发出去（", "Water request not sent (") .. tostring(why or "?") .. (MW.lastSendErr and (": " .. tostring(MW.lastSendErr)) or "")
+            .. ns.L("），把这句截图发给我们", ") - please screenshot this"))
+        return false, "send"
+    end
     ns.Print(ns.L("已密 ", "Whispered ") .. short(name) .. ns.L(" 要吃喝；他开交易给你时，自己点「交易」确认就行", " - when they open a trade, click Trade to accept"))
     return true
 end

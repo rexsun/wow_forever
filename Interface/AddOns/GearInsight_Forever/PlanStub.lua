@@ -18,7 +18,6 @@ local LAZY = { tier = true, loot = true, rares = true, achievements = true, gear
 ns._PlanLazyKeys = LAZY   -- 测试用
 
 local failed
-function ns.PlanReady() return ns._planReady == true end
 -- → true = 子插件已经在了（或刚加载上）。没装 / 加载失败 → false（失败的提示 ns.LoadModule 会打一次）
 function ns.PlanLoad()
     if ns._planReady then return true end
@@ -27,7 +26,6 @@ function ns.PlanLoad()
     if not (ok and loaded) then failed = true; return false end
     return true
 end
-function ns._PlanResetFailed() failed = nil end   -- 测试用
 
 -- ---------- 2. ns.Data 的大字段：没加载时一读就加载 ----------
 -- ⛔ 只管上面那 8 个名字；别的不存在的键照旧是 nil。加载过程中子插件自己读这些字段时已经 rawset 好了，不会绕回来

@@ -1,7 +1,7 @@
 -- 当前等级职业训练师可学的技能（共建看板 GI-224「當前等級訓練師可學技能：在天賦頁面顯示，可能的話進主城提醒去學習技能」）
 -- 11-13 做完（原 11-11 版 HOLD 的原因见 _hold.txt）：
---   数据 = TrainNowData.lua（scripts/gi_forever_trainnow_data.py）：开服客户端 DB2 技能表 × 玩家在训练师窗口实测的「技能 + 需要等级 + 原价」，
---     两边对得上才收；不再读升级规划的 ns.Data.spells（那份在按需加载的 _Plan 里，进城提醒一读就把 12 MB 的子插件拉进来，且含任务 / AQ 书技能）
+--   数据 = TrainNowData.lua（scripts/gi_forever_trainnow_data.py）：开服客户端 DB2 技能表 × 玩家在训练师窗口实测的「技能 + 需要等级 + 原价」
+--     × Wowhead《无限》站「训练师教」来源（11-19 整体更正加的第三份，按法术 id 对），三边对得上才收；不再读升级规划的 ns.Data.spells（那份在按需加载的 _Plan 里，进城提醒一读就把 12 MB 的子插件拉进来，且含任务 / AQ 书技能）
 --   会不会 = IsSpellKnown / IsPlayerSpell；同一技能各级分开列（训练师不能跳级学）；天赋 / 种族 / 任务给的技能要先会任意一级才列
 --   ① 天赋页右上角「训练师可学 N 个」：点开盖在天赋页上的一层 —— 现在能学（名字 / 需要等级 / 原价）、下一批、本级已学（可折叠）、找最近的训练师
 --   ② 进主城（ns.CityPlates.InCity 同一判定）且有能学的：聊天框一行提醒（不弹窗），每次登录每个等级最多一次；设置项「进城提醒可学技能」可关
@@ -40,6 +40,20 @@ function TN.Rows(cls)
     for _, e in ipairs(rows) do e.multi = (cnt[e.n] or 0) > 1 end
     parsed[cls] = rows
     return rows
+end
+
+-- 11-19 整体更正：「客户端有、但不是训练师教」的法术 id（技能书 / 任务 / 掉落，生成器 nt 串）→ 升级规划不标漏学、不给找训练师
+local ntSet = {}
+function TN.NotTrainer(cls, id)
+    if not cls or not id then return false end
+    local set = ntSet[cls]
+    if not set then
+        set = {}
+        local src = ns.TrainNowData and ns.TrainNowData.nt and ns.TrainNowData.nt[cls]
+        if type(src) == "string" then for i in src:gmatch("%d+") do set[tonumber(i)] = true end end
+        ntSet[cls] = set
+    end
+    return set[id] == true
 end
 
 local function known(id)
@@ -118,19 +132,11 @@ end
 function TN.List(cls, lv) return TN.Scan(cls, lv).now end
 
 -- 名字：客户端自己给的官方名（繁体客户端就是繁体）；中文界面配英文客户端时用数据里的简体名；设置选了繁體再转
-local function clientLoc() return GetLocale and GetLocale() or "zhCN" end
+-- 11-15 GI-266：原来只认全局 GetSpellInfo，《无限》新客户端拿不到 → 退回简体数据名又跳过了转繁（截图「凿击 / 脚踢」）。
+--   统一走 ns.SpellNm：C_Spell.GetSpellName → GetSpellInfo → 数据名（繁体：台服官方名对照 → 逐字转繁）
 function TN.Name(e)
-    local n
-    local loc = clientLoc()
-    local wantZh = ns.zh
-    local clientZh = loc == "zhCN" or loc == "zhTW"
-    if (not wantZh or clientZh) and GetSpellInfo then
-        local ok, v = pcall(GetSpellInfo, e.id)
-        if ok and type(v) == "string" and v ~= "" then n = v end
-    end
-    n = n or e.n
-    if ns.tw and loc ~= "zhTW" and ns.ToTW then n = ns.ToTW(n) end
-    return n
+    if ns.SpellNm then return ns.SpellNm(e.id, e.n) end
+    return e.n
 end
 
 function TN.Label(e)
@@ -185,7 +191,6 @@ local function paintBtn()
         pageFrame._sub:SetPoint("RIGHT", btn, "LEFT", -8, 0)
     end
 end
-TN.PaintBtn = paintBtn
 
 local function line(i)
     local body = panel.body
@@ -359,14 +364,12 @@ local function hookOne(pg)
     pg.refresh = function(...) if r then r(...) end; pcall(paintBtn); if panel and panel:IsShown() then pcall(TN.PaintPanel) end end
     pg._giTrainNowB = pg.build
 end
-TN._HookOne = hookOne
 for _, pg in ipairs(ns._Pages or {}) do hookOne(pg) end
 ns._PageHooks = ns._PageHooks or {}
 table.insert(ns._PageHooks, hookOne)
 
 -- ---------- ② 进主城提醒 ----------
 local told = {}   -- [等级] = true：这次登录这个等级已经提醒过
-function TN._ResetTold() told = {} end   -- 测试用
 
 local LINK_GO = "GIFTN:go"
 local LINK_LIST = "GIFTN:list"

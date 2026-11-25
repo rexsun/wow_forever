@@ -254,10 +254,12 @@ local function buildBoard()
         end
         local T = R.Current()
         if T then GameTooltip:AddLine(ns.L("手法来源：", "Source: ") .. ns.L("GI 基础手法 · ", "GI basic - ") .. ns.L(T.name[1], T.name[2]), 0.6, 0.6, 0.6) end
-        GameTooltip:AddLine(ns.L("拖动可移动 · /gif keys hud 关闭", "Drag to move - /gif keys hud to hide"), 0.5, 0.5, 0.5)
+        GameTooltip:AddLine(ns.L("右键永久关闭  ·  拖拽移动", "Right: close for good  ·  Drag: move"), 0.25, 0.9, 0.35)
         GameTooltip:Show()
     end)
     f:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- 11-17 用户「这些弹出的功能都确保能永久关闭」：钉板右键 = 关掉（存档 keysBoard = false，登录不再出；决策 HUD 挂在它下面，一起关）
+    f:SetScript("OnMouseUp", function(_, mb) if mb == "RightButton" then GameTooltip:Hide(); R.Never() end end)
     local acc = 0
     f:SetScript("OnUpdate", function(self, el)
         acc = acc + el
@@ -302,6 +304,14 @@ function R.Toggle(on)
     ns.db.keysBoard = on and true or false
     if on then board = board or buildBoard(); board:Show() elseif board then board:Hide() end
     return on
+end
+function R.Never()
+    R.Toggle(false)
+    if ns.KeysHud and ns.db.keysHud then ns.KeysHud.Toggle(false) end
+    if ns.CloseHint then
+        ns.CloseHint("keysBoard", ns.L("手法钉板已关闭（登录不再出）。找回：GI 菜单 → 设置 → 窗口与提醒「手法钉板」点「打开」，或职业 →「手法」页勾回来",
+            "Rotation board closed. Bring it back: GI menu > Settings > Windows & alerts > Rotation board, or the Rotation page"))
+    end
 end
 R._build = function() board = board or buildBoard(); return board end   -- 测试用
 -- 11-12 重构第 1 期：钉板放回默认位置（存的位置一起清）；登记进设置页「窗口与提醒」

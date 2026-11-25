@@ -7,6 +7,7 @@ local frame
 --   ① 开关按角色存（leveling.hide[角色]），关一次不再连坐小号 / 新角色；老存档账号级 shown=false 只算到第一个登录的角色头上
 --   ② × 关掉时聊天框告诉玩家怎么找回；③ 小窗里带上当前该做的任务线（睡袋）+「升级规划」「路线」两个按钮
 local function charKey() return (UnitName and UnitName("player") or "?") .. "-" .. (GetRealmName and GetRealmName() or "?") end
+ns._CharKey = charKey   -- 11-20 SideChains / Prof 共用
 local function lvdb()
     ns.db.leveling = ns.db.leveling or {}
     local d = ns.db.leveling
@@ -49,8 +50,33 @@ end
 
 local function join(t) return table.concat(t or {}, "、") end
 
-function ns.LevelingText(level, faction)
+-- 11-17 GI-291 玩家「规划显示职业错误」（26 级猎人，截图「下一站：30 级 德鲁伊旅行形态」）：
+--   里程碑里有职业专属的（德鲁伊旅行形态），原来不分职业谁都显示。
+--   数据带 cls 字段（英文 classFile，如 "DRUID"）就只给该职业；老数据没 cls 时按标题开头的职业名兜底识别。
+local CLASS_PREFIX = {
+    { "德鲁伊", "DRUID" }, { "Druid", "DRUID" }, { "猎人", "HUNTER" }, { "Hunter", "HUNTER" },
+    { "法师", "MAGE" }, { "Mage", "MAGE" }, { "圣骑士", "PALADIN" }, { "Paladin", "PALADIN" },
+    { "牧师", "PRIEST" }, { "Priest", "PRIEST" }, { "潜行者", "ROGUE" }, { "盗贼", "ROGUE" }, { "Rogue", "ROGUE" },
+    { "萨满祭司", "SHAMAN" }, { "萨满", "SHAMAN" }, { "Shaman", "SHAMAN" }, { "术士", "WARLOCK" }, { "Warlock", "WARLOCK" },
+    { "战士", "WARRIOR" }, { "Warrior", "WARRIOR" },
+}
+local function milestoneClass(m)
+    if type(m.cls) == "string" and m.cls ~= "" then return m.cls end
+    for _, k in ipairs({ m.t or "", m.tEn or "" }) do
+        for _, p in ipairs(CLASS_PREFIX) do
+            if k:sub(1, #p[1]) == p[1] then return p[2] end
+        end
+    end
+    return nil
+end
+ns.LevelingMilestoneClass = milestoneClass
+
+function ns.LevelingText(level, faction, classFile)
     local D = ns.Data.leveling
+    if classFile == nil and UnitClass then
+        local _, cf = UnitClass("player")
+        classFile = cf
+    end
     local L = ns.L
     local out = {}
     local horde = (faction == "Horde")
@@ -80,7 +106,8 @@ function ns.LevelingText(level, faction)
         out[#out + 1] = "  " .. table.concat(ds, "、")
     end
     for _, m in ipairs(D.milestones) do
-        if m.lv > level then
+        local mc = milestoneClass(m)
+        if m.lv > level and (mc == nil or classFile == nil or mc == classFile) then
             out[#out + 1] = "|cffffd100" .. L("下一站", "Next") .. "：" .. m.lv .. L(" 级 ", " ") .. L(m.t, m.tEn) .. "|r"
             out[#out + 1] = "  " .. L(m.d, m.dEn)
             break

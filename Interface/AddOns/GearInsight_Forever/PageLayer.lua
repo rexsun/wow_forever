@@ -23,10 +23,19 @@ local WHY = ns.LateL({   -- 11-09 GI-202：手动切语言后跟着换
     dup = L("这里只有刚拉过你的公会会员，换别的层再试", "Only the guildmate who just pulled you is here"),
 })
 -- 11-12：detail = LayerHop 给的整句（已经换过来了 / 正在确认 / 只剩刚拉过你的人），有就用它
+-- 11-21 用户截图「这里可以公会和公会外同时找吗」：「我想换一层」本来就同时发公会 + 同图公共频道，等待那行别只写「公会会员」
+local function askWho()
+    local g = IsInGuild and IsInGuild() and true or false
+    local pub = LY.pubJoined ~= nil and not (LH.pending and LH.pending.g)   -- 11-21 pending.g = 公会外额度用完、这次只找了公会
+    if g and pub then return L("公会会员或同图插件用户", "a guildmate or nearby GI user") end
+    if pub then return L("同图插件用户", "a nearby GI user") end
+    return L("公会会员", "a guildmate")
+end
 local function okMsg(ok, why, sent, detail)
-    local text = ok and sent or (type(detail) == "string" and detail or WHY[why] or tostring(why))
+    local text = type(detail) == "string" and detail or (ok and sent) or WHY[why] or tostring(why)   -- 11-21 成功也可带整句（只找了公会）
+    if LY.Dup(text) then return end   -- 11-20 连点：同一句 5 秒内聊天框 + 屏幕都只出一次
     ns.Print(text)
-    LY.Flash(text, 1, ok and 0.82 or 0.45, ok and 0.2 or 0.35)   -- 11-08「点了以后毫无反馈？」：屏幕中间也出一行
+    LY.Flash(text, 1, ok and 0.82 or 0.45, ok and 0.2 or 0.35, true)   -- 11-08「点了以后毫无反馈？」：屏幕中间也出一行
 end
 
 -- 11-06 用户「我的目的是给练级过程中的会员用的，互相互助切位面」→ 截图「不美观，学习下…位面如何区分，展示，学习好的案例」：
@@ -40,6 +49,17 @@ local LAYER_RGB = {
     { 0.30, 0.95, 0.45 }, { 0.35, 0.65, 1.00 }, { 0.75, 0.50, 1.00 },
     { 1.00, 0.62, 0.22 }, { 1.00, 0.45, 0.72 }, { 0.30, 0.90, 0.90 },
 }
+-- 11-19 用户截图「展示还是有误」：别人报的层码是几分钟前读到的 / 刚把我拉过来还没回报，都写出来，不当确定的事实
+local function peerNote(pe)
+    if pe.hopPending then return "|cffffcc00 " .. string.format(L("刚拉你过来 · 待确认（他上次报 层码 %s）", "confirming (%s)"), LY.Tail(pe.z)) .. "|r" end
+    local at = pe.zAt or pe.seen
+    local age = at and ((GetTime and GetTime() or 0) - at) or 0
+    return (pe.hopConflict and ("|cffff9966 " .. L("刚拉过你 · 他读到的层码和你不同", "code differs") .. "|r") or "")
+        .. ((age >= LY.STALE and ("|cff888888 · " .. string.format(L("%d 分钟前 · 可能已变", "%dm ago"), math.max(1, math.floor(age / 60))) .. "|r"))
+            or (pe.zi and ("|cff888888 · " .. L("按队长推断", "inferred") .. "|r")) or "")
+end
+LY.PeerNote = peerNote   -- 测试用
+
 local function layerRGB(no) return LAYER_RGB[((no or 1) - 1) % #LAYER_RGB + 1] end
 local function hex(c) return string.format("|cff%02x%02x%02x", c[1] * 255, c[2] * 255, c[3] * 255) end
 local function classHex(cf)
@@ -66,6 +86,16 @@ local function check(parent, x, y, text, get, set)
 end
 
 local CARD_W, MAX_CARDS = 596, 8
+-- 「过去」/「请他们拉我」的鼠标提示：会请谁（11-19 内存：两处共用一份）
+local function askTip(self, a, b, none)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    local who, pe = LH.PickHelper(a)
+    if not who and b then who, pe = LH.PickHelper(b) end
+    GameTooltip:SetText(who and string.format(L("会请最近帮得最少的一位：%s（帮过 %s 次）", "Asks whoever helped least recently: %s (%s)"),
+        who, pe and pe.hc and tostring(pe.hc) or "?") or none, 1, 1, 1, 1, true)   -- 11-10 BugSack：第 5 个参数是透明度，少写一个 1 → true 落到 alpha 报错
+    GameTooltip:Show()
+end
+local function hideTip() GameTooltip:Hide() end
 local function mkCard(parent, p)
     local c = CreateFrame("Frame", nil, parent, BackdropTemplateMixin and "BackdropTemplate" or nil)
     c:SetSize(CARD_W, 52)
@@ -81,20 +111,13 @@ local function mkCard(parent, p)
     c.go = btn(c, L("过去", "Go"), 84, 24, "normal", function()
         -- 11-10 用户「一个人没接，会自动换一个人？」→ 30 秒没邀请自动换下一位（LH.AskChain，最多 3 位）
         if not (LH.PickHelper(c.list) or LH.PickHelper(c.farList)) then return end
-        local who, why, detail = LH.AskChain(c.list, c.farList)
+        local who, why, detail = LH.AskChain(c.list, c.farList, c.z)
         okMsg(who ~= nil, why, string.format(L("已请 %s 拉你过去：他一邀请你就自动进队，换过去后自动退队；30 秒没邀请会自动换人", "Asked %s - you'll auto-join, then leave once moved; auto-asks someone else after 30 sec"), tostring(who)), detail)
         p.refreshNow()
     end)
     c.go:SetPoint("RIGHT", -10, 0)
-    c.go:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        local who, pe = LH.PickHelper(c.list)
-        if not who then who, pe = LH.PickHelper(c.farList) end
-        GameTooltip:SetText(who and string.format(L("会请这层里最近帮得最少的一位：%s（帮过 %s 次）", "Asks whoever helped least recently: %s (%s)"),
-            who, pe and pe.hc and tostring(pe.hc) or "?") or L("这层没有公会会员", "Nobody on this layer"), 1, 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    c.go:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    c.go:SetScript("OnEnter", function(self) askTip(self, c.list, c.farList, L("这层没有公会会员", "Nobody on this layer")) end)
+    c.go:SetScript("OnLeave", hideTip)
     return c
 end
 
@@ -129,7 +152,22 @@ local function build(p)
     end)
     p.hop:SetPoint("TOPLEFT", 12, y)
     p.hopSt = body:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    p.hopSt:SetPoint("LEFT", p.hop, "RIGHT", 12, 0); p.hopSt:SetWidth(CARD_W - 170); p.hopSt:SetJustifyH("LEFT")
+    p.hopSt:SetPoint("LEFT", p.hop, "RIGHT", 12, 0); p.hopSt:SetWidth(CARD_W - 316); p.hopSt:SetJustifyH("LEFT")
+    -- 11-24 用户截图「这里增加一个按钮，自动帮助别人（单人没组的情况）」：同下面设置里的「换层求助自动拉（没组队时）」（autoHelp），
+    --   放到「我想换一层」这一行最右边，一眼看得到、一下就开关；开 = 顺带打开「我愿意帮」
+    p.ahBtn = btn(body, "", 140, 24, nil, function()
+        local on = not (LY.DB().autoHelp == true and LY.DB().helper)
+        if on then LY.DB().helper = true end
+        LY.SetAuto("autoHelp", on); LY.Beat(true); p.refreshNow()
+    end)
+    p.ahBtn:SetPoint("TOPRIGHT", body, "TOPLEFT", 12 + CARD_W, y - 3)
+    p.ahBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+        GameTooltip:AddLine(L("我没组队时，别人求换层直接邀请（不弹框）；队伍 / 战斗 / 副本里不拉", "When solo, invite layer requests without a popup"), 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    p.ahBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    p.hopSt:SetWordWrap(false)   -- 11-22 用户「看着像错位闪动」：倒计时每秒刷，折成两行就压到下面的额度卡片
     y = y - 36
     p.gHd = body:CreateFontString(nil, "OVERLAY", "GameFontNormal"); p.gHd:SetPoint("TOPLEFT", 12, y)
     y = y - 20
@@ -161,20 +199,12 @@ local function build(p)
             p.refreshNow()
         end)
         r.b:SetPoint("RIGHT", -10, 0)
-        r.b:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            local who, pe = LH.PickHelper(r.list)
-            GameTooltip:SetText(who and string.format(L("会请这里最近帮得最少的一位：%s（帮过 %s 次）", "Asks whoever helped least recently: %s (%s)"),
-                who, pe and pe.hc and tostring(pe.hc) or "?") or "", 1, 1, 1, 1, true)   -- 11-10 BugSack：第 5 个参数是透明度，少写一个 1 → true 落到 alpha 报错
-            GameTooltip:Show()
-        end)
-        r.b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        r.b:SetScript("OnEnter", function(self) askTip(self, r.list, nil, "") end)
+        r.b:SetScript("OnLeave", hideTip)
         r:Hide()
         p.oRows[i] = r
     end
-    p.empty = body:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); p.empty:SetWidth(CARD_W); p.empty:SetJustifyH("LEFT")
-    p.empty:SetText(L("同图还没有其他公会会员在线（公会会员也装了插件、指过一只怪才看得到）。点「我想换一层」也会问同图的其他插件用户。",
-        "No other guildmates with the addon on this map yet. 'Switch layer' also asks other addon users here."))
+    p.empty = body:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"); p.empty:SetWidth(CARD_W); p.empty:SetJustifyH("LEFT")   -- 文字每次刷新时写（11-19 删掉建页时那句从来显示不出来的）
 
     p.bHd = body:CreateFontString(nil, "OVERLAY", "GameFontNormal"); p.bHd:SetText(L("做任务推荐", "Quest tip"))
     p.bNote = body:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); p.bNote:SetWidth(CARD_W - 110); p.bNote:SetJustifyH("LEFT")
@@ -187,20 +217,33 @@ local function build(p)
     p.sHd = body:CreateFontString(nil, "OVERLAY", "GameFontNormal"); p.sHd:SetText(L("设置（都能关）", "Settings"))
     p.checks = {}
     local D = LY.DB
+    -- 11-19 内存（主插件登录没余量）：几个开关的读写共用两个小工厂，少几份函数体
+    local function own(k) return function(v) D()[k] = v; if type(D().giAuto) == "table" then D().giAuto[k] = nil end end end   -- 11-18 自己改过 = 不再算公会自动开的
+    local function offGet(k) return function() return D()[k] ~= false end end   -- false = 关，nil = 开
+    local function offSet(k) return function(v) if v then D()[k] = nil else D()[k] = false end end end
     p.checks[1] = check(body, 10, 0, L("我愿意帮公会会员换层", "Help guildmates switch layers"),
         function() return D().helper end, function(v) D().helper = v; LY.Beat(true) end)
-    p.checks[2] = check(body, 310, 0, L("公会会员求助自动拉（不弹框）", "Auto-invite guildmates (no prompt)"),
-        function() return D().autoHelp end, function(v) D().autoHelp = v end)
-    p.checks[3] = check(body, 10, 0, L("换过去后自动退队（换过去的层会留下）", "Leave the group after the move"),
-        function() return D().autoLeave end, function(v) D().autoLeave = v end)
+    p.checks[2] = check(body, 310, 0, L("换层求助自动拉（没组队时）", "Auto-invite requests when solo"),
+        function() return D().autoHelp end, own("autoHelp"))
+    -- 11-22 autoLeave 还是 nil（没问过）时显示没勾：说明写清楚「没设过的第一次换成后会问」，不是「不退」（默认值不动）
+    p.checks[3] = check(body, 10, 0, L("换过去后自动退队（没设过的：第一次换成后问你）", "Leave the group after the move (unset = asked once)"),
+        function() return D().autoLeave end, own("autoLeave"))
     p.checks[4] = check(body, 310, 0, L("会长 / 官员的组队邀请自动接受", "Auto-accept leader / officer invites"),
-        function() return D().autoAccept end, function(v) D().autoAccept = v end)
+        function() return D().autoAccept end, own("autoAccept"))
     -- GI-201「自动添加GIForeverLY频道能不能加个开关」：默认开；关了退出频道，位面只和公会会员互通
     p.checks[#p.checks + 1] = check(body, 10, 0, L("加入公共频道（关了只和公会会员互通）", "Join public channel (off = guild only)"),
         function() return D().pub end, function(v) LY.SetPub(v); p.refreshNow() end)
+    -- 11-17 用户「这些弹出的功能都确保能永久关闭」：位面自己冒出来的三样（换层求助弹框 / 换层屏幕提示 / 会长不同层提示条）都能在这里关，
+    --   存档 layer.hopPop / layer.flash / layer.leadBar（false = 关，nil = 开），弹框上「不再弹」、提示条右键、「窗口与提醒」读写同一份
+    p.checks[#p.checks + 1] = check(body, 10, 0, L("别人求我拉他换层时弹框问", "Prompt when someone asks to join my layer"),
+        offGet("hopPop"), offSet("hopPop"))
+    p.checks[#p.checks + 1] = check(body, 10, 0, L("位面提示也在屏幕上方出一行字（换层 / 求助结果）", "Layer notices as on-screen text (layer change / results)"),
+        offGet("flash"), offSet("flash"))
+    p.checks[#p.checks + 1] = check(body, 10, 0, L("集合时提示「你和会长不在同一层」", "Bar when I'm not on the leader's layer (gathering)"),
+        offGet("leadBar"), function(v) offSet("leadBar")(v); if LG and LG.UpdateBar then pcall(LG.UpdateBar) end end)
     -- 11-06 用户「这个有个默认开关，关了就不扫描和发布了」：总开关排第一个（默认开）；关了不读怪、不发心跳、不帮人
     table.insert(p.checks, 1, check(body, 10, 0, L("开启位面识别（关了就不扫描、不发布）", "Layer detection on (off = no scanning, no broadcasting)"),
-        function() return D().on end, function(v) D().on = v and true or false; if v then LY.Beat(true) end; p.refreshNow() end))
+        function() return D().on end, function(v) D().on = v and true or false; LY.SyncPub(); if v then LY.Beat(true) end; p.refreshNow() end))
 
     p.refreshNow = function() LY.dirty = true; if p.refreshView then p.refreshView() end end
     p.refreshView = function()
@@ -209,27 +252,27 @@ local function build(p)
             local no = LY.LayerNo(m, z)
             p.me:SetText(ns.EnSafe(string.format(L("我现在：%s · %s%s|r", "Me: %s - %s%s|r"), LY.MapName(m), hex(layerRGB(no)), LY.LayerName(m, z))))
             p.meCode:SetText(L("层码 ", "code ") .. LY.Tail(z))
-            p.meHint:SetText("|cff999999" .. L("「第几层」是插件按先后编的号，公会会员之间对得上；不是官方层号", "Layer numbers are the addon's own, consistent between guildmates") .. "|r")
+            p.meHint:SetText("|cff999999" .. L("「第几层」按这张图在用的层码从小到大编，公会会员之间一致；不是官方层号", "Numbered by layer code; not official") .. "|r")
         else
             p.me:SetText(ns.EnSafe(string.format(L("我现在：%s · 还没认出在哪层", "Me: %s - layer unknown"), LY.MapName(m))))
             p.meCode:SetText("")
             p.meHint:SetText("|cffffcc00" .. L("鼠标指一下附近任意一只 NPC / 怪就能认出你在哪层", "Mouse over any nearby NPC to read your layer") .. "|r")
         end
+        -- 11-19 LH.GuildByLayer / GuildElsewhere / LastText / Current 搬进了按需加载的 _LayerUI → 先加载（原来在下面公共频道那块前才加载）
+        if not ns.LayerPub and not rawget(p, "pubTried") then p.pubTried = true; pcall((C_AddOns and C_AddOns.LoadAddOn) or LoadAddOn, "GearInsight_Forever_LayerUI") end
         local why = LH.Blocked()
         local pend, last = LH.pending, LH.last
         local tn = GetTime and GetTime() or 0
         if pend and pend.joinedAt then
             -- 11-09「怎么判断是不是换成功了」：进队后写清楚在确认什么、怎么加快
-            local who = (pend.leader or pend.helper) and tostring(pend.leader or pend.helper):gsub("%-.*$", "") or L("公会会员", "a guildmate")
-            -- 11-12：插件自己在读目标 / 姓名板 / 队友目标，读不到就 INFER_AFTER 秒后按队长那层算 → 写出还要等几秒
-            local left = math.max(0, math.ceil(LH.INFER_AFTER - (tn - pend.joinedAt)))
-            p.hopSt:SetText("|cffffcc00" .. (left > 0
-                and string.format(L("已进 %s 的队，正在自动确认换没换层（还要 %d 秒）：鼠标指一下附近任意 NPC / 怪能马上出结果", "Joined %s's group - confirming your layer (%ds; mouse over an NPC)"), who, left)
-                or string.format(L("已进 %s 的队，还没认出新层：鼠标指一下附近任意 NPC / 怪就能出结果", "Joined %s's group - layer not read yet (mouse over an NPC)"), who)) .. "|r")
+            local who = (pend.leader or pend.helper) and tostring(pend.leader or pend.helper):gsub("%-.*$", "") or askWho()
+            -- 11-23：亲眼读到队长那层才算换成，最多等 CONFIRM 秒（不再按队长报的层推断）→ 写出最多还等几秒、先别退队
+            local left = math.max(0, math.ceil(LH.CONFIRM - (tn - pend.joinedAt)))
+            p.hopSt:SetText("|cffffcc00" .. string.format(L("已进 %s 的队，先别退队：等插件亲眼读到新层（最多 %d 秒）· 指一下附近 NPC / 怪更快", "Joined %s - stay; confirming layer (up to %ds), mouse over an NPC"), who, left) .. "|r")
         elseif pend and tn - pend.t < LH.ACCEPT_WIN then
             -- 11-08「我到底切换了没」：等待中写清楚在等谁、还剩几秒；结果出来写结果
-            local who = pend.helper and tostring(pend.helper):gsub("%-.*$", "") or L("公会会员", "a guildmate")
-            p.hopSt:SetText("|cffffcc00" .. string.format(L("等 %s 邀请你（还剩 %d 秒）：他一邀请就自动进队，到了会提示", "Waiting for %s to invite you (%ds)"), who, math.max(0, math.ceil(LH.ACCEPT_WIN - (tn - pend.t)))) .. "|r")
+            local who = pend.helper and tostring(pend.helper):gsub("%-.*$", "") or askWho()
+            p.hopSt:SetText("|cffffcc00" .. string.format(L("等 %s 邀请你（还剩 %d 秒）", "Waiting for %s to invite you (%ds)"), who, math.max(0, math.ceil(LH.ACCEPT_WIN - (tn - pend.t)))) .. "|r")
         elseif last and tn - last.t < 120 then
             p.hopSt:SetText((last.ok and "|cff33ff66" or "|cffff7766") .. ((LH.LastText and LH.LastText()) or last.text) .. "|r")   -- 11-14 按当前编号重算
         else
@@ -238,9 +281,11 @@ local function build(p)
         end
         -- 11-12：在队里 / 正在确认时也能点：点了告诉你「已经换过来了」或「正在确认，别重复求助」（不会再发求助）
         p.hop:SetEnabled(not why or why == "confirming" or why == "ingroup")
+        local ah = LY.DB().autoHelp == true and LY.DB().helper
+        p.ahBtn:SetText(ah and L("|cff33ff66自动帮别人：开|r", "|cff33ff66Auto-help: ON|r") or L("|cff999999自动帮别人：关|r", "|cff999999Auto-help: OFF|r"))
         for _, cb in ipairs(p.checks) do cb:SetChecked(cb.get() and true or false) end
 
-        local _, _, groups, unknown = LH.GuildByLayer()
+        local _, _, groups, unknown = (LH.GuildByLayer or function() return nil, nil, {}, {} end)()
         -- 11-06 跨地图对照表：别的图的会员 → 我这张图上的层码（对不上 = nil）
         local farPeers = LH.GuildElsewhere and LH.GuildElsewhere() or {}
         local farByZ = {}
@@ -275,7 +320,7 @@ local function build(p)
                 for _, peer in ipairs(g.members) do
                     if shown < 6 then
                         parts[#parts + 1] = classHex(peer.cl) .. peer.name .. "|r" .. (peer.lv and ("|cff999999 " .. peer.lv .. "|r") or "")
-                            .. (peer.party and ("|cff66ccff " .. L("同队", "party") .. "|r") or "")
+                            .. (peer.party and ("|cff66ccff " .. L("同队", "party") .. "|r") or "") .. peerNote(peer)
                             .. ((peer.hc or 0) > 0 and ("|cff888888 · " .. string.format(L("帮过 %d 次", "helped %d"), peer.hc) .. "|r") or "")
                         shown = shown + 1
                     end
@@ -294,7 +339,7 @@ local function build(p)
                     for k = 1, math.min(3, #order) do seg[k] = LY.MapName(order[k]) .. " " .. cnt[order[k]] end
                     parts[#parts + 1] = "|cff888888" .. L("别的图也在这层：", "Also on this layer: ") .. table.concat(seg, "、") .. "|r"
                 end
-                c.list = (not g.mine) and g.members or {}
+                c.list, c.z = (not g.mine) and g.members or {}, g.z
                 c.farList = (not g.mine) and fl or {}
                 local anyHp = false
                 for _, peer in ipairs(c.list) do if peer.hp then anyHp = true end end
@@ -327,18 +372,8 @@ local function build(p)
         for _, g in ipairs(groups) do others = others + #g.members end
         local onlyMe = others == 0   -- 11-06 来过的层也列出来了 → 按「有没有别的会员」判断空状态
         -- 11-06 用户「公会有人已经装了，为啥看不到」：空状态后面写清楚收到了几个会员的位面信号、都在哪张图（同图才进卡片）
-        local allPeers, here = LY.Peers("guild"), 0
-        local maps = {}
-        for _, peer in ipairs(allPeers) do
-            if not (LY.IsMe and LY.IsMe(peer.full or peer.name)) then
-                if peer.m == m then here = here + 1 elseif peer.m then maps[peer.m] = (maps[peer.m] or 0) + 1 end
-            end
-        end
-        local elsewhere = {}
-        for mm, n in pairs(maps) do elsewhere[#elsewhere + 1] = LY.MapName(mm) .. " " .. n end
-        local diag = #allPeers == 0 and L("最近 2 分钟没收到任何公会会员的位面信号：对方要是 0.7.0、并且在线。", "No guildmate layer signals in the last 2 min (they need 0.7.0 and be online).")
-            or string.format(L("收到 %d 位公会会员的位面信号：同图 %d 人%s。", "%d guildmates seen: %d on this map%s."), #allPeers, here,
-                #elsewhere > 0 and (L("，别的图：", "; elsewhere: ") .. table.concat(elsewhere, "、")) or "")
+        -- 11-22 用户「字多，不用都展示」：不再逐图列人数（下面「别的图的公会会员」已经列了），一个都没收到时才多说一句
+        local diag = #LY.Peers("guild") == 0 and L("最近 2 分钟没收到任何公会会员的位面信号：对方要是 0.7.0、并且在线。", "No guildmate layer signals in the last 2 min (they need 0.7.0 and be online).") or ""
         p.empty:SetText(L("同图还没有其他公会会员（公会会员也装了插件、指过一只怪才看得到）。", "No other guildmates on this map yet. ") .. diag)
         p.empty:SetShown(onlyMe and #unknown == 0)
         if p.empty:IsShown() then
@@ -356,11 +391,10 @@ local function build(p)
             if key and not e then e = { m = peer.m, st = st, zz = peer._zz, list = {} }; byMap[key] = e; far[#far + 1] = e end
             if e then e.list[#e.list + 1] = peer end
         end
-        -- 别的层的排前面（找他有用），对不上的其次，和我同层的放最后
+        -- 别的层的排前面（找他有用），对不上的其次，和我同层的放最后；同档按地图固定排（11-21 不再按人数排，人数一变顺序就跳）
         local rank = function(e) return e.st == "same" and 2 or (e.st == "?" and 1 or 0) end
         table.sort(far, function(a, b)
             if rank(a) ~= rank(b) then return rank(a) < rank(b) end
-            if #a.list ~= #b.list then return #a.list > #b.list end
             return a.m < b.m
         end)
         p.oHd:SetShown(#far > 0); p.oSub:SetShown(#far > 0)
@@ -394,9 +428,13 @@ local function build(p)
             end
         end
 
+        -- 11-19 用户「同图其他玩家也列出来」「分开列出」：公共频道那一块 + 按钮上的倒计时都在按需加载的 GearInsight_Forever_LayerUI（LayerPub.lua），
+        --   第一次刷新位面页才加载（主插件登录内存没余量）；没装那个文件夹 = 不出这块，其余照旧
+        if ns.LayerPub then y = ns.LayerPub.Refresh(p, y, m, why) end
+
         y = y - 8
         p.bHd:ClearAllPoints(); p.bHd:SetPoint("TOPLEFT", p.body, "TOPLEFT", 12, y)
-        local _, best = LH.Current()
+        local _, best = (LH.Current or function() end)()
         p.bestZ = best and best.z or nil
         if best then
             p.bNote:SetText(ns.EnSafe(string.format(L("建议换到 %s：那层你的任务怪多（%d 只）、抢的人少（同任务 %d 人）", "Try %s: more of your quest mobs (%d), fewer competitors (%d)"),
@@ -455,7 +493,6 @@ local function ensureSideTab()
     if ns.LayoutSideTabs then pcall(ns.LayoutSideTabs, host) end
     if W.KeepSideTabsOnScreen then pcall(W.KeepSideTabsOnScreen, host) end
 end
-ns.EnsureLayerSideTab = ensureSideTab
 -- 主面板打开时（ToggleMain 里先排公会 / 组队占位页签）之后再挂，排在它们下面
 local origToggle = ns.ToggleMain
 if type(origToggle) == "function" then

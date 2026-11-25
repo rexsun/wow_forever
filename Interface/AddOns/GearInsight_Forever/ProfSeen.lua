@@ -6,6 +6,8 @@
 -- 网站汇总后进下一版配方出处（bis_wow/tools/forever_recipe_sources.py 读 /api/wow/forever/recipe-seen）。
 -- 不记角色名 / 服务器名；只存 300 条，按 (图纸, 类别, NPC) 去重。
 local _, ns = ...
+-- 11-17 界面重构第 6a 期：功能开关「profseen」—— 正文包成函数，读完存档关着就不跑（见 Features.lua 的 ns.FeatureDefer；正文没缩进是为了不动原有行）
+local function body()
 
 local MAX_SEEN = 300
 
@@ -153,3 +155,5 @@ table.insert(ns.modules, function()
     end
     f:SetScript("OnEvent", ns._profSeenEvent)
 end)
+end
+if ns.FeatureDefer then ns.FeatureDefer("profseen", body) else body() end

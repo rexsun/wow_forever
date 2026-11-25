@@ -7,45 +7,10 @@
 local _, ns = ...
 
 local BASE = "https://gearinsight.cn/fv/"
-local FAC = { Alliance = "A", Horde = "H", Neutral = "N" }
 
-local function classKey()
-    local _, token = UnitClass("player")
-    token = token or ""
-    return token:sub(1, 1) .. token:sub(2):lower()
-end
+local classKey = ns._ClassKey   -- TraitTalents.lua
 
--- 这个角色每一级用了几分钟：同一 cid 相邻两级的 /played 之差 → "起始级.分-分-分"（1 分钟 ~ 24 小时之外的丢掉，断档就从断档后重新起）
-function ns.LevelMinutes(cid, keepLast)
-    local lv = {}
-    for _, r in ipairs((ns.db and ns.db.lvls) or {}) do
-        if r.cid == cid and r.played and r.played > 0 then lv[r.lvl] = r.played end
-    end
-    local first, mins = nil, {}
-    local lvls = {}
-    for l in pairs(lv) do lvls[#lvls + 1] = l end
-    table.sort(lvls)
-    for _, l in ipairs(lvls) do
-        local p = lv[l - 1]
-        if p and lv[l] > p then
-            local m = math.floor((lv[l] - p) / 60 + 0.5)
-            if m >= 1 and m <= 1440 then
-                if first and l ~= first + #mins then first, mins = nil, {} end   -- 断档：只留最后一段连续的
-                first = first or l
-                mins[#mins + 1] = m
-            end
-        end
-    end
-    if not first then return "" end
-    if keepLast and #mins > keepLast then
-        local cut = #mins - keepLast
-        local t = {}
-        for i = cut + 1, #mins do t[#t + 1] = mins[i] end
-        first, mins = first + cut, t
-    end
-    return first .. "." .. table.concat(mins, "-")
-end
-
+-- 11-20 删 ns.LevelMinutes（只给已下线的战绩卡二维码拼网址用，全仓无调用；给 1.4.3 腾内核内存）
 -- ⛔ 11-05 用户「这个功能没用吧，删了吧，关闭」：战绩卡二维码（/gi card，微信扫码看升级用时 / 死亡次数 / 同职业排第几）下线，
 --   拼网址 CardURL / 出码 ShowCardQR 和所有入口都删了；网站 /fv/c 收码接口留着（老版本玩家扫了不报错）。下面只剩配点二维码。
 

@@ -18,7 +18,8 @@ XC.IDS = {
     lockout = { [1229451] = true },                     -- 强化休息：1 小时内拿不到帐篷经验
     fire = { [1229739] = true, [1283391] = true },      -- 温馨营火 / 营火在附近
     tent = { [1229741] = true },                        -- 露营增益（11-09 用户 /gi xp probe：29m，和强化休息同时挂）
-    bag = {}, food = {},                                -- 探针定了再填
+    bag = { [429959] = true }, food = {},               -- 精神饱满 429959（11-17 DB2 核对：每层 +1% 打怪 + 任务经验，2 小时）
+    passive = { [1243969] = true, [1225478] = true },   -- 进食充分经验值加成（让食物带经验的条件光环）/ 传承「精神抖擞」：提示带经验，但不是一项加成，别当成食物
 }
 XC.NAMES = {
     lockout = { "强化休息", "強化休息" },
@@ -35,15 +36,98 @@ XC.BAG_STACKS = 3
 XC.TH = { default = { show = 900, hi = 300 }, tent = { show = 600, hi = 300 }, food = { show = 180, hi = 60 } }   -- 11-09「食物还剩3分钟再提醒」
 local function th(k) return XC.TH[k] or XC.TH.default end
 XC.Th = th
-XC.KEYS = { "tent", "fire", "bag", "food", "rest" }
+XC.KEYS = { "tent", "fire", "bag", "food", "boost", "kit", "rest" }
 XC.TITLE = {
     tent = { "帐篷经验", "Tent XP" }, fire = { "营火", "Campfire" }, bag = { "睡袋", "Sleeping bag" },
-    food = { "经验食物", "XP food" }, rest = { "休息经验", "Rested XP" },
+    food = { "经验食物", "XP food" }, boost = { "经验药剂/活动", "XP potion/event" }, kit = { "药剂/武器油", "Elixir/oil" }, rest = { "休息经验", "Rested XP" },
 }
 XC.ICON = {
     tent = "Interface\\Icons\\Spell_Nature_Tranquility", fire = "Interface\\Icons\\Spell_Fire_Fire", bag = "Interface\\Icons\\Spell_Nature_Sleep",
-    food = "Interface\\Icons\\INV_Misc_Food_15", rest = "Interface\\Icons\\Spell_Nature_Sleep",
+    food = "Interface\\Icons\\INV_Misc_Food_15", boost = 134803, kit = "Interface\\Icons\\INV_Potion_30", rest = "Interface\\Icons\\Spell_Nature_Sleep",
 }
+
+-- ---------- 其他加经验的（boost）+ 合计 ----------
+-- 11-17 用户「练级BUFF检查器，加上经验的一起来检查」。盘点《无限》客户端 DB2（wago 1.60.1.70790 / 70938）里所有
+--   光环 200「经验获取 %」/ 291「任务经验 %」/ 447「击杀某类生物经验 %」的法术，除了已有的睡袋 / 食物，还有：
+--   无尽经验药剂 1328127（物品 289334，+200% 1 小时，70938 新加，客户端标价 3 银 80 铜，哪里卖还没核实）；
+--   大法师的智慧 1292997（颈部「大法师的多面坠饰」273049 使用：杀亡灵 +10% 5 分钟，6 小时一次，达拉然城·大法师之影掉落，30 级）；
+--   大法师的感知 1293736（同效果，没找到给它的物品）；活动类：智慧烈风 335924（国服专属 +50%）/ 探索之悦 436412（+50%）/
+--   魔兽综艺汇——启迪烈风！430496（+50% 5 分钟）/ 冒险等待着你 362859（任务经验 +100%）—— 拿不到，只在身上有的时候显示。
+--   每条「光环:加多少:范围:物品:类:要求等级:中文名:英文名」；范围 a 打怪 + 任务 / k 只打怪 / q 只任务 / u 只杀亡灵；类 p 药剂（包里有没喝 = 红 + 用）/ t 饰品（戴着能用 = 灰 + 用）/ e 活动
+XC.BOOST_SRC = "1328127:200:a:289334:p:1:无尽经验药剂:Elixir of Endless Experience;1292997:10:u:273049:t:30:大法师的智慧:Archmagister's Wisdom;"
+    .. "1293736:10:u:0:e:1:大法师的感知:Archmagister's Perception;335924:50:a:0:e:1:智慧烈风:Winds of Wisdom;436412:50:a:0:e:1:探索之悦:Discoverer's Delight;"
+    .. "430496:50:a:0:e:1:魔兽综艺汇——启迪烈风！:WoW Variety Show;362859:100:q:0:e:1:冒险等待着你:Adventure Awaits"
+XC.FOOD_PCT, XC.BAG_PCT = 5, 1   -- DB2：进食充分经验值加成 1243969 打怪 +5%（不加任务）；精神饱满 429959 每层 +1%（打怪 + 任务）
+XC.TH.boost = { show = 180, hi = 60 }
+local boostList, boostAura
+function XC.BoostData()
+    if not boostList then
+        boostList, boostAura = {}, {}
+        for aura, pct, sc, item, cat, lv, zh, en in XC.BOOST_SRC:gmatch("([0-9]+):([0-9]+):(%a):([0-9]+):(%a):([0-9]+):([^:]+):([^;]+)") do
+            local e = { aura = tonumber(aura), pct = tonumber(pct), sc = sc, item = tonumber(item), cat = cat, lv = tonumber(lv), zh = zh, en = en }
+            boostList[#boostList + 1] = e
+            boostAura[e.aura] = e
+        end
+    end
+    return boostList, boostAura
+end
+local SCOPE = { a = { "", "" }, k = { "打怪", "kills " }, q = { "任务", "quests " }, u = { "杀亡灵", "Undead kills " } }
+-- 提示里「经验 … N%」的 N（食物 / 认不出的经验增益用；读不到返回 nil）
+local function pctOf(tip)
+    if type(tip) ~= "string" then return nil end
+    local s = tip:match("经验(.*)") or tip:match("經驗(.*)") or tip:match("[Ee]xperience(.*)")
+    return s and tonumber(s:match("([0-9]+)%%")) or nil
+end
+XC.PctOf = pctOf
+
+-- ---------- 练级消耗品：药剂 + 武器油 / 磨刀石（kit）----------
+-- 11-17 用户分享抖音「魔兽无限服只要 6 银币，战力提升 50%，练级速度提升 20%」+「这个做个功能到练级BUFF里，这样可以主动的在开始练级前准备好」。
+--   视频讲的是三件低级消耗品：初级奥法药剂（拍卖约 1 银）+ 初级巫师之油（约 2 银）+ 烤鼠尾鱼（约 3 银）；物理职业换成磨刀石 + 力量 / 敏捷药剂 + 加属性食物。
+--   食物那份上面「经验食物」已经管（烤鼠尾鱼本来就在经验食物表里），这里只补「药剂 + 武器强化」两样。
+--   核对（《无限》客户端 DB2，wago.tools 1.60.1.70790：ItemXItemEffect → SpellEffect / SpellItemEnchantment）：
+--     初级奥法药剂 247754 → 光环 1245244「法术伤害 +5」30 分钟，1 级能喝；初级巫师之油 20744 → 武器临时附魔 2623「法伤 / 治疗 +8」30 分钟，5 级；
+--     坚固的磨刀石 7964 → 磨快 +6 30 分钟，《无限》改成 25 级能用（经典旧服 35）；食人魔力量药剂 3391 → 光环 3164 力量 +8 一小时，20 级。
+--   ⛔ 视频「战力 +50% / 练级速度 +20%」是 25 级德鲁伊一发愤怒 37→52 的单次实测 + 自己推算，插件里不写这两个数，只写每样实打实加多少。
+--   状态：生效中 = ok（剩 ≤3 分钟 warn）；包里有没用 = miss（红，点页里的「用」或背包右键）；包里没有 = info（灰，可选、要花钱，跟营火一样不算「缺」）。
+--   10 级前不提（掉级快、不值当）；副本里只显示生效中的，不提缺。
+XC.KIT_MIN_LV = 10
+XC.TH.kit = { show = 180, hi = 60 }
+-- 物品表（内存预算：写成一串字、第一次用到才拆成表）。每条「物品:光环:要求等级:类:加多少:中文名:英文名」，光环 0 = 武器临时附魔（读 GetWeaponEnchantInfo）
+--   类：sp 法伤药剂 / str 力量 / agi 敏捷 / oil 巫师之油（法伤）/ sharp 磨刀石（利器）/ blunt 平衡石（钝器）
+XC.KIT_SRC = "247754:1245244:1:sp:5:初级奥法药剂:Minor Arcane Elixir;250342:1250971:25:sp:15:次级奥法药剂:Lesser Arcane Elixir;9155:11390:37:sp:20:奥法药剂:Arcane Elixir;"
+    .. "13454:17539:47:sp:35:强效奥法药剂:Greater Arcane Elixir;2454:2367:1:str:4:初级力量药剂:Elixir of Minor Strength;3391:3164:20:str:8:食人魔力量药剂:Elixir of Ogre's Strength;"
+    .. "9206:11405:48:str:25:强效力量药剂:Elixir of Greater Strength;2457:2374:2:agi:4:初级敏捷药剂:Elixir of Minor Agility;3390:3160:18:agi:8:次级敏捷药剂:Elixir of Lesser Agility;"
+    .. "8949:11328:27:agi:15:敏捷药剂:Elixir of Agility;9187:11334:38:agi:25:强效敏捷药剂:Elixir of Greater Agility;"
+    .. "20744:0:5:oil:8:初级巫师之油:Minor Wizard Oil;20746:0:30:oil:16:次级巫师之油:Lesser Wizard Oil;20750:0:40:oil:24:巫师之油:Wizard Oil;20749:0:45:oil:36:卓越巫师之油:Brilliant Wizard Oil;"
+    .. "2862:0:1:sharp:2:劣质磨刀石:Rough Sharpening Stone;2863:0:5:sharp:3:粗制磨刀石:Coarse Sharpening Stone;2871:0:15:sharp:4:重磨刀石:Heavy Sharpening Stone;"
+    .. "7964:0:25:sharp:6:坚固的磨刀石:Solid Sharpening Stone;12404:0:35:sharp:8:致密磨刀石:Dense Sharpening Stone;3239:0:1:blunt:2:劣质平衡石:Rough Weightstone;"
+    .. "3240:0:5:blunt:3:粗制平衡石:Coarse Weightstone;3241:0:15:blunt:4:重平衡石:Heavy Weightstone;7965:0:25:blunt:6:坚固的平衡石:Solid Weightstone;12643:0:35:blunt:8:致密平衡石:Dense Weightstone"
+-- 不推荐买、但喝了也算「有药剂」的光环：次级奥法（旧 217398）/ 火焰 / 冰霜 / 暗影强化 / 猫鼬 / 蛮力 /《无限》新次级智力 / 力量 / 智力药剂
+XC.KIT_AURA_EXTRA = "439959 7844 21920 11474 17538 17537 1250988 1250984 1250989"
+XC.KIT_FX = { sp = { "法伤 +", "+%s spell dmg" }, oil = { "法伤 +", "+%s spell dmg" }, str = { "力量 +", "+%s Str" }, agi = { "敏捷 +", "+%s Agi" },
+    sharp = { "武器伤害 +", "+%s weapon dmg" }, blunt = { "武器伤害 +", "+%s weapon dmg" } }
+-- 职业 → 用哪几类：e 药剂 / w 武器（猎人靠远程，不提武器）；h = 混合职业，推荐写两样
+XC.KIT_ROLE = {
+    MAGE = { e = "sp", w = "oil" }, WARLOCK = { e = "sp", w = "oil" }, PRIEST = { e = "sp", w = "oil" },
+    WARRIOR = { e = "str agi", w = "sharp blunt" }, ROGUE = { e = "agi str", w = "sharp blunt" }, HUNTER = { e = "agi" },
+    PALADIN = { e = "str sp", w = "sharp blunt oil", h = true }, SHAMAN = { e = "str sp", w = "sharp blunt oil", h = true },
+    DRUID = { e = "sp str agi", w = "oil sharp blunt", h = true },
+}
+local kitList, kitAura
+function XC.KitData()
+    if not kitList then
+        kitList, kitAura = {}, {}
+        for item, aura, lv, kind, amt, zh, en in XC.KIT_SRC:gmatch("(%d+):(%d+):(%d+):(%a+):(%d+):([^:]+):([^;]+)") do
+            local e = { item = tonumber(item), aura = tonumber(aura), lv = tonumber(lv), kind = kind, amt = amt, zh = zh, en = en }
+            kitList[#kitList + 1] = e
+            if e.aura > 0 then kitAura[e.aura] = true end
+        end
+        for id in XC.KIT_AURA_EXTRA:gmatch("%d+") do kitAura[tonumber(id)] = true end
+        XC.IDS.elixir = kitAura
+    end
+    return kitList, kitAura
+end
+XC.IDS.elixir, XC.NAMES.elixir = setmetatable({}, { __index = function(_, id) local _, a = XC.KitData(); return a[id] end }), {}   -- 药剂光环只按 ID 认（光环名就叫「力量」「敏捷」，按名字认会误中）
 
 local function now() return GetTime and GetTime() or 0 end
 local function secret(v) return ns.Secret(v) end
@@ -89,9 +173,13 @@ local function auraTip(i, filter)
     for _, ln in ipairs(d.lines) do t[#t + 1] = str(ln.leftText) or "" end
     return table.concat(t, " ")
 end
+-- 11-18 内存（用户截图插件 143 MB）：每次检查、每个增益都新建这几张常量小表 → 提到外面只建一次（内容不变）
+local AURA_FILTERS = { "HELPFUL", "HARMFUL" }
+local KNOWN_KS = { "lockout", "fire", "bag", "elixir" }
+local CLASSIFY_KS = { "lockout", "fire", "bag", "tent", "food" }
 function XC.Auras()
     local out = {}
-    for _, filter in ipairs({ "HELPFUL", "HARMFUL" }) do
+    for _, filter in ipairs(AURA_FILTERS) do
         for i = 1, 40 do
             local name, sid, exp, cnt, icon
             if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
@@ -108,9 +196,10 @@ function XC.Auras()
             local a = { name = name, id = sid, left = left, stacks = cnt or 0, icon = (icon and not secret(icon)) and icon or nil }   -- 图标用增益自己的（11-09 截图：帐篷图标客户端里没有，空着）
             -- 读鼠标提示有开销：名字 / ID 已经认出是营火 / 睡袋 / 帐篷 / 强化休息的就不读，只有剩下的才看提示里带不带「经验」
             local known = false
-            for _, k in ipairs({ "lockout", "fire", "bag" }) do
+            for _, k in ipairs(KNOWN_KS) do
                 if (sid and XC.IDS[k][sid]) or anyMatch(name, XC.NAMES[k]) then known = true; break end
             end
+            if sid and (XC.IDS.passive[sid] or select(2, XC.BoostData())[sid]) then known = true end
             -- GI-234 玩家「获得了露营增益，但是没有经验加成」：名字像露营的不一定带经验 → 帐篷类也读提示，
             --   提示读到了就按这一刻写没写经验算（不拿存档里记过的顶，免得同名的没经验效果被当成有）
             if not known and ((sid and XC.IDS.tent[sid]) or anyMatch(name, XC.NAMES.tent)) then
@@ -123,6 +212,7 @@ function XC.Auras()
                 if hit and key then XC.DB().xpAura = seen or {}; XC.DB().xpAura[key] = true end
                 a.tipRead = tip and true or false
                 a.xp = hit or (not tip and key and seen and seen[key] and true) or false
+                a.pct = hit and pctOf(tip) or nil
             end
             if not known then
                 -- 11-09 用户截图「错误报」：食物还剩 2 分钟却报「经验食物没了」—— 提示偶尔读不到（空 / 没加载好），
@@ -136,6 +226,7 @@ function XC.Auras()
                     XC.DB().xpAura[key] = true
                 end
                 a.xp = (hit or (key and seen and seen[key])) and true or false
+                a.pct = hit and pctOf(tip) or nil
             end
             out[#out + 1] = a
         end
@@ -144,7 +235,10 @@ function XC.Auras()
 end
 
 local function classify(a)
-    for _, k in ipairs({ "lockout", "fire", "bag", "tent", "food" }) do
+    if a.id and XC.IDS.elixir[a.id] then return "elixir" end
+    if a.id and XC.IDS.passive[a.id] then return a.id == 1225478 and "legacy" or nil end
+    if a.id and select(2, XC.BoostData())[a.id] then return "boost" end
+    for _, k in ipairs(CLASSIFY_KS) do
         local byId = a.id and XC.IDS[k][a.id]
         if byId or anyMatch(a.name, XC.NAMES[k]) then
             if k == "tent" then
@@ -162,6 +256,8 @@ local function probe(a, k)
     local d = XC.DB()
     d.probe = d.probe or {}
     local line = string.format("%s %s:%s %s", k or "?", tostring(a.id or 0), a.name or "?", a.left and math.floor(a.left / 60 + 0.5) .. "m" or "-")
+    -- 11-18 内存：每次检查都会走到这里，一模一样的一行已经在了就不用再逐条 match（每条 match 都新建一个字符串）
+    for _, l in ipairs(d.probe) do if l == line then return end end
     local key = line:match("^(%S+ [^ ]+)")
     for i, l in ipairs(d.probe) do if l:match("^(%S+ [^ ]+)") == key then d.probe[i] = line; return end end
     if #d.probe >= 40 then table.remove(d.probe, 1) end
@@ -169,7 +265,57 @@ local function probe(a, k)
 end
 
 -- ---------- 背包 / 技能 ----------
-local function bag(id) local P = ns.Prof; return (P and P.BagCount and P.BagCount(id)) or 0 end
+-- 11-18 GI-302（法师「出发前清单未识别背包内已有物品」：经验食物 / 睡袋等在包里却显示缺）：
+--   原来只走 ns.Prof.BagCount = 老接口 GetItemCount，《无限》客户端里读不到（11-17 练级补全器 XpSupply 已因同样原因改成逐格扫，这里漏了）
+--   → 新接口 C_Item.GetItemCount、老接口、逐格扫背包 0~4、原来的 ns.Prof.BagCount 几种数法取大的
+local function cfn(k) return (C_Container and C_Container[k]) or rawget(_G, k) end
+-- 11-18 用户「重载了还是巨卡」：原来每数一种物品就把整包扫一遍（几十种 × 一百来格，主城清单每 2 秒一刷）→
+--   整包扫一次存成 { [物品] = 数量 }，同一帧里复用（一次刷新里几十次查询只扫一遍）；换帧 / 背包变了才重扫
+local bagMap, bagMapT, bagDirty = {}, nil, true
+local function now0() return GetTime and GetTime() or 0 end
+local function rescan()
+    local nslots, info = cfn("GetContainerNumSlots"), cfn("GetContainerItemInfo")
+    for k in pairs(bagMap) do bagMap[k] = nil end
+    bagDirty, bagMapT = false, now0()
+    if not (nslots and info) then return end
+    for b = 0, tonumber(NUM_BAG_SLOTS) or 4 do
+        local ok, cnt = pcall(nslots, b)
+        cnt = ok and num(cnt) or 0
+        for s = 1, cnt do
+            local ok2, a, c, _, _, _, _, link, _, _, iid = pcall(info, b, s)
+            if ok2 then
+                local sid, k
+                if type(a) == "table" then sid, k = num(a.itemID), num(a.stackCount)
+                else
+                    sid, k = num(iid), num(c)
+                    if not sid and type(link) == "string" and not secret(link) then sid = tonumber(link:match("item:(%d+)")) end
+                end
+                if sid then bagMap[sid] = (bagMap[sid] or 0) + (k or 1) end
+            end
+        end
+    end
+end
+function XC.BagDirty() bagDirty = true end
+local function scanCount(id)
+    if bagDirty or bagMapT ~= now0() then rescan() end
+    return bagMap[id] or 0
+end
+local function bag(id)
+    local best = 0
+    local fs = { C_Item and C_Item.GetItemCount or false, GetItemCount or false }   -- ⛔ 别放 nil：ipairs 遇到 nil 就停，后面的老接口不调
+    for _, f in ipairs(fs) do
+        if f then
+            local ok, n = pcall(f, id)
+            n = ok and num(n) or 0
+            if n > best then best = n end
+        end
+    end
+    local P = ns.Prof   -- 原来的数法（专业模块；含银行）也算上，读得到就不比原来少
+    if P and P.BagCount then local ok, n = pcall(P.BagCount, id); n = ok and num(n) or 0; if n > best then best = n end end
+    local s = scanCount(id)
+    return s > best and s or best
+end
+XC.BagHave = bag   -- 测试用
 local function level() return num(UnitLevel and UnitLevel("player")) or 1 end
 local function maxLevel() return (num(GetMaxPlayerLevel and GetMaxPlayerLevel()) or 60) end
 local function cookRank()
@@ -188,7 +334,7 @@ local function itemCD(id)
     return math.max(0, s + d - now())
 end
 -- 物品名：客户端缓存里有就用；没缓存（刚登录常见）用我们自己的名字，别显示成数字
-local NAMES = { [4470] = { "普通木柴", "Simple Wood" }, [4471] = { "燧石和火绒", "Flint and Tinder" } }
+local NAMES = { [4470] = { "普通木柴", "Simple Wood" }, [4471] = { "燧石和火绒", "Flint and Tinder" }, [273049] = { "大法师的多面坠饰", "Archmagister's Faceted Pendant" } }
 local function itemName(id, zh, en)
     local n = ns.ItemInfo and ns.ItemInfo(id)
     if str(n) then return n end
@@ -231,6 +377,62 @@ function XC.Foods()
     return have, make
 end
 
+-- ---------- 药剂 / 武器油（kit）----------
+local function none() end
+-- 只数背包（不带银行：银行里的拿不出来用）
+local function bagOnly(id)
+    local ok, n = pcall((C_Item and C_Item.GetItemCount) or GetItemCount or none, id)   -- 11-17 新客户端优先 C_Item
+    return (ok and num(n)) or 0
+end
+-- 主手：nil = 没拿武器；"blunt" 锤 / 法杖；"sharp" 其他；"sharp blunt" 拳套 / 读不到类型（两种石头都算）
+local BLUNT = { [4] = true, [5] = true, [10] = true }
+local function mainHand()
+    local ok, id = pcall(GetInventoryItemID or none, "player", 16)
+    if not (ok and num(id)) then return nil end
+    local ok2, _, _, _, _, _, cls, sub = pcall((C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant or none, id)
+    sub = ok2 and num(cls) == 2 and num(sub)
+    if not sub or sub == 13 then return "sharp blunt" end
+    return BLUNT[sub] and "blunt" or "sharp"
+end
+-- 主手临时附魔（巫师之油 / 磨刀石 / 毒药 / 萨满武器附魔都算）：{ left = 秒 } / false = 没有 / nil = 读不到
+local function weaponEnchant()
+    local ok, has, exp = pcall(GetWeaponEnchantInfo or none)
+    if not ok or has == nil or secret(has) or type(has) ~= "boolean" then return nil end
+    exp = has and num(exp)
+    return has and { left = (exp and exp > 0) and exp / 1000 or nil }
+end
+local function kitName(e) return itemName(e.item, e.zh, e.en) end
+local function kitFx(e) local f = XC.KIT_FX[e.kind]; return L(f[1] .. e.amt, string.format(f[2], e.amt)) end
+XC.KitFx = kitFx
+-- 一份（药剂 / 武器）：kinds 允许的类、等级够的 → bag 包里有的最高一档 / best 每类该买的最高一档
+local function kitPart(kinds, lv, weapon)
+    local p = { best = {} }
+    for _, e in ipairs((XC.KitData())) do
+        if (e.aura == 0) == weapon and kinds:find(e.kind, 1, true) and e.lv <= lv then
+            local n = bagOnly(e.item)
+            if n > 0 and (not p.bag or e.lv > p.bag.e.lv) then p.bag = { e = e, n = n } end
+            if not p.best[e.kind] or e.lv > p.best[e.kind].lv then p.best[e.kind] = e end
+        end
+    end
+    return p
+end
+function XC.Kit(got, lv)
+    local _, _, cls = pcall(UnitClass or none, "player")
+    local role = XC.KIT_ROLE[str(cls) or ""] or XC.KIT_ROLE.DRUID
+    local el = kitPart(role.e, lv, false)
+    el.active = got and got.elixir
+    local out = { role = role, el = el }
+    local mh = role.w and mainHand()
+    local we = mh and weaponEnchant()
+    if we ~= nil then
+        -- 巫师之油哪把武器都能涂；石头看主手是利器还是钝器
+        local kinds = role.w:gsub("%a+", function(k) if k ~= "oil" and not mh:find(k, 1, true) then return "" end end)
+        out.wp = kitPart(kinds, lv, true)
+        out.wp.active = we or nil
+    end
+    return out
+end
+
 local function sleepChain()
     for _, c in ipairs(ns.SideChainsData or {}) do if c.item == XC.BAG_ITEM then return c end end
 end
@@ -259,10 +461,14 @@ function XC.Check()
     local got = {}
     for _, a in ipairs(XC.Auras()) do
         local k = classify(a)
+        if k == "boost" then
+            got.boosts = got.boosts or {}
+            got.boosts[#got.boosts + 1] = a
+        end
         if k then
             local g = got[k]
             if not g or (a.left or 1e9) > (g.left or 1e9) then got[k] = a end
-            probe(a, k)
+            if k ~= "elixir" and k ~= "legacy" then probe(a, k) end   -- 探针只记经验类的
         elseif a.xp then probe(a, nil) end
     end
     local wild = not inInstance()
@@ -282,7 +488,11 @@ function XC.Check()
             text = L("帐篷经验冷却中", "Tent XP on cooldown") .. (got.lockout.left and ("  " .. L("还剩 ", "") .. fmt(got.lockout.left)) or ""),
             how = { L("「强化休息」：1 小时内帐篷给不了经验，冷却完再去蹭", "Enhanced rest: no tent XP for 1 hour; come back after it ends") } })
     elseif wild then
-        add({ key = "tent", st = "miss", text = L("没有帐篷经验", "No tent XP"),
+        -- 11-17「路上碰到还可以刷新」：刚指到过别人的帐篷（Camp.lua 记的）→ 写明附近有谁的帐篷
+        local CP = ns.Camp
+        local near = CP and CP.seenWho and now() - (CP.seenAt or 0) < 180 and CP.seenWho or nil
+        add({ key = "tent", st = "miss", text = L("没有帐篷经验", "No tent XP"), near = near,
+            srcText = near and string.format(L("附近有 %s 的帐篷（再指一下帐篷就弹请求进队）", "%s's tent is nearby (mouse over it to ask for an invite)"), near) or nil,
             how = { L("附近有人放「资深冒险者的探险帐篷」就鼠标指一下，插件弹窗帮你请求进队", "Mouse over someone's adventurer's tent - the addon offers to ask for an invite"),
                 L("进队后在帐篷旁坐下（按 X）满 60 秒才拿到经验", "Once grouped, sit (X) next to the tent for 60 seconds") } })
     end
@@ -306,7 +516,8 @@ function XC.Check()
         else
             how[#how + 1] = L("没学烹饪：找队友的营火，或学烹饪自己生火（燧石和火绒 + 普通木柴）", "No Cooking: use a party member's fire, or learn Cooking (flint + wood)")
         end
-        add({ key = "fire", st = "miss", text = L("不在营火边", "No campfire"), how = how })
+        -- 11-17 用户「营火不算buff」：营火只是坐着才有的地点效果，不在边上 ≠ 缺 buff → 灰着（info），不标红「缺」、不闪框、不算进缺几项
+        add({ key = "fire", st = "info", text = L("不在营火边", "No campfire"), how = how })
     end
 
     -- 睡袋
@@ -321,12 +532,18 @@ function XC.Check()
         add(r)
     elseif bagN > 0 then
         local cd = itemCD(XC.BAG_ITEM)
+        -- 11-18 官方在线修正：骑着坐骑不能再躺进睡袋；睡袋改为像猎人陷阱一样放到指定位置，范围内有休息光环提示
+        local mounted = IsMounted and IsMounted()
         if cd > 0 then
-            add({ key = "bag", st = "info", left = cd, text = L("睡袋冷却中", "Bag on cooldown") .. "  " .. L("还剩 ", "") .. fmt(cd),
-                how = { L("冷却好了再铺；队友的睡袋也能躺", "Wait for the cooldown, or use a party member's bag") } })
+            local how = { L("冷却好了再铺；队友的睡袋也能躺", "Wait for the cooldown, or use a party member's bag") }
+            if mounted then
+                table.insert(how, 1, L("骑着坐骑躺不进睡袋（11-18 热修），先下坐骑再走进睡袋范围", "You can't use a sleeping bag while mounted (Nov 18 hotfix): dismount and step into its range"))
+            end
+            add({ key = "bag", st = "info", left = cd, text = L("睡袋冷却中", "Bag on cooldown") .. "  " .. L("还剩 ", "") .. fmt(cd), how = how })
         elseif wild then
             add({ key = "bag", st = "miss", text = L("睡袋可以铺了", "Sleeping bag ready"),
-                how = { L("找个安全地方铺开（读条 15 秒），躺 3 分钟叠满 3 层，经验 +3%，持续 2 小时", "Deploy it somewhere safe (15 s cast), lie 3 minutes for 3 stacks: +3% XP for 2 hours") } })
+                how = { L("先下坐骑，像放猎人陷阱一样把睡袋放到想要的位置（读条 15 秒）；进到范围内会有休息光环提示，躺 3 分钟叠满 3 层，经验 +3%，持续 2 小时",
+                    "Dismount, then place the bag like a hunter trap (15 s cast); a resting aura shows when you're in range. Lie 3 minutes for 3 stacks: +3% XP for 2 hours") } })
         end
     elseif lv >= 14 then
         local c = sleepChain()
@@ -366,6 +583,83 @@ function XC.Check()
         add({ key = "food", st = "miss", text = have[1] and L("没吃经验食物（包里有）", "No XP food (you have some)") or L("没吃经验食物", "No XP food"), how = how })
     end
 
+    -- 经验药剂 / 饰品 / 活动（BOOST_SRC，数据驱动）：生效中 = ok；包里有药剂没喝 = 红 + 用；戴着坠饰、冷却好了 = 灰 + 用；其他（活动）只在身上有时显示
+    local _, bAura = XC.BoostData()
+    if XC.ItemOn("boost") then
+        local act, minLeft, how, use, st = {}, nil, {}, nil, nil
+        for _, a in ipairs(got.boosts or {}) do
+            local e = bAura[a.id]
+            act[#act + 1] = L(e.zh, e.en) .. " +" .. e.pct .. "%" .. (a.left and (" " .. fmt(a.left)) or "")
+            how[#how + 1] = L(e.zh, e.en) .. L("：", ": ") .. L(SCOPE[e.sc][1], SCOPE[e.sc][2]) .. L("经验 +", "XP +") .. e.pct .. "%"
+            if a.left and (not minLeft or a.left < minLeft) then minLeft = a.left end
+        end
+        for _, e in ipairs(wild and XC.BoostData() or {}) do
+            if e.item > 0 and e.lv <= lv and not use then
+                local fx = L(SCOPE[e.sc][1], SCOPE[e.sc][2]) .. L("经验 +", "XP +") .. e.pct .. "%"
+                if e.cat == "p" and bagOnly(e.item) > 0 then
+                    use, st = { item = e.item, n = bagOnly(e.item), name = itemName(e.item, e.zh, e.en), fx = fx }, "miss"
+                elseif e.cat == "t" then
+                    local ok, id = pcall(GetInventoryItemID or none, "player", 2)
+                    if ok and num(id) == e.item and itemCD(e.item) == 0 then use, st = { item = e.item, n = 1, name = itemName(e.item), fx = fx, trinket = true }, "info" end
+                end
+            end
+        end
+        if act[1] then
+            local t = th("boost")
+            add({ key = "boost", st = (minLeft and minLeft <= t.show) and "warn" or "ok", left = minLeft, hi = (minLeft and minLeft <= t.hi) or nil,
+                text = table.concat(act, L("、", ", ")), how = how, icon = got.boost.icon })
+        elseif use then
+            add({ key = "boost", st = st, use = use,
+                text = st == "miss" and string.format(L("包里有%s没喝", "%s in your bags, not used"), use.name) or string.format(L("%s可以用了", "%s is ready"), use.name),
+                how = { use.name .. L("：", ": ") .. use.fx .. (st == "miss" and L("，1 小时", ", 1 hour") or L("，5 分钟；6 小时一次，打亡灵前用", ", 5 min, 6 h cooldown - use before fighting Undead")),
+                    L("经验加成页里点「用」一键用上（战斗中不能用），或背包里右键", "Click \"Use\" on the XP page (not in combat), or right-click it in your bags") } })
+        end
+    end
+
+    -- 药剂 / 武器油（11-17 抖音「6 银币」那套，见文件头 XC.KIT_SRC 注释）
+    if lv >= XC.KIT_MIN_LV and XC.ItemOn("kit") then
+        local k = XC.Kit(got, lv)
+        local act, use, how, miss, minLeft = {}, nil, {}, {}, nil
+        for _, x in ipairs({ { p = k.el, name = L("药剂", "Elixir") }, { p = k.wp, name = L("武器油", "Weapon oil"), w = true } }) do
+            local p = x.p
+            if p and p.active then
+                local left = p.active.left
+                act[#act + 1] = x.name .. (left and (" " .. fmt(left)) or "")
+                if left and (not minLeft or left < minLeft) then minLeft = left end
+            elseif p and p.bag then
+                use = use or { item = p.bag.e.item, n = p.bag.n, weapon = x.w, name = kitName(p.bag.e), fx = kitFx(p.bag.e) }
+            elseif p then
+                miss[#miss + 1] = x.name
+                local s = {}
+                for kind in (x.w and "oil sharp blunt" or (k.role.h and "str sp" or "sp str agi")):gmatch("%a+") do
+                    local e = p.best[kind]
+                    if e then s[#s + 1] = kitName(e) .. L("（", " (") .. kitFx(e) .. L("）", ")") end
+                end
+                if s[1] then how[#how + 1] = string.format(L("没%s：拍卖行搜 %s", "No %s: buy %s on the AH"), x.name, table.concat(s, L(" 或 ", " or "))) end
+            end
+        end
+        if use then
+            table.insert(how, 1, L("包里有：", "In your bags: ") .. use.name .. " ×" .. use.n .. L("（", " (") .. use.fx .. L("）", ")")
+                .. (use.weapon and L("，用了以后点一下主手武器", " - use it, then click your main-hand weapon") or L("，喝一瓶", " - drink one")))
+            table.insert(how, 2, L("经验加成页里点「用」一键用上（战斗中不能用），或背包里右键", "Click \"Use\" on the XP page (not in combat), or right-click it in your bags"))
+        end
+        if miss[1] then how[#how + 1] = L("都是 30 分钟～1 小时的低级消耗品，拍卖行几个银币一份（炼金 / 附魔 / 锻造做的）；打怪前用上", "Cheap 30-60 min consumables (alchemy / enchanting / blacksmithing) - use them before you start pulling") end
+        local txt = table.concat(act, L("、", ", "))
+        local icon = got.elixir and got.elixir.icon
+        if use and wild then
+            add({ key = "kit", st = "miss", text = string.format(L("包里有%s没用", "%s in your bags, not used"), use.name) .. (txt ~= "" and ("  ·  " .. txt) or ""),
+                how = how, left = minLeft, use = use, icon = icon })
+        elseif act[1] then
+            local t = th("kit")
+            if miss[1] and wild then txt = txt .. L("（没", " (no ") .. table.concat(miss, L("、", ", ")) .. L("）", ")") end
+            add({ key = "kit", st = (minLeft and minLeft <= t.show) and "warn" or "ok", left = minLeft, hi = (minLeft and minLeft <= t.hi) or nil, text = txt, how = how[1] and how or nil, icon = icon })
+        elseif wild then
+            -- 包里也没有：可选增益、要花钱 → 灰着（info），不标红、不算「缺」（同 11-17 营火）
+            add({ key = "kit", st = "info", how = how,
+                text = k.wp and L("没喝药剂、没上武器油（可选）", "No elixir / weapon oil (optional)") or L("没喝药剂（可选）", "No elixir (optional)") })
+        end
+    end
+
     -- 休息经验
     local ex = num(GetXPExhaustion and GetXPExhaustion())
     local mx = num(UnitXPMax and UnitXPMax("player"))
@@ -387,8 +681,60 @@ function XC.Check()
             add({ key = "rest", st = resting and "ok" or "info", pct = 0, text = L("没有休息经验", "No rested XP"),
                 how = { L("下线前在旅店 / 主城，或躺在睡袋里下线，能攒休息经验", "Log out in an inn, a city, or your sleeping bag to earn rested XP") } })
         end
+        local r = res[#res]
+        if r and r.key == "rest" then
+            r.how = r.how or {}
+            table.insert(r.how, L("有休息经验时打怪经验翻倍（+100%），和其他加成分开算；任务经验不吃", "While rested, kill XP is doubled (+100%), counted separately; quests don't use it"))
+            if got.legacy then r.how[#r.how + 1] = L("传承「精神抖擞」：休息经验攒得更快、上限更高（每级 +4%，最多 +20%）", "Legacy \"Well Rested\": rested XP builds faster with a higher cap (+4% per rank, up to +20%)") end
+        end
     end
+
+    -- 合计（11-17）：生效中的百分比加成。DB2 里都是同一种光环（200 打怪 / 291 任务），游戏里多项是相加还是相乘没法核实
+    --   → 按相加算，两项以上标「约」（几项都是个位数时两种算法差不到 1%）
+    local tot = { parts = {}, kill = 0, quest = 0, undead = 0 }
+    local function part(name, pct, sc)
+        if not pct or pct <= 0 then return end
+        tot.parts[#tot.parts + 1] = { name = name, pct = pct, sc = sc }
+        if sc == "u" then tot.undead = tot.undead + pct else
+            if sc ~= "q" then tot.kill = tot.kill + pct end
+            if sc ~= "k" then tot.quest = tot.quest + pct end
+        end
+    end
+    if got.tent then part(T("tent"), got.tent.pct, "a") end
+    if got.bag then part(T("bag"), math.max(1, got.bag.stacks or 1) * XC.BAG_PCT, "a") end
+    if got.food then part(T("food"), got.food.pct or XC.FOOD_PCT, "k") end
+    for _, a in ipairs(got.boosts or {}) do local e = bAura[a.id]; part(L(e.zh, e.en), e.pct, e.sc) end
+    tot.rest = (mx and mx > 0 and ex and ex > 0) and math.floor(ex / mx * 100 + 0.5) or 0
+    tot.approx = #tot.parts >= 2
+    tot.tentRest = got.tent and not got.tent.pct
+    XC.total = tot
     return res, false
+end
+
+-- 合计一行「经验 约 +8%（睡袋 3 · 食物 5）· 休息经验翻倍（剩 50%）」；XC.TotalLines = 悬停逐项明细
+local SC2 = { a = { "打怪 + 任务", "kills + quests" }, k = { "只算打怪", "kills only" }, q = { "只算任务", "quests only" }, u = { "只算杀亡灵", "Undead kills only" } }
+function XC.TotalText()
+    local t = XC.total
+    if not t then return nil end
+    local s, p = "", {}
+    for _, x in ipairs(t.parts) do p[#p + 1] = x.name .. " " .. x.pct end
+    if t.kill > 0 or t.quest > 0 then
+        s = L("经验 ", "XP ") .. (t.approx and L("约 ", "~") or "") .. "+" .. math.max(t.kill, t.quest) .. "%" .. L("（", " (") .. table.concat(p, " · ") .. L("）", ")")
+        if t.kill ~= t.quest then s = s .. string.format(L(" 打怪 +%d%% / 任务 +%d%%", " kills +%d%% / quests +%d%%"), t.kill, t.quest) end
+    elseif t.undead > 0 then s = string.format(L("经验 杀亡灵 +%d%%", "XP Undead kills +%d%%"), t.undead)
+    else s = L("经验加成：无", "XP bonus: none") end
+    if t.undead > 0 and (t.kill > 0 or t.quest > 0) then s = s .. string.format(L(" · 杀亡灵再 +%d%%", " · Undead +%d%%"), t.undead) end
+    if t.rest > 0 then s = s .. string.format(L(" · 休息经验翻倍（剩 %d%%）", " · rested x2 (%d%% left)"), t.rest) end
+    return s
+end
+function XC.TotalLines()
+    local t, out = XC.total, {}
+    if not t then return out end
+    for _, x in ipairs(t.parts) do out[#out + 1] = x.name .. L("：+", ": +") .. x.pct .. "%" .. L("（", " (") .. L(SC2[x.sc][1], SC2[x.sc][2]) .. L("）", ")") end
+    if t.tentRest then out[#out + 1] = L("帐篷：补的是休息经验（最多补到一级的 5%），不算百分比加成", "Tent: tops up rested XP (to 5% of a level), not a % bonus") end
+    if t.rest > 0 then out[#out + 1] = string.format(L("休息经验：打怪经验翻倍，还剩一级的 %d%%（另算，不加进上面的数）", "Rested: kill XP doubled, %d%% of a level left (separate)"), t.rest) end
+    if t.approx then out[#out + 1] = L("多项按相加估算（游戏里是相加还是相乘核实不了，所以写「约」）", "Summed - whether the game adds or multiplies them is unverified") end
+    return out
 end
 
 -- ---------- 提醒 ----------
@@ -405,7 +751,6 @@ local function flash(msg)
     ns.Print(msg)
     if opt("sound", false) and PlaySound then pcall(PlaySound, 8959) end
 end
-XC._flash = flash
 function XC.Alerts(res)
     local seen = {}
     for _, r in ipairs(res) do
@@ -485,6 +830,17 @@ function XC.ResetPos()
     ns.Print(L("提醒条位置已恢复默认（屏幕中间偏下）", "Reminder bar position reset"))
 end
 
+function XC.CloseForGood()
+    if GameTooltip then GameTooltip:Hide() end
+    XC.moving = false
+    XC.Set("win", false)
+    if ns.RefreshSettings then pcall(ns.RefreshSettings) end
+    if ns.CloseHint then
+        ns.CloseHint("xpBar", L("经验提醒条已永久关闭（聊天框提醒照旧）。找回：GI 菜单 → 窗口与提醒 → 经验提醒条，或设置页「显示提醒条」",
+            "XP reminder bar closed for good (chat alerts stay). Bring it back: GI menu > Windows & alerts > XP reminder bar, or Settings > Show the reminder bar"))
+    end
+end
+
 local function buildWin()
     local f = CreateFrame("Frame", "GearInsightForeverXpCheck", UIParent)
     f:SetSize(ICON_SZ, ICON_SZ + 16); f:SetFrameStrata("DIALOG"); f:SetClampedToScreen(true)   -- 11-09 截图：MEDIUM 被主面板（HIGH）盖住看不见
@@ -496,6 +852,8 @@ local function buildWin()
     f.tip:SetPoint("BOTTOM", f, "TOP", 0, 8)
     f.tip:SetText(L("拖我挪位置", "Drag to move"))
     f.tip:SetShown(XC.moving == true)
+    f.sumFs = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.sumFs:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 4)
     local acc, tick = 0, 0
     f:SetScript("OnUpdate", function(self, el)
         el = el or 0
@@ -542,14 +900,26 @@ local function btn(i)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine(T(it.key), 1, 0.82, 0)
         GameTooltip:AddLine(it.text, 1, 1, 1, true)
-        for _, h in ipairs(it.how or {}) do GameTooltip:AddLine("· " .. h, 0.8, 0.8, 0.8, true) end
-        GameTooltip:AddLine(L("左键：详情  ·  右键：这次不再弹  ·  按住拖动：挪位置", "Left: details · Right: snooze · Drag: move"), 0.5, 0.75, 1, true)
+        -- 11-17「buff和来源要可视化对应」：提醒条悬停也写「来源：…」（页里是图标排开的，这里一行字）
+        local src = it.srcText or (it.how and it.how[1])
+        if src then GameTooltip:AddLine(L("来源：", "Source: ") .. src, 0.25, 0.9, 0.35, true) end
+        for i, h in ipairs(it.how or {}) do if h ~= src or i > 1 then GameTooltip:AddLine("· " .. h, 0.8, 0.8, 0.8, true) end end
+        if opt("total", true) and XC.TotalText() then
+            GameTooltip:AddLine(XC.TotalText(), 0.25, 0.9, 0.35, true)
+            for _, h in ipairs(XC.TotalLines()) do GameTooltip:AddLine("· " .. h, 0.8, 0.8, 0.8, true) end
+        end
+        local rt =(it.st == "miss") and L("右键：要不到先不提醒（变灰，拿到后恢复）", "Right: can't get it - stop nagging until you have it") or L("右键：这次不再弹", "Right: snooze")
+        GameTooltip:AddLine(L("左键：详情  ·  ", "Left: details · ") .. rt .. L("  ·  按住拖动：挪位置", " · Drag: move"), 0.5, 0.75, 1, true)
+        GameTooltip:AddLine(L("Ctrl + 右键：永久关闭提醒条", "Ctrl + right-click: close the bar for good"), 0.25, 0.9, 0.35, true)
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
     b:SetScript("OnClick", function(self, mb)
         local it = self.it
         if not it then return end
+        -- 11-17 用户「这些弹出的功能都确保能永久关闭」：右键照旧只管这一项这一次；Ctrl + 右键 = 整条提醒条永久不出
+        --   （存档 xpcheck.win = false，和设置页「显示提醒条」、窗口与提醒「经验提醒条」同一个键；聊天框提醒另有开关，不动）
+        if mb == "RightButton" and IsControlKeyDown and IsControlKeyDown() then XC.CloseForGood(); return end
         if mb == "RightButton" then snooze[it.key] = true; XC.Update(); return end
         if XC.OpenPage then XC.OpenPage() end
     end)
@@ -568,7 +938,9 @@ local function barItems(res)
     -- GI-225 移动模式：五项全摆出来给你拖（平时快没了才浮出来，没东西可拖）
     if XC.moving then return res end
     for _, r in ipairs(res) do
-        if r.st ~= "warn" then snooze[r.key] = nil end   -- 补上 / 刷新了 → 下次快没了照样弹
+        -- 补上 / 刷新了 → 下次快没了照样弹。11-15 用户截图「要不到谁咋整」：原来缺（miss）也会立刻清掉 → 右键按不掉红框；
+        --   改成拿到了（ok）才清：缺的右键 = 这次先不红（变灰），拿到以后再缺照样红
+        if r.st == "ok" then snooze[r.key] = nil end
         if on then
             -- 快没了才弹：只认有倒计时的 + 睡袋层数（休息经验快满不算「快没了」，去页里看）
             local ending = r.st == "warn" and (r.left or r.key == "bag")
@@ -581,7 +953,6 @@ local function barItems(res)
     end
     return t
 end
-XC.BarItems = barItems
 
 function XC.Draw(res)
     local list = barItems(res)
@@ -599,7 +970,7 @@ function XC.Draw(res)
         b.cnt:SetText((r.key == "bag" and (r.stacks or 0) > 0) and (r.stacks .. "/" .. XC.BAG_STACKS) or "")
         local ending = r.st == "warn" and (r.left or r.key == "bag")
         -- 11-09 用户截图「缺了高亮啊」：缺的不透明 + 红框 + 红字；生效中的半透明；快没了的不透明 + 金圈闪；冷却中的半透明灰
-        local miss = r.st == "miss"
+        local miss = r.st == "miss" and not snooze[r.key]
         b:SetAlpha((ending or miss) and 1 or IDLE_ALPHA)
         -- 11-10 用户截图「没了直接出高亮边框」：缺的也套闪动光圈（红色），快没了的照旧金色
         b.glow:SetShown((r.hi or miss) and true or false)
@@ -609,12 +980,15 @@ function XC.Draw(res)
         if miss then b.bg:SetColorTexture(1, 0.2, 0.15, 0.95)
         elseif ending then b.bg:SetColorTexture(1, 0.82, 0.1, 0.9)
         else b.bg:SetColorTexture(0, 0, 0, 0.85) end
-        local c = (r.hi or miss) and COLOR.miss or (r.st == "warn" and COLOR.warn) or (dim and COLOR.info) or { 1, 1, 1 }
+        local c = ((r.hi and not snooze[r.key]) or miss) and COLOR.miss or (r.st == "warn" and COLOR.warn) or (dim and COLOR.info) or { 1, 1, 1 }
         local label = (r.left and short(r.left)) or (r.pct and (r.pct .. "%")) or (r.st == "miss" and L("缺", "-")) or ""
         b.time:SetText(label); b.time:SetTextColor(c[1], c[2], c[3])
         b:Show()
     end
     for i = #list + 1, #win.btns do win.btns[i]:Hide() end
+    -- 11-17 合计：图标上面一行小字「经验 +8%」（设置可关）；逐项明细在图标的鼠标提示里
+    local t = XC.total
+    win.sumFs:SetText((opt("total", true) and t and (t.kill > 0 or t.quest > 0)) and (L("经验 ", "XP ") .. (t.approx and L("约 ", "~") or "") .. "+" .. math.max(t.kill, t.quest) .. "%") or "")
     win:SetWidth(#list * (ICON_SZ + GAP) - GAP)
     win:Show()
 end
@@ -645,7 +1019,7 @@ function XC.Summary()
         parts[#parts + 1] = mark .. r.text
     end
     if #parts == 0 then return end
-    ns.Print(L("经验加成：", "XP bonuses: ") .. table.concat(parts, "  "))
+    ns.Print(L("经验加成：", "XP bonuses: ") .. table.concat(parts, "  ") .. ((opt("total", true) and XC.TotalText()) and ("  |cff40e060" .. XC.TotalText() .. "|r") or ""))
 end
 
 -- ---------- 事件 ----------
@@ -657,8 +1031,30 @@ for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_LEVEL_UP", "PLAYER_REGEN_E
 end
 if ev.RegisterUnitEvent then pcall(ev.RegisterUnitEvent, ev, "UNIT_AURA", "player") else pcall(ev.RegisterEvent, ev, "UNIT_AURA") end
 local lastAura, wasInst = 0, nil
+-- 11-17 用户「练级buff补全器，可以从主城就开始准备」：进主城 / 旅店（休息状态）自动弹「出发前清单」（子插件按需加载），
+--   离开休息区收起；回来再弹。设置「进主城弹出发前清单」可关（prep，默认开）；战斗中 / 副本 / 满级不弹
+function XC.PrepCheck()
+    local resting = IsResting and IsResting() and true or false
+    if not resting then
+        XC.wasResting = false
+        if XC.Prep and XC.Prep.Hide then pcall(XC.Prep.Hide) end
+        return
+    end
+    if XC.wasResting or (InCombatLockdown and InCombatLockdown()) then return end   -- 战斗中进城：脱战再弹
+    XC.wasResting = true
+    if not (XC.Enabled() and opt("prep", true)) or level() >= maxLevel() or inInstance() then return end
+    if ns.XpLoad() and XC.Prep and XC.Prep.Show then pcall(XC.Prep.Show, true) end
+end
 ev:SetScript("OnEvent", function(_, e, a1)
+    if e == "BAG_UPDATE_DELAYED" then XC.BagDirty() end
+    -- 11-17 喊 BUFF 回谢：有人给我加了 BUFF（子插件 XpSupply.lua 的 XC.ThankAura；「总是回谢」开着时进世界就加载子插件）
+    if ns.db and e == "UNIT_AURA" and a1 == "player" and XC.ThankAura then pcall(XC.ThankAura) end
+    if ns.db and e == "PLAYER_ENTERING_WORLD" and XC.DB().thankAlways == true and XC.DB().thank ~= false and not XC.ThankAura
+        and C_Timer and C_Timer.After then C_Timer.After(5, function() if not (InCombatLockdown and InCombatLockdown()) then ns.XpLoad() end end) end
     if not ns.db or not XC.Enabled() then return end
+    if e == "PLAYER_UPDATE_RESTING" or e == "PLAYER_REGEN_ENABLED" or e == "PLAYER_ENTERING_WORLD" then
+        if C_Timer and C_Timer.After then C_Timer.After(2, function() pcall(XC.PrepCheck) end) else pcall(XC.PrepCheck) end
+    end
     if e == "UNIT_AURA" then
         if a1 ~= "player" or now() - lastAura < 1 then return end
         lastAura = now()
@@ -678,150 +1074,37 @@ table.insert(ns.modules, function()
     if C_Timer and C_Timer.NewTicker then C_Timer.NewTicker(5, function() pcall(XC.Update) end) end
 end)
 
--- ---------- 主面板页签「经验加成」（11-09 用户「/gi xp 无效」「然后能做图形界面吗」）----------
--- 五张卡：图标 + 状态 + 剩余时间条 + 怎么补；顶部总开关 / 小窗 / 提醒，开着时每 2 秒刷新。小窗还在，管「缺了 / 快到期自己弹」
-XC.FULL = { tent = 1800, bag = 7200 }   -- 时间条满格：帐篷 30 分钟、睡袋 2 小时；其他按本次登录见过的最长剩余
-local maxSeen = {}
-local CARD_H, CARD_GAP = 70, 6
-local STATE_TXT = { ok = { "生效中", "Active" }, warn = { "快到期", "Ending" }, miss = { "缺", "Missing" }, info = { "等待", "Waiting" } }
+-- ---------- 主面板页签「经验加成」：11-17 起页面在按需加载的 GearInsight_Forever_Xp（PageXp.lua），这里只放占位 ----------
+-- 用户 11-17「练级BUFF补全器…从主城就开始准备，路上碰到还可以刷新」「buff和来源要可视化对应」「物资等」：
+--   页面（增益 / 物资 ←「从哪来」）、出发前清单、物资检查都在子插件里，登录不加载：点页签 / 左键提醒条 / /gi xp / 进主城（出发前清单开着）才加载。
+--   这里留：检查 + 合计 + 到期提醒 + 提醒条（登录就要跑）；占位页名 / 顺序 / 图标要和 PageXp.lua 的真页一模一样
+local XM = ns.LazyModule and ns.LazyModule({ key = "xp", addon = "GearInsight_Forever_Xp", zh = "经验加成", en = "XP bonuses", noCombat = true,   -- 页里有「用」安全按钮：战斗中不加载
+    what = "经验加成页 / 出发前清单", whatEn = "XP page / departure checklist" }) or nil
+XC.PAGE = { key = "xp", order = 1.87, title = ns.L("经验加成", "XP bonuses"), tabTitle = ns.L("经验加成", "XP"), icon = "Interface\\Icons\\INV_Misc_Tent" }
+if XM then
+    local d = {}
+    for k, v in pairs(XC.PAGE) do d[k] = v end
+    d.file = "PageXp.lua"
+    XM:Page(d)
+end
+function ns.XpLoad() if ns._modReady.xp then return true end return XM and XM:Load(nil, true) or false end
 
-local function card(parent, i)
-    local c = CreateFrame("Button", nil, parent, BackdropTemplateMixin and "BackdropTemplate" or nil)
-    c:SetHeight(CARD_H)
-    c:SetPoint("TOPLEFT", 0, -(i - 1) * (CARD_H + CARD_GAP)); c:SetPoint("RIGHT", parent, "RIGHT", -4, 0)
-    if c.SetBackdrop then
-        pcall(c.SetBackdrop, c, { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-    end
-    local hl = c:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 0.82, 0, 0.06)
-    c.ic = c:CreateTexture(nil, "ARTWORK"); c.ic:SetSize(40, 40); c.ic:SetPoint("TOPLEFT", 10, -12)
-    c.ic:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    c.title = c:CreateFontString(nil, "OVERLAY", "GameFontNormal"); c.title:SetPoint("TOPLEFT", c.ic, "TOPRIGHT", 10, 0)
-    c.badge = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); c.badge:SetPoint("LEFT", c.title, "RIGHT", 8, 0)
-    c.time = c:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"); c.time:SetPoint("TOPRIGHT", -12, -10); c.time:SetJustifyH("RIGHT")
-    c.text = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); c.text:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", 0, -4)
-    c.text:SetPoint("RIGHT", c, "RIGHT", -110, 0); c.text:SetJustifyH("LEFT"); c.text:SetWordWrap(false)
-    c.how = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); c.how:SetPoint("TOPLEFT", c.text, "BOTTOMLEFT", 0, -4)
-    c.how:SetPoint("RIGHT", c, "RIGHT", -12, 0); c.how:SetJustifyH("LEFT"); c.how:SetWordWrap(false); c.how:SetTextColor(0.72, 0.72, 0.72)
-    c.barBg = c:CreateTexture(nil, "ARTWORK"); c.barBg:SetColorTexture(1, 1, 1, 0.08)
-    c.barBg:SetPoint("TOPRIGHT", -12, -34); c.barBg:SetSize(90, 6)
-    c.bar = c:CreateTexture(nil, "OVERLAY"); c.bar:SetPoint("TOPLEFT", c.barBg, "TOPLEFT"); c.bar:SetHeight(6)
-    c:SetScript("OnEnter", function(self)
-        local it = self.it
-        if not it or not GameTooltip then return end
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine(T(it.key), 1, 0.82, 0)
-        GameTooltip:AddLine(it.text, 1, 1, 1, true)
-        for _, h in ipairs(it.how or {}) do GameTooltip:AddLine("· " .. h, 0.8, 0.8, 0.8, true) end
-        if it.action then GameTooltip:AddLine(L("点击打开", "Click to open"), 0.25, 0.9, 0.35) end
-        GameTooltip:Show()
-    end)
-    c:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
-    c:SetScript("OnClick", function(self) local it = self.it; if it and it.action then pcall(it.action) end end)
-    return c
+-- 11-17 用户「这些弹出的功能都确保能永久关闭」：按需加载的子插件里会自己弹出来的东西，关掉后这个子插件登录时可能就不加载了，
+--   真模块的「窗口与提醒」条目也就没了 → 这里放同 key 的占位：读存档显示状态，点「打开」写回存档再加载子插件（真模块加载后用同一个 key 顶替）
+if XM then
+    XM:Window({ key = "xpPrep", order = 31, title = function() return ns.L("出发前清单（进主城自动弹）", "Departure checklist (auto in towns)") end,
+        state = function()
+            return XC.DB().prep ~= false and ns.L("进主城 / 旅店时弹出", "Opens in towns / inns") or ns.L("已关闭（进城不自动弹）", "Closed (no auto-open)")
+        end,
+        actions = function()
+            local auto = XC.DB().prep ~= false
+            return { { text = auto and ns.L("关闭", "Turn off") or ns.L("打开", "Turn on"), fn = function()
+                if auto then XC.DB().prep = false else XC.DB().prep = nil end
+            end } }
+        end }, "PageXp.lua")
 end
+function XC.RefreshPage() if XC.Page and XC.Page.Refresh then XC.Page.Refresh() end end
 
-local function paintCard(c, key, it, why)
-    c.it = it
-    c.ic:SetTexture((it and it.icon) or XC.ICON[key])
-    c.title:SetText(T(key))
-    local st = it and it.st or "off"
-    local col = COLOR[st] or { 0.5, 0.5, 0.5 }
-    if c.SetBackdropColor then
-        c:SetBackdropColor(col[1] * 0.12, col[2] * 0.12, col[3] * 0.12, 0.85)
-        c:SetBackdropBorderColor(col[1], col[2], col[3], it and 0.55 or 0.2)
-    end
-    c.ic:SetDesaturated(not it or st == "miss" or st == "info")
-    c.badge:SetText(it and L(STATE_TXT[st][1], STATE_TXT[st][2]) or "")
-    c.badge:SetTextColor(col[1], col[2], col[3])
-    if not it then
-        c.text:SetText(why or ""); c.text:SetTextColor(0.5, 0.5, 0.5)
-        c.how:SetText(""); c.time:SetText(""); c.barBg:Hide(); c.bar:Hide()
-        return
-    end
-    c.text:SetText(it.text); c.text:SetTextColor(1, 1, 1)
-    local how = it.how and it.how[1] or ""
-    if it.how and it.how[2] then how = how .. "  ·  " .. it.how[2] end
-    c.how:SetText(how ~= "" and ("→ " .. how) or "")
-    if it.left then
-        maxSeen[key] = math.max(maxSeen[key] or 0, it.left)
-        local full = math.max((st ~= "info" and XC.FULL[key]) or 0, maxSeen[key])
-        local frac = full > 0 and math.min(1, it.left / full) or 0
-        c.time:SetText(fmt(it.left)); c.time:SetTextColor(col[1], col[2], col[3])
-        c.barBg:Show(); c.bar:Show()
-        c.bar:SetWidth(math.max(1, 90 * frac)); c.bar:SetColorTexture(col[1], col[2], col[3], 0.9)
-    else
-        c.time:SetText(""); c.barBg:Hide(); c.bar:Hide()
-    end
-end
-
-function XC.RefreshPage()
-    local p = XC.page
-    if not (p and p:IsShown()) then return end
-    local on = XC.Enabled()
-    p.onBtn:SetText(on and L("已开启", "On") or L("已关闭", "Off"))
-    p.winBtn:SetText(opt("always", false) and L("提醒条：一直半透明", "Bar: always") or (opt("win", true) and L("提醒条：快没了才出", "Bar: when ending") or L("提醒条：不显示", "Bar: off")))
-    p.warnBtn:SetText(opt("warn", true) and L("到期提醒：开", "Alerts: on") or L("到期提醒：关", "Alerts: off"))
-    local res, done = {}, false
-    if on then
-        local ok, r, d = pcall(XC.Check)
-        if ok then res, done = r, d else p.note:SetText("|cffff5040" .. L("检查出错：", "Error: ") .. tostring(r) .. "|r"); return end
-    end
-    local by = {}
-    for _, r in ipairs(res) do by[r.key] = r end
-    local nOk, nMiss = 0, 0
-    for i, k in ipairs(XC.KEYS) do
-        local why
-        if not on then why = L("检查已关闭（点上面「已关闭」打开）", "Check is off")
-        elseif done then why = L("已满级，不用查", "Max level")
-        elseif not XC.ItemOn(k) then why = L("这一项已在设置里关掉", "Turned off in settings")
-        else why = inInstance() and L("副本里不查这一项", "Not checked in instances") or L("现在不用管（等级不够或不适用）", "Not relevant right now") end
-        local it = by[k]
-        if it and (it.st == "ok") then nOk = nOk + 1 elseif it and (it.st == "miss" or it.st == "warn") then nMiss = nMiss + 1 end
-        paintCard(p.cards[i], k, it, why)
-    end
-    if not on then p.note:SetText(L("经验加成检查已关闭", "XP check is off"))
-    elseif done then p.note:SetText(L("已满级", "Max level"))
-    else p.note:SetText(string.format(L("|cff40e060%d 项生效|r  ·  |cffff5040%d 项可以补|r  ·  点卡片看怎么补", "|cff40e060%d active|r  ·  |cffff5040%d to fix|r"), nOk, nMiss)) end
-end
-
-local function buildPage(p)
-    XC.page = p
-    local y = ns.PageHeader(p, L("经验加成", "XP bonuses"), L("帐篷 / 营火 / 睡袋 / 经验食物 / 休息经验：有没有、还剩多久、缺了怎么补", "Tent / campfire / bag / food / rested"))
-    p.onBtn = ns.Button(p, "", 90, 22, function() XC.Set("on", not XC.Enabled()); XC.hidden = false; XC.RefreshPage() end)
-    p.onBtn:SetPoint("TOPLEFT", 12, y)
-    p.winBtn = ns.Button(p, "", 150, 22, function()   -- 快没了才出 → 一直半透明 → 不显示 → 快没了才出
-        if not opt("win", true) then XC.DB().win = true; XC.DB().always = false
-        elseif opt("always", false) then XC.DB().win = false; XC.DB().always = false
-        else XC.DB().always = true end
-        XC.hidden = false; XC.Update(); XC.RefreshPage()
-    end)
-    p.winBtn:SetPoint("LEFT", p.onBtn, "RIGHT", 8, 0)
-    p.warnBtn = ns.Button(p, "", 110, 22, function() XC.Set("warn", not opt("warn", true)); XC.RefreshPage() end)
-    p.warnBtn:SetPoint("LEFT", p.winBtn, "RIGHT", 8, 0)
-    -- 11-12 界面重构第 2 期：原来跳到设置页再找 → 改成就地展开本页设置（每项开关 / 音效 / 移动提醒条 / 帐篷蹭露营都在里面）
-    local more = ns.Button(p, L("每项开关 / 音效", "More settings"), 120, 22, function()
-        if ns.TogglePageSettings and ns.TogglePageSettings("xp", true) then return end
-        ns.ToggleMain("data")
-    end)
-    more:SetPoint("LEFT", p.warnBtn, "RIGHT", 8, 0)
-    p.note = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    p.note:SetPoint("TOPLEFT", 14, y - 30); p.note:SetPoint("RIGHT", -12, 0); p.note:SetJustifyH("LEFT")
-    local box = CreateFrame("Frame", nil, p)
-    box:SetPoint("TOPLEFT", 8, y - 50); box:SetPoint("BOTTOMRIGHT", -8, 0)
-    p.cards = {}
-    for i = 1, #XC.KEYS do p.cards[i] = card(box, i) end
-    local acc = 0
-    p:SetScript("OnUpdate", function(_, el)
-        acc = acc + (el or 0)
-        if acc < 2 then return end
-        acc = 0
-        XC.RefreshPage()
-    end)
-end
-if ns.RegisterPage then
-    ns.RegisterPage({ key = "xp", order = 1.87, title = ns.L("经验加成", "XP bonuses"), tabTitle = ns.L("经验加成", "XP"),
-        icon = "Interface\\Icons\\INV_Misc_Tent", build = buildPage, refresh = function() XC.RefreshPage() end })
-end
 function XC.OpenPage()
     if ns.ToggleMain then
         local f = XC.page and XC.page:GetParent()
@@ -870,5 +1153,20 @@ ns.RegisterWindow({ key = "xpBar", order = 30, title = function() return L("经�
             end },
             { text = XC.moving and L("锁定位置", "Lock position") or L("移动", "Move"), fn = function() XC.SetMoving(not XC.moving) end },
             { text = L("重置位置", "Reset position"), fn = function() XC.ResetPos() end },
+        }
+    end })
+-- 11-17 喊 BUFF 回谢框（弹框在按需加载的 XpSupply.lua）：点过「不再提示」= thank 存 false（永久关），这里找回
+ns.RegisterWindow({ key = "xpThank", order = 31, title = function() return L("加 BUFF 回谢框", "Buff thank-you prompt") end,
+    state = function()
+        local d = XC.DB()
+        if d.thank == false then return L("已关闭", "Off") end
+        if d.thankAlways == true then return L("有人加 BUFF 就弹", "Whenever someone buffs you") end
+        return L("喊过 BUFF 后 10 分钟内弹", "Within 10 min of asking")
+    end,
+    actions = function()
+        local d = XC.DB()
+        return {
+            { text = d.thank == false and L("打开", "Turn on") or L("关闭", "Turn off"), fn = function() if d.thank == false then d.thank = nil else d.thank = false end end },
+            { text = d.thankAlways == true and L("只在喊过之后", "Only after asking") or L("总是回谢", "Always"), fn = function() d.thankAlways = (d.thankAlways ~= true) or nil; if d.thankAlways then d.thank = nil end end },
         }
     end })

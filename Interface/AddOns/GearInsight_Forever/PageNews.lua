@@ -45,8 +45,8 @@ function ns.ShowWxGroupQR()
         if UISpecialFrames then table.insert(UISpecialFrames, "GearInsightForeverWxQR") end
     end
     qrF:SetSize(size + pad * 2, size + pad * 2 + 52)
-    qrF.title:SetText(wg.name or "GearInsight 微信群")
-    qrF.foot:SetText("微信扫码入群 · 有效期至 " .. (wg.expires or "") .. "（7 天一换）")
+    qrF.title:SetText(ns.TD(wg.name or "GearInsight 微信群"))   -- 11-15 GI-266：群名只是标题，繁体端转
+    qrF.foot:SetText(ns.L("微信扫码入群 · 有效期至 ", "Scan with WeChat · valid until ") .. (wg.expires or "") .. ns.L("（7 天一换）", " (renewed weekly)"))
     for _, t in ipairs(qrF.cells) do t:Hide() end
     local k = 0
     for r = 1, n do
@@ -141,11 +141,11 @@ local function build(p)
         v:SetText(ch.qr and ("|cff33ff99" .. ns.L("点击弹出二维码", "Click for QR") .. "|r") or ch[2])
         b:SetScript("OnClick", function()
             if ch.qr then ns.ShowWxGroupQR()
-            else ns.ShowBox(ch[1] .. " · " .. ch[2], ns.L("Ctrl+C 复制，去对应 App 搜索 / 打开", "Ctrl+C, then search / open it"), ch[3]) end
+            else ns.ShowBox(ns.TD(ch[1]) .. " · " .. ch[2], ns.L("Ctrl+C 复制，去对应 App 搜索 / 打开", "Ctrl+C, then search / open it"), ch[3]) end
         end)
         b:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_TOP"); GameTooltip:AddLine(ns.TD(ch[1]), 1, 0.82, 0)
-            GameTooltip:AddLine(ch.qr and ("微信扫码入群 · 有效至 " .. (N.wx.expires or "")) or ch[3], 1, 1, 1, true); GameTooltip:Show()
+            GameTooltip:AddLine(ch.qr and (ns.L("微信扫码入群 · 有效至 ", "Scan with WeChat · valid until ") .. (N.wx.expires or "")) or ch[3], 1, 1, 1, true); GameTooltip:Show()
         end)
         b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     end

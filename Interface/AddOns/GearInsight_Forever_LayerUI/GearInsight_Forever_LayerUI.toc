@@ -1,0 +1,20 @@
+## Interface: 16001, 11507
+## Title: GearInsight |cff33ff99Forever|r - Layers (other players)
+## Title-zhCN: GearInsight |cff33ff99无限版|r · 位面同图玩家
+## Notes: GearInsight Forever Layers page: other addon users on this map via the public channel (loads the first time you open the Layers page)
+## Notes-zhCN: GearInsight 无限版「位面」页里「同图其他玩家（公共频道）」那一块：第一次打开位面页时才加载
+## Author: GearInsight
+## Version: 1.4.20
+## Dependencies: GearInsight_Forever
+## LoadOnDemand: 1
+## IconTexture: Interface\Icons\Spell_Arcane_PortalOrgrimmar
+
+# 11-19 用户「加，同图其他玩家也列出来」「分开列出」：位面页公会那块下面单独一块「同图其他玩家（公共频道）」。
+#   主插件登录内存没余量（5,730 KB 线），这块界面放这里，主插件 PageLayer.lua 第一次刷新位面页时 ns.LazyModule("layerui") 加载；
+#   数据不另存：直接读 Layer.lua 的 LY.peers（公共频道心跳本来就收），请人走 LayerHop 现有的 AskChain / RequestFrom（插件密语，不发聊天文字）。
+#   和 _Bag / _Xp 一样：合并包 / 拆分包里都是独立文件夹；网易DD 包并进主文件夹（DD_FOLD）
+#   ⛔ 这里的文件都晚于主插件加载：文件头一律 ns = _G.GearInsightForever or ns；最后一个文件置就绪标记
+
+# 11-21 位面互助额度（HOLD）：要排在 LayerPub.lua 前面（LayerPub.lua 最后置就绪标记）
+LayerCredit.lua
+LayerPub.lua

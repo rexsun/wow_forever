@@ -31,7 +31,38 @@ M:Slash({ "guide", "攻略" }, "PageGuide.lua")
 
 -- 主插件里会用到的
 M:Shell("LandingURL", { file = "Offsite.lua" })    -- Route.lua：升级路线页底部「复制网页版」
+M:Shell("DnavZoomAttach", { file = "DnavZoom.lua" })   -- 11-18 DungeonNavMap.lua：副本导航地图第一次画时加载缩放 / 平移（HOLD）
+M:Shell("DnavLootAttach", { file = "DnavLoot.lua" })   -- 11-18 DungeonNav.lua：副本导航面板第一次刷新时加载掉落点击展开 / 正文精简（HOLD）
 M:Shell("ShowBindQR", { file = "BindQR.lua" })     -- Core.lua：/gi help 里列不列 bind
 M:Table("Report", "Report.lua")                    -- Core.lua：/gi help 里列不列 report
 
-function ns.InfoLoad() return M:Load(nil, true) end
+
+-- 11-15 用户截图「提BUG和需求常驻页签呢」：右侧常驻一个「提BUG/需求」页签（排在公会 / 组队 / 位面下面），点了直接到共建页
+--   共建页在资讯子插件里（按需加载）：ToggleMain("board") 走占位页 → 第一次点时才加载
+local function ensureBoardTab()
+    local host = _G.GearInsightForeverMain
+    local W = ns.W or _G.GIWidgets
+    if not (host and W and W.SideTab) or rawget(host, "_giBoardTab") then return end
+    local b = W.SideTab(host, "BUG", "Interface\\Icons\\Spell_Nature_InsectSwarm", -80)   -- 11-16 用户截图「弄个图标，然后这里直接写BUG」；⛔ 路径反斜杠要写两个（原来单个 = 没图标）
+    host._giBoardTab = b
+    b:SetScript("OnClick", function()
+        local h = _G.GearInsightForeverMain
+        if h and h:IsShown() and ns.db and ns.db.ui and ns.db.ui.page == "board" then return end   -- 已经在共建页：别把面板关了
+        if ns.ToggleMain then ns.ToggleMain("board") end
+    end)
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetText(ns.L("提 BUG / 提需求", "Report a bug / request a feature"), 1, 0.82, 0)
+        GameTooltip:AddLine(ns.L("共建看板：报 BUG、提需求、看作者正在做什么；被采纳上线后会写上你的名字", "The build board: report bugs, request features, see what's being worked on"), 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    if ns.LayoutSideTabs then pcall(ns.LayoutSideTabs, host) end
+    if W.KeepSideTabsOnScreen then pcall(W.KeepSideTabsOnScreen, host) end
+end
+local origToggle = ns.ToggleMain
+if type(origToggle) == "function" then
+    ns.ToggleMain = function(...)
+        origToggle(...)
+        pcall(ensureBoardTab)
+    end
+end

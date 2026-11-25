@@ -41,6 +41,16 @@ local function avail(t)
     return ok and v and true or false
 end
 
+-- 11-16 GI-286 版本更新弹窗里的「新功能开关」：按 id 取一个当前可用的勾选项（组 + 项 avail 都过、有 get / set）；
+--   没登记（子插件没加载 / HOLD 没进包）、不可用（职业专属等）→ nil，弹窗就不画这一项
+function ns.SettingItem(id)
+    local it = id and ITEMS[id]
+    if not it or it.type ~= "check" or type(it.get) ~= "function" or type(it.set) ~= "function" then return nil end
+    if it.group and not avail(it.group) then return nil end
+    if not avail(it) then return nil end
+    return it
+end
+
 -- 全部设置项（扁平），给搜索 / 清单脚本 / 测试用：{ id, group, type, text, where }
 function ns.SettingsList(all)
     local out = {}
@@ -48,7 +58,7 @@ function ns.SettingsList(all)
         if all or avail(g) then
             for _, it in ipairs(g.items) do
                 if (all or avail(it)) and it.type ~= "note" then
-                    out[#out + 1] = { id = it.id, group = g.key, type = it.type, text = txt(it.text), where = g.page or g.data or g.drawer, jumpOnly = g.jumpOnly and true or false, tag = it.tag }
+                    out[#out + 1] = { id = it.id, group = g.key, type = it.type, text = txt(it.text), where = g.page or g.data or g.drawer, jumpOnly = g.jumpOnly and true or false, tag = it.tag, keys = it.keys }
                 end
             end
         end
@@ -64,7 +74,7 @@ function ns.SettingsSearch(q)
     local out = {}
     for _, r in ipairs(ns.SettingsList()) do
         local g = BYKEY[r.group]
-        if r.type ~= "head" and (hit(r.text, q) or hit(txt(g.title), q)) then out[#out + 1] = r end
+        if r.type ~= "head" and (hit(r.text, q) or hit(txt(g.title), q) or (r.keys and hit(r.keys, q))) then out[#out + 1] = r end
     end
     return out
 end
@@ -93,11 +103,18 @@ local function estW(fs, minW)
     return math.max(minW or 60, w or 60)
 end
 
-local function makeCheck(row, it, x)
+local function makeCheck(row, it, x, ww)
     local c = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
     c:SetSize(24, 24); c:SetPoint("TOPLEFT", x, 0)
     local fs = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    fs:SetPoint("LEFT", c, "RIGHT", 4, 0); fs:SetText(txt(it.label or it.text))
+    fs:SetText(txt(it.label or it.text))
+    -- 11-21 用户截图「组队设置」：长勾选项冲出面板右边 → 独占一行的勾选项限宽换行，行高跟着字
+    if ww and ww > 60 and estW(fs, 0) > ww then
+        fs:SetWidth(ww); fs:SetJustifyH("LEFT"); fs:SetPoint("TOPLEFT", c, "TOPRIGHT", 4, -5)
+        c.wrapped = true
+    else
+        fs:SetPoint("LEFT", c, "RIGHT", 4, 0)
+    end
     c.text, c.get, c.item = fs, it.get, it
     if it.radio then c.radio = true end
     c:SetScript("OnClick", function(self)
@@ -118,13 +135,13 @@ end
 local function drawItem(row, it, x, ctx)
     local t = it.type
     if t == "check" then
-        local c, w = makeCheck(row, it, x)
+        local c, w = makeCheck(row, it, x, ctx.wrapW)
         if ctx.onCheck then ctx.onCheck(c, it) end
         return c, w
     elseif t == "label" then
         local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         fs:SetPoint("TOPLEFT", x + 4, -5); fs:SetText(txt(it.text))
-        return fs, (it.w or (estW(fs, 40) + 10))
+        return fs, math.max(it.w or 0, estW(fs, 40) + 10)   -- 11-21 字比 w 宽时别压到后面的勾选框
     elseif t == "head" then
         local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         fs:SetPoint("TOPLEFT", x + 2, -2); fs:SetText(txt(it.text))
@@ -132,7 +149,11 @@ local function drawItem(row, it, x, ctx)
     elseif t == "note" then
         local fs = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         fs:SetPoint("TOPLEFT", x + 6, it.inline and -7 or -2); fs:SetText(txt(it.text))
-        if not it.inline then fs:SetPoint("RIGHT", row, "RIGHT", -12, 0); fs:SetJustifyH("LEFT") end
+        if not it.inline then
+            -- 11-21 显式限宽（行框此时还没摆位置，两点锚定量不出换行后的高度）
+            if ctx.W then fs:SetWidth(math.max(80, ctx.W - x - 18)) else fs:SetPoint("RIGHT", row, "RIGHT", -12, 0) end
+            fs:SetJustifyH("LEFT")
+        end
         return fs, estW(fs, 40) + 10
     elseif t == "button" then
         local w = it.w or 120
@@ -172,6 +193,18 @@ local function drawItem(row, it, x, ctx)
         if ns.Print then ns.Print(tostring(ctrl)) end
     end
     return nil, 0
+end
+
+-- 一项实际要多高（说明换行 / 勾选项换行后）；量不出 = 0（用默认行高）
+local function strH(fs)
+    local ok, h = pcall(fs.GetStringHeight, fs)
+    return ok and tonumber(h) or 0
+end
+function ns.SettingsRowNeed(it, ctrl)
+    if not ctrl or it.inline then return 0 end
+    if it.type == "note" and ctrl.GetStringHeight then return math.ceil(strH(ctrl)) + 6 end
+    if it.type == "check" and rawget(ctrl, "wrapped") and ctrl.text then return math.max(28, math.ceil(strH(ctrl.text)) + 12) end
+    return 0
 end
 
 local function rowsOf(g)
@@ -215,8 +248,8 @@ function Block:Render()
     f:SetPoint("TOPLEFT", 0, self.top or 0); f:SetWidth(self.opts.width or 640); f:SetHeight(10)
     self.frame, self.sig, self.entries, self.pos, self.gpos = f, self:Sig(), {}, {}, {}
     if self.opts.onRender then self.opts.onRender(self) end
-    local ctx = { onCheck = self.opts.onCheck, onEdit = self.opts.onEdit, block = self }
     local W = self.opts.width or 640
+    local ctx = { onCheck = self.opts.onCheck, onEdit = self.opts.onEdit, block = self, W = W }
     for _, g in ipairs(groupKeys(self)) do
         local ok = avail(g)
         local missing = (not ok) and g.missing and txt(g.missing) or nil
@@ -270,8 +303,13 @@ function Block:Render()
                     local x = 14
                     for i, it in ipairs(rw.items) do
                         if it.x then x = it.x elseif i == 1 and it.indent then x = 14 + it.indent end
+                        ctx.wrapW = (#rw.items == 1 and not it.inline) and (W - x - 30 - 16) or nil
                         local ctrl, w = drawItem(r, it, x, ctx)
+                        ctx.wrapW = nil
                         it._ctrl = ctrl
+                        -- 11-21 换行的说明 / 勾选项：行高按实际字高撑开，别和下一行叠字
+                        local need = ns.SettingsRowNeed(it, ctrl)
+                        if need > rw.h then rw.h = need; r:SetHeight(need) end
                         local st = it.step
                         if type(st) == "function" then st = st() end
                         x = x + (st or w or 0)
@@ -389,6 +427,7 @@ local DRAWER_NAME = {
     mage = function() return L("右侧「组队」页签 → 法师吃喝", "Group tab → Mage food") end,
 }
 local SUB_NAME = {
+    features = function() return L("设置 → 功能", "Settings → Features") end,   -- 11-17 界面重构第 6 期：功能开关中心
     general = function() return L("设置 → 通用", "Settings → General") end,
     perf = function() return L("设置 → 性能", "Settings → Performance") end,
 }
@@ -640,32 +679,163 @@ for i, lg in ipairs(ns.LANGS or {}) do
     langItems[#langItems + 1] = { type = "check", radio = true, inline = i > 1, id = "lang." .. tostring(code or "auto"),
         -- 繁体对照表（ZhTW.lua）用不上（11-13 第 4 期起在按需加载的 GearInsight_Forever_LocaleTW，简体客户端没加载但文件夹在也算能用）：不给这个选项
         avail = function() return not (code == "tw" and not (ns.TW_CHAR or (ns.TWAvailable and ns.TWAvailable()))) end,
-        text = function() return code and lg[2] or ns.L(lg[2], lg[3]) end,
+        text = function() return code and ns.TD(lg[2]) or ns.L(lg[2], lg[3]) end,   -- 11-15 GI-266：繁体端「簡體中文」
         step = function() return code == "en" and 96 or code and 112 or 150 end,
         get = function() return ns.Lang() == code end, set = function() ns.SetLang(code) end }
 end
 langItems[#langItems + 1] = { type = "button", inline = true, id = "lang.reload", w = 110, text = function() return L("重载界面生效", "Reload to apply") end, click = function() ReloadUI() end }
+-- 11-19 对外说话语言（ns.ChatL）：插件替你发的私聊 / 喊话用哪种语言，和上面的界面语言分开、立即生效；点一下换：自动 → 简 → 繁 → EN（内存紧，只占一个按钮）
+langItems[#langItems + 1] = { type = "button", id = "chatlang", w = 230, dyn = true,
+    text = function() local c = ns.db and ns.db.chatLang; return L("对外说话：", "Chat out: ") .. (c and "" or L("自动·", "Auto·")) .. ({ zh = L("简体", "简体"), tw = "繁體", en = "English" })[ns.ChatLang()] end,
+    click = function() local c = ns.db.chatLang; ns.db.chatLang = ({ zh = "tw", tw = "en" })[c] or (not c and "zh" or nil) end }
 ns.RegisterSettings({ key = "lang", order = 10, data = "general",
-    title = "语言 / Language", short = function() return L("语言", "Language") end,
+    title = function() return ns.TD("语言") .. " / Language" end, short = function() return L("语言", "Language") end,
     items = langItems })
 
 local scaleItems = {
-    { type = "label", id = "ui.scaleLabel", text = function() return L("窗口大小：", "Window size:") end, w = 72,
-      avail = function() return ns.SetUIScale ~= nil end },
+    { type = "label", id = "ui.scaleLabel", text = function() return L("窗口大小：", "Window size:") end, w = 72 },   -- 11-20 去掉 avail：ns.SetUIScale 在内核 UI.lua（toc 排在前面）里恒有，省 8 个闭包给 GI-292 腾内存
 }
 for _, sc in ipairs(ns.SCALES or { 0.9, 1, 1.1, 1.2, 1.3, 1.4 }) do
     scaleItems[#scaleItems + 1] = { type = "check", radio = true, inline = true, id = "ui.scale" .. math.floor(sc * 100 + 0.5), step = 70,
-        avail = function() return ns.SetUIScale ~= nil end,
         text = function() return math.floor(sc * 100 + 0.5) .. "%" end,
         get = function() return math.abs(ns.UIScale() - sc) < 0.001 end, set = function() ns.SetUIScale(sc) end }
 end
-scaleItems[#scaleItems + 1] = { type = "note", indent = 28, avail = function() return ns.SetUIScale ~= nil end,
+scaleItems[#scaleItems + 1] = { type = "note", indent = 28,
     text = function() return L("也可以在主窗口上按住 Ctrl 滚滚轮微调，或输入 /gi scale 125", "Or hold Ctrl and scroll over the window, or type /gi scale 125") end }
+-- 11-20 GI-292「面板底色」：点一下循环 默认 → 实色(不透明) → 透明 20% → … → 100% → 默认；细调 /gi alpha solid | 0-100
+--   内核登录内存只剩约 2 KB，滑条控件要 +2.6 KB 放不下 → 照「对外说话」只占一个按钮（UI.lua ns.SetUIAlpha 同时当按钮文字 / 斜杠命令）
+scaleItems[#scaleItems + 1] = { type = "button", id = "ui.alpha", w = 200, dyn = true, keys = "透明 不透明 实色 底色 alpha", text = ns.SetUIAlpha,
+    click = function() local _, n = ns.SetUIAlpha(); ns.SetUIAlpha(n == 0 and -1 or n < 0 and 20 or (n + 20) % 120) end }
 scaleItems[#scaleItems + 1] = { type = "check", id = "ui.minimap", text = function() return L("显示小地图按钮", "Show minimap button") end,
     get = function() return not (ns.db.minimap and ns.db.minimap.hide) end, set = function(v) ns.SetMinimapShown(v) end }
 ns.RegisterSettings({ key = "ui", order = 20, data = "general",
     title = function() return L("界面", "Interface") end, short = function() return L("界面", "Interface") end,
     items = scaleItems })
+
+-- ---------- 设置 → 通用：交易回执（11-15 用户截图别人的插件交易完私聊回执「这个功能也加到插件」，TradeReceipt.lua，HOLD）----------
+local function TRC() return ns.TradeReceipt end
+-- 11-18 GI-307「求人给buff改改词儿」→ 用户「增加自定义」：要 BUFF / 要水 / 道谢 / 蹭帐篷 / 喊 BUFF 对别人的称呼
+local callItems = {
+    { type = "label", id = "callword.label", w = 60, text = function() return L("称呼：", "Call them:") end },
+}
+for i, w in ipairs(ns.CALL_PRESETS or {}) do
+    callItems[#callItems + 1] = { type = "check", radio = true, inline = true, id = "callword.p" .. i, minW = 40, gap = 8,
+        text = function() return w end,
+        get = function() return ns.CallWord() == w end, set = function() ns.SetCallWord(w) end }
+end
+callItems[#callItems + 1] = { type = "edit", id = "callword.custom", tag = "whisper", w = 120,
+    text = function() return L("或者自己填：", "Or your own:") end,
+    get = function()
+        local cur = ns.CallWord()
+        for _, w in ipairs(ns.CALL_PRESETS or {}) do if w == cur then return nil end end
+        return cur
+    end,
+    set = function(v) ns.SetCallWord(v) end }
+callItems[#callItems + 1] = { type = "note", id = "callword.note",
+    text = function() return L("要 BUFF / 要水 / 道谢 / 蹭帐篷 / 喊 BUFF 里对别人的称呼，默认「老哥」（对外说英文时默认 friend，填英文词如 bro 才替换）；也可以输入 /gi 称呼 义父",
+        "How you address people when asking for buffs / water / tents. Default 老哥 in Chinese, \"friend\" in English chat (an English word like bro replaces it); /gi 称呼 <word>") end }
+ns.RegisterSettings({ key = "callword", order = 24, data = "general",
+    title = function() return L("求人 / 道谢的称呼", "Form of address") end, short = function() return L("称呼", "Address") end,
+    items = callItems })
+ns.ExtraSlash = ns.ExtraSlash or {}
+ns.ExtraSlash["称呼"] = function(rest, rawRest)
+    local v = (rawRest or rest or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if v == "" then ns.Print(L("现在的称呼：", "Current: ") .. ns.CallWord() .. L("（/gi 称呼 义父 改；/gi 称呼 老哥 恢复默认）", " (/gi 称呼 <word>)")); return end
+    ns.SetCallWord(v)
+    if ns.RefreshSettings then pcall(ns.RefreshSettings) end
+    ns.Print(L("求人 / 道谢的称呼改成：", "Form of address: ") .. ns.CallWord())
+end
+-- 11-18 用户「自定义 义父替代在哪里，要做到UI的」「要不用户找不到」：用得到称呼的地方直接给入口 ——
+--   要 BUFF 小框标题右边「称呼：义父」按钮、出发前清单「职业BUFF」行（悬停写当前称呼，右键「喊」/ BUFF 图标改）、清单齿轮菜单、组队设置「要 BUFF」
+--   ns.CallMenu = 小菜单（预设，当前那个标「（当前）」+ 自己填… + 在设置里改）；ns.CallEdit = 自己填的小输入框（插件自己的框，⛔ 不用 StaticPopupDialogs）
+--   after(新称呼) = 改完回调（调用方重画自己的预览句子）
+function ns.CallTip()
+    return string.format(L("称呼：%s（右键改；设置 → 通用 →「求人 / 道谢的称呼」）", "Form of address: %s (right-click to change; Settings > General)"), ns.CallWord())
+end
+function ns.SetCallWordUI(v, after)
+    ns.SetCallWord(v)
+    if ns.RefreshSettings then pcall(ns.RefreshSettings) end
+    ns.Print(L("求人 / 道谢的称呼改成：", "Form of address: ") .. ns.CallWord())
+    if type(after) == "function" then pcall(after, ns.CallWord()) end
+end
+function ns.CallIsPreset(w)
+    for _, p in ipairs(ns.CALL_PRESETS or {}) do if p == w then return true end end
+    return false
+end
+function ns.CallMenuItems(anchor, after)
+    local cur, items = ns.CallWord(), {}
+    local now = L("（当前）", " (now)")
+    for _, w in ipairs(ns.CALL_PRESETS or {}) do
+        items[#items + 1] = { text = (w == cur and "|cff40e060" or "") .. w .. (w == ns.CALL_DEFAULT and L("（默认）", " (default)") or "") .. (w == cur and (now .. "|r") or ""),
+            fn = function() ns.SetCallWordUI(w, after) end }
+    end
+    local own = not ns.CallIsPreset(cur)
+    items[#items + 1] = { text = own and ("|cff40e060" .. L("自己填：", "Custom: ") .. cur .. now .. "|r") or L("自己填…", "Type your own..."),
+        fn = function() ns.CallEdit(anchor, after) end }
+    items[#items + 1] = { text = L("在设置里改（设置 → 通用）", "Open in Settings > General"), fn = function() if ns.JumpToSetting then ns.JumpToSetting("callword.custom") end end }
+    return items
+end
+function ns.CallMenu(anchor, after)
+    if not ns.PopMenu then
+        if ns.JumpToSetting then ns.JumpToSetting("callword.custom") end
+        return nil
+    end
+    return ns.PopMenu(anchor or UIParent, L("求人 / 道谢的称呼：", "Form of address: ") .. ns.CallWord(), ns.CallMenuItems(anchor, after))
+end
+local callEdit
+function ns.CallEdit(anchor, after)
+    local f = callEdit
+    if not f then
+        f = CreateFrame("Frame", nil, UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+        f:SetSize(250, 74); f:SetFrameStrata("FULLSCREEN_DIALOG")
+        if f.SetClampedToScreen then f:SetClampedToScreen(true) end
+        if f.EnableMouse then f:EnableMouse(true) end
+        if f.SetBackdrop then
+            pcall(f.SetBackdrop, f, { bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+            f:SetBackdropColor(0.05, 0.06, 0.08, 0.97); f:SetBackdropBorderColor(1, 0.82, 0, 0.8)
+        end
+        f.t = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); f.t:SetPoint("TOPLEFT", 10, -8)
+        f.t:SetText(L("自己填称呼（发出去的话里「义父」换成它）", "Your own form of address"))
+        local e = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
+        e:SetSize(140, 20); e:SetPoint("BOTTOMLEFT", 16, 12)
+        if e.SetAutoFocus then e:SetAutoFocus(false) end
+        if e.SetMaxLetters then e:SetMaxLetters(12) end
+        f.e = e
+        local function done()
+            local v = e:GetText()
+            f:Hide()
+            ns.SetCallWordUI(v, f.after)
+        end
+        f.done = done
+        e:SetScript("OnEnterPressed", done)
+        e:SetScript("OnEscapePressed", function() f:Hide() end)
+        local ok = ns.Button and ns.Button(f, L("确定", "OK"), 60, 22, done)
+        if ok then ok:SetPoint("BOTTOMRIGHT", -12, 11) end
+        f.ok = ok
+        local cl = CreateFrame("Button", nil, f, "UIPanelCloseButton"); cl:SetSize(20, 20); cl:SetPoint("TOPRIGHT", 0, 0)
+        cl:SetScript("OnClick", function() f:Hide() end)
+        callEdit = f
+    end
+    f.after = after
+    f.e:SetText(ns.CallWord())
+    f:ClearAllPoints()
+    if anchor then f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2) else f:SetPoint("CENTER", UIParent, "CENTER", 0, 120) end
+    f:Show()
+    if f.e.SetFocus then f.e:SetFocus() end
+    if f.e.HighlightText then f.e:HighlightText() end
+    ns._CallEdit = f   -- 测试用
+    return f
+end
+ns.RegisterSettings({ key = "trade", order = 25, data = "general", avail = function() return ns.TradeReceipt ~= nil end,
+    title = function() return L("交易回执", "Trade receipt") end, short = function() return L("交易回执", "Trade receipt") end,
+    items = {
+        { type = "check", id = "trade.on", text = function() return L("交易成功后私聊对方交易回执（写明给了什么）", "Whisper a trade receipt to your partner after a trade (what you gave)") end,
+          get = function() return TRC().On() end, set = function(v) TRC().SetOn(v) end },
+        { type = "check", id = "trade.got", indent = 18, text = function() return L("回执里也写我收到了什么", "Also list what you received") end,
+          get = function() return TRC().GotOn() end, set = function(v) TRC().SetGot(v) end },
+        { type = "note", indent = 28, h = 34, text = function() return L("例：与<名字>的交易成功了。给予[魔法纯净水]x20；收到 1金20银。取消 / 失败、双方都没放东西、战斗中都不发；跟法师换水时先发道谢、回执随后（只收了水没给东西就不再发回执）",
+              "e.g. \"Trade with <name> complete. Gave [Conjured Water]x20; got 1g 20s.\" Not sent if cancelled, empty or in combat; after a mage's water the thank-you goes first") end },
+    } })
 
 -- ---------- 设置 → 性能 ----------
 local function perfTip(self)
@@ -738,6 +908,9 @@ ns.RegisterSettings({ key = "perf", order = 30, data = "perf",
 
 -- ---------- 装备 → 推荐装备 ----------
 local bisItems = {
+    -- 11-24 GI-348「增加关闭推荐装备功能」：物品鼠标提示里那行「GI 60 级 BiS：xx 第N」（PagePlan.lua 读同一个键）—— 存 ns.db.ui.bisTip（nil = 开，false = 关）
+    { type = "check", id = "bis.tip", text = function() return L("物品鼠标提示里加一行「60 级 BiS：哪个专精第几」", "Lv60 BiS rank line in item tooltips") end,
+      get = function() return not (ns.db.ui and ns.db.ui.bisTip == false) end, set = function(v) ns.db.ui = ns.db.ui or {}; if v then ns.db.ui.bisTip = nil else ns.db.ui.bisTip = false end end },
     { type = "check", id = "bis.on", text = function() return L("显示角标（悬停看来源，点击指引获取）", "Show icons (hover for source, click for directions)") end,
       get = function() return ns.BisCorner.Enabled() end, set = function(v) ns.BisCorner.SetEnabled(v) end },
     { type = "label", id = "bis.posLabel", w = 50, avail = function() return ns.BisCorner.SetPos ~= nil end, text = function() return L("位置：", "Position:") end },
@@ -765,6 +938,8 @@ ns.RegisterSettings({ key = "reagent", order = 50, page = "prof", avail = functi
     items = {
         { type = "check", id = "reagent.on", text = function() return L("材料鼠标提示写从哪来（采集点 / 剥皮地区 / 掉落的怪 / 商人）", "Show where crafting materials come from in tooltips") end,
           get = function() return ns.ReagentSrcTip.Enabled() end, set = function(v) ns.ReagentSrcTip.SetOn(v) end },
+        -- 11-23 玩家截图「GI: 剥皮需要 1 技能（你现在 66）」「这行信息怎么关掉」
+        ns.Prof and { type = "check", id = "prof.skinTip", text = function() return L("可剥皮的怪：提示剥皮要几级技能", "Skinning skill on skinnable mobs") end, get = ns.Prof.SkinTipOn, set = ns.Prof.SkinTipOn } or nil,   -- 最后一项：Prof.lua 没加载（离线测试）= 不登记
     } })
 
 -- ---------- 职业 → 天赋 ----------
@@ -794,12 +969,8 @@ ns.RegisterSettings({ key = "trainnow", order = 55, page = "talent", avail = fun
 -- ---------- 职业 → 弹药商（猎人）----------
 -- 11-13 重构第 4 期：弹药提醒 / 冷却管理器键位 / 手法钉板在按需加载的 _Class 里 —— 没加载时设置项照常出（按「包里有没有这个文件」），
 --   读开关直接读存档（同一个键），改开关才加载 _Class 再调真函数（战斗中排到脱战后）
-local function classHas(file, name) return ns[name] ~= nil or (ns.ModHas ~= nil and ns.ModHas("class", file)) end
-local function classDo(name, fn)
-    local t = ns[name]
-    if t then return fn(t) end
-    if ns.ModLoad and ns.ModLoad("class", function() if ns[name] then fn(ns[name]) end end) and ns[name] then return fn(ns[name]) end
-end
+local classHas = ns._ClassHas
+local classDo = ns._ClassDo   -- Features.lua
 local function ammoDB() return (ns.db and type(ns.db.ammoRemind) == "table") and ns.db.ammoRemind or {} end
 local AMMO_DEF = { warn = 400, urgent = 150, full = 1000 }   -- ⛔ 和 AmmoRemind.lua 的 R.DEF 一致（没加载时说明文字用）
 ns.RegisterSettings({ key = "ammo", order = 58, page = "ammo", avail = function() return classHas("AmmoRemind.lua", "AmmoRemind") and ns.MyClass ~= nil and ns.MyClass() == "Hunter" end,
@@ -832,6 +1003,16 @@ ns.RegisterSettings({ key = "pally", order = 58.5, page = "pally", avail = funct
           get = function() return pallyDB().page ~= false end, set = function(v) if v then pallySet("page", nil) else pallySet("page", false) end end },
         { type = "check", id = "pally.float", text = function() return L("组队时显示一键祝福悬浮按钮（可拖动；页上「设置快捷键」可绑一个键）", "Show the floating blessing button in groups (drag to move; bind a key on the page)") end,
           get = function() return pallyDB().float ~= false end, set = function(v) if v then pallySet("float", nil) else pallySet("float", false) end end },
+        -- 11-15 圣骑士光环没开提醒（AuraRemind.lua，HOLD：没进包时不出）；读开关直接读存档 ns.db.auraRemind.on（⛔ 和 AR.On 一致），改开关才加载 _Class
+        { type = "check", id = "pally.aura", avail = function() return classHas("AuraRemind.lua", "AuraRemind") end,
+          text = function() return L("圣骑士光环没开时提醒（屏幕上出小条 + 一键开光环按钮；/gi 光环）", "Remind me when no paladin aura is on (bar + one-click button; /gi aura)") end,
+          get = function() return not (ns.db and type(ns.db.auraRemind) == "table" and ns.db.auraRemind.on == false) end,
+          set = function(v)
+              if not ns.db then return end
+              if type(ns.db.auraRemind) ~= "table" then ns.db.auraRemind = {} end
+              if v then ns.db.auraRemind.on = nil else ns.db.auraRemind.on = false end
+              classDo("AuraRemind", function(AR) AR.SetOn(v) end)
+          end },
         { type = "head", id = "pally.assignHead", text = function() return L("默认分配", "Default assignment") end },
         { type = "note", indent = 8, h = 34, text = function() return L("战士 / 盗贼 = 力量；法师 / 术士 / 牧师 / 猎人 = 智慧；德鲁伊 / 圣骑士 / 萨满 = 智慧（页上点职业格可换，右键名字单独指定）",
               "Warrior / Rogue = Might; Mage / Warlock / Priest / Hunter = Wisdom; Druid / Paladin / Shaman = Wisdom (change per class on the page)") end },
@@ -850,6 +1031,14 @@ ns.RegisterSettings({ key = "camp", order = 60, page = "xp", avail = function() 
     items = {
         { type = "check", id = "camp.on", text = function() return L("指到别人的帐篷时弹窗问要不要密他求组蹭露营", "Offer to whisper the owner when you mouse over someone's tent") end,
           get = function() return CP().Enabled() end, set = function(v) CP().SetOn(v) end },
+        -- 11-24 GI-347「主城门口一直弹很烦」「满级角色能不能就别弹了」：默认只在按住 Ctrl 指帐篷时弹、满级不弹
+        { type = "check", id = "camp.ctrl", indent = 18, text = function() return L("只在按住 Ctrl 指帐篷时弹（关掉 = 鼠标路过就弹）", "Only when holding Ctrl over a tent (off = on mouseover)") end,
+          get = function() return CP().DB().ctrl ~= false end, set = function(v) if v then CP().DB().ctrl = nil else CP().DB().ctrl = false end end },
+        { type = "check", id = "camp.maxLv", indent = 18, text = function() return L("满级（60 级）也弹（默认满级不弹）", "Also at max level (60)") end,
+          get = function() return CP().DB().maxLv == true end, set = function(v) CP().DB().maxLv = v or nil end },
+        -- 11-16 GI-282：求组前先看帐篷主人在不在同一张地图（不在拿不到 20% 经验加成就不密）；/gi camp zone on|off 同一个开关
+        { type = "check", id = "camp.zoneCheck", indent = 18, text = function() return L("求组前先看主人在不在同一张地图（不在同图拿不到 20% 经验加成就不密）", "Check the owner is in your zone first (no 20% XP bonus otherwise)") end,
+          get = function() return CP().DB().zoneCheck ~= false end, set = function(v) if v then CP().DB().zoneCheck = nil else CP().DB().zoneCheck = false end end },
         -- 11-10 用户「主动发私聊就行，申请加入功能放到设置，默认关闭」
         { type = "check", id = "camp.reqJoin", indent = 18, text = function() return L("求组时同时发系统入队申请（对方会弹「申请加入」框）", "Also send a system join request") end,
           get = function() return CP().DB().reqJoin == true end, set = function(v) CP().DB().reqJoin = v or nil end },
@@ -886,14 +1075,15 @@ local xpItems = {
     { type = "note", inline = true, text = function() return L("提醒条出来时也能直接按住拖", "You can also just drag the bar when it shows") end },
     { type = "label", id = "xp.checkLabel", w = 60, text = function() return L("查哪些：", "Check:") end },
 }
-for i = 1, 5 do
-    xpItems[#xpItems + 1] = { type = "check", inline = true, id = "xp.item" .. i, step = function() return ns.zh and 104 or 112 end,
+-- 11-17 加第 6 项「药剂/武器油」：一行 6 个放不下 640 宽 → 第 5 个起换一行（缩进对齐「查哪些：」后面）；同日第 7 项「经验药剂/活动」
+for i = 1, 7 do
+    xpItems[#xpItems + 1] = { type = "check", inline = i ~= 5 or nil, indent = (i == 5) and 60 or nil, id = "xp.item" .. i, step = function() return ns.zh and 104 or 112 end,
         avail = function() return XC().KEYS and XC().KEYS[i] ~= nil end,
         text = function() local t = XC().TITLE[XC().KEYS[i]]; return ns.L(t[1], t[2]) end,
         get = function() return XC().ItemOn(XC().KEYS[i]) end, set = function(v) XC().SetItem(XC().KEYS[i], v) end }
 end
 ns.RegisterSettings({ key = "xp", order = 70, page = "xp", avail = function() return ns.XpCheck ~= nil end,
-    title = function() return L("经验加成检查（帐篷 / 营火 / 睡袋 / 经验食物 / 休息经验）", "XP bonus check (tent / campfire / bag / food / rested)") end, short = function() return L("经验加成", "XP check") end,
+    title = function() return L("经验加成检查（帐篷 / 营火 / 睡袋 / 经验食物 / 经验药剂·活动 / 药剂武器油 / 休息经验）", "XP bonus check (tent / fire / bag / food / XP potion & events / elixir & oil / rested)") end, short = function() return L("经验加成", "XP check") end,
     items = xpItems })
 
 -- ---------- 升级 → 升级规划：两扇小窗 ----------
@@ -934,8 +1124,9 @@ ns.RegisterSettings({ key = "layer", order = 84, page = "layer", jumpOnly = true
     items = {
         { type = "check", id = "layer.on", text = function() return L("开启位面识别（关了就不扫描、不发布）", "Layer detection on (off = no scanning, no broadcasting)") end },
         { type = "check", id = "layer.helper", text = function() return L("我愿意帮公会会员换层", "Help guildmates switch layers") end },
-        { type = "check", id = "layer.autoHelp", text = function() return L("公会会员求助自动拉（不弹框）", "Auto-invite guildmates (no prompt)") end },
-        { type = "check", id = "layer.autoLeave", text = function() return L("换过去后自动退队（换过去的层会留下）", "Leave the group after the move") end },
+        { type = "check", id = "layer.autoHelp", text = function() return L("换层求助自动拉（没组队时，公会会员和同图插件用户都直接拉）", "Auto-invite layer requests when solo") end },
+        -- 11-22 autoLeave 还是 nil（没问过）时显示没勾：说明写清楚，不是「不退」
+        { type = "check", id = "layer.autoLeave", text = function() return L("换过去后自动退队（没设过的：第一次换成后问你）", "Leave the group after the move (unset = asked once)") end },
         { type = "check", id = "layer.autoAccept", text = function() return L("会长 / 官员的组队邀请自动接受", "Auto-accept leader / officer invites") end },
         { type = "check", id = "layer.pub", text = function() return L("加入公共频道（关了只和公会会员互通）", "Join public channel (off = guild only)") end },
     } })
@@ -997,15 +1188,26 @@ guildItems[#guildItems + 1] = { type = "check", id = "guild.mute", avail = funct
 guildItems[#guildItems + 1] = { type = "check", id = "guild.invite", avail = function() return ns.InviteMenu ~= nil and ns.InviteMenu.Enabled ~= nil end,
     text = function() return L("右键玩家菜单里加「邀请入会」", "Add \"Invite to guild\" to the player right-click menu") end,
     get = function() return ns.InviteMenu.Enabled() end, set = function(v) ns.InviteMenu.SetEnabled(v) end }
+-- 11-18 用户「加入公会优先展示我的，不要其他插件的」：装了露露工具箱才出；勾上 = 替你关掉它自己那一项（改的是它的设置，取消勾选就还原）
+guildItems[#guildItems + 1] = { type = "check", id = "guild.inviteOnly", indent = 18,
+    avail = function() return ns.InviteMenu ~= nil and ns.InviteMenu.RurutiaOn ~= nil and ns.InviteMenu.RurutiaOn() ~= nil end,
+    text = function() return L("只留 GearInsight 的「邀请入会」（关掉露露工具箱自己那一项）", "Only GearInsight's \"Invite to guild\" (turn off RurutiaSuite's)") end,
+    get = function() return ns.InviteMenu.RurutiaOn() == false end, set = function(v) ns.InviteMenu.SetRurutia(not v) end }
 -- 11-15 用户「设置里加个开关」：右键法师「找他要水」（MageAskMenu.lua，HOLD；不在包里时这项不出）—— 和「邀请入会」都是右键菜单项，放一起
 guildItems[#guildItems + 1] = { type = "check", id = "guild.mageAsk", avail = function() return ns.MageAskMenu ~= nil and ns.MageAskMenu.Enabled ~= nil end,
     text = function() return L("右键法师菜单里加「找他要水」（战士 / 盗贼是「找他要面包」）", "Add \"Ask for water\" to a mage's right-click menu") end,
     get = function() return ns.MageAskMenu.Enabled() end, set = function(v) ns.MageAskMenu.SetEnabled(v) end }
+-- 11-18 用户截图「加上要BUFF」：右键能给我缺的 BUFF 的人「找他要BUFF（耐力）」（BuffAskMenu.lua，HOLD；不在包里时这项不出）—— 和「找他要水」放一起
+guildItems[#guildItems + 1] = { type = "check", id = "guild.buffAsk", avail = function() return ns.BuffAskMenu ~= nil and ns.BuffAskMenu.Enabled ~= nil end,
+    text = function() return L("右键能给你缺的 BUFF 的人（牧师 / 法师 / 德鲁伊 / 圣骑士），菜单里加「找他要BUFF」", "Add \"Ask for buffs\" to the right-click menu of players who can buff you") end,
+    get = function() return ns.BuffAskMenu.Enabled() end, set = function(v) ns.BuffAskMenu.SetEnabled(v) end }
 -- 11-06 野外荣誉击杀 / 被杀报公会；每项一个开关 + 「最多多久报一次」（1 / 5 / 10 / 30 分钟，默认 5）
-guildItems[#guildItems + 1] = { type = "head", id = "guild.headPvp", avail = function() return ns.PvPShout ~= nil end, text = function() return L("野外 PvP 通报", "World PvP alerts") end }
+guildItems[#guildItems + 1] = { type = "head", id = "guild.headPvp", avail = function() return ns.PvPShout ~= nil end, text = function() return L("野外通报（PvP / 帐篷）", "World alerts (PvP / tent)") end }
 for _, r in ipairs({
     { "kill", function() return L("野外荣誉击杀弹炫耀框（公会 / 小队 / 团队，写出对方阵营 / 等级 / 种族 / 职业 / 名字和坐标）", "Offer to show off world honorable kills (guild / party / raid; victim's faction / level / race / class / name and map pin)") end },
     { "death", function() return L("野外被玩家击杀弹求助框（公会 / 小队 / 团队，写出对方阵营 / 等级 / 种族 / 职业 / 名字和坐标）", "Ask for help when killed by a player in the world (guild / party / raid; killer's faction / level / race / class / name and map pin)") end },
+    -- 11-18 用户「加个公会内帐篷通报，跟荣誉击杀一个意思」：自己放帐篷时弹框问要不要通报（PvPShout.lua 末尾）
+    { "tent", function() return L("自己放帐篷时弹框问要不要通报（公会 / 小队 / 团队，带坐标和地图标记）", "Offer to announce your tent (guild / party / raid, with location)") end },
 }) do
     local kind = r[1]
     guildItems[#guildItems + 1] = { type = "check", id = "guild.pvp." .. kind, avail = function() return ns.PvPShout ~= nil end, h = 26,

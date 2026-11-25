@@ -2,6 +2,8 @@
 --   PagePet.lua 的第 4 个视图「在哪抓」：选家族 → 每只野兽一行（名字 / 等级 / 地区 / 坐标 / 稀有精英标记 / 会教的技能 / 「地图」按钮）
 --   「宠物技能」视图每个技能下面加「会教的野兽」（每一级列几只，点 = 打开地图标点）
 -- 数据：PetTameData.lua（scripts/gi_forever_pet_tame.py，经典旧世 1.12 开源数据，见那个文件头的出处 / 许可）
+--   11-20 用户「矫正这部分数据」：众包驯服结果核实过 → t 第 3 位 1 = 《无限》玩家驯服实测会教；nt = 实测不教；tn = 几人驯服过
+--     《无限》学法没变（经典旧世那套）：驯服会这个技能的野兽 → 宠物带着它 → 战斗中用一次学会 → 「训练野兽」花训练点教给主宠物
 --   众包校正：ns.PetTameObs（可选，以后由更新器从服务端 bf / tm 汇总写进来；没有就只用打底数据）
 --     格式 { beasts = { [npcID] = { fam=家族ID, cn=, en=, lo=, hi=, ui=, x=, y=, r=, t={ {法术ID, 等级}, ... } } } }
 -- ⛔ 这个文件在 HOLD 里：游戏内验收前不进发行包；PagePet.lua 没有 ns.PetTame 时照旧三个视图。
@@ -120,7 +122,7 @@ end
 M.ZoneName = zoneName
 
 local function beastName(b)
-    if ns.zh then return b.cn or b.en end
+    if ns.zh then return ns.TD(b.cn or b.en) end   -- 11-15 GI-266：野兽名（数据简体）繁体端转
     return b.en or b.cn
 end
 
@@ -138,17 +140,37 @@ local function lvText(b)
     return tostring(b.lo)
 end
 
-local function teachText(b)
+-- verified = true 只要实测过的 / false 只要没实测的 / nil 全要
+local function teachText(b, verified)
     local sb, out = skillByEn(), {}
     for _, t in ipairs(b.t or {}) do
         local en, rk = spellInfo(t[1])
         rk = t[2] or rk
         local s = en and sb[en]
-        if s then out[#out + 1] = ns.L(s.cn, s.en) .. " " .. (rk or "?") end
+        if s and (verified == nil or verified == ((t[3] or 0) >= 1)) then out[#out + 1] = ns.L(s.cn, s.en) .. " " .. (rk or "?") end
     end
     return table.concat(out, ns.L("、", ", "))
 end
 M.TeachText = teachText
+
+-- 这只野兽教这个技能这一级是不是《无限》实测过的
+local function verifiedFor(b, en, rk)
+    for _, t in ipairs(b.t or {}) do
+        local e, r = spellInfo(t[1])
+        if (t[3] or 0) >= 1 and (e == en) and (t[2] or r) == rk then return true end
+    end
+    return false
+end
+M.Verified = verifiedFor
+
+local function notTaughtText(b)
+    local sb, out = skillByEn(), {}
+    for _, en in ipairs(b.nt or {}) do
+        local s = sb[en]
+        out[#out + 1] = s and ns.L(s.cn, s.en) or en
+    end
+    return table.concat(out, ns.L("、", ", "))
+end
 
 function M.ShowBeast(b)
     if not (b and b.ui and b.x and ns.ShowOnMap) then return false end
@@ -162,12 +184,24 @@ local function tip(self, b)
     if ns.zh and b.en and b.en ~= b.cn then GameTooltip:AddLine(b.en, 0.6, 0.6, 0.6) end
     GameTooltip:AddDoubleLine(ns.L("等级", "Level"), lvText(b), 0.7, 0.7, 0.7, 1, 1, 1)
     GameTooltip:AddDoubleLine(zoneName(b.ui), string.format("%.1f, %.1f", b.x or 0, b.y or 0), 1, 1, 1, 1, 1, 1)
-    local tt = teachText(b)
-    if tt ~= "" then
-        GameTooltip:AddLine(ns.L("会教：", "Teaches: ") .. tt, 0.4, 1, 0.4, true)
-        -- 11-07 玩家「我抓了十几只都没有」：《无限》驯服的野兽可能不带技能，这里是经典旧世数据
-        GameTooltip:AddLine(ns.L("（经典旧世数据。《无限》有玩家反馈驯服后没带这个技能，众包核实中）", "(Classic Era data - Forever players report tamed beasts may not keep it; being verified)"), 1, 0.6, 0.2, true)
+    -- 11-20 用户「矫正这部分数据」：实测过的 / 经典数据未实测的 / 实测不教的 分三行
+    local tv, tu, nt = teachText(b, true), teachText(b, false), notTaughtText(b)
+    if tv ~= "" then
+        GameTooltip:AddLine(ns.L("会教：", "Teaches: ") .. tv, 0.4, 1, 0.4, true)
+        if b.tn then GameTooltip:AddLine(string.format(ns.L("（《无限》玩家驯服实测：%d 人驯服后宠物带着这个技能）", "(Verified in Forever: %d players got it after taming)"), tonumber(b.tn) or 2), 0.4, 0.67, 1, true) end
+        -- 11-20 众包野兽施法（HunterObs.lua bc）：≥2 人看到它放过这一级
+        if b.bn then GameTooltip:AddLine(string.format(ns.L("（《无限》玩家实测：%d 人看到它放过这个技能）", "(Verified in Forever: %d players saw it cast this)"), tonumber(b.bn) or 2), 0.4, 0.67, 1, true) end
     end
+    if tu ~= "" then
+        GameTooltip:AddLine(ns.L("可能会教：", "May teach: ") .. tu, 1, 0.82, 0.3, true)
+        GameTooltip:AddLine(ns.L("（经典旧世数据，《无限》还没人实测；驯服后插件会自动记下宠物技能帮忙核实）", "(Classic Era data, not yet verified in Forever; taming one records it automatically)"), 1, 0.6, 0.2, true)
+        if b.w then GameTooltip:AddLine(string.format(ns.L("众包中：已有 %d 位玩家观测", "Crowdsourcing: %d players observed so far"), tonumber(b.w) or 1), 1, 0.82, 0.3, true) end
+    end
+    if nt ~= "" then
+        GameTooltip:AddLine(string.format(ns.L("《无限》不教：%s（经典数据有，%d 位玩家驯服后都没带）", "Not in Forever: %s (Classic data had it; %d players tamed it without)"), nt, tonumber(b.tn) or 2), 1, 0.4, 0.4, true)
+    end
+    GameTooltip:AddLine(ns.L("学法：驯服它 → 带着它战斗用一次这个技能 → 学会后找回主宠物，用「训练野兽」花训练点教给它",
+        "How: tame it, use the ability in combat once, then teach it to your main pet with Beast Training"), 0.7, 0.7, 0.7, true)
     if b.obs then
         GameTooltip:AddLine(string.format(ns.L("等级 / 位置来自《无限》玩家实测：%d 位玩家看到过", "Level / position from Forever players: seen by %d players"), tonumber(b.n) or 2), 0.4, 0.67, 1, true)
     end
@@ -198,9 +232,9 @@ function M.View(ctx)
     --   ★ 说明只在有宠物家族时出（非猎人 / 没带宠物看不到 ★）
     local head = box(0, 0, 618, 32)
     if head.SetBackdropColor then head:SetBackdropColor(0, 0, 0, 0); head:SetBackdropBorderColor(0, 0, 0, 0) end
-    local hs = text(head, "GameFontDisableSmall", 2, -2, 614, ORANGE .. ns.L("经典旧世数据，众包校正中", "Classic Era data, being crowd-corrected") .. "|r"
-        .. ns.L(" · 等级 / 坐标按 1.12，《无限》可能有变 · 鼠标指向野兽会自动记录帮忙校正",
-            " · levels / coords are 1.12 · mousing over beasts helps correct them")
+    local hs = text(head, "GameFontDisableSmall", 2, -2, 614, ORANGE .. ns.L("经典旧世数据打底 + 《无限》玩家众包校正", "Classic Era data + Forever crowd corrections") .. "|r"
+        .. ns.L(" · 绿色「会教」= 驯服实测过 · 鼠标指向 / 驯服野兽会自动记录帮忙校正",
+            " · green = verified by taming · mousing over / taming beasts helps correct them")
         -- 11-06 用户「有没有众包数据」：众包已采信多少写在说明里（PetTameObsData.lua，scripts/gi_forever_pet_obs_build.py 汇总）
         .. ((ns.PetTameObs and ns.PetTameObs.players) and ("|cff66aaff" .. string.format(ns.L(" · 众包：%d 位玩家 %d 条目击（%s）", " · crowd: %d players, %d sightings (%s)"),
             ns.PetTameObs.players, ns.PetTameObs.sightings or 0, ns.PetTameObs.builtAt or "") .. "|r") or "")
@@ -252,9 +286,10 @@ function M.View(ctx)
         nm:SetWordWrap(false)
         local lv = text(row, "GameFontHighlightSmall", 430, -6, 110, ns.L(lvText(b) .. " 级", "Lv " .. lvText(b)))
         lv:SetJustifyH("RIGHT")
-        local tt = teachText(b)
+        local tv, tu = teachText(b, true), teachText(b, false)
         local line2 = GOLD .. zoneName(b.ui) .. "|r " .. string.format("(%.1f, %.1f)", b.x or 0, b.y or 0)
-            .. (tt ~= "" and ("  |cff66ff66" .. ns.L("会教：", "Teaches: ") .. tt .. "|r|cffff9933" .. ns.L("（经典数据·待核实）", " (Classic data, unverified)") .. "|r") or "")
+            .. (tv ~= "" and ("  |cff66ff66" .. ns.L("会教：", "Teaches: ") .. tv .. "|r") or "")
+            .. (tu ~= "" and ("  |cffffcc66" .. tu .. "|r|cffff9933" .. ns.L("（经典数据·待实测）", " (Classic, unverified)") .. "|r") or "")
         local l2 = text(row, "GameFontHighlightSmall", 42, -22, 496, line2)
         l2:SetWordWrap(false)
         local mb = ns.Button(row, ns.L("地图", "Map"), 56, 20, function() M.ShowBeast(b) end)
@@ -277,8 +312,12 @@ function M.SkillTeachers(parent, s, y0)
     if #ranks == 0 then return 0 end
     local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     fs:SetPoint("TOPLEFT", 46, y0); fs:SetWidth(556); fs:SetJustifyH("LEFT")
-    fs:SetText(ns.L("会教的野兽（经典旧世数据；《无限》有玩家反馈驯服后没带技能，待核实；点名字 = 地图标点）：", "Taught by (Classic Era data; Forever players report tamed beasts may not keep abilities; click = map):"))
-    local y = y0 - 15
+    -- 11-20 用户「矫正这部分数据」：众包驯服结果证实《无限》仍是「驯服学技能」，旧的「玩家反馈不带技能」提示撤掉
+    -- 11-21 用户「字数太多了」：说明压成一行，学法写在技能页底部
+    fs:SetText(ns.L("会教的野兽（|cff66ff66绿|r = 无限实测 · |cffffcc66黄|r = 经典数据 · 点名字 = 地图标点）",
+        "Taught by (|cff66ff66green|r = verified · |cffffcc66yellow|r = Classic data · click = map)"))
+    fs:SetWordWrap(true)
+    local y = y0 - math.max(15, math.ceil((fs.GetStringHeight and fs:GetStringHeight() or 12) + 3))
     local btns = rawget(parent, "teachBtns") or {}   -- rawget：框体上没有的键别走方法表
     parent.teachBtns = btns
     for _, rk in ipairs(ranks) do
@@ -293,7 +332,7 @@ function M.SkillTeachers(parent, s, y0)
             btn:SetPoint("TOPLEFT", 96 + (j - 1) * 170, y)
             local t = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             t:SetPoint("LEFT", 0, 0); t:SetWidth(166); t:SetJustifyH("LEFT"); t:SetWordWrap(false)
-            t:SetText("|cff71d5ff" .. beastName(b) .. "|r " .. GREY .. lvText(b) .. ns.L("级·", " · ") .. zoneName(b.ui) .. "|r")
+            t:SetText((verifiedFor(b, s.en, rk) and "|cff66ff66" or "|cffffcc66") .. beastName(b) .. "|r " .. GREY .. lvText(b) .. ns.L("级·", " · ") .. zoneName(b.ui) .. "|r")
             btn:SetScript("OnClick", function() M.ShowBeast(b) end)
             btn:SetScript("OnEnter", function(self) tip(self, b) end)
             btn:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)

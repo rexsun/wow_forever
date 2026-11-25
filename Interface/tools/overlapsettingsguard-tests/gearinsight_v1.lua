@@ -8,7 +8,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     { id = "gi.questshare", values = { qm = { share = false } }, owner = "YUI" },
     { id = "gi.magewater", values = { ["dchat.mw"] = { fieldAsk = false, thank = false } }, owner = "YUI" },
     { id = "gi.lowrank", values = { ui = { lowRank = false, lowRankW = false, lowRankP = false } }, owner = "YUI" },
-    { id = "gi.buffask", values = { buffAsk = { auto = false, field = false } }, owner = "YUI" },
+    { id = "gi.buffask", values = { buffAsk = { auto = false, field = false, dmode = "off", ss = false } }, owner = "YUI" },
     { id = "gi.pallyfloat", values = { pally = { float = false } }, owner = "YUI" },
     { id = "gi.cityplates", values = { cityPlates = { on = false } }, owner = "EllesmereUINameplates" },
   }
@@ -204,15 +204,15 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
       "if d.helperV ~= 2 then d.helper = true; d.helperV = 2 end",
       -- 1.1.x: nil asks once and the one-time migration clears only true, so the guard's false survives.
       "if d[k] == true then d[k] = nil end",
-      "local want = (LY.DB().pub and not inInstance())", "function LY.SyncPub()", "function LY.SetPub(v)" }) do
+      "local want = (d.on and d.pub and not inInstance())", "function LY.SyncPub()", "function LY.SetPub(v)" }) do
       ok(layer:find(needle, 1, true), "Layer.lua: " .. needle)
     end
     local _, beats = layer:gsub("if not d.on then return end", "")
     eq(beats, 2, "heartbeat building and sending both check layer.on")
     ok(ReadFile(root .. "LayerGuild.lua"):find("if LY.DB().autoAccept == false then return nil end", 1, true), "auto-accept switch")
     local hop = ReadFile(root .. "LayerHop.lua")
-    ok(hop:find("if LY.DB().autoHelp == false then return false end", 1, true), "auto-invite switch")
-    ok(hop:find("if a == true then doLeave(); return true end", 1, true), "auto-leave switch")
+    ok(hop:find("local ah = LY%.DB%(%)%.autoHelp%s+if ah == false then return false end"), "auto-invite switch")
+    ok(hop:find("if a == true then doLeave(LH.LEAVE_DELAY); return true end", 1, true), "auto-leave switch")
     local plates = ReadFile(root .. "CityPlates.lua")
     ok(plates:find("function CP.Enabled() return CP.DB().on ~= false end", 1, true), "city plate switch")
     ok(plates:find("function CP.Restore()", 1, true), "city plate restore")
@@ -243,7 +243,9 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     local buffAsk = ReadFile(root .. "../GearInsight_Forever_Group/BuffAsk.lua")
     for _, needle in ipairs({ "BA.DEFAULTS = { on = true, field = true, auto = true, whisper = false }",
       'function BA.FieldOn() return BA.Opt("on") and BA.Opt("field") end',
-      'function BA.AutoOn() return BA.Opt("on") and BA.Opt("auto") end', "function BA.SyncEvents()" }) do
+      -- 1.4.x: a saved dmode wins over auto; auto == false alone still means off for saves without one.
+      'if BA.DMODES[d.dmode] then return d.dmode end', 'if d.auto == false then return "off" end',
+      'function BA.AutoOn() return BA.DMode() ~= "off" end', "function BA.SyncEvents()" }) do
       ok(buffAsk:find(needle, 1, true), "BuffAsk.lua: " .. needle)
     end
     ok(ReadFile(root .. "GearInsight_Forever.toc"):find("PallyBless.lua", 1, true), "the blessing helper loads with GearInsight")

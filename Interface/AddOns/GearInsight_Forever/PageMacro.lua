@@ -95,7 +95,8 @@ local function spellName(id)
     if (not n or n == "") and GetSpellInfo then n = GetSpellInfo(id) end
     if n and n ~= "" then return n end
     local f = ns.MacroSpellNames and ns.MacroSpellNames[id]
-    if f then return (ns.zh and f[1] ~= "" and f[1]) or (f[2] ~= "" and f[2]) or f[1] end
+    -- 11-15 GI-266：宏正文要客户端原名（拿到就原样用，不转）；拿不到才用数据名兜底，繁体端转繁
+    if f then return (ns.zh and f[1] ~= "" and (ns.TWName and ns.TWName(f[1]) or f[1])) or (f[2] ~= "" and f[2]) or f[1] end
     return "?"
 end
 

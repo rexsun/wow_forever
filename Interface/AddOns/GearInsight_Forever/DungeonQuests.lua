@@ -430,8 +430,11 @@ function ns.DQList(d, all)
     return list
 end
 
+local focusId, focusD   -- 11-23 定位的任务 + 它所在的副本（换副本就清掉）
 function ns._DQPop() return pop end   -- 测试用
-function ns.ShowDungeonQuests(d, parent)
+function ns._DQFocus() return focusId end
+-- focus：要定位的任务 ID（11-23「前5」点任务奖励件 → ns.DQOpenForItem）；不在「只看我能接的」里就临时显示全部
+function ns.ShowDungeonQuests(d, parent, focus)
     if type(d) == "string" then d = ns.DQForDungeon(d) end
     if not d then return end
     parent = parent or (ns.ActivePage and ns.ActivePage()) or ns.LootPage
@@ -440,9 +443,16 @@ function ns.ShowDungeonQuests(d, parent)
         if pop then pop:Hide() end
         pop = build(parent)
     end
+    if focus or focusD ~= d then focusId, focusD = focus, d end
     pop.cur = d
     local all = ns.db.ui and ns.db.ui.dqAll
     local list = ns.DQList(d, all)
+    local fy
+    if focusId and not all then
+        local hit = false
+        for _, e in ipairs(list) do if e.id == focusId then hit = true end end
+        if not hit then list = ns.DQList(d, true) end
+    end
     local nOk, nDone = 0, 0
     for _, e in ipairs(list) do
         if e.s == "ok" or e.s == "log" then nOk = nOk + 1 elseif e.s == "done" then nDone = nDone + 1 end
@@ -454,7 +464,7 @@ function ns.ShowDungeonQuests(d, parent)
     pop.title:SetText("|cffffd100" .. dn .. "|r " .. ns.L("副本任务", "dungeon quests") .. "  |cff888888" .. #list .. "|r")
     pop.sub:SetText(ns.EnSafe(string.format(ns.L("等级 %d-%d · 现在能接 %d 个 · 已完成 %d 个", "Level %d-%d - %d available - %d done"), d.min, d.max, nOk, nDone)))
     pop.all:SetText(all and ns.L("只看我能接的", "Mine only") or ns.L("显示全部", "Show all"))
-    for _, r in ipairs(pop.rows) do r:Hide(); r.offOnly = false; r.off = false end
+    for _, r in ipairs(pop.rows) do r:Hide(); r.offOnly = false; r.off = false; r.bg:SetColorTexture(1, 1, 1, 0.03) end
     local ent, _, warn = ns.DQEntrance(d)
     if ent then
         local at = (ent.x and ent.x > 0) and string.format(" (%.0f, %.0f)", ent.x, ent.y) or ""
@@ -488,6 +498,7 @@ function ns.ShowDungeonQuests(d, parent)
     for i, e in ipairs(list) do
         local q, r = e.q, getRow(i)
         r.q, r.id = q, e.id
+        if e.id == focusId then fy = -y; r.bg:SetColorTexture(1, 0.82, 0, 0.22) end
         r.off = offMap[e.id] or false
         r.ic:SetTexture(STATE_TEX[e.s]); r.ic:Show()
         r.ic:SetDesaturated(e.s == "low" or e.s == "pre")
@@ -566,7 +577,28 @@ function ns.ShowDungeonQuests(d, parent)
         end
     end
     pop.child:SetHeight(-y + 4)
+    if fy and focus and pop.sf.SetVerticalScroll then pop.sf:SetVerticalScroll(fy) end
     pop:Show()
+end
+
+-- 11-23 用户「如果是任务的，可以直接打开任务链」：奖励物品 → 副本任务（奖励 / 任选奖励里有它的优先，没有按任务名对）→ 打开那个副本的任务弹框并定位
+function ns.DQOpenForItem(id, qname)
+    if not ns.DQ then return false end
+    local best, byName
+    for k, q in pairs(ns.DQ.quests) do
+        if (q.d or "") ~= "" then
+            for _, t in ipairs({ q.r or {}, q.ch or {} }) do
+                for _, x in ipairs(t) do if x == id and (not best or k < best) then best = k end end
+            end
+            if qname and qname ~= "" and (q.c == qname or q.n == qname) and (not byName or k < byName) then byName = k end
+        end
+    end
+    local qid = best or byName
+    if not qid then return false end
+    for _, d in ipairs(ns.DQ.dungeons) do
+        if d.k == ns.DQ.quests[qid].d then ns.ShowDungeonQuests(d, nil, qid); return qid end
+    end
+    return false
 end
 
 -- 物品 / 任务名异步回来后刷新开着的弹框（只在弹框显示时刷，节流 0.3 秒）

@@ -1,0 +1,19 @@
+## Interface: 16001, 11507
+## Title: GearInsight |cff33ff99Forever|r - XP helper
+## Title-zhCN: GearInsight |cff33ff99无限版|r · 练级补全器
+## Notes: GearInsight Forever leveling buff helper page and departure checklist: bonuses and supplies with where to get them (loads the first time you use it)
+## Notes-zhCN: GearInsight 无限版的练级 BUFF 补全器：经验加成页、出发前清单、增益 / 物资和「从哪来」：第一次用到时才加载
+## Author: GearInsight
+## Version: 1.4.20
+## Dependencies: GearInsight_Forever
+## LoadOnDemand: 1
+## IconTexture: Interface\Icons\INV_Misc_Tent
+
+# 11-17 用户「练级BUFF检查器，加上经验的一起来检查」「可以从主城就开始准备，路上碰到还可以刷新」「buff和来源要可视化对应」「物资等」：
+#   经验加成页从主插件 XpCheck.lua 搬出来（登录不加载），加物资检查、职业 BUFF、来源图标、出发前清单。主插件 XpCheck.lua 留检查 / 合计 / 到期提醒 / 提醒条 + 占位页。
+#   和清背包 _Bag 一样：合并包 / 拆分包里都是独立文件夹；网易DD 包并进主文件夹（DD_FOLD）
+#   ⛔ 这里的文件都晚于主插件加载：文件头一律 ns = _G.GearInsightForever or ns；最后一个文件 XpInit.lua 置就绪标记
+
+XpSupply.lua
+PageXp.lua
+XpInit.lua

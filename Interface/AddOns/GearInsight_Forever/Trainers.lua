@@ -6,11 +6,7 @@ local _, ns = ...
 local T = {}
 ns.Trainers = T
 
-local function myClass()
-    local _, token = UnitClass("player")
-    token = token or ""
-    return token:sub(1, 1) .. token:sub(2):lower()
-end
+local myClass = ns._ClassKey   -- TraitTalents.lua
 
 local function myFac()
     local f = UnitFactionGroup and UnitFactionGroup("player")
@@ -97,14 +93,6 @@ function T.Nearest(cls, max)
     local out = {}
     for i = 1, math.min(max or 3, #scored) do out[i] = scored[i] end
     return out, #list
-end
-
--- 11-10 GI-224 进城提醒用：这张图上有没有已知的本职业训练师（内置 + 本地补记）
-function T.OnMap(ui, cls)
-    for _, t in ipairs(candidates(cls or myClass())) do
-        if t.ui == ui then return true end
-    end
-    return false
 end
 
 -- 点一下：最近的那位插旗 + 打开世界地图；聊天框列出最近三位

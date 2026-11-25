@@ -11,7 +11,8 @@ local _, ns = ...
 
 local IM = {}
 ns.InviteMenu = IM
-IM.MENU_TAGS = { "MENU_UNIT_FRIEND", "MENU_UNIT_PLAYER", "MENU_UNIT_PARTY", "MENU_UNIT_RAID_PLAYER", "MENU_UNIT_ENEMY_PLAYER", "MENU_UNIT_TARGET", "MENU_UNIT_FOCUS" }
+-- 11-17 用户截图「对立阵营不要这个」：右键部落 / 联盟对面的人也出「邀请入会」→ 不挂 ENEMY_PLAYER 菜单，CanInvite 里再按阵营挡一道（目标 / 焦点菜单）
+IM.MENU_TAGS = { "MENU_UNIT_FRIEND", "MENU_UNIT_PLAYER", "MENU_UNIT_PARTY", "MENU_UNIT_RAID_PLAYER", "MENU_UNIT_TARGET", "MENU_UNIT_FOCUS" }
 
 local function secret(v) return issecretvalue and issecretvalue(v) end
 local function short(n) return (tostring(n or ""):gsub("%-.*$", "")) end
@@ -88,6 +89,20 @@ local function inMyGuild(name)
     return false
 end
 
+-- 对方是不是对立阵营：敌对（UnitIsEnemy）或阵营不同（UnitFactionGroup；主城 / 中立区里对面阵营不一定算敌对）
+function IM.OtherFaction(unit)
+    if UnitIsEnemy then
+        local ok, v = pcall(UnitIsEnemy, "player", unit)
+        if ok and v and not secret(v) then return true end
+    end
+    if UnitFactionGroup then
+        local ok1, mine = pcall(UnitFactionGroup, "player")
+        local ok2, his = pcall(UnitFactionGroup, unit)
+        if ok1 and ok2 and type(mine) == "string" and type(his) == "string" and not secret(mine) and not secret(his)
+            and his ~= "Neutral" and mine ~= "Neutral" and his ~= mine then return true end
+    end
+    return false
+end
 function IM.CanInvite(ctx)
     if not (IsInGuild and IsInGuild()) then return false end
     if CanGuildInvite then
@@ -98,6 +113,7 @@ function IM.CanInvite(ctx)
     if not name then return false end
     local me = UnitName and UnitName("player")
     if me and not secret(me) and short(name) == short(me) then return false end
+    if ctx.unit and IM.OtherFaction(ctx.unit) then return false end
     if ctx.unit and UnitIsInMyGuild then
         local ok, v = pcall(UnitIsInMyGuild, ctx.unit)
         if ok and v and not secret(v) then return false end
@@ -212,7 +228,6 @@ function IM.OnSystem(msg)
 end
 do
     local rv = CreateFrame("Frame")
-    IM._rv = rv
     for _, e in ipairs({ "CHAT_MSG_SYSTEM", "UI_ERROR_MESSAGE" }) do pcall(rv.RegisterEvent, rv, e) end
     rv:SetScript("OnEvent", function(_, e, a1, a2)
         if #IM.pending == 0 then return end
@@ -231,6 +246,15 @@ end
 
 -- /gi ginvite 名 姓：同样弹复制框（宏 / 手动用）
 ns.ExtraSlash = ns.ExtraSlash or {}
+-- /gi 邀请菜单 独占 | 还原：只留 GearInsight 的「邀请入会」（替你关 / 开露露工具箱自己那一项）
+ns.ExtraSlash["邀请菜单"] = function(rest, rawRest)
+    local r = (rawRest or rest or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if IM.RurutiaOn() == nil then ns.Print(ns.L("没装露露工具箱（RurutiaSuite），本来就只有 GearInsight 这一项", "RurutiaSuite isn't installed - only GearInsight's item shows")); return end
+    local on = (r == "还原" or r == "restore")
+    IM.SetRurutia(on)
+    ns.Print(on and ns.L("已还原：露露工具箱的「邀请加入公会」照常显示", "Restored RurutiaSuite's invite item")
+        or ns.L("右键菜单只留 GearInsight 的「邀请入会」（已关掉露露工具箱那一项；/gi 邀请菜单 还原 可恢复）", "Only GearInsight's invite item now (RurutiaSuite's turned off; /gi 邀请菜单 还原 to undo)"))
+end
 ns.ExtraSlash.ginvite = function(rest, rawRest)
     local n = tostring(rawRest or rest or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if n ~= "" then IM.Invite(n) end
@@ -250,6 +274,37 @@ IM.hooked = false
 -- 11-06 用户「这些都是设置，有设置，默认打开」：开关 ns.db.ui.inviteMenu（nil = 默认开），设置页「公会」栏
 function IM.Enabled()
     return not (ns.db and ns.db.ui and ns.db.ui.inviteMenu == false)
+end
+-- 11-18 用户先问「为啥有俩邀请加入公会」（第二个是 RurutiaSuite 的 GuildInviteMenu）→ 一度改成装了它就不出我们的，
+--   随后用户「我的邀请菜单去哪里了」→ 撤回：我们这一项照出；嫌重复去关 RurutiaSuite 自己那一项（/rs → 玩家右键菜单 →「右键邀请入会」）
+-- 11-18 用户「加入公会优先展示我的，不要其他插件的」：右键菜单是各插件按登记先后往后加，没有删别人项的正式接口 →
+--   玩家自己点「只留 GearInsight 的」时，替他把露露工具箱（RurutiaSuite）自己的「右键邀请入会」开关关掉
+--   （存档 RurutiaSuiteDB.ExtraTools.profiles[方案].blizzardUI.guildInviteMenu = false；它每次弹菜单现读这个值，立刻生效）。
+--   ⛔ 只在玩家亲手执行时改，不默认替所有人改别的插件的设置
+function IM.RurutiaProfile()
+    local db = rawget(_G, "RurutiaSuiteDB")
+    local et = type(db) == "table" and db.ExtraTools
+    if type(et) ~= "table" or type(et.profiles) ~= "table" then return nil end
+    local key
+    if UnitName and GetRealmName then
+        local n, r = UnitName("player"), GetRealmName()
+        if type(n) == "string" and not secret(n) and type(r) == "string" and not secret(r) then key = n .. " - " .. r end
+    end
+    local pf = (key and type(et.profileKeys) == "table" and et.profileKeys[key]) or "Default"
+    if type(et.profiles[pf]) ~= "table" then et.profiles[pf] = {} end
+    return et.profiles[pf]
+end
+function IM.RurutiaOn()
+    local p = IM.RurutiaProfile()
+    if not p then return nil end   -- 没装 / 读不到
+    return not (type(p.blizzardUI) == "table" and p.blizzardUI.guildInviteMenu == false)
+end
+function IM.SetRurutia(on)
+    local p = IM.RurutiaProfile()
+    if not p then return false end
+    p.blizzardUI = type(p.blizzardUI) == "table" and p.blizzardUI or {}
+    p.blizzardUI.guildInviteMenu = on and true or false
+    return true
 end
 function IM.SetEnabled(on)
     if not ns.db then return end

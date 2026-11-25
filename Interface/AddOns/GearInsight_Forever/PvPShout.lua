@@ -97,10 +97,12 @@ function PS.PinLink(m, x, y)
     return link
 end
 
+-- 11-19 发出去的话走对外说话语言（ns.ChatL）；地区名是客户端语言，和对外语言不一样就不写（ns.ChatZone），坐标 + 地图标记照发
+local CL = function(cn, en) return ns.ChatL(cn, en) end
 function PS.Where()
-    local z = zone()
-    local s = "<" .. (z ~= "" and z or L("野外", "the world")) .. ">"
     local m, x, y = PS.Pos()
+    local z = ns.ChatZone(zone()) or ""
+    local s = "<" .. (z ~= "" and z or CL("野外", "the world")) .. ">"
     if m then
         s = s .. string.format(" %.1f,%.1f", x * 100, y * 100)
         local link = PS.PinLink(m, x, y)
@@ -115,11 +117,11 @@ function PS.Format(kind, name, desc)
     local tpl
     if kind == "kill" then
         -- 11-06 用户「击杀的部落角色信息跟被杀一致」：「荣誉击杀了 部落 24级 亡灵 潜行者 [夫赖]！」
-        tpl = name and L("我在{z} 荣誉击杀了 {d}！", "I got an honorable kill on {d} at {z}!") or L("我在{z} 拿到一个荣誉击杀！", "I got an honorable kill at {z}!")
+        tpl = name and CL("我在{z} 荣誉击杀了 {d}！", "I got an honorable kill on {d} at {z}!") or CL("我在{z} 拿到一个荣誉击杀！", "I got an honorable kill at {z}!")
     else
         if not name then return nil end
         -- 「我在<贫瘠之地> 45.6,32.1 [地图标记] 被 部落 24级 亡灵 潜行者 [夫赖] 杀了，附近的会员注意！」
-        tpl = L("我在{z} 被 {d} 杀了，附近的会员注意！", "Killed by {d} at {z}, guildies nearby watch out!")
+        tpl = CL("我在{z} 被 {d} 杀了，附近的会员注意！", "Killed by {d} at {z}, guildies nearby watch out!")
     end
     -- 11-06 用户「名字也加上」→ 截图后「角色名[名 姓]这样」：名字放方括号（描述拿不到就只写名字）
     if name then
@@ -128,7 +130,7 @@ function PS.Format(kind, name, desc)
     end
     local where = PS.Where()
     -- 11-06 用户截图（公会频道带标记那句已能点）「加上[Gearinsight]」：句首挂品牌
-    tpl = L("[Gearinsight插件] ", "[Gearinsight插件] ") .. tpl   -- 11-06 用户「[Gearinsight插件]xxx」
+    tpl = ns.ChatTag() .. " " .. tpl   -- 11-06 用户「[Gearinsight插件]xxx」；11-19 对外英文 = [GearInsight]
     -- 用 {z} / {n} / {d} 占位（Lua 5.1 的 string.format 不支持 %2$s，中英文语序又不同）
     return (tpl:gsub("{z}", function() return where end):gsub("{n}", function() return short(name) end)
         :gsub("{d}", function() return desc or "" end))
@@ -194,6 +196,11 @@ local function mkPop()
     f.send:SetPoint("BOTTOMRIGHT", -122, 16)
     f.no = ns.Button(f, L("不用了", "No thanks"), 96, 24, function() f:Hide() end)
     f.no:SetPoint("BOTTOMRIGHT", -20, 16)
+    -- 11-17 用户「这些弹出的功能都确保能永久关闭」：左下「不再弹」= 永久关掉这一类弹框（按标题那一类：被杀 / 击杀 / 升级 / 天赋），
+    --   存档键都是原来的开关（被杀 / 击杀 ns.db.ui.pvpShout[kind] = false；升级 ns.db.lvlShare 改「每 5 级」= 不弹框、逢 5 级照旧自动发；
+    --   天赋 ns.db.ui.lvlTalent = false），从「窗口与提醒」或设置页找回
+    f.never = ns.Button(f, L("不再弹", "Don't show again"), 96, 24, function() PS.Never(f.kind) end)
+    f.never:SetPoint("BOTTOMLEFT", 20, 16)
     -- 11-14 用户「升级了弹窗同时，有个地方引导点什么天赋，点了以后就跟升级规划点了去加点一样」：
     --   预览下面一行「这一级点：天赋名 x/y（哪一系）」+「去点」—— 和升级规划天赋行的「去点」同一套（Talents.lua：
     --   鼠标移上去 ns.TalentOpenerHover 盖安全按钮代点菜单栏天赋按钮 → 开天赋面板 + 绿框；盖不了走 ns.TalentGoFallback 提示按 N）
@@ -270,7 +277,6 @@ local function shareMode(f, share)
     f.tal.st = nil; f.tal:Hide()
     layout(f)
 end
-PS.ShareMode = shareMode
 
 -- 给弹框挂上「这一级点什么天赋」（st = Talents.lua ns.PlanTalentSteps 里的一步：name / tree / icon / rank / rankMax / tab …）；st = nil 收起
 function PS.SetTalent(st, more)
@@ -395,6 +401,48 @@ function PS.SendHelp()
     if f.kind ~= "kill" and f.kind ~= "death" then return true end   -- 升级播报不占击杀 / 被杀的冷却
     ns.db.pvpShoutAt = ns.db.pvpShoutAt or {}
     ns.db.pvpShoutAt[f.kind] = now()
+    return true
+end
+
+-- 11-17「不再弹」：每一类弹框各自的永久开关（kind = death / kill / level / talent），关了聊天框说一次怎么找回（ns.CloseHint 最多 3 次）
+local NEVER_HINT = {
+    death = { "被玩家击杀的求助弹框已永久关闭。找回：GI 菜单 → 窗口与提醒 → 野外 PvP 弹框，或设置页「公会」栏",
+        "Death help prompt closed for good. Bring it back: GI menu > Windows & alerts > World PvP prompts, or Settings > Guild" },
+    kill = { "荣誉击杀炫耀弹框已永久关闭。找回：GI 菜单 → 窗口与提醒 → 野外 PvP 弹框，或设置页「公会」栏",
+        "Honorable kill prompt closed for good. Bring it back: GI menu > Windows & alerts > World PvP prompts, or Settings > Guild" },
+    level = { "升级播报弹框已永久关闭（改成每 5 级自动发，其他级不问）。找回：GI 菜单 → 窗口与提醒 → 升级播报弹框，或设置页「公会」栏",
+        "Level-up prompt closed for good (now auto every 5 levels, no prompts). Bring it back: GI menu > Windows & alerts > Level-up prompt, or Settings > Guild" },
+    talent = { "升级天赋提示已永久关闭。找回：GI 菜单 → 窗口与提醒 → 升级天赋提示，或 /gi 升级天赋 开",
+        "Level-up talent tip closed for good. Bring it back: GI menu > Windows & alerts > Talent tip, or /gi lvltalent on" },
+}
+function PS.NeverOn(kind)
+    if kind == "death" or kind == "kill" or kind == "tent" then return PS.On(kind) end
+    if kind == "level" then return ((ns.db and ns.db.lvlShare) or "ask") == "ask" end
+    if kind == "talent" then return not (ns.db and ns.db.ui and ns.db.ui.lvlTalent == false) end
+    return false
+end
+function PS.SetNever(kind, off)
+    if not ns.db then return false end
+    ns.db.ui = ns.db.ui or {}
+    if kind == "death" or kind == "kill" or kind == "tent" then PS.Set(kind, not off)
+    elseif kind == "level" then
+        local LS = ns.LevelShare
+        local cur = ns.db.lvlShare or "ask"
+        if off and cur == "ask" then if LS and LS.SetMode then LS.SetMode("five") else ns.db.lvlShare = "five" end
+        elseif not off and cur ~= "ask" then if LS and LS.SetMode then LS.SetMode("ask") else ns.db.lvlShare = "ask" end end
+    elseif kind == "talent" then
+        if off then ns.db.ui.lvlTalent = false else ns.db.ui.lvlTalent = nil end
+    else return false end
+    if ns.RefreshSettings then pcall(ns.RefreshSettings) end
+    return true
+end
+function PS.Never(kind)
+    if pop then pop:Hide() end
+    kind = NEVER_HINT[kind] and kind or "death"
+    if pop and pop.test == true then return false end   -- /gi pvp 示例框：不改开关
+    PS.SetNever(kind, true)
+    local h = NEVER_HINT[kind]
+    if ns.CloseHint then ns.CloseHint("pvpPop." .. kind, L(h[1], h[2])) end
     return true
 end
 
@@ -548,31 +596,34 @@ end
 
 function PS.Describe(guid, unit)
     unit = unitForGUID(guid, unit)
-    local fac, lv, race, cls
+    local fac, lv, race, cls, ft, rt, ct
     if unit then
         pcall(function()
-            local _, f = UnitFactionGroup(unit); fac = f
+            ft, fac = UnitFactionGroup(unit)
             lv = UnitLevel(unit)
-            race = UnitRace(unit)
-            cls = UnitClass(unit)
+            race, rt = UnitRace(unit)
+            cls, ct = UnitClass(unit)
         end)
     end
     if guid and (not ok1(race) or not ok1(cls)) and GetPlayerInfoByGUID then
-        local ok, c, _, r = pcall(GetPlayerInfoByGUID, guid)
+        local ok, c, c2, r, r2 = pcall(GetPlayerInfoByGUID, guid)
         if ok then
-            if not ok1(cls) then cls = c end
-            if not ok1(race) then race = r end
+            if not ok1(cls) then cls, ct = c, c2 end
+            if not ok1(race) then race, rt = r, r2 end
         end
     end
+    -- 11-19 对外说英文、客户端是中文：阵营 / 种族 / 职业用英文标识（UnitRace 第 2 个返回值 NightElf / Scourge…；ns.ChatCls）
+    local en = ns.ChatLang() == "en" and ns.clientZh
+    fac, race, cls = ns.ChatCls(ok1(ft) and ft, fac), ns.ChatCls(ok1(rt) and rt, race), ns.ChatCls(ok1(ct) and ct, cls)
     if not ok1(fac) and UnitFactionGroup then
         local ok, mine = pcall(UnitFactionGroup, "player")
-        if ok and mine == "Alliance" then fac = FACTION_HORDE or L("部落", "Horde")
-        elseif ok and mine == "Horde" then fac = FACTION_ALLIANCE or L("联盟", "Alliance") end
+        if ok and mine == "Alliance" then fac = (not en and FACTION_HORDE) or CL("部落", "Horde")
+        elseif ok and mine == "Horde" then fac = (not en and FACTION_ALLIANCE) or CL("联盟", "Alliance") end
     end
     local parts = {}
     if ok1(fac) then parts[#parts + 1] = fac end
     if type(lv) == "number" and not secret(lv) then
-        parts[#parts + 1] = lv > 0 and L(lv .. "级", "level " .. lv) or L("??级", "level ??")
+        parts[#parts + 1] = lv > 0 and CL(lv .. "级", "level " .. lv) or CL("??级", "level ??")
     end
     if ok1(race) then parts[#parts + 1] = race end
     if ok1(cls) then parts[#parts + 1] = cls end
@@ -753,3 +804,71 @@ f:SetScript("OnEvent", function(_, e, msg)
     end
 end)
 PS._frame = f   -- 离线测试用
+
+-- 11-17「这些弹出的功能都确保能永久关闭」：弹框上「不再弹」关掉的，从设置页「窗口与提醒」找回（一类一行）
+local function winFor(key, order, kinds, zh, en, onText)
+    if not ns.RegisterWindow then return end
+    ns.RegisterWindow({ key = key, order = order, title = function() return L(zh, en) end,
+        state = function()
+            local n = 0
+            for _, k in ipairs(kinds) do if PS.NeverOn(k) then n = n + 1 end end
+            if n == 0 then return L("已关闭", "Closed") end
+            if n < #kinds then return L("部分关着", "Partly on") end
+            return onText()
+        end,
+        actions = function()
+            local all = true
+            for _, k in ipairs(kinds) do if not PS.NeverOn(k) then all = false end end
+            return { { text = all and L("关闭", "Turn off") or L("打开", "Turn on"), fn = function()
+                for _, k in ipairs(kinds) do PS.SetNever(k, all) end
+                if all and pop then pop:Hide() end
+            end } }
+        end })
+end
+winFor("pvpPop", 70, { "kill", "death" }, "野外 PvP 弹框", "World PvP prompts",
+    function() return L("野外击杀 / 被杀时弹出", "Pops up on world kills / deaths") end)
+winFor("levelPop", 71, { "level" }, "升级播报弹框", "Level-up prompt",
+    function() return L("升级时弹框问要不要通报（逢 5 级自动发）", "Asks on level-up (auto every 5 levels)") end)
+winFor("talentPop", 72, { "talent" }, "升级天赋提示", "Level-up talent tip",
+    function() return L("升级时提示这一级点什么天赋", "Shows which talent to take on level-up") end)
+
+-- ---------- 11-18 帐篷通报（用户「加个公会内帐篷通报，跟荣誉击杀一个意思」「弹出询问是否通报到工会，也有不再提示按钮」）----------
+--   自己放好帐篷（UNIT_SPELLCAST_SUCCEEDED：营地帐篷 / 资深冒险者的探险帐篷，《无限》客户端 DB2 SpellName）→ 1 秒后弹框，
+--   预览「我在<地区> 坐标 [地图标记] 放了帐篷，要露营经验的密我拉你，别直接组我」，默认发公会（可选小队 / 团队）；[发送] [不用了] [不再弹]
+--   只在野外；同一类 5 分钟最多弹一次（发出去才记）；开关 ns.db.ui.pvpShout.tent（nil = 默认开）；点了才发；句首「[Gearinsight插件] 」（用户 11-18 要求，同荣誉击杀）
+PS.TENT_SPELLS = { [1229432] = true, [1229487] = true, [1255248] = true, [1307230] = true, [1325145] = true, [1325147] = true }
+PS.TITLES.tent = { "放好帐篷了，通报一下？", "Tent placed - let your guild know?" }
+NEVER_HINT.tent = { "帐篷通报弹框已永久关闭。找回：GI 菜单 → 窗口与提醒 → 帐篷通报弹框，或设置页「公会」栏",
+    "Tent prompt closed for good. Bring it back: GI menu > Windows & alerts > Tent prompt, or Settings > Guild" }
+local TENT_NO = { "摧毁", "燃烧", "点燃", "传送", "升级", "Destroy", "Burning", "Ignite", "Teleport", "Upgrade" }
+function PS.IsTentSpell(id)
+    id = tonumber(id)
+    if not id or secret(id) then return false end
+    if PS.TENT_SPELLS[id] then return true end
+    local n = C_Spell and C_Spell.GetSpellName and select(2, pcall(C_Spell.GetSpellName, id))
+    if type(n) ~= "string" or secret(n) then return false end
+    if not (n:find("帐篷", 1, true) or n:find("帳篷", 1, true) or n:find("Tent", 1, true)) then return false end
+    for _, w in ipairs(TENT_NO) do if n:find(w, 1, true) then return false end end
+    return true
+end
+function PS.TentMsg()
+    -- 11-18 用户截图「前缀加上」：和荣誉击杀 / 被杀一样句首挂「[Gearinsight插件] 」（玩家点了才发，不是自动发言）
+    -- 11-20 用户截图「如果被组就被拉到其他位面，就没了帐篷了」：别人组帐篷主人 = 主人被拉去对方位面、帐篷留在原层 → 改成「密我，我来组你」
+    return ns.ChatTag() .. " " .. (CL("我在{z} 放了帐篷，要露营经验的密我拉你，别直接组我（会把我拉去别的位面）", "Tent up at {z} - whisper me for an invite (don't invite me, it pulls me off this layer)"):gsub("{z}", function() return PS.Where() end))
+end
+function PS.OfferTent()
+    if not PS.On("tent") or not PS.InWorld() then return false end
+    ns.db.pvpShoutAt = ns.db.pvpShoutAt or {}
+    local last = tonumber(ns.db.pvpShoutAt.tent) or 0
+    if now() - last < PS.GetCD("tent") then return false end
+    return PS.OfferMsg("tent", PS.TentMsg(), function() ns.db.pvpShoutAt = ns.db.pvpShoutAt or {}; ns.db.pvpShoutAt.tent = now() end)
+end
+local tf = CreateFrame("Frame")
+if tf.RegisterUnitEvent then pcall(tf.RegisterUnitEvent, tf, "UNIT_SPELLCAST_SUCCEEDED", "player") else pcall(tf.RegisterEvent, tf, "UNIT_SPELLCAST_SUCCEEDED") end
+tf:SetScript("OnEvent", function(_, _, unit, _, spellID)
+    if unit ~= "player" or not PS.IsTentSpell(spellID) then return end
+    if C_Timer and C_Timer.After then C_Timer.After(1, function() pcall(PS.OfferTent) end) else pcall(PS.OfferTent) end
+end)
+PS._tentFrame = tf   -- 离线测试用
+winFor("tentPop", 73, { "tent" }, "帐篷通报弹框", "Tent prompt",
+    function() return L("自己放帐篷时弹框问要不要通报公会", "Asks to tell your guild when you place a tent") end)

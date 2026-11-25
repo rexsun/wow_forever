@@ -13,6 +13,7 @@ local function classKey()
     token = token or ""
     return token:sub(1, 1) .. token:sub(2):lower()
 end
+ns._ClassKey = classKey   -- 11-20 Card / ClassStub / Trainers 共用（省内核内存）
 
 -- 11-13 重构第 4 期：整份天赋树（带说明文字 / 图标，DataClass.lua）随职业子插件 GearInsight_Forever_Class 按需加载；
 --   内核里只有 TalentIndexData.lua 的「骨架」（行 / 列 / 满点 / 中英文名，顺序和整份一样）。登录就要的配点码读法都走这里：
