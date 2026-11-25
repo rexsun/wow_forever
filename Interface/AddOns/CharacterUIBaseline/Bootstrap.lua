@@ -1,7 +1,7 @@
 local _, baseline = ...
 CharacterUIBaselineDB = CharacterUIBaselineDB or {}
 CharacterUIBaselineAccountDB = CharacterUIBaselineAccountDB or {}
-local queued, attempts, sessionDone = false, 0, false
+local queued, attempts, sessionDone, lastFailure = false, 0, false, nil
 local Queue
 local points = { CENTER=true, LEFT=true, RIGHT=true, TOP=true, BOTTOM=true,
   TOPLEFT=true, TOPRIGHT=true, BOTTOMLEFT=true, BOTTOMRIGHT=true }
@@ -58,16 +58,17 @@ local function RememberLayout()
   if type(name) == "string" and name ~= "" then seenLayoutName, seenPreset = name, preset end
 end
 
+-- Returns false plus the reason shown by /uib when the UI is not ready yet.
 local function Apply()
   local source = IsSource()
-  if source == nil then return false end
+  if source == nil then return false, "character or realm name not available yet" end
   if source then return true end
   local data = Current()
-  if not Valid(data) then return false end
+  if not Valid(data) then return false, "no valid source UI published" end
   if not (ChatFrame1 and type(FCF_SetChatWindowFontSize) == "function"
-    and type(FCF_SavePositionAndDimensions) == "function") then return false end
+    and type(FCF_SavePositionAndDimensions) == "function") then return false, "chat frame not ready" end
   local width, height = UIParent:GetWidth(), UIParent:GetHeight()
-  if not Number(width) or not Number(height) or width <= 0 or height <= 0 then return false end
+  if not Number(width) or not Number(height) or width <= 0 or height <= 0 then return false, "screen size not available yet" end
   for name in pairs(baseline.cvars) do
     local value = data.cvars[name]
     if type(value) == "string" and GetCVar(name) ~= value then SetCVar(name, value) end
@@ -132,16 +133,17 @@ Queue = function()
   C_Timer.After(1, function()
     queued = false
     if sessionDone or InCombatLockdown() then return end
-    local ok, applied = pcall(Apply)
+    local ok, applied, reason = pcall(Apply)
     if ok and applied then
-      sessionDone = true
+      sessionDone, lastFailure = true, nil
       print(IsSource() and "CharacterUIBaseline: source character; UI changes will publish at logout."
         or "CharacterUIBaseline: source UI synchronized for this login.")
       return
     end
+    lastFailure = ok and (reason or "UI not ready") or ("error: " .. tostring(applied))
     attempts = attempts + 1
     if attempts < 30 then Queue()
-    else print("CharacterUIBaseline: sync pending. Leave combat/edit mode, then type /uib apply.") end
+    else print("CharacterUIBaseline: sync stopped after 30 tries (" .. lastFailure .. "). Leave combat or Edit Mode, then type /uib apply.") end
   end)
 end
 
@@ -163,18 +165,24 @@ events:SetScript("OnEvent", function(_, event)
 end)
 
 SLASH_CHARACTERUIBASELINE1 = "/uib"
+-- Only the first word counts, so "/uib apply now" still applies.
 SlashCmdList.CHARACTERUIBASELINE = function(message)
-  if message:match("^%s*capture%s*$") then
+  local command = (message or ""):match("^%s*(%S*)"):lower()
+  if command == "capture" then
     pcall(RememberLayout)
     local ok, captured = pcall(Capture)
     print(ok and captured and "CharacterUIBaseline: source UI published."
       or "CharacterUIBaseline: capture is available only on the configured source when UI APIs are ready.")
-  elseif message:match("^%s*apply%s*$") then
+  elseif command == "apply" then
     sessionDone, attempts = false, 0
     Queue()
+  elseif not Enabled() then
+    print("CharacterUIBaseline: source sync disabled or not configured.")
+  elseif sessionDone then
+    print("CharacterUIBaseline: this login is synchronized. Type /uib apply to sync again; on the source character, /uib capture publishes its UI.")
   else
-    print(not Enabled() and "CharacterUIBaseline: source sync disabled or not configured."
-      or sessionDone and "CharacterUIBaseline: this login is synchronized; /uib apply retries, /uib capture publishes on source."
-      or "CharacterUIBaseline: sync pending; /uib apply retries.")
+    print("CharacterUIBaseline: sync pending" .. (lastFailure and (" (" .. lastFailure .. ")") or "")
+      .. (attempts >= 30 and ". Automatic retries stopped" or ". It keeps retrying")
+      .. "; type /uib apply to retry now.")
   end
 end

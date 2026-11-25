@@ -77,6 +77,26 @@ def run():
     lua.execute('width=0; handlers.event(nil,"PLAYER_ENTERING_WORLD"); for i=1,35 do flush() end; assert(not next(calls)); assert(not CharacterUIBaselineDB.revision); assert(#timers==0); width=1920; SlashCmdList.CHARACTERUIBASELINE("apply"); flush(); assert(CharacterUIBaselineDB.revision==2); SlashCmdList.CHARACTERUIBASELINE("apply"); flush(); assert(calls.eui==2)')
     print('PASS unavailable UI uses bounded retries and supports explicit reapply')
     lua = world()
+    lua.execute('''
+        width=0; handlers.event(nil,"PLAYER_ENTERING_WORLD"); flush()
+        printed={}; SlashCmdList.CHARACTERUIBASELINE("")
+        local status=printed[1]
+        assert(status:find("sync pending",1,true) and status:find("screen size",1,true), status)
+        assert(status:find("type /uib apply to retry",1,true) and not status:find("apply retries",1,true), status)
+        width=1920; SlashCmdList.CHARACTERUIBASELINE("apply retries"); flush(); assert(CharacterUIBaselineDB.revision==2)
+        printed={}; SlashCmdList.CHARACTERUIBASELINE(""); assert(printed[1]:find("this login is synchronized",1,true), printed[1])
+        printed={}; SlashCmdList.CHARACTERUIBASELINE("  APPLY  "); flush(); assert(printed[1]:find("synchronized for this login",1,true))
+    ''')
+    print('PASS /uib reports why sync is pending, and apply accepts case and trailing words')
+    lua = world()
+    lua.execute('''
+        FCF_SetChatWindowFontSize=function() error("font boom") end
+        handlers.event(nil,"PLAYER_ENTERING_WORLD"); for i=1,35 do flush() end
+        local last=printed[#printed]
+        assert(last:find("stopped after 30 tries",1,true) and last:find("font boom",1,true) and last:find("/uib apply",1,true), last)
+    ''')
+    print('PASS an error during sync is reported after the bounded retries')
+    lua = world()
     lua.execute('cvarValues.showQuestLevel="1"; handlers.event(nil,"PLAYER_ENTERING_WORLD"); flush(); assert(not calls.showQuestLevel); assert(calls.eui==1)')
     print('PASS CVars already at the source value are not rewritten')
     for w, h in ((1920,1080),(2560,1440),(3840,2160)):

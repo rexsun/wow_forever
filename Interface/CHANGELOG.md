@@ -8,6 +8,7 @@ Quarterly logs:
 
 ## 2026 Q4
 
+- 2026-11-24 · **CharacterUIBaseline 0.4.2**: [CharacterUIBaseline 0.4.2: clearer `/uib` status](AddOns/updates-2026-Q4.md#2026-11-24---characteruibaseline-042-clearer-uib-status)
 - 2026-11-24 · **OverlapSettingsGuard 0.23.0**: [Update MapUtils and GearInsight Forever (OverlapSettingsGuard 0.23.0)](AddOns/updates-2026-Q4.md#2026-11-24---update-maputils-and-gearinsight-forever-overlapsettingsguard-0230)
 - 2026-11-24 · **Three addon packages**: [Update three addon packages](AddOns/updates-2026-Q4.md#2026-11-24---update-three-addon-packages)
 - 2026-11-23 · **GitHub sign-in sync**: [Sync fetches the alias map over SSH](AddOns/updates-2026-Q4.md#2026-11-23---sync-fetches-the-alias-map-over-ssh)

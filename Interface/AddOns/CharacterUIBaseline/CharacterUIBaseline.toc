@@ -2,7 +2,7 @@
 ## Title: CharacterUIBaseline
 ## Notes: Synchronizes the configured source UI on each login, moves characters off Blizzard's preset Edit Mode layouts to 'rex' and skips setup, guide and what's-new windows at login. /uib apply retries; /uib capture publishes on the source.
 ## Author: Rex Sun
-## Version: 0.4.1
+## Version: 0.4.2
 ## DefaultState: Enabled
 ## OptionalDeps: YUI, EllesmereUI, EllesmereUIRaidFrames, Details, GearInsight_Forever, GatherLite, MapUtils, Bagnon, OverlapSettingsGuard
 ## SavedVariablesPerCharacter: CharacterUIBaselineDB

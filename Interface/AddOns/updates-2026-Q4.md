@@ -2,6 +2,14 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-24 - CharacterUIBaseline 0.4.2: clearer `/uib` status
+
+- Problem: `/uib` answered a pending sync with "sync pending; /uib apply retries.", meaning "`/uib apply` retries". Typed as written, `/uib apply retries` did not match the exact `apply` the handler accepted, so it printed the same line again and never retried. The status also gave no reason why the sync was still pending: `Apply` failures returned a bare `false`, and errors were swallowed by its `pcall`.
+- Fix: `/uib` now acts on the first word only, ignoring case (`/uib apply retries`, `/uib APPLY` apply). The status reads "sync pending (<reason>). It keeps retrying; type /uib apply to retry now.", or "Automatic retries stopped" after thirty attempts. The reason is the last failure: character or realm name not available yet, no valid source UI published, chat frame not ready, screen size not available yet, or the caught error text. The thirty-attempt message now names that reason too. A synchronized login reads "this login is synchronized. Type /uib apply to sync again; on the source character, /uib capture publishes its UI."
+- No addon errors were recorded in the 19:36-19:39 test session: BugGrabber's newest entries are from earlier sessions. Those are YUI v365's tooltip-hide error, fixed in v367's `Security.HideTooltip`, and MapUtils 1.7.29 blocked from `SetPassThroughButtons`. The client logs show only routine entries, plus the client's own complaint that `maxLightCount` failed validation for its initial value.
+- The configured source character is still the beta realm's `Vwv-Vvovv` ("Classic Beta PvP"), whose last publication is from 2026-10-22. Release characters apply that publication. A source on the release realm would need `Settings/character-ui-source.local.json` to name it.
+- Verification: 32 baseline checks (2 new, both failing before the fix) pass.
+
 ## 2026-11-24 - Update MapUtils and GearInsight Forever (OverlapSettingsGuard 0.23.0)
 
 - Update MapUtils 1.7.29 to 1.7.35 (forever build, [file 9799275](https://www.curseforge.com/wow/addons/maputils/files/9799275)) and GearInsight Forever 1.2.3 to 1.4.20 (beta channel, [file 9788605](https://www.curseforge.com/wow/addons/gearinsight-forever/files/9788605)), the two the day's automatic run held; both were approved after review. Every TOC lists Interface 16001; no SavedVariables declaration changed. MapUtils 1.7.36 and GearInsight 1.5.0 (beta) appeared later the same day and are not installed.

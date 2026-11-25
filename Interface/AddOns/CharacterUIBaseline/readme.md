@@ -1,6 +1,6 @@
 # CharacterUIBaseline
 
-Version 0.4.1, Interface 16001. Synchronizes the configured source character's supported UI baseline on every other character's login or UI reload, moves characters off Blizzard's preset Edit Mode layouts to the account layout `rex`, and keeps setup, guide and what's-new windows from opening by themselves at login. A session gate prevents repeated application on zone transitions. Upstream addon files are unchanged.
+Version 0.4.2, Interface 16001. Synchronizes the configured source character's supported UI baseline on every other character's login or UI reload, moves characters off Blizzard's preset Edit Mode layouts to the account layout `rex`, and keeps setup, guide and what's-new windows from opening by themselves at login. A session gate prevents repeated application on zone transitions. Upstream addon files are unchanged.
 
 The layout switch and the login quieting need no source configuration, so they also run on installations without `Source.local.lua`, such as GitHub-synced ones.
 
@@ -29,7 +29,7 @@ The source character is excluded from target application. At source logout, the 
 
 The existing post-exit settings watcher also refreshes the generated baseline from the configured source's persisted WTF and publication. This distributes source changes across accounts on the next full client start. WoW addons cannot read another account's files or another running client's unsaved settings. Log the source out to publish changes; after a full exit, let the watcher finish before reopening. A source change in the private JSON requires the helper and a new client load.
 
-Targets apply the latest matching source publication, or the generated fallback, once on every login/reload, regardless of old per-character revision markers. The login sync never selects or imports an Edit Mode layout; `EditModeLayout.lua` handles the layout separately (below). CVars are written only when they differ from the source value. Combat and unavailable APIs defer application. Retries are bounded at thirty attempts. `/uib apply` retries manually; `/uib` reports status. Later target changes survive only until the next login sync.
+Targets apply the latest matching source publication, or the generated fallback, once on every login/reload, regardless of old per-character revision markers. The login sync never selects or imports an Edit Mode layout; `EditModeLayout.lua` handles the layout separately (below). CVars are written only when they differ from the source value. Combat and unavailable APIs defer application. Retries are bounded at thirty attempts; the last one prints why sync stopped. `/uib apply` retries manually (only the first word counts, so `/uib apply now` also applies); `/uib` reports whether this login is synchronized and, while it is not, the last reason (for example the screen size not being available yet, or an error). Later target changes survive only until the next login sync.
 
 ## Edit Mode layout `rex`
 
