@@ -22,6 +22,20 @@ POINTS = {'CENTER', 'LEFT', 'RIGHT', 'TOP', 'BOTTOM', 'TOPLEFT', 'TOPRIGHT', 'BO
 CONFIG = 'Interface/Settings/character-ui-source.local.json'
 
 
+def addon_backup_root(game):
+    """Where backups for this game root go; matches Get-AddonBackupRoot in adopt_addons.ps1 and sync_from_github.ps1.
+
+    The folder holding the WoW install gets 'WoW Addon Backups/<game folder>': outside the Battle.net install, which
+    scans and repairs every file under it, but on the same volume. A game root with no folder above its install keeps
+    the old in-game 'addon-backups'.
+    """
+    game = Path(game).resolve()
+    install = game.parent
+    if install.parent == install:
+        return game / 'addon-backups'
+    return install.parent / 'WoW Addon Backups' / game.name
+
+
 def component(value):
     if not isinstance(value, str) or not value.strip() or value in {'.', '..'} or any(c in value for c in '/\\:\x00'):
         raise ValueError('Invalid UI source path component')
@@ -133,7 +147,7 @@ def refresh(game, dry_run=False, before_publish=None):
         before_publish()
     if read_config(game) != cfg:
         raise ValueError('UI source configuration changed during refresh')
-    backup = game / 'addon-backups' / ('ui-baseline-refresh-' + datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-') + uuid.uuid4().hex[:8])
+    backup = addon_backup_root(game) / ('ui-baseline-refresh-' + datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-') + uuid.uuid4().hex[:8])
     backup.mkdir(parents=True)
     for path in outputs:
         if previous[path] is not None:

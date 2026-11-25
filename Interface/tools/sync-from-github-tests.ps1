@@ -30,7 +30,7 @@ function Commit-Upstream([string]$Message) {
 
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('wow sync tests ' + [guid]::NewGuid().ToString('N'))
 $upstream = Join-Path $testRoot 'upstream repo'
-$global:syncGame = Join-Path $testRoot 'game root'
+$global:syncGame = Join-Path $testRoot 'WoW\game root'
 $state = Join-Path $testRoot 'private state'
 $checks = 0
 try {
@@ -72,7 +72,7 @@ try {
     $eui = Join-Path $syncGame 'WTF\Account\ACC\SavedVariables\EllesmereUI.lua'
     Write-File $eui "EllesmereUIDB = {`r`n[`"panelScale`"] = 1.5,`r`n[`"marker`"] = `"測試`",`r`n}`r`n"
 
-    $broken = Join-Path $testRoot 'broken game'
+    $broken = Join-Path $testRoot 'WoW\broken game'
     Write-File (Join-Path $broken 'Wow.exe') ''
     Write-File (Join-Path $broken 'Interface\AddOns\Mine\m.lua') 'mine'
     $failed = $false
@@ -85,7 +85,7 @@ try {
     Assert ($refused -and -not (Test-Path -LiteralPath (Join-Path $broken '.git'))) 'Bootstrap must refuse while WoW runs'
     $checks += 4
 
-    $locked = Join-Path $testRoot 'locked game'
+    $locked = Join-Path $testRoot 'WoW\locked game'
     Write-File (Join-Path $locked 'Wow.exe') ''
     Write-File (Join-Path $locked 'Interface\a.txt') 'top'
     Write-File (Join-Path $locked 'Interface\AddOns\Mine\m.lua') 'mine'
@@ -101,7 +101,8 @@ try {
     # Reproduces Install started from a shell whose current directory is Interface.
     $lock = Start-DirectoryLock (Join-Path $syncGame 'Interface')
     try { Initialize-Checkout $git $syncGame $upstream { $false } } finally { Stop-DirectoryLock $lock }
-    $backup = @(Get-ChildItem -LiteralPath (Join-Path $syncGame 'addon-backups') -Directory)[0].FullName
+    Assert (-not (Test-Path -LiteralPath (Join-Path $syncGame 'addon-backups'))) 'Bootstrap backup written inside the install'
+    $backup = @(Get-ChildItem -LiteralPath (Join-Path $testRoot 'WoW Addon Backups\game root') -Directory)[0].FullName
     Assert (Test-Path -LiteralPath (Join-Path $syncGame 'Interface\AddOns\A\a.lua')) 'Bootstrap did not check out addons'
     Assert (-not (Test-Path -LiteralPath (Join-Path $syncGame 'Interface\AddOns\Old'))) 'Bootstrap kept the old Interface'
     Assert (Test-Path -LiteralPath (Join-Path $backup 'Interface\AddOns\Old\o.lua')) 'Old Interface not backed up'

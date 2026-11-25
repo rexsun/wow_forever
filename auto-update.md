@@ -20,7 +20,7 @@ powershell -ExecutionPolicy Bypass -File .\sync_from_github.ps1 -Mode Install -G
 
 If the game root is not a Git checkout yet, Install creates one:
 
-- It moves the old `Interface` folder to `addon-backups\bootstrap-<timestamp>`.
+- It moves the old `Interface` folder to `bootstrap-<timestamp>` in `WoW Addon Backups\<game folder>` beside the WoW install folder (for `D:\Program Files\World of Warcraft\_forever_` that is `D:\Program Files\WoW Addon Backups\_forever_`). Keeping backups outside the Battle.net install stops its file checks from scanning them.
 - It copies the Git-ignored private files found in that old folder into the new `Interface`: `.env`, and the CharacterUIBaseline source configuration (`Settings/character-ui-source.local.json`, `AddOns/CharacterUIBaseline/Source.local.lua`) that an earlier adoption brought over. Later syncs leave these ignored files alone.
 - It copies any tracked YUI font it is about to replace into the same backup.
 - It leaves the rest of `Fonts`, the client and `WTF` alone.

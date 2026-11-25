@@ -38,9 +38,10 @@ function Get-SourceSnapshot($Path) {
 }
 function New-Fixture($Name) {
     $root = Join-Path $testRoot $Name
-    $source = Join-Path $root 'source game'
-    $target = Join-Path $root 'target game'
-    foreach ($path in @('source game\Interface\AddOns', 'source game\WTF', 'target game\Interface\AddOns', 'target game\WTF', 'target game\Fonts')) {
+    # Each fixture is its own install folder so backups, which go beside the install, never collide.
+    $source = Join-Path $root 'WoW\source game'
+    $target = Join-Path $root 'WoW\target game'
+    foreach ($path in @('WoW\source game\Interface\AddOns', 'WoW\source game\WTF', 'WoW\target game\Interface\AddOns', 'WoW\target game\WTF', 'WoW\target game\Fonts')) {
         New-Item -ItemType Directory -Path (Join-Path $root $path) -Force | Out-Null
     }
     Set-Content -LiteralPath (Join-Path $source 'Interface\AddOns\new.txt') -Value 'new'
@@ -59,7 +60,8 @@ function New-Fixture($Name) {
     Copy-Item -LiteralPath $scriptUnderTest -Destination $entry
     New-Item -ItemType Directory -Path (Join-Path $source 'Interface\tools') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'WowResolution.psm1') -Destination (Join-Path $source 'Interface\tools\WowResolution.psm1')
-    return @{ Source = $source; Target = $target; Entry = $entry }
+    return @{ Source = $source; Target = $target; Entry = $entry
+        Backups = Join-Path $root 'WoW Addon Backups\target game'; SourceBackups = Join-Path $root 'WoW Addon Backups\source game' }
 }
 function Invoke-Adoption($Fixture, $Destination, $Resolution) {
     $sourceBefore = Get-SourceSnapshot $Fixture.Source
@@ -70,7 +72,8 @@ function Invoke-Adoption($Fixture, $Destination, $Resolution) {
     } finally {
         Pop-Location
         Assert ((Get-SourceSnapshot $Fixture.Source) -eq $sourceBefore) 'Source installation changed'
-        Assert (-not (Test-Path -LiteralPath (Join-Path $Fixture.Source 'addon-backups'))) 'Source received backup files'
+        Assert (-not (Test-Path -LiteralPath $Fixture.SourceBackups)) 'Source received backup files'
+        Assert (-not (Test-Path -LiteralPath (Join-Path $Fixture.Target 'addon-backups'))) 'Backup written inside the destination install'
     }
 }
 function Invoke-Rejected($Fixture, $Destination, $Resolution, $ExpectedError) {
@@ -96,23 +99,23 @@ Assert (Test-Path -LiteralPath (Join-Path $f.Target 'Interface\AddOns\new.txt'))
 Assert ((Get-FileHash -LiteralPath (Join-Path $f.Target 'Fonts\YUILongZhu.ttf')).Hash -eq (Get-FileHash -LiteralPath (Join-Path $f.Source 'Fonts\YUILongZhu.ttf')).Hash) 'Game-root font missing or damaged'
 Assert (-not (Test-Path -LiteralPath (Join-Path $f.Target 'Interface\AddOns\old.txt'))) 'Obsolete addon retained'
 Assert (Test-Path -LiteralPath (Join-Path $f.Target 'Interface\adopt_addons.ps1')) 'Utility not copied'
-Assert (-not (Test-Path -LiteralPath (Join-Path $f.Source 'addon-backups'))) 'Backup written to source'
+Assert (-not (Test-Path -LiteralPath $f.SourceBackups)) 'Backup written to source'
 Assert (Test-Path -LiteralPath (Join-Path $f.Target 'Fonts\keep.txt')) 'Fonts changed'
 Assert ((Get-FileHash -LiteralPath (Join-Path $f.Target 'WTF\Config.wtf')).Hash -eq $before) 'Settings changed'
 Assert ((Get-FileHash -LiteralPath (Join-Path $f.Source 'WTF\Config.wtf')).Hash -eq $before) 'Source settings changed'
-$backups = @(Get-ChildItem -LiteralPath (Join-Path $f.Target 'addon-backups') -Directory)
+$backups = @(Get-ChildItem -LiteralPath $f.Backups -Directory)
 Assert ($backups.Count -eq 1) 'Expected one backup'
 Assert (Test-Path -LiteralPath (Join-Path $backups[0].FullName 'Interface\AddOns\old.txt')) 'Backup addon missing'
 Assert ((Get-Content -LiteralPath (Join-Path $backups[0].FullName 'WTF\Config.wtf') -Raw).Trim() -eq 'old settings') 'Backup settings missing'
 Invoke-Adoption $f $f.Target
-Assert (@(Get-ChildItem -LiteralPath (Join-Path $f.Target 'addon-backups') -Directory).Count -eq 2) 'Repeat run overwrote backup'
-$manualBackup = Join-Path $f.Target 'addon-backups\manual-20261106'
+Assert (@(Get-ChildItem -LiteralPath $f.Backups -Directory).Count -eq 2) 'Repeat run overwrote backup'
+$manualBackup = Join-Path $f.Backups 'manual-20261106'
 New-Item -ItemType Directory -Path $manualBackup | Out-Null
-$keptBefore = @(Get-ChildItem -LiteralPath (Join-Path $f.Target 'addon-backups') -Directory |
+$keptBefore = @(Get-ChildItem -LiteralPath $f.Backups -Directory |
     Where-Object { $_.Name -match '^\d{8}-\d{6}-[0-9a-f]{32}$' } | Sort-Object Name | Select-Object -ExpandProperty Name)
 Start-Sleep -Seconds 1
 Invoke-Adoption $f $f.Target
-$adoptionBackups = @(Get-ChildItem -LiteralPath (Join-Path $f.Target 'addon-backups') -Directory |
+$adoptionBackups = @(Get-ChildItem -LiteralPath $f.Backups -Directory |
     Where-Object { $_.Name -match '^\d{8}-\d{6}-[0-9a-f]{32}$' } | Sort-Object Name)
 Assert ($adoptionBackups.Count -eq 2) 'Expected only the latest two adoption backups'
 Assert ($adoptionBackups[0].Name -eq $keptBefore[1]) 'Pruned the wrong backup'
@@ -165,7 +168,7 @@ try {
     }
     Assert $rejected 'Wrong working directory accepted'
     Assert (Test-Path -LiteralPath (Join-Path $f.Target 'Interface\AddOns\old.txt')) 'Wrong-directory run changed destination'
-    Assert (-not (Test-Path -LiteralPath (Join-Path $f.Target 'addon-backups'))) 'Wrong-directory run wrote destination'
+    Assert (-not (Test-Path -LiteralPath $f.Backups)) 'Wrong-directory run wrote destination'
 } finally { Pop-Location }
 $f = New-Fixture 'same root'
 Invoke-Rejected $f $f.Source
@@ -200,8 +203,8 @@ Rename-Item -LiteralPath (Join-Path $f.Source 'Fonts') -NewName 'OtherFonts'
 Invoke-Adoption $f $f.Target
 Assert ([BitConverter]::ToString([IO.File]::ReadAllBytes((Join-Path $f.Target 'Fonts\YUILongZhu.ttf'))) -eq '01-02-03') 'Fonts changed without source Fonts'
 $f = New-Fixture 'empty destination'
-$freshTarget = Join-Path $testRoot 'empty destination root'
-New-Item -ItemType Directory -Path $freshTarget | Out-Null
+$freshTarget = Join-Path $testRoot 'WoW\empty destination root'
+New-Item -ItemType Directory -Path $freshTarget -Force | Out-Null
 Invoke-Adoption $f $freshTarget
 Assert (Test-Path -LiteralPath (Join-Path $freshTarget 'Interface\AddOns\new.txt')) 'Empty destination did not receive addons'
 Assert (Test-Path -LiteralPath (Join-Path $freshTarget 'WTF\Config.wtf')) 'Empty destination did not receive settings'

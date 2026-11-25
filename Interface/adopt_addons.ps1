@@ -6,8 +6,10 @@ Close WoW on both machines first. Run from the local source game root containing
 this script in Interface, and supply the destination game root (local or writable
 UNC share). Destination Interface and WTF are replaced after backup. If present,
 source Fonts is merged over destination Fonts; destination-only files are preserved.
-After a successful copy, only the latest two backups this script made in the destination's
-addon-backups are kept; other folders there are left alone.
+Backups go beside the destination's WoW install, in WoW Addon Backups\<game folder> (for
+D:\Program Files\World of Warcraft\_forever_ that is D:\Program Files\WoW Addon Backups\_forever_), or in
+the destination's addon-backups when nothing is above the install. After a successful copy, only the latest
+two backups this script made there are kept; other folders there are left alone.
 Gameplay settings and UI scale are copied unchanged. Use -Resolution to set the
 destination window size and fit the EUI options panel. Requires Windows PowerShell 5.1.
 .EXAMPLE
@@ -48,6 +50,22 @@ function Assert-NoLinks([string]$Path) {
 $KeptAdoptionBackups = 2
 # Only folders this script names (timestamp-guid) are pruned; hand-made backups beside them are kept.
 $AdoptionBackupPattern = '^\d{8}-\d{6}-[0-9a-f]{32}$'
+
+<#
+.SYNOPSIS
+Where backups for this game root go; matches sync_from_github.ps1 and addon_backup_root in tools\character_ui_baseline.py.
+.DESCRIPTION
+The folder holding the WoW install gets 'WoW Addon Backups\<game folder>': outside the Battle.net install, which scans
+and repairs every file under it, but on the same volume so folders can be moved in. A game root with no folder above
+its install, such as a share pointing at the install itself, keeps the old in-game 'addon-backups'.
+#>
+function Get-AddonBackupRoot([string]$GameRoot) {
+    $game = [IO.Path]::GetFullPath($GameRoot).TrimEnd('\')
+    $install = [IO.Path]::GetDirectoryName($game)
+    $outside = if ($install) { [IO.Path]::GetDirectoryName($install) } else { $null }
+    if (-not $outside) { return Join-Path $game 'addon-backups' }
+    return Join-Path $outside ('WoW Addon Backups\' + [IO.Path]::GetFileName($game))
+}
 
 function Remove-OldAdoptionBackups([string]$BackupParent, [string]$CurrentBackup) {
     $backups = @(Get-ChildItem -LiteralPath $BackupParent -Directory -Force |
@@ -123,11 +141,11 @@ Write-Host "Source:      $sourceRoot"
 Write-Host "Destination: $destinationRoot"
 Write-Host 'Interface and WTF will be replaced after backup. Source Fonts, if present, will be merged with destination Fonts.'
 
-$backupParent = Join-Path $destinationRoot 'addon-backups'
+$backupParent = Get-AddonBackupRoot $destinationRoot
 if (Test-Path -LiteralPath $backupParent) {
     if (-not (Test-Path -LiteralPath $backupParent -PathType Container) -or
         ((Get-Item -LiteralPath $backupParent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-        throw 'addon-backups must be an ordinary directory.'
+        throw "The backup folder $backupParent must be an ordinary directory."
     }
 }
 $backupRoot = Join-Path $backupParent ((Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N'))

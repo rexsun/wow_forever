@@ -5,7 +5,8 @@ window resolution to this machine.
 .DESCRIPTION
 Install (once, with WoW closed): turns the game root into a checkout of the repository when it is not one yet,
 records git/uv and an optional fixed resolution, registers a hidden current-user sign-in task and runs one sync.
-The previous Interface folder is moved to addon-backups\bootstrap-<timestamp>; the Git-ignored private files in it
+The previous Interface folder is moved to bootstrap-<timestamp> in the backup folder beside the WoW install
+(WoW Addon Backups\<game folder>, see Get-AddonBackupRoot); the Git-ignored private files in it
 (Interface\.env and the CharacterUIBaseline source configuration) are carried over.
 
 Sync (what the sign-in task runs): fetch main, wait for WoW to close, move the checkout to main, restore the
@@ -54,6 +55,23 @@ $PrivateInterfaceFiles = @(
     'Settings\character-ui-source.local.json',
     'AddOns\CharacterUIBaseline\Source.local.lua'
 )
+
+<#
+.SYNOPSIS
+Where backups for this game root go; matches adopt_addons.ps1 and addon_backup_root in tools\character_ui_baseline.py.
+.DESCRIPTION
+Kept here rather than in a module because Install runs before the game root has a checkout. The folder holding the
+WoW install gets 'WoW Addon Backups\<game folder>': outside the Battle.net install, which scans and repairs every file
+under it, but on the same volume so folders can be moved in. A game root with no folder above its install keeps the
+old in-game 'addon-backups'.
+#>
+function Get-AddonBackupRoot([string]$GameRoot) {
+    $game = [IO.Path]::GetFullPath($GameRoot).TrimEnd('\')
+    $install = [IO.Path]::GetDirectoryName($game)
+    $outside = if ($install) { [IO.Path]::GetDirectoryName($install) } else { $null }
+    if (-not $outside) { return Join-Path $game 'addon-backups' }
+    return Join-Path $outside ('WoW Addon Backups\' + [IO.Path]::GetFileName($game))
+}
 
 function Get-InstallationId([string]$Root) {
     $sha = [Security.Cryptography.SHA256]::Create()
@@ -501,14 +519,14 @@ function Move-PathAtomic([string]$Source, [string]$Destination) {
 <#
 .SYNOPSIS
 Turns an existing game root into a checkout of the repository. The old Interface contents and any tracked font
-the checkout would overwrite are moved or copied to addon-backups\bootstrap-<timestamp>; a failure puts them back.
+the checkout would overwrite are moved or copied to bootstrap-<timestamp> in the backup folder; a failure puts them back.
 .DESCRIPTION
 The Interface folder itself stays in place: Windows refuses to move a folder that is any process's current
 directory, which it is whenever Install is started from inside Interface.
 #>
 function Initialize-Checkout([string]$Git, [string]$Root, [string]$Repo, [scriptblock]$ProcessProbe) {
     if (& $ProcessProbe) { throw 'Close WoW before installing. Nothing was changed.' }
-    $backup = Join-Path $Root ('addon-backups\bootstrap-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    $backup = Join-Path (Get-AddonBackupRoot $Root) ('bootstrap-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
     $interface = Join-Path $Root 'Interface'
     $previous = Join-Path $backup 'Interface'
     $movedItems = New-Object Collections.Generic.List[string]

@@ -18,7 +18,7 @@ class RefreshTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.game = Path(self.temp.name)
+        self.game = Path(self.temp.name) / 'WoW' / '_forever_'
         self.config = self.game / 'Interface/Settings/character-ui-source.local.json'
         self.config.parent.mkdir(parents=True)
         self.addon = self.game / 'Interface/AddOns/CharacterUIBaseline'
@@ -42,6 +42,19 @@ class RefreshTests(unittest.TestCase):
 
     def generated(self):
         return (self.addon/'Baseline.lua').read_text()
+
+    def test_refresh_backs_up_beside_the_install_not_inside_it(self):
+        MODULE.refresh(self.game)
+        source = self.game / 'WTF/Account/account-A/70/Source-Surname/config-cache.wtf'
+        source.write_text('SET showQuestLevel "0"\n')
+        self.assertTrue(MODULE.refresh(self.game))
+        self.assertFalse((self.game / 'addon-backups').exists())
+        backups = list((Path(self.temp.name) / 'WoW Addon Backups' / '_forever_').glob('ui-baseline-refresh-*'))
+        self.assertTrue(any((backup / 'Baseline.lua').exists() for backup in backups))
+
+    def test_backup_root_falls_back_inside_a_game_root_with_no_room_above(self):
+        root = Path(Path(self.temp.name).anchor)
+        self.assertEqual(MODULE.addon_backup_root(root / '_forever_'), root / '_forever_' / 'addon-backups')
 
     def test_refresh_tracks_source_changes_without_writing_wtf(self):
         before={p:p.read_bytes() for p in (self.game/'WTF').rglob('*') if p.is_file()}

@@ -2,6 +2,13 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-25 - Backups and Git data moved out of the Battle.net install
+
+- Problem: Battle.net showed **Update** for this game about five times a day, but only five game builds (70888 to 71091) shipped between 2026-11-12 and 11-25 against 72 completed updates. The rest were repairs. Battle.net checks that every file under the install is writable, and Git for Windows writes its object files read-only. After each commit or fetch, the next check (at launcher start, at game exit and about hourly) logged `Build marked non-playable for wowf: Permissions check failure` (42 times in that period) and ran a same-version update to clear the flags. All 3,128 permission-fix failures in its logs were under `_forever_/.git/objects`. On 2026-11-25 one of these left the launcher stuck on **Update**.
+- Fix: the Git data now lives outside the install. `_forever_/.git` is a one-line pointer file (`gitdir: …`), so Git, the hooks and the daily upgrade job work unchanged and Battle.net sees one ordinary writable file.
+- Backups moved too: the 94k files in `_forever_/addon-backups`, mostly daily copies of AddOns and WTF, were scanned on every check. They now go to `WoW Addon Backups/<game folder>` in the folder holding the WoW install (`D:/Program Files/WoW Addon Backups/_forever_`), on the same volume so folders can still be moved in. `adopt_addons.ps1`, `sync_from_github.ps1` and `tools/character_ui_baseline.py` each derive this path with the same rule (`Get-AddonBackupRoot`, `addon_backup_root`). A game root with nothing above its install, such as a share pointing at the install itself, keeps the old `addon-backups`. The existing 25 backups were moved there.
+- Verification: adopt tests pass and sync tests pass (83 checks); the character UI baseline unit tests (2 new) and Lua checks pass. The new assertions failed before the change. Test fixtures now sit one folder deeper so their backups stay inside each test's temporary folder.
+
 ## 2026-11-24 - CharacterUIBaseline 0.4.2: clearer `/uib` status
 
 - Problem: `/uib` answered a pending sync with "sync pending; /uib apply retries.", meaning "`/uib apply` retries". Typed as written, `/uib apply retries` did not match the exact `apply` the handler accepted, so it printed the same line again and never retried. The status also gave no reason why the sync was still pending: `Apply` failures returned a bare `false`, and errors were swallowed by its `pcall`.
