@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import uuid
 
-from wtf_settings import SettingsError, atomic_bytes, decode_saved, lua_value, parse_lua, require_game_closed
+from wtf_settings import SettingsError, atomic_bytes, decode_saved, lua_value, parse_lua, prune_backups, require_game_closed
 
 DISPLAY_CVARS = frozenset({
     'nameplateSelectedScale', 'cooldownViewerEnabled', 'nameplateMaxDistance',
@@ -181,6 +181,7 @@ def refresh(game, dry_run=False, before_publish=None):
             else:
                 atomic_bytes(path, previous[path])
         raise
+    prune_backups(backup.parent, 'ui-baseline-refresh-')
     return True
 
 

@@ -333,6 +333,24 @@ try {
     Assert ((Invoke-Native $git @('-C', $syncGame, 'branch', '--list', 'sync-backup-*')).Output -match 'sync-backup-') 'Local commits must be kept on a backup branch'
     $checks += 3
 
+    $bootstraps = Join-Path $testRoot 'WoW Addon Backups\game root'
+    foreach ($stamp in @('20261101-000000', '20261102-000000', '20261103-000000')) {
+        Write-File (Join-Path $state "local-changes-$stamp.patch") 'old patch'
+        Write-File (Join-Path $state "env-$stamp.bak") 'old map'
+        Write-File (Join-Path $bootstraps "bootstrap-$stamp\Interface\x.lua") 'old interface'
+        Invoke-TestGit $syncGame @('branch', "sync-backup-$stamp", 'HEAD')
+    }
+    Write-File (Join-Path $bootstraps 'manual-20261101\keep.txt') 'hand-made'
+    $null = Sync
+    foreach ($kind in @(@($state, 'local-changes-*.patch'), @($state, 'env-*.bak'), @($bootstraps, 'bootstrap-*'))) {
+        $left = @(Get-ChildItem -LiteralPath $kind[0] -Filter $kind[1] | Sort-Object Name)
+        Assert ($left.Count -eq 2 -and $left[0].Name -notmatch '20261101') "Only the 2 newest $($kind[1]) must be kept"
+    }
+    $branches = @((Invoke-Native $git @('-C', $syncGame, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/sync-backup-*')).Output -split '\r?\n' | Where-Object { $_ })
+    Assert ($branches.Count -eq 2 -and ($branches -join ' ') -notmatch '2026110[12]') 'Only the 2 newest sync-backup branches must be kept'
+    Assert (Test-Path -LiteralPath (Join-Path $bootstraps 'manual-20261101\keep.txt')) 'A hand-made backup must not be pruned'
+    $checks += 5
+
     Invoke-TestGit $syncGame @('remote', 'set-url', 'origin', (Join-Path $testRoot 'missing remote'))
     $global:sleeps = @()
     $result = Sync @{ FetchAttempts = 2 }

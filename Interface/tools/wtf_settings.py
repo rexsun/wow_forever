@@ -703,6 +703,31 @@ def merge_config(original, values):
     return bom + ''.join(lines).encode('utf-8', errors='surrogateescape')
 
 
+KEPT_BACKUPS = 2
+
+
+def prune_backups(parent, prefix, keep=KEPT_BACKUPS):
+    """Delete all but the newest `keep` folders in `parent` named `prefix` + timestamp; return the deleted paths.
+
+    Every backup name puts its timestamp right after the prefix, so name order is age order. Links are skipped so a
+    pruned name never reaches outside `parent`, and a folder that cannot be deleted is left for the next run.
+    """
+    try:
+        found = sorted((path for path in Path(parent).iterdir()
+                        if path.name.startswith(prefix) and path.is_dir() and not path.is_symlink() and not path.is_junction()),
+                       key=lambda path: path.name, reverse=True)
+    except OSError:
+        return []
+    removed = []
+    for old in found[keep:]:
+        try:
+            shutil.rmtree(old)
+            removed.append(old)
+        except OSError:
+            pass
+    return removed
+
+
 def restore_settings(game, state, dry_run=False, before_publish=None):
     game, state = Path(game).resolve(), Path(state).absolute()
     bundle = game / 'Interface/Settings/WTF'
@@ -814,6 +839,7 @@ def restore_settings(game, state, dry_run=False, before_publish=None):
                     raise SettingsError("Restored file verification failed.")
             manifest['status'] = 'restored'
             atomic_text(backup / 'manifest.json', json_text(manifest))
+            prune_backups(backup_root, 'restore-')
         except BaseException:
             failed = False
             for target in reversed(applied):

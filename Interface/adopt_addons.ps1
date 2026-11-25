@@ -47,6 +47,7 @@ function Assert-NoLinks([string]$Path) {
     }
 }
 
+# Same number as every other backup kind (sync_from_github.ps1, tools\wtf_settings.py).
 $KeptAdoptionBackups = 2
 # Only folders this script names (timestamp-guid) are pruned; hand-made backups beside them are kept.
 $AdoptionBackupPattern = '^\d{8}-\d{6}-[0-9a-f]{32}$'

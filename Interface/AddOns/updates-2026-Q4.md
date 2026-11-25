@@ -2,6 +2,17 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-25 - Two backups of each kind
+
+- Every backup kind now keeps only its two newest copies:
+  - `sync_from_github.ps1` prunes `bootstrap-*` folders, `local-changes-*.patch`, `env-*.bak` (five before) and `sync-backup-*` branches after each sync.
+  - `tools/wtf_settings.py` prunes `restore-*` folders after each successful restore, and `tools/character_ui_baseline.py` prunes `ui-baseline-refresh-*` after each refresh, through the shared `prune_backups`.
+  - `adopt_addons.ps1` already kept two.
+  - The daily upgrade job outside this repo now keeps its two newest `daily-*` backups instead of seven days' worth.
+- Pruning matches each kind's own name prefix and skips links. Hand-made and one-off folders in the backup folder (such as `beta-migration-*`) are never pruned.
+- Existing backups beyond the newest two of each kind were deleted on both machines.
+- Verification: sync tests pass (99 checks, 5 new), the settings and character UI baseline unit tests (2 new) pass, adopt tests and Lua checks pass.
+
 ## 2026-11-25 - sync_from_github keeps Git data outside the install on every machine
 
 - Problem: the earlier fix moved the Git data and backups out by hand. On the second machine, a checkout made by `sync_from_github.ps1 -Mode Install` had the same `.git` folder inside the install. Since 2026-11-13 it had 23 read-only object files and 228 permission-fix failures, and Battle.net had run 16 updates there for 4 real versions. Its folder above the install, `C:\Program Files (x86)`, can't be written by a normal account, so the backup rule would have failed at the first backup.

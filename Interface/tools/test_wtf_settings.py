@@ -283,6 +283,17 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(private, (self.game / 'Interface/.env').read_bytes())
         self.assertEqual(index, (self.game / '.git/index').read_bytes())
 
+    def test_restore_keeps_only_the_two_newest_backups(self):
+        self.export()
+        backups = self.state / 'backups'
+        for stamp in ('20261101-000000-aaaaaaaa', '20261102-000000-bbbbbbbb'):
+            (backups / ('restore-' + stamp)).mkdir(parents=True)
+        (backups / 'manual-20261101').mkdir()
+        self.source.write_bytes(b'YUIDB = { ["scale"] = 0.1 }\n')
+        _, backup = MODULE.restore_settings(self.game, self.state)
+        kept = sorted(path.name for path in backups.iterdir())
+        self.assertEqual(kept, ['manual-20261101', 'restore-20261102-000000-bbbbbbbb', backup.name])
+
     def test_restore_preserves_config_identity_and_unrepresented_files(self):
         config = self.game / 'WTF/Config.wtf'
         config.write_text('SET accountName "SECRET123"\nSET uiScale "0.8"\n')

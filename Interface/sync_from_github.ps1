@@ -51,6 +51,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:LogPath = $null
+# Newest backups kept of each kind: bootstrap folders, local-edit patches, .env copies and sync-backup branches.
+# adopt_addons.ps1 and tools\wtf_settings.py (settings-restore and UI-baseline backups) keep the same number.
+$KeptBackups = 2
 # Git-ignored files under Interface that GitHub cannot provide; Install keeps them from the replaced folder.
 $PrivateInterfaceFiles = @(
     '.env',
@@ -392,8 +395,6 @@ function Update-PrivateMap([string]$Root, [string]$StateDirectory, [byte[]]$Fetc
     if ($current) {
         [IO.Directory]::CreateDirectory($StateDirectory) | Out-Null
         Copy-Item -LiteralPath $path -Destination (Join-Path $StateDirectory ('env-{0}.bak' -f (Get-Date -Format 'yyyyMMdd-HHmmss')))
-        Get-ChildItem -LiteralPath $StateDirectory -Filter 'env-*.bak' | Sort-Object Name -Descending |
-            Select-Object -Skip 5 | Remove-Item -Force
     }
     $temporary = $path + '.sync-tmp'
     [IO.File]::WriteAllBytes($temporary, $Fetched)
@@ -529,9 +530,45 @@ function Invoke-WowSync {
         Write-SyncLog $summary.Problems[-1]
     }
 
+    try { Remove-OldSyncBackups $Git $Root $StateDirectory }
+    catch { Write-SyncLog ('Old backups not pruned: ' + $_.Exception.Message) }
     $head = (Invoke-Git $Git $Root @('rev-parse', '--verify', '--quiet', 'HEAD') -AllowFailure).Output
     Save-SyncState $StateDirectory (Update-SyncState $state @{ lastCommit = $head; lastRun = (Get-Date).ToString('o') })
     return [pscustomobject]$summary
+}
+
+<#
+.SYNOPSIS
+Deletes all but the newest $Keep items in $Parent whose names match $Filter; returns the deleted names.
+.DESCRIPTION
+Every backup name starts with its timestamp after a fixed prefix, so name order is age order. Links are skipped
+so a pruned name can never reach outside $Parent.
+#>
+function Remove-OldBackups([string]$Parent, [string]$Filter, [int]$Keep = $KeptBackups) {
+    if (-not (Test-Path -LiteralPath $Parent -PathType Container)) { return @() }
+    $removed = @()
+    $old = @(Get-ChildItem -LiteralPath $Parent -Filter $Filter -Force |
+        Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 } |
+        Sort-Object Name -Descending | Select-Object -Skip $Keep)
+    foreach ($item in $old) {
+        try {
+            Remove-Item -LiteralPath $item.FullName -Recurse -Force -Confirm:$false -ErrorAction Stop
+            $removed += $item.Name
+        } catch { Write-SyncLog "Could not delete the old backup $($item.FullName): $($_.Exception.Message)" }
+    }
+    return $removed
+}
+
+function Remove-OldSyncBackups([string]$Git, [string]$Root, [string]$StateDirectory) {
+    $removed = @()
+    $removed += Remove-OldBackups (Get-AddonBackupRoot $Root) 'bootstrap-*'
+    $removed += Remove-OldBackups $StateDirectory 'local-changes-*.patch'
+    $removed += Remove-OldBackups $StateDirectory 'env-*.bak'
+    $branches = @((Invoke-Git $Git $Root @('for-each-ref', '--sort=-refname', '--format=%(refname:short)', 'refs/heads/sync-backup-*') -AllowFailure).Output -split '\r?\n' | Where-Object { $_ })
+    foreach ($branch in @($branches | Select-Object -Skip $KeptBackups)) {
+        if ((Invoke-Git $Git $Root @('branch', '-D', $branch) -AllowFailure).Code -eq 0) { $removed += $branch }
+    }
+    if ($removed.Count -gt 0) { Write-SyncLog ("Deleted old backups beyond the newest {0} of each kind: {1}" -f $KeptBackups, ($removed -join ', ')) }
 }
 
 function Grant-SafeDirectory([string]$Git, [string]$Root) {
