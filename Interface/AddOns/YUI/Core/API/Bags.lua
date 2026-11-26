@@ -592,7 +592,7 @@ local function ReadPurchasedPersonalBankTabs()
     local character=Enum and Enum.BankType and Enum.BankType.Character
     if character~=nil then return Number(Call(C_Bank and C_Bank.FetchNumPurchasedBankTabs,character)) end
 end
-local bankPanelHook,finishedPersonalBank,trackedPersonalBank
+local bankPanelHook,finishedPersonalBank,trackedPersonalBank,personalBankHiddenCallback
 local bankWindowShownCallbacks={}
 function A.IsOpeningFirstPersonalBank(beforeShow)
     local frame=BankFrame
@@ -726,6 +726,10 @@ function A.ItemOnCursorFromSlot(container,slot,itemID,requireLocation)
     local ok,kind,id=pcall(GetCursorInfo)
     return ok and String(kind)=="item" and Number(id)==itemID
 end
+function A.ClearItemCursorFromSlot(container,slot,itemID)
+    if A.InCombat() or A.ItemOnCursorFromSlot(container,slot,itemID,true)~=true then return end
+    Call(ClearCursor)
+end
 function A.CancelBankBagPickup(container,slot,itemID)
     if not A.CursorBusy() then return true end
     if A.InCombat() or not A.ItemOnCursorFromSlot(container,slot,itemID) then return false end
@@ -740,7 +744,7 @@ function A.CancelBankBagPickup(container,slot,itemID)
     end
     return not A.CursorBusy()
 end
-function A.HookBankWindowShown(callback)
+function A.HookBankWindowShown(callback,onPersonalBankHidden)
     if not YUI.IsForever then return false end
     if not bankPanelHook then
         bankPanelHook=S.SafeHook("Bags.BankPanelShown",_G,"ShowUIPanel",function(frame)
@@ -753,6 +757,7 @@ function A.HookBankWindowShown(callback)
                     if trackedPersonalBank~=frame then
                         frame:HookScript("OnHide",function(owner)
                             if finishedPersonalBank==owner then finishedPersonalBank=nil end
+                            if owner==BankFrame and personalBankHiddenCallback then personalBankHiddenCallback() end
                         end)
                         trackedPersonalBank=frame
                     end
@@ -764,6 +769,7 @@ function A.HookBankWindowShown(callback)
         end)
     end
     if bankPanelHook and callback then bankWindowShownCallbacks[callback]=true end
+    if bankPanelHook and onPersonalBankHidden then personalBankHiddenCallback=onPersonalBankHidden end
     return bankPanelHook
 end
 local parkedBanks,bankAnchorHooks={},setmetatable({},{__mode="k"})
@@ -815,6 +821,39 @@ end
 function A.CloseBankWindow(kind)
     local frame=BankWindow(kind)
     if not A.InCombat() and Visible(frame) and type(HideUIPanel)=="function" then HideUIPanel(frame) end
+end
+local hiddenPersonalBankPanel
+-- A false result means the close must wait for the parent to hide or combat to end.
+function A.HideClosedPersonalBankPanel()
+    if not YUI.IsForever then return true end
+    local frame=BankFrame
+    if not frame or Call(frame.IsForbidden,frame)~=false then return true end
+    local panel=frame.BankPanel
+    if S.IsSecretValue(panel) or not panel or Call(panel.IsForbidden,panel)~=false
+        or Call(panel.IsProtected,panel)~=false or Call(panel.IsShown,panel)~=true then return true end
+    local shown=Call(frame.IsShown,frame)
+    if shown==nil then return true end
+    if shown or A.InCombat() then return false end
+    -- The native item click still reads the bank type when the child itself is shown.
+    Call(panel.Hide,panel)
+    if Call(panel.IsShown,panel)==false then hiddenPersonalBankPanel=panel end
+    return true
+end
+function A.RestorePersonalBankPanel()
+    local panel=hiddenPersonalBankPanel
+    if not panel then return end
+    local frame=BankFrame
+    if frame and Call(frame.IsForbidden,frame)~=false then return end
+    local current=frame and frame.BankPanel
+    if S.IsSecretValue(current) then return end
+    if current~=panel then hiddenPersonalBankPanel=nil;return end
+    if Call(panel.IsForbidden,panel)~=false then return end
+    local shown=Call(panel.IsShown,panel)
+    if shown==false and (not A.InCombat() or Call(panel.IsProtected,panel)==false) then
+        Call(panel.Show,panel)
+        shown=Call(panel.IsShown,panel)
+    end
+    if shown==true then hiddenPersonalBankPanel=nil end
 end
 function A.InitCharacterBankButton(button,bag,slot)
     local bankType=Enum and Enum.BankType and Number(Enum.BankType.Character)
@@ -1190,6 +1229,7 @@ local function ReadBagDomain(bag,kind)
     if family==nil then return nil,"restricted" end
     return family,A.SpaceKey(bag,family,kind)
 end
+A.ReadBagDomain=ReadBagDomain
 function A.ReadBag(bag,contentsOnly,kind)
     local capacity=Number(Call(C_Container.GetContainerNumSlots,bag))
     if not capacity or capacity<0 or capacity>512 then return nil,"restricted" end

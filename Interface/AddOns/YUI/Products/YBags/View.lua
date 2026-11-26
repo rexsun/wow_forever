@@ -1589,17 +1589,22 @@ function V:RefreshItemText()
     end
 end
 local recipeClass=Enum and Enum.ItemClass and Enum.ItemClass.Recipe or 9
-V.recipeStates,V.recipePending={},{}
+function V:ResetRecipeStates()
+    self.recipeStates,self.bankRecipeStates,self.recipePending={},{},{}
+end
+V:ResetRecipeStates()
 function V:RecipeTint(w,item)
     if item.classID~=recipeClass or not item.link or item.held or w.owner or not w.root:IsShown() then return end
     local config=B:GetConfig()
     if not config.tintKnownRecipes and not config.tintUnusableRecipes then return end
-    local state=self.recipeStates[item.link]
+    local inBank=w.liveBank~=nil
+    local states=inBank and self.bankRecipeStates or self.recipeStates
+    local state=states[item.link]
     if state==nil and not A.InCombat() then
         local ReadState=YUI.API.Item.RecipeLearningState
-        state=ReadState and ReadState(item.link)
+        state=ReadState and ReadState(item.link,inBank)
         -- Late tooltip data is retried on the next item/profession update or reopen.
-        self.recipeStates[item.link]=state or false
+        states[item.link]=state or false
         if state==nil and item.itemID then self.recipePending[item.itemID]=true end
     end
     if state=="known" and config.tintKnownRecipes or state=="unusable" and config.tintUnusableRecipes then return state end
@@ -2621,7 +2626,7 @@ function V:ShowPlayer(opener)
     local w=self:EnsurePlayer();local wasOpen=w.open
     if not wasOpen then
         w.autoOpenedBy=opener
-        w.cols=0;self.recipeStates,self.recipePending={},{}
+        w.cols=0;self:ResetRecipeStates()
         B:RefreshTimedGear()
     end
     w.open=true;w.root:Show();self:ApplySkin(true);self:RenderBagBar(w);self:Layout(w,not wasOpen)

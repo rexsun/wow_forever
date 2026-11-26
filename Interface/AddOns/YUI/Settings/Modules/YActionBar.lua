@@ -1849,6 +1849,7 @@ local function BuildPreviewButtonState(db, barId, cfg, snapshot, index, realButt
     local yab = GetYAB()
     local adapter = yab and yab.Adapter
     realButton = realButton or GetPreviewRecordButton(GetPreviewRecord(barId), index)
+    local hunterUtility = barId == "aspects" and yab and yab.UtilityTools and yab.UtilityTools.states[realButton]
     local state = {
         texture = nil,
         hasAction = false,
@@ -1897,11 +1898,17 @@ local function BuildPreviewButtonState(db, barId, cfg, snapshot, index, realButt
         if barId == "paladinBlessings" and sampleKey == "manage" then state.texture = PreviewSafety:Value(YUI.API.Item.GetIcon(21177)) end
         if barId == "aspects" and (sampleKey == "pet" or not sampleKey and index == 7) then state.texture = yab.ClassBars.petUtilityAbsentTexture end
         state.hasAction = state.texture ~= nil
-        if barId == "aspects" and sampleKey ~= "pet" and index <= 6 then
+        if barId == "aspects" and (sampleKey and sampleKey:match("^aspect%d+$") or not sampleKey and index <= 6) then
             state.aspectActiveStyle = "dimOthers"
-            state.checked = index == 2
+            state.checked = sampleKey == "aspect2" or not sampleKey and index == 2
             state.aspectDimmed = not state.checked
         end
+    elseif hunterUtility then
+        local live = hunterUtility.visual
+        state.texture = PreviewSafety:Value(live.texture)
+        state.hasAction, state.checked = state.texture ~= nil, live.checked == true
+        state.classToolKey = hunterUtility.key
+        state.classToolSpell = hunterUtility.selected and hunterUtility.selected.spellID
     elseif barId == "aspects" and yab and yab.ClassBars and yab.ClassBars.petUtilities
         and realButton == yab.ClassBars.petUtilities.toggle and realButton ~= nil then
         local live = yab.ClassBars.petUtilities.toggleState

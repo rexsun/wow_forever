@@ -1,20 +1,21 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/">
-    <Button name="YUIMapMarkersQuickFilterButtonTemplate" frameStrata="HIGH" mixin="YUIMapMarkersQuickFilterButtonMixin" hidden="true" virtual="true">
+    <Button name="YUIMapRoundOverlayButtonTemplate" frameStrata="HIGH" mixin="YUIMapRoundOverlayButtonMixin" hidden="true" virtual="true">
         <Size x="32" y="32"/>
         <Layers>
+            <!-- 金边纹理的可见中心比按钮中心偏右约 1 点。 -->
             <Layer level="BACKGROUND">
                 <Texture parentKey="Background" file="Interface\Minimap\UI-Minimap-Background">
-                    <Size x="25" y="25"/>
+                    <Size x="28" y="28"/>
                     <Anchors>
-                        <Anchor point="TOPLEFT" x="2" y="-4"/>
+                        <Anchor point="CENTER" x="1" y="0"/>
                     </Anchors>
                 </Texture>
             </Layer>
             <Layer level="ARTWORK">
-                <Texture parentKey="Icon" atlas="poi-islands-table">
+                <Texture parentKey="Icon">
                     <Size x="18" y="18"/>
                     <Anchors>
-                        <Anchor point="CENTER" x="0" y="0"/>
+                        <Anchor point="CENTER" x="1" y="0"/>
                     </Anchors>
                 </Texture>
             </Layer>
@@ -28,6 +29,9 @@
             </Layer>
         </Layers>
         <HighlightTexture alphaMode="ADD" file="Interface\Minimap\UI-Minimap-ZoomButton-Highlight"/>
+    </Button>
+
+    <Button name="YUIMapMarkersQuickFilterButtonTemplate" inherits="YUIMapRoundOverlayButtonTemplate" mixin="YUIMapMarkersQuickFilterButtonMixin" virtual="true">
         <Scripts>
             <OnLoad method="OnLoad"/>
             <OnClick method="OnClick"/>

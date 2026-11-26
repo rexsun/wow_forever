@@ -11,6 +11,7 @@
     <Script file="Markers\MapEnhancement.lua"/>
     <Script file="HotDiagnostics.lua"/>
     <Script file="Stats.lua"/>
+    <Script file="QuestObjectives.lua"/>
     <Script file="WorldMap.lua"/>
     <Script file="DirectionLine.lua"/>
     <Script file="RevealData_Forever.lua"/>

@@ -177,6 +177,8 @@ YMap.Defaults = {
 }
 
 if YUI.IsForever then
+    YMap.Defaults.worldMap.questObjectiveButton = true
+    YMap.Defaults.worldMap.questObjectiveMode = "auto"
     YMap.Defaults.minimap.squareElements.diel = {
         hidden = false, anchor = "BOTTOMRIGHT", offsetX = -2, offsetY = -2, scale = 0.75,
     }

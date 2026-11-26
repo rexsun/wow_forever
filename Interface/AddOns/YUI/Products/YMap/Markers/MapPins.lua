@@ -8,6 +8,9 @@ YUI.YMap.Markers = MapEnhancement
 local PinMixin = _G.YUIMapMarkersPinMixin or {}
 _G.YUIMapMarkersPinMixin = PinMixin
 
+local RoundOverlayButtonMixin = {}
+_G.YUIMapRoundOverlayButtonMixin = RoundOverlayButtonMixin
+
 local QuickFilterButtonMixin = _G.YUIMapMarkersQuickFilterButtonMixin or {}
 _G.YUIMapMarkersQuickFilterButtonMixin = QuickFilterButtonMixin
 
@@ -18,12 +21,14 @@ local LABEL_FRAME_LEVEL = "PIN_FRAME_LEVEL_MAP_LINK"
 
 function QuickFilterButtonMixin:OnLoad()
     self:RegisterForClicks("AnyUp")
-
+    self.Icon:SetAtlas("poi-islands-table")
 end
 
-function QuickFilterButtonMixin:Refresh()
-    -- MapEnhancement owns the button state; WorldMap overlays require this method.
+function RoundOverlayButtonMixin:Refresh()
+    -- The owning feature refreshes the button. The world map still calls this method on its overlays.
 end
+
+QuickFilterButtonMixin.Refresh = RoundOverlayButtonMixin.Refresh
 
 function QuickFilterButtonMixin:OnClick(button)
     if MapEnhancement.HandleQuickFilterClick then

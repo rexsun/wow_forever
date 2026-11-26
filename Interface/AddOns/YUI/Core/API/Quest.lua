@@ -45,6 +45,24 @@ local function Call(fn, ...)
 end
 
 function Quest.GetID() return Number(Read(_G.GetQuestID)) end
+
+local function ReadQuestID(fn, ...)
+    local id = Number(Read(fn, ...))
+    return id and id > 0 and id or nil
+end
+
+-- Read-only tracker queries. Missing, restricted and unselected quests return nil.
+function Quest.GetSuperTrackedQuestID()
+    local api = _G.C_SuperTrack
+    return api and ReadQuestID(api.GetSuperTrackedQuestID) or nil
+end
+
+function Quest.GetSingleWatchedQuestID()
+    local api = _G.C_QuestLog
+    if not api or Number(Read(api.GetNumQuestWatches)) ~= 1 then return nil end
+    return ReadQuestID(api.GetQuestIDForQuestWatchIndex, 1)
+end
+
 function Quest.GetNPCGUID()
     local value = Read(_G.UnitGUID, "npc")
     return type(value) == "string" and value or nil

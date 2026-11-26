@@ -183,6 +183,11 @@ local function General(parent,options,c)
         Check(T("settings.tint_unusable_recipes"),function() return c.tintUnusableRecipes end,function(v) SetRecipeTint("tintUnusableRecipes",v) end),
         Check(T("settings.tint_known_recipes"),function() return c.tintKnownRecipes end,function(v) SetRecipeTint("tintKnownRecipes",v) end),
     })
+    local autoOpenTrade=Check(T("settings.auto_open_trade"),function() return c.autoOpenTrade==true end,
+        function(v) c.autoOpenTrade=v==true end)
+    autoOpenTrade.tooltip=T("settings.auto_open_trade_hint")
+    autoOpenTrade.searchKey="settings.auto_open_trade"
+    Group(options,"settings.group.interactions",{autoOpenTrade})
     local export=Action(T("action.export"),function()
         B.View:Dialog(T("action.export"),{{label=T("settings.share"),value=B:ExportConfig(),max=131072}},function() end)
         local edit=B.View.dialog.inputs[1].edit;edit:SetFocus();edit:HighlightText()
@@ -575,7 +580,7 @@ if S.Search then
     local function Catalog(route,keys) S.Search:RegisterCatalog(B.SETTINGS_ENTRY,"YBags",route,keys) end
     local bagKeys="settings.layout settings.auto_size settings.subnames settings.aggregate settings.empty settings.columns settings.slot_size action.clear_recent"
     if forever then bagKeys=bagKeys.." settings.combined_sort_direction settings.combined_wrap_special_bags" end
-    Catalog(forever and "general" or "appearance","action.open settings.skin settings.icon_skin settings.opacity settings.item_font settings.item_text_scale settings.tint_known_recipes settings.tint_unusable_recipes action.export action.import")
+    Catalog(forever and "general" or "appearance","action.open settings.skin settings.icon_skin settings.opacity settings.item_font settings.item_text_scale settings.tint_known_recipes settings.tint_unusable_recipes settings.auto_open_trade action.export action.import")
     Catalog(forever and "layout" or "appearance",bagKeys)
     if forever then
         Catalog("personal","settings.bank_layout settings.bank_auto_size settings.bank_slot_size settings.bank_columns settings.bank_subnames settings.bank_empty")

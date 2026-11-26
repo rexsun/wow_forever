@@ -105,9 +105,17 @@ local function PresentPendingBank(kind)
     if kind=="guild" then B.View:RefreshGuildBagRoute() end
 end
 local OpenBankSession
+local function FinishBankPanelClose()
+    if Runtime.bankPanelClosePending and A.HideClosedPersonalBankPanel() then Runtime.bankPanelClosePending=nil end
+end
+local function RestoreNativeBankPanel()
+    Runtime.bankPanelClosePending=nil
+    A.RestorePersonalBankPanel()
+end
 local function FlushQueued()
     Runtime.timer=nil;B.Stats.timers=math.max(0,B.Stats.timers-1);B.Stats.pendingRefresh=false
     if not B.active then return end
+    FinishBankPanelClose()
     if Runtime.bankOpenDeferred or (Runtime.bankPurchaseBlocked and not B.bankOpen) then
         Runtime.bankOpenDeferred=nil
         if A.BankWindowShown("bank") then OpenBankSession() end
@@ -304,13 +312,14 @@ function B:SchedulePlacementReceiptCheck(round)
     end)
     B.Stats.timers=B.Stats.timers+1
 end
--- Bag-wide notifications from our moves are reconciled once at the end.
+-- Bag-wide notifications from our own moves are reconciled once at the end.
 -- Explicit invalidations such as a container change still take the full-read path.
 function B:FinishCarryBatch(batch,sortRound)
     batch.sortRound=sortRound
     Runtime.finalCarryBatch=batch
+    local kind=batch.kind or "bags"
     for id in pairs(batch.bags) do
-        if Runtime.kind[id]=="bags" then Runtime.dirty[id]=true end
+        if Runtime.kind[id]==kind and (kind~="bank" or self.bankOpen) then Runtime.dirty[id]=true end
     end
     self:QueueFlush()
 end
@@ -363,6 +372,8 @@ function B:Flush(initial,canPresentBank)
     -- Sorting and personal transfer receipts can observe a move before both
     -- BAG_UPDATE events arrive. Read both ends before confirming this step.
     local actions=self.Actions
+    if actions.bankSortRecovery then actions:CheckBankSortRecovery() end
+    local bankRecovery=actions.bankSortRecovery
     local splitDisplay=Runtime.splitDisplay
     Runtime.splitDisplay=nil
     local transferWindows=actions:IsPersonalBatch() and {}
@@ -467,7 +478,10 @@ function B:Flush(initial,canPresentBank)
         local kind=Runtime.kind[id]
         local due=self.Cache.player and self.Cache.player.pendingBagReads
         local retry=due and due[kind] and due[kind][id]
-        local slots,capacity,family,space,selected=ReadDirtyBag(id,kind,retry or read)
+        -- The bank snapshot is incomplete until the final read. While sorting,
+        -- individual move receipts only need their selected slots.
+        if kind=="bank" and carryBatch and carryBatch.bags[id] and finalCarryBatch~=carryBatch then retry=nil end
+        local slots,capacity,family,space,selected=ReadDirtyBag(id,kind,retry and true or read)
         local wasReadable=Runtime.readable[id]
         if slots and (kind=="bags" or capacity>0) then
             Runtime.readable[id]=true
@@ -511,6 +525,8 @@ function B:Flush(initial,canPresentBank)
                 renderSort.otherChanged=true
             end
             if (layout or patch or retry or finalCarryBatch and finalCarryBatch.bags[id])
+                and not (kind=="bank" and bankRecovery and bankRecovery.bags[id])
+                and not (retry=="sort" and (A.ActiveBankKind()~="bank" or not A.CanUsePersonalBank() or A.BankPurchasePending()))
                 and (not carryBatch or not carryBatch.bags[id] or finalCarryBatch==carryBatch) then
                 self.Cache:WriteModelBag(kind,id,modelBag)
             end
@@ -527,7 +543,7 @@ function B:Flush(initial,canPresentBank)
             end
             if kind=="bank" and Runtime.readable[id] then bankChanged=true end
             Runtime.readable[id]=false
-            if placement and kind=="bags" and not placement.checkingDeadline then
+            if placement and carryBatch and kind==(carryBatch.kind or "bags") and not placement.checkingDeadline then
                 for _,receipt in ipairs(sortRound.receipts) do
                     if not receipt.readRetried and (receipt.source.bag==id or receipt.to.bag==id) then
                         receipt.retryRead=true
@@ -569,7 +585,7 @@ function B:Flush(initial,canPresentBank)
         if not current or current.itemID~=armed.itemID or current.link~=armed.link or current.count~=armed.count or current.locked then self.Actions:CancelDelete() end
     end
     local recipeRefresh=Runtime.recipeRefresh
-    if recipeRefresh then Runtime.recipeRefresh=nil;self.View.recipeStates,self.View.recipePending={},{} end
+    if recipeRefresh then Runtime.recipeRefresh=nil;self.View:ResetRecipeStates() end
     -- Item buttons are disabled during a sort. Render the settled arrangement
     -- once on completion or cancellation, including changes to other open views.
     local personalBatch=actions:IsPersonalBatch()
@@ -581,6 +597,17 @@ function B:Flush(initial,canPresentBank)
         if finalCarryBatch.sortRound then self.View:FinishSortLayout(finalCarryBatch.sortRound)
         else self:RefreshVisible(true,true) end
         self.View:RefreshItemInputs()
+        local finished=finalCarryBatch.sortRound
+        if finished and finished.bank then
+            local reason=finished.bankFinishReason
+            if not self.bankOpen then reason="interrupted" end
+            if reason=="complete" then
+                for id in pairs(finalCarryBatch.bags) do
+                    if not Runtime.readable[id] then reason="unreadable";break end
+                end
+            end
+            actions:FinishBankSortObservation(finished,reason)
+        end
     elseif carryBatch then
         local player=self.View.windows.player
         if splitDisplay and not sortRound and player and player.open then self.View:Layout(player,false) end
@@ -590,7 +617,9 @@ function B:Flush(initial,canPresentBank)
     if recipeRefresh then self.View:RefreshRecipeTints() end
     if bankChanged then
         if sortRound and not sortRound.bank then sortRound.otherChanged=true
-        elseif not sortRound and not personalBatch and not structural then self.BankView:Refresh("bank") end
+        elseif not sortRound and not (finalCarryBatch and finalCarryBatch.kind=="bank") and not personalBatch and not structural then
+            self.BankView:Refresh("bank")
+        end
     end
     if Runtime.bankSockets then
         Runtime.bankSockets=nil
@@ -651,7 +680,7 @@ local function OnBag(event,id,slot)
     local carryBatch=B.Actions.carryBatch
     if carryBatch then
         local bag=YUI.API.Security.SafeNumber(id)
-        if bag and Runtime.kind[bag]=="bags" then
+        if bag and Runtime.kind[bag]==(carryBatch.kind or "bags") then
             if event=="BAG_UPDATE" and carryBatch.bags[bag] then
                 local round=B.Actions.sortRound
                 if round and round.placement then round.placement.dirtyBags[bag]=true end
@@ -674,6 +703,8 @@ local function OnBag(event,id,slot)
     end
     if event=="BAG_UPDATE" and B.bankOpen and type(id)=="number" then
         if A.IsBankBagSocketContainer and A.IsBankBagSocketContainer(id) then
+            local round=B.Actions.sortRound
+            if round and round.bank then round.cancelled=true end
             for bag,kind in pairs(Runtime.kind) do if kind=="bank" then B:MarkBag(bag) end end
             return
         end
@@ -688,7 +719,7 @@ local function OnBag(event,id,slot)
     B:MarkBag(id)
 end
 local function OnRecipeKnowledge()
-    if next(B.View.recipeStates) then Runtime.recipeRefresh=true;B:QueueFlush() end
+    if next(B.View.recipeStates) or next(B.View.bankRecipeStates) then Runtime.recipeRefresh=true;B:QueueFlush() end
 end
 local function OnInfo(_,id,success)
     if not success or type(id)~="number" then return end
@@ -730,7 +761,10 @@ OpenBankSession=function()
     B.View:UpdateGrouping();B.View:RefreshItemInputs()
 end
 local function OnBankOpen()
-    if not B.active or B.bankOpen then return end
+    if not B.active then return end
+    -- Restore our child panel before the native OnShow reads the active bank type.
+    RestoreNativeBankPanel()
+    if B.bankOpen then return end
     if YUI.IsForever and A.IsOpeningFirstPersonalBank(true) then
         -- This event can arrive before the native default tab and its free purchase.
         Runtime.bankOpenDeferred=true
@@ -740,16 +774,25 @@ local function OnBankOpen()
     OpenBankSession()
 end
 local function OnBankClose()
+    local first=A.FirstPersonalBankBag()
+    local bankWasReady=B.bankOpen and first and Runtime.kind[first]=="bank" and Runtime.readable[first]==true
+    if bankWasReady then Runtime.bankPanelClosePending=true end
     Runtime.bankOpenDeferred,Runtime.bankPurchaseBlocked=nil,nil
     Runtime.bankBagOpenPending=nil
     if Runtime.bankPresentation=="bank" then Runtime.bankPresentation=nil end
     B.bankOpen=false;B.Actions:Stop();B.Actions:CancelDelete()
     for id,kind in pairs(Runtime.kind) do if kind~="bags" then Runtime.kind[id]=nil;Runtime.dirty[id]=nil;Runtime.readable[id]=nil end end
     B.BankView:Close("bank")
+    FinishBankPanelClose()
+    if Runtime.bankPanelClosePending and not A.InCombat() then B:QueueFlush() end
     if B.View then
         B.View:HidePlayer(BankFrame or "bank")
         B.View:BankClosed();B.View:UpdateGrouping();B.View:RefreshItemInputs()
     end
+end
+local function OnNativePersonalBankHidden()
+    -- This callback can run inside native OnHide. Only the queued flush may hide the child.
+    if B.active and Runtime.bankPanelClosePending and not A.InCombat() then B:QueueFlush() end
 end
 local function CheckGuildTransferAccess()
     local actions=B.Actions
@@ -851,21 +894,22 @@ local function OnGuildViewport()
 end
 local function OnBankTabs(_,bankType)
     if not B.bankOpen then return end
+    local round=B.Actions.sortRound
+    local characterBank=bankType==nil or YUI.API.Security.SafeNumber(bankType)==Enum.BankType.Character
+    if round and round.bank and characterBank then round.cancelled=true end
     if Runtime.bankPurchaseBlocked then
         B.BankView:RefreshFirstBankActivation(false)
         B:QueueFlush()
     end
     B:ReadAll(false);B.BankView:Refresh("bank",true)
-    if Runtime.bankPresentation=="bank"
-        and (bankType==nil or YUI.API.Security.SafeNumber(bankType)==Enum.BankType.Character) then
+    if Runtime.bankPresentation=="bank" and characterBank then
         -- Native tab data can arrive after the first bank presentation attempt.
         B:QueueFlush()
     end
 end
-local function OnBankPurchaseBlocked(_,addon,action)
-    local safe=YUI.API.Security.SafeString
-    action=safe(action)
-    if safe(addon)~="YUI" or (action~="PurchaseBankTab()" and action~="C_Bank.PurchaseBankTab()")
+local function OnBankPurchaseBlocked(_,_,action)
+    action=YUI.API.Security.SafeString(action)
+    if (action~="PurchaseBankTab()" and action~="C_Bank.PurchaseBankTab()")
         or not A.BankWindowShown("bank") then return end
     Runtime.bankPurchaseBlocked=true
     B:QueueFlush()
@@ -873,7 +917,7 @@ end
 local function OnContainers()
     if not B.active then return end
     local round=B.Actions.sortRound
-    if round and round.carryLayout then round.cancelled=true end
+    if round and (round.carryLayout or round.bank) then round.cancelled=true end
     B:ReadAll(false)
     if B.View.windows.player then B.View:RenderBagBar(B.View.windows.player) end
     if B.bankOpen then B.BankView:RefreshSockets() end
@@ -948,6 +992,7 @@ local function OnRegen()
     end
     if B.pendingNativeBags and B.active and not A.InCombat() then B:RequestNativeBags();return end
     if B.active then
+        FinishBankPanelClose()
         Runtime.combatEndedAt=A.Now()
         B.Model.combatArrivals=nil
         if Runtime.bankPresentation~="bank" or BankBagsReady() then Runtime:CloseNativeBags() end
@@ -991,6 +1036,14 @@ local function OnInputChanged(event)
         B.View:UpdateGrouping();B.View:RefreshItemInputs(event=="CURSOR_CHANGED");B.BankView:UpdateBankControls()
     end
 end
+local function TryView(method,opener)
+    local ok,result=xpcall(method,OnViewError,B.View,opener)
+    if not ok then
+        local w=B.View.windows.player;if w then w.prepared=false end
+        B.View:HidePlayer();return false
+    end
+    return result~=false
+end
 local interactionStarts={MERCHANT_SHOW="merchantOpen",TRADE_SHOW="tradeOpen",
     MAIL_SHOW="mailOpen",AUCTION_HOUSE_SHOW="auctionOpen"}
 local interactionEnds={MERCHANT_CLOSED="merchantOpen",TRADE_CLOSED="tradeOpen",
@@ -1030,6 +1083,18 @@ local function OnInteraction(event,interactionType)
         Runtime[flag]=open
         B.Actions:CancelDelete()
         if B.Actions.nativeSort or B.Actions.queue and (B.Actions.kind~="extract" or not open) then B.Actions:Stop() end
+        if flag=="tradeOpen" then
+            if not open then
+                B.View:HidePlayer("trade")
+            else
+                local w=B.View.windows.player
+                -- An unparked native window can still be in use after a view error.
+                local nativeFallback=Runtime.nativeParking and not Runtime.parkedFrames
+                if not nativeFallback and not (w and w.open) and B:GetConfig().autoOpenTrade==true then
+                    TryView(B.View.ShowPlayer,"trade")
+                end
+            end
+        end
     end
     OnInputChanged()
 end
@@ -1078,14 +1143,6 @@ OnViewError=function(message)
     local handler=type(geterrorhandler)=="function" and geterrorhandler()
     if type(handler)=="function" then handler(message) end
     return message
-end
-local function TryView(method,opener)
-    local ok,result=xpcall(method,OnViewError,B.View,opener)
-    if not ok then
-        local w=B.View.windows.player;if w then w.prepared=false end
-        B.View:HidePlayer();return false
-    end
-    return result~=false
 end
 local function NativeResult(previous,ok,...)
     Runtime.nativeDepth=previous
@@ -1169,8 +1226,11 @@ function Runtime:NativeBagAction(name,id)
         if not id or self.kind[id]~="bags" then return end
     end
     local opener=name=="OpenAllBags" and not YUI.API.Security.IsSecretValue(id) and id or nil
+    -- Trade events own the custom bag even when the native gamepad UI also requests an open.
+    if opener and opener==TradeFrame then return end
     if YUI.IsForever and opener and opener==BankFrame then
         -- The native bank selects its default tab and may buy the free first slot after this hook.
+        RestoreNativeBankPanel()
         self.bankBagOpenPending=opener
         B:QueueFlush()
         return
@@ -1205,6 +1265,7 @@ function Runtime:Lease()
     return true
 end
 function Runtime:Restore()
+    RestoreNativeBankPanel()
     if not next(self.leases) then YUI.Event:OffOwner(self);return end
     if A.InCombat() then
         B.pendingDisable=true
@@ -1257,7 +1318,9 @@ function B:OnLifecycleEnable()
         self.Stats.listeners=self.Stats.listeners+4
         YUI.Event:On("EQUIPMENT_SETS_CHANGED",OnEquipmentSets,self)
         self.Stats.listeners=self.Stats.listeners+1
-        if not Runtime.bankWindowHook then Runtime.bankWindowHook=A.HookBankWindowShown(OnNativeBankShown) end
+        if not Runtime.bankWindowHook then
+            Runtime.bankWindowHook=A.HookBankWindowShown(OnNativeBankShown,OnNativePersonalBankHidden)
+        end
     end
     self.View:EnsurePlayer()
     if not Runtime:Lease() then self:OnLifecycleDisable();return false end
@@ -1295,7 +1358,7 @@ function B:OnLifecycleDisable()
     Runtime.gearSets,Runtime.merchantOpen,Runtime.bankPresentation,Runtime.recipeRefresh=nil,nil,nil,nil
     Runtime.tradeOpen,Runtime.mailOpen,Runtime.auctionOpen,Runtime.socketOpen=nil,nil,nil,nil
     Runtime.bankSockets=nil
-    self.View.recipeStates,self.View.recipePending={},{}
+    self.View:ResetRecipeStates()
     self.Model:Reset();A.Reset()
     self.bankOpen=false
     self.guildOpen=false;self.Deposit:ResetGuild();Runtime.guildRefresh=nil

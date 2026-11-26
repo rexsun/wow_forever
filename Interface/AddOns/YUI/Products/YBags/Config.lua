@@ -45,6 +45,7 @@ end
 B.Defaults = {
     enabled = false, schema = 1, layout = "category", skin = "native", slotSize = 36, columns = 12,
     autoSize = true, showSubnames = true, aggregateItems = true, emptyMode = "all", opacity = 1,
+    autoOpenTrade = true,
     itemFont = "default", itemTextScale = 100, tintUnusableRecipes = true, tintKnownRecipes = true,
     favorites = {}, locks = {}, manual = {}, tracked = {}, position = {}, collapsed = {}, rules = {}, iconSkins = {},
     deposit = {
@@ -135,6 +136,7 @@ function B:SetBankViewOption(key, value)
     local bankView = self.Defaults.bankView and self:GetConfig().bankView
     if not bankView or not IsBankViewOptionValid(key, value) or bankView[key] == value then return end
     bankView[key] = value
+    if key == "layout" then self.Actions:CancelSortForConfigChange() end
     RefreshBankWindows(self, "bank", key == "layout", true)
 end
 

@@ -542,7 +542,7 @@ function YMap:Refresh(reason)
 end
 
 function YMap:OpenSettings(tab)
-    if tab and self.SetSettingsTab then self:SetSettingsTab(tab) end
+    if tab and self.SetSettingsTab then self:SetSettingsTab(tab, true) end
     if self.Host and self.Host.settingsMode == "toolbox" then
         return YUI.Settings:OpenComponentFeature(self.PRODUCT_ID)
     end

@@ -215,7 +215,7 @@ local function PlanSpecialEmpties(domains,items,priority,limit,groups,reverse)
     return steps
 end
 
-local function ItemOrder(a,b)
+local function BankRankLess(a,b)
     local x,y=a.item,b.item
     if (x.quality==0)~=(y.quality==0) then return y.quality==0 end
     local xClass,yClass=x.classID or 99,y.classID or 99
@@ -224,7 +224,11 @@ local function ItemOrder(a,b)
     if x.link~=y.link then return x.link<y.link end
     if (x.bound==true)~=(y.bound==true) then return x.bound~=true end
     if x.count~=y.count then return x.count<y.count end
-    return BeforePosition(a,b)
+    return false
+end
+
+local function ItemOrder(a,b)
+    return BankRankLess(a,b) or not BankRankLess(b,a) and BeforePosition(a,b)
 end
 
 local function PositionStep(source,target)
@@ -312,32 +316,47 @@ local function KeepMovablePlacementCells(cells)
     for index=#cells,kept+1,-1 do cells[index]=nil end
 end
 
+local function ClassifyPlacementCell(cell,config)
+    local item=cell.item
+    local section,group,order=item.section,item.group,item.groupOrder
+    if not section or section=="recent" then section,group,order=C:Classify(item,config,B.Model.compiled,true) end
+    cell.group,cell.groupOrder=group,order
+    cell.sectionOrder=section=="other" and group=="quest" and 3 or placementSections[section] or 7
+    cell.priority=section=="general" and group=="favorites" and C:QuickAccessOrder(item.itemID) or 0
+    cell.level=section=="equipment" and (item.level or -1) or 0
+end
+
 local function SetPlacementTargets(plan,slots,reverse,config)
-    local items,donors,identities={},{},{}
+    local items,donors={},{}
+    local identities={}
+    local less=plan.bank and BankRankLess or PlacementLess
     local hasConflicts=false
     for _,cell in ipairs(slots) do
         cell.donors=donors
         if cell.item then
             local item=B:Copy(cell.item)
-            local section,group,order=item.section,item.group,item.groupOrder
-            if not section or section=="recent" then section,group,order=C:Classify(item,config,B.Model.compiled,true) end
-            cell.item,cell.group,cell.groupOrder=item,group,order
-            cell.sectionOrder=section=="other" and group=="quest" and 3 or placementSections[section] or 7
-            cell.priority=section=="general" and group=="favorites" and C:QuickAccessOrder(item.itemID) or 0
-            cell.level=section=="equipment" and (item.level or -1) or 0
+            cell.item=item
             items[#items+1]=cell
 
-            local first=identities[item.itemID]
-            local peer=first
-            while peer and not C:SameStack(peer.item,item) do peer=peer.nextIdentity end
-            if peer then
-                cell.stackPeer=peer
-                if PlacementLess(peer,cell) or PlacementLess(cell,peer) then
-                    peer.pinned,hasConflicts=true,true
+            if plan.bank then
+                local peer=identities[item.link]
+                if peer and not C:SameStack(peer,item) then
+                    -- The legacy planner preserves order when identical links cannot be swapped.
+                    return false
                 end
+                identities[item.link]=item
             else
-                cell.nextIdentity=first
-                identities[item.itemID]=cell
+                ClassifyPlacementCell(cell,config)
+                local first=identities[item.itemID]
+                local peer=first
+                while peer and not C:SameStack(peer.item,item) do peer=peer.nextIdentity end
+                if peer then
+                    cell.stackPeer=peer
+                    if less(peer,cell) or less(cell,peer) then peer.pinned,hasConflicts=true,true end
+                else
+                    cell.nextIdentity=first
+                    identities[item.itemID]=cell
+                end
             end
         end
     end
@@ -348,11 +367,11 @@ local function SetPlacementTargets(plan,slots,reverse,config)
         KeepMovablePlacementCells(slots)
     end
     plan.scopes[#plan.scopes+1]=slots
-    table.sort(items,PlacementLess)
+    table.sort(items,less)
     local offset=reverse and #slots-#items or 0
     local previous,rank=nil,0
     for index,cell in ipairs(items) do
-        if not previous or PlacementLess(previous,cell) then rank=rank+1 end
+        if not previous or less(previous,cell) then rank=rank+1 end
         cell.rank,slots[offset+index].wanted=rank,rank
         previous=cell
     end
@@ -360,20 +379,21 @@ local function SetPlacementTargets(plan,slots,reverse,config)
         AddPlacementDonor(cell)
         if cell.wanted and cell.wanted~=cell.rank then plan.targets[#plan.targets+1]=cell end
     end
+    return true
 end
 
-local function PlanDirectionalPlacement(domains,reverse,config,verify)
-    local ordinarySlots,plan={},{targets={},dirtyBags={},scopes={},bags={}}
+local function PlanPlacement(domains,reverse,config,verify,bank)
+    local ordinarySlots,plan={},{targets={},dirtyBags={},scopes={},bags={},bank=bank}
     for _,domain in ipairs(domains) do
         local bag=domain.bag
         plan.bags[bag.id]={capacity=bag.capacity,family=bag.family,space=bag.space}
         if domain.priority>0 then
-            SetPlacementTargets(plan,domain.slots,reverse,config)
+            if not SetPlacementTargets(plan,domain.slots,reverse,config) then return nil,true end
         else
             for _,cell in ipairs(domain.slots) do ordinarySlots[#ordinarySlots+1]=cell end
         end
     end
-    SetPlacementTargets(plan,ordinarySlots,reverse,config)
+    if not SetPlacementTargets(plan,ordinarySlots,reverse,config) then return nil,true end
     if verify or #plan.targets>0 then return plan end
 end
 
@@ -386,13 +406,17 @@ function B.Actions:PlanPlacementSteps(plan)
                 misplaced=true
                 local donors=target.donors[target.wanted]
                 if donors and not target.pending and not used[target] and (not target.item)==(pass==1) then
-                    local source
+                    local source,step
                     for cell in pairs(donors) do
-                        if not cell.pending and not used[cell] and not C:SameStack(cell.item,target.item)
-                            and (not source or BeforePosition(cell,source)) then source=cell end
+                        if not cell.pending and not used[cell] and (not source or BeforePosition(cell,source)) then
+                            if plan.bank then
+                                local candidate=PositionStep(cell,target)
+                                if candidate then source,step=cell,candidate end
+                            elseif not C:SameStack(cell.item,target.item) then source=cell end
+                        end
                     end
                     if source then
-                        local step=MakeStep(source,target)
+                        step=step or MakeStep(source,target)
                         step.placementSource,step.placementTarget=source,target
                         steps[#steps+1]=step
                         used[source],used[target]=true,true
@@ -590,11 +614,12 @@ local function ProjectMaterialWaves(domains,waves)
     return items,reserved
 end
 
-function B.Actions:BeginCategoryMerges(limit,allowMaterialWaves)
+function B.Actions:BeginCategoryMerges(limit,allowMaterialWaves,bank)
     local config=B:GetConfig()
     local player=B.View.windows.player
-    if (player and player.layout or config.layout)~="category" then return end
-    local domains,items=Snapshot(self,false,config.locks)
+    local layout=bank and config.bankView.layout or (player and player.layout or config.layout)
+    if layout~="category" then return end
+    local domains,items=Snapshot(self,bank,config.locks)
     local groups=IndexPartials(items)
     local prioritySteps,phase,waves=PlanPriorityCompaction(domains,items,groups,limit,allowMaterialWaves)
     if prioritySteps then
@@ -640,7 +665,7 @@ function B.Actions:PlanCategoryMergeGroup(group,limit)
     return steps
 end
 
-function B.Actions:PlanSortRound(bank,limit,allowMaterialWaves,direction)
+function B.Actions:PlanSortRound(bank,limit,allowMaterialWaves,direction,bankPlacement)
     if limit==nil then limit=12 end
     if type(limit)~="number" or not (limit>=1) then return {} end
     limit=math.floor(math.min(limit,32))
@@ -653,13 +678,17 @@ function B.Actions:PlanSortRound(bank,limit,allowMaterialWaves,direction)
 
     if directional then
         local verify=self.sortRound and self.sortRound.replanned
-        return {},nil,nil,PlanDirectionalPlacement(domains,reverse,config,verify)
+        return {},nil,nil,PlanPlacement(domains,reverse,config,verify)
     end
 
     local player=B.View.windows.player
     local layout=bank and config.bankView.layout or not bank and (player and player.layout or config.layout)
     -- The category view orders its own cells. Only the combined grid exposes physical order.
     if layout~="single" then return steps end
+    if bank and bankPlacement then
+        local placement,unsupported=PlanPlacement(domains,false,config,false,true)
+        if not unsupported then return steps,nil,nil,placement end
+    end
     local normal={items={},slots={}}
     for _,domain in ipairs(domains) do
         if domain.priority>0 then

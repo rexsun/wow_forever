@@ -14,6 +14,9 @@ local REFRESH = {
   ClassPower = "_EUF_ReloadFrames",
 }
 local NAMEPLATE_FIELDS = { showClassPower = false }
+-- Account-wide switches at the root of EllesmereUIDB; profiles copy them only in exports.
+-- Unset means off. EllesmereUI reads each on every use, so no refresh or reload is needed.
+local ROOT_SWITCHES = { ItemLevelTooltip = "tooltipItemLevelItems" }
 
 local function NotNone(unset)
   return function(value)
@@ -94,10 +97,14 @@ local function Copies(db, key)
   return copies
 end
 
-function adapter.Knows(key) return OVERRIDE_PREFIX[key] ~= nil end
+function adapter.Knows(key) return OVERRIDE_PREFIX[key] ~= nil or ROOT_SWITCHES[key] ~= nil end
 
 function adapter.Read(key)
   key = key or "NameplatePower"
+  if ROOT_SWITCHES[key] then
+    local db = _G.EllesmereUIDB
+    return type(db) == "table" and db[ROOT_SWITCHES[key]] == true
+  end
   local db, problem = State(key)
   if not db then return nil, problem end
   return pendingRefresh[key] or #Copies(db, key) > 0
@@ -105,6 +112,11 @@ end
 
 function adapter.Revert(key)
   key = key or "NameplatePower"
+  if ROOT_SWITCHES[key] then
+    local db = _G.EllesmereUIDB
+    if type(db) == "table" then db[ROOT_SWITCHES[key]] = false end
+    return true, false
+  end
   local db, problem = State(key)
   if not db then return false, problem end
   local changed = {}

@@ -6,7 +6,11 @@ if not (YAB and YAB.Client and YAB.Client.classBars) then return end
 local Data = { build = "1.60.1.70938", catalog = {}, products = {}, reagents = {}, items = {} }
 YAB.ClassToolData = Data
 local function Family(... ) return { ... } end
+local TRUESHOT_AURA = Family(1299346,1299348,19506,20905,20906) -- Forever 1.60.1.71037, ranks 1–5
 Data.manaGemSpells = Family(759,3552,10053,10054)
+Data.catalog.aspects = {
+    trueshotAura = { target = "player", aura = true, auraIcon = true, families = { TRUESHOT_AURA } },
+}
 Data.catalog.mageTools = {
     water = { mode = "select", ranks = true, conjured = true, targetCraft = "water", consumeText = "drink", productText = "selected_water",
         families = { Family(5504,5505,5506,6127,10138,10139,10140,468766) } },
@@ -159,7 +163,7 @@ for _, item in ipairs({5232,16892,16893,16895,16896}) do Data.items[item] = { le
 Data.preview = {
     mageTools = { scroll=1296017, intellect=1459, armor=6117, water=10140, bread=28612, teleport=3561, portal=10059 },
     aspects = { aspect1=13163,aspect2=13165,aspect3=5118,aspect4=13161,aspect5=13159,aspect6=20043,
-        aspect7=415423,aspect8=469145,pet=883 },
+        aspect7=415423,aspect8=469145,trueshotAura=TRUESHOT_AURA[1],pet=883 },
     totems = { summon=66842,earth=8071,fire=3599,water=5394,air=8512,recall=36936,imbue=8232,shield=324 },
     warlockTools = { demon=688,healthstone=6201,soulstone=693,firestone=6366,spellstone=2362,armor=706,ritual=698 },
     rogueTools = { mainhand=8679,mainhandStone=2828,offhand=2823,offhandStone=2828 }, priestTools={fortitude=1243,spirit=14752,shadow=976,innerfire=588},

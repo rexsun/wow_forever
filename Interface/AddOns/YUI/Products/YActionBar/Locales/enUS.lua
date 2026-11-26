@@ -165,6 +165,7 @@ YUI.Locale:Register("YActionBar", "enUS", {
     ["class_tools.mark"] = "Mark of the Wild",
     ["class_tools.thorns"] = "Thorns",
     ["class_tools.battle"] = "Battle Shout",
+    ["class_tools.trueshotAura"] = "Trueshot Aura",
     ["class_tools.command"] = "Commanding Shout",
     ["class_tools.order_hint"] = "Out of combat: Shift-drag to swap; drop outside to cancel. Bindings stay with their functions.",
     ["class_tools.select_actions"] = "Left: cast selection. Right: choose rank or destination.",

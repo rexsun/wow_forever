@@ -165,6 +165,7 @@ YUI.Locale:Register("YActionBar", "zhTW", {
     ["class_tools.mark"] = "野性印記",
     ["class_tools.thorns"] = "荊棘術",
     ["class_tools.battle"] = "戰鬥怒吼",
+    ["class_tools.trueshotAura"] = "強擊光環",
     ["class_tools.command"] = "命令怒吼",
     ["class_tools.order_hint"] = "非戰鬥時 Shift+拖曳交換按鈕；拖到列外取消。快捷鍵隨功能保留。",
     ["class_tools.select_actions"] = "左鍵：施放目前選擇　右鍵：選擇等級或目的地",

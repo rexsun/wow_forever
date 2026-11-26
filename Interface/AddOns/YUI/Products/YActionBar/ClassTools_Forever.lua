@@ -24,7 +24,7 @@ for index, key in ipairs(Tools.manaGemKeys) do Tools.manaGemSlot[key] = index en
 
 Tools.buttonKeys = {
     mageTools = { "scroll", "intellect", "armor", "water", "bread", unpack(Tools.manaGemKeys) },
-    aspects = { "aspect1", "aspect2", "aspect3", "aspect4", "aspect5", "aspect6", "aspect7", "aspect8", "pet" },
+    aspects = { "aspect1", "aspect2", "aspect3", "aspect4", "aspect5", "aspect6", "aspect7", "aspect8", "trueshotAura", "pet" },
     totems = { "summon", "earth", "fire", "water", "air", "recall", "imbue", "shield" },
     warlockTools = { "demon", "healthstone", "soulstone", "firestone", "spellstone", "armor", "ritual" },
     rogueTools = { "mainhand", "mainhandStone", "offhand", "offhandStone" }, priestTools = { "fortitude", "spirit", "shadow", "innerfire" },
@@ -127,13 +127,15 @@ function Tools:GetButtonOrder(id, config)
     end
     for _, key in ipairs(defaults) do
         if not seen[key] then
-            local after
+            local position
             local slot = id == "mageTools" and self.manaGemSlot[key]
             local previous = slot and (self.manaGemKeys[slot - 1] or "bread") or ADDED_AFTER[key]
             if previous then
-                for index, existing in ipairs(result) do if existing == previous then after = index + 1; break end end
+                for index, existing in ipairs(result) do if existing == previous then position = index + 1; break end end
+            elseif key == "trueshotAura" then
+                for index, existing in ipairs(result) do if existing == "pet" then position = index; break end end
             end
-            table.insert(result, after or #result + 1, key)
+            table.insert(result, position or #result + 1, key)
         end
     end
     return result

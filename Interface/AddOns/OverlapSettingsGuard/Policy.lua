@@ -37,6 +37,11 @@ OSG.policy = {
     reason = "Combo points already show on the YUI HUD or the EllesmereUI player frame; do not duplicate them on the target nameplate.",
   },
   {
+    id = "eui.itemleveltip", adapter = "EllesmereUI", key = "ItemLevelTooltip",
+    label = "EllesmereUI: Item level on item tooltips", when = { "EllesmereUI", "YUI" },
+    reason = "YUI's item tooltips already show the item level.",
+  },
+  {
     id = "gi.friendlynameplates", adapter = "GearInsight", key = "FriendlyNameplates",
     label = "GearInsight: Automatic friendly nameplates", when = { "GearInsight_Forever", "EllesmereUINameplates" },
     reason = "EllesmereUI owns friendly nameplate visibility; GearInsight must not change its CVars.",

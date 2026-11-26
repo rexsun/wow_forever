@@ -1,6 +1,32 @@
 -- Generated from Docs/Products/YUI/CHANGELOG.md; do not edit. Latest 10 versions per client.
 local CL = _G.YUI.Changelog
 CL:Register("suite", {
+-- YUI-Notes-Record: v369|forever|5346fc8437982f0b262902817e7052ff9026b58897ec81a9162f407fc2fdc557
+    {
+        version = "v369",
+        date = "2026-11-26",
+        clients = { "Forever" },
+        content = {
+            zhCN = {
+                "大地图新增 Questie 任务目标样式切换按钮。",
+                "猎人职业条新增强击光环。",
+                "交易时自动打开关闭背包。",
+                "银行整理速度提升数倍。",
+                "修复图纸错误染红色。",
+                "修复其他插件污染导致背包右键失效的问题。",
+                "修复角色金币未计入统计的问题。",
+            },
+            enUS = {
+                "Added a button to switch Questie objective styles on the world map.",
+                "Added Trueshot Aura to the Hunter class bar.",
+                "Bags open automatically when a trade starts and close when it ends.",
+                "Bank sorting is now several times faster.",
+                "Fixed recipes being incorrectly tinted red.",
+                "Fixed bag right-click actions failing due to taint from other addons.",
+                "Fixed character gold missing from the totals.",
+            },
+        },
+    },
 -- YUI-Notes-Record: v368|forever|cc8376bba59d6d133f4cdbc53ba61febf98dc7952f39488bd2e063591b43ba0e
     {
         version = "v368",
@@ -260,22 +286,6 @@ CL:Register("suite", {
                 "Improved profession-rank colors so ranks below the cap no longer use an error color.",
                 "Fixed combat display issues with Mage buff and campfire-restriction icons.",
                 "Fixed the filter button not turning gray when map markers are hidden.",
-            },
-        },
-    },
--- YUI-Notes-Record: v359|forever|ccc109a5fe60f6270ca0e52be0ed653d1ea5436c451b92fb475a81789345c15f
-    {
-        version = "v359",
-        date = "2026-11-13",
-        clients = { "Forever" },
-        content = {
-            zhCN = {
-                "修复动作条图标偶尔消失或残留旧图标的问题。",
-                "修复技能变化后宏名称和冷却显示未及时同步的问题。",
-            },
-            enUS = {
-                "Fixed action bar icons occasionally disappearing or displaying an outdated image.",
-                "Fixed macro names and cooldown displays failing to update when actions change.",
             },
         },
     },

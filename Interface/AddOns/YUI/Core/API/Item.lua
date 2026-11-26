@@ -501,12 +501,14 @@ local function ReadTooltipCollectionState(itemInfo, isRecipe)
 end
 
 -- Returns "known", "unusable", false for a neutral icon, or nil for unreadable data.
-function Item.RecipeLearningState(link)
+function Item.RecipeLearningState(link, requirementsOnly)
     if IsSecretValue(link) or type(link) ~= "string" then return nil end
     local known, resolved, blocked = ReadTooltipCollectionState(link, true)
     if known then return "known" end
     if not resolved then return nil end
     if blocked then return "unusable" end
+    -- A banked recipe can fail the use action even when its learning requirements are met.
+    if requirementsOnly then return false end
     if type(IsUsableItem) ~= "function" and not (C_Item and type(C_Item.IsUsableItem) == "function") then return nil end
     local ok, usable, insufficientResource = pcall(Item.IsUsable, link)
     if not ok or IsSecretValue(usable) or IsSecretValue(insufficientResource) or type(usable) ~= "boolean" then return nil end

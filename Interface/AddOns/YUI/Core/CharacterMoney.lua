@@ -1,11 +1,12 @@
 local YUI=_G.YUI
 if not YUI then return end
+local API_VERSION=4
 local M=YUI.CharacterMoney
-if type(M)=="table" and type(M.API_VERSION)=="number" and M.API_VERSION>=3 and type(M.Record)=="function" and type(M.Summary)=="function" and type(M.AppendTooltip)=="function" and type(M.RememberCharacter)=="function" then return end
+if type(M)=="table" and type(M.API_VERSION)=="number" and M.API_VERSION>=API_VERSION and type(M.Record)=="function" and type(M.Summary)=="function" and type(M.AppendTooltip)=="function" and type(M.RememberCharacter)=="function" then return end
 local S=YUI.API.Security
 M=type(M)=="table" and M or {}
 YUI.CharacterMoney=M
-M.API_VERSION=3
+M.API_VERSION=API_VERSION
 local fields={"money","class","faction","guid","updated","client"}
 local function Read(callback,...)
     if type(callback)~="function" then return nil end
@@ -15,6 +16,12 @@ local function Client()
     return YUI.IsForever and "forever" or YUI.IsRetail and "mainline" or YUI.IsMists and "mists" or "wrath"
 end
 local function Realm(value) return type(value)=="string" and value:gsub("%s",""):lower() or "" end
+local function ReadLedgerRealm(value)
+    local realm=S.SafeString(value)
+    -- Forever can report an empty realm name, which is also the legacy gold key.
+    if realm=="" and not YUI.IsForever then return nil end
+    return realm
+end
 local function PlayerName()
     local unit=YUI.API.Unit
     local fn=unit and unit.GetCharacterName or YUI.IsForever and NameUtil and NameUtil.FormatUnitNameForDisplay or UnitName
@@ -22,8 +29,8 @@ local function PlayerName()
 end
 function M:RememberCharacter(scope,character)
     if type(character)~="table" or character.client~=Client() then return end
-    local name,realm,guid=S.SafeString(character.name),S.SafeString(character.realm),S.SafeString(character.guid)
-    if not name or name=="" or not realm or realm=="" or not guid or guid=="" then return end
+    local name,realm,guid=S.SafeString(character.name),ReadLedgerRealm(character.realm),S.SafeString(character.guid)
+    if not name or name=="" or not realm or not guid or guid=="" then return end
     local global=YUI.DB:GetGlobal(scope);if not global then return end
     global.Gold=global.Gold or {};global.Gold[realm]=global.Gold[realm] or {}
     local data=global.Gold[realm];data.names=data.names or {}
@@ -65,9 +72,9 @@ local function FullNames(scope,currentRealm,global)
 end
 function M:Record(scope)
     local money=S.SafeNumber(Read(GetMoney))
-    local realm=S.SafeString(Read(GetRealmName))
+    local realm=ReadLedgerRealm(Read(GetRealmName))
     local name=PlayerName()
-    if not money or money<0 or not realm or realm=="" or not name or name=="" then return nil end
+    if not money or money<0 or not realm or not name or name=="" then return nil end
     local global=YUI.DB:GetGlobal(scope);if not global then return nil end
     global.Gold=global.Gold or {}
     local data=global.Gold[realm]

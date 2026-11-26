@@ -2,6 +2,30 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-26 - Update three addon packages (OverlapSettingsGuard 0.25.0)
+
+- Update YUI v368 to v369 (wclbox Forever download, extracted with GBK file names; `!YUI_Error` stays uninstalled), the EllesmereUI suite 9.9.4 to 9.9.5 ([file 9824526](https://www.curseforge.com/wow/addons/ellesmereui/files/9824526), the seven installed modules only) and MapUtils 1.7.37 to 1.7.39 (forever build, [file 9820970](https://www.curseforge.com/wow/addons/maputils/files/9820970)). Every TOC still lists Interface 16001; only the version lines changed, except YUI's `Products/YMap/!load_Forever.xml`, which adds the new `QuestObjectives.lua`. No game-type load condition, dependency or SavedVariables declaration changed. Auctionator, Bagnon, !BugGrabber, Details, GatherLite, Lueur, Waypoint UI and You Don't Need This were already current.
+- Held:
+  - GearInsight Forever 1.5.5 ([file 9828158](https://www.curseforge.com/wow/addons/gearinsight-forever/files/9828158)) is published only on the beta channel, so it is not a stable release; 1.4.20 stays installed.
+  - Skinner beta12.71139.1 ([release](https://github.com/jncl/Skinner/releases/tag/beta12.71139.1), 2026-11-26) is a GitHub prerelease, so it is not a stable release; beta12.70938.1 stays installed. The author publishes Skinner only as prereleases, so it stays held until a stable release appears or the stable-release rule is relaxed for it.
+- Guard: one new rule, 69 in total.
+  - `eui.itemleveltip` (`EllesmereUIDB.tooltipItemLevelItems`, while YUI loads): EllesmereUI 9.9.5 adds Show Item Level for Items on Forever (Tooltips, Menus & Popups; off by default), which adds an item level line to weapon and armor tooltips, with an optional difference from the equipped item. YUI's item tooltips already add one (`tooltipItemLevelEnabled`, on by default on Forever). The setting is an account-wide root key that profiles carry only in exports, so the EllesmereUI adapter writes it back to false; its cog options are kept. EllesmereUI reads the switch on every tooltip, so no reload is needed. Four new tests (failing before the change) cover the rule, its enforcement and re-enforcement, the inactive case without YUI, and pin both addons' source.
+  - Every key and function the existing rules and CharacterUIBaseline use is unchanged.
+- Local patches: all 27 reapply unchanged; no anchor moved. The MapUtils fade-patch line is still upstream's (`mapframe.lua:1156`).
+- Overlap review, no further rule needed:
+  - YUI v369: a Questie objective-style button on the world map (detailed, simple or auto). It binds only to a loaded Questie, which is not installed, so it neither shows nor writes `questPOI`. Trueshot Aura on the Hunter class-tools bar (click-cast only). YUI Bags gains an on-by-default option to open the bags at a trade, faster bank sorting and a recipe-tint fix; YUI Bags installs nothing beside Bagnon, so they are inert. Gold totals now count characters on Forever's empty realm name. No new chat messages, group actions, key bindings or automatic CVar writes.
+  - EllesmereUI 9.9.5: its bundled fonts are replaced by renamed open-licence files; font names stay the same and saved file paths are read as the new files, so nothing saved is rewritten. Its LibSharedMedia no longer registers "AR HeiUHK BD" outside retail. Optional clickable cast bars on enemy nameplates and Hide Your Pet in party frames (both off), cast bar texture fixes, and Aura Buff Reminders, Cooldown Manager and Resource Bars changes for modules this pack does not install (a one-time Aura Buff Reminders profile migration only copies existing values). The What's New card lists them inside the options window. No new chat messages, CVar writes or automation.
+  - MapUtils 1.7.38-1.7.39: back to the standard One Map stepless zoom on Forever, for other map addons' pins and Blizzard quest areas; combat pin pass-through changes wait until combat ends; One Map picks the zone covering most of the visible land and keeps it until another leads by 25%; terrain tiles no longer flicker on zone switches. Zone levels revised (some zones now list two ranges) and a Razorfen Kraul boss pin added. The map window's position, scale and fade are untouched, and there are no new settings, CVar writes, messages or channels.
+  - No new window, dialog or what's-new panel opens by itself at login, so `QuietLogin.lua` is unchanged.
+- Line endings: YUI's `Data/Forever.lua` and `Products/YHUD/Product/Defaults.lua` came as LF again and keep HEAD's CRLF.
+- Backup: `WoW Addon Backups/_forever_/daily-20261126-130010` (taken by the day's automatic run).
+- Verification:
+  - 3,091 Lua files under AddOns compile under Lua 5.1.
+  - Installed files match the releases except the seven patched files in these folders and the two line-ending files.
+  - 107 guard tests pass; the rule count is 69.
+  - 85 pytest tests, the patch check (27 patches) and the adoption, sync (99), helper and watcher tests pass.
+  - Nothing was run in game or checked at the three supported resolutions.
+
 ## 2026-11-26 - Install You Don't Need This 0.6.0
 
 - Install `YouDontNeedThis` 0.6.0 by TheFolz ([file 9728556](https://www.curseforge.com/wow/addons/you-dont-need-this/files/9728556), 2026-11-21, the newest of its four releases) from CurseForge. Its TOC lists Interface 16001 only, the installed files are byte-identical to the release, and it is enabled in all 15 character addon lists. It marks quest items whose quests are all done, abandoned or unobtainable with a red tint and X in bags and bank, names those quests in item tooltips, and lists grey (or green) quests in your log with Abandon buttons. Quest data from QuestieDB 1.1.3 is bundled, so Questie is not needed.

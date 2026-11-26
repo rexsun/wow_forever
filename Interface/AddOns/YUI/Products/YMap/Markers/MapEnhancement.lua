@@ -1022,12 +1022,22 @@ local function GetQuickFilterAnchor(map)
         nativeFilterBanner and 2 or 0
 end
 
+local function GetQuickFilterPlacement(map)
+    local point, relativeFrame, relativePoint, x, y = GetQuickFilterAnchor(map)
+    local config = MapEnhancement:GetConfig()
+    return point, relativeFrame, relativePoint, x + config.buttonOffsetX, y + config.buttonOffsetY
+end
+
+function MapEnhancement:GetBelowQuickFilterAnchor(map)
+    if runtime.quickFilterButton then return "TOP", runtime.quickFilterButton, "BOTTOM", 0, -2 end
+    local point, relativeFrame, relativePoint, x, y = GetQuickFilterPlacement(map)
+    return point, relativeFrame, relativePoint, x, y - 34
+end
+
 local function UpdateQuickFilterPosition()
     local button, map = runtime.quickFilterButton, runtime.map
     if not button or not map then return end
-    local point, relativeFrame, relativePoint, x, y = GetQuickFilterAnchor(map)
-    local config = MapEnhancement:GetConfig()
-    x, y = x + config.buttonOffsetX, y + config.buttonOffsetY
+    local point, relativeFrame, relativePoint, x, y = GetQuickFilterPlacement(map)
     if runtime.buttonPoint == point and runtime.buttonRelativeFrame == relativeFrame
         and runtime.buttonRelativePoint == relativePoint and runtime.buttonX == x and runtime.buttonY == y then return end
     button:ClearAllPoints()
@@ -1063,21 +1073,15 @@ local function EnsureQuickFilterButton(map)
     end
     if not (map and type(map.AddOverlayFrame) == "function") then return false end
 
-    local anchorPoint, relativeFrame, relativePoint, offsetX, offsetY = GetQuickFilterAnchor(map)
-    local config = MapEnhancement:GetConfig()
-    offsetX, offsetY = offsetX + config.buttonOffsetX, offsetY + config.buttonOffsetY
     local button = map:AddOverlayFrame(
         QUICK_FILTER_TEMPLATE,
         "BUTTON",
-        anchorPoint,
-        relativeFrame,
-        relativePoint,
-        offsetX,
-        offsetY
+        GetQuickFilterPlacement(map)
     )
     if not button then return false end
     runtime.quickFilterButton = button
     UpdateQuickFilterButton()
+    if YUI.YMap.QuestObjectives then YUI.YMap.QuestObjectives:RefreshButtonAnchor() end
     return true
 end
 

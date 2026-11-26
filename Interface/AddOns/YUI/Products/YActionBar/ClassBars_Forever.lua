@@ -100,7 +100,9 @@ function Bars:ConsumesEvent(event)
             return self.active.totems == true or self.active.rogueTools == true or self.active.warlockTools == true
         end
         if self.active.paladinBlessings then return true end
-        for id in pairs(self.active) do if YAB.UtilityTools and YAB.ClassToolData.catalog[id] then return true end end
+        for id in pairs(self.active) do
+            if id ~= "aspects" and YAB.UtilityTools and YAB.ClassToolData.catalog[id] then return true end
+        end
     end
     return (self.active.mageTools == true and (MAGE_EVENTS[event] == true or COMMON_EVENTS[event] == true))
         or ((self.active.aspects or self.active.totems) and COMMON_EVENTS[event] == true)
@@ -428,9 +430,11 @@ function Bars:BuildAspects(record, config)
         end
     end
     self:BuildPetUtilities(record)
+    if YAB.UtilityTools then YAB.UtilityTools:Build(record, config, true) end
     record.classToolPrepared = YAB.ClassTools.GetLayoutButtons ~= nil
     record.configSnapshot.buttons = math.max(#record.buttons, 1)
     manager:ApplyLayout(record, config, YAB:GetDB())
+    if YAB.UtilityTools then YAB.UtilityTools:Layout(record) end
     YAB.Keybinds:ApplyRuntimeBindings()
 end
 
@@ -709,7 +713,7 @@ end
 function Bars:RefreshAspectVisuals(record)
     local snapshot = record.configSnapshot
     local currentAspect, currentFamily
-    if #record.buttons > 0 and Unit.GetPlayerAuraBySpellID then
+    if self.states[record.buttons[1]] and Unit.GetPlayerAuraBySpellID then
         for index, family in ipairs(self.aspectFamilies) do
             for _, auraID in ipairs(family) do
                 if Unit.GetPlayerAuraBySpellID(auraID) then
@@ -724,6 +728,8 @@ function Bars:RefreshAspectVisuals(record)
     self.currentAspect = currentAspect
     for _, button in ipairs(record.buttons) do
         local entry = self.states[button]
+        -- Utility hosts are appended after the aspect buttons and refresh separately.
+        if not entry then break end
         local state, id = entry.visual, entry.spellID
         local index = YAB.SecureFactory:GetButtonMeta(button).index
         state.hasAction, state.texture = true, entry.texture

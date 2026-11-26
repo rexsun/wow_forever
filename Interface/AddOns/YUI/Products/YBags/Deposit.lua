@@ -1009,7 +1009,10 @@ local function PersonalTransferBlocked()
     local reason=PersonalBankBlocked()
     if reason then return reason end
     if A.BankPurchasePending() then return "bank.transfer_purchase_pending" end
-    if B.Actions.queue or B.Actions.nativeSort or A.CursorBusy() then return "bank.transfer_busy" end
+    local actions=B.Actions
+    if actions.queue or actions.nativeSort or B.Runtime.finalCarryBatch and B.Runtime.finalCarryBatch.kind=="bank"
+        or actions.externalCarrySort and actions.externalCarrySort.bank
+        or A.CursorBusy() or actions:CheckBankSortRecovery() then return "bank.transfer_busy" end
 end
 function D:CanTransfer()
     return not PersonalTransferBlocked()

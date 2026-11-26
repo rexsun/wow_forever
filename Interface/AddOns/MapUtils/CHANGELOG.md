@@ -1,29 +1,17 @@
 # MapUtils by D4KiR
 
-## [v1.7.37](https://github.com/d4kir92/MapUtils/tree/v1.7.37) (2026-11-25)
-[Full Changelog](https://github.com/d4kir92/MapUtils/compare/v1.7.36...v1.7.37) [Previous Releases](https://github.com/d4kir92/MapUtils/releases)
+## [v1.7.39](https://github.com/d4kir92/MapUtils/tree/v1.7.39) (2026-11-26)
+[Full Changelog](https://github.com/d4kir92/MapUtils/compare/v1.7.38...v1.7.39) [Previous Releases](https://github.com/d4kir92/MapUtils/releases)
 
-- v1.7.37  
-- Show tracked waypoint circle and raise frame level for library book pins  
-    - Match library book entries and their source points in waypoint tracking so the yellow tracked circle appears behind the pin and the pin sits above the Blizzard waypoint marker  
-- Defer SetPropagateMouseClicks on zone info frame during combat  
-    - Skip calling protected SetPropagateMouseClicks while in combat lockdown and apply it once out of combat  
-- Make library book map pins circular  
-    - Mask library book pin icons and hover highlights into circles  
-    - Replace the square four-edge book border with a circular colored ring  
-- Make One Map smooth zoom taint-free on WoW Forever  
-    - Drive smooth zoom and panning on WoW Forever purely via C++ canvas scale and scroll APIs without writing Blizzard ScrollContainer fields  
-    - Intercept One Map mouse wheel, drag, and canvas clicks with an own frame parented to the scroll child below map pins  
-    - Rescale Blizzard map pins and the player/group unit position pin via C++ APIs while zoomed  
-    - Re-apply the smooth zoom viewport in the same frame after Blizzard MarkCanvasDirty resets to prevent zone-switch jumps  
-    - Switch between continent and zone views using zone area thresholds (enter 3.2, leave 4.5) in One Map smooth zoom  
-    - Read live canvas scale, scroll position, and cursor coordinates consistently across MapUtils modules  
-    - Show live zoom factor, canvas scale, and continent/zone area ratios in the /maputils debug overlay  
-- Switch world map zones through Blizzard's secure path on WoW Forever  
-    - Zone changes made by MapUtils on the Forever world map no longer taint the map, reducing blocked-action errors when opening the map in combat  
-- Stop CombatPins tainting the world map on WoW Forever  
-    - Opening the world map in combat on Forever no longer taints map pins and the quest log through CombatPins  
-- Fix Razorfen Kraul boss pins and Blackfathom Deeps level pin  
-- data  
-- data  
-- d4  
+- v1.7.39  
+- Add viewport-weighted zone hysteresis to One Map  
+    - One Map now picks the zone covering most of the visible land area instead of only the center pixel  
+    - Keep the current zone active until another zone leads by at least 25% of the visible land area so pins from other map addons do not jump on small drags across borders  
+- Restore world map addon compatibility and defer pin passthrough in combat on WoW Forever  
+    - Use standard One Map smooth zoom on WoW Forever so third-party map addons (Spoken Places, Azeroth Fieldbook, RareScanner) and Blizzard quest areas work properly  
+    - Re-enable combat pin passthrough deferral outside gamepad mode to prevent SetPassThroughButtons blocked-action errors when opening the world map in combat  
+- Prevent terrain tile flicker on zone switches  
+    - Keep terrain map alpha stable during One Map zone switches  
+    - Preload a 1-tile ring around the viewport and hold off releasing terrain tiles during zone switches  
+- Rescale third-party map pins during smooth zoom  
+    - Third-party addon pins outside Blizzard's pin pools (such as RareScanner) now scale properly when zooming in with One Map on Forever  

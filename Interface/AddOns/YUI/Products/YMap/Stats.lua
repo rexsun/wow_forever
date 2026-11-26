@@ -148,6 +148,7 @@ function YMap:GetStats()
         MergeSubsystem(self.WorldMap)
     end
     if self.MapReveal then MergeSubsystem(self.MapReveal) end
+    if self.QuestObjectives then MergeSubsystem(self.QuestObjectives) end
     if self.DirectionLine then MergeSubsystem(self.DirectionLine) end
     if self.MetricsWidget then MergeSubsystem(self.MetricsWidget) end
     if self.Minimap and self.Minimap.GetStats then

@@ -168,6 +168,7 @@ local function ReadConfig()
     local scale = worldMap and tonumber(worldMap.scale) or 1
 
     config.enabled = not worldMap or worldMap.enabled ~= false
+    config.questObjectiveButton = not worldMap or worldMap.questObjectiveButton ~= false
     config.scale = Clamp(scale or 1, 0.5, 2)
     config.rememberPosition = not worldMap or worldMap.rememberPosition ~= false
     config.fadeWhenMoving = worldMap and worldMap.fadeWhenMoving == true
@@ -1142,6 +1143,9 @@ RefreshEffectiveState = function()
     else
         Deactivate()
     end
+    if YMap.QuestObjectives then
+        YMap.QuestObjectives:SetEnabled(state.enabled and config.questObjectiveButton)
+    end
     return state.enabled
 end
 
@@ -1184,6 +1188,7 @@ end
 
 function WorldMap:Disable()
     state.requestedEnabled = false
+    if YMap.QuestObjectives then YMap.QuestObjectives:SetEnabled(false) end
     return Deactivate()
 end
 

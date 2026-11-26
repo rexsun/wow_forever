@@ -214,7 +214,7 @@ function Utility:WeaponItemDisplay(entry, fallback)
 end
 
 function Utility:ReadInventory(id)
-    if not self.inventoryDirty then return end
+    if not self.inventoryDirty or id == "aspects" then return end
     self.counts = self.counts or {}
     local wanted = {}
     for _, definition in pairs(Data.catalog[id] or {}) do
@@ -798,7 +798,7 @@ function Utility:RefreshBuffTimerStyle(button)
     if not self.nativeTimersReady then return end
     local identity = TracksAuraIdentity(entry.definition) or entry.definition.binding
     if identity and not Unit.SetFilteredAuraDisplayIdentitySuppressed then return end
-    local style = YAB.Visuals:CaptureStatusTimerStyle(button, entry.id == "paladinTools" or identity)
+    local style = YAB.Visuals:CaptureStatusTimerStyle(button, entry.id == "paladinTools" or identity or entry.definition.auraIcon)
     if not style then return end
     Tools:SyncAuraTimer(entry,button,"class-" .. entry.id .. "-" .. entry.key,entry.timerSpellIDs,style)
 end
@@ -964,7 +964,7 @@ function Utility:Configure(entry, record, config)
     Tools:PrepareButton(button, entry.id, entry.key)
     self:RefreshBuffTimerStyle(button)
     if not entry.enabled then factory:SetSecureAttribute(button, "*type-Keybind", "none") end
-    if enabled and (available or record.classBarEditing and not definition.manaGemSlot) then
+    if enabled and (available or record.classBarEditing and entry.id ~= "aspects" and not definition.manaGemSlot) then
         button:Show(); record.buttons[#record.buttons + 1] = button
         record.classButtons[#record.classButtons + 1] = entry.panel
         return true
@@ -1063,7 +1063,8 @@ function Utility:Build(record, config, append)
         if entry.definition.binding then
             for _, id in ipairs(entry.definition.boundAuras) do IndexAura(self.auraNames, entry, id) end
             entry.bindingIcon = Texture(20765)
-        elseif entry.definition.aura or entry.definition.shield or entry.definition.activeAura then
+        elseif (entry.id ~= "aspects" or entry.timerWanted)
+            and (entry.definition.aura or entry.definition.shield or entry.definition.activeAura) then
             local seen
             if TracksAuraIdentity(entry.definition) then
                 entry.auraEffects, seen = {}, {}
@@ -1344,7 +1345,9 @@ function Utility:Refresh(record)
     if record.id=="warlockTools" and YAB.SoulstoneBinding then YAB.SoulstoneBinding:Refresh() end
     if self.auraDirty then
         self.auras, self.auraUnavailable = nil, nil
-        if Unit.ReadHelpfulTimersByName then self.auras, self.auraUnavailable = Unit.ReadHelpfulTimersByName("player", self.auraNames or {}) end
+        if Unit.ReadHelpfulTimersByName and (record.id ~= "aspects" or self.auraNames and next(self.auraNames)) then
+            self.auras, self.auraUnavailable = Unit.ReadHelpfulTimersByName("player", self.auraNames or {})
+        end
         self.auraDirty = nil
     end
     for _, entry in pairs(self.records[record.id] or {}) do
@@ -1440,7 +1443,7 @@ function Utility:OnEvent(event, ...)
         self.inventoryDirty = true
         for id in pairs(active) do
             -- Team blessings consume reagent counts during visual refresh and own their roster invalidation.
-            if id ~= "paladinBlessings" and (id ~= "totems" or not weaponChanged) then
+            if id ~= "paladinBlessings" and id ~= "aspects" and (id ~= "totems" or not weaponChanged) then
                 YAB.ClassBars.configDirty[id] = true
             end
         end

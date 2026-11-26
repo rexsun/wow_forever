@@ -228,16 +228,19 @@ local function SnapshotOwnerMatches(cache,batch)
     return not cache.suppressed and batch.owner and cache.player==batch.owner and cache.playerKey==batch.key
         and cache.db and cache.db.characters[batch.key]==batch.owner
 end
-function Cache:RequireTransferRead(batch,kind,id)
-    if not SnapshotOwnerMatches(self,batch) then return end
+function Cache:RequireLocalBagRead(kind,id,reason)
+    local owner=self.player
+    if self.suppressed or not owner then return end
     -- Local recovery state survives logout and stays out of exported containers.
-    local owner=batch.owner
     owner.pendingBagReads=owner.pendingBagReads or {}
     local pending=owner.pendingBagReads[kind] or {}
     owner.pendingBagReads[kind]=pending
-    pending[id]=true
-    local container=self:GetContainer(batch.key,kind)
+    pending[id]=reason or pending[id] or true
+    local container=self:GetContainer(self.playerKey,kind)
     if container then container.complete=false end
+end
+function Cache:RequireTransferRead(batch,kind,id)
+    if SnapshotOwnerMatches(self,batch) then self:RequireLocalBagRead(kind,id) end
 end
 function Cache:WriteModelBag(kind,id,bag)
     local transfer=B.Actions.transferResult

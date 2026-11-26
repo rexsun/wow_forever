@@ -1434,13 +1434,21 @@ end
 
 local function RenderWorldMapTab(parent, x, y, width)
     local worldMap = DB().worldMap
-    y = RenderCard(parent, x, y, width, nil, nil, {
+    local fields = {
         Check(parent, "settings.world_map.enabled", function()
             return worldMap.enabled == true
         end, function(value)
             worldMap.enabled = value
         end, "world-map-enabled", true, LC["common.enable"]),
-    })
+    }
+    if worldMap.enabled == true and YUI.IsForever and YMap.QuestObjectives then
+        local questButton = Check(parent, "settings.world_map.quest_objective_button",
+            function() return worldMap.questObjectiveButton ~= false end,
+            function(value) worldMap.questObjectiveButton = value end, "world-map-quest-objective-button")
+        questButton.tooltip = T("settings.world_map.quest_objective_button_tooltip")
+        fields[#fields + 1] = questButton
+    end
+    y = RenderCard(parent, x, y, width, nil, nil, fields)
     if worldMap.enabled ~= true then
         return y
     end
@@ -1667,8 +1675,16 @@ local function RenderWorldEventsTab(parent, x, y, width)
     return y
 end
 
-function YMap:SetSettingsTab(tab)
-    if tab == "minimap" or tab == "worldMap" or (tab == "markers" and self.Markers) or (tab == "worldEvents" and self.WorldEvents) then activeTab = tab end
+function YMap:SetSettingsTab(tab, rerenderVisible)
+    if tab == activeTab then return end
+    if tab == "minimap" or tab == "worldMap" or (tab == "markers" and self.Markers)
+        or (tab == "worldEvents" and self.WorldEvents) then
+        activeTab = tab
+        if rerenderVisible and settingsActive and settingsParent and settingsParent:IsShown() then
+            if tab ~= "minimap" then ClearLiveButtonPreview() end
+            Rerender(settingsParent)
+        end
+    end
 end
 
 function YMap:OnSettingsLeave()

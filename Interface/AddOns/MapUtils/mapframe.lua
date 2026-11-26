@@ -1363,6 +1363,8 @@ local SmoothZoom = {
 	cityCoreShare = 0.5,
 	cityZoomCoreShare = 0.85,
 	zoneEnterCover = 0.95,
+	zoneSwitchLead = 0.25,
+	zoneSampleGrid = 5,
 	leaveContinentArea = 1.8,
 	minZoomPick = 1.02,
 	checkInterval = 0.1,
@@ -1382,7 +1384,7 @@ function MapUtils:IsOneMap()
 end
 
 function SmoothZoom.IsTaintFree()
-	return MapUtils:IsForever()
+	return false
 end
 
 function SmoothZoom.GetScale(container)
@@ -1643,6 +1645,88 @@ function SmoothZoom.RescaleUnitPin(pin, scale)
 	if pin.SetPlayerPingScale ~= nil then pin:SetPlayerPingScale(0.65 / scale) end
 end
 
+function SmoothZoom.RescaleExternalPin(pin, parent, parentW, parentH, scale, zoomPercent, globalPinScale)
+	local pinScale = (1 / scale) * Lerp(pin.startScale, pin.endScale, Clamp((pin.scaleFactor or 1) * zoomPercent, 0, 1))
+	if pin.IsIgnoringGlobalPinScale ~= nil and not pin:IsIgnoringGlobalPinScale() then pinScale = pinScale * globalPinScale end
+	if pinScale <= 0 or math.abs((pin:GetScale() or 0) - pinScale) <= 0.0005 then return end
+	pin:SetScale(pinScale)
+	local px, py = pin.normalizedX, pin.normalizedY
+	if px == nil or py == nil then px, py = pin.x, pin.y end
+	if type(px) ~= "number" or type(py) ~= "number" then return end
+	if pin.GetNudgeVector ~= nil then
+		local nx, ny = pin:GetNudgeVector()
+		if nx ~= nil and ny ~= nil then
+			local f = (pin.GetNudgeFactor and pin:GetNudgeFactor() or 0) * (pin.GetNudgeTargetFactor and pin:GetNudgeTargetFactor() or 0) * (pin.GetNudgeZoomFactor and pin:GetNudgeZoomFactor() or 0)
+			px, py = px + nx * f, py + ny * f
+		end
+	end
+
+	pin:ClearAllPoints()
+	pin:SetPoint("CENTER", parent, "TOPLEFT", (parentW * px) / pinScale, -(parentH * py) / pinScale)
+end
+
+function SmoothZoom.ScanExternalChildren(canvas)
+	local numChildren = canvas.GetNumChildren and canvas:GetNumChildren() or 0
+	if SmoothZoom.externalCanvas == canvas and SmoothZoom.externalChildCount == numChildren then return end
+	SmoothZoom.externalCanvas = canvas
+	SmoothZoom.externalChildCount = numChildren
+	local pins, containers = SmoothZoom.externalPins, SmoothZoom.externalContainers
+	if pins == nil then
+		pins, containers = {}, {}
+		SmoothZoom.externalPins, SmoothZoom.externalContainers = pins, containers
+	else
+		wipe(pins)
+		wipe(containers)
+	end
+
+	local children = {canvas:GetChildren()}
+	for i = 1, #children do
+		local child = children[i]
+		if child ~= nil and child ~= SmoothZoom.catcher and child.owningMap == nil and not (child.IsForbidden ~= nil and child:IsForbidden()) then
+			if type(child.startScale) == "number" and type(child.endScale) == "number" and child.insetIndex == nil then
+				pins[#pins + 1] = child
+			elseif child.startScale == nil and child.GetObjectType ~= nil and child:GetObjectType() == "Frame" and child.GetNumChildren ~= nil then
+				containers[#containers + 1] = child
+			end
+		end
+	end
+end
+
+function SmoothZoom.RescaleContainerPins(parent, scale, zoomPercent, globalPinScale, inCombat)
+	local parentW, parentH = parent:GetSize()
+	if parentW == nil or parentW <= 0 or parentH == nil or parentH <= 0 then return end
+	local children = {parent:GetChildren()}
+	for i = 1, #children do
+		local pin = children[i]
+		if pin ~= nil and pin:IsShown() and not (pin.IsForbidden ~= nil and pin:IsForbidden()) and (not inCombat or pin.IsProtected == nil or not pin:IsProtected()) and type(pin.startScale) == "number" and type(pin.endScale) == "number" and pin.insetIndex == nil then
+			SmoothZoom.RescaleExternalPin(pin, parent, parentW, parentH, scale, zoomPercent, globalPinScale)
+		end
+	end
+end
+
+function SmoothZoom.RescaleExternalPins(canvas, canvasW, canvasH, scale, zoomPercent, globalPinScale, inCombat)
+	SmoothZoom.ScanExternalChildren(canvas)
+	local pins = SmoothZoom.externalPins
+	if pins ~= nil then
+		for i = 1, #pins do
+			local pin = pins[i]
+			if pin:IsShown() and (not inCombat or pin.IsProtected == nil or not pin:IsProtected()) and type(pin.startScale) == "number" and type(pin.endScale) == "number" and pin.insetIndex == nil then
+				SmoothZoom.RescaleExternalPin(pin, canvas, canvasW, canvasH, scale, zoomPercent, globalPinScale)
+			end
+		end
+	end
+
+	local containers = SmoothZoom.externalContainers
+	if containers ~= nil then
+		for i = 1, #containers do
+			local container = containers[i]
+			if container:IsShown() and not (container.IsForbidden ~= nil and container:IsForbidden()) and container:GetNumChildren() > 0 then
+				SmoothZoom.RescaleContainerPins(container, scale, zoomPercent, globalPinScale, inCombat)
+			end
+		end
+	end
+end
+
 function SmoothZoom.RescaleBlizzardPins(container, scale)
 	if frame == nil or frame.pinPools == nil or scale == nil or scale <= 0 then return end
 	local canvas = container.Child
@@ -1665,6 +1749,8 @@ function SmoothZoom.RescaleBlizzardPins(container, scale)
 			end
 		end
 	end
+
+	SmoothZoom.RescaleExternalPins(canvas, canvasW, canvasH, scale, zoomPercent, globalPinScale, inCombat)
 end
 
 function SmoothZoom.ApplyCView(container, scale, x, y, childW, childH, viewW, viewH)
@@ -1836,6 +1922,76 @@ function SmoothZoom.RectOn(mapID, space)
 	return C_Map.GetMapRectOnMap(mapID, space)
 end
 
+function SmoothZoom.IsPlainZone(mapID)
+	if mapID == nil or not SmoothZoom.IsSpace(mapID) then return false end
+	if MapUtils.GetZoneDetailCityZone ~= nil and MapUtils:GetZoneDetailCityZone(mapID) ~= nil then return false end
+	local info = C_Map.GetMapInfo(mapID)
+
+	return info ~= nil and Enum ~= nil and Enum.UIMapType ~= nil and info.mapType == Enum.UIMapType.Zone
+end
+
+function SmoothZoom.SampleZoneCoverage(host, space, continent, l, r, t, b, u, v, viewWidth, viewHeight, x, y, scale)
+	local cache = SmoothZoom.zoneCoverage
+	if cache ~= nil and cache.host == host and cache.x == x and cache.y == y and cache.scale == scale then return cache.shares end
+	local counts, total, grid = {}, 0, SmoothZoom.zoneSampleGrid
+	local step = 0.8 / math.max(1, grid - 1)
+	for row = 0, grid - 1 do
+		local sv = v + (-0.4 + row * step) * viewHeight
+		for col = 0, grid - 1 do
+			local su = u + (-0.4 + col * step) * viewWidth
+			local zone
+			if su >= l and su <= r and sv >= t and sv <= b then
+				zone = SmoothZoom.ZoneAt(continent, space, su, sv, l, r, t, b)
+			else
+				local _, other = SmoothZoom.ContinentAt(space, su, sv, continent)
+				zone = other
+			end
+
+			local id = zone and zone.mapID
+			if id ~= nil and not SmoothZoom.IsPlainZone(id) and MapUtils.GetZoneDetailCityZone ~= nil then id = MapUtils:GetZoneDetailCityZone(id) end
+			if id ~= nil and SmoothZoom.IsPlainZone(id) then
+				counts[id] = (counts[id] or 0) + 1
+				total = total + 1
+			end
+		end
+	end
+
+	local shares
+	if total > 0 then
+		shares = {}
+		for id, count in pairs(counts) do
+			shares[id] = count / total
+		end
+	end
+
+	SmoothZoom.zoneCoverage = {
+		["host"] = host,
+		["x"] = x,
+		["y"] = y,
+		["scale"] = scale,
+		["shares"] = shares,
+	}
+
+	return shares
+end
+
+function SmoothZoom.PickDominantZone(host, pick, space, continent, l, r, t, b, u, v, viewWidth, viewHeight, x, y, scale, fits)
+	if not SmoothZoom.IsPlainZone(pick) then return pick end
+	local shares = SmoothZoom.SampleZoneCoverage(host, space, continent, l, r, t, b, u, v, viewWidth, viewHeight, x, y, scale)
+	if shares == nil then return pick end
+	local best, bestShare = pick, shares[pick] or 0
+	for id, share in pairs(shares) do
+		if share > bestShare and fits(id, false) then best, bestShare = id, share end
+	end
+
+	if best ~= host and SmoothZoom.IsPlainZone(host) then
+		local hostShare = shares[host] or 0
+		if bestShare - hostShare < SmoothZoom.zoneSwitchLead then return host end
+	end
+
+	return best
+end
+
 function SmoothZoom.PickMap(container)
 	local host = container.mapID
 	local left, right, top, bottom = MapUtils:GetZoneDetailSpaceRect(host)
@@ -1912,11 +2068,18 @@ function SmoothZoom.PickMap(container)
 				local sampleY = v + math.sin(angle) * viewHeight * radius
 				if sampleX >= l and sampleX <= r and sampleY >= t and sampleY <= b then
 					local nearby = SmoothZoom.ZoneAt(continent, space, sampleX, sampleY, l, r, t, b)
-					if nearby ~= nil and nearby.mapType == Enum.UIMapType.Zone and SmoothZoom.IsSpace(nearby.mapID) and MapUtils:GetZoneDetailCityZone(nearby.mapID) == nil and Fits(nearby.mapID, false) then return nearby.mapID end
+					if nearby ~= nil and nearby.mapType == Enum.UIMapType.Zone and SmoothZoom.IsSpace(nearby.mapID) and MapUtils:GetZoneDetailCityZone(nearby.mapID) == nil and Fits(nearby.mapID, false) then
+						pick = nearby.mapID
+						break
+					end
 				end
 			end
+
+			if pick ~= continent then break end
 		end
 	end
+
+	if pick ~= space and pick ~= continent then return SmoothZoom.PickDominantZone(host, pick, space, continent, l, r, t, b, u, v, viewWidth, viewHeight, x, y, scale, Fits) end
 
 	return pick
 end
@@ -2643,7 +2806,7 @@ function CombatPins.Flush()
 end
 
 function MapUtils:InstallCombatPins()
-	if CombatPins.installed or frame == nil or MapUtils:IsForever() or CombatPins.IsGamepad() then return end
+	if CombatPins.installed or frame == nil or SmoothZoom.IsTaintFree() or CombatPins.IsGamepad() then return end
 	CombatPins.passthrough = MapCanvasPinMixin and MapCanvasPinMixin.CheckMouseButtonPassthrough
 	if type(CombatPins.passthrough) ~= "function" then return end
 	local propagation = SuperTrackablePinMixin and SuperTrackablePinMixin.UpdateMousePropagation
