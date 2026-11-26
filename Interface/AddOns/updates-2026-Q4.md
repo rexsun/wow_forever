@@ -2,6 +2,24 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-26 - Install You Don't Need This 0.6.0
+
+- Install `YouDontNeedThis` 0.6.0 by TheFolz ([file 9728556](https://www.curseforge.com/wow/addons/you-dont-need-this/files/9728556), 2026-11-21, the newest of its four releases) from CurseForge. Its TOC lists Interface 16001 only, the installed files are byte-identical to the release, and it is enabled in all 15 character addon lists. It marks quest items whose quests are all done, abandoned or unobtainable with a red tint and X in bags and bank, names those quests in item tooltips, and lists grey (or green) quests in your log with Abandon buttons. Quest data from QuestieDB 1.1.3 is bundled, so Questie is not needed.
+- Guard: no new rule, 68 in total. The addon adds a feature no installed addon has. It never deletes, sells or moves items, writes no CVars, and abandons a quest only after a click and a confirmation popup.
+- Overlap review, no rule needed:
+  - GearInsight's bag cleanup and junk selling exclude quest items, and YUI's junk selling takes only grey items, so they complement it. YUI's quest automation accepts and turns in quests and never abandons them.
+  - Bagnon 12.1.13: its item buttons still call `SetItemButtonTexture` with `info` set, which is how the addon adds its marks. Cached views of other characters are skipped. The red X draws over Bagnon's quest-item glow.
+  - YUI owns the minimap. The addon's own minimap button is a direct child of `Minimap`, so YUI's button drawer may collect it. YUI hooks repositioning on collected buttons, so the button's own re-anchoring at login should not pull it back out.
+  - Item tooltips get one extra line; GearInsight's translations and Skinner's tooltip skin are unaffected.
+  - Its quest-log button is created only on the classic `QuestLogFrame`.
+- Login: no window, dialog or what's-new panel opens by itself, so `QuietLogin.lua` is unchanged. Up to three chat lines can appear: the unneeded-item count, the low-level quest count about 6 seconds in, and an update notice.
+- Defaults left on and worth knowing: it sends its version number, and nothing else, over hidden addon messages on the `YDNT` prefix to guild at login and to party/raid on joining a group, and answers players running an older version. It has no switch to turn this off. A red screen message appears when an item becomes unneeded.
+- Backup: `WoW Addon Backups/_forever_/ydnt-install-20261126` holds the 15 edited character addon lists.
+- Verification:
+  - 3,090 Lua files under AddOns compile under Lua 5.1.
+  - 103 guard tests and the character UI baseline and adoption tests pass.
+  - Nothing was run in game or checked at the three supported resolutions.
+
 ## 2026-11-25 - Update seven addon packages (OverlapSettingsGuard 0.24.0)
 
 - Update YUI v367 to v368 (wclbox Forever download, extracted with GBK file names; `!YUI_Error` stays uninstalled), Auctionator 353 to 354 ([file 9809922](https://www.curseforge.com/wow/addons/auctionator/files/9809922)), Bagnon 12.1.12 to 12.1.13 ([file 9811157](https://www.curseforge.com/wow/addons/bagnon/files/9811157)), Details 15410.172 to Details.20261124.15450.172 ([file 9801507](https://www.curseforge.com/wow/addons/details/files/9801507), the six installed modules only), the EllesmereUI suite 9.9.2 to 9.9.4 ([file 9807097](https://www.curseforge.com/wow/addons/ellesmereui/files/9807097), the seven installed modules only), GatherLite 8.4.16 to 8.4.17 ([file 9807711](https://www.curseforge.com/wow/addons/gatherlite/files/9807711)) and MapUtils 1.7.35 to 1.7.37 (forever build, [file 9812599](https://www.curseforge.com/wow/addons/maputils/files/9812599)). Every TOC still lists Interface 16001; no game-type load condition, dependency or SavedVariables declaration changed. Forever Essentials' Forever TOC adds `EllesmereUIForeverEssentials_InGameNavigation.lua` and EllesmereUIOptions adds `ActionBars_Options\BarSpells_Options.lua` and `EUI_QoL_LootRolls_Options.lua` (options for the absent ActionBars and QoL modules); new files load only after a full client restart. !BugGrabber, Lueur, Skinner and Waypoint UI were already current.

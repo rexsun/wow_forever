@@ -60,7 +60,7 @@ Targets apply the latest matching source publication, or the generated fallback,
 | Bagnon | Outdated-version popup | `Bagnon_Sets.latest.cooldown` is held at the maximum time. |
 | Blizzard | Help tips (`closedInfoFrames`, per character) and account tips (`closedInfoFramesAccountWide`) | Every `LE_FRAME_TUTORIAL_*` bit is marked closed; `showTutorials` is set to `0` when the client has it at `1`. |
 
-The Details profile picker, Auctionator, WaypointUI, Lueur and Skinner open nothing at login with this pack. GearInsight 1.4's departure checklist (rested in a city or inn), dungeon guide (inside a dungeon), Paladin aura bar and Hunter ammo alerts can appear right after login; OverlapSettingsGuard writes their switches off before login (`gi.xpprep`, `gi.dungeonnav`, `gi.auraremind`, `gi.ammoremind`), so they are not repeated here. Left unchanged: Bagnon's "invalid build" popup (only on an unsupported client build), GatherLite's login chat line and BugGrabber's chat reminder (chat text, not windows).
+The Details profile picker, Auctionator, WaypointUI, Lueur, You Don't Need This and Skinner open nothing at login with this pack. GearInsight 1.4's departure checklist (rested in a city or inn), dungeon guide (inside a dungeon), Paladin aura bar and Hunter ammo alerts can appear right after login; OverlapSettingsGuard writes their switches off before login (`gi.xpprep`, `gi.dungeonnav`, `gi.auraremind`, `gi.ammoremind`), so they are not repeated here. Left unchanged: Bagnon's "invalid build" popup (only on an unsupported client build), GatherLite's login chat line, You Don't Need This's login chat lines and BugGrabber's chat reminder (chat text, not windows).
 
 ## Exact scope and exclusions
 

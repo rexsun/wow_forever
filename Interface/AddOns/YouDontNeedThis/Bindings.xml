@@ -1,0 +1,7 @@
+<!-- You Don't Need This - key bindings (Esc > Options > Keybindings > AddOns). Loaded by the game
+     automatically; not listed in the .toc. Names come from BINDING_* globals in Quests.lua. -->
+<Bindings>
+    <Binding name="YDNT_TOGGLE_QUESTS" header="YOUDONTNEEDTHIS" category="ADDONS">
+        YouDontNeedThis_ToggleQuests()
+    </Binding>
+</Bindings>

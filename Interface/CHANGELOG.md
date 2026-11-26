@@ -8,6 +8,7 @@ Quarterly logs:
 
 ## 2026 Q4
 
+- 2026-11-26 · **You Don't Need This 0.6.0**: [Install You Don't Need This 0.6.0](AddOns/updates-2026-Q4.md#2026-11-26---install-you-dont-need-this-060)
 - 2026-11-25 · **OverlapSettingsGuard 0.24.0**: [Update seven addon packages (OverlapSettingsGuard 0.24.0)](AddOns/updates-2026-Q4.md#2026-11-25---update-seven-addon-packages-overlapsettingsguard-0240)
 - 2026-11-24 · **CharacterUIBaseline 0.4.2**: [CharacterUIBaseline 0.4.2: clearer `/uib` status](AddOns/updates-2026-Q4.md#2026-11-24---characteruibaseline-042-clearer-uib-status)
 - 2026-11-24 · **OverlapSettingsGuard 0.23.0**: [Update MapUtils and GearInsight Forever (OverlapSettingsGuard 0.23.0)](AddOns/updates-2026-Q4.md#2026-11-24---update-maputils-and-gearinsight-forever-overlapsettingsguard-0230)

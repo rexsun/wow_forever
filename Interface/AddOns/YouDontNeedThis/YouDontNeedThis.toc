@@ -1,0 +1,23 @@
+## Interface: 16001
+## Title: You Don't Need This
+## Notes: Flags quest items in your bags whose quests you've already completed.
+## Author: Nick
+## IconTexture: Interface\AddOns\YouDontNeedThis\icon.png
+## Version: 0.6.0
+## X-License: GPL-3.0-or-later
+## X-Credits: Quest data from QuestieDB (GPLv3) by the Questie team
+## OptionalDeps: QuestieDB, Questie, AdiBags, ArkInventory, Bagnon, Baganator
+## SavedVariablesPerCharacter: YDNT_DB
+## SavedVariables: YDNT_Global
+## AddonCompartmentFunc: YouDontNeedThis_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: YouDontNeedThis_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: YouDontNeedThis_OnAddonCompartmentLeave
+
+SeedData.lua
+YouDontNeedThis.lua
+Bags.lua
+Integrations.lua
+Options.lua
+Quests.lua
+Minimap.lua
+Version.lua
