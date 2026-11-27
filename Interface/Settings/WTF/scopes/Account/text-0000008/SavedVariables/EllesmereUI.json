@@ -6925,6 +6925,12 @@
                                 "$text": "text-0003118"
                               },
                               "value": true
+                            },
+                            {
+                              "key": {
+                                "$text": "text-0003239"
+                              },
+                              "value": true
                             }
                           ]
                         }
