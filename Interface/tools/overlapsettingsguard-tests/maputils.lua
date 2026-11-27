@@ -6,12 +6,14 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     { id = "mu.pierpins", field = "WORLDMAPPINS_ENABLED" },
     { id = "mu.friendshare", field = "FRIENDMEMBERSHARE" },
     { id = "mu.friendpins", field = "FRIENDMEMBERPINS_ENABLED" },
+    { id = "mu.instancepos", field = "INSTANCEPLAYERPOS", owner = "WaypointUI" },
   }
   local FLIGHT = "travel.flight"
 
   local function Loaded()
     local loaded = CurrentLoaded()
     loaded.MapUtils = true
+    loaded.WaypointUI = true
     return loaded
   end
 
@@ -60,7 +62,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
       local rule = ids[setting.id]
       ok(rule, setting.id)
       eq(rule.when[1], "MapUtils", setting.id)
-      eq(rule.when[2], "YUI", setting.id)
+      eq(rule.when[2], setting.owner or "YUI", setting.id)
       eq(rule.early, true, setting.id .. " runs before login")
     end
     eq(ids["yui.flightmarkers"].when[2], "MapUtils")
@@ -179,6 +181,46 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     eq(sends, 6, "no unreviewed send site (5 sends and the definition)")
   end)
 
+  -- 1.8.4 estimates your position in dungeons by switching the super-tracked target through
+  -- flight-point pins and reading the distance, then restoring it. Waypoint UI draws whatever is
+  -- super-tracked, so every switch moves its pinpoint and arrow.
+  test("MapUtils instance position switches the super-tracked target only with its switch on", function()
+    local addons = ADDON_ROOT .. "../MapUtils/"
+    local settings = ReadFile(addons .. "settings.lua")
+    local minimap = ReadFile(addons .. "instanceminimap.lua")
+    local instancemap = ReadFile(addons .. "instancemap.lua")
+    local map = ReadFile(addons .. "shared/InstanceMap/instance_map.lua")
+    local pos = ReadFile(addons .. "shared/InstanceMap/instance_pos.lua")
+    ok(settings:find('AddSharedCheckbox("INSTANCEPLAYERPOS"', 1, true), "the switch is a MapUtils option")
+    ok(settings:find('["set"] = function(key, value) MAUTTAB[key] = value end,', 1, true), "shared options live in MAUTTAB")
+    ok(minimap:find('local enabled = MapUtils:GetConfig("INSTANCEPLAYERPOS", true) ~= false', 1, true),
+      "the minimap view reads the switch")
+    ok(minimap:find("if not planShown or not enabled or MapUtils.GetLiveInstancePosition == nil then", 1, true),
+      "the minimap view asks for a position only with the switch on")
+    ok(instancemap:find('["isPlayerPosEnabled"] = function() return MapUtils:GetConfig("INSTANCEPLAYERPOS", true) ~= false end,', 1, true),
+      "the dungeon map reads the switch")
+    ok(map:find("local enabled = provider.isPlayerPosEnabled == nil or provider.isPlayerPosEnabled()", 1, true),
+      "the dungeon map asks for a position only with the switch on")
+    local function Count(text, pattern) local _, n = text:gsub(pattern, ""); return n end
+    eq(Count(minimap, "GetLiveInstancePosition%("), 1, "one position request in the minimap view")
+    eq(Count(map, "UpdateInstancePosArrow%("), 1, "one position request on the dungeon map")
+    eq(Count(pos, "impl%.Request%("), 3, "Request: its definition, GetLive and the D4 wrapper")
+    for _, text in ipairs({ minimap, instancemap, map }) do
+      ok(not text:find("RequestInstancePosition", 1, true), "no caller bypasses the switch")
+    end
+    eq(Count(pos, "pcall%(C_SuperTrack%.SetSuperTrackedMapPin"), 1, "one unrestored super-track switch")
+  end)
+
+  test("MapUtils instance position stays on without Waypoint UI", function()
+    local loaded = Loaded()
+    loaded.WaypointUI = nil
+    local saved = { INSTANCEPLAYERPOS = true }
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = loaded, beforeGuard = Saved(saved) })
+    w.Login()
+    eq(saved.INSTANCEPLAYERPOS, true)
+    eq(StatusOf(w.ns.Check(), "mu.instancepos"), "inactive")
+  end)
+
   test("MapUtils first run: missing saved variables are created and need no reload", function()
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded() })
     for _, setting in ipairs(GUARDED) do eq(MAUTTAB[setting.field], false, setting.field) end
@@ -191,7 +233,8 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
       WORLDMAPPINS = true, WORLDMAPPINS_AZEROTH = true,
       WORLDMAPSCALEVALUE = 1.2, ONEMAP = true, MINIMAPPINS = true, VESSELWORLDMAPPINS = true,
       FLIGHTWORLDMAPPINS = true, CROSSINGWORLDMAPPINS = true, FISHINGLEVELS = true, ZONELEVELS = true,
-      FRIENDMEMBERSHARE = true, FRIENDMEMBERPINS_ENABLED = true, GUILDMEMBERPINS_ENABLED = true, GUILDMEMBERSHARE = true }
+      FRIENDMEMBERSHARE = true, FRIENDMEMBERPINS_ENABLED = true, GUILDMEMBERPINS_ENABLED = true, GUILDMEMBERSHARE = true,
+      INSTANCEPLAYERPOS = true }
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded(), beforeGuard = Saved(saved) })
     for _, setting in ipairs(GUARDED) do eq(saved[setting.field], false, setting.field) end
     for _, key in ipairs({ "WORLDMAPPINS", "WORLDMAPPINS_AZEROTH", "ONEMAP", "MINIMAPPINS", "VESSELWORLDMAPPINS", "FLIGHTWORLDMAPPINS",

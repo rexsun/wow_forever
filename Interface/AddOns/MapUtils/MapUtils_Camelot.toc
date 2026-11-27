@@ -1,6 +1,6 @@
 ## Interface: 16001
 
-## Version: 1.7.39
+## Version: 1.8.4
 ## Title: MapUtils by |cff55d2ffD4KiR |T132115:16:16:0:0|t 
 ## Notes: Better world map: boats, zeppelins, flight points and dungeon entrances as clickable waypoints, dungeon & raid maps, unexplored areas, zone levels and a movable, scalable map
 ## Notes-deDE: Bessere Weltkarte: Schiffe, Zeppeline, Flugpunkte und Dungeon-Eingänge als anklickbare Wegpunkte, Dungeon- & Raidkarten, unerforschte Gebiete, Zonenlevel und eine verschieb- und skalierbare Karte
@@ -34,6 +34,10 @@
 ## IconTexture: 134269
 
 libs\D4Lib\D4Lib.xml
+shared\InstanceMap\instance_pos.lua
+shared\InstanceMap\instance_pos_data.lua
+shared\InstancePins\instance_pins.lua
+shared\InstanceMap\instance_map.lua
 
 locale\enUS.lua
 locale\deDE.lua
@@ -51,6 +55,7 @@ locale\names.lua
 profiler.lua
 flavor.lua
 data\classic\instances.lua
+data\classic\instanceminimap.lua
 data\forever\instances.lua
 data\classic\transports.lua
 data\forever\transports.lua
@@ -79,6 +84,7 @@ shared\InstancePins\instance_map_pins.lua
 shared\InstancePins\instance_pin_info.lua
 instancepinrows.lua
 instancemap.lua
+instanceminimap.lua
 mapframe.lua
 editmode.lua
 widgets.lua

@@ -24,6 +24,7 @@ function General:Populate()
 	end
 
 	self:AddCheck('countCurrency')
+	self:AddCheck('countPerFaction')
 end
 
 function General:ToggleGlobals()

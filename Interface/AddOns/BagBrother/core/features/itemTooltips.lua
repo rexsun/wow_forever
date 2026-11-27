@@ -113,54 +113,56 @@ end
 function TipCounts:AddOwners(tip, link, id)
 	if not self.Hooked[tip] and Addon.sets.countItems then
 		-- the link of a recipe item points to the crafted item, tooltip data id is the item itself
-		id = id or tonumber(link and C.GetItemInfoInstant(link) and link:match(':(%d+)')) -- workaround Blizzard craziness
+		id = id or tonumber(link and C.GetItemInfoInstant(link) and link:match(':(%d+)'))
 		if id and id ~= HEARTHSTONE_ITEM_ID then
 			local carrying = C.GetItemCount(id)
 			local left, right = {}, {}
 			local total = 0
 
 			for i, owner in Addon.Owners:Iterate() do
-				local color = owner:GetColorMarkup()
-				local count, locations = 0
+				if owner:IsEnabled() then
+					local color = owner:GetColorMarkup()
+					local count, locations = 0
 
-				if owner.offline and not owner.counts then
-					self:CountItems(owner)
-				end
-
-				if not owner.isguild then
-					local equip, mail, bags, bank, vault
-
-					if not owner.offline then
-						mail = find(owner.mail, id)
-						equip = find(owner.equip, id)
-						vault = find(owner.vault, id)
-						bank = C.GetItemCount(id, true, nil, true) - carrying
-						bags = carrying - equip
-					else
-						bags, bank, vault = owner.counts.bags[id], owner.counts.bank[id], owner.counts.vault[id]
-						equip, mail = owner.counts.equip[id], owner.counts.mail[id]
+					if owner.offline and not owner.counts then
+						self:CountItems(owner)
 					end
 
-					count, locations = self:Format(color, EQUIP_ICON, equip, frameIcon('inventory'), bags, 
-						frameIcon('bank'), bank, frameIcon('vault'), vault, MAIL_ICON, mail)
+					if not owner.isguild then
+						local equip, mail, bags, bank, vault
 
-				elseif Addon.sets.countGuild then
-					if not owner.offline then
-						local guild = 0
-						for tab = 1, MAX_GUILDBANK_TABS do
-							guild = guild + find(owner[tab], id)
+						if not owner.offline then
+							mail = find(owner.mail, id)
+							equip = find(owner.equip, id)
+							vault = find(owner.vault, id)
+							bank = C.GetItemCount(id, true, nil, true) - carrying
+							bags = carrying - equip
+						else
+							bags, bank, vault = owner.counts.bags[id], owner.counts.bank[id], owner.counts.vault[id]
+							equip, mail = owner.counts.equip[id], owner.counts.mail[id]
 						end
 
-						count, locations = self:Format(color, frameIcon('guild'), guild)
-					else
-						count, locations = self:Format(color, frameIcon('guild'), owner.counts[id])
-					end
-				end
+						count, locations = self:Format(color, EQUIP_ICON, equip, frameIcon('inventory'), bags, 
+							frameIcon('bank'), bank, frameIcon('vault'), vault, MAIL_ICON, mail)
 
-				if count > 0 then
-					tinsert(left, owner:GetDisplayName(16))
-					tinsert(right, locations)
-					total = total + count
+					elseif Addon.sets.countGuild then
+						if not owner.offline then
+							local guild = 0
+							for tab = 1, MAX_GUILDBANK_TABS do
+								guild = guild + find(owner[tab], id)
+							end
+
+							count, locations = self:Format(color, frameIcon('guild'), guild)
+						else
+							count, locations = self:Format(color, frameIcon('guild'), owner.counts[id])
+						end
+					end
+
+					if count > 0 then
+						tinsert(left, owner:GetDisplayName(16))
+						tinsert(right, locations)
+						total = total + count
+					end
 				end
 			end
 

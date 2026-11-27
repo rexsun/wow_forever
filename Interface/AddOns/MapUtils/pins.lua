@@ -1762,11 +1762,16 @@ function PinCache.WatchOutline(pin)
 end
 
 PinCache.bookMaskPath = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+PinCache.bookRingPath = "Interface\\AddOns\\MapUtils\\media\\book_ring.blp"
 PinCache.bookBorderColors = {
 	bag = {0.2, 1, 0.2},
 	bank = {0.2, 1, 0.2},
 	missing = {1, 0.15, 0.15}
 }
+
+function PinCache.IsOwnedLibraryBook(entry)
+	return entry ~= nil and entry.kind == "librarybook" and (entry.state == "bag" or entry.state == "bank")
+end
 
 function PinCache.ApplyBookBorder(pin, entry)
 	local isBook = entry.kind == "librarybook"
@@ -1791,7 +1796,6 @@ function PinCache.ApplyBookBorder(pin, entry)
 		end
 
 		if pin.bookBorder ~= nil then pin.bookBorder:Hide() end
-		if pin.bookBg ~= nil then pin.bookBg:Hide() end
 
 		return
 	end
@@ -1799,15 +1803,14 @@ function PinCache.ApplyBookBorder(pin, entry)
 	local color = PinCache.bookBorderColors[entry.state]
 	if color == nil then
 		if pin.bookBorder ~= nil then pin.bookBorder:Hide() end
-		if pin.bookBg ~= nil then pin.bookBg:Hide() end
 
 		return
 	end
 
 	local t = (pin.pixel or 1) * 1.5
 	if pin.bookBorder == nil then
-		pin.bookBorder = pin:CreateTexture(nil, "OVERLAY", nil, -2)
-		pin.bookBorder:SetTexture(PinCache.bookMaskPath)
+		pin.bookBorder = pin:CreateTexture(nil, "OVERLAY", nil, 1)
+		pin.bookBorder:SetTexture(PinCache.bookRingPath)
 	end
 
 	pin.bookBorder:ClearAllPoints()
@@ -1815,25 +1818,10 @@ function PinCache.ApplyBookBorder(pin, entry)
 	pin.bookBorder:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", t, -t)
 	pin.bookBorder:SetVertexColor(color[1], color[2], color[3], 1)
 	pin.bookBorder:Show()
-
-	local owned = entry.state == "bag" or entry.state == "bank"
-	if owned then
-		if pin.bookBg == nil then
-			pin.bookBg = pin:CreateTexture(nil, "OVERLAY", nil, -1)
-			pin.bookBg:SetTexture(PinCache.bookMaskPath)
-			pin.bookBg:SetVertexColor(0, 0, 0, 0.75)
-		end
-
-		pin.bookBg:ClearAllPoints()
-		pin.bookBg:SetAllPoints(icon)
-		pin.bookBg:Show()
-	elseif pin.bookBg ~= nil then
-		pin.bookBg:Hide()
-	end
 end
 
 local function ApplyEntryTint(pin, entry)
-	pin.texture:SetAlpha(entry.kind == "librarybook" and (entry.state == "bag" or entry.state == "bank") and 0.5 or 1)
+	pin.texture:SetAlpha(1)
 	PinCache.ApplyBookBorder(pin, entry)
 	pin.texture:SetDesaturated(IsDesaturatedEntry(entry))
 	if entry.kind == "flight" and entry.undiscovered then
@@ -1871,17 +1859,47 @@ local function GetFlightIcon(node, faction)
 end
 
 function MapUtils:GetFlightKnowledge()
-	local guid = UnitGUID("player")
-	if guid == nil or MAUTTAB == nil then return {} end
-	if MAUTTAB.flightKnowledgeVersion ~= 4 then
-		MAUTTAB.flightKnowledge = {}
-		MAUTTAB.flightKnowledgeVersion = 4
+	if not PinCache.flightReady then return {} end
+	if type(MAUTTABPC) ~= "table" then MAUTTABPC = {} end
+	if MAUTTABPC.flightKnowledgeVersion ~= 4 or type(MAUTTABPC.flightKnowledge) ~= "table" then
+		MAUTTABPC.flightKnowledge = {}
+		MAUTTABPC.flightKnowledgeVersion = 4
+		local guid = UnitGUID("player")
+		if guid ~= nil and type(MAUTTAB) == "table" and MAUTTAB.flightKnowledgeVersion == 4 and type(MAUTTAB.flightKnowledge) == "table" and type(MAUTTAB.flightKnowledge[guid]) == "table" then
+			for nodeID, value in pairs(MAUTTAB.flightKnowledge[guid]) do
+				if value == true then MAUTTABPC.flightKnowledge[nodeID] = true end
+			end
+		end
 	end
 
-	MAUTTAB.flightKnowledge = MAUTTAB.flightKnowledge or {}
-	MAUTTAB.flightKnowledge[guid] = MAUTTAB.flightKnowledge[guid] or {}
+	return MAUTTABPC.flightKnowledge
+end
 
-	return MAUTTAB.flightKnowledge[guid]
+function MapUtils:CaptureNearbyFlightNode()
+	if not PinCache.flightReady or C_Map == nil or C_Map.GetBestMapForUnit == nil or C_TaxiMap == nil or C_TaxiMap.GetTaxiNodesForMap == nil then return end
+	local mapID = C_Map.GetBestMapForUnit("player")
+	local wx, wy = UnitPosition("player")
+	if mapID == nil or wx == nil or wy == nil then return end
+	if issecretvalue ~= nil and (issecretvalue(mapID) or issecretvalue(wx) or issecretvalue(wy)) then return end
+	local bestNodeID, bestDistSq = nil, 60 * 60
+	local ok, nodes = pcall(C_TaxiMap.GetTaxiNodesForMap, mapID)
+	if ok and type(nodes) == "table" then
+		for _, node in ipairs(nodes) do
+			if node.nodeID ~= nil and node.position ~= nil then
+				local nx, ny = node.position:GetXY()
+				local pos = GetEntryWorldPos(mapID, {x = nx, y = ny})
+				if pos ~= nil then
+					local dx, dy = pos.x - wx, pos.y - wy
+					local distSq = dx * dx + dy * dy
+					if distSq <= bestDistSq then
+						bestDistSq = distSq
+						bestNodeID = node.nodeID
+					end
+				end
+			end
+		end
+	end
+	if bestNodeID ~= nil then self:GetFlightKnowledge()[bestNodeID] = true end
 end
 
 function MapUtils:CaptureFlightKnowledge()
@@ -1969,10 +1987,16 @@ local function GetFlights(mapID)
 					entry.nodeID = node.nodeID
 					entry.name = MapUtils:TransName(node.name)
 					entry.faction = faction
-					entry.undiscovered = node.isUndiscovered == true
 					local known = MapUtils:GetFlightKnowledge()[node.nodeID]
-					entry.discoveryKnown = entry.undiscovered or known ~= nil or MapUtils:GetWoWBuild() == "RETAIL" and not MapUtils:IsForever() and type(node.isUndiscovered) == "boolean"
-					if not entry.undiscovered and known ~= nil then entry.undiscovered = not known end
+					if known == true then
+						entry.undiscovered = false
+						entry.discoveryKnown = true
+						entry.seen = true
+					else
+						entry.undiscovered = node.isUndiscovered == true
+						entry.discoveryKnown = entry.undiscovered or known ~= nil or MapUtils:GetWoWBuild() == "RETAIL" and not MapUtils:IsForever() and type(node.isUndiscovered) == "boolean"
+						if not entry.undiscovered and known ~= nil then entry.undiscovered = not known end
+					end
 					if druidFlight then
 						entry.undiscovered = false
 						entry.discoveryKnown = true
@@ -1987,7 +2011,7 @@ local function GetFlights(mapID)
 		end
 	end
 
-	flights[mapID] = list
+	if PinCache.flightReady then flights[mapID] = list end
 
 	return list
 end
@@ -2036,7 +2060,7 @@ local function GetFlightDescription()
 end
 
 local function GetFlightStatus(entry)
-	if not entry.discoveryKnown then return UNKNOWN or "Unknown", 1, 0.82, 0 end
+	if not entry.discoveryKnown then return MapUtils:Trans("LID_FLIGHTUNKNOWN"), 1, 0.82, 0 end
 	if entry.undiscovered then return MapUtils:Trans("LID_FLIGHTUNDISCOVERED"), 1, 0.25, 0.25 end
 
 	return MapUtils:Trans("LID_FLIGHTDISCOVERED"), 0.25, 1, 0.25
@@ -2395,6 +2419,7 @@ function PinCache.AddTooltipLines(entry, mapID)
 		GameTooltip:AddLine(entry.name, 1, 1, 1)
 		GameTooltip:AddLine(GetFlightDescription(), 0.6, 0.6, 0.6)
 		GameTooltip:AddLine(GetFlightStatus(entry))
+		if not entry.discoveryKnown then GameTooltip:AddLine(MapUtils:Trans("LID_FLIGHTUNKNOWNHINT"), 0.7, 0.7, 0.7, true) end
 	else
 		local name, description = GetPierLabel(entry, mapID or C_Map.GetBestMapForUnit("player"))
 		GameTooltip:AddLine(name, 1, 1, 1)
@@ -2987,6 +3012,7 @@ function PinCache.CullWorldPins(child, w, h, baseLevel, layoutChanged)
 	local view = PinCache.worldView
 	if not layoutChanged and view.left == left and view.right == right and view.top == top and view.bottom == bottom and view.level == baseLevel then return end
 	view.left, view.right, view.top, view.bottom, view.level = left, right, top, bottom, baseLevel
+	local showed = false
 	for _, pin in ipairs(worldPins) do
 		local x, y, radius = pin.worldX, pin.worldY, pin.worldRadius
 		local visible = left == nil or x + radius >= left and x - radius <= right and y + radius >= top and y - radius <= bottom
@@ -3000,6 +3026,7 @@ function PinCache.CullWorldPins(child, w, h, baseLevel, layoutChanged)
 				end
 				UpdatePinStyle(pin)
 				pin:Show()
+				showed = true
 			elseif levelChanged then
 				UpdatePinLevel(pin, IsEntryWaypoint(pin.mapID, pin.entry))
 			end
@@ -3008,6 +3035,7 @@ function PinCache.CullWorldPins(child, w, h, baseLevel, layoutChanged)
 			pin:Hide()
 		end
 	end
+	if showed and child:GetScale() ~= worldScale and MapUtils.RescaleCanvasPins ~= nil then MapUtils:RescaleCanvasPins() end
 end
 
 local function UpdateWorldPins()
@@ -3144,9 +3172,10 @@ local function UpdateWorldPins()
 		if acquired then
 			ApplyIcon(pin, GetEntryIcon(entry))
 			ApplyEntryTint(pin, entry)
-			pin:SetAlpha(MapUtils:GetDebugPinAlpha(entry))
+			pin:SetAlpha(MapUtils:GetDebugPinAlpha(entry) * (PinCache.IsOwnedLibraryBook(entry) and 0.5 or 1))
 		elseif entry.kind == "librarybook" then
 			PinCache.ApplyBookBorder(pin, entry)
+			pin:SetAlpha(MapUtils:GetDebugPinAlpha(entry) * (PinCache.IsOwnedLibraryBook(entry) and 0.5 or 1))
 		end
 		local factor = sizeFactors[entry.kind or ""] or MapUtils:GetPinKindSizeFactor(entry.kind)
 		if entry.kind == "crossing" or entry.kind == "dungeon" and entry.entrance == "path" then
@@ -3341,6 +3370,7 @@ local function UpdateMinimapPins()
 		pin.entry = entry
 		ApplyIcon(pin, GetEntryIcon(entry))
 		ApplyEntryTint(pin, entry)
+		pin:SetAlpha(PinCache.IsOwnedLibraryBook(entry) and 0.5 or 1)
 		local minimapSize = ICON_SIZE * (pin.icon == TRANSPORT_ICONS["ship"] and SHIP_ICON_SCALE or 1)
 		pin:SetSize(minimapSize, minimapSize)
 		LayoutPinIcon(pin, minimapSize * GetEntryIconScale(entry), 0, 0)
@@ -3444,6 +3474,7 @@ MapUtils:RegisterWaypointMarker(function(mapID, x, y)
 	return false
 end)
 MapUtils:RegisterWaypointCallback(function()
+	if MapUtils.IsInstancePositionScanning ~= nil and MapUtils:IsInstancePositionScanning() then return end
 	waypointCache.valid = false
 	waypointCache.key = nil
 	wipe(waypointCache.positions)
@@ -3452,6 +3483,8 @@ end)
 
 if C_TaxiMap ~= nil and C_TaxiMap.GetTaxiNodesForMap ~= nil then
 	local taxiFrame = CreateFrame("FRAME")
+	MapUtils:RegisterEvent(taxiFrame, "PLAYER_LOGIN")
+	MapUtils:RegisterEvent(taxiFrame, "PLAYER_ENTERING_WORLD")
 	MapUtils:RegisterEvent(taxiFrame, "TAXI_NODE_STATUS_CHANGED")
 	MapUtils:RegisterEvent(taxiFrame, "TAXIMAP_OPENED")
 	MapUtils:RegisterEvent(taxiFrame, "UI_INFO_MESSAGE")
@@ -3471,13 +3504,21 @@ if C_TaxiMap ~= nil and C_TaxiMap.GetTaxiNodesForMap ~= nil then
 	taxiFrame:SetScript(
 		"OnEvent",
 		function(self, event, _, message)
+			if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
+				PinCache.flightReady = true
+				return self.Refresh()
+			end
 			if event == "TAXIMAP_OPENED" then MapUtils:CaptureFlightKnowledge() end
 			if event == "UI_INFO_MESSAGE" then
 				if ERR_NEWTAXIPATH == nil or message ~= ERR_NEWTAXIPATH then return end
+				MapUtils:CaptureNearbyFlightNode()
 				if C_Timer ~= nil then C_Timer.After(0.5, self.Refresh) end
 			end
 
-			if event == "TAXI_NODE_STATUS_CHANGED" then return self.QueueRefresh() end
+			if event == "TAXI_NODE_STATUS_CHANGED" then
+				if (TaxiFrame ~= nil and TaxiFrame:IsShown()) or (FlightMapFrame ~= nil and FlightMapFrame:IsShown()) then MapUtils:CaptureFlightKnowledge() end
+				return self.QueueRefresh()
+			end
 			self.Refresh()
 		end
 	)
@@ -3571,6 +3612,7 @@ local function RefreshIcons()
 end
 
 function MapUtils:RefreshPins()
+	wipe(flights)
 	worldMapID = nil
 	worldScale = nil
 	worldPiers = nil
@@ -3914,6 +3956,7 @@ function MapUtils:HookWaypointDistance()
 	local updating = false
 	local function UpdateDistance()
 		if updating or MapUtils:GetConfig("WAYPOINTDISTANCE", "METERS") == "YARDS" then return end
+		if MapUtils.IsInstancePositionScanning ~= nil and MapUtils:IsInstancePositionScanning() then return end
 		local original = text:GetText()
 		if issecretvalue and issecretvalue(original) then return end
 		if original == nil or original == "" then return end
@@ -3937,7 +3980,9 @@ local function FixSuperTrackedFrame()
 	local frame = SuperTrackedFrame
 	if superTrackedFixed or frame == nil then return superTrackedFixed end
 	superTrackedFixed = true
+	if frame.UpdateAlpha == nil then return true end
 	local function ShouldForceAlpha()
+		if MapUtils.IsInstancePositionScanning ~= nil and MapUtils:IsInstancePositionScanning() then return false end
 		if not MapUtils:IsWaypointTracked() and not MapUtils:GetConfig("ALWAYSSHOWWAYPOINT", false) then return false end
 		if C_Navigation == nil or C_Navigation.GetDistance == nil then return false end
 		local distance = C_Navigation.GetDistance() or 0
@@ -3946,17 +3991,29 @@ local function FixSuperTrackedFrame()
 		return distance >= SUPERTRACKED_MIN_DISTANCE
 	end
 
-	for _, key in ipairs({"GetTargetAlphaBaseValue", "GetTargetAlpha"}) do
-		local original = frame[key]
-		if original ~= nil then
-			frame[key] = function(self, ...)
-				local alpha = original(self, ...)
-				if alpha == 0 and ShouldForceAlpha() then return SUPERTRACKED_ALPHA end
+	local function IsBlizzardHidden(self)
+		if C_Navigation.HasValidScreenPosition ~= nil and not C_Navigation.HasValidScreenPosition() then return true end
+		if self.transparentUntil ~= nil and self.transparentUntil > GetTime() then return true end
+		if self.GetTargetAlphaBaseValue == nil then return false end
+		local base = self:GetTargetAlphaBaseValue()
 
-				return alpha
-			end
-		end
+		return base == nil or base == 0
 	end
+
+	hooksecurefunc(
+		frame,
+		"UpdateAlpha",
+		MapUtils.Profile(
+			"pins supertracked alpha",
+			function(self)
+				if MapUtils.IsInstancePositionScanning ~= nil and MapUtils:IsInstancePositionScanning() then
+					self:SetAlpha(0)
+				elseif ShouldForceAlpha() and IsBlizzardHidden(self) then
+					self:SetAlpha(SUPERTRACKED_ALPHA)
+				end
+			end
+		)
+	)
 
 	return true
 end

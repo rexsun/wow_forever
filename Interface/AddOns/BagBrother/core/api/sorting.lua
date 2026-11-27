@@ -13,7 +13,8 @@ Sort.Properties = {
 	'class', 'subclass', 'equip',
 	'quality',
 	'iconFileID', 'level', 'itemID',
-	'stackOrder'
+	'stackOrder',
+	'family'
 }
 
 
@@ -105,12 +106,14 @@ function Sort:GetSpaces()
 				local item = self.target:GetItemInfo(bag, slot)
 				local id = item.itemID
 				if id then
-					local _, _,_, level, _,_,_, stack, equip, _, _, class, subclass = C.GetItemInfo(id) 
+					local _, _,_, level, _,_,_, stack, equip, _, _, class, subclass = C.GetItemInfo(id)
+					local count = item.stackCount or 1
 
 					item.class = Search:IsQuestItem(id) and Enum.ItemClass.Questitem or class or 14
 					item.set = (item.class < Enum.ItemClass.Weapon and 0) or Search:BelongsToSet(id) and 1 or 2
-					item.stackOrder = self.target.profile.partialFirst and -(item.stackCount or 1) or item.stackCount
-					item.subclass, item.equip, item.level, item.stackSize = subclass or -1, equip, level, stack
+					item.stackOrder = self.target.profile.partialFirst and -count or count
+					item.subclass, item.equip, item.level, item.stackSize = subclass or -1, equip or '', level or 0, stack
+					item.quality, item.iconFileID = item.quality or 0, item.iconFileID or 0
 					item.family = C.GetItemFamily(id) or 0
 				elseif item == Addon.None then
 					item = {}
@@ -145,7 +148,7 @@ function Sort:GetFamilies(spaces)
 		tinsert(list, family)
 	end
 
-	sort(list, function(a, b) return a > b and (a ~= 0x80000 or b == 0) end)
+	sort(list, self.FamilyRule)
 	return list
 end
 
@@ -164,7 +167,7 @@ function Sort:GetOrder(spaces, family)
 		end
 	end
 
-	sort(order, self.Rule)
+	sort(order, self.ItemRule)
 	return order, slots
 end
 
@@ -238,18 +241,24 @@ function Sort:FitsIn(id, family)
 		return select(17, C.GetItemInfo(id))
 	end
 	
-	return family <= 0 or (bit.band(C.GetItemFamily(id), family) > 0 and select(9, C.GetItemInfo(id)) ~= 'INVTYPE_BAG')
+	return family <= 0 or (bit.band(C.GetItemFamily(id) or 0, family) > 0 and select(9, C.GetItemInfo(id)) ~= 'INVTYPE_BAG')
 end
 
-function Sort.Rule(a, b)
-	for _,prop in pairs(Sort.Properties) do
-		if a[prop] ~= b[prop] then
-			return a[prop] > b[prop]
-		end
+function Sort.FamilyRule(a, b)
+	if a == 0x80000 then
+		return b <= 0
+	elseif b == 0x80000 then
+		return a > 0
 	end
+	return a > b
+end
 
-	if a.space.family ~= b.space.family then
-		return a.space.family > b.space.family
+function Sort.ItemRule(a, b)
+	for _, prop in ipairs(Sort.Properties) do
+		local va, vb = a[prop], b[prop]
+		if va ~= vb then
+			return vb == nil or (va ~= nil and va > vb)
+		end
 	end
 	return a.space.index < b.space.index
 end
