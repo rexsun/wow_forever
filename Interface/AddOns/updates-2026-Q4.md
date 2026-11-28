@@ -2,6 +2,19 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-28 - MapUtils shows your position on dungeon maps (OverlapSettingsGuard 0.27.0)
+
+- Guard: one rule removed, 69 in total.
+  - `mu.instancepos` is gone, so MapUtils 1.8.4's player position on dungeon maps (`MAUTTAB.INSTANCEPLAYERPOS`) is no longer kept off while Waypoint UI loads. No other installed addon shows where you are inside a dungeon, and the position was wanted.
+  - Known cost, accepted: the game hides your coordinates inside instances, so while a dungeon map is open MapUtils switches the super-tracked target through flight-point pins several times a second and reads the distance. Waypoint UI draws the super-tracked target, so its pinpoint and arrow jump until the map closes, when MapUtils restores the target.
+  - The rule had saved `INSTANCEPLAYERPOS = false`; the guard does not undo its own writes, so switch Player position back on once in `/maputils` after a `/reload`.
+  - The `InstancePosition` adapter field and the unused per-setting owner on MapUtils rules are removed. Every other key and function the rules and CharacterUIBaseline use is unchanged.
+  - Tests: the rule's two tests are replaced by one that keeps `INSTANCEPLAYERPOS` on with MapUtils, YUI and Waypoint UI loaded and checks no rule writes it; the preserved-settings test now lists it as kept, and the rule count is 69.
+- Considered and not installed: Dungeon Maps Navigation 1.9.0 (`DungeonNav`, [file 9853785](https://www.curseforge.com/wow/addons/dungeon-maps-navigation/files/9853785), 2026-11-27). It estimates your position with the same flight-point super-tracking, so it would cost Waypoint UI the same; it would also add a third set of dungeon maps beside MapUtils and GearInsight, take over the world map key inside dungeons (on by default) and can move the YUI-owned minimap into its window (off by default). MapUtils' built-in position was chosen instead, and the world map key stays with the world map.
+- Verification:
+  - 108 guard tests pass; the rule count is 69.
+  - Nothing was run in game or checked at the three supported resolutions.
+
 ## 2026-11-27 - Update three addon packages (OverlapSettingsGuard 0.26.0)
 
 - Update Bagnon 12.1.13 to 12.1.14 ([file 9848799](https://www.curseforge.com/wow/addons/bagnon/files/9848799)), GatherLite 8.4.17 to 8.4.18 ([file 9844776](https://www.curseforge.com/wow/addons/gatherlite/files/9844776)) and MapUtils 1.7.39 to 1.8.4 (forever build, [file 9851952](https://www.curseforge.com/wow/addons/maputils/files/9851952)). Every TOC still lists Interface 16001; only the version lines changed, except MapUtils' `MapUtils_Camelot.toc`, which adds `shared\InstanceMap\instance_pos.lua`, `instance_pos_data.lua`, `instance_map.lua`, `shared\InstancePins\instance_pins.lua`, `data\classic\instanceminimap.lua` and `instanceminimap.lua` (the D4Lib copies `D4InstanceMap.lua` and `D4InstancePins.lua` moved into `shared\` and were removed). No game-type load condition, dependency or SavedVariables declaration changed. New files load only after a full client restart. Auctionator, !BugGrabber, Details, Lueur, Waypoint UI, YUI and You Don't Need This were already current.

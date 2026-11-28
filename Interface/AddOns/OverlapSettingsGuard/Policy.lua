@@ -196,9 +196,8 @@ local mapUtilsSettings = {
   -- addon whispers at login, and sharing then sends them your map position; YUI owns chat.
   { id = "friendshare", key = "FriendShare", label = "Share my position with friends", reason = "YUI owns chat; MapUtils must not send your map position to friends by hidden whispers." },
   { id = "friendpins", key = "FriendPins", label = "Friends on the map", reason = "YUI owns chat; showing friends greets every online friend with hidden addon whispers at each login." },
-  -- 1.8.4 locates you in dungeons by switching the super-tracked target through flight-point
-  -- pins while its dungeon map is open; Waypoint UI draws the super-tracked target in the world.
-  { id = "instancepos", key = "InstancePosition", owner = "WaypointUI", label = "Player position on dungeon maps", reason = "Waypoint UI owns the super-tracked target; MapUtils must not switch it to flight points to estimate your position." },
+  -- Not guarded since 0.27.0: 1.8.4's player position on dungeon maps (INSTANCEPLAYERPOS) is a chosen
+  -- feature; its flight-point super-tracking moves Waypoint UI's marker only while that map is open.
 }
 
 -- Early, because MapUtils applies its map window and fade settings at PLAYER_LOGIN.
@@ -206,7 +205,7 @@ for _, setting in ipairs(mapUtilsSettings) do
   OSG.policy[#OSG.policy + 1] = {
     id = "mu." .. setting.id, adapter = "MapUtils", key = setting.key,
     label = "MapUtils: " .. setting.label, reason = setting.reason,
-    when = { "MapUtils", setting.owner or "YUI" }, early = true, needsReload = true,
+    when = { "MapUtils", "YUI" }, early = true, needsReload = true,
   }
 end
 

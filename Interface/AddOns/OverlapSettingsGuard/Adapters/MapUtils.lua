@@ -14,8 +14,6 @@ local FIELDS = {
   -- 1.7.15: friend traffic stops only with both off (Friends.IsActive in friendmembers.lua).
   FriendShare = "FRIENDMEMBERSHARE",
   FriendPins = "FRIENDMEMBERPINS_ENABLED",
-  -- 1.8.4: a D4 shared option, still stored in MAUTTAB; both position requests read it.
-  InstancePosition = "INSTANCEPLAYERPOS",
 }
 
 function adapter.Knows(key) return FIELDS[key] ~= nil end
