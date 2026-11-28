@@ -4,7 +4,7 @@ local function GetCostByItemID(itemID, multiplier)
   local auctionPrice = Auctionator.API.v1.GetAuctionPriceByItemID(AUCTIONATOR_L_REAGENT_SEARCH, itemID)
 
   local unitPrice = vendorPrice or auctionPrice
-  if vendorPrice and auctionPrice and vendorPrice > 5 * auctionPrice then
+  if Auctionator.Constants.IsForever and vendorPrice and auctionPrice and vendorPrice > auctionPrice then
     unitPrice = auctionPrice
   end
 

@@ -2,6 +2,36 @@
 
 This log records changes made from October to December 2026 in `World of Warcraft/_forever_/Interface/AddOns` (previously `_classic_beta_`). See [readme.md](readme.md) for the current inventory and sources, and [CHANGELOG.md](../CHANGELOG.md) for the list of quarterly logs.
 
+## 2026-11-28 - Update two addon packages (OverlapSettingsGuard 0.28.0)
+
+- Update Auctionator 354 to 355 ([file 9876038](https://www.curseforge.com/wow/addons/auctionator/files/9876038)) and MapUtils 1.8.4 to 1.9.3 (forever build, [file 9873354](https://www.curseforge.com/wow/addons/maputils/files/9873354)). Both TOCs still list Interface 16001; only the version lines changed, except MapUtils' `MapUtils_Camelot.toc`, which adds `partymembers.lua`, `data\forever\minimapcaves.lua` and `data\forever\minimapbuildings.lua`. No game-type load condition, dependency or SavedVariables declaration changed. New files load only after a full client restart. !BugGrabber, Bagnon, Details, GatherLite, Lueur, Waypoint UI, YUI and You Don't Need This were already current.
+- Held:
+  - EllesmereUI 9.9.6 ([file 9843031](https://www.curseforge.com/wow/addons/ellesmereui/files/9843031)) is still the newest release, and still lets LibSpecialization send your specialization and talents to the group with no switch and no guard rule; 9.9.5 stays installed.
+  - GearInsight Forever 1.6.1 ([file 9874783](https://www.curseforge.com/wow/addons/gearinsight-forever/files/9874783)) is published only on the beta channel, so it is not a stable release; 1.4.20 stays installed.
+  - Skinner beta12.71139.2 is still a GitHub prerelease, like every Skinner release; beta12.70938.1 stays installed.
+- Guard: one new rule, 70 in total.
+  - `mu.instancegrouppos` (`MAUTTAB.INSTANCEGROUPPOS`, while YUI loads): MapUtils 1.9.x shares dungeon positions within the group, on by default. An open dungeon map (or its Minimap view) sends a `W:` request on the hidden `D4InstPos` addon prefix to the party, raid or instance group every 8-12 seconds. Every groupmate's client with the setting on then runs the flight-point super-tracking scan for its own position, which moves Waypoint UI's marker even with no map open, and sends `P:` messages with instance, coordinates, facing, class, race and sex every 1-10 seconds for 15-22 seconds. None of it needs a click, and YUI owns chat and group, as for `mu.friendshare`. The setting is a D4 shared option kept in `MAUTTAB`, and MapUtils hands it to the sharing code at login, so the MapUtils adapter writes it before login like the other MapUtils rules.
+  - Your own position on dungeon maps (`INSTANCEPLAYERPOS`) stays on, as chosen in 0.27.0.
+  - Tests: two new and four extended (the rule count and three MapUtils tests); all but the source test failed before the change. They pin the rule's owners, its write before login, the inactive case without YUI and the MapUtils source. The source checks cover four things: the switch is a `MAUTTAB` shared option handed over at login, requests are ignored and sharing stops with it off, both group pin updaters ask only with it on, and there are only two send sites.
+  - Every key and function the existing rules and CharacterUIBaseline use is unchanged.
+- Local patches: all 27 reapply unchanged; no anchor moved. The MapUtils fade-patch line is still upstream's (`mapframe.lua:1156`).
+- Overlap review, no further rule needed:
+  - Auctionator 355: each realm's price database is now saved at logout as CBOR chunks of 5,000 items (a table marked `serialized = true`) instead of one string, so very large databases are no longer wiped. Other realms are converted one per login. 354 and older cannot read the new format, so a downgrade loses the saved prices. The LibCBOR fallback is gone, so it now needs `C_EncodingUtil`; this client provides it, since the saved databases are already CBOR strings that only the `C_EncodingUtil` logout path writes. On Forever, Shift-hover disenchant breakdowns in tooltips show again and crafting costs use the auction price whenever it is below the vendor price. No new chat messages or automation.
+  - MapUtils 1.9.0-1.9.3, on by default:
+    - Up to four party members appear as round class-coloured portrait pins on the world map (race icon, flight icon on a taxi, red cross when dead, grey as a ghost, leader crown; hidden in raids), and the same pins appear beside the names in its Party list. They read the game's own unit positions and send nothing. Blizzard's small party dots still draw beneath them, and no other installed addon marks party members on the world map.
+    - Caves and building interiors from minimap data are drawn on zone maps (`WORLDMAPCAVES`, `WORLDMAPBUILDINGS`). YUI's reveal stays off under `yui.mapreveal`.
+    - Group pins on dungeon maps need `INSTANCEGROUPPOS`, now guarded.
+    - The map window's position, scale and fade are untouched, and there are no new CVar writes or chat channels.
+  - No new window, dialog or what's-new panel opens by itself at login: MapUtils' What's New code is unchanged and CharacterUIBaseline still quiets it, so `QuietLogin.lua` is unchanged.
+- Line endings: every replaced file keeps HEAD's line endings; no conversion was needed.
+- Backup: `WoW Addon Backups/_forever_/daily-20261128-130009` (taken by the day's automatic run).
+- Verification:
+  - 3,098 Lua files under AddOns compile under Lua 5.1.
+  - Installed files match the releases except MapUtils' patched `mapframe.lua`.
+  - 110 guard tests pass; the rule count is 70.
+  - 85 pytest tests, the patch check (27 patches) and the adoption, sync (99), helper and watcher tests pass.
+  - Nothing was run in game or checked at the three supported resolutions.
+
 ## 2026-11-28 - MapUtils shows your position on dungeon maps (OverlapSettingsGuard 0.27.0)
 
 - Guard: one rule removed, 69 in total.

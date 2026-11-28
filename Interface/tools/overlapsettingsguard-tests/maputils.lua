@@ -6,6 +6,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     { id = "mu.pierpins", field = "WORLDMAPPINS_ENABLED" },
     { id = "mu.friendshare", field = "FRIENDMEMBERSHARE" },
     { id = "mu.friendpins", field = "FRIENDMEMBERPINS_ENABLED" },
+    { id = "mu.instancegrouppos", field = "INSTANCEGROUPPOS" },
   }
   local FLIGHT = "travel.flight"
 
@@ -180,6 +181,51 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
     eq(sends, 6, "no unreviewed send site (5 sends and the definition)")
   end)
 
+  -- 1.9.x shares dungeon positions with the group: a groupmate's open dungeon map sends "W:", which
+  -- starts this client's flight-point scan and its "P:" position messages without a click.
+  test("MapUtils group position traffic stops with INSTANCEGROUPPOS off", function()
+    local addons = ADDON_ROOT .. "../MapUtils/"
+    local settings = ReadFile(addons .. "settings.lua")
+    local pos = ReadFile(addons .. "shared/InstanceMap/instance_pos.lua")
+    local map = ReadFile(addons .. "shared/InstanceMap/instance_map.lua")
+    local provider = ReadFile(addons .. "instancemap.lua")
+    local plan = ReadFile(addons .. "instanceminimap.lua")
+    ok(settings:find('"INSTANCEPLAYERPOS", "INSTANCEGROUPPOS"}', 1, true), "group position is a shared option")
+    ok(settings:find('["getDB"] = function() return MAUTTAB end', 1, true), "shared options live in MAUTTAB")
+    ok(settings:find('MapUtils:SetInstanceGroupPosEnabled(MapUtils:GetConfig("INSTANCEGROUPPOS", true) ~= false)', 1, true),
+      "login hands the saved switch to the sharing code")
+    ok(pos:find('if tag == "W:" then\r?\n\t\tif GROUP.shareEnabled == false then return end'), "requests are ignored with it off")
+    ok(pos:find("if GROUP.shareEnabled == false or grp.GetChannel() == nil then", 1, true), "sharing stops with it off")
+    ok(provider:find('["isGroupPosEnabled"] = function() return MapUtils:GetConfig("INSTANCEGROUPPOS", true) ~= false end', 1, true),
+      "the dungeon map reads the switch")
+    ok(map:find("local groupEnabled = provider.isGroupPosEnabled == nil or provider.isGroupPosEnabled()", 1, true),
+      "the dungeon map asks only with it on")
+    ok(plan:find('local groupEnabled = MapUtils:GetConfig("INSTANCEGROUPPOS", true) ~= false', 1, true),
+      "the Minimap view asks only with it on")
+    local _, sends = pos:gsub("grp%.Send%(", "")
+    eq(sends, 3, "no unreviewed send site (2 sends and the definition)")
+    local _, asks = pos:gsub("reg%.impl%.NotifyGroupWatch%(", "")
+    eq(asks, 2, "requests go out only from the two group pin updaters")
+    local _, callers = (map .. plan):gsub("UpdateInstanceGroup%a*Pins%(", "")
+    eq(callers, 2, "both group pin updaters are called behind the switch")
+  end)
+
+  test("MapUtils group position is off before login with YUI and back on without it", function()
+    local saved = { INSTANCEGROUPPOS = true, INSTANCEPLAYERPOS = true }
+    local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded(), beforeGuard = Saved(saved) })
+    eq(saved.INSTANCEGROUPPOS, false, "written before MapUtils hands it over at login")
+    eq(saved.INSTANCEPLAYERPOS, true, "own position kept")
+    w.Login()
+    eq(StatusOf(w.ns.Check(), "mu.instancegrouppos"), "off")
+    local loaded = Loaded()
+    loaded.YUI = nil
+    local kept = { INSTANCEGROUPPOS = true }
+    local w2 = Stubs.Fresh(ADDON_ROOT, { loaded = loaded, beforeGuard = Saved(kept) })
+    w2.Login()
+    eq(kept.INSTANCEGROUPPOS, true)
+    eq(StatusOf(w2.ns.Check(), "mu.instancegrouppos"), "inactive")
+  end)
+
   -- Not guarded since 0.27.0: the player position on dungeon maps is wanted even though its
   -- flight-point super-tracking moves Waypoint UI's marker while the dungeon map is open.
   test("MapUtils instance position is left alone with Waypoint UI loaded", function()
@@ -206,7 +252,7 @@ return function(test, eq, ok, Stubs, CurrentLoaded, StatusOf, ChatContains)
       WORLDMAPSCALEVALUE = 1.2, ONEMAP = true, MINIMAPPINS = true, VESSELWORLDMAPPINS = true,
       FLIGHTWORLDMAPPINS = true, CROSSINGWORLDMAPPINS = true, FISHINGLEVELS = true, ZONELEVELS = true,
       FRIENDMEMBERSHARE = true, FRIENDMEMBERPINS_ENABLED = true, GUILDMEMBERPINS_ENABLED = true, GUILDMEMBERSHARE = true,
-      INSTANCEPLAYERPOS = true }
+      INSTANCEPLAYERPOS = true, INSTANCEGROUPPOS = true }
     local w = Stubs.Fresh(ADDON_ROOT, { loaded = Loaded(), beforeGuard = Saved(saved) })
     for _, setting in ipairs(GUARDED) do eq(saved[setting.field], false, setting.field) end
     for _, key in ipairs({ "WORLDMAPPINS", "WORLDMAPPINS_AZEROTH", "ONEMAP", "MINIMAPPINS", "VESSELWORLDMAPPINS", "FLIGHTWORLDMAPPINS",

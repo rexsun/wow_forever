@@ -8,6 +8,7 @@ local IM = {
 	["btn"] = nil,
 	["btnOverlay"] = nil,
 	["arrow"] = nil,
+	["groupLayer"] = nil,
 	["arrowPx"] = nil,
 	["arrowPy"] = nil,
 	["arrowRot"] = nil,
@@ -185,11 +186,28 @@ local function BuildPinProjector(artKey, mapData)
 	end
 end
 
+local function EnsurePlanGroupLayer(plan)
+	local groupLevel = (IM.planOverlay ~= nil and (IM.planOverlay:GetFrameLevel() + 260) or (plan.canvas:GetFrameLevel() + 250)) - 1
+	local layer = IM.groupLayer
+	if layer == nil then
+		if MapUtils.CreateInstanceGroupLayer ~= nil then
+			layer = MapUtils:CreateInstanceGroupLayer(plan, groupLevel, ARROW_SIZE)
+			IM.groupLayer = layer
+		end
+	else
+		layer.level = groupLevel
+	end
+	return layer
+end
+
 local function HidePlanArrow()
 	if MapUtils.HideInstancePosArrow ~= nil then
 		MapUtils:HideInstancePosArrow(IM.arrow, "MapUtils_Minimap")
 	elseif IM.arrow ~= nil then
 		IM.arrow:Hide()
+	end
+	if MapUtils.HideInstanceGroupPins ~= nil then
+		MapUtils:HideInstanceGroupPins(IM.groupLayer)
 	end
 	IM.arrowPx = nil
 	IM.arrowPy = nil
@@ -197,10 +215,15 @@ local function HidePlanArrow()
 end
 
 local function PlacePlanArrow(mapData)
-	if IM.arrow == nil or IM.arrowPx == nil or IM.plan == nil or mapData == nil or IM.baseW <= 0 then return end
+	if IM.plan == nil or mapData == nil or IM.baseW <= 0 then return end
 	local tileScale = (IM.baseW * IM.zoom) / mapData.w
-	IM.arrow:ClearAllPoints()
-	IM.arrow:SetPoint("CENTER", IM.plan.canvas, "TOPLEFT", IM.arrowPx * tileScale, -IM.arrowPy * tileScale)
+	if IM.arrow ~= nil and IM.arrowPx ~= nil then
+		IM.arrow:ClearAllPoints()
+		IM.arrow:SetPoint("CENTER", IM.plan.canvas, "TOPLEFT", IM.arrowPx * tileScale, -IM.arrowPy * tileScale)
+	end
+	if IM.groupLayer ~= nil and MapUtils.LayoutInstanceGroupPlanPins ~= nil then
+		MapUtils:LayoutInstanceGroupPlanPins(IM.groupLayer, IM.plan.canvas, tileScale)
+	end
 end
 
 local function GetCursorOffset()
@@ -552,10 +575,29 @@ local function HideVisuals()
 end
 
 local function UpdatePlanArrow(mapData, instID)
-	local enabled = MapUtils:GetConfig("INSTANCEPLAYERPOS", true) ~= false
+	local playerEnabled = MapUtils:GetConfig("INSTANCEPLAYERPOS", true) ~= false
+	local groupEnabled = MapUtils:GetConfig("INSTANCEGROUPPOS", true) ~= false
 	local planShown = IM.plan ~= nil and IM.plan:IsShown() and mapData ~= nil and mapData.wx ~= nil and mapData.wy ~= nil and mapData.ps ~= nil and IM.baseW > 0
-	if not planShown or not enabled or MapUtils.GetLiveInstancePosition == nil then
+	if not planShown then
 		HidePlanArrow()
+		return
+	end
+	if groupEnabled and MapUtils.UpdateInstanceGroupPlanPins ~= nil then
+		local layer = EnsurePlanGroupLayer(IM.plan)
+		local tileScale = (IM.baseW * IM.zoom) / mapData.w
+		MapUtils:UpdateInstanceGroupPlanPins(layer, IM.plan.canvas, mapData, instID, tileScale, true)
+	elseif MapUtils.HideInstanceGroupPins ~= nil then
+		MapUtils:HideInstanceGroupPins(IM.groupLayer)
+	end
+	if not playerEnabled or MapUtils.GetLiveInstancePosition == nil then
+		if MapUtils.HideInstancePosArrow ~= nil then
+			MapUtils:HideInstancePosArrow(IM.arrow, "MapUtils_Minimap")
+		elseif IM.arrow ~= nil then
+			IM.arrow:Hide()
+		end
+		IM.arrowPx = nil
+		IM.arrowPy = nil
+		IM.arrowRot = nil
 		return
 	end
 	local wx, wy, _, facing, _, showArrow = MapUtils:GetLiveInstancePosition("MapUtils_Minimap", instID, true)
@@ -669,7 +711,10 @@ Refresh = function()
 end
 
 function MapUtils:RefreshInstancePosition()
-	if MapUtils:GetConfig("INSTANCEPLAYERPOS", true) == false then
+	if MapUtils.SetInstanceGroupPosEnabled ~= nil then
+		MapUtils:SetInstanceGroupPosEnabled(MapUtils:GetConfig("INSTANCEGROUPPOS", true) ~= false)
+	end
+	if MapUtils:GetConfig("INSTANCEPLAYERPOS", true) == false and MapUtils:GetConfig("INSTANCEGROUPPOS", true) == false then
 		HidePlanArrow()
 		return
 	end

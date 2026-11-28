@@ -8,6 +8,7 @@ Quarterly logs:
 
 ## 2026 Q4
 
+- 2026-11-28 · **OverlapSettingsGuard 0.28.0**: [Update two addon packages (OverlapSettingsGuard 0.28.0)](AddOns/updates-2026-Q4.md#2026-11-28---update-two-addon-packages-overlapsettingsguard-0280)
 - 2026-11-28 · **OverlapSettingsGuard 0.27.0**: [MapUtils shows your position on dungeon maps (OverlapSettingsGuard 0.27.0)](AddOns/updates-2026-Q4.md#2026-11-28---maputils-shows-your-position-on-dungeon-maps-overlapsettingsguard-0270)
 - 2026-11-27 · **OverlapSettingsGuard 0.26.0**: [Update three addon packages (OverlapSettingsGuard 0.26.0)](AddOns/updates-2026-Q4.md#2026-11-27---update-three-addon-packages-overlapsettingsguard-0260)
 - 2026-11-26 · **OverlapSettingsGuard 0.25.0**: [Update three addon packages (OverlapSettingsGuard 0.25.0)](AddOns/updates-2026-Q4.md#2026-11-26---update-three-addon-packages-overlapsettingsguard-0250)

@@ -1,5 +1,5 @@
 local addonName, D4 = ...
-local VERSION = 2
+local VERSION = 4
 local TAXI_PIN = Enum and Enum.SuperTrackingMapPinType and Enum.SuperTrackingMapPinType.TaxiNode or 2
 local TRACK = Enum and Enum.SuperTrackingType or {}
 local TRACK_QUEST = TRACK.Quest or 0
@@ -9,7 +9,8 @@ local TRACK_PIN = TRACK.MapPin or 6
 local TRACK_VIGNETTE = TRACK.Vignette or 7
 local ARROW_SIZE = 24
 local POS_MAX_AGE = 3.0
-local TEX_CIRCLE = "Interface\\AddOns\\" .. addonName .. "\\shared\\InstanceMap\\player_circle.blp"
+local GROUP_PREFIX = "D4InstPos"
+local GROUP_LEASE = "_D4GroupShare"
 local TEX_POINTER = "Interface\\AddOns\\" .. addonName .. "\\shared\\InstanceMap\\player_pointer.blp"
 local CFG = {
 	["activeCount"] = 5,
@@ -57,6 +58,27 @@ if reg == nil then
 		["leases"] = {},
 		["driver"] = nil,
 		["motionFrame"] = nil,
+		["groupFrame"] = nil,
+		["groupTicker"] = nil,
+		["group"] = {
+			["peers"] = {},
+			["roster"] = {},
+			["rosterDirty"] = true,
+			["watchUntil"] = 0,
+			["lastWatchSent"] = 0,
+			["lastWatchInst"] = nil,
+			["lastSendTime"] = 0,
+			["lastSendInst"] = nil,
+			["lastSendX"] = nil,
+			["lastSendY"] = nil,
+			["lastSendZ"] = nil,
+			["lastSendFacing"] = nil,
+			["lastSendMoving"] = nil,
+			["forceSend"] = false,
+			["sendBackoff"] = 0,
+			["shareEnabled"] = true,
+			["elapsed"] = 0,
+		},
 		["pos"] = {
 			["active"] = false,
 			["instID"] = nil,
@@ -133,6 +155,28 @@ if reg == nil then
 end
 
 local POS = reg.pos
+if reg.group == nil then
+	reg.group = {
+		["peers"] = {},
+		["roster"] = {},
+		["rosterDirty"] = true,
+		["watchUntil"] = 0,
+		["lastWatchSent"] = 0,
+		["lastWatchInst"] = nil,
+		["lastSendTime"] = 0,
+		["lastSendInst"] = nil,
+		["lastSendX"] = nil,
+		["lastSendY"] = nil,
+		["lastSendZ"] = nil,
+		["lastSendFacing"] = nil,
+		["lastSendMoving"] = nil,
+		["forceSend"] = false,
+		["sendBackoff"] = 0,
+		["shareEnabled"] = true,
+		["elapsed"] = 0,
+	}
+end
+local GROUP = reg.group
 
 local function IsSecret(v)
 	return issecretvalue ~= nil and issecretvalue(v) == true
@@ -899,6 +943,12 @@ local function BindMotionScript(mf)
 		elseif event == "PLAYER_ENTERING_WORLD" then
 			if GetCurrentInstanceID() == nil then
 				wipe(reg.leases)
+				GROUP.watchUntil = 0
+				GROUP.lastWatchInst = nil
+				GROUP.lastSendInst = nil
+				wipe(GROUP.peers)
+				GROUP.rosterDirty = true
+				if reg.groupTicker ~= nil then reg.groupTicker:Hide() end
 				impl.Stop()
 			elseif POS.active and POS.phase == 3 then
 				POS.nextSleepPing = now
@@ -1117,6 +1167,564 @@ function impl.GetLive(ownerKey, instID, enabled)
 	return wx, wy, wz, facing, age, showArrow
 end
 
+local grp = {}
+
+function grp.GetChannel()
+	if LE_PARTY_CATEGORY_INSTANCE ~= nil and IsInGroup ~= nil and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then return "INSTANCE_CHAT" end
+	if IsInRaid ~= nil and IsInRaid() then return "RAID" end
+	if IsInGroup ~= nil and IsInGroup() then return "PARTY" end
+	return nil
+end
+
+function grp.IsRaidSize()
+	if GetNumGroupMembers == nil then return false end
+	local n = GetNumGroupMembers()
+	if IsSecret(n) or type(n) ~= "number" then return false end
+	return n > 5
+end
+
+function grp.IsChatLocked()
+	if C_ChatInfo ~= nil and C_ChatInfo.InChatMessagingLockdown ~= nil then
+		local ok, locked = pcall(C_ChatInfo.InChatMessagingLockdown)
+		if ok and locked == true then return true end
+	end
+	return false
+end
+
+function grp.Send(msg, now)
+	if msg == nil or now < (GROUP.sendBackoff or 0) then return false end
+	if C_ChatInfo == nil or C_ChatInfo.SendAddonMessage == nil then return false end
+	if grp.IsChatLocked() then return false end
+	local ch = grp.GetChannel()
+	if ch == nil then return false end
+	local ok, res = pcall(C_ChatInfo.SendAddonMessage, GROUP_PREFIX, msg, ch)
+	if not ok or (type(res) == "number" and res ~= 0) then
+		GROUP.sendBackoff = now + 2.5
+		return false
+	end
+	return true
+end
+
+function grp.IsSelfSender(sender)
+	if type(sender) ~= "string" or sender == "" then return true end
+	if D4.GetPlayerCharacterKey ~= nil then
+		local key, ownName = D4:GetPlayerCharacterKey()
+		if key ~= nil and (sender == key or sender == ownName) then return true end
+	end
+	if UnitFullName ~= nil then
+		local name, realm = UnitFullName("player")
+		if not IsSecret(name) and not IsSecret(realm) and type(name) == "string" and name ~= "" and (sender == name or (type(realm) == "string" and realm ~= "" and sender == name .. "-" .. realm)) then
+			return true
+		end
+	end
+	if UnitName ~= nil then
+		local first, second = UnitName("player", true)
+		if not IsSecret(first) and type(first) == "string" and first ~= "" then
+			if sender == first then return true end
+			if not IsSecret(second) and type(second) == "string" and second ~= "" and (sender == first .. " " .. second or sender == first .. "-" .. second) then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+function grp.RebuildRoster()
+	GROUP.rosterDirty = false
+	local r = GROUP.roster
+	wipe(r)
+	if grp.GetChannel() == nil then return end
+	local isRaid = IsInRaid ~= nil and IsInRaid()
+	local count = isRaid and (GetNumGroupMembers ~= nil and GetNumGroupMembers() or 0) or 4
+	if IsSecret(count) or type(count) ~= "number" or count <= 0 then return end
+	local prefix = isRaid and "raid" or "party"
+	for i = 1, count do
+		local unit = prefix .. i
+		if (UnitExists == nil or UnitExists(unit)) and (UnitIsUnit == nil or not UnitIsUnit(unit, "player")) then
+			if UnitFullName ~= nil then
+				local fn, fr = UnitFullName(unit)
+				if not IsSecret(fn) and type(fn) == "string" and fn ~= "" then
+					r[strlower(fn)] = unit
+					if not IsSecret(fr) and type(fr) == "string" and fr ~= "" then
+						r[strlower(fn .. "-" .. fr)] = unit
+					end
+				end
+			end
+			if UnitName ~= nil then
+				local n1, n2 = UnitName(unit, true)
+				if not IsSecret(n1) and type(n1) == "string" and n1 ~= "" then
+					r[strlower(n1)] = unit
+					if not IsSecret(n2) and type(n2) == "string" and n2 ~= "" then
+						r[strlower(n1 .. " " .. n2)] = unit
+						r[strlower(n1 .. "-" .. n2)] = unit
+					end
+				end
+			end
+		end
+	end
+end
+
+function grp.FindUnit(sender)
+	if GROUP.rosterDirty then grp.RebuildRoster() end
+	if type(sender) ~= "string" or sender == "" then return nil end
+	local r = GROUP.roster
+	local u = r[strlower(sender)]
+	if u ~= nil then return u end
+	local short = strmatch(sender, "^([^%-]+)")
+	if short ~= nil and short ~= "" then return r[strlower(short)] end
+	return nil
+end
+
+grp.style = {
+	["mask"] = "Interface\\CharacterFrame\\TempPortraitAlphaMask",
+	["crownAtlas"] = "UI-HUD-UnitFrame-Player-Group-LeaderIcon",
+	["crownTex"] = "Interface\\GroupFrame\\UI-Group-LeaderIcon",
+	["deadMark"] = "Interface\\RaidFrame\\ReadyCheck-NotReady",
+	["taxiHorde"] = 132268,
+	["taxiAlliance"] = 132239,
+	["raceAliases"] = {
+		["scourge"] = "undead",
+		["highmountaintauren"] = "highmountain",
+		["lightforgeddraenei"] = "lightforged",
+		["zandalaritroll"] = "zandalari",
+		["harronir"] = "haranir",
+		["earthendwarf"] = "earthen",
+	},
+}
+
+function grp.HasAtlas(name)
+	return name ~= nil and C_Texture ~= nil and C_Texture.GetAtlasInfo ~= nil and C_Texture.GetAtlasInfo(name) ~= nil
+end
+
+function grp.GetCrownMarkup()
+	if CreateAtlasMarkup ~= nil and grp.HasAtlas(grp.style.crownAtlas) then
+		return CreateAtlasMarkup(grp.style.crownAtlas, 14, 14) .. " "
+	end
+	return "|T" .. grp.style.crownTex .. ":12:12:0:0|t "
+end
+
+function grp.GetRaceAtlas(race, sex)
+	if type(race) ~= "string" or race == "" then return nil end
+	local r = strlower(race)
+	local gender = sex == 3 and "female" or "male"
+	local alias = grp.style.raceAliases[r]
+	local candidates = alias ~= nil and {r, alias} or {r}
+	for i = 1, #candidates do
+		local suffix = candidates[i] .. "-" .. gender
+		local a128 = "raceicon128-" .. suffix
+		if grp.HasAtlas(a128) then return a128 end
+		local a64 = "raceicon-" .. suffix
+		if grp.HasAtlas(a64) then return a64 end
+	end
+	return nil
+end
+
+function grp.GetTaxiIcon(faction)
+	if faction == "Horde" then return grp.style.taxiHorde end
+	if faction == "Alliance" then return grp.style.taxiAlliance end
+	if UnitFactionGroup ~= nil then
+		local pf = UnitFactionGroup("player")
+		if pf == "Horde" then return grp.style.taxiHorde end
+		if pf == "Alliance" then return grp.style.taxiAlliance end
+	end
+	return nil
+end
+
+function grp.GetUnitMeta(unit, fallbackName, fallbackClass, fallbackRace, fallbackSex)
+	local name = fallbackName
+	local class = fallbackClass
+	local race = fallbackRace
+	local sex = fallbackSex
+	local faction = nil
+	local taxi = false
+	local ghost = false
+	local dead = false
+	local leader = false
+	local online = true
+	if unit ~= nil then
+		if UnitIsConnected ~= nil then
+			local c = UnitIsConnected(unit)
+			if not IsSecret(c) and c == false then online = false end
+		end
+		if UnitName ~= nil then
+			local un = UnitName(unit)
+			if not IsSecret(un) and type(un) == "string" and un ~= "" then name = un end
+		end
+		if UnitClass ~= nil then
+			local _, uc = UnitClass(unit)
+			if not IsSecret(uc) and type(uc) == "string" and uc ~= "" then class = uc end
+		end
+		if UnitRace ~= nil then
+			local _, ur = UnitRace(unit)
+			if not IsSecret(ur) and type(ur) == "string" and ur ~= "" then race = ur end
+		end
+		if UnitSex ~= nil then
+			local us = UnitSex(unit)
+			if not IsSecret(us) and type(us) == "number" then sex = us end
+		end
+		if UnitFactionGroup ~= nil then
+			local uf = UnitFactionGroup(unit)
+			if not IsSecret(uf) and type(uf) == "string" and uf ~= "" then faction = uf end
+		end
+		if UnitOnTaxi ~= nil then
+			local ut = UnitOnTaxi(unit)
+			if not IsSecret(ut) and (ut == true or ut == 1) then taxi = true end
+		end
+		if UnitIsGhost ~= nil then
+			local ug = UnitIsGhost(unit)
+			if not IsSecret(ug) and (ug == true or ug == 1) then ghost = true end
+		end
+		if UnitIsDeadOrGhost ~= nil then
+			local d = UnitIsDeadOrGhost(unit)
+			if not IsSecret(d) and d == true then dead = true end
+		end
+		if UnitIsGroupLeader ~= nil then
+			local l = UnitIsGroupLeader(unit)
+			if not IsSecret(l) and l == true then leader = true end
+		end
+	end
+	return name, class, dead, leader, online, race, sex, faction, taxi, ghost
+end
+
+function grp.GetClassRGB(class, dead, ghost)
+	if ghost then return 0.55, 0.55, 0.55 end
+	if class == nil or class == "" then return 0.75, 0.85, 1 end
+	if D4.GetClassColor ~= nil then
+		local r, g, b = D4:GetClassColor(class)
+		if r ~= nil and g ~= nil and b ~= nil then return r, g, b end
+	end
+	local tab = CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS
+	local c = tab ~= nil and tab[class] or nil
+	if c ~= nil then return c.r or 1, c.g or 1, c.b or 1 end
+	return 0.75, 0.85, 1
+end
+
+function grp.StopSharing()
+	GROUP.watchUntil = 0
+	GROUP.forceSend = false
+	impl.Release(GROUP_LEASE)
+	if reg.groupTicker ~= nil then reg.groupTicker:Hide() end
+end
+
+function grp.ShareTick(now)
+	if GROUP.shareEnabled == false or grp.GetChannel() == nil then
+		grp.StopSharing()
+		return
+	end
+	local curInst = GetCurrentInstanceID()
+	if curInst == nil or now >= (GROUP.watchUntil or 0) then
+		grp.StopSharing()
+		return
+	end
+	local wx, wy, wz, facing, _, showArrow = impl.GetLive(GROUP_LEASE, curInst, true)
+	if wx == nil or wy == nil then return end
+	local isRaid = grp.IsRaidSize()
+	local minGap = isRaid and 2.5 or 1.2
+	local idleGap = isRaid and 10.0 or 6.0
+	local dt = now - (GROUP.lastSendTime or 0)
+	if dt < minGap then return end
+	local moving = showArrow == true
+	local shouldSend = GROUP.forceSend or GROUP.lastSendInst ~= curInst or dt >= idleGap or GROUP.lastSendMoving ~= moving
+	if not shouldSend and GROUP.lastSendX ~= nil and GROUP.lastSendY ~= nil then
+		local dx = wx - GROUP.lastSendX
+		local dy = wy - GROUP.lastSendY
+		if (dx * dx + dy * dy) >= 4 then
+			shouldSend = true
+		elseif moving and facing ~= nil and (GROUP.lastSendFacing == nil or math.abs(facing - GROUP.lastSendFacing) >= 0.35) then
+			shouldSend = true
+		end
+	elseif not shouldSend then
+		shouldSend = true
+	end
+	if not shouldSend then return end
+	local classToken = ""
+	if UnitClass ~= nil then
+		local _, c = UnitClass("player")
+		if not IsSecret(c) and type(c) == "string" then classToken = c end
+	end
+	local raceToken = ""
+	if UnitRace ~= nil then
+		local _, r = UnitRace("player")
+		if not IsSecret(r) and type(r) == "string" then raceToken = r end
+	end
+	local sexNum = 2
+	if UnitSex ~= nil then
+		local s = UnitSex("player")
+		if not IsSecret(s) and type(s) == "number" then sexNum = s end
+	end
+	local faceStr = (moving and facing ~= nil) and format("%.2f", facing) or ""
+	local payload = format("P:%d:%.1f:%.1f:%.1f:%s:%d:%s:%s:%d", curInst, wx, wy, wz or 0, faceStr, moving and 1 or 0, classToken, raceToken, sexNum)
+	if grp.Send(payload, now) then
+		GROUP.lastSendTime = now
+		GROUP.lastSendInst = curInst
+		GROUP.lastSendX = wx
+		GROUP.lastSendY = wy
+		GROUP.lastSendZ = wz or 0
+		GROUP.lastSendFacing = moving and facing or nil
+		GROUP.lastSendMoving = moving
+		GROUP.forceSend = false
+	end
+end
+
+function grp.EnsureTicker()
+	if reg.groupTicker == nil then
+		if CreateFrame == nil then return nil end
+		local t = CreateFrame("Frame")
+		t:Hide()
+		reg.groupTicker = t
+	end
+	reg.groupTicker:SetScript("OnUpdate", function(_, elapsed)
+		GROUP.elapsed = (GROUP.elapsed or 0) + elapsed
+		if GROUP.elapsed < 0.3 then return end
+		GROUP.elapsed = 0
+		grp.ShareTick(GetTime())
+	end)
+	return reg.groupTicker
+end
+
+function grp.NotifyWatch(instID)
+	if instID == nil or grp.GetChannel() == nil then return end
+	local curInst = GetCurrentInstanceID()
+	if curInst == nil or curInst ~= instID then return end
+	local now = GetTime()
+	local watchGap = grp.IsRaidSize() and 12 or 8
+	if (GROUP.lastWatchInst ~= instID or (now - (GROUP.lastWatchSent or 0)) >= watchGap) and grp.Send("W:" .. tostring(instID), now) then
+		GROUP.lastWatchSent = now
+		GROUP.lastWatchInst = instID
+	end
+end
+
+function grp.OnAddonMessage(prefix, msg, dist, sender)
+	if IsSecret(prefix) or IsSecret(msg) or IsSecret(dist) or IsSecret(sender) then return end
+	if prefix ~= GROUP_PREFIX then return end
+	if dist ~= "PARTY" and dist ~= "RAID" and dist ~= "INSTANCE_CHAT" then return end
+	if type(msg) ~= "string" or type(sender) ~= "string" or msg == "" or #msg > 160 then return end
+	if grp.IsSelfSender(sender) then return end
+	local now = GetTime()
+	local tag = strsub(msg, 1, 2)
+	if tag == "W:" then
+		if GROUP.shareEnabled == false then return end
+		local reqInst = tonumber(strsub(msg, 3))
+		local curInst = GetCurrentInstanceID()
+		if reqInst == nil or curInst == nil or reqInst ~= curInst then return end
+		local ttl = grp.IsRaidSize() and 22 or 15
+		if (now + ttl) > (GROUP.watchUntil or 0) then GROUP.watchUntil = now + ttl end
+		GROUP.forceSend = true
+		local ticker = grp.EnsureTicker()
+		if ticker ~= nil and not ticker:IsShown() then ticker:Show() end
+		grp.ShareTick(now)
+	elseif tag == "P:" then
+		local _, instStr, xStr, yStr, zStr, faceStr, movStr, clsStr, raceStr, sexStr = strsplit(":", msg)
+		local instID = tonumber(instStr)
+		local x = tonumber(xStr)
+		local y = tonumber(yStr)
+		if instID == nil or x == nil or y == nil or x ~= x or y ~= y then return end
+		local z = tonumber(zStr) or 0
+		local facing = (faceStr ~= nil and faceStr ~= "") and tonumber(faceStr) or nil
+		local moving = movStr == "1"
+		local sex = tonumber(sexStr)
+		local short = strmatch(sender, "^([^%-]+)") or sender
+		local key = strlower(short)
+		local peer = GROUP.peers[key]
+		if peer == nil then
+			peer = {
+				["key"] = key,
+				["sender"] = sender,
+				["name"] = short,
+				["class"] = clsStr or "",
+				["race"] = raceStr or "",
+				["sex"] = sex,
+				["instID"] = instID,
+				["prevX"] = x,
+				["prevY"] = y,
+				["targetX"] = x,
+				["targetY"] = y,
+				["z"] = z,
+				["lerpStart"] = now,
+				["lerpDur"] = 0,
+				["facing"] = facing,
+				["moving"] = moving,
+				["time"] = now,
+			}
+			GROUP.peers[key] = peer
+		else
+			local curX = peer.targetX
+			local curY = peer.targetY
+			if peer.lerpDur > 0 then
+				local f = math.min(1, math.max(0, (now - peer.lerpStart) / peer.lerpDur))
+				curX = peer.prevX + (peer.targetX - peer.prevX) * f
+				curY = peer.prevY + (peer.targetY - peer.prevY) * f
+			end
+			local dt = now - (peer.time or now)
+			local dx = x - curX
+			local dy = y - curY
+			if peer.instID == instID and (dx * dx + dy * dy) < 1600 and dt > 0.05 and dt < 12 then
+				peer.prevX = curX
+				peer.prevY = curY
+				peer.lerpStart = now
+				peer.lerpDur = math.min(0.6, math.max(0.18, dt * 0.45))
+			else
+				peer.prevX = x
+				peer.prevY = y
+				peer.lerpStart = now
+				peer.lerpDur = 0
+			end
+			peer.sender = sender
+			peer.name = short
+			if clsStr ~= nil and clsStr ~= "" then peer.class = clsStr end
+			if raceStr ~= nil and raceStr ~= "" then peer.race = raceStr end
+			if sex ~= nil then peer.sex = sex end
+			peer.instID = instID
+			peer.targetX = x
+			peer.targetY = y
+			peer.z = z
+			peer.facing = facing
+			peer.moving = moving
+			peer.time = now
+		end
+	end
+end
+
+function grp.EnsureEventFrame()
+	if C_ChatInfo ~= nil and C_ChatInfo.RegisterAddonMessagePrefix ~= nil then
+		pcall(C_ChatInfo.RegisterAddonMessagePrefix, GROUP_PREFIX)
+	end
+	if reg.groupFrame == nil then
+		if CreateFrame == nil then return nil end
+		local gf = CreateFrame("Frame")
+		pcall(gf.RegisterEvent, gf, "CHAT_MSG_ADDON")
+		pcall(gf.RegisterEvent, gf, "GROUP_ROSTER_UPDATE")
+		pcall(gf.RegisterEvent, gf, "PLAYER_ENTERING_WORLD")
+		reg.groupFrame = gf
+	end
+	reg.groupFrame:SetScript("OnEvent", function(_, event, ...)
+		if event == "CHAT_MSG_ADDON" then
+			grp.OnAddonMessage(...)
+		elseif event == "GROUP_ROSTER_UPDATE" then
+			GROUP.rosterDirty = true
+			if grp.GetChannel() == nil then
+				wipe(GROUP.peers)
+				grp.StopSharing()
+			end
+		elseif event == "PLAYER_ENTERING_WORLD" then
+			GROUP.rosterDirty = true
+			if GetCurrentInstanceID() == nil or grp.GetChannel() == nil then
+				wipe(GROUP.peers)
+				grp.StopSharing()
+			end
+		end
+	end)
+	return reg.groupFrame
+end
+
+local grpScratch = {}
+local grpSeen = {}
+
+function impl.SetGroupShareEnabled(enabled)
+	GROUP.shareEnabled = enabled ~= false
+	if GROUP.shareEnabled == false then
+		grp.StopSharing()
+	end
+end
+
+function grp.CollectDirect(instID, out)
+	if UnitPosition == nil then return 0 end
+	local isRaid = IsInRaid ~= nil and IsInRaid()
+	local count = isRaid and (GetNumGroupMembers ~= nil and GetNumGroupMembers() or 0) or 4
+	if IsSecret(count) or type(count) ~= "number" or count <= 0 then return 0 end
+	local prefix = isRaid and "raid" or "party"
+	local n = 0
+	for i = 1, count do
+		local unit = prefix .. i
+		local validUnit = (UnitExists == nil or UnitExists(unit)) and (UnitIsUnit == nil or not UnitIsUnit(unit, "player"))
+		if validUnit then
+			local nx, ny, nz, uInst = UnitPosition(unit)
+			local validPos = not IsSecret(nx) and not IsSecret(ny) and type(nx) == "number" and type(ny) == "number" and (uInst == nil or IsSecret(uInst) or uInst == instID)
+			if validPos then
+				local uName, uClass, uDead, uLeader, uOnline, uRace, uSex, uFaction, uTaxi, uGhost = grp.GetUnitMeta(unit, unit, "")
+				if uOnline then
+					local key = strlower(uName or unit)
+					grpSeen[key] = true
+					n = n + 1
+					local row = out[n]
+					if row == nil then
+						row = {}
+						out[n] = row
+					end
+					row.key = key
+					row.name = uName
+					row.class = uClass
+					row.race = uRace
+					row.sex = uSex
+					row.faction = uFaction
+					row.taxi = uTaxi
+					row.ghost = uGhost
+					row.x = nx
+					row.y = ny
+					row.z = (not IsSecret(nz) and type(nz) == "number") and nz or 0
+					row.facing = nil
+					row.moving = false
+					row.dead = uDead
+					row.leader = uLeader
+				end
+			end
+		end
+	end
+	return n
+end
+
+function impl.CollectGroupMembers(instID, out)
+	if instID == nil or grp.GetChannel() == nil then return 0 end
+	local now = GetTime()
+	wipe(grpSeen)
+	local n = grp.CollectDirect(instID, out)
+	local maxAge = grp.IsRaidSize() and 30 or 20
+	for key, peer in pairs(GROUP.peers) do
+		if (now - (peer.time or 0)) > maxAge then
+			GROUP.peers[key] = nil
+		elseif peer.instID == instID and not grpSeen[key] then
+			local unit = grp.FindUnit(peer.sender) or grp.FindUnit(peer.name)
+			local uName, uClass, uDead, uLeader, uOnline, uRace, uSex, uFaction, uTaxi, uGhost = grp.GetUnitMeta(unit, peer.name, peer.class, peer.race, peer.sex)
+			if uOnline and not grpSeen[strlower(uName or key)] then
+				local ix = peer.targetX
+				local iy = peer.targetY
+				if peer.lerpDur > 0 then
+					local f = math.min(1, math.max(0, (now - peer.lerpStart) / peer.lerpDur))
+					ix = peer.prevX + (peer.targetX - peer.prevX) * f
+					iy = peer.prevY + (peer.targetY - peer.prevY) * f
+				end
+				n = n + 1
+				local row = out[n]
+				if row == nil then
+					row = {}
+					out[n] = row
+				end
+				row.key = key
+				row.name = uName
+				row.class = uClass
+				row.race = uRace
+				row.sex = uSex
+				row.faction = uFaction
+				row.taxi = uTaxi
+				row.ghost = uGhost
+				row.x = ix
+				row.y = iy
+				row.z = peer.z or 0
+				row.facing = peer.facing
+				row.moving = peer.moving == true
+				row.dead = uDead
+				row.leader = uLeader
+			end
+		end
+	end
+	return n
+end
+
+function impl.NotifyGroupWatch(instID)
+	grp.EnsureEventFrame()
+	grp.NotifyWatch(instID)
+end
+
 if reg.version < VERSION then
 	reg.version = VERSION
 	reg.impl = impl
@@ -1127,6 +1735,12 @@ if reg.version < VERSION then
 	else
 		EnsureMotionFrame()
 	end
+	grp.EnsureEventFrame()
+	if reg.groupTicker ~= nil then grp.EnsureTicker() end
+end
+
+function D4:SetInstanceGroupPosEnabled(enabled)
+	reg.impl.SetGroupShareEnabled(enabled)
 end
 
 function D4:RegisterInstancePosData(data)
@@ -1161,68 +1775,175 @@ function D4:GetLiveInstancePosition(ownerKey, instID, enabled)
 	return reg.impl.GetLive(ownerKey, instID, enabled)
 end
 
-local function GetPlayerClassRGB()
-	if UnitClass == nil then return 1, 1, 1 end
-	local _, class = UnitClass("player")
-	if class == nil then return 1, 1, 1 end
-	if D4.GetClassColor ~= nil then
-		local r, g, b = D4:GetClassColor(class)
-		if r ~= nil and g ~= nil and b ~= nil then return r, g, b end
+local playerRow = {}
+
+local function BuildPortraitPin(parent, level, sz, enableMouse)
+	local pin = CreateFrame("Frame", nil, parent)
+	local ringInset = math.max(1, sz * 0.055)
+	local innerInset = math.max(2.6, sz * 0.16)
+	local iconPad = math.max(0.8, (sz - sz * 0.32) * 0.085)
+	local markInset = math.max(1, sz * 0.05)
+	local crownSize = sz * 0.58
+	local crownOverlap = sz * 0.24
+	local ptrSize = sz * 2.1
+	pin:SetSize(sz, sz)
+	pin:EnableMouse(enableMouse == true)
+	if enableMouse == true and pin.SetMouseClickEnabled ~= nil then pcall(pin.SetMouseClickEnabled, pin, false) end
+	if level ~= nil then pin:SetFrameLevel(level) end
+	local pointer = pin:CreateTexture(nil, "BACKGROUND", nil, -1)
+	pointer:SetSize(ptrSize, ptrSize)
+	pointer:SetPoint("CENTER", pin, "CENTER", 0, 0)
+	pointer:SetTexture(TEX_POINTER)
+	pointer:Hide()
+	local outer = pin:CreateTexture(nil, "BACKGROUND", nil, 0)
+	outer:SetAllPoints(pin)
+	outer:SetTexture(grp.style.mask)
+	outer:SetVertexColor(0, 0, 0, 0.92)
+	local ring = pin:CreateTexture(nil, "BACKGROUND", nil, 1)
+	ring:SetPoint("TOPLEFT", pin, "TOPLEFT", ringInset, -ringInset)
+	ring:SetPoint("BOTTOMRIGHT", pin, "BOTTOMRIGHT", -ringInset, ringInset)
+	ring:SetTexture(grp.style.mask)
+	local innerBg = pin:CreateTexture(nil, "BORDER", nil, 0)
+	innerBg:SetPoint("TOPLEFT", pin, "TOPLEFT", innerInset, -innerInset)
+	innerBg:SetPoint("BOTTOMRIGHT", pin, "BOTTOMRIGHT", -innerInset, innerInset)
+	innerBg:SetTexture(grp.style.mask)
+	innerBg:SetVertexColor(0.06, 0.06, 0.08, 1)
+	local mask = pin:CreateMaskTexture()
+	mask:SetTexture(grp.style.mask, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	mask:SetAllPoints(innerBg)
+	local portrait = pin:CreateTexture(nil, "ARTWORK", nil, 0)
+	portrait:SetAllPoints(innerBg)
+	portrait:AddMaskTexture(mask)
+	portrait:Hide()
+	local icon = pin:CreateTexture(nil, "ARTWORK", nil, 0)
+	icon:SetPoint("TOPLEFT", innerBg, "TOPLEFT", -iconPad, iconPad)
+	icon:SetPoint("BOTTOMRIGHT", innerBg, "BOTTOMRIGHT", iconPad, -iconPad)
+	icon:AddMaskTexture(mask)
+	icon:Hide()
+	local fallback = pin:CreateTexture(nil, "ARTWORK", nil, 0)
+	fallback:SetAllPoints(innerBg)
+	fallback:SetTexture(grp.style.mask)
+	fallback:AddMaskTexture(mask)
+	fallback:Hide()
+	local deadMark = pin:CreateTexture(nil, "OVERLAY", nil, 1)
+	deadMark:SetTexture(grp.style.deadMark)
+	deadMark:SetPoint("TOPLEFT", innerBg, "TOPLEFT", markInset, -markInset)
+	deadMark:SetPoint("BOTTOMRIGHT", innerBg, "BOTTOMRIGHT", -markInset, markInset)
+	deadMark:Hide()
+	local crown = pin:CreateTexture(nil, "OVERLAY", nil, 2)
+	crown:SetSize(crownSize, crownSize)
+	crown:SetPoint("BOTTOM", pin, "TOP", 0, -crownOverlap)
+	if crown.SetAtlas ~= nil and grp.HasAtlas(grp.style.crownAtlas) then
+		crown:SetAtlas(grp.style.crownAtlas)
+	else
+		crown:SetTexture(grp.style.crownTex)
 	end
-	local tab = CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS
-	local c = tab ~= nil and tab[class] or nil
-	if c ~= nil then return c.r or 1, c.g or 1, c.b or 1 end
-	return 1, 1, 1
+	crown:Hide()
+	pin.pointer = pointer
+	pin.outer = outer
+	pin.ring = ring
+	pin.innerBg = innerBg
+	pin.mask = mask
+	pin.portrait = portrait
+	pin.icon = icon
+	pin.fallback = fallback
+	pin.deadMark = deadMark
+	pin.crown = crown
+	pin.circle = ring
+	pin.tex = pointer
+	pin:Hide()
+	return pin
 end
 
-local function ApplyMarkerColor(arrow)
-	if arrow == nil then return end
-	local r, g, b = GetPlayerClassRGB()
-	if arrow._d4R == r and arrow._d4G == g and arrow._d4B == b then return end
-	arrow._d4R = r
-	arrow._d4G = g
-	arrow._d4B = b
-	if arrow.circle ~= nil then arrow.circle:SetVertexColor(r, g, b, 1) end
-	if arrow.pointer ~= nil then arrow.pointer:SetVertexColor(r, g, b, 1) end
+local function ApplyPortraitPin(pin, row)
+	local isGhost = row.ghost == true
+	local isDead = row.dead == true and not isGhost
+	local r, g, b = grp.GetClassRGB(row.class, isDead, isGhost)
+	if pin._d4R ~= r or pin._d4G ~= g or pin._d4B ~= b then
+		pin._d4R = r
+		pin._d4G = g
+		pin._d4B = b
+		pin.ring:SetVertexColor(r, g, b, 1)
+		pin.pointer:SetVertexColor(r, g, b, 1)
+	end
+	local taxiIcon = row.taxi and grp.GetTaxiIcon(row.faction) or nil
+	if taxiIcon ~= nil then
+		if pin._d4Tex ~= taxiIcon then
+			pin._d4Tex = taxiIcon
+			pin.icon:SetTexture(taxiIcon)
+		end
+		if pin.icon.SetDesaturated ~= nil then pin.icon:SetDesaturated(false) end
+		pin.icon:SetVertexColor(1, 1, 1, 1)
+		pin.icon:Show()
+		pin.portrait:Hide()
+		pin.fallback:Hide()
+		pin.deadMark:Hide()
+	else
+		local atlas = grp.GetRaceAtlas(row.race, row.sex)
+		if atlas ~= nil and pin.portrait.SetAtlas ~= nil then
+			if pin._d4Atlas ~= atlas then
+				pin._d4Atlas = atlas
+				pcall(pin.portrait.SetAtlas, pin.portrait, atlas)
+			end
+			if pin.portrait.SetDesaturated ~= nil then pin.portrait:SetDesaturated(isGhost or isDead) end
+			if isGhost then
+				pin.portrait:SetVertexColor(0.75, 0.75, 0.75, 1)
+			elseif isDead then
+				pin.portrait:SetVertexColor(0.65, 0.65, 0.65, 1)
+			else
+				pin.portrait:SetVertexColor(1, 1, 1, 1)
+			end
+			pin.portrait:Show()
+			pin.icon:Hide()
+			pin.fallback:Hide()
+		else
+			pin.fallback:SetVertexColor(r, g, b, isDead and 0.65 or 1)
+			pin.fallback:Show()
+			pin.portrait:Hide()
+			pin.icon:Hide()
+		end
+		pin.deadMark:SetShown(isDead)
+	end
+	pin.crown:SetShown(row.leader == true)
+	local wantPointer = row.moving == true and row.facing ~= nil and not isDead and not isGhost
+	if wantPointer then
+		if pin._d4Rot == nil or math.abs(row.facing - pin._d4Rot) > 0.005 then
+			pin._d4Rot = row.facing
+			pin.pointer:SetRotation(row.facing)
+		end
+		if not pin.pointer:IsShown() then pin.pointer:Show() end
+	else
+		if pin.pointer:IsShown() then pin.pointer:Hide() end
+		pin._d4Rot = nil
+	end
+	pin._d4Name = row.name
+	pin._d4Class = row.class
+	pin._d4Dead = isDead
+	pin._d4Ghost = isGhost
+	pin._d4Leader = row.leader == true
 end
 
 function D4:CreateInstancePosArrow(parent, level, size)
-	local a = CreateFrame("Frame", nil, parent)
-	local sz = size or ARROW_SIZE
-	a:SetSize(sz, sz)
-	a:EnableMouse(false)
-	if level ~= nil then a:SetFrameLevel(level) end
-	local pointer = a:CreateTexture(nil, "OVERLAY", nil, 1)
-	pointer:SetAllPoints(a)
-	pointer:SetTexture(TEX_POINTER)
-	pointer:Hide()
-	local circle = a:CreateTexture(nil, "OVERLAY", nil, 2)
-	circle:SetAllPoints(a)
-	circle:SetTexture(TEX_CIRCLE)
-	a.pointer = pointer
-	a.circle = circle
-	a.tex = pointer
-	ApplyMarkerColor(a)
-	a:Hide()
+	local a = BuildPortraitPin(parent, level, size or ARROW_SIZE, false)
+	D4:SetInstancePosArrowState(a, nil, false)
 	return a
 end
 
 function D4:SetInstancePosArrowState(arrow, facing, showArrow)
 	if arrow == nil then return end
-	ApplyMarkerColor(arrow)
-	local wantPointer = showArrow == true and facing ~= nil
-	if arrow.pointer ~= nil then
-		if wantPointer then
-			if arrow._d4Rot == nil or math.abs(facing - arrow._d4Rot) > 0.005 then
-				arrow._d4Rot = facing
-				arrow.pointer:SetRotation(facing)
-			end
-			if not arrow.pointer:IsShown() then arrow.pointer:Show() end
-		else
-			if arrow.pointer:IsShown() then arrow.pointer:Hide() end
-			arrow._d4Rot = nil
-		end
-	end
+	local uName, uClass, uDead, uLeader, _, uRace, uSex, uFaction, uTaxi, uGhost = grp.GetUnitMeta("player", "", "")
+	playerRow.name = uName
+	playerRow.class = uClass
+	playerRow.race = uRace
+	playerRow.sex = uSex
+	playerRow.faction = uFaction
+	playerRow.taxi = uTaxi
+	playerRow.ghost = uGhost
+	playerRow.dead = uDead
+	playerRow.leader = uLeader
+	playerRow.facing = facing
+	playerRow.moving = showArrow == true
+	ApplyPortraitPin(arrow, playerRow)
 end
 
 function D4:HideInstancePosArrow(arrow, ownerKey)
@@ -1284,16 +2005,232 @@ function D4:UpdateInstancePosArrow(arrow, artTex, artKey, ownerKey, enabled)
 	return true
 end
 
+local function ShowGroupPinTooltip(pin)
+	if GameTooltip == nil or pin == nil or pin._d4Layer == nil then return end
+	local layer = pin._d4Layer
+	GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
+	local px = pin._d4X
+	local py = pin._d4Y
+	local shown = 0
+	local function AddMemberLine(p)
+		if p == nil or p._d4Name == nil or p._d4Name == "" then return end
+		local r, g, b = grp.GetClassRGB(p._d4Class, p._d4Dead, p._d4Ghost)
+		local text = p._d4Name
+		if p._d4Leader then text = grp.GetCrownMarkup() .. text end
+		if p._d4Ghost or p._d4Dead then text = text .. " (" .. (DEAD or "Dead") .. ")" end
+		if shown == 0 then
+			GameTooltip:SetText(text, r, g, b)
+		else
+			GameTooltip:AddLine(text, r, g, b)
+		end
+		shown = shown + 1
+	end
+	AddMemberLine(pin)
+	if px ~= nil and py ~= nil then
+		for i = 1, layer.activeCount or 0 do
+			local other = layer.pins[i]
+			if other ~= nil and other ~= pin and other:IsShown() and other._d4X ~= nil and other._d4Y ~= nil then
+				local dx = other._d4X - px
+				local dy = other._d4Y - py
+				if (dx * dx + dy * dy) <= 256 then
+					AddMemberLine(other)
+				end
+			end
+		end
+	end
+	if shown > 0 then GameTooltip:Show() end
+end
+
+local function HideGroupPinTooltip(pin)
+	if GameTooltip ~= nil and GameTooltip:IsOwned(pin) then GameTooltip:Hide() end
+end
+
+local function AcquireGroupPin(layer, index)
+	local pin = layer.pins[index]
+	if pin ~= nil then
+		if layer.level ~= nil and pin:GetFrameLevel() ~= layer.level then pin:SetFrameLevel(layer.level) end
+		return pin
+	end
+	pin = BuildPortraitPin(layer.parent, layer.level, layer.size or 22, true)
+	pin._d4Layer = layer
+	pin:SetScript("OnEnter", ShowGroupPinTooltip)
+	pin:SetScript("OnLeave", HideGroupPinTooltip)
+	layer.pins[index] = pin
+	return pin
+end
+
+local function ApplyGroupPinVisual(pin, row)
+	ApplyPortraitPin(pin, row)
+end
+
+function D4:CreateInstanceGroupLayer(parent, level, size)
+	local sz = size ~= nil and math.max(18, math.floor(size * 0.92 + 0.5)) or 22
+	return {
+		["parent"] = parent,
+		["level"] = level,
+		["size"] = sz,
+		["pins"] = {},
+		["activeCount"] = 0,
+	}
+end
+
+function D4:HideInstanceGroupPins(layer)
+	if layer == nil then return end
+	for i = 1, #layer.pins do
+		local pin = layer.pins[i]
+		if pin ~= nil then
+			HideGroupPinTooltip(pin)
+			if pin:IsShown() then pin:Hide() end
+			pin._d4X = nil
+			pin._d4Y = nil
+			pin._d4Px = nil
+			pin._d4Py = nil
+			pin._d4Rot = nil
+		end
+	end
+	layer.activeCount = 0
+end
+
+function D4:UpdateInstanceGroupPins(layer, artTex, artKey, enabled)
+	if layer == nil or artTex == nil or enabled == false then
+		D4:HideInstanceGroupPins(layer)
+		return 0
+	end
+	local bounds = reg.impl.GetArtBounds(artKey)
+	if bounds == nil then
+		D4:HideInstanceGroupPins(layer)
+		return 0
+	end
+	local instID = bounds[1]
+	reg.impl.NotifyGroupWatch(instID)
+	local count = reg.impl.CollectGroupMembers(instID, grpScratch)
+	if count == 0 then
+		D4:HideInstanceGroupPins(layer)
+		return 0
+	end
+	local dx = bounds[3] - bounds[2]
+	local dy = bounds[5] - bounds[4]
+	local aw = artTex:GetWidth() or 0
+	local ah = artTex:GetHeight() or 0
+	if dx <= 0 or dy <= 0 or aw <= 0 or ah <= 0 then
+		D4:HideInstanceGroupPins(layer)
+		return 0
+	end
+	local shown = 0
+	for i = 1, count do
+		local row = grpScratch[i]
+		local u = (bounds[5] - row.y) / dy
+		local v = (bounds[3] - row.x) / dx
+		if u >= -0.06 and u <= 1.06 and v >= -0.06 and v <= 1.06 then
+			shown = shown + 1
+			local pin = AcquireGroupPin(layer, shown)
+			local ax = u * aw
+			local ay = -v * ah
+			if pin._d4X == nil or math.abs(ax - pin._d4X) > 0.05 or math.abs(ay - pin._d4Y) > 0.05 then
+				pin._d4X = ax
+				pin._d4Y = ay
+				pin:ClearAllPoints()
+				pin:SetPoint("CENTER", artTex, "TOPLEFT", ax, ay)
+			end
+			ApplyGroupPinVisual(pin, row)
+			if not pin:IsShown() then pin:Show() end
+		end
+	end
+	for i = shown + 1, #layer.pins do
+		local pin = layer.pins[i]
+		if pin ~= nil then
+			HideGroupPinTooltip(pin)
+			if pin:IsShown() then pin:Hide() end
+			pin._d4X = nil
+			pin._d4Y = nil
+		end
+	end
+	layer.activeCount = shown
+	return shown
+end
+
+function D4:LayoutInstanceGroupPlanPins(layer, canvas, tileScale)
+	if layer == nil or canvas == nil or tileScale == nil or tileScale <= 0 then return end
+	for i = 1, layer.activeCount or 0 do
+		local pin = layer.pins[i]
+		if pin ~= nil and pin:IsShown() and pin._d4Px ~= nil and pin._d4Py ~= nil then
+			local ax = pin._d4Px * tileScale
+			local ay = -pin._d4Py * tileScale
+			if pin._d4X == nil or math.abs(ax - pin._d4X) > 0.05 or math.abs(ay - pin._d4Y) > 0.05 then
+				pin._d4X = ax
+				pin._d4Y = ay
+				pin:ClearAllPoints()
+				pin:SetPoint("CENTER", canvas, "TOPLEFT", ax, ay)
+			end
+		end
+	end
+end
+
+function D4:UpdateInstanceGroupPlanPins(layer, canvas, mapData, instID, tileScale, enabled)
+	if layer == nil or canvas == nil or mapData == nil or instID == nil or tileScale == nil or tileScale <= 0 or enabled == false then
+		D4:HideInstanceGroupPins(layer)
+		return 0
+	end
+	if mapData.wx == nil or mapData.wy == nil or mapData.ps == nil then
+		D4:HideInstanceGroupPins(layer)
+		return 0
+	end
+	reg.impl.NotifyGroupWatch(instID)
+	local count = reg.impl.CollectGroupMembers(instID, grpScratch)
+	if count == 0 then
+		D4:HideInstanceGroupPins(layer)
+		return 0
+	end
+	local shown = 0
+	for i = 1, count do
+		local row = grpScratch[i]
+		local px = (mapData.wy - row.y) * mapData.ps
+		local py = (mapData.wx - row.x) * mapData.ps
+		if px >= -48 and px <= (mapData.w + 48) and py >= -48 and py <= (mapData.h + 48) then
+			shown = shown + 1
+			local pin = AcquireGroupPin(layer, shown)
+			pin._d4Px = px
+			pin._d4Py = py
+			local ax = px * tileScale
+			local ay = -py * tileScale
+			if pin._d4X == nil or math.abs(ax - pin._d4X) > 0.05 or math.abs(ay - pin._d4Y) > 0.05 then
+				pin._d4X = ax
+				pin._d4Y = ay
+				pin:ClearAllPoints()
+				pin:SetPoint("CENTER", canvas, "TOPLEFT", ax, ay)
+			end
+			ApplyGroupPinVisual(pin, row)
+			if not pin:IsShown() then pin:Show() end
+		end
+	end
+	for i = shown + 1, #layer.pins do
+		local pin = layer.pins[i]
+		if pin ~= nil then
+			HideGroupPinTooltip(pin)
+			if pin:IsShown() then pin:Hide() end
+			pin._d4X = nil
+			pin._d4Y = nil
+			pin._d4Px = nil
+			pin._d4Py = nil
+		end
+	end
+	layer.activeCount = shown
+	return shown
+end
+
 function D4:PrintInstancePositionStatus()
 	local avail = reg.impl.IsAvailable()
 	local phaseNames = {[0] = "idle", [1] = "acquiring", [2] = "tracking", [3] = "sleeping"}
 	local pName = phaseNames[POS.phase] or tostring(POS.phase)
 	local leaseList = {}
 	for k in pairs(reg.leases) do leaseList[#leaseList + 1] = k end
+	local peerCount = 0
+	for _ in pairs(GROUP.peers) do peerCount = peerCount + 1 end
+	local watchLeft = math.max(0, (GROUP.watchUntil or 0) - GetTime())
 	local f = POS.fix
 	if f.valid then
-		self:INFO(format("InstancePos: avail=%s active=%s phase=%s inst=%s leases=[%s] xyz=(%.1f, %.1f, %.1f) res=%.2f confirmed=%s", tostring(avail), tostring(POS.active), pName, tostring(POS.instID), table.concat(leaseList, ","), f.x, f.y, f.zMed, f.residual, tostring(f.confirmed)))
+		self:INFO(format("InstancePos: avail=%s active=%s phase=%s inst=%s leases=[%s] xyz=(%.1f, %.1f, %.1f) res=%.2f confirmed=%s groupShare=%s peers=%d watch=%.0fs", tostring(avail), tostring(POS.active), pName, tostring(POS.instID), table.concat(leaseList, ","), f.x, f.y, f.zMed, f.residual, tostring(f.confirmed), tostring(GROUP.shareEnabled ~= false), peerCount, watchLeft))
 	else
-		self:INFO(format("InstancePos: avail=%s active=%s phase=%s inst=%s leases=[%s] (no fix)", tostring(avail), tostring(POS.active), pName, tostring(POS.instID), table.concat(leaseList, ",")))
+		self:INFO(format("InstancePos: avail=%s active=%s phase=%s inst=%s leases=[%s] (no fix) groupShare=%s peers=%d watch=%.0fs", tostring(avail), tostring(POS.active), pName, tostring(POS.instID), table.concat(leaseList, ","), tostring(GROUP.shareEnabled ~= false), peerCount, watchLeft))
 	end
 end

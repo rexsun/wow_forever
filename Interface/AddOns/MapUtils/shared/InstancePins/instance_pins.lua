@@ -2,6 +2,9 @@ local _, D4 = ...
 local PIN_SIZE = 26
 local BOSS_PIN_SIZE = 34
 local BOSS_PIN_BASE_SCALE = 0.6
+local PIN_REF_ART_SIZE = 620
+local PIN_ART_SCALE_MIN = 0.35
+local PIN_ART_SCALE_MAX = 4
 local PIN_RING_SCALE = 1.55
 local PIN_RING_TEXTURE = "Interface\\Minimap\\MiniMap-TrackingBorder"
 local PIN_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
@@ -350,8 +353,18 @@ function InstancePins:CreateToggles(parent)
     return bar
 end
 
-function InstancePins:Update(rows, art, scale, project)
+function D4:GetInstancePinArtScale(baseW, baseH)
+    if type(baseW) ~= "number" or type(baseH) ~= "number" or baseW <= 0 or baseH <= 0 then return 1 end
+    local factor = math.sqrt(baseW * baseH) / PIN_REF_ART_SIZE
+    if factor < PIN_ART_SCALE_MIN then return PIN_ART_SCALE_MIN end
+    if factor > PIN_ART_SCALE_MAX then return PIN_ART_SCALE_MAX end
+
+    return factor
+end
+
+function InstancePins:Update(rows, art, scale, project, artScale)
     scale = scale or 1
+    artScale = artScale or 1
     local options = self.options
     local w = art:GetWidth()
     local h = art:GetHeight()
@@ -383,7 +396,8 @@ function InstancePins:Update(rows, art, scale, project)
                 pin.badge:SetFrameLevel(frameLevel + 2)
                 pin.row = row
                 pin.level = level
-                local pinScale = (row[1] == "boss" and bossScale or 1) / scale
+                local pinScale = (row[1] == "boss" and bossScale or 1) * artScale / scale
+                if pinScale <= 0 then pinScale = 1 end
                 pin:SetScale(pinScale)
                 local killed = row[1] == "boss" and options.isBossKilled ~= nil and options.isBossKilled(row) == true
                 StylePin(pin, row, options.media, killed)

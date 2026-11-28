@@ -135,6 +135,14 @@ local Toggles = {
 			available = function() return MapUtils.RefreshQuestTurnIns ~= nil end
 		},
 		{
+			key = "PARTYMEMBERPINS",
+			label = "LID_PARTYWIDGET",
+			default = true,
+			refresh = "RefreshPartyMembers",
+			file = "Interface\\GroupFrame\\UI-Group-LeaderIcon",
+			available = function() return MapUtils.RefreshPartyMembers ~= nil end
+		},
+		{
 			key = "GUILDMEMBERPINS",
 			label = "LID_GUILDMEMBERS",
 			default = true,
@@ -196,12 +204,15 @@ local Notify = {
 }
 
 local Party = {
-	gap = 2,
+	gap = 6,
 	rowGap = 12,
-	interval = 1,
+	pinSize = 18,
+	pinGap = 6,
+	interval = 0.5,
 	maxMembers = 4,
 	offColor = {0.5, 0.5, 0.5},
 	sampleClasses = {"WARRIOR", "PRIEST", "MAGE", "HUNTER"},
+	sampleRaces = {{"Human", 2}, {"NightElf", 3}, {"Dwarf", 2}, {"Orc", 3}},
 	buttons = {},
 }
 
@@ -988,10 +999,41 @@ end
 
 function Party.CreateButton()
 	local button = CreateFrame("Button", nil, Party.frame)
+	if MapUtils.CreatePartyPin ~= nil then
+		button.pin = MapUtils:CreatePartyPin(button, Party.pinSize)
+		button.pin:EnableMouse(false)
+		button.pin:SetPoint("LEFT", button, "LEFT", 0, 0)
+	end
+
 	button.text = button:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	Widgets.SetOutline(button.text)
-	button.text:SetPoint("CENTER", button, "CENTER", 0, 0)
+	if button.pin ~= nil then
+		button.text:SetPoint("LEFT", button.pin, "RIGHT", Party.pinGap, 0)
+	else
+		button.text:SetPoint("CENTER", button, "CENTER", 0, 0)
+	end
+
 	button:SetScript("OnClick", function(self) if self.unit ~= nil then MapUtils:CenterWorldMapOnUnit(self.unit) end end)
+	button:SetScript("OnEnter", function(self)
+		local info = self.info
+		if GameTooltip == nil or info == nil or self.unit == nil then return end
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		local c = info.color or {r = 1, g = 1, b = 1}
+		GameTooltip:SetText(info.name or self.unit, c.r, c.g, c.b)
+		if info.taxi then
+			GameTooltip:AddLine(MapUtils:Trans("LID_ONTAXIFLIGHT"), 1, 0.82, 0)
+		elseif info.ghost then
+			GameTooltip:AddLine(MapUtils:Trans("LID_GHOST"), 0.72, 0.72, 0.72)
+		elseif info.dead then
+			GameTooltip:AddLine(DEAD or "Dead", 1, 0.25, 0.25)
+		end
+		if info.mapID ~= nil and C_Map ~= nil and C_Map.GetMapInfo ~= nil then
+			local mapInfo = C_Map.GetMapInfo(info.mapID)
+			if mapInfo ~= nil and mapInfo.name ~= nil then GameTooltip:AddLine(mapInfo.name, 0.85, 0.85, 0.85) end
+		end
+		GameTooltip:Show()
+	end)
+	button:SetScript("OnLeave", function(self) if GameTooltip ~= nil and GameTooltip:IsOwned(self) then GameTooltip:Hide() end end)
 
 	return button
 end
@@ -1003,29 +1045,48 @@ function Party.GetButton(index)
 end
 
 function Party.GetEntry(unit)
+	local mapID = MapUtils:GetUnitMapPosition(unit)
+	local known = mapID ~= nil
+	local info = MapUtils.GetPartyMemberInfo ~= nil and MapUtils:GetPartyMemberInfo(unit) or {}
 	local _, class = UnitClass(unit)
-	local color = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-	local known = MapUtils:GetUnitMapPosition(unit) ~= nil
-	if not known or color == nil then color = {
-		r = Party.offColor[1],
-		g = Party.offColor[2],
-		b = Party.offColor[3]
-	} end
+	local color = info.color or (class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class])
+	if not known or color == nil then
+		color = {
+			r = Party.offColor[1],
+			g = Party.offColor[2],
+			b = Party.offColor[3]
+		}
+	end
 
-	return UnitName(unit) or unit, color, known
+	info.known = known
+	info.mapID = mapID
+	return info.name or UnitName(unit) or unit, color, known, info
 end
 
 function Party.GetSample()
 	local entries = {}
-	for _, class in ipairs(Party.sampleClasses) do
+	for index, class in ipairs(Party.sampleClasses) do
 		local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] or {
 			r = 1,
 			g = 1,
 			b = 1
 		}
 
+		local racePair = Party.sampleRaces[index]
 		local name = LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[class] or class
-		tinsert(entries, {nil, name, color, false})
+		local info = {
+			name = name,
+			class = class,
+			color = color,
+			race = racePair and racePair[1] or "Human",
+			sex = racePair and racePair[2] or 2,
+			leader = index == 1,
+			taxi = false,
+			ghost = false,
+			known = true,
+			connected = true,
+		}
+		tinsert(entries, {nil, name, color, false, info})
 	end
 
 	return entries
@@ -1039,8 +1100,8 @@ function Party.Update(force)
 		entries = Party.GetSample()
 	else
 		for _, unit in ipairs(Party.GetMembers()) do
-			local name, color, known = Party.GetEntry(unit)
-			tinsert(entries, {unit, name, color, known})
+			local name, color, known, info = Party.GetEntry(unit)
+			tinsert(entries, {unit, name, color, known, info})
 		end
 	end
 
@@ -1048,7 +1109,8 @@ function Party.Update(force)
 	local vertical = MapUtils:GetMapEditOrientation(Party.element) ~= "HORIZONTAL"
 	local keyParts = {align, tostring(vertical)}
 	for _, entry in ipairs(entries) do
-		tinsert(keyParts, format("%s:%s:%s", tostring(entry[1]), entry[2], tostring(entry[4])))
+		local info = entry[5]
+		tinsert(keyParts, format("%s:%s:%s:%s:%s:%s:%s:%s:%s", tostring(entry[1]), entry[2], tostring(entry[4]), tostring(info and info.taxi), tostring(info and info.ghost), tostring(info and info.dead), tostring(info and info.leader), tostring(info and info.race), tostring(info and info.sex)))
 	end
 
 	local key = table.concat(keyParts, "|")
@@ -1068,10 +1130,19 @@ function Party.Layout(entries, align, vertical)
 	for index, entry in ipairs(entries) do
 		local button = Party.GetButton(index)
 		button.unit = entry[1]
+		button.info = entry[5]
 		button.text:SetText(entry[2])
 		button.text:SetTextColor(entry[3].r, entry[3].g, entry[3].b)
 		button:SetEnabled(entry[4])
-		local w, h = button.text:GetStringWidth(), button.text:GetStringHeight()
+		if button.pin ~= nil and button.info ~= nil and MapUtils.ApplyPartyPin ~= nil then
+			MapUtils:ApplyPartyPin(button.pin, button.info, Party.pinSize, 1)
+			button.pin:SetAlpha((button.info.known ~= false and button.info.connected ~= false) and 1 or 0.55)
+			button.pin:Show()
+		end
+
+		local textW, textH = button.text:GetStringWidth(), button.text:GetStringHeight()
+		local w = button.pin ~= nil and (Party.pinSize + Party.pinGap + textW) or textW
+		local h = button.pin ~= nil and math.max(Party.pinSize, textH) or textH
 		button:SetSize(math.max(w, 1), math.max(h, 1))
 		button:ClearAllPoints()
 		if vertical then
@@ -1122,7 +1193,7 @@ function Party.Create()
 
 	MapUtils:RegisterMapEditElement(Party.element)
 	local events = CreateFrame("Frame")
-	for _, event in ipairs({"GROUP_ROSTER_UPDATE", "PARTY_MEMBERS_CHANGED", "UNIT_NAME_UPDATE"}) do
+	for _, event in ipairs({"GROUP_ROSTER_UPDATE", "PARTY_MEMBERS_CHANGED", "UNIT_NAME_UPDATE", "UNIT_FLAGS", "UNIT_AURA", "UNIT_CONNECTION"}) do
 		pcall(events.RegisterEvent, events, event)
 	end
 

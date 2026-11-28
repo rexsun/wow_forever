@@ -197,9 +197,9 @@ Addon.INSTANCEMAPPINS = {
         {"boss", 0.440, 0.446, 1696},
         {"boss", 0.691, 0.300, 1666},
         {"boss", 0.780, 0.454, 1717},
-        {"boss", 0.745, 0.562, 1716},
-        {"boss", 0.213, 0.260, 1663},
-        {"boss", 0.497, 0.222, 1720},
+        {"boss", 0.845, 0.502, 1716}, -- Bazil Thredd
+        {"boss", 0.173, 0.390, 1663}, -- Dextren Ward
+        {"boss", 0.607, 0.472, 1720}, -- Bruegal Ironknuckle
     },
     [221] = { -- Blackfathom Deeps 1
         {"entrance", 0.453, 0.108},
@@ -261,17 +261,16 @@ Addon.INSTANCEMAPPINS = {
     },
     [301] = { -- Razorfen Kraul
         {"entrance", 0.715, 0.837},
-        {"boss", 0.650, 0.460, 6168}, -- Roogug
+        {"boss", 0.435, 0.560, 6168}, -- Roogug
         {"boss", 0.805, 0.510, 4424}, -- Aggem Thorncurse <Death's Head Prophet>
         {"boss", 0.870, 0.410, 4428}, -- Death Speaker Jargba <Death's Head Captain>
-        {"boss", 0.575, 0.300, 4420}, -- Overlord Ramtusk
+        {"boss", 0.576, 0.300, 4420}, -- Overlord Ramtusk
         {"boss", 0.082, 0.684, 4422}, -- Agathelos the Raging
         {"boss", 0.110, 0.303, 4425},
         {"boss", 0.230, 0.310, 4421}, -- Charlga Razorflank <The Crone>
         {"boss", 0.484, 0.451, 4842}, -- Earthcaller Halmgar
         {"queststart", 0.370, 0.308, 1142}, -- Mortality Wanes
         {"queststart", 0.370, 0.332, 1144}, -- Willix the Importer
-        {"boss", 0.610, 0.280, 4438}, -- Razorfen Spearhide
     },
     [300] = { -- Razorfen Downs
         {"entrance", 0.237, 0.190},
@@ -318,7 +317,7 @@ Addon.INSTANCEMAPPINS = {
         {"boss", 0.554, 0.296, 7272},
         {"boss", 0.440, 0.160, 7271},
         {"boss", 0.255, 0.130, 7604},
-        {"boss", 0.289, 0.403, 7795},
+        {"boss", 0.289, 0.373, 7795}, -- Hydromancer Velratha
         {"boss", 0.420, 0.360, 7797},
         {"boss", 0.440, 0.330, 7267},
         {"boss", 0.538, 0.373, 10082},
@@ -328,6 +327,7 @@ Addon.INSTANCEMAPPINS = {
         {"boss", 0.334, 0.170, 7275},
         {"boss", 0.305, 0.400, 7273},
         {"boss", 0.440, 0.160, 220076}, -- Witch Doctor Zum'rah
+        {"boss", 0.210, 0.160, 7274}, -- Sandfury Executioner
     },
     [317] = { -- Stratholme - Crusader's Square
         {"entrance", 0.640, 0.880},
@@ -588,7 +588,7 @@ Addon.INSTANCEMAPPINS = {
         {"entrance", 0.164, 0.853},
         {"entrance", 0.954, 0.508},
         {"level", 0.505, 0.630, 240},
-        {"boss", 0.122, 0.310, 14354},
+        {"boss", 0.762, 0.440, 14354}, -- Pusillin
         {"boss", 0.437, 0.477, 11490},
     },
     [240] = { -- Dire Maul - The Shrine of Eldretharr

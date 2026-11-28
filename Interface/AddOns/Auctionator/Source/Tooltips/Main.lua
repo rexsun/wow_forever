@@ -108,7 +108,7 @@ function Auctionator.Tooltip.ShowTipWithPricingDBKey(tooltipFrame, dbKeys, itemL
   if disenchantStatus ~= nil then
     Auctionator.Tooltip.AddDisenchantTip(tooltipFrame, disenchantPrice, countString, disenchantStatus)
 
-    if not Auctionator.Constants.IsRetail and IsShiftKeyDown() and Auctionator.Config.Get(Auctionator.Config.Options.ENCHANT_TOOLTIPS) then
+    if (not Auctionator.Constants.IsRetail or Auctionator.Constants.IsForever) and IsShiftKeyDown() and Auctionator.Config.Get(Auctionator.Config.Options.ENCHANT_TOOLTIPS) then
       for _, line in ipairs(Auctionator.Enchant.GetDisenchantBreakdown(itemLink, itemInfo)) do
         tooltipFrame:AddLine(line)
       end

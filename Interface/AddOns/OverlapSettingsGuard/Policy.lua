@@ -196,6 +196,9 @@ local mapUtilsSettings = {
   -- addon whispers at login, and sharing then sends them your map position; YUI owns chat.
   { id = "friendshare", key = "FriendShare", label = "Share my position with friends", reason = "YUI owns chat; MapUtils must not send your map position to friends by hidden whispers." },
   { id = "friendpins", key = "FriendPins", label = "Friends on the map", reason = "YUI owns chat; showing friends greets every online friend with hidden addon whispers at each login." },
+  -- 1.9.x: a groupmate's open dungeon map asks for positions, which starts this client's flight-point
+  -- scan (moving Waypoint UI's marker) and hidden position messages to the group, with no click.
+  { id = "instancegrouppos", key = "InstanceGroupPos", label = "Group positions on dungeon maps", reason = "YUI owns chat and group; MapUtils must not send your dungeon position to the group by hidden addon messages whenever a groupmate opens a dungeon map." },
   -- Not guarded since 0.27.0: 1.8.4's player position on dungeon maps (INSTANCEPLAYERPOS) is a chosen
   -- feature; its flight-point super-tracking moves Waypoint UI's marker only while that map is open.
 }

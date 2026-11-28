@@ -14,6 +14,8 @@ local FIELDS = {
   -- 1.7.15: friend traffic stops only with both off (Friends.IsActive in friendmembers.lua).
   FriendShare = "FRIENDMEMBERSHARE",
   FriendPins = "FRIENDMEMBERPINS_ENABLED",
+  -- 1.9.x: a D4 shared option kept in MAUTTAB; MapUtils hands it to the sharing code at login.
+  InstanceGroupPos = "INSTANCEGROUPPOS",
 }
 
 function adapter.Knows(key) return FIELDS[key] ~= nil end

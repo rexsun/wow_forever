@@ -582,25 +582,38 @@ function D4:CreateInstanceMap(provider)
 
     local Refresh = nil
     local posArrow = nil
+    local groupLayer = nil
     local function HidePosArrow()
         if D4.HideInstancePosArrow ~= nil then D4:HideInstancePosArrow(posArrow, "D4InstanceMap") end
+        if D4.HideInstanceGroupPins ~= nil then D4:HideInstanceGroupPins(groupLayer) end
     end
 
     local function UpdatePosArrow(info)
-        if D4.UpdateInstancePosArrow == nil then return end
         if overlay == nil or info == nil or overlay._muPlanShown == true then
             HidePosArrow()
             return
         end
 
-        local enabled = provider.isPlayerPosEnabled == nil or provider.isPlayerPosEnabled()
-        if not enabled then
-            HidePosArrow()
-            return
+        if D4.UpdateInstancePosArrow ~= nil then
+            local enabled = provider.isPlayerPosEnabled == nil or provider.isPlayerPosEnabled()
+            if enabled then
+                if posArrow == nil then posArrow = D4:CreateInstancePosArrow(overlay, overlay:GetFrameLevel() + OVERLAY_ARROW_OFFSET) end
+                D4:UpdateInstancePosArrow(posArrow, overlay.art, info.file, "D4InstanceMap", true)
+            else
+                D4:HideInstancePosArrow(posArrow, "D4InstanceMap")
+            end
         end
 
-        if posArrow == nil then posArrow = D4:CreateInstancePosArrow(overlay, overlay:GetFrameLevel() + OVERLAY_ARROW_OFFSET) end
-        D4:UpdateInstancePosArrow(posArrow, overlay.art, info.file, "D4InstanceMap", true)
+        if D4.UpdateInstanceGroupPins ~= nil then
+            local groupEnabled = provider.isGroupPosEnabled == nil or provider.isGroupPosEnabled()
+            if groupEnabled then
+                if groupLayer == nil then groupLayer = D4:CreateInstanceGroupLayer(overlay, overlay:GetFrameLevel() + OVERLAY_ARROW_OFFSET - 1) end
+                groupLayer.level = overlay:GetFrameLevel() + OVERLAY_ARROW_OFFSET - 1
+                D4:UpdateInstanceGroupPins(groupLayer, overlay.art, info.file, true)
+            else
+                D4:HideInstanceGroupPins(groupLayer)
+            end
+        end
     end
 
     local function ApplyView()
@@ -1375,8 +1388,11 @@ function D4:CreateInstanceMap(provider)
 
         local artW = pinArt ~= nil and (pinArt:GetWidth() or 0) or 0
         local artH = pinArt ~= nil and (pinArt:GetHeight() or 0) or 0
+        local baseW = view.baseWidth > 0 and view.baseWidth or (overlay:GetWidth() or 0)
+        local baseH = view.baseHeight > 0 and view.baseHeight or (overlay:GetHeight() or 0)
+        local artScale = D4.GetInstancePinArtScale ~= nil and D4:GetInstancePinArtScale(baseW, baseH) or 1
         local modeKey = hidePins and "H" or (useMinimap and "M" or "A")
-        local key = format("%s|%s|%.4f|%.1f|%.1f|%d|%s|%s", info.key, modeKey, scale, artW, artH, #rows, table.concat(questKey), table.concat(killedKey))
+        local key = format("%s|%s|%.4f|%.4f|%.1f|%.1f|%d|%s|%s", info.key, modeKey, scale, artScale, artW, artH, #rows, table.concat(questKey), table.concat(killedKey))
         if key == mapPinKey then return end
         mapPinKey = key
         if mapPinSet == nil then
@@ -1406,7 +1422,7 @@ function D4:CreateInstanceMap(provider)
                 pin:Hide()
             end
         else
-            mapPinSet:Update(rows, pinArt, scale, project)
+            mapPinSet:Update(rows, pinArt, scale, project, artScale)
         end
 
         mapPinSet:UpdateToggles()

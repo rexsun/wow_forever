@@ -12,7 +12,7 @@ local ADDED_1017 = "2026-10-17"
 local ADDED_1019 = "2026-10-19"
 local ADDED_1022 = "2026-10-22"
 local ADDED_1104 = "2026-11-04"
-local SHARED_KEYS = {"DUNGEONWORLDMAPPINS", "MEETINGSTONEWORLDMAPPINS", "DUNGEONMINIMAPPINS", "MEETINGSTONEMINIMAPPINS", "INSTANCEPINS_BOSS", "INSTANCEPINS_ITEM", "INSTANCEPINS_QUEST", "INSTANCEPINS_ENTRANCE", "INSTANCEPINS_LEVEL", "INSTANCEPLAYERPOS"}
+local SHARED_KEYS = {"DUNGEONWORLDMAPPINS", "MEETINGSTONEWORLDMAPPINS", "DUNGEONMINIMAPPINS", "MEETINGSTONEMINIMAPPINS", "INSTANCEPINS_BOSS", "INSTANCEPINS_ITEM", "INSTANCEPINS_QUEST", "INSTANCEPINS_ENTRANCE", "INSTANCEPINS_LEVEL", "INSTANCEPLAYERPOS", "INSTANCEGROUPPOS"}
 local maset = nil
 local sharedCheckboxes = {}
 local cvarCheckboxes = {}
@@ -805,6 +805,9 @@ function MapUtils:InitSetting()
 	MapUtils.WhatsNew:AddSettingsCheckbox(maset, "2026-11-13")
 	if MapUtils.RefreshCommChannel then AddTooltip(AddCheckbox("COMMCHANNEL", true, function() MapUtils:RefreshCommChannel() end, nil, "2026-10-28"), "LID_COMMCHANNEL", "LID_COMMCHANNELDESC") end
 	AddCategory("WORLDMAP", nil, nil, ADDED_0927)
+	if MapUtils.RefreshPartyMembers then
+		AddTooltip(AddPinEnabled("PARTYMEMBERPINS", function() MapUtils:RefreshPartyMembers() end, "LID_PARTYMEMBERPINS", "2026-11-28"), "LID_PARTYMEMBERPINS", "LID_PARTYMEMBERPINSDESC")
+	end
 	if MapUtils.RefreshGuildMembers then
 		local guildPins = AddPinEnabled("GUILDMEMBERPINS", function() MapUtils:RefreshGuildMembers() end, "LID_GUILDMEMBERPINS", "2026-10-29")
 		AddTooltip(guildPins, "LID_GUILDMEMBERPINS", "LID_GUILDMEMBERPINSDESC")
@@ -913,6 +916,12 @@ function MapUtils:InitSetting()
 	AddTooltip(cityStyle, "LID_CITYMAPSTYLE", "LID_MAPSTYLEDESC")
 	styleControls["CITYMAPSTYLE"] = {cityStyle, AddTerrainFadeSliders("CITYTERRAINFADE", true)}
 	styleControls["CITYMAPSTYLE"][2](MapUtils:GetMapStyleOption("CITYMAPSTYLE"))
+	if MapUtils.HasMinimapCaves and MapUtils:HasMinimapCaves() then
+		AddTooltip(AddCheckbox("WORLDMAPCAVES", true, function() MapUtils:RefreshZoneDetail() end, nil, "2026-11-27"), "LID_WORLDMAPCAVES", "LID_WORLDMAPCAVESDESC")
+	end
+	if MapUtils.HasMinimapBuildings and MapUtils:HasMinimapBuildings() then
+		AddTooltip(AddCheckbox("WORLDMAPBUILDINGS", true, function() MapUtils:RefreshZoneDetail() end, nil, "2026-11-28"), "LID_WORLDMAPBUILDINGS", "LID_WORLDMAPBUILDINGSDESC")
+	end
 	AddCategory("NAVIGATION", 2, nil, ADDED_0928)
 	AddTooltip(AddCheckbox("ALWAYSSHOWWAYPOINT", false, nil, nil, ADDED_0928), "LID_ALWAYSSHOWWAYPOINT", "LID_ALWAYSSHOWWAYPOINTDESC")
 	if (C_Navigation and C_Navigation.GetDistance) or WorldMapPin_GetDistance then
@@ -999,6 +1008,7 @@ function MapUtils:InitSetting()
 		)
 		if MapUtils.IsInstancePositionAvailable ~= nil and MapUtils:IsInstancePositionAvailable() then
 			AddTooltip(AddSharedCheckbox("INSTANCEPLAYERPOS", "LID_INSTANCEPLAYERPOS", "2026-11-26"), "LID_INSTANCEPLAYERPOS", "LID_INSTANCEPLAYERPOSDESC")
+			AddTooltip(AddSharedCheckbox("INSTANCEGROUPPOS", "LID_INSTANCEGROUPPOS", "2026-11-28"), "LID_INSTANCEGROUPPOS", "LID_INSTANCEGROUPPOSDESC")
 		end
 		AddSharedCheckbox("INSTANCEPINS_BOSS", "LID_SHOWBOSSPINS", ADDED_1004)
 		AddSharedCheckbox("INSTANCEPINS_ITEM", "LID_SHOWQUESTITEMPINS", ADDED_1004)
@@ -1069,6 +1079,9 @@ function MapUtils:InitSetting()
 	})
 
 	MapUtils:AddSlash("maputils", HandleSlash)
+	if MapUtils.SetInstanceGroupPosEnabled ~= nil then
+		MapUtils:SetInstanceGroupPosEnabled(MapUtils:GetConfig("INSTANCEGROUPPOS", true) ~= false)
+	end
 end
 
 local loader = CreateFrame("FRAME")

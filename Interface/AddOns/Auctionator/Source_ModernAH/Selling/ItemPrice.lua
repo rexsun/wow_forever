@@ -27,7 +27,7 @@ function Auctionator.Selling.CalculateItemPriceFromPrice(basePrice)
     Auctionator.Debug.Message("Static value calculation", basePrice, getSetAmount(), value)
   end
 
-  if Auctionator.Constants.IsForever or Auctionator.Constants.IsClassic then
+  if Auctionator.Constants.IsForever or not Auctionator.Constants.IsRetail then
     if value < 1 then
       value = 1
     end
